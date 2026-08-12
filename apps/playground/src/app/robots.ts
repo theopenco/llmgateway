@@ -9,6 +9,6 @@ export default function robots(): MetadataRoute.Robots {
 				disallow: ["/login", "/signup", "/api/"],
 			},
 		],
-		sitemap: "https://chat.llmgateway.io/sitemap.xml",
+		sitemap: "https://lounge.llmgateway.io/sitemap.xml",
 	};
 }

@@ -239,6 +239,43 @@ describe("provider keys route", () => {
 		expect(res.status).toBe(400);
 	});
 
+	describe("POST /keys/provider workspace-scoped regions", () => {
+		const postAlibabaKey = (options: Record<string, string>) =>
+			app.request("/keys/provider", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+				},
+				body: JSON.stringify({
+					provider: "alibaba",
+					token: "sk-alibaba-test-key",
+					organizationId: "test-org-id",
+					options,
+				}),
+			});
+
+		// Frankfurt reaches a shared entry point without one, so the workspace id
+		// is an upgrade rather than a requirement.
+		test("accepts eu-frankfurt without a workspace id", async () => {
+			const res = await postAlibabaKey({ alibaba_region: "eu-frankfurt" });
+			expect(res.status).not.toBe(400);
+		});
+
+		test("rejects a workspace id that is not a bare hostname label", async () => {
+			const res = await postAlibabaKey({
+				alibaba_region: "eu-frankfurt",
+				alibaba_workspace_id: "evil.example.com/x",
+			});
+			expect(res.status).toBe(400);
+		});
+
+		test("accepts regions served by a shared host without a workspace id", async () => {
+			const res = await postAlibabaKey({ alibaba_region: "singapore" });
+			expect(res.status).not.toBe(400);
+		});
+	});
+
 	test("POST /keys/provider with invalid provider", async () => {
 		const res = await app.request("/keys/provider", {
 			method: "POST",
@@ -319,6 +356,43 @@ describe("provider keys route", () => {
 			expect(json.message).toContain("Rate limit exceeded");
 			expect(json.message).toContain("status 429");
 			expect(json.message).toContain("try again later");
+		});
+
+		// A host that does not resolve (a mistyped Azure resource name, a custom
+		// base URL pointing nowhere) means the key was never judged at all, so
+		// the response must not claim the provider rejected it.
+		test("reports an unreachable endpoint as such", async () => {
+			vi.mocked(validateProviderKey).mockResolvedValueOnce({
+				valid: false,
+				model: "gpt-5.6-sol",
+				unreachable: true,
+				error:
+					"Could not resolve typo.openai.azure.com (DNS lookup failed: ENOTFOUND). Check the base URL / resource name configured for this credential.",
+			});
+
+			const res = await app.request("/keys/provider", {
+				method: "POST",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({
+					provider: "azure",
+					token: "azure-test-token",
+					organizationId: "test-org-id",
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(json.message).toContain("Could not reach provider azure");
+			expect(json.message).toContain("typo.openai.azure.com");
+			expect(json.message).not.toContain("rejected the key");
+			expect(json.message).not.toContain("Invalid API key");
+			// "fetch failed" is exactly the useless wording this replaces.
+			expect(json.message).not.toContain("fetch failed");
+
+			const stored = await db.query.providerKey.findFirst({
+				where: { provider: { eq: "azure" } },
+			});
+			expect(stored).toBeUndefined();
 		});
 	});
 

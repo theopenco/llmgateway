@@ -1,9 +1,19 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { deleteResendContact } from "@/auth/config.js";
-import { cancelOrganizationSubscriptions } from "@/lib/account-deletion.js";
+import {
+	cancelOrganizationSubscriptions,
+	isTerminalSubscriptionError,
+} from "@/lib/account-deletion.js";
+import {
+	ADMIN_REFUND_REASONS,
+	computeAdminRefundability,
+	executeAdminRefund,
+	sumRefundsByTransaction,
+} from "@/lib/admin-refund.js";
 import { modeSplitFields } from "@/lib/mode-split.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import {
@@ -12,6 +22,7 @@ import {
 	tokenWindowSchema,
 } from "@/lib/stats-window.js";
 import { adminMiddleware } from "@/middleware/admin.js";
+import { getStripe } from "@/routes/payments.js";
 import {
 	CHAT_PLAN_TX_TYPES,
 	DEV_PLAN_SUBSCRIPTION_TX_TYPES,
@@ -43,6 +54,7 @@ import {
 	desc,
 	effectiveTtftTotals,
 	eq,
+	excludeRegionalMappingRows,
 	gte,
 	inArray,
 	isNotNull,
@@ -311,6 +323,9 @@ const adminMetricsSchema = z.object({
 	grossResetPassRevenue: z.number(),
 	grossChatPlansRevenue: z.number(),
 	grossProSubscriptionsRevenue: z.number(),
+	// Credits paid for outside Stripe (wire, crypto, …) and credited manually by
+	// an administrator. Real revenue, just settled on another channel.
+	grossManualPaymentsRevenue: z.number(),
 });
 
 const timeseriesRangeSchema = z.enum(["7d", "30d", "90d", "365d", "all"]);
@@ -359,6 +374,15 @@ const organizationSchema = z.object({
 	kind: z.enum(["default", "chat", "devpass"]),
 	plan: z.string(),
 	devPlan: z.string(),
+	// Plan term window. Enterprise contracts are booked by hand, so both dates
+	// are admin-set; null = open-ended.
+	planExpiresAt: z.string().nullable().optional(),
+	planStartedAt: z.string().nullable().optional(),
+	// Enterprise trial window; an active trial takes precedence over the plan
+	// term when deciding which countdown to show.
+	isTrialActive: z.boolean().optional(),
+	trialStartDate: z.string().nullable().optional(),
+	trialEndDate: z.string().nullable().optional(),
 	// Manual seat-limit override; null = use the plan default.
 	seats: z.number().int().nullable().optional(),
 	// Manual API-key-limit override; null = use the plan default.
@@ -405,6 +429,7 @@ const orgMetricsSchema = z.object({
 	cachedCost: z.number(),
 	cacheWriteTokens: z.number(),
 	cacheWriteCost: z.number(),
+	dataStorageCost: z.number(),
 	mostUsedModel: z.string().nullable(),
 	mostUsedProvider: z.string().nullable(),
 	mostUsedModelCost: z.number(),
@@ -420,6 +445,9 @@ const transactionSchema = z.object({
 	currency: z.string(),
 	status: z.string(),
 	description: z.string().nullable(),
+	// Off-Stripe payment channel and its reference, set on manual payments only.
+	paymentMethod: z.string().nullable(),
+	externalReference: z.string().nullable(),
 });
 
 const transactionsListSchema = z.object({
@@ -483,11 +511,67 @@ const apiKeySchema = z.object({
 	iamRules: z.array(iamRuleAdminSchema),
 });
 
+const keyStatusFilterSchema = z.enum(["all", "active", "inactive", "deleted"]);
+
+type KeyStatusFilter = z.infer<typeof keyStatusFilterSchema>;
+
+/**
+ * Per-status totals for a key list. Always computed over every key of the
+ * organization, never over the filtered rows, so the dashboard can show
+ * "active / total" next to a list that only renders one status.
+ */
+const keyStatusCountsSchema = z.object({
+	all: z.number(),
+	active: z.number(),
+	inactive: z.number(),
+	deleted: z.number(),
+});
+
+type KeyStatusCounts = z.infer<typeof keyStatusCountsSchema>;
+
+function emptyKeyStatusCounts(): KeyStatusCounts {
+	return { all: 0, active: 0, inactive: 0, deleted: 0 };
+}
+
+function toKeyStatusCounts(
+	rows: { status: string; count: number }[],
+): KeyStatusCounts {
+	const counts = emptyKeyStatusCounts();
+	for (const row of rows) {
+		const count = Number(row.count);
+		counts.all += count;
+		if (
+			row.status === "active" ||
+			row.status === "inactive" ||
+			row.status === "deleted"
+		) {
+			counts[row.status] += count;
+		}
+	}
+	return counts;
+}
+
+/**
+ * Both key tables declare `status` nullable with an `active` default, so legacy
+ * NULL rows have to be folded into `active` — otherwise they vanish from every
+ * filtered view and from the counts.
+ */
+function keyStatusCondition(column: AnyColumn, status: KeyStatusFilter) {
+	if (status === "all") {
+		return undefined;
+	}
+	if (status === "active") {
+		return or(eq(column, "active"), isNull(column));
+	}
+	return eq(column, status);
+}
+
 const apiKeysListSchema = z.object({
 	apiKeys: z.array(apiKeySchema),
 	total: z.number(),
 	limit: z.number(),
 	offset: z.number(),
+	counts: keyStatusCountsSchema,
 });
 
 const providerKeyAdminSchema = z.object({
@@ -511,6 +595,7 @@ const providerKeyAdminSchema = z.object({
 const providerKeysListSchema = z.object({
 	providerKeys: z.array(providerKeyAdminSchema),
 	total: z.number(),
+	counts: keyStatusCountsSchema,
 });
 
 const memberSchema = z.object({
@@ -677,6 +762,7 @@ const getOrganizationApiKeys = createRoute({
 		query: z.object({
 			limit: z.coerce.number().min(1).max(100).default(25).optional(),
 			offset: z.coerce.number().min(0).default(0).optional(),
+			status: keyStatusFilterSchema.default("active").optional(),
 		}),
 	},
 	responses: {
@@ -700,6 +786,9 @@ const getOrganizationProviderKeys = createRoute({
 	request: {
 		params: z.object({
 			orgId: z.string(),
+		}),
+		query: z.object({
+			status: keyStatusFilterSchema.default("active").optional(),
 		}),
 	},
 	responses: {
@@ -846,7 +935,8 @@ admin.openapi(getMetrics, async (c) => {
 
 	const payingCustomers = Number(payingRow?.count ?? 0);
 
-	// Total revenue: completed credit-purchase rows — org credit top-ups AND
+	// Total revenue: completed credit-purchase rows — org credit top-ups,
+	// manually credited off-Stripe payments (`credit_manual_payment`) AND
 	// end-user wallet top-ups (`end_user_topup`, reversed on refund) — using
 	// creditAmount to exclude Stripe fees. Excludes gifts, all plan rows
 	// (DevPass/legacy subscription/Chat Plan), and the non-revenue end-user rows
@@ -962,7 +1052,8 @@ admin.openapi(getMetrics, async (c) => {
 	const totalApiKeysSpent = Number(spentRow?.apiKeysValue ?? 0);
 	const totalDebitedSpend = Number(spentRow?.debitedValue ?? 0);
 
-	// Total processed (gross Stripe amounts from completed non-gift, non-plan transactions)
+	// Total processed (gross payment amounts from completed non-gift, non-plan
+	// transactions — Stripe charges plus off-Stripe manual payments)
 	const [processedRow] = await db
 		.select({
 			value:
@@ -1225,13 +1316,37 @@ admin.openapi(getMetrics, async (c) => {
 
 	const grossProSubscriptionsRevenue = Number(grossProSubsRow?.value ?? 0);
 
+	// Manual payments: credits an administrator granted against money received
+	// outside Stripe (wire, crypto, …). `amount` is the real payment, so these
+	// belong in gross revenue like any other purchase — kept as their own split
+	// because they never appear in Stripe reporting.
+	const [grossManualPaymentsRow] = await db
+		.select({
+			value:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"value",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.transaction.type, "credit_manual_payment"),
+				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+				transactionDateFilter,
+			),
+		);
+
+	const grossManualPaymentsRevenue = Number(grossManualPaymentsRow?.value ?? 0);
+
 	const grossRevenue =
 		grossCreditsRevenue +
 		grossDevpassRevenue +
 		grossDevpassTopupsRevenue +
 		grossResetPassRevenue +
 		grossChatPlansRevenue +
-		grossProSubscriptionsRevenue;
+		grossProSubscriptionsRevenue +
+		grossManualPaymentsRevenue;
 
 	// Balance derivation must use debited spend, not blended cost: BYOK usage
 	// never drains purchased credits, so subtracting it would understate
@@ -1263,6 +1378,7 @@ admin.openapi(getMetrics, async (c) => {
 		grossResetPassRevenue,
 		grossChatPlansRevenue,
 		grossProSubscriptionsRevenue,
+		grossManualPaymentsRevenue,
 	});
 });
 
@@ -1769,10 +1885,27 @@ admin.openapi(getTimeseries, async (c) => {
 });
 
 const globalStatsRangeSchema = z.enum(["7d", "30d", "90d", "365d", "all"]);
-const globalStatsGroupBySchema = z.enum(["model", "source"]);
+const globalStatsGroupBySchema = z.enum(["model", "source", "mode", "kind"]);
 const globalStatsModelViewSchema = z.enum(["mapping", "canonical", "provider"]);
+// Billing mode filter. "total" blends every mode, including the "unknown"
+// rows that predate per-mode attribution.
+const globalStatsModeSchema = z.enum([
+	"total",
+	"credits",
+	"api-keys",
+	"unknown",
+]);
+const globalStatsKindSchema = z.enum([
+	"all",
+	"default",
+	"devpass",
+	"chat",
+	"unknown",
+]);
 const globalStatsDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
+// Every metric is scoped by the mode/kind filters, because both are part of
+// the aggregation key rather than denormalized column pairs.
 const globalStatsMetricsSchema = z.object({
 	requestCount: z.number(),
 	errorCount: z.number(),
@@ -1785,11 +1918,20 @@ const globalStatsMetricsSchema = z.object({
 	inputCost: z.number(),
 	cachedInputCost: z.number(),
 	outputCost: z.number(),
-	creditsRequestCount: z.number(),
-	apiKeysRequestCount: z.number(),
-	creditsCost: z.number(),
-	apiKeysCost: z.number(),
 });
+
+// How the selected range splits across the *other* dimension, so the blended
+// view can show its composition without a second request. `byMode` honours the
+// kind filter and vice versa, so both always reconcile with `totals`.
+const globalStatsCompositionItemSchema = z
+	.object({
+		key: z.string(),
+		label: z.string(),
+		requestCount: z.number(),
+		cost: z.number(),
+		totalTokens: z.number(),
+	})
+	.openapi({});
 
 const globalStatsTimeseriesPointSchema = globalStatsMetricsSchema
 	.extend({
@@ -1815,10 +1957,6 @@ const globalStatsTimeseriesBreakdownPointSchema = z
 		requestCount: z.number(),
 		cost: z.number(),
 		totalTokens: z.number(),
-		creditsRequestCount: z.number(),
-		apiKeysRequestCount: z.number(),
-		creditsCost: z.number(),
-		apiKeysCost: z.number(),
 	})
 	.openapi({});
 
@@ -1827,11 +1965,34 @@ const globalStatsResponseSchema = z.object({
 	end: z.string(),
 	groupBy: globalStatsGroupBySchema,
 	modelView: globalStatsModelViewSchema,
+	mode: globalStatsModeSchema,
+	kind: globalStatsKindSchema,
 	totals: globalStatsMetricsSchema,
+	composition: z.object({
+		byMode: z.array(globalStatsCompositionItemSchema),
+		byKind: z.array(globalStatsCompositionItemSchema),
+	}),
 	timeseries: z.array(globalStatsTimeseriesPointSchema),
 	timeseriesBreakdown: z.array(globalStatsTimeseriesBreakdownPointSchema),
 	breakdown: z.array(globalStatsBreakdownItemSchema),
 });
+
+// Cost columns on the stats tables are `real` (float4), and Postgres accumulates
+// SUM(real) in float4 as well — only ~7 significant digits. Past a few hundred
+// thousand dollars the running sum's ulp is larger than a cent, so the result
+// depends on how the rows happened to be grouped: the blended total and the
+// per-mode / per-kind slices of the *same* rows drift apart by double-digit
+// dollars and the cards visibly stop adding up. NUMERIC accumulation is exact,
+// so every grouping of a set of rows yields the identical sum.
+//
+// The double-precision hop is required, not decorative: `real::numeric` goes
+// through float4's 6-digit display form (1234.5678 -> 1234.57), which throws
+// away more than the float4 sum did. `real::float8` is the exact stored value.
+function sumMoney(column: AnyColumn, alias: string) {
+	return sql<number>`COALESCE(SUM(CAST(CAST(${column} AS DOUBLE PRECISION) AS NUMERIC)), 0)::float8`.as(
+		alias,
+	);
+}
 
 const getGlobalStats = createRoute({
 	method: "get",
@@ -1843,6 +2004,8 @@ const getGlobalStats = createRoute({
 			to: globalStatsDateSchema.optional(),
 			groupBy: globalStatsGroupBySchema.default("model").optional(),
 			modelView: globalStatsModelViewSchema.default("mapping").optional(),
+			mode: globalStatsModeSchema.default("total").optional(),
+			kind: globalStatsKindSchema.default("all").optional(),
 		}),
 	},
 	responses: {
@@ -1861,12 +2024,22 @@ admin.openapi(getGlobalStats, async (c) => {
 	const query = c.req.valid("query");
 	const groupBy = query.groupBy ?? "model";
 	const modelView = query.modelView ?? "mapping";
+	const mode = query.mode ?? "total";
+	const kind = query.kind ?? "all";
 
 	const dayMs = 24 * 60 * 60 * 1000;
 	const MAX_GLOBAL_STATS_DAYS = 731;
 
+	// Only the model grouping needs the per-model table; source/mode/kind all
+	// read the (much smaller) source table, which covers the same requests.
 	const sourceTable =
 		groupBy === "model" ? globalModelStats : globalSourceStats;
+
+	// Narrowing happens in SQL, so every metric below — tokens, errors, cache,
+	// per-part costs — reflects exactly the selected slice.
+	const modeFilter = mode === "total" ? [] : [eq(sourceTable.usedMode, mode)];
+	const kindFilter = kind === "all" ? [] : [eq(sourceTable.orgKind, kind)];
+	const dimensionFilter = [...modeFilter, ...kindFilter];
 
 	// `all` means "all time": derive the span from the first/last recorded day
 	// so the card matches the dashboard's all-time totals instead of silently
@@ -1895,7 +2068,8 @@ admin.openapi(getGlobalStats, async (c) => {
 					string | null
 				>`to_char(MAX(${sourceTable.dayTimestamp}), 'YYYY-MM-DD')`.as("maxDay"),
 			})
-			.from(sourceTable);
+			.from(sourceTable)
+			.where(dimensionFilter.length ? and(...dimensionFilter) : undefined);
 		const minDay = bounds[0]?.minDay ?? null;
 		const maxDay = bounds[0]?.maxDay ?? null;
 		endDate = maxDay ? new Date(maxDay + "T00:00:00Z") : new Date();
@@ -1926,16 +2100,19 @@ admin.openapi(getGlobalStats, async (c) => {
 	}
 
 	const metricSums = {
+		// Counts are exact (SUM(int) accumulates in bigint) but this endpoint sums
+		// all of history, so the result is carried as float8 rather than narrowed
+		// back to int4 — a cross-tenant all-time request count outgrows 2^31.
 		requestCount:
-			sql<number>`COALESCE(SUM(${sourceTable.requestCount}), 0)::int`.as(
+			sql<number>`COALESCE(SUM(${sourceTable.requestCount}), 0)::float8`.as(
 				"requestCount",
 			),
 		errorCount:
-			sql<number>`COALESCE(SUM(${sourceTable.errorCount}), 0)::int`.as(
+			sql<number>`COALESCE(SUM(${sourceTable.errorCount}), 0)::float8`.as(
 				"errorCount",
 			),
 		cacheCount:
-			sql<number>`COALESCE(SUM(${sourceTable.cacheCount}), 0)::int`.as(
+			sql<number>`COALESCE(SUM(${sourceTable.cacheCount}), 0)::float8`.as(
 				"cacheCount",
 			),
 		inputTokens:
@@ -1954,39 +2131,20 @@ admin.openapi(getGlobalStats, async (c) => {
 			sql<number>`COALESCE(SUM(CAST(${sourceTable.totalTokens} AS NUMERIC)), 0)::float8`.as(
 				"totalTokens",
 			),
-		cost: sql<number>`COALESCE(SUM(${sourceTable.cost}), 0)::float8`.as("cost"),
-		inputCost:
-			sql<number>`COALESCE(SUM(${sourceTable.inputCost}), 0)::float8`.as(
-				"inputCost",
-			),
-		cachedInputCost:
-			sql<number>`COALESCE(SUM(${sourceTable.cachedInputCost}), 0)::float8`.as(
-				"cachedInputCost",
-			),
-		outputCost:
-			sql<number>`COALESCE(SUM(${sourceTable.outputCost}), 0)::float8`.as(
-				"outputCost",
-			),
-		creditsRequestCount:
-			sql<number>`COALESCE(SUM(${sourceTable.creditsRequestCount}), 0)::int`.as(
-				"creditsRequestCount",
-			),
-		apiKeysRequestCount:
-			sql<number>`COALESCE(SUM(${sourceTable.apiKeysRequestCount}), 0)::int`.as(
-				"apiKeysRequestCount",
-			),
-		creditsCost:
-			sql<number>`COALESCE(SUM(${sourceTable.creditsCost}), 0)::float8`.as(
-				"creditsCost",
-			),
-		apiKeysCost:
-			sql<number>`COALESCE(SUM(${sourceTable.apiKeysCost}), 0)::float8`.as(
-				"apiKeysCost",
-			),
+		cost: sumMoney(sourceTable.cost, "cost"),
+		inputCost: sumMoney(sourceTable.inputCost, "inputCost"),
+		cachedInputCost: sumMoney(sourceTable.cachedInputCost, "cachedInputCost"),
+		outputCost: sumMoney(sourceTable.outputCost, "outputCost"),
 	};
 
 	const dateExpr =
 		sql<string>`to_char(${sourceTable.dayTimestamp}, 'YYYY-MM-DD')`.as("date");
+
+	const rangeFilter = and(
+		gte(sourceTable.dayTimestamp, startDate),
+		lte(sourceTable.dayTimestamp, endDate),
+	);
+	const scopeFilter = and(rangeFilter, ...dimensionFilter);
 
 	const timeseriesRows = await db
 		.select({
@@ -1994,12 +2152,7 @@ admin.openapi(getGlobalStats, async (c) => {
 			...metricSums,
 		})
 		.from(sourceTable)
-		.where(
-			and(
-				gte(sourceTable.dayTimestamp, startDate),
-				lte(sourceTable.dayTimestamp, endDate),
-			),
-		)
+		.where(scopeFilter)
 		.groupBy(sourceTable.dayTimestamp)
 		.orderBy(asc(sourceTable.dayTimestamp));
 
@@ -2021,10 +2174,6 @@ admin.openapi(getGlobalStats, async (c) => {
 			inputCost: Number(row.inputCost),
 			cachedInputCost: Number(row.cachedInputCost),
 			outputCost: Number(row.outputCost),
-			creditsRequestCount: Number(row.creditsRequestCount),
-			apiKeysRequestCount: Number(row.apiKeysRequestCount),
-			creditsCost: Number(row.creditsCost),
-			apiKeysCost: Number(row.apiKeysCost),
 		});
 	}
 
@@ -2040,10 +2189,6 @@ admin.openapi(getGlobalStats, async (c) => {
 		inputCost: 0,
 		cachedInputCost: 0,
 		outputCost: 0,
-		creditsRequestCount: 0,
-		apiKeysRequestCount: 0,
-		creditsCost: 0,
-		apiKeysCost: 0,
 	};
 
 	const timeseries: z.infer<typeof globalStatsTimeseriesPointSchema>[] = [];
@@ -2063,10 +2208,6 @@ admin.openapi(getGlobalStats, async (c) => {
 			inputCost: 0,
 			cachedInputCost: 0,
 			outputCost: 0,
-			creditsRequestCount: 0,
-			apiKeysRequestCount: 0,
-			creditsCost: 0,
-			apiKeysCost: 0,
 		};
 		timeseries.push(point);
 		totals.requestCount += point.requestCount;
@@ -2080,11 +2221,17 @@ admin.openapi(getGlobalStats, async (c) => {
 		totals.inputCost += point.inputCost;
 		totals.cachedInputCost += point.cachedInputCost;
 		totals.outputCost += point.outputCost;
-		totals.creditsRequestCount += point.creditsRequestCount;
-		totals.apiKeysRequestCount += point.apiKeysRequestCount;
-		totals.creditsCost += point.creditsCost;
-		totals.apiKeysCost += point.apiKeysCost;
 	}
+
+	// The dimension the breakdown groups on. `model` needs the per-model table
+	// (and its mapping/canonical/provider views); the rest are single columns
+	// on the source table.
+	const breakdownColumn =
+		groupBy === "mode"
+			? globalSourceStats.usedMode
+			: groupBy === "kind"
+				? globalSourceStats.orgKind
+				: globalSourceStats.source;
 
 	const breakdownRows =
 		groupBy === "model"
@@ -2095,68 +2242,41 @@ admin.openapi(getGlobalStats, async (c) => {
 						...metricSums,
 					})
 					.from(globalModelStats)
-					.where(
-						and(
-							gte(globalModelStats.dayTimestamp, startDate),
-							lte(globalModelStats.dayTimestamp, endDate),
-						),
-					)
+					.where(scopeFilter)
 					.groupBy(globalModelStats.usedModel, globalModelStats.usedProvider)
 					.orderBy(desc(metricSums.requestCount))
 			: await db
 					.select({
-						source: globalSourceStats.source,
+						dimension: breakdownColumn,
 						...metricSums,
 					})
 					.from(globalSourceStats)
-					.where(
-						and(
-							gte(globalSourceStats.dayTimestamp, startDate),
-							lte(globalSourceStats.dayTimestamp, endDate),
-						),
-					)
-					.groupBy(globalSourceStats.source)
+					.where(scopeFilter)
+					.groupBy(breakdownColumn)
 					.orderBy(desc(metricSums.requestCount));
 
 	const breakdown: z.infer<typeof globalStatsBreakdownItemSchema>[] =
 		groupBy === "model" && modelView === "canonical"
-			? aggregateModelRowsByCanonicalId(
+			? aggregateBreakdownRows(
 					breakdownRows as Array<
-						(typeof breakdownRows)[number] & {
-							usedModel: string;
-						}
+						(typeof breakdownRows)[number] & { usedModel: string }
 					>,
+					(row) => extractCanonicalModelId(row.usedModel),
 				)
 			: groupBy === "model" && modelView === "provider"
-				? aggregateModelRowsByProvider(
+				? aggregateBreakdownRows(
 						breakdownRows as Array<
-							(typeof breakdownRows)[number] & {
-								usedProvider: string;
-							}
+							(typeof breakdownRows)[number] & { usedProvider: string }
 						>,
+						(row) => row.usedProvider || "unknown",
 					)
 				: breakdownRows.map((row) => {
-						const isModel = "usedModel" in row;
-						const key = isModel ? row.usedModel : row.source;
-						const label = isModel ? row.usedModel : row.source;
+						const key =
+							"usedModel" in row ? row.usedModel : (row.dimension ?? "unknown");
 						return {
+							...toBreakdownMetrics(row),
 							key,
-							label,
-							requestCount: Number(row.requestCount),
-							errorCount: Number(row.errorCount),
-							cacheCount: Number(row.cacheCount),
-							inputTokens: Number(row.inputTokens),
-							cachedTokens: Number(row.cachedTokens),
-							outputTokens: Number(row.outputTokens),
-							totalTokens: Number(row.totalTokens),
-							cost: Number(row.cost),
-							inputCost: Number(row.inputCost),
-							cachedInputCost: Number(row.cachedInputCost),
-							outputCost: Number(row.outputCost),
-							creditsRequestCount: Number(row.creditsRequestCount),
-							apiKeysRequestCount: Number(row.apiKeysRequestCount),
-							creditsCost: Number(row.creditsCost),
-							apiKeysCost: Number(row.apiKeysCost),
+							label: globalStatsDimensionLabel(groupBy, key),
 						};
 					});
 
@@ -2170,12 +2290,7 @@ admin.openapi(getGlobalStats, async (c) => {
 						...metricSums,
 					})
 					.from(globalModelStats)
-					.where(
-						and(
-							gte(globalModelStats.dayTimestamp, startDate),
-							lte(globalModelStats.dayTimestamp, endDate),
-						),
-					)
+					.where(scopeFilter)
 					.groupBy(
 						globalModelStats.dayTimestamp,
 						globalModelStats.usedModel,
@@ -2184,17 +2299,12 @@ admin.openapi(getGlobalStats, async (c) => {
 			: await db
 					.select({
 						date: dateExpr,
-						source: globalSourceStats.source,
+						dimension: breakdownColumn,
 						...metricSums,
 					})
 					.from(globalSourceStats)
-					.where(
-						and(
-							gte(globalSourceStats.dayTimestamp, startDate),
-							lte(globalSourceStats.dayTimestamp, endDate),
-						),
-					)
-					.groupBy(globalSourceStats.dayTimestamp, globalSourceStats.source);
+					.where(scopeFilter)
+					.groupBy(globalSourceStats.dayTimestamp, breakdownColumn);
 
 	const timeseriesBreakdownMap = new Map<
 		string,
@@ -2214,9 +2324,12 @@ admin.openapi(getGlobalStats, async (c) => {
 						? modelRow.usedProvider || "unknown"
 						: modelRow.usedModel;
 		} else {
-			key = (
-				row as (typeof timeseriesBreakdownRows)[number] & { source: string }
-			).source;
+			key =
+				(
+					row as (typeof timeseriesBreakdownRows)[number] & {
+						dimension: string;
+					}
+				).dimension ?? "unknown";
 		}
 		const mapKey = `${row.date}:${key}`;
 		const existing = timeseriesBreakdownMap.get(mapKey);
@@ -2224,33 +2337,69 @@ admin.openapi(getGlobalStats, async (c) => {
 			existing.requestCount += Number(row.requestCount);
 			existing.cost += Number(row.cost);
 			existing.totalTokens += Number(row.totalTokens);
-			existing.creditsRequestCount += Number(row.creditsRequestCount);
-			existing.apiKeysRequestCount += Number(row.apiKeysRequestCount);
-			existing.creditsCost += Number(row.creditsCost);
-			existing.apiKeysCost += Number(row.apiKeysCost);
 		} else {
 			timeseriesBreakdownMap.set(mapKey, {
 				date: row.date,
 				key,
-				label: key,
+				label: globalStatsDimensionLabel(groupBy, key),
 				requestCount: Number(row.requestCount),
 				cost: Number(row.cost),
 				totalTokens: Number(row.totalTokens),
-				creditsRequestCount: Number(row.creditsRequestCount),
-				apiKeysRequestCount: Number(row.apiKeysRequestCount),
-				creditsCost: Number(row.creditsCost),
-				apiKeysCost: Number(row.apiKeysCost),
 			});
 		}
 	}
 	const timeseriesBreakdown = Array.from(timeseriesBreakdownMap.values());
+
+	// Composition of the range along each dimension, each honouring the *other*
+	// filter so both always add up to `totals`.
+	const compositionSums = {
+		requestCount: metricSums.requestCount,
+		cost: metricSums.cost,
+		totalTokens: metricSums.totalTokens,
+	};
+	const [byModeRows, byKindRows] = await Promise.all([
+		db
+			.select({ dimension: sourceTable.usedMode, ...compositionSums })
+			.from(sourceTable)
+			.where(and(rangeFilter, ...kindFilter))
+			.groupBy(sourceTable.usedMode)
+			.orderBy(desc(compositionSums.requestCount)),
+		db
+			.select({ dimension: sourceTable.orgKind, ...compositionSums })
+			.from(sourceTable)
+			.where(and(rangeFilter, ...modeFilter))
+			.groupBy(sourceTable.orgKind)
+			.orderBy(desc(compositionSums.requestCount)),
+	]);
+
+	const toCompositionItem = (
+		dimension: "mode" | "kind",
+		row: {
+			dimension: string | null;
+			requestCount: number | string;
+			cost: number | string;
+			totalTokens: number | string;
+		},
+	) => ({
+		key: row.dimension ?? "unknown",
+		label: globalStatsDimensionLabel(dimension, row.dimension ?? "unknown"),
+		requestCount: Number(row.requestCount),
+		cost: Number(row.cost),
+		totalTokens: Number(row.totalTokens),
+	});
 
 	return c.json({
 		start: startDate.toISOString().split("T")[0],
 		end: endDate.toISOString().split("T")[0],
 		groupBy,
 		modelView,
+		mode,
+		kind,
 		totals,
+		composition: {
+			byMode: byModeRows.map((row) => toCompositionItem("mode", row)),
+			byKind: byKindRows.map((row) => toCompositionItem("kind", row)),
+		},
 		timeseries,
 		timeseriesBreakdown,
 		breakdown,
@@ -2268,139 +2417,73 @@ function extractCanonicalModelId(usedModel: string): string {
 	return colonIdx === -1 ? withoutProvider : withoutProvider.slice(0, colonIdx);
 }
 
-function aggregateModelRowsByCanonicalId(
-	rows: Array<{
-		usedModel: string;
-		requestCount: number;
-		errorCount: number;
-		cacheCount: number;
-		inputTokens: number;
-		cachedTokens: number;
-		outputTokens: number;
-		totalTokens: number;
-		cost: number;
-		inputCost: number;
-		cachedInputCost: number;
-		outputCost: number;
-		creditsRequestCount: number;
-		apiKeysRequestCount: number;
-		creditsCost: number;
-		apiKeysCost: number;
-	}>,
-): z.infer<typeof globalStatsBreakdownItemSchema>[] {
-	const aggregated = new Map<
-		string,
-		z.infer<typeof globalStatsBreakdownItemSchema>
-	>();
-	for (const row of rows) {
-		const canonical = extractCanonicalModelId(row.usedModel);
-		const existing = aggregated.get(canonical);
-		if (existing) {
-			existing.requestCount += Number(row.requestCount);
-			existing.errorCount += Number(row.errorCount);
-			existing.cacheCount += Number(row.cacheCount);
-			existing.inputTokens += Number(row.inputTokens);
-			existing.cachedTokens += Number(row.cachedTokens);
-			existing.outputTokens += Number(row.outputTokens);
-			existing.totalTokens += Number(row.totalTokens);
-			existing.cost += Number(row.cost);
-			existing.inputCost += Number(row.inputCost);
-			existing.cachedInputCost += Number(row.cachedInputCost);
-			existing.outputCost += Number(row.outputCost);
-			existing.creditsRequestCount += Number(row.creditsRequestCount);
-			existing.apiKeysRequestCount += Number(row.apiKeysRequestCount);
-			existing.creditsCost += Number(row.creditsCost);
-			existing.apiKeysCost += Number(row.apiKeysCost);
-		} else {
-			aggregated.set(canonical, {
-				key: canonical,
-				label: canonical,
-				requestCount: Number(row.requestCount),
-				errorCount: Number(row.errorCount),
-				cacheCount: Number(row.cacheCount),
-				inputTokens: Number(row.inputTokens),
-				cachedTokens: Number(row.cachedTokens),
-				outputTokens: Number(row.outputTokens),
-				totalTokens: Number(row.totalTokens),
-				cost: Number(row.cost),
-				inputCost: Number(row.inputCost),
-				cachedInputCost: Number(row.cachedInputCost),
-				outputCost: Number(row.outputCost),
-				creditsRequestCount: Number(row.creditsRequestCount),
-				apiKeysRequestCount: Number(row.apiKeysRequestCount),
-				creditsCost: Number(row.creditsCost),
-				apiKeysCost: Number(row.apiKeysCost),
-			});
-		}
+const GLOBAL_STATS_MODE_LABELS: Record<string, string> = {
+	credits: "Credits",
+	"api-keys": "BYOK",
+	unknown: "Unattributed",
+};
+
+// "default" is the plain pay-as-you-go org kind; it reads as PAYG everywhere
+// user-facing because "default" says nothing about how the traffic is paid for.
+const GLOBAL_STATS_KIND_LABELS: Record<string, string> = {
+	default: "PAYG",
+	devpass: "DevPass",
+	chat: "Chat",
+	unknown: "Unattributed",
+};
+
+function globalStatsDimensionLabel(dimension: string, key: string): string {
+	if (dimension === "mode") {
+		return GLOBAL_STATS_MODE_LABELS[key] ?? key;
 	}
-	return Array.from(aggregated.values()).sort(
-		(a, b) => b.requestCount - a.requestCount,
-	);
+	if (dimension === "kind") {
+		return GLOBAL_STATS_KIND_LABELS[key] ?? key;
+	}
+	return key;
 }
 
-function aggregateModelRowsByProvider(
-	rows: Array<{
-		usedProvider: string;
-		requestCount: number;
-		errorCount: number;
-		cacheCount: number;
-		inputTokens: number;
-		cachedTokens: number;
-		outputTokens: number;
-		totalTokens: number;
-		cost: number;
-		inputCost: number;
-		cachedInputCost: number;
-		outputCost: number;
-		creditsRequestCount: number;
-		apiKeysRequestCount: number;
-		creditsCost: number;
-		apiKeysCost: number;
-	}>,
+type GlobalStatsRowMetrics = z.infer<typeof globalStatsMetricsSchema>;
+
+function toBreakdownMetrics(
+	row: Record<keyof GlobalStatsRowMetrics, number | string>,
+): GlobalStatsRowMetrics {
+	return {
+		requestCount: Number(row.requestCount),
+		errorCount: Number(row.errorCount),
+		cacheCount: Number(row.cacheCount),
+		inputTokens: Number(row.inputTokens),
+		cachedTokens: Number(row.cachedTokens),
+		outputTokens: Number(row.outputTokens),
+		totalTokens: Number(row.totalTokens),
+		cost: Number(row.cost),
+		inputCost: Number(row.inputCost),
+		cachedInputCost: Number(row.cachedInputCost),
+		outputCost: Number(row.outputCost),
+	};
+}
+
+// Collapses per-mapping rows onto a coarser key (canonical model id, provider)
+// by summing every metric.
+function aggregateBreakdownRows<T extends GlobalStatsRowMetrics>(
+	rows: T[],
+	keyOf: (row: T) => string,
 ): z.infer<typeof globalStatsBreakdownItemSchema>[] {
 	const aggregated = new Map<
 		string,
 		z.infer<typeof globalStatsBreakdownItemSchema>
 	>();
 	for (const row of rows) {
-		const provider = row.usedProvider || "unknown";
-		const existing = aggregated.get(provider);
-		if (existing) {
-			existing.requestCount += Number(row.requestCount);
-			existing.errorCount += Number(row.errorCount);
-			existing.cacheCount += Number(row.cacheCount);
-			existing.inputTokens += Number(row.inputTokens);
-			existing.cachedTokens += Number(row.cachedTokens);
-			existing.outputTokens += Number(row.outputTokens);
-			existing.totalTokens += Number(row.totalTokens);
-			existing.cost += Number(row.cost);
-			existing.inputCost += Number(row.inputCost);
-			existing.cachedInputCost += Number(row.cachedInputCost);
-			existing.outputCost += Number(row.outputCost);
-			existing.creditsRequestCount += Number(row.creditsRequestCount);
-			existing.apiKeysRequestCount += Number(row.apiKeysRequestCount);
-			existing.creditsCost += Number(row.creditsCost);
-			existing.apiKeysCost += Number(row.apiKeysCost);
-		} else {
-			aggregated.set(provider, {
-				key: provider,
-				label: provider,
-				requestCount: Number(row.requestCount),
-				errorCount: Number(row.errorCount),
-				cacheCount: Number(row.cacheCount),
-				inputTokens: Number(row.inputTokens),
-				cachedTokens: Number(row.cachedTokens),
-				outputTokens: Number(row.outputTokens),
-				totalTokens: Number(row.totalTokens),
-				cost: Number(row.cost),
-				inputCost: Number(row.inputCost),
-				cachedInputCost: Number(row.cachedInputCost),
-				outputCost: Number(row.outputCost),
-				creditsRequestCount: Number(row.creditsRequestCount),
-				apiKeysRequestCount: Number(row.apiKeysRequestCount),
-				creditsCost: Number(row.creditsCost),
-				apiKeysCost: Number(row.apiKeysCost),
-			});
+		const key = keyOf(row);
+		const existing = aggregated.get(key);
+		const metrics = toBreakdownMetrics(row);
+		if (!existing) {
+			aggregated.set(key, { ...metrics, key, label: key });
+			continue;
+		}
+		for (const metric of Object.keys(
+			metrics,
+		) as (keyof GlobalStatsRowMetrics)[]) {
+			existing[metric] += metrics[metric];
 		}
 	}
 	return Array.from(aggregated.values()).sort(
@@ -2508,6 +2591,11 @@ admin.openapi(getOrganizations, async (c) => {
 			kind: tables.organization.kind,
 			plan: tables.organization.plan,
 			devPlan: tables.organization.devPlan,
+			planExpiresAt: tables.organization.planExpiresAt,
+			planStartedAt: tables.organization.planStartedAt,
+			isTrialActive: tables.organization.isTrialActive,
+			trialStartDate: tables.organization.trialStartDate,
+			trialEndDate: tables.organization.trialEndDate,
 			credits: tables.organization.credits,
 			createdAt: tables.organization.createdAt,
 			status: tables.organization.status,
@@ -2553,6 +2641,11 @@ admin.openapi(getOrganizations, async (c) => {
 			kind: org.kind,
 			plan: org.plan,
 			devPlan: org.devPlan,
+			planExpiresAt: org.planExpiresAt?.toISOString() ?? null,
+			planStartedAt: org.planStartedAt?.toISOString() ?? null,
+			isTrialActive: org.isTrialActive,
+			trialStartDate: org.trialStartDate?.toISOString() ?? null,
+			trialEndDate: org.trialEndDate?.toISOString() ?? null,
 			credits: String(org.credits),
 			totalCreditsAllTime: String(org.totalCreditsAllTime ?? "0"),
 			totalSpent: String(org.totalSpent ?? "0"),
@@ -2627,6 +2720,7 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 	let cachedCost = 0;
 	let cacheWriteTokens = 0;
 	let cacheWriteCost = 0;
+	let dataStorageCost = 0;
 	let discountSavings = 0;
 	let mostUsedModel: string | null = null;
 	let mostUsedProvider: string | null = null;
@@ -2684,6 +2778,10 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 					sql<number>`COALESCE(SUM(${projectHourlyStats.cacheWriteInputCost}), 0)`.as(
 						"cacheWriteInputCost",
 					),
+				dataStorageCost:
+					sql<number>`COALESCE(SUM(${projectHourlyStats.dataStorageCost}), 0)`.as(
+						"dataStorageCost",
+					),
 			})
 			.from(projectHourlyStats)
 			.where(
@@ -2710,6 +2808,7 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 			cachedCost = Number(totals.cachedInputCost) || 0;
 			cacheWriteTokens = Number(totals.cacheWriteTokens) || 0;
 			cacheWriteCost = Number(totals.cacheWriteInputCost) || 0;
+			dataStorageCost = Number(totals.dataStorageCost) || 0;
 			discountSavings = Number(totals.discountSavings) || 0;
 		}
 
@@ -2754,6 +2853,11 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 			kind: org.kind,
 			plan: org.plan,
 			devPlan: org.devPlan,
+			planExpiresAt: org.planExpiresAt?.toISOString() ?? null,
+			planStartedAt: org.planStartedAt?.toISOString() ?? null,
+			isTrialActive: org.isTrialActive,
+			trialStartDate: org.trialStartDate?.toISOString() ?? null,
+			trialEndDate: org.trialEndDate?.toISOString() ?? null,
 			seats: org.seats,
 			apiKeyLimit: org.apiKeyLimit,
 			credits: String(org.credits),
@@ -2778,6 +2882,7 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 		cachedCost,
 		cacheWriteTokens,
 		cacheWriteCost,
+		dataStorageCost,
 		mostUsedModel,
 		mostUsedProvider,
 		mostUsedModelCost,
@@ -2825,6 +2930,8 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			currency: tables.transaction.currency,
 			status: tables.transaction.status,
 			description: tables.transaction.description,
+			paymentMethod: tables.transaction.paymentMethod,
+			externalReference: tables.transaction.externalReference,
 		})
 		.from(tables.transaction)
 		.where(eq(tables.transaction.organizationId, orgId))
@@ -2840,6 +2947,11 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			kind: org.kind,
 			plan: org.plan,
 			devPlan: org.devPlan,
+			planExpiresAt: org.planExpiresAt?.toISOString() ?? null,
+			planStartedAt: org.planStartedAt?.toISOString() ?? null,
+			isTrialActive: org.isTrialActive,
+			trialStartDate: org.trialStartDate?.toISOString() ?? null,
+			trialEndDate: org.trialEndDate?.toISOString() ?? null,
 			seats: org.seats,
 			apiKeyLimit: org.apiKeyLimit,
 			credits: String(org.credits),
@@ -2857,6 +2969,8 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			currency: t.currency,
 			status: t.status,
 			description: t.description,
+			paymentMethod: t.paymentMethod,
+			externalReference: t.externalReference,
 		})),
 		total,
 		limit,
@@ -2906,6 +3020,7 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 	const query = c.req.valid("query");
 	const limit = query.limit ?? 25;
 	const offset = query.offset ?? 0;
+	const status = query.status ?? "active";
 
 	const org = await db.query.organization.findFirst({
 		where: {
@@ -2932,17 +3047,22 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 			total: 0,
 			limit,
 			offset,
+			counts: emptyKeyStatusCounts(),
 		});
 	}
 
-	const [countResult] = await db
+	const apiKeyStatusExpr = sql<string>`COALESCE(${tables.apiKey.status}, 'active')`;
+	const countRows = await db
 		.select({
-			count: sql<number>`COUNT(*)`.as("count"),
+			status: apiKeyStatusExpr,
+			count: sql<number>`COUNT(*)`,
 		})
 		.from(tables.apiKey)
-		.where(inArray(tables.apiKey.projectId, ids));
+		.where(inArray(tables.apiKey.projectId, ids))
+		.groupBy(apiKeyStatusExpr);
 
-	const total = Number(countResult?.count ?? 0);
+	const counts = toKeyStatusCounts(countRows);
+	const total = status === "all" ? counts.all : counts[status];
 
 	const apiKeys = await db
 		.select({
@@ -2958,7 +3078,12 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 		})
 		.from(tables.apiKey)
 		.innerJoin(tables.project, eq(tables.apiKey.projectId, tables.project.id))
-		.where(inArray(tables.apiKey.projectId, ids))
+		.where(
+			and(
+				inArray(tables.apiKey.projectId, ids),
+				keyStatusCondition(tables.apiKey.status, status),
+			),
+		)
 		.orderBy(desc(tables.apiKey.createdAt))
 		.limit(limit)
 		.offset(offset);
@@ -2998,11 +3123,13 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 		total,
 		limit,
 		offset,
+		counts,
 	});
 });
 
 admin.openapi(getOrganizationProviderKeys, async (c) => {
 	const { orgId } = c.req.valid("param");
+	const status = c.req.valid("query").status ?? "active";
 
 	const org = await db.query.organization.findFirst({
 		where: {
@@ -3015,6 +3142,18 @@ admin.openapi(getOrganizationProviderKeys, async (c) => {
 			message: "Organization not found",
 		});
 	}
+
+	const providerKeyStatusExpr = sql<string>`COALESCE(${tables.providerKey.status}, 'active')`;
+	const providerKeyCountRows = await db
+		.select({
+			status: providerKeyStatusExpr,
+			count: sql<number>`COUNT(*)`,
+		})
+		.from(tables.providerKey)
+		.where(eq(tables.providerKey.organizationId, orgId))
+		.groupBy(providerKeyStatusExpr);
+
+	const counts = toKeyStatusCounts(providerKeyCountRows);
 
 	const providerKeys = await db
 		.select({
@@ -3034,7 +3173,12 @@ admin.openapi(getOrganizationProviderKeys, async (c) => {
 			updatedAt: tables.providerKey.updatedAt,
 		})
 		.from(tables.providerKey)
-		.where(eq(tables.providerKey.organizationId, orgId))
+		.where(
+			and(
+				eq(tables.providerKey.organizationId, orgId),
+				keyStatusCondition(tables.providerKey.status, status),
+			),
+		)
 		.orderBy(desc(tables.providerKey.createdAt));
 
 	return c.json({
@@ -3055,6 +3199,7 @@ admin.openapi(getOrganizationProviderKeys, async (c) => {
 			updatedAt: k.updatedAt.toISOString(),
 		})),
 		total: providerKeys.length,
+		counts,
 	});
 });
 
@@ -3127,6 +3272,7 @@ const projectMetricsSchema = z.object({
 	cachedCost: z.number(),
 	cacheWriteTokens: z.number(),
 	cacheWriteCost: z.number(),
+	dataStorageCost: z.number(),
 	mostUsedModel: z.string().nullable(),
 	mostUsedProvider: z.string().nullable(),
 	mostUsedModelCost: z.number(),
@@ -3209,6 +3355,7 @@ admin.openapi(getProjectMetrics, async (c) => {
 	let cachedCost = 0;
 	let cacheWriteTokens = 0;
 	let cacheWriteCost = 0;
+	let dataStorageCost = 0;
 	let discountSavings = 0;
 	let mostUsedModel: string | null = null;
 	let mostUsedProvider: string | null = null;
@@ -3264,6 +3411,10 @@ admin.openapi(getProjectMetrics, async (c) => {
 				sql<number>`COALESCE(SUM(${projectHourlyStats.cacheWriteInputCost}), 0)`.as(
 					"cacheWriteInputCost",
 				),
+			dataStorageCost:
+				sql<number>`COALESCE(SUM(${projectHourlyStats.dataStorageCost}), 0)`.as(
+					"dataStorageCost",
+				),
 		})
 		.from(projectHourlyStats)
 		.where(
@@ -3290,6 +3441,7 @@ admin.openapi(getProjectMetrics, async (c) => {
 		cachedCost = Number(totals.cachedInputCost) || 0;
 		cacheWriteTokens = Number(totals.cacheWriteTokens) || 0;
 		cacheWriteCost = Number(totals.cacheWriteInputCost) || 0;
+		dataStorageCost = Number(totals.dataStorageCost) || 0;
 		discountSavings = Number(totals.discountSavings) || 0;
 	}
 
@@ -3352,6 +3504,7 @@ admin.openapi(getProjectMetrics, async (c) => {
 		cachedCost,
 		cacheWriteTokens,
 		cacheWriteCost,
+		dataStorageCost,
 		mostUsedModel,
 		mostUsedProvider,
 		mostUsedModelCost,
@@ -4843,7 +4996,13 @@ admin.openapi(getProviderStats, async (c) => {
 				...tokenBreakdownSums(mph),
 			})
 			.from(mph)
-			.where(and(gte(mphTs, startDate), lt(mphTs, endDateExclusive)))
+			.where(
+				and(
+					gte(mphTs, startDate),
+					lt(mphTs, endDateExclusive),
+					excludeRegionalMappingRows(mph),
+				),
+			)
 			.groupBy(mph.providerId)
 			.as("provider_stats_sub");
 
@@ -5867,7 +6026,13 @@ admin.openapi(getModelDetail, async (c) => {
 				...tokenBreakdownSums(mph),
 			})
 			.from(mph)
-			.where(and(eq(mph.modelId, modelId), gte(mphTs, startDate)))
+			.where(
+				and(
+					eq(mph.modelId, modelId),
+					gte(mphTs, startDate),
+					excludeRegionalMappingRows(mph),
+				),
+			)
 			.groupBy(mph.providerId),
 	]);
 
@@ -6125,6 +6290,134 @@ admin.openapi(giftCreditsRoute, async (c) => {
 	});
 });
 
+// Manually credit an organization for a payment received outside Stripe
+const manualPaymentMethods = ["wire", "crypto", "paypal", "other"] as const;
+
+const manualCreditsRoute = createRoute({
+	method: "post",
+	path: "/organizations/{orgId}/manual-credits",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						creditAmount: z
+							.number()
+							.min(0.01, "Credit amount must be positive"),
+						paymentMethod: z.enum(manualPaymentMethods),
+						// Identifier for the payment on its own channel: a bank wire
+						// reference, an on-chain tx hash, a PayPal transaction id.
+						externalReference: z.string().trim().max(255).optional(),
+						comment: z.string().optional(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						credits: z.string(),
+					}),
+				},
+			},
+			description: "Credits added successfully.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Organization not found.",
+		},
+	},
+});
+
+admin.openapi(manualCreditsRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+	const { creditAmount, paymentMethod, externalReference, comment } =
+		c.req.valid("json");
+
+	const org = await db.query.organization.findFirst({
+		where: {
+			id: { eq: orgId },
+		},
+	});
+
+	if (!org || org.status === "deleted") {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	const description = comment
+		? `Manual payment (${paymentMethod}) credited by Administrator: ${comment}`
+		: `Manual payment (${paymentMethod}) credited by Administrator`;
+
+	const { transactionId, updatedCredits } = await db.transaction(async (tx) => {
+		const [txn] = await tx
+			.insert(tables.transaction)
+			.values({
+				organizationId: orgId,
+				type: "credit_manual_payment",
+				// The money was actually received, so `amount` (gross payment) and
+				// `creditAmount` (credits granted) are the same figure: there are no
+				// Stripe fees to net out on an off-Stripe channel.
+				amount: creditAmount.toString(),
+				creditAmount: creditAmount.toString(),
+				currency: "USD",
+				status: "completed",
+				description,
+				paymentMethod,
+				externalReference: externalReference || null,
+			})
+			.returning({ id: tables.transaction.id });
+
+		const [updatedOrg] = await tx
+			.update(tables.organization)
+			.set({
+				credits: sql`${tables.organization.credits} + ${creditAmount}`,
+			})
+			.where(eq(tables.organization.id, orgId))
+			.returning({ credits: tables.organization.credits });
+
+		return {
+			transactionId: txn.id,
+			updatedCredits: String(updatedOrg.credits),
+		};
+	});
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "credits.manual_payment",
+		resourceType: "organization",
+		resourceId: orgId,
+		metadata: {
+			creditAmount,
+			paymentMethod,
+			externalReference,
+			comment,
+			transactionId,
+		},
+	});
+
+	return c.json({
+		message: "Credits added successfully",
+		credits: updatedCredits,
+	});
+});
+
 // Configure the referral signup bonus for an organization
 const updateReferralBonusRoute = createRoute({
 	method: "patch",
@@ -6214,7 +6507,31 @@ admin.openapi(updateReferralBonusRoute, async (c) => {
 	});
 });
 
-// Manage an organization's plan tier, seat-limit and API-key-limit overrides
+/**
+ * Plan term dates are entered as plain calendar days (YYYY-MM-DD) because an
+ * enterprise contract renews on a date, not at a wall-clock instant. They are
+ * stored as the UTC midnight of that day, which is also the boundary the
+ * shared `getPlanTerm` countdown counts against.
+ */
+const planTermDateSchema = z
+	.string()
+	.regex(/^\d{4}-\d{2}-\d{2}$/, "Expected a YYYY-MM-DD date")
+	// `new Date("2027-02-31")` silently rolls over to March 3 rather than
+	// failing, so the parsed date has to round-trip back to the input before a
+	// typo can be accepted as a contract date.
+	.refine(
+		(value) => {
+			const parsed = new Date(value);
+			return (
+				!Number.isNaN(parsed.getTime()) &&
+				parsed.toISOString().slice(0, 10) === value
+			);
+		},
+		{ message: "Not a valid calendar date" },
+	)
+	.nullable();
+
+// Manage an organization's plan tier, plan term, seat-limit and API-key-limit overrides
 const manageOrganizationRoute = createRoute({
 	method: "patch",
 	path: "/organizations/{orgId}/manage",
@@ -6232,6 +6549,14 @@ const manageOrganizationRoute = createRoute({
 						seats: z.number().int().min(0).max(100000).nullable(),
 						// Null clears the override and reverts to the plan default.
 						apiKeyLimit: z.number().int().min(0).max(100000).nullable(),
+						// Null clears the plan term (open-ended plan).
+						planExpiresAt: planTermDateSchema,
+						planStartedAt: planTermDateSchema,
+						// Enterprise trial window. `isTrialActive` false leaves the dates
+						// on the record as history but stops the trial counting down.
+						isTrialActive: z.boolean(),
+						trialStartDate: planTermDateSchema,
+						trialEndDate: planTermDateSchema,
 					}),
 				},
 			},
@@ -6247,6 +6572,11 @@ const manageOrganizationRoute = createRoute({
 						plan: z.string(),
 						seats: z.number().int().nullable(),
 						apiKeyLimit: z.number().int().nullable(),
+						planExpiresAt: z.string().nullable(),
+						planStartedAt: z.string().nullable(),
+						isTrialActive: z.boolean(),
+						trialStartDate: z.string().nullable(),
+						trialEndDate: z.string().nullable(),
 					}),
 				},
 			},
@@ -6268,7 +6598,17 @@ const manageOrganizationRoute = createRoute({
 admin.openapi(manageOrganizationRoute, async (c) => {
 	const user = c.get("user");
 	const { orgId } = c.req.valid("param");
-	const { name, plan, seats, apiKeyLimit } = c.req.valid("json");
+	const {
+		name,
+		plan,
+		seats,
+		apiKeyLimit,
+		planExpiresAt,
+		planStartedAt,
+		isTrialActive,
+		trialStartDate,
+		trialEndDate,
+	} = c.req.valid("json");
 
 	const org = await db.query.organization.findFirst({
 		where: {
@@ -6282,6 +6622,44 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 		});
 	}
 
+	const expiresAt = planExpiresAt ? new Date(planExpiresAt) : null;
+	const startedAt = planStartedAt ? new Date(planStartedAt) : null;
+	const trialStartsAt = trialStartDate ? new Date(trialStartDate) : null;
+	const trialEndsAt = trialEndDate ? new Date(trialEndDate) : null;
+
+	// A start date with no expiry is not a term: no surface renders one, and an
+	// open-ended plan is expressed by leaving both dates empty. The reverse is
+	// deliberately allowed — Stripe writes `planExpiresAt` on its own as a legacy
+	// Pro renewal date, so organizations carrying one must stay manageable.
+	if (startedAt && !expiresAt) {
+		throw new HTTPException(400, {
+			message: "A plan start date needs a plan expiry date",
+		});
+	}
+
+	if (expiresAt && startedAt && startedAt.getTime() >= expiresAt.getTime()) {
+		throw new HTTPException(400, {
+			message: "Plan start date must be before the plan expiry date",
+		});
+	}
+
+	if (
+		trialStartsAt &&
+		trialEndsAt &&
+		trialStartsAt.getTime() >= trialEndsAt.getTime()
+	) {
+		throw new HTTPException(400, {
+			message: "Trial start date must be before the trial end date",
+		});
+	}
+
+	// A trial that is "active" with no end date would count down forever.
+	if (isTrialActive && !trialEndsAt) {
+		throw new HTTPException(400, {
+			message: "An active trial needs a trial end date",
+		});
+	}
+
 	await db
 		.update(tables.organization)
 		.set({
@@ -6289,6 +6667,11 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 			plan,
 			seats,
 			apiKeyLimit,
+			planExpiresAt: expiresAt,
+			planStartedAt: startedAt,
+			isTrialActive,
+			trialStartDate: trialStartsAt,
+			trialEndDate: trialEndsAt,
 		})
 		.where(eq(tables.organization.id, orgId));
 
@@ -6307,6 +6690,14 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 			newSeats: seats,
 			previousApiKeyLimit: org.apiKeyLimit,
 			newApiKeyLimit: apiKeyLimit,
+			previousPlanExpiresAt: org.planExpiresAt?.toISOString() ?? null,
+			newPlanExpiresAt: expiresAt?.toISOString() ?? null,
+			previousPlanStartedAt: org.planStartedAt?.toISOString() ?? null,
+			newPlanStartedAt: startedAt?.toISOString() ?? null,
+			previousIsTrialActive: org.isTrialActive,
+			newIsTrialActive: isTrialActive,
+			previousTrialEndDate: org.trialEndDate?.toISOString() ?? null,
+			newTrialEndDate: trialEndsAt?.toISOString() ?? null,
 		},
 	});
 
@@ -6316,6 +6707,11 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 		plan,
 		seats,
 		apiKeyLimit,
+		planExpiresAt: expiresAt?.toISOString() ?? null,
+		planStartedAt: startedAt?.toISOString() ?? null,
+		isTrialActive,
+		trialStartDate: trialStartsAt?.toISOString() ?? null,
+		trialEndDate: trialEndsAt?.toISOString() ?? null,
 	});
 });
 
@@ -7221,6 +7617,9 @@ admin.openapi(getProviderHistory, async (c) => {
 				and(
 					eq(modelProviderMappingHistoryHourly.providerId, providerId),
 					gte(modelProviderMappingHistoryHourly.hourTimestamp, hourStartDate),
+					// Provider totals across models: the region-less root row already
+					// carries each mapping's regional traffic.
+					excludeRegionalMappingRows(modelProviderMappingHistoryHourly),
 				),
 			)
 			.groupBy(modelProviderMappingHistoryHourly.hourTimestamp)
@@ -7288,6 +7687,7 @@ admin.openapi(getProviderHistory, async (c) => {
 				and(
 					eq(modelProviderMappingHistory.providerId, providerId),
 					gte(modelProviderMappingHistory.minuteTimestamp, startDate),
+					excludeRegionalMappingRows(modelProviderMappingHistory),
 				),
 			)
 			.groupBy(modelProviderMappingHistory.minuteTimestamp)
@@ -7582,6 +7982,9 @@ admin.openapi(getMappingHistory, async (c) => {
 	// When a region is given, restrict the minute-level mapping history to the
 	// exact regional mapping(s). The hourly project rollups have no region
 	// dimension, so region scoping only applies to the minute-granularity source.
+	// Without a region the rows are summed across the mapping's variants, which
+	// means the regional rows have to be dropped — the region-less root row
+	// already includes their traffic.
 	const regionMappingFilter =
 		region !== undefined
 			? inArray(
@@ -7597,7 +8000,7 @@ admin.openapi(getMappingHistory, async (c) => {
 							),
 						),
 				)
-			: undefined;
+			: excludeRegionalMappingRows(modelProviderMappingHistory);
 
 	if (projectId) {
 		const rows = await db
@@ -7688,7 +8091,7 @@ admin.openapi(getMappingHistory, async (c) => {
 								),
 							),
 					)
-				: undefined;
+				: excludeRegionalMappingRows(modelProviderMappingHistoryHourly);
 
 		const rows = await db
 			.select({
@@ -7975,7 +8378,15 @@ admin.openapi(getProviderDetail, async (c) => {
 				...tokenBreakdownSums(mph),
 			})
 			.from(mph)
-			.where(and(eq(mph.providerId, providerId), gte(mphTs, startDate)))
+			.where(
+				and(
+					eq(mph.providerId, providerId),
+					gte(mphTs, startDate),
+					// Grouped per model, so the mapping's regional rows would be added
+					// on top of the root row that already contains them.
+					excludeRegionalMappingRows(mph),
+				),
+			)
 			.groupBy(mph.modelId),
 	]);
 
@@ -11927,6 +12338,12 @@ const devpassTransactionSchema = z.object({
 	currency: z.string(),
 	status: z.string(),
 	description: z.string().nullable(),
+	// Whether an admin can refund this payment, and how much of it is left.
+	// `refundIneligibleReason` is null when `refundable` is true.
+	refundable: z.boolean(),
+	refundIneligibleReason: z.string().nullable(),
+	refundedAmount: z.string(),
+	refundableAmount: z.string(),
 });
 
 const devpassPaymentFailureSchema = z.object({
@@ -12013,6 +12430,130 @@ const giftResetPassesRoute = createRoute({
 				},
 			},
 			description: "Reset Passes gifted successfully.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Subscriber not found.",
+		},
+	},
+});
+
+// Refund a DevPass payment on behalf of the subscriber. The Stripe refund is
+// all this does directly: the `charge.refunded` webhook records the
+// `credit_refund` row, deducts top-up credits, claws back an unused Reset Pass,
+// and cancels the subscription when a plan payment is refunded in full.
+const refundDevpassPaymentRoute = createRoute({
+	method: "post",
+	path: "/devpass/{orgId}/refund",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						transactionId: z.string(),
+						// Omit for a full refund of whatever is left on the payment.
+						amount: z.number().positive().optional(),
+						reason: z
+							.enum(ADMIN_REFUND_REASONS)
+							.default("requested_by_customer"),
+						comment: z.string().max(500).optional(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						stripeRefundId: z.string(),
+						amount: z.string(),
+					}),
+				},
+			},
+			description:
+				"Refund created; bookkeeping is applied when Stripe confirms via webhook.",
+		},
+		400: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Payment is not refundable.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Subscriber or transaction not found.",
+		},
+	},
+});
+
+// Cancel a DevPass subscription on behalf of the subscriber, either at the end
+// of the paid period (the default, same as the customer-facing cancel) or
+// immediately. Plan state is updated by the resulting Stripe webhook.
+const cancelDevpassSubscriptionRoute = createRoute({
+	method: "post",
+	path: "/devpass/{orgId}/cancel-subscription",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						// Immediate cancellation ends access right away without
+						// refunding the current period — pair it with a refund when the
+						// customer should get their money back.
+						immediate: z.boolean().default(false),
+						comment: z.string().max(500).optional(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						immediate: z.boolean(),
+						subscriptionId: z.string(),
+					}),
+				},
+			},
+			description: "DevPass subscription cancelled.",
+		},
+		400: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "No active DevPass subscription.",
 		},
 		404: {
 			content: {
@@ -13950,6 +14491,8 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 			currency: tables.transaction.currency,
 			status: tables.transaction.status,
 			description: tables.transaction.description,
+			stripePaymentIntentId: tables.transaction.stripePaymentIntentId,
+			stripeInvoiceId: tables.transaction.stripeInvoiceId,
 		})
 		.from(tables.transaction)
 		.where(
@@ -13977,6 +14520,13 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		)
 		.orderBy(desc(tables.transaction.createdAt))
 		.limit(100);
+
+	// Refunds already issued against those payments, so the panel can show what
+	// is left to refund instead of offering a button that Stripe would reject.
+	const refundedByTransactionId = await sumRefundsByTransaction(
+		orgId,
+		transactions.map((t) => t.id),
+	);
 
 	const paymentFailures = await db
 		.select({
@@ -14007,16 +14557,26 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 							org.devPlanIncludedResetPassesUsed,
 						),
 		},
-		transactions: transactions.map((t) => ({
-			id: t.id,
-			createdAt: t.createdAt.toISOString(),
-			type: t.type,
-			amount: t.amount ?? null,
-			creditAmount: t.creditAmount ?? null,
-			currency: t.currency,
-			status: t.status,
-			description: t.description ?? null,
-		})),
+		transactions: transactions.map((t) => {
+			const refundability = computeAdminRefundability({
+				transaction: t,
+				refundedAmount: refundedByTransactionId.get(t.id) ?? new Decimal(0),
+			});
+			return {
+				id: t.id,
+				createdAt: t.createdAt.toISOString(),
+				type: t.type,
+				amount: t.amount ?? null,
+				creditAmount: t.creditAmount ?? null,
+				currency: t.currency,
+				status: t.status,
+				description: t.description ?? null,
+				refundable: refundability.refundable,
+				refundIneligibleReason: refundability.reason,
+				refundedAmount: refundability.refundedAmount,
+				refundableAmount: refundability.refundableAmount,
+			};
+		}),
 		paymentFailures: paymentFailures.map((p) => ({
 			id: p.id,
 			createdAt: p.createdAt.toISOString(),
@@ -14099,6 +14659,123 @@ admin.openapi(giftResetPassesRoute, async (c) => {
 	return c.json({
 		message: "Reset Passes gifted successfully",
 		resetPasses,
+	});
+});
+
+admin.openapi(refundDevpassPaymentRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+	const { transactionId, amount, reason, comment } = c.req.valid("json");
+
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: orgId }, kind: { eq: "devpass" } },
+	});
+
+	if (!org) {
+		throw new HTTPException(404, { message: "Subscriber not found" });
+	}
+
+	const transaction = await db.query.transaction.findFirst({
+		where: { id: { eq: transactionId }, organizationId: { eq: orgId } },
+	});
+
+	if (!transaction) {
+		throw new HTTPException(404, { message: "Transaction not found" });
+	}
+
+	const refundedByTransactionId = await sumRefundsByTransaction(orgId, [
+		transaction.id,
+	]);
+
+	const { stripeRefundId, amount: refundedAmount } = await executeAdminRefund({
+		organization: org,
+		transaction,
+		adminUserId: user!.id,
+		amount,
+		refundedAmount:
+			refundedByTransactionId.get(transaction.id) ?? new Decimal(0),
+		reason,
+		comment,
+	});
+
+	return c.json({
+		message: `Refund of $${refundedAmount} created. Credits, Reset Passes and plan status update once Stripe confirms.`,
+		stripeRefundId,
+		amount: refundedAmount,
+	});
+});
+
+admin.openapi(cancelDevpassSubscriptionRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+	const { immediate, comment } = c.req.valid("json");
+
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: orgId }, kind: { eq: "devpass" } },
+	});
+
+	if (!org) {
+		throw new HTTPException(404, { message: "Subscriber not found" });
+	}
+
+	const subscriptionId = org.devPlanStripeSubscriptionId;
+	if (!subscriptionId) {
+		throw new HTTPException(400, {
+			message: "This subscriber has no active DevPass subscription",
+		});
+	}
+
+	const cancellationDetails = comment ? { comment } : undefined;
+
+	try {
+		if (immediate) {
+			await getStripe().subscriptions.cancel(subscriptionId, {
+				invoice_now: false,
+				prorate: false,
+				...(cancellationDetails
+					? { cancellation_details: cancellationDetails }
+					: {}),
+			});
+		} else {
+			await getStripe().subscriptions.update(subscriptionId, {
+				cancel_at_period_end: true,
+				...(cancellationDetails
+					? { cancellation_details: cancellationDetails }
+					: {}),
+			});
+		}
+	} catch (error) {
+		// A subscription Stripe has already ended is exactly the state we want;
+		// the plan columns are reset by the webhook (or the customer's next
+		// dashboard visit), so report success instead of failing the action.
+		if (isTerminalSubscriptionError(error)) {
+			logger.info(
+				`DevPass subscription ${subscriptionId} already terminal, skipping admin cancel`,
+			);
+		} else {
+			throw error;
+		}
+	}
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "dev_plan.admin_cancel",
+		resourceType: "dev_plan",
+		resourceId: subscriptionId,
+		metadata: {
+			tier: org.devPlan,
+			immediate,
+			comment,
+		},
+	});
+
+	return c.json({
+		message: immediate
+			? "DevPass subscription cancelled immediately"
+			: "DevPass subscription will end at the end of the current period",
+		immediate,
+		subscriptionId,
 	});
 });
 

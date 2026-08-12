@@ -358,7 +358,10 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 		(sum, day) => sum + day.requestCount,
 		0,
 	);
-	const prevCost = prevActivityData.reduce((sum, day) => sum + day.cost, 0);
+	const prevCost = prevActivityData.reduce(
+		(sum, day) => sum + day.cost + day.dataStorageCost,
+		0,
+	);
 	const prevSavings = prevActivityData.reduce(
 		(sum, day) => sum + day.discountSavings,
 		0,
@@ -366,7 +369,10 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 
 	const cacheHitRate =
 		totalRequests > 0 ? (totalCached / totalRequests) * 100 : 0;
-	const avgCostPerRequest = totalRequests > 0 ? totalCost / totalRequests : 0;
+	// Data retention storage is billed on top of inference costs, so the
+	// headline spend includes it.
+	const totalSpend = totalCost + totalDataStorageCost;
+	const avgCostPerRequest = totalRequests > 0 ? totalSpend / totalRequests : 0;
 
 	// Day-by-day series for the KPI sparklines, with missing days filled as 0.
 	const { requestsTrend, costTrend } = (() => {
@@ -376,7 +382,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 			);
 			return {
 				requestsTrend: sorted.map((day) => day.requestCount),
-				costTrend: sorted.map((day) => day.cost),
+				costTrend: sorted.map((day) => day.cost + day.dataStorageCost),
 			};
 		}
 		const byDate = new Map(activityData.map((day) => [day.date, day]));
@@ -385,7 +391,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 		for (let i = 0; i < rangeDays; i++) {
 			const day = byDate.get(format(addDays(from, i), "yyyy-MM-dd"));
 			requests.push(day?.requestCount ?? 0);
-			costs.push(day?.cost ?? 0);
+			costs.push(day ? day.cost + day.dataStorageCost : 0);
 		}
 		return { requestsTrend: requests, costTrend: costs };
 	})();
@@ -550,7 +556,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 										? "BYOK Usage"
 										: "Total Spend"
 							}
-							value={`$${totalCost.toFixed(2)}`}
+							value={`$${totalSpend.toFixed(2)}`}
 							subtitle={
 								usageMode === "total" &&
 								totalCreditsCost > 0 &&
@@ -572,7 +578,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 							}
 							icon={<CircleDollarSign className="h-4 w-4" />}
 							accent="blue"
-							delta={pctChange(totalCost, prevCost)}
+							delta={pctChange(totalSpend, prevCost)}
 							trend={costTrend}
 							isLoading={isLoading}
 						/>
@@ -711,7 +717,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 															href={
 																process.env.NODE_ENV === "development"
 																	? "http://localhost:3003"
-																	: "https://chat.llmgateway.io"
+																	: "https://lounge.llmgateway.io"
 															}
 															target="_blank"
 															rel="noopener noreferrer"
@@ -767,7 +773,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 														href={
 															process.env.NODE_ENV === "development"
 																? "http://localhost:3003"
-																: "https://chat.llmgateway.io"
+																: "https://lounge.llmgateway.io"
 														}
 														target="_blank"
 														rel="noopener noreferrer"

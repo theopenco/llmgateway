@@ -31,7 +31,7 @@ import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import { parseDataUrl } from "./parse-data-url.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
-import { processImageUrl } from "./process-image-url.js";
+import { ImageSizeLimitError, processImageUrl } from "./process-image-url.js";
 import { RequestError } from "./request-error.js";
 import { transformAnthropicMessages } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
@@ -568,6 +568,44 @@ const GOOGLE_OPAQUE_SCHEMA_VALUE_KEYS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * JSON Schema lets `type` be a list of alternatives — `["string", "null"]` is
+ * how most schema generators express an optional field — but Google's `Schema`
+ * proto models `type` as a single enum. A list fails the entire request with
+ * `Invalid JSON payload received. Unknown name "type" at
+ * 'tools[0].function_declarations[N].parameters.properties[M].value': Proto
+ * field is not repeating, cannot start list.`, and since that is a 400 it
+ * classifies as `client_error`: no fallback, no retry.
+ *
+ * Collapse it the way the `response_format` path already does: `"null"` becomes
+ * `nullable: true` and the first remaining member becomes the type. Picking one
+ * member of a genuine multi-type union does lose information, but a single node
+ * cannot express the union in Google's schema, and a narrowed type still yields
+ * usable tool calls where the alternative is that every request carrying the
+ * tool fails.
+ */
+function normalizeGoogleSchemaType(type: unknown): {
+	type?: string;
+	nullable: boolean;
+} {
+	if (typeof type === "string") {
+		return { type, nullable: false };
+	}
+	if (!Array.isArray(type)) {
+		return { nullable: false };
+	}
+
+	const nullable = type.includes("null");
+	const firstNonNull = type.find(
+		(entry): entry is string => typeof entry === "string" && entry !== "null",
+	);
+	// `["null"]` on its own has no Google equivalent — its `Type` enum has no
+	// NULL member — so fall back to a nullable string.
+	const resolved = firstNonNull ?? (nullable ? "string" : undefined);
+
+	return { type: resolved, nullable };
+}
+
+/**
  * Recursively drops everything Google's schema parser does not accept and
  * expands $ref references inline, since Google supports neither $ref nor the
  * bulk of JSON Schema's validation vocabulary.
@@ -622,6 +660,7 @@ function stripUnsupportedSchemaProperties(
 	}
 
 	const cleaned: any = {};
+	let nullableFromType = false;
 
 	for (const [key, value] of Object.entries(schema)) {
 		if (!GOOGLE_SUPPORTED_SCHEMA_KEYS.has(key)) {
@@ -633,16 +672,23 @@ function stripUnsupportedSchemaProperties(
 			continue;
 		}
 
+		if (key === "type") {
+			const normalized = normalizeGoogleSchemaType(value);
+			if (normalized.type !== undefined) {
+				cleaned.type = normalized.type;
+			}
+			nullableFromType ||= normalized.nullable;
+			continue;
+		}
+
 		// For `properties` (a map of user-named fields to schemas), recurse into
 		// each value but do not filter the field names themselves — otherwise a
 		// tool parameter legitimately named `examples`, `prefill`, `const`, etc.
 		// would be silently dropped.
-		if (
-			key === "properties" &&
-			value &&
-			typeof value === "object" &&
-			!Array.isArray(value)
-		) {
+		if (key === "properties") {
+			if (!value || typeof value !== "object" || Array.isArray(value)) {
+				continue;
+			}
 			const cleanedProps: Record<string, any> = {};
 			for (const [propName, propSchema] of Object.entries(value)) {
 				cleanedProps[propName] = stripUnsupportedSchemaProperties(
@@ -655,12 +701,29 @@ function stripUnsupportedSchemaProperties(
 			continue;
 		}
 
+		// Draft-4 tuple validation puts a list in `items`, which hits the same
+		// "Proto field is not repeating" 400 as a list-valued `type`; Google's
+		// `items` is a single schema, so keep the first entry.
+		if (key === "items" && Array.isArray(value)) {
+			const [first] = value;
+			if (first && typeof first === "object") {
+				cleaned.items = stripUnsupportedSchemaProperties(first, defs, seenRefs);
+			}
+			continue;
+		}
+
 		// Recursively clean nested objects
 		if (value && typeof value === "object") {
 			cleaned[key] = stripUnsupportedSchemaProperties(value, defs, seenRefs);
 		} else {
 			cleaned[key] = value;
 		}
+	}
+
+	// Applied after the loop so it wins over an explicit `nullable: false` that
+	// contradicts a `"null"` member in the type list, whichever key came first.
+	if (nullableFromType) {
+		cleaned.nullable = true;
 	}
 
 	// Filter 'required' array to only include properties that exist in 'properties'
@@ -688,6 +751,44 @@ function mapGoogleImageSize(imageSize: string): string {
 	}
 
 	return imageSize;
+}
+
+/**
+ * Maps the unified `image_config.image_size` to xAI's `resolution` enum, which
+ * only accepts the lowercase tier names `1k` and `2k` and 422s on anything else
+ * (including `1K` and pixel-dimension strings). Callers pass sizes in whichever
+ * shape their other providers use, so a tier is resolved from the longest pixel
+ * edge when dimensions are given. Returns undefined when the size names no
+ * xAI tier, so the request omits `resolution` and gets xAI's 1k default rather
+ * than a hard rejection.
+ */
+export function mapXaiImageResolution(imageSize: string): string | undefined {
+	const normalized = imageSize.trim().toLowerCase();
+	if (normalized === "1k" || normalized === "2k") {
+		return normalized;
+	}
+
+	const dimensions = normalized.match(/^(\d+)\s*[x*]\s*(\d+)$/);
+	if (dimensions) {
+		const longestEdge = Math.max(Number(dimensions[1]), Number(dimensions[2]));
+		return longestEdge > 1536 ? "2k" : "1k";
+	}
+
+	return undefined;
+}
+
+/**
+ * xAI's image models accept `quality` as a strict enum and 422 on anything
+ * outside it, so the unified `auto` (meaning "let the provider decide") is
+ * dropped rather than forwarded.
+ */
+export function mapXaiImageQuality(imageQuality: string): string | undefined {
+	const normalized = imageQuality.trim().toLowerCase();
+	return normalized === "low" ||
+		normalized === "medium" ||
+		normalized === "high"
+		? normalized
+		: undefined;
 }
 
 /**
@@ -1231,7 +1332,10 @@ export async function prepareRequestBody(
 	// Together AI, ByteDance, and Z.ai reason by default so they must explicitly disable
 	// thinking when asked. Every other provider treats the absence of
 	// reasoning_effort as "off" already, so normalize `none` away for them to
-	// avoid forwarding an unsupported enum value.
+	// avoid forwarding an unsupported enum value. A mapping that publishes
+	// `none` in its `reasoningEfforts` catalog entry is authoritative too —
+	// it documents that the provider accepts the value, so forward it even
+	// when the provider is not in the allowlist above (#3423).
 	const handlesNoneNatively =
 		usedProvider === "openai" ||
 		usedProvider === "azure" ||
@@ -1250,7 +1354,7 @@ export async function prepareRequestBody(
 		usedProvider === "together-ai" ||
 		usedProvider === "bytedance" ||
 		usedProvider === "zai" ||
-		providerMappingForOptions?.apiFormat === "openai-chat-completions";
+		(providerMappingForOptions?.reasoningEfforts?.includes("none") ?? false);
 	if (reasoning_effort === "none" && !handlesNoneNatively) {
 		reasoning_effort = undefined;
 	}
@@ -1376,6 +1480,12 @@ export async function prepareRequestBody(
 
 		// xAI Grok Imagine uses OpenAI-compatible image generation format
 		// When images are present, use the edits format
+		const xaiQuality = image_config?.image_quality
+			? mapXaiImageQuality(image_config.image_quality)
+			: undefined;
+		const xaiResolution = image_config?.image_size
+			? mapXaiImageResolution(image_config.image_size)
+			: undefined;
 		const xaiImageRequest: any = {
 			model: usedExternalId,
 			prompt,
@@ -1383,6 +1493,8 @@ export async function prepareRequestBody(
 			...(image_config?.aspect_ratio && {
 				aspect_ratio: image_config.aspect_ratio,
 			}),
+			...(xaiQuality && { quality: xaiQuality }),
+			...(xaiResolution && { resolution: xaiResolution }),
 			...(image_config?.n && { n: image_config.n }),
 		};
 
@@ -2897,6 +3009,16 @@ export async function prepareRequestBody(
 						type: "enabled",
 						budget_tokens: thinkingBudget,
 					};
+					// Anthropic rejects the request outright when `max_tokens` is not
+					// strictly greater than `thinking.budget_tokens`. The budget cannot
+					// be lowered to fit (1024 is Anthropic's minimum), so a caller-
+					// supplied max_tokens that leaves no room for a reply is raised to
+					// the budget plus a minimum response allowance — mirroring the
+					// aws-bedrock branch.
+					const reasoningFloor = thinkingBudget + 1000;
+					if (requestBody.max_tokens < reasoningFloor) {
+						requestBody.max_tokens = reasoningFloor;
+					}
 				}
 				// Anthropic requires temperature to be exactly 1 when thinking is
 				// enabled — but only for models that still accept temperature. The
@@ -3292,6 +3414,12 @@ export async function prepareRequestBody(
 									},
 								});
 							} catch (error) {
+								// A size rejection is the user's to act on: degrading to a
+								// placeholder would return a 200 that silently ignores the
+								// image and still bills for the turn.
+								if (error instanceof ImageSizeLimitError) {
+									throw error;
+								}
 								logger.error("Failed to process image for Bedrock", {
 									err:
 										error instanceof Error ? error : new Error(String(error)),
@@ -4109,27 +4237,50 @@ export async function prepareRequestBody(
 					supported.length === 0 ||
 					supported.includes("reasoning_effort")
 				) {
-					requestBody.reasoning_effort = reasoning_effort;
-				}
-			}
-			// Hybrid models that keep thinking off by default (e.g. DeepSeek V3.2 on
-			// Novita) ignore `reasoning_effort` and require the vLLM chat-template
-			// flag to turn reasoning on. Only set it when the caller asked for
-			// reasoning so plain requests stay non-thinking.
-			if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
-				const thinkingMapping = modelDef?.providers.find(
-					(p) =>
-						p.providerId === usedProvider &&
-						((p as ProviderModelMapping).region ?? null) === usedRegion,
-				) as ProviderModelMapping | undefined;
-				if (thinkingMapping?.requiresEnableThinking) {
-					requestBody.chat_template_kwargs = {
-						...(requestBody.chat_template_kwargs ?? {}),
-						thinking: true,
-					};
+					if (usedProvider === "embercloud") {
+						// embercloud's documented request body uses a nested
+						// `reasoning` object (`reasoning.enabled` +
+						// `reasoning.effort`) instead of the flat OpenAI-style
+						// `reasoning_effort` field, which it silently ignores
+						// (https://embercloud.ai/docs/request-body). "none"
+						// maps to enabled: false; any other tier enables
+						// reasoning at the requested effort.
+						requestBody.reasoning =
+							reasoning_effort === "none"
+								? { enabled: false }
+								: { enabled: true, effort: reasoning_effort };
+					} else {
+						requestBody.reasoning_effort = reasoning_effort;
+					}
 				}
 			}
 			break;
+		}
+	}
+
+	// vLLM chat-template thinking flags are handled after the provider switch so
+	// every provider branch (not just the OpenAI-compatible default) applies them
+	// uniformly. Hybrid models that keep thinking off by default (e.g. DeepSeek
+	// V3.2 on Novita) ignore `reasoning_effort` and require the chat-template flag
+	// to turn reasoning on; mappings that think by default (e.g. InclusionAI
+	// Ling-3.0-flash) declare `chatTemplateThinkingKey` for the flag that controls
+	// thinking. `reasoning_effort: "none"` flips it to false to turn thinking off,
+	// and any other effort flips it to true. A `reasoning_max_tokens` budget (from
+	// an Anthropic `thinking.budget_tokens`) is intentionally dropped for these
+	// mappings: the chat-template flag is a binary on/off toggle with no budget
+	// dimension, so the gateway only conveys whether thinking is on.
+	if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
+		if (providerMappingForOptions?.chatTemplateThinkingKey) {
+			requestBody.chat_template_kwargs = {
+				...(requestBody.chat_template_kwargs ?? {}),
+				[providerMappingForOptions.chatTemplateThinkingKey]:
+					reasoning_effort !== "none",
+			};
+		} else if (providerMappingForOptions?.requiresEnableThinking) {
+			requestBody.chat_template_kwargs = {
+				...(requestBody.chat_template_kwargs ?? {}),
+				thinking: true,
+			};
 		}
 	}
 

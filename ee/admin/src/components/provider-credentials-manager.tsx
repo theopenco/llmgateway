@@ -47,6 +47,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { thrownErrorMessage } from "@/lib/api-error";
 import { formatUsd, isInRotation } from "@/lib/provider-key-spend";
 import { cn } from "@/lib/utils";
 
@@ -188,8 +189,9 @@ type EnvCredential = ProviderCredentialCatalogEntry["envCredentials"][number];
  * the managed credentials so an operator sees every key that can serve a
  * provider in one table. Read-only by nature: it can only be changed by
  * redeploying, so there is no edit/delete and it takes no part in reordering.
- * `superseded` marks it visibly unused once managed credentials cover its
- * audience — the gateway then ignores the variable entirely.
+ * `superseded` marks it visibly unused once the provider has any managed
+ * credential — the gateway then ignores every variable of that provider,
+ * whatever audience or region the credential is scoped to.
  */
 function EnvCredentialRow({
 	provider,
@@ -257,12 +259,12 @@ function EnvCredentialRow({
 					<Badge
 						variant="secondary"
 						className="text-muted-foreground"
-						title="Managed credentials cover this audience, so the gateway no longer reads this variable for it. Safe to remove on the next deploy."
+						title="This provider has a managed credential, so the gateway no longer reads any of its LLM_* variables. Safe to remove on the next deploy."
 					>
 						unused
 					</Badge>
 				) : (
-					<Badge title="No managed credential covers this audience yet, so this variable still serves its traffic.">
+					<Badge title="This provider has no managed credential yet, so this variable still serves its traffic.">
 						in use
 					</Badge>
 				)}
@@ -546,30 +548,22 @@ export function ProviderCredentialsManager({
 		[catalog],
 	);
 
-	// Audiences each provider has an ACTIVE managed credential for. An env key
-	// is unused for its audience once that audience is covered directly or via
-	// the `default` fallback — mirroring findManagedProviderKey's selection.
-	const managedCoverage = useMemo(() => {
-		const map = new Map<string, Set<string>>();
+	// Providers with an ACTIVE managed credential. The gateway stops reading a
+	// provider's environment the moment it has one — whatever that credential's
+	// audience or region — so every env key of such a provider is unused.
+	const managedProviders = useMemo(() => {
+		const set = new Set<string>();
 		for (const credential of credentials) {
-			if (credential.status !== "active") {
-				continue;
+			if (credential.status === "active") {
+				set.add(credential.provider);
 			}
-			const set = map.get(credential.provider) ?? new Set<string>();
-			set.add(credential.variant);
-			map.set(credential.provider, set);
 		}
-		return map;
+		return set;
 	}, [credentials]);
 
 	const isEnvSuperseded = useCallback(
-		(provider: string, variant: string) => {
-			const covered = managedCoverage.get(provider);
-			return Boolean(
-				covered && (covered.has(variant) || covered.has("default")),
-			);
-		},
-		[managedCoverage],
+		(provider: string) => managedProviders.has(provider),
+		[managedProviders],
 	);
 
 	// Providers whose only keys live in the environment get their own read-only
@@ -912,7 +906,7 @@ export function ProviderCredentialsManager({
 												key={`${entry.envVar}:${entry.index}`}
 												provider={provider}
 												entry={entry}
-												superseded={isEnvSuperseded(provider, entry.variant)}
+												superseded={isEnvSuperseded(provider)}
 											/>
 										))}
 									</ReorderableList>
@@ -924,7 +918,7 @@ export function ProviderCredentialsManager({
 												key={`${entry.envVar}:${entry.index}`}
 												provider={provider}
 												entry={entry}
-												superseded={isEnvSuperseded(provider, entry.variant)}
+												superseded={isEnvSuperseded(provider)}
 											/>
 										))}
 									</TableBody>
@@ -1058,6 +1052,26 @@ const nonNegativeDecimalPattern = /^\d+(?:\.\d+)?$/;
 type ModelVerificationEntry =
 	ProviderCredentialModelVerification["results"][number];
 
+interface SelfTestOutcome {
+	result?: ProviderCredentialSelfTestResult;
+	error?: string;
+}
+
+/**
+ * Why the self-test failed, in the order the reason is most specific: the
+ * gateway could not run the probe at all, the provider explained itself, or it
+ * only answered with a status. The generic sentence is the last resort — it is
+ * all the admin gets, so nothing more specific may be dropped on the way here.
+ */
+function selfTestFailureReason(outcome: SelfTestOutcome): string {
+	const statusCode = outcome.result?.statusCode;
+	const suffix = statusCode ? ` (HTTP ${statusCode})` : "";
+	const reason = outcome.error ?? outcome.result?.error;
+	return reason
+		? `${reason}${suffix}`
+		: `the provider rejected the request${suffix}`;
+}
+
 function CredentialDialog({
 	catalog,
 	credential,
@@ -1110,7 +1124,7 @@ function CredentialDialog({
 	// cleared whenever an input that changes what the probe would send changes.
 	const [selfTestLoading, setSelfTestLoading] = useState(false);
 	const [selfTestOutcome, setSelfTestOutcome] = useState<
-		{ result?: ProviderCredentialSelfTestResult; error?: string } | undefined
+		SelfTestOutcome | undefined
 	>();
 	const [verifyLoading, setVerifyLoading] = useState(false);
 	const [verifyOutcome, setVerifyOutcome] = useState<
@@ -1147,8 +1161,10 @@ function CredentialDialog({
 					? { result: outcome.result }
 					: { error: outcome.error ?? "Failed to test credential" },
 			);
-		} catch {
-			setSelfTestOutcome({ error: "Failed to test credential" });
+		} catch (cause) {
+			setSelfTestOutcome({
+				error: thrownErrorMessage(cause, "Failed to test credential"),
+			});
 		} finally {
 			setSelfTestLoading(false);
 		}
@@ -1167,8 +1183,10 @@ function CredentialDialog({
 					? { result: outcome.result }
 					: { error: outcome.error ?? "Failed to verify models" },
 			);
-		} catch {
-			setVerifyOutcome({ error: "Failed to verify models" });
+		} catch (cause) {
+			setVerifyOutcome({
+				error: thrownErrorMessage(cause, "Failed to verify models"),
+			});
 		} finally {
 			setVerifyLoading(false);
 		}
@@ -1177,6 +1195,36 @@ function CredentialDialog({
 	const selectedEntry =
 		catalogEntry ?? catalog.find((entry) => entry.id === provider);
 	const isRegionScoped = (selectedEntry?.regions.length ?? 0) > 0;
+
+	// Settings where exactly one member may be filled (e.g. Azure's resource vs
+	// base URL). Filling one disables its siblings, so the invalid combination
+	// cannot be entered rather than only being rejected on save.
+	const exclusiveGroups = useMemo(
+		() => selectedEntry?.exclusiveConfigGroups ?? [],
+		[selectedEntry],
+	);
+	const filledExclusiveKeys = useCallback(
+		(keys: string[]) => keys.filter((key) => config[key]?.trim()),
+		[config],
+	);
+	const exclusiveGroupOf = useCallback(
+		(key: string) => exclusiveGroups.find((group) => group.keys.includes(key)),
+		[exclusiveGroups],
+	);
+	const isSupersededExclusiveKey = useCallback(
+		(key: string) => {
+			const group = exclusiveGroupOf(key);
+			if (!group) {
+				return false;
+			}
+			const filled = filledExclusiveKeys(group.keys);
+			return filled.length > 0 && !filled.includes(key);
+		},
+		[exclusiveGroupOf, filledExclusiveKeys],
+	);
+	const hasUnsatisfiedExclusiveGroup = exclusiveGroups.some(
+		(group) => filledExclusiveKeys(group.keys).length !== 1,
+	);
 
 	const providerOptions = useMemo(
 		() =>
@@ -1374,28 +1422,76 @@ function CredentialDialog({
 							<p className="text-sm font-medium">
 								{selectedEntry.name} settings
 							</p>
-							{selectedEntry.configKeys.map((entry) => (
-								<div key={entry.key} className="flex flex-col gap-1">
-									<Label htmlFor={`config-${entry.key}`}>
-										{entry.key}
-										{entry.required ? (
-											<span className="ml-1 text-destructive">*</span>
-										) : null}
-									</Label>
-									<Input
-										id={`config-${entry.key}`}
-										value={config[entry.key] ?? ""}
-										onChange={(event) => {
-											setConfig((current) => ({
-												...current,
-												[entry.key]: event.target.value,
-											}));
-											clearProbeResults();
-										}}
-										placeholder={entry.envVar}
-									/>
-								</div>
-							))}
+							{exclusiveGroups.map((group) => {
+								const filled = filledExclusiveKeys(group.keys);
+								const alternatives = group.keys.filter(
+									(key) => key !== filled[0],
+								);
+								return (
+									<p
+										key={group.keys.join("|")}
+										className={
+											filled.length > 1
+												? "text-xs text-destructive"
+												: "text-xs text-muted-foreground"
+										}
+									>
+										{filled.length === 0 ? (
+											<>
+												Set exactly one of{" "}
+												<span className="font-medium">
+													{group.keys.join(" or ")}
+												</span>
+												. {group.description}
+											</>
+										) : filled.length === 1 ? (
+											<>
+												Using <span className="font-medium">{filled[0]}</span>.
+												Clear it to use {alternatives.join(" or ")} instead.
+											</>
+										) : (
+											<>
+												Only one of {group.keys.join(" or ")} may be set — clear
+												all but one to save.
+											</>
+										)}
+									</p>
+								);
+							})}
+							{selectedEntry.configKeys.map((entry) => {
+								const superseded = isSupersededExclusiveKey(entry.key);
+								const group = exclusiveGroupOf(entry.key);
+								return (
+									<div key={entry.key} className="flex flex-col gap-1">
+										<Label htmlFor={`config-${entry.key}`}>
+											{entry.key}
+											{entry.required ? (
+												<span className="ml-1 text-destructive">*</span>
+											) : null}
+											{group && !entry.required ? (
+												<span className="ml-1 text-xs font-normal text-muted-foreground">
+													(or{" "}
+													{group.keys.filter((k) => k !== entry.key).join(", ")}
+													)
+												</span>
+											) : null}
+										</Label>
+										<Input
+											id={`config-${entry.key}`}
+											value={config[entry.key] ?? ""}
+											disabled={superseded}
+											onChange={(event) => {
+												setConfig((current) => ({
+													...current,
+													[entry.key]: event.target.value,
+												}));
+												clearProbeResults();
+											}}
+											placeholder={entry.envVar}
+										/>
+									</div>
+								);
+							})}
 						</div>
 					) : null}
 
@@ -1551,10 +1647,7 @@ function CredentialDialog({
 										{selfTestOutcome.result?.model
 											? ` (probed ${selfTestOutcome.result.model})`
 											: ""}
-										:{" "}
-										{selfTestOutcome.error ??
-											selfTestOutcome.result?.error ??
-											"the provider rejected the request"}
+										: {selfTestFailureReason(selfTestOutcome)}
 									</p>
 								) : (
 									<p className="flex items-center gap-1 text-sm text-green-600">
@@ -1683,7 +1776,11 @@ function CredentialDialog({
 					</Button>
 					<Button
 						onClick={handleSubmit}
-						disabled={loading || (!isEdit && (!provider || !token))}
+						disabled={
+							loading ||
+							(!isEdit && (!provider || !token)) ||
+							hasUnsatisfiedExclusiveGroup
+						}
 					>
 						{loading ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
 						{isEdit ? "Save" : "Create"}

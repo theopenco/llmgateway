@@ -6,7 +6,14 @@ import {
 	pickMappingHistoryTable,
 } from "@/utils/history-window.js";
 
-import { and, cdb, effectiveTtftTotals, gte, sql } from "@llmgateway/db";
+import {
+	and,
+	cdb,
+	effectiveTtftTotals,
+	excludeRegionalMappingRows,
+	gte,
+	sql,
+} from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -112,7 +119,9 @@ publicProvidersStats.openapi(listRoute, async (c) => {
 			updatedAt: sql<Date | null>`MAX(${mphTs})`,
 		})
 		.from(mph)
-		.where(and(gte(mphTs, startDate)))
+		// Grouped per provider, so the regional rows have to be dropped: the
+		// region-less root row of a mapping already includes their traffic.
+		.where(and(gte(mphTs, startDate), excludeRegionalMappingRows(mph)))
 		.groupBy(mph.providerId)
 		// Pin a stable, window-scoped cache tag. Without it Drizzle keys the
 		// cache on the rendered SQL + params, and `startDate` is derived from
@@ -123,7 +132,7 @@ publicProvidersStats.openapi(listRoute, async (c) => {
 		.$withCache({
 			// The version prefix is bumped whenever the selected columns change so
 			// a rolling deploy doesn't serve rows cached in the previous shape.
-			tag: `publicProviderStats:v4:${window}`,
+			tag: `publicProviderStats:v5:${window}`,
 			autoInvalidate: false,
 			config: { ex: STATS_CACHE_TTL_SECONDS },
 		});

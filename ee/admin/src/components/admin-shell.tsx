@@ -41,6 +41,7 @@ import {
 	SidebarTrigger,
 	useSidebar,
 } from "@/components/ui/sidebar";
+import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
 
 import { Logo } from "./ui/logo";
@@ -49,6 +50,12 @@ import type { ReactNode } from "react";
 
 interface AdminShellProps {
 	children: ReactNode;
+	/**
+	 * Server-rendered session-cookie presence. Used only as the fallback while
+	 * `/user/me` is still in flight, so the navigation does not flash in or out
+	 * on every full page load.
+	 */
+	signedIn: boolean;
 }
 
 function MobileHeader() {
@@ -83,11 +90,28 @@ function MobileHeader() {
 	);
 }
 
-export function AdminShell({ children }: AdminShellProps) {
+export function AdminShell({ children, signedIn }: AdminShellProps) {
 	const pathname = usePathname();
 	const router = useRouter();
 	const { signOut } = useAuth();
 	const queryClient = useQueryClient();
+	const { user, isLoading, error } = useUser();
+
+	// Visitors without an admin session never see the navigation: the section
+	// list would suggest there is something reachable behind it, and a sign out
+	// button makes no sense when nobody is signed in.
+	const showNav = user ? user.isAdmin : isLoading && !error && signedIn;
+
+	if (!showNav) {
+		return (
+			<div className="relative min-h-svh w-full">
+				<div className="absolute right-4 top-4 z-50">
+					<ThemeToggle size="compact" />
+				</div>
+				{children}
+			</div>
+		);
+	}
 
 	const isDashboard = pathname === "/" || pathname === "";
 	const isOrganizations = pathname.startsWith("/organizations");

@@ -74,10 +74,10 @@ Sessions carry safety limits by default, and are closed gracefully once in-fligh
 
 ## Talk to a model right now
 
-Lounge ships a **Voice Calls** page at [chat.llmgateway.io/realtime](https://chat.llmgateway.io/realtime): pick a model and a voice, hit **Start call**, and talk. The live transcript builds as you speak, a voice activity indicator shows who has the floor, and every call is saved to your history with its duration, model, voice, and token usage so you can reopen the transcript later.
+Lounge ships a **Voice Calls** page at [lounge.llmgateway.io/realtime](https://lounge.llmgateway.io/realtime): pick a model and a voice, hit **Start call**, and talk. The live transcript builds as you speak, a voice activity indicator shows who has the floor, and every call is saved to your history with its duration, model, voice, and token usage so you can reopen the transcript later.
 
 Realtime runs on pay-as-you-go organizations — your credits, or your own provider key when the project uses [provider keys](https://docs.llmgateway.io/learn/provider-keys). WebSocket is the only transport for now; WebRTC, SIP, image input, and hosted tools are not supported yet.
 
 ---
 
-**[Realtime API docs →](https://docs.llmgateway.io/features/realtime)** | **[Try Voice Calls →](https://chat.llmgateway.io/realtime)**
+**[Realtime API docs →](https://docs.llmgateway.io/features/realtime)** | **[Try Voice Calls →](https://lounge.llmgateway.io/realtime)**

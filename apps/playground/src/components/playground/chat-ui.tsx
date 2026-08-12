@@ -95,7 +95,7 @@ import {
 	sampleSuggestions,
 	type HeroSuggestionGroup,
 } from "@/lib/hero-suggestions";
-import { GPT_IMAGE_SIZES } from "@/lib/image-gen";
+import { getModelImageConfig, GPT_IMAGE_SIZES } from "@/lib/image-gen";
 import { parseImagePartToDataUrl } from "@/lib/image-utils";
 import {
 	parsePlaygroundMessageMetadata,
@@ -1062,42 +1062,15 @@ export const ChatUI = ({
 	onSelectSkill,
 	onRemoveSkill,
 }: ChatUIProps) => {
-	// OpenAI gpt-image-2 uses pixel dimensions and supports a quality dropdown
-	const isGptImage =
-		selectedModel.toLowerCase().includes("gpt-image") ||
-		selectedModel.toLowerCase().includes("openai/gpt-image");
-
-	// Check if the model uses WIDTHxHEIGHT format (Alibaba, ZAI, or OpenAI gpt-image)
-	const usesPixelDimensions =
-		isGptImage ||
-		selectedModel.toLowerCase().includes("alibaba") ||
-		selectedModel.toLowerCase().includes("qwen-image") ||
-		selectedModel.toLowerCase().includes("zai") ||
-		selectedModel.toLowerCase().includes("cogview");
-
-	// Seedream/ByteDance models only support 2K and 4K
-	const isSeedream =
-		selectedModel.toLowerCase().includes("seedream") ||
-		selectedModel.toLowerCase().includes("bytedance/seedream");
-
-	// Gemini 3.1 Flash Image supports 0.5K, 1K (default), 2K, 4K
-	const isGemini31FlashImage = selectedModel
-		.toLowerCase()
-		.includes("gemini-3.1-flash-image");
-
-	const isGemini31FlashLiteImage = selectedModel
-		.toLowerCase()
-		.includes("gemini-3.1-flash-lite-image");
-
-	const availableSizes = isSeedream
-		? (["2K", "4K"] as const)
-		: isGemini31FlashLiteImage
-			? (["1K"] as const)
-			: isGemini31FlashImage
-				? (["0.5K", "1K", "2K", "4K"] as const)
-				: (["1K", "2K", "4K"] as const);
-
-	const qualityOptions = ["auto", "low", "medium", "high"] as const;
+	// Which size/quality controls a model exposes lives in getModelImageConfig,
+	// shared with the image playground so both surfaces offer the same options.
+	const {
+		isGptImage,
+		usesPixelDimensions,
+		availableSizes,
+		supportsQuality,
+		availableQualities: qualityOptions,
+	} = getModelImageConfig(selectedModel);
 
 	const [activeGroup, setActiveGroup] = useState<HeroSuggestionGroup>("Create");
 	const [randomizedHeroSuggestionGroups, setRandomizedHeroSuggestionGroups] =
@@ -1965,6 +1938,23 @@ export const ChatUI = ({
 											))}
 										</SelectContent>
 									</Select>
+									{supportsQuality && (
+										<Select
+											value={imageQuality}
+											onValueChange={setImageQuality}
+										>
+											<SelectTrigger size="sm" className="min-w-[100px]">
+												<SelectValue placeholder="Quality" />
+											</SelectTrigger>
+											<SelectContent>
+												{qualityOptions.map((q) => (
+													<SelectItem key={q} value={q}>
+														{q.charAt(0).toUpperCase() + q.slice(1)}
+													</SelectItem>
+												))}
+											</SelectContent>
+										</Select>
+									)}
 								</>
 							)}
 							{supportsImageGen && usesPixelDimensions && isGptImage && (

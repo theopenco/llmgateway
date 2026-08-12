@@ -42,6 +42,7 @@ import {
 	userOrganization as userOrganizationTable,
 	wallet as walletTable,
 } from "@llmgateway/db";
+import { getRegionScopedDefaultRegion } from "@llmgateway/models";
 
 import { getApiKeyFingerprint } from "./api-key-fingerprint.js";
 import {
@@ -474,15 +475,17 @@ export async function findCustomModel(
 }
 
 /**
- * Find a provider key by organization and provider (cacheable)
+ * The organization's own keys for a provider that can serve this request, in
+ * selection order (index 0 is the primary). This is exactly the candidate set
+ * findProviderKey picks from, before health failover and per-attempt
+ * exclusions narrow it — the "which of my keys could have been used" answer
+ * surfaced in routing metadata.
  */
-export async function findProviderKey(
+export async function listEligibleProviderKeys(
 	organizationId: string,
 	provider: string,
-	selectionScope?: string,
-	excludedKeyIds?: ReadonlySet<string>,
 	filter?: (key: ProviderKey) => boolean,
-): Promise<ProviderKey | undefined> {
+): Promise<ProviderKey[]> {
 	const results = await swrWrap(
 		`providerKey:${organizationId}:${provider}`,
 		[providerKeyTableName],
@@ -507,9 +510,26 @@ export async function findProviderKey(
 					asc(providerKeyTable.id),
 				),
 	);
-	const filtered = filter ? results.filter(filter) : results;
+	return filter ? results.filter(filter) : results;
+}
+
+/**
+ * Find a provider key by organization and provider (cacheable)
+ */
+export async function findProviderKey(
+	organizationId: string,
+	provider: string,
+	selectionScope?: string,
+	excludedKeyIds?: ReadonlySet<string>,
+	filter?: (key: ProviderKey) => boolean,
+): Promise<ProviderKey | undefined> {
+	const eligible = await listEligibleProviderKeys(
+		organizationId,
+		provider,
+		filter,
+	);
 	return selectProviderKeyWithFailover(
-		filtered,
+		eligible,
 		selectionScope,
 		excludedKeyIds,
 	);
@@ -602,19 +622,15 @@ export interface FindManagedProviderKeyOptions {
 }
 
 /**
- * Find a platform-managed provider credential for credits-mode traffic
- * (cacheable). These rows are the database-backed replacement for the `LLM_*`
- * environment variables: they are not owned by any organization and carry
- * their own base URL, project, region and other provider settings.
- *
- * Returns undefined when no managed credential is configured for the provider,
- * which is the signal for callers to fall back to the environment variables.
+ * Every active platform-managed credential for a provider (cacheable). These
+ * rows are the database-backed replacement for the `LLM_*` environment
+ * variables: they are not owned by any organization and carry their own base
+ * URL, project, region and other provider settings.
  */
-export async function findManagedProviderKey(
+export async function listManagedProviderKeys(
 	provider: string,
-	options: FindManagedProviderKeyOptions = {},
-): Promise<ProviderKey | undefined> {
-	const results = await swrWrap(
+): Promise<ProviderKey[]> {
+	return await swrWrap(
 		`providerKey:managed:${provider}`,
 		[providerKeyTableName],
 		async () =>
@@ -638,6 +654,74 @@ export async function findManagedProviderKey(
 					asc(providerKeyTable.id),
 				),
 	);
+}
+
+/**
+ * Whether the provider has any active managed credential at all — regardless of
+ * variant, region or model restrictions.
+ *
+ * Managed credentials do not sit alongside the provider's `LLM_*` environment
+ * variables, they replace them: once a single one exists, the environment is
+ * ignored for that provider everywhere — routing, credential selection and
+ * every fallback. A request no managed credential can serve therefore fails
+ * instead of quietly spending an env key the operator has already superseded.
+ */
+export async function hasManagedProviderCredential(
+	provider: string,
+): Promise<boolean> {
+	return (await listManagedProviderKeys(provider)).length > 0;
+}
+
+/**
+ * Narrow a provider's managed credentials to the ones that can serve this
+ * region.
+ *
+ * With a region in hand, a credential pinned to it wins and a region-agnostic
+ * one is the fallback — the same precedence `{ENV}__{REGION}` has over `{ENV}`.
+ *
+ * Without one, the request is sent to the provider's default region. A
+ * region-agnostic credential still serves it, and so does one pinned to that
+ * default region — which is all a provider with no global region can offer,
+ * since every one of its credentials is necessarily region-scoped (Alibaba).
+ * Providers whose credential works across regions (AWS Bedrock) are excluded
+ * from that last step by `getRegionScopedDefaultRegion`: a region on their
+ * credential is the operator scoping it deliberately, so the request fails
+ * rather than borrowing a credential meant for another region.
+ */
+function narrowManagedKeysToRegion(
+	keys: ProviderKey[],
+	provider: string,
+	region: string | undefined,
+): ProviderKey[] {
+	if (region) {
+		const pinned = keys.filter((key) => key.region === region);
+		return pinned.length > 0 ? pinned : keys.filter((key) => !key.region);
+	}
+
+	const regionAgnostic = keys.filter((key) => !key.region);
+	if (regionAgnostic.length > 0) {
+		return regionAgnostic;
+	}
+
+	const defaultRegion = getRegionScopedDefaultRegion(provider);
+	return defaultRegion
+		? keys.filter((key) => key.region === defaultRegion)
+		: [];
+}
+
+/**
+ * Find a platform-managed provider credential for credits-mode traffic
+ * (cacheable).
+ *
+ * Returns undefined when no managed credential can serve the request. Callers
+ * must not read the environment in that case unless
+ * `hasManagedProviderCredential` is false — see its comment.
+ */
+export async function findManagedProviderKey(
+	provider: string,
+	options: FindManagedProviderKeyOptions = {},
+): Promise<ProviderKey | undefined> {
+	const results = await listManagedProviderKeys(provider);
 
 	const candidates = options.filter ? results.filter(options.filter) : results;
 	if (candidates.length === 0) {
@@ -651,13 +735,11 @@ export async function findManagedProviderKey(
 			? variantMatches
 			: candidates.filter((key) => key.variant === "default");
 
-	const regionMatches = options.region
-		? byVariant.filter((key) => key.region === options.region)
-		: [];
-	const byRegion =
-		regionMatches.length > 0
-			? regionMatches
-			: byVariant.filter((key) => !key.region);
+	const byRegion = narrowManagedKeysToRegion(
+		byVariant,
+		provider,
+		options.region,
+	);
 
 	return selectProviderKeyWithFailover(
 		byRegion,
@@ -667,39 +749,64 @@ export async function findManagedProviderKey(
 }
 
 /**
- * Providers holding an active managed credential this request could actually
- * use (cacheable).
+ * What the platform-managed credential fleet can serve, as routing needs it
+ * (cacheable).
  *
- * Routing uses this alongside the `LLM_*` environment variables to decide
- * which providers can serve credits-mode traffic, so a deployment that has
- * moved a provider into the database no longer needs its env var set for the
- * provider to be routable.
+ * `configured` is the authority on whether a provider still reads its `LLM_*`
+ * environment variables at all: any active managed credential supersedes them
+ * entirely, so routing must decide that provider purely from `usable` /
+ * `pinnedRegions` and never consult the environment for it.
  *
- * Mirrors how `findManagedProviderKey` selects, on both axes, because a
- * provider advertised here that then has no selectable credential fails the
- * request outright: `resolvePlatformCredential` falls through to
- * `getProviderEnv`, which throws a 500, and credential resolution happens
- * outside the provider-fallback loop so nothing recovers.
+ * `usable` mirrors how `findManagedProviderKey` selects, on both axes, because
+ * a provider advertised there that then has no selectable credential fails the
+ * request outright: `resolvePlatformCredential` has no environment to fall back
+ * to for a configured provider, and credential resolution happens outside the
+ * provider-fallback loop so nothing recovers.
  *
  * - Variant: an `enterprise`/`plans` request may fall back to a `default`
  *   credential, but a `default` request can never use a variant-scoped one,
  *   and a variant that has its own credentials never falls back.
- * - Region: routing picks a provider before a region is known, so only a
- *   region-agnostic credential is guaranteed to serve the request. A
- *   region-pinned credential is an override — exactly like `{ENV}__{REGION}`,
- *   which `hasProviderEnvironmentToken` likewise ignores in favour of the base
- *   variable. A provider whose only credentials are region-pinned is therefore
- *   not advertised, the same as a deployment that sets only
- *   `LLM_X_API_KEY__US_EAST_1` and no `LLM_X_API_KEY`.
+ * - Region: routing picks a provider before a region is known, so a request
+ *   that resolves no region is served from the provider's default region. Both
+ *   a region-agnostic credential (`usable`) and one pinned to that default
+ *   region (`defaultRegionUsable`) can therefore serve it; a credential pinned
+ *   to any other region cannot, exactly like `{ENV}__{REGION}`, which
+ *   `hasProviderEnvironmentToken` ignores in favour of the base variable. Which
+ *   regions those credentials do cover is reported separately in
+ *   `pinnedRegions`, for the region filter that runs before a provider is
+ *   chosen.
  * - Model: a credential restricted via `allowedModels` cannot serve any other
  *   model, so when the caller knows the model it is routing, credentials that
  *   exclude it are ignored — a provider whose every credential excludes the
- *   model is not advertised for it (unless its env var can still serve it).
+ *   model is not advertised for it.
  */
-export async function findManagedProviderIds(
+export interface ManagedProviderAvailability {
+	/**
+	 * Providers with at least one active managed credential, whatever its
+	 * variant, region or model restriction. Their `LLM_*` variables are ignored.
+	 */
+	configured: ReadonlySet<string>;
+	/** Providers a region-agnostic managed credential can serve for this request. */
+	usable: ReadonlySet<string>;
+	/**
+	 * Providers whose credential for this request is pinned to their own default
+	 * region. They serve every request that resolves no region — which is what a
+	 * provider with no global region, such as Alibaba, can only ever offer — but,
+	 * unlike `usable`, they cover no other region.
+	 */
+	defaultRegionUsable: ReadonlySet<string>;
+	/**
+	 * Regions each provider has a region-pinned managed credential for. Variant-
+	 * and model-agnostic, matching how `hasRegionSpecificEnvKey` reads the
+	 * environment: the region filter runs before either is known.
+	 */
+	pinnedRegions: ReadonlyMap<string, ReadonlySet<string>>;
+}
+
+export async function findManagedProviderAvailability(
 	variant?: EnvVarVariant,
 	modelId?: string,
-): Promise<Set<string>> {
+): Promise<ManagedProviderAvailability> {
 	// Fetched whole and narrowed in memory so the request's variant stays out
 	// of the cache key, the same way findManagedProviderKey keeps variant,
 	// region and exclusions out of its own.
@@ -723,8 +830,19 @@ export async function findManagedProviderIds(
 				),
 	);
 
+	const configured = new Set<string>();
+	const pinnedRegions = new Map<string, Set<string>>();
 	const byProvider = new Map<string, typeof rows>();
 	for (const row of rows) {
+		configured.add(row.provider);
+		if (row.region) {
+			const regions = pinnedRegions.get(row.provider);
+			if (regions) {
+				regions.add(row.region);
+			} else {
+				pinnedRegions.set(row.provider, new Set([row.region]));
+			}
+		}
 		if (modelId && !providerKeyAllowsModel(row.allowedModels, modelId)) {
 			continue;
 		}
@@ -737,7 +855,8 @@ export async function findManagedProviderIds(
 	}
 
 	const effectiveVariant = variant ?? "default";
-	const available = new Set<string>();
+	const usable = new Set<string>();
+	const defaultRegionUsable = new Set<string>();
 	for (const [provider, candidates] of byProvider) {
 		const variantMatches = candidates.filter(
 			(key) => key.variant === effectiveVariant,
@@ -748,10 +867,17 @@ export async function findManagedProviderIds(
 				: candidates.filter((key) => key.variant === "default");
 
 		if (byVariant.some((key) => !key.region)) {
-			available.add(provider);
+			usable.add(provider);
+		}
+		const defaultRegion = getRegionScopedDefaultRegion(provider);
+		if (
+			defaultRegion &&
+			byVariant.some((key) => key.region === defaultRegion)
+		) {
+			defaultRegionUsable.add(provider);
 		}
 	}
-	return available;
+	return { configured, usable, defaultRegionUsable, pinnedRegions };
 }
 
 /**

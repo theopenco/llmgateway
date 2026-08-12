@@ -500,6 +500,141 @@ describe("transformResponseToOpenai", () => {
 		});
 	});
 
+	test("writes mapped finish_reason back for default-branch providers", () => {
+		const toolCalls = [
+			{
+				id: "call_1",
+				type: "function",
+				function: { name: "get_weather", arguments: '{"city":"Berlin"}' },
+			},
+		];
+		const response = transformResponseToOpenai(
+			"deepseek",
+			"deepseek-chat",
+			{
+				id: "chatcmpl-test",
+				object: "chat.completion",
+				created: 1,
+				model: "deepseek-chat",
+				choices: [
+					{
+						index: 0,
+						message: {
+							role: "assistant",
+							content: null,
+							tool_calls: toolCalls,
+						},
+						finish_reason: "tool_use",
+					},
+				],
+				usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+			},
+			null,
+			null,
+			"tool_calls",
+			10,
+			5,
+			15,
+			null,
+			null,
+			toolCalls,
+			[],
+			"deepseek/deepseek-chat",
+			"deepseek",
+			"deepseek-chat",
+			null,
+			false,
+			null,
+			null,
+			"req_finish_1",
+		);
+
+		expect(response.choices?.[0]?.finish_reason).toBe("tool_calls");
+		expect(response.choices?.[0]?.message?.tool_calls).toEqual(toolCalls);
+	});
+
+	test("writes 'upstream_error' finish_reason back for default-branch providers", () => {
+		const response = transformResponseToOpenai(
+			"fireworks",
+			"llama-v3p1-8b-instruct",
+			{
+				id: "chatcmpl-test",
+				object: "chat.completion",
+				created: 1,
+				model: "llama-v3p1-8b-instruct",
+				choices: [
+					{
+						index: 0,
+						message: { role: "assistant", content: "partial" },
+						finish_reason: "abort",
+					},
+				],
+				usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+			},
+			"partial",
+			null,
+			"upstream_error",
+			10,
+			5,
+			15,
+			null,
+			null,
+			null,
+			[],
+			"fireworks/llama-v3p1-8b-instruct",
+			"fireworks",
+			"llama-v3p1-8b-instruct",
+			null,
+			false,
+			null,
+			null,
+			"req_finish_2",
+		);
+
+		expect(response.choices?.[0]?.finish_reason).toBe("upstream_error");
+	});
+
+	test("keeps the upstream finish_reason when no mapped value exists", () => {
+		const response = transformResponseToOpenai(
+			"cerebras",
+			"llama3.3-70b",
+			{
+				id: "chatcmpl-test",
+				object: "chat.completion",
+				created: 1,
+				model: "llama3.3-70b",
+				choices: [
+					{
+						index: 0,
+						message: { role: "assistant", content: "hi" },
+						finish_reason: "stop",
+					},
+				],
+				usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+			},
+			"hi",
+			null,
+			null,
+			10,
+			5,
+			15,
+			null,
+			null,
+			null,
+			[],
+			"cerebras/llama3.3-70b",
+			"cerebras",
+			"llama3.3-70b",
+			null,
+			false,
+			null,
+			null,
+			"req_finish_3",
+		);
+
+		expect(response.choices?.[0]?.finish_reason).toBe("stop");
+	});
+
 	test("applyExtendedUsageFields defaults zeros when nothing is set", () => {
 		const usage: Record<string, any> = {
 			prompt_tokens: 5,

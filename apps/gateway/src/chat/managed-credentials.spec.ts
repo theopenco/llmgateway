@@ -38,6 +38,8 @@ describe("managed provider credentials", () => {
 		token: string;
 		config?: Record<string, string>;
 		variant?: "default" | "enterprise" | "plans";
+		region?: string;
+		allowedModels?: string[];
 	}) {
 		await cdb.insert(tables.providerKey).values({
 			id: values.id,
@@ -47,6 +49,8 @@ describe("managed provider credentials", () => {
 			organizationId: null,
 			config: values.config,
 			variant: values.variant ?? "default",
+			region: values.region,
+			allowedModels: values.allowedModels,
 		});
 	}
 
@@ -390,6 +394,177 @@ describe("managed provider credentials", () => {
 		expect(new Set(seen)).toEqual(
 			new Set(["Bearer sk-managed-a", "Bearer sk-managed-b"]),
 		);
+	});
+
+	/**
+	 * Managed credentials replace the provider's `LLM_*` variables instead of
+	 * taking precedence over them: once the provider has one, the environment is
+	 * out of play for routing and for every fallback. Rotating onto an env key
+	 * after the managed fleet is exhausted would spend a credential the operator
+	 * has already retired on the admin dashboard.
+	 */
+	test("never rotates onto an env key when the managed credentials fail", async () => {
+		await seedApiKey();
+		await seedManagedCredential({
+			id: "managed-openai-lone",
+			provider: "openai",
+			token: "sk-managed-lone",
+		});
+
+		const previousEnvKey = process.env.LLM_OPENAI_API_KEY;
+		process.env.LLM_OPENAI_API_KEY = "sk-from-env";
+
+		const seen: (string | null)[] = [];
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+			seen.push(new Headers(init?.headers).get("authorization"));
+			return new Response(
+				JSON.stringify({ error: { message: "Invalid API key" } }),
+				{ status: 401, headers: { "Content-Type": "application/json" } },
+			);
+		});
+
+		try {
+			await app.request("/v1/moderations", {
+				method: "POST",
+				headers: {
+					Authorization: "Bearer real-token",
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({ input: "hello" }),
+			});
+		} finally {
+			if (previousEnvKey === undefined) {
+				delete process.env.LLM_OPENAI_API_KEY;
+			} else {
+				process.env.LLM_OPENAI_API_KEY = previousEnvKey;
+			}
+		}
+
+		expect(seen).toEqual(["Bearer sk-managed-lone"]);
+	});
+
+	test("fails instead of using the env key when no managed credential may serve the model", async () => {
+		await seedApiKey();
+		await seedManagedCredential({
+			id: "managed-openai-restricted",
+			provider: "openai",
+			token: "sk-managed-restricted",
+			allowedModels: ["gpt-4o"],
+		});
+
+		const previousEnvKey = process.env.LLM_OPENAI_API_KEY;
+		process.env.LLM_OPENAI_API_KEY = "sk-from-env";
+		const captured = captureUpstream(chatCompletion);
+
+		try {
+			const res = await completions("openai/gpt-4o-mini");
+			expect(res.status).not.toBe(200);
+		} finally {
+			if (previousEnvKey === undefined) {
+				delete process.env.LLM_OPENAI_API_KEY;
+			} else {
+				process.env.LLM_OPENAI_API_KEY = previousEnvKey;
+			}
+		}
+
+		expect(captured).toEqual([]);
+	});
+
+	/**
+	 * A provider whose regions each have their own credential (Alibaba has no
+	 * global region, so every managed credential is region-pinned) must still
+	 * serve a request that never resolved a region — it is sent to the
+	 * provider's default region, so the credential pinned to that region is the
+	 * one that serves it. Falling through to "no managed credential" 500s every
+	 * region-less request the moment the last region-agnostic credential goes
+	 * away. Uses `qwen-omni-turbo`, whose mapping has no regional variants at
+	 * all, so the request genuinely resolves no region — a model with regional
+	 * variants routes over those instead (see the cheapest-region test below).
+	 */
+	test("serves a region-less request from the default-region credential", async () => {
+		await seedApiKey();
+		await seedManagedCredential({
+			id: "managed-alibaba-singapore",
+			provider: "alibaba",
+			token: "sk-managed-singapore",
+			region: "singapore",
+		});
+		await seedManagedCredential({
+			id: "managed-alibaba-frankfurt",
+			provider: "alibaba",
+			token: "sk-managed-frankfurt",
+			region: "eu-frankfurt",
+		});
+
+		const captured = captureUpstream(chatCompletion);
+
+		// Bare model id: no provider prefix and no `:region` suffix.
+		const res = await completions("qwen-omni-turbo");
+		expect(res.status).toBe(200);
+
+		expect(captured).toHaveLength(1);
+		expect(captured[0].url).toContain("dashscope-intl.aliyuncs.com");
+		expect(captured[0].authorization).toBe("Bearer sk-managed-singapore");
+	});
+
+	/**
+	 * A bare model id must route over the provider's regional variants exactly
+	 * like the `provider/model` spelling does: the credentialed regions are
+	 * priced against each other and the cheapest one wins. The single-provider
+	 * shortcut used to read the un-expanded mapping's `region: undefined` and
+	 * send every such request to the default region, so `qwen3.7-plus` and
+	 * `alibaba/qwen3.7-plus` — the same request, two spellings — picked
+	 * different regions at different prices.
+	 */
+	test("routes a bare multi-region id to the cheapest eligible region", async () => {
+		await seedApiKey();
+		await seedManagedCredential({
+			id: "managed-alibaba-singapore",
+			provider: "alibaba",
+			token: "sk-managed-singapore",
+			region: "singapore",
+		});
+		await seedManagedCredential({
+			id: "managed-alibaba-frankfurt",
+			provider: "alibaba",
+			token: "sk-managed-frankfurt",
+			region: "eu-frankfurt",
+		});
+
+		const captured = captureUpstream(chatCompletion);
+
+		// Frankfurt undercuts the mapping's (singapore) prices for this model.
+		const res = await completions("qwen3.7-plus");
+		expect(res.status).toBe(200);
+
+		expect(captured).toHaveLength(1);
+		expect(captured[0].url).toContain("eu-central-1.maas.aliyuncs.com");
+		expect(captured[0].authorization).toBe("Bearer sk-managed-frankfurt");
+	});
+
+	test("serves each pinned region from its own credential", async () => {
+		await seedApiKey();
+		await seedManagedCredential({
+			id: "managed-alibaba-singapore",
+			provider: "alibaba",
+			token: "sk-managed-singapore",
+			region: "singapore",
+		});
+		await seedManagedCredential({
+			id: "managed-alibaba-frankfurt",
+			provider: "alibaba",
+			token: "sk-managed-frankfurt",
+			region: "eu-frankfurt",
+		});
+
+		const captured = captureUpstream(chatCompletion);
+
+		const res = await completions("alibaba/qwen3.7-plus:eu-frankfurt");
+		expect(res.status).toBe(200);
+
+		expect(captured).toHaveLength(1);
+		expect(captured[0].url).toContain("eu-central-1.maas.aliyuncs.com");
+		expect(captured[0].authorization).toBe("Bearer sk-managed-frankfurt");
 	});
 
 	test("routes a PAYG org to a default credential alongside a variant one", async () => {

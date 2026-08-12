@@ -12,11 +12,16 @@ import {
 	buildTimelineFaqs,
 	buildTimelineModels,
 	buildTimelineStats,
+	DATASET_CREATOR,
+	DATASET_LICENSE,
 	formatDate,
 	getMonthSummary,
 	getYearSummaries,
 	isoDate,
 	recentModels,
+	TIMELINE_DATASET_DESCRIPTION,
+	TIMELINE_DATASET_ID,
+	TIMELINE_DATASET_NAME,
 } from "@/lib/timeline-data";
 
 import type { TimelineMonthSummary } from "@/lib/timeline-data";
@@ -87,10 +92,11 @@ export default async function TimelinePage() {
 	const datasetSchema = {
 		"@context": "https://schema.org",
 		"@type": "Dataset",
-		name: "LLM Model Release Timeline",
-		description:
-			"A continuously updated dataset of large language model releases: the provider release date and the date each model was added to LLM Gateway.",
+		"@id": TIMELINE_DATASET_ID,
+		name: TIMELINE_DATASET_NAME,
+		description: TIMELINE_DATASET_DESCRIPTION,
 		url: `${BASE_URL}/timeline`,
+		license: DATASET_LICENSE,
 		keywords: [
 			"LLM release dates",
 			"AI model timeline",
@@ -99,11 +105,7 @@ export default async function TimelinePage() {
 			"Gemini release date",
 			"language model history",
 		],
-		creator: {
-			"@type": "Organization",
-			name: "LLM Gateway",
-			url: BASE_URL,
-		},
+		creator: DATASET_CREATOR,
 		isAccessibleForFree: true,
 		...(stats.firstYear
 			? {

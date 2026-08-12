@@ -392,7 +392,7 @@ export const completionsRequestSchema = z.object({
 		.optional()
 		.openapi({
 			description:
-				"Processing tier for the request. `flex` and `priority` are forwarded only for provider/model mappings that explicitly support the requested tier, such as supported OpenAI and Google mappings. `auto`/`default` use the standard on-demand tier. Unsupported tier requests return a 400 `unsupported_service_tier` error.",
+				"Processing tier for the request. `flex` and `priority` are forwarded only for provider/model mappings that explicitly support the requested tier, such as supported OpenAI and Google mappings. `auto`/`default` use the standard on-demand tier. Unsupported tier requests return a 400 `unsupported_service_tier` error. On coding (dev) plans only `auto`, `default` and `flex` are allowed.",
 			example: "flex",
 		}),
 	routing: z
@@ -410,7 +410,8 @@ export const completionsRequestSchema = z.object({
 	}),
 	onboarding: z.boolean().optional().default(false).openapi({
 		description:
-			"When true, skips email verification for free model usage. Intended for onboarding flows.",
+			"Deprecated and ignored. This once skipped email verification for free model usage, but the flag is client-supplied, so any account could assert it. Onboarding is now recognized server-side by the API proxy; setting this grants nothing.",
+		deprecated: true,
 		example: false,
 	}),
 	no_reasoning: z.boolean().optional().default(false).openapi({

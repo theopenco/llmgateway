@@ -1,6 +1,6 @@
 # LLM Gateway Chat
 
-> LLM Gateway Chat (chat.llmgateway.io) is an AI chat playground for talking to 200+ models from OpenAI, Anthropic, Google, xAI, DeepSeek, Meta, Mistral, and other providers in one place. It supports text chat, image and video generation, side-by-side multi-model group chats, and projects with knowledge files — on transparent provider-rate credits.
+> LLM Gateway Chat (lounge.llmgateway.io) is an AI chat playground for talking to 200+ models from OpenAI, Anthropic, Google, xAI, DeepSeek, Meta, Mistral, and other providers in one place. It supports text chat, image and video generation, side-by-side multi-model group chats, and projects with knowledge files — on transparent provider-rate credits.
 
 ## Plans
 
@@ -11,7 +11,7 @@
 
 ## Key pages
 
-- [Chat](https://chat.llmgateway.io): The chat playground.
+- [Chat](https://lounge.llmgateway.io): The chat playground.
 - [Models](https://llmgateway.io/models): Every supported model with pricing and capabilities.
 - [LLM Gateway](https://llmgateway.io): The open-source gateway platform behind Chat.
 - [Pricing (machine-readable)](https://llmgateway.io/pricing.md): Plain-markdown pricing for the whole platform.

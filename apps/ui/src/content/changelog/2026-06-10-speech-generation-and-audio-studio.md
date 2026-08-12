@@ -51,7 +51,7 @@ The Playground gets a third studio at `/audio`, joining Image and Video:
 - **Org-scoped history** — every generation is saved; revisit, rename, or delete past takes
 - **One-click download** straight from the player
 
-**[Try Audio Studio →](https://chat.llmgateway.io/audio)**
+**[Try Audio Studio →](https://lounge.llmgateway.io/audio)**
 
 ---
 

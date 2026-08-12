@@ -12,6 +12,7 @@ import {
 import {
 	getBucketUnitForWindow,
 	getTokenWindowStartDate,
+	getWindowBucketTimestamps,
 	tokenWindowSchema,
 } from "@/lib/stats-window.js";
 import { adminMiddleware } from "@/middleware/admin.js";
@@ -46,14 +47,19 @@ import {
 	tables,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { getProviderEnvKeys, providers } from "@llmgateway/models";
+import {
+	getProviderEnvExclusiveGroups,
+	getProviderEnvExclusiveViolations,
+	getProviderEnvKeys,
+	providers,
+} from "@llmgateway/models";
 import { getModelIdsByProvider } from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 import { maskToken } from "@llmgateway/shared/mask-token";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import type { ServerTypes } from "@/vars.js";
-import type { ProviderKeyVariant } from "@llmgateway/db";
+import type { ProviderKeyVariant, SQL } from "@llmgateway/db";
 import type { ProviderDefinition, ProviderId } from "@llmgateway/models";
 
 export const adminProviderCredentials = new OpenAPIHono<ServerTypes>();
@@ -144,8 +150,9 @@ const catalogEntrySchema = z.object({
 	 * provider — the gateway's, or this process's own when no gateway has
 	 * published — across the base variable and its variant/region overrides.
 	 * These are read-only from the dashboard: they can only be changed by
-	 * redeploying, and once the provider has any active managed credential
-	 * covering an audience they stop being used for it.
+	 * redeploying, and once the provider has any active managed credential all
+	 * of them stop being used — managed credentials replace the environment for
+	 * their provider rather than taking precedence key by key.
 	 */
 	envCredentials: z.array(envCredentialSchema),
 	/**
@@ -157,6 +164,14 @@ const catalogEntrySchema = z.object({
 	/** Region used when a credential does not pin one. Null when not region-scoped. */
 	defaultRegion: z.string().nullable(),
 	configKeys: z.array(configKeySchema),
+	/**
+	 * Groups of settings where exactly one member must be supplied. The form
+	 * uses these to explain the choice and to keep the operator from filling
+	 * more than one.
+	 */
+	exclusiveConfigGroups: z.array(
+		z.object({ keys: z.array(z.string()), description: z.string() }),
+	),
 	/**
 	 * Canonical model ids the catalogue currently maps to this provider
 	 * (deactivated mappings excluded), for the allowed-models picker.
@@ -243,6 +258,16 @@ async function validateConfig(
 	if (missing.length > 0) {
 		throw new HTTPException(400, {
 			message: `Missing required setting(s) for ${provider}: ${missing.join(", ")}`,
+		});
+	}
+
+	const exclusiveViolations = getProviderEnvExclusiveViolations(
+		provider,
+		config,
+	);
+	if (exclusiveViolations.length > 0) {
+		throw new HTTPException(400, {
+			message: `Invalid setting(s) for ${provider}: ${exclusiveViolations.join(" ")}`,
 		});
 	}
 
@@ -369,6 +394,13 @@ async function validateCredentialToken(
 
 	const statusPart = result.statusCode ? ` (status ${result.statusCode})` : "";
 	const modelPart = result.model ? ` using model ${result.model}` : "";
+	// A connectivity failure says nothing about the credential — report it as
+	// what it is so the admin fixes the endpoint config, not the key.
+	if (result.unreachable) {
+		throw new HTTPException(400, {
+			message: `Could not reach ${provider} to validate the credential${modelPart}: ${errorMessage}. Pass skipValidation to store it anyway.`,
+		});
+	}
 	throw new HTTPException(400, {
 		message: `Credential rejected by ${provider}: ${errorMessage}${statusPart}${modelPart}. Pass skipValidation to store it anyway.`,
 	});
@@ -438,6 +470,7 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 				apiKeyEnvCounts,
 				envCredentials,
 				configKeys: getManagedCredentialConfigKeys(provider.id),
+				exclusiveConfigGroups: getProviderEnvExclusiveGroups(provider.id),
 				models: modelsByProvider.get(provider.id) ?? [],
 			};
 		});
@@ -494,6 +527,14 @@ adminProviderCredentials.openapi(listCredentials, async (c) => {
 	return c.json({ credentials: rows.map(toCredential) });
 });
 
+/**
+ * ISO-8601 UTC label for a truncated bucket, formatted the same way
+ * `Date#toISOString` would, so it can be compared to a generated bucket grid.
+ */
+function bucketLabel(bucketExpr: SQL<Date>) {
+	return sql<string>`to_char(${bucketExpr}, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
+}
+
 const spendPointSchema = z.object({
 	timestamp: z.string(),
 	cost: z.number(),
@@ -528,6 +569,11 @@ const providerKeySpendSchema = z.object({
 	totalCost: z.number(),
 	totalRequests: z.number(),
 	totalErrors: z.number(),
+	/**
+	 * Every bucket boundary in the window, including the quiet ones `data` skips,
+	 * so a chart can zero-fill and span the whole selected duration.
+	 */
+	buckets: z.array(z.string()),
 	data: z.array(spendPointSchema),
 	/**
 	 * Spend split by consuming organization, highest first. Always a single
@@ -581,6 +627,11 @@ adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 	}
 
 	const bucketExpr = sql<Date>`date_trunc(${sql.raw(`'${bucketUnit}'`)}, ${tables.providerKeyHourlyStats.hourTimestamp})`;
+	// `hourTimestamp` is a zone-less `timestamp` holding UTC, so label the bucket
+	// in SQL rather than letting the driver reinterpret it in the process
+	// timezone — that is what makes these strings line up with the zero-filled
+	// `buckets` grid below.
+	const bucketLabelExpr = bucketLabel(bucketExpr);
 
 	const baseFilter = and(
 		eq(tables.providerKeyHourlyStats.providerKeyId, providerKeyId),
@@ -590,7 +641,7 @@ adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 	const [points, organizations] = await Promise.all([
 		db
 			.select({
-				timestamp: bucketExpr.as("bucket"),
+				timestamp: bucketLabelExpr.as("bucket"),
 				cost: sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.cost}), 0)`.as(
 					"cost",
 				),
@@ -646,7 +697,7 @@ adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 	]);
 
 	const data = points.map((point) => ({
-		timestamp: new Date(point.timestamp).toISOString(),
+		timestamp: point.timestamp,
 		cost: Number(point.cost),
 		requestCount: Number(point.requestCount),
 		errorCount: Number(point.errorCount),
@@ -670,6 +721,7 @@ adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 		totalCost: data.reduce((sum, point) => sum + point.cost, 0),
 		totalRequests: data.reduce((sum, point) => sum + point.requestCount, 0),
 		totalErrors: data.reduce((sum, point) => sum + point.errorCount, 0),
+		buckets: getWindowBucketTimestamps(window),
 		data,
 		organizations: organizations.map((row) => ({
 			organizationId: row.organizationId,
@@ -714,6 +766,12 @@ const spendOverviewSchema = z.object({
 	 * their history should not vanish before the money stops being interesting.
 	 */
 	keys: z.array(spendOverviewKeySchema),
+	/**
+	 * Every bucket boundary in the window, quiet ones included. `data` only
+	 * carries buckets that saw traffic, so the chart zero-fills against this grid
+	 * instead of collapsing to the busy days.
+	 */
+	buckets: z.array(z.string()),
 	/** One row per (bucket, credential); pivot client-side for stacking. */
 	data: z.array(spendOverviewPointSchema),
 });
@@ -751,6 +809,7 @@ adminProviderCredentials.openapi(getSpendOverview, async (c) => {
 	const bucketUnit = getBucketUnitForWindow(window);
 
 	const bucketExpr = sql<Date>`date_trunc(${sql.raw(`'${bucketUnit}'`)}, ${tables.providerKeyHourlyStats.hourTimestamp})`;
+	const bucketLabelExpr = bucketLabel(bucketExpr);
 
 	const [keys, points] = await Promise.all([
 		// Any status: a soft-deleted key is kept when the window still holds its
@@ -766,7 +825,7 @@ adminProviderCredentials.openapi(getSpendOverview, async (c) => {
 		}),
 		db
 			.select({
-				timestamp: bucketExpr.as("bucket"),
+				timestamp: bucketLabelExpr.as("bucket"),
 				providerKeyId: tables.providerKeyHourlyStats.providerKeyId,
 				cost: sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.cost}), 0)`.as(
 					"cost",
@@ -796,7 +855,7 @@ adminProviderCredentials.openapi(getSpendOverview, async (c) => {
 	]);
 
 	const data = points.map((point) => ({
-		timestamp: new Date(point.timestamp).toISOString(),
+		timestamp: point.timestamp,
 		providerKeyId: point.providerKeyId,
 		cost: Number(point.cost),
 		requestCount: Number(point.requestCount),
@@ -822,6 +881,7 @@ adminProviderCredentials.openapi(getSpendOverview, async (c) => {
 	return c.json({
 		window,
 		bucket: bucketUnit,
+		buckets: getWindowBucketTimestamps(window),
 		keys: keys
 			.filter((key) => key.status !== "deleted" || totalsByKey.has(key.id))
 			.map((key) => {

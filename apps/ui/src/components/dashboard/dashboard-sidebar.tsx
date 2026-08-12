@@ -176,6 +176,10 @@ const PROJECT_SETTINGS = [
 		href: "settings/routing",
 		label: "Routing",
 	},
+	{
+		href: "settings/dynamic-routes",
+		label: "Dynamic Routes",
+	},
 ] as const;
 
 // Org-level nav items. `enterpriseGated` items show the enterprise indicator
@@ -1216,7 +1220,7 @@ export function DashboardSidebar({
 				href:
 					process.env.NODE_ENV === "development"
 						? "http://localhost:3003"
-						: "https://chat.llmgateway.io",
+						: "https://lounge.llmgateway.io",
 				label: "Lounge",
 				icon: AnimatedBotMessageSquare,
 				internal: false,

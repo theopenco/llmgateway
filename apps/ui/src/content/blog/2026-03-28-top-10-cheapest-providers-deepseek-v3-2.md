@@ -109,4 +109,4 @@ No vendor lock-in. No platform fees. Just the cheapest path to every model.
 
 ---
 
-**[Calculate your costs](https://llmgateway.io/token-cost-calculator)** | **[Try DeepSeek V3.2 in the Playground](https://chat.llmgateway.io/?model=deepseek/deepseek-v3.2)** | **[Get started free](https://llmgateway.io/signup)**
+**[Calculate your costs](https://llmgateway.io/token-cost-calculator)** | **[Try DeepSeek V3.2 in the Playground](https://lounge.llmgateway.io/?model=deepseek/deepseek-v3.2)** | **[Get started free](https://llmgateway.io/signup)**

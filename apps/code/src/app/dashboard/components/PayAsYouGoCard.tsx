@@ -113,7 +113,7 @@ export default function PayAsYouGoCard({
 					: "Pay-as-you-go overflow disabled",
 				{
 					description: enabled
-						? "Once your monthly allowance is used, requests bill your credits balance."
+						? "Usage past your monthly allowance — and premium models past the weekly cap — bills your credits balance."
 						: "Your plan allowance is a hard cap again.",
 				},
 			);
@@ -233,9 +233,23 @@ export default function PayAsYouGoCard({
 					<>
 						<p className="mt-2 max-w-xl text-sm text-muted-foreground">
 							{monthlyExhausted
-								? "Your monthly allowance is fully used, so requests are being rejected until renewal. Enable pay-as-you-go overflow to keep coding right now — extra usage bills a credits balance at the same provider rates, only when your allowance is gone."
-								: "Off by default: your plan allowance is a hard cap. Opt in and, once the monthly allowance runs out, requests keep flowing and bill a credits balance at the same provider rates instead — no plan change, no interruption mid-session."}
+								? "Your monthly allowance is fully used, so requests are being rejected until renewal. Enable pay-as-you-go overflow to keep coding right now — extra usage bills a credits balance at the same provider rates, only when your plan wouldn't cover it."
+								: "Off by default: your plan allowance is a hard cap. Opt in and requests keep flowing past it — usage beyond the monthly allowance, and premium models past the weekly cap, bill a credits balance at the same provider rates instead. No plan change, no interruption mid-session."}
 						</p>
+						{/* A balance can arrive without the user ever buying one —
+						    support gifts credits, referrals pay out, a plan starts on
+						    an org that already held credits. While overflow is off
+						    those credits are unspendable and otherwise invisible, so
+						    the one screen that can unlock them has to name them. */}
+						{regularCredits > 0 && (
+							<p
+								className="mt-2 text-sm font-medium"
+								data-testid="payg-waiting-balance"
+							>
+								You already have ${regularCredits.toFixed(2)} in credits waiting
+								— turning this on spends them first, no card charge needed.
+							</p>
+						)}
 						<div className="mt-3">
 							<Button
 								size="sm"
@@ -270,7 +284,7 @@ export default function PayAsYouGoCard({
 										? regularCredits > 0
 											? "Covering overflow now — your allowance is used up."
 											: "Balance empty — top up to resume requests."
-										: "Used only after your monthly allowance runs out."}
+										: "Covers usage past your monthly allowance — and premium models past the weekly cap."}
 								</p>
 							</div>
 							<Button

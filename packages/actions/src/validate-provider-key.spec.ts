@@ -138,6 +138,36 @@ describe("validateProviderKey error reporting", () => {
 		expect(result.error).toBe("Rate limit exceeded");
 	});
 
+	// An Azure resource name that does not resolve is bad tenant input, not a
+	// gateway fault: it used to surface as a bare "fetch failed" and page us via
+	// an error-level log. It must read as an unreachable endpoint and log at warn.
+	it("explains a connectivity failure instead of 'fetch failed'", async () => {
+		const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
+		const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+		vi.spyOn(globalThis, "fetch").mockRejectedValue(
+			new TypeError("fetch failed", {
+				cause: Object.assign(
+					new Error("getaddrinfo ENOTFOUND api.openai.com"),
+					{ code: "ENOTFOUND" },
+				),
+			}),
+		);
+
+		const result = await validateProviderKey(
+			"openai",
+			"sk-test",
+			undefined,
+			false,
+		);
+
+		expect(result.valid).toBe(false);
+		expect(result.unreachable).toBe(true);
+		expect(result.error).toContain("api.openai.com");
+		expect(result.error).not.toBe("fetch failed");
+		expect(errorSpy).not.toHaveBeenCalled();
+		expect(warnSpy).toHaveBeenCalled();
+	});
+
 	it("falls back to status text when the body carries no message", async () => {
 		vi.spyOn(globalThis, "fetch").mockResolvedValue(
 			new Response("not json", { status: 401, statusText: "Unauthorized" }),
