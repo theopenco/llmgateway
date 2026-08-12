@@ -9136,4 +9136,458 @@ describe("api", () => {
 			expect(JSON.stringify(json)).toContain("input_schema");
 		});
 	});
+
+	describe("native /v1/messages reasoning controls for Ling-3.0-flash", () => {
+		// Ling-3.0-flash is a hybrid reasoning model that thinks by default; its
+		// only reasoning control is the vLLM chat-template flag `enable_thinking`
+		// (declared via `chatTemplateThinkingKey` on the DeepInfra mapping).
+		// These tests exercise the full Anthropic -> unified reasoning
+		// -> chat_template_kwargs chain: `thinking` controls on the native
+		// /v1/messages lane must reach the upstream body as
+		// `chat_template_kwargs.enable_thinking` and never leak `reasoning_effort`.
+		// Novita is an exception: its backend ignores the chat-template flag
+		// (verified live 2026-08-10), so its tests assert no kwargs and thinking
+		// stays on.
+		const lingProviders = ["deepinfra", "novita"] as const;
+		const upstreamModels = {
+			deepinfra: "inclusionAI/Ling-3.0-flash",
+			novita: "inclusionai/ling-3.0-flash",
+		} as const;
+
+		// Anthropic custom tool + the OpenAI function tool it translates to
+		// (mirrors the mapping in anthropic.ts so the forwarded tools can be
+		// asserted verbatim).
+		const weatherTool = {
+			name: "get_weather",
+			description: "Get the weather for a city",
+			input_schema: {
+				type: "object",
+				properties: { city: { type: "string" } },
+				required: ["city"],
+			},
+		};
+		const expectedOpenaiTool = [
+			{
+				type: "function",
+				function: {
+					name: "get_weather",
+					description: "Get the weather for a city",
+					parameters: {
+						type: "object",
+						properties: { city: { type: "string" } },
+						required: ["city"],
+					},
+				},
+			},
+		];
+
+		// The upstream OpenAI-compatible body the gateway sends for a Ling
+		// request, plus the chat-template flag that controls thinking.
+		interface CapturedLingBody {
+			model?: string;
+			reasoning_effort?: string;
+			chat_template_kwargs?: Record<string, boolean>;
+			tools?: unknown[];
+			thinking?: unknown;
+			anthropic_version?: unknown;
+		}
+
+		// Insert the API key + provider key(s) pinned to the mock server, then
+		// capture the body the gateway sends upstream. deepinfra/novita POST to
+		// `${baseUrl}/chat/completions` (no `/v1/` prefix), which the mock server
+		// doesn't serve, so the spy returns the canned completion itself.
+		// `model` defaults to the prefixed id; pass a bare id to exercise standard
+		// routing, which needs both providers' keys present to resolve a provider.
+		async function exerciseLingMessages(
+			provider: (typeof lingProviders)[number],
+			body: Record<string, unknown>,
+			options: {
+				model?: string;
+				insertBothProviderKeys?: boolean;
+				insertNoProviderKeys?: boolean;
+			} = {},
+		) {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			const providerIds = options.insertNoProviderKeys
+				? []
+				: options.insertBothProviderKeys
+					? lingProviders
+					: [provider];
+
+			for (const [index, providerId] of providerIds.entries()) {
+				await db.insert(tables.providerKey).values({
+					id: `provider-key-id-${index}`,
+					token: "sk-test-key",
+					provider: providerId,
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				});
+			}
+
+			let capturedBody: CapturedLingBody | undefined;
+			const originalFetch = globalThis.fetch;
+			const fetchSpy = vi
+				.spyOn(globalThis, "fetch")
+				.mockImplementation(async (input, init) => {
+					const url =
+						typeof input === "string"
+							? input
+							: input instanceof URL
+								? input.toString()
+								: input.url;
+
+					if (url === `${mockServerUrl}/chat/completions`) {
+						capturedBody = JSON.parse(
+							String(init?.body ?? ""),
+						) as CapturedLingBody;
+						return new Response(
+							JSON.stringify({
+								id: "chatcmpl-ling-3.0-flash",
+								object: "chat.completion",
+								created: 1774549411,
+								model: options.model
+									? "inclusionAI/Ling-3.0-flash"
+									: upstreamModels[provider],
+								choices: [
+									{
+										index: 0,
+										message: {
+											role: "assistant",
+											content: "It's sunny in Paris.",
+										},
+										finish_reason: "stop",
+									},
+								],
+								usage: {
+									prompt_tokens: 5,
+									completion_tokens: 3,
+									total_tokens: 8,
+								},
+							}),
+							{
+								status: 200,
+								headers: { "Content-Type": "application/json" },
+							},
+						);
+					}
+
+					return await originalFetch(input as RequestInfo | URL, init);
+				});
+
+			try {
+				const res = await app.request("/v1/messages", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: options.model ?? `${provider}/ling-3.0-flash`,
+						max_tokens: 1024,
+						messages: [
+							{ role: "user", content: "What is the weather in Paris?" },
+						],
+						...body,
+					}),
+				});
+
+				return { res, capturedBody };
+			} finally {
+				fetchSpy.mockRestore();
+			}
+		}
+
+		test.each(lingProviders)(
+			"maps thinking disabled to enable_thinking false upstream on %s",
+			async (provider) => {
+				const { res, capturedBody } = await exerciseLingMessages(provider, {
+					thinking: { type: "disabled" },
+				});
+
+				expect(res.status).toBe(200);
+				// DeepInfra honors the chat-template flag; Novita ignores it
+				// (verified live 2026-08-10), so thinking stays on and no flag is
+				// sent upstream.
+				if (provider === "deepinfra") {
+					expect(capturedBody?.chat_template_kwargs).toEqual({
+						enable_thinking: false,
+					});
+				} else {
+					expect(capturedBody?.chat_template_kwargs).toBeUndefined();
+				}
+				expect(capturedBody?.reasoning_effort).toBeUndefined();
+				// The Anthropic-only thinking block must not leak into the upstream
+				// OpenAI-compatible body.
+				expect(capturedBody?.thinking).toBeUndefined();
+				expect(capturedBody?.anthropic_version).toBeUndefined();
+			},
+		);
+
+		test.each(lingProviders)(
+			"maps thinking adaptive to enable_thinking true upstream on %s",
+			async (provider) => {
+				const { res, capturedBody } = await exerciseLingMessages(provider, {
+					thinking: { type: "adaptive" },
+				});
+
+				expect(res.status).toBe(200);
+				if (provider === "deepinfra") {
+					expect(capturedBody?.chat_template_kwargs).toEqual({
+						enable_thinking: true,
+					});
+				} else {
+					expect(capturedBody?.chat_template_kwargs).toBeUndefined();
+				}
+				expect(capturedBody?.reasoning_effort).toBeUndefined();
+				expect(capturedBody?.thinking).toBeUndefined();
+				expect(capturedBody?.anthropic_version).toBeUndefined();
+			},
+		);
+
+		// The most common Anthropic shape (what Claude Code sends): extended
+		// thinking with a token budget. Ling controls thinking through a binary
+		// chat-template flag, so the budget is dropped and thinking is enabled.
+		// DeepInfra honors the chat-template flag and accepts a budget (dropped to
+		// a binary toggle). Novita has no thinking control at all, so the budget
+		// request is rejected with Anthropic's "thinking not supported" 400 — the
+		// honest outcome for a backend that always thinks.
+		test.each(["deepinfra"] as const)(
+			"maps thinking enabled with budget to enable_thinking true upstream on %s",
+			async (provider) => {
+				const { res, capturedBody } = await exerciseLingMessages(provider, {
+					thinking: { type: "enabled", budget_tokens: 2048 },
+				});
+
+				expect(res.status).toBe(200);
+				expect(capturedBody?.chat_template_kwargs).toEqual({
+					enable_thinking: true,
+				});
+				expect(capturedBody?.reasoning_effort).toBeUndefined();
+				expect(capturedBody?.thinking).toBeUndefined();
+				expect(capturedBody?.anthropic_version).toBeUndefined();
+			},
+		);
+
+		test("rejects thinking enabled with budget on novita (thinking is always on, no control)", async () => {
+			const { res } = await exerciseLingMessages("novita", {
+				thinking: { type: "enabled", budget_tokens: 2048 },
+			});
+
+			expect(res.status).toBe(400);
+			const json = (await res.json()) as {
+				error?: { message?: string };
+			};
+			expect(json.error?.message).toContain(
+				'Remove the "thinking" parameter or use a model that supports extended thinking',
+			);
+		});
+
+		test.each(lingProviders)(
+			"forwards tools intact and applies enable_thinking false with thinking disabled on %s",
+			async (provider) => {
+				const { res, capturedBody } = await exerciseLingMessages(provider, {
+					thinking: { type: "disabled" },
+					tools: [weatherTool],
+				});
+
+				expect(res.status).toBe(200);
+				expect(capturedBody?.tools).toEqual(expectedOpenaiTool);
+				if (provider === "deepinfra") {
+					expect(capturedBody?.chat_template_kwargs).toEqual({
+						enable_thinking: false,
+					});
+				} else {
+					expect(capturedBody?.chat_template_kwargs).toBeUndefined();
+				}
+				expect(capturedBody?.reasoning_effort).toBeUndefined();
+				expect(capturedBody?.thinking).toBeUndefined();
+				expect(capturedBody?.anthropic_version).toBeUndefined();
+			},
+		);
+
+		test.each(lingProviders)(
+			"keeps the provider default (thinking on) with no thinking control on %s",
+			async (provider) => {
+				const { res, capturedBody } = await exerciseLingMessages(provider, {});
+
+				expect(res.status).toBe(200);
+				expect(capturedBody?.chat_template_kwargs).toBeUndefined();
+				expect(capturedBody?.reasoning_effort).toBeUndefined();
+				expect(capturedBody?.thinking).toBeUndefined();
+				expect(capturedBody?.anthropic_version).toBeUndefined();
+			},
+		);
+
+		// A client that can't send a provider prefix (e.g. devpass) relies on the
+		// gateway's standard routing to resolve a bare catalog id to a provider.
+		// Both DeepInfra and Novita mappings are active and keyed, so routing
+		// picks the cheapest (DeepInfra, $0.045 vs $0.06 input) and the request
+		// still goes through the same chat-template thinking translation.
+		test("resolves a bare ling-3.0-flash id to the cheapest Ling provider and applies enable_thinking false", async () => {
+			const { res, capturedBody } = await exerciseLingMessages(
+				"deepinfra",
+				{ thinking: { type: "disabled" } },
+				{ model: "ling-3.0-flash", insertBothProviderKeys: true },
+			);
+
+			expect(res.status).toBe(200);
+			// Standard routing lands on DeepInfra (cheapest of the two keyed
+			// Ling mappings), so the upstream model is its external id.
+			expect(capturedBody?.model).toBe("inclusionAI/Ling-3.0-flash");
+			expect(capturedBody?.chat_template_kwargs).toEqual({
+				enable_thinking: false,
+			});
+			expect(capturedBody?.reasoning_effort).toBeUndefined();
+		});
+
+		// With only one of the two Ling providers keyed, bare-id routing resolves
+		// to that single provider instead of failing.
+		test.each(lingProviders)(
+			"resolves a bare ling-3.0-flash id to the only keyed provider (%s) and applies enable_thinking false",
+			async (provider) => {
+				const { res, capturedBody } = await exerciseLingMessages(
+					provider,
+					{ thinking: { type: "disabled" } },
+					{ model: "ling-3.0-flash" },
+				);
+
+				expect(res.status).toBe(200);
+				expect(capturedBody?.model).toBe(upstreamModels[provider]);
+				if (provider === "deepinfra") {
+					expect(capturedBody?.chat_template_kwargs).toEqual({
+						enable_thinking: false,
+					});
+				} else {
+					expect(capturedBody?.chat_template_kwargs).toBeUndefined();
+				}
+				expect(capturedBody?.reasoning_effort).toBeUndefined();
+			},
+		);
+
+		// With neither provider keyed, bare-id routing has no candidate provider
+		// and the request fails with the standard no-provider-key error.
+		test("rejects a bare ling-3.0-flash id when no Ling provider has a key", async () => {
+			const { res, capturedBody } = await exerciseLingMessages(
+				"deepinfra",
+				{ thinking: { type: "disabled" } },
+				{ model: "ling-3.0-flash", insertNoProviderKeys: true },
+			);
+
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(JSON.stringify(json)).toContain(
+				"No provider key set for any of the providers that support model ling-3.0-flash",
+			);
+			expect(capturedBody).toBeUndefined();
+		});
+
+		// Native /v1/chat/completions twin of the bare-id /v1/messages test: a
+		// bare catalog id resolves through standard routing to the cheapest Ling
+		// provider (DeepInfra), and `reasoning_effort: "none"` (the OpenAI-path
+		// thinking control) reaches the upstream body as `enable_thinking: false`.
+		test("native OpenAI path resolves a bare ling-3.0-flash id to DeepInfra and maps reasoning none to enable_thinking false", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			for (const [index, providerId] of lingProviders.entries()) {
+				await db.insert(tables.providerKey).values({
+					id: `provider-key-id-${index}`,
+					token: "sk-test-key",
+					provider: providerId,
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				});
+			}
+
+			let capturedBody: CapturedLingBody | undefined;
+			const originalFetch = globalThis.fetch;
+			const fetchSpy = vi
+				.spyOn(globalThis, "fetch")
+				.mockImplementation(async (input, init) => {
+					const url =
+						typeof input === "string"
+							? input
+							: input instanceof URL
+								? input.toString()
+								: input.url;
+
+					if (url === `${mockServerUrl}/chat/completions`) {
+						capturedBody = JSON.parse(
+							String(init?.body ?? ""),
+						) as CapturedLingBody;
+						return new Response(
+							JSON.stringify({
+								id: "chatcmpl-ling-3.0-flash",
+								object: "chat.completion",
+								created: 1774549411,
+								model: "inclusionAI/Ling-3.0-flash",
+								choices: [
+									{
+										index: 0,
+										message: {
+											role: "assistant",
+											content: "It's sunny in Paris.",
+										},
+										finish_reason: "stop",
+									},
+								],
+								usage: {
+									prompt_tokens: 5,
+									completion_tokens: 3,
+									total_tokens: 8,
+								},
+							}),
+							{
+								status: 200,
+								headers: { "Content-Type": "application/json" },
+							},
+						);
+					}
+
+					return await originalFetch(input as RequestInfo | URL, init);
+				});
+
+			try {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "ling-3.0-flash",
+						reasoning_effort: "none",
+						messages: [
+							{ role: "user", content: "What is the weather in Paris?" },
+						],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				const json = await res.json();
+				expect(json.metadata?.used_provider).toBe("deepinfra");
+				expect(capturedBody?.model).toBe("inclusionAI/Ling-3.0-flash");
+				expect(capturedBody?.chat_template_kwargs).toEqual({
+					enable_thinking: false,
+				});
+				expect(capturedBody?.reasoning_effort).toBeUndefined();
+			} finally {
+				fetchSpy.mockRestore();
+			}
+		});
+	});
 });

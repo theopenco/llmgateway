@@ -4181,24 +4181,33 @@ export async function prepareRequestBody(
 					}
 				}
 			}
-			// Hybrid models that keep thinking off by default (e.g. DeepSeek V3.2 on
-			// Novita) ignore `reasoning_effort` and require the vLLM chat-template
-			// flag to turn reasoning on. Only set it when the caller asked for
-			// reasoning so plain requests stay non-thinking.
-			if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
-				const thinkingMapping = modelDef?.providers.find(
-					(p) =>
-						p.providerId === usedProvider &&
-						((p as ProviderModelMapping).region ?? null) === usedRegion,
-				) as ProviderModelMapping | undefined;
-				if (thinkingMapping?.requiresEnableThinking) {
-					requestBody.chat_template_kwargs = {
-						...(requestBody.chat_template_kwargs ?? {}),
-						thinking: true,
-					};
-				}
-			}
 			break;
+		}
+	}
+
+	// vLLM chat-template thinking flags are handled after the provider switch so
+	// every provider branch (not just the OpenAI-compatible default) applies them
+	// uniformly. Hybrid models that keep thinking off by default (e.g. DeepSeek
+	// V3.2 on Novita) ignore `reasoning_effort` and require the chat-template flag
+	// to turn reasoning on; mappings that think by default (e.g. InclusionAI
+	// Ling-3.0-flash) declare `chatTemplateThinkingKey` for the flag that controls
+	// thinking. `reasoning_effort: "none"` flips it to false to turn thinking off,
+	// and any other effort flips it to true. A `reasoning_max_tokens` budget (from
+	// an Anthropic `thinking.budget_tokens`) is intentionally dropped for these
+	// mappings: the chat-template flag is a binary on/off toggle with no budget
+	// dimension, so the gateway only conveys whether thinking is on.
+	if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
+		if (providerMappingForOptions?.chatTemplateThinkingKey) {
+			requestBody.chat_template_kwargs = {
+				...(requestBody.chat_template_kwargs ?? {}),
+				[providerMappingForOptions.chatTemplateThinkingKey]:
+					reasoning_effort !== "none",
+			};
+		} else if (providerMappingForOptions?.requiresEnableThinking) {
+			requestBody.chat_template_kwargs = {
+				...(requestBody.chat_template_kwargs ?? {}),
+				thinking: true,
+			};
 		}
 	}
 
