@@ -175,7 +175,7 @@ function createSession(preflightOverrides: Record<string, unknown> = {}) {
 		requestedModel: "openai/gpt-realtime-2.1-mini",
 		sessionRecordId: "rts_1",
 		lease: { sessionId: "rts_1", organizationId: "org_1", apiKeyId: "key_1" },
-		source: "chat.llmgateway.io",
+		source: "lounge.llmgateway.io",
 		userAgent: "vitest",
 		allowedTranscription: null,
 		onClosed: () => {},

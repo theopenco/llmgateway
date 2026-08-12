@@ -31,7 +31,7 @@ Toggle **Compare** mode to select up to 3 image models and generate from all of 
 
 Image Studio works with every image generation model on LLM Gateway, including Gemini 3.1 Flash Image, Gemini 3 Pro Image, Qwen Image, Seedream, CogView, and more.
 
-**[Try it now](https://chat.llmgateway.io/image)**
+**[Try it now](https://lounge.llmgateway.io/image)**
 
 ---
 

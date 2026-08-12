@@ -11,6 +11,8 @@ describe("isAllowedKnowledgeUrl", () => {
 			true,
 		);
 		expect(isAllowedKnowledgeUrl("https://devpass.llmgateway.io/")).toBe(true);
+		expect(isAllowedKnowledgeUrl("https://lounge.llmgateway.io/")).toBe(true);
+		// Kept allowed after the move: the old host still 301s to lounge.
 		expect(isAllowedKnowledgeUrl("https://chat.llmgateway.io/")).toBe(true);
 	});
 

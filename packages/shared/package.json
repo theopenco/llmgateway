@@ -41,6 +41,10 @@
 			"types": "./dist/random.d.ts",
 			"import": "./dist/random.js"
 		},
+		"./lounge-source": {
+			"types": "./dist/lounge-source.d.ts",
+			"import": "./dist/lounge-source.js"
+		},
 		"./sandbox-escape": {
 			"types": "./dist/sandbox-escape.d.ts",
 			"import": "./dist/sandbox-escape.js"

@@ -3,6 +3,8 @@ import { cookies } from "next/headers";
 import { PLAYGROUND_KEY_COOKIE_NAME } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
 
+import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
+
 export const maxDuration = 300; // 5 minutes
 
 // Abort the upstream OCR call before the route's max duration so a hung
@@ -87,7 +89,7 @@ export async function POST(req: Request) {
 			headers: {
 				"Content-Type": "application/json",
 				Authorization: `Bearer ${finalApiKey}`,
-				"x-source": "chat.llmgateway.io",
+				"x-source": LOUNGE_SOURCE,
 				...(noFallbackHeader ? { "x-no-fallback": noFallbackHeader } : {}),
 			},
 			body: JSON.stringify({

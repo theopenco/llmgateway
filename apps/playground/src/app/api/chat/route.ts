@@ -28,6 +28,7 @@ import {
 import { fetchServerData } from "@/lib/server-api";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 
 export const maxDuration = 300; // 5 minutes
 
@@ -786,7 +787,7 @@ export async function POST(req: Request) {
 		baseURL: gatewayUrl,
 		fetch: gatewayFetch,
 		headers: {
-			"x-source": "chat.llmgateway.io",
+			"x-source": LOUNGE_SOURCE,
 			...(noFallbackHeader ? { "x-no-fallback": noFallbackHeader } : {}),
 		},
 		extraBody: {

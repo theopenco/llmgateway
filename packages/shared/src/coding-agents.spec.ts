@@ -45,6 +45,7 @@ describe("isRecognizedCodingAgent", () => {
 		expect(isRecognizedCodingAgent("")).toBe(false);
 		expect(isRecognizedCodingAgent("curl")).toBe(false);
 		expect(isRecognizedCodingAgent("postman")).toBe(false);
+		expect(isRecognizedCodingAgent("lounge.llmgateway.io")).toBe(false);
 		expect(isRecognizedCodingAgent("chat.llmgateway.io")).toBe(false);
 		expect(isRecognizedCodingAgent("my-custom-app")).toBe(false);
 	});

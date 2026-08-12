@@ -30,7 +30,7 @@ async function fetchPublicShares(): Promise<ShareListItem[]> {
 }
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-	const baseUrl = "https://chat.llmgateway.io";
+	const baseUrl = "https://lounge.llmgateway.io";
 	const now = new Date();
 
 	const staticEntries: MetadataRoute.Sitemap = [

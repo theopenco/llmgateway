@@ -717,7 +717,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 															href={
 																process.env.NODE_ENV === "development"
 																	? "http://localhost:3003"
-																	: "https://chat.llmgateway.io"
+																	: "https://lounge.llmgateway.io"
 															}
 															target="_blank"
 															rel="noopener noreferrer"
@@ -773,7 +773,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 														href={
 															process.env.NODE_ENV === "development"
 																? "http://localhost:3003"
-																: "https://chat.llmgateway.io"
+																: "https://lounge.llmgateway.io"
 														}
 														target="_blank"
 														rel="noopener noreferrer"

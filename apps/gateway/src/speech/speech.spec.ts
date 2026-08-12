@@ -295,7 +295,7 @@ describe("speech", () => {
 				headers: {
 					"Content-Type": "application/json",
 					Authorization: "Bearer real-token-speech-chat-plan",
-					"x-source": "chat.llmgateway.io",
+					"x-source": "lounge.llmgateway.io",
 				},
 				body: JSON.stringify({
 					model: "gemini-2.5-flash-preview-tts",

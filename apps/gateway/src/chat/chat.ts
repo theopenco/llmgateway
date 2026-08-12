@@ -2743,7 +2743,7 @@ chat.openapi(completions, async (c) => {
 	);
 	if (isStarterChatPlan && !isChatPlanModelAllowed("starter", modelInfo.id)) {
 		throw new HTTPException(403, {
-			message: `Model ${modelInfo.id} is not available on the Starter chat plan. Upgrade to Plus or Pro at chat.llmgateway.io/pricing to access frontier models.`,
+			message: `Model ${modelInfo.id} is not available on the Starter chat plan. Upgrade to Plus or Pro at lounge.llmgateway.io/pricing to access frontier models.`,
 		});
 	}
 

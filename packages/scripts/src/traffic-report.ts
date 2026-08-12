@@ -61,7 +61,9 @@ interface ReportData {
 const PRODUCTS: ReadonlyArray<{ host: string; label: string }> = [
 	{ host: "llmgateway.io", label: "LLM Gateway" },
 	{ host: "devpass.llmgateway.io", label: "DevPass" },
-	{ host: "chat.llmgateway.io", label: "Chat" },
+	{ host: "lounge.llmgateway.io", label: "Lounge" },
+	// Pre-move Lounge host, kept so historical periods still report traffic.
+	{ host: "chat.llmgateway.io", label: "Lounge (legacy host)" },
 	{ host: "docs.llmgateway.io", label: "Docs" },
 ];
 

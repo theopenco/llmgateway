@@ -1220,7 +1220,7 @@ export function DashboardSidebar({
 				href:
 					process.env.NODE_ENV === "development"
 						? "http://localhost:3003"
-						: "https://chat.llmgateway.io",
+						: "https://lounge.llmgateway.io",
 				label: "Lounge",
 				icon: AnimatedBotMessageSquare,
 				internal: false,
