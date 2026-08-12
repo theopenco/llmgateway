@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "cb85bbd8-ced1-4a63-89a3-6c2f7490095e",
-  "prevId": "8cae62cd-32dd-4f84-8fa0-10dd1678f8db",
+  "id": "8824dbe8-2e9c-4c4d-ba61-93a8cc795071",
+  "prevId": "555277a3-5022-4bee-8be6-545f0ed166b4",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -13021,6 +13021,22 @@
       "generated": null,
       "identity": null,
       "name": "pro_extra_api_keys",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "pro_extra_projects",
       "entityType": "columns",
       "schema": "public",
       "table": "organization"

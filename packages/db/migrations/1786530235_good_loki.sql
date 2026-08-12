@@ -1,1 +1,0 @@
-ALTER TABLE "organization" ADD COLUMN "pro_extra_projects" integer DEFAULT 0 NOT NULL;
