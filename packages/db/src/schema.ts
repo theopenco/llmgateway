@@ -1808,6 +1808,7 @@ export const API_ORIGINS = [
 	"chat-completions",
 	"messages",
 	"responses",
+	"ai-sdk",
 	"embeddings",
 	"images",
 	"videos",
