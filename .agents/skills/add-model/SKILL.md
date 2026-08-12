@@ -342,7 +342,7 @@ dashboard read `model_provider_mapping` from the **database** (via
 ```bash
 pnpm test:unit
 # faster loop:
-pnpm build:core && pnpm vitest run packages/models packages/actions apps/gateway/src/lib/costs.spec.ts
+pnpm build:core && pnpm exec vitest run packages/models packages/actions apps/gateway/src/lib/costs.spec.ts
 ```
 
 **Scoped e2e — required for every new mapping.** Never run the full suite; scope
