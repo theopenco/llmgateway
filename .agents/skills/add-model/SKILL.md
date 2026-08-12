@@ -351,7 +351,12 @@ covers pricing.
 **Playground check for image/video models.** Start the stack, seed, open the
 image or video studio, select the new model, and confirm the offered
 sizes/qualities/durations exactly match what the deployment accepted in §5 — no
-extra option, no missing one.
+extra option, no missing one. **Screenshot the selector** — this is the one place
+a model addition needs screenshots, and it is the evidence that the catalogue
+metadata and the UI agree.
+
+**Text models need no screenshots.** Scoped e2e is the required and sufficient
+verification for them. Do not run the playground to illustrate a text model.
 
 ## 7. When something fails
 
@@ -399,11 +404,18 @@ can check it:
 - Anything **not** verified, and why (skipped e2e for a paid video model,
   region-locked key, and so on).
 
-Screenshots follow the repo rule: they are for changes to the three dashboard UIs
-(`apps/ui`, `apps/code`, `ee/admin`), before/after and both themes. A
-catalogue-only addition changes none of them and needs none. Playground studio
-changes are outside that rule — describe the selector grid in text; add a
-screenshot only if it is genuinely the clearest way to show the change.
+Screenshots:
+
+- **Image and video models — required.** Attach playground screenshots of the
+  image or video studio showing the new model's selector: the offered
+  sizes/qualities/durations, and the generated result. Both themes, and
+  before/after when an existing screen changed.
+- **Text models — none.** Scoped e2e is the required and sufficient evidence.
+  Don't spin up the playground for a text model.
+- If the change also touches a dashboard UI (`apps/ui`, `apps/code`, `ee/admin`),
+  the usual repo rule applies on top: before/after in both themes.
+
+Use the `pull-request` skill's screenshot workflow to capture and attach them.
 
 Keep it public-safe: no customer names, org/project IDs, key material, or
 internal dollar amounts. Public provider pricing from `packages/models` is fine.
