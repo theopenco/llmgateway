@@ -74,8 +74,10 @@ import {
 	TooltipProvider,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { discountFraction } from "@/lib/discount";
 import { cn } from "@/lib/utils";
 
+import { matchesCapability } from "./capability-filters";
 import { isMappingDeactivated } from "./deactivation";
 import { formatDeprecationDate } from "./format";
 import { ModelCard } from "./model-card";
@@ -138,7 +140,12 @@ interface AllModelsProps {
 }
 
 type SortField =
-	"provider" | "name" | "inputPrice" | "outputPrice" | "cachedInputPrice";
+	| "provider"
+	| "name"
+	| "inputPrice"
+	| "outputPrice"
+	| "cachedInputPrice"
+	| "discount";
 type SortDirection = "asc" | "desc";
 
 // Capability icon type
@@ -711,11 +718,19 @@ export function AllModels({
 	);
 
 	// Sorting states
+	const sortFieldParam = searchParams.get("sortField") as SortField | null;
+	const sortDirParam = searchParams.get("sortDir");
+	const discountedDefault =
+		categoryFilter === "discounted" && !sortFieldParam && !sortDirParam;
 	const [sortField, setSortField] = useState<SortField | null>(
-		(searchParams.get("sortField") as SortField) || null,
+		sortFieldParam || (discountedDefault ? "discount" : null),
 	);
 	const [sortDirection, setSortDirection] = useState<SortDirection>(
-		(searchParams.get("sortDir") as SortDirection) === "desc" ? "desc" : "asc",
+		sortDirParam === "desc" || sortDirParam === "asc"
+			? sortDirParam
+			: discountedDefault
+				? "desc"
+				: "asc",
 	);
 	const [filters, setFilters] = useState({
 		// With the selector hidden there is no way to see or change the
@@ -985,43 +1000,57 @@ export function AllModels({
 			// Capability filters
 			if (
 				filters.capabilities.streaming &&
-				!model.providerDetails.some((p) => p.provider.streaming)
+				!model.providerDetails.some((p) =>
+					matchesCapability("streaming", p.provider),
+				)
 			) {
 				return false;
 			}
 			if (
 				filters.capabilities.vision &&
-				!model.providerDetails.some((p) => p.provider.vision)
+				!model.providerDetails.some((p) =>
+					matchesCapability("vision", p.provider),
+				)
 			) {
 				return false;
 			}
 			if (
 				filters.capabilities.tools &&
-				!model.providerDetails.some((p) => p.provider.tools)
+				!model.providerDetails.some((p) =>
+					matchesCapability("tools", p.provider),
+				)
 			) {
 				return false;
 			}
 			if (
 				filters.capabilities.reasoning &&
-				!model.providerDetails.some((p) => p.provider.reasoning)
+				!model.providerDetails.some((p) =>
+					matchesCapability("reasoning", p.provider),
+				)
 			) {
 				return false;
 			}
 			if (
 				filters.capabilities.reasoningBudget &&
-				!model.providerDetails.some((p) => p.provider.reasoningMaxTokens)
+				!model.providerDetails.some((p) =>
+					matchesCapability("reasoningMaxTokens", p.provider),
+				)
 			) {
 				return false;
 			}
 			if (
 				filters.capabilities.jsonOutput &&
-				!model.providerDetails.some((p) => p.provider.jsonOutput)
+				!model.providerDetails.some((p) =>
+					matchesCapability("jsonOutput", p.provider),
+				)
 			) {
 				return false;
 			}
 			if (
 				filters.capabilities.jsonOutputSchema &&
-				!model.providerDetails.some((p) => p.provider.jsonOutputSchema)
+				!model.providerDetails.some((p) =>
+					matchesCapability("jsonOutputSchema", p.provider),
+				)
 			) {
 				return false;
 			}
@@ -1054,7 +1083,9 @@ export function AllModels({
 			}
 			if (
 				filters.capabilities.webSearch &&
-				!model.providerDetails.some((p) => p.provider.webSearch)
+				!model.providerDetails.some((p) =>
+					matchesCapability("webSearch", p.provider),
+				)
 			) {
 				return false;
 			}
@@ -1070,8 +1101,8 @@ export function AllModels({
 			}
 			if (
 				filters.capabilities.discounted &&
-				!model.providerDetails.some(
-					(p) => p.provider.discount && parseFloat(p.provider.discount) > 0,
+				!model.providerDetails.some((p) =>
+					matchesCapability("discounted", p.provider),
 				)
 			) {
 				return false;
@@ -1245,6 +1276,18 @@ export function AllModels({
 							: Infinity;
 					break;
 				}
+				case "discount": {
+					// Highest discount across all providers for this model
+					const aDiscounts = a.providerDetails.map((m) =>
+						discountFraction(m.provider.discount),
+					);
+					const bDiscounts = b.providerDetails.map((m) =>
+						discountFraction(m.provider.discount),
+					);
+					aValue = aDiscounts.length > 0 ? Math.max(...aDiscounts) : 0;
+					bValue = bDiscounts.length > 0 ? Math.max(...bDiscounts) : 0;
+					break;
+				}
 				default:
 					return 0;
 			}
@@ -1289,6 +1332,43 @@ export function AllModels({
 		for (const model of modelsWithProviders) {
 			for (const { provider, providerInfo } of model.providerDetails) {
 				if (providerFilter && provider.providerId !== providerFilter) {
+					continue;
+				}
+
+				// Re-check each active capability filter per row, mirroring the
+				// model-level filter: a model qualifies via any one of its
+				// mappings, but only the mappings that actually satisfy the
+				// capability belong in the filtered table.
+				if (
+					(filters.capabilities.streaming &&
+						!matchesCapability("streaming", provider)) ||
+					(filters.capabilities.vision &&
+						!matchesCapability("vision", provider)) ||
+					(filters.capabilities.tools &&
+						!matchesCapability("tools", provider)) ||
+					(filters.capabilities.reasoning &&
+						!matchesCapability("reasoning", provider)) ||
+					(filters.capabilities.reasoningBudget &&
+						!matchesCapability("reasoningMaxTokens", provider)) ||
+					(filters.capabilities.jsonOutput &&
+						!matchesCapability("jsonOutput", provider)) ||
+					(filters.capabilities.jsonOutputSchema &&
+						!matchesCapability("jsonOutputSchema", provider)) ||
+					(filters.capabilities.webSearch &&
+						!matchesCapability("webSearch", provider)) ||
+					(filters.capabilities.discounted &&
+						!matchesCapability("discounted", provider))
+				) {
+					continue;
+				}
+
+				// Category pages filter at the model level (any mapping can
+				// qualify the model), so re-check the row against the category
+				// predicate too — a single-element array tests just this row.
+				if (
+					categoryFilter &&
+					!applyCategoryFilter(categoryFilter, model, [provider])
+				) {
 					continue;
 				}
 
@@ -1387,6 +1467,10 @@ export function AllModels({
 							: Infinity;
 					break;
 				}
+				case "discount":
+					aValue = discountFraction(a.provider.discount);
+					bValue = discountFraction(b.provider.discount);
+					break;
 				default:
 					return 0;
 			}
@@ -1402,6 +1486,7 @@ export function AllModels({
 	}, [modelsWithProviders, sortField, sortDirection, filters.selectedProvider]);
 
 	const hasActiveFilters =
+		categoryFilter ||
 		searchQuery ||
 		(filters.category && filters.category !== defaultCategory) ||
 		(filters.tier && filters.tier !== "all") ||
@@ -1859,9 +1944,29 @@ export function AllModels({
 												[key]: pressed,
 											},
 										}));
-										updateUrlWithFilters({
-											[key]: pressed ? "true" : undefined,
-										});
+										if (key === "discounted") {
+											if (pressed) {
+												setSortField("discount");
+												setSortDirection("desc");
+												updateUrlWithFilters({
+													[key]: "true",
+													sortField: "discount",
+													sortDir: "desc",
+												});
+											} else {
+												setSortField(null);
+												setSortDirection("desc");
+												updateUrlWithFilters({
+													[key]: undefined,
+													sortField: undefined,
+													sortDir: undefined,
+												});
+											}
+										} else {
+											updateUrlWithFilters({
+												[key]: pressed ? "true" : undefined,
+											});
+										}
 									}}
 									className="gap-1.5"
 								>
@@ -2302,6 +2407,7 @@ export function AllModels({
 												className="ml-2 px-1 py-0 text-xs"
 											>
 												{[
+													categoryFilter ? 1 : 0,
 													searchQuery ? 1 : 0,
 													filters.category &&
 													filters.category !== defaultCategory
