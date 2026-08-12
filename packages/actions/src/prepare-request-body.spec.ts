@@ -1393,7 +1393,10 @@ describe("prepareRequestBody - InclusionAI Ling-3.0-flash thinking", () => {
 		},
 	);
 
-	test.each(["deepinfra", "novita"] as const)(
+	// Only DeepInfra serves this model with structured outputs — Novita rejects
+	// any response_format ("does not support feature: structured-outputs"), so
+	// its mapping is jsonOutput: false and such requests never reach this layer.
+	test.each(["deepinfra"] as const)(
 		"passes through json_object response_format on %s",
 		async (provider) => {
 			const requestBody = await prepare({
@@ -1404,7 +1407,7 @@ describe("prepareRequestBody - InclusionAI Ling-3.0-flash thinking", () => {
 		},
 	);
 
-	test.each(["deepinfra", "novita"] as const)(
+	test.each(["deepinfra"] as const)(
 		"passes through json_schema response_format on %s",
 		async (provider) => {
 			const schema = {
@@ -1433,11 +1436,16 @@ describe("prepareRequestBody - InclusionAI Ling-3.0-flash thinking", () => {
 	test.each(["deepinfra", "novita"] as const)(
 		"maps none to enable_thinking disabled while tools and response_format are present on %s",
 		async (provider) => {
+			// response_format is only valid on DeepInfra (see above).
+			const responseFormat =
+				provider === "deepinfra"
+					? ({ type: "json_object" } as const)
+					: undefined;
 			const requestBody = await prepare({
 				provider,
 				reasoningEffort: "none",
 				tools,
-				responseFormat: { type: "json_object" },
+				responseFormat,
 			});
 			if (provider === "deepinfra") {
 				expect(requestBody.chat_template_kwargs).toEqual({
@@ -1448,7 +1456,7 @@ describe("prepareRequestBody - InclusionAI Ling-3.0-flash thinking", () => {
 			}
 			expect(requestBody.reasoning_effort).toBeUndefined();
 			expect(requestBody.tools).toEqual(tools);
-			expect(requestBody.response_format).toEqual({ type: "json_object" });
+			expect(requestBody.response_format).toEqual(responseFormat);
 		},
 	);
 });

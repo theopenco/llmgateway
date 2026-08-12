@@ -12,9 +12,9 @@ export const inclusionaiModels = [
 			{
 				providerId: "deepinfra",
 				externalId: "inclusionAI/Ling-3.0-flash",
-				inputPrice: "0.045e-6",
-				cachedInputPrice: "0.008e-6",
-				outputPrice: "0.1e-6",
+				inputPrice: "0.06e-6",
+				cachedInputPrice: "0.012e-6",
+				outputPrice: "0.18e-6",
 				requestPrice: "0",
 				contextSize: 262144,
 				maxOutput: 32768,
@@ -57,6 +57,9 @@ export const inclusionaiModels = [
 				// Novita backend ignores chat_template_kwargs.enable_thinking (verified
 				// live 2026-08-10) — thinking is always on, no client control.
 				reasoningEfforts: [],
+				// Novita rejects response_format outright for this model
+				// ("does not support feature: structured-outputs"), for both
+				// json_object and json_schema.
 				supportedParameters: [
 					"temperature",
 					"max_tokens",
@@ -65,13 +68,12 @@ export const inclusionaiModels = [
 					"presence_penalty",
 					"stop",
 					"stream",
-					"response_format",
 					"tools",
 					"tool_choice",
 				],
 				vision: false,
 				tools: true,
-				jsonOutput: true,
+				jsonOutput: false,
 			},
 		],
 	},
