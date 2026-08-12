@@ -3,6 +3,7 @@ import { Decimal } from "decimal.js";
 import { estimateTokensFromContent } from "@/chat/tools/estimate-tokens-from-content.js";
 import { encodeChatMessages } from "@/chat/tools/tokenizer.js";
 
+import { mapXaiImageQuality, mapXaiImageResolution } from "@llmgateway/actions";
 import { getEffectiveDiscount } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
@@ -771,11 +772,25 @@ export async function calculateCosts(
 	const imageOutputPricePerToken = providerInfo.imageOutputPrice;
 	const perImagePriceMap = providerInfo.perImagePrice;
 	if (perImagePriceMap && outputImageCount > 0) {
+		// xAI's Grok Imagine 2.0 bills a flat per-image rate that varies with both
+		// the requested quality (low/medium) and resolution (1k/2k), so its tier
+		// keys are "<quality>/<resolution>". xAI serves medium quality at 1k when
+		// the request omits either knob, so fill those defaults in before the
+		// lookup rather than falling through to the map's "default" tier.
+		// Both knobs go through the same mappers the request body used, so a value
+		// the gateway dropped as unsupported (e.g. quality "auto") bills at the
+		// tier xAI actually served rather than missing the map entirely.
+		const perImageTier =
+			provider === "xai"
+				? `${(imageQuality ? mapXaiImageQuality(imageQuality) : undefined) ?? "medium"}/${
+						(imageSize ? mapXaiImageResolution(imageSize) : undefined) ?? "1k"
+					}`
+				: imageSize;
 		// A map without a "default" key falls back to its most expensive tier so
 		// a lookup miss can only overcharge, never bill a generated image at $0
 		// (same stance as the unknown-size → "default" fallback).
 		const perImagePrice =
-			resolveByResolution(perImagePriceMap, imageSize) ??
+			resolveByResolution(perImagePriceMap, perImageTier) ??
 			Object.values(perImagePriceMap).reduce(
 				(max, v) => (new Decimal(v).gt(max) ? v : max),
 				"0",

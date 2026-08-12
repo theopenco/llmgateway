@@ -1141,7 +1141,18 @@ export function parseProviderResponse(
 				// Standard OpenAI-style token parsing
 				promptTokens = json.usage?.prompt_tokens ?? null;
 				completionTokens = json.usage?.completion_tokens ?? null;
-				reasoningTokens = json.usage?.reasoning_tokens ?? null;
+				// xAI is the exception among the OpenAI-compatible providers: its
+				// `completion_tokens` EXCLUDES reasoning (total_tokens = prompt +
+				// completion + reasoning) and the count only ever appears nested
+				// under `completion_tokens_details`. Reading it here is what makes
+				// reasoning billable at all. Providers that fold reasoning into
+				// `completion_tokens` must keep reading the top-level field only,
+				// or the same tokens would be billed a second time.
+				reasoningTokens =
+					json.usage?.reasoning_tokens ??
+					(usedProvider === "xai"
+						? (json.usage?.completion_tokens_details?.reasoning_tokens ?? null)
+						: null);
 				cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens ?? null;
 				totalTokens =
 					json.usage?.total_tokens ??
