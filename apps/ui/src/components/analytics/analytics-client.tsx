@@ -83,17 +83,24 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 	const isEnterprise = selectedOrganization?.plan === "enterprise";
 
 	// The per-member breakdown exposes every member's spend, so it carries the
-	// same entitlement as the API gate: enterprise, and an org owner/admin. This
-	// only hides the option — the API enforces it independently.
+	// same entitlement as the API gate: enterprise, and either an org owner/admin
+	// or a lead of this project. Hiding the option is UX only.
 	const { data: teamData } = useTeamMembers(orgId, undefined, {
 		enabled: isEnterprise,
 	});
-	const currentUserRole = teamData?.members.find(
+	const membership = teamData?.members.find(
 		(member) => member.userId === user?.id,
-	)?.role;
+	);
+	const leadsThisProject =
+		!!projectId &&
+		(membership?.projects ?? []).some(
+			(p) => p.id === projectId && p.role === "lead",
+		);
 	const canGroupByUser =
 		isEnterprise &&
-		(currentUserRole === "owner" || currentUserRole === "admin");
+		(membership?.role === "owner" ||
+			membership?.role === "admin" ||
+			leadsThisProject);
 
 	const groupBy = resolveGroupBy(
 		parseGroupBy(searchParams.get("groupBy")),

@@ -61,6 +61,12 @@ const memberProjectSchema = z.object({
 	name: z.string(),
 });
 
+// A developer's grant on one project. `role: "lead"` additionally lets them see
+// every member's spend and every key's traffic inside that project.
+const memberProjectAccessSchema = memberProjectSchema.extend({
+	role: z.enum(["member", "lead"]),
+});
+
 const teamMemberSchema = z.object({
 	id: z.string(),
 	userId: z.string(),
@@ -80,7 +86,7 @@ const teamMemberSchema = z.object({
 	spend: memberSpendSchema.nullable(),
 	// Project access: null = every project in the org (owner/admin); an array =
 	// the specific projects a project-scoped "developer" is limited to.
-	projects: z.array(memberProjectSchema).nullable(),
+	projects: z.array(memberProjectAccessSchema).nullable(),
 });
 
 const addMemberSchema = z.object({
@@ -89,6 +95,8 @@ const addMemberSchema = z.object({
 	// Required (non-empty) when role is "developer": the projects the member is
 	// granted access to. Ignored for owner/admin (they get the whole org).
 	projectIds: z.array(z.string()).optional(),
+	// Subset of `projectIds` the member leads. Ignored for owner/admin.
+	leadProjectIds: z.array(z.string()).optional(),
 });
 
 const teamInviteSchema = z.object({
@@ -333,18 +341,23 @@ const updateMemberSchema = z.object({
 	role: roleSchema,
 	// When the (new) role is "developer", the projects the member is limited to.
 	projectIds: z.array(z.string()).optional(),
+	// Subset of `projectIds` the member leads.
+	leadProjectIds: z.array(z.string()).optional(),
 });
+
+type MemberProjectAccess = z.infer<typeof memberProjectAccessSchema>;
 
 /**
  * Validate a developer's requested project grants against the org and return the
- * resolved {id,name} list. Throws 400 when the role/project combination is
+ * resolved {id,name,role} list. Throws 400 when the role/project combination is
  * invalid.
  */
 async function resolveDeveloperProjects(
 	organizationId: string,
 	role: z.infer<typeof roleSchema>,
 	projectIds: string[] | undefined,
-): Promise<{ id: string; name: string }[]> {
+	leadProjectIds?: string[],
+): Promise<MemberProjectAccess[]> {
 	if (role !== "developer") {
 		return [];
 	}
@@ -354,6 +367,16 @@ async function resolveDeveloperProjects(
 		throw new HTTPException(400, {
 			message: "Developers must be granted access to at least one project.",
 		});
+	}
+
+	const granted = new Set(unique);
+	const leads = new Set(leadProjectIds ?? []);
+	for (const leadProjectId of leads) {
+		if (!granted.has(leadProjectId)) {
+			throw new HTTPException(400, {
+				message: "A member can only lead a project they have access to.",
+			});
+		}
 	}
 
 	const orgProjects = await db.query.project.findMany({
@@ -371,26 +394,31 @@ async function resolveDeveloperProjects(
 		});
 	}
 
-	return orgProjects.map((p) => ({ id: p.id, name: p.name }));
+	return orgProjects.map((p) => ({
+		id: p.id,
+		name: p.name,
+		role: leads.has(p.id) ? ("lead" as const) : ("member" as const),
+	}));
 }
 
 /**
- * Replace a membership's project grants with exactly `projectIds` (developers),
- * or clear them entirely (owner/admin have implicit access to every project).
+ * Replace a membership's project grants with exactly `grants` (developers), or
+ * clear them entirely (owner/admin have implicit access to every project).
  */
 async function syncMemberProjects(
 	userOrganizationId: string,
-	projectIds: string[],
+	grants: MemberProjectAccess[],
 ): Promise<void> {
 	await db
 		.delete(tables.userProject)
 		.where(eq(tables.userProject.userOrganizationId, userOrganizationId));
 
-	if (projectIds.length) {
+	if (grants.length) {
 		await db.insert(tables.userProject).values(
-			projectIds.map((projectId) => ({
+			grants.map((grant) => ({
 				userOrganizationId,
-				projectId,
+				projectId: grant.id,
+				role: grant.role,
 			})),
 		);
 	}
@@ -521,7 +549,11 @@ team.openapi(getMembers, async (c) => {
 				m.role === "developer"
 					? m.userProjects
 							.filter((up) => up.project)
-							.map((up) => ({ id: up.project!.id, name: up.project!.name }))
+							.map((up) => ({
+								id: up.project!.id,
+								name: up.project!.name,
+								role: up.role,
+							}))
 					: null,
 		})),
 		invites,
@@ -547,6 +579,9 @@ const getMyBudget = createRoute({
 					schema: z.object({
 						budget: memberBudgetSchema,
 						spend: memberSpendSchema,
+						// Projects this member leads. Empty for owner/admin, who reach
+						// every project through their org role instead.
+						leadProjectIds: z.array(z.string()),
 					}),
 				},
 			},
@@ -587,6 +622,7 @@ team.openapi(getMyBudget, async (c) => {
 					defaultDeveloperPeriodUsageDurationUnit: true,
 				},
 			},
+			userProjects: true,
 		},
 	});
 
@@ -609,6 +645,9 @@ team.openapi(getMyBudget, async (c) => {
 			orgDefaultsFrom(membership.organization),
 		),
 		spend,
+		leadProjectIds: membership.userProjects
+			.filter((grant) => grant.role === "lead")
+			.map((grant) => grant.projectId),
 	});
 });
 
@@ -655,7 +694,7 @@ team.openapi(addMember, async (c) => {
 	}
 
 	const { organizationId } = c.req.param();
-	const { email, role, projectIds } = c.req.valid("json");
+	const { email, role, projectIds, leadProjectIds } = c.req.valid("json");
 
 	const userOrganization = await db.query.userOrganization.findFirst({
 		where: {
@@ -703,6 +742,7 @@ team.openapi(addMember, async (c) => {
 		organizationId,
 		role,
 		projectIds,
+		leadProjectIds,
 	);
 
 	const currentMembers = await db.query.userOrganization.findMany({
@@ -767,6 +807,10 @@ team.openapi(addMember, async (c) => {
 				role,
 				projectIds:
 					role === "developer" ? grantedProjects.map((p) => p.id) : null,
+				leadProjectIds:
+					role === "developer"
+						? grantedProjects.filter((p) => p.role === "lead").map((p) => p.id)
+						: null,
 				invitedBy: authUser.id,
 				expiresAt: new Date(Date.now() + INVITE_EXPIRY_MS),
 			})
@@ -807,6 +851,9 @@ This invitation expires in ${INVITE_EXPIRY_DAYS} days. If you weren't expecting 
 				targetUserEmail: normalizedEmail,
 				role,
 				projectIds: grantedProjects.map((p) => p.id),
+				leadProjectIds: grantedProjects
+					.filter((p) => p.role === "lead")
+					.map((p) => p.id),
 			},
 		});
 
@@ -851,10 +898,7 @@ This invitation expires in ${INVITE_EXPIRY_DAYS} days. If you weren't expecting 
 		.returning();
 
 	if (role === "developer") {
-		await syncMemberProjects(
-			newMember.id,
-			grantedProjects.map((p) => p.id),
-		);
+		await syncMemberProjects(newMember.id, grantedProjects);
 	}
 
 	await logAuditEvent({
@@ -868,6 +912,9 @@ This invitation expires in ${INVITE_EXPIRY_DAYS} days. If you weren't expecting 
 			targetUserEmail: email,
 			role,
 			projectIds: grantedProjects.map((p) => p.id),
+			leadProjectIds: grantedProjects
+				.filter((p) => p.role === "lead")
+				.map((p) => p.id),
 		},
 	});
 
@@ -1034,7 +1081,7 @@ team.openapi(updateMember, async (c) => {
 	}
 
 	const { organizationId, memberId } = c.req.param();
-	const { role, projectIds } = c.req.valid("json");
+	const { role, projectIds, leadProjectIds } = c.req.valid("json");
 
 	const userOrganization = await db.query.userOrganization.findFirst({
 		where: {
@@ -1088,6 +1135,7 @@ team.openapi(updateMember, async (c) => {
 		organizationId,
 		role,
 		projectIds,
+		leadProjectIds,
 	);
 
 	const targetMember = await db.query.userOrganization.findFirst({
@@ -1157,7 +1205,7 @@ team.openapi(updateMember, async (c) => {
 	// have implicit access to everything, so their grants are cleared.
 	await syncMemberProjects(
 		memberId,
-		role === "developer" ? grantedProjects.map((p) => p.id) : [],
+		role === "developer" ? grantedProjects : [],
 	);
 
 	if (targetMember.role !== role) {
@@ -1417,7 +1465,11 @@ team.openapi(updateMemberBudget, async (c) => {
 					})
 				)
 					.filter((up) => up.project)
-					.map((up) => ({ id: up.project!.id, name: up.project!.name }))
+					.map((up) => ({
+						id: up.project!.id,
+						name: up.project!.name,
+						role: up.role,
+					}))
 			: null;
 
 	return c.json({

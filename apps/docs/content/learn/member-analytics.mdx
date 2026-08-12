@@ -49,3 +49,17 @@ The detail view includes:
 - **Top providers and top apps** — tables ranking where the member's traffic goes.
 
 This makes it easy to attribute cost to a team, investigate a spike, or confirm a member is using the models and providers you expect.
+
+## Per-project cost, for a team lead
+
+The Team page is organization-wide, so it stays restricted to owners and admins. To give someone the same per-member view for **one project only**, mark them as that project's **lead**.
+
+Open **Team → Manage access** on a developer, grant them the project, then tick it under **Team lead**. A lead can open that project's [Analytics](/learn/analytics) page and switch the breakdown to **Breakdown by user**, which shows the project's total cost alongside a per-member ranking — without gaining billing access, provider keys, or visibility into any other project.
+
+<Callout type="info">
+	Leads are a project-level grant, so a member can lead one project and be an
+	ordinary member of another. Owners and admins already see every project's
+	per-member breakdown and never need a lead grant.
+</Callout>
+
+Because attribution follows the API key's creator, spend from platform keys cannot be tied to a person. The project breakdown shows that remainder as **Unattributed** rather than dropping it, so the per-member rows always add up to the project total.

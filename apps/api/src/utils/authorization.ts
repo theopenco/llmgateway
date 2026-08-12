@@ -74,11 +74,32 @@ export async function getUserProjectIds(userId: string): Promise<string[]> {
 }
 
 /**
+ * Project IDs where the user holds a `lead` grant (`user_project.role`).
+ *
+ * A lead is a "developer" member trusted with team-lead visibility inside those
+ * projects: every member's spend and every key's traffic, but nothing org-wide.
+ */
+export async function getLeadProjectIds(userId: string): Promise<string[]> {
+	const userOrgs = await db.query.userOrganization.findMany({
+		where: { userId: { eq: userId } },
+		with: { userProjects: true },
+	});
+
+	return userOrgs.flatMap((membership) =>
+		membership.userProjects
+			.filter((grant) => grant.role === "lead")
+			.map((grant) => grant.projectId),
+	);
+}
+
+/**
  * The api keys a user is allowed to see usage for, within a set of projects.
  *
  * owner/admin members see every key in their projects. "developer" members are
  * limited to the keys they created — project access alone does not entitle them
- * to a teammate's traffic, cost, or request payloads.
+ * to a teammate's traffic, cost, or request payloads. The exception is a project
+ * they *lead*: a lead is privileged inside that one project, which is what makes
+ * the per-member cost breakdown answerable for them.
  *
  * `restrictedProjectIds` is the subset of `projectIds` where the caller is a
  * developer; `ownApiKeyIds` are their keys inside those projects. A user can be
@@ -108,7 +129,7 @@ export async function getApiKeyScope(
 
 	const userOrgs = await db.query.userOrganization.findMany({
 		where: { userId: { eq: userId } },
-		with: { organization: { with: { projects: true } } },
+		with: { organization: { with: { projects: true } }, userProjects: true },
 	});
 
 	const inScope = new Set(projectIds);
@@ -116,11 +137,16 @@ export async function getApiKeyScope(
 	const restrictedProjectIds: string[] = [];
 
 	for (const membership of userOrgs) {
+		const ledProjectIds = new Set(
+			membership.userProjects
+				.filter((grant) => grant.role === "lead")
+				.map((grant) => grant.projectId),
+		);
 		for (const project of membership.organization?.projects ?? []) {
 			if (!inScope.has(project.id)) {
 				continue;
 			}
-			if (membership.role === "developer") {
+			if (membership.role === "developer" && !ledProjectIds.has(project.id)) {
 				restrictedProjectIds.push(project.id);
 			} else {
 				privilegedProjectIds.push(project.id);

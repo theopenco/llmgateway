@@ -8,7 +8,7 @@ import {
 	modeSplitFields,
 	modeSplitSchema,
 } from "@/lib/mode-split.js";
-import { requireEnterpriseAdmin } from "@/lib/require-enterprise-admin.js";
+import { requireProjectUsageVisibility } from "@/lib/require-project-usage-visibility.js";
 import { getUserUsageBreakdown } from "@/lib/user-usage-breakdown.js";
 import {
 	getApiKeyScope,
@@ -273,10 +273,10 @@ activity.openapi(getActivity, async (c) => {
 	// SQL expressions that change based on granularity
 	const isHourly = granularity === "hourly";
 
-	// The per-member breakdown exposes every member's spend, so it needs the same
-	// enterprise + owner/admin gate as the organization-wide member analytics.
-	// Without a project the request can span several organizations, which leaves
-	// nothing unambiguous to gate on, so require one.
+	// The per-member breakdown exposes every member's spend, so it is gated to
+	// org owners/admins and to the project's own leads. Without a project the
+	// request can span several organizations, which leaves nothing unambiguous to
+	// gate on, so require one.
 	if (breakdownDimension === "user" && !projectId) {
 		throw new HTTPException(400, {
 			message: "projectId is required when grouping by user",
@@ -308,7 +308,11 @@ activity.openapi(getActivity, async (c) => {
 			throw new HTTPException(404, { message: "Project not found" });
 		}
 
-		await requireEnterpriseAdmin(user.id, targetProject.organizationId);
+		await requireProjectUsageVisibility(
+			user.id,
+			targetProject.organizationId,
+			projectId,
+		);
 	}
 
 	const projectIds = projectId ? [projectId] : accessibleProjectIds;
