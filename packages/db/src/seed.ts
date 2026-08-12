@@ -1915,12 +1915,17 @@ async function seed() {
 		// breakdown shows hours where a big token total is cheap (mostly cached)
 		// next to hours where a smaller total is expensive (fresh input + output).
 		const hourCachedTokens = Math.floor(inputTokens * randomFloat(0.05, 0.85));
+		// Some hours are reasoning-heavy: reasoning tokens bill at the output
+		// rate without being part of outputTokens, so the tooltip's Reasoning row
+		// (and an output cost far larger than the output count alone) has data.
+		const hourReasoningTokens =
+			secureRandom() < 0.4 ? baseRequests * randomInt(1500, 22000) : 0;
 		// Derive costs from the token mix at plausible per-token rates so the
 		// per-class costs and the total reconcile ($3/M fresh input, $0.30/M
-		// cached input, $15/M output).
+		// cached input, $15/M output incl. reasoning).
 		const hourInputCost = (inputTokens - hourCachedTokens) * 3e-6;
 		const hourCachedInputCost = hourCachedTokens * 0.3e-6;
-		const hourOutputCost = outputTokens * 15e-6;
+		const hourOutputCost = (outputTokens + hourReasoningTokens) * 15e-6;
 		const totalCost = hourInputCost + hourCachedInputCost + hourOutputCost;
 		devpassHourlyStats.push({
 			id: `devpass-phs-${h}`,
@@ -1943,7 +1948,7 @@ async function seed() {
 			inputTokens: String(inputTokens),
 			outputTokens: String(outputTokens),
 			totalTokens: String(inputTokens + outputTokens),
-			reasoningTokens: "0",
+			reasoningTokens: String(hourReasoningTokens),
 			cachedTokens: String(hourCachedTokens),
 			cost: Number(totalCost.toFixed(4)),
 			inputCost: Number(hourInputCost.toFixed(4)),
@@ -2006,7 +2011,7 @@ async function seed() {
 				inputTokens: String(inTok),
 				outputTokens: String(outTok),
 				totalTokens: String(inTok + outTok),
-				reasoningTokens: "0",
+				reasoningTokens: String(Math.floor(Number(bucket.reasoningTokens) * w)),
 				cachedTokens: String(Math.floor(Number(bucket.cachedTokens) * w)),
 				cacheWriteTokens: "0",
 				cost: Number((bucket.cost * w).toFixed(4)),
@@ -2072,7 +2077,7 @@ async function seed() {
 				inputTokens: String(inTok),
 				outputTokens: String(outTok),
 				totalTokens: String(inTok + outTok),
-				reasoningTokens: "0",
+				reasoningTokens: String(Math.floor(Number(bucket.reasoningTokens) * w)),
 				cachedTokens: String(Math.floor(Number(bucket.cachedTokens) * w)),
 				cacheWriteTokens: "0",
 				cost: Number((bucket.cost * w).toFixed(4)),

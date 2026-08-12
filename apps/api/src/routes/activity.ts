@@ -89,6 +89,10 @@ const dailyActivitySchema = z.object({
 	requestCount: z.number(),
 	inputTokens: z.number(),
 	outputTokens: z.number(),
+	// Reasoning tokens are billed at the output rate but, depending on the
+	// provider, may not be part of outputTokens — surfacing them separately is
+	// what lets clients explain an output cost larger than outputTokens alone.
+	reasoningTokens: z.number(),
 	cachedTokens: z.number(),
 	cacheWriteTokens: z.number(),
 	totalTokens: z.number(),
@@ -128,6 +132,7 @@ function buildEmptyActivityRow(date: string): ActivityRow {
 		requestCount: 0,
 		inputTokens: 0,
 		outputTokens: 0,
+		reasoningTokens: 0,
 		cachedTokens: 0,
 		cacheWriteTokens: 0,
 		totalTokens: 0,
@@ -365,6 +370,10 @@ activity.openapi(getActivity, async (c) => {
 				outputTokens:
 					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.outputTokens} AS NUMERIC)), 0)`.as(
 						"outputTokens",
+					),
+				reasoningTokens:
+					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.reasoningTokens} AS NUMERIC)), 0)`.as(
+						"reasoningTokens",
 					),
 				totalTokens:
 					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
@@ -621,6 +630,7 @@ activity.openapi(getActivity, async (c) => {
 			const requestCount = Number(day.requestCount);
 			const inputTokens = Number(day.inputTokens);
 			const outputTokens = Number(day.outputTokens);
+			const reasoningTokens = Number(day.reasoningTokens);
 			const cachedTokens = Number(day.cachedTokens);
 			const cacheWriteTokens = Number(day.cacheWriteTokens);
 			const totalTokens = Number(day.totalTokens);
@@ -657,6 +667,7 @@ activity.openapi(getActivity, async (c) => {
 				requestCount,
 				inputTokens,
 				outputTokens,
+				reasoningTokens,
 				cachedTokens,
 				cacheWriteTokens,
 				totalTokens,
@@ -722,6 +733,10 @@ activity.openapi(getActivity, async (c) => {
 			outputTokens:
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.outputTokens} AS NUMERIC)), 0)`.as(
 					"outputTokens",
+				),
+			reasoningTokens:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.reasoningTokens} AS NUMERIC)), 0)`.as(
+					"reasoningTokens",
 				),
 			cachedTokens:
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.cachedTokens} AS NUMERIC)), 0)`.as(
@@ -1004,6 +1019,7 @@ activity.openapi(getActivity, async (c) => {
 		const requestCount = Number(day.requestCount);
 		const inputTokens = Number(day.inputTokens);
 		const outputTokens = Number(day.outputTokens);
+		const reasoningTokens = Number(day.reasoningTokens);
 		const cachedTokens = Number(day.cachedTokens);
 		const cacheWriteTokens = Number(day.cacheWriteTokens);
 		const totalTokens = Number(day.totalTokens);
@@ -1038,6 +1054,7 @@ activity.openapi(getActivity, async (c) => {
 			requestCount,
 			inputTokens,
 			outputTokens,
+			reasoningTokens,
 			cachedTokens,
 			cacheWriteTokens,
 			totalTokens,

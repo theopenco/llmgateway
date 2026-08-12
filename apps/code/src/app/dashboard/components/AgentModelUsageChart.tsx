@@ -79,6 +79,7 @@ interface ChartRow {
 	cachedTokens: number;
 	cacheWriteTokens: number;
 	outputTokens: number;
+	reasoningTokens: number;
 	inputCost: number;
 	cachedInputCost: number;
 	cacheWriteInputCost: number;
@@ -118,7 +119,15 @@ function ChartTooltipContent({
 	// Token classes bill at very different rates (cached input is often 10x
 	// cheaper than fresh input, output 6x more expensive), so a flat token
 	// total makes cost look uncorrelated with usage. Break both down per class.
-	const tokenBreakdown = [
+	// Reasoning tokens are billed at the output rate and their cost is part of
+	// the Output row; depending on the provider they may not be counted in the
+	// output tokens, so without this row an output cost can look several times
+	// too large for its token count.
+	const tokenBreakdown: {
+		label: string;
+		tokens: number;
+		cost: number | null;
+	}[] = [
 		{
 			label: "Input",
 			tokens: first.inputTokens,
@@ -139,7 +148,13 @@ function ChartTooltipContent({
 			tokens: first.outputTokens,
 			cost: first.outputCost,
 		},
-	].filter((row) => row.tokens > 0 || row.cost > 0);
+		{
+			label: "Reasoning",
+			tokens: first.reasoningTokens,
+			cost: null,
+		},
+	].filter((row) => row.tokens > 0 || (row.cost ?? 0) > 0);
+	const hasReasoning = first.reasoningTokens > 0;
 	return (
 		<div className="min-w-[210px] rounded-lg border border-border/60 bg-popover p-2.5 text-xs text-popover-foreground shadow-md">
 			<div className="font-medium">{dateLabel}</div>
@@ -175,10 +190,20 @@ function ChartTooltipContent({
 								{formatTokens(row.tokens)}
 							</span>
 							<span className="w-16 text-right tabular-nums text-foreground">
-								${row.cost.toFixed(4)}
+								{row.cost === null ? (
+									<span className="text-muted-foreground">—</span>
+								) : (
+									`$${row.cost.toFixed(4)}`
+								)}
 							</span>
 						</div>
 					))}
+					{hasReasoning ? (
+						<div className="pt-1 text-[10px] leading-snug text-muted-foreground/80">
+							Reasoning is billed at the output rate; its cost is included in
+							Output.
+						</div>
+					) : null}
 				</div>
 			) : null}
 			<div className="mt-2 space-y-0.5 border-t border-border/40 pt-2">
@@ -269,6 +294,7 @@ export function AgentModelUsageChart({ projectId }: AgentModelUsageChartProps) {
 				cachedTokens: row.cachedTokens,
 				cacheWriteTokens: row.cacheWriteTokens,
 				outputTokens: row.outputTokens,
+				reasoningTokens: row.reasoningTokens,
 				inputCost: row.inputCost,
 				cachedInputCost: row.cachedInputCost,
 				cacheWriteInputCost: row.cacheWriteInputCost,
@@ -297,6 +323,7 @@ export function AgentModelUsageChart({ projectId }: AgentModelUsageChartProps) {
 					cachedTokens: row.cachedTokens,
 					cacheWriteTokens: row.cacheWriteTokens,
 					outputTokens: row.outputTokens,
+					reasoningTokens: row.reasoningTokens,
 					inputCost: row.inputCost,
 					cachedInputCost: row.cachedInputCost,
 					cacheWriteInputCost: row.cacheWriteInputCost,

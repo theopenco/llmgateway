@@ -87,6 +87,7 @@ describe("activity endpoint", () => {
 				responseSize: 1000,
 				promptTokens: "10",
 				completionTokens: "20",
+				reasoningTokens: "40",
 				totalTokens: "30",
 				messages: JSON.stringify([{ role: "user", content: "Hello" }]),
 				mode: "api-keys",
@@ -129,6 +130,7 @@ describe("activity endpoint", () => {
 				responseSize: 1200,
 				promptTokens: "15",
 				completionTokens: "25",
+				reasoningTokens: "7",
 				totalTokens: "40",
 				messages: JSON.stringify([{ role: "user", content: "Test" }]),
 				mode: "api-keys",
@@ -207,10 +209,20 @@ describe("activity endpoint", () => {
 		expect(firstDay).toHaveProperty("requestCount");
 		expect(firstDay).toHaveProperty("inputTokens");
 		expect(firstDay).toHaveProperty("outputTokens");
+		expect(firstDay).toHaveProperty("reasoningTokens");
 		expect(firstDay).toHaveProperty("totalTokens");
 		expect(firstDay).toHaveProperty("cost");
 		expect(firstDay).toHaveProperty("modelBreakdown");
 		expect(Array.isArray(firstDay.modelBreakdown)).toBe(true);
+
+		// Reasoning tokens from the seeded logs (40 today + 7 yesterday) must
+		// survive aggregation into the project rollups and back out.
+		const totalReasoning = data.activity.reduce(
+			(sum: number, day: { reasoningTokens: number }) =>
+				sum + day.reasoningTokens,
+			0,
+		);
+		expect(totalReasoning).toBe(47);
 
 		// Check model breakdown
 		const modelData = firstDay.modelBreakdown[0];
@@ -278,6 +290,27 @@ describe("activity endpoint", () => {
 		const data = await res.json();
 		expect(Array.isArray(data.activity)).toBe(true);
 		expect(data.activity.length).toBe(1);
+	});
+
+	test("GET /activity should return reasoning tokens for api-key scope", async () => {
+		const params = new URLSearchParams({
+			days: "7",
+			apiKeyId: "test-api-key-id",
+		});
+		const res = await app.request("/activity?" + params, {
+			headers: {
+				Cookie: token,
+			},
+		});
+
+		expect(res.status).toBe(200);
+		const data = await res.json();
+		const totalReasoning = data.activity.reduce(
+			(sum: number, day: { reasoningTokens: number }) =>
+				sum + day.reasoningTokens,
+			0,
+		);
+		expect(totalReasoning).toBe(47);
 	});
 
 	test("GET /activity should default to 7 days when no date params provided", async () => {

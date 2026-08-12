@@ -47,6 +47,7 @@ export interface DailyActivity {
 	requestCount: number;
 	inputTokens: number;
 	outputTokens: number;
+	reasoningTokens: number;
 	cachedTokens: number;
 	cacheWriteTokens: number;
 	totalTokens: number;
