@@ -135,21 +135,21 @@ The endpoint returns responses in Anthropic's message format:
 
 ### Request Format
 
-`/v1/messages` accepts Anthropic Messages requests only. Because the two formats share `model` and `messages`, an OpenAI Chat Completions body used to pass validation: the OpenAI-only fields were silently dropped, the request was billed, and the answer came back in Anthropic's envelope, which OpenAI SDKs cannot read. The gateway now rejects such a body with a `400` before any provider is called, so nothing is charged:
+`/v1/messages` expects Anthropic Messages requests and always answers in Anthropic's format. Because the two formats share `model` and `messages`, an OpenAI Chat Completions body can reach this endpoint by accident — and since unknown parameters are ignored rather than rejected, the request succeeds and returns an Anthropic response body that OpenAI SDKs cannot read. If your client reports an empty completion here, check that it is pointed at `/v1/chat/completions`.
+
+Unknown parameters are deliberately ignored rather than rejected, so a valid Anthropic request is never denied for carrying an extra field. As a consequence, OpenAI-only parameters (`response_format`, `stream_options`, `max_completion_tokens`, `n`, `stop`, `seed`, `frequency_penalty`, and similar) have no effect here — the model will not honour them. Use `/v1/chat/completions` if you need them.
+
+A body that is _structurally_ OpenAI is rejected by the schema, as it always has been — OpenAI-shaped `tools` (`{"type": "function", "function": {…}}`), OpenAI content parts such as `image_url`, or assistant turns with `content: null`. Those rejections now name the mismatch and point at the right endpoint instead of returning an opaque validation error:
 
 ```json
 {
 	"type": "error",
 	"error": {
 		"type": "invalid_request_error",
-		"message": "This endpoint implements Anthropic's Messages API, but the request body uses OpenAI Chat Completions fields (response_format, stream_options), which have no Anthropic equivalent and would be silently dropped. Send OpenAI-format requests to /v1/chat/completions instead, or convert the body to Anthropic's Messages format."
+		"message": "This endpoint implements Anthropic's Messages API, and the request body uses OpenAI Chat Completions structures (tools[0].function) that Anthropic's format has no equivalent for. Send OpenAI-format requests to /v1/chat/completions instead, or convert the body to Anthropic's Messages format."
 	}
 }
 ```
-
-The detected markers are OpenAI-only parameters (`max_completion_tokens`, `response_format`, `stream_options`, `n`, `stop`, `seed`, `logprobs`, `frequency_penalty`, `presence_penalty`, and similar), OpenAI-shaped `tools`/`tool_choice`, OpenAI content parts such as `image_url`, and assistant turns with `content: null`. Send those requests to `/v1/chat/completions` instead.
-
-A minimal `{ model, messages, max_tokens }` body is valid Anthropic and is accepted as such — it always returns an Anthropic-format response.
 
 Rejected requests are recorded in your logs with a `client_error` finish reason and zero cost, so a malformed client is visible in the activity feed rather than failing silently.
 

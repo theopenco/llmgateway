@@ -43,7 +43,7 @@ describe("detectOpenAiChatCompletionsFields", () => {
 
 	test("does not flag a body that is valid in both formats", () => {
 		// `{ model, messages, max_tokens }` is a legal Anthropic request, so it
-		// must not be rejected even though an OpenAI client could have sent it.
+		// must not be flagged even though an OpenAI client could have sent it.
 		expect(
 			detectOpenAiChatCompletionsFields({
 				model: "gpt-5",
@@ -53,10 +53,15 @@ describe("detectOpenAiChatCompletionsFields", () => {
 		).toEqual([]);
 	});
 
-	test("flags OpenAI-only top-level parameters", () => {
+	test("does not flag OpenAI-only parameters on an otherwise valid body", () => {
+		// These are strong evidence of an OpenAI client, but the Anthropic schema
+		// strips unknown keys, so such a body is accepted today. Flagging them
+		// would turn requests that currently succeed into 400s — a request must
+		// never be denied for carrying a stray parameter.
 		expect(
 			detectOpenAiChatCompletionsFields({
 				model: "gpt-5",
+				max_tokens: 100,
 				messages: [{ role: "user", content: "hi" }],
 				max_completion_tokens: 100,
 				response_format: { type: "json_object" },
@@ -71,25 +76,15 @@ describe("detectOpenAiChatCompletionsFields", () => {
 				stop: ["\n"],
 				store: false,
 				parallel_tool_calls: true,
+				tool_choice: "required",
+				user: "u-1",
 			}),
-		).toEqual([
-			"frequency_penalty",
-			"logit_bias",
-			"logprobs",
-			"max_completion_tokens",
-			"n",
-			"parallel_tool_calls",
-			"presence_penalty",
-			"response_format",
-			"seed",
-			"stop",
-			"store",
-			"stream_options",
-			"top_logprobs",
-		]);
+		).toEqual([]);
 	});
 
 	test("flags OpenAI-shaped tools", () => {
+		// The Anthropic tool union already rejects these; the label only
+		// explains why.
 		expect(
 			detectOpenAiChatCompletionsFields({
 				model: "gpt-5",
@@ -104,22 +99,6 @@ describe("detectOpenAiChatCompletionsFields", () => {
 				],
 			}),
 		).toEqual(["tools[1].function"]);
-	});
-
-	test("flags OpenAI-shaped tool_choice but not the Anthropic object form", () => {
-		expect(
-			detectOpenAiChatCompletionsFields({ tool_choice: "required" }),
-		).toEqual(["tool_choice (string form)"]);
-		expect(
-			detectOpenAiChatCompletionsFields({
-				tool_choice: { type: "function", function: { name: "f" } },
-			}),
-		).toEqual(["tool_choice.function"]);
-		expect(
-			detectOpenAiChatCompletionsFields({
-				tool_choice: { type: "tool", name: "f" },
-			}),
-		).toEqual([]);
 	});
 
 	test("flags OpenAI-only content parts and null assistant content", () => {

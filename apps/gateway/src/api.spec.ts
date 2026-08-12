@@ -847,7 +847,7 @@ describe("api", () => {
 		expect(body.error.message).toContain("thinking.type.adaptive");
 	});
 
-	test("/v1/messages rejects an OpenAI-format body without calling a provider", async () => {
+	test("/v1/messages still accepts a valid body carrying OpenAI-only parameters", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			token: "real-token",
@@ -864,78 +864,37 @@ describe("api", () => {
 			baseUrl: mockServerUrl,
 		});
 
-		const originalFetch = globalThis.fetch;
-		let upstreamCalls = 0;
-		const fetchSpy = vi
-			.spyOn(globalThis, "fetch")
-			.mockImplementation(async (input, init) => {
-				const url =
-					typeof input === "string"
-						? input
-						: input instanceof URL
-							? input.toString()
-							: input.url;
+		// The messages endpoint must never deny a request that is otherwise a
+		// sound Anthropic body just because it carries a stray OpenAI-only
+		// parameter: the schema strips unknown keys, so these all succeed today
+		// and a caller relying on that must not start seeing 400s. Diagnosing a
+		// misdirected OpenAI client is not worth breaking them.
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				max_tokens: 100,
+				messages: [{ role: "user", content: "Hello!" }],
+				response_format: { type: "json_object" },
+				stream_options: { include_usage: true },
+				max_completion_tokens: 100,
+				frequency_penalty: 0.5,
+				presence_penalty: 0.5,
+				tool_choice: "auto",
+				seed: 7,
+				stop: ["\n"],
+				n: 1,
+			}),
+		});
 
-				if (url.startsWith(mockServerUrl)) {
-					upstreamCalls++;
-				}
-
-				return await originalFetch(input as any, init);
-			});
-
-		try {
-			// `response_format`/`stream_options` have no Anthropic equivalent, so the
-			// schema stripped them and the request was forwarded, billed, and
-			// answered in Anthropic's envelope — which the OpenAI client that sent
-			// this body cannot read. It must be rejected before any provider call.
-			const res = await app.request("/v1/messages", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: `Bearer real-token`,
-				},
-				body: JSON.stringify({
-					model: "llmgateway/custom",
-					max_tokens: 100,
-					messages: [{ role: "user", content: "Hello!" }],
-					response_format: { type: "json_object" },
-					stream_options: { include_usage: true },
-				}),
-			});
-
-			expect(res.status).toBe(400);
-			const body = (await res.json()) as {
-				type: string;
-				error: { type: string; message: string };
-			};
-			expect(body.type).toBe("error");
-			expect(body.error.type).toBe("invalid_request_error");
-			expect(body.error.message).toContain("response_format");
-			expect(body.error.message).toContain("stream_options");
-			expect(body.error.message).toContain("/v1/chat/completions");
-			expect(upstreamCalls).toBe(0);
-
-			// The rejection happens before the internal /v1/chat/completions hop
-			// that owns log writing, so it must be logged here — otherwise the
-			// caller sees a 400 and nothing in their activity feed, which is the
-			// symptom that made the dropped output so hard to diagnose.
-			const logs = await waitForLogs(1);
-			// Exactly one row: the validation hook and the handler guard must not
-			// both log the same rejection.
-			expect(logs.length).toBe(1);
-			const log = logs[0];
-			expect(log.finishReason).toBe("client_error");
-			expect(log.hasError).toBe(true);
-			expect(log.errorDetails?.statusCode).toBe(400);
-			expect(log.errorDetails?.responseText).toContain("response_format");
-			expect(log.requestedModel).toBe("llmgateway/custom");
-			// A rejected request never reached a provider, so it costs nothing.
-			expect(Number(log.cost ?? 0)).toBe(0);
-			expect(log.promptTokens).toBeNull();
-			expect(log.completionTokens).toBeNull();
-		} finally {
-			fetchSpy.mockRestore();
-		}
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { type: string; content: any[] };
+		expect(body.type).toBe("message");
+		expect(body.content[0].type).toBe("text");
 	});
 
 	test("/v1/messages renders schema validation failures as Anthropic errors", async () => {
@@ -976,7 +935,7 @@ describe("api", () => {
 		expect(logs[0].errorDetails?.responseText).toContain("max_tokens");
 	});
 
-	test("/v1/messages rejects OpenAI-format tools with a pointer to /v1/chat/completions", async () => {
+	test("/v1/messages explains an OpenAI-format tools rejection", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			token: "real-token",
@@ -985,6 +944,9 @@ describe("api", () => {
 			createdBy: "user-id",
 		});
 
+		// OpenAI-shaped tools already failed the Anthropic tool union before this
+		// change — the 400 is unchanged, only the message is, from an opaque
+		// "tools.0: Invalid input" to something that names the actual mismatch.
 		const res = await app.request("/v1/messages", {
 			method: "POST",
 			headers: {
@@ -1015,6 +977,22 @@ describe("api", () => {
 		expect(body.type).toBe("error");
 		expect(body.error.message).toContain("tools[0].function");
 		expect(body.error.message).toContain("/v1/chat/completions");
+
+		// The rejection happens before the internal /v1/chat/completions hop that
+		// owns log writing, so it must be logged here — otherwise the caller sees
+		// a 400 and nothing in their activity feed.
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		const log = logs[0];
+		expect(log.finishReason).toBe("client_error");
+		expect(log.hasError).toBe(true);
+		expect(log.errorDetails?.statusCode).toBe(400);
+		expect(log.errorDetails?.responseText).toContain("tools[0].function");
+		expect(log.requestedModel).toBe("llmgateway/custom");
+		// A rejected request never reached a provider, so it costs nothing.
+		expect(Number(log.cost ?? 0)).toBe(0);
+		expect(log.promptTokens).toBeNull();
+		expect(log.completionTokens).toBeNull();
 	});
 
 	test("/v1/chat/completions blocks providers failing the compliance policy", async () => {

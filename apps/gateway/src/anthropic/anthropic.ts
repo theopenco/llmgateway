@@ -59,6 +59,9 @@ function formatValidationIssues(error: z.ZodError): string {
 // ZodError }` body — a shape no Anthropic client can parse. Render every
 // validation failure in Anthropic's error envelope instead, and upgrade the
 // message when the body is recognisably an OpenAI Chat Completions request.
+//
+// This hook only runs once the schema has already rejected the request, so it
+// changes what a failure says, never whether one happens.
 export const anthropic = new OpenAPIHono<ServerTypes>({
 	defaultHook: async (result, c) => {
 		if (result.success) {
@@ -511,24 +514,12 @@ anthropic.openapi(messages, async (c) => {
 		});
 	}
 
-	// An OpenAI Chat Completions body can satisfy the Anthropic schema (the two
-	// formats share `model`/`messages`/`max_tokens`), with every OpenAI-only
-	// field silently stripped. Left alone, such a request reaches the provider,
-	// bills the completion, and comes back in an Anthropic envelope the OpenAI
-	// client cannot read — the caller pays for output they never see. Reject it
-	// here, before any provider call, and point at the endpoint that speaks
-	// their format.
-	const openAiFields = detectOpenAiChatCompletionsFields(rawRequest);
-	if (openAiFields.length > 0) {
-		const message = buildOpenAiRequestRejectionMessage(openAiFields);
-		await logAnthropicClientError(
-			c,
-			rawRequest,
-			message,
-			"openai_request_format",
-		);
-		throw new HTTPException(400, { message });
-	}
+	// Note: no OpenAI-format guard runs here. A body that reaches this point has
+	// already satisfied the Anthropic schema, and rejecting it for carrying an
+	// OpenAI-only parameter the schema stripped (`response_format`, `stop`,
+	// `n`, …) would deny requests that succeed today. Unknown parameters stay
+	// silently ignored; only structurally-OpenAI bodies are rejected, by the
+	// schema itself, and the validation hook explains those.
 
 	// Validate with our schema
 	const validation = anthropicRequestSchema.safeParse(rawRequest);
