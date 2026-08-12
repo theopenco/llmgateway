@@ -34,6 +34,7 @@ import {
 	PRO_PLAN_MAX_SEATS,
 	PRO_PLAN_MIN_SEATS,
 	PRO_PLAN_PRICES,
+	PRO_PLAN_SSO_MAX_SEATS,
 } from "@llmgateway/shared";
 
 const ENTERPRISE_FEATURES = [
@@ -157,6 +158,9 @@ function ProPlanConfigurator({
 }) {
 	const total = getProPlanMonthlyTotal(selection);
 	const totalKeys = selection.seats + selection.extraApiKeys;
+	// SSO (and SCIM on top of it) is only available up to the seat cap;
+	// larger teams need Enterprise.
+	const ssoAvailable = selection.seats <= PRO_PLAN_SSO_MAX_SEATS;
 
 	return (
 		<div className="space-y-4">
@@ -169,16 +173,21 @@ function ProPlanConfigurator({
 						min={PRO_PLAN_MIN_SEATS}
 						max={PRO_PLAN_MAX_SEATS}
 						value={selection.seats}
-						onChange={(e) =>
+						onChange={(e) => {
+							const seats = clampInt(
+								e.target.valueAsNumber,
+								PRO_PLAN_MIN_SEATS,
+								PRO_PLAN_MAX_SEATS,
+							);
 							onChange({
 								...selection,
-								seats: clampInt(
-									e.target.valueAsNumber,
-									PRO_PLAN_MIN_SEATS,
-									PRO_PLAN_MAX_SEATS,
-								),
-							})
-						}
+								seats,
+								// SSO/SCIM are capped; raising seats past the cap drops them.
+								ssoAddon: seats <= PRO_PLAN_SSO_MAX_SEATS && selection.ssoAddon,
+								scimAddon:
+									seats <= PRO_PLAN_SSO_MAX_SEATS && selection.scimAddon,
+							});
+						}}
 					/>
 					<p className="text-xs text-muted-foreground">
 						${PRO_PLAN_PRICES.seat}/user/month, minimum {PRO_PLAN_MIN_SEATS}{" "}
@@ -243,11 +252,26 @@ function ProPlanConfigurator({
 					<Label htmlFor="pro-sso">SSO add-on</Label>
 					<p className="text-xs text-muted-foreground">
 						SAML single sign-on for your organization. ${PRO_PLAN_PRICES.sso}
-						/month.
+						/month. Available up to {PRO_PLAN_SSO_MAX_SEATS} seats
+						{!ssoAvailable && (
+							<>
+								{" "}
+								— for larger teams,{" "}
+								<a
+									href="mailto:contact@llmgateway.io"
+									className="underline underline-offset-2"
+								>
+									contact us
+								</a>{" "}
+								about Enterprise
+							</>
+						)}
+						.
 					</p>
 				</div>
 				<Switch
 					id="pro-sso"
+					disabled={!ssoAvailable}
 					checked={selection.ssoAddon}
 					onCheckedChange={(checked) =>
 						onChange({
@@ -271,7 +295,7 @@ function ProPlanConfigurator({
 				<Switch
 					id="pro-scim"
 					checked={selection.scimAddon}
-					disabled={!selection.ssoAddon}
+					disabled={!selection.ssoAddon || !ssoAvailable}
 					onCheckedChange={(checked) =>
 						onChange({ ...selection, scimAddon: checked })
 					}

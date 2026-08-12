@@ -20,6 +20,10 @@ export const PRO_PLAN_PRICES = {
 export const PRO_PLAN_MIN_SEATS = 3;
 export const PRO_PLAN_MAX_SEATS = 500;
 
+// The SSO (and therefore SCIM) add-on is only available up to this many
+// seats — larger organizations need an Enterprise agreement for SSO.
+export const PRO_PLAN_SSO_MAX_SEATS = 100;
+
 // Upper bound on billable extra API keys, purely a sanity cap for the
 // self-serve form (matches the enterprise-plan API-key ceiling).
 export const PRO_PLAN_MAX_EXTRA_API_KEYS = 500;

@@ -13,6 +13,7 @@ import {
 	PRO_PLAN_MAX_SEATS,
 	PRO_PLAN_MIN_SEATS,
 	PRO_PLAN_PRICES,
+	PRO_PLAN_SSO_MAX_SEATS,
 } from "@llmgateway/shared";
 
 type FeatureValue = boolean | string;
@@ -64,7 +65,7 @@ const pricingFeatures: PricingFeature[] = [
 		learnMoreLink: "/enterprise/sso-saml",
 		learnMoreText: "Learn more →",
 		free: false,
-		pro: `$${PRO_PLAN_PRICES.sso}/mo add-on`,
+		pro: `$${PRO_PLAN_PRICES.sso}/mo add-on (up to ${PRO_PLAN_SSO_MAX_SEATS} users)`,
 		enterprise: true,
 	},
 	{
@@ -73,7 +74,7 @@ const pricingFeatures: PricingFeature[] = [
 		learnMoreLink: "/enterprise/sso-saml",
 		learnMoreText: "Learn more →",
 		free: false,
-		pro: `$${PRO_PLAN_PRICES.scim}/mo add-on`,
+		pro: `$${PRO_PLAN_PRICES.scim}/mo add-on (up to ${PRO_PLAN_SSO_MAX_SEATS} users)`,
 		enterprise: true,
 	},
 	{

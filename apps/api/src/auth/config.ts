@@ -74,7 +74,7 @@ async function isSSOEnforcedForEmail(
 		where: {
 			id: { in: [...new Set(matching.map((p) => p.organizationId as string))] },
 		},
-		columns: { status: true, plan: true, proSsoEnabled: true },
+		columns: { status: true, plan: true, proSeats: true, proSsoEnabled: true },
 	});
 	return orgs.some((org) => org.status !== "deleted" && hasSsoAccess(org));
 }

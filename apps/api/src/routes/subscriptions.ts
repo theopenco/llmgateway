@@ -13,6 +13,7 @@ import {
 	PRO_PLAN_MAX_EXTRA_PROJECTS,
 	PRO_PLAN_MAX_SEATS,
 	PRO_PLAN_MIN_SEATS,
+	PRO_PLAN_SSO_MAX_SEATS,
 } from "@llmgateway/shared";
 
 import { getStripe } from "./payments.js";
@@ -67,10 +68,20 @@ export function getProPriceIds(): {
 	return { seat, extraApiKey, extraProject, sso, scim };
 }
 
-function assertAddonDependency(ssoAddon: boolean, scimAddon: boolean) {
+function assertAddonDependency(
+	seats: number,
+	ssoAddon: boolean,
+	scimAddon: boolean,
+) {
 	if (scimAddon && !ssoAddon) {
 		throw new HTTPException(400, {
 			message: "The SCIM add-on requires the SSO add-on",
+		});
+	}
+	// SSO on Pro is capped; larger teams need an Enterprise agreement.
+	if (ssoAddon && seats > PRO_PLAN_SSO_MAX_SEATS) {
+		throw new HTTPException(400, {
+			message: `The SSO add-on is available for up to ${PRO_PLAN_SSO_MAX_SEATS} seats. Contact us at contact@llmgateway.io for Enterprise SSO.`,
 		});
 	}
 }
@@ -244,7 +255,7 @@ subscriptions.openapi(createProSubscription, async (c) => {
 		scimAddon,
 		organizationId,
 	} = c.req.valid("json");
-	assertAddonDependency(ssoAddon, scimAddon);
+	assertAddonDependency(seats, ssoAddon, scimAddon);
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -402,7 +413,7 @@ subscriptions.openapi(updateProSubscription, async (c) => {
 		scimAddon,
 		organizationId,
 	} = c.req.valid("json");
-	assertAddonDependency(ssoAddon, scimAddon);
+	assertAddonDependency(seats, ssoAddon, scimAddon);
 
 	if (!user) {
 		throw new HTTPException(401, {

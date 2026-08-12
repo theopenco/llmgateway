@@ -293,13 +293,29 @@ describe("hasSsoAccess", () => {
 		);
 	});
 
-	it("grants access to pro orgs with the SSO add-on", () => {
-		expect(hasSsoAccess({ plan: "pro", proSsoEnabled: true })).toBe(true);
+	it("grants access to pro orgs with the SSO add-on within the seat cap", () => {
+		expect(
+			hasSsoAccess({ plan: "pro", proSeats: 10, proSsoEnabled: true }),
+		).toBe(true);
+		expect(
+			hasSsoAccess({ plan: "pro", proSeats: 100, proSsoEnabled: true }),
+		).toBe(true);
 	});
 
-	it("denies pro orgs without the add-on and free orgs", () => {
-		expect(hasSsoAccess({ plan: "pro", proSsoEnabled: false })).toBe(false);
-		expect(hasSsoAccess({ plan: "free", proSsoEnabled: true })).toBe(false);
+	it("denies pro orgs above the SSO seat cap", () => {
+		expect(
+			hasSsoAccess({ plan: "pro", proSeats: 101, proSsoEnabled: true }),
+		).toBe(false);
+	});
+
+	it("denies pro orgs without the add-on, without seats, and free orgs", () => {
+		expect(
+			hasSsoAccess({ plan: "pro", proSeats: 10, proSsoEnabled: false }),
+		).toBe(false);
+		expect(hasSsoAccess({ plan: "pro", proSsoEnabled: true })).toBe(false);
+		expect(
+			hasSsoAccess({ plan: "free", proSeats: 10, proSsoEnabled: true }),
+		).toBe(false);
 		expect(hasSsoAccess(null)).toBe(false);
 	});
 });
@@ -319,6 +335,7 @@ describe("hasScimAccess", () => {
 		expect(
 			hasScimAccess({
 				plan: "pro",
+				proSeats: 10,
 				proSsoEnabled: true,
 				proScimEnabled: true,
 			}),
@@ -326,6 +343,7 @@ describe("hasScimAccess", () => {
 		expect(
 			hasScimAccess({
 				plan: "pro",
+				proSeats: 10,
 				proSsoEnabled: true,
 				proScimEnabled: false,
 			}),
@@ -333,7 +351,19 @@ describe("hasScimAccess", () => {
 		expect(
 			hasScimAccess({
 				plan: "pro",
+				proSeats: 10,
 				proSsoEnabled: false,
+				proScimEnabled: true,
+			}),
+		).toBe(false);
+	});
+
+	it("denies pro orgs above the SSO seat cap", () => {
+		expect(
+			hasScimAccess({
+				plan: "pro",
+				proSeats: 101,
+				proSsoEnabled: true,
 				proScimEnabled: true,
 			}),
 		).toBe(false);
@@ -343,6 +373,7 @@ describe("hasScimAccess", () => {
 		expect(
 			hasScimAccess({
 				plan: "free",
+				proSeats: 10,
 				proSsoEnabled: true,
 				proScimEnabled: true,
 			}),

@@ -63,7 +63,7 @@ import { toast } from "@/lib/components/use-toast";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
-import { PRO_PLAN_PRICES } from "@llmgateway/shared";
+import { PRO_PLAN_PRICES, PRO_PLAN_SSO_MAX_SEATS } from "@llmgateway/shared";
 
 import type React from "react";
 
@@ -191,11 +191,14 @@ export function SsoClient() {
 	const hasSsoAccess =
 		selectedOrganization?.plan === "enterprise" ||
 		(selectedOrganization?.plan === "pro" &&
-			!!selectedOrganization?.proSsoEnabled);
+			!!selectedOrganization?.proSsoEnabled &&
+			selectedOrganization?.proSeats !== null &&
+			selectedOrganization?.proSeats !== undefined &&
+			selectedOrganization.proSeats <= PRO_PLAN_SSO_MAX_SEATS);
 	const hasScimAccess =
 		selectedOrganization?.plan === "enterprise" ||
-		(selectedOrganization?.plan === "pro" &&
-			!!selectedOrganization?.proSsoEnabled &&
+		(hasSsoAccess &&
+			selectedOrganization?.plan === "pro" &&
 			!!selectedOrganization?.proScimEnabled);
 
 	const [providerType, setProviderType] = useState<
@@ -574,7 +577,8 @@ export function SsoClient() {
 						<CardDescription>
 							SAML SSO and SCIM directory provisioning are available on the
 							Enterprise plan or as Pro plan add-ons (SSO ${PRO_PLAN_PRICES.sso}
-							/month, SCIM ${PRO_PLAN_PRICES.scim}/month on top).{" "}
+							/month, SCIM ${PRO_PLAN_PRICES.scim}/month on top, for up to{" "}
+							{PRO_PLAN_SSO_MAX_SEATS} seats).{" "}
 							{isSeatBasedPro
 								? "Enable the SSO add-on on your Pro subscription from the plan page."
 								: "Upgrade to Pro with the SSO add-on from the plan page."}
