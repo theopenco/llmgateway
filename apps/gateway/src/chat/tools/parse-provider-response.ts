@@ -28,6 +28,12 @@ export function parseProviderResponse(
 	supportsReasoning = true,
 	splitTaggedReasoning = false,
 	webSearchRequested = false,
+	/**
+	 * Whether the caller forced the search. DashScope reports no search metadata
+	 * at all, so its count is inferred from the request — but only a forced
+	 * request actually searches, so an unforced one must count zero.
+	 */
+	webSearchForced = false,
 ) {
 	let content = null;
 	let reasoningContent = null;
@@ -677,10 +683,10 @@ export function parseProviderResponse(
 				}
 			}
 			// DashScope's OpenAI-compatible protocol never returns `search_info`,
-			// so there is no per-response signal that a search ran. We only ever
-			// enable search together with `forced_search`, which guarantees one,
-			// so requesting it is the count.
-			if (webSearchRequested) {
+			// so there is no per-response signal that a search ran. Forcing is the
+			// only mode that searches, and it always searches, so a forced request
+			// is exactly one search and an unforced one is none.
+			if (webSearchRequested && webSearchForced) {
 				webSearchCount = 1;
 			}
 			break;
@@ -1222,8 +1228,12 @@ export function parseProviderResponse(
 
 				// SCX resells Qwen through DashScope, which returns no search
 				// metadata over the OpenAI-compatible protocol. See the `alibaba`
-				// case: forced_search guarantees the search ran.
-				if (usedProvider === "scx-ai-gp" && webSearchRequested) {
+				// case: only a forced request searches, and it always does.
+				if (
+					usedProvider === "scx-ai-gp" &&
+					webSearchRequested &&
+					webSearchForced
+				) {
 					webSearchCount = 1;
 				}
 			}

@@ -8,6 +8,12 @@ import type { ProviderModelMapping, WebSearchTool } from "@llmgateway/models";
 
 export interface ProviderFilterOptions {
 	webSearchTool?: WebSearchTool | boolean;
+	/**
+	 * Whether the caller sent `tool_choice: {type: "web_search"}`. Passed
+	 * separately because `webSearchTool` is often narrowed to a boolean by the
+	 * time routing runs.
+	 */
+	webSearchForced?: boolean;
 	responseFormatType?: string;
 	hasImages?: boolean;
 	hasAudio?: boolean;
@@ -95,6 +101,26 @@ export function getProviderFilterReasons(
 	}
 	if (options.webSearchTool && provider.webSearch !== true) {
 		reasons.push(exclusionReason("web_search"));
+	}
+	// Mappings that can only search on demand are no use to a request that
+	// merely offers the tool: they would answer from stale weights while
+	// occupying a route a model-electing provider could have served.
+	//
+	// Callers that still hold the extracted tool carry the caller's intent on
+	// it; the ones that narrowed it to a boolean pass `webSearchForced`
+	// alongside. Read whichever is available, or a forced request would filter
+	// out the very mappings it exists to reach.
+	const webSearchForced =
+		options.webSearchForced ??
+		(typeof options.webSearchTool === "object" &&
+			options.webSearchTool !== null &&
+			options.webSearchTool.forced === true);
+	if (
+		options.webSearchTool &&
+		provider.webSearchForcedOnly === true &&
+		!webSearchForced
+	) {
+		reasons.push(exclusionReason("web_search_forced_only"));
 	}
 	if (options.n !== undefined && options.n > 1) {
 		if (provider.supportsN !== true) {

@@ -127,6 +127,11 @@ function toResponsesToolChoice(
 	toolChoice: ToolChoiceType,
 ): ResponsesToolChoice {
 	if (typeof toolChoice === "object") {
+		// A web_search choice never reaches here: it is stripped before
+		// tool_choice resolution and applied per-provider instead.
+		if (toolChoice.type === "web_search") {
+			return "auto";
+		}
 		return { type: "function", name: toolChoice.function.name };
 	}
 	return toolChoice;
@@ -293,17 +298,22 @@ function isFunctionTool(
 /**
  * Enables DashScope web search on an OpenAI-compatible request body.
  *
- * `enable_search` on its own is only a hint that the model is free to ignore,
- * and in practice it always does: the prompt comes back the same size and the
- * model answers that it has no live access. Pairing it with
- * `search_options.forced_search` is what actually retrieves, so the two are
- * always sent together and a search is guaranteed to have run.
+ * Only ever called for a caller who forced the search, because forcing is the
+ * one mode DashScope actually performs. `enable_search` alone is documented as
+ * a hint the model may act on, but on these Qwen models it never fires — the
+ * prompt comes back unchanged in size and the model states it has no live
+ * access — so sending it by itself would bill nothing and retrieve nothing
+ * while still consuming the route. `search_options.forced_search` is what
+ * retrieves, and pairing the two guarantees a search ran, which is what lets
+ * the response parser count one without any metadata to read.
  *
  * `search_strategy` is deliberately omitted. The documented "agent" and
  * "agent_max" policies are rejected with a 400 ("The current model does not
  * support the \"agent\" search strategy") by the Qwen max models mapped here,
- * and the legacy turbo/standard/pro/max tiers only vary how many snippets get
- * injected into the prompt.
+ * and the legacy turbo/standard/pro/max tiers make almost no difference to how
+ * much gets injected — measured at 724/726/728 prompt tokens for
+ * turbo/standard/pro on an identical query — so they are not a cost lever
+ * worth exposing.
  */
 function applyDashScopeWebSearch(requestBody: Record<string, any>): void {
 	requestBody.enable_search = true;
@@ -1950,8 +1960,18 @@ export async function prepareRequestBody(
 	// in the mapping's supportedToolChoices. This keeps forced-tool requests
 	// working on providers that only accept a subset of tool_choice modes,
 	// instead of hard-coding per-provider downgrades here.
-	let resolvedToolChoice = tool_choice;
-	if (tool_choice) {
+	// `tool_choice: {type: "web_search"}` is a gateway-level directive, consumed
+	// via `webSearchTool.forced` and translated into whatever each upstream
+	// understands (DashScope's `search_options.forced_search`). No provider
+	// accepts it under this name in a chat-completions body, so it is never
+	// forwarded verbatim.
+	const isWebSearchToolChoice =
+		typeof tool_choice === "object" &&
+		tool_choice !== null &&
+		(tool_choice as { type?: string }).type === "web_search";
+
+	let resolvedToolChoice = isWebSearchToolChoice ? undefined : tool_choice;
+	if (tool_choice && !isWebSearchToolChoice) {
 		const mapping = modelDef?.providers.find(
 			(p) =>
 				p.providerId === usedProvider &&
@@ -2218,6 +2238,13 @@ export async function prepareRequestBody(
 						webSearch.search_context_size = webSearchTool.search_context_size;
 					}
 					responsesBody.tools.push(webSearch);
+					// The Responses API takes the same directive the gateway accepts,
+					// so a forced search is forwarded rather than translated. Verified
+					// live: "What is 2+2?" produces no web_search_call without it and
+					// one with it.
+					if (webSearchTool.forced) {
+						responsesBody.tool_choice = { type: "web_search" };
+					}
 				}
 				if (resolvedToolChoice) {
 					responsesBody.tool_choice = toResponsesToolChoice(resolvedToolChoice);
@@ -2554,7 +2581,7 @@ export async function prepareRequestBody(
 				requestBody.response_format = response_format;
 			}
 
-			if (webSearchTool) {
+			if (webSearchTool?.forced) {
 				applyDashScopeWebSearch(requestBody);
 			}
 
@@ -4165,7 +4192,7 @@ export async function prepareRequestBody(
 			// SCX resells Alibaba's Qwen models and passes DashScope's search
 			// parameters straight through, so its Qwen mappings take the same shape
 			// as the `alibaba` case above.
-			if (usedProvider === "scx-ai-gp" && webSearchTool) {
+			if (usedProvider === "scx-ai-gp" && webSearchTool?.forced) {
 				applyDashScopeWebSearch(requestBody);
 			}
 
