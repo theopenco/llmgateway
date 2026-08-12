@@ -315,7 +315,7 @@ Say Entra has a group **`LLMGW-Test-Data`** containing the user **SCIM Test One*
 
 ## Default project access (optional)
 
-Use the **Default project access** card on the **SSO** page to choose which projects SSO/SCIM developers get when **none of their groups map to projects**. If you leave it unconfigured, members get your organization's first (default) project so they can see something out of the box.
+Use the **Default project access** card on the **SSO** page to choose which projects SSO/SCIM developers get when **none of their groups map to projects**. The saved selection is authoritative, including an empty one: with no projects selected, members in no mapped group get **no** project access until you grant it (deny by default). Organizations that existed before this setting and never saved the card keep the old fallback — the organization's first project — until the card is saved once.
 
 <Callout type="info">
 	Like group-mapped grants, default grants are applied when a member is

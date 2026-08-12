@@ -28,7 +28,9 @@ On the **SSO** page, the new **Group project access** card takes a group name an
 | Manual grants always survive       | Project access granted by an admin on the Team page is never touched by the sync                                                                |
 | Exact name matching                | Mappings match the group's display name exactly as your IdP pushes it; saving a mapping for an existing group replaces that group's project set |
 
-Existing organizations are unaffected until they add a mapping: current members' grants are treated as manual, so nothing is revoked retroactively.
+The **Default project access** selection is now authoritative too: saving an empty selection means members in no mapped group get no project access at all (deny by default — also the starting state for newly created organizations), instead of silently falling back to the organization's first project.
+
+Existing organizations are unaffected until they add a mapping or save the default selection: current members' grants are treated as manual, so nothing is revoked retroactively, and organizations that never saved the default selection keep the first-project fallback.
 
 Only the **developer** role is scoped this way — owners and admins keep access to every project. Available on the **Enterprise plan**.
 

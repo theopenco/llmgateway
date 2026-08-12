@@ -873,6 +873,9 @@ const defaultProjectsResponseSchema = z.object({
 	projects: z.array(orgProjectSchema),
 	selectedProjectIds: z.array(z.string()),
 	fallbackProjectId: z.string().nullable(),
+	// Whether the org has explicitly saved its default selection. When false
+	// (legacy orgs only), an empty selection falls back to fallbackProjectId.
+	configured: z.boolean(),
 });
 
 const listDefaultProjects = createRoute({
@@ -906,6 +909,10 @@ sso.openapi(listDefaultProjects, async (c) => {
 		where: { organizationId: { eq: organizationId } },
 		columns: { projectId: true },
 	});
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: organizationId } },
+		columns: { ssoDefaultProjectsConfigured: true },
+	});
 
 	return c.json({
 		projects: liveProjects.map((p) => ({ id: p.id, name: p.name })),
@@ -913,6 +920,7 @@ sso.openapi(listDefaultProjects, async (c) => {
 			.map((row) => row.projectId)
 			.filter((id) => liveIds.has(id)),
 		fallbackProjectId: liveProjects[0]?.id ?? null,
+		configured: org?.ssoDefaultProjectsConfigured ?? false,
 	});
 });
 
@@ -961,7 +969,9 @@ sso.openapi(setDefaultProjects, async (c) => {
 		});
 	}
 
-	// Replace the org's default set with exactly the requested projects.
+	// Replace the org's default set with exactly the requested projects. Saving
+	// (even an empty selection) makes the selection authoritative: legacy orgs
+	// lose the oldest-project fallback and empty means no default access.
 	await db
 		.delete(tables.ssoDefaultProject)
 		.where(eq(tables.ssoDefaultProject.organizationId, organizationId));
@@ -970,6 +980,10 @@ sso.openapi(setDefaultProjects, async (c) => {
 			.insert(tables.ssoDefaultProject)
 			.values(requested.map((projectId) => ({ organizationId, projectId })));
 	}
+	await db
+		.update(tables.organization)
+		.set({ ssoDefaultProjectsConfigured: true })
+		.where(eq(tables.organization.id, organizationId));
 
 	await logAuditEvent({
 		organizationId,
@@ -984,6 +998,7 @@ sso.openapi(setDefaultProjects, async (c) => {
 		projects: liveProjects.map((p) => ({ id: p.id, name: p.name })),
 		selectedProjectIds: requested,
 		fallbackProjectId: liveProjects[0]?.id ?? null,
+		configured: true,
 	});
 });
 

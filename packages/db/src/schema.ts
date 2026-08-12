@@ -241,6 +241,14 @@ export const organization = pgTable(
 		// "developer". Stored lowercase, no leading "@". Unique so a domain can
 		// only be claimed by one organization.
 		ssoAutoJoinDomain: text(),
+		// Whether the org has explicitly chosen its SSO default project set
+		// (sso_default_project rows are authoritative, and an empty set means
+		// SSO-provisioned developers get NO project access). False = legacy
+		// behavior where an empty set falls back to the org's oldest project.
+		// New organizations default to true (deny until configured); existing
+		// rows were backfilled to false in the migration and flip to true the
+		// first time the default-projects card is saved.
+		ssoDefaultProjectsConfigured: boolean().notNull().default(true),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),

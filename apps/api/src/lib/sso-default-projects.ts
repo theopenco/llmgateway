@@ -13,10 +13,12 @@ export async function getOrgProjectsOldestFirst(organizationId: string) {
 		.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 }
 
-// Effective default project grants for a developer provisioned via SSO/SCIM:
-// the org's configured set, or the oldest project when unconfigured, so members
-// can see something out of the box. Returns [] only when the org has no
-// projects at all.
+// Effective default project grants for a developer provisioned via SSO/SCIM.
+// When the org has explicitly configured its default set
+// (ssoDefaultProjectsConfigured), that selection is authoritative — an empty
+// selection means no project access until the admin picks defaults or group
+// mappings. Orgs that have never saved the selection keep the legacy fallback
+// to the oldest project, so members can see something out of the box.
 export async function resolveDefaultProjectIds(
 	organizationId: string,
 ): Promise<string[]> {
@@ -31,6 +33,13 @@ export async function resolveDefaultProjectIds(
 		.filter((id) => liveIds.has(id));
 	if (selected.length > 0) {
 		return selected;
+	}
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: organizationId } },
+		columns: { ssoDefaultProjectsConfigured: true },
+	});
+	if (org?.ssoDefaultProjectsConfigured) {
+		return [];
 	}
 	return liveProjects.length > 0 ? [liveProjects[0].id] : [];
 }

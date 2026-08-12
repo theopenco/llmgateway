@@ -195,6 +195,8 @@ export type SerializedOrganization = Omit<
 	| "chatPlanExpiresAt"
 	| "chatPlanCardFingerprint"
 	| "lastTopUpAmount"
+	// Surfaced via GET /sso/default-projects (`configured`), not the org object.
+	| "ssoDefaultProjectsConfigured"
 	// LLM SDK internals — not part of the dashboard-facing API surface.
 	| "endUserMarginBalance"
 	| "stripeConnectAccountId"

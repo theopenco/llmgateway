@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 const SCIM_TOKEN = "scim_test_token_abcdef0123456789";
@@ -389,6 +389,10 @@ describe("scim group project mapping", () => {
 			autoTopUpEnabled: false,
 			autoTopUpThreshold: "10",
 			autoTopUpAmount: "10",
+			// Legacy org that never saved the default-projects card: an empty
+			// selection falls back to the oldest project. New orgs default to
+			// true (deny until configured) — covered by its own test below.
+			ssoDefaultProjectsConfigured: false,
 		});
 
 		await db.insert(tables.userOrganization).values({
@@ -480,6 +484,45 @@ describe("scim group project mapping", () => {
 
 		expect(await getGrants(id)).toEqual([
 			{ projectId: "scim-default-project", source: "sso" },
+		]);
+	});
+
+	test("configured org with empty defaults grants nothing on provision", async () => {
+		// Orgs created after the ssoDefaultProjectsConfigured column shipped are
+		// configured by default: with no defaults selected and no mapped groups,
+		// provisioning must not fall back to the oldest project.
+		await db
+			.update(tables.organization)
+			.set({ ssoDefaultProjectsConfigured: true })
+			.where(eq(tables.organization.id, ORG_ID));
+
+		const id = await provisionUser("denied@example.com");
+
+		expect(await getGrants(id)).toEqual([]);
+	});
+
+	test("configured org still grants mapped projects via groups", async () => {
+		await db
+			.update(tables.organization)
+			.set({ ssoDefaultProjectsConfigured: true })
+			.where(eq(tables.organization.id, ORG_ID));
+
+		const id = await provisionUser("denied-then-mapped@example.com");
+		expect(await getGrants(id)).toEqual([]);
+
+		const response = await app.request("/scim/v2/Groups", {
+			method: "POST",
+			headers: scimHeaders(),
+			body: JSON.stringify({
+				displayName: "Data",
+				members: [{ value: id }],
+			}),
+		});
+		expect(response.status).toBe(201);
+
+		expect(await getGrants(id)).toEqual([
+			{ projectId: "scim-mapped-project-1", source: "sso" },
+			{ projectId: "scim-mapped-project-2", source: "sso" },
 		]);
 	});
 

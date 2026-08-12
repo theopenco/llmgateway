@@ -350,13 +350,15 @@ export function SsoClient() {
 		});
 	}
 
-	// When nothing is configured yet, the checklist pre-selects the org's fallback
-	// (oldest) project — matching what provisioning would grant — so saving as-is
-	// is a no-op change rather than a surprise.
+	// Legacy orgs that never saved the selection still fall back to the org's
+	// oldest project at provisioning time, so pre-select it to match what
+	// provisioning would grant. Once saved (configured), the selection is
+	// authoritative — including an explicitly empty one (no default access).
 	const defaultProjectsData = defaultProjectsQuery.data;
 	const savedProjectIds = defaultProjectsData?.selectedProjectIds ?? [];
-	const initialProjectIds =
-		savedProjectIds.length > 0
+	const initialProjectIds = defaultProjectsData?.configured
+		? savedProjectIds
+		: savedProjectIds.length > 0
 			? savedProjectIds
 			: defaultProjectsData?.fallbackProjectId
 				? [defaultProjectsData.fallbackProjectId]

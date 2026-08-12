@@ -1611,6 +1611,13 @@
       "when": 1786444530408,
       "tag": "1786444530_wide_bulldozer",
       "breakpoints": true
+    },
+    {
+      "idx": 230,
+      "version": "8",
+      "when": 1786566890030,
+      "tag": "1786566890_striped_morlocks",
+      "breakpoints": true
     }
   ]
 }

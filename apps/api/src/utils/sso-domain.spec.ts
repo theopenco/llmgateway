@@ -75,6 +75,9 @@ describe("autoJoinSsoProviderOrganization", () => {
 			id: ORG_ID,
 			name: "SSO Org",
 			billingEmail: "owner@sso-jit-join.example.com",
+			// Legacy org (never saved the default-projects card) so the join
+			// falls back to the oldest project below.
+			ssoDefaultProjectsConfigured: false,
 		});
 		await db.insert(tables.project).values({
 			id: `${ORG_ID}-project`,

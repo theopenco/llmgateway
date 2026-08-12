@@ -18,6 +18,10 @@ describe("sso project mappings", () => {
 			name: "Mapping Org",
 			billingEmail: "mapping@example.com",
 			plan: "enterprise",
+			// Legacy org: an empty default selection falls back to the oldest
+			// project (the DELETE-recompute test below relies on this). The
+			// explicit/configured behavior has its own describe below.
+			ssoDefaultProjectsConfigured: false,
 		});
 
 		await db.insert(tables.userOrganization).values({
@@ -201,5 +205,68 @@ describe("sso project mappings", () => {
 			{ method: "DELETE", headers: { Cookie: token } },
 		);
 		expect(response.status).toBe(404);
+	});
+});
+
+describe("sso default projects configuration", () => {
+	let token: string;
+
+	beforeEach(async () => {
+		token = await createTestUser();
+
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Mapping Org",
+			billingEmail: "mapping@example.com",
+			plan: "enterprise",
+			ssoDefaultProjectsConfigured: false,
+		});
+
+		await db.insert(tables.userOrganization).values({
+			userId: "test-user-id",
+			organizationId: ORG_ID,
+			role: "owner",
+		});
+
+		await db
+			.insert(tables.project)
+			.values([
+				{ id: "mapping-project-1", name: "Project 1", organizationId: ORG_ID },
+			]);
+	});
+
+	afterEach(async () => {
+		await deleteAll();
+	});
+
+	test("GET reports the org's configured state", async () => {
+		const response = await app.request(
+			`/sso/default-projects?organizationId=${ORG_ID}`,
+			{ headers: { Cookie: token } },
+		);
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as { configured: boolean };
+		expect(body.configured).toBe(false);
+	});
+
+	test("PUT with an empty selection makes deny-by-default authoritative", async () => {
+		const response = await app.request("/sso/default-projects", {
+			method: "PUT",
+			headers: { Cookie: token, "Content-Type": "application/json" },
+			body: JSON.stringify({ organizationId: ORG_ID, projectIds: [] }),
+		});
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as {
+			configured: boolean;
+			selectedProjectIds: string[];
+		};
+		expect(body.configured).toBe(true);
+		expect(body.selectedProjectIds).toEqual([]);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+			columns: { ssoDefaultProjectsConfigured: true },
+		});
+		expect(org?.ssoDefaultProjectsConfigured).toBe(true);
 	});
 });
