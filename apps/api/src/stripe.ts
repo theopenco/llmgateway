@@ -1615,6 +1615,18 @@ async function handleCheckoutSessionCompleted(
 				return;
 			}
 
+			// An enterprise agreement is admin-managed and must never be replaced
+			// by a self-serve Pro subscription. The checkout endpoint rejects
+			// enterprise orgs, so reaching this means a stale checkout session or
+			// an out-of-band subscription — leave the org untouched and let an
+			// admin resolve the payment.
+			if (organization.plan === "enterprise") {
+				logger.error(
+					`Ignoring Pro checkout ${session.id} (subscription ${subscriptionId}) for ENTERPRISE org ${organizationId} — enterprise plans are locked; refund/cancel manually`,
+				);
+				return;
+			}
+
 			// Sync the purchased seat/API-key/SSO quantities from the
 			// subscription's line items so limits reflect what was bought. A
 			// subscription without a seat line item (legacy price, or unmatched
@@ -4431,6 +4443,15 @@ export async function handleInvoicePaymentSucceeded(event: {
 			`Skipping non-renewal chat plan invoice for organization ${organizationId} (billingReason: ${invoice.billing_reason})`,
 		);
 	} else {
+		// Enterprise agreements are admin-managed and locked — a stray Stripe
+		// invoice must not flip the plan or corrupt the admin-set term dates.
+		if (organization.plan === "enterprise") {
+			logger.error(
+				`Ignoring Pro invoice ${invoice.id} for ENTERPRISE org ${organizationId} — enterprise plans are locked; refund/cancel manually`,
+			);
+			return;
+		}
+
 		// Handle regular pro subscription. Every invoice counts toward Pro
 		// subscription revenue; the type records WHY it was billed so renewals
 		// and mid-cycle changes don't read as new subscriptions.
@@ -5077,6 +5098,15 @@ export async function handleSubscriptionUpdated(
 			`Updated dev plan subscription for organization ${organizationId}, expires at: ${expiresAt}, cancelled: ${!isSubscriptionActive}`,
 		);
 	} else {
+		// On an enterprise org, planExpiresAt is the admin-booked term end —
+		// a Stripe subscription event must never overwrite it (or the plan).
+		if (organization.plan === "enterprise") {
+			logger.warn(
+				`Ignoring subscription.updated ${subscription.id} for ENTERPRISE org ${organizationId} — enterprise plans are locked`,
+			);
+			return;
+		}
+
 		// Handle regular pro subscription update. Same stale-event guard as the
 		// dev/chat branches above: once the org has activated a subscription,
 		// only that subscription may drive plan state (a superseded sub's
@@ -5351,6 +5381,36 @@ export async function handleSubscriptionDeleted(
 		logger.info(
 			`Ended dev plan ${previousDevPlan} for organization ${organizationId}`,
 		);
+	} else if (organization.plan === "enterprise") {
+		// The org moved to an admin-managed enterprise agreement while a Pro
+		// subscription was still winding down. Detach the ended subscription
+		// and clear the purchased quantities, but never touch the enterprise
+		// plan or its admin-set term dates — and skip the "downgraded to free"
+		// email, since nothing user-facing changed.
+		await db
+			.update(tables.organization)
+			.set({
+				stripeSubscriptionId: null,
+				subscriptionCancelled: false,
+				proSeats: null,
+				proExtraApiKeys: 0,
+				proExtraProjects: 0,
+				proSsoEnabled: false,
+				proScimEnabled: false,
+			})
+			.where(eq(tables.organization.id, organizationId));
+
+		await db.insert(tables.transaction).values({
+			organizationId,
+			type: "subscription_end",
+			currency: "USD",
+			status: "completed",
+			description: "Pro subscription ended (organization is on enterprise)",
+		});
+
+		logger.info(
+			`Detached ended Pro subscription ${subscription.id} from ENTERPRISE org ${organizationId}; plan untouched`,
+		);
 	} else {
 		// Handle regular pro subscription deletion
 		// Create transaction record for subscription end
@@ -5455,6 +5515,15 @@ async function handleSubscriptionCreated(
 	) {
 		logger.info(
 			`Skipping plan: "pro" for dev/chat plan or ${organization.kind} org ${organizationId}`,
+		);
+		return;
+	}
+
+	// Enterprise agreements are admin-managed and locked — a Stripe
+	// subscription must never demote one to the self-serve Pro plan.
+	if (organization.plan === "enterprise") {
+		logger.error(
+			`Ignoring subscription.created ${subscription.id} for ENTERPRISE org ${organizationId} — enterprise plans are locked`,
 		);
 		return;
 	}
