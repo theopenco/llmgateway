@@ -36,6 +36,23 @@ export function getOrganizationSubscriptionIds(
 }
 
 /**
+ * Whether a Stripe error means the subscription is already in the terminal
+ * state a cancel was aiming for — gone, or cancelled earlier. Callers treat
+ * this as success rather than failing an otherwise-complete teardown.
+ */
+export function isTerminalSubscriptionError(
+	error: unknown,
+): error is Stripe.errors.StripeInvalidRequestError {
+	return (
+		error instanceof Stripe.errors.StripeInvalidRequestError &&
+		(error.code === "resource_missing" ||
+			error.statusCode === 404 ||
+			error.message.includes("already been canceled") ||
+			error.message.includes("already canceled"))
+	);
+}
+
+/**
  * Cancels every Stripe subscription an organization holds, immediately and
  * without a final proration invoice.
  *
@@ -57,13 +74,7 @@ export async function cancelOrganizationSubscriptions(
 			});
 			cancelled.push(subscriptionId);
 		} catch (error) {
-			if (
-				error instanceof Stripe.errors.StripeInvalidRequestError &&
-				(error.code === "resource_missing" ||
-					error.statusCode === 404 ||
-					error.message.includes("already been canceled") ||
-					error.message.includes("already canceled"))
-			) {
+			if (isTerminalSubscriptionError(error)) {
 				logger.info(
 					`Stripe subscription ${subscriptionId} already terminal, skipping cancel: ${error.message}`,
 				);
