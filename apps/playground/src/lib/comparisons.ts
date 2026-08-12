@@ -101,7 +101,7 @@ function planFacts(tier: ChatPlanTier) {
 
 export const US = {
 	name: "Lounge",
-	url: "https://chat.llmgateway.io",
+	url: "https://lounge.llmgateway.io",
 	modelCount: "200+",
 	plans: {
 		starter: planFacts("starter"),
@@ -213,7 +213,7 @@ export const comparisons: Comparison[] = [
 			"You want to compare answers across models before you trust one",
 		],
 		migration:
-			"There's nothing to migrate — start a chat at chat.llmgateway.io, pick GPT-5 if that's your habit, and add Claude or Gemini to the same thread when you need them. Keep ChatGPT too; many people drop the second subscription once one balance reaches every model.",
+			"There's nothing to migrate — start a chat at lounge.llmgateway.io, pick GPT-5 if that's your habit, and add Claude or Gemini to the same thread when you need them. Keep ChatGPT too; many people drop the second subscription once one balance reaches every model.",
 		faq: [
 			{
 				q: "Is Lounge a ChatGPT alternative?",
@@ -336,7 +336,7 @@ export const comparisons: Comparison[] = [
 			"You'd rather see exactly what each message costs",
 		],
 		migration:
-			"Keep using Claude exactly as you do — Opus and Sonnet are right here. Start a thread at chat.llmgateway.io, pick Claude, and when you hit a wall or want a comparison, switch to GPT or Gemini in the same conversation. Most people keep Claude as their default model and drop the standalone subscription.",
+			"Keep using Claude exactly as you do — Opus and Sonnet are right here. Start a thread at lounge.llmgateway.io, pick Claude, and when you hit a wall or want a comparison, switch to GPT or Gemini in the same conversation. Most people keep Claude as their default model and drop the standalone subscription.",
 		faq: [
 			{
 				q: "Does Lounge include Claude?",
@@ -386,7 +386,7 @@ export const comparisons: Comparison[] = [
 			},
 			{
 				label: "Ecosystem lock-in",
-				us: "None — works on its own at chat.llmgateway.io",
+				us: "None — works on its own at lounge.llmgateway.io",
 				them: "Most value comes through your Google account and Workspace",
 				usWins: true,
 			},
@@ -459,7 +459,7 @@ export const comparisons: Comparison[] = [
 			"The overlapping Ultra plan tiers are hard to reason about",
 		],
 		migration:
-			"Sign in at chat.llmgateway.io and pick Gemini — the long-context model you already use is there. Add GPT or Claude to the same thread whenever you want a second take. Nothing is tied to your Google account, so you keep full control of your data.",
+			"Sign in at lounge.llmgateway.io and pick Gemini — the long-context model you already use is there. Add GPT or Claude to the same thread whenever you want a second take. Nothing is tied to your Google account, so you keep full control of your data.",
 		faq: [
 			{
 				q: "Is Lounge a Google Gemini alternative?",
@@ -580,7 +580,7 @@ export const comparisons: Comparison[] = [
 			"You want to know what each message actually costs",
 		],
 		migration:
-			"Bring the same habit — one balance, every model — minus the points math. Sign in at chat.llmgateway.io, and instead of translating messages into points, you spend credits priced at provider rates with each message's cost shown plainly.",
+			"Bring the same habit — one balance, every model — minus the points math. Sign in at lounge.llmgateway.io, and instead of translating messages into points, you spend credits priced at provider rates with each message's cost shown plainly.",
 		faq: [
 			{
 				q: "How is Lounge different from Poe?",
@@ -701,7 +701,7 @@ export const comparisons: Comparison[] = [
 			"You want to compare model answers side by side",
 		],
 		migration:
-			"If you like fast multi-model chat, you'll feel at home — pick a model, start typing at chat.llmgateway.io. The difference is what surrounds the chat: image, video, and audio generation, group chat, persistent and shareable conversations, all on one credit balance.",
+			"If you like fast multi-model chat, you'll feel at home — pick a model, start typing at lounge.llmgateway.io. The difference is what surrounds the chat: image, video, and audio generation, group chat, persistent and shareable conversations, all on one credit balance.",
 		faq: [
 			{
 				q: "Is Lounge worth more than T3 Chat's $8?",
@@ -821,7 +821,7 @@ export const comparisons: Comparison[] = [
 			"You want to generate images, video, and audio too",
 		],
 		migration:
-			"Many people keep Perplexity for cited research and use Lounge for everything else — writing, coding, brainstorming, and media. Sign in at chat.llmgateway.io, pick any frontier model, and you've got a conversation tool Perplexity was never built to be.",
+			"Many people keep Perplexity for cited research and use Lounge for everything else — writing, coding, brainstorming, and media. Sign in at lounge.llmgateway.io, pick any frontier model, and you've got a conversation tool Perplexity was never built to be.",
 		faq: [
 			{
 				q: "Is Lounge a Perplexity alternative?",

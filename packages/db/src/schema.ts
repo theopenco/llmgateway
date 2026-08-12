@@ -256,7 +256,7 @@ export const organization = pgTable(
 		// Organization kind:
 		// - "default": regular dashboard/team org.
 		// - "devpass": per-user personal org backing the Dev Plans (DevPass) product.
-		// - "chat": dedicated per-user "Chat" org backing chat.llmgateway.io.
+		// - "chat": dedicated per-user "Chat" org backing lounge.llmgateway.io.
 		// "devpass" and "chat" orgs are hidden from the dashboard org switcher and
 		// cannot be deleted or managed as team orgs.
 		kind: text({
@@ -333,7 +333,7 @@ export const organization = pgTable(
 		// prevent a single card from claiming the DevPass usage allowance from
 		// multiple personal organizations.
 		devPlanCardFingerprint: text(),
-		// Chat Plans fields (for chat.llmgateway.io subscribers)
+		// Chat Plans fields (for lounge.llmgateway.io subscribers)
 		chatPlan: text({
 			enum: ["none", "starter", "plus", "pro"],
 		})

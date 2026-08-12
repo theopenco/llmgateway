@@ -35,4 +35,4 @@ Get **20% off all Google models** including Gemini and other Google AI offerings
 
 These discounts are applied automatically to all requests through LLM Gateway. Start using these providers today and enjoy the savings!
 
-**[Try them now in the Playground](https://chat.llmgateway.io/?model=zai%2Fglm-4.5)** 🚀
+**[Try them now in the Playground](https://lounge.llmgateway.io/?model=zai%2Fglm-4.5)** 🚀
