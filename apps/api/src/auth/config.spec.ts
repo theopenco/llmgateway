@@ -3,7 +3,12 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { db, eq, tables } from "@llmgateway/db";
 import { randomInt } from "@llmgateway/shared/random";
 
-import { apiAuth, isClientJsonError, redisClient } from "./config.js";
+import {
+	apiAuth,
+	isClientAuthError,
+	isClientJsonError,
+	redisClient,
+} from "./config.js";
 
 describe("isClientJsonError", () => {
 	test("matches the real Better Auth malformed-JSON messages from production", () => {
@@ -47,6 +52,21 @@ describe("isClientJsonError", () => {
 		expect(isClientJsonError("Redis pipeline execution failed", [])).toBe(
 			false,
 		);
+	});
+});
+
+describe("isClientAuthError", () => {
+	test("matches the bare signup_disabled code Better Auth logs", () => {
+		expect(isClientAuthError("signup_disabled")).toBe(true);
+		expect(isClientAuthError(" signup_disabled ")).toBe(true);
+	});
+
+	test("does not match genuine server errors", () => {
+		expect(isClientAuthError("Database connection failed")).toBe(false);
+		expect(isClientAuthError("unable_to_create_user")).toBe(false);
+		expect(
+			isClientAuthError("Failed to send verification email signup_disabled"),
+		).toBe(false);
 	});
 });
 
