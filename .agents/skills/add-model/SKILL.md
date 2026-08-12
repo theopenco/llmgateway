@@ -55,7 +55,7 @@ because one of its four mappings passed.
 | Token extraction | `apps/gateway/src/chat/tools/extract-token-usage.ts`, `parse-provider-response.ts` |
 | Request shaping (reasoning, tool_choice, image/video knobs) | `packages/actions/src/prepare-request-body.ts` |
 | Endpoint/auth wiring for a new provider | `packages/actions/src/get-provider-endpoint.ts` |
-| e2e suites | `apps/gateway/src/*.e2e.ts` (per-capability files, **not** `api.e2e.ts`) |
+| e2e suites | `apps/gateway/src/*.e2e.ts` — per-capability files (`chat-*.e2e.ts`, `images.e2e.ts`, …). `CLAUDE.md` still points at `api.e2e.ts`; that file no longer exists, it was split into the `chat-*` suites |
 | Playground image options | `apps/playground/src/lib/image-gen.ts` |
 | Playground video options | `apps/playground/src/lib/video-gen.ts` |
 | Image/video docs | `apps/docs/content/features/{image,video}-generation.mdx` |
@@ -187,7 +187,9 @@ the model card — the same model on two providers regularly differs, and an
 - `vision`, `audio`, `document` — routing skips mappings that lack these when the
   request carries that content. If the deployment 400s on image input, set
   `vision: false` on that mapping. **Do not** add an error-text reclassification
-  rule instead; that is explicitly forbidden by `CLAUDE.md`.
+  rule instead; that is explicitly forbidden by `CLAUDE.md`. Audio *input* on a
+  chat model is exercised by `audio.e2e.ts`, which is `TEST_MODELS`-aware like
+  the rest.
 - `tools`, `parallelToolCalls`, `supportedToolChoices` — probe each `tool_choice`
   mode (`auto`, `none`, `required`, named function). Unsupported modes go in
   `supportedToolChoices`, and `prepare-request-body.ts` downgrades to `auto`
@@ -299,12 +301,25 @@ mapping with a comment saying the deployment rejects them.
   the default.
 - Cover it in `image-gen.spec.ts` and `costs.spec.ts`.
 
-**Other endpoints** — `embeddings`, `speechGenerations` (+ `supportedVoices`,
-`outputAudioPrice`, `inputCharacterPrice`), `transcriptions`
-(`inputAudioHourPrice`), `ocr` (`ocrPagePrice`), `rerank`, `realtime`. Each
-routes to a dedicated gateway endpoint and has its own e2e file
-(`embeddings.e2e.ts`, `speech.e2e.ts`, `transcriptions.e2e.ts`, `ocr.e2e.ts`,
-`rerank.e2e.ts`, `images.e2e.ts`).
+**Other endpoints** — each routes to a dedicated gateway endpoint and has its own
+e2e file, which the scoped `TEST_MODELS` run picks up automatically:
+
+| Flag | Prices it needs | e2e file |
+| --- | --- | --- |
+| `imageGenerations` | see above | `images.e2e.ts` |
+| `embeddings` | input tokens only | `embeddings.e2e.ts` |
+| `speechGenerations` | `outputAudioPrice`, `inputCharacterPrice`, plus `supportedVoices` | `speech.e2e.ts` |
+| `transcriptions` | `inputAudioHourPrice` | `transcriptions.e2e.ts` |
+| `ocr` | `ocrPagePrice` | `ocr.e2e.ts` |
+| `rerank` | token prices | `rerank.e2e.ts` |
+
+`realtime` is the exception: there is **no** `realtime.e2e.ts`. It is covered by
+unit specs under `apps/gateway/src/realtime/*.spec.ts` (session, pricing,
+Gemini session/pricing, transcription, upstream connect), plus a catalogue
+invariant in `packages/models/src/realtime-models.spec.ts` that fails any
+realtime mapping missing the per-modality prices billing depends on — so a
+realtime mapping must declare its text, audio and image token prices, and
+`realtimeTranscription` only on token-metered ASR mappings.
 
 **Docs**: the general rule is never to enumerate models in docs — the single
 exception is image and video generation, where per-model sizes/durations/
