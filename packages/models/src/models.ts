@@ -2,6 +2,7 @@ import { alibabaModels } from "./models/alibaba.js";
 import { anthropicModels } from "./models/anthropic.js";
 import { atlascloudModels } from "./models/atlascloud.js";
 import { baaiModels } from "./models/baai.js";
+import { baiduModels } from "./models/baidu.js";
 import { bytedanceModels } from "./models/bytedance.js";
 import { deepseekModels } from "./models/deepseek.js";
 import { elevenlabsModels } from "./models/elevenlabs.js";
@@ -767,6 +768,7 @@ export const models = [
 	...alibabaModels,
 	...atlascloudModels,
 	...baaiModels,
+	...baiduModels,
 	...bytedanceModels,
 	...nousresearchModels,
 	...reveModels,

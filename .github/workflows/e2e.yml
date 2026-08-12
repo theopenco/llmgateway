@@ -145,6 +145,7 @@ jobs:
           LLM_GONKA_24_API_KEY: ${{ secrets.LLM_GONKA_24_API_KEY }}
           LLM_FIREWORKS_API_KEY: ${{ secrets.LLM_FIREWORKS_API_KEY }}
           LLM_RANOAI_API_KEY: ${{ secrets.LLM_RANOAI_API_KEY }}
+          LLM_BAIDU_API_KEY: ${{ secrets.LLM_BAIDU_API_KEY }}
 
       - name: Upload shard results
         if: always()

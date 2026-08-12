@@ -563,6 +563,23 @@ export const moonshotModels = [
 				// normalize it defensively in both modes.
 				healStreamingJsonOutput: true,
 			},
+			{
+				providerId: "baidu",
+				externalId: "kimi-k2.6",
+				// Mirrors the Moonshot mapping: the model rejects forced
+				// tool_choice while thinking is on.
+				supportedToolChoices: ["auto", "none"],
+				inputPrice: "0.95e-6",
+				cachedInputPrice: "0.16e-6",
+				outputPrice: "4e-6",
+				requestPrice: "0",
+				contextSize: 524288,
+				maxOutput: 262144,
+				streaming: true,
+				reasoning: true,
+				vision: true,
+				tools: true,
+			},
 		],
 	},
 	{
