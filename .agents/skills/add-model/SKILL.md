@@ -150,6 +150,7 @@ responses (and errors) in Redis keyed on the request body:
 ```bash
 curl -N http://localhost:4001/v1/chat/completions \
   -H "Authorization: Bearer test-token" -H "x-no-fallback: true" \
+  -H "Content-Type: application/json" \
   -d '{"model":"<provider>/<model>","messages":[{"role":"user","content":"hi"}]}'
 ```
 
