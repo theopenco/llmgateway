@@ -208,6 +208,7 @@ export {
 	SSO_TEAM_DEFAULT_DEVELOPER_BUDGET,
 	type ApiKeyLimitConstraints,
 	type ApiKeyPeriodDurationUnitValue,
+	type MemberBudgetOwner,
 	type MemberBudgetShape,
 } from "./member-budget-limits.js";
 
