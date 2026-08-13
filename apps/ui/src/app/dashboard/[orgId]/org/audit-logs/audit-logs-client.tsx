@@ -1,6 +1,5 @@
 "use client";
 
-import { format } from "date-fns";
 import { Check, Copy } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect, useCallback } from "react";
@@ -26,6 +25,8 @@ import {
 	SelectValue,
 } from "@/lib/components/select";
 import { useFetchClient } from "@/lib/fetch-client";
+
+import { Time, TimeZoneToggle } from "@llmgateway/shared/components";
 
 import { ContactSalesCard } from "./contact-sales-card";
 
@@ -273,12 +274,15 @@ export function AuditLogsClient() {
 	return (
 		<div className="space-y-6">
 			<Card>
-				<CardHeader>
-					<CardTitle>Audit Logs</CardTitle>
-					<CardDescription>
-						View a complete history of all actions taken within your
-						organization.
-					</CardDescription>
+				<CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+					<div>
+						<CardTitle>Audit Logs</CardTitle>
+						<CardDescription>
+							View a complete history of all actions taken within your
+							organization.
+						</CardDescription>
+					</div>
+					<TimeZoneToggle />
 				</CardHeader>
 				<CardContent>
 					{/* Filters */}
@@ -366,7 +370,7 @@ export function AuditLogsClient() {
 															{formatAction(log.action)}
 														</Badge>
 														<span className="text-xs text-muted-foreground">
-															{format(new Date(log.createdAt), "PPp")}
+															<Time date={log.createdAt} format="PPp" />
 														</span>
 													</div>
 													<div className="text-sm">
@@ -454,7 +458,7 @@ export function AuditLogsClient() {
 													className="hover:bg-muted/25 transition-colors"
 												>
 													<td className="p-4 align-middle text-sm whitespace-nowrap">
-														{format(new Date(log.createdAt), "PPp")}
+														<Time date={log.createdAt} format="PPp" />
 													</td>
 													<td className="p-4 align-middle">
 														<div className="flex flex-col">
