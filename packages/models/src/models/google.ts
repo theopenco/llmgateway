@@ -1288,7 +1288,7 @@ export const googleModels = [
 		id: "gemini-3.7-flash",
 		name: "Gemini 3.7 Flash",
 		description:
-			"Gemini 3.7 Flash is the successor to Gemini 3.6 Flash, with the same 1M-token context window, multimodal input, and thinking support.",
+			"Gemini 3.7 Flash succeeds 3.6 Flash with stronger coding, document processing, and agentic workflow performance at the same 1M-token context window, with multimodal input and thinking support.",
 		family: "google",
 		releasedAt: new Date("2026-08-13"),
 		providers: [
@@ -1298,6 +1298,7 @@ export const googleModels = [
 				// priority requests are silently downgraded to standard for this
 				// model on the Gemini Developer API, so only flex is declared
 				serviceTiers: ["flex"],
+				// introductory pricing until 2026-12-31; $1.50/$7.50 from 2027-01-01
 				inputPrice: "0.75e-6",
 				outputPrice: "3.75e-6",
 				cachedInputPrice: "0.075e-6",
@@ -1325,6 +1326,7 @@ export const googleModels = [
 				// for model"), so only priority is declared
 				serviceTiers: ["priority"],
 				serviceTierRegions: ["global"],
+				// introductory pricing until 2026-12-31; $1.50/$7.50 from 2027-01-01
 				inputPrice: "0.75e-6",
 				outputPrice: "3.75e-6",
 				cachedInputPrice: "0.075e-6",
