@@ -20,6 +20,8 @@ import {
 } from "@/lib/components/table";
 import { useApi } from "@/lib/fetch-client";
 
+import { Time, TimeZoneToggle } from "@llmgateway/shared/components";
+
 interface TransactionsClientProps {
 	initialTransactionsData?: any;
 }
@@ -153,6 +155,7 @@ export function TransactionsClient({
 					<h2 className="text-2xl md:text-3xl font-bold tracking-tight">
 						Transactions
 					</h2>
+					<TimeZoneToggle />
 				</div>
 				<Card>
 					<CardHeader>
@@ -193,7 +196,10 @@ export function TransactionsClient({
 												<div>Amount: ${transaction.amount}</div>
 												<div>
 													Date:{" "}
-													{new Date(transaction.createdAt).toLocaleDateString()}
+													<Time
+														date={transaction.createdAt}
+														format="M/d/yyyy"
+													/>
 												</div>
 												{transaction.description && (
 													<div>Description: {transaction.description}</div>
@@ -232,7 +238,10 @@ export function TransactionsClient({
 													</Badge>
 												</TableCell>
 												<TableCell>
-													{new Date(transaction.createdAt).toLocaleDateString()}
+													<Time
+														date={transaction.createdAt}
+														format="M/d/yyyy"
+													/>
 												</TableCell>
 												<TableCell>{transaction.description ?? "—"}</TableCell>
 											</TableRow>
