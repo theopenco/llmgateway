@@ -144,7 +144,7 @@ Yes. Multimodal models like `gemini-3-pro-image-preview` can return images throu
 
 ### Is there a way to try models before writing code?
 
-The [Image Studio in Lounge](https://chat.llmgateway.io/image) generates 1, 2, or 4 images per prompt and lets you compare models side by side.
+The [Image Studio in Lounge](https://lounge.llmgateway.io/image) generates 1, 2, or 4 images per prompt and lets you compare models side by side.
 
 ---
 

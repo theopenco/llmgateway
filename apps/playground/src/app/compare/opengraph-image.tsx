@@ -164,7 +164,7 @@ export default function CompareIndexOgImage() {
 					<Pill>Perplexity</Pill>
 				</div>
 				<span style={{ color: "#A1A1AA", fontSize: 21, fontWeight: 500 }}>
-					chat.llmgateway.io
+					lounge.llmgateway.io
 				</span>
 			</div>
 		</div>,

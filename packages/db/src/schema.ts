@@ -256,7 +256,7 @@ export const organization = pgTable(
 		// Organization kind:
 		// - "default": regular dashboard/team org.
 		// - "devpass": per-user personal org backing the Dev Plans (DevPass) product.
-		// - "chat": dedicated per-user "Chat" org backing chat.llmgateway.io.
+		// - "chat": dedicated per-user "Chat" org backing lounge.llmgateway.io.
 		// "devpass" and "chat" orgs are hidden from the dashboard org switcher and
 		// cannot be deleted or managed as team orgs.
 		kind: text({
@@ -333,7 +333,7 @@ export const organization = pgTable(
 		// prevent a single card from claiming the DevPass usage allowance from
 		// multiple personal organizations.
 		devPlanCardFingerprint: text(),
-		// Chat Plans fields (for chat.llmgateway.io subscribers)
+		// Chat Plans fields (for lounge.llmgateway.io subscribers)
 		chatPlan: text({
 			enum: ["none", "starter", "plus", "pro"],
 		})
@@ -3607,6 +3607,8 @@ export const auditLogActions = [
 	"payment.auto_topup.update",
 	"payment.auto_topup.disable",
 	"payment.self_refund",
+	// Refund issued by an administrator on behalf of the customer.
+	"payment.admin_refund",
 	// Credits
 	"credits.gift",
 	"credits.manual_payment",
@@ -3627,6 +3629,8 @@ export const auditLogActions = [
 	// Free Reset Pass granted for a quarterly model-survey response.
 	"dev_plan.reset_pass_reward",
 	"dev_plan.reset_pass_gift",
+	// Cancellation performed by an administrator on behalf of the subscriber.
+	"dev_plan.admin_cancel",
 	// Chat Plan
 	"chat_plan.subscribe",
 	"chat_plan.cancel",

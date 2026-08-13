@@ -35,6 +35,6 @@ curl -X POST https://api.llmgateway.io/v1/chat/completions \
 
 ---
 
-**[Try Cerebras models in the Playground](https://chat.llmgateway.io/?model=cerebras/gpt-oss-120b)** 🚀
+**[Try Cerebras models in the Playground](https://lounge.llmgateway.io/?model=cerebras/gpt-oss-120b)** 🚀
 
 **[Get started now](/signup)** 🚀

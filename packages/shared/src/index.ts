@@ -171,6 +171,12 @@ export {
 	type PlanTermThresholds,
 } from "./plan-term.js";
 
+export {
+	isLoungeSource,
+	LEGACY_LOUNGE_SOURCE,
+	LOUNGE_SOURCE,
+} from "./lounge-source.js";
+
 export { MARKETING_STATS, RUNWARE_PROMO } from "./marketing.js";
 
 export {

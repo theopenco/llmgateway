@@ -21,13 +21,19 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { giftResetPasses } from "@/lib/admin-devpass";
+import {
+	cancelDevpassSubscription,
+	giftResetPasses,
+	refundDevpassPayment,
+} from "@/lib/admin-devpass";
 import { giftCreditsToOrganization } from "@/lib/admin-organizations";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
 
+import { CancelSubscriptionDialog } from "./cancel-subscription-dialog";
 import { GiftResetPassesDialog } from "./gift-reset-passes-dialog";
+import { RefundPaymentDialog } from "./refund-payment-dialog";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
 	style: "currency",
@@ -308,9 +314,23 @@ export default async function DevpassDetailPage({
 						)}
 					</div>
 				</div>
-				<Button variant="outline" size="sm" asChild>
-					<Link href={`/organizations/${sub.id}`}>Open in Organizations</Link>
-				</Button>
+				<div className="flex flex-wrap items-center gap-2">
+					{sub.tier !== "none" && (
+						<CancelSubscriptionDialog
+							orgName={sub.name}
+							tier={sub.tier}
+							expiresAt={sub.expiresAt}
+							alreadyCancelled={sub.cancelled}
+							onCancel={async (cancelData) => {
+								"use server";
+								return await cancelDevpassSubscription(orgId, cancelData);
+							}}
+						/>
+					)}
+					<Button variant="outline" size="sm" asChild>
+						<Link href={`/organizations/${sub.id}`}>Open in Organizations</Link>
+					</Button>
+				</div>
 			</header>
 
 			<section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -513,13 +533,14 @@ export default async function DevpassDetailPage({
 									<TableHead>Credits</TableHead>
 									<TableHead>Status</TableHead>
 									<TableHead>Description</TableHead>
+									<TableHead className="text-right">Actions</TableHead>
 								</TableRow>
 							</TableHeader>
 							<TableBody>
 								{data.transactions.length === 0 ? (
 									<TableRow>
 										<TableCell
-											colSpan={7}
+											colSpan={8}
 											className="h-24 text-center text-muted-foreground"
 										>
 											No subscription events recorded
@@ -564,6 +585,34 @@ export default async function DevpassDetailPage({
 											</TableCell>
 											<TableCell className="max-w-[300px] truncate text-muted-foreground">
 												{t.description ?? "—"}
+											</TableCell>
+											<TableCell className="text-right">
+												<div className="flex items-center justify-end gap-2">
+													{parseFloat(t.refundedAmount) > 0 && (
+														<Badge variant="outline">
+															refunded{" "}
+															{currencyFormatter.format(
+																parseFloat(t.refundedAmount),
+															)}
+														</Badge>
+													)}
+													<RefundPaymentDialog
+														transactionId={t.id}
+														transactionLabel={formatTransactionType(t.type)}
+														amount={t.amount ?? "0"}
+														refundedAmount={t.refundedAmount}
+														refundableAmount={t.refundableAmount}
+														refundable={t.refundable}
+														refundIneligibleReason={t.refundIneligibleReason}
+														onRefund={async (refundData) => {
+															"use server";
+															return await refundDevpassPayment(
+																orgId,
+																refundData,
+															);
+														}}
+													/>
+												</div>
 											</TableCell>
 										</TableRow>
 									))

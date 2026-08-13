@@ -1602,6 +1602,89 @@ describe("calculateCosts", () => {
 		expect(zeroPromptTokens.totalCost).toBeCloseTo(0.03);
 	});
 
+	it("bills grok-imagine-image-2.0 on the quality/resolution tier", async () => {
+		// Verified against xAI's own usage.cost_in_usd_ticks for each combination:
+		// low/1k $0.04, low/2k $0.06, medium/1k $0.06, medium/2k $0.08.
+		const grid: [string | undefined, string | undefined, number][] = [
+			["low", "1k", 0.04],
+			["low", "2k", 0.06],
+			["medium", "1k", 0.06],
+			["medium", "2k", 0.08],
+			// Omitted knobs fall back to what xAI serves by default: medium at 1k.
+			[undefined, undefined, 0.06],
+			[undefined, "2k", 0.08],
+			["low", undefined, 0.04],
+			// Pixel dimensions map onto the tier the request body sends.
+			["low", "1024x1024", 0.04],
+			["low", "2048x2048", 0.06],
+			// A quality the gateway drops as unsupported bills at xAI's default.
+			["auto", "1k", 0.06],
+		];
+
+		for (const [quality, size, expected] of grid) {
+			const result = await calculateCosts(
+				"grok-imagine-image-2-0",
+				"xai",
+				null,
+				100,
+				0,
+				null,
+				undefined,
+				null,
+				1,
+				size,
+				0,
+				null,
+				null,
+				quality,
+			);
+			expect(
+				result.imageOutputCost,
+				`quality=${quality} size=${size}`,
+			).toBeCloseTo(expected);
+		}
+	});
+
+	it("matches xAI's own reported cost for grok-4-6", async () => {
+		// Real grok-4.6 response: 213 prompt tokens (128 cached), 4 completion and
+		// 310 reasoning tokens, billed by xAI at 21180000 usd ticks = $0.002118.
+		// xAI reports reasoning tokens outside completion_tokens, so they are
+		// billed on top of the completion count.
+		const result = await calculateCosts(
+			"grok-4-6",
+			"xai",
+			null,
+			213,
+			4,
+			128,
+			undefined,
+			310,
+		);
+		expect(result.totalCost).toBeCloseTo(0.002118, 9);
+	});
+
+	it("multiplies the grok-imagine-image-2.0 tier by the image count", async () => {
+		// n=2 at low/1k billed $0.08 upstream, i.e. 2 x $0.04.
+		const result = await calculateCosts(
+			"grok-imagine-image-2-0",
+			"xai",
+			null,
+			100,
+			0,
+			null,
+			undefined,
+			null,
+			2,
+			"1k",
+			0,
+			null,
+			null,
+			"low",
+		);
+		expect(result.imageOutputCost).toBeCloseTo(0.08);
+		expect(result.outputCost).toBeCloseTo(0.08);
+	});
+
 	it("should include image costs in totalCost sum", async () => {
 		// totalCost = inputCost + outputCost + cachedInputCost + requestCost + webSearchCost
 		// (inputCost already includes imageInputCost, outputCost already includes imageOutputCost)
