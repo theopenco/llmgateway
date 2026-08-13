@@ -1206,7 +1206,7 @@ export const providers: ProviderDefinition[] = [
 		id: "baidu",
 		name: "Baidu",
 		description:
-			"Baidu's Qianfan platform serving ERNIE alongside DeepSeek, GLM, and Kimi models",
+			"Baidu's Qianfan platform serving DeepSeek, GLM, Kimi, MiMo, and Hy3 models",
 		env: {
 			required: {
 				apiKey: "LLM_BAIDU_API_KEY",
@@ -1215,11 +1215,13 @@ export const providers: ProviderDefinition[] = [
 		streaming: true,
 		cancellation: true,
 		color: "#2932E1",
-		website: "https://cloud.baidu.com/product/qianfan",
+		website: "https://intl.cloud.baidu.com/product/qianfan.html",
 		statusPageUrl: null,
 		announcement: null,
-		termsUrl: "https://cloud.baidu.com/doc/Agreements/s/yjwvy1x03",
-		privacyPolicyUrl: "https://cloud.baidu.com/doc/Agreements/s/Plr0fi68q",
+		termsUrl:
+			"https://intl.cloud.baidu.com/en/doc/Agreements/s/bmesahnjh-intl-en",
+		privacyPolicyUrl:
+			"https://intl.cloud.baidu.com/en/doc/Agreements/s/Plr0fi68q-intl-en",
 		headquarters: "CN",
 		// Qianfan publishes no API training / prompt logging commitment we can
 		// point at, so every attribute stays unknown and fails closed under a

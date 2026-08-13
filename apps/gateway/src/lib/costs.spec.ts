@@ -742,7 +742,7 @@ describe("calculateCosts", () => {
 		// as completion_tokens === reasoning_tokens, so adding it again would
 		// double the billed output.
 		const result = await calculateCosts(
-			"ernie-5.0",
+			"deepseek-v4-pro",
 			"baidu",
 			null,
 			1000,
@@ -752,9 +752,9 @@ describe("calculateCosts", () => {
 			400,
 		);
 
-		// inputPrice 1.4e-6, outputPrice 5.6e-6.
-		expect(result.inputCost).toBeCloseTo(0.0014, 10);
-		expect(result.outputCost).toBeCloseTo(0.00224, 10); // 400 * 5.6e-6, not 800
+		// inputPrice 1.69e-6, outputPrice 3.38e-6.
+		expect(result.inputCost).toBeCloseTo(0.00169, 10);
+		expect(result.outputCost).toBeCloseTo(0.001352, 10); // 400 * 3.38e-6, not 800
 		expect(result.completionTokens).toBe(400);
 	});
 

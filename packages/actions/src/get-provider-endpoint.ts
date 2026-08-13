@@ -188,7 +188,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	gonka24: "https://api.gonka24.com",
 	fireworks: "https://api.fireworks.ai/inference",
 	ranoai: "https://api.ranoai.com",
-	baidu: "https://qianfan.baidubce.com",
+	baidu: "https://api.baiduqianfan.ai",
 };
 
 export function getProviderDefaultBaseUrl(
@@ -953,9 +953,7 @@ export function getProviderEndpoint(
 			}
 			return `${url}/v1/chat/completions`;
 		}
-		// Qianfan's OpenAI-compatible surface is versioned v2, not v1.
 		case "baidu":
-			return `${url}/v2/chat/completions`;
 		case "deepseek":
 		case "moonshot":
 		case "nebius":
