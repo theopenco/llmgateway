@@ -1,7 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { format, formatDistanceToNowStrict } from "date-fns";
+import { formatDistanceToNowStrict } from "date-fns";
 import { Info, Loader2 } from "lucide-react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -28,6 +28,8 @@ import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 import { useStripe } from "@/lib/stripe";
 import { cn } from "@/lib/utils";
+
+import { Time, TimeZoneToggle } from "@llmgateway/shared/components";
 
 import type { TierChangeTiming } from "@/app/dashboard/components/ActivePlanChangeTier";
 import type { PlanTier } from "@/app/dashboard/types";
@@ -332,22 +334,31 @@ export default function BillingClient({
 					return d;
 				})()
 			: null;
-	const renewWhen = renewAt ? format(renewAt, "MMM d, yyyy") : null;
+	const renewWhen = renewAt ? (
+		<Time date={renewAt} format="MMM d, yyyy" />
+	) : null;
 
-	const renewalHint = !renewAt
-		? "—"
-		: cancelled
-			? `Ends ${renewWhen}`
-			: `Renews ${renewWhen} (in ${formatDistanceToNowStrict(renewAt)})`;
+	const renewalHint = !renewAt ? (
+		"—"
+	) : cancelled ? (
+		<>Ends {renewWhen}</>
+	) : (
+		<>
+			Renews {renewWhen} (in {formatDistanceToNowStrict(renewAt)})
+		</>
+	);
 
 	// A scheduled tier change keeps the current tier active until renewal, then
 	// switches. Surface both the pending tier and the date it applies.
 	const pendingChangeNotice =
-		showPendingChange && pendingPlanData
-			? `Your plan ${pendingIsUpgrade ? "upgrades" : "switches"} to ${pendingPlanData.name}${
-					renewWhen ? ` on ${renewWhen}` : " at your next renewal"
-				}. You keep your current allowance until then.`
-			: null;
+		showPendingChange && pendingPlanData ? (
+			<>
+				Your plan {pendingIsUpgrade ? "upgrades" : "switches"} to{" "}
+				{pendingPlanData.name}
+				{renewWhen ? <> on {renewWhen}</> : " at your next renewal"}. You keep
+				your current allowance until then.
+			</>
+		) : null;
 
 	return (
 		<div className="space-y-10">
@@ -404,51 +415,54 @@ export default function BillingClient({
 						)}
 					</div>
 
-					{cancelled ? (
-						<Button
-							variant="outline"
-							size="sm"
-							onClick={handleResume}
-							disabled={isResuming}
-						>
-							{isResuming && (
-								<Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-							)}
-							Resume subscription
-						</Button>
-					) : (
-						<AlertDialog>
-							<AlertDialogTrigger asChild>
-								<Button
-									variant="ghost"
-									size="sm"
-									disabled={isCancelling}
-									className="text-muted-foreground"
-								>
-									{isCancelling && (
-										<Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-									)}
-									Cancel subscription
-								</Button>
-							</AlertDialogTrigger>
-							<AlertDialogContent>
-								<AlertDialogHeader>
-									<AlertDialogTitle>Cancel your Dev Plan?</AlertDialogTitle>
-									<AlertDialogDescription>
-										Your plan stays active until the end of the current billing
-										period. You won&apos;t be charged again, and you can resume
-										any time before then.
-									</AlertDialogDescription>
-								</AlertDialogHeader>
-								<AlertDialogFooter>
-									<AlertDialogCancel>Keep subscription</AlertDialogCancel>
-									<AlertDialogAction onClick={handleCancel}>
+					<div className="flex items-center gap-3">
+						<TimeZoneToggle />
+						{cancelled ? (
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={handleResume}
+								disabled={isResuming}
+							>
+								{isResuming && (
+									<Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+								)}
+								Resume subscription
+							</Button>
+						) : (
+							<AlertDialog>
+								<AlertDialogTrigger asChild>
+									<Button
+										variant="ghost"
+										size="sm"
+										disabled={isCancelling}
+										className="text-muted-foreground"
+									>
+										{isCancelling && (
+											<Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+										)}
 										Cancel subscription
-									</AlertDialogAction>
-								</AlertDialogFooter>
-							</AlertDialogContent>
-						</AlertDialog>
-					)}
+									</Button>
+								</AlertDialogTrigger>
+								<AlertDialogContent>
+									<AlertDialogHeader>
+										<AlertDialogTitle>Cancel your Dev Plan?</AlertDialogTitle>
+										<AlertDialogDescription>
+											Your plan stays active until the end of the current
+											billing period. You won&apos;t be charged again, and you
+											can resume any time before then.
+										</AlertDialogDescription>
+									</AlertDialogHeader>
+									<AlertDialogFooter>
+										<AlertDialogCancel>Keep subscription</AlertDialogCancel>
+										<AlertDialogAction onClick={handleCancel}>
+											Cancel subscription
+										</AlertDialogAction>
+									</AlertDialogFooter>
+								</AlertDialogContent>
+							</AlertDialog>
+						)}
+					</div>
 				</div>
 
 				{/* Clarify DevPass vs pay-as-you-go billing */}
