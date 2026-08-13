@@ -1296,6 +1296,9 @@ export const googleModels = [
 				providerId: "google-ai-studio",
 				externalId: "gemini-3.7-flash",
 				serviceTiers: ["flex", "priority"],
+				// Google charges half of these through 2026-12-31 as introductory
+				// pricing and reverts to them on 2027-01-01; the 3.6 Flash mapping
+				// carries the same post-promo rates
 				inputPrice: "1.5e-6",
 				outputPrice: "7.5e-6",
 				cachedInputPrice: "0.15e-6",
@@ -1326,6 +1329,8 @@ export const googleModels = [
 				// model on AI Studio
 				serviceTiers: ["priority"],
 				serviceTierRegions: ["global"],
+				// see the AI Studio mapping: these are the post-promo rates that
+				// take effect 2027-01-01
 				inputPrice: "1.5e-6",
 				outputPrice: "7.5e-6",
 				cachedInputPrice: "0.15e-6",
