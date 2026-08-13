@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { resolvePlatformCredential } from "@/chat/tools/resolve-platform-credential.js";
+
 import { redisClient, waitForSwrMirrorWrites } from "@llmgateway/cache";
 import {
 	cdb,
@@ -8,6 +10,7 @@ import {
 	findManagedProviderKeyById,
 	organization,
 	providerKey,
+	providerKeyAllowsModel,
 	type InferInsertModel,
 } from "@llmgateway/db";
 
@@ -17,9 +20,10 @@ import {
 	resetKeyHealth,
 } from "./api-key-health.js";
 import {
-	findManagedProviderIds,
+	findManagedProviderAvailability,
 	findManagedProviderKey,
 	findProviderKey,
+	hasManagedProviderCredential,
 } from "./cached-queries.js";
 
 const ORG_ID = "test-org-managed-keys";
@@ -135,6 +139,77 @@ describe("findManagedProviderKey", () => {
 		).toBeUndefined();
 	});
 
+	/**
+	 * Alibaba has no global region, so every credential is necessarily pinned to
+	 * one. A request that resolved no region is sent to the provider's default
+	 * region, so the credential pinned there is the one that serves it —
+	 * otherwise a fully credentialed fleet fails every region-less request.
+	 */
+	it("serves a region-less request from the default-region credential", async () => {
+		await insertManaged({
+			id: "alibaba-singapore",
+			provider: "alibaba",
+			region: "singapore",
+		});
+		await insertManaged({
+			id: "alibaba-frankfurt",
+			provider: "alibaba",
+			region: "eu-frankfurt",
+		});
+
+		expect((await findManagedProviderKey("alibaba"))?.id).toBe(
+			"alibaba-singapore",
+		);
+		expect(
+			(await findManagedProviderKey("alibaba", { region: "eu-frankfurt" }))?.id,
+		).toBe("alibaba-frankfurt");
+
+		const availability = await findManagedProviderAvailability();
+		expect(availability.defaultRegionUsable).toContain("alibaba");
+		// Still not region-agnostic: it covers the default region, nothing else.
+		expect(availability.usable).not.toContain("alibaba");
+	});
+
+	it("does not serve a region-less request from a non-default region", async () => {
+		await insertManaged({
+			id: "alibaba-beijing",
+			provider: "alibaba",
+			region: "cn-beijing",
+		});
+
+		expect(await findManagedProviderKey("alibaba")).toBeUndefined();
+		expect(
+			(await findManagedProviderAvailability()).defaultRegionUsable,
+		).not.toContain("alibaba");
+	});
+
+	/**
+	 * A provider whose credential works in every region (AWS Bedrock's IAM-global
+	 * keys) is the opposite case: a region on the credential is the operator
+	 * deliberately scoping it, so it is never substituted for a request that
+	 * asked for another region — or for none — even when that region is the
+	 * provider's own default.
+	 */
+	it("keeps a provider with a cross-region credential region-strict", async () => {
+		await insertManaged({
+			id: "bedrock-global-pinned",
+			provider: "aws-bedrock",
+			region: "global",
+		});
+
+		expect(await findManagedProviderKey("aws-bedrock")).toBeUndefined();
+		expect(
+			await findManagedProviderKey("aws-bedrock", { region: "eu-central-1" }),
+		).toBeUndefined();
+		expect(
+			(await findManagedProviderKey("aws-bedrock", { region: "global" }))?.id,
+		).toBe("bedrock-global-pinned");
+
+		const availability = await findManagedProviderAvailability();
+		expect(availability.usable).not.toContain("aws-bedrock");
+		expect(availability.defaultRegionUsable).not.toContain("aws-bedrock");
+	});
+
 	it("excludes credentials that already failed this request", async () => {
 		await insertManaged({ id: "first-key" });
 		await insertManaged({ id: "second-key" });
@@ -167,12 +242,13 @@ describe("findManagedProviderKey", () => {
 
 /**
  * Routing consults this to decide which providers can serve credits-mode
- * traffic. It must answer "does this org have a usable credential here?", not
- * merely "does any credential exist?": advertising a provider whose only
- * credential belongs to another audience makes routing pick it, find nothing,
- * and fall through to an env var that a migrated deployment no longer sets.
+ * traffic. `usable` must answer "does this org have a usable credential here?",
+ * not merely "does any credential exist?": advertising a provider whose only
+ * credential belongs to another audience makes routing pick it and then fail
+ * the request, since a provider with managed credentials has no env var left
+ * to fall back to.
  */
-describe("findManagedProviderIds", () => {
+describe("findManagedProviderAvailability", () => {
 	beforeEach(async () => {
 		resetKeyHealth();
 		await waitForSwrMirrorWrites();
@@ -188,40 +264,59 @@ describe("findManagedProviderIds", () => {
 	it("offers a default credential to every audience", async () => {
 		await insertManaged({ id: "default-key", variant: "default" });
 
-		expect(await findManagedProviderIds()).toContain("openai");
-		expect(await findManagedProviderIds("enterprise")).toContain("openai");
-		expect(await findManagedProviderIds("plans")).toContain("openai");
+		expect((await findManagedProviderAvailability()).usable).toContain(
+			"openai",
+		);
+		expect(
+			(await findManagedProviderAvailability("enterprise")).usable,
+		).toContain("openai");
+		expect((await findManagedProviderAvailability("plans")).usable).toContain(
+			"openai",
+		);
 	});
 
 	it("hides a variant-scoped credential from other audiences", async () => {
 		await insertManaged({ id: "enterprise-key", variant: "enterprise" });
 
-		expect(await findManagedProviderIds("enterprise")).toContain("openai");
+		expect(
+			(await findManagedProviderAvailability("enterprise")).usable,
+		).toContain("openai");
 		// A PAYG org (no variant) and a plans org cannot use it.
-		expect(await findManagedProviderIds()).not.toContain("openai");
-		expect(await findManagedProviderIds("plans")).not.toContain("openai");
+		expect((await findManagedProviderAvailability()).usable).not.toContain(
+			"openai",
+		);
+		expect(
+			(await findManagedProviderAvailability("plans")).usable,
+		).not.toContain("openai");
 	});
 
 	it("offers the provider once any audience-usable credential exists", async () => {
 		await insertManaged({ id: "enterprise-key", variant: "enterprise" });
 		await insertManaged({ id: "default-key", variant: "default" });
 
-		expect(await findManagedProviderIds()).toContain("openai");
-		expect(await findManagedProviderIds("enterprise")).toContain("openai");
+		expect((await findManagedProviderAvailability()).usable).toContain(
+			"openai",
+		);
+		expect(
+			(await findManagedProviderAvailability("enterprise")).usable,
+		).toContain("openai");
 	});
 
 	it("ignores inactive credentials", async () => {
 		await insertManaged({ id: "inactive-key", status: "inactive" });
 
-		expect(await findManagedProviderIds()).not.toContain("openai");
+		expect((await findManagedProviderAvailability()).usable).not.toContain(
+			"openai",
+		);
 	});
 
 	/**
 	 * Routing picks a provider before a region is known, so a provider whose
 	 * only credentials are region-pinned cannot be guaranteed a match. Offering
 	 * it anyway means findManagedProviderKey returns nothing and
-	 * resolvePlatformCredential falls through to getProviderEnv, which 500s
-	 * outside the provider-fallback loop.
+	 * resolvePlatformCredential 500s — it has no environment to fall back to
+	 * for a provider with managed credentials — outside the provider-fallback
+	 * loop, where nothing recovers.
 	 */
 	it("does not offer a provider whose only credential is region-pinned", async () => {
 		await insertManaged({
@@ -230,10 +325,35 @@ describe("findManagedProviderIds", () => {
 			region: "eu-central-1",
 		});
 
-		expect(await findManagedProviderIds()).not.toContain("aws-bedrock");
+		expect((await findManagedProviderAvailability()).usable).not.toContain(
+			"aws-bedrock",
+		);
 		// The credential is still unusable for a region-less request, which is
 		// precisely why the provider must not be advertised.
 		expect(await findManagedProviderKey("aws-bedrock")).toBeUndefined();
+	});
+
+	/**
+	 * `configured` is what takes the provider's `LLM_*` vars out of play, so it
+	 * must report the provider even when nothing it holds can serve the request
+	 * — otherwise routing would quietly fall back to the superseded env key.
+	 */
+	it("reports a provider as configured even when no credential can serve it", async () => {
+		await insertManaged({
+			id: "region-pinned-only",
+			provider: "aws-bedrock",
+			region: "eu-central-1",
+		});
+
+		const availability = await findManagedProviderAvailability();
+		expect(availability.configured).toContain("aws-bedrock");
+		expect(availability.usable).not.toContain("aws-bedrock");
+		expect(availability.pinnedRegions.get("aws-bedrock")).toEqual(
+			new Set(["eu-central-1"]),
+		);
+
+		expect(await hasManagedProviderCredential("aws-bedrock")).toBe(true);
+		expect(await hasManagedProviderCredential("openai")).toBe(false);
 	});
 
 	it("offers the provider once a region-agnostic credential exists", async () => {
@@ -244,7 +364,9 @@ describe("findManagedProviderIds", () => {
 		});
 		await insertManaged({ id: "bedrock-any-region", provider: "aws-bedrock" });
 
-		expect(await findManagedProviderIds()).toContain("aws-bedrock");
+		expect((await findManagedProviderAvailability()).usable).toContain(
+			"aws-bedrock",
+		);
 		expect((await findManagedProviderKey("aws-bedrock"))?.id).toBe(
 			"bedrock-any-region",
 		);
@@ -266,12 +388,194 @@ describe("findManagedProviderIds", () => {
 		});
 		await insertManaged({ id: "default-any-region", variant: "default" });
 
-		expect(await findManagedProviderIds("enterprise")).not.toContain("openai");
+		expect(
+			(await findManagedProviderAvailability("enterprise")).usable,
+		).not.toContain("openai");
 		expect(
 			await findManagedProviderKey("openai", { variant: "enterprise" }),
 		).toBeUndefined();
 		// A PAYG org is unaffected: it uses the default credential.
-		expect(await findManagedProviderIds()).toContain("openai");
+		expect((await findManagedProviderAvailability()).usable).toContain(
+			"openai",
+		);
+	});
+});
+
+/**
+ * A credential restricted via allowedModels can only serve the models it
+ * lists, so routing must not advertise its provider for other models and
+ * credential selection must skip it — otherwise auto-routing picks a provider
+ * whose key the upstream account cannot use and the request fails upstream.
+ */
+describe("allowedModels restriction", () => {
+	beforeEach(async () => {
+		resetKeyHealth();
+		await waitForSwrMirrorWrites();
+		await db.delete(providerKey);
+		await db.delete(organization);
+		await redisClient.flushdb();
+		await db.insert(organization).values({
+			id: ORG_ID,
+			name: "Managed Keys Org",
+			billingEmail: "managed-keys@example.com",
+			credits: "100",
+		});
+	});
+
+	afterEach(async () => {
+		await db.delete(providerKey);
+		await db.delete(organization);
+	});
+
+	it("does not advertise a provider for a model its only credential excludes", async () => {
+		await insertManaged({
+			id: "restricted-key",
+			allowedModels: ["gpt-5.2"],
+		});
+
+		expect(
+			(await findManagedProviderAvailability(undefined, "gpt-5.2")).usable,
+		).toContain("openai");
+		expect(
+			(await findManagedProviderAvailability(undefined, "some-other-model"))
+				.usable,
+		).not.toContain("openai");
+		// Callers that do not know the model yet keep the unfiltered answer.
+		expect((await findManagedProviderAvailability()).usable).toContain(
+			"openai",
+		);
+	});
+
+	it("treats an unrestricted credential as serving every model", async () => {
+		await insertManaged({ id: "unrestricted-key" });
+
+		expect(
+			(await findManagedProviderAvailability(undefined, "any-model")).usable,
+		).toContain("openai");
+	});
+
+	it("advertises the provider when any credential allows the model", async () => {
+		await insertManaged({
+			id: "restricted-key",
+			allowedModels: ["gpt-5.2"],
+		});
+		await insertManaged({ id: "unrestricted-key" });
+
+		expect(
+			(await findManagedProviderAvailability(undefined, "some-other-model"))
+				.usable,
+		).toContain("openai");
+	});
+
+	it("falls back to a default credential when the variant's keys exclude the model", async () => {
+		// Model filtering runs before variant narrowing (mirroring how
+		// findManagedProviderKey applies its filter), so an enterprise request
+		// whose enterprise credential lacks the model uses the shared default —
+		// same as when the enterprise variant has no credential at all.
+		await insertManaged({
+			id: "ent-restricted",
+			variant: "enterprise",
+			allowedModels: ["gpt-5.2"],
+		});
+		await insertManaged({ id: "default-unrestricted" });
+
+		expect(
+			(await findManagedProviderAvailability("enterprise", "some-other-model"))
+				.usable,
+		).toContain("openai");
+	});
+
+	it("selection skips a credential whose allowedModels exclude the model", async () => {
+		await insertManaged({
+			id: "restricted-key",
+			allowedModels: ["gpt-5.2"],
+		});
+		await insertManaged({ id: "fallback-key" });
+
+		const allowed = await resolvePlatformCredential("openai", {
+			selectionScope: "gpt-5.2",
+			model: "gpt-5.2",
+			variant: undefined,
+			region: undefined,
+			requiresServiceTier: false,
+		});
+		expect(allowed.managedKey?.id).toBe("restricted-key");
+
+		const excluded = await resolvePlatformCredential("openai", {
+			selectionScope: "some-other-model",
+			model: "some-other-model",
+			variant: undefined,
+			region: undefined,
+			requiresServiceTier: false,
+		});
+		expect(excluded.managedKey?.id).toBe("fallback-key");
+	});
+
+	it("fails rather than using the env key when every managed key excludes the model", async () => {
+		await insertManaged({
+			id: "restricted-key",
+			allowedModels: ["gpt-5.2"],
+		});
+
+		// Managed credentials replace the provider's env vars: with none
+		// selectable there is nothing left to serve the request, and quietly
+		// spending the superseded env key would be worse than failing.
+		const previousEnvKey = process.env.LLM_OPENAI_API_KEY;
+		process.env.LLM_OPENAI_API_KEY = "sk-from-env";
+		try {
+			await expect(
+				resolvePlatformCredential("openai", {
+					selectionScope: "some-other-model",
+					model: "some-other-model",
+					variant: undefined,
+					region: undefined,
+					requiresServiceTier: false,
+				}),
+			).rejects.toThrow(/No managed credential available for provider: openai/);
+		} finally {
+			if (previousEnvKey === undefined) {
+				delete process.env.LLM_OPENAI_API_KEY;
+			} else {
+				process.env.LLM_OPENAI_API_KEY = previousEnvKey;
+			}
+		}
+	});
+
+	it("BYOK lookups skip keys excluded by the caller's model filter", async () => {
+		await db.insert(providerKey).values({
+			id: "byok-restricted",
+			provider: "openai",
+			token: "sk-byok-restricted",
+			organizationId: ORG_ID,
+			allowedModels: ["gpt-5.2"],
+		});
+		await db.insert(providerKey).values({
+			id: "byok-open",
+			provider: "openai",
+			token: "sk-byok-open",
+			organizationId: ORG_ID,
+		});
+
+		// resolveProviderContext passes this exact filter shape.
+		expect(
+			(
+				await findProviderKey(
+					ORG_ID,
+					"openai",
+					"some-other-model",
+					undefined,
+					(key) =>
+						providerKeyAllowsModel(key.allowedModels, "some-other-model"),
+				)
+			)?.id,
+		).toBe("byok-open");
+		expect(
+			(
+				await findProviderKey(ORG_ID, "openai", "gpt-5.2", undefined, (key) =>
+					providerKeyAllowsModel(key.allowedModels, "gpt-5.2"),
+				)
+			)?.id,
+		).toBe("byok-restricted");
 	});
 });
 
@@ -298,7 +602,9 @@ describe("managed credential cache invalidation", () => {
 	it("sees a credential written through cdb without a cache flush", async () => {
 		// Prime the cache with the empty answer.
 		expect(await findManagedProviderKey("openai")).toBeUndefined();
-		expect(await findManagedProviderIds()).not.toContain("openai");
+		expect((await findManagedProviderAvailability()).usable).not.toContain(
+			"openai",
+		);
 
 		await cdb.insert(providerKey).values({
 			id: "cdb-written-key",
@@ -312,7 +618,9 @@ describe("managed credential cache invalidation", () => {
 		expect((await findManagedProviderKey("openai"))?.id).toBe(
 			"cdb-written-key",
 		);
-		expect(await findManagedProviderIds()).toContain("openai");
+		expect((await findManagedProviderAvailability()).usable).toContain(
+			"openai",
+		);
 		expect((await findManagedProviderKeyById("cdb-written-key"))?.token).toBe(
 			"sk-written-through-cdb",
 		);
@@ -336,7 +644,9 @@ describe("managed credential cache invalidation", () => {
 		await waitForSwrMirrorWrites();
 
 		expect(await findManagedProviderKey("openai")).toBeUndefined();
-		expect(await findManagedProviderIds()).not.toContain("openai");
+		expect((await findManagedProviderAvailability()).usable).not.toContain(
+			"openai",
+		);
 	});
 });
 

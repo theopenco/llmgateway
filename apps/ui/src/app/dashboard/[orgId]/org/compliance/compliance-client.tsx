@@ -10,7 +10,6 @@ import { useCustomProviderSelection } from "@/hooks/useCustomProviders";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useTeamMembers } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
-import { failureLabel } from "@/lib/compliance-failure-labels";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
@@ -44,6 +43,7 @@ import {
 	type ProviderDefinition,
 	type ProviderId,
 } from "@llmgateway/models";
+import { failureLabel } from "@llmgateway/shared";
 import {
 	MultiModelSelector,
 	MultiProviderSelector,

@@ -206,6 +206,10 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.project.id,
 			to: r.routingConfig.projectId,
 		}),
+		dynamicRoutes: r.many.dynamicRoute({
+			from: r.project.id,
+			to: r.dynamicRoute.projectId,
+		}),
 		endCustomers: r.many.endCustomer({
 			from: r.project.id,
 			to: r.endCustomer.projectId,
@@ -331,6 +335,26 @@ export const relations = defineRelations(schema, (r) => ({
 		project: r.one.project({
 			from: r.routingConfig.projectId,
 			to: r.project.id,
+		}),
+	},
+	dynamicRoute: {
+		project: r.one.project({
+			from: r.dynamicRoute.projectId,
+			to: r.project.id,
+		}),
+		versions: r.many.dynamicRouteVersion({
+			from: r.dynamicRoute.id,
+			to: r.dynamicRouteVersion.routeId,
+		}),
+		publishedVersion: r.one.dynamicRouteVersion({
+			from: r.dynamicRoute.publishedVersionId,
+			to: r.dynamicRouteVersion.id,
+		}),
+	},
+	dynamicRouteVersion: {
+		route: r.one.dynamicRoute({
+			from: r.dynamicRouteVersion.routeId,
+			to: r.dynamicRoute.id,
 		}),
 	},
 	apiKey: {

@@ -147,4 +147,4 @@ Portkey is an excellent AI gateway with a strong LLMOps layer on top — especia
 
 If you're evaluating a **Portkey alternative** because you'd rather have a single, fully open platform than a gateway-plus-suite, LLM Gateway is built for exactly that.
 
-**[Try LLM Gateway free](/signup)** | **[Compare all features](/compare/portkey)** | **[See how we compare to LiteLLM](/blog/llm-gateway-vs-litellm)** | **[The 8 best AI gateways in 2026](/blog/best-ai-gateways)**
+**[Try LLM Gateway free](/signup)** | **[Compare all features](/compare/portkey)** | **[The 8 best Portkey alternatives](/blog/portkey-alternatives)** | **[The 8 best AI gateways in 2026](/blog/best-ai-gateways)**

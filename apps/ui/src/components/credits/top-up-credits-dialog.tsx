@@ -8,7 +8,14 @@ import {
 } from "@stripe/react-stripe-js";
 import { keepPreviousData, useQueryClient } from "@tanstack/react-query";
 import confetti from "canvas-confetti";
-import { ChevronDown, CreditCard, Lock, Plus } from "lucide-react";
+import {
+	ChevronDown,
+	Coins,
+	CreditCard,
+	Lock,
+	Pencil,
+	Plus,
+} from "lucide-react";
 import Link from "next/link";
 import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
@@ -296,12 +303,20 @@ function AmountStep({
 			<div className="space-y-5 py-2">
 				{/* Hero amount input */}
 				<div className="flex flex-col items-center gap-1.5 pt-1">
-					<Label htmlFor="amount" className="sr-only">
-						Amount in USD
+					<Label
+						htmlFor="amount"
+						className="text-xs font-medium uppercase tracking-wider text-muted-foreground"
+					>
+						Enter amount
 					</Label>
 					<label
 						htmlFor="amount"
-						className="flex cursor-text items-baseline justify-center"
+						className={cn(
+							"flex w-full max-w-[280px] cursor-text items-center justify-center gap-1 rounded-xl border-2 bg-background px-4 py-2 transition-colors focus-within:border-primary focus-within:ring-4 focus-within:ring-ring/20",
+							amountValidationMessage
+								? "border-destructive focus-within:border-destructive focus-within:ring-destructive/20"
+								: "border-input hover:border-muted-foreground/50",
+						)}
 					>
 						<span className="text-3xl font-light text-muted-foreground">$</span>
 						<input
@@ -311,23 +326,37 @@ function AmountStep({
 							pattern="[0-9]*"
 							autoComplete="off"
 							maxLength={4}
+							placeholder="0"
 							value={amount || ""}
+							onFocus={(e) => e.target.select()}
 							onChange={(e) => {
 								const digits = e.target.value
 									.replace(/[^0-9]/g, "")
 									.slice(0, 4);
 								setAmount(digits === "" ? 0 : Number(digits));
 							}}
-							className="ml-1 w-[4ch] border-0 bg-transparent p-0 text-left text-5xl font-bold tabular-nums tracking-tight caret-primary focus:outline-none focus:ring-0"
+							className="w-[4ch] border-0 bg-transparent p-0 text-center text-5xl font-bold tabular-nums tracking-tight caret-primary placeholder:text-muted-foreground/40 focus:outline-none focus:ring-0"
 							aria-invalid={Boolean(amountValidationMessage)}
+							aria-describedby="amount-hint"
 							required
 						/>
+						<Pencil
+							className="h-4 w-4 shrink-0 text-muted-foreground"
+							aria-hidden="true"
+						/>
 					</label>
-					{amountValidationMessage ? (
-						<p className="text-xs text-destructive">
-							{amountValidationMessage}
-						</p>
-					) : null}
+					<p
+						id="amount-hint"
+						className={cn(
+							"text-xs",
+							amountValidationMessage
+								? "text-destructive"
+								: "text-muted-foreground",
+						)}
+					>
+						{amountValidationMessage ??
+							`Type any amount from $${CREDIT_TOP_UP_MIN_AMOUNT} to $${CREDIT_TOP_UP_MAX_AMOUNT.toLocaleString("en-US")}`}
+					</p>
 				</div>
 
 				{/* Preset grid */}
@@ -490,7 +519,7 @@ function AmountStep({
 					type="button"
 					onClick={handleStripeCheckout}
 					disabled={isActionDisabled}
-					aria-label="Pay with Apple Pay, Google Pay, or another method"
+					aria-label="Pay with Apple Pay, Google Pay, crypto, or another method"
 					className="flex w-full items-center justify-center gap-2.5 rounded-lg border px-4 py-2.5 transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
 				>
 					{checkoutLoading ? (
@@ -502,6 +531,7 @@ function AmountStep({
 						<>
 							<ApplePayMark />
 							<GooglePayMark />
+							<CryptoMark />
 							<span className="text-xs text-muted-foreground">&amp; more</span>
 						</>
 					)}
@@ -1263,6 +1293,15 @@ function GooglePayMark() {
 				/>
 			</svg>
 			<span className="text-xs font-semibold text-[#5f6368]">Pay</span>
+		</span>
+	);
+}
+
+function CryptoMark() {
+	return (
+		<span className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-1">
+			<Coins className="h-3.5 w-3.5 text-amber-500" aria-hidden="true" />
+			<span className="text-xs font-semibold">Crypto</span>
 		</span>
 	);
 }

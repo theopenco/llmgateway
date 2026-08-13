@@ -306,6 +306,50 @@ async function recordAutoTopUpFailure(org: {
 		.where(eq(tables.organization.id, org.id));
 }
 
+// DevPass orgs have no payment_method table rows; their card lives on the
+// Stripe subscription (or the customer default). Mirrors the resolution in
+// the /dev-plans/topup route so auto-reload charges the same card.
+async function resolveDevPassStripePaymentMethodId(org: {
+	id: string;
+	devPlanStripeSubscriptionId: string | null;
+	stripeCustomerId: string | null;
+}): Promise<string | null> {
+	if (org.devPlanStripeSubscriptionId) {
+		try {
+			const subscription = await getStripe().subscriptions.retrieve(
+				org.devPlanStripeSubscriptionId,
+			);
+			const pm = subscription.default_payment_method;
+			const id = typeof pm === "string" ? pm : (pm?.id ?? null);
+			if (id) {
+				return id;
+			}
+		} catch (err) {
+			logger.warn(
+				`Could not read DevPass subscription payment method for organization ${org.id}`,
+				{ error: err instanceof Error ? err.message : String(err) },
+			);
+		}
+	}
+	if (org.stripeCustomerId) {
+		try {
+			const customer = await getStripe().customers.retrieve(
+				org.stripeCustomerId,
+			);
+			if (!customer.deleted) {
+				const pm = customer.invoice_settings?.default_payment_method;
+				return typeof pm === "string" ? pm : (pm?.id ?? null);
+			}
+		} catch (err) {
+			logger.warn(
+				`Could not read DevPass customer payment method for organization ${org.id}`,
+				{ error: err instanceof Error ? err.message : String(err) },
+			);
+		}
+	}
+	return null;
+}
+
 export async function processAutoTopUp(): Promise<void> {
 	const lockAcquired = await acquireLock(AUTO_TOPUP_LOCK_KEY);
 	if (!lockAcquired) {
@@ -323,6 +367,12 @@ export async function processAutoTopUp(): Promise<void> {
 
 		// Filter organizations that need top-up based on credits vs threshold
 		const filteredOrgs = orgsNeedingTopUp.filter((org) => {
+			// DevPass orgs can only spend credits with the pay-as-you-go
+			// overflow opt-in; without it auto-reload would buy credits the
+			// org cannot use.
+			if (org.kind === "devpass" && !org.devPlanPaygEnabled) {
+				return false;
+			}
 			const credits = Number(org.credits || 0);
 			const threshold = Number(org.autoTopUpThreshold ?? 10);
 			return credits < threshold;
@@ -465,7 +515,17 @@ export async function processAutoTopUp(): Promise<void> {
 					},
 				});
 
-				if (!defaultPaymentMethod) {
+				// DevPass orgs keep their card as the Stripe subscription/customer
+				// default rather than in the payment_method table, so fall back to
+				// it — the same card the manual /dev-plans/topup route charges.
+				let stripePaymentMethodId =
+					defaultPaymentMethod?.stripePaymentMethodId ?? null;
+				if (!stripePaymentMethodId && org.kind === "devpass") {
+					stripePaymentMethodId =
+						await resolveDevPassStripePaymentMethodId(org);
+				}
+
+				if (!stripePaymentMethodId) {
 					logger.info(
 						`No default payment method for organization ${org.id}, skipping auto top-up`,
 					);
@@ -496,7 +556,7 @@ export async function processAutoTopUp(): Promise<void> {
 				let isInternational = false;
 				try {
 					const stripePaymentMethod = await getStripe().paymentMethods.retrieve(
-						defaultPaymentMethod.stripePaymentMethodId,
+						stripePaymentMethodId,
 					);
 
 					const paymentMethodCustomer =
@@ -510,7 +570,7 @@ export async function processAutoTopUp(): Promise<void> {
 					// the failure for backoff/auto-disable instead of charging.
 					if (paymentMethodCustomer !== org.stripeCustomerId) {
 						logger.error(
-							`Default payment method ${defaultPaymentMethod.stripePaymentMethodId} for organization ${org.id} is attached to Stripe customer ${paymentMethodCustomer}, but the organization's Stripe customer is ${org.stripeCustomerId}; skipping auto top-up`,
+							`Default payment method ${stripePaymentMethodId} for organization ${org.id} is attached to Stripe customer ${paymentMethodCustomer}, but the organization's Stripe customer is ${org.stripeCustomerId}; skipping auto top-up`,
 						);
 						await recordAutoTopUpFailure(org);
 						continue;
@@ -520,7 +580,7 @@ export async function processAutoTopUp(): Promise<void> {
 					isInternational = Boolean(country) && country !== "US";
 				} catch (err) {
 					logger.error(
-						`Failed to retrieve payment method ${defaultPaymentMethod.stripePaymentMethodId} for organization ${org.id}; skipping auto top-up cycle to avoid undercharging international cards`,
+						`Failed to retrieve payment method ${stripePaymentMethodId} for organization ${org.id}; skipping auto top-up cycle to avoid undercharging international cards`,
 						err as Error,
 					);
 					continue;
@@ -530,6 +590,34 @@ export async function processAutoTopUp(): Promise<void> {
 					amount: topUpAmount,
 					isInternational,
 				});
+
+				// The org row was read once at the start of the pass, and the
+				// payment-method resolution above makes network calls — the user
+				// may have switched auto-reload (or DevPass PAYG overflow) off in
+				// the meantime. Re-read and re-authorize immediately before money
+				// moves: a charge that loses this check stops before the pending
+				// transaction and PaymentIntent are ever created. The residual
+				// window is the Stripe call itself, which a settings write cannot
+				// revoke.
+				const freshOrg = await db.query.organization.findFirst({
+					where: {
+						id: {
+							eq: org.id,
+						},
+					},
+				});
+				if (
+					!freshOrg ||
+					!freshOrg.autoTopUpEnabled ||
+					(freshOrg.kind === "devpass" && !freshOrg.devPlanPaygEnabled) ||
+					Number(freshOrg.credits || 0) >=
+						Number(freshOrg.autoTopUpThreshold ?? 10)
+				) {
+					logger.info(
+						`Skipping auto top-up for organization ${org.id}: settings changed mid-pass`,
+					);
+					continue;
+				}
 
 				// Insert pending transaction before creating payment intent
 				const pendingTransaction = await db
@@ -555,17 +643,19 @@ export async function processAutoTopUp(): Promise<void> {
 						amount: Math.round(feeBreakdown.totalAmount * 100),
 						currency: "usd",
 						description: `Auto top-up for ${topUpAmount} USD (total: ${feeBreakdown.totalAmount} including fees)`,
-						payment_method: defaultPaymentMethod.stripePaymentMethodId,
+						payment_method: stripePaymentMethodId,
 						customer: org.stripeCustomerId!,
 						confirm: true,
 						off_session: true,
 						metadata: {
 							organizationId: org.id,
+							type: "credit_topup",
 							autoTopUp: "true",
 							transactionId: pendingTransaction.id,
 							baseAmount: feeBreakdown.baseAmount.toString(),
 							platformFee: feeBreakdown.platformFee.toString(),
 							internationalFee: feeBreakdown.internationalFee.toString(),
+							totalAmount: feeBreakdown.totalAmount.toString(),
 							isInternational: isInternational.toString(),
 							...(orgUser?.user?.email && { userEmail: orgUser.user.email }),
 						},
@@ -1057,6 +1147,36 @@ export async function batchProcessLogs(): Promise<number> {
 					);
 				}
 
+				const sourceBucket = isChatSource(row.source) ? "chat" : "other";
+
+				const addToBucket = (amount: Decimal, premium: boolean) => {
+					const existing = orgCosts.get(row.organization_id) ?? {
+						chat: new Decimal(0),
+						other: new Decimal(0),
+						chatPremium: new Decimal(0),
+						otherPremium: new Decimal(0),
+					};
+					existing[sourceBucket] = existing[sourceBucket].plus(amount);
+					if (premium) {
+						const premiumBucket =
+							sourceBucket === "chat" ? "chatPremium" : "otherPremium";
+						existing[premiumBucket] = existing[premiumBucket].plus(amount);
+					}
+					orgCosts.set(row.organization_id, existing);
+				};
+
+				// Data retention storage is billed separately from inference (log.cost
+				// never includes it), so it is deducted from org credits for every
+				// mode: credits, api-keys (BYOK) and wallet-backed end-user traffic
+				// alike — and also when inference itself was free or zeroed (e.g.
+				// unbilled refusals keep their storage cost).
+				if (row.data_storage_cost) {
+					const storageCost = new Decimal(row.data_storage_cost);
+					if (storageCost.greaterThan(0)) {
+						addToBucket(storageCost, false);
+					}
+				}
+
 				// Prefer the exact decimal billingCost (realtime and other
 				// decimal-billed rows) over the legacy float cost column.
 				const effectiveCost =
@@ -1099,39 +1219,14 @@ export async function batchProcessLogs(): Promise<number> {
 						continue;
 					}
 
-					const sourceBucket = isChatSource(row.source) ? "chat" : "other";
-
-					const addToBucket = (amount: Decimal, premium: boolean) => {
-						const existing = orgCosts.get(row.organization_id) ?? {
-							chat: new Decimal(0),
-							other: new Decimal(0),
-							chatPremium: new Decimal(0),
-							otherPremium: new Decimal(0),
-						};
-						existing[sourceBucket] = existing[sourceBucket].plus(amount);
-						if (premium) {
-							const premiumBucket =
-								sourceBucket === "chat" ? "chatPremium" : "otherPremium";
-							existing[premiumBucket] = existing[premiumBucket].plus(amount);
-						}
-						orgCosts.set(row.organization_id, existing);
-					};
-
-					// Deduct organization credits based on mode:
-					// - Credits mode: deduct full cost (includes request cost + storage cost)
-					// - API keys mode: only deduct storage cost (data retention billing)
+					// Inference cost: credits mode deducts the full cost from org
+					// credits; api-keys mode pays the provider directly (BYOK), so
+					// only the storage cost above is billed.
 					if (row.used_mode === "credits") {
 						addToBucket(
 							apiKeyCost,
 							Boolean(row.used_model && isPremiumUsedModel(row.used_model)),
 						);
-					} else if (row.used_mode === "api-keys") {
-						if (row.data_storage_cost) {
-							const storageCost = new Decimal(row.data_storage_cost);
-							if (storageCost.greaterThan(0)) {
-								addToBucket(storageCost, false);
-							}
-						}
 					}
 				}
 
@@ -1267,7 +1362,7 @@ export async function batchProcessLogs(): Promise<number> {
 					premiumCost: Decimal,
 					preferred: PlanPool | null,
 					fallback: PlanPool | null,
-				): Promise<Decimal> => {
+				): Promise<{ remaining: Decimal; remainingPremium: Decimal }> => {
 					let remaining = bucketCost;
 					let remainingPremium = premiumCost;
 					for (const pool of [preferred, fallback]) {
@@ -1286,30 +1381,54 @@ export async function batchProcessLogs(): Promise<number> {
 						remaining = remaining.minus(take);
 						remainingPremium = remainingPremium.minus(premiumTake);
 					}
-					return remaining;
+					return { remaining, remainingPremium };
 				};
 
-				const remainingFromChat = buckets.chat.greaterThan(0)
+				const fromChat = buckets.chat.greaterThan(0)
 					? await drainBucket(
 							buckets.chat,
 							buckets.chatPremium,
 							chatPool,
 							devPool,
 						)
-					: new Decimal(0);
+					: { remaining: new Decimal(0), remainingPremium: new Decimal(0) };
 
-				const remainingFromOther = buckets.other.greaterThan(0)
+				const fromOther = buckets.other.greaterThan(0)
 					? await drainBucket(
 							buckets.other,
 							buckets.otherPremium,
 							devPool,
 							chatPool,
 						)
-					: new Decimal(0);
+					: { remaining: new Decimal(0), remainingPremium: new Decimal(0) };
 
-				const remainingCost = remainingFromChat.plus(remainingFromOther);
+				const remainingCost = fromChat.remaining.plus(fromOther.remaining);
 
-				if (remainingCost.greaterThan(0)) {
+				// A dev-plan org that has not opted into pay-as-you-go overflow
+				// cannot spend its `credits` balance: getAvailableCredits zeroes
+				// that pool, so the gateway rejects the request rather than
+				// billing it. Draining `credits` here would therefore charge a
+				// balance the org was never allowed to use — silently eating an
+				// admin gift, or pushing an empty balance negative so a later
+				// top-up first pays off phantom debt. The overshoot exists
+				// because requests admitted while the pool still had room can
+				// collectively cost more than was left, so keep it on the plan
+				// pool: usage stays accounted for and the allowance stays the
+				// hard cap the plan promises.
+				const plannedOverflowOnly =
+					org && org.devPlan !== "none" && !org.devPlanPaygEnabled;
+
+				if (remainingCost.greaterThan(0) && plannedOverflowOnly && devPool) {
+					await deductFromPlanPool(
+						orgId,
+						devPool,
+						remainingCost,
+						fromChat.remainingPremium.plus(fromOther.remainingPremium),
+					);
+					logger.debug(
+						`Kept ${remainingCost.toString()} on the dev plan pool for organization ${orgId} (pay-as-you-go overflow disabled)`,
+					);
+				} else if (remainingCost.greaterThan(0)) {
 					const costStr = remainingCost.toString();
 					await tx
 						.update(organization)

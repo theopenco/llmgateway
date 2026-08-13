@@ -10,6 +10,7 @@ import {
 	db,
 	effectiveTtftTotals,
 	eq,
+	excludeRegionalMappingRows,
 	gte,
 	isNull,
 	modelProviderMappingHistory,
@@ -107,6 +108,7 @@ const modelProviderMappingSchema = z.object({
 	supportsVideoAudio: z.boolean().nullable(),
 	supportsVideoWithoutAudio: z.boolean().nullable(),
 	perSecondPrice: z.record(z.string()).nullable(),
+	perImagePrice: z.record(z.string()).nullable(),
 	pricingTiers: z.array(pricingTierSchema).nullable(),
 	serviceTiers: z.array(z.string()).nullable(),
 	deprecatedAt: z.coerce.date().nullable(),
@@ -296,6 +298,13 @@ internalModels.openapi(getModelsRoute, async (c) => {
 				perSecondPrice: sharedMapping?.perSecondPrice
 					? Object.fromEntries(
 							Object.entries(sharedMapping.perSecondPrice).map(
+								([key, price]) => [key, price.toString()],
+							),
+						)
+					: null,
+				perImagePrice: sharedMapping?.perImagePrice
+					? Object.fromEntries(
+							Object.entries(sharedMapping.perImagePrice).map(
 								([key, price]) => [key, price.toString()],
 							),
 						)
@@ -506,6 +515,9 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 			and(
 				eq(modelProviderMappingHistory.modelId, modelId),
 				gte(modelProviderMappingHistory.minuteTimestamp, since),
+				// Per-provider totals: the region-less root row already includes the
+				// provider's regional traffic.
+				excludeRegionalMappingRows(modelProviderMappingHistory),
 			),
 		)
 		.groupBy(modelProviderMappingHistory.providerId, tables.provider.name);
@@ -729,6 +741,7 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 				and(
 					eq(modelProviderMappingHistory.modelId, modelId),
 					gte(modelProviderMappingHistory.minuteTimestamp, since),
+					excludeRegionalMappingRows(modelProviderMappingHistory),
 				),
 			)
 			.groupBy(

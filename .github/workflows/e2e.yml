@@ -82,7 +82,7 @@ jobs:
           echo "nodejs_version=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
           echo "pnpm_version=$(cat .tool-versions | grep 'pnpm' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
 
-      - uses: pnpm/action-setup@v6.0.9
+      - uses: pnpm/action-setup@v6.0.10
         with:
           version: ${{ env.pnpm_version }}
 
@@ -144,6 +144,7 @@ jobs:
           LLM_META_API_KEY: ${{ secrets.LLM_META_API_KEY }}
           LLM_GONKA_24_API_KEY: ${{ secrets.LLM_GONKA_24_API_KEY }}
           LLM_FIREWORKS_API_KEY: ${{ secrets.LLM_FIREWORKS_API_KEY }}
+          LLM_RANOAI_API_KEY: ${{ secrets.LLM_RANOAI_API_KEY }}
 
       - name: Upload shard results
         if: always()
@@ -170,7 +171,7 @@ jobs:
           echo "nodejs_version=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
           echo "pnpm_version=$(cat .tool-versions | grep 'pnpm' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
 
-      - uses: pnpm/action-setup@v6.0.9
+      - uses: pnpm/action-setup@v6.0.10
         with:
           version: ${{ env.pnpm_version }}
 

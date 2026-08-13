@@ -15,6 +15,7 @@ import {
 	installUpstreamDispatcher,
 } from "./lib/upstream-dispatcher.js";
 import { metricsApp } from "./metrics-app.js";
+import { posthog } from "./posthog.js";
 import { attachRealtimeServer } from "./realtime/server.js";
 
 import type { RealtimeServer } from "./realtime/server.js";
@@ -22,7 +23,10 @@ import type { ServerType } from "@hono/node-server";
 import type { NodeSDK } from "@opentelemetry/sdk-node";
 import type { Server } from "node:http";
 
-const port = Number(process.env.PORT) || 4001;
+// GATEWAY_PORT wins over PORT so a local worktree can pin gateway and api to
+// different ports from one shared shell env (both services read PORT).
+// Deployments only ever set PORT, so they are unaffected.
+const port = Number(process.env.GATEWAY_PORT || process.env.PORT) || 4001;
 
 // The Prometheus metrics endpoint is served on a separate port so it can be
 // exposed only internally (via the cluster network / Service) and never through
@@ -201,6 +205,17 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 
 		logger.info("Closing upstream dispatcher");
 		await closeUpstreamDispatcher();
+
+		// Flush batched analytics before the process winds down — posthog-node
+		// buffers events (~10s), and a redeploy would otherwise drop the tail.
+		// Guarded: a telemetry flush failure must not abort the shutdown.
+		try {
+			await posthog.shutdown();
+		} catch (error) {
+			logger.warn("PostHog flush failed during shutdown", {
+				error: String(error),
+			});
+		}
 
 		logger.info("Closing database connection");
 		await closeDatabase();

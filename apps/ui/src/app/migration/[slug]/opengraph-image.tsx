@@ -1,12 +1,22 @@
 import { ImageResponse } from "next/og";
 
-import type { Migration } from "content-collections";
+import { allMigrations } from "content-collections";
 
 export const size = {
 	width: 1200,
 	height: 630,
 };
 export const contentType = "image/png";
+
+// Prerendered at build time: rendering these cards on demand runs satori inside
+// the request, which the production pods do not have the headroom for and which
+// took the whole route down with a 503. dynamicParams keeps unknown slugs from
+// reaching the renderer at runtime at all.
+export const dynamicParams = false;
+
+export function generateStaticParams() {
+	return allMigrations.map((migration) => ({ slug: migration.slug }));
+}
 
 // OpenRouter Icon
 const OpenRouterIcon = () => (
@@ -162,12 +172,9 @@ export default async function MigrationOgImage({
 }: {
 	params: Promise<{ slug: string }>;
 }) {
-	const { allMigrations } = await import("content-collections");
 	const { slug } = await params;
 
-	const migration = allMigrations.find(
-		(migration: Migration) => migration.slug === slug,
-	);
+	const migration = allMigrations.find((migration) => migration.slug === slug);
 
 	if (!migration) {
 		return new ImageResponse(

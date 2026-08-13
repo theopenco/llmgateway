@@ -47,6 +47,7 @@ const TYPE_LABELS: Partial<Record<Transaction["type"], string>> = {
 	credit_topup: "Credit top-up",
 	credit_refund: "Credit refund",
 	credit_gift: "Credit gift",
+	credit_manual_payment: "Credits added",
 	end_user_topup: "Credit top-up",
 	end_user_refund: "Credit refund",
 };

@@ -300,7 +300,11 @@ export const moonshotModels = [
 				externalId: "kimi-k2.5",
 				inputPrice: "0.574e-6",
 				outputPrice: "3.011e-6",
-				regions: [{ id: "cn-beijing" }],
+				regions: [
+					{ id: "eu-frankfurt" },
+					{ id: "us-virginia" },
+					{ id: "cn-beijing" },
+				],
 				requestPrice: "0",
 				contextSize: 262144,
 				maxOutput: 98304,
@@ -484,6 +488,12 @@ export const moonshotModels = [
 				vision: true,
 				tools: false,
 				jsonOutput: false,
+				// Together AI removes this model from its serverless API on
+				// 2026-08-19 and warns that capacity may already be reduced before
+				// then, so stop selecting it now and fail requests after the cutoff.
+				// Their recommended replacement, Kimi K3, is already mapped.
+				deprecatedAt: new Date("2026-08-07"),
+				deactivatedAt: new Date("2026-08-19"),
 			},
 			{
 				providerId: "gonka24",

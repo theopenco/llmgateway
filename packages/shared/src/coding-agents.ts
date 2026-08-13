@@ -119,7 +119,16 @@ export const CODING_AGENTS: CodingAgentDefinition[] = [
 		id: "github-copilot",
 		label: "GitHub Copilot",
 		xSourceValues: ["github-copilot", "copilot"],
-		userAgentPatterns: [/^github-copilot\//i, /\bcopilot\b/i],
+		// Copilot's BYOK/OpenAI-compatible requests send no x-source; they
+		// identify only via camel-cased User-Agents ("GitHubCopilotChat/0.26.7",
+		// "GithubCopilot/1.155.0", Copilot CLI) that `\bcopilot\b` alone misses
+		// because there is no word boundary inside "GitHubCopilotChat".
+		userAgentPatterns: [
+			/^github-copilot\//i,
+			/^githubcopilot/i,
+			/copilot[-_]?cli/i,
+			/\bcopilot\b/i,
+		],
 	},
 	{
 		id: "pi-agent",

@@ -17,7 +17,25 @@ const faqItems: { question: string; answer: ReactNode }[] = [
 	{
 		question: "Which coding agents work with DevPass?",
 		answer:
-			"Anything that speaks the OpenAI or Anthropic API — DevPass Code, Claude Code, OpenCode, Empryo, SoulForge, Cursor, Cline, Continue, Aider, the OpenAI and Anthropic SDKs, and more. Set two environment variables and you're in.",
+			"Anything that speaks the OpenAI or Anthropic API — DevPass Code, Claude Code, OpenCode, GitHub Copilot, Empryo, SoulForge, Cursor, Cline, Continue, Aider, the OpenAI and Anthropic SDKs, and more. Set two environment variables and you're in.",
+	},
+	{
+		question: "Can I pick which provider serves my requests?",
+		answer: (
+			<>
+				No — DevPass always smart-routes. You request a model by its plain id
+				(e.g. <code className="font-mono text-sm">claude-sonnet-5</code>) and
+				the gateway picks the best provider in real time based on uptime, speed,
+				price, and prompt caching. Provider-prefixed ids like{" "}
+				<code className="font-mono text-sm">openai/gpt-4o</code> aren&apos;t
+				available on DevPass. If you need to pin an exact provider or region,
+				use{" "}
+				<Link href="https://llmgateway.io" className="underline">
+					LLM Gateway&apos;s pay-as-you-go API
+				</Link>{" "}
+				instead.
+			</>
+		),
 	},
 	{
 		question: "What models are included?",

@@ -4,6 +4,7 @@ import { estimateTokensFromContent } from "@/chat/tools/estimate-tokens-from-con
 import { encodeChatMessages } from "@/chat/tools/tokenizer.js";
 
 import { getEffectiveDiscount } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 import {
 	type ModelDefinition,
 	type ProviderModelMapping,
@@ -107,6 +108,30 @@ export function zeroInferenceCosts(costs: MutableInferenceCosts): void {
 	costs.imageOutputCost = 0;
 	costs.audioInputCost = 0;
 	costs.totalCost = 0;
+}
+
+/**
+ * True when a request that ended in a failure is still billed for the inference
+ * it consumed.
+ *
+ * A request the gateway records as its own or the provider's fault
+ * (`upstream_error`, `gateway_error`, an upstream read fault, a timeout, or a
+ * stream that died before any terminal event) hands the caller an error, so
+ * charging for whatever tokens the provider happened to emit would bill the
+ * caller for a failure that is not theirs. Two failure classes stay billable:
+ *
+ * - `client_error` — the caller's own malformed request still consumed upstream
+ *   inference, so it must not become a free-inference path.
+ * - `content_filter` — a safety block is a served response and is billed on
+ *   purpose.
+ *
+ * Cancellations are a separate axis and keep billing by default — see
+ * {@link shouldBillCancelledRequests}.
+ */
+export function isBilledFailureFinishReason(
+	finishReason: string | null | undefined,
+): boolean {
+	return finishReason === "client_error" || finishReason === "content_filter";
 }
 
 /**
@@ -259,6 +284,18 @@ export async function calculateCosts(
 		 * entry (which remain unbilled).
 		 */
 		customPricing?: ProviderModelMapping;
+		/**
+		 * Whether an output-token count may be *estimated* from the response text
+		 * when the provider reported no completion count of its own.
+		 *
+		 * Pass `false` whenever the response did not complete. A truncated stream
+		 * never delivers a usage frame, so the only material left to estimate from
+		 * is whatever partial text and tool-call JSON happened to accumulate —
+		 * which is a guess about output we never saw the end of, not a measurement.
+		 * Billing that guess is how a request logged with 0 completion tokens ended
+		 * up charged for 1.17M of them.
+		 */
+		allowOutputEstimate?: boolean;
 	},
 	contentFilterTriggered = false,
 ) {
@@ -269,6 +306,7 @@ export async function calculateCosts(
 	const explicitCacheUsed = options?.explicitCacheUsed ?? false;
 	const servedServiceTier = options?.servedServiceTier ?? null;
 	const customPricing = options?.customPricing;
+	const allowOutputEstimate = options?.allowOutputEstimate ?? true;
 
 	// Look up the model definition by the canonical root id only.
 	// externalId-based lookups are intentionally not supported here — the
@@ -316,25 +354,30 @@ export async function calculateCosts(
 	let calculatedCompletionTokens = completionTokens;
 	// Track if we're using estimated tokens
 	let isEstimated = false;
+	// Narrower than isEstimated, which also covers a prompt-only estimate. Only
+	// an estimated *output* count gets clamped below: a provider-reported count
+	// is the provider's own measurement and is billed as reported.
+	let completionTokensEstimated = false;
+	let promptTokensEstimated = false;
 
 	if ((!promptTokens || !completionTokens) && fullOutput) {
-		// We're going to estimate at least some of the tokens
-		isEstimated = true;
 		// Calculate prompt tokens using a cheap length-based estimate.
 		// Accuracy is intentionally traded for throughput so we never run
 		// gpt-tokenizer on the gateway hot path.
 		if (!promptTokens && fullOutput) {
 			if (fullOutput.messages) {
 				calculatedPromptTokens = encodeChatMessages(fullOutput.messages);
+				promptTokensEstimated = true;
 			} else if (fullOutput.prompt) {
 				calculatedPromptTokens = estimateTokensFromContent(
 					JSON.stringify(fullOutput.prompt),
 				);
+				promptTokensEstimated = true;
 			}
 		}
 
 		// Calculate completion tokens
-		if (!completionTokens && fullOutput) {
+		if (!completionTokens && fullOutput && allowOutputEstimate) {
 			let completionText = "";
 
 			// Include main completion content
@@ -348,48 +391,31 @@ export async function calculateCosts(
 					if (toolResult?.function?.name) {
 						completionText += toolResult.function.name;
 					}
-					if (toolResult?.function?.arguments) {
-						completionText += JSON.stringify(toolResult.function.arguments);
+					const args = toolResult?.function?.arguments;
+					if (args) {
+						// `arguments` is already a JSON *string*. Running it through
+						// JSON.stringify re-escapes every quote and newline, inflating the
+						// character count — and therefore the chars/4 estimate — by a
+						// large factor on exactly the tool-heavy payloads where the
+						// estimate matters most.
+						completionText +=
+							typeof args === "string" ? args : JSON.stringify(args);
 					}
 				}
 			}
 
 			if (completionText) {
 				calculatedCompletionTokens = estimateTokensFromContent(completionText);
+				completionTokensEstimated = true;
 			}
 		}
 	}
 
-	// If we don't have prompt tokens, we can't calculate any costs
-	if (!calculatedPromptTokens) {
-		return {
-			inputCost: null,
-			outputCost: null,
-			cachedInputCost: null,
-			cacheWriteInputCost: null,
-			requestCost: null,
-			webSearchCost: null,
-			contentFilterCost: null,
-			imageInputTokens: null,
-			imageOutputTokens: null,
-			imageInputCost: null,
-			imageOutputCost: null,
-			audioInputTokens: null,
-			audioInputCost: null,
-			totalCost: null,
-			dataStorageCost: null as number | null,
-			promptTokens: calculatedPromptTokens,
-			completionTokens: calculatedCompletionTokens,
-			cachedTokens,
-			cacheWriteTokens,
-			estimatedCost: isEstimated,
-			discount: undefined,
-			pricingTier: undefined,
-		};
-	}
-
-	// Set completion tokens to 0 if not available (but still calculate input costs)
-	calculatedCompletionTokens ??= 0;
+	// Derived from what was actually estimated, not from merely entering the
+	// block above: a request whose prompt tokens the provider reported and whose
+	// output estimation was declined has invented nothing, so it must not be
+	// labelled (or warned about) as estimated.
+	isEstimated = promptTokensEstimated || completionTokensEstimated;
 
 	// Find the provider-specific pricing, keyed by providerId + region.
 	// Region matters when a single root model id has multiple per-region
@@ -440,6 +466,63 @@ export async function calculateCosts(
 			totalCost: null,
 			dataStorageCost: null as number | null,
 			promptTokens: calculatedPromptTokens,
+			completionTokens: calculatedCompletionTokens ?? 0,
+			cachedTokens,
+			cacheWriteTokens,
+			estimatedCost: isEstimated,
+			discount: undefined,
+			pricingTier: undefined,
+		};
+	}
+
+	// An estimated output count is a guess, so bound it by what the deployment
+	// can physically emit. Without this a runaway estimate bills tokens the
+	// model could not have produced — the reported incident charged 1,165,619
+	// output tokens against a mapping whose maxOutput is 128,000. Provider-
+	// reported counts are never clamped: those are the provider's measurement,
+	// and quietly rewriting them would hide a real upstream disagreement.
+	if (
+		completionTokensEstimated &&
+		providerInfo.maxOutput &&
+		calculatedCompletionTokens !== null &&
+		calculatedCompletionTokens > providerInfo.maxOutput
+	) {
+		logger.warn("Clamped an estimated completion count to maxOutput", {
+			model,
+			provider,
+			region,
+			estimatedCompletionTokens: calculatedCompletionTokens,
+			maxOutput: providerInfo.maxOutput,
+		});
+		calculatedCompletionTokens = providerInfo.maxOutput;
+	}
+
+	// Without prompt tokens we can't calculate token costs — except for
+	// mappings that bill independently of token usage (per generated image via
+	// perImagePrice, or a flat positive requestPrice), which must still charge
+	// when the upstream response omits prompt usage. Those fall through with
+	// prompt tokens normalized to zero.
+	const billsWithoutTokenUsage =
+		(providerInfo.perImagePrice && outputImageCount > 0) ||
+		parseFloat(providerInfo.requestPrice ?? "0") > 0;
+	if (!calculatedPromptTokens && !billsWithoutTokenUsage) {
+		return {
+			inputCost: null,
+			outputCost: null,
+			cachedInputCost: null,
+			cacheWriteInputCost: null,
+			requestCost: null,
+			webSearchCost: null,
+			contentFilterCost: null,
+			imageInputTokens: null,
+			imageOutputTokens: null,
+			imageInputCost: null,
+			imageOutputCost: null,
+			audioInputTokens: null,
+			audioInputCost: null,
+			totalCost: null,
+			dataStorageCost: null as number | null,
+			promptTokens: calculatedPromptTokens,
 			completionTokens: calculatedCompletionTokens,
 			cachedTokens,
 			cacheWriteTokens,
@@ -448,6 +531,9 @@ export async function calculateCosts(
 			pricingTier: undefined,
 		};
 	}
+	calculatedPromptTokens = calculatedPromptTokens || 0;
+	// Set completion tokens to 0 if not available (but still calculate input costs)
+	calculatedCompletionTokens ??= 0;
 
 	// Get pricing based on token count (supports tiered pricing)
 	const pricing = getPricingForTokenCount(
@@ -511,15 +597,20 @@ export async function calculateCosts(
 		serviceTierMultiplier,
 	);
 
-	// Resolve the tokens-per-image for the given imageSize from a resolution map.
-	function resolveTokensPerImage(
-		byResolution: Record<string, number> | undefined,
+	// Resolve the value for the given imageSize from a resolution-keyed map,
+	// falling back to the "default" key. Own-property lookups only: imageSize
+	// is caller-controlled, so keys like "constructor" must not resolve to
+	// inherited Object.prototype members.
+	function resolveByResolution<T>(
+		byResolution: Record<string, T> | undefined,
 		size: string | undefined,
-	): number | undefined {
+	): T | undefined {
 		if (!byResolution) {
 			return undefined;
 		}
-		return byResolution[size ?? "default"] ?? byResolution["default"];
+		const own = (key: string) =>
+			Object.hasOwn(byResolution, key) ? byResolution[key] : undefined;
+		return own(size ?? "default") ?? own("default");
 	}
 
 	// Track image input tokens separately. For image-output models (e.g.
@@ -527,7 +618,7 @@ export async function calculateCosts(
 	// the provider tokenises the input image and bills against it directly.
 	// For Google image-generation models we fall back to inputImageCount *
 	// imageInputTokensByResolution[size] (or 560/image legacy default).
-	const imageInputTokensPerImage = resolveTokensPerImage(
+	const imageInputTokensPerImage = resolveByResolution(
 		providerInfo.imageInputTokensByResolution,
 		imageSize,
 	);
@@ -643,8 +734,12 @@ export async function calculateCosts(
 	// For Google models, completionTokens already includes reasoning tokens
 	// (merged during extraction). The same holds for OpenAI-style Responses API
 	// providers (OpenAI, Azure, Sakana, Meta), whose `output_tokens` counts
-	// reasoning — their `reasoning_tokens` detail is informational only. For
-	// remaining providers, add reasoning separately.
+	// reasoning — their `reasoning_tokens` detail is informational only. RanoAI
+	// reports reasoning in `completion_tokens_details` (which the streaming
+	// transform hoists to a top-level `reasoning_tokens`) while already counting
+	// it inside `completion_tokens`, so adding it again would roughly double the
+	// billed output on reasoning requests. For remaining providers, add
+	// reasoning separately.
 	const completionIncludesReasoning =
 		provider === "google-ai-studio" ||
 		provider === "glacier" ||
@@ -655,6 +750,7 @@ export async function calculateCosts(
 		provider === "azure" ||
 		provider === "sakana" ||
 		provider === "meta" ||
+		provider === "ranoai" ||
 		provider === "aws-mantle";
 	const totalOutputTokens = completionIncludesReasoning
 		? calculatedCompletionTokens
@@ -663,15 +759,35 @@ export async function calculateCosts(
 	// Calculate output cost, handling separate image output pricing if applicable.
 	// Models with token-based image pricing use imageOutputTokensByResolution
 	// for per-resolution token counts and imageOutputPrice for the per-token price.
+	// Models with flat per-image pricing use perImagePrice, keyed by resolution
+	// tier (imageSize) with a "default" fallback.
 	let outputCost: Decimal;
 	let imageOutputTokens: number | null = null;
 	let imageOutputCost: Decimal | null = null;
-	const imageOutputTokensPerImage = resolveTokensPerImage(
+	const imageOutputTokensPerImage = resolveByResolution(
 		providerInfo.imageOutputTokensByResolution,
 		imageSize,
 	);
 	const imageOutputPricePerToken = providerInfo.imageOutputPrice;
-	if (imageOutputPricePerToken && outputImageCount > 0) {
+	const perImagePriceMap = providerInfo.perImagePrice;
+	if (perImagePriceMap && outputImageCount > 0) {
+		// A map without a "default" key falls back to its most expensive tier so
+		// a lookup miss can only overcharge, never bill a generated image at $0
+		// (same stance as the unknown-size → "default" fallback).
+		const perImagePrice =
+			resolveByResolution(perImagePriceMap, imageSize) ??
+			Object.values(perImagePriceMap).reduce(
+				(max, v) => (new Decimal(v).gt(max) ? v : max),
+				"0",
+			);
+		imageOutputCost = new Decimal(perImagePrice)
+			.times(outputImageCount)
+			.times(discountMultiplier);
+		outputCost = new Decimal(totalOutputTokens)
+			.times(outputPrice)
+			.times(tokenDiscountMultiplier)
+			.plus(imageOutputCost);
+	} else if (imageOutputPricePerToken && outputImageCount > 0) {
 		const LEGACY_DEFAULT_TOKENS_PER_IMAGE = 1120;
 		imageOutputTokens =
 			isImageOutputModel &&
@@ -765,6 +881,28 @@ export async function calculateCosts(
 		.plus(requestCost)
 		.plus(webSearchCost)
 		.plus(contentFilterCost);
+
+	// Every request billed on a token count we made up rather than one the
+	// provider reported. Logged at warn on purpose: this is the class of charge
+	// that produced the phantom-billing incident, it should be rare (we ask every
+	// streaming provider for usage via `stream_options: { include_usage: true }`),
+	// and if it turns out not to be rare that is itself the finding. The logger
+	// attaches the trace id in production, which is also stored on the log row,
+	// so a hit here pivots straight to the request it charged.
+	if (isEstimated && totalCost.greaterThan(0)) {
+		logger.warn("Billed a request on estimated token counts", {
+			model,
+			provider,
+			region,
+			promptTokensEstimated,
+			completionTokensEstimated,
+			promptTokens: calculatedPromptTokens,
+			completionTokens: calculatedCompletionTokens,
+			inputCost: inputCost.toNumber(),
+			outputCost: outputCost.toNumber(),
+			totalCost: totalCost.toNumber(),
+		});
+	}
 
 	return {
 		inputCost: inputCost.toNumber(),

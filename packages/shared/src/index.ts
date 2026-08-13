@@ -147,9 +147,43 @@ export {
 	uniqueId,
 } from "./random.js";
 
+export {
+	getModelIdsByProvider,
+	getProviderModelIds,
+} from "./provider-model-ids.js";
+
+export {
+	addCalendarDays,
+	ENTERPRISE_TRIAL_DAY_PRESETS,
+	ENTERPRISE_TRIAL_DAYS,
+	extendTrialEnd,
+	formatPlanTermBadge,
+	formatPlanTermLabel,
+	getOrganizationTerm,
+	getPlanTerm,
+	PLAN_TERM_CRITICAL_DAYS,
+	PLAN_TERM_EXPIRING_DAYS,
+	TRIAL_EXTENSION_DAY_PRESETS,
+	TRIAL_TERM_CRITICAL_DAYS,
+	TRIAL_TERM_EXPIRING_DAYS,
+	type PlanTerm,
+	type PlanTermStatus,
+	type PlanTermThresholds,
+} from "./plan-term.js";
+
 export { MARKETING_STATS, RUNWARE_PROMO } from "./marketing.js";
 
+export {
+	ONBOARDING_MODEL,
+	ONBOARDING_MAX_TOKENS,
+	ONBOARDING_MAX_PROMPT_CHARS,
+	ONBOARDING_SPONSOR_HEADER,
+	getOnboardingSponsorSecret,
+} from "./onboarding.js";
+
 export { isContentFilterErrorText } from "./content-filter.js";
+
+export { FAILURE_LABELS, failureLabel } from "./compliance-failure-labels.js";
 
 export {
 	MAX_BULK_BLOCK_ORGANIZATIONS,
@@ -159,6 +193,8 @@ export {
 export {
 	CUSTOM_PROVIDER_NAME_MESSAGE,
 	CUSTOM_PROVIDER_NAME_REGEX,
+	RESERVED_CUSTOM_PROVIDER_NAME_MESSAGE,
+	RESERVED_CUSTOM_PROVIDER_NAMES,
 } from "./custom-providers.js";
 
 export {
@@ -200,6 +236,31 @@ export {
 	type RoutingTimeoutsConfig,
 	type RoutingWeightsConfig,
 } from "./routing-config.js";
+
+export {
+	isRoutingCredentialSource,
+	isRoutingExclusionReason,
+	isRoutingSelectionReason,
+	ROUTING_CREDENTIAL_SOURCE_DESCRIPTIONS,
+	ROUTING_CREDENTIAL_SOURCE_LABELS,
+	ROUTING_EXCLUSION_REASON_LABELS,
+	ROUTING_EXCLUSION_REASON_MESSAGES,
+	ROUTING_EXCLUSION_REASONS,
+	ROUTING_SELECTION_KIND_LABELS,
+	ROUTING_SELECTION_KINDS,
+	ROUTING_SELECTION_REASON_LABELS,
+	ROUTING_SELECTION_REASONS,
+	routingExclusionReasonMessage,
+	routingSelectionKind,
+	type RoutingCredentialSource,
+	type RoutingExclusionReason,
+	type RoutingSelectionKind,
+	type RoutingSelectionReason,
+	type ServiceTierMode,
+	toRoutingCredentialSource,
+	toRoutingExclusionReason,
+	toRoutingSelectionReason,
+} from "./routing-telemetry.js";
 
 export {
 	assertSafeContentUrl,

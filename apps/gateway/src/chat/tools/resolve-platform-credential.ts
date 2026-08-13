@@ -1,15 +1,19 @@
-import { findManagedProviderKey } from "@/lib/cached-queries.js";
+import { HTTPException } from "hono/http-exception";
 
 import {
-	providerKeyBaseUrlSupportsServiceTier,
-	readProviderKey,
-} from "@llmgateway/actions";
+	findManagedProviderKey,
+	hasManagedProviderCredential,
+} from "@/lib/cached-queries.js";
+
+import { readProviderKey } from "@llmgateway/actions";
+import { providerKeyAllowsModel } from "@llmgateway/db";
 import { getProviderEnvValue } from "@llmgateway/models";
 
 import {
 	getProviderEnv,
 	getServiceTierIneligibleEnvIndices,
 } from "./get-provider-env.js";
+import { providerKeySupportsServiceTier } from "./service-tier.js";
 
 import type { InferSelectModel, tables } from "@llmgateway/db";
 import type { EnvVarVariant, Provider } from "@llmgateway/models";
@@ -31,36 +35,6 @@ export interface PlatformCredential {
 	envVarName: string | undefined;
 }
 
-/**
- * Base URL a managed credential routes through, which lives in its `config`
- * (the env-var replacement) rather than the `baseUrl` column BYOK keys use.
- */
-function managedBaseUrl(key: ProviderKeyRow): string | undefined {
-	return key.config?.baseUrl ?? key.baseUrl ?? undefined;
-}
-
-/**
- * Flex/Priority is only honored when the request reaches the provider's real
- * upstream endpoint, so managed credentials pointed at a proxy — and, for
- * Google Vertex, credentials pinned to a non-global region — are skipped for
- * premium service-tier requests. Mirrors the env-credential filtering in
- * getServiceTierIneligibleEnvIndices.
- */
-function supportsServiceTier(key: ProviderKeyRow): boolean {
-	if (
-		!providerKeyBaseUrlSupportsServiceTier(
-			key.provider as Provider,
-			managedBaseUrl(key) ?? null,
-		)
-	) {
-		return false;
-	}
-	if (key.provider === "google-vertex") {
-		return (key.config?.region ?? key.region ?? "global") === "global";
-	}
-	return true;
-}
-
 function combineFilters(
 	...filters: (((key: ProviderKeyRow) => boolean) | undefined)[]
 ): ((key: ProviderKeyRow) => boolean) | undefined {
@@ -73,6 +47,18 @@ function combineFilters(
 
 export interface ResolvePlatformCredentialOptions {
 	selectionScope: string;
+	/**
+	 * Canonical model id the credential will serve. Managed credentials
+	 * restricted via `allowedModels` are skipped when they exclude it, falling
+	 * through to the next credential or the env vars.
+	 *
+	 * Optional because several endpoints (embeddings, speech, OCR, …) only hold
+	 * the upstream model id here — comparing that against the canonical ids in
+	 * `allowedModels` would silently never match, which is worse than not
+	 * filtering. Every chat-path caller passes it; a caller that omits it
+	 * bypasses the restriction.
+	 */
+	model?: string;
 	variant: EnvVarVariant | undefined;
 	region: string | undefined;
 	/** True when the request asked for a premium (flex/priority) service tier. */
@@ -91,16 +77,20 @@ export interface ResolvePlatformCredentialOptions {
 /**
  * Resolve the platform's own credential for a provider.
  *
- * Managed provider-key rows win when any are configured for the provider:
- * they are the database-backed replacement for the `LLM_*` environment
- * variables and carry their own base URL, project, region and other settings.
- * Deployments that have not migrated (or providers with no managed credential
- * yet) keep reading the environment exactly as before.
+ * Managed provider-key rows replace the `LLM_*` environment variables for
+ * their provider — they are not tried before them. Once a provider has any
+ * managed credential, its environment is out of play: if no managed credential
+ * can serve this request (all excluded after failing, or none matching the
+ * variant, region, model restriction or requested service tier) the request
+ * fails rather than falling back to an env key the operator superseded.
+ * Providers with no managed credential yet keep reading the environment
+ * exactly as before, so migrating can be done a provider at a time.
  */
 export async function resolvePlatformCredential(
 	provider: Provider,
 	options: ResolvePlatformCredentialOptions,
 ): Promise<PlatformCredential> {
+	const restrictedToModel = options.model;
 	const managedKey = await findManagedProviderKey(provider, {
 		variant: options.variant,
 		region: options.region,
@@ -108,7 +98,10 @@ export async function resolvePlatformCredential(
 		excludedKeyIds: options.excludedProviderKeyIds,
 		filter: combineFilters(
 			options.filter,
-			options.requiresServiceTier ? supportsServiceTier : undefined,
+			options.requiresServiceTier ? providerKeySupportsServiceTier : undefined,
+			restrictedToModel !== undefined
+				? (key) => providerKeyAllowsModel(key.allowedModels, restrictedToModel)
+				: undefined,
 		),
 	});
 
@@ -119,6 +112,25 @@ export async function resolvePlatformCredential(
 			configIndex: 0,
 			envVarName: undefined,
 		};
+	}
+
+	if (await hasManagedProviderCredential(provider)) {
+		// The scope is what makes this actionable: the fleet is never empty here,
+		// so the operator needs to know which axis excluded every credential.
+		const scope = [
+			`region: ${options.region ?? "default"}`,
+			`variant: ${options.variant ?? "default"}`,
+			...(restrictedToModel !== undefined
+				? [`model: ${restrictedToModel}`]
+				: []),
+			...(options.requiresServiceTier ? ["service tier: required"] : []),
+			...(options.excludedProviderKeyIds?.size
+				? [`excluded: ${options.excludedProviderKeyIds.size}`]
+				: []),
+		].join(", ");
+		throw new HTTPException(500, {
+			message: `No managed credential available for provider: ${provider} (${scope})`,
+		});
 	}
 
 	const excludedIndices = options.requiresServiceTier

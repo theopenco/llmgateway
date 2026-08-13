@@ -74,12 +74,12 @@ import {
 	TooltipProvider,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { isMappingDeactivated } from "@/deactivation";
 import { discountFraction } from "@/lib/discount";
 import { cn } from "@/lib/utils";
 
 import { matchesCapability } from "./capability-filters";
-import { isMappingDeactivated } from "./deactivation";
-import { formatDeprecationDate } from "./format";
+import { formatDeprecationDate, formatPerImagePriceRange } from "./format";
 import { ModelCard } from "./model-card";
 import { applyCategoryFilter } from "./model-category-filters";
 import { useIsMobile } from "./use-mobile";
@@ -546,6 +546,28 @@ const ModelTableRow = React.memo(
 									<p className="text-xs">Per-request pricing (not per token)</p>
 								</TooltipContent>
 							</Tooltip>
+						) : (!row.provider.inputPrice ||
+								parseFloat(row.provider.inputPrice) === 0) &&
+						  row.provider.perImagePrice &&
+						  Object.keys(row.provider.perImagePrice).length > 0 ? (
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span className="text-amber-500 cursor-help">
+										{(() => {
+											const range = formatPerImagePriceRange(
+												row.provider.perImagePrice,
+												row.provider.discount,
+											);
+											return range ? `${range}/image` : "—";
+										})()}
+									</span>
+								</TooltipTrigger>
+								<TooltipContent>
+									<p className="text-xs">
+										Per-image pricing by output resolution (not per token)
+									</p>
+								</TooltipContent>
+							</Tooltip>
 						) : (
 							formatPrice(row.provider.inputPrice, row.provider.discount)
 						)}
@@ -578,6 +600,8 @@ const ModelTableRow = React.memo(
 								parseFloat(row.provider.outputPrice) === 0) &&
 						  ((row.provider.requestPrice &&
 								parseFloat(row.provider.requestPrice) > 0) ||
+								(row.provider.perImagePrice &&
+									Object.keys(row.provider.perImagePrice).length > 0) ||
 								(row.provider.inputCharacterPrice &&
 									parseFloat(row.provider.inputCharacterPrice) > 0)) ? (
 							<span className="text-muted-foreground">—</span>
@@ -658,6 +682,19 @@ const ModelTableRow = React.memo(
 													const firstValue = Object.values(prices)[0];
 													return firstValue ? `$${firstValue}/sec` : "";
 												})()}
+											</Badge>
+										)}
+									{row.provider.perImagePrice &&
+										Object.keys(row.provider.perImagePrice).length > 0 && (
+											<Badge
+												variant="outline"
+												className="text-sm px-3 py-1.5 bg-background"
+											>
+												Per Image{" "}
+												{formatPerImagePriceRange(
+													row.provider.perImagePrice!,
+													row.provider.discount,
+												) ?? ""}
 											</Badge>
 										)}
 								</div>
@@ -1090,12 +1127,19 @@ export function AllModels({
 				return false;
 			}
 			if (filters.capabilities.free) {
-				// A model is only considered free if it has the free flag AND no provider has a per-request cost
-				const hasRequestPrice = model.providerDetails.some(
+				// A model is only considered free if it has the free flag AND no
+				// provider bills per request, per generated image, or per second
+				// (mirrors the gateway's isModelTrulyFree definition).
+				const hasNonTokenPrice = model.providerDetails.some(
 					(p) =>
-						p.provider.requestPrice && parseFloat(p.provider.requestPrice) > 0,
+						(p.provider.requestPrice &&
+							parseFloat(p.provider.requestPrice) > 0) ||
+						(p.provider.perImagePrice &&
+							Object.keys(p.provider.perImagePrice).length > 0) ||
+						(p.provider.perSecondPrice &&
+							Object.keys(p.provider.perSecondPrice).length > 0),
 				);
-				if (!model.free || hasRequestPrice) {
+				if (!model.free || hasNonTokenPrice) {
 					return false;
 				}
 			}
@@ -1380,6 +1424,11 @@ export function AllModels({
 					(provider.perSecondPrice !== null &&
 						provider.perSecondPrice !== undefined &&
 						Object.values(provider.perSecondPrice).some(
+							(price) => parseFloat(price) > 0,
+						)) ||
+					(provider.perImagePrice !== null &&
+						provider.perImagePrice !== undefined &&
+						Object.values(provider.perImagePrice).some(
 							(price) => parseFloat(price) > 0,
 						));
 

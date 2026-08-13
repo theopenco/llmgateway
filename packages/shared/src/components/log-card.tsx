@@ -29,6 +29,7 @@ import {
 import prettyBytes from "pretty-bytes";
 import { useState } from "react";
 
+import { CredentialSourceBadge } from "@/components/credential-source-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -57,6 +58,9 @@ import {
 interface RoutingMetadata {
 	selectionReason?: string;
 	usedApiKeyHash?: string;
+	usedCredentialSource?: string;
+	usedProviderKeyLabel?: string;
+	eligibleProviderKeys?: Array<{ id: string; label?: string }>;
 	availableProviders?: string[];
 	xNoFallbackHeaderSet?: boolean;
 	noFallback?: boolean;
@@ -88,8 +92,15 @@ interface RoutingMetadata {
 		status_code?: number;
 		error_type?: string;
 		apiKeyHash?: string;
+		credentialSource?: string;
+		providerKeyLabel?: string;
 		logId?: string;
 	}>;
+	filteredProviders?: Array<{
+		providerId: string;
+		reasons: string[];
+	}>;
+	serviceTierSource?: string;
 }
 
 interface ErrorDetails {
@@ -673,11 +684,28 @@ export function LogCard({
 										{routingMetadata.usedApiKeyHash && (
 											<div className="flex justify-between">
 												<span className="text-muted-foreground">Key</span>
-												<span className="font-mono">
+												<span className="font-mono flex items-center gap-1.5">
 													{formatApiKeyHash(routingMetadata.usedApiKeyHash)}
+													<CredentialSourceBadge
+														source={routingMetadata.usedCredentialSource}
+														keyLabel={routingMetadata.usedProviderKeyLabel}
+													/>
 												</span>
 											</div>
 										)}
+										{routingMetadata.eligibleProviderKeys &&
+											routingMetadata.eligibleProviderKeys.length > 0 && (
+												<div className="flex justify-between gap-2">
+													<span className="text-muted-foreground">
+														Your keys
+													</span>
+													<span className="font-mono text-right">
+														{routingMetadata.eligibleProviderKeys
+															.map((key) => key.label ?? key.id)
+															.join(", ")}
+													</span>
+												</div>
+											)}
 										{routingMetadata.xNoFallbackHeaderSet !== undefined && (
 											<div className="flex justify-between">
 												<span className="text-muted-foreground">
@@ -700,6 +728,31 @@ export function LogCard({
 													<span className="font-mono">
 														{routingMetadata.availableProviders.join(", ")}
 													</span>
+												</div>
+											)}
+										{routingMetadata.filteredProviders &&
+											routingMetadata.filteredProviders.length > 0 && (
+												<div className="pt-1 border-t border-dashed">
+													<div className="text-muted-foreground mb-1">
+														Filtered Out
+													</div>
+													<div className="space-y-1">
+														{routingMetadata.filteredProviders.map(
+															(filtered) => (
+																<div
+																	key={filtered.providerId}
+																	className="flex justify-between items-start gap-2"
+																>
+																	<span className="font-mono text-amber-600">
+																		{filtered.providerId}
+																	</span>
+																	<span className="text-muted-foreground text-right">
+																		{filtered.reasons.join(", ")}
+																	</span>
+																</div>
+															),
+														)}
+													</div>
 												</div>
 											)}
 										{routingMetadata.providerScores &&
@@ -811,6 +864,10 @@ export function LogCard({
 																			key {formatApiKeyHash(attempt.apiKeyHash)}
 																		</span>
 																	)}
+																	<CredentialSourceBadge
+																		source={attempt.credentialSource}
+																		keyLabel={attempt.providerKeyLabel}
+																	/>
 																	{attempt.logId &&
 																		(getDetailUrl ? (
 																			<LinkComponent
@@ -1082,6 +1139,12 @@ export function LogCard({
 													<span className="capitalize">
 														{log.requestedServiceTier}
 													</span>
+													{routingMetadata?.serviceTierSource ===
+														"coding-plan-default" && (
+														<span className="ml-1 text-muted-foreground">
+															(coding plan default)
+														</span>
+													)}
 												</div>
 											</>
 										)}

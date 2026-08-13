@@ -6,6 +6,7 @@ import { bytedanceModels } from "./models/bytedance.js";
 import { deepseekModels } from "./models/deepseek.js";
 import { elevenlabsModels } from "./models/elevenlabs.js";
 import { googleModels } from "./models/google.js";
+import { inclusionaiModels } from "./models/inclusionai.js";
 import { llmgatewayModels } from "./models/llmgateway.js";
 import { metaModels } from "./models/meta.js";
 import { microsoftModels } from "./models/microsoft.js";
@@ -301,6 +302,15 @@ export interface ProviderModelMapping {
 	 */
 	perSecondPrice?: Record<string, Price>;
 	/**
+	 * Price per generated output image in USD, keyed by resolution tier
+	 * (e.g. "1K", "2K") with a "default" fallback. For image models whose
+	 * provider bills a flat per-image rate that varies with the served
+	 * resolution rather than per token (e.g. Alibaba's qwen-image family,
+	 * whose usage reports the billed tier in `output_image_type`). Billed
+	 * per output image, unlike `requestPrice` which is flat per request.
+	 */
+	perImagePrice?: Record<string, Price>;
+	/**
 	 * Pricing tiers for models with context-length based pricing.
 	 * When set, inputPrice and outputPrice represent the base tier.
 	 * Tiers should be sorted by upToTokens in ascending order.
@@ -382,6 +392,18 @@ export interface ProviderModelMapping {
 	 * declare `none` in `reasoningEfforts`.
 	 */
 	requiresDisableThinkingParam?: boolean;
+	/**
+	 * Name of the chat-template kwargs key used to control thinking on
+	 * mappings that think by default and expose only a chat-template flag
+	 * (e.g. vLLM-hosted hybrid models). When set, `reasoning_effort: "none"`
+	 * sends `chat_template_kwargs: { [key]: false }` to turn thinking off, and
+	 * any other effort sends `{ [key]: true }` — a boolean value under the
+	 * named key. Differs from `requiresEnableThinking`, which always sends
+	 * `chat_template_kwargs: { thinking: true }`, and
+	 * `requiresDisableThinkingParam`, which sends a top-level
+	 * `thinking: { type: "disabled" }` object.
+	 */
+	chatTemplateThinkingKey?: string;
 	/**
 	 * Whether this model supports the OpenAI responses API (defaults to true if reasoning is true)
 	 */
@@ -732,6 +754,7 @@ export const models = [
 	...openaiModels,
 	...anthropicModels,
 	...googleModels,
+	...inclusionaiModels,
 	...perplexityModels,
 	...xaiModels,
 	...xiaomiModels,

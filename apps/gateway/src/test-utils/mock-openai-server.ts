@@ -637,6 +637,26 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 		c.status(500);
 		return c.json(sampleErrorResponse);
 	}
+
+	// Mirrors the chat-completions handler so retry/fallback behaviour can be
+	// exercised on the Responses API too (the surface OpenAI's newer models are
+	// served on). Shares the same module-level counter, so a test using it must
+	// call resetFailOnceCounter() first.
+	if (userMessage.includes("TRIGGER_FAIL_ONCE")) {
+		failOnceCounter++;
+		if (failOnceCounter === 1) {
+			c.status(500);
+			return c.json({
+				error: {
+					message: "Temporary server error (will succeed on retry)",
+					type: "server_error",
+					param: null,
+					code: "internal_server_error",
+				},
+			});
+		}
+	}
+
 	const shouldEndAfterDoneEvent = userMessage.includes(
 		"TRIGGER_RESPONSES_DONE_WITHOUT_COMPLETED",
 	);
@@ -2178,6 +2198,27 @@ mockOpenAIServer.post("/contents/generations/tasks", async (c) => {
 		});
 	}
 
+	const referenceVideoUrls: string[] = [];
+	for (const entry of content) {
+		if (
+			!entry ||
+			typeof entry !== "object" ||
+			(entry as Record<string, unknown>).role !== "reference_video"
+		) {
+			continue;
+		}
+		const videoUrl = (entry as Record<string, unknown>).video_url;
+		const url =
+			typeof videoUrl === "object" &&
+			videoUrl !== null &&
+			typeof (videoUrl as Record<string, unknown>).url === "string"
+				? ((videoUrl as Record<string, unknown>).url as string)
+				: undefined;
+		if (url) {
+			referenceVideoUrls.push(url);
+		}
+	}
+
 	videoCounter++;
 	const id = `bytedance_task_${videoCounter}`;
 	const job: MockVideoJobState = {
@@ -2189,6 +2230,8 @@ mockOpenAIServer.post("/contents/generations/tasks", async (c) => {
 		firstFrame: parseFrameByRole("first_frame"),
 		lastFrame: parseFrameByRole("last_frame"),
 		referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
+		referenceVideoUrls:
+			referenceVideoUrls.length > 0 ? referenceVideoUrls : undefined,
 		duration: typeof body.duration === "number" ? body.duration : undefined,
 		ratio: typeof body.ratio === "string" ? body.ratio : undefined,
 		resolution:

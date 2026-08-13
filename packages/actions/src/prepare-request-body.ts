@@ -18,6 +18,7 @@ import {
 	type PromptCacheRetention,
 	type ProviderRequestBody,
 	type ReasoningDetail,
+	type ResponsesToolChoice,
 	supportsOpenAIExplicitPromptCache,
 	supportsOpenAIExtendedPromptCache,
 	supportsServiceTier,
@@ -30,7 +31,7 @@ import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import { parseDataUrl } from "./parse-data-url.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
-import { processImageUrl } from "./process-image-url.js";
+import { ImageSizeLimitError, processImageUrl } from "./process-image-url.js";
 import { RequestError } from "./request-error.js";
 import { transformAnthropicMessages } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
@@ -112,6 +113,23 @@ function toolChoiceModeOf(
 		return "function";
 	}
 	return undefined;
+}
+
+/**
+ * Translate a Chat Completions `tool_choice` into the Responses API shape. A
+ * named function choice nests the name under `function` in Chat Completions
+ * but is flat (`{type:"function",name}`) in the Responses API, and upstreams
+ * reject the nested form outright (Bedrock Mantle answers with
+ * `Invalid 'tool_choice': value did not match any expected variant`). The
+ * string modes are identical in both APIs.
+ */
+function toResponsesToolChoice(
+	toolChoice: ToolChoiceType,
+): ResponsesToolChoice {
+	if (typeof toolChoice === "object") {
+		return { type: "function", name: toolChoice.function.name };
+	}
+	return toolChoice;
 }
 
 /**
@@ -270,6 +288,26 @@ function isFunctionTool(
 	tool: OpenAIToolInput,
 ): tool is OpenAIFunctionToolInput {
 	return tool.type === "function";
+}
+
+/**
+ * Enables DashScope web search on an OpenAI-compatible request body.
+ *
+ * `enable_search` on its own is only a hint that the model is free to ignore,
+ * and in practice it always does: the prompt comes back the same size and the
+ * model answers that it has no live access. Pairing it with
+ * `search_options.forced_search` is what actually retrieves, so the two are
+ * always sent together and a search is guaranteed to have run.
+ *
+ * `search_strategy` is deliberately omitted. The documented "agent" and
+ * "agent_max" policies are rejected with a 400 ("The current model does not
+ * support the \"agent\" search strategy") by the Qwen max models mapped here,
+ * and the legacy turbo/standard/pro/max tiers only vary how many snippets get
+ * injected into the prompt.
+ */
+function applyDashScopeWebSearch(requestBody: Record<string, any>): void {
+	requestBody.enable_search = true;
+	requestBody.search_options = { forced_search: true };
 }
 
 /**
@@ -467,8 +505,100 @@ function resolveRef(ref: string, rootDefs: Record<string, any>): any {
 }
 
 /**
- * Recursively strips unsupported properties and expands $ref references for Google
- * Google doesn't support $ref, additionalProperties, $schema, and some other JSON schema properties
+ * The only keys Google's `Schema` proto accepts inside a function
+ * declaration's `parameters`. Anything else — a JSON Schema keyword Google
+ * never modelled (`readOnly`, `additionalItems`, `const`, …) or a vendor
+ * extension a client's schema generator invented (`~optional`, `x-*`) —
+ * is rejected outright with `Invalid JSON payload received. Unknown name
+ * "<key>" at 'tools[0].function_declarations[N]…': Cannot find field.`,
+ * failing the entire request with a 400 even though only one property of one
+ * tool carried the key.
+ *
+ * This is an allowlist on purpose. The previous denylist could only ever be
+ * as complete as the last such outage: clients keep emitting new extension
+ * keys, and every unanticipated one is a hard failure rather than a
+ * degradation.
+ *
+ * Deliberately omitted even though Google does accept them: `minLength`,
+ * `maxLength`, `pattern`, `minimum`, `maximum`, `minItems`, `maxItems`,
+ * `minProperties`, `maxProperties` and `not`. The gateway has always stripped
+ * those, and forwarding them would change how models fill tool arguments, so
+ * restoring them is a separate behavioural change rather than part of this
+ * fix. `$ref` / `$defs` / `definitions` are absent because they are consumed
+ * by the inline expansion below instead of being forwarded.
+ */
+const GOOGLE_SUPPORTED_SCHEMA_KEYS: ReadonlySet<string> = new Set([
+	"type",
+	"format",
+	"title",
+	"description",
+	"nullable",
+	"enum",
+	"items",
+	"properties",
+	"required",
+	"default",
+	"anyOf",
+	"oneOf",
+	"allOf",
+	"propertyOrdering",
+	"example",
+]);
+
+/**
+ * Keys whose value is an instance value rather than a subschema. They are
+ * copied verbatim: recursing into them would apply the schema allowlist to the
+ * value's own fields, so an object-typed `default` or `example` would arrive
+ * at the provider emptied out.
+ */
+const GOOGLE_OPAQUE_SCHEMA_VALUE_KEYS: ReadonlySet<string> = new Set([
+	"default",
+	"example",
+	"enum",
+]);
+
+/**
+ * JSON Schema lets `type` be a list of alternatives — `["string", "null"]` is
+ * how most schema generators express an optional field — but Google's `Schema`
+ * proto models `type` as a single enum. A list fails the entire request with
+ * `Invalid JSON payload received. Unknown name "type" at
+ * 'tools[0].function_declarations[N].parameters.properties[M].value': Proto
+ * field is not repeating, cannot start list.`, and since that is a 400 it
+ * classifies as `client_error`: no fallback, no retry.
+ *
+ * Collapse it the way the `response_format` path already does: `"null"` becomes
+ * `nullable: true` and the first remaining member becomes the type. Picking one
+ * member of a genuine multi-type union does lose information, but a single node
+ * cannot express the union in Google's schema, and a narrowed type still yields
+ * usable tool calls where the alternative is that every request carrying the
+ * tool fails.
+ */
+function normalizeGoogleSchemaType(type: unknown): {
+	type?: string;
+	nullable: boolean;
+} {
+	if (typeof type === "string") {
+		return { type, nullable: false };
+	}
+	if (!Array.isArray(type)) {
+		return { nullable: false };
+	}
+
+	const nullable = type.includes("null");
+	const firstNonNull = type.find(
+		(entry): entry is string => typeof entry === "string" && entry !== "null",
+	);
+	// `["null"]` on its own has no Google equivalent — its `Type` enum has no
+	// NULL member — so fall back to a nullable string.
+	const resolved = firstNonNull ?? (nullable ? "string" : undefined);
+
+	return { type: resolved, nullable };
+}
+
+/**
+ * Recursively drops everything Google's schema parser does not accept and
+ * expands $ref references inline, since Google supports neither $ref nor the
+ * bulk of JSON Schema's validation vocabulary.
  */
 function stripUnsupportedSchemaProperties(
 	schema: any,
@@ -520,55 +650,24 @@ function stripUnsupportedSchemaProperties(
 	}
 
 	const cleaned: any = {};
+	let nullableFromType = false;
 
 	for (const [key, value] of Object.entries(schema)) {
-		// Skip unsupported properties
-		// Google doesn't support many JSON Schema validation keywords
-		if (
-			key === "additionalProperties" ||
-			key === "$schema" ||
-			key === "$defs" ||
-			key === "definitions" ||
-			key === "$ref" ||
-			key === "ref" ||
-			key === "$id" ||
-			key === "$comment" ||
-			key === "$anchor" ||
-			key === "$dynamicAnchor" ||
-			key === "$dynamicRef" ||
-			key === "$vocabulary" ||
-			key === "examples" ||
-			key === "enumTitles" ||
-			key === "prefill" ||
-			key === "maxLength" ||
-			key === "minLength" ||
-			key === "minimum" ||
-			key === "maximum" ||
-			key === "exclusiveMinimum" ||
-			key === "exclusiveMaximum" ||
-			key === "pattern" ||
-			key === "propertyNames" ||
-			key === "const" ||
-			key === "not" ||
-			key === "if" ||
-			key === "then" ||
-			key === "else" ||
-			key === "multipleOf" ||
-			key === "minItems" ||
-			key === "maxItems" ||
-			key === "uniqueItems" ||
-			key === "minProperties" ||
-			key === "maxProperties" ||
-			key === "patternProperties" ||
-			key === "dependentRequired" ||
-			key === "dependentSchemas" ||
-			key === "unevaluatedProperties" ||
-			key === "unevaluatedItems" ||
-			key === "contentMediaType" ||
-			key === "contentEncoding" ||
-			key === "prefixItems" ||
-			key === "contains"
-		) {
+		if (!GOOGLE_SUPPORTED_SCHEMA_KEYS.has(key)) {
+			continue;
+		}
+
+		if (GOOGLE_OPAQUE_SCHEMA_VALUE_KEYS.has(key)) {
+			cleaned[key] = value;
+			continue;
+		}
+
+		if (key === "type") {
+			const normalized = normalizeGoogleSchemaType(value);
+			if (normalized.type !== undefined) {
+				cleaned.type = normalized.type;
+			}
+			nullableFromType ||= normalized.nullable;
 			continue;
 		}
 
@@ -576,12 +675,10 @@ function stripUnsupportedSchemaProperties(
 		// each value but do not filter the field names themselves — otherwise a
 		// tool parameter legitimately named `examples`, `prefill`, `const`, etc.
 		// would be silently dropped.
-		if (
-			key === "properties" &&
-			value &&
-			typeof value === "object" &&
-			!Array.isArray(value)
-		) {
+		if (key === "properties") {
+			if (!value || typeof value !== "object" || Array.isArray(value)) {
+				continue;
+			}
 			const cleanedProps: Record<string, any> = {};
 			for (const [propName, propSchema] of Object.entries(value)) {
 				cleanedProps[propName] = stripUnsupportedSchemaProperties(
@@ -594,12 +691,29 @@ function stripUnsupportedSchemaProperties(
 			continue;
 		}
 
+		// Draft-4 tuple validation puts a list in `items`, which hits the same
+		// "Proto field is not repeating" 400 as a list-valued `type`; Google's
+		// `items` is a single schema, so keep the first entry.
+		if (key === "items" && Array.isArray(value)) {
+			const [first] = value;
+			if (first && typeof first === "object") {
+				cleaned.items = stripUnsupportedSchemaProperties(first, defs, seenRefs);
+			}
+			continue;
+		}
+
 		// Recursively clean nested objects
 		if (value && typeof value === "object") {
 			cleaned[key] = stripUnsupportedSchemaProperties(value, defs, seenRefs);
 		} else {
 			cleaned[key] = value;
 		}
+	}
+
+	// Applied after the loop so it wins over an explicit `nullable: false` that
+	// contradicts a `"null"` member in the type list, whichever key came first.
+	if (nullableFromType) {
+		cleaned.nullable = true;
 	}
 
 	// Filter 'required' array to only include properties that exist in 'properties'
@@ -1170,7 +1284,10 @@ export async function prepareRequestBody(
 	// Together AI, ByteDance, and Z.ai reason by default so they must explicitly disable
 	// thinking when asked. Every other provider treats the absence of
 	// reasoning_effort as "off" already, so normalize `none` away for them to
-	// avoid forwarding an unsupported enum value.
+	// avoid forwarding an unsupported enum value. A mapping that publishes
+	// `none` in its `reasoningEfforts` catalog entry is authoritative too —
+	// it documents that the provider accepts the value, so forward it even
+	// when the provider is not in the allowlist above (#3423).
 	const handlesNoneNatively =
 		usedProvider === "openai" ||
 		usedProvider === "azure" ||
@@ -1189,7 +1306,7 @@ export async function prepareRequestBody(
 		usedProvider === "together-ai" ||
 		usedProvider === "bytedance" ||
 		usedProvider === "zai" ||
-		providerMappingForOptions?.apiFormat === "openai-chat-completions";
+		(providerMappingForOptions?.reasoningEfforts?.includes("none") ?? false);
 	if (reasoning_effort === "none" && !handlesNoneNatively) {
 		reasoning_effort = undefined;
 	}
@@ -2057,7 +2174,7 @@ export async function prepareRequestBody(
 					responsesBody.tools.push(webSearch);
 				}
 				if (resolvedToolChoice) {
-					responsesBody.tool_choice = resolvedToolChoice;
+					responsesBody.tool_choice = toResponsesToolChoice(resolvedToolChoice);
 				}
 
 				// Add optional parameters if they are provided
@@ -2389,6 +2506,10 @@ export async function prepareRequestBody(
 			}
 			if (response_format) {
 				requestBody.response_format = response_format;
+			}
+
+			if (webSearchTool) {
+				applyDashScopeWebSearch(requestBody);
 			}
 
 			// Add optional parameters if they are provided
@@ -2815,6 +2936,16 @@ export async function prepareRequestBody(
 						type: "enabled",
 						budget_tokens: thinkingBudget,
 					};
+					// Anthropic rejects the request outright when `max_tokens` is not
+					// strictly greater than `thinking.budget_tokens`. The budget cannot
+					// be lowered to fit (1024 is Anthropic's minimum), so a caller-
+					// supplied max_tokens that leaves no room for a reply is raised to
+					// the budget plus a minimum response allowance — mirroring the
+					// aws-bedrock branch.
+					const reasoningFloor = thinkingBudget + 1000;
+					if (requestBody.max_tokens < reasoningFloor) {
+						requestBody.max_tokens = reasoningFloor;
+					}
 				}
 				// Anthropic requires temperature to be exactly 1 when thinking is
 				// enabled — but only for models that still accept temperature. The
@@ -3210,6 +3341,12 @@ export async function prepareRequestBody(
 									},
 								});
 							} catch (error) {
+								// A size rejection is the user's to act on: degrading to a
+								// placeholder would return a 200 that silently ignores the
+								// image and still bills for the turn.
+								if (error instanceof ImageSizeLimitError) {
+									throw error;
+								}
 								logger.error("Failed to process image for Bedrock", {
 									err:
 										error instanceof Error ? error : new Error(String(error)),
@@ -3979,6 +4116,13 @@ export async function prepareRequestBody(
 				requestBody.service_tier = supportedServiceTier;
 			}
 
+			// SCX resells Alibaba's Qwen models and passes DashScope's search
+			// parameters straight through, so its Qwen mappings take the same shape
+			// as the `alibaba` case above.
+			if (usedProvider === "scx-ai-gp" && webSearchTool) {
+				applyDashScopeWebSearch(requestBody);
+			}
+
 			// Vertex's OpenAI-compatible chat completions endpoint requires the
 			// model field to be partner-prefixed, e.g. "xai/grok-4.20-reasoning".
 			// Derive the prefix from the model family so we don't have to encode
@@ -4020,27 +4164,50 @@ export async function prepareRequestBody(
 					supported.length === 0 ||
 					supported.includes("reasoning_effort")
 				) {
-					requestBody.reasoning_effort = reasoning_effort;
-				}
-			}
-			// Hybrid models that keep thinking off by default (e.g. DeepSeek V3.2 on
-			// Novita) ignore `reasoning_effort` and require the vLLM chat-template
-			// flag to turn reasoning on. Only set it when the caller asked for
-			// reasoning so plain requests stay non-thinking.
-			if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
-				const thinkingMapping = modelDef?.providers.find(
-					(p) =>
-						p.providerId === usedProvider &&
-						((p as ProviderModelMapping).region ?? null) === usedRegion,
-				) as ProviderModelMapping | undefined;
-				if (thinkingMapping?.requiresEnableThinking) {
-					requestBody.chat_template_kwargs = {
-						...(requestBody.chat_template_kwargs ?? {}),
-						thinking: true,
-					};
+					if (usedProvider === "embercloud") {
+						// embercloud's documented request body uses a nested
+						// `reasoning` object (`reasoning.enabled` +
+						// `reasoning.effort`) instead of the flat OpenAI-style
+						// `reasoning_effort` field, which it silently ignores
+						// (https://embercloud.ai/docs/request-body). "none"
+						// maps to enabled: false; any other tier enables
+						// reasoning at the requested effort.
+						requestBody.reasoning =
+							reasoning_effort === "none"
+								? { enabled: false }
+								: { enabled: true, effort: reasoning_effort };
+					} else {
+						requestBody.reasoning_effort = reasoning_effort;
+					}
 				}
 			}
 			break;
+		}
+	}
+
+	// vLLM chat-template thinking flags are handled after the provider switch so
+	// every provider branch (not just the OpenAI-compatible default) applies them
+	// uniformly. Hybrid models that keep thinking off by default (e.g. DeepSeek
+	// V3.2 on Novita) ignore `reasoning_effort` and require the chat-template flag
+	// to turn reasoning on; mappings that think by default (e.g. InclusionAI
+	// Ling-3.0-flash) declare `chatTemplateThinkingKey` for the flag that controls
+	// thinking. `reasoning_effort: "none"` flips it to false to turn thinking off,
+	// and any other effort flips it to true. A `reasoning_max_tokens` budget (from
+	// an Anthropic `thinking.budget_tokens`) is intentionally dropped for these
+	// mappings: the chat-template flag is a binary on/off toggle with no budget
+	// dimension, so the gateway only conveys whether thinking is on.
+	if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
+		if (providerMappingForOptions?.chatTemplateThinkingKey) {
+			requestBody.chat_template_kwargs = {
+				...(requestBody.chat_template_kwargs ?? {}),
+				[providerMappingForOptions.chatTemplateThinkingKey]:
+					reasoning_effort !== "none",
+			};
+		} else if (providerMappingForOptions?.requiresEnableThinking) {
+			requestBody.chat_template_kwargs = {
+				...(requestBody.chat_template_kwargs ?? {}),
+				thinking: true,
+			};
 		}
 	}
 

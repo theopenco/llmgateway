@@ -226,6 +226,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-4o",
+				deactivatedAt: new Date("2027-04-14"),
 				inputPrice: "2.5e-6",
 				outputPrice: "10.0e-6",
 				cachedInputPrice: "1.25e-6",
@@ -343,6 +344,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-4.1",
+				deactivatedAt: new Date("2027-04-14"),
 				inputPrice: "2.0e-6",
 				outputPrice: "8.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -388,6 +390,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "o1",
+				deactivatedAt: new Date("2026-10-21"),
 				inputPrice: "15.0e-6",
 				outputPrice: "60.0e-6",
 				cachedInputPrice: "7.5e-6",
@@ -479,6 +482,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-4.1-mini",
+				deactivatedAt: new Date("2027-04-14"),
 				inputPrice: "0.4e-6",
 				outputPrice: "1.6e-6",
 				cachedInputPrice: "0.1e-6",
@@ -523,6 +527,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-4.1-nano",
+				deactivatedAt: new Date("2026-10-14"),
 				inputPrice: "0.1e-6",
 				outputPrice: "0.4e-6",
 				cachedInputPrice: "0.025e-6",
@@ -567,7 +572,9 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "o3",
-				deactivatedAt: new Date("2026-12-10"),
+				// Azure runs its own schedule and retires o3 seven weeks BEFORE
+				// OpenAI's 2026-12-10 first-party shutdown above.
+				deactivatedAt: new Date("2026-10-21"),
 				inputPrice: "2e-6",
 				outputPrice: "8e-6",
 				cachedInputPrice: "0.5e-6",
@@ -610,6 +617,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "o3-mini",
+				deactivatedAt: new Date("2026-10-01"),
 				inputPrice: "1.1e-6",
 				outputPrice: "4.4e-6",
 				cachedInputPrice: "0.55e-6",
@@ -654,6 +662,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "o4-mini",
+				deactivatedAt: new Date("2026-10-16"),
 				inputPrice: "1.1e-6",
 				outputPrice: "4.4e-6",
 				cachedInputPrice: "0.275e-6",
@@ -690,6 +699,7 @@ export const openaiModels = [
 				vision: false,
 				tools: true,
 				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high"],
 				jsonOutput: true,
 			},
 			{
@@ -853,6 +863,7 @@ export const openaiModels = [
 				vision: false,
 				tools: true,
 				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high"],
 				jsonOutput: true,
 			},
 			{
@@ -933,7 +944,9 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5",
-				deactivatedAt: new Date("2026-12-10"),
+				// Azure runs its own schedule and keeps this past OpenAI's
+				// 2026-12-10 first-party shutdown above.
+				deactivatedAt: new Date("2027-02-09"),
 				inputPrice: "1.25e-6",
 				outputPrice: "10.0e-6",
 				cachedInputPrice: "0.125e-6",
@@ -1004,7 +1017,9 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5-mini",
-				deactivatedAt: new Date("2026-12-10"),
+				// Azure runs its own schedule and keeps this past OpenAI's
+				// 2026-12-10 first-party shutdown above.
+				deactivatedAt: new Date("2027-02-09"),
 				inputPrice: "0.25e-6",
 				outputPrice: "2e-6",
 				cachedInputPrice: "0.025e-6",
@@ -1075,7 +1090,9 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5-nano",
-				deactivatedAt: new Date("2026-12-10"),
+				// Azure runs its own schedule and keeps this past OpenAI's
+				// 2026-12-10 first-party shutdown above.
+				deactivatedAt: new Date("2027-02-09"),
 				inputPrice: "0.05e-6",
 				outputPrice: "0.4e-6",
 				cachedInputPrice: "0.005e-6",
@@ -1113,6 +1130,10 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5-chat-latest",
+				// Shut down by OpenAI on 2026-07-23 (announced 2026-04-22);
+				// requests now 404 with "has been deprecated". Replacement is
+				// gpt-5.6-sol.
+				deactivatedAt: new Date("2026-07-23"),
 				inputPrice: "1.25e-6",
 				outputPrice: "10.0e-6",
 				cachedInputPrice: "0.125e-6",
@@ -1178,6 +1199,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5.1",
+				deactivatedAt: new Date("2027-05-15"),
 				inputPrice: "1.25e-6",
 				outputPrice: "10.0e-6",
 				cachedInputPrice: "0.125e-6",
@@ -1246,6 +1268,11 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.1-codex",
+				// Shut down by OpenAI on 2026-07-23 (announced 2026-04-22);
+				// requests now 404 with "has been deprecated". Replacement is
+				// gpt-5.6-sol. The azure mapping below stays active — Azure runs
+				// its own schedule and does not retire this until 2027-05-15.
+				deactivatedAt: new Date("2026-07-23"),
 				serviceTiers: ["priority"],
 				serviceTierMultipliers: { priority: 2 },
 				inputPrice: "1.25e-6",
@@ -1268,6 +1295,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5.1-codex",
+				deactivatedAt: new Date("2027-05-15"),
 				inputPrice: "1.25e-6",
 				outputPrice: "10e-6",
 				requestPrice: "0",
@@ -1294,6 +1322,11 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.1-codex-mini",
+				// Shut down by OpenAI on 2026-07-23 (announced 2026-04-22);
+				// requests now 404 with "has been deprecated". Replacement is
+				// gpt-5.6-terra. The azure mapping below stays active — Azure runs
+				// its own schedule and does not retire this until 2027-05-15.
+				deactivatedAt: new Date("2026-07-23"),
 				inputPrice: "0.25e-6",
 				outputPrice: "2e-6",
 				cachedInputPrice: "0.025e-6",
@@ -1315,6 +1348,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5.1-codex-mini",
+				deactivatedAt: new Date("2027-05-15"),
 				inputPrice: "0.25e-6",
 				outputPrice: "2e-6",
 				cachedInputPrice: "0.025e-6",
@@ -1374,6 +1408,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5.2",
+				deactivatedAt: new Date("2027-06-08"),
 				inputPrice: "1.75e-6",
 				outputPrice: "14.0e-6",
 				cachedInputPrice: "0.175e-6",
@@ -1544,6 +1579,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5.4",
+				deactivatedAt: new Date("2027-09-02"),
 				inputPrice: "2.5e-6",
 				outputPrice: "15.0e-6",
 				cachedInputPrice: "0.25e-6",
@@ -1606,6 +1642,7 @@ export const openaiModels = [
 				providerId: "azure",
 				test: "skip",
 				externalId: "gpt-5.4-pro",
+				deactivatedAt: new Date("2027-09-07"),
 				inputPrice: "30.0e-6",
 				outputPrice: "180.0e-6",
 				requestPrice: "0",
@@ -1661,6 +1698,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5.4-mini",
+				deactivatedAt: new Date("2027-09-21"),
 				inputPrice: "0.75e-6",
 				outputPrice: "4.5e-6",
 				cachedInputPrice: "0.075e-6",
@@ -1716,6 +1754,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5.4-nano",
+				deactivatedAt: new Date("2027-09-21"),
 				inputPrice: "0.2e-6",
 				outputPrice: "1.25e-6",
 				cachedInputPrice: "0.02e-6",
@@ -1779,6 +1818,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5.5",
+				deactivatedAt: new Date("2027-10-26"),
 				inputPrice: "5.0e-6",
 				outputPrice: "30.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -1902,6 +1942,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5.6-sol",
+				deactivatedAt: new Date("2028-01-11"),
 				inputPrice: "5.0e-6",
 				outputPrice: "30.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -2062,6 +2103,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5.6-terra",
+				deactivatedAt: new Date("2028-01-11"),
 				inputPrice: "2.0e-6",
 				outputPrice: "12.0e-6",
 				cachedInputPrice: "0.2e-6",
@@ -2223,6 +2265,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5.6-luna",
+				deactivatedAt: new Date("2028-01-11"),
 				inputPrice: "0.2e-6",
 				outputPrice: "1.2e-6",
 				cachedInputPrice: "0.02e-6",
@@ -2332,6 +2375,11 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.2-codex",
+				// Shut down by OpenAI on 2026-07-23 (announced 2026-04-22);
+				// requests now 404 with "has been deprecated". Replacement is
+				// gpt-5.6-sol. The azure mapping below stays active — Azure runs
+				// its own schedule and does not retire this until 2027-07-13.
+				deactivatedAt: new Date("2026-07-23"),
 				inputPrice: "1.75e-6",
 				outputPrice: "14.0e-6",
 				cachedInputPrice: "0.175e-6",
@@ -2354,6 +2402,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5.2-codex",
+				deactivatedAt: new Date("2027-07-13"),
 				inputPrice: "1.75e-6",
 				outputPrice: "14.0e-6",
 				cachedInputPrice: "0.175e-6",
@@ -2407,6 +2456,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5.3-codex",
+				deactivatedAt: new Date("2027-08-24"),
 				inputPrice: "1.75e-6",
 				outputPrice: "14.0e-6",
 				cachedInputPrice: "0.175e-6",
@@ -2632,6 +2682,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-image-2",
+				deactivatedAt: new Date("2027-10-21"),
 				inputPrice: "5e-6",
 				outputPrice: "0",
 				cachedInputPrice: "1.25e-6",

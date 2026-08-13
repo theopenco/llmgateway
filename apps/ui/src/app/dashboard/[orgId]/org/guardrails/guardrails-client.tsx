@@ -151,39 +151,53 @@ export function GuardrailsClient() {
 		(currentUserRole === "owner" || currentUserRole === "admin");
 
 	const fetchConfig = useCallback(async () => {
-		try {
-			setIsLoading(true);
-			const response = await fetchClient.GET(
-				"/guardrails/config/{organizationId}",
-				{
-					params: { path: { organizationId } },
-				},
+		setIsLoading(true);
+		setError(null);
+		// allSettled so a fulfilled response is still applied when the other
+		// request fails.
+		const [configResult, rulesResult] = await Promise.allSettled([
+			fetchClient.GET("/guardrails/config/{organizationId}", {
+				params: { path: { organizationId } },
+			}),
+			fetchClient.GET("/guardrails/rules/{organizationId}", {
+				params: { path: { organizationId } },
+			}),
+		]);
+
+		// openapi-fetch resolves non-2xx responses as { error }, so checking for a
+		// rejection alone would only catch network-level failures.
+		const configResponse =
+			configResult.status === "fulfilled" ? configResult.value : null;
+		const rulesResponse =
+			rulesResult.status === "fulfilled" ? rulesResult.value : null;
+
+		if (configResponse && !configResponse.error) {
+			// An org with no config yet gets a 200 with a null body — only then do
+			// the defaults apply. Falling back to them after an HTTP error would
+			// show guardrails as disabled and let the next save overwrite the
+			// org's real configuration.
+			setConfig(
+				(configResponse.data as unknown as GuardrailConfig | null) ??
+					DEFAULT_CONFIG,
 			);
-
-			if (response.data) {
-				setConfig(response.data as unknown as GuardrailConfig);
-			} else {
-				// No config exists yet, use defaults
-				setConfig(DEFAULT_CONFIG);
-			}
-
-			const rulesResponse = await fetchClient.GET(
-				"/guardrails/rules/{organizationId}",
-				{
-					params: { path: { organizationId } },
-				},
-			);
-
-			if (rulesResponse.data) {
-				setCustomRules(
-					(rulesResponse.data as { rules: CustomRule[] }).rules || [],
-				);
-			}
-		} catch {
-			setError("Failed to load guardrails configuration");
-		} finally {
-			setIsLoading(false);
 		}
+
+		if (rulesResponse && !rulesResponse.error) {
+			setCustomRules(
+				(rulesResponse.data as { rules: CustomRule[] } | undefined)?.rules ??
+					[],
+			);
+		}
+
+		if (
+			!configResponse ||
+			configResponse.error ||
+			!rulesResponse ||
+			rulesResponse.error
+		) {
+			setError("Failed to load guardrails configuration");
+		}
+		setIsLoading(false);
 	}, [fetchClient, organizationId]);
 
 	useEffect(() => {

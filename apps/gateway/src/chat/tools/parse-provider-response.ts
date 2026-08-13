@@ -318,20 +318,24 @@ export function parseProviderResponse(
 		case "iceberg":
 		case "google-vertex":
 		case "quartz": {
-			// Check if response is missing candidates - treat as content filter
-			if (!json.candidates || json.candidates.length === 0) {
-				// Only log warning if there's no blockReason explaining why
-				if (!json.promptFeedback?.blockReason) {
-					logger.warn(
-						"[parse-provider-response] Google response missing candidates",
-						{
-							usedProvider,
-							usedModel,
-							fullResponse: json,
-						},
-					);
-				}
-				finishReason = "content_filter";
+			// A response with no candidates used to be assigned "content_filter"
+			// here, which won over the `promptFeedback.blockReason` assignment
+			// below, so every such response was logged as the generic
+			// "content_filter" and the actual Google reason was lost. When Google
+			// reports no reason at all the finish reason is left unset (logged as
+			// "unknown") rather than guessing at a block — the warning below
+			// carries the full response for diagnosis.
+			const missingCandidates =
+				!json.candidates || json.candidates.length === 0;
+			if (missingCandidates && !json.promptFeedback?.blockReason) {
+				logger.warn(
+					"[parse-provider-response] Google response missing candidates",
+					{
+						usedProvider,
+						usedModel,
+						fullResponse: json,
+					},
+				);
 			}
 
 			// AI Studio duplicates the other candidates' parts into candidate 0
@@ -391,7 +395,7 @@ export function parseProviderResponse(
 			toolResults =
 				parts
 					.filter((part: any) => part.functionCall)
-					.map((part: any, index: number) => {
+					.map((part: any) => {
 						const toolCall: any = {
 							// Google doesn't provide an id, so generate one. It MUST be
 							// globally unique: the id is the `thought_signature:<id>` Redis
@@ -448,7 +452,6 @@ export function parseProviderResponse(
 
 			// Preserve the original Google finish reason for logging
 			// Use promptBlockReason if present, otherwise use googleFinishReason
-			// Don't overwrite if already set (e.g., content_filter for missing candidates)
 			if (!finishReason) {
 				if (promptBlockReason) {
 					finishReason = promptBlockReason;
@@ -672,6 +675,13 @@ export function parseProviderResponse(
 				if (json.choices?.[0]?.message?.images) {
 					images = json.choices[0].message.images;
 				}
+			}
+			// DashScope's OpenAI-compatible protocol never returns `search_info`,
+			// so there is no per-response signal that a search ran. We only ever
+			// enable search together with `forced_search`, which guarantees one,
+			// so requesting it is the count.
+			if (webSearchRequested) {
+				webSearchCount = 1;
 			}
 			break;
 		}
@@ -1067,7 +1077,10 @@ export function parseProviderResponse(
 				reasoningContent = hasReasoning ? aggregatedReasoning : null;
 				finishReason = allChoices[0]?.finish_reason ?? null;
 
-				if (finishReason === "abort") {
+				// Map non-standard finish reasons to OpenAI-compatible values
+				if (finishReason === "end_turn") {
+					finishReason = "stop";
+				} else if (finishReason === "abort") {
 					logger.warn("Upstream sent abort finish_reason", {
 						provider: usedProvider,
 						model: usedModel,
@@ -1080,6 +1093,8 @@ export function parseProviderResponse(
 					// "abort" is an upstream-initiated interruption, not a client
 					// cancellation, so it counts as an upstream error.
 					finishReason = "upstream_error";
+				} else if (finishReason === "tool_use") {
+					finishReason = "tool_calls";
 				}
 
 				// ZAI-specific fix for incorrect finish_reason in tool response scenarios
@@ -1192,6 +1207,13 @@ export function parseProviderResponse(
 					} else if (webSearchRequested) {
 						webSearchCount = 1;
 					}
+				}
+
+				// SCX resells Qwen through DashScope, which returns no search
+				// metadata over the OpenAI-compatible protocol. See the `alibaba`
+				// case: forced_search guarantees the search ran.
+				if (usedProvider === "scx-ai-gp" && webSearchRequested) {
+					webSearchCount = 1;
 				}
 			}
 			break;

@@ -439,6 +439,37 @@ export default async function ModelPage({ params }: PageProps) {
 									video generation
 								</div>
 							)}
+							{visibleProviders.some(
+								(p) =>
+									p.perImagePrice && Object.keys(p.perImagePrice).length > 0,
+							) && (
+								<div>
+									Starting at{" "}
+									{(() => {
+										let minPrice: number | undefined;
+										for (const p of visibleProviders) {
+											if (!p.perImagePrice) {
+												continue;
+											}
+											for (const v of Object.values(p.perImagePrice)) {
+												const raw =
+													typeof v === "number" ? v : parseFloat(String(v));
+												if (!Number.isFinite(raw)) {
+													continue;
+												}
+												const n = applyDiscount(raw, p.discount);
+												if (minPrice === undefined || n < minPrice) {
+													minPrice = n;
+												}
+											}
+										}
+										return minPrice !== undefined
+											? `$${parseFloat(minPrice.toFixed(4))}/image`
+											: "Unknown";
+									})()}{" "}
+									image generation
+								</div>
+							)}
 							{visibleProviders.some((p) => p.ocrPagePrice !== undefined) && (
 								<div>
 									Starting at{" "}

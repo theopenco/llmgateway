@@ -176,6 +176,10 @@ const PROJECT_SETTINGS = [
 		href: "settings/routing",
 		label: "Routing",
 	},
+	{
+		href: "settings/dynamic-routes",
+		label: "Dynamic Routes",
+	},
 ] as const;
 
 // Org-level nav items. `enterpriseGated` items show the enterprise indicator

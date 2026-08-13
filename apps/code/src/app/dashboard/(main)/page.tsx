@@ -6,6 +6,8 @@ import { usePostHog } from "posthog-js/react";
 import { toast } from "sonner";
 
 import ApiKeySection from "@/app/dashboard/components/ApiKeySection";
+import CapHitResetOfferDialog from "@/app/dashboard/components/CapHitResetOfferDialog";
+import UsageSummaryCard from "@/app/dashboard/components/UsageSummaryCard";
 import { plans } from "@/app/dashboard/plans";
 import { useDevPlanStatus } from "@/app/dashboard/useDevPlanStatus";
 import { useAppConfig } from "@/lib/config";
@@ -17,9 +19,6 @@ const ActivityHeatmap = dynamic(
 const DashboardIntegrations = dynamic(
 	() => import("@/app/dashboard/components/DashboardIntegrations"),
 );
-const UsageOverview = dynamic(
-	() => import("@/app/dashboard/components/UsageOverview"),
-);
 const CodingAgents = dynamic(
 	() => import("@/app/dashboard/components/CodingAgents"),
 );
@@ -27,7 +26,7 @@ const QuickStart = dynamic(
 	() => import("@/app/dashboard/components/QuickStart"),
 );
 
-export default function UsagePage() {
+export default function OverviewPage() {
 	const config = useAppConfig();
 	const { posthogKey } = config;
 	const posthog = usePostHog();
@@ -68,39 +67,45 @@ export default function UsagePage() {
 
 	const creditsUsed = parseFloat(devPlanStatus.devPlanCreditsUsed ?? "0");
 	const creditsLimit = parseFloat(devPlanStatus.devPlanCreditsLimit ?? "0");
+	const premiumCreditsUsed = parseFloat(
+		devPlanStatus.devPlanPremiumCreditsUsed ?? "0",
+	);
+	const premiumWeeklyLimit = parseFloat(
+		devPlanStatus.devPlanPremiumWeeklyLimit ?? "0",
+	);
 	const currentPlanName = devPlanStatus.devPlan?.toUpperCase() ?? "";
 	const currentPlanData = plans.find((p) => p.tier === devPlanStatus.devPlan);
 
 	return (
 		<div className="space-y-10">
+			{/* Contextual Reset Pass offer, shown the moment the weekly premium
+			    cap is hit (the 5s status poll picks up mid-session crossings) */}
+			<CapHitResetOfferDialog
+				tier={devPlanStatus.devPlan ?? ""}
+				premiumCreditsUsed={premiumCreditsUsed}
+				premiumWeeklyLimit={premiumWeeklyLimit}
+				premiumWeekResetsAt={devPlanStatus.devPlanPremiumWeekResetsAt ?? null}
+				purchased={devPlanStatus.devPlanResetPasses ?? 0}
+				includedRemaining={
+					devPlanStatus.devPlanIncludedResetPassesRemaining ?? 0
+				}
+				price={devPlanStatus.devPlanResetPassPrice ?? null}
+				cycleCreditsUsed={creditsUsed}
+				cycleCreditsLimit={creditsLimit}
+			/>
+
 			{/* GitHub-style activity heatmap — first thing the user sees */}
 			<ActivityHeatmap projectId={devPlanStatus.projectId ?? null} />
 
-			{/* Usage — full-width with metrics + chart */}
-			<UsageOverview
-				projectId={devPlanStatus.projectId ?? null}
-				organizationId={devPlanStatus.organizationId ?? null}
-				creditsUsed={creditsUsed}
-				creditsLimit={creditsLimit}
-				premiumCreditsUsed={parseFloat(
-					devPlanStatus.devPlanPremiumCreditsUsed ?? "0",
-				)}
-				premiumWeeklyLimit={parseFloat(
-					devPlanStatus.devPlanPremiumWeeklyLimit ?? "0",
-				)}
-				premiumWeekResetsAt={devPlanStatus.devPlanPremiumWeekResetsAt ?? null}
-				resetPasses={devPlanStatus.devPlanResetPasses ?? 0}
-				includedResetPasses={devPlanStatus.devPlanIncludedResetPasses ?? 0}
-				includedResetPassesRemaining={
-					devPlanStatus.devPlanIncludedResetPassesRemaining ?? 0
-				}
-				resetPassPrice={devPlanStatus.devPlanResetPassPrice ?? null}
+			{/* Compact allowance snapshot; full meters and charts live on
+			    /dashboard/usage */}
+			<UsageSummaryCard
 				planName={currentPlanName}
 				planPrice={currentPlanData?.price}
-				billingCycleStart={devPlanStatus.devPlanBillingCycleStart ?? null}
-				currentPeriodEnd={devPlanStatus.devPlanExpiresAt ?? null}
-				cancelledAtPeriodEnd={devPlanStatus.devPlanCancelled ?? false}
-				cycle={devPlanStatus.devPlanCycle ?? "monthly"}
+				creditsUsed={creditsUsed}
+				creditsLimit={creditsLimit}
+				paygEnabled={devPlanStatus.devPlanPaygEnabled ?? false}
+				regularCredits={parseFloat(devPlanStatus.regularCredits ?? "0")}
 			/>
 
 			{/* API Key + Quick start */}
