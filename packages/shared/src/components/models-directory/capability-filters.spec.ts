@@ -55,6 +55,7 @@ function makeMapping(
 		supportsVideoAudio: null,
 		supportsVideoWithoutAudio: null,
 		perSecondPrice: null,
+		perImagePrice: null,
 		pricingTiers: null,
 		discount: null,
 		stability: "stable",
