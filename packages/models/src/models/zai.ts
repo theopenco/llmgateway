@@ -539,9 +539,9 @@ export const zaiModels = [
 			{
 				providerId: "baidu",
 				externalId: "glm-5",
-				inputPrice: "0.7e-6",
-				cachedInputPrice: "0.14e-6",
-				outputPrice: "2.24e-6",
+				inputPrice: "1e-6",
+				cachedInputPrice: "0.2e-6",
+				outputPrice: "3.2e-6",
 				requestPrice: "0",
 				contextSize: 202752,
 				maxOutput: 131072,
@@ -549,7 +549,10 @@ export const zaiModels = [
 				reasoning: true,
 				vision: false,
 				tools: true,
-				jsonOutput: true,
+				// The API advertises structured_outputs but Qianfan's own model page
+				// lists Structured Output as unsupported for this one. Left off until a
+				// live request settles it: an unsupported claim 400s, omitting it only
+				// routes JSON-mode traffic elsewhere.
 			},
 		],
 	},

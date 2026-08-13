@@ -510,7 +510,9 @@ export const deepseekModels = [
 				outputPrice: "3.38e-6",
 				requestPrice: "0",
 				contextSize: 1048576,
-				maxOutput: 393216,
+				// /v1/models reports 393216 while Qianfan's model page caps output at
+				// 128K; the lower bound is the safe one to advertise.
+				maxOutput: 131072,
 				streaming: true,
 				reasoning: true,
 				vision: false,
