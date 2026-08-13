@@ -147,6 +147,7 @@ export function ApiKeysList({
 					apiKeys: initialData.map((key) => ({
 						...key,
 						maskedToken: key.maskedToken,
+						ownerBudget: key.ownerBudget ?? null,
 					})),
 					userRole: "owner" as const,
 				},
@@ -703,7 +704,6 @@ export function ApiKeysList({
 									<TableCell>
 										<ApiKeyLimitsDialog
 											apiKey={key}
-											organizationId={orgId ?? ""}
 											onSubmit={(payload) =>
 												updateKeyUsageLimit(key.id, payload)
 											}
@@ -985,7 +985,6 @@ export function ApiKeysList({
 								<div>
 									<ApiKeyLimitsDialog
 										apiKey={key}
-										organizationId={orgId ?? ""}
 										onSubmit={(payload) => updateKeyUsageLimit(key.id, payload)}
 									>
 										<Button

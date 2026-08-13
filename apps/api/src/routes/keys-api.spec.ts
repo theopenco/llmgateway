@@ -18,6 +18,35 @@ function getActivePeriodStartedAt() {
 	return new Date(Date.now() - ONE_HOUR_MS);
 }
 
+/** A second, developer-role member of the test org plus a key they created. */
+async function seedOtherMemberKey(budget: {
+	usageLimit?: string;
+	periodUsageLimit?: string;
+	periodUsageDurationValue?: number;
+	periodUsageDurationUnit?: "hour" | "day" | "week" | "month";
+}) {
+	await db.insert(tables.user).values({
+		id: "other-user-id",
+		name: "Other Developer",
+		email: "other-developer@example.com",
+		emailVerified: true,
+	});
+	await db.insert(tables.userOrganization).values({
+		id: "other-user-org-id",
+		userId: "other-user-id",
+		organizationId: "test-org-id",
+		role: "developer",
+		...budget,
+	});
+	await db.insert(tables.apiKey).values({
+		id: "other-api-key-id",
+		token: "other-api-key-token",
+		projectId: "test-project-id",
+		description: "Other Developer Key",
+		createdBy: "other-user-id",
+	});
+}
+
 describe("keys route", () => {
 	let token: string;
 
@@ -557,6 +586,53 @@ describe("keys route", () => {
 		expect(res.status).toBe(400);
 		const json = await res.json();
 		expect(json.message).toMatch(/organization limit of \$10\.00/);
+	});
+
+	test("PATCH /keys/api/limit/{id} blames the key owner's budget", async () => {
+		await seedOtherMemberKey({ usageLimit: "10" });
+
+		const res = await app.request("/keys/api/limit/other-api-key-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ usageLimit: "50" }),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.message).toMatch(/the key owner's limit of \$10\.00/);
+		expect(json.message).toMatch(/Team page/);
+	});
+
+	test("GET /keys/api returns each key owner's effective budget", async () => {
+		await seedOtherMemberKey({});
+		await db
+			.update(tables.organization)
+			.set({
+				defaultDeveloperPeriodUsageLimit: "500",
+				defaultDeveloperPeriodUsageDurationValue: 1,
+				defaultDeveloperPeriodUsageDurationUnit: "month",
+			})
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		const res = await app.request("/keys/api?projectId=test-project-id", {
+			headers: { Cookie: token },
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		const otherKey = json.apiKeys.find(
+			(key: { id: string }) => key.id === "other-api-key-id",
+		);
+		// The developer inherits the org-wide default developer budget.
+		expect(otherKey.ownerBudget).toEqual({
+			usageLimit: null,
+			periodUsageLimit: "500",
+			periodUsageDurationValue: 1,
+			periodUsageDurationUnit: "month",
+		});
 	});
 
 	test("PATCH /keys/api/limit/{id} updates and resets period usage", async () => {
