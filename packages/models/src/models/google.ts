@@ -1321,7 +1321,10 @@ export const googleModels = [
 			{
 				providerId: "google-vertex",
 				externalId: "gemini-3.7-flash",
-				serviceTiers: ["flex", "priority"],
+				// Vertex rejects Flex for this model ("Flex API is not supported for
+				// model: gemini-3.7-flash"), unlike 3.6 Flash and unlike the same
+				// model on AI Studio
+				serviceTiers: ["priority"],
 				serviceTierRegions: ["global"],
 				inputPrice: "1.5e-6",
 				outputPrice: "7.5e-6",
