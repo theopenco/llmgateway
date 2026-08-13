@@ -47,6 +47,7 @@ import {
 	OpenClawIcon,
 	OpenCodeIcon,
 	SoulForgeIcon,
+	Time,
 } from "@llmgateway/shared/components";
 
 import type { paths } from "@/lib/api/v1";
@@ -352,9 +353,8 @@ function SessionCard({
 							<ChevronRight className="h-4 w-4 text-muted-foreground" />
 						)}
 						<div className="text-sm text-muted-foreground">
-							{session.startTime.toLocaleDateString()}{" "}
-							{session.startTime.toLocaleTimeString()} &ndash;{" "}
-							{session.endTime.toLocaleTimeString()}
+							<Time date={session.startTime} format="M/d/yyyy h:mm:ss a" />{" "}
+							&ndash; <Time date={session.endTime} format="h:mm:ss a" />
 						</div>
 					</div>
 					<div className="flex items-center gap-4 text-sm text-muted-foreground">

@@ -26,6 +26,8 @@ import {
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
 
+import { Time, TimeZoneToggle } from "@llmgateway/shared/components";
+
 import type { paths } from "@/lib/api/v1";
 import type { Log } from "@llmgateway/db";
 
@@ -210,9 +212,8 @@ function SessionCard({
 								{formatSourceLabel(session.source)}
 							</div>
 							<div className="text-sm text-muted-foreground">
-								{session.startTime.toLocaleDateString()}{" "}
-								{session.startTime.toLocaleTimeString()} -{" "}
-								{session.endTime.toLocaleTimeString()}
+								<Time date={session.startTime} format="M/d/yyyy h:mm:ss a" /> -{" "}
+								<Time date={session.endTime} format="h:mm:ss a" />
 							</div>
 						</div>
 					</div>
@@ -339,6 +340,7 @@ export function SessionsView({
 	return (
 		<div className="space-y-4">
 			<div className="flex flex-wrap gap-2 mb-4 sticky top-0 bg-background z-10 py-2">
+				<TimeZoneToggle />
 				<DateRangeSelect
 					onChange={(_value: string, range: DateRange) => {
 						setDateRange(range);
