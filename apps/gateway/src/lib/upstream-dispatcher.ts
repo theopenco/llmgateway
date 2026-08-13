@@ -27,7 +27,11 @@ let agent: Agent | null = null;
 export function installUpstreamDispatcher(): Dispatcher {
 	const keepAliveTimeoutMs = envInt("UPSTREAM_KEEPALIVE_TIMEOUT_MS", 60_000);
 	const connectTimeoutMs = envInt("UPSTREAM_CONNECT_TIMEOUT_MS", 10_000);
-	const dnsCacheTtlMs = envInt("UPSTREAM_DNS_CACHE_TTL_MS", 30_000);
+	// Provider API hostnames resolve to CDN/anycast addresses that are stable
+	// over minutes, and a connect failure on a stale address is retried by the
+	// provider-fallback logic — so a long TTL is safe, while a short one expires
+	// between requests on a quiet pod and puts resolution back on the TTFT path.
+	const dnsCacheTtlMs = envInt("UPSTREAM_DNS_CACHE_TTL_MS", 300_000);
 
 	agent = new Agent({
 		keepAliveTimeout: keepAliveTimeoutMs,
