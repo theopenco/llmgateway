@@ -1298,9 +1298,7 @@ export const googleModels = [
 			{
 				providerId: "google-ai-studio",
 				externalId: "gemini-3.7-flash",
-				// priority requests are silently downgraded to standard for this
-				// model on the Gemini Developer API, so only flex is declared
-				serviceTiers: ["flex"],
+				serviceTiers: ["flex", "priority"],
 				// introductory pricing until 2026-12-31; $1.50/$7.50 from 2027-01-01
 				inputPrice: "0.75e-6",
 				outputPrice: "3.75e-6",
