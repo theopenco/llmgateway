@@ -23,6 +23,8 @@ import {
 } from "@/components/ui/select";
 import { useApi } from "@/lib/fetch-client";
 
+import { getBrowserTimeZone, useTimeZonePreference } from "@llmgateway/shared";
+
 import type { paths } from "@/lib/api/v1";
 import type { TooltipProps } from "recharts";
 
@@ -211,6 +213,8 @@ function ChartTooltipContent({
 export function AgentModelUsageChart({ projectId }: AgentModelUsageChartProps) {
 	const [range, setRange] = useState<AgentChartTimeRange>("24h");
 	const [metric, setMetric] = useState<Metric>("cost");
+	const { pref } = useTimeZonePreference();
+	const timezone = pref === "local" ? getBrowserTimeZone() : undefined;
 	const api = useApi();
 
 	const { data, isLoading, isFetching } = api.useQuery(
@@ -221,6 +225,7 @@ export function AgentModelUsageChart({ projectId }: AgentModelUsageChartProps) {
 				query: {
 					timeRange: range,
 					projectId,
+					...(timezone ? { timezone } : {}),
 				},
 			},
 		},

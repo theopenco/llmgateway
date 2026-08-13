@@ -5,6 +5,12 @@ import { useMemo } from "react";
 
 import { useApi } from "@/lib/fetch-client";
 
+import {
+	getBrowserTimeZone,
+	parseDayString,
+	useTimeZonePreference,
+} from "@llmgateway/shared";
+
 interface ActivityHeatmapProps {
 	projectId: string | null;
 }
@@ -56,6 +62,13 @@ function dateKey(d: Date): string {
 	return `${yyyy}-${mm}-${dd}`;
 }
 
+function dateKeyLocal(d: Date): string {
+	const yyyy = d.getFullYear();
+	const mm = String(d.getMonth() + 1).padStart(2, "0");
+	const dd = String(d.getDate()).padStart(2, "0");
+	return `${yyyy}-${mm}-${dd}`;
+}
+
 function formatDateLong(iso: string): string {
 	const d = new Date(iso + "T00:00:00Z");
 	return d.toLocaleDateString(undefined, {
@@ -67,7 +80,22 @@ function formatDateLong(iso: string): string {
 	});
 }
 
+function formatDateLongLocal(iso: string): string {
+	// The day key is already a local calendar day (matches the API's
+	// local-bucketed day strings) — render its literal day, not a UTC shift.
+	const d = parseDayString(iso);
+	return d.toLocaleDateString(undefined, {
+		weekday: "short",
+		month: "short",
+		day: "numeric",
+		year: "numeric",
+	});
+}
+
 export default function ActivityHeatmap({ projectId }: ActivityHeatmapProps) {
+	const { pref } = useTimeZonePreference();
+	const local = pref === "local";
+	const timezone = local ? getBrowserTimeZone() : undefined;
 	const api = useApi();
 
 	const { data, isLoading } = api.useQuery(
@@ -76,8 +104,15 @@ export default function ActivityHeatmap({ projectId }: ActivityHeatmapProps) {
 		{
 			params: {
 				query: projectId
-					? { projectId, timeRange: "365d" as const }
-					: { timeRange: "365d" as const },
+					? {
+							projectId,
+							timeRange: "365d" as const,
+							...(timezone ? { timezone } : {}),
+						}
+					: {
+							timeRange: "365d" as const,
+							...(timezone ? { timezone } : {}),
+						},
 			},
 		},
 		{
@@ -90,14 +125,25 @@ export default function ActivityHeatmap({ projectId }: ActivityHeatmapProps) {
 	const { weeks, totalRequests, activeDays, currentStreak, max, monthMarks } =
 		useMemo(() => {
 			const today = new Date();
-			today.setUTCHours(0, 0, 0, 0);
+			if (local) {
+				today.setHours(0, 0, 0, 0);
+			} else {
+				today.setUTCHours(0, 0, 0, 0);
+			}
 
 			const start = new Date(today);
-			start.setUTCDate(start.getUTCDate() - 364);
+			if (local) {
+				start.setDate(start.getDate() - 364);
+			} else {
+				start.setUTCDate(start.getUTCDate() - 364);
+			}
 
-			const dayOfWeekStart = start.getUTCDay();
 			const gridStart = new Date(start);
-			gridStart.setUTCDate(gridStart.getUTCDate() - dayOfWeekStart);
+			if (local) {
+				gridStart.setDate(gridStart.getDate() - start.getDay());
+			} else {
+				gridStart.setUTCDate(gridStart.getUTCDate() - start.getUTCDay());
+			}
 
 			const totalDaysInGrid =
 				Math.floor(
@@ -123,12 +169,16 @@ export default function ActivityHeatmap({ projectId }: ActivityHeatmapProps) {
 				for (let d = 0; d < 7; d++) {
 					const cellDate = new Date(gridStart);
 					const offset = w * 7;
-					cellDate.setUTCDate(gridStart.getUTCDate() + offset + d);
+					if (local) {
+						cellDate.setDate(gridStart.getDate() + offset + d);
+					} else {
+						cellDate.setUTCDate(gridStart.getUTCDate() + offset + d);
+					}
 					if (cellDate < start || cellDate > today) {
 						week.push(null);
 						continue;
 					}
-					const key = dateKey(cellDate);
+					const key = local ? dateKeyLocal(cellDate) : dateKey(cellDate);
 					const c = counts.get(key) ?? 0;
 					if (c > maxCount) {
 						maxCount = c;
@@ -145,12 +195,17 @@ export default function ActivityHeatmap({ projectId }: ActivityHeatmapProps) {
 			let streak = 0;
 			const cursor = new Date(today);
 			while (cursor >= start) {
-				const c = counts.get(dateKey(cursor)) ?? 0;
+				const c =
+					counts.get(local ? dateKeyLocal(cursor) : dateKey(cursor)) ?? 0;
 				if (c === 0) {
 					break;
 				}
 				streak += 1;
-				cursor.setUTCDate(cursor.getUTCDate() - 1);
+				if (local) {
+					cursor.setDate(cursor.getDate() - 1);
+				} else {
+					cursor.setUTCDate(cursor.getUTCDate() - 1);
+				}
 			}
 
 			const seenMonths = new Set<number>();
@@ -160,9 +215,12 @@ export default function ActivityHeatmap({ projectId }: ActivityHeatmapProps) {
 				if (!firstReal) {
 					continue;
 				}
-				const d = new Date(firstReal.date + "T00:00:00Z");
-				const month = d.getUTCMonth();
-				const day = d.getUTCDate();
+				const month = local
+					? parseDayString(firstReal.date).getMonth()
+					: new Date(firstReal.date + "T00:00:00Z").getUTCMonth();
+				const day = local
+					? parseDayString(firstReal.date).getDate()
+					: new Date(firstReal.date + "T00:00:00Z").getUTCDate();
 				if (day <= 7 && !seenMonths.has(month)) {
 					seenMonths.add(month);
 					marks.push({ weekIndex: w, label: MONTH_LABELS[month] });
@@ -177,7 +235,7 @@ export default function ActivityHeatmap({ projectId }: ActivityHeatmapProps) {
 				max: maxCount,
 				monthMarks: marks,
 			};
-		}, [data]);
+		}, [data, local]);
 
 	if (!projectId) {
 		return null;
@@ -261,7 +319,9 @@ export default function ActivityHeatmap({ projectId }: ActivityHeatmapProps) {
 														</span>{" "}
 														<span className="text-background/70">
 															{cell.count === 1 ? "request" : "requests"} ·{" "}
-															{formatDateLong(cell.date)}
+															{local
+																? formatDateLongLocal(cell.date)
+																: formatDateLong(cell.date)}
 														</span>
 														<span className="absolute left-1/2 top-full -ml-1 h-2 w-2 -translate-y-1 rotate-45 bg-foreground" />
 													</div>
