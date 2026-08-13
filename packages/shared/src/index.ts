@@ -128,6 +128,8 @@ export {
 
 export { useIsMobile } from "./hooks/use-mobile.js";
 
+export { useTimeZonePreference } from "./hooks/use-time-zone-preference.js";
+
 export { cn } from "./lib/utils.js";
 
 export {
@@ -136,6 +138,18 @@ export {
 } from "./video-proxy.js";
 
 export { selectLoadBalancedItem } from "./load-balance.js";
+
+export {
+	TIME_ZONE_PREF_KEY,
+	formatInTimeZone,
+	getBrowserTimeZone,
+	isDayString,
+	parseDayString,
+	readTimeZonePref,
+	timeToDisplay,
+	type TimeZonePref,
+	writeTimeZonePref,
+} from "./lib/format-date.js";
 
 export {
 	fillRandomFloats,

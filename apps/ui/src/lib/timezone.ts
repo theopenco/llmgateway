@@ -1,7 +1,1 @@
-export function getBrowserTimeZone(): string {
-	try {
-		return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-	} catch {
-		return "UTC";
-	}
-}
+export { getBrowserTimeZone } from "@llmgateway/shared";
