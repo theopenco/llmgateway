@@ -1215,9 +1215,10 @@ export const googleModels = [
 				providerId: "google-ai-studio",
 				externalId: "gemini-3.6-flash",
 				serviceTiers: ["flex", "priority"],
-				inputPrice: "1.5e-6",
-				outputPrice: "7.5e-6",
-				cachedInputPrice: "0.15e-6",
+				// Introductory pricing through 2026-12-31; reverts to 1.5/7.5/0.15 on 2027-01-01.
+				inputPrice: "0.75e-6",
+				outputPrice: "3.75e-6",
+				cachedInputPrice: "0.075e-6",
 				cacheWriteInputPrice: "0.08333e-6",
 				requestPrice: "0",
 				webSearchPrice: "0.014",
@@ -1238,9 +1239,10 @@ export const googleModels = [
 			{
 				providerId: "iceberg",
 				externalId: "gemini-3.6-flash",
-				inputPrice: "1.5e-6",
-				outputPrice: "7.5e-6",
-				cachedInputPrice: "0.15e-6",
+				// Introductory pricing through 2026-12-31; reverts to 1.5/7.5/0.15 on 2027-01-01.
+				inputPrice: "0.75e-6",
+				outputPrice: "3.75e-6",
+				cachedInputPrice: "0.075e-6",
 				cacheWriteInputPrice: "0.08333e-6",
 				requestPrice: "0",
 				webSearchPrice: "0.014",
@@ -1263,9 +1265,10 @@ export const googleModels = [
 				externalId: "gemini-3.6-flash",
 				serviceTiers: ["flex", "priority"],
 				serviceTierRegions: ["global"],
-				inputPrice: "1.5e-6",
-				outputPrice: "7.5e-6",
-				cachedInputPrice: "0.15e-6",
+				// Introductory pricing through 2026-12-31; reverts to 1.5/7.5/0.15 on 2027-01-01.
+				inputPrice: "0.75e-6",
+				outputPrice: "3.75e-6",
+				cachedInputPrice: "0.075e-6",
 				cacheWriteInputPrice: "0.08333e-6",
 				requestPrice: "0",
 				webSearchPrice: "0.014",
@@ -1288,7 +1291,7 @@ export const googleModels = [
 		id: "gemini-3.7-flash",
 		name: "Gemini 3.7 Flash",
 		description:
-			"Gemini 3.7 Flash brings Pro-level agentic capability to the Flash tier, with stronger code generation and multimodal reasoning at high token efficiency.",
+			"Gemini 3.7 Flash succeeds 3.6 Flash with stronger coding, document processing, and agentic workflow performance at the same 1M-token context window, with multimodal input and thinking support.",
 		family: "google",
 		releasedAt: new Date("2026-08-13"),
 		providers: [
@@ -1296,21 +1299,17 @@ export const googleModels = [
 				providerId: "google-ai-studio",
 				externalId: "gemini-3.7-flash",
 				serviceTiers: ["flex", "priority"],
-				// Google charges half of these through 2026-12-31 as introductory
-				// pricing and reverts to them on 2027-01-01; the 3.6 Flash mapping
-				// carries the same post-promo rates
-				inputPrice: "1.5e-6",
-				outputPrice: "7.5e-6",
-				cachedInputPrice: "0.15e-6",
+				// introductory pricing until 2026-12-31; $1.50/$7.50 from 2027-01-01
+				inputPrice: "0.75e-6",
+				outputPrice: "3.75e-6",
+				cachedInputPrice: "0.075e-6",
 				cacheWriteInputPrice: "0.08333e-6",
 				requestPrice: "0",
 				webSearchPrice: "0.014",
 				contextSize: 1048576,
 				maxOutput: 65536,
 				reasoning: true,
-				// 3.7 Flash dropped the minimal thinking level: only low, medium and
-				// high exist, and asking for minimal is a validation error
-				reasoningEfforts: ["low", "medium", "high"],
+				reasoningEfforts: ["minimal", "low", "medium", "high"],
 				reasoningMaxTokens: true,
 				streaming: true,
 				vision: true,
@@ -1324,24 +1323,21 @@ export const googleModels = [
 			{
 				providerId: "google-vertex",
 				externalId: "gemini-3.7-flash",
-				// Vertex rejects Flex for this model ("Flex API is not supported for
-				// model: gemini-3.7-flash"), unlike 3.6 Flash and unlike the same
-				// model on AI Studio
+				// Vertex rejects Flex for this model ("Flex API is not supported
+				// for model"), so only priority is declared
 				serviceTiers: ["priority"],
 				serviceTierRegions: ["global"],
-				// see the AI Studio mapping: these are the post-promo rates that
-				// take effect 2027-01-01
-				inputPrice: "1.5e-6",
-				outputPrice: "7.5e-6",
-				cachedInputPrice: "0.15e-6",
+				// introductory pricing until 2026-12-31; $1.50/$7.50 from 2027-01-01
+				inputPrice: "0.75e-6",
+				outputPrice: "3.75e-6",
+				cachedInputPrice: "0.075e-6",
 				cacheWriteInputPrice: "0.08333e-6",
 				requestPrice: "0",
 				webSearchPrice: "0.014",
 				contextSize: 1048576,
 				maxOutput: 65536,
 				reasoning: true,
-				// see the AI Studio mapping: minimal is rejected by 3.7 Flash
-				reasoningEfforts: ["low", "medium", "high"],
+				reasoningEfforts: ["minimal", "low", "medium", "high"],
 				reasoningMaxTokens: true,
 				streaming: true,
 				vision: true,
