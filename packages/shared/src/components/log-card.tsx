@@ -1,6 +1,6 @@
 "use client";
 
-import { format, formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow } from "date-fns";
 import {
 	AlertCircle,
 	AudioWaveform,
@@ -50,6 +50,8 @@ import {
 	formatServiceTierMultiplier,
 	getServiceTier,
 } from "@llmgateway/models";
+
+import { Time } from "./time";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1193,7 +1195,7 @@ export function LogCard({
 							<div className="grid grid-cols-2 gap-2 rounded-md border p-3 text-sm">
 								<div className="text-muted-foreground">Date</div>
 								<div className="font-mono text-xs">
-									{format(new Date(log.createdAt), "dd.MM.yyyy HH:mm:ss")}
+									<Time date={log.createdAt} format="dd.MM.yyyy HH:mm:ss" />
 								</div>
 								<div className="text-muted-foreground">Request ID</div>
 								<div className="flex items-center gap-1 font-mono text-xs break-all">
