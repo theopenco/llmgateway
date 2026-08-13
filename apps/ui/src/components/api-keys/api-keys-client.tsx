@@ -16,6 +16,8 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { extractOrgAndProjectFromPath } from "@/lib/navigation-utils";
 
+import { TimeZoneToggle } from "@llmgateway/shared/components";
+
 import type { Project, ApiKey } from "@/lib/types";
 
 export function ApiKeysClient({ initialData }: { initialData: ApiKey[] }) {
@@ -85,34 +87,37 @@ export function ApiKeysClient({ initialData }: { initialData: ApiKey[] }) {
 							Create and manage API keys to authenticate requests to LLM Gateway
 						</p>
 					</div>
-					{selectedProject && (
-						<CreateApiKeyDialog
-							selectedProject={selectedProject}
-							disabled={
-								planLimits
-									? planLimits.currentCount >= planLimits.maxKeys
-									: false
-							}
-							disabledMessage={
-								planLimits
-									? `${planLimits.plan === "enterprise" ? "Enterprise" : planLimits.plan === "pro" ? "Pro" : "Free"} plan allows maximum ${planLimits.maxKeys} API keys per organization`
-									: undefined
-							}
-						>
-							<Button
+					<div className="flex items-center gap-4">
+						<TimeZoneToggle />
+						{selectedProject && (
+							<CreateApiKeyDialog
+								selectedProject={selectedProject}
 								disabled={
-									!selectedProject ||
-									(planLimits
+									planLimits
 										? planLimits.currentCount >= planLimits.maxKeys
-										: false)
+										: false
 								}
-								className="cursor-pointer flex items-center space-x-1 w-full md:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
+								disabledMessage={
+									planLimits
+										? `${planLimits.plan === "enterprise" ? "Enterprise" : planLimits.plan === "pro" ? "Pro" : "Free"} plan allows maximum ${planLimits.maxKeys} API keys per organization`
+										: undefined
+								}
 							>
-								<Orbit className=" h-4 w-4 mt-0.5" />
-								Create API Key
-							</Button>
-						</CreateApiKeyDialog>
-					)}
+								<Button
+									disabled={
+										!selectedProject ||
+										(planLimits
+											? planLimits.currentCount >= planLimits.maxKeys
+											: false)
+									}
+									className="cursor-pointer flex items-center space-x-1 w-full md:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
+								>
+									<Orbit className=" h-4 w-4 mt-0.5" />
+									Create API Key
+								</Button>
+							</CreateApiKeyDialog>
+						)}
+					</div>
 				</div>
 				<div className="space-y-4">
 					{/* Desktop Card */}

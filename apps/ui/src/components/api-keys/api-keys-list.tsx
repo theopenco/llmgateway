@@ -56,6 +56,8 @@ import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 import { extractOrgAndProjectFromPath } from "@/lib/navigation-utils";
 
+import { Time } from "@llmgateway/shared/components";
+
 import {
 	formatCurrentPeriodUsageSummary,
 	formatCurrencyAmount,
@@ -664,22 +666,15 @@ export function ApiKeysList({
 										<Tooltip>
 											<TooltipTrigger asChild>
 												<span className="text-muted-foreground cursor-help border-b border-dotted border-muted-foreground/50 hover:border-muted-foreground">
-													{Intl.DateTimeFormat(undefined, {
-														month: "short",
-														day: "numeric",
-														year: "numeric",
-													}).format(new Date(key.createdAt))}
+													<Time date={key.createdAt} format="MMM d, yyyy" />
 												</span>
 											</TooltipTrigger>
 											<TooltipContent>
 												<p className="max-w-xs text-xs whitespace-nowrap">
-													{Intl.DateTimeFormat(undefined, {
-														month: "short",
-														day: "numeric",
-														year: "numeric",
-														hour: "2-digit",
-														minute: "2-digit",
-													}).format(new Date(key.createdAt))}
+													<Time
+														date={key.createdAt}
+														format="MMM d, yyyy, hh:mm a"
+													/>
 												</p>
 											</TooltipContent>
 										</Tooltip>
@@ -869,13 +864,10 @@ export function ApiKeysList({
 									{renderExpiry(key)}
 									<div className="flex items-center gap-2 mt-1">
 										<span className="text-xs text-muted-foreground">
-											{Intl.DateTimeFormat(undefined, {
-												month: "short",
-												day: "numeric",
-												year: "numeric",
-												hour: "2-digit",
-												minute: "2-digit",
-											}).format(new Date(key.createdAt))}
+											<Time
+												date={key.createdAt}
+												format="MMM d, yyyy, hh:mm a"
+											/>
 										</span>
 									</div>
 								</div>
