@@ -30,6 +30,7 @@ import { useUser } from "@/hooks/useUser";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
 
 import { buildAgentLogsCsv } from "@llmgateway/shared";
+import { Time, TimeZoneToggle } from "@llmgateway/shared/components";
 
 type ModelSortColumn =
 	| "id"
@@ -270,7 +271,7 @@ function RequestRow({ log }: { log: ApiLog }) {
 					{log.usedModel ?? log.requestedModel ?? "—"}
 				</p>
 				<p className="text-xs text-muted-foreground/70">
-					{new Date(log.createdAt).toLocaleString()}
+					<Time date={log.createdAt} format="M/d/yyyy, h:mm:ss a" />
 				</p>
 			</div>
 			<div className="flex items-center gap-3 text-xs text-muted-foreground tabular-nums">
@@ -516,6 +517,7 @@ function AgentDetailBody({
 					</div>
 				</div>
 				<div className="flex flex-wrap items-center gap-2">
+					<TimeZoneToggle />
 					<TimeRangePicker value={timeRange} onChange={updateTimeRange} />
 					<button
 						type="button"
