@@ -2,6 +2,8 @@ import { RecentLogs } from "@/components/activity/recent-logs";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import { fetchServerData } from "@/lib/server-api";
 
+import { TimeZoneToggle } from "@llmgateway/shared/components";
+
 import type { LogsData } from "@/types/activity";
 
 export default async function ActivityPage({
@@ -95,11 +97,14 @@ export default async function ActivityPage({
 	return (
 		<div className="flex flex-col">
 			<div className="flex-1 space-y-4 p-4 pt-6 md:p-8">
-				<div>
-					<h2 className="text-3xl font-bold tracking-tight">Activity Logs</h2>
-					<p className="mt-1 text-sm text-muted-foreground">
-						Your recent API requests and system events
-					</p>
+				<div className="flex items-center justify-between gap-4">
+					<div>
+						<h2 className="text-3xl font-bold tracking-tight">Activity Logs</h2>
+						<p className="mt-1 text-sm text-muted-foreground">
+							Your recent API requests and system events
+						</p>
+					</div>
+					<TimeZoneToggle />
 				</div>
 				<RecentLogs
 					initialData={initialLogsData ?? undefined}

@@ -6,6 +6,8 @@ import { parseAgentTimeRange } from "@/lib/agent-time-ranges";
 import { DEVPASS_CARD_COLLAPSED_COOKIE } from "@/lib/cookies";
 import { fetchServerData } from "@/lib/server-api";
 
+import { TimeZoneToggle } from "@llmgateway/shared/components";
+
 import type { SourceActivityData } from "@/types/activity";
 
 export default async function AgentsPage({
@@ -41,11 +43,14 @@ export default async function AgentsPage({
 		<div className="flex flex-col">
 			<div className="flex-1 space-y-4 p-4 pt-6 md:p-8">
 				<DevPassCard defaultCollapsed={devPassCollapsed} />
-				<div>
-					<h2 className="text-3xl font-bold tracking-tight">Agents</h2>
-					<p className="text-muted-foreground">
-						Monitor your AI coding agents and their activity
-					</p>
+				<div className="flex items-center justify-between gap-4">
+					<div>
+						<h2 className="text-3xl font-bold tracking-tight">Agents</h2>
+						<p className="text-muted-foreground">
+							Monitor your AI coding agents and their activity
+						</p>
+					</div>
+					<TimeZoneToggle />
 				</div>
 				<AgentsView
 					projectId={projectId}
