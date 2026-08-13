@@ -1,8 +1,7 @@
 "use client";
 
-import { format } from "date-fns";
 import { ArrowDown, ArrowRight, ArrowUp, Loader2 } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import {
 	AlertDialog,
@@ -19,6 +18,8 @@ import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useApi } from "@/lib/fetch-client";
 import { cn, formatUsageRatio } from "@/lib/utils";
+
+import { Time, TimeZoneToggle } from "@llmgateway/shared/components";
 
 import type { PlanOption, PlanTier } from "@/app/dashboard/types";
 import type { paths } from "@/lib/api/v1";
@@ -82,7 +83,10 @@ export default function ActivePlanChangeTier({
 
 	return (
 		<div>
-			<h2 className="mb-1 font-semibold">Change plan</h2>
+			<div className="flex items-center justify-between gap-4">
+				<h2 className="mb-1 font-semibold">Change plan</h2>
+				<TimeZoneToggle />
+			</div>
 			<p className="mb-4 text-sm text-muted-foreground">
 				{cancelled
 					? "Your subscription is scheduled to cancel. Resume it first to change your plan."
@@ -331,9 +335,11 @@ function TierChangeDialog({
 	);
 }
 
-function formatRenewalDate(iso: string): string | null {
+function formatRenewalDate(iso: string): ReactNode | null {
 	const date = new Date(iso);
-	return Number.isNaN(date.getTime()) ? null : format(date, "MMM d, yyyy");
+	return Number.isNaN(date.getTime()) ? null : (
+		<Time date={date} format="MMM d, yyyy" />
+	);
 }
 
 // Shared between the timing chooser and the fallback preview copy so the
@@ -427,7 +433,7 @@ function UpgradeTimingChoice({
 				/>
 				<span className="flex flex-col gap-1">
 					<span className="text-sm font-medium">
-						At next renewal{renewalDate ? ` — ${renewalDate}` : ""}
+						At next renewal{renewalDate ? <> — {renewalDate}</> : ""}
 					</span>
 					<span className="text-xs text-muted-foreground">
 						No charge today. You keep your {currentName} allowance until{" "}
