@@ -141,6 +141,9 @@ gateway:
     healthCheckSkipDatabase: ""
     healthCheckTimeoutMs: 15000
     maxStreamingBufferMb: 50
+    # Origins the upstream dispatcher keeps permanently warm (DNS cache +
+    # pooled connection) so an idle pod's next request skips connection setup.
+    upstreamPrewarmOrigins: "https://api.anthropic.com,https://api.openai.com"
   # Hard deadline for pod shutdown; caps every in-process drain above. Defaults
   # to 120s, or realtime.config.maxSessionSeconds + 120 when realtime.enabled.
   # Set explicitly only to override that.

@@ -16,12 +16,17 @@ describe("upstream dispatcher", () => {
 	let server: Server;
 	let baseUrl: string;
 	const clientPorts: number[] = [];
+	let headHits = 0;
 
 	beforeAll(async () => {
 		originalDispatcher = getGlobalDispatcher();
 		server = createServer((req, res) => {
 			clientPorts.push(req.socket.remotePort!);
-			if (req.url === "/sse") {
+			if (req.method === "HEAD") {
+				headHits++;
+				res.writeHead(200);
+				res.end();
+			} else if (req.url === "/sse") {
 				res.writeHead(200, { "content-type": "text/event-stream" });
 				res.write("data: first\n\n");
 				// keep the stream open; a later write + end completes it
@@ -48,7 +53,10 @@ describe("upstream dispatcher", () => {
 		await closeUpstreamDispatcher();
 		setGlobalDispatcher(originalDispatcher);
 		delete process.env.UPSTREAM_KEEPALIVE_TIMEOUT_MS;
+		delete process.env.UPSTREAM_PREWARM_ORIGINS;
+		delete process.env.UPSTREAM_PREWARM_INTERVAL_MS;
 		clientPorts.length = 0;
+		headHits = 0;
 	});
 
 	afterAll(async () => {
@@ -86,5 +94,46 @@ describe("upstream dispatcher", () => {
 	it("falls back to defaults on invalid env values", () => {
 		process.env.UPSTREAM_KEEPALIVE_TIMEOUT_MS = "not-a-number";
 		expect(() => installUpstreamDispatcher()).not.toThrow();
+	});
+
+	it("prewarms configured origins immediately and on the interval", async () => {
+		process.env.UPSTREAM_PREWARM_ORIGINS = baseUrl;
+		process.env.UPSTREAM_PREWARM_INTERVAL_MS = "25";
+		installUpstreamDispatcher();
+
+		const deadline = Date.now() + 2_000;
+		while (headHits < 3 && Date.now() < deadline) {
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		}
+		expect(headHits).toBeGreaterThanOrEqual(3);
+	});
+
+	it("stops prewarming after the dispatcher is closed", async () => {
+		process.env.UPSTREAM_PREWARM_ORIGINS = baseUrl;
+		process.env.UPSTREAM_PREWARM_INTERVAL_MS = "25";
+		installUpstreamDispatcher();
+
+		const deadline = Date.now() + 2_000;
+		while (headHits < 1 && Date.now() < deadline) {
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		}
+		await closeUpstreamDispatcher();
+		// let any in-flight ping land before snapshotting
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		const settled = headHits;
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(headHits).toBe(settled);
+	});
+
+	it("ignores invalid prewarm origins without failing install", async () => {
+		process.env.UPSTREAM_PREWARM_ORIGINS = `not-a-url, ,${baseUrl}`;
+		process.env.UPSTREAM_PREWARM_INTERVAL_MS = "25";
+		expect(() => installUpstreamDispatcher()).not.toThrow();
+
+		const deadline = Date.now() + 2_000;
+		while (headHits < 1 && Date.now() < deadline) {
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		}
+		expect(headHits).toBeGreaterThanOrEqual(1);
 	});
 });
