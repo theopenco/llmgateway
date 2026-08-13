@@ -1,6 +1,5 @@
 "use client";
 
-import { format } from "date-fns";
 import { AlertTriangle, ShieldAlert, ShieldCheck, Eye } from "lucide-react";
 import { useParams } from "next/navigation";
 import { useState, useEffect, useCallback } from "react";
@@ -26,6 +25,8 @@ import {
 	SelectValue,
 } from "@/lib/components/select";
 import { useFetchClient } from "@/lib/fetch-client";
+
+import { Time, TimeZoneToggle } from "@llmgateway/shared/components";
 
 import { ContactSalesCard } from "./contact-sales-card";
 
@@ -278,11 +279,14 @@ export function SecurityEventsClient() {
 
 			{/* Violations List */}
 			<Card>
-				<CardHeader>
-					<CardTitle>Security Events</CardTitle>
-					<CardDescription>
-						View all guardrail violations and security events
-					</CardDescription>
+				<CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+					<div>
+						<CardTitle>Security Events</CardTitle>
+						<CardDescription>
+							View all guardrail violations and security events
+						</CardDescription>
+					</div>
+					<TimeZoneToggle />
 				</CardHeader>
 				<CardContent>
 					{/* Filters */}
@@ -371,7 +375,7 @@ export function SecurityEventsClient() {
 															{violation.actionTaken}
 														</Badge>
 														<span className="text-xs text-muted-foreground">
-															{format(new Date(violation.createdAt), "PPp")}
+															<Time date={violation.createdAt} format="PPp" />
 														</span>
 													</div>
 													<div className="text-sm font-medium">
@@ -421,7 +425,7 @@ export function SecurityEventsClient() {
 													className="hover:bg-muted/25 transition-colors"
 												>
 													<td className="p-4 align-middle text-sm whitespace-nowrap">
-														{format(new Date(violation.createdAt), "PPp")}
+														<Time date={violation.createdAt} format="PPp" />
 													</td>
 													<td className="p-4 align-middle">
 														<span className="text-sm font-medium">
