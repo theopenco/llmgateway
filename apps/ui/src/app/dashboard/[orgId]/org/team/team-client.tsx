@@ -90,6 +90,7 @@ import { getBrowserTimeZone } from "@/lib/timezone";
 import { applyUsageMode } from "@/lib/usage-mode";
 
 import { SSO_TEAM_DEFAULT_DEVELOPER_BUDGET } from "@llmgateway/shared";
+import { Time, TimeZoneToggle } from "@llmgateway/shared/components";
 
 import type { Route } from "next";
 
@@ -898,6 +899,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 							</p>
 						</div>
 						<div className="flex items-center gap-2">
+							<TimeZoneToggle />
 							{showUsage && (
 								<>
 									<UsageModeSelector />
@@ -1339,10 +1341,10 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 													)}
 												</TableCell>
 												<TableCell>
-													{format(new Date(invite.createdAt), "MMM d, yyyy")}
+													<Time date={invite.createdAt} format="MMM d, yyyy" />
 												</TableCell>
 												<TableCell>
-													{format(new Date(invite.expiresAt), "MMM d, yyyy")}
+													<Time date={invite.expiresAt} format="MMM d, yyyy" />
 												</TableCell>
 												{isAdmin && (
 													<TableCell className="text-right">
