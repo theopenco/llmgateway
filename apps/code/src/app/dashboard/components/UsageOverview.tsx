@@ -1,12 +1,14 @@
 "use client";
 
-import { format, formatDistanceToNowStrict } from "date-fns";
+import { formatDistanceToNowStrict } from "date-fns";
 import { Activity, Coins, Cpu, Gem, TrendingUp } from "lucide-react";
 import { usePostHog } from "posthog-js/react";
 import { useEffect } from "react";
 
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
+
+import { Time, TimeZoneToggle } from "@llmgateway/shared/components";
 
 import { AgentModelUsageChart } from "./AgentModelUsageChart";
 import AllowanceExhaustedCard from "./AllowanceExhaustedCard";
@@ -54,7 +56,7 @@ function MetricCard({
 }: {
 	label: string;
 	value: string;
-	hint?: string;
+	hint?: React.ReactNode;
 	icon: React.ComponentType<{ className?: string }>;
 }) {
 	return (
@@ -110,9 +112,13 @@ function WeeklyAllowanceMeter({
 						<span className="font-normal text-muted-foreground">spent</span>
 					</div>
 					<div className="mt-0.5 text-xs text-muted-foreground">
-						{resetsAt
-							? `Resets ${format(new Date(resetsAt), "MMM d")}`
-							: "Window starts with your first premium request"}
+						{resetsAt ? (
+							<>
+								Resets <Time date={resetsAt} format="MMM d" />
+							</>
+						) : (
+							"Window starts with your first premium request"
+						)}
 					</div>
 				</div>
 				<div
@@ -285,9 +291,13 @@ export default function UsageOverview({
 	);
 	const cycleLengthLabel = billingCycleStart ? "this cycle" : "30d";
 
-	const cycleLabel = billingCycleStart
-		? `Since ${format(new Date(billingCycleStart), "MMM d, yyyy")}`
-		: "Active";
+	const cycleLabel = billingCycleStart ? (
+		<>
+			Since <Time date={billingCycleStart} format="MMM d, yyyy" />
+		</>
+	) : (
+		"Active"
+	);
 
 	// The renewal/period-end date must come from Stripe's actual
 	// `current_period_end` (surfaced as `currentPeriodEnd`), not from
@@ -311,13 +321,19 @@ export default function UsageOverview({
 				})()
 			: null;
 
-	const cycleEndsHint = cancelledAtPeriodEnd
-		? renewAt
-			? `Cancels ${format(renewAt, "MMM d, yyyy")}`
-			: "Cancels at period end"
-		: renewAt
-			? `Renews in ${formatDistanceToNowStrict(renewAt)}`
-			: "—";
+	const cycleEndsHint = cancelledAtPeriodEnd ? (
+		renewAt ? (
+			<>
+				Cancels <Time date={renewAt} format="MMM d, yyyy" />
+			</>
+		) : (
+			"Cancels at period end"
+		)
+	) : renewAt ? (
+		`Renews in ${formatDistanceToNowStrict(renewAt)}`
+	) : (
+		"—"
+	);
 
 	return (
 		<div className="space-y-5">
@@ -338,6 +354,7 @@ export default function UsageOverview({
 						{cycleLabel} · {cycleEndsHint}
 					</p>
 				</div>
+				<TimeZoneToggle />
 			</div>
 
 			{/* Usage progress */}
@@ -448,9 +465,9 @@ export default function UsageOverview({
 							: "—"
 					}
 					hint={
-						peakDay && (peakDay.cost ?? 0) > 0
-							? format(new Date(peakDay.date), "MMM d")
-							: undefined
+						peakDay && (peakDay.cost ?? 0) > 0 ? (
+							<Time date={peakDay.date} format="MMM d" />
+						) : undefined
 					}
 					icon={TrendingUp}
 				/>
