@@ -44,6 +44,7 @@ const messageItemSchema = z.object({
 					z.object({
 						type: z.literal("output_text"),
 						text: z.string(),
+						prompt_cache_breakpoint: promptCacheBreakpointSchema,
 					}),
 					z.object({
 						type: z.literal("text"),

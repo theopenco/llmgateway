@@ -267,6 +267,50 @@ describe("convertResponsesInputToMessages", () => {
 		expect(result[1]!.content).toBe("Hi there");
 	});
 
+	it("keeps an explicit prompt cache breakpoint on a replayed output_text part", () => {
+		// Only a marker that survives request validation can reach the provider,
+		// so this goes through the schema the route parses with. The sibling
+		// `text` part is the control: both carry the same marker.
+		const req = responsesRequestSchema.parse({
+			model: "gpt-5.6-sol",
+			prompt_cache_options: { mode: "explicit" },
+			input: [
+				{
+					role: "assistant",
+					content: [
+						{
+							type: "output_text",
+							text: "prior answer",
+							prompt_cache_breakpoint: { mode: "explicit" },
+						},
+					],
+				},
+				{
+					role: "assistant",
+					content: [
+						{
+							type: "text",
+							text: "prior answer",
+							prompt_cache_breakpoint: { mode: "explicit" },
+						},
+					],
+				},
+			],
+		});
+
+		const messages = convertResponsesInputToMessages(req.input);
+		const expected = [
+			{
+				type: "text",
+				text: "prior answer",
+				prompt_cache_breakpoint: { mode: "explicit" },
+			},
+		];
+
+		expect(messages[0]!.content).toEqual(expected);
+		expect(messages[1]!.content).toEqual(expected);
+	});
+
 	it("converts function_call items to assistant tool_calls", () => {
 		const input = [
 			{ role: "user" as const, content: "What's the weather?" },
