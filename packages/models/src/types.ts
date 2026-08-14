@@ -83,7 +83,21 @@ export interface ToolUseContent {
 export interface ToolResultContent {
 	type: "tool_result";
 	tool_use_id: string;
-	content: string;
+	// Anthropic accepts a block array here as well as a plain string; the array
+	// form is what carries `tool_reference` blocks for a client-side tool search.
+	content: string | AnthropicNativeBlock[];
+}
+
+/**
+ * Anthropic content block with no OpenAI-format equivalent — currently the
+ * server-side tool search pair (`server_tool_use` + `tool_search_tool_result`)
+ * and the `tool_reference` blocks a client-side tool search returns. Carried
+ * verbatim between the caller and the Anthropic Messages API and dropped for
+ * every other upstream.
+ */
+export interface AnthropicNativeBlock {
+	type: string;
+	[key: string]: unknown;
 }
 
 export type MessageContent =
@@ -139,6 +153,13 @@ export interface BaseMessage {
 		phase?: "commentary" | "final_answer";
 		preceding_tool_calls?: number;
 	}>;
+	// Anthropic content blocks that survive a round trip verbatim because the
+	// OpenAI format has no equivalent. On an assistant message these are the
+	// server-side tool search blocks, spliced back in ahead of the tool_use
+	// blocks; on a tool message they are the `tool_result` content array, which
+	// is how a client-side tool search returns `tool_reference` blocks. Replayed
+	// on the Anthropic Messages API only and stripped for every other upstream.
+	anthropic_native_blocks?: AnthropicNativeBlock[];
 }
 
 // Provider-specific message formats
@@ -148,7 +169,7 @@ export interface OpenAIMessage extends BaseMessage {
 
 export interface AnthropicMessage {
 	role: "user" | "assistant";
-	content: MessageContent[];
+	content: (MessageContent | AnthropicNativeBlock)[];
 }
 
 export interface GoogleMessage {
@@ -191,6 +212,12 @@ export interface OpenAIFunctionToolInput {
 		description?: string;
 		parameters?: FunctionParameter | Record<string, any>;
 	};
+	/**
+	 * Anthropic-only: keep this tool out of the rendered tools section so it
+	 * never enters the cached prompt prefix, and load it on demand when the
+	 * tool search tool discovers it. Stripped for every other upstream.
+	 */
+	defer_loading?: boolean;
 }
 
 // Web search tool input type
@@ -206,9 +233,24 @@ export interface OpenAIWebSearchToolInput {
 	max_uses?: number;
 }
 
-// Compatible type for API requests - accepts both function and web_search tools
+/**
+ * Anthropic's server-side tool search tool. It has no OpenAI equivalent, so it
+ * travels through the gateway under its own `type` and is emitted verbatim on
+ * the Anthropic Messages API and dropped everywhere else.
+ */
+export interface OpenAIToolSearchToolInput {
+	type: "tool_search";
+	/** Anthropic tool type, e.g. `tool_search_tool_regex_20251119`. */
+	tool_search_type: string;
+	name?: string;
+}
+
+// Compatible type for API requests - accepts function, web_search and
+// tool_search tools
 export type OpenAIToolInput =
-	OpenAIFunctionToolInput | OpenAIWebSearchToolInput;
+	| OpenAIFunctionToolInput
+	| OpenAIWebSearchToolInput
+	| OpenAIToolSearchToolInput;
 
 export interface AnthropicTool {
 	name: string;
