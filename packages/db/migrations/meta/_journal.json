@@ -1604,6 +1604,13 @@
       "when": 1786398375414,
       "tag": "1786398375_pretty_hedge_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 229,
+      "version": "8",
+      "when": 1786707787055,
+      "tag": "1786707787_fair_mister_fear",
+      "breakpoints": true
     }
   ]
 }

@@ -127,6 +127,7 @@ export async function manageOrganization(
 		plan: "free" | "pro" | "enterprise";
 		seats: number | null;
 		apiKeyLimit: number | null;
+		projectLimit: number | null;
 		planExpiresAt: string | null;
 		planStartedAt: string | null;
 		isTrialActive: boolean;

@@ -347,6 +347,9 @@ export default async function OrganizationPage({
 						{org.apiKeyLimit !== null && org.apiKeyLimit !== undefined && (
 							<Badge variant="outline">API keys: {org.apiKeyLimit}</Badge>
 						)}
+						{org.projectLimit !== null && org.projectLimit !== undefined && (
+							<Badge variant="outline">Projects: {org.projectLimit}</Badge>
+						)}
 						<span className="text-sm font-medium">
 							Credits: {creditsFormatter.format(parseFloat(org.credits))}
 						</span>
@@ -358,6 +361,7 @@ export default async function OrganizationPage({
 						plan={org.plan}
 						seats={org.seats ?? null}
 						apiKeyLimit={org.apiKeyLimit ?? null}
+						projectLimit={org.projectLimit ?? null}
 						planExpiresAt={org.planExpiresAt ?? null}
 						planStartedAt={org.planStartedAt ?? null}
 						isTrialActive={org.isTrialActive ?? false}
