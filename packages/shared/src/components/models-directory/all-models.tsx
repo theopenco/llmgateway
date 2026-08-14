@@ -81,7 +81,11 @@ import { matchesCapability } from "./capability-filters";
 import { formatDeprecationDate, formatPerImagePriceRange } from "./format";
 import { ModelCard } from "./model-card";
 import { applyCategoryFilter } from "./model-category-filters";
-import { applyUseCaseFilter } from "./use-case-filters";
+import {
+	applyUseCaseFilter,
+	isUseCaseCategory,
+	providerRowPassesFilters,
+} from "./use-case-filters";
 import { useIsMobile } from "./use-mobile";
 
 import type {
@@ -769,12 +773,18 @@ export function AllModels({
 				? "desc"
 				: "asc",
 	);
+	const urlCategory = searchParams.get("category");
 	const [filters, setFilters] = useState({
 		// With the selector hidden there is no way to see or change the
-		// category, so ignore any URL override and pin the default.
+		// category, so ignore any URL override and pin the default. When the
+		// selector is shown, only accept a known category from the URL so an
+		// unsupported value falls back to the default instead of silently
+		// matching every row.
 		category: hideUseCaseFilter
 			? defaultCategory
-			: (searchParams.get("category") ?? defaultCategory),
+			: isUseCaseCategory(urlCategory)
+				? urlCategory
+				: defaultCategory,
 		tier: searchParams.get("tier") ?? "all",
 		capabilities: {
 			streaming: searchParams.get("streaming") === "true",
@@ -1318,54 +1328,18 @@ export function AllModels({
 
 		for (const model of modelsWithProviders) {
 			for (const { provider, providerInfo } of model.providerDetails) {
-				if (providerFilter && provider.providerId !== providerFilter) {
-					continue;
-				}
-
-				// Re-check each active capability filter per row, mirroring the
-				// model-level filter: a model qualifies via any one of its
-				// mappings, but only the mappings that actually satisfy the
-				// capability belong in the filtered table.
+				// Single source of truth for which rows belong in the filtered
+				// table: provider, capability, category, and use-case filters
+				// are all re-checked per row here (the same code the tests
+				// exercise), so a mapping that qualifies a model at the model
+				// level but fails an active filter is kept out of the table.
 				if (
-					(filters.capabilities.streaming &&
-						!matchesCapability("streaming", provider)) ||
-					(filters.capabilities.vision &&
-						!matchesCapability("vision", provider)) ||
-					(filters.capabilities.tools &&
-						!matchesCapability("tools", provider)) ||
-					(filters.capabilities.reasoning &&
-						!matchesCapability("reasoning", provider)) ||
-					(filters.capabilities.reasoningBudget &&
-						!matchesCapability("reasoningMaxTokens", provider)) ||
-					(filters.capabilities.jsonOutput &&
-						!matchesCapability("jsonOutput", provider)) ||
-					(filters.capabilities.jsonOutputSchema &&
-						!matchesCapability("jsonOutputSchema", provider)) ||
-					(filters.capabilities.webSearch &&
-						!matchesCapability("webSearch", provider)) ||
-					(filters.capabilities.discounted &&
-						!matchesCapability("discounted", provider))
-				) {
-					continue;
-				}
-
-				// Category pages filter at the model level (any mapping can
-				// qualify the model), so re-check the row against the category
-				// predicate too — a single-element array tests just this row.
-				if (
-					categoryFilter &&
-					!applyCategoryFilter(categoryFilter, model, [provider])
-				) {
-					continue;
-				}
-
-				// Use Case filter works the same way: a model can qualify via
-				// any one of its mappings, but only the mappings that actually
-				// satisfy the use case belong in the filtered table.
-				if (
-					filters.category &&
-					filters.category !== "all" &&
-					!applyUseCaseFilter(filters.category, model, [provider])
+					!providerRowPassesFilters(model, provider, {
+						providerFilter,
+						capabilities: filters.capabilities,
+						categoryFilter,
+						category: filters.category,
+					})
 				) {
 					continue;
 				}

@@ -1,13 +1,16 @@
 import { describe, expect, test } from "vitest";
 
-import { applyUseCaseFilter } from "./use-case-filters";
+import {
+	applyUseCaseFilter,
+	providerRowPassesFilters,
+} from "./use-case-filters";
 
 import type {
 	ApiModel,
 	ApiModelProviderMapping,
 	ApiProvider,
 } from "./api-types";
-
+import type { ProviderRowFilterOptions } from "./use-case-filters";
 // Realistic mock mapping: every field the directory renders, with capability
 // flags off by default so a test can flip exactly the one it cares about.
 function makeMapping(
@@ -107,20 +110,38 @@ function makeModel(
 }
 
 describe("use case per-row re-check in the flatten loop", () => {
-	// Faithful replica of the flatten loop's use case re-check
-	// (all-models.tsx:1413-1421): a single-element array tests just this row.
-	function flattenWithUseCase(
+	// Default row-filter options: no provider, capability, category, or use-case
+	// filters active, so a single call tests the use-case dimension in isolation.
+	function rowOptions(category?: string): ProviderRowFilterOptions {
+		return {
+			providerFilter: null,
+			capabilities: {
+				streaming: false,
+				vision: false,
+				tools: false,
+				reasoning: false,
+				reasoningBudget: false,
+				jsonOutput: false,
+				jsonOutputSchema: false,
+				webSearch: false,
+				discounted: false,
+			},
+			category,
+		};
+	}
+
+	// The production flatten loop (all-models.tsx) calls providerRowPassesFilters
+	// for every mapping; this helper drives that exact function per row so a
+	// regression in the shared row-filter decision fails these tests.
+	function filterRows(
 		model: ReturnType<typeof makeModel>,
-		category: string,
+		category?: string,
+		options?: Partial<ProviderRowFilterOptions>,
 	): ApiModelProviderMapping[] {
-		const rows: ApiModelProviderMapping[] = [];
-		for (const { provider } of model.providerDetails) {
-			if (!applyUseCaseFilter(category, model, [provider])) {
-				continue;
-			}
-			rows.push(provider);
-		}
-		return rows;
+		const opts = { ...rowOptions(category), ...options };
+		return model.providerDetails
+			.filter(({ provider }) => providerRowPassesFilters(model, provider, opts))
+			.map(({ provider }) => provider);
 	}
 
 	const cases: Array<{
@@ -165,7 +186,7 @@ describe("use case per-row re-check in the flatten loop", () => {
 		});
 
 		test(`${category}: only the qualifying row survives the per-row re-check`, () => {
-			const rows = flattenWithUseCase(model, category);
+			const rows = filterRows(model, category);
 			expect(rows.map((r) => r.id)).toEqual(["qualifying"]);
 		});
 
@@ -200,9 +221,7 @@ describe("use case per-row re-check in the flatten loop", () => {
 		]);
 
 		expect(applyUseCaseFilter("code", model, model.mappings)).toBe(true);
-		expect(flattenWithUseCase(model, "code").map((r) => r.id)).toEqual([
-			"qualifying",
-		]);
+		expect(filterRows(model, "code").map((r) => r.id)).toEqual(["qualifying"]);
 		const nonQualifyingProvider = model.providerDetails.find(
 			(p) => p.provider.id === "non-qualifying",
 		)!.provider;
@@ -225,7 +244,7 @@ describe("use case per-row re-check in the flatten loop", () => {
 		model.output = ["text", "image"];
 
 		expect(applyUseCaseFilter("creative", model, model.mappings)).toBe(false);
-		expect(flattenWithUseCase(model, "creative")).toEqual([]);
+		expect(filterRows(model, "creative")).toEqual([]);
 	});
 
 	test("image: model-level output check is constant across rows", () => {
@@ -238,7 +257,7 @@ describe("use case per-row re-check in the flatten loop", () => {
 		);
 		imageModel.output = ["image"];
 
-		expect(flattenWithUseCase(imageModel, "image").map((r) => r.id)).toEqual([
+		expect(filterRows(imageModel, "image").map((r) => r.id)).toEqual([
 			"alpha",
 			"beta",
 		]);
@@ -246,7 +265,7 @@ describe("use case per-row re-check in the flatten loop", () => {
 		const textModel = makeModel([
 			makeMapping({ id: "alpha", providerId: "alpha" }),
 		]);
-		expect(flattenWithUseCase(textModel, "image")).toEqual([]);
+		expect(filterRows(textModel, "image")).toEqual([]);
 	});
 
 	test("all: every row passes", () => {
@@ -254,9 +273,94 @@ describe("use case per-row re-check in the flatten loop", () => {
 			makeMapping({ id: "alpha", providerId: "alpha" }),
 			makeMapping({ id: "beta", providerId: "beta" }),
 		]);
-		expect(flattenWithUseCase(model, "all").map((r) => r.id)).toEqual([
+		expect(filterRows(model, "all").map((r) => r.id)).toEqual([
 			"alpha",
 			"beta",
 		]);
+	});
+});
+
+describe("providerRowPassesFilters: full production row-filter path", () => {
+	// Default row-filter options mirror the component's reset state.
+	function baseOptions(): ProviderRowFilterOptions {
+		return {
+			providerFilter: null,
+			capabilities: {
+				streaming: false,
+				vision: false,
+				tools: false,
+				reasoning: false,
+				reasoningBudget: false,
+				jsonOutput: false,
+				jsonOutputSchema: false,
+				webSearch: false,
+				discounted: false,
+			},
+		};
+	}
+
+	test("capability filter: non-qualifying mapping is dropped per row", () => {
+		const model = makeModel([
+			makeMapping({ id: "streaming", providerId: "alpha", streaming: true }),
+			makeMapping({ id: "no-streaming", providerId: "beta", streaming: false }),
+		]);
+		const options = baseOptions();
+		options.capabilities.streaming = true;
+
+		const rows = model.providerDetails
+			.filter(({ provider }) =>
+				providerRowPassesFilters(model, provider, options),
+			)
+			.map(({ provider }) => provider);
+		expect(rows.map((r) => r.id)).toEqual(["streaming"]);
+	});
+
+	test("provider filter: only the selected provider's rows survive", () => {
+		const model = makeModel([
+			makeMapping({ id: "alpha-1", providerId: "alpha" }),
+			makeMapping({ id: "beta-1", providerId: "beta" }),
+		]);
+		const options = baseOptions();
+		options.providerFilter = "beta";
+
+		const rows = model.providerDetails
+			.filter(({ provider }) =>
+				providerRowPassesFilters(model, provider, options),
+			)
+			.map(({ provider }) => provider);
+		expect(rows.map((r) => r.id)).toEqual(["beta-1"]);
+	});
+
+	test("category filter: re-checked per row against the category predicate", () => {
+		const model = makeModel([
+			makeMapping({ id: "vision", providerId: "alpha", vision: true }),
+			makeMapping({ id: "no-vision", providerId: "beta", vision: false }),
+		]);
+		model.output = ["text", "image"];
+		const options = baseOptions();
+		options.categoryFilter = "image-to-image";
+
+		const rows = model.providerDetails
+			.filter(({ provider }) =>
+				providerRowPassesFilters(model, provider, options),
+			)
+			.map(({ provider }) => provider);
+		expect(rows.map((r) => r.id)).toEqual(["vision"]);
+	});
+
+	test("unknown category value matches every row like the default", () => {
+		const model = makeModel([
+			makeMapping({ id: "alpha", providerId: "alpha" }),
+			makeMapping({ id: "beta", providerId: "beta" }),
+		]);
+		const options = baseOptions();
+		options.category = "not-a-real-category";
+
+		const rows = model.providerDetails
+			.filter(({ provider }) =>
+				providerRowPassesFilters(model, provider, options),
+			)
+			.map(({ provider }) => provider);
+		expect(rows.map((r) => r.id)).toEqual(["alpha", "beta"]);
 	});
 });
