@@ -19,6 +19,15 @@ export const toolFunction = z.object({
 export const functionTool = z.object({
 	type: z.literal("function"),
 	function: toolFunction,
+	// Recorded as sent: it is why the tool stayed out of the cached prompt
+	// prefix on an Anthropic upstream.
+	defer_loading: z.boolean().optional(),
+});
+
+export const toolSearchTool = z.object({
+	type: z.literal("tool_search"),
+	tool_search_type: z.string(),
+	name: z.string().optional(),
 });
 
 export const webSearchTool = z.object({
@@ -35,7 +44,7 @@ export const webSearchTool = z.object({
 	max_uses: z.number().optional(),
 });
 
-export const tool = z.union([functionTool, webSearchTool]);
+export const tool = z.union([functionTool, webSearchTool, toolSearchTool]);
 
 export const toolChoice = z.union([
 	z.literal("none"),

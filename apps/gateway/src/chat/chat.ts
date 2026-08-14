@@ -306,7 +306,10 @@ import {
 	withCurrentRequestMetadataOnOpenAiResponse,
 	zeroCostsOnCachedResponseUsage,
 } from "./tools/transform-response-to-openai.js";
-import { transformStreamingToOpenai } from "./tools/transform-streaming-to-openai.js";
+import {
+	type AnthropicToolSearchState,
+	transformStreamingToOpenai,
+} from "./tools/transform-streaming-to-openai.js";
 import { validateFreeModelUsage } from "./tools/validate-free-model-usage.js";
 import { validateModelCapabilities } from "./tools/validate-model-capabilities.js";
 
@@ -1684,7 +1687,7 @@ chat.openapi(completions, async (c) => {
 	// exempt. n > 1 with streaming text-only output is fully supported.
 	if (n !== undefined && n > 1 && stream && tools) {
 		const functionToolsCount = tools.filter(
-			(t: { type: string }) => t.type !== "web_search",
+			(t: { type: string }) => t.type === "function",
 		).length;
 		if (functionToolsCount > 0) {
 			return c.json(
@@ -9096,6 +9099,9 @@ chat.openapi(completions, async (c) => {
 						? 1
 						: 0;
 				const serverToolUseIndices = new Set<number>(); // Track Anthropic server_tool_use block indices
+				// Accumulates Anthropic tool search calls until their result block
+				// arrives, so the pair can be forwarded to native clients intact.
+				const toolSearchState: AnthropicToolSearchState = new Map();
 				let sawUpstreamDoneSentinel = false;
 				let sawProviderTerminalEvent = false;
 				let sawOpenAiResponsesDoneEvent = false;
@@ -9955,6 +9961,7 @@ chat.openapi(completions, async (c) => {
 									messages,
 									serverToolUseIndices,
 									supportsReasoning,
+									toolSearchState,
 								);
 
 								// Skip null events (some providers have non-data events)
@@ -13907,6 +13914,17 @@ chat.openapi(completions, async (c) => {
 	) {
 		transformedResponse.choices[0].message.message_items =
 			parsedResponse.messageItems;
+	}
+	// Surface Anthropic's server-side tool search blocks so the /v1/messages
+	// layer can hand them back to the client, which replays them on the next
+	// turn — that is what lets Claude reuse an already discovered tool.
+	if (
+		parsedResponse.anthropicNativeBlocks &&
+		parsedResponse.anthropicNativeBlocks.length > 0 &&
+		transformedResponse.choices?.[0]?.message
+	) {
+		transformedResponse.choices[0].message.anthropic_native_blocks =
+			parsedResponse.anthropicNativeBlocks;
 	}
 	// Surface the effective reasoning context the provider applied so the
 	// Responses layer reports the served mode rather than echoing the request.
