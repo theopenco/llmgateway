@@ -223,6 +223,13 @@ also fails on `main`.
 
 `pnpm format`, `pnpm build`, conventional title, then the `pull-request` skill.
 
+Never merge — and never enable auto-merge on — a mapping that does not actually
+work: it could not serve a live request, or its scoped e2e fails with no fix
+available from our side. `stability: "unstable"` and `test: "skip"` keep CI green
+and keep the mapping out of routing, but they do not make the model work. Say
+plainly that it does not work and why, leave the PR open, and hand the merge
+decision to the user. Same for prices nobody could verify.
+
 The PR body carries the evidence:
 
 - Per mapping: external id, prices, context, max output, capabilities.
