@@ -12441,6 +12441,9 @@ const devpassTransactionSchema = z.object({
 	currency: z.string(),
 	status: z.string(),
 	description: z.string().nullable(),
+	// The payment a refund reverses, so the two rows can be tied together in
+	// the panel. Null on everything else.
+	relatedTransactionId: z.string().nullable(),
 	// Whether an admin can refund this payment, and how much of it is left.
 	// `refundIneligibleReason` is null when `refundable` is true.
 	refundable: z.boolean(),
@@ -14583,6 +14586,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 			currency: tables.transaction.currency,
 			status: tables.transaction.status,
 			description: tables.transaction.description,
+			relatedTransactionId: tables.transaction.relatedTransactionId,
 			stripePaymentIntentId: tables.transaction.stripePaymentIntentId,
 			stripeInvoiceId: tables.transaction.stripeInvoiceId,
 		})
@@ -14600,8 +14604,16 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 					"dev_plan_renewal",
 					"dev_plan_reset_pass",
 					"dev_plan_reset_pass_gift",
+					"dev_plan_reset_pass_reward",
 					// PAYG overflow top-ups are DevPass billing events too.
 					"credit_topup",
+					// Money and credits going back out. Without `credit_refund` a
+					// refunded payment reads as a charge that was never reversed —
+					// the refund exists only as a badge on the original row — and
+					// gifted or manually paid credits appear from nowhere.
+					"credit_refund",
+					"credit_gift",
+					"credit_manual_payment",
 					// Legacy types — pre dev_plan_* rename, still in DB for older
 					// dev plan subscribers; without these their history reads as empty.
 					"subscription_start",
@@ -14663,6 +14675,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 				currency: t.currency,
 				status: t.status,
 				description: t.description ?? null,
+				relatedTransactionId: t.relatedTransactionId ?? null,
 				refundable: refundability.refundable,
 				refundIneligibleReason: refundability.reason,
 				refundedAmount: refundability.refundedAmount,
