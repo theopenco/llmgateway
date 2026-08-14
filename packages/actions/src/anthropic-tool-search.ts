@@ -21,8 +21,19 @@ export const TOOL_SEARCH_TOOL_TYPE_PREFIX = "tool_search_tool";
  * these stripped: the tools are still sent, just eagerly, which costs prompt
  * cache and tokens but never fails.
  *
- * AWS Bedrock is deliberately excluded — the gateway drives it through the
- * Converse API, which does not offer server-side tool search.
+ * `vertex-anthropic` qualifies because it posts an Anthropic Messages body to
+ * `:rawPredict`, and Anthropic lists tool search as available on Google Cloud.
+ *
+ * AWS Bedrock is excluded for a transport reason, not a capability one:
+ * Anthropic offers tool search there only through InvokeModel, and this gateway
+ * drives Bedrock through the Converse API (see get-provider-endpoint). Moving
+ * the Bedrock Anthropic path to InvokeModel is what would unlock it — do not
+ * "fix" this by adding aws-bedrock here while Converse is still the transport.
+ *
+ * Model support is a separate axis and is deliberately not gated here: tool
+ * search needs a Claude 4.5-generation model or newer, and an older model is
+ * rejected upstream with a 4xx rather than being silently downgraded, the same
+ * way unsupported reasoning efforts are handled.
  */
 export function usesAnthropicMessagesApi(provider: ProviderId): boolean {
 	return provider === "anthropic" || provider === "vertex-anthropic";

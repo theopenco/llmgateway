@@ -96,6 +96,41 @@ describe("anthropic tool search", () => {
 		]);
 	});
 
+	// Anthropic lists tool search as available on Google Cloud, and the gateway
+	// posts a Messages body to :rawPredict there, so Vertex gets the same
+	// treatment as the direct API.
+	test("forwards the same tools on vertex-anthropic", async () => {
+		const body = (await prepare(
+			"vertex-anthropic",
+			"claude-sonnet-4-6",
+			[{ role: "user", content: "What is the weather in Paris?" }],
+			[TOOL_SEARCH_TOOL, DEFERRED_TOOL],
+		)) as AnthropicRequestBody;
+
+		expect(body.tools?.[0]).toEqual({
+			type: "tool_search_tool_regex_20251119",
+			name: "tool_search_tool_regex",
+		});
+		expect(body.tools?.[1]).toMatchObject({ defer_loading: true });
+	});
+
+	// Anthropic offers tool search on Bedrock only through InvokeModel, and the
+	// gateway drives Bedrock through Converse — so it degrades to eager loading
+	// here even though Bedrock serves the same Claude models.
+	test("strips both for aws-bedrock, which the gateway drives via Converse", async () => {
+		const body = await prepare(
+			"aws-bedrock",
+			"claude-sonnet-4-6",
+			[{ role: "user", content: "What is the weather in Paris?" }],
+			[TOOL_SEARCH_TOOL, DEFERRED_TOOL],
+		);
+
+		const serialized = JSON.stringify(body);
+		expect(serialized).not.toContain("tool_search");
+		expect(serialized).not.toContain("defer_loading");
+		expect(serialized).toContain("get_weather");
+	});
+
 	test("derives the tool search tool name when the caller omits it", async () => {
 		const body = (await prepare(
 			"anthropic",

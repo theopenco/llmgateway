@@ -224,11 +224,14 @@ Anthropic's server-side [tool search](https://platform.claude.com/docs/en/agents
 
 Deferred tools stay out of the rendered tools section, so adding one does not invalidate an existing prompt cache. The response carries the `server_tool_use` and `tool_search_tool_result` blocks; replay them verbatim on the next request and Anthropic keeps expanding the `tool_reference` entries they carry, so Claude reuses a discovered tool instead of searching again. `tool_reference` blocks returned from your own client-side search inside a `tool_result` are forwarded unchanged too.
 
-<Callout type="warning">
-	This is an Anthropic-only feature. If routing lands on a non-Anthropic
-	provider, the tool search tool is dropped and every tool is sent eagerly — the
-	request still works, it just loses the cache and token savings. Pin the
-	provider (`anthropic/claude-sonnet-4-6`) when those savings matter.
+Send every tool definition on every request, including the deferred ones — Anthropic needs them server-side to run the search. At least one tool must stay non-deferred (normally the tool search tool itself), and a tool cannot carry both `defer_loading: true` and `cache_control`.
+
+**Where it works.** Tool search reaches the provider on the Anthropic API and on Anthropic models served through Google Cloud, and it needs a Claude 4.5-generation model or newer — older Claude models reject it upstream. On every other provider, including Anthropic models on AWS Bedrock, the tool search tool and `defer_loading` are dropped and all tools are sent eagerly. The request still succeeds, it just loses the cache and token savings, so pin the provider (`anthropic/claude-sonnet-4-6`) when those savings matter.
+
+<Callout type="info">
+	Bedrock is a transport limitation rather than a missing capability: Anthropic
+	exposes server-side tool search there only through the InvokeModel API, and
+	the gateway routes Bedrock through the Converse API.
 </Callout>
 
 ### Gateway Response Cache
