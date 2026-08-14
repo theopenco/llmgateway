@@ -7,7 +7,7 @@
 // drift from what the endpoint actually allows.
 export const SELF_REFUND_WINDOW_DAYS = 14;
 export const RESET_PASS_SELF_REFUND_WINDOW_DAYS = 7;
-export const SELF_REFUND_USAGE_PERCENT = 10;
+export const SELF_REFUND_USAGE_PERCENT = 20;
 
 export const REFUND_REASONS = [
 	"not_working",

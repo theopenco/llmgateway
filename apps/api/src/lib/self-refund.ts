@@ -277,8 +277,9 @@ function checkPlanEligibility(
 
 	// Renewals and re-subscribes: threshold on the dollar price instead of the
 	// virtual allowance. Virtual credits track provider cost, so at a 3x
-	// multiplier 10% of the allowance would leak up to 30% of the payment in
-	// provider cost; gating on dollars caps the leak at 10% of revenue.
+	// multiplier the threshold share of the allowance would leak three times as
+	// much of the payment in provider cost; gating on dollars caps the leak at
+	// the threshold share of revenue.
 	const price = isDev
 		? DEV_PLAN_PRICES[plan as DevPlanTier]
 		: CHAT_PLAN_PRICES[plan as ChatPlanTier];
