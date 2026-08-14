@@ -144,11 +144,27 @@ export interface DateRangeSearchParams {
 	to?: string;
 }
 
+// "All time" as an explicit choice rather than the absence of one. A page that
+// sets `defaultRange` needs this to tell "the user picked all time" apart from
+// "the user picked nothing yet", which would otherwise both be an empty URL.
+export const ALL_TIME_RANGE = "all_time";
+
+// The organizations list aggregates every project-hour row an organization has
+// ever produced, so it opens on a recent window rather than all time — the
+// hour_timestamp index turns the scan into a range read, and admins land on
+// current activity instead of lifetime totals. "All time" is still one click
+// away in the picker.
+export const ORGANIZATIONS_DEFAULT_RANGE = "this_week";
+
 // Resolves the URL query state into concrete `from`/`to` date strings for API
 // calls. A valid `range` preset wins and is resolved against today; `from`/`to`
-// are honored only as a custom span; neither means "all time" (both undefined
-// so the API uses its native all-time path).
-export function resolveDateRange(params: DateRangeSearchParams): {
+// are honored only as a custom span; then the page's own `defaultRange`, if it
+// set one. Nothing left means all time (both undefined, so the API uses its
+// native all-time path).
+export function resolveDateRange(
+	params: DateRangeSearchParams,
+	defaultRange?: string,
+): {
 	from?: string;
 	to?: string;
 } {
@@ -160,18 +176,33 @@ export function resolveDateRange(params: DateRangeSearchParams): {
 			to: format(to, "yyyy-MM-dd"),
 		};
 	}
+	if (params.range === ALL_TIME_RANGE) {
+		return {};
+	}
 	if (params.from && params.to) {
 		return { from: params.from, to: params.to };
+	}
+	const fallback = findRelativeRangePreset(defaultRange);
+	if (fallback) {
+		const { from, to } = fallback.getRange(new Date());
+		return {
+			from: format(from, "yyyy-MM-dd"),
+			to: format(to, "yyyy-MM-dd"),
+		};
 	}
 	return {};
 }
 
 export function resolveDateRangeFromSearchParams(
 	params: Record<string, string | string[] | undefined>,
+	defaultRange?: string,
 ): { from?: string; to?: string } {
-	return resolveDateRange({
-		range: typeof params.range === "string" ? params.range : undefined,
-		from: typeof params.from === "string" ? params.from : undefined,
-		to: typeof params.to === "string" ? params.to : undefined,
-	});
+	return resolveDateRange(
+		{
+			range: typeof params.range === "string" ? params.range : undefined,
+			from: typeof params.from === "string" ? params.from : undefined,
+			to: typeof params.to === "string" ? params.to : undefined,
+		},
+		defaultRange,
+	);
 }

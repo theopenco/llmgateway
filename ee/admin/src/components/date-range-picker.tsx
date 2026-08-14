@@ -12,6 +12,7 @@ import {
 	PopoverTrigger,
 } from "@/components/ui/popover";
 import {
+	ALL_TIME_RANGE,
 	RELATIVE_RANGE_PRESETS,
 	findRelativeRangePreset,
 	resolveDateRange,
@@ -33,12 +34,18 @@ const MONTH_NAMES = [
 	"Dec",
 ];
 
-export function getDateRangeFromParams(searchParams: URLSearchParams) {
-	const resolved = resolveDateRange({
-		range: searchParams.get("range") ?? undefined,
-		from: searchParams.get("from") ?? undefined,
-		to: searchParams.get("to") ?? undefined,
-	});
+export function getDateRangeFromParams(
+	searchParams: URLSearchParams,
+	defaultRange?: string,
+) {
+	const resolved = resolveDateRange(
+		{
+			range: searchParams.get("range") ?? undefined,
+			from: searchParams.get("from") ?? undefined,
+			to: searchParams.get("to") ?? undefined,
+		},
+		defaultRange,
+	);
 
 	if (resolved.from && resolved.to) {
 		return {
@@ -187,7 +194,7 @@ function MonthRangePicker({ from, to, onSelect }: MonthRangePickerProps) {
 	);
 }
 
-export function DateRangePicker() {
+export function DateRangePicker({ defaultRange }: { defaultRange?: string }) {
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
@@ -195,7 +202,10 @@ export function DateRangePicker() {
 	const [search, setSearch] = useState("");
 	const [showCalendar, setShowCalendar] = useState(false);
 
-	const { from, to, isAllTime } = getDateRangeFromParams(searchParams);
+	const { from, to, isAllTime } = getDateRangeFromParams(
+		searchParams,
+		defaultRange,
+	);
 	const today = useMemo(() => new Date(), []);
 
 	const presets = useMemo(
@@ -205,7 +215,7 @@ export function DateRangePicker() {
 				label: p.getLabel(today),
 				value: p.value,
 			})),
-			{ label: "All time", value: "all_time" },
+			{ label: "All time", value: ALL_TIME_RANGE },
 		],
 		[today],
 	);
@@ -215,8 +225,18 @@ export function DateRangePicker() {
 		if (findRelativeRangePreset(rangeParam)) {
 			return rangeParam as string;
 		}
-		return isAllTime ? "all_time" : "custom";
-	}, [searchParams, isAllTime]);
+		if (rangeParam === ALL_TIME_RANGE) {
+			return ALL_TIME_RANGE;
+		}
+		// An empty URL means the page's own default is in force, so highlight
+		// that preset rather than the one the empty URL would otherwise imply.
+		const hasCustomSpan =
+			Boolean(searchParams.get("from")) && Boolean(searchParams.get("to"));
+		if (!hasCustomSpan && findRelativeRangePreset(defaultRange)) {
+			return defaultRange as string;
+		}
+		return isAllTime ? ALL_TIME_RANGE : "custom";
+	}, [searchParams, isAllTime, defaultRange]);
 
 	const filteredPresets = useMemo(
 		() =>
@@ -236,11 +256,18 @@ export function DateRangePicker() {
 		router.push(`${pathname}?${params.toString()}`);
 	};
 
-	const clearDateRange = () => {
+	const selectAllTime = () => {
 		const params = new URLSearchParams(searchParams.toString());
-		params.delete("range");
 		params.delete("from");
 		params.delete("to");
+		// On a page with its own default, an empty URL means that default, so
+		// "all time" has to be written out to override it. Pages without a
+		// default keep the shorter URL, which resolves to all time either way.
+		if (defaultRange) {
+			params.set("range", ALL_TIME_RANGE);
+		} else {
+			params.delete("range");
+		}
 		const qs = params.toString();
 		router.push(qs ? `${pathname}?${qs}` : pathname);
 	};
@@ -250,10 +277,10 @@ export function DateRangePicker() {
 			setShowCalendar(true);
 			return;
 		}
-		// "All time" leaves the URL without range/from/to so the API uses its
-		// native all-time aggregate path instead of a concrete 2020→today range.
-		if (value === "all_time") {
-			clearDateRange();
+		// "All time" keeps range/from/to off the URL so the API uses its native
+		// all-time aggregate path instead of a concrete 2020→today range.
+		if (value === ALL_TIME_RANGE) {
+			selectAllTime();
 			setOpen(false);
 			return;
 		}
