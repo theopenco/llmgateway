@@ -490,6 +490,7 @@ team.openapi(getMembers, async (c) => {
 		columns: {
 			plan: true,
 			seats: true,
+			proSeats: true,
 			defaultDeveloperMaxApiKeys: true,
 			defaultDeveloperUsageLimit: true,
 			defaultDeveloperPeriodUsageLimit: true,
@@ -498,7 +499,7 @@ team.openapi(getMembers, async (c) => {
 		},
 	});
 	const orgDefaults = orgDefaultsFrom(isPrivileged ? org : null);
-	const seatLimit = resolveSeatLimit(org?.plan, org?.seats);
+	const seatLimit = resolveSeatLimit(org);
 
 	const pendingInvites = await listActivePendingInvites(organizationId);
 	const invites = await invitesWithProjects(organizationId, pendingInvites);
@@ -716,14 +717,11 @@ team.openapi(addMember, async (c) => {
 	// Pending invites reserve a seat so accepted invites can't blow the cap.
 	const pendingInvites = await listActivePendingInvites(organizationId);
 
-	const memberLimit = resolveSeatLimit(
-		userOrganization.organization?.plan,
-		userOrganization.organization?.seats,
-	);
+	const memberLimit = resolveSeatLimit(userOrganization.organization);
 
 	if (currentMembers.length + pendingInvites.length >= memberLimit) {
 		throw new HTTPException(403, {
-			message: `Your organization has reached the maximum of ${memberLimit} team members. Contact us at contact@llmgateway.io to unlock more seats.`,
+			message: `Your organization has reached the maximum of ${memberLimit} team members. Upgrade to Pro on the plan page to add more seats, or contact us at contact@llmgateway.io.`,
 		});
 	}
 

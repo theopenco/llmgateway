@@ -6,6 +6,7 @@ import { userHasProjectAccess } from "@/utils/authorization.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { cdb, db, eq, tables } from "@llmgateway/db";
+import { PRO_PLAN_INCLUDED_PROJECTS } from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -594,11 +595,18 @@ export async function createProjectForOrg(
 		},
 	});
 
-	const projectLimit = organizationRow.plan === "enterprise" ? 250 : 10;
+	// Enterprise gets a flat 250; seat-based Pro buys extra projects on top of
+	// the included allowance; everyone else gets the included allowance.
+	const projectLimit =
+		organizationRow.plan === "enterprise"
+			? 250
+			: organizationRow.plan === "pro" && organizationRow.proSeats !== null
+				? PRO_PLAN_INCLUDED_PROJECTS + organizationRow.proExtraProjects
+				: PRO_PLAN_INCLUDED_PROJECTS;
 
 	if (existingProjects.length >= projectLimit) {
 		throw new HTTPException(403, {
-			message: `You have reached the limit of ${projectLimit} projects. Contact us at contact@llmgateway.io to unlock more.`,
+			message: `You have reached the limit of ${projectLimit} projects. Add extra projects to a Pro plan on the plan page, or contact us at contact@llmgateway.io.`,
 		});
 	}
 

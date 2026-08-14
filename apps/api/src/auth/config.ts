@@ -7,6 +7,7 @@ import { createAuthMiddleware } from "better-auth/api";
 import { Redis } from "ioredis";
 
 import { getApiBaseUrl } from "@/lib/api-url.js";
+import { hasSsoAccess } from "@/lib/sso-access.js";
 import { acceptPendingInvitesForUser } from "@/lib/team-invites.js";
 import { getOrCreateDefaultOrganization } from "@/utils/default-org.js";
 import { notifyUserSignup } from "@/utils/discord.js";
@@ -66,18 +67,17 @@ async function isSSOEnforcedForEmail(
 		return false;
 	}
 
-	// Only an active, enterprise org can enforce SSO. A soft-deleted org can no
-	// longer be managed to turn enforcement off, so a stale enforced row must not
-	// keep blocking a domain's users forever.
+	// Only an active org with SSO access (enterprise, or Pro with the SSO
+	// add-on) can enforce SSO. A soft-deleted org can no longer be managed to
+	// turn enforcement off, so a stale enforced row must not keep blocking a
+	// domain's users forever.
 	const orgs = await db.query.organization.findMany({
 		where: {
 			id: { in: [...new Set(matching.map((p) => p.organizationId as string))] },
 		},
-		columns: { status: true, plan: true },
+		columns: { status: true, plan: true, proSeats: true, proSsoEnabled: true },
 	});
-	return orgs.some(
-		(org) => org.status !== "deleted" && org.plan === "enterprise",
-	);
+	return orgs.some((org) => org.status !== "deleted" && hasSsoAccess(org));
 }
 
 function ssoRequiredResponse(): Response {

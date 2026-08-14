@@ -9,6 +9,7 @@ import {
 	Pencil,
 	Trash2,
 } from "lucide-react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 
@@ -62,6 +63,8 @@ import { Textarea } from "@/lib/components/textarea";
 import { toast } from "@/lib/components/use-toast";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
+
+import { PRO_PLAN_PRICES, PRO_PLAN_SSO_MAX_SEATS } from "@llmgateway/shared";
 
 import type React from "react";
 
@@ -160,12 +163,26 @@ function ReadOnlyField({ label, value }: { label: string; value: string }) {
 export function SsoClient() {
 	const params = useParams();
 	const organizationId = params.orgId as string;
-	const { selectedOrganization } = useDashboardNavigation();
+	const { selectedOrganization, buildOrgUrl } = useDashboardNavigation();
 	const api = useApi();
 	const queryClient = useQueryClient();
 	const { apiUrl } = useAppConfig();
 
-	const isEnterprise = selectedOrganization?.plan === "enterprise";
+	// SSO management is available to enterprise orgs and Pro orgs that
+	// purchased the SSO add-on; SCIM is a separate add-on on top (mirrors the
+	// API's hasSsoAccess / hasScimAccess gates).
+	const hasSsoAccess =
+		selectedOrganization?.plan === "enterprise" ||
+		(selectedOrganization?.plan === "pro" &&
+			!!selectedOrganization?.proSsoEnabled &&
+			selectedOrganization?.proSeats !== null &&
+			selectedOrganization?.proSeats !== undefined &&
+			selectedOrganization.proSeats <= PRO_PLAN_SSO_MAX_SEATS);
+	const hasScimAccess =
+		selectedOrganization?.plan === "enterprise" ||
+		(hasSsoAccess &&
+			selectedOrganization?.plan === "pro" &&
+			!!selectedOrganization?.proScimEnabled);
 
 	const [providerType, setProviderType] = useState<
 		"" | "okta" | "entra" | "generic" | "google"
@@ -229,28 +246,28 @@ export function SsoClient() {
 		"get",
 		"/sso/providers",
 		{ params: { query: { organizationId } } },
-		{ enabled: !!organizationId && isEnterprise },
+		{ enabled: !!organizationId && hasSsoAccess },
 	);
 
 	const scimQuery = api.useQuery(
 		"get",
 		"/sso/scim",
 		{ params: { query: { organizationId } } },
-		{ enabled: !!organizationId && isEnterprise },
+		{ enabled: !!organizationId && hasScimAccess },
 	);
 
 	const mappingsQuery = api.useQuery(
 		"get",
 		"/sso/role-mappings",
 		{ params: { query: { organizationId } } },
-		{ enabled: !!organizationId && isEnterprise },
+		{ enabled: !!organizationId && hasSsoAccess },
 	);
 
 	const defaultProjectsQuery = api.useQuery(
 		"get",
 		"/sso/default-projects",
 		{ params: { query: { organizationId } } },
-		{ enabled: !!organizationId && isEnterprise },
+		{ enabled: !!organizationId && hasSsoAccess },
 	);
 
 	const registerMutation = api.useMutation("post", "/sso/providers");
@@ -529,7 +546,12 @@ export function SsoClient() {
 		);
 	}
 
-	if (!isEnterprise) {
+	if (!hasSsoAccess) {
+		// Seat-based Pro orgs just flip the add-on on; everyone else upgrades.
+		const isSeatBasedPro =
+			selectedOrganization.plan === "pro" &&
+			selectedOrganization.proSeats !== null &&
+			selectedOrganization.proSeats !== undefined;
 		return (
 			<div className="flex flex-col space-y-4 p-4 pt-6 md:p-8">
 				<Card>
@@ -540,16 +562,26 @@ export function SsoClient() {
 						</CardTitle>
 						<CardDescription>
 							SAML SSO and SCIM directory provisioning are available on the
-							Enterprise plan. Contact us at{" "}
-							<a
-								href="mailto:contact@llmgateway.io"
-								className="text-primary underline underline-offset-4"
-							>
-								contact@llmgateway.io
-							</a>{" "}
-							to enable them.
+							Enterprise plan or as Pro plan add-ons (SSO ${PRO_PLAN_PRICES.sso}
+							/month, SCIM ${PRO_PLAN_PRICES.scim}/month on top, for up to{" "}
+							{PRO_PLAN_SSO_MAX_SEATS} seats).{" "}
+							{isSeatBasedPro
+								? "Enable the SSO add-on on your Pro subscription from the plan page."
+								: "Upgrade to Pro with the SSO add-on from the plan page."}
 						</CardDescription>
 					</CardHeader>
+					<CardContent className="flex flex-wrap gap-2">
+						<Button asChild>
+							<Link href={buildOrgUrl("org/plan")}>
+								{isSeatBasedPro ? "Enable SSO add-on" : "Upgrade to Pro"}
+							</Link>
+						</Button>
+						<Button variant="outline" asChild>
+							<a href="mailto:contact@llmgateway.io">
+								Contact sales about Enterprise
+							</a>
+						</Button>
+					</CardContent>
 				</Card>
 			</div>
 		);
@@ -972,16 +1004,30 @@ export function SsoClient() {
 				</CardContent>
 			</Card>
 
-			<Card className={googleOnly ? "opacity-60" : undefined}>
+			<Card className={googleOnly || !hasScimAccess ? "opacity-60" : undefined}>
 				<CardHeader>
 					<CardTitle>Directory sync (SCIM)</CardTitle>
 					<CardDescription>
-						{googleOnly
-							? "Not available for the Google Workspace connection — Google Workspace doesn't support SCIM provisioning for custom apps. Members are provisioned just-in-time when they sign in with Google; offboard them on the Team page."
-							: "Generate a SCIM token and configure it in your identity provider (Okta or Microsoft Entra ID) to provision and deprovision members of this organization automatically."}
+						{!hasScimAccess ? (
+							<>
+								SCIM user provisioning is a separate Pro add-on ($
+								{PRO_PLAN_PRICES.scim}/month, on top of the SSO add-on).{" "}
+								<Link
+									href={buildOrgUrl("org/plan")}
+									className="text-primary underline underline-offset-4"
+								>
+									Enable it on the plan page
+								</Link>{" "}
+								to provision and deprovision members automatically.
+							</>
+						) : googleOnly ? (
+							"Not available for the Google Workspace connection — Google Workspace doesn't support SCIM provisioning for custom apps. Members are provisioned just-in-time when they sign in with Google; offboard them on the Team page."
+						) : (
+							"Generate a SCIM token and configure it in your identity provider (Okta or Microsoft Entra ID) to provision and deprovision members of this organization automatically."
+						)}
 					</CardDescription>
 				</CardHeader>
-				{!googleOnly && (
+				{!googleOnly && hasScimAccess && (
 					<CardContent className="space-y-4">
 						{scim && (
 							<ReadOnlyField label="SCIM base URL" value={scim.baseUrl} />

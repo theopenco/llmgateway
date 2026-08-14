@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { resolveApiKeyLimit } from "@/lib/api-key-limit.js";
 import {
 	assertEnterpriseForIpCidrRule,
 	createIamRuleSchema,
@@ -734,18 +735,6 @@ export const iamRuleSchema = z.object({
 	status: iamRuleStatusEnum,
 });
 
-// Org-wide cap on active developer API keys. An explicit `organization.apiKeyLimit`
-// override (set by admins) always takes precedence over these plan defaults.
-export function resolveApiKeyLimit(
-	plan: string | null | undefined,
-	apiKeyLimit: number | null | undefined,
-): number {
-	if (apiKeyLimit !== null && apiKeyLimit !== undefined) {
-		return apiKeyLimit;
-	}
-	return plan === "enterprise" ? 500 : plan === "pro" ? 20 : 5;
-}
-
 // Create a new API key
 const create = createRoute({
 	method: "post",
@@ -1022,14 +1011,11 @@ export async function createApiKeyForProject(
 		columns: { id: true },
 	});
 
-	const maxApiKeys = resolveApiKeyLimit(
-		project.organization.plan,
-		project.organization.apiKeyLimit,
-	);
+	const maxApiKeys = resolveApiKeyLimit(project.organization);
 
 	if (orgActiveApiKeys.length >= maxApiKeys) {
 		throw new HTTPException(400, {
-			message: `API key limit reached. Maximum ${maxApiKeys} active API keys per organization. Contact us at contact@llmgateway.io to unlock more.`,
+			message: `API key limit reached. Maximum ${maxApiKeys} active API keys per organization. Upgrade to Pro on the plan page for more, or contact us at contact@llmgateway.io.`,
 		});
 	}
 
@@ -1315,7 +1301,7 @@ keysApi.openapi(list, async (c) => {
 
 		if (project?.organization) {
 			plan = project.organization.plan as "free" | "pro" | "enterprise";
-			maxKeys = resolveApiKeyLimit(plan, project.organization.apiKeyLimit);
+			maxKeys = resolveApiKeyLimit(project.organization);
 
 			const orgProjects = await db.query.project.findMany({
 				where: { organizationId: { eq: project.organization.id } },
@@ -1691,6 +1677,34 @@ keysApi.openapi(updateStatus, async (c) => {
 			message:
 				"Set a future expiration date to reactivate this API key. Its TTL has already passed.",
 		});
+	}
+
+	// Reactivating a key must respect the same org-wide active-key cap as
+	// creation, or downgrading a plan while keys sit inactive would let the org
+	// exceed what it pays for by flipping them back on.
+	if (
+		status === "active" &&
+		apiKey.status !== "active" &&
+		apiKey.keyType === "user" &&
+		userOrg?.organization
+	) {
+		const orgProjects = userOrg.organization.projects
+			.filter((project) => project.status !== "deleted")
+			.map((project) => project.id);
+		const orgActiveApiKeys = await db.query.apiKey.findMany({
+			where: {
+				projectId: { in: orgProjects },
+				status: { eq: "active" },
+				keyType: { eq: "user" },
+			},
+			columns: { id: true },
+		});
+		const maxApiKeys = resolveApiKeyLimit(userOrg.organization);
+		if (orgActiveApiKeys.length >= maxApiKeys) {
+			throw new HTTPException(400, {
+				message: `API key limit reached. Maximum ${maxApiKeys} active API keys per organization. Upgrade to Pro on the plan page for more, or contact us at contact@llmgateway.io.`,
+			});
+		}
 	}
 
 	// Update the API key status

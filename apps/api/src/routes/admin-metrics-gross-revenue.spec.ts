@@ -20,6 +20,10 @@ interface AdminMetricsResponse {
 	grossResetPassRevenue: number;
 	grossChatPlansRevenue: number;
 	grossProSubscriptionsRevenue: number;
+	grossProSeatsRevenue: number;
+	grossProExtraApiKeysRevenue: number;
+	grossProSsoRevenue: number;
+	grossProScimRevenue: number;
 }
 
 describe("admin /metrics — gross revenue splits", () => {
@@ -143,7 +147,7 @@ describe("admin /metrics — gross revenue splits", () => {
 				stripeInvoiceId: "inv_gross_chat_1",
 				createdAt: new Date("2026-01-05T00:00:00Z"),
 			},
-			// Legacy org Pro subscription on a default org.
+			// Legacy org Pro subscription on a default org (no breakdown).
 			{
 				organizationId: ORG_ID,
 				type: "subscription_start",
@@ -152,6 +156,39 @@ describe("admin /metrics — gross revenue splits", () => {
 				status: "completed",
 				stripeInvoiceId: "inv_gross_pro_1",
 				createdAt: new Date("2026-01-06T00:00:00Z"),
+			},
+			// Seat-based Pro renewal with a per-feature breakdown: 10 seats,
+			// 3 extra keys, SSO and SCIM add-ons — $765 total.
+			{
+				organizationId: ORG_ID,
+				type: "subscription_renewal",
+				amount: "765",
+				creditAmount: null,
+				status: "completed",
+				stripeInvoiceId: "inv_gross_pro_2",
+				amountBreakdown: {
+					seats: "250.00",
+					extraApiKeys: "15.00",
+					sso: "300.00",
+					scim: "200.00",
+				},
+				createdAt: new Date("2026-01-07T00:00:00Z"),
+			},
+			// Mid-cycle proration invoice from adding 2 seats.
+			{
+				organizationId: ORG_ID,
+				type: "subscription_update",
+				amount: "25",
+				creditAmount: null,
+				status: "completed",
+				stripeInvoiceId: "inv_gross_pro_3",
+				amountBreakdown: {
+					seats: "25.00",
+					extraApiKeys: "0.00",
+					sso: "0.00",
+					scim: "0.00",
+				},
+				createdAt: new Date("2026-01-08T00:00:00Z"),
 			},
 		]);
 	});
@@ -177,9 +214,16 @@ describe("admin /metrics — gross revenue splits", () => {
 		expect(body.grossDevpassTopupsRevenue).toBe(26.25);
 		expect(body.grossResetPassRevenue).toBe(9);
 		expect(body.grossChatPlansRevenue).toBe(10);
-		// Legacy subscription on a non-devpass org.
-		expect(body.grossProSubscriptionsRevenue).toBe(50);
-		expect(body.grossRevenue).toBe(174.25);
+		// Pro subscriptions on a non-devpass org: legacy $50 + seat-based
+		// renewal $765 + proration update $25 — all count as Pro revenue.
+		expect(body.grossProSubscriptionsRevenue).toBe(840);
+		// Feature split from the breakdowns (the legacy $50 has none, so the
+		// features sum below the Pro total by exactly that much).
+		expect(body.grossProSeatsRevenue).toBe(275);
+		expect(body.grossProExtraApiKeysRevenue).toBe(15);
+		expect(body.grossProSsoRevenue).toBe(300);
+		expect(body.grossProScimRevenue).toBe(200);
+		expect(body.grossRevenue).toBe(964.25);
 
 		// The credits-economy metrics must exclude ALL plan rows: chat plan
 		// creditAmount ($150) is a virtual allowance, not revenue. The devpass

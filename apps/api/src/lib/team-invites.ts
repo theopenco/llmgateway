@@ -62,7 +62,7 @@ export async function acceptPendingInvitesForUser(user: {
 					where: { organizationId: { eq: invite.organizationId } },
 					columns: { id: true },
 				});
-				const seatLimit = resolveSeatLimit(org.plan, org.seats);
+				const seatLimit = resolveSeatLimit(org);
 				if (currentMembers.length >= seatLimit) {
 					// Leave the invite pending so admins still see it and can free a
 					// seat; it will be retried on the user's next sign-in.

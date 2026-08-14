@@ -1,6 +1,6 @@
 ---
 title: SSO
-description: Per-organization SAML single sign-on and SCIM directory provisioning for enterprise teams (Enterprise only).
+description: Per-organization SAML single sign-on and SCIM directory provisioning (Enterprise, or as Pro plan add-ons).
 icon: ShieldCheck
 ---
 
@@ -11,10 +11,13 @@ import { Callout } from "fumadocs-ui/components/callout";
 LLM Gateway supports per-organization **SAML 2.0 single sign-on (SSO)** and **SCIM 2.0 directory provisioning**, so an enterprise team can let members sign in with their corporate identity provider and keep membership in sync automatically.
 
 <Callout type="info">
-	SSO & SCIM are available on the **Enterprise** plan only, and can be
-	configured by an organization **owner** or **admin**. Until the organization
-	is on the Enterprise plan, the **SSO** page shows a contact-sales card.
-	Contact us at contact@llmgateway.io to enable it.
+	SSO & SCIM are available on the **Enterprise** plan and as paid add-ons on the
+	**Pro** plan (SSO, plus SCIM as a separate add-on on top — for organizations
+	with up to 100 seats; larger teams need Enterprise), and can be configured by
+	an organization **owner** or **admin**. Until the organization has SSO access,
+	the **SSO** page shows an upgrade card. Pro organizations can enable the
+	add-ons from the Plan page; for Enterprise, contact us at
+	contact@llmgateway.io.
 </Callout>
 
 ## What each part does
@@ -27,7 +30,7 @@ LLM Gateway supports per-organization **SAML 2.0 single sign-on (SSO)** and **SC
 ## Prerequisites
 
 1. **Membership is granted on sign-in.** Anyone your IdP authenticates for the connection joins the organization on their first SSO sign-in (as a **developer**). Members can also join earlier through normal signup/invite or by being pushed via SCIM.
-2. **The organization is on the Enterprise plan.** An admin flips the org to `enterprise` to unlock the feature.
+2. **The organization has SSO access.** Either it is on the Enterprise plan, or it is a Pro organization with the SSO add-on enabled on its subscription. SCIM token management additionally requires the SCIM add-on.
 3. **`SSO_ENABLED=true` on the deployment.** This global env flag controls whether the **Sign in with SSO** button appears on the login page. The admin config page works without it, but end users can't log in via SSO until it's on.
 
 ## The URLs LLM Gateway gives your IdP

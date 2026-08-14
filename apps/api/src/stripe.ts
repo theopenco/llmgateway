@@ -25,6 +25,10 @@ import {
 	type DevPlanTier,
 } from "@llmgateway/shared";
 
+import {
+	extractProInvoiceBreakdown,
+	extractProQuantities,
+} from "./lib/pro-plan.js";
 import { computeReferralBonus } from "./lib/referral-bonus.js";
 import { posthog } from "./posthog.js";
 import { getStripe, type StripeMode } from "./routes/payments.js";
@@ -55,6 +59,39 @@ import {
 } from "./utils/plan-billing.js";
 
 import type { ServerTypes } from "./vars.js";
+
+const PRO_COMPONENT_LABELS: Record<string, string> = {
+	seats: "Pro seats",
+	extraApiKeys: "Extra API keys",
+	extraProjects: "Extra projects",
+	sso: "SSO add-on",
+	scim: "SCIM add-on",
+};
+
+// Invoice email line items for a Pro payment: one line per purchased
+// component when the breakdown accounts for the charged total, otherwise a
+// single aggregate line (discounts or taxes make the line sum diverge from
+// the total, and a mismatched itemization on a customer invoice is worse
+// than none).
+function proInvoiceLineItems(
+	breakdown: Record<string, string> | null,
+	totalUsd: number,
+	fallbackDescription: string,
+): { description: string; amount: number }[] {
+	if (breakdown) {
+		const items = Object.entries(breakdown)
+			.filter(([, amount]) => Number(amount) !== 0)
+			.map(([component, amount]) => ({
+				description: PRO_COMPONENT_LABELS[component] ?? component,
+				amount: Number(amount),
+			}));
+		const sum = items.reduce((acc, item) => acc + item.amount, 0);
+		if (items.length && Math.abs(sum - totalUsd) < 0.005) {
+			return items;
+		}
+	}
+	return [{ description: fallbackDescription, amount: totalUsd }];
+}
 
 export async function ensureStripeCustomer(
 	organizationId: string,
@@ -1578,12 +1615,43 @@ async function handleCheckoutSessionCompleted(
 				return;
 			}
 
+			// An enterprise agreement is admin-managed and must never be replaced
+			// by a self-serve Pro subscription. The checkout endpoint rejects
+			// enterprise orgs, so reaching this means a stale checkout session or
+			// an out-of-band subscription — leave the org untouched and let an
+			// admin resolve the payment.
+			if (organization.plan === "enterprise") {
+				logger.error(
+					`Ignoring Pro checkout ${session.id} (subscription ${subscriptionId}) for ENTERPRISE org ${organizationId} — enterprise plans are locked; refund/cancel manually`,
+				);
+				return;
+			}
+
+			// Sync the purchased seat/API-key/SSO quantities from the
+			// subscription's line items so limits reflect what was bought. A
+			// subscription without a seat line item (legacy price, or unmatched
+			// price IDs) must RESET the quantity fields — activating a new
+			// subscription while keeping a previous subscription's quantities
+			// would grant entitlements that are no longer paid for.
+			const proQuantities = subscriptionId
+				? extractProQuantities(
+						await getStripe().subscriptions.retrieve(subscriptionId),
+					)
+				: null;
+
 			const result = await db
 				.update(tables.organization)
 				.set({
 					plan: "pro",
 					stripeSubscriptionId: subscriptionId,
 					subscriptionCancelled: false,
+					...(proQuantities ?? {
+						proSeats: null,
+						proExtraApiKeys: 0,
+						proExtraProjects: 0,
+						proSsoEnabled: false,
+						proScimEnabled: false,
+					}),
 				})
 				.where(eq(tables.organization.id, organizationId))
 				.returning();
@@ -1605,6 +1673,23 @@ async function handleCheckoutSessionCompleted(
 				: null;
 
 			if (!existing) {
+				// Per-feature amounts from the invoice's line items, so admin
+				// revenue can split Pro income by seats/keys/add-ons. Non-fatal:
+				// a failed retrieval just leaves the breakdown null.
+				let proBreakdown: Record<string, string> | null = null;
+				if (stripeInvoiceId) {
+					try {
+						const stripeInvoice =
+							await getStripe().invoices.retrieve(stripeInvoiceId);
+						proBreakdown = extractProInvoiceBreakdown(stripeInvoice);
+					} catch (e) {
+						logger.error(
+							"Failed to derive Pro invoice breakdown (checkout); storing without it",
+							e as Error,
+						);
+					}
+				}
+
 				// Create transaction record for subscription start
 				const [transaction] = await db
 					.insert(tables.transaction)
@@ -1615,6 +1700,7 @@ async function handleCheckoutSessionCompleted(
 						currency: (session.currency ?? "USD").toUpperCase(),
 						status: "completed",
 						stripeInvoiceId: stripeInvoiceId,
+						amountBreakdown: proBreakdown ?? undefined,
 						description: "Pro subscription started via Stripe Checkout",
 					})
 					.returning();
@@ -1631,12 +1717,13 @@ async function handleCheckoutSessionCompleted(
 						billingAddress: organization.billingAddress,
 						billingTaxId: organization.billingTaxId,
 						billingNotes: organization.billingNotes,
-						lineItems: [
-							{
-								description: "Pro Subscription",
-								amount: (session.amount_total ?? 0) / 100,
-							},
-						],
+						lineItems: proInvoiceLineItems(
+							proBreakdown,
+							(session.amount_total ?? 0) / 100,
+							proQuantities
+								? `Pro Subscription (${proQuantities.proSeats} seat${proQuantities.proSeats === 1 ? "" : "s"}${proQuantities.proExtraApiKeys ? `, ${proQuantities.proExtraApiKeys} extra API key${proQuantities.proExtraApiKeys === 1 ? "" : "s"}` : ""}${proQuantities.proSsoEnabled ? ", SSO add-on" : ""}${proQuantities.proScimEnabled ? ", SCIM add-on" : ""})`
+								: "Pro Subscription",
+						),
 						currency: (session.currency ?? "USD").toUpperCase(),
 					});
 				} catch (e) {
@@ -3225,6 +3312,8 @@ export async function handleChargeRefunded(
 		| "chat_plan_renewal"
 		| "chat_plan_upgrade"
 		| "subscription_start"
+		| "subscription_renewal"
+		| "subscription_update"
 	)[] = [
 		"credit_topup",
 		"dev_plan_start",
@@ -3235,6 +3324,8 @@ export async function handleChargeRefunded(
 		"chat_plan_renewal",
 		"chat_plan_upgrade",
 		"subscription_start",
+		"subscription_renewal",
+		"subscription_update",
 	];
 
 	// Find the original transaction by stripePaymentIntentId first (covers
@@ -4380,19 +4471,44 @@ export async function handleInvoicePaymentSucceeded(event: {
 			`Skipping plan: "pro" for ${organization.kind} org ${organizationId} (invoice ${invoice.id}) - non-default orgs use product-specific plan fields`,
 		);
 	} else {
-		// Handle regular pro subscription
-		// Create transaction record for subscription start
+		// Enterprise agreements are admin-managed and locked — a stray Stripe
+		// invoice must not flip the plan or corrupt the admin-set term dates.
+		if (organization.plan === "enterprise") {
+			logger.error(
+				`Ignoring Pro invoice ${invoice.id} for ENTERPRISE org ${organizationId} — enterprise plans are locked; refund/cancel manually`,
+			);
+			return;
+		}
+
+		// Handle regular pro subscription. Every invoice counts toward Pro
+		// subscription revenue; the type records WHY it was billed so renewals
+		// and mid-cycle changes don't read as new subscriptions.
+		const proTransactionType =
+			invoice.billing_reason === "subscription_cycle"
+				? ("subscription_renewal" as const)
+				: invoice.billing_reason === "subscription_update"
+					? ("subscription_update" as const)
+					: ("subscription_start" as const);
+		const proDescription =
+			proTransactionType === "subscription_renewal"
+				? "Pro subscription renewal"
+				: proTransactionType === "subscription_update"
+					? "Pro subscription updated"
+					: "Pro subscription started";
+		const proBreakdown = extractProInvoiceBreakdown(invoice);
+
 		const [transaction] = await db
 			.insert(tables.transaction)
 			.values({
 				organizationId,
-				type: "subscription_start",
+				type: proTransactionType,
 				amount: (invoice.amount_paid / 100).toString(),
 				currency: invoice.currency.toUpperCase(),
 				status: "completed",
 				stripePaymentIntentId: (invoice as any).payment_intent,
 				stripeInvoiceId: invoice.id,
-				description: "Pro subscription started",
+				amountBreakdown: proBreakdown ?? undefined,
+				description: proDescription,
 			})
 			.returning();
 
@@ -4425,16 +4541,19 @@ export async function handleInvoicePaymentSucceeded(event: {
 				billingCompany: organization.billingCompany,
 				billingAddress: organization.billingAddress,
 				billingNotes: organization.billingNotes,
-				lineItems: [
-					{
-						description: "Pro Subscription",
-						amount: invoice.amount_paid / 100,
-					},
-				],
+				lineItems: proInvoiceLineItems(
+					proBreakdown,
+					invoice.amount_paid / 100,
+					proTransactionType === "subscription_renewal"
+						? "Pro Subscription Renewal"
+						: proTransactionType === "subscription_update"
+							? "Pro Subscription Update"
+							: "Pro Subscription",
+				),
 				currency: invoice.currency.toUpperCase(),
 			});
 
-			// Track subscription creation in PostHog
+			// Track subscription lifecycle in PostHog
 			posthog.groupIdentify({
 				groupType: "organization",
 				groupKey: organizationId,
@@ -4444,7 +4563,12 @@ export async function handleInvoicePaymentSucceeded(event: {
 			});
 			posthog.capture({
 				distinctId: "organization",
-				event: "subscription_created",
+				event:
+					proTransactionType === "subscription_renewal"
+						? "subscription_renewed"
+						: proTransactionType === "subscription_update"
+							? "subscription_updated"
+							: "subscription_created",
 				groups: {
 					organization: organizationId,
 				},
@@ -5002,7 +5126,28 @@ export async function handleSubscriptionUpdated(
 			`Updated dev plan subscription for organization ${organizationId}, expires at: ${expiresAt}, cancelled: ${!isSubscriptionActive}`,
 		);
 	} else {
-		// Handle regular pro subscription update
+		// On an enterprise org, planExpiresAt is the admin-booked term end —
+		// a Stripe subscription event must never overwrite it (or the plan).
+		if (organization.plan === "enterprise") {
+			logger.warn(
+				`Ignoring subscription.updated ${subscription.id} for ENTERPRISE org ${organizationId} — enterprise plans are locked`,
+			);
+			return;
+		}
+
+		// Handle regular pro subscription update. Same stale-event guard as the
+		// dev/chat branches above: once the org has activated a subscription,
+		// only that subscription may drive plan state (a superseded sub's
+		// trailing events must not overwrite the active quantities).
+		if (
+			organization.stripeSubscriptionId &&
+			organization.stripeSubscriptionId !== subscription.id
+		) {
+			logger.info(
+				`Ignoring stale subscription.updated ${subscription.id} for org ${organizationId} (active sub: ${organization.stripeSubscriptionId}, status: ${subscription.status})`,
+			);
+			return;
+		}
 		const wasSubscriptionCancelled = organization.subscriptionCancelled;
 
 		// Create transaction record for subscription cancellation if it was cancelled
@@ -5016,11 +5161,32 @@ export async function handleSubscriptionUpdated(
 			});
 		}
 
+		// Re-sync purchased quantities so seat/add-on changes made via the
+		// dashboard or the Stripe portal are reflected in limits. Stripe does
+		// not guarantee webhook ordering, so quantities come from a fresh
+		// retrieve of the subscription (its CURRENT state) rather than the
+		// event payload — a late-arriving older event then still converges on
+		// the latest configuration. If the retrieve fails, skip the quantity
+		// sync instead of risking a stale write; the next event or the
+		// dashboard's own write will catch up.
+		let currentQuantities: ReturnType<typeof extractProQuantities> = null;
+		try {
+			currentQuantities = extractProQuantities(
+				await getStripe().subscriptions.retrieve(subscription.id),
+			);
+		} catch (error) {
+			logger.error(
+				`Failed to re-retrieve subscription ${subscription.id} for quantity sync; skipping`,
+				error as Error,
+			);
+		}
+
 		await db
 			.update(tables.organization)
 			.set({
 				planExpiresAt: expiresAt,
 				subscriptionCancelled: !isSubscriptionActive,
+				...(currentQuantities ?? {}),
 			})
 			.where(eq(tables.organization.id, organizationId));
 
@@ -5243,6 +5409,36 @@ export async function handleSubscriptionDeleted(
 		logger.info(
 			`Ended dev plan ${previousDevPlan} for organization ${organizationId}`,
 		);
+	} else if (organization.plan === "enterprise") {
+		// The org moved to an admin-managed enterprise agreement while a Pro
+		// subscription was still winding down. Detach the ended subscription
+		// and clear the purchased quantities, but never touch the enterprise
+		// plan or its admin-set term dates — and skip the "downgraded to free"
+		// email, since nothing user-facing changed.
+		await db
+			.update(tables.organization)
+			.set({
+				stripeSubscriptionId: null,
+				subscriptionCancelled: false,
+				proSeats: null,
+				proExtraApiKeys: 0,
+				proExtraProjects: 0,
+				proSsoEnabled: false,
+				proScimEnabled: false,
+			})
+			.where(eq(tables.organization.id, organizationId));
+
+		await db.insert(tables.transaction).values({
+			organizationId,
+			type: "subscription_end",
+			currency: "USD",
+			status: "completed",
+			description: "Pro subscription ended (organization is on enterprise)",
+		});
+
+		logger.info(
+			`Detached ended Pro subscription ${subscription.id} from ENTERPRISE org ${organizationId}; plan untouched`,
+		);
 	} else {
 		// Handle regular pro subscription deletion
 		// Create transaction record for subscription end
@@ -5262,6 +5458,11 @@ export async function handleSubscriptionDeleted(
 				stripeSubscriptionId: null,
 				planExpiresAt: null,
 				subscriptionCancelled: false,
+				proSeats: null,
+				proExtraApiKeys: 0,
+				proExtraProjects: 0,
+				proSsoEnabled: false,
+				proScimEnabled: false,
 			})
 			.where(eq(tables.organization.id, organizationId));
 
@@ -5346,13 +5547,32 @@ async function handleSubscriptionCreated(
 		return;
 	}
 
+	// Enterprise agreements are admin-managed and locked — a Stripe
+	// subscription must never demote one to the self-serve Pro plan.
+	if (organization.plan === "enterprise") {
+		logger.error(
+			`Ignoring subscription.created ${subscription.id} for ENTERPRISE org ${organizationId} — enterprise plans are locked`,
+		);
+		return;
+	}
+
 	try {
+		// Same reset semantics as the checkout handler: activating a
+		// subscription with no matching seat item clears any previous
+		// subscription's quantities instead of carrying them over.
 		await db
 			.update(tables.organization)
 			.set({
 				plan: "pro",
 				stripeSubscriptionId: subscription.id,
 				subscriptionCancelled: false,
+				...(extractProQuantities(subscription) ?? {
+					proSeats: null,
+					proExtraApiKeys: 0,
+					proExtraProjects: 0,
+					proSsoEnabled: false,
+					proScimEnabled: false,
+				}),
 			})
 			.where(eq(tables.organization.id, organizationId))
 			.returning();

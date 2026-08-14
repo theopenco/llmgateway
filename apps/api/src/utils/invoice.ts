@@ -52,6 +52,8 @@ export interface InvoiceData {
 const TRANSACTION_TYPE_LABELS: Record<string, string> = {
 	credit_topup: "Credit Top-up",
 	subscription_start: "Subscription",
+	subscription_renewal: "Subscription Renewal",
+	subscription_update: "Subscription Update",
 	dev_plan_start: "DevPass Plan",
 	dev_plan_renewal: "DevPass Plan Renewal",
 	dev_plan_upgrade: "DevPass Plan Upgrade",
