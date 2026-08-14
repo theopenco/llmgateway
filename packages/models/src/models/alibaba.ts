@@ -1464,6 +1464,7 @@ export const alibabaModels = [
 				vision: false,
 				tools: true,
 				webSearch: true,
+				webSearchForcedOnly: true,
 				webSearchPrice: "0.01",
 				jsonOutput: true,
 				// Qwen thinking models reject tool_choice "required" or object
@@ -1764,6 +1765,7 @@ export const alibabaModels = [
 				vision: true,
 				tools: true,
 				webSearch: true,
+				webSearchForcedOnly: true,
 				webSearchPrice: "0.01",
 				jsonOutput: true,
 				// Qwen thinking models reject tool_choice "required" or object
@@ -1798,6 +1800,7 @@ export const alibabaModels = [
 				vision: true,
 				tools: true,
 				webSearch: true,
+				webSearchForcedOnly: true,
 				webSearchPrice: "0.01",
 				jsonOutput: true,
 				supportedParameters: [
@@ -2071,6 +2074,7 @@ export const alibabaModels = [
 				vision: true,
 				tools: true,
 				webSearch: true,
+				webSearchForcedOnly: true,
 				webSearchPrice: "0.01",
 				jsonOutput: true,
 				// Qwen thinking models reject tool_choice "required" or object
@@ -3250,6 +3254,7 @@ export const alibabaModels = [
 				vision: true,
 				tools: true,
 				webSearch: true,
+				webSearchForcedOnly: true,
 				webSearchPrice: "0.01",
 				jsonOutput: true,
 				// Qwen thinking models reject tool_choice "required" or object
@@ -3305,6 +3310,7 @@ export const alibabaModels = [
 				vision: true,
 				tools: true,
 				webSearch: true,
+				webSearchForcedOnly: true,
 				webSearchPrice: "0.01",
 				jsonOutput: true,
 				// Qwen thinking models reject tool_choice "required" or object

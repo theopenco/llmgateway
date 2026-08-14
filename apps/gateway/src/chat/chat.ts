@@ -306,7 +306,10 @@ import {
 	withCurrentRequestMetadataOnOpenAiResponse,
 	zeroCostsOnCachedResponseUsage,
 } from "./tools/transform-response-to-openai.js";
-import { transformStreamingToOpenai } from "./tools/transform-streaming-to-openai.js";
+import {
+	type AnthropicToolSearchState,
+	transformStreamingToOpenai,
+} from "./tools/transform-streaming-to-openai.js";
 import { validateFreeModelUsage } from "./tools/validate-free-model-usage.js";
 import { validateModelCapabilities } from "./tools/validate-model-capabilities.js";
 
@@ -1684,7 +1687,7 @@ chat.openapi(completions, async (c) => {
 	// exempt. n > 1 with streaming text-only output is fully supported.
 	if (n !== undefined && n > 1 && stream && tools) {
 		const functionToolsCount = tools.filter(
-			(t: { type: string }) => t.type !== "web_search",
+			(t: { type: string }) => t.type === "function",
 		).length;
 		if (functionToolsCount > 0) {
 			return c.json(
@@ -1730,11 +1733,30 @@ chat.openapi(completions, async (c) => {
 				max_uses: foundTool.max_uses,
 				allowed_domains: foundTool.allowed_domains,
 				blocked_domains: foundTool.blocked_domains,
+				// `tool_choice: {type: "web_search"}` demands a search rather than
+				// offering one. Carried on the extracted tool so routing, request
+				// shaping and billing all read the caller's intent from one place.
+				forced:
+					typeof tool_choice === "object" &&
+					tool_choice !== null &&
+					tool_choice.type === "web_search",
 			};
 			// Remove the web_search tool from the tools array so it's not sent as a regular tool
 			tools.splice(webSearchToolIndex, 1);
 		}
 	}
+
+	// A tool_choice that only forces web search says nothing about function
+	// tools, so it must not make a request look like it needs function-tool
+	// support — that would filter out providers that can search but not call
+	// functions, and reject custom models configured with tools disabled.
+	const forcesFunctionTools =
+		tool_choice !== undefined &&
+		!(
+			typeof tool_choice === "object" &&
+			tool_choice !== null &&
+			tool_choice.type === "web_search"
+		);
 
 	// Estimate prompt tokens once so all routing decisions can reuse the
 	// same value (e.g. cache-support weighting kicks in for large prompts).
@@ -2743,7 +2765,7 @@ chat.openapi(completions, async (c) => {
 	);
 	if (isStarterChatPlan && !isChatPlanModelAllowed("starter", modelInfo.id)) {
 		throw new HTTPException(403, {
-			message: `Model ${modelInfo.id} is not available on the Starter chat plan. Upgrade to Plus or Pro at chat.llmgateway.io/pricing to access frontier models.`,
+			message: `Model ${modelInfo.id} is not available on the Starter chat plan. Upgrade to Plus or Pro at lounge.llmgateway.io/pricing to access frontier models.`,
 		});
 	}
 
@@ -2874,6 +2896,33 @@ chat.openapi(completions, async (c) => {
 			throw new HTTPException(400, { message });
 		}
 		throw capabilityError;
+	}
+
+	// An offered web_search tool is exactly that — an offer. Every provider is
+	// free to answer without searching, and a 200 with no citations and no
+	// search cost is the ordinary outcome when a model decides the question
+	// doesn't need one.
+	//
+	// Some upstreams can only search on demand (see `webSearchForcedOnly`).
+	// Routing prefers a provider that can elect its own search, but when the
+	// resolved model has none — every mapping is search-on-demand-only, or the
+	// caller pinned one — there is nothing to prefer. Drop the offer rather
+	// than failing the request: declining to search is a normal answer, while a
+	// 400 would reject a request that works today.
+	if (webSearchTool && !webSearchTool.forced) {
+		const candidates = requestedProvider
+			? modelInfo.providers.filter(
+					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
+				)
+			: modelInfo.providers;
+		const canElectSearch = candidates.some(
+			(p) =>
+				(p as ProviderModelMapping).webSearch === true &&
+				(p as ProviderModelMapping).webSearchForcedOnly !== true,
+		);
+		if (!canElectSearch) {
+			webSearchTool = undefined;
+		}
 	}
 
 	let usedProvider = requestedProvider;
@@ -3164,7 +3213,7 @@ chat.openapi(completions, async (c) => {
 			}
 			if (
 				customModelEntry.tools === false &&
-				(tool_choice !== undefined || (tools && tools.length > 0))
+				(forcesFunctionTools || (tools && tools.length > 0))
 			) {
 				throw new HTTPException(400, {
 					message: `Model '${requestedModel}' is not configured to support tool calls. Remove the tools/tool_choice parameter or enable tools for this custom model.`,
@@ -3369,6 +3418,7 @@ chat.openapi(completions, async (c) => {
 		const now = new Date(); // Cache current time for deprecation checks
 		const autoFilterOpts = {
 			webSearchTool: !!webSearchTool,
+			webSearchForced: !!webSearchTool?.forced,
 			responseFormatType: response_format?.type,
 			hasImages,
 			hasAudio,
@@ -3378,7 +3428,7 @@ chat.openapi(completions, async (c) => {
 			// web_search is extracted from tools above and can leave an empty
 			// array; an empty tools list must not require function-tool support.
 			hasTools:
-				(tools !== undefined && tools.length > 0) || tool_choice !== undefined,
+				(tools !== undefined && tools.length > 0) || forcesFunctionTools,
 			reasoningEffort: reasoning_effort,
 			reasoningMaxTokens: reasoning_max_tokens,
 			noReasoning: no_reasoning,
@@ -4038,6 +4088,15 @@ chat.openapi(completions, async (c) => {
 						return false;
 					}
 					if (webSearchTool && provider.webSearch !== true) {
+						return false;
+					}
+					// Same rule the routing filter applies: search-on-demand-only
+					// mappings are not fallback candidates unless the caller forced.
+					if (
+						webSearchTool &&
+						!webSearchTool.forced &&
+						(provider as ProviderModelMapping).webSearchForcedOnly === true
+					) {
 						return false;
 					}
 					if (
@@ -9028,15 +9087,19 @@ chat.openapi(completions, async (c) => {
 				let outputImageCount = 0; // Track number of output images for cost calculation
 				// Track web search calls for cost calculation. Providers that report
 				// no search metadata in the stream are counted up front: zai, and
-				// the DashScope-compatible endpoints where we force the search.
+				// the DashScope-compatible endpoints, which search only when the
+				// caller forced it and then always do.
 				let webSearchCount =
 					webSearchTool &&
 					(usedProvider === "zai" ||
-						usedProvider === "alibaba" ||
-						usedProvider === "scx-ai-gp")
+						((usedProvider === "alibaba" || usedProvider === "scx-ai-gp") &&
+							webSearchTool.forced))
 						? 1
 						: 0;
 				const serverToolUseIndices = new Set<number>(); // Track Anthropic server_tool_use block indices
+				// Accumulates Anthropic tool search calls until their result block
+				// arrives, so the pair can be forwarded to native clients intact.
+				const toolSearchState: AnthropicToolSearchState = new Map();
 				let sawUpstreamDoneSentinel = false;
 				let sawProviderTerminalEvent = false;
 				let sawOpenAiResponsesDoneEvent = false;
@@ -9896,6 +9959,7 @@ chat.openapi(completions, async (c) => {
 									messages,
 									serverToolUseIndices,
 									supportsReasoning,
+									toolSearchState,
 								);
 
 								// Skip null events (some providers have non-data events)
@@ -13512,6 +13576,7 @@ chat.openapi(completions, async (c) => {
 		supportsReasoning,
 		splitTaggedReasoning,
 		!!webSearchTool,
+		!!webSearchTool?.forced,
 	);
 	let { content, totalTokens } = parsedResponse;
 	const {
@@ -13847,6 +13912,17 @@ chat.openapi(completions, async (c) => {
 	) {
 		transformedResponse.choices[0].message.message_items =
 			parsedResponse.messageItems;
+	}
+	// Surface Anthropic's server-side tool search blocks so the /v1/messages
+	// layer can hand them back to the client, which replays them on the next
+	// turn — that is what lets Claude reuse an already discovered tool.
+	if (
+		parsedResponse.anthropicNativeBlocks &&
+		parsedResponse.anthropicNativeBlocks.length > 0 &&
+		transformedResponse.choices?.[0]?.message
+	) {
+		transformedResponse.choices[0].message.anthropic_native_blocks =
+			parsedResponse.anthropicNativeBlocks;
 	}
 	// Surface the effective reasoning context the provider applied so the
 	// Responses layer reports the served mode rather than echoing the request.

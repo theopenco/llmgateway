@@ -1,9 +1,19 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { deleteResendContact } from "@/auth/config.js";
-import { cancelOrganizationSubscriptions } from "@/lib/account-deletion.js";
+import {
+	cancelOrganizationSubscriptions,
+	isTerminalSubscriptionError,
+} from "@/lib/account-deletion.js";
+import {
+	ADMIN_REFUND_REASONS,
+	computeAdminRefundability,
+	executeAdminRefund,
+	sumRefundsByTransaction,
+} from "@/lib/admin-refund.js";
 import { modeSplitFields } from "@/lib/mode-split.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import {
@@ -12,6 +22,7 @@ import {
 	tokenWindowSchema,
 } from "@/lib/stats-window.js";
 import { adminMiddleware } from "@/middleware/admin.js";
+import { getStripe } from "@/routes/payments.js";
 import {
 	CHAT_PLAN_TX_TYPES,
 	DEV_PLAN_SUBSCRIPTION_TX_TYPES,
@@ -128,6 +139,44 @@ function buildOrganizationSearchFilter(search: string | undefined) {
 		sql`${tables.organization.id} LIKE ${idPattern} ESCAPE '\\'`,
 		sql`EXISTS (SELECT 1 FROM ${tables.userOrganization} uo JOIN ${tables.user} u ON uo.user_id = u.id WHERE uo.organization_id = ${tables.organization.id} AND LOWER(u.email) LIKE ${textPattern} ESCAPE '\\')`,
 	);
+}
+
+/**
+ * One owner row per organization, for joining onto organization listings.
+ * An organization can have several members with the `owner` role, so joining
+ * the membership rows directly would emit the organization once per owner.
+ * Ranks by membership age so the founding owner wins, keyed by user id to stay
+ * deterministic when two memberships share a timestamp.
+ */
+function buildOrganizationOwnerSubquery() {
+	const ranked = db
+		.select({
+			organizationId: tables.userOrganization.organizationId,
+			userId: tables.user.id,
+			userName: tables.user.name,
+			userEmail: tables.user.email,
+			userUsername: tables.user.username,
+			rowNumber:
+				sql<number>`ROW_NUMBER() OVER (PARTITION BY ${tables.userOrganization.organizationId} ORDER BY ${tables.userOrganization.createdAt} ASC, ${tables.user.id} ASC)`.as(
+					"owner_row_number",
+				),
+		})
+		.from(tables.userOrganization)
+		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
+		.where(eq(tables.userOrganization.role, "owner"))
+		.as("owner_ranked");
+
+	return db
+		.select({
+			organizationId: ranked.organizationId,
+			userId: ranked.userId,
+			userName: ranked.userName,
+			userEmail: ranked.userEmail,
+			userUsername: ranked.userUsername,
+		})
+		.from(ranked)
+		.where(eq(ranked.rowNumber, 1))
+		.as("owner_sub");
 }
 
 export const admin = new OpenAPIHono<ServerTypes>();
@@ -381,6 +430,8 @@ const organizationSchema = z.object({
 	totalSpent: z.string().optional(),
 	totalCreditsSpent: z.string().optional(),
 	totalApiKeysSpent: z.string().optional(),
+	totalRequests: z.number().optional(),
+	totalTokens: z.number().optional(),
 	createdAt: z.string(),
 	status: z.string().nullable(),
 	referralBonusEnabled: z.boolean().optional(),
@@ -637,6 +688,8 @@ const sortBySchema = z.enum([
 	"status",
 	"totalCreditsAllTime",
 	"totalSpent",
+	"totalRequests",
+	"totalTokens",
 ]);
 
 const sortOrderSchema = z.enum(["asc", "desc"]);
@@ -651,6 +704,10 @@ const getOrganizations = createRoute({
 			search: z.string().optional(),
 			sortBy: sortBySchema.default("createdAt").optional(),
 			sortOrder: sortOrderSchema.default("desc").optional(),
+			// Usage window (YYYY-MM-DD) for the spend/request/token columns.
+			// Omitting both means all time.
+			from: z.string().optional(),
+			to: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -2480,6 +2537,24 @@ function aggregateBreakdownRows<T extends GlobalStatsRowMetrics>(
 	);
 }
 
+// `Date.parse` rolls impossible days over instead of rejecting them
+// ("2026-02-30" becomes March 2), so round-trip the parsed date and refuse
+// anything that did not survive unchanged.
+function parseUsageWindowDay(value: string, boundary: "from" | "to"): Date {
+	const parsed = /^\d{4}-\d{2}-\d{2}$/.test(value)
+		? new Date(value + "T00:00:00.000Z")
+		: new Date(Number.NaN);
+	if (
+		Number.isNaN(parsed.getTime()) ||
+		parsed.toISOString().slice(0, 10) !== value
+	) {
+		throw new HTTPException(400, {
+			message: `Invalid ${boundary} date (expected YYYY-MM-DD)`,
+		});
+	}
+	return parsed;
+}
+
 admin.openapi(getOrganizations, async (c) => {
 	const query = c.req.valid("query");
 	const limit = query.limit ?? 50;
@@ -2487,6 +2562,22 @@ admin.openapi(getOrganizations, async (c) => {
 	const search = query.search;
 	const sortBy = query.sortBy ?? "createdAt";
 	const sortOrder = query.sortOrder ?? "desc";
+
+	// Usage window for the spend/request/token aggregates. Omitting both dates
+	// means all time; supplying only one is rejected rather than silently
+	// widening back to all time.
+	let usageStartDate: Date | undefined;
+	let usageEndDate: Date | undefined;
+	if (Boolean(query.from) !== Boolean(query.to)) {
+		throw new HTTPException(400, {
+			message: "Both from and to are required to narrow the usage window",
+		});
+	}
+	if (query.from && query.to) {
+		usageStartDate = parseUsageWindowDay(query.from, "from");
+		usageEndDate = parseUsageWindowDay(query.to, "to");
+		usageEndDate.setUTCHours(23, 59, 59, 999);
+	}
 
 	const whereClause = buildOrganizationSearchFilter(search);
 
@@ -2520,7 +2611,8 @@ admin.openapi(getOrganizations, async (c) => {
 		.groupBy(tables.transaction.organizationId)
 		.as("all_time_credits");
 
-	// Subquery for total spent (usage cost) per org
+	// Subquery for usage totals (cost, requests, tokens) per org, scoped to the
+	// selected window.
 	const totalSpentSub = db
 		.select({
 			organizationId: tables.project.organizationId,
@@ -2536,27 +2628,35 @@ admin.openapi(getOrganizations, async (c) => {
 				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.apiKeysCost} AS NUMERIC)), 0)`.as(
 					"api_keys_spent",
 				),
+			requestsTotal:
+				sql<string>`COALESCE(SUM(${projectHourlyStats.requestCount}), 0)`.as(
+					"total_requests",
+				),
+			tokensTotal:
+				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
+					"total_tokens",
+				),
 		})
 		.from(projectHourlyStats)
 		.innerJoin(
 			tables.project,
 			eq(projectHourlyStats.projectId, tables.project.id),
 		)
+		.where(
+			and(
+				usageStartDate
+					? gte(projectHourlyStats.hourTimestamp, usageStartDate)
+					: undefined,
+				usageEndDate
+					? lte(projectHourlyStats.hourTimestamp, usageEndDate)
+					: undefined,
+			),
+		)
 		.groupBy(tables.project.organizationId)
 		.as("total_spent");
 
 	// Subquery for owner user per org
-	const ownerSub = db
-		.select({
-			organizationId: tables.userOrganization.organizationId,
-			userId: tables.user.id,
-			userName: tables.user.name,
-			userEmail: tables.user.email,
-		})
-		.from(tables.userOrganization)
-		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
-		.where(eq(tables.userOrganization.role, "owner"))
-		.as("owner_sub");
+	const ownerSub = buildOrganizationOwnerSubquery();
 
 	const sortColumnMap = {
 		name: tables.organization.name,
@@ -2568,6 +2668,8 @@ admin.openapi(getOrganizations, async (c) => {
 		status: tables.organization.status,
 		totalCreditsAllTime: sql`COALESCE(CAST(${allTimeCredits.total} AS NUMERIC), 0)`,
 		totalSpent: sql`COALESCE(CAST(${totalSpentSub.total} AS NUMERIC), 0)`,
+		totalRequests: sql`COALESCE(CAST(${totalSpentSub.requestsTotal} AS NUMERIC), 0)`,
+		totalTokens: sql`COALESCE(CAST(${totalSpentSub.tokensTotal} AS NUMERIC), 0)`,
 	} as const;
 
 	const sortColumn = sortColumnMap[sortBy];
@@ -2603,6 +2705,13 @@ admin.openapi(getOrganizations, async (c) => {
 				sql<string>`COALESCE(${totalSpentSub.apiKeysTotal}, '0')`.as(
 					"totalApiKeysSpent",
 				),
+			totalRequests:
+				sql<string>`COALESCE(${totalSpentSub.requestsTotal}, '0')`.as(
+					"totalRequests",
+				),
+			totalTokens: sql<string>`COALESCE(${totalSpentSub.tokensTotal}, '0')`.as(
+				"totalTokens",
+			),
 			ownerUserId: ownerSub.userId,
 			ownerName: ownerSub.userName,
 			ownerEmail: ownerSub.userEmail,
@@ -2618,7 +2727,10 @@ admin.openapi(getOrganizations, async (c) => {
 		)
 		.leftJoin(ownerSub, eq(tables.organization.id, ownerSub.organizationId))
 		.where(whereClause)
-		.orderBy(orderFn(sortColumn))
+		// Ties (every org with no usage shares 0 requests/tokens) would otherwise
+		// come back in an arbitrary order that differs per LIMIT/OFFSET plan, so
+		// paging repeats some rows and skips others.
+		.orderBy(orderFn(sortColumn), asc(tables.organization.id))
 		.limit(limit)
 		.offset(offset);
 
@@ -2640,6 +2752,8 @@ admin.openapi(getOrganizations, async (c) => {
 			totalSpent: String(org.totalSpent ?? "0"),
 			totalCreditsSpent: String(org.totalCreditsSpent ?? "0"),
 			totalApiKeysSpent: String(org.totalApiKeysSpent ?? "0"),
+			totalRequests: Number(org.totalRequests ?? 0),
+			totalTokens: Number(org.totalTokens ?? 0),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
 			ownerUserId: org.ownerUserId ?? null,
@@ -5072,7 +5186,7 @@ admin.openapi(getProviderStats, async (c) => {
 					modelCountSub,
 					eq(tables.provider.id, modelCountSub.providerId),
 				)
-				.orderBy(orderFn(sortColumn)),
+				.orderBy(orderFn(sortColumn), asc(tables.provider.id)),
 		]);
 
 		const totalTokensAgg = Number(totalsResult?.totalTokens ?? 0);
@@ -5138,7 +5252,7 @@ admin.openapi(getProviderStats, async (c) => {
 		})
 		.from(tables.provider)
 		.leftJoin(modelCountSub, eq(tables.provider.id, modelCountSub.providerId))
-		.orderBy(orderFn(sortColumn));
+		.orderBy(orderFn(sortColumn), asc(tables.provider.id));
 
 	return c.json({
 		providers: rows.map((r) => ({
@@ -5460,7 +5574,7 @@ admin.openapi(getModelStats, async (c) => {
 				)
 				.leftJoin(pricingSub, eq(tables.model.id, pricingSub.modelId))
 				.where(whereClause)
-				.orderBy(orderFn(sortColumn))
+				.orderBy(orderFn(sortColumn), asc(tables.model.id))
 				.limit(limit)
 				.offset(offset),
 		]);
@@ -5591,7 +5705,7 @@ admin.openapi(getModelStats, async (c) => {
 		.leftJoin(providerCountSub, eq(tables.model.id, providerCountSub.modelId))
 		.leftJoin(pricingSub, eq(tables.model.id, pricingSub.modelId))
 		.where(whereClause)
-		.orderBy(orderFn(sortColumn))
+		.orderBy(orderFn(sortColumn), asc(tables.model.id))
 		.limit(limit)
 		.offset(offset);
 
@@ -9984,7 +10098,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 				eq(tables.modelProviderMapping.id, statsJoin.mappingId),
 			)
 			.where(whereClause)
-			.orderBy(orderFn(sortColumn))
+			.orderBy(orderFn(sortColumn), asc(tables.modelProviderMapping.id))
 			.limit(limit)
 			.offset(offset),
 	]);
@@ -10720,7 +10834,7 @@ admin.openapi(getContactSubmissions, async (c) => {
 			})
 			.from(t)
 			.where(where)
-			.orderBy(orderFn(sortColumn))
+			.orderBy(orderFn(sortColumn), asc(t.id))
 			.limit(limit)
 			.offset(offset),
 		db
@@ -11787,7 +11901,7 @@ admin.openapi(getProviderListingRequests, async (c) => {
 			})
 			.from(t)
 			.where(where)
-			.orderBy(orderFn(sortColumn))
+			.orderBy(orderFn(sortColumn), asc(t.id))
 			.limit(limit)
 			.offset(offset),
 		db
@@ -12327,6 +12441,15 @@ const devpassTransactionSchema = z.object({
 	currency: z.string(),
 	status: z.string(),
 	description: z.string().nullable(),
+	// The payment a refund reverses, so the two rows can be tied together in
+	// the panel. Null on everything else.
+	relatedTransactionId: z.string().nullable(),
+	// Whether an admin can refund this payment, and how much of it is left.
+	// `refundIneligibleReason` is null when `refundable` is true.
+	refundable: z.boolean(),
+	refundIneligibleReason: z.string().nullable(),
+	refundedAmount: z.string(),
+	refundableAmount: z.string(),
 });
 
 const devpassPaymentFailureSchema = z.object({
@@ -12413,6 +12536,130 @@ const giftResetPassesRoute = createRoute({
 				},
 			},
 			description: "Reset Passes gifted successfully.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Subscriber not found.",
+		},
+	},
+});
+
+// Refund a DevPass payment on behalf of the subscriber. The Stripe refund is
+// all this does directly: the `charge.refunded` webhook records the
+// `credit_refund` row, deducts top-up credits, claws back an unused Reset Pass,
+// and cancels the subscription when a plan payment is refunded in full.
+const refundDevpassPaymentRoute = createRoute({
+	method: "post",
+	path: "/devpass/{orgId}/refund",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						transactionId: z.string(),
+						// Omit for a full refund of whatever is left on the payment.
+						amount: z.number().positive().optional(),
+						reason: z
+							.enum(ADMIN_REFUND_REASONS)
+							.default("requested_by_customer"),
+						comment: z.string().max(500).optional(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						stripeRefundId: z.string(),
+						amount: z.string(),
+					}),
+				},
+			},
+			description:
+				"Refund created; bookkeeping is applied when Stripe confirms via webhook.",
+		},
+		400: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Payment is not refundable.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Subscriber or transaction not found.",
+		},
+	},
+});
+
+// Cancel a DevPass subscription on behalf of the subscriber, either at the end
+// of the paid period (the default, same as the customer-facing cancel) or
+// immediately. Plan state is updated by the resulting Stripe webhook.
+const cancelDevpassSubscriptionRoute = createRoute({
+	method: "post",
+	path: "/devpass/{orgId}/cancel-subscription",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						// Immediate cancellation ends access right away without
+						// refunding the current period — pair it with a refund when the
+						// customer should get their money back.
+						immediate: z.boolean().default(false),
+						comment: z.string().max(500).optional(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						immediate: z.boolean(),
+						subscriptionId: z.string(),
+					}),
+				},
+			},
+			description: "DevPass subscription cancelled.",
+		},
+		400: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "No active DevPass subscription.",
 		},
 		404: {
 			content: {
@@ -12678,18 +12925,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		.groupBy(tables.paymentFailure.organizationId)
 		.as("last_payment_failure_sub");
 
-	const ownerSub = db
-		.select({
-			organizationId: tables.userOrganization.organizationId,
-			userId: tables.user.id,
-			userName: tables.user.name,
-			userEmail: tables.user.email,
-			userUsername: tables.user.username,
-		})
-		.from(tables.userOrganization)
-		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
-		.where(eq(tables.userOrganization.role, "owner"))
-		.as("owner_sub");
+	const ownerSub = buildOrganizationOwnerSubquery();
 
 	// All-time provider cost per org: every project, every cycle, no status or
 	// billing-cycle window. Unlike `realCostSub` (current cycle only) this never
@@ -13043,7 +13279,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 
 	const rows = await baseSelect
 		.where(whereClause)
-		.orderBy(orderFn(sortColumn))
+		.orderBy(orderFn(sortColumn), asc(tables.organization.id))
 		.limit(limit)
 		.offset(offset);
 
@@ -14350,6 +14586,9 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 			currency: tables.transaction.currency,
 			status: tables.transaction.status,
 			description: tables.transaction.description,
+			relatedTransactionId: tables.transaction.relatedTransactionId,
+			stripePaymentIntentId: tables.transaction.stripePaymentIntentId,
+			stripeInvoiceId: tables.transaction.stripeInvoiceId,
 		})
 		.from(tables.transaction)
 		.where(
@@ -14365,8 +14604,16 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 					"dev_plan_renewal",
 					"dev_plan_reset_pass",
 					"dev_plan_reset_pass_gift",
+					"dev_plan_reset_pass_reward",
 					// PAYG overflow top-ups are DevPass billing events too.
 					"credit_topup",
+					// Money and credits going back out. Without `credit_refund` a
+					// refunded payment reads as a charge that was never reversed —
+					// the refund exists only as a badge on the original row — and
+					// gifted or manually paid credits appear from nowhere.
+					"credit_refund",
+					"credit_gift",
+					"credit_manual_payment",
 					// Legacy types — pre dev_plan_* rename, still in DB for older
 					// dev plan subscribers; without these their history reads as empty.
 					"subscription_start",
@@ -14377,6 +14624,13 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		)
 		.orderBy(desc(tables.transaction.createdAt))
 		.limit(100);
+
+	// Refunds already issued against those payments, so the panel can show what
+	// is left to refund instead of offering a button that Stripe would reject.
+	const refundedByTransactionId = await sumRefundsByTransaction(
+		orgId,
+		transactions.map((t) => t.id),
+	);
 
 	const paymentFailures = await db
 		.select({
@@ -14407,16 +14661,27 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 							org.devPlanIncludedResetPassesUsed,
 						),
 		},
-		transactions: transactions.map((t) => ({
-			id: t.id,
-			createdAt: t.createdAt.toISOString(),
-			type: t.type,
-			amount: t.amount ?? null,
-			creditAmount: t.creditAmount ?? null,
-			currency: t.currency,
-			status: t.status,
-			description: t.description ?? null,
-		})),
+		transactions: transactions.map((t) => {
+			const refundability = computeAdminRefundability({
+				transaction: t,
+				refundedAmount: refundedByTransactionId.get(t.id) ?? new Decimal(0),
+			});
+			return {
+				id: t.id,
+				createdAt: t.createdAt.toISOString(),
+				type: t.type,
+				amount: t.amount ?? null,
+				creditAmount: t.creditAmount ?? null,
+				currency: t.currency,
+				status: t.status,
+				description: t.description ?? null,
+				relatedTransactionId: t.relatedTransactionId ?? null,
+				refundable: refundability.refundable,
+				refundIneligibleReason: refundability.reason,
+				refundedAmount: refundability.refundedAmount,
+				refundableAmount: refundability.refundableAmount,
+			};
+		}),
 		paymentFailures: paymentFailures.map((p) => ({
 			id: p.id,
 			createdAt: p.createdAt.toISOString(),
@@ -14499,6 +14764,123 @@ admin.openapi(giftResetPassesRoute, async (c) => {
 	return c.json({
 		message: "Reset Passes gifted successfully",
 		resetPasses,
+	});
+});
+
+admin.openapi(refundDevpassPaymentRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+	const { transactionId, amount, reason, comment } = c.req.valid("json");
+
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: orgId }, kind: { eq: "devpass" } },
+	});
+
+	if (!org) {
+		throw new HTTPException(404, { message: "Subscriber not found" });
+	}
+
+	const transaction = await db.query.transaction.findFirst({
+		where: { id: { eq: transactionId }, organizationId: { eq: orgId } },
+	});
+
+	if (!transaction) {
+		throw new HTTPException(404, { message: "Transaction not found" });
+	}
+
+	const refundedByTransactionId = await sumRefundsByTransaction(orgId, [
+		transaction.id,
+	]);
+
+	const { stripeRefundId, amount: refundedAmount } = await executeAdminRefund({
+		organization: org,
+		transaction,
+		adminUserId: user!.id,
+		amount,
+		refundedAmount:
+			refundedByTransactionId.get(transaction.id) ?? new Decimal(0),
+		reason,
+		comment,
+	});
+
+	return c.json({
+		message: `Refund of $${refundedAmount} created. Credits, Reset Passes and plan status update once Stripe confirms.`,
+		stripeRefundId,
+		amount: refundedAmount,
+	});
+});
+
+admin.openapi(cancelDevpassSubscriptionRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+	const { immediate, comment } = c.req.valid("json");
+
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: orgId }, kind: { eq: "devpass" } },
+	});
+
+	if (!org) {
+		throw new HTTPException(404, { message: "Subscriber not found" });
+	}
+
+	const subscriptionId = org.devPlanStripeSubscriptionId;
+	if (!subscriptionId) {
+		throw new HTTPException(400, {
+			message: "This subscriber has no active DevPass subscription",
+		});
+	}
+
+	const cancellationDetails = comment ? { comment } : undefined;
+
+	try {
+		if (immediate) {
+			await getStripe().subscriptions.cancel(subscriptionId, {
+				invoice_now: false,
+				prorate: false,
+				...(cancellationDetails
+					? { cancellation_details: cancellationDetails }
+					: {}),
+			});
+		} else {
+			await getStripe().subscriptions.update(subscriptionId, {
+				cancel_at_period_end: true,
+				...(cancellationDetails
+					? { cancellation_details: cancellationDetails }
+					: {}),
+			});
+		}
+	} catch (error) {
+		// A subscription Stripe has already ended is exactly the state we want;
+		// the plan columns are reset by the webhook (or the customer's next
+		// dashboard visit), so report success instead of failing the action.
+		if (isTerminalSubscriptionError(error)) {
+			logger.info(
+				`DevPass subscription ${subscriptionId} already terminal, skipping admin cancel`,
+			);
+		} else {
+			throw error;
+		}
+	}
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "dev_plan.admin_cancel",
+		resourceType: "dev_plan",
+		resourceId: subscriptionId,
+		metadata: {
+			tier: org.devPlan,
+			immediate,
+			comment,
+		},
+	});
+
+	return c.json({
+		message: immediate
+			? "DevPass subscription cancelled immediately"
+			: "DevPass subscription will end at the end of the current period",
+		immediate,
+		subscriptionId,
 	});
 });
 
@@ -14862,17 +15244,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 		.groupBy(tables.paymentFailure.organizationId)
 		.as("last_payment_failure_sub");
 
-	const ownerSub = db
-		.select({
-			organizationId: tables.userOrganization.organizationId,
-			userId: tables.user.id,
-			userName: tables.user.name,
-			userEmail: tables.user.email,
-		})
-		.from(tables.userOrganization)
-		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
-		.where(eq(tables.userOrganization.role, "owner"))
-		.as("owner_sub");
+	const ownerSub = buildOrganizationOwnerSubquery();
 
 	// All-time provider cost per org: every project, every cycle, no status or
 	// billing-cycle window. Scoped to chat orgs so the aggregation doesn't scan
@@ -15143,7 +15515,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 
 	const rows = await baseSelect
 		.where(whereClause)
-		.orderBy(orderFn(sortColumn))
+		.orderBy(orderFn(sortColumn), asc(tables.organization.id))
 		.limit(limit)
 		.offset(offset);
 

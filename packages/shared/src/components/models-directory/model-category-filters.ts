@@ -155,6 +155,7 @@ export const curatedCategoryModelIds: Record<
 };
 
 export const OPEN_SOURCE_FAMILIES: ReadonlySet<string> = new Set([
+	"baidu",
 	"meta",
 	"deepseek",
 	"moonshot",

@@ -338,15 +338,19 @@ export function assertDevPlanPremiumCapNotExceeded(
 	if (remaining > 0) {
 		return;
 	}
-	// PAYG overflow: once the monthly pool is exhausted, an opted-in org is
-	// paying provider rates from its own credits, so the weekly premium cap
-	// (a fair-use limiter on the plan allowance) no longer applies — the
-	// regular credit gate downstream takes over. Mid-cycle, with monthly
-	// allowance remaining, the cap still bites so Reset Passes remain the
-	// path to more premium usage within the plan.
+	// PAYG overflow: the weekly premium cap is a fair-use limiter on the plan
+	// allowance, not on the org's own money. An opted-in org gets premium
+	// requests admitted past the cap whenever overflow can actually pay:
+	// either the monthly pool is already exhausted (the regular credit gate
+	// downstream takes over), or the org holds a positive credits balance —
+	// in which case the worker routes the over-cap premium spend to that
+	// balance at provider rates, so the plan pool still never pays past the
+	// cap and Reset Passes remain the way to keep premium usage inside the
+	// plan. Opted in with an empty balance mid-cycle, the cap still bites.
 	if (organization.devPlanPaygEnabled) {
-		const { devPlanCreditsRemaining } = getAvailableCredits(organization);
-		if (devPlanCreditsRemaining <= 0) {
+		const { regularCredits, devPlanCreditsRemaining } =
+			getAvailableCredits(organization);
+		if (devPlanCreditsRemaining <= 0 || regularCredits > 0) {
 			return;
 		}
 	}
@@ -382,8 +386,13 @@ export function assertDevPlanPremiumCapNotExceeded(
 			// billing gate, and a capture failure must not turn it into a 500.
 		}
 	}
+	// Reaching here with the opt-in means the balance is empty, so a top-up is
+	// the one action that unblocks premium immediately.
+	const paygHint = organization.devPlanPaygEnabled
+		? " Pay-as-you-go overflow is enabled but your credits balance is empty — top up from your DevPass dashboard to keep premium models flowing."
+		: "";
 	throw new HTTPException(402, {
-		message: `You've used your weekly allowance for premium-tier models on the ${tier} plan. Redeem a Reset Pass from your dashboard for an instant reset, upgrade for a higher allowance, or use any standard model now. Resets in ${formatTimeUntilReset(msUntilReset)}.`,
+		message: `You've used your weekly allowance for premium-tier models on the ${tier} plan. Redeem a Reset Pass from your dashboard for an instant reset, upgrade for a higher allowance, or use any standard model now. Resets in ${formatTimeUntilReset(msUntilReset)}.${paygHint}`,
 	});
 }
 

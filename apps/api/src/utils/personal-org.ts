@@ -55,7 +55,7 @@ export async function getOrCreatePersonalOrg(user: PersonalOrgUser) {
 }
 
 // Get or create the dedicated "Chat" organization for a user. This backs
-// chat.llmgateway.io (apps/playground): the chat plan, pay-as-you-go top-ups,
+// lounge.llmgateway.io (apps/playground): the chat plan, pay-as-you-go top-ups,
 // and all playground billing live here, kept separate from the DevPass personal
 // org used by the coding product.
 //

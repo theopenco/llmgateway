@@ -553,6 +553,88 @@ describe("prepareRequestBody - OpenAI image generation", () => {
 	});
 });
 
+describe("prepareRequestBody - xAI image generation", () => {
+	async function prepareXaiImageRequest(imageConfig: {
+		aspect_ratio?: string;
+		image_size?: string;
+		image_quality?: string;
+		n?: number;
+	}) {
+		return (await prepareRequestBody(
+			"xai",
+			"grok-imagine-image-2-0",
+			null,
+			"grok-imagine-image-2.0",
+			[{ role: "user", content: "Generate a cinematic landscape" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			imageConfig,
+			undefined,
+			true,
+		)) as any;
+	}
+
+	test("should forward quality and resolution", async () => {
+		const requestBody = await prepareXaiImageRequest({
+			image_quality: "low",
+			image_size: "2k",
+			n: 2,
+		});
+
+		expect(requestBody).toMatchObject({
+			model: "grok-imagine-image-2.0",
+			prompt: "Generate a cinematic landscape",
+			quality: "low",
+			resolution: "2k",
+			n: 2,
+		});
+	});
+
+	// xAI's `resolution` enum only accepts the lowercase tier names, so pixel
+	// dimensions and casing variants are normalized rather than passed through.
+	test.each([
+		["1K", "1k"],
+		["2K", "2k"],
+		["1024x1024", "1k"],
+		["1536x1024", "1k"],
+		["2048x2048", "2k"],
+		["3840x2160", "2k"],
+	])("should map image_size %s to resolution %s", async (size, resolution) => {
+		const requestBody = await prepareXaiImageRequest({ image_size: size });
+
+		expect(requestBody.resolution).toBe(resolution);
+	});
+
+	test("should omit resolution for sizes that name no xAI tier", async () => {
+		const requestBody = await prepareXaiImageRequest({ image_size: "auto" });
+
+		expect(requestBody.resolution).toBeUndefined();
+	});
+
+	test("should drop the unified auto quality", async () => {
+		const requestBody = await prepareXaiImageRequest({
+			image_quality: "auto",
+			image_size: "1k",
+		});
+
+		expect(requestBody.quality).toBeUndefined();
+		expect(requestBody.resolution).toBe("1k");
+	});
+});
+
 describe("prepareRequestBody - OpenAI prompt caching", () => {
 	test("should forward prompt cache controls to OpenAI chat completions", async () => {
 		const requestBody = (await prepareOpenAITextRequest({
@@ -6571,10 +6653,11 @@ describe("prepareRequestBody - DashScope web search", () => {
 		) as Promise<any>;
 
 	test.each(["alibaba", "scx-ai-gp"])(
-		"%s pairs enable_search with forced_search",
+		"%s pairs enable_search with forced_search when forced",
 		async (provider) => {
 			const requestBody = await prepare(provider, "qwen3.8-max", {
 				type: "web_search",
+				forced: true,
 			});
 
 			// enable_search alone is a hint the model ignores; forced_search is what
@@ -6589,12 +6672,50 @@ describe("prepareRequestBody - DashScope web search", () => {
 		async (provider) => {
 			const requestBody = await prepare(provider, "qwen3.8-max", {
 				type: "web_search",
+				forced: true,
 			});
 
 			// The Qwen max models 400 on the documented "agent" policy.
 			expect(requestBody.search_options.search_strategy).toBeUndefined();
 		},
 	);
+
+	test.each(["alibaba", "scx-ai-gp"])(
+		"%s sends no search params for a merely offered tool",
+		async (provider) => {
+			// A chat client that leaves a web search toggle on attaches the tool to
+			// every turn. Forcing there would search and bill on each one, so an
+			// unforced tool must send nothing — routing keeps these mappings out of
+			// such a request in the first place.
+			const requestBody = await prepare(provider, "qwen3.8-max", {
+				type: "web_search",
+			});
+
+			expect(requestBody.enable_search).toBeUndefined();
+			expect(requestBody.search_options).toBeUndefined();
+		},
+	);
+
+	test("openai forwards a forced search on the Responses API", async () => {
+		const requestBody = await prepare("openai", "gpt-5", {
+			type: "web_search",
+			forced: true,
+		});
+
+		// OpenAI takes the gateway's own directive verbatim here. Verified live:
+		// "What is 2+2?" yields no web_search_call without it, one with it.
+		expect(requestBody.tool_choice).toEqual({ type: "web_search" });
+		expect(requestBody.tools).toContainEqual({ type: "web_search" });
+	});
+
+	test("openai leaves an offered search to the model", async () => {
+		const requestBody = await prepare("openai", "gpt-5", {
+			type: "web_search",
+		});
+
+		expect(requestBody.tool_choice).toBeUndefined();
+		expect(requestBody.tools).toContainEqual({ type: "web_search" });
+	});
 
 	test.each(["alibaba", "scx-ai-gp"])(
 		"%s sends no search params without a web_search tool",

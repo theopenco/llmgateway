@@ -40,14 +40,22 @@ const PAGE_SIZE = 10;
 type Invoice =
 	paths["/dev-plans/invoices"]["get"]["responses"]["200"]["content"]["application/json"]["invoices"][number];
 
-// A DevPass invoice is downloadable when it is a completed, positive charge
-// (mirrors isInvoiceableTransaction on the API).
+// A DevPass billing event has a downloadable document when it is completed with
+// a positive amount (mirrors isInvoiceableTransaction on the API): a charge
+// yields an invoice, a refund a credit note. Lifecycle rows (cancel, end,
+// resume) carry no amount and have nothing to document.
 function isInvoiceable(invoice: Invoice): boolean {
 	return (
 		invoice.status === "completed" &&
 		invoice.amount !== null &&
 		Number(invoice.amount) > 0
 	);
+}
+
+// Refunds store the returned amount as a positive `amount` (see stripe.ts);
+// they render as a negative line in the history and as a credit note PDF.
+function isRefund(type: Invoice["type"]): boolean {
+	return type === "credit_refund";
 }
 
 // Invisible stand-in that reserves the exact footprint of an action button so
@@ -71,6 +79,9 @@ function InvoiceDownloadButton({ invoice }: { invoice: Invoice }) {
 	const fetchClient = useFetchClient();
 	const [loading, setLoading] = useState(false);
 
+	const refund = isRefund(invoice.type);
+	const label = refund ? "Credit note" : "Invoice";
+
 	async function handleDownload() {
 		setLoading(true);
 		try {
@@ -83,19 +94,21 @@ function InvoiceDownloadButton({ invoice }: { invoice: Invoice }) {
 			);
 
 			if (!response.ok || !data) {
-				throw new Error("Failed to download invoice");
+				throw new Error("Failed to download document");
 			}
 
 			const url = URL.createObjectURL(data as unknown as Blob);
 			const link = document.createElement("a");
 			link.href = url;
-			link.download = `invoice-${invoice.id}.pdf`;
+			link.download = `${refund ? "credit-note" : "invoice"}-${invoice.id}.pdf`;
 			document.body.appendChild(link);
 			link.click();
 			link.remove();
 			URL.revokeObjectURL(url);
 		} catch {
-			toast.error("Could not download invoice. Please try again later.");
+			toast.error(
+				`Could not download ${label.toLowerCase()}. Please try again later.`,
+			);
 		} finally {
 			setLoading(false);
 		}
@@ -113,7 +126,7 @@ function InvoiceDownloadButton({ invoice }: { invoice: Invoice }) {
 			) : (
 				<Download className="h-4 w-4" />
 			)}
-			<span className="sr-only sm:not-sr-only">Invoice</span>
+			<span className="sr-only sm:not-sr-only">{label}</span>
 		</Button>
 	);
 }
@@ -283,8 +296,17 @@ const TYPE_LABELS: Record<Invoice["type"], string> = {
 	dev_plan_start: "Plan started",
 	dev_plan_renewal: "Renewal",
 	dev_plan_upgrade: "Upgrade",
+	dev_plan_downgrade: "Downgrade",
+	dev_plan_cancel: "Plan cancelled",
+	dev_plan_resume: "Plan resumed",
+	dev_plan_end: "Plan ended",
 	dev_plan_reset_pass: "Reset Pass",
+	dev_plan_reset_pass_reward: "Reset Pass reward",
+	dev_plan_reset_pass_gift: "Reset Pass gift",
 	credit_topup: "Credits top-up",
+	credit_refund: "Refund",
+	credit_gift: "Credits gift",
+	credit_manual_payment: "Credits added",
 };
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -306,6 +328,15 @@ function formatAmount(amount: string | null, currency: string): string {
 	return `${value.toFixed(2)} ${currency}`;
 }
 
+// Refunds move money back to the customer, so the history shows the amount as
+// negative. The stored `amount` stays positive (it feeds the credit note).
+function amountCell(invoice: Invoice): string {
+	const formatted = formatAmount(invoice.amount, invoice.currency);
+	return isRefund(invoice.type) && invoice.amount !== null
+		? `-${formatted}`
+		: formatted;
+}
+
 function formatCredits(creditAmount: string | null): string {
 	if (creditAmount === null) {
 		return "—";
@@ -314,7 +345,8 @@ function formatCredits(creditAmount: string | null): string {
 	if (!Number.isFinite(value)) {
 		return "—";
 	}
-	return `$${value.toFixed(2)}`;
+	const formatted = `$${Math.abs(value).toFixed(2)}`;
+	return value < 0 ? `-${formatted}` : formatted;
 }
 
 export default function DevPassInvoices() {
@@ -333,19 +365,19 @@ export default function DevPassInvoices() {
 
 	return (
 		<div>
-			<h2 className="mb-1 font-semibold">Invoices</h2>
+			<h2 className="mb-1 font-semibold">Billing history</h2>
 			<p className="mb-4 text-sm text-muted-foreground">
-				A record of every DevPass charge, including the amount debited and the
-				usage credits granted for that billing period.
+				A record of every DevPass billing event — charges, refunds and plan
+				changes — with the amount debited and the usage credits granted.
 			</p>
 
 			<div className="overflow-hidden rounded-xl border sm:grid sm:grid-cols-[1fr_1fr_auto_auto_auto]">
 				<div className="hidden grid-cols-subgrid gap-4 border-b bg-muted/40 px-5 py-3 text-xs font-medium text-muted-foreground sm:col-span-5 sm:grid">
 					<div>Date</div>
 					<div>Description</div>
-					<div className="text-right">Amount debited</div>
-					<div className="text-right">Credits granted</div>
-					<div className="text-right">Invoice</div>
+					<div className="text-right">Amount</div>
+					<div className="text-right">Credits</div>
+					<div className="text-right">Document</div>
 				</div>
 
 				{pageInvoices.map((invoice) => (
@@ -373,7 +405,7 @@ export default function DevPassInvoices() {
 							<span className="text-xs text-muted-foreground sm:hidden">
 								Amount{" "}
 							</span>
-							{formatAmount(invoice.amount, invoice.currency)}
+							{amountCell(invoice)}
 						</div>
 						<div className="text-right text-sm tabular-nums text-muted-foreground sm:text-right">
 							<span className="text-xs sm:hidden">Credits </span>

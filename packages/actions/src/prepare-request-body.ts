@@ -29,6 +29,13 @@ import {
 import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
 import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
+import {
+	isToolSearchTool,
+	stripAnthropicNativeBlocks,
+	stripAnthropicToolExtensions,
+	toAnthropicToolSearchTool,
+	usesAnthropicMessagesApi,
+} from "./anthropic-tool-search.js";
 import { parseDataUrl } from "./parse-data-url.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
 import { ImageSizeLimitError, processImageUrl } from "./process-image-url.js";
@@ -127,6 +134,11 @@ function toResponsesToolChoice(
 	toolChoice: ToolChoiceType,
 ): ResponsesToolChoice {
 	if (typeof toolChoice === "object") {
+		// A web_search choice never reaches here: it is stripped before
+		// tool_choice resolution and applied per-provider instead.
+		if (toolChoice.type === "web_search") {
+			return "auto";
+		}
 		return { type: "function", name: toolChoice.function.name };
 	}
 	return toolChoice;
@@ -293,17 +305,22 @@ function isFunctionTool(
 /**
  * Enables DashScope web search on an OpenAI-compatible request body.
  *
- * `enable_search` on its own is only a hint that the model is free to ignore,
- * and in practice it always does: the prompt comes back the same size and the
- * model answers that it has no live access. Pairing it with
- * `search_options.forced_search` is what actually retrieves, so the two are
- * always sent together and a search is guaranteed to have run.
+ * Only ever called for a caller who forced the search, because forcing is the
+ * one mode DashScope actually performs. `enable_search` alone is documented as
+ * a hint the model may act on, but on these Qwen models it never fires — the
+ * prompt comes back unchanged in size and the model states it has no live
+ * access — so sending it by itself would bill nothing and retrieve nothing
+ * while still consuming the route. `search_options.forced_search` is what
+ * retrieves, and pairing the two guarantees a search ran, which is what lets
+ * the response parser count one without any metadata to read.
  *
  * `search_strategy` is deliberately omitted. The documented "agent" and
  * "agent_max" policies are rejected with a 400 ("The current model does not
  * support the \"agent\" search strategy") by the Qwen max models mapped here,
- * and the legacy turbo/standard/pro/max tiers only vary how many snippets get
- * injected into the prompt.
+ * and the legacy turbo/standard/pro/max tiers make almost no difference to how
+ * much gets injected — measured at 724/726/728 prompt tokens for
+ * turbo/standard/pro on an identical query — so they are not a cost lever
+ * worth exposing.
  */
 function applyDashScopeWebSearch(requestBody: Record<string, any>): void {
 	requestBody.enable_search = true;
@@ -741,6 +758,44 @@ function mapGoogleImageSize(imageSize: string): string {
 	}
 
 	return imageSize;
+}
+
+/**
+ * Maps the unified `image_config.image_size` to xAI's `resolution` enum, which
+ * only accepts the lowercase tier names `1k` and `2k` and 422s on anything else
+ * (including `1K` and pixel-dimension strings). Callers pass sizes in whichever
+ * shape their other providers use, so a tier is resolved from the longest pixel
+ * edge when dimensions are given. Returns undefined when the size names no
+ * xAI tier, so the request omits `resolution` and gets xAI's 1k default rather
+ * than a hard rejection.
+ */
+export function mapXaiImageResolution(imageSize: string): string | undefined {
+	const normalized = imageSize.trim().toLowerCase();
+	if (normalized === "1k" || normalized === "2k") {
+		return normalized;
+	}
+
+	const dimensions = normalized.match(/^(\d+)\s*[x*]\s*(\d+)$/);
+	if (dimensions) {
+		const longestEdge = Math.max(Number(dimensions[1]), Number(dimensions[2]));
+		return longestEdge > 1536 ? "2k" : "1k";
+	}
+
+	return undefined;
+}
+
+/**
+ * xAI's image models accept `quality` as a strict enum and 422 on anything
+ * outside it, so the unified `auto` (meaning "let the provider decide") is
+ * dropped rather than forwarded.
+ */
+export function mapXaiImageQuality(imageQuality: string): string | undefined {
+	const normalized = imageQuality.trim().toLowerCase();
+	return normalized === "low" ||
+		normalized === "medium" ||
+		normalized === "high"
+		? normalized
+		: undefined;
 }
 
 /**
@@ -1261,6 +1316,21 @@ export async function prepareRequestBody(
 	reasoning_context?: "auto" | "current_turn" | "all_turns",
 ): Promise<ProviderRequestBody | FormData> {
 	tools = normalizeToolParameters(tools);
+	// Anthropic's server-side tool search (`defer_loading` plus the tool search
+	// tool) only exists on the Anthropic Messages API. Anywhere else the tools
+	// are still sent, just without deferral, so the request degrades to ordinary
+	// eager tool loading instead of failing on an unknown property.
+	const anthropicMessagesApi = usesAnthropicMessagesApi(usedProvider);
+	if (!anthropicMessagesApi) {
+		if (tools?.some(isToolSearchTool)) {
+			logger.warn(
+				"Dropping Anthropic tool search for a non-Anthropic provider",
+				{ usedProvider, usedInternalModel, toolCount: tools.length },
+			);
+		}
+		tools = stripAnthropicToolExtensions(tools);
+		messages = stripAnthropicNativeBlocks(messages);
+	}
 	const modelDef = models.find((m) => m.id === usedInternalModel);
 	const providerMappingForOptions = getProviderMapping(
 		modelDef,
@@ -1432,6 +1502,12 @@ export async function prepareRequestBody(
 
 		// xAI Grok Imagine uses OpenAI-compatible image generation format
 		// When images are present, use the edits format
+		const xaiQuality = image_config?.image_quality
+			? mapXaiImageQuality(image_config.image_quality)
+			: undefined;
+		const xaiResolution = image_config?.image_size
+			? mapXaiImageResolution(image_config.image_size)
+			: undefined;
 		const xaiImageRequest: any = {
 			model: usedExternalId,
 			prompt,
@@ -1439,6 +1515,8 @@ export async function prepareRequestBody(
 			...(image_config?.aspect_ratio && {
 				aspect_ratio: image_config.aspect_ratio,
 			}),
+			...(xaiQuality && { quality: xaiQuality }),
+			...(xaiResolution && { resolution: xaiResolution }),
 			...(image_config?.n && { n: image_config.n }),
 		};
 
@@ -1824,6 +1902,49 @@ export async function prepareRequestBody(
 		});
 	}
 
+	// Some deployments fetch remote image URLs themselves but only decode a
+	// subset of the formats they accept inline (Novita's ERNIE 4.5 VL rejects a
+	// remote PNG while accepting the same bytes as a data URL), so mappings that
+	// declare `requiresBase64Images` get their remote images inlined here,
+	// before any provider branch runs. Every non-`data:` URL goes through
+	// `processImageUrl` with the SSRF guard left on (its default): the guard is
+	// what enforces https-only and refuses internal hosts, so an `http://` URL
+	// is rejected rather than quietly forwarded to the provider to fetch.
+	if (providerMappingForOptions?.requiresBase64Images) {
+		processedMessages = await Promise.all(
+			processedMessages.map(async (m) => {
+				if (!Array.isArray(m.content)) {
+					return m;
+				}
+				const content = await Promise.all(
+					m.content.map(async (part) => {
+						if (part?.type !== "image_url" || !part.image_url) {
+							return part;
+						}
+						const imageUrl =
+							typeof part.image_url === "string"
+								? part.image_url
+								: part.image_url.url;
+						if (!imageUrl || imageUrl.startsWith("data:")) {
+							return part;
+						}
+						const { data, mimeType } = await processImageUrl(
+							imageUrl,
+							isProd,
+							maxImageSizeMB,
+							userPlan,
+						);
+						return {
+							...part,
+							image_url: { url: `data:${mimeType};base64,${data}` },
+						};
+					}),
+				);
+				return { ...m, content };
+			}),
+		);
+	}
+
 	// Keep a pre-strip reference for the OpenAI Responses API path below, which
 	// converts `reasoning_details` entries back into `reasoning` input items.
 	const messagesWithReasoningDetails = processedMessages;
@@ -1904,8 +2025,18 @@ export async function prepareRequestBody(
 	// in the mapping's supportedToolChoices. This keeps forced-tool requests
 	// working on providers that only accept a subset of tool_choice modes,
 	// instead of hard-coding per-provider downgrades here.
-	let resolvedToolChoice = tool_choice;
-	if (tool_choice) {
+	// `tool_choice: {type: "web_search"}` is a gateway-level directive, consumed
+	// via `webSearchTool.forced` and translated into whatever each upstream
+	// understands (DashScope's `search_options.forced_search`). No provider
+	// accepts it under this name in a chat-completions body, so it is never
+	// forwarded verbatim.
+	const isWebSearchToolChoice =
+		typeof tool_choice === "object" &&
+		tool_choice !== null &&
+		(tool_choice as { type?: string }).type === "web_search";
+
+	let resolvedToolChoice = isWebSearchToolChoice ? undefined : tool_choice;
+	if (tool_choice && !isWebSearchToolChoice) {
 		const mapping = modelDef?.providers.find(
 			(p) =>
 				p.providerId === usedProvider &&
@@ -2172,6 +2303,13 @@ export async function prepareRequestBody(
 						webSearch.search_context_size = webSearchTool.search_context_size;
 					}
 					responsesBody.tools.push(webSearch);
+					// The Responses API takes the same directive the gateway accepts,
+					// so a forced search is forwarded rather than translated. Verified
+					// live: "What is 2+2?" produces no web_search_call without it and
+					// one with it.
+					if (webSearchTool.forced) {
+						responsesBody.tool_choice = { type: "web_search" };
+					}
 				}
 				if (resolvedToolChoice) {
 					responsesBody.tool_choice = toResponsesToolChoice(resolvedToolChoice);
@@ -2508,7 +2646,7 @@ export async function prepareRequestBody(
 				requestBody.response_format = response_format;
 			}
 
-			if (webSearchTool) {
+			if (webSearchTool?.forced) {
 				applyDashScopeWebSearch(requestBody);
 			}
 
@@ -2847,7 +2985,20 @@ export async function prepareRequestBody(
 						name: tool.function.name,
 						description: tool.function.description,
 						input_schema: tool.function.parameters,
+						// Anthropic strips deferred tools from the rendered tools
+						// section before the cache key is computed, so forwarding this
+						// is what keeps a large tool catalogue out of the cached prefix.
+						...(tool.defer_loading === true && { defer_loading: true }),
 					}));
+				}
+				// The tool search tool has to come first: Anthropic rejects a request
+				// whose tools are all deferred, and it is the one tool that never is.
+				const toolSearchTools = tools.filter(isToolSearchTool);
+				if (toolSearchTools.length > 0) {
+					requestBody.tools = [
+						...toolSearchTools.map(toAnthropicToolSearchTool),
+						...((requestBody.tools as unknown[]) ?? []),
+					];
 				}
 			}
 
@@ -4119,7 +4270,7 @@ export async function prepareRequestBody(
 			// SCX resells Alibaba's Qwen models and passes DashScope's search
 			// parameters straight through, so its Qwen mappings take the same shape
 			// as the `alibaba` case above.
-			if (usedProvider === "scx-ai-gp" && webSearchTool) {
+			if (usedProvider === "scx-ai-gp" && webSearchTool?.forced) {
 				applyDashScopeWebSearch(requestBody);
 			}
 

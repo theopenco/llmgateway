@@ -141,7 +141,7 @@ Prototype on a low-priced tier like Seedance 2.0 Mini at 480p or 720p, then re-r
 
 ### Can I generate videos without writing code first?
 
-Yes — the [Video Studio in Lounge](https://chat.llmgateway.io/video) runs the same models with resolution, duration, and audio controls in the browser.
+Yes — the [Video Studio in Lounge](https://lounge.llmgateway.io/video) runs the same models with resolution, duration, and audio controls in the browser.
 
 ---
 
