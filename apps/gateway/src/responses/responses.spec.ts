@@ -256,8 +256,12 @@ describe("convertResponsesInputToMessages", () => {
 
 	it("passes through regular messages", () => {
 		const input = [
-			{ role: "user" as const, content: "Hello" },
-			{ role: "assistant" as const, content: "Hi there" },
+			{ type: "message" as const, role: "user" as const, content: "Hello" },
+			{
+				type: "message" as const,
+				role: "assistant" as const,
+				content: "Hi there",
+			},
 		];
 		const result = convertResponsesInputToMessages(input);
 		expect(result).toHaveLength(2);
@@ -269,7 +273,11 @@ describe("convertResponsesInputToMessages", () => {
 
 	it("converts function_call items to assistant tool_calls", () => {
 		const input = [
-			{ role: "user" as const, content: "What's the weather?" },
+			{
+				type: "message" as const,
+				role: "user" as const,
+				content: "What's the weather?",
+			},
 			{
 				type: "function_call" as const,
 				call_id: "call_123",
@@ -362,6 +370,7 @@ describe("convertResponsesInputToMessages", () => {
 	it("converts input_text content type to text", () => {
 		const input = [
 			{
+				type: "message" as const,
 				role: "user" as const,
 				content: [{ type: "input_text" as const, text: "Hello" }],
 			},
@@ -372,8 +381,12 @@ describe("convertResponsesInputToMessages", () => {
 
 	it("maps developer role to system", () => {
 		const input = [
-			{ role: "developer" as const, content: "You are helpful" },
-			{ role: "user" as const, content: "Hello" },
+			{
+				type: "message" as const,
+				role: "developer" as const,
+				content: "You are helpful",
+			},
+			{ type: "message" as const, role: "user" as const, content: "Hello" },
 		];
 		const result = convertResponsesInputToMessages(input);
 		expect(result[0]!.role).toBe("system");
