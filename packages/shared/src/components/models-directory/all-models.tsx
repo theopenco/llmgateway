@@ -46,7 +46,6 @@ import Link from "next/link.js";
 import { usePathname, useRouter, useSearchParams } from "next/navigation.js";
 import React, { useMemo, useState, useCallback, useEffect } from "react";
 
-import { isCodingModel } from "@/coding-models.js";
 import { getProviderIcon } from "@/components/provider-icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -82,6 +81,7 @@ import { matchesCapability } from "./capability-filters";
 import { formatDeprecationDate, formatPerImagePriceRange } from "./format";
 import { ModelCard } from "./model-card";
 import { applyCategoryFilter } from "./model-category-filters";
+import { applyUseCaseFilter } from "./use-case-filters";
 import { useIsMobile } from "./use-mobile";
 
 import type {
@@ -954,75 +954,18 @@ export function AllModels({
 				}
 			}
 
-			// Category filter
-			if (filters.category && filters.category !== "all") {
-				switch (filters.category) {
-					case "code": {
-						// Exactly the predicate the gateway enforces for DevPass coding
-						// plans, so this list can never claim less than the plan serves.
-						if (
-							!isCodingModel({
-								free: model.free,
-								stability: model.stability,
-								providers: model.providerDetails.map((p) => p.provider),
-							})
-						) {
-							return false;
-						}
-						break;
-					}
-					case "chat": {
-						// Chat & Assistants: general chat models with streaming and cached input pricing
-						const hasStreaming = model.providerDetails.some(
-							(p) =>
-								p.provider.streaming && p.provider.cachedInputPrice !== null,
-						);
-						if (!hasStreaming) {
-							return false;
-						}
-						break;
-					}
-					case "reasoning": {
-						// Reasoning & Analysis: models with reasoning capability
-						const hasReasoning = model.providerDetails.some(
-							(p) => p.provider.reasoning,
-						);
-						if (!hasReasoning) {
-							return false;
-						}
-						break;
-					}
-					case "creative": {
-						// Creative & Writing: exclude image generation models
-						if (model.output?.includes("image")) {
-							return false;
-						}
-						const hasCreativeStreaming = model.providerDetails.some(
-							(p) => p.provider.streaming,
-						);
-						if (!hasCreativeStreaming) {
-							return false;
-						}
-						break;
-					}
-					case "image": {
-						// Image Generation
-						if (!model.output?.includes("image")) {
-							return false;
-						}
-						break;
-					}
-					case "multimodal": {
-						// Multimodal: vision capability
-						const hasVision = model.providerDetails.some(
-							(p) => p.provider.vision,
-						);
-						if (!hasVision) {
-							return false;
-						}
-						break;
-					}
-				}
+			// Use Case filter (chat/reasoning/creative/image/multimodal/code) —
+			// a model qualifies via any one of its mappings.
+			if (
+				filters.category &&
+				filters.category !== "all" &&
+				!applyUseCaseFilter(
+					filters.category,
+					model,
+					model.providerDetails.map((p) => p.provider),
+				)
+			) {
+				return false;
 			}
 
 			// Pricing tier filter: premium is the fair-use category enforced by
@@ -1412,6 +1355,17 @@ export function AllModels({
 				if (
 					categoryFilter &&
 					!applyCategoryFilter(categoryFilter, model, [provider])
+				) {
+					continue;
+				}
+
+				// Use Case filter works the same way: a model can qualify via
+				// any one of its mappings, but only the mappings that actually
+				// satisfy the use case belong in the filtered table.
+				if (
+					filters.category &&
+					filters.category !== "all" &&
+					!applyUseCaseFilter(filters.category, model, [provider])
 				) {
 					continue;
 				}

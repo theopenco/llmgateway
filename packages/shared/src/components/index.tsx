@@ -23,3 +23,4 @@ export * from "./searchable-select";
 export * from "./use-countdown";
 export * from "./ui/index";
 export * from "./models-directory/capability-filters";
+export * from "./models-directory/use-case-filters";
