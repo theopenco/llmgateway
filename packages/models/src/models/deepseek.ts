@@ -774,6 +774,39 @@ export const deepseekModels = [
 				supportedToolChoices: ["auto", "none"],
 				jsonOutput: true,
 			},
+			{
+				providerId: "gonka24",
+				externalId: "deepseek-v4-flash-0731",
+				inputPrice: "0.05e-6",
+				cachedInputPrice: "0.0027e-6",
+				outputPrice: "0.09e-6",
+				requestPrice: "0",
+				// The deployment shares one 204800-token window between prompt and
+				// completion, and stops generating at 16384 tokens with
+				// finish_reason "length" no matter how high max_tokens is.
+				contextSize: 204800,
+				maxOutput: 16384,
+				streaming: true,
+				reasoning: true,
+				// Every reasoning_effort tier is accepted without validation and none
+				// changes the output, so no tiers are declared. The deployment folds
+				// its reasoning into `content` and never returns `reasoning_content`.
+				reasoningOutput: "omit",
+				vision: false,
+				tools: true,
+				// tool_choice "required" is not enforced — the model keeps answering
+				// in plain text — so it coerces to "auto"; named-function choice is
+				// honoured.
+				supportedToolChoices: ["auto", "none", "function"],
+				// The gateway rejects the OpenAI-only `developer` role ("Invalid enum
+				// value. Expected 'system' | 'user' | 'assistant' | 'tool'").
+				supportsDeveloperRole: false,
+				jsonOutput: true,
+				// `json_schema` is only prompt-steered, not constrained-decoded: the
+				// deployment emits the right keys but never stops, running into the
+				// output cap and returning truncated, unparseable JSON.
+				jsonOutputSchema: false,
+			},
 		],
 	},
 ] as const satisfies ModelDefinition[];
