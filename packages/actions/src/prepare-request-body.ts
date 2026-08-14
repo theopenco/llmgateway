@@ -1307,6 +1307,7 @@ export async function prepareRequestBody(
 	prompt_cache_options?: PromptCacheOptions,
 	session_id?: string,
 	reasoning_context?: "auto" | "current_turn" | "all_turns",
+	safety_identifier?: string,
 ): Promise<ProviderRequestBody | FormData> {
 	tools = normalizeToolParameters(tools);
 	const modelDef = models.find((m) => m.id === usedInternalModel);
@@ -2250,6 +2251,17 @@ export async function prepareRequestBody(
 					}
 				}
 
+				// Abuse-attribution identifier. Only OpenAI and Azure (whose v1
+				// surface is what the Responses API path always uses) document
+				// `safety_identifier`; Bedrock Mantle and Meta are excluded because
+				// neither documents it and an unknown field risks a 400.
+				if (
+					safety_identifier !== undefined &&
+					(usedProvider === "openai" || usedProvider === "azure")
+				) {
+					responsesBody.safety_identifier = safety_identifier;
+				}
+
 				// Add streaming support
 				if (stream) {
 					responsesBody.stream = true;
@@ -2351,6 +2363,11 @@ export async function prepareRequestBody(
 							: undefined);
 					if (upstreamCacheKey !== undefined) {
 						requestBody.prompt_cache_key = upstreamCacheKey;
+					}
+					// Azure is excluded here for the same reason as the cache key
+					// above; it gets `safety_identifier` on the Responses path only.
+					if (safety_identifier !== undefined) {
+						requestBody.safety_identifier = safety_identifier;
 					}
 					if (
 						prompt_cache_retention !== undefined &&
@@ -2754,6 +2771,14 @@ export async function prepareRequestBody(
 		case "vertex-anthropic": {
 			// Remove generic tool_choice that was added earlier
 			delete requestBody.tool_choice;
+
+			// Anthropic's equivalent of OpenAI's `safety_identifier`. Accepted on
+			// both the direct API and Vertex `rawPredict` (verified live). AWS
+			// Bedrock is not covered: it speaks the Converse API, which has no
+			// equivalent field.
+			if (safety_identifier !== undefined) {
+				requestBody.metadata = { user_id: safety_identifier };
+			}
 
 			// Set max_tokens, ensuring it's higher than thinking budget when reasoning is enabled
 			// Use reasoning_max_tokens if provided, otherwise fall back to reasoning_effort mapping

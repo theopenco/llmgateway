@@ -309,6 +309,7 @@ export interface OpenAIRequestBody extends BaseRequestBody {
 	prompt_cache_key?: string;
 	prompt_cache_retention?: PromptCacheRetention;
 	prompt_cache_options?: PromptCacheOptions;
+	safety_identifier?: string;
 	response_format?: {
 		type: "text" | "json_object" | "json_schema";
 		json_schema?: {
@@ -361,6 +362,7 @@ export interface OpenAIResponsesRequestBody {
 	prompt_cache_key?: string;
 	prompt_cache_retention?: PromptCacheRetention;
 	prompt_cache_options?: PromptCacheOptions;
+	safety_identifier?: string;
 	reasoning: {
 		effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 		summary: "detailed";
@@ -429,6 +431,13 @@ export interface AnthropicRequestBody extends BaseRequestBody {
 		  };
 	output_config?: {
 		effort?: "low" | "medium" | "high" | "xhigh" | "max";
+	};
+	/**
+	 * Abuse-attribution identifier. `user_id` must be opaque (uuid or hash) and
+	 * free of PII; Anthropic uses it to tie abusive traffic back to one caller.
+	 */
+	metadata?: {
+		user_id?: string;
 	};
 }
 

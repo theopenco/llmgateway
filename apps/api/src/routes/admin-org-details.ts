@@ -237,6 +237,7 @@ const getOrganizationSettings = createRoute({
 						organization: z.object({
 							id: z.string(),
 							name: z.string(),
+							safetyIdentifier: z.string(),
 							billingEmail: z.string(),
 							createdAt: z.string(),
 							plan: z.string(),
@@ -296,6 +297,7 @@ adminOrgDetails.openapi(getOrganizationSettings, async (c) => {
 		organization: {
 			id: org.id,
 			name: org.name,
+			safetyIdentifier: org.safetyIdentifier,
 			billingEmail: org.billingEmail,
 			createdAt: org.createdAt.toISOString(),
 			plan: org.plan,
