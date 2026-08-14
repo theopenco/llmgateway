@@ -198,6 +198,39 @@ Anthropic's server-side web search tool works on this endpoint. Pass it as usual
 
 Replaying the assistant turn verbatim on the next request is supported: the `server_tool_use` and `web_search_tool_result` blocks are accepted and dropped, since the provider re-runs the search rather than reusing the previous results.
 
+### Tool Search
+
+Anthropic's server-side [tool search](https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool) works on this endpoint. Pass a `tool_search_tool_*` tool alongside your catalog and mark the tools that should load on demand with `defer_loading: true`:
+
+```json
+{
+	"model": "claude-sonnet-4-6",
+	"max_tokens": 1024,
+	"messages": [{ "role": "user", "content": "What is the weather in Paris?" }],
+	"tools": [
+		{
+			"type": "tool_search_tool_regex_20251119",
+			"name": "tool_search_tool_regex"
+		},
+		{
+			"name": "get_weather",
+			"description": "Get the weather at a specific location",
+			"input_schema": { "type": "object" },
+			"defer_loading": true
+		}
+	]
+}
+```
+
+Deferred tools stay out of the rendered tools section, so adding one does not invalidate an existing prompt cache. The response carries the `server_tool_use` and `tool_search_tool_result` blocks; replay them verbatim on the next request and Anthropic keeps expanding the `tool_reference` entries they carry, so Claude reuses a discovered tool instead of searching again. `tool_reference` blocks returned from your own client-side search inside a `tool_result` are forwarded unchanged too.
+
+<Callout type="warning">
+	This is an Anthropic-only feature. If routing lands on a non-Anthropic
+	provider, the tool search tool is dropped and every tool is sent eagerly — the
+	request still works, it just loses the cache and token savings. Pin the
+	provider (`anthropic/claude-sonnet-4-6`) when those savings matter.
+</Callout>
+
 ### Gateway Response Cache
 
 If [gateway caching](/features/caching/gateway-caching) is enabled on the project, a byte-identical request is replayed from cache instead of being sent upstream. Because the replayed body is identical (same `id`, same `usage`), the `x-llmgateway-cache: HIT` response header is the marker to check. Send `x-no-cache: true` to bypass the cache for a single request.

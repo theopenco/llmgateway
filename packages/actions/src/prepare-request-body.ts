@@ -29,6 +29,13 @@ import {
 import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
 import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
+import {
+	isToolSearchTool,
+	stripAnthropicNativeBlocks,
+	stripAnthropicToolExtensions,
+	toAnthropicToolSearchTool,
+	usesAnthropicMessagesApi,
+} from "./anthropic-tool-search.js";
 import { parseDataUrl } from "./parse-data-url.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
 import { ImageSizeLimitError, processImageUrl } from "./process-image-url.js";
@@ -1309,6 +1316,21 @@ export async function prepareRequestBody(
 	reasoning_context?: "auto" | "current_turn" | "all_turns",
 ): Promise<ProviderRequestBody | FormData> {
 	tools = normalizeToolParameters(tools);
+	// Anthropic's server-side tool search (`defer_loading` plus the tool search
+	// tool) only exists on the Anthropic Messages API. Anywhere else the tools
+	// are still sent, just without deferral, so the request degrades to ordinary
+	// eager tool loading instead of failing on an unknown property.
+	const anthropicMessagesApi = usesAnthropicMessagesApi(usedProvider);
+	if (!anthropicMessagesApi) {
+		if (tools?.some(isToolSearchTool)) {
+			logger.warn(
+				"Dropping Anthropic tool search for a non-Anthropic provider",
+				{ usedProvider, usedInternalModel, toolCount: tools.length },
+			);
+		}
+		tools = stripAnthropicToolExtensions(tools);
+		messages = stripAnthropicNativeBlocks(messages);
+	}
 	const modelDef = models.find((m) => m.id === usedInternalModel);
 	const providerMappingForOptions = getProviderMapping(
 		modelDef,
@@ -2963,7 +2985,20 @@ export async function prepareRequestBody(
 						name: tool.function.name,
 						description: tool.function.description,
 						input_schema: tool.function.parameters,
+						// Anthropic strips deferred tools from the rendered tools
+						// section before the cache key is computed, so forwarding this
+						// is what keeps a large tool catalogue out of the cached prefix.
+						...(tool.defer_loading === true && { defer_loading: true }),
 					}));
+				}
+				// The tool search tool has to come first: Anthropic rejects a request
+				// whose tools are all deferred, and it is the one tool that never is.
+				const toolSearchTools = tools.filter(isToolSearchTool);
+				if (toolSearchTools.length > 0) {
+					requestBody.tools = [
+						...toolSearchTools.map(toAnthropicToolSearchTool),
+						...((requestBody.tools as unknown[]) ?? []),
+					];
 				}
 			}
 
