@@ -2529,7 +2529,26 @@ export async function prepareRequestBody(
 			// response_format leave the provider default rather than disabling —
 			// unless the caller explicitly asked for "none".
 			if (supportsReasoning) {
-				if (reasoning_effort === "none") {
+				// glm-5.3 dropped support for disabling thinking: sending
+				// thinking.type "disabled" fails the request, and effort is
+				// selected via the native `reasoning_effort` field (low/high/max,
+				// default max). A zai mapping whose declared reasoningEfforts
+				// exclude "none" is such an always-on model: keep thinking
+				// enabled, forward the effort tier as-is, and collapse disable
+				// requests (none/minimal) onto the provider default.
+				const declaredEfforts = providerMappingForOptions?.reasoningEfforts;
+				const alwaysThinks =
+					declaredEfforts !== undefined && !declaredEfforts.includes("none");
+				if (alwaysThinks) {
+					requestBody.thinking = { type: "enabled" };
+					if (
+						reasoning_effort !== undefined &&
+						reasoning_effort !== "none" &&
+						reasoning_effort !== "minimal"
+					) {
+						requestBody.reasoning_effort = reasoning_effort;
+					}
+				} else if (reasoning_effort === "none") {
 					requestBody.thinking = { type: "disabled" };
 				} else {
 					const wantsThinking =
