@@ -72,7 +72,7 @@ const features = [
 		icon: Wrench,
 		title: "No lock-in",
 		description:
-			"Runs on the open-source LLM Gateway. Cancel within 7 days of your first purchase for a refund of your first month, minus metered usage.",
+			"Runs on the open-source LLM Gateway. Barely used your first month? Refund it yourself from the billing dashboard — no email, no cancellation fee.",
 	},
 ];
 
@@ -123,7 +123,7 @@ export default function DevPassProductPage() {
 							slug="devpass"
 							alt="DevPass landing page with flat-price dev plans"
 							title="Flat prices, provider rates"
-							description="Lite, Pro, and Max — every plan includes 200+ models metered at provider rates, with a first-month money-back guarantee."
+							description="Lite, Pro, and Max — every plan includes 200+ models metered at provider rates, with a self-serve first-month money-back guarantee."
 						/>
 						<ProductScreenshot
 							slug="devpass-dashboard"

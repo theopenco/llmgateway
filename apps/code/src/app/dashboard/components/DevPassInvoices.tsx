@@ -28,6 +28,9 @@ import { useApi, useFetchClient } from "@/lib/fetch-client";
 
 import {
 	isRefundFeedbackComplete,
+	RESET_PASS_SELF_REFUND_WINDOW_DAYS,
+	SELF_REFUND_USAGE_PERCENT,
+	SELF_REFUND_WINDOW_DAYS,
 	type RefundReason,
 } from "@llmgateway/shared";
 import { RefundReasonFieldset } from "@llmgateway/shared/components";
@@ -135,12 +138,12 @@ const REFUND_INELIGIBILITY_COPY: Record<string, string> = {
 	unsupported_type: "This payment cannot be refunded",
 	not_completed: "Only completed payments can be refunded",
 	already_refunded: "This payment has already been refunded",
-	window_expired: "Refunds are available for 14 days after purchase",
+	window_expired: `Refunds are available for ${SELF_REFUND_WINDOW_DAYS} days after purchase`,
 	not_owner: "Only the organization owner can request a refund",
 	not_latest_purchase: "Only your most recent payment can be self-refunded",
 	plan_inactive: "Your DevPass is no longer active",
 	credits_frozen: "Refunds are unavailable while credits are frozen",
-	usage_exceeded: "More than 10% of this period's credits have been used",
+	usage_exceeded: `More than ${SELF_REFUND_USAGE_PERCENT}% of this period's credits have been used`,
 	pass_already_used: "This Reset Pass has already been redeemed",
 };
 
@@ -148,7 +151,7 @@ function refundIneligibilityCopy(invoice: Invoice): string {
 	const reason = invoice.refund?.reason ?? "unsupported_type";
 	// Reset Passes have a shorter return window than plan payments.
 	if (reason === "window_expired" && invoice.type === "dev_plan_reset_pass") {
-		return "Unused Reset Passes can be refunded for 7 days after purchase";
+		return `Unused Reset Passes can be refunded for ${RESET_PASS_SELF_REFUND_WINDOW_DAYS} days after purchase`;
 	}
 	return REFUND_INELIGIBILITY_COPY[reason] ?? "This payment cannot be refunded";
 }
