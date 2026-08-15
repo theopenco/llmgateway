@@ -356,6 +356,11 @@ export default async function OrganizationPage({
 					</div>
 				</div>
 				<div className="flex flex-wrap items-center gap-2">
+					{org.kind === "devpass" && (
+						<Button variant="outline" size="sm" asChild>
+							<Link href={`/devpass/${orgId}`}>Open in DevPass</Link>
+						</Button>
+					)}
 					<ManageOrgDialog
 						orgName={org.name}
 						plan={org.plan}
