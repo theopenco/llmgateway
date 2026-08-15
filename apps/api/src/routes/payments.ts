@@ -210,39 +210,26 @@ payments.openapi(createPaymentIntent, async (c) => {
 			},
 		});
 	} catch (err) {
-		// Stripe cannot recover a PaymentMethod that was consumed without a
-		// customer or detached. This can happen when a duplicate-card webhook
-		// races this request, so ask the client to collect a fresh method.
-		if (
-			err instanceof Stripe.errors.StripeInvalidRequestError &&
-			err.param === "payment_method"
-		) {
-			logger.warn("Stripe rejected payment method on top-up intent", {
-				organizationId,
-				userId: user.id,
-				stripeCode: err.code,
-				stripeMessage: err.message,
-				stripeRequestId: err.requestId,
-			});
-			throw new HTTPException(400, {
-				message:
-					"This card can no longer be used for this payment. Please re-enter your card details and try again.",
-			});
-		}
-
 		if (err instanceof Stripe.errors.StripeError) {
-			logger.error("Stripe error on payment intent creation", err, {
+			const status = err.statusCode ?? 500;
+			const details = {
 				organizationId,
 				userId: user.id,
 				stripeType: err.type,
 				stripeCode: err.code,
+				stripeMessage: err.message,
 				stripeStatusCode: err.statusCode,
 				stripeRequestId: err.requestId,
-			});
+			};
+
+			if (status >= 400 && status < 500) {
+				logger.warn("Stripe client error on payment intent creation", details);
+			} else {
+				logger.error("Stripe error on payment intent creation", err, details);
+			}
 
 			throw new HTTPException(
-				(err.statusCode ?? 400) as
-					ClientErrorStatusCode | ServerErrorStatusCode,
+				status as ClientErrorStatusCode | ServerErrorStatusCode,
 				{
 					message: err.message,
 				},

@@ -5,6 +5,7 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, tables } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 
 const stripeMock = vi.hoisted(() => ({
 	customers: {
@@ -80,15 +81,18 @@ describe("payment intent payment method errors", () => {
 	});
 
 	afterEach(async () => {
+		vi.restoreAllMocks();
 		await deleteAll();
 	});
 
-	it("returns an actionable 400 for an unusable payment method", async () => {
+	it("forwards Stripe client errors and logs a warning", async () => {
+		const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+		const stripeMessage =
+			"The provided PaymentMethod was previously used without Customer attachment.";
 		stripeMock.paymentIntents.create.mockRejectedValue(
 			new Stripe.errors.StripeInvalidRequestError({
 				type: "invalid_request_error",
-				message:
-					"The provided PaymentMethod was previously used without Customer attachment.",
+				message: stripeMessage,
 				param: "payment_method",
 				statusCode: 400,
 			}),
@@ -98,26 +102,43 @@ describe("payment intent payment method errors", () => {
 
 		expect(response.status).toBe(400);
 		expect(await response.json()).toMatchObject({
-			message:
-				"This card can no longer be used for this payment. Please re-enter your card details and try again.",
+			message: stripeMessage,
 		});
+		expect(warn).toHaveBeenCalledWith(
+			"Stripe client error on payment intent creation",
+			expect.objectContaining({
+				stripeMessage,
+				stripeStatusCode: 400,
+			}),
+		);
 	});
 
-	it("preserves Stripe status codes for other request errors", async () => {
+	it("forwards Stripe server errors and logs an error", async () => {
+		const logError = vi
+			.spyOn(logger, "error")
+			.mockImplementation(() => undefined);
+		const stripeMessage = "Stripe is temporarily unavailable.";
 		stripeMock.paymentIntents.create.mockRejectedValue(
-			new Stripe.errors.StripeInvalidRequestError({
-				type: "invalid_request_error",
-				message: "Invalid currency.",
-				param: "currency",
-				statusCode: 400,
+			new Stripe.errors.StripeAPIError({
+				type: "api_error",
+				message: stripeMessage,
+				statusCode: 503,
 			}),
 		);
 
 		const response = await createPaymentIntentRequest(token);
 
-		expect(response.status).toBe(400);
+		expect(response.status).toBe(503);
 		expect(await response.json()).toMatchObject({
-			message: "Invalid currency.",
+			message: stripeMessage,
 		});
+		expect(logError).toHaveBeenCalledWith(
+			"Stripe error on payment intent creation",
+			expect.any(Stripe.errors.StripeAPIError),
+			expect.objectContaining({
+				stripeMessage,
+				stripeStatusCode: 503,
+			}),
+		);
 	});
 });
