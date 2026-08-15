@@ -438,7 +438,10 @@ export default async function TimelinePage() {
 
 				<section className="border-t border-border/60">
 					<div className="container mx-auto px-4 py-14 md:py-20">
-						<div className="mx-auto flex max-w-3xl flex-col items-center gap-5 rounded-2xl border border-border/70 bg-card/50 px-6 py-10 text-center backdrop-blur md:py-12">
+						<div
+							data-inline-cta
+							className="mx-auto flex max-w-3xl flex-col items-center gap-5 rounded-2xl border border-border/70 bg-card/50 px-6 py-10 text-center backdrop-blur md:py-12"
+						>
 							<h2 className="font-display text-2xl font-bold tracking-tight text-balance md:text-3xl">
 								Route to any of these models with one API
 							</h2>

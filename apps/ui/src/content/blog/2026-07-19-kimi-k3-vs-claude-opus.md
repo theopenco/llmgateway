@@ -3,7 +3,7 @@ id: "blog-kimi-k3-vs-claude-opus"
 slug: "kimi-k3-vs-claude-opus"
 date: "2026-07-19"
 title: "Kimi K3 vs Claude Opus 4.8: Benchmarks, Price, Verdict"
-summary: "Kimi K3 ties Claude Opus 4.8 on GPQA Diamond, costs 40% less per token, and its weights are expected by July 27 — but Opus still leads where it counts for some teams. A fact-checked comparison of benchmarks, pricing, and context windows, and how to A/B both through one API."
+summary: "Kimi K3 ties Claude Opus 4.8 on GPQA Diamond, costs 40% less per token, and its weights are public while Opus stays closed — but Opus still leads where it counts for some teams. A fact-checked comparison of benchmarks, pricing, and context windows, and how to A/B both through one API."
 categories: ["Guides"]
 model: kimi-k3
 faqs:
@@ -14,7 +14,7 @@ faqs:
   - question: "Can I switch between Kimi K3 and Claude Opus 4.8 without code changes?"
     answer: "Yes. Through LLM Gateway both are the same OpenAI-compatible endpoint — swap the `model` field between `kimi-k3` and `claude-opus-4-8` and nothing else changes. Costs for both land in one dashboard."
   - question: "Is Kimi K3 open source?"
-    answer: "Not yet. Kimi K3's weights are expected by July 27, 2026 and the license has not been announced; until then it is API-only, like Opus 4.8 — the difference is that Opus stays closed. See [our Kimi K3 overview](/blog/kimi-k3) for the full release details."
+    answer: 'Yes. Moonshot published the full Kimi K3 weights on July 26, 2026, under a custom "Kimi K3 License" rather than MIT or Apache 2.0 — check the LICENSE file before commercial self-hosting. Opus 4.8 stays closed, so this is the sharpest difference between them. See [our Kimi K3 overview](/blog/kimi-k3) for the full release details.'
 image:
   src: "/blog/kimi-k3-vs-claude-opus.png"
   alt: "Two glowing processor chips facing each other on a circuit board with a balance scale between them, representing Kimi K3 versus Claude Opus 4.8"

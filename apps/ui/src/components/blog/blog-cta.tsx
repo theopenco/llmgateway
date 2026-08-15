@@ -31,7 +31,7 @@ export function BlogCta({
 	if (variant === "enterprise") {
 		return (
 			<div
-				data-blog-cta
+				data-inline-cta
 				className="not-prose my-10 rounded-xl border bg-muted/30 p-6 sm:p-8"
 			>
 				<div className="font-mono text-[10px] uppercase tracking-[0.35em] text-muted-foreground">
@@ -73,7 +73,7 @@ export function BlogCta({
 	if (variant === "gateway") {
 		return (
 			<div
-				data-blog-cta
+				data-inline-cta
 				className="not-prose my-10 rounded-xl border bg-muted/30 p-6 sm:p-8"
 			>
 				<div className="font-mono text-[10px] uppercase tracking-[0.35em] text-muted-foreground">
@@ -114,7 +114,7 @@ export function BlogCta({
 
 	return (
 		<div
-			data-blog-cta
+			data-inline-cta
 			className="not-prose relative my-10 overflow-hidden rounded-xl border border-dashed border-stone-400/70 bg-stone-50/70 dark:border-stone-600/70 dark:bg-stone-900/30"
 		>
 			<div className="p-6 sm:p-8">

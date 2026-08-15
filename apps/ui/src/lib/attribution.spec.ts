@@ -55,6 +55,21 @@ describe("classifyChannel", () => {
 		);
 	});
 
+	// Meta appends fbclid to organic shares as well as ads, so it cannot stand
+	// alone as a paid signal without booking organic social as ad traffic.
+	it("does not treat fbclid alone as paid", () => {
+		expect(
+			classifyChannel("https://www.facebook.com/", "?fbclid=abc123", HOST),
+		).toBe("social");
+		expect(
+			classifyChannel(
+				"https://www.facebook.com/",
+				"?fbclid=abc123&utm_medium=cpc",
+				HOST,
+			),
+		).toBe("paid");
+	});
+
 	it("marks same-site and sibling hosts as internal", () => {
 		expect(classifyChannel("https://llmgateway.io/blog", "", HOST)).toBe(
 			"internal",

@@ -13,7 +13,7 @@ faqs:
   - question: "Do I need a DevPass subscription to use it?"
     answer: "No. Pick the **LLM Gateway** provider and you're on pay-as-you-go with your own key or credits. The **LLM Gateway DevPass** provider is there for subscribers who want flat-rate coding usage."
   - question: "Which models can I use?"
-    answer: "Any text model LLM Gateway supports — about 190 today across Anthropic, OpenAI, Google, xAI, DeepSeek, and more. DevPass Code fetches the live catalog, so new models appear without an update."
+    answer: "Any text model LLM Gateway supports — the full catalogue across Anthropic, OpenAI, Google, xAI, DeepSeek, and more. DevPass Code fetches the live catalog, so new models appear without an update."
   - question: "How is this different from using opencode directly?"
     answer: "opencode supports dozens of providers and needs per-provider setup. DevPass Code is the same core with everything pointed at LLM Gateway: one browser login, one billing relationship, and a UI themed to match the gateway."
 image:

@@ -72,13 +72,16 @@ export function classifyChannel(
 	const params = new URLSearchParams(search);
 	const medium = params.get("utm_medium")?.toLowerCase() ?? "";
 
-	// Any click identifier or paid medium settles it before the referrer matters:
+	// A click identifier or paid medium settles it before the referrer matters:
 	// ad platforms often arrive with a search-engine referrer.
+	//
+	// `fbclid` is deliberately absent — Meta appends it to ordinary organic
+	// links shared on Facebook and Instagram too, so treating it as proof of a
+	// paid click would book a large share of organic social as ad traffic.
 	if (
 		params.get("gclid") ||
 		params.get("wbraid") ||
 		params.get("gbraid") ||
-		params.get("fbclid") ||
 		params.get("msclkid") ||
 		params.get("ttclid") ||
 		["cpc", "ppc", "paid", "paidsearch", "paid-search", "display"].includes(

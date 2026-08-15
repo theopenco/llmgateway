@@ -65,10 +65,11 @@ export function ContentConversionRail({
 		return () => window.removeEventListener("scroll", onScroll);
 	}, [dismissed]);
 
-	// Stand down while an inline BlogCta is on screen — two offers competing in
-	// the same viewport reads as pressure, and the card is the better one.
+	// Stand down while any inline offer is on screen — a blog card, or the
+	// timeline's own CTA block. Two offers competing in the same viewport reads
+	// as pressure, and the inline one is the better of the two.
 	useEffect(() => {
-		const cards = document.querySelectorAll("[data-blog-cta]");
+		const cards = document.querySelectorAll("[data-inline-cta]");
 		if (!cards.length || typeof IntersectionObserver === "undefined") {
 			return;
 		}
