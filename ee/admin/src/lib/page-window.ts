@@ -14,6 +14,8 @@ export type PageWindow =
 	| "30d"
 	| "90d";
 
+export const CATALOG_PAGE_WINDOW_DEFAULT: PageWindow = "15m";
+
 export const pageWindowOptions: { value: PageWindow; label: string }[] = [
 	{ value: "1h", label: "1h" },
 	{ value: "2h", label: "2h" },
@@ -69,11 +71,14 @@ export function pageBucketSource(window: PageWindow): "hourly" | "minute" {
 	return HOURLY_PAGE_WINDOWS.has(window) ? "hourly" : "minute";
 }
 
-export function parsePageWindow(value: string | undefined): PageWindow {
+export function parsePageWindow(
+	value: string | undefined,
+	fallback: PageWindow = "4h",
+): PageWindow {
 	if (value && allValidWindows.has(value as PageWindow)) {
 		return value as PageWindow;
 	}
-	return "4h";
+	return fallback;
 }
 
 export function windowToFromTo(window: PageWindow): {
