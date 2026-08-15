@@ -184,6 +184,32 @@ describe("admin organization deletion credit guard", () => {
 		expect(member?.status).toBe("active");
 	});
 
+	it("escalates a disabled organization to a member block", async () => {
+		await insertOrg("disabled-block-org", "0");
+		await db.insert(tables.user).values({
+			id: "disabled-block-member",
+			name: "Disabled Block Member",
+			email: "disabled-block-member@credits.test",
+			emailVerified: true,
+		});
+		await db.insert(tables.userOrganization).values({
+			userId: "disabled-block-member",
+			organizationId: "disabled-block-org",
+			role: "owner",
+		});
+
+		expect(
+			(await setStatus("disabled-block-org", "deleted", cookie)).status,
+		).toBe(200);
+		expect((await block("disabled-block-org", cookie)).status).toBe(200);
+
+		const member = await db.query.user.findFirst({
+			where: { id: { eq: "disabled-block-member" } },
+		});
+		expect(member?.status).toBe("deactivated");
+		expect(await getStatus("disabled-block-org")).toBe("deleted");
+	});
+
 	it("blocks members even when they belong to another active organization", async () => {
 		await insertOrg("block-member-org", "0");
 		await insertOrg("other-active-org", "0");

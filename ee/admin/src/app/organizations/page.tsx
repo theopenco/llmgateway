@@ -601,7 +601,6 @@ export default async function OrganizationsPage({
 												orgId={org.id}
 												orgName={org.name}
 												disabled={
-													org.status === "deleted" ||
 													getOrgDeletionBlockedReason(org.credits) !== null
 												}
 												disabledReason={
