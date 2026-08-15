@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "a4be1d15-da17-474f-90a8-ec9599f70056",
+  "id": "032bd4bc-fa4e-4987-8c1f-9bf145b46e45",
   "prevId": "555277a3-5022-4bee-8be6-545f0ed166b4",
   "ddl": [
     {
@@ -12762,22 +12762,6 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": {
-        "value": "'org_' || replace(gen_random_uuid()::text, '-', '')",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "safety_identifier",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
@@ -12992,6 +12976,19 @@
       "generated": null,
       "identity": null,
       "name": "api_key_limit",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "project_limit",
       "entityType": "columns",
       "schema": "public",
       "table": "organization"
@@ -26054,27 +26051,6 @@
       "method": "btree",
       "concurrently": false,
       "name": "organization_sso_auto_join_domain_uidx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "safety_identifier",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": true,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "organization_safety_identifier_uidx",
       "entityType": "indexes",
       "schema": "public",
       "table": "organization"
