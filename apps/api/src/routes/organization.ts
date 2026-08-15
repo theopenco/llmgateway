@@ -132,6 +132,8 @@ const organizationSchema = z.object({
 	seats: z.number().nullable(),
 	// Manual API-key-limit override; null = use the plan default.
 	apiKeyLimit: z.number().nullable(),
+	// Manual project-limit override; null = use the plan default.
+	projectLimit: z.number().nullable(),
 	retentionLevel: z.enum(["retain", "none"]),
 	providerCompliancePolicy: providerCompliancePolicySchema.nullable(),
 	ssoAutoJoinDomain: z.string().nullable(),
