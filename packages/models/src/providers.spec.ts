@@ -242,6 +242,7 @@ describe("isStealthProvider", () => {
 			"quartz",
 			"avalanche",
 			"tundra",
+			"permafrost",
 		]) {
 			expect(isStealthProvider(id)).toBe(true);
 		}
