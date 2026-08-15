@@ -6,6 +6,7 @@ import { z } from "zod";
 import { deleteResendContact } from "@/auth/config.js";
 import {
 	cancelOrganizationSubscriptions,
+	getCancelledOrganizationPlanState,
 	isTerminalSubscriptionError,
 } from "@/lib/account-deletion.js";
 import {
@@ -6934,72 +6935,16 @@ admin.openapi(setOrganizationStatusRoute, async (c) => {
 		assertOrganizationDeletable(org);
 	}
 
-	const memberLinks = await db.query.userOrganization.findMany({
-		where: { organizationId: { eq: orgId } },
-		columns: { userId: true },
-	});
-	const memberUserIds = memberLinks.map((m) => m.userId);
+	const cancelledSubscriptionIds =
+		status === "deleted" ? await cancelOrganizationSubscriptions(org) : [];
 
-	await db.transaction(async (tx) => {
-		await tx
-			.update(tables.organization)
-			.set({ status })
-			.where(eq(tables.organization.id, orgId));
-
-		if (memberUserIds.length === 0) {
-			return;
-		}
-
-		if (status === "deleted") {
-			await tx
-				.update(tables.user)
-				.set({ status: "deactivated" })
-				.where(inArray(tables.user.id, memberUserIds));
-
-			await tx
-				.delete(tables.session)
-				.where(inArray(tables.session.userId, memberUserIds));
-		} else {
-			const otherLinks = await tx.query.userOrganization.findMany({
-				where: { userId: { in: memberUserIds } },
-				with: {
-					organization: {
-						columns: { id: true, status: true },
-					},
-				},
-			});
-
-			const stillBlocked = new Set(
-				otherLinks
-					.filter(
-						(link) =>
-							link.organization?.id !== orgId &&
-							link.organization?.status === "deleted",
-					)
-					.map((link) => link.userId),
-			);
-
-			const reactivateIds = memberUserIds.filter((id) => !stillBlocked.has(id));
-
-			if (reactivateIds.length > 0) {
-				await tx
-					.update(tables.user)
-					.set({ status: "active" })
-					.where(inArray(tables.user.id, reactivateIds));
-			}
-		}
-	});
-
-	if (status === "deleted" && memberUserIds.length > 0) {
-		const members = await db.query.user.findMany({
-			where: { id: { in: memberUserIds } },
-			columns: { email: true },
-		});
-
-		await Promise.all(
-			members.map((member) => deleteResendContact(member.email)),
-		);
-	}
+	await db
+		.update(tables.organization)
+		.set({
+			status,
+			...(status === "deleted" ? getCancelledOrganizationPlanState() : {}),
+		})
+		.where(eq(tables.organization.id, orgId));
 
 	await logAuditEvent({
 		organizationId: orgId,
@@ -7012,8 +6957,8 @@ admin.openapi(setOrganizationStatusRoute, async (c) => {
 			resourceName: org.name,
 			previousStatus: org.status ?? "active",
 			newStatus: status,
+			cancelledSubscriptionIds,
 			source: "admin",
-			affectedUserCount: memberUserIds.length,
 		},
 	});
 
@@ -7080,9 +7025,9 @@ interface BlockOrganizationOutcome {
 
 /**
  * Blocks a single organization: cancels its Stripe subscriptions, marks it
- * deleted, deactivates members that have no other active organization, and
- * writes the audit entry. Shared by the single-org and bulk block endpoints so
- * both paths always apply the exact same effects.
+ * deleted, deactivates every member, and writes the audit entry. Shared by the
+ * single-org and bulk block endpoints so both paths always apply the exact same
+ * effects.
  */
 async function blockOrganizationById(
 	orgId: string,
@@ -7110,67 +7055,30 @@ async function blockOrganizationById(
 	});
 	const memberUserIds = memberLinks.map((m) => m.userId);
 
-	// Only deactivate users whose remaining org memberships are all already
-	// deleted — mirrors the re-enable flow in setOrganizationStatus. A member
-	// who still belongs to another active org keeps their access there.
-	let userIdsToDeactivate: string[] = [];
-	if (memberUserIds.length > 0) {
-		const otherLinks = await db.query.userOrganization.findMany({
-			where: { userId: { in: memberUserIds } },
-			with: {
-				organization: {
-					columns: { id: true, status: true },
-				},
-			},
-		});
-
-		const hasOtherActiveOrg = new Set(
-			otherLinks
-				.filter(
-					(link) =>
-						link.organization?.id !== orgId &&
-						link.organization?.status !== "deleted",
-				)
-				.map((link) => link.userId),
-		);
-
-		userIdsToDeactivate = memberUserIds.filter(
-			(id) => !hasOtherActiveOrg.has(id),
-		);
-	}
-
 	await db.transaction(async (tx) => {
 		await tx
 			.update(tables.organization)
 			.set({
 				status: "deleted",
-				devPlan: "none",
-				devPlanStripeSubscriptionId: null,
-				devPlanCancelled: true,
-				devPlanExpiresAt: new Date(),
-				chatPlan: "none",
-				chatPlanStripeSubscriptionId: null,
-				chatPlanCancelled: true,
-				chatPlanExpiresAt: new Date(),
-				subscriptionCancelled: true,
+				...getCancelledOrganizationPlanState(),
 			})
 			.where(eq(tables.organization.id, orgId));
 
-		if (userIdsToDeactivate.length > 0) {
+		if (memberUserIds.length > 0) {
 			await tx
 				.update(tables.user)
 				.set({ status: "deactivated" })
-				.where(inArray(tables.user.id, userIdsToDeactivate));
+				.where(inArray(tables.user.id, memberUserIds));
 
 			await tx
 				.delete(tables.session)
-				.where(inArray(tables.session.userId, userIdsToDeactivate));
+				.where(inArray(tables.session.userId, memberUserIds));
 		}
 	});
 
-	if (userIdsToDeactivate.length > 0) {
+	if (memberUserIds.length > 0) {
 		const members = await db.query.user.findMany({
-			where: { id: { in: userIdsToDeactivate } },
+			where: { id: { in: memberUserIds } },
 			columns: { email: true },
 		});
 
@@ -7190,7 +7098,7 @@ async function blockOrganizationById(
 			previousStatus: org.status ?? "active",
 			cancelledSubscriptionIds,
 			memberCount: memberUserIds.length,
-			deactivatedUserCount: userIdsToDeactivate.length,
+			deactivatedUserCount: memberUserIds.length,
 			source: "admin",
 		},
 	});
@@ -7198,7 +7106,7 @@ async function blockOrganizationById(
 	return {
 		cancelledSubscriptionIds,
 		memberCount: memberUserIds.length,
-		deactivatedUserCount: userIdsToDeactivate.length,
+		deactivatedUserCount: memberUserIds.length,
 	};
 }
 
