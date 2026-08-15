@@ -213,6 +213,8 @@ export type SerializedOrganization = Omit<
 	| "endUserMarginBalance"
 	| "stripeConnectAccountId"
 	| "stripeConnectOnboarded"
+	// Only ever travels gateway -> provider; nothing in the dashboard needs it.
+	| "safetyIdentifier"
 > & {
 	createdAt: string;
 	updatedAt: string;

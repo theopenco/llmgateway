@@ -1611,6 +1611,13 @@
       "when": 1786707787055,
       "tag": "1786707787_fair_mister_fear",
       "breakpoints": true
+    },
+    {
+      "idx": 230,
+      "version": "8",
+      "when": 1786816075214,
+      "tag": "1786816075_mean_stark_industries",
+      "breakpoints": true
     }
   ]
 }
