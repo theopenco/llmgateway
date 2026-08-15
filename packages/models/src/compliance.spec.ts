@@ -73,7 +73,6 @@ describe("isProviderCompliant", () => {
 	it("requires each active attribute to be explicitly satisfied", () => {
 		const provider = makeProvider({
 			apiTraining: true,
-			consumerTraining: true,
 			promptLogging: true,
 			soc2: 2,
 		});
@@ -103,7 +102,6 @@ describe("isProviderCompliant", () => {
 			isProviderCompliant(
 				makeProvider({
 					apiTraining: false,
-					consumerTraining: false,
 					promptLogging: false,
 				}),
 				policy,
@@ -113,7 +111,6 @@ describe("isProviderCompliant", () => {
 			isProviderCompliant(
 				makeProvider({
 					apiTraining: null,
-					consumerTraining: null,
 					promptLogging: null,
 				}),
 				policy,
@@ -131,7 +128,6 @@ describe("isProviderCompliant", () => {
 			isProviderCompliant(
 				makeProvider({
 					apiTraining: false,
-					consumerTraining: false,
 					promptLogging: false,
 					soc2: 2,
 				}),
@@ -143,7 +139,6 @@ describe("isProviderCompliant", () => {
 			isProviderCompliant(
 				makeProvider({
 					apiTraining: false,
-					consumerTraining: false,
 					promptLogging: false,
 					iso27001: true,
 				}),
@@ -155,7 +150,6 @@ describe("isProviderCompliant", () => {
 			isProviderCompliant(
 				makeProvider({
 					apiTraining: false,
-					consumerTraining: false,
 					promptLogging: false,
 					soc2: 1,
 				}),
@@ -167,7 +161,6 @@ describe("isProviderCompliant", () => {
 			isProviderCompliant(
 				makeProvider({
 					apiTraining: false,
-					consumerTraining: false,
 					promptLogging: false,
 				}),
 				policy,
@@ -178,13 +171,11 @@ describe("isProviderCompliant", () => {
 	it("distinguishes SOC 2 Type 1 from Type 2", () => {
 		const type1 = makeProvider({
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			soc2: 1,
 		});
 		const type2 = makeProvider({
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			soc2: 2,
 		});
@@ -205,7 +196,6 @@ describe("isProviderCompliant", () => {
 		// A provider with no SOC 2 report fails both.
 		const none = makeProvider({
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 		});
 		expect(
@@ -278,7 +268,6 @@ describe("isProviderCompliant", () => {
 		const compliant = makeProvider(
 			{
 				apiTraining: false,
-				consumerTraining: false,
 				promptLogging: false,
 				soc2: 2,
 			},
@@ -288,7 +277,6 @@ describe("isProviderCompliant", () => {
 		const wrongCountry = makeProvider(
 			{
 				apiTraining: false,
-				consumerTraining: false,
 				promptLogging: false,
 				soc2: 2,
 			},
@@ -410,7 +398,6 @@ describe("isModelAllowedByPolicy", () => {
 describe("isProviderCompliant with provider lists", () => {
 	const compliantDataPolicy = {
 		apiTraining: false,
-		consumerTraining: false,
 		promptLogging: false,
 		soc2: 2 as const,
 	};
@@ -588,7 +575,6 @@ describe("isAttestationCompliant", () => {
 			iso27001: openai.dataPolicy?.iso27001 ?? null,
 			gdpr: openai.dataPolicy?.gdpr ?? null,
 			apiTraining: openai.dataPolicy?.apiTraining ?? null,
-			consumerTraining: openai.dataPolicy?.consumerTraining ?? null,
 			promptLogging: openai.dataPolicy?.promptLogging ?? null,
 			retentionPeriod: openai.dataPolicy?.retentionPeriod ?? null,
 			headquarters: openai.headquarters ?? null,
@@ -687,7 +673,6 @@ describe("compliance failure reasons", () => {
 		const provider = makeProvider(
 			{
 				apiTraining: true,
-				consumerTraining: true,
 				promptLogging: true,
 				soc2: 1,
 			},
@@ -712,7 +697,6 @@ describe("compliance failure reasons", () => {
 		const provider = makeProvider(
 			{
 				apiTraining: false,
-				consumerTraining: false,
 				promptLogging: false,
 				soc2: 2,
 			},
@@ -806,7 +790,6 @@ describe("blockStealthProviders", () => {
 		env: { required: { apiKey: "TEST", baseUrl: "TEST_BASE_URL" } },
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			soc2: 2,
 			iso27001: true,

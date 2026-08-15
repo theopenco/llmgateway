@@ -1351,7 +1351,6 @@ describe("api", () => {
 				iso27001: true,
 				gdpr: true,
 				apiTraining: false,
-				consumerTraining: false,
 				promptLogging: false,
 				headquarters: "US",
 			},
