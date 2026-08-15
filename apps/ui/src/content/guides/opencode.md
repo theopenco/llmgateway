@@ -2,7 +2,7 @@
 id: opencode
 slug: opencode
 title: OpenCode Integration
-seoTitle: "OpenCode Setup: Run Any Model in the CLI"
+seoTitle: "OpenCode Setup: Run 200+ Models in the CLI"
 description: Connect OpenCode to 200+ models via LLM Gateway's built-in provider. No config files — select, authenticate, and code. Kimi K3, GPT-5 and Claude included.
 date: 2026-01-09
 ---

@@ -2,7 +2,7 @@
 id: claude-code
 slug: claude-code
 title: Claude Code Integration
-seoTitle: "Run Kimi K3 or Any Model in Claude Code"
+seoTitle: "Run Kimi K3 or 200+ Models in Claude Code"
 description: Point Claude Code at Kimi K3, GPT-5, Gemini, or 200+ models with three environment variables. Works with a DevPass plan key or pay-as-you-go credits.
 date: 2026-01-02
 ---

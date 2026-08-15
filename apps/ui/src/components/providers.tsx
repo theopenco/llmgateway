@@ -72,6 +72,8 @@ export function Providers({ children, config }: ProvidersProps) {
 			}),
 	);
 
+	const [posthogReady, setPosthogReady] = useState(false);
+
 	// Defer PostHog initialization to reduce TBT
 	useEffect(() => {
 		if (!config.posthogKey) {
@@ -89,6 +91,7 @@ export function Providers({ children, config }: ProvidersProps) {
 				capture_pageview: "history_change",
 				autocapture: true,
 			});
+			setPosthogReady(true);
 		};
 		// Captures fired before init() are dropped by posthog-js, so the idle
 		// deferral must be bounded — a busy main thread can starve
@@ -112,9 +115,14 @@ export function Providers({ children, config }: ProvidersProps) {
 				<QueryClientProvider client={queryClient}>
 					<PostHogProvider client={posthog}>
 						{children}
-						<Suspense>
-							<SignupMethodTracker />
-						</Suspense>
+						{/* Gated on init: posthog-js drops captures fired before
+						    init(), and the OAuth signup event has exactly one
+						    chance to fire. */}
+						{posthogReady && (
+							<Suspense>
+								<SignupMethodTracker />
+							</Suspense>
+						)}
 					</PostHogProvider>
 					{process.env.NODE_ENV === "development" && (
 						<ReactQueryDevtools buttonPosition="bottom-left" />

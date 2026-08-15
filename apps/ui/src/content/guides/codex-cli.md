@@ -2,7 +2,7 @@
 id: codex-cli
 slug: codex-cli
 title: Codex CLI Integration
-seoTitle: "Codex CLI: Use Any Model with One Config"
+seoTitle: "Codex CLI: Use 200+ Models, One Config"
 description: Point OpenAI's Codex CLI at Claude, Gemini, Kimi K3, or 200+ models through LLM Gateway. One config file entry, unified billing, full cost tracking.
 date: 2026-03-19
 ---

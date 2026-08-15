@@ -2,7 +2,7 @@
 id: kimi-code
 slug: kimi-code
 title: Kimi Code Integration
-seoTitle: "Kimi Code CLI: Install and Use Any Model"
+seoTitle: "Kimi Code CLI: Install, Run 200+ Models"
 description: Install Kimi Code CLI on macOS, Linux, or Windows, then point it at GPT-5, Claude, Kimi K3, or 200+ models through LLM Gateway. Provider setup in six steps.
 date: 2026-06-08
 ---

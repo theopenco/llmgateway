@@ -2,7 +2,7 @@
 id: cursor
 slug: cursor
 title: Cursor Integration
-seoTitle: "Use Kimi K3 or Any Model in Cursor"
+seoTitle: "Use Kimi K3 or 200+ Models in Cursor"
 description: Point Cursor's plan and agent modes at Kimi K3, GPT-5, Claude, or 200+ models through LLM Gateway. One base URL override, plus what stays on Cursor's backend.
 date: 2026-07-03
 ---
