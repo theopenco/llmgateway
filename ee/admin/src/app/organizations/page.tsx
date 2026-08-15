@@ -324,40 +324,33 @@ export default async function OrganizationsPage({
 						Spend, requests, and tokens cover {usageWindowLabel}.
 					</p>
 				</div>
-				<div className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:flex-row sm:items-center">
-					<DateRangePicker defaultRange={ORGANIZATIONS_DEFAULT_RANGE} />
-					<form
-						action={handleSearch}
-						className="flex w-full items-center gap-2 sm:w-auto"
-					>
-						<input type="hidden" name="sortBy" value={sortBy} />
-						<input type="hidden" name="sortOrder" value={sortOrder} />
-						<input type="hidden" name="range" value={dateRange.range ?? ""} />
-						<input type="hidden" name="from" value={dateRange.from ?? ""} />
-						<input type="hidden" name="to" value={dateRange.to ?? ""} />
-						<div className="relative flex-1 sm:flex-initial">
-							<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-							<input
-								type="text"
-								name="search"
-								placeholder="Search by name, email, member email, or ID..."
-								defaultValue={search}
-								className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-64"
-							/>
-						</div>
-						<Button type="submit" size="sm">
-							Search
-						</Button>
-					</form>
-				</div>
-			</header>
-
-			{search.trim().length >= MIN_BULK_BLOCK_SEARCH_LENGTH && (
-				<div className="flex flex-col items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-					<p className="text-sm text-muted-foreground">
-						Bulk actions apply to every organization matching the current
-						filter, not just this page.
-					</p>
+				<div className="flex w-full items-start gap-2 sm:w-auto sm:items-center">
+					<div className="flex min-w-0 flex-1 flex-col items-stretch gap-2 sm:flex-initial sm:flex-row sm:items-center">
+						<DateRangePicker defaultRange={ORGANIZATIONS_DEFAULT_RANGE} />
+						<form
+							action={handleSearch}
+							className="flex w-full items-center gap-2 sm:w-auto"
+						>
+							<input type="hidden" name="sortBy" value={sortBy} />
+							<input type="hidden" name="sortOrder" value={sortOrder} />
+							<input type="hidden" name="range" value={dateRange.range ?? ""} />
+							<input type="hidden" name="from" value={dateRange.from ?? ""} />
+							<input type="hidden" name="to" value={dateRange.to ?? ""} />
+							<div className="relative flex-1 sm:flex-initial">
+								<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+								<input
+									type="text"
+									name="search"
+									placeholder="Search by name, email, member email, or ID..."
+									defaultValue={search}
+									className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-64"
+								/>
+							</div>
+							<Button type="submit" size="sm">
+								Search
+							</Button>
+						</form>
+					</div>
 					<BulkBlockOrgsButton
 						search={search}
 						minSearchLength={MIN_BULK_BLOCK_SEARCH_LENGTH}
@@ -365,7 +358,7 @@ export default async function OrganizationsPage({
 						onBulkBlock={handleBulkBlock}
 					/>
 				</div>
-			)}
+			</header>
 
 			<div className="overflow-x-auto rounded-lg border border-border/60 bg-card">
 				<Table>
