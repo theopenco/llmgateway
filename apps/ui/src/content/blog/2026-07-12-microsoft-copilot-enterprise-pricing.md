@@ -40,6 +40,8 @@ There is no ceiling unless you configure one. Plans include monthly credit allow
 
 For the developer-tool side of this, see the [best GitHub Copilot alternatives](/blog/github-copilot-alternatives) and the [LLM Gateway vs GitHub Copilot comparison](/compare/github-copilot).
 
+<BlogCta variant="devpass" location="mid_article" />
+
 ## Microsoft 365 Copilot: Higher Floors, Metered Ceilings
 
 The $30 per user per month Copilot add-on is unchanged on paper. In practice, three things raised its real cost:
@@ -108,3 +110,5 @@ If June 2026 is the month AI spend became a line item your CFO reads:
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** — no credit card required, one API for 200+ models
 - **[Estimate your Copilot costs](/copilot-cost-calculator)** — model your team's usage under AI Credits vs pass-through pricing
 - **[Talk to us about an enterprise pilot](/enterprise)** — 30 days on production workloads, with your own keys if you prefer
+
+<BlogCta variant="devpass" location="bottom" />

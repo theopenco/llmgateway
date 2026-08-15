@@ -51,6 +51,8 @@ Multi-provider routing means you're never locked into one vendor. When OpenAI ha
 
 This is where self-hosting becomes critical. A gateway deployed in your own infrastructure means prompts containing customer PII, contracts, and internal strategy never leave your network. You control data retention. Provider API keys stay in your systems. Compliance audits become straightforward: here's the server, here's the data, here's who accessed it.
 
+<BlogCta variant="enterprise" location="mid_article" />
+
 ## The Business Case
 
 For a 200-person company spending $15K/month on AI:
@@ -71,3 +73,5 @@ The question isn't whether to standardize AI access. It's whether you'll do it b
 _For enterprises, the future of AI isn't about choosing the right model. It's about controlling how AI flows through your organization—securely, accountably, and on your own terms._
 
 **Ready to take control of your organization's AI?** [Get started with LLM Gateway](https://llmgateway.io)
+
+<BlogCta variant="enterprise" location="bottom" />

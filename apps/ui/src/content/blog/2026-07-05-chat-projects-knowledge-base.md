@@ -47,6 +47,8 @@ Under the hood:
 
 Retrieval runs on every message, so follow-up questions pull fresh passages instead of reusing whatever the first question happened to surface.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## Memory that carries across chats
 
 Knowledge bases hold what your files say. Memory holds what your conversations establish.
@@ -96,3 +98,5 @@ No. Embeddings and memory extraction are billed to the same credits as your chat
 - **[Open LLM Gateway Chat](https://lounge.llmgateway.io/projects)** — create your first project free
 - **[Chat plans](https://lounge.llmgateway.io/pricing)** — more credits for heavy use, from $9/mo
 - **[DevPass Code](/blog/devpass-code)** — our terminal coding agent, if your knowledge base is a codebase
+
+<BlogCta variant="gateway" location="bottom" />

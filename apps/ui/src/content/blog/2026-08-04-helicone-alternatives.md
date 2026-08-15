@@ -71,6 +71,8 @@ If Helicone was your _only_ window into LLM traffic, a gateway replaces it one-f
 
 ---
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## 2. Langfuse
 
 **The open-source LLM observability standard.**
@@ -282,3 +284,5 @@ If you want Helicone's visibility with a router underneath it:
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** — no credit card required, point your SDK at `https://api.llmgateway.io/v1`
 - **[See what the dashboard tracks](https://docs.llmgateway.io/features/cost-breakdown)** — per-request cost fields, storage costs, and usage analytics
 - **[Best AI gateways in 2026](/blog/best-ai-gateways)** — the wider comparison if you're still mapping the space
+
+<BlogCta variant="gateway" location="bottom" />

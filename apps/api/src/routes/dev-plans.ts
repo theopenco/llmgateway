@@ -78,13 +78,38 @@ export const devPlans = new OpenAPIHono<ServerTypes>();
 // lease this old cannot still have an upgrade charge in flight.
 const STALE_TIER_CHANGE_CLAIM_MS = 15 * 60 * 1000;
 
-// Transaction types that surface as invoices on the DevPass billing page.
+// Plan charges that prove the org was (or still is) a paying DevPass
+// subscriber, used to keep the billing page reachable after a plan ends.
 const DEV_PLAN_INVOICE_TYPES = [
 	"dev_plan_start",
 	"dev_plan_renewal",
 	"dev_plan_upgrade",
 	"dev_plan_reset_pass",
 ] as const;
+
+// Transaction types that surface in the DevPass billing history: everything a
+// devpass personal org can carry — the plan lifecycle, Reset Passes, PAYG
+// overflow top-ups and the refunds/credit grants booked against them. The
+// remaining types (Pro subscriptions, chat plans, end-user wallets) never
+// occur on a devpass org.
+const DEV_PLAN_HISTORY_TYPES = [
+	"dev_plan_start",
+	"dev_plan_renewal",
+	"dev_plan_upgrade",
+	"dev_plan_downgrade",
+	"dev_plan_cancel",
+	"dev_plan_resume",
+	"dev_plan_end",
+	"dev_plan_reset_pass",
+	"dev_plan_reset_pass_reward",
+	"dev_plan_reset_pass_gift",
+	"credit_topup",
+	"credit_refund",
+	"credit_gift",
+	"credit_manual_payment",
+] as const;
+
+type DevPlanHistoryType = (typeof DEV_PLAN_HISTORY_TYPES)[number];
 
 // A failed release is swallowed: the lease then simply expires via the
 // staleness window instead of blocking upgrades until renewal.
@@ -2387,8 +2412,9 @@ devPlans.openapi(updateBillingDetails, async (c) => {
 	});
 });
 
-// List past DevPass invoices (plan start, renewals and upgrades) with the
-// amount charged and the virtual credits granted for each billing event.
+// List the full DevPass billing history — charges (plan start, renewals,
+// upgrades, Reset Passes, PAYG top-ups), refunds and the plan lifecycle events
+// in between — with the amount charged and the virtual credits granted.
 const getInvoices = createRoute({
 	method: "get",
 	path: "/invoices",
@@ -2401,14 +2427,7 @@ const getInvoices = createRoute({
 						invoices: z.array(
 							z.object({
 								id: z.string(),
-								type: z.enum([
-									"dev_plan_start",
-									"dev_plan_renewal",
-									"dev_plan_upgrade",
-									"dev_plan_reset_pass",
-									// PAYG overflow credits purchases (manual and auto-reload).
-									"credit_topup",
-								]),
+								type: z.enum(DEV_PLAN_HISTORY_TYPES),
 								date: z.string(),
 								amount: z.string().nullable(),
 								creditAmount: z.string().nullable(),
@@ -2477,22 +2496,17 @@ devPlans.openapi(getInvoices, async (c) => {
 	const invoices = transactions
 		.filter(
 			(t) =>
-				(DEV_PLAN_INVOICE_TYPES as readonly string[]).includes(t.type) ||
-				// PAYG overflow top-ups (manual + auto-reload) are DevPass charges
-				// too. Positive amounts only: reversal rows are bookkeeping, not a
-				// billing event the user should see.
-				(t.type === "credit_topup" &&
-					t.amount !== null &&
-					parseFloat(t.amount) > 0),
+				(DEV_PLAN_HISTORY_TYPES as readonly string[]).includes(t.type) &&
+				// Negative `credit_topup` rows are reversal bookkeeping for a refund
+				// that already has its own row; showing both double-counts the money.
+				!(
+					t.type === "credit_topup" &&
+					(t.amount === null || parseFloat(t.amount) <= 0)
+				),
 		)
 		.map((t) => ({
 			id: t.id,
-			type: t.type as
-				| "dev_plan_start"
-				| "dev_plan_renewal"
-				| "dev_plan_upgrade"
-				| "dev_plan_reset_pass"
-				| "credit_topup",
+			type: t.type as DevPlanHistoryType,
 			date: t.createdAt.toISOString(),
 			amount: t.amount,
 			creditAmount: t.creditAmount,

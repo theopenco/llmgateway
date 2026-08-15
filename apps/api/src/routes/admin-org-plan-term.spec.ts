@@ -21,6 +21,7 @@ async function manage(
 			plan: "enterprise",
 			seats: null,
 			apiKeyLimit: null,
+			projectLimit: null,
 			planStartedAt: null,
 			planExpiresAt: null,
 			isTrialActive: false,

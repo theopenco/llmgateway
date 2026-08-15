@@ -83,6 +83,8 @@ const client = new OpenAI({
 
 ---
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## 2. OpenRouter
 
 **Managed routing with the largest model catalog.**
@@ -305,3 +307,5 @@ If you want LiteLLM's flexibility without running the infrastructure:
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** — no credit card required, point your SDK at `https://api.llmgateway.io/v1`
 - **[Read the LiteLLM migration guide](https://docs.llmgateway.io/migrations/litellm)** — routing rules, keys, and budgets mapped one-to-one
 - **[LLM Gateway vs LiteLLM](/blog/llm-gateway-vs-litellm)** — the detailed head-to-head if you're still deciding
+
+<BlogCta variant="gateway" location="bottom" />

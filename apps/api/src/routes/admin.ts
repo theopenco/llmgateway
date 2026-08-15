@@ -141,6 +141,44 @@ function buildOrganizationSearchFilter(search: string | undefined) {
 	);
 }
 
+/**
+ * One owner row per organization, for joining onto organization listings.
+ * An organization can have several members with the `owner` role, so joining
+ * the membership rows directly would emit the organization once per owner.
+ * Ranks by membership age so the founding owner wins, keyed by user id to stay
+ * deterministic when two memberships share a timestamp.
+ */
+function buildOrganizationOwnerSubquery() {
+	const ranked = db
+		.select({
+			organizationId: tables.userOrganization.organizationId,
+			userId: tables.user.id,
+			userName: tables.user.name,
+			userEmail: tables.user.email,
+			userUsername: tables.user.username,
+			rowNumber:
+				sql<number>`ROW_NUMBER() OVER (PARTITION BY ${tables.userOrganization.organizationId} ORDER BY ${tables.userOrganization.createdAt} ASC, ${tables.user.id} ASC)`.as(
+					"owner_row_number",
+				),
+		})
+		.from(tables.userOrganization)
+		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
+		.where(eq(tables.userOrganization.role, "owner"))
+		.as("owner_ranked");
+
+	return db
+		.select({
+			organizationId: ranked.organizationId,
+			userId: ranked.userId,
+			userName: ranked.userName,
+			userEmail: ranked.userEmail,
+			userUsername: ranked.userUsername,
+		})
+		.from(ranked)
+		.where(eq(ranked.rowNumber, 1))
+		.as("owner_sub");
+}
+
 export const admin = new OpenAPIHono<ServerTypes>();
 
 admin.use("/*", adminMiddleware);
@@ -387,6 +425,8 @@ const organizationSchema = z.object({
 	seats: z.number().int().nullable().optional(),
 	// Manual API-key-limit override; null = use the plan default.
 	apiKeyLimit: z.number().int().nullable().optional(),
+	// Manual project-limit override; null = use the plan default.
+	projectLimit: z.number().int().nullable().optional(),
 	credits: z.string(),
 	totalCreditsAllTime: z.string().optional(),
 	totalSpent: z.string().optional(),
@@ -2618,17 +2658,7 @@ admin.openapi(getOrganizations, async (c) => {
 		.as("total_spent");
 
 	// Subquery for owner user per org
-	const ownerSub = db
-		.select({
-			organizationId: tables.userOrganization.organizationId,
-			userId: tables.user.id,
-			userName: tables.user.name,
-			userEmail: tables.user.email,
-		})
-		.from(tables.userOrganization)
-		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
-		.where(eq(tables.userOrganization.role, "owner"))
-		.as("owner_sub");
+	const ownerSub = buildOrganizationOwnerSubquery();
 
 	const sortColumnMap = {
 		name: tables.organization.name,
@@ -2699,7 +2729,10 @@ admin.openapi(getOrganizations, async (c) => {
 		)
 		.leftJoin(ownerSub, eq(tables.organization.id, ownerSub.organizationId))
 		.where(whereClause)
-		.orderBy(orderFn(sortColumn))
+		// Ties (every org with no usage shares 0 requests/tokens) would otherwise
+		// come back in an arbitrary order that differs per LIMIT/OFFSET plan, so
+		// paging repeats some rows and skips others.
+		.orderBy(orderFn(sortColumn), asc(tables.organization.id))
 		.limit(limit)
 		.offset(offset);
 
@@ -2932,6 +2965,7 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 			trialEndDate: org.trialEndDate?.toISOString() ?? null,
 			seats: org.seats,
 			apiKeyLimit: org.apiKeyLimit,
+			projectLimit: org.projectLimit,
 			credits: String(org.credits),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
@@ -3026,6 +3060,7 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			trialEndDate: org.trialEndDate?.toISOString() ?? null,
 			seats: org.seats,
 			apiKeyLimit: org.apiKeyLimit,
+			projectLimit: org.projectLimit,
 			credits: String(org.credits),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
@@ -5155,7 +5190,7 @@ admin.openapi(getProviderStats, async (c) => {
 					modelCountSub,
 					eq(tables.provider.id, modelCountSub.providerId),
 				)
-				.orderBy(orderFn(sortColumn)),
+				.orderBy(orderFn(sortColumn), asc(tables.provider.id)),
 		]);
 
 		const totalTokensAgg = Number(totalsResult?.totalTokens ?? 0);
@@ -5221,7 +5256,7 @@ admin.openapi(getProviderStats, async (c) => {
 		})
 		.from(tables.provider)
 		.leftJoin(modelCountSub, eq(tables.provider.id, modelCountSub.providerId))
-		.orderBy(orderFn(sortColumn));
+		.orderBy(orderFn(sortColumn), asc(tables.provider.id));
 
 	return c.json({
 		providers: rows.map((r) => ({
@@ -5543,7 +5578,7 @@ admin.openapi(getModelStats, async (c) => {
 				)
 				.leftJoin(pricingSub, eq(tables.model.id, pricingSub.modelId))
 				.where(whereClause)
-				.orderBy(orderFn(sortColumn))
+				.orderBy(orderFn(sortColumn), asc(tables.model.id))
 				.limit(limit)
 				.offset(offset),
 		]);
@@ -5674,7 +5709,7 @@ admin.openapi(getModelStats, async (c) => {
 		.leftJoin(providerCountSub, eq(tables.model.id, providerCountSub.modelId))
 		.leftJoin(pricingSub, eq(tables.model.id, pricingSub.modelId))
 		.where(whereClause)
-		.orderBy(orderFn(sortColumn))
+		.orderBy(orderFn(sortColumn), asc(tables.model.id))
 		.limit(limit)
 		.offset(offset);
 
@@ -6621,6 +6656,8 @@ const manageOrganizationRoute = createRoute({
 						seats: z.number().int().min(0).max(100000).nullable(),
 						// Null clears the override and reverts to the plan default.
 						apiKeyLimit: z.number().int().min(0).max(100000).nullable(),
+						// Null clears the override and reverts to the plan default.
+						projectLimit: z.number().int().min(0).max(100000).nullable(),
 						// Null clears the plan term (open-ended plan).
 						planExpiresAt: planTermDateSchema,
 						planStartedAt: planTermDateSchema,
@@ -6644,6 +6681,7 @@ const manageOrganizationRoute = createRoute({
 						plan: z.string(),
 						seats: z.number().int().nullable(),
 						apiKeyLimit: z.number().int().nullable(),
+						projectLimit: z.number().int().nullable(),
 						planExpiresAt: z.string().nullable(),
 						planStartedAt: z.string().nullable(),
 						isTrialActive: z.boolean(),
@@ -6675,6 +6713,7 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 		plan,
 		seats,
 		apiKeyLimit,
+		projectLimit,
 		planExpiresAt,
 		planStartedAt,
 		isTrialActive,
@@ -6739,6 +6778,7 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 			plan,
 			seats,
 			apiKeyLimit,
+			projectLimit,
 			planExpiresAt: expiresAt,
 			planStartedAt: startedAt,
 			isTrialActive,
@@ -6762,6 +6802,8 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 			newSeats: seats,
 			previousApiKeyLimit: org.apiKeyLimit,
 			newApiKeyLimit: apiKeyLimit,
+			previousProjectLimit: org.projectLimit,
+			newProjectLimit: projectLimit,
 			previousPlanExpiresAt: org.planExpiresAt?.toISOString() ?? null,
 			newPlanExpiresAt: expiresAt?.toISOString() ?? null,
 			previousPlanStartedAt: org.planStartedAt?.toISOString() ?? null,
@@ -6779,6 +6821,7 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 		plan,
 		seats,
 		apiKeyLimit,
+		projectLimit,
 		planExpiresAt: expiresAt?.toISOString() ?? null,
 		planStartedAt: startedAt?.toISOString() ?? null,
 		isTrialActive,
@@ -10067,7 +10110,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 				eq(tables.modelProviderMapping.id, statsJoin.mappingId),
 			)
 			.where(whereClause)
-			.orderBy(orderFn(sortColumn))
+			.orderBy(orderFn(sortColumn), asc(tables.modelProviderMapping.id))
 			.limit(limit)
 			.offset(offset),
 	]);
@@ -10803,7 +10846,7 @@ admin.openapi(getContactSubmissions, async (c) => {
 			})
 			.from(t)
 			.where(where)
-			.orderBy(orderFn(sortColumn))
+			.orderBy(orderFn(sortColumn), asc(t.id))
 			.limit(limit)
 			.offset(offset),
 		db
@@ -11870,7 +11913,7 @@ admin.openapi(getProviderListingRequests, async (c) => {
 			})
 			.from(t)
 			.where(where)
-			.orderBy(orderFn(sortColumn))
+			.orderBy(orderFn(sortColumn), asc(t.id))
 			.limit(limit)
 			.offset(offset),
 		db
@@ -12410,6 +12453,9 @@ const devpassTransactionSchema = z.object({
 	currency: z.string(),
 	status: z.string(),
 	description: z.string().nullable(),
+	// The payment a refund reverses, so the two rows can be tied together in
+	// the panel. Null on everything else.
+	relatedTransactionId: z.string().nullable(),
 	// Whether an admin can refund this payment, and how much of it is left.
 	// `refundIneligibleReason` is null when `refundable` is true.
 	refundable: z.boolean(),
@@ -12891,18 +12937,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		.groupBy(tables.paymentFailure.organizationId)
 		.as("last_payment_failure_sub");
 
-	const ownerSub = db
-		.select({
-			organizationId: tables.userOrganization.organizationId,
-			userId: tables.user.id,
-			userName: tables.user.name,
-			userEmail: tables.user.email,
-			userUsername: tables.user.username,
-		})
-		.from(tables.userOrganization)
-		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
-		.where(eq(tables.userOrganization.role, "owner"))
-		.as("owner_sub");
+	const ownerSub = buildOrganizationOwnerSubquery();
 
 	// All-time provider cost per org: every project, every cycle, no status or
 	// billing-cycle window. Unlike `realCostSub` (current cycle only) this never
@@ -13256,7 +13291,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 
 	const rows = await baseSelect
 		.where(whereClause)
-		.orderBy(orderFn(sortColumn))
+		.orderBy(orderFn(sortColumn), asc(tables.organization.id))
 		.limit(limit)
 		.offset(offset);
 
@@ -14563,6 +14598,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 			currency: tables.transaction.currency,
 			status: tables.transaction.status,
 			description: tables.transaction.description,
+			relatedTransactionId: tables.transaction.relatedTransactionId,
 			stripePaymentIntentId: tables.transaction.stripePaymentIntentId,
 			stripeInvoiceId: tables.transaction.stripeInvoiceId,
 		})
@@ -14580,8 +14616,16 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 					"dev_plan_renewal",
 					"dev_plan_reset_pass",
 					"dev_plan_reset_pass_gift",
+					"dev_plan_reset_pass_reward",
 					// PAYG overflow top-ups are DevPass billing events too.
 					"credit_topup",
+					// Money and credits going back out. Without `credit_refund` a
+					// refunded payment reads as a charge that was never reversed —
+					// the refund exists only as a badge on the original row — and
+					// gifted or manually paid credits appear from nowhere.
+					"credit_refund",
+					"credit_gift",
+					"credit_manual_payment",
 					// Legacy types — pre dev_plan_* rename, still in DB for older
 					// dev plan subscribers; without these their history reads as empty.
 					"subscription_start",
@@ -14643,6 +14687,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 				currency: t.currency,
 				status: t.status,
 				description: t.description ?? null,
+				relatedTransactionId: t.relatedTransactionId ?? null,
 				refundable: refundability.refundable,
 				refundIneligibleReason: refundability.reason,
 				refundedAmount: refundability.refundedAmount,
@@ -15211,17 +15256,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 		.groupBy(tables.paymentFailure.organizationId)
 		.as("last_payment_failure_sub");
 
-	const ownerSub = db
-		.select({
-			organizationId: tables.userOrganization.organizationId,
-			userId: tables.user.id,
-			userName: tables.user.name,
-			userEmail: tables.user.email,
-		})
-		.from(tables.userOrganization)
-		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
-		.where(eq(tables.userOrganization.role, "owner"))
-		.as("owner_sub");
+	const ownerSub = buildOrganizationOwnerSubquery();
 
 	// All-time provider cost per org: every project, every cycle, no status or
 	// billing-cycle window. Scoped to chat orgs so the aggregation doesn't scan
@@ -15492,7 +15527,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 
 	const rows = await baseSelect
 		.where(whereClause)
-		.orderBy(orderFn(sortColumn))
+		.orderBy(orderFn(sortColumn), asc(tables.organization.id))
 		.limit(limit)
 		.offset(offset);
 

@@ -72,6 +72,8 @@ response.data.forEach((image, i) => {
 
 Switching from `gpt-image-2` to a Gemini or Seedream model is a one-line change to `model` — same request, same response shape.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## The parameters that matter
 
 | Parameter      | What it does                                                           |
@@ -153,3 +155,5 @@ The [Image Studio in Lounge](https://lounge.llmgateway.io/image) generates 1, 2,
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** — one key for every image model
 - **[Image generation docs](https://docs.llmgateway.io/features/image-generation)** — full parameter reference
 - **[How to generate videos with the API](/blog/generate-videos-api)** — the async counterpart to this guide
+
+<BlogCta variant="gateway" location="bottom" />

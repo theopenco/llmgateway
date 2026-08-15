@@ -38,6 +38,8 @@ DevPass Code ships with two providers and nothing else. Both route to `https://a
 
 Every text model on the gateway — roughly 190 of them, from Claude Opus and GPT-5.5 to Gemini 3 Pro and Grok — shows up in the model picker. Switching is a keystroke, not a config change.
 
+<BlogCta variant="devpass" location="mid_article" />
+
 ## Built on opencode, focused on the gateway
 
 DevPass Code is a fork of [opencode](https://github.com/anomalyco/opencode) (MIT), rebranded and stripped down to a single upstream. We kept the parts that make opencode good — the fast TUI, agents, tools, MCP support, session management — and removed the provider sprawl. The result is a coding agent that does one thing: route your work through LLM Gateway, with an interface that matches the gateway's design.
@@ -98,3 +100,5 @@ opencode supports dozens of providers and needs per-provider setup. DevPass Code
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** and grab an API key
 - Run `npm i -g devpass-code` — or browse the source on [GitHub](https://github.com/theopenco/devpass-code)
 - Read the [coding agents guide](https://docs.llmgateway.io/guides/devpass-code) to connect it to your workflow
+
+<BlogCta variant="devpass" location="bottom" />

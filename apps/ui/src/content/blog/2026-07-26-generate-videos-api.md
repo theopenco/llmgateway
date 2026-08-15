@@ -61,6 +61,8 @@ Each model supports specific sizes and durations — requests outside them retur
 
 Billing is per second of generated video, so an 8-second 1080p Veo 3.1 clip costs about $3.20, while the same clip on Seedance 2.0 Mini at 720p costs about $0.60. The [video generation docs](https://docs.llmgateway.io/features/video-generation) carry the full per-model price and size tables.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## Poll for completion and download
 
 ```bash
@@ -150,3 +152,5 @@ Yes — the [Video Studio in Lounge](https://lounge.llmgateway.io/video) runs th
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** — one key for every video model
 - **[Video generation docs](https://docs.llmgateway.io/features/video-generation)** — sizes, durations, prices, and callbacks
 - **[How to generate images with the API](/blog/generate-images-api)** — the synchronous counterpart
+
+<BlogCta variant="gateway" location="bottom" />

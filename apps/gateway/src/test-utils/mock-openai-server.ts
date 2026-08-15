@@ -920,6 +920,10 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		chatMessages,
 		"TRIGGER_TRUNCATED_STREAM",
 	);
+	const shouldEndWithTrailingError = hasUserMessageTrigger(
+		chatMessages,
+		"TRIGGER_STREAM_TRAILING_ERROR",
+	);
 	const shouldFinishWithoutDone = hasUserMessageTrigger(
 		chatMessages,
 		"TRIGGER_FINISH_WITHOUT_DONE",
@@ -1125,6 +1129,16 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 			}
 
 			if (shouldTruncateStream) {
+				return;
+			}
+
+			// Mimic the Gemini API shedding Flex capacity mid-stream: a raw JSON
+			// error body tail (not an SSE event), then the stream closes without a
+			// finish reason or [DONE].
+			if (shouldEndWithTrailingError) {
+				await stream.write(
+					'\r\n{\n  "error": {\n    "code": 503,\n    "message": "This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.",\n    "status": "UNAVAILABLE"\n  }\n}\n',
+				);
 				return;
 			}
 
