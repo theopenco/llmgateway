@@ -176,18 +176,6 @@ export function Hero({ providerId }: HeroProps) {
 											/>
 										</div>
 										<div className="flex items-center gap-2">
-											<Database className="h-3.5 w-3.5 text-muted-foreground" />
-											<span className="text-muted-foreground">
-												Consumer Training:
-											</span>
-											<DataPolicyBadge
-												value={provider.dataPolicy.consumerTraining}
-												labelTrue="Yes"
-												labelFalse="No"
-												dangerIfTrue
-											/>
-										</div>
-										<div className="flex items-center gap-2">
 											<Eye className="h-3.5 w-3.5 text-muted-foreground" />
 											<span className="text-muted-foreground">
 												Prompt Logging:

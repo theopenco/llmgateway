@@ -97,41 +97,6 @@ function formatUptime(pct: number | null | undefined): string {
 	return `${pct.toFixed(2)}%`;
 }
 
-function speedBadge(ttft: number | null | undefined) {
-	if (ttft === null || ttft === undefined) {
-		return null;
-	}
-	if (ttft < 350) {
-		return {
-			label: "Blazing",
-			className:
-				"bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-emerald-500/20",
-			dot: "bg-emerald-500",
-		};
-	}
-	if (ttft < 800) {
-		return {
-			label: "Fast",
-			className: "bg-sky-500/10 text-sky-600 dark:text-sky-400 ring-sky-500/20",
-			dot: "bg-sky-500",
-		};
-	}
-	if (ttft < 1800) {
-		return {
-			label: "Steady",
-			className:
-				"bg-amber-500/10 text-amber-600 dark:text-amber-400 ring-amber-500/20",
-			dot: "bg-amber-500",
-		};
-	}
-	return {
-		label: "Patient",
-		className:
-			"bg-rose-500/10 text-rose-600 dark:text-rose-400 ring-rose-500/20",
-		dot: "bg-rose-500",
-	};
-}
-
 interface ProvidersGridProps {
 	/** When set, only providers headquartered in this ISO 3166-1 alpha-2 code are shown. */
 	countryCode?: string;
@@ -413,7 +378,6 @@ export function ProvidersGrid({
 			) : (
 				<div className="grid gap-4 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 					{filteredAndSorted.map((provider) => {
-						const badge = speedBadge(provider.stats?.avgTimeToFirstToken);
 						return (
 							<Card
 								key={provider.id}
@@ -436,16 +400,6 @@ export function ProvidersGrid({
 									<div className="space-y-2">
 										<div className="flex flex-wrap items-center gap-2">
 											<CardTitle className="text-xl">{provider.name}</CardTitle>
-											{badge && (
-												<span
-													className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1 ring-inset ${badge.className}`}
-												>
-													<span
-														className={`h-1.5 w-1.5 rounded-full ${badge.dot}`}
-													/>
-													{badge.label}
-												</span>
-											)}
 										</div>
 										<CardDescription className="line-clamp-2 leading-relaxed">
 											{provider.description}

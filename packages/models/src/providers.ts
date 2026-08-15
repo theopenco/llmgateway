@@ -101,7 +101,6 @@ export interface ServiceTier {
 
 export interface ProviderDataPolicy {
 	apiTraining: boolean | null;
-	consumerTraining: boolean | null;
 	promptLogging: boolean | null;
 	retentionPeriod?: string | null;
 	/**
@@ -259,7 +258,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: null,
@@ -291,7 +289,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: true,
 			promptLogging: true,
 			retentionPeriod: null,
 			soc2: 2,
@@ -338,7 +335,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: true,
 			promptLogging: true,
 			retentionPeriod: "30 days",
 			soc2: 2,
@@ -387,7 +383,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: true,
 			promptLogging: true,
 			retentionPeriod: "55 days",
 			soc2: 2,
@@ -507,7 +502,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
@@ -550,7 +544,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
@@ -592,7 +585,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
@@ -671,7 +663,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
@@ -699,7 +690,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
@@ -726,7 +716,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: true,
 			retentionPeriod: "30 days",
 			soc2: 2,
@@ -756,7 +745,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "CN",
 		dataPolicy: {
 			apiTraining: true,
-			consumerTraining: true,
 			promptLogging: true,
 			retentionPeriod: null,
 		},
@@ -820,7 +808,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "CN",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: null,
 			promptLogging: true,
 			retentionPeriod: null,
 			iso27001: true,
@@ -846,7 +833,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
@@ -875,7 +861,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: null,
 		dataPolicy: {
 			apiTraining: null,
-			consumerTraining: null,
 			promptLogging: null,
 			retentionPeriod: "varies by service; Enterprise ZDR available",
 			soc2: 2,
@@ -989,7 +974,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
@@ -1048,7 +1032,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
@@ -1101,7 +1084,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
@@ -1138,7 +1120,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
@@ -1169,7 +1150,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "CN",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
@@ -1196,7 +1176,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "CN",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: null,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
@@ -1223,7 +1202,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
@@ -1251,7 +1229,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "NL",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
@@ -1278,7 +1255,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "FR",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: true,
 			retentionPeriod: "30 days",
 			soc2: 2,
@@ -1307,7 +1283,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
@@ -1336,7 +1311,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: null,
-			consumerTraining: null,
 			promptLogging: null,
 			retentionPeriod: null,
 			soc2: 2,
@@ -1363,7 +1337,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
@@ -1391,7 +1364,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "AU",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 1,
@@ -1419,7 +1391,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "AU",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 1,
@@ -1464,7 +1435,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: null,
 			retentionPeriod: null,
 		},
@@ -1491,7 +1461,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "CN",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: null,
 			promptLogging: false,
 			retentionPeriod: "24 hours",
 			soc2: 2,
@@ -1524,7 +1493,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "CN",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: null,
 			promptLogging: true,
 			retentionPeriod: null,
 		},
@@ -1551,7 +1519,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: true,
 			retentionPeriod: null,
 		},
@@ -1582,7 +1549,6 @@ export const providers: ProviderDefinition[] = [
 			// Paid (pay-as-you-go) services are never trained on; only the free
 			// unpaid tier may be used for training per the Data Commitments page.
 			apiTraining: false,
-			consumerTraining: true,
 			promptLogging: true,
 			retentionPeriod: null,
 			soc2: null,
@@ -1668,7 +1634,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "CN",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: null,
 			promptLogging: true,
 			retentionPeriod: "30 days",
 		},
@@ -1697,7 +1662,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
@@ -1752,7 +1716,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: true,
 			retentionPeriod: null,
 			soc2: 2,
@@ -1784,7 +1747,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "GB",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: true,
 			retentionPeriod: "30 days",
 		},
@@ -1843,7 +1805,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
@@ -1872,7 +1833,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
@@ -1957,7 +1917,6 @@ export interface ProviderComplianceAttestation {
 	iso27001?: boolean | null;
 	gdpr?: boolean | null;
 	apiTraining?: boolean | null;
-	consumerTraining?: boolean | null;
 	promptLogging?: boolean | null;
 	retentionPeriod?: string | null;
 	/** ISO 3166-1 alpha-2 country the deployment is operated from. */
@@ -2238,7 +2197,6 @@ export function getAttestationComplianceFailures(
 	return getDataPolicyComplianceFailures(
 		{
 			apiTraining: attestation.apiTraining ?? null,
-			consumerTraining: attestation.consumerTraining ?? null,
 			promptLogging: attestation.promptLogging ?? null,
 			retentionPeriod: attestation.retentionPeriod ?? null,
 			soc2: attestation.soc2 ?? null,
