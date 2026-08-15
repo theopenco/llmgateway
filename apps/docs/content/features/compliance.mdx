@@ -116,7 +116,7 @@ Attestations only apply to custom provider keys. They can never be used to clear
 
 Providers that offer an abuse-attribution identifier receive an opaque, random value that LLM Gateway generates once per organization. It contains no personal data — no email address, user id or organization name — and it is the only thing that ties a report of abusive traffic back to an account.
 
-It is sent as `safety_identifier` to OpenAI and Azure OpenAI, and as `metadata.user_id` to Anthropic (including Claude on Vertex AI). Google's Gemini APIs have no equivalent field, so nothing is sent there. Any `safety_identifier` you set on a request yourself is ignored — the value is always the one derived from your organization.
+Whether LLM Gateway forwards this identifier depends on the upstream API. Check the [providers directory](https://llmgateway.io/providers) and open a provider to see its current behavior. Any `safety_identifier` you set on a request yourself is ignored — the value is always the one derived from your organization.
 
 ## Access Control
 

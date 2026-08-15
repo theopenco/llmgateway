@@ -46,6 +46,7 @@ function makeProvider(
 		id: "test",
 		name: "Test",
 		description: "",
+		forwardsSafetyIdentifier: false,
 		env: { required: { apiKey: "TEST" } },
 		dataPolicy,
 		headquarters,
@@ -803,6 +804,7 @@ describe("blockStealthProviders", () => {
 		id: "stealthy",
 		name: "Stealthy",
 		description: "",
+		forwardsSafetyIdentifier: false,
 		env: { required: { apiKey: "TEST", baseUrl: "TEST_BASE_URL" } },
 		dataPolicy: {
 			apiTraining: false,
