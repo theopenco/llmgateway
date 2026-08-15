@@ -752,6 +752,7 @@ export async function calculateCosts(
 		provider === "sakana" ||
 		provider === "meta" ||
 		provider === "ranoai" ||
+		provider === "permafrost" ||
 		provider === "aws-mantle";
 	const totalOutputTokens = completionIncludesReasoning
 		? calculatedCompletionTokens

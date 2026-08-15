@@ -1203,6 +1203,29 @@ export const providers: ProviderDefinition[] = [
 		priority: 1.2,
 	},
 	{
+		id: "permafrost",
+		name: "Permafrost",
+		description:
+			"Permafrost is a stealth provider with an OpenAI-compatible API.",
+		env: {
+			required: {
+				apiKey: "LLM_PERMAFROST_API_KEY",
+				baseUrl: "LLM_PERMAFROST_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#5f7e83",
+		website: null,
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: null,
+		privacyPolicyUrl: null,
+		headquarters: null,
+		dataPolicy: null,
+		priority: 1.1,
+	},
+	{
 		id: "perplexity",
 		name: "Perplexity",
 		description:
