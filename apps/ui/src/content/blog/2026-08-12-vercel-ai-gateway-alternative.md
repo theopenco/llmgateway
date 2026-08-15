@@ -83,6 +83,8 @@ Pick the prefix matching the `@ai-sdk/gateway` your app has — the protocol ver
 
 Model IDs use the same `provider/model` convention, so `anthropic/claude-sonnet-5` and `openai/gpt-4o` resolve unchanged. LLM Gateway's own routing IDs work too: pass a bare `gpt-4o` to let the gateway pick the provider on price, throughput, or latency, or `auto` to let it pick the model.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## Web Search Keeps Its Citations
 
 This is the part an OpenAI-compatible port cannot recover, so it is worth showing working:
@@ -158,3 +160,5 @@ No. `createGateway({ baseURL })` produces an ordinary provider instance, so you 
 - **[AI SDK Gateway protocol docs →](https://docs.llmgateway.io/developers/ai-sdk-gateway-protocol)** — the full surface, including provider options
 - **[Migrate from the Vercel AI Gateway →](https://docs.llmgateway.io/migrations/vercel-ai-gateway)** — both migration paths side by side
 - **[Ranked #1 on an independent AI gateway benchmark →](/blog/ai-gateway-benchmark)** — what the extra hop actually costs
+
+<BlogCta variant="gateway" location="bottom" />

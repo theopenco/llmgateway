@@ -56,6 +56,8 @@ const response = await client.chat.completions.create({
 
 ---
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## 2. OpenRouter
 
 **Large model catalog, community-driven.**
@@ -283,3 +285,5 @@ If you want to try the top pick, you can be running in under two minutes:
 That's it. Your existing code works. Every request gets logged, cached, and tracked automatically.
 
 **[Create a free account](https://llmgateway.io/signup)** | **[Browse 200+ models](https://llmgateway.io/models)** | **[Read the docs](https://docs.llmgateway.io)**
+
+<BlogCta variant="gateway" location="bottom" />

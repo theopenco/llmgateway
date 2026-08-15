@@ -50,6 +50,8 @@ Embeddings are the quiet workhorse behind most production LLM features:
 
 When chat and embeddings live in different systems, every one of those features carries hidden tax: two sets of keys to rotate, two bills to reconcile, two dashboards to check, two outages to handle. Consolidating them isn't glamorous — it's just one less thing that can go wrong at 2 a.m.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## Billing and observability
 
 Embedding requests show up in the same activity log as your chat traffic, with the same per-request cost breakdown. A few things to know:
@@ -69,3 +71,5 @@ If you have an LLM Gateway dashboard open right now, embeddings traffic will app
 Full reference and additional examples in the [embeddings docs](https://docs.llmgateway.io/features/embeddings).
 
 One API. One key. One bill. Chat and vectors, finally in the same place.
+
+<BlogCta variant="gateway" location="bottom" />

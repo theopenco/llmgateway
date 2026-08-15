@@ -54,6 +54,8 @@ writeFileSync("speech.mp3", Buffer.from(await response.arrayBuffer()));
 
 Swapping providers is a change to `model` and `voice` — the request stays identical, which makes A/B testing voices across providers a loop instead of a project.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## Voices, formats, and delivery style
 
 Every provider ships its own voice roster, and the gateway defaults sensibly per model family (`Kore` on Gemini, `alloy` on OpenAI, `Sarah` on ElevenLabs). Three parameters shape the output:
@@ -107,3 +109,5 @@ Use the [Audio Studio in Lounge](https://lounge.llmgateway.io/audio) — it gene
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** — one key for every TTS voice
 - **[Speech generation docs](https://docs.llmgateway.io/features/speech-generation)** — voices, formats, and parameters
 - **[How to track usage and spend with the API](/blog/track-llm-usage-spend-api)** — keep those narration jobs on budget
+
+<BlogCta variant="gateway" location="bottom" />

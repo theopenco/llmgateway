@@ -68,6 +68,8 @@ docker run -d \
 
 ---
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## 2. LiteLLM
 
 **The default answer, with real operational weight.**
@@ -215,3 +217,5 @@ With LLM Gateway, yes — the managed cloud runs the same AGPLv3 codebase and AP
 - **[Self-host LLM Gateway](https://docs.llmgateway.io)** — one Docker command, the full platform, AGPLv3
 - **[Try the managed cloud free](https://llmgateway.io/signup)** — same API, zero infrastructure, 0% BYOK fees
 - **[10 Best OpenRouter Alternatives in 2026](/blog/openrouter-alternatives)** — the full list including managed options
+
+<BlogCta variant="gateway" location="bottom" />

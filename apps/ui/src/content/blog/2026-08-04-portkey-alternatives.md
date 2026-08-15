@@ -80,6 +80,8 @@ const client = new OpenAI({
 
 ---
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## 2. Kong AI Gateway
 
 **LLM governance as plugins on API infrastructure you may already run.**
@@ -313,3 +315,5 @@ If you want Portkey-grade governance on a gateway you can own:
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** — no credit card required, point your SDK at `https://api.llmgateway.io/v1`
 - **[Read the compliance policy docs](https://docs.llmgateway.io/features/compliance)** — fail-closed provider requirements, enforced before data leaves the gateway
 - **[LLM Gateway vs Portkey](/blog/llm-gateway-vs-portkey)** — the detailed head-to-head if you're still deciding
+
+<BlogCta variant="gateway" location="bottom" />

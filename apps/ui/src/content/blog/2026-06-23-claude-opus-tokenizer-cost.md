@@ -38,6 +38,8 @@ Now run the identical text through a tokenizer that produces ~35% more tokens �
 
 Across 100,000 requests a day, that's the difference between roughly $1,750 and $2,360 daily — about **$18,000 more per month** for the same work, with no change to the advertised price.
 
+<BlogCta variant="devpass" location="mid_article" />
+
 ## Why tokenizers differ
 
 A tokenizer maps text to integers from a fixed vocabulary. A vocabulary tuned for code, multilingual text, or specific formatting will split the same string differently than an older one. "Cheaper per token" can still mean "more expensive per sentence" if the newer tokenizer is more granular. This is also why you can't compare two models on per-token price alone — a $3/1M model that needs 20% more tokens can cost more than a $3.50/1M model that's more efficient.
@@ -73,3 +75,5 @@ Because each model's tokenizer splits text differently. A more granular tokenize
 A flat per-token rate can hide a real increase in what you pay. The fix is visibility: see the actual tokens and cost behind every request, compare models on total spend, and cache or route to cut the tokens you send. LLM Gateway gives you all three behind one OpenAI-compatible API.
 
 **[Try LLM Gateway free](https://llmgateway.io/signup)** | **[Run the Token Cost Calculator](/token-cost-calculator)** | **[OpenAI vs Anthropic vs Google: real cost comparison](/blog/openai-vs-anthropic-vs-google-cost-comparison)**
+
+<BlogCta variant="devpass" location="bottom" />

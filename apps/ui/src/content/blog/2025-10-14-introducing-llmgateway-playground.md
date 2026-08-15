@@ -54,6 +54,8 @@ Drag and drop images or documents into any conversation. Vision models analyze t
 - **Multiple chats** — Keep experiments organized by project
 - **Quick actions** — Copy, regenerate, or branch conversations with one click
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## Coming Soon
 
 - **Web Search** — Let AI access real-time information
@@ -83,3 +85,5 @@ Every request in the playground appears in your analytics dashboard—same track
 **[Try the Playground →](https://lounge.llmgateway.io)**
 
 Questions or feedback? Find us on [GitHub](https://github.com/theopenco/llmgateway) or [Discord](https://llmgateway.io/discord).
+
+<BlogCta variant="gateway" location="bottom" />

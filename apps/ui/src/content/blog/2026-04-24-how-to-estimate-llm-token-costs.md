@@ -59,6 +59,8 @@ A few things jump out from the math, not the marketing:
 - Output tokens dominate total cost on any chat workload. If you're optimizing, cut response length before you cut prompt length.
 - Mid-tier models (Sonnet 4.6, GPT-5.4 Mini, Gemini 3.1 Flash Lite) are where the quality-to-cost ratio is best for most real apps.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## Where Estimates Go Wrong
 
 Four things that quietly inflate real bills beyond the estimate:
@@ -111,3 +113,5 @@ Don't call GPT-5.4 to classify sentiment. A three-tier setup — Nano or Flash L
 - Caching and smart routing are the two biggest levers — both are free on [LLM Gateway](/signup).
 
 **[Try the Token Cost Calculator →](/token-cost-calculator)**
+
+<BlogCta variant="gateway" location="bottom" />
