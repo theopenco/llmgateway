@@ -1214,6 +1214,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "permafrost",
 		name: "Permafrost",
+		forwardsSafetyIdentifier: false,
 		description:
 			"Permafrost is a stealth provider with an OpenAI-compatible API.",
 		env: {

@@ -31,6 +31,7 @@ interface ProviderScore<T extends AvailableModelProvider> {
 	provider: T;
 	score: Decimal;
 	price: Decimal;
+	routingPrice: Decimal;
 	uptime?: number;
 	latency?: number;
 	throughput?: number;
@@ -221,6 +222,10 @@ export interface ProviderSelectionOptions {
 	routingConfig?: ResolvedRoutingConfig;
 	organizationId?: string | null;
 	providerDiscountResolver?: (
+		provider: AvailableModelProvider,
+		modelId: string,
+	) => Promise<string | null | undefined> | string | null | undefined;
+	providerRoutingScoreMultiplierResolver?: (
 		provider: AvailableModelProvider,
 		modelId: string,
 	) => Promise<string | null | undefined> | string | null | undefined;
@@ -460,7 +465,9 @@ async function getProviderSelectionPrices<T extends AvailableModelProvider>(
 	modelWithPricing: ModelWithPricing & { id: string },
 	videoPricing: VideoPricingContext | undefined,
 	options?: ProviderSelectionOptions,
-): Promise<Map<string, { price: Decimal; discount: Decimal }>> {
+): Promise<
+	Map<string, { price: Decimal; routingPrice: Decimal; discount: Decimal }>
+> {
 	const providerPrices = await Promise.all(
 		providers.map(async (provider) => {
 			const providerInfo = findProviderMapping(
@@ -475,8 +482,31 @@ async function getProviderSelectionPrices<T extends AvailableModelProvider>(
 					videoPricing,
 				},
 			);
+			let routingMultiplier = new Decimal(1);
+			if (options?.providerRoutingScoreMultiplierResolver !== undefined) {
+				const rawAdjustment =
+					await options.providerRoutingScoreMultiplierResolver(
+						provider,
+						modelWithPricing.id,
+					);
+				try {
+					const scoreAdjustment = new Decimal(rawAdjustment ?? "0");
+					if (scoreAdjustment.isFinite() && scoreAdjustment.gte(-1)) {
+						routingMultiplier = scoreAdjustment.plus(1);
+					}
+				} catch {
+					// Invalid internal configuration is neutral instead of blocking traffic.
+				}
+			}
 
-			return [providerSelectionKey(provider), { price, discount }] as const;
+			return [
+				providerSelectionKey(provider),
+				{
+					price,
+					routingPrice: price.times(routingMultiplier),
+					discount,
+				},
+			] as const;
 		}),
 	);
 
@@ -729,6 +759,7 @@ export async function getCheapestFromAvailableProviders<
 		const price =
 			resolvedPrice?.price ??
 			getProviderSelectionPrice(providerInfo, videoPricing);
+		const routingPrice = resolvedPrice?.routingPrice ?? price;
 
 		const mKey = metricsKey(
 			modelWithPricing.id,
@@ -741,6 +772,7 @@ export async function getCheapestFromAvailableProviders<
 			provider,
 			score: new Decimal(0), // Will be calculated below
 			price,
+			routingPrice,
 			discount: resolvedPrice?.discount,
 			uptime: metrics?.uptime,
 			latency: metrics?.averageLatency,
@@ -757,7 +789,7 @@ export async function getCheapestFromAvailableProviders<
 	// selection earlier in this function).
 	const breakdowns = computeWeightedProviderScores(
 		providerScores.map((p) => ({
-			price: p.price,
+			price: p.routingPrice,
 			uptime: p.uptime,
 			latency: p.latency,
 			throughput: p.throughput,
@@ -826,7 +858,10 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 	modelWithPricing: ModelWithPricing & { id: string; output?: string[] },
 	videoPricing: VideoPricingContext | undefined,
 	cfg: ResolvedRoutingConfig,
-	providerSelectionPrices: Map<string, { price: Decimal; discount: Decimal }>,
+	providerSelectionPrices: Map<
+		string,
+		{ price: Decimal; routingPrice: Decimal; discount: Decimal }
+	>,
 ): ProviderSelectionResult<T> {
 	let cheapestProvider = stableProviders[0];
 	let lowestEffectivePrice: Decimal | null = null;
@@ -851,10 +886,12 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 		const totalPrice =
 			resolvedPrice?.price ??
 			getProviderSelectionPrice(providerInfo, videoPricing);
+		const routingPrice = resolvedPrice?.routingPrice ?? totalPrice;
 
 		// Apply provider priority: lower priority = effectively higher price
 		const priority = getEffectivePriority(provider.providerId, cfg);
-		const effectivePrice = priority > 0 ? totalPrice.div(priority) : totalPrice;
+		const effectivePrice =
+			priority > 0 ? routingPrice.div(priority) : routingPrice;
 
 		providerPrices.push({
 			providerId: provider.providerId,

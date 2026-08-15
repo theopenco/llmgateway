@@ -50,6 +50,7 @@ import {
 	type AnyColumn,
 	asc,
 	avgEffectiveTtftSql,
+	cdb,
 	db,
 	desc,
 	effectiveTtftTotals,
@@ -4054,6 +4055,95 @@ const deleteGlobalDiscount = createRoute({
 	},
 });
 
+const routingScoreMultiplierSchema = z.object({
+	id: z.string(),
+	provider: z.string().nullable(),
+	model: z.string().nullable(),
+	scoreMultiplier: z.string(),
+	reason: z.string().nullable(),
+	expiresAt: z.string().nullable(),
+	createdAt: z.string(),
+	updatedAt: z.string(),
+});
+
+const routingScoreMultipliersListSchema = z.object({
+	multipliers: z.array(routingScoreMultiplierSchema),
+	total: z.number(),
+});
+
+const createRoutingScoreMultiplierBodySchema = z.object({
+	provider: z.string().nullable().optional(),
+	model: z.string().nullable().optional(),
+	scoreMultiplier: z.coerce
+		.number()
+		.min(-100, "Score multiplier cannot reduce routing price below zero"),
+	reason: z.string().nullable().optional(),
+	expiresAt: z.string().nullable().optional(),
+});
+
+const getRoutingScoreMultipliers = createRoute({
+	method: "get",
+	path: "/routing-score-multipliers",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: routingScoreMultipliersListSchema.openapi({}),
+				},
+			},
+			description: "List of internal routing score multipliers.",
+		},
+	},
+});
+
+const createRoutingScoreMultiplier = createRoute({
+	method: "post",
+	path: "/routing-score-multipliers",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: createRoutingScoreMultiplierBodySchema.openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: routingScoreMultiplierSchema.openapi({}),
+				},
+			},
+			description: "Created routing score multiplier.",
+		},
+		400: { description: "Invalid routing score multiplier." },
+		409: {
+			description: "Routing score multiplier already exists for this target.",
+		},
+	},
+});
+
+const deleteRoutingScoreMultiplier = createRoute({
+	method: "delete",
+	path: "/routing-score-multipliers/{multiplierId}",
+	request: {
+		params: z.object({ multiplierId: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }).openapi({}),
+				},
+			},
+			description: "Routing score multiplier deleted.",
+		},
+		404: { description: "Routing score multiplier not found." },
+	},
+});
+
 // --- All Organization Discounts (across all organizations) ---
 
 const orgDiscountSchema = discountSchema.extend({
@@ -4229,6 +4319,24 @@ function formatDiscount(d: {
 	};
 }
 
+function formatRoutingScoreMultiplier(multiplier: {
+	id: string;
+	provider: string | null;
+	model: string | null;
+	scoreMultiplier: string;
+	reason: string | null;
+	expiresAt: Date | null;
+	createdAt: Date;
+	updatedAt: Date;
+}) {
+	return {
+		...multiplier,
+		expiresAt: multiplier.expiresAt?.toISOString() ?? null,
+		createdAt: multiplier.createdAt.toISOString(),
+		updatedAt: multiplier.updatedAt.toISOString(),
+	};
+}
+
 // Helper to validate provider/model
 function validateProviderAndModel(
 	provider: string | null | undefined,
@@ -4347,6 +4455,78 @@ admin.openapi(deleteGlobalDiscount, async (c) => {
 
 	if (!deleted) {
 		throw new HTTPException(404, { message: "Discount not found" });
+	}
+
+	return c.json({ success: true });
+});
+
+admin.openapi(getRoutingScoreMultipliers, async (c) => {
+	const multipliers = await db
+		.select()
+		.from(tables.routingScoreMultiplier)
+		.orderBy(desc(tables.routingScoreMultiplier.createdAt));
+
+	return c.json({
+		multipliers: multipliers.map(formatRoutingScoreMultiplier),
+		total: multipliers.length,
+	});
+});
+
+admin.openapi(createRoutingScoreMultiplier, async (c) => {
+	const body = c.req.valid("json");
+	const provider = body.provider ?? null;
+	const model = body.model ?? null;
+	const validation = validateProviderAndModel(provider, model);
+	if (validation.error) {
+		throw new HTTPException(400, { message: validation.error });
+	}
+
+	const existing = await db
+		.select({ id: tables.routingScoreMultiplier.id })
+		.from(tables.routingScoreMultiplier)
+		.where(
+			and(
+				provider
+					? eq(tables.routingScoreMultiplier.provider, provider)
+					: isNull(tables.routingScoreMultiplier.provider),
+				model
+					? eq(tables.routingScoreMultiplier.model, model)
+					: isNull(tables.routingScoreMultiplier.model),
+			),
+		)
+		.limit(1);
+	if (existing.length > 0) {
+		throw new HTTPException(409, {
+			message:
+				"A routing score multiplier already exists for this provider/model combination",
+		});
+	}
+
+	const [created] = await cdb
+		.insert(tables.routingScoreMultiplier)
+		.values({
+			provider,
+			model,
+			scoreMultiplier: (body.scoreMultiplier / 100).toFixed(4),
+			reason: body.reason ?? null,
+			expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
+		})
+		.returning();
+
+	return c.json(formatRoutingScoreMultiplier(created), 201);
+});
+
+admin.openapi(deleteRoutingScoreMultiplier, async (c) => {
+	const { multiplierId } = c.req.valid("param");
+	const [deleted] = await cdb
+		.delete(tables.routingScoreMultiplier)
+		.where(eq(tables.routingScoreMultiplier.id, multiplierId))
+		.returning({ id: tables.routingScoreMultiplier.id });
+
+	if (!deleted) {
+		throw new HTTPException(404, {
+			message: "Routing score multiplier not found",
+		});
 	}
 
 	return c.json({ success: true });
