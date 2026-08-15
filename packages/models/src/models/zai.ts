@@ -539,6 +539,8 @@ export const zaiModels = [
 			{
 				providerId: "baidu",
 				externalId: "glm-5",
+				// Use Qianfan's public list price. /v1/models may return an
+				// account-specific promotional or negotiated rate instead.
 				inputPrice: "1e-6",
 				cachedInputPrice: "0.2e-6",
 				outputPrice: "3.2e-6",
