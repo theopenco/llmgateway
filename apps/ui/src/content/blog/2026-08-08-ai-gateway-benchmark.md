@@ -52,6 +52,8 @@ A warm p95 of 1151 ms against a field that ranges to 4329 ms is the difference b
 
 This matters more than it used to. A chatbot turn is one call, and a bad p95 costs one person one pause. An agent turn fans out into many sequential calls, and the tail compounds: at ten calls per turn, a p95 stall stops being an edge case and starts being most turns. Tail latency is the number that decides whether an agentic workload feels responsive.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## What We Changed in the Upstream Path
 
 Our provider requests used to go out through bare global `fetch`. Undici's defaults close idle upstream sockets after four seconds and re-resolve DNS on every new connection, so any request arriving after a lull paid a full DNS + TCP + TLS handshake before its first token. Under Kubernetes' default `ndots:5`, one dropped UDP packet during the search-domain walk stalls a request for seconds — which is exactly the shape of a bad p95.
@@ -112,3 +114,5 @@ Clone [computesdk/benchmarks](https://github.com/computesdk/benchmarks), set an 
 - **[See the live benchmark →](https://www.computesdk.com/benchmarks/ai-gateway/)** — current numbers, not this snapshot
 - **[Routing and fallback docs →](https://docs.llmgateway.io/features/routing)** — how requests move across providers
 - **[Portkey alternatives →](/blog/portkey-alternatives)** — how the AI gateway landscape compares
+
+<BlogCta variant="gateway" location="bottom" />

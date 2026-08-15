@@ -64,6 +64,8 @@ OpenRouter's Enterprise tier addresses spend controls and raises BYOK limits, bu
 
 ---
 
+<BlogCta variant="enterprise" location="mid_article" />
+
 ## 2. Portkey
 
 **Governance-first, inside Palo Alto Networks.**
@@ -223,3 +225,5 @@ For single-cloud enterprises, yes — they answer the same "one governed endpoin
 - **[Talk to us about the 30-Day Production Pilot](https://llmgateway.io/enterprise)** — live against real workloads, SOC 2 report available
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** — evaluate the gateway before the procurement conversation
 - **[Enterprise LLM analytics](/blog/enterprise-llm-analytics)** — how per-request cost and latency visibility works at org scale
+
+<BlogCta variant="enterprise" location="bottom" />

@@ -57,6 +57,8 @@ Cache the _prefix_ of a prompt — the system message, tool definitions, and any
 
 They're complementary. LLM Gateway's exact-match caching catches repeat queries at the edge; provider prefix caching reduces cost on everything else. You don't have to choose.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## Concrete Math
 
 Say you're running a customer support bot. 50,000 requests/day. Average 2,000 input tokens (system prompt + context), 500 output tokens. On GPT-4o that's:
@@ -174,3 +176,5 @@ If you can't see your hit rate, you can't improve it. Every response in the LLM 
 - On LLM Gateway, enable caching in project settings. No code changes needed.
 
 **[Try LLM Gateway free](/signup)** | **[Caching docs](https://docs.llmgateway.io/features/caching)** | **[Estimate your savings](/token-cost-calculator)**
+
+<BlogCta variant="gateway" location="bottom" />

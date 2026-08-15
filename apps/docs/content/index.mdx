@@ -9,6 +9,17 @@ import { AIToolingCards } from "@/components/ai-tooling-cards";
 
 LLM Gateway is an open-source API gateway that sits between your applications and LLM providers like OpenAI, Anthropic, Google AI Studio, and more. It provides a unified, OpenAI-compatible API interface with built-in cost tracking, caching, and intelligent routing.
 
+## How it works
+
+Point your existing SDK at `https://api.llmgateway.io/v1` (or your self-hosted instance) and authenticate with an LLM Gateway API key — no code rewrites. The gateway routes each request to the right provider, tracks tokens and cost per model, provider, project, and API key, and fails over to a healthy provider when one errors. Pay per-token with prepaid credits at provider list rates, or bring your own provider keys (BYOK) for free.
+
+## Why use a gateway?
+
+- **One integration** — switch models or providers by changing a model string, not your code.
+- **Cost visibility** — usage analytics and cost breakdowns across every provider in one dashboard.
+- **Reliability** — automatic provider failover and response caching in front of every request.
+- **No lock-in** — open source (AGPLv3), self-hostable, and OpenAI-compatible end to end.
+
 ## Features
 
 <FeatureCards />

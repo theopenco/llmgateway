@@ -50,6 +50,8 @@ The spread, as median with p10–p90 range:
 
 Two things stand out beyond the medians. LLM Gateway's p90 cold TTFT (1380ms) came in below OpenRouter's median — the slow tail of one distribution beat the middle of the other. And LLM Gateway's warm TTFB barely moves: 171–193ms across the p10–p90 range, which is the stability you want under a production connection pool.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## Where the time goes
 
 The phase breakdown shows the overhead is not in the connection:
@@ -150,3 +152,5 @@ LLM Gateway routes an overlapping catalogue — the full list is on the [models 
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** — one key, streaming from day one
 - **[Migrate from OpenRouter](https://docs.llmgateway.io/migrations/openrouter)** — a base URL and API key change
 - **[What is an LLM gateway?](/blog/what-is-an-llm-gateway)** — where the hop pays for itself
+
+<BlogCta variant="gateway" location="bottom" />

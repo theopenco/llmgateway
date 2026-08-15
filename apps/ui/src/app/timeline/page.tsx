@@ -41,15 +41,16 @@ function buildMonthMeta(month: TimelineMonthSummary | null): {
 		return { title: FALLBACK_TITLE, description: FALLBACK_DESCRIPTION };
 	}
 	const count = month.models.length;
+	// Two names keep the description under 160 chars even with long model names.
 	const names = month.models
-		.slice(0, 3)
+		.slice(0, 2)
 		.map((model) => model.name)
 		.join(", ");
 	return {
 		title: `New AI Model Releases — ${month.label} Timeline`,
 		description: `${count} AI model${count === 1 ? "" : "s"} released in ${
 			month.label
-		}${month.isCurrentMonth ? " so far" : ""} — ${names} — plus release dates for every major LLM: GPT, Claude, Gemini, DeepSeek and more. Updated daily.`,
+		}${month.isCurrentMonth ? " so far" : ""} — ${names} — plus every major LLM release date. Updated daily.`,
 	};
 }
 

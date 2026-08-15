@@ -345,7 +345,7 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "alibaba",
-				externalId: "deepseek-v4-pro",
+				externalId: "deepseek-v4-pro-0813",
 				inputPrice: "2.4e-6",
 				cachedInputPrice: "0.2e-6",
 				outputPrice: "4.8e-6",

@@ -48,6 +48,8 @@ Concrete math: a coding-agent workload of 100M input and 20M output tokens a mon
 
 One operational difference: K3's reasoning is always on at full effort — `reasoning_effort` currently accepts only `max`, with lower-effort modes promised in later updates. That is part of why its benchmark numbers are strong, but it means K3 spends thinking tokens even on trivial requests. Opus 4.8 lets you dial reasoning effort up and down per request today — cheaper and faster on the easy 80%.
 
+<BlogCta variant="devpass" location="mid_article" />
+
 ## What each one is for
 
 **Pick Kimi K3 when** cost dominates, you want frontend-heavy code generation (the Arena result is real), you need single-shot outputs longer than 128K tokens, or open weights matter — self-hosting, fine-tuning, or simply not depending on one vendor's API terms.
@@ -95,3 +97,5 @@ Not yet. Kimi K3's weights are expected by July 27, 2026 and the license has not
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** — A/B Kimi K3 against Claude Opus 4.8 with one key
 - **[Get DevPass](https://devpass.llmgateway.io)** — both models on one flat rate, from $29/mo
 - Wire K3 into your editor with [How to Use Kimi K3 with Claude Code, Cursor, and Cline](/blog/kimi-k3-claude-code)
+
+<BlogCta variant="devpass" location="bottom" />

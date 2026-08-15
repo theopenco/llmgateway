@@ -44,6 +44,8 @@ Not every request needs your best model. By categorizing requests and routing th
 
 That's an **85% reduction** from using GPT-5 for everything — and users won't notice the difference on simple tasks.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## Strategy 2: Response Caching
 
 Many LLM requests are repetitive. Support ticket classifiers, FAQ responses, and template-based generations often produce identical or near-identical outputs for similar inputs.
@@ -117,3 +119,5 @@ curl https://api.llmgateway.io/v1/chat/completions \
 Switch models by changing a single string. No SDK changes, no code rewrites.
 
 **[Start saving on LLM costs](/signup)** | **[Estimate savings with the Token Cost Calculator](/token-cost-calculator)** | **[Compare model pricing](/models)** | **[Read the docs](https://docs.llmgateway.io)**
+
+<BlogCta variant="gateway" location="bottom" />

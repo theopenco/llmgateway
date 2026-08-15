@@ -30,7 +30,10 @@ import {
 	previewBulkBlockOrganizations,
 	setOrganizationStatus,
 } from "@/lib/admin-organizations";
-import { resolveDateRangeFromSearchParams } from "@/lib/date-range";
+import {
+	ORGANIZATIONS_DEFAULT_RANGE,
+	resolveDateRangeFromSearchParams,
+} from "@/lib/date-range";
 import { getOrgDeletionBlockedReason } from "@/lib/org-deletion";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
@@ -233,9 +236,13 @@ export default async function OrganizationsPage({
 	const limit = 25;
 	const offset = (page - 1) * limit;
 
-	// `from`/`to` stay undefined for "All time", which lets the API aggregate
-	// over the full history instead of a concrete span.
-	const { from, to } = resolveDateRangeFromSearchParams(params ?? {});
+	// An empty URL resolves to the page default rather than all time. `from`/`to`
+	// stay undefined only when "All time" is picked explicitly, which lets the
+	// API aggregate over the full history instead of a concrete span.
+	const { from, to } = resolveDateRangeFromSearchParams(
+		params ?? {},
+		ORGANIZATIONS_DEFAULT_RANGE,
+	);
 	const dateRange: DateRangeParams = {
 		range: params?.range,
 		from: params?.from,
@@ -318,7 +325,7 @@ export default async function OrganizationsPage({
 					</p>
 				</div>
 				<div className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:flex-row sm:items-center">
-					<DateRangePicker />
+					<DateRangePicker defaultRange={ORGANIZATIONS_DEFAULT_RANGE} />
 					<form
 						action={handleSearch}
 						className="flex w-full items-center gap-2 sm:w-auto"

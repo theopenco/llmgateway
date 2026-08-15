@@ -74,6 +74,9 @@ const guides = defineCollection({
 		id: z.string(),
 		slug: z.string(),
 		title: z.string(),
+		// Optional longer <title> for search results. `title` stays short so the
+		// index cards and page heading read cleanly.
+		seoTitle: z.string().optional(),
 		description: z.string(),
 		date: z.string(),
 		image: z

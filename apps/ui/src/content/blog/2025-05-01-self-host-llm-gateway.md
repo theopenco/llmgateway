@@ -66,3 +66,5 @@ Self-hosting gives you:
 - **Same features** — Analytics, caching, and routing work just like the hosted version
 
 For the full setup guide with environment configuration and production tips, see the [Self-Host documentation](https://docs.llmgateway.io/self-host).
+
+<BlogCta variant="gateway" location="bottom" />

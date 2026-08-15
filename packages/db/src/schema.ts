@@ -234,6 +234,10 @@ export const organization = pgTable(
 		// for both display and enforcement of the org-wide API-key cap (total
 		// active developer keys across all of the org's projects).
 		apiKeyLimit: integer(),
+		// Manual project-limit override set by admins. Null = use the plan default
+		// (free/pro = 10, enterprise = 250). When set, this takes precedence for
+		// enforcement of the org-wide cap on non-deleted projects.
+		projectLimit: integer(),
 		subscriptionCancelled: boolean().notNull().default(false),
 		trialStartDate: timestamp(),
 		trialEndDate: timestamp(),

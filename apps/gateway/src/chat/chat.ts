@@ -254,6 +254,7 @@ import { checkOpenAIContentFilter } from "./tools/openai-content-filter.js";
 import { convertAwsEventStreamToSSE } from "./tools/parse-aws-eventstream.js";
 import { parseModelInput } from "./tools/parse-model-input.js";
 import { parseProviderResponse } from "./tools/parse-provider-response.js";
+import { parseTrailingUpstreamError } from "./tools/parse-trailing-upstream-error.js";
 import {
 	exclusionReason,
 	getProviderFilterReasons,
@@ -1011,6 +1012,17 @@ function inferStreamingErrorStatusCode(
 	}
 	if (typeof openAiCompatibleStreamError.status === "number") {
 		return openAiCompatibleStreamError.status;
+	}
+	// Google-style (google.rpc) error payloads carry the HTTP status as a
+	// numeric `code` (e.g. {"code": 503, "status": "UNAVAILABLE"}). Only trust
+	// it in the HTTP error range: other providers use numeric `code` for
+	// internal error catalogues.
+	if (
+		typeof openAiCompatibleStreamError.code === "number" &&
+		openAiCompatibleStreamError.code >= 400 &&
+		openAiCompatibleStreamError.code <= 599
+	) {
+		return openAiCompatibleStreamError.code;
 	}
 
 	const errorType =
@@ -10801,14 +10813,39 @@ chat.openapi(completions, async (c) => {
 						const responseText = hasBufferedNonWhitespace
 							? buffer.slice(0, 5000)
 							: "Stream ended before a terminal finish reason or [DONE] event";
+						// A provider can shed a stream mid-flight by writing one
+						// structured JSON error as a raw body tail (not an SSE event)
+						// before closing — the Gemini API does this when Flex-tier
+						// capacity is shed (503 UNAVAILABLE "high demand"). Surface that
+						// error instead of the generic truncation message so callers see
+						// the real, retryable cause.
+						const trailingUpstreamError = parseTrailingUpstreamError(buffer);
+						const statusCode = trailingUpstreamError
+							? inferStreamingErrorStatusCode(
+									trailingUpstreamError,
+									responseText,
+								)
+							: 502;
 						const errorMessage =
-							"Upstream stream terminated unexpectedly before completion";
+							trailingUpstreamError &&
+							typeof trailingUpstreamError.message === "string"
+								? trailingUpstreamError.message
+								: "Upstream stream terminated unexpectedly before completion";
+						const errorCode = trailingUpstreamError
+							? typeof trailingUpstreamError.code === "string"
+								? trailingUpstreamError.code
+								: typeof trailingUpstreamError.status === "string"
+									? trailingUpstreamError.status
+									: "stream_truncated"
+							: "stream_truncated";
 
 						logger.warn("[streaming] Stream ended without terminal event", {
 							provider: usedProvider,
 							model: usedInternalModel,
 							bufferLength: buffer.length,
 							fullContentLength: fullContent.length,
+							hasTrailingUpstreamError: trailingUpstreamError !== null,
+							statusCode,
 							hasToolCalls:
 								!!streamingToolCalls && streamingToolCalls.length > 0,
 							unifiedFinishReason: getUnifiedFinishReason(
@@ -10820,9 +10857,9 @@ chat.openapi(completions, async (c) => {
 						streamingError = {
 							message: errorMessage,
 							type: "upstream_error",
-							code: "stream_truncated",
+							code: errorCode,
 							details: {
-								statusCode: 502,
+								statusCode,
 								statusText: "Upstream Stream Terminated",
 								responseText,
 								timestamp: new Date().toISOString(),
@@ -10833,16 +10870,27 @@ chat.openapi(completions, async (c) => {
 						};
 						finishReason = "upstream_error";
 
+						// A stealth provider's raw error tail (and vocabulary) must not
+						// reach the client; the unredacted payload above still feeds the
+						// internal-only log columns.
+						const redactTruncationError =
+							shouldRedactProviderError(usedProvider);
 						try {
 							await writeSSEAndCache({
 								event: "error",
 								data: JSON.stringify({
 									error: {
-										message: errorMessage,
+										message: redactTruncationError
+											? redactedProviderErrorText(statusCode)
+											: errorMessage,
 										type: "upstream_error",
-										code: "stream_truncated",
+										code: redactTruncationError
+											? "stream_truncated"
+											: errorCode,
 										param: null,
-										responseText,
+										responseText: redactTruncationError
+											? redactedProviderErrorText(statusCode)
+											: responseText,
 									},
 								}),
 								id: String(eventId++),
