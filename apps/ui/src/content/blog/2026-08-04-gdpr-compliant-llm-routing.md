@@ -5,6 +5,15 @@ date: "2026-08-04"
 title: "GDPR-Compliant LLM Routing, Enforced at the Gateway"
 summary: "How to keep LLM traffic GDPR-compliant in practice: restrict routing to GDPR-compliant providers, filter by provider headquarters, pin regions, and block non-compliant requests before any data leaves your gateway."
 categories: ["Guides"]
+faqs:
+  - question: "Can I force LLM traffic to stay with GDPR-compliant providers?"
+    answer: "Yes. LLM Gateway's provider compliance policies (Enterprise plan) include a GDPR requirement that removes non-compliant providers from routing entirely. Requests that would otherwise reach a non-compliant provider are rejected with a `403` before any data leaves the gateway."
+  - question: "What happens when a provider's GDPR status is unknown?"
+    answer: "It's treated as non-compliant. Every requirement in a compliance policy is fail-closed: a provider passes only when its published data policy explicitly satisfies the requirement."
+  - question: "Can I restrict routing to providers headquartered in specific countries?"
+    answer: "Yes. The Provider Headquarters filter allows only providers based in your selected countries, composes with the certification and data-policy requirements, and blocks providers with unknown headquarters while active."
+  - question: "Does GDPR compliance require self-hosting the gateway?"
+    answer: "No — the compliance policy, headquarters filter, and retention controls all work on the managed cloud. Self-hosting the AGPLv3 core is the option for teams whose policy requires the gateway itself, not just the providers, to run inside their own boundary."
 image:
   src: "/blog/gdpr-compliant-llm-routing.png"
   alt: "GDPR-compliant LLM routing concept — a glowing shield gate on a circuit board filtering request traces"
@@ -78,24 +87,6 @@ For teams that need the gateway itself inside their boundary, the core is AGPLv3
 ## Custom providers and self-attestation
 
 If you route to deployments you operate yourself — an EU-region deployment in your own cloud account, for instance — those [custom providers](https://docs.llmgateway.io/features/custom-providers) have no published data policy, so an active compliance policy blocks them by default. An organization owner can record a self-attestation of the deployment's posture (GDPR status, logging, training, operating country), which the gateway evaluates with the same fail-closed rules. Attestation changes are recorded in the audit log.
-
-## Frequently Asked Questions
-
-### Can I force LLM traffic to stay with GDPR-compliant providers?
-
-Yes. LLM Gateway's provider compliance policies (Enterprise plan) include a GDPR requirement that removes non-compliant providers from routing entirely. Requests that would otherwise reach a non-compliant provider are rejected with a `403` before any data leaves the gateway.
-
-### What happens when a provider's GDPR status is unknown?
-
-It's treated as non-compliant. Every requirement in a compliance policy is fail-closed: a provider passes only when its published data policy explicitly satisfies the requirement.
-
-### Can I restrict routing to providers headquartered in specific countries?
-
-Yes. The Provider Headquarters filter allows only providers based in your selected countries, composes with the certification and data-policy requirements, and blocks providers with unknown headquarters while active.
-
-### Does GDPR compliance require self-hosting the gateway?
-
-No — the compliance policy, headquarters filter, and retention controls all work on the managed cloud. Self-hosting the AGPLv3 core is the option for teams whose policy requires the gateway itself, not just the providers, to run inside their own boundary.
 
 <BlogCta variant="enterprise" location="bottom" />
 

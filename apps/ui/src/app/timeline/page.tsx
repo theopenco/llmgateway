@@ -1,6 +1,7 @@
 import { ArrowRight, ArrowUpRight, Sparkles } from "lucide-react";
 import Link from "next/link";
 
+import { ContentConversionRail } from "@/components/content-conversion-rail";
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import { ModelCard } from "@/components/timeline/timeline-parts";
@@ -467,6 +468,7 @@ export default async function TimelinePage() {
 			</main>
 
 			<Footer />
+			<ContentConversionRail surface="timeline" variant="gateway" />
 		</>
 	);
 }

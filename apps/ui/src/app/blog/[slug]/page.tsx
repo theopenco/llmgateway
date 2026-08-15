@@ -4,9 +4,11 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { ContentConversionRail } from "@/components/content-conversion-rail";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
+import { plainTextFromMarkdown } from "@/lib/utils/plain-text";
 
 import { CopyMarkdownButton } from "./copy-markdown-button";
 
@@ -72,7 +74,10 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 				mainEntity: entry.faqs.map((faq) => ({
 					"@type": "Question",
 					name: faq.question,
-					acceptedAnswer: { "@type": "Answer", text: faq.answer },
+					acceptedAnswer: {
+						"@type": "Answer",
+						text: plainTextFromMarkdown(faq.answer),
+					},
 				})),
 			}
 		: null;
@@ -206,7 +211,12 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 													{faq.question}
 												</dt>
 												<dd className="mt-2 leading-relaxed text-muted-foreground">
-													{faq.answer}
+													{/* Answers carry the same inline links and code spans
+													    the body copy does, so they render as markdown
+													    rather than escaping to literal syntax. */}
+													<Markdown options={getMarkdownOptions()}>
+														{faq.answer}
+													</Markdown>
 												</dd>
 											</div>
 										))}
@@ -218,6 +228,15 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 				</main>
 				<Footer />
 			</div>
+			<ContentConversionRail
+				surface="blog"
+				// Follow whichever offer the post's inline cards already make, so the
+				// rail reinforces them instead of competing.
+				variant={
+					entry.content.includes('variant="devpass"') ? "devpass" : "gateway"
+				}
+				model={entry.model}
+			/>
 		</>
 	);
 }

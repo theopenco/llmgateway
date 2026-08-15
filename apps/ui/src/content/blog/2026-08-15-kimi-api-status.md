@@ -5,6 +5,16 @@ date: "2026-08-15"
 title: "Is Kimi Down? How to Check Kimi K3 API Status"
 summary: "Your coding agent started erroring and you need to know whether Kimi is down or your request is wrong. Here is how to read Kimi K3 API status per provider, tell an outage from a client error, and keep working through both."
 categories: ["Guides"]
+model: kimi-k3
+faqs:
+  - question: "Does Moonshot publish a Kimi status page?"
+    answer: "Not a public one covering the API. The practical substitute is measured uptime from a client that sends real traffic — which is what the [Kimi K3 uptime page](https://llmgateway.io/models/kimi-k3/uptime) reports, broken out by provider."
+  - question: "Why is Kimi K3 up for someone else but down for me?"
+    answer: "Almost always because you are on different providers. The same model ID can resolve to Moonshot for one caller and an independent host for another, and their incidents are unrelated."
+  - question: "How is uptime measured?"
+    answer: "It is the share of requests that completed successfully on the upstream provider over the last four hours. Client errors from your own request and gateway-side errors are both excluded, so the figure reflects provider reliability."
+  - question: "Will failover slow my requests down?"
+    answer: "Only the failed attempt costs you. Routing scores providers before the request goes out, so healthy traffic is not retried — and a provider that is timing out is scored down before it becomes your default."
 image:
   src: "/blog/kimi-api-status.png"
   alt: "Glowing status indicator on a circuit board with three parallel routes flowing into it, representing per-provider uptime monitoring for Kimi K3"
@@ -70,24 +80,6 @@ That is the honest test of one provider. Drop the header and the model prefix, a
 - **Switch models for the session.** If every host is struggling, an [open-weight alternative](https://llmgateway.io/models/open-source) keeps the agent moving. Same key, same endpoint, one string changes.
 - **Read the error body, not just the status code.** Upstream errors are passed through rather than flattened, so the provider's own message tells you whether it is capacity, a content filter, or a bad parameter.
 - **Check your own history.** The dashboard logs every request with the provider that served it, so you can see exactly when the failures started and which host they came from.
-
-## Frequently Asked Questions
-
-### Does Moonshot publish a Kimi status page?
-
-Not a public one covering the API. The practical substitute is measured uptime from a client that sends real traffic — which is what the [Kimi K3 uptime page](https://llmgateway.io/models/kimi-k3/uptime) reports, broken out by provider.
-
-### Why is Kimi K3 up for someone else but down for me?
-
-Almost always because you are on different providers. The same model ID can resolve to Moonshot for one caller and an independent host for another, and their incidents are unrelated.
-
-### How is uptime measured?
-
-It is the share of requests that completed successfully on the upstream provider over the last four hours. Client errors from your own request and gateway-side errors are both excluded, so the figure reflects provider reliability.
-
-### Will failover slow my requests down?
-
-Only the failed attempt costs you. Routing scores providers before the request goes out, so healthy traffic is not retried — and a provider that is timing out is scored down before it becomes your default.
 
 ## Getting started
 

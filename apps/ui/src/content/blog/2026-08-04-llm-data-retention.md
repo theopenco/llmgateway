@@ -5,6 +5,15 @@ date: "2026-08-04"
 title: "LLM Data Retention: What to Store, and for How Long"
 summary: "A practical guide to LLM data retention: when storing full prompts and responses helps, when metadata is enough, what it costs, and how to set a retention policy your compliance team will sign off on."
 categories: ["Guides"]
+faqs:
+  - question: "Does LLM Gateway store my prompts by default?"
+    answer: "No. The default retention level is metadata-only: timestamps, models, token counts, and costs, with no request or response payloads. Full payload storage is an explicit opt-in per organization, available on standard pay-as-you-go organizations."
+  - question: "How much does LLM data retention cost?"
+    answer: "Metadata retention is free. Full payload retention costs $0.01 per 1 million tokens across all token types, billed per request and itemized in `usage.cost_details.data_storage_cost`."
+  - question: "How long does LLM Gateway keep stored request data?"
+    answer: "On the managed cloud, 30 days by default, after which records are deleted automatically; Enterprise organizations can configure custom retention periods to match their audit or data-minimization requirements. Payload retention itself is only configurable on standard pay-as-you-go organizations — DevPass and chat subscriptions stay metadata-only. Self-hosted deployments set their own retention periods through environment variables."
+  - question: "Can I keep LLM logs inside my own infrastructure?"
+    answer: "Yes — self-host the AGPLv3 gateway and all stored data lives in your own PostgreSQL database, with retention configured through environment variables and no per-token storage fee."
 image:
   src: "/blog/llm-data-retention.png"
   alt: "LLM data retention concept — a glowing vault chip on a circuit board holding request records"
@@ -68,23 +77,5 @@ All stored data is encrypted at rest, access is restricted to organization membe
 Retention controls what _you_ keep. The other half of the question is what your _providers_ keep — whether they log prompts, train on them, and where they're headquartered. That's governed by [provider compliance policies](https://docs.llmgateway.io/features/compliance), which block requests to providers that don't meet your requirements before any data leaves the gateway.
 
 For the full picture, see the [LLM compliance checklist](/blog/llm-compliance-checklist) and our guide to [GDPR-compliant LLM routing](/blog/gdpr-compliant-llm-routing). Our own handling of your data is covered by a SOC 2 Type II report — see [the announcement](/blog/soc2-type-ii) or request the report at [security.llmgateway.io](https://security.llmgateway.io/).
-
-## Frequently Asked Questions
-
-### Does LLM Gateway store my prompts by default?
-
-No. The default retention level is metadata-only: timestamps, models, token counts, and costs, with no request or response payloads. Full payload storage is an explicit opt-in per organization, available on standard pay-as-you-go organizations.
-
-### How much does LLM data retention cost?
-
-Metadata retention is free. Full payload retention costs $0.01 per 1 million tokens across all token types, billed per request and itemized in `usage.cost_details.data_storage_cost`.
-
-### How long does LLM Gateway keep stored request data?
-
-On the managed cloud, 30 days by default, after which records are deleted automatically; Enterprise organizations can configure custom retention periods to match their audit or data-minimization requirements. Payload retention itself is only configurable on standard pay-as-you-go organizations — DevPass and chat subscriptions stay metadata-only. Self-hosted deployments set their own retention periods through environment variables.
-
-### Can I keep LLM logs inside my own infrastructure?
-
-Yes — self-host the AGPLv3 gateway and all stored data lives in your own PostgreSQL database, with retention configured through environment variables and no per-token storage fee.
 
 <BlogCta variant="enterprise" location="bottom" />

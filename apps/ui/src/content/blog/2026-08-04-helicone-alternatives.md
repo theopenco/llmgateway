@@ -5,6 +5,15 @@ date: "2026-08-04"
 title: "8 Best Helicone Alternatives in 2026 (Compared)"
 summary: "Helicone entered maintenance mode after the Mintlify acquisition in March 2026. The 8 best Helicone alternatives in 2026, compared honestly — gateways with built-in analytics and dedicated LLM observability platforms — and how to pick between them."
 categories: ["Guides"]
+faqs:
+  - question: "Is Helicone still maintained in 2026?"
+    answer: "Helicone is in maintenance mode following its acquisition by Mintlify in March 2026 — existing deployments keep working, but there's no active feature development. That's workable for current users and the wrong bet for new deployments."
+  - question: "What is the best Helicone alternative?"
+    answer: "For the way most teams actually used Helicone — a proxy that made costs and latency visible — LLM Gateway is the closest one-for-one replacement: the same base-URL adoption with analytics included, plus multi-provider routing Helicone never had. For deep traces and evals, Langfuse is the open-source standard."
+  - question: "Do I need a gateway or an observability platform?"
+    answer: "Ask what you'd lose tomorrow if Helicone vanished. If it's cost/latency visibility, a gateway with built-in analytics replaces it and improves your routing. If it's span-level agent traces and evals, you want a dedicated platform — and the two work together."
+  - question: "How hard is it to migrate off Helicone?"
+    answer: "If you adopted Helicone via its proxy URL, migrating to another proxy-style tool is the same one-line change. Moving to an SDK-based platform (Langfuse, LangSmith) is a bigger step: you're adding instrumentation, not just redirecting traffic."
 image:
   src: "/blog/helicone-alternatives.png"
   alt: "The best Helicone alternatives in 2026 — a glowing analytics dashboard chip observing request traces on a circuit board"
@@ -256,26 +265,6 @@ PostHog added LLM analytics to its open-source product-analytics platform: token
 **You're buying one enterprise suite:** Portkey — after reading up on the acquisition.
 
 And remember the camps compose: a gateway carrying your traffic and an observability platform tracing your agents is a normal 2026 stack, not a duplication.
-
-## Frequently Asked Questions
-
-### Is Helicone still maintained in 2026?
-
-Helicone is in maintenance mode following its acquisition by Mintlify in March 2026 — existing deployments keep working, but there's no active feature development. That's workable for current users and the wrong bet for new deployments.
-
-### What is the best Helicone alternative?
-
-For the way most teams actually used Helicone — a proxy that made costs and latency visible — LLM Gateway is the closest one-for-one replacement: the same base-URL adoption with analytics included, plus multi-provider routing Helicone never had. For deep traces and evals, Langfuse is the open-source standard.
-
-### Do I need a gateway or an observability platform?
-
-Ask what you'd lose tomorrow if Helicone vanished. If it's cost/latency visibility, a gateway with built-in analytics replaces it and improves your routing. If it's span-level agent traces and evals, you want a dedicated platform — and the two work together.
-
-### How hard is it to migrate off Helicone?
-
-If you adopted Helicone via its proxy URL, migrating to another proxy-style tool is the same one-line change. Moving to an SDK-based platform (Langfuse, LangSmith) is a bigger step: you're adding instrumentation, not just redirecting traffic.
-
----
 
 ## Try the Top Pick
 

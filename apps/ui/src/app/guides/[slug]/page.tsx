@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { ContentConversionRail } from "@/components/content-conversion-rail";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
@@ -153,6 +154,9 @@ export default async function GuidePage({ params }: GuidePageProps) {
 				</main>
 				<Footer />
 			</div>
+			{/* Integration guides are read by people wiring up a coding agent, so
+			    the flat-rate plan is the relevant offer. */}
+			<ContentConversionRail surface="guide" variant="devpass" />
 		</>
 	);
 }

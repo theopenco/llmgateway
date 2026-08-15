@@ -5,6 +5,13 @@ date: "2026-07-26"
 title: "How to Generate AI Videos with an API"
 summary: "An AI video generation API tutorial: submit async jobs to Veo, Seedance, and KLING through one OpenAI-compatible endpoint, poll or receive signed webhooks, download the MP4, and keep per-second costs visible."
 categories: ["Guides"]
+faqs:
+  - question: "How long does AI video generation take?"
+    answer: "Minutes, not seconds — depending on the model, duration, and resolution. That's why the API is asynchronous: submit, then poll or take a webhook. 4K jobs stay `in_progress` until the upscaled output is ready."
+  - question: "Which video model is cheapest for prototyping?"
+    answer: "Prototype on a low-priced tier like Seedance 2.0 Mini at 480p or 720p, then re-render the winning prompt on a premium model at 1080p — same request body, different `model` and `size`."
+  - question: "Can I generate videos without writing code first?"
+    answer: "Yes — the [Video Studio in Lounge](https://lounge.llmgateway.io/video) runs the same models with resolution, duration, and audio controls in the browser."
 image:
   src: "/blog/generate-videos-api.png"
   alt: "A glowing film clapperboard rendering frames on a circuit board, representing an AI video generation API"
@@ -130,20 +137,6 @@ Frame inputs and reference inputs can't be combined in one request, and referenc
 ## Watch the spend
 
 Video is the most expensive modality you'll route, so treat cost as a first-class output: every job is logged with its per-second price, the [Activity page](https://docs.llmgateway.io/learn/activity) breaks out video output costs, and [API key spending limits](https://docs.llmgateway.io/learn/api-keys) put a hard cap on how much a runaway batch job can burn.
-
-## Frequently Asked Questions
-
-### How long does AI video generation take?
-
-Minutes, not seconds — depending on the model, duration, and resolution. That's why the API is asynchronous: submit, then poll or take a webhook. 4K jobs stay `in_progress` until the upscaled output is ready.
-
-### Which video model is cheapest for prototyping?
-
-Prototype on a low-priced tier like Seedance 2.0 Mini at 480p or 720p, then re-render the winning prompt on a premium model at 1080p — same request body, different `model` and `size`.
-
-### Can I generate videos without writing code first?
-
-Yes — the [Video Studio in Lounge](https://lounge.llmgateway.io/video) runs the same models with resolution, duration, and audio controls in the browser.
 
 ---
 

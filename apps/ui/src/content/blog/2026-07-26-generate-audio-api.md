@@ -5,6 +5,13 @@ date: "2026-07-26"
 title: "How to Generate Audio with a Text-to-Speech API"
 summary: "A text-to-speech API tutorial: synthesize speech with ElevenLabs, OpenAI, Gemini, and Qwen voices through one OpenAI-compatible endpoint, choose voices and formats, steer delivery with instructions, and track the cost of every clip."
 categories: ["Guides"]
+faqs:
+  - question: "Which text-to-speech models are available through the API?"
+    answer: "Everything on the [models page with the audio filter](https://llmgateway.io/models?filters=1&audioGeneration=true) — spanning ElevenLabs, OpenAI, Google, and Alibaba voices — through one endpoint. The catalog updates as providers ship new models."
+  - question: "Can I stream the audio as it generates?"
+    answer: "Not yet. The endpoint returns the complete audio file in a single response; there is no chunked or SSE streaming output for now."
+  - question: "How do I pick a voice without writing code?"
+    answer: "Use the [Audio Studio in Lounge](https://lounge.llmgateway.io/audio) — it generates speech from up to three models side by side with per-model voice, format, and speed controls."
 image:
   src: "/blog/generate-audio-api.png"
   alt: "A glowing waveform and speaker on a circuit board, representing a text-to-speech API"
@@ -87,20 +94,6 @@ The same gateway also exposes `POST /v1/audio/transcriptions` for speech-to-text
 ## What does a clip cost?
 
 Billing varies by model family: some models bill on token usage reported by the provider, others on input character count. Either way the gateway logs each request with its exact cost, visible per request on the [Activity page](https://docs.llmgateway.io/learn/activity) and aggregated in your [usage dashboards](https://docs.llmgateway.io/learn/usage-metrics). Per-model pricing is on the [models page](https://llmgateway.io/models?filters=1&audioGeneration=true), and [API key spend limits](https://docs.llmgateway.io/learn/api-keys) cap the blast radius of batch narration jobs.
-
-## Frequently Asked Questions
-
-### Which text-to-speech models are available through the API?
-
-Everything on the [models page with the audio filter](https://llmgateway.io/models?filters=1&audioGeneration=true) — spanning ElevenLabs, OpenAI, Google, and Alibaba voices — through one endpoint. The catalog updates as providers ship new models.
-
-### Can I stream the audio as it generates?
-
-Not yet. The endpoint returns the complete audio file in a single response; there is no chunked or SSE streaming output for now.
-
-### How do I pick a voice without writing code?
-
-Use the [Audio Studio in Lounge](https://lounge.llmgateway.io/audio) — it generates speech from up to three models side by side with per-model voice, format, and speed controls.
 
 ---
 
