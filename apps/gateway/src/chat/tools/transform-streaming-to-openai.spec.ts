@@ -25,6 +25,34 @@ vi.mock("@llmgateway/logger", () => ({
 }));
 
 describe("transformStreamingToOpenai", () => {
+	it("does not warn for Permafrost OpenAI streaming chunks", () => {
+		warn.mockClear();
+
+		const result = transformStreamingToOpenai(
+			"permafrost",
+			"kimi-k3",
+			{
+				id: "chatcmpl_123",
+				object: "chat.completion.chunk",
+				model: "kimi-k3",
+				choices: [
+					{
+						index: 0,
+						delta: { content: "Hello" },
+						finish_reason: null,
+					},
+				],
+			},
+			[],
+		);
+
+		expect(result).toMatchObject({
+			id: "chatcmpl_123",
+			choices: [{ delta: { content: "Hello" } }],
+		});
+		expect(warn).not.toHaveBeenCalled();
+	});
+
 	it("generates a unique id per streamed google tool call", () => {
 		// The id is the `thought_signature:<id>` Redis key. A name+timestamp id
 		// collided whenever two callers invoked the same tool within the same

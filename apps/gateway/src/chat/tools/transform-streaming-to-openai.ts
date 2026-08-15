@@ -1530,6 +1530,7 @@ export function transformStreamingToOpenai(
 		case "ranoai":
 		case "granite":
 		case "tundra":
+		case "permafrost":
 		case "xiaomi":
 		case "azure-ai-foundry":
 		case "vertex-openai":
