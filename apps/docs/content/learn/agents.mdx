@@ -1,37 +1,72 @@
 ---
-title: Agents
-description: Monitor your AI coding agents and their activity
+title: Agents Monitoring
+description: Track cost, tokens, and sessions for every coding agent in a project
 icon: Bot
 ---
 
+import { Callout } from "fumadocs-ui/components/callout";
 import { ThemedImage } from "@/components/themed-image";
 
-The Agents page lets you monitor your AI coding agents — such as Claude Code, Empryo, SoulForge, OpenCode, and others — and track their activity, costs, and token usage across sessions.
+The Agents page groups your project's gateway traffic by the coding agent that
+produced it — Claude Code, Cursor, OpenCode, Cline, Codex, DevPass Code and
+others — so you can see which tool is spending your credits and drill into the
+individual sessions behind the numbers.
 
-<ThemedImage alt="Agents" basePath="/learn/agents" />
+<ThemedImage alt="Agents Monitoring" basePath="/learn/agents" />
+
+<Callout type="info">
+	Agents are identified by the `x-source` header their requests send. Anything
+	that doesn't match a known agent stays out of this view — use
+	[**Activity**](/learn/activity) for the full request log.
+</Callout>
+
+## Filtering the view
+
+Two controls sit above the agent cards and both are stored in the URL, so a
+filtered view can be bookmarked or shared:
+
+| Control        | Options              | Default |
+| -------------- | -------------------- | ------- |
+| **Time range** | 1h, 4h, 24h, 7d, 30d | 7d      |
+| **Usage mode** | All, Credits, BYOK   | All     |
+
+**Credits** shows only traffic billed against your credit balance, **BYOK**
+only traffic served by your own [provider keys](/learn/provider-keys). The
+summary on the right of the row totals the agents, requests, and spend
+currently in view.
 
 ## Agent Cards
 
-Each agent is displayed as a card showing:
+Each agent that was active in the selected period gets a card:
 
-- **Name** — The agent's identifier (e.g., SoulForge, Claude Code)
-- **Total cost** — Cumulative spend for this agent
-- **Requests** — Total number of API requests made
-- **Tokens** — Total tokens consumed
-- **Last Active** — When the agent was last used
+| Field           | Description                                |
+| --------------- | ------------------------------------------ |
+| **Name**        | The agent, matched from its request source |
+| **Total cost**  | Spend for this agent in the period         |
+| **Requests**    | Number of API requests                     |
+| **Tokens**      | Prompt and completion tokens combined      |
+| **Last active** | When the agent last sent a request         |
 
-Click on any agent card to view its detailed activity.
+Click a card to open its detail view.
 
 ## Agent Detail
 
 <ThemedImage alt="Agent Detail" basePath="/learn/agents-detail" />
 
-The detail view shows all sessions for a specific agent. Each session row displays:
+The detail view splits the agent's requests into **sessions** — consecutive
+requests with less than a 30-minute gap between them. Each session row shows
+its time range, request count, total tokens, duration, and cost. Expand a
+session to see the individual requests with their response previews, model,
+cache status, tokens, cost, and source.
 
-- **Time range** — When the session started and ended
-- **Requests** — Number of API calls in the session
-- **Tokens** — Total tokens consumed
-- **Duration** — How long the session lasted
-- **Cost** — Total cost for the session
+Sessions load as you scroll; **Load more sessions** fetches the next page
+manually.
 
-Expand a session to see individual requests with their response previews, model used, cache status, token counts, cost, and source.
+## Exporting to CSV
+
+**Export CSV** downloads every request in the selected period — not just the
+sessions currently loaded — for the agent you are viewing. Use it to reconcile
+agent spend against your own reporting.
+
+For the DevPass equivalent of this page, see
+[**Coding Agents**](/learn/coding-agents).
