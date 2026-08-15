@@ -79,6 +79,8 @@ The gateway immediately begins using the new credential for all subsequent reque
 
 ---
 
+<BlogCta variant="enterprise" location="mid_article" />
+
 ## 2. Rotating Gateway Keys: The "Double-Key Roll" Pattern
 
 If you need to rotate the API key your application uses to connect to LLM Gateway (e.g. `llmgtwy_...`), you cannot avoid updating your application configuration. However, you _can_ avoid service interruption.
@@ -173,3 +175,5 @@ If you are currently managing raw provider keys across multiple servers, migrati
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** — Create a free account in under 60 seconds
 - **[Read the API Keys & IAM Rules Documentation](https://docs.llmgateway.io/features/api-keys)** — Learn how to secure your endpoints
 - **[Learn about our SOC 2 Type II compliance](/blog/soc2-type-ii)** — Read the announcement and download the report
+
+<BlogCta variant="enterprise" location="bottom" />

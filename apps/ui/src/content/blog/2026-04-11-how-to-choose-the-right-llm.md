@@ -37,6 +37,8 @@ Every model selection comes down to four factors:
 
 Get these right and the model picks itself.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## Dimension 1: Task Complexity
 
 ### Simple Tasks (Classification, Extraction, Formatting)
@@ -252,3 +254,5 @@ New models launch every week. Prices drop. Capabilities shift. The model that's 
 This is the strongest argument for using a gateway rather than integrating directly with a single provider. When the landscape shifts, you change a model name in your configuration instead of rewriting your integration.
 
 **[Browse 200+ models on LLM Gateway](/models)** | **[Try the Playground](/playground)** | **[Create a free account](/signup)**
+
+<BlogCta variant="gateway" location="bottom" />

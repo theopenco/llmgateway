@@ -49,6 +49,8 @@ Cursor routes its **AI panel** (Cmd/Ctrl + L) — both plan mode and agent mode 
 
 Be aware of the boundary: Cursor's inline edit (Cmd/Ctrl + K) and tab autocomplete are locked to Cursor's own backend and will not route through any external endpoint. Plan, chat, and run agent tasks with K3's full 1M context in Cursor; for completions and inline edits on K3, use Claude Code or Cline instead.
 
+<BlogCta variant="devpass" location="mid_article" />
+
 ## Kimi K3 in Cline
 
 Cline is the straightforward one — it's built to bring your own key:
@@ -101,3 +103,5 @@ The ones that route their full agent loop through your endpoint: Claude Code, Cl
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** — one key for K3 and 200+ models
 - New to K3? Start with [Kimi K3 and China's Open-Weight Model Wave](/blog/kimi-k3), or see how it stacks up in [Kimi K3 vs Claude Opus 4.8](/blog/kimi-k3-vs-claude-opus)
 - Requests failing? Check the live [Kimi K3 status page](/models/kimi-k3/uptime) for per-provider uptime before you debug your setup
+
+<BlogCta variant="devpass" location="bottom" />

@@ -2,7 +2,8 @@
 id: mimocode
 slug: mimocode
 title: MiMo Code Integration
-description: Use GPT-5.5, Claude, Gemini, or any model with MiMo Code. Custom provider configuration, full cost tracking.
+seoTitle: "MiMo Code Setup: Any Model, One API Key"
+description: Use GPT-5.5, Claude, Gemini, Kimi K3, or 200+ models with MiMo Code. Custom provider configuration in a few steps, with full cost tracking.
 date: 2026-06-08
 ---
 

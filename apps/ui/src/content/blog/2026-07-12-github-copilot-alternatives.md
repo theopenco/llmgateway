@@ -70,6 +70,8 @@ Four questions separate the options fast:
 
 ---
 
+<BlogCta variant="devpass" location="mid_article" />
+
 ## 2. Cursor
 
 **The most popular IDE-first alternative.**
@@ -283,3 +285,5 @@ If you want Copilot's workflows without the open-ended bill:
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** — no credit card required, point any coding agent at `https://api.llmgateway.io/v1`
 - **[Estimate your Copilot costs](/copilot-cost-calculator)** — see what AI Credits pricing means for your team
 - **[LLM Gateway vs GitHub Copilot](/compare/github-copilot)** — the detailed head-to-head if you're still deciding
+
+<BlogCta variant="devpass" location="bottom" />

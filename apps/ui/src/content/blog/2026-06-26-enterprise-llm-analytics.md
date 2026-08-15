@@ -35,6 +35,8 @@ Spend rarely maps cleanly to people. It maps to services, jobs, and integrations
 
 Now "the bill jumped" becomes "the nightly batch job on key `prod-etl` doubled its token usage on the 22nd" — a sentence you can act on.
 
+<BlogCta variant="enterprise" location="mid_article" />
+
 ## Organization-wide analytics, across every project
 
 Per-project views are precise, but leadership thinks in portfolios, not projects. The new **Organization → Analytics** page rolls cost, requests, and tokens up across _every_ project in the organization, then lets you pivot the breakdown with a single control:
@@ -125,3 +127,5 @@ Per-project cost-by-model analytics and per-API-key statistics are available on 
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** — route your traffic and watch the cost-by-model charts populate.
 - **[Talk to us about Enterprise](https://llmgateway.io/enterprise)** — turn on member and organization-wide analytics for your team.
 - **[Read how we handle SOC 2 Type II](/blog/soc2-type-ii)** — the compliance story behind the data.
+
+<BlogCta variant="enterprise" location="bottom" />

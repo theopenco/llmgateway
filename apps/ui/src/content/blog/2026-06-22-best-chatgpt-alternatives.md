@@ -45,6 +45,8 @@ The pattern is clear: most "alternatives" just swap one walled garden for anothe
 
 ---
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## 2. Claude (Claude Pro)
 
 **Many people's favorite model for writing and code.**
@@ -319,3 +321,5 @@ Trade one company's models for all of them in under two minutes:
 One app. Every model. From $9/mo.
 
 **[Try Lounge](https://lounge.llmgateway.io)** | **[Compare to ChatGPT](https://lounge.llmgateway.io/compare/chatgpt)** | **[How to choose the right LLM](/blog/how-to-choose-the-right-llm)**
+
+<BlogCta variant="gateway" location="bottom" />

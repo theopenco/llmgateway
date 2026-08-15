@@ -56,6 +56,8 @@ Centralized API key management means provider credentials never touch your appli
 **Observability and Analytics**
 Every request is logged with metadata: which user, which model, how many tokens, what latency, what cost. Debug issues, track spending, and optimize performance from a single dashboard.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## How an LLM Gateway Works
 
 A typical request flow looks like this:
@@ -104,3 +106,5 @@ _An LLM Gateway isn't just infrastructure—it's the foundation for scaling AI a
 Comparing your options? See how LLM Gateway stacks up against [OpenRouter](/blog/llm-gateway-vs-openrouter), [LiteLLM](/blog/llm-gateway-vs-litellm), and [Portkey](/blog/llm-gateway-vs-portkey), or browse the [best AI gateways in 2026](/blog/best-ai-gateways).
 
 **Ready to simplify your LLM infrastructure?** [Get started with LLM Gateway](https://llmgateway.io)
+
+<BlogCta variant="gateway" location="bottom" />

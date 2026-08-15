@@ -24,6 +24,8 @@ The largest open-weight model ever announced — with one caveat: the weights ar
 
 **Best for:** teams that want closed-frontier quality with open-weight freedom.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## 2. GLM-5.2 — the value flagship
 
 **Z.ai · 744B params · 1M context · $1.40 / $4.40 per M**
@@ -151,3 +153,5 @@ Through a gateway at provider list prices. LLM Gateway adds no per-token markup 
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** — all nine models, one key
 - **[Get DevPass](https://devpass.llmgateway.io)** — flat-rate open models in your coding agent from $29/mo
 - Deep dive on the leader: [Kimi K3 and China's Open-Weight Model Wave](/blog/kimi-k3)
+
+<BlogCta variant="gateway" location="bottom" />

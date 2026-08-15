@@ -84,6 +84,8 @@ const client = new OpenAI({
 
 ---
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## 2. Vercel AI Gateway
 
 **Zero markup, native to the AI SDK.**
@@ -365,3 +367,5 @@ If you want OpenRouter's convenience without the fees or the lock-in:
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** — no credit card required, point your SDK at `https://api.llmgateway.io/v1`
 - **[Read the OpenRouter migration guide](https://docs.llmgateway.io/migrations/openrouter)** — base URL, model names, and AI SDK swap mapped one-to-one
 - **[LLM Gateway vs OpenRouter](/blog/llm-gateway-vs-openrouter)** — the detailed head-to-head if you're still deciding
+
+<BlogCta variant="gateway" location="bottom" />

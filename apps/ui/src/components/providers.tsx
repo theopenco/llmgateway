@@ -10,6 +10,7 @@ import { Suspense, useState, useEffect } from "react";
 import { Toaster as SonnerToaster } from "sonner";
 
 import { ReferralHandler } from "@/components/referral-handler";
+import { SignupMethodTracker } from "@/components/signup-method-tracker";
 import { Toaster } from "@/lib/components/toaster";
 import { toast } from "@/lib/components/use-toast";
 import { AppConfigProvider } from "@/lib/config";
@@ -109,7 +110,12 @@ export function Providers({ children, config }: ProvidersProps) {
 				storageKey="theme"
 			>
 				<QueryClientProvider client={queryClient}>
-					<PostHogProvider client={posthog}>{children}</PostHogProvider>
+					<PostHogProvider client={posthog}>
+						{children}
+						<Suspense>
+							<SignupMethodTracker />
+						</Suspense>
+					</PostHogProvider>
 					{process.env.NODE_ENV === "development" && (
 						<ReactQueryDevtools buttonPosition="bottom-left" />
 					)}

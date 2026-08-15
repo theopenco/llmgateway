@@ -82,6 +82,8 @@ async function makeRequest(messages: Message[]) {
 }
 ```
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## Segment spend by user, tenant, or feature
 
 Attach metadata to any request with `X-LLMGateway-*` headers:
@@ -143,3 +145,5 @@ No. Cost breakdown in API responses is available to all users, on both hosted an
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** — cost visibility on your first request
 - **[Cost breakdown docs](https://docs.llmgateway.io/features/cost-breakdown)** — the full usage schema
 - **[Enterprise LLM analytics](/blog/enterprise-llm-analytics)** — org-wide reporting at scale
+
+<BlogCta variant="gateway" location="bottom" />

@@ -2,7 +2,8 @@
 id: continue
 slug: continue
 title: Continue CLI Integration
-description: Use any model with Continue CLI through LLM Gateway. One config file, 200+ models, full cost tracking.
+seoTitle: "Continue CLI Setup: Any Model, One Config"
+description: Point Continue CLI at Kimi K3, GPT-5, Claude, or 200+ models through LLM Gateway. One config file, unified billing, full cost tracking.
 date: 2026-05-11
 ---
 
