@@ -7,9 +7,10 @@ icon: FileText
 import { Callout } from "fumadocs-ui/components/callout";
 import { ThemedImage } from "@/components/themed-image";
 
-Every payment gets a PDF invoice. It is emailed to your billing address when
-the payment succeeds, and you can download it again at any time from
-[**Transactions**](/learn/transactions) in your organization settings.
+Every completed payment gets a PDF invoice, and every refund a credit note. The
+invoice is emailed to your billing address when the payment succeeds, and both
+can be downloaded at any time from [**Transactions**](/learn/transactions) in
+your organization settings.
 
 <ThemedImage alt="Invoices" basePath="/learn/invoices" />
 
@@ -43,19 +44,21 @@ billing information, under **Settings → Billing**:
 	basePath="/learn/invoices-billing-details"
 />
 
-| Field                   | Appears on the invoice as                   |
-| ----------------------- | ------------------------------------------- |
-| **Email Address**       | The address invoices are billed and sent to |
-| **Company Name**        | The billed company                          |
-| **Billing Address**     | The billing address block                   |
-| **Tax ID / VAT Number** | Your tax identification number              |
-| **Invoice Notes**       | A free-text footer (e.g. a PO number)       |
+| Field                   | Appears on the invoice as                      |
+| ----------------------- | ---------------------------------------------- |
+| **Email Address**       | The billing email address invoices are sent to |
+| **Company Name**        | The billed company                             |
+| **Billing Address**     | The billing address block                      |
+| **Tax ID / VAT Number** | Your tax identification number                 |
+| **Invoice Notes**       | A free-text footer (e.g. a PO number)          |
 
 <Callout type="warning">
-	Fill these in **before** you pay if you need them on the emailed copy — that
-	one is generated at payment time. The download in Transactions always renders
-	from your current details, so if something was missing or wrong, update it on
-	the Billing page and download the invoice again.
+	Fill these in **before** you pay. The emailed invoice is generated at payment
+	time and keeps the details as they were then, while a download from
+	Transactions is rendered fresh from your current details — so the two copies
+	of one invoice number can differ after you edit this page. Treat the emailed
+	PDF as the record of what was invoiced, and for a lasting change get the
+	details right before the next payment.
 </Callout>
 
 ## DevPass invoices
