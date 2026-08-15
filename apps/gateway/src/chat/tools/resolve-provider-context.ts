@@ -194,6 +194,8 @@ interface ProjectInfo {
 
 interface OrgInfo {
 	id: string;
+	/** Opaque per-org identifier forwarded to providers for abuse attribution. */
+	safetyIdentifier: string;
 	credits: string | null;
 	plan: string;
 	kind: string;
@@ -985,6 +987,8 @@ export async function resolveProviderContext(
 		options.verbosity,
 		options.prompt_cache_options,
 		options.session_id,
+		undefined,
+		organization.safetyIdentifier,
 	);
 
 	// Post-validation of max_tokens in request body

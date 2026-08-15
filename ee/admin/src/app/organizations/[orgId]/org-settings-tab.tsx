@@ -373,6 +373,11 @@ export function OrgSettingsTab({ settings }: { settings: SettingsResponse }) {
 						<SettingRow label="SSO auto-join domain">
 							{org.ssoAutoJoinDomain ?? "—"}
 						</SettingRow>
+						{/* Quoted by provider abuse reports; also searchable in the
+						    organizations list. */}
+						<SettingRow label="Safety identifier">
+							<span className="font-mono text-xs">{org.safetyIdentifier}</span>
+						</SettingRow>
 					</CardContent>
 				</Card>
 

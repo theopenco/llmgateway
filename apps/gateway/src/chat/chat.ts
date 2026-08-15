@@ -2539,6 +2539,7 @@ chat.openapi(completions, async (c) => {
 	};
 	const retryOrganizationContext = {
 		id: organization.id,
+		safetyIdentifier: organization.safetyIdentifier,
 		credits: organization.credits,
 		plan: organization.plan,
 		kind: organization.kind,
@@ -6825,6 +6826,7 @@ chat.openapi(completions, async (c) => {
 			prompt_cache_options,
 			sessionId,
 			reasoning_context,
+			organization.safetyIdentifier,
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a

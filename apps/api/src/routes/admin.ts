@@ -138,6 +138,9 @@ function buildOrganizationSearchFilter(search: string | undefined) {
 		sql`LOWER(${tables.organization.name}) LIKE ${textPattern} ESCAPE '\\'`,
 		sql`LOWER(${tables.organization.billingEmail}) LIKE ${textPattern} ESCAPE '\\'`,
 		sql`${tables.organization.id} LIKE ${idPattern} ESCAPE '\\'`,
+		// Provider abuse reports quote the safety identifier we send upstream;
+		// searching on it is how such a report gets traced back to an org.
+		sql`${tables.organization.safetyIdentifier} LIKE ${idPattern} ESCAPE '\\'`,
 		sql`EXISTS (SELECT 1 FROM ${tables.userOrganization} uo JOIN ${tables.user} u ON uo.user_id = u.id WHERE uo.organization_id = ${tables.organization.id} AND LOWER(u.email) LIKE ${textPattern} ESCAPE '\\')`,
 	);
 }

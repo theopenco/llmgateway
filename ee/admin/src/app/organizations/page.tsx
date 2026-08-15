@@ -341,7 +341,7 @@ export default async function OrganizationsPage({
 								<input
 									type="text"
 									name="search"
-									placeholder="Search by name, email, member email, or ID..."
+									placeholder="Search by name, email, member email, ID, or safety identifier..."
 									defaultValue={search}
 									className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-64"
 								/>
