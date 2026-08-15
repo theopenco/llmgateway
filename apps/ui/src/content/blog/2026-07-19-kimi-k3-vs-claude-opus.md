@@ -3,8 +3,18 @@ id: "blog-kimi-k3-vs-claude-opus"
 slug: "kimi-k3-vs-claude-opus"
 date: "2026-07-19"
 title: "Kimi K3 vs Claude Opus 4.8: Benchmarks, Price, Verdict"
-summary: "Kimi K3 ties Claude Opus 4.8 on GPQA Diamond, costs 40% less per token, and its weights are expected by July 27 — but Opus still leads where it counts for some teams. A fact-checked comparison of benchmarks, pricing, and context windows, and how to A/B both through one API."
+summary: "Kimi K3 ties Claude Opus 4.8 on GPQA Diamond, costs 40% less per token, and its weights are public while Opus stays closed — but Opus still leads where it counts for some teams. A fact-checked comparison of benchmarks, pricing, and context windows, and how to A/B both through one API."
 categories: ["Guides"]
+model: kimi-k3
+faqs:
+  - question: "Is Kimi K3 as good as Claude Opus 4.8?"
+    answer: "On aggregate intelligence benchmarks, yes — Artificial Analysis ranks them level, and they are statistically tied on GPQA Diamond. On production coding-agent work, Opus 4.8 still has the deeper published record (88.6% SWE-bench Verified) and the more mature harness ecosystem. On frontend code generation, blind developer testing ranked K3 first."
+  - question: "How much cheaper is Kimi K3 than Claude Opus 4.8?"
+    answer: "40% on every token class: $3.00 vs $5.00 per million input, $0.30 vs $0.50 cached, $15.00 vs $25.00 output."
+  - question: "Can I switch between Kimi K3 and Claude Opus 4.8 without code changes?"
+    answer: "Yes. Through LLM Gateway both are the same OpenAI-compatible endpoint — swap the `model` field between `kimi-k3` and `claude-opus-4-8` and nothing else changes. Costs for both land in one dashboard."
+  - question: "Is Kimi K3 open source?"
+    answer: 'Yes. Moonshot published the full Kimi K3 weights on July 26, 2026, under a custom "Kimi K3 License" rather than MIT or Apache 2.0 — check the LICENSE file before commercial self-hosting. Opus 4.8 stays closed, so this is the sharpest difference between them. See [our Kimi K3 overview](/blog/kimi-k3) for the full release details.'
 image:
   src: "/blog/kimi-k3-vs-claude-opus.png"
   alt: "Two glowing processor chips facing each other on a circuit board with a balance scale between them, representing Kimi K3 versus Claude Opus 4.8"
@@ -73,24 +83,6 @@ Run a week on `kimi-k3`, a week on `claude-opus-4-8`, and read the answer off yo
 ## Flat rate or pay-as-you-go
 
 Both models count as **premium-tier** on [DevPass](https://devpass.llmgateway.io) ($29/$79/$179 per month), drawing from the weekly premium allowance — so a flat-rate plan covers the A/B test without a separate Anthropic subscription. On pay-as-you-go credits you pay the per-token rates above plus a 5% platform fee at top-up, from $10.
-
-## Frequently Asked Questions
-
-### Is Kimi K3 as good as Claude Opus 4.8?
-
-On aggregate intelligence benchmarks, yes — Artificial Analysis ranks them level, and they are statistically tied on GPQA Diamond. On production coding-agent work, Opus 4.8 still has the deeper published record (88.6% SWE-bench Verified) and the more mature harness ecosystem. On frontend code generation, blind developer testing ranked K3 first.
-
-### How much cheaper is Kimi K3 than Claude Opus 4.8?
-
-40% on every token class: $3.00 vs $5.00 per million input, $0.30 vs $0.50 cached, $15.00 vs $25.00 output.
-
-### Can I switch between Kimi K3 and Claude Opus 4.8 without code changes?
-
-Yes. Through LLM Gateway both are the same OpenAI-compatible endpoint — swap the `model` field between `kimi-k3` and `claude-opus-4-8` and nothing else changes. Costs for both land in one dashboard.
-
-### Is Kimi K3 open source?
-
-Not yet. Kimi K3's weights are expected by July 27, 2026 and the license has not been announced; until then it is API-only, like Opus 4.8 — the difference is that Opus stays closed. See [our Kimi K3 overview](/blog/kimi-k3) for the full release details.
 
 ## Getting started
 

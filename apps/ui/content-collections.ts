@@ -34,6 +34,10 @@ const blog = defineCollection({
 		summary: z.string(),
 		draft: z.boolean().optional(),
 		categories: z.array(z.string()).default([]),
+		// Catalogue id of the model a post is specifically about, so the
+		// conversion rail can send the reader to that model instead of the
+		// full catalogue.
+		model: z.string().optional(),
 		faqs: z
 			.array(
 				z.object({

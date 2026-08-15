@@ -5,6 +5,17 @@ date: "2026-07-01"
 title: "DevPass Code: A Terminal Coding Agent for LLM Gateway"
 summary: "DevPass Code is an open-source terminal coding agent that talks only to LLM Gateway. One browser login, every model, and no per-provider API keys to juggle. Use it pay-as-you-go or on a DevPass coding subscription."
 categories: ["Announcements", "Product"]
+faqs:
+  - question: "Is DevPass Code free?"
+    answer: "The tool is open source (MIT) and free to run. You pay only for the models you use through LLM Gateway — either pay-as-you-go credits or a DevPass subscription. There's no separate charge for the agent itself."
+  - question: "How do I install DevPass Code?"
+    answer: "`npm i -g devpass-code` on any platform with Node, or `brew install theopenco/tap/devpass-code` on macOS and Linux. An install script, an AUR package (`devpass-code-bin`), a Docker image, and Windows binaries are also available on [GitHub](https://github.com/theopenco/devpass-code)."
+  - question: "Do I need a DevPass subscription to use it?"
+    answer: "No. Pick the **LLM Gateway** provider and you're on pay-as-you-go with your own key or credits. The **LLM Gateway DevPass** provider is there for subscribers who want flat-rate coding usage."
+  - question: "Which models can I use?"
+    answer: "Any text model LLM Gateway supports — the full catalogue across Anthropic, OpenAI, Google, xAI, DeepSeek, and more. DevPass Code fetches the live catalog, so new models appear without an update."
+  - question: "How is this different from using opencode directly?"
+    answer: "opencode supports dozens of providers and needs per-provider setup. DevPass Code is the same core with everything pointed at LLM Gateway: one browser login, one billing relationship, and a UI themed to match the gateway."
 image:
   src: "/blog/devpass-code-splash.png"
   alt: "The DevPass Code terminal splash screen, showing the model set to Claude Opus 4.8 through LLM Gateway"
@@ -72,28 +83,6 @@ devpass-code              # launch the TUI in your project
 ```
 
 If you'd rather not log in interactively, set `LLMGATEWAY_API_KEY` in your environment and DevPass Code will use it directly.
-
-## Frequently Asked Questions
-
-### Is DevPass Code free?
-
-The tool is open source (MIT) and free to run. You pay only for the models you use through LLM Gateway — either pay-as-you-go credits or a DevPass subscription. There's no separate charge for the agent itself.
-
-### How do I install DevPass Code?
-
-`npm i -g devpass-code` on any platform with Node, or `brew install theopenco/tap/devpass-code` on macOS and Linux. An install script, an AUR package (`devpass-code-bin`), a Docker image, and Windows binaries are also available on [GitHub](https://github.com/theopenco/devpass-code).
-
-### Do I need a DevPass subscription to use it?
-
-No. Pick the **LLM Gateway** provider and you're on pay-as-you-go with your own key or credits. The **LLM Gateway DevPass** provider is there for subscribers who want flat-rate coding usage.
-
-### Which models can I use?
-
-Any text model LLM Gateway supports — about 190 today across Anthropic, OpenAI, Google, xAI, DeepSeek, and more. DevPass Code fetches the live catalog, so new models appear without an update.
-
-### How is this different from using opencode directly?
-
-opencode supports dozens of providers and needs per-provider setup. DevPass Code is the same core with everything pointed at LLM Gateway: one browser login, one billing relationship, and a UI themed to match the gateway.
 
 ## Get started
 

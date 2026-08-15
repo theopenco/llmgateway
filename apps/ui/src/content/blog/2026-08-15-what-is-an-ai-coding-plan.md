@@ -5,6 +5,15 @@ date: "2026-08-15"
 title: "What Is an AI Coding Plan? Limits and Costs Explained"
 summary: "An AI coding plan is a flat monthly fee that covers model usage inside your coding agent. This explains what a coding plan actually includes, how monthly allowances and weekly premium caps work, and how to size one against your real usage."
 categories: ["Guides"]
+faqs:
+  - question: "Is an AI coding plan cheaper than paying per token?"
+    answer: "For steady daily use, usually yes, because the allowance is metered at provider list rates with no markup. For occasional or bursty use, per-token credits cost less — you pay for the days you actually code instead of a monthly floor."
+  - question: "What is a premium model on a coding plan?"
+    answer: "The frontier flagships, the most expensive models per token. They draw on both the monthly allowance and a weekly ceiling. Standard models — the open-weight and mid-tier options — have no weekly cap."
+  - question: "Can I use my own coding agent, or am I locked into theirs?"
+    answer: "That depends on the vendor, and it is worth checking. A plan built on an OpenAI- or Anthropic-compatible endpoint works across the approved coding and agent tools — Claude Code, Cline, OpenCode, Cursor — rather than only inside one vendor's editor, which stops being useful the day you switch editors. What a flat-rate plan does not cover is wiring the key into your own application or batch job: that is general API traffic, and it belongs on pay-as-you-go credits. Check the [DevPass terms](https://devpass.llmgateway.io/legal/terms) for the current approved-tool list."
+  - question: "What happens to unused allowance at the end of the month?"
+    answer: "On most plans it expires at renewal rather than rolling over. The exception worth knowing about is a mid-cycle upgrade, where the unused remainder carries onto the new tier because you already paid for it."
 image:
   src: "/blog/what-is-an-ai-coding-plan.png"
   alt: "Glossy 3D circuit board with a central meter dial surrounded by coin and terminal icons, representing a metered flat-rate coding plan"
@@ -71,24 +80,6 @@ Guessing a tier is how people end up angry in week two. Two approaches that work
 **Start one tier below your guess.** Upgrades are immediate and the unused remainder of your current cycle rolls over onto the new tier's allowance rather than being forfeited, so moving up mid-month costs you nothing in wasted allowance. Moving down is a downgrade at renewal. Given that asymmetry, guessing low is cheaper than guessing high.
 
 If you mostly drive standard models and reach for a flagship on hard problems, Lite goes further than its price suggests. If a frontier model is your default and the agent runs all day, the weekly cap — not the monthly pool — is what you will hit, and that is a Pro or Max question.
-
-## Frequently Asked Questions
-
-### Is an AI coding plan cheaper than paying per token?
-
-For steady daily use, usually yes, because the allowance is metered at provider list rates with no markup. For occasional or bursty use, per-token credits cost less — you pay for the days you actually code instead of a monthly floor.
-
-### What is a premium model on a coding plan?
-
-The frontier flagships, the most expensive models per token. They draw on both the monthly allowance and a weekly ceiling. Standard models — the open-weight and mid-tier options — have no weekly cap.
-
-### Can I use my own coding agent, or am I locked into theirs?
-
-That depends on the vendor, and it is worth checking. A plan built on an OpenAI- or Anthropic-compatible endpoint works across the approved coding and agent tools — Claude Code, Cline, OpenCode, Cursor — rather than only inside one vendor's editor, which stops being useful the day you switch editors. What a flat-rate plan does not cover is wiring the key into your own application or batch job: that is general API traffic, and it belongs on pay-as-you-go credits. Check the [DevPass terms](https://devpass.llmgateway.io/legal/terms) for the current approved-tool list.
-
-### What happens to unused allowance at the end of the month?
-
-On most plans it expires at renewal rather than rolling over. The exception worth knowing about is a mid-cycle upgrade, where the unused remainder carries onto the new tier because you already paid for it.
 
 ## Getting started
 

@@ -5,6 +5,14 @@ date: "2026-06-23"
 title: "Claude Opus 4.8 Pricing and the Hidden Tokenizer Tax"
 summary: "Claude Opus 4.8 lists at $5/$25 per million tokens — the same as Opus 4.6. But Anthropic's newer tokenizer can turn the same text into up to ~35% more tokens, so your real bill can climb even when the sticker price doesn't."
 categories: ["Guides"]
+model: claude-opus-4-8
+faqs:
+  - question: "Did Claude Opus 4.8 get more expensive than Opus 4.6?"
+    answer: "The per-token price is the same — $5 input / $25 output per million. But the newer tokenizer (Opus 4.7+) can turn the same text into up to ~35% more tokens, so your real cost per request can be higher even though the rate didn't change."
+  - question: "How do I know how many tokens my requests actually use?"
+    answer: "Measure them. LLM Gateway logs exact input and output token counts and the real cost for every request, so you can see actual consumption per model instead of estimating from the list price."
+  - question: "Why does the same text cost different amounts on different models?"
+    answer: "Because each model's tokenizer splits text differently. A more granular tokenizer produces more tokens for the same words, raising cost even at a lower per-token rate. Always compare models on total cost for your real workload, not on the headline price."
 image:
   src: "/blog/claude-opus-tokenizer-cost.png"
   alt: "The same paragraph of text splitting into more tokens through a newer tokenizer"
@@ -55,20 +63,6 @@ To estimate before you switch, drop your real prompt and expected volume into th
 - **Cache repeat requests.** Cached responses cost nothing, no matter how the tokenizer counts. For FAQ bots, classification, and CI runs, response caching erases a large share of token spend.
 - **Route by difficulty.** Send simple requests to cheaper, token-efficient models and reserve Opus for the work that needs it. A gateway with automatic routing does this for you.
 - **Compare on total cost.** Use real token counts from your own logs when you evaluate a model change, so a "free" upgrade doesn't quietly raise your run rate.
-
-## Frequently Asked Questions
-
-### Did Claude Opus 4.8 get more expensive than Opus 4.6?
-
-The per-token price is the same — $5 input / $25 output per million. But the newer tokenizer (Opus 4.7+) can turn the same text into up to ~35% more tokens, so your real cost per request can be higher even though the rate didn't change.
-
-### How do I know how many tokens my requests actually use?
-
-Measure them. LLM Gateway logs exact input and output token counts and the real cost for every request, so you can see actual consumption per model instead of estimating from the list price.
-
-### Why does the same text cost different amounts on different models?
-
-Because each model's tokenizer splits text differently. A more granular tokenizer produces more tokens for the same words, raising cost even at a lower per-token rate. Always compare models on total cost for your real workload, not on the headline price.
 
 ## Measure tokens, not list prices
 
