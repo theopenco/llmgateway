@@ -2,6 +2,7 @@
 id: blog-openrouter-alternatives
 slug: openrouter-alternatives
 date: 2026-07-23
+updatedAt: "2026-08-16"
 title: "10 Best OpenRouter Alternatives in 2026 (Compared)"
 summary: "The 10 best OpenRouter alternatives in 2026, compared honestly — open-source gateways, managed routers, and enterprise platforms — with fees, self-hosting, and routing side by side."
 categories: ["Guides"]
@@ -26,6 +27,8 @@ OpenRouter made multi-model access easy: one API key, roughly 400+ models across
 Then the invoice and the architecture review arrive. Every credit purchase carries a 5.5% fee. Bring-your-own-keys is free only up to a monthly cap, then costs 5%. Every request routes through a third-party cloud you can't self-host, which is a hard stop for data-residency and compliance teams. And the extra hop is measurable: in [our open-source TTFT benchmark](/blog/openrouter-vs-vercel-vs-llmgateway-performance), OpenRouter's median time to first token was roughly 50% higher on the same model.
 
 That's why "OpenRouter alternatives" is one of the most-searched gateway queries of 2026. We compared the 10 best OpenRouter alternatives in 2026 on the things that actually differ: what the gateway costs on top of provider prices, whether you can self-host, how routing and failover work, and who each option genuinely fits. We build one of them, so we're biased — but we'll tell you where each option wins.
+
+> **Update, August 16, 2026:** Bloomberg reports that Stripe has agreed to acquire OpenRouter for more than $7 billion; neither company has confirmed it. Nothing in this comparison changes today — the API, the fees and the model catalog are as described below. What changes is who sets them next. We wrote up what is verified and what to check before reacting in [Stripe's OpenRouter acquisition: what changes for you](/blog/stripe-openrouter-acquisition).
 
 ## Why Teams Look for OpenRouter Alternatives
 
