@@ -1,11 +1,11 @@
 import { GuardrailsSettings } from "@/components/guardrails/guardrails-settings";
 
-export default async function GuardrailsPage({
+export default async function ProjectGuardrailsPage({
 	params,
 }: {
-	params: Promise<{ orgId: string }>;
+	params: Promise<{ orgId: string; projectId: string }>;
 }) {
-	const { orgId } = await params;
+	const { orgId, projectId } = await params;
 
 	return (
 		<div className="flex flex-col">
@@ -16,7 +16,7 @@ export default async function GuardrailsPage({
 					</h2>
 				</div>
 				<GuardrailsSettings
-					scope={{ kind: "organization", organizationId: orgId }}
+					scope={{ kind: "project", organizationId: orgId, projectId }}
 				/>
 			</div>
 		</div>
