@@ -95,19 +95,27 @@ export function buildModelFaqs(
 	}
 
 	const hasTools = providers.some((p) => p.tools);
-	const hasStructured = providers.some(
-		(p) => p.jsonOutput || p.jsonOutputSchema,
-	);
+	// STRICT ONLY: schema-enforced structured outputs. Soft jsonOutput
+	// (response_format json_object / nudged) carries no schema guarantee and
+	// must NOT be presented as structured outputs. The strict flag is
+	// upstream-provider-dependent — the gateway never emulates schema
+	// enforcement, so a mapping without jsonOutputSchema rejects json_schema.
+	const hasStrictJson = providers.some((p) => p.jsonOutputSchema);
+	const hasSoftJson = providers.some((p) => p.jsonOutput);
 	faqs.push({
 		question: `Does ${displayName} support tool calling and structured outputs?`,
 		answer:
-			hasTools && hasStructured
-				? `Yes. ${displayName} supports both tool (function) calling and structured JSON outputs through LLM Gateway.`
+			hasTools && hasStrictJson
+				? `Yes. ${displayName} supports both tool (function) calling and strict JSON output schema (upstream-enforced) through LLM Gateway.`
 				: hasTools
-					? `${displayName} supports tool (function) calling, but not structured JSON output mode.`
-					: hasStructured
-						? `${displayName} supports structured JSON outputs, but not tool calling.`
-						: `No. ${displayName} does not currently support tool calling or structured JSON outputs through LLM Gateway.`,
+					? hasSoftJson
+						? `${displayName} supports tool (function) calling and soft JSON output, but NOT strict JSON output schema (its upstream provider does not enforce it).`
+						: `${displayName} supports tool (function) calling, but not JSON output modes.`
+					: hasStrictJson
+						? `${displayName} supports strict JSON output schema, but not tool calling.`
+						: hasSoftJson
+							? `${displayName} supports soft JSON output, but not tool calling or strict JSON output schema.`
+							: `No. ${displayName} does not currently support tool calling or structured JSON outputs through LLM Gateway.`,
 	});
 
 	if (modelDef.releasedAt) {

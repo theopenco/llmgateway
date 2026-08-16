@@ -194,7 +194,7 @@ const groupedRows: Array<{
 			{ key: "parallelToolCalls", label: "Parallel Tool Calls" },
 			{ key: "reasoning", label: "Reasoning" },
 			{ key: "jsonOutput", label: "JSON Output" },
-			{ key: "jsonOutputSchema", label: "JSON Schema" },
+			{ key: "jsonOutputSchema", label: "Structured JSON" },
 			{ key: "webSearch", label: "Web Search" },
 			{ key: "outputTypes", label: "Output Types" },
 		],

@@ -2553,7 +2553,6 @@ export const googleModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
-				jsonOutputSchema: true,
 				supportsN: true,
 			},
 		],

@@ -152,7 +152,6 @@ export const minimaxModels = [
 				vision: false,
 				tools: false,
 				jsonOutput: true,
-				jsonOutputSchema: true,
 			},
 			{
 				providerId: "scx-ai",
@@ -258,7 +257,6 @@ export const minimaxModels = [
 				vision: false,
 				tools: false,
 				jsonOutput: true,
-				jsonOutputSchema: true,
 			},
 			{
 				// Embercloud's upstream routing for this model is broken: streaming

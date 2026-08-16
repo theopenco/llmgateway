@@ -297,7 +297,7 @@ export function ProviderCard({
 										</div>
 									</TooltipTrigger>
 									<TooltipContent>
-										<p>Supports structured JSON output</p>
+										<p>Supports JSON output (soft, no schema guarantee)</p>
 									</TooltipContent>
 								</Tooltip>
 							)}
