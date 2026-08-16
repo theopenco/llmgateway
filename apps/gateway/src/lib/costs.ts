@@ -739,8 +739,11 @@ export async function calculateCosts(
 	// reports reasoning in `completion_tokens_details` (which the streaming
 	// transform hoists to a top-level `reasoning_tokens`) while already counting
 	// it inside `completion_tokens`, so adding it again would roughly double the
-	// billed output on reasoning requests. For remaining providers, add
-	// reasoning separately.
+	// billed output on reasoning requests. Gonka24 is the same shape: it reports
+	// no reasoning count of its own, but its `completion_tokens` covers the
+	// `reasoning` text too — at effort `max` the chars-per-token ratio only
+	// matches the non-reasoning baseline once the reasoning text is counted. For
+	// remaining providers, add reasoning separately.
 	const completionIncludesReasoning =
 		provider === "google-ai-studio" ||
 		provider === "glacier" ||
@@ -752,6 +755,7 @@ export async function calculateCosts(
 		provider === "sakana" ||
 		provider === "meta" ||
 		provider === "ranoai" ||
+		provider === "gonka24" ||
 		provider === "aws-mantle";
 	const totalOutputTokens = completionIncludesReasoning
 		? calculatedCompletionTokens
