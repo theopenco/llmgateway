@@ -10,6 +10,7 @@ import {
 	type AvailableModelProvider,
 	type ModelWithPricing,
 	type ProviderModelMapping,
+	resolveTimeBasedPricing,
 } from "@llmgateway/models";
 import { randomFloat, randomInt } from "@llmgateway/shared/random";
 import {
@@ -333,20 +334,29 @@ function getPerSecondBillingKeys(
 
 export function getProviderSelectionPrice(
 	providerInfo:
-		| Pick<
+		| (Pick<
 				ProviderModelMapping,
 				| "inputPrice"
 				| "outputPrice"
 				| "perSecondPrice"
 				| "perImagePrice"
 				| "requestPrice"
-		  >
+		  > &
+				Partial<Pick<ProviderModelMapping, "peakPricing" | "cachedInputPrice">>)
 		| undefined,
 	videoPricing?: VideoPricingContext,
+	now: Date = new Date(),
 ): Decimal {
-	const inputPrice = providerInfo?.inputPrice;
-	const outputPrice = providerInfo?.outputPrice;
 	const requestPrice = providerInfo?.requestPrice;
+	// Resolve peak/off-peak time-of-day pricing (DeepSeek first-party): token
+	// rates vary by UTC hour once the mapping's peakPricing is effective, so
+	// routing must rank with the same rates billing uses.
+	const timeBasedPricing = providerInfo
+		? resolveTimeBasedPricing(providerInfo, now)
+		: undefined;
+	const inputPrice = timeBasedPricing?.inputPrice ?? providerInfo?.inputPrice;
+	const outputPrice =
+		timeBasedPricing?.outputPrice ?? providerInfo?.outputPrice;
 	const hasAnyTokenPrice =
 		inputPrice !== undefined || outputPrice !== undefined;
 	const hasPositiveTokenPrice =
@@ -399,7 +409,8 @@ type ProviderSelectionPriceInfo = AvailableModelProvider &
 		| "perSecondPrice"
 		| "perImagePrice"
 		| "requestPrice"
-	>;
+	> &
+	Partial<Pick<ProviderModelMapping, "peakPricing" | "cachedInputPrice">>;
 
 export async function getDiscountedProviderSelectionPrice(
 	providerInfo: ProviderSelectionPriceInfo | undefined,

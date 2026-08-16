@@ -2296,3 +2296,123 @@ describe("shouldBillCancelledRequests", () => {
 		expect(shouldBillCancelledRequests()).toBe(false);
 	});
 });
+
+describe("peak / off-peak time-of-day pricing (DeepSeek)", () => {
+	beforeEach(() => {
+		vi.mocked(mockGetEffectiveDiscount).mockImplementation(async () => ({
+			discount: "0",
+			source: "none",
+		}));
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	const setTime = (iso: string) => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		vi.setSystemTime(new Date(iso));
+	};
+
+	it("bills off-peak rates outside the peak window", async () => {
+		setTime("2026-08-17T12:00:00Z"); // 12:00 UTC — off-peak
+
+		const flash = await calculateCosts(
+			"deepseek-v4-flash",
+			"deepseek",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		expect(flash.inputCost).toBeCloseTo(0.22);
+		expect(flash.outputCost).toBeCloseTo(0.66);
+		expect(flash.cachedInputCost).toBeCloseTo(0.007);
+
+		const pro = await calculateCosts(
+			"deepseek-v4-pro",
+			"deepseek",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		expect(pro.inputCost).toBeCloseTo(0.66);
+		expect(pro.outputCost).toBeCloseTo(1.98);
+		expect(pro.cachedInputCost).toBeCloseTo(0.022);
+	});
+
+	it("bills peak rates inside the peak window", async () => {
+		setTime("2026-08-17T02:00:00Z"); // 02:00 UTC — peak (01:00-04:00)
+
+		const flash = await calculateCosts(
+			"deepseek-v4-flash",
+			"deepseek",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		expect(flash.inputCost).toBeCloseTo(0.44);
+		expect(flash.outputCost).toBeCloseTo(1.32);
+		expect(flash.cachedInputCost).toBeCloseTo(0.014);
+
+		const pro = await calculateCosts(
+			"deepseek-v4-pro",
+			"deepseek",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		expect(pro.inputCost).toBeCloseTo(1.32);
+		expect(pro.outputCost).toBeCloseTo(3.96);
+		expect(pro.cachedInputCost).toBeCloseTo(0.044);
+	});
+
+	it("bills off-peak rates at the first window boundary (04:00 UTC)", async () => {
+		setTime("2026-08-17T04:00:00Z");
+
+		const flash = await calculateCosts(
+			"deepseek-v4-flash",
+			"deepseek",
+			null,
+			1_000_000,
+			0,
+			null,
+		);
+		expect(flash.inputCost).toBeCloseTo(0.22);
+	});
+
+	it("bills peak rates in the second window (06:00-10:00 UTC)", async () => {
+		setTime("2026-08-17T08:00:00Z");
+
+		const flash = await calculateCosts(
+			"deepseek-v4-flash",
+			"deepseek",
+			null,
+			1_000_000,
+			0,
+			null,
+		);
+		expect(flash.inputCost).toBeCloseTo(0.44);
+	});
+
+	it("bills base (regular flat) rates before effectiveAt", async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		vi.setSystemTime(new Date("2026-08-13T08:00:00Z")); // before effectiveAt
+
+		const flash = await calculateCosts(
+			"deepseek-v4-flash",
+			"deepseek",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		// The base (regular) flat prices apply before effectiveAt
+		expect(flash.inputCost).toBeCloseTo(0.14); // base: 0.14e-6 * 1M (prompt - cached = 1M)
+		expect(flash.outputCost).toBeCloseTo(0.28); // base: 0.28e-6 * 1M
+		expect(flash.cachedInputCost).toBeCloseTo(0.0028); // base: 0.0028e-6 * 1M
+	});
+});
