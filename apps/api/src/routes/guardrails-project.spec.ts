@@ -255,4 +255,26 @@ describe("project guardrails API", () => {
 		expect(reset.inheritOrganization).toBe(true);
 		expect(reset.maxFileSizeMb).toBe(10);
 	});
+
+	test("resetting keeps exactly one config row for the scope", async () => {
+		await authed("/guardrails/config/test-org-id", {
+			method: "PUT",
+			body: JSON.stringify({ maxFileSizeMb: 42 }),
+		});
+
+		const before = await db.query.guardrailConfig.findFirst({
+			where: { organizationId: { eq: "test-org-id" } },
+		});
+
+		await authed("/guardrails/config/test-org-id/reset", { method: "POST" });
+
+		// Reset updates in place, so the scope is never left without a config and
+		// the row keeps its identity.
+		const rows = await db.query.guardrailConfig.findMany({
+			where: { organizationId: { eq: "test-org-id" } },
+		});
+		expect(rows).toHaveLength(1);
+		expect(rows[0].id).toBe(before!.id);
+		expect(rows[0].maxFileSizeMb).toBe(10);
+	});
 });

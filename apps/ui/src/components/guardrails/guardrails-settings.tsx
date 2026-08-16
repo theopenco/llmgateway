@@ -322,16 +322,23 @@ function GuardrailsForm({
 		setError(null);
 		setSuccess(null);
 		try {
-			await saveMutation.mutateAsync({
-				...(isProject
-					? { inheritOrganization: draft.inheritOrganization }
-					: {}),
-				enabled: draft.enabled,
-				systemRules: draft.systemRules,
-				maxFileSizeMb: draft.maxFileSizeMb,
-				allowedFileTypes: draft.allowedFileTypes,
-				piiAction: draft.piiAction,
-			});
+			// While inheriting, the form shows the organization config, so only the
+			// inheritance flag is the user's own edit — persisting the rest would
+			// write the project's hidden draft values that were never on screen.
+			await saveMutation.mutateAsync(
+				inherits
+					? { inheritOrganization: true }
+					: {
+							...(isProject
+								? { inheritOrganization: draft.inheritOrganization }
+								: {}),
+							enabled: draft.enabled,
+							systemRules: draft.systemRules,
+							maxFileSizeMb: draft.maxFileSizeMb,
+							allowedFileTypes: draft.allowedFileTypes,
+							piiAction: draft.piiAction,
+						},
+			);
 			setSuccess("Configuration saved successfully");
 			setTimeout(() => setSuccess(null), 3000);
 		} catch {

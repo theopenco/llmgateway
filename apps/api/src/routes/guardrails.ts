@@ -333,12 +333,29 @@ async function upsertScopedConfig(
 	return created;
 }
 
+const guardrailConfigDefaults = {
+	inheritOrganization: true,
+	enabled: true,
+	systemRules: defaultSystemRulesConfig,
+	maxFileSizeMb: 10,
+	allowedFileTypes: defaultAllowedFileTypes,
+	piiAction: "redact" as GuardrailAction,
+};
+
 async function resetScopedConfig(scope: GuardrailScopeContext) {
 	const existing = await findScopedConfig(scope);
+
+	// Update in place rather than delete-then-insert: the gap between the two
+	// statements would leave the scope with no config at all, which the gateway
+	// reads as "no guardrails", and concurrent resets would race the partial
+	// unique index.
 	if (existing) {
-		await db
-			.delete(tables.guardrailConfig)
-			.where(eq(tables.guardrailConfig.id, existing.id));
+		const [updated] = await db
+			.update(tables.guardrailConfig)
+			.set(guardrailConfigDefaults)
+			.where(eq(tables.guardrailConfig.id, existing.id))
+			.returning();
+		return updated;
 	}
 
 	const [created] = await db
@@ -346,12 +363,7 @@ async function resetScopedConfig(scope: GuardrailScopeContext) {
 		.values({
 			organizationId: scope.organizationId,
 			projectId: scope.projectId,
-			inheritOrganization: true,
-			enabled: true,
-			systemRules: defaultSystemRulesConfig,
-			maxFileSizeMb: 10,
-			allowedFileTypes: defaultAllowedFileTypes,
-			piiAction: "redact",
+			...guardrailConfigDefaults,
 		})
 		.returning();
 
