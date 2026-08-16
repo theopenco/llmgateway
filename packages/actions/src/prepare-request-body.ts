@@ -4274,6 +4274,49 @@ export async function prepareRequestBody(
 			break;
 		}
 
+		case "gonka24": {
+			if (stream) {
+				requestBody.stream_options = {
+					include_usage: true,
+				};
+			}
+			if (response_format) {
+				requestBody.response_format = response_format;
+			}
+
+			// Add optional parameters if they are provided
+			if (temperature !== undefined) {
+				requestBody.temperature = temperature;
+			}
+			if (max_tokens !== undefined) {
+				requestBody.max_tokens = max_tokens;
+			}
+			if (top_p !== undefined) {
+				requestBody.top_p = top_p;
+			}
+			if (frequency_penalty !== undefined) {
+				requestBody.frequency_penalty = frequency_penalty;
+			}
+			if (presence_penalty !== undefined) {
+				requestBody.presence_penalty = presence_penalty;
+			}
+
+			// Gonka24 keeps thinking off by default and turns it on solely through
+			// the binary `thinking` switch; `reasoning_effort` is validated against
+			// an enum but changes nothing, and the chat-template flag is ignored.
+			// The effort therefore only decides the switch: "none" disables, any
+			// other tier enables. The effort itself is deliberately NOT forwarded —
+			// it buys no behaviour, and the accepted enum has been narrowed twice in
+			// a day, so sending it would turn provider churn into 4xx for callers.
+			if (supportsReasoning && reasoning_effort !== undefined) {
+				requestBody.thinking =
+					reasoning_effort === "none"
+						? { type: "disabled" }
+						: { type: "enabled" };
+			}
+			break;
+		}
+
 		default: {
 			if (stream) {
 				requestBody.stream_options = {

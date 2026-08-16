@@ -830,15 +830,14 @@ export const deepseekModels = [
 				maxOutput: 16384,
 				streaming: true,
 				reasoning: true,
-				// The effort enum is `low | medium | high | xhigh | max`; `none` and
-				// `minimal` are rejected outright, so neither may be declared — and
-				// `none` especially not, because publishing it makes the gateway
-				// forward it verbatim instead of normalizing it away. Thinking is off
-				// by default and only `max` turns it on, returning `reasoning` plus
-				// `reasoning_details`; low through xhigh are accepted but behave
-				// exactly like the default. The `thinking: {type}` switch the
-				// provider documents has no observable effect.
-				reasoningEfforts: ["max"],
+				// Thinking is off by default and is controlled only by the binary
+				// `thinking` switch, which the gateway derives from the effort (see
+				// the gonka24 case in prepare-request-body): `none` disables, any
+				// other tier enables. The tiers themselves are graded in name only —
+				// with thinking on, low/medium/high produce indistinguishable
+				// reasoning lengths — so they are declared to match the provider's
+				// accepted enum rather than to express real depth control.
+				reasoningEfforts: ["none", "low", "medium", "high"],
 				vision: false,
 				tools: true,
 				// tool_choice "required" is not enforced — the model keeps answering
