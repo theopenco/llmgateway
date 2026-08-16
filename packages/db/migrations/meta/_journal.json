@@ -1625,6 +1625,13 @@
       "when": 1786828559856,
       "tag": "1786828559_milky_colonel_america",
       "breakpoints": true
+    },
+    {
+      "idx": 232,
+      "version": "8",
+      "when": 1786916331170,
+      "tag": "1786916331_colorful_boomerang",
+      "breakpoints": true
     }
   ]
 }
