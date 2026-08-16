@@ -45,6 +45,7 @@ import { validateRequestModelAccess } from "@/lib/iam.js";
 import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
+import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { clientFacingUpstreamErrorMessage } from "@/lib/stealth-provider-errors.js";
 
 import {
@@ -4746,6 +4747,12 @@ videos.openapi(createVideo, async (c) => {
 	let upstreamResponse: Record<string, unknown> | undefined;
 	const hasVideoGenerationBalance =
 		hasSufficientVideoGenerationBalance(organization);
+
+	// Video generation is the priciest endpoint per request, so the credits-billed
+	// path gets the same per-org spend-cap gate as the other paid endpoints.
+	if (selectedProviderContext.usedMode === "credits") {
+		await assertSpendLimit(c, organization, false);
+	}
 
 	for (;;) {
 		if (

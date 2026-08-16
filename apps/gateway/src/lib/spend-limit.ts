@@ -1,3 +1,5 @@
+import { HTTPException } from "hono/http-exception";
+
 import { redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
 import {
@@ -11,6 +13,8 @@ import {
 	getOrganizationLifetimeSpend,
 	getOrgSpendTier,
 } from "./org-rate-limit.js";
+
+import type { Context } from "hono";
 
 /**
  * Per-organization daily and monthly USD spend caps for regular
@@ -131,6 +135,51 @@ export async function checkSpendLimit(
 		// Fail open so Redis issues never block users.
 		return { allowed: true };
 	}
+}
+
+/**
+ * Enforce the org's spend cap for a request that will be billed to org credits,
+ * and reject with `429` when a cap is already reached.
+ *
+ * This is the single enforcement chokepoint every credits-funded handler should
+ * call, so a cap cannot be bypassed by reaching platform credentials through a
+ * different path (hybrid fallback, non-chat endpoints, ...).
+ *
+ * Reset headers are set on the context before throwing, mirroring
+ * `validateFreeModelUsage`: the global error handler rebuilds the body from the
+ * `HTTPException` and would drop headers attached to the exception itself, but
+ * headers set on `c` survive onto the error response.
+ */
+export async function assertSpendLimit(
+	c: Pick<Context, "header">,
+	org: SpendCapOrg,
+	modelIsFree: boolean,
+): Promise<void> {
+	// Free models never consume credits, so they are exempt from spend caps.
+	if (modelIsFree) {
+		return;
+	}
+
+	const result = await checkSpendLimit(org);
+	if (result.allowed) {
+		return;
+	}
+
+	if (result.limit !== undefined) {
+		c.header("X-RateLimit-Limit", String(result.limit));
+		c.header("X-RateLimit-Remaining", "0");
+	}
+	if (result.retryAfter) {
+		c.header("Retry-After", String(result.retryAfter));
+		c.header(
+			"X-RateLimit-Reset",
+			String(Math.floor(Date.now() / 1000) + result.retryAfter),
+		);
+	}
+
+	throw new HTTPException(429, {
+		message: `Organization ${org.id} has reached its ${result.period} spend limit of $${result.limit}. Try again later or contact support to raise your limit.`,
+	});
 }
 
 /**

@@ -95,7 +95,7 @@ import {
 import { getResponsesContext } from "@/lib/responses-context.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
-import { checkSpendLimit } from "@/lib/spend-limit.js";
+import { assertSpendLimit } from "@/lib/spend-limit.js";
 import {
 	buildUpstreamErrorClientPayload,
 	clientFacingUpstreamFailureMessage,
@@ -5348,14 +5348,11 @@ chat.openapi(completions, async (c) => {
 		// Per-org daily/monthly USD spend caps. Applies to regular pay-as-you-go
 		// orgs only (kind/enterprise/enabled gates live inside checkSpendLimit);
 		// free models are exempt.
-		if (!((finalModelInfo ?? modelInfo) as ModelDefinition).free) {
-			const spendLimit = await checkSpendLimit(organization);
-			if (!spendLimit.allowed) {
-				throw new HTTPException(429, {
-					message: `Organization ${organization.id} has reached its ${spendLimit.period} spend limit of $${spendLimit.limit}. Try again later or contact support to raise your limit.`,
-				});
-			}
-		}
+		await assertSpendLimit(
+			c,
+			organization,
+			((finalModelInfo ?? modelInfo) as ModelDefinition).free === true,
+		);
 
 		if (usedProvider === "llmgateway") {
 			throw new HTTPException(400, {
@@ -5444,6 +5441,15 @@ chat.openapi(completions, async (c) => {
 			}
 		} else {
 			// No API key available, fall back to credits
+			// This path bills org credits with a platform credential exactly like
+			// the `credits` branch above, so it needs the same spend-cap gate —
+			// otherwise a capped org could keep spending simply by using a hybrid
+			// project with no matching provider key.
+			await assertSpendLimit(
+				c,
+				organization,
+				isModelTrulyFree((finalModelInfo ?? modelInfo) as ModelDefinition),
+			);
 			// Check regular credits, dev plan credits, and chat plan credits.
 			assertDevPlanPremiumCapNotExceeded(
 				organization,

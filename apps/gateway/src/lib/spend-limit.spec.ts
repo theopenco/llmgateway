@@ -16,7 +16,7 @@ vi.mock("./org-rate-limit.js", () => ({
 	getOrgSpendTier: vi.fn(),
 }));
 
-const { checkSpendLimit, recordSpend, isSpendCapEnabled } =
+const { assertSpendLimit, checkSpendLimit, recordSpend, isSpendCapEnabled } =
 	await import("./spend-limit.js");
 const { redisClient } = await import("@llmgateway/cache");
 const orl = await import("./org-rate-limit.js");
@@ -129,6 +129,52 @@ describe("checkSpendLimit", () => {
 		vi.mocked(redisClient.mget).mockRejectedValue(new Error("redis down"));
 		const result = await checkSpendLimit(defaultOrg);
 		expect(result.allowed).toBe(true);
+	});
+});
+
+describe("assertSpendLimit", () => {
+	function makeCtx() {
+		const headers: Record<string, string> = {};
+		const c = {
+			header: (k: string, v?: string) => {
+				if (v !== undefined) {
+					headers[k] = v;
+				}
+			},
+		} as unknown as Parameters<typeof assertSpendLimit>[0];
+		return { headers, c };
+	}
+
+	it("is a no-op for free models and never touches Redis", async () => {
+		const { c, headers } = makeCtx();
+		await assertSpendLimit(c, defaultOrg, true);
+		expect(redisClient.mget).not.toHaveBeenCalled();
+		expect(headers).toEqual({});
+	});
+
+	it("passes through when under the cap", async () => {
+		vi.mocked(redisClient.mget).mockResolvedValue(["10", "20"]);
+		const { c } = makeCtx();
+		await expect(
+			assertSpendLimit(c, defaultOrg, false),
+		).resolves.toBeUndefined();
+	});
+
+	it("throws 429 with reset headers when a cap is reached", async () => {
+		vi.mocked(redisClient.mget).mockResolvedValue(["100", "20"]);
+		const { c, headers } = makeCtx();
+
+		await expect(assertSpendLimit(c, defaultOrg, false)).rejects.toMatchObject({
+			status: 429,
+		});
+
+		expect(headers["Retry-After"]).toBeDefined();
+		expect(Number(headers["Retry-After"])).toBeGreaterThan(0);
+		expect(headers["X-RateLimit-Limit"]).toBe("100");
+		expect(headers["X-RateLimit-Remaining"]).toBe("0");
+		expect(Number(headers["X-RateLimit-Reset"])).toBeGreaterThan(
+			Math.floor(Date.now() / 1000),
+		);
 	});
 });
 
