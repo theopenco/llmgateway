@@ -217,8 +217,14 @@ export function GuardrailsSettings({ scope }: { scope: GuardrailsScope }) {
 		);
 	}
 
+	// Every query counts, including the inherited organization rules: falling
+	// back to an empty list there would show an inheriting project as having no
+	// custom rules while the gateway keeps enforcing them.
 	const loadError =
-		configQuery.error || rulesQuery.error || orgConfigQuery.error;
+		configQuery.error ||
+		rulesQuery.error ||
+		orgConfigQuery.error ||
+		orgRulesQuery.error;
 
 	if (loadError) {
 		return (
@@ -286,6 +292,16 @@ function GuardrailsForm({
 	const shownRules = inherits ? organizationRules : rules;
 	const readOnly = inherits;
 	const editable = shown.enabled && !readOnly;
+
+	// Custom rules are written immediately, unlike the rest of the form, which
+	// only lands on Save Changes. Until the override itself is persisted the
+	// gateway still enforces the organization rules, so a rule added here would
+	// look saved while doing nothing — keep those mutations disabled until then.
+	const overridePending =
+		isProject &&
+		!draft.inheritOrganization &&
+		config?.inheritOrganization !== false;
+	const rulesEditable = editable && !overridePending;
 
 	const overrides = overridesQuery.data ?? [];
 
@@ -446,7 +462,9 @@ function GuardrailsForm({
 					<AlertTitle>
 						{inherits
 							? `${projectName} uses the organization guardrails`
-							: `${projectName} has its own guardrails`}
+							: overridePending
+								? `${projectName} still uses the organization guardrails`
+								: `${projectName} has its own guardrails`}
 					</AlertTitle>
 					<AlertDescription>
 						{inherits ? (
@@ -459,6 +477,18 @@ function GuardrailsForm({
 									organization guardrails
 								</Link>
 								, shown read-only below. Changes made there apply here too.
+							</span>
+						) : overridePending ? (
+							<span>
+								The{" "}
+								<Link
+									href={`/dashboard/${scope.organizationId}/org/guardrails`}
+									className="underline underline-offset-4"
+								>
+									organization guardrails
+								</Link>{" "}
+								stay in force until you click Save Changes. The settings below
+								start as a copy of them — save to switch {projectName} over.
 							</span>
 						) : (
 							<span>
@@ -477,7 +507,18 @@ function GuardrailsForm({
 				</Alert>
 			)}
 
-			{!isProject && overrides.length > 0 && (
+			{!isProject && overridesQuery.error && (
+				<Alert variant="destructive">
+					<Building2 />
+					<AlertTitle>Could not check for project overrides</AlertTitle>
+					<AlertDescription>
+						Some projects may define their own guardrails, in which case the
+						settings below do not apply to them. Reload the page to check again.
+					</AlertDescription>
+				</Alert>
+			)}
+
+			{!isProject && !overridesQuery.error && overrides.length > 0 && (
 				<Alert>
 					<Building2 />
 					<AlertTitle>
@@ -654,7 +695,7 @@ function GuardrailsForm({
 							<Button
 								onClick={() => setShowAddRule(true)}
 								variant="outline"
-								disabled={!editable}
+								disabled={!rulesEditable}
 							>
 								<Plus className="h-4 w-4 mr-2" />
 								Add Rule
@@ -662,7 +703,14 @@ function GuardrailsForm({
 						</div>
 					</CardHeader>
 					<CardContent className="space-y-4">
-						{showAddRule && editable && (
+						{overridePending && (
+							<div className="p-4 text-sm border rounded-lg bg-muted/50 text-muted-foreground">
+								Save changes first to give {projectName} its own guardrails —
+								custom rules added before then would not be enforced.
+							</div>
+						)}
+
+						{showAddRule && rulesEditable && (
 							<div className="p-4 border rounded-lg space-y-4 bg-muted/50">
 								<div className="flex items-center justify-between">
 									<h4 className="font-medium">New Rule</h4>
@@ -815,7 +863,7 @@ function GuardrailsForm({
 								<div className="flex items-center gap-4">
 									<Switch
 										checked={rule.enabled}
-										disabled={!editable}
+										disabled={!rulesEditable}
 										onCheckedChange={() =>
 											updateRuleMutation.mutate({
 												ruleId: rule.id,
@@ -839,7 +887,7 @@ function GuardrailsForm({
 									<Button
 										variant="ghost"
 										size="sm"
-										disabled={!editable}
+										disabled={!rulesEditable}
 										onClick={() => deleteRuleMutation.mutate(rule.id)}
 										className="text-destructive hover:text-destructive"
 									>
