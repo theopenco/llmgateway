@@ -26,6 +26,7 @@ import {
 	findCustomProviderKey,
 	findCustomModel,
 	findEffectiveDiscount,
+	findEffectiveRoutingScoreMultiplier,
 	findProviderKey,
 	findActiveProviderKeys,
 	findProviderKeysByProviders,
@@ -477,6 +478,15 @@ function createProviderDiscountResolver(organizationId: string) {
 			.discount;
 }
 
+function createProviderRoutingScoreMultiplierResolver() {
+	return async (
+		provider: Pick<ProviderModelMapping, "providerId">,
+		modelId: string,
+	) =>
+		(await findEffectiveRoutingScoreMultiplier(provider.providerId, modelId))
+			.scoreMultiplier;
+}
+
 async function collapseProvidersToBestRegionPerProvider(
 	candidates: ProviderModelMapping[],
 	model: ModelDefinition & {
@@ -513,6 +523,8 @@ async function collapseProvidersToBestRegionPerProvider(
 					providerDiscountResolver: createProviderDiscountResolver(
 						options.organizationId,
 					),
+					providerRoutingScoreMultiplierResolver:
+						createProviderRoutingScoreMultiplierResolver(),
 				},
 			);
 
@@ -2080,6 +2092,8 @@ chat.openapi(completions, async (c) => {
 	const providerDiscountResolver = createProviderDiscountResolver(
 		project.organizationId,
 	);
+	const providerRoutingScoreMultiplierResolver =
+		createProviderRoutingScoreMultiplierResolver();
 
 	// Candidates demoted by hybrid keyed-provider preference stay in the scores
 	// as last-resort retry targets: their worst-rank score keeps them behind
@@ -2539,6 +2553,7 @@ chat.openapi(completions, async (c) => {
 	};
 	const retryOrganizationContext = {
 		id: organization.id,
+		safetyIdentifier: organization.safetyIdentifier,
 		credits: organization.credits,
 		plan: organization.plan,
 		kind: organization.kind,
@@ -3693,6 +3708,7 @@ chat.openapi(completions, async (c) => {
 					routingConfig: routingCfg,
 					organizationId: project.organizationId,
 					providerDiscountResolver,
+					providerRoutingScoreMultiplierResolver,
 				},
 			);
 
@@ -3968,6 +3984,7 @@ chat.openapi(completions, async (c) => {
 							routingConfig: routingCfg,
 							organizationId: project.organizationId,
 							providerDiscountResolver,
+							providerRoutingScoreMultiplierResolver,
 						},
 					);
 
@@ -4191,6 +4208,7 @@ chat.openapi(completions, async (c) => {
 								routingConfig: routingCfg,
 								organizationId: project.organizationId,
 								providerDiscountResolver,
+								providerRoutingScoreMultiplierResolver,
 							},
 						);
 
@@ -4432,6 +4450,7 @@ chat.openapi(completions, async (c) => {
 									routingConfig: routingCfg,
 									organizationId: project.organizationId,
 									providerDiscountResolver,
+									providerRoutingScoreMultiplierResolver,
 								},
 							);
 
@@ -4733,6 +4752,7 @@ chat.openapi(completions, async (c) => {
 						routingConfig: routingCfg,
 						organizationId: project.organizationId,
 						providerDiscountResolver,
+						providerRoutingScoreMultiplierResolver,
 					},
 				);
 
@@ -5002,6 +5022,7 @@ chat.openapi(completions, async (c) => {
 							routingConfig: routingCfg,
 							organizationId: project.organizationId,
 							providerDiscountResolver,
+							providerRoutingScoreMultiplierResolver,
 						},
 					);
 
@@ -6825,6 +6846,7 @@ chat.openapi(completions, async (c) => {
 			prompt_cache_options,
 			sessionId,
 			reasoning_context,
+			organization.safetyIdentifier,
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a

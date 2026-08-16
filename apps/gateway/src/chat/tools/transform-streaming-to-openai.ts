@@ -1531,6 +1531,7 @@ export function transformStreamingToOpenai(
 		case "baidu":
 		case "granite":
 		case "tundra":
+		case "permafrost":
 		case "xiaomi":
 		case "azure-ai-foundry":
 		case "vertex-openai":

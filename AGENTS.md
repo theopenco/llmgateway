@@ -46,6 +46,8 @@ When you are done writing code features or bug fixes, ALWAYS commit your changes
 
 Keep everything you write short and concise — code comments, docs, skills, commit messages, PR descriptions. Say a thing once, at the level of detail a reader needs to act on it. Do not elaborate beyond that, do not restate a rule that already lives elsewhere, and do not add filler like "apply the usual rules" that carries no information.
 
+Use the local `skill-authoring` skill when creating or editing repository skills.
+
 ### Documentation
 
 - NEVER hardcode a list of models, providers, provider countries/headquarters, or any other catalogue-derived enumeration into documentation (`apps/docs`), changelog entries, or marketing copy. These lists go stale the moment the catalogue changes and are annoying to keep in sync. Instead, link to the relevant live page that is generated from the catalogue (e.g. the [models page](https://llmgateway.io/models) or [providers page](https://llmgateway.io/providers)).
@@ -192,13 +194,12 @@ Running the built `dist/serve.js` gives no watch (rebuild + restart after code c
 
 #### E2E Test Structure
 
-E2E tests are organized for optimal performance:
-
-- **Parallel execution**: Tests run up to 16 in parallel using Vitest's thread pool (minimum 8 threads)
-- **Split structure**:
-  - `apps/gateway/src/api.e2e.ts` - Contains all `.each()` tests that benefit from parallelization
-  - `apps/gateway/src/api-individual.e2e.ts` - Contains individual test cases that need isolation
-- **Concurrent mode**: The main test suite uses `{ concurrent: true }` to enable parallel execution of `.each()` tests
+`pnpm test:e2e` discovers `*.e2e.ts` files sequentially with
+`--no-file-parallelism`. Parameterized chat-completion coverage lives in the
+`apps/gateway/src/chat-*.e2e.ts` files; those suites use
+`getConcurrentTestOptions()` and run their cases concurrently unless
+`CONCURRENT_TESTS=false`. Tests that need isolation live in
+`apps/gateway/src/api-individual.e2e.ts`.
 
 #### Gateway test harness resets shared state per test
 

@@ -66,7 +66,6 @@ export const complianceAttestationSchema = z.object({
 	iso27001: z.boolean().nullable().optional(),
 	gdpr: z.boolean().nullable().optional(),
 	apiTraining: z.boolean().nullable().optional(),
-	consumerTraining: z.boolean().nullable().optional(),
 	promptLogging: z.boolean().nullable().optional(),
 	retentionPeriod: z.string().max(64).nullable().optional(),
 	headquarters: z

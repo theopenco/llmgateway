@@ -283,3 +283,4 @@ export {
 export { parseUsedModel, regionFromUsedModel } from "./used-model.js";
 
 export * from "./components/ui/index.js";
+export { discountFraction, isValidDiscount } from "./lib/discount.js";

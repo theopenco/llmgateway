@@ -10,6 +10,7 @@ import {
 	type AvailableModelProvider,
 	type ModelWithPricing,
 	type ProviderModelMapping,
+	resolveTimeBasedPricing,
 } from "@llmgateway/models";
 import { randomFloat, randomInt } from "@llmgateway/shared/random";
 import {
@@ -31,6 +32,7 @@ interface ProviderScore<T extends AvailableModelProvider> {
 	provider: T;
 	score: Decimal;
 	price: Decimal;
+	routingPrice: Decimal;
 	uptime?: number;
 	latency?: number;
 	throughput?: number;
@@ -224,6 +226,10 @@ export interface ProviderSelectionOptions {
 		provider: AvailableModelProvider,
 		modelId: string,
 	) => Promise<string | null | undefined> | string | null | undefined;
+	providerRoutingScoreMultiplierResolver?: (
+		provider: AvailableModelProvider,
+		modelId: string,
+	) => Promise<string | null | undefined> | string | null | undefined;
 }
 
 function findProviderMapping<P extends ModelWithPricing["providers"][number]>(
@@ -333,20 +339,29 @@ function getPerSecondBillingKeys(
 
 export function getProviderSelectionPrice(
 	providerInfo:
-		| Pick<
+		| (Pick<
 				ProviderModelMapping,
 				| "inputPrice"
 				| "outputPrice"
 				| "perSecondPrice"
 				| "perImagePrice"
 				| "requestPrice"
-		  >
+		  > &
+				Partial<Pick<ProviderModelMapping, "peakPricing" | "cachedInputPrice">>)
 		| undefined,
 	videoPricing?: VideoPricingContext,
+	now: Date = new Date(),
 ): Decimal {
-	const inputPrice = providerInfo?.inputPrice;
-	const outputPrice = providerInfo?.outputPrice;
 	const requestPrice = providerInfo?.requestPrice;
+	// Resolve peak/off-peak time-of-day pricing (DeepSeek first-party): token
+	// rates vary by UTC hour once the mapping's peakPricing is effective, so
+	// routing must rank with the same rates billing uses.
+	const timeBasedPricing = providerInfo
+		? resolveTimeBasedPricing(providerInfo, now)
+		: undefined;
+	const inputPrice = timeBasedPricing?.inputPrice ?? providerInfo?.inputPrice;
+	const outputPrice =
+		timeBasedPricing?.outputPrice ?? providerInfo?.outputPrice;
 	const hasAnyTokenPrice =
 		inputPrice !== undefined || outputPrice !== undefined;
 	const hasPositiveTokenPrice =
@@ -399,7 +414,8 @@ type ProviderSelectionPriceInfo = AvailableModelProvider &
 		| "perSecondPrice"
 		| "perImagePrice"
 		| "requestPrice"
-	>;
+	> &
+	Partial<Pick<ProviderModelMapping, "peakPricing" | "cachedInputPrice">>;
 
 export async function getDiscountedProviderSelectionPrice(
 	providerInfo: ProviderSelectionPriceInfo | undefined,
@@ -460,7 +476,9 @@ async function getProviderSelectionPrices<T extends AvailableModelProvider>(
 	modelWithPricing: ModelWithPricing & { id: string },
 	videoPricing: VideoPricingContext | undefined,
 	options?: ProviderSelectionOptions,
-): Promise<Map<string, { price: Decimal; discount: Decimal }>> {
+): Promise<
+	Map<string, { price: Decimal; routingPrice: Decimal; discount: Decimal }>
+> {
 	const providerPrices = await Promise.all(
 		providers.map(async (provider) => {
 			const providerInfo = findProviderMapping(
@@ -475,8 +493,31 @@ async function getProviderSelectionPrices<T extends AvailableModelProvider>(
 					videoPricing,
 				},
 			);
+			let routingMultiplier = new Decimal(1);
+			if (options?.providerRoutingScoreMultiplierResolver !== undefined) {
+				const rawAdjustment =
+					await options.providerRoutingScoreMultiplierResolver(
+						provider,
+						modelWithPricing.id,
+					);
+				try {
+					const scoreAdjustment = new Decimal(rawAdjustment ?? "0");
+					if (scoreAdjustment.isFinite() && scoreAdjustment.gte(-1)) {
+						routingMultiplier = scoreAdjustment.plus(1);
+					}
+				} catch {
+					// Invalid internal configuration is neutral instead of blocking traffic.
+				}
+			}
 
-			return [providerSelectionKey(provider), { price, discount }] as const;
+			return [
+				providerSelectionKey(provider),
+				{
+					price,
+					routingPrice: price.times(routingMultiplier),
+					discount,
+				},
+			] as const;
 		}),
 	);
 
@@ -729,6 +770,7 @@ export async function getCheapestFromAvailableProviders<
 		const price =
 			resolvedPrice?.price ??
 			getProviderSelectionPrice(providerInfo, videoPricing);
+		const routingPrice = resolvedPrice?.routingPrice ?? price;
 
 		const mKey = metricsKey(
 			modelWithPricing.id,
@@ -741,6 +783,7 @@ export async function getCheapestFromAvailableProviders<
 			provider,
 			score: new Decimal(0), // Will be calculated below
 			price,
+			routingPrice,
 			discount: resolvedPrice?.discount,
 			uptime: metrics?.uptime,
 			latency: metrics?.averageLatency,
@@ -757,7 +800,7 @@ export async function getCheapestFromAvailableProviders<
 	// selection earlier in this function).
 	const breakdowns = computeWeightedProviderScores(
 		providerScores.map((p) => ({
-			price: p.price,
+			price: p.routingPrice,
 			uptime: p.uptime,
 			latency: p.latency,
 			throughput: p.throughput,
@@ -826,7 +869,10 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 	modelWithPricing: ModelWithPricing & { id: string; output?: string[] },
 	videoPricing: VideoPricingContext | undefined,
 	cfg: ResolvedRoutingConfig,
-	providerSelectionPrices: Map<string, { price: Decimal; discount: Decimal }>,
+	providerSelectionPrices: Map<
+		string,
+		{ price: Decimal; routingPrice: Decimal; discount: Decimal }
+	>,
 ): ProviderSelectionResult<T> {
 	let cheapestProvider = stableProviders[0];
 	let lowestEffectivePrice: Decimal | null = null;
@@ -851,10 +897,12 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 		const totalPrice =
 			resolvedPrice?.price ??
 			getProviderSelectionPrice(providerInfo, videoPricing);
+		const routingPrice = resolvedPrice?.routingPrice ?? totalPrice;
 
 		// Apply provider priority: lower priority = effectively higher price
 		const priority = getEffectivePriority(provider.providerId, cfg);
-		const effectivePrice = priority > 0 ? totalPrice.div(priority) : totalPrice;
+		const effectivePrice =
+			priority > 0 ? routingPrice.div(priority) : routingPrice;
 
 		providerPrices.push({
 			providerId: provider.providerId,

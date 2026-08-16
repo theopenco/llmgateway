@@ -356,6 +356,11 @@ export default async function OrganizationPage({
 					</div>
 				</div>
 				<div className="flex flex-wrap items-center gap-2">
+					{org.kind === "devpass" && (
+						<Button variant="outline" size="sm" asChild>
+							<Link href={`/devpass/${orgId}`}>Open in DevPass</Link>
+						</Button>
+					)}
 					<ManageOrgDialog
 						orgName={org.name}
 						plan={org.plan}
@@ -410,10 +415,7 @@ export default async function OrganizationPage({
 						orgId={orgId}
 						orgName={org.name}
 						variant="full"
-						disabled={
-							org.status === "deleted" ||
-							getOrgDeletionBlockedReason(org.credits) !== null
-						}
+						disabled={getOrgDeletionBlockedReason(org.credits) !== null}
 						disabledReason={
 							getOrgDeletionBlockedReason(org.credits) ?? undefined
 						}

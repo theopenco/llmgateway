@@ -5,6 +5,13 @@ date: "2026-08-08"
 title: "Ranked #1 on an Independent AI Gateway Benchmark"
 summary: "In the August 7 run of computesdk's independent AI gateway benchmark, LLM Gateway ranked first of six gateways with a composite score of 90.8 — driven by the tightest tail latency in the field, not the fastest median. Here's what the benchmark measures, what our numbers actually show, and how to run it yourself."
 categories: ["Engineering"]
+faqs:
+  - question: "What does an AI gateway benchmark actually measure?"
+    answer: "A good one measures the latency the gateway itself adds, isolated from the model provider's own speed. computesdk's harness does this by running a direct-to-provider control alongside the gateways, pointing everything at the same model, and running all participants round-robin so they share the same network conditions. It separates cold requests (fresh connection, including DNS, TCP, and TLS) from warm ones (pooled connection), because those fail in different ways."
+  - question: "Does an AI gateway add latency compared to calling the provider directly?"
+    answer: "Yes. A gateway is an extra network hop, and no routing layer makes that free — in the August 7 run our warm TTFT median was 629 ms against the direct baseline's 615 ms. The question worth asking is what you get for it: failover across providers, unified billing and usage analytics, and a single API across model vendors. And the overhead is small enough that connection handling dominates it, which is why the tail, not the median, is where gateways actually differ."
+  - question: "How do I run the AI gateway benchmark myself?"
+    answer: "Clone [computesdk/benchmarks](https://github.com/computesdk/benchmarks), set an API key for each gateway you want to include, and run `pnpm bench:ai-gateway`. Gateways without keys are skipped, so you can benchmark just your own stack against the direct-to-provider control. Results are written to `results/ai-gateway/` as JSON, including every individual iteration, so you can compute your own percentiles rather than trusting anyone's composite."
 image:
   src: "/blog/ai-gateway-benchmark.png"
   alt: "A circuit board with a glowing stopwatch on the central chip surrounded by a podium and rising bar chart, representing AI gateway latency benchmarks"
@@ -92,20 +99,6 @@ pnpm bench:ai-gateway --iterations 20
 `7548e7584940` is the commit holding the August 7 results. `--iterations 20` matches that run's 20 cold and 20 warm probes per gateway; the default is 10. Any gateway whose API key isn't set is skipped, so the command above measures us against the direct-to-Anthropic control — add the other gateways' keys to reproduce the full leaderboard.
 
 Results land in `results/ai-gateway/`, and the composite weighting is in `benchmarks/ai-gateway/scoring.ts`.
-
-## Frequently Asked Questions
-
-### What does an AI gateway benchmark actually measure?
-
-A good one measures the latency the gateway itself adds, isolated from the model provider's own speed. computesdk's harness does this by running a direct-to-provider control alongside the gateways, pointing everything at the same model, and running all participants round-robin so they share the same network conditions. It separates cold requests (fresh connection, including DNS, TCP, and TLS) from warm ones (pooled connection), because those fail in different ways.
-
-### Does an AI gateway add latency compared to calling the provider directly?
-
-Yes. A gateway is an extra network hop, and no routing layer makes that free — in the August 7 run our warm TTFT median was 629 ms against the direct baseline's 615 ms. The question worth asking is what you get for it: failover across providers, unified billing and usage analytics, and a single API across model vendors. And the overhead is small enough that connection handling dominates it, which is why the tail, not the median, is where gateways actually differ.
-
-### How do I run the AI gateway benchmark myself?
-
-Clone [computesdk/benchmarks](https://github.com/computesdk/benchmarks), set an API key for each gateway you want to include, and run `pnpm bench:ai-gateway`. Gateways without keys are skipped, so you can benchmark just your own stack against the direct-to-provider control. Results are written to `results/ai-gateway/` as JSON, including every individual iteration, so you can compute your own percentiles rather than trusting anyone's composite.
 
 ---
 

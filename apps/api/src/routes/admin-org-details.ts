@@ -213,7 +213,6 @@ const complianceAttestationSchema = z.object({
 	iso27001: z.boolean().nullish(),
 	gdpr: z.boolean().nullish(),
 	apiTraining: z.boolean().nullish(),
-	consumerTraining: z.boolean().nullish(),
 	promptLogging: z.boolean().nullish(),
 	retentionPeriod: z.string().nullish(),
 	headquarters: z.string().nullish(),
@@ -237,6 +236,7 @@ const getOrganizationSettings = createRoute({
 						organization: z.object({
 							id: z.string(),
 							name: z.string(),
+							safetyIdentifier: z.string(),
 							billingEmail: z.string(),
 							createdAt: z.string(),
 							plan: z.string(),
@@ -310,6 +310,7 @@ adminOrgDetails.openapi(getOrganizationSettings, async (c) => {
 		organization: {
 			id: org.id,
 			name: org.name,
+			safetyIdentifier: org.safetyIdentifier,
 			billingEmail: org.billingEmail,
 			createdAt: org.createdAt.toISOString(),
 			plan: org.plan,
