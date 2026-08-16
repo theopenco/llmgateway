@@ -16,6 +16,9 @@ export interface AppConfig {
 	stripePublishableKey?: string;
 	githubAuth: boolean;
 	googleAuth: boolean;
+	/** Mirrors the API's STRIPE_DEV_PLAN_CRYPTO gate so checkout copy matches
+	 * what the checkout session actually offers. */
+	cryptoCheckout: boolean;
 }
 
 export function getConfig(): AppConfig {
@@ -39,5 +42,6 @@ export function getConfig(): AppConfig {
 		stripePublishableKey: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
 		githubAuth: !!process.env.GITHUB_CLIENT_ID,
 		googleAuth: !!process.env.GOOGLE_CLIENT_ID,
+		cryptoCheckout: process.env.STRIPE_DEV_PLAN_CRYPTO === "true",
 	};
 }

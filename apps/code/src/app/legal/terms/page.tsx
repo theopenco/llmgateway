@@ -163,24 +163,26 @@ export default function TermsPage() {
 					business entity
 				</li>
 				<li>
-					Reusing the same payment card, billing address, device, or IP across
-					multiple DevPass accounts to claim the included usage more than once
+					Reusing the same payment method — card or crypto wallet — or the same
+					billing address, device, or IP across multiple DevPass accounts to
+					claim the included usage more than once
 				</li>
 				<li>
 					Cancelling and re-subscribing under a new account to reset usage
 					before the billing cycle renews
 				</li>
 				<li>
-					Using prepaid cards, virtual cards, or other payment instruments
-					designed to obscure identity for the purpose of opening additional
-					accounts
+					Using prepaid cards, virtual cards, freshly generated crypto wallets,
+					or other payment instruments designed to obscure identity for the
+					purpose of opening additional accounts
 				</li>
 			</ul>
 			<p>
-				We automatically check the payment card used at checkout against
-				existing DevPass subscriptions. If the same card has already been used
-				to activate DevPass on another account, the new subscription is
-				cancelled and access is not granted.
+				We automatically check the payment method used at checkout — the card,
+				or the wallet for a crypto payment — against existing DevPass
+				subscriptions. If the same payment method has already been used to
+				activate DevPass on another account, the new subscription is cancelled
+				and access is not granted.
 			</p>
 			<p>
 				If we detect (manually or automatically) that the rules in this section

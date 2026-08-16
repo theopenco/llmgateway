@@ -18,6 +18,7 @@ import {
 	getCryptoPaymentMethodDetails,
 	getSubscriptionPaymentConfirmation,
 	isDevPlanCardDedupeEnforced,
+	isDevPlanCryptoCheckoutEnabled,
 } from "@/stripe.js";
 import { findDefaultOrganization } from "@/utils/default-org.js";
 import { LEGACY_DEV_PLAN_TX_TYPES } from "@/utils/devpass-filter.js";
@@ -463,34 +464,44 @@ devPlans.openapi(subscribe, async (c) => {
 		// subscription cycles, so it rides the same setup-mode flow. The pinned
 		// SDK's literal union predates the crypto payment method — the API
 		// accepts it, hence the cast.
-		const session = await getStripe().checkout.sessions.create({
-			customer: stripeCustomerId,
-			mode: "setup",
-			payment_method_types: [
-				"card",
-				"crypto",
-			] as string[] as Stripe.Checkout.SessionCreateParams.PaymentMethodType[],
-			success_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?setup_session_id={CHECKOUT_SESSION_ID}`,
-			cancel_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?canceled=true`,
-			metadata: {
-				organizationId: personalOrg.id,
-				subscriptionType: "dev_plan",
-				devPlan: tier,
-				devPlanCycle: cycle,
-				priceId,
-				userEmail: user.email,
-			},
-			setup_intent_data: {
-				metadata: {
-					organizationId: personalOrg.id,
-					subscriptionType: "dev_plan",
-					devPlan: tier,
-					devPlanCycle: cycle,
-					priceId,
-					userEmail: user.email,
-				},
-			},
-		});
+		const checkoutMetadata = {
+			organizationId: personalOrg.id,
+			subscriptionType: "dev_plan",
+			devPlan: tier,
+			devPlanCycle: cycle,
+			priceId,
+			userEmail: user.email,
+		};
+		const createCheckoutSession = (paymentMethodTypes: string[]) =>
+			getStripe().checkout.sessions.create({
+				customer: stripeCustomerId,
+				mode: "setup",
+				payment_method_types:
+					paymentMethodTypes as Stripe.Checkout.SessionCreateParams.PaymentMethodType[],
+				success_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?setup_session_id={CHECKOUT_SESSION_ID}`,
+				cancel_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?canceled=true`,
+				metadata: checkoutMetadata,
+				setup_intent_data: { metadata: checkoutMetadata },
+			});
+
+		let session: Stripe.Checkout.Session;
+		if (isDevPlanCryptoCheckoutEnabled()) {
+			try {
+				session = await createCheckoutSession(["card", "crypto"]);
+			} catch (err) {
+				// Stripe validates payment_method_types against the pinned API
+				// version and the account's activated methods. If stablecoins are
+				// not available the whole call fails, so fall back to card rather
+				// than taking card checkout down with the crypto option.
+				logger.warn(
+					"Crypto checkout unavailable; falling back to card-only DevPass checkout",
+					{ error: err instanceof Error ? err.message : String(err) },
+				);
+				session = await createCheckoutSession(["card"]);
+			}
+		} else {
+			session = await createCheckoutSession(["card"]);
+		}
 
 		if (!session.url) {
 			throw new HTTPException(500, {
@@ -3182,6 +3193,20 @@ async function resolveDevPassPaymentMethodId(
 				"No saved payment method found. Update your payment method on the billing page and try again.",
 		});
 	}
+
+	// These one-off charges are off-session. A stablecoin wallet cannot be
+	// charged that way — Stripe would reject the PaymentIntent with an
+	// InvalidRequest that the caller's StripeCardError handling does not map,
+	// surfacing as a 500. Fail here with something the user can act on.
+	const paymentMethod =
+		await getStripe().paymentMethods.retrieve(paymentMethodId);
+	if (paymentMethod.type !== "card") {
+		throw new HTTPException(400, {
+			message:
+				"One-off purchases need a card on file. Add a card on the billing page and try again — your subscription keeps billing to your current payment method.",
+		});
+	}
+
 	return paymentMethodId;
 }
 

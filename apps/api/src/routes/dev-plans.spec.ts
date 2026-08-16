@@ -1266,17 +1266,13 @@ describe("dev plan subscribe checkout", () => {
 		} else {
 			process.env.STRIPE_DEV_PLAN_PRO_PRICE_ID = originalProPriceId;
 		}
+		delete process.env.STRIPE_DEV_PLAN_CRYPTO;
 		await db.delete(tables.transaction);
 		await deleteAll();
 	});
 
-	it("offers card and crypto on the setup-mode checkout session", async () => {
-		stripeMock.checkout.sessions.create.mockResolvedValue({
-			id: "cs_setup_001",
-			url: "https://checkout.stripe.test/cs_setup_001",
-		});
-
-		const res = await app.request("/dev-plans/subscribe", {
+	async function subscribeToPro() {
+		return await app.request("/dev-plans/subscribe", {
 			method: "POST",
 			headers: {
 				Cookie: token,
@@ -1284,6 +1280,15 @@ describe("dev plan subscribe checkout", () => {
 			},
 			body: JSON.stringify({ tier: "pro" }),
 		});
+	}
+
+	it("offers card only until crypto checkout is switched on", async () => {
+		stripeMock.checkout.sessions.create.mockResolvedValue({
+			id: "cs_setup_001",
+			url: "https://checkout.stripe.test/cs_setup_001",
+		});
+
+		const res = await subscribeToPro();
 
 		expect(res.status).toBe(200);
 		expect(await res.json()).toEqual({
@@ -1293,10 +1298,51 @@ describe("dev plan subscribe checkout", () => {
 		expect(stripeMock.checkout.sessions.create).toHaveBeenCalledTimes(1);
 		const params = stripeMock.checkout.sessions.create.mock.calls[0][0];
 		expect(params.mode).toBe("setup");
-		// Both instruments must be offered: cards, and Stripe's stablecoin
-		// ("crypto") payment method which is saved like a card and charged for
-		// recurring cycles.
+		expect(params.payment_method_types).toEqual(["card"]);
+	});
+
+	it("offers card and crypto when the gate is enabled", async () => {
+		process.env.STRIPE_DEV_PLAN_CRYPTO = "true";
+		stripeMock.checkout.sessions.create.mockResolvedValue({
+			id: "cs_setup_002",
+			url: "https://checkout.stripe.test/cs_setup_002",
+		});
+
+		const res = await subscribeToPro();
+
+		expect(res.status).toBe(200);
+		expect(stripeMock.checkout.sessions.create).toHaveBeenCalledTimes(1);
+		const params = stripeMock.checkout.sessions.create.mock.calls[0][0];
+		// Stripe's stablecoin ("crypto") payment method is saved like a card and
+		// charged for recurring cycles, so it rides the same setup-mode flow.
 		expect(params.payment_method_types).toEqual(["card", "crypto"]);
+	});
+
+	// Stripe validates payment_method_types against the pinned API version and
+	// the account's activated methods, so an account without stablecoins fails
+	// the whole call. Card checkout must survive that.
+	it("falls back to card when Stripe rejects the crypto method", async () => {
+		process.env.STRIPE_DEV_PLAN_CRYPTO = "true";
+		stripeMock.checkout.sessions.create
+			.mockRejectedValueOnce(
+				new Error("Invalid payment_method_types[1]: crypto"),
+			)
+			.mockResolvedValueOnce({
+				id: "cs_setup_003",
+				url: "https://checkout.stripe.test/cs_setup_003",
+			});
+
+		const res = await subscribeToPro();
+
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({
+			checkoutUrl: "https://checkout.stripe.test/cs_setup_003",
+		});
+
+		expect(stripeMock.checkout.sessions.create).toHaveBeenCalledTimes(2);
+		expect(
+			stripeMock.checkout.sessions.create.mock.calls[1][0].payment_method_types,
+		).toEqual(["card"]);
 	});
 });
 

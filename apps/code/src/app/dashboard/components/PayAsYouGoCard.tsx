@@ -348,7 +348,9 @@ export default function PayAsYouGoCard({
 									<CreditCard className="h-3.5 w-3.5" />
 									{paymentMethod?.card
 										? `${paymentMethod.card.brand.toUpperCase()} ···· ${paymentMethod.card.last4} — your DevPass card, plus processing fees`
-										: "Charged to your saved DevPass card, plus processing fees"}
+										: paymentMethod?.crypto
+											? "Top-ups need a card on file — add one on the billing page"
+											: "Charged to your saved DevPass card, plus processing fees"}
 								</div>
 								<Button
 									size="sm"

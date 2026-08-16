@@ -308,12 +308,16 @@ export default function DashboardShell({
 					throw new Error("Stripe is not ready. Please refresh and try again.");
 				}
 				setSetupActivationStatus("authenticating");
-				const confirmation = await stripe.confirmCardPayment(
-					result.clientSecret,
-					result.paymentMethodId
-						? { payment_method: result.paymentMethodId }
-						: undefined,
-				);
+				// confirmPayment, not confirmCardPayment: the latter is card-only
+				// and errors on a stablecoin PaymentIntent, which is exactly the
+				// case that reaches requires_action for a wallet-backed plan.
+				const confirmation = await stripe.confirmPayment({
+					clientSecret: result.clientSecret,
+					redirect: "if_required",
+					...(result.paymentMethodId
+						? { confirmParams: { payment_method: result.paymentMethodId } }
+						: {}),
+				});
 				if (confirmation.error) {
 					throw new Error(
 						confirmation.error.message ?? "Payment authentication failed",
@@ -519,10 +523,10 @@ export default function DashboardShell({
 			>
 				<AlertDialogContent>
 					<AlertDialogHeader>
-						<AlertDialogTitle>Card already in use</AlertDialogTitle>
+						<AlertDialogTitle>Payment method already in use</AlertDialogTitle>
 						<AlertDialogDescription>
 							{duplicateCardError ??
-								"This card is already associated with another DevPass account."}
+								"This payment method is already associated with another DevPass account."}
 							<br />
 							<br />
 							You were not charged. Please try again with a different payment

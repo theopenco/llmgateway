@@ -3,6 +3,7 @@
 import { Check, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { useAppConfig } from "@/lib/config";
 import { formatUsageRatio } from "@/lib/utils";
 
 import BillingDetailsDialog from "./BillingDetailsDialog";
@@ -94,10 +95,13 @@ export default function InactivePlanChooser({
 }
 
 function InvoiceInfoLabel() {
+	const { cryptoCheckout } = useAppConfig();
 	return (
 		<p className="mx-auto mt-4 max-w-2xl text-center text-[11px] leading-relaxed text-muted-foreground">
-			Pay by card or with crypto (USDC) at checkout. Need company/address
-			details on your invoice?{" "}
+			{cryptoCheckout
+				? "Pay by card or with crypto (USDC) at checkout. "
+				: null}
+			Need company/address details on your invoice?{" "}
 			<BillingDetailsDialog>
 				<button
 					type="button"

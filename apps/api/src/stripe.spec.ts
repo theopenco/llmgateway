@@ -6,6 +6,7 @@ import { logger } from "@llmgateway/logger";
 
 import {
 	finalizeDevPlanSetupSession,
+	getCryptoPaymentMethodDetails,
 	handleChargeRefunded,
 	handleInvoicePaymentSucceeded,
 	handlePaymentIntentFailed,
@@ -1677,6 +1678,62 @@ describe("finalizeDevPlanSetupSession — crypto payment methods", () => {
 		});
 		expect(txns).toHaveLength(1);
 		expect(txns[0].type).toBe("dev_plan_start");
+	});
+
+	// The subscription's first invoice is built from payment_settings, so the
+	// wallet's own type has to be declared or Stripe falls back to the account's
+	// invoice payment methods and the wallet can never pay it.
+	test("declares the wallet payment method type on the subscription", async () => {
+		await seedUnactivatedDevPassOrg();
+		mockSetupSessionFlow(makeCryptoPaymentMethod());
+
+		await finalizeDevPlanSetupSession(SESSION_ID);
+
+		const params = stripeMock.subscriptions.create.mock.calls[0][0];
+		expect(params.payment_settings?.payment_method_types).toEqual([
+			"card",
+			"crypto",
+		]);
+	});
+
+	// The same wallet can surface a fingerprint on one PaymentMethod object and
+	// only an address on another; comparing one collapsed value each would leave
+	// the duplicate attached forever.
+	test("detaches a duplicate wallet that only exposes its address", async () => {
+		await seedUnactivatedDevPassOrg();
+		mockSetupSessionFlow(makeCryptoPaymentMethod());
+		stripeMock.paymentMethods.list.mockResolvedValue({
+			data: [
+				// Same wallet as the kept payment method, but this older copy only
+				// reports the address — no fingerprint to collapse them on.
+				makeCryptoPaymentMethod({
+					id: "pm_crypto_dupe",
+					crypto: {
+						wallet_address: "0x1234abcd5678ef901234abcd5678ef901234abcd",
+					},
+				}),
+				makeCryptoPaymentMethod({ id: "pm_crypto_001" }),
+			],
+		});
+
+		await finalizeDevPlanSetupSession(SESSION_ID);
+
+		expect(stripeMock.paymentMethods.detach).toHaveBeenCalledWith(
+			"pm_crypto_dupe",
+		);
+	});
+
+	// A wallet we cannot identify must not claim the dedupe slot with a phantom
+	// value, and must not render as a wallet with no address on the billing page.
+	test("treats a crypto payment method with no identifiers as unidentifiable", () => {
+		expect(
+			getCryptoPaymentMethodDetails(
+				makeCryptoPaymentMethod({ crypto: {} }) as never,
+			),
+		).toBeNull();
+		expect(
+			getCryptoPaymentMethodDetails(makeCryptoPaymentMethod() as never),
+		).toMatchObject({ fingerprint: WALLET_FINGERPRINT });
 	});
 
 	test("falls back to the wallet address when the crypto payment method has no fingerprint", async () => {

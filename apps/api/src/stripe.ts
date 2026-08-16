@@ -453,11 +453,17 @@ stripeRoutes.openapi(webhookHandler, async (c) => {
 });
 
 /**
- * Resolve the card fingerprint used for a Stripe subscription. Returns null
- * when the subscription is paid by a non-card payment method (SEPA, etc.) or
- * when the payment method is missing for any reason.
+ * Resolve the DevPass dedupe fingerprint for a Stripe subscription — the card
+ * fingerprint, or the wallet identifier for a stablecoin payment method.
+ * Returns null when the payment method is a type we cannot identify (SEPA,
+ * etc.) or is missing for any reason.
+ *
+ * This has to cover wallets as well as cards: the `invoice.payment_succeeded`
+ * recovery path can win the race against finalize, and a card-only lookup
+ * would claim the row with a null fingerprint and disable the
+ * one-payment-method-per-account rule for that org.
  */
-async function getSubscriptionCardFingerprint(
+async function getSubscriptionPaymentMethodFingerprint(
 	subscriptionId: string,
 ): Promise<string | null> {
 	try {
@@ -499,13 +505,13 @@ async function getSubscriptionCardFingerprint(
 			}
 		}
 
-		if (!paymentMethod || paymentMethod.type !== "card") {
+		if (!paymentMethod) {
 			return null;
 		}
-		return paymentMethod.card?.fingerprint ?? null;
+		return getDevPassPaymentMethodFingerprint(paymentMethod);
 	} catch (error) {
 		logger.error(
-			`Failed to resolve card fingerprint for subscription ${subscriptionId}`,
+			`Failed to resolve payment method fingerprint for subscription ${subscriptionId}`,
 			error instanceof Error ? error : new Error(String(error)),
 		);
 		return null;
@@ -778,7 +784,42 @@ export function getCryptoPaymentMethodDetails(
 			network?: string | null;
 		};
 	};
-	return crypto ?? {};
+	// Null rather than {} when the sub-object is absent: callers use the return
+	// value to mean "this is a wallet we can identify", and an empty object
+	// would make them render a wallet with no address while the dedupe below
+	// silently sees no fingerprint.
+	if (!crypto || (!crypto.fingerprint && !crypto.wallet_address)) {
+		if (crypto) {
+			logger.warn(
+				`Crypto payment method ${paymentMethod.id} exposed no fingerprint or wallet address; skipping DevPass payment-method dedupe`,
+			);
+		}
+		return null;
+	}
+	return crypto;
+}
+
+/**
+ * Every identifier a payment instrument exposes. Duplicate detection compares
+ * these as a set rather than a single collapsed value: the same wallet can
+ * surface a fingerprint on one PaymentMethod object and only an address on
+ * another, and comparing one collapsed string each would never match them.
+ */
+function getPaymentMethodIdentifiers(
+	paymentMethod: Stripe.PaymentMethod,
+): string[] {
+	if (paymentMethod.type === "card") {
+		return paymentMethod.card?.fingerprint
+			? [paymentMethod.card.fingerprint]
+			: [];
+	}
+	const crypto = getCryptoPaymentMethodDetails(paymentMethod);
+	if (!crypto) {
+		return [];
+	}
+	return [crypto.fingerprint, crypto.wallet_address].filter(
+		(value): value is string => Boolean(value),
+	);
 }
 
 /**
@@ -816,15 +857,32 @@ async function detachDuplicateDevPassPaymentMethods(
 	if (!fingerprint) {
 		return;
 	}
-	const paymentMethods = await getStripe().paymentMethods.list({
-		customer: customerId,
-		type: keepPaymentMethod.type as Stripe.PaymentMethodListParams.Type,
-		limit: 100,
-	});
+	// The pinned API version may not accept every payment method type as a list
+	// filter. This runs after the customer's default payment method has already
+	// been repointed, so a throw here would leave finalize half-applied and
+	// unretryable — cleaning up duplicates is best-effort by comparison.
+	let paymentMethods: Stripe.ApiList<Stripe.PaymentMethod>;
+	try {
+		paymentMethods = await getStripe().paymentMethods.list({
+			customer: customerId,
+			type: keepPaymentMethod.type as Stripe.PaymentMethodListParams.Type,
+			limit: 100,
+		});
+	} catch (err) {
+		logger.warn(
+			`Failed to list ${keepPaymentMethod.type} payment methods for customer ${customerId}; skipping duplicate cleanup`,
+			{ error: err instanceof Error ? err.message : String(err) },
+		);
+		return;
+	}
+	const keepIdentifiers = new Set([
+		...getPaymentMethodIdentifiers(keepPaymentMethod),
+		fingerprint,
+	]);
 	const duplicates = paymentMethods.data.filter(
 		(pm) =>
 			pm.id !== keepPaymentMethod.id &&
-			getDevPassPaymentMethodFingerprint(pm) === fingerprint,
+			getPaymentMethodIdentifiers(pm).some((id) => keepIdentifiers.has(id)),
 	);
 	for (const pm of duplicates) {
 		try {
@@ -874,6 +932,19 @@ async function resolvePaymentMethodFromSetupSession(
  */
 export function isDevPlanCardDedupeEnforced(): boolean {
 	return process.env.NODE_ENV !== "development";
+}
+
+/**
+ * Whether the DevPass checkout offers Stripe's stablecoin payment method.
+ *
+ * Off by default: `payment_method_types` is validated against both the pinned
+ * API version and the methods activated on the Stripe account, so sending
+ * "crypto" to an account that has not enabled it fails the whole
+ * `checkout.sessions.create` call — which would break card checkout too, not
+ * just the crypto option. Enable once the account has stablecoins activated.
+ */
+export function isDevPlanCryptoCheckoutEnabled(): boolean {
+	return process.env.STRIPE_DEV_PLAN_CRYPTO === "true";
 }
 
 /**
@@ -1039,17 +1110,25 @@ export async function finalizeDevPlanSetupSession(
 				items: [{ price: priceId }],
 				default_payment_method: paymentMethod.id,
 				payment_behavior: "default_incomplete",
-				...(shouldForceDevPlan3dsChallenge()
-					? {
-							payment_settings: {
+				payment_settings: {
+					// Without the instrument's own type here Stripe builds the first
+					// invoice's PaymentIntent from the account's invoice payment
+					// methods (card by default), so a wallet-backed subscription
+					// either 400s on create or produces an invoice the wallet can
+					// never pay.
+					payment_method_types: [
+						...new Set(["card", paymentMethod.type]),
+					] as Stripe.SubscriptionCreateParams.PaymentSettings.PaymentMethodType[],
+					...(shouldForceDevPlan3dsChallenge()
+						? {
 								payment_method_options: {
 									card: {
 										request_three_d_secure: "challenge" as const,
 									},
 								},
-							},
-						}
-					: {}),
+							}
+						: {}),
+				},
 				metadata: {
 					organizationId,
 					subscriptionType: "dev_plan",
@@ -1342,7 +1421,7 @@ async function handleCheckoutSessionCompleted(
 			// Same card-fingerprint dedupe as dev plans — prevents a single card
 			// from claiming the included chat plan allowance across multiple orgs.
 			const fingerprint = subscriptionId
-				? await getSubscriptionCardFingerprint(subscriptionId)
+				? await getSubscriptionPaymentMethodFingerprint(subscriptionId)
 				: null;
 
 			if (fingerprint) {
@@ -1493,7 +1572,7 @@ async function handleCheckoutSessionCompleted(
 			// branch only runs for legacy in-flight sessions created before
 			// that switch landed and is kept as a safety net.
 			const fingerprint = subscriptionId
-				? await getSubscriptionCardFingerprint(subscriptionId)
+				? await getSubscriptionPaymentMethodFingerprint(subscriptionId)
 				: null;
 
 			const creditsLimit = getDevPlanCreditsLimit(devPlanTier);
@@ -3814,7 +3893,8 @@ export async function handleInvoicePaymentSucceeded(event: {
 
 	if (isInitialDevPlanSubscription && initialDevPlanTier) {
 		const creditsLimit = getDevPlanCreditsLimit(initialDevPlanTier);
-		const fingerprint = await getSubscriptionCardFingerprint(subscriptionId);
+		const fingerprint =
+			await getSubscriptionPaymentMethodFingerprint(subscriptionId);
 
 		// First invoice line covers the initial period, so its end is the real
 		// `current_period_end` (= first renewal date).
