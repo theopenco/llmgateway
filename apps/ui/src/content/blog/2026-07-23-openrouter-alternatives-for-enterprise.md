@@ -26,7 +26,7 @@ OpenRouter usually enters a company through one developer's side project. It usu
 
 None of that makes OpenRouter a bad product. It makes it a prototyping product being asked to pass an enterprise checklist it wasn't built for. This guide compares the six OpenRouter alternatives for enterprise teams that actually clear that checklist in 2026 — on deployment model, identity and audit, guardrails, and what the pricing motion looks like. We build the first one listed, so we're biased; the checklist isn't.
 
-> **Update, August 16, 2026:** Bloomberg reports Stripe has agreed to acquire OpenRouter for more than $7 billion, and neither company has confirmed it. For most teams this is noise; for regulated ones it is paperwork, because the entity processing your prompt traffic changes and the DPA and vendor record have to follow. [What is verified, and what to check before reacting.](/blog/stripe-openrouter-acquisition)
+> **Update, August 16, 2026:** Bloomberg reports Stripe has agreed to acquire OpenRouter for more than $7 billion, and neither company has confirmed it. For most teams this is noise. For regulated ones it is a prompt to re-check the paperwork rather than rewrite it: confirm with the vendor which legal entity is the counterparty after close, and whether the sub-processor list, retention terms or transfer mechanism move at all, before touching your DPA or vendor record. [What is verified, and what to check before reacting.](/blog/stripe-openrouter-acquisition)
 
 ## The Enterprise Checklist
 
