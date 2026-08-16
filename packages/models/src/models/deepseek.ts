@@ -830,13 +830,10 @@ export const deepseekModels = [
 				maxOutput: 16384,
 				streaming: true,
 				reasoning: true,
-				// Thinking is off by default and is controlled only by the binary
-				// `thinking` switch, which the gateway derives from the effort (see
-				// the gonka24 case in prepare-request-body): `none` disables, any
-				// other tier enables. The tiers themselves are graded in name only —
-				// with thinking on, low/medium/high produce indistinguishable
-				// reasoning lengths — so they are declared to match the provider's
-				// accepted enum rather than to express real depth control.
+				// The provider's accepted enum; anything outside it is a hard 400.
+				// Thinking is off by default and is turned on by the binary `thinking`
+				// switch the gateway derives from the effort (see the gonka24 case in
+				// prepare-request-body), not by the effort itself.
 				reasoningEfforts: ["none", "low", "medium", "high"],
 				vision: false,
 				tools: true,

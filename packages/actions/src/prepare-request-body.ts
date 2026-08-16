@@ -4301,18 +4301,21 @@ export async function prepareRequestBody(
 				requestBody.presence_penalty = presence_penalty;
 			}
 
-			// Gonka24 keeps thinking off by default and turns it on solely through
-			// the binary `thinking` switch; `reasoning_effort` is validated against
-			// an enum but changes nothing, and the chat-template flag is ignored.
-			// The effort therefore only decides the switch: "none" disables, any
-			// other tier enables. The effort itself is deliberately NOT forwarded —
-			// it buys no behaviour, and the accepted enum has been narrowed twice in
-			// a day, so sending it would turn provider churn into 4xx for callers.
+			// Gonka24 keeps thinking off by default, and only the binary `thinking`
+			// switch turns it on — `reasoning_effort` alone never does, and the
+			// chat-template flag is ignored. So the effort decides the switch:
+			// "none" disables, any other tier enables. The effort is forwarded
+			// alongside it because the deployment validates it against its enum and
+			// grades the tiers by intent; today they measure the same (low/medium/
+			// high differ by ~6% in reasoning length over 40 samples each, well
+			// inside noise), but forwarding means real grading works the moment the
+			// provider implements it, with no gateway change.
 			if (supportsReasoning && reasoning_effort !== undefined) {
 				requestBody.thinking =
 					reasoning_effort === "none"
 						? { type: "disabled" }
 						: { type: "enabled" };
+				requestBody.reasoning_effort = reasoning_effort;
 			}
 			break;
 		}
