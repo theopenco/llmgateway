@@ -22,6 +22,7 @@ import {
 import { isConfigurableDomain, normalizeDomain } from "@/utils/sso-domain.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
+import { redisClient } from "@llmgateway/cache";
 import {
 	and,
 	db,
@@ -38,6 +39,14 @@ import { getProviderCountries, models, providers } from "@llmgateway/models";
 import {
 	CREDIT_TOP_UP_MAX_AMOUNT,
 	CUSTOM_PROVIDER_NAME_REGEX,
+	getBaseLimit,
+	getNextSpendTier,
+	getOrgSpendTier,
+	getPlanClass,
+	isCappedOrg,
+	PATH_RATE_LIMITS,
+	spendDailyKey,
+	spendMonthlyKey,
 } from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
@@ -1550,6 +1559,164 @@ organization.openapi(getCreditsRunway, async (c) => {
 		avgDailySpend7d: Math.round(avgDailySpend7d * 100) / 100,
 		runwayDays,
 		balance,
+	});
+});
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+const getOrganizationLimits = createRoute({
+	method: "get",
+	path: "/{id}/limits",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						// enterprise orgs have no gateway rate limits or spend caps at all
+						enterprise: z.boolean(),
+						// whether daily/monthly USD spend caps apply (regular PAYG orgs)
+						capsApply: z.boolean(),
+						plan: z.string(),
+						accountAgeDays: z.number(),
+						lifetimeSpendUsd: z.number(),
+						tier: z.object({
+							tier: z.number(),
+							rpmMultiplier: z.number(),
+							dailyCapUsd: z.number(),
+							monthlyCapUsd: z.number(),
+						}),
+						usage: z.object({
+							dailySpentUsd: z.number(),
+							monthlySpentUsd: z.number(),
+						}),
+						nextTier: z
+							.object({
+								tier: z.number(),
+								rpmMultiplier: z.number(),
+								dailyCapUsd: z.number(),
+								monthlyCapUsd: z.number(),
+								ageDaysRequired: z.number(),
+								spendUsdRequired: z.number(),
+								daysUntilQualify: z.number(),
+								spendUsdUntilQualify: z.number(),
+							})
+							.nullable(),
+						endpoints: z.array(
+							z.object({
+								key: z.string(),
+								path: z.string(),
+								rpm: z.number(),
+							}),
+						),
+					}),
+				},
+			},
+			description: "Organization rate-limit and spend-cap tier info",
+		},
+	},
+});
+
+organization.openapi(getOrganizationLimits, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.param();
+	const membership = await db.query.userOrganization.findFirst({
+		where: { userId: { eq: user.id }, organizationId: { eq: id } },
+	});
+	if (!membership) {
+		throw new HTTPException(403, {
+			message: "You do not have access to this organization",
+		});
+	}
+	// Spend and org-wide caps are financial data, so developers (project-scoped
+	// members) are excluded, mirroring the credits-runway endpoint.
+	if (membership.role === "developer") {
+		throw new HTTPException(403, {
+			message: "Only organization owners and admins can view limits",
+		});
+	}
+
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: id } },
+	});
+	if (!org || org.status === "deleted") {
+		throw new HTTPException(404, { message: "Organization not found" });
+	}
+
+	const enterprise = org.plan === "enterprise";
+	const capsApply = isCappedOrg(org);
+
+	// Lifetime usage spend = SUM(project_hourly_stats.cost) across the org's
+	// projects — the same figure the gateway uses to resolve the trust tier.
+	const spendRows = await db
+		.select({
+			total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`,
+		})
+		.from(projectHourlyStats)
+		.innerJoin(
+			tables.project,
+			eq(tables.project.id, projectHourlyStats.projectId),
+		)
+		.where(eq(tables.project.organizationId, id));
+	const lifetimeSpendUsd = Number(spendRows[0]?.total ?? 0) || 0;
+
+	const now = Date.now();
+	const planClass = getPlanClass(org);
+	const tier = getOrgSpendTier(org, lifetimeSpendUsd, now);
+	const nextTier = getNextSpendTier(org, lifetimeSpendUsd, now);
+
+	const [dailyRaw, monthlyRaw] = await redisClient.mget(
+		spendDailyKey(id, now),
+		spendMonthlyKey(id, now),
+	);
+
+	const accountAgeDays = Math.floor(
+		(now - new Date(org.createdAt).getTime()) / 86_400_000,
+	);
+
+	const endpoints = PATH_RATE_LIMITS.map((cfg) => {
+		const base = getBaseLimit(cfg, planClass);
+		// Only regular orgs get the spend-tier multiplier; dev/chat stay flat.
+		const rpm =
+			planClass === "regular" ? Math.floor(base * tier.rpmMultiplier) : base;
+		return { key: cfg.key, path: cfg.prefix, rpm };
+	});
+
+	return c.json({
+		enterprise,
+		capsApply,
+		plan: org.plan,
+		accountAgeDays,
+		lifetimeSpendUsd: round2(lifetimeSpendUsd),
+		tier: {
+			tier: tier.tier,
+			rpmMultiplier: tier.rpmMultiplier,
+			dailyCapUsd: tier.dailyCapUsd,
+			monthlyCapUsd: tier.monthlyCapUsd,
+		},
+		usage: {
+			dailySpentUsd: round2(Number(dailyRaw ?? 0) || 0),
+			monthlySpentUsd: round2(Number(monthlyRaw ?? 0) || 0),
+		},
+		nextTier: nextTier
+			? {
+					tier: nextTier.tier,
+					rpmMultiplier: nextTier.rpmMultiplier,
+					dailyCapUsd: nextTier.dailyCapUsd,
+					monthlyCapUsd: nextTier.monthlyCapUsd,
+					ageDaysRequired: nextTier.ageDaysRequired,
+					spendUsdRequired: nextTier.spendUsdRequired,
+					daysUntilQualify: nextTier.daysUntilQualify,
+					spendUsdUntilQualify: round2(nextTier.spendUsdUntilQualify),
+				}
+			: null,
+		endpoints,
 	});
 });
 

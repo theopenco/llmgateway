@@ -1,5 +1,11 @@
 import { redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
+import {
+	isCappedOrg,
+	spendDailyKey,
+	spendMonthlyKey,
+	type SpendCapOrg,
+} from "@llmgateway/shared";
 
 import {
 	getOrganizationLifetimeSpend,
@@ -21,14 +27,6 @@ import {
  * a limiter outage can never block traffic.
  */
 
-/** Org fields needed to resolve and gate a spend cap. */
-export interface SpendCapOrg {
-	id: string;
-	kind?: string | null;
-	plan?: string | null;
-	createdAt: Date;
-}
-
 const DAILY_TTL_SECONDS = 2 * 24 * 60 * 60; // ~2 days
 const MONTHLY_TTL_SECONDS = 35 * 24 * 60 * 60; // ~35 days
 
@@ -44,34 +42,6 @@ export function isSpendCapEnabled(): boolean {
 		return explicit === "true";
 	}
 	return process.env.NODE_ENV !== "test" && process.env.E2E_TEST !== "true";
-}
-
-/** Only regular pay-as-you-go orgs are capped; devpass/chat/enterprise are not. */
-function isCappedOrg(org: SpendCapOrg): boolean {
-	return org.kind === "default" && org.plan !== "enterprise";
-}
-
-function utcDateKey(now: number): string {
-	const d = new Date(now);
-	const y = d.getUTCFullYear();
-	const m = String(d.getUTCMonth() + 1).padStart(2, "0");
-	const day = String(d.getUTCDate()).padStart(2, "0");
-	return `${y}-${m}-${day}`;
-}
-
-function utcMonthKey(now: number): string {
-	const d = new Date(now);
-	const y = d.getUTCFullYear();
-	const m = String(d.getUTCMonth() + 1).padStart(2, "0");
-	return `${y}-${m}`;
-}
-
-function dailyKey(organizationId: string, now: number): string {
-	return `spend_cap:daily:${organizationId}:${utcDateKey(now)}`;
-}
-
-function monthlyKey(organizationId: string, now: number): string {
-	return `spend_cap:monthly:${organizationId}:${utcMonthKey(now)}`;
 }
 
 function secondsToNextUtcMidnight(now: number): number {
@@ -117,8 +87,8 @@ export async function checkSpendLimit(
 		const tier = getOrgSpendTier(org, lifetimeSpend, now);
 
 		const [dailyRaw, monthlyRaw] = await redisClient.mget(
-			dailyKey(org.id, now),
-			monthlyKey(org.id, now),
+			spendDailyKey(org.id, now),
+			spendMonthlyKey(org.id, now),
 		);
 		const daily = Number(dailyRaw ?? 0) || 0;
 		const monthly = Number(monthlyRaw ?? 0) || 0;
@@ -179,8 +149,8 @@ export async function recordSpend(
 
 	try {
 		const now = Date.now();
-		const dKey = dailyKey(organizationId, now);
-		const mKey = monthlyKey(organizationId, now);
+		const dKey = spendDailyKey(organizationId, now);
+		const mKey = spendMonthlyKey(organizationId, now);
 
 		const pipeline = redisClient.pipeline();
 		pipeline.incrbyfloat(dKey, cost);
