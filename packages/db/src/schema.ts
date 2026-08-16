@@ -4069,6 +4069,33 @@ export const discount = pgTable(
 	],
 );
 
+// Routing Score Multiplier - Internal provider/model routing preference
+export const routingScoreMultiplier = pgTable(
+	"routing_score_multiplier",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		provider: text(),
+		model: text(),
+		// Signed adjustment: -0.2 routes as 0.8x price, +0.2 as 1.2x price
+		scoreMultiplier: decimal().notNull(),
+		reason: text(),
+		expiresAt: timestamp(),
+	},
+	(table) => [
+		unique("routing_score_multiplier_provider_model_unique").on(
+			table.provider,
+			table.model,
+		),
+		index("routing_score_multiplier_provider_idx").on(table.provider),
+		index("routing_score_multiplier_model_idx").on(table.model),
+	],
+);
+
 // Rate Limit - Admin-configurable provider/model caps
 // Can be global (organizationId = null) or org-specific
 export const rateLimit = pgTable(

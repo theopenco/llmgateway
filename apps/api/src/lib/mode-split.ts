@@ -25,12 +25,14 @@ export function modeSplitFields(table: {
 			sql<number>`COALESCE(SUM(${table.apiKeysRequestCount}), 0)`.as(
 				"apiKeysRequestCount",
 			),
-		creditsCost: sql<number>`COALESCE(SUM(${table.creditsCost}), 0)`.as(
-			"creditsCost",
-		),
-		apiKeysCost: sql<number>`COALESCE(SUM(${table.apiKeysCost}), 0)`.as(
-			"apiKeysCost",
-		),
+		creditsCost:
+			sql<number>`COALESCE(SUM(cast(${table.creditsCost} as double precision)), 0)`.as(
+				"creditsCost",
+			),
+		apiKeysCost:
+			sql<number>`COALESCE(SUM(cast(${table.apiKeysCost} as double precision)), 0)`.as(
+				"apiKeysCost",
+			),
 	};
 }
 

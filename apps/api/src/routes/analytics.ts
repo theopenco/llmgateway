@@ -146,7 +146,9 @@ analytics.openapi(getMembersUsage, async (c) => {
 	const usageRows = await db
 		.select({
 			apiKeyId: apiKeyHourlyStats.apiKeyId,
-			cost: sql<number>`SUM(${apiKeyHourlyStats.cost})`.as("cost"),
+			cost: sql<number>`SUM(cast(${apiKeyHourlyStats.cost} as double precision))`.as(
+				"cost",
+			),
 			totalTokens:
 				sql<number>`SUM(CAST(${apiKeyHourlyStats.totalTokens} AS NUMERIC))`.as(
 					"total_tokens",
@@ -402,7 +404,9 @@ analytics.openapi(getMemberDetail, async (c) => {
 
 	const summaryRows = await db
 		.select({
-			cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as("cost"),
+			cost: sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.cost} as double precision)), 0)`.as(
+				"cost",
+			),
 			inputTokens:
 				sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.inputTokens} AS NUMERIC)), 0)`.as(
 					"input_tokens",
@@ -458,7 +462,9 @@ analytics.openapi(getMemberDetail, async (c) => {
 		.select({
 			usedModel: apiKeyHourlyModelStats.usedModel,
 			usedProvider: apiKeyHourlyModelStats.usedProvider,
-			cost: sql<number>`SUM(${apiKeyHourlyModelStats.cost})`.as("cost"),
+			cost: sql<number>`SUM(cast(${apiKeyHourlyModelStats.cost} as double precision))`.as(
+				"cost",
+			),
 			requestCount: sql<number>`SUM(${apiKeyHourlyModelStats.requestCount})`.as(
 				"request_count",
 			),
@@ -480,7 +486,9 @@ analytics.openapi(getMemberDetail, async (c) => {
 			apiKeyHourlyModelStats.usedModel,
 			apiKeyHourlyModelStats.usedProvider,
 		)
-		.orderBy(desc(sql`SUM(${apiKeyHourlyModelStats.cost})`));
+		.orderBy(
+			desc(sql`SUM(cast(${apiKeyHourlyModelStats.cost} as double precision))`),
+		);
 
 	const costByModel = modelRows
 		.map((r) => ({
@@ -539,7 +547,7 @@ analytics.openapi(getMemberDetail, async (c) => {
 			).as("date"),
 			usedModel: apiKeyHourlyModelStats.usedModel,
 			usedProvider: apiKeyHourlyModelStats.usedProvider,
-			cost: sql<number>`COALESCE(SUM(${apiKeyHourlyModelStats.cost}), 0)`.as(
+			cost: sql<number>`COALESCE(SUM(cast(${apiKeyHourlyModelStats.cost} as double precision)), 0)`.as(
 				"cost",
 			),
 			requestCount:
@@ -731,7 +739,9 @@ analytics.openapi(getSelfUsage, async (c) => {
 
 	const summaryRows = await db
 		.select({
-			cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as("cost"),
+			cost: sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.cost} as double precision)), 0)`.as(
+				"cost",
+			),
 			inputTokens:
 				sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.inputTokens} AS NUMERIC)), 0)`.as(
 					"input_tokens",
@@ -782,7 +792,9 @@ analytics.openapi(getSelfUsage, async (c) => {
 			date: bucketDate(apiKeyHourlyStats.hourTimestamp, timeZone, false).as(
 				"date",
 			),
-			cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as("cost"),
+			cost: sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.cost} as double precision)), 0)`.as(
+				"cost",
+			),
 			requestCount:
 				sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCount}), 0)`.as(
 					"request_count",
@@ -823,7 +835,9 @@ analytics.openapi(getSelfUsage, async (c) => {
 	const modelRows = await db
 		.select({
 			usedModel: apiKeyHourlyModelStats.usedModel,
-			cost: sql<number>`SUM(${apiKeyHourlyModelStats.cost})`.as("cost"),
+			cost: sql<number>`SUM(cast(${apiKeyHourlyModelStats.cost} as double precision))`.as(
+				"cost",
+			),
 			requestCount: sql<number>`SUM(${apiKeyHourlyModelStats.requestCount})`.as(
 				"request_count",
 			),
@@ -842,7 +856,9 @@ analytics.openapi(getSelfUsage, async (c) => {
 			),
 		)
 		.groupBy(apiKeyHourlyModelStats.usedModel)
-		.orderBy(desc(sql`SUM(${apiKeyHourlyModelStats.cost})`));
+		.orderBy(
+			desc(sql`SUM(cast(${apiKeyHourlyModelStats.cost} as double precision))`),
+		);
 	const topModels = modelRows.slice(0, 5).map((r) => ({
 		key: r.usedModel || "unknown",
 		cost: Number(r.cost ?? 0),
@@ -982,7 +998,7 @@ analytics.openapi(getOrgActivity, async (c) => {
 			date: bucketDate(projectHourlyStats.hourTimestamp, timeZone, false).as(
 				"date",
 			),
-			cost: sql<number>`COALESCE(SUM(${projectHourlyStats.cost}), 0)`.as(
+			cost: sql<number>`COALESCE(SUM(cast(${projectHourlyStats.cost} as double precision)), 0)`.as(
 				"cost",
 			),
 			requestCount:
@@ -1056,7 +1072,7 @@ analytics.openapi(getOrgActivity, async (c) => {
 					false,
 				).as("date"),
 				usedModel: projectHourlyModelStats.usedModel,
-				cost: sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
+				cost: sql<number>`COALESCE(SUM(cast(${projectHourlyModelStats.cost} as double precision)), 0)`.as(
 					"cost",
 				),
 				requestCount:
@@ -1108,7 +1124,7 @@ analytics.openapi(getOrgActivity, async (c) => {
 					"date",
 				),
 				projectId: projectHourlyStats.projectId,
-				cost: sql<number>`COALESCE(SUM(${projectHourlyStats.cost}), 0)`.as(
+				cost: sql<number>`COALESCE(SUM(cast(${projectHourlyStats.cost} as double precision)), 0)`.as(
 					"cost",
 				),
 				requestCount:
@@ -1173,7 +1189,7 @@ analytics.openapi(getOrgActivity, async (c) => {
 				),
 				apiKeyId: apiKeyHourlyStats.apiKeyId,
 				description: tables.apiKey.description,
-				cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as(
+				cost: sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.cost} as double precision)), 0)`.as(
 					"cost",
 				),
 				requestCount:
