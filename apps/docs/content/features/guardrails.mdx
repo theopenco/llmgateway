@@ -54,8 +54,15 @@ Identifies personal information:
 - Social Security Numbers
 - Credit card numbers
 - IP addresses
+- Passport and driver's license numbers
 
 When the action is set to **redact**, PII is replaced with placeholders like `[EMAIL_REDACTED]`.
+
+Detection is validated rather than purely pattern-based, so identifiers that only
+look like PII are left alone: card numbers must pass the Luhn checksum, phone
+numbers need grouping separators or a nearby phone keyword, and passport and
+license numbers need a nearby keyword. A bare numeric id such as a product id,
+order number or unix timestamp is therefore never redacted as a phone number.
 
 ### Secrets Detection
 
@@ -65,6 +72,11 @@ Detects credentials and API keys:
 - Generic API keys
 - Passwords in common formats
 - Private keys
+
+High-entropy checks and placeholder filtering keep ordinary content out of the
+way: git SHAs and hex digests are not treated as AWS secrets, and template
+values such as `YOUR_API_KEY`, `${OPENAI_API_KEY}` or `********` are not treated
+as credentials.
 
 ### File Type Restrictions
 

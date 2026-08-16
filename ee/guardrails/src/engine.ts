@@ -109,6 +109,15 @@ export async function checkGuardrails(
 
 			if (!result.passed) {
 				let matchedPattern = result.matches.join(", ");
+				// Never persist the raw detection sample for rules whose whole
+				// purpose is keeping that content out of storage.
+				let matchedContent = content;
+
+				if (rule.id === "system:pii_detection") {
+					matchedContent = redactPii(matchedContent).redacted;
+				} else if (rule.id === "system:secrets") {
+					matchedContent = redactSecrets(matchedContent).redacted;
+				}
 
 				if (ruleConfig.action === "redact") {
 					if (rule.id === "system:pii_detection") {
@@ -144,7 +153,7 @@ export async function checkGuardrails(
 					category: rule.category,
 					action: ruleConfig.action,
 					matchedPattern,
-					matchedContent: content.substring(0, 100),
+					matchedContent: matchedContent.substring(0, 100),
 				});
 			}
 		}
