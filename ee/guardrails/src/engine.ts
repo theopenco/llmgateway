@@ -108,34 +108,28 @@ export async function checkGuardrails(
 			const result = rule.check(content, ruleConfig);
 
 			if (!result.passed) {
-				let matchedPattern = result.matches.join(", ");
+				// The PII and secrets rules report detector labels rather than
+				// matched values, so neither field may carry the content those
+				// rules exist to keep out of storage.
+				let matchedContent = content;
+				let kind: RedactionInfo["kind"] | undefined;
 
-				if (ruleConfig.action === "redact") {
-					if (rule.id === "system:pii_detection") {
-						const { patterns } = redactPii(content);
-						if (patterns.length > 0) {
-							redactions.push({
-								ruleId: rule.id,
-								messageIndex,
-								kind: "pii",
-								matches: [],
-								pattern: patterns.join(", "),
-							});
-						}
-						// Avoid logging the raw PII; log the detected types instead
-						matchedPattern = patterns.join(", ");
-					} else if (rule.id === "system:secrets") {
-						const { patterns } = redactSecrets(content);
-						if (patterns.length > 0) {
-							redactions.push({
-								ruleId: rule.id,
-								messageIndex,
-								kind: "secrets",
-								matches: [],
-								pattern: patterns.join(", "),
-							});
-						}
-					}
+				if (rule.id === "system:pii_detection") {
+					matchedContent = redactPii(matchedContent).redacted;
+					kind = "pii";
+				} else if (rule.id === "system:secrets") {
+					matchedContent = redactSecrets(matchedContent).redacted;
+					kind = "secrets";
+				}
+
+				if (ruleConfig.action === "redact" && kind) {
+					redactions.push({
+						ruleId: rule.id,
+						messageIndex,
+						kind,
+						matches: [],
+						pattern: result.matches.join(", "),
+					});
 				}
 
 				violations.push({
@@ -143,8 +137,8 @@ export async function checkGuardrails(
 					ruleName: rule.name,
 					category: rule.category,
 					action: ruleConfig.action,
-					matchedPattern,
-					matchedContent: content.substring(0, 100),
+					matchedPattern: result.matches.join(", "),
+					matchedContent: matchedContent.substring(0, 100),
 				});
 			}
 		}
