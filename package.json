@@ -46,7 +46,7 @@
 		"@types/canvas-confetti": "1.9.0",
 		"@types/node": "26.1.2",
 		"commitlint": "21.2.1",
-		"concurrently": "^10.0.3",
+		"concurrently": "^10.0.4",
 		"dotenv": "17.4.2",
 		"esbuild-fix-imports-plugin": "1.0.23",
 		"eslint": "^10.8.1",
