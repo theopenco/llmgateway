@@ -1523,7 +1523,7 @@ organization.openapi(getCreditsRunway, async (c) => {
 	// blended `cost` would overstate the burn rate for BYOK-heavy orgs.
 	const result = await db
 		.select({
-			totalCost: sql<number>`COALESCE(SUM(${projectHourlyStats.creditsCost}), 0) + COALESCE(SUM(${projectHourlyStats.apiKeysDataStorageCost}), 0)`,
+			totalCost: sql<number>`COALESCE(SUM(cast(${projectHourlyStats.creditsCost} as double precision)), 0) + COALESCE(SUM(cast(${projectHourlyStats.apiKeysDataStorageCost} as double precision)), 0)`,
 		})
 		.from(projectHourlyStats)
 		.innerJoin(

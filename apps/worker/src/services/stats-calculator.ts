@@ -382,15 +382,20 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 				sql<number>`count(${log.timeToFirstReasoningToken})::int`.as(
 					"timeToFirstReasoningTokenCount",
 				),
-			totalCost: sql<number>`coalesce(sum(${log.cost}), 0)`.as("totalCost"),
-			totalInputCost: sql<number>`coalesce(sum(${log.inputCost}), 0)`.as(
-				"totalInputCost",
-			),
-			totalOutputCost: sql<number>`coalesce(sum(${log.outputCost}), 0)`.as(
-				"totalOutputCost",
-			),
+			totalCost:
+				sql<number>`coalesce(sum(cast(${log.cost} as double precision)), 0)`.as(
+					"totalCost",
+				),
+			totalInputCost:
+				sql<number>`coalesce(sum(cast(${log.inputCost} as double precision)), 0)`.as(
+					"totalInputCost",
+				),
+			totalOutputCost:
+				sql<number>`coalesce(sum(cast(${log.outputCost} as double precision)), 0)`.as(
+					"totalOutputCost",
+				),
 			totalCachedInputCost:
-				sql<number>`coalesce(sum(${log.cachedInputCost}), 0)`.as(
+				sql<number>`coalesce(sum(cast(${log.cachedInputCost} as double precision)), 0)`.as(
 					"totalCachedInputCost",
 				),
 			// Service-tier coverage. `requestedServiceTier` holds the tier the gateway
@@ -656,15 +661,20 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 				sql<number>`count(${log.timeToFirstReasoningToken})::int`.as(
 					"timeToFirstReasoningTokenCount",
 				),
-			totalCost: sql<number>`coalesce(sum(${log.cost}), 0)`.as("totalCost"),
-			totalInputCost: sql<number>`coalesce(sum(${log.inputCost}), 0)`.as(
-				"totalInputCost",
-			),
-			totalOutputCost: sql<number>`coalesce(sum(${log.outputCost}), 0)`.as(
-				"totalOutputCost",
-			),
+			totalCost:
+				sql<number>`coalesce(sum(cast(${log.cost} as double precision)), 0)`.as(
+					"totalCost",
+				),
+			totalInputCost:
+				sql<number>`coalesce(sum(cast(${log.inputCost} as double precision)), 0)`.as(
+					"totalInputCost",
+				),
+			totalOutputCost:
+				sql<number>`coalesce(sum(cast(${log.outputCost} as double precision)), 0)`.as(
+					"totalOutputCost",
+				),
 			totalCachedInputCost:
-				sql<number>`coalesce(sum(${log.cachedInputCost}), 0)`.as(
+				sql<number>`coalesce(sum(cast(${log.cachedInputCost} as double precision)), 0)`.as(
 					"totalCachedInputCost",
 				),
 			// Service-tier coverage. `requestedServiceTier` holds the tier the gateway
@@ -1118,10 +1128,10 @@ async function calculateModelHistoryForHour(targetHour: Date) {
 			totalTimeToFirstReasoningToken: sql<number>`coalesce(sum(${modelHistory.totalTimeToFirstReasoningToken}), 0)::int`,
 			timeToFirstTokenCount: sql<number>`coalesce(sum(${modelHistory.timeToFirstTokenCount}), 0)::int`,
 			timeToFirstReasoningTokenCount: sql<number>`coalesce(sum(${modelHistory.timeToFirstReasoningTokenCount}), 0)::int`,
-			totalCost: sql<number>`coalesce(sum(${modelHistory.totalCost}), 0)`,
-			totalInputCost: sql<number>`coalesce(sum(${modelHistory.totalInputCost}), 0)`,
-			totalOutputCost: sql<number>`coalesce(sum(${modelHistory.totalOutputCost}), 0)`,
-			totalCachedInputCost: sql<number>`coalesce(sum(${modelHistory.totalCachedInputCost}), 0)`,
+			totalCost: sql<number>`coalesce(sum(cast(${modelHistory.totalCost} as double precision)), 0)`,
+			totalInputCost: sql<number>`coalesce(sum(cast(${modelHistory.totalInputCost} as double precision)), 0)`,
+			totalOutputCost: sql<number>`coalesce(sum(cast(${modelHistory.totalOutputCost} as double precision)), 0)`,
+			totalCachedInputCost: sql<number>`coalesce(sum(cast(${modelHistory.totalCachedInputCost} as double precision)), 0)`,
 			serviceTierExplicitCount: sql<number>`coalesce(sum(${modelHistory.serviceTierExplicitCount}), 0)::int`,
 			serviceTierImplicitCount: sql<number>`coalesce(sum(${modelHistory.serviceTierImplicitCount}), 0)::int`,
 			serviceTierServedCount: sql<number>`coalesce(sum(${modelHistory.serviceTierServedCount}), 0)::int`,
@@ -1188,10 +1198,10 @@ async function calculateMappingHistoryForHour(targetHour: Date) {
 			totalTimeToFirstReasoningToken: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalTimeToFirstReasoningToken}), 0)::int`,
 			timeToFirstTokenCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.timeToFirstTokenCount}), 0)::int`,
 			timeToFirstReasoningTokenCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.timeToFirstReasoningTokenCount}), 0)::int`,
-			totalCost: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalCost}), 0)`,
-			totalInputCost: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalInputCost}), 0)`,
-			totalOutputCost: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalOutputCost}), 0)`,
-			totalCachedInputCost: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalCachedInputCost}), 0)`,
+			totalCost: sql<number>`coalesce(sum(cast(${modelProviderMappingHistory.totalCost} as double precision)), 0)`,
+			totalInputCost: sql<number>`coalesce(sum(cast(${modelProviderMappingHistory.totalInputCost} as double precision)), 0)`,
+			totalOutputCost: sql<number>`coalesce(sum(cast(${modelProviderMappingHistory.totalOutputCost} as double precision)), 0)`,
+			totalCachedInputCost: sql<number>`coalesce(sum(cast(${modelProviderMappingHistory.totalCachedInputCost} as double precision)), 0)`,
 			serviceTierExplicitCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.serviceTierExplicitCount}), 0)::int`,
 			serviceTierImplicitCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.serviceTierImplicitCount}), 0)::int`,
 			serviceTierServedCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.serviceTierServedCount}), 0)::int`,
