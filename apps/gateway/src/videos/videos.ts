@@ -20,6 +20,7 @@ import {
 import {
 	findApiKeyByToken,
 	findEffectiveDiscount,
+	findEffectiveRoutingScoreMultiplier,
 	findManagedProviderKey,
 	findOrganizationById,
 	findProjectById,
@@ -115,6 +116,15 @@ function createProviderDiscountResolver(organizationId: string) {
 	) =>
 		(await findEffectiveDiscount(organizationId, provider.providerId, modelId))
 			.discount;
+}
+
+function createProviderRoutingScoreMultiplierResolver() {
+	return async (
+		provider: Pick<ProviderModelMapping, "providerId">,
+		modelId: string,
+	) =>
+		(await findEffectiveRoutingScoreMultiplier(provider.providerId, modelId))
+			.scoreMultiplier;
 }
 
 const TERMINAL_VIDEO_STATUSES = new Set([
@@ -1881,6 +1891,8 @@ async function resolveVideoExecution(
 ): Promise<ResolvedVideoExecution> {
 	const providerDiscountResolver =
 		createProviderDiscountResolver(organizationId);
+	const providerRoutingScoreMultiplierResolver =
+		createProviderRoutingScoreMultiplierResolver();
 	const videoPricing: VideoPricingContext = {
 		durationSeconds: videoDurationSeconds,
 		includeAudio,
@@ -2037,6 +2049,7 @@ async function resolveVideoExecution(
 							routingConfig: routingCfg,
 							organizationId,
 							providerDiscountResolver,
+							providerRoutingScoreMultiplierResolver,
 						},
 					);
 
@@ -2109,6 +2122,7 @@ async function resolveVideoExecution(
 					routingConfig: routingCfg,
 					organizationId,
 					providerDiscountResolver,
+					providerRoutingScoreMultiplierResolver,
 				},
 			);
 			if (cheapestResult) {

@@ -16,6 +16,7 @@ import {
 	project,
 	providerKey,
 	providerKeyAllowsModel,
+	routingScoreMultiplier,
 	user,
 	userOrganization,
 } from "@llmgateway/db";
@@ -31,6 +32,7 @@ import {
 	findProjectById,
 	findProviderKey,
 	findProviderKeysByProviders,
+	findEffectiveRoutingScoreMultiplier,
 	findUserFromOrganization,
 } from "./cached-queries.js";
 
@@ -44,6 +46,7 @@ const testProviderKeyOpenAi = "test-provider-key-swr-openai";
 const testProviderKeyAnthropic = "test-provider-key-swr-anthropic";
 const testIamRuleId = "test-iam-rule-swr";
 const testDiscountId = "test-discount-swr";
+const testRoutingScoreMultiplierId = "test-routing-score-multiplier-swr";
 const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 
 async function flushDrizzleCache(): Promise<void> {
@@ -74,6 +77,9 @@ describe("cached-queries SWR integration", () => {
 		await db.delete(apiKey);
 		await db.delete(providerKey);
 		await db.delete(discount).where(eq(discount.id, testDiscountId));
+		await db
+			.delete(routingScoreMultiplier)
+			.where(eq(routingScoreMultiplier.id, testRoutingScoreMultiplierId));
 		await db.delete(userOrganization);
 		await db.delete(project);
 		await db.delete(organization).where(eq(organization.id, testOrgId));
@@ -163,6 +169,15 @@ describe("cached-queries SWR integration", () => {
 			// (exercises the active-discount path, including on a Drizzle cache hit).
 			expiresAt: new Date(Date.now() + ONE_YEAR_MS),
 		});
+
+		await db.insert(routingScoreMultiplier).values({
+			id: testRoutingScoreMultiplierId,
+			provider: "openai",
+			model: "gpt-4",
+			scoreMultiplier: "-0.2",
+			reason: "SWR test routing adjustment",
+			expiresAt: new Date(Date.now() + ONE_YEAR_MS),
+		});
 	});
 
 	afterEach(async () => {
@@ -172,6 +187,9 @@ describe("cached-queries SWR integration", () => {
 		await db.delete(apiKey);
 		await db.delete(providerKey);
 		await db.delete(discount).where(eq(discount.id, testDiscountId));
+		await db
+			.delete(routingScoreMultiplier)
+			.where(eq(routingScoreMultiplier.id, testRoutingScoreMultiplierId));
 		await db.delete(userOrganization);
 		await db.delete(project);
 		await db.delete(organization).where(eq(organization.id, testOrgId));
@@ -299,6 +317,21 @@ describe("cached-queries SWR integration", () => {
 			const second = await findEffectiveDiscount(testOrgId, "openai", "gpt-4");
 			expect(second.discount).toBe("0.25");
 			expect(second.source).toBe("org_provider_model");
+		});
+
+		it("findEffectiveRoutingScoreMultiplier primes its SWR mirror", async () => {
+			const result = await findEffectiveRoutingScoreMultiplier(
+				"openai",
+				"gpt-4",
+			);
+			expect(result.scoreMultiplier).toBe("-0.2");
+			expect(result.source).toBe("provider_model");
+			await waitForSwrMirrorWrites();
+
+			const mirror = await redisClient.get(
+				`${SWR_PREFIX}routingScoreMultiplier:openai:gpt-4`,
+			);
+			expect(mirror).not.toBeNull();
 		});
 	});
 
@@ -476,6 +509,25 @@ describe("cached-queries SWR integration", () => {
 			const result = await findEffectiveDiscount(testOrgId, "openai", "gpt-4");
 			expect(result.discount).toBe("0.25");
 			expect(result.source).toBe("org_provider_model");
+
+			selectSpy.mockRestore();
+		});
+
+		it("returns routing multiplier SWR mirror when DB errors", async () => {
+			await findEffectiveRoutingScoreMultiplier("openai", "gpt-4");
+			await waitForSwrMirrorWrites();
+			await flushDrizzleCache();
+
+			const selectSpy = vi.spyOn(cdb, "select").mockImplementation(() => {
+				throw new Error("postgres unavailable");
+			});
+
+			const result = await findEffectiveRoutingScoreMultiplier(
+				"openai",
+				"gpt-4",
+			);
+			expect(result.scoreMultiplier).toBe("-0.2");
+			expect(result.source).toBe("provider_model");
 
 			selectSpy.mockRestore();
 		});

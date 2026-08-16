@@ -37,6 +37,7 @@ import {
 	project as projectTable,
 	providerKey as providerKeyTable,
 	rateLimit as rateLimitTable,
+	routingScoreMultiplier as routingScoreMultiplierTable,
 	user as userTable,
 	userIamRule as userIamRuleTable,
 	userOrganization as userOrganizationTable,
@@ -94,6 +95,9 @@ const projectTableName = getTableName(projectTable);
 const providerKeyTableName = getTableName(providerKeyTable);
 const customModelTableName = getTableName(customModelTable);
 const rateLimitTableName = getTableName(rateLimitTable);
+const routingScoreMultiplierTableName = getTableName(
+	routingScoreMultiplierTable,
+);
 const userTableName = getTableName(userTable);
 const userIamRuleTableName = getTableName(userIamRuleTable);
 const userOrganizationTableName = getTableName(userOrganizationTable);
@@ -1104,6 +1108,89 @@ export async function findEffectiveDiscount(
 				discount: "0",
 				source: "none",
 			};
+		},
+	);
+}
+
+export interface EffectiveRoutingScoreMultiplier {
+	scoreMultiplier: string;
+	source: "provider_model" | "provider" | "model" | "none";
+	multiplierId?: string;
+}
+
+/**
+ * Get the internal routing score adjustment for a provider/model combination.
+ * The stable SQL shape is cached by Drizzle and the result is mirrored in SWR.
+ */
+export async function findEffectiveRoutingScoreMultiplier(
+	provider: string,
+	model: string,
+): Promise<EffectiveRoutingScoreMultiplier> {
+	return await swrWrap(
+		`routingScoreMultiplier:${provider}:${model}`,
+		[routingScoreMultiplierTableName],
+		async () => {
+			const rows = await db
+				.select({
+					id: routingScoreMultiplierTable.id,
+					provider: routingScoreMultiplierTable.provider,
+					model: routingScoreMultiplierTable.model,
+					scoreMultiplier: routingScoreMultiplierTable.scoreMultiplier,
+					expiresAt: routingScoreMultiplierTable.expiresAt,
+				})
+				.from(routingScoreMultiplierTable)
+				.where(
+					and(
+						or(
+							eq(routingScoreMultiplierTable.provider, provider),
+							isNull(routingScoreMultiplierTable.provider),
+						),
+						or(
+							eq(routingScoreMultiplierTable.model, model),
+							isNull(routingScoreMultiplierTable.model),
+						),
+					),
+				);
+
+			const now = Date.now();
+			const multipliers = rows.filter(
+				(row) =>
+					row.expiresAt === null || new Date(row.expiresAt).getTime() >= now,
+			);
+			const providerModel = multipliers.find(
+				(row) => row.provider === provider && row.model === model,
+			);
+			if (providerModel) {
+				return {
+					scoreMultiplier: providerModel.scoreMultiplier,
+					source: "provider_model" as const,
+					multiplierId: providerModel.id,
+				};
+			}
+
+			const providerOnly = multipliers.find(
+				(row) => row.provider === provider && row.model === null,
+			);
+			if (providerOnly) {
+				return {
+					scoreMultiplier: providerOnly.scoreMultiplier,
+					source: "provider" as const,
+					multiplierId: providerOnly.id,
+				};
+			}
+
+			const modelOnly = multipliers.find(
+				(row) => row.provider === null && row.model === model,
+			);
+			if (modelOnly) {
+				return {
+					scoreMultiplier: modelOnly.scoreMultiplier,
+					source: "model" as const,
+					multiplierId: modelOnly.id,
+				};
+			}
+
+			return { scoreMultiplier: "0", source: "none" as const };
 		},
 	);
 }
