@@ -2236,6 +2236,51 @@ async function seed() {
 		createdBy: "enterprise-dev-user-id",
 	});
 
+	// Guardrails: an org-level config that the Enterprise Project inherits, plus
+	// a project-level override on the Restricted Project so both states of the
+	// organization/project relationship are visible locally.
+	await upsert(tables.guardrailConfig, {
+		id: "enterprise-guardrail-config-id",
+		organizationId: "enterprise-org-id",
+		enabled: true,
+		maxFileSizeMb: 8,
+	});
+
+	await upsert(tables.guardrailRule, {
+		id: "enterprise-guardrail-rule-id",
+		organizationId: "enterprise-org-id",
+		name: "Unreleased project codenames",
+		type: "blocked_terms",
+		config: {
+			type: "blocked_terms",
+			terms: ["project-atlas", "unannounced-product"],
+			matchType: "contains",
+			caseSensitive: false,
+		},
+		priority: 10,
+		action: "block",
+	});
+
+	await upsert(tables.guardrailConfig, {
+		id: "enterprise-project-guardrail-config-id",
+		organizationId: "enterprise-org-id",
+		projectId: "enterprise-project-secondary-id",
+		inheritOrganization: false,
+		enabled: true,
+		maxFileSizeMb: 2,
+	});
+
+	await upsert(tables.guardrailRule, {
+		id: "enterprise-project-guardrail-rule-id",
+		organizationId: "enterprise-org-id",
+		projectId: "enterprise-project-secondary-id",
+		name: "Customer account identifiers",
+		type: "custom_regex",
+		config: { type: "custom_regex", pattern: "\\bACC-\\d{9}\\b" },
+		priority: 20,
+		action: "redact",
+	});
+
 	await Promise.all(logs.map((log) => upsert(tables.log, log)));
 
 	await upsert(tables.transaction, {

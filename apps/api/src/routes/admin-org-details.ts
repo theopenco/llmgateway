@@ -467,6 +467,7 @@ adminOrgDetails.openapi(getOrganizationGuardrails, async (c) => {
 			db.query.guardrailConfig.findFirst({
 				where: {
 					organizationId: { eq: orgId },
+					projectId: { isNull: true },
 				},
 			}),
 			db.query.guardrailRule.findMany({

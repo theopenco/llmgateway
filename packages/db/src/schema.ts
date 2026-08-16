@@ -3809,14 +3809,22 @@ export interface TopicRestrictionRuleConfig {
 export type CustomRuleConfig =
 	BlockedTermsRuleConfig | CustomRegexRuleConfig | TopicRestrictionRuleConfig;
 
+// Guardrails are configured per organization (`project_id IS NULL`) and,
+// optionally, per project. A project row with `inherit_organization: false`
+// fully replaces the organization config and its custom rules for that project.
 export const guardrailConfig = pgTable(
 	"guardrail_config",
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
 		organizationId: text("organization_id")
 			.notNull()
-			.references(() => organization.id, { onDelete: "cascade" })
-			.unique(),
+			.references(() => organization.id, { onDelete: "cascade" }),
+		projectId: text("project_id").references(() => project.id, {
+			onDelete: "cascade",
+		}),
+		inheritOrganization: boolean("inherit_organization")
+			.default(true)
+			.notNull(),
 		enabled: boolean().default(true).notNull(),
 		systemRules: jsonb("system_rules")
 			.$type<SystemRulesConfig>()
@@ -3835,6 +3843,12 @@ export const guardrailConfig = pgTable(
 	},
 	(table) => [
 		index("guardrail_config_organization_id_idx").on(table.organizationId),
+		uniqueIndex("guardrail_config_organization_id_unique")
+			.on(table.organizationId)
+			.where(sql`${table.projectId} IS NULL`),
+		uniqueIndex("guardrail_config_project_id_unique")
+			.on(table.projectId)
+			.where(sql`${table.projectId} IS NOT NULL`),
 	],
 );
 
@@ -3845,6 +3859,9 @@ export const guardrailRule = pgTable(
 		organizationId: text("organization_id")
 			.notNull()
 			.references(() => organization.id, { onDelete: "cascade" }),
+		projectId: text("project_id").references(() => project.id, {
+			onDelete: "cascade",
+		}),
 		name: text().notNull(),
 		type: text({ enum: customRuleTypes }).notNull(),
 		config: jsonb().$type<CustomRuleConfig>().notNull(),
@@ -3859,6 +3876,7 @@ export const guardrailRule = pgTable(
 	},
 	(table) => [
 		index("guardrail_rule_organization_id_idx").on(table.organizationId),
+		index("guardrail_rule_project_id_idx").on(table.projectId),
 		index("guardrail_rule_priority_idx").on(table.priority),
 	],
 );

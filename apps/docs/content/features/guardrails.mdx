@@ -25,6 +25,14 @@ Guardrails run on every API request, scanning message content for:
 
 When a violation is detected, you control what happens: block the request, redact the content, or log a warning.
 
+## Organization and Project Scopes
+
+Guardrails are configured for the whole organization by default, and every project inherits that configuration.
+
+A project can opt out and define its own guardrails instead — useful when one application needs stricter or looser rules than the rest of the organization. Turn off **Use organization guardrails** in the project's Guardrails settings, and that project's configuration and custom rules fully replace the organization's for its traffic. The organization Guardrails page lists every project that currently overrides it.
+
+Only organization owners and admins can change guardrails, at either scope.
+
 ## System Rules
 
 Built-in rules protect against common threats:
