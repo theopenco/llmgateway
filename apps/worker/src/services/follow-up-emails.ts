@@ -110,7 +110,7 @@ If you're having trouble getting started, here are some resources:
 
 - Getting started in 5 minutes: https://llmgateway.io/blog/getting-started-in-5-minutes
 - Documentation: https://docs.llmgateway.io
-- Chat Playground: https://chat.llmgateway.io (test models without writing code)
+- Lounge: https://lounge.llmgateway.io (test models without writing code)
 
 If something isn't working as expected or you need help with your setup, reply to this email and we'll get you sorted out.
 
@@ -196,7 +196,7 @@ export async function processNoPurchaseEmails(): Promise<void> {
 				eq(organization.devPlan, "none"),
 				eq(organization.status, "active"),
 				// Only nudge normal pay-as-you-go team orgs. Personal orgs back the
-				// DevPass coding product and chat orgs back chat.llmgateway.io — both
+				// DevPass coding product and chat orgs back Lounge — both
 				// have their own billing and are hidden from the dashboard, so they
 				// should never receive the "add credits" email.
 				eq(organization.kind, "default"),
@@ -318,7 +318,7 @@ async function processLowUsageEmails(): Promise<void> {
 		LEFT JOIN (
 			SELECT
 				${project.organizationId} AS organization_id,
-				SUM(${projectHourlyStats.cost}) AS total_spent
+				SUM(cast(${projectHourlyStats.cost} as double precision)) AS total_spent
 			FROM ${projectHourlyStats}
 			JOIN ${project} ON ${project.id} = ${projectHourlyStats.projectId}
 			GROUP BY ${project.organizationId}
@@ -394,7 +394,7 @@ async function processNoRepurchaseEmails(): Promise<void> {
 		LEFT JOIN (
 			SELECT
 				${project.organizationId} AS organization_id,
-				SUM(${projectHourlyStats.cost}) AS total_spent
+				SUM(cast(${projectHourlyStats.cost} as double precision)) AS total_spent
 			FROM ${projectHourlyStats}
 			JOIN ${project} ON ${project.id} = ${projectHourlyStats.projectId}
 			GROUP BY ${project.organizationId}

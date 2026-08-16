@@ -23,6 +23,8 @@ export const ROUTING_EXCLUSION_REASON_MESSAGES = {
 	reasoning_max_tokens: "reasoning_max_tokens not supported",
 	tools: "tools not supported",
 	web_search: "web_search not supported",
+	web_search_forced_only:
+		"web_search only supported when required via tool_choice",
 	n_unsupported: "n > 1 not supported",
 	n_limit: "n exceeds provider limit",
 	n_streaming: "n > 1 not supported when streaming",
@@ -73,6 +75,7 @@ export const ROUTING_EXCLUSION_REASON_LABELS: Record<
 	reasoning_max_tokens: "Reasoning max tokens",
 	tools: "Tools",
 	web_search: "Web search",
+	web_search_forced_only: "Web search not required",
 	n_unsupported: "n > 1",
 	n_limit: "n limit",
 	n_streaming: "n > 1 streaming",

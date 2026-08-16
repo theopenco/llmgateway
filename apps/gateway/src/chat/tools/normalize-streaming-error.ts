@@ -1,6 +1,7 @@
 import { redactedProviderErrorText } from "@/lib/stealth-provider-errors.js";
 
 import { extractErrorCause } from "./extract-error-cause.js";
+import { parseTrailingUpstreamError } from "./parse-trailing-upstream-error.js";
 
 interface ErrorWithCode extends Error {
 	code?: string;
@@ -180,12 +181,32 @@ export function normalizeStreamingError(
 	const errorCode = getErrorCode(error);
 
 	const terminated = isUpstreamTermination(error);
-	const statusCode = terminated ? 502 : 500;
+	// A provider that sheds a stream (e.g. the Gemini API dropping Flex-tier
+	// capacity) may write one structured JSON error as a raw body tail before
+	// closing the socket. Surface that error's message and status instead of
+	// the generic termination text so callers see the real, retryable cause.
+	const trailingUpstreamError =
+		terminated && bufferSnapshot
+			? parseTrailingUpstreamError(bufferSnapshot)
+			: null;
+	const trailingStatusCode =
+		trailingUpstreamError &&
+		typeof trailingUpstreamError.code === "number" &&
+		trailingUpstreamError.code >= 400 &&
+		trailingUpstreamError.code <= 599
+			? trailingUpstreamError.code
+			: undefined;
+	const trailingMessage =
+		trailingUpstreamError && typeof trailingUpstreamError.message === "string"
+			? trailingUpstreamError.message
+			: undefined;
+	const statusCode = terminated ? (trailingStatusCode ?? 502) : 500;
 	const statusText = terminated
 		? "Upstream Stream Terminated"
 		: "Streaming Read Error";
 	const message = terminated
-		? "Upstream stream terminated unexpectedly before completion"
+		? (trailingMessage ??
+			"Upstream stream terminated unexpectedly before completion")
 		: `Streaming error: ${rawMessage}`;
 	const responseText = cause ? `${rawMessage} | cause: ${cause}` : rawMessage;
 

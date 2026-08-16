@@ -1,5 +1,9 @@
 import { sumTotalTokens } from "@/lib/costs.js";
 
+import { redisClient } from "@llmgateway/cache";
+import { shortid } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
+
 import { dedupeGoogleCandidateParts } from "./google-candidates.js";
 import { mapFinishReasonToOpenai } from "./map-finish-reason-to-openai.js";
 import { formatUsedModelForDisplay } from "./resolve-provider-context.js";
@@ -457,16 +461,55 @@ export function transformResponseToOpenai(
 							const candidateIndex = candidate.index ?? position;
 							const candidateToolCalls = candidateParts
 								.filter((part: any) => part.functionCall)
-								.map((part: any, fcIndex: number) => ({
-									// Same id scheme as parse-provider-response so choice 0's
-									// ids line up with the cached thought signatures.
-									id: `${part.functionCall.name}_${candidateIndex}_${fcIndex}`,
-									type: "function",
-									function: {
-										name: part.functionCall.name,
-										arguments: JSON.stringify(part.functionCall.args ?? {}),
-									},
-								}));
+								.map((part: any, fcIndex: number) => {
+									// parseProviderResponse only processes candidate 0, and it
+									// caches the thought signature under the id it emits
+									// (`${name}_${shortid(24)}`, as `thought_signature:<id>` in
+									// Redis). Reuse those exact tool calls so the id the client
+									// echoes back on the next turn is the one the signature is
+									// cached under. Regenerating a name+index id here (the scheme
+									// parse abandoned in #1448) made the Redis lookup miss and
+									// Gemini reject the replay with "Corrupted thought signature".
+									// Candidates parse did not process (1+) get the same
+									// treatment inline: unique id, inline signature, and the
+									// Redis entry under the emitted id.
+									if (
+										position === 0 &&
+										Array.isArray(toolResults) &&
+										toolResults[fcIndex]
+									) {
+										return toolResults[fcIndex];
+									}
+									const toolCall: any = {
+										id: `${part.functionCall.name}_${shortid(24)}`,
+										type: "function",
+										function: {
+											name: part.functionCall.name,
+											arguments: JSON.stringify(part.functionCall.args ?? {}),
+										},
+									};
+									if (part.thoughtSignature) {
+										toolCall.extra_content = {
+											google: {
+												thought_signature: part.thoughtSignature,
+											},
+										};
+										// Same cache as parse-provider-response: the id is the
+										// `thought_signature:<id>` key read back on the next turn.
+										redisClient
+											.setex(
+												`thought_signature:${toolCall.id}`,
+												86400,
+												part.thoughtSignature,
+											)
+											.catch((err) => {
+												logger.error("Failed to cache thought_signature", {
+													err,
+												});
+											});
+									}
+									return toolCall;
+								});
 							return {
 								index: candidateIndex,
 								message: {

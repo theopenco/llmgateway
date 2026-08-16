@@ -181,15 +181,15 @@ export async function getUsageReport(
 			sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.reasoningTokens} AS NUMERIC)), 0)`.as(
 				"reasoningTokens",
 			),
-		cost: sql<number>`COALESCE(SUM(${apiKeyHourlyModelStats.cost}), 0)`.as(
+		cost: sql<number>`COALESCE(SUM(cast(${apiKeyHourlyModelStats.cost} as double precision)), 0)`.as(
 			"cost",
 		),
 		inputCost:
-			sql<number>`COALESCE(SUM(${apiKeyHourlyModelStats.inputCost}), 0)`.as(
+			sql<number>`COALESCE(SUM(cast(${apiKeyHourlyModelStats.inputCost} as double precision)), 0)`.as(
 				"inputCost",
 			),
 		outputCost:
-			sql<number>`COALESCE(SUM(${apiKeyHourlyModelStats.outputCost}), 0)`.as(
+			sql<number>`COALESCE(SUM(cast(${apiKeyHourlyModelStats.outputCost} as double precision)), 0)`.as(
 				"outputCost",
 			),
 		...modeSplitFields(apiKeyHourlyModelStats),

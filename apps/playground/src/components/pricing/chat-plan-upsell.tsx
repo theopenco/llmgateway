@@ -5,6 +5,8 @@ import { motion } from "motion/react";
 
 import { ChatPricingPlans } from "@/components/pricing/chat-pricing-plans";
 
+import { SELF_REFUND_WINDOW_DAYS } from "@llmgateway/shared";
+
 type StudioNoun = "images" | "videos" | "audio";
 
 interface ChatPlanUpsellProps {
@@ -57,7 +59,8 @@ export function ChatPlanUpsell({
 				<p className="mx-auto mt-3 max-w-xl text-pretty text-sm leading-relaxed text-muted-foreground sm:text-base">
 					Fast models plus the image, video and audio studios from $9 — or add
 					Claude Opus, GPT-5, Gemini and Grok with Plus and Pro. More usage than
-					you pay for, and a 7-day money-back guarantee.
+					you pay for, and a self-serve {SELF_REFUND_WINDOW_DAYS}-day money-back
+					guarantee.
 				</p>
 			</motion.div>
 

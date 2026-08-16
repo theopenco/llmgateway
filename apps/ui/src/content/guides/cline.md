@@ -2,7 +2,8 @@
 id: cline
 slug: cline
 title: Cline Integration
-description: Run Cline, the autonomous VS Code coding agent, on any of 200+ models through LLM Gateway. One OpenAI-compatible endpoint, unified billing, full cost tracking.
+seoTitle: "Cline Setup: Kimi K3 and 200+ Models"
+description: Run Cline, the autonomous VS Code coding agent, on Kimi K3 or 200+ models through LLM Gateway. One OpenAI-compatible endpoint, full cost tracking.
 date: 2026-07-03
 ---
 

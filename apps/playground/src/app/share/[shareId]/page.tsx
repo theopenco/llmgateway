@@ -201,7 +201,7 @@ export default async function SharedChatPage({
 	const data = (await response.json()) as SharedChatResponse;
 	const messages = data.share.messages.map(toUiMessage);
 
-	const shareUrl = `https://chat.llmgateway.io/share/${data.share.id}`;
+	const shareUrl = `https://lounge.llmgateway.io/share/${data.share.id}`;
 	const { description: articleDescription } = deriveShareDescription(
 		data.share.messages,
 	);
@@ -230,7 +230,7 @@ export default async function SharedChatPage({
 				"@type": "ListItem",
 				position: 1,
 				name: "Home",
-				item: "https://chat.llmgateway.io",
+				item: "https://lounge.llmgateway.io",
 			},
 			{
 				"@type": "ListItem",

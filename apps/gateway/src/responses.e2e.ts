@@ -48,6 +48,14 @@ const TOOL_CALL_DENYLIST = new Set<string>([
 ]);
 
 const responsesTestModels = oneModelPerProvider(testModels);
+// Image-generation mappings answer every request with an image (the Responses
+// layer emits placeholder output text), so the multi-turn name-recall
+// assertion is unsatisfiable for them; they still run the single-turn case.
+// Only reachable when TEST_MODELS pins image-only models for a provider.
+const responsesMultiTurnModels = responsesTestModels.filter(
+	(m) =>
+		!m.providers.some((p: ProviderModelMapping) => p.imageGenerations === true),
+);
 const responsesToolCallModels = oneModelPerProvider(toolCallModels).filter(
 	(m) => !TOOL_CALL_DENYLIST.has(m.model),
 );
@@ -157,7 +165,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 		},
 	);
 
-	test.each(responsesTestModels)(
+	test.each(responsesMultiTurnModels)(
 		"responses multi-turn $model",
 		getTestOptions(),
 		async ({ model }) => {

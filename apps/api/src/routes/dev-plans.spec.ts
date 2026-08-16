@@ -1219,3 +1219,122 @@ describe("dev plan status billing history", () => {
 		expect(await getStatus()).toMatchObject({ hasBillingHistory: true });
 	});
 });
+
+describe("dev plan billing history list", () => {
+	let token: string;
+
+	beforeEach(async () => {
+		vi.clearAllMocks();
+		token = await createTestUser();
+
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Personal Org",
+			billingEmail: "admin@example.com",
+			kind: "devpass",
+			devPlan: "none",
+		});
+		await db.insert(tables.userOrganization).values({
+			userId: "test-user-id",
+			organizationId: ORG_ID,
+			role: "owner",
+		});
+	});
+
+	afterEach(async () => {
+		await db.delete(tables.transaction);
+		await deleteAll();
+	});
+
+	async function getInvoices() {
+		const res = await app.request("/dev-plans/invoices", {
+			headers: { Cookie: token },
+		});
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as {
+			invoices: {
+				id: string;
+				type: string;
+				amount: string | null;
+				creditAmount: string | null;
+			}[];
+		};
+		return body.invoices;
+	}
+
+	it("lists refunds and plan lifecycle rows alongside the charges", async () => {
+		await db.insert(tables.transaction).values([
+			{
+				id: "tx-start",
+				organizationId: ORG_ID,
+				type: "dev_plan_start",
+				amount: "29",
+				creditAmount: "87",
+				status: "completed",
+				createdAt: new Date("2026-07-15T00:00:00Z"),
+			},
+			{
+				id: "tx-cancel",
+				organizationId: ORG_ID,
+				type: "dev_plan_cancel",
+				status: "completed",
+				createdAt: new Date("2026-07-31T00:00:00Z"),
+			},
+			{
+				id: "tx-refund",
+				organizationId: ORG_ID,
+				type: "credit_refund",
+				amount: "29",
+				creditAmount: "0",
+				status: "completed",
+				relatedTransactionId: "tx-start",
+				createdAt: new Date("2026-08-12T00:00:00Z"),
+			},
+			{
+				id: "tx-end",
+				organizationId: ORG_ID,
+				type: "dev_plan_end",
+				status: "completed",
+				createdAt: new Date("2026-08-12T00:01:00Z"),
+			},
+		]);
+
+		const invoices = await getInvoices();
+
+		expect(invoices.map((i) => i.id)).toEqual([
+			"tx-end",
+			"tx-refund",
+			"tx-cancel",
+			"tx-start",
+		]);
+		expect(invoices[1]).toMatchObject({
+			type: "credit_refund",
+			amount: "29",
+		});
+	});
+
+	it("still hides negative top-up reversal rows", async () => {
+		await db.insert(tables.transaction).values([
+			{
+				id: "tx-topup",
+				organizationId: ORG_ID,
+				type: "credit_topup",
+				amount: "26.25",
+				creditAmount: "25",
+				status: "completed",
+				createdAt: new Date("2026-08-02T00:00:00Z"),
+			},
+			{
+				id: "tx-topup-reversal",
+				organizationId: ORG_ID,
+				type: "credit_topup",
+				amount: "-26.25",
+				creditAmount: "-25",
+				status: "completed",
+				createdAt: new Date("2026-08-03T00:00:00Z"),
+			},
+		]);
+
+		expect((await getInvoices()).map((i) => i.id)).toEqual(["tx-topup"]);
+	});
+});

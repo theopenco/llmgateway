@@ -96,7 +96,7 @@ export async function getUnsettledRealtimeOrganizationSpend(
 		.select({
 			total: sql<
 				string | null
-			>`sum(coalesce(${log.billingCost}, ${log.cost}::numeric))`,
+			>`sum(coalesce(${log.billingCost}, ${log.cost}::float8::numeric))`,
 		})
 		.from(log)
 		.where(

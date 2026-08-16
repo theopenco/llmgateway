@@ -5,6 +5,7 @@ import { PLAYGROUND_KEY_COOKIE_NAME } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 import {
 	applyMove,
 	buildTurnPrompt,
@@ -119,7 +120,7 @@ export async function POST(req: Request) {
 	const llmgateway = createLLMGateway({
 		apiKey,
 		baseURL: gatewayUrl,
-		headers: { "x-source": "chat.llmgateway.io" },
+		headers: { "x-source": LOUNGE_SOURCE },
 		// Picking one of five directions is a decision, not an essay. Left at
 		// their default effort, reasoning models spend ~1.3k thinking tokens per
 		// move, which makes a single level cost more and take minutes. Providers

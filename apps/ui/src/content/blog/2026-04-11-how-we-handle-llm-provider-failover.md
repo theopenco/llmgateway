@@ -56,6 +56,8 @@ Provider Attempt #1
 
 Up to 2 retries on different providers, all within the same API call. The client sees a normal response — it doesn't know or care that the first provider failed.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## Smart Routing: Picking the Right Provider
 
 When a request comes in for a model like `gpt-4o` without a provider prefix, the gateway needs to decide which provider to use. We don't do round-robin. We don't pick randomly. We score every available provider using a weighted algorithm based on real-time metrics from the last 5 minutes.
@@ -253,3 +255,5 @@ const response = await client.chat.completions.create({
 Everything else happens at the gateway layer.
 
 **[Try LLM Gateway free](/signup)** | **[Read the routing docs](https://docs.llmgateway.io/features/routing)** | **[Self-host with Docker](https://docs.llmgateway.io/self-host)**
+
+<BlogCta variant="gateway" location="bottom" />

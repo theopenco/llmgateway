@@ -14,6 +14,7 @@ import {
 	type ToolCall,
 	expandAllProviderRegions,
 	getSupportedServiceTiers,
+	resolveTimeBasedPricing,
 } from "@llmgateway/models";
 
 /**
@@ -266,6 +267,7 @@ const COMPLETION_INCLUDES_REASONING = new Set([
 	"moonshot",
 	"novita",
 	"openai",
+	"permafrost",
 	"quartz",
 	"ranoai",
 	"sakana",
@@ -619,12 +621,16 @@ export async function calculateCosts(
 	// Set completion tokens to 0 if not available (but still calculate input costs)
 	calculatedCompletionTokens ??= 0;
 
-	// Get pricing based on token count (supports tiered pricing)
+	// Resolve peak/off-peak time-of-day pricing (DeepSeek first-party): use the
+	// peak rates while the current UTC hour is inside the mapping's peak window,
+	// the off-peak base rates otherwise. Tier selection below then overrides by
+	// token count for mappings that price by context length.
+	const timeBasedPricing = resolveTimeBasedPricing(providerInfo);
 	const pricing = getPricingForTokenCount(
 		providerInfo.pricingTiers,
-		providerInfo.inputPrice ?? "0",
-		providerInfo.outputPrice ?? "0",
-		providerInfo.cachedInputPrice,
+		timeBasedPricing.inputPrice,
+		timeBasedPricing.outputPrice,
+		timeBasedPricing.cachedInputPrice,
 		providerInfo.cacheReadInputPrice,
 		providerInfo.cacheWriteInputPrice,
 		providerInfo.cacheWriteInputPrice1h,

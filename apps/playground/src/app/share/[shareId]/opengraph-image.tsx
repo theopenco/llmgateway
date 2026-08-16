@@ -242,7 +242,7 @@ function Footer({ model }: { model: string }) {
 					fontWeight: 500,
 				}}
 			>
-				chat.llmgateway.io
+				lounge.llmgateway.io
 			</span>
 		</div>
 	);
@@ -451,7 +451,7 @@ function ImagePreview({ preview }: { preview: SharePreview }) {
 					marginTop: 20,
 				}}
 			>
-				chat.llmgateway.io
+				lounge.llmgateway.io
 			</span>
 		</div>
 	);

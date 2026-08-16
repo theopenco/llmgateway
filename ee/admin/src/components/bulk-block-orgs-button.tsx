@@ -1,6 +1,11 @@
 "use client";
 
-import { AlertTriangle, Loader2, ShieldBan } from "lucide-react";
+import {
+	AlertTriangle,
+	Loader2,
+	MoreHorizontal,
+	ShieldBan,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -14,6 +19,12 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -139,20 +150,33 @@ export function BulkBlockOrgsButton({
 
 	return (
 		<>
-			<Button
-				variant="destructive"
-				size="sm"
-				disabled={searchTooShort}
-				onClick={handleOpen}
-				title={
-					searchTooShort
-						? `Search for at least ${minSearchLength} characters to bulk block the filtered organizations`
-						: "Block every organization matching the current filter"
-				}
-			>
-				<ShieldBan className="mr-1.5 h-4 w-4" />
-				Bulk block filtered
-			</Button>
+			<DropdownMenu>
+				<DropdownMenuTrigger asChild>
+					<Button
+						variant="outline"
+						size="icon-sm"
+						aria-label="Organization actions"
+						title="Organization actions"
+					>
+						<MoreHorizontal className="h-4 w-4" />
+					</Button>
+				</DropdownMenuTrigger>
+				<DropdownMenuContent align="end">
+					<DropdownMenuItem
+						variant="destructive"
+						disabled={searchTooShort}
+						onSelect={() => void handleOpen()}
+						title={
+							searchTooShort
+								? `Search for at least ${minSearchLength} characters to enable this action`
+								: undefined
+						}
+					>
+						<ShieldBan />
+						Block filtered organizations
+					</DropdownMenuItem>
+				</DropdownMenuContent>
+			</DropdownMenu>
 
 			<Dialog
 				open={open}
@@ -174,9 +198,9 @@ export function BulkBlockOrgsButton({
 						</DialogTitle>
 						<DialogDescription>
 							Blocking cancels every active Stripe subscription, marks each
-							organization as deleted, and deactivates members that have no
-							other active organization. Organizations with a positive credit
-							balance are never included — handle those manually.
+							organization as deleted, and deactivates every member.
+							Organizations with a positive credit balance are never included —
+							handle those manually.
 						</DialogDescription>
 					</DialogHeader>
 

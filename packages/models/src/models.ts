@@ -2,6 +2,7 @@ import { alibabaModels } from "./models/alibaba.js";
 import { anthropicModels } from "./models/anthropic.js";
 import { atlascloudModels } from "./models/atlascloud.js";
 import { baaiModels } from "./models/baai.js";
+import { baiduModels } from "./models/baidu.js";
 import { bytedanceModels } from "./models/bytedance.js";
 import { deepseekModels } from "./models/deepseek.js";
 import { elevenlabsModels } from "./models/elevenlabs.js";
@@ -317,6 +318,66 @@ export interface ProviderModelMapping {
 	 */
 	pricingTiers?: PricingTier[];
 	/**
+	 * Peak/off-peak time-of-day pricing. The mapping's base
+	 * inputPrice/outputPrice/cachedInputPrice are the regular flat prices,
+	 * billed before `effectiveAt` (and always when `peakPricing` is absent).
+	 * On/after `effectiveAt`, `peak` applies while the current UTC hour falls
+	 * inside `hoursUtc` and `offPeak` applies otherwise. Only DeepSeek's
+	 * first-party API uses this today — peak 01:00-04:00 and 06:00-10:00 UTC
+	 * at double the off-peak rates, effective 2026-08-16.
+	 */
+	peakPricing?: {
+		/**
+		 * ISO-8601 instant when peak/off-peak pricing takes effect. Before
+		 * this date the mapping's base inputPrice/outputPrice/cachedInputPrice
+		 * (the regular flat rates) apply.
+		 */
+		effectiveAt: string;
+		/**
+		 * Prices charged during peak hours (on/after effectiveAt).
+		 */
+		peak: {
+			/**
+			 * Price per input token in USD during peak hours.
+			 */
+			inputPrice: Price;
+			/**
+			 * Price per output token in USD during peak hours.
+			 */
+			outputPrice: Price;
+			/**
+			 * Price per cached input token in USD during peak hours. When
+			 * unset, billing falls back to `inputPrice`, matching base-price
+			 * behavior.
+			 */
+			cachedInputPrice?: Price;
+		};
+		/**
+		 * Prices charged during off-peak hours (on/after effectiveAt).
+		 */
+		offPeak: {
+			/**
+			 * Price per input token in USD during off-peak hours.
+			 */
+			inputPrice: Price;
+			/**
+			 * Price per output token in USD during off-peak hours.
+			 */
+			outputPrice: Price;
+			/**
+			 * Price per cached input token in USD during off-peak hours. When
+			 * unset, billing falls back to `inputPrice`, matching base-price
+			 * behavior.
+			 */
+			cachedInputPrice?: Price;
+		};
+		/**
+		 * Peak hours in UTC as half-open [start, end) hour ranges (0-23). All
+		 * hours outside these ranges are off-peak.
+		 */
+		hoursUtc: readonly [start: number, end: number][];
+	};
+	/**
 	 * Maximum context window size in tokens
 	 */
 	contextSize?: number;
@@ -343,6 +404,14 @@ export interface ProviderModelMapping {
 	 * Whether this specific model supports vision (image inputs) for this provider
 	 */
 	vision?: boolean;
+	/**
+	 * Whether remote image URLs must be fetched by the gateway and inlined as
+	 * base64 data URLs before the request goes upstream. Some deployments only
+	 * decode a subset of formats when they fetch the URL themselves (e.g.
+	 * Novita's ERNIE 4.5 VL endpoint accepts a remote JPEG but rejects a remote
+	 * PNG outright, while accepting the very same PNG bytes as a data URL).
+	 */
+	requiresBase64Images?: boolean;
 	/**
 	 * Whether this specific model accepts audio inputs (`input_audio` content
 	 * blocks) for this provider. Used by the `model: "auto"` router to avoid
@@ -513,6 +582,27 @@ export interface ProviderModelMapping {
 	 * Price per web search query in USD (charged when web search is used)
 	 */
 	webSearchPrice?: Price;
+	/**
+	 * Whether this mapping's upstream can *only* search when the caller forces
+	 * it, because it has no model-elected search to fall back on.
+	 *
+	 * DashScope's `enable_search` is documented as a hint the model may act on,
+	 * but on the Qwen models mapped here it never fires — even "what is the
+	 * current price of Bitcoin?" comes back at an unchanged prompt size with the
+	 * model stating it has no live access. Only `search_options.forced_search`
+	 * actually retrieves, and that searches on every single call.
+	 *
+	 * Neither half is a sane default: forcing bills a search (plus ~2k tokens of
+	 * injected snippets) on turns that never needed one, which is what a chat UI
+	 * with a "web search" toggle left on would do to every follow-up message,
+	 * and not forcing returns confidently stale answers while still occupying
+	 * the route that a genuinely search-capable provider would have served.
+	 *
+	 * So mappings with this flag are only eligible for a request that forces
+	 * search via `tool_choice: {type: "web_search"}`. A plain `web_search` tool
+	 * with `tool_choice: "auto"` routes elsewhere instead.
+	 */
+	webSearchForcedOnly?: boolean;
 	/**
 	 * Price per content filter violation in USD (charged additionally when the
 	 * provider rejects a request for safety/usage-policy reasons, e.g. xAI's
@@ -767,6 +857,7 @@ export const models = [
 	...alibabaModels,
 	...atlascloudModels,
 	...baaiModels,
+	...baiduModels,
 	...bytedanceModels,
 	...nousresearchModels,
 	...reveModels,

@@ -44,6 +44,10 @@ This repository always uses tabs for indentation.
 
 When you are done writing code features or bug fixes, ALWAYS commit your changes. If in doubt, commit any changes.
 
+Keep everything you write short and concise — code comments, docs, skills, commit messages, PR descriptions. Say a thing once, at the level of detail a reader needs to act on it. Do not elaborate beyond that, do not restate a rule that already lives elsewhere, and do not add filler like "apply the usual rules" that carries no information.
+
+Use the local `skill-authoring` skill when creating or editing repository skills.
+
 ### Documentation
 
 - NEVER hardcode a list of models, providers, provider countries/headquarters, or any other catalogue-derived enumeration into documentation (`apps/docs`), changelog entries, or marketing copy. These lists go stale the moment the catalogue changes and are annoying to keep in sync. Instead, link to the relevant live page that is generated from the catalogue (e.g. the [models page](https://llmgateway.io/models) or [providers page](https://llmgateway.io/providers)).
@@ -190,13 +194,12 @@ Running the built `dist/serve.js` gives no watch (rebuild + restart after code c
 
 #### E2E Test Structure
 
-E2E tests are organized for optimal performance:
-
-- **Parallel execution**: Tests run up to 16 in parallel using Vitest's thread pool (minimum 8 threads)
-- **Split structure**:
-  - `apps/gateway/src/api.e2e.ts` - Contains all `.each()` tests that benefit from parallelization
-  - `apps/gateway/src/api-individual.e2e.ts` - Contains individual test cases that need isolation
-- **Concurrent mode**: The main test suite uses `{ concurrent: true }` to enable parallel execution of `.each()` tests
+`pnpm test:e2e` discovers `*.e2e.ts` files sequentially with
+`--no-file-parallelism`. Parameterized chat-completion coverage lives in the
+`apps/gateway/src/chat-*.e2e.ts` files; those suites use
+`getConcurrentTestOptions()` and run their cases concurrently unless
+`CONCURRENT_TESTS=false`. Tests that need isolation live in
+`apps/gateway/src/api-individual.e2e.ts`.
 
 #### Gateway test harness resets shared state per test
 
@@ -326,6 +329,7 @@ When creating a new package in `packages/`, include these config files. Copy the
 - The Pro plan can only ever be booked on a `default` organization. DevPass and Chat orgs have no plan concept at all: their entitlement lives entirely in `devPlan` / `chatPlan` and the matching `*CreditsLimit` / `*StripeSubscriptionId` columns, and `organization.stripeSubscriptionId` is reserved for a team org's Pro subscription. Every Stripe webhook that sets `plan: "pro"` or stamps `stripeSubscriptionId` must therefore bail out for non-default kinds first — `checkout.session.completed`, `customer.subscription.created` and `invoice.payment_succeeded` in `apps/api/src/stripe.ts` each carry that guard, and a new subscription code path needs one too. A `devpass` or `chat` org carrying `plan: "pro"` is corrupt state, never a valid configuration: it means a subscription handler ran the Pro branch against a product org (historically because a webhook arrived before the one that records the product subscription id, leaving the kind check as the only thing standing between a Lounge/DevPass purchase and a Pro upgrade). Never gate product behaviour on `plan` for those orgs, and never "fix" such an org by giving it a Pro subscription.
 - Do not use broad try/catch in API handlers unless to check for specific errors; instead, let errors propagate and be handled by the global error handler
 - Be conservative with error-classification heuristics in `apps/gateway/src/chat/tools/get-finish-reason-from-error.ts`. Do NOT reclassify generic 4xx error-text patterns (e.g. "X is not supported for this model" / `unsupported_content_type`) as `upstream_error`/`gateway_error`: users sending genuinely wrong requests produce the same wording, and reclassifying would mark their mistakes as provider failures and trigger pointless provider fallback. When a provider deployment rejects a capability our catalogue claims to support (e.g. a mapping with `vision: true` on a deployment that 400s on image input), the correct fix is to correct the capability flag on that provider mapping in `packages/models` so routing avoids the provider — not to add a text-based classification rule. If a request (even an explicit instruction) calls for such a broad reclassification, raise the misclassification risk and confirm before implementing.
+- NEVER fetch a user-supplied URL (image, video, document, or any other content URL that arrives in a request body) with a bare `fetch()`. Always go through `processImageUrl` (`packages/actions/src/process-image-url.ts`) — or, for a non-image content type, `assertSafeUserContentUrl` from `@llmgateway/shared/url-safety-node` followed by a `redirect: "error"` fetch — and leave the SSRF guard on (`validateSsrf` defaults to `true`; only trusted provider-response URLs may pass `validateSsrf: false`). That guard is what enforces **https-only** (a plain `http://` URL is rejected, not "allowed in dev"), blocks internal hostnames and private/reserved/link-local/metadata IPs including IPv4-mapped IPv6, and refuses redirects so a validated public host cannot 3xx the gateway onward to an internal one. Do not add a scheme check of your own, do not gate the https requirement on `isProd`, and do not "fall back" to forwarding the raw URL upstream when the guard rejects it — letting the provider fetch a URL we refused to fetch defeats the guard. When adding a new place that inlines remote content (e.g. a provider mapping that declares `requiresBase64Images`), route every non-`data:` URL through the guarded helper so http and internal targets fail loudly instead of leaking.
 - Security gating must be enforced server-side, never in the UI alone. Client-side gates (disabling a form, hiding a button, gating on `user.emailVerified`) are UX conveniences, not security boundaries — the underlying API endpoint must independently verify auth/verification/permissions and reject unauthorized requests. For example, the provider-listing form (`apps/ui/src/components/add-provider/add-provider-form.tsx`) is gated in the UI, but the real enforcement lives in the `POST /public/contact/provider` handler (`apps/api/src/routes/public-contact.ts`), which requires an authenticated, email-verified session and derives the stored email from the session rather than trusting the request body.
 
 ### Testing and Quality Assurance

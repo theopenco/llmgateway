@@ -68,7 +68,7 @@ export function ChatBrandPanel({
 						<div className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
 						<div className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
 						<span className="ml-2 text-xs text-zinc-600">
-							chat.llmgateway.io
+							lounge.llmgateway.io
 						</span>
 					</div>
 					<div className="space-y-3 p-4 text-sm">

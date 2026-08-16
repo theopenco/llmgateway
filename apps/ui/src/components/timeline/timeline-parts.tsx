@@ -105,7 +105,7 @@ export function ModelCard({ model, latestReleasedAt }: ModelCardProps) {
 						href={`/models/${encodeURIComponent(model.id)}`}
 						className="inline-flex items-center gap-1 text-xs font-medium"
 					>
-						View model details
+						Pricing, providers &amp; uptime
 						<ArrowUpRight className="h-3 w-3" />
 					</Link>
 				</Button>

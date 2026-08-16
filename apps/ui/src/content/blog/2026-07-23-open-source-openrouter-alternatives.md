@@ -5,6 +5,15 @@ date: 2026-07-23
 title: "6 Best Open-Source OpenRouter Alternatives in 2026"
 summary: "The best open-source OpenRouter alternatives in 2026 — self-hostable AI gateways compared by what ships in the open core, what stays paid, and what you'll actually operate."
 categories: ["Guides"]
+faqs:
+  - question: "Is there a fully open-source version of OpenRouter?"
+    answer: "No project replicates OpenRouter's hosted marketplace exactly, but LLM Gateway comes closest as an open-source platform: one OpenAI-compatible API over 200+ models, with routing, caching, analytics, and a dashboard you self-host. Proxies like LiteLLM and Bifrost cover the routing layer alone."
+  - question: "Do self-hosted gateways charge any fees?"
+    answer: "No. A self-hosted gateway routes your requests using your own provider keys, so you pay providers directly with no platform fee and no BYOK metering. Your costs are provider spend plus the infrastructure you run the gateway on."
+  - question: "Which open-source LLM gateway is easiest to run?"
+    answer: "Bifrost is the simplest artifact (one Go binary); LLM Gateway is the simplest full platform (one Docker command including UI and analytics). LiteLLM needs Redis and Postgres alongside the proxy for production use, and Envoy AI Gateway assumes a Kubernetes practice."
+  - question: "Can I start self-hosted and switch to managed later?"
+    answer: "With LLM Gateway, yes — the managed cloud runs the same AGPLv3 codebase and API, so the integration doesn't change. Portkey and Kong also offer managed paths. LiteLLM, Bifrost, and Envoy AI Gateway are self-host only."
 image:
   src: "/blog/open-source-openrouter-alternatives.png"
   alt: "Open-source OpenRouter alternatives — a glowing open-box gateway on a circuit board routing to multiple model chips"
@@ -67,6 +76,8 @@ docker run -d \
 **Best for:** Teams that want OpenRouter's one-API convenience running inside their own boundary, with the option of a managed cloud later. See the [feature-by-feature comparison](/compare/open-router).
 
 ---
+
+<BlogCta variant="gateway" location="mid_article" />
 
 ## 2. LiteLLM
 
@@ -190,28 +201,10 @@ Envoy AI Gateway extends CNCF's Envoy Gateway with native LLM traffic support. T
 
 **You already run Kong or Kubernetes/Envoy:** Kong AI Gateway or Envoy AI Gateway respectively — extend what you have.
 
-## Frequently Asked Questions
-
-### Is there a fully open-source version of OpenRouter?
-
-No project replicates OpenRouter's hosted marketplace exactly, but LLM Gateway comes closest as an open-source platform: one OpenAI-compatible API over 200+ models, with routing, caching, analytics, and a dashboard you self-host. Proxies like LiteLLM and Bifrost cover the routing layer alone.
-
-### Do self-hosted gateways charge any fees?
-
-No. A self-hosted gateway routes your requests using your own provider keys, so you pay providers directly with no platform fee and no BYOK metering. Your costs are provider spend plus the infrastructure you run the gateway on.
-
-### Which open-source LLM gateway is easiest to run?
-
-Bifrost is the simplest artifact (one Go binary); LLM Gateway is the simplest full platform (one Docker command including UI and analytics). LiteLLM needs Redis and Postgres alongside the proxy for production use, and Envoy AI Gateway assumes a Kubernetes practice.
-
-### Can I start self-hosted and switch to managed later?
-
-With LLM Gateway, yes — the managed cloud runs the same AGPLv3 codebase and API, so the integration doesn't change. Portkey and Kong also offer managed paths. LiteLLM, Bifrost, and Envoy AI Gateway are self-host only.
-
----
-
 ## Run the Top Pick Tonight
 
 - **[Self-host LLM Gateway](https://docs.llmgateway.io)** — one Docker command, the full platform, AGPLv3
 - **[Try the managed cloud free](https://llmgateway.io/signup)** — same API, zero infrastructure, 0% BYOK fees
 - **[10 Best OpenRouter Alternatives in 2026](/blog/openrouter-alternatives)** — the full list including managed options
+
+<BlogCta variant="gateway" location="bottom" />

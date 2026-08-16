@@ -5,7 +5,11 @@ import { ChatBillingHistory } from "@/components/pricing/chat-billing-history";
 import { ChatPricingPlans } from "@/components/pricing/chat-pricing-plans";
 import { getUser } from "@/lib/getUser";
 
-import { getChatPlanCreditsMultipliers } from "@llmgateway/shared";
+import {
+	getChatPlanCreditsMultipliers,
+	SELF_REFUND_USAGE_PERCENT,
+	SELF_REFUND_WINDOW_DAYS,
+} from "@llmgateway/shared";
 
 import type { Metadata } from "next";
 
@@ -66,9 +70,12 @@ export default async function PricingPage() {
 						unspent credits don&apos;t roll over.
 					</li>
 					<li>
-						<strong>{"7-day money-back guarantee. "}</strong>If you&apos;ve
-						barely used your membership, email us within 7 days for a full
-						refund.
+						<strong>
+							{`${SELF_REFUND_WINDOW_DAYS}-day money-back guarantee. `}
+						</strong>
+						If you&apos;ve used less than {SELF_REFUND_USAGE_PERCENT}% of your
+						allowance, refund yourself from your billing history below — a full
+						refund, no email needed.
 					</li>
 					<li>
 						<strong>{"Cancel anytime. "}</strong>Your membership stays active

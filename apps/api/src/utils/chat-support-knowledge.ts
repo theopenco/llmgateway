@@ -9,7 +9,7 @@ const KNOWLEDGE_SITEMAPS = [
 	"https://llmgateway.io/sitemap.xml",
 	"https://devpass.llmgateway.io/sitemap.xml",
 	"https://docs.llmgateway.io/sitemap.xml",
-	"https://chat.llmgateway.io/sitemap.xml",
+	"https://lounge.llmgateway.io/sitemap.xml",
 ];
 
 // llms.txt overviews are short, curated markdown summaries of a product —
@@ -18,14 +18,17 @@ const KNOWLEDGE_SITEMAPS = [
 // plans) are answerable without a tool call.
 const KNOWLEDGE_LLMS_TXT = [
 	"https://devpass.llmgateway.io/llms.txt",
-	"https://chat.llmgateway.io/llms.txt",
+	"https://lounge.llmgateway.io/llms.txt",
 ];
 
 // Only pages on these hosts may be fetched by the agent's grounding tool.
+// chat.llmgateway.io stays on the list after the move to lounge.llmgateway.io
+// because links to the old host are still in the wild; it 301s to the new one.
 const ALLOWED_HOSTS = [
 	"llmgateway.io",
 	"devpass.llmgateway.io",
 	"docs.llmgateway.io",
+	"lounge.llmgateway.io",
 	"chat.llmgateway.io",
 ];
 

@@ -6,6 +6,7 @@ import { z } from "zod";
 import { deleteResendContact } from "@/auth/config.js";
 import {
 	cancelOrganizationSubscriptions,
+	getCancelledOrganizationPlanState,
 	isTerminalSubscriptionError,
 } from "@/lib/account-deletion.js";
 import {
@@ -50,6 +51,7 @@ import {
 	type AnyColumn,
 	asc,
 	avgEffectiveTtftSql,
+	cdb,
 	db,
 	desc,
 	effectiveTtftTotals,
@@ -137,8 +139,49 @@ function buildOrganizationSearchFilter(search: string | undefined) {
 		sql`LOWER(${tables.organization.name}) LIKE ${textPattern} ESCAPE '\\'`,
 		sql`LOWER(${tables.organization.billingEmail}) LIKE ${textPattern} ESCAPE '\\'`,
 		sql`${tables.organization.id} LIKE ${idPattern} ESCAPE '\\'`,
+		// Provider abuse reports quote the safety identifier we send upstream;
+		// searching on it is how such a report gets traced back to an org.
+		sql`${tables.organization.safetyIdentifier} LIKE ${idPattern} ESCAPE '\\'`,
 		sql`EXISTS (SELECT 1 FROM ${tables.userOrganization} uo JOIN ${tables.user} u ON uo.user_id = u.id WHERE uo.organization_id = ${tables.organization.id} AND LOWER(u.email) LIKE ${textPattern} ESCAPE '\\')`,
 	);
+}
+
+/**
+ * One owner row per organization, for joining onto organization listings.
+ * An organization can have several members with the `owner` role, so joining
+ * the membership rows directly would emit the organization once per owner.
+ * Ranks by membership age so the founding owner wins, keyed by user id to stay
+ * deterministic when two memberships share a timestamp.
+ */
+function buildOrganizationOwnerSubquery() {
+	const ranked = db
+		.select({
+			organizationId: tables.userOrganization.organizationId,
+			userId: tables.user.id,
+			userName: tables.user.name,
+			userEmail: tables.user.email,
+			userUsername: tables.user.username,
+			rowNumber:
+				sql<number>`ROW_NUMBER() OVER (PARTITION BY ${tables.userOrganization.organizationId} ORDER BY ${tables.userOrganization.createdAt} ASC, ${tables.user.id} ASC)`.as(
+					"owner_row_number",
+				),
+		})
+		.from(tables.userOrganization)
+		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
+		.where(eq(tables.userOrganization.role, "owner"))
+		.as("owner_ranked");
+
+	return db
+		.select({
+			organizationId: ranked.organizationId,
+			userId: ranked.userId,
+			userName: ranked.userName,
+			userEmail: ranked.userEmail,
+			userUsername: ranked.userUsername,
+		})
+		.from(ranked)
+		.where(eq(ranked.rowNumber, 1))
+		.as("owner_sub");
 }
 
 export const admin = new OpenAPIHono<ServerTypes>();
@@ -200,16 +243,18 @@ function tokenBreakdownSums(table: {
 			sql<number>`COALESCE(SUM(CAST(${table.totalOutputTokens} AS NUMERIC)), 0)`.as(
 				"output_tokens",
 			),
-		inputCost: sql<number>`COALESCE(SUM(${table.totalInputCost}), 0)`.as(
-			"input_cost",
-		),
+		inputCost:
+			sql<number>`COALESCE(SUM(cast(${table.totalInputCost} as double precision)), 0)`.as(
+				"input_cost",
+			),
 		cachedInputCost:
-			sql<number>`COALESCE(SUM(${table.totalCachedInputCost}), 0)`.as(
+			sql<number>`COALESCE(SUM(cast(${table.totalCachedInputCost} as double precision)), 0)`.as(
 				"cached_input_cost",
 			),
-		outputCost: sql<number>`COALESCE(SUM(${table.totalOutputCost}), 0)`.as(
-			"output_cost",
-		),
+		outputCost:
+			sql<number>`COALESCE(SUM(cast(${table.totalOutputCost} as double precision)), 0)`.as(
+				"output_cost",
+			),
 	};
 }
 
@@ -252,15 +297,16 @@ function tokenBreakdownSubTotals(
 			sql<number>`COALESCE(SUM(COALESCE(${sub.outputTokens}, 0)), 0)`.as(
 				"output_tokens",
 			),
-		inputCost: sql<number>`COALESCE(SUM(COALESCE(${sub.inputCost}, 0)), 0)`.as(
-			"input_cost",
-		),
+		inputCost:
+			sql<number>`COALESCE(SUM(COALESCE(cast(${sub.inputCost} as double precision), 0)), 0)`.as(
+				"input_cost",
+			),
 		cachedInputCost:
-			sql<number>`COALESCE(SUM(COALESCE(${sub.cachedInputCost}, 0)), 0)`.as(
+			sql<number>`COALESCE(SUM(COALESCE(cast(${sub.cachedInputCost} as double precision), 0)), 0)`.as(
 				"cached_input_cost",
 			),
 		outputCost:
-			sql<number>`COALESCE(SUM(COALESCE(${sub.outputCost}, 0)), 0)`.as(
+			sql<number>`COALESCE(SUM(COALESCE(cast(${sub.outputCost} as double precision), 0)), 0)`.as(
 				"output_cost",
 			),
 	};
@@ -387,11 +433,15 @@ const organizationSchema = z.object({
 	seats: z.number().int().nullable().optional(),
 	// Manual API-key-limit override; null = use the plan default.
 	apiKeyLimit: z.number().int().nullable().optional(),
+	// Manual project-limit override; null = use the plan default.
+	projectLimit: z.number().int().nullable().optional(),
 	credits: z.string(),
 	totalCreditsAllTime: z.string().optional(),
 	totalSpent: z.string().optional(),
 	totalCreditsSpent: z.string().optional(),
 	totalApiKeysSpent: z.string().optional(),
+	totalRequests: z.number().optional(),
+	totalTokens: z.number().optional(),
 	createdAt: z.string(),
 	status: z.string().nullable(),
 	referralBonusEnabled: z.boolean().optional(),
@@ -648,6 +698,8 @@ const sortBySchema = z.enum([
 	"status",
 	"totalCreditsAllTime",
 	"totalSpent",
+	"totalRequests",
+	"totalTokens",
 ]);
 
 const sortOrderSchema = z.enum(["asc", "desc"]);
@@ -662,6 +714,10 @@ const getOrganizations = createRoute({
 			search: z.string().optional(),
 			sortBy: sortBySchema.default("createdAt").optional(),
 			sortOrder: sortOrderSchema.default("desc").optional(),
+			// Usage window (YYYY-MM-DD) for the spend/request/token columns.
+			// Omitting both means all time.
+			from: z.string().optional(),
+			to: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -2491,6 +2547,24 @@ function aggregateBreakdownRows<T extends GlobalStatsRowMetrics>(
 	);
 }
 
+// `Date.parse` rolls impossible days over instead of rejecting them
+// ("2026-02-30" becomes March 2), so round-trip the parsed date and refuse
+// anything that did not survive unchanged.
+function parseUsageWindowDay(value: string, boundary: "from" | "to"): Date {
+	const parsed = /^\d{4}-\d{2}-\d{2}$/.test(value)
+		? new Date(value + "T00:00:00.000Z")
+		: new Date(Number.NaN);
+	if (
+		Number.isNaN(parsed.getTime()) ||
+		parsed.toISOString().slice(0, 10) !== value
+	) {
+		throw new HTTPException(400, {
+			message: `Invalid ${boundary} date (expected YYYY-MM-DD)`,
+		});
+	}
+	return parsed;
+}
+
 admin.openapi(getOrganizations, async (c) => {
 	const query = c.req.valid("query");
 	const limit = query.limit ?? 50;
@@ -2498,6 +2572,22 @@ admin.openapi(getOrganizations, async (c) => {
 	const search = query.search;
 	const sortBy = query.sortBy ?? "createdAt";
 	const sortOrder = query.sortOrder ?? "desc";
+
+	// Usage window for the spend/request/token aggregates. Omitting both dates
+	// means all time; supplying only one is rejected rather than silently
+	// widening back to all time.
+	let usageStartDate: Date | undefined;
+	let usageEndDate: Date | undefined;
+	if (Boolean(query.from) !== Boolean(query.to)) {
+		throw new HTTPException(400, {
+			message: "Both from and to are required to narrow the usage window",
+		});
+	}
+	if (query.from && query.to) {
+		usageStartDate = parseUsageWindowDay(query.from, "from");
+		usageEndDate = parseUsageWindowDay(query.to, "to");
+		usageEndDate.setUTCHours(23, 59, 59, 999);
+	}
 
 	const whereClause = buildOrganizationSearchFilter(search);
 
@@ -2531,7 +2621,8 @@ admin.openapi(getOrganizations, async (c) => {
 		.groupBy(tables.transaction.organizationId)
 		.as("all_time_credits");
 
-	// Subquery for total spent (usage cost) per org
+	// Subquery for usage totals (cost, requests, tokens) per org, scoped to the
+	// selected window.
 	const totalSpentSub = db
 		.select({
 			organizationId: tables.project.organizationId,
@@ -2547,27 +2638,35 @@ admin.openapi(getOrganizations, async (c) => {
 				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.apiKeysCost} AS NUMERIC)), 0)`.as(
 					"api_keys_spent",
 				),
+			requestsTotal:
+				sql<string>`COALESCE(SUM(${projectHourlyStats.requestCount}), 0)`.as(
+					"total_requests",
+				),
+			tokensTotal:
+				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
+					"total_tokens",
+				),
 		})
 		.from(projectHourlyStats)
 		.innerJoin(
 			tables.project,
 			eq(projectHourlyStats.projectId, tables.project.id),
 		)
+		.where(
+			and(
+				usageStartDate
+					? gte(projectHourlyStats.hourTimestamp, usageStartDate)
+					: undefined,
+				usageEndDate
+					? lte(projectHourlyStats.hourTimestamp, usageEndDate)
+					: undefined,
+			),
+		)
 		.groupBy(tables.project.organizationId)
 		.as("total_spent");
 
 	// Subquery for owner user per org
-	const ownerSub = db
-		.select({
-			organizationId: tables.userOrganization.organizationId,
-			userId: tables.user.id,
-			userName: tables.user.name,
-			userEmail: tables.user.email,
-		})
-		.from(tables.userOrganization)
-		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
-		.where(eq(tables.userOrganization.role, "owner"))
-		.as("owner_sub");
+	const ownerSub = buildOrganizationOwnerSubquery();
 
 	const sortColumnMap = {
 		name: tables.organization.name,
@@ -2579,6 +2678,8 @@ admin.openapi(getOrganizations, async (c) => {
 		status: tables.organization.status,
 		totalCreditsAllTime: sql`COALESCE(CAST(${allTimeCredits.total} AS NUMERIC), 0)`,
 		totalSpent: sql`COALESCE(CAST(${totalSpentSub.total} AS NUMERIC), 0)`,
+		totalRequests: sql`COALESCE(CAST(${totalSpentSub.requestsTotal} AS NUMERIC), 0)`,
+		totalTokens: sql`COALESCE(CAST(${totalSpentSub.tokensTotal} AS NUMERIC), 0)`,
 	} as const;
 
 	const sortColumn = sortColumnMap[sortBy];
@@ -2614,6 +2715,13 @@ admin.openapi(getOrganizations, async (c) => {
 				sql<string>`COALESCE(${totalSpentSub.apiKeysTotal}, '0')`.as(
 					"totalApiKeysSpent",
 				),
+			totalRequests:
+				sql<string>`COALESCE(${totalSpentSub.requestsTotal}, '0')`.as(
+					"totalRequests",
+				),
+			totalTokens: sql<string>`COALESCE(${totalSpentSub.tokensTotal}, '0')`.as(
+				"totalTokens",
+			),
 			ownerUserId: ownerSub.userId,
 			ownerName: ownerSub.userName,
 			ownerEmail: ownerSub.userEmail,
@@ -2629,7 +2737,10 @@ admin.openapi(getOrganizations, async (c) => {
 		)
 		.leftJoin(ownerSub, eq(tables.organization.id, ownerSub.organizationId))
 		.where(whereClause)
-		.orderBy(orderFn(sortColumn))
+		// Ties (every org with no usage shares 0 requests/tokens) would otherwise
+		// come back in an arbitrary order that differs per LIMIT/OFFSET plan, so
+		// paging repeats some rows and skips others.
+		.orderBy(orderFn(sortColumn), asc(tables.organization.id))
 		.limit(limit)
 		.offset(offset);
 
@@ -2651,6 +2762,8 @@ admin.openapi(getOrganizations, async (c) => {
 			totalSpent: String(org.totalSpent ?? "0"),
 			totalCreditsSpent: String(org.totalCreditsSpent ?? "0"),
 			totalApiKeysSpent: String(org.totalApiKeysSpent ?? "0"),
+			totalRequests: Number(org.totalRequests ?? 0),
+			totalTokens: Number(org.totalTokens ?? 0),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
 			ownerUserId: org.ownerUserId ?? null,
@@ -2755,31 +2868,32 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 					sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.totalTokens} AS INTEGER)), 0)`.as(
 						"totalTokens",
 					),
-				totalCost: sql<number>`COALESCE(SUM(${projectHourlyStats.cost}), 0)`.as(
-					"totalCost",
-				),
+				totalCost:
+					sql<number>`COALESCE(SUM(cast(${projectHourlyStats.cost} as double precision)), 0)`.as(
+						"totalCost",
+					),
 				inputCost:
-					sql<number>`COALESCE(SUM(${projectHourlyStats.inputCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${projectHourlyStats.inputCost} as double precision)), 0)`.as(
 						"inputCost",
 					),
 				outputCost:
-					sql<number>`COALESCE(SUM(${projectHourlyStats.outputCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${projectHourlyStats.outputCost} as double precision)), 0)`.as(
 						"outputCost",
 					),
 				discountSavings:
-					sql<number>`COALESCE(SUM(${projectHourlyStats.discountSavings}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${projectHourlyStats.discountSavings} as double precision)), 0)`.as(
 						"discountSavings",
 					),
 				cachedInputCost:
-					sql<number>`COALESCE(SUM(${projectHourlyStats.cachedInputCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${projectHourlyStats.cachedInputCost} as double precision)), 0)`.as(
 						"cachedInputCost",
 					),
 				cacheWriteInputCost:
-					sql<number>`COALESCE(SUM(${projectHourlyStats.cacheWriteInputCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${projectHourlyStats.cacheWriteInputCost} as double precision)), 0)`.as(
 						"cacheWriteInputCost",
 					),
 				dataStorageCost:
-					sql<number>`COALESCE(SUM(${projectHourlyStats.dataStorageCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${projectHourlyStats.dataStorageCost} as double precision)), 0)`.as(
 						"dataStorageCost",
 					),
 			})
@@ -2818,7 +2932,7 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 				usedModel: projectHourlyModelStats.usedModel,
 				usedProvider: projectHourlyModelStats.usedProvider,
 				totalCost:
-					sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${projectHourlyModelStats.cost} as double precision)), 0)`.as(
 						"totalCost",
 					),
 			})
@@ -2860,6 +2974,7 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 			trialEndDate: org.trialEndDate?.toISOString() ?? null,
 			seats: org.seats,
 			apiKeyLimit: org.apiKeyLimit,
+			projectLimit: org.projectLimit,
 			credits: String(org.credits),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
@@ -2954,6 +3069,7 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			trialEndDate: org.trialEndDate?.toISOString() ?? null,
 			seats: org.seats,
 			apiKeyLimit: org.apiKeyLimit,
+			projectLimit: org.projectLimit,
 			credits: String(org.credits),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
@@ -3388,31 +3504,32 @@ admin.openapi(getProjectMetrics, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.totalTokens} AS INTEGER)), 0)`.as(
 					"totalTokens",
 				),
-			totalCost: sql<number>`COALESCE(SUM(${projectHourlyStats.cost}), 0)`.as(
-				"totalCost",
-			),
+			totalCost:
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.cost} as double precision)), 0)`.as(
+					"totalCost",
+				),
 			inputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.inputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.inputCost} as double precision)), 0)`.as(
 					"inputCost",
 				),
 			outputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.outputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.outputCost} as double precision)), 0)`.as(
 					"outputCost",
 				),
 			discountSavings:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.discountSavings}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.discountSavings} as double precision)), 0)`.as(
 					"discountSavings",
 				),
 			cachedInputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.cachedInputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.cachedInputCost} as double precision)), 0)`.as(
 					"cachedInputCost",
 				),
 			cacheWriteInputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.cacheWriteInputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.cacheWriteInputCost} as double precision)), 0)`.as(
 					"cacheWriteInputCost",
 				),
 			dataStorageCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.dataStorageCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.dataStorageCost} as double precision)), 0)`.as(
 					"dataStorageCost",
 				),
 		})
@@ -3451,7 +3568,7 @@ admin.openapi(getProjectMetrics, async (c) => {
 			usedModel: projectHourlyModelStats.usedModel,
 			usedProvider: projectHourlyModelStats.usedProvider,
 			totalCost:
-				sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyModelStats.cost} as double precision)), 0)`.as(
 					"totalCost",
 				),
 		})
@@ -3944,6 +4061,95 @@ const deleteGlobalDiscount = createRoute({
 	},
 });
 
+const routingScoreMultiplierSchema = z.object({
+	id: z.string(),
+	provider: z.string().nullable(),
+	model: z.string().nullable(),
+	scoreMultiplier: z.string(),
+	reason: z.string().nullable(),
+	expiresAt: z.string().nullable(),
+	createdAt: z.string(),
+	updatedAt: z.string(),
+});
+
+const routingScoreMultipliersListSchema = z.object({
+	multipliers: z.array(routingScoreMultiplierSchema),
+	total: z.number(),
+});
+
+const createRoutingScoreMultiplierBodySchema = z.object({
+	provider: z.string().nullable().optional(),
+	model: z.string().nullable().optional(),
+	scoreMultiplier: z.coerce
+		.number()
+		.min(-100, "Score multiplier cannot reduce routing price below zero"),
+	reason: z.string().nullable().optional(),
+	expiresAt: z.string().nullable().optional(),
+});
+
+const getRoutingScoreMultipliers = createRoute({
+	method: "get",
+	path: "/routing-score-multipliers",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: routingScoreMultipliersListSchema.openapi({}),
+				},
+			},
+			description: "List of internal routing score multipliers.",
+		},
+	},
+});
+
+const createRoutingScoreMultiplier = createRoute({
+	method: "post",
+	path: "/routing-score-multipliers",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: createRoutingScoreMultiplierBodySchema.openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: routingScoreMultiplierSchema.openapi({}),
+				},
+			},
+			description: "Created routing score multiplier.",
+		},
+		400: { description: "Invalid routing score multiplier." },
+		409: {
+			description: "Routing score multiplier already exists for this target.",
+		},
+	},
+});
+
+const deleteRoutingScoreMultiplier = createRoute({
+	method: "delete",
+	path: "/routing-score-multipliers/{multiplierId}",
+	request: {
+		params: z.object({ multiplierId: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }).openapi({}),
+				},
+			},
+			description: "Routing score multiplier deleted.",
+		},
+		404: { description: "Routing score multiplier not found." },
+	},
+});
+
 // --- All Organization Discounts (across all organizations) ---
 
 const orgDiscountSchema = discountSchema.extend({
@@ -4119,6 +4325,24 @@ function formatDiscount(d: {
 	};
 }
 
+function formatRoutingScoreMultiplier(multiplier: {
+	id: string;
+	provider: string | null;
+	model: string | null;
+	scoreMultiplier: string;
+	reason: string | null;
+	expiresAt: Date | null;
+	createdAt: Date;
+	updatedAt: Date;
+}) {
+	return {
+		...multiplier,
+		expiresAt: multiplier.expiresAt?.toISOString() ?? null,
+		createdAt: multiplier.createdAt.toISOString(),
+		updatedAt: multiplier.updatedAt.toISOString(),
+	};
+}
+
 // Helper to validate provider/model
 function validateProviderAndModel(
 	provider: string | null | undefined,
@@ -4237,6 +4461,78 @@ admin.openapi(deleteGlobalDiscount, async (c) => {
 
 	if (!deleted) {
 		throw new HTTPException(404, { message: "Discount not found" });
+	}
+
+	return c.json({ success: true });
+});
+
+admin.openapi(getRoutingScoreMultipliers, async (c) => {
+	const multipliers = await db
+		.select()
+		.from(tables.routingScoreMultiplier)
+		.orderBy(desc(tables.routingScoreMultiplier.createdAt));
+
+	return c.json({
+		multipliers: multipliers.map(formatRoutingScoreMultiplier),
+		total: multipliers.length,
+	});
+});
+
+admin.openapi(createRoutingScoreMultiplier, async (c) => {
+	const body = c.req.valid("json");
+	const provider = body.provider ?? null;
+	const model = body.model ?? null;
+	const validation = validateProviderAndModel(provider, model);
+	if (validation.error) {
+		throw new HTTPException(400, { message: validation.error });
+	}
+
+	const existing = await db
+		.select({ id: tables.routingScoreMultiplier.id })
+		.from(tables.routingScoreMultiplier)
+		.where(
+			and(
+				provider
+					? eq(tables.routingScoreMultiplier.provider, provider)
+					: isNull(tables.routingScoreMultiplier.provider),
+				model
+					? eq(tables.routingScoreMultiplier.model, model)
+					: isNull(tables.routingScoreMultiplier.model),
+			),
+		)
+		.limit(1);
+	if (existing.length > 0) {
+		throw new HTTPException(409, {
+			message:
+				"A routing score multiplier already exists for this provider/model combination",
+		});
+	}
+
+	const [created] = await cdb
+		.insert(tables.routingScoreMultiplier)
+		.values({
+			provider,
+			model,
+			scoreMultiplier: (body.scoreMultiplier / 100).toFixed(4),
+			reason: body.reason ?? null,
+			expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
+		})
+		.returning();
+
+	return c.json(formatRoutingScoreMultiplier(created), 201);
+});
+
+admin.openapi(deleteRoutingScoreMultiplier, async (c) => {
+	const { multiplierId } = c.req.valid("param");
+	const [deleted] = await cdb
+		.delete(tables.routingScoreMultiplier)
+		.where(eq(tables.routingScoreMultiplier.id, multiplierId))
+		.returning({ id: tables.routingScoreMultiplier.id });
+
+	if (!deleted) {
+		throw new HTTPException(404, {
+			message: "Routing score multiplier not found",
+		});
 	}
 
 	return c.json({ success: true });
@@ -4985,9 +5281,10 @@ admin.openapi(getProviderStats, async (c) => {
 					sql<number>`COALESCE(SUM(CAST(${mph.totalTokens} AS NUMERIC)), 0)`.as(
 						"totalTokens",
 					),
-				totalCost: sql<number>`COALESCE(SUM(${mph.totalCost}), 0)`.as(
-					"totalCost",
-				),
+				totalCost:
+					sql<number>`COALESCE(SUM(cast(${mph.totalCost} as double precision)), 0)`.as(
+						"totalCost",
+					),
 				// Only streamed requests record a time-to-first-token, so the
 				// average divides by the sample count, not the request count.
 				// Reasoning-token samples take precedence so thinking mappings
@@ -5029,7 +5326,7 @@ admin.openapi(getProviderStats, async (c) => {
 							"totalTokens",
 						),
 					totalCost:
-						sql<number>`COALESCE(SUM(COALESCE(${providerStatsSub.totalCost}, 0)), 0)`.as(
+						sql<number>`COALESCE(SUM(COALESCE(cast(${providerStatsSub.totalCost} as double precision), 0)), 0)`.as(
 							"totalCost",
 						),
 					...tokenBreakdownSubTotals(providerStatsSub),
@@ -5083,7 +5380,7 @@ admin.openapi(getProviderStats, async (c) => {
 					modelCountSub,
 					eq(tables.provider.id, modelCountSub.providerId),
 				)
-				.orderBy(orderFn(sortColumn)),
+				.orderBy(orderFn(sortColumn), asc(tables.provider.id)),
 		]);
 
 		const totalTokensAgg = Number(totalsResult?.totalTokens ?? 0);
@@ -5149,7 +5446,7 @@ admin.openapi(getProviderStats, async (c) => {
 		})
 		.from(tables.provider)
 		.leftJoin(modelCountSub, eq(tables.provider.id, modelCountSub.providerId))
-		.orderBy(orderFn(sortColumn));
+		.orderBy(orderFn(sortColumn), asc(tables.provider.id));
 
 	return c.json({
 		providers: rows.map((r) => ({
@@ -5324,9 +5621,10 @@ admin.openapi(getModelStats, async (c) => {
 					sql<number>`COALESCE(SUM(CAST(${mh.totalTokens} AS NUMERIC)), 0)`.as(
 						"totalTokens",
 					),
-				totalCost: sql<number>`COALESCE(SUM(${mh.totalCost}), 0)`.as(
-					"totalCost",
-				),
+				totalCost:
+					sql<number>`COALESCE(SUM(cast(${mh.totalCost} as double precision)), 0)`.as(
+						"totalCost",
+					),
 				...tokenBreakdownSums(mh),
 			})
 			.from(mh)
@@ -5396,7 +5694,7 @@ admin.openapi(getModelStats, async (c) => {
 						"totalTokens",
 					),
 				totalCost:
-					sql<number>`COALESCE(SUM(COALESCE(${modelAggSub.totalCost}, 0)), 0)`.as(
+					sql<number>`COALESCE(SUM(COALESCE(cast(${modelAggSub.totalCost} as double precision), 0)), 0)`.as(
 						"totalCost",
 					),
 				...tokenBreakdownSubTotals(modelAggSub),
@@ -5471,7 +5769,7 @@ admin.openapi(getModelStats, async (c) => {
 				)
 				.leftJoin(pricingSub, eq(tables.model.id, pricingSub.modelId))
 				.where(whereClause)
-				.orderBy(orderFn(sortColumn))
+				.orderBy(orderFn(sortColumn), asc(tables.model.id))
 				.limit(limit)
 				.offset(offset),
 		]);
@@ -5602,7 +5900,7 @@ admin.openapi(getModelStats, async (c) => {
 		.leftJoin(providerCountSub, eq(tables.model.id, providerCountSub.modelId))
 		.leftJoin(pricingSub, eq(tables.model.id, pricingSub.modelId))
 		.where(whereClause)
-		.orderBy(orderFn(sortColumn))
+		.orderBy(orderFn(sortColumn), asc(tables.model.id))
 		.limit(limit)
 		.offset(offset);
 
@@ -5826,16 +6124,18 @@ admin.openapi(getModelDetail, async (c) => {
 					sql<number>`SUM(CAST(${projectHourlyModelStats.outputTokens} AS NUMERIC))`.as(
 						"output_tokens",
 					),
-				inputCost: sql<number>`SUM(${projectHourlyModelStats.inputCost})`.as(
-					"input_cost",
-				),
+				inputCost:
+					sql<number>`SUM(cast(${projectHourlyModelStats.inputCost} as double precision))`.as(
+						"input_cost",
+					),
 				cachedInputCost:
-					sql<number>`SUM(${projectHourlyModelStats.cachedInputCost})`.as(
+					sql<number>`SUM(cast(${projectHourlyModelStats.cachedInputCost} as double precision))`.as(
 						"cached_input_cost",
 					),
-				outputCost: sql<number>`SUM(${projectHourlyModelStats.outputCost})`.as(
-					"output_cost",
-				),
+				outputCost:
+					sql<number>`SUM(cast(${projectHourlyModelStats.outputCost} as double precision))`.as(
+						"output_cost",
+					),
 			})
 			.from(projectHourlyModelStats)
 			.where(
@@ -6549,6 +6849,8 @@ const manageOrganizationRoute = createRoute({
 						seats: z.number().int().min(0).max(100000).nullable(),
 						// Null clears the override and reverts to the plan default.
 						apiKeyLimit: z.number().int().min(0).max(100000).nullable(),
+						// Null clears the override and reverts to the plan default.
+						projectLimit: z.number().int().min(0).max(100000).nullable(),
 						// Null clears the plan term (open-ended plan).
 						planExpiresAt: planTermDateSchema,
 						planStartedAt: planTermDateSchema,
@@ -6572,6 +6874,7 @@ const manageOrganizationRoute = createRoute({
 						plan: z.string(),
 						seats: z.number().int().nullable(),
 						apiKeyLimit: z.number().int().nullable(),
+						projectLimit: z.number().int().nullable(),
 						planExpiresAt: z.string().nullable(),
 						planStartedAt: z.string().nullable(),
 						isTrialActive: z.boolean(),
@@ -6603,6 +6906,7 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 		plan,
 		seats,
 		apiKeyLimit,
+		projectLimit,
 		planExpiresAt,
 		planStartedAt,
 		isTrialActive,
@@ -6667,6 +6971,7 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 			plan,
 			seats,
 			apiKeyLimit,
+			projectLimit,
 			planExpiresAt: expiresAt,
 			planStartedAt: startedAt,
 			isTrialActive,
@@ -6690,6 +6995,8 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 			newSeats: seats,
 			previousApiKeyLimit: org.apiKeyLimit,
 			newApiKeyLimit: apiKeyLimit,
+			previousProjectLimit: org.projectLimit,
+			newProjectLimit: projectLimit,
 			previousPlanExpiresAt: org.planExpiresAt?.toISOString() ?? null,
 			newPlanExpiresAt: expiresAt?.toISOString() ?? null,
 			previousPlanStartedAt: org.planStartedAt?.toISOString() ?? null,
@@ -6707,6 +7014,7 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 		plan,
 		seats,
 		apiKeyLimit,
+		projectLimit,
 		planExpiresAt: expiresAt?.toISOString() ?? null,
 		planStartedAt: startedAt?.toISOString() ?? null,
 		isTrialActive,
@@ -6816,72 +7124,16 @@ admin.openapi(setOrganizationStatusRoute, async (c) => {
 		assertOrganizationDeletable(org);
 	}
 
-	const memberLinks = await db.query.userOrganization.findMany({
-		where: { organizationId: { eq: orgId } },
-		columns: { userId: true },
-	});
-	const memberUserIds = memberLinks.map((m) => m.userId);
+	const cancelledSubscriptionIds =
+		status === "deleted" ? await cancelOrganizationSubscriptions(org) : [];
 
-	await db.transaction(async (tx) => {
-		await tx
-			.update(tables.organization)
-			.set({ status })
-			.where(eq(tables.organization.id, orgId));
-
-		if (memberUserIds.length === 0) {
-			return;
-		}
-
-		if (status === "deleted") {
-			await tx
-				.update(tables.user)
-				.set({ status: "deactivated" })
-				.where(inArray(tables.user.id, memberUserIds));
-
-			await tx
-				.delete(tables.session)
-				.where(inArray(tables.session.userId, memberUserIds));
-		} else {
-			const otherLinks = await tx.query.userOrganization.findMany({
-				where: { userId: { in: memberUserIds } },
-				with: {
-					organization: {
-						columns: { id: true, status: true },
-					},
-				},
-			});
-
-			const stillBlocked = new Set(
-				otherLinks
-					.filter(
-						(link) =>
-							link.organization?.id !== orgId &&
-							link.organization?.status === "deleted",
-					)
-					.map((link) => link.userId),
-			);
-
-			const reactivateIds = memberUserIds.filter((id) => !stillBlocked.has(id));
-
-			if (reactivateIds.length > 0) {
-				await tx
-					.update(tables.user)
-					.set({ status: "active" })
-					.where(inArray(tables.user.id, reactivateIds));
-			}
-		}
-	});
-
-	if (status === "deleted" && memberUserIds.length > 0) {
-		const members = await db.query.user.findMany({
-			where: { id: { in: memberUserIds } },
-			columns: { email: true },
-		});
-
-		await Promise.all(
-			members.map((member) => deleteResendContact(member.email)),
-		);
-	}
+	await db
+		.update(tables.organization)
+		.set({
+			status,
+			...(status === "deleted" ? getCancelledOrganizationPlanState() : {}),
+		})
+		.where(eq(tables.organization.id, orgId));
 
 	await logAuditEvent({
 		organizationId: orgId,
@@ -6894,8 +7146,8 @@ admin.openapi(setOrganizationStatusRoute, async (c) => {
 			resourceName: org.name,
 			previousStatus: org.status ?? "active",
 			newStatus: status,
+			cancelledSubscriptionIds,
 			source: "admin",
-			affectedUserCount: memberUserIds.length,
 		},
 	});
 
@@ -6962,9 +7214,9 @@ interface BlockOrganizationOutcome {
 
 /**
  * Blocks a single organization: cancels its Stripe subscriptions, marks it
- * deleted, deactivates members that have no other active organization, and
- * writes the audit entry. Shared by the single-org and bulk block endpoints so
- * both paths always apply the exact same effects.
+ * deleted, deactivates every member, and writes the audit entry. Shared by the
+ * single-org and bulk block endpoints so both paths always apply the exact same
+ * effects.
  */
 async function blockOrganizationById(
 	orgId: string,
@@ -6992,67 +7244,30 @@ async function blockOrganizationById(
 	});
 	const memberUserIds = memberLinks.map((m) => m.userId);
 
-	// Only deactivate users whose remaining org memberships are all already
-	// deleted — mirrors the re-enable flow in setOrganizationStatus. A member
-	// who still belongs to another active org keeps their access there.
-	let userIdsToDeactivate: string[] = [];
-	if (memberUserIds.length > 0) {
-		const otherLinks = await db.query.userOrganization.findMany({
-			where: { userId: { in: memberUserIds } },
-			with: {
-				organization: {
-					columns: { id: true, status: true },
-				},
-			},
-		});
-
-		const hasOtherActiveOrg = new Set(
-			otherLinks
-				.filter(
-					(link) =>
-						link.organization?.id !== orgId &&
-						link.organization?.status !== "deleted",
-				)
-				.map((link) => link.userId),
-		);
-
-		userIdsToDeactivate = memberUserIds.filter(
-			(id) => !hasOtherActiveOrg.has(id),
-		);
-	}
-
 	await db.transaction(async (tx) => {
 		await tx
 			.update(tables.organization)
 			.set({
 				status: "deleted",
-				devPlan: "none",
-				devPlanStripeSubscriptionId: null,
-				devPlanCancelled: true,
-				devPlanExpiresAt: new Date(),
-				chatPlan: "none",
-				chatPlanStripeSubscriptionId: null,
-				chatPlanCancelled: true,
-				chatPlanExpiresAt: new Date(),
-				subscriptionCancelled: true,
+				...getCancelledOrganizationPlanState(),
 			})
 			.where(eq(tables.organization.id, orgId));
 
-		if (userIdsToDeactivate.length > 0) {
+		if (memberUserIds.length > 0) {
 			await tx
 				.update(tables.user)
 				.set({ status: "deactivated" })
-				.where(inArray(tables.user.id, userIdsToDeactivate));
+				.where(inArray(tables.user.id, memberUserIds));
 
 			await tx
 				.delete(tables.session)
-				.where(inArray(tables.session.userId, userIdsToDeactivate));
+				.where(inArray(tables.session.userId, memberUserIds));
 		}
 	});
 
-	if (userIdsToDeactivate.length > 0) {
+	if (memberUserIds.length > 0) {
 		const members = await db.query.user.findMany({
-			where: { id: { in: userIdsToDeactivate } },
+			where: { id: { in: memberUserIds } },
 			columns: { email: true },
 		});
 
@@ -7072,7 +7287,7 @@ async function blockOrganizationById(
 			previousStatus: org.status ?? "active",
 			cancelledSubscriptionIds,
 			memberCount: memberUserIds.length,
-			deactivatedUserCount: userIdsToDeactivate.length,
+			deactivatedUserCount: memberUserIds.length,
 			source: "admin",
 		},
 	});
@@ -7080,7 +7295,7 @@ async function blockOrganizationById(
 	return {
 		cancelledSubscriptionIds,
 		memberCount: memberUserIds.length,
-		deactivatedUserCount: userIdsToDeactivate.length,
+		deactivatedUserCount: memberUserIds.length,
 	};
 }
 
@@ -7607,7 +7822,7 @@ admin.openapi(getProviderHistory, async (c) => {
 						"total_tokens",
 					),
 				totalCost:
-					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalCost})`.as(
+					sql<number>`SUM(cast(${modelProviderMappingHistoryHourly.totalCost} as double precision))`.as(
 						"total_cost",
 					),
 				...tokenBreakdownSums(modelProviderMappingHistoryHourly),
@@ -7695,7 +7910,7 @@ admin.openapi(getProviderHistory, async (c) => {
 		db
 			.select({
 				hourTimestamp: projectHourlyModelStats.hourTimestamp,
-				cost: sql<number>`SUM(${projectHourlyModelStats.cost})`,
+				cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`,
 			})
 			.from(projectHourlyModelStats)
 			.where(
@@ -7765,7 +7980,9 @@ admin.openapi(getModelHistory, async (c) => {
 					sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`.as(
 						"total_tokens",
 					),
-				cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
+				cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`.as(
+					"cost",
+				),
 				inputTokens:
 					sql<number>`SUM(CAST(${projectHourlyModelStats.inputTokens} AS NUMERIC))`.as(
 						"input_tokens",
@@ -7778,16 +7995,18 @@ admin.openapi(getModelHistory, async (c) => {
 					sql<number>`SUM(CAST(${projectHourlyModelStats.outputTokens} AS NUMERIC))`.as(
 						"output_tokens",
 					),
-				inputCost: sql<number>`SUM(${projectHourlyModelStats.inputCost})`.as(
-					"input_cost",
-				),
+				inputCost:
+					sql<number>`SUM(cast(${projectHourlyModelStats.inputCost} as double precision))`.as(
+						"input_cost",
+					),
 				cachedInputCost:
-					sql<number>`SUM(${projectHourlyModelStats.cachedInputCost})`.as(
+					sql<number>`SUM(cast(${projectHourlyModelStats.cachedInputCost} as double precision))`.as(
 						"cached_input_cost",
 					),
-				outputCost: sql<number>`SUM(${projectHourlyModelStats.outputCost})`.as(
-					"output_cost",
-				),
+				outputCost:
+					sql<number>`SUM(cast(${projectHourlyModelStats.outputCost} as double precision))`.as(
+						"output_cost",
+					),
 			})
 			.from(projectHourlyModelStats)
 			.where(
@@ -7867,9 +8086,10 @@ admin.openapi(getModelHistory, async (c) => {
 				totalTokens: sql<number>`SUM(${modelHistoryHourly.totalTokens})`.as(
 					"total_tokens",
 				),
-				totalCost: sql<number>`SUM(${modelHistoryHourly.totalCost})`.as(
-					"total_cost",
-				),
+				totalCost:
+					sql<number>`SUM(cast(${modelHistoryHourly.totalCost} as double precision))`.as(
+						"total_cost",
+					),
 				...tokenBreakdownSums(modelHistoryHourly),
 			})
 			.from(modelHistoryHourly)
@@ -7928,7 +8148,10 @@ admin.openapi(getModelHistory, async (c) => {
 			totalTokens: sql<number>`SUM(${modelHistory.totalTokens})`.as(
 				"total_tokens",
 			),
-			totalCost: sql<number>`SUM(${modelHistory.totalCost})`.as("total_cost"),
+			totalCost:
+				sql<number>`SUM(cast(${modelHistory.totalCost} as double precision))`.as(
+					"total_cost",
+				),
 			...tokenBreakdownSums(modelHistory),
 		})
 		.from(modelHistory)
@@ -8019,7 +8242,9 @@ admin.openapi(getMappingHistory, async (c) => {
 					sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`.as(
 						"total_tokens",
 					),
-				cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
+				cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`.as(
+					"cost",
+				),
 				inputTokens:
 					sql<number>`SUM(CAST(${projectHourlyModelStats.inputTokens} AS NUMERIC))`.as(
 						"input_tokens",
@@ -8032,16 +8257,18 @@ admin.openapi(getMappingHistory, async (c) => {
 					sql<number>`SUM(CAST(${projectHourlyModelStats.outputTokens} AS NUMERIC))`.as(
 						"output_tokens",
 					),
-				inputCost: sql<number>`SUM(${projectHourlyModelStats.inputCost})`.as(
-					"input_cost",
-				),
+				inputCost:
+					sql<number>`SUM(cast(${projectHourlyModelStats.inputCost} as double precision))`.as(
+						"input_cost",
+					),
 				cachedInputCost:
-					sql<number>`SUM(${projectHourlyModelStats.cachedInputCost})`.as(
+					sql<number>`SUM(cast(${projectHourlyModelStats.cachedInputCost} as double precision))`.as(
 						"cached_input_cost",
 					),
-				outputCost: sql<number>`SUM(${projectHourlyModelStats.outputCost})`.as(
-					"output_cost",
-				),
+				outputCost:
+					sql<number>`SUM(cast(${projectHourlyModelStats.outputCost} as double precision))`.as(
+						"output_cost",
+					),
 			})
 			.from(projectHourlyModelStats)
 			.where(
@@ -8145,7 +8372,7 @@ admin.openapi(getMappingHistory, async (c) => {
 						"total_tokens",
 					),
 				totalCost:
-					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalCost})`.as(
+					sql<number>`SUM(cast(${modelProviderMappingHistoryHourly.totalCost} as double precision))`.as(
 						"total_cost",
 					),
 				...tokenBreakdownSums(modelProviderMappingHistoryHourly),
@@ -8216,9 +8443,10 @@ admin.openapi(getMappingHistory, async (c) => {
 				sql<number>`SUM(${modelProviderMappingHistory.totalTokens})`.as(
 					"total_tokens",
 				),
-			totalCost: sql<number>`SUM(${modelProviderMappingHistory.totalCost})`.as(
-				"total_cost",
-			),
+			totalCost:
+				sql<number>`SUM(cast(${modelProviderMappingHistory.totalCost} as double precision))`.as(
+					"total_cost",
+				),
 			...tokenBreakdownSums(modelProviderMappingHistory),
 		})
 		.from(modelProviderMappingHistory)
@@ -8372,9 +8600,10 @@ admin.openapi(getProviderDetail, async (c) => {
 					sql<number>`COALESCE(SUM(${mph.timeToFirstReasoningTokenCount}), 0)`.as(
 						"ttfrt_count",
 					),
-				totalCost: sql<number>`COALESCE(SUM(${mph.totalCost}), 0)`.as(
-					"total_cost",
-				),
+				totalCost:
+					sql<number>`COALESCE(SUM(cast(${mph.totalCost} as double precision)), 0)`.as(
+						"total_cost",
+					),
 				...tokenBreakdownSums(mph),
 			})
 			.from(mph)
@@ -8678,9 +8907,10 @@ admin.openapi(getMappingDetail, async (c) => {
 			// samples take precedence so thinking mappings aren't measured on
 			// their (much later) first content token.
 			avgTtft: avgEffectiveTtftSql(mph).as("avg_ttft"),
-			totalCost: sql<number>`COALESCE(SUM(${mph.totalCost}), 0)`.as(
-				"total_cost",
-			),
+			totalCost:
+				sql<number>`COALESCE(SUM(cast(${mph.totalCost} as double precision)), 0)`.as(
+					"total_cost",
+				),
 			...tokenBreakdownSums(mph),
 		})
 		.from(mph)
@@ -8804,7 +9034,9 @@ admin.openapi(getGlobalCostByModel, async (c) => {
 	const rows = await db
 		.select({
 			usedModel: projectHourlyModelStats.usedModel,
-			cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
+			cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`.as(
+				"cost",
+			),
 			requestCount:
 				sql<number>`SUM(${projectHourlyModelStats.requestCount})`.as(
 					"request_count",
@@ -8825,7 +9057,9 @@ admin.openapi(getGlobalCostByModel, async (c) => {
 				: gte(projectHourlyModelStats.hourTimestamp, startDate),
 		)
 		.groupBy(projectHourlyModelStats.usedModel)
-		.orderBy(desc(sql`SUM(${projectHourlyModelStats.cost})`))
+		.orderBy(
+			desc(sql`SUM(cast(${projectHourlyModelStats.cost} as double precision))`),
+		)
 		.limit(20);
 
 	const totalCost = rows.reduce((sum, r) => sum + Number(r.cost), 0);
@@ -8921,7 +9155,9 @@ admin.openapi(getOrgCostByModel, async (c) => {
 	const rows = await db
 		.select({
 			usedModel: projectHourlyModelStats.usedModel,
-			cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
+			cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`.as(
+				"cost",
+			),
 			requestCount:
 				sql<number>`SUM(${projectHourlyModelStats.requestCount})`.as(
 					"request_count",
@@ -8940,7 +9176,9 @@ admin.openapi(getOrgCostByModel, async (c) => {
 			),
 		)
 		.groupBy(projectHourlyModelStats.usedModel)
-		.orderBy(desc(sql`SUM(${projectHourlyModelStats.cost})`))
+		.orderBy(
+			desc(sql`SUM(cast(${projectHourlyModelStats.cost} as double precision))`),
+		)
 		.limit(20);
 
 	const totalCost = rows.reduce((sum, r) => sum + Number(r.cost), 0);
@@ -9219,7 +9457,9 @@ async function buildCostByModelTimeseries({
 	const modelTotals = await db
 		.select({
 			usedModel: projectHourlyModelStats.usedModel,
-			cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
+			cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`.as(
+				"cost",
+			),
 		})
 		.from(projectHourlyModelStats)
 		.where(baseFilter)
@@ -9259,7 +9499,9 @@ async function buildCostByModelTimeseries({
 		.select({
 			bucket: bucketExpr.as("bucket"),
 			usedModel: projectHourlyModelStats.usedModel,
-			cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
+			cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`.as(
+				"cost",
+			),
 			requestCount:
 				sql<number>`SUM(${projectHourlyModelStats.requestCount})`.as(
 					"request_count",
@@ -9314,7 +9556,9 @@ async function buildCostBySourceTimeseries({
 	const sourceTotals = await db
 		.select({
 			source: projectHourlySourceStats.source,
-			cost: sql<number>`SUM(${projectHourlySourceStats.cost})`.as("cost"),
+			cost: sql<number>`SUM(cast(${projectHourlySourceStats.cost} as double precision))`.as(
+				"cost",
+			),
 		})
 		.from(projectHourlySourceStats)
 		.where(baseFilter)
@@ -9341,7 +9585,9 @@ async function buildCostBySourceTimeseries({
 		.select({
 			bucket: bucketExpr.as("bucket"),
 			source: projectHourlySourceStats.source,
-			cost: sql<number>`SUM(${projectHourlySourceStats.cost})`.as("cost"),
+			cost: sql<number>`SUM(cast(${projectHourlySourceStats.cost} as double precision))`.as(
+				"cost",
+			),
 			requestCount:
 				sql<number>`SUM(${projectHourlySourceStats.requestCount})`.as(
 					"request_count",
@@ -9558,7 +9804,9 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 			"cached_count",
 		);
 	const costExpr =
-		sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as("cost");
+		sql<number>`COALESCE(SUM(cast(${projectHourlyModelStats.cost} as double precision)), 0)`.as(
+			"cost",
+		);
 	const totalTokensExpr =
 		sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
 			"total_tokens",
@@ -9604,15 +9852,15 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 					"output_tokens",
 				),
 			inputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyModelStats.inputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyModelStats.inputCost} as double precision)), 0)`.as(
 					"input_cost",
 				),
 			cachedInputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyModelStats.cachedInputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyModelStats.cachedInputCost} as double precision)), 0)`.as(
 					"cached_input_cost",
 				),
 			outputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyModelStats.outputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyModelStats.outputCost} as double precision)), 0)`.as(
 					"output_cost",
 				),
 		})
@@ -9843,7 +10091,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 						sql<number>`COALESCE(SUM(${mappingHistory.table.cachedCount}), 0)`.as(
 							"cachedCount",
 						),
-					cost: sql<number>`COALESCE(SUM(${mappingHistory.table.totalCost}), 0)`.as(
+					cost: sql<number>`COALESCE(SUM(cast(${mappingHistory.table.totalCost} as double precision)), 0)`.as(
 						"cost",
 					),
 					...tokenBreakdownSums(mappingHistory.table),
@@ -9892,7 +10140,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 							"totalTokens",
 						),
 					totalCost:
-						sql<number>`COALESCE(SUM(${mappingHistory.table.totalCost}), 0)`.as(
+						sql<number>`COALESCE(SUM(cast(${mappingHistory.table.totalCost} as double precision)), 0)`.as(
 							"totalCost",
 						),
 					...tokenBreakdownSums(mappingHistory.table),
@@ -9995,7 +10243,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 				eq(tables.modelProviderMapping.id, statsJoin.mappingId),
 			)
 			.where(whereClause)
-			.orderBy(orderFn(sortColumn))
+			.orderBy(orderFn(sortColumn), asc(tables.modelProviderMapping.id))
 			.limit(limit)
 			.offset(offset),
 	]);
@@ -10731,7 +10979,7 @@ admin.openapi(getContactSubmissions, async (c) => {
 			})
 			.from(t)
 			.where(where)
-			.orderBy(orderFn(sortColumn))
+			.orderBy(orderFn(sortColumn), asc(t.id))
 			.limit(limit)
 			.offset(offset),
 		db
@@ -11798,7 +12046,7 @@ admin.openapi(getProviderListingRequests, async (c) => {
 			})
 			.from(t)
 			.where(where)
-			.orderBy(orderFn(sortColumn))
+			.orderBy(orderFn(sortColumn), asc(t.id))
 			.limit(limit)
 			.offset(offset),
 		db
@@ -12338,6 +12586,9 @@ const devpassTransactionSchema = z.object({
 	currency: z.string(),
 	status: z.string(),
 	description: z.string().nullable(),
+	// The payment a refund reverses, so the two rows can be tied together in
+	// the panel. Null on everything else.
+	relatedTransactionId: z.string().nullable(),
 	// Whether an admin can refund this payment, and how much of it is left.
 	// `refundIneligibleReason` is null when `refundable` is true.
 	refundable: z.boolean(),
@@ -12819,18 +13070,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		.groupBy(tables.paymentFailure.organizationId)
 		.as("last_payment_failure_sub");
 
-	const ownerSub = db
-		.select({
-			organizationId: tables.userOrganization.organizationId,
-			userId: tables.user.id,
-			userName: tables.user.name,
-			userEmail: tables.user.email,
-			userUsername: tables.user.username,
-		})
-		.from(tables.userOrganization)
-		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
-		.where(eq(tables.userOrganization.role, "owner"))
-		.as("owner_sub");
+	const ownerSub = buildOrganizationOwnerSubquery();
 
 	// All-time provider cost per org: every project, every cycle, no status or
 	// billing-cycle window. Unlike `realCostSub` (current cycle only) this never
@@ -13184,7 +13424,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 
 	const rows = await baseSelect
 		.where(whereClause)
-		.orderBy(orderFn(sortColumn))
+		.orderBy(orderFn(sortColumn), asc(tables.organization.id))
 		.limit(limit)
 		.offset(offset);
 
@@ -14106,7 +14346,7 @@ admin.openapi(getDevpassUsage, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
 					"total_tokens",
 				),
-			cost: sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
+			cost: sql<number>`COALESCE(SUM(cast(${projectHourlyModelStats.cost} as double precision)), 0)`.as(
 				"cost",
 			),
 		})
@@ -14121,7 +14361,11 @@ admin.openapi(getDevpassUsage, async (c) => {
 		)
 		.where(projectModelWhere)
 		.groupBy(projectHourlyModelStats.usedModel)
-		.orderBy(desc(sql`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`))
+		.orderBy(
+			desc(
+				sql`COALESCE(SUM(cast(${projectHourlyModelStats.cost} as double precision)), 0)`,
+			),
+		)
 		.limit(limit);
 
 	const providerRows = await db
@@ -14135,7 +14379,7 @@ admin.openapi(getDevpassUsage, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
 					"total_tokens",
 				),
-			cost: sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
+			cost: sql<number>`COALESCE(SUM(cast(${projectHourlyModelStats.cost} as double precision)), 0)`.as(
 				"cost",
 			),
 		})
@@ -14150,7 +14394,11 @@ admin.openapi(getDevpassUsage, async (c) => {
 		)
 		.where(projectModelWhere)
 		.groupBy(projectHourlyModelStats.usedProvider)
-		.orderBy(desc(sql`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`))
+		.orderBy(
+			desc(
+				sql`COALESCE(SUM(cast(${projectHourlyModelStats.cost} as double precision)), 0)`,
+			),
+		)
 		.limit(limit);
 
 	// Sources: use the per-project hourly source aggregator so the breakdown
@@ -14173,7 +14421,7 @@ admin.openapi(getDevpassUsage, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${projectHourlySourceStats.totalTokens} AS NUMERIC)), 0)`.as(
 					"total_tokens",
 				),
-			cost: sql<number>`COALESCE(SUM(${projectHourlySourceStats.cost}), 0)`.as(
+			cost: sql<number>`COALESCE(SUM(cast(${projectHourlySourceStats.cost} as double precision)), 0)`.as(
 				"cost",
 			),
 		})
@@ -14188,7 +14436,11 @@ admin.openapi(getDevpassUsage, async (c) => {
 		)
 		.where(projectSourceWhere)
 		.groupBy(projectHourlySourceStats.source)
-		.orderBy(desc(sql`COALESCE(SUM(${projectHourlySourceStats.cost}), 0)`))
+		.orderBy(
+			desc(
+				sql`COALESCE(SUM(cast(${projectHourlySourceStats.cost} as double precision)), 0)`,
+			),
+		)
 		.limit(limit);
 
 	const mapRow = (r: {
@@ -14491,6 +14743,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 			currency: tables.transaction.currency,
 			status: tables.transaction.status,
 			description: tables.transaction.description,
+			relatedTransactionId: tables.transaction.relatedTransactionId,
 			stripePaymentIntentId: tables.transaction.stripePaymentIntentId,
 			stripeInvoiceId: tables.transaction.stripeInvoiceId,
 		})
@@ -14508,8 +14761,16 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 					"dev_plan_renewal",
 					"dev_plan_reset_pass",
 					"dev_plan_reset_pass_gift",
+					"dev_plan_reset_pass_reward",
 					// PAYG overflow top-ups are DevPass billing events too.
 					"credit_topup",
+					// Money and credits going back out. Without `credit_refund` a
+					// refunded payment reads as a charge that was never reversed —
+					// the refund exists only as a badge on the original row — and
+					// gifted or manually paid credits appear from nowhere.
+					"credit_refund",
+					"credit_gift",
+					"credit_manual_payment",
 					// Legacy types — pre dev_plan_* rename, still in DB for older
 					// dev plan subscribers; without these their history reads as empty.
 					"subscription_start",
@@ -14571,6 +14832,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 				currency: t.currency,
 				status: t.status,
 				description: t.description ?? null,
+				relatedTransactionId: t.relatedTransactionId ?? null,
 				refundable: refundability.refundable,
 				refundIneligibleReason: refundability.reason,
 				refundedAmount: refundability.refundedAmount,
@@ -15139,17 +15401,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 		.groupBy(tables.paymentFailure.organizationId)
 		.as("last_payment_failure_sub");
 
-	const ownerSub = db
-		.select({
-			organizationId: tables.userOrganization.organizationId,
-			userId: tables.user.id,
-			userName: tables.user.name,
-			userEmail: tables.user.email,
-		})
-		.from(tables.userOrganization)
-		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
-		.where(eq(tables.userOrganization.role, "owner"))
-		.as("owner_sub");
+	const ownerSub = buildOrganizationOwnerSubquery();
 
 	// All-time provider cost per org: every project, every cycle, no status or
 	// billing-cycle window. Scoped to chat orgs so the aggregation doesn't scan
@@ -15420,7 +15672,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 
 	const rows = await baseSelect
 		.where(whereClause)
-		.orderBy(orderFn(sortColumn))
+		.orderBy(orderFn(sortColumn), asc(tables.organization.id))
 		.limit(limit)
 		.offset(offset);
 
@@ -15963,7 +16215,7 @@ admin.openapi(getChatPlansUsage, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
 					"total_tokens",
 				),
-			cost: sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
+			cost: sql<number>`COALESCE(SUM(cast(${projectHourlyModelStats.cost} as double precision)), 0)`.as(
 				"cost",
 			),
 		})
@@ -15978,7 +16230,11 @@ admin.openapi(getChatPlansUsage, async (c) => {
 		)
 		.where(projectModelWhere)
 		.groupBy(projectHourlyModelStats.usedModel)
-		.orderBy(desc(sql`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`))
+		.orderBy(
+			desc(
+				sql`COALESCE(SUM(cast(${projectHourlyModelStats.cost} as double precision)), 0)`,
+			),
+		)
 		.limit(limit);
 
 	const providerRows = await db
@@ -15992,7 +16248,7 @@ admin.openapi(getChatPlansUsage, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
 					"total_tokens",
 				),
-			cost: sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
+			cost: sql<number>`COALESCE(SUM(cast(${projectHourlyModelStats.cost} as double precision)), 0)`.as(
 				"cost",
 			),
 		})
@@ -16007,7 +16263,11 @@ admin.openapi(getChatPlansUsage, async (c) => {
 		)
 		.where(projectModelWhere)
 		.groupBy(projectHourlyModelStats.usedProvider)
-		.orderBy(desc(sql`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`))
+		.orderBy(
+			desc(
+				sql`COALESCE(SUM(cast(${projectHourlyModelStats.cost} as double precision)), 0)`,
+			),
+		)
 		.limit(limit);
 
 	const projectSourceWhere = and(
@@ -16027,7 +16287,7 @@ admin.openapi(getChatPlansUsage, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${projectHourlySourceStats.totalTokens} AS NUMERIC)), 0)`.as(
 					"total_tokens",
 				),
-			cost: sql<number>`COALESCE(SUM(${projectHourlySourceStats.cost}), 0)`.as(
+			cost: sql<number>`COALESCE(SUM(cast(${projectHourlySourceStats.cost} as double precision)), 0)`.as(
 				"cost",
 			),
 		})
@@ -16042,7 +16302,11 @@ admin.openapi(getChatPlansUsage, async (c) => {
 		)
 		.where(projectSourceWhere)
 		.groupBy(projectHourlySourceStats.source)
-		.orderBy(desc(sql`COALESCE(SUM(${projectHourlySourceStats.cost}), 0)`))
+		.orderBy(
+			desc(
+				sql`COALESCE(SUM(cast(${projectHourlySourceStats.cost} as double precision)), 0)`,
+			),
+		)
 		.limit(limit);
 
 	const mapRow = (r: {
