@@ -25,10 +25,21 @@ Before writing, make sure you understand the feature concretely. If the user onl
 
 - **Date**: today, `YYYY-MM-DD`. Entries sort by date descending, so this puts the entry at the top.
 - **id**: the next integer after the current highest. Find it with:
+
   ```bash
-  grep -h '^id:' apps/ui/src/content/changelog/*.md | sed 's/[^0-9]//g' | sort -n | tail -1
+  rg --no-filename '^id:' apps/ui/src/content/changelog/*.md | sed 's/[^0-9]//g' | sort -n | tail -1
   ```
-  Use that number + 1, as a string.
+
+  Use that number + 1, as a string. Also check for existing duplicates before
+  adding the entry:
+
+  ```bash
+  rg --no-filename '^id:' apps/ui/src/content/changelog/*.md | sed 's/[^0-9]//g' | sort -n | uniq -d
+  ```
+
+  If this prints an existing duplicate, report it and still choose an unused id
+  above the current maximum; do not silently renumber published entries.
+
 - **slug**: short kebab-case, feature-focused (e.g. `custom-model-catalog`). The slug must match the filename suffix and the `image.src` filename, and becomes the URL `/changelog/<slug>`.
 
 ## Step 2 — Write the markdown file
@@ -70,16 +81,19 @@ Read the two or three most recent files in `apps/ui/src/content/changelog/` befo
 - **Show the API.** Include a realistic `curl` or JSON example when there's a request-level change. Use `https://api.llmgateway.io/v1/...` and `$LLM_GATEWAY_API_KEY`.
 - **Use a table** for fields, options, strategies, or tiers.
 - **State plan gating explicitly** (e.g. "Available on the **Enterprise plan**").
-- **Close with a footer link line**: a docs link and one secondary CTA, separated by ` | `, each as `**[Label →](url)**`.
+- **Close with a footer link line**: a verified docs link and one verified
+  secondary CTA, separated by `|` and bolded.
 - Keep section headers in `##`. Keep it scannable — short paragraphs, bullets for lists of behaviors.
 
 ## Step 3 — Produce the OpenGraph image prompt
 
 Hand the user a single, ready-to-paste **gpt-image-2** prompt that produces the OG image, plus where to save it.
 
-**Resolution.** Target **1536×1024** (3:2 landscape). This is the recommended OpenGraph size for gpt-image-2: the dimensions are divisible by 16 (a gpt-image-2 requirement) and crop cleanly to the ~1.91:1 social card. Match the `width`/`height` in the frontmatter to whatever you generate. (Square `1024×1024` is acceptable for icon-style art but crops more on social cards — prefer landscape for OG.)
+**Resolution.** Target **1536×1024** (3:2 landscape), matching current
+changelog entries and the repository's gpt-image-2 image presets. Match the
+frontmatter dimensions to the generated file.
 
-**Prompt guidance.** Write a *small summary* prompt — 2–4 sentences — in the **house image style**: a glossy 3D-rendered circuit-board scene, not a flat/minimal gradient backdrop. The prompt should:
+**Prompt guidance.** Write a _small summary_ prompt — 2–4 sentences — in the **house image style**: a glossy 3D-rendered circuit-board scene, not a flat/minimal gradient backdrop. The prompt should:
 
 - Set the scene: a dark navy computer circuit board in glossy 3D isometric perspective, with bright neon-teal light traces flowing across it toward a central raised chip.
 - Put the feature's concept at the center: a glowing element mounted on the central chip (e.g. a glowing doorway for the gateway, a glowing key for API keys). Concept over literalism.
@@ -106,13 +120,14 @@ words, no letters, no UI chrome.
 Save the result to: apps/ui/public/changelog/<slug>.png
 ````
 
-Generate the image with gpt-image-2 (LLM Gateway playground, the Images API, or any gpt-image-2 client), then drop the PNG at that path. The entry references it via `image.src`; until the file exists the entry builds fine but the image 404s.
+Generate the image with gpt-image-2, then put the PNG at that path and inspect
+its actual dimensions before validating.
 
 ## Step 4 — Validate
 
 ```bash
 pnpm format
-turbo run build --filter=ui
+pnpm exec turbo run build --filter=ui
 ```
 
 `pnpm format` normalizes the markdown; the `ui` build fails if the frontmatter doesn't match the content-collections schema. Then commit (conventional commit, ≤50-char title), e.g. `docs(changelog): add custom model catalog entry`.

@@ -3,8 +3,17 @@ id: "blog-best-open-source-llms"
 slug: "best-open-source-llms"
 date: "2026-07-19"
 title: "9 Best Open-Source LLMs in 2026 (Compared)"
-summary: "The best open-source LLMs in 2026, ranked — Kimi K3 (weights expected by July 27), GLM-5.2, DeepSeek V4 Pro, MiniMax M3 and more, compared on license, context window, and real per-token price. All of them run through one API with LLM Gateway."
+summary: "The best open-source LLMs in 2026, ranked — Kimi K3, GLM-5.2, DeepSeek V4 Pro, MiniMax M3 and more, compared on license, context window, and real per-token price. All of them run through one API with LLM Gateway."
 categories: ["Guides"]
+faqs:
+  - question: "What is the best open-source LLM in 2026?"
+    answer: "Kimi K3, by benchmark standing: 4th of 189 models on the Artificial Analysis Intelligence Index, level with Claude Opus 4.8. Moonshot published the full 2.8T-parameter weights on July 26, 2026, though at that size most teams still run it through an API rather than self-hosting. If price matters, GLM-5.2 delivers most of that capability with output at under a third of K3's price."
+  - question: "What is the best small open-source LLM?"
+    answer: "Qwen3.6-35B-A3B — Apache 2.0, multimodal, 3B active parameters, and it runs on a 24 GB consumer GPU while holding its own on agentic coding benchmarks."
+  - question: "Are these models open source or open weight?"
+    answer: 'Open weight: the trained weights are downloadable and self-hostable, but training data and code are generally not released. GLM-5.2, DeepSeek V4 Pro, Qwen3.6-35B-A3B, and gpt-oss-120b use standard OSI licenses; Llama uses Meta''s community license. Kimi K3 sits apart: its weights went up on July 26, 2026 under a custom "Kimi K3 License" rather than MIT or Apache 2.0, so read the LICENSE file before commercial self-hosting.'
+  - question: "What is the cheapest way to use open-source LLMs?"
+    answer: "Through a gateway at provider list prices. LLM Gateway adds no per-token markup — pay-as-you-go credits carry a 5% platform fee at top-up, and DevPass turns heavy coding-agent usage into a flat monthly rate."
 image:
   src: "/blog/best-open-source-llms.png"
   alt: "A podium of glowing processor chips of different sizes on a circuit board, representing the best open-source LLMs of 2026 ranked"
@@ -12,7 +21,7 @@ image:
   height: 1024
 ---
 
-Open-source LLMs stopped being the budget option in 2026. Kimi K3 sits level with Claude Opus 4.8 on the Artificial Analysis Intelligence Index (its hosted API is live; the weights themselves are expected by July 27), GLM-5.2 held the top open-model spot before it, and the field behind them is deep enough that the hard part is choosing.
+Open-source LLMs stopped being the budget option in 2026. Kimi K3 sits level with Claude Opus 4.8 on the Artificial Analysis Intelligence Index (its hosted API is live and the weights went public on July 26, 2026), GLM-5.2 held the top open-model spot before it, and the field behind them is deep enough that the hard part is choosing.
 
 This ranking covers the nine best open-weight models right now — on license, context window, hardware reality, and the per-token price you actually pay. Every one of them is available through **LLM Gateway** with one key, at each provider's published rate, so you can A/B any two of them by changing one word in a request.
 
@@ -23,6 +32,8 @@ This ranking covers the nine best open-weight models right now — on license, c
 The largest open-weight model ever announced — with one caveat: the weights are not downloadable yet. Moonshot expects to release them by July 27, 2026, and the license is still unannounced; the hosted API has been live since July 16. Ranks 4th of 189 models on the Artificial Analysis Intelligence Index — tied with Claude Opus 4.8 and GPT-5.5 — and took first place in Arena's blind Frontend Code testing. Always-on reasoning, vision, tools, and output configurable up to 1M tokens. The open model to beat, priced accordingly. [Full breakdown here](/blog/kimi-k3).
 
 **Best for:** teams that want closed-frontier quality with open-weight freedom.
+
+<BlogCta variant="gateway" location="mid_article" />
 
 ## 2. GLM-5.2 — the value flagship
 
@@ -128,26 +139,10 @@ curl https://api.llmgateway.io/v1/chat/completions \
 
 Two ways to pay. **Pay-as-you-go**: top up from $10, pay the published per-token rates plus a 5% platform fee at top-up — right for shipping products. **[DevPass](https://devpass.llmgateway.io)**: flat $29/$79/$179 a month for coding agents, with roughly 3× your subscription price in model usage at provider rates. On DevPass, every model on this list except Kimi K3 is standard-tier with no weekly cap; K3 crosses the premium price threshold and draws from a weekly premium allowance.
 
-## Frequently Asked Questions
-
-### What is the best open-source LLM in 2026?
-
-Kimi K3, by benchmark standing: 4th of 189 models on the Artificial Analysis Intelligence Index, level with Claude Opus 4.8 — though its weights are expected by July 27 and it is API-only until then. If price matters, GLM-5.2 delivers most of that capability with output at under a third of K3's price.
-
-### What is the best small open-source LLM?
-
-Qwen3.6-35B-A3B — Apache 2.0, multimodal, 3B active parameters, and it runs on a 24 GB consumer GPU while holding its own on agentic coding benchmarks.
-
-### Are these models open source or open weight?
-
-Open weight: the trained weights are downloadable and self-hostable under permissive licenses (mostly MIT or Apache 2.0), but training data and code are generally not released. GLM-5.2, DeepSeek V4 Pro, Qwen3.6-35B-A3B, and gpt-oss-120b use standard OSI licenses; Llama uses Meta's community license. Kimi K3 is the exception for now: its weights are expected by July 27, 2026 and are unlicensed until Moonshot announces terms — today it is usable only through hosted APIs.
-
-### What is the cheapest way to use open-source LLMs?
-
-Through a gateway at provider list prices. LLM Gateway adds no per-token markup — pay-as-you-go credits carry a 5% platform fee at top-up, and DevPass turns heavy coding-agent usage into a flat monthly rate.
-
 ## Getting started
 
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** — all nine models, one key
 - **[Get DevPass](https://devpass.llmgateway.io)** — flat-rate open models in your coding agent from $29/mo
 - Deep dive on the leader: [Kimi K3 and China's Open-Weight Model Wave](/blog/kimi-k3)
+
+<BlogCta variant="gateway" location="bottom" />

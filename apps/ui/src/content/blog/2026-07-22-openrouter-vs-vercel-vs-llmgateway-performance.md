@@ -5,6 +5,15 @@ date: "2026-07-22"
 title: "OpenRouter vs Vercel vs LLMGateway Performance"
 summary: "We measured AI gateway performance with an open-source TTFT benchmark: 75 cold + 75 warm interleaved runs of claude-haiku-4.5 against LLM Gateway and OpenRouter, with phase-by-phase timings and raw data published. LLM Gateway reached first token ~35% faster cold and ~34% faster warm, and here is exactly how to reproduce the numbers."
 categories: ["Engineering"]
+faqs:
+  - question: "What is TTFT and why does it matter more than TTFB?"
+    answer: "TTFT (time to first token) is the delay between sending a request and receiving the first piece of model output in the stream. TTFB (time to first byte) only measures when the server starts responding — a gateway can stream headers immediately while the model is still silent. For anything a user watches in real time, TTFT is the latency they actually experience."
+  - question: "What is a good TTFT for an AI gateway?"
+    answer: "It depends on the model and your distance from the gateway's edge, so compare gateways against each other rather than an absolute bar. In this AI gateway performance benchmark, first tokens from claude-haiku-4.5 arrived in roughly 800–900ms through LLM Gateway and 1200–1400ms through OpenRouter, measured from the same machine in the same session."
+  - question: "Are these results valid from every location?"
+    answer: "No — latency benchmarks are a property of the vantage point, and the benchmark's own README is explicit about it. Our numbers come from one residential connection on one day; the author's Vercel numbers come from another. The script is open source and takes minutes to run, so measure from where your servers actually live."
+  - question: "Does LLM Gateway support the same models as OpenRouter?"
+    answer: "LLM Gateway routes an overlapping catalogue — the full list is on the [models page](https://llmgateway.io/models), spanning the major closed and open-weight providers on the [providers page](https://llmgateway.io/providers). Requests use the OpenAI-compatible format either way, so moving a workload between the two is a base URL and key change."
 image:
   src: "/blog/openrouter-vs-vercel-vs-llmgateway-performance.png"
   alt: "Glossy circuit board with a glowing stopwatch on the central chip and light traces racing toward it, representing an AI gateway latency benchmark"
@@ -49,6 +58,8 @@ The spread, as median with p10–p90 range:
 | Warm TTFT     | 814 (673–1379) | 1232 (924–1501)  |
 
 Two things stand out beyond the medians. LLM Gateway's p90 cold TTFT (1380ms) came in below OpenRouter's median — the slow tail of one distribution beat the middle of the other. And LLM Gateway's warm TTFB barely moves: 171–193ms across the p10–p90 range, which is the stability you want under a production connection pool.
+
+<BlogCta variant="gateway" location="mid_article" />
 
 ## Where the time goes
 
@@ -125,24 +136,6 @@ A gateway earns its hop with failover, unified billing, and one API across [ever
 
 If you are on OpenRouter today, LLM Gateway speaks the same OpenAI-compatible API — switching means changing the base URL and swapping in an LLM Gateway API key, covered in the [OpenRouter migration guide](https://docs.llmgateway.io/migrations/openrouter).
 
-## Frequently Asked Questions
-
-### What is TTFT and why does it matter more than TTFB?
-
-TTFT (time to first token) is the delay between sending a request and receiving the first piece of model output in the stream. TTFB (time to first byte) only measures when the server starts responding — a gateway can stream headers immediately while the model is still silent. For anything a user watches in real time, TTFT is the latency they actually experience.
-
-### What is a good TTFT for an AI gateway?
-
-It depends on the model and your distance from the gateway's edge, so compare gateways against each other rather than an absolute bar. In this AI gateway performance benchmark, first tokens from claude-haiku-4.5 arrived in roughly 800–900ms through LLM Gateway and 1200–1400ms through OpenRouter, measured from the same machine in the same session.
-
-### Are these results valid from every location?
-
-No — latency benchmarks are a property of the vantage point, and the benchmark's own README is explicit about it. Our numbers come from one residential connection on one day; the author's Vercel numbers come from another. The script is open source and takes minutes to run, so measure from where your servers actually live.
-
-### Does LLM Gateway support the same models as OpenRouter?
-
-LLM Gateway routes an overlapping catalogue — the full list is on the [models page](https://llmgateway.io/models), spanning the major closed and open-weight providers on the [providers page](https://llmgateway.io/providers). Requests use the OpenAI-compatible format either way, so moving a workload between the two is a base URL and key change.
-
 ---
 
 **Measure it yourself:**
@@ -150,3 +143,5 @@ LLM Gateway routes an overlapping catalogue — the full list is on the [models 
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** — one key, streaming from day one
 - **[Migrate from OpenRouter](https://docs.llmgateway.io/migrations/openrouter)** — a base URL and API key change
 - **[What is an LLM gateway?](/blog/what-is-an-llm-gateway)** — where the hop pays for itself
+
+<BlogCta variant="gateway" location="bottom" />

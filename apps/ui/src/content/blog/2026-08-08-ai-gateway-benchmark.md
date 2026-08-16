@@ -5,6 +5,13 @@ date: "2026-08-08"
 title: "Ranked #1 on an Independent AI Gateway Benchmark"
 summary: "In the August 7 run of computesdk's independent AI gateway benchmark, LLM Gateway ranked first of six gateways with a composite score of 90.8 — driven by the tightest tail latency in the field, not the fastest median. Here's what the benchmark measures, what our numbers actually show, and how to run it yourself."
 categories: ["Engineering"]
+faqs:
+  - question: "What does an AI gateway benchmark actually measure?"
+    answer: "A good one measures the latency the gateway itself adds, isolated from the model provider's own speed. computesdk's harness does this by running a direct-to-provider control alongside the gateways, pointing everything at the same model, and running all participants round-robin so they share the same network conditions. It separates cold requests (fresh connection, including DNS, TCP, and TLS) from warm ones (pooled connection), because those fail in different ways."
+  - question: "Does an AI gateway add latency compared to calling the provider directly?"
+    answer: "Yes. A gateway is an extra network hop, and no routing layer makes that free — in the August 7 run our warm TTFT median was 629 ms against the direct baseline's 615 ms. The question worth asking is what you get for it: failover across providers, unified billing and usage analytics, and a single API across model vendors. And the overhead is small enough that connection handling dominates it, which is why the tail, not the median, is where gateways actually differ."
+  - question: "How do I run the AI gateway benchmark myself?"
+    answer: "Clone [computesdk/benchmarks](https://github.com/computesdk/benchmarks), set an API key for each gateway you want to include, and run `pnpm bench:ai-gateway`. Gateways without keys are skipped, so you can benchmark just your own stack against the direct-to-provider control. Results are written to `results/ai-gateway/` as JSON, including every individual iteration, so you can compute your own percentiles rather than trusting anyone's composite."
 image:
   src: "/blog/ai-gateway-benchmark.png"
   alt: "A circuit board with a glowing stopwatch on the central chip surrounded by a podium and rising bar chart, representing AI gateway latency benchmarks"
@@ -52,6 +59,8 @@ A warm p95 of 1151 ms against a field that ranges to 4329 ms is the difference b
 
 This matters more than it used to. A chatbot turn is one call, and a bad p95 costs one person one pause. An agent turn fans out into many sequential calls, and the tail compounds: at ten calls per turn, a p95 stall stops being an edge case and starts being most turns. Tail latency is the number that decides whether an agentic workload feels responsive.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## What We Changed in the Upstream Path
 
 Our provider requests used to go out through bare global `fetch`. Undici's defaults close idle upstream sockets after four seconds and re-resolve DNS on every new connection, so any request arriving after a lull paid a full DNS + TCP + TLS handshake before its first token. Under Kubernetes' default `ndots:5`, one dropped UDP packet during the search-domain walk stalls a request for seconds — which is exactly the shape of a bad p95.
@@ -91,20 +100,6 @@ pnpm bench:ai-gateway --iterations 20
 
 Results land in `results/ai-gateway/`, and the composite weighting is in `benchmarks/ai-gateway/scoring.ts`.
 
-## Frequently Asked Questions
-
-### What does an AI gateway benchmark actually measure?
-
-A good one measures the latency the gateway itself adds, isolated from the model provider's own speed. computesdk's harness does this by running a direct-to-provider control alongside the gateways, pointing everything at the same model, and running all participants round-robin so they share the same network conditions. It separates cold requests (fresh connection, including DNS, TCP, and TLS) from warm ones (pooled connection), because those fail in different ways.
-
-### Does an AI gateway add latency compared to calling the provider directly?
-
-Yes. A gateway is an extra network hop, and no routing layer makes that free — in the August 7 run our warm TTFT median was 629 ms against the direct baseline's 615 ms. The question worth asking is what you get for it: failover across providers, unified billing and usage analytics, and a single API across model vendors. And the overhead is small enough that connection handling dominates it, which is why the tail, not the median, is where gateways actually differ.
-
-### How do I run the AI gateway benchmark myself?
-
-Clone [computesdk/benchmarks](https://github.com/computesdk/benchmarks), set an API key for each gateway you want to include, and run `pnpm bench:ai-gateway`. Gateways without keys are skipped, so you can benchmark just your own stack against the direct-to-provider control. Results are written to `results/ai-gateway/` as JSON, including every individual iteration, so you can compute your own percentiles rather than trusting anyone's composite.
-
 ---
 
 **[Try LLM Gateway free](https://llmgateway.io/signup)** — one API across every major provider, with automatic failover.
@@ -112,3 +107,5 @@ Clone [computesdk/benchmarks](https://github.com/computesdk/benchmarks), set an 
 - **[See the live benchmark →](https://www.computesdk.com/benchmarks/ai-gateway/)** — current numbers, not this snapshot
 - **[Routing and fallback docs →](https://docs.llmgateway.io/features/routing)** — how requests move across providers
 - **[Portkey alternatives →](/blog/portkey-alternatives)** — how the AI gateway landscape compares
+
+<BlogCta variant="gateway" location="bottom" />

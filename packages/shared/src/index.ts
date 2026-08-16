@@ -66,6 +66,9 @@ export {
 	REFUND_REASON_HEADING,
 	REFUND_REASON_OPTIONS,
 	REFUND_REASONS,
+	RESET_PASS_SELF_REFUND_WINDOW_DAYS,
+	SELF_REFUND_USAGE_PERCENT,
+	SELF_REFUND_WINDOW_DAYS,
 	isRefundFeedbackComplete,
 	refundCommentsRequired,
 	type RefundReason,
@@ -280,3 +283,4 @@ export {
 export { parseUsedModel, regionFromUsedModel } from "./used-model.js";
 
 export * from "./components/ui/index.js";
+export { discountFraction, isValidDiscount } from "./lib/discount.js";

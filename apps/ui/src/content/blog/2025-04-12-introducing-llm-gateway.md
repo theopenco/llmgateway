@@ -51,3 +51,5 @@ Every API call is tracked with:
 No more guessing where your AI spend goes. Compare models head-to-head and make data-driven decisions.
 
 Ready to try it? [Get started free](/signup) — no credit card required.
+
+<BlogCta variant="gateway" location="bottom" />

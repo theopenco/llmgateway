@@ -42,6 +42,8 @@ Here's what you get with zero configuration:
 - **Automatic failover** across providers when one goes down
 - **Volume discounts** that grow as your usage scales
 
+<BlogCta variant="devpass" location="mid_article" />
+
 ## For teams already using LLM Gateway
 
 If your team uses LLM Gateway for other tools (Claude Code, Cursor, Cline), OpenCode now works the same way. One API key, one dashboard, consistent cost tracking across every coding tool your team uses.
@@ -86,3 +88,5 @@ Browse all available models on the [models page](https://llmgateway.io/models).
 We're working with more coding tools to add LLM Gateway as a built-in provider. The goal is simple: if you have an LLM Gateway API key, it should work everywhere without setup.
 
 Check out the full [OpenCode integration guide](/guides/opencode) for detailed documentation, or join our [Discord](https://llmgateway.io/discord) if you run into any issues.
+
+<BlogCta variant="devpass" location="bottom" />

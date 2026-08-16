@@ -10,6 +10,8 @@ import { Suspense, useState, useEffect } from "react";
 import { Toaster as SonnerToaster } from "sonner";
 
 import { ReferralHandler } from "@/components/referral-handler";
+import { SignupMethodTracker } from "@/components/signup-method-tracker";
+import { classifyChannel } from "@/lib/attribution";
 import { Toaster } from "@/lib/components/toaster";
 import { toast } from "@/lib/components/use-toast";
 import { AppConfigProvider } from "@/lib/config";
@@ -71,6 +73,8 @@ export function Providers({ children, config }: ProvidersProps) {
 			}),
 	);
 
+	const [posthogReady, setPosthogReady] = useState(false);
+
 	// Defer PostHog initialization to reduce TBT
 	useEffect(() => {
 		if (!config.posthogKey) {
@@ -88,6 +92,18 @@ export function Providers({ children, config }: ProvidersProps) {
 				capture_pageview: "history_change",
 				autocapture: true,
 			});
+			const channel = classifyChannel(
+				document.referrer,
+				window.location.search,
+				window.location.hostname,
+			);
+			// On every event so it can segment behaviour, and set-once on the
+			// person so the first touch survives later visits.
+			posthog.register({ acquisition_channel: channel });
+			posthog.setPersonProperties(undefined, {
+				initial_acquisition_channel: channel,
+			});
+			setPosthogReady(true);
 		};
 		// Captures fired before init() are dropped by posthog-js, so the idle
 		// deferral must be bounded — a busy main thread can starve
@@ -109,7 +125,17 @@ export function Providers({ children, config }: ProvidersProps) {
 				storageKey="theme"
 			>
 				<QueryClientProvider client={queryClient}>
-					<PostHogProvider client={posthog}>{children}</PostHogProvider>
+					<PostHogProvider client={posthog}>
+						{children}
+						{/* Gated on init: posthog-js drops captures fired before
+						    init(), and the OAuth signup event has exactly one
+						    chance to fire. */}
+						{posthogReady && (
+							<Suspense>
+								<SignupMethodTracker />
+							</Suspense>
+						)}
+					</PostHogProvider>
 					{process.env.NODE_ENV === "development" && (
 						<ReactQueryDevtools buttonPosition="bottom-left" />
 					)}

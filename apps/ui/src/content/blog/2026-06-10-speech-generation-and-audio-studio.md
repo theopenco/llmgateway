@@ -70,6 +70,8 @@ Between them you get **60+ prebuilt voices**: 20 named ElevenLabs voices (`Sarah
 
 Browse the full list with live pricing on the [models page](https://llmgateway.io/models?filters=1&audioGeneration=true).
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## Control the delivery
 
 Beyond `model`, `input`, and `voice`, the endpoint accepts:
@@ -108,3 +110,5 @@ One note: streaming speech output isn't supported yet — the endpoint returns t
 - **[Read the docs →](https://docs.llmgateway.io/features/speech-generation)** — parameters, formats, and examples
 - **[Browse speech models →](https://llmgateway.io/models?filters=1&audioGeneration=true)** — live pricing and capabilities
 - **[Get your API key →](https://llmgateway.io/dashboard)** — and make your first request in under a minute
+
+<BlogCta variant="gateway" location="bottom" />

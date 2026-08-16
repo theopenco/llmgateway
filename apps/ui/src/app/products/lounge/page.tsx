@@ -173,7 +173,7 @@ export default function LoungeProductPage() {
 				<ProductClosingCta
 					accent="amber"
 					title="Take a seat in the Lounge"
-					description="Memberships start at $9/mo with a 7-day money-back guarantee. Your allowance refills every cycle, metered at provider rates."
+					description="Memberships start at $9/mo with a self-serve money-back guarantee — refund a barely-used membership from your billing history. Your allowance refills every cycle, metered at provider rates."
 					ctas={[
 						{
 							label: "Open Lounge",

@@ -44,3 +44,5 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 Your custom provider appears in your analytics dashboard alongside OpenAI, Anthropic, and others—giving you a unified view of all your LLM usage.
 
 For setup details and troubleshooting, see the [Custom Providers documentation](https://docs.llmgateway.io/features/custom-providers).
+
+<BlogCta variant="gateway" location="bottom" />
