@@ -7,6 +7,7 @@ import {
 	MessageSquare,
 	ImagePlus,
 	Braces,
+	FileJson2,
 } from "lucide-react";
 import Link from "next/link";
 import { notFound, permanentRedirect } from "next/navigation";
@@ -339,6 +340,14 @@ export default async function ModelProviderPage({ params }: PageProps) {
 										icon: Braces,
 										label: "JSON Output",
 										color: "text-cyan-500",
+									});
+								}
+								if (providerMapping.jsonOutputSchema) {
+									items.push({
+										key: "jsonOutputSchema",
+										icon: FileJson2,
+										label: "Structured JSON",
+										color: "text-teal-500",
 									});
 								}
 								const hasImageGen = Array.isArray(modelDef.output)
