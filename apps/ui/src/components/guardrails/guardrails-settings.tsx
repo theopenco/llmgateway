@@ -37,6 +37,7 @@ import {
 	SelectValue,
 } from "@/lib/components/select";
 import { Switch } from "@/lib/components/switch";
+import { useApi } from "@/lib/fetch-client";
 
 import type {
 	GuardrailConfig,
@@ -127,6 +128,7 @@ function toDraft(config: GuardrailConfig | null): DraftConfig {
 }
 
 export function GuardrailsSettings({ scope }: { scope: GuardrailsScope }) {
+	const api = useApi();
 	const { selectedOrganization } = useDashboardNavigation();
 	const { user } = useUser();
 	const { data: teamData, isLoading: isLoadingTeam } = useTeamMembers(
@@ -158,6 +160,21 @@ export function GuardrailsSettings({ scope }: { scope: GuardrailsScope }) {
 	const orgRulesQuery = useGuardrailRules(orgScope, {
 		enabled: canManageGuardrails && scope.kind === "project",
 	});
+
+	// Naming the project in the banners is what stops "this project" and the
+	// organization page's override list from reading as contradictory.
+	const projectsQuery = api.useQuery(
+		"get",
+		"/orgs/{id}/projects",
+		{ params: { path: { id: scope.organizationId } } },
+		{ enabled: canManageGuardrails && scope.kind === "project" },
+	);
+	const projectName =
+		scope.kind === "project"
+			? (projectsQuery.data?.projects?.find(
+					(project) => project.id === scope.projectId,
+				)?.name ?? "This project")
+			: null;
 
 	if (!isEnterprise) {
 		return <ContactSalesCard />;
@@ -220,6 +237,7 @@ export function GuardrailsSettings({ scope }: { scope: GuardrailsScope }) {
 			rules={rulesQuery.data ?? []}
 			organizationConfig={orgConfigQuery.data ?? null}
 			organizationRules={orgRulesQuery.data ?? []}
+			projectName={projectName}
 		/>
 	);
 }
@@ -230,12 +248,14 @@ function GuardrailsForm({
 	rules,
 	organizationConfig,
 	organizationRules,
+	projectName,
 }: {
 	scope: GuardrailsScope;
 	config: GuardrailConfig | null;
 	rules: GuardrailRule[];
 	organizationConfig: GuardrailConfig | null;
 	organizationRules: GuardrailRule[];
+	projectName: string | null;
 }) {
 	const isProject = scope.kind === "project";
 	const [draft, setDraft] = useState<DraftConfig>(() => toDraft(config));
@@ -268,6 +288,19 @@ function GuardrailsForm({
 	const editable = shown.enabled && !readOnly;
 
 	const overrides = overridesQuery.data ?? [];
+
+	// Starting an override from the organization's current settings rather than
+	// from the empty defaults — otherwise opting out would silently drop every
+	// protection the project had a moment earlier.
+	const toggleInherit = (inheritOrganization: boolean) => {
+		const startsFresh =
+			!inheritOrganization && config?.inheritOrganization !== false;
+
+		setDraft({
+			...(startsFresh ? toDraft(organizationConfig) : draft),
+			inheritOrganization,
+		});
+	};
 
 	const save = async () => {
 		setError(null);
@@ -393,16 +426,14 @@ function GuardrailsForm({
 								<div className="font-medium">Use organization guardrails</div>
 								<p className="text-sm text-muted-foreground">
 									While this is on, the organization guardrails take precedence
-									and the settings below are read-only. Turn it off to give this
-									project its own guardrails, which then replace the
-									organization&apos;s.
+									and the settings below are read-only. Turn it off to give{" "}
+									{projectName} its own guardrails, which then replace the
+									organization&apos;s for this project only.
 								</p>
 							</div>
 							<Switch
 								checked={draft.inheritOrganization}
-								onCheckedChange={(inheritOrganization) =>
-									setDraft({ ...draft, inheritOrganization })
-								}
+								onCheckedChange={toggleInherit}
 							/>
 						</div>
 					</CardContent>
@@ -414,20 +445,20 @@ function GuardrailsForm({
 					<Building2 />
 					<AlertTitle>
 						{inherits
-							? "Organization settings apply to this project"
-							: "This project overrides the organization settings"}
+							? `${projectName} uses the organization guardrails`
+							: `${projectName} has its own guardrails`}
 					</AlertTitle>
 					<AlertDescription>
 						{inherits ? (
 							<span>
-								Requests from this project are checked against the{" "}
+								Requests from {projectName} are checked against the{" "}
 								<Link
 									href={`/dashboard/${scope.organizationId}/org/guardrails`}
 									className="underline underline-offset-4"
 								>
 									organization guardrails
 								</Link>
-								. Changes made there apply here too.
+								, shown read-only below. Changes made there apply here too.
 							</span>
 						) : (
 							<span>
@@ -438,8 +469,8 @@ function GuardrailsForm({
 								>
 									organization guardrails
 								</Link>{" "}
-								do not apply to this project — only the settings and custom
-								rules below are enforced.
+								do not apply to {projectName} — only the settings and custom
+								rules below are enforced. Other projects are unaffected.
 							</span>
 						)}
 					</AlertDescription>
@@ -456,7 +487,7 @@ function GuardrailsForm({
 					</AlertTitle>
 					<AlertDescription>
 						<span>
-							These settings do not apply to{" "}
+							The settings below apply to every project except{" "}
 							{overrides.map((project, index) => (
 								<span key={project.id}>
 									{index > 0 && ", "}
@@ -468,7 +499,9 @@ function GuardrailsForm({
 									</Link>
 								</span>
 							))}
-							, which enforce their own guardrails.
+							, which{" "}
+							{overrides.length === 1 ? "enforces its" : "enforce their"} own
+							guardrails.
 						</span>
 					</AlertDescription>
 				</Alert>
