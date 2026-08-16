@@ -53,6 +53,8 @@ You'll get back a job ID. Poll it until the status flips to `completed`, then pu
 
 Full schema is in the [video generation docs](https://docs.llmgateway.io/features/video-generation).
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## Why route Seedance through a gateway
 
 You could integrate ByteDance's ModelArk API directly. For one model, in one project, that's fine. The math changes the moment you have any of these problems:
@@ -76,8 +78,10 @@ No markup. No subscription tier required. The free credits on your account work 
 2. **Submit a generation job** to `/v1/videos/generations` (example above).
 3. **Poll the job** until it completes, then grab the video URL.
 
-If you'd rather click than curl, every Seedance model is live in the [chat playground](https://chat.llmgateway.io) right now — open the **Video Studio** tab, pick a model, and start prompting.
+If you'd rather click than curl, every Seedance model is live in the [chat playground](https://lounge.llmgateway.io) right now — open the **Video Studio** tab, pick a model, and start prompting.
 
 One API key. One bill. One dashboard. Three new video models — and a lot more coming.
 
-**[Try Seedance in the playground →](https://chat.llmgateway.io)** | **[Read the docs →](https://docs.llmgateway.io/features/video-generation)** | **[Sign up free →](https://llmgateway.io/signup)**
+**[Try Seedance in the playground →](https://lounge.llmgateway.io)** | **[Read the docs →](https://docs.llmgateway.io/features/video-generation)** | **[Sign up free →](https://llmgateway.io/signup)**
+
+<BlogCta variant="gateway" location="bottom" />

@@ -14,7 +14,10 @@ import { Switch } from "@/lib/components/switch";
 import { validateApiKeyLimitsWithinMemberBudget } from "@llmgateway/shared";
 
 import type { ApiKey } from "@/lib/types";
-import type { ApiKeyLimitConstraints } from "@llmgateway/shared";
+import type {
+	ApiKeyLimitConstraints,
+	MemberBudgetOwner,
+} from "@llmgateway/shared";
 
 export type MemberBudgetConstraint = ApiKeyLimitConstraints;
 
@@ -161,11 +164,16 @@ export function buildApiKeyLimitPayload(value: ApiKeyLimitFormValue): {
 export function validateApiKeyLimitPayloadWithinMemberBudget(
 	payload: ApiKeyLimitPayload,
 	memberBudget: MemberBudgetConstraint | null | undefined,
+	budgetOwner: MemberBudgetOwner = "self",
 ): string | null {
 	if (!memberBudget || !hasMemberBudgetCaps(memberBudget)) {
 		return null;
 	}
-	return validateApiKeyLimitsWithinMemberBudget(payload, memberBudget);
+	return validateApiKeyLimitsWithinMemberBudget(
+		payload,
+		memberBudget,
+		budgetOwner,
+	);
 }
 
 export function formatCurrencyAmount(value: string): string {
@@ -252,9 +260,19 @@ interface ApiKeyLimitFieldsProps {
 	onChange: (value: ApiKeyLimitFormValue) => void;
 	value: ApiKeyLimitFormValue;
 	memberBudget?: MemberBudgetConstraint | null;
+	budgetOwner?: MemberBudgetOwner;
+	ownerName?: string | null;
 }
 
-function MemberBudgetNotice({ budget }: { budget: MemberBudgetConstraint }) {
+function MemberBudgetNotice({
+	budget,
+	budgetOwner,
+	ownerName,
+}: {
+	budget: MemberBudgetConstraint;
+	budgetOwner: MemberBudgetOwner;
+	ownerName?: string | null;
+}) {
 	const parts: string[] = [];
 	if (budget.usageLimit !== null) {
 		parts.push(`${formatCurrencyAmount(budget.usageLimit)} total`);
@@ -276,6 +294,17 @@ function MemberBudgetNotice({ budget }: { budget: MemberBudgetConstraint }) {
 		return null;
 	}
 
+	if (budgetOwner === "other") {
+		return (
+			<div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+				{ownerName ?? "The member who created this key"} is limited to{" "}
+				<span className="font-medium">{parts.join(" and ")}</span>. This
+				key&apos;s limits must be at or below that — raise their limit on the
+				Team page first.
+			</div>
+		);
+	}
+
 	return (
 		<div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
 			Your organization limits you to{" "}
@@ -290,6 +319,8 @@ export function ApiKeyLimitFields({
 	onChange,
 	value,
 	memberBudget,
+	budgetOwner = "self",
+	ownerName,
 }: ApiKeyLimitFieldsProps) {
 	const updateValue = <K extends keyof ApiKeyLimitFormValue>(
 		key: K,
@@ -304,7 +335,11 @@ export function ApiKeyLimitFields({
 	return (
 		<div className="space-y-4">
 			{memberBudget && hasMemberBudgetCaps(memberBudget) && (
-				<MemberBudgetNotice budget={memberBudget} />
+				<MemberBudgetNotice
+					budget={memberBudget}
+					budgetOwner={budgetOwner}
+					ownerName={ownerName}
+				/>
 			)}
 			<div className="rounded-md border p-4 space-y-3">
 				<div className="flex items-center gap-2">

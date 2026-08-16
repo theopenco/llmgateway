@@ -132,6 +132,8 @@ const organizationSchema = z.object({
 	seats: z.number().nullable(),
 	// Manual API-key-limit override; null = use the plan default.
 	apiKeyLimit: z.number().nullable(),
+	// Manual project-limit override; null = use the plan default.
+	projectLimit: z.number().nullable(),
 	retentionLevel: z.enum(["retain", "none"]),
 	providerCompliancePolicy: providerCompliancePolicySchema.nullable(),
 	ssoAutoJoinDomain: z.string().nullable(),
@@ -143,7 +145,7 @@ const organizationSchema = z.object({
 	referralBonusEnabled: z.boolean(),
 	referralBonusPercent: z.string(),
 	// Organization kind: "default" (regular dashboard org), "devpass" (per-user
-	// Dev Plans org), or "chat" (per-user chat.llmgateway.io org).
+	// Dev Plans org), or "chat" (per-user lounge.llmgateway.io org).
 	kind: z.enum(["default", "chat", "devpass"]),
 	devPlan: z.enum(["none", "lite", "pro", "max"]),
 	devPlanCycle: z.enum(["monthly", "annual"]),
@@ -1027,7 +1029,7 @@ organization.openapi(deleteOrganization, async (c) => {
 	if (userOrganization.organization?.kind === "chat") {
 		throw new HTTPException(403, {
 			message:
-				"The Chat organization cannot be deleted. Please cancel your chat plan from the chat.llmgateway.io pricing page instead.",
+				"The Chat organization cannot be deleted. Please cancel your chat plan from the lounge.llmgateway.io pricing page instead.",
 		});
 	}
 

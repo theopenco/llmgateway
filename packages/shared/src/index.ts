@@ -66,6 +66,9 @@ export {
 	REFUND_REASON_HEADING,
 	REFUND_REASON_OPTIONS,
 	REFUND_REASONS,
+	RESET_PASS_SELF_REFUND_WINDOW_DAYS,
+	SELF_REFUND_USAGE_PERCENT,
+	SELF_REFUND_WINDOW_DAYS,
 	isRefundFeedbackComplete,
 	refundCommentsRequired,
 	type RefundReason,
@@ -171,6 +174,12 @@ export {
 	type PlanTermThresholds,
 } from "./plan-term.js";
 
+export {
+	isLoungeSource,
+	LEGACY_LOUNGE_SOURCE,
+	LOUNGE_SOURCE,
+} from "./lounge-source.js";
+
 export { MARKETING_STATS, RUNWARE_PROMO } from "./marketing.js";
 
 export {
@@ -202,6 +211,7 @@ export {
 	SSO_TEAM_DEFAULT_DEVELOPER_BUDGET,
 	type ApiKeyLimitConstraints,
 	type ApiKeyPeriodDurationUnitValue,
+	type MemberBudgetOwner,
 	type MemberBudgetShape,
 } from "./member-budget-limits.js";
 
@@ -273,3 +283,4 @@ export {
 export { parseUsedModel, regionFromUsedModel } from "./used-model.js";
 
 export * from "./components/ui/index.js";
+export { discountFraction, isValidDiscount } from "./lib/discount.js";

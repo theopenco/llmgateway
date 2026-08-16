@@ -347,17 +347,26 @@ export default async function OrganizationPage({
 						{org.apiKeyLimit !== null && org.apiKeyLimit !== undefined && (
 							<Badge variant="outline">API keys: {org.apiKeyLimit}</Badge>
 						)}
+						{org.projectLimit !== null && org.projectLimit !== undefined && (
+							<Badge variant="outline">Projects: {org.projectLimit}</Badge>
+						)}
 						<span className="text-sm font-medium">
 							Credits: {creditsFormatter.format(parseFloat(org.credits))}
 						</span>
 					</div>
 				</div>
 				<div className="flex flex-wrap items-center gap-2">
+					{org.kind === "devpass" && (
+						<Button variant="outline" size="sm" asChild>
+							<Link href={`/devpass/${orgId}`}>Open in DevPass</Link>
+						</Button>
+					)}
 					<ManageOrgDialog
 						orgName={org.name}
 						plan={org.plan}
 						seats={org.seats ?? null}
 						apiKeyLimit={org.apiKeyLimit ?? null}
+						projectLimit={org.projectLimit ?? null}
 						planExpiresAt={org.planExpiresAt ?? null}
 						planStartedAt={org.planStartedAt ?? null}
 						isTrialActive={org.isTrialActive ?? false}
@@ -406,10 +415,7 @@ export default async function OrganizationPage({
 						orgId={orgId}
 						orgName={org.name}
 						variant="full"
-						disabled={
-							org.status === "deleted" ||
-							getOrgDeletionBlockedReason(org.credits) !== null
-						}
+						disabled={getOrgDeletionBlockedReason(org.credits) !== null}
 						disabledReason={
 							getOrgDeletionBlockedReason(org.credits) ?? undefined
 						}

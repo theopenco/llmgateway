@@ -1,6 +1,6 @@
 ---
 name: knowledge-base
-description: Write a new LLM Gateway docs Knowledge base page (apps/docs/content/learn) with light + dark dashboard screenshots. Use when the user says "knowledge base page", "KB page", "learn page", "document the <X> dashboard page", or asks for docs covering a dashboard or playground page with screenshots.
+description: Write a new LLM Gateway docs Knowledge base page under apps/docs/content/learn with light and dark dashboard screenshots. Use when the user asks for a knowledge base page, KB page, learn page, or documentation for a dashboard or playground page with screenshots.
 ---
 
 # Knowledge Base Page
@@ -15,29 +15,36 @@ Each Knowledge base page documents exactly one page of the product UI:
 
 ## Prerequisites
 
-- The dev stack must be running (`pnpm dev`): UI on :3002, Playground on :3003, with a seeded DB (`pnpm run setup` if stale).
-- Playwright MCP for screenshots.
+- Use the `verify` skill to start a seeded, worktree-specific stack. Use
+  `UI_URL` and `PLAYGROUND_URL` when set; otherwise construct each URL from its
+  matching port variable, whose default is documented in `AGENTS.md`.
+- Use an available browser automation tool. For a local Playwright script,
+  `@playwright/test` is declared by `apps/ui` and `apps/playground`.
 - Every seeded account's password is its own email (password == email):
   - `admin@example.com` — default org (`test-org-id`, project `test-project-id`) for most pages
   - `enterprise@example.com` — enterprise org (`enterprise-org-id`, project `enterprise-project-id`) for Enterprise-gated pages (Master Keys, Member Analytics, …)
-- URL patterns: project pages are `/dashboard/<orgId>/<projectId>/<page>`, org pages are `/dashboard/<orgId>/org/<page>`, playground pages live on :3003.
+- URL patterns: project pages are `/dashboard/<orgId>/<projectId>/<page>` and
+  org pages are `/dashboard/<orgId>/org/<page>`.
 
 ## Step 1 — Understand the page
 
 Never write from guesswork. Read the actual UI implementation first:
 
-- Find the route under `apps/ui/src/app/dashboard/[orgId]/...` (or `apps/playground/src/app/...`) and read the page + its main components.
+- Find the route under `apps/ui/src/app/dashboard` or `apps/playground/src/app`
+  and read the page plus its main components.
 - Note every column, field, action, dialog, empty state, limit, and plan gate the page exposes. Tables and callouts in the doc must match the real UI exactly — never invent fields, limits, or prices.
 - Check whether the seeded data actually populates the page. If a table renders empty, seed or create data through the UI/API first so the screenshot shows a realistic state.
 
-## Step 2 — Take screenshots (Playwright MCP)
+## Step 2 — Take screenshots
 
 Match the established look of the existing shots in `apps/docs/public/learn/`:
 
-1. Resize the viewport to **1440×900** (`browser_resize`).
-2. Log in at `http://localhost:3002/login` as the appropriate seeded user, then navigate to the target page.
+1. Resize the viewport to **1440×900**.
+2. Log in at `<UI_URL>/login` as the appropriate seeded user, then navigate to
+   the target page.
 3. **Collapse the sidebar to icons**: click the "Toggle Sidebar" button in the header.
-4. **Hide dev chrome** via `browser_evaluate` (the chat-support bubble stays visible — that is intentional):
+4. **Hide dev chrome** by evaluating this CSS in the page (the chat-support
+   bubble stays visible):
 
    ```js
    () => {
@@ -55,9 +62,12 @@ Match the established look of the existing shots in `apps/docs/public/learn/`:
    };
    ```
 
-5. **Light shots**: `browser_take_screenshot` with `{ type: "png", scale: "css", fullPage: true, filename: "<slug>-light.png" }` for the main page. For dialogs or focused sub-views, open them and take a viewport shot (no `fullPage`) named `<slug>-<detail>-light.png`.
-6. **Dark shots**: `browser_evaluate` → `localStorage.setItem("theme", "dark")`, navigate to the page again (full reload), re-inject the CSS from step 4 (and re-collapse the sidebar if it reset), then repeat the same screenshots as `<slug>-dark.png` / `<slug>-<detail>-dark.png`. Verify dark mode took effect (`document.documentElement.classList.contains("dark")`).
-7. Move the PNGs from the Playwright output directory (the tool result shows the saved path) into `apps/docs/public/learn/`.
+5. Capture a full-page PNG for the main page as `<slug>-light.png`. Capture
+   dialogs or focused sub-views at viewport size as `<slug>-<detail>-light.png`.
+6. Set `localStorage.setItem("theme", "dark")`, reload, reapply step 4, and
+   repeat as `<slug>-dark.png` and `<slug>-<detail>-dark.png`. Confirm
+   `document.documentElement.classList.contains("dark")` before capture.
+7. Save or move the PNGs into `apps/docs/public/learn/`.
 
 Do not compress the PNGs manually — calibre/image-actions optimizes them automatically on the PR.
 
@@ -102,8 +112,10 @@ House style:
 
 Both registrations are required — the page is invisible in the sidebar and the index without them:
 
-1. `apps/docs/content/learn/meta.json`: add `"<slug>"` to the `pages` array, positioned to mirror the dashboard sidebar order (project pages → org pages → playground).
-2. `apps/docs/content/learn/index.mdx`: add a bullet in the matching section (**Project Pages** / **Organization Pages** / **Playground**):
+1. `apps/docs/content/learn/meta.json`: add `"<slug>"` to the `pages` array in
+   the existing product section and ordering that matches the documented UI.
+2. `apps/docs/content/learn/index.mdx`: add a bullet in the corresponding
+   existing section:
 
    ```
    - [**<Page Name>**](/learn/<slug>) — <Short blurb> (Enterprise)
@@ -115,9 +127,11 @@ Both registrations are required — the page is invisible in the sidebar and the
 
 ```bash
 pnpm format
-turbo run build --filter=docs
+pnpm exec turbo run build --filter=docs
 ```
 
-The docs build fails on broken frontmatter, bad imports, or missing meta entries. Visually spot-check both themes at `http://localhost:3005/learn/<slug>` if the docs dev server is running.
+The docs build checks frontmatter and imports. Separately inspect both
+registration files in the diff. If the docs server is running, visually
+spot-check both themes at `<DOCS_URL>/learn/<slug>`.
 
 Commit with a conventional message (≤50-char title), e.g. `docs(learn): add master keys knowledge base page`. Include the PNGs in the same commit.

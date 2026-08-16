@@ -179,7 +179,7 @@ function createSession(preflightOverrides: Record<string, unknown> = {}) {
 			"google-ai-studio/gemini-2.5-flash-native-audio-preview-12-2025",
 		sessionRecordId: "rts_g1",
 		lease: { sessionId: "rts_g1", organizationId: "org_1", apiKeyId: "key_1" },
-		source: "chat.llmgateway.io",
+		source: "lounge.llmgateway.io",
 		userAgent: "vitest",
 		onClosed: () => {},
 	});

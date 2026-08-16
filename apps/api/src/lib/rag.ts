@@ -2,6 +2,8 @@ import { HTTPException } from "hono/http-exception";
 
 import { getGatewayUrl } from "@/utils/playground-key.js";
 
+import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
+
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 
 export const EMBEDDING_MODEL = "openai/text-embedding-3-small";
@@ -103,7 +105,7 @@ export async function embedTexts(
 			headers: {
 				authorization: `Bearer ${token}`,
 				"content-type": "application/json",
-				"x-source": "chat.llmgateway.io",
+				"x-source": LOUNGE_SOURCE,
 			},
 			body: JSON.stringify({ model: EMBEDDING_MODEL, input: batch }),
 			signal: AbortSignal.timeout(EMBEDDING_TIMEOUT_MS),

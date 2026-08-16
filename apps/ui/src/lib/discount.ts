@@ -1,3 +1,5 @@
+import { discountFraction, isValidDiscount } from "@llmgateway/shared";
+
 export interface DiscountData {
 	id: string;
 	provider: string | null;
@@ -6,17 +8,6 @@ export interface DiscountData {
 	reason: string | null;
 	expiresAt: string | null;
 	createdAt: string;
-}
-
-// Discounts are stored as a 0-1 fraction (e.g. "0.5" = 50% off). Values outside
-// (0, 1] are treated as invalid data and ignored to avoid negative or inflated
-// prices.
-function isValidDiscount(discount?: string | null): boolean {
-	if (!discount) {
-		return false;
-	}
-	const n = Number(discount);
-	return Number.isFinite(n) && n > 0 && n <= 1;
 }
 
 // Discounts are always keyed by the root model id — the provider-specific
@@ -93,10 +84,6 @@ export function getEffectiveProviderDiscount(
 	);
 }
 
-export function discountFraction(discount?: string | null): number {
-	return isValidDiscount(discount) ? Number(discount) : 0;
-}
-
 export function applyDiscount(value: number, discount?: string | null): number {
 	return value * (1 - discountFraction(discount));
 }
@@ -111,3 +98,5 @@ export function perMillion(
 	const n = typeof price === "number" ? price : parseFloat(price);
 	return Number.isFinite(n) ? n * 1e6 : null;
 }
+
+export { discountFraction, isValidDiscount } from "@llmgateway/shared";

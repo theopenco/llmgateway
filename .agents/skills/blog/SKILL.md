@@ -1,13 +1,13 @@
 ---
 name: blog
-description: Write a new LLM Gateway blog post in the house style, draft the prose with the copywriting skill, and generate its OpenGraph image with gpt-image-2. Use when the user says "blog", "blog post", "write a blog post", "draft a blog", "add a blog post", "publish a blog", or "write an article" for the marketing site. For shipped-feature release notes use the `changelog` skill instead.
+description: Write and validate an LLM Gateway marketing blog post in the repository's current house style, including structured frontmatter and a gpt-image-2 OpenGraph image. Use when the user says "blog", "blog post", "write a blog post", "draft a blog", "add a blog post", "publish a blog", or "write an article" for the marketing site. For shipped-feature release notes use the `changelog` skill instead.
 ---
 
 # Blog
 
-Write a public blog post for LLM Gateway, in the house style, with the prose drafted/polished by the `copywriting` skill, and generate its OpenGraph image with **gpt-image-2**.
-
-This skill is the blog counterpart of the `changelog` skill. The difference: blog posts are longer SEO/marketing content (guides, comparisons, announcements, engineering deep-dives) rather than short release notes, the prose is run through the `copywriting` skill, and the image is **generated** here (not just handed off as a prompt).
+Write a public blog post for LLM Gateway in the current repository style and
+generate its OpenGraph image with **gpt-image-2**. Use the `changelog` skill for
+short release notes.
 
 ## What you need first
 
@@ -21,24 +21,27 @@ Before writing, understand the topic concretely. Never invent prices, limits, ca
 
 - Entries: `apps/ui/src/content/blog/<YYYY-MM-DD>-<kebab-slug>.md`
 - Images: `apps/ui/public/blog/<kebab-slug>.png`
-- Schema is enforced by `apps/ui/content-collections.ts`. Required: `id`, `slug`, `date`, `title`, `summary`. Optional: `draft`, `categories` (defaults `[]`), `image` (`src`/`alt`/`width`/`height`).
+- Schema is enforced by `apps/ui/content-collections.ts`. Required: `id`,
+  `slug`, `date`, `title`, `summary`. Optional: `updatedAt`, `draft`, `categories`
+  (defaults `[]`), `faqs` (defaults `[]`), and `image`.
 
 ## Step 1 — Pick the date, id, slug, categories
 
 - **Date**: today, `YYYY-MM-DD`. Posts sort by date descending, so this puts it at the top of the listing.
-- **slug**: short kebab-case, keyword-focused (e.g. `api-key-rotation`). Must match the filename suffix and the `image.src` filename, and becomes the URL `/blog/<slug>`.
-- **id**: the string `blog-<slug>` (e.g. `blog-api-key-rotation`). This is the convention for every existing post — confirm with:
+- **slug**: short kebab-case, keyword-focused (e.g. `api-key-rotation`). For new
+  posts, use it as the filename suffix and image filename; it becomes the URL
+  `/blog/<slug>`.
+- **id**: use `blog-<slug>` (e.g. `blog-api-key-rotation`), matching recent
+  entries. Confirm the current convention with:
   ```bash
-  grep -h '^id:' apps/ui/src/content/blog/*.md | sort | uniq | tail -5
+    rg --no-filename '^id:' apps/ui/src/content/blog/*.md | sort -u | tail -5
   ```
 - **categories**: pick from the existing set so the listing filters stay clean — `Guides`, `Announcements`, `Product`, `Engineering`, `Integrations`. Combine when it fits (e.g. `["Guides", "Engineering"]`). Check current usage:
   ```bash
-  grep -h '^categories:' apps/ui/src/content/blog/*.md | sort | uniq -c | sort -rn
+    rg --no-filename '^categories:' apps/ui/src/content/blog/*.md | sort | uniq -c | sort -rn
   ```
 
-## Step 2 — Draft the prose with the copywriting skill
-
-Invoke the **`copywriting`** skill (via the Skill tool) to draft and tighten the body copy. Give it: the topic, the primary keyword, the target reader, the key facts you gathered, and the LLM Gateway voice notes below. Iterate on its output, then drop the result into the markdown body.
+## Step 2 — Draft and verify the prose
 
 Read the two or three most recent files in `apps/ui/src/content/blog/` before writing and mirror their structure and tone.
 
@@ -49,7 +52,7 @@ Read the two or three most recent files in `apps/ui/src/content/blog/` before wr
 - **Confident and plain.** Active voice, short paragraphs, no exclamation points, no "very/really/simply".
 - **Scannable structure.** `##` section headers (verb-led or outcome-led), bullets and tables for options/comparisons, fenced code blocks for any `curl`/JSON/diff example. Use `https://api.llmgateway.io/v1/...` and `$LLM_GATEWAY_API_KEY` in API examples.
 - **State plan gating explicitly** when a capability is gated.
-- **SEO conventions** (this is the main difference from changelog): work the primary keyword into the title, the `summary`, the first 1–2 paragraphs, and a header. Add a short **"Frequently Asked Questions"** section with 2–4 `###` question headers near the end (these target long-tail queries). Link to related internal posts/docs with root-relative links (e.g. `/blog/soc2-type-ii`, `https://docs.llmgateway.io/...`).
+- **SEO conventions** (this is the main difference from changelog): work the primary keyword into the title, the `summary`, the first 1–2 paragraphs, and a header. Add 2–4 concise `faqs` frontmatter entries when the topic supports real search questions; the blog page renders these and their FAQ structured data. Link to related internal posts/docs with root-relative links (e.g. `/blog/soc2-type-ii`, `https://docs.llmgateway.io/...`).
 - **Close with a CTA block**: 2–3 bullets linking to signup, the relevant docs, and one related post — e.g. `**[Try LLM Gateway free](https://llmgateway.io/signup)**`.
 - Plain Markdown only — **no MDX/JSX components**.
 
@@ -63,6 +66,9 @@ date: "<YYYY-MM-DD>"
 title: "<Title with the primary keyword, ~4–9 words>"
 summary: "<1–3 sentences with the keyword: the problem, what shipped/what the reader learns, and the plan if gated. This is the OG description and the listing blurb.>"
 categories: ["<Category>"]
+faqs:
+  - question: "<Question>"
+    answer: "<Direct answer>"
 image:
   src: "/blog/<slug>.png"
   alt: "<Descriptive alt text including the concept the image shows>"
@@ -70,14 +76,17 @@ image:
   height: 1024
 ---
 
-<body — the copywriting-skill output>
+<body>
 ```
 
 ## Step 3 — Generate the OpenGraph image with gpt-image-2
 
-The image is an **abstract, on-brand illustration with no text** — AI-rendered text and logos are unreliable, and the title already lives on the page. (If the user instead wants a branded card *with* the headline/logo baked in, render it with the repo's `next/og` template system — see `apps/ui/src/lib/og.tsx` for the brand spec — rather than gpt-image-2.)
+The image is an **abstract, on-brand illustration with no text** — AI-rendered text and logos are unreliable, and the title already lives on the page. (If the user instead wants a branded card _with_ the headline/logo baked in, render it with the repo's `next/og` template system — see `apps/ui/src/lib/og.tsx` for the brand spec — rather than gpt-image-2.)
 
-**Resolution.** Generate **1536×1024** (3:2 landscape). gpt-image-2 supports `1024x1024`, `1536x1024`, `1024x1536`; landscape crops cleanly to the ~1.91:1 social card. Match `image.width`/`height` in the frontmatter to what you generate.
+**Resolution.** Generate **1536×1024** (3:2 landscape), matching current blog
+entries and the `GPT_IMAGE_SIZES` presets in
+`apps/playground/src/lib/image-gen.ts`. Match `image.width` and `image.height`
+to the generated file.
 
 ### Write the prompt
 
@@ -103,25 +112,32 @@ curl -s https://api.llmgateway.io/v1/images/generations \
 
 View `/tmp/<slug>-bg.png` to confirm it's on-brand and the top-left is clear; regenerate with a tweaked prompt if not.
 
-### Always composite the official logo (never let gpt-image-2 draw it)
+### Composite the official logo
 
-gpt-image-2 **cannot** reproduce the LLM Gateway logo — it hallucinates a wrong mark. So always overlay the real asset. Render the white wordmark lockup (`apps/ui/public/brand/logo-with-name-white.svg`) and composite it into the reserved top-left corner. Needs `rsvg-convert` and ImageMagick (`magick`):
+Do not ask the image model to reproduce the logo. Overlay
+`apps/ui/public/brand/logo-with-name-white.svg` with the checked-in helper:
 
 ```bash
-rsvg-convert -h 84 apps/ui/public/brand/logo-with-name-white.svg -o /tmp/llmgw-logo.png
-magick /tmp/<slug>-bg.png /tmp/llmgw-logo.png -geometry +72+72 -composite apps/ui/public/blog/<slug>.png
+.agents/skills/blog/scripts/composite-logo.sh \
+  /tmp/<slug>-bg.png apps/ui/public/blog/<slug>.png
 file apps/ui/public/blog/<slug>.png   # → PNG image data, 1536 x 1024
 ```
 
-View the final file to confirm the real logo sits cleanly in the top-left. (Use `apps/ui/public/brand/logo-white.svg` for just the icon mark if a wordmark doesn't fit the composition.)
+The helper checks for `rsvg-convert`, `ffmpeg`, and `ffprobe` before doing any
+work and validates the output dimensions. View the final file to confirm the
+wordmark sits cleanly in the top-left. Pass
+`apps/ui/public/brand/logo-white.svg` as the optional third argument when only
+the icon fits.
 
-**If no key is available**, fall back to handing off: output the prompt in a fenced block (keeping the "top-left empty" instruction) plus the two composite commands, and tell the user to generate the background and run the composite, dropping the result at `apps/ui/public/blog/<slug>.png`. The post builds fine without the file; the image just 404s until it exists.
+If the API key or required image tools are unavailable, do not claim the image
+was generated. Hand back the exact prompt, missing precondition, and expected
+output path.
 
 ## Step 4 — Validate
 
 ```bash
 pnpm format
-turbo run build --filter=ui
+pnpm exec turbo run build --filter=ui
 ```
 
 `pnpm format` normalizes the markdown; the `ui` build fails if the frontmatter doesn't match the content-collections schema. Then commit (conventional commit, ≤50-char title), e.g. `docs(blog): add api key rotation post`.

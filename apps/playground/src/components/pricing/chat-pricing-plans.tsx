@@ -15,6 +15,8 @@ import {
 	CHAT_PLAN_CREDITS_MULTIPLIERS,
 	CHAT_PLAN_PRICES,
 	estimateChatPlanMessages,
+	SELF_REFUND_USAGE_PERCENT,
+	SELF_REFUND_WINDOW_DAYS,
 	type ChatPlanTier,
 } from "@llmgateway/shared";
 
@@ -441,7 +443,7 @@ export function ChatPricingPlans({
 										}}
 									/>
 									<div className="mt-1.5 flex items-center justify-between font-mono text-[9px] uppercase tracking-[0.28em] text-muted-foreground">
-										<span>chat.llmgateway.io</span>
+										<span>lounge.llmgateway.io</span>
 										<span>{plan.tier} · monthly</span>
 									</div>
 								</div>
@@ -454,10 +456,11 @@ export function ChatPricingPlans({
 			<p className="mx-auto mt-8 max-w-2xl text-center text-sm text-muted-foreground">
 				<ShieldCheck className="mr-1.5 inline-block h-4 w-4 -translate-y-px align-middle text-foreground/70" />
 				<span className="font-medium text-foreground">
-					7-day money-back guarantee.
+					{SELF_REFUND_WINDOW_DAYS}-day money-back guarantee.
 				</span>{" "}
-				If you&apos;ve barely used your membership, email us within 7 days for a
-				full refund.
+				Barely used your membership? Refund yourself from your billing history —
+				a full refund while you&apos;re under {SELF_REFUND_USAGE_PERCENT}% of
+				your allowance, no email needed.
 			</p>
 
 			<p className="mt-4 text-center text-xs text-muted-foreground">

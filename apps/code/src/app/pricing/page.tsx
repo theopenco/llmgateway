@@ -26,6 +26,7 @@ import {
 	getDevPlanCreditsLimit,
 	HIGH_COST_INPUT_PRICE,
 	HIGH_COST_OUTPUT_PRICE,
+	SELF_REFUND_WINDOW_DAYS,
 } from "@llmgateway/shared";
 
 import type { Metadata } from "next";
@@ -109,7 +110,7 @@ const includedInEveryPlan = [
 	"Any OpenAI/Anthropic-compatible tool",
 	"Real-time dashboard with per-request cost & latency",
 	"Switch tiers anytime — no lock-in, no cancellation fee",
-	"7-day first-month guarantee",
+	`${SELF_REFUND_WINDOW_DAYS}-day self-serve refund on your first month`,
 ];
 
 function Cell({

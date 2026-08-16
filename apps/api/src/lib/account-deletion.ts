@@ -88,6 +88,30 @@ export async function cancelOrganizationSubscriptions(
 	return cancelled;
 }
 
+/**
+ * Clears every subscription-backed entitlement after all Stripe subscriptions
+ * have been cancelled. Historical transactions remain intact for accounting.
+ */
+export function getCancelledOrganizationPlanState(now = new Date()) {
+	return {
+		plan: "free" as const,
+		stripeSubscriptionId: null,
+		subscriptionCancelled: true,
+		planExpiresAt: now,
+		isTrialActive: false,
+		autoTopUpEnabled: false,
+		devPlan: "none" as const,
+		devPlanStripeSubscriptionId: null,
+		devPlanCancelled: true,
+		devPlanExpiresAt: now,
+		devPlanPendingTier: null,
+		chatPlan: "none" as const,
+		chatPlanStripeSubscriptionId: null,
+		chatPlanCancelled: true,
+		chatPlanExpiresAt: now,
+	};
+}
+
 export interface SoleMemberOrganization {
 	id: string;
 	name: string;
@@ -208,21 +232,7 @@ export async function tearDownSoleMemberOrganizations(
 			.update(tables.organization)
 			.set({
 				status: "deleted",
-				plan: "free",
-				stripeSubscriptionId: null,
-				subscriptionCancelled: true,
-				planExpiresAt: now,
-				isTrialActive: false,
-				autoTopUpEnabled: false,
-				devPlan: "none",
-				devPlanStripeSubscriptionId: null,
-				devPlanCancelled: true,
-				devPlanExpiresAt: now,
-				devPlanPendingTier: null,
-				chatPlan: "none",
-				chatPlanStripeSubscriptionId: null,
-				chatPlanCancelled: true,
-				chatPlanExpiresAt: now,
+				...getCancelledOrganizationPlanState(now),
 			})
 			.where(eq(tables.organization.id, org.id));
 	}
