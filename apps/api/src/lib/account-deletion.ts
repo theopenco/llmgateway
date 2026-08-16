@@ -166,8 +166,13 @@ export async function findSoleMemberOrganizations(
 		return [];
 	}
 
+	// Teardown cancels subscriptions org by org and stops at the first Stripe
+	// failure, so the order has to be reproducible: without it, which orgs were
+	// already cancelled before an outage depends on the row order Postgres
+	// happens to return.
 	const organizations = await db.query.organization.findMany({
 		where: { id: { in: soleOrgIds } },
+		orderBy: { createdAt: "asc", id: "asc" },
 	});
 
 	return organizations
