@@ -15,6 +15,8 @@ import {
 	HIGH_COST_INPUT_PRICE,
 	HIGH_COST_OUTPUT_PRICE,
 	MARKETING_STATS,
+	SELF_REFUND_USAGE_PERCENT,
+	SELF_REFUND_WINDOW_DAYS,
 } from "@llmgateway/shared";
 
 import type { ReactNode } from "react";
@@ -237,17 +239,19 @@ const faqData: FaqItem[] = [
 	},
 	{
 		question: "Can I get a refund?",
-		answer:
-			"Yes — DevPass comes with a first-month guarantee. Cancel within 7 days of your first purchase and email contact@llmgateway.io: we'll refund your first month minus the usage you consumed at provider rates. There's no cancellation fee.",
+		answer: `Yes — DevPass comes with a first-month guarantee, and you don't need to email anyone. If you've used less than ${SELF_REFUND_USAGE_PERCENT}% of your monthly allowance, open Billing in your dashboard and hit Refund on the charge: your first month comes back in full, up to ${SELF_REFUND_WINDOW_DAYS} days after the purchase. The refund ends your plan immediately, and there's no cancellation fee.`,
 		content: (
 			<>
-				Yes — DevPass comes with a <strong>first-month guarantee</strong>.
-				Cancel within 7 days of your first purchase and email{" "}
-				<Link href="mailto:contact@llmgateway.io" className="underline">
-					contact@llmgateway.io
-				</Link>
-				: we&apos;ll refund your first month minus the usage you consumed at
-				provider rates. There&apos;s no cancellation fee.
+				Yes — DevPass comes with a <strong>first-month guarantee</strong>, and
+				you don&apos;t need to email anyone. If you&apos;ve used less than{" "}
+				{SELF_REFUND_USAGE_PERCENT}% of your monthly allowance, open{" "}
+				<Link href="/dashboard/billing" className="underline">
+					Billing
+				</Link>{" "}
+				in your dashboard and hit <strong>Refund</strong> on the charge: your
+				first month comes back in full, up to {SELF_REFUND_WINDOW_DAYS} days
+				after the purchase. The refund ends your plan immediately, and
+				there&apos;s no cancellation fee.
 			</>
 		),
 	},

@@ -91,6 +91,60 @@ describe("getProviderFilterReasons", () => {
 		).toEqual([exclusionReason("web_search")]);
 	});
 
+	describe("search-on-demand-only mappings", () => {
+		const dashScope = mapping({
+			providerId: "alibaba",
+			webSearch: true,
+			webSearchForcedOnly: true,
+		});
+
+		it("skips them when the tool is merely offered", () => {
+			// The chat-toggle case: the tool rides along on every turn with
+			// tool_choice auto. These mappings cannot elect a search, so letting
+			// them win the route would answer from stale weights.
+			expect(
+				getProviderFilterReasons(dashScope, { webSearchTool: true }),
+			).toEqual([exclusionReason("web_search_forced_only")]);
+		});
+
+		it("allows them once the caller forces", () => {
+			expect(
+				getProviderFilterReasons(dashScope, {
+					webSearchTool: true,
+					webSearchForced: true,
+				}),
+			).toEqual([]);
+		});
+
+		it("reads intent off the tool when no separate flag is passed", () => {
+			// filterEligibleModelProviders forwards the extracted tool and no
+			// webSearchForced flag, so missing this would filter out the mappings
+			// a forced request exists to reach.
+			expect(
+				getProviderFilterReasons(dashScope, {
+					webSearchTool: { type: "web_search", forced: true },
+				}),
+			).toEqual([]);
+			expect(
+				getProviderFilterReasons(dashScope, {
+					webSearchTool: { type: "web_search" },
+				}),
+			).toEqual([exclusionReason("web_search_forced_only")]);
+		});
+
+		it("leaves them alone when no web search was requested", () => {
+			expect(getProviderFilterReasons(dashScope, {})).toEqual([]);
+		});
+
+		it("does not constrain providers that elect their own searches", () => {
+			expect(
+				getProviderFilterReasons(mapping({ webSearch: true }), {
+					webSearchTool: true,
+				}),
+			).toEqual([]);
+		});
+	});
+
 	it("flags n > 1 constraints", () => {
 		expect(getProviderFilterReasons(mapping(), { n: 2 })).toEqual([
 			exclusionReason("n_unsupported"),

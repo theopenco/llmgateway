@@ -366,6 +366,7 @@ export default function Login() {
 					setIsLoading={setIsLoading}
 					callbackPath={redirectTarget}
 					errorCallbackPath="/login"
+					newUserCallbackPath={redirectTarget}
 				/>
 
 				<Button

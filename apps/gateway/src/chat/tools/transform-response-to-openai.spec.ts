@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import {
 	applyExtendedUsageFields,
@@ -6,6 +6,23 @@ import {
 	stripRequestScopedMetadataFromOpenAiResponse,
 	withCurrentRequestMetadataOnOpenAiResponse,
 } from "./transform-response-to-openai.js";
+
+const { setexMock } = vi.hoisted(() => ({
+	setexMock: vi.fn().mockResolvedValue("OK"),
+}));
+
+vi.mock("@llmgateway/cache", () => ({
+	redisClient: {
+		setex: setexMock,
+	},
+}));
+
+vi.mock("@llmgateway/logger", () => ({
+	logger: {
+		warn: vi.fn(),
+		error: vi.fn(),
+	},
+}));
 
 describe("transformResponseToOpenai", () => {
 	test("includes request_id in response metadata", () => {
@@ -259,22 +276,126 @@ describe("transformResponseToOpenai", () => {
 		expect(response.choices).toHaveLength(2);
 		expect(response.choices[0].message.tool_calls).toHaveLength(1);
 		expect(response.choices[0].message.tool_calls[0]).toMatchObject({
-			id: "get_weather_0_0",
 			function: {
 				name: "get_weather",
 				arguments: JSON.stringify({ city: "Paris" }),
 			},
 		});
+		expect(response.choices[0].message.tool_calls[0].id).toMatch(
+			/^get_weather_/,
+		);
 		expect(response.choices[0].finish_reason).toBe("tool_calls");
 		expect(response.choices[1].message.tool_calls).toHaveLength(1);
 		expect(response.choices[1].message.tool_calls[0]).toMatchObject({
-			id: "get_weather_1_0",
 			function: {
 				name: "get_weather",
 				arguments: JSON.stringify({ city: "Rome" }),
 			},
 		});
+		expect(response.choices[1].message.tool_calls[0].id).toMatch(
+			/^get_weather_/,
+		);
+		expect(response.choices[1].message.tool_calls[0].id).not.toBe(
+			response.choices[0].message.tool_calls[0].id,
+		);
 		expect(response.choices[1].finish_reason).toBe("tool_calls");
+	});
+
+	test("keeps multi-candidate Google tool_call ids in the thought_signature cache", () => {
+		setexMock.mockClear();
+		const json = {
+			candidates: [
+				{
+					content: {
+						parts: [
+							{
+								functionCall: { name: "get_weather", args: { city: "Paris" } },
+								thoughtSignature: "sig-candidate-0",
+							},
+						],
+						role: "model",
+					},
+					finishReason: "STOP",
+					index: 0,
+				},
+				{
+					content: {
+						parts: [
+							{
+								functionCall: { name: "get_weather", args: { city: "Rome" } },
+								thoughtSignature: "sig-candidate-1",
+							},
+						],
+						role: "model",
+					},
+					finishReason: "STOP",
+					index: 1,
+				},
+			],
+		};
+		// What parseProviderResponse emits for candidate 0: a unique
+		// `${name}_${shortid(24)}` id plus the inline signature, with the
+		// signature cached in Redis under `thought_signature:<id>`.
+		const parsedToolCalls = [
+			{
+				id: "get_weather_cachedid0",
+				type: "function",
+				function: {
+					name: "get_weather",
+					arguments: JSON.stringify({ city: "Paris" }),
+				},
+				extra_content: {
+					google: { thought_signature: "sig-candidate-0" },
+				},
+			},
+		];
+
+		const response = transformResponseToOpenai(
+			"google-ai-studio",
+			"gemini-2.5-flash",
+			json,
+			null,
+			null,
+			"STOP",
+			10,
+			20,
+			30,
+			null,
+			null,
+			parsedToolCalls,
+			[],
+			"gemini-2.5-flash",
+			null,
+			"gemini-2.5-flash",
+			null,
+			false,
+			null,
+			null,
+			"req_google_n_tools_signature",
+		);
+
+		expect(response.choices).toHaveLength(2);
+		// Choice 0 reuses the tool calls from parseProviderResponse, so the id
+		// the client sends back is the one the signature was cached under.
+		expect(response.choices[0].message.tool_calls).toEqual(parsedToolCalls);
+		// Candidates parse did not process get the same treatment: a unique
+		// id, the inline signature, and a Redis entry under the emitted id.
+		const choice1ToolCall = response.choices[1].message.tool_calls[0];
+		expect(choice1ToolCall.id).toMatch(/^get_weather_/);
+		expect(choice1ToolCall.id).not.toBe(parsedToolCalls[0].id);
+		expect(choice1ToolCall.extra_content).toEqual({
+			google: { thought_signature: "sig-candidate-1" },
+		});
+		expect(setexMock).toHaveBeenCalledWith(
+			`thought_signature:${choice1ToolCall.id}`,
+			86400,
+			"sig-candidate-1",
+		);
+		expect(setexMock).not.toHaveBeenCalledWith(
+			`thought_signature:${parsedToolCalls[0].id}`,
+			expect.anything(),
+			expect.anything(),
+		);
 	});
 
 	test("does not overwrite choice 0 content on multi-choice OpenAI responses", () => {

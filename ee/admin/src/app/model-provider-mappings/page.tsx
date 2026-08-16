@@ -8,6 +8,7 @@ import { TimeWindowSelector } from "@/components/time-window-selector";
 import { TokenBreakdown } from "@/components/token-breakdown";
 import { Button } from "@/components/ui/button";
 import {
+	CATALOG_PAGE_WINDOW_DEFAULT,
 	pageWindowOptionsWithMinutes,
 	parsePageWindow,
 	windowToFromTo,
@@ -64,7 +65,10 @@ export default async function ModelProviderMappingsPage({
 	const search = params?.search ?? "";
 	const sortBy = (params?.sortBy as MappingSortBy) ?? "logsCount";
 	const sortOrder = (params?.sortOrder as SortOrder) ?? "desc";
-	const pageWindow = parsePageWindow(params?.window);
+	const pageWindow = parsePageWindow(
+		params?.window,
+		CATALOG_PAGE_WINDOW_DEFAULT,
+	);
 	const { from, to } = windowToFromTo(pageWindow);
 
 	const $api = await createServerApiClient();

@@ -3,6 +3,7 @@ import type { ApiKeyPeriodDurationUnit } from "./api-key-period-limit.js";
 export {
 	validateApiKeyLimitsWithinMemberBudget,
 	type ApiKeyLimitConstraints,
+	type MemberBudgetOwner,
 } from "@llmgateway/shared";
 
 /**

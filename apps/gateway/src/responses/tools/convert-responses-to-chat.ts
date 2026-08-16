@@ -1,4 +1,28 @@
+import { UNREPLAYABLE_ITEM_TYPES } from "@/responses/schemas.js";
+
+import { flattenToolName } from "./tool-registry.js";
+
 import type { ResponsesRequest } from "@/responses/schemas.js";
+
+// Unreplayable items, plus tool declarations already lifted into `tools`. They
+// have no chat completions equivalent, so they are skipped rather than turned
+// into stray messages.
+const SKIPPED_ITEM_TYPES = new Set<string>([
+	...UNREPLAYABLE_ITEM_TYPES,
+	"additional_tools",
+]);
+
+function isToolCallItem(item: unknown): item is {
+	type: "function_call" | "custom_tool_call";
+	call_id: string;
+	name: string;
+	namespace?: string;
+	arguments?: string;
+	input?: string;
+} {
+	const type = (item as { type?: unknown } | null)?.type;
+	return type === "function_call" || type === "custom_tool_call";
+}
 
 interface ChatMessage {
 	role: "system" | "user" | "assistant" | "tool";
@@ -117,20 +141,26 @@ export function convertResponsesInputToMessages(
 		// result, which strict providers (deepseek family, bytedance, etc.)
 		// reject with "assistant message with tool_calls must be followed by
 		// tool messages".
-		if ("type" in item && item.type === "function_call") {
+		if (isToolCallItem(item)) {
 			const toolCalls: ChatMessage["tool_calls"] = [];
 
 			while (i < input.length) {
 				const current = input[i]!;
-				if (!("type" in current) || current.type !== "function_call") {
+				if (!isToolCallItem(current)) {
 					break;
 				}
 				toolCalls.push({
 					id: current.call_id,
 					type: "function",
 					function: {
-						name: current.name,
-						arguments: current.arguments,
+						name: flattenToolName(current.name, current.namespace),
+						// A freeform call carries its raw payload in `input`; the
+						// provider was offered the tool as a function taking that
+						// payload as a single string argument.
+						arguments:
+							current.type === "custom_tool_call"
+								? JSON.stringify({ input: current.input ?? "" })
+								: (current.arguments ?? ""),
 					},
 				});
 				i++;
@@ -182,13 +212,22 @@ export function convertResponsesInputToMessages(
 			continue;
 		}
 
-		// function_call_output items -> tool messages
-		if ("type" in item && item.type === "function_call_output") {
+		// function_call_output / custom_tool_call_output items -> tool messages
+		if (
+			"type" in item &&
+			(item.type === "function_call_output" ||
+				item.type === "custom_tool_call_output")
+		) {
 			messages.push({
 				role: "tool",
 				content: serializeFunctionCallOutput(item.output),
 				tool_call_id: item.call_id,
 			});
+			i++;
+			continue;
+		}
+
+		if ("type" in item && SKIPPED_ITEM_TYPES.has(item.type as string)) {
 			i++;
 			continue;
 		}

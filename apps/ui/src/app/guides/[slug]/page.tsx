@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { ContentConversionRail } from "@/components/content-conversion-rail";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
@@ -153,6 +154,9 @@ export default async function GuidePage({ params }: GuidePageProps) {
 				</main>
 				<Footer />
 			</div>
+			{/* Integration guides are read by people wiring up a coding agent, so
+			    the flat-rate plan is the relevant offer. */}
+			<ContentConversionRail surface="guide" variant="devpass" />
 		</>
 	);
 }
@@ -178,20 +182,26 @@ export async function generateMetadata({
 		return {};
 	}
 
+	const description = guide.description ?? "LLM Gateway integration guide";
+	// `seoTitle`, when set, already reads as a full search-result headline, so it
+	// replaces the "<title> - Guides" composition rather than extending it.
+	const metaTitle = guide.seoTitle ?? `${guide.title} - Guides`;
+	const socialTitle = guide.seoTitle ?? `${guide.title} - Guides | LLM Gateway`;
+
 	return {
-		title: `${guide.title} - Guides`,
-		description: guide.description ?? "LLM Gateway integration guide",
+		title: metaTitle,
+		description,
 		alternates: { canonical: `/guides/${guide.slug}` },
 		openGraph: {
-			title: `${guide.title} - Guides | LLM Gateway`,
-			description: guide.description ?? "LLM Gateway integration guide",
+			title: socialTitle,
+			description,
 			type: "article",
 			url: `https://llmgateway.io/guides/${guide.slug}`,
 		},
 		twitter: {
 			card: "summary_large_image",
-			title: `${guide.title} - Guides | LLM Gateway`,
-			description: guide.description ?? "LLM Gateway integration guide",
+			title: socialTitle,
+			description,
 		},
 	};
 }

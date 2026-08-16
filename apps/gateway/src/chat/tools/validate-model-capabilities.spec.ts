@@ -323,6 +323,32 @@ describe("validateModelCapabilities - output capability", () => {
 			),
 		).not.toThrow();
 	});
+	describe("search-on-demand-only web search", () => {
+		// Every mapping on qwen3.8-max is DashScope-backed, so the model has no
+		// model-elected search anywhere to fall back to. Offering the tool is
+		// still a valid request: the caller gets an ordinary unsearched answer,
+		// exactly as they would from a model that chose not to search.
+		const forcedOnlyModel = getModel("qwen3.8-max");
+
+		it("accepts a merely offered web_search tool", () => {
+			expect(() =>
+				validateModelCapabilities(forcedOnlyModel, "qwen3.8-max", "alibaba", {
+					// Extraction pulls web_search out of `tools`, leaving it empty.
+					tools: [],
+					webSearchTool: { type: "web_search" },
+				}),
+			).not.toThrow();
+		});
+
+		it("accepts a forced web_search tool", () => {
+			expect(() =>
+				validateModelCapabilities(forcedOnlyModel, "qwen3.8-max", "alibaba", {
+					tools: [],
+					webSearchTool: { type: "web_search", forced: true },
+				}),
+			).not.toThrow();
+		});
+	});
 });
 
 describe("validateModelCapabilities - reasoning.max_tokens", () => {

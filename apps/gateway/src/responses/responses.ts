@@ -24,7 +24,11 @@ import {
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
-import { compactRequestSchema, responsesRequestSchema } from "./schemas.js";
+import {
+	compactRequestSchema,
+	formatValidationError,
+	responsesRequestSchema,
+} from "./schemas.js";
 import { convertChatResponseToCompaction } from "./tools/convert-chat-to-compaction.js";
 import {
 	convertChatResponseToResponses,
@@ -46,6 +50,7 @@ import {
 	getStoredResponse,
 	resolveItemReferences,
 } from "./tools/response-state.js";
+import { extractAdditionalTools } from "./tools/tool-registry.js";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -168,7 +173,7 @@ responses.post("/", async (c) => {
 		return c.json(
 			{
 				error: {
-					message: `Invalid request: ${validation.error.errors.map((e) => `${e.path.join(".")}: ${e.message}`).join(", ")}`,
+					message: `Invalid request: ${formatValidationError(validation.error)}`,
 					type: "invalid_request_error",
 					code: "invalid_request",
 				},
@@ -242,6 +247,16 @@ responses.post("/", async (c) => {
 	// in a prior response that a stateful client references instead of resending)
 	// back to their concrete stored items before conversion.
 	inputItems = await resolveItemReferences(inputItems, projectId);
+
+	// Clients using the Responses tool registry (Codex 0.144+) declare their
+	// tools as an `additional_tools` input item instead of the top-level `tools`
+	// array. Lift them out before the input becomes chat messages.
+	const additionalTools = extractAdditionalTools(inputItems);
+	inputItems = additionalTools.items;
+	const toolRegistry = additionalTools.registry;
+	if (additionalTools.tools.length > 0) {
+		req.tools = [...(req.tools ?? []), ...additionalTools.tools];
+	}
 
 	// Convert Responses API input to chat completions messages
 	const messages = convertResponsesInputToMessages(
@@ -358,7 +373,7 @@ responses.post("/", async (c) => {
 	// Generate log ID with resp_ prefix — this is both the log entry's primary key
 	// and the Responses API response ID
 	const logId = `resp_${shortid(24)}`;
-	const state = createStreamingState(req.model, logId, req);
+	const state = createStreamingState(req.model, logId, req, toolRegistry);
 
 	// Make internal request to the existing chat completions endpoint
 	const internalHeaders: Record<string, string> = {
@@ -591,6 +606,7 @@ responses.post("/", async (c) => {
 		req.model,
 		logId,
 		req,
+		toolRegistry,
 	);
 
 	// Store for previous_response_id (unless store: false). Storage always
@@ -662,7 +678,7 @@ responses.post("/compact", async (c) => {
 		return c.json(
 			{
 				error: {
-					message: `Invalid request: ${validation.error.errors.map((e) => `${e.path.join(".")}: ${e.message}`).join(", ")}`,
+					message: `Invalid request: ${formatValidationError(validation.error)}`,
 					type: "invalid_request_error",
 					code: "invalid_request",
 				},

@@ -132,6 +132,8 @@ const organizationSchema = z.object({
 	seats: z.number().nullable(),
 	// Manual API-key-limit override; null = use the plan default.
 	apiKeyLimit: z.number().nullable(),
+	// Manual project-limit override; null = use the plan default.
+	projectLimit: z.number().nullable(),
 	retentionLevel: z.enum(["retain", "none"]),
 	providerCompliancePolicy: providerCompliancePolicySchema.nullable(),
 	ssoAutoJoinDomain: z.string().nullable(),
@@ -1521,7 +1523,7 @@ organization.openapi(getCreditsRunway, async (c) => {
 	// blended `cost` would overstate the burn rate for BYOK-heavy orgs.
 	const result = await db
 		.select({
-			totalCost: sql<number>`COALESCE(SUM(${projectHourlyStats.creditsCost}), 0) + COALESCE(SUM(${projectHourlyStats.apiKeysDataStorageCost}), 0)`,
+			totalCost: sql<number>`COALESCE(SUM(cast(${projectHourlyStats.creditsCost} as double precision)), 0) + COALESCE(SUM(cast(${projectHourlyStats.apiKeysDataStorageCost} as double precision)), 0)`,
 		})
 		.from(projectHourlyStats)
 		.innerJoin(

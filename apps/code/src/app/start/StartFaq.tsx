@@ -9,7 +9,11 @@ import {
 	AccordionTrigger,
 } from "@/components/ui/accordion";
 
-import { MARKETING_STATS } from "@llmgateway/shared";
+import {
+	MARKETING_STATS,
+	SELF_REFUND_USAGE_PERCENT,
+	SELF_REFUND_WINDOW_DAYS,
+} from "@llmgateway/shared";
 
 import type { ReactNode } from "react";
 
@@ -50,12 +54,15 @@ const faqItems: { question: string; answer: ReactNode }[] = [
 		question: "What's the first-month guarantee?",
 		answer: (
 			<>
-				Cancel within 7 days of your first purchase and email{" "}
-				<Link href="mailto:contact@llmgateway.io" className="underline">
-					contact@llmgateway.io
-				</Link>
-				: we&apos;ll refund your first month minus the usage you consumed at
-				provider rates. There&apos;s no cancellation fee.
+				If DevPass isn&apos;t for you and you&apos;ve used less than{" "}
+				{SELF_REFUND_USAGE_PERCENT}% of your monthly allowance, refund yourself
+				from{" "}
+				<Link href="/dashboard/billing" className="underline">
+					Billing
+				</Link>{" "}
+				in your dashboard — no email needed. You get your first month back in
+				full, up to {SELF_REFUND_WINDOW_DAYS} days after the purchase; the
+				refund ends the plan right away, and there&apos;s no cancellation fee.
 			</>
 		),
 	},

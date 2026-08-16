@@ -47,6 +47,8 @@ The healthiest pricing model is **zero token markup** plus a transparent, predic
 
 The good news: in 2026, **none of the major gateways mark up tokens** — they all pass provider rates through. The competition has moved to the platform fee, BYOK terms, and whether you can self-host to pay nothing at all.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## The costs that don't show up on the pricing page
 
 A few line items are easy to miss when you're comparing:
@@ -70,3 +72,5 @@ The whole point of a gateway is to save you money and effort, not add a tax. LLM
 Want the head-to-head detail behind these numbers? Read [LLM Gateway vs OpenRouter](/blog/llm-gateway-vs-openrouter), [LLM Gateway vs LiteLLM](/blog/llm-gateway-vs-litellm), and [LLM Gateway vs Portkey](/blog/llm-gateway-vs-portkey).
 
 **[Try LLM Gateway free](https://llmgateway.io/signup)** | **[Run the Token Cost Calculator](/token-cost-calculator)** | **[See the 8 best AI gateways in 2026](/blog/best-ai-gateways)**
+
+<BlogCta variant="gateway" location="bottom" />

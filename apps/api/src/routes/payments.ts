@@ -189,22 +189,55 @@ payments.openapi(createPaymentIntent, async (c) => {
 		isInternational,
 	});
 
-	const paymentIntent = await getStripe().paymentIntents.create({
-		amount: Math.round(feeBreakdown.totalAmount * 100),
-		currency: "usd",
-		description: `Credit purchase for ${amount} USD (including fees)`,
-		customer: stripeCustomerId,
-		...(stripePaymentMethodId ? { payment_method: stripePaymentMethodId } : {}),
-		metadata: {
-			organizationId,
-			baseAmount: amount.toString(),
-			platformFee: feeBreakdown.platformFee.toString(),
-			internationalFee: feeBreakdown.internationalFee.toString(),
-			isInternational: isInternational.toString(),
-			userEmail: user.email,
-			userId: user.id,
-		},
-	});
+	let paymentIntent: Stripe.PaymentIntent;
+	try {
+		paymentIntent = await getStripe().paymentIntents.create({
+			amount: Math.round(feeBreakdown.totalAmount * 100),
+			currency: "usd",
+			description: `Credit purchase for ${amount} USD (including fees)`,
+			customer: stripeCustomerId,
+			...(stripePaymentMethodId
+				? { payment_method: stripePaymentMethodId }
+				: {}),
+			metadata: {
+				organizationId,
+				baseAmount: amount.toString(),
+				platformFee: feeBreakdown.platformFee.toString(),
+				internationalFee: feeBreakdown.internationalFee.toString(),
+				isInternational: isInternational.toString(),
+				userEmail: user.email,
+				userId: user.id,
+			},
+		});
+	} catch (err) {
+		if (err instanceof Stripe.errors.StripeError) {
+			const status = err.statusCode ?? 500;
+			const details = {
+				organizationId,
+				userId: user.id,
+				stripeType: err.type,
+				stripeCode: err.code,
+				stripeMessage: err.message,
+				stripeStatusCode: err.statusCode,
+				stripeRequestId: err.requestId,
+			};
+
+			if (status >= 400 && status < 500) {
+				logger.warn("Stripe client error on payment intent creation", details);
+			} else {
+				logger.error("Stripe error on payment intent creation", err, details);
+			}
+
+			throw new HTTPException(
+				status as ClientErrorStatusCode | ServerErrorStatusCode,
+				{
+					message: err.message,
+				},
+			);
+		}
+
+		throw err;
+	}
 
 	return c.json({
 		clientSecret: paymentIntent.client_secret ?? "",

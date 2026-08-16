@@ -65,6 +65,8 @@ Let's put concrete numbers on it.
 
 **Overpayment cost:** If you're using a $10/M-token model for tasks that a $0.40/M-token model handles equally well, you're overpaying by 25x on those requests. For a typical app, that's thousands of dollars per month.
 
+<BlogCta variant="enterprise" location="mid_article" />
+
 ## The Gateway Solution
 
 An LLM gateway sits between your application and the providers. You integrate once with the gateway's API, and the gateway handles the provider complexity:
@@ -93,3 +95,5 @@ If any of these apply, you're already paying the lock-in tax:
 LLM Gateway supports 200+ models across every major provider with a single, OpenAI-compatible API.
 
 **[Create a free account](/signup)** | **[Browse supported models](/models)** | **[Read the docs](https://docs.llmgateway.io)**
+
+<BlogCta variant="enterprise" location="bottom" />

@@ -261,9 +261,30 @@ export const deepseekModels = [
 			{
 				providerId: "deepseek",
 				externalId: "deepseek-v4-pro",
+				// Base fields are the regular flat rates, billed before
+				// effectiveAt (2026-08-16 16:00 UTC). On/after, peak hours
+				// (01:00-04:00 and 06:00-10:00 UTC) bill at the peak rates
+				// below, all other hours at the offPeak rates.
 				inputPrice: "0.435e-6",
 				outputPrice: "0.87e-6",
 				cachedInputPrice: "0.003625e-6",
+				peakPricing: {
+					effectiveAt: "2026-08-16T16:00:00Z",
+					peak: {
+						inputPrice: "1.32e-6",
+						outputPrice: "3.96e-6",
+						cachedInputPrice: "0.044e-6",
+					},
+					offPeak: {
+						inputPrice: "0.66e-6",
+						outputPrice: "1.98e-6",
+						cachedInputPrice: "0.022e-6",
+					},
+					hoursUtc: [
+						[1, 4],
+						[6, 10],
+					],
+				},
 				requestPrice: "0",
 				contextSize: 1050000,
 				maxOutput: 393216,
@@ -322,7 +343,7 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "together-ai",
-				externalId: "deepseek-ai/DeepSeek-V4-Pro",
+				externalId: "deepseek-ai/DeepSeek-V4-Pro-0813",
 				inputPrice: "1.74e-6",
 				cachedInputPrice: "0.2e-6",
 				outputPrice: "3.48e-6",
@@ -345,7 +366,7 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "alibaba",
-				externalId: "deepseek-v4-pro",
+				externalId: "deepseek-v4-pro-0813",
 				inputPrice: "2.4e-6",
 				cachedInputPrice: "0.2e-6",
 				outputPrice: "4.8e-6",
@@ -385,11 +406,11 @@ export const deepseekModels = [
 			{
 				providerId: "deepinfra",
 				externalId: "deepseek-ai/DeepSeek-V4-Pro",
-				inputPrice: "1.74e-6",
-				cachedInputPrice: "0.145e-6",
-				outputPrice: "3.48e-6",
+				inputPrice: "1.3e-6",
+				cachedInputPrice: "0.1e-6",
+				outputPrice: "2.6e-6",
 				requestPrice: "0",
-				contextSize: 64000,
+				contextSize: 1048576,
 				maxOutput: 64000,
 				quantization: "fp4",
 				streaming: true,
@@ -500,9 +521,30 @@ export const deepseekModels = [
 			{
 				providerId: "deepseek",
 				externalId: "deepseek-v4-flash",
+				// Base fields are the regular flat rates, billed before
+				// effectiveAt (2026-08-16 16:00 UTC). On/after, peak hours
+				// (01:00-04:00 and 06:00-10:00 UTC) bill at the peak rates
+				// below, all other hours at the offPeak rates.
 				inputPrice: "0.14e-6",
 				outputPrice: "0.28e-6",
 				cachedInputPrice: "0.0028e-6",
+				peakPricing: {
+					effectiveAt: "2026-08-16T16:00:00Z",
+					peak: {
+						inputPrice: "0.44e-6",
+						outputPrice: "1.32e-6",
+						cachedInputPrice: "0.014e-6",
+					},
+					offPeak: {
+						inputPrice: "0.22e-6",
+						outputPrice: "0.66e-6",
+						cachedInputPrice: "0.007e-6",
+					},
+					hoursUtc: [
+						[1, 4],
+						[6, 10],
+					],
+				},
 				requestPrice: "0",
 				contextSize: 1050000,
 				maxOutput: 393216,
@@ -619,9 +661,9 @@ export const deepseekModels = [
 			{
 				providerId: "deepinfra",
 				externalId: "deepseek-ai/DeepSeek-V4-Flash-0731",
-				inputPrice: "0.14e-6",
-				cachedInputPrice: "0.028e-6",
-				outputPrice: "0.28e-6",
+				inputPrice: "0.08e-6",
+				cachedInputPrice: "0.016e-6",
+				outputPrice: "0.18e-6",
 				requestPrice: "0",
 				contextSize: 1000000,
 				maxOutput: 393216,
