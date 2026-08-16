@@ -365,6 +365,30 @@ async function resetEndedDevPlan(organizationId: string): Promise<void> {
 }
 
 // Subscribe to a dev plan
+/**
+ * Whether a Stripe error means the account simply cannot offer stablecoins —
+ * the one case where retrying the checkout without "crypto" is correct. Any
+ * other failure has to surface: retrying blindly would mask real errors and,
+ * on a lost response, could leave a second Checkout Session behind.
+ */
+function isCryptoCapabilityUnavailable(err: unknown): boolean {
+	if (typeof err !== "object" || err === null) {
+		return false;
+	}
+	const { type, code, param } = err as {
+		type?: string;
+		code?: string;
+		param?: string;
+	};
+	if (type !== "invalid_request_error") {
+		return false;
+	}
+	return (
+		code === "capability_not_active" ||
+		Boolean(param?.startsWith("payment_method_types"))
+	);
+}
+
 const subscribe = createRoute({
 	method: "post",
 	path: "/subscribe",
@@ -489,10 +513,13 @@ devPlans.openapi(subscribe, async (c) => {
 			try {
 				session = await createCheckoutSession(["card", "crypto"]);
 			} catch (err) {
-				// Stripe validates payment_method_types against the pinned API
-				// version and the account's activated methods. If stablecoins are
-				// not available the whole call fails, so fall back to card rather
-				// than taking card checkout down with the crypto option.
+				// Only the "this account cannot offer stablecoins" case falls back.
+				// Retrying on anything else would hide real failures and could
+				// create a second Checkout Session when the first response was
+				// merely lost in transit.
+				if (!isCryptoCapabilityUnavailable(err)) {
+					throw err;
+				}
 				logger.warn(
 					"Crypto checkout unavailable; falling back to card-only DevPass checkout",
 					{ error: err instanceof Error ? err.message : String(err) },

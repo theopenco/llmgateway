@@ -1325,7 +1325,10 @@ describe("dev plan subscribe checkout", () => {
 		process.env.STRIPE_DEV_PLAN_CRYPTO = "true";
 		stripeMock.checkout.sessions.create
 			.mockRejectedValueOnce(
-				new Error("Invalid payment_method_types[1]: crypto"),
+				Object.assign(new Error("The crypto capability is not active."), {
+					type: "invalid_request_error",
+					code: "capability_not_active",
+				}),
 			)
 			.mockResolvedValueOnce({
 				id: "cs_setup_003",
@@ -1343,6 +1346,22 @@ describe("dev plan subscribe checkout", () => {
 		expect(
 			stripeMock.checkout.sessions.create.mock.calls[1][0].payment_method_types,
 		).toEqual(["card"]);
+	});
+
+	// A retry is only safe for the capability case. Anything else — including a
+	// lost response — must surface rather than silently open a second session.
+	it("does not retry when Stripe fails for an unrelated reason", async () => {
+		process.env.STRIPE_DEV_PLAN_CRYPTO = "true";
+		stripeMock.checkout.sessions.create.mockRejectedValue(
+			Object.assign(new Error("connection error"), {
+				type: "api_connection_error",
+			}),
+		);
+
+		const res = await subscribeToPro();
+
+		expect(res.status).toBe(500);
+		expect(stripeMock.checkout.sessions.create).toHaveBeenCalledTimes(1);
 	});
 });
 

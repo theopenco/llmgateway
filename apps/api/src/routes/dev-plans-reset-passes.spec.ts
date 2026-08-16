@@ -27,6 +27,9 @@ const stripeMock = vi.hoisted(() => ({
 		create: vi.fn(),
 		retrieve: vi.fn(),
 	},
+	paymentMethods: {
+		retrieve: vi.fn(),
+	},
 	refunds: {
 		list: vi.fn(),
 	},
@@ -380,6 +383,7 @@ describe("reset pass purchase", () => {
 		stripeMock.subscriptions.retrieve.mockResolvedValue({
 			default_payment_method: "pm_from_subscription",
 		});
+		stripeMock.paymentMethods.retrieve.mockResolvedValue({ type: "card" });
 		stripeMock.customers.retrieve.mockResolvedValue({
 			deleted: false,
 			invoice_settings: { default_payment_method: "pm_from_customer" },
@@ -455,6 +459,7 @@ describe("reset pass purchase", () => {
 		stripeMock.subscriptions.retrieve.mockResolvedValue({
 			default_payment_method: null,
 		});
+		stripeMock.paymentMethods.retrieve.mockResolvedValue({ type: "card" });
 		stripeMock.customers.retrieve.mockResolvedValue({
 			deleted: false,
 			invoice_settings: {},

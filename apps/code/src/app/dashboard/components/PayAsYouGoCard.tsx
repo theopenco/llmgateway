@@ -89,6 +89,9 @@ export default function PayAsYouGoCard({
 	const settingsMutation = api.useMutation("patch", "/dev-plans/settings");
 	const topUpMutation = api.useMutation("post", "/dev-plans/topup");
 
+	// Off-session top-ups need a card; the server rejects a wallet with a 400,
+	// so don't offer an action that can only fail.
+	const cardOnFile = !paymentMethod || Boolean(paymentMethod.card);
 	const amount = customAmount ? Number(customAmount) : selectedAmount;
 	const amountValid =
 		Number.isFinite(amount) &&
@@ -355,7 +358,9 @@ export default function PayAsYouGoCard({
 								<Button
 									size="sm"
 									onClick={handleTopUp}
-									disabled={!amountValid || topUpMutation.isPending}
+									disabled={
+										!amountValid || topUpMutation.isPending || !cardOnFile
+									}
 									data-testid="payg-topup"
 								>
 									{topUpMutation.isPending ? (
@@ -390,7 +395,7 @@ export default function PayAsYouGoCard({
 								<Switch
 									checked={autoTopUpEnabled}
 									onCheckedChange={handleAutoReload}
-									disabled={settingsMutation.isPending}
+									disabled={settingsMutation.isPending || !cardOnFile}
 									aria-label="Auto-reload"
 									data-testid="payg-auto-reload-switch"
 								/>

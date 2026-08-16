@@ -235,6 +235,7 @@ describe("dev-plan PAYG top-up", () => {
 		});
 		// Domestic card by default, so no international fee applies.
 		stripeMock.paymentMethods.retrieve.mockResolvedValue({
+			type: "card",
 			card: { country: "US" },
 		});
 		stripeMock.paymentIntents.create.mockImplementation(
@@ -329,6 +330,7 @@ describe("dev-plan PAYG top-up", () => {
 	it("adds the international card fee when the card is non-US", async () => {
 		await insertOrg();
 		stripeMock.paymentMethods.retrieve.mockResolvedValue({
+			type: "card",
 			card: { country: "DE" },
 		});
 
