@@ -578,6 +578,26 @@ export const deepseekModels = [
 				inputPrice: "0.076e-6",
 				outputPrice: "0.153e-6",
 				cachedInputPrice: "0.014e-6",
+				// Runware stays flat while DeepSeek's first-party price changes by
+				// time of day. Identical tiers preserve Runware's list price while
+				// aligning the comparison windows with the upstream model.
+				peakPricing: {
+					effectiveAt: "2026-08-16T16:00:00Z",
+					peak: {
+						inputPrice: "0.076e-6",
+						outputPrice: "0.153e-6",
+						cachedInputPrice: "0.014e-6",
+					},
+					offPeak: {
+						inputPrice: "0.076e-6",
+						outputPrice: "0.153e-6",
+						cachedInputPrice: "0.014e-6",
+					},
+					hoursUtc: [
+						[1, 4],
+						[6, 10],
+					],
+				},
 				requestPrice: "0",
 				contextSize: 1048576,
 				maxOutput: 384000,

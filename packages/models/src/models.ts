@@ -322,9 +322,10 @@ export interface ProviderModelMapping {
 	 * inputPrice/outputPrice/cachedInputPrice are the regular flat prices,
 	 * billed before `effectiveAt` (and always when `peakPricing` is absent).
 	 * On/after `effectiveAt`, `peak` applies while the current UTC hour falls
-	 * inside `hoursUtc` and `offPeak` applies otherwise. Only DeepSeek's
-	 * first-party API uses this today — peak 01:00-04:00 and 06:00-10:00 UTC
-	 * at double the off-peak rates, effective 2026-08-16.
+	 * inside `hoursUtc` and `offPeak` applies otherwise. DeepSeek's first-party
+	 * API uses peak 01:00-04:00 and 06:00-10:00 UTC at double the off-peak
+	 * rates, effective 2026-08-16. A provider with flat pricing across the same
+	 * comparison windows may declare identical peak and off-peak rates.
 	 */
 	peakPricing?: {
 		/**

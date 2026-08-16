@@ -2370,6 +2370,40 @@ describe("peak / off-peak time-of-day pricing (DeepSeek)", () => {
 		expect(pro.cachedInputCost).toBeCloseTo(0.044);
 	});
 
+	it("keeps Runware flat while DeepSeek Flash changes price", async () => {
+		const calculateBlendedCosts = (provider: "deepseek" | "runware") =>
+			calculateCosts(
+				"deepseek-v4-flash",
+				provider,
+				null,
+				9_000_000,
+				1_000_000,
+				7_000_000,
+			);
+		const savings = (price: number, referencePrice: number) =>
+			(referencePrice - price) / referencePrice;
+
+		setTime("2026-08-17T12:00:00Z");
+		const deepseekOffPeak = await calculateBlendedCosts("deepseek");
+		const runwareOffPeak = await calculateBlendedCosts("runware");
+
+		expect(deepseekOffPeak.totalCost).toBeCloseTo(1.149);
+		expect(runwareOffPeak.totalCost).toBeCloseTo(0.403);
+		expect(
+			savings(runwareOffPeak.totalCost!, deepseekOffPeak.totalCost!),
+		).toBeCloseTo(0.65, 2);
+
+		setTime("2026-08-17T02:00:00Z");
+		const deepseekPeak = await calculateBlendedCosts("deepseek");
+		const runwarePeak = await calculateBlendedCosts("runware");
+
+		expect(deepseekPeak.totalCost).toBeCloseTo(2.298);
+		expect(runwarePeak.totalCost).toBeCloseTo(0.403);
+		expect(
+			savings(runwarePeak.totalCost!, deepseekPeak.totalCost!),
+		).toBeCloseTo(0.82, 2);
+	});
+
 	it("bills off-peak rates at the first window boundary (04:00 UTC)", async () => {
 		setTime("2026-08-17T04:00:00Z");
 
