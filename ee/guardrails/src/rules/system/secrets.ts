@@ -33,10 +33,14 @@ function looksLikeAwsSecret(value: string, before: string): boolean {
 	return shannonEntropy(value) >= 4.2;
 }
 
-function secretValue(match: string): string {
-	const separator = match.search(/[=:]/);
-	return separator === -1 ? match : match.slice(separator + 1);
-}
+/**
+ * `key = value` in the shapes credentials actually appear in: bare, quoted, or
+ * as a JSON property. Only the value is captured, so redaction replaces the
+ * secret and leaves the surrounding quotes and punctuation intact — replacing
+ * the whole match would turn `{"password":"hunter2"}` into invalid JSON. The
+ * quoted branches come first so a value containing a comma is captured whole.
+ */
+const ASSIGNED_VALUE = `["']?\\s*[=:]\\s*(?:"([^"\\n]{8,})"|'([^'\\n]{8,})'|([^\\s'",;]{8,}))`;
 
 const SECRET_DETECTORS: Detector[] = [
 	{
@@ -110,14 +114,13 @@ const SECRET_DETECTORS: Detector[] = [
 		id: "api_key",
 		label: "API Key",
 		replacement: SECRET_REPLACEMENT,
-		pattern:
-			/\b(?:api[_-]?key|apikey|access[_-]?token|auth[_-]?token|client[_-]?secret)["']?\s*[=:]\s*['"]?[A-Za-z0-9_\-.]{16,}['"]?/i,
-		validate: (value) => {
-			const secret = secretValue(value)
-				.trim()
-				.replace(/^['"]|['"]$/g, "");
-			return !isPlaceholderSecret(secret) && shannonEntropy(secret) >= 3;
-		},
+		pattern: new RegExp(
+			`\\b(?:api[_-]?key|apikey|access[_-]?token|auth[_-]?token|client[_-]?secret)${ASSIGNED_VALUE}`,
+			"i",
+		),
+		redactGroup: true,
+		validate: (value) =>
+			!isPlaceholderSecret(value) && shannonEntropy(value) >= 3,
 	},
 	{
 		id: "password",
@@ -125,8 +128,9 @@ const SECRET_DETECTORS: Detector[] = [
 		replacement: SECRET_REPLACEMENT,
 		// Also matches the JSON shape `"password": "hunter2"`, which the previous
 		// pattern missed because of the quote before the colon.
-		pattern: /\b(?:password|passwd|pwd)["']?\s*[=:]\s*['"]?[^\s'",;]{8,}['"]?/i,
-		validate: (value) => !isPlaceholderSecret(secretValue(value)),
+		pattern: new RegExp(`\\b(?:password|passwd|pwd)${ASSIGNED_VALUE}`, "i"),
+		redactGroup: true,
+		validate: (value) => !isPlaceholderSecret(value),
 	},
 ];
 
@@ -163,16 +167,14 @@ export const secretsRule: SystemRule = {
 			return { passed: true, matches: [] };
 		}
 
-		const { matches } = detectSecrets(content);
+		// Report the detector labels, never the matched values: the engine
+		// persists these on the violation record, and a head/tail truncation
+		// still leaks 15 characters of a 40-character key.
+		const { patterns } = detectSecrets(content);
 
 		return {
-			passed: matches.length === 0,
-			// Truncate to avoid echoing the full secret into violation logs.
-			matches: matches.map((match) =>
-				match.length > 20
-					? match.substring(0, 10) + "..." + match.slice(-5)
-					: match,
-			),
+			passed: patterns.length === 0,
+			matches: patterns,
 		};
 	},
 };

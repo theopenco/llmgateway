@@ -5,7 +5,7 @@ const JAILBREAK_PATTERNS = [
 	// ordinary words such as "redundant", "abundant" and "mundane".
 	/\bDAN\b(\s+(mode|prompt))?/,
 	/\bdan\s+(mode|prompt)\b/i,
-	/do\s+anything\s+now/i,
+	/\bdo\s+anything\s+now\b/i,
 	// "developer mode" on its own is ordinary product vocabulary; only the
 	// activation phrasing indicates a jailbreak attempt.
 	/(enable|enter|activate|turn\s+on|switch\s+to)\s+developer\s+mode/i,

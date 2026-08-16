@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { detectPii, redactPii } from "./pii.js";
+import { detectPii, piiRule, redactPii } from "./pii.js";
 
 const clean = [
 	'{"product_id": 123456789, "qty": 3}',
@@ -30,7 +30,12 @@ const detected = [
 	["Phone", "phone 4155550100"],
 	["IP Address", "client connected from 203.0.113.42"],
 	["Passport", "passport AB1234567 expires in May"],
+	["Passport", "AB1234567 is my passport number"],
 	["Drivers License", "driver's license D1234567 on file"],
+	["Credit Card", "card 4111 1111 1111 1111 on file"],
+	["Credit Card", "card 4111-1111-1111-1111 on file"],
+	["Credit Card", "amex 3782 822463 10005"],
+	["Phone", "4155550100 is my mobile"],
 ] as const;
 
 describe("detectPii", () => {
@@ -64,8 +69,28 @@ describe("redactPii", () => {
 		expect(result.patterns).toEqual(["Credit Card"]);
 	});
 
+	it("redacts a grouped card number as one span", () => {
+		const result = redactPii("card 4111 1111 1111 1111 on file");
+		expect(result.redacted).toBe("card [CREDIT_CARD_REDACTED] on file");
+		expect(result.patterns).toEqual(["Credit Card"]);
+	});
+
 	it("reports the same detections as the rule check", () => {
 		const content = "email a@b.io and phone (415) 555-0100";
 		expect(redactPii(content).patterns).toEqual(detectPii(content).patterns);
+	});
+});
+
+describe("piiRule.check", () => {
+	it("reports detector labels, never the matched values", () => {
+		const result = piiRule.check("ssn 123-45-6789 mail bob@example.com", {
+			enabled: true,
+			action: "block",
+		});
+
+		expect(result.passed).toBe(false);
+		expect(result.matches).toEqual(["SSN", "Email"]);
+		expect(result.matches.join(" ")).not.toContain("123-45-6789");
+		expect(result.matches.join(" ")).not.toContain("bob@example.com");
 	});
 });

@@ -3,13 +3,63 @@ import { findMatches, luhn, redactMatches } from "./detector.js";
 import type { Detector } from "./detector.js";
 import type { SystemRule } from "@/types.js";
 
-const PHONE_CONTEXT =
-	/(phone|telephone|tel|mobile|cell|fax|whatsapp|sms|call me|reach me|contact)\W{0,16}$/i;
-const PASSPORT_CONTEXT = /(passport|travel document)\W{0,24}$/i;
-const LICENSE_CONTEXT =
-	/(driver'?s?\s*licen[cs]e|driving\s*licen[cs]e|\bdl\s*(no|number|#)?)\W{0,24}$/i;
+/**
+ * Builds a check for a keyword appearing on *either* side of the match, so both
+ * "passport AB1234567" and "AB1234567 is my passport" are recognised.
+ */
+function nearKeyword(
+	keywords: string,
+): (before: string, after: string) => boolean {
+	const before = new RegExp(`(?:${keywords})\\W{0,24}$`, "i");
+	const after = new RegExp(
+		`^\\W{0,4}(?:(?:is|was|are|were)\\s+)?(?:(?:my|the|his|her|their|our)\\s+)?(?:${keywords})`,
+		"i",
+	);
+	return (b, a) => before.test(b) || after.test(a);
+}
+
+const nearPhone = nearKeyword(
+	"phone|telephone|tel|mobile|cell|fax|whatsapp|sms|call me|reach me|contact",
+);
+const nearPassport = nearKeyword("passport|travel document");
+const nearLicense = nearKeyword(
+	"driver'?s?\\s*licen[cs]e|driving\\s*licen[cs]e|dl\\s*(?:no|number|#)",
+);
+
 const VERSION_CONTEXT =
 	/(version|release|build|schema|firmware|\bv)\W{0,8}$|[\d.]$/i;
+
+interface CardBrand {
+	prefix: RegExp;
+	lengths: number[];
+}
+
+const CARD_BRANDS: CardBrand[] = [
+	{ prefix: /^4/, lengths: [13, 16, 19] },
+	{ prefix: /^(?:5[1-5]|2[2-7])/, lengths: [16] },
+	{ prefix: /^3[47]/, lengths: [15] },
+	{ prefix: /^(?:6011|65\d{2}|64[4-9]\d)/, lengths: [16, 19] },
+	{ prefix: /^3(?:0[0-5]|[689])/, lengths: [14] },
+	{ prefix: /^35(?:2[89]|[3-8]\d)/, lengths: [16, 19] },
+];
+
+/**
+ * A digit run is a card number only if its length matches the issuing brand's
+ * prefix and it passes the Luhn checksum. Grouping separators are stripped
+ * first, so `4111 1111 1111 1111` is caught alongside the unbroken form.
+ */
+function isCardNumber(value: string): boolean {
+	const digits = value.replace(/[ -]/g, "");
+	if (!/^\d+$/.test(digits)) {
+		return false;
+	}
+	const brand = CARD_BRANDS.find(
+		(candidate) =>
+			candidate.prefix.test(digits) &&
+			candidate.lengths.includes(digits.length),
+	);
+	return brand !== undefined && luhn(digits);
+}
 
 /**
  * Ordered by specificity: an SSN or card number must win over the looser phone
@@ -24,14 +74,21 @@ const PII_DETECTORS: Detector[] = [
 		pattern: /\b(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b/,
 	},
 	{
+		id: "credit_card_grouped",
+		label: "Credit Card",
+		replacement: "[CREDIT_CARD_REDACTED]",
+		// Listed before the unbroken form so the whole grouped span is replaced.
+		pattern: /\b\d{4}[ -]\d{4,6}[ -]\d{4,6}(?:[ -]\d{1,4})?\b/,
+		validate: (value) => isCardNumber(value),
+	},
+	{
 		id: "credit_card",
 		label: "Credit Card",
 		replacement: "[CREDIT_CARD_REDACTED]",
-		pattern:
-			/\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|6(?:011|5[0-9]{2})[0-9]{12})\b/,
-		// Without the checksum every 13/16-digit identifier starting with 4 or 5
-		// is reported as a card number.
-		validate: (value) => luhn(value),
+		pattern: /\b\d{13,19}\b/,
+		// Without brand and checksum validation every long digit run starting
+		// with 4 or 5 is reported as a card number.
+		validate: (value) => isCardNumber(value),
 	},
 	{
 		id: "email",
@@ -47,8 +104,8 @@ const PII_DETECTORS: Detector[] = [
 		// A bare 10-digit run is far more often an id, an order number or a unix
 		// timestamp than a phone number, so require either formatting (grouping
 		// separators, parentheses, country code) or a nearby phone keyword.
-		validate: (value, before) =>
-			/[-.\s()+]/.test(value) || PHONE_CONTEXT.test(before),
+		validate: (value, before, after) =>
+			/[-.\s()+]/.test(value) || nearPhone(before, after),
 	},
 	{
 		id: "ip_address",
@@ -68,14 +125,14 @@ const PII_DETECTORS: Detector[] = [
 		pattern: /\b[A-Z]{1,2}[0-9]{6,9}\b/,
 		// Identical in shape to order numbers, SKUs and part numbers, so only
 		// treat it as a passport when the surrounding text says so.
-		validate: (_value, before) => PASSPORT_CONTEXT.test(before),
+		validate: (_value, before, after) => nearPassport(before, after),
 	},
 	{
 		id: "drivers_license",
 		label: "Drivers License",
 		replacement: "[LICENSE_REDACTED]",
 		pattern: /\b[A-Z]{1,2}[0-9]{5,8}\b/,
-		validate: (_value, before) => LICENSE_CONTEXT.test(before),
+		validate: (_value, before, after) => nearLicense(before, after),
 	},
 ];
 
@@ -112,11 +169,13 @@ export const piiRule: SystemRule = {
 			return { passed: true, matches: [] };
 		}
 
-		const { matches } = detectPii(content);
+		// Report the detector labels, never the matched values: the engine
+		// persists these on the violation record.
+		const { patterns } = detectPii(content);
 
 		return {
-			passed: matches.length === 0,
-			matches,
+			passed: patterns.length === 0,
+			matches: patterns,
 		};
 	},
 };

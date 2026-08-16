@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { detectSecrets, redactSecrets } from "./secrets.js";
+import { detectSecrets, redactSecrets, secretsRule } from "./secrets.js";
 
 const clean = [
 	"commit a94a8fe5ccb19ba61c4c0873d391e987982fbbd3 reverted",
@@ -32,6 +32,10 @@ const detected = [
 	["Password", '{"password": "hunter2000!"}'],
 	["Password", "password=Tr0ub4dor&3xxx"],
 	["API Key", "api_key: sk9Xk2Lm4Qp7Rt1Zv8Bn3Cw6"],
+	// A single angle bracket must not read as a template placeholder.
+	["Password", "password=p<ssw0rd!"],
+	// Prefix-matching a placeholder word used to discard the whole value.
+	["Password", "password=testingSecret123"],
 ] as const;
 
 describe("detectSecrets", () => {
@@ -60,5 +64,36 @@ describe("redactSecrets", () => {
 		expect(detectSecrets("AKIAIOSFODNN7EXAMPLE").patterns).toEqual([
 			"AWS Access Key",
 		]);
+	});
+
+	it("keeps JSON valid by redacting only the value", () => {
+		expect(redactSecrets('{"password":"hunter2000!"}').redacted).toBe(
+			'{"password":"[SECRET_REDACTED]"}',
+		);
+	});
+
+	it("redacts a quoted value containing a comma in full", () => {
+		expect(redactSecrets('password: "hunter,2000!"').redacted).toBe(
+			'password: "[SECRET_REDACTED]"',
+		);
+	});
+
+	it("redacts an unquoted value without touching the key", () => {
+		expect(redactSecrets("password=Tr0ub4dor3xyz").redacted).toBe(
+			"password=[SECRET_REDACTED]",
+		);
+	});
+});
+
+describe("secretsRule.check", () => {
+	it("reports detector labels, never fragments of the secret", () => {
+		const result = secretsRule.check("key AKIAIOSFODNN7EXAMPLE leaked", {
+			enabled: true,
+			action: "block",
+		});
+
+		expect(result.passed).toBe(false);
+		expect(result.matches).toEqual(["AWS Access Key"]);
+		expect(result.matches.join(" ")).not.toContain("AKIA");
 	});
 });

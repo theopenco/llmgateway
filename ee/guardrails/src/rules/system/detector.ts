@@ -14,8 +14,16 @@ export interface Detector {
 	replacement: string;
 	pattern: RegExp;
 	/**
-	 * Returns false to discard a regex hit. `before`/`after` carry a limited
-	 * window of surrounding text so detectors can require nearby keywords.
+	 * Replace only the first capture group rather than the whole match. Needed
+	 * where the match includes structure that must survive redaction, such as
+	 * the key and quotes around a JSON password value.
+	 */
+	redactGroup?: boolean;
+	/**
+	 * Returns false to discard a regex hit. `value` is the span that would be
+	 * replaced (the capture group when `redactGroup` is set); `before`/`after`
+	 * carry a limited window of surrounding text so detectors can require
+	 * nearby keywords.
 	 */
 	validate?: (value: string, before: string, after: string) => boolean;
 }
@@ -37,29 +45,36 @@ export function findMatches(
 	const matches: DetectorMatch[] = [];
 
 	for (const detector of detectors) {
-		const pattern = new RegExp(
-			detector.pattern.source,
-			detector.pattern.flags.includes("g")
-				? detector.pattern.flags
-				: detector.pattern.flags + "g",
-		);
+		// `g` to walk every occurrence, `d` for the capture-group spans that
+		// `redactGroup` detectors replace.
+		const flags = detector.pattern.flags.replace(/[gd]/g, "") + "gd";
+		const pattern = new RegExp(detector.pattern.source, flags);
 
 		for (const match of content.matchAll(pattern)) {
-			const start = match.index;
-			const end = start + match[0].length;
+			const span = detector.redactGroup
+				? firstGroupSpan(match)
+				: [match.index, match.index + match[0].length];
+			if (!span) {
+				continue;
+			}
+
+			const [start, end] = span;
+			const value = content.slice(start, end);
 
 			if (detector.validate) {
+				const matchStart = match.index;
+				const matchEnd = match.index + match[0].length;
 				const before = content.slice(
-					Math.max(0, start - CONTEXT_WINDOW),
-					start,
+					Math.max(0, matchStart - CONTEXT_WINDOW),
+					matchStart,
 				);
-				const after = content.slice(end, end + CONTEXT_WINDOW);
-				if (!detector.validate(match[0], before, after)) {
+				const after = content.slice(matchEnd, matchEnd + CONTEXT_WINDOW);
+				if (!detector.validate(value, before, after)) {
 					continue;
 				}
 			}
 
-			matches.push({ detector, value: match[0], start, end });
+			matches.push({ detector, value, start, end });
 		}
 	}
 
@@ -83,6 +98,21 @@ export function findMatches(
 	}
 
 	return deduped;
+}
+
+/** Span of the first capture group that participated in the match. */
+function firstGroupSpan(match: RegExpExecArray): [number, number] | undefined {
+	const indices = match.indices;
+	if (!indices) {
+		return undefined;
+	}
+	for (let group = 1; group < indices.length; group++) {
+		const span = indices[group];
+		if (span) {
+			return span;
+		}
+	}
+	return undefined;
 }
 
 export function redactMatches(
@@ -145,11 +175,55 @@ export function luhn(digits: string): boolean {
 	return sum % 10 === 0;
 }
 
-const PLACEHOLDER_VALUE =
-	/^(?:[xX*.\-_0]+|your[_-]?\w*|my[_-]?\w*|some[_-]?\w*|example\w*|sample\w*|placeholder\w*|changeme\w*|dummy\w*|redacted\w*|test[_-]?\w*|fake[_-]?\w*|insert\w*|todo\w*)$/;
+/**
+ * Words that carry no secret on their own. A value counts as a placeholder only
+ * when *every* one of its separator-delimited words comes from this list, so
+ * `YOUR_API_KEY_HERE` is discarded while `testingSecret123` — which a prefix
+ * match would have thrown away — is still treated as a credential.
+ */
+const PLACEHOLDER_WORDS = new Set([
+	"a",
+	"api",
+	"apikey",
+	"bar",
+	"baz",
+	"change",
+	"changeme",
+	"dummy",
+	"example",
+	"fake",
+	"foo",
+	"here",
+	"insert",
+	"key",
+	"me",
+	"my",
+	"none",
+	"null",
+	"password",
+	"placeholder",
+	"pwd",
+	"redacted",
+	"replace",
+	"sample",
+	"secret",
+	"some",
+	"string",
+	"test",
+	"testing",
+	"the",
+	"todo",
+	"token",
+	"undefined",
+	"value",
+	"your",
+]);
 
+const MASK_VALUE = /^[xX*.\-_0\s]+$/;
+
+// `<...>` must form a token: a bare angle bracket appears in real passwords.
 const TEMPLATE_MARKER =
-	/<|>|\$\{|\{\{|%\(|%s|process\.env|os\.environ|import\.meta\.env|env\[|getenv/i;
+	/<[^<>]*>|\$\{|\{\{|%\(|%s|process\.env|os\.environ|import\.meta\.env|env\[|getenv/i;
 
 /**
  * True for values that are obviously not real credentials: template
@@ -164,7 +238,17 @@ export function isPlaceholderSecret(value: string): boolean {
 	if (TEMPLATE_MARKER.test(trimmed)) {
 		return true;
 	}
-	if (PLACEHOLDER_VALUE.test(trimmed)) {
+	if (MASK_VALUE.test(trimmed)) {
+		return true;
+	}
+	const words = trimmed
+		.toLowerCase()
+		.split(/[_\-.\s]+/)
+		.filter(Boolean);
+	if (
+		words.length > 0 &&
+		words.every((word) => PLACEHOLDER_WORDS.has(word) || /^\d+$/.test(word))
+	) {
 		return true;
 	}
 	// A single repeated character, e.g. "********" or "xxxxxxxx".
