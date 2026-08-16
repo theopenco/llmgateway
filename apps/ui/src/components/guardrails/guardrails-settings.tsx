@@ -849,9 +849,11 @@ function GuardrailsForm({
 								No custom rules configured.
 								{readOnly
 									? " Rules are managed at organization level."
-									: shown.enabled
-										? ' Click "Add Rule" to create one.'
-										: " Enable guardrails to add rules."}
+									: overridePending
+										? ""
+										: shown.enabled
+											? ' Click "Add Rule" to create one.'
+											: " Enable guardrails to add rules."}
 							</div>
 						)}
 
