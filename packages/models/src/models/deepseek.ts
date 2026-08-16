@@ -788,10 +788,12 @@ export const deepseekModels = [
 				maxOutput: 16384,
 				streaming: true,
 				reasoning: true,
-				// Every reasoning_effort tier is accepted without validation and none
-				// changes the output, so no tiers are declared. The deployment folds
-				// its reasoning into `content` and never returns `reasoning_content`.
-				reasoningOutput: "omit",
+				// The deployment accepts all seven tiers without validating them, but
+				// only `max` actually turns thinking on — it returns `reasoning` plus
+				// `reasoning_details` (streamed as deltas), while minimal through
+				// xhigh are indistinguishable from the no-thinking default. Only the
+				// two tiers with distinct behaviour are declared.
+				reasoningEfforts: ["none", "max"],
 				vision: false,
 				tools: true,
 				// tool_choice "required" is not enforced — the model keeps answering
