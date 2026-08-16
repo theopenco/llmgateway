@@ -1006,6 +1006,66 @@ describe("getCheapestFromAvailableProviders", () => {
 		).toBe(0.8);
 	});
 
+	it("should apply signed routing adjustments without changing reported price", async () => {
+		const routingModel = {
+			id: "routing-adjustment-test",
+			name: "Routing Adjustment Test",
+			family: "openai" as const,
+			providers: [
+				{
+					providerId: "openai" as const,
+					externalId: "routing-adjustment-test",
+					inputPrice: "2",
+					outputPrice: "2",
+					streaming: true as const,
+				},
+				{
+					providerId: "anthropic" as const,
+					externalId: "routing-adjustment-test",
+					inputPrice: "1",
+					outputPrice: "1",
+					streaming: true as const,
+				},
+			],
+		};
+		const equalPriorityConfig = resolveRoutingConfig(
+			{ providerPriorities: { openai: 1, anthropic: 1 } },
+			buildProviderPriorityDefaults(),
+		);
+
+		const preferred = await getCheapestFromAvailableProviders(
+			routingModel.providers,
+			routingModel,
+			{
+				routingConfig: equalPriorityConfig,
+				providerRoutingScoreMultiplierResolver: (provider) =>
+					provider.providerId === "openai" ? "-0.6" : "0",
+			},
+		);
+		expect(preferred?.provider.providerId).toBe("openai");
+		expect(
+			preferred?.metadata.providerScores.find(
+				(score) => score.providerId === "openai",
+			)?.price,
+		).toBe(2);
+
+		const penalized = await getCheapestFromAvailableProviders(
+			routingModel.providers,
+			routingModel,
+			{
+				routingConfig: equalPriorityConfig,
+				providerRoutingScoreMultiplierResolver: (provider) =>
+					provider.providerId === "anthropic" ? "1.5" : "0",
+			},
+		);
+		expect(penalized?.provider.providerId).toBe("openai");
+		expect(
+			penalized?.metadata.providerScores.find(
+				(score) => score.providerId === "anthropic",
+			)?.price,
+		).toBe(1);
+	});
+
 	it("should disable random exploration for vitest processes", async () => {
 		const videoModel = models.find(
 			(model) => model.id === "veo-3.1-generate-preview",

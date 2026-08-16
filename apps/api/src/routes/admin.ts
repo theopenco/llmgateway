@@ -51,6 +51,7 @@ import {
 	type AnyColumn,
 	asc,
 	avgEffectiveTtftSql,
+	cdb,
 	db,
 	desc,
 	effectiveTtftTotals,
@@ -242,16 +243,18 @@ function tokenBreakdownSums(table: {
 			sql<number>`COALESCE(SUM(CAST(${table.totalOutputTokens} AS NUMERIC)), 0)`.as(
 				"output_tokens",
 			),
-		inputCost: sql<number>`COALESCE(SUM(${table.totalInputCost}), 0)`.as(
-			"input_cost",
-		),
+		inputCost:
+			sql<number>`COALESCE(SUM(cast(${table.totalInputCost} as double precision)), 0)`.as(
+				"input_cost",
+			),
 		cachedInputCost:
-			sql<number>`COALESCE(SUM(${table.totalCachedInputCost}), 0)`.as(
+			sql<number>`COALESCE(SUM(cast(${table.totalCachedInputCost} as double precision)), 0)`.as(
 				"cached_input_cost",
 			),
-		outputCost: sql<number>`COALESCE(SUM(${table.totalOutputCost}), 0)`.as(
-			"output_cost",
-		),
+		outputCost:
+			sql<number>`COALESCE(SUM(cast(${table.totalOutputCost} as double precision)), 0)`.as(
+				"output_cost",
+			),
 	};
 }
 
@@ -294,15 +297,16 @@ function tokenBreakdownSubTotals(
 			sql<number>`COALESCE(SUM(COALESCE(${sub.outputTokens}, 0)), 0)`.as(
 				"output_tokens",
 			),
-		inputCost: sql<number>`COALESCE(SUM(COALESCE(${sub.inputCost}, 0)), 0)`.as(
-			"input_cost",
-		),
+		inputCost:
+			sql<number>`COALESCE(SUM(COALESCE(cast(${sub.inputCost} as double precision), 0)), 0)`.as(
+				"input_cost",
+			),
 		cachedInputCost:
-			sql<number>`COALESCE(SUM(COALESCE(${sub.cachedInputCost}, 0)), 0)`.as(
+			sql<number>`COALESCE(SUM(COALESCE(cast(${sub.cachedInputCost} as double precision), 0)), 0)`.as(
 				"cached_input_cost",
 			),
 		outputCost:
-			sql<number>`COALESCE(SUM(COALESCE(${sub.outputCost}, 0)), 0)`.as(
+			sql<number>`COALESCE(SUM(COALESCE(cast(${sub.outputCost} as double precision), 0)), 0)`.as(
 				"output_cost",
 			),
 	};
@@ -2864,31 +2868,32 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 					sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.totalTokens} AS INTEGER)), 0)`.as(
 						"totalTokens",
 					),
-				totalCost: sql<number>`COALESCE(SUM(${projectHourlyStats.cost}), 0)`.as(
-					"totalCost",
-				),
+				totalCost:
+					sql<number>`COALESCE(SUM(cast(${projectHourlyStats.cost} as double precision)), 0)`.as(
+						"totalCost",
+					),
 				inputCost:
-					sql<number>`COALESCE(SUM(${projectHourlyStats.inputCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${projectHourlyStats.inputCost} as double precision)), 0)`.as(
 						"inputCost",
 					),
 				outputCost:
-					sql<number>`COALESCE(SUM(${projectHourlyStats.outputCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${projectHourlyStats.outputCost} as double precision)), 0)`.as(
 						"outputCost",
 					),
 				discountSavings:
-					sql<number>`COALESCE(SUM(${projectHourlyStats.discountSavings}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${projectHourlyStats.discountSavings} as double precision)), 0)`.as(
 						"discountSavings",
 					),
 				cachedInputCost:
-					sql<number>`COALESCE(SUM(${projectHourlyStats.cachedInputCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${projectHourlyStats.cachedInputCost} as double precision)), 0)`.as(
 						"cachedInputCost",
 					),
 				cacheWriteInputCost:
-					sql<number>`COALESCE(SUM(${projectHourlyStats.cacheWriteInputCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${projectHourlyStats.cacheWriteInputCost} as double precision)), 0)`.as(
 						"cacheWriteInputCost",
 					),
 				dataStorageCost:
-					sql<number>`COALESCE(SUM(${projectHourlyStats.dataStorageCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${projectHourlyStats.dataStorageCost} as double precision)), 0)`.as(
 						"dataStorageCost",
 					),
 			})
@@ -2927,7 +2932,7 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 				usedModel: projectHourlyModelStats.usedModel,
 				usedProvider: projectHourlyModelStats.usedProvider,
 				totalCost:
-					sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${projectHourlyModelStats.cost} as double precision)), 0)`.as(
 						"totalCost",
 					),
 			})
@@ -3499,31 +3504,32 @@ admin.openapi(getProjectMetrics, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.totalTokens} AS INTEGER)), 0)`.as(
 					"totalTokens",
 				),
-			totalCost: sql<number>`COALESCE(SUM(${projectHourlyStats.cost}), 0)`.as(
-				"totalCost",
-			),
+			totalCost:
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.cost} as double precision)), 0)`.as(
+					"totalCost",
+				),
 			inputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.inputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.inputCost} as double precision)), 0)`.as(
 					"inputCost",
 				),
 			outputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.outputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.outputCost} as double precision)), 0)`.as(
 					"outputCost",
 				),
 			discountSavings:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.discountSavings}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.discountSavings} as double precision)), 0)`.as(
 					"discountSavings",
 				),
 			cachedInputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.cachedInputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.cachedInputCost} as double precision)), 0)`.as(
 					"cachedInputCost",
 				),
 			cacheWriteInputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.cacheWriteInputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.cacheWriteInputCost} as double precision)), 0)`.as(
 					"cacheWriteInputCost",
 				),
 			dataStorageCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.dataStorageCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.dataStorageCost} as double precision)), 0)`.as(
 					"dataStorageCost",
 				),
 		})
@@ -3562,7 +3568,7 @@ admin.openapi(getProjectMetrics, async (c) => {
 			usedModel: projectHourlyModelStats.usedModel,
 			usedProvider: projectHourlyModelStats.usedProvider,
 			totalCost:
-				sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyModelStats.cost} as double precision)), 0)`.as(
 					"totalCost",
 				),
 		})
@@ -4055,6 +4061,95 @@ const deleteGlobalDiscount = createRoute({
 	},
 });
 
+const routingScoreMultiplierSchema = z.object({
+	id: z.string(),
+	provider: z.string().nullable(),
+	model: z.string().nullable(),
+	scoreMultiplier: z.string(),
+	reason: z.string().nullable(),
+	expiresAt: z.string().nullable(),
+	createdAt: z.string(),
+	updatedAt: z.string(),
+});
+
+const routingScoreMultipliersListSchema = z.object({
+	multipliers: z.array(routingScoreMultiplierSchema),
+	total: z.number(),
+});
+
+const createRoutingScoreMultiplierBodySchema = z.object({
+	provider: z.string().nullable().optional(),
+	model: z.string().nullable().optional(),
+	scoreMultiplier: z.coerce
+		.number()
+		.min(-100, "Score multiplier cannot reduce routing price below zero"),
+	reason: z.string().nullable().optional(),
+	expiresAt: z.string().nullable().optional(),
+});
+
+const getRoutingScoreMultipliers = createRoute({
+	method: "get",
+	path: "/routing-score-multipliers",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: routingScoreMultipliersListSchema.openapi({}),
+				},
+			},
+			description: "List of internal routing score multipliers.",
+		},
+	},
+});
+
+const createRoutingScoreMultiplier = createRoute({
+	method: "post",
+	path: "/routing-score-multipliers",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: createRoutingScoreMultiplierBodySchema.openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: routingScoreMultiplierSchema.openapi({}),
+				},
+			},
+			description: "Created routing score multiplier.",
+		},
+		400: { description: "Invalid routing score multiplier." },
+		409: {
+			description: "Routing score multiplier already exists for this target.",
+		},
+	},
+});
+
+const deleteRoutingScoreMultiplier = createRoute({
+	method: "delete",
+	path: "/routing-score-multipliers/{multiplierId}",
+	request: {
+		params: z.object({ multiplierId: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }).openapi({}),
+				},
+			},
+			description: "Routing score multiplier deleted.",
+		},
+		404: { description: "Routing score multiplier not found." },
+	},
+});
+
 // --- All Organization Discounts (across all organizations) ---
 
 const orgDiscountSchema = discountSchema.extend({
@@ -4230,6 +4325,24 @@ function formatDiscount(d: {
 	};
 }
 
+function formatRoutingScoreMultiplier(multiplier: {
+	id: string;
+	provider: string | null;
+	model: string | null;
+	scoreMultiplier: string;
+	reason: string | null;
+	expiresAt: Date | null;
+	createdAt: Date;
+	updatedAt: Date;
+}) {
+	return {
+		...multiplier,
+		expiresAt: multiplier.expiresAt?.toISOString() ?? null,
+		createdAt: multiplier.createdAt.toISOString(),
+		updatedAt: multiplier.updatedAt.toISOString(),
+	};
+}
+
 // Helper to validate provider/model
 function validateProviderAndModel(
 	provider: string | null | undefined,
@@ -4348,6 +4461,78 @@ admin.openapi(deleteGlobalDiscount, async (c) => {
 
 	if (!deleted) {
 		throw new HTTPException(404, { message: "Discount not found" });
+	}
+
+	return c.json({ success: true });
+});
+
+admin.openapi(getRoutingScoreMultipliers, async (c) => {
+	const multipliers = await db
+		.select()
+		.from(tables.routingScoreMultiplier)
+		.orderBy(desc(tables.routingScoreMultiplier.createdAt));
+
+	return c.json({
+		multipliers: multipliers.map(formatRoutingScoreMultiplier),
+		total: multipliers.length,
+	});
+});
+
+admin.openapi(createRoutingScoreMultiplier, async (c) => {
+	const body = c.req.valid("json");
+	const provider = body.provider ?? null;
+	const model = body.model ?? null;
+	const validation = validateProviderAndModel(provider, model);
+	if (validation.error) {
+		throw new HTTPException(400, { message: validation.error });
+	}
+
+	const existing = await db
+		.select({ id: tables.routingScoreMultiplier.id })
+		.from(tables.routingScoreMultiplier)
+		.where(
+			and(
+				provider
+					? eq(tables.routingScoreMultiplier.provider, provider)
+					: isNull(tables.routingScoreMultiplier.provider),
+				model
+					? eq(tables.routingScoreMultiplier.model, model)
+					: isNull(tables.routingScoreMultiplier.model),
+			),
+		)
+		.limit(1);
+	if (existing.length > 0) {
+		throw new HTTPException(409, {
+			message:
+				"A routing score multiplier already exists for this provider/model combination",
+		});
+	}
+
+	const [created] = await cdb
+		.insert(tables.routingScoreMultiplier)
+		.values({
+			provider,
+			model,
+			scoreMultiplier: (body.scoreMultiplier / 100).toFixed(4),
+			reason: body.reason ?? null,
+			expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
+		})
+		.returning();
+
+	return c.json(formatRoutingScoreMultiplier(created), 201);
+});
+
+admin.openapi(deleteRoutingScoreMultiplier, async (c) => {
+	const { multiplierId } = c.req.valid("param");
+	const [deleted] = await cdb
+		.delete(tables.routingScoreMultiplier)
+		.where(eq(tables.routingScoreMultiplier.id, multiplierId))
+		.returning({ id: tables.routingScoreMultiplier.id });
+
+	if (!deleted) {
+		throw new HTTPException(404, {
+			message: "Routing score multiplier not found",
+		});
 	}
 
 	return c.json({ success: true });
@@ -5096,9 +5281,10 @@ admin.openapi(getProviderStats, async (c) => {
 					sql<number>`COALESCE(SUM(CAST(${mph.totalTokens} AS NUMERIC)), 0)`.as(
 						"totalTokens",
 					),
-				totalCost: sql<number>`COALESCE(SUM(${mph.totalCost}), 0)`.as(
-					"totalCost",
-				),
+				totalCost:
+					sql<number>`COALESCE(SUM(cast(${mph.totalCost} as double precision)), 0)`.as(
+						"totalCost",
+					),
 				// Only streamed requests record a time-to-first-token, so the
 				// average divides by the sample count, not the request count.
 				// Reasoning-token samples take precedence so thinking mappings
@@ -5140,7 +5326,7 @@ admin.openapi(getProviderStats, async (c) => {
 							"totalTokens",
 						),
 					totalCost:
-						sql<number>`COALESCE(SUM(COALESCE(${providerStatsSub.totalCost}, 0)), 0)`.as(
+						sql<number>`COALESCE(SUM(COALESCE(cast(${providerStatsSub.totalCost} as double precision), 0)), 0)`.as(
 							"totalCost",
 						),
 					...tokenBreakdownSubTotals(providerStatsSub),
@@ -5435,9 +5621,10 @@ admin.openapi(getModelStats, async (c) => {
 					sql<number>`COALESCE(SUM(CAST(${mh.totalTokens} AS NUMERIC)), 0)`.as(
 						"totalTokens",
 					),
-				totalCost: sql<number>`COALESCE(SUM(${mh.totalCost}), 0)`.as(
-					"totalCost",
-				),
+				totalCost:
+					sql<number>`COALESCE(SUM(cast(${mh.totalCost} as double precision)), 0)`.as(
+						"totalCost",
+					),
 				...tokenBreakdownSums(mh),
 			})
 			.from(mh)
@@ -5507,7 +5694,7 @@ admin.openapi(getModelStats, async (c) => {
 						"totalTokens",
 					),
 				totalCost:
-					sql<number>`COALESCE(SUM(COALESCE(${modelAggSub.totalCost}, 0)), 0)`.as(
+					sql<number>`COALESCE(SUM(COALESCE(cast(${modelAggSub.totalCost} as double precision), 0)), 0)`.as(
 						"totalCost",
 					),
 				...tokenBreakdownSubTotals(modelAggSub),
@@ -5937,16 +6124,18 @@ admin.openapi(getModelDetail, async (c) => {
 					sql<number>`SUM(CAST(${projectHourlyModelStats.outputTokens} AS NUMERIC))`.as(
 						"output_tokens",
 					),
-				inputCost: sql<number>`SUM(${projectHourlyModelStats.inputCost})`.as(
-					"input_cost",
-				),
+				inputCost:
+					sql<number>`SUM(cast(${projectHourlyModelStats.inputCost} as double precision))`.as(
+						"input_cost",
+					),
 				cachedInputCost:
-					sql<number>`SUM(${projectHourlyModelStats.cachedInputCost})`.as(
+					sql<number>`SUM(cast(${projectHourlyModelStats.cachedInputCost} as double precision))`.as(
 						"cached_input_cost",
 					),
-				outputCost: sql<number>`SUM(${projectHourlyModelStats.outputCost})`.as(
-					"output_cost",
-				),
+				outputCost:
+					sql<number>`SUM(cast(${projectHourlyModelStats.outputCost} as double precision))`.as(
+						"output_cost",
+					),
 			})
 			.from(projectHourlyModelStats)
 			.where(
@@ -7633,7 +7822,7 @@ admin.openapi(getProviderHistory, async (c) => {
 						"total_tokens",
 					),
 				totalCost:
-					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalCost})`.as(
+					sql<number>`SUM(cast(${modelProviderMappingHistoryHourly.totalCost} as double precision))`.as(
 						"total_cost",
 					),
 				...tokenBreakdownSums(modelProviderMappingHistoryHourly),
@@ -7721,7 +7910,7 @@ admin.openapi(getProviderHistory, async (c) => {
 		db
 			.select({
 				hourTimestamp: projectHourlyModelStats.hourTimestamp,
-				cost: sql<number>`SUM(${projectHourlyModelStats.cost})`,
+				cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`,
 			})
 			.from(projectHourlyModelStats)
 			.where(
@@ -7791,7 +7980,9 @@ admin.openapi(getModelHistory, async (c) => {
 					sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`.as(
 						"total_tokens",
 					),
-				cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
+				cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`.as(
+					"cost",
+				),
 				inputTokens:
 					sql<number>`SUM(CAST(${projectHourlyModelStats.inputTokens} AS NUMERIC))`.as(
 						"input_tokens",
@@ -7804,16 +7995,18 @@ admin.openapi(getModelHistory, async (c) => {
 					sql<number>`SUM(CAST(${projectHourlyModelStats.outputTokens} AS NUMERIC))`.as(
 						"output_tokens",
 					),
-				inputCost: sql<number>`SUM(${projectHourlyModelStats.inputCost})`.as(
-					"input_cost",
-				),
+				inputCost:
+					sql<number>`SUM(cast(${projectHourlyModelStats.inputCost} as double precision))`.as(
+						"input_cost",
+					),
 				cachedInputCost:
-					sql<number>`SUM(${projectHourlyModelStats.cachedInputCost})`.as(
+					sql<number>`SUM(cast(${projectHourlyModelStats.cachedInputCost} as double precision))`.as(
 						"cached_input_cost",
 					),
-				outputCost: sql<number>`SUM(${projectHourlyModelStats.outputCost})`.as(
-					"output_cost",
-				),
+				outputCost:
+					sql<number>`SUM(cast(${projectHourlyModelStats.outputCost} as double precision))`.as(
+						"output_cost",
+					),
 			})
 			.from(projectHourlyModelStats)
 			.where(
@@ -7893,9 +8086,10 @@ admin.openapi(getModelHistory, async (c) => {
 				totalTokens: sql<number>`SUM(${modelHistoryHourly.totalTokens})`.as(
 					"total_tokens",
 				),
-				totalCost: sql<number>`SUM(${modelHistoryHourly.totalCost})`.as(
-					"total_cost",
-				),
+				totalCost:
+					sql<number>`SUM(cast(${modelHistoryHourly.totalCost} as double precision))`.as(
+						"total_cost",
+					),
 				...tokenBreakdownSums(modelHistoryHourly),
 			})
 			.from(modelHistoryHourly)
@@ -7954,7 +8148,10 @@ admin.openapi(getModelHistory, async (c) => {
 			totalTokens: sql<number>`SUM(${modelHistory.totalTokens})`.as(
 				"total_tokens",
 			),
-			totalCost: sql<number>`SUM(${modelHistory.totalCost})`.as("total_cost"),
+			totalCost:
+				sql<number>`SUM(cast(${modelHistory.totalCost} as double precision))`.as(
+					"total_cost",
+				),
 			...tokenBreakdownSums(modelHistory),
 		})
 		.from(modelHistory)
@@ -8045,7 +8242,9 @@ admin.openapi(getMappingHistory, async (c) => {
 					sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`.as(
 						"total_tokens",
 					),
-				cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
+				cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`.as(
+					"cost",
+				),
 				inputTokens:
 					sql<number>`SUM(CAST(${projectHourlyModelStats.inputTokens} AS NUMERIC))`.as(
 						"input_tokens",
@@ -8058,16 +8257,18 @@ admin.openapi(getMappingHistory, async (c) => {
 					sql<number>`SUM(CAST(${projectHourlyModelStats.outputTokens} AS NUMERIC))`.as(
 						"output_tokens",
 					),
-				inputCost: sql<number>`SUM(${projectHourlyModelStats.inputCost})`.as(
-					"input_cost",
-				),
+				inputCost:
+					sql<number>`SUM(cast(${projectHourlyModelStats.inputCost} as double precision))`.as(
+						"input_cost",
+					),
 				cachedInputCost:
-					sql<number>`SUM(${projectHourlyModelStats.cachedInputCost})`.as(
+					sql<number>`SUM(cast(${projectHourlyModelStats.cachedInputCost} as double precision))`.as(
 						"cached_input_cost",
 					),
-				outputCost: sql<number>`SUM(${projectHourlyModelStats.outputCost})`.as(
-					"output_cost",
-				),
+				outputCost:
+					sql<number>`SUM(cast(${projectHourlyModelStats.outputCost} as double precision))`.as(
+						"output_cost",
+					),
 			})
 			.from(projectHourlyModelStats)
 			.where(
@@ -8171,7 +8372,7 @@ admin.openapi(getMappingHistory, async (c) => {
 						"total_tokens",
 					),
 				totalCost:
-					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalCost})`.as(
+					sql<number>`SUM(cast(${modelProviderMappingHistoryHourly.totalCost} as double precision))`.as(
 						"total_cost",
 					),
 				...tokenBreakdownSums(modelProviderMappingHistoryHourly),
@@ -8242,9 +8443,10 @@ admin.openapi(getMappingHistory, async (c) => {
 				sql<number>`SUM(${modelProviderMappingHistory.totalTokens})`.as(
 					"total_tokens",
 				),
-			totalCost: sql<number>`SUM(${modelProviderMappingHistory.totalCost})`.as(
-				"total_cost",
-			),
+			totalCost:
+				sql<number>`SUM(cast(${modelProviderMappingHistory.totalCost} as double precision))`.as(
+					"total_cost",
+				),
 			...tokenBreakdownSums(modelProviderMappingHistory),
 		})
 		.from(modelProviderMappingHistory)
@@ -8398,9 +8600,10 @@ admin.openapi(getProviderDetail, async (c) => {
 					sql<number>`COALESCE(SUM(${mph.timeToFirstReasoningTokenCount}), 0)`.as(
 						"ttfrt_count",
 					),
-				totalCost: sql<number>`COALESCE(SUM(${mph.totalCost}), 0)`.as(
-					"total_cost",
-				),
+				totalCost:
+					sql<number>`COALESCE(SUM(cast(${mph.totalCost} as double precision)), 0)`.as(
+						"total_cost",
+					),
 				...tokenBreakdownSums(mph),
 			})
 			.from(mph)
@@ -8704,9 +8907,10 @@ admin.openapi(getMappingDetail, async (c) => {
 			// samples take precedence so thinking mappings aren't measured on
 			// their (much later) first content token.
 			avgTtft: avgEffectiveTtftSql(mph).as("avg_ttft"),
-			totalCost: sql<number>`COALESCE(SUM(${mph.totalCost}), 0)`.as(
-				"total_cost",
-			),
+			totalCost:
+				sql<number>`COALESCE(SUM(cast(${mph.totalCost} as double precision)), 0)`.as(
+					"total_cost",
+				),
 			...tokenBreakdownSums(mph),
 		})
 		.from(mph)
@@ -8830,7 +9034,9 @@ admin.openapi(getGlobalCostByModel, async (c) => {
 	const rows = await db
 		.select({
 			usedModel: projectHourlyModelStats.usedModel,
-			cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
+			cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`.as(
+				"cost",
+			),
 			requestCount:
 				sql<number>`SUM(${projectHourlyModelStats.requestCount})`.as(
 					"request_count",
@@ -8851,7 +9057,9 @@ admin.openapi(getGlobalCostByModel, async (c) => {
 				: gte(projectHourlyModelStats.hourTimestamp, startDate),
 		)
 		.groupBy(projectHourlyModelStats.usedModel)
-		.orderBy(desc(sql`SUM(${projectHourlyModelStats.cost})`))
+		.orderBy(
+			desc(sql`SUM(cast(${projectHourlyModelStats.cost} as double precision))`),
+		)
 		.limit(20);
 
 	const totalCost = rows.reduce((sum, r) => sum + Number(r.cost), 0);
@@ -8947,7 +9155,9 @@ admin.openapi(getOrgCostByModel, async (c) => {
 	const rows = await db
 		.select({
 			usedModel: projectHourlyModelStats.usedModel,
-			cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
+			cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`.as(
+				"cost",
+			),
 			requestCount:
 				sql<number>`SUM(${projectHourlyModelStats.requestCount})`.as(
 					"request_count",
@@ -8966,7 +9176,9 @@ admin.openapi(getOrgCostByModel, async (c) => {
 			),
 		)
 		.groupBy(projectHourlyModelStats.usedModel)
-		.orderBy(desc(sql`SUM(${projectHourlyModelStats.cost})`))
+		.orderBy(
+			desc(sql`SUM(cast(${projectHourlyModelStats.cost} as double precision))`),
+		)
 		.limit(20);
 
 	const totalCost = rows.reduce((sum, r) => sum + Number(r.cost), 0);
@@ -9245,7 +9457,9 @@ async function buildCostByModelTimeseries({
 	const modelTotals = await db
 		.select({
 			usedModel: projectHourlyModelStats.usedModel,
-			cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
+			cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`.as(
+				"cost",
+			),
 		})
 		.from(projectHourlyModelStats)
 		.where(baseFilter)
@@ -9285,7 +9499,9 @@ async function buildCostByModelTimeseries({
 		.select({
 			bucket: bucketExpr.as("bucket"),
 			usedModel: projectHourlyModelStats.usedModel,
-			cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
+			cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`.as(
+				"cost",
+			),
 			requestCount:
 				sql<number>`SUM(${projectHourlyModelStats.requestCount})`.as(
 					"request_count",
@@ -9340,7 +9556,9 @@ async function buildCostBySourceTimeseries({
 	const sourceTotals = await db
 		.select({
 			source: projectHourlySourceStats.source,
-			cost: sql<number>`SUM(${projectHourlySourceStats.cost})`.as("cost"),
+			cost: sql<number>`SUM(cast(${projectHourlySourceStats.cost} as double precision))`.as(
+				"cost",
+			),
 		})
 		.from(projectHourlySourceStats)
 		.where(baseFilter)
@@ -9367,7 +9585,9 @@ async function buildCostBySourceTimeseries({
 		.select({
 			bucket: bucketExpr.as("bucket"),
 			source: projectHourlySourceStats.source,
-			cost: sql<number>`SUM(${projectHourlySourceStats.cost})`.as("cost"),
+			cost: sql<number>`SUM(cast(${projectHourlySourceStats.cost} as double precision))`.as(
+				"cost",
+			),
 			requestCount:
 				sql<number>`SUM(${projectHourlySourceStats.requestCount})`.as(
 					"request_count",
@@ -9584,7 +9804,9 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 			"cached_count",
 		);
 	const costExpr =
-		sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as("cost");
+		sql<number>`COALESCE(SUM(cast(${projectHourlyModelStats.cost} as double precision)), 0)`.as(
+			"cost",
+		);
 	const totalTokensExpr =
 		sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
 			"total_tokens",
@@ -9630,15 +9852,15 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 					"output_tokens",
 				),
 			inputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyModelStats.inputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyModelStats.inputCost} as double precision)), 0)`.as(
 					"input_cost",
 				),
 			cachedInputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyModelStats.cachedInputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyModelStats.cachedInputCost} as double precision)), 0)`.as(
 					"cached_input_cost",
 				),
 			outputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyModelStats.outputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyModelStats.outputCost} as double precision)), 0)`.as(
 					"output_cost",
 				),
 		})
@@ -9869,7 +10091,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 						sql<number>`COALESCE(SUM(${mappingHistory.table.cachedCount}), 0)`.as(
 							"cachedCount",
 						),
-					cost: sql<number>`COALESCE(SUM(${mappingHistory.table.totalCost}), 0)`.as(
+					cost: sql<number>`COALESCE(SUM(cast(${mappingHistory.table.totalCost} as double precision)), 0)`.as(
 						"cost",
 					),
 					...tokenBreakdownSums(mappingHistory.table),
@@ -9918,7 +10140,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 							"totalTokens",
 						),
 					totalCost:
-						sql<number>`COALESCE(SUM(${mappingHistory.table.totalCost}), 0)`.as(
+						sql<number>`COALESCE(SUM(cast(${mappingHistory.table.totalCost} as double precision)), 0)`.as(
 							"totalCost",
 						),
 					...tokenBreakdownSums(mappingHistory.table),
@@ -14124,7 +14346,7 @@ admin.openapi(getDevpassUsage, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
 					"total_tokens",
 				),
-			cost: sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
+			cost: sql<number>`COALESCE(SUM(cast(${projectHourlyModelStats.cost} as double precision)), 0)`.as(
 				"cost",
 			),
 		})
@@ -14139,7 +14361,11 @@ admin.openapi(getDevpassUsage, async (c) => {
 		)
 		.where(projectModelWhere)
 		.groupBy(projectHourlyModelStats.usedModel)
-		.orderBy(desc(sql`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`))
+		.orderBy(
+			desc(
+				sql`COALESCE(SUM(cast(${projectHourlyModelStats.cost} as double precision)), 0)`,
+			),
+		)
 		.limit(limit);
 
 	const providerRows = await db
@@ -14153,7 +14379,7 @@ admin.openapi(getDevpassUsage, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
 					"total_tokens",
 				),
-			cost: sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
+			cost: sql<number>`COALESCE(SUM(cast(${projectHourlyModelStats.cost} as double precision)), 0)`.as(
 				"cost",
 			),
 		})
@@ -14168,7 +14394,11 @@ admin.openapi(getDevpassUsage, async (c) => {
 		)
 		.where(projectModelWhere)
 		.groupBy(projectHourlyModelStats.usedProvider)
-		.orderBy(desc(sql`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`))
+		.orderBy(
+			desc(
+				sql`COALESCE(SUM(cast(${projectHourlyModelStats.cost} as double precision)), 0)`,
+			),
+		)
 		.limit(limit);
 
 	// Sources: use the per-project hourly source aggregator so the breakdown
@@ -14191,7 +14421,7 @@ admin.openapi(getDevpassUsage, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${projectHourlySourceStats.totalTokens} AS NUMERIC)), 0)`.as(
 					"total_tokens",
 				),
-			cost: sql<number>`COALESCE(SUM(${projectHourlySourceStats.cost}), 0)`.as(
+			cost: sql<number>`COALESCE(SUM(cast(${projectHourlySourceStats.cost} as double precision)), 0)`.as(
 				"cost",
 			),
 		})
@@ -14206,7 +14436,11 @@ admin.openapi(getDevpassUsage, async (c) => {
 		)
 		.where(projectSourceWhere)
 		.groupBy(projectHourlySourceStats.source)
-		.orderBy(desc(sql`COALESCE(SUM(${projectHourlySourceStats.cost}), 0)`))
+		.orderBy(
+			desc(
+				sql`COALESCE(SUM(cast(${projectHourlySourceStats.cost} as double precision)), 0)`,
+			),
+		)
 		.limit(limit);
 
 	const mapRow = (r: {
@@ -15981,7 +16215,7 @@ admin.openapi(getChatPlansUsage, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
 					"total_tokens",
 				),
-			cost: sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
+			cost: sql<number>`COALESCE(SUM(cast(${projectHourlyModelStats.cost} as double precision)), 0)`.as(
 				"cost",
 			),
 		})
@@ -15996,7 +16230,11 @@ admin.openapi(getChatPlansUsage, async (c) => {
 		)
 		.where(projectModelWhere)
 		.groupBy(projectHourlyModelStats.usedModel)
-		.orderBy(desc(sql`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`))
+		.orderBy(
+			desc(
+				sql`COALESCE(SUM(cast(${projectHourlyModelStats.cost} as double precision)), 0)`,
+			),
+		)
 		.limit(limit);
 
 	const providerRows = await db
@@ -16010,7 +16248,7 @@ admin.openapi(getChatPlansUsage, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
 					"total_tokens",
 				),
-			cost: sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
+			cost: sql<number>`COALESCE(SUM(cast(${projectHourlyModelStats.cost} as double precision)), 0)`.as(
 				"cost",
 			),
 		})
@@ -16025,7 +16263,11 @@ admin.openapi(getChatPlansUsage, async (c) => {
 		)
 		.where(projectModelWhere)
 		.groupBy(projectHourlyModelStats.usedProvider)
-		.orderBy(desc(sql`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`))
+		.orderBy(
+			desc(
+				sql`COALESCE(SUM(cast(${projectHourlyModelStats.cost} as double precision)), 0)`,
+			),
+		)
 		.limit(limit);
 
 	const projectSourceWhere = and(
@@ -16045,7 +16287,7 @@ admin.openapi(getChatPlansUsage, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${projectHourlySourceStats.totalTokens} AS NUMERIC)), 0)`.as(
 					"total_tokens",
 				),
-			cost: sql<number>`COALESCE(SUM(${projectHourlySourceStats.cost}), 0)`.as(
+			cost: sql<number>`COALESCE(SUM(cast(${projectHourlySourceStats.cost} as double precision)), 0)`.as(
 				"cost",
 			),
 		})
@@ -16060,7 +16302,11 @@ admin.openapi(getChatPlansUsage, async (c) => {
 		)
 		.where(projectSourceWhere)
 		.groupBy(projectHourlySourceStats.source)
-		.orderBy(desc(sql`COALESCE(SUM(${projectHourlySourceStats.cost}), 0)`))
+		.orderBy(
+			desc(
+				sql`COALESCE(SUM(cast(${projectHourlySourceStats.cost} as double precision)), 0)`,
+			),
+		)
 		.limit(limit);
 
 	const mapRow = (r: {
