@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "b1125f02-6e48-4412-9f43-32470cd23c77",
-  "prevId": "555277a3-5022-4bee-8be6-545f0ed166b4",
+  "id": "2579aceb-26ba-41b7-bf79-562636a965e4",
+  "prevId": "107f073f-9d10-4d3e-a26d-3f456ce3fe5f",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -438,6 +438,12 @@
     },
     {
       "isRlsEnabled": false,
+      "name": "routing_score_multiplier",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
       "name": "sandbox_escape_run",
       "entityType": "tables",
       "schema": "public"
@@ -475,12 +481,6 @@
     {
       "isRlsEnabled": false,
       "name": "sso_default_project",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "sso_project_mapping",
       "entityType": "tables",
       "schema": "public"
     },
@@ -12768,6 +12768,22 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
+      "default": {
+        "value": "'org_' || replace(gen_random_uuid()::text, '-', '')",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "safety_identifier",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
@@ -12982,6 +12998,19 @@
       "generated": null,
       "identity": null,
       "name": "api_key_limit",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "project_limit",
       "entityType": "columns",
       "schema": "public",
       "table": "organization"
@@ -19830,6 +19859,116 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
+      "table": "routing_score_multiplier"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_score_multiplier"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_score_multiplier"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "provider",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_score_multiplier"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "model",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_score_multiplier"
+    },
+    {
+      "type": "numeric",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "score_multiplier",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_score_multiplier"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "reason",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_score_multiplier"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "expires_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_score_multiplier"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
       "table": "sandbox_escape_run"
     },
     {
@@ -20648,90 +20787,6 @@
       "entityType": "columns",
       "schema": "public",
       "table": "sso_default_project"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "sso_project_mapping"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "sso_project_mapping"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "sso_project_mapping"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "organization_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "sso_project_mapping"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "group_name",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "sso_project_mapping"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "project_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "sso_project_mapping"
     },
     {
       "type": "text",
@@ -21853,22 +21908,6 @@
       "generated": null,
       "identity": null,
       "name": "project_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "user_project"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'manual'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "source",
       "entityType": "columns",
       "schema": "public",
       "table": "user_project"
@@ -26152,6 +26191,27 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "safety_identifier",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "organization_safety_identifier_uidx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "organization_id",
           "isExpression": false,
           "asc": true,
@@ -27384,6 +27444,48 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "provider",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "routing_score_multiplier_provider_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "routing_score_multiplier"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "model",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "routing_score_multiplier_model_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "routing_score_multiplier"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "level_id",
           "isExpression": false,
           "asc": true,
@@ -27694,62 +27796,6 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "sso_default_project"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "organization_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "group_name",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "project_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": true,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "sso_project_mapping_org_group_project_unique",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "sso_project_mapping"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "organization_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "sso_project_mapping_organization_id_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "sso_project_mapping"
     },
     {
       "nameExplicit": true,
@@ -30063,40 +30109,6 @@
     {
       "nameExplicit": false,
       "columns": [
-        "organization_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "organization",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "sso_project_mapping_organization_id_organization_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "sso_project_mapping"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "project_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "project",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "sso_project_mapping_project_id_project_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "sso_project_mapping"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
         "user_id"
       ],
       "schemaTo": "public",
@@ -31278,6 +31290,16 @@
         "id"
       ],
       "nameExplicit": false,
+      "name": "routing_score_multiplier_pkey",
+      "schema": "public",
+      "table": "routing_score_multiplier",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
       "name": "sandbox_escape_run_pkey",
       "schema": "public",
       "table": "sandbox_escape_run",
@@ -31341,16 +31363,6 @@
       "name": "sso_default_project_pkey",
       "schema": "public",
       "table": "sso_default_project",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "sso_project_mapping_pkey",
-      "schema": "public",
-      "table": "sso_project_mapping",
       "entityType": "pks"
     },
     {
@@ -31748,6 +31760,18 @@
       "entityType": "uniques",
       "schema": "public",
       "table": "routing_exclusion_hourly"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        "provider",
+        "model"
+      ],
+      "nullsNotDistinct": false,
+      "name": "routing_score_multiplier_provider_model_unique",
+      "entityType": "uniques",
+      "schema": "public",
+      "table": "routing_score_multiplier"
     },
     {
       "nameExplicit": false,
