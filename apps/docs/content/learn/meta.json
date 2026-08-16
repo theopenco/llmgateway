@@ -8,6 +8,7 @@
 		"api-keys",
 		"provider-keys",
 		"models",
+		"structured-outputs",
 		"preferences",
 		"guardrails",
 		"security-events",

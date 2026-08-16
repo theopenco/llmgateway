@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import { app } from "@/app.js";
 
@@ -479,6 +479,64 @@ describe("Models API", () => {
 		expect(deepseek.pricing.prompt).toBe("0.26e-6");
 		expect(deepseek.pricing.completion).toBe("0.38e-6");
 		expect(deepseek.pricing.input_cache_read).toBe("0.13e-6");
+	});
+
+	test("GET /v1/models reports JSON capabilities only from servable provider mappings", async () => {
+		// Freeze the clock: the handler captures `new Date()` during the
+		// request, so the test must evaluate servability at the same instant
+		// (otherwise a mapping whose deactivatedAt lies between the request
+		// and the assertion could flake).
+		const frozenNow = new Date("2026-08-11T00:00:00Z");
+		vi.useFakeTimers();
+		vi.setSystemTime(frozenNow);
+		try {
+			const res = await app.request("/v1/models");
+			expect(res.status).toBe(200);
+
+			const json = await res.json();
+			const isServable = (p: ProviderModelMapping) =>
+				!(p.deactivatedAt && frozenNow > p.deactivatedAt);
+			const definitionById = new Map(modelsList.map((m) => [m.id, m]));
+
+			// json_output / structured_outputs must reflect mappings that can
+			// actually serve requests: a deactivated mapping can no longer be
+			// routed to, so it must not advertise a JSON capability (mirrors the
+			// deactivation filter used for pricing and max_output). Deprecated
+			// mappings remain servable (isServable only filters deactivatedAt);
+			// no deprecated-only mapping with a JSON flag exists in the catalog
+			// today, so that branch is covered by this loop's semantics.
+			for (const model of json.data) {
+				const definition = definitionById.get(model.id);
+				expect(definition).toBeDefined();
+				const servable = (
+					definition!.providers as ProviderModelMapping[]
+				).filter(isServable);
+				expect(model.json_output, `json_output for ${model.id}`).toBe(
+					servable.some((p) => p.jsonOutput === true),
+				);
+				expect(
+					model.structured_outputs,
+					`structured_outputs for ${model.id}`,
+				).toBe(servable.some((p) => p.jsonOutputSchema === true));
+			}
+
+			// Focused branches: qwen3-235b-a22b-thinking-2507 has its only soft
+			// mapping (nebius) deactivated, so json_output must be false even
+			// though a jsonOutput mapping exists. minimax-m2.7 has a deactivated
+			// soft mapping (together-ai) alongside servable soft mappings, so
+			// json_output stays true and structured_outputs stays false.
+			const byId = (id: string) =>
+				json.data.find((m: { id: string }) => m.id === id);
+			const qwen = byId("qwen3-235b-a22b-thinking-2507");
+			expect(qwen).toBeDefined();
+			expect(qwen!.json_output).toBe(false);
+			const m27 = byId("minimax-m2.7");
+			expect(m27).toBeDefined();
+			expect(m27!.json_output).toBe(true);
+			expect(m27!.structured_outputs).toBe(false);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	test("GET /v1/models exposes cache pricing detail per provider mapping", async () => {
