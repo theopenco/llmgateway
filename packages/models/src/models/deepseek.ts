@@ -788,12 +788,15 @@ export const deepseekModels = [
 				maxOutput: 16384,
 				streaming: true,
 				reasoning: true,
-				// The deployment accepts all seven tiers without validating them, but
-				// only `max` actually turns thinking on — it returns `reasoning` plus
-				// `reasoning_details` (streamed as deltas), while minimal through
-				// xhigh are indistinguishable from the no-thinking default. Only the
-				// two tiers with distinct behaviour are declared.
-				reasoningEfforts: ["none", "max"],
+				// The effort enum is `low | medium | high | xhigh | max`; `none` and
+				// `minimal` are rejected outright, so neither may be declared — and
+				// `none` especially not, because publishing it makes the gateway
+				// forward it verbatim instead of normalizing it away. Thinking is off
+				// by default and only `max` turns it on, returning `reasoning` plus
+				// `reasoning_details`; low through xhigh are accepted but behave
+				// exactly like the default. The `thinking: {type}` switch the
+				// provider documents has no observable effect.
+				reasoningEfforts: ["max"],
 				vision: false,
 				tools: true,
 				// tool_choice "required" is not enforced — the model keeps answering
