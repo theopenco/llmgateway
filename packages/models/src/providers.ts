@@ -1889,7 +1889,7 @@ export const providers: ProviderDefinition[] = [
 		},
 		streaming: true,
 		cancellation: true,
-		color: "#00A3FF",
+		color: "#0052D9",
 		website: "https://www.tencentcloud.com/act/pro/tokenhub",
 		statusPageUrl: null,
 		announcement: null,
