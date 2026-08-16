@@ -36,6 +36,44 @@ const [providerA, providerB] = testModel.providers
 	.filter(isRoutableMapping)
 	.map((p) => p.providerId);
 
+// One model per side of "now": a retired mapping and a scheduled one. Mappings
+// are never removed from the catalogue, only dated, so the retired side always
+// exists; the scheduled side is whatever is still ahead today and is simply
+// omitted if nothing is. The test asserts the past/future rule as a property of
+// the response rather than pinning a fixture, so it cannot start failing on its
+// own once a scheduled date passes.
+function findModelsWithDeactivatedMappings(): string[] {
+	const now = new Date();
+	let retired: string | undefined;
+	let scheduled: string | undefined;
+	for (const model of models) {
+		for (const mapping of model.providers as ProviderModelMapping[]) {
+			if (!mapping.deactivatedAt) {
+				continue;
+			}
+			if (mapping.deactivatedAt <= now) {
+				retired ??= model.id;
+			} else {
+				scheduled ??= model.id;
+			}
+		}
+		if (retired && scheduled) {
+			break;
+		}
+	}
+	const modelIds = [
+		...new Set([retired, scheduled].filter(Boolean)),
+	] as string[];
+	if (modelIds.length === 0) {
+		throw new Error(
+			"No catalogue mapping carries a deactivatedAt; update this fixture.",
+		);
+	}
+	return modelIds;
+}
+
+const deactivationModelIds = findModelsWithDeactivatedMappings();
+
 function currentHourStart(): Date {
 	const hour = new Date();
 	hour.setUTCMinutes(0, 0, 0);
@@ -180,6 +218,38 @@ describe("admin routing analytics endpoint", () => {
 		);
 		expect(summaryA.requestCount).toBe(10);
 		expect(summaryA.uptime).toBe(80);
+	});
+
+	it("only excludes a mapping once its deactivation date has passed", async () => {
+		const now = new Date();
+		let dated = 0;
+		for (const modelId of deactivationModelIds) {
+			const res = await get(`?modelId=${modelId}&window=24h`, cookie);
+			expect(res.status).toBe(200);
+			const body = await res.json();
+
+			for (const mapping of body.mappings as {
+				providerId: string;
+				deactivatedAt: string | null;
+				routable: boolean;
+				excludedReasons: string[];
+			}[]) {
+				if (!mapping.deactivatedAt) {
+					expect(mapping.excludedReasons).not.toContain("deactivated");
+					continue;
+				}
+				dated++;
+				if (new Date(mapping.deactivatedAt) <= now) {
+					expect(mapping.excludedReasons).toContain("deactivated");
+					expect(mapping.routable).toBe(false);
+				} else {
+					// Scheduled, not deactivated: routing compares against the date, so
+					// the mapping still elects and must stay scoreable here.
+					expect(mapping.excludedReasons).not.toContain("deactivated");
+				}
+			}
+		}
+		expect(dated).toBeGreaterThan(0);
 	});
 
 	it("counts a mapping's regional traffic once", async () => {

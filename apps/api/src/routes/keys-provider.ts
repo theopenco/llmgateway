@@ -34,7 +34,11 @@ import {
 	tables,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { isStealthProvider, providers } from "@llmgateway/models";
+import {
+	isStealthProvider,
+	providers,
+	regionEndpointRequiresWorkspaceId,
+} from "@llmgateway/models";
 import {
 	CUSTOM_PROVIDER_NAME_MESSAGE,
 	CUSTOM_PROVIDER_NAME_REGEX,
@@ -62,7 +66,6 @@ export const complianceAttestationSchema = z.object({
 	iso27001: z.boolean().nullable().optional(),
 	gdpr: z.boolean().nullable().optional(),
 	apiTraining: z.boolean().nullable().optional(),
-	consumerTraining: z.boolean().nullable().optional(),
 	promptLogging: z.boolean().nullable().optional(),
 	retentionPeriod: z.string().max(64).nullable().optional(),
 	headquarters: z
@@ -111,8 +114,9 @@ export const providerKeySchema = z.object({
 			azure_ai_foundry_resource: z.string().optional(),
 			azure_ai_foundry_api_version: z.string().optional(),
 			alibaba_region: z
-				.enum(["singapore", "us-virginia", "cn-beijing"])
+				.enum(["singapore", "eu-frankfurt", "us-virginia", "cn-beijing"])
 				.optional(),
+			alibaba_workspace_id: z.string().optional(),
 			aws_mantle_region: z
 				.enum(["us-east-1", "us-east-2", "us-west-2"])
 				.optional(),
@@ -292,6 +296,36 @@ export function isValidProviderToken(value: string): boolean {
 	}
 }
 
+// The workspace id becomes a hostname label on the workspace-dedicated
+// endpoint, so it is restricted to what Model Studio issues rather than
+// accepted verbatim.
+const WORKSPACE_ID_REGEX = /^[a-zA-Z0-9-]{1,64}$/;
+const WORKSPACE_ID_MESSAGE =
+	"Workspace ID must be 1-64 characters of letters, digits, or hyphens";
+
+/**
+ * A workspace id is optional: a region whose endpoint is workspace-scoped
+ * still reaches a shared entry point without one. It is only mandatory for a
+ * region that has no such fallback, which is enforced here so a direct API
+ * client cannot store a key whose endpoint can never be built.
+ */
+function validateWorkspaceScopedRegion(
+	options: { alibaba_region?: string; alibaba_workspace_id?: string },
+	ctx: z.RefinementCtx,
+) {
+	const region = options.alibaba_region;
+	if (!region || !regionEndpointRequiresWorkspaceId("alibaba", region)) {
+		return;
+	}
+	if (!options.alibaba_workspace_id) {
+		ctx.addIssue({
+			code: z.ZodIssueCode.custom,
+			path: ["alibaba_workspace_id"],
+			message: `The ${region} region has no shared endpoint, so a workspace ID is required.`,
+		});
+	}
+}
+
 const createProviderKeySchema = z.object({
 	provider: z
 		.string()
@@ -334,7 +368,11 @@ const createProviderKeySchema = z.object({
 			azure_ai_foundry_resource: z.string().optional(),
 			azure_ai_foundry_api_version: z.string().optional(),
 			alibaba_region: z
-				.enum(["singapore", "us-virginia", "cn-beijing"])
+				.enum(["singapore", "eu-frankfurt", "us-virginia", "cn-beijing"])
+				.optional(),
+			alibaba_workspace_id: z
+				.string()
+				.regex(WORKSPACE_ID_REGEX, WORKSPACE_ID_MESSAGE)
 				.optional(),
 			aws_mantle_region: z
 				.enum(["us-east-1", "us-east-2", "us-west-2"])
@@ -342,6 +380,7 @@ const createProviderKeySchema = z.object({
 			google_vertex_project_id: z.string().optional(),
 			vertex_openai_project_id: z.string().optional(),
 		})
+		.superRefine(validateWorkspaceScopedRegion)
 		.optional(),
 	organizationId: z.string().min(1, "Organization ID is required"),
 	// Optional USD spend cap; the key auto-deactivates when its cumulative

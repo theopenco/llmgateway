@@ -72,6 +72,31 @@ export async function giftCreditsToOrganization(
 	return { success: true };
 }
 
+export async function addManualCreditsToOrganization(
+	orgId: string,
+	body: {
+		creditAmount: number;
+		paymentMethod: "wire" | "crypto" | "paypal" | "other";
+		externalReference?: string;
+		comment?: string;
+	},
+): Promise<{ success: boolean; error?: string }> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.POST(
+		"/admin/organizations/{orgId}/manual-credits",
+		{
+			params: { path: { orgId } },
+			body,
+		},
+	);
+
+	if (error || !data) {
+		return { success: false, error: "Failed to add credits" };
+	}
+
+	return { success: true };
+}
+
 export async function updateReferralBonus(
 	orgId: string,
 	body: { enabled: boolean; percent: number },
@@ -102,6 +127,7 @@ export async function manageOrganization(
 		plan: "free" | "pro" | "enterprise";
 		seats: number | null;
 		apiKeyLimit: number | null;
+		projectLimit: number | null;
 		planExpiresAt: string | null;
 		planStartedAt: string | null;
 		isTrialActive: boolean;

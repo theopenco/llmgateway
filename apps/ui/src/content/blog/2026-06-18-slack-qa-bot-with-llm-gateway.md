@@ -65,6 +65,8 @@ export default app;
 
 Notice the route is parameterized as `:platform`. That's deliberate — adding Microsoft Teams or Google Chat later means registering another adapter, not rewriting the server.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## The bot: four handlers cover every entry point
 
 The bot itself is a single `Chat` instance with a Slack adapter and a Redis-backed state store:
@@ -247,3 +249,5 @@ npx @llmgateway/cli init --template slack-qa-bot
 ```
 
 Grab an [LLM Gateway API key](https://llmgateway.io), point `AI_MODEL` at whatever you want to try first, and you'll have a question-answering bot in your workspace in a few minutes. Browse the [rest of the templates](https://github.com/theopenco/llmgateway-templates) for more ways to build on LLM Gateway.
+
+<BlogCta variant="gateway" location="bottom" />

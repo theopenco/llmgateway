@@ -37,6 +37,8 @@ import { useFetchClient } from "@/lib/fetch-client";
 
 import {
 	isRefundFeedbackComplete,
+	SELF_REFUND_USAGE_PERCENT,
+	SELF_REFUND_WINDOW_DAYS,
 	type RefundReason,
 } from "@llmgateway/shared";
 import { RefundReasonFieldset } from "@llmgateway/shared/components";
@@ -63,6 +65,7 @@ interface Transaction {
 		| "credit_refund"
 		| "credit_topup"
 		| "credit_gift"
+		| "credit_manual_payment"
 		| "subscription_start"
 		| "subscription_cancel"
 		| "subscription_end"
@@ -85,12 +88,12 @@ const REFUND_INELIGIBILITY_COPY: Record<
 	unsupported_type: "This transaction cannot be refunded",
 	not_completed: "Only completed payments can be refunded",
 	already_refunded: "This purchase has already been refunded",
-	window_expired: "Refunds are available for 14 days after purchase",
+	window_expired: `Refunds are available for ${SELF_REFUND_WINDOW_DAYS} days after purchase`,
 	not_owner: "Only the organization owner can request a refund",
 	not_latest_purchase: "Only your most recent purchase can be self-refunded",
 	plan_inactive: "The plan for this payment is no longer active",
 	credits_frozen: "Refunds are unavailable while credits are frozen",
-	usage_exceeded: "More than 10% of these credits have been used",
+	usage_exceeded: `More than ${SELF_REFUND_USAGE_PERCENT}% of these credits have been used`,
 	pass_already_used: "This Reset Pass has already been redeemed",
 };
 
@@ -367,6 +370,8 @@ function TransactionCard({
 				return "Credit Refund";
 			case "credit_gift":
 				return "Credit Gift";
+			case "credit_manual_payment":
+				return "Credits Added";
 			case "subscription_start":
 				return "Subscription Start";
 			case "subscription_cancel":
@@ -531,6 +536,8 @@ export function TransactionsClient({
 													{transaction.type === "credit_refund" &&
 														"Credit Refund"}
 													{transaction.type === "credit_gift" && "Credit Gift"}
+													{transaction.type === "credit_manual_payment" &&
+														"Credits Added"}
 													{transaction.type === "subscription_start" &&
 														"Subscription Start"}
 													{transaction.type === "subscription_cancel" &&

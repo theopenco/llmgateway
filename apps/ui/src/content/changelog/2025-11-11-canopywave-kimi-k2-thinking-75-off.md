@@ -41,6 +41,6 @@ curl -X POST https://api.llmgateway.io/v1/chat/completions \
 
 ---
 
-**[Try it now in the Playground](https://chat.llmgateway.io/?model=canopywave/kimi-k2-thinking)** 🚀
+**[Try it now in the Playground](https://lounge.llmgateway.io/?model=canopywave/kimi-k2-thinking)** 🚀
 
 **[Get started now](/signup)** 🚀

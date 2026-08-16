@@ -836,6 +836,94 @@ describe("handleInvoicePaymentSucceeded — chat plan upgrade invoice", () => {
 	});
 });
 
+describe("handleInvoicePaymentSucceeded — initial chat plan invoice", () => {
+	beforeEach(async () => {
+		await deleteAll();
+		sendEmailMock.mockClear();
+	});
+
+	afterEach(async () => {
+		await db.delete(tables.transaction);
+		await deleteAll();
+	});
+
+	async function seedUnactivatedChatOrg() {
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			kind: "chat",
+		});
+	}
+
+	test("leaves the first invoice to checkout.session.completed instead of recording a Pro subscription", async () => {
+		// Webhook ordering race: the first invoice of a new Lounge membership can
+		// land before the checkout session that activates the chat plan, so none of
+		// the org's chat fields point at the subscription yet. Recording a
+		// `subscription_start` row here would make the checkout handler skip its
+		// `chat_plan_start` insert (same invoice id), and `subscription_start` is
+		// not a self-refund candidate — the member would never get a Refund button.
+		await seedUnactivatedChatOrg();
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUB_ID,
+			metadata: {
+				organizationId: ORG_ID,
+				subscriptionType: "chat_plan",
+				chatPlan: "plus",
+			},
+		});
+
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_create",
+				amountPaid: 1900,
+				invoiceId: "in_chat_initial_race",
+			}),
+		);
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(0);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.plan).toBe("free");
+		expect(org?.chatPlan).toBe("none");
+		expect(sendEmailMock).not.toHaveBeenCalled();
+	});
+
+	test("never flips a non-default org to the Pro plan", async () => {
+		// Even without chat-plan metadata, a subscription invoice for a chat or
+		// devpass org is not a Pro subscription: those orgs use their own plan
+		// fields.
+		await seedUnactivatedChatOrg();
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUB_ID,
+			metadata: {},
+		});
+
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_create",
+				amountPaid: 1900,
+				invoiceId: "in_chat_initial_no_metadata",
+			}),
+		);
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(0);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.plan).toBe("free");
+	});
+});
+
 describe("handleSubscriptionUpdated — dev plan credit freeze/restore", () => {
 	beforeEach(async () => {
 		await deleteAll();

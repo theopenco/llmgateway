@@ -1,19 +1,20 @@
-# LLM Gateway Chat
+# Lounge by LLM Gateway
 
-> LLM Gateway Chat (chat.llmgateway.io) is an AI chat playground for talking to 200+ models from OpenAI, Anthropic, Google, xAI, DeepSeek, Meta, Mistral, and other providers in one place. It supports text chat, image and video generation, side-by-side multi-model group chats, and projects with knowledge files — on transparent provider-rate credits.
+> Lounge (lounge.llmgateway.io) is the members' lounge for AI: chat with 200+ models from OpenAI, Anthropic, Google, xAI, DeepSeek, Meta, Mistral, and other providers in one place. It supports text chat, image and video generation, side-by-side multi-model group chats, and projects with knowledge files — every frontier model, one membership.
 
-## Plans
+## Memberships
 
 - Starter: $9/month.
 - Plus: $19/month.
 - Pro: $49/month.
-- All plans are billed monthly and include a monthly credit allowance usable across every model; free to start with no credit card.
+- All memberships are billed monthly and include a monthly credit allowance usable across every model; free to start with no credit card.
+- First-month guarantee: refund yourself from the billing page within 14 days if you've used less than 20% of your allowance.
 
 ## Key pages
 
-- [Chat](https://chat.llmgateway.io): The chat playground.
+- [Lounge](https://lounge.llmgateway.io): The members' lounge for AI.
 - [Models](https://llmgateway.io/models): Every supported model with pricing and capabilities.
-- [LLM Gateway](https://llmgateway.io): The open-source gateway platform behind Chat.
+- [LLM Gateway](https://llmgateway.io): The open-source gateway platform behind Lounge.
 - [Pricing (machine-readable)](https://llmgateway.io/pricing.md): Plain-markdown pricing for the whole platform.
 
 ## Notes

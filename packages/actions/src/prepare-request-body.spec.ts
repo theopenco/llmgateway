@@ -11,8 +11,19 @@ import {
 
 import type {
 	AnthropicRequestBody,
+	OpenAIRequestBody,
 	ProviderModelMapping,
 } from "@llmgateway/models";
+
+/**
+ * The OpenAI-compatible body Ling-3.0-flash requests get, plus the vLLM
+ * chat-template flag the gateway injects to control thinking. That flag is not
+ * part of `OpenAIRequestBody` (it is added dynamically in prepare-request-body),
+ * so tests reach it through this local intersection instead of `as any`.
+ */
+type LingRequestBody = OpenAIRequestBody & {
+	chat_template_kwargs?: Record<string, boolean>;
+};
 
 function getCacheControl(block: unknown): unknown {
 	if (block && typeof block === "object" && "cache_control" in block) {
@@ -539,6 +550,88 @@ describe("prepareRequestBody - OpenAI image generation", () => {
 
 		expect(requestBody.size).toBe("1024x1024");
 		expect(requestBody.quality).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - xAI image generation", () => {
+	async function prepareXaiImageRequest(imageConfig: {
+		aspect_ratio?: string;
+		image_size?: string;
+		image_quality?: string;
+		n?: number;
+	}) {
+		return (await prepareRequestBody(
+			"xai",
+			"grok-imagine-image-2-0",
+			null,
+			"grok-imagine-image-2.0",
+			[{ role: "user", content: "Generate a cinematic landscape" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			imageConfig,
+			undefined,
+			true,
+		)) as any;
+	}
+
+	test("should forward quality and resolution", async () => {
+		const requestBody = await prepareXaiImageRequest({
+			image_quality: "low",
+			image_size: "2k",
+			n: 2,
+		});
+
+		expect(requestBody).toMatchObject({
+			model: "grok-imagine-image-2.0",
+			prompt: "Generate a cinematic landscape",
+			quality: "low",
+			resolution: "2k",
+			n: 2,
+		});
+	});
+
+	// xAI's `resolution` enum only accepts the lowercase tier names, so pixel
+	// dimensions and casing variants are normalized rather than passed through.
+	test.each([
+		["1K", "1k"],
+		["2K", "2k"],
+		["1024x1024", "1k"],
+		["1536x1024", "1k"],
+		["2048x2048", "2k"],
+		["3840x2160", "2k"],
+	])("should map image_size %s to resolution %s", async (size, resolution) => {
+		const requestBody = await prepareXaiImageRequest({ image_size: size });
+
+		expect(requestBody.resolution).toBe(resolution);
+	});
+
+	test("should omit resolution for sizes that name no xAI tier", async () => {
+		const requestBody = await prepareXaiImageRequest({ image_size: "auto" });
+
+		expect(requestBody.resolution).toBeUndefined();
+	});
+
+	test("should drop the unified auto quality", async () => {
+		const requestBody = await prepareXaiImageRequest({
+			image_quality: "auto",
+			image_size: "1k",
+		});
+
+		expect(requestBody.quality).toBeUndefined();
+		expect(requestBody.resolution).toBe("1k");
 	});
 });
 
@@ -1242,6 +1335,210 @@ describe("prepareRequestBody - Moonshot thinking", () => {
 				true, // supportsReasoning
 			)) as unknown as Record<string, unknown>;
 			expect(requestBody.reasoning_effort).toBeUndefined();
+		},
+	);
+});
+
+describe("prepareRequestBody - InclusionAI Ling-3.0-flash thinking", () => {
+	// prepareRequestBody always receives the canonical (bare) catalog id as
+	// usedInternalModel — the provider prefix is stripped by parseModelInput
+	// before chat.ts calls it. These tests therefore exercise the same body
+	// path a bare "ling-3.0-flash" request goes through; the gateway-level
+	// resolution of that bare id to a provider is covered in api.spec.ts.
+	async function prepare(options: {
+		provider: Parameters<typeof prepareRequestBody>[0];
+		reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "max";
+		tools?: Parameters<typeof prepareRequestBody>[12];
+		toolChoice?: Parameters<typeof prepareRequestBody>[13];
+		responseFormat?: Parameters<typeof prepareRequestBody>[11];
+	}) {
+		// Derive supportsReasoning from the catalog the same way chat.ts does
+		// (`selectedProviderMapping?.reasoning === true`) so a regression in the
+		// derivation can't silently drop the thinking-disable translation.
+		const mapping = models
+			.find((m) => m.id === "ling-3.0-flash")
+			?.providers.find((p) => p.providerId === options.provider);
+		const supportsReasoning = mapping?.reasoning === true;
+
+		return (await prepareRequestBody(
+			options.provider,
+			"ling-3.0-flash",
+			null,
+			options.provider === "deepinfra"
+				? "inclusionAI/Ling-3.0-flash"
+				: "inclusionai/ling-3.0-flash",
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			options.responseFormat, // response_format
+			options.tools, // tools
+			options.toolChoice, // tool_choice
+			options.reasoningEffort, // reasoning_effort
+			supportsReasoning,
+		)) as LingRequestBody;
+	}
+
+	test.each(["deepinfra", "novita"] as const)(
+		"maps none to enable_thinking disabled on %s and never forwards reasoning_effort",
+		async (provider) => {
+			const requestBody = await prepare({
+				provider,
+				reasoningEffort: "none",
+			});
+			// DeepInfra honors the chat-template flag; Novita ignores it (verified
+			// live 2026-08-10), so it gets no chat_template_kwargs and thinking
+			// stays on.
+			if (provider === "deepinfra") {
+				expect(requestBody.chat_template_kwargs).toEqual({
+					enable_thinking: false,
+				});
+			} else {
+				expect(requestBody.chat_template_kwargs).toBeUndefined();
+			}
+			expect(requestBody.reasoning_effort).toBeUndefined();
+		},
+	);
+
+	test.each(["deepinfra", "novita"] as const)(
+		"maps high to enable_thinking enabled on %s and never forwards reasoning_effort",
+		async (provider) => {
+			const requestBody = await prepare({
+				provider,
+				reasoningEffort: "high",
+			});
+			if (provider === "deepinfra") {
+				expect(requestBody.chat_template_kwargs).toEqual({
+					enable_thinking: true,
+				});
+			} else {
+				expect(requestBody.chat_template_kwargs).toBeUndefined();
+			}
+			expect(requestBody.reasoning_effort).toBeUndefined();
+		},
+	);
+
+	test.each(["deepinfra", "novita"] as const)(
+		"keeps the provider default (thinking on) when no reasoning_effort is requested on %s",
+		async (provider) => {
+			const requestBody = await prepare({ provider });
+			expect(requestBody.chat_template_kwargs).toBeUndefined();
+			expect(requestBody.reasoning_effort).toBeUndefined();
+		},
+	);
+
+	const tools = [
+		{
+			type: "function" as const,
+			function: {
+				name: "get_weather",
+				description: "Get the weather for a city",
+				parameters: {
+					type: "object",
+					properties: {
+						city: { type: "string" },
+					},
+					required: ["city"],
+				},
+			},
+		},
+	];
+
+	test.each(["deepinfra", "novita"] as const)(
+		"forwards function tools with parameters and tool_choice intact on %s",
+		async (provider) => {
+			const requestBody = await prepare({
+				provider,
+				tools,
+				toolChoice: {
+					type: "function",
+					function: { name: "get_weather" },
+				},
+			});
+			expect(requestBody.tools).toEqual(tools);
+			expect(requestBody.tool_choice).toEqual({
+				type: "function",
+				function: { name: "get_weather" },
+			});
+		},
+	);
+
+	test.each(["deepinfra", "novita"] as const)(
+		"leaves tool_choice absent when none is requested on %s",
+		async (provider) => {
+			const requestBody = await prepare({ provider, tools });
+			expect(requestBody.tools).toEqual(tools);
+			expect(requestBody.tool_choice).toBeUndefined();
+		},
+	);
+
+	// Only DeepInfra serves this model with structured outputs — Novita rejects
+	// any response_format ("does not support feature: structured-outputs"), so
+	// its mapping is jsonOutput: false and such requests never reach this layer.
+	test.each(["deepinfra"] as const)(
+		"passes through json_object response_format on %s",
+		async (provider) => {
+			const requestBody = await prepare({
+				provider,
+				responseFormat: { type: "json_object" },
+			});
+			expect(requestBody.response_format).toEqual({ type: "json_object" });
+		},
+	);
+
+	test.each(["deepinfra"] as const)(
+		"passes through json_schema response_format on %s",
+		async (provider) => {
+			const schema = {
+				name: "weather",
+				strict: true,
+				schema: {
+					type: "object",
+					properties: {
+						city: { type: "string" },
+					},
+					required: ["city"],
+					additionalProperties: false,
+				},
+			};
+			const requestBody = await prepare({
+				provider,
+				responseFormat: { type: "json_schema", json_schema: schema },
+			});
+			expect(requestBody.response_format).toEqual({
+				type: "json_schema",
+				json_schema: schema,
+			});
+		},
+	);
+
+	test.each(["deepinfra", "novita"] as const)(
+		"maps none to enable_thinking disabled while tools and response_format are present on %s",
+		async (provider) => {
+			// response_format is only valid on DeepInfra (see above).
+			const responseFormat =
+				provider === "deepinfra"
+					? ({ type: "json_object" } as const)
+					: undefined;
+			const requestBody = await prepare({
+				provider,
+				reasoningEffort: "none",
+				tools,
+				responseFormat,
+			});
+			if (provider === "deepinfra") {
+				expect(requestBody.chat_template_kwargs).toEqual({
+					enable_thinking: false,
+				});
+			} else {
+				expect(requestBody.chat_template_kwargs).toBeUndefined();
+			}
+			expect(requestBody.reasoning_effort).toBeUndefined();
+			expect(requestBody.tools).toEqual(tools);
+			expect(requestBody.response_format).toEqual(responseFormat);
 		},
 	);
 });
@@ -6356,10 +6653,11 @@ describe("prepareRequestBody - DashScope web search", () => {
 		) as Promise<any>;
 
 	test.each(["alibaba", "scx-ai-gp"])(
-		"%s pairs enable_search with forced_search",
+		"%s pairs enable_search with forced_search when forced",
 		async (provider) => {
 			const requestBody = await prepare(provider, "qwen3.8-max", {
 				type: "web_search",
+				forced: true,
 			});
 
 			// enable_search alone is a hint the model ignores; forced_search is what
@@ -6374,12 +6672,50 @@ describe("prepareRequestBody - DashScope web search", () => {
 		async (provider) => {
 			const requestBody = await prepare(provider, "qwen3.8-max", {
 				type: "web_search",
+				forced: true,
 			});
 
 			// The Qwen max models 400 on the documented "agent" policy.
 			expect(requestBody.search_options.search_strategy).toBeUndefined();
 		},
 	);
+
+	test.each(["alibaba", "scx-ai-gp"])(
+		"%s sends no search params for a merely offered tool",
+		async (provider) => {
+			// A chat client that leaves a web search toggle on attaches the tool to
+			// every turn. Forcing there would search and bill on each one, so an
+			// unforced tool must send nothing — routing keeps these mappings out of
+			// such a request in the first place.
+			const requestBody = await prepare(provider, "qwen3.8-max", {
+				type: "web_search",
+			});
+
+			expect(requestBody.enable_search).toBeUndefined();
+			expect(requestBody.search_options).toBeUndefined();
+		},
+	);
+
+	test("openai forwards a forced search on the Responses API", async () => {
+		const requestBody = await prepare("openai", "gpt-5", {
+			type: "web_search",
+			forced: true,
+		});
+
+		// OpenAI takes the gateway's own directive verbatim here. Verified live:
+		// "What is 2+2?" yields no web_search_call without it, one with it.
+		expect(requestBody.tool_choice).toEqual({ type: "web_search" });
+		expect(requestBody.tools).toContainEqual({ type: "web_search" });
+	});
+
+	test("openai leaves an offered search to the model", async () => {
+		const requestBody = await prepare("openai", "gpt-5", {
+			type: "web_search",
+		});
+
+		expect(requestBody.tool_choice).toBeUndefined();
+		expect(requestBody.tools).toContainEqual({ type: "web_search" });
+	});
 
 	test.each(["alibaba", "scx-ai-gp"])(
 		"%s sends no search params without a web_search tool",

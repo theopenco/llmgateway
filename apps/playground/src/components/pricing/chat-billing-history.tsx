@@ -28,6 +28,8 @@ import { useApi, useFetchClient } from "@/lib/fetch-client";
 
 import {
 	isRefundFeedbackComplete,
+	SELF_REFUND_USAGE_PERCENT,
+	SELF_REFUND_WINDOW_DAYS,
 	type RefundReason,
 } from "@llmgateway/shared";
 import { RefundReasonFieldset } from "@llmgateway/shared/components";
@@ -47,6 +49,7 @@ const TYPE_LABELS: Partial<Record<Transaction["type"], string>> = {
 	credit_topup: "Credit top-up",
 	credit_refund: "Credit refund",
 	credit_gift: "Credit gift",
+	credit_manual_payment: "Credits added",
 	end_user_topup: "Credit top-up",
 	end_user_refund: "Credit refund",
 };
@@ -159,12 +162,12 @@ const REFUND_INELIGIBILITY_COPY: Record<string, string> = {
 	unsupported_type: "This payment cannot be refunded",
 	not_completed: "Only completed payments can be refunded",
 	already_refunded: "This payment has already been refunded",
-	window_expired: "Refunds are available for 14 days after purchase",
+	window_expired: `Refunds are available for ${SELF_REFUND_WINDOW_DAYS} days after purchase`,
 	not_owner: "Only the organization owner can request a refund",
 	not_latest_purchase: "Only your most recent payment can be self-refunded",
 	plan_inactive: "The plan for this payment is no longer active",
 	credits_frozen: "Refunds are unavailable while credits are frozen",
-	usage_exceeded: "More than 10% of these credits have been used",
+	usage_exceeded: `More than ${SELF_REFUND_USAGE_PERCENT}% of these credits have been used`,
 };
 
 function isPlanPayment(type: Transaction["type"]): boolean {

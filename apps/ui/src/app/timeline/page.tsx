@@ -1,6 +1,7 @@
 import { ArrowRight, ArrowUpRight, Sparkles } from "lucide-react";
 import Link from "next/link";
 
+import { ContentConversionRail } from "@/components/content-conversion-rail";
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import { ModelCard } from "@/components/timeline/timeline-parts";
@@ -12,11 +13,16 @@ import {
 	buildTimelineFaqs,
 	buildTimelineModels,
 	buildTimelineStats,
+	DATASET_CREATOR,
+	DATASET_LICENSE,
 	formatDate,
 	getMonthSummary,
 	getYearSummaries,
 	isoDate,
 	recentModels,
+	TIMELINE_DATASET_DESCRIPTION,
+	TIMELINE_DATASET_ID,
+	TIMELINE_DATASET_NAME,
 } from "@/lib/timeline-data";
 
 import type { TimelineMonthSummary } from "@/lib/timeline-data";
@@ -36,15 +42,16 @@ function buildMonthMeta(month: TimelineMonthSummary | null): {
 		return { title: FALLBACK_TITLE, description: FALLBACK_DESCRIPTION };
 	}
 	const count = month.models.length;
+	// Two names keep the description under 160 chars even with long model names.
 	const names = month.models
-		.slice(0, 3)
+		.slice(0, 2)
 		.map((model) => model.name)
 		.join(", ");
 	return {
 		title: `New AI Model Releases — ${month.label} Timeline`,
 		description: `${count} AI model${count === 1 ? "" : "s"} released in ${
 			month.label
-		}${month.isCurrentMonth ? " so far" : ""} — ${names} — plus release dates for every major LLM: GPT, Claude, Gemini, DeepSeek and more. Updated daily.`,
+		}${month.isCurrentMonth ? " so far" : ""} — ${names} — plus every major LLM release date. Updated daily.`,
 	};
 }
 
@@ -87,10 +94,11 @@ export default async function TimelinePage() {
 	const datasetSchema = {
 		"@context": "https://schema.org",
 		"@type": "Dataset",
-		name: "LLM Model Release Timeline",
-		description:
-			"A continuously updated dataset of large language model releases: the provider release date and the date each model was added to LLM Gateway.",
+		"@id": TIMELINE_DATASET_ID,
+		name: TIMELINE_DATASET_NAME,
+		description: TIMELINE_DATASET_DESCRIPTION,
 		url: `${BASE_URL}/timeline`,
+		license: DATASET_LICENSE,
 		keywords: [
 			"LLM release dates",
 			"AI model timeline",
@@ -99,11 +107,7 @@ export default async function TimelinePage() {
 			"Gemini release date",
 			"language model history",
 		],
-		creator: {
-			"@type": "Organization",
-			name: "LLM Gateway",
-			url: BASE_URL,
-		},
+		creator: DATASET_CREATOR,
 		isAccessibleForFree: true,
 		...(stats.firstYear
 			? {
@@ -434,7 +438,10 @@ export default async function TimelinePage() {
 
 				<section className="border-t border-border/60">
 					<div className="container mx-auto px-4 py-14 md:py-20">
-						<div className="mx-auto flex max-w-3xl flex-col items-center gap-5 rounded-2xl border border-border/70 bg-card/50 px-6 py-10 text-center backdrop-blur md:py-12">
+						<div
+							data-inline-cta
+							className="mx-auto flex max-w-3xl flex-col items-center gap-5 rounded-2xl border border-border/70 bg-card/50 px-6 py-10 text-center backdrop-blur md:py-12"
+						>
 							<h2 className="font-display text-2xl font-bold tracking-tight text-balance md:text-3xl">
 								Route to any of these models with one API
 							</h2>
@@ -464,6 +471,7 @@ export default async function TimelinePage() {
 			</main>
 
 			<Footer />
+			<ContentConversionRail surface="timeline" variant="gateway" />
 		</>
 	);
 }

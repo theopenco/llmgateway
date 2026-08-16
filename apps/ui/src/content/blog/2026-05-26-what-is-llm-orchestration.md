@@ -73,6 +73,8 @@ At the application layer, orchestration means sequencing steps: retrieve context
 
 You can't operate what you can't see. Orchestration captures per-request cost, latency, tokens, provider, and cache status — and enforces budget limits so spend stays bounded.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## The Tooling Landscape
 
 Orchestration tools fall into two broad layers:
@@ -152,3 +154,5 @@ Mainly through routing (send each task to the cheapest model that meets quality)
 - You need an orchestrator once you add a second provider, hit your first incident, or watch costs climb.
 
 **[Try LLM Gateway free](/signup)** | **[What is an LLM gateway?](/blog/what-is-an-llm-gateway)** | **[Estimate your costs](/token-cost-calculator)**
+
+<BlogCta variant="gateway" location="bottom" />

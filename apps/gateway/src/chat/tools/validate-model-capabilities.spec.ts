@@ -323,4 +323,62 @@ describe("validateModelCapabilities - output capability", () => {
 			),
 		).not.toThrow();
 	});
+	describe("search-on-demand-only web search", () => {
+		// Every mapping on qwen3.8-max is DashScope-backed, so the model has no
+		// model-elected search anywhere to fall back to. Offering the tool is
+		// still a valid request: the caller gets an ordinary unsearched answer,
+		// exactly as they would from a model that chose not to search.
+		const forcedOnlyModel = getModel("qwen3.8-max");
+
+		it("accepts a merely offered web_search tool", () => {
+			expect(() =>
+				validateModelCapabilities(forcedOnlyModel, "qwen3.8-max", "alibaba", {
+					// Extraction pulls web_search out of `tools`, leaving it empty.
+					tools: [],
+					webSearchTool: { type: "web_search" },
+				}),
+			).not.toThrow();
+		});
+
+		it("accepts a forced web_search tool", () => {
+			expect(() =>
+				validateModelCapabilities(forcedOnlyModel, "qwen3.8-max", "alibaba", {
+					tools: [],
+					webSearchTool: { type: "web_search", forced: true },
+				}),
+			).not.toThrow();
+		});
+	});
+});
+
+describe("validateModelCapabilities - reasoning.max_tokens", () => {
+	const lingModel = getModel("ling-3.0-flash");
+	const nonBudgetModel = getModel("gpt-4o-mini");
+
+	it("rejects reasoning.max_tokens for models with no budget support", () => {
+		expect(() =>
+			validateModelCapabilities(nonBudgetModel, nonBudgetModel.id, undefined, {
+				reasoning_max_tokens: 2048,
+			}),
+		).toThrow(HTTPException);
+	});
+
+	it("allows reasoning.max_tokens on chatTemplateThinkingKey mappings (budget is dropped to a binary toggle)", () => {
+		expect(() =>
+			validateModelCapabilities(lingModel, lingModel.id, undefined, {
+				reasoning_max_tokens: 2048,
+			}),
+		).not.toThrow();
+	});
+
+	it("rejects reasoning.max_tokens on a provider with no thinking control (thinking is always on)", () => {
+		// Novita's Ling mapping has no chatTemplateThinkingKey and no
+		// reasoningMaxTokens — its backend ignores the chat-template flag, so a
+		// budget request is rejected rather than silently accepted.
+		expect(() =>
+			validateModelCapabilities(lingModel, lingModel.id, "novita", {
+				reasoning_max_tokens: 2048,
+			}),
+		).toThrow(HTTPException);
+	});
 });

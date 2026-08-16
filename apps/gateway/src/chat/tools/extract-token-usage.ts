@@ -234,6 +234,26 @@ export function extractTokenUsage(
 				}
 			}
 			break;
+		case "xai":
+			// xAI is one of the few providers whose `completion_tokens` EXCLUDES
+			// reasoning (total_tokens = prompt + completion + reasoning), so the
+			// reasoning count has to reach the cost engine to be billed at all.
+			// It only ever appears nested under `completion_tokens_details`, which
+			// the default OpenAI branch below does not read — it looks for a
+			// top-level `usage.reasoning_tokens` — so without this case every
+			// reasoning request is billed for its handful of visible output tokens
+			// and nothing else.
+			if (data.usage) {
+				promptTokens = data.usage.prompt_tokens ?? null;
+				completionTokens = data.usage.completion_tokens ?? null;
+				totalTokens = data.usage.total_tokens ?? null;
+				reasoningTokens =
+					data.usage.completion_tokens_details?.reasoning_tokens ??
+					data.usage.reasoning_tokens ??
+					null;
+				cachedTokens = data.usage.prompt_tokens_details?.cached_tokens ?? null;
+			}
+			break;
 		case "sakana":
 			// Fugu streams over Chat Completions and bills the orchestration tokens
 			// consumed by its underlying agent pool on top of the user-visible

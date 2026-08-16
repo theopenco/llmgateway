@@ -3,10 +3,14 @@ import { UnauthorizedView } from "@/components/dashboard/unauthorized-view";
 import { UserProvider } from "@/components/providers/user-provider";
 import { SidebarProvider } from "@/lib/components/sidebar";
 import { getLastUsedProjectId } from "@/lib/last-used-project-server";
-import { fetchServerData } from "@/lib/server-api";
+import {
+	fetchServerData,
+	getOrganizations,
+	getOrgProjects,
+} from "@/lib/server-api";
 
 import type { AnnouncementEntry } from "@/components/dashboard/changelog-notifications";
-import type { User, Organization, Project } from "@/lib/types";
+import type { User, Project } from "@/lib/types";
 import type { Blog, Changelog } from "content-collections";
 import type { ReactNode } from "react";
 
@@ -22,19 +26,9 @@ export default async function OrgLayout({ children, params }: OrgLayoutProps) {
 		{ user: User } | undefined | null
 	>("GET", "/user/me");
 
-	const initialOrganizationsDataPromise = fetchServerData<{
-		organizations: Organization[];
-	}>("GET", "/orgs");
+	const initialOrganizationsDataPromise = getOrganizations();
 
-	const initialProjectsDataPromise = orgId
-		? fetchServerData("GET", "/orgs/{id}/projects", {
-				params: {
-					path: {
-						id: orgId,
-					},
-				},
-			})
-		: null;
+	const initialProjectsDataPromise = orgId ? getOrgProjects(orgId) : null;
 
 	const [initialUserData, initialOrganizationsData] = await Promise.all([
 		initialUserDataPromise,

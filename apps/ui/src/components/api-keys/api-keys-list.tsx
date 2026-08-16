@@ -16,6 +16,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
+import { getApiErrorMessage } from "@/lib/api-error";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -147,6 +148,7 @@ export function ApiKeysList({
 					apiKeys: initialData.map((key) => ({
 						...key,
 						maskedToken: key.maskedToken,
+						ownerBudget: key.ownerBudget ?? null,
 					})),
 					userRole: "owner" as const,
 				},
@@ -342,9 +344,10 @@ export function ApiKeysList({
 				title: "API Key Reactivated",
 				description: "The API key is active again with a new expiration.",
 			});
-		} catch {
+		} catch (error) {
 			toast({
 				title: "Failed to reactivate API key.",
+				description: getApiErrorMessage(error, "Please try again."),
 				variant: "destructive",
 			});
 		}
@@ -370,9 +373,10 @@ export function ApiKeysList({
 			});
 
 			return data.apiKey.token;
-		} catch {
+		} catch (error) {
 			toast({
 				title: "Failed to roll API key.",
+				description: getApiErrorMessage(error, "Please try again."),
 				variant: "destructive",
 			});
 			return undefined;
@@ -401,9 +405,10 @@ export function ApiKeysList({
 				title: "API Key Renamed",
 				description: "The API key has been renamed.",
 			});
-		} catch {
+		} catch (error) {
 			toast({
 				title: "Failed to rename API key.",
+				description: getApiErrorMessage(error, "Please try again."),
 				variant: "destructive",
 			});
 		}
@@ -441,6 +446,7 @@ export function ApiKeysList({
 		} catch (error) {
 			toast({
 				title: "Failed to update API key limits.",
+				description: getApiErrorMessage(error, "Please try again."),
 				variant: "destructive",
 			});
 			throw error;
@@ -703,7 +709,6 @@ export function ApiKeysList({
 									<TableCell>
 										<ApiKeyLimitsDialog
 											apiKey={key}
-											organizationId={orgId ?? ""}
 											onSubmit={(payload) =>
 												updateKeyUsageLimit(key.id, payload)
 											}
@@ -985,7 +990,6 @@ export function ApiKeysList({
 								<div>
 									<ApiKeyLimitsDialog
 										apiKey={key}
-										organizationId={orgId ?? ""}
 										onSubmit={(payload) => updateKeyUsageLimit(key.id, payload)}
 									>
 										<Button

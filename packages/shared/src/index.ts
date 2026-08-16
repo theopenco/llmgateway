@@ -66,6 +66,9 @@ export {
 	REFUND_REASON_HEADING,
 	REFUND_REASON_OPTIONS,
 	REFUND_REASONS,
+	RESET_PASS_SELF_REFUND_WINDOW_DAYS,
+	SELF_REFUND_USAGE_PERCENT,
+	SELF_REFUND_WINDOW_DAYS,
 	isRefundFeedbackComplete,
 	refundCommentsRequired,
 	type RefundReason,
@@ -171,7 +174,21 @@ export {
 	type PlanTermThresholds,
 } from "./plan-term.js";
 
+export {
+	isLoungeSource,
+	LEGACY_LOUNGE_SOURCE,
+	LOUNGE_SOURCE,
+} from "./lounge-source.js";
+
 export { MARKETING_STATS, RUNWARE_PROMO } from "./marketing.js";
+
+export {
+	ONBOARDING_MODEL,
+	ONBOARDING_MAX_TOKENS,
+	ONBOARDING_MAX_PROMPT_CHARS,
+	ONBOARDING_SPONSOR_HEADER,
+	getOnboardingSponsorSecret,
+} from "./onboarding.js";
 
 export { isContentFilterErrorText } from "./content-filter.js";
 
@@ -194,6 +211,7 @@ export {
 	SSO_TEAM_DEFAULT_DEVELOPER_BUDGET,
 	type ApiKeyLimitConstraints,
 	type ApiKeyPeriodDurationUnitValue,
+	type MemberBudgetOwner,
 	type MemberBudgetShape,
 } from "./member-budget-limits.js";
 
@@ -230,8 +248,11 @@ export {
 } from "./routing-config.js";
 
 export {
+	isRoutingCredentialSource,
 	isRoutingExclusionReason,
 	isRoutingSelectionReason,
+	ROUTING_CREDENTIAL_SOURCE_DESCRIPTIONS,
+	ROUTING_CREDENTIAL_SOURCE_LABELS,
 	ROUTING_EXCLUSION_REASON_LABELS,
 	ROUTING_EXCLUSION_REASON_MESSAGES,
 	ROUTING_EXCLUSION_REASONS,
@@ -241,10 +262,12 @@ export {
 	ROUTING_SELECTION_REASONS,
 	routingExclusionReasonMessage,
 	routingSelectionKind,
+	type RoutingCredentialSource,
 	type RoutingExclusionReason,
 	type RoutingSelectionKind,
 	type RoutingSelectionReason,
 	type ServiceTierMode,
+	toRoutingCredentialSource,
 	toRoutingExclusionReason,
 	toRoutingSelectionReason,
 } from "./routing-telemetry.js";
@@ -260,3 +283,4 @@ export {
 export { parseUsedModel, regionFromUsedModel } from "./used-model.js";
 
 export * from "./components/ui/index.js";
+export { discountFraction, isValidDiscount } from "./lib/discount.js";

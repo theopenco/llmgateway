@@ -561,8 +561,6 @@ export const anthropicModels = [
 			{
 				providerId: "anthropic",
 				externalId: "claude-sonnet-5",
-				// Introductory pricing through 2026-08-31 (input $2, output $10 per 1M);
-				// standard rate is input $3, output $15.
 				inputPrice: "2.0e-6",
 				outputPrice: "10.0e-6",
 				cachedInputPrice: "0.2e-6",
@@ -587,8 +585,6 @@ export const anthropicModels = [
 			{
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-sonnet-5",
-				// Introductory pricing through 2026-08-31 (input $2, output $10 per 1M);
-				// standard rate is input $3, output $15.
 				inputPrice: "2.0e-6",
 				outputPrice: "10.0e-6",
 				cachedInputPrice: "0.2e-6",
@@ -612,8 +608,6 @@ export const anthropicModels = [
 			{
 				providerId: "vertex-anthropic",
 				externalId: "claude-sonnet-5",
-				// Introductory pricing through 2026-08-31 (input $2, output $10 per 1M);
-				// standard rate is input $3, output $15.
 				inputPrice: "2.0e-6",
 				outputPrice: "10.0e-6",
 				cachedInputPrice: "0.2e-6",
@@ -727,6 +721,11 @@ export const anthropicModels = [
 			{
 				providerId: "anthropic",
 				externalId: "claude-haiku-4-5",
+				// Retired: the free tier ran on our own Anthropic credentials, so it
+				// was pure cost with no path to revenue. Onboarding's first call —
+				// the last surface that needed a free model — now runs on a
+				// platform-sponsored key against a cheap paid model instead.
+				deactivatedAt: new Date("2026-08-10"),
 				inputPrice: "0",
 				outputPrice: "0",
 				cachedInputPrice: "0",

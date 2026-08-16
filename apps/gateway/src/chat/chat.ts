@@ -26,6 +26,7 @@ import {
 	findCustomProviderKey,
 	findCustomModel,
 	findEffectiveDiscount,
+	findEffectiveRoutingScoreMultiplier,
 	findProviderKey,
 	findActiveProviderKeys,
 	findProviderKeysByProviders,
@@ -48,7 +49,8 @@ import {
 	type ComplianceCheckContext,
 } from "@/lib/compliance.js";
 import {
-	calculateCosts,
+	calculateCosts as _calculateCosts,
+	isBilledFailureFinishReason,
 	isRefusalFinishReason,
 	shouldBillCancelledRequests,
 	sumTotalTokens,
@@ -75,6 +77,7 @@ import {
 	isLengthLimitFinishReason,
 	insertLog as _insertLog,
 } from "@/lib/logs.js";
+import { isSponsoredOnboardingRequest } from "@/lib/onboarding-sponsorship.js";
 import {
 	createSessionProviderStore,
 	getPreferredProvider,
@@ -122,6 +125,7 @@ import {
 	managedCredentialOptions,
 	parseGoogleUpstreamDocumentError,
 	prepareRequestBody,
+	providerKeyLabel,
 	providerSupportsCaching,
 	readProviderKey,
 	RequestError,
@@ -172,6 +176,7 @@ import {
 	expandAllProviderRegions,
 	getOrganizationEnvVariant,
 	getProviderDefinition,
+	getRegionScopedDefaultRegion,
 	getRegionSpecificEnvVarName,
 } from "@llmgateway/models";
 import {
@@ -251,6 +256,7 @@ import { checkOpenAIContentFilter } from "./tools/openai-content-filter.js";
 import { convertAwsEventStreamToSSE } from "./tools/parse-aws-eventstream.js";
 import { parseModelInput } from "./tools/parse-model-input.js";
 import { parseProviderResponse } from "./tools/parse-provider-response.js";
+import { parseTrailingUpstreamError } from "./tools/parse-trailing-upstream-error.js";
 import {
 	exclusionReason,
 	getProviderFilterReasons,
@@ -269,6 +275,7 @@ import {
 	buildDevPlanCreditLimitError,
 	formatUsedModelForDisplay,
 	getAvailableCredits,
+	resolveEligibleProviderKeys,
 	resolveProviderContext,
 } from "./tools/resolve-provider-context.js";
 import { resolveReasoningTokens } from "./tools/resolve-reasoning-tokens.js";
@@ -302,7 +309,10 @@ import {
 	withCurrentRequestMetadataOnOpenAiResponse,
 	zeroCostsOnCachedResponseUsage,
 } from "./tools/transform-response-to-openai.js";
-import { transformStreamingToOpenai } from "./tools/transform-streaming-to-openai.js";
+import {
+	type AnthropicToolSearchState,
+	transformStreamingToOpenai,
+} from "./tools/transform-streaming-to-openai.js";
 import { validateFreeModelUsage } from "./tools/validate-free-model-usage.js";
 import { validateModelCapabilities } from "./tools/validate-model-capabilities.js";
 
@@ -312,6 +322,7 @@ import type {
 } from "./tools/provider-filter-reasons.js";
 import type { OriginalRequestParams } from "./tools/resolve-provider-context.js";
 import type { ServerTypes } from "@/vars.js";
+import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
 
 const _derivedProjectId = getVertexAnthropicProjectId();
 if (_derivedProjectId && !process.env.LLM_VERTEX_ANTHROPIC_PROJECT) {
@@ -413,21 +424,25 @@ function filterRegionsByAvailableKeys(
 
 /**
  * Whether the platform's own credentials can serve this regional mapping.
- * Mappings without a region, and providers the catalogue does not scope by
- * region, are always kept — there is nothing to select against.
+ * Providers the catalogue does not scope by region are always kept — there is
+ * nothing to select against. A mapping without a region is served from the
+ * provider's default region, so for a provider whose credentials are
+ * region-scoped it is judged on that region; providers with a credential shared
+ * across regions (AWS Bedrock) keep the mapping unconditionally, as before.
  */
 function platformKeyCoversMappingRegion(
 	mapping: ProviderModelMapping,
 	managed: ManagedProviderAvailability,
 ): boolean {
-	const region = mapping.region;
-	if (!region) {
-		return true;
-	}
 	const providerDef = providers.find((p) => p.id === mapping.providerId) as
 		ProviderDefinition | undefined;
 	const regionConfig = providerDef?.regionConfig;
 	if (!regionConfig) {
+		return true;
+	}
+	const region =
+		mapping.region ?? getRegionScopedDefaultRegion(mapping.providerId);
+	if (!region) {
 		return true;
 	}
 	return platformCredentialCoversRegion(
@@ -462,6 +477,15 @@ function createProviderDiscountResolver(organizationId: string) {
 	) =>
 		(await findEffectiveDiscount(organizationId, provider.providerId, modelId))
 			.discount;
+}
+
+function createProviderRoutingScoreMultiplierResolver() {
+	return async (
+		provider: Pick<ProviderModelMapping, "providerId">,
+		modelId: string,
+	) =>
+		(await findEffectiveRoutingScoreMultiplier(provider.providerId, modelId))
+			.scoreMultiplier;
 }
 
 async function collapseProvidersToBestRegionPerProvider(
@@ -500,6 +524,8 @@ async function collapseProvidersToBestRegionPerProvider(
 					providerDiscountResolver: createProviderDiscountResolver(
 						options.organizationId,
 					),
+					providerRoutingScoreMultiplierResolver:
+						createProviderRoutingScoreMultiplierResolver(),
 				},
 			);
 
@@ -782,21 +808,40 @@ async function addContentFilterRoutingMetadata(
 	};
 }
 
-function withUsedApiKeyHash(
+function withUsedCredential(
 	routingMetadata: RoutingMetadata | undefined,
 	usedApiKeyHash: string | undefined,
+	usedCredentialSource: RoutingCredentialSource,
+	usedProviderKey: { providerKeyId?: string; providerKeyLabel?: string },
 ): RoutingMetadata | undefined {
 	if (!routingMetadata || !usedApiKeyHash) {
 		return routingMetadata;
 	}
 
-	if (routingMetadata.usedApiKeyHash === usedApiKeyHash) {
+	// A platform credential contributes no identity, and the previous BYOK
+	// attempt's must not linger once a fallback switched off it.
+	const usedProviderKeyId =
+		usedCredentialSource === "byok" ? usedProviderKey.providerKeyId : undefined;
+	const usedProviderKeyLabel =
+		usedCredentialSource === "byok"
+			? usedProviderKey.providerKeyLabel
+			: undefined;
+
+	if (
+		routingMetadata.usedApiKeyHash === usedApiKeyHash &&
+		routingMetadata.usedCredentialSource === usedCredentialSource &&
+		routingMetadata.usedProviderKeyId === usedProviderKeyId &&
+		routingMetadata.usedProviderKeyLabel === usedProviderKeyLabel
+	) {
 		return routingMetadata;
 	}
 
 	return {
 		...routingMetadata,
 		usedApiKeyHash,
+		usedCredentialSource,
+		usedProviderKeyId,
+		usedProviderKeyLabel,
 	};
 }
 
@@ -980,6 +1025,17 @@ function inferStreamingErrorStatusCode(
 	}
 	if (typeof openAiCompatibleStreamError.status === "number") {
 		return openAiCompatibleStreamError.status;
+	}
+	// Google-style (google.rpc) error payloads carry the HTTP status as a
+	// numeric `code` (e.g. {"code": 503, "status": "UNAVAILABLE"}). Only trust
+	// it in the HTTP error range: other providers use numeric `code` for
+	// internal error catalogues.
+	if (
+		typeof openAiCompatibleStreamError.code === "number" &&
+		openAiCompatibleStreamError.code >= 400 &&
+		openAiCompatibleStreamError.code <= 599
+	) {
+		return openAiCompatibleStreamError.code;
 	}
 
 	const errorType =
@@ -1351,7 +1407,25 @@ const completions = createRoute({
 										status_code: z.number(),
 										error_type: z.string(),
 										succeeded: z.boolean(),
-										apiKeyHash: z.string().optional(),
+										apiKeyHash: z.string().optional().openapi({
+											description:
+												"Stable fingerprint of the provider credential this attempt was sent with. Use it together with credentialSource to tell attempts apart when a request rotated keys.",
+										}),
+										credentialSource: z
+											.enum(["byok", "platform"])
+											.optional()
+											.openapi({
+												description:
+													"Whose provider credential served this attempt. `byok` is your organization's own provider key — the provider bills you directly and no credits are deducted. `platform` is an LLM Gateway credential, billed as credits. A hybrid-mode request whose own key fails falls back to `platform`, so both values can appear in one response.",
+											}),
+										providerKeyId: z.string().optional().openapi({
+											description:
+												"Id of your provider key that served this attempt. Set only when credentialSource is `byok`.",
+										}),
+										providerKeyLabel: z.string().optional().openapi({
+											description:
+												"Your provider key as it is named on the provider-keys page (its name, or its masked token when unnamed), so an attempt can be tied to a key without decoding the fingerprint. Set only when credentialSource is `byok`; LLM Gateway's own credentials are never described.",
+										}),
 										logId: z.string().optional(),
 									}),
 								)
@@ -1389,6 +1463,24 @@ const completions = createRoute({
 chat.openapi(completions, async (c) => {
 	// Extract or generate request ID
 	const requestId = c.req.header("x-request-id")?.trim() || shortid(40);
+
+	// The onboarding wizard's first call is served without charging for it (see
+	// lib/onboarding-sponsorship.ts). Resolved up front because it has to be in
+	// scope for both the credit gate below and every cost calculation.
+	const sponsoredOnboarding = isSponsoredOnboardingRequest(c);
+
+	// Wraps the imported calculateCosts so a sponsored call is zeroed once, here,
+	// instead of at each of the ~11 places costs are computed (streaming,
+	// non-streaming, cached, cancelled, error paths). Mirrors the insertLog
+	// wrapper further down: miss one call site and the user gets billed for the
+	// first thing they ever did.
+	const calculateCosts: typeof _calculateCosts = async (...args) => {
+		const costs = await _calculateCosts(...args);
+		if (sponsoredOnboarding) {
+			zeroInferenceCosts(costs);
+		}
+		return costs;
+	};
 
 	// Parse JSON manually even if it's malformed
 	let rawBody: unknown;
@@ -1434,7 +1526,6 @@ chat.openapi(completions, async (c) => {
 		tool_choice,
 		routing,
 		free_models_only,
-		onboarding,
 		no_reasoning,
 		sensitive_word_check,
 		image_config,
@@ -1621,7 +1712,7 @@ chat.openapi(completions, async (c) => {
 	// exempt. n > 1 with streaming text-only output is fully supported.
 	if (n !== undefined && n > 1 && stream && tools) {
 		const functionToolsCount = tools.filter(
-			(t: { type: string }) => t.type !== "web_search",
+			(t: { type: string }) => t.type === "function",
 		).length;
 		if (functionToolsCount > 0) {
 			return c.json(
@@ -1667,11 +1758,30 @@ chat.openapi(completions, async (c) => {
 				max_uses: foundTool.max_uses,
 				allowed_domains: foundTool.allowed_domains,
 				blocked_domains: foundTool.blocked_domains,
+				// `tool_choice: {type: "web_search"}` demands a search rather than
+				// offering one. Carried on the extracted tool so routing, request
+				// shaping and billing all read the caller's intent from one place.
+				forced:
+					typeof tool_choice === "object" &&
+					tool_choice !== null &&
+					tool_choice.type === "web_search",
 			};
 			// Remove the web_search tool from the tools array so it's not sent as a regular tool
 			tools.splice(webSearchToolIndex, 1);
 		}
 	}
+
+	// A tool_choice that only forces web search says nothing about function
+	// tools, so it must not make a request look like it needs function-tool
+	// support — that would filter out providers that can search but not call
+	// functions, and reject custom models configured with tools disabled.
+	const forcesFunctionTools =
+		tool_choice !== undefined &&
+		!(
+			typeof tool_choice === "object" &&
+			tool_choice !== null &&
+			tool_choice.type === "web_search"
+		);
 
 	// Estimate prompt tokens once so all routing decisions can reuse the
 	// same value (e.g. cache-support weighting kicks in for large prompts).
@@ -1983,6 +2093,8 @@ chat.openapi(completions, async (c) => {
 	const providerDiscountResolver = createProviderDiscountResolver(
 		project.organizationId,
 	);
+	const providerRoutingScoreMultiplierResolver =
+		createProviderRoutingScoreMultiplierResolver();
 
 	// Candidates demoted by hybrid keyed-provider preference stay in the scores
 	// as last-resort retry targets: their worst-rank score keeps them behind
@@ -2128,7 +2240,15 @@ chat.openapi(completions, async (c) => {
 	// insertLog wrapper further down — can decide whether payload fields should
 	// be persisted. Orgs backing end-user wallets are always regular PAYG orgs,
 	// so the withWalletCredits substitution below never changes this value.
-	const retentionLevel = organization.retentionLevel ?? "none";
+	// A sponsored onboarding call is treated as non-retaining. Storage is billed
+	// separately from inference — the worker debits data_storage_cost for every
+	// mode, "even when inference itself was free or zeroed" — so leaving it on
+	// would push the zero-credit org we just waived the charge for into negative
+	// credits. Forcing it here rather than zeroing at each cost site keeps the
+	// two in step: no stored payloads, therefore no storage to charge for.
+	const retentionLevel = sponsoredOnboarding
+		? "none"
+		: (organization.retentionLevel ?? "none");
 
 	// Note: the end-user-wallet credits substitution (withWalletCredits) happens
 	// further below — orgs backing end-user wallets are always regular
@@ -2434,6 +2554,7 @@ chat.openapi(completions, async (c) => {
 	};
 	const retryOrganizationContext = {
 		id: organization.id,
+		safetyIdentifier: organization.safetyIdentifier,
 		credits: organization.credits,
 		plan: organization.plan,
 		kind: organization.kind,
@@ -2672,7 +2793,7 @@ chat.openapi(completions, async (c) => {
 	);
 	if (isStarterChatPlan && !isChatPlanModelAllowed("starter", modelInfo.id)) {
 		throw new HTTPException(403, {
-			message: `Model ${modelInfo.id} is not available on the Starter chat plan. Upgrade to Plus or Pro at chat.llmgateway.io/pricing to access frontier models.`,
+			message: `Model ${modelInfo.id} is not available on the Starter chat plan. Upgrade to Plus or Pro at lounge.llmgateway.io/pricing to access frontier models.`,
 		});
 	}
 
@@ -2803,6 +2924,33 @@ chat.openapi(completions, async (c) => {
 			throw new HTTPException(400, { message });
 		}
 		throw capabilityError;
+	}
+
+	// An offered web_search tool is exactly that — an offer. Every provider is
+	// free to answer without searching, and a 200 with no citations and no
+	// search cost is the ordinary outcome when a model decides the question
+	// doesn't need one.
+	//
+	// Some upstreams can only search on demand (see `webSearchForcedOnly`).
+	// Routing prefers a provider that can elect its own search, but when the
+	// resolved model has none — every mapping is search-on-demand-only, or the
+	// caller pinned one — there is nothing to prefer. Drop the offer rather
+	// than failing the request: declining to search is a normal answer, while a
+	// 400 would reject a request that works today.
+	if (webSearchTool && !webSearchTool.forced) {
+		const candidates = requestedProvider
+			? modelInfo.providers.filter(
+					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
+				)
+			: modelInfo.providers;
+		const canElectSearch = candidates.some(
+			(p) =>
+				(p as ProviderModelMapping).webSearch === true &&
+				(p as ProviderModelMapping).webSearchForcedOnly !== true,
+		);
+		if (!canElectSearch) {
+			webSearchTool = undefined;
+		}
 	}
 
 	let usedProvider = requestedProvider;
@@ -3093,7 +3241,7 @@ chat.openapi(completions, async (c) => {
 			}
 			if (
 				customModelEntry.tools === false &&
-				(tool_choice !== undefined || (tools && tools.length > 0))
+				(forcesFunctionTools || (tools && tools.length > 0))
 			) {
 				throw new HTTPException(400, {
 					message: `Model '${requestedModel}' is not configured to support tool calls. Remove the tools/tool_choice parameter or enable tools for this custom model.`,
@@ -3298,6 +3446,7 @@ chat.openapi(completions, async (c) => {
 		const now = new Date(); // Cache current time for deprecation checks
 		const autoFilterOpts = {
 			webSearchTool: !!webSearchTool,
+			webSearchForced: !!webSearchTool?.forced,
 			responseFormatType: response_format?.type,
 			hasImages,
 			hasAudio,
@@ -3307,7 +3456,7 @@ chat.openapi(completions, async (c) => {
 			// web_search is extracted from tools above and can leave an empty
 			// array; an empty tools list must not require function-tool support.
 			hasTools:
-				(tools !== undefined && tools.length > 0) || tool_choice !== undefined,
+				(tools !== undefined && tools.length > 0) || forcesFunctionTools,
 			reasoningEffort: reasoning_effort,
 			reasoningMaxTokens: reasoning_max_tokens,
 			noReasoning: no_reasoning,
@@ -3560,6 +3709,7 @@ chat.openapi(completions, async (c) => {
 					routingConfig: routingCfg,
 					organizationId: project.organizationId,
 					providerDiscountResolver,
+					providerRoutingScoreMultiplierResolver,
 				},
 			);
 
@@ -3835,6 +3985,7 @@ chat.openapi(completions, async (c) => {
 							routingConfig: routingCfg,
 							organizationId: project.organizationId,
 							providerDiscountResolver,
+							providerRoutingScoreMultiplierResolver,
 						},
 					);
 
@@ -3969,6 +4120,15 @@ chat.openapi(completions, async (c) => {
 					if (webSearchTool && provider.webSearch !== true) {
 						return false;
 					}
+					// Same rule the routing filter applies: search-on-demand-only
+					// mappings are not fallback candidates unless the caller forced.
+					if (
+						webSearchTool &&
+						!webSearchTool.forced &&
+						(provider as ProviderModelMapping).webSearchForcedOnly === true
+					) {
+						return false;
+					}
 					if (
 						response_format?.type === "json_object" ||
 						response_format?.type === "json_schema"
@@ -4049,6 +4209,7 @@ chat.openapi(completions, async (c) => {
 								routingConfig: routingCfg,
 								organizationId: project.organizationId,
 								providerDiscountResolver,
+								providerRoutingScoreMultiplierResolver,
 							},
 						);
 
@@ -4290,6 +4451,7 @@ chat.openapi(completions, async (c) => {
 									routingConfig: routingCfg,
 									organizationId: project.organizationId,
 									providerDiscountResolver,
+									providerRoutingScoreMultiplierResolver,
 								},
 							);
 
@@ -4368,7 +4530,22 @@ chat.openapi(completions, async (c) => {
 			});
 		}
 
-		if (iamFilteredModelProviders.length === 1) {
+		// Only a genuinely single candidate may skip provider selection. A bare
+		// model id (no provider prefix) leaves `modelInfo.providers` un-expanded:
+		// one entry per provider, its `region` undefined and the concrete regions
+		// still inside its `regions` array. Gating on that count alone therefore
+		// pins `usedRegion = undefined` for a provider with several regions and
+		// sends the request to the provider's default region, so `qwen3.7-plus`
+		// and `alibaba/qwen3.7-plus` — the same request, two spellings — resolve
+		// different regions at different prices. Gate on the expanded count as
+		// well so those candidates go through the routing branch below, which
+		// prices the regions against each other. Providers that pin their default
+		// region (AWS Bedrock) are collapsed straight back to it there by
+		// `applyPinnedDefaultRegions`, so their routing is unchanged.
+		if (
+			iamFilteredModelProviders.length === 1 &&
+			expandedIamFilteredModelProviders.length === 1
+		) {
 			usedProvider = iamFilteredModelProviders[0].providerId;
 			usedInternalModel = modelInfo.id;
 			usedExternalId = iamFilteredModelProviders[0].externalId;
@@ -4576,6 +4753,7 @@ chat.openapi(completions, async (c) => {
 						routingConfig: routingCfg,
 						organizationId: project.organizationId,
 						providerDiscountResolver,
+						providerRoutingScoreMultiplierResolver,
 					},
 				);
 
@@ -4845,6 +5023,7 @@ chat.openapi(completions, async (c) => {
 							routingConfig: routingCfg,
 							organizationId: project.organizationId,
 							providerDiscountResolver,
+							providerRoutingScoreMultiplierResolver,
 						},
 					);
 
@@ -5017,6 +5196,31 @@ chat.openapi(completions, async (c) => {
 	// credential via envVarName instead of blaming an unused DB key. Endpoint
 	// and option resolution still use providerKey for BYOK base URLs/options.
 	let trackedKeyHealthId: string | undefined;
+	// Whose key the current attempt is sending. Derived from `providerKey`
+	// alone — exactly like the `organizationProviderKeyId` that decides
+	// `usedMode` in createLogEntry — so the routing view can never claim an
+	// attempt ran on the caller's own key while billing it as credits.
+	// Read at each attempt because a retry can swap the credential (a failing
+	// BYOK key falling back to the platform credential in hybrid mode).
+	function currentCredentialSource(): RoutingCredentialSource {
+		return providerKey ? "byok" : "platform";
+	}
+	// How the current attempt's credential is named to the organization that
+	// owns it. Reads `providerKey` only, so a platform credential contributes
+	// nothing: its name and mask are operator-only and must never reach a
+	// tenant's routing view.
+	function currentProviderKeyIdentity(): {
+		providerKeyId?: string;
+		providerKeyLabel?: string;
+	} {
+		if (!providerKey) {
+			return {};
+		}
+		return {
+			providerKeyId: providerKey.id,
+			providerKeyLabel: providerKeyLabel(providerKey),
+		};
+	}
 	// Flex/Priority is only honored when the request reaches the provider's real
 	// upstream endpoint on a tier-capable location. Skip provider keys whose
 	// custom base URL (proxy) may silently drop the tier, and Vertex keys pinned
@@ -5125,9 +5329,16 @@ chat.openapi(completions, async (c) => {
 			if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
 				throw buildDevPlanCreditLimitError(organization);
 			}
-			throw new HTTPException(402, {
-				message: `Organization ${organization.id} has insufficient credits`,
-			});
+			// Only the plain zero-balance case is waived for onboarding: a brand new
+			// organization has no credits, and the call is never debited, so there is
+			// nothing here to protect. The plan allowances above are still enforced —
+			// an exhausted Dev/Chat plan is a cap the subscriber agreed to, not a
+			// starting balance, and sponsorship must not become a way around it.
+			if (!sponsoredOnboarding) {
+				throw new HTTPException(402, {
+					message: `Organization ${organization.id} has insufficient credits`,
+				});
+			}
 		}
 
 		if (usedProvider === "llmgateway") {
@@ -5251,10 +5462,14 @@ chat.openapi(completions, async (c) => {
 						"No API key set for provider. ",
 					);
 				}
-				throw new HTTPException(402, {
-					message:
-						"No API key set for provider and organization has insufficient credits",
-				});
+				// See the matching gate above: sponsorship waives only the plain
+				// zero-balance case, never a plan allowance.
+				if (!sponsoredOnboarding) {
+					throw new HTTPException(402, {
+						message:
+							"No API key set for provider and organization has insufficient credits",
+					});
+				}
 			}
 
 			if (usedProvider === "llmgateway") {
@@ -5328,7 +5543,10 @@ chat.openapi(completions, async (c) => {
 			project.organizationId,
 			usedInternalModel,
 			modelInfo as ModelDefinition,
-			{ skipEmailVerification: onboarding },
+			// Keyed on the secret-verified signal, not the `onboarding` body flag:
+			// that flag is client-supplied, so trusting it let any unverified account
+			// use free models by asserting its own onboarding.
+			{ skipEmailVerification: sponsoredOnboarding },
 		);
 	}
 
@@ -5416,8 +5634,15 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Check if organization has credits for data retention costs
-	// Data storage is billed at $0.01 per 1M tokens, so we need credits when retention is enabled
-	if (organization && organization.retentionLevel === "retain") {
+	// Data storage is billed at $0.01 per 1M tokens, so we need credits when retention is enabled.
+	// A sponsored onboarding call is exempt: its storage cost is zeroed below, so
+	// there is nothing to fund. Without this, a new account that turned retention
+	// on before finishing the wizard hits the very 402 this path exists to avoid.
+	if (
+		organization &&
+		organization.retentionLevel === "retain" &&
+		!sponsoredOnboarding
+	) {
 		const { totalAvailableCredits } = getAvailableCredits(organization);
 
 		if (totalAvailableCredits <= 0) {
@@ -5435,7 +5660,27 @@ chat.openapi(completions, async (c) => {
 	}
 
 	usedApiKeyHash = getApiKeyFingerprint(usedToken);
-	routingMetadata = withUsedApiKeyHash(routingMetadata, usedApiKeyHash);
+	routingMetadata = withUsedCredential(
+		routingMetadata,
+		usedApiKeyHash,
+		currentCredentialSource(),
+		currentProviderKeyIdentity(),
+	);
+	if (routingMetadata) {
+		// Same resolver (and therefore the same model-aware filter) the retry
+		// path uses, so the list never changes shape just because a request
+		// fell back.
+		const eligibleProviderKeys = await resolveEligibleProviderKeys({
+			projectMode: project.mode,
+			organizationId: project.organizationId,
+			provider: usedProvider,
+			usedInternalModel,
+			serviceTierKeyFilter,
+		});
+		if (eligibleProviderKeys) {
+			routingMetadata = { ...routingMetadata, eligibleProviderKeys };
+		}
+	}
 
 	// Vertex's OpenAI-compatible endpoint requires an OAuth2 access token
 	// derived from the configured service account JSON. The SA JSON is the
@@ -6602,6 +6847,7 @@ chat.openapi(completions, async (c) => {
 			prompt_cache_options,
 			sessionId,
 			reasoning_context,
+			organization.safetyIdentifier,
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
@@ -6779,6 +7025,10 @@ chat.openapi(completions, async (c) => {
 			originalRequestParams,
 			{
 				requestId,
+				// Every fallback candidate re-asserts credits against a platform
+				// credential, so the waiver has to travel with the retry or the
+				// sponsored call 402s the moment the first provider misbehaves.
+				sponsoredOnboarding,
 				stream: streamValue,
 				effectiveStream,
 				messages: messages as BaseMessage[],
@@ -6880,7 +7130,17 @@ chat.openapi(completions, async (c) => {
 		frequency_penalty = ctx.frequency_penalty;
 		presence_penalty = ctx.presence_penalty;
 		usedRegion = ctx.usedRegion;
-		routingMetadata = withUsedApiKeyHash(routingMetadata, usedApiKeyHash);
+		routingMetadata = withUsedCredential(
+			routingMetadata,
+			usedApiKeyHash,
+			currentCredentialSource(),
+			currentProviderKeyIdentity(),
+		);
+		if (routingMetadata) {
+			// A fallback can switch providers, so the candidate list has to follow
+			// the provider now in use rather than the one routing started on.
+			routingMetadata.eligibleProviderKeys = ctx.eligibleProviderKeys;
+		}
 		if (ctx.strippedParameters.length > 0 && routingMetadata) {
 			routingMetadata.strippedParameters = [
 				...new Set([
@@ -7680,6 +7940,8 @@ chat.openapi(completions, async (c) => {
 										{
 											region: usedRegion,
 											apiKeyHash: usedApiKeyHash,
+											credentialSource: currentCredentialSource(),
+											...currentProviderKeyIdentity(),
 											logId: attemptLogId,
 										},
 									),
@@ -7706,6 +7968,8 @@ chat.openapi(completions, async (c) => {
 										{
 											region: usedRegion,
 											apiKeyHash: usedApiKeyHash,
+											credentialSource: currentCredentialSource(),
+											...currentProviderKeyIdentity(),
 											logId: attemptLogId,
 										},
 									),
@@ -7725,6 +7989,8 @@ chat.openapi(completions, async (c) => {
 										{
 											region: usedRegion,
 											apiKeyHash: usedApiKeyHash,
+											credentialSource: currentCredentialSource(),
+											...currentProviderKeyIdentity(),
 											logId: attemptLogId,
 										},
 									),
@@ -7938,6 +8204,8 @@ chat.openapi(completions, async (c) => {
 										{
 											region: usedRegion,
 											apiKeyHash: usedApiKeyHash,
+											credentialSource: currentCredentialSource(),
+											...currentProviderKeyIdentity(),
 											logId: attemptLogId,
 										},
 									),
@@ -7964,6 +8232,8 @@ chat.openapi(completions, async (c) => {
 										{
 											region: usedRegion,
 											apiKeyHash: usedApiKeyHash,
+											credentialSource: currentCredentialSource(),
+											...currentProviderKeyIdentity(),
 											logId: attemptLogId,
 										},
 									),
@@ -7983,6 +8253,8 @@ chat.openapi(completions, async (c) => {
 										{
 											region: usedRegion,
 											apiKeyHash: usedApiKeyHash,
+											credentialSource: currentCredentialSource(),
+											...currentProviderKeyIdentity(),
 											logId: attemptLogId,
 										},
 									),
@@ -8295,6 +8567,8 @@ chat.openapi(completions, async (c) => {
 									{
 										region: usedRegion,
 										apiKeyHash: usedApiKeyHash,
+										credentialSource: currentCredentialSource(),
+										...currentProviderKeyIdentity(),
 										logId: attemptLogId,
 									},
 								),
@@ -8321,6 +8595,8 @@ chat.openapi(completions, async (c) => {
 									{
 										region: usedRegion,
 										apiKeyHash: usedApiKeyHash,
+										credentialSource: currentCredentialSource(),
+										...currentProviderKeyIdentity(),
 										logId: attemptLogId,
 									},
 								),
@@ -8340,6 +8616,8 @@ chat.openapi(completions, async (c) => {
 									{
 										region: usedRegion,
 										apiKeyHash: usedApiKeyHash,
+										credentialSource: currentCredentialSource(),
+										...currentProviderKeyIdentity(),
 										logId: attemptLogId,
 									},
 								),
@@ -8630,6 +8908,8 @@ chat.openapi(completions, async (c) => {
 									{
 										region: usedRegion,
 										apiKeyHash: usedApiKeyHash,
+										credentialSource: currentCredentialSource(),
+										...currentProviderKeyIdentity(),
 										logId: attemptLogId,
 									},
 								),
@@ -8656,6 +8936,8 @@ chat.openapi(completions, async (c) => {
 									{
 										region: usedRegion,
 										apiKeyHash: usedApiKeyHash,
+										credentialSource: currentCredentialSource(),
+										...currentProviderKeyIdentity(),
 										logId: attemptLogId,
 									},
 								),
@@ -8675,6 +8957,8 @@ chat.openapi(completions, async (c) => {
 									{
 										region: usedRegion,
 										apiKeyHash: usedApiKeyHash,
+										credentialSource: currentCredentialSource(),
+										...currentProviderKeyIdentity(),
 										logId: attemptLogId,
 									},
 								),
@@ -8730,6 +9014,8 @@ chat.openapi(completions, async (c) => {
 							{
 								region: usedRegion,
 								apiKeyHash: usedApiKeyHash,
+								credentialSource: currentCredentialSource(),
+								...currentProviderKeyIdentity(),
 								logId: finalLogId,
 							},
 						),
@@ -8836,15 +9122,19 @@ chat.openapi(completions, async (c) => {
 				let outputImageCount = 0; // Track number of output images for cost calculation
 				// Track web search calls for cost calculation. Providers that report
 				// no search metadata in the stream are counted up front: zai, and
-				// the DashScope-compatible endpoints where we force the search.
+				// the DashScope-compatible endpoints, which search only when the
+				// caller forced it and then always do.
 				let webSearchCount =
 					webSearchTool &&
 					(usedProvider === "zai" ||
-						usedProvider === "alibaba" ||
-						usedProvider === "scx-ai-gp")
+						((usedProvider === "alibaba" || usedProvider === "scx-ai-gp") &&
+							webSearchTool.forced))
 						? 1
 						: 0;
 				const serverToolUseIndices = new Set<number>(); // Track Anthropic server_tool_use block indices
+				// Accumulates Anthropic tool search calls until their result block
+				// arrives, so the pair can be forwarded to native clients intact.
+				const toolSearchState: AnthropicToolSearchState = new Map();
 				let sawUpstreamDoneSentinel = false;
 				let sawProviderTerminalEvent = false;
 				let sawOpenAiResponsesDoneEvent = false;
@@ -9708,6 +9998,7 @@ chat.openapi(completions, async (c) => {
 									messages,
 									serverToolUseIndices,
 									supportsReasoning,
+									toolSearchState,
 								);
 
 								// Skip null events (some providers have non-data events)
@@ -10547,14 +10838,39 @@ chat.openapi(completions, async (c) => {
 						const responseText = hasBufferedNonWhitespace
 							? buffer.slice(0, 5000)
 							: "Stream ended before a terminal finish reason or [DONE] event";
+						// A provider can shed a stream mid-flight by writing one
+						// structured JSON error as a raw body tail (not an SSE event)
+						// before closing — the Gemini API does this when Flex-tier
+						// capacity is shed (503 UNAVAILABLE "high demand"). Surface that
+						// error instead of the generic truncation message so callers see
+						// the real, retryable cause.
+						const trailingUpstreamError = parseTrailingUpstreamError(buffer);
+						const statusCode = trailingUpstreamError
+							? inferStreamingErrorStatusCode(
+									trailingUpstreamError,
+									responseText,
+								)
+							: 502;
 						const errorMessage =
-							"Upstream stream terminated unexpectedly before completion";
+							trailingUpstreamError &&
+							typeof trailingUpstreamError.message === "string"
+								? trailingUpstreamError.message
+								: "Upstream stream terminated unexpectedly before completion";
+						const errorCode = trailingUpstreamError
+							? typeof trailingUpstreamError.code === "string"
+								? trailingUpstreamError.code
+								: typeof trailingUpstreamError.status === "string"
+									? trailingUpstreamError.status
+									: "stream_truncated"
+							: "stream_truncated";
 
 						logger.warn("[streaming] Stream ended without terminal event", {
 							provider: usedProvider,
 							model: usedInternalModel,
 							bufferLength: buffer.length,
 							fullContentLength: fullContent.length,
+							hasTrailingUpstreamError: trailingUpstreamError !== null,
+							statusCode,
 							hasToolCalls:
 								!!streamingToolCalls && streamingToolCalls.length > 0,
 							unifiedFinishReason: getUnifiedFinishReason(
@@ -10566,9 +10882,9 @@ chat.openapi(completions, async (c) => {
 						streamingError = {
 							message: errorMessage,
 							type: "upstream_error",
-							code: "stream_truncated",
+							code: errorCode,
 							details: {
-								statusCode: 502,
+								statusCode,
 								statusText: "Upstream Stream Terminated",
 								responseText,
 								timestamp: new Date().toISOString(),
@@ -10579,16 +10895,27 @@ chat.openapi(completions, async (c) => {
 						};
 						finishReason = "upstream_error";
 
+						// A stealth provider's raw error tail (and vocabulary) must not
+						// reach the client; the unredacted payload above still feeds the
+						// internal-only log columns.
+						const redactTruncationError =
+							shouldRedactProviderError(usedProvider);
 						try {
 							await writeSSEAndCache({
 								event: "error",
 								data: JSON.stringify({
 									error: {
-										message: errorMessage,
+										message: redactTruncationError
+											? redactedProviderErrorText(statusCode)
+											: errorMessage,
 										type: "upstream_error",
-										code: "stream_truncated",
+										code: redactTruncationError
+											? "stream_truncated"
+											: errorCode,
 										param: null,
-										responseText,
+										responseText: redactTruncationError
+											? redactedProviderErrorText(statusCode)
+											: responseText,
 									},
 								}),
 								id: String(eventId++),
@@ -11163,9 +11490,26 @@ chat.openapi(completions, async (c) => {
 										explicitCacheUsed,
 										servedServiceTier,
 										customPricing: customPricingMapping,
+										// A stream that died never delivered a usage frame, so
+										// there is nothing to estimate from but the partial text
+										// and tool-call JSON that happened to arrive. Don't guess.
+										allowOutputEstimate: streamingError === null,
 									},
 									finishReason === "content_filter",
 								));
+
+					// A stream that ended in a gateway- or upstream-side failure returns
+					// an error to the caller, so it is not billed for the tokens the
+					// provider emitted before dying. Cancellations are excluded so
+					// aborting a stream stays billable and cannot be used as a billing
+					// bypass (GHSA-724j-f2pf-phf7).
+					if (
+						!canceled &&
+						streamingError !== null &&
+						!isBilledFailureFinishReason(finishReason)
+					) {
+						zeroInferenceCosts(costs);
+					}
 
 					// Use costs.promptTokens as canonical value (includes image input
 					// tokens for providers that exclude them from upstream usage)
@@ -11177,6 +11521,53 @@ chat.openapi(completions, async (c) => {
 							calculatedTotalTokens =
 								(calculatedTotalTokens ?? 0) + promptDelta;
 						}
+					}
+
+					// Same for the completion count. calculateCosts derives its own
+					// estimate when the provider reported none, and that estimate is what
+					// the charge is computed from — so it has to be what the log records.
+					// Without this the row can read "0 completion tokens" next to a large
+					// output cost, which is how phantom charges stayed invisible until a
+					// customer noticed them.
+					if (
+						costs.completionTokens !== null &&
+						costs.completionTokens !== undefined
+					) {
+						const completionDelta =
+							costs.completionTokens - (calculatedCompletionTokens ?? 0);
+						if (completionDelta > 0) {
+							calculatedCompletionTokens = costs.completionTokens;
+							calculatedTotalTokens =
+								(calculatedTotalTokens ?? 0) + completionDelta;
+						}
+					}
+
+					// A successful stream that never reported a completion count means the
+					// provider ignored our `stream_options: { include_usage: true }`.
+					// Surface it rather than papering over it with an estimate: the fix
+					// belongs in the request we send that provider, and until then its
+					// output is billed at 0 rather than at a guess.
+					// Deliberately narrower than the "billed on estimated token counts"
+					// warning in calculateCosts, so one event never logs twice: this
+					// fires only when the output ended up billed at zero.
+					if (
+						!streamingError &&
+						!canceled &&
+						!completionTokens &&
+						!costs.completionTokens &&
+						(fullContent.length > 0 ||
+							(streamingToolCalls && streamingToolCalls.length > 0))
+					) {
+						logger.warn(
+							"[streaming] Provider reported no completion tokens on a successful stream",
+							{
+								provider: usedProvider,
+								model: usedInternalModel,
+								finishReason,
+								contentLength: fullContent.length,
+								toolCallCount: streamingToolCalls?.length ?? 0,
+							},
+						);
 					}
 
 					// Extract plugin IDs for logging
@@ -12011,6 +12402,8 @@ chat.openapi(completions, async (c) => {
 						{
 							region: usedRegion,
 							apiKeyHash: usedApiKeyHash,
+							credentialSource: currentCredentialSource(),
+							...currentProviderKeyIdentity(),
 							logId: attemptLogId,
 						},
 					),
@@ -12037,6 +12430,8 @@ chat.openapi(completions, async (c) => {
 						{
 							region: usedRegion,
 							apiKeyHash: usedApiKeyHash,
+							credentialSource: currentCredentialSource(),
+							...currentProviderKeyIdentity(),
 							logId: attemptLogId,
 						},
 					),
@@ -12056,6 +12451,8 @@ chat.openapi(completions, async (c) => {
 						{
 							region: usedRegion,
 							apiKeyHash: usedApiKeyHash,
+							credentialSource: currentCredentialSource(),
+							...currentProviderKeyIdentity(),
 							logId: attemptLogId,
 						},
 					),
@@ -12513,6 +12910,8 @@ chat.openapi(completions, async (c) => {
 						{
 							region: usedRegion,
 							apiKeyHash: usedApiKeyHash,
+							credentialSource: currentCredentialSource(),
+							...currentProviderKeyIdentity(),
 							logId: attemptLogId,
 						},
 					),
@@ -12539,6 +12938,8 @@ chat.openapi(completions, async (c) => {
 						{
 							region: usedRegion,
 							apiKeyHash: usedApiKeyHash,
+							credentialSource: currentCredentialSource(),
+							...currentProviderKeyIdentity(),
 							logId: attemptLogId,
 						},
 					),
@@ -12558,6 +12959,8 @@ chat.openapi(completions, async (c) => {
 						{
 							region: usedRegion,
 							apiKeyHash: usedApiKeyHash,
+							credentialSource: currentCredentialSource(),
+							...currentProviderKeyIdentity(),
 							logId: attemptLogId,
 						},
 					),
@@ -12689,6 +13092,8 @@ chat.openapi(completions, async (c) => {
 				{
 					region: usedRegion,
 					apiKeyHash: usedApiKeyHash,
+					credentialSource: currentCredentialSource(),
+					...currentProviderKeyIdentity(),
 					logId: finalLogId,
 				},
 			),
@@ -13068,6 +13473,8 @@ chat.openapi(completions, async (c) => {
 						{
 							region: usedRegion,
 							apiKeyHash: usedApiKeyHash,
+							credentialSource: currentCredentialSource(),
+							...currentProviderKeyIdentity(),
 							logId: finalLogId,
 						},
 					);
@@ -13244,6 +13651,7 @@ chat.openapi(completions, async (c) => {
 		supportsReasoning,
 		splitTaggedReasoning,
 		!!webSearchTool,
+		!!webSearchTool?.forced,
 	);
 	let { content, totalTokens } = parsedResponse;
 	const {
@@ -13425,6 +13833,40 @@ chat.openapi(completions, async (c) => {
 		zeroInferenceCosts(costs);
 	}
 
+	// Check if the non-streaming response is empty (no content, tokens, or tool
+	// calls). Exclude content filter responses as they are intentionally empty.
+	const isContentFilterResponse = isContentFilterFinishReason(
+		finishReason,
+		usedProvider,
+	);
+	// A length-limit finish reason (e.g. a tiny `max_tokens`) can legitimately
+	// produce no content at all, so an empty response in that case is expected
+	// behavior rather than an upstream error.
+	const isLengthLimitResponse = isLengthLimitFinishReason(
+		finishReason,
+		usedProvider,
+	);
+	const hasEmptyNonStreamingResponse =
+		!!finishReason &&
+		finishReason !== "incomplete" &&
+		!isContentFilterResponse &&
+		!isLengthLimitResponse &&
+		!hasMeaningfulAssistantOutput({
+			completionTokens: calculatedCompletionTokens,
+			reasoningTokens: calculatedReasoningTokens,
+			content,
+			toolResults,
+			images: convertedImages,
+		});
+
+	// An empty response is recorded as an upstream error and hands the caller
+	// nothing usable, so it is not billed. Computed before
+	// transformResponseToOpenai so the cost echoed back to the client matches
+	// what the log is charged.
+	if (hasEmptyNonStreamingResponse) {
+		zeroInferenceCosts(costs);
+	}
+
 	costs.dataStorageCost = toDataStorageCostNumber(
 		costs.promptTokens ?? calculatedPromptTokens,
 		cachedTokens,
@@ -13550,6 +13992,17 @@ chat.openapi(completions, async (c) => {
 		transformedResponse.choices[0].message.message_items =
 			parsedResponse.messageItems;
 	}
+	// Surface Anthropic's server-side tool search blocks so the /v1/messages
+	// layer can hand them back to the client, which replays them on the next
+	// turn — that is what lets Claude reuse an already discovered tool.
+	if (
+		parsedResponse.anthropicNativeBlocks &&
+		parsedResponse.anthropicNativeBlocks.length > 0 &&
+		transformedResponse.choices?.[0]?.message
+	) {
+		transformedResponse.choices[0].message.anthropic_native_blocks =
+			parsedResponse.anthropicNativeBlocks;
+	}
 	// Surface the effective reasoning context the provider applied so the
 	// Responses layer reports the served mode rather than echoing the request.
 	if (parsedResponse.reasoningContext) {
@@ -13604,32 +14057,6 @@ chat.openapi(completions, async (c) => {
 		pluginIds,
 		Object.keys(pluginResults).length > 0 ? pluginResults : undefined,
 	);
-
-	// Check if the non-streaming response is empty (no content, tokens, or tool calls)
-	// Exclude content filter responses as they are intentionally empty.
-	const isContentFilterResponse = isContentFilterFinishReason(
-		finishReason,
-		usedProvider,
-	);
-	// A length-limit finish reason (e.g. a tiny `max_tokens`) can legitimately
-	// produce no content at all, so an empty response in that case is expected
-	// behavior rather than an upstream error.
-	const isLengthLimitResponse = isLengthLimitFinishReason(
-		finishReason,
-		usedProvider,
-	);
-	const hasEmptyNonStreamingResponse =
-		!!finishReason &&
-		finishReason !== "incomplete" &&
-		!isContentFilterResponse &&
-		!isLengthLimitResponse &&
-		!hasMeaningfulAssistantOutput({
-			completionTokens: calculatedCompletionTokens,
-			reasoningTokens: calculatedReasoningTokens,
-			content,
-			toolResults,
-			images: convertedImages,
-		});
 
 	if (hasEmptyNonStreamingResponse) {
 		logger.debug("Empty non-streaming response detected", {

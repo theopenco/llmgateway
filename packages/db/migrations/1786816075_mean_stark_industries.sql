@@ -1,0 +1,2 @@
+ALTER TABLE "organization" ADD COLUMN "safety_identifier" text DEFAULT 'org_' || replace(gen_random_uuid()::text, '-', '') NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "organization_safety_identifier_uidx" ON "organization" ("safety_identifier");

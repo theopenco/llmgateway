@@ -1,12 +1,22 @@
 import { ImageResponse } from "next/og";
 
-import { getFeatureBySlug } from "@/lib/features";
+import { features, getFeatureBySlug } from "@/lib/features";
 
 export const size = {
 	width: 1200,
 	height: 630,
 };
 export const contentType = "image/png";
+
+// Prerendered at build time: rendering these cards on demand runs satori inside
+// the request, which the production pods do not have the headroom for and which
+// took the whole route down with a 503. dynamicParams keeps unknown slugs from
+// reaching the renderer at runtime at all.
+export const dynamicParams = false;
+
+export function generateStaticParams() {
+	return features.map((feature) => ({ slug: feature.slug }));
+}
 
 // Feature icons as SVGs (inline for ImageResponse compatibility)
 const featureIcons: Record<string, () => React.JSX.Element> = {

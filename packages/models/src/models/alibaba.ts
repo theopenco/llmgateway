@@ -79,6 +79,10 @@ export const alibabaModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				// Both declared regions are dead: Singapore answers 403 access_denied
+				// and Beijing 404 model_not_found, while plain `qwen-max` still serves
+				// in both.
+				deactivatedAt: new Date("2026-08-11"),
 			},
 		],
 	},
@@ -119,6 +123,7 @@ export const alibabaModels = [
 				],
 				regions: [
 					{ id: "singapore" },
+					{ id: "eu-frankfurt" },
 					{
 						id: "us-virginia",
 						inputPrice: "0.115e-6",
@@ -320,6 +325,52 @@ export const alibabaModels = [
 						],
 					},
 					{
+						id: "eu-frankfurt",
+						pricingTiers: [
+							{
+								name: "Up to 256K",
+								upToTokens: 256000,
+								inputPrice: "0.05e-6",
+								outputPrice: "0.4e-6",
+								cachedInputPrice: "0.01e-6",
+								cacheReadInputPrice: "0.005e-6",
+								cacheWriteInputPrice: "0.0625e-6",
+							},
+							{
+								name: "Over 256K",
+								upToTokens: Infinity,
+								inputPrice: "0.25e-6",
+								outputPrice: "2.0e-6",
+								cachedInputPrice: "0.05e-6",
+								cacheReadInputPrice: "0.025e-6",
+								cacheWriteInputPrice: "0.3125e-6",
+							},
+						],
+					},
+					{
+						id: "us-virginia",
+						pricingTiers: [
+							{
+								name: "Up to 256K",
+								upToTokens: 256000,
+								inputPrice: "0.05e-6",
+								outputPrice: "0.4e-6",
+								cachedInputPrice: "0.01e-6",
+								cacheReadInputPrice: "0.005e-6",
+								cacheWriteInputPrice: "0.0625e-6",
+							},
+							{
+								name: "Over 256K",
+								upToTokens: Infinity,
+								inputPrice: "0.25e-6",
+								outputPrice: "2.0e-6",
+								cachedInputPrice: "0.05e-6",
+								cacheReadInputPrice: "0.025e-6",
+								cacheWriteInputPrice: "0.3125e-6",
+							},
+						],
+					},
+					{
 						id: "cn-beijing",
 						inputPrice: "0.022e-6",
 						outputPrice: "0.216e-6",
@@ -379,6 +430,7 @@ export const alibabaModels = [
 				externalId: "qwen-omni-turbo",
 				inputPrice: "0.2e-6",
 				outputPrice: "0.8e-6",
+				regions: [{ id: "singapore" }, { id: "cn-beijing" }],
 				requestPrice: "0",
 				contextSize: 32768,
 				maxOutput: 8192,
@@ -1375,6 +1427,14 @@ export const alibabaModels = [
 				cacheWriteInputPrice: "3.125e-6",
 				regions: [
 					{ id: "singapore" },
+					{
+						id: "eu-frankfurt",
+						inputPrice: "1.65e-6",
+						outputPrice: "4.951e-6",
+						cachedInputPrice: "0.33e-6",
+						cacheReadInputPrice: "0.165e-6",
+						cacheWriteInputPrice: "2.0625e-6",
+					},
 					{ id: "us-virginia" },
 					{
 						id: "cn-beijing",
@@ -1404,6 +1464,7 @@ export const alibabaModels = [
 				vision: false,
 				tools: true,
 				webSearch: true,
+				webSearchForcedOnly: true,
 				webSearchPrice: "0.01",
 				jsonOutput: true,
 				// Qwen thinking models reject tool_choice "required" or object
@@ -1518,6 +1579,34 @@ export const alibabaModels = [
 				],
 				regions: [
 					{ id: "singapore" },
+					{
+						id: "eu-frankfurt",
+						inputPrice: "0.276e-6",
+						outputPrice: "1.101e-6",
+						cachedInputPrice: "0.0552e-6",
+						cacheReadInputPrice: "0.0276e-6",
+						cacheWriteInputPrice: "0.345e-6",
+						pricingTiers: [
+							{
+								name: "Up to 256K",
+								upToTokens: 256000,
+								inputPrice: "0.276e-6",
+								outputPrice: "1.101e-6",
+								cachedInputPrice: "0.0552e-6",
+								cacheReadInputPrice: "0.0276e-6",
+								cacheWriteInputPrice: "0.345e-6",
+							},
+							{
+								name: "Over 256K",
+								upToTokens: Infinity,
+								inputPrice: "0.826e-6",
+								outputPrice: "3.301e-6",
+								cachedInputPrice: "0.1652e-6",
+								cacheReadInputPrice: "0.0826e-6",
+								cacheWriteInputPrice: "1.0325e-6",
+							},
+						],
+					},
 					{ id: "us-virginia" },
 					{ id: "cn-beijing" },
 				],
@@ -1601,7 +1690,12 @@ export const alibabaModels = [
 						cacheWriteInputPrice: "0.25e-6",
 					},
 				],
-				regions: [{ id: "singapore" }, { id: "cn-beijing" }],
+				regions: [
+					{ id: "singapore" },
+					{ id: "eu-frankfurt" },
+					{ id: "us-virginia" },
+					{ id: "cn-beijing" },
+				],
 				requestPrice: "0",
 				contextSize: 1000000,
 				maxOutput: 65536,
@@ -1655,6 +1749,12 @@ export const alibabaModels = [
 				cachedInputPrice: "0.25e-6",
 				cacheReadInputPrice: "0.17e-6",
 				cacheWriteInputPrice: "2.5e-6",
+				regions: [
+					{ id: "singapore" },
+					{ id: "eu-frankfurt" },
+					{ id: "us-virginia" },
+					{ id: "cn-beijing" },
+				],
 				requestPrice: "0",
 				contextSize: 1000000,
 				maxOutput: 131072,
@@ -1665,6 +1765,7 @@ export const alibabaModels = [
 				vision: true,
 				tools: true,
 				webSearch: true,
+				webSearchForcedOnly: true,
 				webSearchPrice: "0.01",
 				jsonOutput: true,
 				// Qwen thinking models reject tool_choice "required" or object
@@ -1699,6 +1800,7 @@ export const alibabaModels = [
 				vision: true,
 				tools: true,
 				webSearch: true,
+				webSearchForcedOnly: true,
 				webSearchPrice: "0.01",
 				jsonOutput: true,
 				supportedParameters: [
@@ -1928,8 +2030,12 @@ export const alibabaModels = [
 				externalId: "qwen3.5-397b-a17b",
 				inputPrice: "0.6e-6",
 				outputPrice: "3.6e-6",
+				// No eu-frankfurt: the model answers there, but takes ~120s even for a
+				// single token and returns garbage content, while other models on the
+				// same host reply in ~2s. Tool calls and JSON output never return.
 				regions: [
 					{ id: "singapore" },
+					{ id: "us-virginia" },
 					{
 						id: "cn-beijing",
 						inputPrice: "0.172e-6",
@@ -1968,6 +2074,7 @@ export const alibabaModels = [
 				vision: true,
 				tools: true,
 				webSearch: true,
+				webSearchForcedOnly: true,
 				webSearchPrice: "0.01",
 				jsonOutput: true,
 				// Qwen thinking models reject tool_choice "required" or object
@@ -2259,7 +2366,7 @@ export const alibabaModels = [
 				externalId: "qwen-coder-plus",
 				inputPrice: "0.502e-6",
 				outputPrice: "1.004e-6",
-				regions: [{ id: "cn-beijing" }],
+				regions: [{ id: "singapore" }, { id: "cn-beijing" }],
 				requestPrice: "0",
 				contextSize: 131072,
 				maxOutput: 8192,
@@ -2288,6 +2395,47 @@ export const alibabaModels = [
 				regions: [
 					{
 						id: "singapore",
+						pricingTiers: [
+							{
+								name: "Up to 32K",
+								upToTokens: 32000,
+								inputPrice: "0.3e-6",
+								outputPrice: "1.5e-6",
+								cachedInputPrice: "0.06e-6",
+								cacheReadInputPrice: "0.03e-6",
+								cacheWriteInputPrice: "0.375e-6",
+							},
+							{
+								name: "32K-128K",
+								upToTokens: 128000,
+								inputPrice: "0.5e-6",
+								outputPrice: "2.5e-6",
+								cachedInputPrice: "0.1e-6",
+								cacheReadInputPrice: "0.05e-6",
+								cacheWriteInputPrice: "0.625e-6",
+							},
+							{
+								name: "128K-256K",
+								upToTokens: 256000,
+								inputPrice: "0.8e-6",
+								outputPrice: "4.0e-6",
+								cachedInputPrice: "0.16e-6",
+								cacheReadInputPrice: "0.08e-6",
+								cacheWriteInputPrice: "1.0e-6",
+							},
+							{
+								name: "Over 256K",
+								upToTokens: Infinity,
+								inputPrice: "1.6e-6",
+								outputPrice: "9.6e-6",
+								cachedInputPrice: "0.32e-6",
+								cacheReadInputPrice: "0.16e-6",
+								cacheWriteInputPrice: "2.0e-6",
+							},
+						],
+					},
+					{
+						id: "eu-frankfurt",
 						pricingTiers: [
 							{
 								name: "Up to 32K",
@@ -2448,6 +2596,38 @@ export const alibabaModels = [
 				regions: [
 					{
 						id: "singapore",
+						pricingTiers: [
+							{
+								name: "Up to 32K",
+								upToTokens: 32000,
+								inputPrice: "0.2e-6",
+								outputPrice: "1.6e-6",
+								cachedInputPrice: "0.04e-6",
+								cacheReadInputPrice: "0.02e-6",
+								cacheWriteInputPrice: "0.25e-6",
+							},
+							{
+								name: "32K-128K",
+								upToTokens: 128000,
+								inputPrice: "0.3e-6",
+								outputPrice: "2.4e-6",
+								cachedInputPrice: "0.06e-6",
+								cacheReadInputPrice: "0.03e-6",
+								cacheWriteInputPrice: "0.375e-6",
+							},
+							{
+								name: "128K-256K",
+								upToTokens: 256000,
+								inputPrice: "0.6e-6",
+								outputPrice: "4.8e-6",
+								cachedInputPrice: "0.12e-6",
+								cacheReadInputPrice: "0.06e-6",
+								cacheWriteInputPrice: "0.75e-6",
+							},
+						],
+					},
+					{
+						id: "eu-frankfurt",
 						pricingTiers: [
 							{
 								name: "Up to 32K",
@@ -2792,6 +2972,10 @@ export const alibabaModels = [
 				vision: true,
 				tools: false,
 				jsonOutput: true,
+				// Model Studio answers 403 access_denied on both hosts that serve it
+				// (Singapore and Beijing) and 404s everywhere else, so no request can
+				// succeed on this mapping.
+				deactivatedAt: new Date("2026-08-11"),
 			},
 		],
 	},
@@ -3041,7 +3225,17 @@ export const alibabaModels = [
 				inputPrice: "0.5e-6",
 				outputPrice: "3e-6",
 				cachedInputPrice: "0.05e-6",
-				regions: [{ id: "singapore" }],
+				regions: [
+					{ id: "singapore" },
+					{
+						id: "eu-frankfurt",
+						inputPrice: "0.276e-6",
+						outputPrice: "1.651e-6",
+						cachedInputPrice: "0.0276e-6",
+					},
+					{ id: "us-virginia" },
+					{ id: "cn-beijing" },
+				],
 				requestPrice: "0",
 				contextSize: 262144,
 				maxOutput: 65536,
@@ -3060,6 +3254,7 @@ export const alibabaModels = [
 				vision: true,
 				tools: true,
 				webSearch: true,
+				webSearchForcedOnly: true,
 				webSearchPrice: "0.01",
 				jsonOutput: true,
 				// Qwen thinking models reject tool_choice "required" or object
@@ -3091,7 +3286,12 @@ export const alibabaModels = [
 				externalId: "qwen3.6-35b-a3b",
 				inputPrice: "0.248e-6",
 				outputPrice: "1.485e-6",
-				regions: [{ id: "singapore" }],
+				regions: [
+					{ id: "singapore" },
+					{ id: "eu-frankfurt" },
+					{ id: "us-virginia" },
+					{ id: "cn-beijing" },
+				],
 				requestPrice: "0",
 				contextSize: 262144,
 				maxOutput: 65536,
@@ -3110,6 +3310,7 @@ export const alibabaModels = [
 				vision: true,
 				tools: true,
 				webSearch: true,
+				webSearchForcedOnly: true,
 				webSearchPrice: "0.01",
 				jsonOutput: true,
 				// Qwen thinking models reject tool_choice "required" or object
@@ -3192,6 +3393,7 @@ export const alibabaModels = [
 				],
 				regions: [
 					{ id: "singapore" },
+					{ id: "eu-frankfurt" },
 					{
 						id: "us-virginia",
 						inputPrice: "0.165e-6",

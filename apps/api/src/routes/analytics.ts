@@ -3,19 +3,20 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import {
+	MAX_ORG_ACTIVITY_RANGE_DAYS,
+	rangeDaysInclusive,
+	resolveDateRange,
+} from "@/lib/date-range.js";
+import {
 	mapModeSplit,
 	modeSplitFields,
 	modeSplitSchema,
 } from "@/lib/mode-split.js";
+import { getOrgProjectIds } from "@/lib/org-projects.js";
 import { requireEnterpriseAdmin } from "@/lib/require-enterprise-admin.js";
 import { getUserUsageBreakdown } from "@/lib/user-usage-breakdown.js";
 import { userHasProjectAccess } from "@/utils/authorization.js";
-import {
-	bucketDate,
-	formatInTimeZone,
-	timezoneQueryField,
-	zonedTimeToUtc,
-} from "@/utils/timezone.js";
+import { bucketDate, timezoneQueryField } from "@/utils/timezone.js";
 
 import {
 	and,
@@ -27,7 +28,6 @@ import {
 	gte,
 	inArray,
 	lte,
-	ne,
 	projectHourlyModelStats,
 	projectHourlyStats,
 	sql,
@@ -47,57 +47,6 @@ const dateRangeQuery = {
 	to: z.string().optional(),
 	timezone: timezoneQueryField,
 };
-
-// Resolve the query window and the local calendar day-labels used to pad the
-// series. from/to are interpreted as wall-clock days in the caller's timezone
-// (defaulting to UTC), so the returned fromStr/toStr always line up with the
-// day buckets the SQL produces.
-function resolveDateRange(
-	from: string | undefined,
-	to: string | undefined,
-	timeZone: string,
-): {
-	startDate: Date;
-	endDate: Date;
-	fromStr: string;
-	toStr: string;
-} {
-	if (from && to) {
-		if (
-			Number.isNaN(Date.parse(from + "T00:00:00Z")) ||
-			Number.isNaN(Date.parse(to + "T00:00:00Z"))
-		) {
-			throw new HTTPException(400, {
-				message: "Invalid from/to date (expected YYYY-MM-DD)",
-			});
-		}
-		const startDate = zonedTimeToUtc(from + "T00:00:00.000", timeZone);
-		const endDate = zonedTimeToUtc(to + "T23:59:59.999", timeZone);
-		return { startDate, endDate, fromStr: from, toStr: to };
-	}
-	const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
-	const endDate = new Date();
-	const startDate = new Date(endDate.getTime() - sevenDaysMs);
-	return {
-		startDate,
-		endDate,
-		fromStr: formatInTimeZone(startDate, timeZone, false),
-		toStr: formatInTimeZone(endDate, timeZone, false),
-	};
-}
-
-async function getOrgProjectIds(organizationId: string): Promise<string[]> {
-	const projects = await db
-		.select({ id: tables.project.id })
-		.from(tables.project)
-		.where(
-			and(
-				eq(tables.project.organizationId, organizationId),
-				ne(tables.project.status, "deleted"),
-			),
-		);
-	return projects.map((p) => p.id);
-}
 
 const memberUsageSchema = z.object({
 	userId: z.string(),
@@ -197,7 +146,9 @@ analytics.openapi(getMembersUsage, async (c) => {
 	const usageRows = await db
 		.select({
 			apiKeyId: apiKeyHourlyStats.apiKeyId,
-			cost: sql<number>`SUM(${apiKeyHourlyStats.cost})`.as("cost"),
+			cost: sql<number>`SUM(cast(${apiKeyHourlyStats.cost} as double precision))`.as(
+				"cost",
+			),
 			totalTokens:
 				sql<number>`SUM(CAST(${apiKeyHourlyStats.totalTokens} AS NUMERIC))`.as(
 					"total_tokens",
@@ -453,7 +404,9 @@ analytics.openapi(getMemberDetail, async (c) => {
 
 	const summaryRows = await db
 		.select({
-			cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as("cost"),
+			cost: sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.cost} as double precision)), 0)`.as(
+				"cost",
+			),
 			inputTokens:
 				sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.inputTokens} AS NUMERIC)), 0)`.as(
 					"input_tokens",
@@ -509,7 +462,9 @@ analytics.openapi(getMemberDetail, async (c) => {
 		.select({
 			usedModel: apiKeyHourlyModelStats.usedModel,
 			usedProvider: apiKeyHourlyModelStats.usedProvider,
-			cost: sql<number>`SUM(${apiKeyHourlyModelStats.cost})`.as("cost"),
+			cost: sql<number>`SUM(cast(${apiKeyHourlyModelStats.cost} as double precision))`.as(
+				"cost",
+			),
 			requestCount: sql<number>`SUM(${apiKeyHourlyModelStats.requestCount})`.as(
 				"request_count",
 			),
@@ -531,7 +486,9 @@ analytics.openapi(getMemberDetail, async (c) => {
 			apiKeyHourlyModelStats.usedModel,
 			apiKeyHourlyModelStats.usedProvider,
 		)
-		.orderBy(desc(sql`SUM(${apiKeyHourlyModelStats.cost})`));
+		.orderBy(
+			desc(sql`SUM(cast(${apiKeyHourlyModelStats.cost} as double precision))`),
+		);
 
 	const costByModel = modelRows
 		.map((r) => ({
@@ -590,7 +547,7 @@ analytics.openapi(getMemberDetail, async (c) => {
 			).as("date"),
 			usedModel: apiKeyHourlyModelStats.usedModel,
 			usedProvider: apiKeyHourlyModelStats.usedProvider,
-			cost: sql<number>`COALESCE(SUM(${apiKeyHourlyModelStats.cost}), 0)`.as(
+			cost: sql<number>`COALESCE(SUM(cast(${apiKeyHourlyModelStats.cost} as double precision)), 0)`.as(
 				"cost",
 			),
 			requestCount:
@@ -782,7 +739,9 @@ analytics.openapi(getSelfUsage, async (c) => {
 
 	const summaryRows = await db
 		.select({
-			cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as("cost"),
+			cost: sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.cost} as double precision)), 0)`.as(
+				"cost",
+			),
 			inputTokens:
 				sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.inputTokens} AS NUMERIC)), 0)`.as(
 					"input_tokens",
@@ -833,7 +792,9 @@ analytics.openapi(getSelfUsage, async (c) => {
 			date: bucketDate(apiKeyHourlyStats.hourTimestamp, timeZone, false).as(
 				"date",
 			),
-			cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as("cost"),
+			cost: sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.cost} as double precision)), 0)`.as(
+				"cost",
+			),
 			requestCount:
 				sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCount}), 0)`.as(
 					"request_count",
@@ -874,7 +835,9 @@ analytics.openapi(getSelfUsage, async (c) => {
 	const modelRows = await db
 		.select({
 			usedModel: apiKeyHourlyModelStats.usedModel,
-			cost: sql<number>`SUM(${apiKeyHourlyModelStats.cost})`.as("cost"),
+			cost: sql<number>`SUM(cast(${apiKeyHourlyModelStats.cost} as double precision))`.as(
+				"cost",
+			),
 			requestCount: sql<number>`SUM(${apiKeyHourlyModelStats.requestCount})`.as(
 				"request_count",
 			),
@@ -893,7 +856,9 @@ analytics.openapi(getSelfUsage, async (c) => {
 			),
 		)
 		.groupBy(apiKeyHourlyModelStats.usedModel)
-		.orderBy(desc(sql`SUM(${apiKeyHourlyModelStats.cost})`));
+		.orderBy(
+			desc(sql`SUM(cast(${apiKeyHourlyModelStats.cost} as double precision))`),
+		);
 	const topModels = modelRows.slice(0, 5).map((r) => ({
 		key: r.usedModel || "unknown",
 		cost: Number(r.cost ?? 0),
@@ -918,18 +883,6 @@ function canonicalModelId(usedModel: string): string {
 		slashIdx === -1 ? usedModel : usedModel.slice(slashIdx + 1);
 	const colonIdx = withoutProvider.indexOf(":");
 	return colonIdx === -1 ? withoutProvider : withoutProvider.slice(0, colonIdx);
-}
-
-// Daily buckets are padded one calendar day at a time, so cap the window to a
-// year to keep the response bounded and — crucially — to keep the returned
-// buckets covering exactly the same range the SQL totals do (no silent
-// truncation of an over-large span).
-const MAX_ORG_ACTIVITY_RANGE_DAYS = 366;
-
-function rangeDaysInclusive(fromStr: string, toStr: string): number {
-	const from = Date.parse(`${fromStr}T00:00:00Z`);
-	const to = Date.parse(`${toStr}T00:00:00Z`);
-	return Math.round((to - from) / 86_400_000) + 1;
 }
 
 // Inclusive list of UTC calendar dates between two YYYY-MM-DD strings, used to
@@ -1045,7 +998,7 @@ analytics.openapi(getOrgActivity, async (c) => {
 			date: bucketDate(projectHourlyStats.hourTimestamp, timeZone, false).as(
 				"date",
 			),
-			cost: sql<number>`COALESCE(SUM(${projectHourlyStats.cost}), 0)`.as(
+			cost: sql<number>`COALESCE(SUM(cast(${projectHourlyStats.cost} as double precision)), 0)`.as(
 				"cost",
 			),
 			requestCount:
@@ -1119,7 +1072,7 @@ analytics.openapi(getOrgActivity, async (c) => {
 					false,
 				).as("date"),
 				usedModel: projectHourlyModelStats.usedModel,
-				cost: sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
+				cost: sql<number>`COALESCE(SUM(cast(${projectHourlyModelStats.cost} as double precision)), 0)`.as(
 					"cost",
 				),
 				requestCount:
@@ -1171,7 +1124,7 @@ analytics.openapi(getOrgActivity, async (c) => {
 					"date",
 				),
 				projectId: projectHourlyStats.projectId,
-				cost: sql<number>`COALESCE(SUM(${projectHourlyStats.cost}), 0)`.as(
+				cost: sql<number>`COALESCE(SUM(cast(${projectHourlyStats.cost} as double precision)), 0)`.as(
 					"cost",
 				),
 				requestCount:
@@ -1236,7 +1189,7 @@ analytics.openapi(getOrgActivity, async (c) => {
 				),
 				apiKeyId: apiKeyHourlyStats.apiKeyId,
 				description: tables.apiKey.description,
-				cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as(
+				cost: sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.cost} as double precision)), 0)`.as(
 					"cost",
 				),
 				requestCount:

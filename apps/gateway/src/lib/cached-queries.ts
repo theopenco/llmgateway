@@ -21,7 +21,7 @@ import {
 	isNull,
 	ne,
 	or,
-	sum,
+	sql,
 	cdb as db,
 	apiKey as apiKeyTable,
 	apiKeyHourlyStats as apiKeyHourlyStatsTable,
@@ -37,11 +37,13 @@ import {
 	project as projectTable,
 	providerKey as providerKeyTable,
 	rateLimit as rateLimitTable,
+	routingScoreMultiplier as routingScoreMultiplierTable,
 	user as userTable,
 	userIamRule as userIamRuleTable,
 	userOrganization as userOrganizationTable,
 	wallet as walletTable,
 } from "@llmgateway/db";
+import { getRegionScopedDefaultRegion } from "@llmgateway/models";
 
 import { getApiKeyFingerprint } from "./api-key-fingerprint.js";
 import {
@@ -93,6 +95,9 @@ const projectTableName = getTableName(projectTable);
 const providerKeyTableName = getTableName(providerKeyTable);
 const customModelTableName = getTableName(customModelTable);
 const rateLimitTableName = getTableName(rateLimitTable);
+const routingScoreMultiplierTableName = getTableName(
+	routingScoreMultiplierTable,
+);
 const userTableName = getTableName(userTable);
 const userIamRuleTableName = getTableName(userIamRuleTable);
 const userOrganizationTableName = getTableName(userOrganizationTable);
@@ -474,15 +479,17 @@ export async function findCustomModel(
 }
 
 /**
- * Find a provider key by organization and provider (cacheable)
+ * The organization's own keys for a provider that can serve this request, in
+ * selection order (index 0 is the primary). This is exactly the candidate set
+ * findProviderKey picks from, before health failover and per-attempt
+ * exclusions narrow it — the "which of my keys could have been used" answer
+ * surfaced in routing metadata.
  */
-export async function findProviderKey(
+export async function listEligibleProviderKeys(
 	organizationId: string,
 	provider: string,
-	selectionScope?: string,
-	excludedKeyIds?: ReadonlySet<string>,
 	filter?: (key: ProviderKey) => boolean,
-): Promise<ProviderKey | undefined> {
+): Promise<ProviderKey[]> {
 	const results = await swrWrap(
 		`providerKey:${organizationId}:${provider}`,
 		[providerKeyTableName],
@@ -507,9 +514,26 @@ export async function findProviderKey(
 					asc(providerKeyTable.id),
 				),
 	);
-	const filtered = filter ? results.filter(filter) : results;
+	return filter ? results.filter(filter) : results;
+}
+
+/**
+ * Find a provider key by organization and provider (cacheable)
+ */
+export async function findProviderKey(
+	organizationId: string,
+	provider: string,
+	selectionScope?: string,
+	excludedKeyIds?: ReadonlySet<string>,
+	filter?: (key: ProviderKey) => boolean,
+): Promise<ProviderKey | undefined> {
+	const eligible = await listEligibleProviderKeys(
+		organizationId,
+		provider,
+		filter,
+	);
 	return selectProviderKeyWithFailover(
-		filtered,
+		eligible,
 		selectionScope,
 		excludedKeyIds,
 	);
@@ -653,6 +677,43 @@ export async function hasManagedProviderCredential(
 }
 
 /**
+ * Narrow a provider's managed credentials to the ones that can serve this
+ * region.
+ *
+ * With a region in hand, a credential pinned to it wins and a region-agnostic
+ * one is the fallback — the same precedence `{ENV}__{REGION}` has over `{ENV}`.
+ *
+ * Without one, the request is sent to the provider's default region. A
+ * region-agnostic credential still serves it, and so does one pinned to that
+ * default region — which is all a provider with no global region can offer,
+ * since every one of its credentials is necessarily region-scoped (Alibaba).
+ * Providers whose credential works across regions (AWS Bedrock) are excluded
+ * from that last step by `getRegionScopedDefaultRegion`: a region on their
+ * credential is the operator scoping it deliberately, so the request fails
+ * rather than borrowing a credential meant for another region.
+ */
+function narrowManagedKeysToRegion(
+	keys: ProviderKey[],
+	provider: string,
+	region: string | undefined,
+): ProviderKey[] {
+	if (region) {
+		const pinned = keys.filter((key) => key.region === region);
+		return pinned.length > 0 ? pinned : keys.filter((key) => !key.region);
+	}
+
+	const regionAgnostic = keys.filter((key) => !key.region);
+	if (regionAgnostic.length > 0) {
+		return regionAgnostic;
+	}
+
+	const defaultRegion = getRegionScopedDefaultRegion(provider);
+	return defaultRegion
+		? keys.filter((key) => key.region === defaultRegion)
+		: [];
+}
+
+/**
  * Find a platform-managed provider credential for credits-mode traffic
  * (cacheable).
  *
@@ -678,13 +739,11 @@ export async function findManagedProviderKey(
 			? variantMatches
 			: candidates.filter((key) => key.variant === "default");
 
-	const regionMatches = options.region
-		? byVariant.filter((key) => key.region === options.region)
-		: [];
-	const byRegion =
-		regionMatches.length > 0
-			? regionMatches
-			: byVariant.filter((key) => !key.region);
+	const byRegion = narrowManagedKeysToRegion(
+		byVariant,
+		provider,
+		options.region,
+	);
 
 	return selectProviderKeyWithFailover(
 		byRegion,
@@ -711,15 +770,15 @@ export async function findManagedProviderKey(
  * - Variant: an `enterprise`/`plans` request may fall back to a `default`
  *   credential, but a `default` request can never use a variant-scoped one,
  *   and a variant that has its own credentials never falls back.
- * - Region: routing picks a provider before a region is known, so only a
- *   region-agnostic credential is guaranteed to serve the request. A
- *   region-pinned credential is an override — exactly like `{ENV}__{REGION}`,
- *   which `hasProviderEnvironmentToken` likewise ignores in favour of the base
- *   variable. A provider whose only credentials are region-pinned is therefore
- *   not advertised, the same as a deployment that sets only
- *   `LLM_X_API_KEY__US_EAST_1` and no `LLM_X_API_KEY`. Which regions those
- *   credentials do cover is reported separately in `pinnedRegions`, for the
- *   region filter that runs before a provider is chosen.
+ * - Region: routing picks a provider before a region is known, so a request
+ *   that resolves no region is served from the provider's default region. Both
+ *   a region-agnostic credential (`usable`) and one pinned to that default
+ *   region (`defaultRegionUsable`) can therefore serve it; a credential pinned
+ *   to any other region cannot, exactly like `{ENV}__{REGION}`, which
+ *   `hasProviderEnvironmentToken` ignores in favour of the base variable. Which
+ *   regions those credentials do cover is reported separately in
+ *   `pinnedRegions`, for the region filter that runs before a provider is
+ *   chosen.
  * - Model: a credential restricted via `allowedModels` cannot serve any other
  *   model, so when the caller knows the model it is routing, credentials that
  *   exclude it are ignored — a provider whose every credential excludes the
@@ -733,6 +792,13 @@ export interface ManagedProviderAvailability {
 	configured: ReadonlySet<string>;
 	/** Providers a region-agnostic managed credential can serve for this request. */
 	usable: ReadonlySet<string>;
+	/**
+	 * Providers whose credential for this request is pinned to their own default
+	 * region. They serve every request that resolves no region — which is what a
+	 * provider with no global region, such as Alibaba, can only ever offer — but,
+	 * unlike `usable`, they cover no other region.
+	 */
+	defaultRegionUsable: ReadonlySet<string>;
 	/**
 	 * Regions each provider has a region-pinned managed credential for. Variant-
 	 * and model-agnostic, matching how `hasRegionSpecificEnvKey` reads the
@@ -794,6 +860,7 @@ export async function findManagedProviderAvailability(
 
 	const effectiveVariant = variant ?? "default";
 	const usable = new Set<string>();
+	const defaultRegionUsable = new Set<string>();
 	for (const [provider, candidates] of byProvider) {
 		const variantMatches = candidates.filter(
 			(key) => key.variant === effectiveVariant,
@@ -806,8 +873,15 @@ export async function findManagedProviderAvailability(
 		if (byVariant.some((key) => !key.region)) {
 			usable.add(provider);
 		}
+		const defaultRegion = getRegionScopedDefaultRegion(provider);
+		if (
+			defaultRegion &&
+			byVariant.some((key) => key.region === defaultRegion)
+		) {
+			defaultRegionUsable.add(provider);
+		}
 	}
-	return { configured, usable, pinnedRegions };
+	return { configured, usable, defaultRegionUsable, pinnedRegions };
 }
 
 /**
@@ -1038,6 +1112,89 @@ export async function findEffectiveDiscount(
 	);
 }
 
+export interface EffectiveRoutingScoreMultiplier {
+	scoreMultiplier: string;
+	source: "provider_model" | "provider" | "model" | "none";
+	multiplierId?: string;
+}
+
+/**
+ * Get the internal routing score adjustment for a provider/model combination.
+ * The stable SQL shape is cached by Drizzle and the result is mirrored in SWR.
+ */
+export async function findEffectiveRoutingScoreMultiplier(
+	provider: string,
+	model: string,
+): Promise<EffectiveRoutingScoreMultiplier> {
+	return await swrWrap(
+		`routingScoreMultiplier:${provider}:${model}`,
+		[routingScoreMultiplierTableName],
+		async () => {
+			const rows = await db
+				.select({
+					id: routingScoreMultiplierTable.id,
+					provider: routingScoreMultiplierTable.provider,
+					model: routingScoreMultiplierTable.model,
+					scoreMultiplier: routingScoreMultiplierTable.scoreMultiplier,
+					expiresAt: routingScoreMultiplierTable.expiresAt,
+				})
+				.from(routingScoreMultiplierTable)
+				.where(
+					and(
+						or(
+							eq(routingScoreMultiplierTable.provider, provider),
+							isNull(routingScoreMultiplierTable.provider),
+						),
+						or(
+							eq(routingScoreMultiplierTable.model, model),
+							isNull(routingScoreMultiplierTable.model),
+						),
+					),
+				);
+
+			const now = Date.now();
+			const multipliers = rows.filter(
+				(row) =>
+					row.expiresAt === null || new Date(row.expiresAt).getTime() >= now,
+			);
+			const providerModel = multipliers.find(
+				(row) => row.provider === provider && row.model === model,
+			);
+			if (providerModel) {
+				return {
+					scoreMultiplier: providerModel.scoreMultiplier,
+					source: "provider_model" as const,
+					multiplierId: providerModel.id,
+				};
+			}
+
+			const providerOnly = multipliers.find(
+				(row) => row.provider === provider && row.model === null,
+			);
+			if (providerOnly) {
+				return {
+					scoreMultiplier: providerOnly.scoreMultiplier,
+					source: "provider" as const,
+					multiplierId: providerOnly.id,
+				};
+			}
+
+			const modelOnly = multipliers.find(
+				(row) => row.provider === null && row.model === model,
+			);
+			if (modelOnly) {
+				return {
+					scoreMultiplier: modelOnly.scoreMultiplier,
+					source: "model" as const,
+					multiplierId: modelOnly.id,
+				};
+			}
+
+			return { scoreMultiplier: "0", source: "none" as const };
+		},
+	);
+}
+
 /**
  * Find a member's budget config on their user_organization row (cacheable).
  * Returns just the budget-limit columns; spend is read separately from the
@@ -1170,7 +1327,10 @@ export async function getMemberPeriodSpend(
 		[apiKeyHourlyStatsTableName, apiKeyTableName, projectTableName],
 		async () =>
 			await db
-				.select({ total: sum(apiKeyHourlyStatsTable.cost) })
+				// cost is float4; SUM(real) accumulates in float4 too, so cast first.
+				.select({
+					total: sql<string>`coalesce(sum(cast(${apiKeyHourlyStatsTable.cost} as double precision)), 0)`,
+				})
 				.from(apiKeyHourlyStatsTable)
 				.where(
 					and(

@@ -46,6 +46,11 @@ auth:
   # -- (required) HMAC secret for hashing API keys and deriving the BYOK
   # encryption-at-rest data key
   gatewayApiKeyHashSecret: "change-me-to-a-random-secret"
+  # -- Shared secret letting the API tell the gateway a request is the
+  # onboarding wizard's first call, which is served without charging for it. A
+  # brand new organization has 0 credits, so without this the first thing a user
+  # does returns a 402. Leave empty to bill that call normally.
+  onboardingSponsorSecret: ""
   # -- Cookie domain for session cookies
   cookieDomain: ""
   # -- Comma-separated list of allowed CORS origins
@@ -136,6 +141,10 @@ gateway:
     healthCheckSkipDatabase: ""
     healthCheckTimeoutMs: 15000
     maxStreamingBufferMb: 50
+    # Upstream dispatcher tuning for the gateway→provider hop. Both default in
+    # code (300s DNS cache, 60s keep-alive); set here only to override.
+    upstreamDnsCacheTtlMs: ""
+    upstreamKeepaliveTimeoutMs: ""
   # Hard deadline for pod shutdown; caps every in-process drain above. Defaults
   # to 120s, or realtime.config.maxSessionSeconds + 120 when realtime.enabled.
   # Set explicitly only to override that.

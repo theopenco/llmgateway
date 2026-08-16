@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 
 describe("projects route", () => {
 	let token: string;
@@ -32,6 +32,51 @@ describe("projects route", () => {
 
 	afterEach(async () => {
 		await deleteAll();
+	});
+
+	async function createProject(name: string) {
+		return await app.request("/projects", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ name, organizationId: "test-org-id" }),
+		});
+	}
+
+	test("POST /projects enforces the org project-limit override", async () => {
+		// The seeded org already has one project, so a limit of 1 is reached.
+		await db
+			.update(tables.organization)
+			.set({ projectLimit: 1 })
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		const response = await createProject("Second Project");
+
+		expect(response.status).toBe(403);
+		const json = await response.json();
+		expect(json.message).toContain("limit of 1 projects");
+	});
+
+	test("POST /projects allows creation below the override", async () => {
+		await db
+			.update(tables.organization)
+			.set({ projectLimit: 2 })
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		const response = await createProject("Second Project");
+
+		expect(response.status).toBe(201);
+		const json = await response.json();
+		expect(json.project.name).toBe("Second Project");
+	});
+
+	test("POST /projects falls back to the plan default without an override", async () => {
+		// Free plan default is 10 projects and the org has one, so this succeeds.
+		const response = await createProject("Second Project");
+
+		expect(response.status).toBe(201);
 	});
 
 	test("PATCH /projects/{id} with an empty body is a no-op", async () => {

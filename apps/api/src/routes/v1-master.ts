@@ -3,13 +3,27 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import {
+	MAX_ORG_ACTIVITY_RANGE_DAYS,
+	rangeDaysInclusive,
+	resolveDateRange,
+} from "@/lib/date-range.js";
+import {
 	createIamRuleSchema,
 	iamRuleStatusEnum,
 	iamRuleTypeEnum,
 	iamRuleValueSchema,
 	validateIamRuleInput,
 } from "@/lib/iam-rules.js";
+import { getOrgProjectIds } from "@/lib/org-projects.js";
 import { assertOrganizationProviderKey } from "@/lib/organization-provider-key.js";
+import {
+	getUsageReport,
+	USAGE_DIMENSIONS,
+	USAGE_GRANULARITIES,
+	usageReportRowSchema,
+	usageReportToCsv,
+	type UsageDimension,
+} from "@/lib/usage-report.js";
 import {
 	applyCustomModelUpdate,
 	createCustomModelSchema,
@@ -40,6 +54,7 @@ import {
 } from "@/routes/keys-provider.js";
 import { createProjectForOrg } from "@/routes/projects.js";
 import { memberIamRuleSchema } from "@/routes/team.js";
+import { timezoneQueryField } from "@/utils/timezone.js";
 
 import { encryptProviderKey, readProviderKey } from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
@@ -2043,6 +2058,150 @@ v1Master.openapi(deleteCustomModel, async (c) => {
 	await softDeleteCustomModel(existing, masterKey.createdBy);
 
 	return c.json({ message: "Custom model deleted successfully" });
+});
+
+// Hourly buckets over a long window explode the row count (a year is ~8800
+// buckets before any dimension fan-out), so hourly granularity gets a much
+// tighter cap than the daily one.
+const MAX_HOURLY_USAGE_RANGE_DAYS = 31;
+
+const usageQuery = z.object({
+	from: z.string().optional(),
+	to: z.string().optional(),
+	timezone: timezoneQueryField,
+	granularity: z.enum(USAGE_GRANULARITIES).optional(),
+	groupBy: z.string().optional(),
+	projectId: z.string().min(1).optional(),
+	userId: z.string().min(1).optional(),
+	apiKeyId: z.string().min(1).optional(),
+	limit: z.coerce.number().int().min(1).max(10000).optional(),
+	offset: z.coerce.number().int().min(0).optional(),
+	format: z.enum(["json", "csv"]).optional(),
+});
+
+const usageResponseSchema = z.object({
+	from: z.string(),
+	to: z.string(),
+	granularity: z.enum(USAGE_GRANULARITIES),
+	groupBy: z.array(z.enum(USAGE_DIMENSIONS)),
+	rows: z.array(usageReportRowSchema),
+	pagination: z.object({
+		limit: z.number(),
+		offset: z.number(),
+		hasMore: z.boolean(),
+	}),
+});
+
+function parseGroupBy(raw: string | undefined): UsageDimension[] {
+	if (raw === undefined) {
+		return ["user", "model"];
+	}
+	const seen = new Set<UsageDimension>();
+	for (const part of raw.split(",")) {
+		const value = part.trim();
+		if (!value) {
+			continue;
+		}
+		if (!(USAGE_DIMENSIONS as readonly string[]).includes(value)) {
+			throw new HTTPException(400, {
+				message: `Invalid groupBy dimension "${value}" (expected any of: ${USAGE_DIMENSIONS.join(", ")})`,
+			});
+		}
+		seen.add(value as UsageDimension);
+	}
+	return Array.from(seen);
+}
+
+const getUsage = createRoute({
+	method: "get",
+	path: "/usage",
+	request: {
+		query: usageQuery,
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: usageResponseSchema.openapi({}),
+				},
+				"text/csv": {
+					schema: z.any().openapi({ type: "string" }),
+				},
+			},
+			description:
+				"Usage and cost for the master key's organization, grouped by any combination of user, model, provider, project and API key, bucketed hourly, daily or not at all. Returns JSON, or CSV when format=csv.",
+		},
+	},
+});
+
+v1Master.openapi(getUsage, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const query = c.req.valid("query");
+	const timeZone = query.timezone || "UTC";
+	const granularity = query.granularity ?? "day";
+	const dimensions = parseGroupBy(query.groupBy);
+	const limit = query.limit ?? 1000;
+	const offset = query.offset ?? 0;
+
+	const { startDate, endDate, fromStr, toStr } = resolveDateRange(
+		query.from,
+		query.to,
+		timeZone,
+	);
+
+	const rangeDays = rangeDaysInclusive(fromStr, toStr);
+	if (rangeDays > MAX_ORG_ACTIVITY_RANGE_DAYS) {
+		throw new HTTPException(400, {
+			message: `Date range too large (max ${MAX_ORG_ACTIVITY_RANGE_DAYS} days)`,
+		});
+	}
+	if (granularity === "hour" && rangeDays > MAX_HOURLY_USAGE_RANGE_DAYS) {
+		throw new HTTPException(400, {
+			message: `Date range too large for hourly granularity (max ${MAX_HOURLY_USAGE_RANGE_DAYS} days)`,
+		});
+	}
+
+	const orgProjectIds = await getOrgProjectIds(masterKey.organizationId);
+	if (query.projectId && !orgProjectIds.includes(query.projectId)) {
+		throw new HTTPException(404, {
+			message: "Project not found in this organization",
+		});
+	}
+
+	const { rows, hasMore } = await getUsageReport({
+		projectIds: query.projectId ? [query.projectId] : orgProjectIds,
+		startDate,
+		endDate,
+		timeZone,
+		granularity,
+		dimensions,
+		userId: query.userId,
+		apiKeyId: query.apiKeyId,
+		limit,
+		offset,
+	});
+
+	if (query.format === "csv") {
+		c.header("Content-Type", "text/csv; charset=utf-8");
+		c.header(
+			"Content-Disposition",
+			`attachment; filename="usage-${fromStr}-to-${toStr}.csv"`,
+		);
+		return c.body(usageReportToCsv(rows));
+	}
+
+	return c.json({
+		from: fromStr,
+		to: toStr,
+		granularity,
+		groupBy: dimensions,
+		rows,
+		pagination: { limit, offset, hasMore },
+	});
 });
 
 export default v1Master;
