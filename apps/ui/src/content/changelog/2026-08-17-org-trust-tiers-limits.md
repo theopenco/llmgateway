@@ -19,7 +19,7 @@ Your tier is determined by **account age, or lifetime usage spend combined with 
 
 | Tier | Qualifies (age, or spend + min age) | Rate multiplier | Daily / monthly spend cap | Top-up per 24h |
 | ---- | ----------------------------------- | --------------- | ------------------------- | -------------- |
-| 0    | new                                 | 1×              | $5 / $50                  | $100           |
+| 0    | new                                 | 1×              | $25 / $250                | $100           |
 | 1    | 7 days **or** $10 (≥ 1 day)         | 2×              | $100 / $1,000             | $500           |
 | 2    | 30 days **or** $100 (≥ 3 days)      | 4×              | $500 / $5,000             | $2,500         |
 | 3    | 60 days **or** $1,000 (≥ 7 days)    | 10×             | $5,000 / $50,000          | $10,000        |

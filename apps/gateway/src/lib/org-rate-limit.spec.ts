@@ -154,8 +154,8 @@ describe("getOrgSpendTier", () => {
 		expect(getOrgSpendTier({ createdAt: daysAgo(0) }, 0, NOW)).toMatchObject({
 			tier: 0,
 			rpmMultiplier: 1,
-			dailyCapUsd: 5,
-			monthlyCapUsd: 50,
+			dailyCapUsd: 25,
+			monthlyCapUsd: 250,
 		});
 	});
 

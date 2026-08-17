@@ -208,8 +208,10 @@ export const SPEND_TIER_DEFAULTS: readonly SpendTierDefaults[] = [
 		spendUsd: 0,
 		minAgeDays: 0,
 		rpmMultiplier: 1,
-		dailyCapUsd: 5,
-		monthlyCapUsd: 50,
+		// High enough that a typical first top-up ($10-$50) is usable on day
+		// one; the min-age floors still stop day-0 burn from buying tiers.
+		dailyCapUsd: 25,
+		monthlyCapUsd: 250,
 		topUpDailyCapUsd: 100,
 	},
 	{
