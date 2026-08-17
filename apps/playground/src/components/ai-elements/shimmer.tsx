@@ -16,15 +16,19 @@ export interface TextShimmerProps {
 // motion.create returns a new component type each call, which would remount
 // the subtree (and restart the animation) on every render if done inline —
 // cache per element type at module level instead.
+function createMotionComponent(component: keyof JSX.IntrinsicElements) {
+	return motion.create(component);
+}
+
 const motionComponentCache = new Map<
 	ElementType,
-	ReturnType<typeof motion.create>
+	ReturnType<typeof createMotionComponent>
 >();
 
 function getMotionComponent(component: ElementType) {
 	let cached = motionComponentCache.get(component);
 	if (!cached) {
-		cached = motion.create(component as keyof JSX.IntrinsicElements);
+		cached = createMotionComponent(component as keyof JSX.IntrinsicElements);
 		motionComponentCache.set(component, cached);
 	}
 	return cached;
