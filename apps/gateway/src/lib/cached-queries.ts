@@ -36,7 +36,6 @@ import {
 	organization as organizationTable,
 	project as projectTable,
 	providerKey as providerKeyTable,
-	rateLimit as rateLimitTable,
 	routingScoreMultiplier as routingScoreMultiplierTable,
 	user as userTable,
 	userIamRule as userIamRuleTable,
@@ -93,7 +92,6 @@ const organizationTableName = getTableName(organizationTable);
 const projectTableName = getTableName(projectTable);
 const providerKeyTableName = getTableName(providerKeyTable);
 const customModelTableName = getTableName(customModelTable);
-const rateLimitTableName = getTableName(rateLimitTable);
 const routingScoreMultiplierTableName = getTableName(
 	routingScoreMultiplierTable,
 );
@@ -955,20 +953,19 @@ export async function findActiveUserIamRules(
 }
 
 /**
- * Get the effective rate limits for an org/provider/model combination (SWR-cached).
- * Falls back to the last known Redis value when Postgres is unreachable.
+ * Get the effective rate limits for an org/provider/model combination.
+ *
+ * Thin alias for {@link getEffectiveRateLimit}, which carries both cache
+ * layers itself (cdb + an internal swrWrap on the same `rateLimit:*` key) so
+ * every caller shares one cached implementation. Do NOT re-wrap this in
+ * swrWrap: nesting the same key would deadlock the in-flight coalescer.
  */
 export async function findEffectiveRateLimit(
 	organizationId: string | null,
 	provider: string,
 	model: string,
 ): Promise<EffectiveRateLimit> {
-	const orgPart = organizationId ?? "global";
-	return await swrWrap(
-		`rateLimit:${orgPart}:${provider}:${model}`,
-		[rateLimitTableName],
-		() => getEffectiveRateLimit(organizationId, provider, model),
-	);
+	return await getEffectiveRateLimit(organizationId, provider, model);
 }
 
 /**
