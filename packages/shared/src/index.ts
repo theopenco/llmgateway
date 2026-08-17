@@ -127,8 +127,18 @@ export {
 export {
 	ModelSelector,
 	ProviderIcons,
+	Time,
+	TimeZoneSetting,
 	getProviderIcon,
 } from "./components/index.js";
+
+export {
+	formatInTimeZone,
+	getBrowserTimeZone,
+	isDayString,
+	parseDayString,
+	timeToDisplayInZone,
+} from "./lib/format-date.js";
 
 export { useIsMobile } from "./hooks/use-mobile.js";
 

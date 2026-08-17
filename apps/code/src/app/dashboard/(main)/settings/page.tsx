@@ -3,7 +3,9 @@
 import dynamic from "next/dynamic";
 
 import { useDevPlanStatus } from "@/app/dashboard/useDevPlanStatus";
-import { useUser } from "@/hooks/useUser";
+import { useUpdateUser, useUser } from "@/hooks/useUser";
+
+import { TimeZoneSetting } from "@llmgateway/shared";
 
 const DevPlanSettings = dynamic(
 	() => import("@/app/dashboard/components/DevPlanSettings"),
@@ -15,6 +17,7 @@ const DeleteAccount = dynamic(
 
 export default function SettingsPage() {
 	const { user } = useUser();
+	const updateUser = useUpdateUser();
 	const { data: devPlanStatus } = useDevPlanStatus();
 
 	if (!devPlanStatus) {
@@ -40,6 +43,19 @@ export default function SettingsPage() {
 							{user?.email ?? "—"}
 						</p>
 					</div>
+				</div>
+			</div>
+
+			{/* Display */}
+			<div>
+				<h2 className="mb-4 font-semibold">Display</h2>
+				<div className="rounded-xl border p-5">
+					<TimeZoneSetting
+						value={user?.timezone ?? "UTC"}
+						onValueChange={(timeZone) =>
+							updateUser.mutate({ body: { timezone: timeZone } })
+						}
+					/>
 				</div>
 			</div>
 

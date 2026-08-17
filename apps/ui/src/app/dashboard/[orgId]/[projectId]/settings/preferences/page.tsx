@@ -11,6 +11,7 @@ import {
 
 import { ArchiveProjectSettings } from "./_components/archive-project";
 import { CachingSettingsRsc } from "./_components/caching-settings-rsc";
+import { DisplayTimezoneCard } from "./_components/display-timezone-card";
 import { ProjectModeSettingsRsc } from "./_components/project-mode-settings-rsc";
 import { ProjectNameSettingsRsc } from "./_components/project-name-settings-rsc";
 import { CachingSettingsSkeleton } from "./_skeletons/caching-settings-skeleton";
@@ -47,6 +48,8 @@ export default async function PreferencesPage({
 							/>
 						</CardContent>
 					</Card>
+
+					<DisplayTimezoneCard />
 
 					<Card>
 						<CardHeader>
