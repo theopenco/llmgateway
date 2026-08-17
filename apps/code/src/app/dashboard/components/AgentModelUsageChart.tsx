@@ -1,6 +1,5 @@
 "use client";
 
-import { format, parseISO } from "date-fns";
 import { Loader2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
@@ -21,7 +20,10 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { useUser } from "@/hooks/useUser";
 import { useApi } from "@/lib/fetch-client";
+
+import { timeToDisplayInZone } from "@llmgateway/shared";
 
 import type { paths } from "@/lib/api/v1";
 import type { TooltipProps } from "recharts";
@@ -100,9 +102,11 @@ function ChartTooltipContent({
 	label,
 	metric,
 	hourly,
+	timeZone,
 }: TooltipProps<number, string> & {
 	metric: Metric;
 	hourly: boolean;
+	timeZone: string;
 }) {
 	if (!active || !payload || payload.length === 0) {
 		return null;
@@ -113,7 +117,11 @@ function ChartTooltipContent({
 		return null;
 	}
 	const dateLabel = label
-		? format(parseISO(label), hourly ? "MMM d, HH:mm" : "MMM d, yyyy")
+		? timeToDisplayInZone(
+				label,
+				hourly ? "MMM d, HH:mm" : "MMM d, yyyy",
+				timeZone,
+			)
 		: "";
 	// Token classes bill at very different rates (cached input is often 10x
 	// cheaper than fresh input, output 6x more expensive), so a flat token
@@ -212,6 +220,8 @@ export function AgentModelUsageChart({ projectId }: AgentModelUsageChartProps) {
 	const [range, setRange] = useState<AgentChartTimeRange>("24h");
 	const [metric, setMetric] = useState<Metric>("cost");
 	const api = useApi();
+	const { user } = useUser();
+	const userTimeZone = user?.timezone ?? "UTC";
 
 	const { data, isLoading, isFetching } = api.useQuery(
 		"get",
@@ -288,8 +298,8 @@ export function AgentModelUsageChart({ projectId }: AgentModelUsageChartProps) {
 				const base: ChartRow = {
 					slot: row.slot,
 					formattedDate: hourly
-						? format(parseISO(row.slot), "HH:mm")
-						: format(parseISO(row.slot), "MMM d"),
+						? timeToDisplayInZone(row.slot, "HH:mm", userTimeZone)
+						: timeToDisplayInZone(row.slot, "MMM d", userTimeZone),
 					totalRequests: row.totalRequests,
 					totalCost: row.totalCost,
 					totalTokens: row.totalTokens,
@@ -439,8 +449,8 @@ export function AgentModelUsageChart({ projectId }: AgentModelUsageChartProps) {
 									tickFormatter={(value: string) => {
 										try {
 											return hourly
-												? format(parseISO(value), "HH:mm")
-												: format(parseISO(value), "MMM d");
+												? timeToDisplayInZone(value, "HH:mm", userTimeZone)
+												: timeToDisplayInZone(value, "MMM d", userTimeZone);
 										} catch {
 											return value;
 										}
@@ -473,7 +483,11 @@ export function AgentModelUsageChart({ projectId }: AgentModelUsageChartProps) {
 										fill: "color-mix(in srgb, currentColor 8%, transparent)",
 									}}
 									content={
-										<ChartTooltipContent metric={metric} hourly={hourly} />
+										<ChartTooltipContent
+											metric={metric}
+											hourly={hourly}
+											timeZone={userTimeZone}
+										/>
 									}
 								/>
 								{models.map((modelId, i) => (

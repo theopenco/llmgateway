@@ -124,7 +124,10 @@ export function useUpdateUser() {
 
 	return api.useMutation("patch", "/user/me", {
 		onSuccess: () => {
-			void queryClient.invalidateQueries({ queryKey: ["user"] });
+			// openapi-react-query keys queries as [method, path, …]; refetch the
+			// /user/me query (prefix match) so updated fields like the display
+			// timezone apply everywhere without a full page load.
+			void queryClient.invalidateQueries({ queryKey: ["get", "/user/me"] });
 			void queryClient.invalidateQueries({ queryKey: ["session"] });
 		},
 	});

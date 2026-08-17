@@ -1,7 +1,6 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { format } from "date-fns";
 import {
 	ChevronLeft,
 	ChevronRight,
@@ -24,8 +23,10 @@ import {
 	AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { useUser } from "@/hooks/useUser";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
 
+import { Time } from "@llmgateway/shared";
 import {
 	isRefundFeedbackComplete,
 	RESET_PASS_SELF_REFUND_WINDOW_DAYS,
@@ -354,6 +355,7 @@ function formatCredits(creditAmount: string | null): string {
 
 export default function DevPassInvoices() {
 	const api = useApi();
+	const { user } = useUser();
 	const { data } = api.useQuery("get", "/dev-plans/invoices", {});
 	const [page, setPage] = useState(0);
 
@@ -389,7 +391,11 @@ export default function DevPassInvoices() {
 						className="grid grid-cols-2 gap-x-4 gap-y-1 border-b px-5 py-4 last:border-b-0 sm:col-span-5 sm:grid-cols-subgrid sm:items-center"
 					>
 						<div className="text-sm tabular-nums">
-							{format(new Date(invoice.date), "MMM d, yyyy")}
+							<Time
+								date={invoice.date}
+								format="MMM d, yyyy"
+								timeZone={user?.timezone}
+							/>
 						</div>
 						<div className="text-sm">
 							<span>{TYPE_LABELS[invoice.type]}</span>

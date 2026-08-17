@@ -1,12 +1,15 @@
 "use client";
 
-import { format, formatDistanceToNowStrict } from "date-fns";
+import { formatDistanceToNowStrict } from "date-fns";
 import { Activity, Coins, Cpu, Gem, TrendingUp } from "lucide-react";
 import { usePostHog } from "posthog-js/react";
 import { useEffect } from "react";
 
+import { useUser } from "@/hooks/useUser";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
+
+import { Time, timeToDisplayInZone } from "@llmgateway/shared";
 
 import { AgentModelUsageChart } from "./AgentModelUsageChart";
 import AllowanceExhaustedCard from "./AllowanceExhaustedCard";
@@ -95,6 +98,7 @@ function WeeklyAllowanceMeter({
 	// not read as an error.
 	overflowCovering: boolean;
 }) {
+	const { user } = useUser();
 	const percentage = limit > 0 ? (used / limit) * 100 : 0;
 	const clamped = Math.min(100, percentage);
 	const isLow = percentage > 80;
@@ -110,9 +114,18 @@ function WeeklyAllowanceMeter({
 						<span className="font-normal text-muted-foreground">spent</span>
 					</div>
 					<div className="mt-0.5 text-xs text-muted-foreground">
-						{resetsAt
-							? `Resets ${format(new Date(resetsAt), "MMM d")}`
-							: "Window starts with your first premium request"}
+						{resetsAt ? (
+							<span>
+								Resets{" "}
+								<Time
+									date={resetsAt}
+									format="MMM d"
+									timeZone={user?.timezone}
+								/>
+							</span>
+						) : (
+							"Window starts with your first premium request"
+						)}
 					</div>
 				</div>
 				<div
@@ -195,6 +208,7 @@ export default function UsageOverview({
 }: UsageOverviewProps) {
 	const api = useApi();
 	const posthog = usePostHog();
+	const { user } = useUser();
 	const { posthogKey } = useAppConfig();
 
 	const tierKey = planName.toLowerCase();
@@ -286,7 +300,7 @@ export default function UsageOverview({
 	const cycleLengthLabel = billingCycleStart ? "this cycle" : "30d";
 
 	const cycleLabel = billingCycleStart
-		? `Since ${format(new Date(billingCycleStart), "MMM d, yyyy")}`
+		? `Since ${timeToDisplayInZone(billingCycleStart, "MMM d, yyyy", user?.timezone ?? "UTC")}`
 		: "Active";
 
 	// The renewal/period-end date must come from Stripe's actual
@@ -313,7 +327,7 @@ export default function UsageOverview({
 
 	const cycleEndsHint = cancelledAtPeriodEnd
 		? renewAt
-			? `Cancels ${format(renewAt, "MMM d, yyyy")}`
+			? `Cancels ${timeToDisplayInZone(renewAt, "MMM d, yyyy", user?.timezone ?? "UTC")}`
 			: "Cancels at period end"
 		: renewAt
 			? `Renews in ${formatDistanceToNowStrict(renewAt)}`
@@ -331,6 +345,14 @@ export default function UsageOverview({
 						{planPrice !== undefined && (
 							<span className="rounded-md bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
 								${planPrice}/mo
+							</span>
+						)}
+						{user?.timezone && user.timezone !== "UTC" && (
+							<span
+								title="Dates and times on this page are shown in your saved timezone"
+								className="rounded-md bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary"
+							>
+								{user.timezone} local time
 							</span>
 						)}
 					</div>
@@ -449,7 +471,11 @@ export default function UsageOverview({
 					}
 					hint={
 						peakDay && (peakDay.cost ?? 0) > 0
-							? format(new Date(peakDay.date), "MMM d")
+							? timeToDisplayInZone(
+									peakDay.date,
+									"MMM d",
+									user?.timezone ?? "UTC",
+								)
 							: undefined
 					}
 					icon={TrendingUp}
