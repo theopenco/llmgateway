@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { assertCreditPurchaseAllowed } from "@/lib/credit-purchase-guard.js";
 import { voidPendingCycleRenewalInvoices } from "@/lib/pending-renewal.js";
 import {
 	computeSelfRefundEligibility,
@@ -3388,6 +3389,8 @@ devPlans.openapi(topUpCredits, async (c) => {
 			message: "An active dev plan is required to top up credits.",
 		});
 	}
+
+	await assertCreditPurchaseAllowed(personalOrg.id);
 
 	const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
 	const paymentMethodId = await resolveDevPassPaymentMethodId(
