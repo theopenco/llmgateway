@@ -121,9 +121,13 @@ export async function getOrganizationLifetimeSpend(
 			[projectHourlyStatsTableName, transactionTableName],
 			async () => {
 				const [usageRows, refundRows] = await Promise.all([
+					// creditsCost, NOT cost: only credits-billed usage qualifies. Total
+					// `cost` includes BYOK usage, which the spend caps don't bound —
+					// counting it would let free/stolen-provider-key traffic buy top
+					// tiers in a day.
 					cdb
 						.select({
-							total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`,
+							total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`,
 						})
 						.from(projectHourlyStats)
 						.innerJoin(

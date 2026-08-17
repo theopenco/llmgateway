@@ -119,7 +119,8 @@ export function LimitsClient() {
 											</CardTitle>
 											<CardDescription>
 												You qualify by whichever is higher — account age or
-												lifetime usage spend.
+												lifetime credits usage (net of refunds; BYOK usage
+												doesn't count).
 											</CardDescription>
 										</div>
 										<Badge className="shrink-0 text-base" variant="secondary">

@@ -152,6 +152,7 @@ describe("top-up velocity limits", () => {
 			projectId: "velocity-refund-project",
 			hourTimestamp: new Date(),
 			cost: 150,
+			creditsCost: 150,
 		});
 
 		const allowed = await app.request("/payments/create-payment-intent", {
@@ -179,6 +180,33 @@ describe("top-up velocity limits", () => {
 			body: JSON.stringify({ amount: 120, organizationId: "test-org-id" }),
 		});
 		expect(blocked.status).toBe(429);
+	});
+
+	test("BYOK usage does not raise the trust tier", async () => {
+		// $150 of own-provider-key usage costs the org nothing here and is not
+		// spend-capped — it must not buy the Tier 2 top-up allowance the same
+		// spend in credits would.
+		await db.insert(tables.project).values({
+			id: "velocity-byok-project",
+			name: "Velocity BYOK Project",
+			organizationId: "test-org-id",
+		});
+		await db.insert(tables.projectHourlyStats).values({
+			projectId: "velocity-byok-project",
+			hourTimestamp: new Date(),
+			cost: 150,
+			apiKeysCost: 150,
+			creditsCost: 0,
+		});
+
+		const res = await app.request("/payments/create-payment-intent", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({ amount: 120, organizationId: "test-org-id" }),
+		});
+
+		// Still Tier 0 => $100/24h cap => the $120 attempt is blocked.
+		expect(res.status).toBe(429);
 	});
 
 	test("enterprise orgs are exempt", async () => {

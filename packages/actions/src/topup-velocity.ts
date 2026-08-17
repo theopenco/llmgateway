@@ -120,9 +120,14 @@ async function lifetimeRefundedUsd(organizationId: string) {
 }
 
 async function lifetimeUsageSpendUsd(organizationId: string) {
+	// creditsCost, NOT cost: only usage billed to the org's credit balance may
+	// qualify for a tier. Total `cost` includes BYOK (own-provider-key) usage,
+	// which the spend caps deliberately don't bound and which costs the org
+	// nothing here — counting it would let an attacker pump a stolen provider
+	// key on day one and unlock top-tier top-up allowances for free.
 	const rows = await db
 		.select({
-			total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`,
+			total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`,
 		})
 		.from(projectHourlyStats)
 		.innerJoin(
