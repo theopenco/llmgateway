@@ -217,6 +217,7 @@ export default async function OrganizationPage({
 		providerKeysRes,
 		membersRes,
 		auditLogsRes,
+		orgMetricsRes,
 		settingsRes,
 		guardrailsRes,
 		ssoRes,
@@ -253,6 +254,9 @@ export default async function OrganizationPage({
 				},
 			},
 		}),
+		$api.GET("/admin/organizations/{orgId}", {
+			params: { path: { orgId }, query: {} },
+		}),
 		$api.GET("/admin/organizations/{orgId}/settings", {
 			params: { path: { orgId } },
 		}),
@@ -264,6 +268,7 @@ export default async function OrganizationPage({
 		}),
 	]);
 	const transactionsData = transactionsRes.data;
+	const trustTier = orgMetricsRes.data?.trustTier;
 	const projectsData = projectsRes.data;
 	const apiKeysData = apiKeysRes.data;
 	const providerKeysData = providerKeysRes.data;
@@ -339,6 +344,18 @@ export default async function OrganizationPage({
 					</div>
 					<div className="flex flex-wrap items-center gap-2">
 						<Badge variant={getPlanBadgeVariant(org.plan)}>{org.plan}</Badge>
+						{trustTier &&
+							(trustTier.exempt === "none" ? (
+								<Badge variant="default">Trust Tier {trustTier.tier}</Badge>
+							) : (
+								<Badge variant="outline">
+									{trustTier.exempt === "enterprise"
+										? "No rate limits (enterprise)"
+										: trustTier.exempt === "dev"
+											? "Dev plan limits"
+											: "Chat plan limits"}
+								</Badge>
+							))}
 						<PlanTermBadge
 							planExpiresAt={org.planExpiresAt}
 							planStartedAt={org.planStartedAt}
@@ -367,6 +384,17 @@ export default async function OrganizationPage({
 							Credits: {creditsFormatter.format(parseFloat(org.credits))}
 						</span>
 					</div>
+					{trustTier && trustTier.exempt === "none" && (
+						<p className="text-sm text-muted-foreground">
+							Tier {trustTier.tier}: {trustTier.rpmMultiplier}× RPM ·{" "}
+							{creditsFormatter.format(trustTier.dailyCapUsd)}/day ·{" "}
+							{creditsFormatter.format(trustTier.monthlyCapUsd)}/month ·{" "}
+							{creditsFormatter.format(trustTier.topUpDailyCapUsd)}/24h top-ups
+							— qualifies via {trustTier.accountAgeDays}d age /{" "}
+							{creditsFormatter.format(trustTier.qualifyingSpendUsd)} net
+							credits usage
+						</p>
+					)}
 				</div>
 				<div className="flex flex-wrap items-center gap-2">
 					{org.kind === "devpass" && (

@@ -59,6 +59,7 @@ import {
 	pickModelHistoryTable,
 } from "@/utils/history-window.js";
 
+import { getOrgTierQualifyingSpendUsd } from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
 import {
 	aliasedTable,
@@ -104,6 +105,8 @@ import {
 	getIncludedResetPassesRemaining,
 	MAX_BULK_BLOCK_ORGANIZATIONS,
 	MIN_BULK_BLOCK_SEARCH_LENGTH,
+	getOrgSpendTier,
+	getPlanClass,
 	parseUsedModel,
 } from "@llmgateway/shared";
 import {
@@ -474,8 +477,24 @@ const organizationsListSchema = z.object({
 	offset: z.number(),
 });
 
+// The org's anti-abuse trust tier as the gateway resolves it (see
+// packages/shared/src/spend-tier.ts). `exempt` says why the ladder does not
+// apply: enterprise orgs have no limits at all; dev/chat plans use flat
+// endpoint limits instead of the tier ladder.
+const trustTierSchema = z.object({
+	exempt: z.enum(["none", "enterprise", "dev", "chat"]),
+	tier: z.number(),
+	accountAgeDays: z.number(),
+	qualifyingSpendUsd: z.number(),
+	rpmMultiplier: z.number(),
+	dailyCapUsd: z.number(),
+	monthlyCapUsd: z.number(),
+	topUpDailyCapUsd: z.number(),
+});
+
 const orgMetricsSchema = z.object({
 	organization: organizationSchema,
+	trustTier: trustTierSchema,
 	window: tokenWindowSchema,
 	startDate: z.string(),
 	endDate: z.string(),
@@ -2977,6 +2996,29 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 		}
 	}
 
+	const qualifyingSpendUsd = await getOrgTierQualifyingSpendUsd(orgId);
+	const trustTierResolved = getOrgSpendTier(org, qualifyingSpendUsd);
+	const orgPlanClass = getPlanClass(org);
+	const trustTier = {
+		exempt:
+			org.plan === "enterprise"
+				? ("enterprise" as const)
+				: orgPlanClass === "dev"
+					? ("dev" as const)
+					: orgPlanClass === "chat"
+						? ("chat" as const)
+						: ("none" as const),
+		tier: trustTierResolved.tier,
+		accountAgeDays: Math.floor(
+			(Date.now() - org.createdAt.getTime()) / 86_400_000,
+		),
+		qualifyingSpendUsd: Math.round(qualifyingSpendUsd * 100) / 100,
+		rpmMultiplier: trustTierResolved.rpmMultiplier,
+		dailyCapUsd: trustTierResolved.dailyCapUsd,
+		monthlyCapUsd: trustTierResolved.monthlyCapUsd,
+		topUpDailyCapUsd: trustTierResolved.topUpDailyCapUsd,
+	};
+
 	return c.json({
 		organization: {
 			id: org.id,
@@ -2997,6 +3039,7 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
 		},
+		trustTier,
 		window: windowParam,
 		startDate: startDate.toISOString(),
 		endDate: now.toISOString(),
