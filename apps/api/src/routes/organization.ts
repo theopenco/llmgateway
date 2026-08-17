@@ -21,7 +21,10 @@ import {
 } from "@/utils/invoice.js";
 import { isConfigurableDomain, normalizeDomain } from "@/utils/sso-domain.js";
 
-import { getTopUpVelocityUsage } from "@llmgateway/actions";
+import {
+	getOrgTierQualifyingSpendUsd,
+	getTopUpVelocityUsage,
+} from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
 import { redisClient } from "@llmgateway/cache";
 import {
@@ -1665,19 +1668,10 @@ organization.openapi(getOrganizationLimits, async (c) => {
 	const enterprise = org.plan === "enterprise";
 	const capsApply = isCappedOrg(org);
 
-	// Lifetime usage spend = SUM(project_hourly_stats.cost) across the org's
-	// projects — the same figure the gateway uses to resolve the trust tier.
-	const spendRows = await db
-		.select({
-			total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`,
-		})
-		.from(projectHourlyStats)
-		.innerJoin(
-			tables.project,
-			eq(tables.project.id, projectHourlyStats.projectId),
-		)
-		.where(eq(tables.project.organizationId, id));
-	const lifetimeSpendUsd = Number(spendRows[0]?.total ?? 0) || 0;
+	// Tier-qualifying spend: lifetime usage minus completed refunds, floored at
+	// 0 — the same figure the gateway uses to resolve the trust tier, so the
+	// dashboard shows exactly what the tier is computed from.
+	const lifetimeSpendUsd = await getOrgTierQualifyingSpendUsd(id);
 
 	const now = Date.now();
 	const planClass = getPlanClass(org);

@@ -109,6 +109,78 @@ describe("top-up velocity limits", () => {
 		expect(res.status).not.toBe(429);
 	});
 
+	test("a refunded top-up still consumes the 24h window", async () => {
+		// $95 topped up and fully refunded: the refund must NOT free headroom,
+		// or top-up → refund → top-up would cycle money through the window.
+		await db.insert(tables.transaction).values({
+			id: "refunded-topup",
+			organizationId: "test-org-id",
+			type: "credit_topup",
+			amount: "95",
+			creditAmount: "95",
+			currency: "USD",
+			status: "completed",
+		});
+		await db.insert(tables.transaction).values({
+			organizationId: "test-org-id",
+			type: "credit_refund",
+			amount: "95",
+			creditAmount: "-95",
+			currency: "USD",
+			status: "completed",
+			relatedTransactionId: "refunded-topup",
+		});
+
+		const res = await app.request("/payments/create-payment-intent", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({ amount: 50, organizationId: "test-org-id" }),
+		});
+
+		expect(res.status).toBe(429);
+	});
+
+	test("refunded usage spend does not raise the trust tier", async () => {
+		// $150 of usage would qualify the org for Tier 2 ($2,500/24h allowance)
+		// by spend, letting a $120 top-up through...
+		await db.insert(tables.project).values({
+			id: "velocity-refund-project",
+			name: "Velocity Refund Project",
+			organizationId: "test-org-id",
+		});
+		await db.insert(tables.projectHourlyStats).values({
+			projectId: "velocity-refund-project",
+			hourTimestamp: new Date(),
+			cost: 150,
+		});
+
+		const allowed = await app.request("/payments/create-payment-intent", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({ amount: 120, organizationId: "test-org-id" }),
+		});
+		expect(allowed.status).not.toBe(429);
+		await redisClient.del(topUpVelocityKey("test-org-id"));
+
+		// ...but once that money is refunded the org is back to Tier 0 with a
+		// $100 cap, and the same $120 attempt is blocked.
+		await db.insert(tables.transaction).values({
+			organizationId: "test-org-id",
+			type: "credit_refund",
+			amount: "150",
+			creditAmount: "-150",
+			currency: "USD",
+			status: "completed",
+		});
+
+		const blocked = await app.request("/payments/create-payment-intent", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({ amount: 120, organizationId: "test-org-id" }),
+		});
+		expect(blocked.status).toBe(429);
+	});
+
 	test("enterprise orgs are exempt", async () => {
 		await db
 			.update(tables.organization)

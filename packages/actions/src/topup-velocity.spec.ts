@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
 	windowSumUsd: "0",
 	lifetimeSpendUsd: "0",
+	lifetimeRefundedUsd: "0",
 	redis: new Map<string, string>(),
 	redisDown: false,
 }));
@@ -20,6 +21,10 @@ vi.mock("@llmgateway/db", () => {
 	const project = { id: {}, organizationId: {} };
 	const projectHourlyStats = { projectId: {}, cost: {} };
 	const noop = () => ({});
+	// Both the window sum and the refund sum select from `transaction`; the
+	// traceable eq/and let the fake route on the `type` predicate.
+	const eq = (col: unknown, val: unknown) => ({ col, val });
+	const and = (...conds: unknown[]) => conds;
 	return {
 		db: {
 			select: () => ({
@@ -31,12 +36,25 @@ vi.mock("@llmgateway/db", () => {
 								}),
 							}
 						: {
-								where: async () => [{ total: state.windowSumUsd }],
+								where: async (cond: unknown) => {
+									const conds = Array.isArray(cond) ? cond : [cond];
+									const isRefundSum = conds.some(
+										(c) =>
+											(c as { val?: unknown } | null)?.val === "credit_refund",
+									);
+									return [
+										{
+											total: isRefundSum
+												? state.lifetimeRefundedUsd
+												: state.windowSumUsd,
+										},
+									];
+								},
 							},
 			}),
 		},
-		and: noop,
-		eq: noop,
+		and,
+		eq,
 		gte: noop,
 		inArray: noop,
 		sql: noop,
@@ -109,6 +127,7 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	state.windowSumUsd = "0";
 	state.lifetimeSpendUsd = "0";
+	state.lifetimeRefundedUsd = "0";
 	state.redis.clear();
 	state.redisDown = false;
 	vi.stubEnv("GATEWAY_TOPUP_VELOCITY_ENABLED", "true");
@@ -187,6 +206,25 @@ describe("checkAndReserveTopUp", () => {
 		const result = await checkAndReserveTopUp({ org: t0Org, amountUsd: 4000 });
 		expect(result.allowed).toBe(true);
 		expect(result.capUsd).toBe(10_000);
+	});
+
+	it("refunded spend does not qualify for a higher tier", async () => {
+		// Same $1,200 of usage, but it was all paid with money that came back —
+		// the org must stay Tier 0 ($100/24h), not Tier 3.
+		state.lifetimeSpendUsd = "1200";
+		state.lifetimeRefundedUsd = "1200";
+		const result = await checkAndReserveTopUp({ org: t0Org, amountUsd: 150 });
+		expect(result.allowed).toBe(false);
+		expect(result.capUsd).toBe(100);
+	});
+
+	it("partial refunds only deduct the refunded portion", async () => {
+		// $1,200 usage - $1,100 refunded = $100 net => Tier 2 => $2,500/24h.
+		state.lifetimeSpendUsd = "1200";
+		state.lifetimeRefundedUsd = "1100";
+		const result = await checkAndReserveTopUp({ org: t0Org, amountUsd: 500 });
+		expect(result.allowed).toBe(true);
+		expect(result.capUsd).toBe(2500);
 	});
 
 	it("exempts enterprise and non-gated org kinds", async () => {

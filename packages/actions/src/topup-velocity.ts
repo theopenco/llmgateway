@@ -71,6 +71,14 @@ end
 return 1
 `;
 
+/**
+ * Gross top-up USD in the rolling window. Deliberately NOT net of refunds:
+ * the original `credit_topup` row keeps `status: "completed"` when refunded
+ * (the webhook only inserts a separate `credit_refund` row), and it must keep
+ * consuming headroom — otherwise top-up → refund → top-up again would cycle
+ * money through the window faster than the cap allows. Do not subtract
+ * `credit_refund` rows here.
+ */
 async function windowDbSumUsd(organizationId: string, now: number) {
 	const windowStart = new Date(now - TOPUP_VELOCITY_WINDOW_MS);
 	const rows = await db
@@ -89,6 +97,28 @@ async function windowDbSumUsd(organizationId: string, now: number) {
 	return Number(rows[0]?.total ?? 0) || 0;
 }
 
+/**
+ * Gross USD ever refunded back to the org (completed `credit_refund` rows;
+ * `amount` on those is the positive refunded dollar figure). Deducted from the
+ * tier-qualifying spend so money that came back — fraud clawbacks included —
+ * cannot buy higher limits.
+ */
+async function lifetimeRefundedUsd(organizationId: string) {
+	const rows = await db
+		.select({
+			total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.organizationId, organizationId),
+				eq(tables.transaction.type, "credit_refund"),
+				eq(tables.transaction.status, "completed"),
+			),
+		);
+	return Number(rows[0]?.total ?? 0) || 0;
+}
+
 async function lifetimeUsageSpendUsd(organizationId: string) {
 	const rows = await db
 		.select({
@@ -101,6 +131,22 @@ async function lifetimeUsageSpendUsd(organizationId: string) {
 		)
 		.where(eq(tables.project.organizationId, organizationId));
 	return Number(rows[0]?.total ?? 0) || 0;
+}
+
+/**
+ * The spend figure trust tiers qualify on: lifetime usage spend minus every
+ * completed refund, floored at 0. A fraudster who tops up, burns credits on
+ * inference and then gets the payment refunded must not keep the tier (and
+ * with it the higher RPM/spend/top-up allowances) that usage bought.
+ */
+export async function getOrgTierQualifyingSpendUsd(
+	organizationId: string,
+): Promise<number> {
+	const [usage, refunded] = await Promise.all([
+		lifetimeUsageSpendUsd(organizationId),
+		lifetimeRefundedUsd(organizationId),
+	]);
+	return Math.max(0, usage - refunded);
 }
 
 /**
@@ -141,7 +187,7 @@ export async function checkAndReserveTopUp(options: {
 		};
 	}
 
-	const lifetimeSpend = await lifetimeUsageSpendUsd(org.id);
+	const lifetimeSpend = await getOrgTierQualifyingSpendUsd(org.id);
 	const tier = getOrgSpendTier(org, lifetimeSpend, now);
 	const capUsd = tier.topUpDailyCapUsd;
 

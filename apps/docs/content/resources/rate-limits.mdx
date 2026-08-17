@@ -55,6 +55,8 @@ For regular (pay-as-you-go) organizations, limits scale with a **trust tier**. A
 
 For example, an org past 30 days old (or with $100+ of usage) is Tier 2: chat completions rises from 600 to 2,400 RPM, with a $500/day and $5,000/month spend ceiling.
 
+Qualifying spend is **net of refunds**: every refunded payment is deducted, so refunded or clawed-back money never raises limits. Refunded top-ups still count against the top-up allowance below — refunding does not free up top-up headroom.
+
 ### Daily & Monthly Spend Caps
 
 Regular organizations also have hard **USD spend ceilings** — a daily and a monthly cap set by the trust tier above — so a brand-new account has a tight dollar velocity limit that rises as it ages or spends. Only real paid usage counts; **free models are exempt**, as are **enterprise** (no caps) and dev/chat plan orgs (which have their own plan limits). When a cap is reached, requests return `429` until the counter resets (UTC midnight for daily, first of the month for monthly).

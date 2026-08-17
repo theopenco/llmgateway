@@ -3,12 +3,14 @@ import { randomUUID } from "node:crypto";
 import { recordLimitHit } from "@llmgateway/actions";
 import { redisClient, swrWrap } from "@llmgateway/cache";
 import {
+	and,
 	cdb,
 	eq,
 	getTableName,
 	sql,
 	project as projectTable,
 	projectHourlyStats,
+	transaction as transactionTable,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
@@ -88,16 +90,20 @@ export async function resolveOrganizationIdForToken(
 }
 
 const projectHourlyStatsTableName = getTableName(projectHourlyStats);
+const transactionTableName = getTableName(transactionTable);
 
 /**
- * Lifetime spend (USD) for an organization, aggregated from hourly project
- * stats.
+ * Tier-qualifying lifetime spend (USD) for an organization: usage aggregated
+ * from hourly project stats MINUS every completed refund, floored at 0. The
+ * deduction is what stops a fraudster from buying a higher tier with usage
+ * paid for by a later-refunded (e.g. stolen-card) top-up — refunded money
+ * must not raise RPM multipliers, spend caps, or top-up allowances.
  *
- * Uses the standard swrWrap + cdb layers, but with a PINNED fixed-TTL Drizzle
- * cache entry (`autoInvalidate: false`, `GATEWAY_RATE_LIMIT_SPEND_CACHE_SECONDS`,
- * default 900s) instead of the default short auto-invalidating one: the tier
+ * Uses the standard swrWrap + cdb layers, but with PINNED fixed-TTL Drizzle
+ * cache entries (`autoInvalidate: false`, `GATEWAY_RATE_LIMIT_SPEND_CACHE_SECONDS`,
+ * default 900s) instead of the default short auto-invalidating ones: the tier
  * aggregate is coarse and does not need to reflect writes instantly, and a
- * short TTL would re-run the full SUM at gateway throughput. swrWrap adds
+ * short TTL would re-run the full SUMs at gateway throughput. swrWrap adds
  * in-flight coalescing (concurrent requests share one aggregate query at each
  * expiry instead of stampeding) and the stale mirror as a Postgres-outage
  * fallback.
@@ -110,29 +116,51 @@ export async function getOrganizationLifetimeSpend(
 			1,
 			getRateLimitEnvNumber("GATEWAY_RATE_LIMIT_SPEND_CACHE_SECONDS", 900),
 		);
-		const rows = await swrWrap(
+		return await swrWrap(
 			`orgSpend:${organizationId}`,
-			[projectHourlyStatsTableName],
-			async () =>
-				await cdb
-					.select({
-						total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`,
-					})
-					.from(projectHourlyStats)
-					.innerJoin(
-						projectTable,
-						eq(projectHourlyStats.projectId, projectTable.id),
-					)
-					.where(eq(projectTable.organizationId, organizationId))
-					.$withCache({
-						tag: `org-spend:${organizationId}`,
-						autoInvalidate: false,
-						config: { ex: ttl },
-					}),
-		);
+			[projectHourlyStatsTableName, transactionTableName],
+			async () => {
+				const [usageRows, refundRows] = await Promise.all([
+					cdb
+						.select({
+							total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`,
+						})
+						.from(projectHourlyStats)
+						.innerJoin(
+							projectTable,
+							eq(projectHourlyStats.projectId, projectTable.id),
+						)
+						.where(eq(projectTable.organizationId, organizationId))
+						.$withCache({
+							tag: `org-spend:${organizationId}`,
+							autoInvalidate: false,
+							config: { ex: ttl },
+						}),
+					// `credit_refund.amount` is the positive gross USD given back.
+					cdb
+						.select({
+							total: sql<string>`COALESCE(SUM(CAST(${transactionTable.amount} AS NUMERIC)), 0)`,
+						})
+						.from(transactionTable)
+						.where(
+							and(
+								eq(transactionTable.organizationId, organizationId),
+								eq(transactionTable.type, "credit_refund"),
+								eq(transactionTable.status, "completed"),
+							),
+						)
+						.$withCache({
+							tag: `org-spend-refunds:${organizationId}`,
+							autoInvalidate: false,
+							config: { ex: ttl },
+						}),
+				]);
 
-		const total = Number(rows[0]?.total ?? "0");
-		return Number.isFinite(total) ? total : 0;
+				const usage = Number(usageRows[0]?.total ?? "0") || 0;
+				const refunded = Number(refundRows[0]?.total ?? "0") || 0;
+				return Math.max(0, usage - refunded);
+			},
+		);
 	} catch (error) {
 		// Never let a spend-lookup failure break a request: fall back to the
 		// base tier (multiplier 1), which still applies the generous default

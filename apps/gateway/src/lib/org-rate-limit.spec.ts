@@ -37,12 +37,14 @@ vi.mock("@llmgateway/logger", () => ({
 }));
 
 vi.mock("@llmgateway/db", () => ({
+	and: vi.fn(),
 	cdb: {},
 	eq: vi.fn(),
-	getTableName: vi.fn(() => "project_hourly_stats"),
+	getTableName: vi.fn(() => "mock_table"),
 	sql: vi.fn(),
 	project: {},
 	projectHourlyStats: {},
+	transaction: {},
 }));
 
 vi.mock("./cached-queries.js", () => ({
