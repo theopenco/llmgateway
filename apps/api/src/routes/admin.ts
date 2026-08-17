@@ -30,6 +30,11 @@ import {
 import { adminMiddleware } from "@/middleware/admin.js";
 import { getStripe } from "@/routes/payments.js";
 import {
+	getBlockedSignupCountries,
+	normalizeCountryCodes,
+	setBlockedSignupCountries,
+} from "@/utils/country-blocking.js";
+import {
 	CHAT_PLAN_TX_TYPES,
 	DEV_PLAN_SUBSCRIPTION_TX_TYPES,
 	DEV_PLAN_TX_TYPES,
@@ -5089,6 +5094,75 @@ admin.openapi(updateCreditPurchaseBlock, async (c) => {
 		blocked: await isCreditPurchaseBlockEnabled(),
 		envForced: isCreditPurchaseBlockForcedByEnv(),
 	});
+});
+
+// --- Signup Country Blocking ---
+
+const blockedSignupCountriesSchema = z
+	.object({
+		countries: z.array(z.string()),
+	})
+	.openapi({});
+
+const getBlockedSignupCountriesRoute = createRoute({
+	method: "get",
+	path: "/settings/blocked-signup-countries",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: blockedSignupCountriesSchema,
+				},
+			},
+			description: "Countries whose sign-ups are blocked.",
+		},
+	},
+});
+
+const updateBlockedSignupCountries = createRoute({
+	method: "put",
+	path: "/settings/blocked-signup-countries",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: blockedSignupCountriesSchema,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: blockedSignupCountriesSchema,
+				},
+			},
+			description: "Updated blocked sign-up countries.",
+		},
+	},
+});
+
+admin.openapi(getBlockedSignupCountriesRoute, async (c) => {
+	return c.json({ countries: await getBlockedSignupCountries() });
+});
+
+admin.openapi(updateBlockedSignupCountries, async (c) => {
+	const { countries } = c.req.valid("json");
+
+	const invalid = countries
+		.map((country) => country.trim())
+		.filter(
+			(country) => country && normalizeCountryCodes([country]).length === 0,
+		);
+	if (invalid.length > 0) {
+		throw new HTTPException(400, {
+			message: `Invalid ISO 3166-1 alpha-2 country code(s): ${invalid.join(", ")}`,
+		});
+	}
+
+	return c.json({ countries: await setBlockedSignupCountries(countries) });
 });
 
 // --- Organization Rate Limit Handlers ---

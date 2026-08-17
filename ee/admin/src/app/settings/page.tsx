@@ -1,6 +1,7 @@
 import { ShieldAlert } from "lucide-react";
 import Link from "next/link";
 
+import { BlockedSignupCountriesForm } from "@/components/blocked-signup-countries-form";
 import { CreditPurchaseBlockToggle } from "@/components/credit-purchase-block-toggle";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,7 +12,9 @@ import {
 	CardTitle,
 } from "@/components/ui/card";
 import {
+	getBlockedSignupCountries,
 	getCreditPurchaseBlock,
+	updateBlockedSignupCountries,
 	updateCreditPurchaseBlock,
 } from "@/lib/admin-settings";
 
@@ -36,9 +39,12 @@ function SignInPrompt() {
 }
 
 export default async function SettingsPage() {
-	const creditPurchaseBlock = await getCreditPurchaseBlock();
+	const [creditPurchaseBlock, blockedSignupCountries] = await Promise.all([
+		getCreditPurchaseBlock(),
+		getBlockedSignupCountries(),
+	]);
 
-	if (creditPurchaseBlock === null) {
+	if (creditPurchaseBlock === null || blockedSignupCountries === null) {
 		return <SignInPrompt />;
 	}
 
@@ -47,6 +53,12 @@ export default async function SettingsPage() {
 
 		const result = await updateCreditPurchaseBlock(blocked);
 		return { success: result !== null };
+	}
+
+	async function handleSaveCountries(countries: string[]) {
+		"use server";
+
+		return await updateBlockedSignupCountries(countries);
 	}
 
 	return (
@@ -78,6 +90,24 @@ export default async function SettingsPage() {
 						blocked={creditPurchaseBlock.blocked}
 						envForced={creditPurchaseBlock.envForced}
 						onToggle={handleToggle}
+					/>
+				</CardContent>
+			</Card>
+
+			<Card>
+				<CardHeader>
+					<CardTitle>Sign-ups by country</CardTitle>
+					<CardDescription>
+						Comma-separated ISO 3166-1 alpha-2 codes. New accounts from these
+						countries are rejected, using the country the load balancer reports
+						for the request. Sign-in is unaffected, so existing users keep
+						working even while travelling through a blocked country.
+					</CardDescription>
+				</CardHeader>
+				<CardContent>
+					<BlockedSignupCountriesForm
+						countries={blockedSignupCountries.countries}
+						onSave={handleSaveCountries}
 					/>
 				</CardContent>
 			</Card>

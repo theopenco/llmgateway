@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
+import {
+	getIpCountryCacheKey,
+	setBlockedSignupCountries,
+} from "@/utils/country-blocking.js";
+
 import { db, eq, tables } from "@llmgateway/db";
 import { randomInt } from "@llmgateway/shared/random";
 
@@ -575,12 +580,12 @@ describe("Auth rate limiting", () => {
 		expect(ip2Response.status).toBe(200); // Should succeed (first attempt from this IP)
 	});
 
-	test("should prioritize CF-Connecting-IP over X-Forwarded-For header", async () => {
+	test("should prioritize X-Forwarded-For over CF-Connecting-IP header", async () => {
 		const password = "Password123!";
-		const cfIp = "192.168.1.104";
-		const forwardedFor = "10.0.0.1, 172.16.0.1";
+		const cfIp = `192.168.1.${randomInt(0, 255)}`;
+		const forwardedFor = `192.168.40.${randomInt(0, 255)}, 172.16.0.1`;
 
-		// Test that CF-Connecting-IP takes precedence over X-Forwarded-For
+		// X-Forwarded-For is what the GCP load balancer sets, so it wins
 		const email = `test-${Date.now()}@example.com`;
 		const response = await apiAuth.handler(
 			new Request("http://localhost:4002/auth/sign-up/email", {
@@ -596,14 +601,14 @@ describe("Auth rate limiting", () => {
 
 		expect(response.status).toBe(200);
 
-		// Second request should be rate limited (using CF-Connecting-IP, not X-Forwarded-For)
+		// Rate limited on the X-Forwarded-For IP even with a different CF IP
 		const email2 = `test2-${Date.now()}@example.com`;
 		const response2 = await apiAuth.handler(
 			new Request("http://localhost:4002/auth/sign-up/email", {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"CF-Connecting-IP": cfIp,
+					"CF-Connecting-IP": `192.168.2.${randomInt(0, 255)}`,
 					"X-Forwarded-For": forwardedFor,
 				},
 				body: JSON.stringify({ email: email2, password, name: "Test User" }),
@@ -690,5 +695,145 @@ describe("Auth rate limiting", () => {
 			// These should fail due to invalid credentials, not rate limiting
 			expect(response.status).not.toBe(429);
 		}
+	});
+});
+
+describe("Signup country blocking", () => {
+	const blockedIp = "5.6.7.8";
+	const allowedIp = "5.6.7.9";
+
+	beforeEach(async () => {
+		await setBlockedSignupCountries(["AQ"]);
+		// Prime the geo cache so the hook resolves a country without a lookup
+		await redisClient.set(getIpCountryCacheKey(blockedIp), "AQ");
+		await redisClient.set(getIpCountryCacheKey(allowedIp), "DE");
+	});
+
+	afterEach(async () => {
+		await db.delete(tables.systemSetting);
+		await redisClient.del(getIpCountryCacheKey(blockedIp));
+		await redisClient.del(getIpCountryCacheKey(allowedIp));
+	});
+
+	test("rejects email sign-up from a blocked country", async () => {
+		const response = await apiAuth.handler(
+			new Request("http://localhost:4002/auth/sign-up/email", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"X-Forwarded-For": `${blockedIp}, 10.0.0.1`,
+				},
+				body: JSON.stringify({
+					email: `blocked-${Date.now()}@example.com`,
+					password: "Password123!",
+					name: "Blocked User",
+				}),
+			}),
+		);
+
+		expect(response.status).toBe(403);
+		const body = await response.json();
+		expect(body.error).toBe("signup_not_available");
+	});
+
+	test("rejects sign-up using the load balancer geo header", async () => {
+		const response = await apiAuth.handler(
+			new Request("http://localhost:4002/auth/sign-up/email", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					// GCP Application Load Balancer custom header
+					"X-Client-Region": "AQ",
+					"X-Forwarded-For": `${allowedIp}, 10.0.0.1`,
+				},
+				body: JSON.stringify({
+					email: `blocked-header-${Date.now()}@example.com`,
+					password: "Password123!",
+					name: "Blocked User",
+				}),
+			}),
+		);
+
+		expect(response.status).toBe(403);
+		const body = await response.json();
+		expect(body.error).toBe("signup_not_available");
+	});
+
+	test("rejects social sign-up (requestSignUp) from a blocked country", async () => {
+		const response = await apiAuth.handler(
+			new Request("http://localhost:4002/auth/sign-in/social", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"CF-Connecting-IP": blockedIp,
+				},
+				body: JSON.stringify({
+					provider: "github",
+					requestSignUp: true,
+					callbackURL: "http://localhost:3002/dashboard",
+				}),
+			}),
+		);
+
+		expect(response.status).toBe(403);
+		const body = await response.json();
+		expect(body.error).toBe("signup_not_available");
+	});
+
+	test("does not block sign-in from a blocked country", async () => {
+		const response = await apiAuth.handler(
+			new Request("http://localhost:4002/auth/sign-in/email", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"CF-Connecting-IP": blockedIp,
+				},
+				body: JSON.stringify({
+					email: `nonexistent-${Date.now()}@example.com`,
+					password: "Password123!",
+				}),
+			}),
+		);
+
+		// Fails on credentials, not on the country gate
+		expect(response.status).not.toBe(403);
+	});
+
+	test("does not block sign-up from a non-listed country", async () => {
+		const response = await apiAuth.handler(
+			new Request("http://localhost:4002/auth/sign-up/email", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"CF-Connecting-IP": allowedIp,
+				},
+				body: JSON.stringify({
+					email: `allowed-${Date.now()}@example.com`,
+					password: "Password123!",
+					name: "Allowed User",
+				}),
+			}),
+		);
+
+		expect(response.status).not.toBe(403);
+	});
+
+	test("does not block a private IP that cannot be geolocated", async () => {
+		const response = await apiAuth.handler(
+			new Request("http://localhost:4002/auth/sign-up/email", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"CF-Connecting-IP": `10.1.2.${randomInt(1, 254)}`,
+				},
+				body: JSON.stringify({
+					email: `local-${Date.now()}@example.com`,
+					password: "Password123!",
+					name: "Local User",
+				}),
+			}),
+		);
+
+		expect(response.status).not.toBe(403);
 	});
 });
