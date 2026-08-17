@@ -434,9 +434,18 @@ export const deepseekModels = [
 				maxOutput: 393216,
 				streaming: true,
 				reasoning: true,
-				// Ark rejects `none` and `xhigh` outright ("Valid values are: ['high',
-				// 'low', 'max', 'medium', 'minimal']").
-				reasoningEfforts: ["minimal", "low", "medium", "high", "max"],
+				// The GA deployment accepts the full enum; the preview 400d `none` and
+				// `xhigh` ("Valid values are: ['high', 'low', 'max', 'medium',
+				// 'minimal']"). `none` and `minimal` both return no reasoning at all.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				reasoningOutput: "omit" as const,
 				vision: false,
 				tools: true,
@@ -697,7 +706,16 @@ export const deepseekModels = [
 				maxOutput: 393216,
 				streaming: true,
 				reasoning: true,
-				reasoningEfforts: ["minimal", "low", "medium", "high", "max"],
+				// `none` and `minimal` both return no reasoning at all.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				reasoningOutput: "omit" as const,
 				vision: false,
 				tools: true,
