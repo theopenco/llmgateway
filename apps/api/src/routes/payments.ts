@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import Stripe from "stripe";
 import { z } from "zod";
 
+import { assertCreditPurchaseAllowed } from "@/lib/credit-purchase-guard.js";
 import { computeReferralBonus } from "@/lib/referral-bonus.js";
 import { ensureStripeCustomer } from "@/stripe.js";
 
@@ -157,6 +158,8 @@ payments.openapi(createPaymentIntent, async (c) => {
 	}
 
 	const organizationId = userOrganization.organization.id;
+
+	await assertCreditPurchaseAllowed(organizationId);
 
 	const stripeCustomerId = await ensureStripeCustomer(organizationId);
 
@@ -708,6 +711,8 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 		});
 	}
 
+	await assertCreditPurchaseAllowed(userOrganization.organization.id);
+
 	const isInternational = await isInternationalPaymentMethod(
 		paymentMethod.stripePaymentMethodId,
 	);
@@ -878,6 +883,9 @@ payments.openapi(createCheckoutSession, async (c) => {
 	}
 
 	const organizationId = userOrganization.organization.id;
+
+	await assertCreditPurchaseAllowed(organizationId);
+
 	const stripeCustomerId = await ensureStripeCustomer(organizationId);
 
 	const feeBreakdown = calculateFees({ amount });
