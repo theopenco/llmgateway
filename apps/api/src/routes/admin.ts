@@ -15,6 +15,11 @@ import {
 	executeAdminRefund,
 	sumRefundsByTransaction,
 } from "@/lib/admin-refund.js";
+import {
+	CREDIT_PURCHASE_BLOCK_SETTING_ID,
+	isCreditPurchaseBlockEnabled,
+	isCreditPurchaseBlockForcedByEnv,
+} from "@/lib/credit-purchase-guard.js";
 import { modeSplitFields } from "@/lib/mode-split.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import {
@@ -5007,6 +5012,83 @@ admin.openapi(deleteGlobalRateLimit, async (c) => {
 	}
 
 	return c.json({ success: true });
+});
+
+// --- Credit Purchase Kill Switch ---
+
+const creditPurchaseBlockSchema = z
+	.object({
+		// Effective state (env override OR admin toggle).
+		blocked: z.boolean(),
+		// True when DISABLE_NEW_ORG_CREDIT_PURCHASES forces the block on, in
+		// which case the admin toggle cannot turn it off.
+		envForced: z.boolean(),
+	})
+	.openapi({});
+
+const getCreditPurchaseBlock = createRoute({
+	method: "get",
+	path: "/settings/credit-purchase-block",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: creditPurchaseBlockSchema,
+				},
+			},
+			description:
+				"Whether credit purchases for new organizations are blocked.",
+		},
+	},
+});
+
+const updateCreditPurchaseBlock = createRoute({
+	method: "put",
+	path: "/settings/credit-purchase-block",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ blocked: z.boolean() }).openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: creditPurchaseBlockSchema,
+				},
+			},
+			description: "Updated credit purchase block state.",
+		},
+	},
+});
+
+admin.openapi(getCreditPurchaseBlock, async (c) => {
+	return c.json({
+		blocked: await isCreditPurchaseBlockEnabled(),
+		envForced: isCreditPurchaseBlockForcedByEnv(),
+	});
+});
+
+admin.openapi(updateCreditPurchaseBlock, async (c) => {
+	const { blocked } = c.req.valid("json");
+
+	await db
+		.insert(tables.systemSetting)
+		.values({ id: CREDIT_PURCHASE_BLOCK_SETTING_ID, enabled: blocked })
+		.onConflictDoUpdate({
+			target: tables.systemSetting.id,
+			set: { enabled: blocked, updatedAt: new Date() },
+		});
+
+	return c.json({
+		blocked: await isCreditPurchaseBlockEnabled(),
+		envForced: isCreditPurchaseBlockForcedByEnv(),
+	});
 });
 
 // --- Organization Rate Limit Handlers ---
