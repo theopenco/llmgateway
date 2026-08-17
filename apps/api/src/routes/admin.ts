@@ -387,6 +387,8 @@ const adminMetricsSchema = z.object({
 	// Credits paid for outside Stripe (wire, crypto, …) and credited manually by
 	// an administrator. Real revenue, just settled on another channel.
 	grossManualPaymentsRevenue: z.number(),
+	// One-time provider listing fees (self-serve provider onboarding).
+	grossProviderListingsRevenue: z.number(),
 });
 
 const timeseriesRangeSchema = z.enum(["7d", "30d", "90d", "365d", "all"]);
@@ -1413,6 +1415,29 @@ admin.openapi(getMetrics, async (c) => {
 
 	const grossManualPaymentsRevenue = Number(grossManualPaymentsRow?.value ?? 0);
 
+	// One-time provider listing fees. `amount` is the real payment; no credits
+	// are granted, so this split exists solely on the gross side.
+	const [grossProviderListingsRow] = await db
+		.select({
+			value:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"value",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.transaction.type, "provider_listing_fee"),
+				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+				transactionDateFilter,
+			),
+		);
+
+	const grossProviderListingsRevenue = Number(
+		grossProviderListingsRow?.value ?? 0,
+	);
+
 	const grossRevenue =
 		grossCreditsRevenue +
 		grossDevpassRevenue +
@@ -1420,7 +1445,8 @@ admin.openapi(getMetrics, async (c) => {
 		grossResetPassRevenue +
 		grossChatPlansRevenue +
 		grossProSubscriptionsRevenue +
-		grossManualPaymentsRevenue;
+		grossManualPaymentsRevenue +
+		grossProviderListingsRevenue;
 
 	// Balance derivation must use debited spend, not blended cost: BYOK usage
 	// never drains purchased credits, so subtracting it would understate
@@ -1446,6 +1472,7 @@ admin.openapi(getMetrics, async (c) => {
 		totalBonusCredits,
 		totalRefunds,
 		grossRevenue,
+		grossProviderListingsRevenue,
 		grossCreditsRevenue,
 		grossDevpassRevenue,
 		grossDevpassTopupsRevenue,

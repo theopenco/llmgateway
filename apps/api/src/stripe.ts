@@ -5,11 +5,13 @@ import { z } from "zod";
 
 import {
 	and,
+	cdb,
 	db,
 	enqueueWebhookDeliveries,
 	eq,
 	inArray,
 	isNull,
+	ne,
 	sql,
 	tables,
 } from "@llmgateway/db";
@@ -1944,6 +1946,9 @@ async function handleProviderListingCheckout(session: Stripe.Checkout.Session) {
 		return;
 	}
 
+	// Claim-based idempotency: only the delivery that flips the row off "paid"
+	// records the fee, so redeliveries are no-ops even when the session carries
+	// no payment intent (and a refunded listing can be re-paid).
 	const [listing] = await db
 		.update(tables.providerListingRequest)
 		.set({
@@ -1951,38 +1956,40 @@ async function handleProviderListingCheckout(session: Stripe.Checkout.Session) {
 			stripeCheckoutSessionId: session.id,
 			paidAt: new Date(),
 		})
-		.where(eq(tables.providerListingRequest.id, requestId))
+		.where(
+			and(
+				eq(tables.providerListingRequest.id, requestId),
+				ne(tables.providerListingRequest.paymentStatus, "paid"),
+			),
+		)
 		.returning();
+	if (!listing) {
+		logger.info(
+			`Provider listing request ${requestId} already marked paid, skipping`,
+		);
+		return;
+	}
 
 	logger.info(`Marked provider listing request ${requestId} as paid`);
 
 	// Self-serve listings are owned by an organization; record the fee as
-	// revenue there. Legacy contact-form rows have no org, so the fee stays
+	// revenue there — including a $0 session (100%-off promo), so the books
+	// match Stripe. Legacy contact-form rows have no org, so the fee stays
 	// Stripe-only for them.
 	const paymentIntentId =
 		typeof session.payment_intent === "string"
 			? session.payment_intent
 			: (session.payment_intent?.id ?? null);
-	if (listing?.organizationId && session.amount_total) {
-		const existingTransaction = paymentIntentId
-			? await db.query.transaction.findFirst({
-					where: {
-						stripePaymentIntentId: paymentIntentId,
-						type: "provider_listing_fee",
-					},
-				})
-			: null;
-		if (!existingTransaction) {
-			await db.insert(tables.transaction).values({
-				organizationId: listing.organizationId,
-				type: "provider_listing_fee",
-				amount: (session.amount_total / 100).toString(),
-				currency: session.currency?.toUpperCase() ?? "USD",
-				status: "completed",
-				stripePaymentIntentId: paymentIntentId,
-				description: `Provider listing fee (${listing.providerName})`,
-			});
-		}
+	if (listing.organizationId && session.amount_total !== null) {
+		await db.insert(tables.transaction).values({
+			organizationId: listing.organizationId,
+			type: "provider_listing_fee",
+			amount: (session.amount_total / 100).toString(),
+			currency: session.currency?.toUpperCase() ?? "USD",
+			status: "completed",
+			stripePaymentIntentId: paymentIntentId,
+			description: `Provider listing fee (${listing.providerName})`,
+		});
 	}
 }
 
@@ -3206,6 +3213,9 @@ function refundProductLabel(type: string): string {
 	if (type === "credit_topup") {
 		return "Credits";
 	}
+	if (type === "provider_listing_fee") {
+		return "Provider listing";
+	}
 	if (type.startsWith("dev_plan")) {
 		return "DevPass";
 	}
@@ -3259,6 +3269,7 @@ export async function handleChargeRefunded(
 		| "chat_plan_renewal"
 		| "chat_plan_upgrade"
 		| "subscription_start"
+		| "provider_listing_fee"
 	)[] = [
 		"credit_topup",
 		"dev_plan_start",
@@ -3269,6 +3280,7 @@ export async function handleChargeRefunded(
 		"chat_plan_renewal",
 		"chat_plan_upgrade",
 		"subscription_start",
+		"provider_listing_fee",
 	];
 
 	// Find the original transaction by stripePaymentIntentId first (covers
@@ -3449,6 +3461,55 @@ export async function handleChargeRefunded(
 				.where(eq(tables.organization.id, organization.id));
 			logger.info(
 				`Clawed back one ${tier} Reset Pass after full refund for organization ${organization.id}`,
+			);
+		}
+	}
+
+	// A full refund of a provider listing fee revokes the listing: the fee
+	// unlocked validation/activation, so the row is marked refunded, the live
+	// flag cleared, and the routing boost removed. The listing is resolved via
+	// the checkout session that carried the payment intent, since the fee
+	// transaction does not reference the listing row directly.
+	if (originalTransaction.type === "provider_listing_fee" && charge.refunded) {
+		let submissionId: string | undefined;
+		try {
+			const sessions = await getStripe().checkout.sessions.list({
+				payment_intent: payment_intent as string,
+				limit: 1,
+			});
+			submissionId = sessions.data[0]?.metadata?.submissionId;
+		} catch (error) {
+			logger.error(
+				"Failed to resolve checkout session for refunded provider listing fee",
+				error as Error,
+			);
+		}
+		if (!submissionId) {
+			logger.error(
+				`Refunded provider listing fee has no resolvable listing (payment intent ${payment_intent})`,
+			);
+		} else {
+			const [refundedListing] = await db
+				.update(tables.providerListingRequest)
+				.set({ paymentStatus: "refunded", listedAt: null })
+				.where(eq(tables.providerListingRequest.id, submissionId))
+				.returning();
+			if (refundedListing?.providerSlug) {
+				// cdb so the gateway's cached multiplier drops immediately.
+				await cdb
+					.delete(tables.routingScoreMultiplier)
+					.where(
+						and(
+							eq(
+								tables.routingScoreMultiplier.provider,
+								refundedListing.providerSlug,
+							),
+							isNull(tables.routingScoreMultiplier.model),
+						),
+					);
+			}
+			logger.info(
+				`Revoked provider listing ${submissionId} after full refund of its listing fee`,
 			);
 		}
 	}

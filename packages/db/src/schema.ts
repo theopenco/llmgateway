@@ -959,6 +959,13 @@ export const providerListingRequest = pgTable(
 		index("provider_listing_request_organization_id_idx").on(
 			table.organizationId,
 		),
+		// One active listing per routing identity; archived rows free the slug.
+		// Closes the read-then-insert race between concurrent creates.
+		uniqueIndex("provider_listing_request_provider_slug_active_unique")
+			.on(table.providerSlug)
+			.where(
+				sql`${table.archivedAt} IS NULL AND ${table.providerSlug} IS NOT NULL`,
+			),
 		check(
 			"provider_listing_request_payment_status_check",
 			sql`${table.paymentStatus} IN ('unpaid', 'paid', 'refunded')`,

@@ -358,6 +358,16 @@ export default async function Page({
 											},
 										]
 									: []),
+								...(metrics.grossProviderListingsRevenue > 0
+									? [
+											{
+												label: "Provider listings",
+												value: currencyFormatter.format(
+													metrics.grossProviderListingsRevenue,
+												),
+											},
+										]
+									: []),
 							]}
 						/>
 						<MetricCell

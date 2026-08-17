@@ -1,6 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useQueryClient } from "@tanstack/react-query";
 import {
 	Check,
 	ChevronsUpDown,
@@ -191,6 +192,10 @@ export function CreateListingDialog({
 }) {
 	const api = useApi();
 	const { toast } = useToast();
+	const queryClient = useQueryClient();
+	const listingsQueryKey = api.queryOptions("get", "/provider-listings", {
+		params: { query: { organizationId: orgId } },
+	}).queryKey;
 	const [countryOpen, setCountryOpen] = useState(false);
 	const claimableModels = useMemo(getClaimableModels, []);
 
@@ -246,6 +251,9 @@ export function CreateListingDialog({
 			},
 			{
 				onSuccess: (data) => {
+					// The listing exists either way; refresh the list so the page
+					// never shows a stale empty state after the dialog closes.
+					void queryClient.invalidateQueries({ queryKey: listingsQueryKey });
 					if (data.checkoutUrl) {
 						window.location.href = data.checkoutUrl;
 						return;

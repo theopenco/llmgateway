@@ -66,6 +66,7 @@ interface Transaction {
 		| "credit_topup"
 		| "credit_gift"
 		| "credit_manual_payment"
+		| "provider_listing_fee"
 		| "subscription_start"
 		| "subscription_cancel"
 		| "subscription_end"
@@ -372,6 +373,8 @@ function TransactionCard({
 				return "Credit Gift";
 			case "credit_manual_payment":
 				return "Credits Added";
+			case "provider_listing_fee":
+				return "Provider Listing Fee";
 			case "subscription_start":
 				return "Subscription Start";
 			case "subscription_cancel":

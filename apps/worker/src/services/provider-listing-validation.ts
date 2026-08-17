@@ -9,10 +9,48 @@ import {
 	and,
 	db,
 	eq,
+	lt,
 	tables,
 	type ProviderListingCheckResult,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+
+// Longer than the worst-case run (10 models x 4 checks x 45s probes) so a
+// stale claim can only mean the worker holding it died mid-run.
+const STALE_RUN_MINUTES = 45;
+
+/**
+ * Requeues runs whose claiming worker died (hard kill, OOM): a run stuck in
+ * "running" past the stale window would otherwise block its listing forever,
+ * since the validate route 409s while a run is active.
+ */
+async function requeueStaleRuns(): Promise<void> {
+	// eslint-disable-next-line no-mixed-operators
+	const staleBefore = new Date(Date.now() - STALE_RUN_MINUTES * 60_000);
+	const requeued = await db
+		.update(tables.providerListingTestRun)
+		.set({ status: "queued", startedAt: null, results: [] })
+		.where(
+			and(
+				eq(tables.providerListingTestRun.status, "running"),
+				lt(tables.providerListingTestRun.startedAt, staleBefore),
+			),
+		)
+		.returning({
+			id: tables.providerListingTestRun.id,
+			listingRequestId: tables.providerListingTestRun.listingRequestId,
+		});
+	for (const run of requeued) {
+		logger.warn("Requeued stale provider listing validation run", {
+			runId: run.id,
+			listingId: run.listingRequestId,
+		});
+		await db
+			.update(tables.providerListingRequest)
+			.set({ validationStatus: "queued" })
+			.where(eq(tables.providerListingRequest.id, run.listingRequestId));
+	}
+}
 
 /**
  * Claims and processes the oldest queued provider-listing validation run:
@@ -23,6 +61,8 @@ import { logger } from "@llmgateway/logger";
  * recorded but do not affect the verdict.
  */
 export async function processQueuedProviderListingRuns(): Promise<void> {
+	await requeueStaleRuns();
+
 	const candidate = await db.query.providerListingTestRun.findFirst({
 		where: { status: "queued" },
 		orderBy: { createdAt: "asc" },
@@ -149,6 +189,23 @@ export async function processQueuedProviderListingRuns(): Promise<void> {
 		await failRun(
 			error instanceof Error ? error.message : "Validation aborted",
 		);
+		return;
+	}
+
+	// The verdict must cover what is stored NOW: if the endpoint, credential,
+	// or model set changed while the probes ran (the PATCH route blocks this,
+	// but direct DB edits or races must not slip through), the run is void.
+	const current = await db.query.providerListingRequest.findFirst({
+		where: { id: listing.id },
+	});
+	if (
+		!current ||
+		current.baseUrl !== listing.baseUrl ||
+		current.testKeyCiphertext !== listing.testKeyCiphertext ||
+		JSON.stringify(current.claimedModels) !==
+			JSON.stringify(listing.claimedModels)
+	) {
+		await failRun("Listing changed while validation was running");
 		return;
 	}
 

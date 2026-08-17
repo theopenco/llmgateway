@@ -10,12 +10,19 @@ import type Stripe from "stripe";
 
 vi.hoisted(() => {
 	process.env.STRIPE_WEBHOOK_SECRET = "whsec_test_secret";
+	process.env.DISCORD_NOTIFICATION_URL = "https://discord.test/webhook";
 	delete process.env.STRIPE_WEBHOOK_SECRET_TEST;
 });
 
 const stripeMock = vi.hoisted(() => ({
 	webhooks: { constructEvent: vi.fn() },
+	refunds: { list: vi.fn() },
+	checkout: { sessions: { list: vi.fn() } },
 }));
+
+const fetchMock = vi.hoisted(() =>
+	vi.fn(async () => new Response("ok", { status: 200 })),
+);
 
 vi.mock("./routes/payments.js", async (importOriginal) => {
 	const original = await importOriginal<typeof PaymentsModule>();
@@ -74,7 +81,11 @@ async function deliver(event: Stripe.Event) {
 describe("provider listing fee via Stripe Checkout", () => {
 	beforeEach(async () => {
 		await deleteAll();
+		await db.delete(tables.routingScoreMultiplier);
+		vi.stubGlobal("fetch", fetchMock);
 		stripeMock.webhooks.constructEvent.mockReset();
+		stripeMock.refunds.list.mockReset();
+		stripeMock.checkout.sessions.list.mockReset();
 
 		await db.insert(tables.organization).values({
 			id: ORG_ID,
@@ -93,7 +104,9 @@ describe("provider listing fee via Stripe Checkout", () => {
 	});
 
 	afterEach(async () => {
+		vi.unstubAllGlobals();
 		await db.delete(tables.transaction);
+		await db.delete(tables.routingScoreMultiplier);
 		await deleteAll();
 	});
 
@@ -132,6 +145,82 @@ describe("provider listing fee via Stripe Checkout", () => {
 			where: { id: LISTING_ID },
 		});
 		expect(listing?.paymentStatus).toBe("unpaid");
+	});
+
+	test("records the fee exactly once when the session has no payment intent", async () => {
+		await deliver(checkoutEvent({ payment_intent: null }));
+		await deliver(checkoutEvent({ payment_intent: null }));
+
+		const transactions = await db.query.transaction.findMany({
+			where: { organizationId: ORG_ID, type: "provider_listing_fee" },
+		});
+		expect(transactions).toHaveLength(1);
+		expect(transactions[0].stripePaymentIntentId).toBeNull();
+	});
+
+	test("a zero-amount session (100%-off promo) still books a $0 fee", async () => {
+		await deliver(checkoutEvent({ amount_total: 0 }));
+
+		const listing = await db.query.providerListingRequest.findFirst({
+			where: { id: LISTING_ID },
+		});
+		expect(listing?.paymentStatus).toBe("paid");
+
+		const transaction = await db.query.transaction.findFirst({
+			where: { organizationId: ORG_ID, type: "provider_listing_fee" },
+		});
+		expect(transaction?.amount).toBe("0");
+	});
+
+	test("a full refund revokes the listing and removes its routing boost", async () => {
+		await deliver(checkoutEvent());
+		// Simulate a live listing with its boost provisioned.
+		await db
+			.update(tables.providerListingRequest)
+			.set({ listedAt: new Date(), validationStatus: "passed" })
+			.where(eq(tables.providerListingRequest.id, LISTING_ID));
+		await db.insert(tables.routingScoreMultiplier).values({
+			provider: "acme-inference",
+			model: null,
+			scoreMultiplier: "-0.2",
+			reason: "test boost",
+		});
+
+		stripeMock.refunds.list.mockResolvedValue({
+			data: [{ id: "re_listing_1", amount: 250000, reason: null }],
+		});
+		stripeMock.checkout.sessions.list.mockResolvedValue({
+			data: [{ metadata: { submissionId: LISTING_ID } }],
+		});
+		const refundEvent = {
+			id: "evt_charge_refunded",
+			type: "charge.refunded",
+			data: {
+				object: {
+					id: "ch_listing_1",
+					payment_intent: PAYMENT_INTENT_ID,
+					refunded: true,
+					amount_refunded: 250000,
+				},
+			},
+		} as unknown as Stripe.Event;
+		await deliver(refundEvent);
+
+		const listing = await db.query.providerListingRequest.findFirst({
+			where: { id: LISTING_ID },
+		});
+		expect(listing?.paymentStatus).toBe("refunded");
+		expect(listing?.listedAt).toBeNull();
+
+		const boost = await db.query.routingScoreMultiplier.findFirst({
+			where: { provider: "acme-inference", model: { isNull: true } },
+		});
+		expect(boost).toBeUndefined();
+
+		const refundTransaction = await db.query.transaction.findFirst({
+			where: { organizationId: ORG_ID, type: "credit_refund" },
+		});
+		expect(refundTransaction?.stripeRefundId).toBe("re_listing_1");
 	});
 
 	test("legacy contact-form rows without an org still get marked paid", async () => {

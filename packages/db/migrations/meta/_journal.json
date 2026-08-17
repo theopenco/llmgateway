@@ -1653,6 +1653,13 @@
       "when": 1786989162247,
       "tag": "1786989162_wealthy_psylocke",
       "breakpoints": true
+    },
+    {
+      "idx": 236,
+      "version": "8",
+      "when": 1786994429649,
+      "tag": "1786994429_bent_shinko_yamashiro",
+      "breakpoints": true
     }
   ]
 }

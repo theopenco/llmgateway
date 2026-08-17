@@ -257,6 +257,84 @@ describe("provider listings routes", () => {
 		expect(boost).toHaveLength(0);
 	});
 
+	test("rejects a PATCH with no fields instead of erroring", async () => {
+		const created = await (await createListing(token)).json();
+		const res = await app.request(`/provider-listings/${created.listing.id}`, {
+			method: "PATCH",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({}),
+		});
+		expect(res.status).toBe(400);
+	});
+
+	test("blocks endpoint changes while a validation run is active", async () => {
+		const created = await (await createListing(token)).json();
+		const id = created.listing.id;
+		await db
+			.update(tables.providerListingRequest)
+			.set({ paymentStatus: "paid" })
+			.where(eq(tables.providerListingRequest.id, id));
+		await app.request(`/provider-listings/${id}/validate`, {
+			method: "POST",
+			headers: { Cookie: token },
+		});
+
+		const res = await app.request(`/provider-listings/${id}`, {
+			method: "PATCH",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({ baseUrl: "https://swapped.acme-inference.test" }),
+		});
+		expect(res.status).toBe(409);
+
+		// Discount-only changes are unaffected by an active run.
+		const discountOnly = await app.request(`/provider-listings/${id}`, {
+			method: "PATCH",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({ discountPercent: 0.3 }),
+		});
+		expect(discountOnly.status).toBe(200);
+	});
+
+	test("blocks re-validation while live", async () => {
+		const created = await (await createListing(token)).json();
+		const id = created.listing.id;
+		await db
+			.update(tables.providerListingRequest)
+			.set({
+				paymentStatus: "paid",
+				validationStatus: "passed",
+				listedAt: new Date(),
+			})
+			.where(eq(tables.providerListingRequest.id, id));
+
+		const res = await app.request(`/provider-listings/${id}/validate`, {
+			method: "POST",
+			headers: { Cookie: token },
+		});
+		expect(res.status).toBe(400);
+	});
+
+	test("archiving removes an orphaned boost even when not live", async () => {
+		const created = await (await createListing(token)).json();
+		await db.insert(tables.routingScoreMultiplier).values({
+			provider: "acme-inference",
+			model: null,
+			scoreMultiplier: "-0.2",
+			reason: "orphaned by a failed activation",
+		});
+
+		const res = await app.request(`/provider-listings/${created.listing.id}`, {
+			method: "DELETE",
+			headers: { Cookie: token },
+		});
+		expect(res.status).toBe(200);
+
+		const boost = await db.query.routingScoreMultiplier.findFirst({
+			where: { provider: "acme-inference", model: { isNull: true } },
+		});
+		expect(boost).toBeUndefined();
+	});
+
 	test("lists listings with the latest run attached", async () => {
 		const created = await (await createListing(token)).json();
 		await db.insert(tables.providerListingTestRun).values({

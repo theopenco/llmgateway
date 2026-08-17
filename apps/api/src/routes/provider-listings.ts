@@ -14,6 +14,7 @@ import {
 } from "@llmgateway/actions";
 import {
 	and,
+	cdb,
 	db,
 	eq,
 	isNull,
@@ -182,7 +183,11 @@ async function requireOrgAdmin(userId: string, organizationId: string) {
 		where: { userId, organizationId },
 		with: { organization: true },
 	});
-	if (!userOrg || !userOrg.organization) {
+	if (
+		!userOrg ||
+		!userOrg.organization ||
+		userOrg.organization.status === "deleted"
+	) {
 		throw new HTTPException(404, { message: "Organization not found" });
 	}
 	if (userOrg.role !== "owner" && userOrg.role !== "admin") {
@@ -309,16 +314,18 @@ async function findBoostRow(providerSlug: string) {
  * row is keyed on the listing's provider slug and takes effect as soon as a
  * catalogue provider with that id exists.
  */
+// Boost writes go through cdb: the gateway serves routing_score_multiplier
+// from an SWR/Redis cache that only cdb mutations invalidate.
 async function upsertRoutingBoost(listing: ListingRow, discount: number) {
 	const reason = `Self-serve provider listing ${listing.id} (${listing.providerName}): ${Math.round(discount * 100)}% discount commitment`;
 	const existing = await findBoostRow(listing.providerSlug!);
 	if (existing) {
-		await db
+		await cdb
 			.update(tables.routingScoreMultiplier)
 			.set({ scoreMultiplier: (-discount).toString(), reason })
 			.where(eq(tables.routingScoreMultiplier.id, existing.id));
 	} else {
-		await db.insert(tables.routingScoreMultiplier).values({
+		await cdb.insert(tables.routingScoreMultiplier).values({
 			provider: listing.providerSlug!,
 			model: null,
 			scoreMultiplier: (-discount).toString(),
@@ -328,7 +335,7 @@ async function upsertRoutingBoost(listing: ListingRow, discount: number) {
 }
 
 async function removeRoutingBoost(providerSlug: string) {
-	await db
+	await cdb
 		.delete(tables.routingScoreMultiplier)
 		.where(
 			and(
@@ -470,40 +477,55 @@ providerListings.openapi(createListing, async (c) => {
 	await assertProviderBaseUrlAllowed(body.baseUrl);
 
 	const id = shortid();
-	const [listing] = await db
-		.insert(tables.providerListingRequest)
-		.values({
-			id,
-			organizationId: organization.id,
-			providerName: body.providerName,
-			providerSlug,
-			email: user.email,
-			url: body.url,
-			termsUrl: body.termsUrl,
-			privacyUrl: body.privacyUrl,
-			statusPageUrl: body.statusPageUrl ?? null,
-			country: body.country,
-			complianceSoc2Type2: body.complianceSoc2Type2,
-			complianceIso27001: body.complianceIso27001,
-			complianceGdpr: body.complianceGdpr,
-			dataRetentionDays: body.dataRetentionDays,
-			trainsOnData: body.trainsOnData,
-			baseUrl: body.baseUrl,
-			testKeyCiphertext: encryptProviderKey(
-				body.testApiKey,
+	let listing: ListingRow;
+	try {
+		[listing] = await db
+			.insert(tables.providerListingRequest)
+			.values({
 				id,
-				organization.id,
-			),
-			testKeyMasked: maskToken(body.testApiKey),
-			claimedModels: body.claimedModels,
-			discountPercent: body.discountPercent.toString(),
-			// Self-serve listings are created by an authenticated org admin behind
-			// a paywall, so the contact-form spam pipeline does not apply.
-			spamFilterStatus: "delivered",
-			ipAddress: getClientIpFromContext(c),
-			userAgent: c.req.header("User-Agent") ?? null,
-		})
-		.returning();
+				organizationId: organization.id,
+				providerName: body.providerName,
+				providerSlug,
+				email: user.email,
+				url: body.url,
+				termsUrl: body.termsUrl,
+				privacyUrl: body.privacyUrl,
+				statusPageUrl: body.statusPageUrl ?? null,
+				country: body.country,
+				complianceSoc2Type2: body.complianceSoc2Type2,
+				complianceIso27001: body.complianceIso27001,
+				complianceGdpr: body.complianceGdpr,
+				dataRetentionDays: body.dataRetentionDays,
+				trainsOnData: body.trainsOnData,
+				baseUrl: body.baseUrl,
+				testKeyCiphertext: encryptProviderKey(
+					body.testApiKey,
+					id,
+					organization.id,
+				),
+				testKeyMasked: maskToken(body.testApiKey),
+				claimedModels: body.claimedModels,
+				discountPercent: body.discountPercent.toString(),
+				// Self-serve listings are created by an authenticated org admin behind
+				// a paywall, so the contact-form spam pipeline does not apply.
+				spamFilterStatus: "delivered",
+				ipAddress: getClientIpFromContext(c),
+				userAgent: c.req.header("User-Agent") ?? null,
+			})
+			.returning();
+	} catch (error) {
+		// The partial unique index on providerSlug closes the read-then-insert
+		// race two concurrent creates would otherwise slip through.
+		const code =
+			(error as { code?: string; cause?: { code?: string } })?.code ??
+			(error as { cause?: { code?: string } })?.cause?.code;
+		if (code === "23505") {
+			throw new HTTPException(400, {
+				message: `A listing for "${body.providerName}" already exists`,
+			});
+		}
+		throw error;
+	}
 
 	const checkoutUrl = await createListingCheckoutSession({
 		id: listing.id,
@@ -688,6 +710,22 @@ providerListings.openapi(updateListing, async (c) => {
 				"Endpoint and models cannot change while the listing is live. Delist first, then re-validate.",
 		});
 	}
+	if (endpointChanged) {
+		// A mid-run swap would let a passing verdict cover an endpoint that was
+		// never probed; the worker double-checks this, but reject it up front.
+		const activeRun = await db.query.providerListingTestRun.findFirst({
+			where: {
+				listingRequestId: id,
+				status: { in: ["queued", "running"] },
+			},
+		});
+		if (activeRun) {
+			throw new HTTPException(409, {
+				message:
+					"A validation run is in progress. Wait for it to finish before changing the endpoint or models.",
+			});
+		}
+	}
 
 	const updates: Partial<ListingRow> = {};
 	if (body.baseUrl !== undefined) {
@@ -713,12 +751,18 @@ providerListings.openapi(updateListing, async (c) => {
 	if (body.discountPercent !== undefined) {
 		updates.discountPercent = body.discountPercent.toString();
 	}
+	if (Object.keys(updates).length === 0) {
+		throw new HTTPException(400, { message: "No fields to update" });
+	}
 
 	const [updated] = await db
 		.update(tables.providerListingRequest)
 		.set(updates)
 		.where(eq(tables.providerListingRequest.id, id))
 		.returning();
+	if (!updated) {
+		throw new HTTPException(404, { message: "Provider listing not found" });
+	}
 
 	// A live listing's discount change re-prices its routing boost immediately.
 	if (
@@ -798,6 +842,13 @@ providerListings.openapi(startValidation, async (c) => {
 
 	if (listing.archivedAt) {
 		throw new HTTPException(400, { message: "Listing is archived" });
+	}
+	// A failed re-validation on a live listing would leave the boost active
+	// with a red verdict; live endpoints delist before re-validating.
+	if (listing.listedAt) {
+		throw new HTTPException(400, {
+			message: "Delist the listing before re-running validation",
+		});
 	}
 	if (listing.paymentStatus !== "paid") {
 		throw new HTTPException(402, {
@@ -890,12 +941,32 @@ providerListings.openapi(activateListing, async (c) => {
 		throw new HTTPException(400, { message: "Listing has no provider slug" });
 	}
 
-	await upsertRoutingBoost(listing, discount);
+	// Claim the live flag first (concurrent activations lose on the isNull
+	// guard), then provision the boost; if that fails, roll the claim back so
+	// no listing reads as live without its boost. Archive also removes the
+	// boost unconditionally, so a crash between the two writes stays cleanable.
 	const [updated] = await db
 		.update(tables.providerListingRequest)
 		.set({ listedAt: new Date() })
-		.where(eq(tables.providerListingRequest.id, id))
+		.where(
+			and(
+				eq(tables.providerListingRequest.id, id),
+				isNull(tables.providerListingRequest.listedAt),
+			),
+		)
 		.returning();
+	if (!updated) {
+		throw new HTTPException(400, { message: "Listing is already live" });
+	}
+	try {
+		await upsertRoutingBoost(listing, discount);
+	} catch (error) {
+		await db
+			.update(tables.providerListingRequest)
+			.set({ listedAt: null })
+			.where(eq(tables.providerListingRequest.id, id));
+		throw error;
+	}
 
 	logger.info("Provider listing activated", {
 		listingId: id,
@@ -932,7 +1003,9 @@ providerListings.openapi(archiveListing, async (c) => {
 	const { id } = c.req.valid("param");
 	const listing = await requireListing(user.id, id);
 
-	if (listing.listedAt && listing.providerSlug) {
+	// Remove the boost whenever a slug exists, not just when live: this also
+	// cleans up a boost orphaned by a failed activation (no-op when absent).
+	if (listing.providerSlug) {
 		await removeRoutingBoost(listing.providerSlug);
 	}
 	const [updated] = await db
@@ -940,6 +1013,9 @@ providerListings.openapi(archiveListing, async (c) => {
 		.set({ archivedAt: new Date(), listedAt: null })
 		.where(eq(tables.providerListingRequest.id, id))
 		.returning();
+	if (!updated) {
+		throw new HTTPException(404, { message: "Provider listing not found" });
+	}
 
 	return c.json({ listing: serializeListing(updated) }, 200);
 });

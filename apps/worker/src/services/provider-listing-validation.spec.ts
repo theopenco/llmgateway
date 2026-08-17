@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 
 import { processQueuedProviderListingRuns } from "./provider-listing-validation.js";
 
@@ -183,5 +183,65 @@ describe("processQueuedProviderListingRuns", () => {
 	test("does nothing when no run is queued", async () => {
 		await processQueuedProviderListingRuns();
 		expect(runProviderEndpointChecks).not.toHaveBeenCalled();
+	});
+
+	test("requeues and processes a run stranded by a dead worker", async () => {
+		const run = await seedListing({ validationStatus: "running" });
+		await db
+			.update(tables.providerListingTestRun)
+			.set({
+				status: "running",
+				startedAt: new Date(Date.now() - 3_600_000),
+			})
+			.where(eq(tables.providerListingTestRun.id, run.id));
+		runProviderEndpointChecks.mockResolvedValue(passingChecks);
+
+		await processQueuedProviderListingRuns();
+
+		const updated = await db.query.providerListingTestRun.findFirst({
+			where: { id: run.id },
+		});
+		expect(updated?.status).toBe("passed");
+	});
+
+	test("does not requeue a run that is legitimately in progress", async () => {
+		const run = await seedListing({ validationStatus: "running" });
+		await db
+			.update(tables.providerListingTestRun)
+			.set({ status: "running", startedAt: new Date() })
+			.where(eq(tables.providerListingTestRun.id, run.id));
+
+		await processQueuedProviderListingRuns();
+
+		const updated = await db.query.providerListingTestRun.findFirst({
+			where: { id: run.id },
+		});
+		expect(updated?.status).toBe("running");
+		expect(runProviderEndpointChecks).not.toHaveBeenCalled();
+	});
+
+	test("voids the verdict when the listing changed mid-run", async () => {
+		const run = await seedListing();
+		runProviderEndpointChecks.mockImplementation(async () => {
+			// Swap the endpoint while the probes are "running".
+			await db
+				.update(tables.providerListingRequest)
+				.set({ baseUrl: "https://swapped.acme.test" })
+				.where(eq(tables.providerListingRequest.id, LISTING_ID));
+			return passingChecks;
+		});
+
+		await processQueuedProviderListingRuns();
+
+		const updated = await db.query.providerListingTestRun.findFirst({
+			where: { id: run.id },
+		});
+		expect(updated?.status).toBe("failed");
+		expect(updated?.error).toContain("changed");
+
+		const listing = await db.query.providerListingRequest.findFirst({
+			where: { id: LISTING_ID },
+		});
+		expect(listing?.validationStatus).toBe("failed");
 	});
 });

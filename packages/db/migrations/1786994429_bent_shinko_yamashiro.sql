@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "provider_listing_request_provider_slug_active_unique" ON "provider_listing_request" ("provider_slug") WHERE "archived_at" IS NULL AND "provider_slug" IS NOT NULL;

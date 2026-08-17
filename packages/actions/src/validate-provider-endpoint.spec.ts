@@ -225,6 +225,30 @@ describe("runProviderEndpointChecks", () => {
 		expect(results[0].error).toBeTruthy();
 	});
 
+	it("fails a check whose response exceeds the body size cap", async () => {
+		const oneMib = 1024 * 1024;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response("x".repeat(oneMib + 1), {
+						status: 200,
+						headers: { "content-type": "application/json" },
+					}),
+			),
+		);
+
+		const results = await runProviderEndpointChecks({
+			baseUrl: BASE_URL,
+			token: TOKEN,
+			externalModelId: "test-model",
+			checks: ["chat"],
+		});
+
+		expect(results[0].passed).toBe(false);
+		expect(results[0].error).toContain("exceeded");
+	});
+
 	it("rejects a non-https base URL when the SSRF guard is enabled", async () => {
 		vi.unstubAllEnvs();
 		vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "false");

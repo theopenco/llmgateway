@@ -13,7 +13,7 @@ import {
 	Rocket,
 	XCircle,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
 	AlertDialog,
@@ -242,6 +242,15 @@ export function ListingOverview({
 		Number(listing.discountPercent ?? "0") * 100,
 	);
 	const [draftDiscount, setDraftDiscount] = useState(currentDiscount || 15);
+	// Re-seed the slider when a poll brings in a discount changed elsewhere, so
+	// a stale draft never offers to silently revert a teammate's update.
+	const lastSyncedDiscount = useRef(currentDiscount);
+	useEffect(() => {
+		if (currentDiscount !== lastSyncedDiscount.current) {
+			lastSyncedDiscount.current = currentDiscount;
+			setDraftDiscount(currentDiscount || 15);
+		}
+	}, [currentDiscount]);
 
 	const checkoutMutation = api.useMutation(
 		"post",
@@ -293,7 +302,7 @@ export function ListingOverview({
 					<div className="flex items-center gap-2 rounded-lg border border-green-500/30 bg-green-500/10 p-3 text-sm text-green-700 dark:text-green-400">
 						<BadgeCheck className="h-4 w-4 shrink-0" />
 						Live since {new Date(listing.listedAt!).toLocaleDateString()} — the
-						routing boost for your {currentDiscount}% discount is active.
+						routing boost for your {currentDiscount}% discount is provisioned.
 					</div>
 				)}
 

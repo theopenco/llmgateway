@@ -240,6 +240,36 @@ function buildProbe(
 	}
 }
 
+// A conforming probe response is a few KB; the cap only exists so a hostile
+// or broken endpoint cannot stream an unbounded body into worker memory.
+const MAX_RESPONSE_BYTES = 1024 * 1024;
+
+async function readBodyBounded(
+	response: Response,
+	limit: number,
+): Promise<string> {
+	const reader = response.body?.getReader();
+	if (!reader) {
+		return "";
+	}
+	const decoder = new TextDecoder();
+	let text = "";
+	let received = 0;
+	for (;;) {
+		const { done, value } = await reader.read();
+		if (done) {
+			break;
+		}
+		received += value.byteLength;
+		if (received > limit) {
+			await reader.cancel();
+			throw new Error(`Response exceeded ${limit} bytes`);
+		}
+		text += decoder.decode(value, { stream: true });
+	}
+	return text + decoder.decode();
+}
+
 async function runSingleCheck(
 	check: ProviderEndpointCheckId,
 	endpoint: string,
@@ -262,7 +292,7 @@ async function runSingleCheck(
 			body: JSON.stringify(probe.body),
 			signal: AbortSignal.timeout(timeoutMs),
 		});
-		const text = await response.text();
+		const text = await readBodyBounded(response, MAX_RESPONSE_BYTES);
 		const latencyMs = Date.now() - startedAt;
 
 		if (!response.ok) {

@@ -132,6 +132,7 @@ export function firstRowPerInvoiceFilter(dedupTypes: readonly string[]) {
 export const paidTransactionTypes = [
 	"credit_topup",
 	"credit_manual_payment",
+	"provider_listing_fee",
 	"subscription_start",
 	"dev_plan_start",
 	"dev_plan_upgrade",
