@@ -1783,6 +1783,43 @@ export const alibabaModels = [
 				],
 			},
 			{
+				providerId: "novita",
+				externalId: "qwen/qwen3.8-max",
+				inputPrice: "2e-6",
+				cachedInputPrice: "0.25e-6",
+				outputPrice: "6e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 131072,
+				// novita accepts every reasoning_effort tier but none of them changes
+				// the deployment's behaviour (thinking stays on even for "none"), so
+				// no tier is declared and reasoning_effort is left out of
+				// supportedParameters below
+				reasoning: true,
+				reasoningOutput: "omit",
+				streaming: true,
+				vision: true,
+				tools: true,
+				// Qwen thinking models reject tool_choice "required" or object
+				supportedToolChoices: ["auto", "none"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				// novita's deployment 400s on the developer role
+				supportsDeveloperRole: false,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"tools",
+					"tool_choice",
+					"response_format",
+				],
+			},
+			{
 				providerId: "scx-ai-gp",
 				externalId: "qwen3.8-max",
 				inputPrice: "1.815e-6",

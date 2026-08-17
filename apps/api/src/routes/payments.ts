@@ -6,6 +6,7 @@ import { z } from "zod";
 import { assertOrganizationNotHighRisk } from "@/lib/account-risk.js";
 import { assertCreditPurchaseAllowed } from "@/lib/credit-purchase-guard.js";
 import { computeReferralBonus } from "@/lib/referral-bonus.js";
+import { forcedThreeDSecureOptions } from "@/lib/three-d-secure.js";
 import { ensureStripeCustomer } from "@/stripe.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
@@ -204,6 +205,9 @@ payments.openapi(createPaymentIntent, async (c) => {
 			...(stripePaymentMethodId
 				? { payment_method: stripePaymentMethodId }
 				: {}),
+			// Deliberately no forced 3DS: the card was already authenticated by
+			// the SetupIntent that saved it, so challenging again would be a
+			// second prompt in the same checkout for no added protection.
 			metadata: {
 				organizationId,
 				baseAmount: amount.toString(),
@@ -319,9 +323,13 @@ payments.openapi(createSetupIntent, async (c) => {
 	// out of confirmCardSetup "used but unattached", and create-payment-intent
 	// races the setup_intent.succeeded webhook's attach — losing the race
 	// makes Stripe reject the PaymentIntent outright.
+	// Authenticating the card here also helps the later off-session charges it
+	// is saved for: an initially authenticated credential is what lets Stripe
+	// claim an SCA exemption on merchant-initiated top-ups.
 	const setupIntent = await getStripe().setupIntents.create({
 		customer: stripeCustomerId,
 		usage: "off_session",
+		...(await forcedThreeDSecureOptions()),
 		metadata: {
 			organizationId,
 		},
