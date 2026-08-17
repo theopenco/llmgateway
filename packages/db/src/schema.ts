@@ -106,6 +106,10 @@ export const user = pgTable(
 		bio: text(),
 		githubUsername: text(),
 		xUsername: text(),
+		// IANA time zone name (e.g. "America/Montreal") used to render datetimes
+		// for this user. "UTC" (the default) keeps the historical UTC display.
+		// Storage stays UTC forever — this only affects presentation.
+		timezone: text().notNull().default("UTC"),
 	},
 	(table) => [
 		// Admin "Flagged accounts" listing. Partial so the index only carries the
