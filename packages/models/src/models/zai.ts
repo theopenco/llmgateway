@@ -28,6 +28,33 @@ export const zaiModels = [
 				jsonOutput: true,
 			},
 			{
+				providerId: "novita",
+				externalId: "zai-org/glm-5.2",
+				inputPrice: "1.4e-6",
+				cachedInputPrice: "0.26e-6",
+				outputPrice: "4.4e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: false,
+				tools: true,
+				// JSON mode is unreliable on this deployment: roughly half of the
+				// responses put the object in reasoning_content with empty content, and
+				// the rest markdown-fence it. json_schema behaves the same way.
+				jsonOutput: false,
+			},
+			{
 				providerId: "canopywave",
 				test: "skip", // over-reasons heavily and streams slowly (~1 tok/s), so the 60s streaming timeout is flaky
 				externalId: "zai/glm-5.2",
@@ -235,36 +262,33 @@ export const zaiModels = [
 			{
 				providerId: "novita",
 				externalId: "zai-org/glm-5.1",
-				inputPrice: "1.4e-6",
+				inputPrice: "1.38e-6",
 				cachedInputPrice: "0.26e-6",
 				outputPrice: "4.4e-6",
 				requestPrice: "0",
 				contextSize: 204800,
-				maxOutput: 131100,
+				maxOutput: 131072,
 				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				// novita's glm-5.1 reasons adaptively and omits reasoning_content
 				// for simple prompts; no parameter forces it on
 				reasoningOutput: "omit",
 				vision: false,
 				tools: true,
 				jsonOutput: true,
-				// novita disables thinking when reasoning_effort is forwarded
-				// (empty reasoning_content); omitting it reasons by default, so
-				// exclude reasoning_effort here (verified live 2026-07-14)
-				supportedParameters: [
-					"temperature",
-					"max_tokens",
-					"top_p",
-					"frequency_penalty",
-					"presence_penalty",
-					"stop",
-					"stream",
-					"response_format",
-					"tools",
-					"tool_choice",
-				],
+				// JSON mode consistently markdown-fences the object on this
+				// deployment, so normalize it defensively in both modes.
+				healStreamingJsonOutput: true,
 			},
 			{
 				providerId: "together-ai",
@@ -398,7 +422,7 @@ export const zaiModels = [
 				outputPrice: "3.2e-6",
 				requestPrice: "0",
 				contextSize: 202800,
-				maxOutput: 131100,
+				maxOutput: 131072,
 				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
