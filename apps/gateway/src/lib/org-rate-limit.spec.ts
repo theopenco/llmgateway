@@ -22,6 +22,10 @@ vi.mock("@llmgateway/cache", () => ({
 		get: vi.fn(),
 		set: vi.fn(),
 	},
+	swrWrap: vi.fn(
+		async <T>(_key: string, _tables: string[], fetcher: () => Promise<T>) =>
+			await fetcher(),
+	),
 }));
 
 vi.mock("@llmgateway/logger", () => ({
@@ -33,8 +37,9 @@ vi.mock("@llmgateway/logger", () => ({
 }));
 
 vi.mock("@llmgateway/db", () => ({
-	db: {},
+	cdb: {},
 	eq: vi.fn(),
+	getTableName: vi.fn(() => "project_hourly_stats"),
 	sql: vi.fn(),
 	project: {},
 	projectHourlyStats: {},

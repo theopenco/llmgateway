@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 
 import { recordLimitHit } from "@llmgateway/actions";
-import { redisClient } from "@llmgateway/cache";
+import { redisClient, swrWrap } from "@llmgateway/cache";
 import {
-	db,
+	cdb,
 	eq,
+	getTableName,
 	sql,
 	project as projectTable,
 	projectHourlyStats,
@@ -86,58 +87,52 @@ export async function resolveOrganizationIdForToken(
 	return project.organizationId;
 }
 
-function spendCacheKey(organizationId: string): string {
-	return `rate_limit:org_spend:${organizationId}`;
-}
+const projectHourlyStatsTableName = getTableName(projectHourlyStats);
 
 /**
  * Lifetime spend (USD) for an organization, aggregated from hourly project
- * stats and cached in Redis.
+ * stats.
  *
- * This deliberately does NOT use the `cached-queries` (swrWrap + cdb) pattern.
- * Those caches auto-invalidate whenever their backing table is written, and
- * `project_hourly_stats` is rewritten continuously by the worker — so a
- * swr/cdb cache for this aggregate would be evicted constantly and hammer
- * Postgres at gateway throughput. Instead we use a plain fixed-TTL Redis entry:
- * the spend tier is coarse and does not need to reflect a write instantly. The
- * lookup is also only reached lazily, once an org is already at its base limit
- * (see {@link checkOrgRateLimit}), so the hot path never touches Postgres.
+ * Uses the standard swrWrap + cdb layers, but with a PINNED fixed-TTL Drizzle
+ * cache entry (`autoInvalidate: false`, `GATEWAY_RATE_LIMIT_SPEND_CACHE_SECONDS`,
+ * default 900s) instead of the default short auto-invalidating one: the tier
+ * aggregate is coarse and does not need to reflect writes instantly, and a
+ * short TTL would re-run the full SUM at gateway throughput. swrWrap adds
+ * in-flight coalescing (concurrent requests share one aggregate query at each
+ * expiry instead of stampeding) and the stale mirror as a Postgres-outage
+ * fallback.
  */
 export async function getOrganizationLifetimeSpend(
 	organizationId: string,
 ): Promise<number> {
-	const cacheKey = spendCacheKey(organizationId);
-
 	try {
-		const cached = await redisClient.get(cacheKey);
-		if (cached !== null) {
-			const value = Number(cached);
-			if (Number.isFinite(value)) {
-				return value;
-			}
-		}
-
-		const rows = await db
-			.select({
-				total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`,
-			})
-			.from(projectHourlyStats)
-			.innerJoin(
-				projectTable,
-				eq(projectHourlyStats.projectId, projectTable.id),
-			)
-			.where(eq(projectTable.organizationId, organizationId));
+		const ttl = Math.max(
+			1,
+			getRateLimitEnvNumber("GATEWAY_RATE_LIMIT_SPEND_CACHE_SECONDS", 900),
+		);
+		const rows = await swrWrap(
+			`orgSpend:${organizationId}`,
+			[projectHourlyStatsTableName],
+			async () =>
+				await cdb
+					.select({
+						total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`,
+					})
+					.from(projectHourlyStats)
+					.innerJoin(
+						projectTable,
+						eq(projectHourlyStats.projectId, projectTable.id),
+					)
+					.where(eq(projectTable.organizationId, organizationId))
+					.$withCache({
+						tag: `org-spend:${organizationId}`,
+						autoInvalidate: false,
+						config: { ex: ttl },
+					}),
+		);
 
 		const total = Number(rows[0]?.total ?? "0");
-		const value = Number.isFinite(total) ? total : 0;
-
-		const ttl = getRateLimitEnvNumber(
-			"GATEWAY_RATE_LIMIT_SPEND_CACHE_SECONDS",
-			900,
-		);
-		await redisClient.set(cacheKey, String(value), "EX", Math.max(1, ttl));
-
-		return value;
+		return Number.isFinite(total) ? total : 0;
 	} catch (error) {
 		// Never let a spend-lookup failure break a request: fall back to the
 		// base tier (multiplier 1), which still applies the generous default

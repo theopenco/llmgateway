@@ -59,12 +59,14 @@ import {
 	type RoutingMetadata,
 	type VideoPricingContext,
 } from "@llmgateway/actions";
-import { redisClient } from "@llmgateway/cache";
+import { redisClient, swrWrap } from "@llmgateway/cache";
 import {
 	and,
+	cdb,
 	db,
 	eq,
 	findManagedProviderKeyById,
+	getTableName,
 	metricsKey,
 	sql,
 	shortid,
@@ -2569,22 +2571,47 @@ function getGoogleVertexInlineVideo(
 	]);
 }
 
+// Pinned cdb/SWR TTL for video-job reads on the client poll loop. The worker
+// updates job status outside cdb (no auto-invalidation), so a short fixed TTL
+// keeps polls fresh while collapsing tight poll loops to one query per window.
+const VIDEO_JOB_CACHE_TTL_SECONDS = 2;
+
+async function findVideoJobCached(
+	swrKey: string,
+	tag: string,
+	where: ReturnType<typeof and> | ReturnType<typeof eq>,
+): Promise<VideoJobRecord | undefined> {
+	const rows = await swrWrap(
+		swrKey,
+		[getTableName(tables.videoJob)],
+		async () =>
+			await cdb
+				.select()
+				.from(tables.videoJob)
+				.where(where)
+				.limit(1)
+				.$withCache({
+					tag,
+					autoInvalidate: false,
+					config: { ex: VIDEO_JOB_CACHE_TTL_SECONDS },
+				}),
+	);
+	return rows[0];
+}
+
 async function requireVideoJobForProject(
 	projectId: string,
 	videoId: string,
 	sessionWalletId: string | null = null,
 ): Promise<VideoJobRecord> {
-	const job = await db
-		.select()
-		.from(tables.videoJob)
-		.where(
-			and(
-				eq(tables.videoJob.id, videoId),
-				eq(tables.videoJob.projectId, projectId),
-			),
-		)
-		.limit(1)
-		.then((rows) => rows[0]);
+	const job = await findVideoJobCached(
+		`videoJob:${projectId}:${videoId}`,
+		`video-job:${projectId}:${videoId}`,
+		and(
+			eq(tables.videoJob.id, videoId),
+			eq(tables.videoJob.projectId, projectId),
+		),
+	);
 
 	if (!job) {
 		throw new HTTPException(404, {
@@ -5099,12 +5126,11 @@ videos.openapi(getVideoLogContent, async (c) => {
 		});
 	}
 
-	const videoJob = await db
-		.select()
-		.from(tables.videoJob)
-		.where(eq(tables.videoJob.logId, logId))
-		.limit(1)
-		.then((rows) => rows[0]);
+	const videoJob = await findVideoJobCached(
+		`videoJob:byLog:${logId}`,
+		`video-job:by-log:${logId}`,
+		eq(tables.videoJob.logId, logId),
+	);
 	if (!videoJob) {
 		throw new HTTPException(404, {
 			message: "Video content is not available",
