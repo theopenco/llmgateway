@@ -577,12 +577,12 @@ describe("Auth rate limiting", () => {
 		expect(ip2Response.status).toBe(200); // Should succeed (first attempt from this IP)
 	});
 
-	test("should prioritize CF-Connecting-IP over X-Forwarded-For header", async () => {
+	test("should prioritize X-Forwarded-For over CF-Connecting-IP header", async () => {
 		const password = "Password123!";
-		const cfIp = "192.168.1.104";
-		const forwardedFor = "10.0.0.1, 172.16.0.1";
+		const cfIp = `192.168.1.${randomInt(0, 255)}`;
+		const forwardedFor = `192.168.40.${randomInt(0, 255)}, 172.16.0.1`;
 
-		// Test that CF-Connecting-IP takes precedence over X-Forwarded-For
+		// X-Forwarded-For is what the GCP load balancer sets, so it wins
 		const email = `test-${Date.now()}@example.com`;
 		const response = await apiAuth.handler(
 			new Request("http://localhost:4002/auth/sign-up/email", {
@@ -598,14 +598,14 @@ describe("Auth rate limiting", () => {
 
 		expect(response.status).toBe(200);
 
-		// Second request should be rate limited (using CF-Connecting-IP, not X-Forwarded-For)
+		// Rate limited on the X-Forwarded-For IP even with a different CF IP
 		const email2 = `test2-${Date.now()}@example.com`;
 		const response2 = await apiAuth.handler(
 			new Request("http://localhost:4002/auth/sign-up/email", {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"CF-Connecting-IP": cfIp,
+					"CF-Connecting-IP": `192.168.2.${randomInt(0, 255)}`,
 					"X-Forwarded-For": forwardedFor,
 				},
 				body: JSON.stringify({ email: email2, password, name: "Test User" }),

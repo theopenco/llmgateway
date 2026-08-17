@@ -11,10 +11,18 @@ function context(headers: Record<string, string>) {
 }
 
 describe("getClientIpFromHeaders", () => {
-	test("prefers CF-Connecting-IP", () => {
+	test("prefers X-Forwarded-For, the header the GCP load balancer sets", () => {
 		const headers = new Headers({
 			"CF-Connecting-IP": "1.2.3.4",
 			"X-Forwarded-For": "5.6.7.8",
+			"X-Real-IP": "9.10.11.12",
+		});
+		expect(getClientIpFromHeaders(headers)).toBe("5.6.7.8");
+	});
+
+	test("falls back to CF-Connecting-IP without X-Forwarded-For", () => {
+		const headers = new Headers({
+			"CF-Connecting-IP": "1.2.3.4",
 			"X-Real-IP": "9.10.11.12",
 		});
 		expect(getClientIpFromHeaders(headers)).toBe("1.2.3.4");
@@ -54,7 +62,7 @@ describe("getClientIpFromContext", () => {
 					"x-forwarded-for": "5.6.7.8",
 				}),
 			),
-		).toBe("1.2.3.4");
+		).toBe("5.6.7.8");
 		expect(
 			getClientIpFromContext(
 				context({ "x-forwarded-for": " 5.6.7.8 ,10.0.0.1" }),

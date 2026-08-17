@@ -1,12 +1,13 @@
 type HeaderGetter = (name: string) => string | null | undefined;
 
-// Header precedence used across the API for the originating client IP:
-// CF-Connecting-IP is set by Cloudflare and cannot be spoofed behind it,
-// X-Forwarded-For is set by the GCP load balancer (first hop is the client),
-// the rest are fallbacks for other proxies and local development.
+// Header precedence used across the API for the originating client IP.
+// X-Forwarded-For comes first: it is the header the GCP load balancer in front
+// of the API sets, and it is what the gateway's IAM CIDR rules already key on
+// (its first hop is the client). CF-Connecting-IP follows for deployments
+// fronted by Cloudflare, then fallbacks for other proxies and local dev.
 const CLIENT_IP_HEADERS = [
-	"cf-connecting-ip",
 	"x-forwarded-for",
+	"cf-connecting-ip",
 	"x-real-ip",
 	"x-client-ip",
 	"remote-addr",
