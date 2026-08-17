@@ -134,10 +134,11 @@ export {
 
 export {
 	formatInTimeZone,
+	formatDateTime,
+	dateFormats,
 	getBrowserTimeZone,
 	isDayString,
 	parseDayString,
-	timeToDisplayInZone,
 } from "./lib/format-date.js";
 
 export { useIsMobile } from "./hooks/use-mobile.js";

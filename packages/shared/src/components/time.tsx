@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { timeToDisplayInZone } from "@/lib/format-date.js";
+import { formatDateTime } from "@/lib/format-date.js";
 
 /**
  * Renders a date in the given IANA time zone. Mount-gated: renders nothing on
@@ -29,7 +29,7 @@ export function Time({
 	const value = typeof date === "string" ? date : date.toISOString();
 	return (
 		<span className={className}>
-			{timeToDisplayInZone(value, format, timeZone || "UTC")}
+			{formatDateTime(value, timeZone || "UTC", format)}
 		</span>
 	);
 }

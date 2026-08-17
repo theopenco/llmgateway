@@ -23,7 +23,7 @@ import {
 import { useUser } from "@/hooks/useUser";
 import { useApi } from "@/lib/fetch-client";
 
-import { timeToDisplayInZone } from "@llmgateway/shared";
+import { dateFormats, formatDateTime } from "@llmgateway/shared";
 
 import type { paths } from "@/lib/api/v1";
 import type { TooltipProps } from "recharts";
@@ -117,10 +117,10 @@ function ChartTooltipContent({
 		return null;
 	}
 	const dateLabel = label
-		? timeToDisplayInZone(
+		? formatDateTime(
 				label,
-				hourly ? "MMM d, HH:mm" : "MMM d, yyyy",
 				timeZone,
+				hourly ? dateFormats.monthDayHourMinute : dateFormats.monthDayYear,
 			)
 		: "";
 	// Token classes bill at very different rates (cached input is often 10x
@@ -298,8 +298,8 @@ export function AgentModelUsageChart({ projectId }: AgentModelUsageChartProps) {
 				const base: ChartRow = {
 					slot: row.slot,
 					formattedDate: hourly
-						? timeToDisplayInZone(row.slot, "HH:mm", userTimeZone)
-						: timeToDisplayInZone(row.slot, "MMM d", userTimeZone),
+						? formatDateTime(row.slot, userTimeZone, dateFormats.hourMinute)
+						: formatDateTime(row.slot, userTimeZone, dateFormats.monthDay),
 					totalRequests: row.totalRequests,
 					totalCost: row.totalCost,
 					totalTokens: row.totalTokens,
@@ -449,8 +449,16 @@ export function AgentModelUsageChart({ projectId }: AgentModelUsageChartProps) {
 									tickFormatter={(value: string) => {
 										try {
 											return hourly
-												? timeToDisplayInZone(value, "HH:mm", userTimeZone)
-												: timeToDisplayInZone(value, "MMM d", userTimeZone);
+												? formatDateTime(
+														value,
+														userTimeZone,
+														dateFormats.hourMinute,
+													)
+												: formatDateTime(
+														value,
+														userTimeZone,
+														dateFormats.monthDay,
+													);
 										} catch {
 											return value;
 										}

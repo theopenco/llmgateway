@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
+	dateFormats,
+	formatDateTime,
 	formatInTimeZone,
 	getBrowserTimeZone,
 	isDayString,
 	parseDayString,
-	timeToDisplayInZone,
 } from "./format-date.js";
 
 const ORIGINAL_TZ = process.env.TZ;
@@ -62,30 +63,42 @@ describe("formatInTimeZone", () => {
 	});
 });
 
-describe("timeToDisplayInZone", () => {
+describe("formatDateTime", () => {
 	it("UTC zone → UTC wall clock, day strings as literal calendar days", () => {
-		expect(timeToDisplayInZone("2026-08-12", "MMM d, yyyy", "UTC")).toBe(
+		expect(formatDateTime("2026-08-12", "UTC", dateFormats.monthDayYear)).toBe(
 			"Aug 12, 2026",
 		);
 		expect(
-			timeToDisplayInZone("2026-08-12T04:00:00.000Z", "MMM d, HH:mm", "UTC"),
+			formatDateTime(
+				"2026-08-12T04:00:00.000Z",
+				"UTC",
+				dateFormats.monthDayHourMinute,
+			),
 		).toBe("Aug 12, 04:00");
 	});
 	it("local zone → that zone's wall clock, day strings stay literal (fixes off-by-one)", () => {
 		expect(
-			timeToDisplayInZone("2026-08-12", "MMM d, yyyy", "America/Montreal"),
+			formatDateTime(
+				"2026-08-12",
+				"America/Montreal",
+				dateFormats.monthDayYear,
+			),
 		).toBe("Aug 12, 2026");
 		expect(
-			timeToDisplayInZone(
+			formatDateTime(
 				"2026-08-12T04:00:00.000Z",
-				"MMM d, HH:mm",
 				"America/Montreal",
+				dateFormats.monthDayHourMinute,
 			),
 		).toBe("Aug 12, 00:00");
 	});
 	it("defaults to UTC when no zone is given", () => {
 		expect(
-			timeToDisplayInZone("2026-08-12T04:00:00.000Z", "MMM d, HH:mm"),
+			formatDateTime(
+				"2026-08-12T04:00:00.000Z",
+				undefined,
+				dateFormats.monthDayHourMinute,
+			),
 		).toBe("Aug 12, 04:00");
 	});
 });

@@ -9,7 +9,7 @@ import { useUser } from "@/hooks/useUser";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
-import { Time, timeToDisplayInZone } from "@llmgateway/shared";
+import { Time, dateFormats, formatDateTime } from "@llmgateway/shared";
 
 import { AgentModelUsageChart } from "./AgentModelUsageChart";
 import AllowanceExhaustedCard from "./AllowanceExhaustedCard";
@@ -300,7 +300,7 @@ export default function UsageOverview({
 	const cycleLengthLabel = billingCycleStart ? "this cycle" : "30d";
 
 	const cycleLabel = billingCycleStart
-		? `Since ${timeToDisplayInZone(billingCycleStart, "MMM d, yyyy", user?.timezone ?? "UTC")}`
+		? `Since ${formatDateTime(billingCycleStart, user?.timezone ?? "UTC", dateFormats.monthDayYear)}`
 		: "Active";
 
 	// The renewal/period-end date must come from Stripe's actual
@@ -327,7 +327,7 @@ export default function UsageOverview({
 
 	const cycleEndsHint = cancelledAtPeriodEnd
 		? renewAt
-			? `Cancels ${timeToDisplayInZone(renewAt, "MMM d, yyyy", user?.timezone ?? "UTC")}`
+			? `Cancels ${formatDateTime(renewAt, user?.timezone ?? "UTC", dateFormats.monthDayYear)}`
 			: "Cancels at period end"
 		: renewAt
 			? `Renews in ${formatDistanceToNowStrict(renewAt)}`
@@ -471,10 +471,10 @@ export default function UsageOverview({
 					}
 					hint={
 						peakDay && (peakDay.cost ?? 0) > 0
-							? timeToDisplayInZone(
+							? formatDateTime(
 									peakDay.date,
-									"MMM d",
 									user?.timezone ?? "UTC",
+									dateFormats.monthDay,
 								)
 							: undefined
 					}
