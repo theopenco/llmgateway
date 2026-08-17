@@ -403,6 +403,58 @@ describe("worker", () => {
 			);
 		});
 
+		test("never requests 3DS, whatever the platform setting says", async () => {
+			vi.clearAllMocks();
+			// Both levers on at once: the admin dashboard row and the env
+			// override. Neither may reach an auto top-up.
+			vi.stubEnv("STRIPE_FORCE_3DS", "challenge");
+			await db.insert(tables.systemSetting).values({
+				id: "force_3ds",
+				enabled: true,
+				value: "challenge",
+			});
+
+			await db.insert(tables.organization).values({
+				id: "org-devpass-payg-3ds",
+				name: "DevPass PAYG 3DS",
+				billingEmail: "billing@example.com",
+				kind: "devpass",
+				devPlan: "pro",
+				devPlanPaygEnabled: true,
+				devPlanStripeSubscriptionId: "sub_devpass_3ds",
+				credits: "2",
+				autoTopUpEnabled: true,
+				autoTopUpThreshold: "10",
+				autoTopUpAmount: "25",
+				stripeCustomerId: "cus_devpass_3ds",
+			});
+
+			stripeMock.subscriptions.retrieve.mockResolvedValue({
+				default_payment_method: "pm_devpass_3ds",
+			});
+			stripeMock.paymentMethods.retrieve.mockResolvedValue({
+				customer: "cus_devpass_3ds",
+				card: { country: "US" },
+			});
+			stripeMock.paymentIntents.create.mockResolvedValue({
+				id: "pi_devpass_3ds",
+				status: "succeeded",
+			});
+
+			await processAutoTopUp();
+
+			// Nobody is present to answer a challenge on a scheduled charge, so
+			// requesting one would turn every auto top-up into an
+			// `authentication_required` decline.
+			expect(stripeMock.paymentIntents.create).toHaveBeenCalledTimes(1);
+			const params = stripeMock.paymentIntents.create.mock.calls[0][0];
+			expect(params.off_session).toBe(true);
+			expect(params.payment_method_options).toBeUndefined();
+
+			await db.delete(tables.systemSetting);
+			vi.unstubAllEnvs();
+		});
+
 		test("stops before charging when PAYG is disabled mid-pass", async () => {
 			// The charging test above already invoked the payment mocks.
 			vi.clearAllMocks();

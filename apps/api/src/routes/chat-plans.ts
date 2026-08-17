@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { voidPendingCycleRenewalInvoices } from "@/lib/pending-renewal.js";
 import { getStripeCardErrorMessage } from "@/lib/stripe-card-error.js";
+import { forcedThreeDSecureOptions } from "@/lib/three-d-secure.js";
 import { ensureStripeCustomer } from "@/stripe.js";
 import { getOrCreateChatOrg } from "@/utils/personal-org.js";
 
@@ -108,6 +109,7 @@ chatPlans.openapi(subscribe, async (c) => {
 				},
 			],
 			allow_promotion_codes: true,
+			...(await forcedThreeDSecureOptions()),
 			success_url: `${process.env.PLAYGROUND_URL ?? "http://localhost:3003"}/?chat_plan_success=true`,
 			cancel_url: `${process.env.PLAYGROUND_URL ?? "http://localhost:3003"}/pricing?canceled=true`,
 			metadata: {
