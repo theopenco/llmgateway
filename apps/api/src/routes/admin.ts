@@ -7149,8 +7149,15 @@ const manageOrganizationRoute = createRoute({
 						// Null clears the override and reverts to the plan default.
 						projectLimit: z.number().int().min(0).max(100000).nullable(),
 						// Trust-tier pin (0-4); takes precedence over the computed
-						// age/spend ladder. Null reverts to the automatic ladder.
-						trustTierOverride: z.number().int().min(0).max(4).nullable(),
+						// age/spend ladder. Null reverts to the automatic ladder;
+						// omitted leaves the current value unchanged.
+						trustTierOverride: z
+							.number()
+							.int()
+							.min(0)
+							.max(4)
+							.nullable()
+							.optional(),
 						// Null clears the plan term (open-ended plan).
 						planExpiresAt: planTermDateSchema,
 						planStartedAt: planTermDateSchema,
@@ -7274,6 +7281,7 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 			seats,
 			apiKeyLimit,
 			projectLimit,
+			// undefined = leave unchanged (drizzle skips undefined set fields).
 			trustTierOverride,
 			planExpiresAt: expiresAt,
 			planStartedAt: startedAt,
@@ -7300,7 +7308,10 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 			newApiKeyLimit: apiKeyLimit,
 			previousProjectLimit: org.projectLimit,
 			previousTrustTierOverride: org.trustTierOverride,
-			newTrustTierOverride: trustTierOverride,
+			newTrustTierOverride:
+				trustTierOverride === undefined
+					? org.trustTierOverride
+					: trustTierOverride,
 			newProjectLimit: projectLimit,
 			previousPlanExpiresAt: org.planExpiresAt?.toISOString() ?? null,
 			newPlanExpiresAt: expiresAt?.toISOString() ?? null,
@@ -7320,7 +7331,10 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 		seats,
 		apiKeyLimit,
 		projectLimit,
-		trustTierOverride,
+		trustTierOverride:
+			trustTierOverride === undefined
+				? org.trustTierOverride
+				: trustTierOverride,
 		planExpiresAt: expiresAt?.toISOString() ?? null,
 		planStartedAt: startedAt?.toISOString() ?? null,
 		isTrialActive,

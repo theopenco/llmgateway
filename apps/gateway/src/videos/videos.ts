@@ -2574,7 +2574,18 @@ function getGoogleVertexInlineVideo(
 // Pinned cdb/SWR TTL for video-job reads on the client poll loop. The worker
 // updates job status outside cdb (no auto-invalidation), so a short fixed TTL
 // keeps polls fresh while collapsing tight poll loops to one query per window.
-const VIDEO_JOB_CACHE_TTL_SECONDS = 2;
+// Defaults off under test runners: specs poll immediately after a status
+// transition and a cached "queued" would make them flaky.
+function videoJobCacheTtlSeconds(): number {
+	const explicit = process.env.GATEWAY_VIDEO_JOB_CACHE_SECONDS;
+	if (explicit !== undefined) {
+		const parsed = Number(explicit);
+		return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+	}
+	return process.env.NODE_ENV === "test" || process.env.E2E_TEST === "true"
+		? 0
+		: 2;
+}
 
 // Timestamp columns that must survive the SWR mirror's JSON round trip: a
 // stale-fallback row would otherwise carry ISO strings, and downstream code
@@ -2607,6 +2618,13 @@ async function findVideoJobCached(
 	tag: string,
 	where: ReturnType<typeof and> | ReturnType<typeof eq>,
 ): Promise<VideoJobRecord | undefined> {
+	const ttl = videoJobCacheTtlSeconds();
+	if (ttl <= 0) {
+		// Caching disabled: plain client so not even cdb's default 60s entry
+		// can serve a stale status.
+		const rows = await db.select().from(tables.videoJob).where(where).limit(1);
+		return rows[0];
+	}
 	const rows = await swrWrap(
 		swrKey,
 		[getTableName(tables.videoJob)],
@@ -2619,7 +2637,7 @@ async function findVideoJobCached(
 				.$withCache({
 					tag,
 					autoInvalidate: false,
-					config: { ex: VIDEO_JOB_CACHE_TTL_SECONDS },
+					config: { ex: ttl },
 				}),
 	);
 	return rows[0] ? rehydrateVideoJobDates(rows[0]) : undefined;
