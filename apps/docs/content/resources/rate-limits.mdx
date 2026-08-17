@@ -36,8 +36,9 @@ The default limits (requests per minute, per organization) are:
 | Videos               | `/v1/videos`               | 120            |
 
 <Callout type="info">
-	**Enterprise organizations are exempt** from these per-organization endpoint
-	limits. [Contact us](mailto:contact@llmgateway.io) about enterprise plans.
+	**[Enterprise](https://llmgateway.io/enterprise) organizations are exempt**
+	from these per-organization endpoint limits. [Contact
+	us](mailto:contact@llmgateway.io) about enterprise plans.
 </Callout>
 
 ### Trust Tiers (account age or spend)
@@ -70,7 +71,7 @@ Credit top-ups are also velocity-limited by trust tier: each organization can ad
 | 3    | $10,000                        |
 | 4    | $20,000                        |
 
-The limit covers dashboard top-ups (card and hosted checkout), auto top-up, and Dev plan pay-as-you-go top-ups. **Enterprise organizations are exempt.** Your current allowance and usage are shown on the Settings → Limits page. Hosted checkout links expire after 30 minutes.
+The limit covers dashboard top-ups (card and hosted checkout), auto top-up, and Dev plan pay-as-you-go top-ups. **[Enterprise](https://llmgateway.io/enterprise) organizations are exempt** — [contact us](mailto:contact@llmgateway.io) if you need a higher allowance. Your current allowance and usage are shown on the Settings → Limits page. Hosted checkout links expire after 30 minutes.
 
 ### Dev and Chat Plans
 
@@ -93,7 +94,7 @@ Dev plans are inference-only and only cover **chat completions, messages, respon
 
 ### Enterprise
 
-Organizations on the **Enterprise plan have no per-organization rate limits at all**. Every endpoint is fully exempt — there is no requests-per-minute cap and no spend-based multiplier to worry about. Your throughput is limited only by your credit balance and any upstream provider limits.
+Organizations on the **[Enterprise plan](https://llmgateway.io/enterprise) have no per-organization rate limits at all** — no requests-per-minute caps, no spend caps, and no top-up limits. Your throughput is limited only by your credit balance and any upstream provider limits.
 
 <Callout type="info">
 	Need unlimited gateway throughput? [Contact us](mailto:contact@llmgateway.io)
@@ -167,7 +168,7 @@ This uses the standard OpenAI-compatible error envelope. Requests to the Anthrop
 - **Respect `Retry-After`.** Implement exponential backoff when you receive `429` responses, starting from the `Retry-After` value.
 - **Watch the headers.** Monitor `X-RateLimit-Remaining` to back off before you hit the limit.
 - **Spread traffic across endpoints.** Limits are per endpoint, so unrelated workloads don't compete for the same budget.
-- **Scale with usage.** Regular organizations unlock higher limits automatically as lifetime spend grows; reach out about an enterprise plan to remove per-organization limits entirely.
+- **Scale with usage.** Regular organizations unlock higher limits automatically as lifetime spend grows; [contact us](mailto:contact@llmgateway.io) about an [Enterprise plan](https://llmgateway.io/enterprise) to remove per-organization limits entirely.
 
 <Callout type="success">
 	Adding even a small amount of credits to your account (e.g., $10) will

@@ -6,6 +6,7 @@ import {
 	Infinity as InfinityIcon,
 	Zap,
 } from "lucide-react";
+import Link from "next/link";
 
 import { currencyFormatter } from "@/components/analytics/chart-helpers";
 import { Badge } from "@/lib/components/badge";
@@ -297,6 +298,24 @@ export function LimitsClient() {
 									</Table>
 								</CardContent>
 							</Card>
+
+							<p className="text-muted-foreground text-sm">
+								Need higher limits?{" "}
+								<Link
+									href="/enterprise"
+									className="text-foreground underline underline-offset-4"
+								>
+									Enterprise
+								</Link>{" "}
+								organizations have no rate limits or caps at all —{" "}
+								<a
+									href="mailto:contact@llmgateway.io"
+									className="text-foreground underline underline-offset-4"
+								>
+									contact us
+								</a>{" "}
+								to learn more.
+							</p>
 						</>
 					)}
 				</div>
