@@ -12686,7 +12686,6 @@ const devpassKpisSchema = z.object({
 const devpassListSchema = z.object({
 	subscribers: z.array(devpassSubscriberSchema),
 	total: z.number(),
-	kpis: devpassKpisSchema,
 	limit: z.number(),
 	offset: z.number(),
 });
@@ -12738,6 +12737,24 @@ const getDevpassSubscribers = createRoute({
 				},
 			},
 			description: "List of DevPass subscribers.",
+		},
+	},
+});
+
+// Split out of the list endpoint: the KPI strip aggregates the whole
+// subscriber universe and is far slower than one page of rows, so the admin
+// page loads the two independently instead of blocking on the sum.
+const getDevpassKpis = createRoute({
+	method: "get",
+	path: "/devpass/kpis",
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: devpassKpisSchema.openapi({}),
+				},
+			},
+			description: "DevPass KPI strip across the whole subscriber universe.",
 		},
 	},
 });
@@ -13144,27 +13161,31 @@ function deriveStatus(
 	return "active";
 }
 
-admin.openapi(getDevpassSubscribers, async (c) => {
-	const query = c.req.valid("query");
-	const limit = query.limit ?? 50;
-	const offset = query.offset ?? 0;
-	const search = query.search;
-	const tierFilter = query.tier;
-	const statusFilter = query.status;
-	const utilizationFilter = query.utilization;
-	const marginNegative = query.marginNegative ?? false;
-	const showChurned = query.showChurned ?? false;
-	const sortBy = query.sortBy ?? "subscribedSince";
-	const sortOrder = query.sortOrder ?? "desc";
+const devpassTierPriceExpr = sql<number>`CASE
+	WHEN ${tables.organization.devPlan} = 'lite' THEN ${DEV_PLAN_PRICES.lite}
+	WHEN ${tables.organization.devPlan} = 'pro' THEN ${DEV_PLAN_PRICES.pro}
+	WHEN ${tables.organization.devPlan} = 'max' THEN ${DEV_PLAN_PRICES.max}
+	ELSE 0
+END`;
 
-	const now = new Date();
-	const monthStart = new Date(
-		Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+// Active subscriber universe: everything Stripe still counts as active,
+// including subs flagged to cancel at period end.
+function devpassActiveUniverseWhere() {
+	return and(
+		eq(tables.organization.kind, "devpass"),
+		ne(tables.organization.devPlan, "none"),
+		or(
+			isNull(tables.organization.devPlanExpiresAt),
+			sql`${tables.organization.devPlanExpiresAt} > NOW()`,
+		)!,
 	);
+}
 
-	// Subquery: real provider cost in current cycle, per org. Credits-mode cost
-	// only: BYOK ("api-keys") usage is paid by the customer's own provider key,
-	// so it is not a cost we bear and must not depress the margin.
+// Real provider cost in the current cycle, per org, plus the derived overflow
+// split. Credits-mode cost only: BYOK ("api-keys") usage is paid by the
+// customer's own provider key, so it is not a cost we bear and must not
+// depress the margin.
+function buildDevpassCycleCostExprs() {
 	const realCostSub = db
 		.select({
 			organizationId: tables.project.organizationId,
@@ -13188,6 +13209,35 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		)
 		.groupBy(tables.project.organizationId)
 		.as("real_cost_sub");
+
+	const realCostExpr = sql<number>`COALESCE(CAST(${realCostSub.realCost} AS NUMERIC), 0)`;
+	// Cycle cost paid from the org's own credits (PAYG overflow) rather than
+	// the plan pool. The pool draw this cycle IS devPlanCreditsUsed (the worker
+	// increments it only for pool-funded usage, and renewal resets it together
+	// with the cycle window realCost is scoped to), so anything above it hit
+	// the org's `credits` balance.
+	const overflowCostExpr = sql<number>`GREATEST((${realCostExpr}) - CAST(${tables.organization.devPlanCreditsUsed} AS NUMERIC), 0)`;
+
+	return { realCostSub, realCostExpr, overflowCostExpr };
+}
+
+admin.openapi(getDevpassSubscribers, async (c) => {
+	const query = c.req.valid("query");
+	const limit = query.limit ?? 50;
+	const offset = query.offset ?? 0;
+	const search = query.search;
+	const tierFilter = query.tier;
+	const statusFilter = query.status;
+	const utilizationFilter = query.utilization;
+	const marginNegative = query.marginNegative ?? false;
+	const showChurned = query.showChurned ?? false;
+	const sortBy = query.sortBy ?? "subscribedSince";
+	const sortOrder = query.sortOrder ?? "desc";
+
+	const now = new Date();
+
+	const { realCostSub, realCostExpr, overflowCostExpr } =
+		buildDevpassCycleCostExprs();
 
 	// Subquery: first dev plan start (subscribedSince) and tier change count.
 	// Legacy rows used the generic "subscription_start" type before the
@@ -13383,12 +13433,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		.groupBy(tables.transaction.organizationId)
 		.as("all_time_topups_sub");
 
-	const tierPriceExpr = sql<number>`CASE
-		WHEN ${tables.organization.devPlan} = 'lite' THEN ${DEV_PLAN_PRICES.lite}
-		WHEN ${tables.organization.devPlan} = 'pro' THEN ${DEV_PLAN_PRICES.pro}
-		WHEN ${tables.organization.devPlan} = 'max' THEN ${DEV_PLAN_PRICES.max}
-		ELSE 0
-	END`;
+	const tierPriceExpr = devpassTierPriceExpr;
 
 	const utilizationExpr = sql<number | null>`CASE
 		WHEN CAST(${tables.organization.devPlanCreditsLimit} AS NUMERIC) > 0
@@ -13397,13 +13442,6 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		ELSE NULL
 	END`;
 
-	const realCostExpr = sql<number>`COALESCE(CAST(${realCostSub.realCost} AS NUMERIC), 0)`;
-	// Cycle cost paid from the org's own credits (PAYG overflow) rather than
-	// the plan pool. The pool draw this cycle IS devPlanCreditsUsed (the worker
-	// increments it only for pool-funded usage, and renewal resets it together
-	// with the cycle window realCost is scoped to), so anything above it hit
-	// the org's `credits` balance.
-	const overflowCostExpr = sql<number>`GREATEST((${realCostExpr}) - CAST(${tables.organization.devPlanCreditsUsed} AS NUMERIC), 0)`;
 	// Plan economics only: overflow cost is funded ~1:1 by the org's own
 	// top-ups, so counting it against the tier price would understate margin.
 	const marginExpr = sql<number>`(${tierPriceExpr}) - ((${realCostExpr}) - (${overflowCostExpr}))`;
@@ -13587,12 +13625,6 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			eq(tables.organization.id, allTimeTopupsSub.organizationId),
 		);
 
-	const rows = await baseSelect
-		.where(whereClause)
-		.orderBy(orderFn(sortColumn), asc(tables.organization.id))
-		.limit(limit)
-		.offset(offset);
-
 	// Total count with same filters
 	const countSelect = db
 		.select({ count: sql<number>`COUNT(*)` })
@@ -13615,274 +13647,15 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		)
 		.leftJoin(ownerSub, eq(tables.organization.id, ownerSub.organizationId));
 
-	const [countRow] = await countSelect.where(whereClause);
+	const [rows, [countRow]] = await Promise.all([
+		baseSelect
+			.where(whereClause)
+			.orderBy(orderFn(sortColumn), asc(tables.organization.id))
+			.limit(limit)
+			.offset(offset),
+		countSelect.where(whereClause),
+	]);
 	const total = Number(countRow?.count ?? 0);
-
-	// KPI strip — counts the full active subscriber base, matching Stripe's
-	// "active" filter which includes cancel-at-period-end subs until the period
-	// actually ends. `grossMrr` is the Stripe-aligned figure (what will be
-	// invoiced this period). `committedMrr` excludes subs flagged to cancel,
-	// representing the forward-looking MRR after impending churn lands.
-	const activeRows = await db
-		.select({
-			tier: tables.organization.devPlan,
-			cancelled: tables.organization.devPlanCancelled,
-			count: sql<number>`COUNT(*)`,
-		})
-		.from(tables.organization)
-		.where(
-			and(
-				eq(tables.organization.kind, "devpass"),
-				ne(tables.organization.devPlan, "none"),
-				or(
-					isNull(tables.organization.devPlanExpiresAt),
-					sql`${tables.organization.devPlanExpiresAt} > NOW()`,
-				)!,
-			),
-		)
-		.groupBy(tables.organization.devPlan, tables.organization.devPlanCancelled);
-
-	const activeByTier = { lite: 0, pro: 0, max: 0 };
-	const cancellingByTier = { lite: 0, pro: 0, max: 0 };
-	for (const r of activeRows) {
-		const tierKey = r.tier as keyof typeof activeByTier;
-		if (tierKey in activeByTier) {
-			const n = Number(r.count);
-			activeByTier[tierKey] += n;
-			if (r.cancelled) {
-				cancellingByTier[tierKey] += n;
-			}
-		}
-	}
-	const totalActive = activeByTier.lite + activeByTier.pro + activeByTier.max;
-	const liteMrr = activeByTier.lite * DEV_PLAN_PRICES.lite;
-	const proMrr = activeByTier.pro * DEV_PLAN_PRICES.pro;
-	const maxMrr = activeByTier.max * DEV_PLAN_PRICES.max;
-	const grossMrr = liteMrr + proMrr + maxMrr;
-	const cancellingLiteMrr = cancellingByTier.lite * DEV_PLAN_PRICES.lite;
-	const cancellingProMrr = cancellingByTier.pro * DEV_PLAN_PRICES.pro;
-	const cancellingMaxMrr = cancellingByTier.max * DEV_PLAN_PRICES.max;
-	const cancellingMrr = cancellingLiteMrr + cancellingProMrr + cancellingMaxMrr;
-	const committedMrr = grossMrr - cancellingMrr;
-	const cancelledPending =
-		cancellingByTier.lite + cancellingByTier.pro + cancellingByTier.max;
-
-	const [churnedRow] = await db
-		.select({
-			count: sql<number>`COUNT(DISTINCT ${tables.transaction.organizationId})`,
-		})
-		.from(tables.transaction)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.organization.kind, "devpass"),
-				eq(tables.transaction.type, "dev_plan_start"),
-				eq(tables.organization.devPlan, "none"),
-			),
-		);
-	const churned = Number(churnedRow?.count ?? 0);
-
-	const [startsRow] = await db
-		.select({ count: sql<number>`COUNT(*)` })
-		.from(tables.transaction)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.organization.kind, "devpass"),
-				eq(tables.transaction.type, "dev_plan_start"),
-				gte(tables.transaction.createdAt, monthStart),
-			),
-		);
-	const startsThisMonth = Number(startsRow?.count ?? 0);
-
-	const [endsRow] = await db
-		.select({ count: sql<number>`COUNT(*)` })
-		.from(tables.transaction)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.organization.kind, "devpass"),
-				inArray(tables.transaction.type, ["dev_plan_cancel", "dev_plan_end"]),
-				gte(tables.transaction.createdAt, monthStart),
-			),
-		);
-	const endsThisMonth = Number(endsRow?.count ?? 0);
-
-	// Refunds this month for DevPass transactions. Mirrors the timeseries
-	// refund query (joins credit_refund rows to their original tx and filters
-	// to dev plan types, plus legacy subscription_* rows on DevPass orgs) but
-	// aggregates to a single month total so the KPI strip reflects refund
-	// activity that the snapshot-based MRR cards can't show.
-	const refundOriginalTx = aliasedTable(
-		tables.transaction,
-		"refund_original_tx",
-	);
-	const [refundsRow] = await db
-		.select({
-			count: sql<number>`COUNT(*)`,
-			total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
-		})
-		.from(tables.transaction)
-		.innerJoin(
-			refundOriginalTx,
-			eq(tables.transaction.relatedTransactionId, refundOriginalTx.id),
-		)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.transaction.type, "credit_refund"),
-				eq(tables.transaction.status, "completed"),
-				gte(tables.transaction.createdAt, monthStart),
-				eq(tables.organization.kind, "devpass"),
-				inArray(refundOriginalTx.type, [
-					...DEV_PLAN_TX_TYPES,
-					...LEGACY_DEV_PLAN_TX_TYPES,
-				]),
-			),
-		);
-	const refundsThisMonth = Number(refundsRow?.count ?? 0);
-	const refundedAmountThisMonth = Number(refundsRow?.total ?? 0);
-
-	// All-time Reset Pass sales on DevPass orgs. These are one-time
-	// PaymentIntent purchases (no invoice), so no invoice dedup is needed;
-	// revenue is netted against completed refunds whose original transaction
-	// is a Reset Pass purchase, mirroring the all-time revenue subquery.
-	const [resetPassRow] = await db
-		.select({
-			count: sql<number>`COUNT(*)`,
-			total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
-		})
-		.from(tables.transaction)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.transaction.type, "dev_plan_reset_pass"),
-				eq(tables.transaction.status, "completed"),
-				eq(tables.organization.kind, "devpass"),
-			),
-		);
-	const resetPassesSold = Number(resetPassRow?.count ?? 0);
-
-	const resetPassRefundOriginalTx = aliasedTable(
-		tables.transaction,
-		"reset_pass_refund_original_tx",
-	);
-	const [resetPassRefundRow] = await db
-		.select({
-			total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
-		})
-		.from(tables.transaction)
-		.innerJoin(
-			resetPassRefundOriginalTx,
-			eq(tables.transaction.relatedTransactionId, resetPassRefundOriginalTx.id),
-		)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.transaction.type, "credit_refund"),
-				eq(tables.transaction.status, "completed"),
-				eq(tables.organization.kind, "devpass"),
-				eq(resetPassRefundOriginalTx.type, "dev_plan_reset_pass"),
-			),
-		);
-	const resetPassRevenue =
-		Number(resetPassRow?.total ?? 0) - Number(resetPassRefundRow?.total ?? 0);
-
-	// Weighted utilization across active subscribers
-	const [utilRow] = await db
-		.select({
-			totalUsed: sql<string>`COALESCE(SUM(CAST(${tables.organization.devPlanCreditsUsed} AS NUMERIC)), 0)`,
-			totalLimit: sql<string>`COALESCE(SUM(CAST(${tables.organization.devPlanCreditsLimit} AS NUMERIC)), 0)`,
-		})
-		.from(tables.organization)
-		.where(
-			and(
-				eq(tables.organization.kind, "devpass"),
-				ne(tables.organization.devPlan, "none"),
-				or(
-					isNull(tables.organization.devPlanExpiresAt),
-					sql`${tables.organization.devPlanExpiresAt} > NOW()`,
-				)!,
-			),
-		);
-	const totalUsed = Number(utilRow?.totalUsed ?? 0);
-	const totalLimit = Number(utilRow?.totalLimit ?? 0);
-	const weightedAvgUtilization =
-		totalLimit > 0 ? (totalUsed / totalLimit) * 100 : 0;
-
-	// Cycle-windowed totals across the active subscriber universe (not paginated)
-	const [universeRow] = await db
-		.select({
-			totalCost: sql<string>`COALESCE(SUM(CAST(${realCostSub.realCost} AS NUMERIC)), 0)`,
-			totalMrr: sql<string>`COALESCE(SUM(${tierPriceExpr}), 0)`,
-			totalOverflow: sql<string>`COALESCE(SUM(${overflowCostExpr}), 0)`,
-			paygOptedIn: sql<number>`COUNT(*) FILTER (WHERE ${tables.organization.devPlanPaygEnabled})`,
-			paygBalanceHeld: sql<string>`COALESCE(SUM(CAST(${tables.organization.credits} AS NUMERIC)), 0)`,
-		})
-		.from(tables.organization)
-		.leftJoin(
-			realCostSub,
-			eq(tables.organization.id, realCostSub.organizationId),
-		)
-		.where(
-			and(
-				eq(tables.organization.kind, "devpass"),
-				ne(tables.organization.devPlan, "none"),
-				or(
-					isNull(tables.organization.devPlanExpiresAt),
-					sql`${tables.organization.devPlanExpiresAt} > NOW()`,
-				)!,
-			),
-		);
-	const totalRealCostCycle = Number(universeRow?.totalCost ?? 0);
-	const totalMrrCycle = Number(universeRow?.totalMrr ?? 0);
-	const totalOverflowCostCycle = Number(universeRow?.totalOverflow ?? 0);
-	const paygOptedIn = Number(universeRow?.paygOptedIn ?? 0);
-	const paygBalanceHeld = Number(universeRow?.paygBalanceHeld ?? 0);
-	// Plan economics: overflow cost is funded by the orgs' own top-ups, so it
-	// doesn't count against plan MRR.
-	const totalMargin =
-		totalMrrCycle - (totalRealCostCycle - totalOverflowCostCycle);
-
-	// PAYG overflow top-up revenue on devpass orgs (gross Stripe amount).
-	const [topupRevenueRow] = await db
-		.select({
-			allTime: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
-			thisMonth: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)) FILTER (WHERE ${tables.transaction.createdAt} >= ${monthStart}), 0)`,
-		})
-		.from(tables.transaction)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.transaction.type, "credit_topup"),
-				eq(tables.transaction.status, "completed"),
-				eq(tables.organization.kind, "devpass"),
-				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
-			),
-		);
-	const topupRevenueAllTime = Number(topupRevenueRow?.allTime ?? 0);
-	const topupRevenueThisMonth = Number(topupRevenueRow?.thisMonth ?? 0);
 
 	const subscribers = rows.map((row) => {
 		const tier = row.tier;
@@ -13964,39 +13737,293 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		};
 	});
 
-	const kpiMarginPct =
-		totalMrrCycle > 0 ? (totalMargin / totalMrrCycle) * 100 : null;
-
 	return c.json({
 		subscribers,
 		total,
-		kpis: {
-			activeByTier,
-			totalActive,
-			cancelledPending,
-			churned,
-			grossMrr,
-			committedMrr,
-			startsThisMonth,
-			endsThisMonth,
-			netNewThisMonth: startsThisMonth - endsThisMonth,
-			refundsThisMonth,
-			refundedAmountThisMonth,
-			resetPassesSold,
-			resetPassRevenue,
-			paygOptedIn,
-			paygBalanceHeld,
-			topupRevenueThisMonth,
-			topupRevenueAllTime,
-			totalOverflowCostCycle,
-			weightedAvgUtilization,
-			totalRealCostCycle,
-			totalMrrCycle,
-			totalMargin,
-			marginPct: kpiMarginPct,
-		},
 		limit,
 		offset,
+	});
+});
+
+admin.openapi(getDevpassKpis, async (c) => {
+	const now = new Date();
+	const monthStart = new Date(
+		Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+	);
+
+	const { realCostSub, overflowCostExpr } = buildDevpassCycleCostExprs();
+
+	const refundOriginalTx = aliasedTable(
+		tables.transaction,
+		"refund_original_tx",
+	);
+	const resetPassRefundOriginalTx = aliasedTable(
+		tables.transaction,
+		"reset_pass_refund_original_tx",
+	);
+
+	// Every KPI is an independent aggregate over the same universe, so they run
+	// concurrently rather than serially.
+	const [
+		activeRows,
+		[churnedRow],
+		[startsRow],
+		[endsRow],
+		[refundsRow],
+		[resetPassRow],
+		[resetPassRefundRow],
+		[utilRow],
+		[universeRow],
+		[topupRevenueRow],
+	] = await Promise.all([
+		// KPI strip — counts the full active subscriber base, matching Stripe's
+		// "active" filter which includes cancel-at-period-end subs until the period
+		// actually ends. `grossMrr` is the Stripe-aligned figure (what will be
+		// invoiced this period). `committedMrr` excludes subs flagged to cancel,
+		// representing the forward-looking MRR after impending churn lands.
+		db
+			.select({
+				tier: tables.organization.devPlan,
+				cancelled: tables.organization.devPlanCancelled,
+				count: sql<number>`COUNT(*)`,
+			})
+			.from(tables.organization)
+			.where(devpassActiveUniverseWhere())
+			.groupBy(
+				tables.organization.devPlan,
+				tables.organization.devPlanCancelled,
+			),
+		db
+			.select({
+				count: sql<number>`COUNT(DISTINCT ${tables.transaction.organizationId})`,
+			})
+			.from(tables.transaction)
+			.innerJoin(
+				tables.organization,
+				eq(tables.transaction.organizationId, tables.organization.id),
+			)
+			.where(
+				and(
+					eq(tables.organization.kind, "devpass"),
+					eq(tables.transaction.type, "dev_plan_start"),
+					eq(tables.organization.devPlan, "none"),
+				),
+			),
+		db
+			.select({ count: sql<number>`COUNT(*)` })
+			.from(tables.transaction)
+			.innerJoin(
+				tables.organization,
+				eq(tables.transaction.organizationId, tables.organization.id),
+			)
+			.where(
+				and(
+					eq(tables.organization.kind, "devpass"),
+					eq(tables.transaction.type, "dev_plan_start"),
+					gte(tables.transaction.createdAt, monthStart),
+				),
+			),
+		db
+			.select({ count: sql<number>`COUNT(*)` })
+			.from(tables.transaction)
+			.innerJoin(
+				tables.organization,
+				eq(tables.transaction.organizationId, tables.organization.id),
+			)
+			.where(
+				and(
+					eq(tables.organization.kind, "devpass"),
+					inArray(tables.transaction.type, ["dev_plan_cancel", "dev_plan_end"]),
+					gte(tables.transaction.createdAt, monthStart),
+				),
+			),
+		// Refunds this month for DevPass transactions. Mirrors the timeseries
+		// refund query (joins credit_refund rows to their original tx and filters
+		// to dev plan types, plus legacy subscription_* rows on DevPass orgs) but
+		// aggregates to a single month total so the KPI strip reflects refund
+		// activity that the snapshot-based MRR cards can't show.
+		db
+			.select({
+				count: sql<number>`COUNT(*)`,
+				total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+			})
+			.from(tables.transaction)
+			.innerJoin(
+				refundOriginalTx,
+				eq(tables.transaction.relatedTransactionId, refundOriginalTx.id),
+			)
+			.innerJoin(
+				tables.organization,
+				eq(tables.transaction.organizationId, tables.organization.id),
+			)
+			.where(
+				and(
+					eq(tables.transaction.type, "credit_refund"),
+					eq(tables.transaction.status, "completed"),
+					gte(tables.transaction.createdAt, monthStart),
+					eq(tables.organization.kind, "devpass"),
+					inArray(refundOriginalTx.type, [
+						...DEV_PLAN_TX_TYPES,
+						...LEGACY_DEV_PLAN_TX_TYPES,
+					]),
+				),
+			),
+		// All-time Reset Pass sales on DevPass orgs. These are one-time
+		// PaymentIntent purchases (no invoice), so no invoice dedup is needed;
+		// revenue is netted against completed refunds whose original transaction
+		// is a Reset Pass purchase, mirroring the all-time revenue subquery.
+		db
+			.select({
+				count: sql<number>`COUNT(*)`,
+				total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+			})
+			.from(tables.transaction)
+			.innerJoin(
+				tables.organization,
+				eq(tables.transaction.organizationId, tables.organization.id),
+			)
+			.where(
+				and(
+					eq(tables.transaction.type, "dev_plan_reset_pass"),
+					eq(tables.transaction.status, "completed"),
+					eq(tables.organization.kind, "devpass"),
+				),
+			),
+		db
+			.select({
+				total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+			})
+			.from(tables.transaction)
+			.innerJoin(
+				resetPassRefundOriginalTx,
+				eq(
+					tables.transaction.relatedTransactionId,
+					resetPassRefundOriginalTx.id,
+				),
+			)
+			.innerJoin(
+				tables.organization,
+				eq(tables.transaction.organizationId, tables.organization.id),
+			)
+			.where(
+				and(
+					eq(tables.transaction.type, "credit_refund"),
+					eq(tables.transaction.status, "completed"),
+					eq(tables.organization.kind, "devpass"),
+					eq(resetPassRefundOriginalTx.type, "dev_plan_reset_pass"),
+				),
+			),
+		// Weighted utilization across active subscribers
+		db
+			.select({
+				totalUsed: sql<string>`COALESCE(SUM(CAST(${tables.organization.devPlanCreditsUsed} AS NUMERIC)), 0)`,
+				totalLimit: sql<string>`COALESCE(SUM(CAST(${tables.organization.devPlanCreditsLimit} AS NUMERIC)), 0)`,
+			})
+			.from(tables.organization)
+			.where(devpassActiveUniverseWhere()),
+		// Cycle-windowed totals across the active subscriber universe (not paginated)
+		db
+			.select({
+				totalCost: sql<string>`COALESCE(SUM(CAST(${realCostSub.realCost} AS NUMERIC)), 0)`,
+				totalMrr: sql<string>`COALESCE(SUM(${devpassTierPriceExpr}), 0)`,
+				totalOverflow: sql<string>`COALESCE(SUM(${overflowCostExpr}), 0)`,
+				paygOptedIn: sql<number>`COUNT(*) FILTER (WHERE ${tables.organization.devPlanPaygEnabled})`,
+				paygBalanceHeld: sql<string>`COALESCE(SUM(CAST(${tables.organization.credits} AS NUMERIC)), 0)`,
+			})
+			.from(tables.organization)
+			.leftJoin(
+				realCostSub,
+				eq(tables.organization.id, realCostSub.organizationId),
+			)
+			.where(devpassActiveUniverseWhere()),
+		// PAYG overflow top-up revenue on devpass orgs (gross Stripe amount).
+		db
+			.select({
+				allTime: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+				thisMonth: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)) FILTER (WHERE ${tables.transaction.createdAt} >= ${monthStart}), 0)`,
+			})
+			.from(tables.transaction)
+			.innerJoin(
+				tables.organization,
+				eq(tables.transaction.organizationId, tables.organization.id),
+			)
+			.where(
+				and(
+					eq(tables.transaction.type, "credit_topup"),
+					eq(tables.transaction.status, "completed"),
+					eq(tables.organization.kind, "devpass"),
+					sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+				),
+			),
+	]);
+
+	const activeByTier = { lite: 0, pro: 0, max: 0 };
+	const cancellingByTier = { lite: 0, pro: 0, max: 0 };
+	for (const r of activeRows) {
+		const tierKey = r.tier as keyof typeof activeByTier;
+		if (tierKey in activeByTier) {
+			const n = Number(r.count);
+			activeByTier[tierKey] += n;
+			if (r.cancelled) {
+				cancellingByTier[tierKey] += n;
+			}
+		}
+	}
+	const totalActive = activeByTier.lite + activeByTier.pro + activeByTier.max;
+	const liteMrr = activeByTier.lite * DEV_PLAN_PRICES.lite;
+	const proMrr = activeByTier.pro * DEV_PLAN_PRICES.pro;
+	const maxMrr = activeByTier.max * DEV_PLAN_PRICES.max;
+	const grossMrr = liteMrr + proMrr + maxMrr;
+	const cancellingLiteMrr = cancellingByTier.lite * DEV_PLAN_PRICES.lite;
+	const cancellingProMrr = cancellingByTier.pro * DEV_PLAN_PRICES.pro;
+	const cancellingMaxMrr = cancellingByTier.max * DEV_PLAN_PRICES.max;
+	const cancellingMrr = cancellingLiteMrr + cancellingProMrr + cancellingMaxMrr;
+	const committedMrr = grossMrr - cancellingMrr;
+	const cancelledPending =
+		cancellingByTier.lite + cancellingByTier.pro + cancellingByTier.max;
+
+	const startsThisMonth = Number(startsRow?.count ?? 0);
+	const endsThisMonth = Number(endsRow?.count ?? 0);
+	const resetPassRevenue =
+		Number(resetPassRow?.total ?? 0) - Number(resetPassRefundRow?.total ?? 0);
+
+	const totalUsed = Number(utilRow?.totalUsed ?? 0);
+	const totalLimit = Number(utilRow?.totalLimit ?? 0);
+	const weightedAvgUtilization =
+		totalLimit > 0 ? (totalUsed / totalLimit) * 100 : 0;
+
+	const totalRealCostCycle = Number(universeRow?.totalCost ?? 0);
+	const totalMrrCycle = Number(universeRow?.totalMrr ?? 0);
+	const totalOverflowCostCycle = Number(universeRow?.totalOverflow ?? 0);
+	// Plan economics: overflow cost is funded by the orgs' own top-ups, so it
+	// doesn't count against plan MRR.
+	const totalMargin =
+		totalMrrCycle - (totalRealCostCycle - totalOverflowCostCycle);
+
+	return c.json({
+		activeByTier,
+		totalActive,
+		cancelledPending,
+		churned: Number(churnedRow?.count ?? 0),
+		grossMrr,
+		committedMrr,
+		startsThisMonth,
+		endsThisMonth,
+		netNewThisMonth: startsThisMonth - endsThisMonth,
+		refundsThisMonth: Number(refundsRow?.count ?? 0),
+		refundedAmountThisMonth: Number(refundsRow?.total ?? 0),
+		resetPassesSold: Number(resetPassRow?.count ?? 0),
+		resetPassRevenue,
+		paygOptedIn: Number(universeRow?.paygOptedIn ?? 0),
+		paygBalanceHeld: Number(universeRow?.paygBalanceHeld ?? 0),
+		topupRevenueThisMonth: Number(topupRevenueRow?.thisMonth ?? 0),
+		topupRevenueAllTime: Number(topupRevenueRow?.allTime ?? 0),
+		totalOverflowCostCycle,
+		weightedAvgUtilization,
+		totalRealCostCycle,
+		totalMrrCycle,
+		totalMargin,
+		marginPct: totalMrrCycle > 0 ? (totalMargin / totalMrrCycle) * 100 : null,
 	});
 });
 
