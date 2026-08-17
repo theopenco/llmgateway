@@ -23,6 +23,17 @@ export const user = new OpenAPIHono<ServerTypes>();
 
 const USERNAME_REGEX = /^[a-z0-9_-]{3,30}$/;
 
+/** Accepts any string Intl accepts as a valid IANA time zone (e.g.
+ *  "America/Montreal", "UTC"), without shipping a full tzdb list. */
+function isValidTimeZone(timeZone: string): boolean {
+	try {
+		new Intl.DateTimeFormat("en-US", { timeZone }).format();
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 const publicUserSchema = z.object({
 	id: z.string(),
 	email: z.string(),
@@ -36,6 +47,9 @@ const publicUserSchema = z.object({
 	bio: z.string().nullable(),
 	githubUsername: z.string().nullable(),
 	xUsername: z.string().nullable(),
+	// IANA time zone used for datetime display; always "UTC" unless the user
+	// opted into local rendering.
+	timezone: z.string(),
 	accounts: z.array(
 		z.object({
 			providerId: z.string(),
@@ -96,6 +110,7 @@ function toPublicUser(
 		bio: userRecord.bio,
 		githubUsername: userRecord.githubUsername,
 		xUsername: userRecord.xUsername,
+		timezone: userRecord.timezone,
 		accounts: authInfo.accounts,
 		hasPasskeys: authInfo.hasPasskeys,
 		isSsoUser: authInfo.isSsoUser,
@@ -183,6 +198,11 @@ const updateUserSchema = z.object({
 	bio: z.string().max(280).nullable().optional(),
 	githubUsername: z.string().max(100).nullable().optional(),
 	xUsername: z.string().max(100).nullable().optional(),
+	timezone: z
+		.string()
+		.max(64)
+		.refine(isValidTimeZone, "Invalid IANA time zone")
+		.optional(),
 });
 
 const completeOnboardingSchema = z.object({});
