@@ -412,7 +412,7 @@ export const deepseekModels = [
 				requestPrice: "0",
 				contextSize: 1048576,
 				maxOutput: 64000,
-				quantization: "fp4",
+				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
 				reasoningEfforts: ["none", "high", "max"],
@@ -667,7 +667,7 @@ export const deepseekModels = [
 				requestPrice: "0",
 				contextSize: 1000000,
 				maxOutput: 393216,
-				quantization: "fp4",
+				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
 				// DeepInfra keeps thinking off unless an effort is requested, and
