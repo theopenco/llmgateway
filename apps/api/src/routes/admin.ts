@@ -9,6 +9,7 @@ import {
 	getCancelledOrganizationPlanState,
 	isTerminalSubscriptionError,
 } from "@/lib/account-deletion.js";
+import { approveHighRiskUser } from "@/lib/account-risk.js";
 import {
 	ADMIN_REFUND_REASONS,
 	computeAdminRefundability,
@@ -454,6 +455,10 @@ const organizationSchema = z.object({
 	totalTokens: z.number().optional(),
 	createdAt: z.string(),
 	status: z.string().nullable(),
+	// Flagged as high risk by the abuse-IP check at sign-up or email
+	// verification: no credit purchases and no inference until an admin
+	// activates the account under "Flagged Accounts".
+	riskFlagged: z.boolean().optional(),
 	referralBonusEnabled: z.boolean().optional(),
 	referralBonusPercent: z.number().optional(),
 	ownerUserId: z.string().nullable().optional(),
@@ -2713,6 +2718,7 @@ admin.openapi(getOrganizations, async (c) => {
 			credits: tables.organization.credits,
 			createdAt: tables.organization.createdAt,
 			status: tables.organization.status,
+			riskFlagged: tables.organization.riskFlagged,
 			totalCreditsAllTime:
 				sql<string>`COALESCE(${allTimeCredits.total}, '0')`.as(
 					"totalCreditsAllTime",
@@ -2779,6 +2785,7 @@ admin.openapi(getOrganizations, async (c) => {
 			totalTokens: Number(org.totalTokens ?? 0),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
+			riskFlagged: org.riskFlagged,
 			ownerUserId: org.ownerUserId ?? null,
 			ownerName: org.ownerName ?? null,
 			ownerEmail: org.ownerEmail ?? null,
@@ -2991,6 +2998,7 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 			credits: String(org.credits),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
+			riskFlagged: org.riskFlagged,
 		},
 		window: windowParam,
 		startDate: startDate.toISOString(),
@@ -3089,6 +3097,7 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			credits: String(org.credits),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
+			riskFlagged: org.riskFlagged,
 			referralBonusEnabled: org.referralBonusEnabled,
 			referralBonusPercent: parseReferralBonusPercent(org.referralBonusPercent),
 		},
@@ -5172,6 +5181,207 @@ admin.openapi(updateBlockedSignupCountries, async (c) => {
 	}
 
 	return c.json({ countries: await setBlockedSignupCountries(countries) });
+});
+
+// --- Flagged (high-risk) Accounts ---
+
+const flaggedAccountSchema = z
+	.object({
+		userId: z.string(),
+		email: z.string(),
+		name: z.string().nullable(),
+		emailVerified: z.boolean(),
+		createdAt: z.string(),
+		riskStatus: z.enum(["flagged", "approved"]),
+		flaggedAt: z.string().nullable(),
+		source: z.enum(["signup", "email_verification"]).nullable(),
+		ipAddress: z.string().nullable(),
+		abuseConfidenceScore: z.number().nullable(),
+		totalReports: z.number().nullable(),
+		countryCode: z.string().nullable(),
+		usageType: z.string().nullable(),
+		isp: z.string().nullable(),
+		isTor: z.boolean(),
+		reviewedAt: z.string().nullable(),
+		reviewedBy: z.string().nullable(),
+		organizations: z.array(
+			z.object({
+				id: z.string(),
+				name: z.string(),
+				kind: z.string(),
+				plan: z.string(),
+				status: z.string().nullable(),
+				credits: z.string(),
+				riskFlagged: z.boolean(),
+			}),
+		),
+	})
+	.openapi({});
+
+const getFlaggedAccounts = createRoute({
+	method: "get",
+	path: "/flagged-accounts",
+	request: {
+		query: z.object({
+			status: z.enum(["flagged", "approved", "all"]).optional(),
+			search: z.string().optional(),
+			limit: z.coerce.number().min(1).max(200).optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z
+						.object({
+							accounts: z.array(flaggedAccountSchema),
+							flaggedCount: z.number(),
+							approvedCount: z.number(),
+						})
+						.openapi({}),
+				},
+			},
+			description: "Accounts flagged as high risk by the abuse-IP check.",
+		},
+	},
+});
+
+const approveFlaggedAccount = createRoute({
+	method: "post",
+	path: "/flagged-accounts/{userId}/approve",
+	request: {
+		params: z.object({ userId: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z
+						.object({
+							success: z.boolean(),
+							organizationIds: z.array(z.string()),
+						})
+						.openapi({}),
+				},
+			},
+			description: "Account activated; its organizations are unblocked.",
+		},
+	},
+});
+
+admin.openapi(getFlaggedAccounts, async (c) => {
+	const { status = "flagged", search, limit = 100 } = c.req.valid("query");
+
+	const filters = [ne(tables.user.riskStatus, "none")];
+	if (status !== "all") {
+		filters.push(eq(tables.user.riskStatus, status));
+	}
+	const term = search?.trim();
+	if (term) {
+		filters.push(
+			or(
+				sql`${tables.user.email} ILIKE ${`%${term}%`}`,
+				sql`${tables.user.name} ILIKE ${`%${term}%`}`,
+			)!,
+		);
+	}
+
+	const users = await db
+		.select({
+			id: tables.user.id,
+			email: tables.user.email,
+			name: tables.user.name,
+			emailVerified: tables.user.emailVerified,
+			createdAt: tables.user.createdAt,
+			riskStatus: tables.user.riskStatus,
+			riskFlaggedAt: tables.user.riskFlaggedAt,
+			riskFlagSource: tables.user.riskFlagSource,
+			riskFlagIp: tables.user.riskFlagIp,
+			riskFlagDetails: tables.user.riskFlagDetails,
+			riskReviewedAt: tables.user.riskReviewedAt,
+			riskReviewedBy: tables.user.riskReviewedBy,
+		})
+		.from(tables.user)
+		.where(and(...filters))
+		.orderBy(desc(tables.user.riskFlaggedAt))
+		.limit(limit);
+
+	const userIds = users.map((user) => user.id);
+	const memberships = userIds.length
+		? await db
+				.select({
+					userId: tables.userOrganization.userId,
+					id: tables.organization.id,
+					name: tables.organization.name,
+					kind: tables.organization.kind,
+					plan: tables.organization.plan,
+					status: tables.organization.status,
+					credits: tables.organization.credits,
+					riskFlagged: tables.organization.riskFlagged,
+				})
+				.from(tables.userOrganization)
+				.innerJoin(
+					tables.organization,
+					eq(tables.organization.id, tables.userOrganization.organizationId),
+				)
+				.where(inArray(tables.userOrganization.userId, userIds))
+		: [];
+
+	const counts = await db
+		.select({
+			riskStatus: tables.user.riskStatus,
+			count: sql<number>`count(*)::int`,
+		})
+		.from(tables.user)
+		.where(ne(tables.user.riskStatus, "none"))
+		.groupBy(tables.user.riskStatus);
+
+	return c.json({
+		accounts: users.map((user) => {
+			const details = user.riskFlagDetails;
+			return {
+				userId: user.id,
+				email: user.email,
+				name: user.name,
+				emailVerified: user.emailVerified,
+				createdAt: user.createdAt.toISOString(),
+				riskStatus: user.riskStatus as "flagged" | "approved",
+				flaggedAt: user.riskFlaggedAt?.toISOString() ?? null,
+				source: user.riskFlagSource,
+				ipAddress: user.riskFlagIp,
+				abuseConfidenceScore: details?.abuseConfidenceScore ?? null,
+				totalReports: details?.totalReports ?? null,
+				countryCode: details?.countryCode ?? null,
+				usageType: details?.usageType ?? null,
+				isp: details?.isp ?? null,
+				isTor: details?.isTor ?? false,
+				reviewedAt: user.riskReviewedAt?.toISOString() ?? null,
+				reviewedBy: user.riskReviewedBy,
+				organizations: memberships
+					.filter((membership) => membership.userId === user.id)
+					.map(({ userId: _userId, ...organization }) => organization),
+			};
+		}),
+		flaggedCount:
+			counts.find((row) => row.riskStatus === "flagged")?.count ?? 0,
+		approvedCount:
+			counts.find((row) => row.riskStatus === "approved")?.count ?? 0,
+	});
+});
+
+admin.openapi(approveFlaggedAccount, async (c) => {
+	const { userId } = c.req.valid("param");
+	const reviewer = c.get("user")!;
+
+	const result = await approveHighRiskUser({
+		userId,
+		reviewerId: reviewer.id,
+	});
+	if (!result) {
+		throw new HTTPException(404, { message: "User not found" });
+	}
+
+	return c.json({ success: true, organizationIds: result.organizationIds });
 });
 
 // --- Organization Rate Limit Handlers ---

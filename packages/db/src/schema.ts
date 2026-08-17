@@ -48,33 +48,73 @@ const generate = customAlphabet(
 
 export const shortid = (size = 20) => generate(size);
 
-export const user = pgTable("user", {
-	id: text().primaryKey().$defaultFn(shortid),
-	createdAt: timestamp().notNull().defaultNow(),
-	updatedAt: timestamp()
-		.notNull()
-		.defaultNow()
-		.$onUpdate(() => new Date()),
-	name: text(),
-	email: text().notNull().unique(),
-	emailVerified: boolean().notNull().default(false),
-	image: text(),
-	onboardingCompleted: boolean().notNull().default(false),
-	newsletterSubscribed: boolean().notNull().default(false),
-	status: text({
-		enum: ["active", "deactivated"],
-	})
-		.notNull()
-		.default("active"),
-	// DevPass public profile. `username` is the public URL slug
-	// (/profiles/:username) and is null until the user claims one.
-	username: text().unique(),
-	profilePublic: boolean().notNull().default(false),
-	profileHidePicture: boolean().notNull().default(false),
-	bio: text(),
-	githubUsername: text(),
-	xUsername: text(),
-});
+export interface AbuseIpReport {
+	ipAddress: string;
+	abuseConfidenceScore: number;
+	totalReports?: number;
+	countryCode?: string | null;
+	usageType?: string | null;
+	isp?: string | null;
+	domain?: string | null;
+	isTor?: boolean;
+	lastReportedAt?: string | null;
+}
+
+export const user = pgTable(
+	"user",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		name: text(),
+		email: text().notNull().unique(),
+		emailVerified: boolean().notNull().default(false),
+		image: text(),
+		onboardingCompleted: boolean().notNull().default(false),
+		newsletterSubscribed: boolean().notNull().default(false),
+		status: text({
+			enum: ["active", "deactivated"],
+		})
+			.notNull()
+			.default("active"),
+		// High-risk flag raised when the sign-up or email-verification request came
+		// from an IP that AbuseIPDB reports as abusive. A flagged user cannot buy
+		// credits or run inference in any of their organizations (mirrored onto
+		// `organization.riskFlagged`) until an admin approves them, which sets the
+		// status to "approved" and never flags them again.
+		riskStatus: text({
+			enum: ["none", "flagged", "approved"],
+		})
+			.notNull()
+			.default("none"),
+		riskFlaggedAt: timestamp(),
+		riskFlagSource: text({
+			enum: ["signup", "email_verification"],
+		}),
+		riskFlagIp: text(),
+		riskFlagDetails: json().$type<AbuseIpReport>(),
+		riskReviewedAt: timestamp(),
+		riskReviewedBy: text(),
+		// DevPass public profile. `username` is the public URL slug
+		// (/profiles/:username) and is null until the user claims one.
+		username: text().unique(),
+		profilePublic: boolean().notNull().default(false),
+		profileHidePicture: boolean().notNull().default(false),
+		bio: text(),
+		githubUsername: text(),
+		xUsername: text(),
+	},
+	(table) => [
+		// Admin "Flagged accounts" listing. Partial so the index only carries the
+		// handful of reviewed accounts, not every user row.
+		index("user_risk_status_idx")
+			.on(table.riskStatus, table.riskFlaggedAt)
+			.where(sql`risk_status <> 'none'`),
+	],
+);
 
 export const userFavoriteModel = pgTable(
 	"user_favorite_model",
@@ -259,6 +299,11 @@ export const organization = pgTable(
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
+		// Mirror of the AbuseIPDB high-risk flag on the member who created this
+		// organization (see `user.riskStatus`). Denormalized because the gateway
+		// already loads the organization on every request, so inference can be
+		// rejected without a second lookup. Credit purchases are blocked too.
+		riskFlagged: boolean().notNull().default(false),
 		referralEarnings: decimal().notNull().default("0"),
 		// When enabled, organizations referred by this org receive a bonus on
 		// their first credit top-up. Configurable only via the admin dashboard.

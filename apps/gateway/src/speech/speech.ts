@@ -38,6 +38,7 @@ import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
 import {
@@ -634,11 +635,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 	if (!organization) {
 		throw new HTTPException(500, { message: "Could not find organization" });
 	}
-	if (organization.status === "deleted") {
-		throw new HTTPException(410, {
-			message: "Organization has been disabled and is no longer accessible",
-		});
-	}
+	assertOrganizationUsable(organization);
 
 	if (organization.kind === "devpass" && organization.devPlan !== "none") {
 		throw new HTTPException(403, {

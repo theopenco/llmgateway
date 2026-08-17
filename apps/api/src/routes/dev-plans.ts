@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { assertOrganizationNotHighRisk } from "@/lib/account-risk.js";
 import { assertCreditPurchaseAllowed } from "@/lib/credit-purchase-guard.js";
 import { voidPendingCycleRenewalInvoices } from "@/lib/pending-renewal.js";
 import {
@@ -3391,6 +3392,7 @@ devPlans.openapi(topUpCredits, async (c) => {
 	}
 
 	await assertCreditPurchaseAllowed(personalOrg.id);
+	await assertOrganizationNotHighRisk(personalOrg.id);
 
 	const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
 	const paymentMethodId = await resolveDevPassPaymentMethodId(

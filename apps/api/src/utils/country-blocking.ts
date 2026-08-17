@@ -1,5 +1,4 @@
-import ipaddr from "ipaddr.js";
-
+import { isPublicIp } from "@/lib/client-ip.js";
 import { getCountryFromHeaders } from "@/utils/request-country.js";
 
 import { redisClient } from "@llmgateway/cache";
@@ -91,21 +90,6 @@ export async function resolveRequestCountry(
 
 export function getIpCountryCacheKey(ip: string): string {
 	return `ip_country:${ip.trim().toLowerCase()}`;
-}
-
-function isPublicIp(ip: string): boolean {
-	try {
-		let parsed = ipaddr.parse(ip);
-		if (
-			parsed.kind() === "ipv6" &&
-			(parsed as ipaddr.IPv6).isIPv4MappedAddress()
-		) {
-			parsed = (parsed as ipaddr.IPv6).toIPv4Address();
-		}
-		return parsed.range() === "unicast";
-	} catch {
-		return false;
-	}
 }
 
 function parseCountry(payload: unknown): string | null {

@@ -16,6 +16,7 @@ import {
 	findProjectById,
 	findOrganizationById,
 } from "@/lib/cached-queries.js";
+import { getOrganizationBlockReason } from "@/lib/organization-access.js";
 import {
 	setResponsesContext,
 	deleteResponsesContext,
@@ -110,10 +111,11 @@ async function authenticateRequest(
 		return { error: "Could not find organization", status: 500 as const };
 	}
 
-	if (organization.status === "deleted") {
+	const organizationBlocked = getOrganizationBlockReason(organization);
+	if (organizationBlocked) {
 		return {
-			error: "Organization has been disabled and is no longer accessible",
-			status: 410 as const,
+			error: organizationBlocked.message,
+			status: organizationBlocked.status,
 		};
 	}
 

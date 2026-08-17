@@ -354,6 +354,11 @@ export default async function OrganizationPage({
 						<Badge variant={org.status === "active" ? "secondary" : "outline"}>
 							{org.status ?? "active"}
 						</Badge>
+						{org.riskFlagged && (
+							<Link href="/flagged-accounts">
+								<Badge variant="destructive">High risk — review</Badge>
+							</Link>
+						)}
 						{org.seats !== null && org.seats !== undefined && (
 							<Badge variant="outline">Seats: {org.seats}</Badge>
 						)}
