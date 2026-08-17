@@ -403,6 +403,19 @@ export function topUpVelocityKey(organizationId: string): string {
 	return `topup_velocity:resv:${organizationId}`;
 }
 
+/** Limit families tracked in `org_limit_hit_daily` for the admin dashboard. */
+export type OrgLimitType =
+	"rpm" | "spend_cap_daily" | "spend_cap_monthly" | "topup_velocity";
+
+/**
+ * Redis hash buffering one UTC day of per-org limit-hit counters until the
+ * worker flushes them to Postgres. Fields are
+ * `c|{orgId}|{limitType}|{endpointKey}` (hit count) and `u|...` (blocked USD).
+ */
+export function limitHitsKey(dayKey: string): string {
+	return `limit_hits:${dayKey}`;
+}
+
 /**
  * Which orgs the top-up velocity cap applies to. Broader than {@link isCappedOrg}:
  * DevPass PAYG top-ups also land in `organization.credits` via the same Stripe

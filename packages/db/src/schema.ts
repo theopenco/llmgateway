@@ -4848,6 +4848,45 @@ export const globalAggregationState = pgTable("global_aggregation_state", {
 		.$onUpdate(() => new Date()),
 });
 
+// Daily per-org counters of rejected requests/charges due to the anti-abuse
+// limits (endpoint RPM, USD spend caps, top-up velocity). Written by the
+// worker from Redis-buffered increments; read by the admin dashboard so we
+// can see who is hitting which limits and how hard.
+export const orgLimitHitDaily = pgTable(
+	"org_limit_hit_daily",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		// Also serves as "last time hits were flushed for this bucket".
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		day: timestamp().notNull(), // UTC midnight of the bucket
+		limitType: text({
+			enum: ["rpm", "spend_cap_daily", "spend_cap_monthly", "topup_velocity"],
+		}).notNull(),
+		// PATH_RATE_LIMITS key for rpm hits; "" for the other limit types
+		// (empty string, not null, so the unique constraint covers it).
+		endpointKey: text().notNull().default(""),
+		hitCount: integer().notNull().default(0),
+		// Gross USD of rejected top-up attempts; 0 for other limit types.
+		blockedUsd: decimal().notNull().default("0"),
+	},
+	(table) => [
+		unique().on(
+			table.organizationId,
+			table.day,
+			table.limitType,
+			table.endpointKey,
+		),
+		index("org_limit_hit_daily_day_idx").on(table.day),
+	],
+);
+
 export const skill = pgTable(
 	"skill",
 	{

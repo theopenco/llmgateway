@@ -1,5 +1,6 @@
 import { HTTPException } from "hono/http-exception";
 
+import { recordLimitHit } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
 import {
@@ -104,6 +105,11 @@ export async function checkSpendLimit(
 				current: daily,
 				limit: tier.dailyCapUsd,
 			});
+			await recordLimitHit({
+				organizationId: org.id,
+				limitType: "spend_cap_daily",
+				now,
+			});
 			return {
 				allowed: false,
 				period: "daily",
@@ -119,6 +125,11 @@ export async function checkSpendLimit(
 				tier: tier.tier,
 				current: monthly,
 				limit: tier.monthlyCapUsd,
+			});
+			await recordLimitHit({
+				organizationId: org.id,
+				limitType: "spend_cap_monthly",
+				now,
 			});
 			return {
 				allowed: false,

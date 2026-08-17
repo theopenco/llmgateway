@@ -19,6 +19,8 @@ import {
 	topUpVelocityKey,
 } from "@llmgateway/shared";
 
+import { recordLimitHit } from "./limit-hits.js";
+
 /**
  * Per-organization top-up velocity limits: caps the gross USD an org can top up
  * within a rolling 24h window, scaled by its trust tier. Anti-abuse control for
@@ -202,6 +204,16 @@ export async function checkAndReserveTopUp(options: {
 			usedUsd,
 			attemptedUsd: amountUsd,
 		});
+		// amountUsd === 0 is the post-settlement observability probe, not a
+		// blocked attempt — don't count it.
+		if (amountUsd > 0) {
+			await recordLimitHit({
+				organizationId: org.id,
+				limitType: "topup_velocity",
+				blockedUsd: amountUsd,
+				now,
+			});
+		}
 		return {
 			allowed: false,
 			capUsd,

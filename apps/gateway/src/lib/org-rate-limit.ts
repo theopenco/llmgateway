@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { recordLimitHit } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import {
 	db,
@@ -223,6 +224,12 @@ export async function checkOrgRateLimit(
 				limit,
 				multiplier,
 				retryAfter,
+			});
+
+			await recordLimitHit({
+				organizationId,
+				limitType: "rpm",
+				endpointKey: config.key,
 			});
 
 			return { allowed: false, retryAfter, remaining: 0, limit };

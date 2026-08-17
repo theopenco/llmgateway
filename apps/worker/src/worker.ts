@@ -5,7 +5,7 @@ import { Decimal } from "decimal.js";
 import Stripe from "stripe";
 import { z } from "zod";
 
-import { checkAndReserveTopUp } from "@llmgateway/actions";
+import { checkAndReserveTopUp, flushLimitHits } from "@llmgateway/actions";
 import {
 	closeRedisClient,
 	closeStorageRedisClient,
@@ -108,6 +108,7 @@ const DATA_RETENTION_LOCK_KEY = "data_retention_cleanup";
 const MODEL_HISTORY_RETENTION_LOCK_KEY = "model_history_retention_cleanup";
 const END_USER_SESSION_CLEANUP_LOCK_KEY = "end_user_session_cleanup";
 const API_KEY_EXPIRATION_LOCK_KEY = "api_key_expiration";
+const LIMIT_HIT_FLUSH_LOCK_KEY = "limit_hit_flush";
 const WEBHOOK_DELIVERY_LOCK_KEY = "platform_webhook_delivery";
 const MARGIN_PAYOUT_LOCK_KEY = "margin_payout";
 const LOCK_DURATION_MINUTES = 5;
@@ -2606,6 +2607,52 @@ async function runApiKeyExpirationLoop() {
 	}
 }
 
+async function flushLimitHitCounters(): Promise<void> {
+	const lockAcquired = await acquireLock(LIMIT_HIT_FLUSH_LOCK_KEY);
+	if (!lockAcquired) {
+		return;
+	}
+
+	try {
+		// Single flusher (the lock) is what makes the RENAME-based drain in
+		// flushLimitHits safe.
+		const flushed = await flushLimitHits();
+		if (flushed > 0) {
+			logger.info(`Flushed ${flushed} limit-hit bucket(s) to Postgres`);
+		}
+	} finally {
+		await releaseLock(LIMIT_HIT_FLUSH_LOCK_KEY);
+	}
+}
+
+async function runLimitHitFlushLoop() {
+	activeLoops++;
+	const interval =
+		parseInt(process.env.LIMIT_HIT_FLUSH_INTERVAL_SECONDS || "60", 10) * 1000;
+	logger.info(
+		`Starting limit-hit flush loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				await flushLimitHitCounters();
+
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in limit-hit flush loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Limit-hit flush loop stopped");
+	}
+}
+
 const MAX_WEBHOOK_ATTEMPTS = 5;
 const WEBHOOK_DELIVERY_BATCH_SIZE = 50;
 
@@ -3001,6 +3048,7 @@ export async function startWorker() {
 	void runModelHistoryRetentionLoop();
 	void runEndUserSessionCleanupLoop();
 	void runApiKeyExpirationLoop();
+	void runLimitHitFlushLoop();
 	void runWebhookDeliveryLoop();
 	void runMarginPayoutLoop();
 	void runFollowUpEmailsLoop({
