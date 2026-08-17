@@ -281,6 +281,7 @@ const transactionSchema = z.object({
 		"credit_refund",
 		"credit_gift",
 		"credit_manual_payment",
+		"provider_listing_fee",
 		"dev_plan_start",
 		"dev_plan_upgrade",
 		"dev_plan_downgrade",

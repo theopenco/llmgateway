@@ -12,6 +12,7 @@ export * from "./get-provider-endpoint.js";
 export * from "./compute-provider-scores.js";
 export * from "./get-cheapest-from-available-providers.js";
 export * from "./validate-provider-key.js";
+export * from "./validate-provider-endpoint.js";
 export * from "./get-cheapest-model-for-provider.js";
 export * from "./provider-key/index.js";
 export * from "./select-provider-mapping.js";

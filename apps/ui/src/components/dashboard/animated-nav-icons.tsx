@@ -457,3 +457,31 @@ export function AnimatedBuilding2({ isHovered }: AnimatedIconProps) {
 		</svg>
 	);
 }
+
+// Server (Provider Listing) — status lights blink in sequence
+export function AnimatedServer({ isHovered }: AnimatedIconProps) {
+	return (
+		<svg {...svgProps}>
+			<rect width="20" height="8" x="2" y="2" rx="2" ry="2" />
+			<rect width="20" height="8" x="2" y="14" rx="2" ry="2" />
+			<motion.line
+				x1="6"
+				y1="6"
+				x2="6.01"
+				y2="6"
+				initial={false}
+				animate={isHovered ? { opacity: [1, 0.2, 1] } : { opacity: 1 }}
+				transition={{ duration: 0.35, ease: "easeInOut" }}
+			/>
+			<motion.line
+				x1="6"
+				y1="18"
+				x2="6.01"
+				y2="18"
+				initial={false}
+				animate={isHovered ? { opacity: [1, 0.2, 1] } : { opacity: 1 }}
+				transition={{ duration: 0.35, delay: 0.15, ease: "easeInOut" }}
+			/>
+		</svg>
+	);
+}

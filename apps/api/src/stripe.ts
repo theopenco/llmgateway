@@ -1944,16 +1944,46 @@ async function handleProviderListingCheckout(session: Stripe.Checkout.Session) {
 		return;
 	}
 
-	await db
+	const [listing] = await db
 		.update(tables.providerListingRequest)
 		.set({
 			paymentStatus: "paid",
 			stripeCheckoutSessionId: session.id,
 			paidAt: new Date(),
 		})
-		.where(eq(tables.providerListingRequest.id, requestId));
+		.where(eq(tables.providerListingRequest.id, requestId))
+		.returning();
 
 	logger.info(`Marked provider listing request ${requestId} as paid`);
+
+	// Self-serve listings are owned by an organization; record the fee as
+	// revenue there. Legacy contact-form rows have no org, so the fee stays
+	// Stripe-only for them.
+	const paymentIntentId =
+		typeof session.payment_intent === "string"
+			? session.payment_intent
+			: (session.payment_intent?.id ?? null);
+	if (listing?.organizationId && session.amount_total) {
+		const existingTransaction = paymentIntentId
+			? await db.query.transaction.findFirst({
+					where: {
+						stripePaymentIntentId: paymentIntentId,
+						type: "provider_listing_fee",
+					},
+				})
+			: null;
+		if (!existingTransaction) {
+			await db.insert(tables.transaction).values({
+				organizationId: listing.organizationId,
+				type: "provider_listing_fee",
+				amount: (session.amount_total / 100).toString(),
+				currency: session.currency?.toUpperCase() ?? "USD",
+				status: "completed",
+				stripePaymentIntentId: paymentIntentId,
+				description: `Provider listing fee (${listing.providerName})`,
+			});
+		}
+	}
 }
 
 async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {

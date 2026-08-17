@@ -59,6 +59,7 @@ import {
 	PROJECT_STATS_REFRESH_INTERVAL_SECONDS,
 	refreshProjectHourlyStats,
 } from "./services/project-stats-aggregator.js";
+import { processQueuedProviderListingRuns } from "./services/provider-listing-validation.js";
 import {
 	backfillHistoryIfNeeded,
 	backfillHourlyHistoryIfNeeded,
@@ -2271,6 +2272,33 @@ async function runVideoJobsLoop() {
 	}
 }
 
+async function runProviderListingValidationLoop() {
+	activeLoops++;
+	const interval = (process.env.NODE_ENV === "production" ? 15 : 5) * 1000;
+	logger.info(
+		`Starting provider listing validation loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				await processQueuedProviderListingRuns();
+
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in provider listing validation loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Provider listing validation loop stopped");
+	}
+}
+
 async function runVideoWebhookLoop() {
 	activeLoops++;
 	const interval = VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS * 1000;
@@ -2946,6 +2974,7 @@ export async function startWorker() {
 	logger.info(
 		`- Video webhooks: runs every ${VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS} seconds for callback delivery`,
 	);
+	logger.info("- Provider listing validation: probes queued listing endpoints");
 	logger.info(
 		"- Aggregated stats: runs every 1 minute at the start of each minute",
 	);
@@ -2966,6 +2995,7 @@ export async function startWorker() {
 	void runCurrentMinuteHistoryLoop();
 	void runVideoJobsLoop();
 	void runVideoWebhookLoop();
+	void runProviderListingValidationLoop();
 	void runAggregatedStatsLoop();
 	void runProjectStatsLoop();
 	void runGlobalStatsLoop();

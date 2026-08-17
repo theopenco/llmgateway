@@ -42,6 +42,7 @@ import {
 	AnimatedMessageSquare,
 	AnimatedSettings,
 	AnimatedPercent,
+	AnimatedServer,
 	AnimatedShield,
 	AnimatedShieldAlert,
 	AnimatedTerminal,
@@ -214,6 +215,11 @@ const ORGANIZATION_NAVIGATION: readonly {
 		href: "org/models",
 		label: "Models",
 		icon: AnimatedBotMessageSquare,
+	},
+	{
+		href: "org/provider-listing",
+		label: "Provider Listing",
+		icon: AnimatedServer,
 	},
 	{
 		href: "org/analytics",

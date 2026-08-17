@@ -462,6 +462,10 @@ export const transaction = pgTable(
 				// received) and `creditAmount` (credits granted) are set and the row
 				// counts toward revenue. `paymentMethod` records the channel.
 				"credit_manual_payment",
+				// One-time provider listing fee paid by an organization applying
+				// to be listed as an inference provider. `amount` is the real
+				// dollars paid; `creditAmount` is null (no credits are granted).
+				"provider_listing_fee",
 				"dev_plan_start",
 				"dev_plan_upgrade",
 				"dev_plan_downgrade",
@@ -854,6 +858,31 @@ export const enterpriseContactSubmission = pgTable(
 	],
 );
 
+/**
+ * A catalogue model the listing applicant claims to serve, paired with the
+ * model id their OpenAI-compatible endpoint expects for it.
+ */
+export interface ProviderListingClaimedModel {
+	modelId: string;
+	externalId: string;
+}
+
+/**
+ * Outcome of one validation probe (one check against one claimed model).
+ * `required` records whether the check counted toward the run verdict — chat
+ * and streaming always do; json_mode / tool_calls only when the catalogue
+ * model declares the capability.
+ */
+export interface ProviderListingCheckResult {
+	modelId: string;
+	externalId: string;
+	check: "chat" | "streaming" | "json_mode" | "tool_calls";
+	passed: boolean;
+	required: boolean;
+	latencyMs?: number;
+	error?: string;
+}
+
 export const providerListingRequest = pgTable(
 	"provider_listing_request",
 	{
@@ -893,15 +922,86 @@ export const providerListingRequest = pgTable(
 			.default("pending"),
 		rejectionReason: text(),
 		archivedAt: timestamp(),
+		// Self-serve listings are owned by an organization; legacy contact-form
+		// rows have no owner and stay email-only.
+		organizationId: text().references(() => organization.id, {
+			onDelete: "set null",
+		}),
+		// Routing identity the listing activates under. Matches the future
+		// catalogue provider id; the routing boost row is keyed on it.
+		providerSlug: text(),
+		// OpenAI-compatible endpoint the validation suite probes.
+		baseUrl: text(),
+		// Test credential for validation probes, encrypted like provider_key
+		// tokens (AES-GCM, AAD-bound to row id + org scope). Never stored in
+		// plaintext.
+		testKeyCiphertext: text(),
+		testKeyMasked: text(),
+		claimedModels: jsonb().$type<ProviderListingClaimedModel[]>(),
+		// Discount the provider commits to (0-1, e.g. 0.2 = 20% off list price).
+		// Routing treats their price as (1 - discount) x list via the
+		// routing_score_multiplier written on activation, so a higher discount
+		// wins more traffic.
+		discountPercent: decimal(),
+		validationStatus: text({
+			enum: ["not_started", "queued", "running", "passed", "failed"],
+		})
+			.notNull()
+			.default("not_started"),
+		// Set when the listing goes live (routing boost provisioned); null
+		// otherwise. Doubles as the "is live" flag.
+		listedAt: timestamp(),
 	},
 	(table) => [
 		index("provider_listing_request_created_at_idx").on(table.createdAt),
 		index("provider_listing_request_email_idx").on(table.email),
 		index("provider_listing_request_status_idx").on(table.spamFilterStatus),
+		index("provider_listing_request_organization_id_idx").on(
+			table.organizationId,
+		),
 		check(
 			"provider_listing_request_payment_status_check",
 			sql`${table.paymentStatus} IN ('unpaid', 'paid', 'refunded')`,
 		),
+	],
+);
+
+export const providerListingTestRun = pgTable(
+	"provider_listing_test_run",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		listingRequestId: text()
+			.notNull()
+			.references(() => providerListingRequest.id, { onDelete: "cascade" }),
+		status: text({
+			enum: ["queued", "running", "passed", "failed"],
+		})
+			.notNull()
+			.default("queued"),
+		startedAt: timestamp(),
+		completedAt: timestamp(),
+		// Per-check outcomes, appended as each claimed model finishes so the
+		// dashboard can poll progress while the run is live.
+		results: jsonb()
+			.$type<ProviderListingCheckResult[]>()
+			.notNull()
+			.default([]),
+		// Run-level failure (endpoint unreachable, credential undecryptable, …)
+		// as opposed to individual check failures inside `results`.
+		error: text(),
+	},
+	(table) => [
+		index("provider_listing_test_run_listing_request_id_idx").on(
+			table.listingRequestId,
+		),
+		index("provider_listing_test_run_queued_idx")
+			.on(table.createdAt)
+			.where(sql`${table.status} = 'queued'`),
 	],
 );
 
