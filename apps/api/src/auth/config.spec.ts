@@ -1,9 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
-import {
-	getIpCountryCacheKey,
-	setBlockedSignupCountries,
-} from "@/utils/country-blocking.js";
+import { setBlockedSignupCountries } from "@/utils/country-blocking.js";
 
 import { db, eq, tables } from "@llmgateway/db";
 import { randomInt } from "@llmgateway/shared/random";
@@ -704,18 +701,13 @@ describe("Signup country blocking", () => {
 
 	beforeEach(async () => {
 		await setBlockedSignupCountries(["AQ"]);
-		// Prime the geo cache so the hook resolves a country without a lookup
-		await redisClient.set(getIpCountryCacheKey(blockedIp), "AQ");
-		await redisClient.set(getIpCountryCacheKey(allowedIp), "DE");
 	});
 
 	afterEach(async () => {
 		await db.delete(tables.systemSetting);
-		await redisClient.del(getIpCountryCacheKey(blockedIp));
-		await redisClient.del(getIpCountryCacheKey(allowedIp));
 	});
 
-	test("rejects email sign-up from a blocked country", async () => {
+	test("does not use the client IP when the geo header is missing", async () => {
 		const response = await apiAuth.handler(
 			new Request("http://localhost:4002/auth/sign-up/email", {
 				method: "POST",
@@ -731,9 +723,7 @@ describe("Signup country blocking", () => {
 			}),
 		);
 
-		expect(response.status).toBe(403);
-		const body = await response.json();
-		expect(body.error).toBe("signup_not_available");
+		expect(response.status).not.toBe(403);
 	});
 
 	test("rejects sign-up using the load balancer geo header", async () => {
@@ -766,6 +756,7 @@ describe("Signup country blocking", () => {
 				headers: {
 					"Content-Type": "application/json",
 					"CF-Connecting-IP": blockedIp,
+					"X-Client-Region": "AQ",
 				},
 				body: JSON.stringify({
 					provider: "github",
@@ -806,6 +797,7 @@ describe("Signup country blocking", () => {
 				headers: {
 					"Content-Type": "application/json",
 					"CF-Connecting-IP": allowedIp,
+					"X-Client-Region": "DE",
 				},
 				body: JSON.stringify({
 					email: `allowed-${Date.now()}@example.com`,
@@ -818,7 +810,7 @@ describe("Signup country blocking", () => {
 		expect(response.status).not.toBe(403);
 	});
 
-	test("does not block a private IP that cannot be geolocated", async () => {
+	test("does not block when the geo header is missing", async () => {
 		const response = await apiAuth.handler(
 			new Request("http://localhost:4002/auth/sign-up/email", {
 				method: "POST",
