@@ -942,6 +942,15 @@ The LLM Gateway Team`.trim();
 						const country = blockedCountries.length
 							? await resolveRequestCountry(ctx.headers, ipAddress)
 							: null;
+						// An undetectable country never blocks, so surface it: with a
+						// blocklist configured it means the load balancer geo header is
+						// missing or the fallback lookup failed.
+						if (blockedCountries.length && !country) {
+							logger.warn("Signup country could not be determined", {
+								ip: ipAddress,
+								path: ctx.path,
+							});
+						}
 						if (isCountryBlocked(country, blockedCountries)) {
 							logger.warn("Signup blocked by country policy", {
 								ip: ipAddress,
