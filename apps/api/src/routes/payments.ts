@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import Stripe from "stripe";
 import { z } from "zod";
 
+import { assertCreditPurchaseAllowed } from "@/lib/credit-purchase-guard.js";
 import { computeReferralBonus } from "@/lib/referral-bonus.js";
 import {
 	assertTopUpVelocityAllowed,
@@ -166,6 +167,8 @@ payments.openapi(createPaymentIntent, async (c) => {
 	}
 
 	const organizationId = userOrganization.organization.id;
+
+	await assertCreditPurchaseAllowed(organizationId);
 
 	// Gate before ANY Stripe interaction so a capped org cannot even generate
 	// customer/payment-method API traffic. The reserved amount uses the
@@ -737,6 +740,8 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 		});
 	}
 
+	await assertCreditPurchaseAllowed(userOrganization.organization.id);
+
 	// Gate before any Stripe interaction; see create-payment-intent for why the
 	// reserved amount uses the domestic-fee gross. Any failure past this point
 	// means no successful charge, so the outer catch below frees the
@@ -917,6 +922,8 @@ payments.openapi(createCheckoutSession, async (c) => {
 	}
 
 	const organizationId = userOrganization.organization.id;
+
+	await assertCreditPurchaseAllowed(organizationId);
 
 	const feeBreakdown = calculateFees({ amount });
 

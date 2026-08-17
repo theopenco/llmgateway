@@ -467,11 +467,15 @@ adminOrgDetails.openapi(getOrganizationGuardrails, async (c) => {
 			db.query.guardrailConfig.findFirst({
 				where: {
 					organizationId: { eq: orgId },
+					projectId: { isNull: true },
 				},
 			}),
+			// Org-level rules only, to match the org-level config above — project
+			// overrides are configured and enforced separately.
 			db.query.guardrailRule.findMany({
 				where: {
 					organizationId: { eq: orgId },
+					projectId: { isNull: true },
 				},
 				orderBy: {
 					priority: "asc",

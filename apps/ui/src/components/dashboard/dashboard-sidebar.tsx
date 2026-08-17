@@ -180,6 +180,11 @@ const PROJECT_SETTINGS = [
 		href: "settings/dynamic-routes",
 		label: "Dynamic Routes",
 	},
+	{
+		href: "settings/guardrails",
+		label: "Guardrails",
+		enterpriseOnly: true,
+	},
 ] as const;
 
 // Org-level nav items. `enterpriseGated` items show the enterprise indicator
@@ -536,10 +541,12 @@ function ProjectSettingsSection({
 	isActive,
 	isMobile,
 	toggleSidebar,
+	showEnterpriseBadge,
 }: {
 	isActive: (path: string) => boolean;
 	isMobile: boolean;
 	toggleSidebar: () => void;
+	showEnterpriseBadge: boolean;
 }) {
 	const { buildUrl } = useDashboardNavigation();
 	const [isHovered, setIsHovered] = useState(false);
@@ -581,6 +588,9 @@ function ProjectSettingsSection({
 								prefetch={true}
 							>
 								<span>{item.label}</span>
+								{"enterpriseOnly" in item &&
+									item.enterpriseOnly &&
+									showEnterpriseBadge && <EnterpriseIndicator />}
 							</Link>
 						</SidebarMenuSubButton>
 					</SidebarMenuSubItem>
@@ -1273,6 +1283,7 @@ export function DashboardSidebar({
 				href: buildUrl(item.href),
 				label: item.label,
 				section: "Project Settings",
+				enterpriseGated: "enterpriseOnly" in item && item.enterpriseOnly,
 			})),
 			...ORGANIZATION_NAVIGATION.map((item) => ({
 				href: buildOrgUrl(item.href),
@@ -1495,6 +1506,9 @@ export function DashboardSidebar({
 										isActive={isActive}
 										isMobile={isMobile}
 										toggleSidebar={toggleSidebar}
+										showEnterpriseBadge={
+											selectedOrganization?.plan !== "enterprise"
+										}
 									/>
 								</SidebarMenu>
 							</SidebarGroupContent>

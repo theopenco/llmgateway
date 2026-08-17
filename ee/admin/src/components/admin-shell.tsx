@@ -19,6 +19,7 @@ import {
 	Percent,
 	Route,
 	Server,
+	Settings,
 	ShieldAlert,
 	Sparkles,
 } from "lucide-react";
@@ -145,6 +146,7 @@ const navItems: NavItem[] = [
 		icon: ShieldAlert,
 		match: "prefix",
 	},
+	{ href: "/settings", label: "Settings", icon: Settings, match: "exact" },
 ];
 
 function isActive(item: NavItem, pathname: string): boolean {

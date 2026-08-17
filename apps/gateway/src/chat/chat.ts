@@ -2576,6 +2576,7 @@ chat.openapi(completions, async (c) => {
 	if (organization.plan === "enterprise") {
 		guardrailResult = await checkGuardrails({
 			organizationId: project.organizationId,
+			projectId: project.id,
 			messages: messages as Parameters<typeof checkGuardrails>[0]["messages"],
 		});
 
