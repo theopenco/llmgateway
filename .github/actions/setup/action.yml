@@ -7,8 +7,15 @@ runs:
     - name: Collect versions
       shell: bash
       run: |
-        echo "nodejs_version=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
-        echo "pnpm_version=$(cat .tool-versions | grep 'pnpm' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
+        set -eu
+        # .tool-versions comes from the checked-out ref, which for e2e is an
+        # untrusted PR head. Take a single line and strip everything outside
+        # [A-Za-z0-9.-] so a crafted file cannot inject extra GITHUB_ENV entries.
+        read_version() {
+          grep -m1 "^$1 " .tool-versions | cut -d ' ' -f 2 | tr -cd 'A-Za-z0-9.-'
+        }
+        echo "nodejs_version=$(read_version nodejs)" >> "$GITHUB_ENV"
+        echo "pnpm_version=$(read_version pnpm)" >> "$GITHUB_ENV"
 
     - uses: pnpm/action-setup@v6.0.10
       with:
