@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { BlockedSignupCountriesForm } from "@/components/blocked-signup-countries-form";
 import { CreditPurchaseBlockToggle } from "@/components/credit-purchase-block-toggle";
+import { ForceThreeDSecureForm } from "@/components/force-three-d-secure-form";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -14,9 +15,13 @@ import {
 import {
 	getBlockedSignupCountries,
 	getCreditPurchaseBlock,
+	getForceThreeDSecure,
 	updateBlockedSignupCountries,
 	updateCreditPurchaseBlock,
+	updateForceThreeDSecure,
 } from "@/lib/admin-settings";
+
+import type { ForceThreeDSecureMode } from "@/lib/admin-settings";
 
 function SignInPrompt() {
 	return (
@@ -39,12 +44,18 @@ function SignInPrompt() {
 }
 
 export default async function SettingsPage() {
-	const [creditPurchaseBlock, blockedSignupCountries] = await Promise.all([
-		getCreditPurchaseBlock(),
-		getBlockedSignupCountries(),
-	]);
+	const [creditPurchaseBlock, blockedSignupCountries, forceThreeDSecure] =
+		await Promise.all([
+			getCreditPurchaseBlock(),
+			getBlockedSignupCountries(),
+			getForceThreeDSecure(),
+		]);
 
-	if (creditPurchaseBlock === null || blockedSignupCountries === null) {
+	if (
+		creditPurchaseBlock === null ||
+		blockedSignupCountries === null ||
+		forceThreeDSecure === null
+	) {
 		return <SignInPrompt />;
 	}
 
@@ -59,6 +70,13 @@ export default async function SettingsPage() {
 		"use server";
 
 		return await updateBlockedSignupCountries(countries);
+	}
+
+	async function handleSaveThreeDSecure(mode: ForceThreeDSecureMode) {
+		"use server";
+
+		const result = await updateForceThreeDSecure(mode);
+		return { ok: result.state !== null, message: result.message };
 	}
 
 	return (
@@ -108,6 +126,27 @@ export default async function SettingsPage() {
 					<BlockedSignupCountriesForm
 						countries={blockedSignupCountries.countries}
 						onSave={handleSaveCountries}
+					/>
+				</CardContent>
+			</Card>
+
+			<Card>
+				<CardHeader>
+					<CardTitle>3D Secure when a card is added</CardTitle>
+					<CardDescription>
+						Requests issuer authentication when a customer saves a card or
+						starts a subscription — never on a charge. Later top-ups and
+						scheduled auto top-ups run on the card authenticated here, so they
+						are never challenged and cannot break. The issuer still decides, so
+						neither level guarantees a challenge, and forcing one costs some
+						conversion on the add-card step.
+					</CardDescription>
+				</CardHeader>
+				<CardContent>
+					<ForceThreeDSecureForm
+						mode={forceThreeDSecure.mode}
+						envOverride={forceThreeDSecure.envOverride}
+						onSave={handleSaveThreeDSecure}
 					/>
 				</CardContent>
 			</Card>

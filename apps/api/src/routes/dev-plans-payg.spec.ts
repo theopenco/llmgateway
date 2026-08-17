@@ -249,6 +249,7 @@ describe("dev-plan PAYG top-up", () => {
 	});
 
 	afterEach(async () => {
+		vi.unstubAllEnvs();
 		await db.delete(tables.transaction);
 		await deleteAll();
 	});
@@ -309,6 +310,22 @@ describe("dev-plan PAYG top-up", () => {
 		// in handlePaymentIntentSucceeded — the org is credited by the webhook.
 		expect(params.metadata.baseAmount).toBe("25");
 		expect(params.metadata.organizationId).toBe(ORG_ID);
+	});
+
+	it("never requests 3DS off-session, even when forced globally", async () => {
+		vi.stubEnv("STRIPE_FORCE_3DS", "challenge");
+		await insertOrg();
+
+		const res = await topUpRequest(
+			{ amount: 25, purchaseId: "attempt-fixed-1" },
+			token,
+		);
+		expect(res.status).toBe(200);
+
+		// Nobody is present to answer a challenge here, so requesting one would
+		// only turn the charge into an `authentication_required` decline.
+		const params = stripeMock.paymentIntents.create.mock.calls[0][0];
+		expect(params.payment_method_options).toBeUndefined();
 	});
 
 	it("falls back to the customer's default payment method", async () => {

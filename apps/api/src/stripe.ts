@@ -26,6 +26,11 @@ import {
 } from "@llmgateway/shared";
 
 import { computeReferralBonus } from "./lib/referral-bonus.js";
+import {
+	getForcedThreeDSecure,
+	threeDSecureSubscriptionSettings,
+	type ThreeDSecureRequest,
+} from "./lib/three-d-secure.js";
 import { posthog } from "./posthog.js";
 import { getStripe, type StripeMode } from "./routes/payments.js";
 import {
@@ -794,8 +799,16 @@ async function detachDuplicateCardPaymentMethods(
 	}
 }
 
-function shouldForceDevPlan3dsChallenge(): boolean {
-	return process.env.STRIPE_DEV_PLAN_FORCE_3DS === "true";
+/**
+ * `STRIPE_DEV_PLAN_FORCE_3DS=true` forces a challenge on DevPass subscriptions
+ * only; otherwise the account-wide setting (admin dashboard or
+ * `STRIPE_FORCE_3DS`) applies.
+ */
+async function devPlanThreeDSecure(): Promise<ThreeDSecureRequest | undefined> {
+	if (process.env.STRIPE_DEV_PLAN_FORCE_3DS === "true") {
+		return "challenge";
+	}
+	return await getForcedThreeDSecure();
 }
 
 async function resolvePaymentMethodFromSetupSession(
@@ -992,17 +1005,7 @@ export async function finalizeDevPlanSetupSession(
 				items: [{ price: priceId }],
 				default_payment_method: paymentMethod.id,
 				payment_behavior: "default_incomplete",
-				...(shouldForceDevPlan3dsChallenge()
-					? {
-							payment_settings: {
-								payment_method_options: {
-									card: {
-										request_three_d_secure: "challenge" as const,
-									},
-								},
-							},
-						}
-					: {}),
+				...threeDSecureSubscriptionSettings(await devPlanThreeDSecure()),
 				metadata: {
 					organizationId,
 					subscriptionType: "dev_plan",

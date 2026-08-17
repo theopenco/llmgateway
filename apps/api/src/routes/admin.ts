@@ -27,6 +27,11 @@ import {
 	getTokenWindowStartDate,
 	tokenWindowSchema,
 } from "@/lib/stats-window.js";
+import {
+	getForcedThreeDSecureMode,
+	getThreeDSecureEnvOverride,
+	setForcedThreeDSecureMode,
+} from "@/lib/three-d-secure.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { getStripe } from "@/routes/payments.js";
 import {
@@ -5172,6 +5177,85 @@ admin.openapi(updateBlockedSignupCountries, async (c) => {
 	}
 
 	return c.json({ countries: await setBlockedSignupCountries(countries) });
+});
+
+// --- Forced 3D Secure ---
+
+const forceThreeDSecureModeSchema = z.enum(["off", "any", "challenge"]);
+
+const forceThreeDSecureSchema = z
+	.object({
+		// The stored admin setting.
+		mode: forceThreeDSecureModeSchema,
+		// Set when STRIPE_FORCE_3DS overrides the admin setting, in which case
+		// `mode` is stored but not what customers actually get.
+		envOverride: forceThreeDSecureModeSchema.nullable(),
+		// What card flows actually request right now.
+		effectiveMode: forceThreeDSecureModeSchema,
+	})
+	.openapi({});
+
+async function forceThreeDSecureState() {
+	const mode = await getForcedThreeDSecureMode();
+	const envOverride = getThreeDSecureEnvOverride() ?? null;
+	return {
+		mode,
+		envOverride,
+		effectiveMode: envOverride ?? mode,
+	};
+}
+
+const getForceThreeDSecure = createRoute({
+	method: "get",
+	path: "/settings/force-3ds",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: forceThreeDSecureSchema,
+				},
+			},
+			description:
+				"3D Secure level requested on customer-present card payments.",
+		},
+	},
+});
+
+const updateForceThreeDSecure = createRoute({
+	method: "put",
+	path: "/settings/force-3ds",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ mode: forceThreeDSecureModeSchema }).openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: forceThreeDSecureSchema,
+				},
+			},
+			description: "Updated 3D Secure setting.",
+		},
+	},
+});
+
+admin.openapi(getForceThreeDSecure, async (c) => {
+	return c.json(await forceThreeDSecureState());
+});
+
+admin.openapi(updateForceThreeDSecure, async (c) => {
+	const { mode } = c.req.valid("json");
+
+	await setForcedThreeDSecureMode(mode);
+
+	return c.json(await forceThreeDSecureState());
 });
 
 // --- Organization Rate Limit Handlers ---

@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { forcedThreeDSecureOptions } from "@/lib/three-d-secure.js";
 import { ensureStripeCustomer } from "@/stripe.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
@@ -127,6 +128,7 @@ subscriptions.openapi(createProSubscription, async (c) => {
 				},
 			],
 			allow_promotion_codes: true,
+			...(await forcedThreeDSecureOptions()),
 			success_url: `${process.env.UI_URL ?? "http://localhost:3002"}/dashboard/${organization.id}/org/billing?success=true`,
 			cancel_url: `${process.env.UI_URL ?? "http://localhost:3002"}/dashboard/${organization.id}/org/billing?canceled=true`,
 			metadata: {
