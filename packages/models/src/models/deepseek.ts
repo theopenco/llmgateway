@@ -187,14 +187,36 @@ export const deepseekModels = [
 			{
 				providerId: "bytedance",
 				externalId: "deepseek-v3-2-251201",
+				// Base fields are the [0, 32K] prompt-length band; Ark doubles the
+				// input and output rates above it.
 				inputPrice: "0.28e-6",
 				cachedInputPrice: "0.056e-6",
 				outputPrice: "0.42e-6",
+				pricingTiers: [
+					{
+						name: "Up to 32K",
+						upToTokens: 32768,
+						inputPrice: "0.28e-6",
+						outputPrice: "0.42e-6",
+						cachedInputPrice: "0.056e-6",
+					},
+					{
+						name: "Over 32K",
+						upToTokens: Infinity,
+						inputPrice: "0.56e-6",
+						outputPrice: "0.84e-6",
+						// The cache-hit rate is flat across both bands.
+						cachedInputPrice: "0.056e-6",
+					},
+				],
 				requestPrice: "0",
 				contextSize: 131072,
 				reasoning: true,
+				// Ark ignores `reasoning_effort` on this deployment and only reasons
+				// when sent `thinking: {type: "enabled"}`, which the gateway does not
+				// emit for bytedance, so no reasoning content ever comes back.
 				reasoningOutput: "omit" as const,
-				maxOutput: 131072,
+				maxOutput: 32768,
 				streaming: true,
 				vision: false,
 				tools: true,
