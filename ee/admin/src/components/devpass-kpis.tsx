@@ -9,6 +9,7 @@ import {
 	Users,
 	Wallet,
 } from "lucide-react";
+import Link from "next/link";
 
 import {
 	Tooltip,
@@ -62,12 +63,35 @@ function KpiSkeleton({ count }: { count: number }) {
 	);
 }
 
+function KpiError({ label }: { label: string }) {
+	return (
+		<div className="rounded-lg border border-border/60 bg-card p-4 text-sm text-muted-foreground">
+			Failed to load {label}. Reload the page, or{" "}
+			<Link href="/login" className="underline">
+				sign in
+			</Link>{" "}
+			again if your session expired.
+		</div>
+	);
+}
+
 export function DevpassKpis({ from, to }: { from?: string; to?: string }) {
 	const $api = useApi();
-	const { data: kpis } = $api.useQuery("get", "/admin/devpass/kpis");
-	const { data: paygStats } = $api.useQuery("get", "/admin/devpass/payg", {
-		params: { query: { from, to } },
-	});
+	// staleTime 0 (the provider default is 5 minutes): an admin who cancels or
+	// refunds on a detail page and navigates back must see the new numbers.
+	// The dialogs only call router.refresh(), which does not touch this cache.
+	const { data: kpis, error: kpisError } = $api.useQuery(
+		"get",
+		"/admin/devpass/kpis",
+		{},
+		{ staleTime: 0 },
+	);
+	const { data: paygStats, error: paygError } = $api.useQuery(
+		"get",
+		"/admin/devpass/payg",
+		{ params: { query: { from, to } } },
+		{ staleTime: 0 },
+	);
 
 	const grossMrrAfterRefunds = kpis
 		? kpis.grossMrr - kpis.refundedAmountThisMonth
@@ -76,7 +100,9 @@ export function DevpassKpis({ from, to }: { from?: string; to?: string }) {
 	return (
 		<section className="space-y-3">
 			<div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-				{!kpis ? (
+				{kpisError ? (
+					<KpiError label="DevPass KPIs" />
+				) : !kpis ? (
 					<KpiSkeleton count={3} />
 				) : (
 					<>
@@ -223,7 +249,7 @@ export function DevpassKpis({ from, to }: { from?: string; to?: string }) {
 				)}
 			</div>
 			<div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-				{!kpis ? (
+				{kpisError ? null : !kpis ? (
 					<KpiSkeleton count={4} />
 				) : (
 					<>
@@ -286,7 +312,9 @@ export function DevpassKpis({ from, to }: { from?: string; to?: string }) {
 						</KpiCard>
 					</>
 				)}
-				{!paygStats ? (
+				{paygError ? (
+					<KpiError label="top-up revenue" />
+				) : !paygStats ? (
 					<KpiSkeleton count={1} />
 				) : (
 					<KpiCard

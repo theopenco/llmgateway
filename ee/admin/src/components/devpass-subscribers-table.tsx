@@ -160,13 +160,76 @@ function UtilBar({ pct }: { pct: number | null }) {
 
 // Both the filter card's match counter and the table below it render from the
 // same request — identical query keys, so TanStack Query dedupes them.
+//
+// staleTime 0 (the provider default is 5 minutes): an admin who cancels or
+// refunds on a detail page and navigates back must see the new row state. The
+// dialogs only call router.refresh(), which does not touch this cache.
 function useDevpassSubscribers(query: DevpassListQuery) {
 	const $api = useApi();
-	return $api.useQuery("get", "/admin/devpass", { params: { query } });
+	return $api.useQuery(
+		"get",
+		"/admin/devpass",
+		{ params: { query } },
+		{ staleTime: 0 },
+	);
+}
+
+function pageHref(queryString: string, targetPage: number) {
+	const sp = new URLSearchParams(queryString);
+	sp.set("page", String(targetPage));
+	return `/devpass?${sp.toString()}`;
+}
+
+// `disabled` on an `asChild` Button lands on the anchor, where it does nothing:
+// the link stays keyboard-reachable and reads as enabled. Render a real button
+// instead when the target page is out of range.
+function PageLink({
+	href,
+	disabled,
+	label,
+	icon,
+	iconAfter,
+}: {
+	href: string;
+	disabled: boolean;
+	label: string;
+	icon: React.ReactNode;
+	iconAfter?: boolean;
+}) {
+	const content = iconAfter ? (
+		<>
+			{label}
+			{icon}
+		</>
+	) : (
+		<>
+			{icon}
+			{label}
+		</>
+	);
+
+	if (disabled) {
+		return (
+			<Button variant="outline" size="sm" disabled>
+				{content}
+			</Button>
+		);
+	}
+
+	return (
+		<Button variant="outline" size="sm" asChild>
+			<Link href={href}>{content}</Link>
+		</Button>
+	);
 }
 
 export function DevpassResultCount({ query }: { query: DevpassListQuery }) {
-	const { data } = useDevpassSubscribers(query);
+	const { data, error } = useDevpassSubscribers(query);
+
+	if (error) {
+		// The table below states the failure; a second copy here adds nothing.
+		return null;
+	}
 
 	if (!data) {
 		return <div className="h-4 w-56 animate-pulse rounded bg-muted/40" />;
@@ -516,42 +579,22 @@ export function DevpassSubscribersTable({
 						{data.total}
 					</p>
 					<div className="flex items-center gap-2">
-						<Button variant="outline" size="sm" asChild disabled={page <= 1}>
-							<Link
-								href={`/devpass?${(() => {
-									const sp = new URLSearchParams(queryString);
-									sp.set("page", String(page - 1));
-									return sp.toString();
-								})()}`}
-								className={page <= 1 ? "pointer-events-none opacity-50" : ""}
-							>
-								<ChevronLeft className="h-4 w-4" />
-								Previous
-							</Link>
-						</Button>
+						<PageLink
+							href={pageHref(queryString, page - 1)}
+							disabled={page <= 1}
+							label="Previous"
+							icon={<ChevronLeft className="h-4 w-4" />}
+						/>
 						<span className="text-sm text-muted-foreground">
 							Page {page} of {totalPages}
 						</span>
-						<Button
-							variant="outline"
-							size="sm"
-							asChild
+						<PageLink
+							href={pageHref(queryString, page + 1)}
 							disabled={page >= totalPages}
-						>
-							<Link
-								href={`/devpass?${(() => {
-									const sp = new URLSearchParams(queryString);
-									sp.set("page", String(page + 1));
-									return sp.toString();
-								})()}`}
-								className={
-									page >= totalPages ? "pointer-events-none opacity-50" : ""
-								}
-							>
-								Next
-								<ChevronRight className="h-4 w-4" />
-							</Link>
-						</Button>
+							label="Next"
+							icon={<ChevronRight className="h-4 w-4" />}
+							iconAfter
+						/>
 					</div>
 				</div>
 			)}
