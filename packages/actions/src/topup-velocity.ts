@@ -216,10 +216,15 @@ export async function checkAndReserveTopUp(options: {
 	const key = topUpVelocityKey(org.id);
 	try {
 		if (reserve) {
+			// All in-flight reservations share one key, so the TTL may only ever
+			// be extended: NX stamps a fresh key, GT lengthens it for a
+			// longer-lived attempt. A plain EXPIRE would let a later short-TTL
+			// top-up shorten a hosted checkout's 35-minute reservation.
 			const [incrResult] = await redisClient
 				.multi()
 				.incrbyfloat(key, amountUsd)
-				.expire(key, reservationTtlSeconds)
+				.expire(key, reservationTtlSeconds, "NX")
+				.expire(key, reservationTtlSeconds, "GT")
 				.exec()
 				.then((results) => results ?? []);
 			reservedInRedis = true;

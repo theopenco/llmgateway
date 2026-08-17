@@ -48,6 +48,8 @@ import {
 	getOrgSpendTier,
 	getPlanClass,
 	isCappedOrg,
+	isSpendCapEnabled,
+	isTopUpVelocityEnabled,
 	isTopUpVelocityGatedOrg,
 	PATH_RATE_LIMITS,
 	spendDailyKey,
@@ -1582,6 +1584,7 @@ const getOrganizationLimits = createRoute({
 					schema: z.object({
 						// enterprise orgs have no gateway rate limits or spend caps at all
 						enterprise: z.boolean(),
+						planClass: z.enum(["regular", "dev", "chat"]),
 						// whether daily/monthly USD spend caps apply (regular PAYG orgs)
 						capsApply: z.boolean(),
 						plan: z.string(),
@@ -1668,7 +1671,9 @@ organization.openapi(getOrganizationLimits, async (c) => {
 	}
 
 	const enterprise = org.plan === "enterprise";
-	const capsApply = isCappedOrg(org);
+	// Mirror the enforcement kill switches: when caps are disabled platform-wide
+	// the Limits page must not claim they apply.
+	const capsApply = isCappedOrg(org) && isSpendCapEnabled();
 
 	// Tier-qualifying spend: lifetime usage minus completed refunds, floored at
 	// 0 — the same figure the gateway uses to resolve the trust tier, so the
@@ -1689,7 +1694,13 @@ organization.openapi(getOrganizationLimits, async (c) => {
 		(now - new Date(org.createdAt).getTime()) / 86_400_000,
 	);
 
-	const endpoints = PATH_RATE_LIMITS.map((cfg) => {
+	// Entries sharing a key (the AI SDK spec-version prefixes) share one bucket
+	// — show them once.
+	const uniquePathConfigs = PATH_RATE_LIMITS.filter(
+		(cfg, index) =>
+			PATH_RATE_LIMITS.findIndex((c) => c.key === cfg.key) === index,
+	);
+	const endpoints = uniquePathConfigs.map((cfg) => {
 		const base = getBaseLimit(cfg, planClass);
 		// Only regular orgs get the spend-tier multiplier; dev/chat stay flat.
 		const rpm =
@@ -1705,7 +1716,11 @@ organization.openapi(getOrganizationLimits, async (c) => {
 		usedUsd: number;
 		remainingUsd: number;
 	} | null = null;
-	if (isTopUpVelocityGatedOrg(org) && tier.topUpDailyCapUsd > 0) {
+	if (
+		isTopUpVelocityEnabled() &&
+		isTopUpVelocityGatedOrg(org) &&
+		tier.topUpDailyCapUsd > 0
+	) {
 		const usage = await getTopUpVelocityUsage(id, now);
 		const usedUsd = usage.dbSumUsd + usage.reservedUsd;
 		topUp = {
@@ -1718,6 +1733,7 @@ organization.openapi(getOrganizationLimits, async (c) => {
 
 	return c.json({
 		enterprise,
+		planClass,
 		capsApply,
 		plan: org.plan,
 		accountAgeDays,

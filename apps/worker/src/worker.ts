@@ -5,7 +5,11 @@ import { Decimal } from "decimal.js";
 import Stripe from "stripe";
 import { z } from "zod";
 
-import { checkAndReserveTopUp, flushLimitHits } from "@llmgateway/actions";
+import {
+	checkAndReserveTopUp,
+	flushLimitHits,
+	releaseTopUpReservation,
+} from "@llmgateway/actions";
 import {
 	closeRedisClient,
 	closeStorageRedisClient,
@@ -625,15 +629,16 @@ export async function processAutoTopUp(): Promise<void> {
 					continue;
 				}
 
-				// Tier-based top-up velocity cap. `reserve: false`: the pending
-				// transaction inserted below is this path's reservation (it counts
-				// in the gate's DB window sum), and this loop is serialized. On a
-				// cap hit just skip — the next cycle re-checks once the window
-				// rolls, so auto-reload resumes by itself.
+				// Tier-based top-up velocity cap. Reserving covers the gap between
+				// this check and the pending insert below: a concurrent manual
+				// top-up in that window would otherwise see neither a reservation
+				// nor the pending row and both could pass. On a cap hit just skip
+				// (the blocked attempt released its own reservation) — the next
+				// cycle re-checks once the window rolls, so auto-reload resumes by
+				// itself.
 				const velocity = await checkAndReserveTopUp({
 					org: freshOrg,
 					amountUsd: feeBreakdown.totalAmount,
-					reserve: false,
 				});
 				if (!velocity.allowed) {
 					logger.info(
@@ -648,19 +653,27 @@ export async function processAutoTopUp(): Promise<void> {
 				}
 
 				// Insert pending transaction before creating payment intent
-				const pendingTransaction = await db
-					.insert(tables.transaction)
-					.values({
-						organizationId: org.id,
-						type: "credit_topup",
-						creditAmount: feeBreakdown.baseAmount.toString(),
-						amount: feeBreakdown.totalAmount.toString(),
-						currency: "USD",
-						status: "pending",
-						description: `Auto top-up for ${topUpAmount} USD (total: ${feeBreakdown.totalAmount} including fees)`,
-					})
-					.returning()
-					.then((rows) => rows[0]);
+				let pendingTransaction;
+				try {
+					pendingTransaction = await db
+						.insert(tables.transaction)
+						.values({
+							organizationId: org.id,
+							type: "credit_topup",
+							creditAmount: feeBreakdown.baseAmount.toString(),
+							amount: feeBreakdown.totalAmount.toString(),
+							currency: "USD",
+							status: "pending",
+							description: `Auto top-up for ${topUpAmount} USD (total: ${feeBreakdown.totalAmount} including fees)`,
+						})
+						.returning()
+						.then((rows) => rows[0]);
+				} finally {
+					// The pending row now counts in the gate's DB window sum, so the
+					// bridging reservation must go either way (kept on success it
+					// would double-count; kept on failure it would leak headroom).
+					await releaseTopUpReservation(org.id, feeBreakdown.totalAmount);
+				}
 
 				logger.info(
 					`Created pending transaction ${pendingTransaction.id} for organization ${org.id}`,

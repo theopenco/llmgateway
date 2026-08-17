@@ -1,5 +1,7 @@
 import { Decimal } from "decimal.js";
 
+import { recordSpend } from "@/lib/spend-limit.js";
+
 import { swrWrap } from "@llmgateway/cache";
 import {
 	and,
@@ -284,6 +286,13 @@ export async function recordRealtimeResponse(
 			realtimeSessionId: input.sessionId,
 			usageKey,
 		});
+	} else if (preflight.usedMode === "credits") {
+		// Realtime bypasses insertLog, so advance the daily/monthly spend-cap
+		// counters here; the account gate reads them on the next turn.
+		await recordSpend(
+			preflight.project.organizationId,
+			costs.totalCost.toNumber(),
+		);
 	}
 	return { inserted };
 }
@@ -427,6 +436,12 @@ export async function recordRealtimeTranscription(
 			realtimeSessionId: input.sessionId,
 			usageKey,
 		});
+	} else if (preflight.usedMode === "credits") {
+		// Same spend-cap accounting as recordRealtimeResponse above.
+		await recordSpend(
+			preflight.project.organizationId,
+			costs.totalCost.toNumber(),
+		);
 	}
 	return { inserted };
 }

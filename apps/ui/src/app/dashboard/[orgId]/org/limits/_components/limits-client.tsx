@@ -49,6 +49,10 @@ const ENDPOINT_LABELS: Record<string, string> = {
 	audio_speech: "Speech",
 	audio_transcriptions: "Transcriptions",
 	videos: "Videos",
+	realtime: "Realtime (session mint)",
+	key: "Key info",
+	credits: "Credits",
+	ai_sdk: "AI SDK protocol",
 };
 
 export function LimitsClient() {
@@ -108,45 +112,48 @@ export function LimitsClient() {
 
 					{data && !data.enterprise && (
 						<>
-							{/* Current tier */}
-							<Card>
-								<CardHeader>
-									<div className="flex items-center justify-between gap-4">
-										<div>
-											<CardTitle className="flex items-center gap-2">
-												<Gauge className="h-5 w-5" />
-												Current tier
-											</CardTitle>
-											<CardDescription>
-												You qualify by whichever is higher — account age or
-												lifetime credits usage (net of refunds; BYOK usage
-												doesn't count).
-											</CardDescription>
+							{/* Current tier — the trust-tier ladder only applies to regular
+							    (pay-as-you-go) orgs; Dev/Chat plans use flat endpoint limits. */}
+							{data.planClass === "regular" && (
+								<Card>
+									<CardHeader>
+										<div className="flex items-center justify-between gap-4">
+											<div>
+												<CardTitle className="flex items-center gap-2">
+													<Gauge className="h-5 w-5" />
+													Current tier
+												</CardTitle>
+												<CardDescription>
+													You qualify by whichever is higher — account age or
+													lifetime credits usage (net of refunds; BYOK usage
+													doesn't count).
+												</CardDescription>
+											</div>
+											<Badge className="shrink-0 text-base" variant="secondary">
+												Tier {data.tier.tier}
+											</Badge>
 										</div>
-										<Badge className="shrink-0 text-base" variant="secondary">
-											Tier {data.tier.tier}
-										</Badge>
-									</div>
-								</CardHeader>
-								<CardContent>
-									<div className="grid gap-6 sm:grid-cols-3">
-										<Metric
-											label="Account age"
-											value={`${data.accountAgeDays} ${
-												data.accountAgeDays === 1 ? "day" : "days"
-											}`}
-										/>
-										<Metric
-											label="Lifetime usage"
-											value={usd(data.lifetimeSpendUsd)}
-										/>
-										<Metric
-											label="Rate multiplier"
-											value={`${data.tier.rpmMultiplier}×`}
-										/>
-									</div>
-								</CardContent>
-							</Card>
+									</CardHeader>
+									<CardContent>
+										<div className="grid gap-6 sm:grid-cols-3">
+											<Metric
+												label="Account age"
+												value={`${data.accountAgeDays} ${
+													data.accountAgeDays === 1 ? "day" : "days"
+												}`}
+											/>
+											<Metric
+												label="Lifetime usage"
+												value={usd(data.lifetimeSpendUsd)}
+											/>
+											<Metric
+												label="Rate multiplier"
+												value={`${data.tier.rpmMultiplier}×`}
+											/>
+										</div>
+									</CardContent>
+								</Card>
+							)}
 
 							{/* Spend caps */}
 							{data.capsApply && (
@@ -194,64 +201,66 @@ export function LimitsClient() {
 							)}
 
 							{/* Next tier */}
-							<Card>
-								<CardHeader>
-									<CardTitle className="flex items-center gap-2">
-										<Zap className="h-5 w-5" />
-										{data.nextTier
-											? `Reach Tier ${data.nextTier.tier}`
-											: "Highest tier reached"}
-									</CardTitle>
-									<CardDescription>
-										{data.nextTier
-											? "Reach the next tier by waiting, or by growing usage once your account is old enough."
-											: "You're already on the highest trust tier."}
-									</CardDescription>
-								</CardHeader>
-								{data.nextTier && (
-									<CardContent className="space-y-4">
-										<div className="grid gap-4 sm:grid-cols-2">
-											<NextPath
-												icon={<CalendarClock className="h-4 w-4" />}
-												title="Keep your account active"
-												detail={
-													data.nextTier.daysUntilQualify > 0
-														? `${data.nextTier.daysUntilQualify} more ${
-																data.nextTier.daysUntilQualify === 1
-																	? "day"
-																	: "days"
-															} of account age`
-														: "Age requirement met"
-												}
-											/>
-											<NextPath
-												icon={<Zap className="h-4 w-4" />}
-												title="Grow usage"
-												detail={growUsageDetail(data.nextTier)}
-											/>
-										</div>
-										<div className="text-muted-foreground border-t pt-4 text-sm">
-											Tier {data.nextTier.tier} unlocks{" "}
-											<span className="text-foreground font-medium">
-												{usd(data.nextTier.dailyCapUsd)}/day
-											</span>{" "}
-											and{" "}
-											<span className="text-foreground font-medium">
-												{usd(data.nextTier.monthlyCapUsd)}/month
-											</span>{" "}
-											spend, a{" "}
-											<span className="text-foreground font-medium">
-												{usd(data.nextTier.topUpDailyCapUsd)}/24h
-											</span>{" "}
-											top-up allowance, plus a{" "}
-											<span className="text-foreground font-medium">
-												{data.nextTier.rpmMultiplier}×
-											</span>{" "}
-											rate multiplier.
-										</div>
-									</CardContent>
-								)}
-							</Card>
+							{data.planClass === "regular" && (
+								<Card>
+									<CardHeader>
+										<CardTitle className="flex items-center gap-2">
+											<Zap className="h-5 w-5" />
+											{data.nextTier
+												? `Reach Tier ${data.nextTier.tier}`
+												: "Highest tier reached"}
+										</CardTitle>
+										<CardDescription>
+											{data.nextTier
+												? "Reach the next tier by waiting, or by growing usage once your account is old enough."
+												: "You're already on the highest trust tier."}
+										</CardDescription>
+									</CardHeader>
+									{data.nextTier && (
+										<CardContent className="space-y-4">
+											<div className="grid gap-4 sm:grid-cols-2">
+												<NextPath
+													icon={<CalendarClock className="h-4 w-4" />}
+													title="Keep your account active"
+													detail={
+														data.nextTier.daysUntilQualify > 0
+															? `${data.nextTier.daysUntilQualify} more ${
+																	data.nextTier.daysUntilQualify === 1
+																		? "day"
+																		: "days"
+																} of account age`
+															: "Age requirement met"
+													}
+												/>
+												<NextPath
+													icon={<Zap className="h-4 w-4" />}
+													title="Grow usage"
+													detail={growUsageDetail(data.nextTier)}
+												/>
+											</div>
+											<div className="text-muted-foreground border-t pt-4 text-sm">
+												Tier {data.nextTier.tier} unlocks{" "}
+												<span className="text-foreground font-medium">
+													{usd(data.nextTier.dailyCapUsd)}/day
+												</span>{" "}
+												and{" "}
+												<span className="text-foreground font-medium">
+													{usd(data.nextTier.monthlyCapUsd)}/month
+												</span>{" "}
+												spend, a{" "}
+												<span className="text-foreground font-medium">
+													{usd(data.nextTier.topUpDailyCapUsd)}/24h
+												</span>{" "}
+												top-up allowance, plus a{" "}
+												<span className="text-foreground font-medium">
+													{data.nextTier.rpmMultiplier}×
+												</span>{" "}
+												rate multiplier.
+											</div>
+										</CardContent>
+									)}
+								</Card>
+							)}
 
 							{/* Per-endpoint RPM */}
 							<Card>

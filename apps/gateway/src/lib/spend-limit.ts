@@ -1,10 +1,11 @@
 import { HTTPException } from "hono/http-exception";
 
-import { recordLimitHit } from "@llmgateway/actions";
+import { recordLimitHit, recordOrgSpend } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
 import {
 	isCappedOrg,
+	isSpendCapEnabled,
 	spendDailyKey,
 	spendMonthlyKey,
 	type SpendCapOrg,
@@ -32,22 +33,9 @@ import type { Context } from "hono";
  * a limiter outage can never block traffic.
  */
 
-const DAILY_TTL_SECONDS = 2 * 24 * 60 * 60; // ~2 days
-const MONTHLY_TTL_SECONDS = 35 * 24 * 60 * 60; // ~35 days
-
-/**
- * Whether spend caps are enforced. `GATEWAY_SPEND_CAPS_ENABLED` is the explicit
- * switch. When unset, enabled in prod but disabled under any test runner
- * (`NODE_ENV==='test'` or `E2E_TEST`), because the tight T0 cap ($5/day) would
- * otherwise trip unrelated tests that share the seeded org and Redis.
- */
-export function isSpendCapEnabled(): boolean {
-	const explicit = process.env.GATEWAY_SPEND_CAPS_ENABLED;
-	if (explicit !== undefined) {
-		return explicit === "true";
-	}
-	return process.env.NODE_ENV !== "test" && process.env.E2E_TEST !== "true";
-}
+// isSpendCapEnabled moved to @llmgateway/shared so the API's limits display
+// honors the same switch as enforcement; re-exported for existing imports.
+export { isSpendCapEnabled };
 
 function secondsToNextUtcMidnight(now: number): number {
 	const d = new Date(now);
@@ -203,22 +191,5 @@ export async function recordSpend(
 	organizationId: string,
 	cost: number,
 ): Promise<void> {
-	if (!isSpendCapEnabled() || !(cost > 0)) {
-		return;
-	}
-
-	try {
-		const now = Date.now();
-		const dKey = spendDailyKey(organizationId, now);
-		const mKey = spendMonthlyKey(organizationId, now);
-
-		const pipeline = redisClient.pipeline();
-		pipeline.incrbyfloat(dKey, cost);
-		pipeline.expire(dKey, DAILY_TTL_SECONDS);
-		pipeline.incrbyfloat(mKey, cost);
-		pipeline.expire(mKey, MONTHLY_TTL_SECONDS);
-		await pipeline.exec();
-	} catch (error) {
-		logger.error("Error recording org spend:", error as Error);
-	}
+	await recordOrgSpend(organizationId, cost);
 }

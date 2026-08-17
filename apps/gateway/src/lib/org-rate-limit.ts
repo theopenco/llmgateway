@@ -79,7 +79,10 @@ export async function resolveOrganizationIdForToken(
 	token: string,
 ): Promise<string | null> {
 	const apiKey = await findApiKeyByToken(token);
-	if (!apiKey) {
+	// Inactive/revoked keys must not consume the organization's buckets:
+	// downstream handlers reject them with a 401 anyway, and counting them
+	// would let anyone holding a revoked token throttle the org's valid keys.
+	if (!apiKey || apiKey.status !== "active") {
 		return null;
 	}
 	const project = await findProjectById(apiKey.projectId);

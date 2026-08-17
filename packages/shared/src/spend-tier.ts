@@ -115,6 +115,63 @@ export const PATH_RATE_LIMITS: readonly PathRateLimitConfig[] = [
 		devDefaultRpm: 120,
 		chatDefaultRpm: 12,
 	},
+	// Realtime session-secret minting (`POST /v1/realtime/client_secrets`).
+	// Session churn needs a fresh secret each time, so limiting the mint also
+	// bounds churn; the WebSocket upgrade itself bypasses Hono middleware and
+	// is gated by needing one of these secrets.
+	{
+		key: "realtime",
+		prefix: "/v1/realtime",
+		defaultRpm: 120,
+		devDefaultRpm: 120,
+		chatDefaultRpm: 12,
+	},
+	{
+		key: "key",
+		prefix: "/v1/key",
+		defaultRpm: 1200,
+		devDefaultRpm: 120,
+		chatDefaultRpm: 120,
+	},
+	{
+		key: "credits",
+		prefix: "/v1/credits",
+		defaultRpm: 300,
+		devDefaultRpm: 120,
+		chatDefaultRpm: 30,
+	},
+	// AI SDK Gateway protocol surface. All four spec-version prefixes forward
+	// to /v1/chat/completions internally (that hop is origin-stamped and
+	// skipped by the limiter), so the four entries share ONE key and therefore
+	// one bucket + one env override, matching the chat budget.
+	{
+		key: "ai_sdk",
+		prefix: "/v1/ai",
+		defaultRpm: 600,
+		devDefaultRpm: 120,
+		chatDefaultRpm: 60,
+	},
+	{
+		key: "ai_sdk",
+		prefix: "/v2/ai",
+		defaultRpm: 600,
+		devDefaultRpm: 120,
+		chatDefaultRpm: 60,
+	},
+	{
+		key: "ai_sdk",
+		prefix: "/v3/ai",
+		defaultRpm: 600,
+		devDefaultRpm: 120,
+		chatDefaultRpm: 60,
+	},
+	{
+		key: "ai_sdk",
+		prefix: "/v4/ai",
+		defaultRpm: 600,
+		devDefaultRpm: 120,
+		chatDefaultRpm: 60,
+	},
 ];
 
 /**
@@ -258,8 +315,15 @@ function resolveTier(d: SpendTierDefaults): ResolvedSpendTier {
 	};
 }
 
-function accountAgeDays(createdAt: Date, now: number): number {
-	return (now - createdAt.getTime()) / DAY_MS;
+function accountAgeDays(createdAt: Date | string, now: number): number {
+	// Org rows served from the SWR disaster mirror are JSON round-tripped, so
+	// createdAt arrives as an ISO string; calling .getTime() on it would throw
+	// and make the limiter's catch fail open for the whole outage.
+	const createdMs =
+		createdAt instanceof Date
+			? createdAt.getTime()
+			: new Date(createdAt).getTime();
+	return (now - createdMs) / DAY_MS;
 }
 
 /**
@@ -470,6 +534,22 @@ export function isTopUpVelocityGatedOrg(org: {
  * runner (mirrors the spend-cap toggle so existing api/worker specs that top up
  * the seeded org don't trip the cap).
  */
+/**
+ * Whether the daily/monthly USD spend caps are enforced. Explicit
+ * `GATEWAY_SPEND_CAPS_ENABLED` wins; when unset, enabled in prod but disabled
+ * under any test runner (`NODE_ENV==='test'` or `E2E_TEST`), because the tight
+ * T0 cap ($5/day) would otherwise trip unrelated tests that share the seeded
+ * org and Redis. Lives here (not in the gateway) so the API's limits display
+ * can honor the same switch the enforcement reads.
+ */
+export function isSpendCapEnabled(): boolean {
+	const explicit = process.env.GATEWAY_SPEND_CAPS_ENABLED;
+	if (explicit !== undefined) {
+		return explicit === "true";
+	}
+	return process.env.NODE_ENV !== "test" && process.env.E2E_TEST !== "true";
+}
+
 export function isTopUpVelocityEnabled(): boolean {
 	const explicit = process.env.GATEWAY_TOPUP_VELOCITY_ENABLED;
 	if (explicit !== undefined) {

@@ -185,15 +185,19 @@ export async function flushLimitHitsForDay(dayKey: string): Promise<number> {
 }
 
 /**
- * Flush yesterday's and today's buffers (UTC). Yesterday first so a buffer
- * straddling midnight lands under the day its hits belong to.
+ * Flush every buffer that can still exist (UTC), oldest first so a buffer
+ * straddling midnight lands under the day its hits belong to. Covers the full
+ * key TTL, not just yesterday+today: after worker downtime across two UTC
+ * boundaries an older unexpired buffer would otherwise never drain.
  */
 export async function flushLimitHits(
 	now: number = Date.now(),
 ): Promise<number> {
 	let flushed = 0;
-	for (const dayMs of [now - 86_400_000, now]) {
-		flushed += await flushLimitHitsForDay(spendUtcDateKey(dayMs));
+	const daysCovered = Math.ceil(LIMIT_HITS_TTL_SECONDS / 86_400) + 1;
+	for (let i = daysCovered - 1; i >= 0; i--) {
+		const offsetMs = i * 86_400_000;
+		flushed += await flushLimitHitsForDay(spendUtcDateKey(now - offsetMs));
 	}
 	return flushed;
 }

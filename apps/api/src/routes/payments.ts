@@ -758,6 +758,11 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 	await assertTopUpVelocityAllowed(userOrganization.organization, gateGrossUsd);
 
 	let paymentIntent: Stripe.PaymentIntent;
+	// `processing` is nonterminal: Stripe can still emit
+	// payment_intent.succeeded and credit the top-up, so its reservation must
+	// keep consuming headroom (the TTL bounds it). Only terminal failures free
+	// the amount immediately.
+	let chargeStillSettling = false;
 	try {
 		const isInternational = await isInternationalPaymentMethod(
 			paymentMethod.stripePaymentMethodId,
@@ -790,15 +795,18 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 		});
 
 		if (paymentIntent.status !== "succeeded") {
+			chargeStillSettling = paymentIntent.status === "processing";
 			throw new HTTPException(400, {
 				message: `Payment failed: ${paymentIntent.status}`,
 			});
 		}
 	} catch (err) {
-		await releaseTopUpReservation(
-			userOrganization.organization.id,
-			gateGrossUsd,
-		);
+		if (!chargeStillSettling) {
+			await releaseTopUpReservation(
+				userOrganization.organization.id,
+				gateGrossUsd,
+			);
+		}
 		if (err instanceof Stripe.errors.StripeCardError) {
 			const declineCode = err.decline_code;
 			const stripeMessage = err.message;

@@ -2576,6 +2576,32 @@ function getGoogleVertexInlineVideo(
 // keeps polls fresh while collapsing tight poll loops to one query per window.
 const VIDEO_JOB_CACHE_TTL_SECONDS = 2;
 
+// Timestamp columns that must survive the SWR mirror's JSON round trip: a
+// stale-fallback row would otherwise carry ISO strings, and downstream code
+// (serializeVideoJob etc.) calls .getTime() on them.
+const VIDEO_JOB_DATE_FIELDS = [
+	"createdAt",
+	"updatedAt",
+	"storageExpiresAt",
+	"completedAt",
+	"expiresAt",
+	"lastPolledAt",
+	"nextPollAt",
+	"callbackDeliveredAt",
+	"resultLoggedAt",
+] as const;
+
+function rehydrateVideoJobDates(job: VideoJobRecord): VideoJobRecord {
+	const rehydrated = { ...job } as Record<string, unknown>;
+	for (const field of VIDEO_JOB_DATE_FIELDS) {
+		const value = rehydrated[field];
+		if (typeof value === "string") {
+			rehydrated[field] = new Date(value);
+		}
+	}
+	return rehydrated as VideoJobRecord;
+}
+
 async function findVideoJobCached(
 	swrKey: string,
 	tag: string,
@@ -2596,7 +2622,7 @@ async function findVideoJobCached(
 					config: { ex: VIDEO_JOB_CACHE_TTL_SECONDS },
 				}),
 	);
-	return rows[0];
+	return rows[0] ? rehydrateVideoJobDates(rows[0]) : undefined;
 }
 
 async function requireVideoJobForProject(
@@ -4826,6 +4852,12 @@ videos.openapi(createVideo, async (c) => {
 				requestId,
 				modelInfo.id,
 			);
+			// A hybrid project can fall back from a BYOK provider to a
+			// credits-billed one mid-loop; re-apply the spend-cap gate the
+			// pre-loop check only enforced for the initial provider.
+			if (selectedProviderContext.usedMode === "credits") {
+				await assertSpendLimit(c, organization, false);
+			}
 			selectedUpstreamModelName = getVideoUpstreamModelName(
 				nextMapping.providerId as Provider,
 				nextMapping.externalId,
@@ -4884,6 +4916,12 @@ videos.openapi(createVideo, async (c) => {
 				requestId,
 				modelInfo.id,
 			);
+			// A hybrid project can fall back from a BYOK provider to a
+			// credits-billed one mid-loop; re-apply the spend-cap gate the
+			// pre-loop check only enforced for the initial provider.
+			if (selectedProviderContext.usedMode === "credits") {
+				await assertSpendLimit(c, organization, false);
+			}
 			selectedUpstreamModelName = getVideoUpstreamModelName(
 				nextMapping.providerId as Provider,
 				nextMapping.externalId,
@@ -4988,6 +5026,12 @@ videos.openapi(createVideo, async (c) => {
 				requestId,
 				modelInfo.id,
 			);
+			// A hybrid project can fall back from a BYOK provider to a
+			// credits-billed one mid-loop; re-apply the spend-cap gate the
+			// pre-loop check only enforced for the initial provider.
+			if (selectedProviderContext.usedMode === "credits") {
+				await assertSpendLimit(c, organization, false);
+			}
 			selectedUpstreamModelName = getVideoUpstreamModelName(
 				nextMapping.providerId as Provider,
 				nextMapping.externalId,

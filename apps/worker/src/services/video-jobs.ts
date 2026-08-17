@@ -2,7 +2,11 @@ import { createHmac } from "node:crypto";
 
 import { getStopSignal, isStopRequested } from "@/shutdown.js";
 
-import { managedCredentialOptions, readProviderKey } from "@llmgateway/actions";
+import {
+	managedCredentialOptions,
+	readProviderKey,
+	recordOrgSpend,
+} from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import {
 	and,
@@ -2013,6 +2017,22 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 		}
 		if (claimedJob) {
 			currentJob = claimedJob;
+			// Video jobs finalize here, never through the gateway's insertLog
+			// chokepoint — advance the org's daily/monthly spend-cap counters for
+			// the credits-billed cost (wallet-funded and BYOK jobs bill the org
+			// nothing here; mirror organizationBilledCost).
+			if (
+				claimedJob.status === "completed" &&
+				claimedJob.usedMode === "credits" &&
+				!claimedJob.endCustomerWalletId
+			) {
+				const billedVideoCost = Number(
+					(
+						getVideoOutputCost(claimedJob) + getVideoImageInputCost(claimedJob)
+					).toFixed(6),
+				);
+				await recordOrgSpend(claimedJob.organizationId, billedVideoCost);
+			}
 		}
 	}
 

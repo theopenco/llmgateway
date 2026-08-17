@@ -3,7 +3,10 @@ import { HTTPException } from "hono/http-exception";
 import Stripe from "stripe";
 import { z } from "zod";
 
-import { checkAndReserveTopUp } from "@llmgateway/actions";
+import {
+	checkAndReserveTopUp,
+	releaseTopUpReservation,
+} from "@llmgateway/actions";
 import {
 	and,
 	db,
@@ -1869,6 +1872,15 @@ async function recordCreditTopUp({
 			description,
 		})
 		.returning();
+
+	// The completed transaction row now covers this amount in the velocity
+	// window's DB sum, so the initiation-time Redis reservation would count it
+	// twice until its TTL — release it here (never recreates an expired key).
+	try {
+		await releaseTopUpReservation(organizationId, totalAmountInDollars);
+	} catch (e) {
+		logger.error("Top-up velocity settle-release failed", e as Error);
+	}
 
 	// Defense-in-depth observability for the top-up velocity cap: initiation is
 	// where it is enforced, but a payment can settle after the window moved (e.g.

@@ -43,7 +43,7 @@ import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
-import { checkSpendLimit } from "@/lib/spend-limit.js";
+import { assertSpendLimit } from "@/lib/spend-limit.js";
 import {
 	clientFacingUpstreamFailureMessage,
 	redactedProviderErrorText,
@@ -73,6 +73,7 @@ import type { RoutingMetadata } from "@llmgateway/actions";
 import type { InferSelectModel, tables } from "@llmgateway/db";
 import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
 import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
+import type { Context } from "hono";
 
 const embeddingInputSchema = z
 	.union([
@@ -287,6 +288,7 @@ function getAvailableCredits(
 }
 
 async function assertCreditsAvailableForEmbedding(
+	c: Pick<Context, "header">,
 	organization: InferSelectModel<typeof tables.organization>,
 	modelDef: ModelDefinition,
 	insufficientCreditsMessage: string,
@@ -294,15 +296,9 @@ async function assertCreditsAvailableForEmbedding(
 ) {
 	// Per-org daily/monthly USD spend caps, checked even when the org has
 	// credits (a funded org can still hit its cap). Free models are exempt; the
-	// kind/enterprise/enabled gates live inside checkSpendLimit.
-	if (!modelDef.free) {
-		const spendLimit = await checkSpendLimit(organization);
-		if (!spendLimit.allowed) {
-			throw new HTTPException(429, {
-				message: `Organization ${organization.id} has reached its ${spendLimit.period} spend limit of $${spendLimit.limit}. Try again later or contact support to raise your limit.`,
-			});
-		}
-	}
+	// kind/enterprise/enabled gates live inside the helper, which also sets
+	// Retry-After and the X-RateLimit-* reset headers on the 429.
+	await assertSpendLimit(c, organization, modelDef.free ?? false);
 
 	const {
 		devPlanCreditsRemaining,
@@ -765,6 +761,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			usedToken = readProviderKey(providerKey);
 		} else if (retryProject.mode === "credits") {
 			await assertCreditsAvailableForEmbedding(
+				c,
 				retryOrganization,
 				modelDef,
 				`Organization ${retryOrganization.id} has insufficient credits`,
@@ -795,6 +792,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				usedToken = readProviderKey(providerKey);
 			} else {
 				await assertCreditsAvailableForEmbedding(
+					c,
 					retryOrganization,
 					modelDef,
 					"No API key set for provider and organization has insufficient credits",
