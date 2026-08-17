@@ -26,7 +26,9 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -eux
-          pnpm build
+          # `setup` runs build:core itself. A full `pnpm build` would add ~15min
+          # per shard to build the five Next.js apps, which no spec file needs —
+          # the `build` job already covers that.
           pnpm run setup
           # Never fail here: the merge job reports the combined result, and a
           # failing shard must still upload its blob so that report is complete.
