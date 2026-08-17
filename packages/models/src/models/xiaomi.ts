@@ -84,6 +84,8 @@ export const xiaomiModels = [
 			{
 				providerId: "baidu",
 				externalId: "mimo-v2.5",
+				// Qianfan International rejects this deployment with invalid_model.
+				deactivatedAt: new Date("2026-08-17"),
 				inputPrice: "0.14e-6",
 				cachedInputPrice: "0.0028e-6",
 				outputPrice: "0.28e-6",

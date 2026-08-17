@@ -251,6 +251,8 @@ export const deepseekModels = [
 			{
 				providerId: "baidu",
 				externalId: "deepseek-v3.2-intl",
+				// Qianfan International rejects this deployment with invalid_model.
+				deactivatedAt: new Date("2026-08-17"),
 				inputPrice: "0.28e-6",
 				cachedInputPrice: "0.028e-6",
 				outputPrice: "0.42e-6",

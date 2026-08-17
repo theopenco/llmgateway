@@ -46,6 +46,8 @@ export const tencentModels = [
 			{
 				providerId: "baidu",
 				externalId: "hy3",
+				// Qianfan International rejects this deployment with invalid_model.
+				deactivatedAt: new Date("2026-08-17"),
 				inputPrice: "0.132e-6",
 				cachedInputPrice: "0.033e-6",
 				outputPrice: "0.528e-6",
