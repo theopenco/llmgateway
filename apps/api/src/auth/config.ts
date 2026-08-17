@@ -11,8 +11,8 @@ import { getClientIpFromHeaders } from "@/lib/client-ip.js";
 import { acceptPendingInvitesForUser } from "@/lib/team-invites.js";
 import {
 	getBlockedSignupCountries,
-	isSignupCountryBlocked,
-	resolveCountryFromIp,
+	isCountryBlocked,
+	resolveRequestCountry,
 } from "@/utils/country-blocking.js";
 import { getOrCreateDefaultOrganization } from "@/utils/default-org.js";
 import { notifyUserSignup } from "@/utils/discord.js";
@@ -20,7 +20,6 @@ import { validateEmail } from "@/utils/email-validation.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 import { resolveSignupName } from "@/utils/infer-name.js";
 import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
-import { getCountryFromHeaders } from "@/utils/request-country.js";
 import {
 	autoJoinByEmailDomain,
 	autoJoinSsoProviderOrganization,
@@ -833,7 +832,10 @@ If you didn't request this, you can safely ignore this email. Your password won'
 								user.email,
 								user.name,
 								"Email",
-								getCountryFromHeaders(request?.headers),
+								(await resolveRequestCountry(
+									request?.headers,
+									getClientIpFromHeaders(request?.headers),
+								)) ?? undefined,
 							);
 						},
 						sendVerificationEmail: async (
@@ -925,9 +927,9 @@ The LLM Gateway Team`.trim();
 
 					const ipAddress = getClientIpFromHeaders(ctx.headers) ?? "unknown";
 
-					// Block sign-ups from countries listed in BLOCKED_SIGNUP_COUNTRIES,
-					// resolved from the client IP. Sign-in stays open so existing
-					// accounts keep working. Social sign-up goes through
+					// Block sign-ups from the countries configured in the admin
+					// dashboard, resolved from the client IP. Sign-in stays open so
+					// existing accounts keep working. Social sign-up goes through
 					// /sign-in/social with `requestSignUp: true` (both social providers
 					// run with disableImplicitSignUp), so match that too.
 					const isSignupAttempt =
@@ -935,9 +937,12 @@ The LLM Gateway Team`.trim();
 						(ctx.path === "/sign-in/social" &&
 							(ctx.body as { requestSignUp?: boolean } | undefined)
 								?.requestSignUp === true);
-					if (isSignupAttempt && getBlockedSignupCountries().length > 0) {
-						const country = await resolveCountryFromIp(ipAddress);
-						if (isSignupCountryBlocked(country)) {
+					if (isSignupAttempt) {
+						const blockedCountries = await getBlockedSignupCountries();
+						const country = blockedCountries.length
+							? await resolveRequestCountry(ctx.headers, ipAddress)
+							: null;
+						if (isCountryBlocked(country, blockedCountries)) {
 							logger.warn("Signup blocked by country policy", {
 								ip: ipAddress,
 								country,
@@ -1357,7 +1362,10 @@ The LLM Gateway Team`.trim();
 								newSession.user.email,
 								newSession.user.name,
 								providerName,
-								getCountryFromHeaders(ctx.headers),
+								(await resolveRequestCountry(
+									ctx.headers,
+									getClientIpFromHeaders(ctx.headers),
+								)) ?? undefined,
 							);
 
 							await createResendContact(

@@ -1,36 +1,92 @@
 import ipaddr from "ipaddr.js";
 
+import { getCountryFromHeaders } from "@/utils/request-country.js";
+
 import { redisClient } from "@llmgateway/cache";
+import { db, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
-// Geo lookup for the client IP. Only called when BLOCKED_SIGNUP_COUNTRIES is
-// set, and only for public IPs. Any provider returning `country_code` /
-// `countryCode` / `country` as an ISO 3166-1 alpha-2 code works.
+// Fallback geo lookup for the client IP, used only when the load balancer did
+// not attach a country header (see request-country.ts), the blocklist is
+// non-empty, and the IP is public. Any provider returning `country_code` /
+// `countryCode` / `country` as an ISO 3166-1 alpha-2 code works; setting
+// IP_COUNTRY_LOOKUP_URL to an empty string disables the fallback entirely.
 const DEFAULT_IP_COUNTRY_LOOKUP_URL = "https://ipapi.co/{ip}/json/";
 const LOOKUP_TIMEOUT_MS = 2000;
 const COUNTRY_CACHE_TTL_SECONDS = 60 * 60 * 24 * 7;
 const UNKNOWN_COUNTRY_CACHE_TTL_SECONDS = 60 * 60;
 const UNKNOWN_COUNTRY = "XX";
 
-export function getBlockedSignupCountries(): string[] {
-	return (process.env.BLOCKED_SIGNUP_COUNTRIES ?? "")
-		.split(",")
+/** Admin-configurable blocklist, edited in the admin dashboard settings. */
+export const BLOCKED_SIGNUP_COUNTRIES_SETTING_ID = "blocked_signup_countries";
+
+/** Normalizes free-form input into a deduped list of alpha-2 country codes. */
+export function normalizeCountryCodes(input: string | string[]): string[] {
+	const codes = Array.isArray(input) ? input : input.split(",");
+	const normalized = codes
 		.map((code) => code.trim().toUpperCase())
-		.filter(Boolean);
+		.filter((code) => /^[A-Z]{2}$/.test(code) && code !== UNKNOWN_COUNTRY);
+	return [...new Set(normalized)];
+}
+
+export async function getBlockedSignupCountries(): Promise<string[]> {
+	const setting = await db.query.systemSetting.findFirst({
+		where: { id: BLOCKED_SIGNUP_COUNTRIES_SETTING_ID },
+	});
+	if (!setting?.enabled || !setting.value) {
+		return [];
+	}
+	return normalizeCountryCodes(setting.value);
+}
+
+export async function setBlockedSignupCountries(
+	countries: string[],
+): Promise<string[]> {
+	const normalized = normalizeCountryCodes(countries);
+	await db
+		.insert(tables.systemSetting)
+		.values({
+			id: BLOCKED_SIGNUP_COUNTRIES_SETTING_ID,
+			enabled: normalized.length > 0,
+			value: normalized.join(","),
+		})
+		.onConflictDoUpdate({
+			target: tables.systemSetting.id,
+			set: {
+				enabled: normalized.length > 0,
+				value: normalized.join(","),
+				updatedAt: new Date(),
+			},
+		});
+	return normalized;
 }
 
 /**
- * Matches an ISO 3166-1 alpha-2 country code against
- * BLOCKED_SIGNUP_COUNTRIES. A missing or unknown country never blocks, so
- * deployments where the country cannot be resolved are unaffected.
+ * Matches an ISO 3166-1 alpha-2 country code against the blocklist. A missing
+ * or unknown country never blocks, so requests whose country cannot be
+ * resolved are unaffected.
  */
-export function isSignupCountryBlocked(
+export function isCountryBlocked(
 	country: string | null | undefined,
+	blockedCountries: string[],
 ): boolean {
-	if (!country || country.trim().toUpperCase() === UNKNOWN_COUNTRY) {
+	if (!country) {
 		return false;
 	}
-	return getBlockedSignupCountries().includes(country.trim().toUpperCase());
+	const normalized = normalizeCountryCodes([country]);
+	return normalized.length > 0 && blockedCountries.includes(normalized[0]!);
+}
+
+/**
+ * Country of the request: the load balancer's own geo header when it has one
+ * (GCP's `X-Client-Geo-Location`, Cloudflare's `CF-IPCountry`), otherwise a
+ * cached geo lookup on the client IP. Null when it cannot be determined.
+ */
+export async function resolveRequestCountry(
+	headers: Headers | null | undefined,
+	ip: string | null | undefined,
+): Promise<string | null> {
+	return getCountryFromHeaders(headers) ?? (await resolveCountryFromIp(ip));
 }
 
 export function getIpCountryCacheKey(ip: string): string {
@@ -73,10 +129,15 @@ function parseCountry(payload: unknown): string | null {
 	return null;
 }
 
-async function lookupCountry(ip: string): Promise<string | null> {
-	const url = (
-		process.env.IP_COUNTRY_LOOKUP_URL ?? DEFAULT_IP_COUNTRY_LOOKUP_URL
-	).replace("{ip}", encodeURIComponent(ip));
+function getLookupUrlTemplate(): string {
+	return process.env.IP_COUNTRY_LOOKUP_URL ?? DEFAULT_IP_COUNTRY_LOOKUP_URL;
+}
+
+async function lookupCountry(
+	ip: string,
+	template: string,
+): Promise<string | null> {
+	const url = template.replace("{ip}", encodeURIComponent(ip));
 
 	const response = await fetch(url, {
 		signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS),
@@ -102,7 +163,8 @@ async function lookupCountry(ip: string): Promise<string | null> {
 export async function resolveCountryFromIp(
 	ip: string | null | undefined,
 ): Promise<string | null> {
-	if (!ip || !isPublicIp(ip)) {
+	const template = getLookupUrlTemplate();
+	if (!ip || !template || !isPublicIp(ip)) {
 		return null;
 	}
 
@@ -118,7 +180,7 @@ export async function resolveCountryFromIp(
 
 	let country: string | null = null;
 	try {
-		country = await lookupCountry(ip);
+		country = await lookupCountry(ip, template);
 	} catch (error) {
 		logger.warn("IP country lookup failed", { error });
 		return null;

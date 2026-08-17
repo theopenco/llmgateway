@@ -1,23 +1,22 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { redisClient } from "@llmgateway/cache";
+import { db, tables } from "@llmgateway/db";
 
 import {
+	BLOCKED_SIGNUP_COUNTRIES_SETTING_ID,
 	getBlockedSignupCountries,
 	getIpCountryCacheKey,
-	isSignupCountryBlocked,
+	isCountryBlocked,
+	normalizeCountryCodes,
 	resolveCountryFromIp,
+	resolveRequestCountry,
+	setBlockedSignupCountries,
 } from "./country-blocking.js";
 
-const originalEnv = process.env.BLOCKED_SIGNUP_COUNTRIES;
 const originalLookupUrl = process.env.IP_COUNTRY_LOOKUP_URL;
 
 afterEach(() => {
-	if (originalEnv === undefined) {
-		delete process.env.BLOCKED_SIGNUP_COUNTRIES;
-	} else {
-		process.env.BLOCKED_SIGNUP_COUNTRIES = originalEnv;
-	}
 	if (originalLookupUrl === undefined) {
 		delete process.env.IP_COUNTRY_LOOKUP_URL;
 	} else {
@@ -25,40 +24,62 @@ afterEach(() => {
 	}
 });
 
-describe("getBlockedSignupCountries", () => {
-	test("returns empty list when unset or empty", () => {
-		delete process.env.BLOCKED_SIGNUP_COUNTRIES;
-		expect(getBlockedSignupCountries()).toEqual([]);
-		process.env.BLOCKED_SIGNUP_COUNTRIES = "";
-		expect(getBlockedSignupCountries()).toEqual([]);
+describe("normalizeCountryCodes", () => {
+	test("trims, uppercases, and drops invalid codes", () => {
+		expect(normalizeCountryCodes(" aq, kp ,SY,")).toEqual(["AQ", "KP", "SY"]);
+		expect(normalizeCountryCodes(["de", "Germany", "D", "XX", ""])).toEqual([
+			"DE",
+		]);
 	});
 
-	test("parses, trims, and uppercases a comma-separated list", () => {
-		process.env.BLOCKED_SIGNUP_COUNTRIES = " aq, kp ,SY,";
-		expect(getBlockedSignupCountries()).toEqual(["AQ", "KP", "SY"]);
+	test("dedupes repeated codes", () => {
+		expect(normalizeCountryCodes("AQ,aq, AQ")).toEqual(["AQ"]);
 	});
 });
 
-describe("isSignupCountryBlocked", () => {
-	test("blocks nothing when unset", () => {
-		delete process.env.BLOCKED_SIGNUP_COUNTRIES;
-		expect(isSignupCountryBlocked("AQ")).toBe(false);
+describe("blocked signup countries setting", () => {
+	afterEach(async () => {
+		await db.delete(tables.systemSetting);
 	});
 
+	test("returns an empty list when nothing is configured", async () => {
+		expect(await getBlockedSignupCountries()).toEqual([]);
+	});
+
+	test("persists and reads back a normalized list", async () => {
+		expect(await setBlockedSignupCountries([" aq ", "kp", "bogus"])).toEqual([
+			"AQ",
+			"KP",
+		]);
+		expect(await getBlockedSignupCountries()).toEqual(["AQ", "KP"]);
+	});
+
+	test("clearing the list disables the setting", async () => {
+		await setBlockedSignupCountries(["AQ"]);
+		expect(await setBlockedSignupCountries([])).toEqual([]);
+		expect(await getBlockedSignupCountries()).toEqual([]);
+
+		const setting = await db.query.systemSetting.findFirst({
+			where: { id: BLOCKED_SIGNUP_COUNTRIES_SETTING_ID },
+		});
+		expect(setting?.enabled).toBe(false);
+	});
+});
+
+describe("isCountryBlocked", () => {
 	test("matches listed codes case-insensitively", () => {
-		process.env.BLOCKED_SIGNUP_COUNTRIES = "AQ,KP";
-		expect(isSignupCountryBlocked("AQ")).toBe(true);
-		expect(isSignupCountryBlocked("aq")).toBe(true);
-		expect(isSignupCountryBlocked(" kp ")).toBe(true);
-		expect(isSignupCountryBlocked("DE")).toBe(false);
+		expect(isCountryBlocked("AQ", ["AQ", "KP"])).toBe(true);
+		expect(isCountryBlocked("aq", ["AQ", "KP"])).toBe(true);
+		expect(isCountryBlocked(" kp ", ["AQ", "KP"])).toBe(true);
+		expect(isCountryBlocked("DE", ["AQ", "KP"])).toBe(false);
 	});
 
 	test("never blocks a missing or unknown country", () => {
-		process.env.BLOCKED_SIGNUP_COUNTRIES = "AQ";
-		expect(isSignupCountryBlocked(null)).toBe(false);
-		expect(isSignupCountryBlocked(undefined)).toBe(false);
-		expect(isSignupCountryBlocked("")).toBe(false);
-		expect(isSignupCountryBlocked("XX")).toBe(false);
+		expect(isCountryBlocked(null, ["AQ"])).toBe(false);
+		expect(isCountryBlocked(undefined, ["AQ"])).toBe(false);
+		expect(isCountryBlocked("", ["AQ"])).toBe(false);
+		expect(isCountryBlocked("XX", ["AQ"])).toBe(false);
+		expect(isCountryBlocked("AQ", [])).toBe(false);
 	});
 });
 
@@ -115,5 +136,42 @@ describe("resolveCountryFromIp", () => {
 			new Response(JSON.stringify({ error: true }), { status: 200 }),
 		);
 		expect(await resolveCountryFromIp(publicIp)).toBe(null);
+	});
+
+	test("skips the lookup when the endpoint is disabled", async () => {
+		process.env.IP_COUNTRY_LOOKUP_URL = "";
+		const fetchSpy = vi.spyOn(globalThis, "fetch");
+		expect(await resolveCountryFromIp(publicIp)).toBe(null);
+		expect(fetchSpy).not.toHaveBeenCalled();
+	});
+});
+
+describe("resolveRequestCountry", () => {
+	const publicIp = "5.6.7.8";
+
+	beforeEach(async () => {
+		process.env.IP_COUNTRY_LOOKUP_URL = "https://geo.example/{ip}";
+		await redisClient.del(getIpCountryCacheKey(publicIp));
+	});
+
+	afterEach(async () => {
+		vi.restoreAllMocks();
+		await redisClient.del(getIpCountryCacheKey(publicIp));
+	});
+
+	test("uses the GCP load balancer region header without a lookup", async () => {
+		const fetchSpy = vi.spyOn(globalThis, "fetch");
+		const headers = new Headers({ "X-Client-Region": "de" });
+
+		expect(await resolveRequestCountry(headers, publicIp)).toBe("DE");
+		expect(fetchSpy).not.toHaveBeenCalled();
+	});
+
+	test("falls back to the IP lookup without a geo header", async () => {
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response(JSON.stringify({ country_code: "AQ" }), { status: 200 }),
+		);
+
+		expect(await resolveRequestCountry(new Headers(), publicIp)).toBe("AQ");
 	});
 });

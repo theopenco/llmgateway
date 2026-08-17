@@ -2978,7 +2978,9 @@ export const installation = pgTable("installation", {
 	type: text().notNull(),
 });
 
-// Admin-toggleable global boolean flags, one row per setting key.
+// Admin-toggleable global settings, one row per setting key. `enabled` is the
+// on/off state; `value` carries the setting's payload when it needs one (e.g.
+// the blocked signup country list).
 export const systemSetting = pgTable("system_setting", {
 	id: text().primaryKey(),
 	createdAt: timestamp().notNull().defaultNow(),
@@ -2987,6 +2989,7 @@ export const systemSetting = pgTable("system_setting", {
 		.defaultNow()
 		.$onUpdate(() => new Date()),
 	enabled: boolean().notNull(),
+	value: text(),
 });
 
 export const provider = pgTable(

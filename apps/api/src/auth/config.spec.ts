@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
-import { getIpCountryCacheKey } from "@/utils/country-blocking.js";
+import {
+	getIpCountryCacheKey,
+	setBlockedSignupCountries,
+} from "@/utils/country-blocking.js";
 
 import { db, eq, tables } from "@llmgateway/db";
 import { randomInt } from "@llmgateway/shared/random";
@@ -696,23 +699,18 @@ describe("Auth rate limiting", () => {
 });
 
 describe("Signup country blocking", () => {
-	const originalEnv = process.env.BLOCKED_SIGNUP_COUNTRIES;
 	const blockedIp = "5.6.7.8";
 	const allowedIp = "5.6.7.9";
 
 	beforeEach(async () => {
-		process.env.BLOCKED_SIGNUP_COUNTRIES = "AQ";
+		await setBlockedSignupCountries(["AQ"]);
 		// Prime the geo cache so the hook resolves a country without a lookup
 		await redisClient.set(getIpCountryCacheKey(blockedIp), "AQ");
 		await redisClient.set(getIpCountryCacheKey(allowedIp), "DE");
 	});
 
 	afterEach(async () => {
-		if (originalEnv === undefined) {
-			delete process.env.BLOCKED_SIGNUP_COUNTRIES;
-		} else {
-			process.env.BLOCKED_SIGNUP_COUNTRIES = originalEnv;
-		}
+		await db.delete(tables.systemSetting);
 		await redisClient.del(getIpCountryCacheKey(blockedIp));
 		await redisClient.del(getIpCountryCacheKey(allowedIp));
 	});
@@ -727,6 +725,29 @@ describe("Signup country blocking", () => {
 				},
 				body: JSON.stringify({
 					email: `blocked-${Date.now()}@example.com`,
+					password: "Password123!",
+					name: "Blocked User",
+				}),
+			}),
+		);
+
+		expect(response.status).toBe(403);
+		const body = await response.json();
+		expect(body.error).toBe("signup_not_available");
+	});
+
+	test("rejects sign-up using the load balancer geo header", async () => {
+		const response = await apiAuth.handler(
+			new Request("http://localhost:4002/auth/sign-up/email", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					// GCP Application Load Balancer custom header
+					"X-Client-Region": "AQ",
+					"X-Forwarded-For": `${allowedIp}, 10.0.0.1`,
+				},
+				body: JSON.stringify({
+					email: `blocked-header-${Date.now()}@example.com`,
 					password: "Password123!",
 					name: "Blocked User",
 				}),
