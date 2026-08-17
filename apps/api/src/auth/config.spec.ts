@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
+import { getIpCountryCacheKey } from "@/utils/country-blocking.js";
+
 import { db, eq, tables } from "@llmgateway/db";
 import { randomInt } from "@llmgateway/shared/random";
 
@@ -695,17 +697,24 @@ describe("Auth rate limiting", () => {
 
 describe("Signup country blocking", () => {
 	const originalEnv = process.env.BLOCKED_SIGNUP_COUNTRIES;
+	const blockedIp = "5.6.7.8";
+	const allowedIp = "5.6.7.9";
 
-	beforeEach(() => {
+	beforeEach(async () => {
 		process.env.BLOCKED_SIGNUP_COUNTRIES = "AQ";
+		// Prime the geo cache so the hook resolves a country without a lookup
+		await redisClient.set(getIpCountryCacheKey(blockedIp), "AQ");
+		await redisClient.set(getIpCountryCacheKey(allowedIp), "DE");
 	});
 
-	afterEach(() => {
+	afterEach(async () => {
 		if (originalEnv === undefined) {
 			delete process.env.BLOCKED_SIGNUP_COUNTRIES;
 		} else {
 			process.env.BLOCKED_SIGNUP_COUNTRIES = originalEnv;
 		}
+		await redisClient.del(getIpCountryCacheKey(blockedIp));
+		await redisClient.del(getIpCountryCacheKey(allowedIp));
 	});
 
 	test("rejects email sign-up from a blocked country", async () => {
@@ -714,7 +723,7 @@ describe("Signup country blocking", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"CF-IPCountry": "AQ",
+					"X-Forwarded-For": `${blockedIp}, 10.0.0.1`,
 				},
 				body: JSON.stringify({
 					email: `blocked-${Date.now()}@example.com`,
@@ -735,7 +744,7 @@ describe("Signup country blocking", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"CF-IPCountry": "AQ",
+					"CF-Connecting-IP": blockedIp,
 				},
 				body: JSON.stringify({
 					provider: "github",
@@ -756,7 +765,7 @@ describe("Signup country blocking", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"CF-IPCountry": "AQ",
+					"CF-Connecting-IP": blockedIp,
 				},
 				body: JSON.stringify({
 					email: `nonexistent-${Date.now()}@example.com`,
@@ -775,13 +784,31 @@ describe("Signup country blocking", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"CF-IPCountry": "DE",
-					"CF-Connecting-IP": `10.1.2.${randomInt(1, 254)}`,
+					"CF-Connecting-IP": allowedIp,
 				},
 				body: JSON.stringify({
 					email: `allowed-${Date.now()}@example.com`,
 					password: "Password123!",
 					name: "Allowed User",
+				}),
+			}),
+		);
+
+		expect(response.status).not.toBe(403);
+	});
+
+	test("does not block a private IP that cannot be geolocated", async () => {
+		const response = await apiAuth.handler(
+			new Request("http://localhost:4002/auth/sign-up/email", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"CF-Connecting-IP": `10.1.2.${randomInt(1, 254)}`,
+				},
+				body: JSON.stringify({
+					email: `local-${Date.now()}@example.com`,
+					password: "Password123!",
+					name: "Local User",
 				}),
 			}),
 		);

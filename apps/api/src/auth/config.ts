@@ -7,8 +7,13 @@ import { createAuthMiddleware } from "better-auth/api";
 import { Redis } from "ioredis";
 
 import { getApiBaseUrl } from "@/lib/api-url.js";
+import { getClientIpFromHeaders } from "@/lib/client-ip.js";
 import { acceptPendingInvitesForUser } from "@/lib/team-invites.js";
-import { isSignupCountryBlocked } from "@/utils/country-blocking.js";
+import {
+	getBlockedSignupCountries,
+	isSignupCountryBlocked,
+	resolveCountryFromIp,
+} from "@/utils/country-blocking.js";
 import { getOrCreateDefaultOrganization } from "@/utils/default-org.js";
 import { notifyUserSignup } from "@/utils/discord.js";
 import { validateEmail } from "@/utils/email-validation.js";
@@ -909,20 +914,23 @@ The LLM Gateway Team`.trim();
 						}
 					}
 
+					const ipAddress = getClientIpFromHeaders(ctx.headers) ?? "unknown";
+
 					// Block sign-ups from countries listed in BLOCKED_SIGNUP_COUNTRIES,
-					// matched against Cloudflare's CF-IPCountry header. Sign-in stays
-					// open so existing accounts keep working. Social sign-up goes
-					// through /sign-in/social with `requestSignUp: true` (both social
-					// providers run with disableImplicitSignUp), so match that too.
+					// resolved from the client IP. Sign-in stays open so existing
+					// accounts keep working. Social sign-up goes through
+					// /sign-in/social with `requestSignUp: true` (both social providers
+					// run with disableImplicitSignUp), so match that too.
 					const isSignupAttempt =
 						ctx.path.startsWith("/sign-up") ||
 						(ctx.path === "/sign-in/social" &&
 							(ctx.body as { requestSignUp?: boolean } | undefined)
 								?.requestSignUp === true);
-					if (isSignupAttempt) {
-						const country = ctx.headers?.get("cf-ipcountry");
+					if (isSignupAttempt && getBlockedSignupCountries().length > 0) {
+						const country = await resolveCountryFromIp(ipAddress);
 						if (isSignupCountryBlocked(country)) {
 							logger.warn("Signup blocked by country policy", {
+								ip: ipAddress,
 								country,
 								path: ctx.path,
 							});
@@ -953,21 +961,6 @@ The LLM Gateway Team`.trim();
 						ctx.path.startsWith("/sign-up") &&
 						process.env.NODE_ENV !== "development"
 					) {
-						// Get IP address from various possible headers, prioritizing CF-Connecting-IP
-						let ipAddress = ctx.headers?.get("cf-connecting-ip");
-						if (!ipAddress) {
-							ipAddress = ctx.headers?.get("x-forwarded-for");
-							if (ipAddress) {
-								// x-forwarded-for can be a comma-separated list, take the first IP
-								ipAddress = ipAddress.split(",")[0]?.trim();
-							} else {
-								ipAddress =
-									ctx.headers?.get("x-real-ip") ??
-									ctx.headers?.get("x-client-ip") ??
-									"unknown";
-							}
-						}
-
 						// Check and record signup attempt with exponential backoff
 						const rateLimitResult =
 							await checkAndRecordSignupAttempt(ipAddress);

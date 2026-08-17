@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
+import { getClientIpFromContext } from "@/lib/client-ip.js";
 import { posthog } from "@/posthog.js";
 
 import { logger } from "@llmgateway/logger";
@@ -45,33 +46,6 @@ const beaconRoute = createRoute({
 });
 
 /**
- * Extracts IP address from request headers, supporting both GCP and Cloudflare
- */
-function extractClientIP(c: any): string | null {
-	// Cloudflare provides the connecting IP
-	const cfConnectingIP = c.req.header("CF-Connecting-IP");
-	if (cfConnectingIP) {
-		return cfConnectingIP;
-	}
-
-	// GCP and other providers use X-Forwarded-For
-	const xForwardedFor = c.req.header("X-Forwarded-For");
-	if (xForwardedFor) {
-		// X-Forwarded-For can contain multiple IPs, take the first one
-		return xForwardedFor.split(",")[0].trim();
-	}
-
-	// Fallback to X-Real-IP
-	const xRealIP = c.req.header("X-Real-IP");
-	if (xRealIP) {
-		return xRealIP;
-	}
-
-	// Last resort: direct connection IP (may be proxy/load balancer)
-	return c.req.header("Remote-Addr") ?? null;
-}
-
-/**
  * Extracts region/country information from request headers
  */
 function extractRegionInfo(c: any): { country?: string; region?: string } {
@@ -103,7 +77,7 @@ beacon.openapi(beaconRoute, async (c) => {
 	const beaconData = c.req.valid("json");
 
 	// Extract IP and region information
-	const clientIP = extractClientIP(c);
+	const clientIP = getClientIpFromContext(c);
 	const regionInfo = extractRegionInfo(c);
 
 	// Determine cloud provider based on headers
