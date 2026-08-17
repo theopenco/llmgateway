@@ -13,7 +13,6 @@ import { acceptPendingInvitesForUser } from "@/lib/team-invites.js";
 import {
 	getBlockedSignupCountries,
 	isCountryBlocked,
-	resolveRequestCountry,
 } from "@/utils/country-blocking.js";
 import { getOrCreateDefaultOrganization } from "@/utils/default-org.js";
 import { notifyUserSignup } from "@/utils/discord.js";
@@ -21,6 +20,7 @@ import { validateEmail } from "@/utils/email-validation.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 import { resolveSignupName } from "@/utils/infer-name.js";
 import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
+import { getCountryFromHeaders } from "@/utils/request-country.js";
 import {
 	autoJoinByEmailDomain,
 	autoJoinSsoProviderOrganization,
@@ -842,10 +842,7 @@ If you didn't request this, you can safely ignore this email. Your password won'
 								user.email,
 								user.name,
 								"Email",
-								(await resolveRequestCountry(
-									request?.headers,
-									getClientIpFromHeaders(request?.headers),
-								)) ?? undefined,
+								getCountryFromHeaders(request?.headers),
 							);
 						},
 						sendVerificationEmail: async (
@@ -938,7 +935,8 @@ The LLM Gateway Team`.trim();
 					const ipAddress = getClientIpFromHeaders(ctx.headers) ?? "unknown";
 
 					// Block sign-ups from the countries configured in the admin
-					// dashboard, resolved from the client IP. Sign-in stays open so
+					// dashboard, using the country reported by the load balancer.
+					// Sign-in stays open so
 					// existing accounts keep working. Social sign-up goes through
 					// /sign-in/social with `requestSignUp: true` (both social providers
 					// run with disableImplicitSignUp), so match that too.
@@ -950,11 +948,10 @@ The LLM Gateway Team`.trim();
 					if (isSignupAttempt) {
 						const blockedCountries = await getBlockedSignupCountries();
 						const country = blockedCountries.length
-							? await resolveRequestCountry(ctx.headers, ipAddress)
-							: null;
+							? getCountryFromHeaders(ctx.headers)
+							: undefined;
 						// An undetectable country never blocks, so surface it: with a
-						// blocklist configured it means the load balancer geo header is
-						// missing or the fallback lookup failed.
+						// blocklist configured it means the load balancer geo header is missing.
 						if (blockedCountries.length && !country) {
 							logger.warn("Signup country could not be determined", {
 								ip: ipAddress,
@@ -1394,10 +1391,7 @@ The LLM Gateway Team`.trim();
 								newSession.user.email,
 								newSession.user.name,
 								providerName,
-								(await resolveRequestCountry(
-									ctx.headers,
-									getClientIpFromHeaders(ctx.headers),
-								)) ?? undefined,
+								getCountryFromHeaders(ctx.headers),
 							);
 
 							await createResendContact(
