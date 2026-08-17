@@ -422,15 +422,20 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "bytedance",
-				externalId: "deepseek-v4-pro-260425",
-				inputPrice: "1.74e-6",
-				cachedInputPrice: "0.145e-6",
-				outputPrice: "3.48e-6",
+				// The GA deployment, which is the same 0813 build the other providers
+				// serve here. `deepseek-v4-pro-260425` is the superseded preview and
+				// carries its own (higher input, lower output) rate card.
+				externalId: "deepseek-v4-pro-ga-260813",
+				inputPrice: "1.32e-6",
+				cachedInputPrice: "0.044e-6",
+				outputPrice: "3.96e-6",
 				requestPrice: "0",
 				contextSize: 1048576,
 				maxOutput: 393216,
 				streaming: true,
 				reasoning: true,
+				// Ark rejects `none` and `xhigh` outright ("Valid values are: ['high',
+				// 'low', 'max', 'medium', 'minimal']").
 				reasoningEfforts: ["minimal", "low", "medium", "high", "max"],
 				reasoningOutput: "omit" as const,
 				vision: false,
