@@ -43,23 +43,6 @@ export const tencentModels = [
 				tools: true,
 				jsonOutputSchema: true,
 			},
-			{
-				providerId: "baidu",
-				externalId: "hy3",
-				// Qianfan International rejects this deployment with invalid_model.
-				deactivatedAt: new Date("2026-08-17"),
-				inputPrice: "0.132e-6",
-				cachedInputPrice: "0.033e-6",
-				outputPrice: "0.528e-6",
-				requestPrice: "0",
-				contextSize: 262144,
-				maxOutput: 262144,
-				streaming: true,
-				reasoning: true,
-				vision: false,
-				tools: true,
-				jsonOutput: true,
-			},
 		],
 	},
 ] as const satisfies ModelDefinition[];

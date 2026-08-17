@@ -216,6 +216,17 @@ export const zaiModels = [
 				maxOutput: 131072,
 				streaming: true,
 				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				// Qianfan ignores reasoning_effort="none"; its thinking switch works.
+				requiresDisableThinkingParam: true,
 				vision: false,
 				tools: true,
 				jsonOutput: true,
@@ -376,6 +387,17 @@ export const zaiModels = [
 				maxOutput: 131072,
 				streaming: true,
 				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				// Qianfan ignores reasoning_effort="none"; its thinking switch works.
+				requiresDisableThinkingParam: true,
 				vision: false,
 				tools: true,
 				jsonOutput: true,
@@ -549,6 +571,17 @@ export const zaiModels = [
 				maxOutput: 131072,
 				streaming: true,
 				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				// Qianfan ignores reasoning_effort="none"; its thinking switch works.
+				requiresDisableThinkingParam: true,
 				vision: false,
 				tools: true,
 				// The API advertises structured_outputs but Qianfan's own model page

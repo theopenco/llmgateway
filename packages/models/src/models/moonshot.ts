@@ -577,6 +577,17 @@ export const moonshotModels = [
 				maxOutput: 262144,
 				streaming: true,
 				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				// Qianfan ignores reasoning_effort="none"; its thinking switch works.
+				requiresDisableThinkingParam: true,
 				vision: true,
 				tools: true,
 				jsonOutput: true,
