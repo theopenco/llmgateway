@@ -20,6 +20,7 @@ import {
 	isDevPlanCardDedupeEnforced,
 } from "@/stripe.js";
 import { findDefaultOrganization } from "@/utils/default-org.js";
+import { getDevPlanPriceId } from "@/utils/dev-plan-prices.js";
 import { LEGACY_DEV_PLAN_TX_TYPES } from "@/utils/devpass-filter.js";
 import {
 	buildInvoiceDataForTransaction,
@@ -207,24 +208,6 @@ function getPurchasedResetPasses(
 		case "max":
 			return org.devPlanResetPassesMax;
 	}
-}
-
-function getDevPlanPriceId(
-	tier: DevPlanTier,
-	cycle: DevPlanCycle = "monthly",
-): string | undefined {
-	const monthlyKeys: Record<DevPlanTier, string> = {
-		lite: "STRIPE_DEV_PLAN_LITE_PRICE_ID",
-		pro: "STRIPE_DEV_PLAN_PRO_PRICE_ID",
-		max: "STRIPE_DEV_PLAN_MAX_PRICE_ID",
-	};
-	const annualKeys: Record<DevPlanTier, string> = {
-		lite: "STRIPE_DEV_PLAN_LITE_ANNUAL_PRICE_ID",
-		pro: "STRIPE_DEV_PLAN_PRO_ANNUAL_PRICE_ID",
-		max: "STRIPE_DEV_PLAN_MAX_ANNUAL_PRICE_ID",
-	};
-	const key = cycle === "annual" ? annualKeys[tier] : monthlyKeys[tier];
-	return process.env[key];
 }
 
 function getStripeId(value: string | { id?: string } | null | undefined) {
