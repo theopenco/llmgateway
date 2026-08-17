@@ -2978,6 +2978,17 @@ export const installation = pgTable("installation", {
 	type: text().notNull(),
 });
 
+// Admin-toggleable global boolean flags, one row per setting key.
+export const systemSetting = pgTable("system_setting", {
+	id: text().primaryKey(),
+	createdAt: timestamp().notNull().defaultNow(),
+	updatedAt: timestamp()
+		.notNull()
+		.defaultNow()
+		.$onUpdate(() => new Date()),
+	enabled: boolean().notNull(),
+});
+
 export const provider = pgTable(
 	"provider",
 	{

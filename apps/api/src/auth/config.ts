@@ -20,6 +20,7 @@ import { validateEmail } from "@/utils/email-validation.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 import { resolveSignupName } from "@/utils/infer-name.js";
 import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
+import { getCountryFromHeaders } from "@/utils/request-country.js";
 import {
 	autoJoinByEmailDomain,
 	autoJoinSsoProviderOrganization,
@@ -795,11 +796,14 @@ If you didn't request this, you can safely ignore this email. Your password won'
 				? {
 						sendOnSignUp: true,
 						autoSignInAfterVerification: true,
-						afterEmailVerification: async (user: {
-							id: string;
-							email: string;
-							name?: string | null;
-						}) => {
+						afterEmailVerification: async (
+							user: {
+								id: string;
+								email: string;
+								name?: string | null;
+							},
+							request?: Request,
+						) => {
 							// Fetch the user's onboarding status to include in Resend
 							const dbUser = await db.query.user.findFirst({
 								where: {
@@ -825,7 +829,12 @@ If you didn't request this, you can safely ignore this email. Your password won'
 							});
 
 							// Send Discord notification for new verified signup
-							await notifyUserSignup(user.email, user.name, "Email");
+							await notifyUserSignup(
+								user.email,
+								user.name,
+								"Email",
+								getCountryFromHeaders(request?.headers),
+							);
 						},
 						sendVerificationEmail: async (
 							{
@@ -1348,6 +1357,7 @@ The LLM Gateway Team`.trim();
 								newSession.user.email,
 								newSession.user.name,
 								providerName,
+								getCountryFromHeaders(ctx.headers),
 							);
 
 							await createResendContact(

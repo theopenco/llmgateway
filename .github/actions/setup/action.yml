@@ -1,0 +1,31 @@
+name: setup
+description: Install Node, pnpm and dependencies (the repository must already be checked out)
+
+runs:
+  using: composite
+  steps:
+    - name: Collect versions
+      shell: bash
+      run: |
+        set -eu
+        # .tool-versions comes from the checked-out ref, which for e2e is an
+        # untrusted PR head. Take a single line and strip everything outside
+        # [A-Za-z0-9.-] so a crafted file cannot inject extra GITHUB_ENV entries.
+        read_version() {
+          grep -m1 "^$1 " .tool-versions | cut -d ' ' -f 2 | tr -cd 'A-Za-z0-9.-'
+        }
+        echo "nodejs_version=$(read_version nodejs)" >> "$GITHUB_ENV"
+        echo "pnpm_version=$(read_version pnpm)" >> "$GITHUB_ENV"
+
+    - uses: pnpm/action-setup@v6.0.10
+      with:
+        version: ${{ env.pnpm_version }}
+
+    - uses: actions/setup-node@v7.0.0
+      with:
+        node-version: ${{ env.nodejs_version }}
+        cache: pnpm
+
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile

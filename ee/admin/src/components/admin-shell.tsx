@@ -19,6 +19,7 @@ import {
 	Percent,
 	Route,
 	Server,
+	Settings,
 	Sparkles,
 } from "lucide-react";
 import Link from "next/link";
@@ -138,6 +139,7 @@ const navItems: NavItem[] = [
 		icon: AlertTriangle,
 		match: "prefix",
 	},
+	{ href: "/settings", label: "Settings", icon: Settings, match: "exact" },
 ];
 
 function isActive(item: NavItem, pathname: string): boolean {
