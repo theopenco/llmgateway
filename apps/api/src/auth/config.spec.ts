@@ -692,3 +692,100 @@ describe("Auth rate limiting", () => {
 		}
 	});
 });
+
+describe("Signup country blocking", () => {
+	const originalEnv = process.env.BLOCKED_SIGNUP_COUNTRIES;
+
+	beforeEach(() => {
+		process.env.BLOCKED_SIGNUP_COUNTRIES = "AQ";
+	});
+
+	afterEach(() => {
+		if (originalEnv === undefined) {
+			delete process.env.BLOCKED_SIGNUP_COUNTRIES;
+		} else {
+			process.env.BLOCKED_SIGNUP_COUNTRIES = originalEnv;
+		}
+	});
+
+	test("rejects email sign-up from a blocked country", async () => {
+		const response = await apiAuth.handler(
+			new Request("http://localhost:4002/auth/sign-up/email", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"CF-IPCountry": "AQ",
+				},
+				body: JSON.stringify({
+					email: `blocked-${Date.now()}@example.com`,
+					password: "Password123!",
+					name: "Blocked User",
+				}),
+			}),
+		);
+
+		expect(response.status).toBe(403);
+		const body = await response.json();
+		expect(body.error).toBe("signup_not_available");
+	});
+
+	test("rejects social sign-up (requestSignUp) from a blocked country", async () => {
+		const response = await apiAuth.handler(
+			new Request("http://localhost:4002/auth/sign-in/social", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"CF-IPCountry": "AQ",
+				},
+				body: JSON.stringify({
+					provider: "github",
+					requestSignUp: true,
+					callbackURL: "http://localhost:3002/dashboard",
+				}),
+			}),
+		);
+
+		expect(response.status).toBe(403);
+		const body = await response.json();
+		expect(body.error).toBe("signup_not_available");
+	});
+
+	test("does not block sign-in from a blocked country", async () => {
+		const response = await apiAuth.handler(
+			new Request("http://localhost:4002/auth/sign-in/email", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"CF-IPCountry": "AQ",
+				},
+				body: JSON.stringify({
+					email: `nonexistent-${Date.now()}@example.com`,
+					password: "Password123!",
+				}),
+			}),
+		);
+
+		// Fails on credentials, not on the country gate
+		expect(response.status).not.toBe(403);
+	});
+
+	test("does not block sign-up from a non-listed country", async () => {
+		const response = await apiAuth.handler(
+			new Request("http://localhost:4002/auth/sign-up/email", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"CF-IPCountry": "DE",
+					"CF-Connecting-IP": `10.1.2.${randomInt(1, 254)}`,
+				},
+				body: JSON.stringify({
+					email: `allowed-${Date.now()}@example.com`,
+					password: "Password123!",
+					name: "Allowed User",
+				}),
+			}),
+		);
+
+		expect(response.status).not.toBe(403);
+	});
+});

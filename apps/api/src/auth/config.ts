@@ -8,6 +8,7 @@ import { Redis } from "ioredis";
 
 import { getApiBaseUrl } from "@/lib/api-url.js";
 import { acceptPendingInvitesForUser } from "@/lib/team-invites.js";
+import { isSignupCountryBlocked } from "@/utils/country-blocking.js";
 import { getOrCreateDefaultOrganization } from "@/utils/default-org.js";
 import { notifyUserSignup } from "@/utils/discord.js";
 import { validateEmail } from "@/utils/email-validation.js";
@@ -905,6 +906,36 @@ The LLM Gateway Team`.trim();
 						const body = ctx.body as { email?: string } | undefined;
 						if (await isSSOEnforcedForEmail(body?.email)) {
 							return ssoRequiredResponse();
+						}
+					}
+
+					// Block sign-ups from countries listed in BLOCKED_SIGNUP_COUNTRIES,
+					// matched against Cloudflare's CF-IPCountry header. Sign-in stays
+					// open so existing accounts keep working. Social sign-up goes
+					// through /sign-in/social with `requestSignUp: true` (both social
+					// providers run with disableImplicitSignUp), so match that too.
+					const isSignupAttempt =
+						ctx.path.startsWith("/sign-up") ||
+						(ctx.path === "/sign-in/social" &&
+							(ctx.body as { requestSignUp?: boolean } | undefined)
+								?.requestSignUp === true);
+					if (isSignupAttempt) {
+						const country = ctx.headers?.get("cf-ipcountry");
+						if (isSignupCountryBlocked(country)) {
+							logger.warn("Signup blocked by country policy", {
+								country,
+								path: ctx.path,
+							});
+							return new Response(
+								JSON.stringify({
+									error: "signup_not_available",
+									message: "Sign-ups are not available in your region.",
+								}),
+								{
+									status: 403,
+									headers: { "Content-Type": "application/json" },
+								},
+							);
 						}
 					}
 
