@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { getClientIpFromContext } from "@/lib/client-ip.js";
 import { posthog } from "@/posthog.js";
+import { getCountryFromHeaders } from "@/utils/request-country.js";
 
 import { logger } from "@llmgateway/logger";
 
@@ -48,24 +49,24 @@ const beaconRoute = createRoute({
 /**
  * Extracts region/country information from request headers
  */
-function extractRegionInfo(c: any): { country?: string; region?: string } {
+function extractRegionInfo(headers: Headers): {
+	country?: string;
+	region?: string;
+} {
 	const result: { country?: string; region?: string } = {};
 
-	// Cloudflare provides country code
-	const cfCountry = c.req.header("CF-IPCountry");
-	if (cfCountry && cfCountry !== "XX") {
-		// XX is unknown country in Cloudflare
-		result.country = cfCountry;
-	}
+	// Country comes from whichever geo header the edge proxy in front of the API
+	// attaches — GCP's X-Client-Region or Cloudflare's CF-IPCountry.
+	result.country = getCountryFromHeaders(headers);
 
 	// Cloudflare also provides region/state
-	const cfRegion = c.req.header("CF-Region");
+	const cfRegion = headers.get("CF-Region");
 	if (cfRegion) {
 		result.region = cfRegion;
 	}
 
 	// GCP Cloud Load Balancer headers (if available)
-	const gclbRegion = c.req.header("X-Google-Cloud-Region");
+	const gclbRegion = headers.get("X-Google-Cloud-Region");
 	if (gclbRegion && !result.region) {
 		result.region = gclbRegion;
 	}
@@ -78,13 +79,14 @@ beacon.openapi(beaconRoute, async (c) => {
 
 	// Extract IP and region information
 	const clientIP = getClientIpFromContext(c);
-	const regionInfo = extractRegionInfo(c);
+	const regionInfo = extractRegionInfo(c.req.raw.headers);
 
 	// Determine cloud provider based on headers
 	const cloudProvider = c.req.header("CF-Ray")
 		? "cloudflare"
 		: c.req.header("X-Google-Cloud-Region") ||
-			  c.req.header("X-Cloud-Trace-Context")
+			  c.req.header("X-Cloud-Trace-Context") ||
+			  c.req.header("X-Client-Region")
 			? "gcp"
 			: "unknown";
 
