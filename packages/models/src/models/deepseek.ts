@@ -684,7 +684,11 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "bytedance",
-				externalId: "deepseek-v4-flash-260425",
+				// The GA deployment; `deepseek-v4-flash-260425` is the superseded
+				// preview. Both currently bill at the rates below, but BytePlus raises
+				// the GA deployment to 0.44/0.014/1.32 on 2026-08-21 00:00 UTC+8 —
+				// these three fields have to move on that date.
+				externalId: "deepseek-v4-flash-ga-260731",
 				inputPrice: "0.14e-6",
 				cachedInputPrice: "0.028e-6",
 				outputPrice: "0.28e-6",
