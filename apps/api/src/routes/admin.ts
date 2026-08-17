@@ -498,6 +498,9 @@ const transactionSchema = z.object({
 	// Off-Stripe payment channel and its reference, set on manual payments only.
 	paymentMethod: z.string().nullable(),
 	externalReference: z.string().nullable(),
+	stripePaymentIntentId: z.string().nullable(),
+	stripeInvoiceId: z.string().nullable(),
+	stripeRefundId: z.string().nullable(),
 });
 
 const transactionsListSchema = z.object({
@@ -3047,6 +3050,9 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			description: tables.transaction.description,
 			paymentMethod: tables.transaction.paymentMethod,
 			externalReference: tables.transaction.externalReference,
+			stripePaymentIntentId: tables.transaction.stripePaymentIntentId,
+			stripeInvoiceId: tables.transaction.stripeInvoiceId,
+			stripeRefundId: tables.transaction.stripeRefundId,
 		})
 		.from(tables.transaction)
 		.where(eq(tables.transaction.organizationId, orgId))
@@ -3087,6 +3093,9 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			description: t.description,
 			paymentMethod: t.paymentMethod,
 			externalReference: t.externalReference,
+			stripePaymentIntentId: t.stripePaymentIntentId,
+			stripeInvoiceId: t.stripeInvoiceId,
+			stripeRefundId: t.stripeRefundId,
 		})),
 		total,
 		limit,
