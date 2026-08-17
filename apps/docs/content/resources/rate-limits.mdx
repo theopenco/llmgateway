@@ -58,6 +58,20 @@ For example, an org past 30 days old (or with $100+ of usage) is Tier 2: chat co
 
 Regular organizations also have hard **USD spend ceilings** — a daily and a monthly cap set by the trust tier above — so a brand-new account has a tight dollar velocity limit that rises as it ages or spends. Only real paid usage counts; **free models are exempt**, as are **enterprise** (no caps) and dev/chat plan orgs (which have their own plan limits). When a cap is reached, requests return `429` until the counter resets (UTC midnight for daily, first of the month for monthly).
 
+### Top-Up Limits
+
+Credit top-ups are also velocity-limited by trust tier: each organization can add at most a tier-scaled gross USD amount to its balance per **rolling 24-hour window**. This applies before any charge is made — a top-up attempt over the allowance is rejected with `429` and no card is charged.
+
+| Tier | Top-up allowance (rolling 24h) |
+| ---- | ------------------------------ |
+| 0    | $100                           |
+| 1    | $500                           |
+| 2    | $2,500                         |
+| 3    | $10,000                        |
+| 4    | $20,000                        |
+
+The limit covers dashboard top-ups (card and hosted checkout), auto top-up, and Dev plan pay-as-you-go top-ups. **Enterprise organizations are exempt.** Your current allowance and usage are shown on the Settings → Limits page. Hosted checkout links expire after 30 minutes.
+
 ### Dev and Chat Plans
 
 Organizations on a **Dev plan** (also called devpass) or a **Chat plan** have their own, tighter per-endpoint limits and do not receive the spend-based multiplier.

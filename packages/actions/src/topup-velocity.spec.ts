@@ -1,0 +1,235 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Spec-controlled DB results + Redis fake, hoisted so the vi.mock factories can
+// close over them.
+const state = vi.hoisted(() => ({
+	windowSumUsd: "0",
+	lifetimeSpendUsd: "0",
+	redis: new Map<string, string>(),
+	redisDown: false,
+}));
+
+vi.mock("@llmgateway/db", () => {
+	const transaction = {
+		organizationId: {},
+		type: {},
+		status: {},
+		createdAt: {},
+		amount: {},
+	};
+	const project = { id: {}, organizationId: {} };
+	const projectHourlyStats = { projectId: {}, cost: {} };
+	const noop = () => ({});
+	return {
+		db: {
+			select: () => ({
+				from: (tbl: unknown) =>
+					tbl === projectHourlyStats
+						? {
+								innerJoin: () => ({
+									where: async () => [{ total: state.lifetimeSpendUsd }],
+								}),
+							}
+						: {
+								where: async () => [{ total: state.windowSumUsd }],
+							},
+			}),
+		},
+		and: noop,
+		eq: noop,
+		gte: noop,
+		inArray: noop,
+		sql: noop,
+		tables: { transaction, project },
+		projectHourlyStats,
+	};
+});
+
+vi.mock("@llmgateway/cache", () => ({
+	redisClient: {
+		multi() {
+			if (state.redisDown) {
+				throw new Error("redis down");
+			}
+			const queued: (() => unknown)[] = [];
+			const chain = {
+				incrbyfloat(key: string, amount: number) {
+					queued.push(() => {
+						const next = Number(state.redis.get(key) ?? 0) + Number(amount);
+						state.redis.set(key, String(next));
+						return String(next);
+					});
+					return chain;
+				},
+				expire() {
+					queued.push(() => 1);
+					return chain;
+				},
+				async exec() {
+					return queued.map((fn) => [null, fn()]);
+				},
+			};
+			return chain;
+		},
+		async get(key: string) {
+			if (state.redisDown) {
+				throw new Error("redis down");
+			}
+			return state.redis.get(key) ?? null;
+		},
+		async eval(_script: string, _numKeys: number, key: string, arg: string) {
+			if (state.redisDown) {
+				throw new Error("redis down");
+			}
+			if (state.redis.has(key)) {
+				const next = Number(state.redis.get(key)) + Number(arg);
+				state.redis.set(key, String(Math.max(0, next)));
+			}
+			return 1;
+		},
+	},
+}));
+
+vi.mock("@llmgateway/logger", () => ({
+	logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+
+const { checkAndReserveTopUp, releaseTopUpReservation, getTopUpVelocityUsage } =
+	await import("./topup-velocity.js");
+
+// Brand-new org => Tier 0 => $100/24h top-up cap by default.
+const t0Org = {
+	id: "org-1",
+	kind: "default" as string | null,
+	plan: "free" as string | null,
+	createdAt: new Date(),
+};
+
+beforeEach(() => {
+	vi.clearAllMocks();
+	state.windowSumUsd = "0";
+	state.lifetimeSpendUsd = "0";
+	state.redis.clear();
+	state.redisDown = false;
+	vi.stubEnv("GATEWAY_TOPUP_VELOCITY_ENABLED", "true");
+});
+
+afterEach(() => {
+	vi.unstubAllEnvs();
+});
+
+describe("checkAndReserveTopUp", () => {
+	it("allows under the cap and reports remaining", async () => {
+		const result = await checkAndReserveTopUp({ org: t0Org, amountUsd: 40 });
+		expect(result.allowed).toBe(true);
+		expect(result.capUsd).toBe(100);
+		expect(result.usedUsd).toBe(0);
+		expect(result.remainingUsd).toBe(60);
+	});
+
+	it("blocks when the window DB sum already fills the cap", async () => {
+		state.windowSumUsd = "90";
+		const result = await checkAndReserveTopUp({ org: t0Org, amountUsd: 40 });
+		expect(result.allowed).toBe(false);
+		expect(result.capUsd).toBe(100);
+		expect(result.usedUsd).toBe(90);
+		// The blocked attempt released its own reservation.
+		expect(Number(state.redis.get("topup_velocity:resv:org-1") ?? 0)).toBe(0);
+	});
+
+	it("counts concurrent reservations against each other", async () => {
+		// Two $60 attempts against a $100 cap: the first reserves, the second
+		// must see it and be blocked.
+		const first = await checkAndReserveTopUp({ org: t0Org, amountUsd: 60 });
+		expect(first.allowed).toBe(true);
+		const second = await checkAndReserveTopUp({ org: t0Org, amountUsd: 60 });
+		expect(second.allowed).toBe(false);
+		expect(second.usedUsd).toBe(60);
+	});
+
+	it("release restores headroom", async () => {
+		await checkAndReserveTopUp({ org: t0Org, amountUsd: 60 });
+		await releaseTopUpReservation("org-1", 60);
+		const retry = await checkAndReserveTopUp({ org: t0Org, amountUsd: 60 });
+		expect(retry.allowed).toBe(true);
+	});
+
+	it("release never recreates an expired key", async () => {
+		await releaseTopUpReservation("org-1", 60);
+		expect(state.redis.has("topup_velocity:resv:org-1")).toBe(false);
+	});
+
+	it("reserve: false checks without incrementing", async () => {
+		const result = await checkAndReserveTopUp({
+			org: t0Org,
+			amountUsd: 60,
+			reserve: false,
+		});
+		expect(result.allowed).toBe(true);
+		expect(state.redis.has("topup_velocity:resv:org-1")).toBe(false);
+	});
+
+	it("degrades to DB-only enforcement when Redis is down", async () => {
+		state.redisDown = true;
+		state.windowSumUsd = "90";
+		const blocked = await checkAndReserveTopUp({ org: t0Org, amountUsd: 40 });
+		expect(blocked.allowed).toBe(false);
+
+		state.windowSumUsd = "0";
+		const allowed = await checkAndReserveTopUp({ org: t0Org, amountUsd: 40 });
+		expect(allowed.allowed).toBe(true);
+	});
+
+	it("uses the tier ladder: an aged/spending org gets a higher cap", async () => {
+		// $1,200 lifetime usage => Tier 3 => $10,000/24h.
+		state.lifetimeSpendUsd = "1200";
+		state.windowSumUsd = "5000";
+		const result = await checkAndReserveTopUp({ org: t0Org, amountUsd: 4000 });
+		expect(result.allowed).toBe(true);
+		expect(result.capUsd).toBe(10_000);
+	});
+
+	it("exempts enterprise and non-gated org kinds", async () => {
+		for (const org of [
+			{ ...t0Org, plan: "enterprise" },
+			{ ...t0Org, kind: "chat" },
+		]) {
+			const result = await checkAndReserveTopUp({ org, amountUsd: 99_999 });
+			expect(result.allowed).toBe(true);
+		}
+		expect(state.redis.size).toBe(0);
+	});
+
+	it("gates devpass orgs like default ones", async () => {
+		state.windowSumUsd = "90";
+		const result = await checkAndReserveTopUp({
+			org: { ...t0Org, kind: "devpass" },
+			amountUsd: 40,
+		});
+		expect(result.allowed).toBe(false);
+	});
+
+	it("is disabled by the kill switch", async () => {
+		vi.stubEnv("GATEWAY_TOPUP_VELOCITY_ENABLED", "false");
+		state.windowSumUsd = "99999";
+		const result = await checkAndReserveTopUp({ org: t0Org, amountUsd: 500 });
+		expect(result.allowed).toBe(true);
+	});
+
+	it("treats a 0 cap override as unlimited", async () => {
+		vi.stubEnv("GATEWAY_SPEND_TIER_0_TOPUP_DAILY_CAP_USD", "0");
+		state.windowSumUsd = "99999";
+		const result = await checkAndReserveTopUp({ org: t0Org, amountUsd: 500 });
+		expect(result.allowed).toBe(true);
+	});
+});
+
+describe("getTopUpVelocityUsage", () => {
+	it("returns window sum and current reservation", async () => {
+		state.windowSumUsd = "12.5";
+		state.redis.set("topup_velocity:resv:org-1", "7.5");
+		const usage = await getTopUpVelocityUsage("org-1");
+		expect(usage.dbSumUsd).toBe(12.5);
+		expect(usage.reservedUsd).toBe(7.5);
+	});
+});

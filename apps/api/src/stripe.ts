@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import Stripe from "stripe";
 import { z } from "zod";
 
+import { checkAndReserveTopUp } from "@llmgateway/actions";
 import {
 	and,
 	db,
@@ -1864,6 +1865,33 @@ async function recordCreditTopUp({
 			description,
 		})
 		.returning();
+
+	// Defense-in-depth observability for the top-up velocity cap: initiation is
+	// where it is enforced, but a payment can settle after the window moved (e.g.
+	// a checkout link paid late). Never refuse or refund a settled payment here —
+	// just surface that the org ended up over its cap.
+	try {
+		const orgRow = await db.query.organization.findFirst({
+			where: { id: { eq: organizationId } },
+		});
+		const overCapCheck = orgRow
+			? await checkAndReserveTopUp({
+					org: orgRow,
+					amountUsd: 0,
+					reserve: false,
+				})
+			: null;
+		if (overCapCheck && !overCapCheck.allowed) {
+			logger.warn("Organization exceeded its top-up velocity cap", {
+				organizationId,
+				capUsd: overCapCheck.capUsd,
+				windowUsedUsd: overCapCheck.usedUsd,
+				settledUsd: totalAmountInDollars,
+			});
+		}
+	} catch (e) {
+		logger.error("Top-up velocity post-check failed", e as Error);
+	}
 
 	const lineItems = [
 		{

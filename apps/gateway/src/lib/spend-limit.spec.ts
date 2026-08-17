@@ -26,6 +26,7 @@ const T1 = {
 	rpmMultiplier: 2,
 	dailyCapUsd: 100,
 	monthlyCapUsd: 1_000,
+	topUpDailyCapUsd: 500,
 };
 
 function makePipeline() {

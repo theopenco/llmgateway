@@ -135,6 +135,8 @@ export interface SpendTierDefaults {
 	dailyCapUsd: number;
 	/** Monthly USD spend cap. */
 	monthlyCapUsd: number;
+	/** Max gross USD in credit top-ups per rolling 24h window. */
+	topUpDailyCapUsd: number;
 }
 
 export const SPEND_TIER_DEFAULTS: readonly SpendTierDefaults[] = [
@@ -145,6 +147,7 @@ export const SPEND_TIER_DEFAULTS: readonly SpendTierDefaults[] = [
 		rpmMultiplier: 1,
 		dailyCapUsd: 5,
 		monthlyCapUsd: 50,
+		topUpDailyCapUsd: 100,
 	},
 	{
 		tier: 1,
@@ -153,6 +156,7 @@ export const SPEND_TIER_DEFAULTS: readonly SpendTierDefaults[] = [
 		rpmMultiplier: 2,
 		dailyCapUsd: 100,
 		monthlyCapUsd: 1_000,
+		topUpDailyCapUsd: 500,
 	},
 	{
 		tier: 2,
@@ -161,6 +165,7 @@ export const SPEND_TIER_DEFAULTS: readonly SpendTierDefaults[] = [
 		rpmMultiplier: 4,
 		dailyCapUsd: 500,
 		monthlyCapUsd: 5_000,
+		topUpDailyCapUsd: 2_500,
 	},
 	{
 		tier: 3,
@@ -169,6 +174,7 @@ export const SPEND_TIER_DEFAULTS: readonly SpendTierDefaults[] = [
 		rpmMultiplier: 10,
 		dailyCapUsd: 5_000,
 		monthlyCapUsd: 50_000,
+		topUpDailyCapUsd: 10_000,
 	},
 	{
 		tier: 4,
@@ -177,6 +183,7 @@ export const SPEND_TIER_DEFAULTS: readonly SpendTierDefaults[] = [
 		rpmMultiplier: 20,
 		dailyCapUsd: 15_000,
 		monthlyCapUsd: 200_000,
+		topUpDailyCapUsd: 20_000,
 	},
 ];
 
@@ -185,6 +192,7 @@ export interface ResolvedSpendTier {
 	rpmMultiplier: number;
 	dailyCapUsd: number;
 	monthlyCapUsd: number;
+	topUpDailyCapUsd: number;
 }
 
 /** Parse a non-negative numeric env var, falling back on missing/invalid. */
@@ -225,6 +233,10 @@ function resolveTier(d: SpendTierDefaults): ResolvedSpendTier {
 		monthlyCapUsd: getRateLimitEnvNumber(
 			`GATEWAY_SPEND_TIER_${d.tier}_MONTHLY_CAP_USD`,
 			d.monthlyCapUsd,
+		),
+		topUpDailyCapUsd: getRateLimitEnvNumber(
+			`GATEWAY_SPEND_TIER_${d.tier}_TOPUP_DAILY_CAP_USD`,
+			d.topUpDailyCapUsd,
 		),
 	};
 }
@@ -374,6 +386,51 @@ export function isCappedOrg(org: {
 	plan?: string | null;
 }): boolean {
 	return org.kind === "default" && org.plan !== "enterprise";
+}
+
+/** Rolling window for the per-tier top-up velocity cap. */
+export const TOPUP_VELOCITY_WINDOW_MS = 86_400_000;
+
+/**
+ * TTL for the Redis reservation that bridges top-up initiation to webhook
+ * fulfillment (when the `transaction` row appears). Long enough to cover
+ * webhook latency, short enough that abandoned attempts free their headroom.
+ */
+export const TOPUP_VELOCITY_RESERVATION_TTL_SECONDS = 900;
+
+/** Redis key holding the org's in-flight (reserved) top-up USD. */
+export function topUpVelocityKey(organizationId: string): string {
+	return `topup_velocity:resv:${organizationId}`;
+}
+
+/**
+ * Which orgs the top-up velocity cap applies to. Broader than {@link isCappedOrg}:
+ * DevPass PAYG top-ups also land in `organization.credits` via the same Stripe
+ * path and are equally abusable, so devpass orgs are included. Enterprise is
+ * fully exempt.
+ */
+export function isTopUpVelocityGatedOrg(org: {
+	kind?: string | null;
+	plan?: string | null;
+}): boolean {
+	return (
+		org.plan !== "enterprise" &&
+		(org.kind === "default" || org.kind === "devpass")
+	);
+}
+
+/**
+ * Whether top-up velocity caps are enforced. `GATEWAY_TOPUP_VELOCITY_ENABLED`
+ * is the explicit switch; when unset, enabled everywhere except under a test
+ * runner (mirrors the spend-cap toggle so existing api/worker specs that top up
+ * the seeded org don't trip the cap).
+ */
+export function isTopUpVelocityEnabled(): boolean {
+	const explicit = process.env.GATEWAY_TOPUP_VELOCITY_ENABLED;
+	if (explicit !== undefined) {
+		return explicit === "true";
+	}
+	return process.env.NODE_ENV !== "test" && process.env.E2E_TEST !== "true";
 }
 
 /** UTC `YYYY-MM-DD` for the daily spend bucket. */

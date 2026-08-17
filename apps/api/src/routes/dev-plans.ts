@@ -10,6 +10,10 @@ import {
 	refundFeedbackBodySchema,
 } from "@/lib/self-refund.js";
 import { getStripeCardErrorMessage } from "@/lib/stripe-card-error.js";
+import {
+	assertTopUpVelocityAllowed,
+	releaseTopUpReservation,
+} from "@/lib/topup-velocity.js";
 import { posthog } from "@/posthog.js";
 import {
 	ensureStripeCustomer,
@@ -3389,13 +3393,28 @@ devPlans.openapi(topUpCredits, async (c) => {
 		});
 	}
 
-	const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
-	const paymentMethodId = await resolveDevPassPaymentMethodId(
-		personalOrg,
-		stripeCustomerId,
-	);
+	// DevPass PAYG top-ups land in organization.credits like dashboard top-ups,
+	// so they get the same tier-based velocity gate — before any Stripe
+	// interaction, reserving the domestic-fee gross (the international
+	// surcharge isn't known yet; the difference is noise for a velocity cap).
+	const gateGrossUsd = calculateFees({ amount }).totalAmount;
+	await assertTopUpVelocityAllowed(personalOrg, gateGrossUsd);
 
-	const isInternational = await isInternationalPaymentMethod(paymentMethodId);
+	// A failure before the charge means no money moved — free the reservation.
+	let stripeCustomerId: string;
+	let paymentMethodId: string;
+	let isInternational: boolean;
+	try {
+		stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
+		paymentMethodId = await resolveDevPassPaymentMethodId(
+			personalOrg,
+			stripeCustomerId,
+		);
+		isInternational = await isInternationalPaymentMethod(paymentMethodId);
+	} catch (err) {
+		await releaseTopUpReservation(personalOrg.id, gateGrossUsd);
+		throw err;
+	}
 	const feeBreakdown = calculateFees({ amount, isInternational });
 
 	// `baseAmount` in the metadata routes this PaymentIntent through
@@ -3429,6 +3448,8 @@ devPlans.openapi(topUpCredits, async (c) => {
 			{ idempotencyKey: `dev-plan-topup:${personalOrg.id}:${purchaseId}` },
 		);
 	} catch (err) {
+		// The charge did not go through — free the velocity reservation.
+		await releaseTopUpReservation(personalOrg.id, gateGrossUsd);
 		const stripeErr = err as { type?: string; code?: string };
 		const cardErrorMessage = getStripeCardErrorMessage(err);
 		if (cardErrorMessage || stripeErr?.code === "card_declined") {

@@ -532,6 +532,12 @@ export const transaction = pgTable(
 	},
 	(table) => [
 		index("transaction_organization_id_idx").on(table.organizationId),
+		// Serves the top-up velocity gate's rolling-window SUM
+		// (org + created_at range over credit_topup rows) without scanning an
+		// org's full transaction history.
+		index("transaction_org_topup_created_at_idx")
+			.on(table.organizationId, table.createdAt)
+			.where(sql`${table.type} = 'credit_topup'`),
 		uniqueIndex("transaction_stripe_refund_id_unique")
 			.on(table.stripeRefundId)
 			.where(sql`${table.stripeRefundId} IS NOT NULL`),

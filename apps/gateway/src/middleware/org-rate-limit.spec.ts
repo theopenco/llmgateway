@@ -70,6 +70,7 @@ describe("orgRateLimitMiddleware", () => {
 			rpmMultiplier: 1,
 			dailyCapUsd: 5,
 			monthlyCapUsd: 50,
+			topUpDailyCapUsd: 100,
 		});
 		vi.mocked(lib.checkOrgRateLimit).mockResolvedValue({
 			allowed: true,

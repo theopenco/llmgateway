@@ -171,6 +171,26 @@ export function LimitsClient() {
 								</Card>
 							)}
 
+							{/* Top-up allowance */}
+							{data.topUp && (
+								<Card>
+									<CardHeader>
+										<CardTitle>Top-up allowance</CardTitle>
+										<CardDescription>
+											How much you can add to your credit balance per rolling
+											24-hour window. The allowance grows with your tier.
+										</CardDescription>
+									</CardHeader>
+									<CardContent>
+										<CapBar
+											label="Rolling 24h"
+											used={data.topUp.usedUsd}
+											cap={data.topUp.capUsd}
+										/>
+									</CardContent>
+								</Card>
+							)}
+
 							{/* Next tier */}
 							<Card>
 								<CardHeader>
@@ -223,7 +243,11 @@ export function LimitsClient() {
 											<span className="text-foreground font-medium">
 												{usd(data.nextTier.monthlyCapUsd)}/month
 											</span>{" "}
-											spend, plus a{" "}
+											spend, a{" "}
+											<span className="text-foreground font-medium">
+												{usd(data.nextTier.topUpDailyCapUsd)}/24h
+											</span>{" "}
+											top-up allowance, plus a{" "}
 											<span className="text-foreground font-medium">
 												{data.nextTier.rpmMultiplier}×
 											</span>{" "}

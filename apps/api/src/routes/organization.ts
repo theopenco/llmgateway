@@ -21,6 +21,7 @@ import {
 } from "@/utils/invoice.js";
 import { isConfigurableDomain, normalizeDomain } from "@/utils/sso-domain.js";
 
+import { getTopUpVelocityUsage } from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
 import { redisClient } from "@llmgateway/cache";
 import {
@@ -44,6 +45,7 @@ import {
 	getOrgSpendTier,
 	getPlanClass,
 	isCappedOrg,
+	isTopUpVelocityGatedOrg,
 	PATH_RATE_LIMITS,
 	spendDailyKey,
 	spendMonthlyKey,
@@ -1587,17 +1589,28 @@ const getOrganizationLimits = createRoute({
 							rpmMultiplier: z.number(),
 							dailyCapUsd: z.number(),
 							monthlyCapUsd: z.number(),
+							topUpDailyCapUsd: z.number(),
 						}),
 						usage: z.object({
 							dailySpentUsd: z.number(),
 							monthlySpentUsd: z.number(),
 						}),
+						// Rolling-24h top-up allowance; null when the org is exempt.
+						topUp: z
+							.object({
+								capUsd: z.number(),
+								windowHours: z.number(),
+								usedUsd: z.number(),
+								remainingUsd: z.number(),
+							})
+							.nullable(),
 						nextTier: z
 							.object({
 								tier: z.number(),
 								rpmMultiplier: z.number(),
 								dailyCapUsd: z.number(),
 								monthlyCapUsd: z.number(),
+								topUpDailyCapUsd: z.number(),
 								ageDaysRequired: z.number(),
 								spendUsdRequired: z.number(),
 								daysUntilQualify: z.number(),
@@ -1688,6 +1701,25 @@ organization.openapi(getOrganizationLimits, async (c) => {
 		return { key: cfg.key, path: cfg.prefix, rpm };
 	});
 
+	// Rolling-24h top-up allowance (windowed transaction sum + in-flight
+	// reservations), shown only when the org is actually gated.
+	let topUp: {
+		capUsd: number;
+		windowHours: number;
+		usedUsd: number;
+		remainingUsd: number;
+	} | null = null;
+	if (isTopUpVelocityGatedOrg(org) && tier.topUpDailyCapUsd > 0) {
+		const usage = await getTopUpVelocityUsage(id, now);
+		const usedUsd = usage.dbSumUsd + usage.reservedUsd;
+		topUp = {
+			capUsd: tier.topUpDailyCapUsd,
+			windowHours: 24,
+			usedUsd: round2(usedUsd),
+			remainingUsd: round2(Math.max(0, tier.topUpDailyCapUsd - usedUsd)),
+		};
+	}
+
 	return c.json({
 		enterprise,
 		capsApply,
@@ -1699,17 +1731,20 @@ organization.openapi(getOrganizationLimits, async (c) => {
 			rpmMultiplier: tier.rpmMultiplier,
 			dailyCapUsd: tier.dailyCapUsd,
 			monthlyCapUsd: tier.monthlyCapUsd,
+			topUpDailyCapUsd: tier.topUpDailyCapUsd,
 		},
 		usage: {
 			dailySpentUsd: round2(Number(dailyRaw ?? 0) || 0),
 			monthlySpentUsd: round2(Number(monthlyRaw ?? 0) || 0),
 		},
+		topUp,
 		nextTier: nextTier
 			? {
 					tier: nextTier.tier,
 					rpmMultiplier: nextTier.rpmMultiplier,
 					dailyCapUsd: nextTier.dailyCapUsd,
 					monthlyCapUsd: nextTier.monthlyCapUsd,
+					topUpDailyCapUsd: nextTier.topUpDailyCapUsd,
 					ageDaysRequired: nextTier.ageDaysRequired,
 					spendUsdRequired: nextTier.spendUsdRequired,
 					daysUntilQualify: nextTier.daysUntilQualify,

@@ -5,6 +5,7 @@ import { Decimal } from "decimal.js";
 import Stripe from "stripe";
 import { z } from "zod";
 
+import { checkAndReserveTopUp } from "@llmgateway/actions";
 import {
 	closeRedisClient,
 	closeStorageRedisClient,
@@ -619,6 +620,28 @@ export async function processAutoTopUp(): Promise<void> {
 				) {
 					logger.info(
 						`Skipping auto top-up for organization ${org.id}: settings changed mid-pass`,
+					);
+					continue;
+				}
+
+				// Tier-based top-up velocity cap. `reserve: false`: the pending
+				// transaction inserted below is this path's reservation (it counts
+				// in the gate's DB window sum), and this loop is serialized. On a
+				// cap hit just skip — the next cycle re-checks once the window
+				// rolls, so auto-reload resumes by itself.
+				const velocity = await checkAndReserveTopUp({
+					org: freshOrg,
+					amountUsd: feeBreakdown.totalAmount,
+					reserve: false,
+				});
+				if (!velocity.allowed) {
+					logger.info(
+						`Skipping auto top-up for organization ${org.id}: top-up velocity cap reached`,
+						{
+							capUsd: velocity.capUsd,
+							usedUsd: velocity.usedUsd,
+							attemptedUsd: feeBreakdown.totalAmount,
+						},
 					);
 					continue;
 				}

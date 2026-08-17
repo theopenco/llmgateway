@@ -149,11 +149,14 @@ gateway:
   # to 120s, or realtime.config.maxSessionSeconds + 120 when realtime.enabled.
   # Set explicitly only to override that.
   terminationGracePeriodSeconds: ""
-  # -- Per-organization rate-limit and spend-cap overrides, as raw env vars, e.g.
-  # GATEWAY_RATE_LIMIT_CHAT_COMPLETIONS_RPM, GATEWAY_SPEND_TIER_2_DAILY_CAP_USD,
-  # GATEWAY_RATE_LIMITS_ENABLED, GATEWAY_SPEND_CAPS_ENABLED. Set them here rather
-  # than in `extraEnv`: these render into the shared ConfigMap so the API pod
-  # sees the same values and the dashboard reports the limits actually enforced.
+  # -- Per-organization rate-limit, spend-cap and top-up-velocity overrides, as
+  # raw env vars, e.g. GATEWAY_RATE_LIMIT_CHAT_COMPLETIONS_RPM,
+  # GATEWAY_SPEND_TIER_2_DAILY_CAP_USD, GATEWAY_SPEND_TIER_1_TOPUP_DAILY_CAP_USD,
+  # GATEWAY_RATE_LIMITS_ENABLED, GATEWAY_SPEND_CAPS_ENABLED,
+  # GATEWAY_TOPUP_VELOCITY_ENABLED. Set them here rather than in `extraEnv`:
+  # these render into the shared ConfigMap so every consumer sees the same
+  # values — the gateway enforces the rate limits and spend caps, the api and
+  # worker enforce the top-up velocity caps, and the dashboard reports them.
   rateLimits: {}
   extraEnv: []
   nodeSelector: {}
