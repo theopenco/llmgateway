@@ -43,15 +43,17 @@ The default limits (requests per minute, per organization) are:
 
 ### Trust Tiers (account age or spend)
 
-For regular (pay-as-you-go) organizations, limits scale with a **trust tier**. An organization qualifies for a tier when **either** its account is old enough **or** its lifetime usage spend is high enough — whichever gets it to the higher tier. The tier raises the per-endpoint RPM limits **and** the daily/monthly USD spend caps below.
+For regular (pay-as-you-go) organizations, limits scale with a **trust tier**. An organization qualifies for a tier when its account is old enough, **or** when its lifetime usage spend is high enough **and** the account meets the tier's minimum age. The tier raises the per-endpoint RPM limits **and** the daily/monthly USD spend caps below.
 
-| Tier | Qualifies (age **or** spend) | RPM multiplier | Daily cap | Monthly cap |
-| ---- | ---------------------------- | -------------- | --------- | ----------- |
-| 0    | new / $0                     | 1×             | $5        | $50         |
-| 1    | 7 days **or** $10            | 2×             | $100      | $1,000      |
-| 2    | 30 days **or** $100          | 4×             | $500      | $5,000      |
-| 3    | 60 days **or** $1,000        | 10×            | $5,000    | $50,000     |
-| 4    | 90 days **or** $5,000        | 20×            | $15,000   | $200,000    |
+| Tier | Qualifies (age, or spend + min age) | RPM multiplier | Daily cap | Monthly cap |
+| ---- | ----------------------------------- | -------------- | --------- | ----------- |
+| 0    | new / $0                            | 1×             | $5        | $50         |
+| 1    | 7 days **or** $10 (account ≥ 1 day) | 2×             | $100      | $1,000      |
+| 2    | 30 days **or** $100 (≥ 3 days)      | 4×             | $500      | $5,000      |
+| 3    | 60 days **or** $1,000 (≥ 7 days)    | 10×            | $5,000    | $50,000     |
+| 4    | 90 days **or** $5,000 (≥ 14 days)   | 20×            | $15,000   | $200,000    |
+
+Spend alone never promotes a brand-new account: each spend-qualified tier also requires the minimum account age shown, so the fastest possible path to Tier 4 is 14 days — no amount of day-one usage unlocks higher limits.
 
 For example, an org past 30 days old (or with $100+ of usage) is Tier 2: chat completions rises from 600 to 2,400 RPM, with a $500/day and $5,000/month spend ceiling.
 

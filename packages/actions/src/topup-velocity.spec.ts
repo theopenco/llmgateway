@@ -123,6 +123,13 @@ const t0Org = {
 	createdAt: new Date(),
 };
 
+// Aged variant: old enough to clear a tier's min-age floor via the spend path
+// while staying below every pure-age threshold.
+const orgAgedDays = (n: number) => {
+	const offsetMs = n * 86_400_000;
+	return { ...t0Org, createdAt: new Date(Date.now() - offsetMs) };
+};
+
 beforeEach(() => {
 	vi.clearAllMocks();
 	state.windowSumUsd = "0";
@@ -200,29 +207,48 @@ describe("checkAndReserveTopUp", () => {
 	});
 
 	it("uses the tier ladder: an aged/spending org gets a higher cap", async () => {
-		// $1,200 lifetime usage => Tier 3 => $10,000/24h.
+		// $1,200 lifetime usage + 7 days old (T3 min-age floor) => Tier 3 =>
+		// $10,000/24h; age alone would only give Tier 1.
 		state.lifetimeSpendUsd = "1200";
 		state.windowSumUsd = "5000";
-		const result = await checkAndReserveTopUp({ org: t0Org, amountUsd: 4000 });
+		const result = await checkAndReserveTopUp({
+			org: orgAgedDays(7),
+			amountUsd: 4000,
+		});
 		expect(result.allowed).toBe(true);
 		expect(result.capUsd).toBe(10_000);
 	});
 
-	it("refunded spend does not qualify for a higher tier", async () => {
-		// Same $1,200 of usage, but it was all paid with money that came back —
-		// the org must stay Tier 0 ($100/24h), not Tier 3.
+	it("spend alone does not raise the cap for a brand-new org", async () => {
+		// Day-one account with heavy usage: the min-age floors hold it at
+		// Tier 0 ($100/24h) no matter how much it burned.
 		state.lifetimeSpendUsd = "1200";
-		state.lifetimeRefundedUsd = "1200";
 		const result = await checkAndReserveTopUp({ org: t0Org, amountUsd: 150 });
 		expect(result.allowed).toBe(false);
 		expect(result.capUsd).toBe(100);
 	});
 
+	it("refunded spend does not qualify for a higher tier", async () => {
+		// $1,200 of usage on a 3-day-old org would be Tier 2 by spend+age, but
+		// it was all paid with money that came back — Tier 0 ($100/24h).
+		state.lifetimeSpendUsd = "1200";
+		state.lifetimeRefundedUsd = "1200";
+		const result = await checkAndReserveTopUp({
+			org: orgAgedDays(3),
+			amountUsd: 150,
+		});
+		expect(result.allowed).toBe(false);
+		expect(result.capUsd).toBe(100);
+	});
+
 	it("partial refunds only deduct the refunded portion", async () => {
-		// $1,200 usage - $1,100 refunded = $100 net => Tier 2 => $2,500/24h.
+		// $1,200 - $1,100 refunded = $100 net + 3 days old => Tier 2 => $2,500/24h.
 		state.lifetimeSpendUsd = "1200";
 		state.lifetimeRefundedUsd = "1100";
-		const result = await checkAndReserveTopUp({ org: t0Org, amountUsd: 500 });
+		const result = await checkAndReserveTopUp({
+			org: orgAgedDays(3),
+			amountUsd: 500,
+		});
 		expect(result.allowed).toBe(true);
 		expect(result.capUsd).toBe(2500);
 	});

@@ -15,25 +15,25 @@ Card testers and abuse rings hammer new accounts; legitimate teams grow steadily
 
 ## One Ladder, Three Kinds Of Limits
 
-Your tier is determined by **whichever is higher: account age or lifetime usage spend**. It drives three things at once:
+Your tier is determined by **account age, or lifetime usage spend combined with a minimum account age**. It drives three things at once:
 
-| Tier | Qualifies (age **or** spend) | Rate multiplier | Daily / monthly spend cap | Top-up per 24h |
-| ---- | ---------------------------- | --------------- | ------------------------- | -------------- |
-| 0    | new                          | 1×              | $5 / $50                  | $100           |
-| 1    | 7 days **or** $10            | 2×              | $100 / $1,000             | $500           |
-| 2    | 30 days **or** $100          | 4×              | $500 / $5,000             | $2,500         |
-| 3    | 60 days **or** $1,000        | 10×             | $5,000 / $50,000          | $10,000        |
-| 4    | 90 days **or** $5,000        | 20×             | $15,000 / $200,000        | $20,000        |
+| Tier | Qualifies (age, or spend + min age) | Rate multiplier | Daily / monthly spend cap | Top-up per 24h |
+| ---- | ----------------------------------- | --------------- | ------------------------- | -------------- |
+| 0    | new                                 | 1×              | $5 / $50                  | $100           |
+| 1    | 7 days **or** $10 (≥ 1 day)         | 2×              | $100 / $1,000             | $500           |
+| 2    | 30 days **or** $100 (≥ 3 days)      | 4×              | $500 / $5,000             | $2,500         |
+| 3    | 60 days **or** $1,000 (≥ 7 days)    | 10×             | $5,000 / $50,000          | $10,000        |
+| 4    | 90 days **or** $5,000 (≥ 14 days)   | 20×             | $15,000 / $200,000        | $20,000        |
 
 - **Per-endpoint rate limits.** Every `/v1` endpoint has a generous per-organization requests-per-minute budget, multiplied by your tier.
 - **Spend caps.** Daily and monthly USD ceilings on paid usage. Free models never count.
 - **Top-up allowances.** How much you can add to your credit balance per rolling 24-hour window.
 
-Qualifying spend is **net of refunds** — refunded or clawed-back payments never raise limits, and a refunded top-up still counts against the 24-hour top-up window.
+Qualifying spend is **net of refunds** — refunded or clawed-back payments never raise limits, and a refunded top-up still counts against the 24-hour top-up window. Spend alone never promotes a brand-new account: each spend-qualified tier also requires the minimum account age shown above.
 
 ## See Exactly Where You Stand
 
-The new **Settings → Limits** page shows your current tier, live spend versus each cap, your top-up allowance, and precisely what's missing for the next tier — wait N more days or spend $X more, whichever comes first.
+The new **Settings → Limits** page shows your current tier, live spend versus each cap, your top-up allowance, and precisely what's missing for the next tier — wait N more days, or grow usage once your account is old enough.
 
 ## Enterprise: No Limits
 

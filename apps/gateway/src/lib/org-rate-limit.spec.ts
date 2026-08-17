@@ -63,6 +63,8 @@ const ENV_KEYS = [
 	"GATEWAY_RATE_LIMIT_CHATPLAN_CHAT_COMPLETIONS_RPM",
 	"GATEWAY_SPEND_TIER_1_SPEND_USD",
 	"GATEWAY_SPEND_TIER_1_RPM_MULTIPLIER",
+	"GATEWAY_SPEND_TIER_1_MIN_AGE_DAYS",
+	"GATEWAY_SPEND_TIER_2_MIN_AGE_DAYS",
 	"GATEWAY_RATE_LIMIT_WINDOW_SECONDS",
 ];
 
@@ -162,13 +164,26 @@ describe("getOrgSpendTier", () => {
 		expect(getOrgSpendTier({ createdAt: daysAgo(90) }, 0, NOW).tier).toBe(4);
 	});
 
-	it("qualifies by lifetime spend alone on a brand-new org", () => {
+	it("never promotes a brand-new org on spend alone (min-age floors)", () => {
 		const org = { createdAt: daysAgo(0) };
-		expect(getOrgSpendTier(org, 10, NOW).tier).toBe(1);
-		expect(getOrgSpendTier(org, 100, NOW).tier).toBe(2);
-		expect(getOrgSpendTier(org, 1_000, NOW).tier).toBe(3);
-		expect(getOrgSpendTier(org, 5_000, NOW).tier).toBe(4);
-		expect(getOrgSpendTier(org, 1_000_000, NOW).tier).toBe(4);
+		expect(getOrgSpendTier(org, 10, NOW).tier).toBe(0);
+		expect(getOrgSpendTier(org, 100, NOW).tier).toBe(0);
+		expect(getOrgSpendTier(org, 1_000, NOW).tier).toBe(0);
+		expect(getOrgSpendTier(org, 5_000, NOW).tier).toBe(0);
+		expect(getOrgSpendTier(org, 1_000_000, NOW).tier).toBe(0);
+	});
+
+	it("qualifies by spend once the tier's minimum age is met", () => {
+		expect(getOrgSpendTier({ createdAt: daysAgo(1) }, 10, NOW).tier).toBe(1);
+		expect(getOrgSpendTier({ createdAt: daysAgo(3) }, 100, NOW).tier).toBe(2);
+		expect(getOrgSpendTier({ createdAt: daysAgo(7) }, 1_000, NOW).tier).toBe(3);
+		expect(getOrgSpendTier({ createdAt: daysAgo(14) }, 5_000, NOW).tier).toBe(
+			4,
+		);
+		// High spend but young account: capped by the floor, not the spend.
+		expect(
+			getOrgSpendTier({ createdAt: daysAgo(3) }, 1_000_000, NOW).tier,
+		).toBe(2);
 	});
 
 	it("takes the highest of the age-or-spend qualifiers", () => {
@@ -185,7 +200,7 @@ describe("getOrgSpendTier", () => {
 
 	it("exposes the caps and multiplier for the resolved tier", () => {
 		expect(
-			getOrgSpendTier({ createdAt: daysAgo(0) }, 5_000, NOW),
+			getOrgSpendTier({ createdAt: daysAgo(14) }, 5_000, NOW),
 		).toMatchObject({
 			tier: 4,
 			rpmMultiplier: 20,
@@ -197,10 +212,20 @@ describe("getOrgSpendTier", () => {
 	it("respects env overrides for tier thresholds and values", () => {
 		process.env.GATEWAY_SPEND_TIER_1_SPEND_USD = "5";
 		process.env.GATEWAY_SPEND_TIER_1_RPM_MULTIPLIER = "3";
-		expect(getOrgSpendTier({ createdAt: daysAgo(0) }, 5, NOW)).toMatchObject({
+		expect(getOrgSpendTier({ createdAt: daysAgo(1) }, 5, NOW)).toMatchObject({
 			tier: 1,
 			rpmMultiplier: 3,
 		});
+	});
+
+	it("respects env overrides of the min-age floors", () => {
+		// Floor lowered to 0: day-one spend promotion restored for that tier.
+		process.env.GATEWAY_SPEND_TIER_1_MIN_AGE_DAYS = "0";
+		expect(getOrgSpendTier({ createdAt: daysAgo(0) }, 10, NOW).tier).toBe(1);
+
+		// Floor raised: a 10-day-old $100 org is held below T2.
+		process.env.GATEWAY_SPEND_TIER_2_MIN_AGE_DAYS = "30";
+		expect(getOrgSpendTier({ createdAt: daysAgo(10) }, 100, NOW).tier).toBe(1);
 	});
 });
 

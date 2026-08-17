@@ -119,9 +119,12 @@ export const PATH_RATE_LIMITS: readonly PathRateLimitConfig[] = [
 
 /**
  * Unified trust tiers for regular (kind=default, non-enterprise) orgs. A tier
- * qualifies when EITHER the account is old enough OR its lifetime usage spend is
- * high enough; the org gets the highest qualifying tier. The tier drives both
- * the per-path RPM multiplier AND the daily/monthly USD spend caps.
+ * qualifies when EITHER the account is old enough OR its lifetime usage spend
+ * is high enough AND the account meets the tier's minimum age; the org gets
+ * the highest qualifying tier. The min-age floor is what stops a brand-new
+ * account from burning its way up the ladder on day one — spend alone never
+ * promotes. The tier drives the per-path RPM multiplier, the daily/monthly
+ * USD spend caps, and the top-up allowance.
  */
 export interface SpendTierDefaults {
 	tier: number;
@@ -129,6 +132,8 @@ export interface SpendTierDefaults {
 	ageDays: number;
 	/** Lifetime usage spend (USD) at or above which this tier qualifies. */
 	spendUsd: number;
+	/** Minimum account age (days) required for the SPEND path to this tier. */
+	minAgeDays: number;
 	/** RPM multiplier applied to the per-path base limit. */
 	rpmMultiplier: number;
 	/** Daily USD spend cap. */
@@ -144,6 +149,7 @@ export const SPEND_TIER_DEFAULTS: readonly SpendTierDefaults[] = [
 		tier: 0,
 		ageDays: 0,
 		spendUsd: 0,
+		minAgeDays: 0,
 		rpmMultiplier: 1,
 		dailyCapUsd: 5,
 		monthlyCapUsd: 50,
@@ -153,6 +159,7 @@ export const SPEND_TIER_DEFAULTS: readonly SpendTierDefaults[] = [
 		tier: 1,
 		ageDays: 7,
 		spendUsd: 10,
+		minAgeDays: 1,
 		rpmMultiplier: 2,
 		dailyCapUsd: 100,
 		monthlyCapUsd: 1_000,
@@ -162,6 +169,7 @@ export const SPEND_TIER_DEFAULTS: readonly SpendTierDefaults[] = [
 		tier: 2,
 		ageDays: 30,
 		spendUsd: 100,
+		minAgeDays: 3,
 		rpmMultiplier: 4,
 		dailyCapUsd: 500,
 		monthlyCapUsd: 5_000,
@@ -171,6 +179,7 @@ export const SPEND_TIER_DEFAULTS: readonly SpendTierDefaults[] = [
 		tier: 3,
 		ageDays: 60,
 		spendUsd: 1_000,
+		minAgeDays: 7,
 		rpmMultiplier: 10,
 		dailyCapUsd: 5_000,
 		monthlyCapUsd: 50_000,
@@ -180,6 +189,7 @@ export const SPEND_TIER_DEFAULTS: readonly SpendTierDefaults[] = [
 		tier: 4,
 		ageDays: 90,
 		spendUsd: 5_000,
+		minAgeDays: 14,
 		rpmMultiplier: 20,
 		dailyCapUsd: 15_000,
 		monthlyCapUsd: 200_000,
@@ -219,6 +229,13 @@ function tierSpendThreshold(d: SpendTierDefaults): number {
 	);
 }
 
+function tierMinAgeThreshold(d: SpendTierDefaults): number {
+	return getRateLimitEnvNumber(
+		`GATEWAY_SPEND_TIER_${d.tier}_MIN_AGE_DAYS`,
+		d.minAgeDays,
+	);
+}
+
 function resolveTier(d: SpendTierDefaults): ResolvedSpendTier {
 	return {
 		tier: d.tier,
@@ -247,7 +264,10 @@ function accountAgeDays(createdAt: Date, now: number): number {
 
 /**
  * Resolve an org's unified trust tier from its account age and lifetime usage
- * spend. Returns the highest tier whose age OR spend threshold is met.
+ * spend. Returns the highest tier whose age threshold is met, or whose spend
+ * threshold is met while the account also satisfies the tier's minimum age.
+ * The floor means spend alone never promotes a brand-new account: no amount
+ * of day-one burn can unlock higher caps or top-up allowances.
  */
 export function getOrgSpendTier(
 	org: { createdAt: Date },
@@ -259,7 +279,8 @@ export function getOrgSpendTier(
 		const d = SPEND_TIER_DEFAULTS[i];
 		if (
 			ageDays >= tierAgeThreshold(d) ||
-			lifetimeSpend >= tierSpendThreshold(d)
+			(lifetimeSpend >= tierSpendThreshold(d) &&
+				ageDays >= tierMinAgeThreshold(d))
 		) {
 			return resolveTier(d);
 		}
@@ -276,11 +297,16 @@ export interface NextSpendTierInfo extends ResolvedSpendTier {
 	daysUntilQualify: number;
 	/** USD of additional lifetime spend to qualify by the spend path (0 if met). */
 	spendUsdUntilQualify: number;
+	/** Minimum account age (days) the spend path to this tier requires. */
+	minAgeDaysRequired: number;
+	/** Whole days until the spend path's age floor is met (0 if met). */
+	daysUntilSpendPathUnlocks: number;
 }
 
 /**
- * The next tier above an org's current one, with what it takes to reach it
- * (either wait N more days OR spend $X more). Returns null at the top tier.
+ * The next tier above an org's current one, with what it takes to reach it:
+ * wait until the age threshold, or meet the spend threshold once the account
+ * is at least `minAgeDaysRequired` days old. Returns null at the top tier.
  */
 export function getNextSpendTier(
 	org: { createdAt: Date },
@@ -295,12 +321,18 @@ export function getNextSpendTier(
 	const ageDays = accountAgeDays(org.createdAt, now);
 	const ageDaysRequired = tierAgeThreshold(next);
 	const spendUsdRequired = tierSpendThreshold(next);
+	const minAgeDaysRequired = tierMinAgeThreshold(next);
 	return {
 		...resolveTier(next),
 		ageDaysRequired,
 		spendUsdRequired,
 		daysUntilQualify: Math.max(0, Math.ceil(ageDaysRequired - ageDays)),
 		spendUsdUntilQualify: Math.max(0, spendUsdRequired - lifetimeSpend),
+		minAgeDaysRequired,
+		daysUntilSpendPathUnlocks: Math.max(
+			0,
+			Math.ceil(minAgeDaysRequired - ageDays),
+		),
 	};
 }
 

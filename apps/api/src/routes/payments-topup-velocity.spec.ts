@@ -12,6 +12,8 @@ import { topUpVelocityKey } from "@llmgateway/shared";
 // the initiation routes reject with 429 before any Stripe call. The org is
 // seeded WITH a stripeCustomerId so `ensureStripeCustomer` short-circuits and
 // the request reaches the gate without touching Stripe.
+const threeDaysMs = 3 * 86_400_000;
+
 describe("top-up velocity limits", () => {
 	let token: string;
 
@@ -26,8 +28,10 @@ describe("top-up velocity limits", () => {
 			name: "Test Organization",
 			billingEmail: "admin@example.com",
 			stripeCustomerId: "cus_velocity_test",
-			// Brand-new org => Tier 0 => $100/24h top-up cap by default.
-			createdAt: new Date(),
+			// 3-day-old org with $0 net spend => Tier 0 => $100/24h top-up cap.
+			// Old enough to clear the T2 min-age floor once the spend tests give
+			// it qualifying usage, but below every pure-age tier threshold.
+			createdAt: new Date(Date.now() - threeDaysMs),
 		});
 
 		await db.insert(tables.userOrganization).values({
@@ -180,6 +184,35 @@ describe("top-up velocity limits", () => {
 			body: JSON.stringify({ amount: 120, organizationId: "test-org-id" }),
 		});
 		expect(blocked.status).toBe(429);
+	});
+
+	test("spend alone does not raise the tier for a day-one org", async () => {
+		// A brand-new org with the same $150 of billed usage that promotes the
+		// 3-day-old fixture must stay Tier 0: the min-age floor gates the spend
+		// path, so day-one burn buys nothing.
+		await db
+			.update(tables.organization)
+			.set({ createdAt: new Date() })
+			.where(eq(tables.organization.id, "test-org-id"));
+		await db.insert(tables.project).values({
+			id: "velocity-dayone-project",
+			name: "Velocity Day-One Project",
+			organizationId: "test-org-id",
+		});
+		await db.insert(tables.projectHourlyStats).values({
+			projectId: "velocity-dayone-project",
+			hourTimestamp: new Date(),
+			cost: 150,
+			creditsCost: 150,
+		});
+
+		const res = await app.request("/payments/create-payment-intent", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({ amount: 120, organizationId: "test-org-id" }),
+		});
+
+		expect(res.status).toBe(429);
 	});
 
 	test("BYOK usage does not raise the trust tier", async () => {

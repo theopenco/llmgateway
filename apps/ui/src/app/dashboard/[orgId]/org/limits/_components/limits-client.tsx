@@ -204,7 +204,7 @@ export function LimitsClient() {
 									</CardTitle>
 									<CardDescription>
 										{data.nextTier
-											? "Reach the next tier by either path — whichever happens first."
+											? "Reach the next tier by waiting, or by growing usage once your account is old enough."
 											: "You're already on the highest trust tier."}
 									</CardDescription>
 								</CardHeader>
@@ -227,13 +227,7 @@ export function LimitsClient() {
 											<NextPath
 												icon={<Zap className="h-4 w-4" />}
 												title="Grow usage"
-												detail={
-													data.nextTier.spendUsdUntilQualify > 0
-														? `${usd(
-																data.nextTier.spendUsdUntilQualify,
-															)} more lifetime spend`
-														: "Spend requirement met"
-												}
+												detail={growUsageDetail(data.nextTier)}
 											/>
 										</div>
 										<div className="text-muted-foreground border-t pt-4 text-sm">
@@ -323,6 +317,23 @@ export function LimitsClient() {
 			</div>
 		</div>
 	);
+}
+
+function growUsageDetail(nextTier: {
+	spendUsdUntilQualify: number;
+	minAgeDaysRequired: number;
+	daysUntilSpendPathUnlocks: number;
+}): string {
+	const days = nextTier.daysUntilSpendPathUnlocks;
+	const dayWord = (n: number) => (n === 1 ? "day" : "days");
+	if (nextTier.spendUsdUntilQualify > 0) {
+		return days > 0
+			? `${usd(nextTier.spendUsdUntilQualify)} more lifetime spend, once your account is ${nextTier.minAgeDaysRequired} ${dayWord(nextTier.minAgeDaysRequired)} old`
+			: `${usd(nextTier.spendUsdUntilQualify)} more lifetime spend`;
+	}
+	return days > 0
+		? `Spend met — ${days} more ${dayWord(days)} of account age`
+		: "Spend requirement met";
 }
 
 function Metric({ label, value }: { label: string; value: string }) {

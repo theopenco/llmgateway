@@ -1618,6 +1618,8 @@ const getOrganizationLimits = createRoute({
 								spendUsdRequired: z.number(),
 								daysUntilQualify: z.number(),
 								spendUsdUntilQualify: z.number(),
+								minAgeDaysRequired: z.number(),
+								daysUntilSpendPathUnlocks: z.number(),
 							})
 							.nullable(),
 						endpoints: z.array(
@@ -1743,6 +1745,8 @@ organization.openapi(getOrganizationLimits, async (c) => {
 					spendUsdRequired: nextTier.spendUsdRequired,
 					daysUntilQualify: nextTier.daysUntilQualify,
 					spendUsdUntilQualify: round2(nextTier.spendUsdUntilQualify),
+					minAgeDaysRequired: nextTier.minAgeDaysRequired,
+					daysUntilSpendPathUnlocks: nextTier.daysUntilSpendPathUnlocks,
 				}
 			: null,
 		endpoints,
