@@ -48,6 +48,7 @@ import {
 	getOrgSpendTier,
 	getPlanClass,
 	isCappedOrg,
+	isOrgRateLimitEnabled,
 	isSpendCapEnabled,
 	isTopUpVelocityEnabled,
 	isTopUpVelocityGatedOrg,
@@ -1586,6 +1587,9 @@ const getOrganizationLimits = createRoute({
 						// enterprise orgs have no gateway rate limits or spend caps at all
 						enterprise: z.boolean(),
 						planClass: z.enum(["regular", "dev", "chat"]),
+						// False when GATEWAY_RATE_LIMITS_ENABLED=false: the endpoint RPM
+						// table is not enforced platform-wide.
+						rateLimitsApply: z.boolean(),
 						// True when support pinned the tier; progression does not apply.
 						tierOverridden: z.boolean(),
 						// whether daily/monthly USD spend caps apply (regular PAYG orgs)
@@ -1737,6 +1741,7 @@ organization.openapi(getOrganizationLimits, async (c) => {
 	return c.json({
 		enterprise,
 		planClass,
+		rateLimitsApply: isOrgRateLimitEnabled(),
 		tierOverridden: resolveTrustTierOverride(org) !== null,
 		capsApply,
 		plan: org.plan,

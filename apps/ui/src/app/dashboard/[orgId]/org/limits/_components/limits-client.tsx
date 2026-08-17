@@ -264,45 +264,47 @@ export function LimitsClient() {
 							)}
 
 							{/* Per-endpoint RPM */}
-							<Card>
-								<CardHeader>
-									<CardTitle>Requests per minute</CardTitle>
-									<CardDescription>
-										Per-endpoint request limits at your current tier, scoped to
-										your organization.
-									</CardDescription>
-								</CardHeader>
-								<CardContent>
-									<Table>
-										<TableHeader>
-											<TableRow>
-												<TableHead>Endpoint</TableHead>
-												<TableHead className="hidden sm:table-cell">
-													Path
-												</TableHead>
-												<TableHead className="text-right">
-													Requests / min
-												</TableHead>
-											</TableRow>
-										</TableHeader>
-										<TableBody>
-											{data.endpoints.map((e) => (
-												<TableRow key={e.key}>
-													<TableCell className="font-medium">
-														{ENDPOINT_LABELS[e.key] ?? e.key}
-													</TableCell>
-													<TableCell className="text-muted-foreground hidden font-mono text-xs sm:table-cell">
-														{e.path}
-													</TableCell>
-													<TableCell className="text-right tabular-nums">
-														{e.rpm.toLocaleString()}
-													</TableCell>
+							{data.rateLimitsApply && (
+								<Card>
+									<CardHeader>
+										<CardTitle>Requests per minute</CardTitle>
+										<CardDescription>
+											Per-endpoint request limits at your current tier, scoped
+											to your organization.
+										</CardDescription>
+									</CardHeader>
+									<CardContent>
+										<Table>
+											<TableHeader>
+												<TableRow>
+													<TableHead>Endpoint</TableHead>
+													<TableHead className="hidden sm:table-cell">
+														Path
+													</TableHead>
+													<TableHead className="text-right">
+														Requests / min
+													</TableHead>
 												</TableRow>
-											))}
-										</TableBody>
-									</Table>
-								</CardContent>
-							</Card>
+											</TableHeader>
+											<TableBody>
+												{data.endpoints.map((e) => (
+													<TableRow key={e.key}>
+														<TableCell className="font-medium">
+															{ENDPOINT_LABELS[e.key] ?? e.key}
+														</TableCell>
+														<TableCell className="text-muted-foreground hidden font-mono text-xs sm:table-cell">
+															{e.path}
+														</TableCell>
+														<TableCell className="text-right tabular-nums">
+															{e.rpm.toLocaleString()}
+														</TableCell>
+													</TableRow>
+												))}
+											</TableBody>
+										</Table>
+									</CardContent>
+								</Card>
+							)}
 
 							<p className="text-muted-foreground text-sm">
 								Need higher limits?{" "}

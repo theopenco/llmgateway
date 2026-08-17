@@ -19,6 +19,7 @@ import {
 	getOrgSpendTier,
 	getPlanClass,
 	getRateLimitEnvNumber,
+	isOrgRateLimitEnabled,
 	PATH_RATE_LIMITS,
 	resolvePathRateLimit,
 	type PathRateLimitConfig,
@@ -50,20 +51,9 @@ export {
 };
 export type { PathRateLimitConfig, PlanClass, ResolvedSpendTier };
 
-/**
- * Whether org rate limiting is enforced. `GATEWAY_RATE_LIMITS_ENABLED` is the
- * global switch: set it to "false" to turn off all gateway rate limiting (e.g.
- * to debug in prod without a redeploy) or "true" to force it on. When unset it
- * defaults to enabled in every environment except the e2e suite (which fires
- * many requests against a single org and would otherwise be throttled).
- */
-export function isOrgRateLimitEnabled(): boolean {
-	const explicit = process.env.GATEWAY_RATE_LIMITS_ENABLED;
-	if (explicit !== undefined) {
-		return explicit === "true";
-	}
-	return process.env.E2E_TEST !== "true";
-}
+// isOrgRateLimitEnabled moved to @llmgateway/shared so the API's limits
+// display honors the same switch as enforcement; re-exported for imports.
+export { isOrgRateLimitEnabled };
 
 /** The sliding window size in seconds (shared across paths). */
 function getWindowSeconds(): number {
@@ -85,8 +75,24 @@ export async function resolveOrganizationIdForToken(
 	if (!apiKey || apiKey.status !== "active") {
 		return null;
 	}
+	// Same for end-user session tokens whose session can no longer serve
+	// requests (expired, or frozen wallet/customer/project) — downstream
+	// rejects them, so they must not throttle the developer org's valid keys.
+	// Mirrors the checks in lib/end-user-session.ts.
+	const session = apiKey.endUserSession;
+	if (
+		session &&
+		(new Date(session.expiresAt).getTime() < Date.now() ||
+			session.walletStatus !== "active" ||
+			session.endCustomerStatus !== "active" ||
+			session.projectStatus !== "active")
+	) {
+		return null;
+	}
 	const project = await findProjectById(apiKey.projectId);
-	if (!project) {
+	// Keys of archived projects stay "active" in the DB but every request is
+	// rejected downstream — don't let them consume the shared buckets either.
+	if (!project || project.status === "deleted") {
 		return null;
 	}
 	return project.organizationId;

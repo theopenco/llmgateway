@@ -435,13 +435,23 @@ export function getNextSpendTier(
 }
 
 /**
- * Determine which rate-limit profile an org falls under. Dev ("devpass") plans
- * take precedence over chat plans when an org somehow has both.
+ * Determine which rate-limit profile an org falls under. Classified by the
+ * IMMUTABLE `organization.kind` first: a devpass/chat org whose plan lapsed
+ * (devPlan/chatPlan back to "none") is still a product org and must keep its
+ * flat product limits, never the regular PAYG bases + tier multiplier. The
+ * entitlement fields only cover the legacy case of rows without a kind.
  */
 export function getPlanClass(org: {
+	kind?: string | null;
 	devPlan?: string | null;
 	chatPlan?: string | null;
 }): PlanClass {
+	if (org.kind === "devpass") {
+		return "dev";
+	}
+	if (org.kind === "chat") {
+		return "chat";
+	}
 	if (org.devPlan && org.devPlan !== "none") {
 		return "dev";
 	}
@@ -577,6 +587,21 @@ export function isTopUpVelocityGatedOrg(org: {
  * org and Redis. Lives here (not in the gateway) so the API's limits display
  * can honor the same switch the enforcement reads.
  */
+/**
+ * Whether per-org endpoint RPM limiting is enforced. Explicit
+ * `GATEWAY_RATE_LIMITS_ENABLED` wins ("false" is the prod kill switch); when
+ * unset it is on everywhere except the e2e suite (which fires many requests
+ * against a single org and would otherwise be throttled). Lives here so the
+ * API's limits display can honor the same switch enforcement reads.
+ */
+export function isOrgRateLimitEnabled(): boolean {
+	const explicit = process.env.GATEWAY_RATE_LIMITS_ENABLED;
+	if (explicit !== undefined) {
+		return explicit === "true";
+	}
+	return process.env.E2E_TEST !== "true";
+}
+
 export function isSpendCapEnabled(): boolean {
 	const explicit = process.env.GATEWAY_SPEND_CAPS_ENABLED;
 	if (explicit !== undefined) {

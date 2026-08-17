@@ -293,12 +293,18 @@ async function assertCreditsAvailableForEmbedding(
 	modelDef: ModelDefinition,
 	insufficientCreditsMessage: string,
 	devPlanCreditLimitMessage: (renewalDate: string) => string,
+	walletFunded = false,
 ) {
 	// Per-org daily/monthly USD spend caps, checked even when the org has
 	// credits (a funded org can still hit its cap). Free models are exempt; the
 	// kind/enterprise/enabled gates live inside the helper, which also sets
-	// Retry-After and the X-RateLimit-* reset headers on the 429.
-	await assertSpendLimit(c, organization, modelDef.free ?? false);
+	// Retry-After and the X-RateLimit-* reset headers on the 429. Wallet-funded
+	// end-user sessions bill the wallet, not org credits — their inference is
+	// exempt from the org cap (the credit checks below still gate the wallet's
+	// mirrored balance).
+	if (!walletFunded) {
+		await assertSpendLimit(c, organization, modelDef.free ?? false);
+	}
 
 	const {
 		devPlanCreditsRemaining,
@@ -767,6 +773,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				`Organization ${retryOrganization.id} has insufficient credits`,
 				(renewalDate) =>
 					`Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+				Boolean(wallet),
 			);
 
 			const platformCredential = await resolvePlatformCredential(providerId, {
@@ -798,6 +805,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 					"No API key set for provider and organization has insufficient credits",
 					(renewalDate) =>
 						`No API key set for provider. Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+					Boolean(wallet),
 				);
 
 				const platformCredential = await resolvePlatformCredential(providerId, {

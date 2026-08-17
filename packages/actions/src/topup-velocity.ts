@@ -209,8 +209,11 @@ export async function checkAndReserveTopUp(options: {
 		};
 	}
 
-	const dbSum = await windowDbSumUsd(org.id, now);
-
+	// Redis first, DB second — deliberately. Settlement inserts the durable
+	// transaction row BEFORE releasing its Redis reservation, so reading the
+	// reservation before the DB sum guarantees every settling amount is seen
+	// by at least one of the two sources; the reverse order could miss an
+	// amount that settled between the two reads.
 	// reservedIncl = in-flight reservations INCLUDING this attempt.
 	let reservedIncl = amountUsd;
 	let reservedInRedis = false;
@@ -246,6 +249,8 @@ export async function checkAndReserveTopUp(options: {
 		reservedIncl = amountUsd;
 		reservedInRedis = false;
 	}
+
+	const dbSum = await windowDbSumUsd(org.id, now);
 
 	const totalUsd = dbSum + reservedIncl;
 	const usedUsd = totalUsd - amountUsd;
@@ -287,6 +292,41 @@ export async function checkAndReserveTopUp(options: {
 		remainingUsd: Math.max(0, capUsd - totalUsd),
 		windowHours: 24,
 	};
+}
+
+/**
+ * Grow an existing reservation once the actually-charged gross is known — the
+ * pre-Stripe gate reserves the domestic-fee gross because the international
+ * surcharge requires a Stripe lookup, but settlement releases the charged
+ * gross; without the bump that larger release would erase part of another
+ * attempt's reservation. Same guards and TTL semantics as the reserve path;
+ * no-op for exempt orgs and non-positive deltas.
+ */
+export async function bumpTopUpReservation(
+	org: TopUpVelocityOrg,
+	deltaUsd: number,
+	reservationTtlSeconds: number = TOPUP_VELOCITY_RESERVATION_TTL_SECONDS,
+): Promise<void> {
+	if (
+		!(deltaUsd > 0) ||
+		!isTopUpVelocityEnabled() ||
+		!isTopUpVelocityGatedOrg(org)
+	) {
+		return;
+	}
+	try {
+		const key = topUpVelocityKey(org.id);
+		await redisClient
+			.multi()
+			.incrbyfloat(key, deltaUsd)
+			.expire(key, reservationTtlSeconds, "NX")
+			.expire(key, reservationTtlSeconds, "GT")
+			.exec();
+	} catch (error) {
+		// Best-effort: an unbumped reservation only means the settlement release
+		// can briefly over-free by the surcharge (~1.5%).
+		logger.error("Top-up velocity reservation bump failed:", error as Error);
+	}
 }
 
 /**

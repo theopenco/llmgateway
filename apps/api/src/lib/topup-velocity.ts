@@ -1,6 +1,7 @@
 import { HTTPException } from "hono/http-exception";
 
 import {
+	bumpTopUpReservation,
 	checkAndReserveTopUp,
 	releaseTopUpReservation,
 	type TopUpVelocityOrg,
@@ -33,4 +34,4 @@ export async function assertTopUpVelocityAllowed(
 	}
 }
 
-export { releaseTopUpReservation };
+export { bumpTopUpReservation, releaseTopUpReservation };

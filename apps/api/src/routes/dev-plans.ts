@@ -14,6 +14,7 @@ import { getStripeCardErrorMessage } from "@/lib/stripe-card-error.js";
 import { forcedThreeDSecureOptions } from "@/lib/three-d-secure.js";
 import {
 	assertTopUpVelocityAllowed,
+	bumpTopUpReservation,
 	releaseTopUpReservation,
 } from "@/lib/topup-velocity.js";
 import { posthog } from "@/posthog.js";
@@ -3393,6 +3394,7 @@ devPlans.openapi(topUpCredits, async (c) => {
 	let stripeCustomerId: string;
 	let paymentMethodId: string;
 	let isInternational: boolean;
+	let reservedUsd = gateGrossUsd;
 	try {
 		stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
 		paymentMethodId = await resolveDevPassPaymentMethodId(
@@ -3401,10 +3403,20 @@ devPlans.openapi(topUpCredits, async (c) => {
 		);
 		isInternational = await isInternationalPaymentMethod(paymentMethodId);
 	} catch (err) {
-		await releaseTopUpReservation(personalOrg.id, gateGrossUsd);
+		await releaseTopUpReservation(personalOrg.id, reservedUsd);
 		throw err;
 	}
 	const feeBreakdown = calculateFees({ amount, isInternational });
+
+	// True up the reservation to the charged gross (international surcharge) so
+	// the settlement release frees exactly what was reserved.
+	if (feeBreakdown.totalAmount > reservedUsd) {
+		await bumpTopUpReservation(
+			personalOrg,
+			feeBreakdown.totalAmount - reservedUsd,
+		);
+		reservedUsd = feeBreakdown.totalAmount;
+	}
 
 	// `baseAmount` in the metadata routes this PaymentIntent through
 	// handlePaymentIntentSucceeded's credit top-up path — the same
@@ -3438,7 +3450,7 @@ devPlans.openapi(topUpCredits, async (c) => {
 		);
 	} catch (err) {
 		// The charge did not go through — free the velocity reservation.
-		await releaseTopUpReservation(personalOrg.id, gateGrossUsd);
+		await releaseTopUpReservation(personalOrg.id, reservedUsd);
 		const stripeErr = err as { type?: string; code?: string };
 		const cardErrorMessage = getStripeCardErrorMessage(err);
 		if (cardErrorMessage || stripeErr?.code === "card_declined") {

@@ -4821,7 +4821,8 @@ videos.openapi(createVideo, async (c) => {
 
 	// Video generation is the priciest endpoint per request, so the credits-billed
 	// path gets the same per-org spend-cap gate as the other paid endpoints.
-	if (selectedProviderContext.usedMode === "credits") {
+	// Wallet-funded end-user sessions bill the wallet, not org credits — exempt.
+	if (selectedProviderContext.usedMode === "credits" && !wallet) {
 		await assertSpendLimit(c, organization, false);
 	}
 
@@ -4873,7 +4874,7 @@ videos.openapi(createVideo, async (c) => {
 			// A hybrid project can fall back from a BYOK provider to a
 			// credits-billed one mid-loop; re-apply the spend-cap gate the
 			// pre-loop check only enforced for the initial provider.
-			if (selectedProviderContext.usedMode === "credits") {
+			if (selectedProviderContext.usedMode === "credits" && !wallet) {
 				await assertSpendLimit(c, organization, false);
 			}
 			selectedUpstreamModelName = getVideoUpstreamModelName(
@@ -4937,7 +4938,7 @@ videos.openapi(createVideo, async (c) => {
 			// A hybrid project can fall back from a BYOK provider to a
 			// credits-billed one mid-loop; re-apply the spend-cap gate the
 			// pre-loop check only enforced for the initial provider.
-			if (selectedProviderContext.usedMode === "credits") {
+			if (selectedProviderContext.usedMode === "credits" && !wallet) {
 				await assertSpendLimit(c, organization, false);
 			}
 			selectedUpstreamModelName = getVideoUpstreamModelName(
@@ -5047,7 +5048,7 @@ videos.openapi(createVideo, async (c) => {
 			// A hybrid project can fall back from a BYOK provider to a
 			// credits-billed one mid-loop; re-apply the spend-cap gate the
 			// pre-loop check only enforced for the initial provider.
-			if (selectedProviderContext.usedMode === "credits") {
+			if (selectedProviderContext.usedMode === "credits" && !wallet) {
 				await assertSpendLimit(c, organization, false);
 			}
 			selectedUpstreamModelName = getVideoUpstreamModelName(

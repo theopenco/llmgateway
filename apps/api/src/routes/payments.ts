@@ -8,6 +8,7 @@ import { computeReferralBonus } from "@/lib/referral-bonus.js";
 import { forcedThreeDSecureOptions } from "@/lib/three-d-secure.js";
 import {
 	assertTopUpVelocityAllowed,
+	bumpTopUpReservation,
 	releaseTopUpReservation,
 } from "@/lib/topup-velocity.js";
 import { ensureStripeCustomer } from "@/stripe.js";
@@ -185,6 +186,7 @@ payments.openapi(createPaymentIntent, async (c) => {
 	let paymentIntent: Stripe.PaymentIntent;
 	let isInternational = false;
 	let feeBreakdown: ReturnType<typeof calculateFees>;
+	let reservedUsd = gateGrossUsd;
 	try {
 		const stripeCustomerId = await ensureStripeCustomer(organizationId);
 
@@ -215,6 +217,16 @@ payments.openapi(createPaymentIntent, async (c) => {
 			amount,
 			isInternational,
 		});
+
+		// The gate reserved the domestic gross; settlement releases the charged
+		// gross. Bump the reservation by the surcharge so those two match.
+		if (feeBreakdown.totalAmount > reservedUsd) {
+			await bumpTopUpReservation(
+				userOrganization.organization,
+				feeBreakdown.totalAmount - reservedUsd,
+			);
+			reservedUsd = feeBreakdown.totalAmount;
+		}
 
 		try {
 			paymentIntent = await getStripe().paymentIntents.create({
@@ -271,7 +283,7 @@ payments.openapi(createPaymentIntent, async (c) => {
 			throw err;
 		}
 	} catch (err) {
-		await releaseTopUpReservation(organizationId, gateGrossUsd);
+		await releaseTopUpReservation(organizationId, reservedUsd);
 		throw err;
 	}
 
@@ -763,6 +775,7 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 	// keep consuming headroom (the TTL bounds it). Only terminal failures free
 	// the amount immediately.
 	let chargeStillSettling = false;
+	let reservedUsd = gateGrossUsd;
 	try {
 		const isInternational = await isInternationalPaymentMethod(
 			paymentMethod.stripePaymentMethodId,
@@ -772,6 +785,16 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 			amount,
 			isInternational,
 		});
+
+		// True up the reservation to the charged gross (international surcharge)
+		// so the settlement release frees exactly what was reserved.
+		if (feeBreakdown.totalAmount > reservedUsd) {
+			await bumpTopUpReservation(
+				userOrganization.organization,
+				feeBreakdown.totalAmount - reservedUsd,
+			);
+			reservedUsd = feeBreakdown.totalAmount;
+		}
 
 		paymentIntent = await getStripe().paymentIntents.create({
 			amount: Math.round(feeBreakdown.totalAmount * 100),
@@ -804,7 +827,7 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 		if (!chargeStillSettling) {
 			await releaseTopUpReservation(
 				userOrganization.organization.id,
-				gateGrossUsd,
+				reservedUsd,
 			);
 		}
 		if (err instanceof Stripe.errors.StripeCardError) {

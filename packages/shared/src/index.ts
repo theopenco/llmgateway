@@ -290,6 +290,7 @@ export {
 	getPlanClass,
 	getRateLimitEnvNumber,
 	isCappedOrg,
+	isOrgRateLimitEnabled,
 	isSpendCapEnabled,
 	isTopUpVelocityEnabled,
 	isTopUpVelocityGatedOrg,
