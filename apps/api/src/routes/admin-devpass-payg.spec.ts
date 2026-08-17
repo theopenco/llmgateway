@@ -25,14 +25,15 @@ interface PaygSubscriber {
 
 interface ListResponse {
 	subscribers: PaygSubscriber[];
-	kpis: {
-		paygOptedIn: number;
-		paygBalanceHeld: number;
-		topupRevenueThisMonth: number;
-		topupRevenueAllTime: number;
-		totalOverflowCostCycle: number;
-		totalMargin: number;
-	};
+}
+
+interface KpisResponse {
+	paygOptedIn: number;
+	paygBalanceHeld: number;
+	topupRevenueThisMonth: number;
+	topupRevenueAllTime: number;
+	totalOverflowCostCycle: number;
+	totalMargin: number;
 }
 
 describe("admin devpass PAYG overflow reporting", () => {
@@ -135,13 +136,18 @@ describe("admin devpass PAYG overflow reporting", () => {
 		// All-time revenue: $79 plan payment + $26.25 top-up.
 		expect(sub!.allTimeRevenue).toBe(105.25);
 
-		expect(body.kpis.paygOptedIn).toBe(1);
-		expect(body.kpis.paygBalanceHeld).toBe(22);
-		expect(body.kpis.topupRevenueAllTime).toBe(26.25);
-		expect(body.kpis.topupRevenueThisMonth).toBe(26.25);
-		expect(body.kpis.totalOverflowCostCycle).toBe(3);
+		const kpisRes = await app.request("/admin/devpass/kpis", {
+			headers: { Cookie: cookie },
+		});
+		expect(kpisRes.status).toBe(200);
+		const kpis = (await kpisRes.json()) as KpisResponse;
+		expect(kpis.paygOptedIn).toBe(1);
+		expect(kpis.paygBalanceHeld).toBe(22);
+		expect(kpis.topupRevenueAllTime).toBe(26.25);
+		expect(kpis.topupRevenueThisMonth).toBe(26.25);
+		expect(kpis.totalOverflowCostCycle).toBe(3);
 		// Universe margin mirrors the per-org decomposition.
-		expect(body.kpis.totalMargin).toBe(79 - 237);
+		expect(kpis.totalMargin).toBe(79 - 237);
 	});
 
 	it("dedicated /admin/devpass/payg reports top-up revenue windows", async () => {
