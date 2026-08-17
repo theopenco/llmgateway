@@ -1,8 +1,7 @@
-import { fetchServerData } from "@/lib/server-api";
+import { fetchServerData, getDevPlanStatus } from "@/lib/server-api";
 
 import BillingClient from "./BillingClient";
 
-import type { DevPlanStatus } from "@/app/dashboard/useDevPlanStatus";
 import type { paths } from "@/lib/api/v1";
 
 type PaymentMethod =
@@ -10,7 +9,7 @@ type PaymentMethod =
 
 export default async function BillingPage() {
 	const [devPlanStatus, paymentMethod] = await Promise.all([
-		fetchServerData<DevPlanStatus>("GET", "/dev-plans/status"),
+		getDevPlanStatus(),
 		fetchServerData<PaymentMethod>("GET", "/dev-plans/payment-method"),
 	]);
 

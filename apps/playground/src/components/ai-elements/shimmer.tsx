@@ -1,13 +1,7 @@
 "use client";
 
 import { motion } from "motion/react";
-import {
-	type CSSProperties,
-	type ElementType,
-	type JSX,
-	memo,
-	useMemo,
-} from "react";
+import { type CSSProperties, type ElementType, type JSX, memo } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -19,6 +13,23 @@ export interface TextShimmerProps {
 	spread?: number;
 }
 
+// motion.create returns a new component type each call, which would remount
+// the subtree (and restart the animation) on every render if done inline —
+// cache per element type at module level instead.
+const motionComponentCache = new Map<
+	ElementType,
+	ReturnType<typeof motion.create>
+>();
+
+function getMotionComponent(component: ElementType) {
+	let cached = motionComponentCache.get(component);
+	if (!cached) {
+		cached = motion.create(component as keyof JSX.IntrinsicElements);
+		motionComponentCache.set(component, cached);
+	}
+	return cached;
+}
+
 const ShimmerComponent = ({
 	children,
 	as: Component = "p",
@@ -26,14 +37,9 @@ const ShimmerComponent = ({
 	duration = 2,
 	spread = 2,
 }: TextShimmerProps) => {
-	const MotionComponent = motion.create(
-		Component as keyof JSX.IntrinsicElements,
-	);
+	const MotionComponent = getMotionComponent(Component);
 
-	const dynamicSpread = useMemo(
-		() => (children?.length ?? 0) * spread,
-		[children, spread],
-	);
+	const dynamicSpread = (children?.length ?? 0) * spread;
 
 	return (
 		<MotionComponent

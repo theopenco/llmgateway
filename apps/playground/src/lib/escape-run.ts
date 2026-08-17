@@ -1,3 +1,5 @@
+import { cache } from "react";
+
 import { fetchServerData } from "@/lib/server-api";
 
 export interface EscapeRunResponse {
@@ -25,15 +27,16 @@ export interface EscapeRunResponse {
  * Loads a shared run. Both the run page and its OpenGraph image render from
  * this, so it lives here rather than on either route — importing it from the
  * page module would pull that page's client components into the image bundle.
+ * cache() dedupes the generateMetadata + page calls within a request.
  */
-export async function fetchEscapeRun(
-	runId: string,
-): Promise<EscapeRunResponse | null> {
-	return await fetchServerData<EscapeRunResponse>(
-		"GET",
-		"/public/escape/runs/{id}",
-		{
-			params: { path: { id: runId } },
-		},
-	);
-}
+export const fetchEscapeRun = cache(
+	async (runId: string): Promise<EscapeRunResponse | null> => {
+		return await fetchServerData<EscapeRunResponse>(
+			"GET",
+			"/public/escape/runs/{id}",
+			{
+				params: { path: { id: runId } },
+			},
+		);
+	},
+);

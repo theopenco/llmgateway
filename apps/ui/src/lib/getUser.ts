@@ -1,12 +1,10 @@
 import PostHogClient from "@/app/posthog";
-import { fetchServerData } from "@/lib/server-api";
-
-import type { User } from "better-auth/types";
+import { getUserMe } from "@/lib/server-api";
 
 export async function getUser() {
 	const posthog = PostHogClient();
 
-	const data = await fetchServerData<{ user: User }>("GET", "/user/me");
+	const data = await getUserMe();
 	const user = data?.user;
 
 	if (!user) {

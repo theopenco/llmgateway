@@ -36,7 +36,10 @@ export const FlickeringGrid: React.FC<FlickeringGridProps> = ({
 }) => {
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
-	const [isInView, setIsInView] = useState(false);
+	// Ref instead of state: visibility only gates the animation loop, and
+	// keeping it out of the effect's dependencies stops every viewport
+	// crossing from tearing down and rebuilding the observers and buffers.
+	const isInViewRef = useRef(false);
 	const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
 
 	const memoizedColor = useMemo(() => {
@@ -149,7 +152,7 @@ export const FlickeringGrid: React.FC<FlickeringGridProps> = ({
 
 			let lastTime = 0;
 			const animate = (time: number) => {
-				if (!isInView || !gridParams) {
+				if (!isInViewRef.current || !gridParams) {
 					return;
 				}
 
@@ -176,15 +179,16 @@ export const FlickeringGrid: React.FC<FlickeringGridProps> = ({
 
 			intersectionObserver = new IntersectionObserver(
 				([entry]) => {
-					setIsInView(entry.isIntersecting);
+					const wasInView = isInViewRef.current;
+					isInViewRef.current = entry.isIntersecting;
+					if (entry.isIntersecting && !wasInView) {
+						lastTime = performance.now();
+						animationFrameId = requestAnimationFrame(animate);
+					}
 				},
 				{ threshold: 0 },
 			);
 			intersectionObserver.observe(canvas);
-
-			if (isInView) {
-				animationFrameId = requestAnimationFrame(animate);
-			}
 		}
 
 		return () => {
@@ -198,7 +202,7 @@ export const FlickeringGrid: React.FC<FlickeringGridProps> = ({
 				intersectionObserver.disconnect();
 			}
 		};
-	}, [setupCanvas, updateSquares, drawGrid, width, height, isInView]);
+	}, [setupCanvas, updateSquares, drawGrid, width, height]);
 
 	return (
 		<div

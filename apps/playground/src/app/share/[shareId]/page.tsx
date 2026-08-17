@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { cache } from "react";
 
 import { ReadOnlyChatMessages } from "@/components/playground/chat-ui";
 import { ForkChatButton } from "@/components/playground/fork-chat-button";
@@ -119,25 +120,36 @@ function meetsIndexThreshold(messages: SharedMessage[]): boolean {
 	return hasValidUserTurn && hasValidAssistantTurn;
 }
 
+// cache() dedupes the generateMetadata + page calls within a request — the
+// fetch itself is no-store, so nothing persists beyond the render pass.
+const getSharedChat = cache(
+	async (shareId: string): Promise<SharedChatResponse | null> => {
+		const config = getConfig();
+		const response = await fetch(
+			`${config.apiBackendUrl}/public/chats/share/${shareId}`,
+			{ cache: "no-store" },
+		);
+		if (!response.ok) {
+			return null;
+		}
+		return (await response.json()) as SharedChatResponse;
+	},
+);
+
 export async function generateMetadata({
 	params,
 }: {
 	params: Promise<{ shareId: string }>;
 }): Promise<Metadata> {
 	const { shareId } = await params;
-	const config = getConfig();
 
 	let title = "Shared Chat";
 	let description = FALLBACK_SHARE_DESCRIPTION;
 	let indexable = true;
 
 	try {
-		const response = await fetch(
-			`${config.apiBackendUrl}/public/chats/share/${shareId}`,
-			{ cache: "no-store" },
-		);
-		if (response.ok) {
-			const data = (await response.json()) as SharedChatResponse;
+		const data = await getSharedChat(shareId);
+		if (data) {
 			const flatTitle = data.share.title?.replace(/\s+/g, " ").trim();
 			if (flatTitle) {
 				title =
@@ -186,19 +198,12 @@ export default async function SharedChatPage({
 	params: Promise<{ shareId: string }>;
 }) {
 	const { shareId } = await params;
-	const config = getConfig();
-	const response = await fetch(
-		`${config.apiBackendUrl}/public/chats/share/${shareId}`,
-		{
-			cache: "no-store",
-		},
-	);
+	const data = await getSharedChat(shareId);
 
-	if (!response.ok) {
+	if (!data) {
 		notFound();
 	}
 
-	const data = (await response.json()) as SharedChatResponse;
 	const messages = data.share.messages.map(toUiMessage);
 
 	const shareUrl = `https://lounge.llmgateway.io/share/${data.share.id}`;

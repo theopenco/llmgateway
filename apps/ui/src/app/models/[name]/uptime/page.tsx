@@ -6,12 +6,12 @@ import {
 	ShieldCheck,
 	Zap,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
-import { ModelUptimeCharts } from "@/components/models/model-uptime-charts";
 import { Badge } from "@/lib/components/badge";
 import {
 	Card,
@@ -29,6 +29,14 @@ import {
 } from "@llmgateway/models";
 
 import type { Metadata } from "next";
+
+// The uptime charts pull in recharts; load them lazily so the chart library
+// stays out of the route's initial bundle.
+const ModelUptimeCharts = dynamic(() =>
+	import("@/components/models/model-uptime-charts").then(
+		(mod) => mod.ModelUptimeCharts,
+	),
+);
 
 interface PageProps {
 	params: Promise<{ name: string }>;

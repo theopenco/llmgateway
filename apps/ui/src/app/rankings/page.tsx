@@ -1,9 +1,7 @@
+import dynamic from "next/dynamic";
+
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
-import {
-	RankingsContent,
-	type RankingsModelMeta,
-} from "@/components/rankings/rankings-content";
 import { JsonLd } from "@/components/seo/json-ld";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -13,7 +11,16 @@ import {
 	type ModelDefinition,
 } from "@llmgateway/models";
 
+import type { RankingsModelMeta } from "@/components/rankings/rankings-content";
 import type { Metadata } from "next";
+
+// The rankings list pulls in recharts; load it lazily so the chart library
+// stays out of the route's initial bundle.
+const RankingsContent = dynamic(() =>
+	import("@/components/rankings/rankings-content").then(
+		(mod) => mod.RankingsContent,
+	),
+);
 
 export const revalidate = 300;
 
