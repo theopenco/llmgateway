@@ -52,6 +52,7 @@ import {
 	isTopUpVelocityEnabled,
 	isTopUpVelocityGatedOrg,
 	PATH_RATE_LIMITS,
+	resolveTrustTierOverride,
 	spendDailyKey,
 	spendMonthlyKey,
 } from "@llmgateway/shared";
@@ -1585,6 +1586,8 @@ const getOrganizationLimits = createRoute({
 						// enterprise orgs have no gateway rate limits or spend caps at all
 						enterprise: z.boolean(),
 						planClass: z.enum(["regular", "dev", "chat"]),
+						// True when support pinned the tier; progression does not apply.
+						tierOverridden: z.boolean(),
 						// whether daily/monthly USD spend caps apply (regular PAYG orgs)
 						capsApply: z.boolean(),
 						plan: z.string(),
@@ -1734,6 +1737,7 @@ organization.openapi(getOrganizationLimits, async (c) => {
 	return c.json({
 		enterprise,
 		planClass,
+		tierOverridden: resolveTrustTierOverride(org) !== null,
 		capsApply,
 		plan: org.plan,
 		accountAgeDays,

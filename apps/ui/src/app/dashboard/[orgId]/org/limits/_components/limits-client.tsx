@@ -124,9 +124,9 @@ export function LimitsClient() {
 													Current tier
 												</CardTitle>
 												<CardDescription>
-													You qualify by whichever is higher — account age or
-													lifetime credits usage (net of refunds; BYOK usage
-													doesn't count).
+													{data.tierOverridden
+														? "Your organization's tier has been set by LLM Gateway support."
+														: "You qualify by whichever is higher — account age or lifetime credits usage (net of refunds; BYOK usage doesn't count)."}
 												</CardDescription>
 											</div>
 											<Badge className="shrink-0 text-base" variant="secondary">
@@ -200,8 +200,9 @@ export function LimitsClient() {
 								</Card>
 							)}
 
-							{/* Next tier */}
-							{data.planClass === "regular" && (
+							{/* Next tier — hidden when support pinned the tier; progression
+							    does not apply to a pinned org. */}
+							{data.planClass === "regular" && !data.tierOverridden && (
 								<Card>
 									<CardHeader>
 										<CardTitle className="flex items-center gap-2">

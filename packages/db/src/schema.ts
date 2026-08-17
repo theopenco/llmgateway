@@ -268,6 +268,11 @@ export const organization = pgTable(
 		paymentFailureCount: integer().notNull().default(0),
 		lastPaymentFailureAt: timestamp(),
 		paymentFailureStartedAt: timestamp(),
+		// Admin-set trust-tier pin (0-4). When set it takes precedence over the
+		// computed age/spend tier everywhere (RPM multiplier, spend caps, top-up
+		// allowance) — both to hold an abusive org down and to lift a vetted org
+		// up. NULL = automatic ladder.
+		trustTierOverride: integer(),
 		// Organization kind:
 		// - "default": regular dashboard/team org.
 		// - "devpass": per-user personal org backing the Dev Plans (DevPass) product.

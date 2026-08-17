@@ -219,6 +219,26 @@ describe("checkAndReserveTopUp", () => {
 		expect(result.capUsd).toBe(10_000);
 	});
 
+	it("admin trustTierOverride pins the top-up cap in both directions", async () => {
+		// Pin UP: brand-new org lifted to T3 => $10,000/24h despite age floors.
+		const lifted = await checkAndReserveTopUp({
+			org: { ...t0Org, trustTierOverride: 3 },
+			amountUsd: 4000,
+		});
+		expect(lifted.allowed).toBe(true);
+		expect(lifted.capUsd).toBe(10_000);
+		await releaseTopUpReservation("org-1", 4000);
+
+		// Pin DOWN: aged, high-spend org held at the T0 $100 cap.
+		state.lifetimeSpendUsd = "50000";
+		const held = await checkAndReserveTopUp({
+			org: { ...orgAgedDays(365), trustTierOverride: 0 },
+			amountUsd: 150,
+		});
+		expect(held.allowed).toBe(false);
+		expect(held.capUsd).toBe(100);
+	});
+
 	it("spend alone does not raise the cap for a brand-new org", async () => {
 		// Day-one account with heavy usage: the min-age floors hold it at
 		// Tier 0 ($100/24h) no matter how much it burned.

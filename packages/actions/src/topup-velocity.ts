@@ -46,6 +46,7 @@ export interface TopUpVelocityOrg {
 	kind?: string | null;
 	plan?: string | null;
 	createdAt: Date;
+	trustTierOverride?: number | null;
 }
 
 export interface TopUpVelocityResult {

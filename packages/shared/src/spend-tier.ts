@@ -326,18 +326,45 @@ function accountAgeDays(createdAt: Date | string, now: number): number {
 	return (now - createdMs) / DAY_MS;
 }
 
+/** Org fields the tier resolver reads. */
+export interface SpendTierOrg {
+	createdAt: Date;
+	/** Admin-set tier pin (0-4); takes precedence over the computed ladder. */
+	trustTierOverride?: number | null;
+}
+
 /**
- * Resolve an org's unified trust tier from its account age and lifetime usage
- * spend. Returns the highest tier whose age threshold is met, or whose spend
- * threshold is met while the account also satisfies the tier's minimum age.
- * The floor means spend alone never promotes a brand-new account: no amount
- * of day-one burn can unlock higher caps or top-up allowances.
+ * The org's admin-set tier pin, clamped to the ladder, or null when the org
+ * follows the automatic ladder.
+ */
+export function resolveTrustTierOverride(org: {
+	trustTierOverride?: number | null;
+}): number | null {
+	const override = org.trustTierOverride;
+	if (override === null || override === undefined) {
+		return null;
+	}
+	const max = SPEND_TIER_DEFAULTS.length - 1;
+	return Math.min(max, Math.max(0, Math.floor(override)));
+}
+
+/**
+ * Resolve an org's unified trust tier. An admin-set `trustTierOverride` wins
+ * outright — both to hold an abusive org down and to lift a vetted org past
+ * the age floors. Otherwise: the highest tier whose age threshold is met, or
+ * whose spend threshold is met while the account also satisfies the tier's
+ * minimum age. The floor means spend alone never promotes a brand-new
+ * account: no amount of day-one burn can unlock higher caps or allowances.
  */
 export function getOrgSpendTier(
-	org: { createdAt: Date },
+	org: SpendTierOrg,
 	lifetimeSpend: number,
 	now: number = Date.now(),
 ): ResolvedSpendTier {
+	const override = resolveTrustTierOverride(org);
+	if (override !== null) {
+		return resolveTier(SPEND_TIER_DEFAULTS[override]);
+	}
 	const ageDays = accountAgeDays(org.createdAt, now);
 	for (let i = SPEND_TIER_DEFAULTS.length - 1; i >= 0; i--) {
 		const d = SPEND_TIER_DEFAULTS[i];
@@ -370,13 +397,18 @@ export interface NextSpendTierInfo extends ResolvedSpendTier {
 /**
  * The next tier above an org's current one, with what it takes to reach it:
  * wait until the age threshold, or meet the spend threshold once the account
- * is at least `minAgeDaysRequired` days old. Returns null at the top tier.
+ * is at least `minAgeDaysRequired` days old. Returns null at the top tier —
+ * and for pinned orgs (`trustTierOverride` set): a pinned tier neither ages
+ * nor spends its way up, so there is no progression to advertise.
  */
 export function getNextSpendTier(
-	org: { createdAt: Date },
+	org: SpendTierOrg,
 	lifetimeSpend: number,
 	now: number = Date.now(),
 ): NextSpendTierInfo | null {
+	if (resolveTrustTierOverride(org) !== null) {
+		return null;
+	}
 	const current = getOrgSpendTier(org, lifetimeSpend, now);
 	const next = SPEND_TIER_DEFAULTS.find((d) => d.tier === current.tier + 1);
 	if (!next) {
@@ -474,6 +506,7 @@ export interface SpendCapOrg {
 	kind?: string | null;
 	plan?: string | null;
 	createdAt: Date;
+	trustTierOverride?: number | null;
 }
 
 /** Only regular pay-as-you-go orgs are capped; devpass/chat/enterprise are not. */

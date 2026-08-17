@@ -296,6 +296,7 @@ export {
 	limitHitsKey,
 	PATH_RATE_LIMITS,
 	resolvePathRateLimit,
+	resolveTrustTierOverride,
 	SPEND_TIER_DEFAULTS,
 	spendDailyKey,
 	spendMonthlyKey,
@@ -310,6 +311,7 @@ export {
 	type PlanClass,
 	type ResolvedSpendTier,
 	type SpendCapOrg,
+	type SpendTierOrg,
 	type SpendTierDefaults,
 } from "./spend-tier.js";
 

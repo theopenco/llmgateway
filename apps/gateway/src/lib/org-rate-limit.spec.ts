@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { getNextSpendTier } from "@llmgateway/shared";
+
 import {
 	baseLimitEnvVar,
 	checkOrgRateLimit,
@@ -216,6 +218,42 @@ describe("getOrgSpendTier", () => {
 			tier: 1,
 			rpmMultiplier: 3,
 		});
+	});
+
+	it("admin trustTierOverride takes precedence in both directions", () => {
+		// Pin UP: brand-new $0 org lifted straight to T4 (past the age floors).
+		expect(
+			getOrgSpendTier({ createdAt: daysAgo(0), trustTierOverride: 4 }, 0, NOW),
+		).toMatchObject({ tier: 4, topUpDailyCapUsd: 20_000 });
+
+		// Pin DOWN: an aged, high-spend org held at T0 regardless.
+		expect(
+			getOrgSpendTier(
+				{ createdAt: daysAgo(365), trustTierOverride: 0 },
+				50_000,
+				NOW,
+			).tier,
+		).toBe(0);
+
+		// Out-of-range pins clamp to the ladder.
+		expect(
+			getOrgSpendTier({ createdAt: daysAgo(0), trustTierOverride: 99 }, 0, NOW)
+				.tier,
+		).toBe(4);
+
+		// Null/undefined = automatic ladder.
+		expect(
+			getOrgSpendTier(
+				{ createdAt: daysAgo(31), trustTierOverride: null },
+				0,
+				NOW,
+			).tier,
+		).toBe(2);
+
+		// A pinned org has no next-tier progression to advertise.
+		expect(
+			getNextSpendTier({ createdAt: daysAgo(0), trustTierOverride: 1 }, 0, NOW),
+		).toBeNull();
 	});
 
 	it("respects env overrides of the min-age floors", () => {

@@ -1,0 +1,1 @@
+ALTER TABLE "organization" ADD COLUMN "trust_tier_override" integer;

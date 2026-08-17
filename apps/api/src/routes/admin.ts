@@ -108,6 +108,7 @@ import {
 	getOrgSpendTier,
 	getPlanClass,
 	parseUsedModel,
+	resolveTrustTierOverride,
 } from "@llmgateway/shared";
 import {
 	getResendClient,
@@ -484,6 +485,9 @@ const organizationsListSchema = z.object({
 const trustTierSchema = z.object({
 	exempt: z.enum(["none", "enterprise", "dev", "chat"]),
 	tier: z.number(),
+	// True when an admin pinned the tier (trustTierOverride); the pin wins
+	// over the computed age/spend ladder.
+	overridden: z.boolean(),
 	accountAgeDays: z.number(),
 	qualifyingSpendUsd: z.number(),
 	rpmMultiplier: z.number(),
@@ -3009,6 +3013,7 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 						? ("chat" as const)
 						: ("none" as const),
 		tier: trustTierResolved.tier,
+		overridden: resolveTrustTierOverride(org) !== null,
 		accountAgeDays: Math.floor(
 			(Date.now() - org.createdAt.getTime()) / 86_400_000,
 		),
@@ -7143,6 +7148,9 @@ const manageOrganizationRoute = createRoute({
 						apiKeyLimit: z.number().int().min(0).max(100000).nullable(),
 						// Null clears the override and reverts to the plan default.
 						projectLimit: z.number().int().min(0).max(100000).nullable(),
+						// Trust-tier pin (0-4); takes precedence over the computed
+						// age/spend ladder. Null reverts to the automatic ladder.
+						trustTierOverride: z.number().int().min(0).max(4).nullable(),
 						// Null clears the plan term (open-ended plan).
 						planExpiresAt: planTermDateSchema,
 						planStartedAt: planTermDateSchema,
@@ -7167,6 +7175,7 @@ const manageOrganizationRoute = createRoute({
 						seats: z.number().int().nullable(),
 						apiKeyLimit: z.number().int().nullable(),
 						projectLimit: z.number().int().nullable(),
+						trustTierOverride: z.number().int().nullable(),
 						planExpiresAt: z.string().nullable(),
 						planStartedAt: z.string().nullable(),
 						isTrialActive: z.boolean(),
@@ -7199,6 +7208,7 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 		seats,
 		apiKeyLimit,
 		projectLimit,
+		trustTierOverride,
 		planExpiresAt,
 		planStartedAt,
 		isTrialActive,
@@ -7264,6 +7274,7 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 			seats,
 			apiKeyLimit,
 			projectLimit,
+			trustTierOverride,
 			planExpiresAt: expiresAt,
 			planStartedAt: startedAt,
 			isTrialActive,
@@ -7288,6 +7299,8 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 			previousApiKeyLimit: org.apiKeyLimit,
 			newApiKeyLimit: apiKeyLimit,
 			previousProjectLimit: org.projectLimit,
+			previousTrustTierOverride: org.trustTierOverride,
+			newTrustTierOverride: trustTierOverride,
 			newProjectLimit: projectLimit,
 			previousPlanExpiresAt: org.planExpiresAt?.toISOString() ?? null,
 			newPlanExpiresAt: expiresAt?.toISOString() ?? null,
@@ -7307,6 +7320,7 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 		seats,
 		apiKeyLimit,
 		projectLimit,
+		trustTierOverride,
 		planExpiresAt: expiresAt?.toISOString() ?? null,
 		planStartedAt: startedAt?.toISOString() ?? null,
 		isTrialActive,

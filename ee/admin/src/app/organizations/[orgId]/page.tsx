@@ -346,7 +346,10 @@ export default async function OrganizationPage({
 						<Badge variant={getPlanBadgeVariant(org.plan)}>{org.plan}</Badge>
 						{trustTier &&
 							(trustTier.exempt === "none" ? (
-								<Badge variant="default">Trust Tier {trustTier.tier}</Badge>
+								<Badge variant="default">
+									Trust Tier {trustTier.tier}
+									{trustTier.overridden ? " (manual)" : ""}
+								</Badge>
 							) : (
 								<Badge variant="outline">
 									{trustTier.exempt === "enterprise"
@@ -390,9 +393,10 @@ export default async function OrganizationPage({
 							{creditsFormatter.format(trustTier.dailyCapUsd)}/day ·{" "}
 							{creditsFormatter.format(trustTier.monthlyCapUsd)}/month ·{" "}
 							{creditsFormatter.format(trustTier.topUpDailyCapUsd)}/24h top-ups
-							— qualifies via {trustTier.accountAgeDays}d age /{" "}
-							{creditsFormatter.format(trustTier.qualifyingSpendUsd)} net
-							credits usage
+							—{" "}
+							{trustTier.overridden
+								? "pinned by admin (override active)"
+								: `qualifies via ${trustTier.accountAgeDays}d age / ${creditsFormatter.format(trustTier.qualifyingSpendUsd)} net credits usage`}
 						</p>
 					)}
 				</div>
@@ -408,6 +412,7 @@ export default async function OrganizationPage({
 						seats={org.seats ?? null}
 						apiKeyLimit={org.apiKeyLimit ?? null}
 						projectLimit={org.projectLimit ?? null}
+						trustTierOverride={trustTier?.overridden ? trustTier.tier : null}
 						planExpiresAt={org.planExpiresAt ?? null}
 						planStartedAt={org.planStartedAt ?? null}
 						isTrialActive={org.isTrialActive ?? false}
