@@ -1,1 +1,0 @@
-CREATE INDEX "transaction_org_topup_created_at_idx" ON "transaction" ("organization_id","created_at") WHERE "type" = 'credit_topup';

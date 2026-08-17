@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "7200d9d8-82f8-42c9-913a-ba7caddb0063",
-  "prevId": "2579aceb-26ba-41b7-bf79-562636a965e4",
+  "id": "e2f2a0b1-e5af-441d-a2cc-abcb5d516af7",
+  "prevId": "beece86d-a9ec-4356-8865-7546ec066b4f",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -493,6 +493,12 @@
     {
       "isRlsEnabled": false,
       "name": "sso_role_mapping",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "system_setting",
       "entityType": "tables",
       "schema": "public"
     },
@@ -6789,6 +6795,35 @@
       "table": "guardrail_config"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "project_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "guardrail_config"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "true",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "inherit_organization",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "guardrail_config"
+    },
+    {
       "type": "boolean",
       "typeSchema": null,
       "notNull": true,
@@ -6922,6 +6957,19 @@
       "generated": null,
       "identity": null,
       "name": "organization_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "guardrail_rule"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "project_id",
       "entityType": "columns",
       "schema": "public",
       "table": "guardrail_rule"
@@ -21067,6 +21115,64 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
+      "table": "system_setting"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "system_setting"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "system_setting"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "enabled",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "system_setting"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
       "table": "transaction"
     },
     {
@@ -24805,12 +24911,75 @@
           "opclass": null
         }
       ],
+      "isUnique": true,
+      "where": "\"project_id\" IS NULL",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "guardrail_config_organization_id_unique",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "guardrail_config"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "project_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": "\"project_id\" IS NOT NULL",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "guardrail_config_project_id_unique",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "guardrail_config"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "organization_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
       "isUnique": false,
       "where": null,
       "with": "",
       "method": "btree",
       "concurrently": false,
       "name": "guardrail_rule_organization_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "guardrail_rule"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "project_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "guardrail_rule_project_id_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "guardrail_rule"
@@ -27892,34 +28061,6 @@
       "nameExplicit": true,
       "columns": [
         {
-          "value": "organization_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "created_at",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": "\"type\" = 'credit_topup'",
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "transaction_org_topup_created_at_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "transaction"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
           "value": "stripe_refund_id",
           "isExpression": false,
           "asc": true,
@@ -29287,6 +29428,23 @@
     {
       "nameExplicit": false,
       "columns": [
+        "project_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "project",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "guardrail_config_project_id_project_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "guardrail_config"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "organization_id"
       ],
       "schemaTo": "public",
@@ -29297,6 +29455,23 @@
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "guardrail_rule_organization_id_organization_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "guardrail_rule"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "project_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "project",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "guardrail_rule_project_id_project_id_fkey",
       "entityType": "fks",
       "schema": "public",
       "table": "guardrail_rule"
@@ -31418,6 +31593,16 @@
         "id"
       ],
       "nameExplicit": false,
+      "name": "system_setting_pkey",
+      "schema": "public",
+      "table": "system_setting",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
       "name": "transaction_pkey",
       "schema": "public",
       "table": "transaction",
@@ -31832,17 +32017,6 @@
       "name": "end_user_session_token_key",
       "schema": "public",
       "table": "end_user_session",
-      "entityType": "uniques"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "organization_id"
-      ],
-      "nullsNotDistinct": false,
-      "name": "guardrail_config_organization_id_key",
-      "schema": "public",
-      "table": "guardrail_config",
       "entityType": "uniques"
     },
     {

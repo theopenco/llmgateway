@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "c7d30238-1663-416b-8ec6-b5567c650f06",
-  "prevId": "7200d9d8-82f8-42c9-913a-ba7caddb0063",
+  "id": "beece86d-a9ec-4356-8865-7546ec066b4f",
+  "prevId": "2579aceb-26ba-41b7-bf79-562636a965e4",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -277,12 +277,6 @@
     {
       "isRlsEnabled": false,
       "name": "model_survey_response",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "org_limit_hit_daily",
       "entityType": "tables",
       "schema": "public"
     },
@@ -6795,6 +6789,35 @@
       "table": "guardrail_config"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "project_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "guardrail_config"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "true",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "inherit_organization",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "guardrail_config"
+    },
+    {
       "type": "boolean",
       "typeSchema": null,
       "notNull": true,
@@ -6928,6 +6951,19 @@
       "generated": null,
       "identity": null,
       "name": "organization_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "guardrail_rule"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "project_id",
       "entityType": "columns",
       "schema": "public",
       "table": "guardrail_rule"
@@ -12697,138 +12733,6 @@
       "entityType": "columns",
       "schema": "public",
       "table": "model_survey_response"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "org_limit_hit_daily"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "org_limit_hit_daily"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "org_limit_hit_daily"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "organization_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "org_limit_hit_daily"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "day",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "org_limit_hit_daily"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "limit_type",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "org_limit_hit_daily"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "''",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "endpoint_key",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "org_limit_hit_daily"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "hit_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "org_limit_hit_daily"
-    },
-    {
-      "type": "numeric",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'0'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "blocked_usd",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "org_limit_hit_daily"
     },
     {
       "type": "text",
@@ -24943,12 +24847,75 @@
           "opclass": null
         }
       ],
+      "isUnique": true,
+      "where": "\"project_id\" IS NULL",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "guardrail_config_organization_id_unique",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "guardrail_config"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "project_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": "\"project_id\" IS NOT NULL",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "guardrail_config_project_id_unique",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "guardrail_config"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "organization_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
       "isUnique": false,
       "where": null,
       "with": "",
       "method": "btree",
       "concurrently": false,
       "name": "guardrail_rule_organization_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "guardrail_rule"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "project_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "guardrail_rule_project_id_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "guardrail_rule"
@@ -26261,27 +26228,6 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "model_survey_response"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "day",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "org_limit_hit_daily_day_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "org_limit_hit_daily"
     },
     {
       "nameExplicit": true,
@@ -28051,34 +27997,6 @@
       "nameExplicit": true,
       "columns": [
         {
-          "value": "organization_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "created_at",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": "\"type\" = 'credit_topup'",
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "transaction_org_topup_created_at_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "transaction"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
           "value": "stripe_refund_id",
           "isExpression": false,
           "asc": true,
@@ -29446,6 +29364,23 @@
     {
       "nameExplicit": false,
       "columns": [
+        "project_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "project",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "guardrail_config_project_id_project_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "guardrail_config"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "organization_id"
       ],
       "schemaTo": "public",
@@ -29456,6 +29391,23 @@
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "guardrail_rule_organization_id_organization_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "guardrail_rule"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "project_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "project",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "guardrail_rule_project_id_project_id_fkey",
       "entityType": "fks",
       "schema": "public",
       "table": "guardrail_rule"
@@ -29629,23 +29581,6 @@
       "entityType": "fks",
       "schema": "public",
       "table": "model_survey_response"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "organization_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "organization",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "org_limit_hit_daily_organization_id_organization_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "org_limit_hit_daily"
     },
     {
       "nameExplicit": false,
@@ -31234,16 +31169,6 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "org_limit_hit_daily_pkey",
-      "schema": "public",
-      "table": "org_limit_hit_daily",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
       "name": "organization_pkey",
       "schema": "public",
       "table": "organization",
@@ -31885,20 +31810,6 @@
       "table": "model_provider_mapping_history_hourly"
     },
     {
-      "nameExplicit": false,
-      "columns": [
-        "organization_id",
-        "day",
-        "limit_type",
-        "endpoint_key"
-      ],
-      "nullsNotDistinct": false,
-      "name": "org_limit_hit_daily_organization_id_day_limit_type_endpoint_key_unique",
-      "entityType": "uniques",
-      "schema": "public",
-      "table": "org_limit_hit_daily"
-    },
-    {
       "nameExplicit": true,
       "columns": [
         "stripe_payment_intent_id"
@@ -32032,17 +31943,6 @@
       "name": "end_user_session_token_key",
       "schema": "public",
       "table": "end_user_session",
-      "entityType": "uniques"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "organization_id"
-      ],
-      "nullsNotDistinct": false,
-      "name": "guardrail_config_organization_id_key",
-      "schema": "public",
-      "table": "guardrail_config",
       "entityType": "uniques"
     },
     {
