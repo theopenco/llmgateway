@@ -46,7 +46,108 @@ import { useAuth } from "@/lib/auth-client";
 
 import { Logo } from "./ui/logo";
 
+import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
+
+interface NavItem {
+	href: string;
+	label: string;
+	icon: LucideIcon;
+	/**
+	 * "prefix" highlights the entry on its detail routes too; "exact" keeps the
+	 * highlight on the index page only.
+	 */
+	match: "exact" | "prefix";
+}
+
+const navItems: NavItem[] = [
+	{ href: "/", label: "Dashboard", icon: LayoutDashboard, match: "exact" },
+	{
+		href: "/organizations",
+		label: "Organizations",
+		icon: Building2,
+		match: "prefix",
+	},
+	{ href: "/devpass", label: "DevPass", icon: Sparkles, match: "prefix" },
+	{
+		href: "/chat-plans",
+		label: "Lounge Plans",
+		icon: MessageSquare,
+		match: "prefix",
+	},
+	{
+		href: "/global-stats",
+		label: "Global Stats",
+		icon: BarChart3,
+		match: "prefix",
+	},
+	{ href: "/discounts", label: "Discounts", icon: Percent, match: "exact" },
+	{
+		href: "/rate-limits",
+		label: "Global Rate Limits",
+		icon: Gauge,
+		match: "exact",
+	},
+	{ href: "/providers", label: "Providers", icon: Server, match: "exact" },
+	{
+		href: "/provider-credentials",
+		label: "Provider Credentials",
+		icon: KeyRound,
+		match: "prefix",
+	},
+	{ href: "/models", label: "Models", icon: Cpu, match: "exact" },
+	{
+		href: "/model-provider-mappings",
+		label: "Model Mappings",
+		icon: GitMerge,
+		match: "exact",
+	},
+	{
+		href: "/routing-analytics",
+		label: "Routing Analytics",
+		icon: Route,
+		match: "prefix",
+	},
+	{
+		href: "/unstable-mappings",
+		label: "Unstable Mappings",
+		icon: Activity,
+		match: "prefix",
+	},
+	{
+		href: "/contact-submissions",
+		label: "Contact Submissions",
+		icon: Mail,
+		match: "prefix",
+	},
+	{
+		href: "/provider-listing-requests",
+		label: "Provider Requests",
+		icon: Building2,
+		match: "prefix",
+	},
+	{
+		href: "/chat-support-logs",
+		label: "Chat Support Logs",
+		icon: MessageCircle,
+		match: "prefix",
+	},
+	{
+		href: "/payment-failures",
+		label: "Payment Failures",
+		icon: AlertTriangle,
+		match: "prefix",
+	},
+];
+
+function isActive(item: NavItem, pathname: string): boolean {
+	if (item.href === "/") {
+		return pathname === "/" || pathname === "";
+	}
+	return item.match === "exact"
+		? pathname === item.href
+		: pathname.startsWith(item.href);
+}
 
 interface AdminShellProps {
 	children: ReactNode;
@@ -113,26 +214,6 @@ export function AdminShell({ children, signedIn }: AdminShellProps) {
 		);
 	}
 
-	const isDashboard = pathname === "/" || pathname === "";
-	const isOrganizations = pathname.startsWith("/organizations");
-	const isDevpass = pathname.startsWith("/devpass");
-	const isChatPlans = pathname.startsWith("/chat-plans");
-	const isGlobalStats = pathname.startsWith("/global-stats");
-	const isDiscounts = pathname === "/discounts";
-	const isRateLimits = pathname === "/rate-limits";
-	const isProviders = pathname === "/providers";
-	const isProviderCredentials = pathname.startsWith("/provider-credentials");
-	const isModels = pathname === "/models";
-	const isModelProviderMappings = pathname === "/model-provider-mappings";
-	const isRoutingAnalytics = pathname.startsWith("/routing-analytics");
-	const isUnstableMappings = pathname.startsWith("/unstable-mappings");
-	const isContactSubmissions = pathname.startsWith("/contact-submissions");
-	const isProviderListingRequests = pathname.startsWith(
-		"/provider-listing-requests",
-	);
-	const isChatSupportLogs = pathname.startsWith("/chat-support-logs");
-	const isPaymentFailures = pathname.startsWith("/payment-failures");
-
 	const handleSignOut = async () => {
 		await signOut({
 			fetchOptions: {
@@ -169,148 +250,22 @@ export function AdminShell({ children, signedIn }: AdminShellProps) {
 					<SidebarGroup>
 						<SidebarGroupLabel>Main</SidebarGroupLabel>
 						<SidebarMenu>
-							<SidebarMenuItem>
-								<Link href="/" className="block">
-									<SidebarMenuButton isActive={isDashboard} size="lg">
-										<LayoutDashboard className="h-4 w-4" />
-										<span>Dashboard</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
-							<SidebarMenuItem>
-								<Link href="/organizations" className="block">
-									<SidebarMenuButton isActive={isOrganizations} size="lg">
-										<Building2 className="h-4 w-4" />
-										<span>Organizations</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
-							<SidebarMenuItem>
-								<Link href="/devpass" className="block">
-									<SidebarMenuButton isActive={isDevpass} size="lg">
-										<Sparkles className="h-4 w-4" />
-										<span>DevPass</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
-							<SidebarMenuItem>
-								<Link href="/chat-plans" className="block">
-									<SidebarMenuButton isActive={isChatPlans} size="lg">
-										<MessageSquare className="h-4 w-4" />
-										<span>Lounge Plans</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
-							<SidebarMenuItem>
-								<Link href="/global-stats" className="block">
-									<SidebarMenuButton isActive={isGlobalStats} size="lg">
-										<BarChart3 className="h-4 w-4" />
-										<span>Global Stats</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
-							<SidebarMenuItem>
-								<Link href="/discounts" className="block">
-									<SidebarMenuButton isActive={isDiscounts} size="lg">
-										<Percent className="h-4 w-4" />
-										<span>Discounts</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
-							<SidebarMenuItem>
-								<Link href="/rate-limits" className="block">
-									<SidebarMenuButton isActive={isRateLimits} size="lg">
-										<Gauge className="h-4 w-4" />
-										<span>Global Rate Limits</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
-							<SidebarMenuItem>
-								<Link href="/providers" className="block">
-									<SidebarMenuButton isActive={isProviders} size="lg">
-										<Server className="h-4 w-4" />
-										<span>Providers</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
-							<SidebarMenuItem>
-								<Link href="/provider-credentials" className="block">
-									<SidebarMenuButton isActive={isProviderCredentials} size="lg">
-										<KeyRound className="h-4 w-4" />
-										<span>Provider Credentials</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
-							<SidebarMenuItem>
-								<Link href="/models" className="block">
-									<SidebarMenuButton isActive={isModels} size="lg">
-										<Cpu className="h-4 w-4" />
-										<span>Models</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
-							<SidebarMenuItem>
-								<Link href="/model-provider-mappings" className="block">
-									<SidebarMenuButton
-										isActive={isModelProviderMappings}
-										size="lg"
-									>
-										<GitMerge className="h-4 w-4" />
-										<span>Model Mappings</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
-							<SidebarMenuItem>
-								<Link href="/routing-analytics" className="block">
-									<SidebarMenuButton isActive={isRoutingAnalytics} size="lg">
-										<Route className="h-4 w-4" />
-										<span>Routing Analytics</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
-							<SidebarMenuItem>
-								<Link href="/unstable-mappings" className="block">
-									<SidebarMenuButton isActive={isUnstableMappings} size="lg">
-										<Activity className="h-4 w-4" />
-										<span>Unstable Mappings</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
-							<SidebarMenuItem>
-								<Link href="/contact-submissions" className="block">
-									<SidebarMenuButton isActive={isContactSubmissions} size="lg">
-										<Mail className="h-4 w-4" />
-										<span>Contact Submissions</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
-							<SidebarMenuItem>
-								<Link href="/provider-listing-requests" className="block">
-									<SidebarMenuButton
-										isActive={isProviderListingRequests}
-										size="lg"
-									>
-										<Building2 className="h-4 w-4" />
-										<span>Provider Requests</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
-							<SidebarMenuItem>
-								<Link href="/chat-support-logs" className="block">
-									<SidebarMenuButton isActive={isChatSupportLogs} size="lg">
-										<MessageCircle className="h-4 w-4" />
-										<span>Chat Support Logs</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
-							<SidebarMenuItem>
-								<Link href="/payment-failures" className="block">
-									<SidebarMenuButton isActive={isPaymentFailures} size="lg">
-										<AlertTriangle className="h-4 w-4" />
-										<span>Payment Failures</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
+							{navItems.map((item) => {
+								const Icon = item.icon;
+								return (
+									<SidebarMenuItem key={item.href}>
+										<Link href={item.href} prefetch={true} className="block">
+											<SidebarMenuButton
+												isActive={isActive(item, pathname)}
+												size="lg"
+											>
+												<Icon className="h-4 w-4" />
+												<span>{item.label}</span>
+											</SidebarMenuButton>
+										</Link>
+									</SidebarMenuItem>
+								);
+							})}
 						</SidebarMenu>
 					</SidebarGroup>
 				</SidebarContent>

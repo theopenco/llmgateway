@@ -25,6 +25,25 @@ Guardrails run on every API request, scanning message content for:
 
 When a violation is detected, you control what happens: block the request, redact the content, or log a warning.
 
+## Organization and Project Scopes
+
+Guardrails are configured for the whole organization by default, and every project uses that configuration.
+
+A project can opt out and define its own guardrails instead — useful when one application needs stricter or looser rules than the rest of the organization. Turn off **Use organization guardrails** in the project's Guardrails settings, and that project's configuration and custom rules fully replace the organization's for its traffic.
+
+Exactly one scope is ever in force for a request:
+
+| Project setting                     | What runs on that project's requests                      |
+| ----------------------------------- | --------------------------------------------------------- |
+| **Use organization guardrails** on  | The organization configuration and its custom rules       |
+| **Use organization guardrails** off | The project's own configuration and its custom rules only |
+
+Opting out never inherits partially: the organization's custom rules stop applying to that project too, and the project starts with a copy of the organization's current settings so nothing is silently dropped at the moment you opt out. Other projects are unaffected either way.
+
+Both pages state which scope wins. A project page names itself and, while it inherits, shows the organization settings read-only; the organization page lists any projects that override it, so it is clear those settings apply everywhere else.
+
+Only organization owners and admins can change guardrails, at either scope.
+
 ## System Rules
 
 Built-in rules protect against common threats:
@@ -54,8 +73,15 @@ Identifies personal information:
 - Social Security Numbers
 - Credit card numbers
 - IP addresses
+- Passport and driver's license numbers
 
 When the action is set to **redact**, PII is replaced with placeholders like `[EMAIL_REDACTED]`.
+
+Detection is validated rather than purely pattern-based, so identifiers that only
+look like PII are left alone: card numbers must pass the Luhn checksum, phone
+numbers need grouping separators or a nearby phone keyword, and passport and
+license numbers need a nearby keyword. A bare numeric id such as a product id,
+order number or unix timestamp is therefore never redacted as a phone number.
 
 ### Secrets Detection
 
@@ -65,6 +91,11 @@ Detects credentials and API keys:
 - Generic API keys
 - Passwords in common formats
 - Private keys
+
+High-entropy checks and placeholder filtering keep ordinary content out of the
+way: git SHAs and hex digests are not treated as AWS secrets, and template
+values such as `YOUR_API_KEY`, `${OPENAI_API_KEY}` or `********` are not treated
+as credentials.
 
 ### File Type Restrictions
 
@@ -90,7 +121,7 @@ For each rule, choose how to respond:
 
 ## Custom Rules
 
-Create organization-specific rules for your use case:
+Create custom rules for your use case, on the organization or on a single project:
 
 ### Blocked Terms
 
@@ -133,10 +164,11 @@ Request → Guardrails Check → Action Based on Rules → Forward to Model (if 
 ```
 
 1. **Request received** — API request comes in with messages
-2. **Content scanned** — All text content is checked against enabled rules
-3. **Violations detected** — Matches are identified and logged
-4. **Action taken** — Based on rule configuration (block/redact/warn)
-5. **Request proceeds** — If not blocked, the (potentially redacted) request continues
+2. **Scope resolved** — The project's own guardrails if it overrides, otherwise the organization's
+3. **Content scanned** — All text content is checked against enabled rules
+4. **Violations detected** — Matches are identified and logged
+5. **Action taken** — Based on rule configuration (block/redact/warn)
+6. **Request proceeds** — If not blocked, the (potentially redacted) request continues
 
 ## Best Practices
 
