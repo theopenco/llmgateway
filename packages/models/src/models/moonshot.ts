@@ -260,40 +260,6 @@ export const moonshotModels = [
 				],
 			},
 			{
-				providerId: "novita",
-				externalId: "moonshotai/kimi-k2.5",
-				// About 40% of requests to novita's kimi-k2.5 deployment never
-				// respond — the connection just stays open until it times out. Plain
-				// chat, tool calls and tool results all hang at the same rate, while
-				// kimi-k2.6 and kimi-k2.7-code on the same key are unaffected
-				// (measured 2026-08-17), so keep it out of routing and e2e.
-				stability: "unstable",
-				test: "skip",
-				inputPrice: "0.6e-6",
-				cachedInputPrice: "0.1e-6",
-				outputPrice: "3.0e-6",
-				requestPrice: "0",
-				contextSize: 262144,
-				maxOutput: 262144,
-				reasoning: true,
-				// Moonshot thinking is a binary toggle (`thinking.type`), not a
-				// graduated effort: none/minimal disable it, low..max enable it.
-				reasoningEfforts: [
-					"none",
-					"minimal",
-					"low",
-					"medium",
-					"high",
-					"xhigh",
-					"max",
-				],
-				streaming: true,
-				vision: true,
-				tools: true,
-				jsonOutput: true,
-				jsonOutputSchema: true,
-			},
-			{
 				providerId: "together-ai",
 				externalId: "moonshotai/Kimi-K2.5",
 				// Together.ai intermittently returns 500 for this model (~98.7% uptime)
