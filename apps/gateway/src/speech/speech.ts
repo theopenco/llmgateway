@@ -38,6 +38,7 @@ import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
 import {
@@ -66,6 +67,7 @@ import type {
 	VertexTokenType,
 } from "@llmgateway/models";
 import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
+import type { Context } from "hono";
 
 const speechRequestSchema = z.object({
 	model: z.string().openapi({
@@ -341,12 +343,15 @@ function getAvailableCredits(
 	};
 }
 
-function assertCreditsAvailable(
+async function assertCreditsAvailable(
+	c: Context,
 	organization: InferSelectModel<typeof tables.organization>,
 	modelDef: ModelDefinition,
 	insufficientCreditsMessage: string,
 	devPlanCreditLimitMessage: (renewalDate: string) => string,
 ) {
+	await assertSpendLimit(c, organization, modelDef.free === true);
+
 	const {
 		devPlanCreditsRemaining,
 		chatPlanCreditsRemaining,
@@ -803,7 +808,8 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 			}
 			usedToken = readProviderKey(providerKey);
 		} else if (retryProject.mode === "credits") {
-			assertCreditsAvailable(
+			await assertCreditsAvailable(
+				c,
 				retryOrganization,
 				modelDef,
 				`Organization ${retryOrganization.id} has insufficient credits`,
@@ -833,7 +839,8 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 			if (providerKey) {
 				usedToken = readProviderKey(providerKey);
 			} else {
-				assertCreditsAvailable(
+				await assertCreditsAvailable(
+					c,
 					retryOrganization,
 					modelDef,
 					"No API key set for provider and organization has insufficient credits",

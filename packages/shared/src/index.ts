@@ -282,5 +282,39 @@ export {
 
 export { parseUsedModel, regionFromUsedModel } from "./used-model.js";
 
+export {
+	baseLimitEnvVar,
+	getBaseLimit,
+	getNextSpendTier,
+	getOrgSpendTier,
+	getPlanClass,
+	getRateLimitEnvNumber,
+	isCappedOrg,
+	isOrgRateLimitEnabled,
+	isSpendCapEnabled,
+	isTopUpVelocityEnabled,
+	isTopUpVelocityGatedOrg,
+	limitHitsKey,
+	PATH_RATE_LIMITS,
+	resolvePathRateLimit,
+	resolveTrustTierOverride,
+	SPEND_TIER_DEFAULTS,
+	spendDailyKey,
+	spendMonthlyKey,
+	spendUtcDateKey,
+	spendUtcMonthKey,
+	TOPUP_VELOCITY_RESERVATION_TTL_SECONDS,
+	TOPUP_VELOCITY_WINDOW_MS,
+	topUpVelocityKey,
+	type NextSpendTierInfo,
+	type OrgLimitType,
+	type PathRateLimitConfig,
+	type PlanClass,
+	type ResolvedSpendTier,
+	type SpendCapOrg,
+	type SpendTierOrg,
+	type SpendTierDefaults,
+} from "./spend-tier.js";
+
 export * from "./components/ui/index.js";
 export { discountFraction, isValidDiscount } from "./lib/discount.js";

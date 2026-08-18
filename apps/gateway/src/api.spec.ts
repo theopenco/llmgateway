@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
+import { redisClient } from "@llmgateway/cache";
 import { cdb, db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
@@ -3392,6 +3393,55 @@ describe("api", () => {
 		expect(json.error.message).toBe(
 			"Organization org-id has insufficient credits",
 		);
+	});
+
+	test("/v1/chat/completions returns 429 when the org is over its daily spend cap", async () => {
+		await harness.setProjectMode("credits");
+		await harness.setOrganizationCredits("100");
+		await db
+			.update(tables.organization)
+			.set({ retentionLevel: "none" })
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-spend-cap",
+			token: "real-token-spend-cap",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const now = new Date();
+		const dayKey = `${now.getUTCFullYear()}-${String(
+			now.getUTCMonth() + 1,
+		).padStart(2, "0")}-${String(now.getUTCDate()).padStart(2, "0")}`;
+		const counterKey = `spend_cap:daily:org-id:${dayKey}`;
+
+		process.env.GATEWAY_SPEND_CAPS_ENABLED = "true";
+		// Well above any tier's daily cap so this holds regardless of the seeded
+		// org's age/spend tier.
+		await redisClient.set(counterKey, "1000000");
+		try {
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-spend-cap",
+				},
+				body: JSON.stringify({
+					model: "gpt-4o-mini",
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(429);
+			const json = await res.json();
+			expect(json.error.type).toBe("rate_limit_error");
+			expect(json.error.message).toContain("spend limit");
+		} finally {
+			delete process.env.GATEWAY_SPEND_CAPS_ENABLED;
+			await redisClient.del(counterKey);
+		}
 	});
 
 	test("/v1/embeddings hybrid fallback requires credits", async () => {

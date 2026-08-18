@@ -45,6 +45,7 @@ interface ManageOrgDialogProps {
 	seats: number | null;
 	apiKeyLimit: number | null;
 	projectLimit: number | null;
+	trustTierOverride: number | null;
 	planExpiresAt: string | null;
 	planStartedAt: string | null;
 	isTrialActive: boolean;
@@ -56,6 +57,7 @@ interface ManageOrgDialogProps {
 		seats: number | null;
 		apiKeyLimit: number | null;
 		projectLimit: number | null;
+		trustTierOverride: number | null;
 		planExpiresAt: string | null;
 		planStartedAt: string | null;
 		isTrialActive: boolean;
@@ -117,6 +119,7 @@ export function ManageOrgDialog({
 	seats,
 	apiKeyLimit,
 	projectLimit,
+	trustTierOverride,
 	planExpiresAt,
 	planStartedAt,
 	isTrialActive,
@@ -140,6 +143,9 @@ export function ManageOrgDialog({
 	);
 	const [projectLimitValue, setProjectLimitValue] = useState(
 		projectLimit === null ? "" : String(projectLimit),
+	);
+	const [trustTierValue, setTrustTierValue] = useState(
+		trustTierOverride === null ? "auto" : String(trustTierOverride),
 	);
 	const [startedAtValue, setStartedAtValue] = useState(
 		toDateInputValue(planStartedAt),
@@ -301,6 +307,8 @@ export function ManageOrgDialog({
 			seats: seatsToSave,
 			apiKeyLimit: apiKeyLimitToSave,
 			projectLimit: projectLimitToSave,
+			trustTierOverride:
+				trustTierValue === "auto" ? null : Number(trustTierValue),
 			planStartedAt: startedAtValue === "" ? null : startedAtValue,
 			planExpiresAt: expiresAtValue === "" ? null : expiresAtValue,
 			isTrialActive: trialActiveValue,
@@ -647,6 +655,32 @@ export function ManageOrgDialog({
 							{PLAN_DEFAULT_PROJECTS[planValue]} projects per organization).
 							When set, this value takes precedence when enforcing the cap on
 							project creation.
+						</p>
+					</div>
+
+					<div className="space-y-2">
+						<Label htmlFor="manageTrustTier">Trust tier override</Label>
+						<Select value={trustTierValue} onValueChange={setTrustTierValue}>
+							<SelectTrigger id="manageTrustTier">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="auto">
+									Automatic (age/spend ladder)
+								</SelectItem>
+								<SelectItem value="0">Tier 0 — tightest limits</SelectItem>
+								<SelectItem value="1">Tier 1</SelectItem>
+								<SelectItem value="2">Tier 2</SelectItem>
+								<SelectItem value="3">Tier 3</SelectItem>
+								<SelectItem value="4">Tier 4 — highest limits</SelectItem>
+							</SelectContent>
+						</Select>
+						<p className="text-xs text-muted-foreground">
+							Pins the anti-abuse trust tier (RPM multiplier, daily/monthly
+							spend caps, top-up allowance). Takes precedence over the computed
+							age/spend ladder in both directions — hold an abusive org down or
+							lift a vetted one past the age floors. Automatic follows the
+							ladder.
 						</p>
 					</div>
 
