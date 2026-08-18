@@ -52,6 +52,7 @@ import {
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
 import {
+	getGoogleVertexPublisherModelPath,
 	getProviderDefaultBaseUrl,
 	getProviderHeaders,
 	managedCredentialOptions,
@@ -890,8 +891,9 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			}
 		} else if (isGoogleVertex) {
 			// All exposed google-vertex embedding models go through PredictionService's
-			// :predict endpoint, which accepts API-key auth via ?key= just like the
-			// chat path. The text-embedding-* family natively batches up to 250
+			// :predict endpoint. API keys can use the projectless publisher-model
+			// resource, while OAuth credentials still require an explicit project.
+			// The text-embedding-* family natively batches up to 250
 			// inputs per request; gemini-embedding-001 is the one model that only
 			// accepts a single input per call, so we reject batches for it upfront
 			// rather than fanning out silently (which would hide cost/quota/latency).
@@ -916,7 +918,16 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 					configIndex,
 					variant: envVariant,
 				});
-			if (!vertexProjectId) {
+			vertexTokenType = resolveVertexTokenType(
+				"google-vertex",
+				providerKey
+					? (providerKey.options ?? undefined)
+					: managedCredentialOptions(managedKey),
+				configIndex,
+				providerKey !== undefined || managedKey !== undefined,
+				envVariant,
+			);
+			if (!vertexProjectId && vertexTokenType === "oauth") {
 				return {
 					kind: "json_error",
 					status: 500,
@@ -938,24 +949,11 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 					variant: envVariant,
 				}) ?? "global";
 
-			// OAuth tokens are sent via the Authorization header (below); only API
-			// keys go in the `?key=` query param. Resolve once so the header and
-			// the query param agree. No region-env override here, so providerKey
-			// presence is an accurate BYOK signal.
-			vertexTokenType = resolveVertexTokenType(
-				"google-vertex",
-				providerKey
-					? (providerKey.options ?? undefined)
-					: managedCredentialOptions(managedKey),
-				configIndex,
-				providerKey !== undefined || managedKey !== undefined,
-				envVariant,
-			);
 			const vertexAuthQuery =
 				vertexTokenType === "oauth"
 					? ""
 					: `?key=${encodeURIComponent(usedToken)}`;
-			upstreamUrl = `${resolvedBaseUrl}/v1/projects/${vertexProjectId}/locations/${vertexRegion}/publishers/google/models/${upstreamModel}:predict${vertexAuthQuery}`;
+			upstreamUrl = `${resolvedBaseUrl}${getGoogleVertexPublisherModelPath(upstreamModel, vertexProjectId, vertexRegion)}:predict${vertexAuthQuery}`;
 			requestBody = {
 				instances: googleInputs.map((text) => ({ content: text })),
 			};

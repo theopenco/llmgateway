@@ -15,7 +15,7 @@ describe("getManagedCredentialConfigKeys", () => {
 		expect(keys).toContainEqual({
 			key: "project",
 			envVar: "LLM_GOOGLE_CLOUD_PROJECT",
-			required: true,
+			required: false,
 		});
 		expect(keys).toContainEqual({
 			key: "region",
@@ -30,19 +30,8 @@ describe("getManagedCredentialConfigKeys", () => {
 });
 
 describe("getMissingManagedCredentialKeys", () => {
-	it("reports required settings that are absent or blank", () => {
-		expect(getMissingManagedCredentialKeys("google-vertex", {})).toEqual([
-			"project",
-		]);
-		expect(
-			getMissingManagedCredentialKeys("google-vertex", { project: "   " }),
-		).toEqual(["project"]);
-	});
-
-	it("passes once every required setting is supplied", () => {
-		expect(
-			getMissingManagedCredentialKeys("google-vertex", { project: "my-proj" }),
-		).toEqual([]);
+	it("does not require optional Vertex project settings", () => {
+		expect(getMissingManagedCredentialKeys("google-vertex", {})).toEqual([]);
 	});
 
 	it("requires the base URL for providers whose endpoint comes from env", () => {

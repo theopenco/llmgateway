@@ -107,18 +107,27 @@ function buildVertexCompatibleEndpoint(
 	const projectId =
 		credentialConfig?.project ??
 		providerKeyOptions?.google_vertex_project_id ??
-		getProviderEnvValue(provider, "project", configIndex, undefined, variant);
+		(skipEnvVars
+			? undefined
+			: getProviderEnvValue(
+					provider,
+					"project",
+					configIndex,
+					undefined,
+					variant,
+				));
 	const region =
 		credentialConfig?.region ??
-		getProviderEnvValue(provider, "region", configIndex, "global", variant) ??
+		(skipEnvVars
+			? undefined
+			: getProviderEnvValue(
+					provider,
+					"region",
+					configIndex,
+					"global",
+					variant,
+				)) ??
 		"global";
-
-	if (!projectId) {
-		const providerEnv = getProviderEnvConfig(provider);
-		throw new Error(
-			`${providerEnv?.required.project ?? "LLM_GOOGLE_CLOUD_PROJECT"} environment variable is required for Vertex-compatible model "${model}"`,
-		);
-	}
 
 	// Only Google Vertex supports OAuth bearer auth; Quartz always uses the
 	// `?key=` API-key query param.
@@ -133,7 +142,18 @@ function buildVertexCompatibleEndpoint(
 					variant,
 				))
 			: "api-key";
-	const baseEndpoint = `${url}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:${endpoint}`;
+	if (!projectId && (provider === "quartz" || tokenType === "oauth")) {
+		const providerEnv = getProviderEnvConfig(provider);
+		const projectEnv =
+			providerEnv?.required.project ??
+			providerEnv?.optional?.project ??
+			"LLM_GOOGLE_CLOUD_PROJECT";
+		throw new Error(
+			`${projectEnv} environment variable is required for Vertex-compatible model "${model}"`,
+		);
+	}
+
+	const baseEndpoint = `${url}${getGoogleVertexPublisherModelPath(model, projectId, region)}:${endpoint}`;
 	const queryParams = [];
 	if (token && tokenType === "api-key") {
 		queryParams.push(`key=${token}`);
@@ -144,6 +164,17 @@ function buildVertexCompatibleEndpoint(
 	return queryParams.length > 0
 		? `${baseEndpoint}?${queryParams.join("&")}`
 		: baseEndpoint;
+}
+
+export function getGoogleVertexPublisherModelPath(
+	model: string,
+	projectId?: string,
+	region = "global",
+): string {
+	const modelPath = `publishers/google/models/${model}`;
+	return projectId
+		? `/v1/projects/${projectId}/locations/${region}/${modelPath}`
+		: `/v1/${modelPath}`;
 }
 
 /**
