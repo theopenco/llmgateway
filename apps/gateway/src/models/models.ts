@@ -5,6 +5,7 @@ import { logger, toError } from "@llmgateway/logger";
 import {
 	models as modelsList,
 	providers,
+	resolveTimeBasedPricing,
 	type ProviderModelMapping,
 	type ModelDefinition,
 } from "@llmgateway/models";
@@ -320,10 +321,13 @@ modelsApi.openapi(listModels, async (c) => {
 							top_provider: {
 								is_moderated: true,
 							},
-							providers: [serializeProviderMapping(provider, model)],
+							providers: [
+								serializeProviderMapping(provider, model, currentDate),
+							],
 							pricing: {
 								...buildPricingFields(
 									hasPricing(provider) ? provider : undefined,
+									currentDate,
 								),
 								web_search: "0",
 								internal_reasoning: "0",
@@ -402,10 +406,10 @@ modelsApi.openapi(listModels, async (c) => {
 					is_moderated: true,
 				},
 				providers: model.providers.map((provider: ProviderModelMapping) =>
-					serializeProviderMapping(provider, model),
+					serializeProviderMapping(provider, model, currentDate),
 				),
 				pricing: {
-					...buildPricingFields(pricingProvider),
+					...buildPricingFields(pricingProvider, currentDate),
 					web_search: "0", // Not defined in model definitions yet
 					internal_reasoning: "0", // Not defined in model definitions yet
 				},
@@ -456,6 +460,7 @@ modelsApi.openapi(listModels, async (c) => {
 function serializeProviderMapping(
 	provider: ProviderModelMapping,
 	model: ModelDefinition,
+	currentDate: Date,
 ) {
 	// Find the provider definition to get cancellation support
 	const providerDef = providers.find((p) => p.id === provider.providerId);
@@ -466,7 +471,9 @@ function serializeProviderMapping(
 		supportedVideoSizes: provider.supportedVideoSizes,
 		supportsVideoAudio: provider.supportsVideoAudio,
 		supportsVideoWithoutAudio: provider.supportsVideoWithoutAudio,
-		pricing: hasPricing(provider) ? buildPricingFields(provider) : undefined,
+		pricing: hasPricing(provider)
+			? buildPricingFields(provider, currentDate)
+			: undefined,
 		streaming: provider.streaming,
 		vision: provider.vision ?? false,
 		realtime: provider.realtime === true ? true : undefined,
@@ -531,10 +538,17 @@ function hasPricing(p: ProviderModelMapping): boolean {
 // per-provider pricing and (with a representative mapping) the model-level
 // pricing, so the two expose the same level of detail. A missing mapping or
 // missing field defaults to "0".
-function buildPricingFields(p: ProviderModelMapping | undefined) {
+function buildPricingFields(
+	p: ProviderModelMapping | undefined,
+	currentDate: Date,
+) {
+	const timeBasedPricing = p
+		? resolveTimeBasedPricing(p, currentDate)
+		: undefined;
+
 	return {
-		prompt: p?.inputPrice?.toString() ?? "0",
-		completion: p?.outputPrice?.toString() ?? "0",
+		prompt: timeBasedPricing?.inputPrice ?? "0",
+		completion: timeBasedPricing?.outputPrice ?? "0",
 		image: p?.imageInputPrice?.toString() ?? "0",
 		input_audio: p?.inputAudioPrice?.toString(),
 		input_audio_cache_read: p?.cachedInputAudioPrice?.toString(),
@@ -556,7 +570,7 @@ function buildPricingFields(p: ProviderModelMapping | undefined) {
 				)
 			: undefined,
 		request: p?.requestPrice?.toString() ?? "0",
-		input_cache_read: p?.cachedInputPrice?.toString() ?? "0",
+		input_cache_read: timeBasedPricing?.cachedInputPrice ?? "0",
 		input_cache_write: p?.cacheWriteInputPrice?.toString() ?? "0",
 		input_cache_write_1h: p?.cacheWriteInputPrice1h?.toString() ?? "0",
 		ocr_page: p?.ocrPagePrice?.toString(),
@@ -568,10 +582,16 @@ function buildPricingFields(p: ProviderModelMapping | undefined) {
 // one. Token-priced models compare on input + output price; models priced by
 // other units (OCR per page, video per second, per request, image) fall back to
 // those. Lower is cheaper; a mapping with no comparable price sorts last.
-function pricingScore(p: ProviderModelMapping): number {
-	const input = p.inputPrice !== undefined ? Number(p.inputPrice) : undefined;
+function pricingScore(p: ProviderModelMapping, currentDate: Date): number {
+	const timeBasedPricing = resolveTimeBasedPricing(p, currentDate);
+	const input =
+		p.inputPrice !== undefined
+			? Number(timeBasedPricing.inputPrice)
+			: undefined;
 	const output =
-		p.outputPrice !== undefined ? Number(p.outputPrice) : undefined;
+		p.outputPrice !== undefined
+			? Number(timeBasedPricing.outputPrice)
+			: undefined;
 	const tokenScore =
 		input !== undefined || output !== undefined
 			? (input ?? 0) + (output ?? 0)
@@ -621,7 +641,10 @@ function pickPricingProvider(
 	const cheapest = (candidates: ProviderModelMapping[]) =>
 		candidates.reduce<ProviderModelMapping | undefined>(
 			(best, p) =>
-				best === undefined || pricingScore(p) < pricingScore(best) ? p : best,
+				best === undefined ||
+				pricingScore(p, currentDate) < pricingScore(best, currentDate)
+					? p
+					: best,
 			undefined,
 		);
 

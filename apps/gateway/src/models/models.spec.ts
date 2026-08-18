@@ -2,7 +2,11 @@ import { describe, expect, test, vi } from "vitest";
 
 import { app } from "@/app.js";
 
-import { models as modelsList, providers } from "@llmgateway/models";
+import {
+	models as modelsList,
+	providers,
+	resolveTimeBasedPricing,
+} from "@llmgateway/models";
 
 import type { ProviderModelMapping } from "@llmgateway/models";
 
@@ -421,10 +425,11 @@ describe("Models API", () => {
 			p.perSecondPrice !== undefined ||
 			p.ocrPagePrice !== undefined;
 		const score = (p: ProviderModelMapping) => {
+			const pricing = resolveTimeBasedPricing(p, now);
 			const input =
-				p.inputPrice !== undefined ? Number(p.inputPrice) : undefined;
+				p.inputPrice !== undefined ? Number(pricing.inputPrice) : undefined;
 			const output =
-				p.outputPrice !== undefined ? Number(p.outputPrice) : undefined;
+				p.outputPrice !== undefined ? Number(pricing.outputPrice) : undefined;
 			if (input !== undefined || output !== undefined) {
 				return (input ?? 0) + (output ?? 0);
 			}
@@ -463,10 +468,12 @@ describe("Models API", () => {
 					: cheapest(mappings.filter((p) => hasPricing(p)));
 
 			expect(model.pricing.prompt).toBe(
-				expected?.inputPrice?.toString() ?? "0",
+				expected ? resolveTimeBasedPricing(expected, now).inputPrice : "0",
 			);
 			expect(model.pricing.input_cache_read).toBe(
-				expected?.cachedInputPrice?.toString() ?? "0",
+				expected
+					? (resolveTimeBasedPricing(expected, now).cachedInputPrice ?? "0")
+					: "0",
 			);
 		}
 
@@ -480,6 +487,46 @@ describe("Models API", () => {
 		expect(deepseek.pricing.prompt).toBe("0.26e-6");
 		expect(deepseek.pricing.completion).toBe("0.38e-6");
 		expect(deepseek.pricing.input_cache_read).toBe("0.13e-6");
+	});
+
+	test.each([
+		{
+			at: "2026-08-20T15:59:59Z",
+			prompt: "0.14e-6",
+			completion: "0.28e-6",
+			cacheRead: "0.028e-6",
+		},
+		{
+			at: "2026-08-20T16:00:00Z",
+			prompt: "0.44e-6",
+			completion: "1.32e-6",
+			cacheRead: "0.014e-6",
+		},
+	])("GET /v1/models publishes scheduled prices at $at", async (expected) => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date(expected.at));
+
+		try {
+			const res = await app.request("/v1/models?mapped=true");
+			expect(res.status).toBe(200);
+
+			const json = await res.json();
+			const mapping = json.data.find(
+				(model: { id: string }) => model.id === "bytedance/deepseek-v4-flash",
+			);
+
+			expect(mapping).toBeDefined();
+			expect(mapping.pricing.prompt).toBe(expected.prompt);
+			expect(mapping.pricing.completion).toBe(expected.completion);
+			expect(mapping.pricing.input_cache_read).toBe(expected.cacheRead);
+			expect(mapping.providers[0].pricing).toMatchObject({
+				prompt: expected.prompt,
+				completion: expected.completion,
+				input_cache_read: expected.cacheRead,
+			});
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	test("GET /v1/models reports JSON capabilities only from servable provider mappings", async () => {
