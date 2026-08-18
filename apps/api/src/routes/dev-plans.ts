@@ -3535,7 +3535,17 @@ devPlans.openapi(topUpCredits, async (c) => {
 const redeemResetPass = createRoute({
 	method: "post",
 	path: "/reset-pass/redeem",
-	request: {},
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						confirmHighCycleUsage: z.boolean().optional(),
+					}),
+				},
+			},
+		},
+	},
 	responses: {
 		200: {
 			content: {
@@ -3555,6 +3565,7 @@ const redeemResetPass = createRoute({
 
 devPlans.openapi(redeemResetPass, async (c) => {
 	const user = c.get("user");
+	const { confirmHighCycleUsage = false } = c.req.valid("json");
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -3582,18 +3593,18 @@ devPlans.openapi(redeemResetPass, async (c) => {
 		});
 	}
 
-	// With the monthly credit pool nearly exhausted, a reset would restore a
-	// weekly cap the user can't actually spend against — burning the pass for
-	// almost nothing. The pass keeps until the cycle renews, so hold it.
+	// A reset remains available late in the cycle, but the caller must affirm
+	// that it understands the pass unlocks only the remaining monthly credits.
 	if (
 		getDevPlanCycleUsageFraction(
 			personalOrg.devPlanCreditsUsed,
 			personalOrg.devPlanCreditsLimit,
-		) > DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE
+		) > DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE &&
+		!confirmHighCycleUsage
 	) {
 		throw new HTTPException(400, {
 			message:
-				"You've used more than 90% of this cycle's credit allowance — redeeming now would waste the pass on usage you can't spend. Your pass stays available for when your credits renew.",
+				"You've used more than 90% of this cycle's credit allowance. Confirm that you want to use a Reset Pass with the remaining monthly allowance.",
 		});
 	}
 
