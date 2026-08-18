@@ -12,6 +12,10 @@ import {
 } from "@/lib/self-refund.js";
 import { getStripeCardErrorMessage } from "@/lib/stripe-card-error.js";
 import { forcedThreeDSecureOptions } from "@/lib/three-d-secure.js";
+import {
+	assertTopUpVelocityAllowed,
+	releaseTopUpReservation,
+} from "@/lib/topup-velocity.js";
 import { posthog } from "@/posthog.js";
 import {
 	ensureStripeCustomer,
@@ -34,6 +38,7 @@ import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
 import { resolveDevPassBillingDetails } from "@/utils/plan-billing.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
+import { redisClient } from "@llmgateway/cache";
 import {
 	cdb,
 	db,
@@ -50,6 +55,7 @@ import {
 import { logger } from "@llmgateway/logger";
 import {
 	calculateFees,
+	TOPUP_VELOCITY_RESERVATION_TTL_SECONDS,
 	CREDIT_TOP_UP_MAX_AMOUNT,
 	CREDIT_TOP_UP_MIN_AMOUNT,
 	DEV_PLAN_INCLUDED_RESET_PASSES,
@@ -3378,13 +3384,67 @@ devPlans.openapi(topUpCredits, async (c) => {
 
 	await assertCreditPurchaseAllowed(personalOrg.id);
 
-	const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
-	const paymentMethodId = await resolveDevPassPaymentMethodId(
-		personalOrg,
-		stripeCustomerId,
-	);
+	// DevPass PAYG top-ups land in organization.credits like dashboard top-ups,
+	// so they get the same tier-based velocity gate — before any Stripe
+	// interaction, reserving the worst-case (international-fee) gross.
+	const gateGrossUsd = calculateFees({
+		amount,
+		isInternational: true,
+	}).totalAmount;
 
-	const isInternational = await isInternationalPaymentMethod(paymentMethodId);
+	// Client retries reuse the same purchaseId, and the Stripe idempotency key
+	// below collapses them into ONE PaymentIntent — so the gate and its
+	// reservation must also run once per purchase, or every retry would
+	// double-count the same attempt and can 429 legitimate resubmissions. The
+	// NX marker makes the gate idempotent; retries skip it (the original
+	// attempt's reservation still covers the amount). On failure the marker is
+	// cleared with the reservation so a fresh retry re-gates.
+	const gateMarkerKey = `topup_velocity:devpass_gate:${personalOrg.id}:${purchaseId}`;
+	let firstGateAttempt = true;
+	try {
+		firstGateAttempt =
+			(await redisClient.set(
+				gateMarkerKey,
+				"1",
+				"EX",
+				TOPUP_VELOCITY_RESERVATION_TTL_SECONDS,
+				"NX",
+			)) === "OK";
+	} catch {
+		// Redis unavailable: gate normally (the reservation path degrades to
+		// DB-only inside the check anyway).
+		firstGateAttempt = true;
+	}
+	if (firstGateAttempt) {
+		await assertTopUpVelocityAllowed(personalOrg, gateGrossUsd);
+	}
+	const releaseGate = async () => {
+		if (!firstGateAttempt) {
+			return;
+		}
+		await releaseTopUpReservation(personalOrg.id, gateGrossUsd);
+		try {
+			await redisClient.del(gateMarkerKey);
+		} catch {
+			// Marker expires with its TTL; a stuck marker only skips re-gating.
+		}
+	};
+
+	// A failure before the charge means no money moved — free the reservation.
+	let stripeCustomerId: string;
+	let paymentMethodId: string;
+	let isInternational: boolean;
+	try {
+		stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
+		paymentMethodId = await resolveDevPassPaymentMethodId(
+			personalOrg,
+			stripeCustomerId,
+		);
+		isInternational = await isInternationalPaymentMethod(paymentMethodId);
+	} catch (err) {
+		await releaseGate();
+		throw err;
+	}
 	const feeBreakdown = calculateFees({ amount, isInternational });
 
 	// `baseAmount` in the metadata routes this PaymentIntent through
@@ -3418,6 +3478,8 @@ devPlans.openapi(topUpCredits, async (c) => {
 			{ idempotencyKey: `dev-plan-topup:${personalOrg.id}:${purchaseId}` },
 		);
 	} catch (err) {
+		// The charge did not go through — free the velocity reservation.
+		await releaseGate();
 		const stripeErr = err as { type?: string; code?: string };
 		const cardErrorMessage = getStripeCardErrorMessage(err);
 		if (cardErrorMessage || stripeErr?.code === "card_declined") {
