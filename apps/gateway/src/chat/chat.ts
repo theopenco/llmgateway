@@ -2576,6 +2576,7 @@ chat.openapi(completions, async (c) => {
 	if (organization.plan === "enterprise") {
 		guardrailResult = await checkGuardrails({
 			organizationId: project.organizationId,
+			projectId: project.id,
 			messages: messages as Parameters<typeof checkGuardrails>[0]["messages"],
 		});
 
@@ -3247,6 +3248,11 @@ chat.openapi(completions, async (c) => {
 					message: `Model '${requestedModel}' is not configured to support tool calls. Remove the tools/tool_choice parameter or enable tools for this custom model.`,
 				});
 			}
+			// Custom models are soft-JSON-only by data model: org-model records
+			// carry jsonOutput but no jsonOutputSchema, so both json_object and
+			// json_schema are gated on jsonOutput (a custom model can still reach
+			// an upstream that enforces schema via a catalog mapping; extending
+			// custom models with jsonOutputSchema is a follow-up).
 			if (
 				customModelEntry.jsonOutput === false &&
 				(response_format?.type === "json_object" ||
@@ -4130,17 +4136,16 @@ chat.openapi(completions, async (c) => {
 						return false;
 					}
 					if (
-						response_format?.type === "json_object" ||
-						response_format?.type === "json_schema"
+						response_format?.type === "json_object" &&
+						provider.jsonOutput !== true
 					) {
-						if (provider.jsonOutput !== true) {
-							return false;
-						}
+						return false;
 					}
-					if (response_format?.type === "json_schema") {
-						if (provider.jsonOutputSchema !== true) {
-							return false;
-						}
+					if (
+						response_format?.type === "json_schema" &&
+						provider.jsonOutputSchema !== true
+					) {
+						return false;
 					}
 					if (hasImages && provider.vision !== true) {
 						return false;
@@ -9167,6 +9172,9 @@ chat.openapi(completions, async (c) => {
 				const streamingResponseHealingEnabled = plugins?.some(
 					(p) => p.id === "response-healing",
 				);
+				// Note: the two-tier capability check (json_object -> jsonOutput,
+				// json_schema -> jsonOutputSchema) already happened at validation
+				// and routing; this is a healing decision, not a capability gate.
 				const streamingIsJsonResponseFormat =
 					response_format?.type === "json_object" ||
 					response_format?.type === "json_schema";
@@ -13677,6 +13685,9 @@ chat.openapi(completions, async (c) => {
 	const responseHealingEnabled = plugins?.some(
 		(p) => p.id === "response-healing",
 	);
+	// Note: this groups both JSON modes for healing; the two-tier
+	// capability gate (json_object -> jsonOutput, json_schema ->
+	// jsonOutputSchema) is enforced upstream at validation/routing.
 	const isJsonResponseFormat =
 		response_format?.type === "json_object" ||
 		response_format?.type === "json_schema";

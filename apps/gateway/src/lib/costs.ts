@@ -231,7 +231,8 @@ function getPricingForTokenCount(
  * cost engine sees them, so the same rule applies. Anthropic is the same:
  * `output_tokens` already includes thinking tokens, which is why
  * extract-token-usage builds totalTokens as prompt + output without re-adding
- * reasoning.
+ * reasoning. Baidu's Qianfan makes the inclusion unusually explicit: a
+ * thinking-only reply comes back with `completion_tokens === reasoning_tokens`.
  *
  * Adding reasoning on top for a provider on this list would roughly double the
  * billed output — and the reported `total_tokens` — on reasoning requests.
@@ -252,6 +253,7 @@ const COMPLETION_INCLUDES_REASONING = new Set([
 	"anthropic",
 	"aws-mantle",
 	"azure",
+	"baidu",
 	"bytedance",
 	"canopywave",
 	"cerebras",

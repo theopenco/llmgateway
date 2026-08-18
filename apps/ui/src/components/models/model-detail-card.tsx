@@ -123,7 +123,7 @@ export function ModelDetailCard({ model }: ModelDetailCardProps) {
 		if (provider.jsonOutputSchema) {
 			capabilities.push({
 				icon: FileJson2,
-				label: "JSON Schema",
+				label: "Structured JSON",
 				color: "text-teal-500",
 			});
 		}

@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import { apiAuth, redisClient } from "@/auth/config.js";
+import { getClientIpFromContext } from "@/lib/client-ip.js";
 import {
 	notifyEnterpriseContact,
 	notifyProviderContact,
@@ -132,26 +133,6 @@ const submitEnterpriseContact = createRoute({
 	},
 });
 
-function extractClientIP(c: {
-	req: { header: (name: string) => string | undefined };
-}): string | null {
-	// CF-Connecting-IP is set by Cloudflare and cannot be spoofed by clients.
-	// This is the only fully trusted header when deployed behind Cloudflare.
-	const cfConnectingIP = c.req.header("CF-Connecting-IP");
-	if (cfConnectingIP) {
-		return cfConnectingIP;
-	}
-
-	// X-Forwarded-For is spoofable unless stripped by a trusted reverse proxy.
-	// Only use as a fallback (e.g. non-Cloudflare environments like local dev).
-	const xForwardedFor = c.req.header("X-Forwarded-For");
-	if (xForwardedFor) {
-		return xForwardedFor.split(",")[0]?.trim() ?? null;
-	}
-
-	return c.req.header("X-Real-IP") ?? null;
-}
-
 function checkForSpam(text: string): boolean {
 	const lowerText = text.toLowerCase();
 	return spamKeywords.some((keyword) => lowerText.includes(keyword));
@@ -219,7 +200,7 @@ async function updateProviderRequestStatus(
 
 publicContact.openapi(submitEnterpriseContact, async (c) => {
 	const validatedData = c.req.valid("json");
-	const ipAddress = extractClientIP(c);
+	const ipAddress = getClientIpFromContext(c);
 	const userAgent = c.req.header("User-Agent") ?? null;
 
 	let submission: { id: string };
@@ -585,7 +566,7 @@ publicContact.openapi(submitProviderContact, async (c) => {
 	// trusting the client-supplied value, so a listing can't be attributed to an
 	// address the submitter doesn't own.
 	const email = session.user.email;
-	const ipAddress = extractClientIP(c);
+	const ipAddress = getClientIpFromContext(c);
 	const userAgent = c.req.header("User-Agent") ?? null;
 
 	let submission: { id: string };

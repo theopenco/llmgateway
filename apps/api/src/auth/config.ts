@@ -7,13 +7,19 @@ import { createAuthMiddleware } from "better-auth/api";
 import { Redis } from "ioredis";
 
 import { getApiBaseUrl } from "@/lib/api-url.js";
+import { getClientIpFromHeaders } from "@/lib/client-ip.js";
 import { acceptPendingInvitesForUser } from "@/lib/team-invites.js";
+import {
+	getBlockedSignupCountries,
+	isCountryBlocked,
+} from "@/utils/country-blocking.js";
 import { getOrCreateDefaultOrganization } from "@/utils/default-org.js";
 import { notifyUserSignup } from "@/utils/discord.js";
 import { validateEmail } from "@/utils/email-validation.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 import { resolveSignupName } from "@/utils/infer-name.js";
 import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
+import { getCountryFromHeaders } from "@/utils/request-country.js";
 import {
 	autoJoinByEmailDomain,
 	autoJoinSsoProviderOrganization,
@@ -789,11 +795,14 @@ If you didn't request this, you can safely ignore this email. Your password won'
 				? {
 						sendOnSignUp: true,
 						autoSignInAfterVerification: true,
-						afterEmailVerification: async (user: {
-							id: string;
-							email: string;
-							name?: string | null;
-						}) => {
+						afterEmailVerification: async (
+							user: {
+								id: string;
+								email: string;
+								name?: string | null;
+							},
+							request?: Request,
+						) => {
 							// Fetch the user's onboarding status to include in Resend
 							const dbUser = await db.query.user.findFirst({
 								where: {
@@ -819,7 +828,12 @@ If you didn't request this, you can safely ignore this email. Your password won'
 							});
 
 							// Send Discord notification for new verified signup
-							await notifyUserSignup(user.email, user.name, "Email");
+							await notifyUserSignup(
+								user.email,
+								user.name,
+								"Email",
+								getCountryFromHeaders(request?.headers),
+							);
 						},
 						sendVerificationEmail: async (
 							{
@@ -908,6 +922,51 @@ The LLM Gateway Team`.trim();
 						}
 					}
 
+					const ipAddress = getClientIpFromHeaders(ctx.headers) ?? "unknown";
+
+					// Block sign-ups from the countries configured in the admin
+					// dashboard, using the country reported by the load balancer.
+					// Sign-in stays open so
+					// existing accounts keep working. Social sign-up goes through
+					// /sign-in/social with `requestSignUp: true` (both social providers
+					// run with disableImplicitSignUp), so match that too.
+					const isSignupAttempt =
+						ctx.path.startsWith("/sign-up") ||
+						(ctx.path === "/sign-in/social" &&
+							(ctx.body as { requestSignUp?: boolean } | undefined)
+								?.requestSignUp === true);
+					if (isSignupAttempt) {
+						const blockedCountries = await getBlockedSignupCountries();
+						const country = blockedCountries.length
+							? getCountryFromHeaders(ctx.headers)
+							: undefined;
+						// An undetectable country never blocks, so surface it: with a
+						// blocklist configured it means the load balancer geo header is missing.
+						if (blockedCountries.length && !country) {
+							logger.warn("Signup country could not be determined", {
+								ip: ipAddress,
+								path: ctx.path,
+							});
+						}
+						if (isCountryBlocked(country, blockedCountries)) {
+							logger.warn("Signup blocked by country policy", {
+								ip: ipAddress,
+								country,
+								path: ctx.path,
+							});
+							return new Response(
+								JSON.stringify({
+									error: "signup_not_available",
+									message: "Sign-ups are not available in your region.",
+								}),
+								{
+									status: 403,
+									headers: { "Content-Type": "application/json" },
+								},
+							);
+						}
+					}
+
 					// Apply name fallback for email/password signup before user creation
 					if (ctx.path.startsWith("/sign-up/email")) {
 						const body = ctx.body as
@@ -922,21 +981,6 @@ The LLM Gateway Team`.trim();
 						ctx.path.startsWith("/sign-up") &&
 						process.env.NODE_ENV !== "development"
 					) {
-						// Get IP address from various possible headers, prioritizing CF-Connecting-IP
-						let ipAddress = ctx.headers?.get("cf-connecting-ip");
-						if (!ipAddress) {
-							ipAddress = ctx.headers?.get("x-forwarded-for");
-							if (ipAddress) {
-								// x-forwarded-for can be a comma-separated list, take the first IP
-								ipAddress = ipAddress.split(",")[0]?.trim();
-							} else {
-								ipAddress =
-									ctx.headers?.get("x-real-ip") ??
-									ctx.headers?.get("x-client-ip") ??
-									"unknown";
-							}
-						}
-
 						// Check and record signup attempt with exponential backoff
 						const rateLimitResult =
 							await checkAndRecordSignupAttempt(ipAddress);
@@ -1324,6 +1368,7 @@ The LLM Gateway Team`.trim();
 								newSession.user.email,
 								newSession.user.name,
 								providerName,
+								getCountryFromHeaders(ctx.headers),
 							);
 
 							await createResendContact(

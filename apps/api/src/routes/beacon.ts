@@ -1,7 +1,9 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
+import { getClientIpFromContext } from "@/lib/client-ip.js";
 import { posthog } from "@/posthog.js";
+import { getCountryFromHeaders } from "@/utils/request-country.js";
 
 import { logger } from "@llmgateway/logger";
 
@@ -45,53 +47,26 @@ const beaconRoute = createRoute({
 });
 
 /**
- * Extracts IP address from request headers, supporting both GCP and Cloudflare
- */
-function extractClientIP(c: any): string | null {
-	// Cloudflare provides the connecting IP
-	const cfConnectingIP = c.req.header("CF-Connecting-IP");
-	if (cfConnectingIP) {
-		return cfConnectingIP;
-	}
-
-	// GCP and other providers use X-Forwarded-For
-	const xForwardedFor = c.req.header("X-Forwarded-For");
-	if (xForwardedFor) {
-		// X-Forwarded-For can contain multiple IPs, take the first one
-		return xForwardedFor.split(",")[0].trim();
-	}
-
-	// Fallback to X-Real-IP
-	const xRealIP = c.req.header("X-Real-IP");
-	if (xRealIP) {
-		return xRealIP;
-	}
-
-	// Last resort: direct connection IP (may be proxy/load balancer)
-	return c.req.header("Remote-Addr") ?? null;
-}
-
-/**
  * Extracts region/country information from request headers
  */
-function extractRegionInfo(c: any): { country?: string; region?: string } {
+function extractRegionInfo(headers: Headers): {
+	country?: string;
+	region?: string;
+} {
 	const result: { country?: string; region?: string } = {};
 
-	// Cloudflare provides country code
-	const cfCountry = c.req.header("CF-IPCountry");
-	if (cfCountry && cfCountry !== "XX") {
-		// XX is unknown country in Cloudflare
-		result.country = cfCountry;
-	}
+	// Country comes from whichever geo header the edge proxy in front of the API
+	// attaches — GCP's X-Client-Region or Cloudflare's CF-IPCountry.
+	result.country = getCountryFromHeaders(headers);
 
 	// Cloudflare also provides region/state
-	const cfRegion = c.req.header("CF-Region");
+	const cfRegion = headers.get("CF-Region");
 	if (cfRegion) {
 		result.region = cfRegion;
 	}
 
 	// GCP Cloud Load Balancer headers (if available)
-	const gclbRegion = c.req.header("X-Google-Cloud-Region");
+	const gclbRegion = headers.get("X-Google-Cloud-Region");
 	if (gclbRegion && !result.region) {
 		result.region = gclbRegion;
 	}
@@ -103,14 +78,15 @@ beacon.openapi(beaconRoute, async (c) => {
 	const beaconData = c.req.valid("json");
 
 	// Extract IP and region information
-	const clientIP = extractClientIP(c);
-	const regionInfo = extractRegionInfo(c);
+	const clientIP = getClientIpFromContext(c);
+	const regionInfo = extractRegionInfo(c.req.raw.headers);
 
 	// Determine cloud provider based on headers
 	const cloudProvider = c.req.header("CF-Ray")
 		? "cloudflare"
 		: c.req.header("X-Google-Cloud-Region") ||
-			  c.req.header("X-Cloud-Trace-Context")
+			  c.req.header("X-Cloud-Trace-Context") ||
+			  c.req.header("X-Client-Region")
 			? "gcp"
 			: "unknown";
 

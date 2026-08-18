@@ -1330,6 +1330,21 @@ export const FireworksIconStatic: React.FC<React.SVGProps<SVGSVGElement>> = (
 	</svg>
 );
 
+export const BaiduIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+	<svg
+		xmlns="http://www.w3.org/2000/svg"
+		viewBox="0 0 24 24"
+		fill="currentColor"
+		{...props}
+	>
+		<ellipse cx="5.32" cy="7.51" rx="2.6" ry="3.16" />
+		<ellipse cx="11.44" cy="5.62" rx="2.86" ry="3.42" />
+		<ellipse cx="18.02" cy="7.98" rx="2.79" ry="2.98" />
+		<ellipse cx="21.03" cy="14.15" rx="2.19" ry="2.62" />
+		<path d="M15.4 14.72c-1.2-1.5-2.2-2.87-3.9-2.87s-2.79 1.42-3.72 2.87c-1.02 1.6-3.06 2.4-3.6 3.9-.53 1.5.2 3.05 1.7 3.5 1.5.44 3.2-.3 5.6-.3s4.2.9 5.7.3c1.5-.6 2.1-2.2 1.6-3.7-.5-1.5-2.2-2.2-3.38-3.7z" />
+	</svg>
+);
+
 export const RanoAIIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 	<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" {...props}>
 		<g
@@ -1602,6 +1617,7 @@ export const ProviderIcons = {
 	fireworks: FireworksIcon,
 	runware: RunwareIcon,
 	ranoai: RanoAIIcon,
+	baidu: BaiduIcon,
 } as const;
 
 // Type for provider icon keys
@@ -1654,6 +1670,7 @@ export const providerLogoUrls: Partial<
 	fireworks: ProviderIcons.fireworks,
 	runware: ProviderIcons.runware,
 	ranoai: ProviderIcons.ranoai,
+	baidu: ProviderIcons.baidu,
 };
 
 export const getProviderLogoDarkModeClasses = () => {
