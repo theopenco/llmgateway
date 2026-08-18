@@ -296,7 +296,7 @@ export function LimitsClient() {
 															{e.path}
 														</TableCell>
 														<TableCell className="text-right tabular-nums">
-															{e.rpm.toLocaleString()}
+															{e.rpm > 0 ? e.rpm.toLocaleString() : "Unlimited"}
 														</TableCell>
 													</TableRow>
 												))}

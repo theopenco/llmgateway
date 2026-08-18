@@ -113,6 +113,7 @@ const MODEL_HISTORY_RETENTION_LOCK_KEY = "model_history_retention_cleanup";
 const END_USER_SESSION_CLEANUP_LOCK_KEY = "end_user_session_cleanup";
 const API_KEY_EXPIRATION_LOCK_KEY = "api_key_expiration";
 const LIMIT_HIT_FLUSH_LOCK_KEY = "limit_hit_flush";
+const STALE_TOPUP_PI_LOCK_KEY = "stale_topup_pi_cancel";
 const WEBHOOK_DELIVERY_LOCK_KEY = "platform_webhook_delivery";
 const MARGIN_PAYOUT_LOCK_KEY = "margin_payout";
 const LOCK_DURATION_MINUTES = 5;
@@ -2666,6 +2667,97 @@ async function runLimitHitFlushLoop() {
 	}
 }
 
+// Client-confirmation credit top-ups (create-payment-intent hands the browser
+// a client secret to confirm later) can be abandoned. Their velocity
+// reservation self-expires with its TTL, but the client secret stays
+// confirmable — so stockpiled secrets could later all be confirmed at once,
+// blowing through the top-up cap with no reservation counting them. Cancel
+// PIs still unconfirmed well past the reservation TTL; a genuinely active
+// checkout finishes in minutes, and a canceled PI just means starting over.
+const STALE_TOPUP_PI_MAX_AGE_SECONDS = 35 * 60;
+const STALE_TOPUP_PI_CANCELABLE_STATUSES = [
+	"requires_payment_method",
+	"requires_confirmation",
+	"requires_action",
+] as const;
+
+async function cancelStaleTopUpPaymentIntents(): Promise<number> {
+	const nowSeconds = Math.floor(Date.now() / 1000);
+	const cutoff = nowSeconds - STALE_TOPUP_PI_MAX_AGE_SECONDS;
+	let canceled = 0;
+	for (const status of STALE_TOPUP_PI_CANCELABLE_STATUSES) {
+		// Search is eventually consistent (~1 min lag) — irrelevant at a
+		// 35-minute horizon. One page per status per run bounds Stripe traffic;
+		// leftovers are picked up next run.
+		const page = await getStripe().paymentIntents.search({
+			query: `status:"${status}" AND metadata["flow"]:"client_confirmation" AND created<${cutoff}`,
+			limit: 100,
+		});
+		for (const pi of page.data) {
+			try {
+				await getStripe().paymentIntents.cancel(pi.id, {
+					cancellation_reason: "abandoned",
+				});
+				canceled++;
+			} catch (error) {
+				// Lost a race with a just-started confirmation (or another
+				// canceller) — the PI is no longer cancelable; skip it.
+				logger.warn("Could not cancel stale top-up PaymentIntent", {
+					paymentIntentId: pi.id,
+					status,
+					error: error instanceof Error ? error.message : String(error),
+				});
+			}
+		}
+	}
+	return canceled;
+}
+
+async function runStaleTopUpPiCancelLoop() {
+	if (!process.env.STRIPE_SECRET_KEY) {
+		logger.info(
+			"Stale top-up PaymentIntent cancel loop disabled (no STRIPE_SECRET_KEY)",
+		);
+		return;
+	}
+	activeLoops++;
+	const interval =
+		parseInt(process.env.STALE_TOPUP_PI_CANCEL_INTERVAL_SECONDS || "600", 10) *
+		1000;
+	logger.info(
+		`Starting stale top-up PaymentIntent cancel loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				const lockAcquired = await acquireLock(STALE_TOPUP_PI_LOCK_KEY);
+				if (lockAcquired) {
+					try {
+						const canceled = await cancelStaleTopUpPaymentIntents();
+						if (canceled > 0) {
+							logger.info(`Canceled ${canceled} stale top-up PaymentIntent(s)`);
+						}
+					} finally {
+						await releaseLock(STALE_TOPUP_PI_LOCK_KEY);
+					}
+				}
+
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in stale top-up PaymentIntent cancel loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Stale top-up PaymentIntent cancel loop stopped");
+	}
+}
+
 const MAX_WEBHOOK_ATTEMPTS = 5;
 const WEBHOOK_DELIVERY_BATCH_SIZE = 50;
 
@@ -3062,6 +3154,7 @@ export async function startWorker() {
 	void runEndUserSessionCleanupLoop();
 	void runApiKeyExpirationLoop();
 	void runLimitHitFlushLoop();
+	void runStaleTopUpPiCancelLoop();
 	void runWebhookDeliveryLoop();
 	void runMarginPayoutLoop();
 	void runFollowUpEmailsLoop({

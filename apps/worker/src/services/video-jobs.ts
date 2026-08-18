@@ -3,9 +3,9 @@ import { createHmac } from "node:crypto";
 import { getStopSignal, isStopRequested } from "@/shutdown.js";
 
 import {
+	adjustOrgSpend,
 	managedCredentialOptions,
 	readProviderKey,
-	recordOrgSpend,
 } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import {
@@ -1750,6 +1750,26 @@ function getVideoInputImageCount(job: VideoJobRecord): number {
 	return 0;
 }
 
+// Spend-cap estimate the gateway reserved at submission (stamped on the job
+// as llmgateway_reserved_spend_usd); finalization reconciles it against the
+// actual billed cost. Jobs created before the stamp existed read as 0, so
+// they reconcile to the full billed cost — the pre-reservation behavior.
+function getVideoReservedSpendUsd(job: VideoJobRecord): number {
+	for (const candidate of getVideoMetadataCandidates(job)) {
+		const value = readNestedValue(candidate, "llmgateway_reserved_spend_usd");
+		if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+			return value;
+		}
+		if (typeof value === "string" && value.length > 0) {
+			const parsed = Number(value);
+			if (Number.isFinite(parsed) && parsed >= 0) {
+				return parsed;
+			}
+		}
+	}
+	return 0;
+}
+
 function getVideoImageInputCost(job: VideoJobRecord): number {
 	const pricePerImage = getVideoImageInputPrice(job);
 	if (pricePerImage === null) {
@@ -2018,20 +2038,29 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 		if (claimedJob) {
 			currentJob = claimedJob;
 			// Video jobs finalize here, never through the gateway's insertLog
-			// chokepoint — advance the org's daily/monthly spend-cap counters for
-			// the credits-billed cost (wallet-funded and BYOK jobs bill the org
-			// nothing here; mirror organizationBilledCost).
+			// chokepoint. The gateway already advanced the spend-cap counters by
+			// its submission-time estimate, so settle the difference to the
+			// actual credits-billed cost: completed jobs add (or refund) the
+			// delta, failed jobs refund the whole estimate. Wallet-funded and
+			// BYOK jobs bill the org nothing here; mirror organizationBilledCost.
 			if (
-				claimedJob.status === "completed" &&
 				claimedJob.usedMode === "credits" &&
 				!claimedJob.endCustomerWalletId
 			) {
-				const billedVideoCost = Number(
-					(
-						getVideoOutputCost(claimedJob) + getVideoImageInputCost(claimedJob)
-					).toFixed(6),
+				const billedVideoCost =
+					claimedJob.status === "completed"
+						? Number(
+								(
+									getVideoOutputCost(claimedJob) +
+									getVideoImageInputCost(claimedJob)
+								).toFixed(6),
+							)
+						: 0;
+				const reservedSpendUsd = getVideoReservedSpendUsd(claimedJob);
+				await adjustOrgSpend(
+					claimedJob.organizationId,
+					Number((billedVideoCost - reservedSpendUsd).toFixed(6)),
 				);
-				await recordOrgSpend(claimedJob.organizationId, billedVideoCost);
 			}
 		}
 	}

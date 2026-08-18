@@ -8,7 +8,6 @@ import { computeReferralBonus } from "@/lib/referral-bonus.js";
 import { forcedThreeDSecureOptions } from "@/lib/three-d-secure.js";
 import {
 	assertTopUpVelocityAllowed,
-	bumpTopUpReservation,
 	releaseTopUpReservation,
 } from "@/lib/topup-velocity.js";
 import { ensureStripeCustomer } from "@/stripe.js";
@@ -173,11 +172,15 @@ payments.openapi(createPaymentIntent, async (c) => {
 	await assertCreditPurchaseAllowed(organizationId);
 
 	// Gate before ANY Stripe interaction so a capped org cannot even generate
-	// customer/payment-method API traffic. The reserved amount uses the
-	// domestic-fee gross — the international surcharge isn't known yet and the
-	// ~1.5% difference is immaterial for a velocity cap (the window sum uses
-	// the actually-charged transaction amounts).
-	const gateGrossUsd = calculateFees({ amount }).totalAmount;
+	// customer/payment-method API traffic. Reserve the worst-case gross (with
+	// the international surcharge): the card's country isn't known yet, and
+	// reserving the smaller domestic gross would let a charge land just above
+	// the cap. Settlement releases the actually-charged gross; any residual
+	// surcharge-sized difference simply expires with the reservation TTL.
+	const gateGrossUsd = calculateFees({
+		amount,
+		isInternational: true,
+	}).totalAmount;
 	await assertTopUpVelocityAllowed(userOrganization.organization, gateGrossUsd);
 
 	// Any failure between the gate and a successful PaymentIntent means no
@@ -186,7 +189,7 @@ payments.openapi(createPaymentIntent, async (c) => {
 	let paymentIntent: Stripe.PaymentIntent;
 	let isInternational = false;
 	let feeBreakdown: ReturnType<typeof calculateFees>;
-	let reservedUsd = gateGrossUsd;
+	const reservedUsd = gateGrossUsd;
 	try {
 		const stripeCustomerId = await ensureStripeCustomer(organizationId);
 
@@ -218,16 +221,6 @@ payments.openapi(createPaymentIntent, async (c) => {
 			isInternational,
 		});
 
-		// The gate reserved the domestic gross; settlement releases the charged
-		// gross. Bump the reservation by the surcharge so those two match.
-		if (feeBreakdown.totalAmount > reservedUsd) {
-			await bumpTopUpReservation(
-				userOrganization.organization,
-				feeBreakdown.totalAmount - reservedUsd,
-			);
-			reservedUsd = feeBreakdown.totalAmount;
-		}
-
 		try {
 			paymentIntent = await getStripe().paymentIntents.create({
 				amount: Math.round(feeBreakdown.totalAmount * 100),
@@ -242,6 +235,14 @@ payments.openapi(createPaymentIntent, async (c) => {
 				// second prompt in the same checkout for no added protection.
 				metadata: {
 					organizationId,
+					type: "credit_topup",
+					// The client confirms this PI later with the returned secret, so it
+					// can be abandoned while still confirmable. The worker cancels
+					// `flow: client_confirmation` PIs left unconfirmed past the velocity
+					// reservation TTL — otherwise stockpiled client secrets could be
+					// confirmed together after their reservations expired, bypassing
+					// the top-up cap.
+					flow: "client_confirmation",
 					baseAmount: amount.toString(),
 					platformFee: feeBreakdown.platformFee.toString(),
 					internationalFee: feeBreakdown.internationalFee.toString(),
@@ -762,11 +763,15 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 
 	await assertCreditPurchaseAllowed(userOrganization.organization.id);
 
-	// Gate before any Stripe interaction; see create-payment-intent for why the
-	// reserved amount uses the domestic-fee gross. Any failure past this point
-	// means no successful charge, so the outer catch below frees the
-	// reservation instead of letting the attempt consume headroom for its TTL.
-	const gateGrossUsd = calculateFees({ amount }).totalAmount;
+	// Gate before any Stripe interaction; see create-payment-intent for why
+	// the reserved amount uses the worst-case (international) gross. Any
+	// failure past this point means no successful charge, so the outer catch
+	// below frees the reservation instead of letting the attempt consume
+	// headroom for its TTL.
+	const gateGrossUsd = calculateFees({
+		amount,
+		isInternational: true,
+	}).totalAmount;
 	await assertTopUpVelocityAllowed(userOrganization.organization, gateGrossUsd);
 
 	let paymentIntent: Stripe.PaymentIntent;
@@ -775,7 +780,7 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 	// keep consuming headroom (the TTL bounds it). Only terminal failures free
 	// the amount immediately.
 	let chargeStillSettling = false;
-	let reservedUsd = gateGrossUsd;
+	const reservedUsd = gateGrossUsd;
 	try {
 		const isInternational = await isInternationalPaymentMethod(
 			paymentMethod.stripePaymentMethodId,
@@ -785,16 +790,6 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 			amount,
 			isInternational,
 		});
-
-		// True up the reservation to the charged gross (international surcharge)
-		// so the settlement release frees exactly what was reserved.
-		if (feeBreakdown.totalAmount > reservedUsd) {
-			await bumpTopUpReservation(
-				userOrganization.organization,
-				feeBreakdown.totalAmount - reservedUsd,
-			);
-			reservedUsd = feeBreakdown.totalAmount;
-		}
 
 		paymentIntent = await getStripe().paymentIntents.create({
 			amount: Math.round(feeBreakdown.totalAmount * 100),

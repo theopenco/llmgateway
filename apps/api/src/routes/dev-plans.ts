@@ -14,7 +14,6 @@ import { getStripeCardErrorMessage } from "@/lib/stripe-card-error.js";
 import { forcedThreeDSecureOptions } from "@/lib/three-d-secure.js";
 import {
 	assertTopUpVelocityAllowed,
-	bumpTopUpReservation,
 	releaseTopUpReservation,
 } from "@/lib/topup-velocity.js";
 import { posthog } from "@/posthog.js";
@@ -39,6 +38,7 @@ import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
 import { resolveDevPassBillingDetails } from "@/utils/plan-billing.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
+import { redisClient } from "@llmgateway/cache";
 import {
 	cdb,
 	db,
@@ -55,6 +55,7 @@ import {
 import { logger } from "@llmgateway/logger";
 import {
 	calculateFees,
+	TOPUP_VELOCITY_RESERVATION_TTL_SECONDS,
 	CREDIT_TOP_UP_MAX_AMOUNT,
 	CREDIT_TOP_UP_MIN_AMOUNT,
 	DEV_PLAN_INCLUDED_RESET_PASSES,
@@ -3385,16 +3386,54 @@ devPlans.openapi(topUpCredits, async (c) => {
 
 	// DevPass PAYG top-ups land in organization.credits like dashboard top-ups,
 	// so they get the same tier-based velocity gate — before any Stripe
-	// interaction, reserving the domestic-fee gross (the international
-	// surcharge isn't known yet; the difference is noise for a velocity cap).
-	const gateGrossUsd = calculateFees({ amount }).totalAmount;
-	await assertTopUpVelocityAllowed(personalOrg, gateGrossUsd);
+	// interaction, reserving the worst-case (international-fee) gross.
+	const gateGrossUsd = calculateFees({
+		amount,
+		isInternational: true,
+	}).totalAmount;
+
+	// Client retries reuse the same purchaseId, and the Stripe idempotency key
+	// below collapses them into ONE PaymentIntent — so the gate and its
+	// reservation must also run once per purchase, or every retry would
+	// double-count the same attempt and can 429 legitimate resubmissions. The
+	// NX marker makes the gate idempotent; retries skip it (the original
+	// attempt's reservation still covers the amount). On failure the marker is
+	// cleared with the reservation so a fresh retry re-gates.
+	const gateMarkerKey = `topup_velocity:devpass_gate:${personalOrg.id}:${purchaseId}`;
+	let firstGateAttempt = true;
+	try {
+		firstGateAttempt =
+			(await redisClient.set(
+				gateMarkerKey,
+				"1",
+				"EX",
+				TOPUP_VELOCITY_RESERVATION_TTL_SECONDS,
+				"NX",
+			)) === "OK";
+	} catch {
+		// Redis unavailable: gate normally (the reservation path degrades to
+		// DB-only inside the check anyway).
+		firstGateAttempt = true;
+	}
+	if (firstGateAttempt) {
+		await assertTopUpVelocityAllowed(personalOrg, gateGrossUsd);
+	}
+	const releaseGate = async () => {
+		if (!firstGateAttempt) {
+			return;
+		}
+		await releaseTopUpReservation(personalOrg.id, gateGrossUsd);
+		try {
+			await redisClient.del(gateMarkerKey);
+		} catch {
+			// Marker expires with its TTL; a stuck marker only skips re-gating.
+		}
+	};
 
 	// A failure before the charge means no money moved — free the reservation.
 	let stripeCustomerId: string;
 	let paymentMethodId: string;
 	let isInternational: boolean;
-	let reservedUsd = gateGrossUsd;
 	try {
 		stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
 		paymentMethodId = await resolveDevPassPaymentMethodId(
@@ -3403,20 +3442,10 @@ devPlans.openapi(topUpCredits, async (c) => {
 		);
 		isInternational = await isInternationalPaymentMethod(paymentMethodId);
 	} catch (err) {
-		await releaseTopUpReservation(personalOrg.id, reservedUsd);
+		await releaseGate();
 		throw err;
 	}
 	const feeBreakdown = calculateFees({ amount, isInternational });
-
-	// True up the reservation to the charged gross (international surcharge) so
-	// the settlement release frees exactly what was reserved.
-	if (feeBreakdown.totalAmount > reservedUsd) {
-		await bumpTopUpReservation(
-			personalOrg,
-			feeBreakdown.totalAmount - reservedUsd,
-		);
-		reservedUsd = feeBreakdown.totalAmount;
-	}
 
 	// `baseAmount` in the metadata routes this PaymentIntent through
 	// handlePaymentIntentSucceeded's credit top-up path — the same
@@ -3450,7 +3479,7 @@ devPlans.openapi(topUpCredits, async (c) => {
 		);
 	} catch (err) {
 		// The charge did not go through — free the velocity reservation.
-		await releaseTopUpReservation(personalOrg.id, reservedUsd);
+		await releaseGate();
 		const stripeErr = err as { type?: string; code?: string };
 		const cardErrorMessage = getStripeCardErrorMessage(err);
 		if (cardErrorMessage || stripeErr?.code === "card_declined") {

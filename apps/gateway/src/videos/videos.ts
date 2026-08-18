@@ -45,7 +45,7 @@ import { validateRequestModelAccess } from "@/lib/iam.js";
 import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
-import { assertSpendLimit } from "@/lib/spend-limit.js";
+import { assertSpendLimit, recordSpend } from "@/lib/spend-limit.js";
 import { clientFacingUpstreamErrorMessage } from "@/lib/stealth-provider-errors.js";
 
 import {
@@ -764,6 +764,54 @@ function hasSufficientVideoGenerationBalance(
 	organization: InferSelectModel<typeof tables.organization>,
 ): boolean {
 	return getAvailableCredits(organization) >= MIN_VIDEO_GENERATION_BALANCE;
+}
+
+/**
+ * Deterministic pre-charge estimate for a credits-billed video job. Video
+ * bills only at worker finalization, minutes after submission — without an
+ * up-front counter advance, a burst of submissions would all pass the
+ * spend-cap gate together and overshoot the cap by however many jobs fit in
+ * the async window. The estimate is recorded against the spend counters at
+ * submission, stamped on the job (`llmgateway_reserved_spend_usd`), and
+ * reconciled to the actual billed cost when the worker finalizes.
+ */
+function estimateVideoSpendUsd(
+	mapping: ProviderModelMapping,
+	resolution: string,
+	durationSeconds: number,
+	inputImageCount: number,
+): number {
+	let outputCost = 0;
+	const pricing = mapping.perSecondPrice;
+	if (pricing) {
+		// Prefer the audio-inclusive (higher) rate — overestimating is the safe
+		// direction for a cap, and the finalization reconcile settles the exact
+		// figure either way.
+		const candidates = [
+			`${resolution}_audio`,
+			`${resolution}_video`,
+			resolution,
+			"default",
+		];
+		let perSecond = candidates
+			.map((key) => Number(pricing[key]))
+			.find((value) => Number.isFinite(value));
+		if (perSecond === undefined) {
+			perSecond = Math.max(
+				0,
+				...Object.values(pricing)
+					.map(Number)
+					.filter((value) => Number.isFinite(value)),
+			);
+		}
+		outputCost = durationSeconds * perSecond;
+	} else if (mapping.requestPrice !== undefined) {
+		const requestPrice = Number(mapping.requestPrice);
+		outputCost = Number.isFinite(requestPrice) ? requestPrice : 0;
+	}
+	const perImage = Number(mapping.imageInputPrice ?? 0);
+	const imageCost = Number.isFinite(perImage) ? inputImageCount * perImage : 0;
+	return Number((outputCost + imageCost).toFixed(6));
 }
 
 function getInsufficientVideoGenerationBalanceError(): HTTPException {
@@ -5093,6 +5141,19 @@ videos.openapi(createVideo, async (c) => {
 	const parsedStorageUri = parseGcsUri(storageUri);
 
 	const initialStatus = normalizeVideoStatus(upstreamResponse.status);
+	// See estimateVideoSpendUsd: reserve the expected cost against the org's
+	// spend-cap counters now so concurrent submissions see each other; the
+	// worker reconciles the stamped figure to the actual billed cost (refunding
+	// it entirely for failed jobs) at finalization.
+	const reservedSpendUsd =
+		selectedProviderContext.usedMode === "credits" && !wallet
+			? estimateVideoSpendUsd(
+					selectedProviderMapping,
+					videoSize.resolution,
+					videoDurationSeconds,
+					inputImageCount,
+				)
+			: 0;
 	const created = await db
 		.insert(tables.videoJob)
 		.values({
@@ -5145,6 +5206,7 @@ videos.openapi(createVideo, async (c) => {
 				llmgateway_requested_resolution: videoSize.resolution,
 				llmgateway_requested_duration_seconds: videoDurationSeconds,
 				llmgateway_input_image_count: inputImageCount,
+				llmgateway_reserved_spend_usd: reservedSpendUsd,
 				...(debugMode
 					? {
 							llmgateway_raw_request: rawBody,
@@ -5156,6 +5218,13 @@ videos.openapi(createVideo, async (c) => {
 		})
 		.returning()
 		.then((rows) => rows[0]);
+
+	if (reservedSpendUsd > 0) {
+		// After the insert: the job row is what tells the worker a reservation
+		// exists to reconcile. recordSpend is fail-open, matching the counters'
+		// overall best-effort semantics.
+		await recordSpend(organization.id, reservedSpendUsd);
+	}
 
 	logger.info("Created video job", {
 		videoId: created.id,
