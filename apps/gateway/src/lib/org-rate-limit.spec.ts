@@ -283,6 +283,18 @@ describe("getPlanClass", () => {
 		expect(getPlanClass({ devPlan: "none", chatPlan: "plus" })).toBe("chat");
 	});
 
+	it("classifies product orgs by immutable kind even when the plan lapsed", () => {
+		// A canceled DevPass/Chat org keeps kind but drops its entitlement to
+		// "none" — it must keep flat product limits, never regular PAYG bases.
+		expect(getPlanClass({ kind: "devpass", devPlan: "none" })).toBe("dev");
+		expect(getPlanClass({ kind: "chat", chatPlan: "none" })).toBe("chat");
+		// A default-kind org still classifies by entitlements.
+		expect(getPlanClass({ kind: "default", devPlan: "lite" })).toBe("dev");
+		expect(
+			getPlanClass({ kind: "default", devPlan: "none", chatPlan: "none" }),
+		).toBe("regular");
+	});
+
 	it("prefers dev over chat when both are set", () => {
 		expect(getPlanClass({ devPlan: "pro", chatPlan: "pro" })).toBe("dev");
 	});
