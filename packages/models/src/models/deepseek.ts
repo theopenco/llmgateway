@@ -496,6 +496,11 @@ export const deepseekModels = [
 			{
 				providerId: "canopywave",
 				externalId: "deepseek/deepseek-v4-pro",
+				// Unlike Flash (whose CanopyWave listing/title is
+				// deepseek-v4-flash-0731), Pro has no dated/GA slug here: the live
+				// listing's description still opens "We present a preview version of
+				// DeepSeek-V4 series..." (verified 2026-08-18). Pricing is correct
+				// for what's actually served — the preview build, not 0813 GA.
 				inputPrice: "1.74e-6",
 				cachedInputPrice: "0.01e-6",
 				outputPrice: "3.48e-6",
@@ -552,6 +557,12 @@ export const deepseekModels = [
 			{
 				providerId: "baidu",
 				externalId: "deepseek-v4-pro",
+				// Unlike Flash (which Qianfan lists separately as
+				// deepseek-v4-flash-0731), Qianfan has no dated/GA slug for Pro:
+				// this listing's hugging_face_id is still deepseek-ai/DeepSeek-V4-Pro
+				// (the pre-0813 preview repo) and its description never mentions an
+				// official/GA release (verified 2026-08-18). Pricing is correct for
+				// what's actually served — the preview build, not 0813 GA.
 				inputPrice: "1.69e-6",
 				cachedInputPrice: "0.14e-6",
 				outputPrice: "3.38e-6",
