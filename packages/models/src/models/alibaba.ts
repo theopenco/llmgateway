@@ -1005,8 +1005,8 @@ export const alibabaModels = [
 				providerId: "novita",
 				stability: "unstable",
 				externalId: "qwen/qwen3-coder-480b-a35b-instruct",
-				inputPrice: "0.3e-6",
-				outputPrice: "1.3e-6",
+				inputPrice: "0.38e-6",
+				outputPrice: "1.55e-6",
 				requestPrice: "0",
 				contextSize: 262144,
 				maxOutput: 65536,
@@ -1393,8 +1393,31 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-max",
+				// Novita tiers this model by prompt length; the flat fields below are
+				// the lowest tier for routing comparisons, actual billing uses
+				// pricingTiers (verified live 2026-08-18).
 				inputPrice: "0.845e-6",
 				outputPrice: "3.38e-6",
+				pricingTiers: [
+					{
+						name: "Up to 32,768 tokens",
+						upToTokens: 32768,
+						inputPrice: "0.845e-6",
+						outputPrice: "3.38e-6",
+					},
+					{
+						name: "32,768–131,072 tokens",
+						upToTokens: 131072,
+						inputPrice: "1.4e-6",
+						outputPrice: "5.64e-6",
+					},
+					{
+						name: "Over 131,072 tokens",
+						upToTokens: Infinity,
+						inputPrice: "2.11e-6",
+						outputPrice: "8.45e-6",
+					},
+				],
 				requestPrice: "0",
 				contextSize: 262144,
 				maxOutput: 65536,
@@ -1485,7 +1508,7 @@ export const alibabaModels = [
 				providerId: "novita",
 				externalId: "qwen/qwen3.7-max",
 				inputPrice: "1.25e-6",
-				cachedInputPrice: "0.125e-6",
+				cachedInputPrice: "0.25e-6",
 				outputPrice: "3.75e-6",
 				requestPrice: "0",
 				contextSize: 1000000,
@@ -3682,7 +3705,7 @@ export const alibabaModels = [
 			{
 				providerId: "deepinfra",
 				externalId: "Qwen/Qwen3-Reranker-4B",
-				inputPrice: "0.03e-6",
+				inputPrice: "0.025e-6",
 				outputPrice: "0",
 				requestPrice: "0",
 				contextSize: 32768,
