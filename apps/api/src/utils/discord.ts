@@ -700,6 +700,45 @@ export async function notifyChatPlanRenewed(
 	});
 }
 
+export async function notifyHighRiskAccount(args: {
+	email: string;
+	name?: string | null;
+	source: "signup" | "email_verification";
+	reason: string;
+	countryCode?: string | null;
+	organizationIds: string[];
+}): Promise<void> {
+	await sendDiscordNotification({
+		embeds: [
+			{
+				title: "High-Risk Account Flagged",
+				color: 0xf59e0b, // Amber
+				fields: [
+					{ name: "Email", value: args.email, inline: true },
+					{ name: "Name", value: args.name ?? "Unknown", inline: true },
+					{
+						name: "Detected At",
+						value: args.source === "signup" ? "Sign-up" : "Email verification",
+						inline: true,
+					},
+					{ name: "Reason", value: args.reason, inline: false },
+					{
+						name: "Country",
+						value: args.countryCode ?? "Unknown",
+						inline: true,
+					},
+					{
+						name: "Organizations",
+						value: args.organizationIds.join(", ") || "None",
+						inline: true,
+					},
+				],
+				timestamp: new Date().toISOString(),
+			},
+		],
+	});
+}
+
 export async function notifyUserAccountDeleted(
 	email: string,
 	name: string | null | undefined,

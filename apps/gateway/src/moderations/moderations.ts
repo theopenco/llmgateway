@@ -35,6 +35,8 @@ import { buildOpenAIErrorBody } from "@/lib/error-response.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
 import { getProviderHeaders, readProviderKey } from "@llmgateway/actions";
@@ -43,6 +45,7 @@ import { models } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
 import type { InferSelectModel, tables } from "@llmgateway/db";
+import type { Context } from "hono";
 
 /**
  * Flat per-request price for `/v1/moderations`, in USD. OpenAI serves the
@@ -222,11 +225,15 @@ function getAvailableCredits(
  * other paid endpoints; there is no free-model escape hatch here because the
  * moderation pseudo-model is always billed.
  */
-function assertCreditsAvailableForModeration(
+async function assertCreditsAvailableForModeration(
+	c: Context,
 	organization: InferSelectModel<typeof tables.organization>,
 	insufficientCreditsMessage: string,
 	devPlanCreditLimitMessage: (renewalDate: string) => string,
 ) {
+	// Moderation is always billed, so it is never free-model exempt.
+	await assertSpendLimit(c, organization, false);
+
 	const {
 		devPlanCreditsRemaining,
 		chatPlanCreditsRemaining,
@@ -475,11 +482,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		});
 	}
 
-	if (baseOrganization.status === "deleted") {
-		throw new HTTPException(410, {
-			message: "Organization has been disabled and is no longer accessible",
-		});
-	}
+	assertOrganizationUsable(baseOrganization);
 
 	// LLM SDK: ephemeral end-user sessions bill the bound wallet instead
 	// of the developer's org credits. No-op for normal keys.
@@ -572,7 +575,8 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		}
 		usedToken = readProviderKey(providerKey);
 	} else if (project.mode === "credits") {
-		assertCreditsAvailableForModeration(
+		await assertCreditsAvailableForModeration(
+			c,
 			organization,
 			`Organization ${organization.id} has insufficient credits`,
 			(renewalDate) =>
@@ -598,7 +602,8 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		if (providerKey) {
 			usedToken = readProviderKey(providerKey);
 		} else {
-			assertCreditsAvailableForModeration(
+			await assertCreditsAvailableForModeration(
+				c,
 				organization,
 				"No API key set for provider and organization has insufficient credits",
 				(renewalDate) =>

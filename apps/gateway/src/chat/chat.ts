@@ -82,6 +82,7 @@ import {
 	insertLog as _insertLog,
 } from "@/lib/logs.js";
 import { isSponsoredOnboardingRequest } from "@/lib/onboarding-sponsorship.js";
+import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import {
 	createSessionProviderStore,
 	getPreferredProvider,
@@ -100,6 +101,7 @@ import {
 import { getResponsesContext } from "@/lib/responses-context.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
+import { assertSpendLimit } from "@/lib/spend-limit.js";
 import {
 	buildUpstreamErrorClientPayload,
 	clientFacingUpstreamFailureMessage,
@@ -2232,11 +2234,7 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	if (organization.status === "deleted") {
-		throw new HTTPException(410, {
-			message: "Organization has been disabled and is no longer accessible",
-		});
-	}
+	assertOrganizationUsable(organization);
 
 	// Organization data retention level. Captured here (right after the org is
 	// resolved) so every log path — including the early rejections below and the
@@ -5353,6 +5351,19 @@ chat.openapi(completions, async (c) => {
 			}
 		}
 
+		// Per-org daily/monthly USD spend caps. Applies to regular pay-as-you-go
+		// orgs only (kind/enterprise/enabled gates live inside checkSpendLimit);
+		// free models are exempt. Wallet-funded end-user sessions are too: their
+		// inference debits the wallet, not org credits, so the developer org's
+		// cap must not reject independently funded wallets.
+		if (!endUserWallet) {
+			await assertSpendLimit(
+				c,
+				organization,
+				((finalModelInfo ?? modelInfo) as ModelDefinition).free === true,
+			);
+		}
+
 		if (usedProvider === "llmgateway") {
 			throw new HTTPException(400, {
 				message:
@@ -5440,6 +5451,18 @@ chat.openapi(completions, async (c) => {
 			}
 		} else {
 			// No API key available, fall back to credits
+			// This path bills org credits with a platform credential exactly like
+			// the `credits` branch above, so it needs the same spend-cap gate —
+			// otherwise a capped org could keep spending simply by using a hybrid
+			// project with no matching provider key. Wallet-funded sessions are
+			// exempt, as above.
+			if (!endUserWallet) {
+				await assertSpendLimit(
+					c,
+					organization,
+					isModelTrulyFree((finalModelInfo ?? modelInfo) as ModelDefinition),
+				);
+			}
 			// Check regular credits, dev plan credits, and chat plan credits.
 			assertDevPlanPremiumCapNotExceeded(
 				organization,

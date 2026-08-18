@@ -9,6 +9,7 @@ import {
 	getCancelledOrganizationPlanState,
 	isTerminalSubscriptionError,
 } from "@/lib/account-deletion.js";
+import { approveHighRiskUser } from "@/lib/account-risk.js";
 import {
 	ADMIN_REFUND_REASONS,
 	computeAdminRefundability,
@@ -64,6 +65,7 @@ import {
 	pickModelHistoryTable,
 } from "@/utils/history-window.js";
 
+import { getOrgTierQualifyingSpendUsd } from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
 import {
 	aliasedTable,
@@ -109,7 +111,10 @@ import {
 	getIncludedResetPassesRemaining,
 	MAX_BULK_BLOCK_ORGANIZATIONS,
 	MIN_BULK_BLOCK_SEARCH_LENGTH,
+	getOrgSpendTier,
+	getPlanClass,
 	parseUsedModel,
+	resolveTrustTierOverride,
 } from "@llmgateway/shared";
 import {
 	getResendClient,
@@ -464,6 +469,10 @@ const organizationSchema = z.object({
 	totalTokens: z.number().optional(),
 	createdAt: z.string(),
 	status: z.string().nullable(),
+	// Flagged as high risk by the abuse-IP check at sign-up or email
+	// verification: no credit purchases and no inference until an admin
+	// activates the account under "Flagged Accounts".
+	riskFlagged: z.boolean().optional(),
 	referralBonusEnabled: z.boolean().optional(),
 	referralBonusPercent: z.number().optional(),
 	ownerUserId: z.string().nullable().optional(),
@@ -479,8 +488,27 @@ const organizationsListSchema = z.object({
 	offset: z.number(),
 });
 
+// The org's anti-abuse trust tier as the gateway resolves it (see
+// packages/shared/src/spend-tier.ts). `exempt` says why the ladder does not
+// apply: enterprise orgs have no limits at all; dev/chat plans use flat
+// endpoint limits instead of the tier ladder.
+const trustTierSchema = z.object({
+	exempt: z.enum(["none", "enterprise", "dev", "chat"]),
+	tier: z.number(),
+	// True when an admin pinned the tier (trustTierOverride); the pin wins
+	// over the computed age/spend ladder.
+	overridden: z.boolean(),
+	accountAgeDays: z.number(),
+	qualifyingSpendUsd: z.number(),
+	rpmMultiplier: z.number(),
+	dailyCapUsd: z.number(),
+	monthlyCapUsd: z.number(),
+	topUpDailyCapUsd: z.number(),
+});
+
 const orgMetricsSchema = z.object({
 	organization: organizationSchema,
+	trustTier: trustTierSchema,
 	window: tokenWindowSchema,
 	startDate: z.string(),
 	endDate: z.string(),
@@ -2723,6 +2751,7 @@ admin.openapi(getOrganizations, async (c) => {
 			credits: tables.organization.credits,
 			createdAt: tables.organization.createdAt,
 			status: tables.organization.status,
+			riskFlagged: tables.organization.riskFlagged,
 			totalCreditsAllTime:
 				sql<string>`COALESCE(${allTimeCredits.total}, '0')`.as(
 					"totalCreditsAllTime",
@@ -2789,6 +2818,7 @@ admin.openapi(getOrganizations, async (c) => {
 			totalTokens: Number(org.totalTokens ?? 0),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
+			riskFlagged: org.riskFlagged,
 			ownerUserId: org.ownerUserId ?? null,
 			ownerName: org.ownerName ?? null,
 			ownerEmail: org.ownerEmail ?? null,
@@ -2982,6 +3012,30 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 		}
 	}
 
+	const qualifyingSpendUsd = await getOrgTierQualifyingSpendUsd(orgId);
+	const trustTierResolved = getOrgSpendTier(org, qualifyingSpendUsd);
+	const orgPlanClass = getPlanClass(org);
+	const trustTier = {
+		exempt:
+			org.plan === "enterprise"
+				? ("enterprise" as const)
+				: orgPlanClass === "dev"
+					? ("dev" as const)
+					: orgPlanClass === "chat"
+						? ("chat" as const)
+						: ("none" as const),
+		tier: trustTierResolved.tier,
+		overridden: resolveTrustTierOverride(org) !== null,
+		accountAgeDays: Math.floor(
+			(Date.now() - org.createdAt.getTime()) / 86_400_000,
+		),
+		qualifyingSpendUsd: Math.round(qualifyingSpendUsd * 100) / 100,
+		rpmMultiplier: trustTierResolved.rpmMultiplier,
+		dailyCapUsd: trustTierResolved.dailyCapUsd,
+		monthlyCapUsd: trustTierResolved.monthlyCapUsd,
+		topUpDailyCapUsd: trustTierResolved.topUpDailyCapUsd,
+	};
+
 	return c.json({
 		organization: {
 			id: org.id,
@@ -3001,7 +3055,9 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 			credits: String(org.credits),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
+			riskFlagged: org.riskFlagged,
 		},
+		trustTier,
 		window: windowParam,
 		startDate: startDate.toISOString(),
 		endDate: now.toISOString(),
@@ -3099,6 +3155,7 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			credits: String(org.credits),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
+			riskFlagged: org.riskFlagged,
 			referralBonusEnabled: org.referralBonusEnabled,
 			referralBonusPercent: parseReferralBonusPercent(org.referralBonusPercent),
 		},
@@ -5263,6 +5320,207 @@ admin.openapi(updateForceThreeDSecure, async (c) => {
 	return c.json(await forceThreeDSecureState());
 });
 
+// --- Flagged (high-risk) Accounts ---
+
+const flaggedAccountSchema = z
+	.object({
+		userId: z.string(),
+		email: z.string(),
+		name: z.string().nullable(),
+		emailVerified: z.boolean(),
+		createdAt: z.string(),
+		riskStatus: z.enum(["flagged", "approved"]),
+		flaggedAt: z.string().nullable(),
+		source: z.enum(["signup", "email_verification"]).nullable(),
+		ipAddress: z.string().nullable(),
+		abuseConfidenceScore: z.number().nullable(),
+		totalReports: z.number().nullable(),
+		countryCode: z.string().nullable(),
+		usageType: z.string().nullable(),
+		isp: z.string().nullable(),
+		isTor: z.boolean(),
+		reviewedAt: z.string().nullable(),
+		reviewedBy: z.string().nullable(),
+		organizations: z.array(
+			z.object({
+				id: z.string(),
+				name: z.string(),
+				kind: z.string(),
+				plan: z.string(),
+				status: z.string().nullable(),
+				credits: z.string(),
+				riskFlagged: z.boolean(),
+			}),
+		),
+	})
+	.openapi({});
+
+const getFlaggedAccounts = createRoute({
+	method: "get",
+	path: "/flagged-accounts",
+	request: {
+		query: z.object({
+			status: z.enum(["flagged", "approved", "all"]).optional(),
+			search: z.string().optional(),
+			limit: z.coerce.number().min(1).max(200).optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z
+						.object({
+							accounts: z.array(flaggedAccountSchema),
+							flaggedCount: z.number(),
+							approvedCount: z.number(),
+						})
+						.openapi({}),
+				},
+			},
+			description: "Accounts flagged as high risk by the abuse-IP check.",
+		},
+	},
+});
+
+const approveFlaggedAccount = createRoute({
+	method: "post",
+	path: "/flagged-accounts/{userId}/approve",
+	request: {
+		params: z.object({ userId: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z
+						.object({
+							success: z.boolean(),
+							organizationIds: z.array(z.string()),
+						})
+						.openapi({}),
+				},
+			},
+			description: "Account activated; its organizations are unblocked.",
+		},
+	},
+});
+
+admin.openapi(getFlaggedAccounts, async (c) => {
+	const { status = "flagged", search, limit = 100 } = c.req.valid("query");
+
+	const filters = [ne(tables.user.riskStatus, "none")];
+	if (status !== "all") {
+		filters.push(eq(tables.user.riskStatus, status));
+	}
+	const term = search?.trim();
+	if (term) {
+		filters.push(
+			or(
+				sql`${tables.user.email} ILIKE ${`%${term}%`}`,
+				sql`${tables.user.name} ILIKE ${`%${term}%`}`,
+			)!,
+		);
+	}
+
+	const users = await db
+		.select({
+			id: tables.user.id,
+			email: tables.user.email,
+			name: tables.user.name,
+			emailVerified: tables.user.emailVerified,
+			createdAt: tables.user.createdAt,
+			riskStatus: tables.user.riskStatus,
+			riskFlaggedAt: tables.user.riskFlaggedAt,
+			riskFlagSource: tables.user.riskFlagSource,
+			riskFlagIp: tables.user.riskFlagIp,
+			riskFlagDetails: tables.user.riskFlagDetails,
+			riskReviewedAt: tables.user.riskReviewedAt,
+			riskReviewedBy: tables.user.riskReviewedBy,
+		})
+		.from(tables.user)
+		.where(and(...filters))
+		.orderBy(desc(tables.user.riskFlaggedAt))
+		.limit(limit);
+
+	const userIds = users.map((user) => user.id);
+	const memberships = userIds.length
+		? await db
+				.select({
+					userId: tables.userOrganization.userId,
+					id: tables.organization.id,
+					name: tables.organization.name,
+					kind: tables.organization.kind,
+					plan: tables.organization.plan,
+					status: tables.organization.status,
+					credits: tables.organization.credits,
+					riskFlagged: tables.organization.riskFlagged,
+				})
+				.from(tables.userOrganization)
+				.innerJoin(
+					tables.organization,
+					eq(tables.organization.id, tables.userOrganization.organizationId),
+				)
+				.where(inArray(tables.userOrganization.userId, userIds))
+		: [];
+
+	const counts = await db
+		.select({
+			riskStatus: tables.user.riskStatus,
+			count: sql<number>`count(*)::int`,
+		})
+		.from(tables.user)
+		.where(ne(tables.user.riskStatus, "none"))
+		.groupBy(tables.user.riskStatus);
+
+	return c.json({
+		accounts: users.map((user) => {
+			const details = user.riskFlagDetails;
+			return {
+				userId: user.id,
+				email: user.email,
+				name: user.name,
+				emailVerified: user.emailVerified,
+				createdAt: user.createdAt.toISOString(),
+				riskStatus: user.riskStatus as "flagged" | "approved",
+				flaggedAt: user.riskFlaggedAt?.toISOString() ?? null,
+				source: user.riskFlagSource,
+				ipAddress: user.riskFlagIp,
+				abuseConfidenceScore: details?.abuseConfidenceScore ?? null,
+				totalReports: details?.totalReports ?? null,
+				countryCode: details?.countryCode ?? null,
+				usageType: details?.usageType ?? null,
+				isp: details?.isp ?? null,
+				isTor: details?.isTor ?? false,
+				reviewedAt: user.riskReviewedAt?.toISOString() ?? null,
+				reviewedBy: user.riskReviewedBy,
+				organizations: memberships
+					.filter((membership) => membership.userId === user.id)
+					.map(({ userId: _userId, ...organization }) => organization),
+			};
+		}),
+		flaggedCount:
+			counts.find((row) => row.riskStatus === "flagged")?.count ?? 0,
+		approvedCount:
+			counts.find((row) => row.riskStatus === "approved")?.count ?? 0,
+	});
+});
+
+admin.openapi(approveFlaggedAccount, async (c) => {
+	const { userId } = c.req.valid("param");
+	const reviewer = c.get("user")!;
+
+	const result = await approveHighRiskUser({
+		userId,
+		reviewerId: reviewer.id,
+	});
+	if (!result) {
+		throw new HTTPException(404, { message: "User not found" });
+	}
+
+	return c.json({ success: true, organizationIds: result.organizationIds });
+});
+
 // --- Organization Rate Limit Handlers ---
 
 admin.openapi(getOrganizationRateLimits, async (c) => {
@@ -7105,6 +7363,16 @@ const manageOrganizationRoute = createRoute({
 						apiKeyLimit: z.number().int().min(0).max(100000).nullable(),
 						// Null clears the override and reverts to the plan default.
 						projectLimit: z.number().int().min(0).max(100000).nullable(),
+						// Trust-tier pin (0-4); takes precedence over the computed
+						// age/spend ladder. Null reverts to the automatic ladder;
+						// omitted leaves the current value unchanged.
+						trustTierOverride: z
+							.number()
+							.int()
+							.min(0)
+							.max(4)
+							.nullable()
+							.optional(),
 						// Null clears the plan term (open-ended plan).
 						planExpiresAt: planTermDateSchema,
 						planStartedAt: planTermDateSchema,
@@ -7129,6 +7397,7 @@ const manageOrganizationRoute = createRoute({
 						seats: z.number().int().nullable(),
 						apiKeyLimit: z.number().int().nullable(),
 						projectLimit: z.number().int().nullable(),
+						trustTierOverride: z.number().int().nullable(),
 						planExpiresAt: z.string().nullable(),
 						planStartedAt: z.string().nullable(),
 						isTrialActive: z.boolean(),
@@ -7161,6 +7430,7 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 		seats,
 		apiKeyLimit,
 		projectLimit,
+		trustTierOverride,
 		planExpiresAt,
 		planStartedAt,
 		isTrialActive,
@@ -7229,6 +7499,8 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 				seats,
 				apiKeyLimit,
 				projectLimit,
+				// undefined = leave unchanged (drizzle skips undefined set fields).
+				trustTierOverride,
 				planExpiresAt: expiresAt,
 				planStartedAt: startedAt,
 				isTrialActive,
@@ -7267,6 +7539,11 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 			previousApiKeyLimit: org.apiKeyLimit,
 			newApiKeyLimit: apiKeyLimit,
 			previousProjectLimit: org.projectLimit,
+			previousTrustTierOverride: org.trustTierOverride,
+			newTrustTierOverride:
+				trustTierOverride === undefined
+					? org.trustTierOverride
+					: trustTierOverride,
 			newProjectLimit: projectLimit,
 			previousPlanExpiresAt: org.planExpiresAt?.toISOString() ?? null,
 			newPlanExpiresAt: expiresAt?.toISOString() ?? null,
@@ -7286,6 +7563,10 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 		seats,
 		apiKeyLimit,
 		projectLimit,
+		trustTierOverride:
+			trustTierOverride === undefined
+				? org.trustTierOverride
+				: trustTierOverride,
 		planExpiresAt: expiresAt?.toISOString() ?? null,
 		planStartedAt: startedAt?.toISOString() ?? null,
 		isTrialActive,

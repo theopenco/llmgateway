@@ -20,6 +20,7 @@ import {
 	Route,
 	Server,
 	Settings,
+	ShieldAlert,
 	Sparkles,
 } from "lucide-react";
 import Link from "next/link";
@@ -138,6 +139,18 @@ const navItems: NavItem[] = [
 		href: "/payment-failures",
 		label: "Payment Failures",
 		icon: AlertTriangle,
+		match: "prefix",
+	},
+	{
+		href: "/flagged-accounts",
+		label: "Flagged Accounts",
+		icon: ShieldAlert,
+		match: "prefix",
+	},
+	{
+		href: "/limit-hits",
+		label: "Limit Hits",
+		icon: ShieldAlert,
 		match: "prefix",
 	},
 	{ href: "/settings", label: "Settings", icon: Settings, match: "exact" },

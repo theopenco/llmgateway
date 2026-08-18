@@ -48,7 +48,8 @@ vi.mock("@/lib/compliance.js", () => ({
 	assertProviderCompliant: vi.fn(async () => {}),
 }));
 
-vi.mock("@llmgateway/db", () => ({
+vi.mock("@llmgateway/db", async (importOriginal) => ({
+	...(await importOriginal<Record<string, unknown>>()),
 	getEffectiveDiscount: vi.fn(async () => ({ discount: 0 })),
 }));
 

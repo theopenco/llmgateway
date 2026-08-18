@@ -483,10 +483,10 @@ export const providers: ProviderDefinition[] = [
 		env: {
 			required: {
 				apiKey: "LLM_GOOGLE_VERTEX_API_KEY",
-				project: "LLM_GOOGLE_CLOUD_PROJECT",
 			},
 			optional: {
 				baseUrl: "LLM_GOOGLE_VERTEX_BASE_URL",
+				project: "LLM_GOOGLE_CLOUD_PROJECT",
 				region: "LLM_GOOGLE_VERTEX_REGION",
 				tokenType: "LLM_GOOGLE_VERTEX_TOKEN_TYPE",
 			},

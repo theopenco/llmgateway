@@ -6,6 +6,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createAuthMiddleware } from "better-auth/api";
 import { Redis } from "ioredis";
 
+import { flagUserIfAbusiveIp } from "@/lib/account-risk.js";
 import { getApiBaseUrl } from "@/lib/api-url.js";
 import { getClientIpFromHeaders } from "@/lib/client-ip.js";
 import { acceptPendingInvitesForUser } from "@/lib/team-invites.js";
@@ -825,6 +826,15 @@ If you didn't request this, you can safely ignore this email. Your password won'
 								email: user.email,
 							});
 
+							// Throwaway accounts are routinely registered from a clean
+							// address and only activated from the abusive one, so the
+							// verification click is checked as well as the sign-up.
+							await flagUserIfAbusiveIp({
+								userId: user.id,
+								source: "email_verification",
+								headers: request?.headers,
+							});
+
 							// Add verified email to Resend contacts with onboarding status
 							await createResendContact(user.email, user.name ?? undefined, {
 								onboarding_completed: dbUser?.onboardingCompleted ?? false,
@@ -1373,6 +1383,19 @@ The LLM Gateway Team`.trim();
 
 						logger.info("Automatically verified email for SSO user", {
 							userId,
+						});
+					}
+
+					// Only brand-new users reach this point (everyone else returned
+					// above), so this is the sign-up moment for both the email and the
+					// social flow. Enterprise SSO logins are exempt: those users were
+					// authenticated by an IdP their organization controls, and a shared
+					// corporate egress IP with a poor reputation must not gate them.
+					if (!ctx.path.startsWith("/sso/")) {
+						await flagUserIfAbusiveIp({
+							userId,
+							source: "signup",
+							headers: ctx.headers,
 						});
 					}
 
