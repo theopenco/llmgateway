@@ -1,9 +1,14 @@
 import { Decimal } from "decimal.js";
 
+import { recordSpend } from "@/lib/spend-limit.js";
+
+import { swrWrap } from "@llmgateway/cache";
 import {
 	and,
+	cdb,
 	db,
 	eq,
+	getTableName,
 	isNotNull,
 	isNull,
 	log,
@@ -88,26 +93,46 @@ export async function closeRealtimeSessionRecord(
  * because an organization may run several concurrent sessions, and a
  * session-scoped sum would let each of them authorize work against the same
  * undebited balance.
+ *
+ * Cached with swrWrap + a PINNED short-TTL Drizzle entry (`autoInvalidate:
+ * false`): `log` receives no cdb-visible writes (this module and the worker
+ * both write it outside cdb), so auto-invalidation would never fire and the
+ * default TTL would lag the gate by up to a minute. The short fixed TTL keeps
+ * the gate near-fresh while collapsing the per-turn aggregate scan to one
+ * query per window; the brief staleness only affects when the gate trips,
+ * never what is billed.
  */
+const UNSETTLED_SPEND_TTL_SECONDS = 2;
+
 export async function getUnsettledRealtimeOrganizationSpend(
 	organizationId: string,
 ): Promise<Decimal> {
-	const [row] = await db
-		.select({
-			total: sql<
-				string | null
-			>`sum(coalesce(${log.billingCost}, ${log.cost}::float8::numeric))`,
-		})
-		.from(log)
-		.where(
-			and(
-				eq(log.organizationId, organizationId),
-				isNotNull(log.realtimeSessionId),
-				isNull(log.processedAt),
-				eq(log.cached, false),
-			),
-		);
-	return new Decimal(row?.total ?? "0");
+	const rows = await swrWrap(
+		`realtimeUnsettled:${organizationId}`,
+		[getTableName(log)],
+		async () =>
+			await cdb
+				.select({
+					total: sql<
+						string | null
+					>`sum(coalesce(${log.billingCost}, ${log.cost}::float8::numeric))`,
+				})
+				.from(log)
+				.where(
+					and(
+						eq(log.organizationId, organizationId),
+						isNotNull(log.realtimeSessionId),
+						isNull(log.processedAt),
+						eq(log.cached, false),
+					),
+				)
+				.$withCache({
+					tag: `realtime-unsettled:${organizationId}`,
+					autoInvalidate: false,
+					config: { ex: UNSETTLED_SPEND_TTL_SECONDS },
+				}),
+	);
+	return new Decimal(rows[0]?.total ?? "0");
 }
 
 export interface RecordRealtimeResponseInput {
@@ -261,6 +286,13 @@ export async function recordRealtimeResponse(
 			realtimeSessionId: input.sessionId,
 			usageKey,
 		});
+	} else if (preflight.usedMode === "credits") {
+		// Realtime bypasses insertLog, so advance the daily/monthly spend-cap
+		// counters here; the account gate reads them on the next turn.
+		await recordSpend(
+			preflight.project.organizationId,
+			costs.totalCost.toNumber(),
+		);
 	}
 	return { inserted };
 }
@@ -404,6 +436,12 @@ export async function recordRealtimeTranscription(
 			realtimeSessionId: input.sessionId,
 			usageKey,
 		});
+	} else if (preflight.usedMode === "credits") {
+		// Same spend-cap accounting as recordRealtimeResponse above.
+		await recordSpend(
+			preflight.project.organizationId,
+			costs.totalCost.toNumber(),
+		);
 	}
 	return { inserted };
 }

@@ -44,6 +44,7 @@ import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { assertSpendLimit } from "@/lib/spend-limit.js";
 import {
 	clientFacingUpstreamFailureMessage,
 	redactedProviderErrorText,
@@ -71,6 +72,7 @@ import type { RoutingMetadata } from "@llmgateway/actions";
 import type { InferSelectModel, tables } from "@llmgateway/db";
 import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
 import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
+import type { Context } from "hono";
 
 const rerankRequestSchema = z.object({
 	model: z.string().openapi({
@@ -213,12 +215,15 @@ function getAvailableCredits(
 	};
 }
 
-function assertCreditsAvailableForRerank(
+async function assertCreditsAvailableForRerank(
+	c: Context,
 	organization: InferSelectModel<typeof tables.organization>,
 	modelDef: ModelDefinition,
 	insufficientCreditsMessage: string,
 	devPlanCreditLimitMessage: (renewalDate: string) => string,
 ) {
+	await assertSpendLimit(c, organization, modelDef.free === true);
+
 	const { totalAvailableCredits } = getAvailableCredits(organization);
 
 	if (totalAvailableCredits > 0 || modelDef.free) {
@@ -634,7 +639,8 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 			}
 			usedToken = readProviderKey(providerKeyInner);
 		} else if (project.mode === "credits") {
-			assertCreditsAvailableForRerank(
+			await assertCreditsAvailableForRerank(
+				c,
 				organization,
 				modelDef,
 				`Organization ${organization.id} has insufficient credits`,
@@ -653,7 +659,8 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 			if (providerKeyInner) {
 				usedToken = readProviderKey(providerKeyInner);
 			} else {
-				assertCreditsAvailableForRerank(
+				await assertCreditsAvailableForRerank(
+					c,
 					organization,
 					modelDef,
 					"No API key set for provider and organization has insufficient credits",

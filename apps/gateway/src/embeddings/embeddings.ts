@@ -44,6 +44,7 @@ import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { assertSpendLimit } from "@/lib/spend-limit.js";
 import {
 	clientFacingUpstreamFailureMessage,
 	redactedProviderErrorText,
@@ -73,6 +74,7 @@ import type { RoutingMetadata } from "@llmgateway/actions";
 import type { InferSelectModel, tables } from "@llmgateway/db";
 import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
 import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
+import type { Context } from "hono";
 
 const embeddingInputSchema = z
 	.union([
@@ -286,12 +288,25 @@ function getAvailableCredits(
 	};
 }
 
-function assertCreditsAvailableForEmbedding(
+async function assertCreditsAvailableForEmbedding(
+	c: Pick<Context, "header">,
 	organization: InferSelectModel<typeof tables.organization>,
 	modelDef: ModelDefinition,
 	insufficientCreditsMessage: string,
 	devPlanCreditLimitMessage: (renewalDate: string) => string,
+	walletFunded = false,
 ) {
+	// Per-org daily/monthly USD spend caps, checked even when the org has
+	// credits (a funded org can still hit its cap). Free models are exempt; the
+	// kind/enterprise/enabled gates live inside the helper, which also sets
+	// Retry-After and the X-RateLimit-* reset headers on the 429. Wallet-funded
+	// end-user sessions bill the wallet, not org credits — their inference is
+	// exempt from the org cap (the credit checks below still gate the wallet's
+	// mirrored balance).
+	if (!walletFunded) {
+		await assertSpendLimit(c, organization, modelDef.free ?? false);
+	}
+
 	const {
 		devPlanCreditsRemaining,
 		chatPlanCreditsRemaining,
@@ -748,12 +763,14 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			}
 			usedToken = readProviderKey(providerKey);
 		} else if (retryProject.mode === "credits") {
-			assertCreditsAvailableForEmbedding(
+			await assertCreditsAvailableForEmbedding(
+				c,
 				retryOrganization,
 				modelDef,
 				`Organization ${retryOrganization.id} has insufficient credits`,
 				(renewalDate) =>
 					`Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+				Boolean(wallet),
 			);
 
 			const platformCredential = await resolvePlatformCredential(providerId, {
@@ -778,12 +795,14 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			if (providerKey) {
 				usedToken = readProviderKey(providerKey);
 			} else {
-				assertCreditsAvailableForEmbedding(
+				await assertCreditsAvailableForEmbedding(
+					c,
 					retryOrganization,
 					modelDef,
 					"No API key set for provider and organization has insufficient credits",
 					(renewalDate) =>
 						`No API key set for provider. Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+					Boolean(wallet),
 				);
 
 				const platformCredential = await resolvePlatformCredential(providerId, {

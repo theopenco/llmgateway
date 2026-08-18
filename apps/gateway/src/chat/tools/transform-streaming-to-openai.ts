@@ -1536,6 +1536,7 @@ export function transformStreamingToOpenai(
 		case "runware":
 		case "gonka24":
 		case "ranoai":
+		case "baidu":
 		case "granite":
 		case "tundra":
 		case "permafrost":

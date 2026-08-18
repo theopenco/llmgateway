@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "821be3b9-5e11-4fc0-966b-dbe583be450e",
-  "prevId": "86b9c0f1-4310-4c7f-b6d5-f6d551ac49f7",
+  "id": "b9ad3c44-7fca-411f-bde3-34292c0ab1f0",
+  "prevId": "1bffded2-e572-43f1-aac1-92af446b4fbb",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -277,6 +277,12 @@
     {
       "isRlsEnabled": false,
       "name": "model_survey_response",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "org_limit_hit_daily",
       "entityType": "tables",
       "schema": "public"
     },
@@ -12751,6 +12757,138 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
+      "table": "org_limit_hit_daily"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "org_limit_hit_daily"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "org_limit_hit_daily"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "organization_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "org_limit_hit_daily"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "day",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "org_limit_hit_daily"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "limit_type",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "org_limit_hit_daily"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "''",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "endpoint_key",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "org_limit_hit_daily"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "hit_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "org_limit_hit_daily"
+    },
+    {
+      "type": "numeric",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'0'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "blocked_usd",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "org_limit_hit_daily"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
       "table": "organization"
     },
     {
@@ -13281,6 +13419,19 @@
       "generated": null,
       "identity": null,
       "name": "payment_failure_started_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "trust_tier_override",
       "entityType": "columns",
       "schema": "public",
       "table": "organization"
@@ -26420,6 +26571,27 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "day",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "org_limit_hit_daily_day_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "org_limit_hit_daily"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "dev_plan_card_fingerprint",
           "isExpression": false,
           "asc": true,
@@ -28184,6 +28356,34 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "organization_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": "\"type\" = 'credit_topup'",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "transaction_org_topup_created_at_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "transaction"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "stripe_refund_id",
           "isExpression": false,
           "asc": true,
@@ -29809,6 +30009,23 @@
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
+      "name": "org_limit_hit_daily_organization_id_organization_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "org_limit_hit_daily"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "organization_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "organization",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
       "name": "organization_action_organization_id_organization_id_fk",
       "entityType": "fks",
       "schema": "public",
@@ -31384,6 +31601,16 @@
         "id"
       ],
       "nameExplicit": false,
+      "name": "org_limit_hit_daily_pkey",
+      "schema": "public",
+      "table": "org_limit_hit_daily",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
       "name": "organization_pkey",
       "schema": "public",
       "table": "organization",
@@ -32033,6 +32260,20 @@
       "entityType": "uniques",
       "schema": "public",
       "table": "model_provider_mapping_history_hourly"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "organization_id",
+        "day",
+        "limit_type",
+        "endpoint_key"
+      ],
+      "nullsNotDistinct": false,
+      "name": "org_limit_hit_daily_organization_id_day_limit_type_endpoint_key_unique",
+      "entityType": "uniques",
+      "schema": "public",
+      "table": "org_limit_hit_daily"
     },
     {
       "nameExplicit": true,

@@ -12,6 +12,7 @@ import {
 import { assertProviderCompliant } from "@/lib/compliance.js";
 import { validateRequestModelAccess } from "@/lib/iam.js";
 import { getOrganizationBlockReason } from "@/lib/organization-access.js";
+import { checkSpendLimit } from "@/lib/spend-limit.js";
 
 import { logger } from "@llmgateway/logger";
 
@@ -170,6 +171,22 @@ export async function authorizeAccount(
 				error instanceof Error ? error.message : "Member spend budget reached.",
 			severity: "deny",
 		};
+	}
+
+	// Per-org daily/monthly spend caps: realtime billing advances the same
+	// Redis counters as every other credits-billed path, and this gate is what
+	// makes a reached cap actually reject the next billable turn. Wallet-funded
+	// sessions bill the wallet, not the org, so they are exempt like elsewhere.
+	if (preflight.usedMode === "credits" && !freshKey.endCustomerWalletId) {
+		const spendLimit = await checkSpendLimit(freshOrg);
+		if (!spendLimit.allowed) {
+			return {
+				ok: false,
+				code: "spend_cap_reached",
+				message: `Organization ${freshOrg.id} has reached its ${spendLimit.period} spend limit of $${spendLimit.limit}. Try again later or contact support to raise your limit.`,
+				severity: "deny",
+			};
+		}
 	}
 
 	return { ok: true, organization: freshOrg };

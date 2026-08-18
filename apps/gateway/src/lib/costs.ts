@@ -744,8 +744,9 @@ export async function calculateCosts(
 	// reports reasoning in `completion_tokens_details` (which the streaming
 	// transform hoists to a top-level `reasoning_tokens`) while already counting
 	// it inside `completion_tokens`, so adding it again would roughly double the
-	// billed output on reasoning requests. For remaining providers, add
-	// reasoning separately.
+	// billed output on reasoning requests. Baidu's Qianfan reports the same way
+	// (a thinking-only reply returns completion_tokens === reasoning_tokens).
+	// For remaining providers, add reasoning separately.
 	const completionIncludesReasoning =
 		provider === "google-ai-studio" ||
 		provider === "glacier" ||
@@ -757,6 +758,7 @@ export async function calculateCosts(
 		provider === "sakana" ||
 		provider === "meta" ||
 		provider === "ranoai" ||
+		provider === "baidu" ||
 		provider === "permafrost" ||
 		provider === "aws-mantle";
 	const totalOutputTokens = completionIncludesReasoning

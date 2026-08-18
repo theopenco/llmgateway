@@ -146,6 +146,12 @@ const navItems: NavItem[] = [
 		icon: ShieldAlert,
 		match: "prefix",
 	},
+	{
+		href: "/limit-hits",
+		label: "Limit Hits",
+		icon: ShieldAlert,
+		match: "prefix",
+	},
 	{ href: "/settings", label: "Settings", icon: Settings, match: "exact" },
 ];
 
