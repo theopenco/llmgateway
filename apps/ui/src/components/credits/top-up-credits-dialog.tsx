@@ -437,10 +437,10 @@ function AmountStep({
 							<p>
 								Need to top up more? Email{" "}
 								<a
-									href="mailto:contact@lmkp.io"
+									href="mailto:contact@llmgateway.io"
 									className="font-medium text-foreground underline underline-offset-2"
 								>
-									contact@lmkp.io
+									contact@llmgateway.io
 								</a>{" "}
 								and we can unlock a higher tier.
 							</p>
