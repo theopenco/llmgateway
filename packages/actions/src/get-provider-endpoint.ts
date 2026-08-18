@@ -293,6 +293,7 @@ export function getProviderEndpoint(
 					throw new Error(`Provider ${provider} requires a baseUrl`);
 				}
 				break;
+			case "anthropic":
 			case "openai":
 			case "google-ai-studio":
 			case "google-vertex":
