@@ -1,9 +1,14 @@
 import type { SystemRule } from "@/types.js";
 
 const JAILBREAK_PATTERNS = [
-	/DAN\s*(mode|prompt)?/i,
-	/do\s+anything\s+now/i,
-	/developer\s+mode/i,
+	// Case-sensitive and anchored: the case-insensitive substring form matched
+	// ordinary words such as "redundant", "abundant" and "mundane".
+	/\bDAN\b(\s+(mode|prompt))?/,
+	/\bdan\s+(mode|prompt)\b/i,
+	/\bdo\s+anything\s+now\b/i,
+	// "developer mode" on its own is ordinary product vocabulary; only the
+	// activation phrasing indicates a jailbreak attempt.
+	/(enable|enter|activate|turn\s+on|switch\s+to)\s+developer\s+mode/i,
 	/evil\s+(mode|assistant|bot)/i,
 	/pretend\s+(you\s+)?(are|have)\s+no\s+(restrictions?|limits?|rules?)/i,
 	/act\s+as\s+if\s+(you\s+)?have\s+no\s+(ethics?|morals?)/i,

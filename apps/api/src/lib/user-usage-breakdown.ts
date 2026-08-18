@@ -82,7 +82,9 @@ export async function getUserUsageBreakdown(options: {
 				sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
 					"totalTokens",
 				),
-			cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as("cost"),
+			cost: sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.cost} as double precision)), 0)`.as(
+				"cost",
+			),
 			...modeSplitFields(apiKeyHourlyStats),
 		})
 		.from(apiKeyHourlyStats)

@@ -1323,9 +1323,7 @@ export const googleModels = [
 			{
 				providerId: "google-vertex",
 				externalId: "gemini-3.7-flash",
-				// Vertex rejects Flex for this model ("Flex API is not supported
-				// for model"), so only priority is declared
-				serviceTiers: ["priority"],
+				serviceTiers: ["flex", "priority"],
 				serviceTierRegions: ["global"],
 				// introductory pricing until 2026-12-31; $1.50/$7.50 from 2027-01-01
 				inputPrice: "0.75e-6",
@@ -2553,7 +2551,6 @@ export const googleModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
-				jsonOutputSchema: true,
 				supportsN: true,
 			},
 		],

@@ -187,14 +187,36 @@ export const deepseekModels = [
 			{
 				providerId: "bytedance",
 				externalId: "deepseek-v3-2-251201",
+				// Base fields are the [0, 32K] prompt-length band; Ark doubles the
+				// input and output rates above it.
 				inputPrice: "0.28e-6",
 				cachedInputPrice: "0.056e-6",
 				outputPrice: "0.42e-6",
+				pricingTiers: [
+					{
+						name: "Up to 32K",
+						upToTokens: 32768,
+						inputPrice: "0.28e-6",
+						outputPrice: "0.42e-6",
+						cachedInputPrice: "0.056e-6",
+					},
+					{
+						name: "Over 32K",
+						upToTokens: Infinity,
+						inputPrice: "0.56e-6",
+						outputPrice: "0.84e-6",
+						// The cache-hit rate is flat across both bands.
+						cachedInputPrice: "0.056e-6",
+					},
+				],
 				requestPrice: "0",
 				contextSize: 131072,
 				reasoning: true,
+				// Ark ignores `reasoning_effort` on this deployment and only reasons
+				// when sent `thinking: {type: "enabled"}`, which the gateway does not
+				// emit for bytedance, so no reasoning content ever comes back.
 				reasoningOutput: "omit" as const,
-				maxOutput: 131072,
+				maxOutput: 32768,
 				streaming: true,
 				vision: false,
 				tools: true,
@@ -412,7 +434,7 @@ export const deepseekModels = [
 				requestPrice: "0",
 				contextSize: 1048576,
 				maxOutput: 64000,
-				quantization: "fp4",
+				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
 				reasoningEfforts: ["none", "high", "max"],
@@ -422,17 +444,30 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "bytedance",
-				externalId: "deepseek-v4-pro-260425",
-				inputPrice: "1.74e-6",
-				cachedInputPrice: "0.145e-6",
-				outputPrice: "3.48e-6",
+				// The GA deployment, which is the same 0813 build the other providers
+				// serve here. `deepseek-v4-pro-260425` is the superseded preview and
+				// carries its own (higher input, lower output) rate card.
+				externalId: "deepseek-v4-pro-ga-260813",
+				inputPrice: "1.32e-6",
+				cachedInputPrice: "0.044e-6",
+				outputPrice: "3.96e-6",
 				requestPrice: "0",
 				contextSize: 1048576,
 				maxOutput: 393216,
 				streaming: true,
 				reasoning: true,
-				reasoningEfforts: ["minimal", "low", "medium", "high", "max"],
-				reasoningOutput: "omit" as const,
+				// The GA deployment accepts the full enum; the preview 400d `none` and
+				// `xhigh` ("Valid values are: ['high', 'low', 'max', 'medium',
+				// 'minimal']"). `none` and `minimal` both return no reasoning at all.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				vision: false,
 				tools: true,
 				jsonOutput: false,
@@ -507,6 +542,34 @@ export const deepseekModels = [
 				tools: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
+			},
+			{
+				providerId: "baidu",
+				externalId: "deepseek-v4-pro",
+				inputPrice: "1.69e-6",
+				cachedInputPrice: "0.14e-6",
+				outputPrice: "3.38e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				// /v1/models reports 393216 while Qianfan's model page caps output at
+				// 128K; the lower bound is the safe one to advertise.
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				// Qianfan ignores reasoning_effort="none"; its thinking switch works.
+				requiresDisableThinkingParam: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
 			},
 		],
 	},
@@ -667,7 +730,7 @@ export const deepseekModels = [
 				requestPrice: "0",
 				contextSize: 1000000,
 				maxOutput: 393216,
-				quantization: "fp4",
+				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
 				// DeepInfra keeps thinking off unless an effort is requested, and
@@ -679,7 +742,11 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "bytedance",
-				externalId: "deepseek-v4-flash-260425",
+				// The GA deployment; `deepseek-v4-flash-260425` is the superseded
+				// preview. Both currently bill at the rates below, but BytePlus raises
+				// the GA deployment to 0.44/0.014/1.32 on 2026-08-21 00:00 UTC+8 —
+				// these three fields have to move on that date.
+				externalId: "deepseek-v4-flash-ga-260731",
 				inputPrice: "0.14e-6",
 				cachedInputPrice: "0.028e-6",
 				outputPrice: "0.28e-6",
@@ -688,8 +755,16 @@ export const deepseekModels = [
 				maxOutput: 393216,
 				streaming: true,
 				reasoning: true,
-				reasoningEfforts: ["minimal", "low", "medium", "high", "max"],
-				reasoningOutput: "omit" as const,
+				// `none` and `minimal` both return no reasoning at all.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				vision: false,
 				tools: true,
 				jsonOutput: false,
@@ -849,6 +924,32 @@ export const deepseekModels = [
 				// deployment emits the right keys but never stops, running into the
 				// output cap and returning truncated, unparseable JSON.
 				jsonOutputSchema: false,
+			},
+			{
+				providerId: "baidu",
+				externalId: "deepseek-v4-flash",
+				inputPrice: "0.14e-6",
+				cachedInputPrice: "0.028e-6",
+				outputPrice: "0.28e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				// Qianfan ignores reasoning_effort="none"; its thinking switch works.
+				requiresDisableThinkingParam: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
 			},
 		],
 	},

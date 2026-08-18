@@ -78,13 +78,16 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.organization.id,
 			to: r.auditLog.organizationId,
 		}),
+		// Org-level rows only; project overrides live on the project relations.
 		guardrailConfig: r.one.guardrailConfig({
 			from: r.organization.id,
 			to: r.guardrailConfig.organizationId,
+			where: { projectId: { isNull: true } },
 		}),
 		guardrailRules: r.many.guardrailRule({
 			from: r.organization.id,
 			to: r.guardrailRule.organizationId,
+			where: { projectId: { isNull: true } },
 		}),
 		guardrailViolations: r.many.guardrailViolation({
 			from: r.organization.id,
@@ -225,6 +228,14 @@ export const relations = defineRelations(schema, (r) => ({
 		webhookEndpoints: r.many.webhookEndpoint({
 			from: r.project.id,
 			to: r.webhookEndpoint.projectId,
+		}),
+		guardrailConfig: r.one.guardrailConfig({
+			from: r.project.id,
+			to: r.guardrailConfig.projectId,
+		}),
+		guardrailRules: r.many.guardrailRule({
+			from: r.project.id,
+			to: r.guardrailRule.projectId,
 		}),
 	},
 	webhookEndpoint: {
@@ -573,11 +584,19 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.guardrailConfig.organizationId,
 			to: r.organization.id,
 		}),
+		project: r.one.project({
+			from: r.guardrailConfig.projectId,
+			to: r.project.id,
+		}),
 	},
 	guardrailRule: {
 		organization: r.one.organization({
 			from: r.guardrailRule.organizationId,
 			to: r.organization.id,
+		}),
+		project: r.one.project({
+			from: r.guardrailRule.projectId,
+			to: r.project.id,
 		}),
 	},
 	guardrailViolation: {

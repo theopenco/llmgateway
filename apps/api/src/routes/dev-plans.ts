@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { assertCreditPurchaseAllowed } from "@/lib/credit-purchase-guard.js";
 import { voidPendingCycleRenewalInvoices } from "@/lib/pending-renewal.js";
 import {
 	computeSelfRefundEligibility,
@@ -10,6 +11,7 @@ import {
 	refundFeedbackBodySchema,
 } from "@/lib/self-refund.js";
 import { getStripeCardErrorMessage } from "@/lib/stripe-card-error.js";
+import { forcedThreeDSecureOptions } from "@/lib/three-d-secure.js";
 import { posthog } from "@/posthog.js";
 import {
 	ensureStripeCustomer,
@@ -19,6 +21,7 @@ import {
 	isDevPlanCardDedupeEnforced,
 } from "@/stripe.js";
 import { findDefaultOrganization } from "@/utils/default-org.js";
+import { getDevPlanPriceId } from "@/utils/dev-plan-prices.js";
 import { LEGACY_DEV_PLAN_TX_TYPES } from "@/utils/devpass-filter.js";
 import {
 	buildInvoiceDataForTransaction,
@@ -206,24 +209,6 @@ function getPurchasedResetPasses(
 		case "max":
 			return org.devPlanResetPassesMax;
 	}
-}
-
-function getDevPlanPriceId(
-	tier: DevPlanTier,
-	cycle: DevPlanCycle = "monthly",
-): string | undefined {
-	const monthlyKeys: Record<DevPlanTier, string> = {
-		lite: "STRIPE_DEV_PLAN_LITE_PRICE_ID",
-		pro: "STRIPE_DEV_PLAN_PRO_PRICE_ID",
-		max: "STRIPE_DEV_PLAN_MAX_PRICE_ID",
-	};
-	const annualKeys: Record<DevPlanTier, string> = {
-		lite: "STRIPE_DEV_PLAN_LITE_ANNUAL_PRICE_ID",
-		pro: "STRIPE_DEV_PLAN_PRO_ANNUAL_PRICE_ID",
-		max: "STRIPE_DEV_PLAN_MAX_ANNUAL_PRICE_ID",
-	};
-	const key = cycle === "annual" ? annualKeys[tier] : monthlyKeys[tier];
-	return process.env[key];
 }
 
 function getStripeId(value: string | { id?: string } | null | undefined) {
@@ -459,6 +444,7 @@ devPlans.openapi(subscribe, async (c) => {
 			customer: stripeCustomerId,
 			mode: "setup",
 			payment_method_types: ["card"],
+			...(await forcedThreeDSecureOptions()),
 			success_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?setup_session_id={CHECKOUT_SESSION_ID}`,
 			cancel_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?canceled=true`,
 			metadata: {
@@ -2921,6 +2907,7 @@ devPlans.openapi(createSetupIntent, async (c) => {
 		customer: stripeCustomerId,
 		payment_method_types: ["card"],
 		usage: "off_session",
+		...(await forcedThreeDSecureOptions()),
 		metadata: {
 			organizationId: personalOrg.id,
 			subscriptionType: "dev_plan_update",
@@ -3388,6 +3375,8 @@ devPlans.openapi(topUpCredits, async (c) => {
 			message: "An active dev plan is required to top up credits.",
 		});
 	}
+
+	await assertCreditPurchaseAllowed(personalOrg.id);
 
 	const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
 	const paymentMethodId = await resolveDevPassPaymentMethodId(

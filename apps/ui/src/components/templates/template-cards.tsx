@@ -54,7 +54,7 @@ const templates: Template[] = [
 		description:
 			"Generate stunning images with AI using multiple providers. Supports DALL-E, Stable Diffusion, and more through a unified API.",
 		href: "https://github.com/theopenco/llmgateway-templates/tree/main/templates/image-generation",
-		demoUrl: "https://llm-image-generation.vercel.app",
+		demoUrl: "https://llmgateway-templates-image-generation-124.meetploy.app",
 		image: "/templates/image-gen.png",
 		icon: ImageIcon,
 		tags: ["TypeScript", "Next.js", "AI SDK"],
@@ -66,7 +66,7 @@ const templates: Template[] = [
 		description:
 			"Streaming chat interface with conversation history and model selector. Switch between LLM providers on the fly with real-time token delivery.",
 		href: "https://github.com/theopenco/llmgateway-templates/tree/main/templates/ai-chatbot",
-		demoUrl: "https://llm-ai-chatbot-brown.vercel.app",
+		demoUrl: "https://llmgateway-templates-ai-chatbot-108.meetploy.app",
 		image: "/templates/chatbot.png",
 		icon: MessageSquare,
 		tags: ["TypeScript", "Next.js", "AI SDK"],
@@ -78,7 +78,7 @@ const templates: Template[] = [
 		description:
 			"AI-powered Open Graph image generator with live preview, multiple themes, and one-click download. Uses structured output to generate title, subtitle, and call-to-action copy.",
 		href: "https://github.com/theopenco/llmgateway-templates/tree/main/templates/og-image-generator",
-		demoUrl: "https://llm-og-image-generator.vercel.app",
+		demoUrl: "https://llmgateway-templates-og-image-generator-926.meetploy.app",
 		image: "/templates/og-image.png",
 		icon: PanelTop,
 		tags: ["TypeScript", "Next.js", "AI SDK"],
@@ -89,7 +89,7 @@ const templates: Template[] = [
 		description:
 			"Customer feedback sentiment analysis dashboard. Paste reviews for batch AI analysis with sentiment scores, key themes extraction, and individual review breakdowns.",
 		href: "https://github.com/theopenco/llmgateway-templates/tree/main/templates/feedback-dashboard",
-		demoUrl: "https://llm-feedback-dashboard.vercel.app",
+		demoUrl: "https://llmgateway-templates-feedback-dashboard-189.meetploy.app",
 		image: "/templates/feedback.png",
 		icon: BarChart3,
 		tags: ["TypeScript", "Next.js", "AI SDK"],
@@ -100,7 +100,7 @@ const templates: Template[] = [
 		description:
 			"AI writing assistant with text actions including rewrite, summarize, expand, fix grammar, and change tone. Supports multiple tone presets from professional to academic.",
 		href: "https://github.com/theopenco/llmgateway-templates/tree/main/templates/writing-assistant",
-		demoUrl: "https://llm-writing-assistant.vercel.app",
+		demoUrl: "https://llmgateway-templates-writing-assistant-229.meetploy.app",
 		image: "/templates/writing-assistant.png",
 		icon: PenLine,
 		tags: ["TypeScript", "Next.js", "AI SDK"],

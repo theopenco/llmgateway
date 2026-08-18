@@ -174,6 +174,25 @@ describe("getProviderFilterReasons", () => {
 		).toEqual([exclusionReason("json_schema")]);
 	});
 
+	it("treats the two JSON tiers independently for json_schema routing", () => {
+		// A provider that supports strict json_schema without json_object
+		// (e.g. Runware, Perplexity, Anthropic) must not be excluded from
+		// json_schema routing just because it lacks soft jsonOutput.
+		expect(
+			getProviderFilterReasons(
+				mapping({ jsonOutputSchema: true, jsonOutput: false }),
+				{ responseFormatType: "json_schema" },
+			),
+		).toEqual([]);
+		// ...but json_object still requires soft jsonOutput.
+		expect(
+			getProviderFilterReasons(
+				mapping({ jsonOutputSchema: true, jsonOutput: false }),
+				{ responseFormatType: "json_object" },
+			),
+		).toEqual([exclusionReason("json_output")]);
+	});
+
 	it("flags unsupported modalities", () => {
 		expect(getProviderFilterReasons(mapping(), { hasImages: true })).toEqual([
 			exclusionReason("vision"),

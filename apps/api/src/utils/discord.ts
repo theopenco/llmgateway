@@ -4,6 +4,7 @@ const discordWebhookUrl = process.env.DISCORD_NOTIFICATION_URL;
 
 interface DiscordEmbed {
 	title: string;
+	url?: string;
 	description?: string;
 	color?: number;
 	fields?: Array<{
@@ -66,6 +67,7 @@ export async function notifyUserSignup(
 	email: string,
 	name: string | null | undefined,
 	authMethod?: string,
+	countryCode?: string | null,
 ): Promise<void> {
 	const displayName = name ?? "Unknown";
 	const method = authMethod ?? "Unknown";
@@ -89,6 +91,11 @@ export async function notifyUserSignup(
 					{
 						name: "Auth Method",
 						value: method,
+						inline: true,
+					},
+					{
+						name: "Country",
+						value: countryCode ?? "Unknown",
 						inline: true,
 					},
 				],
@@ -391,10 +398,18 @@ export async function notifyChatSupportEscalation(args: {
 	name?: string;
 	email?: string;
 	conversationId: string;
+	adminConversationUrl: string;
 	ipAddress?: string;
 	lastMessage?: string;
 }): Promise<void> {
-	const { name, email, conversationId, ipAddress, lastMessage } = args;
+	const {
+		name,
+		email,
+		conversationId,
+		adminConversationUrl,
+		ipAddress,
+		lastMessage,
+	} = args;
 	const truncatedMessage =
 		lastMessage && lastMessage.length > 1000
 			? `${lastMessage.slice(0, 1000)}…`
@@ -406,6 +421,7 @@ export async function notifyChatSupportEscalation(args: {
 			embeds: [
 				{
 					title: "Chat Support Escalation",
+					url: adminConversationUrl,
 					color: 0xf59e0b, // Amber
 					fields: [
 						{ name: "Name", value: name || "Not provided", inline: true },
@@ -413,6 +429,11 @@ export async function notifyChatSupportEscalation(args: {
 						{
 							name: "Conversation ID",
 							value: conversationId,
+							inline: false,
+						},
+						{
+							name: "Admin dashboard",
+							value: `[View support ticket](${adminConversationUrl})`,
 							inline: false,
 						},
 						...(ipAddress

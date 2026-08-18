@@ -20,7 +20,7 @@ const comparisonData = [
 				title: "Bring Your Own Keys",
 				description: "Use your own provider API keys",
 				llmgateway: "Free — pay providers directly",
-				openrouter: "1M free reqs/mo, then 5% fee",
+				openrouter: "Free to $25k/mo PAYG ($200k enterprise), then 5%",
 			},
 			{
 				title: "Self-hosting option",

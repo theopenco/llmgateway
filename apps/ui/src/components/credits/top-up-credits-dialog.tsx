@@ -283,9 +283,10 @@ function AmountStep({
 			toast({
 				title: "Checkout Failed",
 				description:
-					error instanceof Error
+					(error instanceof Error
 						? error.message
-						: "Failed to create checkout session.",
+						: (error as { message?: string } | undefined)?.message) ??
+					"Failed to create checkout session.",
 				variant: "destructive",
 			});
 			setCheckoutLoading(false);

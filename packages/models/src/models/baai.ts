@@ -17,6 +17,7 @@ export const baaiModels = [
 				outputPrice: "0",
 				requestPrice: "0",
 				contextSize: 8192,
+				quantization: "fp32",
 				streaming: false,
 				tools: false,
 				jsonOutput: false,
