@@ -1159,6 +1159,53 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
+		id: "github-copilot",
+		name: "GitHub Copilot",
+		forwardsSafetyIdentifier: false,
+		description:
+			"Route your GitHub Copilot subscription through LLM Gateway via the OpenAI-compatible Copilot API — bring your own Copilot account.",
+		env: {
+			required: {
+				// A GitHub OAuth access token (gho_/ghu_) from an account with an
+				// active Copilot subscription. The gateway exchanges it for the
+				// short-lived Copilot API bearer token on each request.
+				apiKey: "LLM_GITHUB_COPILOT_OAUTH_TOKEN",
+			},
+			optional: {
+				baseUrl: "LLM_GITHUB_COPILOT_BASE_URL",
+				// Token-exchange endpoint override for GitHub Enterprise deployments
+				tokenUrl: "LLM_GITHUB_COPILOT_TOKEN_URL",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#8957e5",
+		website: "https://github.com/features/copilot",
+		statusPageUrl: "https://www.githubstatus.com",
+		announcement: null,
+		apiKeyInstructions:
+			"Sign in with GitHub below, or paste a GitHub OAuth access token (starts with gho_ or ghu_) from an account with an active Copilot subscription.",
+		learnMore: "https://docs.llmgateway.io/integrations/github-copilot",
+		// Copilot usage is subscription-billed (premium requests), so its
+		// mappings carry $0 token prices. Deprioritize so cheapest-first routing
+		// does not blanket-prefer it over per-token providers when an org has
+		// keys for both; orgs can still pin it explicitly.
+		priority: 0.2,
+		termsUrl:
+			"https://docs.github.com/en/site-policy/github-terms/github-terms-for-additional-products-and-features",
+		privacyPolicyUrl:
+			"https://docs.github.com/en/site-policy/privacy-policies/github-privacy-statement",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			promptLogging: false,
+			retentionPeriod: null,
+			soc2: 2,
+			iso27001: true,
+			gdpr: true,
+		},
+	},
+	{
 		id: "zai",
 		name: "Z AI",
 		forwardsSafetyIdentifier: false,

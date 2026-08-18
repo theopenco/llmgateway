@@ -116,6 +116,7 @@ import {
 	getCheapestFromAvailableProviders,
 	getDiscountedProviderSelectionPrice,
 	getGcpServiceAccountAccessToken,
+	getGithubCopilotToken,
 	getProviderEndpoint,
 	getProviderHeaders,
 	isPremiumServiceTier,
@@ -5719,6 +5720,13 @@ chat.openapi(completions, async (c) => {
 	// used as-is (whether it came from a provider key or the env var).
 	if (usedProvider === "vertex-openai") {
 		usedToken = await getGcpServiceAccountAccessToken(usedToken);
+	}
+
+	// GitHub Copilot keys store the long-lived GitHub OAuth token (kept in
+	// usedApiKeyHash above for health tracking); the API itself only accepts
+	// the short-lived Copilot bearer token, so exchange it here.
+	if (usedProvider === "github-copilot") {
+		usedToken = await getGithubCopilotToken(usedToken);
 	}
 
 	const contentFilterBlocked =

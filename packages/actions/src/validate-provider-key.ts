@@ -12,6 +12,7 @@ import {
 import { getGcpServiceAccountAccessToken } from "./gcp-access-token.js";
 import { getProviderEndpoint } from "./get-provider-endpoint.js";
 import { getProviderHeaders } from "./get-provider-headers.js";
+import { getGithubCopilotToken } from "./github-copilot-token.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
 import { describeNetworkFailure } from "./provider-key/network-error.js";
 import { redactToken } from "./provider-key/redact.js";
@@ -296,6 +297,12 @@ export async function validateProviderKey(
 		let requestToken = token;
 		if (provider === "vertex-anthropic" || provider === "vertex-openai") {
 			requestToken = await getGcpServiceAccountAccessToken(token);
+		}
+		// GitHub Copilot keys are GitHub OAuth tokens; the Copilot API expects
+		// the short-lived bearer token minted from them. The exchange doubles as
+		// the subscription check: it fails for accounts without Copilot access.
+		if (provider === "github-copilot") {
+			requestToken = await getGithubCopilotToken(token);
 		}
 
 		const headers = getProviderHeaders(provider, requestToken, {

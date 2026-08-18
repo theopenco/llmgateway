@@ -53,6 +53,7 @@ import {
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
 import {
+	getGithubCopilotToken,
 	getGoogleVertexPublisherModelPath,
 	getProviderDefaultBaseUrl,
 	getProviderHeaders,
@@ -957,6 +958,31 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			if (dimensions !== undefined) {
 				requestBody.parameters = { outputDimensionality: dimensions };
 			}
+		} else if (providerId === "github-copilot") {
+			// The Copilot API serves embeddings at the host root (no /v1 prefix).
+			// Business/enterprise subscriptions live on dedicated hosts selected by
+			// the account type stored on the provider key; an explicit key baseUrl
+			// still wins (it is the first term of resolvedBaseUrl).
+			const accountType = providerKey?.options?.github_copilot_account_type;
+			const copilotHost =
+				providerKey?.baseUrl ??
+				(accountType === "business" || accountType === "enterprise"
+					? `https://api.${accountType}.githubcopilot.com`
+					: resolvedBaseUrl);
+			upstreamUrl = `${copilotHost}/embeddings`;
+			requestBody = {
+				input,
+				model: upstreamModel,
+			};
+			if (encoding_format !== undefined) {
+				requestBody.encoding_format = encoding_format;
+			}
+			if (dimensions !== undefined) {
+				requestBody.dimensions = dimensions;
+			}
+			if (user !== undefined) {
+				requestBody.user = user;
+			}
 		} else if (isDeepInfra) {
 			// DeepInfra's base URL is https://api.deepinfra.com/v1/openai so the
 			// embeddings path is /embeddings (not /v1/embeddings, which would
@@ -1093,6 +1119,14 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			let upstreamText = "";
 			let fetchError: Error | null = null;
 			try {
+				// GitHub Copilot stores the long-lived GitHub OAuth token (kept in
+				// usedApiKeyHash above for health tracking); the API itself only
+				// accepts the short-lived Copilot bearer token, so swap just the
+				// wire token here.
+				const wireToken =
+					providerId === "github-copilot"
+						? await getGithubCopilotToken(attempt.usedToken)
+						: attempt.usedToken;
 				const fetchSignal = createCombinedSignal(controller);
 				upstreamResponse = await fetch(attempt.upstreamUrl, {
 					method: "POST",
@@ -1102,7 +1136,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 					redirect: "error",
 					headers: {
 						"Content-Type": "application/json",
-						...getProviderHeaders(providerId, attempt.usedToken, {
+						...getProviderHeaders(providerId, wireToken, {
 							requestId,
 							tokenType: attempt.vertexTokenType,
 						}),

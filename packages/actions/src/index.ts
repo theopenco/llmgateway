@@ -16,6 +16,7 @@ export * from "./get-cheapest-model-for-provider.js";
 export * from "./provider-key/index.js";
 export * from "./select-provider-mapping.js";
 export * from "./gcp-access-token.js";
+export * from "./github-copilot-token.js";
 export * from "./topup-velocity.js";
 export * from "./limit-hits.js";
 export * from "./org-spend.js";

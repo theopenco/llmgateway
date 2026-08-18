@@ -77,12 +77,100 @@ export function CreateProviderKeyDialog({
 	const [usageLimit, setUsageLimit] = useState("");
 	const [allowedModels, setAllowedModels] = useState<string[]>([]);
 	const [isValidating, setIsValidating] = useState(false);
+	const [copilotAccountType, setCopilotAccountType] = useState<
+		"individual" | "business" | "enterprise"
+	>("individual");
+	const [copilotUserCode, setCopilotUserCode] = useState("");
+	const [copilotVerificationUri, setCopilotVerificationUri] = useState("");
+	const [copilotSigningIn, setCopilotSigningIn] = useState(false);
+	// Bumped to cancel an in-flight device-flow polling loop (dialog closed,
+	// sign-in restarted); the loop aborts when its captured session goes stale.
+	const copilotPollSessionRef = React.useRef(0);
 
 	const api = useApi();
 	const queryKey = api.queryOptions("get", "/keys/provider").queryKey;
 	const queryClient = useQueryClient();
 
 	const createMutation = api.useMutation("post", "/keys/provider");
+	const copilotDeviceCodeMutation = api.useMutation(
+		"post",
+		"/keys/provider/github-copilot/device-code",
+	);
+	const copilotDeviceTokenMutation = api.useMutation(
+		"post",
+		"/keys/provider/github-copilot/device-token",
+	);
+
+	const resetCopilotSignIn = () => {
+		copilotPollSessionRef.current++;
+		setCopilotUserCode("");
+		setCopilotVerificationUri("");
+		setCopilotSigningIn(false);
+	};
+
+	// GitHub's OAuth device flow: start it, show the user code, then poll until
+	// the user approves in their browser and drop the OAuth token into the key
+	// field — the normal create flow (validation + encryption) takes over.
+	const startCopilotSignIn = async () => {
+		copilotPollSessionRef.current++;
+		const session = copilotPollSessionRef.current;
+		setCopilotSigningIn(true);
+		try {
+			const device = await copilotDeviceCodeMutation.mutateAsync({});
+			if (copilotPollSessionRef.current !== session) {
+				return;
+			}
+			setCopilotUserCode(device.userCode);
+			setCopilotVerificationUri(device.verificationUri);
+			const expiresInMs = device.expiresIn * 1000;
+			const deadline = Date.now() + expiresInMs;
+			while (Date.now() < deadline) {
+				await new Promise((resolve) =>
+					setTimeout(resolve, Math.max(device.interval, 5) * 1000),
+				);
+				if (copilotPollSessionRef.current !== session) {
+					return;
+				}
+				const poll = await copilotDeviceTokenMutation.mutateAsync({
+					body: { deviceCode: device.deviceCode },
+				});
+				if (copilotPollSessionRef.current !== session) {
+					return;
+				}
+				if (poll.status === "complete" && poll.token) {
+					setToken(poll.token);
+					setCopilotUserCode("");
+					setCopilotVerificationUri("");
+					setCopilotSigningIn(false);
+					toast({
+						title: "GitHub account connected",
+						description:
+							"The OAuth token has been filled in. Click Add Key to validate and save it.",
+					});
+					return;
+				}
+			}
+			toast({
+				title: "Sign-in expired",
+				description:
+					"The device code expired before the sign-in was approved. Start over.",
+				variant: "destructive",
+			});
+			resetCopilotSignIn();
+		} catch (error) {
+			if (copilotPollSessionRef.current === session) {
+				toast({
+					title: "GitHub sign-in failed",
+					description:
+						error instanceof Error
+							? error.message
+							: "Could not complete the GitHub device sign-in.",
+					variant: "destructive",
+				});
+				resetCopilotSignIn();
+			}
+		}
+	};
 
 	const selectedProviderDef = providers.find(
 		(p) => p.id === selectedProvider,
@@ -328,6 +416,13 @@ export function CreateProviderKeyDialog({
 			};
 		}
 
+		if (selectedProvider === "github-copilot") {
+			payload.options = {
+				...payload.options,
+				github_copilot_account_type: copilotAccountType,
+			};
+		}
+
 		setIsValidating(true);
 		toast({ title: "Validating API Key", description: "Please wait..." });
 
@@ -383,11 +478,13 @@ export function CreateProviderKeyDialog({
 
 	const handleClose = () => {
 		setOpen(false);
+		resetCopilotSignIn();
 		setTimeout(() => {
 			setSelectedProvider(preselectedProvider ?? "");
 			setBaseUrl("");
 			setCustomName("");
 			setToken("");
+			setCopilotAccountType("individual");
 			setAzureResource("");
 			setAzureApiVersion("2024-10-21");
 			setAzureDeploymentType("ai-foundry");
@@ -404,7 +501,17 @@ export function CreateProviderKeyDialog({
 	};
 
 	return (
-		<Dialog open={open} onOpenChange={setOpen}>
+		<Dialog
+			open={open}
+			onOpenChange={(value) => {
+				setOpen(value);
+				if (!value) {
+					// Stop an in-flight device-flow poll when the dialog is dismissed
+					// via overlay/escape (the Cancel button goes through handleClose).
+					resetCopilotSignIn();
+				}
+			}}
+		>
 			<DialogTrigger asChild>{children}</DialogTrigger>
 			<DialogContent className="sm:max-w-[500px]">
 				<DialogHeader>
@@ -440,12 +547,58 @@ export function CreateProviderKeyDialog({
 						/>
 					</div>
 
+					{selectedProvider === "github-copilot" && (
+						<div className="space-y-2 rounded-md border p-3">
+							<div className="flex items-center justify-between gap-2">
+								<div>
+									<p className="text-sm font-medium">Sign in with GitHub</p>
+									<p className="text-sm text-muted-foreground">
+										Connects via GitHub&apos;s device flow and fills in the
+										OAuth token for you.
+									</p>
+								</div>
+								<Button
+									type="button"
+									variant="outline"
+									onClick={startCopilotSignIn}
+									disabled={copilotSigningIn}
+								>
+									{copilotSigningIn ? "Waiting..." : "Sign in"}
+								</Button>
+							</div>
+							{copilotUserCode && (
+								<p className="text-sm">
+									Enter code{" "}
+									<code className="rounded bg-muted px-1.5 py-0.5 font-mono font-semibold">
+										{copilotUserCode}
+									</code>{" "}
+									at{" "}
+									<a
+										href={copilotVerificationUri}
+										target="_blank"
+										rel="noopener noreferrer"
+										className="text-primary hover:underline"
+									>
+										{copilotVerificationUri}
+									</a>
+									. Waiting for you to authorize…
+								</p>
+							)}
+						</div>
+					)}
+
 					<div className="space-y-2">
-						<Label htmlFor="token">Provider API Key</Label>
+						<Label htmlFor="token">
+							{selectedProvider === "github-copilot"
+								? "GitHub OAuth Token"
+								: "Provider API Key"}
+						</Label>
 						<Input
 							id="token"
 							type="password"
-							placeholder="sk-..."
+							placeholder={
+								selectedProvider === "github-copilot" ? "gho_..." : "sk-..."
+							}
 							value={token}
 							onChange={(e) => setToken(e.target.value)}
 							required
@@ -641,6 +794,35 @@ export function CreateProviderKeyDialog({
 								<code>?key=</code>). Use <strong>OAuth2 Bearer</strong> for
 								service account access tokens (sent as{" "}
 								<code>Authorization: Bearer</code>).
+							</p>
+						</div>
+					)}
+
+					{selectedProvider === "github-copilot" && (
+						<div className="space-y-2">
+							<Label htmlFor="copilot-account-type">Copilot Plan</Label>
+							<Select
+								value={copilotAccountType}
+								onValueChange={(value) =>
+									setCopilotAccountType(
+										value as "individual" | "business" | "enterprise",
+									)
+								}
+							>
+								<SelectTrigger id="copilot-account-type">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="individual">
+										Individual (Pro / Pro+)
+									</SelectItem>
+									<SelectItem value="business">Business</SelectItem>
+									<SelectItem value="enterprise">Enterprise</SelectItem>
+								</SelectContent>
+							</Select>
+							<p className="text-sm text-muted-foreground">
+								Business and Enterprise subscriptions are served from their own
+								Copilot API hosts, so the plan must match your account.
 							</p>
 						</div>
 					)}

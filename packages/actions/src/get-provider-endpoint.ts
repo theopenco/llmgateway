@@ -220,6 +220,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	fireworks: "https://api.fireworks.ai/inference",
 	ranoai: "https://api.ranoai.com",
 	baidu: "https://api.baiduqianfan.ai",
+	"github-copilot": "https://api.githubcopilot.com",
 };
 
 export function getProviderDefaultBaseUrl(
@@ -630,6 +631,25 @@ export function getProviderEndpoint(
 				}
 				url = baseUrl;
 				break;
+			case "github-copilot": {
+				// Business and enterprise Copilot subscriptions are served from
+				// dedicated hosts; the account type stored on the provider key picks
+				// the right one. Individual (or unset) uses the default host.
+				const accountType = providerKeyOptions?.github_copilot_account_type;
+				const accountTypeUrl =
+					accountType === "business" || accountType === "enterprise"
+						? `https://api.${accountType}.githubcopilot.com`
+						: undefined;
+				url =
+					accountTypeUrl ??
+					envValueOrDefault(
+						provider,
+						"baseUrl",
+						getProviderDefaultBaseUrl(provider),
+					) ??
+					getProviderDefaultBaseUrl(provider);
+				break;
+			}
 			default: {
 				const staticDefault = getProviderDefaultBaseUrl(provider);
 				if (!staticDefault) {
@@ -960,6 +980,10 @@ export function getProviderEndpoint(
 			}
 			return `${url}/v1/image/create`;
 		case "deepinfra":
+			return `${url}/chat/completions`;
+		// The Copilot API serves chat completions at the host root, without the
+		// /v1 prefix.
+		case "github-copilot":
 			return `${url}/chat/completions`;
 		case "sakana": {
 			// Fugu exposes reasoning summaries only through the Responses API, but

@@ -166,4 +166,22 @@ describe("getProviderHeaders - Google Vertex service tiers", () => {
 		});
 		expect(quartz[VERTEX_TIER_HEADER]).toBeUndefined();
 	});
+
+	describe("github-copilot", () => {
+		it("sends the Copilot bearer token with the VS Code integration headers", () => {
+			const headers = getProviderHeaders("github-copilot", "copilot-token");
+			expect(headers.Authorization).toBe("Bearer copilot-token");
+			expect(headers["Copilot-Integration-Id"]).toBe("vscode-chat");
+			expect(headers["Editor-Version"]).toMatch(/^vscode\//);
+			expect(headers["Editor-Plugin-Version"]).toMatch(/^copilot-chat\//);
+			expect(headers["Copilot-Vision-Request"]).toBe("true");
+		});
+
+		it("preserves the request id", () => {
+			const headers = getProviderHeaders("github-copilot", "copilot-token", {
+				requestId: "req-123",
+			});
+			expect(headers["x-request-id"]).toBe("req-123");
+		});
+	});
 });

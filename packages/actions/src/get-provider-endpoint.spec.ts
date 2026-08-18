@@ -21,6 +21,7 @@ const originalMantleRegion = process.env.LLM_AWS_MANTLE_REGION;
 afterEach(() => {
 	delete process.env.LLM_ALIBABA_WORKSPACE_ID__EU_FRANKFURT;
 	delete process.env.LLM_ALIBABA_WORKSPACE_ID__ENTERPRISE__EU_FRANKFURT;
+	delete process.env.LLM_GITHUB_COPILOT_BASE_URL;
 
 	if (originalAiStudioBaseUrl === undefined) {
 		delete process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
@@ -380,6 +381,98 @@ describe("getProviderEndpoint", () => {
 			expect(endpoint).toBe(
 				"https://aiplatform.googleapis.com/v1/projects/project-a/locations/global/publishers/google/models/gemini-2.5-pro:generateContent",
 			);
+		});
+	});
+
+	describe("github-copilot", () => {
+		it("defaults to the individual Copilot API host without a /v1 prefix", () => {
+			expect(getProviderEndpoint("github-copilot")).toBe(
+				"https://api.githubcopilot.com/chat/completions",
+			);
+		});
+
+		it("uses the dedicated host for business and enterprise account types", () => {
+			expect(
+				getProviderEndpoint(
+					"github-copilot",
+					undefined,
+					undefined,
+					undefined,
+					false,
+					undefined,
+					undefined,
+					{ github_copilot_account_type: "business" },
+				),
+			).toBe("https://api.business.githubcopilot.com/chat/completions");
+
+			expect(
+				getProviderEndpoint(
+					"github-copilot",
+					undefined,
+					undefined,
+					undefined,
+					false,
+					undefined,
+					undefined,
+					{ github_copilot_account_type: "enterprise" },
+				),
+			).toBe("https://api.enterprise.githubcopilot.com/chat/completions");
+		});
+
+		it("stays on the default host for the individual account type", () => {
+			expect(
+				getProviderEndpoint(
+					"github-copilot",
+					undefined,
+					undefined,
+					undefined,
+					false,
+					undefined,
+					undefined,
+					{ github_copilot_account_type: "individual" },
+				),
+			).toBe("https://api.githubcopilot.com/chat/completions");
+		});
+
+		it("prefers an explicit base URL over everything else", () => {
+			expect(
+				getProviderEndpoint(
+					"github-copilot",
+					"https://copilot-proxy.example.com",
+					undefined,
+					undefined,
+					false,
+					undefined,
+					undefined,
+					{ github_copilot_account_type: "business" },
+				),
+			).toBe("https://copilot-proxy.example.com/chat/completions");
+		});
+
+		it("honors the env base URL override outside BYOK contexts only", () => {
+			process.env.LLM_GITHUB_COPILOT_BASE_URL =
+				"https://ghe-copilot.example.com";
+
+			expect(getProviderEndpoint("github-copilot")).toBe(
+				"https://ghe-copilot.example.com/chat/completions",
+			);
+
+			expect(
+				getProviderEndpoint(
+					"github-copilot",
+					undefined,
+					undefined,
+					undefined,
+					false,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					true, // skipEnvVars (BYOK)
+				),
+			).toBe("https://api.githubcopilot.com/chat/completions");
 		});
 	});
 

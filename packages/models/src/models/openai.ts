@@ -99,6 +99,23 @@ export const openaiModels = [
 				deprecatedAt: new Date("2026-01-09"),
 				deactivatedAt: new Date("2026-03-31"),
 			},
+			{
+				// BYOK-only: served through the org's own Copilot subscription,
+				// which bills per seat (premium requests), not per token — hence
+				// the $0 token prices. No platform credential exists in CI.
+				test: "skip",
+				providerId: "github-copilot",
+				externalId: "gpt-4o-mini",
+				inputPrice: "0",
+				outputPrice: "0",
+				requestPrice: "0",
+				contextSize: 128000,
+				maxOutput: 16384,
+				streaming: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
 		],
 	},
 	{
@@ -242,6 +259,23 @@ export const openaiModels = [
 				tools: true,
 				jsonOutput: true,
 			},
+			{
+				// BYOK-only: served through the org's own Copilot subscription,
+				// which bills per seat (premium requests), not per token — hence
+				// the $0 token prices. No platform credential exists in CI.
+				test: "skip",
+				providerId: "github-copilot",
+				externalId: "gpt-4o",
+				inputPrice: "0",
+				outputPrice: "0",
+				requestPrice: "0",
+				contextSize: 128000,
+				maxOutput: 16384,
+				streaming: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
 		],
 	},
 	{
@@ -360,6 +394,24 @@ export const openaiModels = [
 				tools: true,
 				parallelToolCalls: true,
 				jsonOutputSchema: true,
+				jsonOutput: true,
+			},
+			{
+				// BYOK-only: served through the org's own Copilot subscription,
+				// which bills per seat (premium requests), not per token — hence
+				// the $0 token prices. No platform credential exists in CI.
+				// Copilot serves gpt-4.1 with a 128k window, not OpenAI's 1M.
+				test: "skip",
+				providerId: "github-copilot",
+				externalId: "gpt-4.1",
+				inputPrice: "0",
+				outputPrice: "0",
+				requestPrice: "0",
+				contextSize: 128000,
+				maxOutput: 16384,
+				streaming: true,
+				vision: true,
+				tools: true,
 				jsonOutput: true,
 			},
 		],
@@ -2717,6 +2769,22 @@ export const openaiModels = [
 				providerId: "openai",
 				externalId: "text-embedding-3-small",
 				inputPrice: "0.02e-6",
+				outputPrice: "0",
+				requestPrice: "0",
+				contextSize: 8192,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				embeddings: true,
+			},
+			{
+				// BYOK-only: served through the org's own Copilot subscription,
+				// which bills per seat (premium requests), not per token — hence
+				// the $0 token prices. No platform credential exists in CI.
+				test: "skip",
+				providerId: "github-copilot",
+				externalId: "text-embedding-3-small",
+				inputPrice: "0",
 				outputPrice: "0",
 				requestPrice: "0",
 				contextSize: 8192,

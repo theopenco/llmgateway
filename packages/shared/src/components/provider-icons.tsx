@@ -2,6 +2,7 @@ import React from "react";
 
 import { cn } from "@/lib/utils";
 
+import { GitHubCopilotIcon } from "./integration-icons";
 import { Logo } from "./ui/logo";
 
 import type { ProviderId } from "@llmgateway/models";
@@ -1603,6 +1604,7 @@ export const ProviderIcons = {
 	"aws-mantle": AWSBedrockIcon,
 	azure: AzureIcon,
 	"azure-ai-foundry": AzureIcon,
+	"github-copilot": GitHubCopilotIcon,
 	canopywave: CanopyWaveIcon,
 	cerebras: CerebrasIcon,
 	minimax: MinimaxIcon,
@@ -1656,6 +1658,7 @@ export const providerLogoUrls: Partial<
 	"aws-mantle": ProviderIcons["aws-bedrock"],
 	azure: ProviderIcons.azure,
 	"azure-ai-foundry": ProviderIcons["azure-ai-foundry"],
+	"github-copilot": ProviderIcons["github-copilot"],
 	canopywave: ProviderIcons.canopywave,
 	cerebras: ProviderIcons.cerebras,
 	minimax: ProviderIcons.minimax,

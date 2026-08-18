@@ -1649,6 +1649,13 @@ export interface ProviderKeyOptions {
 	 */
 	alibaba_workspace_id?: string;
 	aws_mantle_region?: "us-east-1" | "us-east-2" | "us-west-2";
+	/**
+	 * Copilot plan the stored GitHub OAuth token belongs to. Business and
+	 * enterprise subscriptions are served from their own API hosts
+	 * (api.business.githubcopilot.com / api.enterprise.githubcopilot.com);
+	 * unset defaults to the individual host (api.githubcopilot.com).
+	 */
+	github_copilot_account_type?: "individual" | "business" | "enterprise";
 	google_vertex_project_id?: string;
 	google_vertex_token_type?: "api-key" | "oauth";
 	vertex_openai_project_id?: string;

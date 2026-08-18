@@ -120,6 +120,9 @@ export const providerKeySchema = z.object({
 			aws_mantle_region: z
 				.enum(["us-east-1", "us-east-2", "us-west-2"])
 				.optional(),
+			github_copilot_account_type: z
+				.enum(["individual", "business", "enterprise"])
+				.optional(),
 			vertex_openai_project_id: z.string().optional(),
 		})
 		.nullable(),
@@ -376,6 +379,9 @@ const createProviderKeySchema = z.object({
 				.optional(),
 			aws_mantle_region: z
 				.enum(["us-east-1", "us-east-2", "us-west-2"])
+				.optional(),
+			github_copilot_account_type: z
+				.enum(["individual", "business", "enterprise"])
 				.optional(),
 			google_vertex_project_id: z.string().optional(),
 			vertex_openai_project_id: z.string().optional(),
@@ -676,6 +682,166 @@ keysProvider.openapi(create, async (c) => {
 
 	return c.json({
 		providerKey: toPublicProviderKey(providerKey),
+	});
+});
+
+// --- GitHub Copilot OAuth device flow ---
+// github.com's OAuth endpoints send no CORS headers, so the browser cannot
+// call them directly; these routes proxy the two device-flow steps. The
+// resulting OAuth token is returned to the dashboard, which submits it
+// through the normal provider-key create flow (validation + encryption).
+
+const GITHUB_DEVICE_CODE_URL = "https://github.com/login/device/code";
+const GITHUB_ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token";
+// VS Code's OAuth app — the client id Copilot-compatible integrations
+// authenticate with. Overridable for GitHub Enterprise deployments.
+const GITHUB_COPILOT_CLIENT_ID = "Iv1.b507a08c87ecfe98";
+
+function githubCopilotClientId(): string {
+	return process.env.GITHUB_COPILOT_CLIENT_ID || GITHUB_COPILOT_CLIENT_ID;
+}
+
+const githubCopilotDeviceCode = createRoute({
+	method: "post",
+	path: "/provider/github-copilot/device-code",
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						deviceCode: z.string(),
+						userCode: z.string(),
+						verificationUri: z.string(),
+						/** Minimum seconds between polls of the device-token endpoint. */
+						interval: z.number(),
+						expiresIn: z.number(),
+					}),
+				},
+			},
+			description: "GitHub device authorization started.",
+		},
+	},
+});
+
+keysProvider.openapi(githubCopilotDeviceCode, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const res = await fetch(GITHUB_DEVICE_CODE_URL, {
+		method: "POST",
+		redirect: "error",
+		headers: {
+			Accept: "application/json",
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({
+			client_id: githubCopilotClientId(),
+			scope: "read:user",
+		}),
+	});
+	if (!res.ok) {
+		throw new HTTPException(502, {
+			message: `GitHub device authorization failed: ${res.status}`,
+		});
+	}
+	const data = (await res.json()) as {
+		device_code?: string;
+		user_code?: string;
+		verification_uri?: string;
+		interval?: number;
+		expires_in?: number;
+	};
+	if (!data.device_code || !data.user_code || !data.verification_uri) {
+		throw new HTTPException(502, {
+			message: "GitHub device authorization returned an unexpected response",
+		});
+	}
+
+	return c.json({
+		deviceCode: data.device_code,
+		userCode: data.user_code,
+		verificationUri: data.verification_uri,
+		interval: data.interval ?? 5,
+		expiresIn: data.expires_in ?? 900,
+	});
+});
+
+const githubCopilotDeviceToken = createRoute({
+	method: "post",
+	path: "/provider/github-copilot/device-token",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						deviceCode: z.string().min(1),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						status: z.enum(["pending", "complete"]),
+						/** GitHub OAuth access token; only set when status is complete. */
+						token: z.string().optional(),
+					}),
+				},
+			},
+			description:
+				"Single poll of the device authorization; pending until the user approves.",
+		},
+	},
+});
+
+keysProvider.openapi(githubCopilotDeviceToken, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+	const { deviceCode } = c.req.valid("json");
+
+	const res = await fetch(GITHUB_ACCESS_TOKEN_URL, {
+		method: "POST",
+		redirect: "error",
+		headers: {
+			Accept: "application/json",
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({
+			client_id: githubCopilotClientId(),
+			device_code: deviceCode,
+			grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+		}),
+	});
+	if (!res.ok) {
+		throw new HTTPException(502, {
+			message: `GitHub token request failed: ${res.status}`,
+		});
+	}
+	const data = (await res.json()) as {
+		access_token?: string;
+		error?: string;
+		error_description?: string;
+	};
+
+	if (data.access_token) {
+		return c.json({ status: "complete" as const, token: data.access_token });
+	}
+	if (data.error === "authorization_pending" || data.error === "slow_down") {
+		return c.json({ status: "pending" as const, token: undefined });
+	}
+	throw new HTTPException(400, {
+		message:
+			data.error === "expired_token"
+				? "The device code expired before the sign-in was approved. Start over."
+				: (data.error_description ??
+					`GitHub device authorization failed: ${data.error ?? "unknown error"}`),
 	});
 });
 

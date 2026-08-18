@@ -4,6 +4,8 @@ import {
 	type VertexTokenType,
 } from "@llmgateway/models";
 
+import { GITHUB_COPILOT_HEADERS } from "./github-copilot-token.js";
+
 import type { ProviderKeyOptions } from "@llmgateway/db";
 
 export interface ProviderHeaderOptions {
@@ -126,6 +128,18 @@ export function getProviderHeaders(
 			return {
 				...requestIdHeader,
 				"api-key": token,
+			};
+		case "github-copilot":
+			// The Copilot API only serves registered integrations; identify as the
+			// VS Code Copilot Chat integration (see GITHUB_COPILOT_HEADERS). The
+			// token here is the short-lived Copilot bearer token minted by
+			// getGithubCopilotToken, not the stored GitHub OAuth token.
+			return {
+				...requestIdHeader,
+				...GITHUB_COPILOT_HEADERS,
+				Authorization: `Bearer ${token}`,
+				// Required for requests carrying image content; harmless otherwise.
+				"Copilot-Vision-Request": "true",
 			};
 		case "elevenlabs":
 			return {

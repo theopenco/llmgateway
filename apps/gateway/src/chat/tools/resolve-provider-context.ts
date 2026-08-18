@@ -10,6 +10,7 @@ import { posthog } from "@/posthog.js";
 
 import {
 	getGcpServiceAccountAccessToken,
+	getGithubCopilotToken,
 	getProviderEndpoint,
 	getProviderHeaders,
 	isPremiumServiceTier,
@@ -1027,6 +1028,12 @@ export async function resolveProviderContext(
 					) ?? "LLM_VERTEX_OPENAI_SERVICE_ACCOUNT_JSON"
 				] ?? "");
 		usedToken = await getGcpServiceAccountAccessToken(fullSaJson);
+	}
+
+	// GitHub Copilot stores the long-lived GitHub OAuth token; the API itself
+	// only accepts the short-lived Copilot bearer token, so exchange it here.
+	if (usedProvider === "github-copilot") {
+		usedToken = await getGithubCopilotToken(usedToken);
 	}
 
 	// --- Headers ---
