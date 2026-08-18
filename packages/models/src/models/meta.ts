@@ -308,6 +308,8 @@ export const metaModels = [
 			{
 				providerId: "cerebras",
 				test: "skip",
+				// Removed from the Cerebras public API
+				deactivatedAt: new Date("2026-08-18"),
 				externalId: "llama-3.3-70b",
 				inputPrice: "0.85e-6",
 				outputPrice: "1.2e-6",
