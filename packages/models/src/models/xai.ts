@@ -1004,7 +1004,7 @@ export const xaiModels = [
 				streaming: true,
 				vision: true,
 				reasoning: true,
-				reasoningEfforts: ["low", "medium", "high"],
+				reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"],
 				tools: true,
 				jsonOutput: true,
 				supportedParameters: [

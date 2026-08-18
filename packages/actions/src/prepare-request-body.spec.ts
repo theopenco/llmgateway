@@ -2089,7 +2089,9 @@ describe("prepareRequestBody - reasoning_effort max", () => {
 });
 
 describe("prepareRequestBody - xAI reasoning_effort", () => {
-	async function prepare(effort: "low" | "medium" | "high" | "xhigh") {
+	async function prepare(
+		effort: "minimal" | "low" | "medium" | "high" | "xhigh",
+	) {
 		return (await prepareRequestBody(
 			"xai",
 			"grok-4-5",
@@ -2113,6 +2115,11 @@ describe("prepareRequestBody - xAI reasoning_effort", () => {
 		)) as any;
 	}
 
+	test("forwards minimal to xAI", async () => {
+		const requestBody = await prepare("minimal");
+		expect(requestBody.reasoning_effort).toBe("minimal");
+	});
+
 	test("forwards low to xAI", async () => {
 		const requestBody = await prepare("low");
 		expect(requestBody.reasoning_effort).toBe("low");
@@ -2128,7 +2135,7 @@ describe("prepareRequestBody - xAI reasoning_effort", () => {
 		expect(requestBody.reasoning_effort).toBe("medium");
 	});
 
-	test("forwards effort verbatim and lets xAI reject unsupported tiers", async () => {
+	test("forwards xhigh to xAI", async () => {
 		const requestBody = await prepare("xhigh");
 		expect(requestBody.reasoning_effort).toBe("xhigh");
 	});
