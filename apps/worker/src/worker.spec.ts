@@ -499,6 +499,60 @@ describe("worker", () => {
 			});
 			expect(transactions).toHaveLength(0);
 		});
+
+		test("skips the charge when the top-up velocity cap is reached", async () => {
+			vi.clearAllMocks();
+			vi.stubEnv("GATEWAY_TOPUP_VELOCITY_ENABLED", "true");
+
+			try {
+				// Brand-new devpass org => Tier 0 => $100/24h top-up cap.
+				await db.insert(tables.organization).values({
+					id: "org-topup-velocity",
+					name: "Velocity Capped",
+					billingEmail: "billing@example.com",
+					kind: "devpass",
+					devPlan: "pro",
+					devPlanPaygEnabled: true,
+					devPlanStripeSubscriptionId: "sub_velocity",
+					credits: "2",
+					autoTopUpEnabled: true,
+					autoTopUpThreshold: "10",
+					autoTopUpAmount: "25",
+					stripeCustomerId: "cus_velocity",
+				});
+				// A completed top-up already fills the window; the next $26.25
+				// gross attempt would exceed the $100 cap.
+				await db.insert(tables.transaction).values({
+					organizationId: "org-topup-velocity",
+					type: "credit_topup",
+					amount: "95",
+					creditAmount: "95",
+					currency: "USD",
+					status: "completed",
+				});
+
+				stripeMock.subscriptions.retrieve.mockResolvedValue({
+					default_payment_method: "pm_velocity",
+				});
+				stripeMock.paymentMethods.retrieve.mockResolvedValue({
+					customer: "cus_velocity",
+					card: { country: "US" },
+				});
+
+				await processAutoTopUp();
+
+				// Skipped before the pending transaction and the PaymentIntent.
+				expect(stripeMock.paymentIntents.create).not.toHaveBeenCalled();
+				const transactions = await db.query.transaction.findMany({
+					where: {
+						organizationId: { eq: "org-topup-velocity" },
+					},
+				});
+				expect(transactions).toHaveLength(1);
+			} finally {
+				vi.unstubAllEnvs();
+			}
+		});
 	});
 
 	describe("cleanupExpiredLogData", () => {
