@@ -329,6 +329,9 @@ export const providers: ProviderDefinition[] = [
 			required: {
 				apiKey: "LLM_ANTHROPIC_API_KEY",
 			},
+			optional: {
+				baseUrl: "LLM_ANTHROPIC_BASE_URL",
+			},
 		},
 		streaming: true,
 		cancellation: true,
