@@ -2,7 +2,11 @@ import { createHmac } from "node:crypto";
 
 import { getStopSignal, isStopRequested } from "@/shutdown.js";
 
-import { managedCredentialOptions, readProviderKey } from "@llmgateway/actions";
+import {
+	getGoogleVertexPublisherModelPath,
+	managedCredentialOptions,
+	readProviderKey,
+} from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import {
 	and,
@@ -1485,7 +1489,7 @@ async function fetchAvalancheStatus(
 }
 
 function getGoogleVertexOperationMetadata(job: VideoJobRecord): {
-	projectId: string;
+	projectId?: string;
 	region: string;
 	modelName: string;
 } | null {
@@ -1495,15 +1499,16 @@ function getGoogleVertexOperationMetadata(job: VideoJobRecord): {
 		const modelName = readNestedValue(candidate, "google_vertex_model_name");
 
 		if (
-			typeof projectId === "string" &&
-			projectId.length > 0 &&
 			typeof region === "string" &&
 			region.length > 0 &&
 			typeof modelName === "string" &&
 			modelName.length > 0
 		) {
 			return {
-				projectId,
+				projectId:
+					typeof projectId === "string" && projectId.length > 0
+						? projectId
+						: undefined,
 				region,
 				modelName,
 			};
@@ -1584,7 +1589,7 @@ async function fetchGoogleVertexStatus(
 
 	const url = joinUrl(
 		providerContext.baseUrl,
-		`/v1/projects/${operationMetadata.projectId}/locations/${operationMetadata.region}/publishers/google/models/${operationMetadata.modelName}:fetchPredictOperation`,
+		`${getGoogleVertexPublisherModelPath(operationMetadata.modelName, operationMetadata.projectId, operationMetadata.region)}:fetchPredictOperation`,
 	);
 	// OAuth tokens are sent via the Bearer header (getVideoProviderHeaders);
 	// only API keys go in the `?key=` query param.

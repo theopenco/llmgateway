@@ -104,7 +104,8 @@ describe("managed credential config in getProviderEndpoint", () => {
 	});
 
 	it("supports a managed Vertex API key without a project", () => {
-		delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		process.env.LLM_GOOGLE_CLOUD_PROJECT = "unrelated-env-project";
+		process.env.LLM_GOOGLE_VERTEX_REGION = "us-central1";
 
 		const url = getProviderEndpoint(
 			"google-vertex",

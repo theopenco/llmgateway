@@ -107,10 +107,26 @@ function buildVertexCompatibleEndpoint(
 	const projectId =
 		credentialConfig?.project ??
 		providerKeyOptions?.google_vertex_project_id ??
-		getProviderEnvValue(provider, "project", configIndex, undefined, variant);
+		(skipEnvVars
+			? undefined
+			: getProviderEnvValue(
+					provider,
+					"project",
+					configIndex,
+					undefined,
+					variant,
+				));
 	const region =
 		credentialConfig?.region ??
-		getProviderEnvValue(provider, "region", configIndex, "global", variant) ??
+		(skipEnvVars
+			? undefined
+			: getProviderEnvValue(
+					provider,
+					"region",
+					configIndex,
+					"global",
+					variant,
+				)) ??
 		"global";
 
 	// Only Google Vertex supports OAuth bearer auth; Quartz always uses the
@@ -137,10 +153,7 @@ function buildVertexCompatibleEndpoint(
 		);
 	}
 
-	const modelPath = `publishers/google/models/${model}:${endpoint}`;
-	const baseEndpoint = projectId
-		? `${url}/v1/projects/${projectId}/locations/${region}/${modelPath}`
-		: `${url}/v1/${modelPath}`;
+	const baseEndpoint = `${url}${getGoogleVertexPublisherModelPath(model, projectId, region)}:${endpoint}`;
 	const queryParams = [];
 	if (token && tokenType === "api-key") {
 		queryParams.push(`key=${token}`);
@@ -151,6 +164,17 @@ function buildVertexCompatibleEndpoint(
 	return queryParams.length > 0
 		? `${baseEndpoint}?${queryParams.join("&")}`
 		: baseEndpoint;
+}
+
+export function getGoogleVertexPublisherModelPath(
+	model: string,
+	projectId?: string,
+	region = "global",
+): string {
+	const modelPath = `publishers/google/models/${model}`;
+	return projectId
+		? `/v1/projects/${projectId}/locations/${region}/${modelPath}`
+		: `/v1/${modelPath}`;
 }
 
 /**
