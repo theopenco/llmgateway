@@ -522,10 +522,13 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "fireworks",
-				externalId: "accounts/fireworks/models/deepseek-v4-pro",
-				inputPrice: "1.74e-6",
-				cachedInputPrice: "0.145e-6",
-				outputPrice: "3.48e-6",
+				// Fireworks keeps the unversioned `deepseek-v4-pro` slug pointed at
+				// the original preview build, at its own rate card, even after the
+				// 0813 GA release; the GA build only serves under this dedicated slug.
+				externalId: "accounts/fireworks/models/deepseek-v4-pro-0813",
+				inputPrice: "1.32e-6",
+				cachedInputPrice: "0.044e-6",
+				outputPrice: "3.96e-6",
 				requestPrice: "0",
 				// Fireworks prices DeepSeek's Priority tier at 1.5x standard rather
 				// than the 1.25x that applies to the rest of its catalogue.
