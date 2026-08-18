@@ -40,7 +40,10 @@ import { XIcon } from "@/lib/icons/XIcon";
 import { getLoungeStudioPath } from "@/lib/model-utils";
 import { formatContextSize, formatDeprecationDate } from "@/lib/utils";
 
-import { getProviderIcon } from "@llmgateway/shared/components";
+import {
+	getProviderIcon,
+	shouldShowDeactivationNotice,
+} from "@llmgateway/shared/components";
 
 import type {
 	ProviderModelMapping,
@@ -72,6 +75,7 @@ export function ModelProviderCard({
 	const providerModelName = `${provider.providerId}/${modelName}`;
 	const ProviderIcon = getProviderIcon(provider.providerId);
 	const providerStability = provider.stability ?? modelStability;
+	const showDeactivationNotice = shouldShowDeactivationNotice(provider);
 
 	const shareUrl = `${config.appUrl}/models/${encodeURIComponent(modelName)}/${encodeURIComponent(provider.providerId)}`;
 	const shareTitle = `${provider.providerInfo?.name ?? provider.providerId} - ${modelName} on LLM Gateway`;
@@ -250,7 +254,7 @@ export function ModelProviderCard({
 					</div>
 				</div>
 
-				{(provider.deprecatedAt ?? provider.deactivatedAt) && (
+				{(provider.deprecatedAt || showDeactivationNotice) && (
 					<div className="flex flex-wrap gap-2 mb-4">
 						{provider.deprecatedAt && (
 							<Badge
@@ -261,13 +265,13 @@ export function ModelProviderCard({
 								{formatDeprecationDate(provider.deprecatedAt, "deprecated")}
 							</Badge>
 						)}
-						{provider.deactivatedAt && (
+						{showDeactivationNotice && (
 							<Badge
 								variant="outline"
 								className="text-xs px-2.5 py-1 gap-1.5 bg-red-50 dark:bg-red-500/5 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/20"
 							>
 								<AlertCircle className="h-3 w-3" />
-								{formatDeprecationDate(provider.deactivatedAt, "deactivated")}
+								{formatDeprecationDate(provider.deactivatedAt!, "deactivated")}
 							</Badge>
 						)}
 					</div>
