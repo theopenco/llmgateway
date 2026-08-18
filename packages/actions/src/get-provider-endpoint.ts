@@ -113,13 +113,6 @@ function buildVertexCompatibleEndpoint(
 		getProviderEnvValue(provider, "region", configIndex, "global", variant) ??
 		"global";
 
-	if (!projectId) {
-		const providerEnv = getProviderEnvConfig(provider);
-		throw new Error(
-			`${providerEnv?.required.project ?? "LLM_GOOGLE_CLOUD_PROJECT"} environment variable is required for Vertex-compatible model "${model}"`,
-		);
-	}
-
 	// Only Google Vertex supports OAuth bearer auth; Quartz always uses the
 	// `?key=` API-key query param.
 	const tokenType =
@@ -133,7 +126,21 @@ function buildVertexCompatibleEndpoint(
 					variant,
 				))
 			: "api-key";
-	const baseEndpoint = `${url}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:${endpoint}`;
+	if (!projectId && (provider === "quartz" || tokenType === "oauth")) {
+		const providerEnv = getProviderEnvConfig(provider);
+		const projectEnv =
+			providerEnv?.required.project ??
+			providerEnv?.optional?.project ??
+			"LLM_GOOGLE_CLOUD_PROJECT";
+		throw new Error(
+			`${projectEnv} environment variable is required for Vertex-compatible model "${model}"`,
+		);
+	}
+
+	const modelPath = `publishers/google/models/${model}:${endpoint}`;
+	const baseEndpoint = projectId
+		? `${url}/v1/projects/${projectId}/locations/${region}/${modelPath}`
+		: `${url}/v1/${modelPath}`;
 	const queryParams = [];
 	if (token && tokenType === "api-key") {
 		queryParams.push(`key=${token}`);

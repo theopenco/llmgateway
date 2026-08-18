@@ -103,6 +103,29 @@ describe("managed credential config in getProviderEndpoint", () => {
 		expect(url).toContain("key=vertex-token");
 	});
 
+	it("supports a managed Vertex API key without a project", () => {
+		delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+
+		const url = getProviderEndpoint(
+			"google-vertex",
+			undefined,
+			"gemini-2.5-flash",
+			"vertex-token",
+			false,
+			false,
+			false,
+			managed({ baseUrl: "https://vertex.managed.example" }),
+			0,
+			false,
+			undefined,
+			true,
+		);
+
+		expect(url).toBe(
+			"https://vertex.managed.example/v1/publishers/google/models/gemini-2.5-flash:generateContent?key=vertex-token",
+		);
+	});
+
 	it("suppresses the API-key query param when the token type is oauth", () => {
 		delete process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE;
 
