@@ -246,7 +246,9 @@ describe("reset pass redeem", () => {
 
 		const res = await redeemRequest(token, { confirmHighCycleUsage: true });
 		expect(res.status).toBe(200);
-		expect((await getOrg()).devPlanResetPassesPro).toBe(1);
+		const org = await getOrg();
+		expect(org.devPlanIncludedResetPassesUsed).toBe(1);
+		expect(org.devPlanResetPassesPro).toBe(2);
 	});
 
 	it("rejects a confirmed redeem when the monthly cycle is exhausted", async () => {
