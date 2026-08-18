@@ -2438,3 +2438,47 @@ describe("peak / off-peak time-of-day pricing (DeepSeek)", () => {
 		expect(flash.cachedInputCost).toBeCloseTo(0.0028); // base: 0.0028e-6 * 1M
 	});
 });
+
+describe("scheduled pricing (ByteDance)", () => {
+	beforeEach(() => {
+		vi.mocked(mockGetEffectiveDiscount).mockImplementation(async () => ({
+			discount: "0",
+			source: "none",
+		}));
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it.each([
+		{
+			at: "2026-08-20T15:59:59Z",
+			inputCost: 0.14,
+			outputCost: 0.28,
+			cachedInputCost: 0.028,
+		},
+		{
+			at: "2026-08-20T16:00:00Z",
+			inputCost: 0.44,
+			outputCost: 1.32,
+			cachedInputCost: 0.014,
+		},
+	])("bills the rates effective at $at", async (expected) => {
+		vi.setSystemTime(new Date(expected.at));
+
+		const costs = await calculateCosts(
+			"deepseek-v4-flash",
+			"bytedance",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+
+		expect(costs.inputCost).toBeCloseTo(expected.inputCost);
+		expect(costs.outputCost).toBeCloseTo(expected.outputCost);
+		expect(costs.cachedInputCost).toBeCloseTo(expected.cachedInputCost);
+	});
+});

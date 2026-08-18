@@ -1373,7 +1373,7 @@ describe("getCheapestFromAvailableProviders", () => {
 		).toBe(0.375 / 1e6);
 	});
 
-	describe("time-of-day pricing in provider selection", () => {
+	describe("time-based pricing in provider selection", () => {
 		// Mirrors the DeepSeek V4 Pro first-party mapping: peak 01:00-04:00 and
 		// 06:00-10:00 UTC at double the off-peak rates, base (regular) flat
 		// rates before effectiveAt.
@@ -1437,6 +1437,33 @@ describe("getCheapestFromAvailableProviders", () => {
 					outputPrice: "1.5e-6",
 				}).toNumber(),
 			).toBe(1e-6);
+		});
+
+		it("returns scheduled prices on and after effectiveAt", () => {
+			const mapping = {
+				inputPrice: "0.14e-6",
+				outputPrice: "0.28e-6",
+				scheduledPricing: {
+					effectiveAt: "2026-08-20T16:00:00Z",
+					inputPrice: "0.44e-6",
+					outputPrice: "1.32e-6",
+				},
+			};
+
+			expect(
+				getProviderSelectionPrice(
+					mapping,
+					undefined,
+					new Date("2026-08-20T15:59:59Z"),
+				).toNumber(),
+			).toBe((0.14e-6 + 0.28e-6) / 2);
+			expect(
+				getProviderSelectionPrice(
+					mapping,
+					undefined,
+					new Date("2026-08-20T16:00:00Z"),
+				).toNumber(),
+			).toBe((0.44e-6 + 1.32e-6) / 2);
 		});
 
 		it("ranks with peak rates through full provider selection", async () => {

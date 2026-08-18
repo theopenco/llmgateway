@@ -537,10 +537,7 @@ export async function calculateCosts(
 	// Set completion tokens to 0 if not available (but still calculate input costs)
 	calculatedCompletionTokens ??= 0;
 
-	// Resolve peak/off-peak time-of-day pricing (DeepSeek first-party): use the
-	// peak rates while the current UTC hour is inside the mapping's peak window,
-	// the off-peak base rates otherwise. Tier selection below then overrides by
-	// token count for mappings that price by context length.
+	// Resolve scheduled and peak/off-peak pricing before token-count tiers.
 	const timeBasedPricing = resolveTimeBasedPricing(providerInfo);
 	const pricing = getPricingForTokenCount(
 		providerInfo.pricingTiers,

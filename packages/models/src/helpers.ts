@@ -197,16 +197,18 @@ export function supportsOpenAIExplicitPromptCache(modelName: string): boolean {
 
 /**
  * Resolve the per-token rates that apply to a mapping at a given instant.
- * Without `peakPricing`, the mapping's base inputPrice/outputPrice/
- * cachedInputPrice are always returned. With `peakPricing`, the base fields
- * (the regular flat rates) apply before `effectiveAt`; on/after it, the
- * `peak` rates apply while `now` (UTC) falls inside a peak window and the
- * `offPeak` rates otherwise.
+ * A scheduled permanent change takes precedence once effective. Otherwise,
+ * peak/off-peak pricing applies after its effective date, falling back to the
+ * mapping's base prices before then.
  */
 export function resolveTimeBasedPricing(
 	mapping: Pick<
 		ProviderModelMapping,
-		"inputPrice" | "outputPrice" | "cachedInputPrice" | "peakPricing"
+		| "inputPrice"
+		| "outputPrice"
+		| "cachedInputPrice"
+		| "scheduledPricing"
+		| "peakPricing"
 	>,
 	now: Date = new Date(),
 ): {
@@ -214,6 +216,17 @@ export function resolveTimeBasedPricing(
 	outputPrice: string;
 	cachedInputPrice: string | undefined;
 } {
+	const scheduledPricing = mapping.scheduledPricing;
+	if (
+		scheduledPricing &&
+		now.getTime() >= Date.parse(scheduledPricing.effectiveAt)
+	) {
+		return {
+			inputPrice: scheduledPricing.inputPrice,
+			outputPrice: scheduledPricing.outputPrice,
+			cachedInputPrice: scheduledPricing.cachedInputPrice,
+		};
+	}
 	const peakPricing = mapping.peakPricing;
 	if (!peakPricing) {
 		return {

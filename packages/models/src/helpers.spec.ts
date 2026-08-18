@@ -52,6 +52,38 @@ describe("resolveTimeBasedPricing", () => {
 		});
 	});
 
+	it("applies a scheduled permanent price change at effectiveAt", () => {
+		const mapping = {
+			inputPrice: "0.14e-6",
+			outputPrice: "0.28e-6",
+			cachedInputPrice: "0.028e-6",
+			scheduledPricing: {
+				effectiveAt: "2026-08-20T16:00:00Z",
+				inputPrice: "0.44e-6",
+				outputPrice: "1.32e-6",
+				cachedInputPrice: "0.014e-6",
+			},
+		} satisfies Pick<
+			ProviderModelMapping,
+			"inputPrice" | "outputPrice" | "cachedInputPrice" | "scheduledPricing"
+		>;
+
+		expect(
+			resolveTimeBasedPricing(mapping, at("2026-08-20T15:59:59Z")),
+		).toEqual({
+			inputPrice: "0.14e-6",
+			outputPrice: "0.28e-6",
+			cachedInputPrice: "0.028e-6",
+		});
+		expect(
+			resolveTimeBasedPricing(mapping, at("2026-08-20T16:00:00Z")),
+		).toEqual({
+			inputPrice: "0.44e-6",
+			outputPrice: "1.32e-6",
+			cachedInputPrice: "0.014e-6",
+		});
+	});
+
 	it.each([
 		["01:00", "2026-08-17T01:00:00Z"],
 		["03:59", "2026-08-17T03:59:00Z"],

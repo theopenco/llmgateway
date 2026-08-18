@@ -318,6 +318,30 @@ export interface ProviderModelMapping {
 	 */
 	pricingTiers?: PricingTier[];
 	/**
+	 * A permanent per-token price change that takes effect at a specific instant.
+	 * The mapping's base prices apply before `effectiveAt`; the scheduled prices
+	 * apply on and after it.
+	 */
+	scheduledPricing?: {
+		/**
+		 * ISO-8601 instant when the scheduled prices take effect.
+		 */
+		effectiveAt: string;
+		/**
+		 * Price per input token in USD after the change.
+		 */
+		inputPrice: Price;
+		/**
+		 * Price per output token in USD after the change.
+		 */
+		outputPrice: Price;
+		/**
+		 * Price per cached input token in USD after the change. When unset,
+		 * billing falls back to `inputPrice`, matching base-price behavior.
+		 */
+		cachedInputPrice?: Price;
+	};
+	/**
 	 * Peak/off-peak time-of-day pricing. The mapping's base
 	 * inputPrice/outputPrice/cachedInputPrice are the regular flat prices,
 	 * billed before `effectiveAt` (and always when `peakPricing` is absent).

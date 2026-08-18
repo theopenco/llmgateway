@@ -347,15 +347,19 @@ export function getProviderSelectionPrice(
 				| "perImagePrice"
 				| "requestPrice"
 		  > &
-				Partial<Pick<ProviderModelMapping, "peakPricing" | "cachedInputPrice">>)
+				Partial<
+					Pick<
+						ProviderModelMapping,
+						"peakPricing" | "scheduledPricing" | "cachedInputPrice"
+					>
+				>)
 		| undefined,
 	videoPricing?: VideoPricingContext,
 	now: Date = new Date(),
 ): Decimal {
 	const requestPrice = providerInfo?.requestPrice;
-	// Resolve peak/off-peak time-of-day pricing (DeepSeek first-party): token
-	// rates vary by UTC hour once the mapping's peakPricing is effective, so
-	// routing must rank with the same rates billing uses.
+	// Resolve scheduled and peak/off-peak pricing so routing ranks providers
+	// with the same rates billing uses.
 	const timeBasedPricing = providerInfo
 		? resolveTimeBasedPricing(providerInfo, now)
 		: undefined;
