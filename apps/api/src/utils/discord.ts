@@ -26,7 +26,7 @@ async function sendDiscordNotification(
 ): Promise<void> {
 	if (!webhookUrl) {
 		logger.debug(
-			"DISCORD_NOTIFICATION_URL not configured, skipping notification",
+			"Discord notification webhook not configured, skipping notification",
 		);
 		return;
 	}
@@ -197,6 +197,55 @@ export async function notifyCreditsPurchased(args: {
 			},
 		],
 	});
+}
+
+export async function notifyTopUpVelocityLimit(args: {
+	email: string;
+	name?: string | null;
+	organizationId: string;
+	capUsd: number;
+	usedUsd: number;
+	attemptedUsd: number;
+}): Promise<void> {
+	const { email, name, organizationId, capUsd, usedUsd, attemptedUsd } = args;
+
+	await sendDiscordNotification(
+		{
+			content: "⚠️ A credit top-up was blocked by the velocity limit.",
+			embeds: [
+				{
+					title: "Top-Up Velocity Limit Reached",
+					color: 0xf59e0b, // Amber
+					fields: [
+						{ name: "Email", value: email, inline: true },
+						{ name: "Name", value: name ?? "Unknown", inline: true },
+						{
+							name: "Organization",
+							value: organizationId,
+							inline: false,
+						},
+						{
+							name: "Limit",
+							value: formatAmount(capUsd, "USD"),
+							inline: true,
+						},
+						{
+							name: "Used",
+							value: formatAmount(usedUsd, "USD"),
+							inline: true,
+						},
+						{
+							name: "Attempted",
+							value: formatAmount(attemptedUsd, "USD"),
+							inline: true,
+						},
+					],
+					timestamp: new Date().toISOString(),
+				},
+			],
+		},
+		process.env.DISCORD_TOPUP_VELOCITY_NOTIFICATION_URL,
+	);
 }
 
 export async function notifyRefund(

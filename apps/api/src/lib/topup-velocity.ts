@@ -1,5 +1,7 @@
 import { HTTPException } from "hono/http-exception";
 
+import { notifyTopUpVelocityLimit } from "@/utils/discord.js";
+
 import {
 	checkAndReserveTopUp,
 	releaseTopUpReservation,
@@ -19,7 +21,10 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 export async function assertTopUpVelocityAllowed(
 	org: TopUpVelocityOrg,
 	grossAmountUsd: number,
-	options?: { reservationTtlSeconds?: number },
+	options?: {
+		reservationTtlSeconds?: number;
+		user?: { email: string; name?: string | null };
+	},
 ): Promise<void> {
 	const result = await checkAndReserveTopUp({
 		org,
@@ -27,6 +32,14 @@ export async function assertTopUpVelocityAllowed(
 		reservationTtlSeconds: options?.reservationTtlSeconds,
 	});
 	if (!result.allowed) {
+		await notifyTopUpVelocityLimit({
+			email: options?.user.email ?? "Unknown",
+			name: options?.user.name,
+			organizationId: org.id,
+			capUsd: result.capUsd,
+			usedUsd: result.usedUsd,
+			attemptedUsd: grossAmountUsd,
+		});
 		throw new HTTPException(429, {
 			message: `Top-up limit reached: your account can top up at most $${result.capUsd} per 24 hours (already used $${round2(result.usedUsd)}). Try again later or contact support to raise your limit.`,
 		});
