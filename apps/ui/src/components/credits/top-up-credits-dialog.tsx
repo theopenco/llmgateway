@@ -163,6 +163,7 @@ export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 						organizationId={organizationId}
 						maxCardAmount={maxCardAmount}
 						maxCheckoutAmount={maxCheckoutAmount}
+						topUpLimitLoaded={Boolean(topUpLimit)}
 						topUpLimitError={topUpLimitError}
 						topUpLimitPending={topUpLimitPending}
 						autoTopUpIntent={autoTopUpIntent}
@@ -239,6 +240,7 @@ function AmountStep({
 	organizationId,
 	maxCardAmount,
 	maxCheckoutAmount,
+	topUpLimitLoaded,
 	topUpLimitError,
 	topUpLimitPending,
 	autoTopUpIntent,
@@ -251,6 +253,7 @@ function AmountStep({
 	organizationId: string | undefined;
 	maxCardAmount: number;
 	maxCheckoutAmount: number;
+	topUpLimitLoaded: boolean;
 	topUpLimitError: boolean;
 	topUpLimitPending: boolean;
 	autoTopUpIntent: boolean;
@@ -280,9 +283,9 @@ function AmountStep({
 	const amountValidationMessage = topUpLimitError
 		? "Couldn't load your current top-up allowance"
 		: maxCheckoutAmount < CREDIT_TOP_UP_MIN_AMOUNT
-			? "Your 24-hour top-up allowance is currently used up"
+			? "Your account tier's 24-hour top-up allowance is currently used up"
 			: amount > maxCheckoutAmount
-				? `Maximum $${maxCheckoutAmount.toLocaleString("en-US")} for your current top-up allowance`
+				? `Maximum $${maxCheckoutAmount.toLocaleString("en-US")} from your account tier's remaining 24-hour allowance`
 				: amount < CREDIT_TOP_UP_MIN_AMOUNT
 					? `Minimum $${CREDIT_TOP_UP_MIN_AMOUNT}`
 					: !Number.isInteger(amount)
@@ -388,7 +391,11 @@ function AmountStep({
 							}}
 							className="w-[4ch] border-0 bg-transparent p-0 text-center text-5xl font-bold tabular-nums tracking-tight caret-primary placeholder:text-muted-foreground/40 focus:outline-none focus:ring-0"
 							aria-invalid={Boolean(amountValidationMessage)}
-							aria-describedby="amount-hint"
+							aria-describedby={
+								topUpLimitLoaded && !topUpLimitError
+									? "amount-hint amount-limit-reason"
+									: "amount-hint"
+							}
 							required
 						/>
 						<Pencil
@@ -407,9 +414,38 @@ function AmountStep({
 					>
 						{amountValidationMessage ??
 							(amount > maxCardAmount
-								? `Card top-ups allow up to $${maxCardAmount}; use checkout below for this amount`
+								? `Card maximum $${maxCardAmount} after processing fees; use checkout below for this amount`
 								: `Type any amount from $${CREDIT_TOP_UP_MIN_AMOUNT} to $${maxCheckoutAmount.toLocaleString("en-US")}`)}
 					</p>
+					{topUpLimitLoaded && !topUpLimitError ? (
+						<div
+							id="amount-limit-reason"
+							className="space-y-1 text-xs text-muted-foreground"
+						>
+							<p>
+								This maximum is based on your account tier&apos;s remaining
+								24-hour top-up allowance and processing fees.{" "}
+								{organizationId ? (
+									<Link
+										href={`/dashboard/${organizationId}/org/limits`}
+										className="font-medium text-foreground underline underline-offset-2"
+									>
+										View account limits
+									</Link>
+								) : null}
+							</p>
+							<p>
+								Need to top up more? Email{" "}
+								<a
+									href="mailto:contact@lmkp.io"
+									className="font-medium text-foreground underline underline-offset-2"
+								>
+									contact@lmkp.io
+								</a>{" "}
+								and we can unlock a higher tier.
+							</p>
+						</div>
+					) : null}
 				</div>
 
 				{/* Preset grid */}
@@ -423,6 +459,11 @@ function AmountStep({
 								type="button"
 								onClick={() => setAmount(p.value)}
 								disabled={isDisabled}
+								title={
+									isDisabled
+										? `Above your account tier's remaining 24-hour top-up allowance`
+										: undefined
+								}
 								className={cn(
 									"flex flex-col items-center justify-center rounded-lg border px-2 py-2.5 transition-colors focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-40",
 									isSelected
