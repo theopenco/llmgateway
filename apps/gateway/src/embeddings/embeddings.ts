@@ -43,6 +43,7 @@ import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import {
 	clientFacingUpstreamFailureMessage,
@@ -610,11 +611,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		});
 	}
 
-	if (baseOrganization.status === "deleted") {
-		throw new HTTPException(410, {
-			message: "Organization has been disabled and is no longer accessible",
-		});
-	}
+	assertOrganizationUsable(baseOrganization);
 
 	// LLM SDK: ephemeral end-user sessions bill the bound wallet instead
 	// of the developer's org credits (the log's endCustomerWalletId redirects the

@@ -378,6 +378,11 @@ export async function processAutoTopUp(): Promise<void> {
 
 		// Filter organizations that need top-up based on credits vs threshold
 		const filteredOrgs = orgsNeedingTopUp.filter((org) => {
+			// An organization flagged as high risk cannot buy credits manually, so
+			// it must not keep charging a card automatically either.
+			if (org.riskFlagged) {
+				return false;
+			}
 			// DevPass orgs can only spend credits with the pay-as-you-go
 			// overflow opt-in; without it auto-reload would buy credits the
 			// org cannot use.
