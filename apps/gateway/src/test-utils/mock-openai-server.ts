@@ -2778,6 +2778,10 @@ mockOpenAIServer.post(
 	"/v1beta1/projects/:project/locations/:location/publishers/google/models/*",
 	vertexPublisherModelHandler,
 );
+mockOpenAIServer.post(
+	"/v1/publishers/google/models/*",
+	vertexPublisherModelHandler,
+);
 
 // Stub Vertex OAuth token endpoint. Test fixtures build a service-account
 // JSON whose token_uri points here, so the gateway's JWT-grant exchange
@@ -3081,72 +3085,43 @@ mockOpenAIServer.post("/mock-callback/:name", async (c) => {
 });
 
 // Handle Google Vertex AI generateContent endpoint (Gemini models via Vertex)
-mockOpenAIServer.post(
-	"/v1/projects/:project/locations/:location/publishers/google/models/:model\\:generateContent",
-	async (c) => {
-		const body = await c.req.json();
+const vertexGenerateContentHandler = async (c: Context) => {
+	const body = await c.req.json();
 
-		const shouldError = body.contents?.some?.((content: any) =>
-			content.parts?.some?.((part: any) =>
-				part.text?.includes?.("TRIGGER_ERROR"),
-			),
-		);
+	const shouldError = body.contents?.some?.((content: any) =>
+		content.parts?.some?.((part: any) =>
+			part.text?.includes?.("TRIGGER_ERROR"),
+		),
+	);
 
-		if (shouldError) {
-			c.status(500);
-			return c.json({
-				error: {
-					code: 500,
-					message: "Internal server error",
-					status: "INTERNAL",
-				},
-			});
-		}
+	if (shouldError) {
+		c.status(500);
+		return c.json({
+			error: {
+				code: 500,
+				message: "Internal server error",
+				status: "INTERNAL",
+			},
+		});
+	}
 
-		// Speech generation: when the caller requests AUDIO output, return an
-		// inlineData audio part (base64-encoded PCM) like Gemini TTS models do.
-		const vertexResponseModalities: string[] =
-			body.generationConfig?.responseModalities ?? [];
-		if (vertexResponseModalities.includes("AUDIO")) {
-			// 8 samples of 16-bit silence as a deterministic PCM payload.
-			const pcm = Buffer.alloc(16);
-			return c.json({
-				candidates: [
-					{
-						content: {
-							parts: [
-								{
-									inlineData: {
-										mimeType: "audio/L16;codec=pcm;rate=24000",
-										data: pcm.toString("base64"),
-									},
-								},
-							],
-							role: "model",
-						},
-						finishReason: "STOP",
-						index: 0,
-					},
-				],
-				usageMetadata: {
-					promptTokenCount: 5,
-					candidatesTokenCount: 42,
-					totalTokenCount: 47,
-				},
-			});
-		}
-
-		const userMessage =
-			body.contents?.find?.((ct: any) => ct.role === "user")?.parts?.[0]
-				?.text ?? "";
-
+	// Speech generation: when the caller requests AUDIO output, return an
+	// inlineData audio part (base64-encoded PCM) like Gemini TTS models do.
+	const vertexResponseModalities: string[] =
+		body.generationConfig?.responseModalities ?? [];
+	if (vertexResponseModalities.includes("AUDIO")) {
+		// 8 samples of 16-bit silence as a deterministic PCM payload.
+		const pcm = Buffer.alloc(16);
 		return c.json({
 			candidates: [
 				{
 					content: {
 						parts: [
 							{
-								text: `Hello! I received your message: "${userMessage}". This is a mock Google Vertex response.`,
+								inlineData: {
+									mimeType: "audio/L16;codec=pcm;rate=24000",
+									data: pcm.toString("base64"),
+								},
 							},
 						],
 						role: "model",
@@ -3156,12 +3131,46 @@ mockOpenAIServer.post(
 				},
 			],
 			usageMetadata: {
-				promptTokenCount: 10,
-				candidatesTokenCount: 20,
-				totalTokenCount: 30,
+				promptTokenCount: 5,
+				candidatesTokenCount: 42,
+				totalTokenCount: 47,
 			},
 		});
-	},
+	}
+
+	const userMessage =
+		body.contents?.find?.((ct: any) => ct.role === "user")?.parts?.[0]?.text ??
+		"";
+
+	return c.json({
+		candidates: [
+			{
+				content: {
+					parts: [
+						{
+							text: `Hello! I received your message: "${userMessage}". This is a mock Google Vertex response.`,
+						},
+					],
+					role: "model",
+				},
+				finishReason: "STOP",
+				index: 0,
+			},
+		],
+		usageMetadata: {
+			promptTokenCount: 10,
+			candidatesTokenCount: 20,
+			totalTokenCount: 30,
+		},
+	});
+};
+mockOpenAIServer.post(
+	"/v1/projects/:project/locations/:location/publishers/google/models/:model\\:generateContent",
+	vertexGenerateContentHandler,
+);
+mockOpenAIServer.post(
+	"/v1/publishers/google/models/:model\\:generateContent",
+	vertexGenerateContentHandler,
 );
 
 mockOpenAIServer.post("/model/:model/converse", async (c) => {

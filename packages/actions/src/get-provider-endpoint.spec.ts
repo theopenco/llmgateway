@@ -231,6 +231,37 @@ describe("getProviderEndpoint", () => {
 		);
 	});
 
+	it("uses the projectless Vertex endpoint for API-key auth", () => {
+		process.env.LLM_GOOGLE_VERTEX_BASE_URL = "https://vertex-override.example";
+		delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+
+		const endpoint = getProviderEndpoint(
+			"google-vertex",
+			undefined,
+			"gemini-2.5-flash",
+			"vertex-api-key",
+			true,
+		);
+
+		expect(endpoint).toBe(
+			"https://vertex-override.example/v1/publishers/google/models/gemini-2.5-flash:streamGenerateContent?key=vertex-api-key&alt=sse",
+		);
+	});
+
+	it("requires a Vertex project for OAuth auth", () => {
+		delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE = "oauth";
+
+		expect(() =>
+			getProviderEndpoint(
+				"google-vertex",
+				undefined,
+				"gemini-2.5-flash",
+				"oauth-token",
+			),
+		).toThrow(/LLM_GOOGLE_CLOUD_PROJECT/);
+	});
+
 	it("uses the first Vertex base URL when multiple values are configured without a config slot", () => {
 		process.env.LLM_GOOGLE_VERTEX_BASE_URL =
 			"https://vertex-1.example, https://vertex-2.example";

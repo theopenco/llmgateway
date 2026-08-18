@@ -42,6 +42,7 @@ import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
 import {
+	getGoogleVertexPublisherModelPath,
 	getProviderHeaders,
 	managedCredentialOptions,
 	providerKeyLabel,
@@ -912,7 +913,16 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 					configIndex,
 					variant: envVariant,
 				});
-			if (!vertexProjectId) {
+			vertexTokenType = resolveVertexTokenType(
+				"google-vertex",
+				providerKey
+					? (providerKey.options ?? undefined)
+					: managedCredentialOptions(managedKey),
+				configIndex,
+				providerKey !== undefined || managedKey !== undefined,
+				envVariant,
+			);
+			if (!vertexProjectId && vertexTokenType === "oauth") {
 				throw new HTTPException(500, {
 					message:
 						"Google Vertex requires a project ID. Set LLM_GOOGLE_CLOUD_PROJECT or configure google_vertex_project_id on the provider key.",
@@ -924,23 +934,11 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 					defaultValue: "global",
 					variant: envVariant,
 				}) ?? "global";
-			// OAuth tokens are sent via the Authorization header; only API keys go
-			// in the `?key=` query param. Resolve once so the header and the query
-			// param agree.
-			vertexTokenType = resolveVertexTokenType(
-				"google-vertex",
-				providerKey
-					? (providerKey.options ?? undefined)
-					: managedCredentialOptions(managedKey),
-				configIndex,
-				providerKey !== undefined || managedKey !== undefined,
-				envVariant,
-			);
 			const vertexAuthQuery =
 				vertexTokenType === "oauth"
 					? ""
 					: `?key=${encodeURIComponent(usedToken)}`;
-			upstreamUrl = `${resolvedBaseUrl}/v1/projects/${vertexProjectId}/locations/${vertexRegion}/publishers/google/models/${upstreamModel}:generateContent${vertexAuthQuery}`;
+			upstreamUrl = `${resolvedBaseUrl}${getGoogleVertexPublisherModelPath(upstreamModel, vertexProjectId, vertexRegion)}:generateContent${vertexAuthQuery}`;
 		} else {
 			upstreamUrl = `${resolvedBaseUrl}/v1beta/models/${upstreamModel}:generateContent?key=${encodeURIComponent(usedToken)}`;
 		}

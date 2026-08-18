@@ -1318,6 +1318,72 @@ describe("videos", () => {
 		}
 	});
 
+	test("/v1/videos excludes a projectless managed Vertex API key", async () => {
+		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		const originalGoogleVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
+		const originalGoogleVertexApiKey = process.env.LLM_GOOGLE_VERTEX_API_KEY;
+		process.env.LLM_GOOGLE_CLOUD_PROJECT = "env-video-project";
+		process.env.LLM_GOOGLE_VERTEX_REGION = "us-central1";
+		process.env.LLM_GOOGLE_VERTEX_API_KEY = "env-vertex-test-token";
+
+		try {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await harness.setProjectMode("credits");
+
+			await cdb.insert(tables.providerKey).values({
+				id: "managed-vertex-video-projectless",
+				provider: "google-vertex",
+				token: "vertex-test-token",
+				managed: true,
+				organizationId: null,
+				config: {
+					baseUrl: mockServerUrl,
+					region: "us-central1",
+				},
+			});
+
+			const res = await app.request("/v1/videos", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "google-vertex/veo-3.1-generate-preview",
+					prompt: "A projectless credential must not reach Veo",
+					size: "1920x1080",
+					seconds: 8,
+				}),
+			});
+
+			expect(res.status).toBe(400);
+		} finally {
+			await harness.setProjectMode("api-keys");
+			if (originalGoogleCloudProject !== undefined) {
+				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
+			} else {
+				delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+			}
+			if (originalGoogleVertexRegion !== undefined) {
+				process.env.LLM_GOOGLE_VERTEX_REGION = originalGoogleVertexRegion;
+			} else {
+				delete process.env.LLM_GOOGLE_VERTEX_REGION;
+			}
+			if (originalGoogleVertexApiKey !== undefined) {
+				process.env.LLM_GOOGLE_VERTEX_API_KEY = originalGoogleVertexApiKey;
+			} else {
+				delete process.env.LLM_GOOGLE_VERTEX_API_KEY;
+			}
+		}
+	});
+
 	test("/v1/videos falls back to the next provider and persists routing metadata", async () => {
 		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 		const originalGoogleVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;

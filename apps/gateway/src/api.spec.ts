@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
 import { redisClient } from "@llmgateway/cache";
-import { db, eq, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import { app } from "./app.js";
@@ -4078,7 +4078,7 @@ describe("api", () => {
 		}
 	});
 
-	test("/v1/embeddings google-vertex requires project id", async () => {
+	test("/v1/embeddings google-vertex supports a projectless managed API key", async () => {
 		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 		delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
 		try {
@@ -4090,12 +4090,14 @@ describe("api", () => {
 				createdBy: "user-id",
 			});
 
-			await db.insert(tables.providerKey).values({
-				id: "provider-key-id-embeddings-vertex-noproj",
+			await harness.setProjectMode("credits");
+			await cdb.insert(tables.providerKey).values({
+				id: "managed-key-embeddings-vertex-noproj",
 				token: "vertex-test-token",
 				provider: "google-vertex",
-				organizationId: "org-id",
-				baseUrl: mockServerUrl,
+				managed: true,
+				organizationId: null,
+				config: { baseUrl: mockServerUrl },
 			});
 
 			const res = await app.request("/v1/embeddings", {
@@ -4110,10 +4112,12 @@ describe("api", () => {
 				}),
 			});
 
-			expect(res.status).toBe(500);
+			expect(res.status).toBe(200);
 			const json = await res.json();
-			expect(json.error?.code).toBe("missing_project_id");
+			expect(json.data).toHaveLength(1);
+			expect(json.data[0].embedding).toHaveLength(3072);
 		} finally {
+			await harness.setProjectMode("api-keys");
 			if (originalGoogleCloudProject !== undefined) {
 				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
 			} else {
