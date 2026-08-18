@@ -507,23 +507,39 @@ describe("Models API", () => {
 		vi.setSystemTime(new Date(expected.at));
 
 		try {
-			const res = await app.request("/v1/models?mapped=true");
-			expect(res.status).toBe(200);
+			const [modelsRes, mappedRes] = await Promise.all([
+				app.request("/v1/models"),
+				app.request("/v1/models?mapped=true"),
+			]);
+			expect(modelsRes.status).toBe(200);
+			expect(mappedRes.status).toBe(200);
 
-			const json = await res.json();
-			const mapping = json.data.find(
+			const modelsJson = await modelsRes.json();
+			const model = modelsJson.data.find(
+				(entry: { id: string }) => entry.id === "deepseek-v4-flash",
+			);
+			const provider = model.providers.find(
+				(entry: { providerId: string }) => entry.providerId === "bytedance",
+			);
+
+			const mappedJson = await mappedRes.json();
+			const mapping = mappedJson.data.find(
 				(model: { id: string }) => model.id === "bytedance/deepseek-v4-flash",
 			);
 
+			expect(provider).toBeDefined();
 			expect(mapping).toBeDefined();
-			expect(mapping.pricing.prompt).toBe(expected.prompt);
-			expect(mapping.pricing.completion).toBe(expected.completion);
-			expect(mapping.pricing.input_cache_read).toBe(expected.cacheRead);
-			expect(mapping.providers[0].pricing).toMatchObject({
-				prompt: expected.prompt,
-				completion: expected.completion,
-				input_cache_read: expected.cacheRead,
-			});
+			for (const pricing of [
+				provider.pricing,
+				mapping.pricing,
+				mapping.providers[0].pricing,
+			]) {
+				expect(pricing).toMatchObject({
+					prompt: expected.prompt,
+					completion: expected.completion,
+					input_cache_read: expected.cacheRead,
+				});
+			}
 		} finally {
 			vi.useRealTimers();
 		}
