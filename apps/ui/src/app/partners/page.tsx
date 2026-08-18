@@ -31,6 +31,7 @@ import {
 	ScxIcon,
 } from "@llmgateway/shared/components";
 
+import type { paths } from "@/lib/api/v1";
 import type { Metadata } from "next";
 
 export const revalidate = 300;
@@ -89,45 +90,53 @@ function formatPerMillion(perTokenPrice: string | undefined): string | null {
 
 const compactNumber = new Intl.NumberFormat("en", { notation: "compact" });
 
-const scxModels: ScxModelEntry[] = (
-	modelDefinitions as readonly ModelDefinition[]
-).flatMap((model) => {
-	const mapping = model.providers.find(
-		(p) => SCX_PROVIDER_IDS.includes(p.providerId) && !isMappingDeactivated(p),
-	);
-	if (!mapping) {
-		return [];
-	}
-	return [
+// Derived per render, not at module load: isMappingDeactivated() is
+// time-based, so a mapping whose deactivatedAt passes must drop out on the
+// next revalidation.
+function getScxCatalog() {
+	const scxModels: ScxModelEntry[] = (
+		modelDefinitions as readonly ModelDefinition[]
+	).flatMap((model) => {
+		const mapping = model.providers.find(
+			(p) =>
+				SCX_PROVIDER_IDS.includes(p.providerId) && !isMappingDeactivated(p),
+		);
+		if (!mapping) {
+			return [];
+		}
+		return [
+			{
+				id: model.id,
+				name: model.name ?? model.id,
+				family: model.family,
+				turbo: mapping.providerId === SCX_TURBO_ID,
+				contextSize: mapping.contextSize ?? null,
+				inputPerM: formatPerMillion(mapping.inputPrice),
+				outputPerM: formatPerMillion(mapping.outputPrice),
+				releasedAt: model.releasedAt?.getTime() ?? 0,
+			},
+		];
+	});
+
+	const scxEndpoints = [
 		{
-			id: model.id,
-			name: model.name ?? model.id,
-			family: model.family,
-			turbo: mapping.providerId === SCX_TURBO_ID,
-			contextSize: mapping.contextSize ?? null,
-			inputPerM: formatPerMillion(mapping.inputPrice),
-			outputPerM: formatPerMillion(mapping.outputPrice),
-			releasedAt: model.releasedAt?.getTime() ?? 0,
+			provider: scxGp,
+			title: "General purpose",
+			blurb:
+				"Standard OpenAI-compatible inference for open models — the default SCX deployment.",
+			modelCount: scxModels.filter((m) => !m.turbo).length,
+		},
+		{
+			provider: scxTurbo,
+			title: "Turbo",
+			blurb:
+				"SCX's accelerated deployment tier for latency-sensitive workloads, served from the same Sydney infrastructure.",
+			modelCount: scxModels.filter((m) => m.turbo).length,
 		},
 	];
-});
 
-const scxEndpoints = [
-	{
-		provider: scxGp,
-		title: "General purpose",
-		blurb:
-			"Standard OpenAI-compatible inference for open models — the default SCX deployment.",
-		modelCount: scxModels.filter((m) => !m.turbo).length,
-	},
-	{
-		provider: scxTurbo,
-		title: "Turbo",
-		blurb:
-			"SCX's accelerated deployment tier for latency-sensitive workloads, served from the same Sydney infrastructure.",
-		modelCount: scxModels.filter((m) => m.turbo).length,
-	},
-];
+	return { scxModels, scxEndpoints };
+}
 
 const scxPolicy = scxTurbo?.dataPolicy;
 const trustChips = [
@@ -192,15 +201,11 @@ function starPath(x: number, y: number, r: number): string {
 	].join(" ");
 }
 
-interface PublicModelStats {
-	models: Array<{
-		modelId: string;
-		totalTokens: number;
-		totalRequests: number;
-	}>;
-}
+type PublicModelStats =
+	paths["/public/models/stats"]["get"]["responses"][200]["content"]["application/json"];
 
 export default async function PartnersPage() {
+	const { scxModels, scxEndpoints } = getScxCatalog();
 	// Server-side snapshot used to order the partner's models by real traffic;
 	// the page degrades to release order when stats are unavailable.
 	const stats = await fetchServerData<PublicModelStats>(
