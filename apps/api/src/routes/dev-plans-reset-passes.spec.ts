@@ -249,6 +249,22 @@ describe("reset pass redeem", () => {
 		expect((await getOrg()).devPlanResetPassesPro).toBe(1);
 	});
 
+	it("rejects a confirmed redeem when the monthly cycle is exhausted", async () => {
+		await insertOrg({
+			devPlanCreditsUsed: "100",
+			devPlanCreditsLimit: "100",
+			devPlanPremiumCreditsUsed: "5",
+			devPlanPremiumWeekStart: new Date(),
+			devPlanResetPassesPro: 2,
+		});
+
+		const res = await redeemRequest(token, { confirmHighCycleUsage: true });
+		expect(res.status).toBe(400);
+		const body = await res.json();
+		expect(body.message).toContain("fully used");
+		expect((await getOrg()).devPlanResetPassesPro).toBe(2);
+	});
+
 	it("allows redeem at exactly 90% of the monthly cycle allowance", async () => {
 		await insertOrg({
 			devPlanCreditsUsed: "90",

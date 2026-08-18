@@ -3593,13 +3593,21 @@ devPlans.openapi(redeemResetPass, async (c) => {
 		});
 	}
 
+	const cycleUsage = getDevPlanCycleUsageFraction(
+		personalOrg.devPlanCreditsUsed,
+		personalOrg.devPlanCreditsLimit,
+	);
+	if (cycleUsage >= 1) {
+		throw new HTTPException(400, {
+			message:
+				"Your monthly credit allowance is fully used, so a Reset Pass cannot unlock any remaining plan usage.",
+		});
+	}
+
 	// A reset remains available late in the cycle, but the caller must affirm
 	// that it understands the pass unlocks only the remaining monthly credits.
 	if (
-		getDevPlanCycleUsageFraction(
-			personalOrg.devPlanCreditsUsed,
-			personalOrg.devPlanCreditsLimit,
-		) > DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE &&
+		cycleUsage > DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE &&
 		!confirmHighCycleUsage
 	) {
 		throw new HTTPException(400, {
