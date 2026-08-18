@@ -508,6 +508,34 @@ export const deepseekModels = [
 				jsonOutput: true,
 				jsonOutputSchema: true,
 			},
+			{
+				providerId: "baidu",
+				externalId: "deepseek-v4-pro",
+				inputPrice: "1.69e-6",
+				cachedInputPrice: "0.14e-6",
+				outputPrice: "3.38e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				// /v1/models reports 393216 while Qianfan's model page caps output at
+				// 128K; the lower bound is the safe one to advertise.
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				// Qianfan ignores reasoning_effort="none"; its thinking switch works.
+				requiresDisableThinkingParam: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
 		],
 	},
 	{
@@ -814,6 +842,32 @@ export const deepseekModels = [
 				// work when thinking is off, which the catalogue cannot express, so
 				// they coerce to "auto" (verified 2026-08-09).
 				supportedToolChoices: ["auto", "none"],
+				jsonOutput: true,
+			},
+			{
+				providerId: "baidu",
+				externalId: "deepseek-v4-flash",
+				inputPrice: "0.14e-6",
+				cachedInputPrice: "0.028e-6",
+				outputPrice: "0.28e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				// Qianfan ignores reasoning_effort="none"; its thinking switch works.
+				requiresDisableThinkingParam: true,
+				vision: false,
+				tools: true,
 				jsonOutput: true,
 			},
 		],
