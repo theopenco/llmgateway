@@ -170,15 +170,15 @@ describe("Models API", () => {
 			);
 		}
 
-		// qwen3-coder-480b-a35b-instruct has a deactivated Nebius mapping
-		// declaring 8192 and two live mappings declaring 65536; the advertised
-		// bound must come from the mappings that can still serve, not from
-		// limits that no longer apply.
-		const qwenCoder = json.data.find(
-			(m: { id: string }) => m.id === "qwen3-coder-480b-a35b-instruct",
-		);
-		expect(qwenCoder).toBeDefined();
-		expect(qwenCoder.max_output).toBe(65536);
+		// kimi-k2 has a deactivated mapping declaring 8192; the advertised bound
+		// must come from the mappings that can still serve (131072), not from
+		// limits that no longer apply. deepseek-v3.2 used to pin this case, but
+		// Qianfan serves it with a genuine 32768 output cap, which matches the
+		// deactivated Nebius limit and left the assertion unable to tell the two
+		// apart.
+		const kimi = json.data.find((m: { id: string }) => m.id === "kimi-k2");
+		expect(kimi).toBeDefined();
+		expect(kimi.max_output).toBe(131072);
 	});
 
 	test("GET /v1/models exposes reasoning_efforts on provider mappings that define them", async () => {
