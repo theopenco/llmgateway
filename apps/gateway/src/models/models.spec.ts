@@ -170,14 +170,15 @@ describe("Models API", () => {
 			);
 		}
 
-		// deepseek-v3.2 has a deactivated Nebius mapping declaring 32768; the
-		// advertised bound must come from the mappings that can still serve
-		// (65536), not from limits that no longer apply.
-		const deepseek = json.data.find(
-			(m: { id: string }) => m.id === "deepseek-v3.2",
+		// qwen3-coder-480b-a35b-instruct has a deactivated Nebius mapping
+		// declaring 8192 and two live mappings declaring 65536; the advertised
+		// bound must come from the mappings that can still serve, not from
+		// limits that no longer apply.
+		const qwenCoder = json.data.find(
+			(m: { id: string }) => m.id === "qwen3-coder-480b-a35b-instruct",
 		);
-		expect(deepseek).toBeDefined();
-		expect(deepseek.max_output).toBe(65536);
+		expect(qwenCoder).toBeDefined();
+		expect(qwenCoder.max_output).toBe(65536);
 	});
 
 	test("GET /v1/models exposes reasoning_efforts on provider mappings that define them", async () => {
