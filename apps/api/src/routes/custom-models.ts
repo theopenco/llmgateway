@@ -10,6 +10,7 @@ import {
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { cdb, db, eq, tables } from "@llmgateway/db";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -264,7 +265,12 @@ async function getManageableProviderKey(userId: string, providerKeyId: string) {
 		});
 	}
 
-	if (providerKey.organization?.plan !== "enterprise") {
+	if (
+		!hasOrganizationEnterpriseAccess(
+			providerKey.organization?.id,
+			providerKey.organization?.plan,
+		)
+	) {
 		throw new HTTPException(403, {
 			message: "Custom models require an enterprise plan",
 		});

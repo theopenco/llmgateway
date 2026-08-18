@@ -90,7 +90,7 @@ export function SecurityEventsClient() {
 	const [statsDays, setStatsDays] = useState<string>("7");
 
 	const canViewEvents =
-		selectedOrganization?.plan === "enterprise" &&
+		selectedOrganization?.enterpriseAccess === true &&
 		(currentUserRole === "owner" || currentUserRole === "admin");
 
 	const fetchStats = useCallback(async () => {
@@ -188,7 +188,7 @@ export function SecurityEventsClient() {
 		}
 	}, [canViewEvents, fetchStats]);
 
-	if (selectedOrganization?.plan !== "enterprise") {
+	if (selectedOrganization?.enterpriseAccess !== true) {
 		return <ContactSalesCard />;
 	}
 

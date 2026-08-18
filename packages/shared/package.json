@@ -17,6 +17,10 @@
 			"types": "./dist/video-access.d.ts",
 			"import": "./dist/video-access.js"
 		},
+		"./enterprise-license": {
+			"types": "./dist/enterprise-license.d.ts",
+			"import": "./dist/enterprise-license.js"
+		},
 		"./deactivation": {
 			"types": "./dist/deactivation.d.ts",
 			"import": "./dist/deactivation.js"

@@ -17,6 +17,7 @@ import {
 	defaultAllowedFileTypes,
 } from "@llmgateway/db";
 import { checkGuardrails } from "@llmgateway/guardrails";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
 import type { ServerTypes } from "@/vars.js";
 import type {
@@ -65,7 +66,12 @@ async function checkEnterpriseAccess(
 		});
 	}
 
-	if (userOrg.organization?.plan !== "enterprise") {
+	if (
+		!hasOrganizationEnterpriseAccess(
+			userOrg.organization?.id,
+			userOrg.organization?.plan,
+		)
+	) {
 		throw new HTTPException(403, {
 			message: "Guardrails require an enterprise plan",
 		});

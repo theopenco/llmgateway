@@ -63,6 +63,11 @@ import {
 	withCreditsMode,
 	withWalletCredits,
 } from "@/lib/end-user-session.js";
+import {
+	getLicensedOrganizationEnvVariant,
+	getLicensedOrganizationPlan,
+	hasOrganizationEnterpriseAccess,
+} from "@/lib/enterprise.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import {
 	getGcpAccessToken,
@@ -173,7 +178,6 @@ import {
 	type VertexTokenType,
 	type WebSearchTool,
 	expandAllProviderRegions,
-	getOrganizationEnvVariant,
 	getProviderDefinition,
 	getRegionScopedDefaultRegion,
 	getRegionSpecificEnvVarName,
@@ -2259,7 +2263,7 @@ chat.openapi(completions, async (c) => {
 
 	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
 	// this org's env-credential reads. Undefined = base vars only.
-	const envVariant = getOrganizationEnvVariant(organization);
+	const envVariant = getLicensedOrganizationEnvVariant(organization);
 
 	// Dev-plan (DevPass) orgs can default routing to cheaper flex processing via
 	// their dashboard settings to save on plan credits. Applied softly, and only
@@ -2501,6 +2505,7 @@ chat.openapi(completions, async (c) => {
 
 	let routingCfg = await getResolvedRoutingConfig(
 		project.id,
+		organization.id,
 		organization.plan,
 	);
 	// Routing strategies only affect multi-provider selection. When the request
@@ -2572,7 +2577,7 @@ chat.openapi(completions, async (c) => {
 
 	// Run guardrails check for enterprise organizations
 	let guardrailResult: Awaited<ReturnType<typeof checkGuardrails>> | undefined;
-	if (organization.plan === "enterprise") {
+	if (hasOrganizationEnterpriseAccess(organization.id, organization.plan)) {
 		guardrailResult = await checkGuardrails({
 			organizationId: project.organizationId,
 			projectId: project.id,
@@ -2980,7 +2985,10 @@ chat.openapi(completions, async (c) => {
 	// Determine max image size based on plan. Enterprise is never capped below
 	// Pro — bucketing it with free rejected enterprise uploads at the free limit
 	// and then told them to contact us about raising their Enterprise limits.
-	const userPlan = organization?.plan ?? "free";
+	const userPlan = getLicensedOrganizationPlan(
+		organization?.id,
+		organization?.plan,
+	);
 	const maxImageSizeMB =
 		userPlan === "enterprise"
 			? enterpriseLimitMB
@@ -3336,7 +3344,7 @@ chat.openapi(completions, async (c) => {
 		| undefined;
 	if (parseResult.dynamicRouteName) {
 		const dynamicRouteName = parseResult.dynamicRouteName;
-		if (organization.plan !== "enterprise") {
+		if (!hasOrganizationEnterpriseAccess(organization.id, organization.plan)) {
 			throw new HTTPException(403, {
 				message:
 					"Dynamic routes are only available on the enterprise plan. Contact us at contact@llmgateway.io to upgrade.",

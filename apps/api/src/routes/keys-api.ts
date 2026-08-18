@@ -30,6 +30,7 @@ import {
 	type InferSelectModel,
 	type MemberBudgetOwner,
 } from "@llmgateway/db";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import { maskToken } from "@llmgateway/shared/mask-token";
 
 import type { ServerTypes } from "@/vars.js";
@@ -737,13 +738,24 @@ export const iamRuleSchema = z.object({
 // Org-wide cap on active developer API keys. An explicit `organization.apiKeyLimit`
 // override (set by admins) always takes precedence over these plan defaults.
 export function resolveApiKeyLimit(
+	organizationId: string | null | undefined,
 	plan: string | null | undefined,
 	apiKeyLimit: number | null | undefined,
 ): number {
+	if (
+		plan === "enterprise" &&
+		!hasOrganizationEnterpriseAccess(organizationId, plan)
+	) {
+		return 5;
+	}
 	if (apiKeyLimit !== null && apiKeyLimit !== undefined) {
 		return apiKeyLimit;
 	}
-	return plan === "enterprise" ? 500 : plan === "pro" ? 20 : 5;
+	return hasOrganizationEnterpriseAccess(organizationId, plan)
+		? 500
+		: plan === "pro"
+			? 20
+			: 5;
 }
 
 // Create a new API key
@@ -1023,6 +1035,7 @@ export async function createApiKeyForProject(
 	});
 
 	const maxApiKeys = resolveApiKeyLimit(
+		project.organization.id,
 		project.organization.plan,
 		project.organization.apiKeyLimit,
 	);
@@ -1315,7 +1328,11 @@ keysApi.openapi(list, async (c) => {
 
 		if (project?.organization) {
 			plan = project.organization.plan as "free" | "pro" | "enterprise";
-			maxKeys = resolveApiKeyLimit(plan, project.organization.apiKeyLimit);
+			maxKeys = resolveApiKeyLimit(
+				project.organization.id,
+				plan,
+				project.organization.apiKeyLimit,
+			);
 
 			const orgProjects = await db.query.project.findMany({
 				where: { organizationId: { eq: project.organization.id } },
@@ -2247,6 +2264,7 @@ keysApi.openapi(createIamRule, async (c) => {
 
 	assertEnterpriseForIpCidrRule(
 		ruleData.ruleType,
+		apiKey.project.organization?.id,
 		apiKey.project.organization?.plan,
 	);
 
@@ -2506,6 +2524,7 @@ keysApi.openapi(updateIamRule, async (c) => {
 	const effectiveRuleType = updateData.ruleType ?? existingRule?.ruleType;
 	assertEnterpriseForIpCidrRule(
 		effectiveRuleType,
+		apiKey.project.organization?.id,
 		apiKey.project.organization?.plan,
 	);
 

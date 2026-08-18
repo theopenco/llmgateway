@@ -41,6 +41,7 @@ import {
 	applyEndUserSession,
 	assertTestWalletModelAllowed,
 } from "@/lib/end-user-session.js";
+import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { validateRequestModelAccess } from "@/lib/iam.js";
 import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
@@ -74,7 +75,6 @@ import {
 import { logger, toError } from "@llmgateway/logger";
 import {
 	type EnvVarVariant,
-	getOrganizationEnvVariant,
 	getProviderEnvValue,
 	getProviderEnvVar,
 	hasProviderEnvironmentToken,
@@ -862,6 +862,7 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 	const requestId = c.req.header("x-request-id")?.trim() || shortid(40);
 	const routingCfg = await getResolvedRoutingConfig(
 		project.id,
+		organization.id,
 		organization.plan,
 	);
 
@@ -1556,7 +1557,7 @@ async function resolveProviderContext(
 	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
 	// this org's env-credential reads. Undefined = base vars only.
 	const organization = await findOrganizationById(organizationId);
-	const envVariant = getOrganizationEnvVariant(organization);
+	const envVariant = getLicensedOrganizationEnvVariant(organization);
 
 	if (project.mode === "api-keys") {
 		const providerKey = await findProviderKey(
@@ -1835,7 +1836,7 @@ async function hasPlatformVideoConfiguration(
 ): Promise<boolean> {
 	if (await hasManagedProviderCredential(providerId)) {
 		const organization = await findOrganizationById(organizationId);
-		const variant = getOrganizationEnvVariant(organization);
+		const variant = getLicensedOrganizationEnvVariant(organization);
 		return await hasManagedVideoCredential(providerId, defaultBaseUrl, variant);
 	}
 	return hasVideoEnvConfiguration(providerId, defaultBaseUrl);
@@ -2744,7 +2745,7 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 	}
 
 	const organization = await findOrganizationById(job.organizationId);
-	const envVariant = getOrganizationEnvVariant(organization);
+	const envVariant = getLicensedOrganizationEnvVariant(organization);
 	const env = getProviderEnv(providerId, {
 		excludedIndices: getVideoExcludedConfigIndices(providerId),
 		selectionScope: job.usedModel,

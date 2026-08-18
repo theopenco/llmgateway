@@ -165,7 +165,7 @@ export function SsoClient() {
 	const queryClient = useQueryClient();
 	const { apiUrl } = useAppConfig();
 
-	const isEnterprise = selectedOrganization?.plan === "enterprise";
+	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 
 	const [providerType, setProviderType] = useState<
 		"" | "okta" | "entra" | "generic" | "google"

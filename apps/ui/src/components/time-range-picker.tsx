@@ -38,7 +38,7 @@ export function TimeRangePicker({
 }: TimeRangePickerProps) {
 	const config = useAppConfig();
 	const { selectedOrganization } = useDashboardNavigation();
-	const isEnterprise = selectedOrganization?.plan === "enterprise";
+	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 	const isGated = config.hosted && !isEnterprise;
 
 	const freeRanges = allowedValues

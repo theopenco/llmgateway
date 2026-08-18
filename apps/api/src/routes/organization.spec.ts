@@ -74,6 +74,28 @@ describe("organization route", () => {
 		});
 	});
 
+	test("GET /orgs returns effective Enterprise access", async () => {
+		const response = await app.request("/orgs", {
+			headers: { Cookie: token },
+		});
+		expect(response.status).toBe(200);
+		const body = await response.json();
+		expect(body.organizations[0].enterpriseAccess).toBe(false);
+
+		await db
+			.update(tables.organization)
+			.set({ plan: "enterprise" })
+			.where(eq(tables.organization.id, "test-org-id"));
+		const enterpriseResponse = await app.request("/orgs", {
+			headers: { Cookie: token },
+		});
+		const enterpriseBody = await enterpriseResponse.json();
+		const enterpriseOrganization = enterpriseBody.organizations.find(
+			(organization: { id: string }) => organization.id === "test-org-id",
+		);
+		expect(enterpriseOrganization?.enterpriseAccess).toBe(true);
+	});
+
 	test("GET /orgs creates a dashboard org for DevPass-only users", async () => {
 		await deleteAll();
 

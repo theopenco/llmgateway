@@ -138,7 +138,7 @@ export function GuardrailsSettings({ scope }: { scope: GuardrailsScope }) {
 	const currentUserRole = teamData?.members.find(
 		(member) => member.userId === user?.id,
 	)?.role;
-	const isEnterprise = selectedOrganization?.plan === "enterprise";
+	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 	const canManageGuardrails =
 		isEnterprise &&
 		(currentUserRole === "owner" || currentUserRole === "admin");

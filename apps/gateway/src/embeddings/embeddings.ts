@@ -39,6 +39,7 @@ import {
 	applyEndUserSession,
 	assertTestWalletModelAllowed,
 } from "@/lib/end-user-session.js";
+import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
@@ -60,7 +61,6 @@ import {
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
-	getOrganizationEnvVariant,
 	models as modelDefinitions,
 	resolveVertexTokenType,
 	type VertexTokenType,
@@ -685,7 +685,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 
 	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
 	// this org's env-credential reads. Undefined = base vars only.
-	const envVariant = getOrganizationEnvVariant(retryOrganization);
+	const envVariant = getLicensedOrganizationEnvVariant(retryOrganization);
 
 	const isGoogleAiStudio = providerId === "google-ai-studio";
 	const isGoogleVertex = providerId === "google-vertex";

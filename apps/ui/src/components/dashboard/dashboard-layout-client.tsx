@@ -4,6 +4,7 @@ import { usePostHog } from "posthog-js/react";
 import { type ReactNode, useEffect } from "react";
 
 import { DashboardSidebar } from "@/components/dashboard/dashboard-sidebar";
+import { EnterpriseLicenseBanner } from "@/components/dashboard/enterprise-license-banner";
 import { MobileHeader } from "@/components/dashboard/mobile-header";
 import { PlanExpiryBanner } from "@/components/dashboard/plan-expiry-banner";
 import { TopBar } from "@/components/dashboard/top-bar";
@@ -84,6 +85,7 @@ export function DashboardLayoutClient({
 							announcementEntries={announcementEntries}
 						/>
 						<EmailVerificationBanner />
+						<EnterpriseLicenseBanner />
 						<PlanExpiryBanner />
 						<main className="bg-background relative w-full flex-1 overflow-y-auto overflow-x-hidden pt-10 pb-4 px-4 md:p-6 lg:p-8">
 							{children}

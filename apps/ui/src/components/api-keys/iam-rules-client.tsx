@@ -30,7 +30,7 @@ export function IamRulesClient({ apiKey }: IamRulesClientProps) {
 		[pathname],
 	);
 	const { selectedOrganization } = useDashboardNavigation();
-	const isEnterprise = selectedOrganization?.plan === "enterprise";
+	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 
 	const queryClient = useQueryClient();
 	const api = useApi();

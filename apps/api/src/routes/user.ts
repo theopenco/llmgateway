@@ -16,6 +16,7 @@ import { notifyUserAccountDeleted } from "@/utils/discord.js";
 import { computeProfileData, profileSchema } from "@/utils/profile.js";
 
 import { and, db, eq, tables } from "@llmgateway/db";
+import { getEnterpriseLicenseStatus } from "@llmgateway/shared/enterprise-license";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -43,6 +44,22 @@ const publicUserSchema = z.object({
 	),
 	hasPasskeys: z.boolean(),
 	isSsoUser: z.boolean(),
+});
+
+const enterpriseLicenseSchema = z.object({
+	status: z.enum([
+		"missing",
+		"invalid",
+		"not_yet_valid",
+		"active",
+		"grace",
+		"expired",
+		"development",
+	]),
+	enterpriseEnabled: z.boolean(),
+	whiteLabelEnabled: z.boolean(),
+	expiresAt: z.string().nullable(),
+	graceEndsAt: z.string().nullable(),
 });
 
 async function getUserAuthInfo(userId: string) {
@@ -126,6 +143,7 @@ const get = createRoute({
 				"application/json": {
 					schema: z.object({
 						user: publicUserSchema.openapi({}),
+						enterpriseLicense: enterpriseLicenseSchema.openapi({}),
 					}),
 				},
 			},
@@ -156,9 +174,18 @@ user.openapi(get, async (c) => {
 
 	const authInfo = await getUserAuthInfo(authUser.id);
 	const isAdmin = isAdminEmail(user.email);
+	const license = getEnterpriseLicenseStatus();
 
 	return c.json({
 		user: toPublicUser(user, authInfo, isAdmin),
+		enterpriseLicense: {
+			status: license.status,
+			enterpriseEnabled: license.enterpriseEnabled,
+			whiteLabelEnabled:
+				license.enterpriseEnabled && license.kind === "white_label",
+			expiresAt: license.expiresAt,
+			graceEndsAt: license.graceEndsAt,
+		},
 	});
 });
 

@@ -148,7 +148,7 @@ export function AuditLogsClient() {
 
 	// Check if user can view audit logs (enterprise plan + owner/admin)
 	const canViewAuditLogs =
-		selectedOrganization?.plan === "enterprise" &&
+		selectedOrganization?.enterpriseAccess === true &&
 		(currentUserRole === "owner" || currentUserRole === "admin");
 
 	// Fetch filter options
@@ -243,7 +243,7 @@ export function AuditLogsClient() {
 	}, [canViewAuditLogs, fetchAuditLogs]);
 
 	// If not enterprise plan, show contact sales
-	if (selectedOrganization?.plan !== "enterprise") {
+	if (selectedOrganization?.enterpriseAccess !== true) {
 		return <ContactSalesCard />;
 	}
 

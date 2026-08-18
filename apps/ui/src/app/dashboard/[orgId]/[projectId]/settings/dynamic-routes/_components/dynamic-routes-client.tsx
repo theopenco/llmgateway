@@ -142,7 +142,7 @@ export function DynamicRoutesClient({ projectId }: { projectId: string }) {
 
 	const role = teamData?.members.find((m) => m.userId === user?.id)?.role;
 	const canManage =
-		selectedOrganization?.plan === "enterprise" &&
+		selectedOrganization?.enterpriseAccess === true &&
 		(role === "owner" || role === "admin");
 
 	const [selectedName, setSelectedName] = useState<string | null>(null);

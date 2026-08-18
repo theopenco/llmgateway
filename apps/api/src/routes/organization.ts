@@ -39,6 +39,7 @@ import {
 	CREDIT_TOP_UP_MAX_AMOUNT,
 	CUSTOM_PROVIDER_NAME_REGEX,
 } from "@llmgateway/shared";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -181,6 +182,7 @@ const organizationSchema = z.object({
 	// dashboard can gate org-level UI (e.g. hide org nav from project-scoped
 	// "developer" members). Omitted by single-org endpoints.
 	role: z.enum(["owner", "admin", "developer"]).optional(),
+	enterpriseAccess: z.boolean().optional(),
 });
 
 const projectSchema = z.object({
@@ -366,7 +368,14 @@ organization.openapi(getOrganizations, async (c) => {
 	const { includePersonal, includeChat } = c.req.valid("query");
 
 	let organizations = userOrganizations
-		.map((uo) => ({ ...uo.organization!, role: uo.role }))
+		.map((uo) => ({
+			...uo.organization!,
+			role: uo.role,
+			enterpriseAccess: hasOrganizationEnterpriseAccess(
+				uo.organization?.id,
+				uo.organization?.plan,
+			),
+		}))
 		.filter((org) => org.status !== "deleted")
 		// Personal and chat orgs are hidden from the regular dashboard. The
 		// devpass/playground surfaces opt in via ?includePersonal=true /
@@ -384,7 +393,16 @@ organization.openapi(getOrganizations, async (c) => {
 			defaultOrganization.status !== "deleted" &&
 			defaultOrganization.kind !== "devpass"
 		) {
-			organizations = [{ ...defaultOrganization, role: "owner" as const }];
+			organizations = [
+				{
+					...defaultOrganization,
+					role: "owner" as const,
+					enterpriseAccess: hasOrganizationEnterpriseAccess(
+						defaultOrganization.id,
+						defaultOrganization.plan,
+					),
+				},
+			];
 		}
 	}
 
@@ -679,7 +697,12 @@ organization.openapi(updateOrganization, async (c) => {
 	// Provider compliance policies are an enterprise feature managed by owners
 	// and admins (matching the Guardrails settings page).
 	if (providerCompliancePolicy !== undefined) {
-		if (userOrganization.organization?.plan !== "enterprise") {
+		if (
+			!hasOrganizationEnterpriseAccess(
+				userOrganization.organization?.id,
+				userOrganization.organization?.plan,
+			)
+		) {
 			throw new HTTPException(403, {
 				message: "Provider compliance policies require an enterprise plan",
 			});
@@ -698,7 +721,12 @@ organization.openapi(updateOrganization, async (c) => {
 	// admins. The value is normalized and validated before storage.
 	let normalizedSsoDomain: string | null | undefined;
 	if (ssoAutoJoinDomain !== undefined) {
-		if (userOrganization.organization?.plan !== "enterprise") {
+		if (
+			!hasOrganizationEnterpriseAccess(
+				userOrganization.organization?.id,
+				userOrganization.organization?.plan,
+			)
+		) {
 			throw new HTTPException(403, {
 				message: "SSO auto-join requires an enterprise plan",
 			});

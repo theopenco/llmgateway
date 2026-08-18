@@ -197,6 +197,13 @@ describe("user accounts and email editability", () => {
 		expect(json.user.accounts).toBeDefined();
 		expect(Array.isArray(json.user.accounts)).toBe(true);
 		expect(json.user.accounts).toContainEqual({ providerId: "credential" });
+		expect(json.enterpriseLicense).toEqual({
+			status: "development",
+			enterpriseEnabled: true,
+			whiteLabelEnabled: true,
+			expiresAt: null,
+			graceEndsAt: null,
+		});
 	});
 
 	it("GET /user/me should return isSsoUser false for a non-SSO user", async () => {

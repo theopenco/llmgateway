@@ -8,6 +8,7 @@ import {
 	shutdownInstrumentation,
 } from "@llmgateway/instrumentation";
 import { logger, toError } from "@llmgateway/logger";
+import { getEnterpriseLicenseStatus } from "@llmgateway/shared/enterprise-license";
 
 import { app } from "./app.js";
 import {
@@ -73,6 +74,14 @@ async function startServer() {
 		fetch: metricsApp.fetch,
 	});
 
+	const enterpriseLicense = getEnterpriseLicenseStatus();
+	logger.info("Enterprise license status", {
+		status: enterpriseLicense.status,
+		licenseId: enterpriseLicense.licenseId,
+		keyId: enterpriseLicense.keyId,
+		expiresAt: enterpriseLicense.expiresAt,
+		maxSeats: enterpriseLicense.maxSeats,
+	});
 	logger.info("Server starting", { port });
 
 	const server = serve({

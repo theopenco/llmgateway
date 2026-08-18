@@ -46,6 +46,7 @@ import {
 	RESERVED_CUSTOM_PROVIDER_NAMES,
 } from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import { maskToken } from "@llmgateway/shared/mask-token";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
@@ -1009,7 +1010,12 @@ keysProvider.openapi(updateStatus, async (c) => {
 			});
 		}
 		// Restricting to a custom catalog is an enterprise feature.
-		if (providerKey.organization?.plan !== "enterprise") {
+		if (
+			!hasOrganizationEnterpriseAccess(
+				providerKey.organization?.id,
+				providerKey.organization?.plan,
+			)
+		) {
 			throw new HTTPException(403, {
 				message: "Custom models require an enterprise plan",
 			});
@@ -1041,7 +1047,12 @@ keysProvider.openapi(updateStatus, async (c) => {
 					"complianceAttestation can only be set on custom provider keys",
 			});
 		}
-		if (providerKey.organization?.plan !== "enterprise") {
+		if (
+			!hasOrganizationEnterpriseAccess(
+				providerKey.organization?.id,
+				providerKey.organization?.plan,
+			)
+		) {
 			throw new HTTPException(403, {
 				message: "Compliance attestations require an enterprise plan",
 			});
