@@ -12,7 +12,7 @@ import { and, cdb, db, eq, inArray, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 export const HIGH_RISK_ACCOUNT_MESSAGE =
-	"This account is under review and cannot purchase credits. Contact contact@llmgateway.io if you believe this is a mistake.";
+	"This account is under review and cannot purchase credits. Please use the Contact Us link or email contact@llmgateway.io so we can unlock your account.";
 
 type RiskFlagSource = "signup" | "email_verification";
 

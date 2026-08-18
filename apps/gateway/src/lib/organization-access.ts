@@ -8,7 +8,7 @@ export const ORGANIZATION_DISABLED_MESSAGE =
 	"Organization has been disabled and is no longer accessible";
 
 export const ORGANIZATION_HIGH_RISK_MESSAGE =
-	"This account is under review and cannot be used. Contact contact@llmgateway.io if you believe this is a mistake.";
+	"This account is under review and cannot be used. Please use the Contact Us link or email contact@llmgateway.io so we can unlock your account.";
 
 /**
  * Reason an organization may not serve requests, or null when it may. Split
