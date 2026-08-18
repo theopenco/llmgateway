@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import Stripe from "stripe";
 import { z } from "zod";
 
+import { assertOrganizationNotHighRisk } from "@/lib/account-risk.js";
 import { assertCreditPurchaseAllowed } from "@/lib/credit-purchase-guard.js";
 import { computeReferralBonus } from "@/lib/referral-bonus.js";
 import { forcedThreeDSecureOptions } from "@/lib/three-d-secure.js";
@@ -170,6 +171,7 @@ payments.openapi(createPaymentIntent, async (c) => {
 	const organizationId = userOrganization.organization.id;
 
 	await assertCreditPurchaseAllowed(organizationId);
+	await assertOrganizationNotHighRisk(organizationId);
 
 	// Gate before ANY Stripe interaction so a capped org cannot even generate
 	// customer/payment-method API traffic. Reserve the worst-case gross (with
@@ -768,6 +770,7 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 	}
 
 	await assertCreditPurchaseAllowed(userOrganization.organization.id);
+	await assertOrganizationNotHighRisk(userOrganization.organization.id);
 
 	// Gate before any Stripe interaction; see create-payment-intent for why
 	// the reserved amount uses the worst-case (international) gross. Any
@@ -970,6 +973,7 @@ payments.openapi(createCheckoutSession, async (c) => {
 	const organizationId = userOrganization.organization.id;
 
 	await assertCreditPurchaseAllowed(organizationId);
+	await assertOrganizationNotHighRisk(organizationId);
 
 	const feeBreakdown = calculateFees({ amount });
 

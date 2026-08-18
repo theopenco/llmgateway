@@ -2120,6 +2120,61 @@ async function seed() {
 		devPlanBillingCycleStart: daysAgo(12),
 	});
 
+	// An account the AbuseIPDB check flagged at sign-up, so the admin dashboard's
+	// "Flagged Accounts" page has something to review locally. The IP is from the
+	// TEST-NET-3 documentation range.
+	await upsert(tables.user, {
+		id: "flagged-user-id",
+		name: "Flagged Signup",
+		// Login: flagged@example.com / flagged@example.com (password == email)
+		email: "flagged@example.com",
+		emailVerified: true,
+		riskStatus: "flagged",
+		riskFlaggedAt: daysAgo(1),
+		riskFlagSource: "signup",
+		riskFlagIp: "203.0.113.24",
+		riskFlagDetails: {
+			ipAddress: "203.0.113.24",
+			abuseConfidenceScore: 100,
+			totalReports: 47,
+			countryCode: "NL",
+			usageType: "Data Center/Web Hosting/Transit",
+			isp: "Example Hosting B.V.",
+			isTor: false,
+		},
+	});
+
+	await upsert(tables.account, {
+		id: "flagged-account-id",
+		providerId: "credential",
+		accountId: "flagged-account-id",
+		password: await hashPassword("flagged@example.com"),
+		userId: "flagged-user-id",
+	});
+
+	await upsert(tables.organization, {
+		id: "flagged-org-id",
+		name: "Flagged Organization",
+		billingEmail: "flagged@example.com",
+		credits: 5,
+		retentionLevel: "none",
+		riskFlagged: true,
+	});
+
+	await upsert(tables.userOrganization, {
+		id: "flagged-user-org-id",
+		userId: "flagged-user-id",
+		organizationId: "flagged-org-id",
+		role: "owner",
+	});
+
+	await upsert(tables.project, {
+		id: "flagged-project-id",
+		name: "Default Project",
+		organizationId: "flagged-org-id",
+		mode: "credits",
+	});
+
 	await upsert(tables.user, {
 		id: "enterprise-user-id",
 		name: "Enterprise User",

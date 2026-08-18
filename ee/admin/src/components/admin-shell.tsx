@@ -141,6 +141,12 @@ const navItems: NavItem[] = [
 		match: "prefix",
 	},
 	{
+		href: "/flagged-accounts",
+		label: "Flagged Accounts",
+		icon: ShieldAlert,
+		match: "prefix",
+	},
+	{
 		href: "/limit-hits",
 		label: "Limit Hits",
 		icon: ShieldAlert,

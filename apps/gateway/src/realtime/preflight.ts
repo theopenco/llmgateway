@@ -17,6 +17,7 @@ import {
 } from "@/lib/cached-queries.js";
 import { assertProviderCompliant } from "@/lib/compliance.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
+import { getOrganizationBlockReason } from "@/lib/organization-access.js";
 
 import { readProviderKey } from "@llmgateway/actions";
 import {
@@ -244,11 +245,14 @@ async function runRealtimePreflightInner(
 			"Could not find organization",
 		);
 	}
-	if (organization.status === "deleted") {
+	const organizationBlocked = getOrganizationBlockReason(organization);
+	if (organizationBlocked) {
 		throw new RealtimeConnectError(
-			410,
-			"organization_disabled",
-			"Organization has been disabled and is no longer accessible",
+			organizationBlocked.status,
+			organizationBlocked.status === 403
+				? "organization_high_risk"
+				: "organization_disabled",
+			organizationBlocked.message,
 		);
 	}
 	// Dev-plan and chat-plan credit pools are deferred: realtime v1 bills

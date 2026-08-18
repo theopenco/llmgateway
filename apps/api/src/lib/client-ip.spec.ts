@@ -1,6 +1,10 @@
 import { describe, expect, test } from "vitest";
 
-import { getClientIpFromContext, getClientIpFromHeaders } from "./client-ip.js";
+import {
+	getClientIpFromContext,
+	getClientIpFromHeaders,
+	isPublicIp,
+} from "./client-ip.js";
 
 function context(headers: Record<string, string>) {
 	return {
@@ -69,5 +73,25 @@ describe("getClientIpFromContext", () => {
 			),
 		).toBe("5.6.7.8");
 		expect(getClientIpFromContext(context({}))).toBe(null);
+	});
+});
+
+describe("isPublicIp", () => {
+	test("accepts routable addresses", () => {
+		expect(isPublicIp("5.6.7.8")).toBe(true);
+		expect(isPublicIp("2606:4700::1111")).toBe(true);
+	});
+
+	test("rejects private, reserved and unparseable addresses", () => {
+		expect(isPublicIp("192.168.1.10")).toBe(false);
+		expect(isPublicIp("10.0.0.1")).toBe(false);
+		expect(isPublicIp("127.0.0.1")).toBe(false);
+		expect(isPublicIp("169.254.169.254")).toBe(false);
+		expect(isPublicIp("::1")).toBe(false);
+		// IPv4-mapped IPv6 is unwrapped before the range check
+		expect(isPublicIp("::ffff:192.168.1.10")).toBe(false);
+		expect(isPublicIp("unknown")).toBe(false);
+		expect(isPublicIp(null)).toBe(false);
+		expect(isPublicIp(undefined)).toBe(false);
 	});
 });

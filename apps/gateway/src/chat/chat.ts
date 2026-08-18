@@ -77,6 +77,7 @@ import {
 	insertLog as _insertLog,
 } from "@/lib/logs.js";
 import { isSponsoredOnboardingRequest } from "@/lib/onboarding-sponsorship.js";
+import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import {
 	createSessionProviderStore,
 	getPreferredProvider,
@@ -2229,11 +2230,7 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	if (organization.status === "deleted") {
-		throw new HTTPException(410, {
-			message: "Organization has been disabled and is no longer accessible",
-		});
-	}
+	assertOrganizationUsable(organization);
 
 	// Organization data retention level. Captured here (right after the org is
 	// resolved) so every log path — including the early rejections below and the

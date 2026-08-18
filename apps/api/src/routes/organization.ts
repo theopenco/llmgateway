@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { isUserHighRisk } from "@/lib/account-risk.js";
 import {
 	computeSelfRefundEligibility,
 	executeSelfRefund,
@@ -537,6 +538,8 @@ organization.openapi(createOrganization, async (c) => {
 		.values({
 			name,
 			billingEmail: user.email,
+			// A flagged user cannot escape the block by creating a fresh org.
+			riskFlagged: await isUserHighRisk(user.id),
 		})
 		.returning();
 
