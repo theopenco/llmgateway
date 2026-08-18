@@ -24,8 +24,8 @@ import type { Context, Next } from "hono";
  * - Only `/v1/*` endpoints with a configured limit are throttled; other paths
  *   (health, metrics, docs, mcp/oauth) pass through.
  * - Enterprise organizations are exempt.
- * - Dev ("devpass") and chat plan orgs get their own, much tighter per-path
- *   limits and are not eligible for the spend-tier multiplier.
+ * - DevPass orgs get twice the regular per-path base limit; chat plan orgs use
+ *   their own tighter limits. Neither gets the spend-tier multiplier.
  * - Regular (pay-as-you-go) org limits scale with their lifetime spend tier.
  * - Requests without a resolvable API token are passed through so the
  *   downstream handler can return the appropriate auth error.
@@ -76,10 +76,11 @@ export async function orgRateLimitMiddleware(
 
 	const planClass = getPlanClass(organization);
 
-	// Only regular (pay-as-you-go) orgs get a spend-tier boost; dev/chat plans
-	// stay on their flat, tight limit. The multiplier is resolved lazily inside
-	// checkOrgRateLimit and only once the org has reached its base limit, so the
-	// common under-limit path skips the spend lookup entirely.
+	// Only regular (pay-as-you-go) orgs get a spend-tier boost; DevPass stays at
+	// twice the regular base and chat plans stay on their flat limit. The
+	// multiplier is resolved lazily inside checkOrgRateLimit and only once the org
+	// has reached its base limit, so the common under-limit path skips the spend
+	// lookup entirely.
 	const result = await checkOrgRateLimit(
 		organizationId,
 		config,
