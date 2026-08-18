@@ -1653,6 +1653,13 @@
       "when": 1786993793424,
       "tag": "1786993793_tough_jackpot",
       "breakpoints": true
+    },
+    {
+      "idx": 236,
+      "version": "8",
+      "when": 1787073216105,
+      "tag": "1787073216_military_mantis",
+      "breakpoints": true
     }
   ]
 }
