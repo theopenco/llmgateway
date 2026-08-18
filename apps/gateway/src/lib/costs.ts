@@ -746,7 +746,10 @@ export async function calculateCosts(
 	// it inside `completion_tokens`, so adding it again would roughly double the
 	// billed output on reasoning requests. Baidu's Qianfan reports the same way
 	// (a thinking-only reply returns completion_tokens === reasoning_tokens).
-	// For remaining providers, add reasoning separately.
+	// Gonka24 is the same shape without reporting any reasoning count of its own:
+	// its `completion_tokens` covers the `reasoning` text too, and with thinking
+	// on the chars-per-token ratio only matches the non-reasoning baseline once
+	// that text is counted. For remaining providers, add reasoning separately.
 	const completionIncludesReasoning =
 		provider === "google-ai-studio" ||
 		provider === "glacier" ||
@@ -760,6 +763,7 @@ export async function calculateCosts(
 		provider === "ranoai" ||
 		provider === "baidu" ||
 		provider === "permafrost" ||
+		provider === "gonka24" ||
 		provider === "aws-mantle";
 	const totalOutputTokens = completionIncludesReasoning
 		? calculatedCompletionTokens

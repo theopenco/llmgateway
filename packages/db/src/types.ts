@@ -220,6 +220,9 @@ export type SerializedOrganization = Omit<
 	| "stripeConnectOnboarded"
 	// Only ever travels gateway -> provider; nothing in the dashboard needs it.
 	| "safetyIdentifier"
+	// Internal abuse-review state, surfaced in the admin dashboard only. The
+	// enforcement messages on top-up and inference already explain the block.
+	| "riskFlagged"
 > & {
 	createdAt: string;
 	updatedAt: string;

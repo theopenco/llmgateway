@@ -319,16 +319,15 @@ describe("getBaseLimit", () => {
 		expect(getBaseLimit(chatConfig, "regular")).toBe(chatConfig.defaultRpm);
 	});
 
-	it("uses the tighter per-plan defaults for dev and chat plans", () => {
-		expect(getBaseLimit(chatConfig, "dev")).toBe(chatConfig.devDefaultRpm);
+	it("doubles every regular endpoint default for DevPass", () => {
+		for (const config of PATH_RATE_LIMITS) {
+			expect(getBaseLimit(config, "dev")).toBe(config.defaultRpm * 2);
+		}
+	});
+
+	it("uses the tighter per-plan default for chat plans", () => {
 		expect(getBaseLimit(chatConfig, "chat")).toBe(chatConfig.chatDefaultRpm);
-		expect(chatConfig.devDefaultRpm).toBeLessThan(chatConfig.defaultRpm);
 		expect(chatConfig.chatDefaultRpm).toBeLessThan(chatConfig.defaultRpm);
-		// Dev (devpass) is relaxed relative to the chat plan: it's an anti-abuse
-		// backstop, not a product cap.
-		expect(chatConfig.devDefaultRpm).toBeGreaterThanOrEqual(
-			chatConfig.chatDefaultRpm,
-		);
 	});
 
 	it("honors a per-plan-class env override", () => {
@@ -386,10 +385,9 @@ describe("checkOrgRateLimit", () => {
 		expect(redis.zadd).not.toHaveBeenCalled();
 	});
 
-	it("applies the tighter base limit for dev (devpass) plans", async () => {
-		// No env override: dev plan falls back to its default, which is below the
-		// regular default.
-		vi.mocked(redis.zcard).mockResolvedValue(chatConfig.devDefaultRpm);
+	it("applies the doubled base limit for DevPass plans", async () => {
+		const devLimit = getBaseLimit(chatConfig, "dev");
+		vi.mocked(redis.zcard).mockResolvedValue(devLimit);
 		const future = Date.now() + 30_000;
 		vi.mocked(redis.zrange).mockResolvedValue(["m", future.toString()]);
 
@@ -402,7 +400,7 @@ describe("checkOrgRateLimit", () => {
 		);
 
 		expect(result.allowed).toBe(false);
-		expect(result.limit).toBe(chatConfig.devDefaultRpm);
+		expect(result.limit).toBe(devLimit);
 	});
 
 	it("resolves the spend-tier multiplier only once the base limit is hit", async () => {

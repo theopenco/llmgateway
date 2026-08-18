@@ -198,10 +198,11 @@ export interface RateLimitResult {
  * using a Redis sliding window. Mirrors the free-model limiter: on any Redis
  * error the request is allowed so that limiter outages never block traffic.
  *
- * The base limit depends on the org's `planClass` (dev/chat plans are much
- * tighter). `getMultiplier` is resolved lazily: the spend tier only matters
- * once the org is already at or above its base limit, so the (cached but still
- * extra) spend lookup is skipped entirely for the common under-limit case.
+ * The base limit depends on the org's `planClass` (DevPass gets twice the
+ * regular base; chat plans use a tighter base). `getMultiplier` is resolved
+ * lazily: the spend tier only matters once the org is already at or above its
+ * base limit, so the (cached but still extra) spend lookup is skipped entirely
+ * for the common under-limit case.
  * Higher tiers can only raise the limit, so a request under the base limit is
  * always allowed regardless of tier.
  */

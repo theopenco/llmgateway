@@ -11,6 +11,7 @@ import {
 } from "@/lib/cached-queries.js";
 import { assertProviderCompliant } from "@/lib/compliance.js";
 import { validateRequestModelAccess } from "@/lib/iam.js";
+import { getOrganizationBlockReason } from "@/lib/organization-access.js";
 import { checkSpendLimit } from "@/lib/spend-limit.js";
 
 import { logger } from "@llmgateway/logger";
@@ -100,7 +101,7 @@ export async function authorizeAccount(
 		};
 	}
 
-	if (!freshOrg || freshOrg.status === "deleted") {
+	if (!freshOrg || getOrganizationBlockReason(freshOrg)) {
 		return {
 			ok: false,
 			code: "organization_unavailable",
