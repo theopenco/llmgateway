@@ -1,5 +1,6 @@
 import {
 	models as modelsList,
+	resolveTimeBasedPricing,
 	type ModelDefinition,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
@@ -57,15 +58,16 @@ function resolveModelType(model: ModelDefinition): KnownModelType {
 	return "language";
 }
 
-function buildPricing(mapping: ProviderModelMapping) {
+function buildPricing(mapping: ProviderModelMapping, now: Date) {
 	if (mapping.inputPrice === undefined && mapping.outputPrice === undefined) {
 		return undefined;
 	}
+	const pricing = resolveTimeBasedPricing(mapping, now);
 	return {
-		input: mapping.inputPrice ?? "0",
-		output: mapping.outputPrice ?? "0",
-		...(mapping.cachedInputPrice !== undefined && {
-			input_cache_read: mapping.cachedInputPrice,
+		input: pricing.inputPrice,
+		output: pricing.outputPrice,
+		...(pricing.cachedInputPrice !== undefined && {
+			input_cache_read: pricing.cachedInputPrice,
 		}),
 		...(mapping.cacheWriteInputPrice !== undefined && {
 			input_cache_write: mapping.cacheWriteInputPrice,
@@ -98,7 +100,7 @@ export function buildConfigModels(now = new Date()): ConfigModelEntry[] {
 				continue;
 			}
 
-			const pricing = buildPricing(mapping);
+			const pricing = buildPricing(mapping, now);
 
 			entries.push({
 				id: `${mapping.providerId}/${model.id}`,

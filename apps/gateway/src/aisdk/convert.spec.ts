@@ -853,4 +853,29 @@ describe("config model listing", () => {
 		const future = new Date("2999-01-01");
 		expect(buildConfigModels(future).length).toBeLessThan(entries.length);
 	});
+
+	test.each([
+		{
+			at: "2026-08-20T15:59:59Z",
+			input: "0.14e-6",
+			output: "0.28e-6",
+			inputCacheRead: "0.028e-6",
+		},
+		{
+			at: "2026-08-20T16:00:00Z",
+			input: "0.44e-6",
+			output: "1.32e-6",
+			inputCacheRead: "0.014e-6",
+		},
+	])("publishes scheduled prices at $at", (expected) => {
+		const entry = buildConfigModels(new Date(expected.at)).find(
+			(candidate) => candidate.id === "bytedance/deepseek-v4-flash",
+		);
+
+		expect(entry?.pricing).toMatchObject({
+			input: expected.input,
+			output: expected.output,
+			input_cache_read: expected.inputCacheRead,
+		});
+	});
 });
