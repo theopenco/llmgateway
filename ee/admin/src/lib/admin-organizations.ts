@@ -128,6 +128,7 @@ export async function manageOrganization(
 		seats: number | null;
 		apiKeyLimit: number | null;
 		projectLimit: number | null;
+		trustTierOverride: number | null;
 		planExpiresAt: string | null;
 		planStartedAt: string | null;
 		isTrialActive: boolean;

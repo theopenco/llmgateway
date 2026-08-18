@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { assertCreditPurchaseAllowed } from "@/lib/credit-purchase-guard.js";
 import { voidPendingCycleRenewalInvoices } from "@/lib/pending-renewal.js";
 import {
 	computeSelfRefundEligibility,
@@ -10,6 +11,11 @@ import {
 	refundFeedbackBodySchema,
 } from "@/lib/self-refund.js";
 import { getStripeCardErrorMessage } from "@/lib/stripe-card-error.js";
+import { forcedThreeDSecureOptions } from "@/lib/three-d-secure.js";
+import {
+	assertTopUpVelocityAllowed,
+	releaseTopUpReservation,
+} from "@/lib/topup-velocity.js";
 import { posthog } from "@/posthog.js";
 import {
 	ensureStripeCustomer,
@@ -19,6 +25,7 @@ import {
 	isDevPlanCardDedupeEnforced,
 } from "@/stripe.js";
 import { findDefaultOrganization } from "@/utils/default-org.js";
+import { getDevPlanPriceId } from "@/utils/dev-plan-prices.js";
 import { LEGACY_DEV_PLAN_TX_TYPES } from "@/utils/devpass-filter.js";
 import {
 	buildInvoiceDataForTransaction,
@@ -31,6 +38,7 @@ import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
 import { resolveDevPassBillingDetails } from "@/utils/plan-billing.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
+import { redisClient } from "@llmgateway/cache";
 import {
 	cdb,
 	db,
@@ -47,6 +55,7 @@ import {
 import { logger } from "@llmgateway/logger";
 import {
 	calculateFees,
+	TOPUP_VELOCITY_RESERVATION_TTL_SECONDS,
 	CREDIT_TOP_UP_MAX_AMOUNT,
 	CREDIT_TOP_UP_MIN_AMOUNT,
 	DEV_PLAN_INCLUDED_RESET_PASSES,
@@ -206,24 +215,6 @@ function getPurchasedResetPasses(
 		case "max":
 			return org.devPlanResetPassesMax;
 	}
-}
-
-function getDevPlanPriceId(
-	tier: DevPlanTier,
-	cycle: DevPlanCycle = "monthly",
-): string | undefined {
-	const monthlyKeys: Record<DevPlanTier, string> = {
-		lite: "STRIPE_DEV_PLAN_LITE_PRICE_ID",
-		pro: "STRIPE_DEV_PLAN_PRO_PRICE_ID",
-		max: "STRIPE_DEV_PLAN_MAX_PRICE_ID",
-	};
-	const annualKeys: Record<DevPlanTier, string> = {
-		lite: "STRIPE_DEV_PLAN_LITE_ANNUAL_PRICE_ID",
-		pro: "STRIPE_DEV_PLAN_PRO_ANNUAL_PRICE_ID",
-		max: "STRIPE_DEV_PLAN_MAX_ANNUAL_PRICE_ID",
-	};
-	const key = cycle === "annual" ? annualKeys[tier] : monthlyKeys[tier];
-	return process.env[key];
 }
 
 function getStripeId(value: string | { id?: string } | null | undefined) {
@@ -459,6 +450,7 @@ devPlans.openapi(subscribe, async (c) => {
 			customer: stripeCustomerId,
 			mode: "setup",
 			payment_method_types: ["card"],
+			...(await forcedThreeDSecureOptions()),
 			success_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?setup_session_id={CHECKOUT_SESSION_ID}`,
 			cancel_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?canceled=true`,
 			metadata: {
@@ -2921,6 +2913,7 @@ devPlans.openapi(createSetupIntent, async (c) => {
 		customer: stripeCustomerId,
 		payment_method_types: ["card"],
 		usage: "off_session",
+		...(await forcedThreeDSecureOptions()),
 		metadata: {
 			organizationId: personalOrg.id,
 			subscriptionType: "dev_plan_update",
@@ -3389,13 +3382,69 @@ devPlans.openapi(topUpCredits, async (c) => {
 		});
 	}
 
-	const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
-	const paymentMethodId = await resolveDevPassPaymentMethodId(
-		personalOrg,
-		stripeCustomerId,
-	);
+	await assertCreditPurchaseAllowed(personalOrg.id);
 
-	const isInternational = await isInternationalPaymentMethod(paymentMethodId);
+	// DevPass PAYG top-ups land in organization.credits like dashboard top-ups,
+	// so they get the same tier-based velocity gate — before any Stripe
+	// interaction, reserving the worst-case (international-fee) gross.
+	const gateGrossUsd = calculateFees({
+		amount,
+		isInternational: true,
+	}).totalAmount;
+
+	// Client retries reuse the same purchaseId, and the Stripe idempotency key
+	// below collapses them into ONE PaymentIntent — so the gate and its
+	// reservation must also run once per purchase, or every retry would
+	// double-count the same attempt and can 429 legitimate resubmissions. The
+	// NX marker makes the gate idempotent; retries skip it (the original
+	// attempt's reservation still covers the amount). On failure the marker is
+	// cleared with the reservation so a fresh retry re-gates.
+	const gateMarkerKey = `topup_velocity:devpass_gate:${personalOrg.id}:${purchaseId}`;
+	let firstGateAttempt = true;
+	try {
+		firstGateAttempt =
+			(await redisClient.set(
+				gateMarkerKey,
+				"1",
+				"EX",
+				TOPUP_VELOCITY_RESERVATION_TTL_SECONDS,
+				"NX",
+			)) === "OK";
+	} catch {
+		// Redis unavailable: gate normally (the reservation path degrades to
+		// DB-only inside the check anyway).
+		firstGateAttempt = true;
+	}
+	if (firstGateAttempt) {
+		await assertTopUpVelocityAllowed(personalOrg, gateGrossUsd);
+	}
+	const releaseGate = async () => {
+		if (!firstGateAttempt) {
+			return;
+		}
+		await releaseTopUpReservation(personalOrg.id, gateGrossUsd);
+		try {
+			await redisClient.del(gateMarkerKey);
+		} catch {
+			// Marker expires with its TTL; a stuck marker only skips re-gating.
+		}
+	};
+
+	// A failure before the charge means no money moved — free the reservation.
+	let stripeCustomerId: string;
+	let paymentMethodId: string;
+	let isInternational: boolean;
+	try {
+		stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
+		paymentMethodId = await resolveDevPassPaymentMethodId(
+			personalOrg,
+			stripeCustomerId,
+		);
+		isInternational = await isInternationalPaymentMethod(paymentMethodId);
+	} catch (err) {
+		await releaseGate();
+		throw err;
+	}
 	const feeBreakdown = calculateFees({ amount, isInternational });
 
 	// `baseAmount` in the metadata routes this PaymentIntent through
@@ -3429,6 +3478,8 @@ devPlans.openapi(topUpCredits, async (c) => {
 			{ idempotencyKey: `dev-plan-topup:${personalOrg.id}:${purchaseId}` },
 		);
 	} catch (err) {
+		// The charge did not go through — free the velocity reservation.
+		await releaseGate();
 		const stripeErr = err as { type?: string; code?: string };
 		const cardErrorMessage = getStripeCardErrorMessage(err);
 		if (cardErrorMessage || stripeErr?.code === "card_declined") {

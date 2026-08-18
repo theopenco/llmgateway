@@ -1,6 +1,6 @@
 ---
 title: Rate Limits
-description: Understanding rate limits for free and paid models on LLMGateway.
+description: Understanding rate limits per organization, endpoint, and plan on LLMGateway.
 icon: Timer
 ---
 
@@ -8,11 +8,110 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 # Rate Limits
 
-LLMGateway implements rate limits to ensure fair usage and optimal performance for all users. The rate limits differ based on your account status and the type of models you're using.
+LLMGateway applies rate limits to ensure fair usage and protect platform stability. Limits are evaluated in a few independent layers:
+
+- **Per-organization endpoint limits** — a requests-per-minute cap on every API endpoint, scoped to your organization.
+- **Free model limits** — additional limits specifically for zero-cost models.
+- **Provider limits** — upstream limits enforced per provider/model when applicable.
+
+## Per-Organization Endpoint Limits
+
+Every API endpoint is rate limited per organization using a rolling 60-second window. The limit is independent for each endpoint, so traffic to `/v1/chat/completions` does not consume the budget for `/v1/embeddings`.
+
+The default limits (requests per minute, per organization) are:
+
+| Endpoint             | Path                       | Requests / min |
+| -------------------- | -------------------------- | -------------- |
+| Chat completions     | `/v1/chat/completions`     | 600            |
+| Messages (Anthropic) | `/v1/messages`             | 600            |
+| Responses            | `/v1/responses`            | 600            |
+| Embeddings           | `/v1/embeddings`           | 1200           |
+| Moderations          | `/v1/moderations`          | 1200           |
+| Rerank               | `/v1/rerank`               | 1200           |
+| Models               | `/v1/models`               | 1200           |
+| OCR                  | `/v1/ocr`                  | 300            |
+| Images               | `/v1/images`               | 300            |
+| Speech               | `/v1/audio/speech`         | 300            |
+| Transcriptions       | `/v1/audio/transcriptions` | 300            |
+| Videos               | `/v1/videos`               | 120            |
+| Realtime (mint)      | `/v1/realtime`             | 120            |
+| Key info             | `/v1/key`                  | 1200           |
+| Credits              | `/v1/credits`              | 300            |
+| AI SDK protocol      | `/v*/ai`                   | 600            |
+
+<Callout type="info">
+	**[Enterprise](https://llmgateway.io/enterprise) organizations are exempt**
+	from these per-organization endpoint limits. [Contact
+	us](mailto:contact@llmgateway.io) about enterprise plans.
+</Callout>
+
+### Trust Tiers (account age or spend)
+
+For regular (pay-as-you-go) organizations, limits scale with a **trust tier**. An organization qualifies for a tier when its account is old enough, **or** when its lifetime usage spend is high enough **and** the account meets the tier's minimum age. The tier raises the per-endpoint RPM limits **and** the daily/monthly USD spend caps below.
+
+| Tier | Qualifies (age, or spend + min age) | RPM multiplier | Daily cap | Monthly cap |
+| ---- | ----------------------------------- | -------------- | --------- | ----------- |
+| 0    | new / $0                            | 1×             | $25       | $250        |
+| 1    | 7 days **or** $10 (account ≥ 1 day) | 2×             | $100      | $1,000      |
+| 2    | 30 days **or** $100 (≥ 3 days)      | 4×             | $500      | $5,000      |
+| 3    | 60 days **or** $1,000 (≥ 7 days)    | 10×            | $5,000    | $50,000     |
+| 4    | 90 days **or** $5,000 (≥ 14 days)   | 20×            | $15,000   | $200,000    |
+
+Spend alone never promotes a brand-new account: each spend-qualified tier also requires the minimum account age shown, so the fastest possible path to Tier 4 is 14 days — no amount of day-one usage unlocks higher limits.
+
+For example, an org past 30 days old (or with $100+ of usage) is Tier 2: chat completions rises from 600 to 2,400 RPM, with a $500/day and $5,000/month spend ceiling.
+
+Qualifying spend counts **usage billed to your credit balance only** — usage served through your own provider keys (BYOK) does not count — and is **net of refunds**: every refunded payment is deducted, so refunded or clawed-back money never raises limits. Refunded top-ups still count against the top-up allowance below — refunding does not free up top-up headroom.
+
+### Daily & Monthly Spend Caps
+
+Regular organizations also have hard **USD spend ceilings** — a daily and a monthly cap set by the trust tier above — so a brand-new account has a tight dollar velocity limit that rises as it ages or spends. Only real paid usage counts; **free models are exempt**, as are **enterprise** (no caps) and dev/chat plan orgs (which have their own plan limits). When a cap is reached, requests return `429` until the counter resets (UTC midnight for daily, first of the month for monthly).
+
+### Top-Up Limits
+
+Credit top-ups are also velocity-limited by trust tier: each organization can add at most a tier-scaled gross USD amount to its balance per **rolling 24-hour window**. This applies before any charge is made — a top-up attempt over the allowance is rejected with `429` and no card is charged.
+
+| Tier | Top-up allowance (rolling 24h) |
+| ---- | ------------------------------ |
+| 0    | $100                           |
+| 1    | $500                           |
+| 2    | $2,500                         |
+| 3    | $10,000                        |
+| 4    | $20,000                        |
+
+The limit covers dashboard top-ups (card and hosted checkout), auto top-up, and Dev plan pay-as-you-go top-ups. **[Enterprise](https://llmgateway.io/enterprise) organizations are exempt** — [contact us](mailto:contact@llmgateway.io) if you need a higher allowance. Your current allowance and usage are shown on the Settings → Limits page. Hosted checkout links expire after 30 minutes.
+
+### Dev and Chat Plans
+
+Organizations on a **Dev plan** (also called devpass) or a **Chat plan** have their own, tighter per-endpoint limits and do not receive the spend-based multiplier.
+
+Dev plans are inference-only and only cover **chat completions, messages, responses, the models list, and OCR**, each at a flat 120 requests-per-minute floor. The other endpoints (embeddings, moderations, images, speech, videos) are **not available** on Dev plans and are marked **—** below.
+
+| Endpoint             | Dev plan / min | Chat plan / min |
+| -------------------- | -------------- | --------------- |
+| Chat completions     | 120            | 60              |
+| Messages (Anthropic) | 120            | 60              |
+| Responses            | 120            | 60              |
+| Models               | 120            | 120             |
+| OCR                  | 120            | 30              |
+| Embeddings           | —              | 120             |
+| Moderations          | —              | 120             |
+| Images               | —              | 30              |
+| Speech               | —              | 30              |
+| Videos               | —              | 12              |
+
+### Enterprise
+
+Organizations on the **[Enterprise plan](https://llmgateway.io/enterprise) have no per-organization rate limits at all** — no requests-per-minute caps, no spend caps, and no top-up limits. Your throughput is limited only by your credit balance and any upstream provider limits.
+
+<Callout type="info">
+	Need unlimited gateway throughput? [Contact us](mailto:contact@llmgateway.io)
+	about an enterprise plan.
+</Callout>
 
 ## Free Models
 
-Free models (models with zero input and output pricing) have rate limits that depend on your account's credit status:
+Free models (models with zero input and output pricing) have additional rate limits that depend on your account's credit status:
 
 ### Base Rate Limits
 
@@ -36,61 +135,48 @@ For organizations that have **purchased at least some credits**:
 	added credits to their account.
 </Callout>
 
-## Paid Models
+## Provider Limits
 
-**Paid AI models are not currently rate limited.** You can make as many requests as needed to paid models, subject only to your account's credit balance and any provider-specific limits.
+Some providers and models enforce their own upstream request limits. When a provider limit is reached, LLMGateway returns a `429` and includes provider-scoped headers (`X-RateLimit-Limit-Provider`, `X-RateLimit-Remaining-Provider`). Where possible, [fallback routing](/features/routing) automatically retries the request on a healthy provider.
 
 ## Rate Limit Headers
 
-All API responses include rate limit information in the headers:
+When a request is rate limited, the `429` response includes:
 
 ```http
-X-RateLimit-Limit: 20
-X-RateLimit-Remaining: 19
+Retry-After: 12
+X-RateLimit-Limit: 600
+X-RateLimit-Remaining: 0
 X-RateLimit-Reset: 1640995200
 ```
 
+- `Retry-After`: Seconds to wait before retrying
 - `X-RateLimit-Limit`: Maximum number of requests allowed in the current window
 - `X-RateLimit-Remaining`: Number of requests remaining in the current window
 - `X-RateLimit-Reset`: Unix timestamp when the rate limit window resets
 
 ## Rate Limit Exceeded
 
-When you exceed your rate limit, you'll receive a `429 Too Many Requests` response:
+When you exceed a rate limit, you'll receive a `429 Too Many Requests` response:
 
 ```json
 {
 	"error": {
-		"message": "Rate limit exceeded. Try again later.",
+		"message": "Rate limit exceeded for /v1/chat/completions. Please retry after 12 seconds.",
 		"type": "rate_limit_error",
 		"code": "rate_limit_exceeded"
 	}
 }
 ```
 
-This uses the standard OpenAI-compatible error envelope — see [Error Handling](/resources/error-handling) for the full format and status-code reference.
+This uses the standard OpenAI-compatible error envelope. Requests to the Anthropic-compatible `/v1/messages` endpoint receive the Anthropic error shape instead. See [Error Handling](/resources/error-handling) for the full format and status-code reference.
 
 ## Best Practices
 
-### Upgrading Your Limits
-
-To unlock elevated rate limits for free models:
-
-1. Add credits to your account through the dashboard
-2. Your rate limits will automatically increase to 20 requests per minute
-3. Free model usage will still not deduct from your credits
-
-### Handling Rate Limits
-
-- Implement exponential backoff when you receive 429 responses
-- Monitor the `X-RateLimit-Remaining` header to avoid hitting limits
-- Consider using paid models for high-volume applications
-
-### Cost Optimization
-
-- Use free models for development and testing
-- Switch to paid models for production workloads requiring higher throughput
-- Monitor your usage patterns through the dashboard
+- **Respect `Retry-After`.** Implement exponential backoff when you receive `429` responses, starting from the `Retry-After` value.
+- **Watch the headers.** Monitor `X-RateLimit-Remaining` to back off before you hit the limit.
+- **Spread traffic across endpoints.** Limits are per endpoint, so unrelated workloads don't compete for the same budget.
+- **Scale with usage.** Regular organizations unlock higher limits automatically as lifetime spend grows; [contact us](mailto:contact@llmgateway.io) about an [Enterprise plan](https://llmgateway.io/enterprise) to remove per-organization limits entirely.
 
 <Callout type="success">
 	Adding even a small amount of credits to your account (e.g., $10) will

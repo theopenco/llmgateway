@@ -582,6 +582,44 @@ describe("getProviderEndpoint", () => {
 			);
 		});
 
+		it("honors an anthropic credential base URL override", () => {
+			const endpoint = getProviderEndpoint(
+				"anthropic",
+				undefined,
+				"claude-opus-5",
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ env_config: { baseUrl: "https://anthropic.example" } },
+				undefined,
+				undefined,
+				undefined,
+				true, // skipEnvVars
+			);
+
+			expect(endpoint).toBe("https://anthropic.example/v1/messages");
+		});
+
+		it("falls back to the anthropic default when no base URL is configured", () => {
+			const endpoint = getProviderEndpoint(
+				"anthropic",
+				undefined,
+				"claude-opus-5",
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				true, // skipEnvVars
+			);
+
+			expect(endpoint).toBe("https://api.anthropic.com/v1/messages");
+		});
+
 		it("still uses explicit baseUrl even when skipEnvVars is true", () => {
 			const endpoint = getProviderEndpoint(
 				"google-ai-studio",

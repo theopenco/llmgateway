@@ -170,14 +170,15 @@ describe("Models API", () => {
 			);
 		}
 
-		// deepseek-v3.2 has a deactivated Nebius mapping declaring 32768; the
-		// advertised bound must come from the mappings that can still serve
-		// (65536), not from limits that no longer apply.
-		const deepseek = json.data.find(
-			(m: { id: string }) => m.id === "deepseek-v3.2",
-		);
-		expect(deepseek).toBeDefined();
-		expect(deepseek.max_output).toBe(65536);
+		// kimi-k2 has a deactivated mapping declaring 8192; the advertised bound
+		// must come from the mappings that can still serve (131072), not from
+		// limits that no longer apply. deepseek-v3.2 used to pin this case, but
+		// Qianfan serves it with a genuine 32768 output cap, which matches the
+		// deactivated Nebius limit and left the assertion unable to tell the two
+		// apart.
+		const kimi = json.data.find((m: { id: string }) => m.id === "kimi-k2");
+		expect(kimi).toBeDefined();
+		expect(kimi.max_output).toBe(131072);
 	});
 
 	test("GET /v1/models exposes reasoning_efforts on provider mappings that define them", async () => {

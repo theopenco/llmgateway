@@ -4,6 +4,10 @@ import Stripe from "stripe";
 import { z } from "zod";
 
 import {
+	checkAndReserveTopUp,
+	releaseTopUpReservation,
+} from "@llmgateway/actions";
+import {
 	and,
 	db,
 	enqueueWebhookDeliveries,
@@ -26,8 +30,14 @@ import {
 } from "@llmgateway/shared";
 
 import { computeReferralBonus } from "./lib/referral-bonus.js";
+import {
+	getForcedThreeDSecure,
+	threeDSecureSubscriptionSettings,
+	type ThreeDSecureRequest,
+} from "./lib/three-d-secure.js";
 import { posthog } from "./posthog.js";
 import { getStripe, type StripeMode } from "./routes/payments.js";
+import { getDevPlanTierFromInvoice } from "./utils/dev-plan-prices.js";
 import {
 	notifyChatPlanCancelled,
 	notifyChatPlanRenewed,
@@ -794,8 +804,16 @@ async function detachDuplicateCardPaymentMethods(
 	}
 }
 
-function shouldForceDevPlan3dsChallenge(): boolean {
-	return process.env.STRIPE_DEV_PLAN_FORCE_3DS === "true";
+/**
+ * `STRIPE_DEV_PLAN_FORCE_3DS=true` forces a challenge on DevPass subscriptions
+ * only; otherwise the account-wide setting (admin dashboard or
+ * `STRIPE_FORCE_3DS`) applies.
+ */
+async function devPlanThreeDSecure(): Promise<ThreeDSecureRequest | undefined> {
+	if (process.env.STRIPE_DEV_PLAN_FORCE_3DS === "true") {
+		return "challenge";
+	}
+	return await getForcedThreeDSecure();
 }
 
 async function resolvePaymentMethodFromSetupSession(
@@ -992,17 +1010,7 @@ export async function finalizeDevPlanSetupSession(
 				items: [{ price: priceId }],
 				default_payment_method: paymentMethod.id,
 				payment_behavior: "default_incomplete",
-				...(shouldForceDevPlan3dsChallenge()
-					? {
-							payment_settings: {
-								payment_method_options: {
-									card: {
-										request_three_d_secure: "challenge" as const,
-									},
-								},
-							},
-						}
-					: {}),
+				...threeDSecureSubscriptionSettings(await devPlanThreeDSecure()),
 				metadata: {
 					organizationId,
 					subscriptionType: "dev_plan",
@@ -1864,6 +1872,42 @@ async function recordCreditTopUp({
 			description,
 		})
 		.returning();
+
+	// The completed transaction row now covers this amount in the velocity
+	// window's DB sum, so the initiation-time Redis reservation would count it
+	// twice until its TTL — release it here (never recreates an expired key).
+	try {
+		await releaseTopUpReservation(organizationId, totalAmountInDollars);
+	} catch (e) {
+		logger.error("Top-up velocity settle-release failed", e as Error);
+	}
+
+	// Defense-in-depth observability for the top-up velocity cap: initiation is
+	// where it is enforced, but a payment can settle after the window moved (e.g.
+	// a checkout link paid late). Never refuse or refund a settled payment here —
+	// just surface that the org ended up over its cap.
+	try {
+		const orgRow = await db.query.organization.findFirst({
+			where: { id: { eq: organizationId } },
+		});
+		const overCapCheck = orgRow
+			? await checkAndReserveTopUp({
+					org: orgRow,
+					amountUsd: 0,
+					reserve: false,
+				})
+			: null;
+		if (overCapCheck && !overCapCheck.allowed) {
+			logger.warn("Organization exceeded its top-up velocity cap", {
+				organizationId,
+				capUsd: overCapCheck.capUsd,
+				windowUsedUsd: overCapCheck.usedUsd,
+				settledUsd: totalAmountInDollars,
+			});
+		}
+	} catch (e) {
+		logger.error("Top-up velocity post-check failed", e as Error);
+	}
 
 	const lineItems = [
 		{
@@ -4038,12 +4082,30 @@ export async function handleInvoicePaymentSucceeded(event: {
 		}
 
 		// A scheduled tier change (downgrade, or an upgrade deferred to renewal)
-		// takes effect now, at the renewal boundary: the tier the user selected
-		// mid-cycle becomes the active plan for the new period. When there's no
-		// pending change this is just the current tier. The credit allotment and
-		// the tier we persist below both follow this effective tier.
-		const effectiveTier = (organization.devPlanPendingTier ??
+		// normally takes effect now, at the renewal boundary: the tier the user
+		// selected mid-cycle becomes the active plan for the new period. But the
+		// invoice is the source of truth for what the customer was charged:
+		// Stripe drafts the cycle-renewal invoice at the period boundary, so a
+		// change scheduled after drafting (but before the invoice is paid — the
+		// window is hours to days under dunning) swaps the subscription price
+		// without touching this invoice, which still bills the old tier. Granting
+		// the pending tier then mismatches the charge (e.g. billed the MAX price,
+		// granted PRO credits). So grant the tier the invoice billed and carry
+		// the pending change to the next renewal, whose invoice bills the swapped
+		// price. When no line matches a known dev plan price, fall back to the
+		// pending tier as before.
+		const billedTier = getDevPlanTierFromInvoice(invoice);
+		const scheduledTier = organization.devPlanPendingTier as DevPlanTier | null;
+		const effectiveTier = (billedTier ??
+			scheduledTier ??
 			organization.devPlan) as DevPlanTier;
+		const remainingPendingTier =
+			scheduledTier && scheduledTier !== effectiveTier ? scheduledTier : null;
+		if (remainingPendingTier) {
+			logger.warn(
+				`Dev plan renewal invoice ${invoice.id} for organization ${organizationId} billed tier ${effectiveTier}, but a change to ${remainingPendingTier} was scheduled after the invoice was drafted; granting the billed tier and deferring the change to the next renewal`,
+			);
+		}
 		const creditsLimit = getDevPlanCreditsLimit(effectiveTier);
 
 		// Create transaction record for dev plan renewal
@@ -4088,14 +4150,15 @@ export async function handleInvoicePaymentSucceeded(event: {
 		// Reset credits used and update billing cycle start. Also reset the
 		// limit to the full tier allotment: mid-cycle upgrades leave the limit
 		// above it (unused-credit rollover), and that rollover only lasts until
-		// this renewal. Persist the effective tier and clear the pending
-		// downgrade so a scheduled downgrade becomes the active plan now. Clear
-		// any dunning freeze state since the limit is now authoritative again.
+		// this renewal. Persist the effective tier; a pending change is cleared
+		// when this renewal applied it, and kept when the invoice billed the old
+		// tier (it applies at the next renewal instead). Clear any dunning freeze
+		// state since the limit is now authoritative again.
 		await db
 			.update(tables.organization)
 			.set({
 				devPlan: effectiveTier,
-				devPlanPendingTier: null,
+				devPlanPendingTier: remainingPendingTier,
 				devPlanCreditsLimit: creditsLimit.toString(),
 				devPlanCreditsUsed: "0",
 				devPlanPremiumCreditsUsed: "0",
