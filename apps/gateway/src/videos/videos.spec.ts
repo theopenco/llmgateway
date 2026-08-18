@@ -1220,19 +1220,16 @@ describe("videos", () => {
 		}
 	});
 
-	test("/v1/videos supports a projectless managed Vertex API key", async () => {
+	test("/v1/videos serves credits mode from a managed credential and pins it to the job", async () => {
 		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 		const originalRuntimeGoogleCloudProject = process.env.GOOGLE_CLOUD_PROJECT;
 		const originalGoogleVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
 		const originalGoogleVertexApiKey = process.env.LLM_GOOGLE_VERTEX_API_KEY;
-		const originalGoogleVertexVideoOutputBucket =
-			process.env.LLM_GOOGLE_VERTEX_VIDEO_OUTPUT_BUCKET;
 		// No LLM_* credential for the provider: the managed credential alone must
 		// make it routable and carry every setting video generation needs.
 		delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
 		delete process.env.LLM_GOOGLE_VERTEX_API_KEY;
-		delete process.env.GOOGLE_CLOUD_PROJECT;
-		delete process.env.LLM_GOOGLE_VERTEX_VIDEO_OUTPUT_BUCKET;
+		process.env.GOOGLE_CLOUD_PROJECT = "managed-video-project";
 		process.env.LLM_GOOGLE_VERTEX_REGION = "us-central1";
 
 		try {
@@ -1253,6 +1250,7 @@ describe("videos", () => {
 				organizationId: null,
 				config: {
 					baseUrl: mockServerUrl,
+					project: "managed-video-project",
 					region: "us-central1",
 				},
 			});
@@ -1282,9 +1280,6 @@ describe("videos", () => {
 			// Polling happens later, possibly from the worker, so the exact
 			// credential that created the job is recorded on it.
 			expect(videoJob?.managedProviderKeyId).toBe("managed-vertex-video");
-			expect(videoJob?.upstreamId).toMatch(
-				/^publishers\/google\/models\/veo-3\.1-generate-001\/operations\//,
-			);
 
 			// And the job stays pollable through that same credential — both from
 			// the gateway and from the worker, which runs long after the request
@@ -1306,8 +1301,6 @@ describe("videos", () => {
 			await harness.setProjectMode("api-keys");
 			if (originalGoogleCloudProject !== undefined) {
 				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
-			} else {
-				delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
 			}
 			if (originalRuntimeGoogleCloudProject !== undefined) {
 				process.env.GOOGLE_CLOUD_PROJECT = originalRuntimeGoogleCloudProject;
@@ -1321,14 +1314,72 @@ describe("videos", () => {
 			}
 			if (originalGoogleVertexApiKey !== undefined) {
 				process.env.LLM_GOOGLE_VERTEX_API_KEY = originalGoogleVertexApiKey;
+			}
+		}
+	});
+
+	test("/v1/videos excludes a projectless managed Vertex API key", async () => {
+		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		const originalGoogleVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
+		const originalGoogleVertexApiKey = process.env.LLM_GOOGLE_VERTEX_API_KEY;
+		process.env.LLM_GOOGLE_CLOUD_PROJECT = "env-video-project";
+		process.env.LLM_GOOGLE_VERTEX_REGION = "us-central1";
+		process.env.LLM_GOOGLE_VERTEX_API_KEY = "env-vertex-test-token";
+
+		try {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await harness.setProjectMode("credits");
+
+			await cdb.insert(tables.providerKey).values({
+				id: "managed-vertex-video-projectless",
+				provider: "google-vertex",
+				token: "vertex-test-token",
+				managed: true,
+				organizationId: null,
+				config: {
+					baseUrl: mockServerUrl,
+					region: "us-central1",
+				},
+			});
+
+			const res = await app.request("/v1/videos", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "google-vertex/veo-3.1-generate-preview",
+					prompt: "A projectless credential must not reach Veo",
+					size: "1920x1080",
+					seconds: 8,
+				}),
+			});
+
+			expect(res.status).toBe(400);
+		} finally {
+			await harness.setProjectMode("api-keys");
+			if (originalGoogleCloudProject !== undefined) {
+				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
+			} else {
+				delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+			}
+			if (originalGoogleVertexRegion !== undefined) {
+				process.env.LLM_GOOGLE_VERTEX_REGION = originalGoogleVertexRegion;
+			} else {
+				delete process.env.LLM_GOOGLE_VERTEX_REGION;
+			}
+			if (originalGoogleVertexApiKey !== undefined) {
+				process.env.LLM_GOOGLE_VERTEX_API_KEY = originalGoogleVertexApiKey;
 			} else {
 				delete process.env.LLM_GOOGLE_VERTEX_API_KEY;
-			}
-			if (originalGoogleVertexVideoOutputBucket !== undefined) {
-				process.env.LLM_GOOGLE_VERTEX_VIDEO_OUTPUT_BUCKET =
-					originalGoogleVertexVideoOutputBucket;
-			} else {
-				delete process.env.LLM_GOOGLE_VERTEX_VIDEO_OUTPUT_BUCKET;
 			}
 		}
 	});

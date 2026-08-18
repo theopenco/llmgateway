@@ -50,7 +50,6 @@ import { clientFacingUpstreamErrorMessage } from "@/lib/stealth-provider-errors.
 import {
 	getCheapestFromAvailableProviders,
 	getDiscountedProviderSelectionPrice,
-	getGoogleVertexPublisherModelPath,
 	getProviderHeaders,
 	managedCredentialOptions,
 	processImageUrl,
@@ -691,18 +690,6 @@ function resolveVideoVertexTokenType(
 				false,
 				variant,
 			);
-}
-
-function hasRequiredVertexProject(
-	providerId: Provider,
-	projectId: string | undefined,
-	tokenType: VertexTokenType | undefined,
-): boolean {
-	return (
-		!isGoogleVertexVideoProvider(providerId) ||
-		tokenType !== "oauth" ||
-		Boolean(projectId)
-	);
 }
 
 interface ResolvedVideoExecution {
@@ -1454,21 +1441,6 @@ function getManagedVideoCredentialFilter(
 				return false;
 			}
 		}
-		if (
-			!hasRequiredVertexProject(
-				providerId,
-				key.config?.project,
-				resolveVideoVertexTokenType(
-					providerId,
-					undefined,
-					null,
-					undefined,
-					key,
-				),
-			)
-		) {
-			return false;
-		}
 		return true;
 	};
 }
@@ -1492,6 +1464,9 @@ async function hasManagedVideoCredential(
 		return false;
 	}
 	if (!(managedKey.config?.baseUrl ?? defaultBaseUrl)) {
+		return false;
+	}
+	if (isGoogleVertexVideoProvider(providerId) && !managedKey.config?.project) {
 		return false;
 	}
 	return true;
@@ -1607,17 +1582,7 @@ async function resolveProviderContext(
 			});
 		}
 
-		const vertexProjectId = isGoogleVertexVideoProvider(providerId)
-			? (providerKey.options?.google_vertex_project_id ?? sharedVertexProjectId)
-			: undefined;
-		const vertexTokenType = resolveVideoVertexTokenType(
-			providerId,
-			providerKey,
-			null,
-		);
-		if (
-			!hasRequiredVertexProject(providerId, vertexProjectId, vertexTokenType)
-		) {
+		if (isGoogleVertexVideoProvider(providerId) && !sharedVertexProjectId) {
 			throw new HTTPException(500, {
 				message: `${providerId} project environment variable is required for video generation`,
 			});
@@ -1632,9 +1597,13 @@ async function resolveProviderContext(
 			configIndex: null,
 			providerKeyId: providerKey.id,
 			providerKeyLabel: providerKeyLabel(providerKey),
-			vertexProjectId,
+			vertexProjectId: sharedVertexProjectId,
 			vertexRegion: sharedVertexRegion,
-			vertexTokenType,
+			vertexTokenType: resolveVideoVertexTokenType(
+				providerId,
+				providerKey,
+				null,
+			),
 			uploadBaseUrl:
 				providerId === "avalanche"
 					? getProviderEnvValue(providerId, "fileUploadBaseUrl")
@@ -1672,17 +1641,7 @@ async function resolveProviderContext(
 			});
 		}
 
-		const vertexProjectId = isGoogleVertexVideoProvider(providerId)
-			? (providerKey.options?.google_vertex_project_id ?? sharedVertexProjectId)
-			: undefined;
-		const vertexTokenType = resolveVideoVertexTokenType(
-			providerId,
-			providerKey,
-			null,
-		);
-		if (
-			!hasRequiredVertexProject(providerId, vertexProjectId, vertexTokenType)
-		) {
+		if (isGoogleVertexVideoProvider(providerId) && !sharedVertexProjectId) {
 			throw new HTTPException(500, {
 				message: `${providerId} project environment variable is required for video generation`,
 			});
@@ -1697,9 +1656,13 @@ async function resolveProviderContext(
 			configIndex: null,
 			providerKeyId: providerKey.id,
 			providerKeyLabel: providerKeyLabel(providerKey),
-			vertexProjectId,
+			vertexProjectId: sharedVertexProjectId,
 			vertexRegion: sharedVertexRegion,
-			vertexTokenType,
+			vertexTokenType: resolveVideoVertexTokenType(
+				providerId,
+				providerKey,
+				null,
+			),
 			uploadBaseUrl:
 				providerId === "avalanche"
 					? getProviderEnvValue(providerId, "fileUploadBaseUrl")
@@ -1775,14 +1738,7 @@ async function resolvePlatformVideoProviderContext(
 		? (readSetting("region", "us-central1") ?? "us-central1")
 		: undefined;
 
-	const vertexTokenType = resolveVideoVertexTokenType(
-		providerId,
-		undefined,
-		configIndex,
-		envVariant,
-		managedKey,
-	);
-	if (!hasRequiredVertexProject(providerId, vertexProjectId, vertexTokenType)) {
+	if (isGoogleVertexVideoProvider(providerId) && !vertexProjectId) {
 		throw new HTTPException(500, {
 			message: `${providerId} project environment variable is required for video generation`,
 		});
@@ -1798,7 +1754,13 @@ async function resolvePlatformVideoProviderContext(
 		managedProviderKeyId: managedKey?.id,
 		vertexProjectId,
 		vertexRegion,
-		vertexTokenType,
+		vertexTokenType: resolveVideoVertexTokenType(
+			providerId,
+			undefined,
+			configIndex,
+			envVariant,
+			managedKey,
+		),
 		uploadBaseUrl:
 			providerId === "avalanche" ? readSetting("fileUploadBaseUrl") : undefined,
 	};
@@ -1819,21 +1781,13 @@ async function hasVideoProviderConfiguration(
 			undefined,
 			getVideoProviderKeyFilter(providerId),
 		);
-		if (!providerKey) {
-			return false;
-		}
-		const vertexProjectId =
-			providerKey.options?.google_vertex_project_id ??
-			getProviderEnvValue(providerId, "project");
 		return Boolean(
+			providerKey &&
 			(providerKey.baseUrl ??
 				getProviderEnvValue(providerId, "baseUrl") ??
 				defaultBaseUrl) &&
-			hasRequiredVertexProject(
-				providerId,
-				vertexProjectId,
-				resolveVideoVertexTokenType(providerId, providerKey, null),
-			),
+			(!isGoogleVertexVideoProvider(providerId) ||
+				Boolean(getProviderEnvValue(providerId, "project"))),
 		);
 	}
 
@@ -1853,18 +1807,12 @@ async function hasVideoProviderConfiguration(
 		getVideoProviderKeyFilter(providerId),
 	);
 	if (providerKey) {
-		const vertexProjectId =
-			providerKey.options?.google_vertex_project_id ??
-			getProviderEnvValue(providerId, "project");
 		return Boolean(
 			(providerKey.baseUrl ??
 				getProviderEnvValue(providerId, "baseUrl") ??
 				defaultBaseUrl) &&
-			hasRequiredVertexProject(
-				providerId,
-				vertexProjectId,
-				resolveVideoVertexTokenType(providerId, providerKey, null),
-			),
+			(!isGoogleVertexVideoProvider(providerId) ||
+				Boolean(getProviderEnvValue(providerId, "project"))),
 		);
 	}
 
@@ -1916,11 +1864,8 @@ function hasVideoEnvConfiguration(
 		return false;
 	}
 	if (
-		!hasRequiredVertexProject(
-			providerId,
-			getProviderEnvValue(providerId, "project", env.configIndex),
-			resolveVideoVertexTokenType(providerId, undefined, env.configIndex),
-		)
+		isGoogleVertexVideoProvider(providerId) &&
+		!getProviderEnvValue(providerId, "project", env.configIndex)
 	) {
 		return false;
 	}
@@ -3411,14 +3356,7 @@ async function createGoogleVertexVideoJob(
 		});
 	}
 
-	if (
-		!providerContext.vertexRegion ||
-		!hasRequiredVertexProject(
-			providerContext.providerId,
-			vertexProjectId,
-			providerContext.vertexTokenType,
-		)
-	) {
+	if (!vertexProjectId || !providerContext.vertexRegion) {
 		throw new HTTPException(500, {
 			message:
 				"Vertex-compatible video generation requires project and region metadata",
@@ -3446,7 +3384,7 @@ async function createGoogleVertexVideoJob(
 		: null;
 	const upstreamUrl = joinUrl(
 		providerContext.baseUrl,
-		`${getGoogleVertexPublisherModelPath(upstreamModelName, vertexProjectId, providerContext.vertexRegion)}:predictLongRunning`,
+		`/v1/projects/${vertexProjectId}/locations/${providerContext.vertexRegion}/publishers/google/models/${upstreamModelName}:predictLongRunning`,
 	);
 	const useOAuth = providerContext.vertexTokenType === "oauth";
 	const authenticatedUpstreamUrl = useOAuth
@@ -3511,9 +3449,7 @@ async function createGoogleVertexVideoJob(
 				name: upstreamId,
 				status: rawResponse.done === true ? "completed" : "queued",
 				duration: durationSeconds,
-				...(vertexProjectId
-					? { google_vertex_project_id: vertexProjectId }
-					: {}),
+				google_vertex_project_id: vertexProjectId,
 				google_vertex_region: providerContext.vertexRegion,
 				google_vertex_model_name: upstreamModelName,
 				google_vertex_generate_audio: includeAudio,

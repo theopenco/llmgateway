@@ -613,8 +613,8 @@ export function CreateProviderKeyDialog({
 								onChange={(e) => setGoogleVertexProjectId(e.target.value)}
 							/>
 							<p className="text-sm text-muted-foreground">
-								Optional for API keys. Required for OAuth or project-scoped
-								Vertex URLs.
+								Optional for API-key chat, embedding, and speech requests.
+								Required for OAuth and video generation.
 							</p>
 						</div>
 					)}

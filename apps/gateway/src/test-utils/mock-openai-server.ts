@@ -2462,11 +2462,7 @@ const vertexPublisherModelHandler = async (
 			return c.json(statusTrigger.errorResponse);
 		}
 		videoCounter++;
-		const project = c.req.param("project");
-		const location = c.req.param("location");
-		const operationName = project
-			? `projects/${project}/locations/${location}/publishers/google/models/${modelName}/operations/video_${videoCounter}`
-			: `publishers/google/models/${modelName}/operations/video_${videoCounter}`;
+		const operationName = `projects/${c.req.param("project")}/locations/${c.req.param("location")}/publishers/google/models/${modelName}/operations/video_${videoCounter}`;
 		const parameters =
 			body.parameters && typeof body.parameters === "object"
 				? body.parameters
@@ -2784,10 +2780,6 @@ mockOpenAIServer.post(
 );
 mockOpenAIServer.post(
 	"/v1/publishers/google/models/*",
-	vertexPublisherModelHandler,
-);
-mockOpenAIServer.post(
-	"/v1beta1/publishers/google/models/*",
 	vertexPublisherModelHandler,
 );
 
