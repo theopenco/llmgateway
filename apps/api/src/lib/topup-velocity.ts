@@ -29,6 +29,7 @@ function notifyTopUpVelocityLimitBestEffort(args: {
 			if (reserved === "OK") {
 				return notifyTopUpVelocityLimit(args);
 			}
+			return undefined;
 		})
 		.catch(() => notifyTopUpVelocityLimit(args));
 }
