@@ -1,6 +1,7 @@
 import { logger } from "@llmgateway/logger";
 
 const discordWebhookUrl = process.env.DISCORD_NOTIFICATION_URL;
+const DISCORD_ALERT_TIMEOUT_MS = 5_000;
 
 interface DiscordEmbed {
 	title: string;
@@ -247,7 +248,7 @@ export async function notifyTopUpVelocityLimit(args: {
 			],
 		},
 		process.env.DISCORD_TOPUP_VELOCITY_NOTIFICATION_URL,
-		5_000,
+		DISCORD_ALERT_TIMEOUT_MS,
 	);
 }
 
@@ -760,35 +761,40 @@ export async function notifyHighRiskAccount(args: {
 	countryCode?: string | null;
 	organizationIds: string[];
 }): Promise<void> {
-	await sendDiscordNotification({
-		embeds: [
-			{
-				title: "High-Risk Account Flagged",
-				color: 0xf59e0b, // Amber
-				fields: [
-					{ name: "Email", value: args.email, inline: true },
-					{ name: "Name", value: args.name ?? "Unknown", inline: true },
-					{
-						name: "Detected At",
-						value: args.source === "signup" ? "Sign-up" : "Email verification",
-						inline: true,
-					},
-					{ name: "Reason", value: args.reason, inline: false },
-					{
-						name: "Country",
-						value: args.countryCode ?? "Unknown",
-						inline: true,
-					},
-					{
-						name: "Organizations",
-						value: args.organizationIds.join(", ") || "None",
-						inline: true,
-					},
-				],
-				timestamp: new Date().toISOString(),
-			},
-		],
-	});
+	await sendDiscordNotification(
+		{
+			embeds: [
+				{
+					title: "High-Risk Account Flagged",
+					color: 0xf59e0b, // Amber
+					fields: [
+						{ name: "Email", value: args.email, inline: true },
+						{ name: "Name", value: args.name ?? "Unknown", inline: true },
+						{
+							name: "Detected At",
+							value:
+								args.source === "signup" ? "Sign-up" : "Email verification",
+							inline: true,
+						},
+						{ name: "Reason", value: args.reason, inline: false },
+						{
+							name: "Country",
+							value: args.countryCode ?? "Unknown",
+							inline: true,
+						},
+						{
+							name: "Organizations",
+							value: args.organizationIds.join(", ") || "None",
+							inline: true,
+						},
+					],
+					timestamp: new Date().toISOString(),
+				},
+			],
+		},
+		process.env.DISCORD_TOPUP_VELOCITY_NOTIFICATION_URL,
+		DISCORD_ALERT_TIMEOUT_MS,
+	);
 }
 
 export async function notifyUserAccountDeleted(

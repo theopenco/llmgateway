@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
 	notifyChatSupportEscalation,
+	notifyHighRiskAccount,
 	notifyTopUpVelocityLimit,
 } from "./discord.js";
 
@@ -104,5 +105,19 @@ describe("top-up velocity Discord notifications", () => {
 			]),
 		);
 		expect(request?.signal).toBeInstanceOf(AbortSignal);
+	});
+
+	it("uses the same channel for high-risk accounts", async () => {
+		await notifyHighRiskAccount({
+			email: "user@example.com",
+			source: "signup",
+			reason: "High abuse confidence",
+			organizationIds: ["organization-123"],
+		});
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			topUpWebhookUrl,
+			expect.objectContaining({ body: expect.any(String) }),
+		);
 	});
 });
