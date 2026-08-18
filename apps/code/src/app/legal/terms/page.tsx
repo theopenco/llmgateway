@@ -18,7 +18,7 @@ export default function TermsPage() {
 			<p>
 				<strong>Effective Date:</strong> April 26, 2026
 				<br />
-				<strong>Last Updated:</strong> August 2, 2026
+				<strong>Last Updated:</strong> August 18, 2026
 			</p>
 			<LegalSummary variant="terms" />
 			<p>
@@ -91,6 +91,15 @@ export default function TermsPage() {
 				application or for non-inference workloads (such as embeddings, image
 				generation, or video generation), use a standard LLM Gateway credits
 				plan under the Base Terms instead.
+			</p>
+			<p>
+				<strong>Automatic routing.</strong> When DevPass selects a provider
+				automatically, we may change internal routing scores, weights,
+				preferences, and similar routing parameters at any time and at our
+				discretion. As described in Section&nbsp;7 of the Base Terms, these
+				parameters affect provider selection but do not themselves change the
+				price used to measure usage. If you require a particular provider, you
+				must pin that provider where the Service supports provider pinning.
 			</p>
 			<hr />
 			<h2>2. Plans, Billing, and Fair Use</h2>
