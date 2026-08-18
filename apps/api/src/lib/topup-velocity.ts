@@ -70,4 +70,12 @@ export async function assertTopUpVelocityAllowed(
 	}
 }
 
+export async function getTopUpVelocityAllowance(org: TopUpVelocityOrg) {
+	return await checkAndReserveTopUp({
+		org,
+		amountUsd: 0,
+		reserve: false,
+	});
+}
+
 export { releaseTopUpReservation };
