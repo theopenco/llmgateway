@@ -3418,7 +3418,7 @@ devPlans.openapi(topUpCredits, async (c) => {
 		firstGateAttempt = true;
 	}
 	if (firstGateAttempt) {
-		await assertTopUpVelocityAllowed(personalOrg, gateGrossUsd);
+		await assertTopUpVelocityAllowed(personalOrg, gateGrossUsd, { user });
 	}
 	const releaseGate = async () => {
 		if (!firstGateAttempt) {

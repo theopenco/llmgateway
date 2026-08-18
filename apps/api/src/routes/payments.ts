@@ -183,7 +183,13 @@ payments.openapi(createPaymentIntent, async (c) => {
 		amount,
 		isInternational: true,
 	}).totalAmount;
-	await assertTopUpVelocityAllowed(userOrganization.organization, gateGrossUsd);
+	await assertTopUpVelocityAllowed(
+		userOrganization.organization,
+		gateGrossUsd,
+		{
+			user,
+		},
+	);
 
 	// Any failure between the gate and a successful PaymentIntent means no
 	// charge happened, so the reservation must be freed rather than consuming
@@ -775,7 +781,13 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 		amount,
 		isInternational: true,
 	}).totalAmount;
-	await assertTopUpVelocityAllowed(userOrganization.organization, gateGrossUsd);
+	await assertTopUpVelocityAllowed(
+		userOrganization.organization,
+		gateGrossUsd,
+		{
+			user,
+		},
+	);
 
 	let paymentIntent: Stripe.PaymentIntent;
 	// `processing` is nonterminal: Stripe can still emit
@@ -972,7 +984,10 @@ payments.openapi(createCheckoutSession, async (c) => {
 	await assertTopUpVelocityAllowed(
 		userOrganization.organization,
 		feeBreakdown.totalAmount,
-		{ reservationTtlSeconds: CHECKOUT_SESSION_LIFETIME_SECONDS + 300 },
+		{
+			reservationTtlSeconds: CHECKOUT_SESSION_LIFETIME_SECONDS + 300,
+			user,
+		},
 	);
 
 	let stripeCustomerId: string;
