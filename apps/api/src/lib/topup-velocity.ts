@@ -7,8 +7,31 @@ import {
 	releaseTopUpReservation,
 	type TopUpVelocityOrg,
 } from "@llmgateway/actions";
+import { redisClient } from "@llmgateway/cache";
+import { TOPUP_VELOCITY_WINDOW_MS } from "@llmgateway/shared";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+function notifyTopUpVelocityLimitBestEffort(args: {
+	email: string;
+	name?: string | null;
+	organizationId: string;
+	capUsd: number;
+	usedUsd: number;
+	attemptedUsd: number;
+}): void {
+	const windowId = Math.floor(Date.now() / TOPUP_VELOCITY_WINDOW_MS);
+	const key = `topup_velocity:notification:${args.organizationId}:${windowId}`;
+
+	void redisClient
+		.set(key, "1", "EX", TOPUP_VELOCITY_WINDOW_MS / 1000, "NX")
+		.then((reserved) => {
+			if (reserved === "OK") {
+				return notifyTopUpVelocityLimit(args);
+			}
+		})
+		.catch(() => notifyTopUpVelocityLimit(args));
+}
 
 /**
  * Enforce the org's tier-based top-up velocity cap before creating a Stripe
@@ -32,9 +55,9 @@ export async function assertTopUpVelocityAllowed(
 		reservationTtlSeconds: options?.reservationTtlSeconds,
 	});
 	if (!result.allowed) {
-		await notifyTopUpVelocityLimit({
-			email: options?.user.email ?? "Unknown",
-			name: options?.user.name,
+		notifyTopUpVelocityLimitBestEffort({
+			email: options?.user?.email ?? "Unknown",
+			name: options?.user?.name,
 			organizationId: org.id,
 			capUsd: result.capUsd,
 			usedUsd: result.usedUsd,

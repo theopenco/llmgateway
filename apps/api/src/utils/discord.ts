@@ -23,6 +23,7 @@ interface DiscordWebhookPayload {
 async function sendDiscordNotification(
 	payload: DiscordWebhookPayload,
 	webhookUrl: string | undefined = discordWebhookUrl,
+	timeoutMs?: number,
 ): Promise<void> {
 	if (!webhookUrl) {
 		logger.debug(
@@ -38,6 +39,7 @@ async function sendDiscordNotification(
 				"Content-Type": "application/json",
 			},
 			body: JSON.stringify(payload),
+			...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
 		});
 
 		if (!response.ok) {
@@ -245,6 +247,7 @@ export async function notifyTopUpVelocityLimit(args: {
 			],
 		},
 		process.env.DISCORD_TOPUP_VELOCITY_NOTIFICATION_URL,
+		5_000,
 	);
 }
 

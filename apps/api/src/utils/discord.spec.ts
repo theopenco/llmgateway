@@ -103,5 +103,6 @@ describe("top-up velocity Discord notifications", () => {
 				{ name: "Attempted", value: "$50.00", inline: true },
 			]),
 		);
+		expect(request?.signal).toBeInstanceOf(AbortSignal);
 	});
 });
