@@ -366,11 +366,14 @@ export const deepseekModels = [
 			{
 				providerId: "together-ai",
 				externalId: "deepseek-ai/DeepSeek-V4-Pro-0813",
-				inputPrice: "1.74e-6",
-				cachedInputPrice: "0.2e-6",
-				outputPrice: "3.48e-6",
+				// Together also lists an undated `deepseek-ai/DeepSeek-V4-Pro` slug at
+				// its own (higher input, lower output) rate; this mapping must stay on
+				// the dated -0813 slug's own live pricing, not that one.
+				inputPrice: "1.32e-6",
+				cachedInputPrice: "0.13e-6",
+				outputPrice: "3.96e-6",
 				requestPrice: "0",
-				contextSize: 163840,
+				contextSize: 1048576,
 				maxOutput: 163840,
 				streaming: true,
 				reasoning: true,
