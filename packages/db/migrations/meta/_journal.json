@@ -1636,8 +1636,22 @@
     {
       "idx": 233,
       "version": "8",
-      "when": 1786925905704,
-      "tag": "1786925905_fluffy_princess_powerful",
+      "when": 1786962617289,
+      "tag": "1786962617_flimsy_sentry",
+      "breakpoints": true
+    },
+    {
+      "idx": 234,
+      "version": "8",
+      "when": 1786966181012,
+      "tag": "1786966181_hard_firestar",
+      "breakpoints": true
+    },
+    {
+      "idx": 235,
+      "version": "8",
+      "when": 1786993793424,
+      "tag": "1786993793_tough_jackpot",
       "breakpoints": true
     }
   ]
