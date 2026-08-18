@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { convertAwsEventStreamToSSE } from "./parse-aws-eventstream";
+import { convertAwsEventStreamToSSE } from "./parse-aws-eventstream.js";
 
 function frame(payload: string): Uint8Array {
 	const bytes = new TextEncoder().encode(payload);
@@ -28,10 +28,13 @@ describe("convertAwsEventStreamToSSE", () => {
 	it("retains incomplete frames", () => {
 		const complete = frame('{"completion":"ok"}');
 		const incomplete = complete.slice(0, complete.length - 1);
+		const buffer = new Uint8Array(complete.length + incomplete.length);
+		buffer.set(complete);
+		buffer.set(incomplete, complete.length);
 
-		expect(convertAwsEventStreamToSSE(incomplete)).toEqual({
-			sse: "",
-			bytesConsumed: 0,
+		expect(convertAwsEventStreamToSSE(buffer)).toEqual({
+			sse: 'data: {"completion":"ok"}\n\n',
+			bytesConsumed: complete.length,
 		});
 	});
 });
