@@ -111,10 +111,10 @@ async function assertCustomModelsAvailable(
 		where: {
 			organizationId: { eq: organizationId },
 			provider: { eq: "custom" },
-			status: { ne: "deleted" },
+			status: { eq: "active" },
 		},
 		with: {
-			customModels: { where: { status: { ne: "deleted" } } },
+			customModels: { where: { status: { eq: "active" } } },
 		},
 	});
 	const available = new Set(

@@ -678,16 +678,17 @@ function ModelInspector({
 					onValueChange={(value) => {
 						// The selector emits "provider/model[:region]" even in rootOnly
 						// mode; a model node stores the root catalog id — the provider
-						// restriction lives in the fallback list below. (model.id never
-						// contains ":", so stripping after the last colon is safe.)
+						// restriction lives in the fallback list below. Preserve exact
+						// catalog ids because custom model names may contain colons.
 						const withoutProvider = value.includes("/")
 							? value.slice(value.indexOf("/") + 1)
 							: value;
 						const lastColon = withoutProvider.lastIndexOf(":");
 						const modelId =
-							lastColon > -1
-								? withoutProvider.slice(0, lastColon)
-								: withoutProvider;
+							selectableModels.some((model) => model.id === withoutProvider) ||
+							lastColon === -1
+								? withoutProvider
+								: withoutProvider.slice(0, lastColon);
 						onChange((n) =>
 							n.type === "model"
 								? { ...n, model: modelId, providers: undefined }

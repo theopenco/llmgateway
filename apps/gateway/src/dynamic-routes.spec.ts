@@ -35,20 +35,22 @@ describe("dynamic routes request path", () => {
 			createdBy: "user-id",
 		});
 
-		await db.insert(tables.providerKey).values(
-			providers.map((provider) => ({
-				id: `pk-dyn-${provider}-${suffix}`,
-				token: `sk-${provider}-test-key`,
-				provider,
-				organizationId: "org-id",
-				baseUrl: mockServerUrl,
-				// Azure requests must stay on the mock server's /openai/v1/*
-				// aliases regardless of local LLM_AZURE_DEPLOYMENT_TYPE values.
-				...(provider === "azure"
-					? { options: { azure_deployment_type: "ai-foundry" as const } }
-					: {}),
-			})),
-		);
+		if (providers.length > 0) {
+			await db.insert(tables.providerKey).values(
+				providers.map((provider) => ({
+					id: `pk-dyn-${provider}-${suffix}`,
+					token: `sk-${provider}-test-key`,
+					provider,
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+					// Azure requests must stay on the mock server's /openai/v1/*
+					// aliases regardless of local LLM_AZURE_DEPLOYMENT_TYPE values.
+					...(provider === "azure"
+						? { options: { azure_deployment_type: "ai-foundry" as const } }
+						: {}),
+				})),
+			);
+		}
 
 		return `real-token-dyn-${suffix}`;
 	}
@@ -292,13 +294,13 @@ describe("dynamic routes request path", () => {
 			id: "cm-dyn-custom",
 			providerKeyId: "pk-dyn-custom",
 			organizationId: "org-id",
-			modelName: "private-model",
+			modelName: "private-model:revision",
 			inputPrice: "1e-6",
 			outputPrice: "2e-6",
 		});
 		const routeName = await seedRoute("custom", {
 			entry: "m",
-			nodes: [modelNode("m", "private-provider/private-model")],
+			nodes: [modelNode("m", "private-provider/private-model:revision")],
 		} as DynamicRouteGraph);
 
 		const response = await chatCompletion(token, {
@@ -309,7 +311,7 @@ describe("dynamic routes request path", () => {
 		const body = await response.json();
 		expect(body.metadata).toMatchObject({
 			requested_model: `dynamic/${routeName}`,
-			used_model: "private-model",
+			used_model: "private-model:revision",
 			used_provider: "custom",
 		});
 

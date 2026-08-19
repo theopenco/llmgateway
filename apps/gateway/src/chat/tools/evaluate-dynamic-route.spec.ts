@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { dynamicRouteGraphSchema } from "@llmgateway/shared/dynamic-route";
 
 import {
+	DynamicRouteEvaluationError,
 	type DynamicRouteEvaluationContext,
 	evaluateDynamicRoute,
 } from "./evaluate-dynamic-route.js";
@@ -333,6 +334,9 @@ describe("evaluateDynamicRoute", () => {
 				},
 			],
 		} as DynamicRouteGraph;
+		expect(() => evaluateDynamicRoute(graph, makeContext())).toThrow(
+			DynamicRouteEvaluationError,
+		);
 		expect(() => evaluateDynamicRoute(graph, makeContext())).toThrow(/maximum/);
 	});
 
@@ -341,6 +345,9 @@ describe("evaluateDynamicRoute", () => {
 			entry: "missing",
 			nodes: [{ id: "m", type: "model", model: "gpt-5-nano" }],
 		} as DynamicRouteGraph;
+		expect(() => evaluateDynamicRoute(graph, makeContext())).toThrow(
+			DynamicRouteEvaluationError,
+		);
 		expect(() => evaluateDynamicRoute(graph, makeContext())).toThrow(
 			/unknown node/,
 		);

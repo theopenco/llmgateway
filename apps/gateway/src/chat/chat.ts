@@ -165,6 +165,7 @@ import {
 	hasMaxTokens,
 	hasRegionSpecificEnvKey,
 	type ModelDefinition,
+	type Model,
 	models,
 	type Provider,
 	type ProviderDefinition,
@@ -188,6 +189,7 @@ import {
 	isRecognizedCodingAgent,
 	normalizeSourceToAgentId,
 } from "@llmgateway/shared";
+import { parseCustomDynamicRouteModelRef } from "@llmgateway/shared/dynamic-route";
 import {
 	applyRoutingPreference,
 	type ResolvedRoutingConfig,
@@ -211,6 +213,7 @@ import { createLogEntry } from "./tools/create-log-entry.js";
 import { estimateTokensFromContent } from "./tools/estimate-tokens-from-content.js";
 import { estimateTokens } from "./tools/estimate-tokens.js";
 import {
+	DynamicRouteEvaluationError,
 	type DynamicRouteEvaluation,
 	evaluateDynamicRoute,
 } from "./tools/evaluate-dynamic-route.js";
@@ -3008,6 +3011,9 @@ chat.openapi(completions, async (c) => {
 				splitKey: sessionId ?? requestId,
 			});
 		} catch (error) {
+			if (!(error instanceof DynamicRouteEvaluationError)) {
+				throw error;
+			}
 			throw new HTTPException(400, {
 				message: `Dynamic route "${dynamicRouteName}" evaluation failed: ${toError(error).message}`,
 			});
@@ -3025,20 +3031,17 @@ chat.openapi(completions, async (c) => {
 			path: evaluation.path,
 		};
 
-		const target = parseModelInput(evaluation.model);
-		if (target.requestedProvider === "custom") {
+		const customTarget = parseCustomDynamicRouteModelRef(evaluation.model);
+		if (customTarget) {
 			if (effectiveFreeModelsOnly) {
 				throw new HTTPException(400, {
 					message: `Dynamic route "${publishedRoute.name}" resolved to model "${evaluation.model}" which is not available with free_models_only`,
 				});
 			}
-			requestedModel = target.requestedModel;
-			customProviderName = target.customProviderName;
-			requestedRegion = target.requestedRegion;
-			const targetModelInfo = resolveModelInfo(
-				requestedModel,
-				target.requestedProvider,
-			);
+			requestedModel = customTarget.modelName as Model;
+			customProviderName = customTarget.providerName;
+			requestedRegion = undefined;
+			const targetModelInfo = resolveModelInfo(requestedModel, "custom");
 			routingExpandedModelProviders = expandAllProviderRegions(
 				targetModelInfo.modelInfo.providers,
 			);

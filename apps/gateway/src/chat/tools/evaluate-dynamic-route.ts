@@ -37,6 +37,13 @@ export type DynamicRouteEvaluation =
 	  }
 	| { status: "end"; path: string[] };
 
+export class DynamicRouteEvaluationError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "DynamicRouteEvaluationError";
+	}
+}
+
 /**
  * FNV-1a 32-bit hash. Deterministic and dependency-free; used to bucket the
  * split key into percentage branches. The node id is mixed in so multiple
@@ -142,8 +149,8 @@ function pickPercentageBranch(
  * Walks a validated dynamic-route graph and resolves it to a target model
  * (with an optional provider restriction) or an explicit end.
  *
- * @throws Error when the graph references an unknown node or exceeds the hop
- * bound — both indicate a graph that bypassed save-time validation.
+ * @throws DynamicRouteEvaluationError when the graph references an unknown
+ * node or exceeds the hop bound.
  */
 export function evaluateDynamicRoute(
 	graph: DynamicRouteGraph,
@@ -156,7 +163,9 @@ export function evaluateDynamicRoute(
 	for (let hops = 0; hops < DYNAMIC_ROUTE_MAX_HOPS; hops++) {
 		const node = nodesById.get(currentId);
 		if (!node) {
-			throw new Error(`references unknown node "${currentId}"`);
+			throw new DynamicRouteEvaluationError(
+				`references unknown node "${currentId}"`,
+			);
 		}
 		path.push(node.id);
 		switch (node.type) {
@@ -181,7 +190,7 @@ export function evaluateDynamicRoute(
 				break;
 		}
 	}
-	throw new Error(
+	throw new DynamicRouteEvaluationError(
 		`exceeded the maximum of ${DYNAMIC_ROUTE_MAX_HOPS} nodes per evaluation`,
 	);
 }

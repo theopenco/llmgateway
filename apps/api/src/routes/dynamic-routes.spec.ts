@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 
 import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
 
@@ -218,6 +218,27 @@ describe("dynamic routes API", () => {
 			],
 		});
 		expect(missing.status).toBe(400);
+
+		await db
+			.update(tables.customModel)
+			.set({ status: "inactive" })
+			.where(eq(tables.customModel.id, "custom-model-id"));
+		const inactiveModel = await createRoute("inactive-custom-model", graph);
+		expect(inactiveModel.status).toBe(400);
+
+		await db
+			.update(tables.customModel)
+			.set({ status: "active" })
+			.where(eq(tables.customModel.id, "custom-model-id"));
+		await db
+			.update(tables.providerKey)
+			.set({ status: "inactive" })
+			.where(eq(tables.providerKey.id, "custom-provider-key"));
+		const inactiveProvider = await createRoute(
+			"inactive-custom-provider",
+			graph,
+		);
+		expect(inactiveProvider.status).toBe(400);
 	});
 
 	test("duplicate names conflict with 409", async () => {
