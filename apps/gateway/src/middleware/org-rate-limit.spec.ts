@@ -32,6 +32,7 @@ const chatConfig: PathRateLimitConfig = {
 	key: "chat_completions",
 	prefix: "/v1/chat/completions",
 	defaultRpm: 600,
+	devDefaultRpm: 120,
 	chatDefaultRpm: 60,
 };
 
