@@ -320,77 +320,80 @@ describe("prepareRequestBody - Anthropic", () => {
 		expect(totalCacheControlBlocks).toBe(4);
 	});
 
-	test("strips caller-supplied cache_control when providerCacheControlEnabled is false", async () => {
-		const longContent = "A".repeat(5000);
-		const requestBody = (await prepareRequestBody(
-			"anthropic",
-			"claude-3-5-sonnet-20241022",
-			null,
-			"claude-3-5-sonnet-20241022",
-			[
-				{
-					role: "system",
-					content: [
-						{
-							type: "text",
-							text: longContent,
-							cache_control: { type: "ephemeral", ttl: "1h" },
-						},
-					],
-				},
-				{
-					role: "user",
-					content: [
-						{
-							type: "text",
-							text: longContent,
-							cache_control: { type: "ephemeral" },
-						},
-					],
-				},
-			],
-			false, // stream
-			undefined, // temperature
-			1024, // max_tokens
-			undefined, // top_p
-			undefined, // frequency_penalty
-			undefined, // presence_penalty
-			undefined, // response_format
-			undefined, // tools
-			undefined, // tool_choice
-			undefined, // reasoning_effort
-			undefined, // supportsReasoning
-			false, // isProd
-			20, // maxImageSizeMB
-			null, // userPlan
-			undefined, // sensitive_word_check
-			undefined, // image_config
-			undefined, // effort
-			undefined, // imageGenerations
-			undefined, // webSearchTool
-			undefined, // reasoning_max_tokens
-			undefined, // useResponsesApi
-			undefined, // prompt_cache_key
-			undefined, // prompt_cache_retention
-			false, // providerCacheControlEnabled
-		)) as AnthropicRequestBody;
+	test.each(["claude-fable-5", "claude-opus-5"])(
+		"strips cache_control for %s when provider cache writes are disabled",
+		async (model) => {
+			const longContent = "A".repeat(5000);
+			const requestBody = (await prepareRequestBody(
+				"anthropic",
+				model,
+				null,
+				model,
+				[
+					{
+						role: "system",
+						content: [
+							{
+								type: "text",
+								text: longContent,
+								cache_control: { type: "ephemeral", ttl: "1h" },
+							},
+						],
+					},
+					{
+						role: "user",
+						content: [
+							{
+								type: "text",
+								text: longContent,
+								cache_control: { type: "ephemeral" },
+							},
+						],
+					},
+				],
+				false, // stream
+				undefined, // temperature
+				1024, // max_tokens
+				undefined, // top_p
+				undefined, // frequency_penalty
+				undefined, // presence_penalty
+				undefined, // response_format
+				undefined, // tools
+				undefined, // tool_choice
+				undefined, // reasoning_effort
+				undefined, // supportsReasoning
+				false, // isProd
+				20, // maxImageSizeMB
+				null, // userPlan
+				undefined, // sensitive_word_check
+				undefined, // image_config
+				undefined, // effort
+				undefined, // imageGenerations
+				undefined, // webSearchTool
+				undefined, // reasoning_max_tokens
+				undefined, // useResponsesApi
+				undefined, // prompt_cache_key
+				undefined, // prompt_cache_retention
+				false, // providerCacheControlEnabled
+			)) as AnthropicRequestBody;
 
-		// System: no caller marker preserved, no heuristic-added marker.
-		if (requestBody.system && Array.isArray(requestBody.system)) {
-			for (const block of requestBody.system) {
-				expect(getCacheControl(block)).toBeUndefined();
-			}
-		}
-
-		// User content: no caller marker preserved, no heuristic-added marker.
-		for (const msg of requestBody.messages) {
-			if (Array.isArray(msg.content)) {
-				for (const block of msg.content) {
+			// System: no caller marker preserved, no heuristic-added marker.
+			if (requestBody.system && Array.isArray(requestBody.system)) {
+				for (const block of requestBody.system) {
 					expect(getCacheControl(block)).toBeUndefined();
 				}
 			}
-		}
-	});
+
+			// User content: no caller marker preserved, no heuristic-added marker.
+			for (const msg of requestBody.messages) {
+				if (Array.isArray(msg.content)) {
+					for (const block of msg.content) {
+						expect(getCacheControl(block)).toBeUndefined();
+					}
+				}
+			}
+		},
+	);
 
 	test("defers auto-injection when caller supplies a 1h ttl marker in messages", async () => {
 		const longContent = "A".repeat(5000);
@@ -3813,6 +3816,79 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 			{ cachePoint: { type: "default", ttl: "5m" } },
 		]);
 	});
+
+	test.each(["claude-fable-5", "claude-opus-5"])(
+		"omits cache points for %s when provider cache writes are disabled",
+		async (model) => {
+			const mapping = models
+				.find((candidate) => candidate.id === model)
+				?.providers.find((candidate) => candidate.providerId === "aws-bedrock");
+			expect(mapping).toBeDefined();
+			const longContent = "A".repeat(20_000);
+			const requestBody = (await prepareRequestBody(
+				"aws-bedrock",
+				model,
+				null,
+				mapping!.externalId,
+				[
+					{
+						role: "system",
+						content: [
+							{
+								type: "text",
+								text: longContent,
+								cache_control: { type: "ephemeral", ttl: "1h" },
+							},
+						],
+					},
+					{
+						role: "user",
+						content: [
+							{
+								type: "text",
+								text: longContent,
+								cache_control: { type: "ephemeral" },
+							},
+						],
+					},
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as {
+				system?: Array<Record<string, unknown>>;
+				messages: Array<{ content: Array<Record<string, unknown>> }>;
+			};
+
+			expect(requestBody.system).not.toContainEqual(
+				expect.objectContaining({ cachePoint: expect.anything() }),
+			);
+			expect(requestBody.messages[0].content).not.toContainEqual(
+				expect.objectContaining({ cachePoint: expect.anything() }),
+			);
+		},
+	);
 
 	test("forwards base64 image blocks as Bedrock image content", async () => {
 		const pngBase64 =
