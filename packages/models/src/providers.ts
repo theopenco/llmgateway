@@ -296,7 +296,7 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		termsUrl: "https://openai.com/policies/services-agreement/",
 		privacyPolicyUrl: "https://openai.com/policies/privacy-policy",
-		legalEntity: "OpenAI Ireland Ltd.",
+		legalEntity: "OpenAI OpCo, LLC",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -347,7 +347,7 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		termsUrl: "https://www.anthropic.com/legal/commercial-terms",
 		privacyPolicyUrl: "https://www.anthropic.com/privacy",
-		legalEntity: "Anthropic Ireland, Limited",
+		legalEntity: "Anthropic, PBC",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -397,7 +397,7 @@ export const providers: ProviderDefinition[] = [
 		],
 		termsUrl: "https://ai.google.dev/gemini-api/terms",
 		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
-		legalEntity: "Google Cloud EMEA Limited",
+		legalEntity: "Google LLC",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -524,7 +524,7 @@ export const providers: ProviderDefinition[] = [
 		],
 		termsUrl: "https://cloud.google.com/terms/service-terms",
 		privacyPolicyUrl: "https://policies.google.com/privacy",
-		legalEntity: "Google Cloud EMEA Limited",
+		legalEntity: "Google LLC",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -568,7 +568,7 @@ export const providers: ProviderDefinition[] = [
 		},
 		termsUrl: "https://cloud.google.com/terms/service-terms",
 		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
-		legalEntity: "Google Cloud EMEA Limited",
+		legalEntity: "Google LLC",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -611,7 +611,7 @@ export const providers: ProviderDefinition[] = [
 		priority: 0.2,
 		termsUrl: "https://cloud.google.com/terms/service-terms",
 		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
-		legalEntity: "Google Cloud EMEA Limited",
+		legalEntity: "Google LLC",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -848,7 +848,7 @@ export const providers: ProviderDefinition[] = [
 			"https://www.alibabacloud.com/help/en/legal/latest/alibaba-cloud-international-website-product-terms-of-service-v-3-8-0",
 		privacyPolicyUrl:
 			"https://www.alibabacloud.com/help/en/legal/latest/alibaba-cloud-international-website-privacy-policy",
-		legalEntity: "Alibaba (Netherlands) B.V.",
+		legalEntity: "Alibaba Cloud US LLC",
 		headquarters: "CN",
 		dataPolicy: {
 			apiTraining: false,
@@ -1020,7 +1020,7 @@ export const providers: ProviderDefinition[] = [
 		},
 		termsUrl: "https://aws.amazon.com/service-terms",
 		privacyPolicyUrl: "https://aws.amazon.com/privacy",
-		legalEntity: "Amazon Web Services EMEA SARL",
+		legalEntity: "Amazon Web Services, Inc.",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -1080,7 +1080,7 @@ export const providers: ProviderDefinition[] = [
 			"Use AWS Bedrock Long-Term API Keys (not IAM service account or private keys)",
 		termsUrl: "https://aws.amazon.com/service-terms",
 		privacyPolicyUrl: "https://aws.amazon.com/privacy",
-		legalEntity: "Amazon Web Services EMEA SARL",
+		legalEntity: "Amazon Web Services, Inc.",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -1134,7 +1134,7 @@ export const providers: ProviderDefinition[] = [
 		priority: 2,
 		termsUrl: "https://www.microsoft.com/licensing/terms",
 		privacyPolicyUrl: "https://privacy.microsoft.com/privacystatement",
-		legalEntity: "Microsoft Ireland Operations Limited",
+		legalEntity: "Microsoft Corporation",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -1172,7 +1172,7 @@ export const providers: ProviderDefinition[] = [
 		priority: 1.5,
 		termsUrl: "https://www.microsoft.com/licensing/terms",
 		privacyPolicyUrl: "https://privacy.microsoft.com/privacystatement",
-		legalEntity: "Microsoft Ireland Operations Limited",
+		legalEntity: "Microsoft Corporation",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -1346,7 +1346,7 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		termsUrl: "https://docs.nebius.com/legal/terms-of-use",
 		privacyPolicyUrl: "https://docs.nebius.com/legal/privacy",
-		legalEntity: "Nebius B.V.",
+		legalEntity: "Nebius Inc.",
 		headquarters: "NL",
 		dataPolicy: {
 			apiTraining: false,
