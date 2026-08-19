@@ -13,15 +13,16 @@ import { HeroRSC } from "@/components/landing/hero-rsc";
 import type { LucideIcon } from "lucide-react";
 import type { Metadata } from "next";
 
+const metadataDescription =
+	"Review LLM Gateway's Terms of Use, Privacy Policy, sub-processors, and AI provider legal and compliance information.";
+
 export const metadata: Metadata = {
-	title: "Legal",
-	description:
-		"Review LLM Gateway's terms, privacy policy, and AI provider legal and compliance information.",
+	title: "Legal Information & Policies",
+	description: metadataDescription,
 	alternates: { canonical: "/legal" },
 	openGraph: {
-		title: "Legal | LLM Gateway",
-		description:
-			"Review LLM Gateway's terms, privacy policy, and AI provider legal and compliance information.",
+		title: "Legal Information & Policies | LLM Gateway",
+		description: metadataDescription,
 		url: "https://llmgateway.io/legal",
 		type: "website",
 	},
