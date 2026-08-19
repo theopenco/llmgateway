@@ -1907,9 +1907,9 @@ chat.openapi(completions, async (c) => {
 
 	// Parse model input to resolve model, provider, and custom provider name
 	const parseResult = parseModelInput(modelInput);
-	const requestedModel = parseResult.requestedModel;
-	const customProviderName = parseResult.customProviderName;
-	const requestedRegion = parseResult.requestedRegion;
+	let requestedModel = parseResult.requestedModel;
+	let customProviderName = parseResult.customProviderName;
+	let requestedRegion = parseResult.requestedRegion;
 
 	// Count input images from messages for cost calculation
 	const inputImageCount =
@@ -2964,6 +2964,94 @@ chat.openapi(completions, async (c) => {
 	let usedRegion: string | undefined = requestedRegion;
 	let routingMetadata: RoutingMetadata | undefined;
 
+	// Resolve a named dynamic route ("dynamic/<name>") to its target model and
+	// optional provider restriction. Official models continue through the auto
+	// candidate path below. A custom target is parsed here so the ordinary custom
+	// provider validation, catalog pricing, IAM and compliance paths can handle it.
+	let dynamicRouteSelection:
+		| {
+				name: string;
+				version: number;
+				model: string;
+				providers?: string[];
+				path: string[];
+		  }
+		| undefined;
+	if (parseResult.dynamicRouteName) {
+		const dynamicRouteName = parseResult.dynamicRouteName;
+		if (organization.plan !== "enterprise") {
+			throw new HTTPException(403, {
+				message:
+					"Dynamic routes are only available on the enterprise plan. Contact us at contact@llmgateway.io to upgrade.",
+			});
+		}
+		const publishedRoute = await getPublishedDynamicRoute(
+			project.id,
+			dynamicRouteName,
+		);
+		if (!publishedRoute) {
+			throw new HTTPException(404, {
+				message: `Dynamic route "${dynamicRouteName}" not found, disabled, or has no published version`,
+			});
+		}
+		let evaluation: DynamicRouteEvaluation;
+		try {
+			evaluation = evaluateDynamicRoute(publishedRoute.graph, {
+				getHeader: (name) => c.req.header(name),
+				body: rawBody as Record<string, unknown>,
+				metadata: {
+					orgId: project.organizationId,
+					projectId: project.id,
+					apiKeyId: apiKey.id,
+					plan: organization.plan,
+				},
+				splitKey: sessionId ?? requestId,
+			});
+		} catch (error) {
+			throw new HTTPException(400, {
+				message: `Dynamic route "${dynamicRouteName}" evaluation failed: ${toError(error).message}`,
+			});
+		}
+		if (evaluation.status === "end") {
+			throw new HTTPException(400, {
+				message: `Dynamic route "${dynamicRouteName}" ended without resolving to a model`,
+			});
+		}
+		dynamicRouteSelection = {
+			name: publishedRoute.name,
+			version: publishedRoute.version,
+			model: evaluation.model,
+			providers: evaluation.providers,
+			path: evaluation.path,
+		};
+
+		const target = parseModelInput(evaluation.model);
+		if (target.requestedProvider === "custom") {
+			if (effectiveFreeModelsOnly) {
+				throw new HTTPException(400, {
+					message: `Dynamic route "${publishedRoute.name}" resolved to model "${evaluation.model}" which is not available with free_models_only`,
+				});
+			}
+			requestedModel = target.requestedModel;
+			customProviderName = target.customProviderName;
+			requestedRegion = target.requestedRegion;
+			const targetModelInfo = resolveModelInfo(
+				requestedModel,
+				target.requestedProvider,
+			);
+			routingExpandedModelProviders = expandAllProviderRegions(
+				targetModelInfo.modelInfo.providers,
+			);
+			modelInfo = targetModelInfo.modelInfo;
+			allModelProviders = targetModelInfo.allModelProviders;
+			requestedProvider = targetModelInfo.requestedProvider;
+			usedProvider = requestedProvider;
+			usedInternalModel = requestedModel;
+			usedExternalId = requestedModel;
+			usedRegion = requestedRegion;
+		}
+	}
+
 	// Get image size limits from environment variables or use defaults
 	const freeLimitMB = imageSizeLimitMB(
 		process.env.IMAGE_SIZE_LIMIT_FREE_MB,
@@ -3314,75 +3402,6 @@ chat.openapi(completions, async (c) => {
 				}
 			}
 		}
-	}
-
-	// Resolve a named dynamic route ("dynamic/<name>") to its target model and
-	// optional provider restriction. The route was tagged in parseModelInput and
-	// piggybacks the "auto" placeholder model until here, where project/org
-	// context needed by conditional and percentage nodes is available. The
-	// resolved target then flows through the auto-routing block below, which
-	// narrows candidates to the route's model/providers instead of the auto
-	// allowlist.
-	let dynamicRouteSelection:
-		| {
-				name: string;
-				version: number;
-				model: string;
-				providers?: string[];
-				path: string[];
-		  }
-		| undefined;
-	if (parseResult.dynamicRouteName) {
-		const dynamicRouteName = parseResult.dynamicRouteName;
-		if (organization.plan !== "enterprise") {
-			throw new HTTPException(403, {
-				message:
-					"Dynamic routes are only available on the enterprise plan. Contact us at contact@llmgateway.io to upgrade.",
-			});
-		}
-		const publishedRoute = await getPublishedDynamicRoute(
-			project.id,
-			dynamicRouteName,
-		);
-		if (!publishedRoute) {
-			throw new HTTPException(404, {
-				message: `Dynamic route "${dynamicRouteName}" not found, disabled, or has no published version`,
-			});
-		}
-		let evaluation: DynamicRouteEvaluation;
-		try {
-			evaluation = evaluateDynamicRoute(publishedRoute.graph, {
-				getHeader: (name) => c.req.header(name),
-				// The RAW request body, not validationResult.data: the completions
-				// schema strips unknown keys, which would make body conditions on
-				// caller-defined fields (e.g. "metadata.segment") silently never
-				// match.
-				body: rawBody as Record<string, unknown>,
-				metadata: {
-					orgId: project.organizationId,
-					projectId: project.id,
-					apiKeyId: apiKey.id,
-					plan: organization.plan,
-				},
-				splitKey: sessionId ?? requestId,
-			});
-		} catch (error) {
-			throw new HTTPException(400, {
-				message: `Dynamic route "${dynamicRouteName}" evaluation failed: ${toError(error).message}`,
-			});
-		}
-		if (evaluation.status === "end") {
-			throw new HTTPException(400, {
-				message: `Dynamic route "${dynamicRouteName}" ended without resolving to a model`,
-			});
-		}
-		dynamicRouteSelection = {
-			name: publishedRoute.name,
-			version: publishedRoute.version,
-			model: evaluation.model,
-			providers: evaluation.providers,
-			path: evaluation.path,
-		};
 	}
 
 	// Apply routing logic after apiKey and project are available
@@ -3775,13 +3794,6 @@ chat.openapi(completions, async (c) => {
 			usedInternalModel = "claude-haiku-4-5";
 			usedExternalId = "claude-haiku-4-5";
 			usedProvider = "anthropic";
-		}
-		if (dynamicRouteSelection && routingMetadata) {
-			routingMetadata.dynamicRoute = {
-				name: dynamicRouteSelection.name,
-				version: dynamicRouteSelection.version,
-				path: dynamicRouteSelection.path,
-			};
 		}
 		// Update modelInfo to the selected model so retry/fallback logic can find
 		// alternative providers. Without this, modelInfo still points to the "auto"
@@ -5078,6 +5090,14 @@ chat.openapi(completions, async (c) => {
 			project.organizationId,
 			providerDiscountResolver,
 		);
+	}
+
+	if (dynamicRouteSelection && routingMetadata) {
+		routingMetadata.dynamicRoute = {
+			name: dynamicRouteSelection.name,
+			version: dynamicRouteSelection.version,
+			path: dynamicRouteSelection.path,
+		};
 	}
 
 	// Record where the processing tier came from. A dev-plan (DevPass) org's

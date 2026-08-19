@@ -372,6 +372,34 @@ describe("dynamicRouteGraphSchema", () => {
 		expect(result.success).toBe(true);
 	});
 
+	it("accepts custom model references without provider overrides", () => {
+		expect(
+			dynamicRouteGraphSchema.safeParse({
+				entry: "m",
+				nodes: [
+					{
+						id: "m",
+						type: "model",
+						model: "private-provider/private-model",
+					},
+				],
+			}).success,
+		).toBe(true);
+		expect(
+			dynamicRouteGraphSchema.safeParse({
+				entry: "m",
+				nodes: [
+					{
+						id: "m",
+						type: "model",
+						model: "private-provider/private-model",
+						providers: ["openai"],
+					},
+				],
+			}).success,
+		).toBe(false);
+	});
+
 	it("rejects unknown models and providers", () => {
 		expect(
 			dynamicRouteGraphSchema.safeParse({

@@ -15,6 +15,7 @@ import { useTheme } from "next-themes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ModelSelector } from "@/components/models/playground-model-selector";
+import { useCustomProviderSelection } from "@/hooks/useCustomProviders";
 import { Button } from "@/lib/components/button";
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
@@ -648,23 +649,30 @@ function ModelInspector({
 	node: Extract<DynamicRouteNode, { type: "model" }>;
 	onChange: (updater: (node: DynamicRouteNode) => DynamicRouteNode) => void;
 }) {
-	const modelDef = models.find((m) => m.id === node.model);
+	const { customModelOptions } = useCustomProviderSelection();
+	const selectableModels = useMemo(
+		() => [...SELECTABLE_MODELS, ...customModelOptions],
+		[customModelOptions],
+	);
+	const modelDef = selectableModels.find((model) => model.id === node.model);
+	const isCustomModel = modelDef?.family === "custom";
 	// Only providers actually serving the chosen model are selectable; selection
 	// order in MultiProviderSelector is the fallback order.
-	const selectableProviders: SelectableProviderOption[] = modelDef
-		? Array.from(new Set(modelDef.providers.map((p) => p.providerId))).map(
-				(id) => {
-					const def = providerDefinitions.find((p) => p.id === id);
-					return { id, name: def?.name ?? id, color: def?.color };
-				},
-			)
-		: [];
+	const selectableProviders: SelectableProviderOption[] =
+		modelDef && !isCustomModel
+			? Array.from(new Set(modelDef.providers.map((p) => p.providerId))).map(
+					(id) => {
+						const def = providerDefinitions.find((p) => p.id === id);
+						return { id, name: def?.name ?? id, color: def?.color };
+					},
+				)
+			: [];
 	return (
 		<div className="space-y-2">
 			<div className="space-y-1">
 				<Label className="text-xs">Model</Label>
 				<ModelSelector
-					models={SELECTABLE_MODELS as ModelDefinition[]}
+					models={selectableModels as ModelDefinition[]}
 					providers={providerDefinitions as unknown as ProviderDefinition[]}
 					value={node.model}
 					onValueChange={(value) => {
@@ -692,7 +700,11 @@ function ModelInspector({
 			</div>
 			<div className="space-y-1">
 				<Label className="text-xs">Provider fallback order (optional)</Label>
-				{modelDef ? (
+				{isCustomModel ? (
+					<p className="text-[10px] text-muted-foreground">
+						The custom provider is fixed by this model.
+					</p>
+				) : modelDef ? (
 					<MultiProviderSelector
 						providers={selectableProviders}
 						selectedProviders={node.providers ?? []}

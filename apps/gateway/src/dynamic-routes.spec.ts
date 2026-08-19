@@ -278,6 +278,52 @@ describe("dynamic routes request path", () => {
 		expect((await pinned.json()).metadata.used_provider).toBe("openai");
 	});
 
+	test("routes to a custom-provider catalog model", async () => {
+		const token = await seedBase("custom", []);
+		await db.insert(tables.providerKey).values({
+			id: "pk-dyn-custom",
+			token: "sk-custom-test-key",
+			provider: "custom",
+			name: "private-provider",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+		await db.insert(tables.customModel).values({
+			id: "cm-dyn-custom",
+			providerKeyId: "pk-dyn-custom",
+			organizationId: "org-id",
+			modelName: "private-model",
+			inputPrice: "1e-6",
+			outputPrice: "2e-6",
+		});
+		const routeName = await seedRoute("custom", {
+			entry: "m",
+			nodes: [modelNode("m", "private-provider/private-model")],
+		} as DynamicRouteGraph);
+
+		const response = await chatCompletion(token, {
+			model: `dynamic/${routeName}`,
+			messages: [{ role: "user", content: "hi custom dynamic route" }],
+		});
+		expect(response.status).toBe(200);
+		const body = await response.json();
+		expect(body.metadata).toMatchObject({
+			requested_model: `dynamic/${routeName}`,
+			used_model: "private-model",
+			used_provider: "custom",
+		});
+
+		await waitForLogs(1);
+		const log = await db.query.log.findFirst({});
+		expect(
+			(
+				log?.routingMetadata as {
+					dynamicRoute?: { name: string; path: string[] };
+				} | null
+			)?.dynamicRoute,
+		).toMatchObject({ name: routeName, path: ["m"] });
+	});
+
 	test("percentage splits stay sticky per session", async () => {
 		const token = await seedBase("split");
 		const routeName = await seedRoute("split", {

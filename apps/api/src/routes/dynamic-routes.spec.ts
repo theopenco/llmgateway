@@ -171,6 +171,55 @@ describe("dynamic routes API", () => {
 		expect(badName.status).toBe(400);
 	});
 
+	test("creates and publishes routes with organization custom models", async () => {
+		await db.insert(tables.providerKey).values({
+			id: "custom-provider-key",
+			token: "custom-provider-token",
+			provider: "custom",
+			name: "private-provider",
+			baseUrl: "https://example.com/v1",
+			organizationId: "test-org-id",
+		});
+		await db.insert(tables.customModel).values({
+			id: "custom-model-id",
+			providerKeyId: "custom-provider-key",
+			organizationId: "test-org-id",
+			modelName: "private-model",
+		});
+
+		const graph = {
+			entry: "m",
+			nodes: [
+				{
+					id: "m",
+					type: "model",
+					model: "private-provider/private-model",
+				},
+			],
+		};
+		const created = await createRoute("custom-route", graph);
+		expect(created.status).toBe(201);
+
+		const published = await authed(
+			"/dynamic-routes/test-project-id/custom-route/publish",
+			{ method: "POST" },
+		);
+		expect(published.status).toBe(200);
+		expect((await published.json()).publishedVersion.graph).toEqual(graph);
+
+		const missing = await createRoute("missing-custom", {
+			entry: "m",
+			nodes: [
+				{
+					id: "m",
+					type: "model",
+					model: "private-provider/missing-model",
+				},
+			],
+		});
+		expect(missing.status).toBe(400);
+	});
+
 	test("duplicate names conflict with 409", async () => {
 		expect((await createRoute()).status).toBe(201);
 		expect((await createRoute()).status).toBe(409);
