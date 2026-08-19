@@ -106,6 +106,7 @@ const VIDEO_JOB_POLL_CLAIM_TTL_MS = 30_000;
 const VIDEO_JOB_ERROR_BASE_DELAY_MS = 10_000;
 const VIDEO_JOB_ERROR_MAX_DELAY_MS = 5 * 60 * 1000;
 const VIDEO_JOB_MAX_POLL_ERROR_COUNT = 5;
+const VIDEO_JOB_UPSTREAM_ERROR_TEXT_LIMIT = 4000;
 const VIDEO_RESOLUTION_4K = "4k";
 const VIDEO_RESOLUTION_HD = "hd";
 const VIDEO_RESOLUTION_1080P = "1080p";
@@ -2444,7 +2445,9 @@ async function fetchGenericVideoStatus(
 	});
 
 	if (!response.ok) {
-		const upstreamContents = responseText.trim();
+		const upstreamContents = responseText
+			.trim()
+			.slice(0, VIDEO_JOB_UPSTREAM_ERROR_TEXT_LIMIT);
 		throw new Error(
 			`Upstream status request failed with status ${response.status}${
 				upstreamContents ? `: ${upstreamContents}` : ""

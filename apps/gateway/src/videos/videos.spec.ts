@@ -1757,7 +1757,7 @@ describe("videos", () => {
 		expect(logs[0].cost).toBe(0.85);
 	});
 
-	test("/v1/videos logs xAI polling error response contents", async () => {
+	test("/v1/videos caps logged xAI polling error response contents", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			token: "real-token",
@@ -1797,7 +1797,7 @@ describe("videos", () => {
 		expect(videoJob).toBeTruthy();
 
 		const upstreamError = {
-			detail: "The input image could not be processed",
+			detail: `The input image could not be processed: ${"x".repeat(5000)}discarded-suffix`,
 			request_id: "upstream-request-id",
 		};
 		setMockVideoStatusResponse(videoJob!.upstreamId, 400, upstreamError);
@@ -1818,12 +1818,17 @@ describe("videos", () => {
 		const log = await db.query.log.findFirst({
 			where: { requestId: { eq: videoJob!.requestId } },
 		});
-		const expectedError = `Upstream status request failed with status 400: ${JSON.stringify(
-			upstreamError,
-		)}`;
+		const expectedError = `Upstream status request failed with status 400: ${JSON.stringify(upstreamError).slice(0, 4000)}`;
+		const statusResponse = persistedJob?.upstreamStatusResponse as Record<
+			string,
+			unknown
+		>;
 		expect(persistedJob?.status).toBe("failed");
 		expect(persistedJob?.error?.message).toContain(expectedError);
+		expect(statusResponse.llmgateway_last_poll_error).toBe(expectedError);
 		expect(log?.errorDetails?.responseText).toContain(expectedError);
+		expect(JSON.stringify(persistedJob)).not.toContain("discarded-suffix");
+		expect(JSON.stringify(log)).not.toContain("discarded-suffix");
 	});
 
 	test("/v1/videos supports completed google-vertex jobs", async () => {
