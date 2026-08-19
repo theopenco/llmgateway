@@ -279,6 +279,23 @@ async function main(): Promise<void> {
 			`  Plan: delete ${rows.length} legacy row(s), insert ${toInsert.length} correct row(s) — net change to refund total: $${(stripeTotal - legacyTotal).toFixed(2)}`,
 		);
 
+		// Spell out every row that would be written so a dry run can be reviewed
+		// (and diffed against the deleted rows above) before committing.
+		if (toInsert.length > 0) {
+			console.log(`  Rows that would be inserted:`);
+			for (const r of toInsert) {
+				const refundDollars = r.amount / 100;
+				console.log(
+					`    + amount=$${refundDollars.toFixed(2)} refundId=${r.id} created=${new Date(r.created * 1000).toISOString()} reason=${r.reason ?? "—"}`,
+				);
+				console.log(
+					`      related=${sample.relatedTransactionId} description=${JSON.stringify(
+						`${buildRefundDescription(refundDollars, original)} [backfilled]`,
+					)}`,
+				);
+			}
+		}
+
 		if (commit) {
 			await db.transaction(async (tx) => {
 				await tx
