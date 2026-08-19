@@ -75,6 +75,8 @@ export function getApiKeyFingerprint(token: string): string {
 }
 
 function getApiKeyFingerprintWithSecret(token: string, secret: string): string {
+	// API keys are high-entropy random bearer tokens, not user passwords. A keyed
+	// HMAC provides deterministic lookup without exposing their plaintext.
 	// lgtm[js/insufficient-password-hash]
 	return createHmac("sha256", secret).update(token).digest("hex");
 }

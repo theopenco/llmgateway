@@ -1,17 +1,19 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { getCookie, setCookie } from "hono/cookie";
+import { getCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
 
 import { awardLoungePoints } from "@/utils/lounge-points.js";
 import { buildOrgHistoryFilter } from "@/utils/org-history-filter.js";
 import { getOrCreateChatOrg } from "@/utils/personal-org.js";
-import { getOrRollPlaygroundApiKey } from "@/utils/playground-key.js";
+import {
+	getOrCreatePlaygroundApiKey,
+	PLAYGROUND_KEY_COOKIE_NAME,
+	setPlaygroundKeyCookie,
+} from "@/utils/playground-key.js";
 
 import { db, tables, desc, eq, and, sql } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
-
-const COOKIE_NAME = "llmgateway_playground_key";
 
 const playground = new OpenAPIHono<ServerTypes>();
 
@@ -70,20 +72,14 @@ playground.openapi(ensureKey, async (c) => {
 		});
 	}
 
-	const token = await getOrRollPlaygroundApiKey(
+	const { token } = await getOrCreatePlaygroundApiKey(
 		projectId,
 		user.id,
-		getCookie(c, COOKIE_NAME),
+		getCookie(c, PLAYGROUND_KEY_COOKIE_NAME),
 	);
 
 	// Set httpOnly cookie for playground API key (API domain)
-	setCookie(c, COOKIE_NAME, token, {
-		httpOnly: true,
-		secure: process.env.NODE_ENV === "production",
-		sameSite: "Lax",
-		path: "/",
-		maxAge: 60 * 60 * 24 * 30, // 30 days
-	});
+	setPlaygroundKeyCookie(c, token);
 
 	return c.json({ ok: true, token });
 });
@@ -152,7 +148,7 @@ const getKey = createRoute({
 });
 
 playground.openapi(getKey, async (c) => {
-	const cookie = getCookie(c, COOKIE_NAME);
+	const cookie = getCookie(c, PLAYGROUND_KEY_COOKIE_NAME);
 	return c.json({ hasKey: !!cookie });
 });
 
