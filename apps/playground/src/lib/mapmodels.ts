@@ -7,21 +7,21 @@ export function mapModels(
 ): ComboboxModel[] {
 	const entries: ComboboxModel[] = [];
 	for (const m of models) {
-		// Add root model entry
-		const rootProviders = m.mappings.map((p) => ({
+		// Add canonical model entry
+		const canonicalProviders = m.mappings.map((p) => ({
 			providerInfo: providers.find((pr) => pr.id === p.providerId),
 			...p,
 		}));
 
 		// Determine capabilities based on if ANY provider supports them
-		const hasVision = rootProviders.some((p) => p.vision);
-		const hasAudio = rootProviders.some((p) => p.audio);
-		const hasTools = rootProviders.some((p) => p.tools);
+		const hasVision = canonicalProviders.some((p) => p.vision);
+		const hasAudio = canonicalProviders.some((p) => p.audio);
+		const hasTools = canonicalProviders.some((p) => p.tools);
 		const hasImageGen = m.output?.includes("image");
-		const supportsVideoAudio = rootProviders.some(
+		const supportsVideoAudio = canonicalProviders.some(
 			(p) => p.supportsVideoAudio !== false,
 		);
-		const supportsVideoWithoutAudio = rootProviders.some(
+		const supportsVideoWithoutAudio = canonicalProviders.some(
 			(p) => p.supportsVideoWithoutAudio === true,
 		);
 

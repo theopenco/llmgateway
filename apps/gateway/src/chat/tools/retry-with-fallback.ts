@@ -228,7 +228,7 @@ export function shouldRetryRequest(opts: {
 	if (opts.remainingProviders <= 0) {
 		return false;
 	}
-	if (opts.usedProvider === "custom" || opts.usedProvider === "llmgateway") {
+	if (opts.usedProvider === "llmgateway") {
 		return false;
 	}
 	return true;

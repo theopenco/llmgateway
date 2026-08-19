@@ -367,6 +367,27 @@ function normalizeToolParameters(tools?: OpenAIToolInput[]): typeof tools {
 	});
 }
 
+function normalizeGoogleSchemaEnum(values: unknown): string[] | undefined {
+	if (!Array.isArray(values)) {
+		return undefined;
+	}
+
+	const normalized: string[] = [];
+	for (const value of values) {
+		if (
+			value !== null &&
+			typeof value !== "string" &&
+			typeof value !== "number" &&
+			typeof value !== "boolean"
+		) {
+			return undefined;
+		}
+		normalized.push(String(value));
+	}
+
+	return normalized;
+}
+
 /**
  * Converts OpenAI JSON schema format to Google's schema format
  * Google uses uppercase type names (STRING, OBJECT, ARRAY) vs OpenAI's lowercase (string, object, array)
@@ -418,9 +439,11 @@ function convertOpenAISchemaToGoogle(schema: any): any {
 		converted.required = schema.required;
 	}
 
-	// Copy enum if present
-	if (schema.enum) {
-		converted.enum = schema.enum;
+	// Google's Schema proto represents every enum member as a string, including
+	// members of numeric and boolean schemas.
+	const normalizedEnum = normalizeGoogleSchemaEnum(schema.enum);
+	if (normalizedEnum !== undefined) {
+		converted.enum = normalizedEnum;
 	}
 
 	// Copy other common JSON schema properties that Google supports
@@ -571,7 +594,6 @@ const GOOGLE_SUPPORTED_SCHEMA_KEYS: ReadonlySet<string> = new Set([
 const GOOGLE_OPAQUE_SCHEMA_VALUE_KEYS: ReadonlySet<string> = new Set([
 	"default",
 	"example",
-	"enum",
 ]);
 
 /**
@@ -671,6 +693,14 @@ function stripUnsupportedSchemaProperties(
 
 	for (const [key, value] of Object.entries(schema)) {
 		if (!GOOGLE_SUPPORTED_SCHEMA_KEYS.has(key)) {
+			continue;
+		}
+
+		if (key === "enum") {
+			const normalizedEnum = normalizeGoogleSchemaEnum(value);
+			if (normalizedEnum !== undefined) {
+				cleaned.enum = normalizedEnum;
+			}
 			continue;
 		}
 
@@ -1263,7 +1293,7 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
  * Prepares the request body for different providers.
  *
  * @param usedProvider - Provider id used for routing.
- * @param usedInternalModel - Canonical LLM Gateway model id (root id). Used
+ * @param usedInternalModel - Canonical LLM Gateway model id. Used
  *   for ALL internal lookups (model def + provider mapping). Never the
  *   provider-specific upstream id.
  * @param usedRegion - Region the request is bound to, when the mapping has
@@ -2568,7 +2598,26 @@ export async function prepareRequestBody(
 			// response_format leave the provider default rather than disabling —
 			// unless the caller explicitly asked for "none".
 			if (supportsReasoning) {
-				if (reasoning_effort === "none") {
+				// glm-5.3 dropped support for disabling thinking: sending
+				// thinking.type "disabled" fails the request, and effort is
+				// selected via the native `reasoning_effort` field (low/high/max,
+				// default max). A zai mapping whose declared reasoningEfforts
+				// exclude "none" is such an always-on model: keep thinking
+				// enabled, forward the effort tier as-is, and collapse disable
+				// requests (none/minimal) onto the provider default.
+				const declaredEfforts = providerMappingForOptions?.reasoningEfforts;
+				const alwaysThinks =
+					declaredEfforts !== undefined && !declaredEfforts.includes("none");
+				if (alwaysThinks) {
+					requestBody.thinking = { type: "enabled" };
+					if (
+						reasoning_effort !== undefined &&
+						reasoning_effort !== "none" &&
+						reasoning_effort !== "minimal"
+					) {
+						requestBody.reasoning_effort = reasoning_effort;
+					}
+				} else if (reasoning_effort === "none") {
 					requestBody.thinking = { type: "disabled" };
 				} else {
 					const wantsThinking =
@@ -3209,9 +3258,7 @@ export async function prepareRequestBody(
 				}
 				if (reasoning_effort !== undefined) {
 					const reasoningEffort =
-						reasoning_effort === "minimal" || reasoning_effort === "xhigh"
-							? "low"
-							: reasoning_effort;
+						reasoning_effort === "minimal" ? "low" : reasoning_effort;
 					requestBody.reasoning = {
 						effort: reasoningEffort,
 					};
@@ -4269,6 +4316,52 @@ export async function prepareRequestBody(
 					requestBody.thinking = { type: "disabled" };
 				}
 			} else if (reasoning_effort !== undefined) {
+				requestBody.reasoning_effort = reasoning_effort;
+			}
+			break;
+		}
+
+		case "gonka24": {
+			if (stream) {
+				requestBody.stream_options = {
+					include_usage: true,
+				};
+			}
+			if (response_format) {
+				requestBody.response_format = response_format;
+			}
+
+			// Add optional parameters if they are provided
+			if (temperature !== undefined) {
+				requestBody.temperature = temperature;
+			}
+			if (max_tokens !== undefined) {
+				requestBody.max_tokens = max_tokens;
+			}
+			if (top_p !== undefined) {
+				requestBody.top_p = top_p;
+			}
+			if (frequency_penalty !== undefined) {
+				requestBody.frequency_penalty = frequency_penalty;
+			}
+			if (presence_penalty !== undefined) {
+				requestBody.presence_penalty = presence_penalty;
+			}
+
+			// Gonka24 keeps thinking off by default, and only the binary `thinking`
+			// switch turns it on — `reasoning_effort` alone never does, and the
+			// chat-template flag is ignored. So the effort decides the switch:
+			// "none" disables, any other tier enables. The effort is forwarded
+			// alongside it because the deployment validates it against its enum and
+			// grades the tiers by intent; today they measure the same (low/medium/
+			// high differ by ~6% in reasoning length over 40 samples each, well
+			// inside noise), but forwarding means real grading works the moment the
+			// provider implements it, with no gateway change.
+			if (supportsReasoning && reasoning_effort !== undefined) {
+				requestBody.thinking =
+					reasoning_effort === "none"
+						? { type: "disabled" }
+						: { type: "enabled" };
 				requestBody.reasoning_effort = reasoning_effort;
 			}
 			break;

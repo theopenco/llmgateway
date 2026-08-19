@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { isUserHighRisk } from "@/lib/account-risk.js";
 import {
 	computeSelfRefundEligibility,
 	executeSelfRefund,
@@ -21,7 +22,12 @@ import {
 } from "@/utils/invoice.js";
 import { isConfigurableDomain, normalizeDomain } from "@/utils/sso-domain.js";
 
+import {
+	getOrgTierQualifyingSpendUsd,
+	getTopUpVelocityUsage,
+} from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
+import { redisClient } from "@llmgateway/cache";
 import {
 	and,
 	db,
@@ -38,6 +44,19 @@ import { getProviderCountries, models, providers } from "@llmgateway/models";
 import {
 	CREDIT_TOP_UP_MAX_AMOUNT,
 	CUSTOM_PROVIDER_NAME_REGEX,
+	getBaseLimit,
+	getNextSpendTier,
+	getOrgSpendTier,
+	getPlanClass,
+	isCappedOrg,
+	isOrgRateLimitEnabled,
+	isSpendCapEnabled,
+	isTopUpVelocityEnabled,
+	isTopUpVelocityGatedOrg,
+	PATH_RATE_LIMITS,
+	resolveTrustTierOverride,
+	spendDailyKey,
+	spendMonthlyKey,
 } from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
@@ -519,6 +538,8 @@ organization.openapi(createOrganization, async (c) => {
 		.values({
 			name,
 			billingEmail: user.email,
+			// A flagged user cannot escape the block by creating a fresh org.
+			riskFlagged: await isUserHighRisk(user.id),
 		})
 		.returning();
 
@@ -1550,6 +1571,213 @@ organization.openapi(getCreditsRunway, async (c) => {
 		avgDailySpend7d: Math.round(avgDailySpend7d * 100) / 100,
 		runwayDays,
 		balance,
+	});
+});
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+const getOrganizationLimits = createRoute({
+	method: "get",
+	path: "/{id}/limits",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						// enterprise orgs have no gateway rate limits or spend caps at all
+						enterprise: z.boolean(),
+						planClass: z.enum(["regular", "dev", "chat"]),
+						// False when GATEWAY_RATE_LIMITS_ENABLED=false: the endpoint RPM
+						// table is not enforced platform-wide.
+						rateLimitsApply: z.boolean(),
+						// True when support pinned the tier; progression does not apply.
+						tierOverridden: z.boolean(),
+						// whether daily/monthly USD spend caps apply (regular PAYG orgs)
+						capsApply: z.boolean(),
+						plan: z.string(),
+						accountAgeDays: z.number(),
+						lifetimeSpendUsd: z.number(),
+						tier: z.object({
+							tier: z.number(),
+							rpmMultiplier: z.number(),
+							dailyCapUsd: z.number(),
+							monthlyCapUsd: z.number(),
+							topUpDailyCapUsd: z.number(),
+						}),
+						usage: z.object({
+							dailySpentUsd: z.number(),
+							monthlySpentUsd: z.number(),
+						}),
+						// Rolling-24h top-up allowance; null when the org is exempt.
+						topUp: z
+							.object({
+								capUsd: z.number(),
+								windowHours: z.number(),
+								usedUsd: z.number(),
+								remainingUsd: z.number(),
+							})
+							.nullable(),
+						nextTier: z
+							.object({
+								tier: z.number(),
+								rpmMultiplier: z.number(),
+								dailyCapUsd: z.number(),
+								monthlyCapUsd: z.number(),
+								topUpDailyCapUsd: z.number(),
+								ageDaysRequired: z.number(),
+								spendUsdRequired: z.number(),
+								daysUntilQualify: z.number(),
+								spendUsdUntilQualify: z.number(),
+								minAgeDaysRequired: z.number(),
+								daysUntilSpendPathUnlocks: z.number(),
+							})
+							.nullable(),
+						endpoints: z.array(
+							z.object({
+								key: z.string(),
+								path: z.string(),
+								rpm: z.number(),
+							}),
+						),
+					}),
+				},
+			},
+			description: "Organization rate-limit and spend-cap tier info",
+		},
+	},
+});
+
+organization.openapi(getOrganizationLimits, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.param();
+	const membership = await db.query.userOrganization.findFirst({
+		where: { userId: { eq: user.id }, organizationId: { eq: id } },
+	});
+	if (!membership) {
+		throw new HTTPException(403, {
+			message: "You do not have access to this organization",
+		});
+	}
+	// Spend and org-wide caps are financial data, so developers (project-scoped
+	// members) are excluded, mirroring the credits-runway endpoint.
+	if (membership.role === "developer") {
+		throw new HTTPException(403, {
+			message: "Only organization owners and admins can view limits",
+		});
+	}
+
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: id } },
+	});
+	if (!org || org.status === "deleted") {
+		throw new HTTPException(404, { message: "Organization not found" });
+	}
+
+	const enterprise = org.plan === "enterprise";
+	// Mirror the enforcement kill switches: when caps are disabled platform-wide
+	// the Limits page must not claim they apply.
+	const capsApply = isCappedOrg(org) && isSpendCapEnabled();
+
+	// Tier-qualifying spend: lifetime usage minus completed refunds, floored at
+	// 0 — the same figure the gateway uses to resolve the trust tier, so the
+	// dashboard shows exactly what the tier is computed from.
+	const lifetimeSpendUsd = await getOrgTierQualifyingSpendUsd(id);
+
+	const now = Date.now();
+	const planClass = getPlanClass(org);
+	const tier = getOrgSpendTier(org, lifetimeSpendUsd, now);
+	const nextTier = getNextSpendTier(org, lifetimeSpendUsd, now);
+
+	const [dailyRaw, monthlyRaw] = await redisClient.mget(
+		spendDailyKey(id, now),
+		spendMonthlyKey(id, now),
+	);
+
+	const accountAgeDays = Math.floor(
+		(now - new Date(org.createdAt).getTime()) / 86_400_000,
+	);
+
+	// Entries sharing a key (the AI SDK spec-version prefixes) share one bucket
+	// — show them once.
+	const uniquePathConfigs = PATH_RATE_LIMITS.filter(
+		(cfg, index) =>
+			PATH_RATE_LIMITS.findIndex((c) => c.key === cfg.key) === index,
+	);
+	const endpoints = uniquePathConfigs.map((cfg) => {
+		const base = getBaseLimit(cfg, planClass);
+		// Only regular orgs get the spend-tier multiplier; dev/chat stay flat.
+		const rpm =
+			planClass === "regular" ? Math.floor(base * tier.rpmMultiplier) : base;
+		return { key: cfg.key, path: cfg.prefix, rpm };
+	});
+
+	// Rolling-24h top-up allowance (windowed transaction sum + in-flight
+	// reservations), shown only when the org is actually gated.
+	let topUp: {
+		capUsd: number;
+		windowHours: number;
+		usedUsd: number;
+		remainingUsd: number;
+	} | null = null;
+	if (
+		isTopUpVelocityEnabled() &&
+		isTopUpVelocityGatedOrg(org) &&
+		tier.topUpDailyCapUsd > 0
+	) {
+		const usage = await getTopUpVelocityUsage(id, now);
+		const usedUsd = usage.dbSumUsd + usage.reservedUsd;
+		topUp = {
+			capUsd: tier.topUpDailyCapUsd,
+			windowHours: 24,
+			usedUsd: round2(usedUsd),
+			remainingUsd: round2(Math.max(0, tier.topUpDailyCapUsd - usedUsd)),
+		};
+	}
+
+	return c.json({
+		enterprise,
+		planClass,
+		rateLimitsApply: isOrgRateLimitEnabled(),
+		tierOverridden: resolveTrustTierOverride(org) !== null,
+		capsApply,
+		plan: org.plan,
+		accountAgeDays,
+		lifetimeSpendUsd: round2(lifetimeSpendUsd),
+		tier: {
+			tier: tier.tier,
+			rpmMultiplier: tier.rpmMultiplier,
+			dailyCapUsd: tier.dailyCapUsd,
+			monthlyCapUsd: tier.monthlyCapUsd,
+			topUpDailyCapUsd: tier.topUpDailyCapUsd,
+		},
+		usage: {
+			dailySpentUsd: round2(Number(dailyRaw ?? 0) || 0),
+			monthlySpentUsd: round2(Number(monthlyRaw ?? 0) || 0),
+		},
+		topUp,
+		nextTier: nextTier
+			? {
+					tier: nextTier.tier,
+					rpmMultiplier: nextTier.rpmMultiplier,
+					dailyCapUsd: nextTier.dailyCapUsd,
+					monthlyCapUsd: nextTier.monthlyCapUsd,
+					topUpDailyCapUsd: nextTier.topUpDailyCapUsd,
+					ageDaysRequired: nextTier.ageDaysRequired,
+					spendUsdRequired: nextTier.spendUsdRequired,
+					daysUntilQualify: nextTier.daysUntilQualify,
+					spendUsdUntilQualify: round2(nextTier.spendUsdUntilQualify),
+					minAgeDaysRequired: nextTier.minAgeDaysRequired,
+					daysUntilSpendPathUnlocks: nextTier.daysUntilSpendPathUnlocks,
+				}
+			: null,
+		endpoints,
 	});
 });
 

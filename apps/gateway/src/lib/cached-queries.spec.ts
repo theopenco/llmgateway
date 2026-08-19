@@ -7,6 +7,7 @@ import {
 	eq,
 	apiKey,
 	apiKeyIamRule,
+	customModel,
 	organization,
 	project,
 	providerKey,
@@ -24,6 +25,7 @@ import {
 	findProjectById,
 	findOrganizationById,
 	findCustomProviderKey,
+	findActiveCustomModels,
 	findProviderKey,
 	findActiveProviderKeys,
 	findProviderKeysByProviders,
@@ -125,6 +127,24 @@ describe("Cached Queries - Gateway Database Access", () => {
 			organizationId: testOrgId,
 			status: "active",
 		});
+
+		await db.insert(customModel).values([
+			{
+				id: "test-active-custom-model",
+				providerKeyId: "test-custom-provider-key",
+				organizationId: testOrgId,
+				modelName: "claude-haiku-4-5",
+				inputPrice: "1e-6",
+				outputPrice: "2e-6",
+			},
+			{
+				id: "test-inactive-custom-model",
+				providerKeyId: "test-custom-provider-key",
+				organizationId: testOrgId,
+				modelName: "inactive-model",
+				status: "inactive",
+			},
+		]);
 
 		await db.insert(apiKeyIamRule).values({
 			id: testIamRuleId,
@@ -233,6 +253,20 @@ describe("Cached Queries - Gateway Database Access", () => {
 			const result = await findCustomProviderKey(testOrgId, "nonexistent");
 
 			expect(result).toBeUndefined();
+		});
+	});
+
+	describe("findActiveCustomModels", () => {
+		it("finds active custom models for an organization", async () => {
+			const result = await findActiveCustomModels(testOrgId);
+
+			expect(result.map((model) => model.id)).toEqual([
+				"test-active-custom-model",
+			]);
+		});
+
+		it("returns an empty array for another organization", async () => {
+			expect(await findActiveCustomModels("nonexistent-org")).toEqual([]);
 		});
 	});
 

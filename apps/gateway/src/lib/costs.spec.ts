@@ -798,9 +798,9 @@ describe("calculateCosts", () => {
 			79,
 		);
 
-		expect(result.inputCost).toBeCloseTo(0.0000105, 10); // 21 * 0.5e-6
-		// 82 * 2.8e-6, not 161 * 2.8e-6 = 0.0004508 (96% over)
-		expect(result.outputCost).toBeCloseTo(0.0002296, 10);
+		expect(result.inputCost).toBeCloseTo(0.00001995, 10); // 21 * 0.95e-6
+		// 82 * 4.0e-6, not 161 * 4.0e-6 = 0.000644 (96% over)
+		expect(result.outputCost).toBeCloseTo(0.000328, 10);
 		expect(result.completionTokens).toBe(82);
 	});
 
@@ -2421,6 +2421,7 @@ describe("sumTotalTokens", () => {
 			"alibaba",
 			"baidu",
 			"bytedance",
+			"gonka24",
 			"permafrost",
 			"canopywave",
 			"cerebras",

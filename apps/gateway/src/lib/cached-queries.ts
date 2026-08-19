@@ -27,16 +27,15 @@ import {
 	apiKeyHourlyStats as apiKeyHourlyStatsTable,
 	apiKeyIamRule as apiKeyIamRuleTable,
 	customModel as customModelTable,
-	discount as discountTable,
 	endCustomer as endCustomerTable,
 	endUserSession as endUserSessionTable,
+	getEffectiveDiscount,
 	getEffectiveRateLimit,
 	addApiKeyPeriodDuration,
 	providerKeyAllowsModel,
 	organization as organizationTable,
 	project as projectTable,
 	providerKey as providerKeyTable,
-	rateLimit as rateLimitTable,
 	routingScoreMultiplier as routingScoreMultiplierTable,
 	user as userTable,
 	userIamRule as userIamRuleTable,
@@ -87,14 +86,12 @@ type Wallet = InferSelectModel<typeof wallet>;
 const apiKeyTableName = getTableName(apiKeyTable);
 const apiKeyHourlyStatsTableName = getTableName(apiKeyHourlyStatsTable);
 const apiKeyIamRuleTableName = getTableName(apiKeyIamRuleTable);
-const discountTableName = getTableName(discountTable);
 const endCustomerTableName = getTableName(endCustomerTable);
 const endUserSessionTableName = getTableName(endUserSessionTable);
 const organizationTableName = getTableName(organizationTable);
 const projectTableName = getTableName(projectTable);
 const providerKeyTableName = getTableName(providerKeyTable);
 const customModelTableName = getTableName(customModelTable);
-const rateLimitTableName = getTableName(rateLimitTable);
 const routingScoreMultiplierTableName = getTableName(
 	routingScoreMultiplierTable,
 );
@@ -325,6 +322,27 @@ export async function findOrganizationByIdFresh(
 }
 
 /**
+ * Find an organization by ID using only the cached path (no 0-credit bypass).
+ *
+ * Use this when a slightly stale view is acceptable and a guaranteed cache hit
+ * matters more than fresh credits (e.g. checking the org `plan` for rate
+ * limiting). For credit/billing decisions use {@link findOrganizationById},
+ * which refetches via a short-TTL fresh read when credits are exhausted.
+ */
+export async function findOrganizationCachedById(
+	id: string,
+): Promise<Organization | undefined> {
+	return await swrWrap(`org:${id}`, [organizationTableName], async () => {
+		const results = await db
+			.select()
+			.from(organizationTable)
+			.where(eq(organizationTable.id, id))
+			.limit(1);
+		return results[0];
+	});
+}
+
+/**
  * Find an organization by ID (cacheable)
  * When the organization has 0 credits, refetch via a short-TTL fresh read so
  * topups and usage updates are reflected within FRESH_TTL_SECONDS without
@@ -333,14 +351,7 @@ export async function findOrganizationByIdFresh(
 export async function findOrganizationById(
 	id: string,
 ): Promise<Organization | undefined> {
-	const org = await swrWrap(`org:${id}`, [organizationTableName], async () => {
-		const results = await db
-			.select()
-			.from(organizationTable)
-			.where(eq(organizationTable.id, id))
-			.limit(1);
-		return results[0];
-	});
+	const org = await findOrganizationCachedById(id);
 
 	// If org has 0 or negative credits, refetch via the short-TTL fresh read
 	// so topups are reflected promptly without a per-request Postgres hit
@@ -476,6 +487,26 @@ export async function findCustomModel(
 				.limit(1),
 	);
 	return results[0];
+}
+
+/** Find every active custom model catalog entry for an organization. */
+export async function findActiveCustomModels(
+	organizationId: string,
+): Promise<CustomModel[]> {
+	return await swrWrap(
+		`customModel:active:${organizationId}`,
+		[customModelTableName],
+		async () =>
+			await db
+				.select()
+				.from(customModelTable)
+				.where(
+					and(
+						eq(customModelTable.status, "active"),
+						eq(customModelTable.organizationId, organizationId),
+					),
+				),
+	);
 }
 
 /**
@@ -942,174 +973,36 @@ export async function findActiveUserIamRules(
 }
 
 /**
- * Get the effective rate limits for an org/provider/model combination (SWR-cached).
- * Falls back to the last known Redis value when Postgres is unreachable.
+ * Get the effective rate limits for an org/provider/model combination.
+ *
+ * Thin alias for {@link getEffectiveRateLimit}, which carries both cache
+ * layers itself (cdb + an internal swrWrap on the same `rateLimit:*` key) so
+ * every caller shares one cached implementation. Do NOT re-wrap this in
+ * swrWrap: nesting the same key would deadlock the in-flight coalescer.
  */
 export async function findEffectiveRateLimit(
 	organizationId: string | null,
 	provider: string,
 	model: string,
 ): Promise<EffectiveRateLimit> {
-	const orgPart = organizationId ?? "global";
-	return await swrWrap(
-		`rateLimit:${orgPart}:${provider}:${model}`,
-		[rateLimitTableName],
-		() => getEffectiveRateLimit(organizationId, provider, model),
-	);
+	return await getEffectiveRateLimit(organizationId, provider, model);
 }
 
 /**
- * Get the effective discount for an org/provider/model combination (SWR-cached).
- * Falls back to the last known Redis value when Postgres is unreachable.
+ * Get the effective discount for an org/provider/model combination.
+ *
+ * Thin alias for {@link getEffectiveDiscount}, which carries both cache layers
+ * itself (cdb + an internal swrWrap on the same `discount:*` key) so every
+ * caller — routing, billing, realtime — shares one cached implementation. Do
+ * NOT re-wrap this in swrWrap: nesting the same key would deadlock the
+ * in-flight coalescer.
  */
 export async function findEffectiveDiscount(
 	organizationId: string | null,
 	provider: string,
 	model: string,
 ): Promise<EffectiveDiscount> {
-	const orgPart = organizationId ?? "global";
-	return await swrWrap(
-		`discount:${orgPart}:${provider}:${model}`,
-		[discountTableName],
-		async () => {
-			// The expiry filter is applied in JS below, NOT in SQL: a `now` Date in
-			// the WHERE clause becomes a query parameter, and the cached client keys
-			// its cache on hashQuery(sql, params). A per-request millisecond `now`
-			// would make that key unique every call, so the cache would never hit and
-			// this (hot, per-provider-candidate) lookup would query Postgres on every
-			// request. Keeping the SQL time-independent lets the cache key stay stable
-			// while expiry is still evaluated fresh on each call.
-			const rows = await db
-				.select({
-					id: discountTable.id,
-					organizationId: discountTable.organizationId,
-					provider: discountTable.provider,
-					model: discountTable.model,
-					discountPercent: discountTable.discountPercent,
-					expiresAt: discountTable.expiresAt,
-				})
-				.from(discountTable)
-				.where(
-					and(
-						or(
-							isNull(discountTable.organizationId),
-							organizationId
-								? eq(discountTable.organizationId, organizationId)
-								: isNull(discountTable.organizationId),
-						),
-						or(
-							eq(discountTable.provider, provider),
-							isNull(discountTable.provider),
-						),
-						or(eq(discountTable.model, model), isNull(discountTable.model)),
-					),
-				);
-
-			const now = Date.now();
-			const discounts = rows.filter(
-				// expiresAt is a Date on both a fresh query and a Drizzle cache hit
-				// (the cache stores the raw pg result and re-applies the timestamp
-				// parser on restore). Wrap in new Date() defensively so the compare
-				// is robust even if a serialized value ever reaches here.
-				(row) =>
-					row.expiresAt === null || new Date(row.expiresAt).getTime() >= now,
-			);
-
-			const modelMatches = (discountModel: string | null): boolean =>
-				discountModel !== null && discountModel === model;
-
-			if (organizationId) {
-				const orgProviderModel = discounts.find(
-					(discount) =>
-						discount.organizationId === organizationId &&
-						discount.provider === provider &&
-						modelMatches(discount.model),
-				);
-				if (orgProviderModel) {
-					return {
-						discount: orgProviderModel.discountPercent,
-						source: "org_provider_model",
-						discountId: orgProviderModel.id,
-					};
-				}
-
-				const orgProvider = discounts.find(
-					(discount) =>
-						discount.organizationId === organizationId &&
-						discount.provider === provider &&
-						discount.model === null,
-				);
-				if (orgProvider) {
-					return {
-						discount: orgProvider.discountPercent,
-						source: "org_provider",
-						discountId: orgProvider.id,
-					};
-				}
-
-				const orgModel = discounts.find(
-					(discount) =>
-						discount.organizationId === organizationId &&
-						discount.provider === null &&
-						modelMatches(discount.model),
-				);
-				if (orgModel) {
-					return {
-						discount: orgModel.discountPercent,
-						source: "org_model",
-						discountId: orgModel.id,
-					};
-				}
-			}
-
-			const globalProviderModel = discounts.find(
-				(discount) =>
-					discount.organizationId === null &&
-					discount.provider === provider &&
-					modelMatches(discount.model),
-			);
-			if (globalProviderModel) {
-				return {
-					discount: globalProviderModel.discountPercent,
-					source: "global_provider_model",
-					discountId: globalProviderModel.id,
-				};
-			}
-
-			const globalProvider = discounts.find(
-				(discount) =>
-					discount.organizationId === null &&
-					discount.provider === provider &&
-					discount.model === null,
-			);
-			if (globalProvider) {
-				return {
-					discount: globalProvider.discountPercent,
-					source: "global_provider",
-					discountId: globalProvider.id,
-				};
-			}
-
-			const globalModel = discounts.find(
-				(discount) =>
-					discount.organizationId === null &&
-					discount.provider === null &&
-					modelMatches(discount.model),
-			);
-			if (globalModel) {
-				return {
-					discount: globalModel.discountPercent,
-					source: "global_model",
-					discountId: globalModel.id,
-				};
-			}
-
-			return {
-				discount: "0",
-				source: "none",
-			};
-		},
-	);
+	return await getEffectiveDiscount(organizationId, provider, model);
 }
 
 export interface EffectiveRoutingScoreMultiplier {

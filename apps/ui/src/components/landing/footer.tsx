@@ -165,6 +165,15 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
+										href="/partners"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Partners
+									</Link>
+								</li>
+								<li>
+									<Link
 										href="/products/lounge"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch={true}
@@ -216,6 +225,15 @@ export default function Footer() {
 								Resources
 							</h3>
 							<ul className="space-y-2">
+								<li>
+									<Link
+										href="/legal"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Legal Overview
+									</Link>
+								</li>
 								<li>
 									<Link
 										href="/apps"
@@ -418,11 +436,20 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
-										href="/legal/privacy"
+										href="/legal/providers"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch={true}
 									>
-										GDPR
+										Provider Information
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/legal/sub-processors"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Sub-processors
 									</Link>
 								</li>
 								<li>

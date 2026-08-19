@@ -1,3 +1,5 @@
+import ipaddr from "ipaddr.js";
+
 type HeaderGetter = (name: string) => string | null | undefined;
 
 // Header precedence used across the API for the originating client IP.
@@ -34,4 +36,27 @@ export function getClientIpFromContext(c: {
 	req: { header: (name: string) => string | undefined };
 }): string | null {
 	return getClientIp((name) => c.req.header(name));
+}
+
+/**
+ * Whether an address is routable on the public internet. Private, loopback,
+ * link-local and reserved ranges (including IPv4-mapped IPv6) return false, so
+ * geo and reputation lookups skip addresses no third party can resolve.
+ */
+export function isPublicIp(ip: string | null | undefined): boolean {
+	if (!ip) {
+		return false;
+	}
+	try {
+		let parsed = ipaddr.parse(ip);
+		if (
+			parsed.kind() === "ipv6" &&
+			(parsed as ipaddr.IPv6).isIPv4MappedAddress()
+		) {
+			parsed = (parsed as ipaddr.IPv6).toIPv4Address();
+		}
+		return parsed.range() === "unicast";
+	} catch {
+		return false;
+	}
 }

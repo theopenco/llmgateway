@@ -2,6 +2,39 @@ import type { ModelDefinition } from "@/models.js";
 
 export const zaiModels = [
 	{
+		id: "glm-5.3",
+		name: "GLM-5.3",
+		description:
+			"Zhipu GLM-5.3 flagship coding model, post-trained on the GLM-5.2 base with stronger agentic coding and emergent cybersecurity capabilities and a 1M context window.",
+		family: "zai",
+		releasedAt: new Date("2026-08-14"),
+		providers: [
+			{
+				providerId: "zai",
+				externalId: "glm-5.3",
+				inputPrice: "1.4e-6",
+				cachedInputPrice: "0.26e-6",
+				outputPrice: "4.4e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 128000,
+				streaming: true,
+				reasoning: true,
+				// glm-5.3 dropped support for disabling thinking, so no "none"
+				// tier: a request that omits thinking or sends thinking.type
+				// "disabled" is rejected with code 1210, "This model always
+				// engages in thinking and cannot be disabled; please use low,
+				// high, or max".
+				reasoningEfforts: ["low", "high", "max"],
+				vision: false,
+				tools: true,
+				webSearch: true,
+				webSearchPrice: "0.01",
+				jsonOutput: true,
+			},
+		],
+	},
+	{
 		id: "glm-5.2",
 		name: "GLM-5.2",
 		description:

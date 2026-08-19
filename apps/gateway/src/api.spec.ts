@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { redisClient } from "@llmgateway/cache";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import { app } from "./app.js";
@@ -146,7 +147,7 @@ describe("api", () => {
 		});
 
 		// Direct provider routing is never available on dev plans. The
-		// `provider/model` format stays blocked; only the canonical root id
+		// `provider/model` format stays blocked; only the canonical model id
 		// (`deepseek-v4-pro`) is allowed on dev plans.
 		await harness.setDevPlan({ devPlan: "pro" });
 
@@ -3394,6 +3395,55 @@ describe("api", () => {
 		);
 	});
 
+	test("/v1/chat/completions returns 429 when the org is over its daily spend cap", async () => {
+		await harness.setProjectMode("credits");
+		await harness.setOrganizationCredits("100");
+		await db
+			.update(tables.organization)
+			.set({ retentionLevel: "none" })
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-spend-cap",
+			token: "real-token-spend-cap",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const now = new Date();
+		const dayKey = `${now.getUTCFullYear()}-${String(
+			now.getUTCMonth() + 1,
+		).padStart(2, "0")}-${String(now.getUTCDate()).padStart(2, "0")}`;
+		const counterKey = `spend_cap:daily:org-id:${dayKey}`;
+
+		process.env.GATEWAY_SPEND_CAPS_ENABLED = "true";
+		// Well above any tier's daily cap so this holds regardless of the seeded
+		// org's age/spend tier.
+		await redisClient.set(counterKey, "1000000");
+		try {
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-spend-cap",
+				},
+				body: JSON.stringify({
+					model: "gpt-4o-mini",
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(429);
+			const json = await res.json();
+			expect(json.error.type).toBe("rate_limit_error");
+			expect(json.error.message).toContain("spend limit");
+		} finally {
+			delete process.env.GATEWAY_SPEND_CAPS_ENABLED;
+			await redisClient.del(counterKey);
+		}
+	});
+
 	test("/v1/embeddings hybrid fallback requires credits", async () => {
 		await harness.setProjectMode("hybrid");
 		await harness.setOrganizationCredits("0");
@@ -4028,7 +4078,7 @@ describe("api", () => {
 		}
 	});
 
-	test("/v1/embeddings google-vertex requires project id", async () => {
+	test("/v1/embeddings google-vertex supports a projectless managed API key", async () => {
 		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 		delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
 		try {
@@ -4040,12 +4090,14 @@ describe("api", () => {
 				createdBy: "user-id",
 			});
 
-			await db.insert(tables.providerKey).values({
-				id: "provider-key-id-embeddings-vertex-noproj",
+			await harness.setProjectMode("credits");
+			await cdb.insert(tables.providerKey).values({
+				id: "managed-key-embeddings-vertex-noproj",
 				token: "vertex-test-token",
 				provider: "google-vertex",
-				organizationId: "org-id",
-				baseUrl: mockServerUrl,
+				managed: true,
+				organizationId: null,
+				config: { baseUrl: mockServerUrl },
 			});
 
 			const res = await app.request("/v1/embeddings", {
@@ -4060,10 +4112,12 @@ describe("api", () => {
 				}),
 			});
 
-			expect(res.status).toBe(500);
+			expect(res.status).toBe(200);
 			const json = await res.json();
-			expect(json.error?.code).toBe("missing_project_id");
+			expect(json.data).toHaveLength(1);
+			expect(json.data[0].embedding).toHaveLength(3072);
 		} finally {
+			await harness.setProjectMode("api-keys");
 			if (originalGoogleCloudProject !== undefined) {
 				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
 			} else {
@@ -6616,7 +6670,7 @@ describe("api", () => {
 			createdBy: "user-id",
 		});
 
-		// Auto-routing now selects from Claude root models, so use a Claude-capable
+		// Auto-routing now selects from Claude canonical models, so use a Claude-capable
 		// provider that the mock server supports.
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",

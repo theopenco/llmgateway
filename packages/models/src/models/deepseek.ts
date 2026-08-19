@@ -187,14 +187,36 @@ export const deepseekModels = [
 			{
 				providerId: "bytedance",
 				externalId: "deepseek-v3-2-251201",
+				// Base fields are the [0, 32K] prompt-length band; Ark doubles the
+				// input and output rates above it.
 				inputPrice: "0.28e-6",
 				cachedInputPrice: "0.056e-6",
 				outputPrice: "0.42e-6",
+				pricingTiers: [
+					{
+						name: "Up to 32K",
+						upToTokens: 32768,
+						inputPrice: "0.28e-6",
+						outputPrice: "0.42e-6",
+						cachedInputPrice: "0.056e-6",
+					},
+					{
+						name: "Over 32K",
+						upToTokens: Infinity,
+						inputPrice: "0.56e-6",
+						outputPrice: "0.84e-6",
+						// The cache-hit rate is flat across both bands.
+						cachedInputPrice: "0.056e-6",
+					},
+				],
 				requestPrice: "0",
 				contextSize: 131072,
 				reasoning: true,
+				// Ark ignores `reasoning_effort` on this deployment and only reasons
+				// when sent `thinking: {type: "enabled"}`, which the gateway does not
+				// emit for bytedance, so no reasoning content ever comes back.
 				reasoningOutput: "omit" as const,
-				maxOutput: 131072,
+				maxOutput: 32768,
 				streaming: true,
 				vision: false,
 				tools: true,
@@ -344,11 +366,14 @@ export const deepseekModels = [
 			{
 				providerId: "together-ai",
 				externalId: "deepseek-ai/DeepSeek-V4-Pro-0813",
-				inputPrice: "1.74e-6",
-				cachedInputPrice: "0.2e-6",
-				outputPrice: "3.48e-6",
+				// Together also lists an undated `deepseek-ai/DeepSeek-V4-Pro` slug at
+				// its own (higher input, lower output) rate; this mapping must stay on
+				// the dated -0813 slug's own live pricing, not that one.
+				inputPrice: "1.32e-6",
+				cachedInputPrice: "0.13e-6",
+				outputPrice: "3.96e-6",
 				requestPrice: "0",
-				contextSize: 163840,
+				contextSize: 1048576,
 				maxOutput: 163840,
 				streaming: true,
 				reasoning: true,
@@ -412,7 +437,7 @@ export const deepseekModels = [
 				requestPrice: "0",
 				contextSize: 1048576,
 				maxOutput: 64000,
-				quantization: "fp4",
+				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
 				reasoningEfforts: ["none", "high", "max"],
@@ -471,6 +496,11 @@ export const deepseekModels = [
 			{
 				providerId: "canopywave",
 				externalId: "deepseek/deepseek-v4-pro",
+				// Unlike Flash (whose CanopyWave listing/title is
+				// deepseek-v4-flash-0731), Pro has no dated/GA slug here: the live
+				// listing's description still opens "We present a preview version of
+				// DeepSeek-V4 series..." (verified 2026-08-18). Pricing is correct
+				// for what's actually served — the preview build, not 0813 GA.
 				inputPrice: "1.74e-6",
 				cachedInputPrice: "0.01e-6",
 				outputPrice: "3.48e-6",
@@ -500,10 +530,13 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "fireworks",
-				externalId: "accounts/fireworks/models/deepseek-v4-pro",
-				inputPrice: "1.74e-6",
-				cachedInputPrice: "0.145e-6",
-				outputPrice: "3.48e-6",
+				// Fireworks keeps the unversioned `deepseek-v4-pro` slug pointed at
+				// the original preview build, at its own rate card, even after the
+				// 0813 GA release; the GA build only serves under this dedicated slug.
+				externalId: "accounts/fireworks/models/deepseek-v4-pro-0813",
+				inputPrice: "1.32e-6",
+				cachedInputPrice: "0.044e-6",
+				outputPrice: "3.96e-6",
 				requestPrice: "0",
 				// Fireworks prices DeepSeek's Priority tier at 1.5x standard rather
 				// than the 1.25x that applies to the rest of its catalogue.
@@ -524,6 +557,12 @@ export const deepseekModels = [
 			{
 				providerId: "baidu",
 				externalId: "deepseek-v4-pro",
+				// Unlike Flash (which Qianfan lists separately as
+				// deepseek-v4-flash-0731), Qianfan has no dated/GA slug for Pro:
+				// this listing's hugging_face_id is still deepseek-ai/DeepSeek-V4-Pro
+				// (the pre-0813 preview repo) and its description never mentions an
+				// official/GA release (verified 2026-08-18). Pricing is correct for
+				// what's actually served — the preview build, not 0813 GA.
 				inputPrice: "1.69e-6",
 				cachedInputPrice: "0.14e-6",
 				outputPrice: "3.38e-6",
@@ -708,7 +747,7 @@ export const deepseekModels = [
 				requestPrice: "0",
 				contextSize: 1000000,
 				maxOutput: 393216,
-				quantization: "fp4",
+				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
 				// DeepInfra keeps thinking off unless an effort is requested, and
@@ -868,6 +907,40 @@ export const deepseekModels = [
 				// they coerce to "auto" (verified 2026-08-09).
 				supportedToolChoices: ["auto", "none"],
 				jsonOutput: true,
+			},
+			{
+				providerId: "gonka24",
+				externalId: "deepseek-v4-flash-0731",
+				inputPrice: "0.075e-6",
+				cachedInputPrice: "0.0155e-6",
+				outputPrice: "0.175e-6",
+				requestPrice: "0",
+				// The deployment shares one 390000-token window between prompt and
+				// completion, and stops generating at 16384 tokens with
+				// finish_reason "length" no matter how high max_tokens is.
+				contextSize: 390000,
+				maxOutput: 16384,
+				streaming: true,
+				reasoning: true,
+				// The provider's accepted enum; anything outside it is a hard 400.
+				// Thinking is off by default and is turned on by the binary `thinking`
+				// switch the gateway derives from the effort (see the gonka24 case in
+				// prepare-request-body), not by the effort itself.
+				reasoningEfforts: ["none", "low", "medium", "high"],
+				vision: false,
+				tools: true,
+				// tool_choice "required" is not enforced — the model keeps answering
+				// in plain text — so it coerces to "auto"; named-function choice is
+				// honoured.
+				supportedToolChoices: ["auto", "none", "function"],
+				// The gateway rejects the OpenAI-only `developer` role ("Invalid enum
+				// value. Expected 'system' | 'user' | 'assistant' | 'tool'").
+				supportsDeveloperRole: false,
+				jsonOutput: true,
+				// `json_schema` is only prompt-steered, not constrained-decoded: the
+				// deployment emits the right keys but never stops, running into the
+				// output cap and returning truncated, unparseable JSON.
+				jsonOutputSchema: false,
 			},
 			{
 				providerId: "baidu",

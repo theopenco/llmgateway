@@ -233,6 +233,9 @@ function getPricingForTokenCount(
  * extract-token-usage builds totalTokens as prompt + output without re-adding
  * reasoning. Baidu's Qianfan makes the inclusion unusually explicit: a
  * thinking-only reply comes back with `completion_tokens === reasoning_tokens`.
+ * Gonka24 is the same shape without reporting any reasoning count at all: its
+ * `completion_tokens` covers the `reasoning` text too, so the estimate
+ * resolve-reasoning-tokens derives from that text must not be added on top.
  *
  * Adding reasoning on top for a provider on this list would roughly double the
  * billed output — and the reported `total_tokens` — on reasoning requests.
@@ -259,6 +262,7 @@ const COMPLETION_INCLUDES_REASONING = new Set([
 	"cerebras",
 	"deepseek",
 	"glacier",
+	"gonka24",
 	"google-ai-studio",
 	"google-vertex",
 	"granite",
@@ -308,10 +312,10 @@ export function sumTotalTokens(
  * If promptTokens or completionTokens are not available, it will try to
  * calculate them from the fullOutput parameter if provided.
  *
- * @param model - Root model id from `ModelDefinition.id`. Callers MUST pass
- *   the canonical root id, never the provider-specific upstream id
+ * @param model - Canonical model id from `ModelDefinition.id`. Callers MUST pass
+ *   the canonical model id, never the provider-specific upstream id
  *   (`externalId`). The upstream id is only ever for sending to the provider
- *   API; pricing/discount/rate-limit lookups all key on the root id.
+ *   API; pricing/discount/rate-limit lookups all key on the canonical model id.
  * @param provider - Provider id (e.g. "openai", "anthropic"). Required for
  *   per-provider pricing resolution.
  * @param region - Region id when the provider mapping defines per-region
@@ -396,7 +400,7 @@ export async function calculateCosts(
 	const customPricing = options?.customPricing;
 	const allowOutputEstimate = options?.allowOutputEstimate ?? true;
 
-	// Look up the model definition by the canonical root id only.
+	// Look up the model definition by the canonical model id only.
 	// externalId-based lookups are intentionally not supported here — the
 	// upstream provider id must never leak into pricing/discount lookups.
 	// For custom-provider requests with a catalog override, use a synthetic
@@ -506,7 +510,7 @@ export async function calculateCosts(
 	isEstimated = promptTokensEstimated || completionTokensEstimated;
 
 	// Find the provider-specific pricing, keyed by providerId + region.
-	// Region matters when a single root model id has multiple per-region
+	// Region matters when a single canonical model id has multiple per-region
 	// entries with different prices (see `regions:` on ProviderModelMapping);
 	// expandAllProviderRegions flattens those into one mapping per region.
 	//
@@ -662,7 +666,7 @@ export async function calculateCosts(
 			: cacheWriteInputPrice;
 	const requestPrice = new Decimal(providerInfo.requestPrice ?? "0");
 
-	// Discounts are keyed by the root model ID only.
+	// Discounts are keyed by the canonical model ID only.
 	const effectiveDiscountResult = await getEffectiveDiscount(
 		organizationId,
 		provider,

@@ -202,7 +202,7 @@ internalModels.openapi(getModelsRoute, async (c) => {
 	}
 
 	// Find the best global discount for a given provider+model. Discounts are
-	// always keyed by the root model ID.
+	// always keyed by the canonical model ID.
 	const getGlobalDiscount = (
 		providerId: string,
 		modelId: string,

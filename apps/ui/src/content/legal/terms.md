@@ -1,7 +1,7 @@
 ---
 id: "1"
 slug: "terms"
-date: "2026-06-11"
+date: "2026-08-18"
 title: "Terms Of Use"
 description: "Review the Terms of Use for LLM Gateway. Learn about account eligibility, billing, credits, AI outputs, acceptable use, warranties, liability, and dispute resolution when using our multi-provider AI gateway platform."
 ---
@@ -9,7 +9,7 @@ description: "Review the Terms of Use for LLM Gateway. Learn about account eligi
 # Terms of Use
 
 **Effective Date:** June 11, 2026  
-**Last Updated:** June 11, 2026
+**Last Updated:** August 18, 2026
 
 Welcome to **LLM Gateway** (“we”, “our”, or “us”), operated by **Polar Lights LLC**, 16192 Coastal Highway, Lewes, DE 19958, United States. These Terms of Use (“Terms”) form a binding legal agreement between you (“you” or “Customer”) and LLM Gateway and govern your access to and use of the LLM Gateway platform, including our website **[llmgateway.io](https://llmgateway.io)**, APIs, SDKs, dashboards, and any related products or services (collectively, the “Service”).
 
@@ -117,7 +117,9 @@ When using AI models through LLM Gateway, you are also subject to the **terms, p
 - We **do not control, endorse, or assume responsibility** for any AI model, provider, or output, including the accuracy of outputs, the intellectual-property status of outputs, or how providers process your data.
 - You bear all responsibility and risk for your use of AI outputs and for any decisions or actions taken based on them.
 
-**Stealth and undisclosed providers.** To improve availability, performance, and pricing, we may route some requests through **stealth providers** whose identity is not publicly disclosed (for example, providers offering preview or unreleased models under confidentiality). For these providers we **endeavor to obtain the same terms, privacy, and data-handling guarantees** that apply elsewhere on the Service, but because their identity and practices are not disclosed, **we cannot guarantee that they meet those standards**. If you require a known provider with a declared terms, privacy, and compliance posture, you can **pin your requests to specific providers** listed on our [Providers page](https://llmgateway.io/providers).
+**Automatic routing.** When you use automatic routing instead of pinning a provider, you authorize us to select among eligible providers. We may change internal routing scores, weights, preferences, and similar routing parameters at any time and at our discretion. These parameters affect provider selection but do not themselves change the price used to bill a request. If you require a particular provider, you must pin that provider in your request.
+
+**Stealth and undisclosed providers.** To improve availability, performance, and pricing, we may route some requests through **stealth providers** whose identity is not publicly disclosed (for example, providers offering preview or unreleased models under confidentiality). For these providers we **endeavor to obtain the same terms, privacy, and data-handling guarantees** that apply elsewhere on the Service, but because their identity and practices are not disclosed, **we cannot guarantee that they meet those standards**. If you require a known provider with a declared terms, privacy, and compliance posture, you can **pin your requests to specific providers** listed on our [Provider Information page](https://llmgateway.io/legal/providers).
 
 ---
 

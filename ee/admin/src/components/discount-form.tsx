@@ -91,6 +91,13 @@ function AdjustmentForm({
 	const isDiscount = kind === "discount";
 	const noun = isDiscount ? "Discount" : "Routing Multiplier";
 	const parsedValue = Number.parseFloat(value);
+	const routingPreview = !Number.isFinite(parsedValue)
+		? "Enter -10% to prioritize by 10%, or +10% to deprioritize by 10%."
+		: parsedValue < 0
+			? `Prioritized: routing compares at ${100 + parsedValue}% of the discounted price; billing is unchanged.`
+			: parsedValue > 0
+				? `Deprioritized: routing compares at ${100 + parsedValue}% of the discounted price; billing is unchanged.`
+				: "No change to routing preference or customer billing.";
 
 	const reset = () => {
 		setProvider("__all__");
@@ -161,7 +168,7 @@ function AdjustmentForm({
 					<DialogDescription>
 						{isDiscount
 							? "Create a customer discount for a provider, model, or combination."
-							: "Adjust internal routing preference without changing customer billing."}
+							: "Use a negative percentage to prioritize or a positive percentage to deprioritize. Customer billing is unchanged."}
 					</DialogDescription>
 				</DialogHeader>
 				<form onSubmit={handleSubmit} className="space-y-4">
@@ -241,7 +248,7 @@ function AdjustmentForm({
 								min={isDiscount ? 0 : -100}
 								max={isDiscount ? 100 : undefined}
 								step="0.1"
-								placeholder={isDiscount ? "30" : "-20 or 20"}
+								placeholder={isDiscount ? "30" : "-10"}
 								value={value}
 								onChange={(event) => setValue(event.target.value)}
 								required
@@ -253,7 +260,7 @@ function AdjustmentForm({
 						<p className="text-xs text-muted-foreground">
 							{isDiscount
 								? `Customer pays ${100 - (parsedValue || 0)}% of the original price`
-								: `Routes as ${100 + (parsedValue || 0)}% of the discounted price; billing is unchanged`}
+								: routingPreview}
 						</p>
 					</div>
 

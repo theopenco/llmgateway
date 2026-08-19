@@ -2,6 +2,11 @@ import { z } from "zod";
 
 import { models, providers } from "@llmgateway/models";
 
+import {
+	CUSTOM_PROVIDER_NAME_REGEX,
+	RESERVED_CUSTOM_PROVIDER_NAMES,
+} from "./custom-providers.js";
+
 /**
  * Reserved model-string prefix that invokes a named dynamic route instead of a
  * concrete model, e.g. `"model": "dynamic/support"`. The prefix is also a
@@ -21,6 +26,36 @@ export const DYNAMIC_ROUTE_NAME_MESSAGE =
 export const DYNAMIC_ROUTE_MAX_HOPS = 50;
 
 export const DYNAMIC_ROUTE_MAX_NODES = 100;
+
+export interface CustomDynamicRouteModelRef {
+	providerName: string;
+	modelName: string;
+}
+
+/**
+ * Parses the `<custom-provider>/<model>` reference stored by a model node.
+ * Official provider-prefixed model strings are intentionally excluded: model
+ * nodes store official canonical model ids and use `providers` for restrictions.
+ */
+export function parseCustomDynamicRouteModelRef(
+	model: string,
+): CustomDynamicRouteModelRef | undefined {
+	const separator = model.indexOf("/");
+	if (separator <= 0 || separator === model.length - 1) {
+		return undefined;
+	}
+	const providerName = model.slice(0, separator);
+	if (
+		!CUSTOM_PROVIDER_NAME_REGEX.test(providerName) ||
+		(RESERVED_CUSTOM_PROVIDER_NAMES as readonly string[]).includes(
+			providerName,
+		) ||
+		providers.some((provider) => provider.id === providerName)
+	) {
+		return undefined;
+	}
+	return { providerName, modelName: model.slice(separator + 1) };
+}
 
 // Restricted so ids stay safe to embed in composite identifiers (the visual
 // editor derives edge ids as `<nodeId>:<handle>`).
@@ -229,11 +264,19 @@ export const dynamicRouteGraphSchema = z
 			if (node.type === "model") {
 				const modelDef = models.find((m) => m.id === node.model);
 				if (!modelDef) {
-					ctx.addIssue({
-						code: z.ZodIssueCode.custom,
-						message: `Node "${node.id}": unknown model "${node.model}"`,
-						path: ["nodes", index, "model"],
-					});
+					if (!parseCustomDynamicRouteModelRef(node.model)) {
+						ctx.addIssue({
+							code: z.ZodIssueCode.custom,
+							message: `Node "${node.id}": unknown model "${node.model}"`,
+							path: ["nodes", index, "model"],
+						});
+					} else if (node.providers) {
+						ctx.addIssue({
+							code: z.ZodIssueCode.custom,
+							message: `Node "${node.id}": custom model "${node.model}" already fixes its provider`,
+							path: ["nodes", index, "providers"],
+						});
+					}
 					continue;
 				}
 				for (const providerId of node.providers ?? []) {

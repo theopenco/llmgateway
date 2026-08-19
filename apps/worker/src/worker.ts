@@ -6,6 +6,11 @@ import Stripe from "stripe";
 import { z } from "zod";
 
 import {
+	checkAndReserveTopUp,
+	flushLimitHits,
+	releaseTopUpReservation,
+} from "@llmgateway/actions";
+import {
 	closeRedisClient,
 	closeStorageRedisClient,
 	consumeFromQueue,
@@ -107,6 +112,8 @@ const DATA_RETENTION_LOCK_KEY = "data_retention_cleanup";
 const MODEL_HISTORY_RETENTION_LOCK_KEY = "model_history_retention_cleanup";
 const END_USER_SESSION_CLEANUP_LOCK_KEY = "end_user_session_cleanup";
 const API_KEY_EXPIRATION_LOCK_KEY = "api_key_expiration";
+const LIMIT_HIT_FLUSH_LOCK_KEY = "limit_hit_flush";
+const STALE_TOPUP_PI_LOCK_KEY = "stale_topup_pi_cancel";
 const WEBHOOK_DELIVERY_LOCK_KEY = "platform_webhook_delivery";
 const MARGIN_PAYOUT_LOCK_KEY = "margin_payout";
 const LOCK_DURATION_MINUTES = 5;
@@ -371,6 +378,11 @@ export async function processAutoTopUp(): Promise<void> {
 
 		// Filter organizations that need top-up based on credits vs threshold
 		const filteredOrgs = orgsNeedingTopUp.filter((org) => {
+			// An organization flagged as high risk cannot buy credits manually, so
+			// it must not keep charging a card automatically either.
+			if (org.riskFlagged) {
+				return false;
+			}
 			// DevPass orgs can only spend credits with the pay-as-you-go
 			// overflow opt-in; without it auto-reload would buy credits the
 			// org cannot use.
@@ -623,20 +635,51 @@ export async function processAutoTopUp(): Promise<void> {
 					continue;
 				}
 
+				// Tier-based top-up velocity cap. Reserving covers the gap between
+				// this check and the pending insert below: a concurrent manual
+				// top-up in that window would otherwise see neither a reservation
+				// nor the pending row and both could pass. On a cap hit just skip
+				// (the blocked attempt released its own reservation) — the next
+				// cycle re-checks once the window rolls, so auto-reload resumes by
+				// itself.
+				const velocity = await checkAndReserveTopUp({
+					org: freshOrg,
+					amountUsd: feeBreakdown.totalAmount,
+				});
+				if (!velocity.allowed) {
+					logger.info(
+						`Skipping auto top-up for organization ${org.id}: top-up velocity cap reached`,
+						{
+							capUsd: velocity.capUsd,
+							usedUsd: velocity.usedUsd,
+							attemptedUsd: feeBreakdown.totalAmount,
+						},
+					);
+					continue;
+				}
+
 				// Insert pending transaction before creating payment intent
-				const pendingTransaction = await db
-					.insert(tables.transaction)
-					.values({
-						organizationId: org.id,
-						type: "credit_topup",
-						creditAmount: feeBreakdown.baseAmount.toString(),
-						amount: feeBreakdown.totalAmount.toString(),
-						currency: "USD",
-						status: "pending",
-						description: `Auto top-up for ${topUpAmount} USD (total: ${feeBreakdown.totalAmount} including fees)`,
-					})
-					.returning()
-					.then((rows) => rows[0]);
+				let pendingTransaction;
+				try {
+					pendingTransaction = await db
+						.insert(tables.transaction)
+						.values({
+							organizationId: org.id,
+							type: "credit_topup",
+							creditAmount: feeBreakdown.baseAmount.toString(),
+							amount: feeBreakdown.totalAmount.toString(),
+							currency: "USD",
+							status: "pending",
+							description: `Auto top-up for ${topUpAmount} USD (total: ${feeBreakdown.totalAmount} including fees)`,
+						})
+						.returning()
+						.then((rows) => rows[0]);
+				} finally {
+					// The pending row now counts in the gate's DB window sum, so the
+					// bridging reservation must go either way (kept on success it
+					// would double-count; kept on failure it would leak headroom).
+					await releaseTopUpReservation(org.id, feeBreakdown.totalAmount);
+				}
 
 				logger.info(
 					`Created pending transaction ${pendingTransaction.id} for organization ${org.id}`,
@@ -2583,6 +2626,143 @@ async function runApiKeyExpirationLoop() {
 	}
 }
 
+async function flushLimitHitCounters(): Promise<void> {
+	const lockAcquired = await acquireLock(LIMIT_HIT_FLUSH_LOCK_KEY);
+	if (!lockAcquired) {
+		return;
+	}
+
+	try {
+		// Single flusher (the lock) is what makes the RENAME-based drain in
+		// flushLimitHits safe.
+		const flushed = await flushLimitHits();
+		if (flushed > 0) {
+			logger.info(`Flushed ${flushed} limit-hit bucket(s) to Postgres`);
+		}
+	} finally {
+		await releaseLock(LIMIT_HIT_FLUSH_LOCK_KEY);
+	}
+}
+
+async function runLimitHitFlushLoop() {
+	activeLoops++;
+	const interval =
+		parseInt(process.env.LIMIT_HIT_FLUSH_INTERVAL_SECONDS || "60", 10) * 1000;
+	logger.info(
+		`Starting limit-hit flush loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				await flushLimitHitCounters();
+
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in limit-hit flush loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Limit-hit flush loop stopped");
+	}
+}
+
+// Client-confirmation credit top-ups (create-payment-intent hands the browser
+// a client secret to confirm later) can be abandoned. Their velocity
+// reservation self-expires with its TTL, but the client secret stays
+// confirmable — so stockpiled secrets could later all be confirmed at once,
+// blowing through the top-up cap with no reservation counting them. Cancel
+// PIs still unconfirmed well past the reservation TTL; a genuinely active
+// checkout finishes in minutes, and a canceled PI just means starting over.
+const STALE_TOPUP_PI_MAX_AGE_SECONDS = 35 * 60;
+const STALE_TOPUP_PI_CANCELABLE_STATUSES = [
+	"requires_payment_method",
+	"requires_confirmation",
+	"requires_action",
+] as const;
+
+async function cancelStaleTopUpPaymentIntents(): Promise<number> {
+	const nowSeconds = Math.floor(Date.now() / 1000);
+	const cutoff = nowSeconds - STALE_TOPUP_PI_MAX_AGE_SECONDS;
+	let canceled = 0;
+	for (const status of STALE_TOPUP_PI_CANCELABLE_STATUSES) {
+		// Search is eventually consistent (~1 min lag) — irrelevant at a
+		// 35-minute horizon. One page per status per run bounds Stripe traffic;
+		// leftovers are picked up next run.
+		const page = await getStripe().paymentIntents.search({
+			query: `status:"${status}" AND metadata["flow"]:"client_confirmation" AND created<${cutoff}`,
+			limit: 100,
+		});
+		for (const pi of page.data) {
+			try {
+				await getStripe().paymentIntents.cancel(pi.id, {
+					cancellation_reason: "abandoned",
+				});
+				canceled++;
+			} catch (error) {
+				// Lost a race with a just-started confirmation (or another
+				// canceller) — the PI is no longer cancelable; skip it.
+				logger.warn("Could not cancel stale top-up PaymentIntent", {
+					paymentIntentId: pi.id,
+					status,
+					error: error instanceof Error ? error.message : String(error),
+				});
+			}
+		}
+	}
+	return canceled;
+}
+
+async function runStaleTopUpPiCancelLoop() {
+	if (!process.env.STRIPE_SECRET_KEY) {
+		logger.info(
+			"Stale top-up PaymentIntent cancel loop disabled (no STRIPE_SECRET_KEY)",
+		);
+		return;
+	}
+	activeLoops++;
+	const interval =
+		parseInt(process.env.STALE_TOPUP_PI_CANCEL_INTERVAL_SECONDS || "600", 10) *
+		1000;
+	logger.info(
+		`Starting stale top-up PaymentIntent cancel loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				const lockAcquired = await acquireLock(STALE_TOPUP_PI_LOCK_KEY);
+				if (lockAcquired) {
+					try {
+						const canceled = await cancelStaleTopUpPaymentIntents();
+						if (canceled > 0) {
+							logger.info(`Canceled ${canceled} stale top-up PaymentIntent(s)`);
+						}
+					} finally {
+						await releaseLock(STALE_TOPUP_PI_LOCK_KEY);
+					}
+				}
+
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in stale top-up PaymentIntent cancel loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Stale top-up PaymentIntent cancel loop stopped");
+	}
+}
+
 const MAX_WEBHOOK_ATTEMPTS = 5;
 const WEBHOOK_DELIVERY_BATCH_SIZE = 50;
 
@@ -2978,6 +3158,8 @@ export async function startWorker() {
 	void runModelHistoryRetentionLoop();
 	void runEndUserSessionCleanupLoop();
 	void runApiKeyExpirationLoop();
+	void runLimitHitFlushLoop();
+	void runStaleTopUpPiCancelLoop();
 	void runWebhookDeliveryLoop();
 	void runMarginPayoutLoop();
 	void runFollowUpEmailsLoop({
