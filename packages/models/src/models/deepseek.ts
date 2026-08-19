@@ -366,11 +366,14 @@ export const deepseekModels = [
 			{
 				providerId: "together-ai",
 				externalId: "deepseek-ai/DeepSeek-V4-Pro-0813",
-				inputPrice: "1.74e-6",
-				cachedInputPrice: "0.2e-6",
-				outputPrice: "3.48e-6",
+				// Together also lists an undated `deepseek-ai/DeepSeek-V4-Pro` slug at
+				// its own (higher input, lower output) rate; this mapping must stay on
+				// the dated -0813 slug's own live pricing, not that one.
+				inputPrice: "1.32e-6",
+				cachedInputPrice: "0.13e-6",
+				outputPrice: "3.96e-6",
 				requestPrice: "0",
-				contextSize: 163840,
+				contextSize: 1048576,
 				maxOutput: 163840,
 				streaming: true,
 				reasoning: true,
@@ -493,6 +496,11 @@ export const deepseekModels = [
 			{
 				providerId: "canopywave",
 				externalId: "deepseek/deepseek-v4-pro",
+				// Unlike Flash (whose CanopyWave listing/title is
+				// deepseek-v4-flash-0731), Pro has no dated/GA slug here: the live
+				// listing's description still opens "We present a preview version of
+				// DeepSeek-V4 series..." (verified 2026-08-18). Pricing is correct
+				// for what's actually served — the preview build, not 0813 GA.
 				inputPrice: "1.74e-6",
 				cachedInputPrice: "0.01e-6",
 				outputPrice: "3.48e-6",
@@ -522,10 +530,13 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "fireworks",
-				externalId: "accounts/fireworks/models/deepseek-v4-pro",
-				inputPrice: "1.74e-6",
-				cachedInputPrice: "0.145e-6",
-				outputPrice: "3.48e-6",
+				// Fireworks keeps the unversioned `deepseek-v4-pro` slug pointed at
+				// the original preview build, at its own rate card, even after the
+				// 0813 GA release; the GA build only serves under this dedicated slug.
+				externalId: "accounts/fireworks/models/deepseek-v4-pro-0813",
+				inputPrice: "1.32e-6",
+				cachedInputPrice: "0.044e-6",
+				outputPrice: "3.96e-6",
 				requestPrice: "0",
 				// Fireworks prices DeepSeek's Priority tier at 1.5x standard rather
 				// than the 1.25x that applies to the rest of its catalogue.
@@ -546,6 +557,12 @@ export const deepseekModels = [
 			{
 				providerId: "baidu",
 				externalId: "deepseek-v4-pro",
+				// Unlike Flash (which Qianfan lists separately as
+				// deepseek-v4-flash-0731), Qianfan has no dated/GA slug for Pro:
+				// this listing's hugging_face_id is still deepseek-ai/DeepSeek-V4-Pro
+				// (the pre-0813 preview repo) and its description never mentions an
+				// official/GA release (verified 2026-08-18). Pricing is correct for
+				// what's actually served — the preview build, not 0813 GA.
 				inputPrice: "1.69e-6",
 				cachedInputPrice: "0.14e-6",
 				outputPrice: "3.38e-6",
@@ -894,14 +911,14 @@ export const deepseekModels = [
 			{
 				providerId: "gonka24",
 				externalId: "deepseek-v4-flash-0731",
-				inputPrice: "0.05e-6",
-				cachedInputPrice: "0.0027e-6",
-				outputPrice: "0.09e-6",
+				inputPrice: "0.075e-6",
+				cachedInputPrice: "0.0155e-6",
+				outputPrice: "0.175e-6",
 				requestPrice: "0",
-				// The deployment shares one 204800-token window between prompt and
+				// The deployment shares one 390000-token window between prompt and
 				// completion, and stops generating at 16384 tokens with
 				// finish_reason "length" no matter how high max_tokens is.
-				contextSize: 204800,
+				contextSize: 390000,
 				maxOutput: 16384,
 				streaming: true,
 				reasoning: true,

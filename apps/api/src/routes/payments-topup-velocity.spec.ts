@@ -58,6 +58,22 @@ describe("top-up velocity limits", () => {
 		});
 	}
 
+	test("reports fee-aware maxima from the remaining tier allowance", async () => {
+		await seedWindowTopUps("20");
+
+		const res = await app.request(
+			"/payments/top-up-limit?organizationId=test-org-id",
+			{ headers: { Cookie: token } },
+		);
+
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({
+			remainingGrossAmount: 80,
+			maxCardAmount: 75,
+			maxCheckoutAmount: 76,
+		});
+	});
+
 	test("create-payment-intent returns 429 when the 24h cap is filled", async () => {
 		await seedWindowTopUps("95");
 

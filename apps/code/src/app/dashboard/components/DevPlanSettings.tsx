@@ -11,6 +11,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { useApi } from "@/lib/fetch-client";
 
 type RoutingStrategy = "auto" | "price" | "throughput" | "latency";
@@ -38,11 +39,13 @@ const SERVICE_TIER_OPTIONS: Array<{ value: ServiceTier; label: string }> = [
 interface DevPlanSettingsProps {
 	devPlanServiceTier: ServiceTier;
 	defaultRoutingStrategy: RoutingStrategy;
+	providerCacheControlEnabled: boolean;
 }
 
 export default function DevPlanSettings({
 	devPlanServiceTier: initialServiceTier,
 	defaultRoutingStrategy: initialRoutingStrategy,
+	providerCacheControlEnabled: initialProviderCacheControlEnabled,
 }: DevPlanSettingsProps) {
 	const api = useApi();
 
@@ -54,6 +57,9 @@ export default function DevPlanSettings({
 	const [serviceTier, setServiceTier] =
 		useState<ServiceTier>(initialServiceTier);
 	const [isUpdatingServiceTier, setIsUpdatingServiceTier] = useState(false);
+	const [providerCacheControlEnabled, setProviderCacheControlEnabled] =
+		useState(initialProviderCacheControlEnabled);
+	const [isUpdatingProviderCache, setIsUpdatingProviderCache] = useState(false);
 
 	const updateSettingsMutation = api.useMutation(
 		"patch",
@@ -106,6 +112,27 @@ export default function DevPlanSettings({
 		}
 	};
 
+	const handleProviderCacheChange = async (enabled: boolean) => {
+		const previous = providerCacheControlEnabled;
+		setProviderCacheControlEnabled(enabled);
+		setIsUpdatingProviderCache(true);
+		try {
+			await updateSettingsMutation.mutateAsync({
+				body: { providerCacheControlEnabled: enabled },
+			});
+			toast.success(
+				enabled
+					? "Provider cache writes enabled"
+					: "Provider cache writes disabled",
+			);
+		} catch {
+			setProviderCacheControlEnabled(previous);
+			toast.error("Failed to update provider cache writes");
+		} finally {
+			setIsUpdatingProviderCache(false);
+		}
+	};
+
 	return (
 		<div>
 			<h2 className="mb-4 font-semibold">Settings</h2>
@@ -155,6 +182,32 @@ export default function DevPlanSettings({
 								))}
 							</SelectContent>
 						</Select>
+					</div>
+				</div>
+
+				<div className="rounded-xl border p-5">
+					<div className="flex items-start justify-between gap-4">
+						<div className="space-y-0.5">
+							<Label
+								htmlFor="provider-cache-writes"
+								className="text-sm font-medium"
+							>
+								Provider cache writes
+							</Label>
+							<p className="text-xs text-muted-foreground">
+								Enabled by default. DevPass adds and forwards Claude cache
+								markers for reusable prompt prefixes. Cache writes cost 1.25×
+								for 5 minutes or 2× for 1 hour, while cache reads cost 0.1×.
+								Disable this for sporadic sessions that rarely reuse a prompt
+								within the cache lifetime.
+							</p>
+						</div>
+						<Switch
+							id="provider-cache-writes"
+							checked={providerCacheControlEnabled}
+							onCheckedChange={handleProviderCacheChange}
+							disabled={isUpdatingProviderCache}
+						/>
 					</div>
 				</div>
 

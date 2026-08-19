@@ -5341,6 +5341,7 @@ const flaggedAccountSchema = z
 		isTor: z.boolean(),
 		reviewedAt: z.string().nullable(),
 		reviewedBy: z.string().nullable(),
+		archivedAt: z.string().nullable(),
 		organizations: z.array(
 			z.object({
 				id: z.string(),
@@ -5363,6 +5364,11 @@ const getFlaggedAccounts = createRoute({
 			status: z.enum(["flagged", "approved", "all"]).optional(),
 			search: z.string().optional(),
 			limit: z.coerce.number().min(1).max(200).optional(),
+			archived: z
+				.enum(["true", "false"])
+				.default("false")
+				.transform((value) => value === "true")
+				.optional(),
 		}),
 	},
 	responses: {
@@ -5374,6 +5380,7 @@ const getFlaggedAccounts = createRoute({
 							accounts: z.array(flaggedAccountSchema),
 							flaggedCount: z.number(),
 							approvedCount: z.number(),
+							archivedCount: z.number(),
 						})
 						.openapi({}),
 				},
@@ -5406,10 +5413,48 @@ const approveFlaggedAccount = createRoute({
 	},
 });
 
-admin.openapi(getFlaggedAccounts, async (c) => {
-	const { status = "flagged", search, limit = 100 } = c.req.valid("query");
+const archiveFlaggedAccount = createRoute({
+	method: "patch",
+	path: "/flagged-accounts/{userId}/archive",
+	request: {
+		params: z.object({ userId: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ archived: z.boolean() }),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }).openapi({}),
+				},
+			},
+			description: "Flagged account archived or restored.",
+		},
+		404: {
+			description: "Flagged account not found.",
+		},
+	},
+});
 
-	const filters = [ne(tables.user.riskStatus, "none")];
+admin.openapi(getFlaggedAccounts, async (c) => {
+	const {
+		status = "flagged",
+		search,
+		limit = 100,
+		archived = false,
+	} = c.req.valid("query");
+
+	const filters = [
+		ne(tables.user.riskStatus, "none"),
+		archived
+			? isNotNull(tables.user.riskArchivedAt)
+			: isNull(tables.user.riskArchivedAt),
+	];
 	if (status !== "all") {
 		filters.push(eq(tables.user.riskStatus, status));
 	}
@@ -5437,6 +5482,7 @@ admin.openapi(getFlaggedAccounts, async (c) => {
 			riskFlagDetails: tables.user.riskFlagDetails,
 			riskReviewedAt: tables.user.riskReviewedAt,
 			riskReviewedBy: tables.user.riskReviewedBy,
+			riskArchivedAt: tables.user.riskArchivedAt,
 		})
 		.from(tables.user)
 		.where(and(...filters))
@@ -5464,14 +5510,28 @@ admin.openapi(getFlaggedAccounts, async (c) => {
 				.where(inArray(tables.userOrganization.userId, userIds))
 		: [];
 
-	const counts = await db
+	const activeCounts = await db
 		.select({
 			riskStatus: tables.user.riskStatus,
 			count: sql<number>`count(*)::int`,
 		})
 		.from(tables.user)
-		.where(ne(tables.user.riskStatus, "none"))
+		.where(
+			and(
+				ne(tables.user.riskStatus, "none"),
+				isNull(tables.user.riskArchivedAt),
+			),
+		)
 		.groupBy(tables.user.riskStatus);
+	const [archivedCount] = await db
+		.select({ count: sql<number>`count(*)::int` })
+		.from(tables.user)
+		.where(
+			and(
+				ne(tables.user.riskStatus, "none"),
+				isNotNull(tables.user.riskArchivedAt),
+			),
+		);
 
 	return c.json({
 		accounts: users.map((user) => {
@@ -5494,15 +5554,17 @@ admin.openapi(getFlaggedAccounts, async (c) => {
 				isTor: details?.isTor ?? false,
 				reviewedAt: user.riskReviewedAt?.toISOString() ?? null,
 				reviewedBy: user.riskReviewedBy,
+				archivedAt: user.riskArchivedAt?.toISOString() ?? null,
 				organizations: memberships
 					.filter((membership) => membership.userId === user.id)
 					.map(({ userId: _userId, ...organization }) => organization),
 			};
 		}),
 		flaggedCount:
-			counts.find((row) => row.riskStatus === "flagged")?.count ?? 0,
+			activeCounts.find((row) => row.riskStatus === "flagged")?.count ?? 0,
 		approvedCount:
-			counts.find((row) => row.riskStatus === "approved")?.count ?? 0,
+			activeCounts.find((row) => row.riskStatus === "approved")?.count ?? 0,
+		archivedCount: archivedCount?.count ?? 0,
 	});
 });
 
@@ -5519,6 +5581,23 @@ admin.openapi(approveFlaggedAccount, async (c) => {
 	}
 
 	return c.json({ success: true, organizationIds: result.organizationIds });
+});
+
+admin.openapi(archiveFlaggedAccount, async (c) => {
+	const { userId } = c.req.valid("param");
+	const { archived } = c.req.valid("json");
+
+	const updated = await db
+		.update(tables.user)
+		.set({ riskArchivedAt: archived ? new Date() : null })
+		.where(and(eq(tables.user.id, userId), ne(tables.user.riskStatus, "none")))
+		.returning({ id: tables.user.id });
+
+	if (updated.length === 0) {
+		throw new HTTPException(404, { message: "Flagged account not found" });
+	}
+
+	return c.json({ success: true });
 });
 
 // --- Organization Rate Limit Handlers ---

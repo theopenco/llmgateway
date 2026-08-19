@@ -106,6 +106,7 @@ const VIDEO_JOB_POLL_CLAIM_TTL_MS = 30_000;
 const VIDEO_JOB_ERROR_BASE_DELAY_MS = 10_000;
 const VIDEO_JOB_ERROR_MAX_DELAY_MS = 5 * 60 * 1000;
 const VIDEO_JOB_MAX_POLL_ERROR_COUNT = 5;
+const VIDEO_JOB_UPSTREAM_ERROR_TEXT_LIMIT = 4000;
 const VIDEO_RESOLUTION_4K = "4k";
 const VIDEO_RESOLUTION_HD = "hd";
 const VIDEO_RESOLUTION_1080P = "1080p";
@@ -1260,22 +1261,23 @@ async function fetchJsonResponse(
 ): Promise<{
 	body: Record<string, unknown>;
 	response: Response;
+	responseText: string;
 }> {
 	const response = await fetchWithSignals(url, init, UPSTREAM_FETCH_TIMEOUT_MS);
-	const text = await response.text();
+	const responseText = await response.text();
 
 	let body: Record<string, unknown> = {};
-	if (text.length > 0) {
+	if (responseText.length > 0) {
 		try {
-			body = JSON.parse(text) as Record<string, unknown>;
+			body = JSON.parse(responseText) as Record<string, unknown>;
 		} catch {
 			body = {
-				message: text,
+				message: responseText,
 			};
 		}
 	}
 
-	return { body, response };
+	return { body, response, responseText };
 }
 
 async function fetchAvalancheRecordInfo(
@@ -2437,19 +2439,19 @@ async function fetchGenericVideoStatus(
 	providerContext: ResolvedVideoProviderContext,
 ): Promise<Record<string, unknown>> {
 	const url = joinUrl(providerContext.baseUrl, `/v1/videos/${job.upstreamId}`);
-	const { body, response } = await fetchJsonResponse(url, {
+	const { body, response, responseText } = await fetchJsonResponse(url, {
 		method: "GET",
 		headers: getVideoProviderHeaders(job, providerContext),
 	});
 
 	if (!response.ok) {
+		const upstreamContents = responseText
+			.trim()
+			.slice(0, VIDEO_JOB_UPSTREAM_ERROR_TEXT_LIMIT);
 		throw new Error(
-			typeof body.error === "object" &&
-				body.error &&
-				"message" in body.error &&
-				typeof body.error.message === "string"
-				? body.error.message
-				: `Upstream status request failed with status ${response.status}`,
+			`Upstream status request failed with status ${response.status}${
+				upstreamContents ? `: ${upstreamContents}` : ""
+			}`,
 		);
 	}
 

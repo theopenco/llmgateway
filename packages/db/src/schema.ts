@@ -98,6 +98,7 @@ export const user = pgTable(
 		riskFlagDetails: json().$type<AbuseIpReport>(),
 		riskReviewedAt: timestamp(),
 		riskReviewedBy: text(),
+		riskArchivedAt: timestamp(),
 		// DevPass public profile. `username` is the public URL slug
 		// (/profiles/:username) and is null until the user claims one.
 		username: text().unique(),

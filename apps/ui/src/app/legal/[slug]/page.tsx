@@ -35,11 +35,11 @@ export default async function LegalEntryPage({ params }: LegalEntryPageProps) {
 					<div className="max-w-4xl mx-auto">
 						<div className="mb-8">
 							<Link
-								href="/"
+								href="/legal"
 								className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
 							>
 								<ArrowLeftIcon className="mr-2 h-4 w-4" />
-								Back Home
+								Back to legal information
 							</Link>
 						</div>
 
