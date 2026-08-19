@@ -6,6 +6,7 @@ import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harne
 import {
 	getMockVideo,
 	setMockVideoStatus,
+	setMockVideoStatusResponse,
 } from "@/test-utils/mock-openai-server.js";
 
 import { cdb, db, eq, tables } from "@llmgateway/db";
@@ -1754,6 +1755,75 @@ describe("videos", () => {
 		expect(logs[0].imageInputCost).toBe(0.01);
 		expect(logs[0].videoOutputCost).toBe(0.84);
 		expect(logs[0].cost).toBe(0.85);
+	});
+
+	test("/v1/videos logs xAI polling error response contents", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "xai-test-token",
+			provider: "xai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "xai/grok-imagine-video-1-5",
+				prompt: "A cat walking across a rooftop at sunset",
+				size: "1280x720",
+				seconds: 6,
+				image: { image_url: "data:image/png;base64,aGVsbG8=" },
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(videoJob).toBeTruthy();
+
+		const upstreamError = {
+			detail: "The input image could not be processed",
+			request_id: "upstream-request-id",
+		};
+		setMockVideoStatusResponse(videoJob!.upstreamId, 400, upstreamError);
+		await db
+			.update(tables.videoJob)
+			.set({
+				upstreamStatusResponse: {
+					llmgateway_poll_error_count: 4,
+				},
+			})
+			.where(eq(tables.videoJob.id, videoJob!.id));
+
+		await processPendingVideoJobs();
+
+		const persistedJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		const log = await db.query.log.findFirst({
+			where: { requestId: { eq: videoJob!.requestId } },
+		});
+		const expectedError = `Upstream status request failed with status 400: ${JSON.stringify(
+			upstreamError,
+		)}`;
+		expect(persistedJob?.status).toBe("failed");
+		expect(persistedJob?.error?.message).toContain(expectedError);
+		expect(log?.errorDetails?.responseText).toContain(expectedError);
 	});
 
 	test("/v1/videos supports completed google-vertex jobs", async () => {
