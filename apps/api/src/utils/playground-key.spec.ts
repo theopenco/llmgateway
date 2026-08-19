@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
+import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 import {
 	getGatewayUrl,
@@ -12,6 +13,8 @@ import { db, eq, tables } from "@llmgateway/db";
 import { getApiKeyFingerprints } from "@llmgateway/shared/api-key-hash";
 
 import type { ServerTypes } from "@/vars.js";
+
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
 describe("getGatewayUrl", () => {
 	const previousGatewayUrl = process.env.GATEWAY_URL;
@@ -60,6 +63,7 @@ describe("getGatewayUrl", () => {
 });
 
 describe("resolvePlaygroundToken", () => {
+	let authCookie: string;
 	const resolver = new Hono<ServerTypes>();
 	resolver.get("/", async (c) => {
 		const token = await resolvePlaygroundToken(c, {
@@ -70,7 +74,7 @@ describe("resolvePlaygroundToken", () => {
 	});
 
 	beforeEach(async () => {
-		await createTestUser();
+		authCookie = await createTestUser();
 	});
 
 	afterEach(async () => {
@@ -117,6 +121,14 @@ describe("resolvePlaygroundToken", () => {
 		});
 		expect(keys).toHaveLength(2);
 		expect(
+			keys.every(
+				(key) =>
+					key.expiresAt &&
+					key.expiresAt.getTime() > Date.now() &&
+					key.expiresAt.getTime() <= Date.now() + THIRTY_DAYS_MS,
+			),
+		).toBe(true);
+		expect(
 			keys.some(
 				(key) =>
 					key.tokenHash !== null &&
@@ -142,5 +154,67 @@ describe("resolvePlaygroundToken", () => {
 			eq(tables.apiKey.projectId, project.id),
 		);
 		expect(keyCount).toBe(2);
+	});
+
+	test("expires sessions without consuming developer-key quota", async () => {
+		for (let index = 0; index < 5; index++) {
+			const response = await resolver.request("/");
+			expect(response.headers.get("set-cookie")).toContain(
+				PLAYGROUND_KEY_COOKIE_NAME,
+			);
+		}
+
+		const chatOrg = await db.query.organization.findFirst({
+			where: { kind: { eq: "chat" } },
+		});
+		if (!chatOrg) {
+			throw new Error("Chat organization was not created");
+		}
+		const project = await db.query.project.findFirst({
+			where: { organizationId: { eq: chatOrg.id } },
+		});
+		if (!project) {
+			throw new Error("Chat project was not created");
+		}
+
+		const createResponse = await app.request("/keys/api", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: authCookie,
+			},
+			body: JSON.stringify({
+				description: "Developer key",
+				projectId: project.id,
+			}),
+		});
+
+		expect(createResponse.status).toBe(200);
+		const body = await createResponse.json();
+		expect(body.apiKey.tokenHash).toBeUndefined();
+	});
+
+	test("replaces an expired session and resets its cookie", async () => {
+		const firstResponse = await resolver.request("/");
+		const firstBody = await firstResponse.json();
+		const firstCookie = firstResponse.headers.get("set-cookie");
+		if (!firstCookie) {
+			throw new Error("Playground key cookie was not set");
+		}
+
+		const [firstHash] = getApiKeyFingerprints(firstBody.token);
+		await db
+			.update(tables.apiKey)
+			.set({ expiresAt: new Date(Date.now() - 1000) })
+			.where(eq(tables.apiKey.tokenHash, firstHash));
+
+		const replacement = await resolver.request("/", {
+			headers: { Cookie: firstCookie.split(";", 1)[0] },
+		});
+		const replacementBody = await replacement.json();
+		expect(replacementBody.token).not.toBe(firstBody.token);
+		expect(replacement.headers.get("set-cookie")).toContain(
+			`${PLAYGROUND_KEY_COOKIE_NAME}=${replacementBody.token}`,
+		);
 	});
 });

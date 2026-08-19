@@ -198,10 +198,11 @@ function validateApiKeyPeriodConfig(
 }
 
 function serializeApiKey<T extends ApiKeyResponseRecord>(apiKey: T) {
+	const { tokenHash: _tokenHash, ...publicApiKey } = apiKey;
 	const currentPeriod = getApiKeyCurrentPeriodState(apiKey);
 
 	return {
-		...apiKey,
+		...publicApiKey,
 		currentPeriodUsage: currentPeriod.usage,
 		currentPeriodStartedAt: currentPeriod.startedAt,
 		currentPeriodResetAt: currentPeriod.resetAt,
@@ -977,6 +978,12 @@ export async function createApiKeyForProject(
 			? null
 			: new Date(input.expiresAt);
 
+	if (description === PLAYGROUND_API_KEY_DESCRIPTION) {
+		throw new HTTPException(403, {
+			message: "This name is reserved for the playground API key.",
+		});
+	}
+
 	if (expiresAt && expiresAt.getTime() <= Date.now()) {
 		throw new HTTPException(400, {
 			message: "Expiration date must be in the future.",
@@ -1017,12 +1024,13 @@ export async function createApiKeyForProject(
 	const orgProjectIds = orgProjects.map((p) => p.id);
 
 	// Org-wide cap on active developer API keys across all of the org's projects.
-	// Platform and hidden LLM SDK aggregate keys are excluded (keyType: "user").
+	// Platform, LLM SDK aggregate, and playground session keys are excluded.
 	const orgActiveApiKeys = await db.query.apiKey.findMany({
 		where: {
 			projectId: { in: orgProjectIds },
 			status: { eq: "active" },
 			keyType: { eq: "user" },
+			description: { ne: PLAYGROUND_API_KEY_DESCRIPTION },
 		},
 		columns: { id: true },
 	});
@@ -1084,6 +1092,7 @@ export async function createApiKeyForProject(
 				createdBy: { eq: userId },
 				status: { eq: "active" },
 				keyType: { eq: "user" },
+				description: { ne: PLAYGROUND_API_KEY_DESCRIPTION },
 				projectId: { in: orgProjectIds },
 			},
 			columns: { id: true },
@@ -1331,6 +1340,7 @@ keysApi.openapi(list, async (c) => {
 					projectId: { in: orgProjects.map((p) => p.id) },
 					status: { eq: "active" },
 					keyType: { eq: "user" },
+					description: { ne: PLAYGROUND_API_KEY_DESCRIPTION },
 				},
 				columns: { id: true },
 			});

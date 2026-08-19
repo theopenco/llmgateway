@@ -14,6 +14,7 @@ import type { Context } from "hono";
 export const PLAYGROUND_KEY_COOKIE_NAME = "llmgateway_playground_key";
 const PLAYGROUND_KEY_DESCRIPTION = "Auto-generated playground key";
 const PLAYGROUND_KEY_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
+const PLAYGROUND_KEY_TTL_MS = PLAYGROUND_KEY_COOKIE_MAX_AGE * 1000;
 
 interface PlaygroundApiKeyResult {
 	token: string;
@@ -39,7 +40,10 @@ export async function getOrCreatePlaygroundApiKey(
 			},
 		});
 
-		if (matchingKey) {
+		if (
+			matchingKey &&
+			(!matchingKey.expiresAt || matchingKey.expiresAt.getTime() > Date.now())
+		) {
 			return { token: existingToken, issued: false };
 		}
 	}
@@ -52,6 +56,7 @@ export async function getOrCreatePlaygroundApiKey(
 		...hashApiKeyForStorage(token),
 		projectId,
 		description: PLAYGROUND_KEY_DESCRIPTION,
+		expiresAt: new Date(Date.now() + PLAYGROUND_KEY_TTL_MS),
 		usageLimit: null,
 		createdBy: userId,
 	});

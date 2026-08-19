@@ -108,6 +108,25 @@ describe("keys route", () => {
 		expect(res.status).toBe(401);
 	});
 
+	test("POST /keys/api reserves the playground key name", async () => {
+		const res = await app.request("/keys/api", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				description: "Auto-generated playground key",
+				projectId: "test-project-id",
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		expect(await res.json()).toMatchObject({
+			message: "This name is reserved for the playground API key.",
+		});
+	});
+
 	test("DELETE /keys/api/test-api-key-id unauthorized", async () => {
 		const res = await app.request("/keys/api/test-api-key-id", {
 			method: "DELETE",
@@ -137,8 +156,9 @@ describe("keys route", () => {
 		expect(res.status).toBe(200);
 		const json = await res.json();
 		expect(json).toHaveProperty("apiKeys");
-		expect(json.apiKeys.length).toBe(2);
-		expect(json.apiKeys[1].description).toBe("Test API Key");
+		expect(json.apiKeys.length).toBe(1);
+		expect(json.apiKeys[0].description).toBe("Test API Key");
+		expect(json.apiKeys[0].tokenHash).toBeUndefined();
 	});
 
 	test("POST /keys/platform creates an SDK platform secret", async () => {
@@ -324,6 +344,7 @@ describe("keys route", () => {
 		expect(json).toHaveProperty("message");
 		expect(json).toHaveProperty("apiKey");
 		expect(json.apiKey.status).toBe("inactive");
+		expect(json.apiKey.tokenHash).toBeUndefined();
 
 		// Verify the key was updated in the database
 		const apiKey = await db.query.apiKey.findFirst({
@@ -365,6 +386,7 @@ describe("keys route", () => {
 		expect(typeof json.apiKey.token).toBe("string");
 		expect(json.apiKey.token).not.toBe("test-token");
 		expect(json.apiKey.id).toBe("test-api-key-id");
+		expect(json.apiKey.tokenHash).toBeUndefined();
 
 		// Verify the DB was updated and metadata/stats are intact.
 		const apiKey = await db.query.apiKey.findFirst({
@@ -506,6 +528,7 @@ describe("keys route", () => {
 		expect(json.apiKey.currentPeriodUsage).toBe("0");
 		expect(json.apiKey.currentPeriodStartedAt).toBeNull();
 		expect(json.apiKey.currentPeriodResetAt).toBeNull();
+		expect(json.apiKey.tokenHash).toBeUndefined();
 
 		const apiKey = await db.query.apiKey.findFirst({
 			where: {
@@ -671,6 +694,7 @@ describe("keys route", () => {
 		expect(json.apiKey.currentPeriodUsage).toBe("0");
 		expect(json.apiKey.currentPeriodStartedAt).toBeNull();
 		expect(json.apiKey.currentPeriodResetAt).toBeNull();
+		expect(json.apiKey.tokenHash).toBeUndefined();
 
 		const apiKey = await db.query.apiKey.findFirst({
 			where: {
