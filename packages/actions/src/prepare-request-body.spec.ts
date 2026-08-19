@@ -3829,6 +3829,34 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 		expect(requestBody.system).toBeUndefined();
 	});
 
+	test("should preserve xhigh reasoning for Grok 4.6 on Bedrock", async () => {
+		const requestBody = await prepareRequestBody(
+			"aws-bedrock",
+			"grok-4-6",
+			"us-west-2",
+			"xai.grok-4.6",
+			[{ role: "user", content: "Hello!" }],
+			true,
+			undefined,
+			128,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			"xhigh",
+			true,
+			false,
+		);
+
+		expect(requestBody).toMatchObject({
+			model: "xai.grok-4.6",
+			max_completion_tokens: 128,
+			reasoning: { effort: "xhigh" },
+		});
+	});
+
 	test("should preserve explicit cache_control ttl as Bedrock cachePoint ttl", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
