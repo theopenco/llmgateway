@@ -153,6 +153,40 @@ describe("dev-plan PAYG settings", () => {
 		expect(body.regularCredits).toBe("42.50");
 	});
 
+	it("updates provider cache writes on the DevPass project", async () => {
+		await insertOrg();
+		await db.insert(tables.project).values({
+			id: "test-payg-project",
+			name: "Default Project",
+			organizationId: ORG_ID,
+		});
+		const initialStatus = await app.request("/dev-plans/status", {
+			headers: { Cookie: token },
+		});
+		expect(initialStatus.status).toBe(200);
+		expect((await initialStatus.json()).providerCacheControlEnabled).toBe(true);
+
+		const update = await settingsRequest(
+			{ providerCacheControlEnabled: false },
+			token,
+		);
+		expect(update.status).toBe(200);
+		expect(await update.json()).toMatchObject({
+			providerCacheControlEnabled: false,
+		});
+
+		const project = await db.query.project.findFirst({
+			where: { id: { eq: "test-payg-project" } },
+		});
+		expect(project?.providerCacheControlEnabled).toBe(false);
+
+		const status = await app.request("/dev-plans/status", {
+			headers: { Cookie: token },
+		});
+		expect(status.status).toBe(200);
+		expect((await status.json()).providerCacheControlEnabled).toBe(false);
+	});
+
 	it("configures auto-reload with threshold and amount", async () => {
 		await insertOrg({ devPlanPaygEnabled: true });
 

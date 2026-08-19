@@ -1782,6 +1782,7 @@ const getStatus = createRoute({
 							"throughput",
 							"latency",
 						]),
+						providerCacheControlEnabled: z.boolean(),
 					}),
 				},
 			},
@@ -1842,6 +1843,7 @@ devPlans.openapi(getStatus, async (c) => {
 			apiKey: null,
 			devPlanServiceTier: "default" as const,
 			defaultRoutingStrategy: "auto" as const,
+			providerCacheControlEnabled: true,
 		});
 	}
 
@@ -1890,6 +1892,7 @@ devPlans.openapi(getStatus, async (c) => {
 	let projectId: string | null = null;
 	let defaultRoutingStrategy: "auto" | "price" | "throughput" | "latency" =
 		"auto";
+	let providerCacheControlEnabled = true;
 	if (personalOrg.devPlan !== "none") {
 		// Find the default project for this org. Order by createdAt asc so we
 		// always return the original "Default Project" rather than whichever
@@ -1908,6 +1911,7 @@ devPlans.openapi(getStatus, async (c) => {
 		if (project) {
 			projectId = project.id;
 			defaultRoutingStrategy = project.defaultRoutingStrategy;
+			providerCacheControlEnabled = project.providerCacheControlEnabled;
 			apiKey = await getOrCreatePersonalOrgApiKey(
 				personalOrg.id,
 				project.id,
@@ -1961,6 +1965,7 @@ devPlans.openapi(getStatus, async (c) => {
 		apiKey,
 		devPlanServiceTier: personalOrg.devPlanServiceTier,
 		defaultRoutingStrategy,
+		providerCacheControlEnabled,
 	});
 });
 
@@ -1980,6 +1985,9 @@ const updateSettings = createRoute({
 						// Coding plans optimize for prompt caching, so only the
 						// default weighted routing or the price strategy are allowed.
 						defaultRoutingStrategy: z.enum(["auto", "price"]).optional(),
+						// Control upstream prompt-cache writes for coding clients that
+						// send cache markers automatically.
+						providerCacheControlEnabled: z.boolean().optional(),
 						// Opt-in pay-as-you-go overflow past the monthly allowance.
 						devPlanPaygEnabled: z.boolean().optional(),
 						// Auto-reload: automatically top up when the credits balance
@@ -2009,6 +2017,7 @@ const updateSettings = createRoute({
 							"throughput",
 							"latency",
 						]),
+						providerCacheControlEnabled: z.boolean(),
 						devPlanPaygEnabled: z.boolean(),
 						autoTopUpEnabled: z.boolean(),
 						autoTopUpThreshold: z.string().nullable(),
@@ -2026,6 +2035,7 @@ devPlans.openapi(updateSettings, async (c) => {
 	const {
 		devPlanServiceTier,
 		defaultRoutingStrategy,
+		providerCacheControlEnabled,
 		devPlanPaygEnabled,
 		autoTopUpEnabled,
 		autoTopUpThreshold,
@@ -2159,10 +2169,10 @@ devPlans.openapi(updateSettings, async (c) => {
 		}
 	}
 
-	// The default routing strategy lives on the project, not the org. Apply it to
-	// the org's default project (the same one surfaced by the status endpoint).
+	// Project-scoped settings apply to the default project surfaced by status.
 	let effectiveRoutingStrategy: "auto" | "price" | "throughput" | "latency" =
 		"auto";
+	let effectiveProviderCacheControlEnabled = true;
 	const defaultProject = await db.query.project.findFirst({
 		where: {
 			organizationId: {
@@ -2175,22 +2185,52 @@ devPlans.openapi(updateSettings, async (c) => {
 	});
 	if (defaultProject) {
 		effectiveRoutingStrategy = defaultProject.defaultRoutingStrategy;
+		effectiveProviderCacheControlEnabled =
+			defaultProject.providerCacheControlEnabled;
+		const projectUpdateData: Partial<typeof tables.project.$inferInsert> = {};
 		if (
 			defaultRoutingStrategy !== undefined &&
 			defaultRoutingStrategy !== defaultProject.defaultRoutingStrategy
 		) {
+			projectUpdateData.defaultRoutingStrategy = defaultRoutingStrategy;
+		}
+		if (
+			providerCacheControlEnabled !== undefined &&
+			providerCacheControlEnabled !== defaultProject.providerCacheControlEnabled
+		) {
+			projectUpdateData.providerCacheControlEnabled =
+				providerCacheControlEnabled;
+		}
+		if (Object.keys(projectUpdateData).length > 0) {
 			// Cached client so the gateway's project-cache invalidates and the new
-			// default routing strategy takes effect immediately (see projects.ts).
+			// settings take effect immediately (see projects.ts).
 			await cdb
 				.update(tables.project)
-				.set({ defaultRoutingStrategy })
+				.set(projectUpdateData)
 				.where(eq(tables.project.id, defaultProject.id));
+		}
+		if (
+			defaultRoutingStrategy !== undefined &&
+			defaultRoutingStrategy !== defaultProject.defaultRoutingStrategy
+		) {
 			changes.defaultRoutingStrategy = {
 				old: defaultProject.defaultRoutingStrategy,
 				new: defaultRoutingStrategy,
 			};
-			effectiveRoutingStrategy = defaultRoutingStrategy;
 		}
+		if (
+			providerCacheControlEnabled !== undefined &&
+			providerCacheControlEnabled !== defaultProject.providerCacheControlEnabled
+		) {
+			changes.providerCacheControlEnabled = {
+				old: defaultProject.providerCacheControlEnabled,
+				new: providerCacheControlEnabled,
+			};
+		}
+		effectiveRoutingStrategy =
+			defaultRoutingStrategy ?? effectiveRoutingStrategy;
+		effectiveProviderCacheControlEnabled =
+			providerCacheControlEnabled ?? effectiveProviderCacheControlEnabled;
 	}
 
 	if (Object.keys(changes).length > 0) {
@@ -2207,6 +2247,7 @@ devPlans.openapi(updateSettings, async (c) => {
 		success: true,
 		devPlanServiceTier: devPlanServiceTier ?? personalOrg.devPlanServiceTier,
 		defaultRoutingStrategy: effectiveRoutingStrategy,
+		providerCacheControlEnabled: effectiveProviderCacheControlEnabled,
 		devPlanPaygEnabled: devPlanPaygEnabled ?? personalOrg.devPlanPaygEnabled,
 		autoTopUpEnabled:
 			updateData.autoTopUpEnabled ?? personalOrg.autoTopUpEnabled,
