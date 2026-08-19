@@ -12,17 +12,6 @@ export const zaiModels = [
 			{
 				providerId: "zai",
 				externalId: "glm-5.3",
-				// On release day glm-5.3 ships on the GLM Coding Plan and ZCode
-				// only: every request to the OpenAI-compatible /api/paas/v4
-				// endpoint the gateway uses answers 403 code 1220 ("You do not
-				// have permission to access glm-5.3"), so the mapping cannot be
-				// exercised end-to-end and must stay out of provider selection
-				// until z.ai opens it on the standard API.
-				stability: "unstable",
-				test: "skip",
-				// z.ai has not published a GLM-5.3 rate card yet (release day);
-				// priced at GLM-5.2's card, which shares the same base model.
-				// Re-verify against the published card before marking stable.
 				inputPrice: "1.4e-6",
 				cachedInputPrice: "0.26e-6",
 				outputPrice: "4.4e-6",
