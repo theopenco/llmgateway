@@ -1512,19 +1512,64 @@ export async function batchProcessLogs(): Promise<number> {
 						`Kept ${remainingCost.toString()} on the dev plan pool for organization ${orgId} (pay-as-you-go overflow disabled)`,
 					);
 				} else if (remainingCost.greaterThan(0)) {
-					const costStr = remainingCost.toString();
-					await tx
-						.update(organization)
-						.set({
-							credits: sql`${organization.credits} - ${costStr}`,
-						})
-						.where(eq(organization.id, orgId));
+					// Personal (chat/devpass) orgs that never opted into pay-as-you-go
+					// must not be driven below zero. They are billed per plan cycle
+					// rather than invoiced, and getAvailableCredits sums `credits` with
+					// the plan allowance, so a negative balance silently docks the
+					// *next* cycle's allowance — a chat-plan subscriber ends up paying
+					// for overshoot out of the plan they already bought. Charge what
+					// the balance can actually cover and route the rest to an active
+					// plan pool, so the usage stays accounted for. `default` orgs and
+					// pay-as-you-go opt-ins keep today's behaviour: they may go
+					// negative and are reconciled on the next top-up.
+					const planFundedOrg =
+						org && org.kind !== "default" && !org.devPlanPaygEnabled;
+					const balance = Decimal.max(0, new Decimal(org?.credits ?? "0"));
+					const chargeToCredits = planFundedOrg
+						? Decimal.min(remainingCost, balance)
+						: remainingCost;
+					const overflow = remainingCost.minus(chargeToCredits);
 
-					deductedOrgIds.push(orgId);
+					if (chargeToCredits.greaterThan(0)) {
+						const costStr = chargeToCredits.toString();
+						await tx
+							.update(organization)
+							.set({
+								credits: sql`${organization.credits} - ${costStr}`,
+							})
+							.where(eq(organization.id, orgId));
 
-					logger.debug(
-						`Deducted ${costStr} regular credits from organization ${orgId}`,
-					);
+						deductedOrgIds.push(orgId);
+
+						logger.debug(
+							`Deducted ${costStr} regular credits from organization ${orgId}`,
+						);
+					}
+
+					if (overflow.greaterThan(0)) {
+						// Prefer the pool that authorized the spend. With the plan
+						// already cancelled there is no pool left to hold it, so the
+						// residual is written off rather than turned into phantom debt.
+						const overflowPool = chatPool ?? devPool;
+						if (overflowPool) {
+							await deductFromPlanPool(
+								orgId,
+								overflowPool,
+								overflow,
+								Decimal.min(
+									fromChat.remainingPremium.plus(fromOther.remainingPremium),
+									overflow,
+								),
+							);
+							logger.debug(
+								`Kept ${overflow.toString()} on the ${overflowPool.kind} plan pool for organization ${orgId} (credit balance exhausted)`,
+							);
+						} else {
+							logger.debug(
+								`Wrote off ${overflow.toString()} for organization ${orgId} (no plan pool and no credit balance)`,
+							);
+						}
+					}
 				}
 
 				// 1% referral earnings on the full charge regardless of which pool paid.
