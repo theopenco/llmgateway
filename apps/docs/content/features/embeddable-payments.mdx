@@ -86,7 +86,9 @@ The platform secret key (`sk_…`) is different from a regular gateway API key (
 
 <Callout type="warn">
 	The platform secret key is shown only once. Do not put it in frontend code,
-	browser bundles, mobile apps, or public repos.
+	browser bundles, mobile apps, or public repos. Only a keyed HMAC-SHA-256
+	fingerprint and masked preview are stored, so create a replacement if you lose
+	the secret.
 </Callout>
 
 ## 1. Install

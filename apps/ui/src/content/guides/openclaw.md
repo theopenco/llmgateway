@@ -147,7 +147,7 @@ Once configured, all OpenClaw requests appear in your LLM Gateway dashboard:
 ## Get Started
 
 1. [Sign up free](https://llmgateway.io/signup) — no credit card required
-2. Copy your API key from the dashboard
+2. Create or roll an API key in the dashboard and copy the newly shown secret
 3. Add LLM Gateway as a custom provider in your OpenClaw config
 4. Start chatting across your connected channels
 
