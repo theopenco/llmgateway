@@ -3228,9 +3228,7 @@ export async function prepareRequestBody(
 				}
 				if (reasoning_effort !== undefined) {
 					const reasoningEffort =
-						reasoning_effort === "minimal" || reasoning_effort === "xhigh"
-							? "low"
-							: reasoning_effort;
+						reasoning_effort === "minimal" ? "low" : reasoning_effort;
 					requestBody.reasoning = {
 						effort: reasoningEffort,
 					};
