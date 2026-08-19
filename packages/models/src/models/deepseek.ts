@@ -911,14 +911,14 @@ export const deepseekModels = [
 			{
 				providerId: "gonka24",
 				externalId: "deepseek-v4-flash-0731",
-				inputPrice: "0.05e-6",
-				cachedInputPrice: "0.0027e-6",
-				outputPrice: "0.09e-6",
+				inputPrice: "0.075e-6",
+				cachedInputPrice: "0.0155e-6",
+				outputPrice: "0.175e-6",
 				requestPrice: "0",
-				// The deployment shares one 204800-token window between prompt and
+				// The deployment shares one 390000-token window between prompt and
 				// completion, and stops generating at 16384 tokens with
 				// finish_reason "length" no matter how high max_tokens is.
-				contextSize: 204800,
+				contextSize: 390000,
 				maxOutput: 16384,
 				streaming: true,
 				reasoning: true,
