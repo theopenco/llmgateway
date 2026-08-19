@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { resolveProjectLimit } from "@/lib/project-limit.js";
 import { userHasProjectAccess } from "@/utils/authorization.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
@@ -594,7 +595,10 @@ export async function createProjectForOrg(
 		},
 	});
 
-	const projectLimit = organizationRow.plan === "enterprise" ? 250 : 10;
+	const projectLimit = resolveProjectLimit(
+		organizationRow.plan,
+		organizationRow.projectLimit,
+	);
 
 	if (existingProjects.length >= projectLimit) {
 		throw new HTTPException(403, {

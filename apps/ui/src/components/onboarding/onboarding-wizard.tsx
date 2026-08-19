@@ -18,6 +18,10 @@ import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useEffect, useRef, useState } from "react";
 
+import {
+	extractErrorMessage,
+	readCompletionStream,
+} from "@/components/onboarding/completion-stream";
 import { QuickStartSection } from "@/components/shared/quick-start-snippet";
 import { useDefaultProject } from "@/hooks/useDefaultProject";
 import { Button } from "@/lib/components/button";
@@ -30,7 +34,9 @@ import {
 } from "@/lib/components/card";
 import { Textarea } from "@/lib/components/textarea";
 import { useAppConfig } from "@/lib/config";
-import { useApi } from "@/lib/fetch-client";
+import { useApi, useFetchClient } from "@/lib/fetch-client";
+
+import { ONBOARDING_MODEL } from "@llmgateway/shared";
 
 const DEFAULT_PROMPT = "Explain what an LLM gateway is in 2 sentences.";
 
@@ -39,6 +45,7 @@ export function OnboardingWizard() {
 	const posthog = usePostHog();
 	const queryClient = useQueryClient();
 	const api = useApi();
+	const fetchClient = useFetchClient();
 	const config = useAppConfig();
 	const { data: project } = useDefaultProject();
 
@@ -120,90 +127,63 @@ export function OnboardingWizard() {
 		const timeout = setTimeout(() => controller.abort(), 30_000);
 
 		try {
-			const res = await fetch(`${config.gatewayUrl}/v1/chat/completions`, {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: `Bearer ${apiKey}`,
+			// The gateway does not allow cross-origin browser requests, so the
+			// test request goes through the API's server-side proxy. The typed
+			// client sends the session cookie that proxy's session middleware
+			// requires, and `parseAs: "stream"` hands back the SSE body unread.
+			const { data, error, response } = await fetchClient.POST(
+				"/chat/completion",
+				{
+					body: {
+						model: ONBOARDING_MODEL,
+						messages: [
+							{
+								role: "system",
+								content: "Keep your answer short and under 2 sentences.",
+							},
+							{ role: "user", content: prompt.trim() },
+						],
+						stream: true,
+						apiKey,
+						onboarding: true,
+					},
+					parseAs: "stream",
+					signal: controller.signal,
 				},
-				body: JSON.stringify({
-					model: "auto",
-					messages: [
-						{
-							role: "system",
-							content: "Keep your answer short and under 2 sentences.",
-						},
-						{ role: "user", content: prompt.trim() },
-					],
-					stream: true,
-					free_models_only: true,
-					onboarding: true,
-				}),
-				signal: controller.signal,
-			});
+			);
 
-			if (!res.ok) {
-				const data = await res.json();
-				const errorMsg = data.error?.message ?? "Request failed";
+			if (!response.ok) {
+				const errorMsg = extractErrorMessage(error);
 				setTryError(errorMsg);
 				posthog.capture("onboarding_try_error", { error: errorMsg });
 				return;
 			}
 
-			const reader = res.body?.getReader();
-			if (!reader) {
+			if (!data) {
 				setTryError("Streaming not supported.");
 				return;
 			}
 
-			const decoder = new TextDecoder();
-			let accumulated = "";
-			let model = "auto";
-			let buffer = "";
+			const {
+				content,
+				model,
+				error: streamError,
+			} = await readCompletionStream(data, setTryResponse);
 
-			while (true) {
-				const { done, value } = await reader.read();
-				if (done) {
-					break;
-				}
-
-				buffer += decoder.decode(value, { stream: true });
-				const lines = buffer.split("\n");
-				buffer = lines.pop() ?? "";
-
-				for (const line of lines) {
-					const trimmed = line.trim();
-					if (!trimmed || !trimmed.startsWith("data: ")) {
-						continue;
-					}
-
-					const data = trimmed.slice(6);
-					if (data === "[DONE]") {
-						continue;
-					}
-
-					try {
-						const parsed = JSON.parse(data);
-						const delta = parsed.choices?.[0]?.delta?.content;
-						if (delta) {
-							accumulated += delta;
-							setTryResponse(accumulated);
-						}
-						if (parsed.model) {
-							model = parsed.model;
-						}
-					} catch {
-						// Skip malformed chunks
-					}
-				}
+			// A stream can carry partial content *and* an error; keep whatever
+			// arrived on screen but never record the attempt as a success.
+			if (streamError) {
+				setTryError(streamError);
+				posthog.capture("onboarding_try_error", { error: streamError });
+				return;
 			}
 
-			if (!accumulated) {
+			if (!content) {
 				setTryResponse("No response received");
 			}
 			setTriedApi(true);
 			posthog.capture("onboarding_try_success", {
-				model,
+				model: model ?? ONBOARDING_MODEL,
 				responseTimeMs: Date.now() - startTime,
 			});
 		} catch (err) {
@@ -259,7 +239,10 @@ export function OnboardingWizard() {
 							<div className="h-10 w-full animate-pulse rounded-md bg-muted" />
 						) : apiKey ? (
 							<div className="flex items-center gap-2">
-								<code className="flex-1 rounded-md border bg-muted/50 p-3 text-sm font-mono break-all">
+								<code
+									data-testid="onboarding-api-key"
+									className="flex-1 rounded-md border bg-muted/50 p-3 text-sm font-mono break-all"
+								>
 									{apiKey}
 								</code>
 								<Button
@@ -291,7 +274,8 @@ export function OnboardingWizard() {
 							Try it now
 						</CardTitle>
 						<CardDescription>
-							Send a real request using a free model — no credits needed
+							Send a real request through the gateway — this one&apos;s on us,
+							no credits needed
 						</CardDescription>
 					</CardHeader>
 					<CardContent className="space-y-4">
@@ -304,6 +288,7 @@ export function OnboardingWizard() {
 						/>
 
 						<Button
+							data-testid="onboarding-send"
 							onClick={handleTryIt}
 							disabled={tryLoading || !prompt.trim() || !apiKey}
 							className="w-full"
@@ -323,7 +308,10 @@ export function OnboardingWizard() {
 
 						{tryError && (
 							<div className="rounded-md border border-red-200 bg-red-50 p-3 dark:border-red-800 dark:bg-red-900/20">
-								<p className="text-sm text-red-800 dark:text-red-200">
+								<p
+									data-testid="onboarding-error"
+									className="text-sm text-red-800 dark:text-red-200"
+								>
 									{tryError}
 								</p>
 							</div>
@@ -334,7 +322,10 @@ export function OnboardingWizard() {
 								<p className="text-xs font-medium text-muted-foreground mb-2">
 									Response
 								</p>
-								<p className="text-sm whitespace-pre-wrap">
+								<p
+									data-testid="onboarding-response"
+									className="text-sm whitespace-pre-wrap"
+								>
 									{tryResponse}
 									{tryLoading && (
 										<span className="inline-block w-1.5 h-4 bg-foreground/70 animate-pulse ml-0.5 align-text-bottom" />
@@ -388,6 +379,7 @@ export function OnboardingWizard() {
 
 				{/* Go to Dashboard */}
 				<Button
+					data-testid="onboarding-finish"
 					size="lg"
 					onClick={handleGoToDashboard}
 					disabled={isCompleting}

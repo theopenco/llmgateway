@@ -3,16 +3,24 @@ import {
 	Building2,
 	ChevronLeft,
 	ChevronRight,
+	ExternalLink,
 	FolderOpen,
 	Key,
 	KeyRound,
+	Lock,
 	Receipt,
+	ScrollText,
+	Settings,
+	Shield,
 	Users,
 } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { BlockOrgButton } from "@/components/block-org-button";
+import { GiftCreditsDialog } from "@/components/gift-credits-dialog";
+import { ManualCreditsDialog } from "@/components/manual-credits-dialog";
+import { PlanTermBadge } from "@/components/plan-term-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,23 +33,30 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+	addManualCreditsToOrganization,
 	blockOrganization,
 	giftCreditsToOrganization,
 	manageOrganization,
 	updateReferralBonus,
 } from "@/lib/admin-organizations";
+import { KEY_STATUS_DEFAULT, parseKeyStatus } from "@/lib/key-status";
+import { getOrgDeletionBlockedReason } from "@/lib/org-deletion";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
+import { stripeSearchUrl, stripeTransactionUrl } from "@/lib/stripe-dashboard";
 
 import { ApiKeysTable } from "./api-keys-table";
-import { GiftCreditsDialog } from "./gift-credits-dialog";
+import { AuditLogsTab } from "./audit-logs-tab";
+import { GuardrailsTab } from "./guardrails-tab";
 import { ManageOrgDialog } from "./manage-org-dialog";
 import { OrgCostByModel } from "./org-cost-by-model";
 import { OrgCostByModelTimeseries } from "./org-cost-by-model-timeseries";
 import { OrgMetricsSection } from "./org-metrics";
+import { OrgSettingsTab } from "./org-settings-tab";
 import { ProviderKeysTable } from "./provider-keys-table";
 import { ReferralBonusDialog } from "./referral-bonus-dialog";
 import { SendEmailDialog } from "./send-email-dialog";
+import { SsoTab } from "./sso-tab";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
 	style: "currency",
@@ -54,6 +69,11 @@ const creditsFormatter = new Intl.NumberFormat("en-US", {
 	currency: "USD",
 	maximumFractionDigits: 2,
 });
+
+function parsePage(value: string | undefined) {
+	const parsed = parseInt(value ?? "1", 10);
+	return Number.isNaN(parsed) ? 1 : Math.max(1, parsed);
+}
 
 function formatDate(dateString: string) {
 	return new Date(dateString).toLocaleDateString("en-US", {
@@ -114,7 +134,8 @@ function getTransactionTypeBadgeVariant(type: string) {
 	if (
 		type.includes("start") ||
 		type.includes("topup") ||
-		type.includes("gift")
+		type.includes("gift") ||
+		type.includes("manual_payment")
 	) {
 		return "default";
 	}
@@ -128,6 +149,31 @@ function formatTransactionType(type: string) {
 	return type.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+/**
+ * Transactions pagination link. It carries the other tabs' state so paging one
+ * list does not silently reset the API-key page or its status filter.
+ */
+function buildTransactionsHref(
+	orgId: string,
+	txPage: number,
+	akPage: number,
+	akStatus: string,
+	pkStatus: string,
+) {
+	const params = new URLSearchParams({
+		tab: "transactions",
+		txPage: String(txPage),
+		akPage: String(akPage),
+	});
+	if (akStatus !== KEY_STATUS_DEFAULT) {
+		params.set("akStatus", akStatus);
+	}
+	if (pkStatus !== KEY_STATUS_DEFAULT) {
+		params.set("pkStatus", pkStatus);
+	}
+	return `/organizations/${orgId}?${params.toString()}`;
+}
+
 export default async function OrganizationPage({
 	params,
 	searchParams,
@@ -136,6 +182,11 @@ export default async function OrganizationPage({
 	searchParams?: Promise<{
 		txPage?: string;
 		akPage?: string;
+		akStatus?: string;
+		pkStatus?: string;
+		alPage?: string;
+		alAction?: string;
+		alResource?: string;
 		tab?: string;
 	}>;
 }) {
@@ -143,13 +194,20 @@ export default async function OrganizationPage({
 
 	const { orgId } = await params;
 	const searchParamsData = await searchParams;
-	const txPage = Math.max(1, parseInt(searchParamsData?.txPage ?? "1", 10));
-	const akPage = Math.max(1, parseInt(searchParamsData?.akPage ?? "1", 10));
+	const txPage = parsePage(searchParamsData?.txPage);
+	const akPage = parsePage(searchParamsData?.akPage);
+	const akStatus = parseKeyStatus(searchParamsData?.akStatus);
+	const pkStatus = parseKeyStatus(searchParamsData?.pkStatus);
+	const alPage = parsePage(searchParamsData?.alPage);
+	const alAction = searchParamsData?.alAction ?? "";
+	const alResource = searchParamsData?.alResource ?? "";
 	const activeTab = searchParamsData?.tab ?? "transactions";
 	const txLimit = 25;
 	const txOffset = (txPage - 1) * txLimit;
 	const akLimit = 25;
 	const akOffset = (akPage - 1) * akLimit;
+	const alLimit = 25;
+	const alOffset = (alPage - 1) * alLimit;
 
 	const $api = await createServerApiClient();
 	const [
@@ -158,6 +216,11 @@ export default async function OrganizationPage({
 		apiKeysRes,
 		providerKeysRes,
 		membersRes,
+		auditLogsRes,
+		orgMetricsRes,
+		settingsRes,
+		guardrailsRes,
+		ssoRes,
 	] = await Promise.all([
 		$api.GET("/admin/organizations/{orgId}/transactions", {
 			params: {
@@ -171,21 +234,49 @@ export default async function OrganizationPage({
 		$api.GET("/admin/organizations/{orgId}/api-keys", {
 			params: {
 				path: { orgId },
-				query: { limit: akLimit, offset: akOffset },
+				query: { limit: akLimit, offset: akOffset, status: akStatus },
 			},
 		}),
 		$api.GET("/admin/organizations/{orgId}/provider-keys", {
-			params: { path: { orgId } },
+			params: { path: { orgId }, query: { status: pkStatus } },
 		}),
 		$api.GET("/admin/organizations/{orgId}/members", {
 			params: { path: { orgId } },
 		}),
+		$api.GET("/admin/organizations/{orgId}/audit-logs", {
+			params: {
+				path: { orgId },
+				query: {
+					limit: alLimit,
+					offset: alOffset,
+					action: alAction || undefined,
+					resourceType: alResource || undefined,
+				},
+			},
+		}),
+		$api.GET("/admin/organizations/{orgId}", {
+			params: { path: { orgId }, query: {} },
+		}),
+		$api.GET("/admin/organizations/{orgId}/settings", {
+			params: { path: { orgId } },
+		}),
+		$api.GET("/admin/organizations/{orgId}/guardrails", {
+			params: { path: { orgId } },
+		}),
+		$api.GET("/admin/organizations/{orgId}/sso", {
+			params: { path: { orgId } },
+		}),
 	]);
 	const transactionsData = transactionsRes.data;
+	const trustTier = orgMetricsRes.data?.trustTier;
 	const projectsData = projectsRes.data;
 	const apiKeysData = apiKeysRes.data;
 	const providerKeysData = providerKeysRes.data;
 	const membersData = membersRes.data;
+	const auditLogsData = auditLogsRes.data;
+	const settingsData = settingsRes.data;
+	const guardrailsData = guardrailsRes.data;
+	const ssoData = ssoRes.data;
 
 	if (transactionsData === null) {
 		return <SignInPrompt />;
@@ -200,12 +291,14 @@ export default async function OrganizationPage({
 	const txTotal = transactionsData.total;
 	const txTotalPages = Math.ceil(txTotal / txLimit);
 
+	const emptyKeyCounts = { all: 0, active: 0, inactive: 0, deleted: 0 };
 	const projects = projectsData?.projects ?? [];
 	const apiKeys = apiKeysData?.apiKeys ?? [];
 	const akTotal = apiKeysData?.total ?? 0;
+	const akCounts = apiKeysData?.counts ?? emptyKeyCounts;
 	const akTotalPages = Math.ceil(akTotal / akLimit);
 	const providerKeys = providerKeysData?.providerKeys ?? [];
-	const providerKeysTotal = providerKeysData?.total ?? 0;
+	const pkCounts = providerKeysData?.counts ?? emptyKeyCounts;
 	const members = membersData?.members ?? [];
 	const membersTotal = membersData?.total ?? 0;
 
@@ -236,10 +329,43 @@ export default async function OrganizationPage({
 					<div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
 						<span>{org.billingEmail}</span>
 						<span>•</span>
+						<a
+							href={stripeSearchUrl(org.billingEmail)}
+							target="_blank"
+							rel="noopener noreferrer"
+							className="inline-flex items-center gap-1 text-blue-600 hover:underline"
+							title={`Search Stripe for ${org.billingEmail}`}
+						>
+							<ExternalLink className="h-3 w-3" />
+							Stripe
+						</a>
+						<span>•</span>
 						<span>Created {formatDate(org.createdAt)}</span>
 					</div>
 					<div className="flex flex-wrap items-center gap-2">
 						<Badge variant={getPlanBadgeVariant(org.plan)}>{org.plan}</Badge>
+						{trustTier &&
+							(trustTier.exempt === "none" ? (
+								<Badge variant="default">
+									Trust Tier {trustTier.tier}
+									{trustTier.overridden ? " (manual)" : ""}
+								</Badge>
+							) : (
+								<Badge variant="outline">
+									{trustTier.exempt === "enterprise"
+										? "No rate limits (enterprise)"
+										: trustTier.exempt === "dev"
+											? "Dev plan limits"
+											: "Chat plan limits"}
+								</Badge>
+							))}
+						<PlanTermBadge
+							planExpiresAt={org.planExpiresAt}
+							planStartedAt={org.planStartedAt}
+							isTrialActive={org.isTrialActive}
+							trialStartDate={org.trialStartDate}
+							trialEndDate={org.trialEndDate}
+						/>
 						{org.devPlan !== "none" && (
 							<Badge variant={getDevPlanBadgeVariant(org.devPlan)}>
 								Dev: {org.devPlan}
@@ -248,23 +374,55 @@ export default async function OrganizationPage({
 						<Badge variant={org.status === "active" ? "secondary" : "outline"}>
 							{org.status ?? "active"}
 						</Badge>
+						{org.riskFlagged && (
+							<Link href="/flagged-accounts">
+								<Badge variant="destructive">High risk — review</Badge>
+							</Link>
+						)}
 						{org.seats !== null && org.seats !== undefined && (
 							<Badge variant="outline">Seats: {org.seats}</Badge>
 						)}
 						{org.apiKeyLimit !== null && org.apiKeyLimit !== undefined && (
 							<Badge variant="outline">API keys: {org.apiKeyLimit}</Badge>
 						)}
+						{org.projectLimit !== null && org.projectLimit !== undefined && (
+							<Badge variant="outline">Projects: {org.projectLimit}</Badge>
+						)}
 						<span className="text-sm font-medium">
 							Credits: {creditsFormatter.format(parseFloat(org.credits))}
 						</span>
 					</div>
+					{trustTier && trustTier.exempt === "none" && (
+						<p className="text-sm text-muted-foreground">
+							Tier {trustTier.tier}: {trustTier.rpmMultiplier}× RPM ·{" "}
+							{creditsFormatter.format(trustTier.dailyCapUsd)}/day ·{" "}
+							{creditsFormatter.format(trustTier.monthlyCapUsd)}/month ·{" "}
+							{creditsFormatter.format(trustTier.topUpDailyCapUsd)}/24h top-ups
+							—{" "}
+							{trustTier.overridden
+								? "pinned by admin (override active)"
+								: `qualifies via ${trustTier.accountAgeDays}d age / ${creditsFormatter.format(trustTier.qualifyingSpendUsd)} net credits usage`}
+						</p>
+					)}
 				</div>
 				<div className="flex flex-wrap items-center gap-2">
+					{org.kind === "devpass" && (
+						<Button variant="outline" size="sm" asChild>
+							<Link href={`/devpass/${orgId}`}>Open in DevPass</Link>
+						</Button>
+					)}
 					<ManageOrgDialog
 						orgName={org.name}
 						plan={org.plan}
 						seats={org.seats ?? null}
 						apiKeyLimit={org.apiKeyLimit ?? null}
+						projectLimit={org.projectLimit ?? null}
+						trustTierOverride={trustTier?.overridden ? trustTier.tier : null}
+						planExpiresAt={org.planExpiresAt ?? null}
+						planStartedAt={org.planStartedAt ?? null}
+						isTrialActive={org.isTrialActive ?? false}
+						trialStartDate={org.trialStartDate ?? null}
+						trialEndDate={org.trialEndDate ?? null}
 						onSave={async (data) => {
 							"use server";
 							return await manageOrganization(orgId, data);
@@ -276,6 +434,13 @@ export default async function OrganizationPage({
 						onGift={async (data) => {
 							"use server";
 							return await giftCreditsToOrganization(orgId, data);
+						}}
+					/>
+					<ManualCreditsDialog
+						orgName={org.name}
+						onCredit={async (data) => {
+							"use server";
+							return await addManualCreditsToOrganization(orgId, data);
 						}}
 					/>
 					<ReferralBonusDialog
@@ -301,7 +466,10 @@ export default async function OrganizationPage({
 						orgId={orgId}
 						orgName={org.name}
 						variant="full"
-						disabled={org.status === "deleted"}
+						disabled={getOrgDeletionBlockedReason(org.credits) !== null}
+						disabledReason={
+							getOrgDeletionBlockedReason(org.credits) ?? undefined
+						}
 						onBlock={async (id) => {
 							"use server";
 							return await blockOrganization(id);
@@ -366,17 +534,36 @@ export default async function OrganizationPage({
 						<Receipt className="mr-1.5 h-4 w-4" />
 						Transactions ({txTotal})
 					</TabsTrigger>
-					<TabsTrigger value="api-keys">
+					<TabsTrigger value="api-keys" title="Active / total API keys">
 						<Key className="mr-1.5 h-4 w-4" />
-						API Keys ({akTotal})
+						API Keys ({akCounts.active}/{akCounts.all})
 					</TabsTrigger>
-					<TabsTrigger value="provider-keys">
+					<TabsTrigger
+						value="provider-keys"
+						title="Active / total provider keys"
+					>
 						<KeyRound className="mr-1.5 h-4 w-4" />
-						Provider Keys ({providerKeysTotal})
+						Provider Keys ({pkCounts.active}/{pkCounts.all})
 					</TabsTrigger>
 					<TabsTrigger value="members">
 						<Users className="mr-1.5 h-4 w-4" />
 						Members ({membersTotal})
+					</TabsTrigger>
+					<TabsTrigger value="audit-logs">
+						<ScrollText className="mr-1.5 h-4 w-4" />
+						Audit Logs ({auditLogsData?.total ?? 0})
+					</TabsTrigger>
+					<TabsTrigger value="settings">
+						<Settings className="mr-1.5 h-4 w-4" />
+						Settings
+					</TabsTrigger>
+					<TabsTrigger value="guardrails">
+						<Shield className="mr-1.5 h-4 w-4" />
+						Guardrails
+					</TabsTrigger>
+					<TabsTrigger value="sso">
+						<Lock className="mr-1.5 h-4 w-4" />
+						SSO
 					</TabsTrigger>
 				</TabsList>
 
@@ -391,66 +578,89 @@ export default async function OrganizationPage({
 										<TableHead>Amount</TableHead>
 										<TableHead>Credits</TableHead>
 										<TableHead>Status</TableHead>
+										<TableHead>Reference</TableHead>
 										<TableHead>Description</TableHead>
+										<TableHead>Stripe</TableHead>
 									</TableRow>
 								</TableHeader>
 								<TableBody>
 									{transactions.length === 0 ? (
 										<TableRow>
 											<TableCell
-												colSpan={6}
+												colSpan={8}
 												className="h-24 text-center text-muted-foreground"
 											>
 												No transactions found
 											</TableCell>
 										</TableRow>
 									) : (
-										transactions.map((transaction) => (
-											<TableRow key={transaction.id}>
-												<TableCell className="text-muted-foreground">
-													{formatDate(transaction.createdAt)}
-												</TableCell>
-												<TableCell>
-													<Badge
-														variant={getTransactionTypeBadgeVariant(
-															transaction.type,
+										transactions.map((transaction) => {
+											const stripeUrl = stripeTransactionUrl(transaction);
+											return (
+												<TableRow key={transaction.id}>
+													<TableCell className="text-muted-foreground">
+														{formatDate(transaction.createdAt)}
+													</TableCell>
+													<TableCell>
+														<Badge
+															variant={getTransactionTypeBadgeVariant(
+																transaction.type,
+															)}
+														>
+															{formatTransactionType(transaction.type)}
+														</Badge>
+													</TableCell>
+													<TableCell className="tabular-nums">
+														{transaction.amount
+															? currencyFormatter.format(
+																	parseFloat(transaction.amount),
+																)
+															: "—"}
+													</TableCell>
+													<TableCell className="tabular-nums">
+														{transaction.creditAmount
+															? creditsFormatter.format(
+																	parseFloat(transaction.creditAmount),
+																)
+															: "—"}
+													</TableCell>
+													<TableCell>
+														<Badge
+															variant={
+																transaction.status === "completed"
+																	? "secondary"
+																	: transaction.status === "failed"
+																		? "destructive"
+																		: "outline"
+															}
+														>
+															{transaction.status}
+														</Badge>
+													</TableCell>
+													<TableCell className="max-w-[180px] truncate font-mono text-xs text-muted-foreground">
+														{transaction.externalReference ?? "—"}
+													</TableCell>
+													<TableCell className="max-w-[200px] truncate text-muted-foreground">
+														{transaction.description ?? "—"}
+													</TableCell>
+													<TableCell>
+														{stripeUrl ? (
+															<a
+																href={stripeUrl}
+																target="_blank"
+																rel="noopener noreferrer"
+																className="inline-flex items-center gap-1 text-blue-600 hover:underline"
+															>
+																<ExternalLink className="h-3 w-3" />
+																View
+															</a>
+														) : (
+															<span className="text-muted-foreground">—</span>
 														)}
-													>
-														{formatTransactionType(transaction.type)}
-													</Badge>
-												</TableCell>
-												<TableCell className="tabular-nums">
-													{transaction.amount
-														? currencyFormatter.format(
-																parseFloat(transaction.amount),
-															)
-														: "—"}
-												</TableCell>
-												<TableCell className="tabular-nums">
-													{transaction.creditAmount
-														? creditsFormatter.format(
-																parseFloat(transaction.creditAmount),
-															)
-														: "—"}
-												</TableCell>
-												<TableCell>
-													<Badge
-														variant={
-															transaction.status === "completed"
-																? "secondary"
-																: transaction.status === "failed"
-																	? "destructive"
-																	: "outline"
-														}
-													>
-														{transaction.status}
-													</Badge>
-												</TableCell>
-												<TableCell className="max-w-[200px] truncate text-muted-foreground">
-													{transaction.description ?? "—"}
-												</TableCell>
-											</TableRow>
-										))
+													</TableCell>
+												</TableRow>
+											);
+										})
 									)}
 								</TableBody>
 							</Table>
@@ -470,7 +680,13 @@ export default async function OrganizationPage({
 										disabled={txPage <= 1}
 									>
 										<Link
-											href={`/organizations/${orgId}?tab=transactions&txPage=${txPage - 1}&akPage=${akPage}`}
+											href={buildTransactionsHref(
+												orgId,
+												txPage - 1,
+												akPage,
+												akStatus,
+												pkStatus,
+											)}
 											className={
 												txPage <= 1 ? "pointer-events-none opacity-50" : ""
 											}
@@ -489,7 +705,13 @@ export default async function OrganizationPage({
 										disabled={txPage >= txTotalPages}
 									>
 										<Link
-											href={`/organizations/${orgId}?tab=transactions&txPage=${txPage + 1}&akPage=${akPage}`}
+											href={buildTransactionsHref(
+												orgId,
+												txPage + 1,
+												akPage,
+												akStatus,
+												pkStatus,
+											)}
 											className={
 												txPage >= txTotalPages
 													? "pointer-events-none opacity-50"
@@ -516,11 +738,17 @@ export default async function OrganizationPage({
 						akLimit={akLimit}
 						akTotal={akTotal}
 						akTotalPages={akTotalPages}
+						akStatus={akStatus}
+						counts={akCounts}
 					/>
 				</TabsContent>
 
 				<TabsContent value="provider-keys">
-					<ProviderKeysTable providerKeys={providerKeys} />
+					<ProviderKeysTable
+						providerKeys={providerKeys}
+						pkStatus={pkStatus}
+						counts={pkCounts}
+					/>
 				</TabsContent>
 
 				<TabsContent value="members">
@@ -600,6 +828,53 @@ export default async function OrganizationPage({
 							</Table>
 						</div>
 					</div>
+				</TabsContent>
+
+				<TabsContent value="audit-logs">
+					{auditLogsData ? (
+						<AuditLogsTab
+							data={auditLogsData}
+							orgId={orgId}
+							page={alPage}
+							limit={alLimit}
+							action={alAction}
+							resourceType={alResource}
+						/>
+					) : (
+						<p className="py-8 text-center text-sm text-muted-foreground">
+							Failed to load audit logs
+						</p>
+					)}
+				</TabsContent>
+
+				<TabsContent value="settings">
+					{settingsData ? (
+						<OrgSettingsTab settings={settingsData} />
+					) : (
+						<p className="py-8 text-center text-sm text-muted-foreground">
+							Failed to load organization settings
+						</p>
+					)}
+				</TabsContent>
+
+				<TabsContent value="guardrails">
+					{guardrailsData ? (
+						<GuardrailsTab data={guardrailsData} />
+					) : (
+						<p className="py-8 text-center text-sm text-muted-foreground">
+							Failed to load guardrails
+						</p>
+					)}
+				</TabsContent>
+
+				<TabsContent value="sso">
+					{ssoData ? (
+						<SsoTab data={ssoData} />
+					) : (
+						<p className="py-8 text-center text-sm text-muted-foreground">
+							Failed to load SSO settings
+						</p>
+					)}
 				</TabsContent>
 			</Tabs>
 		</div>

@@ -13,6 +13,7 @@ import { z } from "zod";
 import { redisClient } from "@/auth/config.js";
 import {
 	fetchKnowledgePage,
+	getKnowledgeOverviews,
 	getKnowledgeUrls,
 } from "@/utils/chat-support-knowledge.js";
 import { notifyChatSupportEscalation } from "@/utils/discord.js";
@@ -66,7 +67,7 @@ const MAX_CONTEXT_MESSAGES = 30;
 
 const DOCS_BASE_URL = "https://docs.llmgateway.io";
 
-const BASE_SYSTEM_PROMPT = `You are the LLM Gateway support assistant. You ONLY answer questions related to LLM Gateway — the unified API gateway for multiple LLM providers — and its products (the dashboard at llmgateway.io, DevPass at devpass.llmgateway.io, the docs at docs.llmgateway.io, and the chat app at chat.llmgateway.io).
+const BASE_SYSTEM_PROMPT = `You are the LLM Gateway support assistant. You ONLY answer questions related to LLM Gateway — the unified API gateway for multiple LLM providers — and its products (the dashboard at llmgateway.io, DevPass at devpass.llmgateway.io, the docs at docs.llmgateway.io, and Lounge, the AI chat app at lounge.llmgateway.io).
 
 Your knowledge covers:
 - Getting started, quick start, and setup
@@ -77,6 +78,7 @@ Your knowledge covers:
 - Migrations: from OpenRouter, LiteLLM, Vercel AI Gateway
 - Learning: dashboard, API keys, playground, billing, activity, usage metrics, model usage, transactions, team, org preferences, preferences, provider keys, referrals, security events, guardrails, audit logs, policies
 - DevPass subscription plans
+- Lounge (chat) subscription plans
 - Self-hosting
 - Rate limits and resources
 
@@ -89,15 +91,35 @@ When answering:
 6. Keep responses short — ideally under 200 words.`;
 
 async function buildSystemPrompt(): Promise<string> {
-	const urls = await getKnowledgeUrls();
-	if (urls.length === 0) {
-		return BASE_SYSTEM_PROMPT;
-	}
-	const urlList = urls.map((u) => `- ${u}`).join("\n");
-	return `${BASE_SYSTEM_PROMPT}
+	const [urls, overviews] = await Promise.all([
+		getKnowledgeUrls(),
+		getKnowledgeOverviews(),
+	]);
 
-Available pages (sourced from the live sitemaps of llmgateway.io, devpass.llmgateway.io, docs.llmgateway.io and chat.llmgateway.io). Use these for accurate links and as targets for the \`fetchPage\` tool:
+	let prompt = BASE_SYSTEM_PROMPT;
+
+	// Inline the llms.txt product overviews (DevPass and Lounge plans, pricing,
+	// key pages) so plan questions are answerable without a tool call.
+	if (overviews.length > 0) {
+		const overviewSections = overviews
+			.map((o) => `--- ${o.url} ---\n${o.content}`)
+			.join("\n\n");
+		prompt += `
+
+Product overviews (live llms.txt files — authoritative on DevPass and Lounge plans and pricing):
+
+${overviewSections}`;
+	}
+
+	if (urls.length > 0) {
+		const urlList = urls.map((u) => `- ${u}`).join("\n");
+		prompt += `
+
+Available pages (sourced from the live sitemaps and llms.txt files of llmgateway.io, devpass.llmgateway.io, docs.llmgateway.io and lounge.llmgateway.io). Use these for accurate links and as targets for the \`fetchPage\` tool:
 ${urlList}`;
+	}
+
+	return prompt;
 }
 
 function extractClientIP(c: {
@@ -516,7 +538,7 @@ publicChatSupport.post("/", async (c) => {
 		tools: {
 			fetchPage: tool({
 				description:
-					"Fetch the readable text content of an LLM Gateway page (llmgateway.io, devpass/docs/chat.llmgateway.io) to ground your answer in accurate, up-to-date information. Pass a full https URL from the available pages list.",
+					"Fetch the readable text content of an LLM Gateway page (llmgateway.io, devpass/docs/lounge.llmgateway.io) to ground your answer in accurate, up-to-date information. Pass a full https URL from the available pages list.",
 				inputSchema: z.object({
 					url: z
 						.string()
@@ -873,6 +895,7 @@ publicChatSupport.post("/escalate", async (c) => {
 			name,
 			email,
 			conversationId,
+			adminConversationUrl,
 			ipAddress,
 			lastMessage: lastUserMessage,
 		}),

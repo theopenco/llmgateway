@@ -4,6 +4,8 @@ import { Providers } from "@/components/providers";
 import { BRAND } from "@/lib/brand";
 import { getConfig } from "@/lib/config-server";
 
+import { CHAT_PLAN_PRICES } from "@llmgateway/shared";
+
 import "./globals.css";
 
 import type { Metadata } from "next";
@@ -95,6 +97,14 @@ const softwareApplicationSchema = {
 	operatingSystem: "Web",
 	description:
 		"Chat with 200+ AI models including GPT, Claude, and Gemini, plus image and video generation — one membership, every frontier model.",
+	offers: {
+		"@type": "AggregateOffer",
+		priceCurrency: "USD",
+		lowPrice: CHAT_PLAN_PRICES.starter,
+		highPrice: CHAT_PLAN_PRICES.pro,
+		offerCount: 3,
+		url: `${BRAND.url}/pricing`,
+	},
 	publisher: {
 		"@type": "Organization",
 		name: BRAND.publisher,

@@ -5,6 +5,19 @@ import { parseDataUrl } from "./parse-data-url.js";
 import { RequestError } from "./request-error.js";
 
 /**
+ * Thrown when an image exceeds the caller's size limit. A `RequestError` so the
+ * gateway maps it to a 400 and writes a client_error log row: the chat path
+ * only preserves `RequestError`, so a plain `Error` here would still reach the
+ * user as a generic 500 with the size message discarded.
+ */
+export class ImageSizeLimitError extends RequestError {
+	public constructor(message: string) {
+		super(message, 400);
+		this.name = "ImageSizeLimitError";
+	}
+}
+
+/**
  * Generates a user-friendly error message for image size limits
  */
 function getImageSizeErrorMessage(
@@ -15,7 +28,18 @@ function getImageSizeErrorMessage(
 	const isHosted = process.env.HOSTED === "true";
 	const isPaidMode = process.env.PAID_MODE === "true";
 
-	let message = `Image size (${actualSizeMB.toFixed(1)}MB) exceeds your current limit of ${maxSizeMB}MB.`;
+	// Round the reported size up: `toFixed` alone rounds a 1,048,577-byte image
+	// down onto its own 1MB limit, printing "1.0MB exceeds your limit of 1MB".
+	const reportedSizeMB = (Math.ceil(actualSizeMB * 10) / 10).toFixed(1);
+
+	// Callers without plan context (the fixed per-endpoint caps on image/video
+	// inputs) must not claim the cap is the org's plan limit, or upsell a plan
+	// the org may already be on.
+	if (!userPlan) {
+		return `Image size (${reportedSizeMB}MB) exceeds the ${maxSizeMB}MB limit for image inputs.`;
+	}
+
+	let message = `Image size (${reportedSizeMB}MB) exceeds your current limit of ${maxSizeMB}MB.`;
 
 	if (isHosted && isPaidMode) {
 		if (userPlan === "enterprise") {
@@ -26,6 +50,58 @@ function getImageSizeErrorMessage(
 	}
 
 	return message;
+}
+
+/**
+ * Reads a response body into a buffer, aborting as soon as it exceeds
+ * `maxSizeBytes` so an unbounded (or misdeclared) body cannot be buffered in
+ * full before the size check runs.
+ */
+async function readBodyWithLimit(
+	response: Response,
+	maxSizeBytes: number,
+	maxSizeMB: number,
+	userPlan: "free" | "pro" | "enterprise" | null,
+): Promise<Buffer> {
+	if (!response.body) {
+		return Buffer.alloc(0);
+	}
+
+	const reader = response.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let received = 0;
+
+	try {
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) {
+				break;
+			}
+			if (!value) {
+				continue;
+			}
+
+			received += value.byteLength;
+			if (received > maxSizeBytes) {
+				await reader.cancel();
+				const actualSizeMB = received / (1024 * 1024);
+				logger.warn("Image size exceeds limit while downloading", {
+					size: received,
+					maxSizeMB,
+					actualSizeMB,
+				});
+				throw new ImageSizeLimitError(
+					getImageSizeErrorMessage(maxSizeMB, actualSizeMB, userPlan),
+				);
+			}
+
+			chunks.push(value);
+		}
+	} finally {
+		reader.releaseLock();
+	}
+
+	return Buffer.concat(chunks);
 }
 
 /**
@@ -50,7 +126,7 @@ export async function processImageUrl(
 		const parsed = parseDataUrl(url);
 		if (!parsed) {
 			logger.warn("Invalid data URL format provided");
-			throw new Error("Invalid image data URL format");
+			throw new RequestError("Invalid image data URL format");
 		}
 
 		const { mediaType: mimeType, data, isBase64 } = parsed;
@@ -58,14 +134,36 @@ export async function processImageUrl(
 		// Validate it's an image MIME type
 		if (!mimeType.startsWith("image/")) {
 			logger.warn("Non-image MIME type in data URL", { mimeType });
-			throw new Error("Data URL must contain an image");
+			throw new RequestError("Data URL must contain an image");
 		}
 
-		// Check if data is base64 encoded or needs encoding
-		const base64Data = isBase64 ? data : btoa(data);
+		// A non-base64 data URL carries percent-encoded text, which `parseDataUrl`
+		// returns verbatim. `btoa` on that would base64 the escapes themselves
+		// (silently corrupting e.g. SVG) and throws on any non-Latin-1 character.
+		let base64Data: string;
+		if (isBase64) {
+			base64Data = data;
+		} else {
+			try {
+				base64Data = Buffer.from(decodeURIComponent(data), "utf8").toString(
+					"base64",
+				);
+			} catch {
+				logger.warn("Malformed percent-encoding in data URL");
+				throw new RequestError("Invalid image data URL format");
+			}
+		}
 
-		// Validate size (estimate: base64 adds ~33% overhead)
-		const estimatedSize = (base64Data.length * 3) / 4;
+		// Validate size. Base64 encodes 3 bytes per 4 characters, minus one byte
+		// per `=` of padding — without that subtraction an image sitting exactly on
+		// the cap is over-measured by up to 2 bytes and rejected.
+		const padding = base64Data.endsWith("==")
+			? 2
+			: base64Data.endsWith("=")
+				? 1
+				: 0;
+		const encodedBytes = (base64Data.length * 3) / 4;
+		const estimatedSize = encodedBytes - padding;
 		const maxSizeBytes = maxSizeMB * 1024 * 1024;
 		if (estimatedSize > maxSizeBytes) {
 			const actualSizeMB = estimatedSize / (1024 * 1024);
@@ -74,7 +172,7 @@ export async function processImageUrl(
 				maxSizeMB,
 				actualSizeMB,
 			});
-			throw new Error(
+			throw new ImageSizeLimitError(
 				getImageSizeErrorMessage(maxSizeMB, actualSizeMB, userPlan),
 			);
 		}
@@ -111,11 +209,23 @@ export async function processImageUrl(
 			logger.warn(`Failed to fetch image from URL (${response.status})`, {
 				url: url.substring(0, 50) + "...",
 			});
-			throw new Error(`Failed to fetch image: HTTP ${response.status}`);
+			throw new RequestError(`Failed to fetch image: HTTP ${response.status}`);
 		}
 
 		// Calculate max size in bytes once
 		const maxSizeBytes = maxSizeMB * 1024 * 1024;
+
+		// Content type first: an oversized non-image would otherwise be reported
+		// as a size problem, sending the user off to shrink a file that was never
+		// going to be accepted.
+		const contentType = response.headers.get("content-type");
+		if (!contentType || !contentType.startsWith("image/")) {
+			logger.warn("Invalid content type for image URL", {
+				contentType,
+				url: url.substring(0, 50) + "...",
+			});
+			throw new RequestError("URL does not point to a valid image");
+		}
 
 		// Check content length
 		const contentLength = response.headers.get("content-length");
@@ -126,71 +236,39 @@ export async function processImageUrl(
 				maxSizeMB,
 				actualSizeMB,
 			});
-			throw new Error(
+			throw new ImageSizeLimitError(
 				getImageSizeErrorMessage(maxSizeMB, actualSizeMB, userPlan),
 			);
 		}
 
-		const contentType = response.headers.get("content-type");
-		if (!contentType || !contentType.startsWith("image/")) {
-			logger.warn("Invalid content type for image URL", {
-				contentType,
-				url: url.substring(0, 50) + "...",
-			});
-			throw new Error("URL does not point to a valid image");
-		}
-
-		const arrayBuffer = await response.arrayBuffer();
-
-		// Check actual size after download
-		if (arrayBuffer.byteLength > maxSizeBytes) {
-			const actualSizeMB = arrayBuffer.byteLength / (1024 * 1024);
-			logger.warn("Image size exceeds limit after download", {
-				size: arrayBuffer.byteLength,
-				maxSizeMB,
-				actualSizeMB,
-			});
-			throw new Error(
-				getImageSizeErrorMessage(maxSizeMB, actualSizeMB, userPlan),
-			);
-		}
-
-		// Convert arrayBuffer to base64 using browser-compatible API
-		const uint8Array = new Uint8Array(arrayBuffer);
-		const binaryString = Array.from(uint8Array, (byte) =>
-			String.fromCharCode(byte),
-		).join("");
-		const base64 = btoa(binaryString);
+		// Read with a running cap rather than buffering the whole body first: a
+		// response with no (or an understated) Content-Length would otherwise be
+		// fully resident in memory before the size check ever runs.
+		const imageBytes = await readBodyWithLimit(
+			response,
+			maxSizeBytes,
+			maxSizeMB,
+			userPlan,
+		);
 
 		return {
-			data: base64,
+			data: imageBytes.toString("base64"),
 			mimeType: contentType,
 		};
 	} catch (error) {
+		// Typed client errors (bad status, wrong content type, size rejections)
+		// carry a message the caller is meant to see, and every one of them is
+		// already logged at warn where it is thrown — re-logging them here would
+		// raise an expected client outcome to error level twice over.
+		if (error instanceof RequestError) {
+			throw error;
+		}
+
 		// Log the full error internally but sanitize the thrown error
 		logger.error("Error processing image URL", {
 			err: error instanceof Error ? error : new Error(String(error)),
 			url: url.substring(0, 50) + "...",
 		});
-
-		if (
-			error instanceof Error &&
-			error.message.includes("Image size exceeds")
-		) {
-			throw error; // Re-throw size limit errors as-is
-		}
-		if (
-			error instanceof Error &&
-			error.message.includes("Failed to fetch image: HTTP")
-		) {
-			throw error; // Re-throw HTTP status errors as-is
-		}
-		if (
-			error instanceof Error &&
-			error.message.includes("URL does not point to a valid image")
-		) {
-			throw error; // Re-throw content type errors as-is
-		}
 
 		// Generic error for all other cases
 		throw new Error("Failed to process image from URL");

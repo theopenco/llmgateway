@@ -4,6 +4,7 @@ import {
 	ArrowLeft,
 	Zap,
 	Eye,
+	FileJson2,
 	Wrench,
 	MessageSquare,
 	ImagePlus,
@@ -22,9 +23,13 @@ import { DetailProviderCards } from "@/components/models/detail-provider-cards";
 import { GlobalDiscountBanner } from "@/components/models/global-discount-banner";
 import { ModelBenchmarks } from "@/components/models/model-benchmarks";
 import { ModelCtaButton } from "@/components/models/model-cta-button";
+import { ModelFaqSection } from "@/components/models/model-faq";
 import { ModelRating } from "@/components/models/model-rating";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
+import { ModelUsageStats } from "@/components/models/model-usage-stats";
 import { ProviderTabs } from "@/components/models/provider-tabs";
+import { RelatedModels } from "@/components/models/related-models";
+import { JsonLd } from "@/components/seo/json-ld";
 import { Badge } from "@/lib/components/badge";
 import {
 	applyDiscount,
@@ -33,6 +38,7 @@ import {
 	perMillion,
 } from "@/lib/discount";
 import { fetchModelDiscounts } from "@/lib/fetch-models";
+import { buildFaqSchema, buildModelFaqs } from "@/lib/model-faq";
 import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -137,6 +143,9 @@ export default async function ModelPage({ params }: PageProps) {
 
 	const adaptedModel = adaptModel(modelDef, modelProviders);
 
+	const faqs = buildModelFaqs(modelDef, visibleProviders);
+	const faqSchema = buildFaqSchema(faqs);
+
 	const breadcrumbSchema = {
 		"@context": "https://schema.org",
 		"@type": "BreadcrumbList",
@@ -196,20 +205,7 @@ export default async function ModelPage({ params }: PageProps) {
 
 	return (
 		<>
-			<script
-				type="application/ld+json"
-				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-				dangerouslySetInnerHTML={{
-					__html: JSON.stringify(breadcrumbSchema),
-				}}
-			/>
-			<script
-				type="application/ld+json"
-				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-				dangerouslySetInnerHTML={{
-					__html: JSON.stringify(productSchema),
-				}}
-			/>
+			<JsonLd data={[breadcrumbSchema, productSchema, faqSchema]} />
 			<Navbar />
 			<div className="min-h-screen bg-background pt-24 md:pt-32 pb-16">
 				<div className="container mx-auto px-4 py-8">
@@ -294,6 +290,8 @@ export default async function ModelPage({ params }: PageProps) {
 								<Activity className="h-3.5 w-3.5" />
 								View uptime
 							</Link>
+
+							<ModelUsageStats modelId={decodedName} />
 						</div>
 
 						<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm text-muted-foreground mb-4">
@@ -303,6 +301,17 @@ export default async function ModelPage({ params }: PageProps) {
 								).toLocaleString()}{" "}
 								context
 							</div>
+							{modelDef.releasedAt && (
+								<div>
+									Released{" "}
+									{modelDef.releasedAt.toLocaleDateString("en-US", {
+										year: "numeric",
+										month: "long",
+										day: "numeric",
+										timeZone: "UTC",
+									})}
+								</div>
+							)}
 							{visibleProviders.some((p) => p.inputPrice) && (
 								<div>
 									Starting at{" "}
@@ -431,6 +440,37 @@ export default async function ModelPage({ params }: PageProps) {
 									video generation
 								</div>
 							)}
+							{visibleProviders.some(
+								(p) =>
+									p.perImagePrice && Object.keys(p.perImagePrice).length > 0,
+							) && (
+								<div>
+									Starting at{" "}
+									{(() => {
+										let minPrice: number | undefined;
+										for (const p of visibleProviders) {
+											if (!p.perImagePrice) {
+												continue;
+											}
+											for (const v of Object.values(p.perImagePrice)) {
+												const raw =
+													typeof v === "number" ? v : parseFloat(String(v));
+												if (!Number.isFinite(raw)) {
+													continue;
+												}
+												const n = applyDiscount(raw, p.discount);
+												if (minPrice === undefined || n < minPrice) {
+													minPrice = n;
+												}
+											}
+										}
+										return minPrice !== undefined
+											? `$${parseFloat(minPrice.toFixed(4))}/image`
+											: "Unknown";
+									})()}{" "}
+									image generation
+								</div>
+							)}
 							{visibleProviders.some((p) => p.ocrPagePrice !== undefined) && (
 								<div>
 									Starting at{" "}
@@ -465,6 +505,9 @@ export default async function ModelPage({ params }: PageProps) {
 								const hasReasoning = visibleProviders.some((p) => p.reasoning);
 								const hasJsonOutput = visibleProviders.some(
 									(p) => p.jsonOutput,
+								);
+								const hasJsonOutputSchema = visibleProviders.some(
+									(p) => p.jsonOutputSchema,
 								);
 								const hasImageGen = Array.isArray(modelDef.output)
 									? modelDef.output.includes("image")
@@ -514,6 +557,14 @@ export default async function ModelPage({ params }: PageProps) {
 										icon: Braces,
 										label: "JSON Output",
 										color: "text-cyan-500",
+									});
+								}
+								if (hasJsonOutputSchema) {
+									items.push({
+										key: "jsonOutputSchema",
+										icon: FileJson2,
+										label: "Structured JSON",
+										color: "text-teal-500",
 									});
 								}
 								if (hasImageGen) {
@@ -594,6 +645,14 @@ export default async function ModelPage({ params }: PageProps) {
 
 					<div className="mb-8">
 						<ModelBenchmarks modelId={decodedName} />
+					</div>
+
+					<div className="mb-12">
+						<ModelFaqSection faqs={faqs} />
+					</div>
+
+					<div className="mb-8">
+						<RelatedModels modelDef={modelDef} />
 					</div>
 				</div>
 			</div>

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	computeRms,
 	floatToPcm16Base64,
+	pcm16ChunksToWavBase64,
 	RealtimePlayback,
 	resampleLinear,
 	rmsToLevel,
@@ -28,6 +29,8 @@ export interface RealtimeTranscriptEntry {
 	text: string;
 	status: "partial" | "final" | "interrupted";
 	timestamp: number;
+	/** Assistant speech for this turn, retained so it can be replayed. */
+	audio?: { base64: string; mediaType: "audio/wav" };
 }
 
 export interface RealtimeUsageTotals {
@@ -58,6 +61,16 @@ const METER_EPSILON = 0.02;
  * queued deltas would otherwise flicker the "speaking" state off and on.
  */
 const SPEAKING_HOLD_MS = 300;
+/**
+ * Ceiling on retained assistant PCM for one call (~8 minutes of speech at
+ * 24kHz mono PCM16). Past it, audio capture stops for the rest of the call so
+ * a long conversation cannot grow an unbounded in-memory buffer or an
+ * unsendable save payload; the transcript text is still recorded in full. A
+ * continued call starts with its seeded turns' audio already counted, so
+ * repeated continuations cannot grow one saved conversation past this budget
+ * either.
+ */
+const MAX_CALL_AUDIO_BYTES = 24 * 1024 * 1024;
 
 interface UseRealtimeCallOptions {
 	model: string | null;
@@ -105,6 +118,10 @@ export function useRealtimeCall({
 	const speakingUntilRef = useRef(0);
 	const responseActiveRef = useRef(false);
 	const transcriptionModelRef = useRef<string | null>(null);
+	/** Base64 PCM deltas per in-progress assistant item, pending WAV encoding. */
+	const audioChunksRef = useRef(new Map<string, string[]>());
+	const audioBytesRef = useRef(0);
+	const seedRef = useRef<RealtimeTranscriptEntry[] | null>(null);
 	const voiceRef = useRef<string | null>(voice);
 	voiceRef.current = voice;
 	const onCallErrorRef = useRef(onCallError);
@@ -156,6 +173,41 @@ export function useRealtimeCall({
 	}, []);
 
 	/**
+	 * Encode every finished item's buffered PCM into a WAV and hang it off the
+	 * matching transcript entry. This runs at response.done rather than at the
+	 * transcript's own done event because audio deltas can still trail the
+	 * transcript. An interrupted turn keeps every delta that arrived — a little
+	 * more than the listener actually heard, but the entry already reads as
+	 * interrupted, and truncating to the played duration would cost a decode
+	 * pass for no real gain.
+	 */
+	const finalizeResponseAudio = useCallback(() => {
+		const pending = audioChunksRef.current;
+		if (pending.size === 0) {
+			return;
+		}
+		const encoded = new Map<string, string>();
+		pending.forEach((chunks, itemId) => {
+			if (chunks.length > 0) {
+				encoded.set(itemId, pcm16ChunksToWavBase64(chunks));
+			}
+		});
+		pending.clear();
+		if (encoded.size === 0) {
+			return;
+		}
+		setTranscript((prev) =>
+			prev.map((entry) => {
+				const base64 =
+					entry.role === "assistant" ? encoded.get(entry.id) : undefined;
+				return base64
+					? { ...entry, audio: { base64, mediaType: "audio/wav" as const } }
+					: entry;
+			}),
+		);
+	}, []);
+
+	/**
 	 * Tear down every media/audio/network resource. Safe to call from any
 	 * state and idempotent per call attempt.
 	 */
@@ -204,8 +256,15 @@ export function useRealtimeCall({
 			void context.close().catch(() => {});
 		}
 		responseActiveRef.current = false;
+		// Ending mid-response: encode whatever assistant audio is already
+		// buffered so the final turn keeps its replay clip instead of losing
+		// it with the buffers.
+		finalizeResponseAudio();
+		audioChunksRef.current.clear();
+		audioBytesRef.current = 0;
+		seedRef.current = null;
 		updateStatus("idle");
-	}, [updateStatus]);
+	}, [finalizeResponseAudio, updateStatus]);
 
 	const failCall = useCallback(
 		(message: string) => {
@@ -325,6 +384,38 @@ export function useRealtimeCall({
 				}
 				case "session.updated":
 					if (statusRef.current === "configuring") {
+						// Replay a continued call's prior turns before going live, so the
+						// model has the earlier conversation in context. Fire-and-forget
+						// is safe: microphone chunks are dropped until the status flips
+						// to "live" below, so nothing can race ahead of the seed, and a
+						// rejected item surfaces through the server's "error" event like
+						// any other session fault. Only the text is replayed — the
+						// realtime API cannot accept assistant audio items — and the
+						// content type is the role's side of the GA enum: input_text for
+						// user, output_text for assistant. Interrupted turns are replayed
+						// in full: the heard-text boundary is unknowable client-side, and
+						// the full text is what the transcript already shows the user.
+						const seed = seedRef.current;
+						seedRef.current = null;
+						for (const entry of seed ?? []) {
+							if (entry.status === "partial" || !entry.text.trim()) {
+								continue;
+							}
+							sendEvent({
+								type: "conversation.item.create",
+								item: {
+									type: "message",
+									role: entry.role,
+									content: [
+										{
+											type:
+												entry.role === "user" ? "input_text" : "output_text",
+											text: entry.text,
+										},
+									],
+								},
+							});
+						}
 						updateStatus("live");
 						setElapsedSeconds(0);
 						const startedAt = Date.now();
@@ -339,6 +430,7 @@ export function useRealtimeCall({
 					return;
 				case "response.done": {
 					responseActiveRef.current = false;
+					finalizeResponseAudio();
 					const response =
 						event.response && typeof event.response === "object"
 							? (event.response as Record<string, unknown>)
@@ -380,6 +472,20 @@ export function useRealtimeCall({
 						typeof event.content_index === "number" ? event.content_index : 0;
 					if (itemId && delta) {
 						playbackRef.current?.enqueue(itemId, contentIndex, delta);
+						if (audioBytesRef.current < MAX_CALL_AUDIO_BYTES) {
+							audioBytesRef.current += Math.ceil((delta.length * 3) / 4);
+							const chunks = audioChunksRef.current.get(itemId);
+							if (chunks) {
+								chunks.push(delta);
+							} else {
+								audioChunksRef.current.set(itemId, [delta]);
+							}
+							if (audioBytesRef.current >= MAX_CALL_AUDIO_BYTES) {
+								// Over budget: drop what is still buffered, including this
+								// half-captured item, rather than save a truncated clip.
+								audioChunksRef.current.clear();
+							}
+						}
 					}
 					return;
 				}
@@ -466,7 +572,14 @@ export function useRealtimeCall({
 				default:
 			}
 		},
-		[handleBargeIn, sendEvent, startMeterLoop, updateStatus, upsertTranscript],
+		[
+			finalizeResponseAudio,
+			handleBargeIn,
+			sendEvent,
+			startMeterLoop,
+			updateStatus,
+			upsertTranscript,
+		],
 	);
 
 	const runStart = useCallback(
@@ -644,22 +757,45 @@ export function useRealtimeCall({
 		setTranscript([]);
 		setUsage(EMPTY_USAGE);
 		setElapsedSeconds(0);
+		audioChunksRef.current.clear();
+		audioBytesRef.current = 0;
 	}, []);
 
-	const start = useCallback(() => {
-		if (statusRef.current !== "idle" || !model) {
-			return;
-		}
-		reset();
-		// The AudioContext must be created and resumed synchronously inside the
-		// click gesture (before any await) or Safari drops the user activation.
-		const context = new AudioContext();
-		void context.resume().catch(() => {});
-		audioContextRef.current = context;
-		updateStatus("preparing-audio");
-		const callId = callIdRef.current;
-		void runStart(context, callId);
-	}, [model, reset, runStart, updateStatus]);
+	/**
+	 * Begin a call. A seed continues an earlier conversation: its entries are
+	 * shown immediately (audio included, so they stay playable) and replayed to
+	 * the model once the session is configured.
+	 */
+	const start = useCallback(
+		(seed?: RealtimeTranscriptEntry[]) => {
+			if (statusRef.current !== "idle" || !model) {
+				return;
+			}
+			reset();
+			seedRef.current = seed?.length ? seed : null;
+			if (seed?.length) {
+				setTranscript(seed);
+				// Seeded audio counts toward the call's audio budget (see
+				// MAX_CALL_AUDIO_BYTES); base64 decodes to 3/4 of its length.
+				audioBytesRef.current = seed.reduce(
+					(total, entry) =>
+						entry.audio
+							? total + Math.ceil((entry.audio.base64.length * 3) / 4)
+							: total,
+					0,
+				);
+			}
+			// The AudioContext must be created and resumed synchronously inside the
+			// click gesture (before any await) or Safari drops the user activation.
+			const context = new AudioContext();
+			void context.resume().catch(() => {});
+			audioContextRef.current = context;
+			updateStatus("preparing-audio");
+			const callId = callIdRef.current;
+			void runStart(context, callId);
+		},
+		[model, reset, runStart, updateStatus],
+	);
 
 	const end = useCallback(() => {
 		if (statusRef.current === "idle") {

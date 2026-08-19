@@ -7,7 +7,6 @@ import {
 	DocsTitle,
 } from "fumadocs-ui/page";
 import { notFound } from "next/navigation";
-import posthog from "posthog-js";
 
 import { LLMCopyButton, ViewOptions } from "@/components/ai/page-actions";
 import { EnterpriseCTA } from "@/components/enterprise-cta";
@@ -38,15 +37,23 @@ export async function generateMetadata({
 		marketingGuideCanonical(page.url) ?? `${docsBaseUrl}${path}`;
 	const image = ["/docs-og", ...slug, "image.png"].join("/");
 
+	// The root page's frontmatter title composes to a short 46-char <title> via
+	// the layout template, so it gets an absolute, keyword-carrying title
+	// instead. The visible page H1 (frontmatter title) is unchanged.
+	const isRoot = page.url === "/";
+	const metaTitle = isRoot
+		? "LLM Gateway Documentation — OpenAI-Compatible AI Gateway"
+		: page.data.title;
+
 	return {
 		metadataBase: new URL(docsBaseUrl),
-		title: page.data.title,
+		title: isRoot ? { absolute: metaTitle } : metaTitle,
 		description: page.data.description,
 		alternates: {
 			canonical: canonicalUrl,
 		},
 		openGraph: {
-			title: page.data.title,
+			title: metaTitle,
 			description: page.data.description,
 			url: canonicalUrl,
 			images: image,
@@ -55,7 +62,7 @@ export async function generateMetadata({
 		},
 		twitter: {
 			card: "summary_large_image",
-			title: page.data.title,
+			title: metaTitle,
 			description: page.data.description,
 			images: image,
 		},
@@ -81,6 +88,11 @@ export default async function Page(props: {
 	} catch {
 		// Ignore errors (rate limits, network issues, missing auth in Docker builds)
 	}
+
+	// Left undefined when the GitHub lookup fails: fumadocs then omits the line
+	// entirely, which is better than stamping the build date on a page that was
+	// not edited — "Last updated" must only ever reflect a real content edit.
+	const lastUpdate = time ? new Date(time) : undefined;
 
 	const MDXContent = page.data.body;
 
@@ -112,7 +124,7 @@ export default async function Page(props: {
 				style: "clerk",
 				footer: <EnterpriseCTA />,
 			}}
-			lastUpdate={time ? new Date(time) : new Date()}
+			lastUpdate={lastUpdate}
 		>
 			<JsonLd data={techArticleSchema} />
 			<nav
@@ -142,9 +154,8 @@ export default async function Page(props: {
 				/>
 			</DocsBody>
 			<Feedback
-				onRateAction={async (url, feedback) => {
+				onRateAction={async (url) => {
 					"use server";
-					posthog.capture("on_rate_docs", feedback);
 					return await Promise.resolve({
 						githubUrl: `https://github.com/theopenco/llmgateway/blob/main/apps/docs/content${url}.mdx`,
 					});

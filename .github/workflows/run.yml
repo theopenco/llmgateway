@@ -7,6 +7,9 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: read
+
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -16,22 +19,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Collect versions
-        run: |
-          echo "nodejs_version=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
-          echo "pnpm_version=$(cat .tool-versions | grep 'pnpm' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
-
-      - uses: pnpm/action-setup@v6.0.9
-        with:
-          version: ${{ env.pnpm_version }}
-
-      - uses: actions/setup-node@v7.0.0
-        with:
-          node-version: ${{ env.nodejs_version }}
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
 
       - name: ${{ inputs.cmd }}
         env:

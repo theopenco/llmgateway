@@ -6,8 +6,11 @@ icon: ArrowRightLeft
 
 import { Step, Steps } from "fumadocs-ui/components/steps";
 import { Callout } from "fumadocs-ui/components/callout";
+import { CopyMigrationPrompt } from "@/components/copy-migration-prompt";
 
 <section>
+
+<CopyMigrationPrompt slug="vercel-ai-gateway" provider="Vercel AI Gateway" />
 
 ## Quick Migration
 
@@ -31,6 +34,27 @@ const { text } = await generateText({
 ```
 
 The key difference: one provider, one API key, all models—with caching and analytics built in.
+
+</section>
+
+<section>
+
+## Zero-diff alternative: repoint the base URL
+
+If your app passes bare model strings (`model: "anthropic/claude-sonnet-5"`), it resolves them through `@ai-sdk/gateway` — the AI SDK's default provider. LLM Gateway implements that protocol, so you can keep every line of application code and repoint the provider instead:
+
+```ts
+import { createGateway } from "@ai-sdk/gateway";
+
+globalThis.AI_SDK_DEFAULT_PROVIDER = createGateway({
+	baseURL: "https://api.llmgateway.io/v4/ai",
+	apiKey: process.env.LLM_GATEWAY_API_KEY,
+});
+```
+
+No import changes, no model-string changes, and provider-native web search keeps returning `source-url` parts. See [AI SDK Gateway protocol](/developers/ai-sdk-gateway-protocol).
+
+Prefer the explicit `@llmgateway/ai-sdk-provider` migration below when you want the gateway's own model IDs and options surfaced as first-class provider settings.
 
 </section>
 

@@ -1,9 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { app } from "@/index.js";
-import { createTestUser, deleteAll } from "@/testing.js";
+import {
+	aggregateLogsForTesting,
+	createTestUser,
+	deleteAll,
+} from "@/testing.js";
 
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
+import { randomInt } from "@llmgateway/shared/random";
 
 describe("organization route", () => {
 	let token: string;
@@ -81,7 +86,7 @@ describe("organization route", () => {
 			headers: {
 				"Content-Type": "application/json",
 				Origin: codeUrl,
-				"CF-Connecting-IP": `192.168.32.${Math.floor(Math.random() * 255)}`,
+				"CF-Connecting-IP": `192.168.32.${randomInt(0, 255)}`,
 			},
 			body: JSON.stringify({ email, password, name: "Dev User" }),
 		});
@@ -214,5 +219,81 @@ describe("organization route", () => {
 				},
 			},
 		});
+	});
+
+	test("GET /orgs/{id}/credits-runway only counts spend that drains credits", async () => {
+		await db
+			.update(tables.organization)
+			.set({ credits: "77" })
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		await db.insert(tables.project).values({
+			id: "runway-project-id",
+			name: "Runway Project",
+			organizationId: "test-org-id",
+		});
+		await db.insert(tables.apiKey).values({
+			id: "runway-api-key-id",
+			token: "runway-token",
+			projectId: "runway-project-id",
+			description: "Runway Key",
+			createdBy: "test-user-id",
+		});
+
+		const now = new Date();
+		const baseLog = {
+			createdAt: now,
+			updatedAt: now,
+			organizationId: "test-org-id",
+			projectId: "runway-project-id",
+			apiKeyId: "runway-api-key-id",
+			duration: 100,
+			requestedModel: "gpt-4",
+			requestedProvider: "openai",
+			usedModel: "gpt-4",
+			usedProvider: "openai",
+			responseSize: 100,
+			promptTokens: "10",
+			completionTokens: "10",
+			totalTokens: "20",
+			messages: JSON.stringify([{ role: "user", content: "hi" }]),
+			mode: "hybrid",
+		} as const;
+		await db.insert(tables.log).values([
+			{
+				...baseLog,
+				id: "runway-log-credits",
+				requestId: "runway-log-credits",
+				usedMode: "credits",
+				cost: 7,
+			},
+			{
+				// BYOK request: its provider cost never drains credits, only its
+				// data-storage cost does.
+				...baseLog,
+				id: "runway-log-byok",
+				requestId: "runway-log-byok",
+				usedMode: "api-keys",
+				cost: 700,
+				dataStorageCost: "0.7",
+			},
+		]);
+		await aggregateLogsForTesting();
+
+		const response = await app.request("/orgs/test-org-id/credits-runway", {
+			headers: { Cookie: token },
+		});
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as {
+			avgDailySpend7d: number;
+			runwayDays: number | null;
+			balance: number;
+		};
+
+		// (7 credits + 0.7 BYOK storage) / 7 days = 1.1 — NOT (7 + 700 + 0.7) / 7.
+		expect(body.avgDailySpend7d).toBeCloseTo(1.1, 2);
+		expect(body.balance).toBe(77);
+		// 77 / 1.1 = 70 days, capped to 31 ("30+").
+		expect(body.runwayDays).toBe(31);
 	});
 });

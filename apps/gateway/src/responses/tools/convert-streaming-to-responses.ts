@@ -6,8 +6,10 @@ import {
 	resolveReasoningContext,
 	stripEncryptedReasoningContent,
 } from "./convert-chat-to-responses.js";
+import { toResponsesToolCallItem } from "./tool-registry.js";
 
 import type { ResponsesEchoRequest } from "./convert-chat-to-responses.js";
+import type { ToolRegistry } from "./tool-registry.js";
 
 // One assistant message output item in the stream. Providers may emit several
 // per turn (e.g. a commentary message before tool calls and a final_answer
@@ -63,6 +65,7 @@ interface StreamingState {
 		}
 	>;
 	request?: ResponsesEchoRequest;
+	toolRegistry?: ToolRegistry;
 	servedServiceTier?: string;
 	// Effective reasoning context the provider applied, surfaced by the
 	// streaming translator on the terminal chunk.
@@ -97,6 +100,7 @@ export function createStreamingState(
 	model: string,
 	responseId?: string,
 	request?: ResponsesEchoRequest,
+	toolRegistry?: ToolRegistry,
 ): StreamingState {
 	return {
 		responseId: responseId ?? `resp_${shortid(24)}`,
@@ -113,6 +117,7 @@ export function createStreamingState(
 		sequenceNumber: 0,
 		toolCalls: new Map(),
 		request,
+		toolRegistry,
 		usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
 	};
 }
@@ -430,27 +435,31 @@ export function processStreamChunk(
 					emitEvent(state, "response.output_item.added", {
 						type: "response.output_item.added",
 						output_index: tcOutputIndex,
-						item: {
-							type: "function_call",
+						item: toResponsesToolCallItem(state.toolRegistry, {
 							id: fcId,
-							call_id: callId,
+							callId,
 							name,
 							arguments: "",
 							status: "in_progress",
-						},
+						}),
 					}),
 				);
 			} else {
 				if (tc.function?.arguments) {
 					existing.arguments += tc.function.arguments;
-					events.push(
-						emitEvent(state, "response.function_call_arguments.delta", {
-							type: "response.function_call_arguments.delta",
-							item_id: existing.id,
-							output_index: existing.outputIndex,
-							delta: tc.function.arguments,
-						}),
-					);
+					// A freeform tool's payload is the `input` field inside these JSON
+					// arguments, so it cannot be unwrapped incrementally; the whole
+					// payload is emitted as one delta when the call closes.
+					if (!state.toolRegistry?.customNames.has(existing.name)) {
+						events.push(
+							emitEvent(state, "response.function_call_arguments.delta", {
+								type: "response.function_call_arguments.delta",
+								item_id: existing.id,
+								output_index: existing.outputIndex,
+								delta: tc.function.arguments,
+							}),
+						);
+					}
 				}
 			}
 		}
@@ -674,14 +683,13 @@ export function buildFinalOutputItems(
 	for (const tc of state.toolCalls.values()) {
 		indexed.push({
 			index: tc.outputIndex,
-			item: {
-				type: "function_call",
+			item: toResponsesToolCallItem(state.toolRegistry, {
 				id: tc.id,
-				call_id: tc.callId,
+				callId: tc.callId,
 				name: tc.name,
 				arguments: tc.arguments,
 				status: "completed",
-			},
+			}),
 		});
 	}
 
@@ -791,20 +799,39 @@ export function createCompletionEvents(
 		);
 	}
 
-	// Emit output_item.done for each function_call
+	// Emit output_item.done for each tool call
 	for (const tc of state.toolCalls.values()) {
+		const item = toResponsesToolCallItem(state.toolRegistry, {
+			id: tc.id,
+			callId: tc.callId,
+			name: tc.name,
+			arguments: tc.arguments,
+			status: "completed",
+		});
+		if (item.type === "custom_tool_call") {
+			const input = item.input as string;
+			events.push(
+				emitEvent(state, "response.custom_tool_call_input.delta", {
+					type: "response.custom_tool_call_input.delta",
+					item_id: tc.id,
+					output_index: tc.outputIndex,
+					delta: input,
+				}),
+			);
+			events.push(
+				emitEvent(state, "response.custom_tool_call_input.done", {
+					type: "response.custom_tool_call_input.done",
+					item_id: tc.id,
+					output_index: tc.outputIndex,
+					input,
+				}),
+			);
+		}
 		events.push(
 			emitEvent(state, "response.output_item.done", {
 				type: "response.output_item.done",
 				output_index: tc.outputIndex,
-				item: {
-					type: "function_call",
-					id: tc.id,
-					call_id: tc.callId,
-					name: tc.name,
-					arguments: tc.arguments,
-					status: "completed",
-				},
+				item,
 			}),
 		);
 	}

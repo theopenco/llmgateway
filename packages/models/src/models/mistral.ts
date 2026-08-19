@@ -237,12 +237,16 @@ export const mistralModels = [
 		output: ["ocr"],
 		providers: [
 			{
+				// OCR is billed per page and the Mistral key needs a separate OCR
+				// entitlement, so a key without it makes the suite fail with a 401
+				// that looks like a gateway bug. Opt in with
+				// TEST_MODELS="mistral/mistral-ocr-latest".
+				test: "skip",
 				providerId: "mistral",
 				externalId: "mistral-ocr-latest",
 				inputPrice: "0",
 				outputPrice: "0",
 				requestPrice: "0",
-				// $4 per 1,000 pages processed.
 				ocrPagePrice: "0.004",
 				contextSize: 0,
 				maxOutput: undefined,

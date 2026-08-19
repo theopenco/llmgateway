@@ -6,7 +6,14 @@ import {
 	pickMappingHistoryTable,
 } from "@/utils/history-window.js";
 
-import { and, cdb, gte, sql } from "@llmgateway/db";
+import {
+	and,
+	cdb,
+	effectiveTtftTotals,
+	excludeRegionalMappingRows,
+	gte,
+	sql,
+} from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -17,14 +24,20 @@ const providerStatRowSchema = z.object({
 	logsCount: z.number(),
 	errorsCount: z.number(),
 	cachedCount: z.number(),
+	// Effective TTFT: averaged over first-reasoning-token times when the
+	// provider streams reasoning, falling back to first-content-token times
+	// otherwise, so mappings that stream thinking aren't penalized.
 	avgTimeToFirstToken: z.number().nullable(),
 	// How many requests actually contributed a TTFT sample (streamed ones only).
 	// Exposed so callers can gate the display of avgTimeToFirstToken on its own
-	// sample size rather than on logsCount, which counts non-streaming requests
+	// sample size in addition to logsCount, which counts non-streaming requests
 	// that never fed into the average.
 	timeToFirstTokenCount: z.number(),
 	throughput: z.number().nullable(),
 	uptime: z.number().nullable(),
+	// Total tokens processed by the provider over the window, for public
+	// volume displays (provider detail stats band).
+	totalTokens: z.number(),
 	updatedAt: z.string().nullable(),
 });
 
@@ -98,12 +111,17 @@ publicProvidersStats.openapi(listRoute, async (c) => {
 			cachedCount: sql<string>`COALESCE(SUM(${mph.cachedCount}), 0)`,
 			totalTimeToFirstToken: sql<string>`COALESCE(SUM(${mph.totalTimeToFirstToken}), 0)`,
 			timeToFirstTokenCount: sql<string>`COALESCE(SUM(${mph.timeToFirstTokenCount}), 0)`,
+			totalTimeToFirstReasoningToken: sql<string>`COALESCE(SUM(${mph.totalTimeToFirstReasoningToken}), 0)`,
+			timeToFirstReasoningTokenCount: sql<string>`COALESCE(SUM(${mph.timeToFirstReasoningTokenCount}), 0)`,
 			totalOutputTokens: sql<string>`COALESCE(SUM(${mph.totalOutputTokens}), 0)`,
+			totalTokens: sql<string>`COALESCE(SUM(${mph.totalTokens}), 0)`,
 			totalDuration: sql<string>`COALESCE(SUM(${mph.totalDuration}), 0)`,
 			updatedAt: sql<Date | null>`MAX(${mphTs})`,
 		})
 		.from(mph)
-		.where(and(gte(mphTs, startDate)))
+		// Grouped per provider, so the regional rows have to be dropped: the
+		// region-less root row of a mapping already includes their traffic.
+		.where(and(gte(mphTs, startDate), excludeRegionalMappingRows(mph)))
 		.groupBy(mph.providerId)
 		// Pin a stable, window-scoped cache tag. Without it Drizzle keys the
 		// cache on the rendered SQL + params, and `startDate` is derived from
@@ -114,7 +132,7 @@ publicProvidersStats.openapi(listRoute, async (c) => {
 		.$withCache({
 			// The version prefix is bumped whenever the selected columns change so
 			// a rolling deploy doesn't serve rows cached in the previous shape.
-			tag: `publicProviderStats:v2:${window}`,
+			tag: `publicProviderStats:v5:${window}`,
 			autoInvalidate: false,
 			config: { ex: STATS_CACHE_TTL_SECONDS },
 		});
@@ -123,14 +141,24 @@ publicProvidersStats.openapi(listRoute, async (c) => {
 		const logsCount = Number(r.logsCount) || 0;
 		const errorsCount = Number(r.errorsCount) || 0;
 		const cachedCount = Number(r.cachedCount) || 0;
-		const totalTimeToFirstToken = Number(r.totalTimeToFirstToken) || 0;
-		const timeToFirstTokenCount = Number(r.timeToFirstTokenCount) || 0;
 		const totalOutputTokens = Number(r.totalOutputTokens) || 0;
 		const totalDuration = Number(r.totalDuration) || 0;
 
 		// Only streamed requests record a time-to-first-token, so the average
 		// divides by the number of samples rather than by the request count —
 		// otherwise non-streaming traffic drags the reported TTFT towards zero.
+		// Reasoning-token samples take precedence over content-token samples so
+		// mappings that stream thinking aren't measured on their (much later)
+		// first content token.
+		const { total: totalTimeToFirstToken, count: timeToFirstTokenCount } =
+			effectiveTtftTotals({
+				totalTimeToFirstToken: Number(r.totalTimeToFirstToken) || 0,
+				timeToFirstTokenCount: Number(r.timeToFirstTokenCount) || 0,
+				totalTimeToFirstReasoningToken:
+					Number(r.totalTimeToFirstReasoningToken) || 0,
+				timeToFirstReasoningTokenCount:
+					Number(r.timeToFirstReasoningTokenCount) || 0,
+			});
 		const avgTimeToFirstToken =
 			timeToFirstTokenCount > 0
 				? totalTimeToFirstToken / timeToFirstTokenCount
@@ -151,6 +179,7 @@ publicProvidersStats.openapi(listRoute, async (c) => {
 			timeToFirstTokenCount,
 			throughput,
 			uptime,
+			totalTokens: Number(r.totalTokens) || 0,
 			updatedAt: r.updatedAt ? new Date(r.updatedAt).toISOString() : null,
 		};
 	});

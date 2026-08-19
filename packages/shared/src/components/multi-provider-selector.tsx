@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronDown, X } from "lucide-react";
+import { Check, ChevronDown, ShieldAlert, ShieldCheck, X } from "lucide-react";
 import { useState, useCallback } from "react";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
@@ -15,24 +15,30 @@ import {
 	CommandList,
 } from "./ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import { Switch } from "./ui/switch";
 
-import type { ProviderDefinition } from "@llmgateway/models";
-
-interface ApiProvider {
+/**
+ * Minimal structural shape a selectable provider entry must have. Catalogue
+ * `ProviderDefinition`s, DB-backed API provider rows, and synthetic entries
+ * (e.g. an org's custom providers as `custom:<name>` refs) all satisfy it.
+ */
+export interface SelectableProviderOption {
 	id: string;
-	createdAt: string;
 	name: string | null;
-	description: string | null;
-	streaming: boolean | null;
-	cancellation: boolean | null;
-	color: string | null;
-	website: string | null;
-	announcement: string | null;
-	status: "active" | "inactive";
+	color?: string | null;
+	/**
+	 * Whether the provider currently meets the caller's policy requirements.
+	 * When set (on any option), the dropdown becomes policy-aware: options show
+	 * a green/red shield instead of the brand color dot, failing options list
+	 * their `policyNotes`, and a "compatible only" filter toggle is offered.
+	 */
+	meetsPolicy?: boolean;
+	/** Human-readable requirements behind `meetsPolicy === false`. */
+	policyNotes?: string[];
 }
 
 interface MultiProviderSelectorProps {
-	providers: readonly ProviderDefinition[] | ApiProvider[];
+	providers: readonly SelectableProviderOption[];
 	selectedProviders: string[];
 	onProvidersChange: (providers: string[]) => void;
 	placeholder?: string;
@@ -45,6 +51,20 @@ export function MultiProviderSelector({
 	placeholder = "Select providers...",
 }: MultiProviderSelectorProps) {
 	const [open, setOpen] = useState(false);
+	const [compatibleOnly, setCompatibleOnly] = useState(false);
+
+	const isPolicyAware = providers.some(
+		(provider) => provider.meetsPolicy !== undefined,
+	);
+	// Selected options stay visible under the filter so they can be unselected.
+	const visibleProviders =
+		isPolicyAware && compatibleOnly
+			? providers.filter(
+					(provider) =>
+						provider.meetsPolicy !== false ||
+						selectedProviders.includes(provider.id),
+				)
+			: providers;
 
 	const handleProviderToggle = useCallback(
 		(providerId: string) => {
@@ -80,6 +100,20 @@ export function MultiProviderSelector({
 							>
 								{ProviderIcon && <ProviderIcon className="h-3 w-3" />}
 								{provider?.name ?? providerId}
+								{provider?.meetsPolicy === false && (
+									<span
+										title={
+											provider.policyNotes?.length
+												? provider.policyNotes.join("; ")
+												: "Does not meet policy requirements"
+										}
+									>
+										<ShieldAlert
+											className="h-3 w-3 text-red-500"
+											aria-label="Does not meet policy requirements"
+										/>
+									</span>
+								)}
 								<Button
 									variant="ghost"
 									size="sm"
@@ -113,10 +147,26 @@ export function MultiProviderSelector({
 				<PopoverContent className="w-80 p-0 max-h-[400px]" align="start">
 					<Command className="flex flex-col">
 						<CommandInput placeholder="Search providers..." />
+						{isPolicyAware && (
+							<div className="flex items-center justify-between gap-2 border-b px-3 py-2">
+								<span className="text-xs text-muted-foreground">
+									Only providers that meet policy requirements
+								</span>
+								<Switch
+									checked={compatibleOnly}
+									onCheckedChange={setCompatibleOnly}
+									aria-label="Only show providers that meet policy requirements"
+								/>
+							</div>
+						)}
 						<div className="max-h-[300px] overflow-y-auto">
 							<CommandList>
-								<CommandEmpty>No providers found.</CommandEmpty>
-								{providers.map((provider) => {
+								<CommandEmpty>
+									{isPolicyAware && compatibleOnly
+										? "No providers meet the policy requirements."
+										: "No providers found."}
+								</CommandEmpty>
+								{visibleProviders.map((provider) => {
 									const isSelected = selectedProviders.includes(provider.id);
 									const ProviderIcon = getProviderIcon(provider.id);
 
@@ -127,17 +177,45 @@ export function MultiProviderSelector({
 											onSelect={() => handleProviderToggle(provider.id)}
 											className="flex items-center justify-between py-3 cursor-pointer"
 										>
-											<div className="flex items-center gap-2">
-												{ProviderIcon && <ProviderIcon className="h-4 w-4" />}
-												<span className="font-medium">{provider.name}</span>
+											<div className="flex min-w-0 items-center gap-2">
+												{ProviderIcon && (
+													<ProviderIcon className="h-4 w-4 shrink-0" />
+												)}
+												<div className="min-w-0">
+													<span className="font-medium">{provider.name}</span>
+													{provider.meetsPolicy === false &&
+														provider.policyNotes &&
+														provider.policyNotes.length > 0 && (
+															<p
+																className="truncate text-xs text-red-600 dark:text-red-400"
+																title={provider.policyNotes.join("; ")}
+															>
+																{provider.policyNotes.join(" · ")}
+															</p>
+														)}
+												</div>
 											</div>
 
-											<div className="flex items-center gap-2">
-												{provider.color && (
-													<div
-														className="w-3 h-3 rounded-full"
-														style={{ backgroundColor: provider.color }}
-													/>
+											<div className="flex shrink-0 items-center gap-2">
+												{provider.meetsPolicy !== undefined ? (
+													provider.meetsPolicy ? (
+														<ShieldCheck
+															className="h-4 w-4 text-emerald-600"
+															aria-label="Meets policy requirements"
+														/>
+													) : (
+														<ShieldAlert
+															className="h-4 w-4 text-red-500"
+															aria-label="Does not meet policy requirements"
+														/>
+													)
+												) : (
+													provider.color && (
+														<div
+															className="w-3 h-3 rounded-full"
+															style={{ backgroundColor: provider.color }}
+														/>
+													)
 												)}
 												{isSelected && (
 													<Check className="h-4 w-4 text-green-600" />
@@ -148,6 +226,18 @@ export function MultiProviderSelector({
 								})}
 							</CommandList>
 						</div>
+						{isPolicyAware && (
+							<div className="flex items-center gap-3 border-t px-3 py-2 text-xs text-muted-foreground">
+								<span className="flex items-center gap-1">
+									<ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
+									Meets policy requirements
+								</span>
+								<span className="flex items-center gap-1">
+									<ShieldAlert className="h-3.5 w-3.5 text-red-500" />
+									Does not meet
+								</span>
+							</div>
+						)}
 					</Command>
 				</PopoverContent>
 			</Popover>

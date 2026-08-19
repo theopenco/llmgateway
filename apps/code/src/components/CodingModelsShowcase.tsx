@@ -16,7 +16,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 
 import { models, type ModelDefinition } from "@llmgateway/models";
-import { isPremiumModel } from "@llmgateway/shared";
+import { isCodingModel, isPremiumModel } from "@llmgateway/shared";
 import {
 	getModelFamilyIcon,
 	OPEN_WEIGHT_LAB_FAMILIES,
@@ -41,24 +41,12 @@ function isActiveMapping(provider: ModelProvider): boolean {
 	);
 }
 
-// Mirrors the `category=code` filter on the models directory: paid, stable
-// models with at least one active mapping offering tools, JSON output,
-// streaming, and cached input pricing.
-function isCodingModel(model: ModelDefinition): boolean {
-	if (model.free) {
-		return false;
-	}
-	if (model.stability === "unstable" || model.stability === "experimental") {
-		return false;
-	}
-	return model.providers.some(
-		(p) =>
-			isActiveMapping(p) &&
-			(p.jsonOutput ?? p.jsonOutputSchema) &&
-			p.tools &&
-			p.streaming &&
-			p.cachedInputPrice !== undefined,
-	);
+// The gateway's DevPass gate, minus mappings that have already been retired.
+function isShowcaseCodingModel(model: ModelDefinition): boolean {
+	return isCodingModel({
+		...model,
+		providers: model.providers.filter(isActiveMapping),
+	});
 }
 
 // Newest release first; models without a release date sink to the end.
@@ -69,7 +57,7 @@ function byNewestRelease(a: ModelDefinition, b: ModelDefinition): number {
 }
 
 const codingModels = (models as ModelDefinition[])
-	.filter(isCodingModel)
+	.filter(isShowcaseCodingModel)
 	.sort(byNewestRelease);
 
 // Recommended = the latest coding model from each open-weight lab, derived

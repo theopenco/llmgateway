@@ -43,8 +43,17 @@ vi.mock("@llmgateway/db", async (importOriginal) => {
 const redisGet = vi.fn();
 vi.mock("@llmgateway/cache", () => ({
 	redisClient: {
+		get: vi.fn(),
+		set: vi.fn().mockResolvedValue("OK"),
+	},
+	storageRedisClient: {
 		get: (...args: unknown[]) => redisGet(...args),
 		set: vi.fn().mockResolvedValue("OK"),
+		mget: vi.fn().mockResolvedValue([]),
+		pipeline: vi.fn(() => ({
+			set: vi.fn(),
+			exec: vi.fn().mockResolvedValue([]),
+		})),
 	},
 }));
 
@@ -80,6 +89,25 @@ describe("responsesRequestSchema", () => {
 		});
 
 		expect(result.success).toBe(true);
+	});
+
+	it("accepts both the Responses and Chat Completions tool_choice shapes", () => {
+		// The Responses API nests nothing: `{type:"function",name}`. Clients that
+		// port a chat-completions payload over send the nested form instead, and
+		// both have to get through.
+		const responsesShape = responsesRequestSchema.safeParse({
+			model: "gpt-5.6-sol",
+			input: "hi",
+			tool_choice: { type: "function", name: "get_weather" },
+		});
+		expect(responsesShape.success).toBe(true);
+
+		const chatShape = responsesRequestSchema.safeParse({
+			model: "gpt-5.6-sol",
+			input: "hi",
+			tool_choice: { type: "function", function: { name: "get_weather" } },
+		});
+		expect(chatShape.success).toBe(true);
 	});
 
 	it("accepts reasoning items whose optional fields are explicit nulls", () => {
@@ -228,8 +256,12 @@ describe("convertResponsesInputToMessages", () => {
 
 	it("passes through regular messages", () => {
 		const input = [
-			{ role: "user" as const, content: "Hello" },
-			{ role: "assistant" as const, content: "Hi there" },
+			{ type: "message" as const, role: "user" as const, content: "Hello" },
+			{
+				type: "message" as const,
+				role: "assistant" as const,
+				content: "Hi there",
+			},
 		];
 		const result = convertResponsesInputToMessages(input);
 		expect(result).toHaveLength(2);
@@ -239,9 +271,57 @@ describe("convertResponsesInputToMessages", () => {
 		expect(result[1]!.content).toBe("Hi there");
 	});
 
+	it("keeps an explicit prompt cache breakpoint on a replayed output_text part", () => {
+		// Only a marker that survives request validation can reach the provider,
+		// so this goes through the schema the route parses with. The sibling
+		// `text` part is the control: both carry the same marker.
+		const req = responsesRequestSchema.parse({
+			model: "gpt-5.6-sol",
+			prompt_cache_options: { mode: "explicit" },
+			input: [
+				{
+					role: "assistant",
+					content: [
+						{
+							type: "output_text",
+							text: "prior answer",
+							prompt_cache_breakpoint: { mode: "explicit" },
+						},
+					],
+				},
+				{
+					role: "assistant",
+					content: [
+						{
+							type: "text",
+							text: "prior answer",
+							prompt_cache_breakpoint: { mode: "explicit" },
+						},
+					],
+				},
+			],
+		});
+
+		const messages = convertResponsesInputToMessages(req.input);
+		const expected = [
+			{
+				type: "text",
+				text: "prior answer",
+				prompt_cache_breakpoint: { mode: "explicit" },
+			},
+		];
+
+		expect(messages[0]!.content).toEqual(expected);
+		expect(messages[1]!.content).toEqual(expected);
+	});
+
 	it("converts function_call items to assistant tool_calls", () => {
 		const input = [
-			{ role: "user" as const, content: "What's the weather?" },
+			{
+				type: "message" as const,
+				role: "user" as const,
+				content: "What's the weather?",
+			},
 			{
 				type: "function_call" as const,
 				call_id: "call_123",
@@ -334,6 +414,7 @@ describe("convertResponsesInputToMessages", () => {
 	it("converts input_text content type to text", () => {
 		const input = [
 			{
+				type: "message" as const,
 				role: "user" as const,
 				content: [{ type: "input_text" as const, text: "Hello" }],
 			},
@@ -344,8 +425,12 @@ describe("convertResponsesInputToMessages", () => {
 
 	it("maps developer role to system", () => {
 		const input = [
-			{ role: "developer" as const, content: "You are helpful" },
-			{ role: "user" as const, content: "Hello" },
+			{
+				type: "message" as const,
+				role: "developer" as const,
+				content: "You are helpful",
+			},
+			{ type: "message" as const, role: "user" as const, content: "Hello" },
 		];
 		const result = convertResponsesInputToMessages(input);
 		expect(result[0]!.role).toBe("system");

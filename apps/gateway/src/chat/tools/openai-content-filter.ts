@@ -1,6 +1,10 @@
+import {
+	findManagedProviderKey,
+	hasManagedProviderCredential,
+} from "@/lib/cached-queries.js";
 import { isCancellationError, isTimeoutError } from "@/lib/timeout-config.js";
 
-import { getProviderHeaders } from "@llmgateway/actions";
+import { getProviderHeaders, readProviderKey } from "@llmgateway/actions";
 import { logger } from "@llmgateway/logger";
 
 import { extractErrorCause } from "./extract-error-cause.js";
@@ -108,8 +112,15 @@ function buildTextSummary(message: BaseMessage): string | null {
 				continue;
 			}
 
-			if (part.type === "tool_result" && part.content.trim().length > 0) {
-				segments.push(`tool_result: ${part.content.trim()}`);
+			if (part.type === "tool_result") {
+				// The content is a block array when a client-side tool search
+				// answered with tool_reference blocks; there is no user text in
+				// those, so only the string form is worth screening.
+				const text =
+					typeof part.content === "string" ? part.content.trim() : "";
+				if (text.length > 0) {
+					segments.push(`tool_result: ${text}`);
+				}
 			}
 		}
 	}
@@ -348,6 +359,27 @@ function createFailedOpenAIContentFilterResult(
 	};
 }
 
+/**
+ * The OpenAI credential the moderation call runs on. A managed credential
+ * supersedes the env vars for its provider entirely, so once one exists the
+ * environment is never read — and a provider whose managed credentials cannot
+ * serve the call has no env key left to fall back to.
+ */
+async function resolveContentFilterToken(): Promise<string> {
+	if (await hasManagedProviderCredential("openai")) {
+		const managedKey = await findManagedProviderKey("openai", {
+			selectionScope: OPENAI_MODERATION_MODEL,
+		});
+		if (!managedKey) {
+			throw new Error(
+				"No managed credential available for provider: openai (content filter)",
+			);
+		}
+		return readProviderKey(managedKey);
+	}
+	return getProviderEnv("openai", { advanceRoundRobin: false }).token;
+}
+
 async function runOpenAIContentFilterRequest(
 	request: OpenAIModerationRequest,
 	context: GatewayContentFilterContext,
@@ -487,18 +519,14 @@ export async function checkOpenAIContentFilter(
 
 	try {
 		// Gateway-internal safety filter: always uses the base credential, never
-		// the enterprise-plan env override.
-		const providerEnv = getProviderEnv("openai", {
-			advanceRoundRobin: false,
-		});
+		// the enterprise-plan env override. Managed credentials replace the env
+		// vars for their provider, so once OpenAI has one the moderation call
+		// uses it and never reads `LLM_OPENAI_API_KEY`; when none can serve it,
+		// this throws and the filter fails open below.
+		const token = await resolveContentFilterToken();
 		const moderationResults = await Promise.all(
 			moderationRequests.map((request) =>
-				runOpenAIContentFilterRequest(
-					request,
-					context,
-					providerEnv.token,
-					signal,
-				),
+				runOpenAIContentFilterRequest(request, context, token, signal),
 			),
 		);
 

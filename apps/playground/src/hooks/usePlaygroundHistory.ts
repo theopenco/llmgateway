@@ -2,6 +2,11 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { useApi } from "@/lib/fetch-client";
 
+import type { paths } from "@/lib/api/v1";
+
+type RealtimeHistoryDetail =
+	paths["/playground/realtime-history/{id}"]["get"]["responses"][200]["content"]["application/json"];
+
 export function useImageHistory(enabled = true, organizationId?: string) {
 	const api = useApi();
 	return api.useQuery(
@@ -151,9 +156,9 @@ export function useRealtimeHistory(enabled = true, organizationId?: string) {
 	);
 }
 
-// Full call including its transcript, fetched only when a call is opened.
-// Calls are immutable apart from title renames (which invalidate this query),
-// so the data never goes stale.
+// Full call including its transcript, fetched only when a call is opened. The
+// only writes are title renames and continued-call appends, both of which
+// invalidate this query, so the data never goes stale.
 export function useRealtimeHistoryItem(id: string | null) {
 	const api = useApi();
 	return api.useQuery(
@@ -193,25 +198,44 @@ export function useSaveRealtimeHistory() {
 	});
 }
 
-export function useRenameRealtimeHistory() {
+// Renames a call and/or appends the turns of a continued session to it. Both
+// change the detail payload, so it is invalidated alongside the list.
+export function useUpdateRealtimeHistory() {
 	const queryClient = useQueryClient();
 	const api = useApi();
 	return api.useMutation("patch", "/playground/realtime-history/{id}", {
-		onSuccess: (_data, variables) => {
+		onSuccess: (data, variables) => {
 			void queryClient.invalidateQueries({
 				queryKey: api.queryOptions("get", "/playground/realtime-history")
 					.queryKey,
 			});
 			const id = variables.params?.path?.id;
-			if (id) {
-				void queryClient.invalidateQueries({
-					queryKey: api.queryOptions(
-						"get",
-						"/playground/realtime-history/{id}",
-						{ params: { path: { id } } },
-					).queryKey,
+			if (!id) {
+				return;
+			}
+			const detailKey = api.queryOptions(
+				"get",
+				"/playground/realtime-history/{id}",
+				{ params: { path: { id } } },
+			).queryKey;
+			const appended = variables.body?.appendTranscript;
+			// Fold the appended turns into the cached detail up front, so a call
+			// that just ended reads complete the instant it is opened rather than
+			// showing its pre-continuation transcript until the refetch lands.
+			// The cache key is tagged as `{}` by openapi-react-query, so the shape
+			// has to be reapplied on read.
+			const previous = queryClient.getQueryData(detailKey) as
+				RealtimeHistoryDetail | undefined;
+			if (appended?.length && previous) {
+				queryClient.setQueryData(detailKey, {
+					item: {
+						...previous.item,
+						...data.item,
+						transcript: [...previous.item.transcript, ...appended],
+					},
 				});
 			}
+			void queryClient.invalidateQueries({ queryKey: detailKey });
 		},
 	});
 }

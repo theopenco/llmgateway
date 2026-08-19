@@ -39,7 +39,7 @@ const tools: Tool[] = [
 		title: "MCP Server",
 		description:
 			"Use LLM Gateway as an MCP server for Claude Code, Cursor, and other MCP-compatible clients.",
-		href: "/guides/mcp",
+		href: "/developers/mcp",
 		icon: <Plug className="size-5" />,
 	},
 	{

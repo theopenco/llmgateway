@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { LegalSummary } from "@/components/LegalSummary";
+
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -16,14 +18,16 @@ export default function TermsPage() {
 			<p>
 				<strong>Effective Date:</strong> April 26, 2026
 				<br />
-				<strong>Last Updated:</strong> July 22, 2026
+				<strong>Last Updated:</strong> August 18, 2026
 			</p>
+			<LegalSummary variant="terms" />
 			<p>
 				<strong>DevPass</strong> is a service operated by{" "}
 				<strong>LLM Gateway</strong> (&ldquo;we&rdquo;, &ldquo;our&rdquo;, or
-				&ldquo;us&rdquo;). These DevPass Supplemental Terms of Use
-				(&ldquo;DevPass Terms&rdquo;) govern your access to and use of DevPass,
-				including the website at{" "}
+				&ldquo;us&rdquo;), a service of <strong>Polar Lights LLC</strong>, 16192
+				Coastal Highway, Lewes, DE 19958, United States. These DevPass
+				Supplemental Terms of Use (&ldquo;DevPass Terms&rdquo;) govern your
+				access to and use of DevPass, including the website at{" "}
 				<a href="https://devpass.llmgateway.io">devpass.llmgateway.io</a>, the
 				DevPass dashboard, related APIs, SDKs, and any DevPass-branded products
 				or services (collectively, the &ldquo;Service&rdquo;).
@@ -87,6 +91,15 @@ export default function TermsPage() {
 				application or for non-inference workloads (such as embeddings, image
 				generation, or video generation), use a standard LLM Gateway credits
 				plan under the Base Terms instead.
+			</p>
+			<p>
+				<strong>Automatic routing.</strong> When DevPass selects a provider
+				automatically, we may change internal routing scores, weights,
+				preferences, and similar routing parameters at any time and at our
+				discretion. As described in Section&nbsp;7 of the Base Terms, these
+				parameters affect provider selection but do not themselves change the
+				price used to measure usage. If you require a particular provider, you
+				must pin that provider where the Service supports provider pinning.
 			</p>
 			<hr />
 			<h2>2. Plans, Billing, and Fair Use</h2>
@@ -261,15 +274,31 @@ export default function TermsPage() {
 				<Link href="/legal/privacy">DevPass Privacy Policy</Link>, which builds
 				on the main{" "}
 				<a href="https://llmgateway.io/privacy">LLM Gateway Privacy Policy</a>.
-				Request payloads, responses, and per-agent metadata are stored to power
-				your dashboard, usage reporting, and per-tool insights, subject to the
-				retention options available in your account settings.
+				Per-agent metadata — token counts, costs, models, and routing
+				information — is stored to power your dashboard, usage reporting, and
+				per-tool insights. Request payloads and responses are not retained on
+				DevPass, except for stateful Responses API requests, which are stored
+				for up to 30 days so response chaining works.
 			</p>
 			<hr />
 			<h2>6. Contact</h2>
 			<p>
 				Questions about these DevPass Terms or the Base Terms? Email{" "}
 				<a href="mailto:contact@llmgateway.io">contact@llmgateway.io</a>.
+			</p>
+			<p>
+				<strong>LLM Gateway</strong>
+				<br />
+				on behalf of
+			</p>
+			<p>
+				<strong>Polar Lights LLC</strong>
+				<br />
+				16192 Coastal Highway
+				<br />
+				Lewes, DE 19958
+				<br />
+				United States
 			</p>
 			<p>© 2026 LLM Gateway. All rights reserved.</p>
 		</>

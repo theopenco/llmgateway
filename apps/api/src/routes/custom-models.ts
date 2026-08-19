@@ -2,7 +2,11 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { getAdminOrganizationIds } from "@/utils/authorization.js";
+import { assertOrganizationProviderKey } from "@/lib/organization-provider-key.js";
+import {
+	getActiveUserOrganizationIds,
+	getAdminOrganizationIds,
+} from "@/utils/authorization.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { cdb, db, eq, tables } from "@llmgateway/db";
@@ -26,7 +30,7 @@ const priceField = z
 	)
 	.nullish();
 
-const customModelSchema = z.object({
+export const customModelSchema = z.object({
 	id: z.string(),
 	createdAt: z.date(),
 	updatedAt: z.date(),
@@ -86,12 +90,12 @@ const customModelFields = {
 	status: z.enum(["active", "inactive"]).optional(),
 };
 
-const createCustomModelSchema = z.object({
+export const createCustomModelSchema = z.object({
 	providerKeyId: z.string().min(1, "Provider key is required"),
 	...customModelFields,
 });
 
-const updateCustomModelSchema = z
+export const updateCustomModelSchema = z
 	.object({
 		...customModelFields,
 		modelName: customModelFields.modelName.optional(),
@@ -99,6 +103,132 @@ const updateCustomModelSchema = z
 	.refine((v) => Object.keys(v).length > 0, {
 		message: "No updatable fields provided",
 	});
+
+type CustomModelCreateFields = Omit<
+	z.infer<typeof createCustomModelSchema>,
+	"providerKeyId"
+>;
+type CustomModelUpdateFields = z.infer<typeof updateCustomModelSchema>;
+
+interface CustomModelOwner {
+	id: string;
+	organizationId: string;
+}
+
+interface ExistingCustomModel {
+	id: string;
+	organizationId: string;
+	providerKeyId: string;
+	modelName: string;
+}
+
+async function assertModelNameAvailable(
+	providerKeyId: string,
+	modelName: string,
+) {
+	const conflict = await db.query.customModel.findFirst({
+		where: {
+			providerKeyId: { eq: providerKeyId },
+			modelName: { eq: modelName },
+			status: { ne: "deleted" },
+		},
+	});
+
+	if (conflict) {
+		throw new HTTPException(400, {
+			message: `A custom model named '${modelName}' already exists for this provider key`,
+		});
+	}
+}
+
+/**
+ * Create/update/delete helpers shared by the dashboard routes below and the
+ * master-key API (`v1-master.ts`), so both surfaces apply the same uniqueness
+ * checks, cache busting and audit logging. Callers are responsible for
+ * authorizing the acting principal against the provider key first.
+ */
+export async function insertCustomModel(
+	providerKey: CustomModelOwner,
+	userId: string,
+	fields: CustomModelCreateFields,
+) {
+	await assertModelNameAvailable(providerKey.id, fields.modelName);
+
+	const [customModel] = await cdb
+		.insert(tables.customModel)
+		.values({
+			providerKeyId: providerKey.id,
+			organizationId: providerKey.organizationId,
+			...fields,
+		})
+		.returning();
+
+	await logAuditEvent({
+		organizationId: providerKey.organizationId,
+		userId,
+		action: "custom_model.create",
+		resourceType: "custom_model",
+		resourceId: customModel.id,
+		metadata: {
+			providerKeyId: providerKey.id,
+			modelName: fields.modelName,
+		},
+	});
+
+	return customModel;
+}
+
+export async function applyCustomModelUpdate(
+	existing: ExistingCustomModel,
+	userId: string,
+	fields: CustomModelUpdateFields,
+) {
+	if (fields.modelName && fields.modelName !== existing.modelName) {
+		await assertModelNameAvailable(existing.providerKeyId, fields.modelName);
+	}
+
+	const [customModel] = await cdb
+		.update(tables.customModel)
+		.set(fields)
+		.where(eq(tables.customModel.id, existing.id))
+		.returning();
+
+	await logAuditEvent({
+		organizationId: existing.organizationId,
+		userId,
+		action: "custom_model.update",
+		resourceType: "custom_model",
+		resourceId: existing.id,
+		metadata: {
+			providerKeyId: existing.providerKeyId,
+			modelName: customModel.modelName,
+		},
+	});
+
+	return customModel;
+}
+
+export async function softDeleteCustomModel(
+	existing: ExistingCustomModel,
+	userId: string,
+) {
+	await cdb
+		.update(tables.customModel)
+		.set({ status: "deleted" })
+		.where(eq(tables.customModel.id, existing.id));
+
+	await logAuditEvent({
+		organizationId: existing.organizationId,
+		userId,
+		action: "custom_model.delete",
+		resourceType: "custom_model",
+		resourceId: existing.id,
+		metadata: {
+			providerKeyId: existing.providerKeyId,
+			modelName: existing.modelName,
+		},
+	});
+}
 
 /**
  * Resolves a custom provider key the user can manage and asserts that the
@@ -125,6 +255,8 @@ async function getManageableProviderKey(userId: string, providerKeyId: string) {
 			message: "Provider key not found",
 		});
 	}
+
+	assertOrganizationProviderKey(providerKey);
 
 	if (providerKey.provider !== "custom") {
 		throw new HTTPException(400, {
@@ -172,7 +304,10 @@ customModels.openapi(list, async (c) => {
 
 	const { providerKeyId } = c.req.valid("query");
 
-	const organizationIds = await getAdminOrganizationIds(user.id);
+	// Reads are member-level so every org member (including project-scoped
+	// developers) can browse the custom-model catalog; create/update/delete
+	// stay owner/admin-gated via getManageableProviderKey.
+	const organizationIds = await getActiveUserOrganizationIds(user.id);
 	if (!organizationIds.length) {
 		return c.json({ customModels: [] });
 	}
@@ -228,40 +363,7 @@ customModels.openapi(create, async (c) => {
 
 	const providerKey = await getManageableProviderKey(user.id, providerKeyId);
 
-	const existing = await db.query.customModel.findFirst({
-		where: {
-			providerKeyId: { eq: providerKeyId },
-			modelName: { eq: fields.modelName },
-			status: { ne: "deleted" },
-		},
-	});
-
-	if (existing) {
-		throw new HTTPException(400, {
-			message: `A custom model named '${fields.modelName}' already exists for this provider key`,
-		});
-	}
-
-	const [customModel] = await cdb
-		.insert(tables.customModel)
-		.values({
-			providerKeyId,
-			organizationId: providerKey.organizationId,
-			...fields,
-		})
-		.returning();
-
-	await logAuditEvent({
-		organizationId: providerKey.organizationId,
-		userId: user.id,
-		action: "custom_model.create",
-		resourceType: "custom_model",
-		resourceId: customModel.id,
-		metadata: {
-			providerKeyId,
-			modelName: fields.modelName,
-		},
-	});
+	const customModel = await insertCustomModel(providerKey, user.id, fields);
 
 	return c.json({ customModel });
 });
@@ -327,38 +429,7 @@ customModels.openapi(update, async (c) => {
 	// Enforce enterprise plan + custom provider key ownership.
 	await getManageableProviderKey(user.id, existing.providerKeyId);
 
-	if (fields.modelName && fields.modelName !== existing.modelName) {
-		const conflict = await db.query.customModel.findFirst({
-			where: {
-				providerKeyId: { eq: existing.providerKeyId },
-				modelName: { eq: fields.modelName },
-				status: { ne: "deleted" },
-			},
-		});
-		if (conflict) {
-			throw new HTTPException(400, {
-				message: `A custom model named '${fields.modelName}' already exists for this provider key`,
-			});
-		}
-	}
-
-	const [customModel] = await cdb
-		.update(tables.customModel)
-		.set(fields)
-		.where(eq(tables.customModel.id, id))
-		.returning();
-
-	await logAuditEvent({
-		organizationId: existing.organizationId,
-		userId: user.id,
-		action: "custom_model.update",
-		resourceType: "custom_model",
-		resourceId: id,
-		metadata: {
-			providerKeyId: existing.providerKeyId,
-			modelName: customModel.modelName,
-		},
-	});
+	const customModel = await applyCustomModelUpdate(existing, user.id, fields);
 
 	return c.json({ customModel }, 200);
 });
@@ -413,22 +484,7 @@ customModels.openapi(deleteCustomModel, async (c) => {
 
 	await getManageableProviderKey(user.id, existing.providerKeyId);
 
-	await cdb
-		.update(tables.customModel)
-		.set({ status: "deleted" })
-		.where(eq(tables.customModel.id, id));
-
-	await logAuditEvent({
-		organizationId: existing.organizationId,
-		userId: user.id,
-		action: "custom_model.delete",
-		resourceType: "custom_model",
-		resourceId: id,
-		metadata: {
-			providerKeyId: existing.providerKeyId,
-			modelName: existing.modelName,
-		},
-	});
+	await softDeleteCustomModel(existing, user.id);
 
 	return c.json({ message: "Custom model deleted successfully" });
 });

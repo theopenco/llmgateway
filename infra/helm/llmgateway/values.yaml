@@ -43,8 +43,14 @@ urls:
 auth:
   # -- (required) Secret used for signing auth tokens (32+ characters)
   authSecret: "change-me-to-a-random-32-char-secret"
-  # -- (required) HMAC secret for hashing API keys
+  # -- (required) HMAC secret for hashing API keys and deriving the BYOK
+  # encryption-at-rest data key
   gatewayApiKeyHashSecret: "change-me-to-a-random-secret"
+  # -- Shared secret letting the API tell the gateway a request is the
+  # onboarding wizard's first call, which is served without charging for it. A
+  # brand new organization has 0 credits, so without this the first thing a user
+  # does returns a 402. Leave empty to bill that call normally.
+  onboardingSponsorSecret: ""
   # -- Cookie domain for session cookies
   cookieDomain: ""
   # -- Comma-separated list of allowed CORS origins
@@ -135,10 +141,23 @@ gateway:
     healthCheckSkipDatabase: ""
     healthCheckTimeoutMs: 15000
     maxStreamingBufferMb: 50
+    # Upstream dispatcher tuning for the gateway→provider hop. Both default in
+    # code (300s DNS cache, 60s keep-alive); set here only to override.
+    upstreamDnsCacheTtlMs: ""
+    upstreamKeepaliveTimeoutMs: ""
   # Hard deadline for pod shutdown; caps every in-process drain above. Defaults
   # to 120s, or realtime.config.maxSessionSeconds + 120 when realtime.enabled.
   # Set explicitly only to override that.
   terminationGracePeriodSeconds: ""
+  # -- Per-organization rate-limit, spend-cap and top-up-velocity overrides, as
+  # raw env vars, e.g. GATEWAY_RATE_LIMIT_CHAT_COMPLETIONS_RPM,
+  # GATEWAY_SPEND_TIER_2_DAILY_CAP_USD, GATEWAY_SPEND_TIER_1_TOPUP_DAILY_CAP_USD,
+  # GATEWAY_RATE_LIMITS_ENABLED, GATEWAY_SPEND_CAPS_ENABLED,
+  # GATEWAY_TOPUP_VELOCITY_ENABLED. Set them here rather than in `extraEnv`:
+  # these render into the shared ConfigMap so every consumer sees the same
+  # values — the gateway enforces the rate limits and spend caps, the api and
+  # worker enforce the top-up velocity caps, and the dashboard reports them.
+  rateLimits: {}
   extraEnv: []
   nodeSelector: {}
   tolerations: []
@@ -381,6 +400,40 @@ externalRedis:
   password: ""
 
 # =============================================================================
+# Built-in Storage Redis
+# Dedicated instance for Responses API state (30-day retention) and gateway
+# response caching. Runs with AOF persistence since it holds a source of
+# truth, not just cache. Set enabled: false to use an external instance
+# (configure externalStorageRedis); with neither configured, the apps fall
+# back to the main Redis connection.
+# =============================================================================
+storageRedis:
+  enabled: true
+  image:
+    repository: redis
+    tag: "8-alpine"
+    pullPolicy: IfNotPresent
+  # -- Redis password (leave empty for no authentication)
+  password: ""
+  port: 6379
+  persistence:
+    size: 10Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 512Mi
+
+# -- External storage Redis (used when storageRedis.enabled is false)
+externalStorageRedis:
+  host: ""
+  port: 6379
+  password: ""
+
+# =============================================================================
 # Ingress
 # =============================================================================
 ingress:
@@ -425,6 +478,8 @@ llmProviders:
   # LLM_PERPLEXITY_API_KEY: ""
   # LLM_TOGETHER_AI_API_KEY: ""
   # LLM_SCX_AI_API_KEY: ""
+  # LLM_RANOAI_API_KEY: ""
+  # LLM_BAIDU_API_KEY: ""
   # LLM_ALIBABA_API_KEY: ""
   # LLM_NEBIUS_API_KEY: ""
   # LLM_CEREBRAS_API_KEY: ""
@@ -449,6 +504,8 @@ stripe:
   devPlanMaxPriceId: ""
 
 billing:
+  # Bill cancelled/aborted streaming requests for the inference already consumed.
+  # Defaults to enabled in code; set to "false" only to opt out (see GHSA-724j-f2pf-phf7).
   billCancelledRequests: ""
   platformFeePercentage: ""
 

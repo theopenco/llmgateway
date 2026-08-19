@@ -1,7 +1,5 @@
 import { ImageResponse } from "next/og";
 
-import { discountFraction, getEffectiveProviderDiscount } from "@/lib/discount";
-import { fetchModelDiscounts } from "@/lib/fetch-models";
 import Logo from "@/lib/icons/Logo";
 import { formatContextSize } from "@/lib/utils";
 
@@ -13,6 +11,7 @@ import {
 } from "@llmgateway/models";
 import {
 	AWSBedrockIconStatic,
+	FireworksIconStatic,
 	getProviderIcon,
 	GoogleStudioAIIconStatic,
 	MinimaxIconStatic,
@@ -24,7 +23,32 @@ export const size = {
 	height: 630,
 };
 export const contentType = "image/png";
-export const revalidate = 60;
+// Baked at build time rather than revalidated every 60s: rendering these cards
+// on demand runs satori inside the request, which the production pods do not
+// have the headroom for and which took the whole route down with a 503. The
+// canonical /models/[name] pages point their og:image here too, so this route
+// backs every model card on the site. Discount badges therefore refresh per
+// deploy instead of per minute — social scrapers cache these for days anyway.
+export const dynamic = "force-static";
+export const dynamicParams = false;
+
+export function generateStaticParams() {
+	const params: { name: string; provider: string }[] = [];
+
+	for (const model of modelDefinitions) {
+		const uniqueProviders = Array.from(
+			new Set(model.providers.map((mapping) => mapping.providerId)),
+		);
+		for (const providerId of uniqueProviders) {
+			params.push({
+				name: encodeURIComponent(model.id),
+				provider: encodeURIComponent(providerId),
+			});
+		}
+	}
+
+	return params;
+}
 
 interface ImageProps {
 	params: Promise<{ name: string; provider: string }>;
@@ -110,17 +134,18 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 						? GoogleStudioAIIconStatic
 						: selectedMapping.providerId === "xai"
 							? XAIIconStatic
-							: getProviderIcon(selectedMapping.providerId)
+							: selectedMapping.providerId === "fireworks"
+								? FireworksIconStatic
+								: getProviderIcon(selectedMapping.providerId)
 			: null;
-		const discounts = await fetchModelDiscounts(decodedName);
-		const effectiveDiscount = selectedMapping
-			? getEffectiveProviderDiscount(
-					discounts,
-					selectedMapping.providerId,
-					decodedName,
-				)
-			: undefined;
-		const discountNum = discountFraction(effectiveDiscount);
+		// Cards show list prices, not discounted ones. Discounts live in the
+		// database behind the API, and API_URL is a runtime env var that is not
+		// set during the image build, so a lookup here can only ever fail and
+		// fall back to "no discount" — at the cost of one dead request per
+		// generated card. The price rendering below still handles a discount, so
+		// restoring the badge is a matter of feeding it one from a build-time
+		// source.
+		const discountNum = 0;
 
 		const hasPricingTiers = (selectedMapping?.pricingTiers?.length ?? 0) > 1;
 		const pricing = getEffectivePricePerMillion(selectedMapping, discountNum);
@@ -131,6 +156,14 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 		const perSecondPrice = selectedMapping?.perSecondPrice
 			? Object.fromEntries(
 					Object.entries(selectedMapping.perSecondPrice).map(([k, v]) => [
+						k,
+						Number(v),
+					]),
+				)
+			: undefined;
+		const perImagePrice = selectedMapping?.perImagePrice
+			? Object.fromEntries(
+					Object.entries(selectedMapping.perImagePrice).map(([k, v]) => [
 						k,
 						Number(v),
 					]),
@@ -160,11 +193,24 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 			inputAudioHourPrice > 0 &&
 			!(Number(selectedMapping?.inputPrice ?? 0) > 0) &&
 			!(Number(selectedMapping?.outputPrice ?? 0) > 0);
+		const hasPerImagePricing =
+			isImageGen &&
+			perImagePrice !== undefined &&
+			Object.keys(perImagePrice).length > 0;
+		const hasPositiveTokenPrice = [
+			pricing?.input,
+			pricing?.output,
+			pricing?.cachedInput,
+		].some((p) => (p?.original ?? 0) > 0);
+		// Per-image mappings declare token prices as the string "0" — placeholder
+		// values, not real token pricing — so zero token prices only count when
+		// the mapping has no per-image pricing to show instead.
 		const hasTokenPricing =
 			!isOcr &&
 			!hasCharPricing &&
 			!hasAudioHourPricing &&
-			(pricing?.input ?? pricing?.output ?? pricing?.cachedInput);
+			Boolean(pricing?.input ?? pricing?.output ?? pricing?.cachedInput) &&
+			(hasPositiveTokenPrice || !hasPerImagePricing);
 
 		const contextSize = selectedMapping?.contextSize ?? 0;
 
@@ -182,7 +228,9 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 								? GoogleStudioAIIconStatic
 								: providerId === "xai"
 									? XAIIconStatic
-									: getProviderIcon(providerId);
+									: providerId === "fireworks"
+										? FireworksIconStatic
+										: getProviderIcon(providerId);
 				const info = providerDefinitions.find((p) => p.id === providerId);
 				return {
 					id: providerId,
@@ -416,6 +464,7 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 					{(hasTokenPricing ||
 						(requestPrice !== undefined && requestPrice !== 0) ||
 						(perSecondPrice && Object.keys(perSecondPrice).length > 0) ||
+						(perImagePrice && Object.keys(perImagePrice).length > 0) ||
 						hasOcrPricing ||
 						hasCharPricing ||
 						hasAudioHourPricing) && (
@@ -436,14 +485,16 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 										? "Pricing per second"
 										: hasOcrPricing
 											? "Pricing per 1K pages"
-											: isImageGen &&
-												  requestPrice !== undefined &&
-												  requestPrice !== 0 &&
-												  !hasTokenPricing
-												? "Pricing per request"
-												: requestPrice !== undefined && requestPrice !== 0
-													? "Pricing"
-													: "Pricing per 1M tokens"}
+											: isImageGen && perImagePrice && !hasTokenPricing
+												? "Pricing per image"
+												: isImageGen &&
+													  requestPrice !== undefined &&
+													  requestPrice !== 0 &&
+													  !hasTokenPricing
+													? "Pricing per request"
+													: requestPrice !== undefined && requestPrice !== 0
+														? "Pricing"
+														: "Pricing per 1M tokens"}
 						</span>
 					)}
 					<div
@@ -576,6 +627,47 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 										</span>
 									</div>
 								))}
+
+						{/* Per-Image Price for image gen, tiered by output resolution.
+						    Fall back to the "default" tier when it is the only entry. */}
+						{isImageGen &&
+							perImagePrice &&
+							(() => {
+								const tierEntries = Object.entries(perImagePrice).filter(
+									([key]) => key !== "default",
+								);
+								const entries =
+									tierEntries.length > 0
+										? tierEntries
+										: Object.entries(perImagePrice);
+								return entries.slice(0, 2).map(([key, price]) => (
+									<div
+										key={key}
+										style={{
+											display: "flex",
+											flexDirection: "column",
+											gap: 10,
+											padding: "28px 36px",
+											backgroundColor: "#0A0A0A",
+											borderRadius: 20,
+											border: "1px solid #1F2937",
+										}}
+									>
+										<span
+											style={{
+												color: "#9CA3AF",
+												fontSize: 20,
+												fontWeight: 500,
+												textTransform: "uppercase",
+												letterSpacing: "0.05em",
+											}}
+										>
+											{key === "default" ? "Per Image" : `Per Image (${key})`}
+										</span>
+										{formatUnitPrice(price, "/image")}
+									</div>
+								));
+							})()}
 
 						{/* Request Price */}
 						{requestPrice !== undefined && requestPrice !== 0 && (

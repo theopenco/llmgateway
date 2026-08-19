@@ -11,6 +11,28 @@ export const contentType = "image/png";
 
 export const alt = "AI model release timeline by year — LLM Gateway";
 
+// Prerendered at build time: rendering these cards on demand runs satori inside
+// the request, which the production pods do not have the headroom for and which
+// took the whole route down with a 503. dynamicParams keeps unknown years from
+// reaching the renderer at runtime at all.
+export const dynamicParams = false;
+
+export function generateStaticParams() {
+	const years = new Set<string>();
+
+	for (const model of modelDefinitions) {
+		if (!("releasedAt" in model) || !model.releasedAt) {
+			continue;
+		}
+		const date = new Date(model.releasedAt);
+		if (!Number.isNaN(date.getTime())) {
+			years.add(String(date.getUTCFullYear()));
+		}
+	}
+
+	return Array.from(years, (year) => ({ year }));
+}
+
 interface ImageProps {
 	params: Promise<{ year: string }>;
 }

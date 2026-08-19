@@ -7,6 +7,32 @@ const EXPLICIT_READ_MULTIPLIER = 0.1;
 const IMPLICIT_READ_MULTIPLIER = 0.2;
 const RATIO_TOLERANCE = 1e-9;
 
+// Alibaba does not hold every deployment to the standard cache ratios — its own
+// context-cache docs carve out models whose cached_token price is not 20% of the
+// input price. For those the published per-token rates are pinned here instead of
+// the ratio, so the assertion still catches a typo or a copied-from-the-wrong-row
+// price without forcing the catalogue to overbill.
+const PUBLISHED_OFF_RATIO_CACHE_PRICES: Record<
+	string,
+	{ cachedInputPrice?: number; cacheReadInputPrice?: number }
+> = {
+	// $2/M input, but $0.25/M implicit hits (0.125x) and $0.17/M explicit hits
+	// (0.085x). Explicit cache creation still follows the usual 1.25x.
+	"qwen3.8-max": { cachedInputPrice: 0.25e-6, cacheReadInputPrice: 0.17e-6 },
+};
+
+function expectedCacheRate(
+	externalId: string,
+	field: "cachedInputPrice" | "cacheReadInputPrice",
+	inputPrice: string,
+	multiplier: number,
+) {
+	return (
+		PUBLISHED_OFF_RATIO_CACHE_PRICES[externalId]?.[field] ??
+		Number(inputPrice) * multiplier
+	);
+}
+
 function assertRatio(
 	externalId: string,
 	label: string,
@@ -136,7 +162,7 @@ describe("Alibaba Qwen explicit-cache pricing", () => {
 	// implicit/explicit distinction and their value reflects whatever single
 	// rate the author intended.
 	it.each(alibabaProviderEntries)(
-		"$modelId cachedInputPrice follows the 0.20x implicit-cache-hit multiplier where the bimodal regime is active",
+		"$modelId cachedInputPrice follows the 0.20x implicit-cache-hit multiplier (or its published off-ratio rate) where the bimodal regime is active",
 		({ provider }) => {
 			const shouldAssert = (entry: {
 				cachedInputPrice?: string;
@@ -152,7 +178,12 @@ describe("Alibaba Qwen explicit-cache pricing", () => {
 					provider.externalId,
 					"cachedInputPrice (implicit hit)",
 					provider.cachedInputPrice!,
-					Number(provider.inputPrice) * IMPLICIT_READ_MULTIPLIER,
+					expectedCacheRate(
+						provider.externalId,
+						"cachedInputPrice",
+						provider.inputPrice!,
+						IMPLICIT_READ_MULTIPLIER,
+					),
 				);
 			}
 			for (const tier of provider.pricingTiers ?? []) {
@@ -193,7 +224,7 @@ describe("Alibaba Qwen explicit-cache pricing", () => {
 	// hold to that 0.10x ratio so calculateCosts picks the right rate when the
 	// request used `cache_control`.
 	it.each(alibabaProviderEntries)(
-		"$modelId cacheReadInputPrice follows the 0.10x explicit-cache-hit multiplier",
+		"$modelId cacheReadInputPrice follows the 0.10x explicit-cache-hit multiplier (or its published off-ratio rate)",
 		({ provider }) => {
 			if (
 				provider.cacheReadInputPrice !== undefined &&
@@ -203,7 +234,12 @@ describe("Alibaba Qwen explicit-cache pricing", () => {
 					provider.externalId,
 					"cacheReadInputPrice (explicit hit)",
 					provider.cacheReadInputPrice,
-					Number(provider.inputPrice) * EXPLICIT_READ_MULTIPLIER,
+					expectedCacheRate(
+						provider.externalId,
+						"cacheReadInputPrice",
+						provider.inputPrice,
+						EXPLICIT_READ_MULTIPLIER,
+					),
 				);
 			}
 			for (const tier of provider.pricingTiers ?? []) {

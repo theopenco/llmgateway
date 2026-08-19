@@ -1,7 +1,5 @@
 import { publishToQueue, LOG_QUEUE } from "@llmgateway/cache";
 import {
-	db,
-	log,
 	stripRetentionSensitiveLogFields,
 	UnifiedFinishReason,
 	type LogInsertData,
@@ -9,12 +7,13 @@ import {
 import { recordChatCompletionMetrics } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 
+import { recordSpend } from "./spend-limit.js";
 import {
 	redactErrorDetails,
 	shouldRedactProviderError,
 } from "./stealth-provider-errors.js";
 
-import type { InferInsertModel } from "@llmgateway/db";
+import type { InferInsertModel, log } from "@llmgateway/db";
 
 /**
  * Check if a finish reason is expected to map to UNKNOWN
@@ -27,15 +26,18 @@ export function isExpectedUnknownFinishReason(
 	if (!finishReason) {
 		return false;
 	}
-	// Google's "OTHER" and "MALFORMED_RESPONSE" finish reasons are expected and
-	// map to UNKNOWN
+	// Google's "OTHER", "IMAGE_OTHER", "NO_IMAGE" and "MALFORMED_RESPONSE" finish
+	// reasons are expected and map to UNKNOWN
 	if (
 		(provider === "google-ai-studio" ||
 			provider === "glacier" ||
 			provider === "iceberg" ||
 			provider === "google-vertex" ||
 			provider === "quartz") &&
-		(finishReason === "OTHER" || finishReason === "MALFORMED_RESPONSE")
+		(finishReason === "OTHER" ||
+			finishReason === "IMAGE_OTHER" ||
+			finishReason === "NO_IMAGE" ||
+			finishReason === "MALFORMED_RESPONSE")
 	) {
 		return true;
 	}
@@ -142,13 +144,18 @@ export function getUnifiedFinishReason(
 				finishReason === "IMAGE_SAFETY" ||
 				finishReason === "IMAGE_PROHIBITED_CONTENT" ||
 				finishReason === "IMAGE_RECITATION" ||
-				finishReason === "IMAGE_OTHER" ||
-				finishReason === "NO_IMAGE" ||
 				finishReason === "content_filter" // OpenAI format sometimes returned by Google
 			) {
 				return UnifiedFinishReason.CONTENT_FILTER;
 			}
-			if (finishReason === "OTHER" || finishReason === "MALFORMED_RESPONSE") {
+			// NO_IMAGE and IMAGE_OTHER are not policy blocks, so they belong with
+			// OTHER rather than inflating the content_filter counts.
+			if (
+				finishReason === "OTHER" ||
+				finishReason === "IMAGE_OTHER" ||
+				finishReason === "NO_IMAGE" ||
+				finishReason === "MALFORMED_RESPONSE"
+			) {
 				return UnifiedFinishReason.UNKNOWN;
 			}
 			break;
@@ -293,9 +300,40 @@ export function calculateDataStorageCost(
 
 export type LogData = InferInsertModel<typeof log>;
 
+/**
+ * The portion of a log's cost that actually drains `organization.credits`, which
+ * is what the per-org spend caps are meant to bound. Mirrors the worker's debit
+ * rules in `batchProcessLogs` exactly — blended `log.cost` would overstate it:
+ *
+ * - end-user wallet rows debit `wallet.balance` for inference, so only their
+ *   data-storage cost hits the org;
+ * - BYOK (`usedMode: "api-keys"`) rows pay the provider directly, so again only
+ *   data storage hits the org;
+ * - cached rows are not charged for inference;
+ * - credits rows are charged `billingCost ?? cost`, plus data storage.
+ *
+ * Keeping this aligned with the worker is what stops BYOK or wallet traffic from
+ * filling a cap it can never be blocked by.
+ */
+export function organizationBilledCost(logData: LogInsertData): number {
+	const storage = Number(logData.dataStorageCost ?? 0) || 0;
+
+	const chargesOrgForInference =
+		!logData.endCustomerWalletId &&
+		logData.usedMode === "credits" &&
+		!logData.cached;
+
+	if (!chargesOrgForInference) {
+		return storage;
+	}
+
+	const inference = Number(logData.billingCost ?? logData.cost ?? 0) || 0;
+	return inference + storage;
+}
+
 export async function insertLog(
 	logData: LogInsertData,
-	options?: { syncInsert?: boolean; retentionLevel?: "retain" | "none" | null },
+	options?: { retentionLevel?: "retain" | "none" | null },
 ): Promise<unknown> {
 	// Fail closed on retention: unless the organization is explicitly known to
 	// retain data, strip the request/response payload fields here — before the
@@ -354,7 +392,12 @@ export async function insertLog(
 		finishReason: logData.finishReason ?? null,
 		streaming: logData.streamed ?? false,
 		durationMs: logData.duration || 0,
-		ttftMs: logData.timeToFirstToken ?? undefined,
+		// Reasoning models stream thinking before any content, so the first
+		// reasoning token is the real first-token latency when present.
+		ttftMs:
+			logData.timeToFirstReasoningToken ??
+			logData.timeToFirstToken ??
+			undefined,
 		inputTokens: logData.promptTokens
 			? Number(logData.promptTokens)
 			: undefined,
@@ -370,10 +413,10 @@ export async function insertLog(
 		errorType,
 	});
 
-	if (options?.syncInsert) {
-		await db.insert(log).values(logData as LogData);
-		return 1;
-	}
+	// Maintain per-org daily/monthly spend-cap counters. Single DRY chokepoint
+	// for every request path; swallows its own Redis errors so logging is never
+	// blocked.
+	await recordSpend(logData.organizationId, organizationBilledCost(logData));
 
 	await publishToQueue(LOG_QUEUE, logData);
 	return 1; // Return 1 to match test expectations

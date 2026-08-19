@@ -48,6 +48,12 @@ export const minimaxModels = [
 				quantization: "fp4",
 				streaming: true,
 				reasoning: true,
+				// Together's deployment accepts any reasoning_effort string without
+				// validating it, and no tier measurably changes the reasoning length,
+				// so `none` — honoured through the `thinking` switch rather than
+				// reasoning_effort — is the only effort this mapping really applies.
+				reasoningEfforts: ["none"],
+				requiresDisableThinkingParam: true,
 				vision: false,
 				tools: false,
 				jsonOutput: true,
@@ -146,7 +152,6 @@ export const minimaxModels = [
 				vision: false,
 				tools: false,
 				jsonOutput: true,
-				jsonOutputSchema: true,
 			},
 			{
 				providerId: "scx-ai",
@@ -252,7 +257,6 @@ export const minimaxModels = [
 				vision: false,
 				tools: false,
 				jsonOutput: true,
-				jsonOutputSchema: true,
 			},
 			{
 				// Embercloud's upstream routing for this model is broken: streaming

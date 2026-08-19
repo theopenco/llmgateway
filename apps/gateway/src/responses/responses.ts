@@ -16,6 +16,7 @@ import {
 	findProjectById,
 	findOrganizationById,
 } from "@/lib/cached-queries.js";
+import { getOrganizationBlockReason } from "@/lib/organization-access.js";
 import {
 	setResponsesContext,
 	deleteResponsesContext,
@@ -24,7 +25,11 @@ import {
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
-import { compactRequestSchema, responsesRequestSchema } from "./schemas.js";
+import {
+	compactRequestSchema,
+	formatValidationError,
+	responsesRequestSchema,
+} from "./schemas.js";
 import { convertChatResponseToCompaction } from "./tools/convert-chat-to-compaction.js";
 import {
 	convertChatResponseToResponses,
@@ -46,6 +51,7 @@ import {
 	getStoredResponse,
 	resolveItemReferences,
 } from "./tools/response-state.js";
+import { extractAdditionalTools } from "./tools/tool-registry.js";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -105,10 +111,11 @@ async function authenticateRequest(
 		return { error: "Could not find organization", status: 500 as const };
 	}
 
-	if (organization.status === "deleted") {
+	const organizationBlocked = getOrganizationBlockReason(organization);
+	if (organizationBlocked) {
 		return {
-			error: "Organization has been disabled and is no longer accessible",
-			status: 410 as const,
+			error: organizationBlocked.message,
+			status: organizationBlocked.status,
 		};
 	}
 
@@ -168,7 +175,7 @@ responses.post("/", async (c) => {
 		return c.json(
 			{
 				error: {
-					message: `Invalid request: ${validation.error.errors.map((e) => `${e.path.join(".")}: ${e.message}`).join(", ")}`,
+					message: `Invalid request: ${formatValidationError(validation.error)}`,
 					type: "invalid_request_error",
 					code: "invalid_request",
 				},
@@ -194,33 +201,11 @@ responses.post("/", async (c) => {
 		);
 	}
 
-	const { project, organization } = authResult;
+	const { project } = authResult;
 
 	const shouldStore = req.store !== false;
 	const includeEncryptedReasoning =
 		req.include?.includes("reasoning.encrypted_content") ?? false;
-
-	// Require retention to use the stateful Responses API features. Stateless
-	// requests (store:false without previous_response_id) persist nothing, so
-	// they work without retention — pair them with
-	// include:["reasoning.encrypted_content"] to preserve reasoning across
-	// calls without stored responses.
-	if (
-		organization.retentionLevel !== "retain" &&
-		(shouldStore || req.previous_response_id)
-	) {
-		return c.json(
-			{
-				error: {
-					message:
-						"The Responses API requires data retention to be enabled for stored responses. Enable 'Retain All Data' in your organization's policies, send store:false (optionally with include:[\"reasoning.encrypted_content\"]) for stateless use, or use /v1/chat/completions instead.",
-					type: "invalid_request_error",
-					code: "data_retention_required",
-				},
-			},
-			400,
-		);
-	}
 
 	const projectId = project.id;
 
@@ -264,6 +249,16 @@ responses.post("/", async (c) => {
 	// in a prior response that a stateful client references instead of resending)
 	// back to their concrete stored items before conversion.
 	inputItems = await resolveItemReferences(inputItems, projectId);
+
+	// Clients using the Responses tool registry (Codex 0.144+) declare their
+	// tools as an `additional_tools` input item instead of the top-level `tools`
+	// array. Lift them out before the input becomes chat messages.
+	const additionalTools = extractAdditionalTools(inputItems);
+	inputItems = additionalTools.items;
+	const toolRegistry = additionalTools.registry;
+	if (additionalTools.tools.length > 0) {
+		req.tools = [...(req.tools ?? []), ...additionalTools.tools];
+	}
 
 	// Convert Responses API input to chat completions messages
 	const messages = convertResponsesInputToMessages(
@@ -335,7 +330,14 @@ responses.post("/", async (c) => {
 		chatRequest.tools = tools;
 	}
 	if (req.tool_choice) {
-		chatRequest.tool_choice = req.tool_choice;
+		// The chat handler speaks Chat Completions, so a Responses-shaped named
+		// function choice (`{type:"function",name}`) has to be nested back under
+		// `function` here; prepare-request-body flattens it again for upstreams
+		// that take the Responses API.
+		chatRequest.tool_choice =
+			typeof req.tool_choice === "object" && "name" in req.tool_choice
+				? { type: "function", function: { name: req.tool_choice.name } }
+				: req.tool_choice;
 	}
 	if (req.reasoning?.effort) {
 		chatRequest.reasoning_effort = req.reasoning.effort;
@@ -373,16 +375,7 @@ responses.post("/", async (c) => {
 	// Generate log ID with resp_ prefix — this is both the log entry's primary key
 	// and the Responses API response ID
 	const logId = `resp_${shortid(24)}`;
-	const state = createStreamingState(req.model, logId, req);
-
-	// Build Responses API data for storage in the log entry.
-	// Output starts empty and is updated after completion via storeResponse().
-	const responsesApiData = {
-		input: inputItems,
-		output: [] as unknown[],
-		instructions: req.instructions,
-		model: req.model,
-	};
+	const state = createStreamingState(req.model, logId, req, toolRegistry);
 
 	// Make internal request to the existing chat completions endpoint
 	const internalHeaders: Record<string, string> = {
@@ -397,17 +390,13 @@ responses.post("/", async (c) => {
 		...internalApiOriginHeaders("responses"),
 	};
 
-	// Pass Responses API context via in-memory Map (not headers) to avoid
-	// exposing internal control fields to external callers and header size limits.
+	// Pass Responses API context via in-memory Map (not headers) so the chat
+	// handler logs this request under the resp_ id the client sees. Response
+	// state itself is persisted to the dedicated responses storage via
+	// storeResponse(), not the log entry.
 	const contextKey = logId;
-	if (shouldStore) {
-		setResponsesContext(contextKey, {
-			logId,
-			syncInsert: true,
-			responsesApiData,
-		});
-		internalHeaders["x-responses-context-key"] = contextKey;
-	}
+	setResponsesContext(contextKey, { logId });
+	internalHeaders["x-responses-context-key"] = contextKey;
 
 	let response: Response;
 	try {
@@ -619,6 +608,7 @@ responses.post("/", async (c) => {
 		req.model,
 		logId,
 		req,
+		toolRegistry,
 	);
 
 	// Store for previous_response_id (unless store: false). Storage always
@@ -690,7 +680,7 @@ responses.post("/compact", async (c) => {
 		return c.json(
 			{
 				error: {
-					message: `Invalid request: ${validation.error.errors.map((e) => `${e.path.join(".")}: ${e.message}`).join(", ")}`,
+					message: `Invalid request: ${formatValidationError(validation.error)}`,
 					type: "invalid_request_error",
 					code: "invalid_request",
 				},
@@ -715,21 +705,7 @@ responses.post("/compact", async (c) => {
 		);
 	}
 
-	const { project, organization } = authResult;
-
-	if (organization.retentionLevel !== "retain") {
-		return c.json(
-			{
-				error: {
-					message:
-						"The Responses API requires data retention to be enabled. Enable 'Retain All Data' in your organization's policies, or use /v1/chat/completions instead.",
-					type: "invalid_request_error",
-					code: "data_retention_required",
-				},
-			},
-			400,
-		);
-	}
+	const { project } = authResult;
 
 	let inputItems: unknown[] = [];
 	if (typeof req.input === "string") {
@@ -824,16 +800,7 @@ responses.post("/compact", async (c) => {
 	};
 
 	const contextKey = compactionId;
-	setResponsesContext(contextKey, {
-		logId: compactionId,
-		syncInsert: true,
-		responsesApiData: {
-			input: inputItems,
-			output: [] as unknown[],
-			instructions: req.instructions,
-			model: req.model,
-		},
-	});
+	setResponsesContext(contextKey, { logId: compactionId });
 	internalHeaders["x-responses-context-key"] = contextKey;
 
 	let response: Response;

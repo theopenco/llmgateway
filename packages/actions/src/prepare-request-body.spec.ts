@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest";
 
+import { models } from "@llmgateway/models";
+
 import {
 	hashPromptCacheKey,
 	hashSessionCacheKey,
@@ -7,7 +9,21 @@ import {
 	RequestError,
 } from "./prepare-request-body.js";
 
-import type { AnthropicRequestBody } from "@llmgateway/models";
+import type {
+	AnthropicRequestBody,
+	OpenAIRequestBody,
+	ProviderModelMapping,
+} from "@llmgateway/models";
+
+/**
+ * The OpenAI-compatible body Ling-3.0-flash requests get, plus the vLLM
+ * chat-template flag the gateway injects to control thinking. That flag is not
+ * part of `OpenAIRequestBody` (it is added dynamically in prepare-request-body),
+ * so tests reach it through this local intersection instead of `as any`.
+ */
+type LingRequestBody = OpenAIRequestBody & {
+	chat_template_kwargs?: Record<string, boolean>;
+};
 
 function getCacheControl(block: unknown): unknown {
 	if (block && typeof block === "object" && "cache_control" in block) {
@@ -304,77 +320,80 @@ describe("prepareRequestBody - Anthropic", () => {
 		expect(totalCacheControlBlocks).toBe(4);
 	});
 
-	test("strips caller-supplied cache_control when providerCacheControlEnabled is false", async () => {
-		const longContent = "A".repeat(5000);
-		const requestBody = (await prepareRequestBody(
-			"anthropic",
-			"claude-3-5-sonnet-20241022",
-			null,
-			"claude-3-5-sonnet-20241022",
-			[
-				{
-					role: "system",
-					content: [
-						{
-							type: "text",
-							text: longContent,
-							cache_control: { type: "ephemeral", ttl: "1h" },
-						},
-					],
-				},
-				{
-					role: "user",
-					content: [
-						{
-							type: "text",
-							text: longContent,
-							cache_control: { type: "ephemeral" },
-						},
-					],
-				},
-			],
-			false, // stream
-			undefined, // temperature
-			1024, // max_tokens
-			undefined, // top_p
-			undefined, // frequency_penalty
-			undefined, // presence_penalty
-			undefined, // response_format
-			undefined, // tools
-			undefined, // tool_choice
-			undefined, // reasoning_effort
-			undefined, // supportsReasoning
-			false, // isProd
-			20, // maxImageSizeMB
-			null, // userPlan
-			undefined, // sensitive_word_check
-			undefined, // image_config
-			undefined, // effort
-			undefined, // imageGenerations
-			undefined, // webSearchTool
-			undefined, // reasoning_max_tokens
-			undefined, // useResponsesApi
-			undefined, // prompt_cache_key
-			undefined, // prompt_cache_retention
-			false, // providerCacheControlEnabled
-		)) as AnthropicRequestBody;
+	test.each(["claude-fable-5", "claude-opus-5"])(
+		"strips cache_control for %s when provider cache writes are disabled",
+		async (model) => {
+			const longContent = "A".repeat(5000);
+			const requestBody = (await prepareRequestBody(
+				"anthropic",
+				model,
+				null,
+				model,
+				[
+					{
+						role: "system",
+						content: [
+							{
+								type: "text",
+								text: longContent,
+								cache_control: { type: "ephemeral", ttl: "1h" },
+							},
+						],
+					},
+					{
+						role: "user",
+						content: [
+							{
+								type: "text",
+								text: longContent,
+								cache_control: { type: "ephemeral" },
+							},
+						],
+					},
+				],
+				false, // stream
+				undefined, // temperature
+				1024, // max_tokens
+				undefined, // top_p
+				undefined, // frequency_penalty
+				undefined, // presence_penalty
+				undefined, // response_format
+				undefined, // tools
+				undefined, // tool_choice
+				undefined, // reasoning_effort
+				undefined, // supportsReasoning
+				false, // isProd
+				20, // maxImageSizeMB
+				null, // userPlan
+				undefined, // sensitive_word_check
+				undefined, // image_config
+				undefined, // effort
+				undefined, // imageGenerations
+				undefined, // webSearchTool
+				undefined, // reasoning_max_tokens
+				undefined, // useResponsesApi
+				undefined, // prompt_cache_key
+				undefined, // prompt_cache_retention
+				false, // providerCacheControlEnabled
+			)) as AnthropicRequestBody;
 
-		// System: no caller marker preserved, no heuristic-added marker.
-		if (requestBody.system && Array.isArray(requestBody.system)) {
-			for (const block of requestBody.system) {
-				expect(getCacheControl(block)).toBeUndefined();
-			}
-		}
-
-		// User content: no caller marker preserved, no heuristic-added marker.
-		for (const msg of requestBody.messages) {
-			if (Array.isArray(msg.content)) {
-				for (const block of msg.content) {
+			// System: no caller marker preserved, no heuristic-added marker.
+			if (requestBody.system && Array.isArray(requestBody.system)) {
+				for (const block of requestBody.system) {
 					expect(getCacheControl(block)).toBeUndefined();
 				}
 			}
-		}
-	});
+
+			// User content: no caller marker preserved, no heuristic-added marker.
+			for (const msg of requestBody.messages) {
+				if (Array.isArray(msg.content)) {
+					for (const block of msg.content) {
+						expect(getCacheControl(block)).toBeUndefined();
+					}
+				}
+			}
+		},
+	);
 
 	test("defers auto-injection when caller supplies a 1h ttl marker in messages", async () => {
 		const longContent = "A".repeat(5000);
@@ -534,6 +553,88 @@ describe("prepareRequestBody - OpenAI image generation", () => {
 
 		expect(requestBody.size).toBe("1024x1024");
 		expect(requestBody.quality).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - xAI image generation", () => {
+	async function prepareXaiImageRequest(imageConfig: {
+		aspect_ratio?: string;
+		image_size?: string;
+		image_quality?: string;
+		n?: number;
+	}) {
+		return (await prepareRequestBody(
+			"xai",
+			"grok-imagine-image-2-0",
+			null,
+			"grok-imagine-image-2.0",
+			[{ role: "user", content: "Generate a cinematic landscape" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			imageConfig,
+			undefined,
+			true,
+		)) as any;
+	}
+
+	test("should forward quality and resolution", async () => {
+		const requestBody = await prepareXaiImageRequest({
+			image_quality: "low",
+			image_size: "2k",
+			n: 2,
+		});
+
+		expect(requestBody).toMatchObject({
+			model: "grok-imagine-image-2.0",
+			prompt: "Generate a cinematic landscape",
+			quality: "low",
+			resolution: "2k",
+			n: 2,
+		});
+	});
+
+	// xAI's `resolution` enum only accepts the lowercase tier names, so pixel
+	// dimensions and casing variants are normalized rather than passed through.
+	test.each([
+		["1K", "1k"],
+		["2K", "2k"],
+		["1024x1024", "1k"],
+		["1536x1024", "1k"],
+		["2048x2048", "2k"],
+		["3840x2160", "2k"],
+	])("should map image_size %s to resolution %s", async (size, resolution) => {
+		const requestBody = await prepareXaiImageRequest({ image_size: size });
+
+		expect(requestBody.resolution).toBe(resolution);
+	});
+
+	test("should omit resolution for sizes that name no xAI tier", async () => {
+		const requestBody = await prepareXaiImageRequest({ image_size: "auto" });
+
+		expect(requestBody.resolution).toBeUndefined();
+	});
+
+	test("should drop the unified auto quality", async () => {
+		const requestBody = await prepareXaiImageRequest({
+			image_quality: "auto",
+			image_size: "1k",
+		});
+
+		expect(requestBody.quality).toBeUndefined();
+		expect(requestBody.resolution).toBe("1k");
 	});
 });
 
@@ -770,6 +871,76 @@ describe("prepareRequestBody - OpenAI service tiers", () => {
 	});
 });
 
+describe("prepareRequestBody - Fireworks service tiers", () => {
+	async function prepareFireworksRequest(options: {
+		provider?: "fireworks" | "novita";
+		serviceTier?: "flex" | "priority";
+	}) {
+		return (await prepareRequestBody(
+			options.provider ?? "fireworks",
+			"kimi-k3",
+			null,
+			"accounts/fireworks/models/kimi-k3",
+			[{ role: "user", content: "Hello!" }] as any,
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			undefined,
+			undefined,
+			true,
+			undefined,
+			options.serviceTier,
+		)) as { service_tier?: string };
+	}
+
+	test("forwards priority to Fireworks chat completions", async () => {
+		const requestBody = await prepareFireworksRequest({
+			serviceTier: "priority",
+		});
+
+		expect(requestBody.service_tier).toBe("priority");
+	});
+
+	test("does not forward flex, which Fireworks has no rate card for", async () => {
+		const requestBody = await prepareFireworksRequest({ serviceTier: "flex" });
+
+		expect(requestBody.service_tier).toBeUndefined();
+	});
+
+	test("does not forward a tier to another provider serving the same model", async () => {
+		const requestBody = await prepareFireworksRequest({
+			provider: "novita",
+			serviceTier: "priority",
+		});
+
+		expect(requestBody.service_tier).toBeUndefined();
+	});
+
+	test("omits service_tier for standard requests", async () => {
+		const requestBody = await prepareFireworksRequest({});
+
+		expect(requestBody.service_tier).toBeUndefined();
+	});
+});
+
 describe("prepareRequestBody - verbosity", () => {
 	test("forwards verbosity to gpt-5.6 chat completions", async () => {
 		const requestBody = (await prepareOpenAITextRequest({
@@ -900,6 +1071,56 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 		expect(requestBody.reasoning.effort).toBe("none");
 	});
 
+	test("forwards none to ByteDance GLM-5.2", async () => {
+		const requestBody = await prepare({
+			provider: "bytedance",
+			model: "glm-5.2",
+		});
+		expect(requestBody.reasoning_effort).toBe("none");
+	});
+
+	test("forwards none to xAI Grok when the mapping declares it", async () => {
+		// xai/grok-4-3 publishes `none` in reasoningEfforts but xai is not in
+		// the handlesNoneNatively allowlist, so the gateway used to strip the
+		// value before the request was built (#3423).
+		const requestBody = await prepare({
+			provider: "xai",
+			model: "grok-4-3",
+		});
+		expect(requestBody.reasoning_effort).toBe("none");
+	});
+
+	test.each([
+		["deepinfra", "deepseek-v4-pro"],
+		["deepinfra", "hy3"],
+		["novita", "hy3"],
+		["runware", "deepseek-v4-flash"],
+		["canopywave", "kimi-k3"],
+		["runware", "deepseek-v4-pro"],
+		["runware", "gemma-4-31b-it"],
+	])(
+		"forwards none to %s when the mapping declares it",
+		async (provider, model) => {
+			// These providers are in the handlesNoneNatively allowlist, and
+			// their catalog entries also publish `none` — both paths must
+			// agree so a mapping-declared opt-in is never stripped (#3423).
+			const requestBody = await prepare({ provider, model });
+			expect(requestBody.reasoning_effort).toBe("none");
+		},
+	);
+
+	test("strips none for an OpenAI-compatible mapping that does not declare it", async () => {
+		// grok-4-3 via azure-ai-foundry speaks a non-allowlisted provider and
+		// its catalog entry omits `none` from reasoningEfforts. The mapping
+		// must be the authority: with `none` undeclared, the value is
+		// normalized away instead of forwarded to a provider that may 4xx.
+		const requestBody = await prepare({
+			provider: "azure-ai-foundry",
+			model: "grok-4-3",
+		});
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
 	test("disables thinking for Google on none", async () => {
 		const requestBody = await prepare({
 			provider: "google-ai-studio",
@@ -1023,6 +1244,353 @@ describe("prepareRequestBody - Moonshot thinking", () => {
 		expect(requestBody.max_completion_tokens).toBe(4096);
 		expect(requestBody.max_tokens).toBeUndefined();
 	});
+
+	type Effort = Parameters<typeof prepareRequestBody>[14];
+	const xaiEffortCases: Array<
+		[Parameters<typeof prepareRequestBody>[0], string, Extract<Effort, string>]
+	> = [
+		// xAI mappings that declare reasoning: true but previously omitted
+		// reasoning_effort from supportedParameters, silently dropping any
+		// effort value before the request was built (#3436, #3403).
+		["azure-ai-foundry", "grok-4-3", "medium"],
+		["azure-ai-foundry", "grok-4-1-fast-reasoning", "high"],
+		["xai", "grok-4", "high"],
+	];
+
+	test.each(xaiEffortCases)(
+		"forwards reasoning_effort for %s/%s once declared in supportedParameters",
+		async (provider, model, effort) => {
+			// Direct capability assertion on the mapping itself: the fix's
+			// whole point is that these mappings now declare
+			// reasoning_effort in supportedParameters. A serialization-only
+			// test could keep passing while the capability check silently
+			// regresses (e.g. a refactor that stops reading
+			// supportedParameters) — asserting the array directly catches
+			// that class of regression.
+			const modelDef = models.find((m) => m.id === model);
+			const mapping = modelDef?.providers.find(
+				(p) => p.providerId === provider,
+			) as ProviderModelMapping | undefined;
+			expect(mapping?.supportedParameters).toContain("reasoning_effort");
+
+			const requestBody = (await prepareRequestBody(
+				provider,
+				model,
+				null,
+				model,
+				[{ role: "user", content: "Hello!" }],
+				false, // stream
+				undefined, // temperature
+				undefined, // max_tokens
+				undefined, // top_p
+				undefined, // frequency_penalty
+				undefined, // presence_penalty
+				undefined, // response_format
+				undefined, // tools
+				undefined, // tool_choice
+				effort,
+				true, // supportsReasoning
+			)) as unknown as Record<string, unknown>;
+			expect(requestBody.reasoning_effort).toBe(effort);
+		},
+	);
+
+	// The mirror image of the table above, and the more fragile half: these
+	// Grok deployments reason unconditionally but answer `reasoning_effort`
+	// with 400 "does not support parameter reasoningEffort" (verified against
+	// api.x.ai). Declaring the parameter for them — the obvious-looking
+	// completion of #3436/#3403 — turns every effort-bearing request into an
+	// upstream 400, so the drop is load-bearing and must stay asserted.
+	const xaiEffortRejectingCases: Array<
+		[Parameters<typeof prepareRequestBody>[0], string]
+	> = [
+		["vertex-openai", "grok-4-20-reasoning"],
+		["xai", "grok-4-20-beta-0309-reasoning"],
+		["xai", "grok-build-0-1"],
+	];
+
+	test.each(xaiEffortRejectingCases)(
+		"drops reasoning_effort for %s/%s, which rejects it upstream",
+		async (provider, model) => {
+			const modelDef = models.find((m) => m.id === model);
+			const mapping = modelDef?.providers.find(
+				(p) => p.providerId === provider,
+			) as ProviderModelMapping | undefined;
+			expect(mapping?.reasoning).toBe(true);
+			expect(mapping?.supportedParameters).not.toContain("reasoning_effort");
+
+			const requestBody = (await prepareRequestBody(
+				provider,
+				model,
+				null,
+				model,
+				[{ role: "user", content: "Hello!" }],
+				false, // stream
+				undefined, // temperature
+				undefined, // max_tokens
+				undefined, // top_p
+				undefined, // frequency_penalty
+				undefined, // presence_penalty
+				undefined, // response_format
+				undefined, // tools
+				undefined, // tool_choice
+				"high",
+				true, // supportsReasoning
+			)) as unknown as Record<string, unknown>;
+			expect(requestBody.reasoning_effort).toBeUndefined();
+		},
+	);
+});
+
+describe("prepareRequestBody - InclusionAI Ling-3.0-flash thinking", () => {
+	// prepareRequestBody always receives the canonical (bare) catalog id as
+	// usedInternalModel — the provider prefix is stripped by parseModelInput
+	// before chat.ts calls it. These tests therefore exercise the same body
+	// path a bare "ling-3.0-flash" request goes through; the gateway-level
+	// resolution of that bare id to a provider is covered in api.spec.ts.
+	async function prepare(options: {
+		provider: Parameters<typeof prepareRequestBody>[0];
+		reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "max";
+		tools?: Parameters<typeof prepareRequestBody>[12];
+		toolChoice?: Parameters<typeof prepareRequestBody>[13];
+		responseFormat?: Parameters<typeof prepareRequestBody>[11];
+	}) {
+		// Derive supportsReasoning from the catalog the same way chat.ts does
+		// (`selectedProviderMapping?.reasoning === true`) so a regression in the
+		// derivation can't silently drop the thinking-disable translation.
+		const mapping = models
+			.find((m) => m.id === "ling-3.0-flash")
+			?.providers.find((p) => p.providerId === options.provider);
+		const supportsReasoning = mapping?.reasoning === true;
+
+		return (await prepareRequestBody(
+			options.provider,
+			"ling-3.0-flash",
+			null,
+			options.provider === "deepinfra"
+				? "inclusionAI/Ling-3.0-flash"
+				: "inclusionai/ling-3.0-flash",
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			options.responseFormat, // response_format
+			options.tools, // tools
+			options.toolChoice, // tool_choice
+			options.reasoningEffort, // reasoning_effort
+			supportsReasoning,
+		)) as LingRequestBody;
+	}
+
+	test.each(["deepinfra", "novita"] as const)(
+		"maps none to enable_thinking disabled on %s and never forwards reasoning_effort",
+		async (provider) => {
+			const requestBody = await prepare({
+				provider,
+				reasoningEffort: "none",
+			});
+			// DeepInfra honors the chat-template flag; Novita ignores it (verified
+			// live 2026-08-10), so it gets no chat_template_kwargs and thinking
+			// stays on.
+			if (provider === "deepinfra") {
+				expect(requestBody.chat_template_kwargs).toEqual({
+					enable_thinking: false,
+				});
+			} else {
+				expect(requestBody.chat_template_kwargs).toBeUndefined();
+			}
+			expect(requestBody.reasoning_effort).toBeUndefined();
+		},
+	);
+
+	test.each(["deepinfra", "novita"] as const)(
+		"maps high to enable_thinking enabled on %s and never forwards reasoning_effort",
+		async (provider) => {
+			const requestBody = await prepare({
+				provider,
+				reasoningEffort: "high",
+			});
+			if (provider === "deepinfra") {
+				expect(requestBody.chat_template_kwargs).toEqual({
+					enable_thinking: true,
+				});
+			} else {
+				expect(requestBody.chat_template_kwargs).toBeUndefined();
+			}
+			expect(requestBody.reasoning_effort).toBeUndefined();
+		},
+	);
+
+	test.each(["deepinfra", "novita"] as const)(
+		"keeps the provider default (thinking on) when no reasoning_effort is requested on %s",
+		async (provider) => {
+			const requestBody = await prepare({ provider });
+			expect(requestBody.chat_template_kwargs).toBeUndefined();
+			expect(requestBody.reasoning_effort).toBeUndefined();
+		},
+	);
+
+	const tools = [
+		{
+			type: "function" as const,
+			function: {
+				name: "get_weather",
+				description: "Get the weather for a city",
+				parameters: {
+					type: "object",
+					properties: {
+						city: { type: "string" },
+					},
+					required: ["city"],
+				},
+			},
+		},
+	];
+
+	test.each(["deepinfra", "novita"] as const)(
+		"forwards function tools with parameters and tool_choice intact on %s",
+		async (provider) => {
+			const requestBody = await prepare({
+				provider,
+				tools,
+				toolChoice: {
+					type: "function",
+					function: { name: "get_weather" },
+				},
+			});
+			expect(requestBody.tools).toEqual(tools);
+			expect(requestBody.tool_choice).toEqual({
+				type: "function",
+				function: { name: "get_weather" },
+			});
+		},
+	);
+
+	test.each(["deepinfra", "novita"] as const)(
+		"leaves tool_choice absent when none is requested on %s",
+		async (provider) => {
+			const requestBody = await prepare({ provider, tools });
+			expect(requestBody.tools).toEqual(tools);
+			expect(requestBody.tool_choice).toBeUndefined();
+		},
+	);
+
+	// Only DeepInfra serves this model with structured outputs — Novita rejects
+	// any response_format ("does not support feature: structured-outputs"), so
+	// its mapping is jsonOutput: false and such requests never reach this layer.
+	test.each(["deepinfra"] as const)(
+		"passes through json_object response_format on %s",
+		async (provider) => {
+			const requestBody = await prepare({
+				provider,
+				responseFormat: { type: "json_object" },
+			});
+			expect(requestBody.response_format).toEqual({ type: "json_object" });
+		},
+	);
+
+	test.each(["deepinfra"] as const)(
+		"passes through json_schema response_format on %s",
+		async (provider) => {
+			const schema = {
+				name: "weather",
+				strict: true,
+				schema: {
+					type: "object",
+					properties: {
+						city: { type: "string" },
+					},
+					required: ["city"],
+					additionalProperties: false,
+				},
+			};
+			const requestBody = await prepare({
+				provider,
+				responseFormat: { type: "json_schema", json_schema: schema },
+			});
+			expect(requestBody.response_format).toEqual({
+				type: "json_schema",
+				json_schema: schema,
+			});
+		},
+	);
+
+	test.each(["deepinfra", "novita"] as const)(
+		"maps none to enable_thinking disabled while tools and response_format are present on %s",
+		async (provider) => {
+			// response_format is only valid on DeepInfra (see above).
+			const responseFormat =
+				provider === "deepinfra"
+					? ({ type: "json_object" } as const)
+					: undefined;
+			const requestBody = await prepare({
+				provider,
+				reasoningEffort: "none",
+				tools,
+				responseFormat,
+			});
+			if (provider === "deepinfra") {
+				expect(requestBody.chat_template_kwargs).toEqual({
+					enable_thinking: false,
+				});
+			} else {
+				expect(requestBody.chat_template_kwargs).toBeUndefined();
+			}
+			expect(requestBody.reasoning_effort).toBeUndefined();
+			expect(requestBody.tools).toEqual(tools);
+			expect(requestBody.response_format).toEqual(responseFormat);
+		},
+	);
+});
+
+describe("prepareRequestBody - embercloud reasoning shape", () => {
+	// embercloud's documented request body uses a nested `reasoning` object
+	// (reasoning.enabled + reasoning.effort) — the flat OpenAI-style
+	// `reasoning_effort` field is not documented and is silently ignored
+	// (https://embercloud.ai/docs/request-body).
+	async function prepare(
+		effort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max",
+	) {
+		return (await prepareRequestBody(
+			"embercloud",
+			"glm-5.2",
+			null,
+			"glm-5.2",
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			effort, // reasoning_effort
+			true, // supportsReasoning
+		)) as any;
+	}
+
+	test("builds the nested reasoning object instead of flat reasoning_effort", async () => {
+		const requestBody = await prepare("high");
+		expect(requestBody.reasoning).toEqual({
+			enabled: true,
+			effort: "high",
+		});
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("forwards the top declared tier through the nested shape", async () => {
+		const requestBody = await prepare("max");
+		expect(requestBody.reasoning).toEqual({
+			enabled: true,
+			effort: "max",
+		});
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
 });
 
 describe("prepareRequestBody - Alibaba thinking", () => {
@@ -1120,9 +1688,19 @@ describe("prepareRequestBody - Alibaba thinking", () => {
 		expect(requestBody.reasoning_effort).toBeUndefined();
 	});
 
-	test("sends nothing for mappings without budget-controlled thinking", async () => {
+	test("sends enable_thinking and thinking_budget for glm-5 (budget-controlled thinking)", async () => {
 		const requestBody = await prepare({
 			model: "glm-5",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.enable_thinking).toBe(true);
+		expect(requestBody.thinking_budget).toBe(24576);
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("sends nothing for mappings without budget-controlled thinking", async () => {
+		const requestBody = await prepare({
+			model: "qwq-plus",
 			reasoningEffort: "high",
 		});
 		expect(requestBody.enable_thinking).toBeUndefined();
@@ -1443,6 +2021,34 @@ describe("prepareRequestBody - Z.ai thinking", () => {
 		});
 		expect(requestBody.thinking).toBeUndefined();
 	});
+
+	// glm-5.3 cannot disable thinking (its zai mapping declares
+	// reasoningEfforts without "none"): thinking stays enabled and the effort
+	// tier is forwarded via the native reasoning_effort field.
+
+	test("glm-5.3 enables thinking and forwards the effort tier", async () => {
+		const requestBody = await prepare({
+			model: "glm-5.3",
+			reasoningEffort: "max",
+		});
+		expect(requestBody.thinking).toEqual({ type: "enabled" });
+		expect(requestBody.reasoning_effort).toBe("max");
+	});
+
+	test("glm-5.3 keeps thinking enabled when no effort is requested", async () => {
+		const requestBody = await prepare({ model: "glm-5.3" });
+		expect(requestBody.thinking).toEqual({ type: "enabled" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("glm-5.3 collapses none onto the provider default instead of disabling", async () => {
+		const requestBody = await prepare({
+			model: "glm-5.3",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toEqual({ type: "enabled" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
 });
 
 describe("prepareRequestBody - reasoning_effort max", () => {
@@ -1628,6 +2234,34 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		expect(requestBody.toolConfig).toBeUndefined();
 	});
 
+	test("normalizes primitive enums in tool parameters", async () => {
+		const requestBody = await googleTools([
+			{
+				type: "function",
+				function: {
+					name: "choose_value",
+					parameters: {
+						type: "object",
+						properties: {
+							integer: { type: "integer", enum: [3, 5] },
+							mixed: { type: "string", enum: ["one", 2, true, null] },
+							unsupported: {
+								type: "object",
+								enum: [{ value: 3 }],
+							},
+						},
+					},
+				},
+			},
+		]);
+
+		const properties =
+			requestBody.tools[0].functionDeclarations[0].parameters.properties;
+		expect(properties.integer.enum).toEqual(["3", "5"]);
+		expect(properties.mixed.enum).toEqual(["one", "2", "true", "null"]);
+		expect(properties.unsupported.enum).toBeUndefined();
+	});
+
 	test("should map gateway 0.5K image size to Google 512", async () => {
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
@@ -1716,6 +2350,42 @@ describe("prepareRequestBody - Google AI Studio", () => {
 				},
 			},
 			required: ["name", "nickname"],
+		});
+	});
+
+	test("normalizes primitive enums in response schemas", async () => {
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-3.7-flash",
+			null,
+			"gemini-3.7-flash",
+			[{ role: "user", content: "Choose a value" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				type: "json_schema",
+				json_schema: {
+					name: "choice",
+					schema: {
+						type: "object",
+						properties: {
+							value: { type: "integer", enum: [3, 5] },
+						},
+						required: ["value"],
+					},
+				},
+			},
+		)) as any;
+
+		expect(
+			requestBody.generationConfig.responseSchema.properties.value,
+		).toEqual({
+			type: "INTEGER",
+			enum: ["3", "5"],
 		});
 	});
 
@@ -2495,6 +3165,316 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		expect(params.required).toContain("prefill");
 	});
 
+	test("should strip unknown vendor extensions from Google tool parameters", async () => {
+		// Google's schema parser rejects any key it does not model, failing the
+		// whole request with `Unknown name "<key>" … Cannot find field.` — so a
+		// single `~optional` marker left in by a client's schema generator 400s
+		// every tool call. These keys are not enumerable in advance, which is why
+		// the filter is an allowlist.
+		const toolsWithVendorExtensions = [
+			{
+				type: "function" as const,
+				function: {
+					name: "test_tool",
+					description: "Test tool",
+					parameters: {
+						type: "object",
+						"~standard": { version: 1, vendor: "zod" },
+						properties: {
+							field_a: {
+								type: "string",
+								"~optional": true,
+							},
+							field_b: {
+								type: "string",
+								readOnly: true,
+								writeOnly: true,
+								deprecated: true,
+							},
+							field_c: {
+								type: "array",
+								items: { type: "string", "x-vendor-hint": "list" },
+								additionalItems: false,
+							},
+							field_d: {
+								type: "string",
+								enum: ["one"],
+								enumNames: ["One"],
+							},
+						},
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.0-flash",
+			null,
+			"gemini-2.0-flash",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			toolsWithVendorExtensions,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const params = requestBody.tools[0].functionDeclarations[0].parameters;
+
+		expect(params["~standard"]).toBeUndefined();
+		expect(params.properties.field_a["~optional"]).toBeUndefined();
+		expect(params.properties.field_b.readOnly).toBeUndefined();
+		expect(params.properties.field_b.writeOnly).toBeUndefined();
+		expect(params.properties.field_b.deprecated).toBeUndefined();
+		expect(params.properties.field_c.additionalItems).toBeUndefined();
+		expect(params.properties.field_c.items["x-vendor-hint"]).toBeUndefined();
+		expect(params.properties.field_d.enumNames).toBeUndefined();
+
+		// The supported parts of each schema must survive untouched
+		expect(params.type).toBe("object");
+		expect(params.properties.field_a.type).toBe("string");
+		expect(params.properties.field_c.items.type).toBe("string");
+		expect(params.properties.field_d.enum).toEqual(["one"]);
+	});
+
+	test("should keep the schema keys Google supports in tool parameters", async () => {
+		const toolsWithSupportedKeys = [
+			{
+				type: "function" as const,
+				function: {
+					name: "test_tool",
+					description: "Test tool",
+					parameters: {
+						type: "object",
+						title: "Params",
+						description: "Parameters",
+						propertyOrdering: ["choice", "config"],
+						properties: {
+							choice: {
+								type: "string",
+								format: "enum",
+								nullable: true,
+								enum: ["a", "b"],
+								default: "a",
+								example: "b",
+							},
+							union: {
+								anyOf: [{ type: "string" }, { type: "number" }],
+							},
+							// An object-valued default must survive verbatim: it holds an
+							// instance value, not a subschema, so its own keys are not
+							// schema keywords and must not be filtered.
+							config: {
+								type: "object",
+								properties: { retries: { type: "number" } },
+								default: { retries: 3, mode: "fast" },
+							},
+						},
+						required: ["choice"],
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.0-flash",
+			null,
+			"gemini-2.0-flash",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			toolsWithSupportedKeys,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const params = requestBody.tools[0].functionDeclarations[0].parameters;
+
+		expect(params.title).toBe("Params");
+		expect(params.description).toBe("Parameters");
+		expect(params.propertyOrdering).toEqual(["choice", "config"]);
+		expect(params.required).toEqual(["choice"]);
+		expect(params.properties.choice).toEqual({
+			type: "string",
+			format: "enum",
+			nullable: true,
+			enum: ["a", "b"],
+			default: "a",
+			example: "b",
+		});
+		expect(params.properties.union.anyOf).toEqual([
+			{ type: "string" },
+			{ type: "number" },
+		]);
+		expect(params.properties.config.default).toEqual({
+			retries: 3,
+			mode: "fast",
+		});
+	});
+
+	test("should collapse union type arrays in Google tool parameters", async () => {
+		// Google's `Schema` proto models `type` as a single enum, so the JSON
+		// Schema list form (`["string", "null"]`, which is how most generators
+		// spell an optional field) 400s the whole request with `Unknown name
+		// "type" … Proto field is not repeating, cannot start list.`
+		const toolsWithUnionTypes = [
+			{
+				type: "function" as const,
+				function: {
+					name: "create_memory",
+					description: "Test tool",
+					parameters: {
+						type: "object",
+						properties: {
+							extra: {
+								description: "Nullable string",
+								type: ["string", "null"],
+							},
+							sourceIds: {
+								items: { type: "string" },
+								type: ["array", "null"],
+							},
+							nested: {
+								type: "object",
+								properties: {
+									inner: { type: ["number", "null"] },
+								},
+							},
+							listed: {
+								type: "array",
+								items: {
+									type: ["object", "null"],
+									properties: {
+										flag: { type: ["boolean", "null"] },
+									},
+								},
+							},
+							multi: { type: ["string", "number"] },
+							onlyNull: { type: ["null"] },
+							contradictory: { type: ["string", "null"], nullable: false },
+						},
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.0-flash",
+			null,
+			"gemini-2.0-flash",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			toolsWithUnionTypes,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const params = requestBody.tools[0].functionDeclarations[0].parameters;
+
+		expect(params.properties.extra).toEqual({
+			description: "Nullable string",
+			type: "string",
+			nullable: true,
+		});
+		expect(params.properties.sourceIds).toEqual({
+			items: { type: "string" },
+			type: "array",
+			nullable: true,
+		});
+		expect(params.properties.nested.properties.inner).toEqual({
+			type: "number",
+			nullable: true,
+		});
+		expect(params.properties.listed.items.type).toBe("object");
+		expect(params.properties.listed.items.nullable).toBe(true);
+		expect(params.properties.listed.items.properties.flag).toEqual({
+			type: "boolean",
+			nullable: true,
+		});
+		// A union with no `null` member keeps its first type and stays non-nullable
+		expect(params.properties.multi).toEqual({ type: "string" });
+		// Google's Type enum has no NULL member, so `["null"]` degrades to a
+		// nullable string rather than an unset type
+		expect(params.properties.onlyNull).toEqual({
+			type: "string",
+			nullable: true,
+		});
+		expect(params.properties.contradictory.nullable).toBe(true);
+	});
+
+	test("should collapse tuple-form items in Google tool parameters", async () => {
+		const toolsWithTupleItems = [
+			{
+				type: "function" as const,
+				function: {
+					name: "test_tool",
+					description: "Test tool",
+					parameters: {
+						type: "object",
+						properties: {
+							pair: {
+								type: "array",
+								items: [
+									{ type: "string", "x-vendor": true },
+									{ type: "number" },
+								],
+							},
+						},
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.0-flash",
+			null,
+			"gemini-2.0-flash",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			toolsWithTupleItems,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const params = requestBody.tools[0].functionDeclarations[0].parameters;
+
+		expect(params.properties.pair.items).toEqual({ type: "string" });
+	});
+
 	test("should add additionalProperties: false to Cerebras tool parameters", async () => {
 		const toolsWithoutAdditionalProps = [
 			{
@@ -2849,6 +3829,34 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 		expect(requestBody.system).toBeUndefined();
 	});
 
+	test("should preserve xhigh reasoning for Grok 4.6 on Bedrock", async () => {
+		const requestBody = await prepareRequestBody(
+			"aws-bedrock",
+			"grok-4-6",
+			"us-west-2",
+			"xai.grok-4.6",
+			[{ role: "user", content: "Hello!" }],
+			true,
+			undefined,
+			128,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			"xhigh",
+			true,
+			false,
+		);
+
+		expect(requestBody).toMatchObject({
+			model: "xai.grok-4.6",
+			max_completion_tokens: 128,
+			reasoning: { effort: "xhigh" },
+		});
+	});
+
 	test("should preserve explicit cache_control ttl as Bedrock cachePoint ttl", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
@@ -2900,6 +3908,79 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 			{ cachePoint: { type: "default", ttl: "5m" } },
 		]);
 	});
+
+	test.each(["claude-fable-5", "claude-opus-5"])(
+		"omits cache points for %s when provider cache writes are disabled",
+		async (model) => {
+			const mapping = models
+				.find((candidate) => candidate.id === model)
+				?.providers.find((candidate) => candidate.providerId === "aws-bedrock");
+			expect(mapping).toBeDefined();
+			const longContent = "A".repeat(20_000);
+			const requestBody = (await prepareRequestBody(
+				"aws-bedrock",
+				model,
+				null,
+				mapping!.externalId,
+				[
+					{
+						role: "system",
+						content: [
+							{
+								type: "text",
+								text: longContent,
+								cache_control: { type: "ephemeral", ttl: "1h" },
+							},
+						],
+					},
+					{
+						role: "user",
+						content: [
+							{
+								type: "text",
+								text: longContent,
+								cache_control: { type: "ephemeral" },
+							},
+						],
+					},
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as {
+				system?: Array<Record<string, unknown>>;
+				messages: Array<{ content: Array<Record<string, unknown>> }>;
+			};
+
+			expect(requestBody.system).not.toContainEqual(
+				expect.objectContaining({ cachePoint: expect.anything() }),
+			);
+			expect(requestBody.messages[0].content).not.toContainEqual(
+				expect.objectContaining({ cachePoint: expect.anything() }),
+			);
+		},
+	);
 
 	test("forwards base64 image blocks as Bedrock image content", async () => {
 		const pngBase64 =
@@ -3391,7 +4472,7 @@ describe("prepareRequestBody - reasoning.max_tokens forwarding", () => {
 			[{ role: "user", content: "What is 2/3 + 1/4 + 5/6?" }],
 			false, // stream
 			undefined, // temperature
-			1024, // max_tokens (must exceed thinking budget)
+			1024, // max_tokens (raised by the gateway to clear the thinking budget)
 			undefined, // top_p
 			undefined, // frequency_penalty
 			undefined, // presence_penalty
@@ -3415,6 +4496,59 @@ describe("prepareRequestBody - reasoning.max_tokens forwarding", () => {
 			type: "enabled",
 			budget_tokens: budget,
 		});
+		expect(requestBody.max_tokens).toBeGreaterThan(budget);
+	});
+
+	test("anthropic raises max_tokens above a low-effort thinking budget", async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-sonnet-4-6",
+			null,
+			"claude-sonnet-4-6",
+			[{ role: "user", content: "What is 2/3 + 1/4 + 5/6?" }],
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens (equal to the "low" budget — Anthropic 400s on this)
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			"low", // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+		)) as any;
+
+		expect(requestBody.thinking).toEqual({
+			type: "enabled",
+			budget_tokens: 1024,
+		});
+		expect(requestBody.max_tokens).toBe(2024);
+	});
+
+	test("anthropic leaves a max_tokens that already clears the budget", async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-sonnet-4-6",
+			null,
+			"claude-sonnet-4-6",
+			[{ role: "user", content: "What is 2/3 + 1/4 + 5/6?" }],
+			false, // stream
+			undefined, // temperature
+			8000, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			"low", // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+		)) as any;
+
+		expect(requestBody.max_tokens).toBe(8000);
 	});
 
 	test("aws-bedrock forwards budget into additionalModelRequestFields.thinking.budget_tokens", async () => {
@@ -3963,6 +5097,63 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				),
 			).toBe(true);
 		});
+
+		test("strips reasoning from replayed assistant turns on fireworks", async () => {
+			const requestBody = (await prepareRequestBody(
+				"fireworks",
+				"accounts/fireworks/models/kimi-k3",
+				null,
+				"kimi-k3",
+				[
+					{ role: "user", content: "My name is Ada." },
+					{
+						role: "assistant",
+						content: "Got it, Ada!",
+						reasoning: "The user told me their name.",
+					},
+					{
+						role: "assistant",
+						content: "Anything else?",
+						reasoning: "Dropped — Fireworks rejects this field.",
+						reasoning_content:
+							"Kept — a caller-supplied field we pass through.",
+					},
+					{ role: "user", content: "What is my name?" },
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false, // useResponsesApi
+			)) as any;
+
+			expect(
+				requestBody.messages.every((m: any) => m.reasoning === undefined),
+			).toBe(true);
+			expect(requestBody.messages[1].content).toBe("Got it, Ada!");
+			// Stripping `reasoning` must not disturb a caller-supplied
+			// `reasoning_content` on the same message.
+			expect(requestBody.messages[2].content).toBe("Anything else?");
+			expect(requestBody.messages[2].reasoning_content).toBe(
+				"Kept — a caller-supplied field we pass through.",
+			);
+		});
 	});
 
 	describe("azure-ai-foundry", () => {
@@ -3996,7 +5187,7 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			expect(requestBody.max_tokens).toBe(8192);
 			expect(requestBody.max_completion_tokens).toBeUndefined();
 			expect(requestBody.top_p).toBe(0.9);
-			expect(requestBody.reasoning_effort).toBeUndefined();
+			expect(requestBody.reasoning_effort).toBe("medium");
 			expect(requestBody.inferenceConfig).toBeUndefined();
 		});
 	});
@@ -4674,6 +5865,110 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			)) as any;
 
 			expect(requestBody.max_tokens).toBeUndefined();
+		});
+
+		// Together AI takes graded tiers through `reasoning_effort` everywhere,
+		// but disabling thinking differs per serving stack: the gpt-oss and Gemma
+		// deployments take `reasoning_effort: "none"`, while the DeepSeek/MiniMax/
+		// Kimi deployments only honour `thinking: { type: "disabled" }` and mark
+		// themselves with `requiresDisableThinkingParam`. Verified live.
+		const togetherReasoning = (
+			model: string,
+			externalId: string,
+			reasoning_effort:
+				| "none"
+				| "minimal"
+				| "low"
+				| "medium"
+				| "high"
+				| "xhigh"
+				| "max"
+				| undefined,
+		) =>
+			prepareRequestBody(
+				"together-ai",
+				model,
+				null,
+				externalId,
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				reasoning_effort,
+				true,
+				false,
+			) as Promise<any>;
+
+		test("forwards reasoning_effort on validating routes", async () => {
+			const requestBody = await togetherReasoning(
+				"gpt-oss-120b",
+				"openai/gpt-oss-120b",
+				"high",
+			);
+
+			expect(requestBody.reasoning_effort).toBe("high");
+			expect(requestBody.thinking).toBeUndefined();
+		});
+
+		test("forwards none as an effort on validating routes", async () => {
+			const requestBody = await togetherReasoning(
+				"gemma-4-31b-it",
+				"google/gemma-4-31b-it",
+				"none",
+			);
+
+			expect(requestBody.reasoning_effort).toBe("none");
+			expect(requestBody.thinking).toBeUndefined();
+		});
+
+		test("drops none on routes that do not declare it", async () => {
+			const requestBody = await togetherReasoning(
+				"gpt-oss-120b",
+				"openai/gpt-oss-120b",
+				"none",
+			);
+
+			expect(requestBody.reasoning_effort).toBeUndefined();
+			expect(requestBody.thinking).toBeUndefined();
+		});
+
+		test("maps none onto the thinking switch when the mapping needs it", async () => {
+			const requestBody = await togetherReasoning(
+				"deepseek-v4-pro",
+				"deepseek-ai/DeepSeek-V4-Pro",
+				"none",
+			);
+
+			expect(requestBody.thinking).toEqual({ type: "disabled" });
+			expect(requestBody.reasoning_effort).toBeUndefined();
+		});
+
+		test("forwards graded tiers verbatim on thinking-switch routes", async () => {
+			const requestBody = await togetherReasoning(
+				"kimi-k3",
+				"moonshotai/Kimi-K3",
+				"high",
+			);
+
+			expect(requestBody.reasoning_effort).toBe("high");
+			expect(requestBody.thinking).toBeUndefined();
+		});
+
+		test("sends no reasoning parameters when the caller omits effort", async () => {
+			const requestBody = await togetherReasoning(
+				"minimax-m3",
+				"MiniMaxAI/MiniMax-M3",
+				undefined,
+			);
+
+			expect(requestBody.reasoning_effort).toBeUndefined();
+			expect(requestBody.thinking).toBeUndefined();
 		});
 	});
 
@@ -5399,4 +6694,232 @@ describe("prepareRequestBody - developer role normalization", () => {
 		const requestBody = await prepare("openai", "gpt-4o-mini");
 		expect(requestBody.messages[0].role).toBe("developer");
 	});
+
+	test("rewrites developer to system for deepseek/deepseek-v4-pro", async () => {
+		const requestBody = await prepare("deepseek", "deepseek-v4-pro");
+		expect(requestBody.messages[0].role).toBe("system");
+		expect(requestBody.messages[0].content).toBe(
+			"You are a helpful assistant.",
+		);
+		expect(requestBody.messages[1].role).toBe("user");
+	});
+
+	test("rewrites developer to system for deepseek/deepseek-v4-flash", async () => {
+		const requestBody = await prepare("deepseek", "deepseek-v4-flash");
+		expect(requestBody.messages[0].role).toBe("system");
+		expect(requestBody.messages[1].role).toBe("user");
+	});
+
+	test("preserves developer role for another deepseek-v4-pro provider (deepinfra)", async () => {
+		const requestBody = await prepare("deepinfra", "deepseek-v4-pro");
+		expect(requestBody.messages[0].role).toBe("developer");
+	});
+});
+
+describe("prepareRequestBody - Sakana Fugu reasoning effort", () => {
+	async function prepare(
+		reasoning_effort:
+			| "none"
+			| "minimal"
+			| "low"
+			| "medium"
+			| "high"
+			| "xhigh"
+			| "max"
+			| undefined,
+		stream: boolean,
+	) {
+		return (await prepareRequestBody(
+			"sakana",
+			"fugu-ultra",
+			null,
+			"fugu-ultra",
+			[{ role: "user", content: "Hello" }] as any,
+			stream,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			reasoning_effort,
+			true,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			// useResponsesApi mirrors the endpoint choice: Responses when
+			// non-streaming, Chat Completions when streaming.
+			!stream,
+		)) as any;
+	}
+
+	describe("Responses API (non-streaming)", () => {
+		test("forwards max unchanged as its own tier", async () => {
+			const requestBody = await prepare("max", false);
+			expect(requestBody.reasoning.effort).toBe("max");
+		});
+
+		test("forwards xhigh unchanged", async () => {
+			const requestBody = await prepare("xhigh", false);
+			expect(requestBody.reasoning.effort).toBe("xhigh");
+		});
+
+		test.each(["none", "minimal", "low", "medium", "high"] as const)(
+			"collapses %s onto high",
+			async (effort) => {
+				const requestBody = await prepare(effort, false);
+				expect(requestBody.reasoning.effort).toBe("high");
+			},
+		);
+	});
+
+	describe("Chat Completions (streaming)", () => {
+		test("forwards max unchanged as its own tier", async () => {
+			const requestBody = await prepare("max", true);
+			expect(requestBody.reasoning_effort).toBe("max");
+		});
+
+		test("forwards xhigh unchanged", async () => {
+			const requestBody = await prepare("xhigh", true);
+			expect(requestBody.reasoning_effort).toBe("xhigh");
+		});
+
+		test.each(["minimal", "low", "medium", "high"] as const)(
+			"collapses %s onto high",
+			async (effort) => {
+				const requestBody = await prepare(effort, true);
+				expect(requestBody.reasoning_effort).toBe("high");
+			},
+		);
+
+		// "none" is stripped before the provider switch (the mapping does not
+		// declare it), so nothing is sent and Fugu applies its own Chat
+		// Completions default, which is "high".
+		test("omits reasoning_effort entirely for none", async () => {
+			const requestBody = await prepare("none", true);
+			expect(requestBody.reasoning_effort).toBeUndefined();
+		});
+	});
+
+	test("both API surfaces agree on every declared tier", async () => {
+		for (const effort of ["high", "xhigh", "max"] as const) {
+			const responses = await prepare(effort, false);
+			const chat = await prepare(effort, true);
+			expect(responses.reasoning.effort).toBe(chat.reasoning_effort);
+			expect(responses.reasoning.effort).toBe(effort);
+		}
+	});
+});
+
+describe("prepareRequestBody - DashScope web search", () => {
+	const prepare = (provider: string, model: string, webSearchTool?: any) =>
+		prepareRequestBody(
+			provider as any,
+			model,
+			null,
+			model,
+			[{ role: "user", content: "hi" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			webSearchTool,
+		) as Promise<any>;
+
+	test.each(["alibaba", "scx-ai-gp"])(
+		"%s pairs enable_search with forced_search when forced",
+		async (provider) => {
+			const requestBody = await prepare(provider, "qwen3.8-max", {
+				type: "web_search",
+				forced: true,
+			});
+
+			// enable_search alone is a hint the model ignores; forced_search is what
+			// actually retrieves, so the two must always travel together.
+			expect(requestBody.enable_search).toBe(true);
+			expect(requestBody.search_options).toEqual({ forced_search: true });
+		},
+	);
+
+	test.each(["alibaba", "scx-ai-gp"])(
+		"%s omits search_strategy",
+		async (provider) => {
+			const requestBody = await prepare(provider, "qwen3.8-max", {
+				type: "web_search",
+				forced: true,
+			});
+
+			// The Qwen max models 400 on the documented "agent" policy.
+			expect(requestBody.search_options.search_strategy).toBeUndefined();
+		},
+	);
+
+	test.each(["alibaba", "scx-ai-gp"])(
+		"%s sends no search params for a merely offered tool",
+		async (provider) => {
+			// A chat client that leaves a web search toggle on attaches the tool to
+			// every turn. Forcing there would search and bill on each one, so an
+			// unforced tool must send nothing — routing keeps these mappings out of
+			// such a request in the first place.
+			const requestBody = await prepare(provider, "qwen3.8-max", {
+				type: "web_search",
+			});
+
+			expect(requestBody.enable_search).toBeUndefined();
+			expect(requestBody.search_options).toBeUndefined();
+		},
+	);
+
+	test("openai forwards a forced search on the Responses API", async () => {
+		const requestBody = await prepare("openai", "gpt-5", {
+			type: "web_search",
+			forced: true,
+		});
+
+		// OpenAI takes the gateway's own directive verbatim here. Verified live:
+		// "What is 2+2?" yields no web_search_call without it, one with it.
+		expect(requestBody.tool_choice).toEqual({ type: "web_search" });
+		expect(requestBody.tools).toContainEqual({ type: "web_search" });
+	});
+
+	test("openai leaves an offered search to the model", async () => {
+		const requestBody = await prepare("openai", "gpt-5", {
+			type: "web_search",
+		});
+
+		expect(requestBody.tool_choice).toBeUndefined();
+		expect(requestBody.tools).toContainEqual({ type: "web_search" });
+	});
+
+	test.each(["alibaba", "scx-ai-gp"])(
+		"%s sends no search params without a web_search tool",
+		async (provider) => {
+			const requestBody = await prepare(provider, "qwen3.8-max");
+
+			expect(requestBody.enable_search).toBeUndefined();
+			expect(requestBody.search_options).toBeUndefined();
+		},
+	);
 });

@@ -1,15 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import {
-	getSupportedServiceTiers,
-	isStealthProvider,
-	supportsServiceTier,
-} from "./helpers.js";
+import { getSupportedServiceTiers, supportsServiceTier } from "./helpers.js";
 import { anthropicModels } from "./models/anthropic.js";
+import { xaiModels } from "./models/xai.js";
 import { models } from "./models.js";
 import {
 	formatServiceTierMultiplier,
 	getServiceTier,
+	isStealthProvider,
 	providers,
 } from "./providers.js";
 import {
@@ -154,6 +152,22 @@ describe("model service tier support", () => {
 		).toEqual(["flex"]);
 	});
 
+	it("returns the Fireworks Priority tier for Kimi K3 only", () => {
+		expect(
+			getSupportedServiceTiers("kimi-k3", "fireworks").map((tier) => tier.id),
+		).toEqual(["priority"]);
+		expect(
+			getSupportedServiceTiers("kimi-k3", "fireworks").find(
+				(tier) => tier.id === "priority",
+			)?.multiplier,
+		).toBe(1.25);
+		// Fireworks' schema accepts "flex", but it has no published flex rate
+		// card, so the gateway must not route flex traffic there.
+		expect(supportsServiceTier("kimi-k3", "fireworks", "flex")).toBe(false);
+		// Other providers serving the same model expose no tiers.
+		expect(getSupportedServiceTiers("kimi-k3", "novita")).toEqual([]);
+	});
+
 	it("returns explicit Google AI Studio tiers for supported models", () => {
 		expect(
 			getSupportedServiceTiers("gemini-2.5-pro", "google-ai-studio").map(
@@ -229,6 +243,7 @@ describe("isStealthProvider", () => {
 			"quartz",
 			"avalanche",
 			"tundra",
+			"permafrost",
 		]) {
 			expect(isStealthProvider(id)).toBe(true);
 		}
@@ -399,6 +414,26 @@ describe("AWS Bedrock Anthropic regions", () => {
 		).toMatchObject({
 			inputPrice: "5.5e-6",
 			outputPrice: "27.5e-6",
+		});
+	});
+
+	it("exposes Grok 4.6 in us-west-2 at in-region prices", () => {
+		const grok46 = xaiModels.find((candidate) => candidate.id === "grok-4-6");
+		const bedrockMapping = grok46?.providers.find(
+			(provider) => provider.providerId === "aws-bedrock",
+		);
+		const expandedMappings = expandAllProviderRegions(
+			bedrockMapping ? [bedrockMapping] : [],
+		);
+
+		expect(getRegionIds(bedrockMapping)).toEqual(["us-west-2"]);
+		expect(
+			expandedMappings.find((provider) => provider.region === "us-west-2"),
+		).toMatchObject({
+			externalId: "xai.grok-4.6",
+			inputPrice: "2.2e-6",
+			outputPrice: "6.6e-6",
+			cachedInputPrice: "0.55e-6",
 		});
 	});
 });

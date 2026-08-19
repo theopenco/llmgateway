@@ -40,6 +40,11 @@ import {
 	formatServiceTierMultiplier,
 	getServiceTier,
 } from "@llmgateway/models";
+import { regionFromUsedModel } from "@llmgateway/shared";
+import {
+	API_ORIGIN_LABELS,
+	CredentialSourceBadge,
+} from "@llmgateway/shared/components";
 
 import type { LogDetailData } from "@/types/activity";
 import type { Log } from "@llmgateway/db";
@@ -206,22 +211,6 @@ function formatDuration(ms: number) {
 
 // Selection reasons where the weighted-score formula is bypassed entirely, so
 // every provider's score is a hardcoded 0 placeholder rather than a real value.
-// The gateway API surface the request came in through. Null on logs written
-// before the column existed.
-const API_ORIGIN_LABELS: Record<string, string> = {
-	"chat-completions": "Chat Completions",
-	messages: "Messages",
-	responses: "Responses",
-	embeddings: "Embeddings",
-	images: "Images",
-	videos: "Videos",
-	moderations: "Moderations",
-	ocr: "OCR",
-	speech: "Speech",
-	transcriptions: "Transcriptions",
-	rerank: "Rerank",
-};
-
 // "session-sticky" is intentionally excluded: it scores providers with the
 // normal weighted algorithm and pins the result for the session, so the logged
 // scores are real values worth surfacing. The all-zero fallback below hides
@@ -480,6 +469,10 @@ export function LogDetailClient({
 
 	const inputImages = extractMessageImages(log.messages);
 
+	// Regional mappings encode the served region as a `:region` suffix on
+	// `usedModel`; providers without regional deployments have none.
+	const usedRegion = regionFromUsedModel(log.usedModel, log.usedProvider);
+
 	const retentionEnabled =
 		log.dataStorageCost !== null &&
 		log.dataStorageCost !== undefined &&
@@ -489,6 +482,11 @@ export function LogDetailClient({
 		log.duration && log.completionTokens
 			? (Number(log.completionTokens) / (log.duration / 1000)).toFixed(1)
 			: null;
+
+	// Reasoning models stream thinking before any content, so the first
+	// reasoning token is the real first-token latency when present.
+	const timeToFirstToken =
+		log.timeToFirstReasoningToken ?? log.timeToFirstToken;
 
 	return (
 		<div className="flex flex-col">
@@ -559,14 +557,14 @@ export function LogDetailClient({
 							{throughput ? `${throughput} t/s` : "-"}
 						</p>
 					</div>
-					{log.timeToFirstToken && (
+					{timeToFirstToken && (
 						<div className="rounded-lg border bg-card p-3">
 							<div className="flex items-center gap-2 text-muted-foreground mb-1">
 								<Clock className="h-3.5 w-3.5" />
 								<span className="text-xs">TTFT</span>
 							</div>
 							<p className="text-lg font-semibold tabular-nums">
-								{formatDuration(log.timeToFirstToken)}
+								{formatDuration(timeToFirstToken)}
 							</p>
 						</div>
 					)}
@@ -634,6 +632,7 @@ export function LogDetailClient({
 									/>
 								)}
 								<Field label="Provider" value={log.usedProvider} />
+								{usedRegion && <Field label="Region" value={usedRegion} mono />}
 								{log.requestedProvider && (
 									<Field
 										label="Requested Provider"
@@ -683,12 +682,28 @@ export function LogDetailClient({
 									{log.routingMetadata.usedApiKeyHash && (
 										<Field
 											label="Key"
-											value={formatApiKeyHash(
-												log.routingMetadata.usedApiKeyHash,
-											)}
+											value={
+												<span className="inline-flex items-center gap-1.5">
+													{formatApiKeyHash(log.routingMetadata.usedApiKeyHash)}
+													<CredentialSourceBadge
+														source={log.routingMetadata.usedCredentialSource}
+														keyLabel={log.routingMetadata.usedProviderKeyLabel}
+													/>
+												</span>
+											}
 											mono
 										/>
 									)}
+									{log.routingMetadata.eligibleProviderKeys &&
+										log.routingMetadata.eligibleProviderKeys.length > 0 && (
+											<Field
+												label="Your keys"
+												value={log.routingMetadata.eligibleProviderKeys
+													.map((key) => key.label ?? key.id)
+													.join(", ")}
+												mono
+											/>
+										)}
 									{log.routingMetadata.availableProviders &&
 										log.routingMetadata.availableProviders.length > 0 && (
 											<Field
@@ -810,6 +825,10 @@ export function LogDetailClient({
 																		key {formatApiKeyHash(attempt.apiKeyHash)}
 																	</span>
 																)}
+																<CredentialSourceBadge
+																	source={attempt.credentialSource}
+																	keyLabel={attempt.providerKeyLabel}
+																/>
 																{attempt.logId && (
 																	<Link
 																		href={`/dashboard/${orgId}/${projectId}/activity/${attempt.logId}`}
@@ -985,7 +1004,11 @@ export function LogDetailClient({
 												label="Requested Service Tier"
 												value={
 													log.requestedServiceTier.charAt(0).toUpperCase() +
-													log.requestedServiceTier.slice(1)
+													log.requestedServiceTier.slice(1) +
+													(log.routingMetadata?.serviceTierSource ===
+													"coding-plan-default"
+														? " (coding plan default)"
+														: "")
 												}
 											/>
 										)}
@@ -1420,6 +1443,17 @@ export function LogDetailClient({
 									{log.errorDetails.responseText}
 								</pre>
 							</div>
+							{/* Network failures surface as a bare "fetch failed" message; the
+							    underlying reason (timeouts, DNS, TLS, connection resets) only
+							    exists in the cause chain, so it has to be shown separately. */}
+							{!!log.errorDetails.cause && (
+								<div>
+									<p className="text-xs text-red-400 mb-1">Cause</p>
+									<pre className="text-xs overflow-auto whitespace-pre-wrap break-all font-mono bg-background rounded border p-3">
+										{log.errorDetails.cause}
+									</pre>
+								</div>
+							)}
 							{log.retried && log.retriedByLogId && (
 								<div className="flex items-center gap-2 rounded-md border border-amber-500/20 bg-amber-500/10 p-3 text-sm">
 									<RefreshCw className="h-4 w-4 text-amber-600" />

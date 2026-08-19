@@ -147,11 +147,29 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
+										href="/rankings"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Rankings
+									</Link>
+								</li>
+								<li>
+									<Link
 										href="/add-provider"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch={true}
 									>
 										Add Provider
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/partners"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Partners
 									</Link>
 								</li>
 								<li>
@@ -207,6 +225,15 @@ export default function Footer() {
 								Resources
 							</h3>
 							<ul className="space-y-2">
+								<li>
+									<Link
+										href="/legal"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Legal Overview
+									</Link>
+								</li>
 								<li>
 									<Link
 										href="/apps"
@@ -333,22 +360,14 @@ export default function Footer() {
 								</li>
 								<li>
 									<a
-										href="mailto:contact@llmgateway.io"
+										href={config.discordUrl}
 										target="_blank"
-										rel="noreferrer noopener"
+										rel="noopener noreferrer"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 									>
-										Contact Us
+										Discord
 									</a>
 								</li>
-							</ul>
-						</div>
-
-						<div>
-							<h3 className="font-display text-sm font-semibold mb-4 text-foreground">
-								Community
-							</h3>
-							<ul className="space-y-2">
 								<li>
 									<a
 										href={config.twitterUrl}
@@ -361,12 +380,12 @@ export default function Footer() {
 								</li>
 								<li>
 									<a
-										href={config.discordUrl}
+										href="mailto:contact@llmgateway.io"
 										target="_blank"
-										rel="noopener noreferrer"
+										rel="noreferrer noopener"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 									>
-										Discord
+										Contact Us
 									</a>
 								</li>
 							</ul>
@@ -417,11 +436,20 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
-										href="/legal/privacy"
+										href="/legal/providers"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch={true}
 									>
-										GDPR
+										Provider Information
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/legal/sub-processors"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Sub-processors
 									</Link>
 								</li>
 								<li>
@@ -452,6 +480,15 @@ export default function Footer() {
 								Compare
 							</h3>
 							<ul className="space-y-2">
+								<li>
+									<Link
+										href="/compare"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										All Comparisons
+									</Link>
+								</li>
 								<li>
 									<Link
 										href="/compare/github-copilot"
@@ -504,6 +541,15 @@ export default function Footer() {
 										prefetch={true}
 									>
 										Azure AI Foundry
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/compare/vercel-ai-gateway"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Vercel AI Gateway
 									</Link>
 								</li>
 								<li>

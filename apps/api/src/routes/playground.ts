@@ -1142,6 +1142,14 @@ const realtimeTranscriptEntrySchema = z.object({
 	text: z.string(),
 	status: z.enum(["partial", "final", "interrupted"]),
 	timestamp: z.number(),
+	// Assistant speech for the turn as a base64 WAV, so a saved call can be
+	// listened to and not just read.
+	audio: z
+		.object({
+			base64: z.string().max(48_000_000),
+			mediaType: z.literal("audio/wav"),
+		})
+		.optional(),
 });
 
 const realtimeUsageSchema = z.object({
@@ -1373,7 +1381,10 @@ playground.openapi(saveRealtimeHistory, async (c) => {
 
 // ── PATCH /realtime-history/:id ──────────────────────────────────────────────
 
-const renameRealtimeHistory = createRoute({
+// Renames a call, and/or grows it with the turns of a continued session: a
+// resumed call appends to the row it continued rather than starting a new one,
+// so one conversation stays one history entry.
+const updateRealtimeHistory = createRoute({
 	method: "patch",
 	path: "/realtime-history/{id}",
 	request: {
@@ -1381,7 +1392,21 @@ const renameRealtimeHistory = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: z.object({ title: z.string().trim().min(1).max(200) }),
+					schema: z
+						.object({
+							title: z.string().trim().min(1).max(200).optional(),
+							appendTranscript: z
+								.array(realtimeTranscriptEntrySchema)
+								.min(1)
+								.optional(),
+							addDurationSeconds: z.number().int().min(0).optional(),
+							addUsage: realtimeUsageSchema.optional(),
+						})
+						.refine(
+							(body) =>
+								Object.values(body).some((value) => value !== undefined),
+							{ message: "At least one field must be provided" },
+						),
 				},
 			},
 		},
@@ -1398,25 +1423,76 @@ const renameRealtimeHistory = createRoute({
 	},
 });
 
-playground.openapi(renameRealtimeHistory, async (c) => {
+playground.openapi(updateRealtimeHistory, async (c) => {
 	const user = c.get("user");
 	if (!user) {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 
 	const { id } = c.req.valid("param");
-	const { title } = c.req.valid("json");
+	const body = c.req.valid("json");
 
-	const [row] = await db
-		.update(tables.playgroundRealtimeHistory)
-		.set({ title })
-		.where(
-			and(
-				eq(tables.playgroundRealtimeHistory.id, id),
-				eq(tables.playgroundRealtimeHistory.userId, user.id),
-			),
-		)
-		.returning();
+	// Appending needs the current transcript/duration/usage, so this is a
+	// read-modify-write. The row lock serializes two continuations of the same
+	// call finishing at once (e.g. from two tabs), so the later one appends to
+	// the earlier one's result instead of overwriting it from a stale read.
+	const row = await db.transaction(async (tx) => {
+		const [existing] = await tx
+			.select()
+			.from(tables.playgroundRealtimeHistory)
+			.where(
+				and(
+					eq(tables.playgroundRealtimeHistory.id, id),
+					eq(tables.playgroundRealtimeHistory.userId, user.id),
+				),
+			)
+			.for("update");
+
+		if (!existing) {
+			throw new HTTPException(404, { message: "Not found" });
+		}
+
+		const addUsage = body.addUsage;
+		const previousUsage = existing.usage;
+
+		const [updated] = await tx
+			.update(tables.playgroundRealtimeHistory)
+			.set({
+				...(body.title !== undefined ? { title: body.title } : {}),
+				...(body.appendTranscript
+					? { transcript: [...existing.transcript, ...body.appendTranscript] }
+					: {}),
+				...(body.addDurationSeconds !== undefined
+					? {
+							durationSeconds:
+								existing.durationSeconds + body.addDurationSeconds,
+						}
+					: {}),
+				...(addUsage
+					? {
+							usage: {
+								responses: (previousUsage?.responses ?? 0) + addUsage.responses,
+								inputTokens:
+									(previousUsage?.inputTokens ?? 0) + addUsage.inputTokens,
+								outputTokens:
+									(previousUsage?.outputTokens ?? 0) + addUsage.outputTokens,
+								totalTokens:
+									(previousUsage?.totalTokens ?? 0) + addUsage.totalTokens,
+								audioInputTokens:
+									(previousUsage?.audioInputTokens ?? 0) +
+									addUsage.audioInputTokens,
+								audioOutputTokens:
+									(previousUsage?.audioOutputTokens ?? 0) +
+									addUsage.audioOutputTokens,
+							},
+						}
+					: {}),
+			})
+			.where(eq(tables.playgroundRealtimeHistory.id, existing.id))
+			.returning();
+
+		return updated;
+	});
 
 	if (!row) {
 		throw new HTTPException(404, { message: "Not found" });

@@ -3,6 +3,7 @@
 import {
 	AlertTriangle,
 	AlertCircle,
+	Ban,
 	Copy,
 	Check,
 	ChevronDown,
@@ -31,6 +32,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { shouldShowDeactivationNotice } from "@/deactivation";
 import { cn } from "@/lib/utils";
 
 import { formatContextSize, formatDeprecationDate } from "./format";
@@ -174,8 +176,13 @@ export function ModelCard({
 	const allHaveDeactivatedAt =
 		model.providerDetails.length > 0 &&
 		model.providerDetails.every(({ provider }) => provider.deactivatedAt);
+	const showModelDeactivationStatus =
+		allHaveDeactivatedAt &&
+		model.providerDetails.every(({ provider }) =>
+			shouldShowDeactivationNotice(provider, now),
+		);
 	const allHaveDeprecatedAt =
-		!allHaveDeactivatedAt &&
+		!showModelDeactivationStatus &&
 		model.providerDetails.length > 0 &&
 		model.providerDetails.every(({ provider }) => provider.deprecatedAt);
 	const deactivationAllPast =
@@ -188,6 +195,22 @@ export function ModelCard({
 		model.providerDetails.every(
 			({ provider }) => new Date(provider.deprecatedAt!) <= now,
 		);
+	// Org directory only: every provider mapping fails the viewing org's
+	// compliance policy, so the model is not routable for this org at all.
+	const allBlocked =
+		model.providerDetails.length > 0 &&
+		model.providerDetails.every(
+			({ provider }) => provider.blockedReasons?.length,
+		);
+	const blockedReasons = allBlocked
+		? Array.from(
+				new Set(
+					model.providerDetails.flatMap(
+						({ provider }) => provider.blockedReasons ?? [],
+					),
+				),
+			)
+		: [];
 
 	const hasProviderStabilityWarning = (
 		provider: ApiModelProviderMapping,
@@ -316,7 +339,42 @@ export function ModelCard({
 									{Math.round(bestDiscount * 100)}% off
 								</Badge>
 							)}
-							{allHaveDeactivatedAt && (
+							{model.source === "custom" && (
+								<Badge
+									variant="outline"
+									className="text-[10px] px-2 py-0.5 font-medium"
+								>
+									Custom
+								</Badge>
+							)}
+							{allBlocked && (
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<Badge className="text-[10px] px-2 py-0.5 font-semibold bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20 cursor-help">
+											<Ban className="h-2.5 w-2.5" />
+											Not eligible
+										</Badge>
+									</TooltipTrigger>
+									<TooltipContent className="max-w-xs">
+										<p className="text-xs font-medium mb-1">
+											Not available under your organization&apos;s compliance
+											policy:
+										</p>
+										<ul
+											className={cn(
+												"text-xs",
+												blockedReasons.length > 1 &&
+													"list-disc pl-4 space-y-0.5",
+											)}
+										>
+											{blockedReasons.map((reason) => (
+												<li key={reason}>{reason}</li>
+											))}
+										</ul>
+									</TooltipContent>
+								</Tooltip>
+							)}
+							{showModelDeactivationStatus && (
 								<ModelStatusBadge
 									status="deactivated"
 									isPast={deactivationAllPast}
@@ -557,6 +615,7 @@ export function ProviderSection({
 	const [selectedServiceTierId, setSelectedServiceTierId] =
 		useState("standard");
 	const activeMapping = mappings[activeRegionIdx] ?? mappings[0];
+	const showDeactivationNotice = shouldShowDeactivationNotice(activeMapping);
 	const hasMappingDetails =
 		(activeMapping.reasoningEfforts?.length ?? 0) > 0 ||
 		(activeMapping.supportedParameters?.length ?? 0) > 0;
@@ -750,7 +809,7 @@ export function ProviderSection({
 				</div>
 
 				{/* Deprecation/deactivation warnings */}
-				{(activeMapping.deprecatedAt ?? activeMapping.deactivatedAt) && (
+				{(activeMapping.deprecatedAt || showDeactivationNotice) && (
 					<div className="flex flex-wrap gap-1.5">
 						{activeMapping.deprecatedAt && (
 							<Badge
@@ -764,14 +823,14 @@ export function ProviderSection({
 								)}
 							</Badge>
 						)}
-						{activeMapping.deactivatedAt && (
+						{showDeactivationNotice && (
 							<Badge
 								variant="outline"
 								className="text-[10px] px-2 py-0.5 gap-1 bg-red-500/5 text-red-600 dark:text-red-400 border-red-500/20"
 							>
 								<AlertCircle className="h-2.5 w-2.5" />
 								{formatDeprecationDate(
-									activeMapping.deactivatedAt,
+									activeMapping.deactivatedAt!,
 									"deactivated",
 								)}
 							</Badge>
@@ -813,6 +872,31 @@ export function ProviderSection({
 									(requestPriceNum + outputCost) * serviceTierMultiplier;
 								if (resolutionKey) {
 									label = `Per image (${resolutionKey})`;
+								}
+							}
+						}
+						if (perImage === null && activeMapping.perImagePrice) {
+							const tierEntries = Object.entries(
+								activeMapping.perImagePrice,
+							).filter(([k]) => k !== "default");
+							const entries =
+								tierEntries.length > 0
+									? tierEntries
+									: Object.entries(activeMapping.perImagePrice);
+							const values = entries
+								.map(([, v]) => parseFloat(v))
+								.filter(Number.isFinite);
+							if (values.length > 0) {
+								const min = Math.min(...values);
+								const max = Math.max(...values);
+								perImage = max * serviceTierMultiplier;
+								if (min !== max) {
+									const maxKey = entries.find(
+										([, v]) => parseFloat(v) === max,
+									)?.[0];
+									label = maxKey
+										? `Per image (${maxKey}, cheaper at lower resolutions)`
+										: "Per image";
 								}
 							}
 						}

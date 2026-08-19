@@ -7,9 +7,13 @@ import type { paths } from "@/lib/api/v1";
 export type TeamMembersData =
 	paths["/team/{organizationId}/members"]["get"]["responses"][200]["content"]["application/json"];
 
+export type MyMemberBudgetData =
+	paths["/team/{organizationId}/members/me"]["get"]["responses"][200]["content"]["application/json"];
+
 export function useTeamMembers(
-	organizationId: string,
+	organizationId: string | undefined,
 	initialData?: TeamMembersData,
+	options?: { enabled?: boolean },
 ) {
 	const api = useApi();
 
@@ -19,17 +23,23 @@ export function useTeamMembers(
 		{
 			params: {
 				path: {
-					organizationId,
+					organizationId: organizationId ?? "",
 				},
 			},
 		},
-		initialData ? { initialData } : undefined,
+		{
+			...(initialData ? { initialData } : {}),
+			enabled: (options?.enabled ?? true) && !!organizationId,
+		},
 	);
 }
 
 // The authenticated user's OWN budget/spend for an org (self-service, no admin
 // gate) — so members can see the limits an admin has set on them.
-export function useMyMemberBudget(organizationId: string) {
+export function useMyMemberBudget(
+	organizationId: string,
+	initialData?: MyMemberBudgetData,
+) {
 	const api = useApi();
 
 	return api.useQuery(
@@ -43,6 +53,7 @@ export function useMyMemberBudget(organizationId: string) {
 			},
 		},
 		{
+			...(initialData ? { initialData } : {}),
 			enabled: !!organizationId,
 		},
 	);

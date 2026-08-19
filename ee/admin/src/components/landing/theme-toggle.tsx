@@ -25,7 +25,7 @@ export function ThemeToggle({ className, size = "default" }: ThemeToggleProps) {
 
 	const sizeClasses =
 		size === "compact"
-			? { root: "h-7 gap-0.5 p-0.5", button: "size-6", icon: "size-3.5" }
+			? { root: "h-6 gap-0.5 p-0.5", button: "size-5", icon: "size-3" }
 			: { root: "h-8 gap-1 p-1", button: "size-6", icon: "size-4" };
 
 	// Default to "system" until mounted to keep SSR markup stable.

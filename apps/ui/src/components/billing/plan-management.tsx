@@ -3,6 +3,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { usePostHog } from "posthog-js/react";
 
+import { EnterprisePlanTerm } from "@/components/billing/enterprise-plan-term";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import {
@@ -16,6 +17,17 @@ import {
 import { useToast } from "@/lib/components/use-toast";
 import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
+
+import { getOrganizationTerm } from "@llmgateway/shared";
+
+const ENTERPRISE_FEATURES = [
+	"Dedicated support & SLA",
+	"Provider compliance policies",
+	"SSO & audit logs",
+	"Extended data retention",
+	"Custom models & guardrails",
+	"Volume pricing",
+];
 
 export function PlanManagement() {
 	const { selectedOrganization } = useDashboardState();
@@ -99,6 +111,61 @@ export function PlanManagement() {
 	const planExpiresAt = selectedOrganization.planExpiresAt
 		? new Date(selectedOrganization.planExpiresAt)
 		: null;
+
+	if (selectedOrganization.plan === "enterprise") {
+		const resolved = getOrganizationTerm({
+			isTrialActive: selectedOrganization.isTrialActive,
+			trialStartDate: selectedOrganization.trialStartDate,
+			trialEndDate: selectedOrganization.trialEndDate,
+			planStartedAt: selectedOrganization.planStartedAt,
+			planExpiresAt: selectedOrganization.planExpiresAt,
+		});
+		const trial = resolved?.kind === "trial";
+
+		// Rendered without its own Card: the billing page already wraps this in
+		// one, and a second border around the term meter buries the countdown.
+		return (
+			<div className="space-y-6">
+				<div className="flex items-center gap-2">
+					<h3 className="text-lg font-medium">
+						{trial ? "Enterprise trial" : "Enterprise agreement"}
+					</h3>
+					<Badge variant={trial ? "secondary" : "default"}>
+						{trial ? "Trial" : "Enterprise"}
+					</Badge>
+				</div>
+
+				<EnterprisePlanTerm
+					term={resolved?.term ?? null}
+					kind={resolved?.kind ?? "contract"}
+				/>
+
+				<div className="space-y-3 rounded-lg border p-4">
+					<h4 className="font-medium">
+						{trial ? "Included during your trial" : "Included with Enterprise"}
+					</h4>
+					<div className="grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
+						<div className="space-y-2">
+							{ENTERPRISE_FEATURES.slice(0, 3).map((feature) => (
+								<div key={feature} className="flex items-center gap-2">
+									<div className="h-2 w-2 rounded-full bg-green-500" />
+									<span>{feature}</span>
+								</div>
+							))}
+						</div>
+						<div className="space-y-2">
+							{ENTERPRISE_FEATURES.slice(3).map((feature) => (
+								<div key={feature} className="flex items-center gap-2">
+									<div className="h-2 w-2 rounded-full bg-green-500" />
+									<span>{feature}</span>
+								</div>
+							))}
+						</div>
+					</div>
+				</div>
+			</div>
+		);
+	}
 
 	return (
 		<Card>

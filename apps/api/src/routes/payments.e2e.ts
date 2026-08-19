@@ -1,12 +1,21 @@
 import "dotenv/config";
 import Stripe from "stripe";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	describe,
+	expect,
+	test,
+	vi,
+} from "vitest";
 
 import { app } from "@/index.js";
 import { deleteAll } from "@/testing.js";
 
 import { db, tables } from "@llmgateway/db";
 import { CREDIT_TOP_UP_MIN_AMOUNT } from "@llmgateway/shared";
+import { uniqueId } from "@llmgateway/shared/random";
 
 // Reproduces the production credits top-up flow against real Stripe test
 // mode, server-side: create-setup-intent -> confirm the SetupIntent with a
@@ -26,7 +35,7 @@ const stripeTestingEnabled =
 	Boolean(stripeKey?.startsWith("sk_test_"));
 
 function generateTestId(): string {
-	return `test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+	return uniqueId("test");
 }
 
 describe.skipIf(!stripeTestingEnabled)(
@@ -36,6 +45,10 @@ describe.skipIf(!stripeTestingEnabled)(
 
 		beforeAll(async () => {
 			await deleteAll();
+		});
+
+		afterEach(() => {
+			vi.unstubAllEnvs();
 		});
 
 		afterAll(async () => {
@@ -189,6 +202,109 @@ describe.skipIf(!stripeTestingEnabled)(
 				},
 			);
 			expect(confirmedIntent.status).toBe("succeeded");
+		});
+
+		// The point of forcing 3DS only at card-setup time: the add-card step
+		// authenticates, and the off-session charge that later reuses that card
+		// — the shape auto top-up runs on — still goes through untouched.
+		// `pm_card_visa` supports 3DS without requiring it, so Stripe's SCA
+		// engine lets it through frictionlessly unless we ask otherwise.
+		test("forced 3DS authenticates the card setup but never the charge", async () => {
+			const { token, orgId } = await setupTestData();
+			const stripe = new Stripe(stripeKey!, { apiVersion: "2025-04-30.basil" });
+
+			// Save a card with 3DS off so there is a usable saved card to charge.
+			const setupRes = await app.request("/payments/create-setup-intent", {
+				method: "POST",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({ organizationId: orgId }),
+			});
+			expect(setupRes.status).toBe(200);
+			const { clientSecret: setupSecret } = (await setupRes.json()) as {
+				clientSecret: string;
+			};
+
+			const organization = await db.query.organization.findFirst({
+				where: { id: orgId },
+			});
+			stripeCustomerIds.push(organization!.stripeCustomerId!);
+
+			const confirmedSetup = await stripe.setupIntents.confirm(
+				setupSecret.split("_secret")[0],
+				{
+					payment_method: "pm_card_visa",
+					return_url: "https://llmgateway.io/",
+				},
+			);
+			expect(confirmedSetup.status).toBe("succeeded");
+			const stripePaymentMethodId =
+				typeof confirmedSetup.payment_method === "string"
+					? confirmedSetup.payment_method
+					: confirmedSetup.payment_method!.id;
+
+			const [savedCard] = await db
+				.insert(tables.paymentMethod)
+				.values({
+					stripePaymentMethodId,
+					organizationId: orgId,
+					type: "card",
+					isDefault: true,
+				})
+				.returning({ id: tables.paymentMethod.id });
+
+			// Everything below runs with 3DS forced as hard as it goes.
+			vi.stubEnv("STRIPE_FORCE_3DS", "challenge");
+
+			// Adding a card authenticates: this is the one interactive moment,
+			// and Stripe.js renders the challenge for it.
+			const forcedSetupRes = await app.request(
+				"/payments/create-setup-intent",
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json", Cookie: token },
+					body: JSON.stringify({ organizationId: orgId }),
+				},
+			);
+			expect(forcedSetupRes.status).toBe(200);
+			const { clientSecret: forcedSetupSecret } =
+				(await forcedSetupRes.json()) as { clientSecret: string };
+			const forcedSetup = await stripe.setupIntents.confirm(
+				forcedSetupSecret.split("_secret")[0],
+				{
+					payment_method: "pm_card_visa",
+					return_url: "https://llmgateway.io/",
+				},
+			);
+			expect(forcedSetup.status).toBe("requires_action");
+			expect(forcedSetup.next_action?.type).toBe("redirect_to_url");
+
+			// The off-session charge on the saved card does not. This endpoint
+			// creates the same `off_session: true, confirm: true` PaymentIntent
+			// the auto top-up worker does, so a challenge here would surface as
+			// a 402 `authentication_required` instead of a completed top-up.
+			const chargeRes = await app.request(
+				"/payments/top-up-with-saved-method",
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json", Cookie: token },
+					body: JSON.stringify({
+						amount: CREDIT_TOP_UP_MIN_AMOUNT,
+						paymentMethodId: savedCard.id,
+						organizationId: orgId,
+					}),
+				},
+			);
+			expect(chargeRes.status).toBe(200);
+			expect(await chargeRes.json()).toMatchObject({ success: true });
+
+			const charges = await stripe.paymentIntents.list({
+				customer: organization!.stripeCustomerId!,
+				limit: 1,
+			});
+			expect(charges.data[0].status).toBe("succeeded");
+			expect(
+				charges.data[0].payment_method_options?.card?.request_three_d_secure,
+			).not.toBe("challenge");
 		});
 	},
 );

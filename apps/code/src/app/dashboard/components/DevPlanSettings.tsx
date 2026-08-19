@@ -1,6 +1,5 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -39,22 +38,16 @@ const SERVICE_TIER_OPTIONS: Array<{ value: ServiceTier; label: string }> = [
 
 interface DevPlanSettingsProps {
 	devPlanServiceTier: ServiceTier;
-	retentionLevel: "retain" | "none";
 	defaultRoutingStrategy: RoutingStrategy;
+	providerCacheControlEnabled: boolean;
 }
 
 export default function DevPlanSettings({
 	devPlanServiceTier: initialServiceTier,
-	retentionLevel: initialRetentionLevel,
 	defaultRoutingStrategy: initialRoutingStrategy,
+	providerCacheControlEnabled: initialProviderCacheControlEnabled,
 }: DevPlanSettingsProps) {
 	const api = useApi();
-	const queryClient = useQueryClient();
-
-	const [retainData, setRetainData] = useState(
-		initialRetentionLevel === "retain",
-	);
-	const [isUpdatingRetention, setIsUpdatingRetention] = useState(false);
 
 	const [routingStrategy, setRoutingStrategy] = useState<RoutingStrategy>(
 		initialRoutingStrategy,
@@ -64,19 +57,14 @@ export default function DevPlanSettings({
 	const [serviceTier, setServiceTier] =
 		useState<ServiceTier>(initialServiceTier);
 	const [isUpdatingServiceTier, setIsUpdatingServiceTier] = useState(false);
+	const [providerCacheControlEnabled, setProviderCacheControlEnabled] =
+		useState(initialProviderCacheControlEnabled);
+	const [isUpdatingProviderCache, setIsUpdatingProviderCache] = useState(false);
 
 	const updateSettingsMutation = api.useMutation(
 		"patch",
 		"/dev-plans/settings",
 	);
-
-	const invalidateStatus = () =>
-		queryClient.invalidateQueries({
-			predicate: (query) => {
-				const key = query.queryKey;
-				return Array.isArray(key) && key[1] === "/dev-plans/status";
-			},
-		});
 
 	const handleRoutingChange = async (value: string) => {
 		const strategy = value as RoutingStrategy;
@@ -124,21 +112,24 @@ export default function DevPlanSettings({
 		}
 	};
 
-	const handleRetentionToggle = async (checked: boolean) => {
-		setIsUpdatingRetention(true);
+	const handleProviderCacheChange = async (enabled: boolean) => {
+		const previous = providerCacheControlEnabled;
+		setProviderCacheControlEnabled(enabled);
+		setIsUpdatingProviderCache(true);
 		try {
 			await updateSettingsMutation.mutateAsync({
-				body: { retentionLevel: checked ? "retain" : "none" },
+				body: { providerCacheControlEnabled: enabled },
 			});
-			setRetainData(checked);
-			await invalidateStatus();
 			toast.success(
-				checked ? "Data retention enabled" : "Switched to metadata-only",
+				enabled
+					? "Provider cache writes enabled"
+					: "Provider cache writes disabled",
 			);
 		} catch {
-			toast.error("Failed to update data retention");
+			setProviderCacheControlEnabled(previous);
+			toast.error("Failed to update provider cache writes");
 		} finally {
-			setIsUpdatingRetention(false);
+			setIsUpdatingProviderCache(false);
 		}
 	};
 
@@ -194,6 +185,32 @@ export default function DevPlanSettings({
 					</div>
 				</div>
 
+				<div className="rounded-xl border p-5">
+					<div className="flex items-start justify-between gap-4">
+						<div className="space-y-0.5">
+							<Label
+								htmlFor="provider-cache-writes"
+								className="text-sm font-medium"
+							>
+								Provider cache writes
+							</Label>
+							<p className="text-xs text-muted-foreground">
+								Enabled by default. DevPass adds and forwards Claude cache
+								markers for reusable prompt prefixes. Cache writes cost 1.25×
+								for 5 minutes or 2× for 1 hour, while cache reads cost 0.1×.
+								Disable this for sporadic sessions that rarely reuse a prompt
+								within the cache lifetime.
+							</p>
+						</div>
+						<Switch
+							id="provider-cache-writes"
+							checked={providerCacheControlEnabled}
+							onCheckedChange={handleProviderCacheChange}
+							disabled={isUpdatingProviderCache}
+						/>
+					</div>
+				</div>
+
 				<div className="rounded-xl border p-5 space-y-4">
 					<div className="flex items-center justify-between gap-4">
 						<div className="space-y-0.5">
@@ -231,28 +248,6 @@ export default function DevPlanSettings({
 								))}
 							</SelectContent>
 						</Select>
-					</div>
-				</div>
-
-				<div className="rounded-xl border p-5 space-y-4">
-					<div className="flex items-center justify-between gap-4">
-						<div className="space-y-0.5">
-							<Label htmlFor="retain-data" className="text-sm font-medium">
-								Retain request data
-							</Label>
-							<p className="text-xs text-muted-foreground">
-								Store full request and response payloads for analytics and
-								debugging. When off, only metadata is kept. Storage is billed,
-								and this is only required when using the Responses API or for
-								debugging purposes.
-							</p>
-						</div>
-						<Switch
-							id="retain-data"
-							checked={retainData}
-							onCheckedChange={handleRetentionToggle}
-							disabled={isUpdatingRetention}
-						/>
 					</div>
 				</div>
 			</div>

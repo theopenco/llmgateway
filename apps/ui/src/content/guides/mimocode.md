@@ -2,13 +2,16 @@
 id: mimocode
 slug: mimocode
 title: MiMo Code Integration
-description: Use GPT-5.5, Claude, Gemini, or any model with MiMo Code. Custom provider configuration, full cost tracking.
+seoTitle: "MiMo Code Setup: 200+ Models, One Key"
+description: Use GPT-5.5, Claude, Gemini, Kimi K3, or 200+ models with MiMo Code. Custom provider configuration in a few steps, with full cost tracking.
 date: 2026-06-08
 ---
 
 [MiMo Code](https://mimo.xiaomi.com/mimocode) is an AI-powered coding agent command-line tool developed by Xiaomi. It can understand your code repository, plan changes, safely execute shell commands, edit files, and autonomously manage complex software development tasks in your terminal.
 
 By configuring MiMo Code to route through LLM Gateway, you can point it at any model—GPT-5.5, Gemini, Llama, Claude, or 210+ others—while keeping the same API format MiMo Code expects, with full cost tracking in your dashboard.
+
+> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
 
 ## Prerequisites
 

@@ -2,8 +2,18 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { apiKeyScopeFilter } from "@/lib/api-key-scope-filter.js";
 import {
+	mapModeSplit,
+	modeSplitFields,
+	modeSplitSchema,
+} from "@/lib/mode-split.js";
+import { requireEnterpriseAdmin } from "@/lib/require-enterprise-admin.js";
+import { getUserUsageBreakdown } from "@/lib/user-usage-breakdown.js";
+import {
+	getApiKeyScope,
 	getUserProjectIds,
+	isKeyScoped,
 	userHasProjectAccess,
 } from "@/utils/authorization.js";
 import {
@@ -31,6 +41,7 @@ import {
 } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
+import type { AnyColumn } from "@llmgateway/db";
 
 export const activity = new OpenAPIHono<ServerTypes>();
 
@@ -43,6 +54,7 @@ const modelUsageSchema = z.object({
 	outputTokens: z.number(),
 	totalTokens: z.number(),
 	cost: z.number(),
+	...modeSplitSchema,
 });
 
 // Define the response schema for api-key-specific usage
@@ -54,6 +66,21 @@ const apiKeyUsageSchema = z.object({
 	outputTokens: z.number(),
 	totalTokens: z.number(),
 	cost: z.number(),
+	...modeSplitSchema,
+});
+
+// Define the response schema for per-member usage. Requests are attributed to
+// the member who created the api key that made them (api_key.created_by),
+// matching the organization-wide member analytics.
+const userUsageSchema = z.object({
+	id: z.string(),
+	name: z.string(),
+	requestCount: z.number(),
+	inputTokens: z.number(),
+	outputTokens: z.number(),
+	totalTokens: z.number(),
+	cost: z.number(),
+	...modeSplitSchema,
 });
 
 // Define the response schema for daily activity
@@ -90,6 +117,7 @@ const dailyActivitySchema = z.object({
 	apiKeysDataStorageCost: z.number(),
 	modelBreakdown: z.array(modelUsageSchema),
 	apiKeyBreakdown: z.array(apiKeyUsageSchema),
+	userBreakdown: z.array(userUsageSchema),
 });
 
 type ActivityRow = z.infer<typeof dailyActivitySchema>;
@@ -128,6 +156,7 @@ function buildEmptyActivityRow(date: string): ActivityRow {
 		apiKeysDataStorageCost: 0,
 		modelBreakdown: [],
 		apiKeyBreakdown: [],
+		userBreakdown: [],
 	};
 }
 
@@ -159,7 +188,7 @@ const getActivity = createRoute({
 			projectId: z.string().optional(),
 			apiKeyId: z.string().optional(),
 			timeRange: z.enum(["1h", "4h", "24h", "7d", "30d", "365d"]).optional(),
-			groupBy: z.enum(["model", "apiKey"]).optional(),
+			groupBy: z.enum(["model", "apiKey", "user"]).optional(),
 			timezone: z
 				.string()
 				.max(64)
@@ -194,7 +223,7 @@ activity.openapi(getActivity, async (c) => {
 	// Get the query parameters
 	const { days, from, to, projectId, apiKeyId, timeRange, groupBy, timezone } =
 		c.req.valid("query");
-	const breakdownByApiKey = groupBy === "apiKey";
+	const breakdownDimension = groupBy ?? "model";
 	const timeZone = timezone ?? "UTC";
 
 	// Calculate the date range and granularity
@@ -244,6 +273,16 @@ activity.openapi(getActivity, async (c) => {
 	// SQL expressions that change based on granularity
 	const isHourly = granularity === "hourly";
 
+	// The per-member breakdown exposes every member's spend, so it needs the same
+	// enterprise + owner/admin gate as the organization-wide member analytics.
+	// Without a project the request can span several organizations, which leaves
+	// nothing unambiguous to gate on, so require one.
+	if (breakdownDimension === "user" && !projectId) {
+		throw new HTTPException(400, {
+			message: "projectId is required when grouping by user",
+		});
+	}
+
 	// Projects the user can access (RBAC-aware: developers are limited to their
 	// granted projects).
 	const accessibleProjectIds = await getUserProjectIds(user.id);
@@ -260,6 +299,18 @@ activity.openapi(getActivity, async (c) => {
 		});
 	}
 
+	if (breakdownDimension === "user" && projectId) {
+		const targetProject = await db.query.project.findFirst({
+			where: { id: { eq: projectId } },
+		});
+
+		if (!targetProject) {
+			throw new HTTPException(404, { message: "Project not found" });
+		}
+
+		await requireEnterpriseAdmin(user.id, targetProject.organizationId);
+	}
+
 	const projectIds = projectId ? [projectId] : accessibleProjectIds;
 
 	if (!projectIds.length) {
@@ -268,8 +319,33 @@ activity.openapi(getActivity, async (c) => {
 		});
 	}
 
-	// If filtering by apiKeyId, use the apiKeyHourlyStats aggregation table
-	if (apiKeyId) {
+	// Developers only see their own keys' traffic, even in a project they were
+	// granted. Everything below is filtered through this scope.
+	const scope = await getApiKeyScope(user.id, projectIds);
+	const keyScoped = isKeyScoped(scope);
+	const scopeFilter = (projectIdColumn: AnyColumn, apiKeyIdColumn: AnyColumn) =>
+		apiKeyScopeFilter(scope, projectIdColumn, apiKeyIdColumn);
+
+	if (apiKeyId && keyScoped && !scope.ownApiKeyIds.includes(apiKeyId)) {
+		const inRestrictedProject = await db.query.apiKey.findFirst({
+			where: {
+				id: { eq: apiKeyId },
+				projectId: { in: scope.restrictedProjectIds },
+			},
+			columns: { id: true },
+		});
+		if (inRestrictedProject) {
+			throw new HTTPException(403, {
+				message: "You don't have access to this API key",
+			});
+		}
+	}
+
+	// Read from the per-key rollups whenever the result must be narrowed to
+	// individual keys: an explicit apiKeyId filter, or a developer who may only
+	// see their own. The project rollups have no apiKeyId column, so they cannot
+	// answer either question.
+	if (apiKeyId || keyScoped) {
 		// Query aggregated data from apiKeyHourlyStats table
 		const hourlyAggregates = await db
 			.select({
@@ -294,23 +370,23 @@ activity.openapi(getActivity, async (c) => {
 					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
 						"totalTokens",
 					),
-				cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as(
+				cost: sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.cost} as double precision)), 0)`.as(
 					"cost",
 				),
 				inputCost:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.inputCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.inputCost} as double precision)), 0)`.as(
 						"inputCost",
 					),
 				outputCost:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.outputCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.outputCost} as double precision)), 0)`.as(
 						"outputCost",
 					),
 				requestCost:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.requestCost} as double precision)), 0)`.as(
 						"requestCost",
 					),
 				dataStorageCost:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.dataStorageCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.dataStorageCost} as double precision)), 0)`.as(
 						"dataStorageCost",
 					),
 				errorCount:
@@ -322,27 +398,27 @@ activity.openapi(getActivity, async (c) => {
 						"cacheCount",
 					),
 				discountSavings:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.discountSavings}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.discountSavings} as double precision)), 0)`.as(
 						"discountSavings",
 					),
 				imageInputCost:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.imageInputCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.imageInputCost} as double precision)), 0)`.as(
 						"imageInputCost",
 					),
 				audioInputCost:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.audioInputCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.audioInputCost} as double precision)), 0)`.as(
 						"audioInputCost",
 					),
 				audioOutputCost:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.audioOutputCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.audioOutputCost} as double precision)), 0)`.as(
 						"audioOutputCost",
 					),
 				imageOutputCost:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.imageOutputCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.imageOutputCost} as double precision)), 0)`.as(
 						"imageOutputCost",
 					),
 				videoOutputCost:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.videoOutputCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.videoOutputCost} as double precision)), 0)`.as(
 						"videoOutputCost",
 					),
 				cachedTokens:
@@ -354,11 +430,11 @@ activity.openapi(getActivity, async (c) => {
 						"cacheWriteTokens",
 					),
 				cachedInputCost:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cachedInputCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.cachedInputCost} as double precision)), 0)`.as(
 						"cachedInputCost",
 					),
 				cacheWriteInputCost:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cacheWriteInputCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.cacheWriteInputCost} as double precision)), 0)`.as(
 						"cacheWriteInputCost",
 					),
 				creditsRequestCount:
@@ -370,26 +446,27 @@ activity.openapi(getActivity, async (c) => {
 						"apiKeysRequestCount",
 					),
 				creditsCost:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.creditsCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.creditsCost} as double precision)), 0)`.as(
 						"creditsCost",
 					),
 				apiKeysCost:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.apiKeysCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.apiKeysCost} as double precision)), 0)`.as(
 						"apiKeysCost",
 					),
 				creditsDataStorageCost:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.creditsDataStorageCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.creditsDataStorageCost} as double precision)), 0)`.as(
 						"creditsDataStorageCost",
 					),
 				apiKeysDataStorageCost:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.apiKeysDataStorageCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.apiKeysDataStorageCost} as double precision)), 0)`.as(
 						"apiKeysDataStorageCost",
 					),
 			})
 			.from(apiKeyHourlyStats)
 			.where(
 				and(
-					eq(apiKeyHourlyStats.apiKeyId, apiKeyId),
+					apiKeyId ? eq(apiKeyHourlyStats.apiKeyId, apiKeyId) : undefined,
+					scopeFilter(apiKeyHourlyStats.projectId, apiKeyHourlyStats.apiKeyId),
 					inArray(apiKeyHourlyStats.projectId, projectIds),
 					gte(apiKeyHourlyStats.hourTimestamp, startDate),
 					lte(apiKeyHourlyStats.hourTimestamp, endDate),
@@ -424,14 +501,19 @@ activity.openapi(getActivity, async (c) => {
 					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
 						"totalTokens",
 					),
-				cost: sql<number>`COALESCE(SUM(${apiKeyHourlyModelStats.cost}), 0)`.as(
+				cost: sql<number>`COALESCE(SUM(cast(${apiKeyHourlyModelStats.cost} as double precision)), 0)`.as(
 					"cost",
 				),
+				...modeSplitFields(apiKeyHourlyModelStats),
 			})
 			.from(apiKeyHourlyModelStats)
 			.where(
 				and(
-					eq(apiKeyHourlyModelStats.apiKeyId, apiKeyId),
+					apiKeyId ? eq(apiKeyHourlyModelStats.apiKeyId, apiKeyId) : undefined,
+					scopeFilter(
+						apiKeyHourlyModelStats.projectId,
+						apiKeyHourlyModelStats.apiKeyId,
+					),
 					inArray(apiKeyHourlyModelStats.projectId, projectIds),
 					gte(apiKeyHourlyModelStats.hourTimestamp, startDate),
 					lte(apiKeyHourlyModelStats.hourTimestamp, endDate),
@@ -458,7 +540,80 @@ activity.openapi(getActivity, async (c) => {
 				outputTokens: Number(breakdown.outputTokens),
 				totalTokens: Number(breakdown.totalTokens),
 				cost: Number(breakdown.cost),
+				...mapModeSplit(breakdown),
 			});
+		}
+
+		// A key-scoped caller asking for the api-key breakdown still gets one, over
+		// the keys they are allowed to see.
+		const apiKeyBreakdownByDate = new Map<
+			string,
+			z.infer<typeof apiKeyUsageSchema>[]
+		>();
+		if (breakdownDimension === "apiKey") {
+			const apiKeyBreakdowns = await db
+				.select({
+					date: bucketDate(
+						apiKeyHourlyStats.hourTimestamp,
+						timeZone,
+						isHourly,
+					).as("date"),
+					apiKeyId: apiKeyHourlyStats.apiKeyId,
+					description: apiKey.description,
+					requestCount:
+						sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCount}), 0)`.as(
+							"requestCount",
+						),
+					inputTokens:
+						sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.inputTokens} AS NUMERIC)), 0)`.as(
+							"inputTokens",
+						),
+					outputTokens:
+						sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.outputTokens} AS NUMERIC)), 0)`.as(
+							"outputTokens",
+						),
+					totalTokens:
+						sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
+							"totalTokens",
+						),
+					cost: sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.cost} as double precision)), 0)`.as(
+						"cost",
+					),
+					...modeSplitFields(apiKeyHourlyStats),
+				})
+				.from(apiKeyHourlyStats)
+				.leftJoin(apiKey, eq(apiKey.id, apiKeyHourlyStats.apiKeyId))
+				.where(
+					and(
+						apiKeyId ? eq(apiKeyHourlyStats.apiKeyId, apiKeyId) : undefined,
+						scopeFilter(
+							apiKeyHourlyStats.projectId,
+							apiKeyHourlyStats.apiKeyId,
+						),
+						inArray(apiKeyHourlyStats.projectId, projectIds),
+						inArray(apiKey.keyType, ["user", "end_user_customer"]),
+						gte(apiKeyHourlyStats.hourTimestamp, startDate),
+						lte(apiKeyHourlyStats.hourTimestamp, endDate),
+					),
+				)
+				.groupBy(sql`1, ${apiKeyHourlyStats.apiKeyId}, ${apiKey.description}`)
+				.orderBy(sql`1 ASC, ${apiKeyHourlyStats.apiKeyId} ASC`);
+
+			for (const breakdown of apiKeyBreakdowns) {
+				if (!apiKeyBreakdownByDate.has(breakdown.date)) {
+					apiKeyBreakdownByDate.set(breakdown.date, []);
+				}
+				apiKeyBreakdownByDate.get(breakdown.date)!.push({
+					id: breakdown.apiKeyId,
+					description: breakdown.description ?? "Deleted key",
+					requestCount: Number(breakdown.requestCount),
+					inputTokens: Number(breakdown.inputTokens),
+					outputTokens: Number(breakdown.outputTokens),
+					totalTokens: Number(breakdown.totalTokens),
+					cost: Number(breakdown.cost),
+					...mapModeSplit(breakdown),
+				});
+			}
 		}
 
 		// Process daily aggregates and add calculated fields
@@ -528,8 +683,12 @@ activity.openapi(getActivity, async (c) => {
 				apiKeysCost,
 				creditsDataStorageCost,
 				apiKeysDataStorageCost,
-				modelBreakdown: modelBreakdownByDate.get(day.date) ?? [],
-				apiKeyBreakdown: [],
+				modelBreakdown:
+					breakdownDimension === "model"
+						? (modelBreakdownByDate.get(day.date) ?? [])
+						: [],
+				apiKeyBreakdown: apiKeyBreakdownByDate.get(day.date) ?? [],
+				userBreakdown: [],
 			};
 		});
 
@@ -544,8 +703,9 @@ activity.openapi(getActivity, async (c) => {
 		});
 	}
 
-	// Use aggregation tables for fast queries (when not filtering by apiKeyId)
-	// Query aggregated data from projectHourlyStats table
+	// Whole-project rollups. Only reachable when the caller is owner/admin in every
+	// project in scope — the branch above handles anyone restricted to their own
+	// keys, since these tables have no apiKeyId to filter on.
 	const hourlyAggregates = await db
 		.select({
 			date: bucketDate(projectHourlyStats.hourTimestamp, timeZone, isHourly).as(
@@ -575,51 +735,51 @@ activity.openapi(getActivity, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
 					"totalTokens",
 				),
-			cost: sql<number>`COALESCE(SUM(${projectHourlyStats.cost}), 0)`.as(
+			cost: sql<number>`COALESCE(SUM(cast(${projectHourlyStats.cost} as double precision)), 0)`.as(
 				"cost",
 			),
 			inputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.inputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.inputCost} as double precision)), 0)`.as(
 					"inputCost",
 				),
 			outputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.outputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.outputCost} as double precision)), 0)`.as(
 					"outputCost",
 				),
 			requestCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.requestCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.requestCost} as double precision)), 0)`.as(
 					"requestCost",
 				),
 			dataStorageCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.dataStorageCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.dataStorageCost} as double precision)), 0)`.as(
 					"dataStorageCost",
 				),
 			imageInputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.imageInputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.imageInputCost} as double precision)), 0)`.as(
 					"imageInputCost",
 				),
 			audioInputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.audioInputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.audioInputCost} as double precision)), 0)`.as(
 					"audioInputCost",
 				),
 			audioOutputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.audioOutputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.audioOutputCost} as double precision)), 0)`.as(
 					"audioOutputCost",
 				),
 			imageOutputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.imageOutputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.imageOutputCost} as double precision)), 0)`.as(
 					"imageOutputCost",
 				),
 			videoOutputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.videoOutputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.videoOutputCost} as double precision)), 0)`.as(
 					"videoOutputCost",
 				),
 			cachedInputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.cachedInputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.cachedInputCost} as double precision)), 0)`.as(
 					"cachedInputCost",
 				),
 			cacheWriteInputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.cacheWriteInputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.cacheWriteInputCost} as double precision)), 0)`.as(
 					"cacheWriteInputCost",
 				),
 			errorCount:
@@ -631,7 +791,7 @@ activity.openapi(getActivity, async (c) => {
 					"cacheCount",
 				),
 			discountSavings:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.discountSavings}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.discountSavings} as double precision)), 0)`.as(
 					"discountSavings",
 				),
 			creditsRequestCount:
@@ -643,19 +803,19 @@ activity.openapi(getActivity, async (c) => {
 					"apiKeysRequestCount",
 				),
 			creditsCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.creditsCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.creditsCost} as double precision)), 0)`.as(
 					"creditsCost",
 				),
 			apiKeysCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.apiKeysCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.apiKeysCost} as double precision)), 0)`.as(
 					"apiKeysCost",
 				),
 			creditsDataStorageCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.creditsDataStorageCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.creditsDataStorageCost} as double precision)), 0)`.as(
 					"creditsDataStorageCost",
 				),
 			apiKeysDataStorageCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.apiKeysDataStorageCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.apiKeysDataStorageCost} as double precision)), 0)`.as(
 					"apiKeysDataStorageCost",
 				),
 		})
@@ -671,13 +831,13 @@ activity.openapi(getActivity, async (c) => {
 		.orderBy(sql`1 ASC`);
 
 	// Create a map to organize model breakdowns by date.
-	// Only query when not breaking down by api key — saves an aggregate scan
-	// for callers that opt into the api-key breakdown.
+	// Only query for the requested dimension — saves an aggregate scan for
+	// callers that opt into one of the other breakdowns.
 	const modelBreakdownByDate = new Map<
 		string,
 		z.infer<typeof modelUsageSchema>[]
 	>();
-	if (!breakdownByApiKey) {
+	if (breakdownDimension === "model") {
 		const modelBreakdowns = await db
 			.select({
 				date: bucketDate(
@@ -703,9 +863,10 @@ activity.openapi(getActivity, async (c) => {
 					sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
 						"totalTokens",
 					),
-				cost: sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
+				cost: sql<number>`COALESCE(SUM(cast(${projectHourlyModelStats.cost} as double precision)), 0)`.as(
 					"cost",
 				),
+				...modeSplitFields(projectHourlyModelStats),
 			})
 			.from(projectHourlyModelStats)
 			.where(
@@ -732,6 +893,7 @@ activity.openapi(getActivity, async (c) => {
 				outputTokens: Number(breakdown.outputTokens),
 				totalTokens: Number(breakdown.totalTokens),
 				cost: Number(breakdown.cost),
+				...mapModeSplit(breakdown),
 			});
 		}
 	}
@@ -741,7 +903,7 @@ activity.openapi(getActivity, async (c) => {
 		string,
 		z.infer<typeof apiKeyUsageSchema>[]
 	>();
-	if (breakdownByApiKey) {
+	if (breakdownDimension === "apiKey") {
 		const apiKeyBreakdowns = await db
 			.select({
 				date: bucketDate(
@@ -767,9 +929,10 @@ activity.openapi(getActivity, async (c) => {
 					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
 						"totalTokens",
 					),
-				cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as(
+				cost: sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.cost} as double precision)), 0)`.as(
 					"cost",
 				),
+				...modeSplitFields(apiKeyHourlyStats),
 			})
 			.from(apiKeyHourlyStats)
 			.leftJoin(apiKey, eq(apiKey.id, apiKeyHourlyStats.apiKeyId))
@@ -796,6 +959,41 @@ activity.openapi(getActivity, async (c) => {
 				outputTokens: Number(breakdown.outputTokens),
 				totalTokens: Number(breakdown.totalTokens),
 				cost: Number(breakdown.cost),
+				...mapModeSplit(breakdown),
+			});
+		}
+	}
+
+	// Query the per-member breakdown only when the caller asks for it.
+	const userBreakdownByDate = new Map<
+		string,
+		z.infer<typeof userUsageSchema>[]
+	>();
+	if (breakdownDimension === "user") {
+		const userBreakdowns = await getUserUsageBreakdown({
+			projectIds,
+			startDate,
+			endDate,
+			timeZone,
+			isHourly,
+		});
+
+		for (const breakdown of userBreakdowns) {
+			if (!userBreakdownByDate.has(breakdown.date)) {
+				userBreakdownByDate.set(breakdown.date, []);
+			}
+			userBreakdownByDate.get(breakdown.date)!.push({
+				id: breakdown.userId,
+				name: breakdown.name,
+				requestCount: breakdown.requestCount,
+				inputTokens: breakdown.inputTokens,
+				outputTokens: breakdown.outputTokens,
+				totalTokens: breakdown.totalTokens,
+				cost: breakdown.cost,
+				creditsRequestCount: breakdown.creditsRequestCount,
+				apiKeysRequestCount: breakdown.apiKeysRequestCount,
+				creditsCost: breakdown.creditsCost,
+				apiKeysCost: breakdown.apiKeysCost,
 			});
 		}
 	}
@@ -868,6 +1066,7 @@ activity.openapi(getActivity, async (c) => {
 			apiKeysDataStorageCost,
 			modelBreakdown: modelBreakdownByDate.get(day.date) ?? [],
 			apiKeyBreakdown: apiKeyBreakdownByDate.get(day.date) ?? [],
+			userBreakdown: userBreakdownByDate.get(day.date) ?? [],
 		};
 	});
 
@@ -890,6 +1089,7 @@ const sourceUsageSchema = z.object({
 	outputTokens: z.number(),
 	totalTokens: z.number(),
 	cost: z.number(),
+	...modeSplitSchema,
 	lastUsedAt: z.string().nullable(),
 });
 
@@ -959,6 +1159,16 @@ activity.openapi(getSourceActivity, async (c) => {
 		});
 	}
 
+	// projectHourlySourceStats has no apiKeyId column, so a developer's own
+	// sources cannot be separated from their teammates'. Rather than serve them
+	// the whole project's agent traffic, refuse — the Agents page is not part of
+	// the developer navigation anyway.
+	if (isKeyScoped(await getApiKeyScope(user.id, [projectId]))) {
+		throw new HTTPException(403, {
+			message: "Only organization owners and admins can view project sources",
+		});
+	}
+
 	const project = await db.query.project.findFirst({
 		where: {
 			id: projectId,
@@ -991,9 +1201,10 @@ activity.openapi(getSourceActivity, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${projectHourlySourceStats.totalTokens} AS NUMERIC)), 0)`.as(
 					"totalTokens",
 				),
-			cost: sql<number>`COALESCE(SUM(${projectHourlySourceStats.cost}), 0)`.as(
+			cost: sql<number>`COALESCE(SUM(cast(${projectHourlySourceStats.cost} as double precision)), 0)`.as(
 				"cost",
 			),
+			...modeSplitFields(projectHourlySourceStats),
 			lastUsedAt: sql<
 				string | null
 			>`to_char(MAX(${projectHourlySourceStats.hourTimestamp}), 'YYYY-MM-DD"T"HH24:MI:SS')`.as(
@@ -1009,7 +1220,11 @@ activity.openapi(getSourceActivity, async (c) => {
 			),
 		)
 		.groupBy(projectHourlySourceStats.source)
-		.orderBy(desc(sql`COALESCE(SUM(${projectHourlySourceStats.cost}), 0)`));
+		.orderBy(
+			desc(
+				sql`COALESCE(SUM(cast(${projectHourlySourceStats.cost} as double precision)), 0)`,
+			),
+		);
 
 	return c.json({
 		sources: rows.map((r) => ({
@@ -1019,6 +1234,7 @@ activity.openapi(getSourceActivity, async (c) => {
 			outputTokens: Number(r.outputTokens),
 			totalTokens: Number(r.totalTokens),
 			cost: Number(r.cost),
+			...mapModeSplit(r),
 			lastUsedAt: r.lastUsedAt
 				? new Date(r.lastUsedAt + "Z").toISOString()
 				: null,

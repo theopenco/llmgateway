@@ -108,28 +108,20 @@ describe("insertLog retention stripping", () => {
 		expect(published.content).toBeNull();
 	});
 
-	it("strips before a synchronous DB insert when retention is none", async () => {
-		await insertLog(baseLogData({}), {
-			syncInsert: true,
-			retentionLevel: "none",
-		});
+	it("strips all payload fields when retention is none", async () => {
+		await insertLog(baseLogData({}), { retentionLevel: "none" });
 
-		expect(dbInsertValues).toHaveBeenCalledTimes(1);
-		expect(publishToQueue).not.toHaveBeenCalled();
-		const inserted = dbInsertValues.mock.calls[0][0] as LogInsertData;
-		expect(inserted.messages).toBeNull();
-		expect(inserted.content).toBeNull();
-		expect(inserted.tools).toBeNull();
-		expect(inserted.responsesApiData).toBeNull();
+		const published = publishToQueue.mock.calls[0][1] as LogInsertData;
+		expect(published.messages).toBeNull();
+		expect(published.content).toBeNull();
+		expect(published.tools).toBeNull();
+		expect(published.responsesApiData).toBeNull();
 	});
 
-	it("keeps payload on a synchronous DB insert when retention is retain", async () => {
-		await insertLog(baseLogData({}), {
-			syncInsert: true,
-			retentionLevel: "retain",
-		});
+	it("keeps payload when retention is retain", async () => {
+		await insertLog(baseLogData({}), { retentionLevel: "retain" });
 
-		const inserted = dbInsertValues.mock.calls[0][0] as LogInsertData;
-		expect(inserted.content).toBe("secret completion");
+		const published = publishToQueue.mock.calls[0][1] as LogInsertData;
+		expect(published.content).toBe("secret completion");
 	});
 });

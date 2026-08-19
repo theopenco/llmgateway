@@ -10,12 +10,16 @@ import type { Context } from "hono";
 export const PLAYGROUND_KEY_COOKIE_NAME = "llmgateway_playground_key";
 
 export function getGatewayUrl() {
-	return (
-		process.env.GATEWAY_URL ??
-		(process.env.NODE_ENV === "development"
-			? "http://localhost:4001/v1"
-			: "https://api.llmgateway.io/v1")
-	);
+	const configured = process.env.GATEWAY_URL?.trim();
+	if (configured) {
+		// GATEWAY_URL is set both with and without the `/v1` suffix depending on
+		// the environment (the frontends strip it off, every caller of this
+		// helper appends `/v1` paths), so normalize to exactly one `/v1`.
+		return `${configured.replace(/\/+$/, "").replace(/(\/v1)+$/, "")}/v1`;
+	}
+	return process.env.NODE_ENV === "development"
+		? "http://localhost:4001/v1"
+		: "https://api.llmgateway.io/v1";
 }
 
 interface PlaygroundKeyUser {

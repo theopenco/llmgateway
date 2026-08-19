@@ -20,6 +20,8 @@ async function seedMinute(
 		logsCount: number;
 		totalTimeToFirstToken: number;
 		timeToFirstTokenCount: number;
+		totalTimeToFirstReasoningToken?: number;
+		timeToFirstReasoningTokenCount?: number;
 	},
 ) {
 	const minuteMs = 60_000;
@@ -73,6 +75,23 @@ describe("public providers stats", () => {
 		// Exposed so the UI can gate the TTFT card on the sample size behind the
 		// average rather than on logsCount.
 		expect(provider.timeToFirstTokenCount).toBe(4);
+	});
+
+	test("prefers reasoning-token samples over content-token samples", async () => {
+		// Thinking mappings stream reasoning long before the first content
+		// token, so the content-token average (500ms) would misrepresent them;
+		// the reasoning-token average (100ms) is the real first-token latency.
+		await seedMinute(1, {
+			logsCount: 10,
+			totalTimeToFirstToken: 2000,
+			timeToFirstTokenCount: 4,
+			totalTimeToFirstReasoningToken: 300,
+			timeToFirstReasoningTokenCount: 3,
+		});
+
+		const provider = await fetchProviderStats();
+		expect(provider.avgTimeToFirstToken).toBe(100);
+		expect(provider.timeToFirstTokenCount).toBe(3);
 	});
 
 	test("reports no TTFT when nothing was streamed", async () => {

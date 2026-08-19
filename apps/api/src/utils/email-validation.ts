@@ -15,6 +15,13 @@ const BLACKLISTED_DOMAINS = [
 	"addy.io",
 	"xigege.me",
 	"duckmail.sbs",
+	"web.id",
+	"web-library.net",
+	"hitbtcpool.cloud",
+	"tempmail.edu.ge",
+	"aghism.com",
+	"candaba.com",
+	"kingcq.com",
 ];
 
 export function validateEmail(email: string): EmailValidationResult {
@@ -30,9 +37,14 @@ export function validateEmail(email: string): EmailValidationResult {
 		};
 	}
 
-	// Check against blacklisted domains
+	// Check against blacklisted domains, including their subdomains
 	const domain = emailLower.split("@")[1];
-	if (domain && BLACKLISTED_DOMAINS.includes(domain)) {
+	if (
+		domain &&
+		BLACKLISTED_DOMAINS.some(
+			(blocked) => domain === blocked || domain.endsWith(`.${blocked}`),
+		)
+	) {
 		return {
 			valid: false,
 			reason: "blacklisted_domain",

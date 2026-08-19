@@ -102,7 +102,7 @@ too provider-specific to bill generically.
 
 ### Defining a model
 
-Open **Organization → Custom Models**, pick the custom provider key, and add a
+Open **Organization → Models**, pick the custom provider key, and add a
 catalog entry. Every field except the model id is optional:
 
 | Field                    | Purpose                                                                                                                         |
@@ -149,3 +149,23 @@ enabled, requests through that provider must reference a defined catalog model �
 undefined models are rejected with `400`. This guarantees that every request has
 known cost attribution and enforced limits. When disabled, undefined models
 still work but remain unbilled, as before.
+
+## Visibility
+
+Every active organization member — including project-scoped **developer**
+members — can browse the org's custom providers and their model catalogs
+read-only on the **Models** page, so developers can always discover
+which providers and models are available to them. Creating, editing, and
+deleting providers, models, and attestations stays restricted to organization
+owners and admins.
+
+## Compliance attestation
+
+If your organization enforces a [provider compliance policy](/features/compliance),
+custom providers are blocked by default — they have no catalogue data policy, so
+the fail-closed rules treat them as non-compliant. Organization owners and
+admins can record a per-key **self-attestation** of the deployment's compliance
+posture under **Models → Compliance attestation**, which the gateway then
+evaluates against the policy exactly like a catalogue provider's data policy.
+See [Compliance → Custom providers](/features/compliance#custom-providers) for
+details and caveats.

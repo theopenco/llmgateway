@@ -1,25 +1,18 @@
 import { Decimal } from "decimal.js";
 import { WebSocket } from "ws";
 
-import {
-	assertApiKeyWithinUsageLimits,
-	assertMemberWithinBudget,
-} from "@/lib/api-key-usage-limits.js";
-import {
-	findApiKeyByToken,
-	findOrganizationById,
-	findProjectById,
-} from "@/lib/cached-queries.js";
-import { assertProviderCompliant } from "@/lib/compliance.js";
-import { validateRequestModelAccess } from "@/lib/iam.js";
 import { checkProviderRateLimit } from "@/lib/provider-rate-limit.js";
 
 import { getEffectiveDiscount } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import {
+	authorizeAccount,
+	availableCredits,
+	type AuthorizeAccountResult,
+} from "./account-gate.js";
+import {
 	closeRealtimeSessionRecord,
-	getUnsettledRealtimeOrganizationSpend,
 	markRealtimeSessionUpstream,
 	recordRealtimeResponse,
 	recordRealtimeTranscription,
@@ -31,7 +24,6 @@ import {
 	renewRealtimeLease,
 	type RealtimeLease,
 } from "./leases.js";
-import { getAvailableCredits } from "./preflight.js";
 import {
 	applyRealtimeDiscount,
 	buildRealtimePriceSnapshot,
@@ -48,8 +40,6 @@ import {
 import type { RealtimeMappingMatch } from "./catalog.js";
 import type { RealtimePreflightResult } from "./preflight.js";
 import type { RawData } from "ws";
-
-type AccountOrganization = Awaited<ReturnType<typeof findOrganizationById>>;
 
 const maxSessionMs = () =>
 	(Number(process.env.REALTIME_MAX_SESSION_SECONDS) || 3600) * 1000;
@@ -704,143 +694,15 @@ export class RealtimeProxySession {
 		}
 	}
 
-	/**
-	 * Account-level authorization for one billable unit of work against `match`:
-	 * fresh key/org/project state, per-key usage limits, IAM access to the model,
-	 * the org's compliance policy, and the member's spend budget. Shared by the
-	 * per-response gate and the post-transcription re-check so both react to a
-	 * revoked key, budget or model within one turn.
-	 *
-	 * `severity` tells the caller what a failure means: "transient" when the
-	 * state could not be read at all, "deny" when only this unit of work is
-	 * refused, "close" when the session must not continue.
-	 */
-	private async authorizeAccount(match: RealtimeMappingMatch): Promise<
-		| { ok: true; organization: NonNullable<AccountOrganization> }
-		| {
-				ok: false;
-				code: string;
-				message: string;
-				severity: "transient" | "deny" | "close";
-		  }
-	> {
-		let freshKey;
-		let freshOrg;
-		let freshProject;
-		try {
-			freshKey = await findApiKeyByToken(this.gatewayToken);
-			freshOrg = await findOrganizationById(
-				this.preflight.project.organizationId,
-			);
-			freshProject = await findProjectById(this.preflight.project.id);
-		} catch (error) {
-			logger.error("Realtime authorization lookup failed", error as Error);
-			return {
-				ok: false,
-				code: "gate_unavailable",
-				message:
-					"Unable to verify account state; generation is temporarily unavailable.",
-				severity: "transient",
-			};
-		}
-
-		if (!freshKey || freshKey.status !== "active") {
-			return {
-				ok: false,
-				code: "api_key_revoked",
-				message: "The LLMGateway API key for this session is no longer active.",
-				severity: "close",
-			};
-		}
-		try {
-			assertApiKeyWithinUsageLimits(freshKey);
-		} catch (error) {
-			return {
-				ok: false,
-				code: "api_key_limit",
-				message:
-					error instanceof Error
-						? error.message
-						: "API key usage limit reached.",
-				severity: "deny",
-			};
-		}
-
-		if (!freshOrg || freshOrg.status === "deleted") {
-			return {
-				ok: false,
-				code: "organization_unavailable",
-				message: "The organization for this session is no longer active.",
-				severity: "close",
-			};
-		}
-
-		if (!freshProject || freshProject.status === "deleted") {
-			return {
-				ok: false,
-				code: "project_archived",
-				message: "The project for this session has been archived.",
-				severity: "close",
-			};
-		}
-
-		// IAM rules and the organization's compliance policy can change while a
-		// session is open, and a session may live for the whole duration limit.
-		// Re-evaluating them per billable unit makes a revoked model, IP range or
-		// provider take effect within one turn, as it would for HTTP requests.
-		const iamValidation = await validateRequestModelAccess({
-			apiKey: freshKey,
-			organizationId: this.preflight.project.organizationId,
-			requestedModel: match.modelId,
-			requestedProvider: match.mapping.providerId,
-			activeModelInfo: match.modelDef,
-			clientIp: this.preflight.clientIp,
+	private async authorizeAccount(
+		match: RealtimeMappingMatch,
+	): Promise<AuthorizeAccountResult> {
+		return await authorizeAccount({
+			preflight: this.preflight,
+			gatewayToken: this.gatewayToken,
+			requestedModel: this.requestedModel,
+			match,
 		});
-		if (!iamValidation.allowed) {
-			return {
-				ok: false,
-				code: "model_access_denied",
-				message: iamValidation.reason ?? "Model access denied.",
-				severity: "close",
-			};
-		}
-		try {
-			await assertProviderCompliant(freshOrg, match.mapping.providerId, {
-				organizationId: this.preflight.project.organizationId,
-				modelId: match.modelId,
-				apiKeyId: freshKey.id,
-				model: this.requestedModel,
-			});
-		} catch (error) {
-			return {
-				ok: false,
-				code: "compliance_blocked",
-				message:
-					error instanceof Error
-						? error.message
-						: "This provider is blocked by the organization's compliance policy.",
-				severity: "close",
-			};
-		}
-
-		try {
-			await assertMemberWithinBudget(
-				freshKey.createdBy,
-				this.preflight.project.organizationId,
-			);
-		} catch (error) {
-			return {
-				ok: false,
-				code: "member_budget_exceeded",
-				message:
-					error instanceof Error
-						? error.message
-						: "Member spend budget reached.",
-				severity: "deny",
-			};
-		}
-
-		return { ok: true, organization: freshOrg };
 	}
 
 	private async runGenerationGatesInner(): Promise<boolean> {
@@ -905,31 +767,13 @@ export class RealtimeProxySession {
 		return true;
 	}
 
-	/**
-	 * Credits still available to this session: the organization's balance minus
-	 * its realtime spend the worker has NOT yet settled (once the worker debits
-	 * a row the organization balance already reflects it, so subtracting it
-	 * again would double-count). The unsettled sum spans the organization's
-	 * sessions, not just this one, so concurrent sessions cannot each authorize
-	 * work against the same undebited balance. Null when billing state is
-	 * unreadable.
-	 */
 	private async availableCredits(
-		organization: Parameters<typeof getAvailableCredits>[0],
+		organization: Parameters<typeof availableCredits>[1],
 	): Promise<Decimal | null> {
-		const unsettled = await getUnsettledRealtimeOrganizationSpend(
+		return await availableCredits(
 			this.preflight.project.organizationId,
-		).catch((error: unknown) => {
-			logger.error(
-				"Failed to read unsettled realtime organization spend",
-				error as Error,
-			);
-			return null;
-		});
-		if (unsettled === null) {
-			return null;
-		}
-		return new Decimal(getAvailableCredits(organization)).minus(unsettled);
+			organization,
+		);
 	}
 
 	/**
@@ -1149,8 +993,9 @@ export class RealtimeProxySession {
 		// Recorded for auditability only: realtime deliberately does NOT honour
 		// BILL_CANCELLED_REQUESTS. A cancelled response still reports the audio
 		// it already generated, and the upstream provider bills us for it, so
-		// every terminal response is charged regardless of status. This differs
-		// from the HTTP path, where cancelled requests are free by default.
+		// every terminal response is charged regardless of status. The HTTP path
+		// bills cancelled requests by default too (BILL_CANCELLED_REQUESTS), but
+		// can be opted out of; realtime cannot.
 		const responseStatus =
 			response && typeof response.status === "string"
 				? response.status
@@ -1425,6 +1270,15 @@ export class RealtimeProxySession {
 			code === 1000 ? 1000 : 1011,
 			code === 1000 ? "upstream_closed" : `upstream_closed_${code}`,
 		);
+	}
+
+	/**
+	 * Force-close from outside (server drain). This provider reports usage
+	 * inside the terminal event itself, so there is never a buffered snapshot
+	 * awaiting a charge and closing is an immediate hard stop.
+	 */
+	public close(code: number, reason: string): void {
+		this.shutdown(code, reason);
 	}
 
 	/**

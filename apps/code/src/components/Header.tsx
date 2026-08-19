@@ -4,6 +4,7 @@ import { Menu, X } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
+import { ThemeToggle } from "@/components/landing/theme-toggle";
 import { RunwarePromoBanner } from "@/components/RunwarePromoBanner";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/ui/logo";
@@ -59,6 +60,7 @@ export function Header() {
 							Docs
 						</a>
 					</Button>
+					<ThemeToggle size="compact" />
 					{isAuthenticated ? (
 						<Button size="sm" asChild>
 							<Link href="/dashboard">Dashboard</Link>
@@ -132,6 +134,7 @@ export function Header() {
 					>
 						Docs
 					</a>
+					<ThemeToggle size="compact" />
 					{isAuthenticated ? (
 						<Button size="sm" className="w-full" asChild>
 							<Link href="/dashboard" onClick={() => setMenuOpen(false)}>

@@ -40,6 +40,13 @@ export ANTHROPIC_MODEL=gpt-5  # or any model from our catalog
 claude
 ```
 
+<Callout type="info">
+	Environment variables are read once at startup. The `/model` picker lists
+	Claude models only, so non-Claude models are selected with `ANTHROPIC_MODEL`
+	or `--model`. See the [Claude Code guide](/guides/claude-code) for the
+	settings-file options and gateway model discovery.
+</Callout>
+
 ### Choosing Models
 
 You can use any model from the [models page](https://llmgateway.io/models). Popular options for Claude Code include:
@@ -52,7 +59,7 @@ export ANTHROPIC_MODEL=gpt-5
 export ANTHROPIC_MODEL=gpt-5-mini
 
 # Use Google's Gemini
-export ANTHROPIC_MODEL=gemini-2.5-pro
+export ANTHROPIC_MODEL=gemini-3.1-pro-preview
 
 # Use Anthropic's actual Claude models
 export ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
@@ -126,6 +133,26 @@ The endpoint returns responses in Anthropic's message format:
 }
 ```
 
+### Request Format
+
+`/v1/messages` expects Anthropic Messages requests and always answers in Anthropic's format. Because the two formats share `model` and `messages`, an OpenAI Chat Completions body can reach this endpoint by accident — and since unknown parameters are ignored rather than rejected, the request succeeds and returns an Anthropic response body that OpenAI SDKs cannot read. If your client reports an empty completion here, check that it is pointed at `/v1/chat/completions`.
+
+Unknown parameters are deliberately ignored rather than rejected, so a valid Anthropic request is never denied for carrying an extra field. As a consequence, OpenAI-only parameters (`response_format`, `stream_options`, `max_completion_tokens`, `n`, `stop`, `seed`, `frequency_penalty`, and similar) have no effect here — the model will not honour them. Use `/v1/chat/completions` if you need them.
+
+A body that is _structurally_ OpenAI is rejected by the schema, as it always has been — OpenAI-shaped `tools` (`{"type": "function", "function": {…}}`), OpenAI content parts such as `image_url`, or assistant turns with `content: null`. Those rejections now name the mismatch and point at the right endpoint instead of returning an opaque validation error:
+
+```json
+{
+	"type": "error",
+	"error": {
+		"type": "invalid_request_error",
+		"message": "This endpoint implements Anthropic's Messages API, and the request body uses OpenAI Chat Completions structures (tools[0].function) that Anthropic's format has no equivalent for. Send OpenAI-format requests to /v1/chat/completions instead, or convert the body to Anthropic's Messages format."
+	}
+}
+```
+
+Rejected requests are recorded in your logs with a `client_error` finish reason and zero cost, so a malformed client is visible in the activity feed rather than failing silently.
+
 ### Prompt Caching
 
 For Claude models, `cache_control` markers on `system` and message content blocks are forwarded to the provider unchanged, including the optional `ttl` (`5m` or `1h`):
@@ -170,6 +197,42 @@ Anthropic's server-side web search tool works on this endpoint. Pass it as usual
 ```
 
 Replaying the assistant turn verbatim on the next request is supported: the `server_tool_use` and `web_search_tool_result` blocks are accepted and dropped, since the provider re-runs the search rather than reusing the previous results.
+
+### Tool Search
+
+Anthropic's server-side [tool search](https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool) works on this endpoint. Pass a `tool_search_tool_*` tool alongside your catalog and mark the tools that should load on demand with `defer_loading: true`:
+
+```json
+{
+	"model": "claude-sonnet-4-6",
+	"max_tokens": 1024,
+	"messages": [{ "role": "user", "content": "What is the weather in Paris?" }],
+	"tools": [
+		{
+			"type": "tool_search_tool_regex_20251119",
+			"name": "tool_search_tool_regex"
+		},
+		{
+			"name": "get_weather",
+			"description": "Get the weather at a specific location",
+			"input_schema": { "type": "object" },
+			"defer_loading": true
+		}
+	]
+}
+```
+
+Deferred tools stay out of the rendered tools section, so adding one does not invalidate an existing prompt cache. The response carries the `server_tool_use` and `tool_search_tool_result` blocks; replay them verbatim on the next request and Anthropic keeps expanding the `tool_reference` entries they carry, so Claude reuses a discovered tool instead of searching again. `tool_reference` blocks returned from your own client-side search inside a `tool_result` are forwarded unchanged too.
+
+Send every tool definition on every request, including the deferred ones — Anthropic needs them server-side to run the search. At least one tool must stay non-deferred (normally the tool search tool itself), and a tool cannot carry both `defer_loading: true` and `cache_control`.
+
+**Where it works.** Tool search reaches the provider on the Anthropic API and on Anthropic models served through Google Cloud, and it needs a Claude 4.5-generation model or newer — older Claude models reject it upstream. On every other provider, including Anthropic models on AWS Bedrock, the tool search tool and `defer_loading` are dropped and all tools are sent eagerly. The request still succeeds, it just loses the cache and token savings, so pin the provider (`anthropic/claude-sonnet-4-6`) when those savings matter.
+
+<Callout type="info">
+	Bedrock is a transport limitation rather than a missing capability: Anthropic
+	exposes server-side tool search there only through the InvokeModel API, and
+	the gateway routes Bedrock through the Converse API.
+</Callout>
 
 ### Gateway Response Cache
 

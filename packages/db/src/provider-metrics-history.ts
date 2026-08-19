@@ -9,6 +9,7 @@ import {
 import { cdb } from "./cdb.js";
 import { metricsKey, type ProviderMetrics } from "./provider-metrics.js";
 import { modelProviderMappingHistory } from "./schema.js";
+import { effectiveTtftTotals } from "./ttft.js";
 
 const historyTableName = getTableName(modelProviderMappingHistory);
 
@@ -48,11 +49,13 @@ function rowToMetrics(row: HistoryRow): ProviderMetrics | undefined {
 	// Only streamed requests record a first-token latency, so each average
 	// divides by its own sample count. Dividing by the request count instead
 	// would make providers look faster the more non-streaming traffic they see.
-	const useReasoning = weightedTTFRT > 0 && weightedTTFRTCount > 0;
-	const effectiveTTFT = useReasoning ? weightedTTFRT : weightedTTFT;
-	const effectiveTTFTCount = useReasoning
-		? weightedTTFRTCount
-		: weightedTTFTCount;
+	const { total: effectiveTTFT, count: effectiveTTFTCount } =
+		effectiveTtftTotals({
+			totalTimeToFirstToken: weightedTTFT,
+			timeToFirstTokenCount: weightedTTFTCount,
+			totalTimeToFirstReasoningToken: weightedTTFRT,
+			timeToFirstReasoningTokenCount: weightedTTFRTCount,
+		});
 	const averageLatency =
 		effectiveTTFT > 0 && effectiveTTFTCount > 0
 			? effectiveTTFT / effectiveTTFTCount

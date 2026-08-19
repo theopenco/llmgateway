@@ -106,7 +106,7 @@ export function SupportEnterprise() {
 
 					{/* Right column - chat mockup */}
 					<div className="relative">
-						<div className="pointer-events-none absolute -inset-8 bg-[radial-gradient(circle_at_50%_50%,rgba(59,130,246,0.08),transparent_70%)]" />
+						<div className="pointer-events-none absolute inset-x-0 -inset-y-8 bg-[radial-gradient(circle_at_50%_50%,rgba(59,130,246,0.08),transparent_70%)]" />
 						<div className="relative overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
 							<div className="flex items-center justify-between border-b border-border px-5 py-3.5">
 								<div className="flex items-center gap-2">

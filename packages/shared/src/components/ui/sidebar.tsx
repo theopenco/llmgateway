@@ -7,6 +7,7 @@ import * as React from "react";
 
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
+import { randomInt } from "@/random";
 
 import { Button } from "./button";
 import { Input } from "./input";
@@ -611,7 +612,7 @@ function SidebarMenuSkeleton({
 }) {
 	// Random width between 50 to 90%.
 	const width = React.useMemo(() => {
-		return `${Math.floor(Math.random() * 40) + 50}%`;
+		return `${randomInt(50, 90)}%`;
 	}, []);
 
 	return (

@@ -67,6 +67,7 @@ function makeMapping(
 		supportsVideoAudio: true,
 		supportsVideoWithoutAudio: true,
 		perSecondPrice: null,
+		perImagePrice: null,
 		deprecatedAt: null,
 		deactivatedAt: null,
 		status: "active",
@@ -291,6 +292,43 @@ describe("Seedance 2.0 reference capabilities", () => {
 
 		expect(options.sizes).toHaveLength(0);
 		expect(options.durations).toHaveLength(0);
+	});
+
+	test("Seedance 2.5 gets the same reference/frame capabilities as Seedance 2.0", () => {
+		expect(supportsVideoFrameInput("seedance-2-5")).toBe(true);
+		expect(supportsVideoFrameInput("bytedance/seedance-2-5")).toBe(true);
+		expect(supportsVideoReferenceInput("bytedance/seedance-2-5")).toBe(true);
+		expect(supportsVideoReferenceVideoInput("bytedance/seedance-2-5")).toBe(
+			true,
+		);
+		expect(supportsVideoReferenceAudioInput("bytedance/seedance-2-5")).toBe(
+			true,
+		);
+		expect(supportsVideoFrameInput("google-vertex/seedance-2-5")).toBe(false);
+	});
+
+	test("Seedance 2.5 offers 480p and durations beyond 15s", () => {
+		const model = makeModel(
+			[
+				makeSeedanceMapping({
+					modelId: "seedance-2-5",
+					externalId: "dreamina-seedance-2-5-260628",
+					supportedVideoSizes: ["848x480", "1280x720", "1920x1080"],
+					supportedVideoDurationsSeconds: [4, 8, 15, 20, 30],
+				}),
+			],
+			"seedance-2-5",
+		);
+		const options = getSupportedVideoRequestOptions(
+			[model],
+			["seedance-2-5"],
+			"none",
+		);
+
+		expect(options.sizes).toContain("848x480");
+		expect(options.sizes).not.toContain("3840x2160");
+		expect(options.durations).toContain(30);
+		expect(options.durations).not.toContain(5);
 	});
 
 	test("frame mode keeps size/duration options for Seedance 2.0", () => {

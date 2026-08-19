@@ -8,7 +8,14 @@ import {
 } from "@stripe/react-stripe-js";
 import { keepPreviousData, useQueryClient } from "@tanstack/react-query";
 import confetti from "canvas-confetti";
-import { ChevronDown, CreditCard, Lock, Plus } from "lucide-react";
+import {
+	ChevronDown,
+	Coins,
+	CreditCard,
+	Lock,
+	Pencil,
+	Plus,
+} from "lucide-react";
 import Link from "next/link";
 import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
@@ -62,7 +69,7 @@ export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 	const [step, setStep] = useState<
 		"amount" | "payment" | "select-payment" | "confirm-payment" | "success"
 	>("amount");
-	const [amount, setAmount] = useState<number>(100);
+	const [amount, setAmount] = useState<number>(50);
 	const [loading, setLoading] = useState(false);
 	const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<
 		string | null
@@ -86,6 +93,21 @@ export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 				enabled: open, // Only fetch when dialog is open
 			},
 		);
+	const {
+		data: topUpLimit,
+		isError: topUpLimitError,
+		isFetching: topUpLimitFetching,
+		isLoading: topUpLimitLoading,
+	} = api.useQuery(
+		"get",
+		"/payments/top-up-limit",
+		{ params: { query: { organizationId } } },
+		{ enabled: open, staleTime: 0 },
+	);
+	const maxCardAmount = topUpLimit?.maxCardAmount ?? CREDIT_TOP_UP_MAX_AMOUNT;
+	const maxCheckoutAmount =
+		topUpLimit?.maxCheckoutAmount ?? CREDIT_TOP_UP_MAX_AMOUNT;
+	const topUpLimitPending = topUpLimitLoading || topUpLimitFetching;
 
 	const hasPaymentMethods =
 		paymentMethodsData?.paymentMethods &&
@@ -99,6 +121,14 @@ export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 			setSelectedPaymentMethod(defaultPaymentMethod.id);
 		}
 	}, [defaultPaymentMethod]);
+
+	useEffect(() => {
+		if (topUpLimit && amount > maxCheckoutAmount) {
+			setAmount(
+				maxCheckoutAmount >= CREDIT_TOP_UP_MIN_AMOUNT ? maxCheckoutAmount : 0,
+			);
+		}
+	}, [amount, maxCheckoutAmount, topUpLimit]);
 
 	const handleClose = () => {
 		setOpen(false);
@@ -131,6 +161,11 @@ export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 						amount={amount}
 						setAmount={setAmount}
 						organizationId={organizationId}
+						maxCardAmount={maxCardAmount}
+						maxCheckoutAmount={maxCheckoutAmount}
+						topUpLimitLoaded={Boolean(topUpLimit)}
+						topUpLimitError={topUpLimitError}
+						topUpLimitPending={topUpLimitPending}
 						autoTopUpIntent={autoTopUpIntent}
 						setAutoTopUpIntent={setAutoTopUpIntent}
 						alreadyHasAutoTopUp={alreadyHasAutoTopUp}
@@ -203,6 +238,11 @@ function AmountStep({
 	amount,
 	setAmount,
 	organizationId,
+	maxCardAmount,
+	maxCheckoutAmount,
+	topUpLimitLoaded,
+	topUpLimitError,
+	topUpLimitPending,
 	autoTopUpIntent,
 	setAutoTopUpIntent,
 	alreadyHasAutoTopUp,
@@ -211,6 +251,11 @@ function AmountStep({
 	amount: number;
 	setAmount: (amount: number) => void;
 	organizationId: string | undefined;
+	maxCardAmount: number;
+	maxCheckoutAmount: number;
+	topUpLimitLoaded: boolean;
+	topUpLimitError: boolean;
+	topUpLimitPending: boolean;
 	autoTopUpIntent: boolean;
 	setAutoTopUpIntent: (v: boolean) => void;
 	alreadyHasAutoTopUp: boolean;
@@ -231,15 +276,21 @@ function AmountStep({
 		"post",
 		"/payments/create-checkout-session",
 	);
-	const isAmountValid = isCreditTopUpAmountInRange(amount);
-	const amountValidationMessage =
-		amount > CREDIT_TOP_UP_MAX_AMOUNT
-			? `Maximum $${CREDIT_TOP_UP_MAX_AMOUNT.toLocaleString("en-US")}`
-			: amount < CREDIT_TOP_UP_MIN_AMOUNT
-				? `Minimum $${CREDIT_TOP_UP_MIN_AMOUNT}`
-				: !Number.isInteger(amount)
-					? "Whole dollar amounts only"
-					: null;
+	const isAmountInGlobalRange = isCreditTopUpAmountInRange(amount);
+	const isCardAmountValid = isAmountInGlobalRange && amount <= maxCardAmount;
+	const isCheckoutAmountValid =
+		isAmountInGlobalRange && amount <= maxCheckoutAmount;
+	const amountValidationMessage = topUpLimitError
+		? "Couldn't load your current top-up allowance"
+		: maxCheckoutAmount < CREDIT_TOP_UP_MIN_AMOUNT
+			? "Your account tier's 24-hour top-up allowance is currently used up"
+			: amount > maxCheckoutAmount
+				? `Maximum $${maxCheckoutAmount.toLocaleString("en-US")} from your account tier's remaining 24-hour allowance`
+				: amount < CREDIT_TOP_UP_MIN_AMOUNT
+					? `Minimum $${CREDIT_TOP_UP_MIN_AMOUNT}`
+					: !Number.isInteger(amount)
+						? "Whole dollar amounts only"
+						: null;
 	const {
 		data: feeData,
 		isLoading: feeDataLoading,
@@ -251,12 +302,21 @@ function AmountStep({
 			body: { amount, organizationId },
 		},
 		{
-			enabled: isAmountValid,
+			enabled: isCheckoutAmountValid,
 			placeholderData: keepPreviousData,
 		},
 	);
-	const isActionDisabled =
-		!isAmountValid || Boolean(feeDataLoading) || checkoutLoading;
+	const isCardActionDisabled =
+		!isCardAmountValid ||
+		Boolean(feeDataLoading) ||
+		topUpLimitPending ||
+		topUpLimitError;
+	const isCheckoutActionDisabled =
+		!isCheckoutAmountValid ||
+		Boolean(feeDataLoading) ||
+		topUpLimitPending ||
+		topUpLimitError ||
+		checkoutLoading;
 
 	const hasBonus = feeData?.bonusAmount && feeData.bonusAmount > 0;
 
@@ -276,9 +336,10 @@ function AmountStep({
 			toast({
 				title: "Checkout Failed",
 				description:
-					error instanceof Error
+					(error instanceof Error
 						? error.message
-						: "Failed to create checkout session.",
+						: (error as { message?: string } | undefined)?.message) ??
+					"Failed to create checkout session.",
 				variant: "destructive",
 			});
 			setCheckoutLoading(false);
@@ -296,12 +357,20 @@ function AmountStep({
 			<div className="space-y-5 py-2">
 				{/* Hero amount input */}
 				<div className="flex flex-col items-center gap-1.5 pt-1">
-					<Label htmlFor="amount" className="sr-only">
-						Amount in USD
+					<Label
+						htmlFor="amount"
+						className="text-xs font-medium uppercase tracking-wider text-muted-foreground"
+					>
+						Enter amount
 					</Label>
 					<label
 						htmlFor="amount"
-						className="flex cursor-text items-baseline justify-center"
+						className={cn(
+							"flex w-full max-w-[280px] cursor-text items-center justify-center gap-1 rounded-xl border-2 bg-background px-4 py-2 transition-colors focus-within:border-primary focus-within:ring-4 focus-within:ring-ring/20",
+							amountValidationMessage
+								? "border-destructive focus-within:border-destructive focus-within:ring-destructive/20"
+								: "border-input hover:border-muted-foreground/50",
+						)}
 					>
 						<span className="text-3xl font-light text-muted-foreground">$</span>
 						<input
@@ -311,22 +380,71 @@ function AmountStep({
 							pattern="[0-9]*"
 							autoComplete="off"
 							maxLength={4}
+							placeholder="0"
 							value={amount || ""}
+							onFocus={(e) => e.target.select()}
 							onChange={(e) => {
 								const digits = e.target.value
 									.replace(/[^0-9]/g, "")
 									.slice(0, 4);
 								setAmount(digits === "" ? 0 : Number(digits));
 							}}
-							className="ml-1 w-[4ch] border-0 bg-transparent p-0 text-left text-5xl font-bold tabular-nums tracking-tight caret-primary focus:outline-none focus:ring-0"
+							className="w-[4ch] border-0 bg-transparent p-0 text-center text-5xl font-bold tabular-nums tracking-tight caret-primary placeholder:text-muted-foreground/40 focus:outline-none focus:ring-0"
 							aria-invalid={Boolean(amountValidationMessage)}
+							aria-describedby={
+								topUpLimitLoaded && !topUpLimitError
+									? "amount-hint amount-limit-reason"
+									: "amount-hint"
+							}
 							required
 						/>
+						<Pencil
+							className="h-4 w-4 shrink-0 text-muted-foreground"
+							aria-hidden="true"
+						/>
 					</label>
-					{amountValidationMessage ? (
-						<p className="text-xs text-destructive">
-							{amountValidationMessage}
-						</p>
+					<p
+						id="amount-hint"
+						className={cn(
+							"text-xs",
+							amountValidationMessage
+								? "text-destructive"
+								: "text-muted-foreground",
+						)}
+					>
+						{amountValidationMessage ??
+							(amount > maxCardAmount
+								? `Card maximum $${maxCardAmount} after processing fees; use checkout below for this amount`
+								: `Type any amount from $${CREDIT_TOP_UP_MIN_AMOUNT} to $${maxCheckoutAmount.toLocaleString("en-US")}`)}
+					</p>
+					{topUpLimitLoaded && !topUpLimitError ? (
+						<div
+							id="amount-limit-reason"
+							className="space-y-1 text-xs text-muted-foreground"
+						>
+							<p>
+								This maximum is based on your account tier&apos;s remaining
+								24-hour top-up allowance and processing fees.{" "}
+								{organizationId ? (
+									<Link
+										href={`/dashboard/${organizationId}/org/limits`}
+										className="font-medium text-foreground underline underline-offset-2"
+									>
+										View account limits
+									</Link>
+								) : null}
+							</p>
+							<p>
+								Need to top up more? Email{" "}
+								<a
+									href="mailto:contact@llmgateway.io"
+									className="font-medium text-foreground underline underline-offset-2"
+								>
+									contact@llmgateway.io
+								</a>{" "}
+								and we can unlock a higher tier.
+							</p>
+						</div>
 					) : null}
 				</div>
 
@@ -334,13 +452,20 @@ function AmountStep({
 				<div className="grid grid-cols-4 gap-2">
 					{presets.map((p) => {
 						const isSelected = amount === p.value;
+						const isDisabled = p.value > maxCheckoutAmount;
 						return (
 							<button
 								key={p.value}
 								type="button"
 								onClick={() => setAmount(p.value)}
+								disabled={isDisabled}
+								title={
+									isDisabled
+										? `Above your account tier's remaining 24-hour top-up allowance`
+										: undefined
+								}
 								className={cn(
-									"flex flex-col items-center justify-center rounded-lg border px-2 py-2.5 transition-colors focus:outline-none focus:ring-2 focus:ring-ring/50",
+									"flex flex-col items-center justify-center rounded-lg border px-2 py-2.5 transition-colors focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-40",
 									isSelected
 										? "border-primary bg-primary/10 text-primary"
 										: "border-border hover:bg-accent hover:text-accent-foreground",
@@ -361,7 +486,7 @@ function AmountStep({
 				</div>
 
 				{/* Total (collapsed) */}
-				{isAmountValid ? (
+				{isCheckoutAmountValid ? (
 					<div className="overflow-hidden rounded-lg border bg-muted/30">
 						<button
 							type="button"
@@ -465,15 +590,19 @@ function AmountStep({
 				<Button
 					type="button"
 					onClick={onNext}
-					disabled={isActionDisabled}
+					disabled={isCardActionDisabled}
 					className="w-full"
 					size="lg"
 				>
-					{feeDataLoading
-						? "Calculating…"
-						: isAmountValid
-							? `Add $${amount} credits →`
-							: "Add credits"}
+					{topUpLimitError
+						? "Top-up allowance unavailable"
+						: topUpLimitPending || feeDataLoading
+							? "Calculating…"
+							: isCardAmountValid
+								? `Add $${amount} credits →`
+								: amount > maxCardAmount && isCheckoutAmountValid
+									? `Card maximum $${maxCardAmount}`
+									: "Add credits"}
 				</Button>
 
 				<div className="relative flex items-center justify-center">
@@ -489,8 +618,8 @@ function AmountStep({
 				<button
 					type="button"
 					onClick={handleStripeCheckout}
-					disabled={isActionDisabled}
-					aria-label="Pay with Apple Pay, Google Pay, or another method"
+					disabled={isCheckoutActionDisabled}
+					aria-label="Pay with Apple Pay, Google Pay, crypto, or another method"
 					className="flex w-full items-center justify-center gap-2.5 rounded-lg border px-4 py-2.5 transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
 				>
 					{checkoutLoading ? (
@@ -502,6 +631,7 @@ function AmountStep({
 						<>
 							<ApplePayMark />
 							<GooglePayMark />
+							<CryptoMark />
 							<span className="text-xs text-muted-foreground">&amp; more</span>
 						</>
 					)}
@@ -1263,6 +1393,15 @@ function GooglePayMark() {
 				/>
 			</svg>
 			<span className="text-xs font-semibold text-[#5f6368]">Pay</span>
+		</span>
+	);
+}
+
+function CryptoMark() {
+	return (
+		<span className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-1">
+			<Coins className="h-3.5 w-3.5 text-amber-500" aria-hidden="true" />
+			<span className="text-xs font-semibold">Crypto</span>
 		</span>
 	);
 }

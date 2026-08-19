@@ -1,6 +1,6 @@
 ---
 title: OpenCode Integration
-description: Connect OpenCode to 200+ models through LLM Gateway's built-in provider. No config files needed — just select, authenticate, and code.
+description: Connect OpenCode to 200+ models via LLM Gateway's built-in provider. No config files — select, authenticate, and code. Kimi K3, GPT-5 and Claude included.
 icon: OpenCode
 ---
 
@@ -8,6 +8,14 @@ import { Step, Steps } from "fumadocs-ui/components/steps";
 import { Callout } from "fumadocs-ui/components/callout";
 
 [OpenCode](https://opencode.ai) is an open-source AI coding agent for your terminal, IDE, or desktop. LLM Gateway is a built-in provider in OpenCode, so setup takes under a minute — no config files or npm adapters required. You get access to 200+ models from 40+ providers, all tracked in one dashboard.
+
+<Callout type="info">
+	**Using DevPass?** This integration also works with a
+	[DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without
+	a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) —
+	provider-pinned routing is not available on coding plans; the gateway picks
+	the provider for you.
+</Callout>
 
 ## Prerequisites
 
@@ -85,17 +93,9 @@ The built-in provider gives you access to all standard LLM Gateway models. If yo
 {
 	"provider": {
 		"llmgateway": {
-			"npm": "@ai-sdk/openai-compatible",
-			"name": "LLM Gateway",
-			"options": {
-				"baseURL": "https://api.llmgateway.io/v1"
-			},
 			"models": {
-				"deepseek/deepseek-chat": {
-					"name": "DeepSeek Chat"
-				},
-				"meta/llama-3.3-70b": {
-					"name": "Llama 3.3 70B"
+				"deepseek-v3": {
+					"name": "DeepSeek V3"
 				}
 			}
 		}
@@ -103,20 +103,58 @@ The built-in provider gives you access to all standard LLM Gateway models. If yo
 }
 ```
 
+Since LLM Gateway is a built-in provider, you only need to specify what you're adding — OpenCode merges your config with the built-in provider definition, so `npm`, `name`, and `baseURL` don't need to be repeated.
+
 After updating `config.json`, restart OpenCode to see the new models.
 
-## Locking to a Specific Provider
+## Pinning a Model to a Specific Provider
 
-By default, LLM Gateway automatically fails over to alternative providers if your chosen provider is experiencing downtime. If you want to lock into a specific provider/model mapping — for example to guarantee a fixed price or to always use a single provider — pass the `X-No-Fallback` header. Requests will then be sent only to the provider you specified, with no automatic fallback.
+OpenCode's built-in model list only shows root model IDs (e.g. `claude-sonnet-5`), which LLM Gateway routes to the best available provider automatically. If you want a model to always run on one specific provider — for example to guarantee a fixed price, a compliance boundary, or consistent behavior — use LLM Gateway's [`provider/model` syntax](/features/routing#provider-specific-routing) as the model ID.
+
+Instead of writing these entries by hand, you can generate the full catalog — every coding model, pinned per upstream provider, with display names, context limits, and pricing — with the [LLM Gateway CLI](https://docs.llmgateway.io/developers/cli#configure):
+
+```bash
+npx @llmgateway/cli configure opencode
+```
+
+Or add the pinned variants you want manually as custom models, and they show up in OpenCode's model picker alongside the built-in list:
 
 ```json
 {
 	"provider": {
 		"llmgateway": {
-			"npm": "@ai-sdk/openai-compatible",
-			"name": "LLM Gateway",
+			"models": {
+				"anthropic/claude-sonnet-5": {
+					"name": "Claude Sonnet 5 (Anthropic direct)"
+				},
+				"aws-bedrock/claude-sonnet-5": {
+					"name": "Claude Sonnet 5 (AWS Bedrock)"
+				}
+			}
+		}
+	}
+}
+```
+
+You can also pin one as your default model, or per-agent:
+
+```json
+{
+	"model": "llmgateway/anthropic/claude-sonnet-5"
+}
+```
+
+For providers with multiple regions, append a region suffix to pin both provider and region, e.g. `aws-bedrock/claude-sonnet-5:us`. See the [routing docs](/features/routing#provider-specific-routing) for the full syntax, and each model's available providers on the [models page](https://llmgateway.io/models).
+
+### Disabling Fallback
+
+By default, LLM Gateway automatically fails over to alternative providers if your chosen provider is experiencing downtime — even for provider-pinned model IDs. To make the pin strict, pass the `X-No-Fallback` header. Requests will then be sent only to the provider you specified, with no automatic fallback.
+
+```json
+{
+	"provider": {
+		"llmgateway": {
 			"options": {
-				"baseURL": "https://api.llmgateway.io/v1",
 				"headers": {
 					"X-No-Fallback": "true"
 				}
@@ -128,7 +166,9 @@ By default, LLM Gateway automatically fails over to alternative providers if you
 
 <Callout type="warn">
 	Disabling fallback means requests will fail if the chosen provider is down.
-	See the [routing docs](/features/routing) for details.
+	See the [routing
+	docs](/features/routing#disabling-fallback-with-x-no-fallback-header) for
+	details.
 </Callout>
 
 ## Switching Models

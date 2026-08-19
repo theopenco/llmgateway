@@ -19,8 +19,21 @@ const testWebSearch = process.env.TEST_WEB_SEARCH;
 // Skip all tests if TEST_WEB_SEARCH is not set
 const describeWebSearch = testWebSearch ? describe : describe.skip;
 
+// DashScope's OpenAI-compatible protocol does not return search sources at all
+// (no `search_info`, regardless of enable_source/enable_citation), so the
+// providers backed by it can report that a search ran but never where it read.
+const providersWithoutWebSearchAnnotations = ["zai/", "alibaba/", "scx-ai-gp/"];
+
+// Every case here asserts that a search actually ran, so every case demands
+// one. Providers that elect their own searches are unaffected — the directive
+// is not forwarded to them — but mappings flagged `webSearchForcedOnly` are
+// only routable with it, and would otherwise be filtered out of these tests.
+const FORCE_WEB_SEARCH = { type: "web_search" } as const;
+
 const expectsWebSearchAnnotations = (model: string) =>
-	!model.startsWith("zai/");
+	!providersWithoutWebSearchAnnotations.some((prefix) =>
+		model.startsWith(prefix),
+	);
 
 describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 	beforeAll(beforeAllHook);
@@ -58,6 +71,7 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 							type: "web_search",
 						},
 					],
+					tool_choice: FORCE_WEB_SEARCH,
 				}),
 			});
 
@@ -143,6 +157,7 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 							type: "web_search",
 						},
 					],
+					tool_choice: FORCE_WEB_SEARCH,
 				}),
 			});
 
@@ -213,6 +228,7 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 							type: "web_search",
 						},
 					],
+					tool_choice: FORCE_WEB_SEARCH,
 					stream: true,
 				}),
 			});

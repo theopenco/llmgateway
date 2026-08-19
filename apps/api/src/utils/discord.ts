@@ -1,9 +1,11 @@
 import { logger } from "@llmgateway/logger";
 
 const discordWebhookUrl = process.env.DISCORD_NOTIFICATION_URL;
+const DISCORD_ALERT_TIMEOUT_MS = 5_000;
 
 interface DiscordEmbed {
 	title: string;
+	url?: string;
 	description?: string;
 	color?: number;
 	fields?: Array<{
@@ -22,10 +24,11 @@ interface DiscordWebhookPayload {
 async function sendDiscordNotification(
 	payload: DiscordWebhookPayload,
 	webhookUrl: string | undefined = discordWebhookUrl,
+	timeoutMs?: number,
 ): Promise<void> {
 	if (!webhookUrl) {
 		logger.debug(
-			"DISCORD_NOTIFICATION_URL not configured, skipping notification",
+			"Discord notification webhook not configured, skipping notification",
 		);
 		return;
 	}
@@ -37,6 +40,7 @@ async function sendDiscordNotification(
 				"Content-Type": "application/json",
 			},
 			body: JSON.stringify(payload),
+			...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
 		});
 
 		if (!response.ok) {
@@ -55,10 +59,18 @@ async function sendDiscordNotification(
 	}
 }
 
+function formatAmount(amount: number, currency: string): string {
+	const normalized = currency.toUpperCase();
+	return normalized === "USD"
+		? `$${amount.toFixed(2)}`
+		: `${amount.toFixed(2)} ${normalized}`;
+}
+
 export async function notifyUserSignup(
 	email: string,
 	name: string | null | undefined,
 	authMethod?: string,
+	countryCode?: string | null,
 ): Promise<void> {
 	const displayName = name ?? "Unknown";
 	const method = authMethod ?? "Unknown";
@@ -84,6 +96,11 @@ export async function notifyUserSignup(
 						value: method,
 						inline: true,
 					},
+					{
+						name: "Country",
+						value: countryCode ?? "Unknown",
+						inline: true,
+					},
 				],
 				timestamp: new Date().toISOString(),
 			},
@@ -91,12 +108,40 @@ export async function notifyUserSignup(
 	});
 }
 
-export async function notifyCreditsPurchased(
-	email: string,
-	name: string | null | undefined,
-	creditAmount: number,
-): Promise<void> {
-	const displayName = name ?? "Unknown";
+const creditTopUpSourceLabels = {
+	stripe_checkout: "Stripe Checkout",
+	payment_intent: "Saved card",
+	auto_topup: "Auto top-up",
+} as const;
+
+export type CreditTopUpSource = keyof typeof creditTopUpSourceLabels;
+
+export async function notifyCreditsPurchased(args: {
+	email?: string | null;
+	name?: string | null;
+	/** Credits bought, excluding any bonus — the amount the customer paid for. */
+	creditAmount: number;
+	bonusAmount?: number;
+	/** Total charged by Stripe, including platform and international card fees. */
+	grossAmount: number;
+	currency?: string;
+	organizationId: string;
+	organizationName?: string | null;
+	source: CreditTopUpSource;
+}): Promise<void> {
+	const {
+		email,
+		name,
+		creditAmount,
+		bonusAmount = 0,
+		grossAmount,
+		currency = "USD",
+		organizationId,
+		organizationName,
+		source,
+	} = args;
+
+	const fee = Math.max(0, grossAmount - creditAmount);
 
 	await sendDiscordNotification({
 		embeds: [
@@ -106,24 +151,105 @@ export async function notifyCreditsPurchased(
 				fields: [
 					{
 						name: "Email",
-						value: email,
+						value: email || "Unknown",
 						inline: true,
 					},
 					{
 						name: "Name",
-						value: displayName,
+						value: name ?? "Unknown",
 						inline: true,
 					},
 					{
 						name: "Credits",
-						value: `$${creditAmount.toFixed(2)}`,
+						value: formatAmount(creditAmount, currency),
 						inline: true,
+					},
+					...(bonusAmount > 0
+						? [
+								{
+									name: "Bonus",
+									value: formatAmount(bonusAmount, currency),
+									inline: true,
+								},
+							]
+						: []),
+					{
+						name: "Gross",
+						value: formatAmount(grossAmount, currency),
+						inline: true,
+					},
+					{
+						name: "Fee",
+						value: formatAmount(fee, currency),
+						inline: true,
+					},
+					{
+						name: "Source",
+						value: creditTopUpSourceLabels[source],
+						inline: true,
+					},
+					{
+						name: "Organization",
+						value: organizationName
+							? `${organizationName} (${organizationId})`
+							: organizationId,
+						inline: false,
 					},
 				],
 				timestamp: new Date().toISOString(),
 			},
 		],
 	});
+}
+
+export async function notifyTopUpVelocityLimit(args: {
+	email: string;
+	name?: string | null;
+	organizationId: string;
+	capUsd: number;
+	usedUsd: number;
+	attemptedUsd: number;
+}): Promise<void> {
+	const { email, name, organizationId, capUsd, usedUsd, attemptedUsd } = args;
+
+	await sendDiscordNotification(
+		{
+			content: "⚠️ A credit top-up was blocked by the velocity limit.",
+			embeds: [
+				{
+					title: "Top-Up Velocity Limit Reached",
+					color: 0xf59e0b, // Amber
+					fields: [
+						{ name: "Email", value: email, inline: true },
+						{ name: "Name", value: name ?? "Unknown", inline: true },
+						{
+							name: "Organization",
+							value: organizationId,
+							inline: false,
+						},
+						{
+							name: "Limit",
+							value: formatAmount(capUsd, "USD"),
+							inline: true,
+						},
+						{
+							name: "Used",
+							value: formatAmount(usedUsd, "USD"),
+							inline: true,
+						},
+						{
+							name: "Attempted",
+							value: formatAmount(attemptedUsd, "USD"),
+							inline: true,
+						},
+					],
+					timestamp: new Date().toISOString(),
+				},
+			],
+		},
+		process.env.DISCORD_TOPUP_VELOCITY_NOTIFICATION_URL,
+		DISCORD_ALERT_TIMEOUT_MS,
+	);
 }
 
 export async function notifyRefund(
@@ -172,6 +298,8 @@ export async function notifyDevPlanSubscribed(
 	name: string | null | undefined,
 	devPlan: string,
 	cycle: string,
+	amount: number,
+	currency: string,
 ): Promise<void> {
 	const displayName = name ?? "Unknown";
 
@@ -179,7 +307,7 @@ export async function notifyDevPlanSubscribed(
 		embeds: [
 			{
 				title: "DevPass Subscribed",
-				color: 0x22c55e, // Green
+				color: 0x3b82f6, // Blue
 				fields: [
 					{
 						name: "Email",
@@ -194,6 +322,11 @@ export async function notifyDevPlanSubscribed(
 					{
 						name: "Plan",
 						value: `${devPlan.toUpperCase()} (${cycle})`,
+						inline: true,
+					},
+					{
+						name: "Amount",
+						value: formatAmount(amount, currency),
 						inline: true,
 					},
 				],
@@ -318,10 +451,18 @@ export async function notifyChatSupportEscalation(args: {
 	name?: string;
 	email?: string;
 	conversationId: string;
+	adminConversationUrl: string;
 	ipAddress?: string;
 	lastMessage?: string;
 }): Promise<void> {
-	const { name, email, conversationId, ipAddress, lastMessage } = args;
+	const {
+		name,
+		email,
+		conversationId,
+		adminConversationUrl,
+		ipAddress,
+		lastMessage,
+	} = args;
 	const truncatedMessage =
 		lastMessage && lastMessage.length > 1000
 			? `${lastMessage.slice(0, 1000)}…`
@@ -333,6 +474,7 @@ export async function notifyChatSupportEscalation(args: {
 			embeds: [
 				{
 					title: "Chat Support Escalation",
+					url: adminConversationUrl,
 					color: 0xf59e0b, // Amber
 					fields: [
 						{ name: "Name", value: name || "Not provided", inline: true },
@@ -340,6 +482,11 @@ export async function notifyChatSupportEscalation(args: {
 						{
 							name: "Conversation ID",
 							value: conversationId,
+							inline: false,
+						},
+						{
+							name: "Admin dashboard",
+							value: `[View support ticket](${adminConversationUrl})`,
 							inline: false,
 						},
 						...(ipAddress
@@ -606,9 +753,58 @@ export async function notifyChatPlanRenewed(
 	});
 }
 
+export async function notifyHighRiskAccount(args: {
+	email: string;
+	name?: string | null;
+	source: "signup" | "email_verification";
+	reason: string;
+	countryCode?: string | null;
+	organizationIds: string[];
+}): Promise<void> {
+	await sendDiscordNotification(
+		{
+			embeds: [
+				{
+					title: "High-Risk Account Flagged",
+					color: 0xf59e0b, // Amber
+					fields: [
+						{ name: "Email", value: args.email, inline: true },
+						{ name: "Name", value: args.name ?? "Unknown", inline: true },
+						{
+							name: "Detected At",
+							value:
+								args.source === "signup" ? "Sign-up" : "Email verification",
+							inline: true,
+						},
+						{ name: "Reason", value: args.reason, inline: false },
+						{
+							name: "Country",
+							value: args.countryCode ?? "Unknown",
+							inline: true,
+						},
+						{
+							name: "Organizations",
+							value: args.organizationIds.join(", ") || "None",
+							inline: true,
+						},
+					],
+					timestamp: new Date().toISOString(),
+				},
+			],
+		},
+		process.env.DISCORD_TOPUP_VELOCITY_NOTIFICATION_URL,
+		DISCORD_ALERT_TIMEOUT_MS,
+	);
+}
+
 export async function notifyUserAccountDeleted(
 	email: string,
 	name: string | null | undefined,
+	teardown?: {
+		closedOrganizations: number;
+		cancelledSubscriptions: number;
+		forfeitedCredits: string;
+	},
 ): Promise<void> {
 	const displayName = name ?? "Unknown";
 
@@ -620,6 +816,25 @@ export async function notifyUserAccountDeleted(
 				fields: [
 					{ name: "Email", value: email, inline: true },
 					{ name: "Name", value: displayName, inline: true },
+					...(teardown
+						? [
+								{
+									name: "Orgs Closed",
+									value: String(teardown.closedOrganizations),
+									inline: true,
+								},
+								{
+									name: "Subscriptions Cancelled",
+									value: String(teardown.cancelledSubscriptions),
+									inline: true,
+								},
+								{
+									name: "Credits Forfeited",
+									value: `$${teardown.forfeitedCredits}`,
+									inline: true,
+								},
+							]
+						: []),
 				],
 				timestamp: new Date().toISOString(),
 			},

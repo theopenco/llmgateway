@@ -2,6 +2,41 @@ import type { ModelDefinition } from "@/models.js";
 
 export const metaModels = [
 	{
+		id: "muse-spark-1.2",
+		name: "Muse Spark 1.2",
+		description:
+			"Meta's latest multimodal reasoning model, improving on Muse Spark 1.1's agentic tool calling, coding, structured output, and long-context workflows with image and video understanding.",
+		family: "meta",
+		releasedAt: new Date("2026-08-06"),
+		providers: [
+			{
+				providerId: "meta",
+				externalId: "muse-spark-1.2",
+				stability: "beta",
+				inputPrice: "1.25e-6",
+				cachedInputPrice: "0.15e-6",
+				outputPrice: "4.25e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"],
+				reasoningMode: "adaptive",
+				reasoningOutput: "omit",
+				supportsResponsesApi: true,
+				vision: true,
+				tools: true,
+				// Muse Spark's endpoint only accepts tool_choice="auto"; it rejects
+				// "none", "required", and named function choices with
+				// invalid_request_error (same endpoint behavior as 1.1)
+				supportedToolChoices: ["auto"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+		],
+	},
+	{
 		id: "muse-spark-1.1",
 		name: "Muse Spark 1.1",
 		description:
@@ -103,7 +138,6 @@ export const metaModels = [
 				jsonOutput: false,
 			},
 			{
-				// Cerebras: FP16
 				providerId: "cerebras",
 				externalId: "llama3.1-8b",
 				inputPrice: "0.1e-6",
@@ -272,7 +306,6 @@ export const metaModels = [
 				],
 			},
 			{
-				// Cerebras: FP16
 				providerId: "cerebras",
 				test: "skip",
 				externalId: "llama-3.3-70b",

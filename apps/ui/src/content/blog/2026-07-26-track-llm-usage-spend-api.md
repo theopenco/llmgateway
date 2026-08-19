@@ -5,6 +5,15 @@ date: "2026-07-26"
 title: "How to Track LLM Usage and Spend with the API"
 summary: "An LLM cost tracking tutorial: read the exact USD cost of every request from the response's usage object, segment spend by user and feature with metadata headers, enforce hard budgets with per-key spending limits, and audit everything in the dashboard."
 categories: ["Guides"]
+faqs:
+  - question: "Does cost tracking work with streaming?"
+    answer: "Yes. The final usage chunk of a streamed response includes `cost` and `cost_details`, identical to non-streaming responses."
+  - question: "Does this work if I bring my own provider keys?"
+    answer: "Yes. Requests routed through your own provider keys are logged and costed the same way — the dashboard splits spend between credits and BYOK traffic."
+  - question: "Can I track image, video, and audio costs too?"
+    answer: "Yes. The usage schema includes image input/output, audio, and video cost fields, and the dashboards break modality costs out — see the guides on [image](/blog/generate-images-api), [video](/blog/generate-videos-api), and [audio](/blog/generate-audio-api) generation."
+  - question: "Is cost tracking gated to a paid plan?"
+    answer: "No. Cost breakdown in API responses is available to all users, on both hosted and self-hosted deployments."
 image:
   src: "/blog/track-llm-usage-spend-api.png"
   alt: "A glowing cost meter and coins on a circuit board, representing LLM usage and spend tracking"
@@ -82,6 +91,8 @@ async function makeRequest(messages: Message[]) {
 }
 ```
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## Segment spend by user, tenant, or feature
 
 Attach metadata to any request with `X-LLMGateway-*` headers:
@@ -118,24 +129,6 @@ Everything above also lands in the dashboard, per project and per organization:
 
 Costs are split between credits and bring-your-own provider keys, and image, video, and audio generations carry their own cost components — so multimodal workloads stay as accountable as text.
 
-## Frequently Asked Questions
-
-### Does cost tracking work with streaming?
-
-Yes. The final usage chunk of a streamed response includes `cost` and `cost_details`, identical to non-streaming responses.
-
-### Does this work if I bring my own provider keys?
-
-Yes. Requests routed through your own provider keys are logged and costed the same way — the dashboard splits spend between credits and BYOK traffic.
-
-### Can I track image, video, and audio costs too?
-
-Yes. The usage schema includes image input/output, audio, and video cost fields, and the dashboards break modality costs out — see the guides on [image](/blog/generate-images-api), [video](/blog/generate-videos-api), and [audio](/blog/generate-audio-api) generation.
-
-### Is cost tracking gated to a paid plan?
-
-No. Cost breakdown in API responses is available to all users, on both hosted and self-hosted deployments.
-
 ---
 
 **Get started:**
@@ -143,3 +136,5 @@ No. Cost breakdown in API responses is available to all users, on both hosted an
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** — cost visibility on your first request
 - **[Cost breakdown docs](https://docs.llmgateway.io/features/cost-breakdown)** — the full usage schema
 - **[Enterprise LLM analytics](/blog/enterprise-llm-analytics)** — org-wide reporting at scale
+
+<BlogCta variant="gateway" location="bottom" />

@@ -5,7 +5,7 @@ import {
 	scrypt,
 } from "crypto";
 
-import { redisClient } from "@llmgateway/cache";
+import { redisClient, storageRedisClient } from "@llmgateway/cache";
 import {
 	models as allModels,
 	providers as allProviders,
@@ -75,6 +75,12 @@ function randomChoice<T>(arr: T[]): T {
 function daysAgo(days: number) {
 	/* eslint-disable no-mixed-operators */
 	return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+	/* eslint-enable no-mixed-operators */
+}
+
+function daysFromNow(days: number) {
+	/* eslint-disable no-mixed-operators */
+	return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 	/* eslint-enable no-mixed-operators */
 }
 
@@ -254,6 +260,11 @@ const EXTRA_ORGS: Array<{
 	status: "active" | "inactive";
 	kind: "default" | "chat" | "devpass";
 	createdAt: Date;
+	// Enterprise contract window, so the dashboard countdown and the admin
+	// panel have terms in every urgency band to render.
+	planTermDays?: { started: number; endsIn: number };
+	// Active enterprise trial, so the trial countdown has data to render.
+	trialDays?: { started: number; endsIn: number };
 }> = [
 	{
 		id: "org-techcorp",
@@ -287,6 +298,7 @@ const EXTRA_ORGS: Array<{
 		status: "active",
 		kind: "default",
 		createdAt: daysAgo(365),
+		planTermDays: { started: 347, endsIn: 18 },
 	},
 	{
 		id: "org-cloudnative",
@@ -309,6 +321,7 @@ const EXTRA_ORGS: Array<{
 		status: "active",
 		kind: "default",
 		createdAt: daysAgo(270),
+		planTermDays: { started: 361, endsIn: 4 },
 	},
 	{
 		id: "org-webagency",
@@ -331,6 +344,7 @@ const EXTRA_ORGS: Array<{
 		status: "active",
 		kind: "default",
 		createdAt: daysAgo(400),
+		planTermDays: { started: 165, endsIn: 200 },
 	},
 	{
 		id: "org-robotics",
@@ -397,6 +411,7 @@ const EXTRA_ORGS: Array<{
 		status: "active",
 		kind: "default",
 		createdAt: daysAgo(450),
+		trialDays: { started: 18, endsIn: 12 },
 	},
 	{
 		id: "org-analytics",
@@ -1235,11 +1250,12 @@ function generateSeedModelProviderMappings() {
 	return mappings;
 }
 
-function generateSeedModelProviderMappingHistory(
+// Pick one mapping per provider (up to `limit`) so every provider has
+// history data without seeding every mapping.
+function selectTopMappingsPerProvider(
 	mappings: Array<Record<string, any>>,
+	limit: number,
 ) {
-	const history: Array<Record<string, any>> = [];
-	// Pick one mapping per provider to ensure all providers have history data
 	const seenProviders = new Set<string>();
 	const topMappings: Array<Record<string, any>> = [];
 	for (const m of mappings) {
@@ -1247,10 +1263,18 @@ function generateSeedModelProviderMappingHistory(
 			seenProviders.add(m.providerId);
 			topMappings.push(m);
 		}
-		if (topMappings.length >= 50) {
+		if (topMappings.length >= limit) {
 			break;
 		}
 	}
+	return topMappings;
+}
+
+function generateSeedModelProviderMappingHistory(
+	mappings: Array<Record<string, any>>,
+) {
+	const history: Array<Record<string, any>> = [];
+	const topMappings = selectTopMappingsPerProvider(mappings, 50);
 	for (const mapping of topMappings) {
 		for (let i = 0; i < 144; i++) {
 			const ts = minutesAgo(i * 10);
@@ -1320,6 +1344,109 @@ function generateSeedModelHistory() {
 	return history;
 }
 
+// 60 days of hourly per-model rollups so long-window surfaces (the public
+// rankings page, 7d/30d stats windows and their previous-window trend
+// comparison) have data locally. 60 days covers the 30d window plus the
+// equal-length previous window its trend compares against. Each model gets a
+// rank-weighted volume with a per-model daily growth factor so trends differ
+// realistically.
+const HISTORY_HOURLY_DAYS = 60;
+
+function hourlyModelVolume(rankIndex: number, hoursBack: number) {
+	/* eslint-disable no-mixed-operators */
+	const baseTokensPerHour = Math.round(2_000_000 / (rankIndex + 1) ** 0.85);
+	// Daily growth between roughly -4.5% and +4.5% depending on the model, so
+	// some models trend up and others down over the window.
+	const dailyGrowth = 1 + ((rankIndex % 7) - 3) * 0.015;
+	const daysBack = hoursBack / 24;
+	const trend = dailyGrowth ** -daysBack;
+	const noise = 0.7 + secureRandom() * 0.6;
+	return Math.max(1, Math.round(baseTokensPerHour * trend * noise));
+	/* eslint-enable no-mixed-operators */
+}
+
+function generateSeedModelHistoryHourly() {
+	const history: Array<Record<string, any>> = [];
+	const topModels = (allModels as readonly ModelDefinition[]).slice(0, 50);
+	for (const [mi, m] of topModels.entries()) {
+		for (let h = 0; h < HISTORY_HOURLY_DAYS * 24; h++) {
+			const ts = hoursAgo(h);
+			ts.setMinutes(0, 0, 0);
+			const totalTokens = hourlyModelVolume(mi, h);
+			const inputTokens = Math.round(totalTokens * 0.7);
+			const outputTokens = Math.round(totalTokens * 0.25);
+			const logs = Math.max(1, Math.round(totalTokens / 1200));
+			const errors = randomInt(0, Math.max(1, Math.floor(logs * 0.02)));
+			history.push({
+				id: `mhh-${m.id}-${h}`,
+				modelId: m.id,
+				hourTimestamp: ts,
+				logsCount: logs,
+				errorsCount: errors,
+				clientErrorsCount: Math.floor(errors * 0.3),
+				gatewayErrorsCount: Math.floor(errors * 0.1),
+				upstreamErrorsCount: Math.floor(errors * 0.6),
+				cachedCount: randomInt(0, Math.floor(logs * 0.15)),
+				totalInputTokens: inputTokens,
+				totalOutputTokens: outputTokens,
+				totalTokens,
+				totalReasoningTokens: totalTokens - inputTokens - outputTokens,
+				totalCachedTokens: randomInt(0, Math.floor(inputTokens * 0.3)),
+				totalDuration: logs * randomInt(500, 5000),
+				totalTimeToFirstToken: logs * randomInt(100, 800),
+				totalTimeToFirstReasoningToken: 0,
+				timeToFirstTokenCount: logs,
+				timeToFirstReasoningTokenCount: 0,
+			});
+		}
+	}
+	return history;
+}
+
+function generateSeedModelProviderMappingHistoryHourly(
+	mappings: Array<Record<string, any>>,
+) {
+	const history: Array<Record<string, any>> = [];
+	// Same one-mapping-per-provider selection as the minute-level seed so every
+	// provider has long-window data too.
+	const topMappings = selectTopMappingsPerProvider(mappings, 50);
+	for (const [mi, mapping] of topMappings.entries()) {
+		for (let h = 0; h < HISTORY_HOURLY_DAYS * 24; h++) {
+			const ts = hoursAgo(h);
+			ts.setMinutes(0, 0, 0);
+			const totalTokens = hourlyModelVolume(mi, h);
+			const inputTokens = Math.round(totalTokens * 0.7);
+			const outputTokens = Math.round(totalTokens * 0.25);
+			const logs = Math.max(1, Math.round(totalTokens / 1200));
+			const errors = randomInt(0, Math.max(1, Math.floor(logs * 0.02)));
+			history.push({
+				id: `mpmhh-${mapping.id}-${h}`,
+				modelId: mapping.modelId,
+				providerId: mapping.providerId,
+				modelProviderMappingId: mapping.id,
+				hourTimestamp: ts,
+				logsCount: logs,
+				errorsCount: errors,
+				clientErrorsCount: Math.floor(errors * 0.3),
+				gatewayErrorsCount: Math.floor(errors * 0.1),
+				upstreamErrorsCount: Math.floor(errors * 0.6),
+				cachedCount: randomInt(0, Math.floor(logs * 0.15)),
+				totalInputTokens: inputTokens,
+				totalOutputTokens: outputTokens,
+				totalTokens,
+				totalReasoningTokens: totalTokens - inputTokens - outputTokens,
+				totalCachedTokens: randomInt(0, Math.floor(inputTokens * 0.3)),
+				totalDuration: logs * randomInt(500, 5000),
+				totalTimeToFirstToken: logs * randomInt(100, 800),
+				totalTimeToFirstReasoningToken: 0,
+				timeToFirstTokenCount: logs,
+				timeToFirstReasoningTokenCount: 0,
+			});
+		}
+	}
+	return history;
+}
+
 async function seed() {
 	// ── Original test data (preserved for tests) ──
 	await upsert(tables.installation, {
@@ -1373,6 +1500,40 @@ async function seed() {
 		createdBy: "test-user-id",
 	});
 
+	// Sibling org for the test admin with data retention disabled, so
+	// retention-off behavior (e.g. the Responses API without stored log
+	// payloads) can be exercised locally while the default Test Organization
+	// stays on "retain" for easier debugging.
+	await upsert(tables.organization, {
+		id: "test-no-retention-org-id",
+		name: "Test No Retention Organization",
+		billingEmail: "admin@example.com",
+		credits: 5,
+		retentionLevel: "none",
+	});
+
+	await upsert(tables.userOrganization, {
+		id: "test-no-retention-user-org-id",
+		userId: "test-user-id",
+		organizationId: "test-no-retention-org-id",
+		role: "owner",
+	});
+
+	await upsert(tables.project, {
+		id: "test-no-retention-project-id",
+		name: "Test No Retention Project",
+		organizationId: "test-no-retention-org-id",
+		mode: "hybrid",
+	});
+
+	await upsert(tables.apiKey, {
+		id: "test-no-retention-api-key-id",
+		token: "test-token-no-retention",
+		projectId: "test-no-retention-project-id",
+		description: "Test API Key (no data retention)",
+		createdBy: "test-user-id",
+	});
+
 	// Embeddable Payments SDK POC: a project with the SDK enabled and a 50%
 	// end-user top-up bonus, plus a live platform secret key, so the end-user
 	// wallet + bonus flow can be exercised end-to-end locally (mint a session with
@@ -1420,7 +1581,7 @@ async function seed() {
 		name: "Test User's Workspace",
 		billingEmail: "admin@example.com",
 		credits: 0,
-		retentionLevel: "retain",
+		retentionLevel: "none",
 		plan: "free",
 		kind: "devpass",
 		devPlan: "pro",
@@ -1750,8 +1911,17 @@ async function seed() {
 		const streamedCount = Math.floor(baseRequests * randomFloat(0.6, 0.95));
 		const inputTokens = baseRequests * randomInt(900, 6000);
 		const outputTokens = baseRequests * randomInt(200, 2200);
-		const costPerReq = randomFloat(0.02, 0.18);
-		const totalCost = baseRequests * costPerReq;
+		// Vary the cache-hit share widely so the usage chart's token/cost
+		// breakdown shows hours where a big token total is cheap (mostly cached)
+		// next to hours where a smaller total is expensive (fresh input + output).
+		const hourCachedTokens = Math.floor(inputTokens * randomFloat(0.05, 0.85));
+		// Derive costs from the token mix at plausible per-token rates so the
+		// per-class costs and the total reconcile ($3/M fresh input, $0.30/M
+		// cached input, $15/M output).
+		const hourInputCost = (inputTokens - hourCachedTokens) * 3e-6;
+		const hourCachedInputCost = hourCachedTokens * 0.3e-6;
+		const hourOutputCost = outputTokens * 15e-6;
+		const totalCost = hourInputCost + hourCachedInputCost + hourOutputCost;
 		devpassHourlyStats.push({
 			id: `devpass-phs-${h}`,
 			projectId: "test-personal-project-id",
@@ -1774,16 +1944,16 @@ async function seed() {
 			outputTokens: String(outputTokens),
 			totalTokens: String(inputTokens + outputTokens),
 			reasoningTokens: "0",
-			cachedTokens: String(Math.floor(inputTokens * 0.15)),
+			cachedTokens: String(hourCachedTokens),
 			cost: Number(totalCost.toFixed(4)),
-			inputCost: Number((totalCost * 0.55).toFixed(4)),
-			outputCost: Number((totalCost * 0.4).toFixed(4)),
-			requestCost: Number((totalCost * 0.05).toFixed(4)),
+			inputCost: Number(hourInputCost.toFixed(4)),
+			outputCost: Number(hourOutputCost.toFixed(4)),
+			requestCost: 0,
 			dataStorageCost: 0,
 			discountSavings: 0,
 			imageInputCost: 0,
 			imageOutputCost: 0,
-			cachedInputCost: 0,
+			cachedInputCost: Number(hourCachedInputCost.toFixed(4)),
 			creditsRequestCount: baseRequests,
 			apiKeysRequestCount: 0,
 			creditsCost: Number(totalCost.toFixed(4)),
@@ -1940,7 +2110,7 @@ async function seed() {
 		name: "Test User's Workspace",
 		billingEmail: "admin@example.com",
 		credits: 0,
-		retentionLevel: "retain",
+		retentionLevel: "none",
 		plan: "free",
 		kind: "devpass",
 		devPlan: "pro",
@@ -1948,6 +2118,61 @@ async function seed() {
 		devPlanCreditsUsed: usedCredits.toFixed(4),
 		devPlanCreditsLimit: String(getDevPlanCreditsLimit("pro")),
 		devPlanBillingCycleStart: daysAgo(12),
+	});
+
+	// An account the AbuseIPDB check flagged at sign-up, so the admin dashboard's
+	// "Flagged Accounts" page has something to review locally. The IP is from the
+	// TEST-NET-3 documentation range.
+	await upsert(tables.user, {
+		id: "flagged-user-id",
+		name: "Flagged Signup",
+		// Login: flagged@example.com / flagged@example.com (password == email)
+		email: "flagged@example.com",
+		emailVerified: true,
+		riskStatus: "flagged",
+		riskFlaggedAt: daysAgo(1),
+		riskFlagSource: "signup",
+		riskFlagIp: "203.0.113.24",
+		riskFlagDetails: {
+			ipAddress: "203.0.113.24",
+			abuseConfidenceScore: 100,
+			totalReports: 47,
+			countryCode: "NL",
+			usageType: "Data Center/Web Hosting/Transit",
+			isp: "Example Hosting B.V.",
+			isTor: false,
+		},
+	});
+
+	await upsert(tables.account, {
+		id: "flagged-account-id",
+		providerId: "credential",
+		accountId: "flagged-account-id",
+		password: await hashPassword("flagged@example.com"),
+		userId: "flagged-user-id",
+	});
+
+	await upsert(tables.organization, {
+		id: "flagged-org-id",
+		name: "Flagged Organization",
+		billingEmail: "flagged@example.com",
+		credits: 5,
+		retentionLevel: "none",
+		riskFlagged: true,
+	});
+
+	await upsert(tables.userOrganization, {
+		id: "flagged-user-org-id",
+		userId: "flagged-user-id",
+		organizationId: "flagged-org-id",
+		role: "owner",
+	});
+
+	await upsert(tables.project, {
+		id: "flagged-project-id",
+		name: "Default Project",
+		organizationId: "flagged-org-id",
+		mode: "credits",
 	});
 
 	await upsert(tables.user, {
@@ -1973,6 +2198,8 @@ async function seed() {
 		credits: 1000,
 		retentionLevel: "retain",
 		plan: "enterprise",
+		planStartedAt: daysAgo(300),
+		planExpiresAt: daysFromNow(65),
 	});
 
 	await upsert(tables.userOrganization, {
@@ -2064,6 +2291,51 @@ async function seed() {
 		createdBy: "enterprise-dev-user-id",
 	});
 
+	// Guardrails: an org-level config that the Enterprise Project inherits, plus
+	// a project-level override on the Restricted Project so both states of the
+	// organization/project relationship are visible locally.
+	await upsert(tables.guardrailConfig, {
+		id: "enterprise-guardrail-config-id",
+		organizationId: "enterprise-org-id",
+		enabled: true,
+		maxFileSizeMb: 8,
+	});
+
+	await upsert(tables.guardrailRule, {
+		id: "enterprise-guardrail-rule-id",
+		organizationId: "enterprise-org-id",
+		name: "Unreleased project codenames",
+		type: "blocked_terms",
+		config: {
+			type: "blocked_terms",
+			terms: ["project-atlas", "unannounced-product"],
+			matchType: "contains",
+			caseSensitive: false,
+		},
+		priority: 10,
+		action: "block",
+	});
+
+	await upsert(tables.guardrailConfig, {
+		id: "enterprise-project-guardrail-config-id",
+		organizationId: "enterprise-org-id",
+		projectId: "enterprise-project-secondary-id",
+		inheritOrganization: false,
+		enabled: true,
+		maxFileSizeMb: 2,
+	});
+
+	await upsert(tables.guardrailRule, {
+		id: "enterprise-project-guardrail-rule-id",
+		organizationId: "enterprise-org-id",
+		projectId: "enterprise-project-secondary-id",
+		name: "Customer account identifiers",
+		type: "custom_regex",
+		config: { type: "custom_regex", pattern: "\\bACC-\\d{9}\\b" },
+		priority: 20,
+		action: "redact",
+	});
+
 	await Promise.all(logs.map((log) => upsert(tables.log, log)));
 
 	await upsert(tables.transaction, {
@@ -2140,14 +2412,27 @@ async function seed() {
 			billingEmail: org.billingEmail,
 			plan: org.plan,
 			credits: org.credits,
+			// DevPass and Chat orgs are always metadata-only; retention is not
+			// offered on those products.
 			retentionLevel:
-				org.plan === "enterprise"
-					? "retain"
-					: secureRandom() < 0.5
+				org.kind !== "default"
+					? "none"
+					: org.plan === "enterprise"
 						? "retain"
-						: "none",
+						: secureRandom() < 0.5
+							? "retain"
+							: "none",
 			status: org.status,
 			kind: org.kind,
+			planStartedAt: org.planTermDays
+				? daysAgo(org.planTermDays.started)
+				: null,
+			planExpiresAt: org.planTermDays
+				? daysFromNow(org.planTermDays.endsIn)
+				: null,
+			isTrialActive: Boolean(org.trialDays),
+			trialStartDate: org.trialDays ? daysAgo(org.trialDays.started) : null,
+			trialEndDate: org.trialDays ? daysFromNow(org.trialDays.endsIn) : null,
 			devPlan: org.devPlan,
 			devPlanCreditsUsed:
 				org.devPlan !== "none" ? String(randomFloat(0, 20)) : "0",
@@ -2523,6 +2808,16 @@ async function seed() {
 	const seedModelHistory = generateSeedModelHistory();
 	await bulkInsert(tables.modelHistory, seedModelHistory);
 
+	const seedMappingHistoryHourly =
+		generateSeedModelProviderMappingHistoryHourly(seedMappings);
+	await bulkInsert(
+		tables.modelProviderMappingHistoryHourly,
+		seedMappingHistoryHourly,
+	);
+
+	const seedModelHistoryHourly = generateSeedModelHistoryHourly();
+	await bulkInsert(tables.modelHistoryHourly, seedModelHistoryHourly);
+
 	await upsert(tables.enterpriseContactSubmission, {
 		id: "ecs_seed_1",
 		name: "Sarah Chen",
@@ -2538,7 +2833,7 @@ async function seed() {
 	});
 
 	await closeDatabase();
-	await redisClient.quit();
+	await Promise.all([redisClient.quit(), storageRedisClient.quit()]);
 }
 
 void seed();

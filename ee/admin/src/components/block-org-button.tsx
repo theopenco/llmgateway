@@ -14,11 +14,22 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface BlockOrgButtonProps {
 	orgId: string;
 	orgName: string;
 	disabled?: boolean;
+	/**
+	 * Why the button is disabled, surfaced as its tooltip. Set when an
+	 * organization still has credits so the admin sees that blocking is refused
+	 * on purpose rather than broken.
+	 */
+	disabledReason?: string;
 	variant?: "icon" | "full";
 	onBlock: (orgId: string) => Promise<{
 		success: boolean;
@@ -31,6 +42,7 @@ export function BlockOrgButton({
 	orgId,
 	orgName,
 	disabled,
+	disabledReason,
 	variant = "icon",
 	onBlock,
 }: BlockOrgButtonProps) {
@@ -38,6 +50,8 @@ export function BlockOrgButton({
 	const [open, setOpen] = useState(false);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const actionTitle =
+		"Block organization, deactivate every member, and cancel all subscriptions";
 
 	const handleConfirm = async () => {
 		setLoading(true);
@@ -72,24 +86,38 @@ export function BlockOrgButton({
 				}
 			}}
 		>
-			<DialogTrigger asChild>
-				{variant === "full" ? (
-					<Button variant="destructive" size="sm" disabled={disabled}>
-						<ShieldBan className="mr-1.5 h-4 w-4" />
-						Block account
-					</Button>
-				) : (
-					<Button
-						variant="ghost"
-						size="icon-sm"
-						className="text-destructive hover:text-destructive"
-						disabled={disabled}
-						title="Block account"
-					>
-						<ShieldBan className="h-4 w-4" />
-					</Button>
-				)}
-			</DialogTrigger>
+			<Tooltip>
+				<TooltipTrigger asChild>
+					<span className="inline-flex">
+						<DialogTrigger asChild>
+							{variant === "full" ? (
+								<Button
+									variant="destructive"
+									size="sm"
+									aria-label="Block account"
+									disabled={disabled}
+								>
+									<ShieldBan className="mr-1.5 h-4 w-4" />
+									Block account
+								</Button>
+							) : (
+								<Button
+									variant="ghost"
+									size="icon-sm"
+									aria-label="Block account"
+									className="text-destructive hover:text-destructive"
+									disabled={disabled}
+								>
+									<ShieldBan className="h-4 w-4" />
+								</Button>
+							)}
+						</DialogTrigger>
+					</span>
+				</TooltipTrigger>
+				<TooltipContent className="max-w-xs">
+					{disabled ? disabledReason : actionTitle}
+				</TooltipContent>
+			</Tooltip>
 			<DialogContent>
 				<DialogHeader>
 					<DialogTitle>Block this account?</DialogTitle>
@@ -113,8 +141,8 @@ export function BlockOrgButton({
 							</ul>
 							<p>
 								This action is intended for confirmed abuse (duplicate cards,
-								key sharing, fraud). Re-enable via the status toggle if it was
-								done by mistake.
+								key sharing, fraud). Re-enabling the organization later does not
+								reactivate its members or restore cancelled subscriptions.
 							</p>
 						</div>
 					</DialogDescription>

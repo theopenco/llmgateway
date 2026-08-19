@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useState } from "react";
 
 import { HistoryChart } from "@/components/history-chart";
+import { TokenBreakdownCell } from "@/components/token-breakdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -196,6 +197,9 @@ function ModelRow({
 				<TableCell className="tabular-nums">
 					${model.totalCost.toFixed(4)}
 				</TableCell>
+				<TableCell>
+					<TokenBreakdownCell breakdown={model} />
+				</TableCell>
 				<TableCell className="tabular-nums text-xs">
 					{hasTokenPricing ? (
 						<>
@@ -255,7 +259,7 @@ function ModelRow({
 			</TableRow>
 			{expanded && (
 				<TableRow>
-					<TableCell colSpan={15} className="p-4">
+					<TableCell colSpan={16} className="p-4">
 						<HistoryChart
 							title={`${model.name !== model.id ? model.name : model.id} — History`}
 							description="Request volume, errors, latency, and tokens over time"
@@ -308,6 +312,7 @@ export function ModelsTable({
 					{sh("Providers", "providerCount")}
 					{sh("Requests", "logsCount")}
 					{sh("Cost", "totalCost")}
+					<TableHead>Tokens</TableHead>
 					<TableHead>Pricing</TableHead>
 					{sh("Errors", "errorsCount")}
 					<TableHead>Error Rate</TableHead>
@@ -321,7 +326,7 @@ export function ModelsTable({
 				{models.length === 0 ? (
 					<TableRow>
 						<TableCell
-							colSpan={15}
+							colSpan={16}
 							className="h-24 text-center text-muted-foreground"
 						>
 							No models found

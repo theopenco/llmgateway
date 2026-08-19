@@ -17,19 +17,22 @@ interface EligibilityResponse {
 }
 
 export default async function DevPlanCancellationFeedbackPage() {
-	const userData = await fetchServerData<{ user: { id: string } } | null>(
+	const userDataPromise = fetchServerData<{ user: { id: string } } | null>(
 		"GET",
 		"/user/me",
 	);
+	const eligibilityPromise = fetchServerData<EligibilityResponse>(
+		"GET",
+		"/dev-plan-cancellation-feedback/eligibility",
+	);
+
+	const userData = await userDataPromise;
 
 	if (!userData?.user) {
 		redirect("/login?returnUrl=/dashboard/feedback/dev-plan-cancellation");
 	}
 
-	const eligibility = await fetchServerData<EligibilityResponse>(
-		"GET",
-		"/dev-plan-cancellation-feedback/eligibility",
-	);
+	const eligibility = await eligibilityPromise;
 
 	return (
 		<div className="min-h-screen bg-background py-12">

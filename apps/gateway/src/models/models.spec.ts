@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import { app } from "@/app.js";
 
@@ -49,6 +49,70 @@ describe("Models API", () => {
 		expect(firstModel).toHaveProperty("structured_outputs");
 	});
 
+	// Claude Code populates its /model picker from GET /v1/models?limit=1000 when
+	// CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1. It reads `id` and the optional
+	// `display_name` off each `data` entry and drops ids that don't start with
+	// "claude"/"anthropic", so our Claude models must keep carrying a label.
+	test("GET /v1/models serves the Claude Code gateway discovery contract", async () => {
+		const res = await app.request("/v1/models?limit=1000");
+		expect(res.status).toBe(200);
+
+		const json = await res.json();
+		expect(Array.isArray(json.data)).toBe(true);
+
+		for (const model of json.data) {
+			expect(typeof model.id).toBe("string");
+			expect(typeof model.display_name).toBe("string");
+			expect(model.display_name.length).toBeGreaterThan(0);
+		}
+
+		const discoverable = json.data.filter(
+			(m: { id: string }) =>
+				m.id.startsWith("claude") || m.id.startsWith("anthropic"),
+		);
+		expect(discoverable.length).toBeGreaterThan(0);
+
+		const sonnet = discoverable.find(
+			(m: { id: string }) => m.id === "claude-sonnet-5",
+		);
+		expect(sonnet?.display_name).toBe("Claude Sonnet 5");
+	});
+
+	test("GET /v1/models?mapped=true returns one provider-prefixed entry per mapping", async () => {
+		const [mappedRes, rootRes] = await Promise.all([
+			app.request("/v1/models?mapped=true"),
+			app.request("/v1/models"),
+		]);
+		expect(mappedRes.status).toBe(200);
+		const mapped = await mappedRes.json();
+		const root = await rootRes.json();
+
+		expect(Array.isArray(mapped.data)).toBe(true);
+		// The mapped view expands multi-provider models, so it must be strictly
+		// larger than the aggregated catalogue.
+		expect(mapped.data.length).toBeGreaterThan(root.data.length);
+
+		// Ids are `provider/model-id`, unique, and each entry carries exactly the
+		// one mapping named by its prefix.
+		const ids = mapped.data.map((m: { id: string }) => m.id);
+		expect(new Set(ids).size).toBe(ids.length);
+		for (const model of mapped.data) {
+			expect(model.providers).toHaveLength(1);
+			expect(model.id).toBe(
+				`${model.providers[0].providerId}/${model.id.split("/").slice(1).join("/")}`,
+			);
+		}
+
+		// Entry-level pricing/context come from that specific mapping, not the
+		// cheapest mapping across providers.
+		const sonnet = mapped.data.find(
+			(m: { id: string }) => m.id === "anthropic/claude-sonnet-5",
+		);
+		expect(sonnet).toBeDefined();
+		expect(sonnet.display_name).toBe("Claude Sonnet 5 (Anthropic)");
+		expect(sonnet.pricing.prompt).toBe(sonnet.providers[0].pricing.prompt);
+	});
+
 	test("GET /v1/models exposes min_cacheable_tokens on provider mappings that define it", async () => {
 		const res = await app.request("/v1/models");
 		expect(res.status).toBe(200);
@@ -70,6 +134,51 @@ describe("Models API", () => {
 				expect(p.min_cacheable_tokens).toBeUndefined();
 			}
 		}
+	});
+
+	test("GET /v1/models exposes max_output per provider mapping and as the safe model-level minimum", async () => {
+		const res = await app.request("/v1/models?include_deactivated=true");
+		expect(res.status).toBe(200);
+		const json = await res.json();
+
+		const haiku = json.data.find(
+			(m: { id: string }) => m.id === "claude-haiku-4-5",
+		);
+		expect(haiku).toBeDefined();
+		const anthropicMapping = haiku.providers.find(
+			(p: { providerId: string }) => p.providerId === "anthropic",
+		);
+		expect(anthropicMapping.max_output).toBe(64000);
+		expect(haiku.max_output).toBe(64000);
+
+		// The model-level value must be the minimum across still-servable
+		// mappings that declare a limit (requests are validated against the
+		// serving mapping's maxOutput, and deactivated mappings can no longer
+		// serve), and omitted entirely when no such mapping declares one.
+		const now = new Date();
+		const definitionById = new Map(modelsList.map((m) => [m.id, m]));
+		for (const model of json.data) {
+			const definition = definitionById.get(model.id);
+			expect(definition).toBeDefined();
+			const limits = (definition!.providers as ProviderModelMapping[])
+				.filter((p) => !(p.deactivatedAt && now > p.deactivatedAt))
+				.map((p) => p.maxOutput)
+				.filter((limit): limit is number => limit !== undefined);
+
+			expect(model.max_output).toBe(
+				limits.length > 0 ? Math.min(...limits) : undefined,
+			);
+		}
+
+		// kimi-k2 has a deactivated mapping declaring 8192; the advertised bound
+		// must come from the mappings that can still serve (131072), not from
+		// limits that no longer apply. deepseek-v3.2 used to pin this case, but
+		// Qianfan serves it with a genuine 32768 output cap, which matches the
+		// deactivated Nebius limit and left the assertion unable to tell the two
+		// apart.
+		const kimi = json.data.find((m: { id: string }) => m.id === "kimi-k2");
+		expect(kimi).toBeDefined();
+		expect(kimi.max_output).toBe(131072);
 	});
 
 	test("GET /v1/models exposes reasoning_efforts on provider mappings that define them", async () => {
@@ -371,6 +480,64 @@ describe("Models API", () => {
 		expect(deepseek.pricing.prompt).toBe("0.26e-6");
 		expect(deepseek.pricing.completion).toBe("0.38e-6");
 		expect(deepseek.pricing.input_cache_read).toBe("0.13e-6");
+	});
+
+	test("GET /v1/models reports JSON capabilities only from servable provider mappings", async () => {
+		// Freeze the clock: the handler captures `new Date()` during the
+		// request, so the test must evaluate servability at the same instant
+		// (otherwise a mapping whose deactivatedAt lies between the request
+		// and the assertion could flake).
+		const frozenNow = new Date("2026-08-11T00:00:00Z");
+		vi.useFakeTimers();
+		vi.setSystemTime(frozenNow);
+		try {
+			const res = await app.request("/v1/models");
+			expect(res.status).toBe(200);
+
+			const json = await res.json();
+			const isServable = (p: ProviderModelMapping) =>
+				!(p.deactivatedAt && frozenNow > p.deactivatedAt);
+			const definitionById = new Map(modelsList.map((m) => [m.id, m]));
+
+			// json_output / structured_outputs must reflect mappings that can
+			// actually serve requests: a deactivated mapping can no longer be
+			// routed to, so it must not advertise a JSON capability (mirrors the
+			// deactivation filter used for pricing and max_output). Deprecated
+			// mappings remain servable (isServable only filters deactivatedAt);
+			// no deprecated-only mapping with a JSON flag exists in the catalog
+			// today, so that branch is covered by this loop's semantics.
+			for (const model of json.data) {
+				const definition = definitionById.get(model.id);
+				expect(definition).toBeDefined();
+				const servable = (
+					definition!.providers as ProviderModelMapping[]
+				).filter(isServable);
+				expect(model.json_output, `json_output for ${model.id}`).toBe(
+					servable.some((p) => p.jsonOutput === true),
+				);
+				expect(
+					model.structured_outputs,
+					`structured_outputs for ${model.id}`,
+				).toBe(servable.some((p) => p.jsonOutputSchema === true));
+			}
+
+			// Focused branches: qwen3-235b-a22b-thinking-2507 has its only soft
+			// mapping (nebius) deactivated, so json_output must be false even
+			// though a jsonOutput mapping exists. minimax-m2.7 has a deactivated
+			// soft mapping (together-ai) alongside servable soft mappings, so
+			// json_output stays true and structured_outputs stays false.
+			const byId = (id: string) =>
+				json.data.find((m: { id: string }) => m.id === id);
+			const qwen = byId("qwen3-235b-a22b-thinking-2507");
+			expect(qwen).toBeDefined();
+			expect(qwen!.json_output).toBe(false);
+			const m27 = byId("minimax-m2.7");
+			expect(m27).toBeDefined();
+			expect(m27!.json_output).toBe(true);
+			expect(m27!.structured_outputs).toBe(false);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	test("GET /v1/models exposes cache pricing detail per provider mapping", async () => {

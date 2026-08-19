@@ -1,0 +1,87 @@
+{{- if .Values.storageRedis.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "llmgateway.fullname" . }}-redis-storage
+  labels:
+    {{- include "llmgateway.componentLabels" (dict "context" . "component" "redis-storage") | nindent 4 }}
+spec:
+  serviceName: {{ include "llmgateway.fullname" . }}-redis-storage
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "llmgateway.componentSelectorLabels" (dict "context" . "component" "redis-storage") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "llmgateway.componentSelectorLabels" (dict "context" . "component" "redis-storage") | nindent 8 }}
+    spec:
+      {{- include "llmgateway.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: redis-storage
+          image: {{ .Values.storageRedis.image.repository }}:{{ .Values.storageRedis.image.tag }}
+          imagePullPolicy: {{ .Values.storageRedis.image.pullPolicy | default "IfNotPresent" }}
+          ports:
+            - name: redis
+              containerPort: 6379
+              protocol: TCP
+          # AOF persistence: this instance holds Responses API state (30-day
+          # retention), not just cache, so it must survive restarts.
+          command:
+            - redis-server
+            - --appendonly
+            - "yes"
+            {{- if .Values.storageRedis.password }}
+            - --requirepass
+            - $(STORAGE_REDIS_PASSWORD)
+            {{- end }}
+          {{- if .Values.storageRedis.password }}
+          env:
+            - name: STORAGE_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "llmgateway.secretName" . }}
+                  key: STORAGE_REDIS_PASSWORD
+          {{- end }}
+          readinessProbe:
+            exec:
+              command:
+                - redis-cli
+                {{- if .Values.storageRedis.password }}
+                - -a
+                - $(STORAGE_REDIS_PASSWORD)
+                {{- end }}
+                - ping
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command:
+                - redis-cli
+                {{- if .Values.storageRedis.password }}
+                - -a
+                - $(STORAGE_REDIS_PASSWORD)
+                {{- end }}
+                - ping
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml .Values.storageRedis.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        {{- if .Values.storageRedis.persistence.storageClass }}
+        storageClassName: {{ .Values.storageRedis.persistence.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.storageRedis.persistence.size | default "10Gi" }}
+{{- end }}

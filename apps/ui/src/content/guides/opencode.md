@@ -2,11 +2,14 @@
 id: opencode
 slug: opencode
 title: OpenCode Integration
-description: Connect OpenCode to 200+ models through LLM Gateway's built-in provider. No config files needed — just select, authenticate, and code.
+seoTitle: "OpenCode Setup: Run 200+ Models in the CLI"
+description: Connect OpenCode to 200+ models via LLM Gateway's built-in provider. No config files — select, authenticate, and code. Kimi K3, GPT-5 and Claude included.
 date: 2026-01-09
 ---
 
 OpenCode is an open-source AI coding agent for your terminal, IDE, or desktop. LLM Gateway is a built-in provider in OpenCode, so setup takes under a minute — no config files or npm adapters required. You get access to 200+ models from 40+ providers, all tracked in one dashboard.
+
+> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
 
 ## Prerequisites
 

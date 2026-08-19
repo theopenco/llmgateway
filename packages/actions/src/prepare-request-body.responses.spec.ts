@@ -2,12 +2,30 @@ import { describe, expect, test } from "vitest";
 
 import { prepareRequestBody } from "./prepare-request-body.js";
 
-import type { BaseMessage } from "@llmgateway/models";
+import type {
+	BaseMessage,
+	ProviderId,
+	ToolChoiceType,
+} from "@llmgateway/models";
 
 interface ResponsesBody {
 	input: Array<Record<string, unknown>>;
 	reasoning?: { context?: string };
+	tool_choice?: unknown;
 }
+
+const WEATHER_TOOL = {
+	type: "function" as const,
+	function: {
+		name: "get_weather",
+		description: "Get the current weather for a given city",
+		parameters: {
+			type: "object",
+			properties: { city: { type: "string" } },
+			required: ["city"],
+		},
+	},
+};
 
 // Tests for the OpenAI Responses API request transform: encrypted reasoning
 // replay provenance and output-item ordering for tool-call turns.
@@ -16,13 +34,20 @@ async function buildOpenAIResponsesBody(
 	messages: BaseMessage[],
 	opts: {
 		reasoning_context?: "auto" | "current_turn" | "all_turns";
+		tool_choice?: ToolChoiceType;
+		provider?: { id: ProviderId; model: string; region: string | null };
 	} = {},
 ): Promise<ResponsesBody> {
+	const provider = opts.provider ?? {
+		id: "openai" as ProviderId,
+		model: "gpt-4o",
+		region: null,
+	};
 	return (await prepareRequestBody(
-		"openai",
-		"gpt-4o",
-		null,
-		"gpt-4o",
+		provider.id,
+		provider.model,
+		provider.region,
+		provider.model,
 		messages,
 		false, // stream
 		undefined, // temperature
@@ -31,8 +56,8 @@ async function buildOpenAIResponsesBody(
 		undefined, // frequency_penalty
 		undefined, // presence_penalty
 		undefined, // response_format
-		undefined, // tools
-		undefined, // tool_choice
+		opts.tool_choice ? [WEATHER_TOOL] : undefined, // tools
+		opts.tool_choice, // tool_choice
 		undefined, // reasoning_effort
 		true, // supportsReasoning
 		false, // isProd
@@ -155,6 +180,47 @@ describe("transform to OpenAI Responses API", () => {
 		);
 		expect(assistantMessage!.phase).toBe("commentary");
 		expect(assistantMessage!.content_before_tool_calls).toBeUndefined();
+	});
+
+	test("flattens a named function tool_choice into the Responses shape", async () => {
+		const body = await buildOpenAIResponsesBody(
+			[{ role: "user", content: "weather in SF?" }],
+			{ tool_choice: { type: "function", function: { name: "get_weather" } } },
+		);
+		expect(body.tool_choice).toEqual({
+			type: "function",
+			name: "get_weather",
+		});
+	});
+
+	test("flattens a named function tool_choice on Bedrock Mantle", async () => {
+		// Mantle is Responses-API-only and rejects the Chat Completions shape
+		// with "Invalid 'tool_choice': value did not match any expected variant".
+		const body = await buildOpenAIResponsesBody(
+			[{ role: "user", content: "weather in SF?" }],
+			{
+				tool_choice: { type: "function", function: { name: "get_weather" } },
+				provider: {
+					id: "aws-mantle" as ProviderId,
+					model: "gpt-5.6-sol",
+					region: "us-east-2",
+				},
+			},
+		);
+		expect(body.tool_choice).toEqual({
+			type: "function",
+			name: "get_weather",
+		});
+	});
+
+	test("passes the tool_choice string modes through unchanged", async () => {
+		for (const mode of ["auto", "none", "required"] as const) {
+			const body = await buildOpenAIResponsesBody(
+				[{ role: "user", content: "weather in SF?" }],
+				{ tool_choice: mode },
+			);
+			expect(body.tool_choice).toBe(mode);
+		}
 	});
 
 	test("forwards reasoning.context (including auto) to OpenAI", async () => {

@@ -2,6 +2,39 @@ import type { ModelDefinition } from "@/models.js";
 
 export const zaiModels = [
 	{
+		id: "glm-5.3",
+		name: "GLM-5.3",
+		description:
+			"Zhipu GLM-5.3 flagship coding model, post-trained on the GLM-5.2 base with stronger agentic coding and emergent cybersecurity capabilities and a 1M context window.",
+		family: "zai",
+		releasedAt: new Date("2026-08-14"),
+		providers: [
+			{
+				providerId: "zai",
+				externalId: "glm-5.3",
+				inputPrice: "1.4e-6",
+				cachedInputPrice: "0.26e-6",
+				outputPrice: "4.4e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 128000,
+				streaming: true,
+				reasoning: true,
+				// glm-5.3 dropped support for disabling thinking, so no "none"
+				// tier: a request that omits thinking or sends thinking.type
+				// "disabled" is rejected with code 1210, "This model always
+				// engages in thinking and cannot be disabled; please use low,
+				// high, or max".
+				reasoningEfforts: ["low", "high", "max"],
+				vision: false,
+				tools: true,
+				webSearch: true,
+				webSearchPrice: "0.01",
+				jsonOutput: true,
+			},
+		],
+	},
+	{
 		id: "glm-5.2",
 		name: "GLM-5.2",
 		description:
@@ -26,6 +59,33 @@ export const zaiModels = [
 				webSearch: true,
 				webSearchPrice: "0.01",
 				jsonOutput: true,
+			},
+			{
+				providerId: "novita",
+				externalId: "zai-org/glm-5.2",
+				inputPrice: "1.4e-6",
+				cachedInputPrice: "0.26e-6",
+				outputPrice: "4.4e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: false,
+				tools: true,
+				// JSON mode is unreliable on this deployment: roughly half of the
+				// responses put the object in reasoning_content with empty content, and
+				// the rest markdown-fence it. json_schema behaves the same way.
+				jsonOutput: false,
 			},
 			{
 				providerId: "canopywave",
@@ -126,15 +186,28 @@ export const zaiModels = [
 				providerId: "alibaba",
 				externalId: "glm-5.2",
 				inputPrice: "1.4e-6",
-				// implicit cache hits bill at 20% of the input price
 				cachedInputPrice: "0.28e-6",
 				outputPrice: "4.4e-6",
-				regions: [{ id: "singapore" }],
+				regions: [
+					{ id: "singapore" },
+					{ id: "eu-frankfurt" },
+					{ id: "us-virginia" },
+					{ id: "cn-beijing" },
+				],
 				requestPrice: "0",
 				contextSize: 1000000,
 				maxOutput: 131072,
 				streaming: true,
 				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				reasoningMaxTokens: true,
 				vision: false,
 				tools: true,
@@ -150,6 +223,7 @@ export const zaiModels = [
 				requestPrice: "0",
 				contextSize: 1024000,
 				maxOutput: 128000,
+				quantization: "fp4",
 				streaming: true,
 				reasoning: true,
 				vision: false,
@@ -169,6 +243,50 @@ export const zaiModels = [
 				quantization: "fp4",
 				streaming: true,
 				reasoning: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
+				providerId: "scx-ai-gp",
+				externalId: "GLM-5.2",
+				inputPrice: "0.55e-6",
+				cachedInputPrice: "0.111e-6",
+				outputPrice: "1.784e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				// SCX rejects max_tokens above 131072 ("expected a value <= 131072"),
+				// despite its catalogue advertising a 128k ceiling
+				maxOutput: 131072,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
+				providerId: "baidu",
+				externalId: "glm-5.2",
+				inputPrice: "1.4e-6",
+				cachedInputPrice: "0.26e-6",
+				outputPrice: "4.4e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				// Qianfan ignores reasoning_effort="none"; its thinking switch works.
+				requiresDisableThinkingParam: true,
 				vision: false,
 				tools: true,
 				jsonOutput: true,
@@ -203,36 +321,33 @@ export const zaiModels = [
 			{
 				providerId: "novita",
 				externalId: "zai-org/glm-5.1",
-				inputPrice: "1.4e-6",
+				inputPrice: "1.38e-6",
 				cachedInputPrice: "0.26e-6",
 				outputPrice: "4.4e-6",
 				requestPrice: "0",
 				contextSize: 204800,
-				maxOutput: 131100,
+				maxOutput: 131072,
 				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				// novita's glm-5.1 reasons adaptively and omits reasoning_content
 				// for simple prompts; no parameter forces it on
 				reasoningOutput: "omit",
 				vision: false,
 				tools: true,
 				jsonOutput: true,
-				// novita disables thinking when reasoning_effort is forwarded
-				// (empty reasoning_content); omitting it reasons by default, so
-				// exclude reasoning_effort here (verified live 2026-07-14)
-				supportedParameters: [
-					"temperature",
-					"max_tokens",
-					"top_p",
-					"frequency_penalty",
-					"presence_penalty",
-					"stop",
-					"stream",
-					"response_format",
-					"tools",
-					"tool_choice",
-				],
+				// JSON mode consistently markdown-fences the object on this
+				// deployment, so normalize it defensively in both modes.
+				healStreamingJsonOutput: true,
 			},
 			{
 				providerId: "together-ai",
@@ -249,7 +364,6 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
-				jsonOutputSchema: true,
 			},
 			{
 				providerId: "deepinfra",
@@ -318,6 +432,32 @@ export const zaiModels = [
 				tools: true,
 				jsonOutput: true,
 			},
+			{
+				providerId: "baidu",
+				externalId: "glm-5.1",
+				inputPrice: "1.4e-6",
+				cachedInputPrice: "0.26e-6",
+				outputPrice: "4.4e-6",
+				requestPrice: "0",
+				contextSize: 202752,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				// Qianfan ignores reasoning_effort="none"; its thinking switch works.
+				requiresDisableThinkingParam: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
 		],
 	},
 	{
@@ -358,7 +498,6 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
-				jsonOutputSchema: true,
 			},
 			{
 				providerId: "novita",
@@ -368,7 +507,7 @@ export const zaiModels = [
 				outputPrice: "3.2e-6",
 				requestPrice: "0",
 				contextSize: 202800,
-				maxOutput: 131100,
+				maxOutput: 131072,
 				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
@@ -402,6 +541,8 @@ export const zaiModels = [
 				maxOutput: 16384,
 				streaming: true,
 				reasoning: true,
+				reasoningMaxTokens: true,
+				reasoningEfforts: ["none", "minimal", "low", "medium", "high", "xhigh"],
 				vision: false,
 				tools: true,
 				jsonOutput: true,
@@ -472,6 +613,37 @@ export const zaiModels = [
 				tools: true,
 				jsonOutput: true,
 			},
+			{
+				providerId: "baidu",
+				externalId: "glm-5",
+				// Use Qianfan's public list price. /v1/models may return an
+				// account-specific promotional or negotiated rate instead.
+				inputPrice: "1e-6",
+				cachedInputPrice: "0.2e-6",
+				outputPrice: "3.2e-6",
+				requestPrice: "0",
+				contextSize: 202752,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				// Qianfan ignores reasoning_effort="none"; its thinking switch works.
+				requiresDisableThinkingParam: true,
+				vision: false,
+				tools: true,
+				// The API advertises structured_outputs but Qianfan's own model page
+				// lists Structured Output as unsupported for this one. Left off until a
+				// live request settles it: an unsupported claim 400s, omitting it only
+				// routes JSON-mode traffic elsewhere.
+			},
 		],
 	},
 	{
@@ -499,7 +671,7 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				webSearch: true,
-				webSearchPrice: "0.01", // $0.01 per search
+				webSearchPrice: "0.01",
 				jsonOutput: true,
 			},
 			{
@@ -740,7 +912,7 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				webSearch: true,
-				webSearchPrice: "0.01", // $0.01 per search
+				webSearchPrice: "0.01",
 				jsonOutput: true,
 			},
 			{
@@ -761,7 +933,6 @@ export const zaiModels = [
 				jsonOutput: true,
 			},
 			{
-				// Cerebras: FP16/FP8 (weights only)
 				providerId: "cerebras",
 				test: "skip",
 				externalId: "zai-glm-4.7",
@@ -1026,11 +1197,10 @@ export const zaiModels = [
 				// function choices for glm-4.6 (verified live 2026-07-14)
 				supportedToolChoices: ["auto", "none"],
 				webSearch: true,
-				webSearchPrice: "0.01", // $0.01 per search
+				webSearchPrice: "0.01",
 				jsonOutput: true,
 			},
 			{
-				// Cerebras: FP16/FP8 (weights only)
 				providerId: "cerebras",
 				test: "skip",
 				deactivatedAt: new Date("2026-01-20"),

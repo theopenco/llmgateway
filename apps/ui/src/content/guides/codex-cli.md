@@ -2,13 +2,16 @@
 id: codex-cli
 slug: codex-cli
 title: Codex CLI Integration
-description: Use any model with OpenAI's Codex CLI through LLM Gateway. One config file, full cost tracking.
+seoTitle: "Codex CLI: Use 200+ Models, One Config"
+description: Point OpenAI's Codex CLI at Claude, Gemini, Kimi K3, or 200+ models through LLM Gateway. One config file entry, unified billing, full cost tracking.
 date: 2026-03-19
 ---
 
 Codex CLI is OpenAI's open-source terminal coding agent. By default it connects to OpenAI's API, but with LLM Gateway you can route it through a single gateway—use GPT-5.3 Codex, Gemini, Claude, or any of 200+ models while keeping full cost visibility.
 
 One config file. No code changes. Full cost tracking in your dashboard.
+
+> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
 
 ## Quick Start
 

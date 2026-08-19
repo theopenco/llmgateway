@@ -1,7 +1,14 @@
 {
-	"title": "AI SDK",
-	"description": "Build with LLM Gateway using the Vercel AI SDK",
+	"title": "Developers",
+	"description": "Build with LLM Gateway using the CLI, MCP, and the Vercel AI SDK",
 	"icon": "Code",
 	"defaultOpen": true,
-	"pages": ["index", "ai-sdk", "ai-sdk-images"]
+	"pages": [
+		"index",
+		"cli",
+		"mcp",
+		"ai-sdk",
+		"ai-sdk-images",
+		"ai-sdk-gateway-protocol"
+	]
 }

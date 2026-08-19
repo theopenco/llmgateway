@@ -49,6 +49,62 @@ describe("realtime model catalogue validation", () => {
 		},
 	);
 
+	it("declares the Gemini Live native-audio mapping exactly", () => {
+		const entry = realtimeEntries.find(
+			(e) => e.model.id === "gemini-2.5-flash-native-audio-preview-12-2025",
+		);
+		expect(entry).toBeDefined();
+		const { model, mapping } = entry!;
+		expect(model.output).toEqual(["text", "audio"]);
+		expect(model.stability).toBe("beta");
+		expect(mapping.providerId).toBe("google-ai-studio");
+		expect(mapping.externalId).toBe(
+			"gemini-2.5-flash-native-audio-preview-12-2025",
+		);
+		expect(mapping.contextSize).toBe(131072);
+		expect(mapping.maxOutput).toBe(8192);
+		expect(mapping.inputPrice).toBe("0.5e-6");
+		expect(mapping.inputAudioPrice).toBe("3.0e-6");
+		expect(mapping.outputPrice).toBe("2.0e-6");
+		expect(mapping.outputAudioPrice).toBe("12.0e-6");
+		expect(mapping.requestPrice).toBe("0");
+		// Live has no context caching, so the cached placeholders bill at the
+		// full rate rather than leaving the modality unpriceable.
+		expect(mapping.cachedInputPrice).toBe(mapping.inputPrice);
+		expect(mapping.cachedInputAudioPrice).toBe(mapping.inputAudioPrice);
+		// Image input is rejected by the session, so it must stay unpriceable.
+		expect(mapping.imageInputPrice).toBeUndefined();
+		expect(mapping.cachedImageInputPrice).toBeUndefined();
+		expect(mapping.tools).toBe(true);
+		expect(mapping.streaming).toBe(false);
+		expect(mapping.supportedVoices?.[0]).toBe("Kore");
+		expect(mapping.supportedVoices).toHaveLength(30);
+	});
+
+	it("declares the Gemini 3.1 Flash Live mapping exactly", () => {
+		const entry = realtimeEntries.find(
+			(e) => e.model.id === "gemini-3.1-flash-live-preview",
+		);
+		expect(entry).toBeDefined();
+		const { model, mapping } = entry!;
+		expect(model.output).toEqual(["text", "audio"]);
+		expect(mapping.providerId).toBe("google-ai-studio");
+		expect(mapping.externalId).toBe("gemini-3.1-flash-live-preview");
+		expect(mapping.contextSize).toBe(131072);
+		expect(mapping.maxOutput).toBe(65536);
+		// https://ai.google.dev/gemini-api/docs/pricing — $0.75 text in,
+		// $3.00 audio in, $4.50 text out (thinking included), $12.00 audio out.
+		expect(mapping.inputPrice).toBe("0.75e-6");
+		expect(mapping.inputAudioPrice).toBe("3.0e-6");
+		expect(mapping.outputPrice).toBe("4.5e-6");
+		expect(mapping.outputAudioPrice).toBe("12.0e-6");
+		expect(mapping.requestPrice).toBe("0");
+		expect(mapping.cachedInputPrice).toBe(mapping.inputPrice);
+		expect(mapping.cachedInputAudioPrice).toBe(mapping.inputAudioPrice);
+		expect(mapping.imageInputPrice).toBeUndefined();
+		expect(mapping.tools).toBe(true);
+	});
+
 	const transcriptionEntries = (models as readonly ModelDefinition[]).flatMap(
 		(model) =>
 			model.providers

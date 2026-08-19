@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useState } from "react";
 
 import { HistoryChart } from "@/components/history-chart";
+import { TokenBreakdownCell } from "@/components/token-breakdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -182,6 +183,9 @@ function ProviderRow({
 				<TableCell className="tabular-nums">
 					{currencyFormatter.format(provider.totalCost)}
 				</TableCell>
+				<TableCell>
+					<TokenBreakdownCell breakdown={provider} />
+				</TableCell>
 				<TableCell className="tabular-nums">
 					{provider.avgTimeToFirstToken !== null
 						? `${Math.round(provider.avgTimeToFirstToken)}ms`
@@ -206,7 +210,7 @@ function ProviderRow({
 			</TableRow>
 			{expanded && (
 				<TableRow>
-					<TableCell colSpan={11} className="p-4">
+					<TableCell colSpan={12} className="p-4">
 						<HistoryChart
 							title={`${provider.name} — History`}
 							description="Request volume, errors, latency, and tokens over time"
@@ -257,6 +261,7 @@ export function ProvidersTable({
 					<TableHead>Error Rate</TableHead>
 					{sh("Cached", "cachedCount")}
 					{sh("Cost", "totalCost")}
+					<TableHead>Tokens</TableHead>
 					{sh("Avg TTFT", "avgTimeToFirstToken")}
 					{sh("Last Updated", "updatedAt")}
 					<TableHead></TableHead>
@@ -266,7 +271,7 @@ export function ProvidersTable({
 				{providers.length === 0 ? (
 					<TableRow>
 						<TableCell
-							colSpan={11}
+							colSpan={12}
 							className="h-24 text-center text-muted-foreground"
 						>
 							No providers found

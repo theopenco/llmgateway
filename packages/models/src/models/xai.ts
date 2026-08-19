@@ -250,7 +250,15 @@ export const xaiModels = [
 				reasoning: true,
 				tools: true,
 				jsonOutput: true,
-				supportedParameters: xaiSupportedParamsNoFreqPresence,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
 			},
 		],
 	},
@@ -425,7 +433,15 @@ export const xaiModels = [
 				reasoningOutput: "omit",
 				tools: true,
 				jsonOutput: true,
-				supportedParameters: xaiSupportedParamsNoFreqPresence,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
 			},
 		],
 	},
@@ -502,7 +518,6 @@ export const xaiModels = [
 				// xAI multi-agent models do not work with the Chat Completions API.
 				// They require the Responses API (/v1/responses) with orchestrated sub-agents.
 				// Deactivated until the gateway adds xAI Responses API routing support.
-				// Ref: https://docs.x.ai/developers/model-capabilities/text/multi-agent
 				deactivatedAt: new Date("2026-03-27"),
 				inputPrice: "2.0e-6",
 				outputPrice: "6.0e-6",
@@ -574,6 +589,10 @@ export const xaiModels = [
 				reasoning: true,
 				tools: true,
 				jsonOutput: true,
+				// Always reasons, but rejects the effort knob: xAI answers
+				// `reasoning_effort` with 400 "does not support parameter
+				// reasoningEffort", so the omission here is deliberate and
+				// makes the gateway drop the value instead of forwarding it.
 				supportedParameters: xaiSupportedParamsNoFreqPresence,
 			},
 		],
@@ -642,6 +661,9 @@ export const xaiModels = [
 				reasoningOutput: "omit",
 				tools: true,
 				jsonOutput: true,
+				// Same upstream model as xai/grok-4-20-beta-0309-reasoning,
+				// which 400s on `reasoning_effort` — leaving it undeclared
+				// keeps the gateway from forwarding a value Grok 4.20 rejects.
 				supportedParameters: xaiSupportedParamsNoFreqPresence,
 			},
 		],
@@ -685,14 +707,14 @@ export const xaiModels = [
 				externalId: "grok-4.3",
 				inputPrice: "1.25e-6",
 				outputPrice: "2.5e-6",
-				cachedInputPrice: "0.3125e-6",
+				cachedInputPrice: "0.2e-6",
 				pricingTiers: [
 					{
 						name: "Up to 200K",
 						upToTokens: 200000,
 						inputPrice: "1.25e-6",
 						outputPrice: "2.5e-6",
-						cachedInputPrice: "0.3125e-6",
+						cachedInputPrice: "0.2e-6",
 					},
 					{
 						name: "Over 200K",
@@ -771,6 +793,7 @@ export const xaiModels = [
 					"top_p",
 					"tools",
 					"tool_choice",
+					"reasoning_effort",
 				],
 			},
 		],
@@ -822,6 +845,43 @@ export const xaiModels = [
 				outputPrice: "0",
 				requestPrice: "0.02",
 				imageInputPrice: "0.002",
+				contextSize: 2000,
+				maxOutput: 4096,
+				streaming: false,
+				vision: true,
+				tools: false,
+				jsonOutput: false,
+				imageGenerations: true,
+			},
+		],
+	},
+	{
+		id: "grok-imagine-image-2-0",
+		name: "Grok Imagine Image 2.0",
+		description:
+			"xAI's second-generation image model for text-to-image generation and reference-image editing, with low and medium quality modes at 1k or 2k resolution.",
+		family: "xai",
+		output: ["image"],
+		releasedAt: new Date("2026-08-08"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "xai",
+				contentFilterPrice: 0.05,
+				externalId: "grok-imagine-image-2.0",
+				inputPrice: "0",
+				outputPrice: "0",
+				// Billed per generated image at a rate that varies with both the
+				// requested quality and resolution, so the tier keys are
+				// "<quality>/<resolution>". xAI serves medium quality at 1k when the
+				// request omits either knob, which is what "default" covers.
+				perImagePrice: {
+					"low/1k": "0.04",
+					"low/2k": "0.06",
+					"medium/1k": "0.06",
+					"medium/2k": "0.08",
+					default: "0.06",
+				},
 				contextSize: 2000,
 				maxOutput: 4096,
 				streaming: false,
@@ -920,14 +980,32 @@ export const xaiModels = [
 				contentFilterPrice: 0.05,
 				externalId: "grok-4.5",
 				inputPrice: "2.0e-6",
-				cachedInputPrice: "0.5e-6",
+				cachedInputPrice: "0.3e-6",
 				outputPrice: "6.0e-6",
+				pricingTiers: [
+					{
+						name: "Up to 200K",
+						upToTokens: 200000,
+						inputPrice: "2.0e-6",
+						outputPrice: "6.0e-6",
+						cachedInputPrice: "0.3e-6",
+					},
+					{
+						name: "Over 200K",
+						upToTokens: Infinity,
+						inputPrice: "4.0e-6",
+						outputPrice: "12.0e-6",
+						cachedInputPrice: "0.6e-6",
+					},
+				],
 				requestPrice: "0",
 				contextSize: 500_000,
 				maxOutput: undefined,
 				streaming: true,
 				vision: true,
 				reasoning: true,
+				// xAI normalizes `minimal` to low and documents `xhigh` as high for
+				// Grok 4.5. Only expose the distinct reasoning controls.
 				reasoningEfforts: ["low", "medium", "high"],
 				tools: true,
 				jsonOutput: true,
@@ -940,6 +1018,91 @@ export const xaiModels = [
 					"tool_choice",
 					"reasoning_effort",
 				],
+			},
+		],
+	},
+	{
+		id: "grok-4-6",
+		name: "Grok 4.6",
+		description:
+			"xAI's flagship reasoning model with frontier coding, knowledge work, and STEM performance, a 500K context window, vision, and tool support.",
+		family: "xai",
+		releasedAt: new Date("2026-08-06"),
+		providers: [
+			{
+				providerId: "xai",
+				contentFilterPrice: 0.05,
+				externalId: "grok-4.6",
+				inputPrice: "2.0e-6",
+				cachedInputPrice: "0.5e-6",
+				outputPrice: "6.0e-6",
+				pricingTiers: [
+					{
+						name: "Up to 200K",
+						upToTokens: 200000,
+						inputPrice: "2.0e-6",
+						outputPrice: "6.0e-6",
+						cachedInputPrice: "0.5e-6",
+					},
+					{
+						name: "Over 200K",
+						upToTokens: Infinity,
+						inputPrice: "4.0e-6",
+						outputPrice: "12.0e-6",
+						cachedInputPrice: "1.0e-6",
+					},
+				],
+				requestPrice: "0",
+				contextSize: 500_000,
+				maxOutput: undefined,
+				streaming: true,
+				vision: true,
+				reasoning: true,
+				// Reasons on every request: xAI normalizes `minimal` to low and rejects
+				// both `none` and `max`, so only distinct tiers are exposed.
+				reasoningEfforts: ["low", "medium", "high", "xhigh"],
+				tools: true,
+				jsonOutput: true,
+				// `stop`, `frequency_penalty` and `presence_penalty` all 400 with
+				// "does not support parameter", so they stay undeclared.
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
+			},
+			{
+				providerId: "aws-bedrock",
+				externalId: "xai.grok-4.6",
+				apiFormat: "openai-chat-completions",
+				inputPrice: "2.0e-6",
+				cachedInputPrice: "0.5e-6",
+				outputPrice: "6.0e-6",
+				requestPrice: "0",
+				contextSize: 500_000,
+				maxOutput: undefined,
+				streaming: true,
+				vision: true,
+				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high", "xhigh"],
+				reasoningOutput: "omit",
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
+				regions: [{ id: "us-west-2" }],
 			},
 		],
 	},
@@ -982,6 +1145,9 @@ export const xaiModels = [
 				tools: true,
 				jsonOutput: true,
 				reasoning: true,
+				// Reasons by default but rejects the effort knob: xAI answers
+				// `reasoning_effort` with 400 "does not support parameter
+				// reasoningEffort", so it stays undeclared on purpose.
 				supportedParameters: xaiSupportedParamsNoFreqPresence,
 			},
 		],

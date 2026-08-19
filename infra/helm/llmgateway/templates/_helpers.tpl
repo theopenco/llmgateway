@@ -177,6 +177,28 @@ Redis port
 {{- end }}
 
 {{/*
+Storage Redis host
+*/}}
+{{- define "llmgateway.storageRedis.host" -}}
+{{- if .Values.storageRedis.enabled }}
+{{- printf "%s-redis-storage" (include "llmgateway.fullname" .) }}
+{{- else }}
+{{- .Values.externalStorageRedis.host }}
+{{- end }}
+{{- end }}
+
+{{/*
+Storage Redis port
+*/}}
+{{- define "llmgateway.storageRedis.port" -}}
+{{- if .Values.storageRedis.enabled }}
+{{- .Values.storageRedis.port | default 6379 }}
+{{- else }}
+{{- .Values.externalStorageRedis.port | default 6379 }}
+{{- end }}
+{{- end }}
+
+{{/*
 Internal service URL helper.
 Usage: {{ include "llmgateway.serviceUrl" (dict "context" . "name" "api") }}
 */}}

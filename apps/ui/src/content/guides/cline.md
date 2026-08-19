@@ -2,11 +2,14 @@
 id: cline
 slug: cline
 title: Cline Integration
-description: Run Cline, the autonomous VS Code coding agent, on any of 200+ models through LLM Gateway. One OpenAI-compatible endpoint, unified billing, full cost tracking.
+seoTitle: "Cline Setup: Kimi K3 and 200+ Models"
+description: Run Cline, the autonomous VS Code coding agent, on Kimi K3 or 200+ models through LLM Gateway. One OpenAI-compatible endpoint, full cost tracking.
 date: 2026-07-03
 ---
 
 [Cline](https://cline.bot) is an autonomous AI coding assistant that lives in VS Code. It creates and edits files, runs terminal commands, and works through multi-step tasks on its own. Unlike Cursor, Cline routes **everything** through the endpoint you give it — so with LLM Gateway you get a full coding agent on any model in our catalog, with every request tracked and billed in one place.
+
+> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
 
 ## Quick Start
 

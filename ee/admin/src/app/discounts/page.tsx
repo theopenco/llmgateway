@@ -1,7 +1,12 @@
-import { Building2, Globe, Tag } from "lucide-react";
+import { Building2, Gauge, Globe, Tag } from "lucide-react";
 import Link from "next/link";
 
-import { DeleteDiscountButton, DiscountForm } from "@/components/discount-form";
+import {
+	DeleteDiscountButton,
+	DeleteRoutingScoreMultiplierButton,
+	DiscountForm,
+	RoutingScoreMultiplierForm,
+} from "@/components/discount-form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,12 +19,17 @@ import {
 } from "@/components/ui/table";
 import {
 	createGlobalDiscount,
+	createRoutingScoreMultiplier,
 	deleteGlobalDiscount,
+	deleteRoutingScoreMultiplier,
 	getAllOrganizationDiscounts,
 	getDiscountOptions,
 	getGlobalDiscounts,
+	getRoutingScoreMultipliers,
 } from "@/lib/admin-discounts";
 import { requireSession } from "@/lib/require-session";
+
+import type { ReactNode } from "react";
 
 function formatDate(dateString: string) {
 	return new Date(dateString).toLocaleDateString("en-US", {
@@ -75,61 +85,75 @@ function ViewToggle({ active }: { active: "global" | "organizations" }) {
 	);
 }
 
-function DiscountCells({
-	discount,
+function AdjustmentCells({
+	entry,
+	value,
 }: {
-	discount: {
+	entry: {
 		provider: string | null;
 		model: string | null;
-		discountPercent: string;
 		reason: string | null;
 		expiresAt: string | null;
 		createdAt: string;
 	};
+	value: ReactNode;
 }) {
 	return (
 		<>
 			<TableCell>
-				{discount.provider ? (
-					<Badge variant="outline">{discount.provider}</Badge>
+				{entry.provider ? (
+					<Badge variant="outline">{entry.provider}</Badge>
 				) : (
 					<span className="text-muted-foreground">All</span>
 				)}
 			</TableCell>
 			<TableCell>
-				{discount.model ? (
-					<Badge variant="secondary">{discount.model}</Badge>
+				{entry.model ? (
+					<Badge variant="secondary">{entry.model}</Badge>
 				) : (
 					<span className="text-muted-foreground">All</span>
 				)}
 			</TableCell>
-			<TableCell>
-				<span className="font-medium text-green-600">
-					{formatDiscount(discount.discountPercent)} off
-				</span>
-			</TableCell>
+			<TableCell>{value}</TableCell>
 			<TableCell className="max-w-[200px] truncate text-muted-foreground">
-				{discount.reason ?? "—"}
+				{entry.reason ?? "—"}
 			</TableCell>
 			<TableCell className="text-muted-foreground">
-				{discount.expiresAt ? (
+				{entry.expiresAt ? (
 					<span
 						className={
-							new Date(discount.expiresAt) < new Date()
-								? "text-destructive"
-								: ""
+							new Date(entry.expiresAt) < new Date() ? "text-destructive" : ""
 						}
 					>
-						{formatDate(discount.expiresAt)}
+						{formatDate(entry.expiresAt)}
 					</span>
 				) : (
 					"Never"
 				)}
 			</TableCell>
 			<TableCell className="text-muted-foreground">
-				{formatDate(discount.createdAt)}
+				{formatDate(entry.createdAt)}
 			</TableCell>
 		</>
+	);
+}
+
+function DiscountCells({
+	discount,
+}: {
+	discount: Parameters<typeof AdjustmentCells>[0]["entry"] & {
+		discountPercent: string;
+	};
+}) {
+	return (
+		<AdjustmentCells
+			entry={discount}
+			value={
+				<span className="font-medium text-green-600">
+					{formatDiscount(discount.discountPercent)} off
+				</span>
+			}
+		/>
 	);
 }
 
@@ -243,8 +267,9 @@ export default async function DiscountsPage({
 		return <OrganizationDiscountsView />;
 	}
 
-	const [discountsData, options] = await Promise.all([
+	const [discountsData, multipliersData, options] = await Promise.all([
 		getGlobalDiscounts(),
+		getRoutingScoreMultipliers(),
 		getDiscountOptions(),
 	]);
 
@@ -253,6 +278,7 @@ export default async function DiscountsPage({
 	}
 
 	const discounts = discountsData?.discounts ?? [];
+	const multipliers = multipliersData?.multipliers ?? [];
 
 	// Server action to create discount
 	async function handleCreateDiscount(data: {
@@ -300,6 +326,42 @@ export default async function DiscountsPage({
 		return { success };
 	}
 
+	async function handleCreateRoutingScoreMultiplier(data: {
+		provider: string | null;
+		model: string | null;
+		scoreMultiplier: number;
+		reason: string | null;
+		expiresAt: string | null;
+	}): Promise<{ success: boolean; error?: string }> {
+		"use server";
+
+		try {
+			const result = await createRoutingScoreMultiplier(data);
+			return result
+				? { success: true }
+				: {
+						success: false,
+						error: "Failed to create multiplier. It may already exist.",
+					};
+		} catch (error) {
+			console.error("Error creating routing score multiplier:", error);
+			return {
+				success: false,
+				error: "An error occurred while creating the multiplier",
+			};
+		}
+	}
+
+	async function handleDeleteRoutingScoreMultiplier(
+		multiplierId: string,
+	): Promise<{ success: boolean }> {
+		"use server";
+
+		return {
+			success: await deleteRoutingScoreMultiplier(multiplierId),
+		};
+	}
+
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
 			<header className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
@@ -313,7 +375,7 @@ export default async function DiscountsPage({
 								Discounts
 							</h1>
 							<p className="text-sm text-muted-foreground">
-								Discounts that apply to all organizations
+								Global pricing and internal routing adjustments
 							</p>
 						</div>
 					</div>
@@ -375,6 +437,93 @@ export default async function DiscountsPage({
 					</TableBody>
 				</Table>
 			</div>
+
+			<section className="space-y-3">
+				<div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+					<div className="flex items-center gap-3">
+						<div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+							<Gauge className="h-4 w-4" />
+						</div>
+						<div>
+							<h2 className="font-semibold">Routing score multipliers</h2>
+							<p className="text-sm text-muted-foreground">
+								Internal preference applied after customer discounts
+							</p>
+						</div>
+					</div>
+					{options && (
+						<RoutingScoreMultiplierForm
+							providers={options.providers}
+							mappings={options.mappings}
+							onSubmit={handleCreateRoutingScoreMultiplier}
+						/>
+					)}
+				</div>
+
+				<div className="overflow-x-auto rounded-lg border border-border/60 bg-card">
+					<Table>
+						<TableHeader>
+							<TableRow>
+								<TableHead>Provider</TableHead>
+								<TableHead>Model</TableHead>
+								<TableHead>Adjustment</TableHead>
+								<TableHead>Reason</TableHead>
+								<TableHead>Expires</TableHead>
+								<TableHead>Created</TableHead>
+								<TableHead className="w-[50px]" />
+							</TableRow>
+						</TableHeader>
+						<TableBody>
+							{multipliers.length === 0 ? (
+								<TableRow>
+									<TableCell
+										colSpan={7}
+										className="h-24 text-center text-muted-foreground"
+									>
+										<div className="flex flex-col items-center gap-2">
+											<Gauge className="h-8 w-8 text-muted-foreground/50" />
+											<p>No routing score multipliers configured</p>
+											<p className="text-xs">
+												Negative values prefer a target; positive values
+												penalize it
+											</p>
+										</div>
+									</TableCell>
+								</TableRow>
+							) : (
+								multipliers.map((multiplier) => {
+									const percent = Number(multiplier.scoreMultiplier) * 100;
+									return (
+										<TableRow key={multiplier.id}>
+											<AdjustmentCells
+												entry={multiplier}
+												value={
+													<span
+														className={
+															percent < 0
+																? "font-medium text-green-600"
+																: "font-medium text-amber-600"
+														}
+													>
+														{percent > 0 ? "+" : ""}
+														{percent.toFixed(1)}%
+													</span>
+												}
+											/>
+											<TableCell>
+												<DeleteRoutingScoreMultiplierButton
+													multiplierId={multiplier.id}
+													onDelete={handleDeleteRoutingScoreMultiplier}
+												/>
+											</TableCell>
+										</TableRow>
+									);
+								})
+							)}
+						</TableBody>
+					</Table>
+				</div>
+			</section>
 
 			<div className="rounded-lg border border-border/60 bg-muted/30 p-4">
 				<h3 className="text-sm font-medium">How global discounts work</h3>

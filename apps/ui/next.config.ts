@@ -124,13 +124,18 @@ const nextConfig: NextConfig = {
 				permanent: true,
 			},
 			{
+				source: "/lounge",
+				destination: "https://lounge.llmgateway.io",
+				permanent: true,
+			},
+			{
 				source: "/chat",
-				destination: "https://chat.llmgateway.io",
+				destination: "https://lounge.llmgateway.io",
 				permanent: true,
 			},
 			{
 				source: "/playground",
-				destination: "https://chat.llmgateway.io",
+				destination: "https://lounge.llmgateway.io",
 				permanent: true,
 			},
 			{
@@ -181,6 +186,16 @@ const nextConfig: NextConfig = {
 			{
 				source: "/privacy",
 				destination: "/legal/privacy",
+				permanent: true,
+			},
+			{
+				source: "/sub-processors",
+				destination: "/legal/sub-processors",
+				permanent: true,
+			},
+			{
+				source: "/subprocessors",
+				destination: "/legal/sub-processors",
 				permanent: true,
 			},
 			{

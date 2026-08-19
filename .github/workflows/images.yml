@@ -22,6 +22,8 @@ concurrency:
 jobs:
   setup:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       image_tag: ${{ steps.set-tag.outputs.IMAGE_TAG }}
       short_sha: ${{ steps.set-tag.outputs.SHORT_SHA }}
@@ -76,7 +78,7 @@ jobs:
 
       - name: Login to GitHub Container Registry (main branch only)
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v4.4.0
+        uses: docker/login-action@v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -141,7 +143,7 @@ jobs:
           merge-multiple: true
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v4.4.0
+        uses: docker/login-action@v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -210,7 +212,7 @@ jobs:
 
       - name: Login to GitHub Container Registry (for non-PR builds)
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v4.4.0
+        uses: docker/login-action@v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -267,7 +269,7 @@ jobs:
 
       - name: Login to GitHub Container Registry (main branch only)
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v4.4.0
+        uses: docker/login-action@v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -328,7 +330,7 @@ jobs:
           merge-multiple: true
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v4.4.0
+        uses: docker/login-action@v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -380,7 +382,7 @@ jobs:
 
       - name: Login to GitHub Container Registry (for non-PR builds)
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v4.4.0
+        uses: docker/login-action@v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -453,6 +455,8 @@ jobs:
       - setup
       - merge-split
     if: github.event_name == 'push' && needs.merge-split.result == 'success'
+    permissions:
+      contents: read
     steps:
       - name: Trigger infra image update
         env:

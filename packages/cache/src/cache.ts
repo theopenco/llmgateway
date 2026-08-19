@@ -2,7 +2,7 @@ import crypto from "crypto";
 
 import { logger } from "@llmgateway/logger";
 
-import { redisClient } from "./redis.js";
+import { storageRedisClient } from "./storage-redis.js";
 
 export function generateCacheKey(payload: Record<string, any>): string {
 	return crypto
@@ -22,7 +22,12 @@ export async function setCache(
 	}
 
 	try {
-		await redisClient.set(key, JSON.stringify(value), "EX", expirationSeconds);
+		await storageRedisClient.set(
+			key,
+			JSON.stringify(value),
+			"EX",
+			expirationSeconds,
+		);
 	} catch (error) {
 		logger.error("Error setting cache:", error as Error);
 	}
@@ -30,7 +35,7 @@ export async function setCache(
 
 export async function getCache(key: string): Promise<any | null> {
 	try {
-		const cachedValue = await redisClient.get(key);
+		const cachedValue = await storageRedisClient.get(key);
 		if (!cachedValue) {
 			return null;
 		}
@@ -78,7 +83,12 @@ export async function setStreamingCache(
 	}
 
 	try {
-		await redisClient.set(key, JSON.stringify(data), "EX", expirationSeconds);
+		await storageRedisClient.set(
+			key,
+			JSON.stringify(data),
+			"EX",
+			expirationSeconds,
+		);
 	} catch (error) {
 		logger.error("Error setting streaming cache:", error as Error);
 	}
@@ -88,7 +98,7 @@ export async function getStreamingCache(
 	key: string,
 ): Promise<StreamingCacheData | null> {
 	try {
-		const cachedValue = await redisClient.get(key);
+		const cachedValue = await storageRedisClient.get(key);
 		if (!cachedValue) {
 			return null;
 		}

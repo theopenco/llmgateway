@@ -1,4 +1,4 @@
-import { WebSocket, WebSocketServer } from "ws";
+import { WebSocketServer } from "ws";
 
 import {
 	reportKeyError,
@@ -9,7 +9,6 @@ import {
 import { getClientIpFromForwardedFor } from "@/lib/client-ip.js";
 
 import { logger } from "@llmgateway/logger";
-import { getProviderEnvValue, type Provider } from "@llmgateway/models";
 
 import {
 	closeRealtimeSessionRecord,
@@ -20,20 +19,34 @@ import {
 	CLIENT_SECRET_PREFIX,
 	getClientSecretRecord,
 } from "./client-secrets.js";
+import { connectUpstream, discardUpstream } from "./connect-upstream.js";
 import { RealtimeConnectError } from "./errors.js";
+import { GeminiRealtimeProxySession } from "./gemini-session.js";
 import { acquireRealtimeLease, releaseRealtimeLease } from "./leases.js";
 import { runRealtimePreflight } from "./preflight.js";
 import { RealtimeProxySession } from "./session.js";
 
 import type { RealtimeMappingMatch } from "./catalog.js";
 import type { RealtimePreflightResult } from "./preflight.js";
-import type { ClientRequest, IncomingMessage, Server } from "node:http";
+import type { IncomingMessage, Server } from "node:http";
 import type { Duplex } from "node:stream";
+import type { WebSocket } from "ws";
 
 const maxMessageBytes = () =>
 	Number(process.env.REALTIME_MAX_MESSAGE_BYTES) || 8 * 1024 * 1024;
-const upstreamHandshakeTimeoutMs = () =>
-	Number(process.env.REALTIME_UPSTREAM_HANDSHAKE_TIMEOUT_MS) || 10_000;
+
+/**
+ * Any live proxy session, regardless of upstream protocol. The server only
+ * ever needs to count sessions and force-close them during shutdown.
+ */
+interface ShutdownableSession {
+	/**
+	 * Force-close the session. Implementations settle any billable work that is
+	 * still outstanding before finalizing, so a server drain cannot drop a
+	 * charge the provider has already made.
+	 */
+	close: (code: number, reason: string) => void;
+}
 
 function writeHttpError(
 	socket: Duplex,
@@ -108,16 +121,26 @@ function parseOfferedSubprotocols(req: IncomingMessage): string[] {
 		.filter((entry) => entry.length > 0);
 }
 
-const INSECURE_API_KEY_SUBPROTOCOL_PREFIX = "openai-insecure-api-key.";
-
 /**
- * Ephemeral client secret carried in the official browser subprotocol
- * convention ("openai-insecure-api-key.<ek_...>").
+ * Browser subprotocol conventions that may carry an ephemeral client secret.
+ * The "openai-insecure-api-key." form is the official OpenAI one; the
+ * "llmgateway-insecure-api-key." form is the provider-neutral alias, used by
+ * clients (such as the Gemini playground hook) that do not speak the OpenAI
+ * realtime protocol at all.
  */
-function extractSubprotocolSecret(protocols: string[]): string | undefined {
+const INSECURE_API_KEY_SUBPROTOCOL_PREFIXES = [
+	"openai-insecure-api-key.",
+	"llmgateway-insecure-api-key.",
+] as const;
+
+export function extractSubprotocolSecret(
+	protocols: string[],
+): string | undefined {
 	for (const protocol of protocols) {
-		if (protocol.startsWith(INSECURE_API_KEY_SUBPROTOCOL_PREFIX)) {
-			return protocol.slice(INSECURE_API_KEY_SUBPROTOCOL_PREFIX.length);
+		for (const prefix of INSECURE_API_KEY_SUBPROTOCOL_PREFIXES) {
+			if (protocol.startsWith(prefix)) {
+				return protocol.slice(prefix.length);
+			}
 		}
 	}
 	return undefined;
@@ -150,87 +173,6 @@ function extractClientIp(req: IncomingMessage): string | undefined {
 	);
 }
 
-/**
- * Open the upstream provider WebSocket for a preflighted session. Resolves
- * once the upstream handshake completes (with the socket paused so no server
- * event is lost before the proxy session attaches its listeners).
- */
-async function connectUpstream(
-	preflight: RealtimePreflightResult,
-): Promise<WebSocket> {
-	const providerId = preflight.match.mapping.providerId as Provider;
-	const baseUrl =
-		getProviderEnvValue(providerId, "baseUrl", preflight.configIndex) ??
-		"https://api.openai.com";
-	const url = `${baseUrl.replace(/^http/, "ws")}/v1/realtime?model=${encodeURIComponent(preflight.match.mapping.externalId)}`;
-
-	const upstream = new WebSocket(url, {
-		headers: {
-			Authorization: `Bearer ${preflight.upstreamToken}`,
-			"OpenAI-Safety-Identifier": preflight.safetyIdentifier,
-		},
-		maxPayload: maxMessageBytes(),
-		handshakeTimeout: upstreamHandshakeTimeoutMs(),
-	});
-
-	await new Promise<void>((resolve, reject) => {
-		const onOpen = () => {
-			cleanup();
-			// Hold incoming events until the proxy session attaches listeners.
-			upstream.pause();
-			resolve();
-		};
-		const onError = (error: Error) => {
-			cleanup();
-			reject(error);
-		};
-		const onUnexpected = (
-			upstreamReq: ClientRequest,
-			upstreamRes: IncomingMessage,
-		) => {
-			cleanup();
-			// With an unexpected-response listener attached, ws does not abort the
-			// handshake itself — this listener owns the request. The request's own
-			// error handler re-emits on the WebSocket, which has no listeners after
-			// cleanup(), so absorb that first, then discard the response and destroy
-			// the request so a rejected handshake cannot leak the connection.
-			upstream.on("error", () => {});
-			upstreamRes.resume();
-			upstreamReq.destroy();
-			reject(
-				new RealtimeConnectError(
-					502,
-					"upstream_connect_failed",
-					`Upstream provider rejected the realtime connection (status ${upstreamRes.statusCode ?? "unknown"}).`,
-				),
-			);
-		};
-		const cleanup = () => {
-			upstream.off("open", onOpen);
-			upstream.off("error", onError);
-			upstream.off("unexpected-response", onUnexpected);
-		};
-		upstream.on("open", onOpen);
-		upstream.on("error", onError);
-		upstream.on("unexpected-response", onUnexpected);
-	});
-
-	return upstream;
-}
-
-/**
- * Tear down an upstream socket that never reached a proxy session.
- * connectUpstream() drops its handshake listeners once the socket is open and
- * the session that would own them is never constructed on these paths, so an
- * error listener has to be re-attached before terminating.
- */
-function discardUpstream(upstream: WebSocket): void {
-	upstream.on("error", () => {
-		// This socket is being thrown away; nothing left to report.
-	});
-	upstream.terminate();
-}
-
 export interface RealtimeServer {
 	/**
 	 * Number of currently active proxy sessions.
@@ -256,11 +198,11 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 		noServer: true,
 		maxPayload: maxMessageBytes(),
 		// Select only the public "realtime" subprotocol; the credential-bearing
-		// "openai-insecure-api-key.*" subprotocol must never be echoed back.
+		// "*-insecure-api-key.*" subprotocols must never be echoed back.
 		handleProtocols: (protocols) =>
 			protocols.has("realtime") ? "realtime" : false,
 	});
-	const sessions = new Set<RealtimeProxySession>();
+	const sessions = new Set<ShutdownableSession>();
 	let accepting = true;
 
 	server.on("upgrade", (req, socket, head) => {
@@ -505,9 +447,9 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 						preflight.match.modelId,
 					);
 				}
-				if (preflight.providerKey?.id) {
+				if (preflight.trackedKeyHealthId) {
 					reportTrackedKeyError(
-						preflight.providerKey.id,
+						preflight.trackedKeyHealthId,
 						0,
 						undefined,
 						preflight.match.modelId,
@@ -534,9 +476,9 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 					preflight.match.modelId,
 				);
 			}
-			if (preflight.providerKey?.id) {
+			if (preflight.trackedKeyHealthId) {
 				reportTrackedKeySuccess(
-					preflight.providerKey.id,
+					preflight.trackedKeyHealthId,
 					preflight.match.modelId,
 				);
 			}
@@ -566,21 +508,39 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 			try {
 				wss.handleUpgrade(req, socket, head, (clientSocket) => {
 					upgraded = true;
-					const session = new RealtimeProxySession({
-						clientSocket,
-						upstreamSocket: upstream,
-						preflight,
-						gatewayToken: token!,
-						requestedModel: requestedModel!,
-						sessionRecordId: sessionRecord.id,
-						lease,
-						source,
-						allowedTranscription,
-						userAgent: req.headers["user-agent"],
-						onClosed: (closed) => {
-							sessions.delete(closed);
-						},
-					});
+					// Gemini Live speaks its own wire protocol end to end, so it gets a
+					// sibling session implementation rather than protocol translation.
+					const session: ShutdownableSession =
+						preflight.match.mapping.providerId === "google-ai-studio"
+							? new GeminiRealtimeProxySession({
+									clientSocket,
+									upstreamSocket: upstream,
+									preflight,
+									gatewayToken: token!,
+									requestedModel: requestedModel!,
+									sessionRecordId: sessionRecord.id,
+									lease,
+									source,
+									userAgent: req.headers["user-agent"],
+									onClosed: (closed) => {
+										sessions.delete(closed);
+									},
+								})
+							: new RealtimeProxySession({
+									clientSocket,
+									upstreamSocket: upstream,
+									preflight,
+									gatewayToken: token!,
+									requestedModel: requestedModel!,
+									sessionRecordId: sessionRecord.id,
+									lease,
+									source,
+									allowedTranscription,
+									userAgent: req.headers["user-agent"],
+									onClosed: (closed) => {
+										sessions.delete(closed);
+									},
+								});
 					sessions.add(session);
 					// Release the buffered upstream events (session.created etc.) now
 					// that the proxy listeners are attached.
@@ -632,7 +592,7 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 		},
 		closeAll: (code, reason) => {
 			for (const session of [...sessions]) {
-				session.shutdown(code, reason);
+				session.close(code, reason);
 			}
 		},
 	};

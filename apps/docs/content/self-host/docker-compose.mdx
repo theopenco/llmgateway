@@ -85,6 +85,47 @@ docker compose -f infra/docker-compose.split.yml restart
 docker compose -f infra/docker-compose.split.yml down
 ```
 
+## Managing provider credentials from the admin dashboard
+
+Provider credentials can also live in the database instead of the environment.
+The admin dashboard's **Provider Credentials** page lets you add, edit and remove
+them without redeploying, and each credential carries every setting the provider
+needs — API key, base URL, project, region, resource, API version — plus a free-form
+note so several keys for the same provider stay tellable apart.
+
+Resolution is per provider: as soon as a provider has at least one managed
+credential, credits-mode requests to it use those credentials and its `LLM_*`
+environment variables are ignored entirely. Providers with no managed credential
+keep reading the environment, so you can migrate one provider at a time.
+
+Managed credentials cover the same axes as the environment variables they replace:
+
+- Several credentials per provider, selected with the same health-aware routing
+  as the comma-separated env lists.
+- A per-credential audience (all organizations / enterprise plans / DevPass and
+  Chat plans), mirroring the `__ENTERPRISE` and `__PLANS` suffixes below.
+- An optional region, mirroring the `{ENV_VAR}__{REGION}` overrides.
+
+A request that resolves no region is served from the provider's default region,
+so it is served by a region-agnostic credential or by one pinned to that default
+region. Providers whose keys are region-scoped — those with no global region, so
+every credential belongs to exactly one region — are therefore fully covered by
+one credential per region, with no region-agnostic credential needed. Providers
+whose key works across every region (AWS Bedrock) are stricter: a region on the
+credential scopes it to that region only, and a request for another region fails
+rather than borrowing it.
+
+Video generation pins the credential that created a job onto the job itself, so
+polling and content retrieval hours later go back through the same credential
+rather than re-selecting one.
+
+Credential tokens are encrypted at rest with AES-256-GCM. The key is derived
+from `GATEWAY_API_KEY_HASH_SECRET`, so there is no extra variable to set — but
+that secret now protects stored provider credentials as well as API-key hashes.
+Give it a strong random value on every service (`openssl rand -base64 32`).
+Rotating it makes existing credentials undecryptable, so re-enter each
+credential after a rotation.
+
 ## Multiple API keys and load balancing
 
 LLM Gateway supports multiple API keys per provider for load balancing and increased availability. Provide comma-separated values:
@@ -113,6 +154,8 @@ LLM_GOOGLE_VERTEX_REGION=us-central1,europe-west1,asia-east1
 ```
 
 When the gateway selects `key2`, it automatically uses `project-b` and `europe-west1`. If you have fewer configuration values than keys, the last value is reused for the remaining keys.
+
+`LLM_GOOGLE_CLOUD_PROJECT` is optional for Google Vertex API-key chat, embedding, and speech requests, which use the projectless publisher-model endpoint when it is unset. Set it for OAuth authentication, video generation, or project-scoped Vertex URLs.
 
 ## Enterprise and plan provider env overrides
 

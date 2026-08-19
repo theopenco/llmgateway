@@ -10,13 +10,16 @@ export * from "./email-recipients.js";
 export * from "./rate-limit-helpers.js";
 export * from "./schema.js";
 export * from "./log-payloads.js";
+export * from "./mapping-history-scope.js";
 export * from "./log-retention.js";
 export * from "./types.js";
 export * from "./migrate.js";
 export * from "./relations.js";
+export * from "./provider-key-allowed-models.js";
 export * from "./provider-metrics.js";
 export * from "./provider-metrics-history.js";
 export * from "./query-tags.js";
+export * from "./ttft.js";
 export * from "./webhook-helpers.js";
 
 export * from "drizzle-orm";

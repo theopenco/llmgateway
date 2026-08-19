@@ -3,6 +3,8 @@ import { HeroCompare } from "@/components/compare/hero-compare";
 import { ComparisonLiteLLM } from "@/components/landing/comparison-litellm";
 import Footer from "@/components/landing/footer";
 
+import { MARKETING_STATS } from "@llmgateway/shared";
+
 import type { CompareFaqItem } from "@/components/compare/compare-faq";
 
 const liteLlmFaqs: CompareFaqItem[] = [
@@ -23,8 +25,7 @@ const liteLlmFaqs: CompareFaqItem[] = [
 	},
 	{
 		question: "How does pricing work compared to LiteLLM?",
-		answer:
-			"Managed usage is pay-as-you-go with a flat 5% platform fee on credits, or free when you bring your own provider keys. Self-hosting the AGPLv3 build is free.",
+		answer: `Managed usage is pay-as-you-go with a flat 5% platform fee on credits, or free when you bring your own provider keys; optional full data retention is billed at ${MARKETING_STATS.dataStoragePrice}. Self-hosting the AGPLv3 build is free.`,
 	},
 	{
 		question: "Does it provide analytics and routing out of the box?",

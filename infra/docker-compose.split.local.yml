@@ -16,6 +16,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      redis-storage:
+        condition: service_healthy
     healthcheck:
       test:
         [
@@ -38,7 +40,11 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_dev_password}
+      - STORAGE_REDIS_HOST=redis-storage
+      - STORAGE_REDIS_PORT=6379
+      - STORAGE_REDIS_PASSWORD=${STORAGE_REDIS_PASSWORD:-redis_dev_password}
       - GATEWAY_API_KEY_HASH_SECRET=${GATEWAY_API_KEY_HASH_SECRET}
+      - ONBOARDING_SPONSOR_SECRET=${ONBOARDING_SPONSOR_SECRET:-}
       # LLM Provider API Keys
       - LLM_OPENAI_API_KEY=${LLM_OPENAI_API_KEY}
       - LLM_ANTHROPIC_API_KEY=${LLM_ANTHROPIC_API_KEY}
@@ -82,6 +88,9 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_dev_password}
+      - STORAGE_REDIS_HOST=redis-storage
+      - STORAGE_REDIS_PORT=6379
+      - STORAGE_REDIS_PASSWORD=${STORAGE_REDIS_PASSWORD:-redis_dev_password}
       - UI_URL=${UI_URL:-http://localhost:3002}
       - API_URL=${API_URL:-http://localhost:4002}
       - ORIGIN_URLS=${ORIGIN_URLS:-http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:3006,http://localhost:4002}
@@ -97,6 +106,7 @@ services:
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - GATEWAY_API_KEY_HASH_SECRET=${GATEWAY_API_KEY_HASH_SECRET}
+      - ONBOARDING_SPONSOR_SECRET=${ONBOARDING_SPONSOR_SECRET:-}
       - CI=${CI}
 
   # UI Service
@@ -318,10 +328,40 @@ services:
     networks:
       - llmgateway-network
 
+  # Storage Redis: Responses API state (30d retention) + gateway response cache
+  redis-storage:
+    image: redis:8-alpine
+    platform: linux/amd64
+    container_name: llmgateway-redis-storage
+    restart: unless-stopped
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--requirepass",
+        "${STORAGE_REDIS_PASSWORD:-redis_dev_password}",
+      ]
+    volumes:
+      - redis_storage_data:/data
+    ports:
+      - "${STORAGE_REDIS_PORT:-6479}:6379"
+    environment:
+      CI: ${CI}
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - llmgateway-network
+
 volumes:
   postgres_data:
     driver: local
   redis_data:
+    driver: local
+  redis_storage_data:
     driver: local
 
 networks:

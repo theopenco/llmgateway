@@ -1,4 +1,6 @@
-import { and, eq, isNull, or } from "drizzle-orm";
+import { and, eq, getTableName, isNull, or } from "drizzle-orm";
+
+import { swrWrap } from "@llmgateway/cache";
 
 import { cdb } from "./cdb.js";
 import { rateLimit as rateLimitTable } from "./schema.js";
@@ -167,6 +169,22 @@ function pickRateLimitByPrecedence(
  * 6. Global + Model
  */
 export async function getEffectiveRateLimit(
+	organizationId: string | null,
+	provider: string,
+	model: string,
+): Promise<EffectiveRateLimit> {
+	// SWR mirror on top of the Drizzle cache, carried by the helper itself
+	// (like getEffectiveDiscount) so every caller gets the outage fallback and
+	// in-flight coalescing. Do NOT re-wrap call sites in swrWrap: nesting the
+	// same key would deadlock the coalescer.
+	return await swrWrap(
+		`rateLimit:${organizationId ?? "global"}:${provider}:${model}`,
+		[getTableName(rateLimitTable)],
+		() => queryEffectiveRateLimit(organizationId, provider, model),
+	);
+}
+
+async function queryEffectiveRateLimit(
 	organizationId: string | null,
 	provider: string,
 	model: string,

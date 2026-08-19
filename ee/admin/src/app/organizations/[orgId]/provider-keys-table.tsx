@@ -1,3 +1,6 @@
+import { ProviderKeySpendCell } from "@/components/provider-key-spend-cell";
+import { ProviderKeySpendDialog } from "@/components/provider-key-spend-dialog";
+import { ProviderKeyStatusBadge } from "@/components/provider-key-status-badge";
 import { Badge } from "@/components/ui/badge";
 import {
 	Table,
@@ -8,10 +11,14 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 
-import type { paths } from "@/lib/api/v1";
+import { KeyStatusFilter as KeyStatusFilterControl } from "./key-status-filter";
 
-type ProviderKey =
-	paths["/admin/organizations/{orgId}/provider-keys"]["get"]["responses"]["200"]["content"]["application/json"]["providerKeys"][number];
+import type { paths } from "@/lib/api/v1";
+import type { KeyStatusFilter } from "@/lib/key-status";
+
+type ProviderKeysResponse =
+	paths["/admin/organizations/{orgId}/provider-keys"]["get"]["responses"]["200"]["content"]["application/json"];
+type ProviderKey = ProviderKeysResponse["providerKeys"][number];
 
 function formatDate(dateString: string) {
 	return new Date(dateString).toLocaleDateString("en-US", {
@@ -23,58 +30,82 @@ function formatDate(dateString: string) {
 
 export function ProviderKeysTable({
 	providerKeys,
+	pkStatus,
+	counts,
 }: {
 	providerKeys: ProviderKey[];
+	pkStatus: KeyStatusFilter;
+	counts: ProviderKeysResponse["counts"];
 }) {
 	return (
-		<div className="overflow-x-auto rounded-lg border border-border/60 bg-card">
-			<Table>
-				<TableHeader>
-					<TableRow>
-						<TableHead>Provider</TableHead>
-						<TableHead>Name</TableHead>
-						<TableHead>Token</TableHead>
-						<TableHead>Base URL</TableHead>
-						<TableHead>Status</TableHead>
-						<TableHead>Created</TableHead>
-					</TableRow>
-				</TableHeader>
-				<TableBody>
-					{providerKeys.length === 0 ? (
+		<div className="space-y-4">
+			<KeyStatusFilterControl
+				param="pkStatus"
+				tab="provider-keys"
+				value={pkStatus}
+				counts={counts}
+			/>
+
+			<div className="overflow-x-auto rounded-lg border border-border/60 bg-card">
+				<Table>
+					<TableHeader>
 						<TableRow>
-							<TableCell
-								colSpan={6}
-								className="h-24 text-center text-muted-foreground"
-							>
-								No provider keys found
-							</TableCell>
+							<TableHead>Provider</TableHead>
+							<TableHead>Name</TableHead>
+							<TableHead>Token</TableHead>
+							<TableHead>Base URL</TableHead>
+							<TableHead>Spend</TableHead>
+							<TableHead>Status</TableHead>
+							<TableHead>Created</TableHead>
+							<TableHead className="text-right">Usage</TableHead>
 						</TableRow>
-					) : (
-						providerKeys.map((key) => (
-							<TableRow key={key.id}>
-								<TableCell>
-									<Badge variant="outline">{key.provider}</Badge>
-								</TableCell>
-								<TableCell className="text-sm">{key.name ?? "—"}</TableCell>
-								<TableCell className="font-mono text-xs">{key.token}</TableCell>
-								<TableCell className="max-w-[240px] truncate text-xs text-muted-foreground">
-									{key.baseUrl ?? "—"}
-								</TableCell>
-								<TableCell>
-									<Badge
-										variant={key.status === "active" ? "secondary" : "outline"}
-									>
-										{key.status ?? "active"}
-									</Badge>
-								</TableCell>
-								<TableCell className="text-muted-foreground">
-									{formatDate(key.createdAt)}
+					</TableHeader>
+					<TableBody>
+						{providerKeys.length === 0 ? (
+							<TableRow>
+								<TableCell
+									colSpan={8}
+									className="h-24 text-center text-muted-foreground"
+								>
+									{pkStatus === "all"
+										? "No provider keys found"
+										: `No ${pkStatus === "inactive" ? "disabled" : pkStatus} provider keys found`}
 								</TableCell>
 							</TableRow>
-						))
-					)}
-				</TableBody>
-			</Table>
+						) : (
+							providerKeys.map((key) => (
+								<TableRow key={key.id}>
+									<TableCell>
+										<Badge variant="outline">{key.provider}</Badge>
+									</TableCell>
+									<TableCell className="text-sm">{key.name ?? "—"}</TableCell>
+									<TableCell className="font-mono text-xs">
+										{key.token}
+									</TableCell>
+									<TableCell className="max-w-[240px] truncate text-xs text-muted-foreground">
+										{key.baseUrl ?? "—"}
+									</TableCell>
+									<TableCell className="text-sm">
+										<ProviderKeySpendCell keyRow={key} />
+									</TableCell>
+									<TableCell>
+										<ProviderKeyStatusBadge keyRow={key} />
+									</TableCell>
+									<TableCell className="text-muted-foreground">
+										{formatDate(key.createdAt)}
+									</TableCell>
+									<TableCell className="text-right">
+										<ProviderKeySpendDialog
+											providerKeyId={key.id}
+											label={key.name ?? key.provider}
+										/>
+									</TableCell>
+								</TableRow>
+							))
+						)}
+					</TableBody>
+				</Table>
+			</div>
 		</div>
 	);
 }

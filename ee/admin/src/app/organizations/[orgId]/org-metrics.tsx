@@ -3,6 +3,7 @@
 import {
 	Activity,
 	CircleDollarSign,
+	Database,
 	Hash,
 	Loader2,
 	Server,
@@ -12,7 +13,12 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+	UsageModeSelector,
+	useUsageMode,
+} from "@/components/usage-mode-selector";
 import { loadMetricsAction } from "@/lib/admin-organizations";
+import { pickCost, pickRequests } from "@/lib/usage-mode";
 import { cn } from "@/lib/utils";
 
 import type { OrganizationMetrics, TokenWindow } from "@/lib/types";
@@ -112,6 +118,7 @@ export function OrgMetricsSection({ orgId }: { orgId: string }) {
 	const pathname = usePathname();
 
 	const window = parseWindow(searchParams.get("window"));
+	const usageMode = useUsageMode();
 	const [metrics, setMetrics] = useState<OrganizationMetrics | null>(null);
 	const [loading, setLoading] = useState(true);
 
@@ -190,6 +197,8 @@ export function OrgMetricsSection({ orgId }: { orgId: string }) {
 					</p>
 				</div>
 				<div className="flex items-center gap-1">
+					<UsageModeSelector />
+					<div className="mx-1 h-5 w-px bg-border" />
 					<Button
 						variant={window === "1h" ? "default" : "outline"}
 						size="sm"
@@ -250,9 +259,28 @@ export function OrgMetricsSection({ orgId }: { orgId: string }) {
 			</div>
 			<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
 				<MetricCard
-					label="Total Requests"
-					value={formatCompactNumber(safeNumber(metrics.totalRequests))}
-					subtitle="All API requests in the selected time window"
+					label={
+						usageMode === "credits"
+							? "Credits Requests"
+							: usageMode === "api-keys"
+								? "BYOK Requests"
+								: "Total Requests"
+					}
+					value={formatCompactNumber(
+						pickRequests(
+							{
+								requestCount: safeNumber(metrics.totalRequests),
+								creditsRequestCount: safeNumber(metrics.creditsRequestCount),
+								apiKeysRequestCount: safeNumber(metrics.apiKeysRequestCount),
+							},
+							usageMode,
+						),
+					)}
+					subtitle={
+						usageMode === "total"
+							? `${formatCompactNumber(safeNumber(metrics.creditsRequestCount))} credits • ${formatCompactNumber(safeNumber(metrics.apiKeysRequestCount))} BYOK`
+							: "API requests in the selected time window"
+					}
 					icon={<Hash className="h-4 w-4" />}
 					accent="blue"
 				/>
@@ -264,10 +292,38 @@ export function OrgMetricsSection({ orgId }: { orgId: string }) {
 					accent="green"
 				/>
 				<MetricCard
-					label="Total Cost"
-					value={currencyFormatter.format(safeNumber(metrics.totalCost))}
-					subtitle="Sum of metered usage costs (USD)"
+					label={
+						usageMode === "credits"
+							? "Credits Cost"
+							: usageMode === "api-keys"
+								? "BYOK Cost"
+								: "Total Cost"
+					}
+					value={currencyFormatter.format(
+						pickCost(
+							{
+								cost: safeNumber(metrics.totalCost),
+								creditsCost: safeNumber(metrics.creditsCost),
+								apiKeysCost: safeNumber(metrics.apiKeysCost),
+							},
+							usageMode,
+						),
+					)}
+					subtitle={
+						usageMode === "total"
+							? `${currencyFormatter.format(safeNumber(metrics.creditsCost))} credits • ${currencyFormatter.format(safeNumber(metrics.apiKeysCost))} BYOK (not billed)`
+							: usageMode === "api-keys"
+								? "Served by the org's own provider keys — not billed"
+								: "Billed against the organization's credits"
+					}
 					icon={<CircleDollarSign className="h-4 w-4" />}
+					accent="purple"
+				/>
+				<MetricCard
+					label="Storage Cost"
+					value={currencyFormatter.format(safeNumber(metrics.dataStorageCost))}
+					subtitle="Data retention billing, charged on top of usage costs"
+					icon={<Database className="h-4 w-4" />}
 					accent="purple"
 				/>
 				<MetricCard

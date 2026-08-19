@@ -1,0 +1,74 @@
+---
+title: Invoices
+description: Download invoices and credit notes for every payment
+icon: FileText
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+import { ThemedImage } from "@/components/themed-image";
+
+Every completed payment gets a PDF invoice, and every refund a credit note. The
+invoice is emailed to your billing address when the payment succeeds, and both
+can be downloaded at any time from [**Transactions**](/learn/transactions) in
+your organization settings.
+
+<ThemedImage alt="Invoices" basePath="/learn/invoices" />
+
+## Downloading an invoice
+
+1. Open **Settings → Transactions** in the dashboard.
+2. Find the payment in the list.
+3. Click **Invoice** on that row — the PDF downloads as
+   `invoice-<transaction-id>.pdf`.
+
+Refunds produce a **Credit note** instead of an invoice, downloaded the same
+way. It shows the original purchase amount, the percentage refunded, and the
+refunded total as a negative line.
+
+<Callout type="info">
+	Only **completed** payments with a positive amount have a document. Plan
+	cancellations, plan endings, and free credit gifts have nothing to invoice, so
+	those rows have no download button.
+</Callout>
+
+The invoice number is the transaction ID, so it matches the row you downloaded
+it from.
+
+## Putting company details on the invoice
+
+Company name, address, tax ID and invoice notes come from your organization's
+billing information, under **Settings → Billing**:
+
+<ThemedImage
+	alt="Billing Information"
+	basePath="/learn/invoices-billing-details"
+/>
+
+| Field                   | Appears on the invoice as                      |
+| ----------------------- | ---------------------------------------------- |
+| **Email Address**       | The billing email address invoices are sent to |
+| **Company Name**        | The billed company                             |
+| **Billing Address**     | The billing address block                      |
+| **Tax ID / VAT Number** | Your tax identification number                 |
+| **Invoice Notes**       | A free-text footer (e.g. a PO number)          |
+
+<Callout type="warning">
+	Fill these in **before** you pay. The emailed invoice is generated at payment
+	time and keeps the details as they were then, while a download from
+	Transactions is rendered fresh from your current details — so the two copies
+	of one invoice number can differ after you edit this page. Treat the emailed
+	PDF as the record of what was invoiced, and for a lasting change get the
+	details right before the next payment.
+</Callout>
+
+## DevPass invoices
+
+DevPass subscriptions are billed on their own workspace. Open
+**Billing** in the [DevPass dashboard](https://devpass.llmgateway.io/dashboard)
+and use the **Billing history** table — every charge, refund and plan change is
+listed there with its own download button in the **Document** column.
+
+## Related pages
+
+- [**Transactions**](/learn/transactions) — the full payment and credit history
+- [**Billing**](/learn/billing) — credits, plans, and payment methods

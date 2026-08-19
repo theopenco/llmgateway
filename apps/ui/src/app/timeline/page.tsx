@@ -1,6 +1,7 @@
 import { ArrowRight, ArrowUpRight, Sparkles } from "lucide-react";
 import Link from "next/link";
 
+import { ContentConversionRail } from "@/components/content-conversion-rail";
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import { ModelCard } from "@/components/timeline/timeline-parts";
@@ -12,37 +13,72 @@ import {
 	buildTimelineFaqs,
 	buildTimelineModels,
 	buildTimelineStats,
+	DATASET_CREATOR,
+	DATASET_LICENSE,
 	formatDate,
+	getMonthSummary,
 	getYearSummaries,
 	isoDate,
 	recentModels,
+	TIMELINE_DATASET_DESCRIPTION,
+	TIMELINE_DATASET_ID,
+	TIMELINE_DATASET_NAME,
 } from "@/lib/timeline-data";
 
+import type { TimelineMonthSummary } from "@/lib/timeline-data";
 import type { Metadata } from "next";
 
 const BASE_URL = "https://llmgateway.io";
 
-export const metadata: Metadata = {
-	title: "LLM Release Timeline — Model Release Dates",
-	description:
-		"Release dates for every major LLM — see when GPT, Claude, Gemini, Llama, Mistral, and DeepSeek models shipped and when each was added to LLM Gateway.",
-	alternates: {
-		canonical: "/timeline",
-	},
-	openGraph: {
-		title: "LLM Release Timeline — Model Release Dates",
-		description:
-			"Release dates for every major LLM — GPT, Claude, Gemini, Llama, Mistral and DeepSeek — with the date each model was added to LLM Gateway.",
-		type: "website",
-		url: `${BASE_URL}/timeline`,
-	},
-	twitter: {
-		card: "summary_large_image",
-		title: "LLM Release Timeline — Model Release Dates",
-		description:
-			"Release dates for every major LLM — GPT, Claude, Gemini, Llama, Mistral and DeepSeek — and when each was added to LLM Gateway.",
-	},
-};
+const FALLBACK_TITLE = "LLM Release Timeline — Model Release Dates";
+const FALLBACK_DESCRIPTION =
+	"Release dates for every major LLM — see when GPT, Claude, Gemini, Llama, Mistral, and DeepSeek models shipped and when each was added to LLM Gateway.";
+
+function buildMonthMeta(month: TimelineMonthSummary | null): {
+	title: string;
+	description: string;
+} {
+	if (!month) {
+		return { title: FALLBACK_TITLE, description: FALLBACK_DESCRIPTION };
+	}
+	const count = month.models.length;
+	// Two names keep the description under 160 chars even with long model names.
+	const names = month.models
+		.slice(0, 2)
+		.map((model) => model.name)
+		.join(", ");
+	return {
+		title: `New AI Model Releases — ${month.label} Timeline`,
+		description: `${count} AI model${count === 1 ? "" : "s"} released in ${
+			month.label
+		}${month.isCurrentMonth ? " so far" : ""} — ${names} — plus every major LLM release date. Updated daily.`,
+	};
+}
+
+export async function generateMetadata(): Promise<Metadata> {
+	const models = await fetchModels();
+	const month = getMonthSummary(buildTimelineModels(models), new Date());
+	const { title, description } = buildMonthMeta(month);
+
+	return {
+		title,
+		description,
+		alternates: {
+			canonical: "/timeline",
+		},
+		openGraph: {
+			title,
+			description,
+			type: "website",
+			url: `${BASE_URL}/timeline`,
+		},
+		twitter: {
+			card: "summary_large_image",
+			title,
+			description,
+		},
+	};
+}
 
 export default async function TimelinePage() {
 	const models = await fetchModels();
@@ -52,14 +88,17 @@ export default async function TimelinePage() {
 	const faqs = buildTimelineFaqs(timelineModels, stats);
 	const yearSummaries = getYearSummaries(timelineModels);
 	const latest = recentModels(timelineModels, 12);
+	const month = getMonthSummary(timelineModels, new Date());
+	const monthPreview = month?.models.slice(0, 8) ?? [];
 
 	const datasetSchema = {
 		"@context": "https://schema.org",
 		"@type": "Dataset",
-		name: "LLM Model Release Timeline",
-		description:
-			"A continuously updated dataset of large language model releases: the provider release date and the date each model was added to LLM Gateway.",
+		"@id": TIMELINE_DATASET_ID,
+		name: TIMELINE_DATASET_NAME,
+		description: TIMELINE_DATASET_DESCRIPTION,
 		url: `${BASE_URL}/timeline`,
+		license: DATASET_LICENSE,
 		keywords: [
 			"LLM release dates",
 			"AI model timeline",
@@ -68,11 +107,7 @@ export default async function TimelinePage() {
 			"Gemini release date",
 			"language model history",
 		],
-		creator: {
-			"@type": "Organization",
-			name: "LLM Gateway",
-			url: BASE_URL,
-		},
+		creator: DATASET_CREATOR,
 		isAccessibleForFree: true,
 		...(stats.firstYear
 			? {
@@ -218,6 +253,70 @@ export default async function TimelinePage() {
 					</div>
 				</section>
 
+				{month ? (
+					<section
+						className="border-b border-border/60"
+						aria-labelledby="month-releases-heading"
+					>
+						<div className="container mx-auto px-4 py-10 md:py-14">
+							<div className="mx-auto max-w-3xl">
+								<h2
+									id="month-releases-heading"
+									className="font-display text-2xl font-bold tracking-tight md:text-3xl"
+								>
+									{month.isCurrentMonth
+										? `New AI models released in ${month.label}`
+										: `The latest AI model releases — ${month.label}`}
+								</h2>
+								<p className="mt-3 text-sm leading-relaxed text-muted-foreground md:text-base">
+									{month.models.length} new AI{" "}
+									{month.models.length === 1 ? "model was" : "models were"}{" "}
+									released in {month.label}
+									{month.isCurrentMonth ? " so far" : ""}, from{" "}
+									{month.providerCount}{" "}
+									{month.providerCount === 1 ? "provider" : "providers"}. The
+									most recent is {month.models[0].name} from{" "}
+									{month.models[0].providerName}, released{" "}
+									{formatDate(month.models[0].releasedAt)}. Every one is
+									available on LLM Gateway through a single API.
+								</p>
+								<ul className="mt-5 divide-y divide-border/60 rounded-xl border border-border/70 bg-card/50">
+									{monthPreview.map((model) => (
+										<li
+											key={model.id}
+											className="flex items-baseline justify-between gap-4 px-4 py-3"
+										>
+											<Link
+												href={`/models/${encodeURIComponent(model.id)}`}
+												className="text-sm font-medium hover:text-primary"
+											>
+												{model.name}
+											</Link>
+											<span className="shrink-0 text-xs text-muted-foreground">
+												{model.providerName} ·{" "}
+												<time dateTime={isoDate(model.releasedAt)}>
+													{formatDate(model.releasedAt)}
+												</time>
+											</span>
+										</li>
+									))}
+								</ul>
+								<p className="mt-4 text-sm">
+									<Link
+										href={`/timeline/${month.year}`}
+										className="inline-flex items-center gap-1 font-medium text-primary"
+									>
+										{month.models.length > monthPreview.length
+											? `See all ${month.models.length} releases from ${month.label}`
+											: `See every ${month.year} release`}
+										<ArrowRight className="h-3.5 w-3.5" />
+									</Link>
+								</p>
+							</div>
+						</div>
+					</section>
+				) : null}
+
 				<section className="container mx-auto px-4 py-12 md:py-16">
 					<div className="mx-auto max-w-5xl">
 						<div className="mb-8">
@@ -339,7 +438,10 @@ export default async function TimelinePage() {
 
 				<section className="border-t border-border/60">
 					<div className="container mx-auto px-4 py-14 md:py-20">
-						<div className="mx-auto flex max-w-3xl flex-col items-center gap-5 rounded-2xl border border-border/70 bg-card/50 px-6 py-10 text-center backdrop-blur md:py-12">
+						<div
+							data-inline-cta
+							className="mx-auto flex max-w-3xl flex-col items-center gap-5 rounded-2xl border border-border/70 bg-card/50 px-6 py-10 text-center backdrop-blur md:py-12"
+						>
 							<h2 className="font-display text-2xl font-bold tracking-tight text-balance md:text-3xl">
 								Route to any of these models with one API
 							</h2>
@@ -369,6 +471,7 @@ export default async function TimelinePage() {
 			</main>
 
 			<Footer />
+			<ContentConversionRail surface="timeline" variant="gateway" />
 		</>
 	);
 }

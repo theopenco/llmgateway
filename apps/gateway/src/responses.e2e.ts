@@ -48,6 +48,14 @@ const TOOL_CALL_DENYLIST = new Set<string>([
 ]);
 
 const responsesTestModels = oneModelPerProvider(testModels);
+// Image-generation mappings answer every request with an image (the Responses
+// layer emits placeholder output text), so the multi-turn name-recall
+// assertion is unsatisfiable for them; they still run the single-turn case.
+// Only reachable when TEST_MODELS pins image-only models for a provider.
+const responsesMultiTurnModels = responsesTestModels.filter(
+	(m) =>
+		!m.providers.some((p: ProviderModelMapping) => p.imageGenerations === true),
+);
 const responsesToolCallModels = oneModelPerProvider(toolCallModels).filter(
 	(m) => !TOOL_CALL_DENYLIST.has(m.model),
 );
@@ -157,7 +165,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 		},
 	);
 
-	test.each(responsesTestModels)(
+	test.each(responsesMultiTurnModels)(
 		"responses multi-turn $model",
 		getTestOptions(),
 		async ({ model }) => {
@@ -206,11 +214,15 @@ describe("e2e", getConcurrentTestOptions(), () => {
 		"responses stateless encrypted reasoning $model",
 		getTestOptions(),
 		async ({ model }) => {
+			// The prompt has to make the model actually think: cheap reasoning
+			// models (e.g. gpt-5.6-luna) spend zero reasoning tokens on a trivial
+			// "remember my name" turn and then emit no reasoning item at all, so
+			// there would be no encrypted payload to round-trip.
 			const firstInput = [
 				{
 					role: "user",
 					content:
-						"My name is Ada. Please remember it. Reply with a brief acknowledgement.",
+						"My name is Ada. Please remember it. Also work out 17 * 23 step by step and state the result.",
 				},
 			];
 			const firstRequestId = generateTestRequestId();
@@ -363,6 +375,116 @@ describe("e2e", getConcurrentTestOptions(), () => {
 			if (logMode) {
 				console.log(
 					"responses tool calls second:",
+					JSON.stringify(secondJson, null, 2),
+				);
+			}
+
+			expect(secondRes.status).toBe(200);
+			const finalText = getOutputText(secondJson).toLowerCase();
+			expect(finalText.length).toBeGreaterThan(0);
+			expect(
+				finalText.includes("sunny") ||
+					finalText.includes("72") ||
+					finalText.includes("weather"),
+			).toBe(true);
+
+			// The stored first response is retrievable by id (state lives in the
+			// dedicated responses storage, independent of data retention).
+			const getRes = await app.request(`/v1/responses/${firstJson.id}`, {
+				headers: { Authorization: `Bearer real-token` },
+			});
+			expect(getRes.status).toBe(200);
+			const storedJson = await getRes.json();
+			expect(storedJson.id).toBe(firstJson.id);
+			const storedFnCall = getFunctionCall(storedJson);
+			expect(storedFnCall?.name).toBe("get_weather");
+			expect(storedFnCall?.call_id).toBe(fnCall?.call_id);
+		},
+	);
+
+	// Stateless variant of the tool-call round trip: no previous_response_id —
+	// the client replays the full history itself (user message + the returned
+	// function_call item + the tool result), exactly how Codex-style clients
+	// drive the Responses API. Nothing is stored, so the replayed function_call
+	// item must convert back into an assistant tool_calls message ahead of the
+	// tool result or strict providers reject the orphaned tool message.
+	test.each(responsesToolCallModels)(
+		"responses tool calls stateless $model",
+		getTestOptions(),
+		async ({ model }) => {
+			const tools = [
+				{
+					type: "function",
+					name: "get_weather",
+					description: "Get the current weather for a given city",
+					parameters: {
+						type: "object",
+						properties: {
+							city: {
+								type: "string",
+								description: "The city name to get weather for",
+							},
+						},
+						required: ["city"],
+					},
+				},
+			];
+			const firstInput = [
+				{
+					role: "user",
+					content: "What's the weather like in San Francisco?",
+				},
+			];
+
+			const firstRequestId = generateTestRequestId();
+			const firstRes = await postResponses(
+				{
+					model,
+					store: false,
+					input: firstInput,
+					tools,
+					tool_choice: "required",
+				},
+				firstRequestId,
+			);
+			const firstJson = await firstRes.json();
+			if (logMode) {
+				console.log(
+					"responses tool calls stateless first:",
+					JSON.stringify(firstJson, null, 2),
+				);
+			}
+
+			expect(firstRes.status).toBe(200);
+			const fnCall = getFunctionCall(firstJson);
+			expect(fnCall).toBeDefined();
+			expect(fnCall?.name).toBe("get_weather");
+			expect(typeof fnCall?.call_id).toBe("string");
+			const parsedArgs = JSON.parse(fnCall?.arguments ?? "{}");
+			expect(parsedArgs.city.toLowerCase()).toContain("san francisco");
+
+			const secondRequestId = generateTestRequestId();
+			const secondRes = await postResponses(
+				{
+					model,
+					store: false,
+					input: [
+						...firstInput,
+						...firstJson.output,
+						{
+							type: "function_call_output",
+							call_id: fnCall?.call_id,
+							output: "72F and sunny",
+						},
+					],
+					tools,
+				},
+				secondRequestId,
+			);
+			const secondJson = await secondRes.json();
+			if (logMode) {
+				console.log(
+					"responses tool calls stateless second:",
 					JSON.stringify(secondJson, null, 2),
 				);
 			}

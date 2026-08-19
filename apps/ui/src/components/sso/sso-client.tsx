@@ -14,6 +14,7 @@ import { useState } from "react";
 
 import { ProjectMultiSelect } from "@/components/projects/project-multi-select";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
+import { getApiErrorMessage } from "@/lib/api-error";
 import { Alert, AlertDescription } from "@/lib/components/alert";
 import {
 	AlertDialog,
@@ -134,24 +135,6 @@ function splitDomains(domain: string): string[] {
 
 function formatDomains(domain: string): string {
 	return splitDomains(domain).join(", ");
-}
-
-// openapi-fetch rejects with the parsed error body ({ message }), not an Error
-// instance — surface the server's message (e.g. the 409 duplicate-domain
-// conflict) instead of a generic fallback.
-function errorMessage(error: unknown, fallback: string): string {
-	if (error instanceof Error && error.message) {
-		return error.message;
-	}
-	if (
-		error &&
-		typeof error === "object" &&
-		"message" in error &&
-		typeof (error as { message?: unknown }).message === "string"
-	) {
-		return (error as { message: string }).message;
-	}
-	return fallback;
 }
 
 function ReadOnlyField({ label, value }: { label: string; value: string }) {
@@ -504,7 +487,10 @@ export function SsoClient() {
 			setGoogleEdit(null);
 		} catch (error) {
 			toast({
-				title: errorMessage(error, "Failed to save Google Workspace auto-join"),
+				title: getApiErrorMessage(
+					error,
+					"Failed to save Google Workspace auto-join",
+				),
 				variant: "destructive",
 			});
 		}

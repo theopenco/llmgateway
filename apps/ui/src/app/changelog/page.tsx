@@ -7,11 +7,11 @@ export default async function ChangelogPage() {
 	const { allChangelogs } = await import("content-collections");
 
 	const sortedEntries = allChangelogs
+		.filter((entry: ChangelogType) => !entry?.draft)
 		.sort(
 			(a: ChangelogType, b: ChangelogType) =>
 				new Date(b.date).getTime() - new Date(a.date).getTime(),
 		)
-		.filter((entry: ChangelogType) => !entry?.draft)
 		.map(({ ...entry }: ChangelogType) => entry);
 
 	return (

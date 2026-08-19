@@ -10,6 +10,7 @@ export const MARKETING_STATS = {
 	uptimeSla: "99.9%",
 	effectiveUptime: "99.9999%",
 	platformFee: "5%",
+	dataStoragePrice: "$0.01 per 1M tokens",
 	githubStars: "20K+",
 } as const;
 

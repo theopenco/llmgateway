@@ -26,7 +26,7 @@ import {
 	inArray,
 	isValidApiKeyPeriodDuration,
 	resolveEffectiveMemberBudget,
-	sum,
+	sql,
 	tables,
 	type OrgDefaultDeveloperBudget,
 } from "@llmgateway/db";
@@ -309,7 +309,10 @@ async function computeMemberSpend(
 				member.periodUsageDurationUnit,
 			);
 			const rows = await db
-				.select({ total: sum(tables.apiKeyHourlyStats.cost) })
+				// cost is float4; SUM(real) accumulates in float4 too, so cast first.
+				.select({
+					total: sql<string>`coalesce(sum(cast(${tables.apiKeyHourlyStats.cost} as double precision)), 0)`,
+				})
 				.from(tables.apiKeyHourlyStats)
 				.where(
 					and(

@@ -12,6 +12,7 @@ import {
 } from "@/lib/components/dropdown-menu";
 
 import { NewOrganizationDialog } from "./new-organization-dialog";
+import { OrganizationAvatar } from "./organization-avatar";
 
 import type { Organization } from "@/lib/types";
 
@@ -38,6 +39,12 @@ export function OrganizationSwitcher({
 						variant="ghost"
 						className="flex min-w-[180px] items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium text-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background justify-start"
 					>
+						{selectedOrganization && (
+							<OrganizationAvatar
+								organization={selectedOrganization}
+								className="flex-shrink-0"
+							/>
+						)}
 						<span className="truncate">
 							{selectedOrganization
 								? selectedOrganization.name
@@ -55,8 +62,12 @@ export function OrganizationSwitcher({
 						<DropdownMenuItem
 							key={org.id}
 							onSelect={() => onSelectOrganization(org)}
-							className="cursor-pointer px-2 py-1.5 text-sm hover:bg-accent focus:bg-accent data-[highlighted]:bg-accent"
+							className="cursor-pointer gap-2 px-2 py-1.5 text-sm hover:bg-accent focus:bg-accent data-[highlighted]:bg-accent"
 						>
+							<OrganizationAvatar
+								organization={org}
+								className="flex-shrink-0"
+							/>
 							<span className="truncate">{org.name}</span>
 							{selectedOrganization?.id === org.id && (
 								<Check className="ml-auto h-4 w-4 flex-shrink-0" />

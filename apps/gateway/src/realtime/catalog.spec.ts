@@ -31,6 +31,24 @@ describe("findRealtimeMapping", () => {
 		expect(findRealtimeMapping("anthropic/gpt-realtime")).toBeNull();
 	});
 
+	it("resolves the Gemini Live model to its google-ai-studio mapping", () => {
+		const match = findRealtimeMapping(
+			"gemini-2.5-flash-native-audio-preview-12-2025",
+		);
+		expect(match?.modelId).toBe(
+			"gemini-2.5-flash-native-audio-preview-12-2025",
+		);
+		expect(match?.mapping.providerId).toBe("google-ai-studio");
+		expect(match?.mapping.realtime).toBe(true);
+	});
+
+	it("resolves the provider-pinned Gemini Live model string", () => {
+		const match = findRealtimeMapping(
+			"google-ai-studio/gemini-2.5-flash-native-audio-preview-12-2025",
+		);
+		expect(match?.mapping.providerId).toBe("google-ai-studio");
+	});
+
 	it("returns null for chat models without realtime support", () => {
 		expect(findRealtimeMapping("gpt-4o-mini")).toBeNull();
 	});

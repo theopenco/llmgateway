@@ -50,6 +50,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import {
+	formatPerImagePriceRange,
 	getProviderIcon,
 	providerLogoUrls,
 } from "@llmgateway/shared/components";
@@ -280,6 +281,7 @@ interface RootAggregateInfo {
 	minRequestPrice?: number;
 	minImageInputPrice?: number;
 	minImageOutputPrice?: number;
+	minPerImagePrice?: number;
 	maxContextSize?: number;
 	maxOutput?: number;
 	capabilities: string[];
@@ -294,6 +296,7 @@ function getRootAggregateInfo(model: ApiModel): RootAggregateInfo {
 	let minRequestPrice: number | undefined;
 	let minImageInputPrice: number | undefined;
 	let minImageOutputPrice: number | undefined;
+	let minPerImagePrice: number | undefined;
 	let maxContextSize: number | undefined;
 	let maxOutput: number | undefined;
 	const capabilitySet = new Set<string>();
@@ -379,6 +382,19 @@ function getRootAggregateInfo(model: ApiModel): RootAggregateInfo {
 			minImageInputPrice = effectiveImageInput;
 		}
 
+		if (mapping.perImagePrice) {
+			for (const tier of Object.values(mapping.perImagePrice)) {
+				const effectiveTier = applyDiscount(tier, mapping.discount);
+				if (
+					effectiveTier !== undefined &&
+					effectiveTier > 0 &&
+					(minPerImagePrice === undefined || effectiveTier < minPerImagePrice)
+				) {
+					minPerImagePrice = effectiveTier;
+				}
+			}
+		}
+
 		if (
 			mapping.contextSize !== null &&
 			mapping.contextSize !== undefined &&
@@ -412,6 +428,7 @@ function getRootAggregateInfo(model: ApiModel): RootAggregateInfo {
 		minRequestPrice,
 		minImageInputPrice,
 		minImageOutputPrice,
+		minPerImagePrice,
 		maxContextSize,
 		maxOutput,
 		capabilities: Array.from(capabilitySet),
@@ -444,6 +461,20 @@ function estimateImageCost(
 	}
 	const request = mapping.requestPrice ? parseFloat(mapping.requestPrice) : 0;
 	const discount = mapping.discount ? parseFloat(mapping.discount) : 0;
+	// Flat per-image pricing: estimate on the typical 1K tier.
+	if (mapping.perImagePrice) {
+		const tier =
+			mapping.perImagePrice["1K"] ??
+			mapping.perImagePrice["default"] ??
+			Object.values(mapping.perImagePrice)[0];
+		const base = tier !== undefined ? parseFloat(tier) : NaN;
+		if (Number.isFinite(base) && base > 0) {
+			return {
+				base,
+				discounted: discount > 0 ? base * (1 - discount) : base,
+			};
+		}
+	}
 	const imageOut = mapping.imageOutputPrice
 		? parseFloat(mapping.imageOutputPrice)
 		: 0;
@@ -1802,7 +1833,8 @@ export function ModelSelector({
 														((aggregate.minRequestPrice !== undefined &&
 															aggregate.minRequestPrice > 0) ||
 															aggregate.minImageInputPrice !== undefined ||
-															aggregate.minImageOutputPrice !== undefined);
+															aggregate.minImageOutputPrice !== undefined ||
+															aggregate.minPerImagePrice !== undefined);
 
 													const imageEstimate =
 														mode === "image"
@@ -1945,6 +1977,23 @@ export function ModelSelector({
 															{hasImagePricing && (
 																<div className="pt-2">
 																	<div className="grid grid-cols-2 gap-3">
+																		{aggregate.minPerImagePrice !==
+																			undefined && (
+																			<div className="space-y-1">
+																				<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																					Per Image
+																				</span>
+																				<p className="text-xs font-mono">
+																					$
+																					{parseFloat(
+																						aggregate.minPerImagePrice.toFixed(
+																							4,
+																						),
+																					)}
+																					/image
+																				</p>
+																			</div>
+																		)}
 																		{aggregate.minRequestPrice !== undefined &&
 																			aggregate.minRequestPrice > 0 && (
 																				<div className="space-y-1">
@@ -2240,9 +2289,33 @@ export function ModelSelector({
 														})()}
 													{/* Image Generation Pricing */}
 													{(previewEntry.mapping?.requestPrice ??
+														previewEntry.mapping?.perImagePrice ??
 														previewEntry.mapping?.imageInputPrice) && (
 														<div className="pt-2">
 															<div className="grid grid-cols-2 gap-3">
+																{previewEntry.mapping?.perImagePrice &&
+																	Object.keys(
+																		previewEntry.mapping.perImagePrice,
+																	).length > 0 && (
+																		<div className="space-y-1">
+																			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																				Per Image
+																			</span>
+																			<p className="text-xs font-mono">
+																				{(() => {
+																					const range =
+																						formatPerImagePriceRange(
+																							previewEntry.mapping
+																								.perImagePrice,
+																							previewEntry.mapping.discount,
+																						);
+																					return range
+																						? `${range}/image`
+																						: "Unknown";
+																				})()}
+																			</p>
+																		</div>
+																	)}
 																{previewEntry.mapping?.requestPrice &&
 																	parseFloat(
 																		previewEntry.mapping.requestPrice,
@@ -2478,7 +2551,8 @@ export function ModelSelector({
 												(aggregate.minRequestPrice !== undefined &&
 													aggregate.minRequestPrice > 0) ||
 												aggregate.minImageInputPrice !== undefined ||
-												aggregate.minImageOutputPrice !== undefined;
+												aggregate.minImageOutputPrice !== undefined ||
+												aggregate.minPerImagePrice !== undefined;
 
 											const hasCapabilities = aggregate.capabilities.length > 0;
 
@@ -2570,6 +2644,20 @@ export function ModelSelector({
 													{hasImagePricing && (
 														<div className="pt-2">
 															<div className="grid grid-cols-2 gap-3">
+																{aggregate.minPerImagePrice !== undefined && (
+																	<div className="space-y-1">
+																		<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+																			Per Image
+																		</span>
+																		<p className="text-sm font-mono">
+																			$
+																			{parseFloat(
+																				aggregate.minPerImagePrice.toFixed(4),
+																			)}
+																			/image
+																		</p>
+																	</div>
+																)}
 																{aggregate.minRequestPrice !== undefined &&
 																	aggregate.minRequestPrice > 0 && (
 																		<div className="space-y-1">
@@ -2789,12 +2877,33 @@ export function ModelSelector({
 												)}
 											{/* Image Generation Pricing */}
 											{(selectedDetails.mapping?.requestPrice ??
+												selectedDetails.mapping?.perImagePrice ??
 												selectedDetails.mapping?.imageInputPrice) && (
 												<div className="pt-2 border-t border-dashed">
 													<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-2">
 														Image Pricing
 													</span>
 													<div className="grid grid-cols-2 gap-3">
+														{selectedDetails.mapping?.perImagePrice &&
+															Object.keys(selectedDetails.mapping.perImagePrice)
+																.length > 0 && (
+																<div className="space-y-1">
+																	<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+																		Per Image
+																	</span>
+																	<p className="text-sm font-mono">
+																		{(() => {
+																			const range = formatPerImagePriceRange(
+																				selectedDetails.mapping.perImagePrice,
+																				selectedDetails.mapping.discount,
+																			);
+																			return range
+																				? `${range}/image`
+																				: "Unknown";
+																		})()}
+																	</p>
+																</div>
+															)}
 														{selectedDetails.mapping?.requestPrice &&
 															parseFloat(selectedDetails.mapping.requestPrice) >
 																0 && (

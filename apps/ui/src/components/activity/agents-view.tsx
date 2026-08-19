@@ -16,6 +16,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { LogCard } from "@/components/dashboard/log-card";
 import {
+	UsageModeSelector,
+	useUsageMode,
+} from "@/components/shared/usage-mode-selector";
+import {
 	TimeRangePicker,
 	type TimeRangeValue,
 } from "@/components/time-range-picker";
@@ -27,6 +31,7 @@ import {
 } from "@/lib/agent-time-ranges";
 import { useToast } from "@/lib/components/use-toast";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
+import { applyUsageMode } from "@/lib/usage-mode";
 
 import { buildAgentLogsCsv, CODING_AGENTS } from "@llmgateway/shared";
 import {
@@ -37,6 +42,7 @@ import {
 	CursorIcon,
 	DevPassCodeIcon,
 	EmpryoIcon,
+	GitHubCopilotIcon,
 	N8nIcon,
 	OpenClawIcon,
 	OpenCodeIcon,
@@ -71,6 +77,7 @@ const AGENT_ICONS: Record<string, IconComponent> = {
 	cline: ClineIcon,
 	"roo-code": ClineIcon,
 	codex: CodexIcon,
+	"github-copilot": GitHubCopilotIcon,
 	n8n: N8nIcon,
 	openclaw: OpenClawIcon,
 };
@@ -666,6 +673,7 @@ export function AgentsView({
 	const searchParams = useSearchParams();
 	const { buildUrl } = useDashboardNavigation();
 	const api = useApi();
+	const usageMode = useUsageMode();
 
 	const timeRange = parseAgentTimeRange(searchParams.get("timeRange"));
 
@@ -695,8 +703,11 @@ export function AgentsView({
 	);
 
 	const agentStats = useMemo(
-		() => computeAgentStats(data?.sources ?? []),
-		[data],
+		() =>
+			computeAgentStats(
+				(data?.sources ?? []).map((row) => applyUsageMode(row, usageMode)),
+			),
+		[data, usageMode],
 	);
 
 	const selectedStats = selectedAgentId
@@ -709,11 +720,14 @@ export function AgentsView({
 	return (
 		<div className="space-y-6">
 			<div className="flex flex-wrap items-center justify-between gap-4">
-				<TimeRangePicker
-					value={timeRange}
-					onChange={updateTimeRange}
-					allowedValues={AGENT_TIME_RANGES}
-				/>
+				<div className="flex flex-wrap items-center gap-3">
+					<TimeRangePicker
+						value={timeRange}
+						onChange={updateTimeRange}
+						allowedValues={AGENT_TIME_RANGES}
+					/>
+					<UsageModeSelector />
+				</div>
 				{!selectedStats && agentStats.length > 0 && (
 					<div className="flex items-center gap-3 text-sm text-muted-foreground">
 						<span>

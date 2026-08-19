@@ -1,6 +1,7 @@
 import { serve } from "@hono/node-server";
 
-import { redisClient } from "@llmgateway/cache";
+import { startProviderEnvInventoryPublisher } from "@llmgateway/actions";
+import { redisClient, storageRedisClient } from "@llmgateway/cache";
 import { closeDatabase, setQueryTags } from "@llmgateway/db";
 import {
 	initializeInstrumentation,
@@ -14,6 +15,7 @@ import {
 	installUpstreamDispatcher,
 } from "./lib/upstream-dispatcher.js";
 import { metricsApp } from "./metrics-app.js";
+import { posthog } from "./posthog.js";
 import { attachRealtimeServer } from "./realtime/server.js";
 
 import type { RealtimeServer } from "./realtime/server.js";
@@ -21,7 +23,10 @@ import type { ServerType } from "@hono/node-server";
 import type { NodeSDK } from "@opentelemetry/sdk-node";
 import type { Server } from "node:http";
 
-const port = Number(process.env.PORT) || 4001;
+// GATEWAY_PORT wins over PORT so a local worktree can pin gateway and api to
+// different ports from one shared shell env (both services read PORT).
+// Deployments only ever set PORT, so they are unaffected.
+const port = Number(process.env.GATEWAY_PORT || process.env.PORT) || 4001;
 
 // The Prometheus metrics endpoint is served on a separate port so it can be
 // exposed only internally (via the cluster network / Service) and never through
@@ -42,6 +47,7 @@ const realtimeInline = process.env.REALTIME_INLINE === "true";
 let sdk: NodeSDK | null = null;
 let metricsServer: ServerType | null = null;
 let realtime: RealtimeServer | null = null;
+let stopEnvInventoryPublisher: (() => void) | null = null;
 
 async function startServer() {
 	// Tag every DB query with the originating service for Cloud SQL Query Insights
@@ -78,6 +84,12 @@ async function startServer() {
 		realtime = attachRealtimeServer(server as Server);
 		logger.info("Realtime WebSocket proxy attached inline", { port });
 	}
+
+	// Publish which LLM_* API keys this process holds (masked and fingerprinted,
+	// never the tokens) so the admin dashboard lists the keys actually serving
+	// traffic. The API is a separate deployment and generally has no provider
+	// keys of its own to report.
+	stopEnvInventoryPublisher = startProviderEnvInventoryPublisher();
 
 	return server;
 }
@@ -147,6 +159,11 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 		signal,
 	});
 
+	// Stop refreshing before the Redis connection closes below; the snapshot
+	// expires on its own once no gateway is publishing.
+	stopEnvInventoryPublisher?.();
+	stopEnvInventoryPublisher = null;
+
 	try {
 		// Stop accepting new realtime sessions, then let the live calls hang up
 		// on their own rather than cutting them off mid-conversation. This runs
@@ -189,13 +206,24 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 		logger.info("Closing upstream dispatcher");
 		await closeUpstreamDispatcher();
 
+		// Flush batched analytics before the process winds down — posthog-node
+		// buffers events (~10s), and a redeploy would otherwise drop the tail.
+		// Guarded: a telemetry flush failure must not abort the shutdown.
+		try {
+			await posthog.shutdown();
+		} catch (error) {
+			logger.warn("PostHog flush failed during shutdown", {
+				error: String(error),
+			});
+		}
+
 		logger.info("Closing database connection");
 		await closeDatabase();
 		logger.info("Database connection closed");
 
-		logger.info("Closing Redis connection");
-		await redisClient.quit();
-		logger.info("Redis connection closed");
+		logger.info("Closing Redis connections");
+		await Promise.all([redisClient.quit(), storageRedisClient.quit()]);
+		logger.info("Redis connections closed");
 
 		// Shutdown instrumentation last to ensure all spans are flushed
 		if (sdk) {

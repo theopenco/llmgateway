@@ -45,6 +45,8 @@ Your backend ──(sk_)──▶ POST /v1/sessions ──▶ es_ token (~15 min
 - **`@llmgateway/client`** — a headless, browser-safe client (chat/stream/image/embeddings + balance/top-up) with automatic session refresh.
 - **`@llmgateway/elements`** — React drop-ins: `<Chat/>`, `<BuyCredits/>`, `<CreditBalance/>`, plus `useBalance`/`useChat`.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## Shipping it in ~40 lines
 
 **Backend — mint a session with your secret key:**
@@ -111,3 +113,5 @@ There's a complete, runnable Next.js example — backend session route, provider
 ➡️ **[theopenco/llmgateway-templates → templates/embeddable-credits](https://github.com/theopenco/llmgateway-templates/tree/main/templates/embeddable-credits)**
 
 Full reference is in the [Embeddable Payments docs](https://docs.llmgateway.io/features/embeddable-payments). Embeddable Payments is currently in preview and opt-in only — [contact us](mailto:contact@llmgateway.io) to enable it for your project. Once it's on, open your project's **Settings → Payments SDK** to enable end-user sessions and create a platform secret key — and you can be live in an afternoon.
+
+<BlogCta variant="gateway" location="bottom" />

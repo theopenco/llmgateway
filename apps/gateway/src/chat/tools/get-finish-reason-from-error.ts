@@ -74,6 +74,19 @@ export function getFinishReasonFromError(
 		return "gateway_error";
 	}
 
+	// Some providers report an exhausted gateway-side provider account with a 4xx
+	// other than 402 (e.g. Anthropic returns a 400 `invalid_request_error` with
+	// "Your credit balance is too low to access the Anthropic API."). Like the 402
+	// case above this is a funding problem on our provider account, not a client
+	// fault, so classify as gateway_error to allow fallback to another key or
+	// provider.
+	if (
+		errorText &&
+		/credit balance is too low|insufficient balance/i.test(errorText)
+	) {
+		return "gateway_error";
+	}
+
 	// Upstream reports the model id as unknown (e.g. Mistral / Together / Fireworks
 	// returning `Unknown model: <name>` on a 400). This is a gateway-side mapping
 	// gap rather than a client problem, so classify as gateway_error so the

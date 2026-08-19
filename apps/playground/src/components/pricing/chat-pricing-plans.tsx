@@ -15,6 +15,8 @@ import {
 	CHAT_PLAN_CREDITS_MULTIPLIERS,
 	CHAT_PLAN_PRICES,
 	estimateChatPlanMessages,
+	SELF_REFUND_USAGE_PERCENT,
+	SELF_REFUND_WINDOW_DAYS,
 	type ChatPlanTier,
 } from "@llmgateway/shared";
 
@@ -26,8 +28,6 @@ interface PlanContent {
 	popular?: boolean;
 	/** Whether the tier unlocks the frontier flagships (Opus, GPT-5, …). */
 	frontierIncluded: boolean;
-	/** Approx. monthly cost of the separate subscriptions this tier replaces. */
-	replacesSubsUsd?: number;
 	features: string[];
 }
 
@@ -52,7 +52,6 @@ const plans: PlanContent[] = [
 		tagline: "Replaces ChatGPT Plus + Claude Pro + Gemini",
 		popular: true,
 		frontierIncluded: true,
-		replacesSubsUsd: 60,
 		features: [
 			"Claude Opus, GPT-5, Gemini Pro & Grok 4 — every frontier model",
 			"Chat, image, video & audio studios",
@@ -66,7 +65,6 @@ const plans: PlanContent[] = [
 		description: "For all-day, heavy use",
 		tagline: "Most usage, best per-dollar rate",
 		frontierIncluded: true,
-		replacesSubsUsd: 60,
 		features: [
 			"Everything in Plus, with the most headroom",
 			"Best 3× credit rate — lowest cost per message",
@@ -74,10 +72,6 @@ const plans: PlanContent[] = [
 		],
 	},
 ];
-
-function formatUsd(amount: number): string {
-	return Number.isInteger(amount) ? `$${amount}` : `$${amount.toFixed(0)}`;
-}
 
 /** Round to two significant figures and group, e.g. 3015 → "3,000". */
 function formatCount(n: number): string {
@@ -358,88 +352,42 @@ export function ChatPricingPlans({
 									{plan.tagline}
 								</div>
 
-								{plan.replacesSubsUsd && (
-									<div className="mb-5 rounded-xl border border-foreground/15 bg-foreground/[0.04] px-4 py-3 text-sm">
-										<span className="font-semibold text-foreground">
-											Replaces ~${plan.replacesSubsUsd}/mo
-										</span>{" "}
-										<span className="text-muted-foreground">
-											of ChatGPT Plus + Claude Pro + Gemini — for $
-											{monthlyPrice}.
-										</span>
-									</div>
-								)}
+								<div className="mb-5 flex items-center gap-3 rounded-xl border border-lounge-gold/30 bg-lounge-gold/[0.06] p-4">
+									<span className="inline-flex shrink-0 items-center rounded-full bg-foreground/90 px-2.5 py-1 font-mono text-xs font-bold tabular-nums text-background">
+										{creditsMultiplier}× value
+									</span>
+									<p className="text-xs leading-relaxed text-muted-foreground">
+										Worth {creditsMultiplier}× what you pay in model usage,
+										metered at provider list rates.
+									</p>
+								</div>
 
-								<div className="mb-5 rounded-xl border border-dashed bg-muted/40 p-4">
-									<div className="mb-3 flex items-center justify-between font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-										<span>What you actually get</span>
-										<span className="rounded-full bg-foreground/90 px-2 py-0.5 text-[10px] font-bold tabular-nums text-background">
-											{creditsMultiplier}× value
-										</span>
-									</div>
-									<div className="space-y-2.5 text-sm">
-										<div className="flex items-baseline justify-between">
-											<span className="text-muted-foreground">You pay</span>
-											<span className="font-mono font-semibold tabular-nums">
-												${monthlyPrice}
-												<span className="text-xs font-normal text-muted-foreground">
-													/mo
-												</span>
-											</span>
-										</div>
-										<div className="flex items-baseline justify-between">
-											<span className="text-muted-foreground">You use</span>
-											<span className="font-mono font-semibold tabular-nums text-foreground">
-												{formatUsd(usageValue)}
-												<span className="text-xs font-normal text-muted-foreground">
-													{" "}
-													at provider rates
-												</span>
-											</span>
-										</div>
-										<div className="pt-1">
-											<div className="relative h-2 overflow-hidden rounded-full bg-foreground/10">
-												<div
-													className="absolute left-0 top-0 h-full rounded-full bg-foreground/30"
-													style={{
-														width: `${(1 / creditsMultiplier) * 100}%`,
-													}}
-												/>
-												<div className="absolute left-0 top-0 h-full w-full rounded-full ring-1 ring-inset ring-foreground/10" />
-											</div>
-											<div className="mt-1.5 flex items-center justify-between text-[10px] text-muted-foreground tabular-nums">
-												<span>${monthlyPrice} paid</span>
-												<span>{formatUsd(usageValue)} used</span>
-											</div>
-										</div>
-										<div className="border-t border-dashed pt-2.5 text-xs leading-relaxed text-muted-foreground">
-											{plan.frontierIncluded ? (
-												<>
-													≈{" "}
-													<span className="font-semibold text-foreground tabular-nums">
-														{formatCount(estimate.frontier)}
-													</span>{" "}
-													messages/mo on frontier models —{" "}
-													<span className="font-semibold text-foreground tabular-nums">
-														{formatCount(estimate.fast)}
-													</span>{" "}
-													on fast ones
-												</>
-											) : (
-												<>
-													≈{" "}
-													<span className="font-semibold text-foreground tabular-nums">
-														{formatCount(estimate.fast)}
-													</span>{" "}
-													messages/mo on fast models —{" "}
-													<span className="font-semibold text-foreground tabular-nums">
-														{formatCount(estimate.frontier)}
-													</span>{" "}
-													on Claude Sonnet
-												</>
-											)}
-										</div>
-									</div>
+								<div className="mb-5 rounded-xl border border-dashed bg-muted/40 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+									{plan.frontierIncluded ? (
+										<>
+											≈{" "}
+											<span className="font-semibold text-foreground tabular-nums">
+												{formatCount(estimate.frontier)}
+											</span>{" "}
+											messages/mo on frontier models —{" "}
+											<span className="font-semibold text-foreground tabular-nums">
+												{formatCount(estimate.fast)}
+											</span>{" "}
+											on fast ones
+										</>
+									) : (
+										<>
+											≈{" "}
+											<span className="font-semibold text-foreground tabular-nums">
+												{formatCount(estimate.fast)}
+											</span>{" "}
+											messages/mo on fast models —{" "}
+											<span className="font-semibold text-foreground tabular-nums">
+												{formatCount(estimate.frontier)}
+											</span>{" "}
+											on Claude Sonnet
+										</>
+									)}
 								</div>
 							</div>
 
@@ -495,7 +443,7 @@ export function ChatPricingPlans({
 										}}
 									/>
 									<div className="mt-1.5 flex items-center justify-between font-mono text-[9px] uppercase tracking-[0.28em] text-muted-foreground">
-										<span>chat.llmgateway.io</span>
+										<span>lounge.llmgateway.io</span>
 										<span>{plan.tier} · monthly</span>
 									</div>
 								</div>
@@ -508,10 +456,11 @@ export function ChatPricingPlans({
 			<p className="mx-auto mt-8 max-w-2xl text-center text-sm text-muted-foreground">
 				<ShieldCheck className="mr-1.5 inline-block h-4 w-4 -translate-y-px align-middle text-foreground/70" />
 				<span className="font-medium text-foreground">
-					7-day money-back guarantee.
+					{SELF_REFUND_WINDOW_DAYS}-day money-back guarantee.
 				</span>{" "}
-				If you&apos;ve barely used your membership, email us within 7 days for a
-				full refund.
+				Barely used your membership? Refund yourself from your billing history —
+				a full refund while you&apos;re under {SELF_REFUND_USAGE_PERCENT}% of
+				your allowance, no email needed.
 			</p>
 
 			<p className="mt-4 text-center text-xs text-muted-foreground">

@@ -1,10 +1,77 @@
 import { processLogQueue } from "worker";
 
-import { redisClient } from "@llmgateway/cache";
-import { db, tables, eq } from "@llmgateway/db";
+import { RESPONSES_STORAGE_KEY_PREFIX } from "@/responses/tools/response-state.js";
 
+import { redisClient } from "@llmgateway/cache";
+import { db, inArray, tables, eq } from "@llmgateway/db";
+
+/**
+ * Reset Redis state between tests, except the Responses API state store.
+ *
+ * Test files run in parallel and the e2e suites run their tests concurrently,
+ * all against a single Redis (the storage Redis falls back to the main
+ * instance unless a STORAGE_REDIS_* var is set). A blanket `flushdb` therefore
+ * fires while sibling tests are mid-conversation and deletes the responses
+ * they stored, which surfaces as a follow-up `previous_response_id` turn
+ * losing its history or `GET /v1/responses/:id` returning 404. Those keys
+ * carry their own TTL and are namespaced per response id, so leaving them
+ * behind cannot leak into another test.
+ */
 export async function clearCache() {
-	await redisClient.flushdb();
+	let cursor = "0";
+	do {
+		const [nextCursor, keys] = await redisClient.scan(cursor, "COUNT", 1000);
+		cursor = nextCursor;
+		const deletable = keys.filter(
+			(key) => !key.startsWith(RESPONSES_STORAGE_KEY_PREFIX),
+		);
+		if (deletable.length > 0) {
+			await redisClient.unlink(...deletable);
+		}
+	} while (cursor !== "0");
+}
+
+/**
+ * Delete every row owned by a single test organization.
+ *
+ * Test files run in parallel against one database, so a suite that truncates
+ * whole tables deletes the API keys, projects and logs another suite is using
+ * mid-request. Suites that need a clean slate own a dedicated organization and
+ * clean up only that.
+ */
+export async function cleanupTestOrganization(
+	organizationId: string,
+	userIds: string[] = [],
+) {
+	const projects = await db.query.project.findMany({
+		where: { organizationId: { eq: organizationId } },
+		columns: { id: true },
+	});
+	const projectIds = projects.map((project) => project.id);
+
+	await db
+		.delete(tables.log)
+		.where(eq(tables.log.organizationId, organizationId));
+	if (projectIds.length > 0) {
+		await db
+			.delete(tables.apiKey)
+			.where(inArray(tables.apiKey.projectId, projectIds));
+	}
+	await db
+		.delete(tables.providerKey)
+		.where(eq(tables.providerKey.organizationId, organizationId));
+	await db
+		.delete(tables.userOrganization)
+		.where(eq(tables.userOrganization.organizationId, organizationId));
+	await db
+		.delete(tables.project)
+		.where(eq(tables.project.organizationId, organizationId));
+	await db
+		.delete(tables.organization)
+		.where(eq(tables.organization.id, organizationId));
+	if (userIds.length > 0) {
+		await db.delete(tables.user).where(inArray(tables.user.id, userIds));
+	}
 }
 
 /**

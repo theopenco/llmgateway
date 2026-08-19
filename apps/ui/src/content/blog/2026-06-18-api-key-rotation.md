@@ -5,6 +5,13 @@ date: 2026-06-18
 title: "API Key Rotation: How We Secure Your API Keys"
 summary: "Rotating API keys shouldn't cause service interruption for production AI. Learn how LLM Gateway enables secure key rotation for both providers and the gateway."
 categories: ["Guides", "Engineering"]
+faqs:
+  - question: "Why should you rotate API keys?"
+    answer: "Rotating API keys regularly limits the window of opportunity for attackers if a key is silently leaked. It is also a core security control required to achieve and maintain compliance certifications like SOC 2 Type II or ISO 27001."
+  - question: "Can I rotate provider keys without redeploying my app?"
+    answer: "Yes. When using LLM Gateway in Bring Your Own Key (BYOK) mode, you update your OpenAI or Anthropic key once in the LLM Gateway dashboard. Since your applications only talk to the gateway, they require no code changes or redeployments."
+  - question: "How do I automate key rotation?"
+    answer: "You can use short-lived API keys with a configured Time-to-Live (TTL) expiration. In LLM Gateway, you can set keys to automatically expire after a set number of minutes, hours, or days—ideal for CI/CD runs, staging environments, or external contractors."
 image:
   src: "/blog/api-key-rotation.png"
   alt: "Secure API key rotation with LLM Gateway"
@@ -79,6 +86,8 @@ The gateway immediately begins using the new credential for all subsequent reque
 
 ---
 
+<BlogCta variant="enterprise" location="mid_article" />
+
 ## 2. Rotating Gateway Keys: The "Double-Key Roll" Pattern
 
 If you need to rotate the API key your application uses to connect to LLM Gateway (e.g. `llmgtwy_...`), you cannot avoid updating your application configuration. However, you _can_ avoid service interruption.
@@ -148,22 +157,6 @@ To keep your AI infrastructure secure, follow these principles:
 
 ---
 
-## Frequently Asked Questions
-
-### Why should you rotate API keys?
-
-Rotating API keys regularly limits the window of opportunity for attackers if a key is silently leaked. It is also a core security control required to achieve and maintain compliance certifications like SOC 2 Type II or ISO 27001.
-
-### Can I rotate provider keys without redeploying my app?
-
-Yes. When using LLM Gateway in Bring Your Own Key (BYOK) mode, you update your OpenAI or Anthropic key once in the LLM Gateway dashboard. Since your applications only talk to the gateway, they require no code changes or redeployments.
-
-### How do I automate key rotation?
-
-You can use short-lived API keys with a configured Time-to-Live (TTL) expiration. In LLM Gateway, you can set keys to automatically expire after a set number of minutes, hours, or days—ideal for CI/CD runs, staging environments, or external contractors.
-
----
-
 ## Start Securing Your AI Pipeline
 
 LLM Gateway sits at the intersection of your application and your model providers, giving you a centralized control plane for auth, billing, and routing.
@@ -173,3 +166,5 @@ If you are currently managing raw provider keys across multiple servers, migrati
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** — Create a free account in under 60 seconds
 - **[Read the API Keys & IAM Rules Documentation](https://docs.llmgateway.io/features/api-keys)** — Learn how to secure your endpoints
 - **[Learn about our SOC 2 Type II compliance](/blog/soc2-type-ii)** — Read the announcement and download the report
+
+<BlogCta variant="enterprise" location="bottom" />

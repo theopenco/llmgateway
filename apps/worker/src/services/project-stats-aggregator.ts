@@ -1,4 +1,5 @@
 import {
+	type AnyColumn,
 	db,
 	log,
 	projectHourlyStats,
@@ -6,10 +7,12 @@ import {
 	projectHourlySourceStats,
 	apiKeyHourlyStats,
 	apiKeyHourlyModelStats,
+	providerKeyHourlyStats,
 	apiKey,
 	sql,
 	and,
 	isNull,
+	isNotNull,
 	eq,
 	inArray,
 } from "@llmgateway/db";
@@ -49,9 +52,21 @@ function getCurrentHourStart(): string {
 }
 
 /**
- * Common aggregation select fields for all stats tables
+ * SUM of a money column in double precision. Never `SUM(<real column>)` — that
+ * accumulates in float4 and loses cents long before the hour is over.
  */
-export function getCommonAggregationFields() {
+function sumLogMoney(column: AnyColumn, alias: string) {
+	return sql<number>`coalesce(sum(cast(${column} as double precision)), 0)`.as(
+		alias,
+	);
+}
+
+/**
+ * Aggregation select fields shared by every stats table, excluding the
+ * denormalized per-mode pairs. The global stats tables key on `used_mode`
+ * directly (see globalModelStats) and so only need these.
+ */
+export function getBaseAggregationFields() {
 	return {
 		requestCount: sql<number>`count(*)::int`.as("requestCount"),
 		errorCount:
@@ -133,51 +148,47 @@ export function getCommonAggregationFields() {
 			sql<string>`coalesce(sum(cast(${log.cacheWriteTokens} as numeric)), 0)`.as(
 				"cacheWriteTokens",
 			),
-		// Costs
-		cost: sql<number>`coalesce(sum(${log.cost}), 0)`.as("cost"),
-		inputCost: sql<number>`coalesce(sum(${log.inputCost}), 0)`.as("inputCost"),
-		outputCost: sql<number>`coalesce(sum(${log.outputCost}), 0)`.as(
-			"outputCost",
-		),
-		requestCost: sql<number>`coalesce(sum(${log.requestCost}), 0)`.as(
-			"requestCost",
-		),
-		dataStorageCost:
-			sql<number>`coalesce(sum(cast(${log.dataStorageCost} as real)), 0)`.as(
-				"dataStorageCost",
-			),
+		// Costs. `log.cost` and friends are float4, and Postgres accumulates
+		// SUM(real) in float4 too — a busy hour is tens of thousands of rows, so the
+		// running sum runs out of its ~7 significant digits and the bucket is stored
+		// already-wrong. Casting to double precision first keeps the accumulation
+		// accurate; the target column is still float4, so only the final value is
+		// rounded rather than every partial sum along the way.
+		cost: sumLogMoney(log.cost, "cost"),
+		inputCost: sumLogMoney(log.inputCost, "inputCost"),
+		outputCost: sumLogMoney(log.outputCost, "outputCost"),
+		requestCost: sumLogMoney(log.requestCost, "requestCost"),
+		dataStorageCost: sumLogMoney(log.dataStorageCost, "dataStorageCost"),
 		discountSavings: sql<number>`coalesce(
 			sum(
 				case
 					when ${log.discount} > 0 and ${log.discount} < 1
-					then ${log.cost} * ${log.discount} / (1 - ${log.discount})
+					then cast(${log.cost} as double precision) * ${log.discount} / (1 - ${log.discount})
 					else 0
 				end
 			),
 			0
 		)`.as("discountSavings"),
-		imageInputCost: sql<number>`coalesce(sum(${log.imageInputCost}), 0)`.as(
-			"imageInputCost",
+		imageInputCost: sumLogMoney(log.imageInputCost, "imageInputCost"),
+		imageOutputCost: sumLogMoney(log.imageOutputCost, "imageOutputCost"),
+		audioInputCost: sumLogMoney(log.audioInputCost, "audioInputCost"),
+		audioOutputCost: sumLogMoney(log.audioOutputCost, "audioOutputCost"),
+		videoOutputCost: sumLogMoney(log.videoOutputCost, "videoOutputCost"),
+		cachedInputCost: sumLogMoney(log.cachedInputCost, "cachedInputCost"),
+		cacheWriteInputCost: sumLogMoney(
+			log.cacheWriteInputCost,
+			"cacheWriteInputCost",
 		),
-		imageOutputCost: sql<number>`coalesce(sum(${log.imageOutputCost}), 0)`.as(
-			"imageOutputCost",
-		),
-		audioInputCost: sql<number>`coalesce(sum(${log.audioInputCost}), 0)`.as(
-			"audioInputCost",
-		),
-		audioOutputCost: sql<number>`coalesce(sum(${log.audioOutputCost}), 0)`.as(
-			"audioOutputCost",
-		),
-		videoOutputCost: sql<number>`coalesce(sum(${log.videoOutputCost}), 0)`.as(
-			"videoOutputCost",
-		),
-		cachedInputCost: sql<number>`coalesce(sum(${log.cachedInputCost}), 0)`.as(
-			"cachedInputCost",
-		),
-		cacheWriteInputCost:
-			sql<number>`coalesce(sum(${log.cacheWriteInputCost}), 0)`.as(
-				"cacheWriteInputCost",
-			),
+	};
+}
+
+/**
+ * Common aggregation select fields for the project/api-key hourly stats
+ * tables, which carry the credits/BYOK split as denormalized column pairs.
+ */
+export function getCommonAggregationFields() {
+	return {
+		...getBaseAggregationFields(),
 		// Per-mode breakdowns
 		creditsRequestCount:
 			sql<number>`sum(case when ${log.usedMode} = 'credits' then 1 else 0 end)::int`.as(
@@ -188,19 +199,19 @@ export function getCommonAggregationFields() {
 				"apiKeysRequestCount",
 			),
 		creditsCost:
-			sql<number>`coalesce(sum(case when ${log.usedMode} = 'credits' then ${log.cost} else 0 end), 0)`.as(
+			sql<number>`coalesce(sum(case when ${log.usedMode} = 'credits' then cast(${log.cost} as double precision) else 0 end), 0)`.as(
 				"creditsCost",
 			),
 		apiKeysCost:
-			sql<number>`coalesce(sum(case when ${log.usedMode} = 'api-keys' then ${log.cost} else 0 end), 0)`.as(
+			sql<number>`coalesce(sum(case when ${log.usedMode} = 'api-keys' then cast(${log.cost} as double precision) else 0 end), 0)`.as(
 				"apiKeysCost",
 			),
 		creditsDataStorageCost:
-			sql<number>`coalesce(sum(case when ${log.usedMode} = 'credits' then cast(${log.dataStorageCost} as real) else 0 end), 0)`.as(
+			sql<number>`coalesce(sum(case when ${log.usedMode} = 'credits' then cast(${log.dataStorageCost} as double precision) else 0 end), 0)`.as(
 				"creditsDataStorageCost",
 			),
 		apiKeysDataStorageCost:
-			sql<number>`coalesce(sum(case when ${log.usedMode} = 'api-keys' then cast(${log.dataStorageCost} as real) else 0 end), 0)`.as(
+			sql<number>`coalesce(sum(case when ${log.usedMode} = 'api-keys' then cast(${log.dataStorageCost} as double precision) else 0 end), 0)`.as(
 				"apiKeysDataStorageCost",
 			),
 	};
@@ -448,6 +459,115 @@ async function recalculateApiKeyHourlyModelStats(
 	}
 }
 
+/**
+ * Aggregation fields for provider-key spend. Deliberately a small subset of
+ * {@link getCommonAggregationFields}: this table exists to answer "what did
+ * this credential spend upstream, when, and for whom", so it carries the cost
+ * column the billing worker attributes (`log.cost`) plus enough volume and
+ * health signal to spot a runaway or failing key — not the full per-modality
+ * cost breakdown, which stays on the project/api-key tables.
+ */
+function getProviderKeySpendAggregationFields() {
+	return {
+		requestCount: sql<number>`count(*)::int`.as("requestCount"),
+		errorCount:
+			sql<number>`sum(case when ${log.hasError} = true then 1 else 0 end)::int`.as(
+				"errorCount",
+			),
+		upstreamErrorCount:
+			sql<number>`sum(case when ${log.unifiedFinishReason} = 'upstream_error' then 1 else 0 end)::int`.as(
+				"upstreamErrorCount",
+			),
+		cacheCount:
+			sql<number>`sum(case when ${log.cached} = true then 1 else 0 end)::int`.as(
+				"cacheCount",
+			),
+		inputTokens:
+			sql<string>`coalesce(sum(cast(${log.promptTokens} as numeric)), 0)`.as(
+				"inputTokens",
+			),
+		outputTokens:
+			sql<string>`coalesce(sum(cast(${log.completionTokens} as numeric)), 0)`.as(
+				"outputTokens",
+			),
+		totalTokens:
+			sql<string>`coalesce(sum(cast(${log.totalTokens} as numeric)), 0)`.as(
+				"totalTokens",
+			),
+		cost: sumLogMoney(log.cost, "cost"),
+	};
+}
+
+/**
+ * Calculate and store hourly provider-key statistics for a specific project and
+ * hour. Rows without an attributed credential (env-var keys, requests that
+ * errored before one was resolved) are excluded.
+ */
+async function recalculateProviderKeyHourlyStats(
+	projectId: string,
+	hourTimestamp: string,
+) {
+	const database = db;
+
+	const providerKeyStats = await database
+		.select({
+			// Cast through sql<string> rather than selecting the nullable column:
+			// the isNotNull filter below guarantees it, but Drizzle still types the
+			// raw column as string | null.
+			providerKeyId: sql<string>`${log.providerKeyId}`.as("providerKeyId"),
+			...getProviderKeySpendAggregationFields(),
+		})
+		.from(log)
+		.where(
+			and(
+				sql`${log.projectId} = ${projectId}`,
+				sql`${log.createdAt} >= ${hourTimestamp}::timestamp`,
+				sql`${log.createdAt} < ${hourTimestamp}::timestamp + interval '1 hour'`,
+				isNotNull(log.providerKeyId),
+			),
+		)
+		.groupBy(log.providerKeyId);
+
+	for (const stat of providerKeyStats) {
+		const { providerKeyId, ...statsFields } = stat;
+		await database
+			.insert(providerKeyHourlyStats)
+			.values({
+				providerKeyId,
+				projectId,
+				hourTimestamp: sql`${hourTimestamp}::timestamp`,
+				...statsFields,
+			})
+			.onConflictDoUpdate({
+				target: [
+					providerKeyHourlyStats.providerKeyId,
+					providerKeyHourlyStats.projectId,
+					providerKeyHourlyStats.hourTimestamp,
+				],
+				set: {
+					...statsFields,
+					updatedAt: new Date(),
+				},
+			});
+	}
+}
+
+/**
+ * Recalculate every aggregation table for one project-hour bucket.
+ *
+ * All three drivers (live current hour, stale re-processing, historical
+ * backfill) go through this so a newly added stats table cannot be wired into
+ * one path and silently forgotten in the others.
+ */
+async function recalculateBucket(projectId: string, hourTimestamp: string) {
+	await recalculateProjectHourlyStats(projectId, hourTimestamp);
+	await recalculateProjectHourlyModelStats(projectId, hourTimestamp);
+	await recalculateProjectHourlySourceStats(projectId, hourTimestamp);
+	await recalculateApiKeyHourlyStats(projectId, hourTimestamp);
+	await recalculateApiKeyHourlyModelStats(projectId, hourTimestamp);
+	await recalculateProviderKeyHourlyStats(projectId, hourTimestamp);
+}
+
 // Batch size per run (shared by both phases)
 const STATS_BATCH_SIZE = Number(process.env.STATS_BATCH_SIZE) || 100;
 
@@ -534,26 +654,7 @@ export async function aggregateHistoricalStats() {
 				for (let i = 0; i < staleBuckets.length; i++) {
 					const bucket = staleBuckets[i];
 
-					await recalculateProjectHourlyStats(
-						bucket.projectId,
-						bucket.hourTimestamp,
-					);
-					await recalculateProjectHourlyModelStats(
-						bucket.projectId,
-						bucket.hourTimestamp,
-					);
-					await recalculateProjectHourlySourceStats(
-						bucket.projectId,
-						bucket.hourTimestamp,
-					);
-					await recalculateApiKeyHourlyStats(
-						bucket.projectId,
-						bucket.hourTimestamp,
-					);
-					await recalculateApiKeyHourlyModelStats(
-						bucket.projectId,
-						bucket.hourTimestamp,
-					);
+					await recalculateBucket(bucket.projectId, bucket.hourTimestamp);
 
 					logger.info(
 						`[stale] Processed bucket ${i + 1}/${staleBuckets.length}: project=${bucket.projectId} hour=${bucket.hourTimestamp}`,
@@ -624,26 +725,7 @@ export async function aggregateHistoricalStats() {
 				for (let i = 0; i < backfillBuckets.length; i++) {
 					const bucket = backfillBuckets[i];
 
-					await recalculateProjectHourlyStats(
-						bucket.projectId,
-						bucket.hourTimestamp,
-					);
-					await recalculateProjectHourlyModelStats(
-						bucket.projectId,
-						bucket.hourTimestamp,
-					);
-					await recalculateProjectHourlySourceStats(
-						bucket.projectId,
-						bucket.hourTimestamp,
-					);
-					await recalculateApiKeyHourlyStats(
-						bucket.projectId,
-						bucket.hourTimestamp,
-					);
-					await recalculateApiKeyHourlyModelStats(
-						bucket.projectId,
-						bucket.hourTimestamp,
-					);
+					await recalculateBucket(bucket.projectId, bucket.hourTimestamp);
 
 					logger.info(
 						`[backfill] Processed bucket ${i + 1}/${backfillBuckets.length}: project=${bucket.projectId} hour=${bucket.hourTimestamp}`,
@@ -701,11 +783,7 @@ export async function refreshCurrentHourStats() {
 			.groupBy(log.projectId);
 
 		for (const { projectId } of projectsWithCurrentHourLogs) {
-			await recalculateProjectHourlyStats(projectId, currentHourStart);
-			await recalculateProjectHourlyModelStats(projectId, currentHourStart);
-			await recalculateProjectHourlySourceStats(projectId, currentHourStart);
-			await recalculateApiKeyHourlyStats(projectId, currentHourStart);
-			await recalculateApiKeyHourlyModelStats(projectId, currentHourStart);
+			await recalculateBucket(projectId, currentHourStart);
 		}
 
 		logger.info(

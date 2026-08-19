@@ -1,7 +1,5 @@
 export interface ResponsesContext {
 	logId: string;
-	syncInsert: boolean;
-	responsesApiData: unknown;
 }
 
 const contextMap = new Map<string, ResponsesContext>();

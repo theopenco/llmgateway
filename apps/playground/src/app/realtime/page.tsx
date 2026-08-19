@@ -31,12 +31,11 @@ export default async function RealtimePage({
 		cookieStore.get(REALTIME_MODEL_COOKIE)?.value,
 	);
 
-	const [models, providers] = await Promise.all([
+	const [models, providers, initialOrganizationsData] = await Promise.all([
 		fetchModels(),
 		fetchProviders(),
+		fetchServerData("GET", "/orgs"),
 	]);
-
-	const initialOrganizationsData = await fetchServerData("GET", "/orgs");
 
 	const allOrganizations = (
 		initialOrganizationsData &&

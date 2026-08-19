@@ -25,6 +25,8 @@ import {
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
+import { randomInt } from "@llmgateway/shared/random";
+
 import type { VariantProps } from "class-variance-authority";
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
@@ -610,7 +612,7 @@ function SidebarMenuSkeleton({
 }) {
 	// Random width between 50 to 90%.
 	const width = React.useMemo(() => {
-		return `${Math.floor(Math.random() * 40) + 50}%`;
+		return `${randomInt(50, 90)}%`;
 	}, []);
 
 	return (

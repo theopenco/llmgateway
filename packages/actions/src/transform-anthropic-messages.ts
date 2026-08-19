@@ -11,7 +11,7 @@ import {
 } from "@llmgateway/models";
 
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
-import { processImageUrl } from "./process-image-url.js";
+import { ImageSizeLimitError, processImageUrl } from "./process-image-url.js";
 
 /**
  * Transforms Anthropic messages
@@ -116,6 +116,12 @@ export async function transformAnthropicMessages(
 								},
 							};
 						} catch (error) {
+							// A size rejection is the user's to act on: degrading to a
+							// placeholder would return a 200 that silently ignores the
+							// image and still bills for the turn.
+							if (error instanceof ImageSizeLimitError) {
+								throw error;
+							}
 							logger.error(`Failed to fetch image ${part.image_url.url}`, {
 								err: error instanceof Error ? error : new Error(String(error)),
 							});
@@ -247,6 +253,14 @@ export async function transformAnthropicMessages(
 			const currentCount = toolResultCount.get(m.tool_call_id) ?? 0;
 			toolResultCount.set(m.tool_call_id, currentCount + 1);
 
+			// A client-side tool search returns `tool_reference` blocks in the
+			// tool_result content array. Stringifying that array would leave
+			// Anthropic nothing to expand, so replay the original blocks verbatim.
+			const resultContent: ToolResultContent["content"] =
+				m.anthropic_native_blocks && m.anthropic_native_blocks.length > 0
+					? m.anthropic_native_blocks
+					: toolResultContent;
+
 			// If there are multiple mapped IDs, create tool_result blocks for each one
 			// This handles the case where we have duplicate tool_use but only one tool_result
 			if (mappedToolUseIds.length > 1 && currentCount === 0) {
@@ -256,7 +270,7 @@ export async function transformAnthropicMessages(
 						({
 							type: "tool_result",
 							tool_use_id: mappedId,
-							content: toolResultContent,
+							content: resultContent,
 						}) as ToolResultContent,
 				);
 			} else {
@@ -266,7 +280,7 @@ export async function transformAnthropicMessages(
 					{
 						type: "tool_result",
 						tool_use_id: toolUseId,
-						content: toolResultContent,
+						content: resultContent,
 					} as ToolResultContent,
 				];
 			}
@@ -278,9 +292,19 @@ export async function transformAnthropicMessages(
 				!(isTextContent(part) && (!part.text || part.text.trim() === "")),
 		);
 
+		// Anthropic-only blocks (the server-side tool search pair) that the client
+		// replayed from a previous assistant turn. They belong immediately before
+		// the tool_use blocks they led to, which is where Anthropic emitted them;
+		// Anthropic expands the `tool_reference` entries they carry throughout the
+		// history, so keeping them lets Claude reuse a tool it already discovered
+		// instead of searching for it again.
+		const nativeBlocks =
+			m.role === "assistant" ? (m.anthropic_native_blocks ?? []) : [];
+
 		// Ensure we have at least some content - if all content was filtered out but we have tool_calls, that's still valid
 		if (
 			filteredContent.length === 0 &&
+			nativeBlocks.length === 0 &&
 			(!m.tool_calls || m.tool_calls.length === 0)
 		) {
 			// Skip messages with no valid content
@@ -290,8 +314,23 @@ export async function transformAnthropicMessages(
 		// Map role correctly for Anthropic (no system or tool roles)
 		const anthropicRole = m.role === "assistant" ? "assistant" : "user";
 
+		let anthropicContent: AnthropicMessage["content"] = filteredContent;
+		if (nativeBlocks.length > 0) {
+			const firstToolUseIdx = filteredContent.findIndex(
+				(part) => part.type === "tool_use",
+			);
+			anthropicContent =
+				firstToolUseIdx === -1
+					? [...filteredContent, ...nativeBlocks]
+					: [
+							...filteredContent.slice(0, firstToolUseIdx),
+							...nativeBlocks,
+							...filteredContent.slice(firstToolUseIdx),
+						];
+		}
+
 		results.push({
-			content: filteredContent,
+			content: anthropicContent,
 			role: anthropicRole,
 		});
 	}

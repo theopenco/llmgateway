@@ -181,7 +181,17 @@ describe("analytics endpoints", () => {
 		cost: number;
 		requestCount: number;
 		totalTokens: number;
-		breakdown: { key: string; label: string; cost: number }[];
+		creditsRequestCount: number;
+		apiKeysRequestCount: number;
+		creditsCost: number;
+		apiKeysCost: number;
+		breakdown: {
+			key: string;
+			label: string;
+			cost: number;
+			creditsCost: number;
+			apiKeysCost: number;
+		}[];
 	}
 
 	function activeRows(rows: ActivitySeriesRow[]): ActivitySeriesRow[] {
@@ -677,6 +687,122 @@ describe("analytics endpoints", () => {
 			const athensDay = activeRows((await athensRes.json()).activity)[0];
 			expect(athensDay.date).toBe(localDay(boundary, "Europe/Athens"));
 			expect(athensDay.date).not.toBe(utcDay.date);
+		});
+	});
+
+	describe("credits vs BYOK mode split", () => {
+		beforeEach(async () => {
+			// The base fixture is entirely usedMode=api-keys; add one credits-mode
+			// log for the owner so every endpoint has both modes to split.
+			await db.insert(tables.log).values({
+				id: "log-owner-credits",
+				requestId: "log-owner-credits",
+				createdAt: logTime,
+				updatedAt: logTime,
+				organizationId: ORG_ID,
+				projectId: PROJECT_ID,
+				apiKeyId: "key-owner",
+				duration: 100,
+				requestedModel: "gpt-4",
+				requestedProvider: "openai",
+				usedModel: "gpt-4",
+				usedProvider: "openai",
+				responseSize: 1000,
+				promptTokens: "10",
+				completionTokens: "20",
+				totalTokens: "30",
+				cost: 0.4,
+				messages: JSON.stringify([{ role: "user", content: "credits" }]),
+				mode: "hybrid",
+				usedMode: "credits",
+			});
+			await aggregateLogsForTesting();
+		});
+
+		test("GET /analytics/members splits per-member usage", async () => {
+			const res = await app.request(
+				`/analytics/members?organizationId=${ORG_ID}`,
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(200);
+			const data = await res.json();
+
+			const owner = data.members.find(
+				(m: { userId: string }) => m.userId === OWNER_ID,
+			);
+			expect(owner.cost).toBeCloseTo(0.7, 5);
+			expect(owner.creditsCost).toBeCloseTo(0.4, 5);
+			expect(owner.apiKeysCost).toBeCloseTo(0.3, 5);
+			expect(owner.creditsRequestCount).toBe(1);
+			expect(owner.apiKeysRequestCount).toBe(2);
+
+			const member = data.members.find(
+				(m: { userId: string }) => m.userId === MEMBER_ID,
+			);
+			expect(member.creditsCost).toBe(0);
+			expect(member.apiKeysCost).toBeCloseTo(0.05, 5);
+		});
+
+		test("GET /analytics/members/{userId} splits summary and breakdowns", async () => {
+			const res = await app.request(
+				`/analytics/members/${OWNER_ID}?organizationId=${ORG_ID}`,
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(200);
+			const data = await res.json();
+
+			expect(data.summary.creditsCost).toBeCloseTo(0.4, 5);
+			expect(data.summary.apiKeysCost).toBeCloseTo(0.3, 5);
+			expect(data.summary.creditsRequestCount).toBe(1);
+			expect(data.summary.apiKeysRequestCount).toBe(2);
+
+			const gpt4 = data.costByModel.find(
+				(m: { key: string }) => m.key === "gpt-4",
+			);
+			expect(gpt4.creditsCost).toBeCloseTo(0.4, 5);
+			expect(gpt4.apiKeysCost).toBeCloseTo(0.3, 5);
+		});
+
+		test("GET /analytics/activity splits totals and breakdown", async () => {
+			const res = await app.request(
+				`/analytics/activity?organizationId=${ORG_ID}`,
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(200);
+			const data = await res.json();
+
+			const day = activeRows(data.activity)[0];
+			expect(day.creditsCost).toBeCloseTo(0.4, 5);
+			expect(day.apiKeysCost).toBeCloseTo(0.35, 5);
+			expect(day.creditsRequestCount).toBe(1);
+			expect(day.apiKeysRequestCount).toBe(3);
+
+			const gpt4 = day.breakdown.find((b) => b.key === "gpt-4");
+			expect(gpt4).toBeDefined();
+			expect(gpt4!.creditsCost).toBeCloseTo(0.4, 5);
+			expect(gpt4!.apiKeysCost).toBeCloseTo(0.3, 5);
+		});
+
+		test("GET /analytics/me splits summary, activity and top models", async () => {
+			const res = await app.request(
+				`/analytics/me?organizationId=${ORG_ID}&projectId=${PROJECT_ID}`,
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(200);
+			const data = await res.json();
+
+			expect(data.summary.creditsCost).toBeCloseTo(0.4, 5);
+			expect(data.summary.apiKeysCost).toBeCloseTo(0.3, 5);
+
+			const day = activeRows(data.activity)[0];
+			expect(day.creditsCost).toBeCloseTo(0.4, 5);
+			expect(day.apiKeysCost).toBeCloseTo(0.3, 5);
+
+			const gpt4 = data.topModels.find(
+				(m: { key: string }) => m.key === "gpt-4",
+			);
+			expect(gpt4.creditsCost).toBeCloseTo(0.4, 5);
+			expect(gpt4.apiKeysCost).toBeCloseTo(0.3, 5);
 		});
 	});
 });

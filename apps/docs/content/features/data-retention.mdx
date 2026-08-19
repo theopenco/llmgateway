@@ -24,6 +24,13 @@ LLM Gateway supports two retention levels that can be configured per organizatio
 	without additional storage costs.
 </Callout>
 
+<Callout type="warning">
+	Retention levels are configurable on standard (pay-as-you-go) organizations
+	only. DevPass and chat subscriptions are always metadata only — their request
+	and response payloads are not retained, and there is no setting to turn
+	payload storage on. The Responses API exception below still applies to them.
+</Callout>
+
 ## Storage Pricing
 
 When full data retention is enabled, storage is billed at **$0.01 per 1 million tokens**. This rate applies to:
@@ -47,7 +54,7 @@ Storage cost = 1,500 / 1,000,000 × $0.01 = **$0.000015**
 
 ## Configuring Retention
 
-Data retention is configured at the organization level in your dashboard settings:
+Data retention is configured at the organization level in your dashboard settings. The setting is only available on standard pay-as-you-go organizations:
 
 1. Navigate to **Organization Settings** → **Policies**
 2. Select your preferred **Data Retention Level**
@@ -61,6 +68,17 @@ Data retention is configured at the organization level in your dashboard setting
 ## Retention Periods
 
 Data is retained for 30 days for all users. Enterprise plans can have custom retention periods. After the retention period expires, data is automatically deleted.
+
+<Callout type="info">
+	The Responses API does not require data retention. Stored responses (used for
+	`previous_response_id` chaining and `GET /v1/responses/:id`) are kept in
+	dedicated storage for 30 days — matching OpenAI's own retention — regardless
+	of your organization's data retention policy, and are not billed as data
+	storage. Because this is independent of the retention level, it applies to
+	metadata-only organizations, including DevPass and chat, whose Responses API
+	input and output items are therefore held for up to 30 days. Send `store:
+	false` with the request to opt out.
+</Callout>
 
 ## Accessing Stored Data
 

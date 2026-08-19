@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { HTTPException } from "hono/http-exception";
 
-import { getProviderEnv } from "@/chat/tools/get-provider-env.js";
+import { resolvePlatformCredential } from "@/chat/tools/resolve-platform-credential.js";
 import { getApiKeyFingerprint } from "@/lib/api-key-fingerprint.js";
 import {
 	assertApiKeyWithinUsageLimits,
@@ -17,6 +17,14 @@ import {
 } from "@/lib/cached-queries.js";
 import { assertProviderCompliant } from "@/lib/compliance.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
+import { getOrganizationBlockReason } from "@/lib/organization-access.js";
+
+import { readProviderKey } from "@llmgateway/actions";
+import {
+	getOrganizationEnvVariant,
+	type EnvVarVariant,
+	type Provider,
+} from "@llmgateway/models";
 
 import {
 	findRealtimeMapping,
@@ -43,10 +51,24 @@ export interface RealtimePreflightResult {
 	organization: Organization;
 	match: RealtimeMappingMatch;
 	providerKey: ProviderKey | undefined;
+	/**
+	 * Platform-managed credential serving this credits-mode session, when one
+	 * is configured: the database-backed replacement for the provider's `LLM_*`
+	 * env vars. Distinct from `providerKey`, which is always the organization's
+	 * own BYOK key — a managed credential still bills as `credits`.
+	 */
+	managedKey: ProviderKey | undefined;
+	/**
+	 * Provider-key id to attribute upstream health failures to, following the
+	 * credential actually sent: the BYOK key or the managed credential.
+	 */
+	trackedKeyHealthId: string | undefined;
 	upstreamToken: string;
 	usedApiKeyHash: string;
 	envVarName: string | undefined;
 	configIndex: number;
+	/** Env-var variant the organization maps to, for env-backed settings reads. */
+	envVariant: EnvVarVariant | undefined;
 	usedMode: "api-keys" | "credits";
 	/**
 	 * Canonical ids of the input-audio transcription models this API key's IAM
@@ -65,6 +87,25 @@ export interface RealtimePreflightResult {
 	 * OpenAI-Safety-Identifier header (a hash, never a raw internal id).
 	 */
 	safetyIdentifier: string;
+}
+
+/**
+ * Derive the opaque `OpenAI-Safety-Identifier` for a session. It is keyed on the
+ * tenant (organization + project) rather than on the API key: keys are rotatable
+ * credentials, so deriving from one would reset the upstream abuse-tracking
+ * identity on every rotation, and no part of a credential should ever be fed
+ * into a fast digest. Both ids are 20-character CSPRNG nanoids (~119 bits each),
+ * so a plain digest needs no salt or pepper: there is no small input space to
+ * enumerate, and the hash exists only to keep internal ids off the wire.
+ */
+function deriveSafetyIdentifier(
+	organizationId: string,
+	projectId: string,
+): string {
+	return createHash("sha256")
+		.update(`realtime-safety-identifier:${organizationId}:${projectId}`)
+		.digest("hex")
+		.slice(0, 32);
 }
 
 export function getAvailableCredits(organization: Organization): number {
@@ -138,6 +179,19 @@ async function runRealtimePreflightInner(
 			`Realtime model not found: ${input.requestedModel}`,
 		);
 	}
+	// Provider-scoped kill switch. Enforced here so it covers both client-secret
+	// minting and the WebSocket upgrade with the same normal 503, instead of a
+	// mint succeeding and the upgrade failing opaquely.
+	if (
+		match.mapping.providerId === "google-ai-studio" &&
+		process.env.REALTIME_GEMINI_DISABLED === "true"
+	) {
+		throw new RealtimeConnectError(
+			503,
+			"realtime_gemini_disabled",
+			"Gemini realtime sessions are temporarily unavailable.",
+		);
+	}
 
 	const apiKey = await findApiKeyByToken(input.token);
 	if (!apiKey) {
@@ -191,11 +245,14 @@ async function runRealtimePreflightInner(
 			"Could not find organization",
 		);
 	}
-	if (organization.status === "deleted") {
+	const organizationBlocked = getOrganizationBlockReason(organization);
+	if (organizationBlocked) {
 		throw new RealtimeConnectError(
-			410,
-			"organization_disabled",
-			"Organization has been disabled and is no longer accessible",
+			organizationBlocked.status,
+			organizationBlocked.status === 403
+				? "organization_high_risk"
+				: "organization_disabled",
+			organizationBlocked.message,
 		);
 	}
 	// Dev-plan and chat-plan credit pools are deferred: realtime v1 bills
@@ -261,9 +318,27 @@ async function runRealtimePreflightInner(
 
 	// --- Upstream credential resolution (mirrors the embeddings path) ---
 	let providerKey: ProviderKey | undefined;
+	let managedKey: ProviderKey | undefined;
 	let upstreamToken: string | undefined;
 	let configIndex = 0;
 	let envVarName: string | undefined;
+	const envVariant = getOrganizationEnvVariant(organization);
+
+	const resolveCredits = async () => {
+		const platformCredential = await resolvePlatformCredential(
+			providerId as Provider,
+			{
+				selectionScope: match.modelId,
+				variant: envVariant,
+				region: undefined,
+				requiresServiceTier: false,
+			},
+		);
+		managedKey = platformCredential.managedKey;
+		upstreamToken = platformCredential.token;
+		configIndex = platformCredential.configIndex;
+		envVarName = platformCredential.envVarName;
+	};
 
 	const assertCredits = () => {
 		if (getAvailableCredits(organization) <= 0) {
@@ -288,15 +363,10 @@ async function runRealtimePreflightInner(
 				`No API key set for provider: ${providerId}. Please add a provider key in your settings or add credits and switch to credits or hybrid mode.`,
 			);
 		}
-		upstreamToken = providerKey.token;
+		upstreamToken = readProviderKey(providerKey);
 	} else if (project.mode === "credits") {
 		assertCredits();
-		const envResult = getProviderEnv(providerId, {
-			selectionScope: match.modelId,
-		});
-		upstreamToken = envResult.token;
-		configIndex = envResult.configIndex;
-		envVarName = envResult.envVarName;
+		await resolveCredits();
 	} else if (project.mode === "hybrid") {
 		providerKey = await findProviderKey(
 			project.organizationId,
@@ -304,15 +374,10 @@ async function runRealtimePreflightInner(
 			match.modelId,
 		);
 		if (providerKey) {
-			upstreamToken = providerKey.token;
+			upstreamToken = readProviderKey(providerKey);
 		} else {
 			assertCredits();
-			const envResult = getProviderEnv(providerId, {
-				selectionScope: match.modelId,
-			});
-			upstreamToken = envResult.token;
-			configIndex = envResult.configIndex;
-			envVarName = envResult.envVarName;
+			await resolveCredits();
 		}
 	} else {
 		throw new RealtimeConnectError(
@@ -343,16 +408,18 @@ async function runRealtimePreflightInner(
 		organization,
 		match,
 		providerKey,
+		managedKey,
+		trackedKeyHealthId: providerKey?.id ?? managedKey?.id,
 		upstreamToken,
 		usedApiKeyHash: getApiKeyFingerprint(upstreamToken),
 		envVarName,
 		configIndex,
+		envVariant,
+		// Only an organization-owned BYOK key means the org pays the provider
+		// directly. A platform-managed credential still bills as credits.
 		usedMode: providerKey ? "api-keys" : "credits",
 		allowedTranscriptionModelIds,
 		clientIp: input.clientIp,
-		safetyIdentifier: createHash("sha256")
-			.update(`${organization.id}:${apiKey.id}`)
-			.digest("hex")
-			.slice(0, 32),
+		safetyIdentifier: deriveSafetyIdentifier(organization.id, project.id),
 	};
 }

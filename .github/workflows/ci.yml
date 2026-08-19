@@ -7,6 +7,10 @@ on:
   merge_group:
     branches:
       - main
+
+permissions:
+  contents: read
+
 jobs:
   quality:
     if: github.event_name == 'pull_request' && github.head_ref != 'main'
@@ -40,7 +44,5 @@ jobs:
       cmd: pnpm build && pnpm run setup && bash .github/start.sh
 
   test:
-    uses: ./.github/workflows/run.yml
+    uses: ./.github/workflows/test-unit.yml
     secrets: inherit
-    with:
-      cmd: pnpm build && pnpm run setup && pnpm test:unit

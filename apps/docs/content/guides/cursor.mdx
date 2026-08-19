@@ -1,6 +1,6 @@
 ---
 title: Cursor Integration
-description: Use LLM Gateway with Cursor IDE — plan mode and agent mode both route through the gateway. Tab autocomplete and inline edit stay on Cursor's backend.
+description: Point Cursor's plan and agent modes at Kimi K3, GPT-5, Claude, or 200+ models through LLM Gateway. One base URL override, plus what stays on Cursor's backend.
 image: guides/cursor/overview.png
 icon: Cursor
 ---
@@ -22,6 +22,14 @@ Cursor is an AI-powered code editor built on VSCode. You can point Cursor's cust
 </Callout>
 
 ![Cursor with LLM Gateway](/guides/cursor/overview.png)
+
+<Callout type="info">
+	**Using DevPass?** This integration also works with a
+	[DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without
+	a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) —
+	provider-pinned routing is not available on coding plans; the gateway picks
+	the provider for you.
+</Callout>
 
 ## Prerequisites
 

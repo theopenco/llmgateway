@@ -1,6 +1,7 @@
 "use client";
 
 import { OrganizationIdSettings } from "@/components/settings/organization-id-settings";
+import { OrganizationLogoSettings } from "@/components/settings/organization-logo-settings";
 import { OrganizationNameSettings } from "@/components/settings/organization-name-settings";
 import {
 	Card,
@@ -39,6 +40,17 @@ export default function PreferencesPage() {
 						</CardHeader>
 						<CardContent className="space-y-6">
 							<OrganizationNameSettings />
+						</CardContent>
+					</Card>
+					<Card>
+						<CardHeader>
+							<CardTitle>Organization Logo</CardTitle>
+							<CardDescription>
+								Manage your organization's logo.
+							</CardDescription>
+						</CardHeader>
+						<CardContent className="space-y-6">
+							<OrganizationLogoSettings />
 						</CardContent>
 					</Card>
 				</div>

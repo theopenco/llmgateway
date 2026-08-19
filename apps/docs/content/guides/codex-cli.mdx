@@ -1,6 +1,6 @@
 ---
 title: Codex CLI Integration
-description: Use any model with OpenAI's Codex CLI through LLM Gateway. One config file, full cost tracking.
+description: Point OpenAI's Codex CLI at Claude, Gemini, Kimi K3, or 200+ models through LLM Gateway. One config file entry, unified billing, full cost tracking.
 icon: CodexCli
 ---
 
@@ -10,6 +10,14 @@ import { Callout } from "fumadocs-ui/components/callout";
 Codex CLI is OpenAI's open-source terminal coding agent. By default it connects to OpenAI's API, but with LLM Gateway you can route it through a single gateway—use GPT-5.3 Codex, Gemini, Claude, or any of 200+ models while keeping full cost visibility.
 
 One config file. No code changes. Full cost tracking in your dashboard.
+
+<Callout type="info">
+	**Using DevPass?** This integration also works with a
+	[DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without
+	a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) —
+	provider-pinned routing is not available on coding plans; the gateway picks
+	the provider for you.
+</Callout>
 
 ## Setup
 
@@ -120,18 +128,13 @@ model = "gpt-5.3-codex"
 
 ### Data retention required
 
-If you see an error like:
+Older versions of LLM Gateway rejected Responses API requests with:
 
 ```
 The Responses API requires data retention to be enabled.
 ```
 
-Codex CLI uses the OpenAI Responses API (`/v1/responses`), which requires data retention to be enabled. To fix this:
-
-1. Go to your [organization settings](https://llmgateway.io/dashboard) and navigate to **Settings > Policies**
-2. Select **Retain All Data** and click **Save Settings**
-
-If you prefer not to enable data retention, you can configure Codex CLI to use the Chat Completions API instead by setting the `OPENAI_CHAT_COMPLETIONS_PATH` environment variable, if supported by your Codex CLI version.
+This is no longer the case — the Responses API (which Codex CLI uses) works regardless of your organization's data retention policy. If you still see this error, the gateway you are talking to is running an outdated version; on a self-hosted deployment, update to the latest release.
 
 ### Authentication errors
 

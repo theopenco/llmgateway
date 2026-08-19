@@ -4,11 +4,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
 
 import { ActivityChart } from "@/components/dashboard/activity-chart";
+import { UsageModeSelector } from "@/components/shared/usage-mode-selector";
 import {
 	TimeRangePicker,
 	type TimeRangeValue,
 } from "@/components/time-range-picker";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
+import { useTeamMembers } from "@/hooks/useTeam";
+import { useUser } from "@/hooks/useUser";
 import {
 	Select,
 	SelectContent,
@@ -18,17 +21,29 @@ import {
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
 
+import {
+	parseGroupBy,
+	resolveGroupBy,
+	shouldStripApiKeyId,
+	type GroupBy,
+} from "./group-by";
+
 interface ModelUsageClientProps {
 	projectId: string;
 }
 
-type GroupBy = "model" | "apiKey";
+const GROUP_BY_LABELS: Record<GroupBy, { option: string; heading: string }> = {
+	model: { option: "Breakdown by model", heading: "Usage by model" },
+	apiKey: { option: "Breakdown by API key", heading: "Usage by API key" },
+	user: { option: "Breakdown by user", heading: "Usage by user" },
+};
 
 export function ModelUsageClient({ projectId }: ModelUsageClientProps) {
 	const router = useRouter();
 	const searchParams = useSearchParams();
-	const { buildUrl } = useDashboardNavigation();
+	const { buildUrl, orgId, selectedOrganization } = useDashboardNavigation();
 	const api = useApi();
+	const { user } = useUser();
 
 	// Fetch API keys for the project
 	const { data: apiKeysData } = api.useQuery(
@@ -49,9 +64,25 @@ export function ModelUsageClient({ projectId }: ModelUsageClientProps) {
 	const apiKeys =
 		apiKeysData?.apiKeys.filter((key) => key.status !== "deleted") ?? [];
 
-	// Get groupBy, apiKeyId and timeRange from URL
-	const groupBy: GroupBy =
-		searchParams.get("groupBy") === "apiKey" ? "apiKey" : "model";
+	// The per-member breakdown exposes every member's spend, so it carries the
+	// same entitlement as the organization-wide member analytics. This only hides
+	// the option — the API enforces it independently.
+	const isEnterprise = selectedOrganization?.plan === "enterprise";
+	const { data: teamData } = useTeamMembers(orgId, undefined, {
+		enabled: isEnterprise,
+	});
+	const currentUserRole = teamData?.members.find(
+		(member) => member.userId === user?.id,
+	)?.role;
+	const canGroupByUser =
+		isEnterprise &&
+		(currentUserRole === "owner" || currentUserRole === "admin");
+
+	// Get groupBy, apiKeyId and timeRange from URL.
+	const groupBy = resolveGroupBy(
+		parseGroupBy(searchParams.get("groupBy")),
+		canGroupByUser,
+	);
 	const apiKeyId = searchParams.get("apiKeyId") ?? undefined;
 	const timeRange = (searchParams.get("timeRange") as TimeRangeValue) ?? "24h";
 
@@ -79,26 +110,27 @@ export function ModelUsageClient({ projectId }: ModelUsageClientProps) {
 
 	const updateGroupBy = (newGroupBy: GroupBy) => {
 		const params = new URLSearchParams(searchParams);
-		if (newGroupBy === "apiKey") {
-			params.set("groupBy", "apiKey");
-			// Clear api key filter when grouping by api key
-			params.delete("apiKeyId");
-		} else {
+		if (newGroupBy === "model") {
 			params.delete("groupBy");
+		} else {
+			params.set("groupBy", newGroupBy);
+			// Clear api key filter when grouping by another dimension
+			params.delete("apiKeyId");
 		}
 		router.push(`${buildUrl("model-usage")}?${params.toString()}`);
 	};
 
-	const apiKeyFilterDisabled = groupBy === "apiKey";
+	const apiKeyFilterDisabled = groupBy !== "model";
 	const effectiveApiKeyId = apiKeyFilterDisabled ? undefined : apiKeyId;
 
-	// Normalize stale URLs: groupBy=apiKey should never coexist with apiKeyId
+	// Normalize stale URLs: a non-model groupBy should never coexist with apiKeyId.
 	useEffect(() => {
-		if (groupBy === "apiKey" && searchParams.has("apiKeyId")) {
-			const params = new URLSearchParams(searchParams);
-			params.delete("apiKeyId");
-			router.replace(`${buildUrl("model-usage")}?${params.toString()}`);
+		if (!shouldStripApiKeyId(groupBy, searchParams.has("apiKeyId"))) {
+			return;
 		}
+		const params = new URLSearchParams(searchParams);
+		params.delete("apiKeyId");
+		router.replace(`${buildUrl("model-usage")}?${params.toString()}`);
 	}, [groupBy, searchParams, router, buildUrl]);
 
 	return (
@@ -106,7 +138,7 @@ export function ModelUsageClient({ projectId }: ModelUsageClientProps) {
 			<div className="flex-1 space-y-4 p-4 pt-6 md:p-8">
 				<div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
 					<h2 className="text-3xl font-bold tracking-tight">
-						{groupBy === "apiKey" ? "Usage by API key" : "Usage by model"}
+						{GROUP_BY_LABELS[groupBy].heading}
 					</h2>
 					<div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
 						<Select
@@ -117,8 +149,17 @@ export function ModelUsageClient({ projectId }: ModelUsageClientProps) {
 								<SelectValue placeholder="Group by" />
 							</SelectTrigger>
 							<SelectContent>
-								<SelectItem value="model">Breakdown by model</SelectItem>
-								<SelectItem value="apiKey">Breakdown by API key</SelectItem>
+								<SelectItem value="model">
+									{GROUP_BY_LABELS.model.option}
+								</SelectItem>
+								<SelectItem value="apiKey">
+									{GROUP_BY_LABELS.apiKey.option}
+								</SelectItem>
+								{canGroupByUser && (
+									<SelectItem value="user">
+										{GROUP_BY_LABELS.user.option}
+									</SelectItem>
+								)}
 							</SelectContent>
 						</Select>
 						<Select
@@ -141,6 +182,7 @@ export function ModelUsageClient({ projectId }: ModelUsageClientProps) {
 							</SelectContent>
 						</Select>
 						<TimeRangePicker value={timeRange} onChange={updateTimeRange} />
+						<UsageModeSelector />
 					</div>
 				</div>
 				<div className="space-y-4">

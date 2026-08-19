@@ -12,6 +12,10 @@ data:
   API_BACKEND_URL: {{ include "llmgateway.serviceUrl" (dict "context" . "name" "api") | quote }}
   REDIS_HOST: {{ include "llmgateway.redis.host" . | quote }}
   REDIS_PORT: {{ include "llmgateway.redis.port" . | quote }}
+  {{- if or .Values.storageRedis.enabled .Values.externalStorageRedis.host }}
+  STORAGE_REDIS_HOST: {{ include "llmgateway.storageRedis.host" . | quote }}
+  STORAGE_REDIS_PORT: {{ include "llmgateway.storageRedis.port" . | quote }}
+  {{- end }}
 
   # Public-facing URLs
   {{- if .Values.urls.ui }}
@@ -98,6 +102,23 @@ data:
   {{- if .maxStreamingBufferMb }}
   MAX_STREAMING_BUFFER_MB: {{ .maxStreamingBufferMb | quote }}
   {{- end }}
+  {{- if .upstreamDnsCacheTtlMs }}
+  UPSTREAM_DNS_CACHE_TTL_MS: {{ .upstreamDnsCacheTtlMs | quote }}
+  {{- end }}
+  {{- if .upstreamKeepaliveTimeoutMs }}
+  UPSTREAM_KEEPALIVE_TIMEOUT_MS: {{ .upstreamKeepaliveTimeoutMs | quote }}
+  {{- end }}
+  {{- end }}
+
+  # Gateway rate limits and spend caps (GATEWAY_RATE_LIMIT_*,
+  # GATEWAY_SPEND_TIER_*, GATEWAY_RATE_LIMITS_ENABLED, GATEWAY_SPEND_CAPS_ENABLED).
+  # These belong in the shared ConfigMap rather than gateway.extraEnv: the
+  # gateway enforces them, but the API reads the same variables to show each
+  # organization its tier and limits in the dashboard. Setting them on only one
+  # deployment makes the dashboard report defaults while the gateway enforces
+  # something else.
+  {{- range $key, $value := .Values.gateway.rateLimits }}
+  {{ $key }}: {{ $value | quote }}
   {{- end }}
 
   # API config

@@ -7,6 +7,8 @@ import { AuthLink } from "@/components/shared/auth-link";
 import { Button } from "@/lib/components/button";
 import { cn } from "@/lib/utils";
 
+import { MARKETING_STATS } from "@llmgateway/shared";
+
 type FeatureValue = boolean | string;
 
 interface PricingFeature {
@@ -66,6 +68,10 @@ const pricingFeatures: PricingFeature[] = [
 	},
 	{
 		name: "Data Retention",
+		description: `Metadata is free; full payloads are ${MARKETING_STATS.dataStoragePrice}`,
+		learnMoreLink:
+			"https://docs.llmgateway.io/features/data-retention#storage-pricing",
+		learnMoreText: "See storage pricing →",
 		free: "30 days",
 		enterprise: "Unlimited",
 	},
