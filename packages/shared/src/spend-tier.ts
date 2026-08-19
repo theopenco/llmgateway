@@ -12,8 +12,6 @@ const DAY_MS = 86_400_000;
 
 export type PlanClass = "regular" | "dev" | "chat";
 
-const DEVPASS_RATE_LIMIT_MULTIPLIER = 2;
-
 export interface PathRateLimitConfig {
 	/** Stable identifier used in the Redis key and env var names. */
 	key: string;
@@ -21,6 +19,8 @@ export interface PathRateLimitConfig {
 	prefix: string;
 	/** Default requests per minute for regular (pay-as-you-go) orgs. */
 	defaultRpm: number;
+	/** Default requests per minute for dev ("devpass") plan orgs. */
+	devDefaultRpm: number;
 	/** Default requests per minute for chat plan orgs. */
 	chatDefaultRpm: number;
 }
@@ -35,72 +35,84 @@ export const PATH_RATE_LIMITS: readonly PathRateLimitConfig[] = [
 		key: "chat_completions",
 		prefix: "/v1/chat/completions",
 		defaultRpm: 600,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 60,
 	},
 	{
 		key: "messages",
 		prefix: "/v1/messages",
 		defaultRpm: 600,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 60,
 	},
 	{
 		key: "responses",
 		prefix: "/v1/responses",
 		defaultRpm: 600,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 60,
 	},
 	{
 		key: "embeddings",
 		prefix: "/v1/embeddings",
 		defaultRpm: 1200,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 120,
 	},
 	{
 		key: "moderations",
 		prefix: "/v1/moderations",
 		defaultRpm: 1200,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 120,
 	},
 	{
 		key: "rerank",
 		prefix: "/v1/rerank",
 		defaultRpm: 1200,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 120,
 	},
 	{
 		key: "models",
 		prefix: "/v1/models",
 		defaultRpm: 1200,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 120,
 	},
 	{
 		key: "ocr",
 		prefix: "/v1/ocr",
 		defaultRpm: 300,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 30,
 	},
 	{
 		key: "images",
 		prefix: "/v1/images",
 		defaultRpm: 300,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 30,
 	},
 	{
 		key: "audio_speech",
 		prefix: "/v1/audio/speech",
 		defaultRpm: 300,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 30,
 	},
 	{
 		key: "audio_transcriptions",
 		prefix: "/v1/audio/transcriptions",
 		defaultRpm: 300,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 30,
 	},
 	{
 		key: "videos",
 		prefix: "/v1/videos",
 		defaultRpm: 120,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 12,
 	},
 	// Realtime session-secret minting (`POST /v1/realtime/client_secrets`).
@@ -111,18 +123,21 @@ export const PATH_RATE_LIMITS: readonly PathRateLimitConfig[] = [
 		key: "realtime",
 		prefix: "/v1/realtime",
 		defaultRpm: 120,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 12,
 	},
 	{
 		key: "key",
 		prefix: "/v1/key",
 		defaultRpm: 1200,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 120,
 	},
 	{
 		key: "credits",
 		prefix: "/v1/credits",
 		defaultRpm: 300,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 30,
 	},
 	// AI SDK Gateway protocol surface. All four spec-version prefixes forward
@@ -133,24 +148,28 @@ export const PATH_RATE_LIMITS: readonly PathRateLimitConfig[] = [
 		key: "ai_sdk",
 		prefix: "/v1/ai",
 		defaultRpm: 600,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 60,
 	},
 	{
 		key: "ai_sdk",
 		prefix: "/v2/ai",
 		defaultRpm: 600,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 60,
 	},
 	{
 		key: "ai_sdk",
 		prefix: "/v3/ai",
 		defaultRpm: 600,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 60,
 	},
 	{
 		key: "ai_sdk",
 		prefix: "/v4/ai",
 		defaultRpm: 600,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 60,
 	},
 ];
@@ -473,7 +492,7 @@ export function getBaseLimit(
 ): number {
 	const fallback =
 		planClass === "dev"
-			? config.defaultRpm * DEVPASS_RATE_LIMIT_MULTIPLIER
+			? config.devDefaultRpm
 			: planClass === "chat"
 				? config.chatDefaultRpm
 				: config.defaultRpm;
