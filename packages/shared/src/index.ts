@@ -70,6 +70,7 @@ export {
 	RESET_PASS_SELF_REFUND_WINDOW_DAYS,
 	SELF_REFUND_USAGE_PERCENT,
 	SELF_REFUND_WINDOW_DAYS,
+	buildRefundDescription,
 	isRefundFeedbackComplete,
 	refundCommentsRequired,
 	type RefundReason,

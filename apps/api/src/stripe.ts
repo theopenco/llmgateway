@@ -20,6 +20,7 @@ import {
 import { logger } from "@llmgateway/logger";
 import {
 	DEV_PLAN_RESET_PASS_PRICES,
+	buildRefundDescription,
 	getChatPlanCreditsLimit,
 	getDevPlanCreditsLimit,
 	getDevPlanUpgradeCredits,
@@ -3407,7 +3408,10 @@ export async function handleChargeRefunded(
 		stripeRefundId: latestRefund.id,
 		relatedTransactionId: originalTransaction.id,
 		refundReason: latestRefund.reason ?? null,
-		description: `Credit refund: $${refundAmountInDollars.toFixed(2)} (${(refundRatio * 100).toFixed(1)}% of original purchase)`,
+		description: buildRefundDescription(
+			refundAmountInDollars,
+			originalTransaction,
+		),
 	});
 
 	// Deduct credits from organization (allow negative) — only for credit_topup

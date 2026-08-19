@@ -57,14 +57,24 @@ function formatDateTime(dateString: string) {
 	});
 }
 
+// Money going back to the customer. Stored with a positive `amount` (see
+// stripe.ts), so the panel renders it negative to keep the column readable as
+// a ledger.
+function isRefundType(type: string) {
+	return type === "credit_refund";
+}
+
 function formatTransactionType(type: string) {
+	if (isRefundType(type)) {
+		return "Refund";
+	}
 	return type.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function getTransactionTypeBadgeVariant(
 	type: string,
 ): "default" | "secondary" | "outline" | "destructive" {
-	if (type.includes("cancel") || type.includes("end")) {
+	if (isRefundType(type) || type.includes("cancel") || type.includes("end")) {
 		return "destructive";
 	}
 	if (
@@ -396,9 +406,19 @@ export default async function ChatPlansDetailPage({
 													{formatTransactionType(t.type)}
 												</Badge>
 											</TableCell>
-											<TableCell className="tabular-nums">
+											<TableCell
+												className={cn(
+													"tabular-nums",
+													isRefundType(t.type) &&
+														"text-rose-600 dark:text-rose-400",
+												)}
+											>
 												{t.amount
-													? currencyFormatter.format(parseFloat(t.amount))
+													? currencyFormatter.format(
+															isRefundType(t.type)
+																? -parseFloat(t.amount)
+																: parseFloat(t.amount),
+														)
 													: "—"}
 											</TableCell>
 											<TableCell className="tabular-nums">
