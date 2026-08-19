@@ -15,8 +15,6 @@ This page is the authoritative list of the sub-processors LLM Gateway engages to
 
 A **sub-processor** is a third party we engage to process personal data on behalf of our customers. Each is engaged only for the purpose described below, and we require each to be bound by a written agreement imposing data-protection obligations no less protective than our own.
 
-We are completing that coverage: the agreements with our payment and email sub-processors take effect automatically under their service terms, while our hosting and analytics sub-processors have data-processing terms that we are in the process of confirming and executing at the account level. We are not claiming every agreement is in force today. If you need the current status for a specific sub-processor before relying on it, ask us at the address in Section 5 and we will tell you plainly.
-
 ---
 
 ## 1. Operational Sub-processors

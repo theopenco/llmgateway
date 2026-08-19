@@ -209,10 +209,8 @@ function Compliance({
 }) {
 	return (
 		<div className="min-w-40 space-y-3">
-			<Fact label="SOC 2">
-				{policy?.soc2 ? `Type ${policy.soc2}` : "Not published"}
-			</Fact>
-			<BooleanFact label="ISO 27001" value={policy?.iso27001} />
+			<Fact label="SOC 2">{policy?.soc2 ? `Type ${policy.soc2}` : "No"}</Fact>
+			<BooleanFact label="ISO 27001" value={policy?.iso27001 ?? false} />
 			<BooleanFact label="GDPR" value={policy?.gdpr} />
 		</div>
 	);
