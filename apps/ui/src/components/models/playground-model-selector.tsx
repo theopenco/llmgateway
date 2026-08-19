@@ -88,21 +88,30 @@ export function ModelSelector({
 		priceRange: "all",
 	});
 
-	// Parse value as provider/model-id (preferred). Fallback to model id only.
-	// Supports region suffix: "alibaba/deepseek-v3.2:cn-beijing" or
-	// "aws-bedrock/claude-haiku-4-5:global". The region is the substring after
-	// the last ":" (model.id never contains ":"; upstream modelNames may).
+	// Parse value as provider/model-id (preferred), while preserving root model
+	// ids that contain a slash (custom-provider models use `<name>/<model>`).
+	// A provider-prefixed exact model match wins before interpreting a trailing
+	// colon as a region because custom model names may contain colons.
 	const raw = value ?? "";
-	const [selectedProviderId, selectedModelIdRaw] = raw.includes("/")
-		? (raw.split("/") as [string, string])
-		: ["", raw];
-	const lastColonIdx = selectedModelIdRaw.lastIndexOf(":");
+	const separator = raw.indexOf("/");
+	const providerCandidate = separator > -1 ? raw.slice(0, separator) : "";
+	const hasProviderPrefix = providers.some(
+		(provider) => provider.id === providerCandidate,
+	);
+	const providerModelId = hasProviderPrefix ? raw.slice(separator + 1) : raw;
+	const exactProviderModel = hasProviderPrefix
+		? models.find((model) => model.id === providerModelId)
+		: undefined;
+	const lastColonIdx = exactProviderModel
+		? -1
+		: providerModelId.lastIndexOf(":");
+	const selectedProviderId = hasProviderPrefix ? providerCandidate : "";
 	const selectedRegion =
-		lastColonIdx > -1 ? selectedModelIdRaw.slice(lastColonIdx + 1) : undefined;
+		lastColonIdx > -1 ? providerModelId.slice(lastColonIdx + 1) : undefined;
 	const selectedModelId =
 		lastColonIdx > -1
-			? selectedModelIdRaw.slice(0, lastColonIdx)
-			: selectedModelIdRaw;
+			? providerModelId.slice(0, lastColonIdx)
+			: providerModelId;
 	const selectedModel = models.find((m) => m.id === selectedModelId);
 	const selectedProviderDef = providers.find(
 		(p) => p.id === selectedProviderId,
