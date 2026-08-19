@@ -409,6 +409,7 @@ function customModelToProviderMapping(cm: CustomModel): ProviderModelMapping {
 		tools: cm.tools ?? undefined,
 		reasoning: cm.reasoning ?? undefined,
 		jsonOutput: cm.jsonOutput ?? undefined,
+		jsonOutputSchema: cm.jsonOutput ?? undefined,
 		audio: cm.audio ?? undefined,
 		supportedParameters: cm.supportedParameters ?? undefined,
 		streaming,
@@ -3268,11 +3269,7 @@ chat.openapi(completions, async (c) => {
 					message: `Model '${requestedModel}' is not configured to support tool calls. Remove the tools/tool_choice parameter or enable tools for this custom model.`,
 				});
 			}
-			// Custom models are soft-JSON-only by data model: org-model records
-			// carry jsonOutput but no jsonOutputSchema, so both json_object and
-			// json_schema are gated on jsonOutput (a custom model can still reach
-			// an upstream that enforces schema via a catalog mapping; extending
-			// custom models with jsonOutputSchema is a follow-up).
+			// Custom model records use jsonOutput for both JSON modes.
 			if (
 				customModelEntry.jsonOutput === false &&
 				(response_format?.type === "json_object" ||

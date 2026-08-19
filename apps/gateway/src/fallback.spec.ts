@@ -428,6 +428,7 @@ describe("fallback and error status code handling", () => {
 			inputPrice: "0.1e-6",
 			outputPrice: "0.2e-6",
 			contextSize: 200_000,
+			jsonOutput: true,
 			streaming: "true",
 		});
 	}
@@ -454,6 +455,35 @@ describe("fallback and error status code handling", () => {
 			expect(logs[0].usedProvider).toBe("custom");
 			expect(logs[0].usedModel).toBe("my-custom/claude-haiku-4-5");
 			expect(Number(logs[0].cost)).toBeGreaterThan(0);
+		});
+
+		test("routes JSON schema requests to capable custom models", async () => {
+			await setupCustomAutoRouting();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer auto-custom-token",
+				},
+				body: JSON.stringify({
+					model: "auto",
+					messages: [{ role: "user", content: "Return JSON" }],
+					response_format: {
+						type: "json_schema",
+						json_schema: {
+							name: "response",
+							schema: { type: "object" },
+						},
+					},
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const logs = await waitForLogs(1);
+			expect(logs).toHaveLength(1);
+			expect(logs[0].usedProvider).toBe("custom");
+			expect(logs[0].usedModel).toBe("my-custom/claude-haiku-4-5");
 		});
 
 		test("falls back after an auto-selected custom provider fails", async () => {
