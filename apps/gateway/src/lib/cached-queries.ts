@@ -489,6 +489,26 @@ export async function findCustomModel(
 	return results[0];
 }
 
+/** Find every active custom model catalog entry for an organization. */
+export async function findActiveCustomModels(
+	organizationId: string,
+): Promise<CustomModel[]> {
+	return await swrWrap(
+		`customModel:active:${organizationId}`,
+		[customModelTableName],
+		async () =>
+			await db
+				.select()
+				.from(customModelTable)
+				.where(
+					and(
+						eq(customModelTable.status, "active"),
+						eq(customModelTable.organizationId, organizationId),
+					),
+				),
+	);
+}
+
 /**
  * The organization's own keys for a provider that can serve this request, in
  * selection order (index 0 is the primary). This is exactly the candidate set
