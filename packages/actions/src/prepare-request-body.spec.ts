@@ -2018,6 +2018,34 @@ describe("prepareRequestBody - Z.ai thinking", () => {
 		});
 		expect(requestBody.thinking).toBeUndefined();
 	});
+
+	// glm-5.3 cannot disable thinking (its zai mapping declares
+	// reasoningEfforts without "none"): thinking stays enabled and the effort
+	// tier is forwarded via the native reasoning_effort field.
+
+	test("glm-5.3 enables thinking and forwards the effort tier", async () => {
+		const requestBody = await prepare({
+			model: "glm-5.3",
+			reasoningEffort: "max",
+		});
+		expect(requestBody.thinking).toEqual({ type: "enabled" });
+		expect(requestBody.reasoning_effort).toBe("max");
+	});
+
+	test("glm-5.3 keeps thinking enabled when no effort is requested", async () => {
+		const requestBody = await prepare({ model: "glm-5.3" });
+		expect(requestBody.thinking).toEqual({ type: "enabled" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("glm-5.3 collapses none onto the provider default instead of disabling", async () => {
+		const requestBody = await prepare({
+			model: "glm-5.3",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toEqual({ type: "enabled" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
 });
 
 describe("prepareRequestBody - reasoning_effort max", () => {
