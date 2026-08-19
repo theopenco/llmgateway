@@ -147,7 +147,7 @@ describe("api", () => {
 		});
 
 		// Direct provider routing is never available on dev plans. The
-		// `provider/model` format stays blocked; only the canonical root id
+		// `provider/model` format stays blocked; only the canonical model id
 		// (`deepseek-v4-pro`) is allowed on dev plans.
 		await harness.setDevPlan({ devPlan: "pro" });
 
@@ -6670,7 +6670,7 @@ describe("api", () => {
 			createdBy: "user-id",
 		});
 
-		// Auto-routing now selects from Claude root models, so use a Claude-capable
+		// Auto-routing now selects from Claude canonical models, so use a Claude-capable
 		// provider that the mock server supports.
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",

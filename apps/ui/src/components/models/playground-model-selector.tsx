@@ -39,7 +39,7 @@ interface ModelSelectorProps {
 	value?: string;
 	onValueChange?: (value: string) => void;
 	placeholder?: string;
-	rootOnly?: boolean;
+	canonicalOnly?: boolean;
 	id?: string;
 }
 
@@ -76,7 +76,7 @@ export function ModelSelector({
 	value,
 	onValueChange,
 	placeholder = "Select model...",
-	rootOnly,
+	canonicalOnly,
 	id,
 }: ModelSelectorProps) {
 	const [open, setOpen] = React.useState(false);
@@ -88,7 +88,7 @@ export function ModelSelector({
 		priceRange: "all",
 	});
 
-	// Parse value as provider/model-id (preferred), while preserving root model
+	// Parse value as provider/model-id (preferred), while preserving canonical model
 	// ids that contain a slash (custom-provider models use `<name>/<model>`).
 	// A provider-prefixed exact model match wins before interpreting a trailing
 	// colon as a region because custom model names may contain colons.
@@ -143,7 +143,7 @@ export function ModelSelector({
 			if (m.id === "custom") {
 				continue;
 			}
-			if (rootOnly) {
+			if (canonicalOnly) {
 				const activeProviders = m.providers.filter(
 					(mp) => !mp.deactivatedAt || new Date(mp.deactivatedAt) > now,
 				);
@@ -180,7 +180,7 @@ export function ModelSelector({
 			}
 		}
 		return out;
-	}, [models, providers, rootOnly]);
+	}, [models, providers, canonicalOnly]);
 
 	const availableProviders = React.useMemo(() => {
 		const ids = new Set(allEntries.map((e) => e.mapping.providerId));
@@ -290,7 +290,7 @@ export function ModelSelector({
 					{selectedModel ? (
 						<div className="flex items-center gap-3">
 							{(() => {
-								const iconId = rootOnly
+								const iconId = canonicalOnly
 									? selectedModel.family
 									: (
 											selectedProviderDef ??
@@ -299,7 +299,7 @@ export function ModelSelector({
 								const IconComp = iconId
 									? getProviderIcon(iconId as string)
 									: null;
-								const iconColor = rootOnly
+								const iconColor = canonicalOnly
 									? undefined
 									: (
 											(selectedProviderDef ??
@@ -329,7 +329,7 @@ export function ModelSelector({
 										) : null;
 									})()}
 								</div>
-								{!rootOnly && (
+								{!canonicalOnly && (
 									<span className="text-xs text-muted-foreground">
 										{
 											(
@@ -536,7 +536,7 @@ export function ModelSelector({
 										{filteredEntries.length !== 1 ? "s" : ""} found
 									</div>
 									{filteredEntries.map(({ model, mapping, provider }) => {
-										const IconComp = rootOnly
+										const IconComp = canonicalOnly
 											? getProviderIcon(model.family)
 											: provider
 												? getProviderIcon(provider.id)
@@ -579,7 +579,7 @@ export function ModelSelector({
 																	<AlertTriangle className="h-3.5 w-3.5 text-yellow-600 dark:text-yellow-500" />
 																)}
 															</div>
-															{!rootOnly && (
+															{!canonicalOnly && (
 																<span className="text-xs text-muted-foreground">
 																	{provider?.name}
 																	{mapping.region && (

@@ -11,7 +11,7 @@ date: 2026-06-08
 
 By configuring MiMo Code to route through LLM Gateway, you can point it at any model—GPT-5.5, Gemini, Llama, Claude, or 210+ others—while keeping the same API format MiMo Code expects, with full cost tracking in your dashboard.
 
-> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
+> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use canonical model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
 
 ## Prerequisites
 

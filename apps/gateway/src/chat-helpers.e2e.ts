@@ -336,7 +336,7 @@ export const testModels = filteredModels
 		const testCases = [];
 
 		if (process.env.TEST_ALL_VARIATIONS) {
-			// test root model without a specific provider
+			// test canonical model without a specific provider
 			testCases.push({
 				model: model.id,
 				providers: expandAllProviderRegions(
