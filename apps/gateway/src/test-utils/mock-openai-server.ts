@@ -410,6 +410,10 @@ interface MockWebhookDelivery {
 }
 
 const videoJobs = new Map<string, MockVideoJobState>();
+const videoStatusResponses = new Map<
+	string,
+	{ status: number; body: Record<string, unknown> }
+>();
 const webhookDeliveries: MockWebhookDelivery[] = [];
 const webhookStatuses = new Map<string, number>();
 
@@ -540,6 +544,7 @@ export function resetFailOnceCounter() {
 export function resetMockVideoState() {
 	videoCounter = 0;
 	videoJobs.clear();
+	videoStatusResponses.clear();
 	webhookDeliveries.length = 0;
 	webhookStatuses.clear();
 }
@@ -586,6 +591,14 @@ export function setMockVideoStatus(
 
 export function getMockVideo(videoId: string): MockVideoJobState | undefined {
 	return videoJobs.get(videoId);
+}
+
+export function setMockVideoStatusResponse(
+	videoId: string,
+	status: number,
+	body: Record<string, unknown>,
+) {
+	videoStatusResponses.set(videoId, { status, body });
 }
 
 export function setMockWebhookStatus(name: string, status: number) {
@@ -805,6 +818,28 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 	};
 
 	return c.json(response);
+});
+
+mockOpenAIServer.post("/v1/messages", async (c) => {
+	const body = await c.req.json();
+	return c.json({
+		id: "msg-123",
+		type: "message",
+		role: "assistant",
+		model: body.model ?? "claude-haiku-4-5",
+		content: [
+			{
+				type: "text",
+				text: "Hello! I'm a mock response from the test server.",
+			},
+		],
+		stop_reason: "end_turn",
+		stop_sequence: null,
+		usage: {
+			input_tokens: 10,
+			output_tokens: 20,
+		},
+	});
 });
 
 // Handle chat completions endpoint
@@ -2796,6 +2831,11 @@ mockOpenAIServer.post("/mock-google-oauth/token", async (c) =>
 
 mockOpenAIServer.get("/v1/videos/:id", async (c) => {
 	const id = c.req.param("id");
+	const statusResponse = videoStatusResponses.get(id);
+	if (statusResponse) {
+		c.status(statusResponse.status as Parameters<typeof c.status>[0]);
+		return c.json(statusResponse.body);
+	}
 	const job = videoJobs.get(id);
 
 	if (!job) {

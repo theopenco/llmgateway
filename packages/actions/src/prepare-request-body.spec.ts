@@ -320,77 +320,80 @@ describe("prepareRequestBody - Anthropic", () => {
 		expect(totalCacheControlBlocks).toBe(4);
 	});
 
-	test("strips caller-supplied cache_control when providerCacheControlEnabled is false", async () => {
-		const longContent = "A".repeat(5000);
-		const requestBody = (await prepareRequestBody(
-			"anthropic",
-			"claude-3-5-sonnet-20241022",
-			null,
-			"claude-3-5-sonnet-20241022",
-			[
-				{
-					role: "system",
-					content: [
-						{
-							type: "text",
-							text: longContent,
-							cache_control: { type: "ephemeral", ttl: "1h" },
-						},
-					],
-				},
-				{
-					role: "user",
-					content: [
-						{
-							type: "text",
-							text: longContent,
-							cache_control: { type: "ephemeral" },
-						},
-					],
-				},
-			],
-			false, // stream
-			undefined, // temperature
-			1024, // max_tokens
-			undefined, // top_p
-			undefined, // frequency_penalty
-			undefined, // presence_penalty
-			undefined, // response_format
-			undefined, // tools
-			undefined, // tool_choice
-			undefined, // reasoning_effort
-			undefined, // supportsReasoning
-			false, // isProd
-			20, // maxImageSizeMB
-			null, // userPlan
-			undefined, // sensitive_word_check
-			undefined, // image_config
-			undefined, // effort
-			undefined, // imageGenerations
-			undefined, // webSearchTool
-			undefined, // reasoning_max_tokens
-			undefined, // useResponsesApi
-			undefined, // prompt_cache_key
-			undefined, // prompt_cache_retention
-			false, // providerCacheControlEnabled
-		)) as AnthropicRequestBody;
+	test.each(["claude-fable-5", "claude-opus-5"])(
+		"strips cache_control for %s when provider cache writes are disabled",
+		async (model) => {
+			const longContent = "A".repeat(5000);
+			const requestBody = (await prepareRequestBody(
+				"anthropic",
+				model,
+				null,
+				model,
+				[
+					{
+						role: "system",
+						content: [
+							{
+								type: "text",
+								text: longContent,
+								cache_control: { type: "ephemeral", ttl: "1h" },
+							},
+						],
+					},
+					{
+						role: "user",
+						content: [
+							{
+								type: "text",
+								text: longContent,
+								cache_control: { type: "ephemeral" },
+							},
+						],
+					},
+				],
+				false, // stream
+				undefined, // temperature
+				1024, // max_tokens
+				undefined, // top_p
+				undefined, // frequency_penalty
+				undefined, // presence_penalty
+				undefined, // response_format
+				undefined, // tools
+				undefined, // tool_choice
+				undefined, // reasoning_effort
+				undefined, // supportsReasoning
+				false, // isProd
+				20, // maxImageSizeMB
+				null, // userPlan
+				undefined, // sensitive_word_check
+				undefined, // image_config
+				undefined, // effort
+				undefined, // imageGenerations
+				undefined, // webSearchTool
+				undefined, // reasoning_max_tokens
+				undefined, // useResponsesApi
+				undefined, // prompt_cache_key
+				undefined, // prompt_cache_retention
+				false, // providerCacheControlEnabled
+			)) as AnthropicRequestBody;
 
-		// System: no caller marker preserved, no heuristic-added marker.
-		if (requestBody.system && Array.isArray(requestBody.system)) {
-			for (const block of requestBody.system) {
-				expect(getCacheControl(block)).toBeUndefined();
-			}
-		}
-
-		// User content: no caller marker preserved, no heuristic-added marker.
-		for (const msg of requestBody.messages) {
-			if (Array.isArray(msg.content)) {
-				for (const block of msg.content) {
+			// System: no caller marker preserved, no heuristic-added marker.
+			if (requestBody.system && Array.isArray(requestBody.system)) {
+				for (const block of requestBody.system) {
 					expect(getCacheControl(block)).toBeUndefined();
 				}
 			}
-		}
-	});
+
+			// User content: no caller marker preserved, no heuristic-added marker.
+			for (const msg of requestBody.messages) {
+				if (Array.isArray(msg.content)) {
+					for (const block of msg.content) {
+						expect(getCacheControl(block)).toBeUndefined();
+					}
+				}
+			}
+		},
+	);
 
 	test("defers auto-injection when caller supplies a 1h ttl marker in messages", async () => {
 		const longContent = "A".repeat(5000);
@@ -2018,6 +2021,34 @@ describe("prepareRequestBody - Z.ai thinking", () => {
 		});
 		expect(requestBody.thinking).toBeUndefined();
 	});
+
+	// glm-5.3 cannot disable thinking (its zai mapping declares
+	// reasoningEfforts without "none"): thinking stays enabled and the effort
+	// tier is forwarded via the native reasoning_effort field.
+
+	test("glm-5.3 enables thinking and forwards the effort tier", async () => {
+		const requestBody = await prepare({
+			model: "glm-5.3",
+			reasoningEffort: "max",
+		});
+		expect(requestBody.thinking).toEqual({ type: "enabled" });
+		expect(requestBody.reasoning_effort).toBe("max");
+	});
+
+	test("glm-5.3 keeps thinking enabled when no effort is requested", async () => {
+		const requestBody = await prepare({ model: "glm-5.3" });
+		expect(requestBody.thinking).toEqual({ type: "enabled" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("glm-5.3 collapses none onto the provider default instead of disabling", async () => {
+		const requestBody = await prepare({
+			model: "glm-5.3",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toEqual({ type: "enabled" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
 });
 
 describe("prepareRequestBody - reasoning_effort max", () => {
@@ -2203,6 +2234,34 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		expect(requestBody.toolConfig).toBeUndefined();
 	});
 
+	test("normalizes primitive enums in tool parameters", async () => {
+		const requestBody = await googleTools([
+			{
+				type: "function",
+				function: {
+					name: "choose_value",
+					parameters: {
+						type: "object",
+						properties: {
+							integer: { type: "integer", enum: [3, 5] },
+							mixed: { type: "string", enum: ["one", 2, true, null] },
+							unsupported: {
+								type: "object",
+								enum: [{ value: 3 }],
+							},
+						},
+					},
+				},
+			},
+		]);
+
+		const properties =
+			requestBody.tools[0].functionDeclarations[0].parameters.properties;
+		expect(properties.integer.enum).toEqual(["3", "5"]);
+		expect(properties.mixed.enum).toEqual(["one", "2", "true", "null"]);
+		expect(properties.unsupported.enum).toBeUndefined();
+	});
+
 	test("should map gateway 0.5K image size to Google 512", async () => {
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
@@ -2291,6 +2350,42 @@ describe("prepareRequestBody - Google AI Studio", () => {
 				},
 			},
 			required: ["name", "nickname"],
+		});
+	});
+
+	test("normalizes primitive enums in response schemas", async () => {
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-3.7-flash",
+			null,
+			"gemini-3.7-flash",
+			[{ role: "user", content: "Choose a value" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				type: "json_schema",
+				json_schema: {
+					name: "choice",
+					schema: {
+						type: "object",
+						properties: {
+							value: { type: "integer", enum: [3, 5] },
+						},
+						required: ["value"],
+					},
+				},
+			},
+		)) as any;
+
+		expect(
+			requestBody.generationConfig.responseSchema.properties.value,
+		).toEqual({
+			type: "INTEGER",
+			enum: ["3", "5"],
 		});
 	});
 
@@ -3734,6 +3829,34 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 		expect(requestBody.system).toBeUndefined();
 	});
 
+	test("should preserve xhigh reasoning for Grok 4.6 on Bedrock", async () => {
+		const requestBody = await prepareRequestBody(
+			"aws-bedrock",
+			"grok-4-6",
+			"us-west-2",
+			"xai.grok-4.6",
+			[{ role: "user", content: "Hello!" }],
+			true,
+			undefined,
+			128,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			"xhigh",
+			true,
+			false,
+		);
+
+		expect(requestBody).toMatchObject({
+			model: "xai.grok-4.6",
+			max_completion_tokens: 128,
+			reasoning: { effort: "xhigh" },
+		});
+	});
+
 	test("should preserve explicit cache_control ttl as Bedrock cachePoint ttl", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
@@ -3785,6 +3908,79 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 			{ cachePoint: { type: "default", ttl: "5m" } },
 		]);
 	});
+
+	test.each(["claude-fable-5", "claude-opus-5"])(
+		"omits cache points for %s when provider cache writes are disabled",
+		async (model) => {
+			const mapping = models
+				.find((candidate) => candidate.id === model)
+				?.providers.find((candidate) => candidate.providerId === "aws-bedrock");
+			expect(mapping).toBeDefined();
+			const longContent = "A".repeat(20_000);
+			const requestBody = (await prepareRequestBody(
+				"aws-bedrock",
+				model,
+				null,
+				mapping!.externalId,
+				[
+					{
+						role: "system",
+						content: [
+							{
+								type: "text",
+								text: longContent,
+								cache_control: { type: "ephemeral", ttl: "1h" },
+							},
+						],
+					},
+					{
+						role: "user",
+						content: [
+							{
+								type: "text",
+								text: longContent,
+								cache_control: { type: "ephemeral" },
+							},
+						],
+					},
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as {
+				system?: Array<Record<string, unknown>>;
+				messages: Array<{ content: Array<Record<string, unknown>> }>;
+			};
+
+			expect(requestBody.system).not.toContainEqual(
+				expect.objectContaining({ cachePoint: expect.anything() }),
+			);
+			expect(requestBody.messages[0].content).not.toContainEqual(
+				expect.objectContaining({ cachePoint: expect.anything() }),
+			);
+		},
+	);
 
 	test("forwards base64 image blocks as Bedrock image content", async () => {
 		const pngBase64 =

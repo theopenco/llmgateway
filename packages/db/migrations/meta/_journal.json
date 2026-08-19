@@ -1660,6 +1660,13 @@
       "when": 1787073015985,
       "tag": "1787073015_sweet_wolfpack",
       "breakpoints": true
+    },
+    {
+      "idx": 237,
+      "version": "8",
+      "when": 1787148647545,
+      "tag": "1787148647_round_absorbing_man",
+      "breakpoints": true
     }
   ]
 }

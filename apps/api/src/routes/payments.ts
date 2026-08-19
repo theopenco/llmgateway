@@ -9,6 +9,7 @@ import { computeReferralBonus } from "@/lib/referral-bonus.js";
 import { forcedThreeDSecureOptions } from "@/lib/three-d-secure.js";
 import {
 	assertTopUpVelocityAllowed,
+	getTopUpVelocityAllowance,
 	releaseTopUpReservation,
 } from "@/lib/topup-velocity.js";
 import { ensureStripeCustomer } from "@/stripe.js";
@@ -20,6 +21,7 @@ import {
 	calculateFees,
 	CREDIT_TOP_UP_MAX_AMOUNT,
 	CREDIT_TOP_UP_MIN_AMOUNT,
+	getMaxCreditTopUpAmount,
 } from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
@@ -91,6 +93,57 @@ async function findUserOrganization(userId: string, organizationId?: string) {
 		},
 	});
 }
+
+const getTopUpLimit = createRoute({
+	method: "get",
+	path: "/top-up-limit",
+	request: {
+		query: z.object({
+			organizationId: z.string().optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						remainingGrossAmount: z.number().nullable(),
+						maxCardAmount: z.number(),
+						maxCheckoutAmount: z.number(),
+					}),
+				},
+			},
+			description: "Current credit top-up limits",
+		},
+	},
+});
+
+payments.openapi(getTopUpLimit, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { organizationId } = c.req.valid("query");
+	const userOrganization = await findUserOrganization(user.id, organizationId);
+	if (!userOrganization?.organization) {
+		throw new HTTPException(404, { message: "Organization not found" });
+	}
+
+	const allowance = await getTopUpVelocityAllowance(
+		userOrganization.organization,
+	);
+	const remainingGrossAmount = Number.isFinite(allowance.capUsd)
+		? allowance.remainingUsd
+		: null;
+	const availableGrossAmount = remainingGrossAmount ?? Number.POSITIVE_INFINITY;
+
+	return c.json({
+		remainingGrossAmount,
+		maxCardAmount: getMaxCreditTopUpAmount(availableGrossAmount, true),
+		maxCheckoutAmount: getMaxCreditTopUpAmount(availableGrossAmount, false),
+	});
+});
 
 export async function isInternationalPaymentMethod(
 	stripePaymentMethodId: string,
@@ -183,7 +236,13 @@ payments.openapi(createPaymentIntent, async (c) => {
 		amount,
 		isInternational: true,
 	}).totalAmount;
-	await assertTopUpVelocityAllowed(userOrganization.organization, gateGrossUsd);
+	await assertTopUpVelocityAllowed(
+		userOrganization.organization,
+		gateGrossUsd,
+		{
+			user,
+		},
+	);
 
 	// Any failure between the gate and a successful PaymentIntent means no
 	// charge happened, so the reservation must be freed rather than consuming
@@ -775,7 +834,13 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 		amount,
 		isInternational: true,
 	}).totalAmount;
-	await assertTopUpVelocityAllowed(userOrganization.organization, gateGrossUsd);
+	await assertTopUpVelocityAllowed(
+		userOrganization.organization,
+		gateGrossUsd,
+		{
+			user,
+		},
+	);
 
 	let paymentIntent: Stripe.PaymentIntent;
 	// `processing` is nonterminal: Stripe can still emit
@@ -972,7 +1037,10 @@ payments.openapi(createCheckoutSession, async (c) => {
 	await assertTopUpVelocityAllowed(
 		userOrganization.organization,
 		feeBreakdown.totalAmount,
-		{ reservationTtlSeconds: CHECKOUT_SESSION_LIFETIME_SECONDS + 300 },
+		{
+			reservationTtlSeconds: CHECKOUT_SESSION_LIFETIME_SECONDS + 300,
+			user,
+		},
 	);
 
 	let stripeCustomerId: string;

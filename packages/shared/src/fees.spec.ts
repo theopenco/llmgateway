@@ -4,6 +4,7 @@ import {
 	calculateFees,
 	CREDIT_TOP_UP_MAX_AMOUNT,
 	CREDIT_TOP_UP_MIN_AMOUNT,
+	getMaxCreditTopUpAmount,
 	isCreditTopUpAmountInRange,
 } from "./fees.js";
 
@@ -56,5 +57,24 @@ describe("calculateFees", () => {
 			internationalFee: 0,
 			totalAmount: 105,
 		});
+	});
+});
+
+describe("getMaxCreditTopUpAmount", () => {
+	it("accounts for fees within the gross allowance", () => {
+		expect(getMaxCreditTopUpAmount(100, false)).toBe(95);
+		expect(getMaxCreditTopUpAmount(100, true)).toBe(93);
+	});
+
+	it("accounts for allowance already used", () => {
+		expect(getMaxCreditTopUpAmount(50, false)).toBe(47);
+		expect(getMaxCreditTopUpAmount(50, true)).toBe(46);
+		expect(getMaxCreditTopUpAmount(0, false)).toBe(0);
+	});
+
+	it("keeps the global ceiling for exempt organizations", () => {
+		expect(getMaxCreditTopUpAmount(Number.POSITIVE_INFINITY, true)).toBe(
+			CREDIT_TOP_UP_MAX_AMOUNT,
+		);
 	});
 });
