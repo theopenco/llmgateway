@@ -1197,8 +1197,12 @@ export const providers: ProviderDefinition[] = [
 			"https://docs.github.com/en/site-policy/privacy-policies/github-privacy-statement",
 		headquarters: "US",
 		dataPolicy: {
-			apiTraining: false,
-			promptLogging: false,
+			// Training and prompt retention vary by Copilot plan and per-account
+			// opt-in (individual subscribers can allow training), so neither can
+			// be asserted for every BYOK credential. null fails closed under
+			// compliance policies instead of letting an opted-in key pass.
+			apiTraining: null,
+			promptLogging: null,
 			retentionPeriod: null,
 			soc2: 2,
 			iso27001: true,

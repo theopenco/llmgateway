@@ -32,6 +32,29 @@ interface MemoryCacheEntry {
 
 const memoryCache = new Map<string, MemoryCacheEntry>();
 
+// Bound the per-process cache: expired entries otherwise accumulate for every
+// OAuth token ever seen (token rotations, key churn) until process exit.
+const MEMORY_CACHE_MAX_ENTRIES = 1000;
+
+function pruneMemoryCache(now: number): void {
+	if (memoryCache.size < MEMORY_CACHE_MAX_ENTRIES) {
+		return;
+	}
+	for (const [key, entry] of memoryCache) {
+		if (entry.expiresAt <= now) {
+			memoryCache.delete(key);
+		}
+	}
+	// Still at the cap (many live tokens): evict oldest insertions.
+	while (memoryCache.size >= MEMORY_CACHE_MAX_ENTRIES) {
+		const oldest = memoryCache.keys().next().value;
+		if (oldest === undefined) {
+			break;
+		}
+		memoryCache.delete(oldest);
+	}
+}
+
 function cacheKey(githubToken: string): string {
 	const hash = crypto
 		.createHash("sha256")
@@ -49,6 +72,9 @@ async function exchangeGithubToken(
 	const res = await fetch(tokenUrl, {
 		method: "GET",
 		redirect: "error",
+		// Bounded so a stalled GitHub endpoint fails the request instead of
+		// hanging key validation or an in-flight gateway request indefinitely.
+		signal: AbortSignal.timeout(15_000),
 		headers: {
 			Authorization: `token ${githubToken}`,
 			Accept: "application/json",
@@ -107,6 +133,7 @@ export async function getGithubCopilotToken(
 			const redisTtl = await redisClient.ttl(key);
 			const redisTtlMs = redisTtl * 1000;
 			const expiresAt = redisTtl > 0 ? now + redisTtlMs : now + 60_000;
+			pruneMemoryCache(now);
 			memoryCache.set(key, {
 				token: redisEntry,
 				expiresAt,
@@ -122,6 +149,7 @@ export async function getGithubCopilotToken(
 
 	const { token, ttlSeconds } = await exchangeGithubToken(githubToken);
 	const ttlMs = ttlSeconds * 1000;
+	pruneMemoryCache(now);
 	memoryCache.set(key, { token, expiresAt: now + ttlMs });
 	try {
 		await redisClient.set(key, token, "EX", ttlSeconds);

@@ -99,6 +99,7 @@ For a self-hosted gateway you can configure the credential via environment varia
 This integration is the other direction of the [GitHub Copilot app guide](/guides/github-copilot): there, LLM Gateway acts as a BYOK provider _inside_ Copilot. The Copilot CLI and [Copilot SDK](https://github.com/github/copilot-sdk) accept any OpenAI-compatible endpoint, so you can point them at `https://api.llmgateway.io/v1` with an LLM Gateway API key:
 
 ```js
+// `client` is an initialized CopilotClient from the Copilot SDK
 const session = await client.createSession({
 	model: "claude-sonnet-4-5", // any tool-calling model in the catalog
 	provider: {

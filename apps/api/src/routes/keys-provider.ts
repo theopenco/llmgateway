@@ -732,6 +732,9 @@ keysProvider.openapi(githubCopilotDeviceCode, async (c) => {
 	const res = await fetch(GITHUB_DEVICE_CODE_URL, {
 		method: "POST",
 		redirect: "error",
+		// Bounded so a stalled GitHub endpoint fails the request instead of
+		// leaving the dashboard hanging.
+		signal: AbortSignal.timeout(10_000),
 		headers: {
 			Accept: "application/json",
 			"Content-Type": "application/json",
@@ -790,6 +793,11 @@ const githubCopilotDeviceToken = createRoute({
 						status: z.enum(["pending", "complete"]),
 						/** GitHub OAuth access token; only set when status is complete. */
 						token: z.string().optional(),
+						/**
+						 * Updated minimum seconds between polls; set when GitHub answers
+						 * slow_down, which raises the interval the client must respect.
+						 */
+						interval: z.number().optional(),
 					}),
 				},
 			},
@@ -809,6 +817,7 @@ keysProvider.openapi(githubCopilotDeviceToken, async (c) => {
 	const res = await fetch(GITHUB_ACCESS_TOKEN_URL, {
 		method: "POST",
 		redirect: "error",
+		signal: AbortSignal.timeout(10_000),
 		headers: {
 			Accept: "application/json",
 			"Content-Type": "application/json",
@@ -828,13 +837,24 @@ keysProvider.openapi(githubCopilotDeviceToken, async (c) => {
 		access_token?: string;
 		error?: string;
 		error_description?: string;
+		interval?: number;
 	};
 
 	if (data.access_token) {
-		return c.json({ status: "complete" as const, token: data.access_token });
+		return c.json({
+			status: "complete" as const,
+			token: data.access_token,
+			interval: undefined,
+		});
 	}
 	if (data.error === "authorization_pending" || data.error === "slow_down") {
-		return c.json({ status: "pending" as const, token: undefined });
+		// On slow_down GitHub raises the minimum poll interval and returns the
+		// new value; pass it through so the dashboard slows its timer.
+		return c.json({
+			status: "pending" as const,
+			token: undefined,
+			interval: data.error === "slow_down" ? (data.interval ?? 10) : undefined,
+		});
 	}
 	throw new HTTPException(400, {
 		message:

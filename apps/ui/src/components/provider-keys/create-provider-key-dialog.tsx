@@ -124,9 +124,12 @@ export function CreateProviderKeyDialog({
 			setCopilotVerificationUri(device.verificationUri);
 			const expiresInMs = device.expiresIn * 1000;
 			const deadline = Date.now() + expiresInMs;
+			// GitHub raises the minimum interval via slow_down responses; always
+			// respect the latest value it reported.
+			let pollIntervalSeconds = Math.max(device.interval, 5);
 			while (Date.now() < deadline) {
 				await new Promise((resolve) =>
-					setTimeout(resolve, Math.max(device.interval, 5) * 1000),
+					setTimeout(resolve, pollIntervalSeconds * 1000),
 				);
 				if (copilotPollSessionRef.current !== session) {
 					return;
@@ -136,6 +139,9 @@ export function CreateProviderKeyDialog({
 				});
 				if (copilotPollSessionRef.current !== session) {
 					return;
+				}
+				if (poll.interval && poll.interval > pollIntervalSeconds) {
+					pollIntervalSeconds = poll.interval;
 				}
 				if (poll.status === "complete" && poll.token) {
 					setToken(poll.token);
@@ -539,6 +545,11 @@ export function CreateProviderKeyDialog({
 								// Model ids are provider-specific, so a list picked for the
 								// previous provider would only ever be rejected on save.
 								setAllowedModels([]);
+								// A credential entered for the previous provider must not be
+								// submitted for the new one; also stop an in-flight GitHub
+								// device-flow poll so it cannot fill the token later.
+								resetCopilotSignIn();
+								setToken("");
 							}}
 							value={selectedProvider}
 							providers={availableProviders}
