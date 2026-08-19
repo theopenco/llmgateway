@@ -4026,8 +4026,8 @@ admin.openapi(getProjectLogs, async (c) => {
 // Get valid provider IDs as a Set for O(1) lookup
 const validProviderIds = new Set<string>(providers.map((p) => p.id));
 
-// Build a map of provider -> Set of valid root model IDs served by that provider.
-// Only root model IDs are accepted as discount/rate-limit targets — the
+// Build a map of provider -> Set of valid canonical model IDs served by that provider.
+// Only canonical model IDs are accepted as discount/rate-limit targets — the
 // provider-specific externalId is reserved for upstream requests only.
 const providerModelMappings = new Map<string, Set<string>>();
 for (const model of models) {
@@ -4039,7 +4039,7 @@ for (const model of models) {
 	}
 }
 
-// All valid root model IDs.
+// All valid canonical model IDs.
 const validModelIds = new Set<string>(models.map((m) => m.id));
 
 const discountSchema = z.object({
@@ -4761,9 +4761,9 @@ admin.openapi(deleteOrganizationDiscount, async (c) => {
 // --- Available Options Handler ---
 
 admin.openapi(getAvailableProvidersAndModels, async (c) => {
-	// modelId is the canonical root model id — the provider-specific upstream
+	// modelId is the canonical model id — the provider-specific upstream
 	// externalId is never exposed here or stored as a discount target. modelName
-	// in this response is the root model's human-readable display name.
+	// in this response is the canonical model's human-readable display name.
 	const mappings: Array<{
 		providerId: string;
 		providerName: string;
@@ -5723,9 +5723,9 @@ const getAvailableRateLimitOptions = createRoute({
 });
 
 admin.openapi(getAvailableRateLimitOptions, async (c) => {
-	// modelId is the canonical root model id — the provider-specific upstream
+	// modelId is the canonical model id — the provider-specific upstream
 	// externalId is never exposed here or stored as a rate-limit target.
-	// modelName in this response is the root model's human-readable display
+	// modelName in this response is the canonical model's human-readable display
 	// name.
 	const mappings: Array<{
 		providerId: string;

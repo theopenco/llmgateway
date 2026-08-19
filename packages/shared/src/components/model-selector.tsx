@@ -68,7 +68,7 @@ interface FilterState {
 	capabilities: string[];
 	priceRange: "free" | "low" | "medium" | "high" | "all";
 	hideUnstable: boolean;
-	showOnlyRoot: boolean;
+	showOnlyCanonical: boolean;
 }
 
 // helper to extract simple capability labels from a mapping
@@ -195,7 +195,7 @@ function getMappingPriceInfo(
 	return { label: original, original };
 }
 
-interface RootAggregateInfo {
+interface CanonicalAggregateInfo {
 	minInputPrice?: number;
 	minOutputPrice?: number;
 	minCachedInputPrice?: number;
@@ -207,7 +207,9 @@ interface RootAggregateInfo {
 	capabilities: string[];
 }
 
-function getRootAggregateInfo(model: ModelDefinition): RootAggregateInfo {
+function getCanonicalAggregateInfo(
+	model: ModelDefinition,
+): CanonicalAggregateInfo {
 	const now = new Date();
 
 	let minInputPrice: number | undefined;
@@ -350,14 +352,14 @@ export function ModelSelector({
 		model: ModelDefinition;
 		mapping?: ProviderModelMapping;
 		provider?: ProviderDefinition;
-		isRoot?: boolean;
+		isCanonical?: boolean;
 	} | null>(null);
 	const [filters, setFilters] = React.useState<FilterState>({
 		providers: [],
 		capabilities: [],
 		priceRange: "all",
 		hideUnstable: true,
-		showOnlyRoot: false,
+		showOnlyCanonical: false,
 	});
 	const [previewExpandTokens, setPreviewExpandTokens] = React.useState(false);
 	const [selectedExpandTokens, setSelectedExpandTokens] = React.useState(false);
@@ -394,7 +396,7 @@ export function ModelSelector({
 			model: ModelDefinition;
 			mapping?: ProviderModelMapping;
 			provider?: ProviderDefinition;
-			isRoot?: boolean;
+			isCanonical?: boolean;
 			searchText: string;
 		}[] = [];
 		const now = new Date();
@@ -423,17 +425,17 @@ export function ModelSelector({
 				continue;
 			}
 
-			// Add root model entry (auto-routing)
-			const rootSearchText = normalize(
+			// Add canonical model entry (auto-routing)
+			const canonicalSearchText = normalize(
 				[m.name ?? "", m.family ?? "", m.id, "auto"].join(" "),
 			);
 			out.push({
 				model: m,
-				isRoot: true,
-				searchText: rootSearchText,
+				isCanonical: true,
+				searchText: canonicalSearchText,
 			});
 
-			// Skip provider entries for auto model - it should only appear as root
+			// Skip provider entries for auto model - it should only appear as canonical
 			if (m.id === "auto") {
 				continue;
 			}
@@ -452,7 +454,7 @@ export function ModelSelector({
 						model: m,
 						mapping: mp,
 						provider,
-						isRoot: false,
+						isCanonical: false,
 						searchText,
 					});
 				}
@@ -485,14 +487,14 @@ export function ModelSelector({
 	const filteredEntries = React.useMemo(() => {
 		let list = allEntries;
 
-		if (filters.showOnlyRoot) {
-			list = list.filter((e) => e.isRoot);
+		if (filters.showOnlyCanonical) {
+			list = list.filter((e) => e.isCanonical);
 		}
 
 		if (filters.hideUnstable) {
 			list = list.filter((e) => {
-				// Root models are considered stable unless model itself is unstable
-				if (e.isRoot) {
+				// Canonical models are considered stable unless model itself is unstable
+				if (e.isCanonical) {
 					return (
 						e.model.stability !== "unstable" &&
 						e.model.stability !== "experimental"
@@ -530,7 +532,7 @@ export function ModelSelector({
 		}
 		if (filters.priceRange !== "all") {
 			list = list.filter((e) => {
-				// Root models don't have fixed price, exclude from price filter or include?
+				// Canonical models don't have fixed price, exclude from price filter or include?
 				// Let's exclude them if filtering by price, or maybe assume 'free' if unknown?
 				// Safest is to only filter items that have a mapping.
 				if (!e.mapping) {
@@ -560,10 +562,10 @@ export function ModelSelector({
 				.filter(Boolean);
 			if (tokens.length > 0) {
 				list = [...list].sort((a, b) => {
-					if (a.isRoot === b.isRoot) {
+					if (a.isCanonical === b.isCanonical) {
 						return 0;
 					}
-					return a.isRoot ? -1 : 1;
+					return a.isCanonical ? -1 : 1;
 				});
 			}
 		}
@@ -580,8 +582,8 @@ export function ModelSelector({
 			providers: prev.providers.includes(providerId)
 				? prev.providers.filter((id) => id !== providerId)
 				: [...prev.providers, providerId],
-			// If selecting providers, we probably don't want to show root models only
-			showOnlyRoot: false,
+			// If selecting providers, we probably don't want to show canonical models only
+			showOnlyCanonical: false,
 		}));
 	};
 
@@ -600,7 +602,7 @@ export function ModelSelector({
 			capabilities: [],
 			priceRange: "all",
 			hideUnstable: true,
-			showOnlyRoot: false,
+			showOnlyCanonical: false,
 		});
 	};
 
@@ -609,7 +611,7 @@ export function ModelSelector({
 		filters.capabilities.length > 0 ||
 		filters.priceRange !== "all" ||
 		!filters.hideUnstable ||
-		filters.showOnlyRoot;
+		filters.showOnlyCanonical;
 
 	const getProviderLogo = (providerId: ProviderId) => {
 		const LogoComponent = providerLogoUrls[providerId];
@@ -641,14 +643,14 @@ export function ModelSelector({
 			selectedProviderId &&
 			allEntries.find(
 				(e) =>
-					!e.isRoot &&
+					!e.isCanonical &&
 					e.model.id === selectedModel.id &&
 					e.mapping?.providerId === selectedProviderId,
 			);
 
-		// Fallback to root entry for the selected model
+		// Fallback to canonical entry for the selected model
 		entry ??= allEntries.find(
-			(e) => e.isRoot && e.model.id === selectedModel.id,
+			(e) => e.isCanonical && e.model.id === selectedModel.id,
 		);
 
 		// Fallback to first filtered entry
@@ -662,7 +664,7 @@ export function ModelSelector({
 						model: entry.model,
 						mapping: entry.mapping,
 						provider: entry.provider,
-						isRoot: entry.isRoot,
+						isCanonical: entry.isCanonical,
 					}
 				: null,
 		);
@@ -778,20 +780,20 @@ export function ModelSelector({
 													)}
 												</div>
 
-												{/* Root model filter */}
+												{/* Canonical model filter */}
 												<div className="flex items-center space-x-2">
 													<Checkbox
 														id="show-root"
-														checked={filters.showOnlyRoot}
+														checked={filters.showOnlyCanonical}
 														onCheckedChange={(checked) =>
-															updateFilter("showOnlyRoot", checked)
+															updateFilter("showOnlyCanonical", checked)
 														}
 													/>
 													<Label
 														htmlFor="show-root"
 														className="text-sm cursor-pointer font-medium"
 													>
-														Show only root models
+														Show only canonical models
 													</Label>
 												</div>
 
@@ -960,14 +962,14 @@ export function ModelSelector({
 											{filteredEntries.length !== 1 ? "s" : ""} found
 										</div>
 										{filteredEntries.map(
-											({ model, mapping, provider, isRoot }, index) => {
-												if (isRoot) {
-													const entryKey = `${model.id}-root-${index}`;
-													const _aggregate = getRootAggregateInfo(model);
+											({ model, mapping, provider, isCanonical }, index) => {
+												if (isCanonical) {
+													const entryKey = `${model.id}-canonical-${index}`;
+													const _aggregate = getCanonicalAggregateInfo(model);
 													const hasRequestPrice = model.providers.some(
 														(p) => p.requestPrice && Number(p.requestPrice) > 0,
 													);
-													const isFreeRoot =
+													const isFreeCanonical =
 														model.free === true && !hasRequestPrice;
 													const isSelected =
 														selectedModel?.id === model.id &&
@@ -981,7 +983,7 @@ export function ModelSelector({
 																	model,
 																	mapping,
 																	provider,
-																	isRoot,
+																	isCanonical,
 																})
 															}
 															onSelect={() => {
@@ -1004,7 +1006,7 @@ export function ModelSelector({
 																			<span className="font-medium truncate">
 																				{model.name}
 																			</span>
-																			{isFreeRoot && (
+																			{isFreeCanonical && (
 																				<Gift className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
 																			)}
 																		</div>
@@ -1062,7 +1064,7 @@ export function ModelSelector({
 																model,
 																mapping,
 																provider,
-																isRoot,
+																isCanonical,
 															})
 														}
 														onSelect={() => {
@@ -1173,7 +1175,7 @@ export function ModelSelector({
 										{!previewEntry.provider ? (
 											<>
 												<p className="text-xs text-muted-foreground leading-relaxed">
-													This is a root model ID. The Gateway will
+													This is a canonical model ID. The Gateway will
 													automatically select the best provider for this model
 													based on availability, performance, and cost. Specific
 													capabilities and pricing will depend on the selected
@@ -1181,7 +1183,7 @@ export function ModelSelector({
 												</p>
 
 												{(() => {
-													const aggregate = getRootAggregateInfo(
+													const aggregate = getCanonicalAggregateInfo(
 														previewEntry.model,
 													);
 
@@ -1726,14 +1728,15 @@ export function ModelSelector({
 								{!selectedDetails.provider ? (
 									<div className="space-y-4">
 										<p className="text-sm text-muted-foreground leading-relaxed">
-											This is a root model ID. The Gateway will automatically
-											select the best provider for this model based on
-											availability, performance, and cost. Specific capabilities
-											and pricing will depend on the selected provider.
+											This is a canonical model ID. The Gateway will
+											automatically select the best provider for this model
+											based on availability, performance, and cost. Specific
+											capabilities and pricing will depend on the selected
+											provider.
 										</p>
 
 										{(() => {
-											const aggregate = getRootAggregateInfo(
+											const aggregate = getCanonicalAggregateInfo(
 												selectedDetails.model,
 											);
 

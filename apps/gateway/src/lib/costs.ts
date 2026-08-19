@@ -222,10 +222,10 @@ function getPricingForTokenCount(
  * If promptTokens or completionTokens are not available, it will try to
  * calculate them from the fullOutput parameter if provided.
  *
- * @param model - Root model id from `ModelDefinition.id`. Callers MUST pass
- *   the canonical root id, never the provider-specific upstream id
+ * @param model - Canonical model id from `ModelDefinition.id`. Callers MUST pass
+ *   the canonical model id, never the provider-specific upstream id
  *   (`externalId`). The upstream id is only ever for sending to the provider
- *   API; pricing/discount/rate-limit lookups all key on the root id.
+ *   API; pricing/discount/rate-limit lookups all key on the canonical model id.
  * @param provider - Provider id (e.g. "openai", "anthropic"). Required for
  *   per-provider pricing resolution.
  * @param region - Region id when the provider mapping defines per-region
@@ -310,7 +310,7 @@ export async function calculateCosts(
 	const customPricing = options?.customPricing;
 	const allowOutputEstimate = options?.allowOutputEstimate ?? true;
 
-	// Look up the model definition by the canonical root id only.
+	// Look up the model definition by the canonical model id only.
 	// externalId-based lookups are intentionally not supported here — the
 	// upstream provider id must never leak into pricing/discount lookups.
 	// For custom-provider requests with a catalog override, use a synthetic
@@ -420,7 +420,7 @@ export async function calculateCosts(
 	isEstimated = promptTokensEstimated || completionTokensEstimated;
 
 	// Find the provider-specific pricing, keyed by providerId + region.
-	// Region matters when a single root model id has multiple per-region
+	// Region matters when a single canonical model id has multiple per-region
 	// entries with different prices (see `regions:` on ProviderModelMapping);
 	// expandAllProviderRegions flattens those into one mapping per region.
 	//
@@ -576,7 +576,7 @@ export async function calculateCosts(
 			: cacheWriteInputPrice;
 	const requestPrice = new Decimal(providerInfo.requestPrice ?? "0");
 
-	// Discounts are keyed by the root model ID only.
+	// Discounts are keyed by the canonical model ID only.
 	const effectiveDiscountResult = await getEffectiveDiscount(
 		organizationId,
 		provider,

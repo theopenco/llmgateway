@@ -676,8 +676,8 @@ function ModelInspector({
 					providers={providerDefinitions as unknown as ProviderDefinition[]}
 					value={node.model}
 					onValueChange={(value) => {
-						// The selector emits "provider/model[:region]" even in rootOnly
-						// mode; a model node stores the root catalog id — the provider
+						// The selector emits "provider/model[:region]" even in canonicalOnly
+						// mode; a model node stores the canonical catalog id — the provider
 						// restriction lives in the fallback list below. Preserve exact
 						// catalog ids because custom model names may contain colons.
 						const withoutProvider = value.includes("/")
@@ -696,7 +696,7 @@ function ModelInspector({
 						);
 					}}
 					placeholder="Select a model..."
-					rootOnly
+					canonicalOnly
 				/>
 			</div>
 			<div className="space-y-1">

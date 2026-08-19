@@ -238,7 +238,7 @@ export function getProviderDefaultBaseUrl(
  *   pass it directly.
  * @param modelId - Canonical gateway model id, used to look up
  *   capability info (e.g. supportsResponsesApi). When omitted, falls back to
- *   `model` — but pass the root id explicitly whenever you have it.
+ *   `model` — but pass the canonical model id explicitly whenever you have it.
  */
 export function getProviderEndpoint(
 	provider: ProviderId,

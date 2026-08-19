@@ -35,7 +35,7 @@ export interface CustomDynamicRouteModelRef {
 /**
  * Parses the `<custom-provider>/<model>` reference stored by a model node.
  * Official provider-prefixed model strings are intentionally excluded: model
- * nodes store official root model ids and use `providers` for restrictions.
+ * nodes store official canonical model ids and use `providers` for restrictions.
  */
 export function parseCustomDynamicRouteModelRef(
 	model: string,
