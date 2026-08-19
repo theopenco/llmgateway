@@ -37,13 +37,13 @@ export interface EffectiveDiscount {
  * 5. Global + Provider discount
  * 6. Global + Model discount
  *
- * Discounts are always keyed by the root model ID — provider-specific model
+ * Discounts are always keyed by the canonical model ID — provider-specific model
  * names are reserved for upstream requests and are never persisted as a
  * discount target.
  *
  * @param organizationId - The organization ID (null for global only)
  * @param provider - The provider ID
- * @param model - The root model ID (e.g., "gpt-4o-mini")
+ * @param model - The canonical model ID (e.g., "gpt-4o-mini")
  * @returns The effective discount to apply
  */
 export async function getEffectiveDiscount(

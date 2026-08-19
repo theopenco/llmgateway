@@ -8,7 +8,7 @@ date: 2026-07-03
 
 DevPass Code is an open-source terminal coding agent that talks only to LLM Gateway. It's a fork of opencode (MIT) trimmed down to a single upstream: one browser login, roughly 190 text models, and no per-provider API keys to juggle. Every request is tagged with `x-source: devpass-code`, so usage is attributed correctly in your dashboard and on your DevPass plan.
 
-> **On a DevPass plan?** Use root model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
+> **On a DevPass plan?** Use canonical model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
 
 ## Install
 

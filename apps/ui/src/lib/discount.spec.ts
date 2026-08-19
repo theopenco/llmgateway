@@ -111,7 +111,7 @@ describe("model-detail discounts", () => {
 		);
 	});
 
-	it("ignores discounts keyed by a provider-specific external id rather than the root id", () => {
+	it("ignores discounts keyed by a provider-specific external id rather than the canonical model id", () => {
 		const byExternalId: DiscountData = {
 			...fiftyPercentOff,
 			model: novita.externalId,

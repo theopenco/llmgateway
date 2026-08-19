@@ -7,15 +7,15 @@ export function mapModels(
 ): ComboboxModel[] {
 	const entries: ComboboxModel[] = [];
 	for (const m of models) {
-		// Add root model entry
-		const rootProviders = m.providers.map((p) => ({
+		// Add canonical model entry
+		const canonicalProviders = m.providers.map((p) => ({
 			providerInfo: providers.find((pr) => pr.id === p.providerId),
 			...p,
 		}));
 
 		// Determine capabilities based on if ANY provider supports them
-		const hasVision = rootProviders.some((p) => p.vision);
-		const hasTools = rootProviders.some((p) => p.tools);
+		const hasVision = canonicalProviders.some((p) => p.vision);
+		const hasTools = canonicalProviders.some((p) => p.tools);
 		const hasImageGen = m.output?.includes("image");
 
 		entries.push({
