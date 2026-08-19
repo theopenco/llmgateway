@@ -1,0 +1,1 @@
+ALTER TABLE "user" ADD COLUMN "risk_archived_at" timestamp;
