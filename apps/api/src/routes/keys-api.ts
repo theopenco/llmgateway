@@ -30,6 +30,7 @@ import {
 	type InferSelectModel,
 	type MemberBudgetOwner,
 } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { maskToken } from "@llmgateway/shared/mask-token";
 
 import type { ServerTypes } from "@/vars.js";
@@ -205,6 +206,10 @@ function serializeApiKey<T extends ApiKeyResponseRecord>(apiKey: T) {
 		currentPeriodStartedAt: currentPeriod.startedAt,
 		currentPeriodResetAt: currentPeriod.resetAt,
 	};
+}
+
+function getMaskedApiKey(apiKey: Pick<ApiKeyRecord, "token" | "tokenMasked">) {
+	return apiKey.tokenMasked ?? maskToken(apiKey.token ?? "");
 }
 
 export function hasPeriodConfigChanged(
@@ -555,8 +560,8 @@ keysApi.openapi(listPlatformKeys, async (c) => {
 			status: platformKey.status,
 			projectId: platformKey.projectId,
 			createdBy: platformKey.createdBy,
-			maskedToken: maskToken(platformKey.token),
-			mode: platformKeyMode(platformKey.token),
+			maskedToken: getMaskedApiKey(platformKey),
+			mode: platformKeyMode(getMaskedApiKey(platformKey)),
 		})),
 	});
 });
@@ -608,7 +613,7 @@ keysApi.openapi(createPlatformKey, async (c) => {
 	const [platformKey] = await cdb
 		.insert(tables.apiKey)
 		.values({
-			token,
+			...hashApiKeyForStorage(token),
 			projectId,
 			description,
 			keyType: "platform_secret",
@@ -1098,7 +1103,7 @@ export async function createApiKeyForProject(
 	const [apiKey] = await cdb
 		.insert(tables.apiKey)
 		.values({
-			token,
+			...hashApiKeyForStorage(token),
 			projectId,
 			description,
 			usageLimit,
@@ -1338,7 +1343,7 @@ keysApi.openapi(list, async (c) => {
 	return c.json({
 		apiKeys: apiKeys.map((key) => ({
 			...serializeApiKey(key),
-			maskedToken: maskToken(key.token),
+			maskedToken: getMaskedApiKey(key),
 			token: undefined,
 			ownerBudget: ownerBudgets.get(key.id) ?? null,
 		})),
@@ -1756,7 +1761,7 @@ keysApi.openapi(updateStatus, async (c) => {
 				: "API key updated",
 		apiKey: {
 			...serializeApiKey(updatedApiKey),
-			maskedToken: maskToken(updatedApiKey.token),
+			maskedToken: getMaskedApiKey(updatedApiKey),
 			token: undefined,
 		},
 	});
@@ -1901,7 +1906,7 @@ keysApi.openapi(roll, async (c) => {
 	// Otherwise the old secret would keep authenticating until the cache expired.
 	const [updatedApiKey] = await cdb
 		.update(tables.apiKey)
-		.set({ token })
+		.set(hashApiKeyForStorage(token))
 		.where(eq(tables.apiKey.id, id))
 		.returning();
 
@@ -2130,7 +2135,7 @@ keysApi.openapi(updateUsageLimit, async (c) => {
 		message: "API key limits updated successfully.",
 		apiKey: {
 			...serializeApiKey(updatedApiKey),
-			maskedToken: maskToken(updatedApiKey.token),
+			maskedToken: getMaskedApiKey(updatedApiKey),
 			token: undefined,
 		},
 	});

@@ -23,11 +23,20 @@ export async function POST(req: NextRequest) {
 	const key = "better-auth.session_token";
 	const sessionCookie = cookieStore.get(`${key}`);
 	const secureSessionCookie = cookieStore.get(`__Secure-${key}`);
-	const cookieHeader = secureSessionCookie
+	const authCookie = secureSessionCookie
 		? `__Secure-${key}=${secureSessionCookie.value}`
 		: sessionCookie
 			? `${key}=${sessionCookie.value}`
 			: "";
+	const playgroundCookie = cookieStore.get(PLAYGROUND_KEY_COOKIE_NAME);
+	const cookieHeader = [
+		authCookie,
+		playgroundCookie
+			? `${PLAYGROUND_KEY_COOKIE_NAME}=${playgroundCookie.value}`
+			: "",
+	]
+		.filter(Boolean)
+		.join("; ");
 
 	const res = await fetch(`${config.apiBackendUrl}/playground/ensure-key`, {
 		method: "POST",

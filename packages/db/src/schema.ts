@@ -1433,7 +1433,11 @@ export const apiKey = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
-		token: text().notNull().unique(),
+		// Legacy plaintext column. New writes store only tokenHash + tokenMasked.
+		// Existing rows remain valid until their secret is rolled.
+		token: text().unique(),
+		tokenHash: text().unique(),
+		tokenMasked: text(),
 		description: text().notNull(),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
@@ -1476,6 +1480,10 @@ export const apiKey = pgTable(
 			.references(() => user.id, { onDelete: "cascade" }),
 	},
 	(table) => [
+		check(
+			"api_key_token_xor",
+			sql`(${table.token} IS NULL) <> (${table.tokenHash} IS NULL)`,
+		),
 		index("api_key_project_id_idx").on(table.projectId),
 		index("api_key_created_by_idx").on(table.createdBy),
 		index("api_key_key_type_expires_at_idx").on(table.keyType, table.expiresAt),

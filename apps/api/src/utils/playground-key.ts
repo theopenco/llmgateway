@@ -2,12 +2,63 @@ import { getCookie } from "hono/cookie";
 
 import { getOrCreateChatOrg } from "@/utils/personal-org.js";
 
-import { db, tables, shortid } from "@llmgateway/db";
+import { cdb, db, eq, tables, shortid } from "@llmgateway/db";
+import {
+	getApiKeyFingerprints,
+	hashApiKeyForStorage,
+} from "@llmgateway/shared/api-key-hash";
 
 import type { ServerTypes } from "@/vars.js";
 import type { Context } from "hono";
 
 export const PLAYGROUND_KEY_COOKIE_NAME = "llmgateway_playground_key";
+const PLAYGROUND_KEY_DESCRIPTION = "Auto-generated playground key";
+
+export async function getOrRollPlaygroundApiKey(
+	projectId: string,
+	userId: string,
+	existingToken?: string,
+): Promise<string> {
+	const key = await db.query.apiKey.findFirst({
+		where: {
+			projectId: { eq: projectId },
+			status: { eq: "active" },
+			keyType: { eq: "user" },
+			description: { eq: PLAYGROUND_KEY_DESCRIPTION },
+		},
+	});
+
+	if (
+		key &&
+		existingToken &&
+		(key.token === existingToken ||
+			(key.tokenHash !== null &&
+				getApiKeyFingerprints(existingToken).includes(key.tokenHash)))
+	) {
+		return existingToken;
+	}
+
+	const prefix =
+		process.env.NODE_ENV === "development" ? "llmgdev_" : "llmgtwy_";
+	const token = prefix + shortid(40);
+
+	if (key) {
+		await cdb
+			.update(tables.apiKey)
+			.set(hashApiKeyForStorage(token))
+			.where(eq(tables.apiKey.id, key.id));
+	} else {
+		await cdb.insert(tables.apiKey).values({
+			...hashApiKeyForStorage(token),
+			projectId,
+			description: PLAYGROUND_KEY_DESCRIPTION,
+			usageLimit: null,
+			createdBy: userId,
+		});
+	}
+
+	return token;
+}
 
 export function getGatewayUrl() {
 	const configured = process.env.GATEWAY_URL?.trim();
@@ -56,25 +107,5 @@ export async function resolvePlaygroundToken(
 			})
 			.returning();
 	}
-	let key = await db.query.apiKey.findFirst({
-		where: {
-			projectId: { eq: project.id },
-			status: { eq: "active" },
-		},
-	});
-	if (!key) {
-		const prefix =
-			process.env.NODE_ENV === "development" ? "llmgdev_" : "llmgtwy_";
-		[key] = await db
-			.insert(tables.apiKey)
-			.values({
-				token: prefix + shortid(40),
-				projectId: project.id,
-				description: "Auto-generated playground key",
-				usageLimit: null,
-				createdBy: user.id,
-			})
-			.returning();
-	}
-	return key.token;
+	return await getOrRollPlaygroundApiKey(project.id, user.id);
 }

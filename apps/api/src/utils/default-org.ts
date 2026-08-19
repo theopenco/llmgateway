@@ -2,6 +2,7 @@ import { isUserHighRisk } from "@/lib/account-risk.js";
 
 import { db, shortid, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 interface DefaultOrganizationUser {
 	id: string;
@@ -136,7 +137,7 @@ export async function getOrCreateDefaultOrganization(
 
 		await tx.insert(tables.apiKey).values({
 			projectId: project.id,
-			token,
+			...hashApiKeyForStorage(token),
 			description: "Auto-generated playground key",
 			usageLimit: null,
 			createdBy: user.id,

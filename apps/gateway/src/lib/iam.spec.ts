@@ -1109,6 +1109,8 @@ function makeApiKey(overrides: Partial<GatewayApiKey> = {}): GatewayApiKey {
 		createdAt: new Date("2026-01-01"),
 		updatedAt: new Date("2026-01-01"),
 		token: "test-token",
+		tokenHash: null,
+		tokenMasked: null,
 		description: "test key",
 		status: "active",
 		keyType: "user",

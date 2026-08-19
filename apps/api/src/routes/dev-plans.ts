@@ -75,6 +75,8 @@ import {
 	type DevPlanCycle,
 	type DevPlanTier,
 } from "@llmgateway/shared";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
+import { maskToken } from "@llmgateway/shared/mask-token";
 
 import { getStripe, isInternationalPaymentMethod } from "./payments.js";
 
@@ -152,7 +154,7 @@ async function getOrCreatePersonalOrgApiKey(
 	orgId: string,
 	projectId: string,
 	userId: string,
-): Promise<string> {
+): Promise<{ id: string; maskedToken: string }> {
 	// Check for existing API key
 	const existingKey = await db.query.apiKey.findFirst({
 		where: {
@@ -166,7 +168,11 @@ async function getOrCreatePersonalOrgApiKey(
 	});
 
 	if (existingKey) {
-		return existingKey.token;
+		return {
+			id: existingKey.id,
+			maskedToken:
+				existingKey.tokenMasked ?? maskToken(existingKey.token ?? ""),
+		};
 	}
 
 	// Create new API key
@@ -174,14 +180,17 @@ async function getOrCreatePersonalOrgApiKey(
 		process.env.NODE_ENV === "development" ? `llmgdev_` : "llmgtwy_";
 	const token = prefix + shortid(40);
 
-	await db.insert(tables.apiKey).values({
-		token,
-		projectId,
-		description: "Dev Plan API Key",
-		createdBy: userId,
-	});
+	const [apiKey] = await cdb
+		.insert(tables.apiKey)
+		.values({
+			...hashApiKeyForStorage(token),
+			projectId,
+			description: "Dev Plan API Key",
+			createdBy: userId,
+		})
+		.returning();
 
-	return token;
+	return { id: apiKey.id, maskedToken: apiKey.tokenMasked! };
 }
 
 // Find the user's personal org without creating one. Used by the billing
@@ -1774,7 +1783,12 @@ const getStatus = createRoute({
 						autoTopUpAmount: z.string().nullable(),
 						organizationId: z.string().nullable(),
 						projectId: z.string().nullable(),
-						apiKey: z.string().nullable(),
+						apiKey: z
+							.object({
+								id: z.string(),
+								maskedToken: z.string(),
+							})
+							.nullable(),
 						devPlanServiceTier: z.enum(["default", "flex"]),
 						defaultRoutingStrategy: z.enum([
 							"auto",
@@ -1888,7 +1902,7 @@ devPlans.openapi(getStatus, async (c) => {
 			: null;
 
 	// Get API key and project if user has an active dev plan
-	let apiKey: string | null = null;
+	let apiKey: { id: string; maskedToken: string } | null = null;
 	let projectId: string | null = null;
 	let defaultRoutingStrategy: "auto" | "price" | "throughput" | "latency" =
 		"auto";
@@ -2808,14 +2822,14 @@ devPlans.openapi(rotateApiKey, async (c) => {
 		(process.env.NODE_ENV === "development" ? "llmgdev_" : "llmgtwy_") +
 		shortid(40);
 
-	await db.transaction(async (tx) => {
+	await cdb.transaction(async (tx) => {
 		await tx
 			.update(tables.apiKey)
 			.set({ status: "deleted" })
 			.where(eq(tables.apiKey.projectId, project.id));
 
 		await tx.insert(tables.apiKey).values({
-			token: newToken,
+			...hashApiKeyForStorage(newToken),
 			projectId: project.id,
 			description: "Dev Plan API Key",
 			createdBy: user.id,

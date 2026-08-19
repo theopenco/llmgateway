@@ -1,8 +1,8 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import { usePostHog } from "posthog-js/react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import ApiKeySection from "@/app/dashboard/components/ApiKeySection";
@@ -31,7 +31,7 @@ export default function OverviewPage() {
 	const { posthogKey } = config;
 	const posthog = usePostHog();
 	const api = useApi();
-	const queryClient = useQueryClient();
+	const [revealedApiKey, setRevealedApiKey] = useState<string | null>(null);
 
 	const { data: devPlanStatus } = useDevPlanStatus();
 
@@ -42,13 +42,8 @@ export default function OverviewPage() {
 
 	const handleRotateApiKey = async (): Promise<void> => {
 		try {
-			await rotateApiKeyMutation.mutateAsync({});
-			await queryClient.invalidateQueries({
-				predicate: (query) => {
-					const key = query.queryKey;
-					return Array.isArray(key) && key[1] === "/dev-plans/status";
-				},
-			});
+			const result = await rotateApiKeyMutation.mutateAsync({});
+			setRevealedApiKey(result.apiKey);
 			if (posthogKey) {
 				posthog.capture("dev_plan_api_key_rotated");
 			}
@@ -113,7 +108,8 @@ export default function OverviewPage() {
 				<div className="rounded-xl border bg-card p-6">
 					{devPlanStatus.apiKey ? (
 						<ApiKeySection
-							apiKey={devPlanStatus.apiKey}
+							apiKey={revealedApiKey ?? devPlanStatus.apiKey.maskedToken}
+							isRevealable={revealedApiKey !== null}
 							uiUrl={config.uiUrl}
 							onRotate={handleRotateApiKey}
 							isRotating={rotateApiKeyMutation.isPending}
@@ -125,9 +121,13 @@ export default function OverviewPage() {
 					)}
 				</div>
 				<div className="rounded-xl border bg-card p-6">
-					{devPlanStatus.apiKey ? (
-						<QuickStart apiKey={devPlanStatus.apiKey} />
-					) : null}
+					{revealedApiKey ? (
+						<QuickStart apiKey={revealedApiKey} />
+					) : (
+						<div className="flex h-full items-center justify-center text-center text-sm text-muted-foreground">
+							Rotate the API key to configure a new tool with its secret.
+						</div>
+					)}
 				</div>
 			</div>
 

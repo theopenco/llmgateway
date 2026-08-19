@@ -83,6 +83,8 @@ function makeSessionApiKey(models?: string[]): GatewayApiKey {
 		createdAt: new Date("2026-03-29T00:00:00.000Z"),
 		updatedAt: new Date("2026-03-29T00:00:00.000Z"),
 		token: "euck_token",
+		tokenHash: null,
+		tokenMasked: null,
 		description: "Embedded end-user: customer-1",
 		status: "active",
 		keyType: "end_user_customer",

@@ -166,7 +166,8 @@ interface SerializableApiKey {
 	status: "active" | "inactive" | "deleted" | null;
 	projectId: string;
 	createdBy: string;
-	token: string;
+	token: string | null;
+	tokenMasked: string | null;
 	usageLimit: string | null;
 	usage: string;
 	periodUsageLimit: string | null;
@@ -192,7 +193,7 @@ function serializeApiKeyForMaster(apiKey: SerializableApiKey) {
 		status: apiKey.status,
 		projectId: apiKey.projectId,
 		createdBy: apiKey.createdBy,
-		maskedToken: maskToken(apiKey.token),
+		maskedToken: apiKey.tokenMasked ?? maskToken(apiKey.token ?? ""),
 		usageLimit: apiKey.usageLimit,
 		usage: apiKey.usage,
 		periodUsageLimit: apiKey.periodUsageLimit,

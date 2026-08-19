@@ -1,5 +1,7 @@
 import { createHmac, hkdfSync } from "node:crypto";
 
+import { maskToken } from "./mask-token.js";
+
 const API_KEY_HASH_SECRET_ENV = "GATEWAY_API_KEY_HASH_SECRET";
 const DEV_API_KEY_HASH_SECRET = "llmgateway-dev-api-key-hash-secret";
 
@@ -22,10 +24,10 @@ export const MASTER_KEY_PREFIX_DEV = "llmgmkdev_";
  * rotation (rotate by prepending the new secret, keep the old one until all
  * ciphertexts are re-encrypted, then drop it).
  *
- * Rotation is currently supported for provider-key ciphertexts only. Persisted
+ * Gateway API-key authentication checks every keyring entry. Other persisted
  * HMAC lookups (master_key.tokenHash, scim_token.tokenHash, log.usedApiKeyHash)
- * are computed and matched with the current secret alone — rotating the secret
- * invalidates those hashes until multi-secret lookup / re-stamping ships.
+ * still match the current secret alone, so rotate those hashes before removing
+ * an old secret.
  */
 export function getApiKeyHashSecrets(): string[] {
 	const secrets = (process.env[API_KEY_HASH_SECRET_ENV] ?? "")
@@ -69,10 +71,28 @@ export function getSecretKeyId(secret: string): string {
 }
 
 export function getApiKeyFingerprint(token: string): string {
+	return getApiKeyFingerprintWithSecret(token, getApiKeyHashSecret());
+}
+
+function getApiKeyFingerprintWithSecret(token: string, secret: string): string {
 	// lgtm[js/insufficient-password-hash]
-	return createHmac("sha256", getApiKeyHashSecret())
-		.update(token)
-		.digest("hex");
+	return createHmac("sha256", secret).update(token).digest("hex");
+}
+
+/** Fingerprints an incoming token against every configured keyring secret. */
+export function getApiKeyFingerprints(token: string): string[] {
+	return getApiKeyHashSecrets().map((secret) =>
+		getApiKeyFingerprintWithSecret(token, secret),
+	);
+}
+
+/** Values persisted for a gateway API key. The plaintext is returned separately. */
+export function hashApiKeyForStorage(token: string) {
+	return {
+		token: null,
+		tokenHash: getApiKeyFingerprint(token),
+		tokenMasked: maskToken(token),
+	} as const;
 }
 
 export function getMasterKeyPrefix(): string {

@@ -10,6 +10,7 @@ import {
 	waitForSwrMirrorWrites,
 } from "@llmgateway/cache";
 import { and, cdb, db, eq, getTableName, tables } from "@llmgateway/db";
+import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 const ONE_MINUTE_MS = 60 * 1000;
 const ONE_HOUR_MS = 60 * ONE_MINUTE_MS;
@@ -167,7 +168,10 @@ describe("keys route", () => {
 			},
 		});
 		expect(platformKey?.keyType).toBe("platform_secret");
-		expect(platformKey?.token).toBe(json.platformKey.token);
+		expect(platformKey?.token).toBeNull();
+		expect(platformKey?.tokenHash).toBe(
+			getApiKeyFingerprint(json.platformKey.token),
+		);
 	});
 
 	test("POST /keys/platform rejects projects without Payments SDK preview", async () => {
@@ -370,8 +374,9 @@ describe("keys route", () => {
 				},
 			},
 		});
-		expect(apiKey?.token).toBe(json.apiKey.token);
-		expect(apiKey?.token).not.toBe("test-token");
+		expect(apiKey?.token).toBeNull();
+		expect(apiKey?.tokenHash).toBe(getApiKeyFingerprint(json.apiKey.token));
+		expect(apiKey?.tokenMasked).not.toContain(json.apiKey.token);
 		expect(apiKey?.description).toBe("Keep Me");
 		expect(apiKey?.usage).toBe("12.34");
 		expect(apiKey?.usageLimit).toBe("100");
@@ -513,6 +518,8 @@ describe("keys route", () => {
 		expect(apiKey?.periodUsageLimit).toBe("5");
 		expect(apiKey?.periodUsageDurationValue).toBe(2);
 		expect(apiKey?.periodUsageDurationUnit).toBe("day");
+		expect(apiKey?.token).toBeNull();
+		expect(apiKey?.tokenHash).toBe(getApiKeyFingerprint(json.apiKey.token));
 	});
 
 	test("POST /keys/api rejects a limit above the member budget", async () => {

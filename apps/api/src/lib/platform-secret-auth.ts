@@ -1,6 +1,7 @@
 import { HTTPException } from "hono/http-exception";
 
 import { db } from "@llmgateway/db";
+import { getApiKeyFingerprints } from "@llmgateway/shared/api-key-hash";
 
 import type { Context, Next } from "hono";
 
@@ -50,7 +51,10 @@ export async function platformSecretAuth(c: Context, next: Next) {
 
 	const row = await db.query.apiKey.findFirst({
 		where: {
-			token: { eq: token },
+			OR: [
+				{ token: { eq: token } },
+				{ tokenHash: { in: getApiKeyFingerprints(token) } },
+			],
 			keyType: { eq: "platform_secret" },
 			status: { eq: "active" },
 		},
@@ -85,7 +89,7 @@ export async function platformSecretAuth(c: Context, next: Next) {
 		projectId: row.projectId,
 		organizationId: row.project.organizationId,
 		createdBy: row.createdBy,
-		mode: platformKeyMode(row.token),
+		mode: platformKeyMode(token),
 	});
 
 	await next();

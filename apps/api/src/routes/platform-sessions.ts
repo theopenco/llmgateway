@@ -6,6 +6,7 @@ import { platformSecretAuth } from "@/lib/platform-secret-auth.js";
 
 import { db, eq, shortid, sql, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import type { AuthenticatedPlatformKey } from "@/lib/platform-secret-auth.js";
 import type { ServerTypes } from "@/vars.js";
@@ -205,7 +206,7 @@ async function ensureEndUserCustomerApiKey(
 	await db
 		.insert(tables.apiKey)
 		.values({
-			token: END_USER_CUSTOMER_KEY_PREFIX + shortid(40),
+			...hashApiKeyForStorage(END_USER_CUSTOMER_KEY_PREFIX + shortid(40)),
 			projectId: platformKey.projectId,
 			description: `Embedded end-user: ${endCustomer.externalId}`,
 			keyType: "end_user_customer",

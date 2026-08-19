@@ -4,6 +4,7 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 const PLATFORM_SECRET = "sk_test_platform";
 
@@ -55,7 +56,7 @@ describe("platform sessions", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "test-platform-secret-key-id",
-			token: PLATFORM_SECRET,
+			...hashApiKeyForStorage(PLATFORM_SECRET),
 			projectId: "test-project-id",
 			description: "Platform secret",
 			keyType: "platform_secret",
@@ -83,7 +84,9 @@ describe("platform sessions", () => {
 		expect(aggregateKeys).toHaveLength(1);
 		expect(aggregateKeys[0].description).toBe("Embedded end-user: customer-a");
 		expect(aggregateKeys[0].endCustomerWalletId).toBe(firstSession.walletId);
-		expect(aggregateKeys[0].token.startsWith("euck_")).toBe(true);
+		expect(aggregateKeys[0].token).toBeNull();
+		expect(aggregateKeys[0].tokenHash).toMatch(/^[0-9a-f]{64}$/);
+		expect(aggregateKeys[0].tokenMasked).toMatch(/^euck_/);
 
 		const sessions = await db.query.endUserSession.findMany({
 			where: {

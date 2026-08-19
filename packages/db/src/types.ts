@@ -248,6 +248,8 @@ export type SerializedApiKey = Omit<
 	| "updatedAt"
 	| "currentPeriodStartedAt"
 	| "expiresAt"
+	| "tokenHash"
+	| "tokenMasked"
 	// LLM SDK internals — hidden aggregate keys aren't surfaced here.
 	| "keyType"
 	| "endCustomerWalletId"

@@ -14,6 +14,7 @@ import {
 	user,
 	userOrganization,
 } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import {
 	reportTrackedKeyError,
@@ -182,6 +183,23 @@ describe("Cached Queries - Gateway Database Access", () => {
 			const result = await findApiKeyByToken("sk-nonexistent");
 
 			expect(result).toBeUndefined();
+		});
+
+		it("should find a hash-only API key by token", async () => {
+			const hashedToken = "sk-test-hashed-cached-queries-token";
+			await db.insert(apiKey).values({
+				id: "test-hashed-api-key-cached-queries",
+				...hashApiKeyForStorage(hashedToken),
+				projectId: testProjectId,
+				description: "Hashed API Key",
+				status: "active",
+				createdBy: testUserId,
+			});
+
+			const result = await findApiKeyByToken(hashedToken);
+
+			expect(result?.id).toBe("test-hashed-api-key-cached-queries");
+			expect(result?.token).toBeNull();
 		});
 
 		it("should return undefined for platform secret tokens", async () => {
