@@ -35,6 +35,14 @@ describe("isContentFilterErrorText", () => {
 		).toBe(true);
 	});
 
+	test("detects xAI video moderation", () => {
+		expect(
+			isContentFilterErrorText(
+				'{"code":"imagine:content-moderated","error":"Generated video rejected by content moderation."}',
+			),
+		).toBe(true);
+	});
+
 	test("detects Z.AI / Zhipu GLM content moderation (code 1301)", () => {
 		expect(
 			isContentFilterErrorText(
