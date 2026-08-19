@@ -7278,6 +7278,11 @@ chat.openapi(completions, async (c) => {
 		ctx: Awaited<ReturnType<typeof resolveProviderContext>>,
 	): void {
 		usedProvider = ctx.usedProvider;
+		if (usedProvider !== "custom") {
+			customProviderName = undefined;
+			customProviderKey = undefined;
+			customPricingMapping = undefined;
+		}
 		usedInternalModel = ctx.usedInternalModel;
 		usedExternalId = ctx.usedExternalId;
 		usedModelFormatted = ctx.usedModelFormatted;

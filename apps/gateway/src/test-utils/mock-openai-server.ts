@@ -807,6 +807,28 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 	return c.json(response);
 });
 
+mockOpenAIServer.post("/v1/messages", async (c) => {
+	const body = await c.req.json();
+	return c.json({
+		id: "msg-123",
+		type: "message",
+		role: "assistant",
+		model: body.model ?? "claude-haiku-4-5",
+		content: [
+			{
+				type: "text",
+				text: "Hello! I'm a mock response from the test server.",
+			},
+		],
+		stop_reason: "end_turn",
+		stop_sequence: null,
+		usage: {
+			input_tokens: 10,
+			output_tokens: 20,
+		},
+	});
+});
+
 // Handle chat completions endpoint
 mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 	const body = await c.req.json();
