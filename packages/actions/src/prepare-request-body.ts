@@ -367,6 +367,27 @@ function normalizeToolParameters(tools?: OpenAIToolInput[]): typeof tools {
 	});
 }
 
+function normalizeGoogleSchemaEnum(values: unknown): string[] | undefined {
+	if (!Array.isArray(values)) {
+		return undefined;
+	}
+
+	const normalized: string[] = [];
+	for (const value of values) {
+		if (
+			value !== null &&
+			typeof value !== "string" &&
+			typeof value !== "number" &&
+			typeof value !== "boolean"
+		) {
+			return undefined;
+		}
+		normalized.push(String(value));
+	}
+
+	return normalized;
+}
+
 /**
  * Converts OpenAI JSON schema format to Google's schema format
  * Google uses uppercase type names (STRING, OBJECT, ARRAY) vs OpenAI's lowercase (string, object, array)
@@ -418,9 +439,11 @@ function convertOpenAISchemaToGoogle(schema: any): any {
 		converted.required = schema.required;
 	}
 
-	// Copy enum if present
-	if (schema.enum) {
-		converted.enum = schema.enum;
+	// Google's Schema proto represents every enum member as a string, including
+	// members of numeric and boolean schemas.
+	const normalizedEnum = normalizeGoogleSchemaEnum(schema.enum);
+	if (normalizedEnum !== undefined) {
+		converted.enum = normalizedEnum;
 	}
 
 	// Copy other common JSON schema properties that Google supports
@@ -571,7 +594,6 @@ const GOOGLE_SUPPORTED_SCHEMA_KEYS: ReadonlySet<string> = new Set([
 const GOOGLE_OPAQUE_SCHEMA_VALUE_KEYS: ReadonlySet<string> = new Set([
 	"default",
 	"example",
-	"enum",
 ]);
 
 /**
@@ -671,6 +693,14 @@ function stripUnsupportedSchemaProperties(
 
 	for (const [key, value] of Object.entries(schema)) {
 		if (!GOOGLE_SUPPORTED_SCHEMA_KEYS.has(key)) {
+			continue;
+		}
+
+		if (key === "enum") {
+			const normalizedEnum = normalizeGoogleSchemaEnum(value);
+			if (normalizedEnum !== undefined) {
+				cleaned.enum = normalizedEnum;
+			}
 			continue;
 		}
 

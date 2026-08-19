@@ -2231,6 +2231,34 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		expect(requestBody.toolConfig).toBeUndefined();
 	});
 
+	test("normalizes primitive enums in tool parameters", async () => {
+		const requestBody = await googleTools([
+			{
+				type: "function",
+				function: {
+					name: "choose_value",
+					parameters: {
+						type: "object",
+						properties: {
+							integer: { type: "integer", enum: [3, 5] },
+							mixed: { type: "string", enum: ["one", 2, true, null] },
+							unsupported: {
+								type: "object",
+								enum: [{ value: 3 }],
+							},
+						},
+					},
+				},
+			},
+		]);
+
+		const properties =
+			requestBody.tools[0].functionDeclarations[0].parameters.properties;
+		expect(properties.integer.enum).toEqual(["3", "5"]);
+		expect(properties.mixed.enum).toEqual(["one", "2", "true", "null"]);
+		expect(properties.unsupported.enum).toBeUndefined();
+	});
+
 	test("should map gateway 0.5K image size to Google 512", async () => {
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
@@ -2319,6 +2347,42 @@ describe("prepareRequestBody - Google AI Studio", () => {
 				},
 			},
 			required: ["name", "nickname"],
+		});
+	});
+
+	test("normalizes primitive enums in response schemas", async () => {
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-3.7-flash",
+			null,
+			"gemini-3.7-flash",
+			[{ role: "user", content: "Choose a value" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				type: "json_schema",
+				json_schema: {
+					name: "choice",
+					schema: {
+						type: "object",
+						properties: {
+							value: { type: "integer", enum: [3, 5] },
+						},
+						required: ["value"],
+					},
+				},
+			},
+		)) as any;
+
+		expect(
+			requestBody.generationConfig.responseSchema.properties.value,
+		).toEqual({
+			type: "INTEGER",
+			enum: ["3", "5"],
 		});
 	});
 
