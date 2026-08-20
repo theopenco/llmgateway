@@ -1004,6 +1004,8 @@ export const xaiModels = [
 				streaming: true,
 				vision: true,
 				reasoning: true,
+				// xAI normalizes `minimal` to low and documents `xhigh` as high for
+				// Grok 4.5. Only expose the distinct reasoning controls.
 				reasoningEfforts: ["low", "medium", "high"],
 				tools: true,
 				jsonOutput: true,
@@ -1056,9 +1058,9 @@ export const xaiModels = [
 				streaming: true,
 				vision: true,
 				reasoning: true,
-				// Reasons on every request: xAI rejects both `none` and `max`, so the
-				// tier list stops at xhigh and never offers a way to turn it off.
-				reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"],
+				// Reasons on every request: xAI normalizes `minimal` to low and rejects
+				// both `none` and `max`, so only distinct tiers are exposed.
+				reasoningEfforts: ["low", "medium", "high", "xhigh"],
 				tools: true,
 				jsonOutput: true,
 				// `stop`, `frequency_penalty` and `presence_penalty` all 400 with
@@ -1072,6 +1074,35 @@ export const xaiModels = [
 					"tool_choice",
 					"reasoning_effort",
 				],
+			},
+			{
+				providerId: "aws-bedrock",
+				externalId: "xai.grok-4.6",
+				apiFormat: "openai-chat-completions",
+				inputPrice: "2.0e-6",
+				cachedInputPrice: "0.5e-6",
+				outputPrice: "6.0e-6",
+				requestPrice: "0",
+				contextSize: 500_000,
+				maxOutput: undefined,
+				streaming: true,
+				vision: true,
+				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high", "xhigh"],
+				reasoningOutput: "omit",
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
+				regions: [{ id: "us-west-2" }],
 			},
 		],
 	},

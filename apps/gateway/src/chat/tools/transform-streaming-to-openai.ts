@@ -1536,6 +1536,7 @@ export function transformStreamingToOpenai(
 		case "runware":
 		case "gonka24":
 		case "ranoai":
+		case "baidu":
 		case "granite":
 		case "tundra":
 		case "permafrost":
@@ -1596,6 +1597,12 @@ export function transformStreamingToOpenai(
 			);
 			break;
 		}
+	}
+
+	// Upstream model names are deployment identifiers. The client-facing stream
+	// must consistently expose the gateway's canonical provider/model mapping.
+	if (transformedData && typeof transformedData === "object") {
+		transformedData.model = usedModel;
 	}
 
 	return transformedData;

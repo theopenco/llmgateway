@@ -157,13 +157,12 @@ describe("admin provider credentials", () => {
 		).toThrow();
 	});
 
-	test("rejects a provider whose required settings are missing", async () => {
+	test("accepts a Vertex API key without a project", async () => {
 		const res = await create({
 			provider: "google-vertex",
 			token: "vertex-key",
 		});
-		expect(res.status).toBe(400);
-		expect(await res.text()).toContain("project");
+		expect(res.status).toBe(201);
 	});
 
 	test("accepts a provider once its required settings are supplied", async () => {
@@ -361,7 +360,7 @@ describe("admin provider credentials", () => {
 		expect(updated.usageLimit).toBe("50");
 	});
 
-	test("rejects an update that would leave a required setting unset", async () => {
+	test("allows removing an optional Vertex project", async () => {
 		await create({
 			provider: "google-vertex",
 			token: "vertex-key",
@@ -377,7 +376,7 @@ describe("admin provider credentials", () => {
 				body: JSON.stringify({ config: {} }),
 			},
 		);
-		expect(res.status).toBe(400);
+		expect(res.status).toBe(200);
 	});
 
 	test("soft-deletes so log attribution survives", async () => {
@@ -441,7 +440,7 @@ describe("admin provider credentials", () => {
 		expect(vertex?.configKeys).toContainEqual({
 			key: "project",
 			envVar: "LLM_GOOGLE_CLOUD_PROJECT",
-			required: true,
+			required: false,
 		});
 		expect(vertex?.configKeys.map((k) => k.key)).not.toContain("apiKey");
 

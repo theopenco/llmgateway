@@ -26,8 +26,9 @@ interface DetailResponse {
 	transactions: { type: string; amount: string | null }[];
 }
 
-interface ListResponse {
-	kpis: { resetPassesSold: number; resetPassRevenue: number };
+interface KpisResponse {
+	resetPassesSold: number;
+	resetPassRevenue: number;
 }
 
 async function insertOrg(
@@ -240,13 +241,13 @@ describe("admin devpass gift reset passes", () => {
 		});
 		await giftRequest({ tier: "pro", count: 5 }, cookie);
 
-		const res = await app.request("/admin/devpass", {
+		const res = await app.request("/admin/devpass/kpis", {
 			headers: { Cookie: cookie },
 		});
 		expect(res.status).toBe(200);
-		const body = (await res.json()) as ListResponse;
-		expect(body.kpis.resetPassesSold).toBe(1);
-		expect(body.kpis.resetPassRevenue).toBe(29);
+		const body = (await res.json()) as KpisResponse;
+		expect(body.resetPassesSold).toBe(1);
+		expect(body.resetPassRevenue).toBe(29);
 	});
 
 	it("gifted passes are redeemable through the normal redeem flow", async () => {

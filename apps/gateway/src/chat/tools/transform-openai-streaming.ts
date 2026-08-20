@@ -99,6 +99,15 @@ export function transformOpenaiStreaming(
 			newDelta.tool_calls.length === 0
 		) {
 			delete newDelta.tool_calls;
+		} else if (Array.isArray(newDelta.tool_calls)) {
+			// Some upstreams announce a tool call before sending its function data.
+			// Strict OpenAI clients still require the function key on every frame.
+			newDelta.tool_calls = newDelta.tool_calls.map(
+				(toolCall: Record<string, unknown>) => ({
+					...toolCall,
+					function: toolCall.function ?? {},
+				}),
+			);
 		}
 
 		const normalizedReasoning =
@@ -154,12 +163,17 @@ export function transformOpenaiStreaming(
 	};
 
 	// Transform choices if they exist
-	const transformedChoices = data.choices
+	const normalizedUsage = normalizeUsage(data.usage);
+	// OpenAI usage-only chunks use an empty choices array. Strict clients reject
+	// the provider variant that omits the field entirely.
+	const transformedChoices = Array.isArray(data.choices)
 		? data.choices.map((choice: any) => ({
 				...choice,
 				delta: transformDelta(choice.delta),
 			}))
-		: null;
+		: normalizedUsage
+			? []
+			: null;
 
 	// If we don't have proper structure, build it
 	if (!data.id || !transformedChoices) {
@@ -182,7 +196,7 @@ export function transformOpenaiStreaming(
 					finish_reason: data.finish_reason ?? null,
 				},
 			],
-			usage: normalizeUsage(data.usage),
+			usage: normalizedUsage,
 		};
 	}
 
@@ -191,6 +205,6 @@ export function transformOpenaiStreaming(
 		...data,
 		object: "chat.completion.chunk",
 		choices: transformedChoices,
-		usage: normalizeUsage(data.usage),
+		usage: normalizedUsage,
 	};
 }

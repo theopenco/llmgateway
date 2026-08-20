@@ -1,3 +1,5 @@
+import { isUserHighRisk } from "@/lib/account-risk.js";
+
 import { db, shortid, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
@@ -109,6 +111,7 @@ export async function getOrCreateDefaultOrganization(
 			.values({
 				name: "Default Organization",
 				billingEmail: user.email,
+				riskFlagged: await isUserHighRisk(user.id),
 			})
 			.returning();
 

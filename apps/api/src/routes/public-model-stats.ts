@@ -223,8 +223,8 @@ publicModelStats.openapi(listRoute, async (c) => {
 		totalRequests: models.reduce((sum, m) => sum + m.totalRequests, 0),
 	};
 
-	// Chart series for the top models only, bucketed by hour for the 24h
-	// window and by day otherwise.
+	// Chart series for the top models only, bucketed by hour for the 24h and
+	// 7d windows (24 / 168 dense chart bars) and by day for 30d.
 	const topModelIds = models
 		.slice(0, SERIES_MODEL_LIMIT)
 		.map((row) => row.modelId);
@@ -235,9 +235,15 @@ publicModelStats.openapi(listRoute, async (c) => {
 	}> = [];
 
 	if (topModelIds.length > 0) {
-		const seriesBucket = hourly
-			? sql<Date>`date_trunc('day', ${mhTs})`
-			: sql<Date>`date_trunc('hour', ${mhTs})`;
+		const seriesBucket =
+			window === "30d"
+				? sql<Date>`date_trunc('day', ${mhTs})`
+				: sql<Date>`date_trunc('hour', ${mhTs})`;
+		// The 24h totals use an exact rolling lower bound, which would leave the
+		// leading hourly bucket artificially partial in the chart; floor it for
+		// the series only. The trailing in-progress bucket stays — the chart is
+		// live. 7d/30d startDate is already hour-floored.
+		const seriesStartDate = hourly ? startDate : floorToHourStart(startDate);
 
 		const seriesRows = await cdb
 			.select({
@@ -246,7 +252,7 @@ publicModelStats.openapi(listRoute, async (c) => {
 				totalTokens: sql<string>`COALESCE(SUM(${mh.totalTokens}), 0)`,
 			})
 			.from(mh)
-			.where(and(gte(mhTs, startDate), inArray(mh.modelId, topModelIds)))
+			.where(and(gte(mhTs, seriesStartDate), inArray(mh.modelId, topModelIds)))
 			.groupBy(mh.modelId, seriesBucket)
 			.orderBy(seriesBucket)
 			// The top-model set can shift within the TTL, so a tag keyed on the
@@ -254,7 +260,7 @@ publicModelStats.openapi(listRoute, async (c) => {
 			// self-heals when the TTL lapses and is invisible in practice because
 			// the ranked list above it comes from the same cached snapshot.
 			.$withCache({
-				tag: `publicModelStats:series:v1:${window}`,
+				tag: `publicModelStats:series:v2:${window}`,
 				autoInvalidate: false,
 				config: { ex: STATS_CACHE_TTL_SECONDS },
 			});

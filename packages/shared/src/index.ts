@@ -35,6 +35,7 @@ export {
 	calculateFees,
 	CREDIT_TOP_UP_MAX_AMOUNT,
 	CREDIT_TOP_UP_MIN_AMOUNT,
+	getMaxCreditTopUpAmount,
 	INTERNATIONAL_CARD_FEE_PERCENTAGE,
 	isCreditTopUpAmountInRange,
 	type FeeBreakdown,
@@ -183,6 +184,11 @@ export {
 export { MARKETING_STATS, RUNWARE_PROMO } from "./marketing.js";
 
 export {
+	deriveStabilityMetrics,
+	type StabilityMetrics,
+} from "./stability-metrics.js";
+
+export {
 	ONBOARDING_MODEL,
 	ONBOARDING_MAX_TOKENS,
 	ONBOARDING_MAX_PROMPT_CHARS,
@@ -281,6 +287,40 @@ export {
 } from "./url-safety.js";
 
 export { parseUsedModel, regionFromUsedModel } from "./used-model.js";
+
+export {
+	baseLimitEnvVar,
+	getBaseLimit,
+	getNextSpendTier,
+	getOrgSpendTier,
+	getPlanClass,
+	getRateLimitEnvNumber,
+	isCappedOrg,
+	isOrgRateLimitEnabled,
+	isSpendCapEnabled,
+	isTopUpVelocityEnabled,
+	isTopUpVelocityGatedOrg,
+	limitHitsKey,
+	PATH_RATE_LIMITS,
+	resolvePathRateLimit,
+	resolveTrustTierOverride,
+	SPEND_TIER_DEFAULTS,
+	spendDailyKey,
+	spendMonthlyKey,
+	spendUtcDateKey,
+	spendUtcMonthKey,
+	TOPUP_VELOCITY_RESERVATION_TTL_SECONDS,
+	TOPUP_VELOCITY_WINDOW_MS,
+	topUpVelocityKey,
+	type NextSpendTierInfo,
+	type OrgLimitType,
+	type PathRateLimitConfig,
+	type PlanClass,
+	type ResolvedSpendTier,
+	type SpendCapOrg,
+	type SpendTierOrg,
+	type SpendTierDefaults,
+} from "./spend-tier.js";
 
 export * from "./components/ui/index.js";
 export { discountFraction, isValidDiscount } from "./lib/discount.js";

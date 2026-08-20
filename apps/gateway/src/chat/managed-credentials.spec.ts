@@ -677,6 +677,7 @@ describe("managed provider credentials", () => {
 					}),
 				});
 				expect(res.status).toBe(200);
+				expect((await res.json()).model).toBe("openai/text-embedding-3-small");
 			} finally {
 				if (previousEnvKey !== undefined) {
 					process.env.LLM_OPENAI_API_KEY = previousEnvKey;
@@ -712,6 +713,7 @@ describe("managed provider credentials", () => {
 					body: JSON.stringify({ input: "hello" }),
 				});
 				expect(res.status).toBe(200);
+				expect((await res.json()).model).toBe("openai/openai-moderation");
 			} finally {
 				if (previousEnvKey !== undefined) {
 					process.env.LLM_OPENAI_API_KEY = previousEnvKey;
@@ -750,6 +752,7 @@ describe("managed provider credentials", () => {
 					}),
 				});
 				expect(res.status).toBe(200);
+				expect((await res.json()).model).toBe("deepinfra/qwen3-reranker-8b");
 			} finally {
 				if (previousEnvKey !== undefined) {
 					process.env.LLM_DEEPINFRA_API_KEY = previousEnvKey;

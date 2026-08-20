@@ -155,6 +155,8 @@ LLM_GOOGLE_VERTEX_REGION=us-central1,europe-west1,asia-east1
 
 When the gateway selects `key2`, it automatically uses `project-b` and `europe-west1`. If you have fewer configuration values than keys, the last value is reused for the remaining keys.
 
+`LLM_GOOGLE_CLOUD_PROJECT` is optional for Google Vertex API-key chat, embedding, and speech requests, which use the projectless publisher-model endpoint when it is unset. Set it for OAuth authentication, video generation, or project-scoped Vertex URLs.
+
 ## Enterprise and plan provider env overrides
 
 Any provider env var — API keys, base URLs, regions, Google Cloud projects, Azure resources, and other provider-specific settings — supports optional per-audience overrides:

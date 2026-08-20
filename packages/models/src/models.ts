@@ -182,7 +182,7 @@ export interface ProviderModelMapping {
 	providerId: (typeof providers)[number]["id"];
 	/**
 	 * Provider-specific upstream model id used when calling the upstream
-	 * provider. Distinct from the root `ModelDefinition.id` and from any
+	 * provider. Distinct from the canonical `ModelDefinition.id` and from any
 	 * human-readable display name.
 	 */
 	externalId: string;

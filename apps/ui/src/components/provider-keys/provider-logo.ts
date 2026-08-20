@@ -48,6 +48,7 @@ export const providerLogoUrls: Partial<
 	fireworks: ProviderIcons.fireworks,
 	runware: ProviderIcons.runware,
 	ranoai: ProviderIcons.ranoai,
+	baidu: ProviderIcons.baidu,
 };
 
 export const getProviderLogoDarkModeClasses = () => {

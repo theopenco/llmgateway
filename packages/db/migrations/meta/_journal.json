@@ -1632,6 +1632,48 @@
       "when": 1786917280136,
       "tag": "1786917280_kind_zarek",
       "breakpoints": true
+    },
+    {
+      "idx": 233,
+      "version": "8",
+      "when": 1786962617289,
+      "tag": "1786962617_flimsy_sentry",
+      "breakpoints": true
+    },
+    {
+      "idx": 234,
+      "version": "8",
+      "when": 1786966181012,
+      "tag": "1786966181_hard_firestar",
+      "breakpoints": true
+    },
+    {
+      "idx": 235,
+      "version": "8",
+      "when": 1786993793424,
+      "tag": "1786993793_tough_jackpot",
+      "breakpoints": true
+    },
+    {
+      "idx": 236,
+      "version": "8",
+      "when": 1787073015985,
+      "tag": "1787073015_sweet_wolfpack",
+      "breakpoints": true
+    },
+    {
+      "idx": 237,
+      "version": "8",
+      "when": 1787148647545,
+      "tag": "1787148647_round_absorbing_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 238,
+      "version": "8",
+      "when": 1787234670541,
+      "tag": "1787234670_clear_puppet_master",
+      "breakpoints": true
     }
   ]
 }

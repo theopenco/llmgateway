@@ -647,6 +647,7 @@ describe("activity endpoint", () => {
 				completionTokens: "20",
 				totalTokens: "30",
 				hasError: true,
+				unifiedFinishReason: "upstream_error",
 				messages: JSON.stringify([{ role: "user", content: "Test" }]),
 				mode: "api-keys",
 				usedMode: "api-keys",
@@ -669,6 +670,7 @@ describe("activity endpoint", () => {
 				completionTokens: "20",
 				totalTokens: "30",
 				hasError: true,
+				unifiedFinishReason: "client_error",
 				messages: JSON.stringify([{ role: "user", content: "Test" }]),
 				mode: "api-keys",
 				usedMode: "api-keys",
@@ -756,9 +758,10 @@ describe("activity endpoint", () => {
 		const todayData = data.activity[0];
 
 		expect(todayData.requestCount).toBe(5);
-		expect(todayData.errorCount).toBe(2);
-		// Error rate = (2/5) * 100 = 40%
-		expect(todayData.errorRate).toBeCloseTo(40, 2);
+		expect(todayData.errorCount).toBe(1);
+		expect(todayData.clientErrorCount).toBe(1);
+		// Client errors are excluded from both sides: 1/4 = 25%.
+		expect(todayData.errorRate).toBeCloseTo(25, 2);
 	});
 
 	test("GET /activity should correctly calculate cache rate", async () => {

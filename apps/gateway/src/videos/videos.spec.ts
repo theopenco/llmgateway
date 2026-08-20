@@ -6,6 +6,7 @@ import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harne
 import {
 	getMockVideo,
 	setMockVideoStatus,
+	setMockVideoStatusResponse,
 } from "@/test-utils/mock-openai-server.js";
 
 import { cdb, db, eq, tables } from "@llmgateway/db";
@@ -526,6 +527,7 @@ describe("videos", () => {
 
 		expect(createRes.status).toBe(200);
 		const created = await createRes.json();
+		expect(created.model).toBe("atlascloud/kling-v3-0");
 		const videoJob = await db.query.videoJob.findFirst({
 			where: { id: { eq: created.id } },
 		});
@@ -1288,6 +1290,9 @@ describe("videos", () => {
 				headers: { Authorization: "Bearer real-token" },
 			});
 			expect(statusRes.status).toBe(200);
+			expect((await statusRes.json()).model).toBe(
+				"google-vertex/veo-3.1-generate-preview",
+			);
 
 			setMockVideoStatus(videoJob!.upstreamId, "completed");
 			await processPendingVideoJobs();
@@ -1314,6 +1319,72 @@ describe("videos", () => {
 			}
 			if (originalGoogleVertexApiKey !== undefined) {
 				process.env.LLM_GOOGLE_VERTEX_API_KEY = originalGoogleVertexApiKey;
+			}
+		}
+	});
+
+	test("/v1/videos excludes a projectless managed Vertex API key", async () => {
+		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		const originalGoogleVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
+		const originalGoogleVertexApiKey = process.env.LLM_GOOGLE_VERTEX_API_KEY;
+		process.env.LLM_GOOGLE_CLOUD_PROJECT = "env-video-project";
+		process.env.LLM_GOOGLE_VERTEX_REGION = "us-central1";
+		process.env.LLM_GOOGLE_VERTEX_API_KEY = "env-vertex-test-token";
+
+		try {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await harness.setProjectMode("credits");
+
+			await cdb.insert(tables.providerKey).values({
+				id: "managed-vertex-video-projectless",
+				provider: "google-vertex",
+				token: "vertex-test-token",
+				managed: true,
+				organizationId: null,
+				config: {
+					baseUrl: mockServerUrl,
+					region: "us-central1",
+				},
+			});
+
+			const res = await app.request("/v1/videos", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "google-vertex/veo-3.1-generate-preview",
+					prompt: "A projectless credential must not reach Veo",
+					size: "1920x1080",
+					seconds: 8,
+				}),
+			});
+
+			expect(res.status).toBe(400);
+		} finally {
+			await harness.setProjectMode("api-keys");
+			if (originalGoogleCloudProject !== undefined) {
+				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
+			} else {
+				delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+			}
+			if (originalGoogleVertexRegion !== undefined) {
+				process.env.LLM_GOOGLE_VERTEX_REGION = originalGoogleVertexRegion;
+			} else {
+				delete process.env.LLM_GOOGLE_VERTEX_REGION;
+			}
+			if (originalGoogleVertexApiKey !== undefined) {
+				process.env.LLM_GOOGLE_VERTEX_API_KEY = originalGoogleVertexApiKey;
+			} else {
+				delete process.env.LLM_GOOGLE_VERTEX_API_KEY;
 			}
 		}
 	});
@@ -1688,6 +1759,80 @@ describe("videos", () => {
 		expect(logs[0].imageInputCost).toBe(0.01);
 		expect(logs[0].videoOutputCost).toBe(0.84);
 		expect(logs[0].cost).toBe(0.85);
+	});
+
+	test("/v1/videos caps logged xAI polling error response contents", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "xai-test-token",
+			provider: "xai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "xai/grok-imagine-video-1-5",
+				prompt: "A cat walking across a rooftop at sunset",
+				size: "1280x720",
+				seconds: 6,
+				image: { image_url: "data:image/png;base64,aGVsbG8=" },
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(videoJob).toBeTruthy();
+
+		const upstreamError = {
+			detail: `The input image could not be processed: ${"x".repeat(5000)}discarded-suffix`,
+			request_id: "upstream-request-id",
+		};
+		setMockVideoStatusResponse(videoJob!.upstreamId, 400, upstreamError);
+		await db
+			.update(tables.videoJob)
+			.set({
+				upstreamStatusResponse: {
+					llmgateway_poll_error_count: 4,
+				},
+			})
+			.where(eq(tables.videoJob.id, videoJob!.id));
+
+		await processPendingVideoJobs();
+
+		const persistedJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		const log = await db.query.log.findFirst({
+			where: { requestId: { eq: videoJob!.requestId } },
+		});
+		const expectedError = `Upstream status request failed with status 400: ${JSON.stringify(upstreamError).slice(0, 4000)}`;
+		const statusResponse = persistedJob?.upstreamStatusResponse as Record<
+			string,
+			unknown
+		>;
+		expect(persistedJob?.status).toBe("failed");
+		expect(persistedJob?.error?.message).toContain(expectedError);
+		expect(statusResponse.llmgateway_last_poll_error).toBe(expectedError);
+		expect(log?.errorDetails?.responseText).toContain(expectedError);
+		expect(JSON.stringify(persistedJob)).not.toContain("discarded-suffix");
+		expect(JSON.stringify(log)).not.toContain("discarded-suffix");
 	});
 
 	test("/v1/videos supports completed google-vertex jobs", async () => {

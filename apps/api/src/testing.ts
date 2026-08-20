@@ -59,6 +59,7 @@ export async function deleteAll() {
 			await db.delete(tables.verification);
 			await db.delete(tables.organization);
 			await db.delete(tables.user);
+			await db.delete(tables.systemSetting);
 			return;
 		} catch (error) {
 			if (attempt >= 3 || !isDeadlockError(error)) {

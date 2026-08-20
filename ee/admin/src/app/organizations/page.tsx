@@ -571,13 +571,18 @@ export default async function OrganizationsPage({
 										{formatDate(org.createdAt)}
 									</TableCell>
 									<TableCell>
-										<Badge
-											variant={
-												org.status === "active" ? "secondary" : "outline"
-											}
-										>
-											{org.status ?? "active"}
-										</Badge>
+										<div className="flex flex-wrap items-center gap-1">
+											<Badge
+												variant={
+													org.status === "active" ? "secondary" : "outline"
+												}
+											>
+												{org.status ?? "active"}
+											</Badge>
+											{org.riskFlagged && (
+												<Badge variant="destructive">high risk</Badge>
+											)}
+										</div>
 									</TableCell>
 									<TableCell>
 										<div className="flex items-center gap-1">

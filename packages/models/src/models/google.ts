@@ -1323,9 +1323,7 @@ export const googleModels = [
 			{
 				providerId: "google-vertex",
 				externalId: "gemini-3.7-flash",
-				// Vertex rejects Flex for this model ("Flex API is not supported
-				// for model"), so only priority is declared
-				serviceTiers: ["priority"],
+				serviceTiers: ["flex", "priority"],
 				serviceTierRegions: ["global"],
 				// introductory pricing until 2026-12-31; $1.50/$7.50 from 2027-01-01
 				inputPrice: "0.75e-6",
@@ -2447,8 +2445,8 @@ export const googleModels = [
 			{
 				providerId: "novita",
 				externalId: "google/gemma-4-31b-it",
-				inputPrice: "0.13e-6",
-				outputPrice: "0.38e-6",
+				inputPrice: "0.14e-6",
+				outputPrice: "0.4e-6",
 				requestPrice: "0",
 				contextSize: 262144,
 				maxOutput: 32768,
@@ -2462,8 +2460,8 @@ export const googleModels = [
 			{
 				providerId: "together-ai",
 				externalId: "google/gemma-4-31b-it",
-				inputPrice: "0.13e-6",
-				outputPrice: "0.38e-6",
+				inputPrice: "0.39e-6",
+				outputPrice: "0.97e-6",
 				requestPrice: "0",
 				contextSize: 262144,
 				maxOutput: 32768,
@@ -2586,8 +2584,8 @@ export const googleModels = [
 				// novita streams empty content for JSON output requests
 				// (e2e JSON output streaming failures, verified 2026-07-21)
 				stability: "unstable",
-				inputPrice: "0.07e-6",
-				outputPrice: "0.34e-6",
+				inputPrice: "0.13e-6",
+				outputPrice: "0.4e-6",
 				requestPrice: "0",
 				contextSize: 262144,
 				maxOutput: 32768,

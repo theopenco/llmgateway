@@ -1,6 +1,7 @@
 import {
 	models as modelDefinitions,
 	providers as providerDefinitions,
+	isStealthProvider,
 	type ModelDefinition,
 } from "@llmgateway/models";
 import { isMappingDeactivated } from "@llmgateway/shared/components";
@@ -22,14 +23,14 @@ function getActiveModelCountsByProvider(): Record<string, number> {
 export const activeModelCounts = getActiveModelCountsByProvider();
 
 /**
- * Providers shown in the public directory: everything except the gateway itself
- * and the bring-your-own-endpoint entry, and only those that still have at
- * least one routable model mapping — a provider whose every mapping is
- * deactivated has nothing left to offer, so its card is hidden.
+ * Providers shown in the public directory: public catalogue entries with at
+ * least one routable model mapping. Gateway, custom, and stealth providers are
+ * not self-serve public entries.
  */
 export const listedProviders = providerDefinitions.filter(
 	(provider) =>
 		provider.name !== "LLM Gateway" &&
 		provider.id !== "custom" &&
+		!isStealthProvider(provider) &&
 		(activeModelCounts[provider.id] ?? 0) > 0,
 );

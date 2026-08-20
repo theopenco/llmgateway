@@ -100,14 +100,17 @@ async function getOrg() {
 	return org;
 }
 
-function redeemRequest(token?: string) {
+function redeemRequest(
+	token?: string,
+	body: { confirmHighCycleUsage?: boolean } = {},
+) {
 	return app.request("/dev-plans/reset-pass/redeem", {
 		method: "POST",
 		headers: {
 			...(token ? { Cookie: token } : {}),
 			"Content-Type": "application/json",
 		},
-		body: JSON.stringify({}),
+		body: JSON.stringify(body),
 	});
 }
 
@@ -216,9 +219,7 @@ describe("reset pass redeem", () => {
 		expect((await getOrg()).devPlanResetPassesPro).toBe(2);
 	});
 
-	it("rejects redeem above 90% of the monthly cycle allowance", async () => {
-		// The weekly cap would be restored against an almost-empty credit pool,
-		// wasting the pass — the redeem is held until the cycle renews.
+	it("requires confirmation above 90% of the monthly cycle allowance", async () => {
 		await insertOrg({
 			devPlanCreditsUsed: "91",
 			devPlanCreditsLimit: "100",
@@ -231,6 +232,38 @@ describe("reset pass redeem", () => {
 		expect(res.status).toBe(400);
 		const body = await res.json();
 		expect(body.message).toContain("90%");
+		expect((await getOrg()).devPlanResetPassesPro).toBe(2);
+	});
+
+	it("allows a confirmed redeem above 90% of the monthly cycle allowance", async () => {
+		await insertOrg({
+			devPlanCreditsUsed: "91",
+			devPlanCreditsLimit: "100",
+			devPlanPremiumCreditsUsed: "5",
+			devPlanPremiumWeekStart: new Date(),
+			devPlanResetPassesPro: 2,
+		});
+
+		const res = await redeemRequest(token, { confirmHighCycleUsage: true });
+		expect(res.status).toBe(200);
+		const org = await getOrg();
+		expect(org.devPlanIncludedResetPassesUsed).toBe(1);
+		expect(org.devPlanResetPassesPro).toBe(2);
+	});
+
+	it("rejects a confirmed redeem when the monthly cycle is exhausted", async () => {
+		await insertOrg({
+			devPlanCreditsUsed: "100",
+			devPlanCreditsLimit: "100",
+			devPlanPremiumCreditsUsed: "5",
+			devPlanPremiumWeekStart: new Date(),
+			devPlanResetPassesPro: 2,
+		});
+
+		const res = await redeemRequest(token, { confirmHighCycleUsage: true });
+		expect(res.status).toBe(400);
+		const body = await res.json();
+		expect(body.message).toContain("fully used");
 		expect((await getOrg()).devPlanResetPassesPro).toBe(2);
 	});
 

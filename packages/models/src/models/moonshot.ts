@@ -262,8 +262,12 @@ export const moonshotModels = [
 			{
 				providerId: "together-ai",
 				externalId: "moonshotai/Kimi-K2.5",
-				// Together.ai intermittently returns 500 for this model (~98.7% uptime)
+				// Together pulled this off serverless entirely (verified 2026-08-18):
+				// every request 400s with "Unable to access non-serverless model ...
+				// create and start a new dedicated endpoint", on both this id and the
+				// -fp4 variant.
 				stability: "unstable",
+				deactivatedAt: new Date("2026-08-18"),
 				inputPrice: "0.5e-6",
 				outputPrice: "2.8e-6",
 				requestPrice: "0",
@@ -440,9 +444,9 @@ export const moonshotModels = [
 				// available prefill workers") while other models on the same key
 				// work (verified 2026-07-14)
 				stability: "unstable",
-				inputPrice: "0.5e-6",
-				cachedInputPrice: "0.1e-6",
-				outputPrice: "2.8e-6",
+				inputPrice: "0.95e-6",
+				cachedInputPrice: "0.16e-6",
+				outputPrice: "4.0e-6",
 				requestPrice: "0",
 				contextSize: 262144,
 				maxOutput: 32768,
@@ -455,9 +459,9 @@ export const moonshotModels = [
 			{
 				providerId: "novita",
 				externalId: "moonshotai/kimi-k2.6",
-				inputPrice: "0.95e-6",
+				inputPrice: "0.8e-6",
 				cachedInputPrice: "0.16e-6",
-				outputPrice: "4.0e-6",
+				outputPrice: "3.4e-6",
 				requestPrice: "0",
 				contextSize: 262144,
 				maxOutput: 262144,
@@ -563,6 +567,35 @@ export const moonshotModels = [
 				// normalize it defensively in both modes.
 				healStreamingJsonOutput: true,
 			},
+			{
+				providerId: "baidu",
+				externalId: "kimi-k2.6",
+				// Mirrors the Moonshot mapping: the model rejects forced
+				// tool_choice while thinking is on.
+				supportedToolChoices: ["auto", "none"],
+				inputPrice: "0.95e-6",
+				cachedInputPrice: "0.16e-6",
+				outputPrice: "4e-6",
+				requestPrice: "0",
+				contextSize: 262144,
+				maxOutput: 262144,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				// Qianfan ignores reasoning_effort="none"; its thinking switch works.
+				requiresDisableThinkingParam: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
 		],
 	},
 	{
@@ -600,6 +633,29 @@ export const moonshotModels = [
 					"tool_choice",
 					"reasoning_effort",
 				],
+			},
+			{
+				providerId: "novita",
+				externalId: "moonshotai/kimi-k2.7-code",
+				inputPrice: "0.95e-6",
+				cachedInputPrice: "0.19e-6",
+				outputPrice: "4.0e-6",
+				requestPrice: "0",
+				contextSize: 262144,
+				maxOutput: 262144,
+				reasoning: true,
+				// Thinking is always on for kimi-k2.7-code: novita accepts `none` and
+				// `minimal` but keeps reasoning, so only low..max are offered.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+				streaming: true,
+				vision: true,
+				tools: true,
+				// novita 400s on forced tool_choice for this deployment
+				supportedToolChoices: ["auto", "none"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				// novita's deployment 400s on the developer role
+				supportsDeveloperRole: false,
 			},
 			{
 				providerId: "nebius",

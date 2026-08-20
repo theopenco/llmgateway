@@ -138,6 +138,17 @@ export function convertAwsEventStreamToSSE(buffer: Uint8Array): {
 	const sseEvents: string[] = [];
 
 	for (const msg of messages) {
+		// Consume structurally complete frames even when their payload is not JSON.
+		const messageStart = bytesConsumed;
+		if (messageStart + 4 <= buffer.length) {
+			const totalLength = new DataView(
+				buffer.buffer,
+				buffer.byteOffset + messageStart,
+				4,
+			).getUint32(0, false);
+			bytesConsumed += totalLength;
+		}
+
 		try {
 			const json = JSON.parse(new TextDecoder().decode(msg.payload));
 
@@ -150,17 +161,6 @@ export function convertAwsEventStreamToSSE(buffer: Uint8Array): {
 
 			// Convert to SSE format: "data: {...}\n\n"
 			sseEvents.push(`data: ${JSON.stringify(enrichedJson)}\n\n`);
-
-			// Calculate message size (total length is in first 4 bytes of each message)
-			const messageStart = bytesConsumed;
-			if (messageStart + 4 <= buffer.length) {
-				const totalLength = new DataView(
-					buffer.buffer,
-					buffer.byteOffset + messageStart,
-					4,
-				).getUint32(0, false);
-				bytesConsumed += totalLength;
-			}
 		} catch {
 			// Skip invalid JSON
 		}

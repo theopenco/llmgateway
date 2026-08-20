@@ -66,7 +66,7 @@ The `reasoning.max_tokens` parameter works with:
 
 ## Auto-Routing Support
 
-When using auto-routing (e.g., `claude-sonnet-4` without provider prefix) or root models with `reasoning.max_tokens`, the gateway automatically routes only to providers that support explicit reasoning token budgets.
+When using auto-routing (e.g., `claude-sonnet-4` without provider prefix) or canonical models with `reasoning.max_tokens`, the gateway automatically routes only to providers that support explicit reasoning token budgets.
 
 ---
 

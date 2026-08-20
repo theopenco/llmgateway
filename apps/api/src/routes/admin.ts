@@ -9,12 +9,18 @@ import {
 	getCancelledOrganizationPlanState,
 	isTerminalSubscriptionError,
 } from "@/lib/account-deletion.js";
+import { approveHighRiskUser } from "@/lib/account-risk.js";
 import {
 	ADMIN_REFUND_REASONS,
 	computeAdminRefundability,
 	executeAdminRefund,
 	sumRefundsByTransaction,
 } from "@/lib/admin-refund.js";
+import {
+	CREDIT_PURCHASE_BLOCK_SETTING_ID,
+	isCreditPurchaseBlockEnabled,
+	isCreditPurchaseBlockForcedByEnv,
+} from "@/lib/credit-purchase-guard.js";
 import { modeSplitFields } from "@/lib/mode-split.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import {
@@ -22,8 +28,18 @@ import {
 	getTokenWindowStartDate,
 	tokenWindowSchema,
 } from "@/lib/stats-window.js";
+import {
+	getForcedThreeDSecureMode,
+	getThreeDSecureEnvOverride,
+	setForcedThreeDSecureMode,
+} from "@/lib/three-d-secure.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { getStripe } from "@/routes/payments.js";
+import {
+	getBlockedSignupCountries,
+	normalizeCountryCodes,
+	setBlockedSignupCountries,
+} from "@/utils/country-blocking.js";
 import {
 	CHAT_PLAN_TX_TYPES,
 	DEV_PLAN_SUBSCRIPTION_TX_TYPES,
@@ -44,6 +60,7 @@ import {
 	pickModelHistoryTable,
 } from "@/utils/history-window.js";
 
+import { getOrgTierQualifyingSpendUsd } from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
 import {
 	aliasedTable,
@@ -89,7 +106,10 @@ import {
 	getIncludedResetPassesRemaining,
 	MAX_BULK_BLOCK_ORGANIZATIONS,
 	MIN_BULK_BLOCK_SEARCH_LENGTH,
+	getOrgSpendTier,
+	getPlanClass,
 	parseUsedModel,
+	resolveTrustTierOverride,
 } from "@llmgateway/shared";
 import {
 	getResendClient,
@@ -444,6 +464,10 @@ const organizationSchema = z.object({
 	totalTokens: z.number().optional(),
 	createdAt: z.string(),
 	status: z.string().nullable(),
+	// Flagged as high risk by the abuse-IP check at sign-up or email
+	// verification: no credit purchases and no inference until an admin
+	// activates the account under "Flagged Accounts".
+	riskFlagged: z.boolean().optional(),
 	referralBonusEnabled: z.boolean().optional(),
 	referralBonusPercent: z.number().optional(),
 	ownerUserId: z.string().nullable().optional(),
@@ -459,8 +483,27 @@ const organizationsListSchema = z.object({
 	offset: z.number(),
 });
 
+// The org's anti-abuse trust tier as the gateway resolves it (see
+// packages/shared/src/spend-tier.ts). `exempt` says why the ladder does not
+// apply: enterprise orgs have no limits at all; dev/chat plans use flat
+// endpoint limits instead of the tier ladder.
+const trustTierSchema = z.object({
+	exempt: z.enum(["none", "enterprise", "dev", "chat"]),
+	tier: z.number(),
+	// True when an admin pinned the tier (trustTierOverride); the pin wins
+	// over the computed age/spend ladder.
+	overridden: z.boolean(),
+	accountAgeDays: z.number(),
+	qualifyingSpendUsd: z.number(),
+	rpmMultiplier: z.number(),
+	dailyCapUsd: z.number(),
+	monthlyCapUsd: z.number(),
+	topUpDailyCapUsd: z.number(),
+});
+
 const orgMetricsSchema = z.object({
 	organization: organizationSchema,
+	trustTier: trustTierSchema,
 	window: tokenWindowSchema,
 	startDate: z.string(),
 	endDate: z.string(),
@@ -498,6 +541,9 @@ const transactionSchema = z.object({
 	// Off-Stripe payment channel and its reference, set on manual payments only.
 	paymentMethod: z.string().nullable(),
 	externalReference: z.string().nullable(),
+	stripePaymentIntentId: z.string().nullable(),
+	stripeInvoiceId: z.string().nullable(),
+	stripeRefundId: z.string().nullable(),
 });
 
 const transactionsListSchema = z.object({
@@ -2164,7 +2210,7 @@ admin.openapi(getGlobalStats, async (c) => {
 				"requestCount",
 			),
 		errorCount:
-			sql<number>`COALESCE(SUM(${sourceTable.errorCount}), 0)::float8`.as(
+			sql<number>`COALESCE(SUM(GREATEST(${sourceTable.errorCount} - ${sourceTable.clientErrorCount}, 0)), 0)::float8`.as(
 				"errorCount",
 			),
 		cacheCount:
@@ -2700,6 +2746,7 @@ admin.openapi(getOrganizations, async (c) => {
 			credits: tables.organization.credits,
 			createdAt: tables.organization.createdAt,
 			status: tables.organization.status,
+			riskFlagged: tables.organization.riskFlagged,
 			totalCreditsAllTime:
 				sql<string>`COALESCE(${allTimeCredits.total}, '0')`.as(
 					"totalCreditsAllTime",
@@ -2766,6 +2813,7 @@ admin.openapi(getOrganizations, async (c) => {
 			totalTokens: Number(org.totalTokens ?? 0),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
+			riskFlagged: org.riskFlagged,
 			ownerUserId: org.ownerUserId ?? null,
 			ownerName: org.ownerName ?? null,
 			ownerEmail: org.ownerEmail ?? null,
@@ -2959,6 +3007,30 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 		}
 	}
 
+	const qualifyingSpendUsd = await getOrgTierQualifyingSpendUsd(orgId);
+	const trustTierResolved = getOrgSpendTier(org, qualifyingSpendUsd);
+	const orgPlanClass = getPlanClass(org);
+	const trustTier = {
+		exempt:
+			org.plan === "enterprise"
+				? ("enterprise" as const)
+				: orgPlanClass === "dev"
+					? ("dev" as const)
+					: orgPlanClass === "chat"
+						? ("chat" as const)
+						: ("none" as const),
+		tier: trustTierResolved.tier,
+		overridden: resolveTrustTierOverride(org) !== null,
+		accountAgeDays: Math.floor(
+			(Date.now() - org.createdAt.getTime()) / 86_400_000,
+		),
+		qualifyingSpendUsd: Math.round(qualifyingSpendUsd * 100) / 100,
+		rpmMultiplier: trustTierResolved.rpmMultiplier,
+		dailyCapUsd: trustTierResolved.dailyCapUsd,
+		monthlyCapUsd: trustTierResolved.monthlyCapUsd,
+		topUpDailyCapUsd: trustTierResolved.topUpDailyCapUsd,
+	};
+
 	return c.json({
 		organization: {
 			id: org.id,
@@ -2978,7 +3050,9 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 			credits: String(org.credits),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
+			riskFlagged: org.riskFlagged,
 		},
+		trustTier,
 		window: windowParam,
 		startDate: startDate.toISOString(),
 		endDate: now.toISOString(),
@@ -3047,6 +3121,9 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			description: tables.transaction.description,
 			paymentMethod: tables.transaction.paymentMethod,
 			externalReference: tables.transaction.externalReference,
+			stripePaymentIntentId: tables.transaction.stripePaymentIntentId,
+			stripeInvoiceId: tables.transaction.stripeInvoiceId,
+			stripeRefundId: tables.transaction.stripeRefundId,
 		})
 		.from(tables.transaction)
 		.where(eq(tables.transaction.organizationId, orgId))
@@ -3073,6 +3150,7 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			credits: String(org.credits),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
+			riskFlagged: org.riskFlagged,
 			referralBonusEnabled: org.referralBonusEnabled,
 			referralBonusPercent: parseReferralBonusPercent(org.referralBonusPercent),
 		},
@@ -3087,6 +3165,9 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			description: t.description,
 			paymentMethod: t.paymentMethod,
 			externalReference: t.externalReference,
+			stripePaymentIntentId: t.stripePaymentIntentId,
+			stripeInvoiceId: t.stripeInvoiceId,
+			stripeRefundId: t.stripeRefundId,
 		})),
 		total,
 		limit,
@@ -3945,8 +4026,8 @@ admin.openapi(getProjectLogs, async (c) => {
 // Get valid provider IDs as a Set for O(1) lookup
 const validProviderIds = new Set<string>(providers.map((p) => p.id));
 
-// Build a map of provider -> Set of valid root model IDs served by that provider.
-// Only root model IDs are accepted as discount/rate-limit targets — the
+// Build a map of provider -> Set of valid canonical model IDs served by that provider.
+// Only canonical model IDs are accepted as discount/rate-limit targets — the
 // provider-specific externalId is reserved for upstream requests only.
 const providerModelMappings = new Map<string, Set<string>>();
 for (const model of models) {
@@ -3958,7 +4039,7 @@ for (const model of models) {
 	}
 }
 
-// All valid root model IDs.
+// All valid canonical model IDs.
 const validModelIds = new Set<string>(models.map((m) => m.id));
 
 const discountSchema = z.object({
@@ -4680,9 +4761,9 @@ admin.openapi(deleteOrganizationDiscount, async (c) => {
 // --- Available Options Handler ---
 
 admin.openapi(getAvailableProvidersAndModels, async (c) => {
-	// modelId is the canonical root model id — the provider-specific upstream
+	// modelId is the canonical model id — the provider-specific upstream
 	// externalId is never exposed here or stored as a discount target. modelName
-	// in this response is the root model's human-readable display name.
+	// in this response is the canonical model's human-readable display name.
 	const mappings: Array<{
 		providerId: string;
 		providerName: string;
@@ -5009,6 +5090,511 @@ admin.openapi(deleteGlobalRateLimit, async (c) => {
 	return c.json({ success: true });
 });
 
+// --- Credit Purchase Kill Switch ---
+
+const creditPurchaseBlockSchema = z
+	.object({
+		// Effective state (env override OR admin toggle).
+		blocked: z.boolean(),
+		// True when DISABLE_NEW_ORG_CREDIT_PURCHASES forces the block on, in
+		// which case the admin toggle cannot turn it off.
+		envForced: z.boolean(),
+	})
+	.openapi({});
+
+const getCreditPurchaseBlock = createRoute({
+	method: "get",
+	path: "/settings/credit-purchase-block",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: creditPurchaseBlockSchema,
+				},
+			},
+			description:
+				"Whether credit purchases for new organizations are blocked.",
+		},
+	},
+});
+
+const updateCreditPurchaseBlock = createRoute({
+	method: "put",
+	path: "/settings/credit-purchase-block",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ blocked: z.boolean() }).openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: creditPurchaseBlockSchema,
+				},
+			},
+			description: "Updated credit purchase block state.",
+		},
+	},
+});
+
+admin.openapi(getCreditPurchaseBlock, async (c) => {
+	return c.json({
+		blocked: await isCreditPurchaseBlockEnabled(),
+		envForced: isCreditPurchaseBlockForcedByEnv(),
+	});
+});
+
+admin.openapi(updateCreditPurchaseBlock, async (c) => {
+	const { blocked } = c.req.valid("json");
+
+	await db
+		.insert(tables.systemSetting)
+		.values({ id: CREDIT_PURCHASE_BLOCK_SETTING_ID, enabled: blocked })
+		.onConflictDoUpdate({
+			target: tables.systemSetting.id,
+			set: { enabled: blocked, updatedAt: new Date() },
+		});
+
+	return c.json({
+		blocked: await isCreditPurchaseBlockEnabled(),
+		envForced: isCreditPurchaseBlockForcedByEnv(),
+	});
+});
+
+// --- Signup Country Blocking ---
+
+const blockedSignupCountriesSchema = z
+	.object({
+		countries: z.array(z.string()),
+	})
+	.openapi({});
+
+const getBlockedSignupCountriesRoute = createRoute({
+	method: "get",
+	path: "/settings/blocked-signup-countries",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: blockedSignupCountriesSchema,
+				},
+			},
+			description: "Countries whose sign-ups are blocked.",
+		},
+	},
+});
+
+const updateBlockedSignupCountries = createRoute({
+	method: "put",
+	path: "/settings/blocked-signup-countries",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: blockedSignupCountriesSchema,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: blockedSignupCountriesSchema,
+				},
+			},
+			description: "Updated blocked sign-up countries.",
+		},
+	},
+});
+
+admin.openapi(getBlockedSignupCountriesRoute, async (c) => {
+	return c.json({ countries: await getBlockedSignupCountries() });
+});
+
+admin.openapi(updateBlockedSignupCountries, async (c) => {
+	const { countries } = c.req.valid("json");
+
+	const invalid = countries
+		.map((country) => country.trim())
+		.filter(
+			(country) => country && normalizeCountryCodes([country]).length === 0,
+		);
+	if (invalid.length > 0) {
+		throw new HTTPException(400, {
+			message: `Invalid ISO 3166-1 alpha-2 country code(s): ${invalid.join(", ")}`,
+		});
+	}
+
+	return c.json({ countries: await setBlockedSignupCountries(countries) });
+});
+
+// --- Forced 3D Secure ---
+
+const forceThreeDSecureModeSchema = z.enum(["off", "any", "challenge"]);
+
+const forceThreeDSecureSchema = z
+	.object({
+		// The stored admin setting.
+		mode: forceThreeDSecureModeSchema,
+		// Set when STRIPE_FORCE_3DS overrides the admin setting, in which case
+		// `mode` is stored but not what customers actually get.
+		envOverride: forceThreeDSecureModeSchema.nullable(),
+		// What card flows actually request right now.
+		effectiveMode: forceThreeDSecureModeSchema,
+	})
+	.openapi({});
+
+async function forceThreeDSecureState() {
+	const mode = await getForcedThreeDSecureMode();
+	const envOverride = getThreeDSecureEnvOverride() ?? null;
+	return {
+		mode,
+		envOverride,
+		effectiveMode: envOverride ?? mode,
+	};
+}
+
+const getForceThreeDSecure = createRoute({
+	method: "get",
+	path: "/settings/force-3ds",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: forceThreeDSecureSchema,
+				},
+			},
+			description:
+				"3D Secure level requested on customer-present card payments.",
+		},
+	},
+});
+
+const updateForceThreeDSecure = createRoute({
+	method: "put",
+	path: "/settings/force-3ds",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ mode: forceThreeDSecureModeSchema }).openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: forceThreeDSecureSchema,
+				},
+			},
+			description: "Updated 3D Secure setting.",
+		},
+	},
+});
+
+admin.openapi(getForceThreeDSecure, async (c) => {
+	return c.json(await forceThreeDSecureState());
+});
+
+admin.openapi(updateForceThreeDSecure, async (c) => {
+	const { mode } = c.req.valid("json");
+
+	await setForcedThreeDSecureMode(mode);
+
+	return c.json(await forceThreeDSecureState());
+});
+
+// --- Flagged (high-risk) Accounts ---
+
+const flaggedAccountSchema = z
+	.object({
+		userId: z.string(),
+		email: z.string(),
+		name: z.string().nullable(),
+		emailVerified: z.boolean(),
+		createdAt: z.string(),
+		riskStatus: z.enum(["flagged", "approved"]),
+		flaggedAt: z.string().nullable(),
+		source: z.enum(["signup", "email_verification"]).nullable(),
+		ipAddress: z.string().nullable(),
+		abuseConfidenceScore: z.number().nullable(),
+		totalReports: z.number().nullable(),
+		countryCode: z.string().nullable(),
+		usageType: z.string().nullable(),
+		isp: z.string().nullable(),
+		isTor: z.boolean(),
+		reviewedAt: z.string().nullable(),
+		reviewedBy: z.string().nullable(),
+		archivedAt: z.string().nullable(),
+		organizations: z.array(
+			z.object({
+				id: z.string(),
+				name: z.string(),
+				kind: z.string(),
+				plan: z.string(),
+				status: z.string().nullable(),
+				credits: z.string(),
+				riskFlagged: z.boolean(),
+			}),
+		),
+	})
+	.openapi({});
+
+const getFlaggedAccounts = createRoute({
+	method: "get",
+	path: "/flagged-accounts",
+	request: {
+		query: z.object({
+			status: z.enum(["flagged", "approved", "all"]).optional(),
+			search: z.string().optional(),
+			limit: z.coerce.number().min(1).max(200).optional(),
+			archived: z
+				.enum(["true", "false"])
+				.default("false")
+				.transform((value) => value === "true")
+				.optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z
+						.object({
+							accounts: z.array(flaggedAccountSchema),
+							flaggedCount: z.number(),
+							approvedCount: z.number(),
+							archivedCount: z.number(),
+						})
+						.openapi({}),
+				},
+			},
+			description: "Accounts flagged as high risk by the abuse-IP check.",
+		},
+	},
+});
+
+const approveFlaggedAccount = createRoute({
+	method: "post",
+	path: "/flagged-accounts/{userId}/approve",
+	request: {
+		params: z.object({ userId: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z
+						.object({
+							success: z.boolean(),
+							organizationIds: z.array(z.string()),
+						})
+						.openapi({}),
+				},
+			},
+			description: "Account activated; its organizations are unblocked.",
+		},
+	},
+});
+
+const archiveFlaggedAccount = createRoute({
+	method: "patch",
+	path: "/flagged-accounts/{userId}/archive",
+	request: {
+		params: z.object({ userId: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ archived: z.boolean() }),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }).openapi({}),
+				},
+			},
+			description: "Flagged account archived or restored.",
+		},
+		404: {
+			description: "Flagged account not found.",
+		},
+	},
+});
+
+admin.openapi(getFlaggedAccounts, async (c) => {
+	const {
+		status = "flagged",
+		search,
+		limit = 100,
+		archived = false,
+	} = c.req.valid("query");
+
+	const filters = [
+		ne(tables.user.riskStatus, "none"),
+		archived
+			? isNotNull(tables.user.riskArchivedAt)
+			: isNull(tables.user.riskArchivedAt),
+	];
+	if (status !== "all") {
+		filters.push(eq(tables.user.riskStatus, status));
+	}
+	const term = search?.trim();
+	if (term) {
+		filters.push(
+			or(
+				sql`${tables.user.email} ILIKE ${`%${term}%`}`,
+				sql`${tables.user.name} ILIKE ${`%${term}%`}`,
+			)!,
+		);
+	}
+
+	const users = await db
+		.select({
+			id: tables.user.id,
+			email: tables.user.email,
+			name: tables.user.name,
+			emailVerified: tables.user.emailVerified,
+			createdAt: tables.user.createdAt,
+			riskStatus: tables.user.riskStatus,
+			riskFlaggedAt: tables.user.riskFlaggedAt,
+			riskFlagSource: tables.user.riskFlagSource,
+			riskFlagIp: tables.user.riskFlagIp,
+			riskFlagDetails: tables.user.riskFlagDetails,
+			riskReviewedAt: tables.user.riskReviewedAt,
+			riskReviewedBy: tables.user.riskReviewedBy,
+			riskArchivedAt: tables.user.riskArchivedAt,
+		})
+		.from(tables.user)
+		.where(and(...filters))
+		.orderBy(desc(tables.user.riskFlaggedAt))
+		.limit(limit);
+
+	const userIds = users.map((user) => user.id);
+	const memberships = userIds.length
+		? await db
+				.select({
+					userId: tables.userOrganization.userId,
+					id: tables.organization.id,
+					name: tables.organization.name,
+					kind: tables.organization.kind,
+					plan: tables.organization.plan,
+					status: tables.organization.status,
+					credits: tables.organization.credits,
+					riskFlagged: tables.organization.riskFlagged,
+				})
+				.from(tables.userOrganization)
+				.innerJoin(
+					tables.organization,
+					eq(tables.organization.id, tables.userOrganization.organizationId),
+				)
+				.where(inArray(tables.userOrganization.userId, userIds))
+		: [];
+
+	const activeCounts = await db
+		.select({
+			riskStatus: tables.user.riskStatus,
+			count: sql<number>`count(*)::int`,
+		})
+		.from(tables.user)
+		.where(
+			and(
+				ne(tables.user.riskStatus, "none"),
+				isNull(tables.user.riskArchivedAt),
+			),
+		)
+		.groupBy(tables.user.riskStatus);
+	const [archivedCount] = await db
+		.select({ count: sql<number>`count(*)::int` })
+		.from(tables.user)
+		.where(
+			and(
+				ne(tables.user.riskStatus, "none"),
+				isNotNull(tables.user.riskArchivedAt),
+			),
+		);
+
+	return c.json({
+		accounts: users.map((user) => {
+			const details = user.riskFlagDetails;
+			return {
+				userId: user.id,
+				email: user.email,
+				name: user.name,
+				emailVerified: user.emailVerified,
+				createdAt: user.createdAt.toISOString(),
+				riskStatus: user.riskStatus as "flagged" | "approved",
+				flaggedAt: user.riskFlaggedAt?.toISOString() ?? null,
+				source: user.riskFlagSource,
+				ipAddress: user.riskFlagIp,
+				abuseConfidenceScore: details?.abuseConfidenceScore ?? null,
+				totalReports: details?.totalReports ?? null,
+				countryCode: details?.countryCode ?? null,
+				usageType: details?.usageType ?? null,
+				isp: details?.isp ?? null,
+				isTor: details?.isTor ?? false,
+				reviewedAt: user.riskReviewedAt?.toISOString() ?? null,
+				reviewedBy: user.riskReviewedBy,
+				archivedAt: user.riskArchivedAt?.toISOString() ?? null,
+				organizations: memberships
+					.filter((membership) => membership.userId === user.id)
+					.map(({ userId: _userId, ...organization }) => organization),
+			};
+		}),
+		flaggedCount:
+			activeCounts.find((row) => row.riskStatus === "flagged")?.count ?? 0,
+		approvedCount:
+			activeCounts.find((row) => row.riskStatus === "approved")?.count ?? 0,
+		archivedCount: archivedCount?.count ?? 0,
+	});
+});
+
+admin.openapi(approveFlaggedAccount, async (c) => {
+	const { userId } = c.req.valid("param");
+	const reviewer = c.get("user")!;
+
+	const result = await approveHighRiskUser({
+		userId,
+		reviewerId: reviewer.id,
+	});
+	if (!result) {
+		throw new HTTPException(404, { message: "User not found" });
+	}
+
+	return c.json({ success: true, organizationIds: result.organizationIds });
+});
+
+admin.openapi(archiveFlaggedAccount, async (c) => {
+	const { userId } = c.req.valid("param");
+	const { archived } = c.req.valid("json");
+
+	const updated = await db
+		.update(tables.user)
+		.set({ riskArchivedAt: archived ? new Date() : null })
+		.where(and(eq(tables.user.id, userId), ne(tables.user.riskStatus, "none")))
+		.returning({ id: tables.user.id });
+
+	if (updated.length === 0) {
+		throw new HTTPException(404, { message: "Flagged account not found" });
+	}
+
+	return c.json({ success: true });
+});
+
 // --- Organization Rate Limit Handlers ---
 
 admin.openapi(getOrganizationRateLimits, async (c) => {
@@ -5137,9 +5723,9 @@ const getAvailableRateLimitOptions = createRoute({
 });
 
 admin.openapi(getAvailableRateLimitOptions, async (c) => {
-	// modelId is the canonical root model id — the provider-specific upstream
+	// modelId is the canonical model id — the provider-specific upstream
 	// externalId is never exposed here or stored as a rate-limit target.
-	// modelName in this response is the root model's human-readable display
+	// modelName in this response is the canonical model's human-readable display
 	// name.
 	const mappings: Array<{
 		providerId: string;
@@ -5177,6 +5763,7 @@ const providerSortBySchema = z.enum([
 	"status",
 	"logsCount",
 	"errorsCount",
+	"clientErrorsCount",
 	"cachedCount",
 	"totalCost",
 	"avgTimeToFirstToken",
@@ -5191,6 +5778,7 @@ const providerStatsSchema = z.object({
 	status: z.string(),
 	logsCount: z.number(),
 	errorsCount: z.number(),
+	clientErrorsCount: z.number(),
 	cachedCount: z.number(),
 	avgTimeToFirstToken: z.number().nullable(),
 	modelCount: z.number(),
@@ -5274,6 +5862,10 @@ admin.openapi(getProviderStats, async (c) => {
 				errorsCount: sql<number>`COALESCE(SUM(${mph.errorsCount}), 0)`.as(
 					"errorsCount",
 				),
+				clientErrorsCount:
+					sql<number>`COALESCE(SUM(${mph.clientErrorsCount}), 0)`.as(
+						"clientErrorsCount",
+					),
 				cachedCount: sql<number>`COALESCE(SUM(${mph.cachedCount}), 0)`.as(
 					"cachedCount",
 				),
@@ -5308,7 +5900,8 @@ admin.openapi(getProviderStats, async (c) => {
 			name: tables.provider.name,
 			status: tables.provider.status,
 			logsCount: sql`COALESCE(${providerStatsSub.logsCount}, 0)`,
-			errorsCount: sql`COALESCE(${providerStatsSub.errorsCount}, 0)`,
+			errorsCount: sql`GREATEST(COALESCE(${providerStatsSub.errorsCount}, 0) - COALESCE(${providerStatsSub.clientErrorsCount}, 0), 0)`,
+			clientErrorsCount: sql`COALESCE(${providerStatsSub.clientErrorsCount}, 0)`,
 			cachedCount: sql`COALESCE(${providerStatsSub.cachedCount}, 0)`,
 			totalCost: sql`COALESCE(${providerStatsSub.totalCost}, 0)`,
 			avgTimeToFirstToken: sql`COALESCE(${providerStatsSub.avgTimeToFirstToken}, ${tables.provider.avgTimeToFirstReasoningToken}, ${tables.provider.avgTimeToFirstToken})`,
@@ -5348,6 +5941,10 @@ admin.openapi(getProviderStats, async (c) => {
 					errorsCount:
 						sql<number>`COALESCE(${providerStatsSub.errorsCount}, 0)`.as(
 							"errorsCount",
+						),
+					clientErrorsCount:
+						sql<number>`COALESCE(${providerStatsSub.clientErrorsCount}, 0)`.as(
+							"clientErrorsCount",
 						),
 					cachedCount:
 						sql<number>`COALESCE(${providerStatsSub.cachedCount}, 0)`.as(
@@ -5394,6 +5991,7 @@ admin.openapi(getProviderStats, async (c) => {
 				status: r.status,
 				logsCount: Number(r.logsCount ?? 0),
 				errorsCount: Number(r.errorsCount ?? 0),
+				clientErrorsCount: Number(r.clientErrorsCount ?? 0),
 				cachedCount: Number(r.cachedCount ?? 0),
 				avgTimeToFirstToken: r.avgTimeToFirstToken,
 				modelCount: Number(r.modelCount ?? 0),
@@ -5415,7 +6013,8 @@ admin.openapi(getProviderStats, async (c) => {
 		name: tables.provider.name,
 		status: tables.provider.status,
 		logsCount: tables.provider.logsCount,
-		errorsCount: tables.provider.errorsCount,
+		errorsCount: sql`GREATEST(${tables.provider.errorsCount} - ${tables.provider.clientErrorsCount}, 0)`,
+		clientErrorsCount: tables.provider.clientErrorsCount,
 		cachedCount: tables.provider.cachedCount,
 		totalCost: sql`0`,
 		avgTimeToFirstToken: sql`COALESCE(${tables.provider.avgTimeToFirstReasoningToken}, ${tables.provider.avgTimeToFirstToken})`,
@@ -5433,6 +6032,7 @@ admin.openapi(getProviderStats, async (c) => {
 			status: tables.provider.status,
 			logsCount: tables.provider.logsCount,
 			errorsCount: tables.provider.errorsCount,
+			clientErrorsCount: tables.provider.clientErrorsCount,
 			cachedCount: tables.provider.cachedCount,
 			avgTimeToFirstToken: sql<
 				number | null
@@ -5456,6 +6056,7 @@ admin.openapi(getProviderStats, async (c) => {
 			status: r.status,
 			logsCount: r.logsCount,
 			errorsCount: r.errorsCount,
+			clientErrorsCount: r.clientErrorsCount,
 			cachedCount: r.cachedCount,
 			avgTimeToFirstToken: r.avgTimeToFirstToken,
 			modelCount: Number(r.modelCount),
@@ -5670,7 +6271,7 @@ admin.openapi(getModelStats, async (c) => {
 			free: tables.model.free,
 			logsCount: sql`COALESCE(${modelAggSub.logsCount}, 0)`,
 			totalCost: sql`COALESCE(${modelAggSub.totalCost}, 0)`,
-			errorsCount: sql`COALESCE(${modelAggSub.errorsCount}, 0)`,
+			errorsCount: sql`GREATEST(COALESCE(${modelAggSub.errorsCount}, 0) - COALESCE(${modelAggSub.clientErrorsCount}, 0), 0)`,
 			clientErrorsCount: sql`COALESCE(${modelAggSub.clientErrorsCount}, 0)`,
 			gatewayErrorsCount: sql`COALESCE(${modelAggSub.gatewayErrorsCount}, 0)`,
 			upstreamErrorsCount: sql`COALESCE(${modelAggSub.upstreamErrorsCount}, 0)`,
@@ -5857,7 +6458,7 @@ admin.openapi(getModelStats, async (c) => {
 		free: tables.model.free,
 		logsCount: tables.model.logsCount,
 		totalCost: sql`0`,
-		errorsCount: tables.model.errorsCount,
+		errorsCount: sql`GREATEST(${tables.model.errorsCount} - ${tables.model.clientErrorsCount}, 0)`,
 		clientErrorsCount: tables.model.clientErrorsCount,
 		gatewayErrorsCount: tables.model.gatewayErrorsCount,
 		upstreamErrorsCount: tables.model.upstreamErrorsCount,
@@ -6851,6 +7452,16 @@ const manageOrganizationRoute = createRoute({
 						apiKeyLimit: z.number().int().min(0).max(100000).nullable(),
 						// Null clears the override and reverts to the plan default.
 						projectLimit: z.number().int().min(0).max(100000).nullable(),
+						// Trust-tier pin (0-4); takes precedence over the computed
+						// age/spend ladder. Null reverts to the automatic ladder;
+						// omitted leaves the current value unchanged.
+						trustTierOverride: z
+							.number()
+							.int()
+							.min(0)
+							.max(4)
+							.nullable()
+							.optional(),
 						// Null clears the plan term (open-ended plan).
 						planExpiresAt: planTermDateSchema,
 						planStartedAt: planTermDateSchema,
@@ -6875,6 +7486,7 @@ const manageOrganizationRoute = createRoute({
 						seats: z.number().int().nullable(),
 						apiKeyLimit: z.number().int().nullable(),
 						projectLimit: z.number().int().nullable(),
+						trustTierOverride: z.number().int().nullable(),
 						planExpiresAt: z.string().nullable(),
 						planStartedAt: z.string().nullable(),
 						isTrialActive: z.boolean(),
@@ -6907,6 +7519,7 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 		seats,
 		apiKeyLimit,
 		projectLimit,
+		trustTierOverride,
 		planExpiresAt,
 		planStartedAt,
 		isTrialActive,
@@ -6972,6 +7585,8 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 			seats,
 			apiKeyLimit,
 			projectLimit,
+			// undefined = leave unchanged (drizzle skips undefined set fields).
+			trustTierOverride,
 			planExpiresAt: expiresAt,
 			planStartedAt: startedAt,
 			isTrialActive,
@@ -6996,6 +7611,11 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 			previousApiKeyLimit: org.apiKeyLimit,
 			newApiKeyLimit: apiKeyLimit,
 			previousProjectLimit: org.projectLimit,
+			previousTrustTierOverride: org.trustTierOverride,
+			newTrustTierOverride:
+				trustTierOverride === undefined
+					? org.trustTierOverride
+					: trustTierOverride,
 			newProjectLimit: projectLimit,
 			previousPlanExpiresAt: org.planExpiresAt?.toISOString() ?? null,
 			newPlanExpiresAt: expiresAt?.toISOString() ?? null,
@@ -7015,6 +7635,10 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 		seats,
 		apiKeyLimit,
 		projectLimit,
+		trustTierOverride:
+			trustTierOverride === undefined
+				? org.trustTierOverride
+				: trustTierOverride,
 		planExpiresAt: expiresAt?.toISOString() ?? null,
 		planStartedAt: startedAt?.toISOString() ?? null,
 		isTrialActive,
@@ -9702,6 +10326,7 @@ const projectModelProviderStatsEntrySchema = z.object({
 	providerName: z.string(),
 	logsCount: z.number(),
 	errorsCount: z.number(),
+	clientErrorsCount: z.number(),
 	cachedCount: z.number(),
 	cost: z.number(),
 	totalTokens: z.number(),
@@ -9795,10 +10420,10 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 		sql<number>`COALESCE(SUM(${projectHourlyModelStats.requestCount}), 0)`.as(
 			"logs_count",
 		);
-	const errorsCountExpr =
-		sql<number>`COALESCE(SUM(${projectHourlyModelStats.errorCount}), 0)`.as(
-			"errors_count",
-		);
+	const errorsCountSql = sql<number>`COALESCE(SUM(${projectHourlyModelStats.errorCount}), 0)`;
+	const errorsCountExpr = errorsCountSql.as("errors_count");
+	const clientErrorsCountSql = sql<number>`COALESCE(SUM(${projectHourlyModelStats.clientErrorCount}), 0)`;
+	const clientErrorsCountExpr = clientErrorsCountSql.as("client_errors_count");
 	const cachedCountExpr =
 		sql<number>`COALESCE(SUM(${projectHourlyModelStats.cacheCount}), 0)`.as(
 			"cached_count",
@@ -9817,7 +10442,7 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 			case "logsCount":
 				return logsCountExpr;
 			case "errorsCount":
-				return errorsCountExpr;
+				return sql`GREATEST(${errorsCountSql} - ${clientErrorsCountSql}, 0)`;
 			case "cost":
 				return costExpr;
 			case "modelId":
@@ -9835,6 +10460,7 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 			usedProvider: projectHourlyModelStats.usedProvider,
 			logsCount: logsCountExpr,
 			errorsCount: errorsCountExpr,
+			clientErrorsCount: clientErrorsCountExpr,
 			cachedCount: cachedCountExpr,
 			cost: costExpr,
 			totalTokens: totalTokensExpr,
@@ -9898,6 +10524,7 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 			providerName: providerNameMap.get(r.usedProvider) ?? r.usedProvider,
 			logsCount: Number(r.logsCount),
 			errorsCount: Number(r.errorsCount),
+			clientErrorsCount: Number(r.clientErrorsCount),
 			cachedCount: Number(r.cachedCount),
 			cost: Number(r.cost),
 			totalTokens: Number(r.totalTokens),
@@ -10174,7 +10801,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 		modelId: tables.modelProviderMapping.modelId,
 		providerId: tables.modelProviderMapping.providerId,
 		logsCount: sql`COALESCE(${statsJoin.logsCount}, 0)`,
-		errorsCount: sql`COALESCE(${statsJoin.errorsCount}, 0)`,
+		errorsCount: sql`GREATEST(COALESCE(${statsJoin.errorsCount}, 0) - COALESCE(${statsJoin.clientErrorsCount}, 0), 0)`,
 		clientErrorsCount: sql`COALESCE(${statsJoin.clientErrorsCount}, 0)`,
 		gatewayErrorsCount: sql`COALESCE(${statsJoin.gatewayErrorsCount}, 0)`,
 		upstreamErrorsCount: sql`COALESCE(${statsJoin.upstreamErrorsCount}, 0)`,
@@ -10480,6 +11107,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 				${hasErrorExpr} AS has_error
 			FROM ${tables.log}
 			WHERE ${tables.log.createdAt} >= ${windowInterval}
+				AND ${tables.log.unifiedFinishReason} IS DISTINCT FROM 'client_error'
 				${retriedClause}
 			ORDER BY ${tables.log.createdAt} DESC
 			LIMIT ${logLimit}
@@ -10677,6 +11305,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 				COALESCE(${tables.log.streamed}, false) AS streamed
 			FROM ${tables.log}
 			WHERE ${tables.log.hasError} = true
+				AND ${tables.log.unifiedFinishReason} IS DISTINCT FROM 'client_error'
 				AND ${tables.log.usedModel} = ${model}
 				AND ${tables.log.usedProvider} = ${provider}
 				AND ${tables.log.createdAt} >= ${windowInterval}
@@ -12521,7 +13150,6 @@ const devpassKpisSchema = z.object({
 const devpassListSchema = z.object({
 	subscribers: z.array(devpassSubscriberSchema),
 	total: z.number(),
-	kpis: devpassKpisSchema,
 	limit: z.number(),
 	offset: z.number(),
 });
@@ -12573,6 +13201,24 @@ const getDevpassSubscribers = createRoute({
 				},
 			},
 			description: "List of DevPass subscribers.",
+		},
+	},
+});
+
+// Split out of the list endpoint: the KPI strip aggregates the whole
+// subscriber universe and is far slower than one page of rows, so the admin
+// page loads the two independently instead of blocking on the sum.
+const getDevpassKpis = createRoute({
+	method: "get",
+	path: "/devpass/kpis",
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: devpassKpisSchema.openapi({}),
+				},
+			},
+			description: "DevPass KPI strip across the whole subscriber universe.",
 		},
 	},
 });
@@ -12979,27 +13625,31 @@ function deriveStatus(
 	return "active";
 }
 
-admin.openapi(getDevpassSubscribers, async (c) => {
-	const query = c.req.valid("query");
-	const limit = query.limit ?? 50;
-	const offset = query.offset ?? 0;
-	const search = query.search;
-	const tierFilter = query.tier;
-	const statusFilter = query.status;
-	const utilizationFilter = query.utilization;
-	const marginNegative = query.marginNegative ?? false;
-	const showChurned = query.showChurned ?? false;
-	const sortBy = query.sortBy ?? "subscribedSince";
-	const sortOrder = query.sortOrder ?? "desc";
+const devpassTierPriceExpr = sql<number>`CASE
+	WHEN ${tables.organization.devPlan} = 'lite' THEN ${DEV_PLAN_PRICES.lite}
+	WHEN ${tables.organization.devPlan} = 'pro' THEN ${DEV_PLAN_PRICES.pro}
+	WHEN ${tables.organization.devPlan} = 'max' THEN ${DEV_PLAN_PRICES.max}
+	ELSE 0
+END`;
 
-	const now = new Date();
-	const monthStart = new Date(
-		Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+// Active subscriber universe: everything Stripe still counts as active,
+// including subs flagged to cancel at period end.
+function devpassActiveUniverseWhere() {
+	return and(
+		eq(tables.organization.kind, "devpass"),
+		ne(tables.organization.devPlan, "none"),
+		or(
+			isNull(tables.organization.devPlanExpiresAt),
+			sql`${tables.organization.devPlanExpiresAt} > NOW()`,
+		)!,
 	);
+}
 
-	// Subquery: real provider cost in current cycle, per org. Credits-mode cost
-	// only: BYOK ("api-keys") usage is paid by the customer's own provider key,
-	// so it is not a cost we bear and must not depress the margin.
+// Real provider cost in the current cycle, per org, plus the derived overflow
+// split. Credits-mode cost only: BYOK ("api-keys") usage is paid by the
+// customer's own provider key, so it is not a cost we bear and must not
+// depress the margin.
+function buildDevpassCycleCostExprs() {
 	const realCostSub = db
 		.select({
 			organizationId: tables.project.organizationId,
@@ -13023,6 +13673,35 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		)
 		.groupBy(tables.project.organizationId)
 		.as("real_cost_sub");
+
+	const realCostExpr = sql<number>`COALESCE(CAST(${realCostSub.realCost} AS NUMERIC), 0)`;
+	// Cycle cost paid from the org's own credits (PAYG overflow) rather than
+	// the plan pool. The pool draw this cycle IS devPlanCreditsUsed (the worker
+	// increments it only for pool-funded usage, and renewal resets it together
+	// with the cycle window realCost is scoped to), so anything above it hit
+	// the org's `credits` balance.
+	const overflowCostExpr = sql<number>`GREATEST((${realCostExpr}) - CAST(${tables.organization.devPlanCreditsUsed} AS NUMERIC), 0)`;
+
+	return { realCostSub, realCostExpr, overflowCostExpr };
+}
+
+admin.openapi(getDevpassSubscribers, async (c) => {
+	const query = c.req.valid("query");
+	const limit = query.limit ?? 50;
+	const offset = query.offset ?? 0;
+	const search = query.search;
+	const tierFilter = query.tier;
+	const statusFilter = query.status;
+	const utilizationFilter = query.utilization;
+	const marginNegative = query.marginNegative ?? false;
+	const showChurned = query.showChurned ?? false;
+	const sortBy = query.sortBy ?? "subscribedSince";
+	const sortOrder = query.sortOrder ?? "desc";
+
+	const now = new Date();
+
+	const { realCostSub, realCostExpr, overflowCostExpr } =
+		buildDevpassCycleCostExprs();
 
 	// Subquery: first dev plan start (subscribedSince) and tier change count.
 	// Legacy rows used the generic "subscription_start" type before the
@@ -13218,12 +13897,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		.groupBy(tables.transaction.organizationId)
 		.as("all_time_topups_sub");
 
-	const tierPriceExpr = sql<number>`CASE
-		WHEN ${tables.organization.devPlan} = 'lite' THEN ${DEV_PLAN_PRICES.lite}
-		WHEN ${tables.organization.devPlan} = 'pro' THEN ${DEV_PLAN_PRICES.pro}
-		WHEN ${tables.organization.devPlan} = 'max' THEN ${DEV_PLAN_PRICES.max}
-		ELSE 0
-	END`;
+	const tierPriceExpr = devpassTierPriceExpr;
 
 	const utilizationExpr = sql<number | null>`CASE
 		WHEN CAST(${tables.organization.devPlanCreditsLimit} AS NUMERIC) > 0
@@ -13232,13 +13906,6 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		ELSE NULL
 	END`;
 
-	const realCostExpr = sql<number>`COALESCE(CAST(${realCostSub.realCost} AS NUMERIC), 0)`;
-	// Cycle cost paid from the org's own credits (PAYG overflow) rather than
-	// the plan pool. The pool draw this cycle IS devPlanCreditsUsed (the worker
-	// increments it only for pool-funded usage, and renewal resets it together
-	// with the cycle window realCost is scoped to), so anything above it hit
-	// the org's `credits` balance.
-	const overflowCostExpr = sql<number>`GREATEST((${realCostExpr}) - CAST(${tables.organization.devPlanCreditsUsed} AS NUMERIC), 0)`;
 	// Plan economics only: overflow cost is funded ~1:1 by the org's own
 	// top-ups, so counting it against the tier price would understate margin.
 	const marginExpr = sql<number>`(${tierPriceExpr}) - ((${realCostExpr}) - (${overflowCostExpr}))`;
@@ -13422,12 +14089,6 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			eq(tables.organization.id, allTimeTopupsSub.organizationId),
 		);
 
-	const rows = await baseSelect
-		.where(whereClause)
-		.orderBy(orderFn(sortColumn), asc(tables.organization.id))
-		.limit(limit)
-		.offset(offset);
-
 	// Total count with same filters
 	const countSelect = db
 		.select({ count: sql<number>`COUNT(*)` })
@@ -13450,274 +14111,15 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		)
 		.leftJoin(ownerSub, eq(tables.organization.id, ownerSub.organizationId));
 
-	const [countRow] = await countSelect.where(whereClause);
+	const [rows, [countRow]] = await Promise.all([
+		baseSelect
+			.where(whereClause)
+			.orderBy(orderFn(sortColumn), asc(tables.organization.id))
+			.limit(limit)
+			.offset(offset),
+		countSelect.where(whereClause),
+	]);
 	const total = Number(countRow?.count ?? 0);
-
-	// KPI strip — counts the full active subscriber base, matching Stripe's
-	// "active" filter which includes cancel-at-period-end subs until the period
-	// actually ends. `grossMrr` is the Stripe-aligned figure (what will be
-	// invoiced this period). `committedMrr` excludes subs flagged to cancel,
-	// representing the forward-looking MRR after impending churn lands.
-	const activeRows = await db
-		.select({
-			tier: tables.organization.devPlan,
-			cancelled: tables.organization.devPlanCancelled,
-			count: sql<number>`COUNT(*)`,
-		})
-		.from(tables.organization)
-		.where(
-			and(
-				eq(tables.organization.kind, "devpass"),
-				ne(tables.organization.devPlan, "none"),
-				or(
-					isNull(tables.organization.devPlanExpiresAt),
-					sql`${tables.organization.devPlanExpiresAt} > NOW()`,
-				)!,
-			),
-		)
-		.groupBy(tables.organization.devPlan, tables.organization.devPlanCancelled);
-
-	const activeByTier = { lite: 0, pro: 0, max: 0 };
-	const cancellingByTier = { lite: 0, pro: 0, max: 0 };
-	for (const r of activeRows) {
-		const tierKey = r.tier as keyof typeof activeByTier;
-		if (tierKey in activeByTier) {
-			const n = Number(r.count);
-			activeByTier[tierKey] += n;
-			if (r.cancelled) {
-				cancellingByTier[tierKey] += n;
-			}
-		}
-	}
-	const totalActive = activeByTier.lite + activeByTier.pro + activeByTier.max;
-	const liteMrr = activeByTier.lite * DEV_PLAN_PRICES.lite;
-	const proMrr = activeByTier.pro * DEV_PLAN_PRICES.pro;
-	const maxMrr = activeByTier.max * DEV_PLAN_PRICES.max;
-	const grossMrr = liteMrr + proMrr + maxMrr;
-	const cancellingLiteMrr = cancellingByTier.lite * DEV_PLAN_PRICES.lite;
-	const cancellingProMrr = cancellingByTier.pro * DEV_PLAN_PRICES.pro;
-	const cancellingMaxMrr = cancellingByTier.max * DEV_PLAN_PRICES.max;
-	const cancellingMrr = cancellingLiteMrr + cancellingProMrr + cancellingMaxMrr;
-	const committedMrr = grossMrr - cancellingMrr;
-	const cancelledPending =
-		cancellingByTier.lite + cancellingByTier.pro + cancellingByTier.max;
-
-	const [churnedRow] = await db
-		.select({
-			count: sql<number>`COUNT(DISTINCT ${tables.transaction.organizationId})`,
-		})
-		.from(tables.transaction)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.organization.kind, "devpass"),
-				eq(tables.transaction.type, "dev_plan_start"),
-				eq(tables.organization.devPlan, "none"),
-			),
-		);
-	const churned = Number(churnedRow?.count ?? 0);
-
-	const [startsRow] = await db
-		.select({ count: sql<number>`COUNT(*)` })
-		.from(tables.transaction)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.organization.kind, "devpass"),
-				eq(tables.transaction.type, "dev_plan_start"),
-				gte(tables.transaction.createdAt, monthStart),
-			),
-		);
-	const startsThisMonth = Number(startsRow?.count ?? 0);
-
-	const [endsRow] = await db
-		.select({ count: sql<number>`COUNT(*)` })
-		.from(tables.transaction)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.organization.kind, "devpass"),
-				inArray(tables.transaction.type, ["dev_plan_cancel", "dev_plan_end"]),
-				gte(tables.transaction.createdAt, monthStart),
-			),
-		);
-	const endsThisMonth = Number(endsRow?.count ?? 0);
-
-	// Refunds this month for DevPass transactions. Mirrors the timeseries
-	// refund query (joins credit_refund rows to their original tx and filters
-	// to dev plan types, plus legacy subscription_* rows on DevPass orgs) but
-	// aggregates to a single month total so the KPI strip reflects refund
-	// activity that the snapshot-based MRR cards can't show.
-	const refundOriginalTx = aliasedTable(
-		tables.transaction,
-		"refund_original_tx",
-	);
-	const [refundsRow] = await db
-		.select({
-			count: sql<number>`COUNT(*)`,
-			total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
-		})
-		.from(tables.transaction)
-		.innerJoin(
-			refundOriginalTx,
-			eq(tables.transaction.relatedTransactionId, refundOriginalTx.id),
-		)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.transaction.type, "credit_refund"),
-				eq(tables.transaction.status, "completed"),
-				gte(tables.transaction.createdAt, monthStart),
-				eq(tables.organization.kind, "devpass"),
-				inArray(refundOriginalTx.type, [
-					...DEV_PLAN_TX_TYPES,
-					...LEGACY_DEV_PLAN_TX_TYPES,
-				]),
-			),
-		);
-	const refundsThisMonth = Number(refundsRow?.count ?? 0);
-	const refundedAmountThisMonth = Number(refundsRow?.total ?? 0);
-
-	// All-time Reset Pass sales on DevPass orgs. These are one-time
-	// PaymentIntent purchases (no invoice), so no invoice dedup is needed;
-	// revenue is netted against completed refunds whose original transaction
-	// is a Reset Pass purchase, mirroring the all-time revenue subquery.
-	const [resetPassRow] = await db
-		.select({
-			count: sql<number>`COUNT(*)`,
-			total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
-		})
-		.from(tables.transaction)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.transaction.type, "dev_plan_reset_pass"),
-				eq(tables.transaction.status, "completed"),
-				eq(tables.organization.kind, "devpass"),
-			),
-		);
-	const resetPassesSold = Number(resetPassRow?.count ?? 0);
-
-	const resetPassRefundOriginalTx = aliasedTable(
-		tables.transaction,
-		"reset_pass_refund_original_tx",
-	);
-	const [resetPassRefundRow] = await db
-		.select({
-			total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
-		})
-		.from(tables.transaction)
-		.innerJoin(
-			resetPassRefundOriginalTx,
-			eq(tables.transaction.relatedTransactionId, resetPassRefundOriginalTx.id),
-		)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.transaction.type, "credit_refund"),
-				eq(tables.transaction.status, "completed"),
-				eq(tables.organization.kind, "devpass"),
-				eq(resetPassRefundOriginalTx.type, "dev_plan_reset_pass"),
-			),
-		);
-	const resetPassRevenue =
-		Number(resetPassRow?.total ?? 0) - Number(resetPassRefundRow?.total ?? 0);
-
-	// Weighted utilization across active subscribers
-	const [utilRow] = await db
-		.select({
-			totalUsed: sql<string>`COALESCE(SUM(CAST(${tables.organization.devPlanCreditsUsed} AS NUMERIC)), 0)`,
-			totalLimit: sql<string>`COALESCE(SUM(CAST(${tables.organization.devPlanCreditsLimit} AS NUMERIC)), 0)`,
-		})
-		.from(tables.organization)
-		.where(
-			and(
-				eq(tables.organization.kind, "devpass"),
-				ne(tables.organization.devPlan, "none"),
-				or(
-					isNull(tables.organization.devPlanExpiresAt),
-					sql`${tables.organization.devPlanExpiresAt} > NOW()`,
-				)!,
-			),
-		);
-	const totalUsed = Number(utilRow?.totalUsed ?? 0);
-	const totalLimit = Number(utilRow?.totalLimit ?? 0);
-	const weightedAvgUtilization =
-		totalLimit > 0 ? (totalUsed / totalLimit) * 100 : 0;
-
-	// Cycle-windowed totals across the active subscriber universe (not paginated)
-	const [universeRow] = await db
-		.select({
-			totalCost: sql<string>`COALESCE(SUM(CAST(${realCostSub.realCost} AS NUMERIC)), 0)`,
-			totalMrr: sql<string>`COALESCE(SUM(${tierPriceExpr}), 0)`,
-			totalOverflow: sql<string>`COALESCE(SUM(${overflowCostExpr}), 0)`,
-			paygOptedIn: sql<number>`COUNT(*) FILTER (WHERE ${tables.organization.devPlanPaygEnabled})`,
-			paygBalanceHeld: sql<string>`COALESCE(SUM(CAST(${tables.organization.credits} AS NUMERIC)), 0)`,
-		})
-		.from(tables.organization)
-		.leftJoin(
-			realCostSub,
-			eq(tables.organization.id, realCostSub.organizationId),
-		)
-		.where(
-			and(
-				eq(tables.organization.kind, "devpass"),
-				ne(tables.organization.devPlan, "none"),
-				or(
-					isNull(tables.organization.devPlanExpiresAt),
-					sql`${tables.organization.devPlanExpiresAt} > NOW()`,
-				)!,
-			),
-		);
-	const totalRealCostCycle = Number(universeRow?.totalCost ?? 0);
-	const totalMrrCycle = Number(universeRow?.totalMrr ?? 0);
-	const totalOverflowCostCycle = Number(universeRow?.totalOverflow ?? 0);
-	const paygOptedIn = Number(universeRow?.paygOptedIn ?? 0);
-	const paygBalanceHeld = Number(universeRow?.paygBalanceHeld ?? 0);
-	// Plan economics: overflow cost is funded by the orgs' own top-ups, so it
-	// doesn't count against plan MRR.
-	const totalMargin =
-		totalMrrCycle - (totalRealCostCycle - totalOverflowCostCycle);
-
-	// PAYG overflow top-up revenue on devpass orgs (gross Stripe amount).
-	const [topupRevenueRow] = await db
-		.select({
-			allTime: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
-			thisMonth: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)) FILTER (WHERE ${tables.transaction.createdAt} >= ${monthStart}), 0)`,
-		})
-		.from(tables.transaction)
-		.innerJoin(
-			tables.organization,
-			eq(tables.transaction.organizationId, tables.organization.id),
-		)
-		.where(
-			and(
-				eq(tables.transaction.type, "credit_topup"),
-				eq(tables.transaction.status, "completed"),
-				eq(tables.organization.kind, "devpass"),
-				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
-			),
-		);
-	const topupRevenueAllTime = Number(topupRevenueRow?.allTime ?? 0);
-	const topupRevenueThisMonth = Number(topupRevenueRow?.thisMonth ?? 0);
 
 	const subscribers = rows.map((row) => {
 		const tier = row.tier;
@@ -13799,39 +14201,293 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		};
 	});
 
-	const kpiMarginPct =
-		totalMrrCycle > 0 ? (totalMargin / totalMrrCycle) * 100 : null;
-
 	return c.json({
 		subscribers,
 		total,
-		kpis: {
-			activeByTier,
-			totalActive,
-			cancelledPending,
-			churned,
-			grossMrr,
-			committedMrr,
-			startsThisMonth,
-			endsThisMonth,
-			netNewThisMonth: startsThisMonth - endsThisMonth,
-			refundsThisMonth,
-			refundedAmountThisMonth,
-			resetPassesSold,
-			resetPassRevenue,
-			paygOptedIn,
-			paygBalanceHeld,
-			topupRevenueThisMonth,
-			topupRevenueAllTime,
-			totalOverflowCostCycle,
-			weightedAvgUtilization,
-			totalRealCostCycle,
-			totalMrrCycle,
-			totalMargin,
-			marginPct: kpiMarginPct,
-		},
 		limit,
 		offset,
+	});
+});
+
+admin.openapi(getDevpassKpis, async (c) => {
+	const now = new Date();
+	const monthStart = new Date(
+		Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+	);
+
+	const { realCostSub, overflowCostExpr } = buildDevpassCycleCostExprs();
+
+	const refundOriginalTx = aliasedTable(
+		tables.transaction,
+		"refund_original_tx",
+	);
+	const resetPassRefundOriginalTx = aliasedTable(
+		tables.transaction,
+		"reset_pass_refund_original_tx",
+	);
+
+	// Every KPI is an independent aggregate over the same universe, so they run
+	// concurrently rather than serially.
+	const [
+		activeRows,
+		[churnedRow],
+		[startsRow],
+		[endsRow],
+		[refundsRow],
+		[resetPassRow],
+		[resetPassRefundRow],
+		[utilRow],
+		[universeRow],
+		[topupRevenueRow],
+	] = await Promise.all([
+		// KPI strip — counts the full active subscriber base, matching Stripe's
+		// "active" filter which includes cancel-at-period-end subs until the period
+		// actually ends. `grossMrr` is the Stripe-aligned figure (what will be
+		// invoiced this period). `committedMrr` excludes subs flagged to cancel,
+		// representing the forward-looking MRR after impending churn lands.
+		db
+			.select({
+				tier: tables.organization.devPlan,
+				cancelled: tables.organization.devPlanCancelled,
+				count: sql<number>`COUNT(*)`,
+			})
+			.from(tables.organization)
+			.where(devpassActiveUniverseWhere())
+			.groupBy(
+				tables.organization.devPlan,
+				tables.organization.devPlanCancelled,
+			),
+		db
+			.select({
+				count: sql<number>`COUNT(DISTINCT ${tables.transaction.organizationId})`,
+			})
+			.from(tables.transaction)
+			.innerJoin(
+				tables.organization,
+				eq(tables.transaction.organizationId, tables.organization.id),
+			)
+			.where(
+				and(
+					eq(tables.organization.kind, "devpass"),
+					eq(tables.transaction.type, "dev_plan_start"),
+					eq(tables.organization.devPlan, "none"),
+				),
+			),
+		db
+			.select({ count: sql<number>`COUNT(*)` })
+			.from(tables.transaction)
+			.innerJoin(
+				tables.organization,
+				eq(tables.transaction.organizationId, tables.organization.id),
+			)
+			.where(
+				and(
+					eq(tables.organization.kind, "devpass"),
+					eq(tables.transaction.type, "dev_plan_start"),
+					gte(tables.transaction.createdAt, monthStart),
+				),
+			),
+		db
+			.select({ count: sql<number>`COUNT(*)` })
+			.from(tables.transaction)
+			.innerJoin(
+				tables.organization,
+				eq(tables.transaction.organizationId, tables.organization.id),
+			)
+			.where(
+				and(
+					eq(tables.organization.kind, "devpass"),
+					inArray(tables.transaction.type, ["dev_plan_cancel", "dev_plan_end"]),
+					gte(tables.transaction.createdAt, monthStart),
+				),
+			),
+		// Refunds this month for DevPass transactions. Mirrors the timeseries
+		// refund query (joins credit_refund rows to their original tx and filters
+		// to dev plan types, plus legacy subscription_* rows on DevPass orgs) but
+		// aggregates to a single month total so the KPI strip reflects refund
+		// activity that the snapshot-based MRR cards can't show.
+		db
+			.select({
+				count: sql<number>`COUNT(*)`,
+				total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+			})
+			.from(tables.transaction)
+			.innerJoin(
+				refundOriginalTx,
+				eq(tables.transaction.relatedTransactionId, refundOriginalTx.id),
+			)
+			.innerJoin(
+				tables.organization,
+				eq(tables.transaction.organizationId, tables.organization.id),
+			)
+			.where(
+				and(
+					eq(tables.transaction.type, "credit_refund"),
+					eq(tables.transaction.status, "completed"),
+					gte(tables.transaction.createdAt, monthStart),
+					eq(tables.organization.kind, "devpass"),
+					inArray(refundOriginalTx.type, [
+						...DEV_PLAN_TX_TYPES,
+						...LEGACY_DEV_PLAN_TX_TYPES,
+					]),
+				),
+			),
+		// All-time Reset Pass sales on DevPass orgs. These are one-time
+		// PaymentIntent purchases (no invoice), so no invoice dedup is needed;
+		// revenue is netted against completed refunds whose original transaction
+		// is a Reset Pass purchase, mirroring the all-time revenue subquery.
+		db
+			.select({
+				count: sql<number>`COUNT(*)`,
+				total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+			})
+			.from(tables.transaction)
+			.innerJoin(
+				tables.organization,
+				eq(tables.transaction.organizationId, tables.organization.id),
+			)
+			.where(
+				and(
+					eq(tables.transaction.type, "dev_plan_reset_pass"),
+					eq(tables.transaction.status, "completed"),
+					eq(tables.organization.kind, "devpass"),
+				),
+			),
+		db
+			.select({
+				total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+			})
+			.from(tables.transaction)
+			.innerJoin(
+				resetPassRefundOriginalTx,
+				eq(
+					tables.transaction.relatedTransactionId,
+					resetPassRefundOriginalTx.id,
+				),
+			)
+			.innerJoin(
+				tables.organization,
+				eq(tables.transaction.organizationId, tables.organization.id),
+			)
+			.where(
+				and(
+					eq(tables.transaction.type, "credit_refund"),
+					eq(tables.transaction.status, "completed"),
+					eq(tables.organization.kind, "devpass"),
+					eq(resetPassRefundOriginalTx.type, "dev_plan_reset_pass"),
+				),
+			),
+		// Weighted utilization across active subscribers
+		db
+			.select({
+				totalUsed: sql<string>`COALESCE(SUM(CAST(${tables.organization.devPlanCreditsUsed} AS NUMERIC)), 0)`,
+				totalLimit: sql<string>`COALESCE(SUM(CAST(${tables.organization.devPlanCreditsLimit} AS NUMERIC)), 0)`,
+			})
+			.from(tables.organization)
+			.where(devpassActiveUniverseWhere()),
+		// Cycle-windowed totals across the active subscriber universe (not paginated)
+		db
+			.select({
+				totalCost: sql<string>`COALESCE(SUM(CAST(${realCostSub.realCost} AS NUMERIC)), 0)`,
+				totalMrr: sql<string>`COALESCE(SUM(${devpassTierPriceExpr}), 0)`,
+				totalOverflow: sql<string>`COALESCE(SUM(${overflowCostExpr}), 0)`,
+				paygOptedIn: sql<number>`COUNT(*) FILTER (WHERE ${tables.organization.devPlanPaygEnabled})`,
+				paygBalanceHeld: sql<string>`COALESCE(SUM(CAST(${tables.organization.credits} AS NUMERIC)), 0)`,
+			})
+			.from(tables.organization)
+			.leftJoin(
+				realCostSub,
+				eq(tables.organization.id, realCostSub.organizationId),
+			)
+			.where(devpassActiveUniverseWhere()),
+		// PAYG overflow top-up revenue on devpass orgs (gross Stripe amount).
+		db
+			.select({
+				allTime: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+				thisMonth: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)) FILTER (WHERE ${tables.transaction.createdAt} >= ${monthStart}), 0)`,
+			})
+			.from(tables.transaction)
+			.innerJoin(
+				tables.organization,
+				eq(tables.transaction.organizationId, tables.organization.id),
+			)
+			.where(
+				and(
+					eq(tables.transaction.type, "credit_topup"),
+					eq(tables.transaction.status, "completed"),
+					eq(tables.organization.kind, "devpass"),
+					sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+				),
+			),
+	]);
+
+	const activeByTier = { lite: 0, pro: 0, max: 0 };
+	const cancellingByTier = { lite: 0, pro: 0, max: 0 };
+	for (const r of activeRows) {
+		const tierKey = r.tier as keyof typeof activeByTier;
+		if (tierKey in activeByTier) {
+			const n = Number(r.count);
+			activeByTier[tierKey] += n;
+			if (r.cancelled) {
+				cancellingByTier[tierKey] += n;
+			}
+		}
+	}
+	const totalActive = activeByTier.lite + activeByTier.pro + activeByTier.max;
+	const liteMrr = activeByTier.lite * DEV_PLAN_PRICES.lite;
+	const proMrr = activeByTier.pro * DEV_PLAN_PRICES.pro;
+	const maxMrr = activeByTier.max * DEV_PLAN_PRICES.max;
+	const grossMrr = liteMrr + proMrr + maxMrr;
+	const cancellingLiteMrr = cancellingByTier.lite * DEV_PLAN_PRICES.lite;
+	const cancellingProMrr = cancellingByTier.pro * DEV_PLAN_PRICES.pro;
+	const cancellingMaxMrr = cancellingByTier.max * DEV_PLAN_PRICES.max;
+	const cancellingMrr = cancellingLiteMrr + cancellingProMrr + cancellingMaxMrr;
+	const committedMrr = grossMrr - cancellingMrr;
+	const cancelledPending =
+		cancellingByTier.lite + cancellingByTier.pro + cancellingByTier.max;
+
+	const startsThisMonth = Number(startsRow?.count ?? 0);
+	const endsThisMonth = Number(endsRow?.count ?? 0);
+	const resetPassRevenue =
+		Number(resetPassRow?.total ?? 0) - Number(resetPassRefundRow?.total ?? 0);
+
+	const totalUsed = Number(utilRow?.totalUsed ?? 0);
+	const totalLimit = Number(utilRow?.totalLimit ?? 0);
+	const weightedAvgUtilization =
+		totalLimit > 0 ? (totalUsed / totalLimit) * 100 : 0;
+
+	const totalRealCostCycle = Number(universeRow?.totalCost ?? 0);
+	const totalMrrCycle = Number(universeRow?.totalMrr ?? 0);
+	const totalOverflowCostCycle = Number(universeRow?.totalOverflow ?? 0);
+	// Plan economics: overflow cost is funded by the orgs' own top-ups, so it
+	// doesn't count against plan MRR.
+	const totalMargin =
+		totalMrrCycle - (totalRealCostCycle - totalOverflowCostCycle);
+
+	return c.json({
+		activeByTier,
+		totalActive,
+		cancelledPending,
+		churned: Number(churnedRow?.count ?? 0),
+		grossMrr,
+		committedMrr,
+		startsThisMonth,
+		endsThisMonth,
+		netNewThisMonth: startsThisMonth - endsThisMonth,
+		refundsThisMonth: Number(refundsRow?.count ?? 0),
+		refundedAmountThisMonth: Number(refundsRow?.total ?? 0),
+		resetPassesSold: Number(resetPassRow?.count ?? 0),
+		resetPassRevenue,
+		paygOptedIn: Number(universeRow?.paygOptedIn ?? 0),
+		paygBalanceHeld: Number(universeRow?.paygBalanceHeld ?? 0),
+		topupRevenueThisMonth: Number(topupRevenueRow?.thisMonth ?? 0),
+		topupRevenueAllTime: Number(topupRevenueRow?.allTime ?? 0),
+		totalOverflowCostCycle,
+		weightedAvgUtilization,
+		totalRealCostCycle,
+		totalMrrCycle,
+		totalMargin,
+		marginPct: totalMrrCycle > 0 ? (totalMargin / totalMrrCycle) * 100 : null,
 	});
 });
 

@@ -189,6 +189,16 @@ const nextConfig: NextConfig = {
 				permanent: true,
 			},
 			{
+				source: "/sub-processors",
+				destination: "/legal/sub-processors",
+				permanent: true,
+			},
+			{
+				source: "/subprocessors",
+				destination: "/legal/sub-processors",
+				permanent: true,
+			},
+			{
 				source: "/privacy-policy",
 				destination: "/legal/privacy",
 				permanent: true,

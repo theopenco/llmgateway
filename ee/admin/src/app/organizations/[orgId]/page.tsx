@@ -3,6 +3,7 @@ import {
 	Building2,
 	ChevronLeft,
 	ChevronRight,
+	ExternalLink,
 	FolderOpen,
 	Key,
 	KeyRound,
@@ -42,6 +43,7 @@ import { KEY_STATUS_DEFAULT, parseKeyStatus } from "@/lib/key-status";
 import { getOrgDeletionBlockedReason } from "@/lib/org-deletion";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
+import { stripeSearchUrl, stripeTransactionUrl } from "@/lib/stripe-dashboard";
 
 import { ApiKeysTable } from "./api-keys-table";
 import { AuditLogsTab } from "./audit-logs-tab";
@@ -215,6 +217,7 @@ export default async function OrganizationPage({
 		providerKeysRes,
 		membersRes,
 		auditLogsRes,
+		orgMetricsRes,
 		settingsRes,
 		guardrailsRes,
 		ssoRes,
@@ -251,6 +254,9 @@ export default async function OrganizationPage({
 				},
 			},
 		}),
+		$api.GET("/admin/organizations/{orgId}", {
+			params: { path: { orgId }, query: {} },
+		}),
 		$api.GET("/admin/organizations/{orgId}/settings", {
 			params: { path: { orgId } },
 		}),
@@ -262,6 +268,7 @@ export default async function OrganizationPage({
 		}),
 	]);
 	const transactionsData = transactionsRes.data;
+	const trustTier = orgMetricsRes.data?.trustTier;
 	const projectsData = projectsRes.data;
 	const apiKeysData = apiKeysRes.data;
 	const providerKeysData = providerKeysRes.data;
@@ -322,10 +329,36 @@ export default async function OrganizationPage({
 					<div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
 						<span>{org.billingEmail}</span>
 						<span>•</span>
+						<a
+							href={stripeSearchUrl(org.billingEmail)}
+							target="_blank"
+							rel="noopener noreferrer"
+							className="inline-flex items-center gap-1 text-blue-600 hover:underline"
+							title={`Search Stripe for ${org.billingEmail}`}
+						>
+							<ExternalLink className="h-3 w-3" />
+							Stripe
+						</a>
+						<span>•</span>
 						<span>Created {formatDate(org.createdAt)}</span>
 					</div>
 					<div className="flex flex-wrap items-center gap-2">
 						<Badge variant={getPlanBadgeVariant(org.plan)}>{org.plan}</Badge>
+						{trustTier &&
+							(trustTier.exempt === "none" ? (
+								<Badge variant="default">
+									Trust Tier {trustTier.tier}
+									{trustTier.overridden ? " (manual)" : ""}
+								</Badge>
+							) : (
+								<Badge variant="outline">
+									{trustTier.exempt === "enterprise"
+										? "No rate limits (enterprise)"
+										: trustTier.exempt === "dev"
+											? "Dev plan limits"
+											: "Chat plan limits"}
+								</Badge>
+							))}
 						<PlanTermBadge
 							planExpiresAt={org.planExpiresAt}
 							planStartedAt={org.planStartedAt}
@@ -341,6 +374,11 @@ export default async function OrganizationPage({
 						<Badge variant={org.status === "active" ? "secondary" : "outline"}>
 							{org.status ?? "active"}
 						</Badge>
+						{org.riskFlagged && (
+							<Link href="/flagged-accounts">
+								<Badge variant="destructive">High risk — review</Badge>
+							</Link>
+						)}
 						{org.seats !== null && org.seats !== undefined && (
 							<Badge variant="outline">Seats: {org.seats}</Badge>
 						)}
@@ -354,6 +392,18 @@ export default async function OrganizationPage({
 							Credits: {creditsFormatter.format(parseFloat(org.credits))}
 						</span>
 					</div>
+					{trustTier && trustTier.exempt === "none" && (
+						<p className="text-sm text-muted-foreground">
+							Tier {trustTier.tier}: {trustTier.rpmMultiplier}× RPM ·{" "}
+							{creditsFormatter.format(trustTier.dailyCapUsd)}/day ·{" "}
+							{creditsFormatter.format(trustTier.monthlyCapUsd)}/month ·{" "}
+							{creditsFormatter.format(trustTier.topUpDailyCapUsd)}/24h top-ups
+							—{" "}
+							{trustTier.overridden
+								? "pinned by admin (override active)"
+								: `qualifies via ${trustTier.accountAgeDays}d age / ${creditsFormatter.format(trustTier.qualifyingSpendUsd)} net credits usage`}
+						</p>
+					)}
 				</div>
 				<div className="flex flex-wrap items-center gap-2">
 					{org.kind === "devpass" && (
@@ -367,6 +417,7 @@ export default async function OrganizationPage({
 						seats={org.seats ?? null}
 						apiKeyLimit={org.apiKeyLimit ?? null}
 						projectLimit={org.projectLimit ?? null}
+						trustTierOverride={trustTier?.overridden ? trustTier.tier : null}
 						planExpiresAt={org.planExpiresAt ?? null}
 						planStartedAt={org.planStartedAt ?? null}
 						isTrialActive={org.isTrialActive ?? false}
@@ -529,68 +580,87 @@ export default async function OrganizationPage({
 										<TableHead>Status</TableHead>
 										<TableHead>Reference</TableHead>
 										<TableHead>Description</TableHead>
+										<TableHead>Stripe</TableHead>
 									</TableRow>
 								</TableHeader>
 								<TableBody>
 									{transactions.length === 0 ? (
 										<TableRow>
 											<TableCell
-												colSpan={7}
+												colSpan={8}
 												className="h-24 text-center text-muted-foreground"
 											>
 												No transactions found
 											</TableCell>
 										</TableRow>
 									) : (
-										transactions.map((transaction) => (
-											<TableRow key={transaction.id}>
-												<TableCell className="text-muted-foreground">
-													{formatDate(transaction.createdAt)}
-												</TableCell>
-												<TableCell>
-													<Badge
-														variant={getTransactionTypeBadgeVariant(
-															transaction.type,
+										transactions.map((transaction) => {
+											const stripeUrl = stripeTransactionUrl(transaction);
+											return (
+												<TableRow key={transaction.id}>
+													<TableCell className="text-muted-foreground">
+														{formatDate(transaction.createdAt)}
+													</TableCell>
+													<TableCell>
+														<Badge
+															variant={getTransactionTypeBadgeVariant(
+																transaction.type,
+															)}
+														>
+															{formatTransactionType(transaction.type)}
+														</Badge>
+													</TableCell>
+													<TableCell className="tabular-nums">
+														{transaction.amount
+															? currencyFormatter.format(
+																	parseFloat(transaction.amount),
+																)
+															: "—"}
+													</TableCell>
+													<TableCell className="tabular-nums">
+														{transaction.creditAmount
+															? creditsFormatter.format(
+																	parseFloat(transaction.creditAmount),
+																)
+															: "—"}
+													</TableCell>
+													<TableCell>
+														<Badge
+															variant={
+																transaction.status === "completed"
+																	? "secondary"
+																	: transaction.status === "failed"
+																		? "destructive"
+																		: "outline"
+															}
+														>
+															{transaction.status}
+														</Badge>
+													</TableCell>
+													<TableCell className="max-w-[180px] truncate font-mono text-xs text-muted-foreground">
+														{transaction.externalReference ?? "—"}
+													</TableCell>
+													<TableCell className="max-w-[200px] truncate text-muted-foreground">
+														{transaction.description ?? "—"}
+													</TableCell>
+													<TableCell>
+														{stripeUrl ? (
+															<a
+																href={stripeUrl}
+																target="_blank"
+																rel="noopener noreferrer"
+																className="inline-flex items-center gap-1 text-blue-600 hover:underline"
+															>
+																<ExternalLink className="h-3 w-3" />
+																View
+															</a>
+														) : (
+															<span className="text-muted-foreground">—</span>
 														)}
-													>
-														{formatTransactionType(transaction.type)}
-													</Badge>
-												</TableCell>
-												<TableCell className="tabular-nums">
-													{transaction.amount
-														? currencyFormatter.format(
-																parseFloat(transaction.amount),
-															)
-														: "—"}
-												</TableCell>
-												<TableCell className="tabular-nums">
-													{transaction.creditAmount
-														? creditsFormatter.format(
-																parseFloat(transaction.creditAmount),
-															)
-														: "—"}
-												</TableCell>
-												<TableCell>
-													<Badge
-														variant={
-															transaction.status === "completed"
-																? "secondary"
-																: transaction.status === "failed"
-																	? "destructive"
-																	: "outline"
-														}
-													>
-														{transaction.status}
-													</Badge>
-												</TableCell>
-												<TableCell className="max-w-[180px] truncate font-mono text-xs text-muted-foreground">
-													{transaction.externalReference ?? "—"}
-												</TableCell>
-												<TableCell className="max-w-[200px] truncate text-muted-foreground">
-													{transaction.description ?? "—"}
-												</TableCell>
-											</TableRow>
-										))
+													</TableCell>
+												</TableRow>
+											);
+										})
 									)}
 								</TableBody>
 							</Table>

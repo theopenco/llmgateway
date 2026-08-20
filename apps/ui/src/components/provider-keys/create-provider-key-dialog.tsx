@@ -613,8 +613,8 @@ export function CreateProviderKeyDialog({
 								onChange={(e) => setGoogleVertexProjectId(e.target.value)}
 							/>
 							<p className="text-sm text-muted-foreground">
-								Your Google Cloud project ID, found in the Google Cloud Console.
-								Required for non-lite Vertex AI models.
+								Optional for API-key chat, embedding, and speech requests.
+								Required for OAuth and video generation.
 							</p>
 						</div>
 					)}

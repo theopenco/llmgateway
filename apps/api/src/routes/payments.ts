@@ -3,7 +3,15 @@ import { HTTPException } from "hono/http-exception";
 import Stripe from "stripe";
 import { z } from "zod";
 
+import { assertOrganizationNotHighRisk } from "@/lib/account-risk.js";
+import { assertCreditPurchaseAllowed } from "@/lib/credit-purchase-guard.js";
 import { computeReferralBonus } from "@/lib/referral-bonus.js";
+import { forcedThreeDSecureOptions } from "@/lib/three-d-secure.js";
+import {
+	assertTopUpVelocityAllowed,
+	getTopUpVelocityAllowance,
+	releaseTopUpReservation,
+} from "@/lib/topup-velocity.js";
 import { ensureStripeCustomer } from "@/stripe.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
@@ -13,6 +21,7 @@ import {
 	calculateFees,
 	CREDIT_TOP_UP_MAX_AMOUNT,
 	CREDIT_TOP_UP_MIN_AMOUNT,
+	getMaxCreditTopUpAmount,
 } from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
@@ -52,6 +61,11 @@ export function getStripe(mode: StripeMode = "live"): Stripe {
 
 export const payments = new OpenAPIHono<ServerTypes>();
 
+// How long a hosted Checkout link stays payable. Stripe's minimum is 30
+// minutes; keeping it short lets the top-up velocity reservation cover the
+// session's whole payable life.
+const CHECKOUT_SESSION_LIFETIME_SECONDS = 30 * 60;
+
 const creditTopUpAmountSchema = z
 	.number()
 	.int()
@@ -79,6 +93,57 @@ async function findUserOrganization(userId: string, organizationId?: string) {
 		},
 	});
 }
+
+const getTopUpLimit = createRoute({
+	method: "get",
+	path: "/top-up-limit",
+	request: {
+		query: z.object({
+			organizationId: z.string().optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						remainingGrossAmount: z.number().nullable(),
+						maxCardAmount: z.number(),
+						maxCheckoutAmount: z.number(),
+					}),
+				},
+			},
+			description: "Current credit top-up limits",
+		},
+	},
+});
+
+payments.openapi(getTopUpLimit, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { organizationId } = c.req.valid("query");
+	const userOrganization = await findUserOrganization(user.id, organizationId);
+	if (!userOrganization?.organization) {
+		throw new HTTPException(404, { message: "Organization not found" });
+	}
+
+	const allowance = await getTopUpVelocityAllowance(
+		userOrganization.organization,
+	);
+	const remainingGrossAmount = Number.isFinite(allowance.capUsd)
+		? allowance.remainingUsd
+		: null;
+	const availableGrossAmount = remainingGrossAmount ?? Number.POSITIVE_INFINITY;
+
+	return c.json({
+		remainingGrossAmount,
+		maxCardAmount: getMaxCreditTopUpAmount(availableGrossAmount, true),
+		maxCheckoutAmount: getMaxCreditTopUpAmount(availableGrossAmount, false),
+	});
+});
 
 export async function isInternationalPaymentMethod(
 	stripePaymentMethodId: string,
@@ -158,84 +223,129 @@ payments.openapi(createPaymentIntent, async (c) => {
 
 	const organizationId = userOrganization.organization.id;
 
-	const stripeCustomerId = await ensureStripeCustomer(organizationId);
+	await assertCreditPurchaseAllowed(organizationId);
+	await assertOrganizationNotHighRisk(organizationId);
 
-	let isInternational = false;
-	if (stripePaymentMethodId) {
-		const stripePaymentMethod = await getStripe().paymentMethods.retrieve(
-			stripePaymentMethodId,
-		);
-
-		const paymentMethodCustomer =
-			typeof stripePaymentMethod.customer === "string"
-				? stripePaymentMethod.customer
-				: (stripePaymentMethod.customer?.id ?? null);
-
-		// Freshly created PMs are unattached (customer === null) until the
-		// setup_intent.succeeded webhook attaches them. Reject only when the
-		// PM is attached to a *different* customer.
-		if (paymentMethodCustomer && paymentMethodCustomer !== stripeCustomerId) {
-			throw new HTTPException(403, {
-				message: "Payment method does not belong to this customer",
-			});
-		}
-
-		const country = stripePaymentMethod.card?.country;
-		isInternational = Boolean(country) && country !== "US";
-	}
-
-	const feeBreakdown = calculateFees({
+	// Gate before ANY Stripe interaction so a capped org cannot even generate
+	// customer/payment-method API traffic. Reserve the worst-case gross (with
+	// the international surcharge): the card's country isn't known yet, and
+	// reserving the smaller domestic gross would let a charge land just above
+	// the cap. Settlement releases the actually-charged gross; any residual
+	// surcharge-sized difference simply expires with the reservation TTL.
+	const gateGrossUsd = calculateFees({
 		amount,
-		isInternational,
-	});
+		isInternational: true,
+	}).totalAmount;
+	await assertTopUpVelocityAllowed(
+		userOrganization.organization,
+		gateGrossUsd,
+		{
+			user,
+		},
+	);
 
+	// Any failure between the gate and a successful PaymentIntent means no
+	// charge happened, so the reservation must be freed rather than consuming
+	// top-up headroom for its TTL.
 	let paymentIntent: Stripe.PaymentIntent;
+	let isInternational = false;
+	let feeBreakdown: ReturnType<typeof calculateFees>;
+	const reservedUsd = gateGrossUsd;
 	try {
-		paymentIntent = await getStripe().paymentIntents.create({
-			amount: Math.round(feeBreakdown.totalAmount * 100),
-			currency: "usd",
-			description: `Credit purchase for ${amount} USD (including fees)`,
-			customer: stripeCustomerId,
-			...(stripePaymentMethodId
-				? { payment_method: stripePaymentMethodId }
-				: {}),
-			metadata: {
-				organizationId,
-				baseAmount: amount.toString(),
-				platformFee: feeBreakdown.platformFee.toString(),
-				internationalFee: feeBreakdown.internationalFee.toString(),
-				isInternational: isInternational.toString(),
-				userEmail: user.email,
-				userId: user.id,
-			},
-		});
-	} catch (err) {
-		if (err instanceof Stripe.errors.StripeError) {
-			const status = err.statusCode ?? 500;
-			const details = {
-				organizationId,
-				userId: user.id,
-				stripeType: err.type,
-				stripeCode: err.code,
-				stripeMessage: err.message,
-				stripeStatusCode: err.statusCode,
-				stripeRequestId: err.requestId,
-			};
+		const stripeCustomerId = await ensureStripeCustomer(organizationId);
 
-			if (status >= 400 && status < 500) {
-				logger.warn("Stripe client error on payment intent creation", details);
-			} else {
-				logger.error("Stripe error on payment intent creation", err, details);
+		if (stripePaymentMethodId) {
+			const stripePaymentMethod = await getStripe().paymentMethods.retrieve(
+				stripePaymentMethodId,
+			);
+
+			const paymentMethodCustomer =
+				typeof stripePaymentMethod.customer === "string"
+					? stripePaymentMethod.customer
+					: (stripePaymentMethod.customer?.id ?? null);
+
+			// Freshly created PMs are unattached (customer === null) until the
+			// setup_intent.succeeded webhook attaches them. Reject only when the
+			// PM is attached to a *different* customer.
+			if (paymentMethodCustomer && paymentMethodCustomer !== stripeCustomerId) {
+				throw new HTTPException(403, {
+					message: "Payment method does not belong to this customer",
+				});
 			}
 
-			throw new HTTPException(
-				status as ClientErrorStatusCode | ServerErrorStatusCode,
-				{
-					message: err.message,
-				},
-			);
+			const country = stripePaymentMethod.card?.country;
+			isInternational = Boolean(country) && country !== "US";
 		}
 
+		feeBreakdown = calculateFees({
+			amount,
+			isInternational,
+		});
+
+		try {
+			paymentIntent = await getStripe().paymentIntents.create({
+				amount: Math.round(feeBreakdown.totalAmount * 100),
+				currency: "usd",
+				description: `Credit purchase for ${amount} USD (including fees)`,
+				customer: stripeCustomerId,
+				...(stripePaymentMethodId
+					? { payment_method: stripePaymentMethodId }
+					: {}),
+				// Deliberately no forced 3DS: the card was already authenticated by
+				// the SetupIntent that saved it, so challenging again would be a
+				// second prompt in the same checkout for no added protection.
+				metadata: {
+					organizationId,
+					type: "credit_topup",
+					// The client confirms this PI later with the returned secret, so it
+					// can be abandoned while still confirmable. The worker cancels
+					// `flow: client_confirmation` PIs left unconfirmed past the velocity
+					// reservation TTL — otherwise stockpiled client secrets could be
+					// confirmed together after their reservations expired, bypassing
+					// the top-up cap.
+					flow: "client_confirmation",
+					baseAmount: amount.toString(),
+					platformFee: feeBreakdown.platformFee.toString(),
+					internationalFee: feeBreakdown.internationalFee.toString(),
+					isInternational: isInternational.toString(),
+					userEmail: user.email,
+					userId: user.id,
+				},
+			});
+		} catch (err) {
+			if (err instanceof Stripe.errors.StripeError) {
+				const status = err.statusCode ?? 500;
+				const details = {
+					organizationId,
+					userId: user.id,
+					stripeType: err.type,
+					stripeCode: err.code,
+					stripeMessage: err.message,
+					stripeStatusCode: err.statusCode,
+					stripeRequestId: err.requestId,
+				};
+
+				if (status >= 400 && status < 500) {
+					logger.warn(
+						"Stripe client error on payment intent creation",
+						details,
+					);
+				} else {
+					logger.error("Stripe error on payment intent creation", err, details);
+				}
+
+				throw new HTTPException(
+					status as ClientErrorStatusCode | ServerErrorStatusCode,
+					{
+						message: err.message,
+					},
+				);
+			}
+
+			throw err;
+		}
+	} catch (err) {
+		await releaseTopUpReservation(organizationId, reservedUsd);
 		throw err;
 	}
 
@@ -314,9 +424,13 @@ payments.openapi(createSetupIntent, async (c) => {
 	// out of confirmCardSetup "used but unattached", and create-payment-intent
 	// races the setup_intent.succeeded webhook's attach — losing the race
 	// makes Stripe reject the PaymentIntent outright.
+	// Authenticating the card here also helps the later off-session charges it
+	// is saved for: an initially authenticated credential is what lets Stripe
+	// claim an SCA exemption on merchant-initiated top-ups.
 	const setupIntent = await getStripe().setupIntents.create({
 		customer: stripeCustomerId,
 		usage: "off_session",
+		...(await forcedThreeDSecureOptions()),
 		metadata: {
 			organizationId,
 		},
@@ -708,18 +822,43 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 		});
 	}
 
-	const isInternational = await isInternationalPaymentMethod(
-		paymentMethod.stripePaymentMethodId,
+	await assertCreditPurchaseAllowed(userOrganization.organization.id);
+	await assertOrganizationNotHighRisk(userOrganization.organization.id);
+
+	// Gate before any Stripe interaction; see create-payment-intent for why
+	// the reserved amount uses the worst-case (international) gross. Any
+	// failure past this point means no successful charge, so the outer catch
+	// below frees the reservation instead of letting the attempt consume
+	// headroom for its TTL.
+	const gateGrossUsd = calculateFees({
+		amount,
+		isInternational: true,
+	}).totalAmount;
+	await assertTopUpVelocityAllowed(
+		userOrganization.organization,
+		gateGrossUsd,
+		{
+			user,
+		},
 	);
 
-	const feeBreakdown = calculateFees({
-		amount,
-		isInternational,
-	});
-
 	let paymentIntent: Stripe.PaymentIntent;
-
+	// `processing` is nonterminal: Stripe can still emit
+	// payment_intent.succeeded and credit the top-up, so its reservation must
+	// keep consuming headroom (the TTL bounds it). Only terminal failures free
+	// the amount immediately.
+	let chargeStillSettling = false;
+	const reservedUsd = gateGrossUsd;
 	try {
+		const isInternational = await isInternationalPaymentMethod(
+			paymentMethod.stripePaymentMethodId,
+		);
+
+		const feeBreakdown = calculateFees({
+			amount,
+			isInternational,
+		});
+
 		paymentIntent = await getStripe().paymentIntents.create({
 			amount: Math.round(feeBreakdown.totalAmount * 100),
 			currency: "usd",
@@ -740,7 +879,20 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 				userId: user.id,
 			},
 		});
+
+		if (paymentIntent.status !== "succeeded") {
+			chargeStillSettling = paymentIntent.status === "processing";
+			throw new HTTPException(400, {
+				message: `Payment failed: ${paymentIntent.status}`,
+			});
+		}
 	} catch (err) {
+		if (!chargeStillSettling) {
+			await releaseTopUpReservation(
+				userOrganization.organization.id,
+				reservedUsd,
+			);
+		}
 		if (err instanceof Stripe.errors.StripeCardError) {
 			const declineCode = err.decline_code;
 			const stripeMessage = err.message;
@@ -790,12 +942,6 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 		}
 
 		throw err;
-	}
-
-	if (paymentIntent.status !== "succeeded") {
-		throw new HTTPException(400, {
-			message: `Payment failed: ${paymentIntent.status}`,
-		});
 	}
 
 	await logAuditEvent({
@@ -878,9 +1024,32 @@ payments.openapi(createCheckoutSession, async (c) => {
 	}
 
 	const organizationId = userOrganization.organization.id;
-	const stripeCustomerId = await ensureStripeCustomer(organizationId);
+
+	await assertCreditPurchaseAllowed(organizationId);
+	await assertOrganizationNotHighRisk(organizationId);
 
 	const feeBreakdown = calculateFees({ amount });
+
+	// Gate before any Stripe interaction. The reservation must outlive the
+	// checkout session (expires_at below), or a user could open sessions faster
+	// than the window tracks and pay them later. Any failure before the session
+	// exists frees the reservation via the catch around the Stripe calls below.
+	await assertTopUpVelocityAllowed(
+		userOrganization.organization,
+		feeBreakdown.totalAmount,
+		{
+			reservationTtlSeconds: CHECKOUT_SESSION_LIFETIME_SECONDS + 300,
+			user,
+		},
+	);
+
+	let stripeCustomerId: string;
+	try {
+		stripeCustomerId = await ensureStripeCustomer(organizationId);
+	} catch (err) {
+		await releaseTopUpReservation(organizationId, feeBreakdown.totalAmount);
+		throw err;
+	}
 
 	const allowedOrigins = [
 		process.env.UI_URL,
@@ -932,33 +1101,44 @@ payments.openapi(createCheckoutSession, async (c) => {
 		userId: user.id,
 	};
 
-	const session = await getStripe().checkout.sessions.create({
-		customer: stripeCustomerId,
-		mode: "payment",
-		line_items: [
-			{
-				price_data: {
-					currency: "usd",
-					product_data: {
-						name: `Credit Top-Up ($${amount})`,
-						description: `$${amount} in credits for your LLMGateway account`,
+	let session: Stripe.Checkout.Session;
+	try {
+		session = await getStripe().checkout.sessions.create({
+			customer: stripeCustomerId,
+			mode: "payment",
+			// Default session lifetime is 24h, far beyond the velocity window the
+			// gate checked above. Shorten it so payment happens (or the attempt
+			// dies) while the reservation still counts.
+			expires_at:
+				Math.floor(Date.now() / 1000) + CHECKOUT_SESSION_LIFETIME_SECONDS,
+			line_items: [
+				{
+					price_data: {
+						currency: "usd",
+						product_data: {
+							name: `Credit Top-Up ($${amount})`,
+							description: `$${amount} in credits for your LLMGateway account`,
+						},
+						unit_amount: Math.round(feeBreakdown.totalAmount * 100),
 					},
-					unit_amount: Math.round(feeBreakdown.totalAmount * 100),
+					quantity: 1,
 				},
-				quantity: 1,
+			],
+			success_url: successUrl,
+			cancel_url: cancelUrl,
+			metadata: topUpMetadata,
+			payment_intent_data: {
+				description: `Credit purchase for ${amount} USD (including fees)`,
+				metadata: {
+					...topUpMetadata,
+					source: "stripe_checkout",
+				},
 			},
-		],
-		success_url: successUrl,
-		cancel_url: cancelUrl,
-		metadata: topUpMetadata,
-		payment_intent_data: {
-			description: `Credit purchase for ${amount} USD (including fees)`,
-			metadata: {
-				...topUpMetadata,
-				source: "stripe_checkout",
-			},
-		},
-	});
+		});
+	} catch (err) {
+		await releaseTopUpReservation(organizationId, feeBreakdown.totalAmount);
+		throw err;
+	}
 
 	if (!session.url) {
 		throw new HTTPException(500, {

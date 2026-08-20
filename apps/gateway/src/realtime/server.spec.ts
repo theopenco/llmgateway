@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { extractSubprotocolSecret } from "./server.js";
+import { extractSubprotocolSecret, realtimeModelIdsMatch } from "./server.js";
 
 describe("extractSubprotocolSecret", () => {
 	it("accepts the official OpenAI browser subprotocol", () => {
@@ -21,5 +21,28 @@ describe("extractSubprotocolSecret", () => {
 	it("ignores subprotocols that carry no credential", () => {
 		expect(extractSubprotocolSecret(["realtime"])).toBeUndefined();
 		expect(extractSubprotocolSecret([])).toBeUndefined();
+	});
+});
+
+describe("realtimeModelIdsMatch", () => {
+	it("accepts equivalent bare and canonical model ids", () => {
+		expect(
+			realtimeModelIdsMatch(
+				"gpt-realtime-2.1-mini",
+				"openai/gpt-realtime-2.1-mini",
+			),
+		).toBe(true);
+	});
+
+	it("rejects different or unknown model ids", () => {
+		expect(
+			realtimeModelIdsMatch(
+				"openai/gpt-realtime-2.1-mini",
+				"openai/gpt-realtime-2.1",
+			),
+		).toBe(false);
+		expect(
+			realtimeModelIdsMatch("unknown-model", "openai/gpt-realtime-2.1-mini"),
+		).toBe(false);
 	});
 });

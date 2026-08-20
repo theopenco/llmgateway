@@ -11,10 +11,10 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 <Callout type="info">
 	**Using DevPass?** This integration also works with a
-	[DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without
-	a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) —
-	provider-pinned routing is not available on coding plans; the gateway picks
-	the provider for you.
+	[DevPass](https://devpass.llmgateway.io) plan key. Use canonical model IDs
+	without a provider prefix (`claude-sonnet-4-5`, not
+	`anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on
+	coding plans; the gateway picks the provider for you.
 </Callout>
 
 ## Prerequisites
@@ -109,7 +109,7 @@ After updating `config.json`, restart OpenCode to see the new models.
 
 ## Pinning a Model to a Specific Provider
 
-OpenCode's built-in model list only shows root model IDs (e.g. `claude-sonnet-5`), which LLM Gateway routes to the best available provider automatically. If you want a model to always run on one specific provider — for example to guarantee a fixed price, a compliance boundary, or consistent behavior — use LLM Gateway's [`provider/model` syntax](/features/routing#provider-specific-routing) as the model ID.
+OpenCode's built-in model list only shows canonical model IDs (e.g. `claude-sonnet-5`), which LLM Gateway routes to the best available provider automatically. If you want a model to always run on one specific provider — for example to guarantee a fixed price, a compliance boundary, or consistent behavior — use LLM Gateway's [`provider/model` syntax](/features/routing#provider-specific-routing) as the model ID.
 
 Instead of writing these entries by hand, you can generate the full catalog — every coding model, pinned per upstream provider, with display names, context limits, and pricing — with the [LLM Gateway CLI](https://docs.llmgateway.io/developers/cli#configure):
 

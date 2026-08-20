@@ -48,7 +48,7 @@ Sign up at [llmgateway.io/signup](/signup) and create an API key from your dashb
 
 LLM Gateway supports two model ID formats:
 
-**Root Model IDs** (without provider prefix) - Uses smart routing to automatically select the best provider based on uptime, throughput, price, and latency:
+**Canonical Model IDs** (without provider prefix) - Uses smart routing to automatically select the best provider based on uptime, throughput, price, and latency:
 
 ```
 gpt-5.2

@@ -268,6 +268,10 @@ const ORGANIZATION_SETTINGS = [
 		label: "Referrals",
 	},
 	{
+		href: "org/limits",
+		label: "Limits",
+	},
+	{
 		href: "org/policies",
 		label: "Policies",
 	},
@@ -702,6 +706,7 @@ function OrganizationSection({
 								isActive("org/billing") ||
 								isActive("org/transactions") ||
 								isActive("org/referrals") ||
+								isActive("org/limits") ||
 								isActive("org/policies") ||
 								isActive("org/preferences") ||
 								isActive("org/audit-logs")

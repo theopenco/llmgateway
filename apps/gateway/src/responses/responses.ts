@@ -16,6 +16,7 @@ import {
 	findProjectById,
 	findOrganizationById,
 } from "@/lib/cached-queries.js";
+import { getOrganizationBlockReason } from "@/lib/organization-access.js";
 import {
 	setResponsesContext,
 	deleteResponsesContext,
@@ -110,10 +111,11 @@ async function authenticateRequest(
 		return { error: "Could not find organization", status: 500 as const };
 	}
 
-	if (organization.status === "deleted") {
+	const organizationBlocked = getOrganizationBlockReason(organization);
+	if (organizationBlocked) {
 		return {
-			error: "Organization has been disabled and is no longer accessible",
-			status: 410 as const,
+			error: organizationBlocked.message,
+			status: organizationBlocked.status,
 		};
 	}
 
@@ -451,6 +453,21 @@ responses.post("/", async (c) => {
 			const reader = streamBody.getReader();
 			const decoder = new TextDecoder();
 			let buffer = "";
+			let createdSent = false;
+			const sendCreated = async (chunk?: Record<string, unknown>) => {
+				if (createdSent) {
+					return;
+				}
+				if (typeof chunk?.model === "string" && chunk.model) {
+					state.model = chunk.model;
+				}
+				const createdEvent = createResponseCreatedEvent(state);
+				await stream.writeSSE({
+					event: createdEvent.event,
+					data: createdEvent.data,
+				});
+				createdSent = true;
+			};
 
 			// SSE keepalive to prevent proxy/load balancer and client idle
 			// timeouts from closing the connection during quiet gaps (slow
@@ -467,13 +484,6 @@ responses.post("/", async (c) => {
 				});
 			}, KEEPALIVE_INTERVAL_MS);
 
-			// Send response.created
-			const createdEvent = createResponseCreatedEvent(state);
-			await stream.writeSSE({
-				event: createdEvent.event,
-				data: createdEvent.data,
-			});
-
 			const processLine = async (line: string) => {
 				if (!line.startsWith("data: ")) {
 					return false;
@@ -481,6 +491,7 @@ responses.post("/", async (c) => {
 				const data = line.slice(6).trim();
 
 				if (data === "[DONE]") {
+					await sendCreated();
 					// Send completion events
 					const completionEvents = createCompletionEvents(
 						state,
@@ -508,7 +519,7 @@ responses.post("/", async (c) => {
 								input: inputItems,
 								output: buildFinalOutputItems(state),
 								instructions: req.instructions,
-								model: req.model,
+								model: state.model,
 								status: completedResponse?.status ?? "completed",
 								incomplete_details:
 									completedResponse?.incomplete_details ?? null,
@@ -533,6 +544,7 @@ responses.post("/", async (c) => {
 					return false;
 				}
 
+				await sendCreated(chunk);
 				const events = processStreamChunk(chunk, state);
 				for (const event of events) {
 					await stream.writeSSE({
@@ -581,6 +593,7 @@ responses.post("/", async (c) => {
 						error,
 					});
 					try {
+						await sendCreated();
 						const failedEvent = createFailedEvent(state);
 						await stream.writeSSE({
 							event: failedEvent.event,
@@ -620,7 +633,7 @@ responses.post("/", async (c) => {
 				input: inputItems,
 				output: responsesResponse.output,
 				instructions: req.instructions,
-				model: req.model,
+				model: responsesResponse.model,
 				status: responsesResponse.status as
 					"completed" | "incomplete" | "failed",
 				incomplete_details: responsesResponse.incomplete_details,
@@ -843,6 +856,14 @@ responses.post("/compact", async (c) => {
 		compactionId,
 		createdAt,
 	);
+	const responseModel =
+		chatJson &&
+		typeof chatJson === "object" &&
+		"model" in chatJson &&
+		typeof chatJson.model === "string" &&
+		chatJson.model.trim().length > 0
+			? chatJson.model
+			: req.model;
 
 	await storeResponse(
 		compactionId,
@@ -851,7 +872,7 @@ responses.post("/compact", async (c) => {
 			input: inputItems,
 			output: compactionResponse.output,
 			instructions: req.instructions,
-			model: req.model,
+			model: responseModel,
 			status: "completed",
 			usage: compactionResponse.usage as unknown as Record<string, unknown>,
 			created_at: createdAt,

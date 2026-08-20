@@ -14,7 +14,10 @@ import {
 	closeRealtimeSessionRecord,
 	createRealtimeSessionRecord,
 } from "./billing.js";
-import { findRealtimeTranscriptionMapping } from "./catalog.js";
+import {
+	findRealtimeMapping,
+	findRealtimeTranscriptionMapping,
+} from "./catalog.js";
 import {
 	CLIENT_SECRET_PREFIX,
 	getClientSecretRecord,
@@ -46,6 +49,24 @@ interface ShutdownableSession {
 	 * charge the provider has already made.
 	 */
 	close: (code: number, reason: string) => void;
+}
+
+export function realtimeModelIdsMatch(
+	requestedModel: string,
+	pinnedModel: string,
+): boolean {
+	if (requestedModel === pinnedModel) {
+		return true;
+	}
+	const requestedMatch = findRealtimeMapping(requestedModel);
+	const pinnedMatch = findRealtimeMapping(pinnedModel);
+	return (
+		requestedMatch !== null &&
+		pinnedMatch !== null &&
+		requestedMatch.modelId === pinnedMatch.modelId &&
+		requestedMatch.mapping.providerId === pinnedMatch.mapping.providerId &&
+		requestedMatch.mapping.region === pinnedMatch.mapping.region
+	);
 }
 
 function writeHttpError(
@@ -303,7 +324,10 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 					);
 					return;
 				}
-				if (requestedModel && requestedModel !== record.model) {
+				if (
+					requestedModel &&
+					!realtimeModelIdsMatch(requestedModel, record.model)
+				) {
 					writeHttpError(
 						socket,
 						400,

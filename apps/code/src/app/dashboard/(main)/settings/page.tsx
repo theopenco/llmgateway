@@ -51,6 +51,9 @@ export default function SettingsPage() {
 					defaultRoutingStrategy={
 						devPlanStatus.defaultRoutingStrategy ?? "auto"
 					}
+					providerCacheControlEnabled={
+						devPlanStatus.providerCacheControlEnabled ?? true
+					}
 				/>
 			)}
 

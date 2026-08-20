@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
 	isDeactivationScheduledSoon,
 	isMappingDeactivated,
+	shouldShowDeactivationNotice,
 } from "./deactivation";
 
 const now = new Date("2026-07-27T00:00:00.000Z");
@@ -55,7 +56,7 @@ describe("isDeactivationScheduledSoon", () => {
 	test("is false beyond the notice window", () => {
 		expect(
 			isDeactivationScheduledSoon(
-				{ deactivatedAt: new Date("2026-08-27T00:00:00.001Z") },
+				{ deactivatedAt: new Date("2026-08-26T00:00:00.001Z") },
 				now,
 			),
 		).toBe(false);
@@ -77,5 +78,22 @@ describe("isDeactivationScheduledSoon", () => {
 		expect(
 			isDeactivationScheduledSoon({ deactivatedAt: "2026-07-30" }, now, 7),
 		).toBe(true);
+	});
+});
+
+describe("shouldShowDeactivationNotice", () => {
+	test("is true for past and near-future dates", () => {
+		expect(
+			shouldShowDeactivationNotice({ deactivatedAt: "2026-07-26" }, now),
+		).toBe(true);
+		expect(
+			shouldShowDeactivationNotice({ deactivatedAt: "2026-10-25" }, now),
+		).toBe(true);
+	});
+
+	test("is false for distant dates", () => {
+		expect(
+			shouldShowDeactivationNotice({ deactivatedAt: "2027-07-27" }, now),
+		).toBe(false);
 	});
 });

@@ -42,6 +42,9 @@ import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
+import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
 import {
@@ -62,6 +65,7 @@ import type { RoutingMetadata } from "@llmgateway/actions";
 import type { InferSelectModel, tables } from "@llmgateway/db";
 import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
 import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
+import type { Context } from "hono";
 
 // The request arrives as multipart/form-data (OpenAI-compatible surface). The
 // schema documents the accepted fields; parsing happens via parseBody so file
@@ -206,12 +210,15 @@ function getAvailableCredits(
 	};
 }
 
-function assertCreditsAvailableForTranscription(
+async function assertCreditsAvailableForTranscription(
+	c: Context,
 	organization: InferSelectModel<typeof tables.organization>,
 	modelDef: ModelDefinition,
 	insufficientCreditsMessage: string,
 	devPlanCreditLimitMessage: (renewalDate: string) => string,
 ) {
+	await assertSpendLimit(c, organization, modelDef.free === true);
+
 	const {
 		devPlanCreditsRemaining,
 		chatPlanCreditsRemaining,
@@ -431,6 +438,12 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 	const { mapping, modelDef, modelDefId, explicitProvider } = match;
 	const upstreamModel = mapping.externalId;
 	const providerId = mapping.providerId;
+	const responseModel = formatUsedModelForDisplay(
+		providerId,
+		modelDefId,
+		undefined,
+		mapping.region,
+	);
 
 	const startedAt = Date.now();
 	const source = validateSource(
@@ -505,11 +518,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 		});
 	}
 
-	if (baseOrganization.status === "deleted") {
-		throw new HTTPException(410, {
-			message: "Organization has been disabled and is no longer accessible",
-		});
-	}
+	assertOrganizationUsable(baseOrganization);
 
 	// LLM SDK: ephemeral end-user sessions bill the bound wallet instead of the
 	// developer's org credits. For normal keys this is a no-op.
@@ -657,7 +666,8 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 			}
 			usedToken = readProviderKey(providerKey);
 		} else if (retryProject.mode === "credits") {
-			assertCreditsAvailableForTranscription(
+			await assertCreditsAvailableForTranscription(
+				c,
 				retryOrganization,
 				modelDef,
 				`Organization ${retryOrganization.id} has insufficient credits`,
@@ -687,7 +697,8 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 			if (providerKey) {
 				usedToken = readProviderKey(providerKey);
 			} else {
-				assertCreditsAvailableForTranscription(
+				await assertCreditsAvailableForTranscription(
+					c,
 					retryOrganization,
 					modelDef,
 					"No API key set for provider and organization has insufficient credits",
@@ -1246,7 +1257,9 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 			});
 
 			return c.json(
-				upstreamJson as z.infer<typeof transcriptionResponseSchema>,
+				(responseObject && typeof responseObject.model === "string"
+					? { ...responseObject, model: responseModel }
+					: upstreamJson) as z.infer<typeof transcriptionResponseSchema>,
 			);
 		}
 	} finally {

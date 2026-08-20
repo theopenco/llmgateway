@@ -48,33 +48,74 @@ const generate = customAlphabet(
 
 export const shortid = (size = 20) => generate(size);
 
-export const user = pgTable("user", {
-	id: text().primaryKey().$defaultFn(shortid),
-	createdAt: timestamp().notNull().defaultNow(),
-	updatedAt: timestamp()
-		.notNull()
-		.defaultNow()
-		.$onUpdate(() => new Date()),
-	name: text(),
-	email: text().notNull().unique(),
-	emailVerified: boolean().notNull().default(false),
-	image: text(),
-	onboardingCompleted: boolean().notNull().default(false),
-	newsletterSubscribed: boolean().notNull().default(false),
-	status: text({
-		enum: ["active", "deactivated"],
-	})
-		.notNull()
-		.default("active"),
-	// DevPass public profile. `username` is the public URL slug
-	// (/profiles/:username) and is null until the user claims one.
-	username: text().unique(),
-	profilePublic: boolean().notNull().default(false),
-	profileHidePicture: boolean().notNull().default(false),
-	bio: text(),
-	githubUsername: text(),
-	xUsername: text(),
-});
+export interface AbuseIpReport {
+	ipAddress: string;
+	abuseConfidenceScore: number;
+	totalReports?: number;
+	countryCode?: string | null;
+	usageType?: string | null;
+	isp?: string | null;
+	domain?: string | null;
+	isTor?: boolean;
+	lastReportedAt?: string | null;
+}
+
+export const user = pgTable(
+	"user",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		name: text(),
+		email: text().notNull().unique(),
+		emailVerified: boolean().notNull().default(false),
+		image: text(),
+		onboardingCompleted: boolean().notNull().default(false),
+		newsletterSubscribed: boolean().notNull().default(false),
+		status: text({
+			enum: ["active", "deactivated"],
+		})
+			.notNull()
+			.default("active"),
+		// High-risk flag raised when the sign-up or email-verification request came
+		// from an IP that AbuseIPDB reports as abusive. A flagged user cannot buy
+		// credits or run inference in any of their organizations (mirrored onto
+		// `organization.riskFlagged`) until an admin approves them, which sets the
+		// status to "approved" and never flags them again.
+		riskStatus: text({
+			enum: ["none", "flagged", "approved"],
+		})
+			.notNull()
+			.default("none"),
+		riskFlaggedAt: timestamp(),
+		riskFlagSource: text({
+			enum: ["signup", "email_verification"],
+		}),
+		riskFlagIp: text(),
+		riskFlagDetails: json().$type<AbuseIpReport>(),
+		riskReviewedAt: timestamp(),
+		riskReviewedBy: text(),
+		riskArchivedAt: timestamp(),
+		// DevPass public profile. `username` is the public URL slug
+		// (/profiles/:username) and is null until the user claims one.
+		username: text().unique(),
+		profilePublic: boolean().notNull().default(false),
+		profileHidePicture: boolean().notNull().default(false),
+		bio: text(),
+		githubUsername: text(),
+		xUsername: text(),
+	},
+	(table) => [
+		// Admin "Flagged accounts" listing. Partial so the index only carries the
+		// handful of reviewed accounts, not every user row.
+		index("user_risk_status_idx")
+			.on(table.riskStatus, table.riskFlaggedAt)
+			.where(sql`risk_status <> 'none'`),
+	],
+);
 
 export const userFavoriteModel = pgTable(
 	"user_favorite_model",
@@ -259,6 +300,11 @@ export const organization = pgTable(
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
+		// Mirror of the AbuseIPDB high-risk flag on the member who created this
+		// organization (see `user.riskStatus`). Denormalized because the gateway
+		// already loads the organization on every request, so inference can be
+		// rejected without a second lookup. Credit purchases are blocked too.
+		riskFlagged: boolean().notNull().default(false),
 		referralEarnings: decimal().notNull().default("0"),
 		// When enabled, organizations referred by this org receive a bonus on
 		// their first credit top-up. Configurable only via the admin dashboard.
@@ -268,6 +314,11 @@ export const organization = pgTable(
 		paymentFailureCount: integer().notNull().default(0),
 		lastPaymentFailureAt: timestamp(),
 		paymentFailureStartedAt: timestamp(),
+		// Admin-set trust-tier pin (0-4). When set it takes precedence over the
+		// computed age/spend tier everywhere (RPM multiplier, spend caps, top-up
+		// allowance) — both to hold an abusive org down and to lift a vetted org
+		// up. NULL = automatic ladder.
+		trustTierOverride: integer(),
 		// Organization kind:
 		// - "default": regular dashboard/team org.
 		// - "devpass": per-user personal org backing the Dev Plans (DevPass) product.
@@ -532,6 +583,12 @@ export const transaction = pgTable(
 	},
 	(table) => [
 		index("transaction_organization_id_idx").on(table.organizationId),
+		// Serves the top-up velocity gate's rolling-window SUM
+		// (org + created_at range over credit_topup rows) without scanning an
+		// org's full transaction history.
+		index("transaction_org_topup_created_at_idx")
+			.on(table.organizationId, table.createdAt)
+			.where(sql`${table.type} = 'credit_topup'`),
 		uniqueIndex("transaction_stripe_refund_id_unique")
 			.on(table.stripeRefundId)
 			.where(sql`${table.stripeRefundId} IS NOT NULL`),
@@ -2978,6 +3035,20 @@ export const installation = pgTable("installation", {
 	type: text().notNull(),
 });
 
+// Admin-toggleable global settings, one row per setting key. `enabled` is the
+// on/off state; `value` carries the setting's payload when it needs one (e.g.
+// the blocked signup country list).
+export const systemSetting = pgTable("system_setting", {
+	id: text().primaryKey(),
+	createdAt: timestamp().notNull().defaultNow(),
+	updatedAt: timestamp()
+		.notNull()
+		.defaultNow()
+		.$onUpdate(() => new Date()),
+	enabled: boolean().notNull(),
+	value: text(),
+});
+
 export const provider = pgTable(
 	"provider",
 	{
@@ -3225,11 +3296,12 @@ export const modelProviderMappingHistory = pgTable(
 		// build the replacement CONCURRENTLY before this migration runs — a
 		// rebuild under the same name would lock a table the worker writes to
 		// every minute for the duration of the scan.
-		index("model_provider_mapping_history_provider_stats_v2_idx").on(
+		index("model_provider_mapping_history_provider_stats_v3_idx").on(
 			table.minuteTimestamp,
 			table.providerId,
 			table.logsCount,
 			table.errorsCount,
+			table.clientErrorsCount,
 			table.cachedCount,
 			table.totalTimeToFirstToken,
 			table.timeToFirstTokenCount,
@@ -3377,13 +3449,14 @@ export const modelProviderMappingHistoryHourly = pgTable(
 		),
 		// Covering index for the public provider stats aggregation
 		// (filter by hourTimestamp range, group by providerId, sum metrics).
-		// See model_provider_mapping_history_provider_stats_v2_idx for why this is
+		// See model_provider_mapping_history_provider_stats_v3_idx for why this is
 		// a new name rather than a rebuild in place.
-		index("mpm_history_hourly_provider_stats_v2_idx").on(
+		index("mpm_history_hourly_provider_stats_v3_idx").on(
 			table.hourTimestamp,
 			table.providerId,
 			table.logsCount,
 			table.errorsCount,
+			table.clientErrorsCount,
 			table.cachedCount,
 			table.totalTimeToFirstToken,
 			table.timeToFirstTokenCount,
@@ -4859,6 +4932,45 @@ export const globalAggregationState = pgTable("global_aggregation_state", {
 		.defaultNow()
 		.$onUpdate(() => new Date()),
 });
+
+// Daily per-org counters of rejected requests/charges due to the anti-abuse
+// limits (endpoint RPM, USD spend caps, top-up velocity). Written by the
+// worker from Redis-buffered increments; read by the admin dashboard so we
+// can see who is hitting which limits and how hard.
+export const orgLimitHitDaily = pgTable(
+	"org_limit_hit_daily",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		// Also serves as "last time hits were flushed for this bucket".
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		day: timestamp().notNull(), // UTC midnight of the bucket
+		limitType: text({
+			enum: ["rpm", "spend_cap_daily", "spend_cap_monthly", "topup_velocity"],
+		}).notNull(),
+		// PATH_RATE_LIMITS key for rpm hits; "" for the other limit types
+		// (empty string, not null, so the unique constraint covers it).
+		endpointKey: text().notNull().default(""),
+		hitCount: integer().notNull().default(0),
+		// Gross USD of rejected top-up attempts; 0 for other limit types.
+		blockedUsd: decimal().notNull().default("0"),
+	},
+	(table) => [
+		unique().on(
+			table.organizationId,
+			table.day,
+			table.limitType,
+			table.endpointKey,
+		),
+		index("org_limit_hit_daily_day_idx").on(table.day),
+	],
+);
 
 export const skill = pgTable(
 	"skill",

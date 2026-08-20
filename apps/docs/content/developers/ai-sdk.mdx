@@ -49,7 +49,7 @@ const { text } = await generateText({
 
 LLM Gateway supports two model ID formats:
 
-- **Root model IDs** (`gpt-4o`) — smart routing picks the best provider based on uptime, throughput, price, and latency
+- **Canonical model IDs** (`gpt-4o`) — smart routing picks the best provider based on uptime, throughput, price, and latency
 - **Provider-prefixed IDs** (`openai/gpt-4o`) — routes to a specific provider with automatic failover if uptime drops below 90%
 
 See the [routing documentation](/features/routing) for details and the [models page](https://llmgateway.io/models) for the full catalog.

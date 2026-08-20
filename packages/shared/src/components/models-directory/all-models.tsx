@@ -73,7 +73,10 @@ import {
 	TooltipProvider,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { isMappingDeactivated } from "@/deactivation";
+import {
+	isMappingDeactivated,
+	shouldShowDeactivationNotice,
+} from "@/deactivation";
 import { discountFraction } from "@/lib/discount";
 import { cn } from "@/lib/utils";
 
@@ -296,6 +299,7 @@ const ModelTableRow = React.memo(
 		const isCustom = row.model.source === "custom";
 		const blockedReasons = row.provider.blockedReasons ?? [];
 		const isBlocked = blockedReasons.length > 0;
+		const showDeactivationNotice = shouldShowDeactivationNotice(row.provider);
 
 		return (
 			<>
@@ -397,7 +401,7 @@ const ModelTableRow = React.memo(
 									</TooltipContent>
 								</Tooltip>
 							)}
-							{row.provider.deactivatedAt && (
+							{showDeactivationNotice && (
 								<Tooltip>
 									<TooltipTrigger asChild>
 										<span className="shrink-0 cursor-help">
@@ -407,14 +411,14 @@ const ModelTableRow = React.memo(
 									<TooltipContent>
 										<p className="text-xs">
 											{formatDeprecationDate(
-												row.provider.deactivatedAt,
+												row.provider.deactivatedAt!,
 												"deactivated",
 											)}
 										</p>
 									</TooltipContent>
 								</Tooltip>
 							)}
-							{!row.provider.deactivatedAt && row.provider.deprecatedAt && (
+							{!showDeactivationNotice && row.provider.deprecatedAt && (
 								<Tooltip>
 									<TooltipTrigger asChild>
 										<span className="shrink-0 cursor-help">

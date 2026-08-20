@@ -895,6 +895,7 @@ publicChatSupport.post("/escalate", async (c) => {
 			name,
 			email,
 			conversationId,
+			adminConversationUrl,
 			ipAddress,
 			lastMessage: lastUserMessage,
 		}),

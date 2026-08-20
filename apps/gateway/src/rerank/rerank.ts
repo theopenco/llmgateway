@@ -43,6 +43,9 @@ import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
+import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { assertSpendLimit } from "@/lib/spend-limit.js";
 import {
 	clientFacingUpstreamFailureMessage,
 	redactedProviderErrorText,
@@ -70,6 +73,7 @@ import type { RoutingMetadata } from "@llmgateway/actions";
 import type { InferSelectModel, tables } from "@llmgateway/db";
 import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
 import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
+import type { Context } from "hono";
 
 const rerankRequestSchema = z.object({
 	model: z.string().openapi({
@@ -137,6 +141,7 @@ const rerankMetaSchema = z
 const rerankResponseSchema = z
 	.object({
 		id: z.string().optional(),
+		model: z.string(),
 		results: z.array(rerankResultSchema),
 		meta: rerankMetaSchema.optional(),
 	})
@@ -212,12 +217,15 @@ function getAvailableCredits(
 	};
 }
 
-function assertCreditsAvailableForRerank(
+async function assertCreditsAvailableForRerank(
+	c: Context,
 	organization: InferSelectModel<typeof tables.organization>,
 	modelDef: ModelDefinition,
 	insufficientCreditsMessage: string,
 	devPlanCreditLimitMessage: (renewalDate: string) => string,
 ) {
+	await assertSpendLimit(c, organization, modelDef.free === true);
+
 	const { totalAvailableCredits } = getAvailableCredits(organization);
 
 	if (totalAvailableCredits > 0 || modelDef.free) {
@@ -465,11 +473,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 		});
 	}
 
-	if (baseOrganization.status === "deleted") {
-		throw new HTTPException(410, {
-			message: "Organization has been disabled and is no longer accessible",
-		});
-	}
+	assertOrganizationUsable(baseOrganization);
 
 	// LLM SDK: ephemeral end-user sessions
 	const { project, organization, wallet } = await applyEndUserSession(
@@ -505,6 +509,12 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 	} = result;
 	const providerId = rerankMapping.providerId;
 	const upstreamModel = rerankMapping.externalId;
+	const responseModel = formatUsedModelForDisplay(
+		providerId,
+		modelDefId,
+		undefined,
+		rerankMapping.region,
+	);
 
 	// 3. Validate model output includes "rerank"
 	validateModelOutput(modelDef, requestedModel, ["rerank"]);
@@ -637,7 +647,8 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 			}
 			usedToken = readProviderKey(providerKeyInner);
 		} else if (project.mode === "credits") {
-			assertCreditsAvailableForRerank(
+			await assertCreditsAvailableForRerank(
+				c,
 				organization,
 				modelDef,
 				`Organization ${organization.id} has insufficient credits`,
@@ -656,7 +667,8 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 			if (providerKeyInner) {
 				usedToken = readProviderKey(providerKeyInner);
 			} else {
-				assertCreditsAvailableForRerank(
+				await assertCreditsAvailableForRerank(
+					c,
 					organization,
 					modelDef,
 					"No API key set for provider and organization has insufficient credits",
@@ -1224,6 +1236,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 					normalizedResponse.id = requestId;
 				}
 			}
+			normalizedResponse.model = responseModel;
 
 			// Calculate cost from input tokens
 			const inputPrice = Number(rerankMapping.inputPrice ?? "0");

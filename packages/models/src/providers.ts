@@ -329,6 +329,9 @@ export const providers: ProviderDefinition[] = [
 			required: {
 				apiKey: "LLM_ANTHROPIC_API_KEY",
 			},
+			optional: {
+				baseUrl: "LLM_ANTHROPIC_BASE_URL",
+			},
 		},
 		streaming: true,
 		cancellation: true,
@@ -480,10 +483,10 @@ export const providers: ProviderDefinition[] = [
 		env: {
 			required: {
 				apiKey: "LLM_GOOGLE_VERTEX_API_KEY",
-				project: "LLM_GOOGLE_CLOUD_PROJECT",
 			},
 			optional: {
 				baseUrl: "LLM_GOOGLE_VERTEX_BASE_URL",
+				project: "LLM_GOOGLE_CLOUD_PROJECT",
 				region: "LLM_GOOGLE_VERTEX_REGION",
 				tokenType: "LLM_GOOGLE_VERTEX_TOKEN_TYPE",
 			},
@@ -1212,6 +1215,37 @@ export const providers: ProviderDefinition[] = [
 		priority: 1.2,
 	},
 	{
+		id: "baidu",
+		name: "Baidu",
+		forwardsSafetyIdentifier: false,
+		description:
+			"Baidu's Qianfan platform serving DeepSeek, GLM, Kimi, MiMo, and Hy3 models",
+		env: {
+			required: {
+				apiKey: "LLM_BAIDU_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#2932E1",
+		website: "https://intl.cloud.baidu.com/product/qianfan.html",
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl:
+			"https://intl.cloud.baidu.com/en/doc/Agreements/s/bmesahnjh-intl-en",
+		privacyPolicyUrl:
+			"https://intl.cloud.baidu.com/en/doc/Agreements/s/Plr0fi68q-intl-en",
+		headquarters: "CN",
+		// Qianfan publishes no API training / prompt logging commitment we can
+		// point at, so every attribute stays unknown and fails closed under a
+		// compliance policy rather than claiming a guarantee Baidu never made.
+		dataPolicy: {
+			apiTraining: null,
+			promptLogging: null,
+			retentionPeriod: null,
+		},
+	},
+	{
 		id: "permafrost",
 		name: "Permafrost",
 		forwardsSafetyIdentifier: false,
@@ -1448,6 +1482,14 @@ export const providers: ProviderDefinition[] = [
 		website: "https://scx.ai",
 		statusPageUrl: null,
 		announcement: null,
+		regionConfig: {
+			optionsKey: "scx_ai_gp_region",
+			defaultRegion: "au",
+			regions: [{ id: "au", label: "Australia (default)" }],
+			endpointMap: {
+				au: "https://api.scx.ai",
+			},
+		},
 		termsUrl: "https://scx.ai/terms",
 		privacyPolicyUrl: "https://scx.ai/privacy",
 		headquarters: "AU",

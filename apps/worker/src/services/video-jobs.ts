@@ -2,7 +2,11 @@ import { createHmac } from "node:crypto";
 
 import { getStopSignal, isStopRequested } from "@/shutdown.js";
 
-import { managedCredentialOptions, readProviderKey } from "@llmgateway/actions";
+import {
+	adjustOrgSpend,
+	managedCredentialOptions,
+	readProviderKey,
+} from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import {
 	and,
@@ -102,6 +106,7 @@ const VIDEO_JOB_POLL_CLAIM_TTL_MS = 30_000;
 const VIDEO_JOB_ERROR_BASE_DELAY_MS = 10_000;
 const VIDEO_JOB_ERROR_MAX_DELAY_MS = 5 * 60 * 1000;
 const VIDEO_JOB_MAX_POLL_ERROR_COUNT = 5;
+const VIDEO_JOB_UPSTREAM_ERROR_TEXT_LIMIT = 4000;
 const VIDEO_RESOLUTION_4K = "4k";
 const VIDEO_RESOLUTION_HD = "hd";
 const VIDEO_RESOLUTION_1080P = "1080p";
@@ -808,7 +813,7 @@ async function serializeVideoJob(job: VideoJobRecord, logId?: string | null) {
 	return {
 		id: job.id,
 		object: "video" as const,
-		model: job.model,
+		model: getFormattedUsedVideoModel(job),
 		status: job.status,
 		progress:
 			job.status === "completed"
@@ -1256,22 +1261,23 @@ async function fetchJsonResponse(
 ): Promise<{
 	body: Record<string, unknown>;
 	response: Response;
+	responseText: string;
 }> {
 	const response = await fetchWithSignals(url, init, UPSTREAM_FETCH_TIMEOUT_MS);
-	const text = await response.text();
+	const responseText = await response.text();
 
 	let body: Record<string, unknown> = {};
-	if (text.length > 0) {
+	if (responseText.length > 0) {
 		try {
-			body = JSON.parse(text) as Record<string, unknown>;
+			body = JSON.parse(responseText) as Record<string, unknown>;
 		} catch {
 			body = {
-				message: text,
+				message: responseText,
 			};
 		}
 	}
 
-	return { body, response };
+	return { body, response, responseText };
 }
 
 async function fetchAvalancheRecordInfo(
@@ -1746,6 +1752,26 @@ function getVideoInputImageCount(job: VideoJobRecord): number {
 	return 0;
 }
 
+// Spend-cap estimate the gateway reserved at submission (stamped on the job
+// as llmgateway_reserved_spend_usd); finalization reconciles it against the
+// actual billed cost. Jobs created before the stamp existed read as 0, so
+// they reconcile to the full billed cost — the pre-reservation behavior.
+function getVideoReservedSpendUsd(job: VideoJobRecord): number {
+	for (const candidate of getVideoMetadataCandidates(job)) {
+		const value = readNestedValue(candidate, "llmgateway_reserved_spend_usd");
+		if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+			return value;
+		}
+		if (typeof value === "string" && value.length > 0) {
+			const parsed = Number(value);
+			if (Number.isFinite(parsed) && parsed >= 0) {
+				return parsed;
+			}
+		}
+	}
+	return 0;
+}
+
 function getVideoImageInputCost(job: VideoJobRecord): number {
 	const pricePerImage = getVideoImageInputPrice(job);
 	if (pricePerImage === null) {
@@ -2013,6 +2039,31 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 		}
 		if (claimedJob) {
 			currentJob = claimedJob;
+			// Video jobs finalize here, never through the gateway's insertLog
+			// chokepoint. The gateway already advanced the spend-cap counters by
+			// its submission-time estimate, so settle the difference to the
+			// actual credits-billed cost: completed jobs add (or refund) the
+			// delta, failed jobs refund the whole estimate. Wallet-funded and
+			// BYOK jobs bill the org nothing here; mirror organizationBilledCost.
+			if (
+				claimedJob.usedMode === "credits" &&
+				!claimedJob.endCustomerWalletId
+			) {
+				const billedVideoCost =
+					claimedJob.status === "completed"
+						? Number(
+								(
+									getVideoOutputCost(claimedJob) +
+									getVideoImageInputCost(claimedJob)
+								).toFixed(6),
+							)
+						: 0;
+				const reservedSpendUsd = getVideoReservedSpendUsd(claimedJob);
+				await adjustOrgSpend(
+					claimedJob.organizationId,
+					Number((billedVideoCost - reservedSpendUsd).toFixed(6)),
+				);
+			}
 		}
 	}
 
@@ -2388,19 +2439,19 @@ async function fetchGenericVideoStatus(
 	providerContext: ResolvedVideoProviderContext,
 ): Promise<Record<string, unknown>> {
 	const url = joinUrl(providerContext.baseUrl, `/v1/videos/${job.upstreamId}`);
-	const { body, response } = await fetchJsonResponse(url, {
+	const { body, response, responseText } = await fetchJsonResponse(url, {
 		method: "GET",
 		headers: getVideoProviderHeaders(job, providerContext),
 	});
 
 	if (!response.ok) {
+		const upstreamContents = responseText
+			.trim()
+			.slice(0, VIDEO_JOB_UPSTREAM_ERROR_TEXT_LIMIT);
 		throw new Error(
-			typeof body.error === "object" &&
-				body.error &&
-				"message" in body.error &&
-				typeof body.error.message === "string"
-				? body.error.message
-				: `Upstream status request failed with status ${response.status}`,
+			`Upstream status request failed with status ${response.status}${
+				upstreamContents ? `: ${upstreamContents}` : ""
+			}`,
 		);
 	}
 

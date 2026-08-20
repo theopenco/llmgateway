@@ -7,6 +7,7 @@ import {
 import { recordChatCompletionMetrics } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 
+import { recordSpend } from "./spend-limit.js";
 import {
 	redactErrorDetails,
 	shouldRedactProviderError,
@@ -299,6 +300,37 @@ export function calculateDataStorageCost(
 
 export type LogData = InferInsertModel<typeof log>;
 
+/**
+ * The portion of a log's cost that actually drains `organization.credits`, which
+ * is what the per-org spend caps are meant to bound. Mirrors the worker's debit
+ * rules in `batchProcessLogs` exactly — blended `log.cost` would overstate it:
+ *
+ * - end-user wallet rows debit `wallet.balance` for inference, so only their
+ *   data-storage cost hits the org;
+ * - BYOK (`usedMode: "api-keys"`) rows pay the provider directly, so again only
+ *   data storage hits the org;
+ * - cached rows are not charged for inference;
+ * - credits rows are charged `billingCost ?? cost`, plus data storage.
+ *
+ * Keeping this aligned with the worker is what stops BYOK or wallet traffic from
+ * filling a cap it can never be blocked by.
+ */
+export function organizationBilledCost(logData: LogInsertData): number {
+	const storage = Number(logData.dataStorageCost ?? 0) || 0;
+
+	const chargesOrgForInference =
+		!logData.endCustomerWalletId &&
+		logData.usedMode === "credits" &&
+		!logData.cached;
+
+	if (!chargesOrgForInference) {
+		return storage;
+	}
+
+	const inference = Number(logData.billingCost ?? logData.cost ?? 0) || 0;
+	return inference + storage;
+}
+
 export async function insertLog(
 	logData: LogInsertData,
 	options?: { retentionLevel?: "retain" | "none" | null },
@@ -380,6 +412,11 @@ export async function insertLog(
 			: undefined,
 		errorType,
 	});
+
+	// Maintain per-org daily/monthly spend-cap counters. Single DRY chokepoint
+	// for every request path; swallows its own Redis errors so logging is never
+	// blocked.
+	await recordSpend(logData.organizationId, organizationBilledCost(logData));
 
 	await publishToQueue(LOG_QUEUE, logData);
 	return 1; // Return 1 to match test expectations

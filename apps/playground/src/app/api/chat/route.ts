@@ -797,7 +797,7 @@ export async function POST(req: Request) {
 		},
 	}) as any;
 
-	// Respect root model IDs passed from the client without adding a provider prefix.
+	// Respect canonical model IDs passed from the client without adding a provider prefix.
 	// Only apply provider-based prefixing when the client did NOT explicitly specify a model
 	// (i.e. we're using a header/default model value).
 	let selectedModel = (model ?? headerModel ?? "auto") as string;
