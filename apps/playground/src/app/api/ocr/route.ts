@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 
-import { PLAYGROUND_KEY_COOKIE_NAME } from "@/lib/constants";
+import { getPlaygroundKeyForRequest } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
 
 import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
@@ -67,10 +67,7 @@ export async function POST(req: Request) {
 	const noFallbackHeader = nonEmpty(req.headers.get("x-no-fallback"));
 
 	const cookieStore = await cookies();
-	const cookieApiKey = nonEmpty(
-		cookieStore.get(PLAYGROUND_KEY_COOKIE_NAME)?.value ??
-			cookieStore.get(`__Host-${PLAYGROUND_KEY_COOKIE_NAME}`)?.value,
-	);
+	const cookieApiKey = nonEmpty(getPlaygroundKeyForRequest(cookieStore, req));
 	const finalApiKey = nonEmpty(apiKey) ?? headerApiKey ?? cookieApiKey;
 	if (!finalApiKey) {
 		return jsonResponse({ error: "Missing API key" }, 400);

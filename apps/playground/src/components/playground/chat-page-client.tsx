@@ -41,6 +41,7 @@ import { useMcpServers } from "@/hooks/useMcpServers";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useSkills, type Skill } from "@/hooks/useSkills";
 import { useUser } from "@/hooks/useUser";
+import { PLAYGROUND_PROJECT_HEADER } from "@/lib/constants";
 import { useApi } from "@/lib/fetch-client";
 import { getModelImageConfig } from "@/lib/image-gen";
 import { parseImageFile } from "@/lib/image-utils";
@@ -802,6 +803,9 @@ export default function ChatPageClient({
 				...options,
 				headers: {
 					...(options?.headers ?? {}),
+					...(selectedProject
+						? { [PLAYGROUND_PROJECT_HEADER]: selectedProject.id }
+						: {}),
 					...(noFallback ? { "x-no-fallback": "true" } : {}),
 				},
 				body: {
@@ -847,6 +851,7 @@ export default function ChatPageClient({
 			isTemporaryChat,
 			activeProjectId,
 			activeSkills,
+			selectedProject,
 		],
 	);
 
@@ -1457,6 +1462,9 @@ export default function ChatPageClient({
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
+					...(selectedProject
+						? { [PLAYGROUND_PROJECT_HEADER]: selectedProject.id }
+						: {}),
 					...(noFallback ? { "x-no-fallback": "true" } : {}),
 				},
 				body: JSON.stringify({ model: ocrModel, document }),
@@ -2276,6 +2284,7 @@ export default function ChatPageClient({
 												onVideoModelSelected={setPendingVideoModel}
 												onAudioModelSelected={setPendingAudioModel}
 												resetToken={comparisonResetToken}
+												gatewayProjectId={selectedProject?.id ?? null}
 												primaryChatId={currentChatId}
 												primaryChatIdRef={chatIdRef}
 												initialChatId={comparisonChatIds[index] ?? null}
@@ -2393,6 +2402,7 @@ interface ExtraChatPanelProps {
 	onVideoModelSelected?: (modelId: string) => void;
 	onAudioModelSelected?: (modelId: string) => void;
 	resetToken: number;
+	gatewayProjectId: string | null;
 	primaryChatId: string | null;
 	primaryChatIdRef: React.RefObject<string | null>;
 	initialChatId?: string | null;
@@ -2416,6 +2426,7 @@ function ExtraChatPanel({
 	onVideoModelSelected,
 	onAudioModelSelected,
 	resetToken,
+	gatewayProjectId,
 	primaryChatId,
 	primaryChatIdRef,
 	initialChatId = null,
@@ -2808,6 +2819,9 @@ function ExtraChatPanel({
 				...options,
 				headers: {
 					...(options?.headers ?? {}),
+					...(gatewayProjectId
+						? { [PLAYGROUND_PROJECT_HEADER]: gatewayProjectId }
+						: {}),
 					...(noFallback ? { "x-no-fallback": "true" } : {}),
 				},
 				body: {
@@ -2843,6 +2857,7 @@ function ExtraChatPanel({
 			webSearchEnabled,
 			supportsWebSearch,
 			effectiveSkills,
+			gatewayProjectId,
 		],
 	);
 

@@ -23,6 +23,7 @@ const GEMINI_PROVIDER_ID = "google-ai-studio";
 interface UseVoiceCallOptions {
 	model: string | null;
 	voice: string | null;
+	projectId: string | null;
 	/**
 	 * Provider id of the catalogue mapping serving the selected model. Null
 	 * falls back to the OpenAI protocol.
@@ -41,6 +42,7 @@ interface UseVoiceCallOptions {
 export function useVoiceCall({
 	model,
 	voice,
+	projectId,
 	provider,
 	onCallError,
 }: UseVoiceCallOptions) {
@@ -48,11 +50,13 @@ export function useVoiceCall({
 	const openaiCall = useRealtimeCall({
 		model: isGemini ? null : model,
 		voice,
+		projectId,
 		onCallError,
 	});
 	const geminiCall = useGeminiRealtimeCall({
 		model: isGemini ? model : null,
 		voice,
+		projectId,
 		onCallError,
 	});
 	const startOpenai = openaiCall.start;

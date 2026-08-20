@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { PLAYGROUND_PROJECT_HEADER } from "@/lib/constants";
 import {
 	computeRms,
 	floatToPcm16Base64,
@@ -48,6 +49,7 @@ const SPEECH_OFF_HOLD_MS = 500;
 interface UseGeminiRealtimeCallOptions {
 	model: string | null;
 	voice: string | null;
+	projectId: string | null;
 	onCallError?: (message: string) => void;
 }
 
@@ -90,6 +92,7 @@ function sumModality(rawDetails: unknown, modality: string): number {
 export function useGeminiRealtimeCall({
 	model,
 	voice,
+	projectId,
 	onCallError,
 }: UseGeminiRealtimeCallOptions) {
 	const [status, setStatus] = useState<RealtimeCallStatus>("idle");
@@ -583,7 +586,10 @@ export function useGeminiRealtimeCall({
 			try {
 				const response = await fetch("/api/realtime/session", {
 					method: "POST",
-					headers: { "Content-Type": "application/json" },
+					headers: {
+						"Content-Type": "application/json",
+						...(projectId ? { [PLAYGROUND_PROJECT_HEADER]: projectId } : {}),
+					},
 					body: JSON.stringify({ model: currentModel }),
 				});
 				if (!response.ok) {
@@ -756,7 +762,14 @@ export function useGeminiRealtimeCall({
 				}
 			}
 		},
-		[failCall, handleServerMessage, model, sendMessage, updateStatus],
+		[
+			failCall,
+			handleServerMessage,
+			model,
+			projectId,
+			sendMessage,
+			updateStatus,
+		],
 	);
 
 	const reset = useCallback(() => {
