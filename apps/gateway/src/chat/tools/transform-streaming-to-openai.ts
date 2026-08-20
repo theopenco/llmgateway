@@ -1599,5 +1599,11 @@ export function transformStreamingToOpenai(
 		}
 	}
 
+	// Upstream model names are deployment identifiers. The client-facing stream
+	// must consistently expose the gateway's canonical provider/model mapping.
+	if (transformedData && typeof transformedData === "object") {
+		transformedData.model = usedModel;
+	}
+
 	return transformedData;
 }
