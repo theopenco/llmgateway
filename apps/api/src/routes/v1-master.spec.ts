@@ -130,6 +130,22 @@ describe("v1/master cache invalidation", () => {
 		expect(body.apiKeys[0]?.id).toBe("test-api-key-id");
 	});
 
+	test("PATCH /keys rejects the reserved playground description", async () => {
+		const res = await app.request("/v1/master/keys/test-api-key-id", {
+			method: "PATCH",
+			headers: authHeaders({ "Content-Type": "application/json" }),
+			body: JSON.stringify({
+				description: "Auto-generated playground key",
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const key = await db.query.apiKey.findFirst({
+			where: { id: { eq: "test-api-key-id" } },
+		});
+		expect(key?.description).toBe("Test API Key");
+	});
+
 	test("PATCH /keys/{id} invalidates the gateway api_key cache", async () => {
 		// A per-run-unique key keeps the SWR key from colliding with entries left
 		// in Redis by earlier runs, which outlive deleteAll (it does not flush

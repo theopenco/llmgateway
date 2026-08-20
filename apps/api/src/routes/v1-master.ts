@@ -640,6 +640,15 @@ v1Master.openapi(updateApiKey, async (c) => {
 
 	const existing = await loadApiKeyForOrg(id, masterKey.organizationId);
 
+	if (
+		updates.description === PLAYGROUND_API_KEY_DESCRIPTION &&
+		!isPlaygroundApiKey(existing)
+	) {
+		throw new HTTPException(403, {
+			message: "This name is reserved for the playground API key.",
+		});
+	}
+
 	if (isPlaygroundApiKey(existing)) {
 		if (
 			updates.description !== undefined &&

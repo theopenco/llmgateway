@@ -2825,6 +2825,13 @@ devPlans.openapi(rotateApiKey, async (c) => {
 
 	const newApiKeyId = await cdb.transaction(async (tx) => {
 		await tx
+			.select({ id: tables.project.id })
+			.from(tables.project)
+			.where(eq(tables.project.id, project.id))
+			.for("update")
+			.limit(1);
+
+		await tx
 			.update(tables.apiKey)
 			.set({ status: "deleted" })
 			.where(eq(tables.apiKey.projectId, project.id));

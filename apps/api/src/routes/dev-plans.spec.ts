@@ -154,6 +154,41 @@ describe("dev plan tier changes", () => {
 		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
 	});
 
+	it("serializes concurrent API key rotations", async () => {
+		await db.insert(tables.project).values({
+			id: "test-dev-plan-project",
+			name: "Default Project",
+			organizationId: ORG_ID,
+		});
+		await db.insert(tables.apiKey).values({
+			id: "test-dev-plan-api-key",
+			token: "test-dev-plan-token",
+			projectId: "test-dev-plan-project",
+			description: "Dev Plan API Key",
+			createdBy: "test-user-id",
+		});
+
+		const responses = await Promise.all([
+			app.request("/dev-plans/rotate-api-key", {
+				method: "POST",
+				headers: { Cookie: token },
+			}),
+			app.request("/dev-plans/rotate-api-key", {
+				method: "POST",
+				headers: { Cookie: token },
+			}),
+		]);
+
+		expect(responses.map((response) => response.status)).toEqual([200, 200]);
+		const activeKeys = await db.query.apiKey.findMany({
+			where: {
+				projectId: { eq: "test-dev-plan-project" },
+				status: { eq: "active" },
+			},
+		});
+		expect(activeKeys).toHaveLength(1);
+	});
+
 	it("rejects an upgrade if the full price exceeds the confirmed amount", async () => {
 		stripeMock.subscriptions.retrieve.mockResolvedValue(
 			retrievedSubscription(),
