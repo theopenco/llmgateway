@@ -19,6 +19,8 @@ import {
 import { getModelHistory } from "@/lib/admin-history";
 import { cn } from "@/lib/utils";
 
+import { deriveStabilityMetrics } from "@llmgateway/shared";
+
 import type { HistoryWindow } from "@/components/history-chart";
 import type { PageWindow } from "@/lib/page-window";
 import type { ModelStats } from "@/lib/types";
@@ -141,10 +143,12 @@ function ModelRow({
 	externalWindow?: HistoryWindow;
 }) {
 	const [expanded, setExpanded] = useState(false);
-	const errorRate =
-		model.logsCount > 0
-			? ((model.errorsCount / model.logsCount) * 100).toFixed(1)
-			: "0.0";
+	const stability = deriveStabilityMetrics(
+		model.logsCount,
+		model.errorsCount + model.clientErrorsCount,
+		model.clientErrorsCount,
+	);
+	const errorRate = (stability.errorRate ?? 0).toFixed(1);
 
 	const fetchData = useCallback(
 		async (window: HistoryWindow) => {
@@ -214,7 +218,10 @@ function ModelRow({
 					)}
 				</TableCell>
 				<TableCell className="tabular-nums">
-					{formatNumber(model.errorsCount)}
+					{formatNumber(stability.errorsCount)}
+				</TableCell>
+				<TableCell className="tabular-nums">
+					{formatNumber(model.clientErrorsCount)}
 				</TableCell>
 				<TableCell className="tabular-nums">{errorRate}%</TableCell>
 				<TableCell className="tabular-nums">
@@ -315,6 +322,7 @@ export function ModelsTable({
 					<TableHead>Tokens</TableHead>
 					<TableHead>Pricing</TableHead>
 					{sh("Errors", "errorsCount")}
+					{sh("Client", "clientErrorsCount")}
 					<TableHead>Error Rate</TableHead>
 					{sh("Cached", "cachedCount")}
 					{sh("Avg TTFT", "avgTimeToFirstToken")}
@@ -326,7 +334,7 @@ export function ModelsTable({
 				{models.length === 0 ? (
 					<TableRow>
 						<TableCell
-							colSpan={16}
+							colSpan={17}
 							className="h-24 text-center text-muted-foreground"
 						>
 							No models found

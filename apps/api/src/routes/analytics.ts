@@ -34,6 +34,7 @@ import {
 	tables,
 } from "@llmgateway/db";
 import { models, type ModelDefinition } from "@llmgateway/models";
+import { deriveStabilityMetrics } from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -58,6 +59,7 @@ const memberUsageSchema = z.object({
 	totalTokens: z.number(),
 	requestCount: z.number(),
 	errorCount: z.number(),
+	clientErrorCount: z.number(),
 	...modeSplitSchema,
 });
 
@@ -116,6 +118,7 @@ analytics.openapi(getMembersUsage, async (c) => {
 				totalTokens: 0,
 				requestCount: 0,
 				errorCount: 0,
+				clientErrorCount: 0,
 				creditsRequestCount: 0,
 				apiKeysRequestCount: 0,
 				creditsCost: 0,
@@ -159,6 +162,10 @@ analytics.openapi(getMembersUsage, async (c) => {
 			errorCount: sql<number>`SUM(${apiKeyHourlyStats.errorCount})`.as(
 				"error_count",
 			),
+			clientErrorCount:
+				sql<number>`SUM(${apiKeyHourlyStats.clientErrorCount})`.as(
+					"client_error_count",
+				),
 			...modeSplitFields(apiKeyHourlyStats),
 		})
 		.from(apiKeyHourlyStats)
@@ -178,6 +185,7 @@ analytics.openapi(getMembersUsage, async (c) => {
 			totalTokens: number;
 			requestCount: number;
 			errorCount: number;
+			clientErrorCount: number;
 			creditsRequestCount: number;
 			apiKeysRequestCount: number;
 			creditsCost: number;
@@ -194,6 +202,7 @@ analytics.openapi(getMembersUsage, async (c) => {
 			totalTokens: 0,
 			requestCount: 0,
 			errorCount: 0,
+			clientErrorCount: 0,
 			creditsRequestCount: 0,
 			apiKeysRequestCount: 0,
 			creditsCost: 0,
@@ -203,6 +212,7 @@ analytics.openapi(getMembersUsage, async (c) => {
 		agg.totalTokens += Number(row.totalTokens ?? 0);
 		agg.requestCount += Number(row.requestCount ?? 0);
 		agg.errorCount += Number(row.errorCount ?? 0);
+		agg.clientErrorCount += Number(row.clientErrorCount ?? 0);
 		agg.creditsRequestCount += Number(row.creditsRequestCount ?? 0);
 		agg.apiKeysRequestCount += Number(row.apiKeysRequestCount ?? 0);
 		agg.creditsCost += Number(row.creditsCost ?? 0);
@@ -213,6 +223,11 @@ analytics.openapi(getMembersUsage, async (c) => {
 	const result = members
 		.map((m) => {
 			const agg = usageByCreator.get(m.userId);
+			const stability = deriveStabilityMetrics(
+				agg?.requestCount ?? 0,
+				agg?.errorCount ?? 0,
+				agg?.clientErrorCount ?? 0,
+			);
 			return {
 				userId: m.userId,
 				name: m.user?.name ?? null,
@@ -222,7 +237,8 @@ analytics.openapi(getMembersUsage, async (c) => {
 				cost: agg?.cost ?? 0,
 				totalTokens: agg?.totalTokens ?? 0,
 				requestCount: agg?.requestCount ?? 0,
-				errorCount: agg?.errorCount ?? 0,
+				errorCount: stability.errorsCount,
+				clientErrorCount: agg?.clientErrorCount ?? 0,
 				creditsRequestCount: agg?.creditsRequestCount ?? 0,
 				apiKeysRequestCount: agg?.apiKeysRequestCount ?? 0,
 				creditsCost: agg?.creditsCost ?? 0,
@@ -272,6 +288,7 @@ const memberDetailSchema = z.object({
 		totalTokens: z.number(),
 		requestCount: z.number(),
 		errorCount: z.number(),
+		clientErrorCount: z.number(),
 		cacheCount: z.number(),
 		apiKeyCount: z.number(),
 		...modeSplitSchema,
@@ -361,6 +378,7 @@ analytics.openapi(getMemberDetail, async (c) => {
 		totalTokens: 0,
 		requestCount: 0,
 		errorCount: 0,
+		clientErrorCount: 0,
 		cacheCount: 0,
 		apiKeyCount: 0,
 		creditsRequestCount: 0,
@@ -427,6 +445,10 @@ analytics.openapi(getMemberDetail, async (c) => {
 				sql<number>`COALESCE(SUM(${apiKeyHourlyStats.errorCount}), 0)`.as(
 					"error_count",
 				),
+			clientErrorCount:
+				sql<number>`COALESCE(SUM(${apiKeyHourlyStats.clientErrorCount}), 0)`.as(
+					"client_error_count",
+				),
 			cacheCount:
 				sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cacheCount}), 0)`.as(
 					"cache_count",
@@ -443,13 +465,19 @@ analytics.openapi(getMemberDetail, async (c) => {
 		);
 
 	const summaryRow = summaryRows[0];
+	const stability = deriveStabilityMetrics(
+		Number(summaryRow?.requestCount ?? 0),
+		Number(summaryRow?.errorCount ?? 0),
+		Number(summaryRow?.clientErrorCount ?? 0),
+	);
 	const summary = {
 		cost: Number(summaryRow?.cost ?? 0),
 		inputTokens: Number(summaryRow?.inputTokens ?? 0),
 		outputTokens: Number(summaryRow?.outputTokens ?? 0),
 		totalTokens: Number(summaryRow?.totalTokens ?? 0),
 		requestCount: Number(summaryRow?.requestCount ?? 0),
-		errorCount: Number(summaryRow?.errorCount ?? 0),
+		errorCount: stability.errorsCount,
+		clientErrorCount: Number(summaryRow?.clientErrorCount ?? 0),
 		cacheCount: Number(summaryRow?.cacheCount ?? 0),
 		apiKeyCount: keyIds.length,
 		creditsRequestCount: Number(summaryRow?.creditsRequestCount ?? 0),

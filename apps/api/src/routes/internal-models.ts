@@ -23,6 +23,7 @@ import {
 	providers as providerDefinitions,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
+import { deriveStabilityMetrics } from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -481,6 +482,10 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.errorsCount}), 0)`.as(
 					"errorsCount",
 				),
+			clientErrorsCount:
+				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.clientErrorsCount}), 0)`.as(
+					"clientErrorsCount",
+				),
 			upstreamErrorsCount:
 				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.upstreamErrorsCount}), 0)`.as(
 					"upstreamErrorsCount",
@@ -524,18 +529,14 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 
 	const providers = windowed.map((m) => {
 		const logsCount = Number(m.logsCount);
-		const errorsCount = Number(m.errorsCount);
-		const upstreamErrorsCount = Number(m.upstreamErrorsCount);
+		const { errorsCount, errorRate, uptime } = deriveStabilityMetrics(
+			logsCount,
+			Number(m.errorsCount),
+			Number(m.clientErrorsCount),
+		);
 		const cachedCount = Number(m.cachedCount);
 		const totalDuration = Number(m.totalDuration);
 		const totalOutputTokens = Number(m.totalOutputTokens);
-		// Uptime only counts upstream/provider-side failures against the provider —
-		// client errors (4xx from user) or gateway errors aren't the provider's fault.
-		const uptime =
-			logsCount > 0
-				? Math.round(((logsCount - upstreamErrorsCount) / logsCount) * 1000) /
-					10
-				: null;
 		// Throughput = generated (output) tokens per second of request time.
 		// Prompt tokens must not be counted — they inflate the number by the
 		// prompt/output ratio, which is 30-60x for coding-agent traffic.
@@ -552,9 +553,8 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 			avgTimeToFirstToken:
 				m.avgTimeToFirstToken !== null ? Number(m.avgTimeToFirstToken) : null,
 			tokensPerSecond,
-			errorRate:
-				logsCount > 0 ? Math.round((errorsCount / logsCount) * 1000) / 10 : 0,
-			uptime,
+			errorRate: errorRate !== null ? Math.round(errorRate * 10) / 10 : 0,
+			uptime: uptime !== null ? Math.round(uptime * 10) / 10 : null,
 			windowHours: WINDOW_HOURS,
 		};
 	});
@@ -607,6 +607,7 @@ const uptimeProviderSchema = z.object({
 	providerName: z.string(),
 	logsCount: z.number(),
 	errorsCount: z.number(),
+	clientErrorsCount: z.number(),
 	upstreamErrorsCount: z.number(),
 	uptime: z.number().nullable(),
 	avgTtft: z.number().nullable(),
@@ -816,6 +817,7 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 	const providers = Array.from(byProvider.values()).map((p) => {
 		let totalLogs = 0;
 		let totalErrors = 0;
+		let totalClientErrors = 0;
 		let totalUpstreamErrors = 0;
 		let totalDuration = 0;
 		let totalTtft = 0;
@@ -827,6 +829,7 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 		const points = p.points.map((pt) => {
 			totalLogs += pt.logsCount;
 			totalErrors += pt.errorsCount;
+			totalClientErrors += pt.clientErrorsCount;
 			totalUpstreamErrors += pt.upstreamErrorsCount;
 			totalDuration += pt.totalDuration;
 			totalTtft += pt.totalTimeToFirstToken;
@@ -840,10 +843,15 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			// (much later) first content token.
 			const { total: pointTtft, count: pointTtftCount } =
 				effectiveTtftTotals(pt);
+			const pointMetrics = deriveStabilityMetrics(
+				pt.logsCount,
+				pt.errorsCount,
+				pt.clientErrorsCount,
+			);
 			return {
 				timestamp: pt.timestamp,
 				logsCount: pt.logsCount,
-				errorsCount: pt.errorsCount,
+				errorsCount: pointMetrics.errorsCount,
 				clientErrorsCount: pt.clientErrorsCount,
 				gatewayErrorsCount: pt.gatewayErrorsCount,
 				upstreamErrorsCount: pt.upstreamErrorsCount,
@@ -856,11 +864,13 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			};
 		});
 
+		const stability = deriveStabilityMetrics(
+			totalLogs,
+			totalErrors,
+			totalClientErrors,
+		);
 		const uptime =
-			totalLogs > 0
-				? Math.round(((totalLogs - totalUpstreamErrors) / totalLogs) * 1000) /
-					10
-				: null;
+			stability.uptime !== null ? Math.round(stability.uptime * 10) / 10 : null;
 		// Output tokens only — including prompt tokens would inflate throughput
 		// by the prompt/output ratio (see the benchmarks endpoint above).
 		const tokensPerSecond =
@@ -879,7 +889,8 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			providerId: p.providerId,
 			providerName: p.providerName,
 			logsCount: totalLogs,
-			errorsCount: totalErrors,
+			errorsCount: stability.errorsCount,
+			clientErrorsCount: totalClientErrors,
 			upstreamErrorsCount: totalUpstreamErrors,
 			uptime,
 			avgTtft:

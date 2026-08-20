@@ -186,15 +186,16 @@ describe("admin routing analytics endpoint", () => {
 		const entryA = trafficHour.providers.find(
 			(p: { providerId: string }) => p.providerId === providerA,
 		);
-		// errors 3 minus client errors 1 = 2 routing errors out of 10 requests
-		expect(entryA.uptime).toBe(80);
+		// The client error is excluded from both sides: 2 stability errors among
+		// the 9 uptime-relevant requests.
+		expect(entryA.uptime).toBeCloseTo(77.78, 2);
 		expect(entryA.latency).toBe(1000);
 		expect(entryA.throughput).toBe(500);
 		expect(entryA.requestCount).toBe(10);
 		expect(entryA.score).not.toBeNull();
-		// uptime 80 is below the 95 penalty threshold, so the exponential
-		// penalty applies: ((95-80)/95*5)^2
-		expect(entryA.breakdown.uptimePenalty).toBeCloseTo(0.6233, 3);
+		// The uptime is below the 95 penalty threshold, so the exponential
+		// penalty applies.
+		expect(entryA.breakdown.uptimePenalty).toBeCloseTo(0.8216, 3);
 
 		const entryB = trafficHour.providers.find(
 			(p: { providerId: string }) => p.providerId === providerB,
@@ -217,7 +218,7 @@ describe("admin routing analytics endpoint", () => {
 			(s: { providerId: string }) => s.providerId === providerA,
 		);
 		expect(summaryA.requestCount).toBe(10);
-		expect(summaryA.uptime).toBe(80);
+		expect(summaryA.uptime).toBeCloseTo(77.78, 2);
 	});
 
 	it("only excludes a mapping once its deactivation date has passed", async () => {
