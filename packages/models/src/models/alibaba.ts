@@ -1538,6 +1538,7 @@ export const alibabaModels = [
 			{
 				providerId: "granite",
 				externalId: "qwen3.7-max",
+				deactivatedAt: new Date("2026-08-21"),
 				inputPrice: "2.5e-6",
 				outputPrice: "7.5e-6",
 				cachedInputPrice: "0.5e-6",
