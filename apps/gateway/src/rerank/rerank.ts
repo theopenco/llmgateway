@@ -44,6 +44,7 @@ import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import {
@@ -137,6 +138,7 @@ const rerankMetaSchema = z
 const rerankResponseSchema = z
 	.object({
 		id: z.string().optional(),
+		model: z.string(),
 		results: z.array(rerankResultSchema),
 		meta: rerankMetaSchema.optional(),
 	})
@@ -504,6 +506,12 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 	} = result;
 	const providerId = rerankMapping.providerId;
 	const upstreamModel = rerankMapping.externalId;
+	const responseModel = formatUsedModelForDisplay(
+		providerId,
+		modelDefId,
+		undefined,
+		rerankMapping.region,
+	);
 
 	// 3. Validate model output includes "rerank"
 	validateModelOutput(modelDef, requestedModel, ["rerank"]);
@@ -1225,6 +1233,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 					normalizedResponse.id = requestId;
 				}
 			}
+			normalizedResponse.model = responseModel;
 
 			// Calculate cost from input tokens
 			const inputPrice = Number(rerankMapping.inputPrice ?? "0");

@@ -1482,6 +1482,14 @@ export const providers: ProviderDefinition[] = [
 		website: "https://scx.ai",
 		statusPageUrl: null,
 		announcement: null,
+		regionConfig: {
+			optionsKey: "scx_ai_gp_region",
+			defaultRegion: "au",
+			regions: [{ id: "au", label: "Australia (default)" }],
+			endpointMap: {
+				au: "https://api.scx.ai",
+			},
+		},
 		termsUrl: "https://scx.ai/terms",
 		privacyPolicyUrl: "https://scx.ai/privacy",
 		headquarters: "AU",

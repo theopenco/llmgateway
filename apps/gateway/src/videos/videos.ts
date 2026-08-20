@@ -2585,7 +2585,7 @@ async function serializeVideoJob(job: VideoJobRecord, logId?: string | null) {
 	return {
 		id: job.id,
 		object: "video" as const,
-		model: job.model,
+		model: getFormattedUsedVideoModel(job.usedProvider as Provider, job.model),
 		status: job.status,
 		progress: TERMINAL_VIDEO_STATUSES.has(job.status)
 			? job.status === "completed"

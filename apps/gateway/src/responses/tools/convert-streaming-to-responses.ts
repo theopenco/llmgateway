@@ -240,6 +240,9 @@ export function processStreamChunk(
 	state: StreamingState,
 ): SSEEvent[] {
 	const events: SSEEvent[] = [];
+	if (typeof chunk.model === "string" && chunk.model) {
+		state.model = chunk.model;
+	}
 
 	// Capture the served processing tier so the completion events echo the tier
 	// the provider actually applied (e.g. a flex request downgraded to default)

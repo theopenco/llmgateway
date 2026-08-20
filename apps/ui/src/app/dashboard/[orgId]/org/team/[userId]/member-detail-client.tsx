@@ -37,6 +37,8 @@ import { useApi } from "@/lib/fetch-client";
 import { getBrowserTimeZone } from "@/lib/timezone";
 import { applyUsageMode, pickCost, pickRequests } from "@/lib/usage-mode";
 
+import { deriveStabilityMetrics } from "@llmgateway/shared";
+
 import type { Route } from "next";
 
 function periodLabel(value: number, unit: string): string {
@@ -105,11 +107,13 @@ export function MemberDetailClient() {
 	);
 
 	const summary = data?.summary;
-	// Errors are only tracked blended, so the rate always reflects all traffic.
-	const errorRate =
-		summary && summary.requestCount > 0
-			? (summary.errorCount / summary.requestCount) * 100
-			: 0;
+	const errorRate = summary
+		? (deriveStabilityMetrics(
+				summary.requestCount,
+				summary.errorCount + summary.clientErrorCount,
+				summary.clientErrorCount,
+			).errorRate ?? 0)
+		: 0;
 
 	const activity = (data?.activity ?? []).map((row) => ({
 		...row,
@@ -141,6 +145,10 @@ export function MemberDetailClient() {
 			value: (summary ? pickRequests(summary, usageMode) : 0).toLocaleString(),
 		},
 		{ label: "Error Rate", value: `${errorRate.toFixed(1)}%` },
+		{
+			label: "Client Errors",
+			value: (summary?.clientErrorCount ?? 0).toLocaleString(),
+		},
 		{ label: "API Keys", value: (summary?.apiKeyCount ?? 0).toLocaleString() },
 	];
 

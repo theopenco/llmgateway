@@ -79,10 +79,12 @@ describe("admin unstable mappings", () => {
 		providerKeyId = null,
 		hasError = false,
 		statusCode = 500,
+		classification,
 	}: {
 		providerKeyId?: string | null;
 		hasError?: boolean;
 		statusCode?: number;
+		classification?: "client_error" | "gateway_error" | "upstream_error";
 	}) {
 		logIndex++;
 		await db.insert(tables.log).values({
@@ -93,6 +95,7 @@ describe("admin unstable mappings", () => {
 			apiKeyId: "um-api-key",
 			providerKeyId,
 			hasError,
+			unifiedFinishReason: classification,
 			errorDetails: hasError
 				? {
 						statusCode,
@@ -152,6 +155,18 @@ describe("admin unstable mappings", () => {
 		expect(mapping.providerKeyId).toBeNull();
 		expect(mapping.providerKeyLabel).toBeNull();
 		expect(mapping.providerKeyManaged).toBeNull();
+	});
+
+	test("excludes client errors from stability rankings", async () => {
+		await seedLog({
+			hasError: true,
+			statusCode: 400,
+			classification: "client_error",
+		});
+		await seedLog({ hasError: false });
+
+		const body = await getMappings();
+		expect(body.mappings).toHaveLength(0);
 	});
 
 	test("splits the mapping per provider key with labels", async () => {

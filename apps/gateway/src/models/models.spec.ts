@@ -79,18 +79,18 @@ describe("Models API", () => {
 	});
 
 	test("GET /v1/models?mapped=true returns one provider-prefixed entry per mapping", async () => {
-		const [mappedRes, rootRes] = await Promise.all([
+		const [mappedRes, canonicalRes] = await Promise.all([
 			app.request("/v1/models?mapped=true"),
 			app.request("/v1/models"),
 		]);
 		expect(mappedRes.status).toBe(200);
 		const mapped = await mappedRes.json();
-		const root = await rootRes.json();
+		const canonical = await canonicalRes.json();
 
 		expect(Array.isArray(mapped.data)).toBe(true);
 		// The mapped view expands multi-provider models, so it must be strictly
 		// larger than the aggregated catalogue.
-		expect(mapped.data.length).toBeGreaterThan(root.data.length);
+		expect(mapped.data.length).toBeGreaterThan(canonical.data.length);
 
 		// Ids are `provider/model-id`, unique, and each entry carries exactly the
 		// one mapping named by its prefix.

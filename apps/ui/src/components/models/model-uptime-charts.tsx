@@ -36,6 +36,7 @@ import {
 } from "@/lib/provider-stats";
 import { cn } from "@/lib/utils";
 
+import { deriveStabilityMetrics } from "@llmgateway/shared";
 import { getProviderIcon } from "@llmgateway/shared/components";
 
 import type { paths } from "@/lib/api/v1";
@@ -85,9 +86,13 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 		hasEnoughData && hasEnoughTtftSamplesForStats(provider.ttftCount);
 
 	const errorRate =
-		provider.logsCount > 0
-			? Math.round((provider.errorsCount / provider.logsCount) * 1000) / 10
-			: 0;
+		Math.round(
+			(deriveStabilityMetrics(
+				provider.logsCount,
+				provider.errorsCount + provider.clientErrorsCount,
+				provider.clientErrorsCount,
+			).errorRate ?? 0) * 10,
+		) / 10;
 
 	const uptimeColor =
 		!hasEnoughData || provider.uptime === null
