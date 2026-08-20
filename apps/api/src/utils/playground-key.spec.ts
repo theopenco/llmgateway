@@ -198,6 +198,58 @@ describe("resolvePlaygroundToken", () => {
 		expect(result.token).not.toBe("other-playground-token");
 	});
 
+	test("migrates a legacy session key without changing its token", async () => {
+		const firstResponse = await resolver.request("/");
+		const firstBody = await firstResponse.json();
+		const chatOrg = await db.query.organization.findFirst({
+			where: { kind: { eq: "chat" } },
+		});
+		if (!chatOrg) {
+			throw new Error("Chat organization was not created");
+		}
+		const project = await db.query.project.findFirst({
+			where: { organizationId: { eq: chatOrg.id } },
+		});
+		if (!project) {
+			throw new Error("Chat project was not created");
+		}
+		const [tokenHash] = getApiKeyFingerprints(firstBody.token);
+		const key = await db.query.apiKey.findFirst({
+			where: { tokenHash: { eq: tokenHash } },
+		});
+		if (!key) {
+			throw new Error("Playground key was not created");
+		}
+
+		await db
+			.update(tables.apiKey)
+			.set({
+				token: firstBody.token,
+				tokenHash: null,
+				tokenMasked: null,
+				expiresAt: null,
+			})
+			.where(eq(tables.apiKey.id, key.id));
+
+		const response = await resolver.request("/", {
+			headers: {
+				Cookie: `${getPlaygroundKeyCookieName(project.id)}=${firstBody.token}`,
+			},
+		});
+		expect(await response.json()).toEqual({ token: firstBody.token });
+		expect(response.headers.get("set-cookie")).toContain(
+			`${getPlaygroundKeyCookieName(project.id)}=${firstBody.token}`,
+		);
+
+		const migrated = await db.query.apiKey.findFirst({
+			where: { id: { eq: key.id } },
+		});
+		expect(migrated?.token).toBeNull();
+		expect(migrated?.tokenHash).toBe(tokenHash);
+		expect(migrated?.tokenMasked).not.toBeNull();
+		expect(migrated?.expiresAt?.getTime()).toBeGreaterThan(Date.now());
+	});
+
 	test("reuses project-scoped cookies when switching projects", async () => {
 		const membership = await db.query.userOrganization.findFirst({
 			where: { userId: { eq: "test-user-id" } },

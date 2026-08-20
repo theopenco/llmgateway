@@ -2,7 +2,7 @@ import { getCookie, setCookie } from "hono/cookie";
 
 import { getOrCreateChatOrg } from "@/utils/personal-org.js";
 
-import { cdb, db, tables, shortid } from "@llmgateway/db";
+import { cdb, db, eq, tables, shortid } from "@llmgateway/db";
 import {
 	getApiKeyFingerprints,
 	hashApiKeyForStorage,
@@ -19,6 +19,7 @@ const PLAYGROUND_KEY_TTL_MS = PLAYGROUND_KEY_COOKIE_MAX_AGE * 1000;
 interface PlaygroundApiKeyResult {
 	token: string;
 	issued: boolean;
+	cookieNeedsRefresh: boolean;
 }
 
 export function getPlaygroundKeyCookieName(projectId: string): string {
@@ -49,7 +50,24 @@ export async function getOrCreatePlaygroundApiKey(
 			matchingKey &&
 			(!matchingKey.expiresAt || matchingKey.expiresAt.getTime() > Date.now())
 		) {
-			return { token: existingToken, issued: false };
+			const isLegacyKey = matchingKey.token !== null;
+			if (isLegacyKey) {
+				await cdb
+					.update(tables.apiKey)
+					.set({
+						...hashApiKeyForStorage(existingToken),
+						expiresAt:
+							matchingKey.expiresAt ??
+							new Date(Date.now() + PLAYGROUND_KEY_TTL_MS),
+					})
+					.where(eq(tables.apiKey.id, matchingKey.id));
+			}
+
+			return {
+				token: existingToken,
+				issued: false,
+				cookieNeedsRefresh: isLegacyKey,
+			};
 		}
 	}
 
@@ -66,7 +84,7 @@ export async function getOrCreatePlaygroundApiKey(
 		createdBy: userId,
 	});
 
-	return { token, issued: true };
+	return { token, issued: true, cookieNeedsRefresh: true };
 }
 
 export function setPlaygroundKeyCookie(
@@ -134,7 +152,7 @@ export async function resolvePlaygroundToken(
 		user.id,
 		scopedToken ?? getCookie(c, PLAYGROUND_KEY_COOKIE_NAME),
 	);
-	if (result.issued || !scopedToken) {
+	if (result.cookieNeedsRefresh || !scopedToken) {
 		setPlaygroundKeyCookie(c, project.id, result.token);
 	}
 	return result.token;
