@@ -6,24 +6,17 @@ import { ReadOnlyChatMessages } from "@/components/playground/chat-ui";
 import { ForkChatButton } from "@/components/playground/fork-chat-button";
 import { Wordmark } from "@/components/ui/wordmark";
 import { parsePlaygroundMessageMetadata } from "@/lib/message-metadata";
-import { fetchServerData } from "@/lib/server-api";
+import { createServerApiClient } from "@/lib/server-api";
 
+import type { paths } from "@/lib/api/v1";
 import type { UIMessage } from "ai";
 import type { Metadata } from "next";
 
-interface SharedMessage {
-	id: string;
-	role: "user" | "assistant" | "system";
-	content: string | null;
-	images: string | null;
-	audios: string | null;
-	documents: string | null;
-	reasoning: string | null;
-	tools: string | null;
-	metadata?: unknown;
-	sequence: number;
-	createdAt: string;
-}
+// Wire shapes come from the generated OpenAPI schema so optional fields
+// (sources, audios, documents, metadata) stay in sync with the endpoint.
+type SharedChatResponse =
+	paths["/public/chats/share/{shareId}"]["get"]["responses"]["200"]["content"]["application/json"];
+type SharedMessage = SharedChatResponse["share"]["messages"][number];
 
 interface StoredAudioPart {
 	type?: string;
@@ -37,16 +30,6 @@ interface StoredDocumentPart {
 	url?: string;
 	mediaType?: string;
 	name?: string;
-}
-
-interface SharedChatResponse {
-	share: {
-		id: string;
-		title: string;
-		model: string;
-		createdAt: string;
-		messages: SharedMessage[];
-	};
 }
 
 interface StoredImagePart {
@@ -124,14 +107,23 @@ function meetsIndexThreshold(messages: SharedMessage[]): boolean {
 // fetch itself is no-store, so nothing persists beyond the render pass.
 const getSharedChat = cache(
 	async (shareId: string): Promise<SharedChatResponse | null> => {
-		return await fetchServerData<SharedChatResponse>(
-			"GET",
+		const client = await createServerApiClient();
+		const { data, response } = await client.GET(
 			"/public/chats/share/{shareId}",
 			{
 				params: { path: { shareId } },
 				cache: "no-store",
 			},
 		);
+		if (data) {
+			return data;
+		}
+		// Only a confirmed missing share renders the 404 page; transient API
+		// failures throw so they reach the error boundary instead.
+		if (response.status === 404) {
+			return null;
+		}
+		throw new Error(`Failed to load shared chat (${response.status})`);
 	},
 );
 
