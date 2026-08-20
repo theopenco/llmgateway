@@ -686,12 +686,12 @@ const ModelTableRow = React.memo(
 											</TooltipTrigger>
 											<TooltipContent>
 												<div className="flex flex-col gap-1 text-xs">
-													{overflow.map(({ icon: Icon, label, color }) => (
+													{overflow.map(({ icon: Icon, label }) => (
 														<span
 															className="flex items-center gap-1.5"
 															key={label}
 														>
-															<Icon className={`h-4 w-4 ${color}`} />
+															<Icon className="h-4 w-4 text-background" />
 															{label}
 														</span>
 													))}
