@@ -1380,6 +1380,24 @@ describe("parseProviderResponse", () => {
 			expect(result.totalTokens).toBe(110);
 		});
 
+		it("reads canopywave's nested reasoning count without re-adding it", () => {
+			// Canopywave only ever nests reasoning_tokens under
+			// completion_tokens_details; non-streaming completion_tokens already
+			// includes it, so the read is display-only and total stays inclusive.
+			const result = parseProviderResponse(
+				"canopywave",
+				"deepseek-v4-pro",
+				chatJson({
+					prompt_tokens: 116,
+					completion_tokens: 109,
+					completion_tokens_details: { reasoning_tokens: 107 },
+				}),
+			);
+
+			expect(result.reasoningTokens).toBe(107);
+			expect(result.totalTokens).toBe(225);
+		});
+
 		it("adds reasoning for an additive provider (default branch)", () => {
 			const result = parseProviderResponse(
 				"xai",

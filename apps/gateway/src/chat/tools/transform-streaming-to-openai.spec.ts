@@ -730,6 +730,99 @@ describe("transformStreamingToOpenai", () => {
 		expect(error).not.toHaveBeenCalled();
 	});
 
+	it("folds canopywave streamed reasoning into completion and total tokens", () => {
+		// Exclusive-shape canopywave stream (deepseek-v4-pro probe): reasoning
+		// is outside completion_tokens and total_tokens. Forwarded chunks must
+		// carry the inclusive shape so they match the final usage chunk.
+		const result = transformStreamingToOpenai(
+			"canopywave",
+			"deepseek-v4-pro",
+			{
+				id: "chatcmpl_456",
+				object: "chat.completion.chunk",
+				model: "deepseek-v4-pro",
+				choices: [],
+				usage: {
+					prompt_tokens: 40,
+					completion_tokens: 1,
+					total_tokens: 41,
+					completion_tokens_details: { reasoning_tokens: 122 },
+				},
+			},
+			[],
+			undefined,
+			true,
+			undefined,
+			"9",
+		);
+
+		expect(result.usage).toMatchObject({
+			prompt_tokens: 40,
+			completion_tokens: 123,
+			total_tokens: 163,
+			reasoning_tokens: 122,
+		});
+	});
+
+	it("does not fold canopywave usage that already includes reasoning", () => {
+		// Inclusive-shape canopywave stream (deepseek-v4-flash probe):
+		// completion_tokens already contains the reasoning; folding here would
+		// double-count it.
+		const result = transformStreamingToOpenai(
+			"canopywave",
+			"deepseek-v4-flash",
+			{
+				id: "chatcmpl_457",
+				object: "chat.completion.chunk",
+				model: "deepseek-v4-flash",
+				choices: [],
+				usage: {
+					prompt_tokens: 37,
+					completion_tokens: 131,
+					total_tokens: 168,
+					completion_tokens_details: { reasoning_tokens: 128 },
+				},
+			},
+			[],
+			undefined,
+			true,
+			undefined,
+			"The answer is 42.",
+		);
+
+		expect(result.usage).toMatchObject({
+			prompt_tokens: 37,
+			completion_tokens: 131,
+			total_tokens: 168,
+			reasoning_tokens: 128,
+		});
+	});
+
+	it("does not alter canopywave usage without reasoning", () => {
+		const result = transformStreamingToOpenai(
+			"canopywave",
+			"kimi-k2.6",
+			{
+				id: "chatcmpl_789",
+				object: "chat.completion.chunk",
+				model: "kimi-k2.6",
+				choices: [],
+				usage: {
+					prompt_tokens: 20,
+					completion_tokens: 8,
+					total_tokens: 28,
+				},
+			},
+			[],
+		);
+
+		expect(result.usage).toMatchObject({
+			prompt_tokens: 20,
+			completion_tokens: 8,
+			total_tokens: 28,
+		});
+	});
+
 	it("logs error for Google chunk with no candidates and no usage", () => {
 		warn.mockClear();
 		error.mockClear();

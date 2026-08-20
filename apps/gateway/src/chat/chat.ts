@@ -10235,6 +10235,7 @@ chat.openapi(completions, async (c) => {
 									serverToolUseIndices,
 									supportsReasoning,
 									toolSearchState,
+									fullContent,
 								);
 
 								// Skip null events (some providers have non-data events)

@@ -1,6 +1,39 @@
+import { estimateTokensFromContent } from "./estimate-tokens-from-content.js";
 import { estimateTokens } from "./estimate-tokens.js";
 
 import type { Provider } from "@llmgateway/models";
+
+/**
+ * Decide whether a Canopywave streaming usage payload already includes
+ * reasoning in `completion_tokens`. The shape varies BY MODEL on the same
+ * provider and transport: deepseek-v4-pro streams exclusive counts
+ * (completion 1 / reasoning 122) while deepseek-v4-flash streams inclusive
+ * ones (completion 131 containing reasoning 128). `total_tokens` is
+ * prompt + completion in both shapes, so only the payload itself can
+ * discriminate: test the completion count against the visible-content
+ * estimate under each hypothesis and pick the closer one. Without content
+ * to estimate from, fall back to a size comparison. Ties prefer inclusive
+ * so an ambiguous payload underbills rather than double-bills (a
+ * thinking-only inclusive reply reports completion == reasoning).
+ */
+export function canopywaveCompletionIncludesReasoning(
+	completionTokens: number,
+	reasoningTokens: number,
+	visibleContent: string | undefined,
+): boolean {
+	if (reasoningTokens <= 0) {
+		return true;
+	}
+	if (visibleContent !== undefined) {
+		const visibleEstimate = estimateTokensFromContent(visibleContent);
+		const exclusiveDistance = Math.abs(completionTokens - visibleEstimate);
+		const inclusiveDistance = Math.abs(
+			completionTokens - (visibleEstimate + reasoningTokens),
+		);
+		return inclusiveDistance <= exclusiveDistance;
+	}
+	return completionTokens >= reasoningTokens;
+}
 
 /**
  * Adjust Google candidatesTokenCount for inconsistent API behavior.
@@ -275,6 +308,41 @@ export function extractTokenUsage(
 					(promptDetails.orchestration_input_cached_tokens ?? 0);
 				totalTokens =
 					data.usage.total_tokens ?? promptTokens + completionTokens;
+			}
+			break;
+		case "canopywave":
+			// Canopywave non-streaming folds reasoning into `completion_tokens`
+			// (why the provider is in COMPLETION_INCLUDES_REASONING), but its
+			// streaming usage varies BY MODEL — some models stream exclusive
+			// counts, others inclusive ones (see
+			// canopywaveCompletionIncludesReasoning). This extractor only runs
+			// on streaming chunks: detect the shape per payload and fold the
+			// reasoning back into the completion count only when it is
+			// excluded, so the cost engine always sees the inclusive shape.
+			if (data.usage) {
+				promptTokens = data.usage.prompt_tokens ?? null;
+				reasoningTokens =
+					data.usage.reasoning_tokens ??
+					data.usage.completion_tokens_details?.reasoning_tokens ??
+					null;
+				const rawCompletion = data.usage.completion_tokens ?? null;
+				const shouldFold =
+					rawCompletion !== null &&
+					reasoningTokens !== null &&
+					!canopywaveCompletionIncludesReasoning(
+						rawCompletion,
+						reasoningTokens,
+						fullContent,
+					);
+				completionTokens =
+					rawCompletion !== null
+						? rawCompletion + (shouldFold ? (reasoningTokens ?? 0) : 0)
+						: null;
+				totalTokens =
+					promptTokens !== null && completionTokens !== null
+						? promptTokens + completionTokens
+						: (data.usage.total_tokens ?? null);
+				cachedTokens = data.usage.prompt_tokens_details?.cached_tokens ?? null;
 			}
 			break;
 		default: // OpenAI format

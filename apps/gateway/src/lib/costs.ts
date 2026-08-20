@@ -248,8 +248,14 @@ function getPricingForTokenCount(
  * Note that only a *top-level* `usage.reasoning_tokens` reaches the cost path
  * for OpenAI-format providers (extract-token-usage reads the raw upstream
  * chunk, not the normalized one), so most of these providers are latent rather
- * than actively mis-billed today. Canopywave is the exception that is not:
- * it reports `reasoning_tokens` at the top level.
+ * than actively mis-billed today.
+ *
+ * Canopywave is inclusive when non-streaming, but its streaming shape varies
+ * BY MODEL — some models stream reasoning-exclusive counts, others inclusive
+ * ones. extract-token-usage (streaming-only) detects the shape per payload
+ * (canopywaveCompletionIncludesReasoning) and folds the reasoning back into
+ * the completion count only when excluded, so by the time counts reach this
+ * flag both modes are inclusive.
  */
 const COMPLETION_INCLUDES_REASONING = new Set([
 	"alibaba",

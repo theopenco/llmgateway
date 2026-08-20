@@ -1179,12 +1179,16 @@ export function parseProviderResponse(
 				// `completion_tokens` EXCLUDES reasoning (total_tokens = prompt +
 				// completion + reasoning) and the count only ever appears nested
 				// under `completion_tokens_details`. Reading it here is what makes
-				// reasoning billable at all. Providers that fold reasoning into
-				// `completion_tokens` must keep reading the top-level field only,
-				// or the same tokens would be billed a second time.
+				// reasoning billable at all. Canopywave also only nests the count,
+				// but its non-streaming `completion_tokens` already includes
+				// reasoning, so the nested read is display/log accuracy only —
+				// the cost engine skips re-adding it (completionIncludesReasoning).
+				// For other providers that fold reasoning into `completion_tokens`
+				// but are treated as additive by the cost engine, reading the
+				// nested count would bill the same tokens a second time.
 				reasoningTokens =
 					json.usage?.reasoning_tokens ??
-					(usedProvider === "xai"
+					(usedProvider === "xai" || usedProvider === "canopywave"
 						? (json.usage?.completion_tokens_details?.reasoning_tokens ?? null)
 						: null);
 				cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens ?? null;

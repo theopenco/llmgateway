@@ -684,6 +684,140 @@ describe("extractTokenUsage", () => {
 		});
 	});
 
+	describe("canopywave", () => {
+		// Canopywave's streaming usage shape varies BY MODEL: deepseek-v4-pro
+		// streams reasoning-exclusive counts while deepseek-v4-flash streams
+		// inclusive ones. The extractor detects the shape per payload from the
+		// visible content and folds only the exclusive shape, since the cost
+		// engine treats the provider as inclusive (COMPLETION_INCLUDES_REASONING).
+		it("folds an exclusive-shape payload (deepseek-v4-pro probe)", () => {
+			const data = {
+				usage: {
+					prompt_tokens: 40,
+					completion_tokens: 1,
+					total_tokens: 41,
+					completion_tokens_details: { reasoning_tokens: 122 },
+				},
+			};
+
+			const result = extractTokenUsage(data, "canopywave", "9");
+
+			expect(result.promptTokens).toBe(40);
+			expect(result.completionTokens).toBe(123); // 1 + 122
+			expect(result.reasoningTokens).toBe(122);
+			expect(result.totalTokens).toBe(163); // 40 + 123
+		});
+
+		it("does not fold an inclusive-shape payload (deepseek-v4-flash probe)", () => {
+			const data = {
+				usage: {
+					prompt_tokens: 37,
+					completion_tokens: 131,
+					total_tokens: 168,
+					completion_tokens_details: { reasoning_tokens: 128 },
+				},
+			};
+
+			const result = extractTokenUsage(data, "canopywave", "The answer is 42.");
+
+			expect(result.completionTokens).toBe(131); // already contains reasoning
+			expect(result.reasoningTokens).toBe(128);
+			expect(result.totalTokens).toBe(168);
+		});
+
+		it("folds an exclusive payload with a long visible answer", () => {
+			// completion ≈ visible estimate → reasoning lives outside it, even
+			// though completion > reasoning (where a bare size guard would fail).
+			const data = {
+				usage: {
+					prompt_tokens: 30,
+					completion_tokens: 200,
+					total_tokens: 230,
+					completion_tokens_details: { reasoning_tokens: 50 },
+				},
+			};
+
+			const result = extractTokenUsage(data, "canopywave", "x".repeat(800));
+
+			expect(result.completionTokens).toBe(250); // 200 + 50
+			expect(result.totalTokens).toBe(280);
+		});
+
+		it("does not fold a thinking-only inclusive payload", () => {
+			// No visible content and completion == reasoning: inclusive shape
+			// (the whole output was reasoning); folding would double-bill it.
+			const data = {
+				usage: {
+					prompt_tokens: 40,
+					completion_tokens: 128,
+					total_tokens: 168,
+					completion_tokens_details: { reasoning_tokens: 128 },
+				},
+			};
+
+			const result = extractTokenUsage(data, "canopywave", "");
+
+			expect(result.completionTokens).toBe(128);
+			expect(result.totalTokens).toBe(168);
+		});
+
+		it("falls back to a size comparison without visible content", () => {
+			const exclusive = extractTokenUsage(
+				{
+					usage: {
+						prompt_tokens: 40,
+						completion_tokens: 1,
+						total_tokens: 41,
+						reasoning_tokens: 122,
+					},
+				},
+				"canopywave",
+			);
+			expect(exclusive.completionTokens).toBe(123);
+
+			const inclusive = extractTokenUsage(
+				{
+					usage: {
+						prompt_tokens: 37,
+						completion_tokens: 131,
+						total_tokens: 168,
+						reasoning_tokens: 128,
+					},
+				},
+				"canopywave",
+			);
+			expect(inclusive.completionTokens).toBe(131);
+		});
+
+		it("leaves non-reasoning usage unchanged", () => {
+			const data = {
+				usage: {
+					prompt_tokens: 20,
+					completion_tokens: 8,
+					total_tokens: 28,
+					prompt_tokens_details: { cached_tokens: 5 },
+				},
+			};
+
+			const result = extractTokenUsage(data, "canopywave");
+
+			expect(result.promptTokens).toBe(20);
+			expect(result.completionTokens).toBe(8);
+			expect(result.reasoningTokens).toBeNull();
+			expect(result.totalTokens).toBe(28);
+			expect(result.cachedTokens).toBe(5);
+		});
+
+		it("returns null for all fields when usage is missing", () => {
+			const result = extractTokenUsage({}, "canopywave");
+
+			expect(result.promptTokens).toBeNull();
+			expect(result.completionTokens).toBeNull();
+			expect(result.reasoningTokens).toBeNull();
+			expect(result.totalTokens).toBeNull();
+		});
+	});
+
 	describe("xai", () => {
 		it("reads reasoning tokens from completion_tokens_details", () => {
 			// Real grok-4.6 usage payload. xAI reports reasoning only in the nested

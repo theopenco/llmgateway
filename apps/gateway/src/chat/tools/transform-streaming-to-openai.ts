@@ -7,6 +7,7 @@ import { calculatePromptTokensFromMessages } from "./calculate-prompt-tokens.js"
 import { extractImages } from "./extract-images.js";
 import {
 	adjustGoogleCandidateTokens,
+	canopywaveCompletionIncludesReasoning,
 	extractBedrockCacheCreationDetails,
 } from "./extract-token-usage.js";
 import { mapFinishReasonToOpenai } from "./map-finish-reason-to-openai.js";
@@ -78,6 +79,9 @@ export function transformStreamingToOpenai(
 	serverToolUseIndices?: Set<number>,
 	supportsReasoning = true,
 	toolSearchState?: AnthropicToolSearchState,
+	// Visible content streamed so far; used to detect whether a Canopywave
+	// usage payload already includes reasoning in its completion count.
+	fullContent?: string,
 ): any {
 	let transformedData = data;
 
@@ -1565,6 +1569,30 @@ export function transformStreamingToOpenai(
 				usedModel,
 				supportsReasoning,
 			);
+
+			// Some Canopywave models stream usage that excludes reasoning from
+			// completion_tokens and total_tokens while others stream inclusive
+			// counts (see canopywaveCompletionIncludesReasoning). Fold reasoning
+			// back in only for the exclusive shape so forwarded chunks match the
+			// final usage chunk; billing applies the same detection in
+			// extract-token-usage.
+			if (usedProvider === "canopywave" && transformedData?.usage) {
+				const usage = transformedData.usage;
+				if (
+					typeof usage.completion_tokens === "number" &&
+					typeof usage.reasoning_tokens === "number" &&
+					usage.reasoning_tokens > 0 &&
+					!canopywaveCompletionIncludesReasoning(
+						usage.completion_tokens,
+						usage.reasoning_tokens,
+						fullContent,
+					)
+				) {
+					usage.completion_tokens += usage.reasoning_tokens;
+					usage.total_tokens =
+						(usage.prompt_tokens ?? 0) + usage.completion_tokens;
+				}
+			}
 
 			// Map non-standard finish reasons to OpenAI-compatible values
 			if (transformedData?.choices?.[0]?.finish_reason === "end_turn") {
