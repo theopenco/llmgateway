@@ -197,6 +197,10 @@ describe("user accounts and email editability", () => {
 		expect(json.user.accounts).toBeDefined();
 		expect(Array.isArray(json.user.accounts)).toBe(true);
 		expect(json.user.accounts).toContainEqual({ providerId: "credential" });
+		expect(json.user.createdAt).toEqual(expect.any(String));
+		expect(new Date(json.user.createdAt).toISOString()).toBe(
+			json.user.createdAt,
+		);
 	});
 
 	it("GET /user/me should return isSsoUser false for a non-SSO user", async () => {
