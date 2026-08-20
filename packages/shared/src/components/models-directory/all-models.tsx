@@ -261,6 +261,13 @@ function computeCapabilities(
 			color: "text-indigo-500",
 		});
 	}
+	if (model?.output?.includes("rerank")) {
+		capabilities.push({
+			icon: ListOrdered,
+			label: "Rerank",
+			color: "text-amber-500",
+		});
+	}
 	if (provider.webSearch) {
 		capabilities.push({
 			icon: Globe,
