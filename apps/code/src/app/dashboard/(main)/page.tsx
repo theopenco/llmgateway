@@ -1,5 +1,6 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import { usePostHog } from "posthog-js/react";
 import { useState } from "react";
@@ -31,6 +32,7 @@ export default function OverviewPage() {
 	const { posthogKey } = config;
 	const posthog = usePostHog();
 	const api = useApi();
+	const queryClient = useQueryClient();
 	const [revealedApiKey, setRevealedApiKey] = useState<string | null>(null);
 
 	const { data: devPlanStatus } = useDevPlanStatus();
@@ -44,6 +46,12 @@ export default function OverviewPage() {
 		try {
 			const result = await rotateApiKeyMutation.mutateAsync({});
 			setRevealedApiKey(result.apiKey);
+			await queryClient.invalidateQueries({
+				predicate: (query) => {
+					const key = query.queryKey;
+					return Array.isArray(key) && key[1] === "/dev-plans/status";
+				},
+			});
 			if (posthogKey) {
 				posthog.capture("dev_plan_api_key_rotated");
 			}

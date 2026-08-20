@@ -2,7 +2,10 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import { getConfig } from "@/lib/config-server";
-import { PLAYGROUND_KEY_COOKIE_NAME } from "@/lib/constants";
+import {
+	getPlaygroundKeyCookieName,
+	PLAYGROUND_KEY_COOKIE_NAME,
+} from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
 
 import type { NextRequest } from "next/server";
@@ -28,12 +31,13 @@ export async function POST(req: NextRequest) {
 		: sessionCookie
 			? `${key}=${sessionCookie.value}`
 			: "";
-	const playgroundCookie = cookieStore.get(PLAYGROUND_KEY_COOKIE_NAME);
+	const scopedCookieName = getPlaygroundKeyCookieName(projectId);
+	const playgroundCookie =
+		cookieStore.get(scopedCookieName) ??
+		cookieStore.get(PLAYGROUND_KEY_COOKIE_NAME);
 	const cookieHeader = [
 		authCookie,
-		playgroundCookie
-			? `${PLAYGROUND_KEY_COOKIE_NAME}=${playgroundCookie.value}`
-			: "",
+		playgroundCookie ? `${scopedCookieName}=${playgroundCookie.value}` : "",
 	]
 		.filter(Boolean)
 		.join("; ");
@@ -55,13 +59,15 @@ export async function POST(req: NextRequest) {
 	const data = (await res.json()) as { ok: boolean; token?: string };
 	const response = NextResponse.json({ ok: true });
 	if (data?.token) {
-		response.cookies.set(PLAYGROUND_KEY_COOKIE_NAME, data.token, {
+		const options = {
 			httpOnly: true,
 			secure: process.env.NODE_ENV === "production",
 			sameSite: "lax",
 			path: "/",
 			maxAge: 60 * 60 * 24 * 30,
-		});
+		} as const;
+		response.cookies.set(scopedCookieName, data.token, options);
+		response.cookies.set(PLAYGROUND_KEY_COOKIE_NAME, data.token, options);
 	}
 	return response;
 }

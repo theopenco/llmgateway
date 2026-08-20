@@ -124,12 +124,13 @@ gateway must recover them for upstream requests. New and rolled gateway API
 keys are stored only as keyed HMAC-SHA-256 fingerprints; incoming secrets are
 fingerprinted and compared during authentication. Both protections derive from
 `GATEWAY_API_KEY_HASH_SECRET`, so there is no extra variable to set. Give it a
-strong random value on every service (`openssl rand -base64 32`).
+strong random value (`openssl rand -base64 32`) and configure that same value
+on every service.
 
-For rotation, prepend the new secret to the comma-separated keyring and retain
-the old entries while credentials and hashes still use them. Removing an old
-entry makes its provider credentials undecryptable and its remaining hashes
-unusable.
+For rotation, prepend the same new secret to the comma-separated keyring on
+every service and retain the old entries while credentials and hashes still use
+them. Removing an old entry makes its provider credentials undecryptable and
+its remaining hashes unusable.
 
 ## Multiple API keys and load balancing
 

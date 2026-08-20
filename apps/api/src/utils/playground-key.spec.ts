@@ -4,12 +4,14 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 import {
+	getOrCreatePlaygroundApiKey,
 	getGatewayUrl,
+	getPlaygroundKeyCookieName,
 	PLAYGROUND_KEY_COOKIE_NAME,
 	resolvePlaygroundToken,
 } from "@/utils/playground-key.js";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { db, eq, inArray, tables } from "@llmgateway/db";
 import { getApiKeyFingerprints } from "@llmgateway/shared/api-key-hash";
 
 import type { ServerTypes } from "@/vars.js";
@@ -120,6 +122,9 @@ describe("resolvePlaygroundToken", () => {
 			},
 		});
 		expect(keys).toHaveLength(2);
+		expect(firstCookie).toContain(
+			`${getPlaygroundKeyCookieName(project.id)}=${firstBody.token}`,
+		);
 		expect(
 			keys.every(
 				(key) =>
@@ -154,6 +159,103 @@ describe("resolvePlaygroundToken", () => {
 			eq(tables.apiKey.projectId, project.id),
 		);
 		expect(keyCount).toBe(2);
+	});
+
+	test("does not reuse another user's playground key", async () => {
+		await resolver.request("/");
+		const chatOrg = await db.query.organization.findFirst({
+			where: { kind: { eq: "chat" } },
+		});
+		if (!chatOrg) {
+			throw new Error("Chat organization was not created");
+		}
+		const project = await db.query.project.findFirst({
+			where: { organizationId: { eq: chatOrg.id } },
+		});
+		if (!project) {
+			throw new Error("Chat project was not created");
+		}
+
+		await db.insert(tables.user).values({
+			id: "other-playground-user",
+			name: "Other Playground User",
+			email: "other-playground@example.com",
+			emailVerified: true,
+		});
+		await db.insert(tables.apiKey).values({
+			token: "other-playground-token",
+			projectId: project.id,
+			description: "Auto-generated playground key",
+			createdBy: "other-playground-user",
+		});
+
+		const result = await getOrCreatePlaygroundApiKey(
+			project.id,
+			"test-user-id",
+			"other-playground-token",
+		);
+		expect(result.issued).toBe(true);
+		expect(result.token).not.toBe("other-playground-token");
+	});
+
+	test("reuses project-scoped cookies when switching projects", async () => {
+		const membership = await db.query.userOrganization.findFirst({
+			where: { userId: { eq: "test-user-id" } },
+		});
+		if (!membership) {
+			throw new Error("Default organization membership was not created");
+		}
+		const projects = await db
+			.insert(tables.project)
+			.values([
+				{
+					name: "Playground Project A",
+					organizationId: membership.organizationId,
+				},
+				{
+					name: "Playground Project B",
+					organizationId: membership.organizationId,
+				},
+			])
+			.returning();
+		const [projectA, projectB] = projects;
+		if (!projectA || !projectB) {
+			throw new Error("Playground projects were not created");
+		}
+
+		const ensure = async (projectId: string, cookie = authCookie) => {
+			const response = await app.request("/playground/ensure-key", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: cookie,
+				},
+				body: JSON.stringify({ projectId }),
+			});
+			expect(response.status).toBe(200);
+			return {
+				body: await response.json(),
+				cookie: response.headers.get("set-cookie"),
+			};
+		};
+
+		const firstA = await ensure(projectA.id);
+		const firstB = await ensure(projectB.id);
+		const scopedACookie = `${getPlaygroundKeyCookieName(projectA.id)}=${firstA.body.token}`;
+		const secondA = await ensure(
+			projectA.id,
+			`${authCookie}; ${scopedACookie}`,
+		);
+
+		expect(firstA.cookie).toContain(scopedACookie);
+		expect(firstB.cookie).toContain(getPlaygroundKeyCookieName(projectB.id));
+		expect(secondA.body.token).toBe(firstA.body.token);
+		expect(
+			await db.$count(
+				tables.apiKey,
+				inArray(tables.apiKey.projectId, [projectA.id, projectB.id]),
+			),
+		).toBe(2);
 	});
 
 	test("expires sessions without consuming developer-key quota", async () => {

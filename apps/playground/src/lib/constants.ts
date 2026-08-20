@@ -4,6 +4,16 @@ export const PLAYGROUND_KEY_COOKIE_NAMES = [
 	`__Host-${PLAYGROUND_KEY_COOKIE_NAME}`,
 ] as const;
 
+export function getPlaygroundKeyCookieName(projectId: string): string {
+	return `${PLAYGROUND_KEY_COOKIE_NAME}_${projectId}`;
+}
+
+export function isPlaygroundKeyCookieName(name: string): boolean {
+	return PLAYGROUND_KEY_COOKIE_NAMES.some(
+		(baseName) => name === baseName || name.startsWith(`${baseName}_`),
+	);
+}
+
 // Set when the user explicitly picks the "Chat plan" context in the org
 // switcher; cleared when they pick a dashboard org. The playground shell's
 // funded-org fallback must not override an explicit choice.

@@ -21,6 +21,10 @@ interface PlaygroundApiKeyResult {
 	issued: boolean;
 }
 
+export function getPlaygroundKeyCookieName(projectId: string): string {
+	return `${PLAYGROUND_KEY_COOKIE_NAME}_${projectId}`;
+}
+
 export async function getOrCreatePlaygroundApiKey(
 	projectId: string,
 	userId: string,
@@ -30,6 +34,7 @@ export async function getOrCreatePlaygroundApiKey(
 		const matchingKey = await db.query.apiKey.findFirst({
 			where: {
 				projectId: { eq: projectId },
+				createdBy: { eq: userId },
 				status: { eq: "active" },
 				keyType: { eq: "user" },
 				description: { eq: PLAYGROUND_KEY_DESCRIPTION },
@@ -66,15 +71,19 @@ export async function getOrCreatePlaygroundApiKey(
 
 export function setPlaygroundKeyCookie(
 	c: Context<ServerTypes>,
+	projectId: string,
 	token: string,
 ): void {
-	setCookie(c, PLAYGROUND_KEY_COOKIE_NAME, token, {
+	const options = {
 		httpOnly: true,
 		secure: process.env.NODE_ENV === "production",
 		sameSite: "Lax",
 		path: "/",
 		maxAge: PLAYGROUND_KEY_COOKIE_MAX_AGE,
-	});
+	} as const;
+
+	setCookie(c, getPlaygroundKeyCookieName(projectId), token, options);
+	setCookie(c, PLAYGROUND_KEY_COOKIE_NAME, token, options);
 }
 
 export function getGatewayUrl() {
@@ -119,13 +128,14 @@ export async function resolvePlaygroundToken(
 			})
 			.returning();
 	}
+	const scopedToken = getCookie(c, getPlaygroundKeyCookieName(project.id));
 	const result = await getOrCreatePlaygroundApiKey(
 		project.id,
 		user.id,
-		getCookie(c, PLAYGROUND_KEY_COOKIE_NAME),
+		scopedToken ?? getCookie(c, PLAYGROUND_KEY_COOKIE_NAME),
 	);
-	if (result.issued) {
-		setPlaygroundKeyCookie(c, result.token);
+	if (result.issued || !scopedToken) {
+		setPlaygroundKeyCookie(c, project.id, result.token);
 	}
 	return result.token;
 }

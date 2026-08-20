@@ -49,6 +49,7 @@ export default function ApiKeySection({
 			return;
 		}
 		setConfirmingRotate(false);
+		setVisible(false);
 		await onRotate();
 	};
 

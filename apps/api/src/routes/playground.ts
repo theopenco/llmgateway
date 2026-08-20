@@ -7,6 +7,7 @@ import { buildOrgHistoryFilter } from "@/utils/org-history-filter.js";
 import { getOrCreateChatOrg } from "@/utils/personal-org.js";
 import {
 	getOrCreatePlaygroundApiKey,
+	getPlaygroundKeyCookieName,
 	PLAYGROUND_KEY_COOKIE_NAME,
 	setPlaygroundKeyCookie,
 } from "@/utils/playground-key.js";
@@ -75,11 +76,12 @@ playground.openapi(ensureKey, async (c) => {
 	const { token } = await getOrCreatePlaygroundApiKey(
 		projectId,
 		user.id,
-		getCookie(c, PLAYGROUND_KEY_COOKIE_NAME),
+		getCookie(c, getPlaygroundKeyCookieName(projectId)) ??
+			getCookie(c, PLAYGROUND_KEY_COOKIE_NAME),
 	);
 
 	// Set httpOnly cookie for playground API key (API domain)
-	setPlaygroundKeyCookie(c, token);
+	setPlaygroundKeyCookie(c, projectId, token);
 
 	return c.json({ ok: true, token });
 });
