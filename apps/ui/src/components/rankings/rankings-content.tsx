@@ -182,16 +182,24 @@ export function RankingsContent({
 	}, [series]);
 
 	// Hourly buckets in the 7d window are too dense for per-bucket ticks, so
-	// the axis only marks local midnights.
-	const dayTicks = useMemo(
-		() =>
-			statsWindow === "7d"
-				? chartData
-						.map((row) => String(row.timestamp))
-						.filter((ts) => new Date(ts).getHours() === 0)
-				: undefined,
-		[chartData, statsWindow],
-	);
+	// the axis marks the first bucket of each local calendar day — robust to
+	// data gaps and DST days without a midnight bucket.
+	const dayTicks = useMemo(() => {
+		if (statsWindow !== "7d") {
+			return undefined;
+		}
+		const seenDays = new Set<string>();
+		const ticks: string[] = [];
+		for (const row of chartData) {
+			const ts = String(row.timestamp);
+			const day = format(new Date(ts), "yyyy-MM-dd");
+			if (!seenDays.has(day)) {
+				seenDays.add(day);
+				ticks.push(ts);
+			}
+		}
+		return ticks;
+	}, [chartData, statsWindow]);
 
 	const visibleModels = showAllModels
 		? models

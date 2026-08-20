@@ -239,6 +239,11 @@ publicModelStats.openapi(listRoute, async (c) => {
 			window === "30d"
 				? sql<Date>`date_trunc('day', ${mhTs})`
 				: sql<Date>`date_trunc('hour', ${mhTs})`;
+		// The 24h totals use an exact rolling lower bound, which would leave the
+		// leading hourly bucket artificially partial in the chart; floor it for
+		// the series only. The trailing in-progress bucket stays — the chart is
+		// live. 7d/30d startDate is already hour-floored.
+		const seriesStartDate = hourly ? startDate : floorToHourStart(startDate);
 
 		const seriesRows = await cdb
 			.select({
@@ -247,7 +252,7 @@ publicModelStats.openapi(listRoute, async (c) => {
 				totalTokens: sql<string>`COALESCE(SUM(${mh.totalTokens}), 0)`,
 			})
 			.from(mh)
-			.where(and(gte(mhTs, startDate), inArray(mh.modelId, topModelIds)))
+			.where(and(gte(mhTs, seriesStartDate), inArray(mh.modelId, topModelIds)))
 			.groupBy(mh.modelId, seriesBucket)
 			.orderBy(seriesBucket)
 			// The top-model set can shift within the TTL, so a tag keyed on the

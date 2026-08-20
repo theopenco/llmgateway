@@ -12,6 +12,9 @@ export const dynamicParams = false;
 export function generateStaticParams() {
 	const slugs = new Set<string>();
 	for (const post of allBlogs) {
+		if (post.draft) {
+			continue;
+		}
 		(post.categories ?? []).forEach((c: string) => slugs.add(slugify(c)));
 	}
 	return Array.from(slugs).map((category) => ({ category }));
