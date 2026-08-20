@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "bd7f5fba-0ef6-41c7-9618-f929da16a993",
+  "id": "f87f3918-460a-4399-8cb3-666f4b097e0e",
   "prevId": "5f60f954-7464-4dd1-9b20-278e94eeafe4",
   "ddl": [
     {
@@ -26367,6 +26367,13 @@
           "opclass": null
         },
         {
+          "value": "client_errors_count",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "cached_count",
           "isExpression": false,
           "asc": true,
@@ -26407,7 +26414,7 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "mpm_history_hourly_provider_stats_v2_idx",
+      "name": "mpm_history_hourly_provider_stats_v3_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "model_provider_mapping_history_hourly"
