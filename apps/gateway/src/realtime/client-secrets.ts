@@ -23,7 +23,7 @@ export interface RealtimeClientSecretRecord {
 	 */
 	token: string;
 	/**
-	 * Realtime model pinned at mint time (as requested by the caller).
+	 * Canonical realtime model pinned at mint time.
 	 */
 	model: string;
 	/**

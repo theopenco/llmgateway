@@ -593,6 +593,7 @@ responses.post("/", async (c) => {
 						error,
 					});
 					try {
+						await sendCreated();
 						const failedEvent = createFailedEvent(state);
 						await stream.writeSSE({
 							event: failedEvent.event,
