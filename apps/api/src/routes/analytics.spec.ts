@@ -38,6 +38,7 @@ interface LogOverrides {
 	completionTokens: string;
 	totalTokens: string;
 	hasError?: boolean;
+	unifiedFinishReason?: "client_error" | "gateway_error" | "upstream_error";
 	cached?: boolean;
 }
 
@@ -61,6 +62,7 @@ function insertLog(o: LogOverrides) {
 		totalTokens: o.totalTokens,
 		cost: o.cost,
 		hasError: o.hasError ?? false,
+		unifiedFinishReason: o.unifiedFinishReason,
 		cached: o.cached ?? false,
 		messages: JSON.stringify([{ role: "user", content: "Test" }]),
 		mode: "api-keys",
@@ -145,6 +147,7 @@ describe("analytics endpoints", () => {
 			completionTokens: "20",
 			totalTokens: "30",
 			hasError: true,
+			unifiedFinishReason: "upstream_error",
 		});
 		await insertLog({
 			id: "log-owner-2",
@@ -325,6 +328,7 @@ describe("analytics endpoints", () => {
 			expect(data.summary.cost).toBeCloseTo(0.3, 5);
 			expect(data.summary.requestCount).toBe(2);
 			expect(data.summary.errorCount).toBe(1);
+			expect(data.summary.clientErrorCount).toBe(0);
 			expect(data.summary.cacheCount).toBe(1);
 			expect(data.summary.totalTokens).toBe(70);
 			expect(data.summary.apiKeyCount).toBe(1);
@@ -340,6 +344,32 @@ describe("analytics endpoints", () => {
 			expect(active[0].date).toBe(localDay(logTime, "UTC"));
 			expect(active[0].modelBreakdown[0].id).toBe("gpt-4");
 			expect(active[0].modelBreakdown[0].provider).toBe("openai");
+		});
+
+		test("keeps client errors out of the stability error total", async () => {
+			await insertLog({
+				id: "log-owner-client-error",
+				apiKeyId: "key-owner",
+				usedModel: "gpt-4",
+				usedProvider: "openai",
+				cost: 0,
+				promptTokens: "0",
+				completionTokens: "0",
+				totalTokens: "0",
+				hasError: true,
+				unifiedFinishReason: "client_error",
+			});
+			await aggregateLogsForTesting();
+
+			const res = await app.request(
+				`/analytics/members/${OWNER_ID}?organizationId=${ORG_ID}`,
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(200);
+			const data = await res.json();
+			expect(data.summary.requestCount).toBe(3);
+			expect(data.summary.errorCount).toBe(1);
+			expect(data.summary.clientErrorCount).toBe(1);
 		});
 
 		test("pads a window that has no usage with empty days", async () => {

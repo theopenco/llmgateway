@@ -20,6 +20,8 @@ import {
 } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
 
+import { deriveStabilityMetrics } from "@llmgateway/shared";
+
 import type { ChartConfig } from "@/components/ui/chart";
 
 export type HistoryWindow =
@@ -204,13 +206,21 @@ export function HistoryChart({
 		(sum, d) => sum + d.totalTokens,
 		0,
 	);
+	const totalRequests = data.reduce((sum, d) => sum + d.logsCount, 0);
+	const rawErrors = data.reduce((sum, d) => sum + d.errorsCount, 0);
+	const totalClientErrors = data.reduce(
+		(sum, d) => sum + (d.clientErrorsCount ?? 0),
+		0,
+	);
+	const stability = deriveStabilityMetrics(
+		totalRequests,
+		rawErrors,
+		totalClientErrors,
+	);
 	const summaryStats = {
-		totalRequests: data.reduce((sum, d) => sum + d.logsCount, 0),
-		totalErrors: data.reduce((sum, d) => sum + d.errorsCount, 0),
-		totalClientErrors: data.reduce(
-			(sum, d) => sum + (d.clientErrorsCount ?? 0),
-			0,
-		),
+		totalRequests,
+		totalErrors: stability.errorsCount,
+		totalClientErrors,
 		totalGatewayErrors: data.reduce(
 			(sum, d) => sum + (d.gatewayErrorsCount ?? 0),
 			0,
@@ -250,14 +260,7 @@ export function HistoryChart({
 			throughputTotalMs > 0
 				? Math.round(throughputTotalTokens / (throughputTotalMs / 1000))
 				: null,
-		errorRate:
-			data.reduce((sum, d) => sum + d.logsCount, 0) > 0
-				? (
-						(data.reduce((sum, d) => sum + d.errorsCount, 0) /
-							data.reduce((sum, d) => sum + d.logsCount, 0)) *
-						100
-					).toFixed(1)
-				: "0.0",
+		errorRate: (stability.errorRate ?? 0).toFixed(1),
 	};
 
 	function formatCompact(n: number): string {
