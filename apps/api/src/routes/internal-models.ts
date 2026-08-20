@@ -93,6 +93,7 @@ const modelProviderMappingSchema = z.object({
 		.array(z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"]))
 		.nullable(),
 	reasoningOutput: z.string().nullable(),
+	reasoningMaxTokens: z.boolean().nullable(),
 	tools: z.boolean().nullable(),
 	jsonOutput: z.boolean().nullable(),
 	jsonOutputSchema: z.boolean().nullable(),
