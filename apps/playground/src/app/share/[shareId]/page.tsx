@@ -5,8 +5,8 @@ import { cache } from "react";
 import { ReadOnlyChatMessages } from "@/components/playground/chat-ui";
 import { ForkChatButton } from "@/components/playground/fork-chat-button";
 import { Wordmark } from "@/components/ui/wordmark";
-import { getConfig } from "@/lib/config-server";
 import { parsePlaygroundMessageMetadata } from "@/lib/message-metadata";
+import { fetchServerData } from "@/lib/server-api";
 
 import type { UIMessage } from "ai";
 import type { Metadata } from "next";
@@ -124,15 +124,14 @@ function meetsIndexThreshold(messages: SharedMessage[]): boolean {
 // fetch itself is no-store, so nothing persists beyond the render pass.
 const getSharedChat = cache(
 	async (shareId: string): Promise<SharedChatResponse | null> => {
-		const config = getConfig();
-		const response = await fetch(
-			`${config.apiBackendUrl}/public/chats/share/${shareId}`,
-			{ cache: "no-store" },
+		return await fetchServerData<SharedChatResponse>(
+			"GET",
+			"/public/chats/share/{shareId}",
+			{
+				params: { path: { shareId } },
+				cache: "no-store",
+			},
 		);
-		if (!response.ok) {
-			return null;
-		}
-		return (await response.json()) as SharedChatResponse;
 	},
 );
 

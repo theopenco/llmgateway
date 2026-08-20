@@ -1032,8 +1032,9 @@ export async function POST(req: Request) {
 						const clientPromise = createMCPClient({ transport });
 
 						// Add 10 second timeout to prevent hanging
+						let timeoutId: ReturnType<typeof setTimeout> | undefined;
 						const timeoutPromise = new Promise<never>((_, reject) => {
-							setTimeout(
+							timeoutId = setTimeout(
 								() =>
 									reject(
 										new Error(`MCP connection timeout for ${server.name}`),
@@ -1042,8 +1043,24 @@ export async function POST(req: Request) {
 							);
 						});
 
-						const client = await Promise.race([clientPromise, timeoutPromise]);
-						return { client, name: server.name };
+						try {
+							const client = await Promise.race([
+								clientPromise,
+								timeoutPromise,
+							]);
+							return { client, name: server.name };
+						} catch {
+							// Timeout or connection failure: losing the race does not
+							// cancel the connection attempt, so tear down the transport
+							// and close a client that may still resolve later.
+							void transport.close().catch(() => {});
+							void clientPromise
+								.then((client) => client.close())
+								.catch(() => {});
+							return null;
+						} finally {
+							clearTimeout(timeoutId);
+						}
 					} catch {
 						// Continue with other servers
 						return null;
