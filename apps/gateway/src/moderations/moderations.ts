@@ -34,6 +34,7 @@ import { buildOpenAIErrorBody } from "@/lib/error-response.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
@@ -423,6 +424,10 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 	}
 
 	const { input, model: upstreamModel } = validationResult.data;
+	const responseModel = formatUsedModelForDisplay(
+		"openai",
+		"openai-moderation",
+	);
 	const startedAt = Date.now();
 	const source = validateSource(
 		c.req.header("x-source"),
@@ -1025,7 +1030,10 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 				{ retentionLevel },
 			);
 
-			return c.json(upstreamJson as any);
+			return c.json({
+				...(upstreamJson as Record<string, unknown>),
+				model: responseModel,
+			});
 		}
 	} finally {
 		c.req.raw.signal.removeEventListener("abort", onAbort);

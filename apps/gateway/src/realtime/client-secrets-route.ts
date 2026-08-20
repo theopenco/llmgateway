@@ -3,6 +3,7 @@ import { OpenAPIHono, z } from "@hono/zod-openapi";
 import { validateSource } from "@/chat/tools/validate-source.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
+import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 
 import { logger } from "@llmgateway/logger";
 
@@ -207,7 +208,12 @@ realtimeClientSecretsRoute.post("/client_secrets", async (c) => {
 		expires_at: secret.expiresAt,
 		session: {
 			type: "realtime" as const,
-			model: body.session.model,
+			model: formatUsedModelForDisplay(
+				preflight.match.mapping.providerId,
+				preflight.match.modelId,
+				undefined,
+				preflight.match.mapping.region,
+			),
 		},
 	});
 });

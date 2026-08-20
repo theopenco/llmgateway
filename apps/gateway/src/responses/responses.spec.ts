@@ -1289,6 +1289,21 @@ describe("streaming conversion", () => {
 		expect(data.response.status).toBe("in_progress");
 	});
 
+	it("uses the canonical model from streaming chat chunks", () => {
+		const state = createStreamingState("deepseek-v4-flash");
+		processStreamChunk(
+			{
+				model: "deepinfra/deepseek-v4-flash",
+				choices: [{ delta: { content: "Hello" } }],
+			},
+			state,
+		);
+
+		const completed = createCompletionEvents(state);
+		const data = JSON.parse(completed[completed.length - 1]!.data);
+		expect(data.response.model).toBe("deepinfra/deepseek-v4-flash");
+	});
+
 	it("processes content delta", () => {
 		const state = createStreamingState("gpt-4o-mini");
 		const chunk = {

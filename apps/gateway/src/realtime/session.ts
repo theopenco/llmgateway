@@ -1,6 +1,7 @@
 import { Decimal } from "decimal.js";
 import { WebSocket } from "ws";
 
+import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { checkProviderRateLimit } from "@/lib/provider-rate-limit.js";
 
 import { getEffectiveDiscount } from "@llmgateway/db";
@@ -835,6 +836,36 @@ export class RealtimeProxySession {
 		this.shutdown(1008, "insufficient_credits");
 	}
 
+	private canonicalModelId(match: RealtimeMappingMatch): string {
+		return formatUsedModelForDisplay(
+			match.mapping.providerId,
+			match.modelId,
+			undefined,
+			match.mapping.region,
+		);
+	}
+
+	private normalizeSessionModelIds(session: Record<string, unknown>): void {
+		session.model = this.canonicalModelId(this.preflight.match);
+		const audio =
+			session.audio && typeof session.audio === "object"
+				? (session.audio as Record<string, unknown>)
+				: undefined;
+		const input =
+			audio?.input && typeof audio.input === "object"
+				? (audio.input as Record<string, unknown>)
+				: undefined;
+		const transcription =
+			input?.transcription && typeof input.transcription === "object"
+				? (input.transcription as Record<string, unknown>)
+				: undefined;
+		const transcriptionMatch =
+			this.transcription?.match ?? this.allowedTranscription;
+		if (transcription && transcriptionMatch) {
+			transcription.model = this.canonicalModelId(transcriptionMatch);
+		}
+	}
+
 	// --- Upstream → client ---
 
 	private async handleUpstreamMessage(data: RawData): Promise<void> {
@@ -872,7 +903,8 @@ export class RealtimeProxySession {
 						);
 					});
 				}
-				this.sendToClientRaw(text);
+				this.normalizeSessionModelIds(session);
+				this.sendToClientRaw(JSON.stringify(event));
 				// Disable the provider's automatic VAD response so every generation
 				// passes the gateway's authorization gates. The echoed
 				// session.updated for this control message is suppressed below.
@@ -896,13 +928,19 @@ export class RealtimeProxySession {
 				);
 				return;
 			}
-			case "session.updated":
+			case "session.updated": {
 				if (this.suppressSessionUpdated > 0) {
 					this.suppressSessionUpdated -= 1;
 					return;
 				}
-				this.sendToClientRaw(text);
+				const session =
+					event.session && typeof event.session === "object"
+						? (event.session as Record<string, unknown>)
+						: {};
+				this.normalizeSessionModelIds(session);
+				this.sendToClientRaw(JSON.stringify(event));
 				return;
+			}
 			case "response.created": {
 				const response =
 					event.response && typeof event.response === "object"
@@ -911,12 +949,21 @@ export class RealtimeProxySession {
 				this.responseInFlight =
 					typeof response.id === "string" ? response.id : "pending";
 				this.responseStartedAt = this.responseStartedAt ?? Date.now();
-				this.sendToClientRaw(text);
+				response.model = this.canonicalModelId(this.preflight.match);
+				this.sendToClientRaw(JSON.stringify(event));
 				return;
 			}
-			case "response.done":
-				await this.handleResponseDone(event, text);
+			case "response.done": {
+				const response =
+					event.response && typeof event.response === "object"
+						? (event.response as Record<string, unknown>)
+						: undefined;
+				if (response) {
+					response.model = this.canonicalModelId(this.preflight.match);
+				}
+				await this.handleResponseDone(event, JSON.stringify(event));
 				return;
+			}
 			case "input_audio_buffer.committed": {
 				const itemId =
 					typeof event.item_id === "string" ? event.item_id : undefined;

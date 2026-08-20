@@ -739,6 +739,7 @@ describe("api", () => {
 		expect(res.status).toBe(200);
 		const json = await res.json();
 		expect(json.id).toMatch(/^msg_/);
+		expect(json.model).toBe("llmgateway/custom");
 
 		const streamRes = await makeRequest(true);
 		expect(streamRes.status).toBe(200);
@@ -752,6 +753,7 @@ describe("api", () => {
 		const messageStart = events.find((e) => e.type === "message_start");
 		expect(messageStart).toBeTruthy();
 		expect(messageStart.message.id).toMatch(/^msg_/);
+		expect(messageStart.message.model).toBe("llmgateway/custom");
 	});
 
 	test("/v1/messages surfaces reasoning as thinking_delta events (streaming)", async () => {
@@ -1958,6 +1960,7 @@ describe("api", () => {
 		expect(res.status).toBe(200);
 		const json = await res.json();
 		expect(json.id).toMatch(/^resp_/);
+		expect(json.model).toBe("openai/gpt-4o-mini");
 		expect(json.output.length).toBeGreaterThan(0);
 
 		// The stored response is retrievable (state lives in responses storage).
@@ -1969,6 +1972,7 @@ describe("api", () => {
 		expect(getRes.status).toBe(200);
 		const stored = await getRes.json();
 		expect(stored.id).toBe(json.id);
+		expect(stored.model).toBe("openai/gpt-4o-mini");
 		expect(stored.output.length).toBeGreaterThan(0);
 
 		// The log row keeps metadata only — no payload, no responsesApiData.
@@ -2367,7 +2371,7 @@ describe("api", () => {
 				Authorization: "Bearer real-token-service-tier-stream",
 			},
 			body: JSON.stringify({
-				model: "openai/gpt-5.5",
+				model: "gpt-5.5",
 				service_tier: "priority",
 				stream: true,
 				stream_options: { include_usage: true },
@@ -2536,6 +2540,12 @@ describe("api", () => {
 
 		expect(res.status).toBe(200);
 		const raw = await res.text();
+		const createdLine = raw
+			.split("\n")
+			.find(
+				(line) =>
+					line.startsWith("data: ") && line.includes('"response.created"'),
+			);
 		const completedLine = raw
 			.split("\n")
 			.find(
@@ -2543,7 +2553,11 @@ describe("api", () => {
 					line.startsWith("data: ") && line.includes('"response.completed"'),
 			);
 		expect(completedLine).toBeDefined();
+		expect(createdLine).toBeDefined();
+		const created = JSON.parse(createdLine!.slice(6));
 		const completed = JSON.parse(completedLine!.slice(6));
+		expect(created.response.model).toBe("openai/gpt-5.5");
+		expect(completed.response.model).toBe("openai/gpt-5.5");
 		expect(completed.response.service_tier).toBe("priority");
 
 		const logs = await waitForLogs(1);
@@ -3010,7 +3024,7 @@ describe("api", () => {
 
 		const json = await res.json();
 		expect(json).toHaveProperty("id", "modr-123");
-		expect(json).toHaveProperty("model", "omni-moderation-latest");
+		expect(json).toHaveProperty("model", "openai/openai-moderation");
 		expect(json.results[0].flagged).toBe(true);
 
 		const logs = await waitForLogs(1);
@@ -3250,7 +3264,7 @@ describe("api", () => {
 
 		const json = await res.json();
 		expect(json).toHaveProperty("object", "list");
-		expect(json).toHaveProperty("model", "text-embedding-3-small");
+		expect(json).toHaveProperty("model", "openai/text-embedding-3-small");
 		expect(Array.isArray(json.data)).toBe(true);
 		expect(json.data[0]).toHaveProperty("embedding");
 		expect(Array.isArray(json.data[0].embedding)).toBe(true);
@@ -3557,7 +3571,10 @@ describe("api", () => {
 
 		const json = await res.json();
 		expect(json).toHaveProperty("object", "list");
-		expect(json).toHaveProperty("model", "gemini-embedding-001");
+		expect(json).toHaveProperty(
+			"model",
+			"google-ai-studio/gemini-embedding-001",
+		);
 		expect(Array.isArray(json.data)).toBe(true);
 		expect(json.data).toHaveLength(1);
 		expect(json.data[0]).toHaveProperty("object", "embedding");
@@ -3633,7 +3650,10 @@ describe("api", () => {
 			expect(res.status).toBe(200);
 			const json = await res.json();
 			expect(json).toHaveProperty("object", "list");
-			expect(json).toHaveProperty("model", "gemini-embedding-001");
+			expect(json).toHaveProperty(
+				"model",
+				"google-ai-studio/gemini-embedding-001",
+			);
 			expect(json.data).toHaveLength(1);
 			expect(json.data[0].embedding).toHaveLength(768);
 

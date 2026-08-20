@@ -43,6 +43,7 @@ import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import {
@@ -524,6 +525,12 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 	const { mapping, modelDef, modelDefId, explicitProvider } = match;
 	const upstreamModel = mapping.externalId;
 	const providerId = mapping.providerId;
+	const responseModel = formatUsedModelForDisplay(
+		providerId,
+		modelDefId,
+		undefined,
+		mapping.region,
+	);
 
 	const isTokenIdInput = (() => {
 		if (!Array.isArray(input)) {
@@ -1511,7 +1518,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				normalizedResponse = {
 					object: "list",
 					data,
-					model: requestedModel,
+					model: responseModel,
 					usage: {
 						prompt_tokens: promptTokens,
 						total_tokens: totalTokens,
@@ -1568,7 +1575,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				normalizedResponse = {
 					object: "list",
 					data,
-					model: requestedModel,
+					model: responseModel,
 					usage: {
 						prompt_tokens: promptTokens,
 						total_tokens: totalTokens,
@@ -1596,6 +1603,8 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 					});
 				}
 			}
+
+			normalizedResponse.model = responseModel;
 
 			const inputPrice = Number(mapping.inputPrice ?? "0");
 			const inputCost = promptTokens !== null ? promptTokens * inputPrice : 0;

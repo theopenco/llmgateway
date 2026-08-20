@@ -42,6 +42,7 @@ import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
@@ -437,6 +438,12 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 	const { mapping, modelDef, modelDefId, explicitProvider } = match;
 	const upstreamModel = mapping.externalId;
 	const providerId = mapping.providerId;
+	const responseModel = formatUsedModelForDisplay(
+		providerId,
+		modelDefId,
+		undefined,
+		mapping.region,
+	);
 
 	const startedAt = Date.now();
 	const source = validateSource(
@@ -1250,7 +1257,9 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 			});
 
 			return c.json(
-				upstreamJson as z.infer<typeof transcriptionResponseSchema>,
+				(responseObject && typeof responseObject.model === "string"
+					? { ...responseObject, model: responseModel }
+					: upstreamJson) as z.infer<typeof transcriptionResponseSchema>,
 			);
 		}
 	} finally {

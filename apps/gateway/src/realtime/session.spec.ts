@@ -195,6 +195,26 @@ beforeEach(() => {
 });
 
 describe("RealtimeProxySession turn handling", () => {
+	it("canonicalizes model ids in upstream lifecycle events", async () => {
+		const { client, session, upstreamSends } = createSession();
+
+		upstreamSends({
+			type: "session.created",
+			session: { id: "sess_1", model: "upstream-deployment" },
+		});
+		upstreamSends({
+			type: "response.created",
+			response: { id: "resp_1", model: "upstream-deployment" },
+		});
+		await flush();
+
+		const events = client.sent.map((value) => JSON.parse(value));
+		expect(events[0].session.model).toBe("openai/gpt-realtime-2.1-mini");
+		expect(events[1].response.model).toBe("openai/gpt-realtime-2.1-mini");
+
+		session.shutdown(1000, "test_done");
+	});
+
 	it("starts the pending auto-response only after a commit-during-response's response.done is billed", async () => {
 		const { upstream, session, clientSends, upstreamSends } = createSession();
 
