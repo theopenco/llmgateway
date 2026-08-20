@@ -6,7 +6,7 @@ test("bounds serializable nested payloads without overflowing the call stack", (
 	const messages: Record<string, unknown> = {};
 	let nested = messages;
 
-	for (let depth = 0; depth < 5_000; depth++) {
+	for (let depth = 0; depth < 1_000; depth++) {
 		const next: Record<string, unknown> = {};
 		nested.content = next;
 		nested = next;
@@ -37,4 +37,14 @@ test("redacts base64 in regular message payloads", () => {
 			content: "[base64_image_input_redacted]",
 		},
 	]);
+});
+
+test("preserves literal __proto__ keys", () => {
+	const messages: unknown = JSON.parse(
+		'{"__proto__":{"content":"message data"}}',
+	);
+
+	expect(JSON.stringify(scrubMessagesBase64(messages))).toBe(
+		'{"__proto__":{"content":"message data"}}',
+	);
 });

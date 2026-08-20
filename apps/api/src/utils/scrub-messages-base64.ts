@@ -22,7 +22,7 @@ function scrubMessagesBase64AtDepth(messages: unknown, depth: number): unknown {
 		return messages.map((item) => scrubMessagesBase64AtDepth(item, depth + 1));
 	}
 	if (typeof messages === "object") {
-		const out: Record<string, unknown> = {};
+		const out = Object.create(null) as Record<string, unknown>;
 		for (const [key, value] of Object.entries(messages)) {
 			out[key] = scrubMessagesBase64AtDepth(value, depth + 1);
 		}
