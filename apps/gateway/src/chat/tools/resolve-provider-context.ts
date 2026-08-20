@@ -171,7 +171,6 @@ export interface ProviderContextOptions {
 	userPlan: "free" | "pro" | "enterprise" | null;
 	hasExistingToolCalls: boolean;
 	customProviderName: string | undefined;
-	webSearchEnabled: boolean;
 	excludedEnvKeyIndices?: ReadonlySet<number>;
 	excludedProviderKeyIds?: ReadonlySet<string>;
 	n?: number;
@@ -1032,7 +1031,6 @@ export async function resolveProviderContext(
 	// --- Headers ---
 	const headers = getProviderHeaders(usedProvider as Provider, usedToken, {
 		requestId: options.requestId,
-		webSearchEnabled: options.webSearchEnabled,
 		tokenType: vertexTokenType,
 	});
 	headers["Content-Type"] = "application/json";

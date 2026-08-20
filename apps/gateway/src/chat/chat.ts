@@ -7276,7 +7276,6 @@ chat.openapi(completions, async (c) => {
 				userPlan,
 				hasExistingToolCalls,
 				customProviderName,
-				webSearchEnabled: !!webSearchTool,
 				excludedEnvKeyIndices: failedKeys.envKeyIndicesFor(
 					providerMapping.providerId,
 					providerMapping.region,
@@ -7933,7 +7932,6 @@ chat.openapi(completions, async (c) => {
 						servedServiceTier = null;
 						const headers = getProviderHeaders(usedProvider, usedToken, {
 							requestId,
-							webSearchEnabled: !!webSearchTool,
 							// Same resolved token type as the endpoint so header auth and
 							// the `?key=` query param never disagree.
 							tokenType: resolveActiveVertexTokenType(),
@@ -12349,7 +12347,6 @@ chat.openapi(completions, async (c) => {
 		try {
 			const headers = getProviderHeaders(usedProvider, usedToken, {
 				requestId,
-				webSearchEnabled: !!webSearchTool,
 				// Same resolved token type as the endpoint so header auth and the
 				// `?key=` query param never disagree.
 				tokenType: resolveActiveVertexTokenType(),

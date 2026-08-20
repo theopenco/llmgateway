@@ -7,10 +7,6 @@ import {
 import type { ProviderKeyOptions } from "@llmgateway/db";
 
 export interface ProviderHeaderOptions {
-	/**
-	 * Enable web search beta header for Anthropic
-	 */
-	webSearchEnabled?: boolean;
 	requestId?: string;
 	providerKeyOptions?: ProviderKeyOptions;
 	configIndex?: number;
@@ -51,18 +47,17 @@ export function getProviderHeaders(
 	}
 
 	switch (provider) {
-		case "anthropic": {
-			const betaFeatures = ["tools-2024-04-04", "prompt-caching-2024-07-31"];
-			if (options?.webSearchEnabled) {
-				betaFeatures.push("web-search-2025-03-05");
-			}
+		// No `anthropic-beta` here: tool use, prompt caching and web search are
+		// all GA and need no beta opt-in. Anthropic 400s on an unrecognized beta
+		// name, so a retired one would fail every request, not just the ones
+		// using the feature. Callers add the betas they actually need
+		// (`effort-2025-11-24`, `structured-outputs-2025-11-13`) per request.
+		case "anthropic":
 			return {
 				...requestIdHeader,
 				"x-api-key": token,
 				"anthropic-version": "2023-06-01",
-				"anthropic-beta": betaFeatures.join(","),
 			};
-		}
 		case "google-ai-studio":
 		case "glacier":
 		case "iceberg":
