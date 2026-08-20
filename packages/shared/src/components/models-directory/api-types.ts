@@ -51,6 +51,7 @@ export interface ApiModelProviderMapping {
 		("none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max")[] | null;
 	reasoningOutput: string | null;
 	reasoningMaxTokens: boolean | null;
+	rerank: boolean | null;
 	tools: boolean | null;
 	jsonOutput: boolean | null;
 	jsonOutputSchema: boolean | null;

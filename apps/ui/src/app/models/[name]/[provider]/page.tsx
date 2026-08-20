@@ -372,10 +372,7 @@ export default async function ModelProviderPage({ params }: PageProps) {
 										color: "text-pink-500",
 									});
 								}
-								if (
-									Array.isArray(modelDef.output) &&
-									modelDef.output.includes("rerank")
-								) {
+								if (providerMapping.rerank) {
 									items.push({
 										key: "rerank",
 										icon: ListOrdered,
