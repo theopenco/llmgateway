@@ -25,6 +25,29 @@ vi.mock("@llmgateway/logger", () => ({
 }));
 
 describe("transformStreamingToOpenai", () => {
+	it("replaces upstream model ids with the canonical mapping", () => {
+		const result = transformStreamingToOpenai(
+			"deepinfra",
+			"deepinfra/deepseek-v4-flash",
+			{
+				id: "chatcmpl-123",
+				object: "chat.completion.chunk",
+				created: 1234567890,
+				model: "deepseek-ai/DeepSeek-V4-Flash-0731",
+				choices: [
+					{
+						index: 0,
+						delta: { content: "Hello" },
+						finish_reason: null,
+					},
+				],
+			},
+			[],
+		);
+
+		expect(result.model).toBe("deepinfra/deepseek-v4-flash");
+	});
+
 	it("does not warn for Permafrost OpenAI streaming chunks", () => {
 		warn.mockClear();
 

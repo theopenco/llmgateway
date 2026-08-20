@@ -9930,7 +9930,7 @@ chat.openapi(completions, async (c) => {
 										id: `chatcmpl-${Date.now()}`,
 										object: "chat.completion.chunk",
 										created: Math.floor(Date.now() / 1000),
-										model: usedInternalModel,
+										model: usedModelFormatted,
 										choices: [
 											{
 												index: 0,
@@ -9964,7 +9964,7 @@ chat.openapi(completions, async (c) => {
 													id: `chatcmpl-${Date.now()}`,
 													object: "chat.completion.chunk",
 													created: Math.floor(Date.now() / 1000),
-													model: usedInternalModel,
+													model: usedModelFormatted,
 													choices: [
 														{
 															index: 0,
@@ -10119,7 +10119,7 @@ chat.openapi(completions, async (c) => {
 											billingModel: usedInternalModel,
 											billingProvider: usedProvider,
 											billingRegion: usedRegion ?? null,
-											responseModel: data.model ?? usedInternalModel,
+											responseModel: usedModelFormatted,
 										});
 										handledTerminalProviderEvent = true;
 									} else {
@@ -10224,7 +10224,7 @@ chat.openapi(completions, async (c) => {
 								// Transform streaming responses to OpenAI format for all providers
 								const transformedData = transformStreamingToOpenai(
 									streamFormatProvider,
-									usedInternalModel,
+									usedModelFormatted,
 									data,
 									messages,
 									serverToolUseIndices,
@@ -11292,7 +11292,7 @@ chat.openapi(completions, async (c) => {
 									id: `chatcmpl-${Date.now()}`,
 									object: "chat.completion.chunk",
 									created: Math.floor(Date.now() / 1000),
-									model: usedInternalModel,
+									model: usedModelFormatted,
 									choices: [
 										{
 											index: 0,
@@ -11416,7 +11416,7 @@ chat.openapi(completions, async (c) => {
 								id: `chatcmpl-${Date.now()}`,
 								object: "chat.completion.chunk",
 								created: Math.floor(Date.now() / 1000),
-								model: usedInternalModel,
+								model: usedModelFormatted,
 								choices: [
 									{
 										index: 0,
@@ -11550,7 +11550,7 @@ chat.openapi(completions, async (c) => {
 									id: lastChunkId ?? `chatcmpl-${Date.now()}`,
 									object: "chat.completion.chunk",
 									created: lastChunkCreated ?? Math.floor(Date.now() / 1000),
-									model: lastChunkModel ?? usedInternalModel,
+									model: lastChunkModel ?? usedModelFormatted,
 									choices: [
 										{
 											index: 0,
@@ -11572,7 +11572,7 @@ chat.openapi(completions, async (c) => {
 									id: lastChunkId ?? `chatcmpl-${Date.now()}`,
 									object: "chat.completion.chunk",
 									created: lastChunkCreated ?? Math.floor(Date.now() / 1000),
-									model: lastChunkModel ?? usedInternalModel,
+									model: lastChunkModel ?? usedModelFormatted,
 									choices: [
 										{
 											index: 0,
