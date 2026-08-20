@@ -1293,7 +1293,7 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
  * Prepares the request body for different providers.
  *
  * @param usedProvider - Provider id used for routing.
- * @param usedInternalModel - Canonical LLM Gateway model id (root id). Used
+ * @param usedInternalModel - Canonical LLM Gateway model id. Used
  *   for ALL internal lookups (model def + provider mapping). Never the
  *   provider-specific upstream id.
  * @param usedRegion - Region the request is bound to, when the mapping has

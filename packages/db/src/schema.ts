@@ -3304,11 +3304,12 @@ export const modelProviderMappingHistory = pgTable(
 		// build the replacement CONCURRENTLY before this migration runs — a
 		// rebuild under the same name would lock a table the worker writes to
 		// every minute for the duration of the scan.
-		index("model_provider_mapping_history_provider_stats_v2_idx").on(
+		index("model_provider_mapping_history_provider_stats_v3_idx").on(
 			table.minuteTimestamp,
 			table.providerId,
 			table.logsCount,
 			table.errorsCount,
+			table.clientErrorsCount,
 			table.cachedCount,
 			table.totalTimeToFirstToken,
 			table.timeToFirstTokenCount,
@@ -3456,13 +3457,14 @@ export const modelProviderMappingHistoryHourly = pgTable(
 		),
 		// Covering index for the public provider stats aggregation
 		// (filter by hourTimestamp range, group by providerId, sum metrics).
-		// See model_provider_mapping_history_provider_stats_v2_idx for why this is
+		// See model_provider_mapping_history_provider_stats_v3_idx for why this is
 		// a new name rather than a rebuild in place.
-		index("mpm_history_hourly_provider_stats_v2_idx").on(
+		index("mpm_history_hourly_provider_stats_v3_idx").on(
 			table.hourTimestamp,
 			table.providerId,
 			table.logsCount,
 			table.errorsCount,
+			table.clientErrorsCount,
 			table.cachedCount,
 			table.totalTimeToFirstToken,
 			table.timeToFirstTokenCount,

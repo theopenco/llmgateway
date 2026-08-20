@@ -2210,7 +2210,7 @@ admin.openapi(getGlobalStats, async (c) => {
 				"requestCount",
 			),
 		errorCount:
-			sql<number>`COALESCE(SUM(${sourceTable.errorCount}), 0)::float8`.as(
+			sql<number>`COALESCE(SUM(GREATEST(${sourceTable.errorCount} - ${sourceTable.clientErrorCount}, 0)), 0)::float8`.as(
 				"errorCount",
 			),
 		cacheCount:
@@ -4030,8 +4030,8 @@ admin.openapi(getProjectLogs, async (c) => {
 // Get valid provider IDs as a Set for O(1) lookup
 const validProviderIds = new Set<string>(providers.map((p) => p.id));
 
-// Build a map of provider -> Set of valid root model IDs served by that provider.
-// Only root model IDs are accepted as discount/rate-limit targets — the
+// Build a map of provider -> Set of valid canonical model IDs served by that provider.
+// Only canonical model IDs are accepted as discount/rate-limit targets — the
 // provider-specific externalId is reserved for upstream requests only.
 const providerModelMappings = new Map<string, Set<string>>();
 for (const model of models) {
@@ -4043,7 +4043,7 @@ for (const model of models) {
 	}
 }
 
-// All valid root model IDs.
+// All valid canonical model IDs.
 const validModelIds = new Set<string>(models.map((m) => m.id));
 
 const discountSchema = z.object({
@@ -4765,9 +4765,9 @@ admin.openapi(deleteOrganizationDiscount, async (c) => {
 // --- Available Options Handler ---
 
 admin.openapi(getAvailableProvidersAndModels, async (c) => {
-	// modelId is the canonical root model id — the provider-specific upstream
+	// modelId is the canonical model id — the provider-specific upstream
 	// externalId is never exposed here or stored as a discount target. modelName
-	// in this response is the root model's human-readable display name.
+	// in this response is the canonical model's human-readable display name.
 	const mappings: Array<{
 		providerId: string;
 		providerName: string;
@@ -5727,9 +5727,9 @@ const getAvailableRateLimitOptions = createRoute({
 });
 
 admin.openapi(getAvailableRateLimitOptions, async (c) => {
-	// modelId is the canonical root model id — the provider-specific upstream
+	// modelId is the canonical model id — the provider-specific upstream
 	// externalId is never exposed here or stored as a rate-limit target.
-	// modelName in this response is the root model's human-readable display
+	// modelName in this response is the canonical model's human-readable display
 	// name.
 	const mappings: Array<{
 		providerId: string;
@@ -5767,6 +5767,7 @@ const providerSortBySchema = z.enum([
 	"status",
 	"logsCount",
 	"errorsCount",
+	"clientErrorsCount",
 	"cachedCount",
 	"totalCost",
 	"avgTimeToFirstToken",
@@ -5781,6 +5782,7 @@ const providerStatsSchema = z.object({
 	status: z.string(),
 	logsCount: z.number(),
 	errorsCount: z.number(),
+	clientErrorsCount: z.number(),
 	cachedCount: z.number(),
 	avgTimeToFirstToken: z.number().nullable(),
 	modelCount: z.number(),
@@ -5864,6 +5866,10 @@ admin.openapi(getProviderStats, async (c) => {
 				errorsCount: sql<number>`COALESCE(SUM(${mph.errorsCount}), 0)`.as(
 					"errorsCount",
 				),
+				clientErrorsCount:
+					sql<number>`COALESCE(SUM(${mph.clientErrorsCount}), 0)`.as(
+						"clientErrorsCount",
+					),
 				cachedCount: sql<number>`COALESCE(SUM(${mph.cachedCount}), 0)`.as(
 					"cachedCount",
 				),
@@ -5898,7 +5904,8 @@ admin.openapi(getProviderStats, async (c) => {
 			name: tables.provider.name,
 			status: tables.provider.status,
 			logsCount: sql`COALESCE(${providerStatsSub.logsCount}, 0)`,
-			errorsCount: sql`COALESCE(${providerStatsSub.errorsCount}, 0)`,
+			errorsCount: sql`GREATEST(COALESCE(${providerStatsSub.errorsCount}, 0) - COALESCE(${providerStatsSub.clientErrorsCount}, 0), 0)`,
+			clientErrorsCount: sql`COALESCE(${providerStatsSub.clientErrorsCount}, 0)`,
 			cachedCount: sql`COALESCE(${providerStatsSub.cachedCount}, 0)`,
 			totalCost: sql`COALESCE(${providerStatsSub.totalCost}, 0)`,
 			avgTimeToFirstToken: sql`COALESCE(${providerStatsSub.avgTimeToFirstToken}, ${tables.provider.avgTimeToFirstReasoningToken}, ${tables.provider.avgTimeToFirstToken})`,
@@ -5938,6 +5945,10 @@ admin.openapi(getProviderStats, async (c) => {
 					errorsCount:
 						sql<number>`COALESCE(${providerStatsSub.errorsCount}, 0)`.as(
 							"errorsCount",
+						),
+					clientErrorsCount:
+						sql<number>`COALESCE(${providerStatsSub.clientErrorsCount}, 0)`.as(
+							"clientErrorsCount",
 						),
 					cachedCount:
 						sql<number>`COALESCE(${providerStatsSub.cachedCount}, 0)`.as(
@@ -5984,6 +5995,7 @@ admin.openapi(getProviderStats, async (c) => {
 				status: r.status,
 				logsCount: Number(r.logsCount ?? 0),
 				errorsCount: Number(r.errorsCount ?? 0),
+				clientErrorsCount: Number(r.clientErrorsCount ?? 0),
 				cachedCount: Number(r.cachedCount ?? 0),
 				avgTimeToFirstToken: r.avgTimeToFirstToken,
 				modelCount: Number(r.modelCount ?? 0),
@@ -6005,7 +6017,8 @@ admin.openapi(getProviderStats, async (c) => {
 		name: tables.provider.name,
 		status: tables.provider.status,
 		logsCount: tables.provider.logsCount,
-		errorsCount: tables.provider.errorsCount,
+		errorsCount: sql`GREATEST(${tables.provider.errorsCount} - ${tables.provider.clientErrorsCount}, 0)`,
+		clientErrorsCount: tables.provider.clientErrorsCount,
 		cachedCount: tables.provider.cachedCount,
 		totalCost: sql`0`,
 		avgTimeToFirstToken: sql`COALESCE(${tables.provider.avgTimeToFirstReasoningToken}, ${tables.provider.avgTimeToFirstToken})`,
@@ -6023,6 +6036,7 @@ admin.openapi(getProviderStats, async (c) => {
 			status: tables.provider.status,
 			logsCount: tables.provider.logsCount,
 			errorsCount: tables.provider.errorsCount,
+			clientErrorsCount: tables.provider.clientErrorsCount,
 			cachedCount: tables.provider.cachedCount,
 			avgTimeToFirstToken: sql<
 				number | null
@@ -6046,6 +6060,7 @@ admin.openapi(getProviderStats, async (c) => {
 			status: r.status,
 			logsCount: r.logsCount,
 			errorsCount: r.errorsCount,
+			clientErrorsCount: r.clientErrorsCount,
 			cachedCount: r.cachedCount,
 			avgTimeToFirstToken: r.avgTimeToFirstToken,
 			modelCount: Number(r.modelCount),
@@ -6260,7 +6275,7 @@ admin.openapi(getModelStats, async (c) => {
 			free: tables.model.free,
 			logsCount: sql`COALESCE(${modelAggSub.logsCount}, 0)`,
 			totalCost: sql`COALESCE(${modelAggSub.totalCost}, 0)`,
-			errorsCount: sql`COALESCE(${modelAggSub.errorsCount}, 0)`,
+			errorsCount: sql`GREATEST(COALESCE(${modelAggSub.errorsCount}, 0) - COALESCE(${modelAggSub.clientErrorsCount}, 0), 0)`,
 			clientErrorsCount: sql`COALESCE(${modelAggSub.clientErrorsCount}, 0)`,
 			gatewayErrorsCount: sql`COALESCE(${modelAggSub.gatewayErrorsCount}, 0)`,
 			upstreamErrorsCount: sql`COALESCE(${modelAggSub.upstreamErrorsCount}, 0)`,
@@ -6447,7 +6462,7 @@ admin.openapi(getModelStats, async (c) => {
 		free: tables.model.free,
 		logsCount: tables.model.logsCount,
 		totalCost: sql`0`,
-		errorsCount: tables.model.errorsCount,
+		errorsCount: sql`GREATEST(${tables.model.errorsCount} - ${tables.model.clientErrorsCount}, 0)`,
 		clientErrorsCount: tables.model.clientErrorsCount,
 		gatewayErrorsCount: tables.model.gatewayErrorsCount,
 		upstreamErrorsCount: tables.model.upstreamErrorsCount,
@@ -10315,6 +10330,7 @@ const projectModelProviderStatsEntrySchema = z.object({
 	providerName: z.string(),
 	logsCount: z.number(),
 	errorsCount: z.number(),
+	clientErrorsCount: z.number(),
 	cachedCount: z.number(),
 	cost: z.number(),
 	totalTokens: z.number(),
@@ -10408,10 +10424,10 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 		sql<number>`COALESCE(SUM(${projectHourlyModelStats.requestCount}), 0)`.as(
 			"logs_count",
 		);
-	const errorsCountExpr =
-		sql<number>`COALESCE(SUM(${projectHourlyModelStats.errorCount}), 0)`.as(
-			"errors_count",
-		);
+	const errorsCountSql = sql<number>`COALESCE(SUM(${projectHourlyModelStats.errorCount}), 0)`;
+	const errorsCountExpr = errorsCountSql.as("errors_count");
+	const clientErrorsCountSql = sql<number>`COALESCE(SUM(${projectHourlyModelStats.clientErrorCount}), 0)`;
+	const clientErrorsCountExpr = clientErrorsCountSql.as("client_errors_count");
 	const cachedCountExpr =
 		sql<number>`COALESCE(SUM(${projectHourlyModelStats.cacheCount}), 0)`.as(
 			"cached_count",
@@ -10430,7 +10446,7 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 			case "logsCount":
 				return logsCountExpr;
 			case "errorsCount":
-				return errorsCountExpr;
+				return sql`GREATEST(${errorsCountSql} - ${clientErrorsCountSql}, 0)`;
 			case "cost":
 				return costExpr;
 			case "modelId":
@@ -10448,6 +10464,7 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 			usedProvider: projectHourlyModelStats.usedProvider,
 			logsCount: logsCountExpr,
 			errorsCount: errorsCountExpr,
+			clientErrorsCount: clientErrorsCountExpr,
 			cachedCount: cachedCountExpr,
 			cost: costExpr,
 			totalTokens: totalTokensExpr,
@@ -10511,6 +10528,7 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 			providerName: providerNameMap.get(r.usedProvider) ?? r.usedProvider,
 			logsCount: Number(r.logsCount),
 			errorsCount: Number(r.errorsCount),
+			clientErrorsCount: Number(r.clientErrorsCount),
 			cachedCount: Number(r.cachedCount),
 			cost: Number(r.cost),
 			totalTokens: Number(r.totalTokens),
@@ -10787,7 +10805,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 		modelId: tables.modelProviderMapping.modelId,
 		providerId: tables.modelProviderMapping.providerId,
 		logsCount: sql`COALESCE(${statsJoin.logsCount}, 0)`,
-		errorsCount: sql`COALESCE(${statsJoin.errorsCount}, 0)`,
+		errorsCount: sql`GREATEST(COALESCE(${statsJoin.errorsCount}, 0) - COALESCE(${statsJoin.clientErrorsCount}, 0), 0)`,
 		clientErrorsCount: sql`COALESCE(${statsJoin.clientErrorsCount}, 0)`,
 		gatewayErrorsCount: sql`COALESCE(${statsJoin.gatewayErrorsCount}, 0)`,
 		upstreamErrorsCount: sql`COALESCE(${statsJoin.upstreamErrorsCount}, 0)`,
@@ -11093,6 +11111,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 				${hasErrorExpr} AS has_error
 			FROM ${tables.log}
 			WHERE ${tables.log.createdAt} >= ${windowInterval}
+				AND ${tables.log.unifiedFinishReason} IS DISTINCT FROM 'client_error'
 				${retriedClause}
 			ORDER BY ${tables.log.createdAt} DESC
 			LIMIT ${logLimit}
@@ -11290,6 +11309,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 				COALESCE(${tables.log.streamed}, false) AS streamed
 			FROM ${tables.log}
 			WHERE ${tables.log.hasError} = true
+				AND ${tables.log.unifiedFinishReason} IS DISTINCT FROM 'client_error'
 				AND ${tables.log.usedModel} = ${model}
 				AND ${tables.log.usedProvider} = ${provider}
 				AND ${tables.log.createdAt} >= ${windowInterval}

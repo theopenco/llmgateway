@@ -6,6 +6,7 @@ import {
 	findProviderKey,
 	listEligibleProviderKeys,
 } from "@/lib/cached-queries.js";
+import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { posthog } from "@/posthog.js";
 
 import {
@@ -465,20 +466,7 @@ function assertOrganizationHasCreditsForEnvFallback(
 	});
 }
 
-export function formatUsedModelForDisplay(
-	usedProvider: string,
-	usedInternalModel: string,
-	customProviderName?: string,
-	usedRegion?: string,
-): string {
-	const usedModelProviderPrefix =
-		usedProvider === "custom" && customProviderName
-			? customProviderName
-			: usedProvider;
-
-	const base = `${usedModelProviderPrefix}/${usedInternalModel}`;
-	return usedRegion ? `${base}:${usedRegion}` : base;
-}
+export { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 
 /**
  * Which of an organization's own keys may serve a given model.

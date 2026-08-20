@@ -19,6 +19,7 @@ export const generateMockActivityData = () => {
 			totalTokens: randomInt(15000, 95000),
 			cost: randomFloatBetween(0.5, 5.5),
 			errorCount: randomInt(0, 10),
+			clientErrorCount: 0,
 			cacheCount: randomInt(10, 60),
 			errorRate: randomFloatBetween(0, 2),
 			cacheRate: randomFloatBetween(5, 25),

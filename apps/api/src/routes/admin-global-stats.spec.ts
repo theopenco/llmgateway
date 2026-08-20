@@ -19,6 +19,7 @@ interface Bucket {
 	usedMode: "credits" | "api-keys" | "unknown";
 	orgKind: "default" | "devpass" | "chat" | "unknown";
 	requestCount: number;
+	clientErrorCount?: number;
 	cost: number;
 	tokens: number;
 }
@@ -31,6 +32,7 @@ const BUCKETS: Bucket[] = [
 		usedMode: "credits",
 		orgKind: "default",
 		requestCount: 10,
+		clientErrorCount: 1,
 		cost: 1,
 		tokens: 100,
 	},
@@ -134,6 +136,7 @@ describe("admin — global stats mode/kind dimensions", () => {
 				orgKind: bucket.orgKind,
 				requestCount: bucket.requestCount,
 				errorCount: 1,
+				clientErrorCount: bucket.clientErrorCount ?? 0,
 				cost: bucket.cost,
 				totalTokens: String(bucket.tokens),
 				inputTokens: String(bucket.tokens / 2),
@@ -148,6 +151,7 @@ describe("admin — global stats mode/kind dimensions", () => {
 				orgKind: bucket.orgKind,
 				requestCount: bucket.requestCount,
 				errorCount: 1,
+				clientErrorCount: bucket.clientErrorCount ?? 0,
 				cost: bucket.cost,
 				totalTokens: String(bucket.tokens),
 				inputTokens: String(bucket.tokens / 2),
@@ -176,7 +180,7 @@ describe("admin — global stats mode/kind dimensions", () => {
 		// per-mode column pairs could never do.
 		expect(body.totals.totalTokens).toBe(120);
 		expect(body.totals.inputTokens).toBe(60);
-		expect(body.totals.errorCount).toBe(2);
+		expect(body.totals.errorCount).toBe(1);
 	});
 
 	test("narrows to the selected organization kind", async () => {

@@ -42,6 +42,7 @@ import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
@@ -433,6 +434,12 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 	const { mapping, modelDef, modelDefId, explicitProvider } = match;
 	const upstreamModel = mapping.externalId;
 	const providerId = mapping.providerId;
+	const responseModel = formatUsedModelForDisplay(
+		providerId,
+		modelDefId,
+		undefined,
+		mapping.region,
+	);
 
 	const startedAt = Date.now();
 	const source = validateSource(
@@ -1210,7 +1217,10 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 				{ retentionLevel },
 			);
 
-			return c.json(upstreamJson as z.infer<typeof ocrResponseSchema>);
+			return c.json({
+				...(upstreamJson as z.infer<typeof ocrResponseSchema>),
+				model: responseModel,
+			});
 		}
 	} finally {
 		c.req.raw.signal.removeEventListener("abort", onAbort);

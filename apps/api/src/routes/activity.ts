@@ -39,6 +39,7 @@ import {
 	apiKeyHourlyStats,
 	apiKeyHourlyModelStats,
 } from "@llmgateway/db";
+import { deriveStabilityMetrics } from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
 import type { AnyColumn } from "@llmgateway/db";
@@ -105,6 +106,7 @@ const dailyActivitySchema = z.object({
 	cachedInputCost: z.number(),
 	cacheWriteInputCost: z.number(),
 	errorCount: z.number(),
+	clientErrorCount: z.number(),
 	errorRate: z.number(),
 	cacheCount: z.number(),
 	cacheRate: z.number(),
@@ -144,6 +146,7 @@ function buildEmptyActivityRow(date: string): ActivityRow {
 		cachedInputCost: 0,
 		cacheWriteInputCost: 0,
 		errorCount: 0,
+		clientErrorCount: 0,
 		errorRate: 0,
 		cacheCount: 0,
 		cacheRate: 0,
@@ -393,6 +396,10 @@ activity.openapi(getActivity, async (c) => {
 					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.errorCount}), 0)`.as(
 						"errorCount",
 					),
+				clientErrorCount:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.clientErrorCount}), 0)`.as(
+						"clientErrorCount",
+					),
 				cacheCount:
 					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cacheCount}), 0)`.as(
 						"cacheCount",
@@ -629,7 +636,12 @@ activity.openapi(getActivity, async (c) => {
 			const outputCost = Number(day.outputCost);
 			const requestCost = Number(day.requestCost);
 			const dataStorageCost = Number(day.dataStorageCost);
-			const errorCount = Number(day.errorCount);
+			const clientErrorCount = Number(day.clientErrorCount);
+			const stability = deriveStabilityMetrics(
+				requestCount,
+				Number(day.errorCount),
+				clientErrorCount,
+			);
 			const cacheCount = Number(day.cacheCount);
 			const discountSavings = Number(day.discountSavings);
 			const imageInputCost = Number(day.imageInputCost);
@@ -647,8 +659,7 @@ activity.openapi(getActivity, async (c) => {
 			const creditsDataStorageCost = Number(day.creditsDataStorageCost);
 			const apiKeysDataStorageCost = Number(day.apiKeysDataStorageCost);
 
-			const errorRate =
-				requestCount > 0 ? (errorCount / requestCount) * 100 : 0;
+			const errorRate = stability.errorRate ?? 0;
 			const cacheRate =
 				requestCount > 0 ? (cacheCount / requestCount) * 100 : 0;
 
@@ -672,7 +683,8 @@ activity.openapi(getActivity, async (c) => {
 				videoOutputCost,
 				cachedInputCost,
 				cacheWriteInputCost,
-				errorCount,
+				errorCount: stability.errorsCount,
+				clientErrorCount,
 				errorRate,
 				cacheCount,
 				cacheRate,
@@ -785,6 +797,10 @@ activity.openapi(getActivity, async (c) => {
 			errorCount:
 				sql<number>`COALESCE(SUM(${projectHourlyStats.errorCount}), 0)`.as(
 					"errorCount",
+				),
+			clientErrorCount:
+				sql<number>`COALESCE(SUM(${projectHourlyStats.clientErrorCount}), 0)`.as(
+					"clientErrorCount",
 				),
 			cacheCount:
 				sql<number>`COALESCE(SUM(${projectHourlyStats.cacheCount}), 0)`.as(
@@ -1019,7 +1035,12 @@ activity.openapi(getActivity, async (c) => {
 		const videoOutputCost = Number(day.videoOutputCost);
 		const cachedInputCost = Number(day.cachedInputCost);
 		const cacheWriteInputCost = Number(day.cacheWriteInputCost);
-		const errorCount = Number(day.errorCount);
+		const clientErrorCount = Number(day.clientErrorCount);
+		const stability = deriveStabilityMetrics(
+			requestCount,
+			Number(day.errorCount),
+			clientErrorCount,
+		);
 		const cacheCount = Number(day.cacheCount);
 		const discountSavings = Number(day.discountSavings);
 
@@ -1030,7 +1051,7 @@ activity.openapi(getActivity, async (c) => {
 		const creditsDataStorageCost = Number(day.creditsDataStorageCost);
 		const apiKeysDataStorageCost = Number(day.apiKeysDataStorageCost);
 
-		const errorRate = requestCount > 0 ? (errorCount / requestCount) * 100 : 0;
+		const errorRate = stability.errorRate ?? 0;
 		const cacheRate = requestCount > 0 ? (cacheCount / requestCount) * 100 : 0;
 
 		return {
@@ -1053,7 +1074,8 @@ activity.openapi(getActivity, async (c) => {
 			videoOutputCost,
 			cachedInputCost,
 			cacheWriteInputCost,
-			errorCount,
+			errorCount: stability.errorsCount,
+			clientErrorCount,
 			errorRate,
 			cacheCount,
 			cacheRate,

@@ -2776,7 +2776,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Provider-targeting model strings (`provider/model`, `custom/model`) are
-	// never allowed on dev plans — only canonical root model ids. Direct and
+	// never allowed on dev plans — only canonical model ids. Direct and
 	// custom provider routing is never unlocked on coding plans.
 	if (isDevPlan) {
 		if (
@@ -2785,13 +2785,13 @@ chat.openapi(completions, async (c) => {
 			requestedProvider !== "custom"
 		) {
 			throw new HTTPException(403, {
-				message: `Direct provider routing is not available on coding plans. Use the root model id (e.g. \`${modelInfo.id}\`) without a provider prefix and let the gateway handle routing.`,
+				message: `Direct provider routing is not available on coding plans. Use the canonical model id (e.g. \`${modelInfo.id}\`) without a provider prefix and let the gateway handle routing.`,
 			});
 		}
 
 		if (requestedProvider === "custom") {
 			throw new HTTPException(403, {
-				message: `Custom provider routing is not available on coding plans. Use the root model id (e.g. \`${modelInfo.id}\`) without a provider prefix and let the gateway handle routing.`,
+				message: `Custom provider routing is not available on coding plans. Use the canonical model id (e.g. \`${modelInfo.id}\`) without a provider prefix and let the gateway handle routing.`,
 			});
 		}
 	}
@@ -2979,7 +2979,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	let usedProvider = requestedProvider;
-	// Canonical LLM Gateway model id (root id). Used for every internal
+	// Canonical LLM Gateway model id. Used for every internal
 	// lookup: pricing, discount, rate-limit, IAM, key selection. Initially
 	// the user's requested model; reset to `modelInfo.id` once the model is
 	// resolved, and re-set on auto-route when the resolved model changes.
@@ -9930,7 +9930,7 @@ chat.openapi(completions, async (c) => {
 										id: `chatcmpl-${Date.now()}`,
 										object: "chat.completion.chunk",
 										created: Math.floor(Date.now() / 1000),
-										model: usedInternalModel,
+										model: usedModelFormatted,
 										choices: [
 											{
 												index: 0,
@@ -9964,7 +9964,7 @@ chat.openapi(completions, async (c) => {
 													id: `chatcmpl-${Date.now()}`,
 													object: "chat.completion.chunk",
 													created: Math.floor(Date.now() / 1000),
-													model: usedInternalModel,
+													model: usedModelFormatted,
 													choices: [
 														{
 															index: 0,
@@ -10119,7 +10119,7 @@ chat.openapi(completions, async (c) => {
 											billingModel: usedInternalModel,
 											billingProvider: usedProvider,
 											billingRegion: usedRegion ?? null,
-											responseModel: data.model ?? usedInternalModel,
+											responseModel: usedModelFormatted,
 										});
 										handledTerminalProviderEvent = true;
 									} else {
@@ -10224,7 +10224,7 @@ chat.openapi(completions, async (c) => {
 								// Transform streaming responses to OpenAI format for all providers
 								const transformedData = transformStreamingToOpenai(
 									streamFormatProvider,
-									usedInternalModel,
+									usedModelFormatted,
 									data,
 									messages,
 									serverToolUseIndices,
@@ -11292,7 +11292,7 @@ chat.openapi(completions, async (c) => {
 									id: `chatcmpl-${Date.now()}`,
 									object: "chat.completion.chunk",
 									created: Math.floor(Date.now() / 1000),
-									model: usedInternalModel,
+									model: usedModelFormatted,
 									choices: [
 										{
 											index: 0,
@@ -11416,7 +11416,7 @@ chat.openapi(completions, async (c) => {
 								id: `chatcmpl-${Date.now()}`,
 								object: "chat.completion.chunk",
 								created: Math.floor(Date.now() / 1000),
-								model: usedInternalModel,
+								model: usedModelFormatted,
 								choices: [
 									{
 										index: 0,
@@ -11550,7 +11550,7 @@ chat.openapi(completions, async (c) => {
 									id: lastChunkId ?? `chatcmpl-${Date.now()}`,
 									object: "chat.completion.chunk",
 									created: lastChunkCreated ?? Math.floor(Date.now() / 1000),
-									model: lastChunkModel ?? usedInternalModel,
+									model: lastChunkModel ?? usedModelFormatted,
 									choices: [
 										{
 											index: 0,
@@ -11572,7 +11572,7 @@ chat.openapi(completions, async (c) => {
 									id: lastChunkId ?? `chatcmpl-${Date.now()}`,
 									object: "chat.completion.chunk",
 									created: lastChunkCreated ?? Math.floor(Date.now() / 1000),
-									model: lastChunkModel ?? usedInternalModel,
+									model: lastChunkModel ?? usedModelFormatted,
 									choices: [
 										{
 											index: 0,

@@ -813,7 +813,7 @@ async function serializeVideoJob(job: VideoJobRecord, logId?: string | null) {
 	return {
 		id: job.id,
 		object: "video" as const,
-		model: job.model,
+		model: getFormattedUsedVideoModel(job),
 		status: job.status,
 		progress:
 			job.status === "completed"

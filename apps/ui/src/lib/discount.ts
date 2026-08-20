@@ -10,7 +10,7 @@ export interface DiscountData {
 	createdAt: string;
 }
 
-// Discounts are always keyed by the root model id — the provider-specific
+// Discounts are always keyed by the canonical model id — the provider-specific
 // externalId is reserved for upstream requests and is never persisted as a
 // discount target.
 export function findEffectiveProviderDiscount(
