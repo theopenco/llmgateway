@@ -46,8 +46,15 @@ export default function OverviewPage() {
 	);
 
 	const handleRotateApiKey = async (): Promise<void> => {
+		const apiKeyId = devPlanStatus?.apiKey?.id;
+		if (!apiKeyId) {
+			toast.error("No API key to rotate");
+			return;
+		}
 		try {
-			const result = await rotateApiKeyMutation.mutateAsync({});
+			const result = await rotateApiKeyMutation.mutateAsync({
+				body: { apiKeyId },
+			});
 			await queryClient.invalidateQueries({
 				predicate: (query) => {
 					const key = query.queryKey;

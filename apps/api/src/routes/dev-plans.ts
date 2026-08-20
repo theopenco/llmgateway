@@ -2755,7 +2755,15 @@ devPlans.openapi(downloadInvoice, async (c) => {
 const rotateApiKey = createRoute({
 	method: "post",
 	path: "/rotate-api-key",
-	request: {},
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ apiKeyId: z.string() }),
+				},
+			},
+		},
+	},
 	responses: {
 		200: {
 			content: {
@@ -2779,6 +2787,7 @@ devPlans.openapi(rotateApiKey, async (c) => {
 			message: "Unauthorized",
 		});
 	}
+	const { apiKeyId } = c.req.valid("json");
 
 	const userOrgs = await db.query.userOrganization.findMany({
 		where: {
@@ -2822,15 +2831,6 @@ devPlans.openapi(rotateApiKey, async (c) => {
 		});
 	}
 
-	const currentApiKey = await db.query.apiKey.findFirst({
-		where: {
-			projectId: { eq: project.id },
-			description: { eq: "Dev Plan API Key" },
-			status: { eq: "active" },
-		},
-		columns: { id: true },
-	});
-
 	const newToken =
 		(process.env.NODE_ENV === "development" ? "llmgdev_" : "llmgtwy_") +
 		shortid(40);
@@ -2849,7 +2849,7 @@ devPlans.openapi(rotateApiKey, async (c) => {
 			LIMIT 1
 		`);
 		const activeApiKeyId = activeKeyRows.rows[0]?.id ?? null;
-		if (activeApiKeyId !== (currentApiKey?.id ?? null)) {
+		if (activeApiKeyId !== apiKeyId) {
 			throw new HTTPException(409, {
 				message: "The API key was already rotated. Try again.",
 			});

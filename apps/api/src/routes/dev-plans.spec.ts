@@ -172,11 +172,13 @@ describe("dev plan tier changes", () => {
 		const responses = await Promise.all([
 			app.request("/dev-plans/rotate-api-key", {
 				method: "POST",
-				headers: { Cookie: token },
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({ apiKeyId: "test-dev-plan-api-key" }),
 			}),
 			app.request("/dev-plans/rotate-api-key", {
 				method: "POST",
-				headers: { Cookie: token },
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({ apiKeyId: "test-dev-plan-api-key" }),
 			}),
 		]);
 
@@ -224,7 +226,8 @@ describe("dev plan tier changes", () => {
 
 		const response = await app.request("/dev-plans/rotate-api-key", {
 			method: "POST",
-			headers: { Cookie: token },
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({ apiKeyId: "test-dev-plan-api-key" }),
 		});
 
 		expect(response.status).toBe(200);
