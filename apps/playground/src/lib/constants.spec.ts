@@ -33,10 +33,21 @@ describe("getPlaygroundKeyForRequest", () => {
 		).toBe("project-a-token");
 	});
 
-	test("falls back to the global cookie for older sessions", () => {
+	test("does not fall back when the requested project has no scoped cookie", () => {
 		const request = new Request("https://playground.example/api/chat", {
 			headers: { [PLAYGROUND_PROJECT_HEADER]: "project-a" },
 		});
+
+		expect(
+			getPlaygroundKeyForRequest(
+				cookieStore({ [PLAYGROUND_KEY_COOKIE_NAME]: "global-token" }),
+				request,
+			),
+		).toBeUndefined();
+	});
+
+	test("falls back to the global cookie when no project is specified", () => {
+		const request = new Request("https://playground.example/api/chat");
 
 		expect(
 			getPlaygroundKeyForRequest(

@@ -17,15 +17,17 @@ export function getPlaygroundKeyForRequest(
 	cookieStore: PlaygroundCookieStore,
 	request: Request,
 ): string | undefined {
-	const projectId = request.headers.get(PLAYGROUND_PROJECT_HEADER)?.trim();
-	if (projectId && /^[A-Za-z0-9_-]+$/.test(projectId)) {
-		const scopedName = getPlaygroundKeyCookieName(projectId);
-		const scopedToken =
-			cookieStore.get(scopedName)?.value ??
-			cookieStore.get(`__Host-${scopedName}`)?.value;
-		if (scopedToken) {
-			return scopedToken;
+	const projectHeader = request.headers.get(PLAYGROUND_PROJECT_HEADER);
+	if (projectHeader !== null) {
+		const projectId = projectHeader.trim();
+		if (!projectId || !/^[A-Za-z0-9_-]+$/.test(projectId)) {
+			return undefined;
 		}
+		const scopedName = getPlaygroundKeyCookieName(projectId);
+		return (
+			cookieStore.get(scopedName)?.value ??
+			cookieStore.get(`__Host-${scopedName}`)?.value
+		);
 	}
 
 	return (

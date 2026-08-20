@@ -13,6 +13,7 @@ import { GroupChatUI } from "@/components/playground/group-chat-ui";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useUser } from "@/hooks/useUser";
+import { PLAYGROUND_PROJECT_HEADER } from "@/lib/constants";
 import { mapModels } from "@/lib/mapmodels";
 import { shouldDisableFallback } from "@/lib/no-fallback";
 
@@ -311,6 +312,9 @@ export default function GroupChatClient({
 			await sendMessage(userUiMessage as any, {
 				headers: {
 					...(noFallback ? { "x-no-fallback": "true" } : {}),
+					...(selectedProject
+						? { [PLAYGROUND_PROJECT_HEADER]: selectedProject.id }
+						: {}),
 				},
 				body: {
 					model: currentModel,

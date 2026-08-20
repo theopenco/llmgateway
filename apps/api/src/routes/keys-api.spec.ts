@@ -202,6 +202,22 @@ describe("keys route", () => {
 		);
 	});
 
+	test("POST /keys/platform rejects the playground key description", async () => {
+		const res = await app.request("/keys/platform", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				projectId: "test-project-id",
+				description: "Auto-generated playground key",
+			}),
+		});
+
+		expect(res.status).toBe(403);
+	});
+
 	test("POST /keys/platform rejects projects without Payments SDK preview", async () => {
 		await db
 			.update(tables.project)

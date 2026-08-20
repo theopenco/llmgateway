@@ -2822,6 +2822,15 @@ devPlans.openapi(rotateApiKey, async (c) => {
 		});
 	}
 
+	const currentApiKey = await db.query.apiKey.findFirst({
+		where: {
+			projectId: { eq: project.id },
+			description: { eq: "Dev Plan API Key" },
+			status: { eq: "active" },
+		},
+		columns: { id: true },
+	});
+
 	const newToken =
 		(process.env.NODE_ENV === "development" ? "llmgdev_" : "llmgtwy_") +
 		shortid(40);
@@ -2830,11 +2839,32 @@ devPlans.openapi(rotateApiKey, async (c) => {
 		await tx.execute(
 			sql`SELECT ${tables.project.id} FROM ${tables.project} WHERE ${tables.project.id} = ${project.id} FOR UPDATE`,
 		);
+		const activeKeyRows = await tx.execute<{ id: string }>(sql`
+			SELECT ${tables.apiKey.id} AS id
+			FROM ${tables.apiKey}
+			WHERE ${tables.apiKey.projectId} = ${project.id}
+				AND ${tables.apiKey.description} = 'Dev Plan API Key'
+				AND ${tables.apiKey.status} = 'active'
+			ORDER BY ${tables.apiKey.createdAt} DESC
+			LIMIT 1
+		`);
+		const activeApiKeyId = activeKeyRows.rows[0]?.id ?? null;
+		if (activeApiKeyId !== (currentApiKey?.id ?? null)) {
+			throw new HTTPException(409, {
+				message: "The API key was already rotated. Try again.",
+			});
+		}
 
 		await tx
 			.update(tables.apiKey)
 			.set({ status: "deleted" })
-			.where(eq(tables.apiKey.projectId, project.id));
+			.where(
+				and(
+					eq(tables.apiKey.projectId, project.id),
+					eq(tables.apiKey.description, "Dev Plan API Key"),
+					eq(tables.apiKey.status, "active"),
+				),
+			);
 
 		const [newApiKey] = await tx
 			.insert(tables.apiKey)

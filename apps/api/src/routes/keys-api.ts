@@ -607,6 +607,11 @@ keysApi.openapi(createPlatformKey, async (c) => {
 	}
 
 	const { projectId, description, test } = c.req.valid("json");
+	if (description === PLAYGROUND_API_KEY_DESCRIPTION) {
+		throw new HTTPException(403, {
+			message: "This name is reserved for the playground API key.",
+		});
+	}
 	const project = await assertPlatformKeyAdminAccess(user.id, projectId, {
 		requirePaymentsSdkPreview: true,
 	});
