@@ -4,7 +4,7 @@ import { format } from "date-fns";
 import { ChevronDown, Server, TrendingDown, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
@@ -46,17 +46,18 @@ const WINDOW_OPTIONS: Array<{ value: StatsWindow; label: string }> = [
 	{ value: "30d", label: "30 days" },
 ];
 
-// Validated categorical palette (adjacent-pair CVD-safe in both modes); the
-// slot order is the safety mechanism, so series take slots in ranking order.
+// Validated categorical palette (adjacent-pair CVD-safe in both modes,
+// brand-anchored sky/violet with muted supports); the slot order is the
+// safety mechanism, so series take slots in ranking order.
 const SERIES_PALETTE: Array<{ light: string; dark: string }> = [
-	{ light: "#2a78d6", dark: "#3987e5" },
-	{ light: "#eb6834", dark: "#d95926" },
-	{ light: "#1baf7a", dark: "#199e70" },
-	{ light: "#eda100", dark: "#c98500" },
-	{ light: "#e87ba4", dark: "#d55181" },
-	{ light: "#008300", dark: "#008300" },
-	{ light: "#4a3aa7", dark: "#9085e9" },
-	{ light: "#e34948", dark: "#e66767" },
+	{ light: "#0284c7", dark: "#0284c7" },
+	{ light: "#7c3aed", dark: "#8b5cf6" },
+	{ light: "#0d9488", dark: "#0d9488" },
+	{ light: "#d97706", dark: "#d97706" },
+	{ light: "#db2777", dark: "#ec4899" },
+	{ light: "#4f46e5", dark: "#6366f1" },
+	{ light: "#65a30d", dark: "#65a30d" },
+	{ light: "#0891b2", dark: "#0891b2" },
 ];
 
 // The chart plots at most one series per palette slot; the ranked list below
@@ -180,6 +181,18 @@ export function RankingsContent({
 			.sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp)));
 	}, [series]);
 
+	// Hourly buckets in the 7d window are too dense for per-bucket ticks, so
+	// the axis only marks local midnights.
+	const dayTicks = useMemo(
+		() =>
+			statsWindow === "7d"
+				? chartData
+						.map((row) => String(row.timestamp))
+						.filter((ts) => new Date(ts).getHours() === 0)
+				: undefined,
+		[chartData, statsWindow],
+	);
+
 	const visibleModels = showAllModels
 		? models
 		: models.slice(0, LEADERBOARD_PREVIEW_COUNT);
@@ -199,7 +212,10 @@ export function RankingsContent({
 			: format(new Date(value), "MMM d");
 
 	return (
-		<div className="space-y-8">
+		// data-chart mirrors the ChartContainer id so the series color variables
+		// emitted by ChartStyle also reach the legend chips and leaderboard bars
+		// outside the chart itself.
+		<div className="space-y-8" data-chart="chart-rankings">
 			{/* Window selector + freshness note */}
 			<div className="flex flex-wrap items-center justify-between gap-4">
 				<div
@@ -283,15 +299,25 @@ export function RankingsContent({
 						</div>
 					) : (
 						<>
-							<ChartContainer config={chartConfig} className="h-72 w-full">
-								<AreaChart data={chartData} accessibilityLayer>
-									<CartesianGrid vertical={false} strokeOpacity={0.3} />
+							<ChartContainer
+								id="rankings"
+								config={chartConfig}
+								className="h-72 w-full"
+							>
+								<BarChart
+									data={chartData}
+									accessibilityLayer
+									margin={{ left: 12, right: 12 }}
+								>
+									<CartesianGrid vertical={false} />
 									<XAxis
 										dataKey="timestamp"
 										tickFormatter={tickFormatter}
 										tickLine={false}
 										axisLine={false}
+										tickMargin={8}
 										minTickGap={32}
+										ticks={dayTicks}
 									/>
 									<YAxis
 										tickFormatter={(value: number) => formatCompact(value)}
@@ -304,14 +330,28 @@ export function RankingsContent({
 											<ChartTooltipContent
 												labelFormatter={(_label, payload) => {
 													const ts = payload?.[0]?.payload?.timestamp;
-													return ts
-														? format(
-																new Date(ts),
-																statsWindow === "24h"
-																	? "MMM d, HH:mm"
-																	: "MMM d",
-															)
-														: "";
+													if (!ts) {
+														return "";
+													}
+													const total = (payload ?? []).reduce(
+														(sum, item) => sum + Number(item.value ?? 0),
+														0,
+													);
+													return (
+														<div className="flex w-full items-center justify-between gap-6">
+															<span>
+																{format(
+																	new Date(ts),
+																	statsWindow === "30d"
+																		? "MMM d"
+																		: "MMM d, HH:mm",
+																)}
+															</span>
+															<span className="font-mono font-normal tabular-nums text-muted-foreground">
+																{formatCompact(total)} total
+															</span>
+														</div>
+													);
 												}}
 												formatter={(value, name, item) => (
 													<div className="flex w-full items-center justify-between gap-4">
@@ -335,19 +375,15 @@ export function RankingsContent({
 									{series.map((entry) => {
 										const key = chartKey(entry.modelId);
 										return (
-											<Area
+											<Bar
 												key={key}
 												dataKey={key}
-												type="monotone"
 												stackId="models"
-												stroke={`var(--color-${key})`}
 												fill={`var(--color-${key})`}
-												fillOpacity={0.32}
-												strokeWidth={1.5}
 											/>
 										);
 									})}
-								</AreaChart>
+								</BarChart>
 							</ChartContainer>
 							<div className="mt-4 flex flex-wrap gap-x-4 gap-y-2">
 								{series.map((entry, index) => (
