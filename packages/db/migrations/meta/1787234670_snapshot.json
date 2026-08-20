@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "00a2b850-2c31-43c3-b757-ddb9e52a854a",
+  "id": "f87f3918-460a-4399-8cb3-666f4b097e0e",
   "prevId": "5f60f954-7464-4dd1-9b20-278e94eeafe4",
   "ddl": [
     {
@@ -803,38 +803,12 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
       "name": "token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "token_hash",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "token_masked",
       "entityType": "columns",
       "schema": "public",
       "table": "api_key"
@@ -26204,6 +26178,13 @@
           "opclass": null
         },
         {
+          "value": "client_errors_count",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "cached_count",
           "isExpression": false,
           "asc": true,
@@ -26244,7 +26225,7 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "model_provider_mapping_history_provider_stats_v2_idx",
+      "name": "model_provider_mapping_history_provider_stats_v3_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "model_provider_mapping_history"
@@ -26386,6 +26367,13 @@
           "opclass": null
         },
         {
+          "value": "client_errors_count",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "cached_count",
           "isExpression": false,
           "asc": true,
@@ -26426,7 +26414,7 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "mpm_history_hourly_provider_stats_v2_idx",
+      "name": "mpm_history_hourly_provider_stats_v3_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "model_provider_mapping_history_hourly"
@@ -32431,17 +32419,6 @@
     {
       "nameExplicit": false,
       "columns": [
-        "token_hash"
-      ],
-      "nullsNotDistinct": false,
-      "name": "api_key_token_hash_key",
-      "schema": "public",
-      "table": "api_key",
-      "entityType": "uniques"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
         "stripe_customer_id"
       ],
       "nullsNotDistinct": false,
@@ -32636,13 +32613,6 @@
       "schema": "public",
       "table": "wallet",
       "entityType": "uniques"
-    },
-    {
-      "value": "(\"token\" IS NULL) <> (\"token_hash\" IS NULL)",
-      "name": "api_key_token_xor",
-      "entityType": "checks",
-      "schema": "public",
-      "table": "api_key"
     },
     {
       "value": "\"rating\" IS NULL OR (\"rating\" >= 0 AND \"rating\" <= 5)",
