@@ -12,6 +12,7 @@ import {
 } from "@/lib/iam-rules.js";
 import { platformKeyMode } from "@/lib/platform-secret-auth.js";
 import { getUserProjectIds } from "@/utils/authorization.js";
+import { PLAYGROUND_KEY_DESCRIPTION } from "@/utils/playground-key.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -37,7 +38,7 @@ import type { ServerTypes } from "@/vars.js";
 
 export const keysApi = new OpenAPIHono<ServerTypes>();
 
-export const PLAYGROUND_API_KEY_DESCRIPTION = "Auto-generated playground key";
+export const PLAYGROUND_API_KEY_DESCRIPTION = PLAYGROUND_KEY_DESCRIPTION;
 
 export function isPlaygroundApiKey(apiKey: {
 	description: string | null;
@@ -1290,6 +1291,7 @@ keysApi.openapi(list, async (c) => {
 			// Hide platform and LLM SDK aggregate keys from the dashboard —
 			// only show developer-created keys.
 			keyType: { eq: "user" },
+			description: { ne: PLAYGROUND_API_KEY_DESCRIPTION },
 			...(shouldFilterByCreator && {
 				createdBy: {
 					eq: user.id,

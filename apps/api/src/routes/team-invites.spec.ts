@@ -156,6 +156,37 @@ describe("team invites", () => {
 		expect(overLimit.status).toBe(403);
 	});
 
+	test("playground session keys do not count as active developer keys", async () => {
+		await db.insert(tables.project).values({
+			id: "invite-test-project",
+			name: "Invite Test Project",
+			organizationId: ORG_ID,
+		});
+		await db.insert(tables.apiKey).values([
+			{
+				id: "developer-key",
+				token: "developer-token",
+				projectId: "invite-test-project",
+				description: "Developer key",
+				createdBy: "test-user-id",
+			},
+			{
+				id: "playground-session-key",
+				token: "playground-session-token",
+				projectId: "invite-test-project",
+				description: "Auto-generated playground key",
+				createdBy: "test-user-id",
+			},
+		]);
+
+		const response = await app.request(`/team/${ORG_ID}/members`, {
+			headers: { Cookie: token },
+		});
+		expect(response.status).toBe(200);
+		const body = await response.json();
+		expect(body.members[0]?.spend.activeApiKeys).toBe(1);
+	});
+
 	test("pending invite is auto-accepted on first sign-in", async () => {
 		await addMember({ email: INVITED_EMAIL, role: "admin" });
 

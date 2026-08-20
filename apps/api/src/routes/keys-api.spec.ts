@@ -148,6 +148,14 @@ describe("keys route", () => {
 	});
 
 	test("GET /keys/api", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "playground-session-key",
+			token: "playground-session-token",
+			projectId: "test-project-id",
+			description: "Auto-generated playground key",
+			createdBy: "test-user-id",
+		});
+
 		const res = await app.request("/keys/api", {
 			headers: {
 				Cookie: token,

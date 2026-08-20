@@ -112,6 +112,24 @@ describe("v1/master cache invalidation", () => {
 		};
 	}
 
+	test("GET /keys hides playground session keys", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "playground-session-key",
+			token: "playground-session-token",
+			projectId: "test-project-id",
+			description: "Auto-generated playground key",
+			createdBy: "test-user-id",
+		});
+
+		const res = await app.request("/v1/master/keys", {
+			headers: authHeaders(),
+		});
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body.apiKeys).toHaveLength(1);
+		expect(body.apiKeys[0]?.id).toBe("test-api-key-id");
+	});
+
 	test("PATCH /keys/{id} invalidates the gateway api_key cache", async () => {
 		// A per-run-unique key keeps the SWR key from colliding with entries left
 		// in Redis by earlier runs, which outlive deleteAll (it does not flush

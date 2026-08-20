@@ -40,6 +40,7 @@ import {
 	isPlaygroundApiKey,
 	mergeApiKeyLimitConfig,
 	parseApiKeyPeriodConfig,
+	PLAYGROUND_API_KEY_DESCRIPTION,
 	type PartialApiKeyLimitConfig,
 } from "@/routes/keys-api.js";
 import {
@@ -812,6 +813,7 @@ v1Master.openapi(listApiKeys, async (c) => {
 			projectId: { in: projectId ? [projectId] : projectIds },
 			// Only developer-created keys; hide platform and LLM SDK aggregate keys.
 			keyType: { eq: "user" },
+			description: { ne: PLAYGROUND_API_KEY_DESCRIPTION },
 			status: { ne: "deleted" },
 		},
 		orderBy: { createdAt: "desc" },

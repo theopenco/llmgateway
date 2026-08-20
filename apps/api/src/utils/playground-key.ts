@@ -12,7 +12,7 @@ import type { ServerTypes } from "@/vars.js";
 import type { Context } from "hono";
 
 export const PLAYGROUND_KEY_COOKIE_NAME = "llmgateway_playground_key";
-const PLAYGROUND_KEY_DESCRIPTION = "Auto-generated playground key";
+export const PLAYGROUND_KEY_DESCRIPTION = "Auto-generated playground key";
 const PLAYGROUND_KEY_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
 const PLAYGROUND_KEY_TTL_MS = PLAYGROUND_KEY_COOKIE_MAX_AGE * 1000;
 
