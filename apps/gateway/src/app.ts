@@ -31,11 +31,7 @@ import { embeddingsRoute } from "./embeddings/route.js";
 import { imagesRoute } from "./images/route.js";
 import { keyRoute } from "./key/route.js";
 import { backpressureMiddleware } from "./lib/backpressure.js";
-import {
-	buildAnthropicErrorBody,
-	buildOpenAIErrorBody,
-	renderGatewayError,
-} from "./lib/error-response.js";
+import { renderGatewayError } from "./lib/error-response.js";
 import { mcpHandler, registerMcpOAuthRoutes } from "./mcp/mcp.js";
 import { corsMiddleware } from "./middleware/cors.js";
 import { orgRateLimitMiddleware } from "./middleware/org-rate-limit.js";
@@ -95,19 +91,22 @@ app.use("*", requestLifecycleMiddleware);
 app.use("*", honoRequestLogger);
 app.use("*", corsMiddleware);
 
-// Shed excess load early (after CORS, before auth/routing) so each pod
-// fast-fails with a retryable 529 instead of piling up unbounded connections.
-// Registered after CORS so shed responses still carry the Access-Control-*
-// headers browser clients need to surface the 529 and Retry-After hint.
+// Shed excess inference load early so each pod fast-fails with a retryable
+// 529 instead of piling up unbounded connections. Only inference endpoints
+// are counted — everything else completes near-instantly and keeps working
+// under overload. Registered after CORS so shed responses still carry the
+// Access-Control-* headers browser clients need to surface the 529, and
+// before the org limiter so pod protection costs no Redis/DB lookups.
 app.use("*", backpressureMiddleware);
 
-// Per-organization, per-path rate limiting. Registered before the other
-// request gates (content-type validation) and ahead of every downstream
-// DB check and rate limiter in the route handlers (credit checks, free-model
-// and provider rate limits), so an over-limit org is rejected as early as
-// possible. Enterprise orgs are exempt and limits scale with the
-// organization's lifetime spend tier. Only configured `/v1/*` paths are
-// throttled; everything else passes through.
+// Per-organization, per-path rate limiting plus the per-org in-flight
+// concurrency cap. Registered before the other request gates (content-type
+// validation) and ahead of every downstream DB check and rate limiter in the
+// route handlers (credit checks, free-model and provider rate limits), so an
+// over-limit org is rejected as early as possible. Enterprise orgs skip the
+// RPM limits but get an elevated concurrency ceiling; regular org RPM limits
+// scale with the organization's lifetime spend tier. Only configured `/v1/*`
+// paths are throttled; everything else passes through.
 app.use("*", orgRateLimitMiddleware);
 
 // Middleware to check for application/json content type on POST requests

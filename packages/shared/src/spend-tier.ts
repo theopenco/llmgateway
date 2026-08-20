@@ -546,7 +546,75 @@ export function topUpVelocityKey(organizationId: string): string {
 
 /** Limit families tracked in `org_limit_hit_daily` for the admin dashboard. */
 export type OrgLimitType =
-	"rpm" | "spend_cap_daily" | "spend_cap_monthly" | "topup_velocity";
+	| "rpm"
+	| "spend_cap_daily"
+	| "spend_cap_monthly"
+	| "topup_velocity"
+	| "concurrency";
+
+/**
+ * `PATH_RATE_LIMITS` keys whose requests are inference work: they can hold a
+ * connection open for the duration of a model call (minutes for streaming),
+ * so they are the only paths counted against in-flight concurrency budgets
+ * (the per-org limit and the pod-wide backpressure cap). Cheap metadata reads
+ * (models, key, credits) and the realtime secret mint are excluded — realtime
+ * WebSocket sessions bypass Hono middleware entirely and are bounded by their
+ * own session caps.
+ */
+export const INFLIGHT_LIMITED_KEYS: ReadonlySet<string> = new Set([
+	"chat_completions",
+	"messages",
+	"responses",
+	"embeddings",
+	"moderations",
+	"rerank",
+	"ocr",
+	"images",
+	"audio_speech",
+	"audio_transcriptions",
+	"videos",
+	"ai_sdk",
+]);
+
+/** Redis sorted set holding an org's in-flight inference request slots. */
+export function orgInflightKey(organizationId: string): string {
+	return `rate_limit:org_inflight:${organizationId}`;
+}
+
+/**
+ * How long an in-flight slot may live before it is considered leaked and
+ * reaped (a pod that crashed mid-stream never releases its slots). Must stay
+ * above the longest legitimate request — streams get a 20-minute grace
+ * (`SHUTDOWN_GRACE_PERIOD_MS`/`AI_STREAMING_TIMEOUT_MS`) — so a legit
+ * long-runner at worst frees its slot early, which only errs permissive.
+ */
+export function getOrgInflightStaleSeconds(): number {
+	return getRateLimitEnvNumber("GATEWAY_ORG_INFLIGHT_STALE_SECONDS", 1800);
+}
+
+/**
+ * Fleet-wide cap on an organization's concurrent in-flight inference requests,
+ * by plan class. Unlike the per-path RPM limits, enterprise orgs are not
+ * exempt — they get an elevated ceiling instead, since unbounded concurrency
+ * from a single tenant can still exhaust shared gateway capacity. A value of
+ * 0 disables the check for that class (matching `getBaseLimit` semantics).
+ */
+export function getOrgInflightLimit(
+	planClass: PlanClass,
+	isEnterprise: boolean,
+): number {
+	if (isEnterprise) {
+		return getRateLimitEnvNumber("GATEWAY_ORG_INFLIGHT_LIMIT_ENTERPRISE", 2000);
+	}
+	switch (planClass) {
+		case "dev":
+			return getRateLimitEnvNumber("GATEWAY_ORG_INFLIGHT_LIMIT_DEV", 100);
+		case "chat":
+			return getRateLimitEnvNumber("GATEWAY_ORG_INFLIGHT_LIMIT_CHATPLAN", 50);
+		default:
+			return getRateLimitEnvNumber("GATEWAY_ORG_INFLIGHT_LIMIT", 500);
+	}
+}
 
 /**
  * Redis hash buffering one UTC day of per-org limit-hit counters until the

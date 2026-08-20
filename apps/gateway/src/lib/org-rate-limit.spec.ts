@@ -3,9 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getNextSpendTier } from "@llmgateway/shared";
 
 import {
+	acquireOrgInflightSlot,
 	baseLimitEnvVar,
 	checkOrgRateLimit,
 	getBaseLimit,
+	getOrgInflightLimit,
 	getOrgSpendTier,
 	getPlanClass,
 	isOrgRateLimitEnabled,
@@ -23,6 +25,7 @@ vi.mock("@llmgateway/cache", () => ({
 		expire: vi.fn(),
 		get: vi.fn(),
 		set: vi.fn(),
+		pipeline: vi.fn(),
 	},
 	swrWrap: vi.fn(
 		async <T>(_key: string, _tables: string[], fetcher: () => Promise<T>) =>
@@ -68,6 +71,11 @@ const ENV_KEYS = [
 	"GATEWAY_SPEND_TIER_1_MIN_AGE_DAYS",
 	"GATEWAY_SPEND_TIER_2_MIN_AGE_DAYS",
 	"GATEWAY_RATE_LIMIT_WINDOW_SECONDS",
+	"GATEWAY_ORG_INFLIGHT_LIMIT",
+	"GATEWAY_ORG_INFLIGHT_LIMIT_DEV",
+	"GATEWAY_ORG_INFLIGHT_LIMIT_CHATPLAN",
+	"GATEWAY_ORG_INFLIGHT_LIMIT_ENTERPRISE",
+	"GATEWAY_ORG_INFLIGHT_STALE_SECONDS",
 ];
 
 beforeEach(() => {
@@ -454,5 +462,136 @@ describe("checkOrgRateLimit", () => {
 		);
 
 		expect(result.allowed).toBe(true);
+	});
+});
+
+describe("getOrgInflightLimit", () => {
+	it("uses the per-plan-class defaults", () => {
+		expect(getOrgInflightLimit("regular", false)).toBe(500);
+		expect(getOrgInflightLimit("dev", false)).toBe(100);
+		expect(getOrgInflightLimit("chat", false)).toBe(50);
+	});
+
+	it("elevates enterprise orgs regardless of plan class", () => {
+		expect(getOrgInflightLimit("regular", true)).toBe(2000);
+		expect(getOrgInflightLimit("dev", true)).toBe(2000);
+	});
+
+	it("honors env overrides per class", () => {
+		process.env.GATEWAY_ORG_INFLIGHT_LIMIT = "7";
+		process.env.GATEWAY_ORG_INFLIGHT_LIMIT_DEV = "3";
+		process.env.GATEWAY_ORG_INFLIGHT_LIMIT_CHATPLAN = "2";
+		process.env.GATEWAY_ORG_INFLIGHT_LIMIT_ENTERPRISE = "9000";
+		expect(getOrgInflightLimit("regular", false)).toBe(7);
+		expect(getOrgInflightLimit("dev", false)).toBe(3);
+		expect(getOrgInflightLimit("chat", false)).toBe(2);
+		expect(getOrgInflightLimit("chat", true)).toBe(9000);
+	});
+});
+
+describe("acquireOrgInflightSlot", () => {
+	const orgId = "org-1";
+
+	// The slot ops use explicit pipeline() calls (never bare auto-pipelined
+	// commands — see acquireOrgInflightSlot); the chainable stub records every
+	// queued command and resolves exec() with the given [error, result] pairs.
+	function stubPipeline(execResults: Array<[unknown, unknown]> | null) {
+		const pipeline: Record<string, ReturnType<typeof vi.fn>> = {};
+		for (const method of [
+			"zremrangebyscore",
+			"zcard",
+			"zadd",
+			"expire",
+			"zrem",
+			"hincrby",
+			"hincrbyfloat",
+		]) {
+			pipeline[method] = vi.fn(() => pipeline);
+		}
+		pipeline.exec = vi.fn().mockResolvedValue(execResults);
+		vi.mocked(redis.pipeline).mockReturnValue(pipeline as never);
+		return pipeline;
+	}
+
+	it("acquires a slot under the limit and releases it via zrem", async () => {
+		const pipeline = stubPipeline([
+			[null, 0],
+			[null, 3],
+		]);
+
+		const acquisition = await acquireOrgInflightSlot(orgId, 5, "messages");
+
+		expect(acquisition.allowed).toBe(true);
+		expect(acquisition.release).toBeDefined();
+		expect(pipeline.zadd).toHaveBeenCalledOnce();
+		expect(pipeline.expire).toHaveBeenCalled();
+
+		const member = pipeline.zadd.mock.calls[0][2];
+		acquisition.release!();
+		expect(pipeline.zrem).toHaveBeenCalledWith(
+			`rate_limit:org_inflight:${orgId}`,
+			member,
+		);
+	});
+
+	it("reaps stale slots from crashed holders before counting", async () => {
+		vi.stubEnv("GATEWAY_ORG_INFLIGHT_STALE_SECONDS", "600");
+		const pipeline = stubPipeline([
+			[null, 0],
+			[null, 0],
+		]);
+
+		const before = Date.now();
+		await acquireOrgInflightSlot(orgId, 5, "chat_completions");
+
+		const [, , staleBefore] = pipeline.zremrangebyscore.mock.calls[0];
+		expect(Number(staleBefore)).toBeGreaterThanOrEqual(before - 600_000 - 50);
+		expect(Number(staleBefore)).toBeLessThanOrEqual(Date.now() - 600_000 + 50);
+	});
+
+	it("denies at the limit without taking a slot", async () => {
+		const pipeline = stubPipeline([
+			[null, 0],
+			[null, 5],
+		]);
+
+		const acquisition = await acquireOrgInflightSlot(orgId, 5, "videos");
+
+		expect(acquisition.allowed).toBe(false);
+		expect(acquisition.limit).toBe(5);
+		expect(acquisition.release).toBeUndefined();
+		expect(pipeline.zadd).not.toHaveBeenCalled();
+	});
+
+	it("treats a zero limit as unlimited without touching Redis", async () => {
+		stubPipeline(null);
+
+		const acquisition = await acquireOrgInflightSlot(orgId, 0, "images");
+
+		expect(acquisition.allowed).toBe(true);
+		expect(acquisition.release).toBeUndefined();
+		expect(redis.pipeline).not.toHaveBeenCalled();
+	});
+
+	it("fails open on Redis errors", async () => {
+		const pipeline = stubPipeline(null);
+		pipeline.exec.mockRejectedValue(new Error("Redis down"));
+
+		const acquisition = await acquireOrgInflightSlot(orgId, 5, "ocr");
+
+		expect(acquisition.allowed).toBe(true);
+		expect(acquisition.release).toBeUndefined();
+	});
+
+	it("fails open when the pipeline reports a command error", async () => {
+		stubPipeline([
+			[null, 0],
+			[new Error("zcard failed"), null],
+		]);
+
+		const acquisition = await acquireOrgInflightSlot(orgId, 5, "ocr");
+
+		expect(acquisition.allowed).toBe(true);
+		expect(acquisition.release).toBeUndefined();
 	});
 });

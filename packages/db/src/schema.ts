@@ -4950,7 +4950,13 @@ export const orgLimitHitDaily = pgTable(
 			.references(() => organization.id, { onDelete: "cascade" }),
 		day: timestamp().notNull(), // UTC midnight of the bucket
 		limitType: text({
-			enum: ["rpm", "spend_cap_daily", "spend_cap_monthly", "topup_velocity"],
+			enum: [
+				"rpm",
+				"spend_cap_daily",
+				"spend_cap_monthly",
+				"topup_velocity",
+				"concurrency",
+			],
 		}).notNull(),
 		// PATH_RATE_LIMITS key for rpm hits; "" for the other limit types
 		// (empty string, not null, so the unique constraint covers it).

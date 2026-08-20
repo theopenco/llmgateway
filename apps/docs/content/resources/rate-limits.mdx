@@ -102,12 +102,44 @@ Dev plans are inference-only and only cover **chat completions, messages, respon
 
 ### Enterprise
 
-Organizations on the **[Enterprise plan](https://llmgateway.io/enterprise) have no per-organization rate limits at all** — no requests-per-minute caps, no spend caps, and no top-up limits. Your throughput is limited only by your credit balance and any upstream provider limits.
+Organizations on the **[Enterprise plan](https://llmgateway.io/enterprise) have no per-organization requests-per-minute, spend, or top-up limits**. Your request rate is limited only by your credit balance and any upstream provider limits. The only gateway limit that still applies is a greatly elevated [concurrent-request ceiling](#concurrent-request-limits).
 
 <Callout type="info">
 	Need unlimited gateway throughput? [Contact us](mailto:contact@llmgateway.io)
 	about an enterprise plan.
 </Callout>
+
+## Concurrent Request Limits
+
+Separately from the per-minute request limits above, each organization has one fleet-wide budget of **concurrent in-flight requests** across all inference endpoints (chat completions, messages, responses, embeddings, moderations, rerank, OCR, images, speech, transcriptions, videos, and the AI SDK surface). A slot is held for a request's full lifetime — including the entire duration of a streamed response — and freed when the response finishes or the connection closes.
+
+This bounds what a per-minute limit cannot: long-running requests. Six hundred requests per minute that each stream for two minutes hold 1,200 connections open; the concurrency budget is what keeps that pile-up from exhausting shared gateway capacity.
+
+| Plan           | Concurrent requests |
+| -------------- | ------------------- |
+| Regular (PAYG) | 500                 |
+| Dev plan       | 100                 |
+| Chat plan      | 50                  |
+| Enterprise     | 2,000               |
+
+Unlike the per-minute limits, **Enterprise organizations are not exempt** — they get the elevated ceiling instead. Requests over the limit receive a retryable `429`:
+
+```http
+HTTP/1.1 429 Too Many Requests
+Retry-After: 1
+```
+
+```json
+{
+	"error": {
+		"message": "Too many concurrent requests for this organization (limit: 500). Retry shortly, or reduce request concurrency.",
+		"type": "rate_limit_error",
+		"code": "rate_limit_exceeded"
+	}
+}
+```
+
+Because slots free up continuously as in-flight requests complete, retrying after a short backoff typically succeeds — there is no fixed window to wait out. If you consistently hit the concurrency limit, reduce your client-side parallelism or [contact us](mailto:contact@llmgateway.io) about raising your ceiling.
 
 ## Free Models
 
@@ -175,9 +207,11 @@ This uses the standard OpenAI-compatible error envelope. Requests to the Anthrop
 
 Separately from per-account rate limits, the gateway protects itself from
 transient overload. When a single gateway instance is holding too many
-concurrent in-flight requests at once (for example during a traffic spike, or
-when an upstream provider is slow and connections pile up), it sheds excess
-requests with an `HTTP 529` response instead of letting them queue indefinitely:
+concurrent in-flight inference requests at once — across all organizations
+combined (for example during a traffic spike, or when an upstream provider is
+slow and connections pile up) — it sheds excess inference requests with an
+`HTTP 529` response instead of letting them queue indefinitely. Non-inference
+endpoints such as the models list are unaffected:
 
 ```http
 HTTP/1.1 529
@@ -207,19 +241,19 @@ matching Anthropic's own `529` behavior.
 
 How `529` differs from `429`:
 
-|           | `429 Too Many Requests`                                                | `529` Overloaded                       |
-| --------- | ---------------------------------------------------------------------- | -------------------------------------- |
-| Cause     | Your account exceeded its request quota                                | The gateway is momentarily at capacity |
-| Scope     | Per organization / API key                                             | Transient, server-side                 |
-| Fix       | Slow down, or add credits for [elevated limits](#elevated-rate-limits) | Retry after a short delay              |
-| Retryable | After the window resets                                                | Yes, immediately with backoff          |
+|           | `429 Too Many Requests`                                                                        | `529` Overloaded                       |
+| --------- | ---------------------------------------------------------------------------------------------- | -------------------------------------- |
+| Cause     | Your organization exceeded its request rate or [concurrency](#concurrent-request-limits) limit | The gateway is momentarily at capacity |
+| Scope     | Per organization / API key                                                                     | Transient, server-side                 |
+| Fix       | Slow down or reduce concurrency; add credits for [elevated limits](#elevated-rate-limits)      | Retry after a short delay              |
+| Retryable | After the window resets (rate) or as soon as an in-flight request finishes (concurrency)       | Yes, immediately with backoff          |
 
 ## Best Practices
 
 - **Respect `Retry-After`.** Implement exponential backoff when you receive `429` or `529` responses, starting from the `Retry-After` value.
 - **Watch the headers.** Monitor `X-RateLimit-Remaining` to back off before you hit the limit.
 - **Spread traffic across endpoints.** Limits are per endpoint, so unrelated workloads don't compete for the same budget.
-- **Scale with usage.** Regular organizations unlock higher limits automatically as lifetime spend grows; [contact us](mailto:contact@llmgateway.io) about an [Enterprise plan](https://llmgateway.io/enterprise) to remove per-organization limits entirely.
+- **Scale with usage.** Regular organizations unlock higher limits automatically as lifetime spend grows; [contact us](mailto:contact@llmgateway.io) about an [Enterprise plan](https://llmgateway.io/enterprise) to remove the per-minute limits and get an elevated concurrency ceiling.
 
 <Callout type="success">
 	Adding even a small amount of credits to your account (e.g., $10) will

@@ -24,6 +24,7 @@ const limitTypeSchema = z.enum([
 	"spend_cap_daily",
 	"spend_cap_monthly",
 	"topup_velocity",
+	"concurrency",
 ]);
 
 const t = tables.orgLimitHitDaily;
