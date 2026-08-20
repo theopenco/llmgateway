@@ -2759,6 +2759,7 @@ const rotateApiKey = createRoute({
 				"application/json": {
 					schema: z.object({
 						apiKey: z.string(),
+						apiKeyId: z.string(),
 					}),
 				},
 			},
@@ -2822,18 +2823,23 @@ devPlans.openapi(rotateApiKey, async (c) => {
 		(process.env.NODE_ENV === "development" ? "llmgdev_" : "llmgtwy_") +
 		shortid(40);
 
-	await cdb.transaction(async (tx) => {
+	const newApiKeyId = await cdb.transaction(async (tx) => {
 		await tx
 			.update(tables.apiKey)
 			.set({ status: "deleted" })
 			.where(eq(tables.apiKey.projectId, project.id));
 
-		await tx.insert(tables.apiKey).values({
-			...hashApiKeyForStorage(newToken),
-			projectId: project.id,
-			description: "Dev Plan API Key",
-			createdBy: user.id,
-		});
+		const [newApiKey] = await tx
+			.insert(tables.apiKey)
+			.values({
+				...hashApiKeyForStorage(newToken),
+				projectId: project.id,
+				description: "Dev Plan API Key",
+				createdBy: user.id,
+			})
+			.returning({ id: tables.apiKey.id });
+
+		return newApiKey.id;
 	});
 
 	await logAuditEvent({
@@ -2846,6 +2852,7 @@ devPlans.openapi(rotateApiKey, async (c) => {
 
 	return c.json({
 		apiKey: newToken,
+		apiKeyId: newApiKeyId,
 	});
 });
 
