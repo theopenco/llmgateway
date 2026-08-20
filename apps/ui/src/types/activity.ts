@@ -63,6 +63,7 @@ export interface DailyActivity {
 	cachedInputCost: number;
 	cacheWriteInputCost: number;
 	errorCount: number;
+	clientErrorCount: number;
 	errorRate: number;
 	cacheCount: number;
 	cacheRate: number;

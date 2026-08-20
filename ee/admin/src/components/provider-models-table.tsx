@@ -16,6 +16,8 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
+import { deriveStabilityMetrics } from "@llmgateway/shared";
+
 import type { ProviderModelStats } from "@/lib/types";
 
 type SortKey =
@@ -40,13 +42,22 @@ function formatCost(n: number) {
 }
 
 function errorRateOf(m: ProviderModelStats) {
-	return m.logsCount > 0 ? (m.errorsCount / m.logsCount) * 100 : 0;
+	return (
+		deriveStabilityMetrics(m.logsCount, m.errorsCount, m.clientErrorsCount)
+			.errorRate ?? 0
+	);
 }
 
 function getValue(m: ProviderModelStats, key: SortKey): number {
 	switch (key) {
 		case "errorRate":
 			return errorRateOf(m);
+		case "errorsCount":
+			return deriveStabilityMetrics(
+				m.logsCount,
+				m.errorsCount,
+				m.clientErrorsCount,
+			).errorsCount;
 		case "avgTimeToFirstToken":
 			return m.avgTimeToFirstToken ?? -1;
 		default:
@@ -166,10 +177,12 @@ export function ProviderModelsTable({
 			</TableHeader>
 			<TableBody>
 				{sortedModels.map((m) => {
-					const errorRate =
-						m.logsCount > 0
-							? ((m.errorsCount / m.logsCount) * 100).toFixed(1)
-							: "0.0";
+					const stability = deriveStabilityMetrics(
+						m.logsCount,
+						m.errorsCount,
+						m.clientErrorsCount,
+					);
+					const errorRate = (stability.errorRate ?? 0).toFixed(1);
 					return (
 						<TableRow key={m.mappingId} className="hover:bg-muted/50">
 							<TableCell>
@@ -205,7 +218,7 @@ export function ProviderModelsTable({
 								<TokenBreakdownCell breakdown={m} />
 							</TableCell>
 							<TableCell className="tabular-nums">
-								{formatNumber(m.errorsCount)}
+								{formatNumber(stability.errorsCount)}
 							</TableCell>
 							<TableCell className="tabular-nums">
 								{formatNumber(m.clientErrorsCount)}
