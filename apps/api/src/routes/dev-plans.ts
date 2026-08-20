@@ -161,6 +161,9 @@ async function getOrCreatePersonalOrgApiKey(
 			projectId: {
 				eq: projectId,
 			},
+			description: {
+				eq: "Dev Plan API Key",
+			},
 			status: {
 				ne: "deleted",
 			},
@@ -2824,12 +2827,9 @@ devPlans.openapi(rotateApiKey, async (c) => {
 		shortid(40);
 
 	const newApiKeyId = await cdb.transaction(async (tx) => {
-		await tx
-			.select({ id: tables.project.id })
-			.from(tables.project)
-			.where(eq(tables.project.id, project.id))
-			.for("update")
-			.limit(1);
+		await tx.execute(
+			sql`SELECT ${tables.project.id} FROM ${tables.project} WHERE ${tables.project.id} = ${project.id} FOR UPDATE`,
+		);
 
 		await tx
 			.update(tables.apiKey)

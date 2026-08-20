@@ -12,6 +12,16 @@ import {
 import { and, cdb, db, eq, getTableName, tables } from "@llmgateway/db";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
+const ORIGINAL_HASH_SECRET = process.env.GATEWAY_API_KEY_HASH_SECRET;
+
+function setHashSecret(value: string | undefined) {
+	if (value === undefined) {
+		delete process.env.GATEWAY_API_KEY_HASH_SECRET;
+	} else {
+		process.env.GATEWAY_API_KEY_HASH_SECRET = value;
+	}
+}
+
 // Issue #2674: management mutations on gateway-cached tables must go through the
 // cached client (cdb) so RedisCache.onMutate invalidates the gateway's SWR
 // mirrors. v1-master mutates apiKey, apiKeyIamRule and project, which the gateway
@@ -100,6 +110,7 @@ describe("v1/master cache invalidation", () => {
 	});
 
 	afterEach(async () => {
+		setHashSecret(ORIGINAL_HASH_SECRET);
 		// deleteAll does not target masterKey, but deleting the organization
 		// cascades it (masterKey.organizationId ON DELETE cascade).
 		await deleteAll();
@@ -111,6 +122,21 @@ describe("v1/master cache invalidation", () => {
 			...extra,
 		};
 	}
+
+	test("authenticates master keys hashed with a retained secret", async () => {
+		setHashSecret("retained-secret");
+		const retainedHash = getApiKeyFingerprint(masterToken);
+		setHashSecret("current-secret,retained-secret");
+		await db
+			.update(tables.masterKey)
+			.set({ tokenHash: retainedHash })
+			.where(eq(tables.masterKey.id, "test-master-key-id"));
+
+		const res = await app.request("/v1/master/keys", {
+			headers: authHeaders(),
+		});
+		expect(res.status).toBe(200);
+	});
 
 	test("GET /keys hides playground session keys", async () => {
 		await db.insert(tables.apiKey).values({

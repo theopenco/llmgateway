@@ -189,6 +189,38 @@ describe("dev plan tier changes", () => {
 		expect(activeKeys).toHaveLength(1);
 	});
 
+	it("returns the DevPass key when playground sessions share its project", async () => {
+		await db.insert(tables.project).values({
+			id: "test-dev-plan-project",
+			name: "Default Project",
+			organizationId: ORG_ID,
+		});
+		await db.insert(tables.apiKey).values([
+			{
+				id: "test-playground-session-key",
+				token: "test-playground-session-token",
+				projectId: "test-dev-plan-project",
+				description: "Auto-generated playground key",
+				createdBy: "test-user-id",
+			},
+			{
+				id: "test-dev-plan-api-key",
+				token: "test-dev-plan-token",
+				projectId: "test-dev-plan-project",
+				description: "Dev Plan API Key",
+				createdBy: "test-user-id",
+			},
+		]);
+
+		const response = await app.request("/dev-plans/status", {
+			headers: { Cookie: token },
+		});
+
+		expect(response.status).toBe(200);
+		const body = await response.json();
+		expect(body.apiKey?.id).toBe("test-dev-plan-api-key");
+	});
+
 	it("rejects an upgrade if the full price exceeds the confirmed amount", async () => {
 		stripeMock.subscriptions.retrieve.mockResolvedValue(
 			retrievedSubscription(),

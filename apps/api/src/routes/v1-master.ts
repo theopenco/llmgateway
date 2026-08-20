@@ -67,7 +67,10 @@ import {
 	shortid,
 	tables,
 } from "@llmgateway/db";
-import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
+import {
+	getApiKeyFingerprint,
+	getApiKeyFingerprints,
+} from "@llmgateway/shared/api-key-hash";
 import { maskToken } from "@llmgateway/shared/mask-token";
 
 import type { ServerTypes } from "@/vars.js";
@@ -99,10 +102,11 @@ v1Master.use("*", async (c, next) => {
 		throw new HTTPException(401, { message: "Missing bearer token" });
 	}
 
-	const tokenHash = getApiKeyFingerprint(token);
-
 	const row = await db.query.masterKey.findFirst({
-		where: { tokenHash: { eq: tokenHash }, status: { eq: "active" } },
+		where: {
+			tokenHash: { in: getApiKeyFingerprints(token) },
+			status: { eq: "active" },
+		},
 		with: { organization: true },
 	});
 
