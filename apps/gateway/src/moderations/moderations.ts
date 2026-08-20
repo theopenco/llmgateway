@@ -54,6 +54,12 @@ import type { Context } from "hono";
  * this fixed rate regardless of input size or moderation model.
  */
 export const MODERATION_REQUEST_PRICE = 0.00001;
+const MODERATION_MODEL_ID = "openai-moderation";
+const DEFAULT_UPSTREAM_MODERATION_MODEL = "omni-moderation-latest";
+const CANONICAL_MODERATION_MODEL = formatUsedModelForDisplay(
+	"openai",
+	MODERATION_MODEL_ID,
+);
 
 const moderationInputTextSchema = z.string().openapi({
 	description: "Plain text input to classify.",
@@ -144,7 +150,7 @@ const moderationResponseSchema = z
 		}),
 		model: z.string().optional().openapi({
 			description: "Moderation model used for the request.",
-			example: "omni-moderation-latest",
+			example: CANONICAL_MODERATION_MODEL,
 		}),
 		results: z.array(moderationResultSchema).optional().openapi({
 			description: "Moderation results for the submitted input.",
@@ -166,10 +172,15 @@ const moderationErrorSchema = z.object({
 
 const moderationRequestSchema = z.object({
 	input: moderationInputSchema,
-	model: z.string().optional().default("omni-moderation-latest").openapi({
-		description: "OpenAI moderation model. Defaults to omni-moderation-latest.",
-		example: "omni-moderation-latest",
-	}),
+	model: z
+		.string()
+		.optional()
+		.default(DEFAULT_UPSTREAM_MODERATION_MODEL)
+		.openapi({
+			description:
+				"OpenAI moderation model. Defaults to omni-moderation-latest.",
+			example: "omni-moderation-latest",
+		}),
 });
 
 function normalizeModerationInputToMessages(input: unknown) {
@@ -423,11 +434,12 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		);
 	}
 
-	const { input, model: upstreamModel } = validationResult.data;
-	const responseModel = formatUsedModelForDisplay(
-		"openai",
-		"openai-moderation",
-	);
+	const { input, model: requestedModel } = validationResult.data;
+	const upstreamModel =
+		requestedModel === CANONICAL_MODERATION_MODEL ||
+		requestedModel === MODERATION_MODEL_ID
+			? DEFAULT_UPSTREAM_MODERATION_MODEL
+			: requestedModel;
 	const startedAt = Date.now();
 	const source = validateSource(
 		c.req.header("x-source"),
@@ -1032,7 +1044,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 
 			return c.json({
 				...(upstreamJson as Record<string, unknown>),
-				model: responseModel,
+				model: CANONICAL_MODERATION_MODEL,
 			});
 		}
 	} finally {

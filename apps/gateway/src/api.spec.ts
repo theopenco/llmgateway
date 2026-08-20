@@ -3017,6 +3017,7 @@ describe("api", () => {
 			},
 			body: JSON.stringify({
 				input: "I want to attack someone.",
+				model: "openai/openai-moderation",
 			}),
 		});
 
