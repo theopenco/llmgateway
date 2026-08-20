@@ -25,6 +25,7 @@ const USERNAME_REGEX = /^[a-z0-9_-]{3,30}$/;
 
 const publicUserSchema = z.object({
 	id: z.string(),
+	createdAt: z.string().datetime(),
 	email: z.string(),
 	name: z.string().nullable(),
 	onboardingCompleted: z.boolean(),
@@ -85,6 +86,7 @@ function toPublicUser(
 ): z.infer<typeof publicUserSchema> {
 	return {
 		id: userRecord.id,
+		createdAt: userRecord.createdAt.toISOString(),
 		email: userRecord.email,
 		name: userRecord.name,
 		onboardingCompleted: userRecord.onboardingCompleted,
