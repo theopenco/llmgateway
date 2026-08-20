@@ -99,7 +99,6 @@ export async function generateMetadata({
 			description,
 			url: `https://llmgateway.io/blog/category/${slug}`,
 			type: "website",
-			images: ["/opengraph.png?v=2"],
 		},
 	};
 }
