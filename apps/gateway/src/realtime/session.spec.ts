@@ -199,6 +199,34 @@ beforeEach(() => {
 });
 
 describe("RealtimeProxySession turn handling", () => {
+	it("accepts canonical model ids in session updates", async () => {
+		const preflight = buildPreflight();
+		const { client, upstream, session, clientSends } = createSession({
+			match: {
+				...preflight.match,
+				mapping: {
+					...preflight.match.mapping,
+					externalId: "upstream-deployment",
+				},
+			},
+		});
+
+		clientSends({
+			type: "session.update",
+			session: { model: "openai/gpt-realtime-2.1-mini" },
+		});
+		await flush();
+
+		expect(client.sent).toHaveLength(0);
+		expect(upstream.sent).toHaveLength(1);
+		const forwarded = JSON.parse(upstream.sent[0]) as {
+			session: { model: string };
+		};
+		expect(forwarded.session.model).toBe("upstream-deployment");
+
+		session.shutdown(1000, "test_done");
+	});
+
 	it("canonicalizes model ids in upstream lifecycle events", async () => {
 		const allowedTranscription = {
 			modelId: "gpt-4o-mini-transcribe",

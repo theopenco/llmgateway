@@ -359,12 +359,15 @@ export class RealtimeProxySession {
 			message.session && typeof message.session === "object"
 				? (message.session as Record<string, unknown>)
 				: {};
+		const requestedSessionModel =
+			typeof session.model === "string" ? session.model : undefined;
 
 		// The model is pinned at connection time.
 		if (
-			typeof session.model === "string" &&
-			session.model !== this.preflight.match.mapping.externalId &&
-			session.model !== this.preflight.match.modelId
+			requestedSessionModel !== undefined &&
+			requestedSessionModel !== this.preflight.match.mapping.externalId &&
+			requestedSessionModel !== this.preflight.match.modelId &&
+			requestedSessionModel !== this.canonicalModelId(this.preflight.match)
 		) {
 			this.sendToClientRaw(
 				buildErrorEvent(
@@ -539,6 +542,10 @@ export class RealtimeProxySession {
 			}
 			return forwarded;
 		};
+		if (requestedSessionModel !== undefined) {
+			const fwdSession = cloneForwarded().session as Record<string, unknown>;
+			fwdSession.model = this.preflight.match.mapping.externalId;
+		}
 		if (turnDetection !== undefined) {
 			if (turnDetection === null) {
 				this.turnDetectionEnabled = false;
