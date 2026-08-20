@@ -860,7 +860,8 @@ responses.post("/compact", async (c) => {
 		chatJson &&
 		typeof chatJson === "object" &&
 		"model" in chatJson &&
-		typeof chatJson.model === "string"
+		typeof chatJson.model === "string" &&
+		chatJson.model.trim().length > 0
 			? chatJson.model
 			: req.model;
 

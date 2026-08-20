@@ -855,14 +855,24 @@ export class RealtimeProxySession {
 			audio?.input && typeof audio.input === "object"
 				? (audio.input as Record<string, unknown>)
 				: undefined;
-		const transcription =
+		const nestedTranscription =
 			input?.transcription && typeof input.transcription === "object"
 				? (input.transcription as Record<string, unknown>)
 				: undefined;
+		const legacyTranscription =
+			session.input_audio_transcription &&
+			typeof session.input_audio_transcription === "object"
+				? (session.input_audio_transcription as Record<string, unknown>)
+				: undefined;
 		const transcriptionMatch =
 			this.transcription?.match ?? this.allowedTranscription;
-		if (transcription && transcriptionMatch) {
-			transcription.model = this.canonicalModelId(transcriptionMatch);
+		if (transcriptionMatch) {
+			if (nestedTranscription) {
+				nestedTranscription.model = this.canonicalModelId(transcriptionMatch);
+			}
+			if (legacyTranscription) {
+				legacyTranscription.model = this.canonicalModelId(transcriptionMatch);
+			}
 		}
 	}
 
