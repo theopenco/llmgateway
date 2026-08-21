@@ -844,6 +844,8 @@ export const deepseekModels = [
 				// lists this provider in completionIncludesReasoning.
 				//
 				// All four tool_choice modes are honoured, so none are declared here.
+				// The endpoint silently ignores n > 1 and returns one choice, so this
+				// mapping must not advertise supportsN.
 				// Prompt caching is automatic prefix caching — the first request
 				// misses and later ones report `cached_tokens` — priced at the
 				// `input_cache_read` rate /v1/models advertises.
@@ -875,7 +877,6 @@ export const deepseekModels = [
 				// emits an empty object; schema-constrained output is reliable.
 				jsonOutput: false,
 				jsonOutputSchema: true,
-				supportsN: true,
 			},
 			{
 				providerId: "canopywave",
