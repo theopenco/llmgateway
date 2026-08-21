@@ -1,5 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 
+import { hasDeploymentEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
+
 import { apiAuth } from "./config.js";
 
 import type { ServerTypes } from "@/vars.js";
@@ -41,8 +43,21 @@ authHandler.use("*", async (c, next) => {
 });
 
 authHandler.on(["POST", "GET"], "/auth/*", (c) => {
-	if (BLOCKED_SSO_PLUGIN_PATHS.has(new URL(c.req.url).pathname)) {
+	const pathname = new URL(c.req.url).pathname;
+	if (BLOCKED_SSO_PLUGIN_PATHS.has(pathname)) {
 		return c.json({ error: "not_found", message: "Not found" }, 404);
+	}
+	if (
+		(pathname === "/auth/sign-in/sso" || pathname.startsWith("/auth/sso/")) &&
+		!hasDeploymentEnterpriseAccess()
+	) {
+		return c.json(
+			{
+				error: "enterprise_license_required",
+				message: "A valid Enterprise license is required",
+			},
+			403,
+		);
 	}
 	return apiAuth.handler(c.req.raw);
 });

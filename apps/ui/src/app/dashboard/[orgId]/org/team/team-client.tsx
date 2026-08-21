@@ -711,7 +711,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 		(member) => member.userId === user?.id,
 	)?.role;
 	const isAdmin = currentUserRole === "owner" || currentUserRole === "admin";
-	const isEnterprise = selectedOrganization?.plan === "enterprise";
+	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 	const showUsage = isEnterprise && isAdmin;
 
 	const [email, setEmail] = useState("");

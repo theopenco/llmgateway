@@ -6,6 +6,7 @@ import {
 	findProviderKey,
 	listEligibleProviderKeys,
 } from "@/lib/cached-queries.js";
+import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { posthog } from "@/posthog.js";
 
@@ -23,7 +24,6 @@ import {
 import { providerKeyAllowsModel } from "@llmgateway/db";
 import {
 	type BaseMessage,
-	getOrganizationEnvVariant,
 	getRegionSpecificEnvVarName,
 	getVariantEnvVarNameFor,
 	hasMaxTokens,
@@ -571,7 +571,7 @@ export async function resolveProviderContext(
 
 	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
 	// this org's env-credential reads. Undefined = base vars only.
-	const envVariant = getOrganizationEnvVariant(organization);
+	const envVariant = getLicensedOrganizationEnvVariant(organization);
 
 	// Flex/Priority is only honored when the request reaches the provider's real
 	// upstream endpoint on a tier-capable location. Skip provider keys whose

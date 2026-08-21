@@ -94,7 +94,7 @@ export function OrgModelsClient({
 	const queryClient = useQueryClient();
 	const searchParams = useSearchParams();
 
-	const isEnterprise = selectedOrganization?.plan === "enterprise";
+	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 
 	// Project-scoped developers can browse the directory but not manage the
 	// custom-model catalog — mutations are owner/admin-only (enforced

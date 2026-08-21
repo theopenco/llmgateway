@@ -1456,7 +1456,9 @@ export function DashboardSidebar({
 					<SidebarSearchResults
 						matches={searchMatches}
 						onNavigate={handleSearchNavigate}
-						showEnterpriseBadge={selectedOrganization?.plan !== "enterprise"}
+						showEnterpriseBadge={
+							selectedOrganization?.enterpriseAccess !== true
+						}
 					/>
 				) : selectedOrganization?.role === "developer" ? (
 					// Project-scoped "developer" members get a minimal, personal nav:
@@ -1484,7 +1486,7 @@ export function DashboardSidebar({
 							isActive={isActive}
 							isMobile={isMobile}
 							toggleSidebar={toggleSidebar}
-							isEnterprise={selectedOrganization?.plan === "enterprise"}
+							isEnterprise={selectedOrganization?.enterpriseAccess === true}
 						/>
 					</>
 				) : (
@@ -1508,7 +1510,7 @@ export function DashboardSidebar({
 										isMobile={isMobile}
 										toggleSidebar={toggleSidebar}
 										showEnterpriseBadge={
-											selectedOrganization?.plan !== "enterprise"
+											selectedOrganization?.enterpriseAccess !== true
 										}
 									/>
 								</SidebarMenu>
@@ -1520,7 +1522,7 @@ export function DashboardSidebar({
 							isMobile={isMobile}
 							toggleSidebar={toggleSidebar}
 							searchParams={searchParams}
-							isEnterprise={selectedOrganization?.plan === "enterprise"}
+							isEnterprise={selectedOrganization?.enterpriseAccess === true}
 						/>
 
 						<ToolsResourcesSection

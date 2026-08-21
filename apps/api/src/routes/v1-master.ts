@@ -72,6 +72,7 @@ import {
 	tables,
 } from "@llmgateway/db";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import { maskToken } from "@llmgateway/shared/mask-token";
 
 import type { ServerTypes } from "@/vars.js";
@@ -118,7 +119,12 @@ v1Master.use("*", async (c, next) => {
 		throw new HTTPException(403, { message: "Organization is not active" });
 	}
 
-	if (row.organization?.plan !== "enterprise") {
+	if (
+		!hasOrganizationEnterpriseAccess(
+			row.organization?.id,
+			row.organization?.plan,
+		)
+	) {
 		throw new HTTPException(403, {
 			message: "Master keys require an enterprise plan",
 		});

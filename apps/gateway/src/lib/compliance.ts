@@ -1,5 +1,7 @@
 import { HTTPException } from "hono/http-exception";
 
+import { hasOrganizationEnterpriseAccess } from "@/lib/enterprise.js";
+
 import { logViolation } from "@llmgateway/guardrails";
 import { logger, toError } from "@llmgateway/logger";
 import {
@@ -15,6 +17,7 @@ import {
 } from "@llmgateway/models";
 
 interface OrganizationLike {
+	id: string;
 	plan: string;
 	providerCompliancePolicy?: ProviderCompliancePolicy | null;
 }
@@ -27,7 +30,7 @@ interface OrganizationLike {
 export function getActiveCompliancePolicy(
 	organization: OrganizationLike,
 ): ProviderCompliancePolicy | undefined {
-	return organization.plan === "enterprise" &&
+	return hasOrganizationEnterpriseAccess(organization.id, organization.plan) &&
 		organization.providerCompliancePolicy?.enabled
 		? organization.providerCompliancePolicy
 		: undefined;

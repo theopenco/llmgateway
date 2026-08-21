@@ -8,16 +8,20 @@ interface MeResponse {
 		email: string;
 		isAdmin?: boolean;
 	};
+	enterpriseLicense: {
+		enterpriseEnabled: boolean;
+		whiteLabelEnabled: boolean;
+		status: string;
+	};
 }
 
 export async function proxy(req: NextRequest) {
 	const { pathname } = req.nextUrl;
 
-	// Allow auth, static routes, and root path without admin check
 	if (
-		pathname === "/" ||
 		pathname.startsWith("/login") ||
 		pathname.startsWith("/signup") ||
+		pathname.startsWith("/license-required") ||
 		pathname.startsWith("/_next") ||
 		pathname.startsWith("/favicon") ||
 		pathname.startsWith("/api")
@@ -53,6 +57,7 @@ export async function proxy(req: NextRequest) {
 			headers: {
 				Cookie: cookieHeader,
 			},
+			cache: "no-store",
 		});
 
 		if (!res.ok) {
@@ -67,6 +72,10 @@ export async function proxy(req: NextRequest) {
 			return new NextResponse("Forbidden: admin access required", {
 				status: 403,
 			});
+		}
+
+		if (!data.enterpriseLicense?.whiteLabelEnabled) {
+			return NextResponse.redirect(new URL("/license-required", req.url));
 		}
 	} catch {
 		return new NextResponse("Forbidden: admin access required", {

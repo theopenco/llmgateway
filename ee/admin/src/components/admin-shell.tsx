@@ -27,6 +27,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
 import { ThemeToggle } from "@/components/landing/theme-toggle";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
 	Sidebar,
@@ -211,7 +212,7 @@ export function AdminShell({ children, signedIn }: AdminShellProps) {
 	const router = useRouter();
 	const { signOut } = useAuth();
 	const queryClient = useQueryClient();
-	const { user, isLoading, error } = useUser();
+	const { user, isLoading, error, data } = useUser();
 
 	// Visitors without an admin session never see the navigation: the section
 	// list would suggest there is something reachable behind it, and a sign out
@@ -301,6 +302,16 @@ export function AdminShell({ children, signedIn }: AdminShellProps) {
 			</Sidebar>
 			<SidebarInset>
 				<MobileHeader />
+				{data?.enterpriseLicense?.status === "grace" && (
+					<Alert className="rounded-none border-x-0 border-t-0 border-amber-500/40 bg-amber-500/10 px-6 text-amber-950 dark:text-amber-100">
+						<AlertTriangle />
+						<AlertTitle>Enterprise license expired</AlertTitle>
+						<AlertDescription>
+							Admin access remains available during the seven-day grace period.
+							Install a renewed license before it ends.
+						</AlertDescription>
+					</Alert>
+				)}
 				{children}
 			</SidebarInset>
 		</SidebarProvider>

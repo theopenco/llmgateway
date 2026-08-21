@@ -44,7 +44,7 @@ export function ApiKeyStatsClient({
 	const { buildUrl, selectedOrganization } = useDashboardNavigation();
 	const api = useApi();
 	const usageMode = useUsageMode();
-	const isEnterprise = selectedOrganization?.plan === "enterprise";
+	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 
 	useEffect(() => {
 		if (!isEnterprise) {

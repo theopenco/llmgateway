@@ -39,6 +39,7 @@ import {
 	applyEndUserSession,
 	assertTestWalletModelAllowed,
 } from "@/lib/end-user-session.js";
+import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
@@ -61,11 +62,7 @@ import {
 	readProviderKey,
 } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
-import {
-	getOrganizationEnvVariant,
-	models as modelDefinitions,
-	type Provider,
-} from "@llmgateway/models";
+import { models as modelDefinitions, type Provider } from "@llmgateway/models";
 
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
 import type { ServerTypes } from "@/vars.js";
@@ -604,7 +601,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 		let usedToken: string | undefined;
 		let configIndex = 0;
 		let envVarName: string | undefined;
-		const envVariant = getOrganizationEnvVariant(organization);
+		const envVariant = getLicensedOrganizationEnvVariant(organization);
 
 		const excludedProviderKeyIds = failedKeys.providerKeyIdsFor(
 			providerId,

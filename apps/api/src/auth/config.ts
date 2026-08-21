@@ -30,6 +30,7 @@ import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { getResendClient, resendAudienceId } from "@llmgateway/shared/email";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
 const apiUrl = getApiBaseUrl();
 const cookieDomain = process.env.COOKIE_DOMAIN ?? "localhost";
@@ -80,10 +81,12 @@ async function isSSOEnforcedForEmail(
 		where: {
 			id: { in: [...new Set(matching.map((p) => p.organizationId as string))] },
 		},
-		columns: { status: true, plan: true },
+		columns: { id: true, status: true, plan: true },
 	});
 	return orgs.some(
-		(org) => org.status !== "deleted" && org.plan === "enterprise",
+		(org) =>
+			org.status !== "deleted" &&
+			hasOrganizationEnterpriseAccess(org.id, org.plan),
 	);
 }
 
@@ -1159,6 +1162,32 @@ The LLM Gateway Team`.trim();
 							: null;
 						ssoProvider = provider ?? null;
 						if (provider?.organizationId) {
+							const organization = await db.query.organization.findFirst({
+								where: { id: { eq: provider.organizationId } },
+								columns: { id: true, plan: true, status: true },
+							});
+							if (
+								!organization ||
+								organization.status === "deleted" ||
+								!hasOrganizationEnterpriseAccess(
+									organization.id,
+									organization.plan,
+								)
+							) {
+								await db
+									.delete(tables.session)
+									.where(eq(tables.session.id, newSession.session.id));
+								return new Response(
+									JSON.stringify({
+										error: "enterprise_license_required",
+										message: "A valid Enterprise license is required",
+									}),
+									{
+										status: 403,
+										headers: { "Content-Type": "application/json" },
+									},
+								);
+							}
 							await logAuditEvent({
 								organizationId: provider.organizationId,
 								userId,
