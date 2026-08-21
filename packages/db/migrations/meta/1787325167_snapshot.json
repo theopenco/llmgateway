@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "a4ead361-3d91-49e0-b568-30ac5f91b7f6",
+  "id": "e794d54a-ba0a-44bc-b255-e03c556674b7",
   "prevId": "811c6c27-7755-416f-a877-f2bb0ea94727",
   "ddl": [
     {
@@ -803,38 +803,12 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
       "name": "token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "token_hash",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "token_masked",
       "entityType": "columns",
       "schema": "public",
       "table": "api_key"
@@ -15520,17 +15494,17 @@
       "table": "project"
     },
     {
-      "type": "boolean",
+      "type": "text",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
       "default": {
-        "value": "true",
+        "value": "'auto'",
         "type": "unknown"
       },
       "generated": null,
       "identity": null,
-      "name": "provider_cache_control_enabled",
+      "name": "provider_cache_control_mode",
       "entityType": "columns",
       "schema": "public",
       "table": "project"
@@ -32458,17 +32432,6 @@
     {
       "nameExplicit": false,
       "columns": [
-        "token_hash"
-      ],
-      "nullsNotDistinct": false,
-      "name": "api_key_token_hash_key",
-      "schema": "public",
-      "table": "api_key",
-      "entityType": "uniques"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
         "stripe_customer_id"
       ],
       "nullsNotDistinct": false,
@@ -32663,13 +32626,6 @@
       "schema": "public",
       "table": "wallet",
       "entityType": "uniques"
-    },
-    {
-      "value": "(\"token\" IS NULL) <> (\"token_hash\" IS NULL)",
-      "name": "api_key_token_xor",
-      "entityType": "checks",
-      "schema": "public",
-      "table": "api_key"
     },
     {
       "value": "\"rating\" IS NULL OR (\"rating\" >= 0 AND \"rating\" <= 5)",
