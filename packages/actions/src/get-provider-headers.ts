@@ -122,6 +122,14 @@ export function getProviderHeaders(
 				...requestIdHeader,
 				"xi-api-key": token,
 			};
+		case "ranoai":
+			return {
+				...requestIdHeader,
+				Authorization: `Bearer ${token}`,
+				// RanoAI serves Brotli responses that Node leaves compressed when the
+				// gateway's production upstream dispatcher is installed.
+				"Accept-Encoding": "identity",
+			};
 		case "openai":
 		case "inference.net":
 		case "xai":
