@@ -123,6 +123,7 @@ function DeletePaymentMethodDialog({
 				}
 				setOpen(nextOpen);
 				if (nextOpen) {
+					setError(null);
 					setReplacementPaymentMethodId(replacementOptions[0]?.id ?? "");
 				}
 				if (!nextOpen) {
@@ -157,8 +158,8 @@ function DeletePaymentMethodDialog({
 							Replacement default
 						</Label>
 						<p className="text-sm text-muted-foreground">
-							This method is currently a default. Choose another attached card
-							for Stripe and future charges before deleting it.
+							This method is currently a default. Choose another attached
+							payment method for Stripe and future charges before deleting it.
 						</p>
 						<Select
 							value={replacementPaymentMethodId}
@@ -183,7 +184,8 @@ function DeletePaymentMethodDialog({
 				) : paymentMethod.isDefault ? (
 					<p className="text-sm text-muted-foreground">
 						No replacement remains. Stripe customer and subscription defaults
-						will be cleared, so renewals may fail until another card is added.
+						will be cleared, so renewals may fail until another payment method
+						is added.
 					</p>
 				) : null}
 
@@ -198,7 +200,7 @@ function DeletePaymentMethodDialog({
 								? "Auto top-up is enabled and will be disabled because no payment method remains."
 								: paymentMethod.isDefault
 									? "Auto top-up is enabled. Future automatic top-ups will use the selected replacement."
-									: "Auto top-up is enabled. This card is not currently a default, so automatic top-ups will keep using the existing default."}
+									: "Auto top-up is enabled. This payment method is not currently a default, so automatic top-ups will keep using the existing default."}
 						</p>
 					</div>
 				) : null}
@@ -254,7 +256,7 @@ export function PaymentMethodsList({
 			<div>
 				<h3 className="text-sm font-medium">Payment methods</h3>
 				<p className="mt-1 text-sm text-muted-foreground">
-					Cards attached to the Stripe customer. Card details live in Stripe;
+					Methods attached to the Stripe customer. Their details live in Stripe;
 					standard top-up links are also tracked locally.
 				</p>
 			</div>

@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
+import Stripe from "stripe";
 import { z } from "zod";
 
 import { adminMiddleware } from "@/middleware/admin.js";
@@ -385,10 +386,66 @@ type PaymentMethodOrganization = Pick<
 	| "chatPlanStripeSubscriptionId"
 >;
 
+interface OrganizationSubscription {
+	id: string;
+	kind: "default" | "devPlan" | "chatPlan";
+	subscription: Stripe.Subscription | null;
+}
+
 function getStripeId(
 	value: string | { id: string } | null | undefined,
 ): string | null {
 	return typeof value === "string" ? value : (value?.id ?? null);
+}
+
+function isStripeMissingResourceError(
+	error: unknown,
+): error is Stripe.errors.StripeInvalidRequestError {
+	return (
+		error instanceof Stripe.errors.StripeInvalidRequestError &&
+		(error.code === "resource_missing" || error.statusCode === 404)
+	);
+}
+
+async function listCustomerPaymentMethods(
+	stripe: Stripe,
+	stripeCustomerId: string,
+) {
+	const paymentMethods: Stripe.PaymentMethod[] = [];
+	let startingAfter: string | undefined;
+
+	while (true) {
+		const page = await stripe.paymentMethods.list({
+			customer: stripeCustomerId,
+			limit: 100,
+			...(startingAfter ? { starting_after: startingAfter } : {}),
+		});
+		paymentMethods.push(...page.data);
+
+		if (!page.has_more || page.data.length === 0) {
+			return paymentMethods;
+		}
+		startingAfter = page.data[page.data.length - 1]?.id;
+	}
+}
+
+async function retrieveOrganizationSubscription(
+	stripe: Stripe,
+	id: string,
+	kind: OrganizationSubscription["kind"],
+): Promise<OrganizationSubscription> {
+	try {
+		return {
+			id,
+			kind,
+			subscription: await stripe.subscriptions.retrieve(id),
+		};
+	} catch (error) {
+		if (isStripeMissingResourceError(error)) {
+			return { id, kind, subscription: null };
+		}
+		throw error;
+	}
 }
 
 async function getOrganizationPaymentMethodState(
@@ -399,29 +456,43 @@ async function getOrganizationPaymentMethodState(
 	}
 
 	const stripe = getStripe();
-	const subscriptionIds = [
-		org.stripeSubscriptionId,
-		org.devPlanStripeSubscriptionId,
-		org.chatPlanStripeSubscriptionId,
-	].filter((id): id is string => Boolean(id));
+	const subscriptionRequests: Promise<OrganizationSubscription>[] = [];
+	if (org.stripeSubscriptionId) {
+		subscriptionRequests.push(
+			retrieveOrganizationSubscription(
+				stripe,
+				org.stripeSubscriptionId,
+				"default",
+			),
+		);
+	}
+	if (org.devPlanStripeSubscriptionId) {
+		subscriptionRequests.push(
+			retrieveOrganizationSubscription(
+				stripe,
+				org.devPlanStripeSubscriptionId,
+				"devPlan",
+			),
+		);
+	}
+	if (org.chatPlanStripeSubscriptionId) {
+		subscriptionRequests.push(
+			retrieveOrganizationSubscription(
+				stripe,
+				org.chatPlanStripeSubscriptionId,
+				"chatPlan",
+			),
+		);
+	}
 
 	const [paymentMethods, customer, localPaymentMethods, subscriptions] =
 		await Promise.all([
-			stripe.paymentMethods.list({
-				customer: org.stripeCustomerId,
-				type: "card",
-				limit: 100,
-			}),
+			listCustomerPaymentMethods(stripe, org.stripeCustomerId),
 			stripe.customers.retrieve(org.stripeCustomerId),
 			db.query.paymentMethod.findMany({
 				where: { organizationId: org.id },
 			}),
-			Promise.all(
-				subscriptionIds.map(async (id) => ({
-					id,
-					subscription: await stripe.subscriptions.retrieve(id),
-				})),
-			),
+			Promise.all(subscriptionRequests),
 		]);
 
 	if (customer.deleted) {
@@ -436,6 +507,9 @@ async function getOrganizationPaymentMethodState(
 		defaultPaymentMethodIds.add(customerDefaultId);
 	}
 	for (const { subscription } of subscriptions) {
+		if (!subscription) {
+			continue;
+		}
 		const subscriptionDefaultId = getStripeId(
 			subscription.default_payment_method,
 		);
@@ -450,8 +524,7 @@ async function getOrganizationPaymentMethodState(
 	}
 
 	return {
-		paymentMethods: paymentMethods.data,
-		customer,
+		paymentMethods,
 		customerDefaultId,
 		localPaymentMethods,
 		subscriptions,
@@ -548,6 +621,9 @@ const deleteOrganizationPaymentMethod = createRoute({
 		400: {
 			description: "A valid replacement is required for a default method.",
 		},
+		409: {
+			description: "The replacement card is already used elsewhere.",
+		},
 	},
 });
 
@@ -561,14 +637,34 @@ adminOrgDetails.openapi(deleteOrganizationPaymentMethod, async (c) => {
 		throw new HTTPException(404, { message: "Payment method not found" });
 	}
 
-	const paymentMethod =
-		await getStripe().paymentMethods.retrieve(paymentMethodId);
-	const stripeCustomerId =
-		typeof paymentMethod.customer === "string"
-			? paymentMethod.customer
-			: (paymentMethod.customer?.id ?? null);
+	const stripe = getStripe();
+	const localPaymentMethod = await db.query.paymentMethod.findFirst({
+		where: {
+			organizationId: { eq: orgId },
+			stripePaymentMethodId: { eq: paymentMethodId },
+		},
+	});
+	let paymentMethod: Stripe.PaymentMethod | null = null;
+	try {
+		paymentMethod = await stripe.paymentMethods.retrieve(paymentMethodId);
+	} catch (error) {
+		if (!isStripeMissingResourceError(error)) {
+			throw error;
+		}
+		if (!localPaymentMethod) {
+			throw new HTTPException(404, {
+				message: "Payment method not found",
+			});
+		}
+	}
 
-	if (stripeCustomerId !== org.stripeCustomerId) {
+	const stripeCustomerId = paymentMethod
+		? getStripeId(paymentMethod.customer)
+		: null;
+	const attachedToOrganization = stripeCustomerId === org.stripeCustomerId;
+	const hasDetachedLocalMethod =
+		stripeCustomerId === null && Boolean(localPaymentMethod);
+	if (!attachedToOrganization && !hasDetachedLocalMethod) {
 		throw new HTTPException(404, { message: "Payment method not found" });
 	}
 
@@ -602,14 +698,82 @@ adminOrgDetails.openapi(deleteOrganizationPaymentMethod, async (c) => {
 
 	const replacementId = replacementPaymentMethod?.id ?? null;
 	const clearAllDefaults = remainingPaymentMethods.length === 0;
-	const stripe = getStripe();
 	const shouldUpdateCustomerDefault =
 		clearAllDefaults || state.customerDefaultId === paymentMethodId;
 	const subscriptionsToUpdate = state.subscriptions.filter(
-		({ subscription }) =>
-			clearAllDefaults ||
-			getStripeId(subscription.default_payment_method) === paymentMethodId,
+		(
+			entry,
+		): entry is OrganizationSubscription & {
+			subscription: Stripe.Subscription;
+		} => {
+			if (!entry.subscription) {
+				return false;
+			}
+			return (
+				clearAllDefaults ||
+				getStripeId(entry.subscription.default_payment_method) ===
+					paymentMethodId
+			);
+		},
 	);
+	const subscriptionUsesReplacement = (
+		kind: OrganizationSubscription["kind"],
+	) =>
+		Boolean(replacementId) &&
+		state.subscriptions.some(
+			(entry) =>
+				entry.kind === kind &&
+				entry.subscription &&
+				getStripeId(entry.subscription.default_payment_method) ===
+					replacementId,
+		);
+	const updateDevPlanFingerprint = clearAllDefaults
+		? Boolean(org.devPlanStripeSubscriptionId)
+		: subscriptionsToUpdate.some((entry) => entry.kind === "devPlan") ||
+			subscriptionUsesReplacement("devPlan");
+	const updateChatPlanFingerprint = clearAllDefaults
+		? Boolean(org.chatPlanStripeSubscriptionId)
+		: subscriptionsToUpdate.some((entry) => entry.kind === "chatPlan") ||
+			subscriptionUsesReplacement("chatPlan");
+	const replacementFingerprint =
+		replacementPaymentMethod?.card?.fingerprint ?? null;
+
+	if (
+		replacementId &&
+		(updateDevPlanFingerprint || updateChatPlanFingerprint) &&
+		!replacementFingerprint
+	) {
+		throw new HTTPException(400, {
+			message: "DevPass and Chat subscriptions require a replacement card.",
+		});
+	}
+
+	if (replacementFingerprint && updateDevPlanFingerprint) {
+		const conflictingOrganization = await db.query.organization.findFirst({
+			where: {
+				devPlanCardFingerprint: { eq: replacementFingerprint },
+				id: { ne: orgId },
+			},
+		});
+		if (conflictingOrganization) {
+			throw new HTTPException(409, {
+				message: "Replacement card is already used by another organization.",
+			});
+		}
+	}
+	if (replacementFingerprint && updateChatPlanFingerprint) {
+		const conflictingOrganization = await db.query.organization.findFirst({
+			where: {
+				chatPlanCardFingerprint: { eq: replacementFingerprint },
+				id: { ne: orgId },
+			},
+		});
+		if (conflictingOrganization) {
+			throw new HTTPException(409, {
+				message: "Replacement card is already used by another organization.",
+			});
+		}
+	}
 
 	if (shouldUpdateCustomerDefault) {
 		await stripe.customers.update(org.stripeCustomerId, {
@@ -624,20 +788,26 @@ adminOrgDetails.openapi(deleteOrganizationPaymentMethod, async (c) => {
 		});
 	}
 
-	await stripe.paymentMethods.detach(paymentMethodId);
+	if (attachedToOrganization) {
+		await stripe.paymentMethods.detach(paymentMethodId);
+	}
 
-	const localPaymentMethod = state.localPaymentMethods.find(
-		(candidate) => candidate.stripePaymentMethodId === paymentMethodId,
-	);
 	const localReplacement = replacementId
 		? state.localPaymentMethods.find(
 				(candidate) => candidate.stripePaymentMethodId === replacementId,
 			)
 		: undefined;
 	const disableAutoTopUp = clearAllDefaults;
+	const shouldReconcileLocalDefault =
+		clearAllDefaults ||
+		shouldUpdateCustomerDefault ||
+		Boolean(localPaymentMethod?.isDefault) ||
+		(hasDetachedLocalMethod &&
+			Boolean(replacementId) &&
+			state.customerDefaultId === replacementId);
 
 	await db.transaction(async (tx) => {
-		if (localPaymentMethod?.isDefault) {
+		if (shouldReconcileLocalDefault) {
 			await tx
 				.update(tables.paymentMethod)
 				.set({ isDefault: false })
@@ -658,10 +828,22 @@ adminOrgDetails.openapi(deleteOrganizationPaymentMethod, async (c) => {
 			}
 		}
 
-		if (disableAutoTopUp) {
+		if (
+			disableAutoTopUp ||
+			updateDevPlanFingerprint ||
+			updateChatPlanFingerprint
+		) {
 			await tx
 				.update(tables.organization)
-				.set({ autoTopUpEnabled: false })
+				.set({
+					...(disableAutoTopUp ? { autoTopUpEnabled: false } : {}),
+					...(updateDevPlanFingerprint
+						? { devPlanCardFingerprint: replacementFingerprint }
+						: {}),
+					...(updateChatPlanFingerprint
+						? { chatPlanCardFingerprint: replacementFingerprint }
+						: {}),
+				})
 				.where(eq(tables.organization.id, orgId));
 		}
 
@@ -682,7 +864,7 @@ adminOrgDetails.openapi(deleteOrganizationPaymentMethod, async (c) => {
 		resourceType: "payment_method",
 		resourceId: paymentMethodId,
 		metadata: {
-			cardLast4: paymentMethod.card?.last4,
+			cardLast4: paymentMethod?.card?.last4,
 			replacementPaymentMethodId: replacementId,
 			autoTopUpDisabled: disableAutoTopUp && org.autoTopUpEnabled,
 		},

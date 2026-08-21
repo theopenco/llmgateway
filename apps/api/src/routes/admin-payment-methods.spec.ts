@@ -1,3 +1,4 @@
+import Stripe from "stripe";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { app } from "@/index.js";
@@ -110,11 +111,11 @@ describe("admin organization payment methods", () => {
 			id: STRIPE_PAYMENT_METHOD_ID,
 		});
 		stripeMock.subscriptions.retrieve.mockResolvedValue({
-			id: "sub_admin_payment_methods",
+			id: SUBSCRIPTION_ID,
 			default_payment_method: null,
 		});
 		stripeMock.subscriptions.update.mockResolvedValue({
-			id: "sub_admin_payment_methods",
+			id: SUBSCRIPTION_ID,
 		});
 	});
 
@@ -172,7 +173,6 @@ describe("admin organization payment methods", () => {
 		});
 		expect(stripeMock.paymentMethods.list).toHaveBeenCalledWith({
 			customer: STRIPE_CUSTOMER_ID,
-			type: "card",
 			limit: 100,
 		});
 	});
@@ -188,6 +188,69 @@ describe("admin organization payment methods", () => {
 		expect(response.status).toBe(200);
 		expect(await response.json()).toEqual({ paymentMethods: [] });
 		expect(stripeMock.paymentMethods.list).not.toHaveBeenCalled();
+	});
+
+	it("lists every page of attached payment methods", async () => {
+		stripeMock.paymentMethods.list
+			.mockResolvedValueOnce({
+				data: [{ id: STRIPE_PAYMENT_METHOD_ID, type: "card", created: 1 }],
+				has_more: true,
+			})
+			.mockResolvedValueOnce({
+				data: [{ id: REPLACEMENT_PAYMENT_METHOD_ID, type: "card", created: 2 }],
+				has_more: false,
+			});
+
+		const response = await request("", { headers: { Cookie: cookie } });
+
+		expect(response.status).toBe(200);
+		expect((await response.json()).paymentMethods).toHaveLength(2);
+		expect(stripeMock.paymentMethods.list).toHaveBeenNthCalledWith(2, {
+			customer: STRIPE_CUSTOMER_ID,
+			limit: 100,
+			starting_after: STRIPE_PAYMENT_METHOD_ID,
+		});
+	});
+
+	it("does not use another organization's local default", async () => {
+		await db.insert(tables.organization).values({
+			id: "other-payment-method-org",
+			name: "Other Payment Method Org",
+			billingEmail: "other-payments@test.example",
+		});
+		await db.insert(tables.paymentMethod).values({
+			organizationId: "other-payment-method-org",
+			stripePaymentMethodId: STRIPE_PAYMENT_METHOD_ID,
+			type: "card",
+			isDefault: true,
+		});
+
+		const response = await request("", { headers: { Cookie: cookie } });
+
+		expect(response.status).toBe(200);
+		expect((await response.json()).paymentMethods[0]).toMatchObject({
+			id: STRIPE_PAYMENT_METHOD_ID,
+			isDefault: false,
+		});
+	});
+
+	it("ignores a missing stored Stripe subscription when listing methods", async () => {
+		await db
+			.update(tables.organization)
+			.set({ stripeSubscriptionId: SUBSCRIPTION_ID })
+			.where(eq(tables.organization.id, ORG_ID));
+		stripeMock.subscriptions.retrieve.mockRejectedValue(
+			new Stripe.errors.StripeInvalidRequestError({
+				type: "invalid_request_error",
+				code: "resource_missing",
+				message: `No such subscription: ${SUBSCRIPTION_ID}`,
+			}),
+		);
+
+		const response = await request("", { headers: { Cookie: cookie } });
+
+		expect(response.status).toBe(200);
+		expect((await response.json()).paymentMethods).toHaveLength(1);
 	});
 
 	it("detaches the Stripe method and removes its local reference", async () => {
@@ -245,6 +308,31 @@ describe("admin organization payment methods", () => {
 		expect(stripeMock.paymentMethods.detach).not.toHaveBeenCalled();
 	});
 
+	it("rejects a replacement that is not attached to the customer", async () => {
+		stripeMock.customers.retrieve.mockResolvedValue({
+			id: STRIPE_CUSTOMER_ID,
+			deleted: false,
+			invoice_settings: {
+				default_payment_method: STRIPE_PAYMENT_METHOD_ID,
+			},
+		});
+		stripeMock.paymentMethods.list.mockResolvedValue({
+			data: [
+				{ id: STRIPE_PAYMENT_METHOD_ID, type: "card" },
+				{ id: REPLACEMENT_PAYMENT_METHOD_ID, type: "card" },
+			],
+		});
+
+		const response = await deletePaymentMethod(
+			cookie,
+			STRIPE_PAYMENT_METHOD_ID,
+			"pm_not_attached",
+		);
+
+		expect(response.status).toBe(400);
+		expect(stripeMock.paymentMethods.detach).not.toHaveBeenCalled();
+	});
+
 	it("moves Stripe and local defaults before detaching the default method", async () => {
 		await db
 			.update(tables.organization)
@@ -255,11 +343,11 @@ describe("admin organization payment methods", () => {
 			.where(eq(tables.organization.id, ORG_ID));
 		await db.insert(tables.paymentMethod).values([
 			{
-				id: "local-default-payment-method",
+				id: "local-target-payment-method",
 				organizationId: ORG_ID,
 				stripePaymentMethodId: STRIPE_PAYMENT_METHOD_ID,
 				type: "card",
-				isDefault: true,
+				isDefault: false,
 			},
 			{
 				id: "local-replacement-payment-method",
@@ -267,6 +355,13 @@ describe("admin organization payment methods", () => {
 				stripePaymentMethodId: REPLACEMENT_PAYMENT_METHOD_ID,
 				type: "card",
 				isDefault: false,
+			},
+			{
+				id: "local-stale-default-payment-method",
+				organizationId: ORG_ID,
+				stripePaymentMethodId: "pm_local_stale_default",
+				type: "card",
+				isDefault: true,
 			},
 		]);
 		stripeMock.customers.retrieve.mockResolvedValue({
@@ -323,14 +418,134 @@ describe("admin organization payment methods", () => {
 		expect(replacement?.isDefault).toBe(true);
 		expect(
 			await db.query.paymentMethod.findFirst({
-				where: { id: { eq: "local-default-payment-method" } },
+				where: { id: { eq: "local-target-payment-method" } },
 			}),
 		).toBeUndefined();
+		expect(
+			await db.query.paymentMethod.findFirst({
+				where: { id: { eq: "local-stale-default-payment-method" } },
+			}),
+		).toMatchObject({ isDefault: false });
 		expect(
 			await db.query.organization.findFirst({
 				where: { id: { eq: ORG_ID } },
 			}),
 		).toMatchObject({ autoTopUpEnabled: true });
+	});
+
+	it("keeps non-card methods and auto top-up when replacing the last card", async () => {
+		await db
+			.update(tables.organization)
+			.set({ autoTopUpEnabled: true })
+			.where(eq(tables.organization.id, ORG_ID));
+		stripeMock.customers.retrieve.mockResolvedValue({
+			id: STRIPE_CUSTOMER_ID,
+			deleted: false,
+			invoice_settings: {
+				default_payment_method: STRIPE_PAYMENT_METHOD_ID,
+			},
+		});
+		stripeMock.paymentMethods.list.mockResolvedValue({
+			data: [
+				{ id: STRIPE_PAYMENT_METHOD_ID, type: "card" },
+				{ id: REPLACEMENT_PAYMENT_METHOD_ID, type: "us_bank_account" },
+			],
+		});
+
+		const response = await deletePaymentMethod(
+			cookie,
+			STRIPE_PAYMENT_METHOD_ID,
+			REPLACEMENT_PAYMENT_METHOD_ID,
+		);
+
+		expect(response.status).toBe(200);
+		expect(stripeMock.customers.update).toHaveBeenCalledWith(
+			STRIPE_CUSTOMER_ID,
+			{
+				invoice_settings: {
+					default_payment_method: REPLACEMENT_PAYMENT_METHOD_ID,
+				},
+			},
+		);
+		expect(
+			await db.query.organization.findFirst({
+				where: { id: { eq: ORG_ID } },
+			}),
+		).toMatchObject({ autoTopUpEnabled: true });
+	});
+
+	it("updates the DevPass fingerprint with its replacement card", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				devPlanStripeSubscriptionId: SUBSCRIPTION_ID,
+				devPlanCardFingerprint: "old_fingerprint",
+			})
+			.where(eq(tables.organization.id, ORG_ID));
+		stripeMock.paymentMethods.list.mockResolvedValue({
+			data: [
+				{ id: STRIPE_PAYMENT_METHOD_ID, type: "card" },
+				{
+					id: REPLACEMENT_PAYMENT_METHOD_ID,
+					type: "card",
+					card: { fingerprint: "replacement_fingerprint" },
+				},
+			],
+		});
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			default_payment_method: STRIPE_PAYMENT_METHOD_ID,
+		});
+
+		const response = await deletePaymentMethod(
+			cookie,
+			STRIPE_PAYMENT_METHOD_ID,
+			REPLACEMENT_PAYMENT_METHOD_ID,
+		);
+
+		expect(response.status).toBe(200);
+		expect(
+			await db.query.organization.findFirst({
+				where: { id: { eq: ORG_ID } },
+			}),
+		).toMatchObject({ devPlanCardFingerprint: "replacement_fingerprint" });
+	});
+
+	it("rejects a replacement fingerprint used by another DevPass org", async () => {
+		await db
+			.update(tables.organization)
+			.set({ devPlanStripeSubscriptionId: SUBSCRIPTION_ID })
+			.where(eq(tables.organization.id, ORG_ID));
+		await db.insert(tables.organization).values({
+			id: "other-devpass-fingerprint-org",
+			name: "Other DevPass Fingerprint Org",
+			billingEmail: "other-devpass@test.example",
+			devPlanCardFingerprint: "replacement_fingerprint",
+		});
+		stripeMock.paymentMethods.list.mockResolvedValue({
+			data: [
+				{ id: STRIPE_PAYMENT_METHOD_ID, type: "card" },
+				{
+					id: REPLACEMENT_PAYMENT_METHOD_ID,
+					type: "card",
+					card: { fingerprint: "replacement_fingerprint" },
+				},
+			],
+		});
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			default_payment_method: STRIPE_PAYMENT_METHOD_ID,
+		});
+
+		const response = await deletePaymentMethod(
+			cookie,
+			STRIPE_PAYMENT_METHOD_ID,
+			REPLACEMENT_PAYMENT_METHOD_ID,
+		);
+
+		expect(response.status).toBe(409);
+		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
+		expect(stripeMock.paymentMethods.detach).not.toHaveBeenCalled();
 	});
 
 	it("clears Stripe defaults and disables auto top-up for the last method", async () => {
@@ -346,6 +561,8 @@ describe("admin organization payment methods", () => {
 				stripeSubscriptionId: subscriptionIds[0],
 				devPlanStripeSubscriptionId: subscriptionIds[1],
 				chatPlanStripeSubscriptionId: subscriptionIds[2],
+				devPlanCardFingerprint: "dev_fingerprint",
+				chatPlanCardFingerprint: "chat_fingerprint",
 			})
 			.where(eq(tables.organization.id, ORG_ID));
 		await db.insert(tables.paymentMethod).values({
@@ -386,7 +603,52 @@ describe("admin organization payment methods", () => {
 			await db.query.organization.findFirst({
 				where: { id: { eq: ORG_ID } },
 			}),
-		).toMatchObject({ autoTopUpEnabled: false });
+		).toMatchObject({
+			autoTopUpEnabled: false,
+			devPlanCardFingerprint: null,
+			chatPlanCardFingerprint: null,
+		});
+	});
+
+	it("cleans up a local row after Stripe already detached the method", async () => {
+		await db.insert(tables.paymentMethod).values({
+			id: "local-detached-payment-method",
+			organizationId: ORG_ID,
+			stripePaymentMethodId: STRIPE_PAYMENT_METHOD_ID,
+			type: "card",
+			isDefault: true,
+		});
+		stripeMock.paymentMethods.retrieve.mockResolvedValue({
+			id: STRIPE_PAYMENT_METHOD_ID,
+			customer: null,
+			type: "card",
+		});
+		stripeMock.paymentMethods.list.mockResolvedValue({ data: [] });
+
+		const response = await deletePaymentMethod(cookie);
+
+		expect(response.status).toBe(200);
+		expect(stripeMock.paymentMethods.detach).not.toHaveBeenCalled();
+		expect(
+			await db.query.paymentMethod.findFirst({
+				where: { id: { eq: "local-detached-payment-method" } },
+			}),
+		).toBeUndefined();
+	});
+
+	it("maps a missing Stripe payment method to not found", async () => {
+		stripeMock.paymentMethods.retrieve.mockRejectedValue(
+			new Stripe.errors.StripeInvalidRequestError({
+				type: "invalid_request_error",
+				code: "resource_missing",
+				message: `No such payment method: ${STRIPE_PAYMENT_METHOD_ID}`,
+			}),
+		);
+
+		const response = await deletePaymentMethod(cookie);
+
+		expect(response.status).toBe(404);
+		expect(stripeMock.paymentMethods.detach).not.toHaveBeenCalled();
 	});
 
 	it("refuses to detach a method belonging to another customer", async () => {

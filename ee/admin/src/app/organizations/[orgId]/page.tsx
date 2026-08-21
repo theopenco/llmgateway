@@ -31,7 +31,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
 	addManualCreditsToOrganization,
 	blockOrganization,
@@ -54,6 +54,7 @@ import { OrgCostByModel } from "./org-cost-by-model";
 import { OrgCostByModelTimeseries } from "./org-cost-by-model-timeseries";
 import { OrgMetricsSection } from "./org-metrics";
 import { OrgSettingsTab } from "./org-settings-tab";
+import { OrganizationTabs } from "./organization-tabs";
 import { ProviderKeysTable } from "./provider-keys-table";
 import { ReferralBonusDialog } from "./referral-bonus-dialog";
 import { SendEmailDialog } from "./send-email-dialog";
@@ -211,6 +212,12 @@ export default async function OrganizationPage({
 	const alOffset = (alPage - 1) * alLimit;
 
 	const $api = await createServerApiClient();
+	const paymentMethodsRequest =
+		activeTab === "settings"
+			? $api.GET("/admin/organizations/{orgId}/payment-methods", {
+					params: { path: { orgId } },
+				})
+			: Promise.resolve(null);
 	const [
 		transactionsRes,
 		projectsRes,
@@ -262,9 +269,7 @@ export default async function OrganizationPage({
 		$api.GET("/admin/organizations/{orgId}/settings", {
 			params: { path: { orgId } },
 		}),
-		$api.GET("/admin/organizations/{orgId}/payment-methods", {
-			params: { path: { orgId } },
-		}),
+		paymentMethodsRequest,
 		$api.GET("/admin/organizations/{orgId}/guardrails", {
 			params: { path: { orgId } },
 		}),
@@ -280,7 +285,7 @@ export default async function OrganizationPage({
 	const membersData = membersRes.data;
 	const auditLogsData = auditLogsRes.data;
 	const settingsData = settingsRes.data;
-	const paymentMethodsData = paymentMethodsRes.data;
+	const paymentMethodsData = paymentMethodsRes?.data;
 	const guardrailsData = guardrailsRes.data;
 	const ssoData = ssoRes.data;
 
@@ -534,7 +539,7 @@ export default async function OrganizationPage({
 				</section>
 			)}
 
-			<Tabs defaultValue={activeTab}>
+			<OrganizationTabs defaultValue={activeTab}>
 				<TabsList className="w-full justify-start overflow-x-auto sm:w-auto">
 					<TabsTrigger value="transactions">
 						<Receipt className="mr-1.5 h-4 w-4" />
@@ -897,7 +902,7 @@ export default async function OrganizationPage({
 						</p>
 					)}
 				</TabsContent>
-			</Tabs>
+			</OrganizationTabs>
 		</div>
 	);
 }
