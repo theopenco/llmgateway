@@ -13,6 +13,16 @@ afterEach(() => {
 });
 
 describe("getProviderHeaders", () => {
+	it("disables response compression for RanoAI", () => {
+		expect(
+			getProviderHeaders("ranoai", "token", { requestId: "request-id" }),
+		).toEqual({
+			"x-request-id": "request-id",
+			Authorization: "Bearer token",
+			"Accept-Encoding": "identity",
+		});
+	});
+
 	describe("anthropic", () => {
 		it("sends no anthropic-beta header", () => {
 			const headers = getProviderHeaders("anthropic", "sk-ant-example");
