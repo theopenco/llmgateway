@@ -23,6 +23,7 @@ import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { and, db, desc, eq, isNull, tables } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
 import { replyToEmail } from "@llmgateway/shared/email";
+import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -511,8 +512,6 @@ publicChatSupport.post("/", async (c) => {
 		);
 	}
 
-	const gatewayUrl = process.env.GATEWAY_URL ?? "https://api.llmgateway.io/v1";
-
 	const supportApiKey = process.env.SUPPORT_CHAT_API_KEY;
 	if (!supportApiKey) {
 		logger.error("SUPPORT_CHAT_API_KEY not configured");
@@ -521,7 +520,7 @@ publicChatSupport.post("/", async (c) => {
 
 	const llmgateway = createLLMGateway({
 		apiKey: supportApiKey,
-		baseURL: gatewayUrl,
+		baseURL: getGatewayApiBaseUrl(),
 		headers: {
 			"x-source": "support-chat",
 		},

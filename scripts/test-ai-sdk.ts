@@ -9,13 +9,16 @@
  *
  * Env vars:
  *   OPENAI_API_KEY  – Gateway API key (required)
- *   GATEWAY_URL     – Gateway base URL (default: http://localhost:4001/v1)
+ *   GATEWAY_URL     – Gateway origin (default: http://localhost:4001)
  */
 
 import { createOpenAI } from "@ai-sdk/openai";
 import { generateText, streamText } from "ai";
 
-const baseURL = process.env.GATEWAY_URL ?? "http://localhost:4001/v1";
+const gatewayUrl = (process.env.GATEWAY_URL ?? "http://localhost:4001")
+	.replace(/(?:\/v1)+\/?$/, "")
+	.replace(/\/$/, "");
+const baseURL = `${gatewayUrl}/v1`;
 const apiKey = process.env.OPENAI_API_KEY ?? "<YOUR_API_KEY>";
 
 const openai = createOpenAI({ baseURL, apiKey });
@@ -110,8 +113,7 @@ async function main() {
 		});
 		console.log(`  Response: ${text}`);
 		const parsed = JSON.parse(text);
-		if (!("answer" in parsed))
-			throw new Error(`Missing 'answer' key: ${text}`);
+		if (!("answer" in parsed)) throw new Error(`Missing 'answer' key: ${text}`);
 	});
 
 	await run("Explicit chat completions (openai.chat)", async () => {

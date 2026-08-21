@@ -43,9 +43,8 @@ declared in `.envrc`. Launch an isolated stack with
 `pnpm exec turbo run dev --env-mode=loose`, then confirm the startup logs show
 the selected ports rather than the defaults.
 
-Set `GATEWAY_URL` to the versioned API base, for example
-`http://localhost:${GATEWAY_PORT}/v1`. Playground passes it directly to the AI
-SDK; routes that need the bare gateway origin remove the `/v1` suffix.
+Set `GATEWAY_URL` to the unversioned gateway origin, for example
+`http://localhost:${GATEWAY_PORT}`. Gateway API callers append `/v1`.
 
 ## Drive and capture
 

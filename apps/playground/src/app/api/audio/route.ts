@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { getPlaygroundKeyForRequest } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
 
+import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 
 export const maxDuration = 120;
@@ -68,12 +69,6 @@ export async function POST(req: Request) {
 		);
 	}
 
-	const gatewayBaseUrl =
-		process.env.GATEWAY_URL?.replace(/\/v1$/, "") ??
-		(process.env.NODE_ENV === "development"
-			? "http://localhost:4001"
-			: "https://api.llmgateway.io");
-
 	const noFallback = req.headers.get("x-no-fallback");
 
 	// Abort just under maxDuration so a hung gateway connection surfaces as a
@@ -84,7 +79,7 @@ export async function POST(req: Request) {
 
 	let response: Response;
 	try {
-		response = await fetch(`${gatewayBaseUrl}/v1/audio/speech`, {
+		response = await fetch(`${getGatewayApiBaseUrl()}/audio/speech`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",

@@ -7,6 +7,7 @@ import {
 	getApiKeyFingerprints,
 	hashApiKeyForStorage,
 } from "@llmgateway/shared/api-key-hash";
+import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 
 import type { ServerTypes } from "@/vars.js";
 import type { Context } from "hono";
@@ -107,16 +108,7 @@ export function setPlaygroundKeyCookie(
 }
 
 export function getGatewayUrl() {
-	const configured = process.env.GATEWAY_URL?.trim();
-	if (configured) {
-		// GATEWAY_URL is set both with and without the `/v1` suffix depending on
-		// the environment (the frontends strip it off, every caller of this
-		// helper appends `/v1` paths), so normalize to exactly one `/v1`.
-		return `${configured.replace(/\/+$/, "").replace(/(\/v1)+$/, "")}/v1`;
-	}
-	return process.env.NODE_ENV === "development"
-		? "http://localhost:4001/v1"
-		: "https://api.llmgateway.io/v1";
+	return getGatewayApiBaseUrl();
 }
 
 interface PlaygroundKeyUser {

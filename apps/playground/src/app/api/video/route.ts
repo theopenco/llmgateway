@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { getPlaygroundKeyForRequest } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
 
+import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 
 import { getGatewayErrorMessage, readGatewayResponseBody } from "./utils";
@@ -23,16 +24,10 @@ export async function POST(req: Request) {
 		return NextResponse.json({ error: "Missing API key" }, { status: 400 });
 	}
 
-	const gatewayBaseUrl =
-		process.env.GATEWAY_URL?.replace(/\/v1$/, "") ??
-		(process.env.NODE_ENV === "development"
-			? "http://localhost:4001"
-			: "https://api.llmgateway.io");
-
 	const requestBody = await req.json();
 	const noFallback = req.headers.get("x-no-fallback");
 
-	const response = await fetch(`${gatewayBaseUrl}/v1/videos`, {
+	const response = await fetch(`${getGatewayApiBaseUrl()}/videos`, {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",

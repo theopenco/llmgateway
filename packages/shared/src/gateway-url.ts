@@ -1,5 +1,5 @@
 function normalizeGatewayBaseUrl(url: string): string {
-	return url.replace(/\/v1\/?$/, "").replace(/\/$/, "");
+	return url.replace(/(?:\/v1)+\/?$/, "").replace(/\/$/, "");
 }
 
 export function getGatewayPublicBaseUrl(): string {
@@ -11,6 +11,10 @@ export function getGatewayPublicBaseUrl(): string {
 	return process.env.NODE_ENV === "production"
 		? "https://api.llmgateway.io"
 		: "http://localhost:4001";
+}
+
+export function getGatewayApiBaseUrl(): string {
+	return `${getGatewayPublicBaseUrl()}/v1`;
 }
 
 export function buildGatewayVideoLogContentUrl(logId: string): string {

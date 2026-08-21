@@ -8,6 +8,7 @@ import {
 import { getPlaygroundKeyForRequest } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
 
+import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 
 export const dynamic = "force-dynamic";
@@ -52,16 +53,10 @@ export async function GET(
 		return NextResponse.json({ error: "Missing API key" }, { status: 400 });
 	}
 
-	const gatewayBaseUrl =
-		process.env.GATEWAY_URL?.replace(/\/v1$/, "") ??
-		(process.env.NODE_ENV === "development"
-			? "http://localhost:4001"
-			: "https://api.llmgateway.io");
-
 	let response: Response;
 	try {
 		response = await fetch(
-			`${gatewayBaseUrl}/v1/videos/${encodeURIComponent(videoId)}`,
+			`${getGatewayApiBaseUrl()}/videos/${encodeURIComponent(videoId)}`,
 			{
 				headers: {
 					Authorization: `Bearer ${apiKey}`,

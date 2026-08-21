@@ -28,6 +28,7 @@ import {
 import { fetchServerData } from "@/lib/server-api";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 
 export const maxDuration = 300; // 5 minutes
@@ -720,12 +721,6 @@ export async function POST(req: Request) {
 		});
 	}
 
-	const gatewayUrl =
-		process.env.GATEWAY_URL ??
-		(process.env.NODE_ENV === "development"
-			? "http://localhost:4001/v1"
-			: "https://api.llmgateway.io/v1");
-
 	let latestGatewayResponseMetadata: GatewayResponseMetadata | undefined;
 	const captureGatewayMetadata = (metadata: GatewayResponseMetadata) => {
 		latestGatewayResponseMetadata = {
@@ -782,7 +777,7 @@ export async function POST(req: Request) {
 
 	const llmgateway = createLLMGateway({
 		apiKey: finalApiKey,
-		baseURL: gatewayUrl,
+		baseURL: getGatewayApiBaseUrl(),
 		fetch: gatewayFetch,
 		headers: {
 			"x-source": LOUNGE_SOURCE,

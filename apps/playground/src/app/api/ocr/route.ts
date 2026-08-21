@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { getPlaygroundKeyForRequest } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
 
+import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 
 export const maxDuration = 300; // 5 minutes
@@ -73,15 +74,9 @@ export async function POST(req: Request) {
 		return jsonResponse({ error: "Missing API key" }, 400);
 	}
 
-	const gatewayUrl =
-		process.env.GATEWAY_URL ??
-		(process.env.NODE_ENV === "development"
-			? "http://localhost:4001/v1"
-			: "https://api.llmgateway.io/v1");
-
 	let upstream: Response;
 	try {
-		upstream = await fetch(`${gatewayUrl}/ocr`, {
+		upstream = await fetch(`${getGatewayApiBaseUrl()}/ocr`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",

@@ -36,8 +36,7 @@ describe("getGatewayUrl", () => {
 		}
 	});
 
-	// Deployments and local `.envrc` blocks write GATEWAY_URL both ways, and
-	// every caller appends a `/v1` path to what this returns.
+	// GATEWAY_URL is an unversioned origin; legacy versioned values remain safe.
 	test("appends the /v1 suffix when GATEWAY_URL omits it", () => {
 		process.env.GATEWAY_URL = "http://localhost:4001";
 		expect(getGatewayUrl()).toBe("http://localhost:4001/v1");
