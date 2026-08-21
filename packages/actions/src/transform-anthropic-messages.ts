@@ -2,8 +2,10 @@ import { logger } from "@llmgateway/logger";
 import {
 	type AnthropicMessage,
 	type BaseMessage,
+	type CacheControl,
 	isImageUrlContent,
 	isTextContent,
+	isToolResultContent,
 	type MessageContent,
 	type TextContent,
 	type ToolResultContent,
@@ -12,6 +14,26 @@ import {
 
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
 import { ImageSizeLimitError, processImageUrl } from "./process-image-url.js";
+
+/**
+ * Last caller-supplied cache breakpoint in an OpenAI-format content array. On a
+ * tool message the array is lowered to a single tool_result block, so the last
+ * marker is the one that ends the prefix.
+ */
+function findCacheControl(
+	content: BaseMessage["content"],
+): CacheControl | undefined {
+	if (!Array.isArray(content)) {
+		return undefined;
+	}
+	let marker: CacheControl | undefined;
+	for (const part of content) {
+		if (isTextContent(part) && part.cache_control) {
+			marker = part.cache_control;
+		}
+	}
+	return marker;
+}
 
 /**
  * Transforms Anthropic messages
@@ -94,8 +116,29 @@ export async function transformAnthropicMessages(
 	for (const m of groupedMessages) {
 		let content: MessageContent[] = [];
 
+		// A tool-result message has its content rebuilt into a tool_result block
+		// below, discarding whatever we would assemble here — so skip the whole
+		// first pass for it. Assembling it would fetch (and size-check) images
+		// that never reach the provider, and its cache_control accounting would
+		// spend one of Anthropic's 4 slots on a block that is thrown away,
+		// starving the real cacheable blocks (and the turn boundary) of markers.
+		const originalRole = m.role === "user" && m.tool_call_id ? "tool" : m.role;
+		const isDiscardedToolResult =
+			originalRole === "tool" && !!m.tool_call_id && m.content !== undefined;
+
+		// The caller's own breakpoint does survive: Anthropic accepts
+		// cache_control on a tool_result block, and in an agentic loop that is
+		// exactly where the stable prefix ends. It arrives either on the dedicated
+		// message field (Anthropic Messages API callers, whose tool_result content
+		// is lowered to a string) or on a text part (OpenAI-format callers).
+		const toolResultCacheControl = isDiscardedToolResult
+			? (m.tool_result_cache_control ?? findCacheControl(m.content))
+			: undefined;
+
 		// Handle existing content
-		if (Array.isArray(m.content)) {
+		if (isDiscardedToolResult) {
+			content = [];
+		} else if (Array.isArray(m.content)) {
 			// Process all images in parallel for better performance
 			content = await Promise.all(
 				m.content.map(async (part: MessageContent) => {
@@ -140,7 +183,16 @@ export async function transformAnthropicMessages(
 							// rejects with a 400). Without this, a coding agent like
 							// Claude Code that sends 4 markers itself would hit the
 							// "Found 5" error after we add our own.
-							cacheControlCount++;
+							if (cacheControlCount < maxCacheControlBlocks) {
+								cacheControlCount++;
+								return part;
+							}
+							// Past the cap the marker has to go: the budget may already
+							// be spent by the tools and system that render ahead of these
+							// messages, and the earlier markers cover the longer prefixes
+							// anyway. Same treatment an over-budget system marker gets.
+							const { cache_control: _dropped, ...rest } = part;
+							return rest;
 						} else if (
 							shouldApplyCacheControl &&
 							part.text.length >= minCacheableChars &&
@@ -218,8 +270,7 @@ export async function transformAnthropicMessages(
 		}
 
 		// Handle OpenAI-style tool role messages by converting them to Anthropic tool_result content blocks
-		// Use the original role since the mapped role will be "user"
-		const originalRole = m.role === "user" && m.tool_call_id ? "tool" : m.role;
+		// (originalRole was computed above, since the mapped role will be "user")
 		if (originalRole === "tool" && m.tool_call_id && m.content !== undefined) {
 			// For tool results, we need to check if content is JSON string and parse it appropriately
 			let toolResultContent: string;
@@ -283,6 +334,14 @@ export async function transformAnthropicMessages(
 						content: resultContent,
 					} as ToolResultContent,
 				];
+			}
+
+			// Re-attach the caller's breakpoint to the last block, which is where the
+			// prefix ends, without exceeding Anthropic's four-breakpoint limit.
+			if (toolResultCacheControl && cacheControlCount < maxCacheControlBlocks) {
+				const last = content[content.length - 1] as ToolResultContent;
+				last.cache_control = toolResultCacheControl;
+				cacheControlCount++;
 			}
 		}
 
@@ -358,21 +417,21 @@ export async function transformAnthropicMessages(
 				Array.isArray(boundaryMsg.content) &&
 				boundaryMsg.content.length > 0
 			) {
-				// Find the last text content block in the boundary message.
-				let lastTextIdx = -1;
+				// Find the last block that can carry a breakpoint. Text is the common
+				// case, but agent loops may put a tool_result at the boundary.
+				let lastCacheableIdx = -1;
 				for (let i = boundaryMsg.content.length - 1; i >= 0; i--) {
-					const part = boundaryMsg.content[i];
-					if (part && isTextContent(part as MessageContent)) {
-						lastTextIdx = i;
+					const part = boundaryMsg.content[i] as MessageContent | undefined;
+					if (part && (isTextContent(part) || isToolResultContent(part))) {
+						lastCacheableIdx = i;
 						break;
 					}
 				}
-				if (lastTextIdx >= 0) {
-					const target = boundaryMsg.content[lastTextIdx] as TextContent;
+				if (lastCacheableIdx >= 0) {
+					const target = boundaryMsg.content[lastCacheableIdx] as
+						TextContent | ToolResultContent;
 					if (!target.cache_control) {
-						(boundaryMsg.content[lastTextIdx] as TextContent).cache_control = {
-							type: "ephemeral",
-						};
+						target.cache_control = { type: "ephemeral" };
 						cacheControlCount++;
 					}
 				}
