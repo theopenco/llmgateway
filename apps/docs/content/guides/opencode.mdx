@@ -122,7 +122,9 @@ After updating `config.json`, restart OpenCode to see the new models.
 
 ## Pinning a Model to a Specific Provider
 
-Pinning is what the **LLM Gateway** (`llmgateway-providers`) entry is for. Its model IDs use LLM Gateway's [`provider/model` syntax](/features/routing#provider-specific-routing), so picking "Claude Opus 5 (Anthropic)" in the model picker always runs on that upstream deployment — useful for a fixed price, a compliance boundary, or consistent behavior. The **DevPass (LLM Gateway)** entry lists canonical IDs, which the gateway routes to the best available provider automatically.
+Pinning is what the **LLM Gateway** (`llmgateway-providers`) entry is for. Its model IDs use LLM Gateway's [`provider/model` syntax](/features/routing#provider-specific-routing), so picking "Claude Opus 5 (Anthropic)" in the model picker sends the request to that upstream deployment instead of letting the gateway choose. The **DevPass (LLM Gateway)** entry lists canonical IDs, which the gateway routes to the best available provider automatically.
+
+On its own the pin is a preference, not a guarantee — if that provider is down or rate-limited, the gateway still fails over to another one. When you need it to hold, such as for a fixed price or a compliance boundary, pair the pin with [strict fallback](#disabling-fallback).
 
 Pin one as your default model, or per-agent:
 
