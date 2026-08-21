@@ -950,6 +950,250 @@ describe("Log Processing", () => {
 
 			expect(Number(updatedOrg!.credits)).toBe(initialCredits);
 		});
+
+		test("should keep chat plan overflow off an empty credit balance", async () => {
+			// A chat-plan subscriber holds no pay-as-you-go balance. Requests
+			// admitted while the pool still had room can overshoot it, and
+			// getAvailableCredits adds `credits` to the plan allowance — so a
+			// negative balance would silently dock next cycle's allowance. The
+			// excess stays recorded as chat plan usage instead.
+			await db
+				.update(organization)
+				.set({
+					kind: "chat",
+					credits: "0.00",
+					chatPlan: "starter",
+					chatPlanCreditsLimit: "0.02",
+					chatPlanCreditsUsed: "0.00",
+				})
+				.where(eq(organization.id, testOrg.id));
+
+			await db.insert(log).values({
+				requestId: "test-request-chat-overflow-no-balance",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.05,
+				cached: false,
+				usedMode: "credits",
+				duration: 1000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 100,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			expect(Number(updatedOrg!.credits)).toBe(0);
+			expect(Number(updatedOrg!.chatPlanCreditsUsed)).toBeCloseTo(0.05, 8);
+		});
+
+		test("should spend a chat org balance before parking the rest on the pool", async () => {
+			// A partial balance must still be spent — flooring the whole charge
+			// would hand the org free usage. Only the part the balance cannot
+			// cover stays on the plan pool.
+			await db
+				.update(organization)
+				.set({
+					kind: "chat",
+					credits: "0.02",
+					chatPlan: "starter",
+					chatPlanCreditsLimit: "0.01",
+					chatPlanCreditsUsed: "0.01",
+				})
+				.where(eq(organization.id, testOrg.id));
+
+			await db.insert(log).values({
+				requestId: "test-request-chat-partial-balance",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.05,
+				cached: false,
+				usedMode: "credits",
+				duration: 1000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 100,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			// Balance fully spent, never negative; the $0.03 excess is plan usage.
+			expect(Number(updatedOrg!.credits)).toBe(0);
+			expect(Number(updatedOrg!.chatPlanCreditsUsed)).toBeCloseTo(0.04, 8);
+		});
+
+		test("should write off residual usage after the plan was cancelled", async () => {
+			// The plan pool is torn down on cancellation, so late-arriving usage
+			// it had already authorized has nowhere to go. Writing it off keeps
+			// the org out of phantom debt that a later top-up would silently pay.
+			await db
+				.update(organization)
+				.set({
+					kind: "devpass",
+					credits: "0.00",
+					devPlan: "none",
+					devPlanPaygEnabled: false,
+				})
+				.where(eq(organization.id, testOrg.id));
+
+			await db.insert(log).values({
+				requestId: "test-request-cancelled-plan-residual",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.05,
+				cached: false,
+				usedMode: "credits",
+				duration: 1000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 100,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			expect(Number(updatedOrg!.credits)).toBe(0);
+		});
+
+		test("should carry debt for a planless personal org that holds a balance", async () => {
+			// No plan, but a real top-up/gift balance: getAvailableCredits admits
+			// this traffic on the balance alone, so the balance — not a plan — is
+			// what authorized it. The overage must be carried as debt exactly like
+			// a default org, otherwise the org gets more usage than it paid for.
+			await db
+				.update(organization)
+				.set({
+					kind: "chat",
+					credits: "0.01",
+					chatPlan: "none",
+					devPlan: "none",
+					devPlanPaygEnabled: false,
+				})
+				.where(eq(organization.id, testOrg.id));
+
+			await db.insert(log).values({
+				requestId: "test-request-planless-balance-debt",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.05,
+				cached: false,
+				usedMode: "credits",
+				duration: 1000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 100,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			expect(Number(updatedOrg!.credits)).toBeCloseTo(-0.04, 8);
+		});
+
+		test("should still let a default org go negative on overage", async () => {
+			// Pay-as-you-go orgs are invoiced and reconciled on the next top-up,
+			// so flooring them would lose genuinely incurred usage.
+			await db
+				.update(organization)
+				.set({ kind: "default", credits: "0.01" })
+				.where(eq(organization.id, testOrg.id));
+
+			await db.insert(log).values({
+				requestId: "test-request-default-still-negative",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.05,
+				cached: false,
+				usedMode: "credits",
+				duration: 1000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 100,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			expect(Number(updatedOrg!.credits)).toBeCloseTo(-0.04, 8);
+		});
+
+		test("should still let a PAYG-enabled devpass org go negative", async () => {
+			// Opting into pay-as-you-go overflow is an explicit request to bill
+			// real money past the allowance, with auto top-up to reconcile it.
+			await db
+				.update(organization)
+				.set({
+					kind: "devpass",
+					credits: "0.01",
+					devPlan: "pro",
+					devPlanCreditsLimit: "0.01",
+					devPlanCreditsUsed: "0.01",
+					devPlanPaygEnabled: true,
+				})
+				.where(eq(organization.id, testOrg.id));
+
+			await db.insert(log).values({
+				requestId: "test-request-payg-on-still-negative",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.05,
+				cached: false,
+				usedMode: "credits",
+				duration: 1000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 100,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			expect(Number(updatedOrg!.credits)).toBeCloseTo(-0.04, 8);
+		});
 	});
 
 	describe("provider key spend limits", () => {
