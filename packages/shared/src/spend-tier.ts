@@ -193,6 +193,8 @@ export interface SpendTierDefaults {
 	minAgeDays: number;
 	/** RPM multiplier applied to the per-path base limit. */
 	rpmMultiplier: number;
+	/** Max concurrent in-flight inference requests (fleet-wide, per org). */
+	inflightLimit: number;
 	/** Daily USD spend cap. */
 	dailyCapUsd: number;
 	/** Monthly USD spend cap. */
@@ -208,6 +210,7 @@ export const SPEND_TIER_DEFAULTS: readonly SpendTierDefaults[] = [
 		spendUsd: 0,
 		minAgeDays: 0,
 		rpmMultiplier: 1,
+		inflightLimit: 100,
 		// High enough that a typical first top-up ($10-$50) is usable on day
 		// one; the min-age floors still stop day-0 burn from buying tiers.
 		dailyCapUsd: 25,
@@ -220,6 +223,7 @@ export const SPEND_TIER_DEFAULTS: readonly SpendTierDefaults[] = [
 		spendUsd: 10,
 		minAgeDays: 1,
 		rpmMultiplier: 2,
+		inflightLimit: 200,
 		dailyCapUsd: 100,
 		monthlyCapUsd: 1_000,
 		topUpDailyCapUsd: 500,
@@ -230,6 +234,7 @@ export const SPEND_TIER_DEFAULTS: readonly SpendTierDefaults[] = [
 		spendUsd: 100,
 		minAgeDays: 3,
 		rpmMultiplier: 4,
+		inflightLimit: 400,
 		dailyCapUsd: 500,
 		monthlyCapUsd: 5_000,
 		topUpDailyCapUsd: 2_500,
@@ -240,6 +245,7 @@ export const SPEND_TIER_DEFAULTS: readonly SpendTierDefaults[] = [
 		spendUsd: 1_000,
 		minAgeDays: 7,
 		rpmMultiplier: 10,
+		inflightLimit: 1_000,
 		dailyCapUsd: 5_000,
 		monthlyCapUsd: 50_000,
 		topUpDailyCapUsd: 10_000,
@@ -250,6 +256,7 @@ export const SPEND_TIER_DEFAULTS: readonly SpendTierDefaults[] = [
 		spendUsd: 5_000,
 		minAgeDays: 14,
 		rpmMultiplier: 20,
+		inflightLimit: 2_000,
 		dailyCapUsd: 15_000,
 		monthlyCapUsd: 200_000,
 		topUpDailyCapUsd: 20_000,
@@ -259,6 +266,7 @@ export const SPEND_TIER_DEFAULTS: readonly SpendTierDefaults[] = [
 export interface ResolvedSpendTier {
 	tier: number;
 	rpmMultiplier: number;
+	inflightLimit: number;
 	dailyCapUsd: number;
 	monthlyCapUsd: number;
 	topUpDailyCapUsd: number;
@@ -301,6 +309,10 @@ function resolveTier(d: SpendTierDefaults): ResolvedSpendTier {
 		rpmMultiplier: getRateLimitEnvNumber(
 			`GATEWAY_SPEND_TIER_${d.tier}_RPM_MULTIPLIER`,
 			d.rpmMultiplier,
+		),
+		inflightLimit: getRateLimitEnvNumber(
+			`GATEWAY_SPEND_TIER_${d.tier}_INFLIGHT_LIMIT`,
+			d.inflightLimit,
 		),
 		dailyCapUsd: getRateLimitEnvNumber(
 			`GATEWAY_SPEND_TIER_${d.tier}_DAILY_CAP_USD`,
@@ -593,11 +605,15 @@ export function getOrgInflightStaleSeconds(): number {
 }
 
 /**
- * Fleet-wide cap on an organization's concurrent in-flight inference requests,
- * by plan class. Unlike the per-path RPM limits, enterprise orgs are not
- * exempt — they get an elevated ceiling instead, since unbounded concurrency
- * from a single tenant can still exhaust shared gateway capacity. A value of
- * 0 disables the check for that class (matching `getBaseLimit` semantics).
+ * Base fleet-wide cap on an organization's concurrent in-flight inference
+ * requests, by plan class. Unlike the per-path RPM limits, enterprise orgs
+ * are not exempt — they get an elevated ceiling instead, since unbounded
+ * concurrency from a single tenant can still exhaust shared gateway capacity.
+ * For regular (PAYG) orgs this is tier 0's `inflightLimit`; higher trust
+ * tiers raise it, resolved lazily by the gateway only once an org reaches
+ * this base (mirroring the RPM multiplier). Dev/chat plans stay flat. A
+ * value of 0 disables the check for that class (matching `getBaseLimit`
+ * semantics).
  */
 export function getOrgInflightLimit(
 	planClass: PlanClass,
@@ -608,11 +624,11 @@ export function getOrgInflightLimit(
 	}
 	switch (planClass) {
 		case "dev":
-			return getRateLimitEnvNumber("GATEWAY_ORG_INFLIGHT_LIMIT_DEV", 100);
+			return getRateLimitEnvNumber("GATEWAY_ORG_INFLIGHT_LIMIT_DEV", 50);
 		case "chat":
-			return getRateLimitEnvNumber("GATEWAY_ORG_INFLIGHT_LIMIT_CHATPLAN", 50);
+			return getRateLimitEnvNumber("GATEWAY_ORG_INFLIGHT_LIMIT_CHATPLAN", 10);
 		default:
-			return getRateLimitEnvNumber("GATEWAY_ORG_INFLIGHT_LIMIT", 500);
+			return resolveTier(SPEND_TIER_DEFAULTS[0]).inflightLimit;
 	}
 }
 

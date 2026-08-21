@@ -313,17 +313,24 @@ export interface InflightAcquisition {
  * window sits above the longest legitimate request, so a legit long-runner
  * at worst frees its slot early — erring permissive, never restrictive.
  *
+ * `getMaxLimit` is resolved lazily, mirroring `checkOrgRateLimit`'s spend-tier
+ * multiplier: under `baseLimit` the request is admitted without it, so the
+ * (cached but still extra) tier lookup only runs once an org is actually at
+ * its base. Tiers can only raise the limit, so under-base admits are always
+ * correct.
+ *
  * Mirrors `checkOrgRateLimit`'s failure policy: any Redis error fails open so
  * limiter outages never block traffic.
  */
 export async function acquireOrgInflightSlot(
 	organizationId: string,
-	limit: number,
+	baseLimit: number,
+	getMaxLimit: () => Promise<number>,
 	endpointKey: string,
 ): Promise<InflightAcquisition> {
 	// A non-positive limit means concurrency is unlimited for this org class
 	// (e.g. an operator set the override to 0). Skip enforcement.
-	if (limit <= 0) {
+	if (baseLimit <= 0) {
 		return { allowed: true, limit: 0 };
 	}
 
@@ -350,6 +357,13 @@ export async function acquireOrgInflightSlot(
 			throw zcardResult?.[0] ?? new Error("org inflight pipeline failed");
 		}
 		const currentCount = Number(zcardResult[1]);
+
+		// Only resolve the tier-elevated ceiling (an extra cached lookup) once
+		// the base limit is reached; below it the request is admitted without it.
+		let limit = baseLimit;
+		if (currentCount >= baseLimit) {
+			limit = Math.max(baseLimit, await getMaxLimit());
+		}
 
 		if (currentCount >= limit) {
 			logger.info("Org inflight limit exceeded", {
@@ -394,6 +408,6 @@ export async function acquireOrgInflightSlot(
 	} catch (error) {
 		logger.error("Error acquiring org inflight slot:", error as Error);
 		// Fail open so Redis issues never block users.
-		return { allowed: true, limit };
+		return { allowed: true, limit: baseLimit };
 	}
 }

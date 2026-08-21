@@ -47,15 +47,15 @@ The default limits (requests per minute, per organization) are:
 
 ### Trust Tiers (account age or spend)
 
-For regular (pay-as-you-go) organizations, limits scale with a **trust tier**. An organization qualifies for a tier when its account is old enough, **or** when its lifetime usage spend is high enough **and** the account meets the tier's minimum age. The tier raises the per-endpoint RPM limits **and** the daily/monthly USD spend caps below.
+For regular (pay-as-you-go) organizations, limits scale with a **trust tier**. An organization qualifies for a tier when its account is old enough, **or** when its lifetime usage spend is high enough **and** the account meets the tier's minimum age. The tier raises the per-endpoint RPM limits, the [concurrent-request ceiling](#concurrent-request-limits), **and** the daily/monthly USD spend caps below.
 
-| Tier | Qualifies (age, or spend + min age) | RPM multiplier | Daily cap | Monthly cap |
-| ---- | ----------------------------------- | -------------- | --------- | ----------- |
-| 0    | new / $0                            | 1×             | $25       | $250        |
-| 1    | 7 days **or** $10 (account ≥ 1 day) | 2×             | $100      | $1,000      |
-| 2    | 30 days **or** $100 (≥ 3 days)      | 4×             | $500      | $5,000      |
-| 3    | 60 days **or** $1,000 (≥ 7 days)    | 10×            | $5,000    | $50,000     |
-| 4    | 90 days **or** $5,000 (≥ 14 days)   | 20×            | $15,000   | $200,000    |
+| Tier | Qualifies (age, or spend + min age) | RPM multiplier | Concurrent | Daily cap | Monthly cap |
+| ---- | ----------------------------------- | -------------- | ---------- | --------- | ----------- |
+| 0    | new / $0                            | 1×             | 100        | $25       | $250        |
+| 1    | 7 days **or** $10 (account ≥ 1 day) | 2×             | 200        | $100      | $1,000      |
+| 2    | 30 days **or** $100 (≥ 3 days)      | 4×             | 400        | $500      | $5,000      |
+| 3    | 60 days **or** $1,000 (≥ 7 days)    | 10×            | 1,000      | $5,000    | $50,000     |
+| 4    | 90 days **or** $5,000 (≥ 14 days)   | 20×            | 2,000      | $15,000   | $200,000    |
 
 Spend alone never promotes a brand-new account: each spend-qualified tier also requires the minimum account age shown, so the fastest possible path to Tier 4 is 14 days — no amount of day-one usage unlocks higher limits.
 
@@ -115,12 +115,18 @@ Separately from the per-minute request limits above, each organization has one f
 
 This bounds what a per-minute limit cannot: long-running requests. Six hundred requests per minute that each stream for two minutes hold 1,200 connections open; the concurrency budget is what keeps that pile-up from exhausting shared gateway capacity.
 
-| Plan           | Concurrent requests |
-| -------------- | ------------------- |
-| Regular (PAYG) | 500                 |
-| Dev plan       | 100                 |
-| Chat plan      | 50                  |
-| Enterprise     | 2,000               |
+For regular (pay-as-you-go) organizations the ceiling scales with the same [trust tier](#trust-tiers-account-age-or-spend) that raises the per-minute limits; Dev and Chat plans have a flat limit.
+
+| Plan                    | Concurrent requests |
+| ----------------------- | ------------------- |
+| Regular (PAYG) — Tier 0 | 100                 |
+| Regular (PAYG) — Tier 1 | 200                 |
+| Regular (PAYG) — Tier 2 | 400                 |
+| Regular (PAYG) — Tier 3 | 1,000               |
+| Regular (PAYG) — Tier 4 | 2,000               |
+| Dev plan                | 50                  |
+| Chat plan               | 10                  |
+| Enterprise              | 2,000               |
 
 Unlike the per-minute limits, **Enterprise organizations are not exempt** — they get the elevated ceiling instead. Requests over the limit receive a retryable `429`:
 
@@ -132,7 +138,7 @@ Retry-After: 1
 ```json
 {
 	"error": {
-		"message": "Too many concurrent requests for this organization (limit: 500). Retry shortly, or reduce request concurrency.",
+		"message": "Too many concurrent requests for this organization (limit: 100). Retry shortly, or reduce request concurrency.",
 		"type": "rate_limit_error",
 		"code": "rate_limit_exceeded"
 	}

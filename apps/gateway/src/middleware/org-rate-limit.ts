@@ -40,6 +40,8 @@ import type { Context, Next } from "hono";
  * In-flight concurrency (fleet-wide, inference endpoints only):
  * - One budget per org across all inference POSTs; a slot is held for the
  *   response's full lifetime (including streaming) and released on close.
+ * - Regular (pay-as-you-go) org ceilings scale with the trust tier; dev and
+ *   chat plans stay on a flat, tight limit.
  * - Enterprise organizations are NOT exempt — they get an elevated ceiling.
  * - Over-limit requests get a retryable 429 with `Retry-After: 1`.
  *
@@ -141,11 +143,21 @@ export async function orgRateLimitMiddleware(
 	// open for the duration of a model call. Unlike the RPM window, a slot is
 	// released when the response settles, so the count tracks live concurrency
 	// (Little's law: it binds throughput × duration, which RPM alone cannot).
+	// Regular (PAYG) orgs get a trust-tier-elevated ceiling, resolved lazily
+	// only once the org reaches the base; dev/chat/enterprise stay flat.
 	if (c.req.method === "POST" && INFLIGHT_LIMITED_KEYS.has(config.key)) {
-		const limit = getOrgInflightLimit(planClass, isEnterprise);
+		const baseLimit = getOrgInflightLimit(planClass, isEnterprise);
 		const acquisition = await acquireOrgInflightSlot(
 			organizationId,
-			limit,
+			baseLimit,
+			async () => {
+				if (isEnterprise || planClass !== "regular") {
+					return baseLimit;
+				}
+				const lifetimeSpend =
+					await getOrganizationLifetimeSpend(organizationId);
+				return getOrgSpendTier(organization, lifetimeSpend).inflightLimit;
+			},
 			config.key,
 		);
 

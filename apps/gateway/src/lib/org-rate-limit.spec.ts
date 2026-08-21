@@ -71,11 +71,12 @@ const ENV_KEYS = [
 	"GATEWAY_SPEND_TIER_1_MIN_AGE_DAYS",
 	"GATEWAY_SPEND_TIER_2_MIN_AGE_DAYS",
 	"GATEWAY_RATE_LIMIT_WINDOW_SECONDS",
-	"GATEWAY_ORG_INFLIGHT_LIMIT",
 	"GATEWAY_ORG_INFLIGHT_LIMIT_DEV",
 	"GATEWAY_ORG_INFLIGHT_LIMIT_CHATPLAN",
 	"GATEWAY_ORG_INFLIGHT_LIMIT_ENTERPRISE",
 	"GATEWAY_ORG_INFLIGHT_STALE_SECONDS",
+	"GATEWAY_SPEND_TIER_0_INFLIGHT_LIMIT",
+	"GATEWAY_SPEND_TIER_2_INFLIGHT_LIMIT",
 ];
 
 beforeEach(() => {
@@ -466,10 +467,10 @@ describe("checkOrgRateLimit", () => {
 });
 
 describe("getOrgInflightLimit", () => {
-	it("uses the per-plan-class defaults", () => {
-		expect(getOrgInflightLimit("regular", false)).toBe(500);
-		expect(getOrgInflightLimit("dev", false)).toBe(100);
-		expect(getOrgInflightLimit("chat", false)).toBe(50);
+	it("uses the per-plan-class defaults (regular = tier-0 base)", () => {
+		expect(getOrgInflightLimit("regular", false)).toBe(100);
+		expect(getOrgInflightLimit("dev", false)).toBe(50);
+		expect(getOrgInflightLimit("chat", false)).toBe(10);
 	});
 
 	it("elevates enterprise orgs regardless of plan class", () => {
@@ -478,7 +479,7 @@ describe("getOrgInflightLimit", () => {
 	});
 
 	it("honors env overrides per class", () => {
-		process.env.GATEWAY_ORG_INFLIGHT_LIMIT = "7";
+		process.env.GATEWAY_SPEND_TIER_0_INFLIGHT_LIMIT = "7";
 		process.env.GATEWAY_ORG_INFLIGHT_LIMIT_DEV = "3";
 		process.env.GATEWAY_ORG_INFLIGHT_LIMIT_CHATPLAN = "2";
 		process.env.GATEWAY_ORG_INFLIGHT_LIMIT_ENTERPRISE = "9000";
@@ -489,8 +490,24 @@ describe("getOrgInflightLimit", () => {
 	});
 });
 
+describe("spend tier inflight limits", () => {
+	it("scales the concurrency ceiling with the tier ladder", () => {
+		const org = { createdAt: new Date(0) }; // ancient account → top tier by age
+		expect(getOrgSpendTier(org, 0).inflightLimit).toBe(2000);
+		const fresh = { createdAt: new Date() };
+		expect(getOrgSpendTier(fresh, 0).inflightLimit).toBe(100);
+	});
+
+	it("honors the per-tier env override", () => {
+		process.env.GATEWAY_SPEND_TIER_2_INFLIGHT_LIMIT = "555";
+		const org = { createdAt: new Date(), trustTierOverride: 2 };
+		expect(getOrgSpendTier(org, 0).inflightLimit).toBe(555);
+	});
+});
+
 describe("acquireOrgInflightSlot", () => {
 	const orgId = "org-1";
+	const maxOf = (value: number) => vi.fn().mockResolvedValue(value);
 
 	// The slot ops use explicit pipeline() calls (never bare auto-pipelined
 	// commands — see acquireOrgInflightSlot); the chainable stub records every
@@ -513,18 +530,26 @@ describe("acquireOrgInflightSlot", () => {
 		return pipeline;
 	}
 
-	it("acquires a slot under the limit and releases it via zrem", async () => {
+	it("acquires a slot under the base limit and releases it via zrem", async () => {
 		const pipeline = stubPipeline([
 			[null, 0],
 			[null, 3],
 		]);
 
-		const acquisition = await acquireOrgInflightSlot(orgId, 5, "messages");
+		const getMax = maxOf(100);
+		const acquisition = await acquireOrgInflightSlot(
+			orgId,
+			5,
+			getMax,
+			"messages",
+		);
 
 		expect(acquisition.allowed).toBe(true);
 		expect(acquisition.release).toBeDefined();
 		expect(pipeline.zadd).toHaveBeenCalledOnce();
 		expect(pipeline.expire).toHaveBeenCalled();
+		// Under the base limit the tier ceiling must not be resolved.
+		expect(getMax).not.toHaveBeenCalled();
 
 		const member = pipeline.zadd.mock.calls[0][2];
 		acquisition.release!();
@@ -542,31 +567,75 @@ describe("acquireOrgInflightSlot", () => {
 		]);
 
 		const before = Date.now();
-		await acquireOrgInflightSlot(orgId, 5, "chat_completions");
+		await acquireOrgInflightSlot(orgId, 5, maxOf(5), "chat_completions");
 
 		const [, , staleBefore] = pipeline.zremrangebyscore.mock.calls[0];
 		expect(Number(staleBefore)).toBeGreaterThanOrEqual(before - 600_000 - 50);
 		expect(Number(staleBefore)).toBeLessThanOrEqual(Date.now() - 600_000 + 50);
 	});
 
-	it("denies at the limit without taking a slot", async () => {
+	it("resolves the tier ceiling only at the base and admits when it raises the limit", async () => {
 		const pipeline = stubPipeline([
 			[null, 0],
-			[null, 5],
+			[null, 7],
 		]);
 
-		const acquisition = await acquireOrgInflightSlot(orgId, 5, "videos");
+		const getMax = maxOf(20);
+		const acquisition = await acquireOrgInflightSlot(
+			orgId,
+			5,
+			getMax,
+			"chat_completions",
+		);
+
+		expect(getMax).toHaveBeenCalledOnce();
+		expect(acquisition.allowed).toBe(true);
+		expect(acquisition.limit).toBe(20);
+		expect(pipeline.zadd).toHaveBeenCalledOnce();
+	});
+
+	it("denies at the tier ceiling without taking a slot", async () => {
+		const pipeline = stubPipeline([
+			[null, 0],
+			[null, 20],
+		]);
+
+		const acquisition = await acquireOrgInflightSlot(
+			orgId,
+			5,
+			maxOf(20),
+			"videos",
+		);
 
 		expect(acquisition.allowed).toBe(false);
-		expect(acquisition.limit).toBe(5);
+		expect(acquisition.limit).toBe(20);
 		expect(acquisition.release).toBeUndefined();
 		expect(pipeline.zadd).not.toHaveBeenCalled();
 	});
 
-	it("treats a zero limit as unlimited without touching Redis", async () => {
+	it("never lets the resolved ceiling drop below the base", async () => {
+		stubPipeline([
+			[null, 0],
+			[null, 5],
+		]);
+
+		// A flat-plan resolver returns the base itself; a buggy lower value must
+		// not tighten the limit mid-flight.
+		const acquisition = await acquireOrgInflightSlot(orgId, 5, maxOf(1), "ocr");
+
+		expect(acquisition.allowed).toBe(false);
+		expect(acquisition.limit).toBe(5);
+	});
+
+	it("treats a zero base limit as unlimited without touching Redis", async () => {
 		stubPipeline(null);
 
-		const acquisition = await acquireOrgInflightSlot(orgId, 0, "images");
+		const acquisition = await acquireOrgInflightSlot(
+			orgId,
+			0,
+			maxOf(0),
+			"images",
+		);
 
 		expect(acquisition.allowed).toBe(true);
 		expect(acquisition.release).toBeUndefined();
@@ -577,7 +646,7 @@ describe("acquireOrgInflightSlot", () => {
 		const pipeline = stubPipeline(null);
 		pipeline.exec.mockRejectedValue(new Error("Redis down"));
 
-		const acquisition = await acquireOrgInflightSlot(orgId, 5, "ocr");
+		const acquisition = await acquireOrgInflightSlot(orgId, 5, maxOf(5), "ocr");
 
 		expect(acquisition.allowed).toBe(true);
 		expect(acquisition.release).toBeUndefined();
@@ -589,7 +658,7 @@ describe("acquireOrgInflightSlot", () => {
 			[new Error("zcard failed"), null],
 		]);
 
-		const acquisition = await acquireOrgInflightSlot(orgId, 5, "ocr");
+		const acquisition = await acquireOrgInflightSlot(orgId, 5, maxOf(5), "ocr");
 
 		expect(acquisition.allowed).toBe(true);
 		expect(acquisition.release).toBeUndefined();

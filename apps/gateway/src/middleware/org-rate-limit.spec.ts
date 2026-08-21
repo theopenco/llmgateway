@@ -73,6 +73,7 @@ describe("orgRateLimitMiddleware", () => {
 		vi.mocked(lib.getOrgSpendTier).mockReturnValue({
 			tier: 0,
 			rpmMultiplier: 1,
+			inflightLimit: 100,
 			dailyCapUsd: 25,
 			monthlyCapUsd: 250,
 			topUpDailyCapUsd: 100,
@@ -231,6 +232,48 @@ describe("orgRateLimitMiddleware", () => {
 
 		expect(next).toHaveBeenCalledOnce();
 		expect(release).toHaveBeenCalledOnce();
+	});
+
+	it("regular orgs get a lazy tier resolver for the concurrency ceiling", async () => {
+		vi.mocked(findOrganizationCachedById).mockResolvedValue(orgWith("pro"));
+		vi.mocked(lib.getOrgInflightLimit).mockReturnValue(100);
+		vi.mocked(lib.getOrgSpendTier).mockReturnValue({
+			tier: 2,
+			rpmMultiplier: 4,
+			inflightLimit: 400,
+			dailyCapUsd: 500,
+			monthlyCapUsd: 5000,
+			topUpDailyCapUsd: 2500,
+		});
+		const c = makeContext();
+		const next = vi.fn(async () => undefined) as unknown as Next;
+
+		await orgRateLimitMiddleware(c, next);
+
+		const [, baseLimit, getMaxLimit] = vi.mocked(lib.acquireOrgInflightSlot)
+			.mock.calls[0];
+		expect(baseLimit).toBe(100);
+		// The resolver is only invoked by the acquire once the base is reached;
+		// invoking it here must resolve the spend tier's ceiling.
+		await expect(getMaxLimit()).resolves.toBe(400);
+		expect(lib.getOrganizationLifetimeSpend).toHaveBeenCalledOnce();
+	});
+
+	it("enterprise orgs' resolver returns the elevated base without a tier lookup", async () => {
+		vi.mocked(findOrganizationCachedById).mockResolvedValue(
+			orgWith("enterprise"),
+		);
+		vi.mocked(lib.getOrgInflightLimit).mockReturnValue(2000);
+		const c = makeContext();
+		const next = vi.fn(async () => undefined) as unknown as Next;
+
+		await orgRateLimitMiddleware(c, next);
+
+		const [, baseLimit, getMaxLimit] = vi.mocked(lib.acquireOrgInflightSlot)
+			.mock.calls[0];
+		expect(baseLimit).toBe(2000);
+		await expect(getMaxLimit()).resolves.toBe(2000);
+		expect(lib.getOrganizationLifetimeSpend).not.toHaveBeenCalled();
 	});
 
 	it("skips the concurrency check for non-inference paths", async () => {

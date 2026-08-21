@@ -26,6 +26,7 @@ import { createServerApiClient } from "@/lib/server-api";
 
 const LIMIT_HIT_TYPE_LABELS: Record<string, string> = {
 	rpm: "Endpoint RPM",
+	concurrency: "Concurrency",
 	spend_cap_daily: "Daily spend cap",
 	spend_cap_monthly: "Monthly spend cap",
 	topup_velocity: "Top-up velocity",
@@ -249,9 +250,9 @@ export default async function OrganizationRateLimitsPage({
 						Anti-abuse limit hits (last 30 days)
 					</h2>
 					<p className="text-sm text-muted-foreground">
-						Rejections recorded by the tiered endpoint RPM limits, spend caps,
-						and top-up velocity caps. Tracking only — nothing is blocked from
-						here.
+						Rejections recorded by the tiered endpoint RPM limits, concurrency
+						limits, spend caps, and top-up velocity caps. Tracking only —
+						nothing is blocked from here.
 					</p>
 				</div>
 				<div className="overflow-x-auto rounded-lg border border-border/60 bg-card">
