@@ -1688,6 +1688,13 @@
       "when": 1787325167119,
       "tag": "1787325167_curved_nighthawk",
       "breakpoints": true
+    },
+    {
+      "idx": 241,
+      "version": "8",
+      "when": 1787331492908,
+      "tag": "1787331492_massive_beast",
+      "breakpoints": true
     }
   ]
 }
