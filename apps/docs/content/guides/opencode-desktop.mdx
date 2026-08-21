@@ -13,12 +13,14 @@ import { Callout } from "fumadocs-ui/components/callout";
 	Looking for the CLI version? See the [OpenCode CLI guide](/guides/opencode).
 </Callout>
 
+## Two Built-In Providers
+
+OpenCode ships two LLM Gateway entries, sharing one endpoint and one API key. **LLM Gateway** lists provider-pinned models (`anthropic/claude-opus-5`, named "Claude Opus 5 (Anthropic)") for pay-as-you-go keys; **DevPass (LLM Gateway)** lists canonical models (`claude-opus-5`) that the gateway routes for you. See the [CLI guide](/guides/opencode#two-built-in-providers) for the full comparison.
+
 <Callout type="info">
-	**Using DevPass?** This integration also works with a
-	[DevPass](https://devpass.llmgateway.io) plan key. Use canonical model IDs
-	without a provider prefix (`claude-sonnet-4-5`, not
-	`anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on
-	coding plans; the gateway picks the provider for you.
+	**Using DevPass?** Connect **DevPass (LLM Gateway)**. Provider-pinned routing
+	is not available on coding plans, so canonical model IDs are the ones that
+	work.
 </Callout>
 
 ## Prerequisites
@@ -55,11 +57,11 @@ Launch OpenCode Desktop. Click the **Providers** section in the left sidebar und
 <Step>
 ### Find LLM Gateway
 
-Click **Show more providers** at the bottom of the list, or click **+ Connect** on any entry to open the provider search. Type `LLM` in the search box — **LLM Gateway** will appear under "Other":
+Click **Show more providers** at the bottom of the list, or click **+ Connect** on any entry to open the provider search. Type `LLM` in the search box — both **LLM Gateway** and **DevPass (LLM Gateway)** appear under "Other":
 
 ![Searching for LLM Gateway](../../public/guides/opencode-desktop/1-search-llm.png)
 
-Select **LLM Gateway** from the list.
+Select the one matching your key. You can connect both — they take the same key, and each contributes its models to the picker.
 
 </Step>
 
@@ -77,7 +79,7 @@ OpenCode will show the **Connect LLM Gateway** dialog. Paste your LLM Gateway AP
 <Step>
 ### Select a Model
 
-Once connected, open the model picker from the chat input bar. Type `llm` to filter LLM Gateway models — you'll see all available models including Claude Opus 4.7, Claude Sonnet 4.6, DeepSeek, Gemini, and more:
+Once connected, open the model picker from the chat input bar. Type `llm` to filter LLM Gateway models. Pinned entries carry their serving provider in the name — "Claude Opus 5 (Anthropic)", "GPT-5.5 (Azure)" — while DevPass entries show the canonical name:
 
 ![LLM Gateway model selection](../../public/guides/opencode-desktop/3-model-selection.png)
 
@@ -108,12 +110,12 @@ You can switch models at any time from the model picker in the chat input bar. C
 
 ## Locking to a Specific Provider
 
-By default, LLM Gateway automatically fails over to alternative providers if your chosen provider is experiencing downtime. To disable fallback for a specific model, you can pass the `X-No-Fallback` header via a custom `opencode.json` in your project root:
+Pick a model from the **LLM Gateway** entry to choose its upstream provider. LLM Gateway still fails over to an alternative provider if that one is down; to make the pin strict, pass the `X-No-Fallback` header via a custom `opencode.json` in your project root:
 
 ```json
 {
 	"provider": {
-		"llmgateway": {
+		"llmgateway-providers": {
 			"options": {
 				"headers": {
 					"X-No-Fallback": "true"

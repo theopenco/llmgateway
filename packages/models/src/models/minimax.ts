@@ -300,6 +300,7 @@ export const minimaxModels = [
 				// Streaming tool calls and response_format: json_object are unreliable on Nebius
 				stability: "unstable",
 				externalId: "MiniMaxAI/MiniMax-M2.5",
+				deactivatedAt: new Date("2026-08-31"),
 				inputPrice: "0.3e-6",
 				outputPrice: "1.2e-6",
 				requestPrice: "0",

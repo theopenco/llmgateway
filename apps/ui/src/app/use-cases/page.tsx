@@ -20,7 +20,6 @@ export const metadata: Metadata = {
 			"Coding agents, AI support, RAG, and cost optimization on one API for 200+ models with fallback, caching, and analytics.",
 		type: "website",
 		url: "https://llmgateway.io/use-cases",
-		images: ["/opengraph.png"],
 	},
 };
 

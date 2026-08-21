@@ -37,12 +37,14 @@ const SERVICE_TIER_OPTIONS: Array<{ value: ServiceTier; label: string }> = [
 ];
 
 interface DevPlanSettingsProps {
+	canConfigureServiceTier: boolean;
 	devPlanServiceTier: ServiceTier;
 	defaultRoutingStrategy: RoutingStrategy;
 	providerCacheControlEnabled: boolean;
 }
 
 export default function DevPlanSettings({
+	canConfigureServiceTier,
 	devPlanServiceTier: initialServiceTier,
 	defaultRoutingStrategy: initialRoutingStrategy,
 	providerCacheControlEnabled: initialProviderCacheControlEnabled,
@@ -211,45 +213,51 @@ export default function DevPlanSettings({
 					</div>
 				</div>
 
-				<div className="rounded-xl border p-5 space-y-4">
-					<div className="flex items-center justify-between gap-4">
-						<div className="space-y-0.5">
-							<Label htmlFor="service-tier" className="text-sm font-medium">
-								Default service tier
-							</Label>
-							<p className="text-xs text-muted-foreground">
-								Flex processing costs less and saves your plan credits, but
-								responses may be slower during peak demand. Only applied for
-								models that support it — everything else stays on standard
-								processing.{" "}
-								<a
-									href="https://docs.llmgateway.io/features/service-tiers"
-									target="_blank"
-									rel="noreferrer"
-									className="underline underline-offset-2"
+				{canConfigureServiceTier && (
+					<div className="rounded-xl border p-5 space-y-4">
+						<div className="flex items-center justify-between gap-4">
+							<div className="space-y-0.5">
+								<Label htmlFor="service-tier" className="text-sm font-medium">
+									Default service tier
+								</Label>
+								<p className="text-xs text-muted-foreground">
+									Flex processing costs less and saves your plan credits, but
+									responses may be slower during peak demand. Only applied for
+									models that support it — everything else stays on standard
+									processing.{" "}
+									<a
+										href="https://docs.llmgateway.io/features/service-tiers"
+										target="_blank"
+										rel="noreferrer"
+										className="underline underline-offset-2"
+									>
+										Learn more
+									</a>
+								</p>
+							</div>
+							<Select
+								value={serviceTier}
+								onValueChange={handleServiceTierChange}
+								disabled={isUpdatingServiceTier}
+							>
+								<SelectTrigger
+									id="service-tier"
+									size="sm"
+									className="w-[180px]"
 								>
-									Learn more
-								</a>
-							</p>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									{SERVICE_TIER_OPTIONS.map((option) => (
+										<SelectItem key={option.value} value={option.value}>
+											{option.label}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
 						</div>
-						<Select
-							value={serviceTier}
-							onValueChange={handleServiceTierChange}
-							disabled={isUpdatingServiceTier}
-						>
-							<SelectTrigger id="service-tier" size="sm" className="w-[180px]">
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								{SERVICE_TIER_OPTIONS.map((option) => (
-									<SelectItem key={option.value} value={option.value}>
-										{option.label}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
 					</div>
-				</div>
+				)}
 			</div>
 		</div>
 	);

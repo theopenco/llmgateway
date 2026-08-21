@@ -732,6 +732,7 @@ export const openaiModels = [
 			},
 			{
 				test: "skip",
+				deactivatedAt: new Date("2026-08-20"),
 				providerId: "nanogpt",
 				externalId: "openai/gpt-oss-120b",
 				inputPrice: "0.05e-6",
@@ -872,6 +873,7 @@ export const openaiModels = [
 			},
 			{
 				test: "skip",
+				deactivatedAt: new Date("2026-08-20"),
 				providerId: "nanogpt",
 				externalId: "openai/gpt-oss-20b",
 				inputPrice: "0.04e-6",
