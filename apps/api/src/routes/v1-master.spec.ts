@@ -112,6 +112,43 @@ describe("v1/master cache invalidation", () => {
 		};
 	}
 
+	test("GET /keys maps each creator to their email", async () => {
+		await db.insert(tables.user).values({
+			id: "member-user-id",
+			name: "Member User",
+			email: "member@example.com",
+			emailVerified: true,
+		});
+		await db.insert(tables.apiKey).values({
+			id: "member-api-key-id",
+			token: "member-api-key-token",
+			projectId: "test-project-id",
+			description: "Member API Key",
+			createdBy: "member-user-id",
+		});
+
+		const listRes = await app.request("/v1/master/keys", {
+			headers: authHeaders(),
+		});
+		expect(listRes.status).toBe(200);
+		const list = await listRes.json();
+		expect(
+			list.apiKeys.find(
+				(apiKey: { id: string }) => apiKey.id === "member-api-key-id",
+			),
+		).toMatchObject({
+			createdBy: "member-user-id",
+			createdByEmail: "member@example.com",
+		});
+
+		const detailRes = await app.request("/v1/master/keys/member-api-key-id", {
+			headers: authHeaders(),
+		});
+		expect(detailRes.status).toBe(200);
+		const detail = await detailRes.json();
+		expect(detail.apiKey.createdByEmail).toBe("member@example.com");
+	});
+
 	test("PATCH /keys/{id} invalidates the gateway api_key cache", async () => {
 		// A per-run-unique key keeps the SWR key from colliding with entries left
 		// in Redis by earlier runs, which outlive deleteAll (it does not flush
