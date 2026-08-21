@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "4960a03f-120c-49cb-ae3a-9c08955d23ab",
+  "id": "811c6c27-7755-416f-a877-f2bb0ea94727",
   "prevId": "f87f3918-460a-4399-8cb3-666f4b097e0e",
   "ddl": [
     {
@@ -15494,17 +15494,17 @@
       "table": "project"
     },
     {
-      "type": "text",
+      "type": "boolean",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
       "default": {
-        "value": "'auto'",
+        "value": "true",
         "type": "unknown"
       },
       "generated": null,
       "identity": null,
-      "name": "provider_cache_control_mode",
+      "name": "provider_cache_control_enabled",
       "entityType": "columns",
       "schema": "public",
       "table": "project"
@@ -18164,6 +18164,19 @@
       "generated": null,
       "identity": null,
       "name": "name",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_key"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "description",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_key"

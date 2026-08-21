@@ -678,6 +678,7 @@ const providerKeyAdminSchema = z.object({
 	tokenHash: z.string().nullable(),
 	provider: z.string(),
 	name: z.string().nullable(),
+	description: z.string().nullable(),
 	baseUrl: z.string().nullable(),
 	status: z.string().nullable(),
 	/** USD spend cap; the key auto-deactivates when usage reaches it. */
@@ -3362,6 +3363,7 @@ admin.openapi(getOrganizationProviderKeys, async (c) => {
 			tokenHash: tables.providerKey.tokenHash,
 			provider: tables.providerKey.provider,
 			name: tables.providerKey.name,
+			description: tables.providerKey.description,
 			baseUrl: tables.providerKey.baseUrl,
 			status: tables.providerKey.status,
 			usageLimit: tables.providerKey.usageLimit,
@@ -3388,6 +3390,7 @@ admin.openapi(getOrganizationProviderKeys, async (c) => {
 			tokenHash: k.tokenHash,
 			provider: k.provider,
 			name: k.name,
+			description: k.description,
 			baseUrl: k.baseUrl,
 			status: k.status,
 			usageLimit: k.usageLimit,
@@ -10956,6 +10959,10 @@ function resolveUnstableMappingsWindow(
 // those as non-retried so they are not silently dropped from the rankings.
 const unstableMappingsNotRetriedClause = sql`AND ${tables.log.retried} IS DISTINCT FROM true`;
 
+// Customer-owned keys are useful when debugging a customer report, but they
+// should not affect the platform credential health ranking by default.
+const unstableMappingsPlatformOnlyClause = sql`AND ${tables.log.usedMode} <> 'api-keys'`;
+
 interface IgnoredErrorMatcherTarget {
 	pattern: string | null;
 	statusCode: number | null;
@@ -11011,8 +11018,10 @@ const unstableMappingEntrySchema = z.object({
 	 * credential was resolved — there is no key row to attribute it to.
 	 */
 	providerKeyId: z.string().nullable(),
-	/** The key's note when set, its masked token otherwise. */
+	/** Operator note for managed keys or customer description for BYOK keys. */
 	providerKeyLabel: z.string().nullable(),
+	/** Masked credential shown only as hover context in the admin UI. */
+	providerKeyMaskedToken: z.string().nullable(),
 	providerKeyManaged: z.boolean().nullable(),
 	logsCount: z.number(),
 	errorsCount: z.number(),
@@ -11027,6 +11036,7 @@ const unstableMappingsListSchema = z.object({
 	includeRetried: z.boolean(),
 	ignoreExpected: z.boolean(),
 	splitByKey: z.boolean(),
+	includeByok: z.boolean(),
 	// Number of ignore matchers applied to this ranking (0 when disabled).
 	ignoredMatcherCount: z.number(),
 });
@@ -11046,6 +11056,7 @@ const getUnstableMappings = createRoute({
 			window: unstableMappingsWindowSchema.optional(),
 			ignoreExpected: z.enum(["true", "false"]).optional(),
 			splitByKey: z.enum(["true", "false"]).optional(),
+			includeByok: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
@@ -11071,6 +11082,8 @@ admin.openapi(getUnstableMappings, async (c) => {
 		: unstableMappingsNotRetriedClause;
 	const ignoreExpected = query.ignoreExpected !== "false";
 	const splitByKey = query.splitByKey === "true";
+	const includeByok = query.includeByok === "true";
+	const byokClause = includeByok ? sql`` : unstableMappingsPlatformOnlyClause;
 	const { interval: windowInterval, hours: windowHours } =
 		resolveUnstableMappingsWindow(query.window);
 
@@ -11109,6 +11122,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 			WHERE ${tables.log.createdAt} >= ${windowInterval}
 				AND ${tables.log.unifiedFinishReason} IS DISTINCT FROM 'client_error'
 				${retriedClause}
+				${byokClause}
 			ORDER BY ${tables.log.createdAt} DESC
 			LIMIT ${logLimit}
 		)
@@ -11151,6 +11165,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 					.select({
 						id: tables.providerKey.id,
 						comment: tables.providerKey.comment,
+						description: tables.providerKey.description,
 						tokenMasked: tables.providerKey.tokenMasked,
 						// Legacy pre-encryption rows still carry plaintext here; it is
 						// selected only to compute the mask below and must never reach
@@ -11180,8 +11195,13 @@ admin.openapi(getUnstableMappings, async (c) => {
 				providerName: providerNameMap.get(r.used_provider) ?? r.used_provider,
 				providerKeyId: r.provider_key_id,
 				providerKeyLabel: keyRow
-					? keyRow.comment?.trim() ||
-						(keyRow.tokenMasked ?? maskToken(keyRow.legacyToken ?? "", 6))
+					? keyRow.managed
+						? keyRow.comment?.trim() ||
+							(keyRow.tokenMasked ?? maskToken(keyRow.legacyToken ?? "", 6))
+						: keyRow.description?.trim() || "Bring your own key"
+					: null,
+				providerKeyMaskedToken: keyRow
+					? (keyRow.tokenMasked ?? maskToken(keyRow.legacyToken ?? "", 6))
 					: null,
 				providerKeyManaged: keyRow ? keyRow.managed : null,
 				logsCount: Number(r.logs_count),
@@ -11195,6 +11215,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 		includeRetried,
 		ignoreExpected,
 		splitByKey,
+		includeByok,
 		ignoredMatcherCount: ignoredMatchers.length,
 	});
 });
@@ -11237,6 +11258,7 @@ const getUnstableMappingErrors = createRoute({
 				.max(UNSTABLE_MAPPINGS_MAX_LOG_LIMIT)
 				.optional(),
 			ignoreExpected: z.enum(["true", "false"]).optional(),
+			includeByok: z.enum(["true", "false"]).optional(),
 			/**
 			 * Narrows the sample to one provider key, mirroring a row of the
 			 * key-split ranking. The literal `__unattributed__` selects logs with
@@ -11267,11 +11289,14 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		window,
 		logLimit,
 		ignoreExpected,
+		includeByok,
 		providerKeyId,
 	} = c.req.valid("query");
 	const sampleLimit = logLimit ?? UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT;
 	const retriedClause =
 		includeRetried === "true" ? sql`` : unstableMappingsNotRetriedClause;
+	const byokClause =
+		includeByok === "true" ? sql`` : unstableMappingsPlatformOnlyClause;
 	const { interval: windowInterval } = resolveUnstableMappingsWindow(window);
 	const providerKeyClause =
 		providerKeyId === undefined
@@ -11311,6 +11336,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 				AND ${tables.log.createdAt} >= ${windowInterval}
 				${providerKeyClause}
 				${retriedClause}
+				${byokClause}
 				${ignoredClause}
 			ORDER BY ${tables.log.createdAt} DESC
 			LIMIT ${sampleLimit}

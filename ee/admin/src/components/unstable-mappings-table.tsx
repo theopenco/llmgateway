@@ -28,6 +28,7 @@ interface UnstableMapping {
 	providerName: string;
 	providerKeyId: string | null;
 	providerKeyLabel: string | null;
+	providerKeyMaskedToken: string | null;
 	providerKeyManaged: boolean | null;
 	logsCount: number;
 	errorsCount: number;
@@ -109,6 +110,7 @@ function ErrorDetails({
 	window,
 	logLimit,
 	ignoreExpected,
+	includeByok,
 }: {
 	usedModel: string;
 	provider: string;
@@ -117,6 +119,7 @@ function ErrorDetails({
 	window: UnstableWindow;
 	logLimit: number;
 	ignoreExpected: boolean;
+	includeByok: boolean;
 }) {
 	const $api = useApi();
 	const { data, isLoading, isError } = $api.useQuery(
@@ -132,6 +135,7 @@ function ErrorDetails({
 					window,
 					logLimit,
 					ignoreExpected: ignoreExpected ? "true" : "false",
+					includeByok: includeByok ? "true" : "false",
 				},
 			},
 		},
@@ -253,6 +257,7 @@ export function UnstableMappingsTable({
 	logLimit,
 	ignoreExpected,
 	splitByKey,
+	includeByok,
 }: {
 	mappings: UnstableMapping[];
 	includeRetried: boolean;
@@ -260,6 +265,7 @@ export function UnstableMappingsTable({
 	logLimit: number;
 	ignoreExpected: boolean;
 	splitByKey: boolean;
+	includeByok: boolean;
 }) {
 	const [expanded, setExpanded] = useState<string | null>(null);
 	const columnCount = splitByKey ? 7 : 6;
@@ -339,7 +345,9 @@ export function UnstableMappingsTable({
 												<span
 													className="max-w-[220px] truncate font-mono text-xs"
 													title={
-														mapping.providerKeyLabel ?? mapping.providerKeyId
+														mapping.providerKeyMaskedToken ??
+														mapping.providerKeyLabel ??
+														mapping.providerKeyId
 													}
 												>
 													{mapping.providerKeyLabel ?? mapping.providerKeyId}
@@ -393,6 +401,7 @@ export function UnstableMappingsTable({
 											window={window}
 											logLimit={logLimit}
 											ignoreExpected={ignoreExpected}
+											includeByok={includeByok}
 										/>
 									</TableCell>
 								</TableRow>

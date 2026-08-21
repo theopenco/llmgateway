@@ -52,6 +52,7 @@ export function ProviderKeysTable({
 						<TableRow>
 							<TableHead>Provider</TableHead>
 							<TableHead>Name</TableHead>
+							<TableHead>Description</TableHead>
 							<TableHead>Token</TableHead>
 							<TableHead>Base URL</TableHead>
 							<TableHead>Spend</TableHead>
@@ -64,7 +65,7 @@ export function ProviderKeysTable({
 						{providerKeys.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={8}
+									colSpan={9}
 									className="h-24 text-center text-muted-foreground"
 								>
 									{pkStatus === "all"
@@ -79,6 +80,9 @@ export function ProviderKeysTable({
 										<Badge variant="outline">{key.provider}</Badge>
 									</TableCell>
 									<TableCell className="text-sm">{key.name ?? "—"}</TableCell>
+									<TableCell className="max-w-[240px] truncate text-sm">
+										{key.description ?? "—"}
+									</TableCell>
 									<TableCell className="font-mono text-xs">
 										{key.token}
 									</TableCell>
