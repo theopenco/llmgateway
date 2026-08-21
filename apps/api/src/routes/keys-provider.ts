@@ -85,6 +85,7 @@ export const providerKeySchema = z.object({
 	token: z.string(),
 	provider: z.string(),
 	name: z.string().nullable(),
+	description: z.string().nullable(),
 	baseUrl: z.string().nullable(),
 	options: z
 		.object({
@@ -145,6 +146,7 @@ export const providerKeyPublicSchema = z.object({
 	updatedAt: z.date(),
 	provider: z.string(),
 	name: z.string().nullable(),
+	description: z.string().nullable(),
 	baseUrl: z.string().nullable(),
 	options: providerKeySchema.shape.options,
 	status: providerKeySchema.shape.status,
@@ -177,6 +179,7 @@ export function toPublicProviderKey(row: ProviderKeyRow) {
 		updatedAt: row.updatedAt,
 		provider: row.provider,
 		name: row.name,
+		description: row.description,
 		baseUrl: row.baseUrl,
 		options: row.options,
 		status: row.status,
@@ -339,6 +342,7 @@ const createProviderKeySchema = z.object({
 			"API key contains invalid characters. Make sure you copied the actual key, not a masked version.",
 	}),
 	name: customProviderNameSchema.optional(),
+	description: z.string().trim().max(200).optional(),
 	baseUrl: z.string().url().optional(),
 	options: z
 		.object({
@@ -402,6 +406,8 @@ const updateProviderKeyStatusSchema = z
 		// Custom providers only: renames the provider, which changes the model
 		// prefix used in requests (e.g. "myprovider/some-model").
 		name: customProviderNameSchema.optional(),
+		// Organization-owned display label. Empty input clears it.
+		description: z.string().trim().max(200).nullable().optional(),
 		// Custom providers only: restrict requests to catalog-defined models.
 		customModelsOnly: z.boolean().optional(),
 		// Custom providers only: self-attested compliance posture. `null` clears
@@ -414,6 +420,7 @@ const updateProviderKeyStatusSchema = z
 		(v) =>
 			v.status !== undefined ||
 			v.name !== undefined ||
+			v.description !== undefined ||
 			v.customModelsOnly !== undefined ||
 			v.complianceAttestation !== undefined ||
 			v.usageLimit !== undefined ||
@@ -462,6 +469,7 @@ keysProvider.openapi(create, async (c) => {
 		provider,
 		token: userToken,
 		name,
+		description,
 		baseUrl,
 		options,
 		organizationId,
@@ -655,6 +663,7 @@ keysProvider.openapi(create, async (c) => {
 			organizationId,
 			provider,
 			name,
+			description: description || null,
 			baseUrl,
 			options,
 			usageLimit: usageLimit ?? null,
@@ -959,6 +968,7 @@ keysProvider.openapi(updateStatus, async (c) => {
 	const {
 		status,
 		name,
+		description,
 		customModelsOnly,
 		complianceAttestation,
 		usageLimit,
@@ -1079,6 +1089,7 @@ keysProvider.openapi(updateStatus, async (c) => {
 	const updates: {
 		status?: "active" | "inactive";
 		name?: string;
+		description?: string | null;
 		customModelsOnly?: boolean;
 		complianceAttestation?: ProviderKeyComplianceAttestation | null;
 		usageLimit?: string | null;
@@ -1095,6 +1106,9 @@ keysProvider.openapi(updateStatus, async (c) => {
 	}
 	if (name !== undefined) {
 		updates.name = name;
+	}
+	if (description !== undefined) {
+		updates.description = description || null;
 	}
 	if (customModelsOnly !== undefined) {
 		updates.customModelsOnly = customModelsOnly;
@@ -1119,6 +1133,15 @@ keysProvider.openapi(updateStatus, async (c) => {
 	}
 	if (name !== undefined && providerKey.name !== name) {
 		changes.name = { old: providerKey.name, new: name };
+	}
+	if (
+		description !== undefined &&
+		providerKey.description !== (description || null)
+	) {
+		changes.description = {
+			old: providerKey.description,
+			new: description || null,
+		};
 	}
 	if (
 		customModelsOnly !== undefined &&

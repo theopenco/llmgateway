@@ -33,6 +33,7 @@ import {
 	type PromptCacheOptions,
 	type PromptCacheRetention,
 	type Provider,
+	type ProviderCacheControlMode,
 	type ProviderRequestBody,
 	providers,
 	resolveVertexTokenType,
@@ -175,7 +176,7 @@ export interface ProviderContextOptions {
 	excludedEnvKeyIndices?: ReadonlySet<number>;
 	excludedProviderKeyIds?: ReadonlySet<string>;
 	n?: number;
-	providerCacheControlEnabled: boolean;
+	providerCacheControlMode: ProviderCacheControlMode;
 	service_tier?: "auto" | "default" | "flex" | "priority";
 	/**
 	 * The premium tier the client asked for itself, or null when `service_tier`
@@ -968,7 +969,7 @@ export async function resolveProviderContext(
 		useResponsesApi,
 		options.prompt_cache_key,
 		options.prompt_cache_retention,
-		options.providerCacheControlEnabled,
+		options.providerCacheControlMode,
 		options.n,
 		forwardedServiceTier,
 		options.verbosity,

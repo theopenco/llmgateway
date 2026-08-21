@@ -4,11 +4,16 @@ import { z } from "zod";
 
 import { resolveProjectLimit } from "@/lib/project-limit.js";
 import { userHasProjectAccess } from "@/utils/authorization.js";
+import {
+	providerCacheControlModeSchema,
+	resolveProviderCacheControlMode,
+} from "@/utils/provider-cache-control.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { cdb, db, eq, tables } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
+import type { ProviderCacheControlMode } from "@llmgateway/models";
 
 export const projects = new OpenAPIHono<ServerTypes>();
 
@@ -25,7 +30,7 @@ const projectSchema = z.object({
 	organizationId: z.string(),
 	cachingEnabled: z.boolean(),
 	cacheDurationSeconds: z.number(),
-	providerCacheControlEnabled: z.boolean(),
+	providerCacheControlMode: providerCacheControlModeSchema,
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
 	defaultRoutingStrategy: z.enum(["auto", "price", "throughput", "latency"]),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
@@ -41,6 +46,7 @@ const createProjectSchema = z.object({
 	organizationId: z.string().min(1),
 	cachingEnabled: z.boolean().optional(),
 	cacheDurationSeconds: z.number().min(10).max(31536000).optional(),
+	providerCacheControlMode: providerCacheControlModeSchema.optional(),
 	providerCacheControlEnabled: z.boolean().optional(),
 	mode: z.enum(["api-keys", "credits", "hybrid"]).optional(),
 });
@@ -49,6 +55,7 @@ const updateProjectSchema = z.object({
 	name: z.string().min(1).max(255).optional(),
 	cachingEnabled: z.boolean().optional(),
 	cacheDurationSeconds: z.number().min(10).max(31536000).optional(), // Min 10 seconds, max 1 year
+	providerCacheControlMode: providerCacheControlModeSchema.optional(),
 	providerCacheControlEnabled: z.boolean().optional(),
 	mode: z.enum(["api-keys", "credits", "hybrid"]).optional(),
 	defaultRoutingStrategy: z
@@ -205,7 +212,6 @@ projects.openapi(updateProject, async (c) => {
 		name,
 		cachingEnabled,
 		cacheDurationSeconds,
-		providerCacheControlEnabled,
 		mode,
 		defaultRoutingStrategy,
 		endUserEnabled,
@@ -213,6 +219,9 @@ projects.openapi(updateProject, async (c) => {
 		endUserTopUpBonusPercent,
 		allowedOrigins,
 	} = c.req.valid("json");
+	const providerCacheControlMode = resolveProviderCacheControlMode(
+		c.req.valid("json"),
+	);
 
 	const userOrgs = await db.query.userOrganization.findMany({
 		where: {
@@ -316,8 +325,8 @@ projects.openapi(updateProject, async (c) => {
 		updateData.cacheDurationSeconds = cacheDurationSeconds;
 	}
 
-	if (providerCacheControlEnabled !== undefined) {
-		updateData.providerCacheControlEnabled = providerCacheControlEnabled;
+	if (providerCacheControlMode !== undefined) {
+		updateData.providerCacheControlMode = providerCacheControlMode;
 	}
 
 	if (mode !== undefined) {
@@ -404,12 +413,12 @@ projects.openapi(updateProject, async (c) => {
 		};
 	}
 	if (
-		providerCacheControlEnabled !== undefined &&
-		providerCacheControlEnabled !== project.providerCacheControlEnabled
+		providerCacheControlMode !== undefined &&
+		providerCacheControlMode !== project.providerCacheControlMode
 	) {
-		changes.providerCacheControlEnabled = {
-			old: project.providerCacheControlEnabled,
-			new: providerCacheControlEnabled,
+		changes.providerCacheControlMode = {
+			old: project.providerCacheControlMode,
+			new: providerCacheControlMode,
 		};
 	}
 	if (mode !== undefined && mode !== project.mode) {
@@ -531,6 +540,7 @@ export interface CreateProjectInput {
 	name: string;
 	cachingEnabled?: boolean;
 	cacheDurationSeconds?: number;
+	providerCacheControlMode?: ProviderCacheControlMode;
 	providerCacheControlEnabled?: boolean;
 	mode?: "api-keys" | "credits" | "hybrid";
 }
@@ -545,9 +555,10 @@ export async function createProjectForOrg(
 		name,
 		cachingEnabled = false,
 		cacheDurationSeconds = 60,
-		providerCacheControlEnabled = true,
 		mode = DEFAULT_PROJECT_MODE,
 	} = input;
+	const providerCacheControlMode =
+		resolveProviderCacheControlMode(input) ?? "auto";
 
 	if (!options.skipAccessCheck) {
 		const userOrganization = await db.query.userOrganization.findFirst({
@@ -614,7 +625,7 @@ export async function createProjectForOrg(
 			organizationId,
 			cachingEnabled,
 			cacheDurationSeconds,
-			providerCacheControlEnabled,
+			providerCacheControlMode,
 			mode,
 		})
 		.returning();

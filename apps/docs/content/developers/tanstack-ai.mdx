@@ -1,0 +1,200 @@
+---
+title: Using TanStack AI
+description: Stream chat, call tools, and surface reasoning with TanStack AI and LLM Gateway
+icon: Atom
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+[TanStack AI](https://tanstack.com/ai) ships a first-party LLM Gateway adapter: [`@tanstack/ai-llmgateway`](https://www.npmjs.com/package/@tanstack/ai-llmgateway), maintained in the TanStack AI repository alongside the OpenAI and Anthropic adapters. One adapter and one API key reach every model in the catalog.
+
+## Install
+
+```bash
+pnpm add @tanstack/ai @tanstack/ai-react @tanstack/ai-llmgateway
+```
+
+`@tanstack/ai-react` is the React client; TanStack AI also ships Vue, Svelte, Angular, and Preact packages that work with the same adapter.
+
+Set your API key (create one from the [dashboard](https://llmgateway.io/dashboard)):
+
+```bash
+export LLM_GATEWAY_API_KEY=llmgtwy_your_key_here
+```
+
+## Stream chat from a server route
+
+`llmGatewayText(model)` creates the adapter and reads the key from `LLM_GATEWAY_API_KEY`:
+
+```typescript
+// app/api/chat/route.ts
+import { chat, toServerSentEventsResponse } from "@tanstack/ai";
+import { llmGatewayText } from "@tanstack/ai-llmgateway";
+
+export async function POST(request: Request) {
+	const { messages } = await request.json();
+
+	const stream = chat({
+		adapter: llmGatewayText("gpt-5.6-terra"),
+		messages,
+	});
+
+	return toServerSentEventsResponse(stream);
+}
+```
+
+Switching models is a one-line change — the same adapter serves every model:
+
+```typescript
+adapter: llmGatewayText("claude-sonnet-5"),
+```
+
+## Model ID formats
+
+LLM Gateway supports two model ID formats:
+
+- **Canonical model IDs** (`gpt-5.6-terra`) — smart routing picks the best provider based on uptime, throughput, price, and latency
+- **Provider-prefixed IDs** (`moonshot/kimi-k3`) — routes to a specific provider with automatic failover if uptime drops below 90%
+
+A curated set of flagship models carries typed metadata (`LLMGATEWAY_CHAT_MODELS`) with editor autocomplete for input modalities and options; any other ID from the [models page](https://llmgateway.io/models) still works. See the [routing documentation](/features/routing) for details.
+
+## Connect the React client
+
+`useChat` consumes the AG-UI event stream from the route above — no client-side API key, no per-provider wiring:
+
+```tsx
+// components/chat.tsx
+"use client";
+
+import { fetchServerSentEvents, useChat } from "@tanstack/ai-react";
+import { useState } from "react";
+
+export function Chat() {
+	const [input, setInput] = useState("");
+	const { messages, sendMessage, isLoading } = useChat({
+		connection: fetchServerSentEvents("/api/chat"),
+	});
+
+	return (
+		<div>
+			{messages.map((message) => (
+				<div key={message.id}>
+					<strong>{message.role === "assistant" ? "Assistant" : "You"}</strong>
+					{message.parts.map((part, index) =>
+						part.type === "text" ? <p key={index}>{part.content}</p> : null,
+					)}
+				</div>
+			))}
+			<form
+				onSubmit={(event) => {
+					event.preventDefault();
+					if (!input.trim() || isLoading) {
+						return;
+					}
+					sendMessage(input);
+					setInput("");
+				}}
+			>
+				<input
+					value={input}
+					onChange={(event) => setInput(event.target.value)}
+					placeholder="Say something..."
+				/>
+			</form>
+		</div>
+	);
+}
+```
+
+## Tool calling
+
+Define tools with `toolDefinition` and attach a server handler — TanStack AI runs the tool loop for you:
+
+```typescript
+import { chat, toServerSentEventsResponse, toolDefinition } from "@tanstack/ai";
+import { llmGatewayText } from "@tanstack/ai-llmgateway";
+import { z } from "zod";
+
+const getWeather = toolDefinition({
+	name: "get_weather",
+	description: "Get the current weather for a location",
+	inputSchema: z.object({
+		location: z.string(),
+	}),
+}).server(async ({ location }) => {
+	return { temperature: 72, condition: "sunny" };
+});
+
+export async function POST(request: Request) {
+	const { messages } = await request.json();
+
+	const stream = chat({
+		adapter: llmGatewayText("gpt-5.6-terra"),
+		messages,
+		tools: [getWeather],
+	});
+
+	return toServerSentEventsResponse(stream);
+}
+```
+
+## Reasoning models
+
+Reasoning models stream their thinking as `reasoning_content` deltas, which the adapter surfaces as AG-UI `REASONING_*` events — they arrive in `useChat` as `thinking` parts. Control the depth with `reasoning_effort` in `modelOptions`:
+
+```typescript
+const stream = chat({
+	adapter: llmGatewayText("kimi-k3"),
+	messages,
+	modelOptions: {
+		temperature: 0.7,
+		reasoning_effort: "high",
+	},
+});
+```
+
+`reasoning_effort` accepts the extended scale `none` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max`; which tiers a model honors depends on the model and the provider it routes to. Parameters a routed provider doesn't support are stripped server-side, so `modelOptions` stay portable across models. See [reasoning support](/features/reasoning).
+
+## Summarization
+
+The adapter also covers TanStack AI's `summarize` surface:
+
+```typescript
+import { summarize } from "@tanstack/ai";
+import { llmGatewaySummarize } from "@tanstack/ai-llmgateway";
+
+const result = await summarize({
+	adapter: llmGatewaySummarize("gpt-5.4-mini"),
+	text: "Long article text...",
+	stream: false,
+});
+```
+
+## Self-hosted deployments
+
+`createLLMGatewayText` takes the key explicitly plus a `baseURL` for self-hosted gateways:
+
+```typescript
+import { createLLMGatewayText } from "@tanstack/ai-llmgateway";
+
+const adapter = createLLMGatewayText(
+	"gpt-5.6-terra",
+	process.env.LLM_GATEWAY_API_KEY!,
+	{
+		baseURL: "https://gateway.internal.example.com/v1",
+	},
+);
+```
+
+<Callout>
+	Every request made through TanStack AI shows up in your
+	[Activity](/learn/activity) and [Usage &amp; Metrics](/learn/usage-metrics)
+	dashboards like any other gateway request — with per-request cost, tokens, and
+	latency.
+</Callout>
+
+## Next steps
+
+- [TanStack AI adapter reference](https://tanstack.com/ai/latest/docs/adapters/llmgateway)
+- [Routing and fallback](/features/routing)
+- [Reasoning support](/features/reasoning) and [caching](/features/caching)

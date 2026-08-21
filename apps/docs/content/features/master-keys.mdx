@@ -125,15 +125,16 @@ curl -X PATCH https://internal.llmgateway.io/v1/master/projects/proj_... \
 
 Body parameters (all optional, at least one required):
 
-| Field                  | Type                                  | Description                         |
-| ---------------------- | ------------------------------------- | ----------------------------------- |
-| `name`                 | string                                | 1–255 chars                         |
-| `cachingEnabled`       | boolean                               |                                     |
-| `cacheDurationSeconds` | number                                | 10–31536000                         |
-| `mode`                 | `"api-keys" \| "credits" \| "hybrid"` |                                     |
-| `status`               | `"active" \| "inactive"`              | Toggle the project without deleting |
+| Field                      | Type                                  | Description                                                       |
+| -------------------------- | ------------------------------------- | ----------------------------------------------------------------- |
+| `name`                     | string                                | 1–255 chars                                                       |
+| `cachingEnabled`           | boolean                               |                                                                   |
+| `cacheDurationSeconds`     | number                                | 10–31536000                                                       |
+| `providerCacheControlMode` | `"auto" \| "passthrough" \| "off"`    | [Provider cache writes](/features/caching/provider-cache-control) |
+| `mode`                     | `"api-keys" \| "credits" \| "hybrid"` |                                                                   |
+| `status`                   | `"active" \| "inactive"`              | Toggle the project without deleting                               |
 
-Response (200): the updated project.
+Response (200): the updated project. It carries both `providerCacheControlMode` and the older `providerCacheControlEnabled` boolean, which reports `false` only for `"off"`.
 
 ### Delete a project
 

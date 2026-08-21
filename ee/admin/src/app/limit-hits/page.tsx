@@ -22,6 +22,7 @@ import { createServerApiClient } from "@/lib/server-api";
 
 const LIMIT_TYPES = [
 	"rpm",
+	"concurrency",
 	"spend_cap_daily",
 	"spend_cap_monthly",
 	"topup_velocity",
@@ -30,6 +31,7 @@ type LimitType = (typeof LIMIT_TYPES)[number];
 
 const LIMIT_TYPE_LABELS: Record<LimitType, string> = {
 	rpm: "Endpoint RPM",
+	concurrency: "Concurrency",
 	spend_cap_daily: "Daily spend cap",
 	spend_cap_monthly: "Monthly spend cap",
 	topup_velocity: "Top-up velocity",
@@ -95,9 +97,9 @@ export default async function LimitHitsPage({
 					Limit Hits
 				</h1>
 				<p className="text-muted-foreground">
-					Organizations rejected by the anti-abuse limits (endpoint RPM, spend
-					caps, top-up velocity) over the last {days} days — hardest hitters
-					first. Tracking only; no automatic action is taken.
+					Organizations rejected by the anti-abuse limits (endpoint RPM,
+					concurrency, spend caps, top-up velocity) over the last {days} days —
+					hardest hitters first. Tracking only; no automatic action is taken.
 				</p>
 			</div>
 
@@ -163,6 +165,7 @@ export default async function LimitHitsPage({
 							<TableHead>Plan</TableHead>
 							<TableHead className="text-right">Total hits</TableHead>
 							<TableHead className="text-right">RPM</TableHead>
+							<TableHead className="text-right">Concurrency</TableHead>
 							<TableHead className="text-right">Spend caps</TableHead>
 							<TableHead className="text-right">Top-ups</TableHead>
 							<TableHead className="text-right">Blocked top-up $</TableHead>
@@ -174,7 +177,7 @@ export default async function LimitHitsPage({
 						{organizations.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={10}
+									colSpan={11}
 									className="text-muted-foreground py-8 text-center"
 								>
 									No organizations hit these limits in the selected window.
@@ -205,6 +208,9 @@ export default async function LimitHitsPage({
 									</TableCell>
 									<TableCell className="text-muted-foreground text-right tabular-nums">
 										{o.rpmHits.toLocaleString()}
+									</TableCell>
+									<TableCell className="text-muted-foreground text-right tabular-nums">
+										{o.concurrencyHits.toLocaleString()}
 									</TableCell>
 									<TableCell className="text-muted-foreground text-right tabular-nums">
 										{o.spendCapHits.toLocaleString()}

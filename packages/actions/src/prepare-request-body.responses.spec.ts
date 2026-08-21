@@ -72,7 +72,7 @@ async function buildOpenAIResponsesBody(
 		true, // useResponsesApi
 		undefined, // prompt_cache_key
 		undefined, // prompt_cache_retention
-		true, // providerCacheControlEnabled
+		"auto", // providerCacheControlMode
 		undefined, // n
 		undefined, // service_tier
 		undefined, // verbosity

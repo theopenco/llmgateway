@@ -1101,7 +1101,15 @@ export const project = pgTable(
 			.references(() => organization.id, { onDelete: "cascade" }),
 		cachingEnabled: boolean().notNull().default(false),
 		cacheDurationSeconds: integer().notNull().default(60),
-		providerCacheControlEnabled: boolean().notNull().default(true),
+		// How provider-side prompt-cache markers are handled for this project.
+		// "passthrough" exists because a single key often serves both a coding
+		// agent that manages its own markers and traffic that must not pay the
+		// cache-write premium; neither "auto" nor "off" can satisfy both.
+		providerCacheControlMode: text({
+			enum: ["auto", "passthrough", "off"],
+		})
+			.notNull()
+			.default("auto"),
 		mode: text({
 			enum: ["api-keys", "credits", "hybrid"],
 		})
@@ -1714,6 +1722,10 @@ export const providerKey = pgTable(
 		tokenHash: text(),
 		provider: text().notNull(),
 		name: text(), // Optional name for custom providers (lowercase a-z with single hyphens)
+		// Organization-owned label shown alongside this key in routing and log
+		// details. Kept separate from `comment`, which is operator-only metadata
+		// for platform-managed credentials.
+		description: text(),
 		baseUrl: text(), // Optional base URL for custom providers
 		options: jsonb().$type<ProviderKeyOptions>(),
 		// When true (custom providers only), requests through this key are
@@ -4952,7 +4964,13 @@ export const orgLimitHitDaily = pgTable(
 			.references(() => organization.id, { onDelete: "cascade" }),
 		day: timestamp().notNull(), // UTC midnight of the bucket
 		limitType: text({
-			enum: ["rpm", "spend_cap_daily", "spend_cap_monthly", "topup_velocity"],
+			enum: [
+				"rpm",
+				"spend_cap_daily",
+				"spend_cap_monthly",
+				"topup_velocity",
+				"concurrency",
+			],
 		}).notNull(),
 		// PATH_RATE_LIMITS key for rpm hits; "" for the other limit types
 		// (empty string, not null, so the unique constraint covers it).

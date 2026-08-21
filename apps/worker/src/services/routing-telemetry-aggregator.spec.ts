@@ -364,6 +364,13 @@ describe("routing telemetry aggregator", () => {
 			withMetadata({
 				selectionReason: "weighted-score",
 				availableProviders: ["openai"],
+				filteredProviders: [
+					{
+						providerId: "azure",
+						reasons: ["excluded by content-filter routing"],
+						codes: ["content_filter"],
+					},
+				],
 				contentFilterExcludedProviders: ["azure"],
 				providerScores: [
 					{ providerId: "aws-mantle", score: 0, price: 1, rate_limited: true },

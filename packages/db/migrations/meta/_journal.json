@@ -1674,6 +1674,20 @@
       "when": 1787234670541,
       "tag": "1787234670_clear_puppet_master",
       "breakpoints": true
+    },
+    {
+      "idx": 239,
+      "version": "8",
+      "when": 1787314721805,
+      "tag": "1787314721_daffy_venom",
+      "breakpoints": true
+    },
+    {
+      "idx": 240,
+      "version": "8",
+      "when": 1787325167119,
+      "tag": "1787325167_curved_nighthawk",
+      "breakpoints": true
     }
   ]
 }

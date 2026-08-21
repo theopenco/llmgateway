@@ -2007,13 +2007,14 @@ describe("fallback and error status code handling", () => {
 					contentFilterRerouted: true,
 					contentFilterExcludedProviders: ["together-ai"],
 				});
-				expect(log.routingMetadata?.providerScores).toContainEqual(
-					expect.objectContaining({
-						providerId: "together-ai",
-						contentFilterProvider: true,
-						excludedByContentFilter: true,
-					}),
+				expect(log.routingMetadata?.providerScores).not.toContainEqual(
+					expect.objectContaining({ providerId: "together-ai" }),
 				);
+				expect(log.routingMetadata?.filteredProviders).toContainEqual({
+					providerId: "together-ai",
+					reasons: ["excluded by content-filter routing"],
+					codes: ["content_filter"],
+				});
 			} finally {
 				if (originalContentFilterFlag === undefined) {
 					delete togetherProvider.contentFilter;
