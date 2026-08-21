@@ -1835,6 +1835,70 @@ describe("videos", () => {
 		expect(JSON.stringify(log)).not.toContain("discarded-suffix");
 	});
 
+	test("/v1/videos maps xAI poll moderation to content_filter", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "xai-test-token",
+			provider: "xai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "xai/grok-imagine-video-1-5",
+				prompt: "A cat walking across a rooftop at sunset",
+				size: "1280x720",
+				seconds: 6,
+				image: { image_url: "data:image/png;base64,aGVsbG8=" },
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(videoJob).toBeTruthy();
+
+		const upstreamError = {
+			code: "imagine:content-moderated",
+			error: "Generated video rejected by content moderation.",
+			usage: { cost_in_usd_ticks: 0 },
+		};
+		setMockVideoStatusResponse(videoJob!.upstreamId, 400, upstreamError);
+
+		await processPendingVideoJobs();
+
+		const persistedJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		const log = await db.query.log.findFirst({
+			where: { requestId: { eq: videoJob!.requestId } },
+		});
+		expect(persistedJob?.status).toBe("failed");
+		expect(persistedJob?.pollAttemptCount).toBe(1);
+		expect(persistedJob?.error).toMatchObject({
+			code: "imagine:content-moderated",
+			message: "Generated video rejected by content moderation.",
+		});
+		expect(log?.finishReason).toBe("content_filter");
+		expect(log?.unifiedFinishReason).toBe("content_filter");
+	});
+
 	test("/v1/videos supports completed google-vertex jobs", async () => {
 		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 		const originalRuntimeGoogleCloudProject = process.env.GOOGLE_CLOUD_PROJECT;
