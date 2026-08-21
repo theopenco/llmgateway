@@ -178,7 +178,7 @@ interface SerializableApiKey {
 	currentPeriodUsage: string;
 	currentPeriodStartedAt: Date | null;
 	creator?: { email: string } | null;
-	project: { name: string };
+	project: { name: string } | null;
 }
 
 /**
@@ -187,6 +187,10 @@ interface SerializableApiKey {
  * the time the current period resets. Never leaks the plain token.
  */
 function serializeApiKeyForMaster(apiKey: SerializableApiKey) {
+	if (!apiKey.project) {
+		throw new HTTPException(500, { message: "API key project not found" });
+	}
+
 	const currentPeriod = getApiKeyCurrentPeriodState(apiKey);
 
 	return {
