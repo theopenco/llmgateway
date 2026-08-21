@@ -511,6 +511,156 @@ describe("admin organization payment methods", () => {
 		).toMatchObject({ devPlanCardFingerprint: "replacement_fingerprint" });
 	});
 
+	it("updates plan fingerprints inherited from the customer default", async () => {
+		const chatSubscriptionId = "sub_chat_inherited_payment_method";
+		await db
+			.update(tables.organization)
+			.set({
+				devPlanStripeSubscriptionId: SUBSCRIPTION_ID,
+				chatPlanStripeSubscriptionId: chatSubscriptionId,
+				devPlanCardFingerprint: "old_dev_fingerprint",
+				chatPlanCardFingerprint: "old_chat_fingerprint",
+			})
+			.where(eq(tables.organization.id, ORG_ID));
+		stripeMock.customers.retrieve.mockResolvedValue({
+			id: STRIPE_CUSTOMER_ID,
+			deleted: false,
+			invoice_settings: {
+				default_payment_method: STRIPE_PAYMENT_METHOD_ID,
+			},
+		});
+		stripeMock.paymentMethods.list.mockResolvedValue({
+			data: [
+				{ id: STRIPE_PAYMENT_METHOD_ID, type: "card" },
+				{
+					id: REPLACEMENT_PAYMENT_METHOD_ID,
+					type: "card",
+					card: { fingerprint: "replacement_fingerprint" },
+				},
+			],
+		});
+		stripeMock.subscriptions.retrieve.mockImplementation(
+			async (id: string) => ({
+				id,
+				default_payment_method: null,
+			}),
+		);
+
+		const response = await deletePaymentMethod(
+			cookie,
+			STRIPE_PAYMENT_METHOD_ID,
+			REPLACEMENT_PAYMENT_METHOD_ID,
+		);
+
+		expect(response.status).toBe(200);
+		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
+		expect(
+			await db.query.organization.findFirst({
+				where: { id: { eq: ORG_ID } },
+			}),
+		).toMatchObject({
+			devPlanCardFingerprint: "replacement_fingerprint",
+			chatPlanCardFingerprint: "replacement_fingerprint",
+		});
+	});
+
+	it("does not update an unaffected plan fingerprint", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				devPlanStripeSubscriptionId: SUBSCRIPTION_ID,
+				devPlanCardFingerprint: "existing_fingerprint",
+			})
+			.where(eq(tables.organization.id, ORG_ID));
+		stripeMock.customers.retrieve.mockResolvedValue({
+			id: STRIPE_CUSTOMER_ID,
+			deleted: false,
+			invoice_settings: {
+				default_payment_method: REPLACEMENT_PAYMENT_METHOD_ID,
+			},
+		});
+		stripeMock.paymentMethods.list.mockResolvedValue({
+			data: [
+				{ id: STRIPE_PAYMENT_METHOD_ID, type: "card" },
+				{ id: REPLACEMENT_PAYMENT_METHOD_ID, type: "us_bank_account" },
+			],
+		});
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			default_payment_method: REPLACEMENT_PAYMENT_METHOD_ID,
+		});
+
+		const response = await deletePaymentMethod(
+			cookie,
+			STRIPE_PAYMENT_METHOD_ID,
+			REPLACEMENT_PAYMENT_METHOD_ID,
+		);
+
+		expect(response.status).toBe(200);
+		expect(stripeMock.customers.update).not.toHaveBeenCalled();
+		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
+		expect(
+			await db.query.organization.findFirst({
+				where: { id: { eq: ORG_ID } },
+			}),
+		).toMatchObject({ devPlanCardFingerprint: "existing_fingerprint" });
+	});
+
+	it("updates a plan fingerprint when retrying after detachment", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				devPlanStripeSubscriptionId: SUBSCRIPTION_ID,
+				devPlanCardFingerprint: "old_fingerprint",
+			})
+			.where(eq(tables.organization.id, ORG_ID));
+		await db.insert(tables.paymentMethod).values({
+			id: "local-detached-plan-payment-method",
+			organizationId: ORG_ID,
+			stripePaymentMethodId: STRIPE_PAYMENT_METHOD_ID,
+			type: "card",
+			isDefault: true,
+		});
+		stripeMock.paymentMethods.retrieve.mockResolvedValue({
+			id: STRIPE_PAYMENT_METHOD_ID,
+			customer: null,
+			type: "card",
+		});
+		stripeMock.customers.retrieve.mockResolvedValue({
+			id: STRIPE_CUSTOMER_ID,
+			deleted: false,
+			invoice_settings: {
+				default_payment_method: REPLACEMENT_PAYMENT_METHOD_ID,
+			},
+		});
+		stripeMock.paymentMethods.list.mockResolvedValue({
+			data: [
+				{
+					id: REPLACEMENT_PAYMENT_METHOD_ID,
+					type: "card",
+					card: { fingerprint: "replacement_fingerprint" },
+				},
+			],
+		});
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			default_payment_method: REPLACEMENT_PAYMENT_METHOD_ID,
+		});
+
+		const response = await deletePaymentMethod(
+			cookie,
+			STRIPE_PAYMENT_METHOD_ID,
+			REPLACEMENT_PAYMENT_METHOD_ID,
+		);
+
+		expect(response.status).toBe(200);
+		expect(
+			await db.query.organization.findFirst({
+				where: { id: { eq: ORG_ID } },
+			}),
+		).toMatchObject({ devPlanCardFingerprint: "replacement_fingerprint" });
+	});
+
 	it("rejects a replacement fingerprint used by another DevPass org", async () => {
 		await db
 			.update(tables.organization)

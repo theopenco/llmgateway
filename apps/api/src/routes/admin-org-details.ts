@@ -716,9 +716,20 @@ adminOrgDetails.openapi(deleteOrganizationPaymentMethod, async (c) => {
 			);
 		},
 	);
-	const subscriptionUsesReplacement = (
+	const subscriptionInheritsChangedCustomerDefault = (
 		kind: OrganizationSubscription["kind"],
 	) =>
+		shouldUpdateCustomerDefault &&
+		state.subscriptions.some(
+			(entry) =>
+				entry.kind === kind &&
+				entry.subscription &&
+				!getStripeId(entry.subscription.default_payment_method),
+		);
+	const subscriptionUsesRetryReplacement = (
+		kind: OrganizationSubscription["kind"],
+	) =>
+		hasDetachedLocalMethod &&
 		Boolean(replacementId) &&
 		state.subscriptions.some(
 			(entry) =>
@@ -730,11 +741,13 @@ adminOrgDetails.openapi(deleteOrganizationPaymentMethod, async (c) => {
 	const updateDevPlanFingerprint = clearAllDefaults
 		? Boolean(org.devPlanStripeSubscriptionId)
 		: subscriptionsToUpdate.some((entry) => entry.kind === "devPlan") ||
-			subscriptionUsesReplacement("devPlan");
+			subscriptionInheritsChangedCustomerDefault("devPlan") ||
+			subscriptionUsesRetryReplacement("devPlan");
 	const updateChatPlanFingerprint = clearAllDefaults
 		? Boolean(org.chatPlanStripeSubscriptionId)
 		: subscriptionsToUpdate.some((entry) => entry.kind === "chatPlan") ||
-			subscriptionUsesReplacement("chatPlan");
+			subscriptionInheritsChangedCustomerDefault("chatPlan") ||
+			subscriptionUsesRetryReplacement("chatPlan");
 	const replacementFingerprint =
 		replacementPaymentMethod?.card?.fingerprint ?? null;
 

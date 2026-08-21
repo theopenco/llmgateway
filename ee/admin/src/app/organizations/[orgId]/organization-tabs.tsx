@@ -4,6 +4,8 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { Tabs } from "@/components/ui/tabs";
 
+import { buildOrganizationTabUrl } from "./organization-tab-url";
+
 import type { ComponentProps } from "react";
 
 export function OrganizationTabs({
@@ -17,14 +19,19 @@ export function OrganizationTabs({
 	return (
 		<Tabs
 			{...props}
-			defaultValue={defaultValue}
+			value={defaultValue}
 			onValueChange={(value) => {
-				if (value !== "settings" || searchParams.get("tab") === "settings") {
+				if ((searchParams.get("tab") ?? "transactions") === value) {
 					return;
 				}
-				const nextSearchParams = new URLSearchParams(searchParams);
-				nextSearchParams.set("tab", "settings");
-				router.push(`${pathname}?${nextSearchParams.toString()}`);
+				router.push(
+					buildOrganizationTabUrl(
+						pathname,
+						new URLSearchParams(searchParams),
+						value,
+					),
+					{ scroll: false },
+				);
 			}}
 		/>
 	);
