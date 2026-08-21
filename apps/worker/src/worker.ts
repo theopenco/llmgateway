@@ -1512,20 +1512,24 @@ export async function batchProcessLogs(): Promise<number> {
 						`Kept ${remainingCost.toString()} on the dev plan pool for organization ${orgId} (pay-as-you-go overflow disabled)`,
 					);
 				} else if (remainingCost.greaterThan(0)) {
-					// Personal (chat/devpass) orgs that never opted into pay-as-you-go
-					// must not be driven below zero. They are billed per plan cycle
-					// rather than invoiced, and getAvailableCredits sums `credits` with
-					// the plan allowance, so a negative balance silently docks the
-					// *next* cycle's allowance — a chat-plan subscriber ends up paying
-					// for overshoot out of the plan they already bought. Charge what
-					// the balance can actually cover and route the rest to an active
-					// plan pool, so the usage stays accounted for. `default` orgs and
-					// pay-as-you-go opt-ins keep today's behaviour: they may go
-					// negative and are reconciled on the next top-up.
-					const planFundedOrg =
-						org && org.kind !== "default" && !org.devPlanPaygEnabled;
+					// Overshoot is held off real credits only when a *plan* authorized
+					// the spend, never on org kind alone. getAvailableCredits sums
+					// `credits` with the plan allowance, so a negative balance silently
+					// docks the next cycle's allowance — a chat-plan subscriber would
+					// end up paying for overshoot out of the plan they already bought.
+					// That reasoning needs a plan pool behind it: either one still
+					// active to park the excess on, or a cancelled plan that left no
+					// balance to draw on. A personal org that still holds a balance is
+					// funded by that balance exactly like a `default` org, so it
+					// carries the overage as debt instead of having it forgiven.
+					const overflowPool = chatPool ?? devPool;
 					const balance = Decimal.max(0, new Decimal(org?.credits ?? "0"));
-					const chargeToCredits = planFundedOrg
+					const planAuthorized =
+						org &&
+						org.kind !== "default" &&
+						!org.devPlanPaygEnabled &&
+						(overflowPool !== null || balance.lessThanOrEqualTo(0));
+					const chargeToCredits = planAuthorized
 						? Decimal.min(remainingCost, balance)
 						: remainingCost;
 					const overflow = remainingCost.minus(chargeToCredits);
@@ -1550,7 +1554,6 @@ export async function batchProcessLogs(): Promise<number> {
 						// Prefer the pool that authorized the spend. With the plan
 						// already cancelled there is no pool left to hold it, so the
 						// residual is written off rather than turned into phantom debt.
-						const overflowPool = chatPool ?? devPool;
 						if (overflowPool) {
 							await deductFromPlanPool(
 								orgId,

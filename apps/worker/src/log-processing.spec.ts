@@ -1078,6 +1078,48 @@ describe("Log Processing", () => {
 			expect(Number(updatedOrg!.credits)).toBe(0);
 		});
 
+		test("should carry debt for a planless personal org that holds a balance", async () => {
+			// No plan, but a real top-up/gift balance: getAvailableCredits admits
+			// this traffic on the balance alone, so the balance — not a plan — is
+			// what authorized it. The overage must be carried as debt exactly like
+			// a default org, otherwise the org gets more usage than it paid for.
+			await db
+				.update(organization)
+				.set({
+					kind: "chat",
+					credits: "0.01",
+					chatPlan: "none",
+					devPlan: "none",
+					devPlanPaygEnabled: false,
+				})
+				.where(eq(organization.id, testOrg.id));
+
+			await db.insert(log).values({
+				requestId: "test-request-planless-balance-debt",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.05,
+				cached: false,
+				usedMode: "credits",
+				duration: 1000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 100,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			expect(Number(updatedOrg!.credits)).toBeCloseTo(-0.04, 8);
+		});
+
 		test("should still let a default org go negative on overage", async () => {
 			// Pay-as-you-go orgs are invoiced and reconciled on the next top-up,
 			// so flooring them would lose genuinely incurred usage.
