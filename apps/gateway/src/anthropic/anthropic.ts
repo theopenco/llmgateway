@@ -941,6 +941,10 @@ anthropic.openapi(messages, async (c) => {
 						// Carried through to Anthropic upstreams and stripped
 						// elsewhere, where the tool is simply loaded eagerly.
 						...(tool.defer_loading === true && { defer_loading: true }),
+						// Same deal for the caller's cache breakpoint: tools are the
+						// base of Anthropic's cache hierarchy, so dropping it here cost
+						// the caller the largest cacheable prefix they have.
+						...(tool.cache_control && { cache_control: tool.cache_control }),
 					};
 				}
 

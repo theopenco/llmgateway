@@ -607,6 +607,104 @@ describe("api", () => {
 		}
 	});
 
+	test("/v1/messages keeps a caller's tool cache_control on the wire", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "anthropic",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const originalFetch = globalThis.fetch;
+		let upstreamBody: any = null;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+
+				if (url.includes(`${mockServerUrl}/v1/messages`)) {
+					const body =
+						input instanceof Request ? await input.text() : String(init?.body);
+					upstreamBody = JSON.parse(body);
+
+					return new Response(
+						JSON.stringify({
+							id: "msg_tool_cache",
+							type: "message",
+							role: "assistant",
+							model: "claude-opus-4-8",
+							content: [{ type: "text", text: "Sunny." }],
+							stop_reason: "end_turn",
+							stop_sequence: null,
+							usage: { input_tokens: 100, output_tokens: 5 },
+						}),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					);
+				}
+
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+
+		try {
+			const res = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "anthropic/claude-opus-4-8",
+					max_tokens: 1024,
+					messages: [{ role: "user", content: "Weather in Paris?" }],
+					tools: [
+						{
+							name: "get_weather",
+							description: "Get the weather",
+							input_schema: { type: "object" },
+						},
+						{
+							name: "get_time",
+							description: "Get the time",
+							input_schema: { type: "object" },
+							cache_control: { type: "ephemeral" },
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect(upstreamBody).toBeTruthy();
+
+			// Tools are the base of Anthropic's cache hierarchy, so a breakpoint on
+			// the last tool caches the largest prefix a caller has. The schema
+			// accepted it and the tool conversion then dropped it, silently costing
+			// an agentic client its biggest cache hit.
+			expect(upstreamBody.tools).toHaveLength(2);
+			expect(upstreamBody.tools[0].cache_control).toBeUndefined();
+			expect(upstreamBody.tools[1].name).toBe("get_time");
+			expect(upstreamBody.tools[1].cache_control).toEqual({
+				type: "ephemeral",
+			});
+		} finally {
+			fetchSpy.mockRestore();
+		}
+	});
+
 	test("/v1/messages surfaces reasoning as a thinking block (non-streaming)", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",

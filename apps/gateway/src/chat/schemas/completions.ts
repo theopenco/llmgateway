@@ -310,6 +310,16 @@ export const completionsRequestSchema = z.object({
 						description:
 							"Anthropic only. Keeps the tool out of the rendered tools section so it never enters the cached prompt prefix, and loads it on demand once the tool search tool discovers it. Requires a `tool_search` tool in `tools`, and Anthropic rejects a request whose tools are all deferred. Stripped for every other provider, which receives the tool eagerly instead.",
 					}),
+					cache_control: z
+						.object({
+							type: z.enum(["ephemeral"]),
+							ttl: z.enum(["5m", "1h"]).optional(),
+						})
+						.optional()
+						.openapi({
+							description:
+								"Anthropic only. Cache breakpoint ending the tool-definitions prefix, which Anthropic renders before the system prompt and messages. Placed on the last tool it caches every tool up to and including that one, and counts toward Anthropic's limit of 4 breakpoints per request. Stripped for every other provider.",
+						}),
 				}),
 				z.object({
 					type: z.literal("tool_search"),

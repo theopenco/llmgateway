@@ -236,6 +236,13 @@ export interface OpenAIFunctionToolInput {
 	 * tool search tool discovers it. Stripped for every other upstream.
 	 */
 	defer_loading?: boolean;
+	/**
+	 * Anthropic-only: cache breakpoint ending the tool-definitions prefix, which
+	 * Anthropic renders before system and messages. Placed on the last tool it
+	 * caches every tool up to and including that one. Stripped for every other
+	 * upstream, which would reject the unknown property.
+	 */
+	cache_control?: CacheControl;
 }
 
 // Web search tool input type
@@ -274,6 +281,7 @@ export interface AnthropicTool {
 	name: string;
 	description?: string;
 	input_schema: FunctionParameter;
+	cache_control?: CacheControl;
 }
 
 export interface GoogleTool {

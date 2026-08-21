@@ -2943,8 +2943,24 @@ export async function prepareRequestBody(
 
 			// Build the system field with cache_control for long prompts
 			// Track cache_control usage across system and user messages (max 4 total per Anthropic's limit)
-			let systemCacheControlCount = 0;
 			const maxCacheControlBlocks = 4;
+
+			// Anthropic renders `tools` before `system` and `messages`, so a caller
+			// breakpoint on the last tool caches the largest prefix available — and
+			// it is the one an agentic client (Claude Code) reliably sets. Those
+			// markers are forwarded with the tools below, so seed the budget with
+			// them here: counting them after the fact would let the system and
+			// message passes spend slots the tools already took, and Anthropic
+			// rejects the fifth breakpoint outright.
+			const toolCacheControlCount = providerCacheControlEnabled
+				? Math.min(
+						(tools ?? []).filter(
+							(tool) => isFunctionTool(tool) && !!tool.cache_control,
+						).length,
+						maxCacheControlBlocks,
+					)
+				: 0;
+			let systemCacheControlCount = toolCacheControlCount;
 
 			// Get the minCacheableTokens from the model definition (default to 1024 if not specified)
 			const providerMapping = modelDef?.providers.find(
@@ -3075,15 +3091,30 @@ export async function prepareRequestBody(
 				// Filter to only function tools (web_search is handled separately)
 				const functionTools = tools.filter(isFunctionTool);
 				if (functionTools.length > 0) {
-					requestBody.tools = functionTools.map((tool) => ({
-						name: tool.function.name,
-						description: tool.function.description,
-						input_schema: tool.function.parameters,
-						// Anthropic strips deferred tools from the rendered tools
-						// section before the cache key is computed, so forwarding this
-						// is what keeps a large tool catalogue out of the cached prefix.
-						...(tool.defer_loading === true && { defer_loading: true }),
-					}));
+					// Forward at most the slots seeded into the budget above, so a
+					// caller that over-marks its tools loses the extras here instead of
+					// having the whole request rejected — the same way an over-budget
+					// system marker is dropped below.
+					let toolMarkersForwarded = 0;
+					requestBody.tools = functionTools.map((tool) => {
+						const keepCacheControl =
+							providerCacheControlEnabled &&
+							!!tool.cache_control &&
+							toolMarkersForwarded < maxCacheControlBlocks;
+						if (keepCacheControl) {
+							toolMarkersForwarded++;
+						}
+						return {
+							name: tool.function.name,
+							description: tool.function.description,
+							input_schema: tool.function.parameters,
+							// Anthropic strips deferred tools from the rendered tools
+							// section before the cache key is computed, so forwarding this
+							// is what keeps a large tool catalogue out of the cached prefix.
+							...(tool.defer_loading === true && { defer_loading: true }),
+							...(keepCacheControl && { cache_control: tool.cache_control }),
+						};
+					});
 				}
 				// The tool search tool has to come first: Anthropic rejects a request
 				// whose tools are all deferred, and it is the one tool that never is.

@@ -653,6 +653,169 @@ describe("prepareRequestBody - Anthropic", () => {
 		}
 	});
 
+	test("forwards a caller breakpoint on the last tool definition", async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			null,
+			"claude-3-5-sonnet-20241022",
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			[
+				{
+					type: "function",
+					function: { name: "get_weather", parameters: { type: "object" } },
+				},
+				{
+					type: "function",
+					function: { name: "get_time", parameters: { type: "object" } },
+					cache_control: { type: "ephemeral", ttl: "1h" },
+				},
+			], // tools
+		)) as AnthropicRequestBody;
+
+		expect(requestBody.tools).toHaveLength(2);
+		expect(getCacheControl(requestBody.tools![0])).toBeUndefined();
+		expect(getCacheControl(requestBody.tools![1])).toEqual({
+			type: "ephemeral",
+			ttl: "1h",
+		});
+	});
+
+	test("counts a tool breakpoint before system and messages", async () => {
+		// Anthropic renders tools first, so the tool marker has to consume the
+		// first of the 4 slots — otherwise the system pass below spends all four
+		// and the request ships 5 breakpoints, which Anthropic rejects.
+		const longContent = "A".repeat(5000);
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			null,
+			"claude-3-5-sonnet-20241022",
+			[
+				{ role: "system", content: longContent },
+				{ role: "system", content: longContent },
+				{ role: "system", content: longContent },
+				{ role: "system", content: longContent },
+				{ role: "user", content: longContent },
+				{ role: "assistant", content: "Hi!" },
+				{ role: "user", content: longContent },
+			],
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			[
+				{
+					type: "function",
+					function: { name: "get_weather", parameters: { type: "object" } },
+					cache_control: { type: "ephemeral" },
+				},
+			], // tools
+		)) as AnthropicRequestBody;
+
+		const toolMarkers = (requestBody.tools ?? []).filter((tool) =>
+			getCacheControl(tool),
+		).length;
+		const systemMarkers = Array.isArray(requestBody.system)
+			? requestBody.system.filter((block) => getCacheControl(block)).length
+			: 0;
+		const messageMarkers = requestBody.messages.flatMap((msg) =>
+			Array.isArray(msg.content)
+				? msg.content.filter((block) => getCacheControl(block))
+				: [],
+		).length;
+
+		expect(toolMarkers).toBe(1);
+		// The remaining 3 slots go to the system prompts; nothing is left for the
+		// messages or the turn boundary.
+		expect(systemMarkers).toBe(3);
+		expect(messageMarkers).toBe(0);
+		expect(toolMarkers + systemMarkers + messageMarkers).toBe(4);
+	});
+
+	test("drops a tool breakpoint for a non-Anthropic provider", async () => {
+		const requestBody = (await prepareRequestBody(
+			"openai",
+			"gpt-4o-mini",
+			null,
+			"gpt-4o-mini",
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			[
+				{
+					type: "function",
+					function: { name: "get_weather", parameters: { type: "object" } },
+					cache_control: { type: "ephemeral" },
+				},
+			], // tools
+		)) as OpenAIRequestBody;
+
+		// OpenAI rejects unknown properties on a tool definition.
+		for (const tool of requestBody.tools ?? []) {
+			expect(tool).not.toHaveProperty("cache_control");
+		}
+	});
+
+	test("drops a tool breakpoint when provider cache writes are disabled", async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			null,
+			"claude-3-5-sonnet-20241022",
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			[
+				{
+					type: "function",
+					function: { name: "get_weather", parameters: { type: "object" } },
+					cache_control: { type: "ephemeral" },
+				},
+			], // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			undefined, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			undefined, // reasoning_max_tokens
+			undefined, // useResponsesApi
+			undefined, // prompt_cache_key
+			undefined, // prompt_cache_retention
+			false, // providerCacheControlEnabled
+		)) as AnthropicRequestBody;
+
+		for (const tool of requestBody.tools ?? []) {
+			expect(getCacheControl(tool)).toBeUndefined();
+		}
+	});
+
 	test("does not fetch images inside a tool message's discarded content", async () => {
 		// The array content of a tool message is rebuilt into a tool_result block,
 		// so fetching its images buys nothing — and a size rejection would fail a
