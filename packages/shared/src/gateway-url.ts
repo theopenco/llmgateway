@@ -1,11 +1,7 @@
-function normalizeGatewayBaseUrl(url: string): string {
-	return url.replace(/(?:\/v1)+\/?$/, "").replace(/\/$/, "");
-}
-
 export function getGatewayPublicBaseUrl(): string {
 	const configuredGatewayUrl = process.env.GATEWAY_URL?.trim();
 	if (configuredGatewayUrl) {
-		return normalizeGatewayBaseUrl(configuredGatewayUrl);
+		return configuredGatewayUrl;
 	}
 
 	return process.env.NODE_ENV === "production"

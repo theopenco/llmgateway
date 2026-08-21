@@ -15,10 +15,7 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { generateText, streamText } from "ai";
 
-const gatewayUrl = (process.env.GATEWAY_URL ?? "http://localhost:4001")
-	.replace(/(?:\/v1)+\/?$/, "")
-	.replace(/\/$/, "");
-const baseURL = `${gatewayUrl}/v1`;
+const baseURL = `${process.env.GATEWAY_URL ?? "http://localhost:4001"}/v1`;
 const apiKey = process.env.OPENAI_API_KEY ?? "<YOUR_API_KEY>";
 
 const openai = createOpenAI({ baseURL, apiKey });
