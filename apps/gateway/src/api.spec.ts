@@ -6726,6 +6726,19 @@ describe("api", () => {
 			expect(secondRes.status).toBe(200);
 			const secondJson = await secondRes.json();
 			expect(secondJson.metadata.used_provider).toBe("google-vertex");
+
+			const logs = await waitForLogs(2);
+			const overflowLog = logs.find(
+				(log) => log.usedProvider === "google-vertex",
+			);
+			expect(overflowLog?.routingMetadata?.providerScores).not.toContainEqual(
+				expect.objectContaining({ providerId: "google-ai-studio" }),
+			);
+			expect(overflowLog?.routingMetadata?.filteredProviders).toContainEqual({
+				providerId: "google-ai-studio",
+				reasons: ["provider is rate limited"],
+				codes: ["rate_limited"],
+			});
 		} finally {
 			if (previousVertexKey === undefined) {
 				delete process.env.LLM_GOOGLE_VERTEX_API_KEY;

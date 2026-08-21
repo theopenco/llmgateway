@@ -5013,6 +5013,16 @@ chat.openapi(completions, async (c) => {
 				rateLimitedProviderIds,
 				providersWithKeys,
 			);
+			const routingCandidateProviderIds = new Set(
+				routingCandidates.map((candidate) => candidate.providerId),
+			);
+			for (const providerId of rateLimitedProviderIds) {
+				if (!routingCandidateProviderIds.has(providerId)) {
+					recordFilteredProvider(filteredOutProvidersDirect, providerId, [
+						exclusionReason("rate_limited"),
+					]);
+				}
+			}
 
 			const rawModelWithPricing = models.find(
 				(m) => m.id === usedInternalModel,
@@ -5158,46 +5168,19 @@ chat.openapi(completions, async (c) => {
 						project.organizationId,
 						providerDiscountResolver,
 					);
-					// Annotate rate-limited providers in routing metadata
-					if (rateLimitedProviderIds.size > 0) {
-						// Add filtered-out rate-limited providers as score entries
-						for (const rlProviderId of rateLimitedProviderIds) {
-							const existing = routingMetadata.providerScores.find(
-								(s) => s.providerId === rlProviderId,
-							);
-							if (existing) {
-								existing.rate_limited = true;
-							} else {
-								const providerInfo = modelInfo.providers.find(
-									(p) => p.providerId === rlProviderId,
-								);
-								const { price, discount } =
-									await getDiscountedProviderSelectionPrice(
-										providerInfo,
-										modelWithPricing.id,
-										{
-											organizationId: project.organizationId,
-											providerDiscountResolver,
-										},
-									);
-								routingMetadata.providerScores.push({
-									providerId: rlProviderId,
-									score: -1,
-									price: price.toNumber(),
-									discount: discount.toNumber(),
-									cacheSupported: providerSupportsCaching(providerInfo),
-									rate_limited: true,
-								});
-							}
+					// When every candidate is capped, routing fails open. Those providers
+					// were scored and remain candidates, so annotate their existing entries.
+					for (const score of routingMetadata.providerScores) {
+						if (rateLimitedProviderIds.has(score.providerId)) {
+							score.rate_limited = true;
 						}
 					}
 					{
-						const routingCandidateSet = new Set(routingCandidates);
 						await appendHybridDemotedProviderScores(
 							routingMetadata,
 							contentFilterPreferredProviders.filter(
 								(candidate) =>
-									!routingCandidateSet.has(candidate) &&
+									!routingCandidateProviderIds.has(candidate.providerId) &&
 									!rateLimitedProviderIds.has(candidate.providerId),
 							),
 							modelWithPricing.id,
