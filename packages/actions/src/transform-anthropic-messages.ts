@@ -39,7 +39,7 @@ function findCacheControl(
  * Transforms Anthropic messages
  * @param initialCacheControlCount - Number of cache_control blocks already used (e.g., from system messages)
  * @param minCacheableChars - Minimum number of characters for a text block to be cacheable (defaults to 4096, i.e., ~1024 tokens)
- * @param providerCacheControlEnabled - When false, suppress the gateway's auto-injection of cache_control markers. Caller-supplied markers still pass through.
+ * @param autoInjectCacheControl - When false, suppress the gateway's auto-injection of cache_control markers. Caller-supplied markers still pass through.
  */
 export async function transformAnthropicMessages(
 	messages: BaseMessage[],
@@ -50,7 +50,7 @@ export async function transformAnthropicMessages(
 	userPlan: "free" | "pro" | "enterprise" | null = null,
 	initialCacheControlCount = 0,
 	minCacheableChars = 1024 * 4,
-	providerCacheControlEnabled = true,
+	autoInjectCacheControl = true,
 ): Promise<AnthropicMessage[]> {
 	const results: AnthropicMessage[] = [];
 
@@ -58,7 +58,7 @@ export async function transformAnthropicMessages(
 	// Apply for anthropic provider only, and only when the project hasn't
 	// opted out of auto-injection.
 	const shouldApplyCacheControl =
-		provider === "anthropic" && providerCacheControlEnabled;
+		provider === "anthropic" && autoInjectCacheControl;
 
 	// Track cache_control usage to limit to maximum of 4 blocks total (including system messages)
 	let cacheControlCount = initialCacheControlCount;

@@ -804,15 +804,11 @@ function getContentFilterRoutingDecision(
 	};
 }
 
-async function addContentFilterRoutingMetadata(
+function addContentFilterRoutingMetadata(
 	routingMetadata: RoutingMetadata,
 	contentFilterMatched: boolean,
 	excludedProviders: ProviderModelMapping[],
-	modelId: string | undefined,
-	metricsMap: Map<string, ProviderMetrics>,
-	organizationId: string,
-	providerDiscountResolver: ReturnType<typeof createProviderDiscountResolver>,
-): Promise<RoutingMetadata> {
+): RoutingMetadata {
 	if (!contentFilterMatched) {
 		return routingMetadata;
 	}
@@ -820,39 +816,15 @@ async function addContentFilterRoutingMetadata(
 	const contentFilterExcludedProviders = [
 		...new Set(excludedProviders.map((provider) => provider.providerId)),
 	];
-
-	const providerScores =
-		excludedProviders.length === 0 || !modelId
-			? routingMetadata.providerScores
-			: [
-					...(await Promise.all(
-						excludedProviders.map(async (provider) => {
-							const metrics = metricsMap.get(
-								metricsKey(modelId, provider.providerId, provider.region),
-							);
-							const { price, discount } =
-								await getDiscountedProviderSelectionPrice(provider, modelId, {
-									organizationId,
-									providerDiscountResolver,
-								});
-
-							return {
-								providerId: provider.providerId,
-								region: provider.region,
-								score: -1,
-								uptime: metrics?.uptime ?? 0,
-								latency: metrics?.averageLatency ?? 0,
-								throughput: metrics?.throughput ?? 0,
-								price: price.toNumber(),
-								discount: discount.toNumber(),
-								cacheSupported: providerSupportsCaching(provider),
-								contentFilterProvider: true,
-								excludedByContentFilter: true,
-							};
-						}),
-					)),
-					...routingMetadata.providerScores,
-				];
+	const filteredProviders: FilteredProvider[] = [];
+	for (const filtered of routingMetadata.filteredProviders ?? []) {
+		mergeFilteredProvider(filteredProviders, filtered);
+	}
+	for (const providerId of contentFilterExcludedProviders) {
+		recordFilteredProvider(filteredProviders, providerId, [
+			exclusionReason("content_filter"),
+		]);
+	}
 
 	return {
 		...routingMetadata,
@@ -862,7 +834,8 @@ async function addContentFilterRoutingMetadata(
 			contentFilterExcludedProviders.length > 0
 				? contentFilterExcludedProviders
 				: undefined,
-		providerScores,
+		filteredProviders:
+			filteredProviders.length > 0 ? filteredProviders : undefined,
 	};
 }
 
@@ -4517,31 +4490,12 @@ chat.openapi(completions, async (c) => {
 							},
 						);
 
-						const originalProviderInfo = modelInfo.providers.find(
-							(p) => p.providerId === requestedProvider,
-						);
-						const {
-							price: originalProviderPrice,
-							discount: originalProviderDiscount,
-						} = await getDiscountedProviderSelectionPrice(
-							originalProviderInfo,
-							modelWithPricing.id,
-							{
-								organizationId: project.organizationId,
-								providerDiscountResolver,
-							},
-						);
-
-						const originalProviderScore = {
-							providerId: requestedProvider,
-							score: -1,
-							price: originalProviderPrice.toNumber(),
-							discount: originalProviderDiscount.toNumber(),
-							cacheSupported: providerSupportsCaching(originalProviderInfo),
-							rate_limited: true as const,
-						};
-
 						if (cheapestResult) {
+							recordFilteredProvider(
+								preRoutingFilteredProviders,
+								requestedProvider,
+								[exclusionReason("rate_limited")],
+							);
 							usedProvider = cheapestResult.provider.providerId;
 							usedInternalModel = modelInfo.id;
 							usedExternalId = cheapestResult.provider.externalId;
@@ -4551,10 +4505,6 @@ chat.openapi(completions, async (c) => {
 								selectionReason: "rate-limit-fallback",
 								originalProvider: requestedProvider,
 								originalProviderRateLimited: true,
-								providerScores: [
-									originalProviderScore,
-									...cheapestResult.metadata.providerScores,
-								],
 								...getNoFallbackRoutingMetadata(
 									noFallback,
 									xNoFallbackHeaderSet,
@@ -5013,6 +4963,16 @@ chat.openapi(completions, async (c) => {
 				rateLimitedProviderIds,
 				providersWithKeys,
 			);
+			const routingCandidateProviderIds = new Set(
+				routingCandidates.map((candidate) => candidate.providerId),
+			);
+			for (const providerId of rateLimitedProviderIds) {
+				if (!routingCandidateProviderIds.has(providerId)) {
+					recordFilteredProvider(filteredOutProvidersDirect, providerId, [
+						exclusionReason("rate_limited"),
+					]);
+				}
+			}
 
 			const rawModelWithPricing = models.find(
 				(m) => m.id === usedInternalModel,
@@ -5031,10 +4991,7 @@ chat.openapi(completions, async (c) => {
 
 			if (modelWithPricing) {
 				// Fetch uptime/latency metrics from last 5 minutes for provider selection
-				const metricsCombinations = [
-					...routingCandidates,
-					...contentFilterRoutingExcludedProviders,
-				].map((provider) => ({
+				const metricsCombinations = routingCandidates.map((provider) => ({
 					modelId: modelWithPricing.id,
 					providerId: provider.providerId,
 					region: provider.region,
@@ -5143,7 +5100,7 @@ chat.openapi(completions, async (c) => {
 							),
 						};
 					}
-					routingMetadata = await addContentFilterRoutingMetadata(
+					routingMetadata = addContentFilterRoutingMetadata(
 						{
 							...cheapestResult.metadata,
 							selectedProvider: usedProvider,
@@ -5153,51 +5110,20 @@ chat.openapi(completions, async (c) => {
 						},
 						contentFilterMatched,
 						contentFilterRoutingExcludedProviders,
-						modelWithPricing.id,
-						metricsMap,
-						project.organizationId,
-						providerDiscountResolver,
 					);
-					// Annotate rate-limited providers in routing metadata
-					if (rateLimitedProviderIds.size > 0) {
-						// Add filtered-out rate-limited providers as score entries
-						for (const rlProviderId of rateLimitedProviderIds) {
-							const existing = routingMetadata.providerScores.find(
-								(s) => s.providerId === rlProviderId,
-							);
-							if (existing) {
-								existing.rate_limited = true;
-							} else {
-								const providerInfo = modelInfo.providers.find(
-									(p) => p.providerId === rlProviderId,
-								);
-								const { price, discount } =
-									await getDiscountedProviderSelectionPrice(
-										providerInfo,
-										modelWithPricing.id,
-										{
-											organizationId: project.organizationId,
-											providerDiscountResolver,
-										},
-									);
-								routingMetadata.providerScores.push({
-									providerId: rlProviderId,
-									score: -1,
-									price: price.toNumber(),
-									discount: discount.toNumber(),
-									cacheSupported: providerSupportsCaching(providerInfo),
-									rate_limited: true,
-								});
-							}
+					// When every candidate is capped, routing fails open. Those providers
+					// were scored and remain candidates, so annotate their existing entries.
+					for (const score of routingMetadata.providerScores) {
+						if (rateLimitedProviderIds.has(score.providerId)) {
+							score.rate_limited = true;
 						}
 					}
 					{
-						const routingCandidateSet = new Set(routingCandidates);
 						await appendHybridDemotedProviderScores(
 							routingMetadata,
 							contentFilterPreferredProviders.filter(
 								(candidate) =>
-									!routingCandidateSet.has(candidate) &&
+									!routingCandidateProviderIds.has(candidate.providerId) &&
 									!rateLimitedProviderIds.has(candidate.providerId),
 							),
 							modelWithPricing.id,
@@ -5325,10 +5251,7 @@ chat.openapi(completions, async (c) => {
 		let metricsMap: Map<string, ProviderMetrics> = new Map();
 
 		if (baseModelId && usedProvider !== "custom") {
-			const metricsCombinations = [
-				...routingMetadataProviders,
-				...contentFilterRoutingExcludedProviders,
-			].map((provider) => ({
+			const metricsCombinations = routingMetadataProviders.map((provider) => ({
 				modelId: baseModelId,
 				providerId: provider.providerId,
 				region: provider.region,
@@ -5395,7 +5318,7 @@ chat.openapi(completions, async (c) => {
 				}),
 			));
 
-		routingMetadata = await addContentFilterRoutingMetadata(
+		routingMetadata = addContentFilterRoutingMetadata(
 			{
 				availableProviders: routingMetadataProviders.map((p) => p.providerId),
 				selectedProvider: usedProvider,
@@ -5406,10 +5329,6 @@ chat.openapi(completions, async (c) => {
 			},
 			contentFilterMatched,
 			contentFilterRoutingExcludedProviders,
-			baseModelId,
-			metricsMap,
-			project.organizationId,
-			providerDiscountResolver,
 		);
 	}
 
@@ -6350,7 +6269,7 @@ chat.openapi(completions, async (c) => {
 	const {
 		enabled: projectCachingEnabled,
 		duration: cacheDuration,
-		providerCacheControlEnabled,
+		providerCacheControlMode,
 	} = await isCachingEnabled(project.id);
 	// Per-request opt-out, mirroring X-No-Fallback. Agent workloads that retry a
 	// byte-identical request expect a fresh sample rather than a replay, so let
@@ -7208,7 +7127,7 @@ chat.openapi(completions, async (c) => {
 			useResponsesApi,
 			prompt_cache_key,
 			prompt_cache_retention,
-			providerCacheControlEnabled,
+			providerCacheControlMode,
 			n,
 			initialForwardedServiceTier,
 			verbosity,
@@ -7426,7 +7345,7 @@ chat.openapi(completions, async (c) => {
 					providerMapping.region,
 				),
 				n,
-				providerCacheControlEnabled,
+				providerCacheControlMode,
 				service_tier,
 				clientRequestedServiceTier: clientRequestedServiceTier(),
 				verbosity,
