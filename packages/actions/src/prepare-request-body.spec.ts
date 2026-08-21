@@ -896,6 +896,56 @@ describe("prepareRequestBody - Anthropic", () => {
 		});
 	});
 
+	test("trims caller message markers against a retained tool marker", async () => {
+		// The tool marker seeds the budget at 1, so only 3 of the caller's 4
+		// message markers fit. Forwarding all of them ships 5 breakpoints and
+		// Anthropic rejects the request outright.
+		const marked = (text: string) => ({
+			role: "user" as const,
+			content: [
+				{
+					type: "text" as const,
+					text,
+					cache_control: { type: "ephemeral" as const },
+				},
+			],
+		});
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			null,
+			"claude-3-5-sonnet-20241022",
+			[marked("one"), marked("two"), marked("three"), marked("four")],
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			[
+				{
+					type: "function",
+					function: { name: "get_weather", parameters: { type: "object" } },
+					cache_control: { type: "ephemeral" },
+				},
+			], // tools
+		)) as AnthropicRequestBody;
+
+		const toolMarkers = (requestBody.tools ?? []).filter((tool) =>
+			getCacheControl(tool),
+		).length;
+		const messageMarkers = requestBody.messages.flatMap((msg) =>
+			Array.isArray(msg.content)
+				? msg.content.filter((block) => getCacheControl(block))
+				: [],
+		).length;
+
+		expect(toolMarkers).toBe(1);
+		expect(messageMarkers).toBe(3);
+		expect(toolMarkers + messageMarkers).toBe(4);
+	});
+
 	test("drops a tool breakpoint for a non-Anthropic provider", async () => {
 		const requestBody = (await prepareRequestBody(
 			"openai",
@@ -973,7 +1023,11 @@ describe("prepareRequestBody - Anthropic", () => {
 		// The array content of a tool message is rebuilt into a tool_result block,
 		// so fetching its images buys nothing — and a size rejection would fail a
 		// request over bytes that never reach the provider.
-		const fetchSpy = vi.spyOn(globalThis, "fetch");
+		// The spy rejects rather than calling through, so a regression fails the
+		// assertion below instead of reaching the network.
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockRejectedValue(new Error("network access is not allowed here"));
 		try {
 			const requestBody = (await prepareRequestBody(
 				"anthropic",

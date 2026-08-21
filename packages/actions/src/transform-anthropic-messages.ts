@@ -183,7 +183,16 @@ export async function transformAnthropicMessages(
 							// rejects with a 400). Without this, a coding agent like
 							// Claude Code that sends 4 markers itself would hit the
 							// "Found 5" error after we add our own.
-							cacheControlCount++;
+							if (cacheControlCount < maxCacheControlBlocks) {
+								cacheControlCount++;
+								return part;
+							}
+							// Past the cap the marker has to go: the budget may already
+							// be spent by the tools and system that render ahead of these
+							// messages, and the earlier markers cover the longer prefixes
+							// anyway. Same treatment an over-budget system marker gets.
+							const { cache_control: _dropped, ...rest } = part;
+							return rest;
 						} else if (
 							shouldApplyCacheControl &&
 							part.text.length >= minCacheableChars &&
