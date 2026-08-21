@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import { models } from "@llmgateway/models";
 
@@ -393,6 +393,318 @@ describe("prepareRequestBody - Anthropic", () => {
 		// Both trailing user turns get a marker; without the fix the four tool
 		// results exhaust the budget and this is 0.
 		expect(totalCacheControlBlocks).toBe(2);
+	});
+
+	test("keeps a caller breakpoint on the tool_result block it was set on", async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			null,
+			"claude-3-5-sonnet-20241022",
+			[
+				{ role: "user", content: "Look up the weather." },
+				{
+					role: "assistant",
+					content: "",
+					tool_calls: [
+						{
+							id: "call_1",
+							type: "function",
+							function: { name: "get_weather", arguments: "{}" },
+						},
+					],
+				},
+				{
+					role: "tool",
+					tool_call_id: "call_1",
+					content: "sunny",
+					tool_result_cache_control: { type: "ephemeral" },
+				},
+				{ role: "user", content: "What should I wear?" },
+			],
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+		)) as AnthropicRequestBody;
+
+		const marked = requestBody.messages.flatMap((msg) =>
+			Array.isArray(msg.content)
+				? msg.content.filter((block) => getCacheControl(block))
+				: [],
+		);
+
+		// Exactly one marker, on the tool_result block the caller chose — the
+		// turn boundary lands on that same message and leaves it alone.
+		expect(marked).toHaveLength(1);
+		expect((marked[0] as { type: string }).type).toBe("tool_result");
+		expect(getCacheControl(marked[0])).toEqual({ type: "ephemeral" });
+	});
+
+	test("suppresses auto-injection when a tool_result carries a 1h ttl", async () => {
+		// Anthropic processes tools, then system, then messages, and rejects a
+		// ttl:"1h" breakpoint that comes after a ttl:"5m" one. The gateway's
+		// heuristics only ever emit ttl-less (5m) markers, so a caller 1h marker
+		// anywhere in the messages has to disable them — including when it sits on
+		// a tool_result rather than a text block.
+		const longContent = "A".repeat(5000);
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			null,
+			"claude-3-5-sonnet-20241022",
+			[
+				{ role: "system", content: longContent },
+				{ role: "user", content: longContent },
+				{
+					role: "assistant",
+					content: "",
+					tool_calls: [
+						{
+							id: "call_1",
+							type: "function",
+							function: { name: "get_weather", arguments: "{}" },
+						},
+					],
+				},
+				{
+					role: "tool",
+					tool_call_id: "call_1",
+					content: "sunny",
+					tool_result_cache_control: { type: "ephemeral", ttl: "1h" },
+				},
+				{ role: "user", content: "What should I wear?" },
+			],
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+		)) as AnthropicRequestBody;
+
+		// The long system prompt and the long user turn would both attract a 5m
+		// marker, and either would land before the caller's 1h one — a 400.
+		if (requestBody.system && Array.isArray(requestBody.system)) {
+			for (const block of requestBody.system) {
+				expect(getCacheControl(block)).toBeUndefined();
+			}
+		}
+		const marked = requestBody.messages.flatMap((msg) =>
+			Array.isArray(msg.content)
+				? msg.content.filter((block) => getCacheControl(block))
+				: [],
+		);
+		expect(marked).toHaveLength(1);
+		expect((marked[0] as { type: string }).type).toBe("tool_result");
+		expect(getCacheControl(marked[0])).toEqual({
+			type: "ephemeral",
+			ttl: "1h",
+		});
+	});
+
+	test("places the turn-boundary marker on a bare tool_result message", async () => {
+		// A native-format turn that mixes a tool result with new text arrives as
+		// two messages, so the boundary message holds only a tool_result block.
+		// Anthropic accepts a breakpoint there; skipping it caches nothing.
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			null,
+			"claude-3-5-sonnet-20241022",
+			[
+				{ role: "user", content: "Look up the weather." },
+				{
+					role: "assistant",
+					content: "",
+					tool_calls: [
+						{
+							id: "call_1",
+							type: "function",
+							function: { name: "get_weather", arguments: "{}" },
+						},
+					],
+				},
+				{ role: "tool", tool_call_id: "call_1", content: "sunny" },
+				{ role: "user", content: "What should I wear?" },
+			],
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+		)) as AnthropicRequestBody;
+
+		const boundaryMsg = requestBody.messages[2]!;
+		const boundaryBlock = (boundaryMsg.content as unknown[])[0] as {
+			type: string;
+		};
+		expect(boundaryBlock.type).toBe("tool_result");
+		expect(getCacheControl(boundaryBlock)).toEqual({ type: "ephemeral" });
+	});
+
+	test("drops a tool_result breakpoint for a non-Anthropic provider", async () => {
+		const requestBody = (await prepareRequestBody(
+			"openai",
+			"gpt-4o-mini",
+			null,
+			"gpt-4o-mini",
+			[
+				{ role: "user", content: "Look up the weather." },
+				{
+					role: "assistant",
+					content: "",
+					tool_calls: [
+						{
+							id: "call_1",
+							type: "function",
+							function: { name: "get_weather", arguments: "{}" },
+						},
+					],
+				},
+				{
+					role: "tool",
+					tool_call_id: "call_1",
+					content: "sunny",
+					tool_result_cache_control: { type: "ephemeral" },
+				},
+			],
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+		)) as OpenAIRequestBody;
+
+		// OpenAI rejects unknown message fields, so the carrier must not survive.
+		for (const msg of requestBody.messages) {
+			expect(msg).not.toHaveProperty("tool_result_cache_control");
+		}
+	});
+
+	test("drops a tool_result breakpoint when provider cache writes are disabled", async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			null,
+			"claude-3-5-sonnet-20241022",
+			[
+				{ role: "user", content: "Look up the weather." },
+				{
+					role: "assistant",
+					content: "",
+					tool_calls: [
+						{
+							id: "call_1",
+							type: "function",
+							function: { name: "get_weather", arguments: "{}" },
+						},
+					],
+				},
+				{
+					role: "tool",
+					tool_call_id: "call_1",
+					content: "sunny",
+					tool_result_cache_control: { type: "ephemeral" },
+				},
+				{ role: "user", content: "What should I wear?" },
+			],
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			undefined, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			undefined, // reasoning_max_tokens
+			undefined, // useResponsesApi
+			undefined, // prompt_cache_key
+			undefined, // prompt_cache_retention
+			false, // providerCacheControlEnabled
+		)) as AnthropicRequestBody;
+
+		for (const msg of requestBody.messages) {
+			expect(msg).not.toHaveProperty("tool_result_cache_control");
+			if (Array.isArray(msg.content)) {
+				for (const block of msg.content) {
+					expect(getCacheControl(block)).toBeUndefined();
+				}
+			}
+		}
+	});
+
+	test("does not fetch images inside a tool message's discarded content", async () => {
+		// The array content of a tool message is rebuilt into a tool_result block,
+		// so fetching its images buys nothing — and a size rejection would fail a
+		// request over bytes that never reach the provider.
+		const fetchSpy = vi.spyOn(globalThis, "fetch");
+		try {
+			const requestBody = (await prepareRequestBody(
+				"anthropic",
+				"claude-3-5-sonnet-20241022",
+				null,
+				"claude-3-5-sonnet-20241022",
+				[
+					{ role: "user", content: "Screenshot the page." },
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							{
+								id: "call_1",
+								type: "function",
+								function: { name: "screenshot", arguments: "{}" },
+							},
+						],
+					},
+					{
+						role: "tool",
+						tool_call_id: "call_1",
+						content: [
+							{
+								type: "image_url",
+								image_url: { url: "https://example.com/huge.png" },
+							},
+						],
+					},
+				],
+				false, // stream
+				undefined, // temperature
+				1024, // max_tokens
+				undefined, // top_p
+				undefined, // frequency_penalty
+				undefined, // presence_penalty
+				undefined, // response_format
+			)) as AnthropicRequestBody;
+
+			expect(fetchSpy).not.toHaveBeenCalled();
+			const toolMsg = requestBody.messages[2]!;
+			expect(((toolMsg.content as unknown[])[0] as { type: string }).type).toBe(
+				"tool_result",
+			);
+		} finally {
+			fetchSpy.mockRestore();
+		}
 	});
 
 	test.each(["claude-fable-5", "claude-opus-5"])(

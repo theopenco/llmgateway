@@ -13,14 +13,20 @@ export interface PromptCacheBreakpoint {
 	mode?: "explicit";
 }
 
+/**
+ * Anthropic prompt-cache breakpoint. Ends a cacheable prefix; Anthropic allows
+ * at most 4 of them per request across tools, system and messages.
+ */
+export interface CacheControl {
+	type: "ephemeral";
+	ttl?: "5m" | "1h";
+}
+
 // Base content types
 export interface TextContent {
 	type: "text";
 	text: string;
-	cache_control?: {
-		type: "ephemeral";
-		ttl?: "5m" | "1h";
-	};
+	cache_control?: CacheControl;
 	prompt_cache_breakpoint?: PromptCacheBreakpoint;
 }
 
@@ -86,6 +92,12 @@ export interface ToolResultContent {
 	// Anthropic accepts a block array here as well as a plain string; the array
 	// form is what carries `tool_reference` blocks for a client-side tool search.
 	content: string | AnthropicNativeBlock[];
+	// Anthropic accepts a cache breakpoint on a tool_result block ("Tool use and
+	// tool results: content blocks in the messages.content array, in both user
+	// and assistant turns" —
+	// platform.claude.com/docs/en/build-with-claude/prompt-caching), which is
+	// where the stable prefix of an agentic loop usually ends.
+	cache_control?: CacheControl;
 }
 
 /**
@@ -160,6 +172,12 @@ export interface BaseMessage {
 	// is how a client-side tool search returns `tool_reference` blocks. Replayed
 	// on the Anthropic Messages API only and stripped for every other upstream.
 	anthropic_native_blocks?: AnthropicNativeBlock[];
+	// Caller-supplied cache breakpoint on the `tool_result` block this tool
+	// message came from. The OpenAI-format tool message lowers that block to a
+	// plain string and has nowhere to put the marker, so it rides here and is
+	// re-attached to the tool_result block on the Anthropic Messages API path.
+	// Stripped for every other upstream, which would reject the unknown field.
+	tool_result_cache_control?: CacheControl;
 }
 
 // Provider-specific message formats

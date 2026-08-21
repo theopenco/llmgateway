@@ -1778,6 +1778,21 @@ export async function prepareRequestBody(
 		processedMessages = transformMessagesForNoSystemRole(processedMessages);
 	}
 
+	// A tool message's `tool_result_cache_control` only has a destination on the
+	// Anthropic Messages API, where it becomes a marker on the tool_result block
+	// the message is lowered to. Anywhere else it would reach the upstream as an
+	// unknown message field, and a project that opted out of provider cache
+	// writes must not emit it at all.
+	if (!anthropicMessagesApi || !providerCacheControlEnabled) {
+		processedMessages = processedMessages.map((m) => {
+			if (m.tool_result_cache_control === undefined) {
+				return m;
+			}
+			const { tool_result_cache_control: _dropped, ...rest } = m;
+			return rest;
+		});
+	}
+
 	// Strip Anthropic-style cache_control markers from caller-supplied content
 	// parts. We do this in two cases:
 	//   1) The resolved provider doesn't natively understand cache_control —
@@ -2903,20 +2918,25 @@ export async function prepareRequestBody(
 			);
 
 			// Anthropic requires longer-TTL cache breakpoints to come before
-			// shorter ones (processing order: tools, system, messages). The
-			// gateway's heuristics inject ttl-less markers (5m default), so when
-			// the caller placed an explicit ttl:"1h" marker in the messages, any
-			// auto-injected marker would land before it and Anthropic rejects the
-			// request ("a ttl='1h' cache_control block must not come after a
-			// ttl='5m' cache_control block"). Defer entirely to the caller's
-			// caching strategy in that case. A 1h marker only on system is safe:
+			// shorter ones ("a 1-hour cache entry must appear before any 5-minute
+			// cache entries" —
+			// platform.claude.com/docs/en/build-with-claude/prompt-caching;
+			// processing order: tools, system, messages). The gateway's heuristics
+			// inject ttl-less markers (5m default), so when the caller placed an
+			// explicit ttl:"1h" marker in the messages, any auto-injected marker
+			// would land before it and Anthropic rejects the request ("a ttl='1h'
+			// cache_control block must not come after a ttl='5m' cache_control
+			// block"). Defer entirely to the caller's caching strategy in that
+			// case — including when the 1h marker rides on a tool_result, which
+			// this check would otherwise miss. A 1h marker only on system is safe:
 			// message-level 5m markers after it satisfy the ordering.
 			const callerUses1hTtlInMessages = nonSystemMessages.some(
 				(m) =>
-					Array.isArray(m.content) &&
-					m.content.some(
-						(part) => isTextContent(part) && part.cache_control?.ttl === "1h",
-					),
+					m.tool_result_cache_control?.ttl === "1h" ||
+					(Array.isArray(m.content) &&
+						m.content.some(
+							(part) => isTextContent(part) && part.cache_control?.ttl === "1h",
+						)),
 			);
 			const autoCacheControlEnabled =
 				providerCacheControlEnabled && !callerUses1hTtlInMessages;

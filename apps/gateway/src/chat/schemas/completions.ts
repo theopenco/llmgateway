@@ -169,6 +169,16 @@ export const completionsRequestSchema = z.object({
 					description:
 						"Anthropic content blocks with no OpenAI-format equivalent. On an assistant message these are the server-side tool search blocks (`server_tool_use` + `tool_search_tool_result`), replayed ahead of the message's tool calls; on a tool message they are the `tool_result` content array, which is how a client-side tool search returns `tool_reference` blocks. Replayed on the Anthropic Messages API only and stripped for every other provider.",
 				}),
+			tool_result_cache_control: z
+				.object({
+					type: z.enum(["ephemeral"]),
+					ttl: z.enum(["5m", "1h"]).optional(),
+				})
+				.optional()
+				.openapi({
+					description:
+						"Prompt-cache breakpoint for the Anthropic `tool_result` block this tool message becomes. The OpenAI tool message shape has nowhere to carry it, so it rides here. Applied on the Anthropic Messages API only and stripped for every other provider.",
+				}),
 		}),
 	),
 	temperature: z
