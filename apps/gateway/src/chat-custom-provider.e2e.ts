@@ -1,6 +1,7 @@
 import { serve } from "@hono/node-server";
 import "dotenv/config";
 import { Hono } from "hono";
+import { streamSSE } from "hono/streaming";
 import {
 	afterAll,
 	beforeAll,
@@ -14,9 +15,11 @@ import { app } from "@/app.js";
 import {
 	cleanupTestOrganization,
 	clearCache,
+	readAll,
+	waitForLogByRequestId,
 } from "@/test-utils/test-helpers.js";
 
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 
 const mockServer = new Hono();
 let server: ReturnType<typeof serve> | null = null;
@@ -24,13 +27,80 @@ let server: ReturnType<typeof serve> | null = null;
 // and its own fixture organization.
 const MOCK_PORT = 3097;
 const TEST_TOKEN = "custom-provider-token";
+const ROUTING_METRIC_MAPPING_ID = "custom-routing-openai-metric";
+
+const mockRequests: Array<{
+	authorization: string | undefined;
+	model: string | undefined;
+	stream: boolean;
+}> = [];
 
 mockServer.post("/v1/chat/completions", async (c) => {
+	const body = await c.req.json<{ model?: string; stream?: boolean }>();
+	mockRequests.push({
+		authorization: c.req.header("authorization"),
+		model: body.model,
+		stream: body.stream === true,
+	});
+
+	if (body.stream === true) {
+		return streamSSE(c, async (stream) => {
+			const responseBase = {
+				id: "chatcmpl-mock-custom",
+				object: "chat.completion.chunk",
+				created: Math.floor(Date.now() / 1000),
+				model: body.model ?? "mock-model",
+			};
+			await stream.writeSSE({
+				data: JSON.stringify({
+					...responseBase,
+					choices: [
+						{
+							index: 0,
+							delta: { role: "assistant" },
+							finish_reason: null,
+						},
+					],
+				}),
+			});
+			await stream.writeSSE({
+				data: JSON.stringify({
+					...responseBase,
+					choices: [
+						{
+							index: 0,
+							delta: { content: "Hello from custom provider!" },
+							finish_reason: null,
+						},
+					],
+				}),
+			});
+			await stream.writeSSE({
+				data: JSON.stringify({
+					...responseBase,
+					choices: [
+						{
+							index: 0,
+							delta: {},
+							finish_reason: "stop",
+						},
+					],
+					usage: {
+						prompt_tokens: 10,
+						completion_tokens: 5,
+						total_tokens: 15,
+					},
+				}),
+			});
+			await stream.writeSSE({ data: "[DONE]" });
+		});
+	}
+
 	return c.json({
 		id: "chatcmpl-mock-custom",
 		object: "chat.completion",
 		created: Math.floor(Date.now() / 1000),
-		model: "mock-model",
+		model: body.model ?? "mock-model",
 		choices: [
 			{
 				index: 0,
@@ -77,13 +147,24 @@ mockServer.post("/ssrf-internal/v1/chat/completions", async (c) => {
 });
 
 async function cleanupDb() {
+	await db
+		.delete(tables.modelProviderMappingHistory)
+		.where(
+			eq(
+				tables.modelProviderMappingHistory.modelProviderMappingId,
+				ROUTING_METRIC_MAPPING_ID,
+			),
+		);
 	await cleanupTestOrganization("custom-org", ["custom-user"]);
 }
 
 async function setupTestData(opts: {
 	mode: "api-keys" | "credits" | "hybrid";
+	plan?: "pro" | "enterprise";
 	credits?: string;
 	includeProviderKey?: boolean;
+	includeCatalogProviderKey?: boolean;
+	customModelsOnly?: boolean;
 }) {
 	await db.insert(tables.user).values({
 		id: "custom-user",
@@ -95,7 +176,7 @@ async function setupTestData(opts: {
 		id: "custom-org",
 		name: "Test Organization",
 		billingEmail: "custom-provider@test.com",
-		plan: "pro",
+		plan: opts.plan ?? "pro",
 		retentionLevel: "retain",
 		credits: opts.credits ?? "100.00",
 	});
@@ -129,6 +210,17 @@ async function setupTestData(opts: {
 			name: "my-custom",
 			organizationId: "custom-org",
 			baseUrl: `http://localhost:${MOCK_PORT}`,
+			customModelsOnly: opts.customModelsOnly ?? false,
+		});
+	}
+
+	if (opts.includeCatalogProviderKey) {
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-openai",
+			token: "sk-openai-test-key",
+			provider: "openai",
+			organizationId: "custom-org",
+			baseUrl: `http://localhost:${MOCK_PORT}`,
 		});
 	}
 }
@@ -150,6 +242,7 @@ describe("Custom Provider E2E", () => {
 	beforeEach(async () => {
 		await clearCache();
 		await cleanupDb();
+		mockRequests.length = 0;
 	});
 
 	describe("Error cases - bare 'custom' model without provider name", () => {
@@ -199,6 +292,146 @@ describe("Custom Provider E2E", () => {
 	});
 
 	describe("Success cases - custom provider with provider name", () => {
+		test("streams weighted routes through custom and catalog mappings", async () => {
+			await setupTestData({
+				mode: "api-keys",
+				plan: "enterprise",
+				includeProviderKey: true,
+				includeCatalogProviderKey: true,
+				customModelsOnly: true,
+			});
+			await db.insert(tables.customModel).values({
+				id: "custom-routing-model",
+				providerKeyId: "provider-key-custom",
+				organizationId: "custom-org",
+				modelName: "gpt-4o-mini",
+				inputPrice: "0.01e-6",
+				outputPrice: "0.01e-6",
+				streaming: "true",
+			});
+			await db.insert(tables.routingConfig).values({
+				id: "custom-routing-config",
+				projectId: "custom-project",
+				enabled: true,
+				weights: {
+					price: 1,
+					imagePrice: 0,
+					uptime: 0,
+					throughput: 0,
+					latency: 0,
+					cache: 0,
+				},
+				thresholds: { explorationRate: 0 },
+				sticky: { enabled: false },
+				providerPriorities: { custom: 1, openai: 1 },
+			});
+
+			const minuteTimestamp = new Date(Math.floor(Date.now() / 60000) * 60000);
+			await db.insert(tables.modelProviderMappingHistory).values({
+				modelId: "gpt-4o-mini",
+				providerId: "openai",
+				modelProviderMappingId: ROUTING_METRIC_MAPPING_ID,
+				minuteTimestamp,
+				logsCount: 100,
+				errorsCount: 0,
+				clientErrorsCount: 0,
+				gatewayErrorsCount: 0,
+				upstreamErrorsCount: 0,
+				totalOutputTokens: 100,
+				totalDuration: 1000,
+				totalTimeToFirstToken: 10_000,
+				timeToFirstTokenCount: 100,
+				totalTimeToFirstReasoningToken: 0,
+				timeToFirstReasoningTokenCount: 0,
+			});
+
+			const customRequestId = "custom-routing-stream";
+			const customResponse = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-request-id": customRequestId,
+					Authorization: `Bearer ${TEST_TOKEN}`,
+				},
+				body: JSON.stringify({
+					model: "gpt-4o-mini",
+					messages: [{ role: "user", content: "Prefer the lower price" }],
+					stream: true,
+				}),
+			});
+
+			expect(customResponse.status).toBe(200);
+			expect(customResponse.headers.get("content-type")).toContain(
+				"text/event-stream",
+			);
+			const customStream = await readAll(customResponse.body);
+			expect(customStream.hasValidSSE).toBe(true);
+			expect(customStream.hasContent).toBe(true);
+			expect(customStream.hasError).toBe(false);
+			const customLog = await waitForLogByRequestId(customRequestId);
+			expect(customLog.usedProvider).toBe("custom");
+			expect(customLog.routingMetadata?.selectionReason).toBe("weighted-score");
+
+			await db
+				.update(tables.routingConfig)
+				.set({
+					weights: {
+						price: 0,
+						imagePrice: 0,
+						uptime: 0,
+						throughput: 1,
+						latency: 0,
+						cache: 0,
+					},
+				})
+				.where(eq(tables.routingConfig.projectId, "custom-project"));
+			await clearCache();
+
+			const catalogRequestId = "catalog-routing-stream";
+			const catalogResponse = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-request-id": catalogRequestId,
+					Authorization: `Bearer ${TEST_TOKEN}`,
+				},
+				body: JSON.stringify({
+					model: "gpt-4o-mini",
+					messages: [{ role: "user", content: "Prefer the higher throughput" }],
+					stream: true,
+				}),
+			});
+
+			expect(catalogResponse.status).toBe(200);
+			expect(catalogResponse.headers.get("content-type")).toContain(
+				"text/event-stream",
+			);
+			const catalogStream = await readAll(catalogResponse.body);
+			expect(catalogStream.hasValidSSE).toBe(true);
+			expect(catalogStream.hasContent).toBe(true);
+			expect(catalogStream.hasError).toBe(false);
+			const catalogLog = await waitForLogByRequestId(catalogRequestId);
+			expect(catalogLog.usedProvider).toBe("openai");
+			expect(catalogLog.routingMetadata?.selectionReason).toBe(
+				"weighted-score",
+			);
+
+			expect(mockRequests).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						authorization: "Bearer sk-test-key",
+						model: "gpt-4o-mini",
+						stream: true,
+					}),
+					expect.objectContaining({
+						authorization: "Bearer sk-openai-test-key",
+						model: "gpt-4o-mini",
+						stream: true,
+					}),
+				]),
+			);
+		});
+
 		test("should succeed in api-keys mode with custom provider", async () => {
 			await setupTestData({ mode: "api-keys", includeProviderKey: true });
 
