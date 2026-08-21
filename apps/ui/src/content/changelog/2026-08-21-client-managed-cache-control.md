@@ -42,7 +42,7 @@ curl -X PATCH https://internal.llmgateway.io/v1/master/projects/proj_... \
 
 Existing projects keep their current behaviour: the setting migrates to **Automatic** if cache writes were on, and to **Disabled** if they were off. Nothing moves to Client-managed on its own.
 
-The mode covers every provider with explicit cache markers — `cache_control` on Anthropic, Vertex Anthropic and Alibaba, `cachePoint` on AWS Bedrock, and `prompt_cache_breakpoint` on OpenAI models with explicit prompt caching. On those OpenAI models, Client-managed also pins `prompt_cache_options` to explicit mode, so implicit caching cannot write a cache the request never asked for.
+The mode covers every upstream that takes an explicit cache marker, whichever field it uses for one — the gateway translates your `cache_control` into the marker the resolved provider expects. Where explicit caching is a request-level mode instead of a per-block marker, Client-managed pins it to explicit, so implicit caching cannot write a cache the request never asked for. Providers that cache automatically with no marker are unaffected; the [models page](https://llmgateway.io/models) shows which models support prompt caching.
 
 ---
 

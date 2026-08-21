@@ -1743,6 +1743,21 @@ describe("prepareRequestBody - OpenAI explicit prompt caching (GPT-5.6)", () => 
 
 		expect(requestBody.prompt_cache_options).toEqual({ mode: "explicit" });
 	});
+
+	test("passthrough forwards an explicitly requested implicit mode", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.6-sol",
+			promptCacheOptions: { mode: "implicit" },
+			messages: explicitCacheMessages,
+			providerCacheControlMode: "passthrough",
+		})) as any;
+
+		// Passthrough means the caller decides. Only an absent
+		// prompt_cache_options is pinned to explicit, because that is the case
+		// where nobody asked for implicit auto-writes; asking for them outright
+		// is a caching strategy we forward rather than override.
+		expect(requestBody.prompt_cache_options).toEqual({ mode: "implicit" });
+	});
 });
 
 describe("prepareRequestBody - OpenAI service tiers", () => {

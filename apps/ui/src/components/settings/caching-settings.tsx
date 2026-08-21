@@ -191,8 +191,7 @@ export function CachingSettings({
 					<div>
 						<h4 className="text-base font-medium">Provider Cache Writes</h4>
 						<p className="text-muted-foreground text-sm">
-							Applies to Anthropic, AWS Bedrock (Claude), Alibaba, and OpenAI
-							models with explicit prompt caching
+							Applies to providers that support explicit prompt-cache markers
 						</p>
 					</div>
 

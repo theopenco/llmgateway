@@ -1,3 +1,5 @@
+import type { ProviderCacheControlMode } from "@llmgateway/models";
+
 export interface CachingSettingsData {
 	preferences: {
 		organizationId: string;
@@ -5,7 +7,7 @@ export interface CachingSettingsData {
 		preferences: {
 			cachingEnabled: boolean;
 			cacheDurationSeconds: number;
-			providerCacheControlMode: "auto" | "passthrough" | "off";
+			providerCacheControlMode: ProviderCacheControlMode;
 		};
 	};
 }

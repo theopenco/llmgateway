@@ -44,9 +44,9 @@ For **Anthropic** and **AWS Bedrock Claude**, prompt caching is strictly opt-in 
 
 **Disabled** turns provider caching off for the project entirely, including markers your client sends.
 
-The mode applies wherever a provider supports explicit cache markers: `cache_control` on Anthropic, Vertex Anthropic and Alibaba, `cachePoint` on AWS Bedrock, and `prompt_cache_breakpoint` on OpenAI models with explicit prompt caching. On those OpenAI models, Client-managed and Disabled also send `prompt_cache_options: {"mode": "explicit"}` so implicit caching does not write a cache the request never asked for. Providers that cache automatically with no marker at all are unaffected.
+The mode applies to every upstream that takes an explicit cache marker, whichever field it uses for one — the gateway translates your `cache_control` into the marker the resolved provider expects. Providers that cache automatically with no marker at all are unaffected, since there is nothing to forward or strip. On models whose explicit caching is a request-level mode rather than a per-block marker, Client-managed and Disabled also send `prompt_cache_options: {"mode": "explicit"}`, so implicit caching does not write a cache the request never asked for. The [models page](https://llmgateway.io/models) shows which models support prompt caching.
 
-On Anthropic and Vertex Anthropic, markers are forwarded on `system` blocks, message text blocks, tool definitions, and `tool_result` blocks. A `cache_control` on an image or other non-text content block is not forwarded — put the breakpoint on an adjacent text block instead.
+Where the upstream takes per-block markers, they are forwarded on `system` blocks, message text blocks, tool definitions, and `tool_result` blocks. A `cache_control` on an image or other non-text content block is not forwarded — put the breakpoint on an adjacent text block instead.
 
 Changes take up to 5 minutes to take effect due to the project-settings cache.
 

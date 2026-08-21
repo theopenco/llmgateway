@@ -13,6 +13,8 @@ import {
 } from "@/components/ui/select";
 import { useApi } from "@/lib/fetch-client";
 
+import type { ProviderCacheControlMode } from "@llmgateway/models";
+
 type RoutingStrategy = "auto" | "price" | "throughput" | "latency";
 
 // Coding plans optimize for prompt caching, so only "auto" and "price" are
@@ -34,8 +36,6 @@ const SERVICE_TIER_OPTIONS: Array<{ value: ServiceTier; label: string }> = [
 	{ value: "default", label: "Standard (recommended)" },
 	{ value: "flex", label: "Flex" },
 ];
-
-type ProviderCacheControlMode = "auto" | "passthrough" | "off";
 
 const PROVIDER_CACHE_OPTIONS: Array<{
 	value: ProviderCacheControlMode;
