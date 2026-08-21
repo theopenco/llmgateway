@@ -416,20 +416,18 @@ describe("Custom Provider", () => {
 				"weighted-score",
 			);
 
-			expect(mockRequests).toEqual(
-				expect.arrayContaining([
-					expect.objectContaining({
-						authorization: "Bearer sk-test-key",
-						model: "gpt-4o-mini",
-						stream: true,
-					}),
-					expect.objectContaining({
-						authorization: "Bearer sk-openai-test-key",
-						model: "gpt-4o-mini",
-						stream: true,
-					}),
-				]),
-			);
+			expect(mockRequests).toEqual([
+				{
+					authorization: "Bearer sk-test-key",
+					model: "gpt-4o-mini",
+					stream: true,
+				},
+				{
+					authorization: "Bearer sk-openai-test-key",
+					model: "gpt-4o-mini",
+					stream: true,
+				},
+			]);
 		});
 
 		test("should succeed in api-keys mode with custom provider", async () => {
