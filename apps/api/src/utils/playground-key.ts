@@ -40,7 +40,7 @@ export async function getOrCreatePlaygroundApiKey(
 				createdBy: { eq: userId },
 				status: { eq: "active" },
 				keyType: { eq: "user" },
-				description: { eq: PLAYGROUND_KEY_DESCRIPTION },
+				kind: { eq: "playground" },
 				OR: [
 					{ token: { eq: existingToken } },
 					{ tokenHash: { in: getApiKeyFingerprints(existingToken) } },
@@ -82,6 +82,7 @@ export async function getOrCreatePlaygroundApiKey(
 		...hashApiKeyForStorage(token),
 		projectId,
 		description: PLAYGROUND_KEY_DESCRIPTION,
+		kind: "playground",
 		expiresAt: new Date(Date.now() + PLAYGROUND_KEY_TTL_MS),
 		usageLimit: null,
 		createdBy: userId,

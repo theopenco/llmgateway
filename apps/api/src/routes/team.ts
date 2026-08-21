@@ -13,7 +13,6 @@ import {
 import { revokeMemberApiKeys } from "@/lib/revoke-member-api-keys.js";
 import { resolveSeatLimit } from "@/lib/seat-limit.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
-import { PLAYGROUND_KEY_DESCRIPTION } from "@/utils/playground-key.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -269,7 +268,7 @@ async function computeMemberSpend(
 					usage: true,
 					status: true,
 					keyType: true,
-					description: true,
+					kind: true,
 				},
 			})
 		: [];
@@ -289,7 +288,7 @@ async function computeMemberSpend(
 		if (
 			key.status === "active" &&
 			key.keyType === "user" &&
-			key.description !== PLAYGROUND_KEY_DESCRIPTION
+			key.kind !== "playground"
 		) {
 			entry.activeApiKeys += 1;
 		}

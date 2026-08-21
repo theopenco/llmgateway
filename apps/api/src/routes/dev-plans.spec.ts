@@ -219,7 +219,8 @@ describe("dev plan tier changes", () => {
 				id: "test-playground-session-key",
 				token: "test-playground-session-token",
 				projectId: "test-dev-plan-project",
-				description: "Auto-generated playground key",
+				description: "Session key",
+				kind: "playground",
 				createdBy: "test-user-id",
 			},
 		]);
@@ -248,7 +249,8 @@ describe("dev plan tier changes", () => {
 				id: "test-playground-session-key",
 				token: "test-playground-session-token",
 				projectId: "test-dev-plan-project",
-				description: "Auto-generated playground key",
+				description: "Session key",
+				kind: "playground",
 				createdBy: "test-user-id",
 			},
 			{

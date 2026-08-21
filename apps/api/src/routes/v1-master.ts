@@ -40,7 +40,6 @@ import {
 	isPlaygroundApiKey,
 	mergeApiKeyLimitConfig,
 	parseApiKeyPeriodConfig,
-	PLAYGROUND_API_KEY_DESCRIPTION,
 	type PartialApiKeyLimitConfig,
 } from "@/routes/keys-api.js";
 import {
@@ -176,6 +175,7 @@ interface SerializableApiKey {
 	createdAt: Date;
 	updatedAt: Date;
 	description: string;
+	kind: "regular" | "playground";
 	status: "active" | "inactive" | "deleted" | null;
 	projectId: string;
 	createdBy: string;
@@ -209,6 +209,7 @@ function serializeApiKeyForMaster(apiKey: SerializableApiKey) {
 		createdAt: apiKey.createdAt,
 		updatedAt: apiKey.updatedAt,
 		description: apiKey.description,
+		kind: apiKey.kind,
 		status: apiKey.status,
 		projectId: apiKey.projectId,
 		projectName: apiKey.project.name,
@@ -607,6 +608,7 @@ const apiKeyDetailSchema = z.object({
 	createdAt: z.date(),
 	updatedAt: z.date(),
 	description: z.string(),
+	kind: z.enum(["regular", "playground"]),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	projectId: z.string(),
 	projectName: z.string(),
@@ -676,15 +678,6 @@ v1Master.openapi(updateApiKey, async (c) => {
 	const updates = c.req.valid("json");
 
 	const existing = await loadApiKeyForOrg(id, masterKey.organizationId);
-
-	if (
-		updates.description === PLAYGROUND_API_KEY_DESCRIPTION &&
-		!isPlaygroundApiKey(existing)
-	) {
-		throw new HTTPException(403, {
-			message: "This name is reserved for the playground API key.",
-		});
-	}
 
 	if (isPlaygroundApiKey(existing)) {
 		if (
@@ -865,7 +858,7 @@ v1Master.openapi(listApiKeys, async (c) => {
 			projectId: { in: projectId ? [projectId] : projectIds },
 			// Only developer-created keys; hide platform and LLM SDK aggregate keys.
 			keyType: { eq: "user" },
-			description: { ne: PLAYGROUND_API_KEY_DESCRIPTION },
+			kind: { ne: "playground" },
 			status: { ne: "deleted" },
 		},
 		orderBy: { createdAt: "desc" },

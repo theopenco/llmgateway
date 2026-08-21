@@ -81,8 +81,6 @@ interface ApiKeysListProps {
 type StatusFilter = "all" | "active" | "inactive";
 type CreatorFilter = "mine" | "all";
 
-const PLAYGROUND_KEY_DESCRIPTION = "Auto-generated playground key";
-
 function PlaygroundKeyNote() {
 	return (
 		<>
@@ -639,8 +637,7 @@ export function ApiKeysList({
 					</TableHeader>
 					<TableBody>
 						{filteredKeys.map((key) => {
-							const isPlaygroundKey =
-								key.description === PLAYGROUND_KEY_DESCRIPTION;
+							const isPlaygroundKey = key.kind === "playground";
 							return (
 								<TableRow
 									key={key.id}
@@ -857,8 +854,7 @@ export function ApiKeysList({
 			{/* Mobile Cards */}
 			<div className="md:hidden space-y-3">
 				{filteredKeys.map((key) => {
-					const isPlaygroundKey =
-						key.description === PLAYGROUND_KEY_DESCRIPTION;
+					const isPlaygroundKey = key.kind === "playground";
 					return (
 						<div key={key.id} className="border rounded-lg p-3 space-y-3">
 							<div className="flex items-start justify-between">

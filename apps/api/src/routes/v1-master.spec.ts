@@ -143,7 +143,8 @@ describe("v1/master cache invalidation", () => {
 			id: "playground-session-key",
 			token: "playground-session-token",
 			projectId: "test-project-id",
-			description: "Auto-generated playground key",
+			description: "Session key",
+			kind: "playground",
 			createdBy: "test-user-id",
 		});
 
@@ -156,7 +157,7 @@ describe("v1/master cache invalidation", () => {
 		expect(body.apiKeys[0]?.id).toBe("test-api-key-id");
 	});
 
-	test("PATCH /keys rejects the reserved playground description", async () => {
+	test("PATCH /keys allows the playground description on a regular key", async () => {
 		const res = await app.request("/v1/master/keys/test-api-key-id", {
 			method: "PATCH",
 			headers: authHeaders({ "Content-Type": "application/json" }),
@@ -165,11 +166,12 @@ describe("v1/master cache invalidation", () => {
 			}),
 		});
 
-		expect(res.status).toBe(403);
+		expect(res.status).toBe(200);
 		const key = await db.query.apiKey.findFirst({
 			where: { id: { eq: "test-api-key-id" } },
 		});
-		expect(key?.description).toBe("Test API Key");
+		expect(key?.description).toBe("Auto-generated playground key");
+		expect(key?.kind).toBe("regular");
 	});
 
 	test("GET /keys maps each creator to their email", async () => {

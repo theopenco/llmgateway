@@ -88,6 +88,7 @@ function makeSessionApiKey(models?: string[]): GatewayApiKey {
 		description: "Embedded end-user: customer-1",
 		status: "active",
 		keyType: "end_user_customer",
+		kind: "regular",
 		endCustomerWalletId: "wallet-1",
 		expiresAt: new Date("2026-03-29T00:15:00.000Z"),
 		usageLimit: null,

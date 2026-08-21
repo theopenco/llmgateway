@@ -101,7 +101,7 @@ describe("resolvePlaygroundToken", () => {
 		const keys = await db.query.apiKey.findMany({
 			where: {
 				projectId: { eq: project.id },
-				description: { eq: "Auto-generated playground key" },
+				kind: { eq: "playground" },
 				status: { eq: "active" },
 			},
 		});
@@ -169,7 +169,8 @@ describe("resolvePlaygroundToken", () => {
 		await db.insert(tables.apiKey).values({
 			token: "other-playground-token",
 			projectId: project.id,
-			description: "Auto-generated playground key",
+			description: "Session key",
+			kind: "playground",
 			createdBy: "other-playground-user",
 		});
 

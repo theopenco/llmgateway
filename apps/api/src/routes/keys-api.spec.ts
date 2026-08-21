@@ -108,7 +108,7 @@ describe("keys route", () => {
 		expect(res.status).toBe(401);
 	});
 
-	test("POST /keys/api reserves the playground key name", async () => {
+	test("POST /keys/api treats the playground description as a regular key", async () => {
 		const res = await app.request("/keys/api", {
 			method: "POST",
 			headers: {
@@ -121,10 +121,8 @@ describe("keys route", () => {
 			}),
 		});
 
-		expect(res.status).toBe(403);
-		expect(await res.json()).toMatchObject({
-			message: "This name is reserved for the playground API key.",
-		});
+		expect(res.status).toBe(200);
+		expect((await res.json()).apiKey.kind).toBe("regular");
 	});
 
 	test("DELETE /keys/api/test-api-key-id unauthorized", async () => {
@@ -152,7 +150,8 @@ describe("keys route", () => {
 			id: "playground-session-key",
 			token: "playground-session-token",
 			projectId: "test-project-id",
-			description: "Auto-generated playground key",
+			description: "Session key",
+			kind: "playground",
 			createdBy: "test-user-id",
 		});
 
@@ -202,7 +201,7 @@ describe("keys route", () => {
 		);
 	});
 
-	test("POST /keys/platform rejects the playground key description", async () => {
+	test("POST /keys/platform allows the playground key description", async () => {
 		const res = await app.request("/keys/platform", {
 			method: "POST",
 			headers: {
@@ -215,7 +214,10 @@ describe("keys route", () => {
 			}),
 		});
 
-		expect(res.status).toBe(403);
+		expect(res.status).toBe(200);
+		expect((await res.json()).platformKey.description).toBe(
+			"Auto-generated playground key",
+		);
 	});
 
 	test("POST /keys/platform rejects projects without Payments SDK preview", async () => {

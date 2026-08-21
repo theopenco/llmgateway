@@ -12,6 +12,7 @@ const baseApiKey = {
 	description: "Test key",
 	status: "active" as const,
 	keyType: "user" as const,
+	kind: "regular" as const,
 	endCustomerWalletId: null,
 	expiresAt: null,
 	usageLimit: null,

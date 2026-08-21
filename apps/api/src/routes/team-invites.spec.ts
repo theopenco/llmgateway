@@ -174,7 +174,8 @@ describe("team invites", () => {
 				id: "playground-session-key",
 				token: "playground-session-token",
 				projectId: "invite-test-project",
-				description: "Auto-generated playground key",
+				description: "Session key",
+				kind: "playground",
 				createdBy: "test-user-id",
 			},
 		]);

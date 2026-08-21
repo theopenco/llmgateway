@@ -12,7 +12,6 @@ import {
 } from "@/lib/iam-rules.js";
 import { platformKeyMode } from "@/lib/platform-secret-auth.js";
 import { getUserProjectIds } from "@/utils/authorization.js";
-import { PLAYGROUND_KEY_DESCRIPTION } from "@/utils/playground-key.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -38,12 +37,10 @@ import type { ServerTypes } from "@/vars.js";
 
 export const keysApi = new OpenAPIHono<ServerTypes>();
 
-export const PLAYGROUND_API_KEY_DESCRIPTION = PLAYGROUND_KEY_DESCRIPTION;
-
 export function isPlaygroundApiKey(apiKey: {
-	description: string | null;
+	kind: "regular" | "playground";
 }): boolean {
-	return apiKey.description === PLAYGROUND_API_KEY_DESCRIPTION;
+	return apiKey.kind === "playground";
 }
 
 type ApiKeyRecord = InferSelectModel<typeof tables.apiKey>;
@@ -312,6 +309,7 @@ const apiKeySchema = z.object({
 	updatedAt: z.date(),
 	token: z.string(),
 	description: z.string(),
+	kind: z.enum(["regular", "playground"]),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	usageLimit: z.string().nullable(),
 	usage: z.string(),
@@ -607,11 +605,6 @@ keysApi.openapi(createPlatformKey, async (c) => {
 	}
 
 	const { projectId, description, test } = c.req.valid("json");
-	if (description === PLAYGROUND_API_KEY_DESCRIPTION) {
-		throw new HTTPException(403, {
-			message: "This name is reserved for the playground API key.",
-		});
-	}
 	const project = await assertPlatformKeyAdminAccess(user.id, projectId, {
 		requirePaymentsSdkPreview: true,
 	});
@@ -984,12 +977,6 @@ export async function createApiKeyForProject(
 			? null
 			: new Date(input.expiresAt);
 
-	if (description === PLAYGROUND_API_KEY_DESCRIPTION) {
-		throw new HTTPException(403, {
-			message: "This name is reserved for the playground API key.",
-		});
-	}
-
 	if (expiresAt && expiresAt.getTime() <= Date.now()) {
 		throw new HTTPException(400, {
 			message: "Expiration date must be in the future.",
@@ -1036,7 +1023,7 @@ export async function createApiKeyForProject(
 			projectId: { in: orgProjectIds },
 			status: { eq: "active" },
 			keyType: { eq: "user" },
-			description: { ne: PLAYGROUND_API_KEY_DESCRIPTION },
+			kind: { ne: "playground" },
 		},
 		columns: { id: true },
 	});
@@ -1098,7 +1085,7 @@ export async function createApiKeyForProject(
 				createdBy: { eq: userId },
 				status: { eq: "active" },
 				keyType: { eq: "user" },
-				description: { ne: PLAYGROUND_API_KEY_DESCRIPTION },
+				kind: { ne: "playground" },
 				projectId: { in: orgProjectIds },
 			},
 			columns: { id: true },
@@ -1296,7 +1283,7 @@ keysApi.openapi(list, async (c) => {
 			// Hide platform and LLM SDK aggregate keys from the dashboard —
 			// only show developer-created keys.
 			keyType: { eq: "user" },
-			description: { ne: PLAYGROUND_API_KEY_DESCRIPTION },
+			kind: { ne: "playground" },
 			...(shouldFilterByCreator && {
 				createdBy: {
 					eq: user.id,
@@ -1347,7 +1334,7 @@ keysApi.openapi(list, async (c) => {
 					projectId: { in: orgProjects.map((p) => p.id) },
 					status: { eq: "active" },
 					keyType: { eq: "user" },
-					description: { ne: PLAYGROUND_API_KEY_DESCRIPTION },
+					kind: { ne: "playground" },
 				},
 				columns: { id: true },
 			});
@@ -1664,19 +1651,9 @@ keysApi.openapi(updateStatus, async (c) => {
 		});
 	}
 
-	// Renaming the auto-generated playground key would break the UI's lookup
-	// of it by its fixed description.
 	if (isPlaygroundApiKey(apiKey) && descriptionInput !== undefined) {
 		throw new HTTPException(403, {
 			message: "Cannot rename the playground API key.",
-		});
-	}
-
-	// A regular key must not take on the reserved playground description,
-	// or it would collide with the playground key's fixed-description lookup.
-	if (descriptionInput === PLAYGROUND_API_KEY_DESCRIPTION) {
-		throw new HTTPException(403, {
-			message: "This name is reserved for the playground API key.",
 		});
 	}
 
