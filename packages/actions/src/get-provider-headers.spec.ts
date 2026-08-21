@@ -13,6 +13,16 @@ afterEach(() => {
 });
 
 describe("getProviderHeaders", () => {
+	it("disables response compression for RanoAI", () => {
+		expect(
+			getProviderHeaders("ranoai", "token", { requestId: "request-id" }),
+		).toEqual({
+			"x-request-id": "request-id",
+			Authorization: "Bearer token",
+			"Accept-Encoding": "identity",
+		});
+	});
+
 	describe("google-vertex", () => {
 		it("returns no auth header by default (api-key mode)", () => {
 			expect(
