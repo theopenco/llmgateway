@@ -474,12 +474,20 @@ describe("transformResponseToOpenai", () => {
 				choices: [
 					{
 						index: 0,
-						message: { role: "assistant", content: "variant 1" },
+						message: {
+							role: "assistant",
+							content: "variant 1",
+							reasoning_content: "reasoning 1",
+						},
 						finish_reason: "stop",
 					},
 					{
 						index: 1,
-						message: { role: "assistant", content: "variant 2" },
+						message: {
+							role: "assistant",
+							content: "variant 2",
+							reasoning_content: "reasoning 2",
+						},
 						finish_reason: "stop",
 					},
 				],
@@ -491,7 +499,7 @@ describe("transformResponseToOpenai", () => {
 				"model-x",
 				json,
 				"variant 1variant 2",
-				null,
+				"reasoning 1reasoning 2",
 				"stop",
 				10,
 				20,
@@ -512,6 +520,8 @@ describe("transformResponseToOpenai", () => {
 
 			expect(response.choices[0].message.content).toBe("variant 1");
 			expect(response.choices[1].message.content).toBe("variant 2");
+			expect(response.choices[0].message.reasoning_content).toBe("reasoning 1");
+			expect(response.choices[1].message.reasoning_content).toBe("reasoning 2");
 		},
 	);
 
