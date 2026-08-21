@@ -30,6 +30,7 @@ export async function getOrCreatePlaygroundApiKey(
 	projectId: string,
 	userId: string,
 	existingToken?: string,
+	renewExpiration = false,
 ): Promise<PlaygroundApiKeyResult> {
 	if (existingToken) {
 		const matchingKey = await db.query.apiKey.findFirst({
@@ -51,14 +52,15 @@ export async function getOrCreatePlaygroundApiKey(
 			(!matchingKey.expiresAt || matchingKey.expiresAt.getTime() > Date.now())
 		) {
 			const isLegacyKey = matchingKey.token !== null;
-			if (isLegacyKey) {
+			if (isLegacyKey || renewExpiration) {
 				await cdb
 					.update(tables.apiKey)
 					.set({
-						...hashApiKeyForStorage(existingToken),
+						...(isLegacyKey ? hashApiKeyForStorage(existingToken) : {}),
 						expiresAt:
-							matchingKey.expiresAt ??
-							new Date(Date.now() + PLAYGROUND_KEY_TTL_MS),
+							renewExpiration || !matchingKey.expiresAt
+								? new Date(Date.now() + PLAYGROUND_KEY_TTL_MS)
+								: matchingKey.expiresAt,
 					})
 					.where(eq(tables.apiKey.id, matchingKey.id));
 			}
@@ -66,7 +68,7 @@ export async function getOrCreatePlaygroundApiKey(
 			return {
 				token: existingToken,
 				issued: false,
-				cookieNeedsRefresh: isLegacyKey,
+				cookieNeedsRefresh: isLegacyKey || renewExpiration,
 			};
 		}
 	}

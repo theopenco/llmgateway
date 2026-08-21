@@ -17,6 +17,7 @@ import { getApiKeyFingerprints } from "@llmgateway/shared/api-key-hash";
 import type { ServerTypes } from "@/vars.js";
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+const ONE_HOUR_MS = 60 * 60 * 1000;
 
 describe("getGatewayUrl", () => {
 	const previousGatewayUrl = process.env.GATEWAY_URL;
@@ -308,6 +309,62 @@ describe("resolvePlaygroundToken", () => {
 				inArray(tables.apiKey.projectId, [projectA.id, projectB.id]),
 			),
 		).toBe(2);
+	});
+
+	test("renews the key expiry when refreshing its cookies", async () => {
+		const membership = await db.query.userOrganization.findFirst({
+			where: { userId: { eq: "test-user-id" } },
+		});
+		if (!membership) {
+			throw new Error("Default organization membership was not created");
+		}
+		const [project] = await db
+			.insert(tables.project)
+			.values({
+				name: "Playground expiry project",
+				organizationId: membership.organizationId,
+			})
+			.returning();
+		if (!project) {
+			throw new Error("Playground project was not created");
+		}
+
+		const firstResponse = await app.request("/playground/ensure-key", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: authCookie,
+			},
+			body: JSON.stringify({ projectId: project.id }),
+		});
+		const firstBody = await firstResponse.json();
+		const [tokenHash] = getApiKeyFingerprints(firstBody.token);
+		await db
+			.update(tables.apiKey)
+			.set({ expiresAt: new Date(Date.now() + ONE_HOUR_MS) })
+			.where(eq(tables.apiKey.tokenHash, tokenHash));
+
+		const refreshedResponse = await app.request("/playground/ensure-key", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: `${authCookie}; ${getPlaygroundKeyCookieName(project.id)}=${firstBody.token}`,
+			},
+			body: JSON.stringify({ projectId: project.id }),
+		});
+		const refreshedBody = await refreshedResponse.json();
+		const refreshedKey = await db.query.apiKey.findFirst({
+			where: { tokenHash: { eq: tokenHash } },
+		});
+
+		expect(refreshedResponse.status).toBe(200);
+		expect(refreshedBody.token).toBe(firstBody.token);
+		expect(refreshedResponse.headers.get("set-cookie")).toContain(
+			"Max-Age=2592000",
+		);
+		expect(refreshedKey?.expiresAt?.getTime()).toBeGreaterThan(
+			Date.now() + (THIRTY_DAYS_MS - 60_000),
+		);
 	});
 
 	test("expires sessions without consuming developer-key quota", async () => {

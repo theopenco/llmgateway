@@ -78,6 +78,7 @@ playground.openapi(ensureKey, async (c) => {
 		user.id,
 		getCookie(c, getPlaygroundKeyCookieName(projectId)) ??
 			getCookie(c, PLAYGROUND_KEY_COOKIE_NAME),
+		true,
 	);
 
 	// Set httpOnly cookie for playground API key (API domain)
