@@ -194,6 +194,11 @@ Running the built `dist/serve.js` gives no watch (rebuild + restart after code c
 
 #### E2E Test Structure
 
+Reserve `*.e2e.ts` for tests that make real upstream provider requests. Tests
+that use a local or mocked upstream belong in `*.spec.ts` and run with
+`pnpm test:unit`, even when they exercise the full gateway request path,
+routing, persistence, or streaming.
+
 `pnpm test:e2e` discovers `*.e2e.ts` files sequentially with
 `--no-file-parallelism`. Parameterized chat-completion coverage lives in the
 `apps/gateway/src/chat-*.e2e.ts` files; those suites use

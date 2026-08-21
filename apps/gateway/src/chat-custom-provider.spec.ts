@@ -225,7 +225,7 @@ async function setupTestData(opts: {
 	}
 }
 
-describe("Custom Provider E2E", () => {
+describe("Custom Provider", () => {
 	beforeAll(async () => {
 		server = serve({
 			fetch: mockServer.fetch,
