@@ -42,7 +42,6 @@ import {
 } from "@/lib/coding-models.js";
 import {
 	complianceBlockMessage,
-	filterCompliantProviders,
 	getActiveCompliancePolicy,
 	isModelIdCompliant,
 	isProviderIdCompliant,
@@ -443,6 +442,37 @@ function isCustomAutoRoutingMapping(
 		"customProviderKeyId" in mapping &&
 		"customProviderName" in mapping
 	);
+}
+
+async function keepCheapestCustomRoutingMapping(
+	providers: ProviderModelMapping[],
+	modelId: string,
+	organizationId: string,
+	providerDiscountResolver: ReturnType<typeof createProviderDiscountResolver>,
+): Promise<ProviderModelMapping[]> {
+	let cheapestCustomProvider: ProviderModelMapping | undefined;
+	let cheapestCustomPrice = Number.MAX_VALUE;
+	for (const provider of providers) {
+		if (!isCustomAutoRoutingMapping(provider)) {
+			continue;
+		}
+		const { price } = await getDiscountedProviderSelectionPrice(
+			provider,
+			modelId,
+			{
+				organizationId,
+				providerDiscountResolver,
+			},
+		);
+		if (price.toNumber() < cheapestCustomPrice) {
+			cheapestCustomPrice = price.toNumber();
+			cheapestCustomProvider = provider;
+		}
+	}
+	return [
+		...providers.filter((provider) => !isCustomAutoRoutingMapping(provider)),
+		...(cheapestCustomProvider ? [cheapestCustomProvider] : []),
+	];
 }
 
 function filterRegionsByAvailableKeys(
@@ -3124,24 +3154,102 @@ chat.openapi(completions, async (c) => {
 		activeModelInfo: modelInfo,
 		clientIp,
 	});
-	if (!iamValidation.allowed) {
+	const routingCustomProviderKeysById = new Map<
+		string,
+		InferSelectModel<typeof tables.providerKey>
+	>();
+	const routingCustomModelsByName = new Map<string, CustomModel[]>();
+	if (
+		requestedProvider === undefined &&
+		organization.plan === "enterprise" &&
+		project.mode !== "credits" &&
+		!isDevPlan
+	) {
+		const [providerKeys, customModels] = await Promise.all([
+			findActiveProviderKeys(project.organizationId),
+			findActiveCustomModels(project.organizationId),
+		]);
+		for (const key of providerKeys) {
+			if (key.provider === "custom" && key.name !== null) {
+				routingCustomProviderKeysById.set(key.id, key);
+			}
+		}
+		for (const customModel of customModels) {
+			const matchingModels =
+				routingCustomModelsByName.get(customModel.modelName) ?? [];
+			matchingModels.push(customModel);
+			routingCustomModelsByName.set(customModel.modelName, matchingModels);
+		}
+	}
+	const customRoutingMappings = (
+		await Promise.all(
+			(routingCustomModelsByName.get(modelInfo.id) ?? [])
+				.filter(customModelHasRoutingPrice)
+				.map(async (customModel) => {
+					const providerKey = routingCustomProviderKeysById.get(
+						customModel.providerKeyId,
+					);
+					if (!providerKey?.name) {
+						return undefined;
+					}
+					const mapping: CustomAutoRoutingMapping = {
+						...customModelToProviderMapping(customModel),
+						customProviderKeyId: providerKey.id,
+						customProviderName: providerKey.name,
+					};
+					const customIam = await validateRequestModelAccess({
+						apiKey,
+						organizationId: project.organizationId,
+						requestedModel: modelInfo.id,
+						requestedProvider: "custom",
+						customProviderName: providerKey.name,
+						activeModelInfo: { ...modelInfo, providers: [mapping] },
+						clientIp,
+						autoRouting: true,
+					});
+					return customIam.allowed ? mapping : undefined;
+				}),
+		)
+	).filter(
+		(mapping): mapping is CustomAutoRoutingMapping => mapping !== undefined,
+	);
+	if (!iamValidation.allowed && customRoutingMappings.length === 0) {
 		throwIamException(iamValidation.reason ?? "Model access denied");
+	}
+	if (customRoutingMappings.length > 0) {
+		modelInfo = {
+			...modelInfo,
+			providers: [...modelInfo.providers, ...customRoutingMappings],
+		};
+		routingExpandedModelProviders = [
+			...routingExpandedModelProviders,
+			...customRoutingMappings,
+		];
+		allModelProviders = [...allModelProviders, ...customRoutingMappings];
 	}
 	// IAM allowed providers - used to filter available providers during routing
 	const iamAllowedProviders = iamValidation.allowedProviders;
 
 	// IAM-filtered model providers for routing and retry fallback paths.
 	// Recomputed after auto-routing because that block replaces modelInfo.
-	let iamFilteredModelProviders = iamAllowedProviders
-		? modelInfo.providers.filter((p) =>
-				iamAllowedProviders.includes(p.providerId),
-			)
-		: modelInfo.providers;
-	let expandedIamFilteredModelProviders = iamAllowedProviders
-		? routingExpandedModelProviders.filter((p) =>
-				iamAllowedProviders.includes(p.providerId),
-			)
-		: routingExpandedModelProviders;
+	let iamFilteredModelProviders = iamValidation.allowed
+		? iamAllowedProviders
+			? modelInfo.providers.filter(
+					(p) =>
+						isCustomAutoRoutingMapping(p) ||
+						iamAllowedProviders.includes(p.providerId),
+				)
+			: modelInfo.providers
+		: customRoutingMappings;
+	let expandedIamFilteredModelProviders = iamValidation.allowed
+		? iamAllowedProviders
+			? routingExpandedModelProviders.filter(
+					(p) =>
+						isCustomAutoRoutingMapping(p) ||
+						iamAllowedProviders.includes(p.providerId),
+				)
+			: routingExpandedModelProviders
+		: customRoutingMappings;
 
 	// Resolved before the compliance gate: a custom provider key's self-attested
 	// posture is what the policy is evaluated against, and the auto-routing
@@ -3172,11 +3280,28 @@ chat.openapi(completions, async (c) => {
 	// none remain. Applied after every (re)computation of the IAM-filtered arrays.
 	const compliancePolicy = getActiveCompliancePolicy(organization);
 
-	const applyCompliancePolicy = <T extends { providerId: string }>(
+	const applyCompliancePolicy = <T extends ProviderModelMapping>(
 		list: T[],
 	): T[] =>
 		compliancePolicy
-			? filterCompliantProviders(list, compliancePolicy, complianceContext)
+			? list.filter((provider) => {
+					const context = isCustomAutoRoutingMapping(provider)
+						? {
+								customAttestation:
+									routingCustomProviderKeysById.get(
+										provider.customProviderKeyId,
+									)?.complianceAttestation ?? null,
+								customProviderName: provider.customProviderName,
+							}
+						: complianceContext;
+					return (
+						isProviderIdCompliant(
+							provider.providerId,
+							compliancePolicy,
+							context,
+						) && isModelIdCompliant(modelInfo.id, compliancePolicy, context)
+					);
+				})
 			: list;
 
 	const enforceCompliancePolicy = async () => {
@@ -3202,19 +3327,7 @@ chat.openapi(completions, async (c) => {
 			usedProvider !== "llmgateway" &&
 			usedProvider !== "custom" &&
 			!isProviderIdCompliant(usedProvider, compliancePolicy, complianceContext);
-		// The policy's model lists block the model outright, regardless of which
-		// provider would serve it (custom-provider requests also answer to their
-		// `<customProvider>/<model>` ref).
-		const modelBlocked = !isModelIdCompliant(
-			modelInfo.id,
-			compliancePolicy,
-			complianceContext,
-		);
-		if (
-			iamFilteredModelProviders.length === 0 ||
-			pinnedBlocked ||
-			modelBlocked
-		) {
+		if (iamFilteredModelProviders.length === 0 || pinnedBlocked) {
 			await logComplianceBlock(project.organizationId, {
 				apiKeyId: apiKey.id,
 				model: requestedModel,
@@ -3318,6 +3431,21 @@ chat.openapi(completions, async (c) => {
 	// so the request is billed at the catalog rates; undefined otherwise (those
 	// requests stay unbilled, as before).
 	let customPricingMapping: ProviderModelMapping | undefined;
+	const applySelectedCustomProvider = (provider: ProviderModelMapping) => {
+		if (!isCustomAutoRoutingMapping(provider)) {
+			return;
+		}
+		const providerKey = routingCustomProviderKeysById.get(
+			provider.customProviderKeyId,
+		);
+		customProviderName = provider.customProviderName;
+		customProviderKey = providerKey;
+		customPricingMapping = provider;
+		complianceContext = {
+			customAttestation: providerKey?.complianceAttestation ?? null,
+			customProviderName: provider.customProviderName,
+		};
+	};
 
 	// Validate the custom provider against the database if one was requested
 	if (customProviderKey) {
@@ -3789,31 +3917,13 @@ chat.openapi(completions, async (c) => {
 					return true;
 				},
 			);
-			let cheapestCustomProvider: ProviderModelMapping | undefined;
-			let cheapestCustomPrice = Number.MAX_VALUE;
-			for (const provider of suitableProviders) {
-				if (!isCustomAutoRoutingMapping(provider)) {
-					continue;
-				}
-				const { price } = await getDiscountedProviderSelectionPrice(
-					provider,
+			const deduplicatedSuitableProviders =
+				await keepCheapestCustomRoutingMapping(
+					suitableProviders,
 					modelDef.id,
-					{
-						organizationId: project.organizationId,
-						providerDiscountResolver,
-					},
+					project.organizationId,
+					providerDiscountResolver,
 				);
-				if (price.toNumber() < cheapestCustomPrice) {
-					cheapestCustomPrice = price.toNumber();
-					cheapestCustomProvider = provider;
-				}
-			}
-			const deduplicatedSuitableProviders = [
-				...suitableProviders.filter(
-					(provider) => !isCustomAutoRoutingMapping(provider),
-				),
-				...(cheapestCustomProvider ? [cheapestCustomProvider] : []),
-			];
 			const preferredSuitableProviders = preferProvidersWithKeys(
 				project.mode,
 				deduplicatedSuitableProviders,
@@ -4752,6 +4862,7 @@ chat.openapi(completions, async (c) => {
 			usedInternalModel = modelInfo.id;
 			usedExternalId = iamFilteredModelProviders[0].externalId;
 			usedRegion = iamFilteredModelProviders[0].region;
+			applySelectedCustomProvider(iamFilteredModelProviders[0]);
 			// This shortcut bypasses provider selection (and with it the sticky
 			// pinning inside getCheapestFromAvailableProviders), but the session is
 			// now genuinely served by this provider — e.g. a service_tier request
@@ -4807,10 +4918,16 @@ chat.openapi(completions, async (c) => {
 				reasoningEffort: reasoning_effort,
 			};
 			const filteredOutProvidersDirect: FilteredProvider[] = [];
-			const availableModelProviders = filterEligibleModelProviders(
+			const eligibleModelProviders = filterEligibleModelProviders(
 				preparedModelProviders,
 				{ ...eligibilityOptions, n, stream },
 				filteredOutProvidersDirect,
+			);
+			const availableModelProviders = await keepCheapestCustomRoutingMapping(
+				eligibleModelProviders,
+				modelInfo.id,
+				project.organizationId,
+				providerDiscountResolver,
 			);
 
 			if (availableModelProviders.length === 0) {
@@ -4911,9 +5028,12 @@ chat.openapi(completions, async (c) => {
 			const modelWithPricing = rawModelWithPricing
 				? {
 						...rawModelWithPricing,
-						providers: expandAllProviderRegions(
-							rawModelWithPricing.providers as ProviderModelMapping[],
-						),
+						providers: [
+							...expandAllProviderRegions(
+								rawModelWithPricing.providers as ProviderModelMapping[],
+							),
+							...availableModelProviders.filter(isCustomAutoRoutingMapping),
+						],
 					}
 				: undefined;
 
@@ -5012,6 +5132,25 @@ chat.openapi(completions, async (c) => {
 					usedInternalModel = modelWithPricing.id;
 					usedExternalId = selectedProvider.externalId;
 					usedRegion = selectedProvider.region;
+					applySelectedCustomProvider(selectedProvider);
+					if (usedProvider === "custom") {
+						modelInfo = {
+							...modelInfo,
+							providers: modelInfo.providers.filter(
+								(provider) =>
+									provider.providerId !== "custom" ||
+									(isCustomAutoRoutingMapping(provider) &&
+										provider.customProviderName === customProviderName),
+							),
+						};
+					} else {
+						modelInfo = {
+							...modelInfo,
+							providers: modelInfo.providers.filter(
+								(provider) => provider.providerId !== "custom",
+							),
+						};
+					}
 					routingMetadata = await addContentFilterRoutingMetadata(
 						{
 							...cheapestResult.metadata,
@@ -5077,12 +5216,14 @@ chat.openapi(completions, async (c) => {
 					usedInternalModel = modelInfo.id;
 					usedExternalId = routingCandidates[0].externalId;
 					usedRegion = routingCandidates[0].region;
+					applySelectedCustomProvider(routingCandidates[0]);
 				}
 			} else {
 				usedProvider = contentFilterPreferredProviders[0].providerId;
 				usedInternalModel = modelInfo.id;
 				usedExternalId = contentFilterPreferredProviders[0].externalId;
 				usedRegion = contentFilterPreferredProviders[0].region;
+				applySelectedCustomProvider(contentFilterPreferredProviders[0]);
 			}
 		}
 	}
