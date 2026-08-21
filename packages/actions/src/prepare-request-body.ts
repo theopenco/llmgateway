@@ -2947,20 +2947,57 @@ export async function prepareRequestBody(
 
 			// Anthropic renders `tools` before `system` and `messages`, so a caller
 			// breakpoint on the last tool caches the largest prefix available — and
-			// it is the one an agentic client (Claude Code) reliably sets. Those
-			// markers are forwarded with the tools below, so seed the budget with
-			// them here: counting them after the fact would let the system and
-			// message passes spend slots the tools already took, and Anthropic
-			// rejects the fifth breakpoint outright.
-			const toolCacheControlCount = providerCacheControlEnabled
-				? Math.min(
-						(tools ?? []).filter(
-							(tool) => isFunctionTool(tool) && !!tool.cache_control,
-						).length,
-						maxCacheControlBlocks,
-					)
-				: 0;
-			let systemCacheControlCount = toolCacheControlCount;
+			// it is the one an agentic client (Claude Code) reliably sets.
+			const anthropicFunctionTools = (tools ?? []).filter(isFunctionTool);
+
+			// Being first also makes a 5m tool marker the one thing that can strand
+			// a caller's later 1h marker on the wrong side of Anthropic's ordering
+			// rule ("a 1-hour cache entry must appear before any 5-minute cache
+			// entries"). Auto-injected markers are always ttl-less/5m and land after
+			// the tools, so they are safe; a caller mixing TTLs is not. Drop the 5m
+			// tool marker in that case rather than emit a request Anthropic rejects
+			// — the 1h breakpoint the caller paid the 2x write premium for is the
+			// one worth keeping.
+			const callerUses1hTtlAfterTools =
+				callerUses1hTtlInMessages ||
+				systemMessages.some(
+					(sysMsg) =>
+						Array.isArray(sysMsg.content) &&
+						sysMsg.content.some(
+							(part) => isTextContent(part) && part.cache_control?.ttl === "1h",
+						),
+				);
+			let lastOneHourToolIndex = -1;
+			anthropicFunctionTools.forEach((tool, index) => {
+				if (tool.cache_control?.ttl === "1h") {
+					lastOneHourToolIndex = index;
+				}
+			});
+
+			// Decide here which tool markers actually ship, so the budget seeded
+			// below matches them exactly. Counting them after the fact would let the
+			// system and message passes spend slots the tools already took, and
+			// Anthropic rejects the fifth breakpoint outright.
+			let toolMarkersKeptSoFar = 0;
+			const toolCacheControlKept = anthropicFunctionTools.map((tool, index) => {
+				const marker = tool.cache_control;
+				if (
+					!providerCacheControlEnabled ||
+					!marker ||
+					toolMarkersKeptSoFar >= maxCacheControlBlocks
+				) {
+					return false;
+				}
+				const orderingSafe =
+					marker.ttl === "1h" ||
+					(!callerUses1hTtlAfterTools && index > lastOneHourToolIndex);
+				if (!orderingSafe) {
+					return false;
+				}
+				toolMarkersKeptSoFar++;
+				return true;
+			});
+			let systemCacheControlCount = toolMarkersKeptSoFar;
 
 			// Get the minCacheableTokens from the model definition (default to 1024 if not specified)
 			const providerMapping = modelDef?.providers.find(
@@ -3089,32 +3126,22 @@ export async function prepareRequestBody(
 			// Transform tools from OpenAI format to Anthropic format
 			if (tools && tools.length > 0) {
 				// Filter to only function tools (web_search is handled separately)
-				const functionTools = tools.filter(isFunctionTool);
+				const functionTools = anthropicFunctionTools;
 				if (functionTools.length > 0) {
-					// Forward at most the slots seeded into the budget above, so a
-					// caller that over-marks its tools loses the extras here instead of
-					// having the whole request rejected — the same way an over-budget
-					// system marker is dropped below.
-					let toolMarkersForwarded = 0;
-					requestBody.tools = functionTools.map((tool) => {
-						const keepCacheControl =
-							providerCacheControlEnabled &&
-							!!tool.cache_control &&
-							toolMarkersForwarded < maxCacheControlBlocks;
-						if (keepCacheControl) {
-							toolMarkersForwarded++;
-						}
-						return {
-							name: tool.function.name,
-							description: tool.function.description,
-							input_schema: tool.function.parameters,
-							// Anthropic strips deferred tools from the rendered tools
-							// section before the cache key is computed, so forwarding this
-							// is what keeps a large tool catalogue out of the cached prefix.
-							...(tool.defer_loading === true && { defer_loading: true }),
-							...(keepCacheControl && { cache_control: tool.cache_control }),
-						};
-					});
+					requestBody.tools = functionTools.map((tool, index) => ({
+						name: tool.function.name,
+						description: tool.function.description,
+						input_schema: tool.function.parameters,
+						// Anthropic strips deferred tools from the rendered tools
+						// section before the cache key is computed, so forwarding this
+						// is what keeps a large tool catalogue out of the cached prefix.
+						...(tool.defer_loading === true && { defer_loading: true }),
+						// Budget and TTL ordering were both settled above, where the
+						// system pass needed the resulting count.
+						...(toolCacheControlKept[index] && {
+							cache_control: tool.cache_control,
+						}),
+					}));
 				}
 				// The tool search tool has to come first: Anthropic rejects a request
 				// whose tools are all deferred, and it is the one tool that never is.

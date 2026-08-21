@@ -743,6 +743,159 @@ describe("prepareRequestBody - Anthropic", () => {
 		expect(toolMarkers + systemMarkers + messageMarkers).toBe(4);
 	});
 
+	test.each([
+		{
+			name: "a later 1h system marker",
+			messages: [
+				{
+					role: "system" as const,
+					content: [
+						{
+							type: "text" as const,
+							text: "A".repeat(5000),
+							cache_control: { type: "ephemeral" as const, ttl: "1h" as const },
+						},
+					],
+				},
+				{ role: "user" as const, content: "Hello!" },
+			],
+		},
+		{
+			name: "a later 1h message marker",
+			messages: [
+				{
+					role: "user" as const,
+					content: [
+						{
+							type: "text" as const,
+							text: "A".repeat(5000),
+							cache_control: { type: "ephemeral" as const, ttl: "1h" as const },
+						},
+					],
+				},
+			],
+		},
+	])(
+		"drops a 5m tool breakpoint that would precede $name",
+		async ({ messages }) => {
+			// Anthropic renders tools first, so a 5m tool marker would sit ahead of
+			// the caller's 1h marker and the whole request is rejected. Keep the 1h
+			// breakpoint and drop the 5m one rather than 400.
+			const requestBody = (await prepareRequestBody(
+				"anthropic",
+				"claude-3-5-sonnet-20241022",
+				null,
+				"claude-3-5-sonnet-20241022",
+				messages,
+				false, // stream
+				undefined, // temperature
+				1024, // max_tokens
+				undefined, // top_p
+				undefined, // frequency_penalty
+				undefined, // presence_penalty
+				undefined, // response_format
+				[
+					{
+						type: "function",
+						function: { name: "get_weather", parameters: { type: "object" } },
+						cache_control: { type: "ephemeral" },
+					},
+				], // tools
+			)) as AnthropicRequestBody;
+
+			for (const tool of requestBody.tools ?? []) {
+				expect(getCacheControl(tool)).toBeUndefined();
+			}
+
+			// The caller's 1h marker is untouched, and nothing 5m precedes it.
+			const oneHourMarkers = [
+				...(Array.isArray(requestBody.system) ? requestBody.system : []),
+				...requestBody.messages.flatMap((msg) =>
+					Array.isArray(msg.content) ? msg.content : [],
+				),
+			].filter(
+				(block) =>
+					(getCacheControl(block) as { ttl?: string } | undefined)?.ttl ===
+					"1h",
+			);
+			expect(oneHourMarkers).toHaveLength(1);
+		},
+	);
+
+	test("drops a 5m tool breakpoint that precedes a 1h tool breakpoint", async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			null,
+			"claude-3-5-sonnet-20241022",
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			[
+				{
+					type: "function",
+					function: { name: "get_weather", parameters: { type: "object" } },
+					cache_control: { type: "ephemeral" },
+				},
+				{
+					type: "function",
+					function: { name: "get_time", parameters: { type: "object" } },
+					cache_control: { type: "ephemeral", ttl: "1h" },
+				},
+			], // tools
+		)) as AnthropicRequestBody;
+
+		// Within the tools array the same ordering rule applies.
+		expect(getCacheControl(requestBody.tools![0])).toBeUndefined();
+		expect(getCacheControl(requestBody.tools![1])).toEqual({
+			type: "ephemeral",
+			ttl: "1h",
+		});
+	});
+
+	test("keeps a 1h tool breakpoint ahead of auto-injected 5m markers", async () => {
+		// The safe direction: the gateway only ever injects ttl-less (5m) markers,
+		// and they land after the tools, so a 1h tool marker stays valid.
+		const longContent = "A".repeat(5000);
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			null,
+			"claude-3-5-sonnet-20241022",
+			[
+				{ role: "system", content: longContent },
+				{ role: "user", content: longContent },
+			],
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			[
+				{
+					type: "function",
+					function: { name: "get_weather", parameters: { type: "object" } },
+					cache_control: { type: "ephemeral", ttl: "1h" },
+				},
+			], // tools
+		)) as AnthropicRequestBody;
+
+		expect(getCacheControl(requestBody.tools![0])).toEqual({
+			type: "ephemeral",
+			ttl: "1h",
+		});
+		expect(getCacheControl((requestBody.system as unknown[])[0])).toEqual({
+			type: "ephemeral",
+		});
+	});
+
 	test("drops a tool breakpoint for a non-Anthropic provider", async () => {
 		const requestBody = (await prepareRequestBody(
 			"openai",
