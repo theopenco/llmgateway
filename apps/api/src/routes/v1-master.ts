@@ -178,6 +178,7 @@ interface SerializableApiKey {
 	currentPeriodUsage: string;
 	currentPeriodStartedAt: Date | null;
 	creator?: { email: string } | null;
+	project: { name: string };
 }
 
 /**
@@ -195,6 +196,7 @@ function serializeApiKeyForMaster(apiKey: SerializableApiKey) {
 		description: apiKey.description,
 		status: apiKey.status,
 		projectId: apiKey.projectId,
+		projectName: apiKey.project.name,
 		createdBy: apiKey.createdBy,
 		createdByEmail: apiKey.creator?.email ?? null,
 		maskedToken: maskToken(apiKey.token),
@@ -577,6 +579,7 @@ const apiKeyDetailSchema = z.object({
 	description: z.string(),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	projectId: z.string(),
+	projectName: z.string(),
 	createdBy: z.string(),
 	createdByEmail: z.string().nullable(),
 	maskedToken: z.string(),
@@ -761,6 +764,7 @@ v1Master.openapi(updateApiKey, async (c) => {
 		apiKey: serializeApiKeyForMaster({
 			...updated,
 			creator: existing.creator,
+			project: existing.project,
 		}),
 	});
 });
@@ -825,7 +829,10 @@ v1Master.openapi(listApiKeys, async (c) => {
 			status: { ne: "deleted" },
 		},
 		orderBy: { createdAt: "desc" },
-		with: { creator: { columns: { email: true } } },
+		with: {
+			creator: { columns: { email: true } },
+			project: { columns: { name: true } },
+		},
 	});
 
 	return c.json({ apiKeys: apiKeys.map(serializeApiKeyForMaster) });

@@ -137,6 +137,7 @@ describe("v1/master cache invalidation", () => {
 				(apiKey: { id: string }) => apiKey.id === "member-api-key-id",
 			),
 		).toMatchObject({
+			projectName: "Test Project",
 			createdBy: "member-user-id",
 			createdByEmail: "member@example.com",
 		});
@@ -146,6 +147,7 @@ describe("v1/master cache invalidation", () => {
 		});
 		expect(detailRes.status).toBe(200);
 		const detail = await detailRes.json();
+		expect(detail.apiKey.projectName).toBe("Test Project");
 		expect(detail.apiKey.createdByEmail).toBe("member@example.com");
 	});
 
