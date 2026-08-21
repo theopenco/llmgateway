@@ -1,9 +1,16 @@
 "use client";
 
-import { CreditCard, Loader2, RefreshCw, Trash2 } from "lucide-react";
+import {
+	AlertTriangle,
+	CreditCard,
+	Loader2,
+	RefreshCw,
+	Trash2,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -14,11 +21,20 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
 
 export interface AdminPaymentMethod {
 	id: string;
 	type: string;
 	createdAt: string;
+	isDefault: boolean;
 	card: {
 		brand: string;
 		last4: string;
@@ -29,8 +45,11 @@ export interface AdminPaymentMethod {
 
 interface DeletePaymentMethodDialogProps {
 	paymentMethod: AdminPaymentMethod;
+	paymentMethods: AdminPaymentMethod[];
+	autoTopUpEnabled: boolean;
 	onDelete: (
 		paymentMethodId: string,
+		replacementPaymentMethodId?: string,
 	) => Promise<{ success: boolean; error?: string }>;
 }
 
@@ -50,20 +69,33 @@ function paymentMethodLabel(paymentMethod: AdminPaymentMethod) {
 
 function DeletePaymentMethodDialog({
 	paymentMethod,
+	paymentMethods,
+	autoTopUpEnabled,
 	onDelete,
 }: DeletePaymentMethodDialogProps) {
 	const router = useRouter();
+	const replacementOptions = paymentMethods.filter(
+		(candidate) => candidate.id !== paymentMethod.id,
+	);
 	const [open, setOpen] = useState(false);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [replacementPaymentMethodId, setReplacementPaymentMethodId] = useState(
+		replacementOptions[0]?.id ?? "",
+	);
 	const label = paymentMethodLabel(paymentMethod);
+	const requiresReplacement =
+		paymentMethod.isDefault && replacementOptions.length > 0;
 
 	const handleDelete = async () => {
 		setLoading(true);
 		setError(null);
 
 		try {
-			const result = await onDelete(paymentMethod.id);
+			const result = await onDelete(
+				paymentMethod.id,
+				requiresReplacement ? replacementPaymentMethodId : undefined,
+			);
 			if (!result.success) {
 				setError(result.error ?? "Failed to delete payment method");
 				return;
@@ -90,6 +122,9 @@ function DeletePaymentMethodDialog({
 					return;
 				}
 				setOpen(nextOpen);
+				if (nextOpen) {
+					setReplacementPaymentMethodId(replacementOptions[0]?.id ?? "");
+				}
 				if (!nextOpen) {
 					setError(null);
 				}
@@ -111,11 +146,62 @@ function DeletePaymentMethodDialog({
 					<DialogTitle>Delete {label}?</DialogTitle>
 					<DialogDescription>
 						This detaches the payment method from the Stripe customer and
-						removes its local saved-method reference. Charges, renewals, and
-						automatic top-ups using this method will fail until another method
-						is selected. This action cannot be undone.
+						removes its local saved-method reference. This action cannot be
+						undone.
 					</DialogDescription>
 				</DialogHeader>
+
+				{requiresReplacement ? (
+					<div className="space-y-2">
+						<Label htmlFor={`replacement-${paymentMethod.id}`}>
+							Replacement default
+						</Label>
+						<p className="text-sm text-muted-foreground">
+							This method is currently a default. Choose another attached card
+							for Stripe and future charges before deleting it.
+						</p>
+						<Select
+							value={replacementPaymentMethodId}
+							onValueChange={setReplacementPaymentMethodId}
+							disabled={loading}
+						>
+							<SelectTrigger
+								id={`replacement-${paymentMethod.id}`}
+								className="w-full"
+							>
+								<SelectValue placeholder="Select a replacement" />
+							</SelectTrigger>
+							<SelectContent>
+								{replacementOptions.map((replacement) => (
+									<SelectItem key={replacement.id} value={replacement.id}>
+										{paymentMethodLabel(replacement)}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+					</div>
+				) : paymentMethod.isDefault ? (
+					<p className="text-sm text-muted-foreground">
+						No replacement remains. Stripe customer and subscription defaults
+						will be cleared, so renewals may fail until another card is added.
+					</p>
+				) : null}
+
+				{autoTopUpEnabled ? (
+					<div
+						className="flex gap-2 rounded-md bg-amber-50 px-3 py-2.5 text-sm text-amber-950 dark:bg-amber-950/50 dark:text-amber-100"
+						role="note"
+					>
+						<AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+						<p>
+							{replacementOptions.length === 0
+								? "Auto top-up is enabled and will be disabled because no payment method remains."
+								: paymentMethod.isDefault
+									? "Auto top-up is enabled. Future automatic top-ups will use the selected replacement."
+									: "Auto top-up is enabled. This card is not currently a default, so automatic top-ups will keep using the existing default."}
+						</p>
+					</div>
+				) : null}
 
 				{error ? (
 					<p className="text-sm text-destructive" role="alert">
@@ -134,7 +220,9 @@ function DeletePaymentMethodDialog({
 					<Button
 						variant="destructive"
 						onClick={handleDelete}
-						disabled={loading}
+						disabled={
+							loading || (requiresReplacement && !replacementPaymentMethodId)
+						}
 					>
 						{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
 						Delete payment method
@@ -148,12 +236,15 @@ function DeletePaymentMethodDialog({
 export function PaymentMethodsList({
 	paymentMethods,
 	loadError,
+	autoTopUpEnabled,
 	onDelete,
 }: {
 	paymentMethods: AdminPaymentMethod[] | null;
 	loadError: boolean;
+	autoTopUpEnabled: boolean;
 	onDelete: (
 		paymentMethodId: string,
+		replacementPaymentMethodId?: string,
 	) => Promise<{ success: boolean; error?: string }>;
 }) {
 	const router = useRouter();
@@ -189,7 +280,12 @@ export function PaymentMethodsList({
 							>
 								<CreditCard className="h-5 w-5 shrink-0 text-muted-foreground" />
 								<div className="min-w-0 flex-1">
-									<p className="text-sm font-medium">{label}</p>
+									<div className="flex flex-wrap items-center gap-2">
+										<p className="text-sm font-medium">{label}</p>
+										{paymentMethod.isDefault ? (
+											<Badge variant="secondary">Default</Badge>
+										) : null}
+									</div>
 									<p className="mt-1 break-all font-mono text-xs text-muted-foreground">
 										{paymentMethod.card
 											? `Expires ${String(paymentMethod.card.expiryMonth).padStart(2, "0")}/${String(paymentMethod.card.expiryYear).slice(-2)} · `
@@ -199,6 +295,8 @@ export function PaymentMethodsList({
 								</div>
 								<DeletePaymentMethodDialog
 									paymentMethod={paymentMethod}
+									paymentMethods={paymentMethods}
+									autoTopUpEnabled={autoTopUpEnabled}
 									onDelete={onDelete}
 								/>
 							</div>

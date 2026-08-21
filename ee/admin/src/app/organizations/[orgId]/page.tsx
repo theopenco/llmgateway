@@ -859,11 +859,15 @@ export default async function OrganizationPage({
 							settings={settingsData}
 							paymentMethods={paymentMethodsData?.paymentMethods ?? null}
 							paymentMethodsLoadError={!paymentMethodsData}
-							onDeletePaymentMethod={async (paymentMethodId) => {
+							onDeletePaymentMethod={async (
+								paymentMethodId,
+								replacementPaymentMethodId,
+							) => {
 								"use server";
 								return await deleteOrganizationPaymentMethod(
 									orgId,
 									paymentMethodId,
+									replacementPaymentMethodId,
 								);
 							}}
 						/>

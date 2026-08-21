@@ -272,6 +272,7 @@ export function OrgSettingsTab({
 	paymentMethodsLoadError: boolean;
 	onDeletePaymentMethod: (
 		paymentMethodId: string,
+		replacementPaymentMethodId?: string,
 	) => Promise<{ success: boolean; error?: string }>;
 }) {
 	const { organization: org, customProviders } = settings;
@@ -562,6 +563,7 @@ export function OrgSettingsTab({
 					<PaymentMethodsList
 						paymentMethods={paymentMethods}
 						loadError={paymentMethodsLoadError}
+						autoTopUpEnabled={org.autoTopUpEnabled}
 						onDelete={onDeletePaymentMethod}
 					/>
 				</CardContent>

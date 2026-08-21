@@ -365,6 +365,7 @@ const adminPaymentMethodSchema = z.object({
 	id: z.string(),
 	type: z.string(),
 	createdAt: z.string(),
+	isDefault: z.boolean(),
 	card: z
 		.object({
 			brand: z.string(),
@@ -374,6 +375,89 @@ const adminPaymentMethodSchema = z.object({
 		})
 		.nullable(),
 });
+
+type PaymentMethodOrganization = Pick<
+	typeof tables.organization.$inferSelect,
+	| "id"
+	| "stripeCustomerId"
+	| "stripeSubscriptionId"
+	| "devPlanStripeSubscriptionId"
+	| "chatPlanStripeSubscriptionId"
+>;
+
+function getStripeId(
+	value: string | { id: string } | null | undefined,
+): string | null {
+	return typeof value === "string" ? value : (value?.id ?? null);
+}
+
+async function getOrganizationPaymentMethodState(
+	org: PaymentMethodOrganization,
+) {
+	if (!org.stripeCustomerId) {
+		return null;
+	}
+
+	const stripe = getStripe();
+	const subscriptionIds = [
+		org.stripeSubscriptionId,
+		org.devPlanStripeSubscriptionId,
+		org.chatPlanStripeSubscriptionId,
+	].filter((id): id is string => Boolean(id));
+
+	const [paymentMethods, customer, localPaymentMethods, subscriptions] =
+		await Promise.all([
+			stripe.paymentMethods.list({
+				customer: org.stripeCustomerId,
+				type: "card",
+				limit: 100,
+			}),
+			stripe.customers.retrieve(org.stripeCustomerId),
+			db.query.paymentMethod.findMany({
+				where: { organizationId: org.id },
+			}),
+			Promise.all(
+				subscriptionIds.map(async (id) => ({
+					id,
+					subscription: await stripe.subscriptions.retrieve(id),
+				})),
+			),
+		]);
+
+	if (customer.deleted) {
+		throw new HTTPException(404, { message: "Stripe customer not found" });
+	}
+
+	const defaultPaymentMethodIds = new Set<string>();
+	const customerDefaultId = getStripeId(
+		customer.invoice_settings?.default_payment_method,
+	);
+	if (customerDefaultId) {
+		defaultPaymentMethodIds.add(customerDefaultId);
+	}
+	for (const { subscription } of subscriptions) {
+		const subscriptionDefaultId = getStripeId(
+			subscription.default_payment_method,
+		);
+		if (subscriptionDefaultId) {
+			defaultPaymentMethodIds.add(subscriptionDefaultId);
+		}
+	}
+	for (const paymentMethod of localPaymentMethods) {
+		if (paymentMethod.isDefault) {
+			defaultPaymentMethodIds.add(paymentMethod.stripePaymentMethodId);
+		}
+	}
+
+	return {
+		paymentMethods: paymentMethods.data,
+		customer,
+		customerDefaultId,
+		localPaymentMethods,
+		subscriptions,
+		defaultPaymentMethodIds,
+	};
+}
 
 const getOrganizationPaymentMethods = createRoute({
 	method: "get",
@@ -408,17 +492,17 @@ adminOrgDetails.openapi(getOrganizationPaymentMethods, async (c) => {
 		return c.json({ paymentMethods: [] });
 	}
 
-	const paymentMethods = await getStripe().paymentMethods.list({
-		customer: org.stripeCustomerId,
-		type: "card",
-		limit: 100,
-	});
+	const state = await getOrganizationPaymentMethodState(org);
+	if (!state) {
+		return c.json({ paymentMethods: [] });
+	}
 
 	return c.json({
-		paymentMethods: paymentMethods.data.map((paymentMethod) => ({
+		paymentMethods: state.paymentMethods.map((paymentMethod) => ({
 			id: paymentMethod.id,
 			type: paymentMethod.type,
 			createdAt: new Date(paymentMethod.created * 1000).toISOString(),
+			isDefault: state.defaultPaymentMethodIds.has(paymentMethod.id),
 			card: paymentMethod.card
 				? {
 						brand: paymentMethod.card.brand,
@@ -439,6 +523,15 @@ const deleteOrganizationPaymentMethod = createRoute({
 			orgId: z.string(),
 			paymentMethodId: z.string(),
 		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						replacementPaymentMethodId: z.string().optional(),
+					}),
+				},
+			},
+		},
 	},
 	responses: {
 		200: {
@@ -452,11 +545,15 @@ const deleteOrganizationPaymentMethod = createRoute({
 		404: {
 			description: "Organization or payment method not found.",
 		},
+		400: {
+			description: "A valid replacement is required for a default method.",
+		},
 	},
 });
 
 adminOrgDetails.openapi(deleteOrganizationPaymentMethod, async (c) => {
 	const { orgId, paymentMethodId } = c.req.valid("param");
+	const { replacementPaymentMethodId } = c.req.valid("json");
 	const org = await requireOrganization(orgId);
 	const user = c.get("user");
 
@@ -475,15 +572,108 @@ adminOrgDetails.openapi(deleteOrganizationPaymentMethod, async (c) => {
 		throw new HTTPException(404, { message: "Payment method not found" });
 	}
 
-	await getStripe().paymentMethods.detach(paymentMethodId);
-	await db
-		.delete(tables.paymentMethod)
-		.where(
-			and(
-				eq(tables.paymentMethod.organizationId, orgId),
-				eq(tables.paymentMethod.stripePaymentMethodId, paymentMethodId),
-			),
-		);
+	const state = await getOrganizationPaymentMethodState(org);
+	if (!state) {
+		throw new HTTPException(404, { message: "Payment method not found" });
+	}
+
+	const remainingPaymentMethods = state.paymentMethods.filter(
+		(candidate) => candidate.id !== paymentMethodId,
+	);
+	const isDefault = state.defaultPaymentMethodIds.has(paymentMethodId);
+	const replacementPaymentMethod = replacementPaymentMethodId
+		? remainingPaymentMethods.find(
+				(candidate) => candidate.id === replacementPaymentMethodId,
+			)
+		: undefined;
+
+	if (isDefault && remainingPaymentMethods.length > 0) {
+		if (!replacementPaymentMethod) {
+			throw new HTTPException(400, {
+				message:
+					"Select another attached payment method before deleting the default method.",
+			});
+		}
+	} else if (replacementPaymentMethodId && !replacementPaymentMethod) {
+		throw new HTTPException(400, {
+			message: "Replacement payment method is not attached to this customer.",
+		});
+	}
+
+	const replacementId = replacementPaymentMethod?.id ?? null;
+	const clearAllDefaults = remainingPaymentMethods.length === 0;
+	const stripe = getStripe();
+	const shouldUpdateCustomerDefault =
+		clearAllDefaults || state.customerDefaultId === paymentMethodId;
+	const subscriptionsToUpdate = state.subscriptions.filter(
+		({ subscription }) =>
+			clearAllDefaults ||
+			getStripeId(subscription.default_payment_method) === paymentMethodId,
+	);
+
+	if (shouldUpdateCustomerDefault) {
+		await stripe.customers.update(org.stripeCustomerId, {
+			invoice_settings: {
+				default_payment_method: replacementId ?? "",
+			},
+		});
+	}
+	for (const { id } of subscriptionsToUpdate) {
+		await stripe.subscriptions.update(id, {
+			default_payment_method: replacementId ?? "",
+		});
+	}
+
+	await stripe.paymentMethods.detach(paymentMethodId);
+
+	const localPaymentMethod = state.localPaymentMethods.find(
+		(candidate) => candidate.stripePaymentMethodId === paymentMethodId,
+	);
+	const localReplacement = replacementId
+		? state.localPaymentMethods.find(
+				(candidate) => candidate.stripePaymentMethodId === replacementId,
+			)
+		: undefined;
+	const disableAutoTopUp = clearAllDefaults;
+
+	await db.transaction(async (tx) => {
+		if (localPaymentMethod?.isDefault) {
+			await tx
+				.update(tables.paymentMethod)
+				.set({ isDefault: false })
+				.where(eq(tables.paymentMethod.organizationId, orgId));
+
+			if (localReplacement) {
+				await tx
+					.update(tables.paymentMethod)
+					.set({ isDefault: true })
+					.where(eq(tables.paymentMethod.id, localReplacement.id));
+			} else if (replacementPaymentMethod) {
+				await tx.insert(tables.paymentMethod).values({
+					organizationId: orgId,
+					stripePaymentMethodId: replacementPaymentMethod.id,
+					type: replacementPaymentMethod.type,
+					isDefault: true,
+				});
+			}
+		}
+
+		if (disableAutoTopUp) {
+			await tx
+				.update(tables.organization)
+				.set({ autoTopUpEnabled: false })
+				.where(eq(tables.organization.id, orgId));
+		}
+
+		await tx
+			.delete(tables.paymentMethod)
+			.where(
+				and(
+					eq(tables.paymentMethod.organizationId, orgId),
+					eq(tables.paymentMethod.stripePaymentMethodId, paymentMethodId),
+				),
+			);
+	});
 
 	await logAuditEvent({
 		organizationId: orgId,
@@ -493,6 +683,8 @@ adminOrgDetails.openapi(deleteOrganizationPaymentMethod, async (c) => {
 		resourceId: paymentMethodId,
 		metadata: {
 			cardLast4: paymentMethod.card?.last4,
+			replacementPaymentMethodId: replacementId,
+			autoTopUpDisabled: disableAutoTopUp && org.autoTopUpEnabled,
 		},
 	});
 
