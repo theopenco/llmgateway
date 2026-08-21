@@ -47,11 +47,6 @@ export function getProviderHeaders(
 	}
 
 	switch (provider) {
-		// No `anthropic-beta` here: tool use, prompt caching and web search are
-		// all GA and need no beta opt-in. Anthropic 400s on an unrecognized beta
-		// name, so a retired one would fail every request, not just the ones
-		// using the feature. Callers add the betas they actually need
-		// (`effort-2025-11-24`, `structured-outputs-2025-11-13`) per request.
 		case "anthropic":
 			return {
 				...requestIdHeader,
