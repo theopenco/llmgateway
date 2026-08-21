@@ -115,10 +115,12 @@ describe("enterprise license", () => {
 
 	it("rejects unknown keys and modified signatures", () => {
 		const token = createToken();
+		const signatureStart = token.lastIndexOf(".") + 1;
+		const modifiedSignature = `${token.slice(0, signatureStart)}${
+			token[signatureStart] === "A" ? "B" : "A"
+		}${token.slice(signatureStart + 1)}`;
 		expect(verifyEnterpriseLicense(token, {})).toBeNull();
-		expect(
-			verifyEnterpriseLicense(`${token.slice(0, -1)}x`, publicKeys),
-		).toBeNull();
+		expect(verifyEnterpriseLicense(modifiedSignature, publicKeys)).toBeNull();
 	});
 
 	it("evaluates not-before, active, grace, and expired boundaries", () => {
