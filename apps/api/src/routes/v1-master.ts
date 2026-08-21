@@ -54,6 +54,11 @@ import {
 } from "@/routes/keys-provider.js";
 import { createProjectForOrg } from "@/routes/projects.js";
 import { memberIamRuleSchema } from "@/routes/team.js";
+import {
+	providerCacheControlModeSchema,
+	resolveProviderCacheControlMode,
+	withLegacyProviderCacheControl,
+} from "@/utils/provider-cache-control.js";
 import { timezoneQueryField } from "@/utils/timezone.js";
 
 import { encryptProviderKey, readProviderKey } from "@llmgateway/actions";
@@ -214,6 +219,8 @@ const projectSchema = z.object({
 	organizationId: z.string(),
 	cachingEnabled: z.boolean(),
 	cacheDurationSeconds: z.number(),
+	providerCacheControlMode: providerCacheControlModeSchema,
+	/** @deprecated use providerCacheControlMode; false maps to "off". */
 	providerCacheControlEnabled: z.boolean(),
 	mode: projectModeEnum,
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
@@ -223,6 +230,7 @@ const createProjectBody = z.object({
 	name: z.string().min(1).max(255),
 	cachingEnabled: z.boolean().optional(),
 	cacheDurationSeconds: z.number().min(10).max(31536000).optional(),
+	providerCacheControlMode: providerCacheControlModeSchema.optional(),
 	providerCacheControlEnabled: z.boolean().optional(),
 	mode: projectModeEnum.optional(),
 });
@@ -282,7 +290,7 @@ v1Master.openapi(listProjects, async (c) => {
 		},
 	});
 
-	return c.json({ projects });
+	return c.json({ projects: projects.map(withLegacyProviderCacheControl) });
 });
 
 v1Master.openapi(createProject, async (c) => {
@@ -300,7 +308,7 @@ v1Master.openapi(createProject, async (c) => {
 		{ skipAccessCheck: true },
 	);
 
-	return c.json({ project }, 201);
+	return c.json({ project: withLegacyProviderCacheControl(project) }, 201);
 });
 
 const apiKeyPeriodUnit = z.enum(["hour", "day", "week", "month"]);
@@ -407,6 +415,7 @@ const updateProjectBody = z
 		name: z.string().min(1).max(255).optional(),
 		cachingEnabled: z.boolean().optional(),
 		cacheDurationSeconds: z.number().min(10).max(31536000).optional(),
+		providerCacheControlMode: providerCacheControlModeSchema.optional(),
 		providerCacheControlEnabled: z.boolean().optional(),
 		mode: projectModeEnum.optional(),
 		status: z.enum(["active", "inactive"]).optional(),
@@ -449,7 +458,18 @@ v1Master.openapi(updateProject, async (c) => {
 	}
 
 	const { id } = c.req.param();
-	const updates = c.req.valid("json");
+	// The legacy boolean is not a column any more; fold it into the mode so
+	// `.set(updates)` and the audit diff below only ever see real columns.
+	const { providerCacheControlEnabled: _legacy, ...rest } = c.req.valid("json");
+	const providerCacheControlMode = resolveProviderCacheControlMode(
+		c.req.valid("json"),
+	);
+	const updates = {
+		...rest,
+		...(providerCacheControlMode !== undefined
+			? { providerCacheControlMode }
+			: {}),
+	};
 
 	const existing = await db.query.project.findFirst({
 		where: { id: { eq: id } },
@@ -489,7 +509,7 @@ v1Master.openapi(updateProject, async (c) => {
 		});
 	}
 
-	return c.json({ project: updated });
+	return c.json({ project: withLegacyProviderCacheControl(updated) });
 });
 
 const deleteProject = createRoute({

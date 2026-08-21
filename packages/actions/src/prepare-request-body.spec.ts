@@ -12,6 +12,7 @@ import {
 import type {
 	AnthropicRequestBody,
 	OpenAIRequestBody,
+	ProviderCacheControlMode,
 	ProviderModelMapping,
 } from "@llmgateway/models";
 
@@ -75,7 +76,7 @@ async function prepareOpenAITextRequest(options: {
 	serviceTier?: "flex" | "priority";
 	verbosity?: "low" | "medium" | "high";
 	messages?: { role: string; content: unknown }[];
-	providerCacheControlEnabled?: boolean;
+	providerCacheControlMode?: ProviderCacheControlMode;
 }) {
 	const model = options.model ?? "gpt-5.5";
 	return await prepareRequestBody(
@@ -107,7 +108,7 @@ async function prepareOpenAITextRequest(options: {
 		options.useResponsesApi ?? false,
 		options.promptCacheKey,
 		options.promptCacheRetention,
-		options.providerCacheControlEnabled ?? true,
+		options.providerCacheControlMode ?? "auto",
 		undefined,
 		options.serviceTier,
 		options.verbosity,
@@ -374,7 +375,7 @@ describe("prepareRequestBody - Anthropic", () => {
 				undefined, // useResponsesApi
 				undefined, // prompt_cache_key
 				undefined, // prompt_cache_retention
-				false, // providerCacheControlEnabled
+				"off", // providerCacheControlMode
 			)) as AnthropicRequestBody;
 
 			// System: no caller marker preserved, no heuristic-added marker.
@@ -394,6 +395,133 @@ describe("prepareRequestBody - Anthropic", () => {
 			}
 		},
 	);
+
+	test("passthrough forwards caller markers without adding any", async () => {
+		const longContent = "A".repeat(5000);
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-opus-5",
+			null,
+			"claude-opus-5",
+			[
+				{
+					role: "system",
+					content: [
+						{
+							type: "text",
+							text: longContent,
+							cache_control: { type: "ephemeral", ttl: "1h" },
+						},
+					],
+				},
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: longContent,
+							cache_control: { type: "ephemeral" },
+						},
+					],
+				},
+				{
+					role: "user",
+					content: [{ type: "text", text: longContent }],
+				},
+			],
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			undefined, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			undefined, // reasoning_max_tokens
+			undefined, // useResponsesApi
+			undefined, // prompt_cache_key
+			undefined, // prompt_cache_retention
+			"passthrough", // providerCacheControlMode
+		)) as AnthropicRequestBody;
+
+		// The caller's system marker survives untouched.
+		expect(Array.isArray(requestBody.system)).toBe(true);
+		expect(getCacheControl((requestBody.system as unknown[])[0])).toEqual({
+			type: "ephemeral",
+			ttl: "1h",
+		});
+
+		// Exactly the caller's own message marker, and nothing added on top: the
+		// second long message carried no marker and must not gain one.
+		const messageMarkers = requestBody.messages.flatMap((msg) =>
+			Array.isArray(msg.content)
+				? msg.content.map(getCacheControl).filter(Boolean)
+				: [],
+		);
+		expect(messageMarkers).toEqual([{ type: "ephemeral" }]);
+	});
+
+	test("passthrough adds no markers at all when the caller sends none", async () => {
+		const longContent = "A".repeat(5000);
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-opus-5",
+			null,
+			"claude-opus-5",
+			[
+				{ role: "system", content: longContent },
+				{ role: "user", content: longContent },
+			],
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			undefined, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			undefined, // reasoning_max_tokens
+			undefined, // useResponsesApi
+			undefined, // prompt_cache_key
+			undefined, // prompt_cache_retention
+			"passthrough", // providerCacheControlMode
+		)) as AnthropicRequestBody;
+
+		if (Array.isArray(requestBody.system)) {
+			for (const block of requestBody.system) {
+				expect(getCacheControl(block)).toBeUndefined();
+			}
+		}
+		for (const msg of requestBody.messages) {
+			if (Array.isArray(msg.content)) {
+				for (const block of msg.content) {
+					expect(getCacheControl(block)).toBeUndefined();
+				}
+			}
+		}
+	});
 
 	test("defers auto-injection when caller supplies a 1h ttl marker in messages", async () => {
 		const longContent = "A".repeat(5000);
@@ -802,7 +930,7 @@ describe("prepareRequestBody - OpenAI explicit prompt caching (GPT-5.6)", () => 
 			model: "gpt-5.6-sol",
 			promptCacheOptions: { mode: "explicit" },
 			messages: explicitCacheMessages,
-			providerCacheControlEnabled: false,
+			providerCacheControlMode: "off",
 		})) as any;
 
 		expect(
@@ -815,7 +943,7 @@ describe("prepareRequestBody - OpenAI explicit prompt caching (GPT-5.6)", () => 
 		const requestBody = (await prepareOpenAITextRequest({
 			model: "gpt-5.6-sol",
 			messages: explicitCacheMessages,
-			providerCacheControlEnabled: false,
+			providerCacheControlMode: "off",
 		})) as any;
 
 		expect(requestBody.prompt_cache_options).toEqual({ mode: "explicit" });
@@ -827,10 +955,36 @@ describe("prepareRequestBody - OpenAI explicit prompt caching (GPT-5.6)", () => 
 	test("does not force explicit mode on models without explicit caching support", async () => {
 		const requestBody = (await prepareOpenAITextRequest({
 			model: "gpt-5.5",
-			providerCacheControlEnabled: false,
+			providerCacheControlMode: "off",
 		})) as any;
 
 		expect(requestBody.prompt_cache_options).toBeUndefined();
+	});
+
+	test("passthrough keeps caller breakpoints and forces explicit mode", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.6-sol",
+			messages: explicitCacheMessages,
+			providerCacheControlMode: "passthrough",
+		})) as any;
+
+		expect(
+			requestBody.messages[0].content[0].prompt_cache_breakpoint,
+		).toBeDefined();
+		// Implicit caching would auto-write without the caller asking, so
+		// passthrough pins the request to the caller's own breakpoints.
+		expect(requestBody.prompt_cache_options).toEqual({ mode: "explicit" });
+	});
+
+	test("passthrough honors a caller-supplied prompt_cache_options", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.6-sol",
+			promptCacheOptions: { mode: "explicit" },
+			messages: explicitCacheMessages,
+			providerCacheControlMode: "passthrough",
+		})) as any;
+
+		expect(requestBody.prompt_cache_options).toEqual({ mode: "explicit" });
 	});
 });
 
@@ -905,7 +1059,7 @@ describe("prepareRequestBody - Fireworks service tiers", () => {
 			false,
 			undefined,
 			undefined,
-			true,
+			"auto",
 			undefined,
 			options.serviceTier,
 		)) as { service_tier?: string };
@@ -991,7 +1145,7 @@ describe("prepareRequestBody - verbosity", () => {
 			true, // useResponsesApi
 			undefined,
 			undefined,
-			true,
+			"auto",
 			undefined,
 			undefined,
 			"medium", // verbosity
@@ -3967,7 +4121,7 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 				undefined,
 				undefined,
 				undefined,
-				false,
+				"off",
 			)) as {
 				system?: Array<Record<string, unknown>>;
 				messages: Array<{ content: Array<Record<string, unknown>> }>;
@@ -6209,7 +6363,7 @@ describe("prepareRequestBody - upstream prompt_cache_key", () => {
 			undefined, // useResponsesApi
 			opts.promptCacheKey,
 			undefined, // prompt_cache_retention
-			true, // providerCacheControlEnabled
+			"auto", // providerCacheControlMode
 			undefined, // n
 			undefined, // service_tier
 			undefined, // verbosity

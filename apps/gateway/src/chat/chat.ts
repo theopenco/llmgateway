@@ -6209,7 +6209,7 @@ chat.openapi(completions, async (c) => {
 	const {
 		enabled: projectCachingEnabled,
 		duration: cacheDuration,
-		providerCacheControlEnabled,
+		providerCacheControlMode,
 	} = await isCachingEnabled(project.id);
 	// Per-request opt-out, mirroring X-No-Fallback. Agent workloads that retry a
 	// byte-identical request expect a fresh sample rather than a replay, so let
@@ -7067,7 +7067,7 @@ chat.openapi(completions, async (c) => {
 			useResponsesApi,
 			prompt_cache_key,
 			prompt_cache_retention,
-			providerCacheControlEnabled,
+			providerCacheControlMode,
 			n,
 			initialForwardedServiceTier,
 			verbosity,
@@ -7286,7 +7286,7 @@ chat.openapi(completions, async (c) => {
 					providerMapping.region,
 				),
 				n,
-				providerCacheControlEnabled,
+				providerCacheControlMode,
 				service_tier,
 				clientRequestedServiceTier: clientRequestedServiceTier(),
 				verbosity,

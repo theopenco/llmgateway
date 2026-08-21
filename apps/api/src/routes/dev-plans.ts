@@ -37,6 +37,10 @@ import {
 } from "@/utils/invoice.js";
 import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
 import { resolveDevPassBillingDetails } from "@/utils/plan-billing.js";
+import {
+	providerCacheControlModeSchema,
+	resolveProviderCacheControlMode,
+} from "@/utils/provider-cache-control.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { redisClient } from "@llmgateway/cache";
@@ -79,6 +83,7 @@ import {
 import { getStripe, isInternationalPaymentMethod } from "./payments.js";
 
 import type { ServerTypes } from "@/vars.js";
+import type { ProviderCacheControlMode } from "@llmgateway/models";
 import type Stripe from "stripe";
 
 export const devPlans = new OpenAPIHono<ServerTypes>();
@@ -1782,7 +1787,7 @@ const getStatus = createRoute({
 							"throughput",
 							"latency",
 						]),
-						providerCacheControlEnabled: z.boolean(),
+						providerCacheControlMode: providerCacheControlModeSchema,
 					}),
 				},
 			},
@@ -1843,7 +1848,7 @@ devPlans.openapi(getStatus, async (c) => {
 			apiKey: null,
 			devPlanServiceTier: "default" as const,
 			defaultRoutingStrategy: "auto" as const,
-			providerCacheControlEnabled: true,
+			providerCacheControlMode: "auto" as const,
 		});
 	}
 
@@ -1892,7 +1897,7 @@ devPlans.openapi(getStatus, async (c) => {
 	let projectId: string | null = null;
 	let defaultRoutingStrategy: "auto" | "price" | "throughput" | "latency" =
 		"auto";
-	let providerCacheControlEnabled = true;
+	let providerCacheControlMode: ProviderCacheControlMode = "auto";
 	if (personalOrg.devPlan !== "none") {
 		// Find the default project for this org. Order by createdAt asc so we
 		// always return the original "Default Project" rather than whichever
@@ -1911,7 +1916,7 @@ devPlans.openapi(getStatus, async (c) => {
 		if (project) {
 			projectId = project.id;
 			defaultRoutingStrategy = project.defaultRoutingStrategy;
-			providerCacheControlEnabled = project.providerCacheControlEnabled;
+			providerCacheControlMode = project.providerCacheControlMode;
 			apiKey = await getOrCreatePersonalOrgApiKey(
 				personalOrg.id,
 				project.id,
@@ -1965,7 +1970,7 @@ devPlans.openapi(getStatus, async (c) => {
 		apiKey,
 		devPlanServiceTier: personalOrg.devPlanServiceTier,
 		defaultRoutingStrategy,
-		providerCacheControlEnabled,
+		providerCacheControlMode,
 	});
 });
 
@@ -1987,6 +1992,8 @@ const updateSettings = createRoute({
 						defaultRoutingStrategy: z.enum(["auto", "price"]).optional(),
 						// Control upstream prompt-cache writes for coding clients that
 						// send cache markers automatically.
+						providerCacheControlMode: providerCacheControlModeSchema.optional(),
+						/** @deprecated use providerCacheControlMode. */
 						providerCacheControlEnabled: z.boolean().optional(),
 						// Opt-in pay-as-you-go overflow past the monthly allowance.
 						devPlanPaygEnabled: z.boolean().optional(),
@@ -2017,7 +2024,7 @@ const updateSettings = createRoute({
 							"throughput",
 							"latency",
 						]),
-						providerCacheControlEnabled: z.boolean(),
+						providerCacheControlMode: providerCacheControlModeSchema,
 						devPlanPaygEnabled: z.boolean(),
 						autoTopUpEnabled: z.boolean(),
 						autoTopUpThreshold: z.string().nullable(),
@@ -2035,12 +2042,14 @@ devPlans.openapi(updateSettings, async (c) => {
 	const {
 		devPlanServiceTier,
 		defaultRoutingStrategy,
-		providerCacheControlEnabled,
 		devPlanPaygEnabled,
 		autoTopUpEnabled,
 		autoTopUpThreshold,
 		autoTopUpAmount,
 	} = c.req.valid("json");
+	const providerCacheControlMode = resolveProviderCacheControlMode(
+		c.req.valid("json"),
+	);
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -2172,7 +2181,7 @@ devPlans.openapi(updateSettings, async (c) => {
 	// Project-scoped settings apply to the default project surfaced by status.
 	let effectiveRoutingStrategy: "auto" | "price" | "throughput" | "latency" =
 		"auto";
-	let effectiveProviderCacheControlEnabled = true;
+	let effectiveProviderCacheControlMode: ProviderCacheControlMode = "auto";
 	const defaultProject = await db.query.project.findFirst({
 		where: {
 			organizationId: {
@@ -2185,8 +2194,7 @@ devPlans.openapi(updateSettings, async (c) => {
 	});
 	if (defaultProject) {
 		effectiveRoutingStrategy = defaultProject.defaultRoutingStrategy;
-		effectiveProviderCacheControlEnabled =
-			defaultProject.providerCacheControlEnabled;
+		effectiveProviderCacheControlMode = defaultProject.providerCacheControlMode;
 		const projectUpdateData: Partial<typeof tables.project.$inferInsert> = {};
 		if (
 			defaultRoutingStrategy !== undefined &&
@@ -2195,11 +2203,10 @@ devPlans.openapi(updateSettings, async (c) => {
 			projectUpdateData.defaultRoutingStrategy = defaultRoutingStrategy;
 		}
 		if (
-			providerCacheControlEnabled !== undefined &&
-			providerCacheControlEnabled !== defaultProject.providerCacheControlEnabled
+			providerCacheControlMode !== undefined &&
+			providerCacheControlMode !== defaultProject.providerCacheControlMode
 		) {
-			projectUpdateData.providerCacheControlEnabled =
-				providerCacheControlEnabled;
+			projectUpdateData.providerCacheControlMode = providerCacheControlMode;
 		}
 		if (Object.keys(projectUpdateData).length > 0) {
 			// Cached client so the gateway's project-cache invalidates and the new
@@ -2219,18 +2226,18 @@ devPlans.openapi(updateSettings, async (c) => {
 			};
 		}
 		if (
-			providerCacheControlEnabled !== undefined &&
-			providerCacheControlEnabled !== defaultProject.providerCacheControlEnabled
+			providerCacheControlMode !== undefined &&
+			providerCacheControlMode !== defaultProject.providerCacheControlMode
 		) {
-			changes.providerCacheControlEnabled = {
-				old: defaultProject.providerCacheControlEnabled,
-				new: providerCacheControlEnabled,
+			changes.providerCacheControlMode = {
+				old: defaultProject.providerCacheControlMode,
+				new: providerCacheControlMode,
 			};
 		}
 		effectiveRoutingStrategy =
 			defaultRoutingStrategy ?? effectiveRoutingStrategy;
-		effectiveProviderCacheControlEnabled =
-			providerCacheControlEnabled ?? effectiveProviderCacheControlEnabled;
+		effectiveProviderCacheControlMode =
+			providerCacheControlMode ?? effectiveProviderCacheControlMode;
 	}
 
 	if (Object.keys(changes).length > 0) {
@@ -2247,7 +2254,7 @@ devPlans.openapi(updateSettings, async (c) => {
 		success: true,
 		devPlanServiceTier: devPlanServiceTier ?? personalOrg.devPlanServiceTier,
 		defaultRoutingStrategy: effectiveRoutingStrategy,
-		providerCacheControlEnabled: effectiveProviderCacheControlEnabled,
+		providerCacheControlMode: effectiveProviderCacheControlMode,
 		devPlanPaygEnabled: devPlanPaygEnabled ?? personalOrg.devPlanPaygEnabled,
 		autoTopUpEnabled:
 			updateData.autoTopUpEnabled ?? personalOrg.autoTopUpEnabled,

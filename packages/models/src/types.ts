@@ -13,6 +13,19 @@ export interface PromptCacheBreakpoint {
 	mode?: "explicit";
 }
 
+/**
+ * How a project wants provider-side prompt caching handled.
+ *
+ * - `auto`: forward caller-supplied cache markers and additionally inject our
+ *   own on long prompts (Anthropic / Bedrock length heuristic).
+ * - `passthrough`: forward caller-supplied markers verbatim and never inject.
+ *   A request caches iff the client asked it to, which is what coding agents
+ *   (Claude Code, Cursor, Cline) need when the same key also serves traffic
+ *   that should not pay the cache-write premium.
+ * - `off`: strip every marker so the project never writes to a provider cache.
+ */
+export type ProviderCacheControlMode = "auto" | "passthrough" | "off";
+
 // Base content types
 export interface TextContent {
 	type: "text";

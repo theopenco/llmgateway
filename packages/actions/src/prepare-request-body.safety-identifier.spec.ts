@@ -46,7 +46,7 @@ async function prepare(options: {
 		options.useResponsesApi ?? false,
 		undefined,
 		undefined,
-		true,
+		"auto",
 		undefined,
 		undefined,
 		undefined,
