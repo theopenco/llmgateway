@@ -434,6 +434,32 @@ describe("fallback and error status code handling", () => {
 	}
 
 	describe("custom provider auto routing", () => {
+		test("streams a catalog-backed custom model", async () => {
+			await setupCustomAutoRouting();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer auto-custom-token",
+				},
+				body: JSON.stringify({
+					model: "my-custom/claude-haiku-4-5",
+					messages: [{ role: "user", content: "Hello custom stream!" }],
+					stream: true,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const streamResult = await readAll(res.body);
+			expect(streamResult.hasError).toBe(false);
+			expect(streamResult.eventCount).toBeGreaterThan(0);
+
+			const logs = await waitForLogs(1);
+			expect(logs[0].usedProvider).toBe("custom");
+			expect(logs[0].streamed).toBe(true);
+		});
+
 		test("routes a canonical model id to a cheaper matching custom model", async () => {
 			await setupCustomAutoRouting();
 
@@ -457,6 +483,44 @@ describe("fallback and error status code handling", () => {
 			expect(logs[0].usedProvider).toBe("custom");
 			expect(logs[0].usedModel).toBe("my-custom/claude-haiku-4-5");
 			expect(Number(logs[0].cost)).toBeGreaterThan(0);
+		});
+
+		test("honors scoring weights with a matching custom model", async () => {
+			await setupCustomAutoRouting();
+			await db.insert(tables.routingConfig).values({
+				projectId: "project-id",
+				enabled: true,
+				weights: {
+					price: 0,
+					imagePrice: 0,
+					uptime: 0,
+					throughput: 1,
+					latency: 0,
+					cache: 0,
+				},
+				sticky: { enabled: false },
+				providerPriorities: { anthropic: 1, custom: 1 },
+			});
+			await setRoutingMetrics("claude-haiku-4-5", "anthropic", 100, {
+				routingThroughput: 100,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer auto-custom-token",
+				},
+				body: JSON.stringify({
+					model: "claude-haiku-4-5",
+					messages: [{ role: "user", content: "Honor routing weights" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const logs = await waitForLogs(1);
+			expect(logs[0].usedProvider).toBe("anthropic");
+			expect(logs[0].routingMetadata?.selectionReason).toBe("weighted-score");
 		});
 
 		test("routes to a priced custom model with a matching catalog id", async () => {

@@ -6889,11 +6889,9 @@ chat.openapi(completions, async (c) => {
 	// Check if streaming is requested and if the model/provider combination supports it
 	// For image generation models, we'll fake streaming by converting the response
 	const fakeStreamingForImageGen = stream && isImageGeneration;
-	const streamingSupport = getModelStreamingSupport(
-		usedInternalModel,
-		usedProvider,
-		usedRegion,
-	);
+	const streamingSupport =
+		getUsedProviderMapping()?.streaming ??
+		getModelStreamingSupport(usedInternalModel, usedProvider, usedRegion);
 	// When the provider only supports streaming, force it even if the client didn't request it.
 	// The upstream request uses effectiveStream; the client response uses stream.
 	const forceStream = streamingSupport === "only" && !stream;
