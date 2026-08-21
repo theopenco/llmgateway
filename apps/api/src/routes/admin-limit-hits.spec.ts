@@ -53,6 +53,13 @@ describe("admin limit hits", () => {
 				blockedUsd: "450",
 			},
 			{
+				organizationId: "hits-org-a",
+				day: utcDay(0),
+				limitType: "concurrency",
+				endpointKey: "chat_completions",
+				hitCount: 7,
+			},
+			{
 				organizationId: "hits-org-b",
 				day: utcDay(0),
 				limitType: "spend_cap_daily",
@@ -103,8 +110,9 @@ describe("admin limit hits", () => {
 			organizationId: "hits-org-a",
 			organizationName: "Hits Org A",
 			billingEmail: "a@limit-hits.test",
-			totalHits: 123,
+			totalHits: 130,
 			rpmHits: 120,
+			concurrencyHits: 7,
 			topUpHits: 3,
 			topUpBlockedUsd: 450,
 			daysActive: 2,
@@ -115,6 +123,7 @@ describe("admin limit hits", () => {
 			totalHits: 10,
 			spendCapHits: 10,
 			rpmHits: 0,
+			concurrencyHits: 0,
 		});
 	});
 
@@ -134,6 +143,19 @@ describe("admin limit hits", () => {
 			organizationId: "hits-org-a",
 			totalHits: 120,
 		});
+
+		const concurrencyRes = await app.request(
+			"/admin/limit-hits?limitType=concurrency",
+			{ headers: { Cookie: cookie } },
+		);
+		expect(concurrencyRes.status).toBe(200);
+		const concurrencyBody = await concurrencyRes.json();
+		expect(concurrencyBody.total).toBe(1);
+		expect(concurrencyBody.organizations[0]).toMatchObject({
+			organizationId: "hits-org-a",
+			totalHits: 7,
+			concurrencyHits: 7,
+		});
 	});
 
 	it("returns the per-organization daily breakdown", async () => {
@@ -144,7 +166,7 @@ describe("admin limit hits", () => {
 		expect(res.status).toBe(200);
 		const body = await res.json();
 
-		expect(body.hits).toHaveLength(2);
+		expect(body.hits).toHaveLength(3);
 		expect(body.hits[0]).toMatchObject({
 			limitType: "rpm",
 			endpointKey: "chat_completions",
@@ -152,6 +174,11 @@ describe("admin limit hits", () => {
 			blockedUsd: 0,
 		});
 		expect(body.hits[1]).toMatchObject({
+			limitType: "concurrency",
+			endpointKey: "chat_completions",
+			hitCount: 7,
+		});
+		expect(body.hits[2]).toMatchObject({
 			limitType: "topup_velocity",
 			hitCount: 3,
 			blockedUsd: 450,
