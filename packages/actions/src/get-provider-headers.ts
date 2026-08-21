@@ -7,10 +7,6 @@ import {
 import type { ProviderKeyOptions } from "@llmgateway/db";
 
 export interface ProviderHeaderOptions {
-	/**
-	 * Enable web search beta header for Anthropic
-	 */
-	webSearchEnabled?: boolean;
 	requestId?: string;
 	providerKeyOptions?: ProviderKeyOptions;
 	configIndex?: number;
@@ -51,18 +47,12 @@ export function getProviderHeaders(
 	}
 
 	switch (provider) {
-		case "anthropic": {
-			const betaFeatures = ["tools-2024-04-04", "prompt-caching-2024-07-31"];
-			if (options?.webSearchEnabled) {
-				betaFeatures.push("web-search-2025-03-05");
-			}
+		case "anthropic":
 			return {
 				...requestIdHeader,
 				"x-api-key": token,
 				"anthropic-version": "2023-06-01",
-				"anthropic-beta": betaFeatures.join(","),
 			};
-		}
 		case "google-ai-studio":
 		case "glacier":
 		case "iceberg":
@@ -131,6 +121,14 @@ export function getProviderHeaders(
 			return {
 				...requestIdHeader,
 				"xi-api-key": token,
+			};
+		case "ranoai":
+			return {
+				...requestIdHeader,
+				Authorization: `Bearer ${token}`,
+				// RanoAI serves Brotli responses that Node leaves compressed when the
+				// gateway's production upstream dispatcher is installed.
+				"Accept-Encoding": "identity",
 			};
 		case "openai":
 		case "inference.net":

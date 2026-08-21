@@ -760,13 +760,11 @@ export const deepseekModels = [
 			{
 				providerId: "bytedance",
 				// The GA deployment; `deepseek-v4-flash-260425` is the superseded
-				// preview. Both currently bill at the rates below, but BytePlus raises
-				// the GA deployment to 0.44/0.014/1.32 on 2026-08-21 00:00 UTC+8 —
-				// these three fields have to move on that date.
+				// preview.
 				externalId: "deepseek-v4-flash-ga-260731",
-				inputPrice: "0.14e-6",
-				cachedInputPrice: "0.028e-6",
-				outputPrice: "0.28e-6",
+				inputPrice: "0.44e-6",
+				cachedInputPrice: "0.014e-6",
+				outputPrice: "1.32e-6",
 				requestPrice: "0",
 				contextSize: 1048576,
 				maxOutput: 393216,
@@ -837,8 +835,8 @@ export const deepseekModels = [
 			},
 			{
 				// RanoAI serves DeepSeek V4 Flash on Furiosa RNGD NPUs. The NPU
-				// deployment enforces a 128000-token window shared between the prompt
-				// and max_tokens, so a request 400s once the two together exceed it.
+				// deployment exposes a 1M-token context and accepts up to 393216 output
+				// tokens, rejecting 393217.
 				// Reasoning arrives as `reasoning_content` (streamed as deltas) only
 				// when `reasoning_effort` is passed explicitly — a request without it
 				// returns no reasoning at all, and "none" suppresses it.
@@ -851,13 +849,12 @@ export const deepseekModels = [
 				// `input_cache_read` rate /v1/models advertises.
 				providerId: "ranoai",
 				externalId: "deepseek-v4-flash",
-				deactivatedAt: new Date("2026-08-09"),
-				inputPrice: "0.15e-6",
-				outputPrice: "0.35e-6",
-				cachedInputPrice: "0.05e-6",
+				inputPrice: "0.14e-6",
+				outputPrice: "0.28e-6",
+				cachedInputPrice: "0.028e-6",
 				requestPrice: "0",
-				contextSize: 128000,
-				maxOutput: 128000,
+				contextSize: 1000000,
+				maxOutput: 393216,
 				// RanoAI serves NVFP4 weights; the catalogue's quantization union only
 				// carries the generic 4-bit float value.
 				quantization: "fp4",
@@ -874,7 +871,9 @@ export const deepseekModels = [
 				],
 				vision: false,
 				tools: true,
-				jsonOutput: true,
+				// json_object returns valid JSON but often ignores requested fields and
+				// emits an empty object; schema-constrained output is reliable.
+				jsonOutput: false,
 				jsonOutputSchema: true,
 				supportsN: true,
 			},

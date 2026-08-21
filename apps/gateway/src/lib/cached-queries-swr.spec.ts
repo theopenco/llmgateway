@@ -11,6 +11,7 @@ import {
 	eq,
 	apiKey,
 	apiKeyIamRule,
+	customModel,
 	discount,
 	organization,
 	project,
@@ -24,6 +25,7 @@ import {
 import { getApiKeyFingerprint } from "./api-key-fingerprint.js";
 import {
 	findActiveIamRules,
+	findActiveCustomModels,
 	findActiveProviderKeys,
 	findApiKeyByToken,
 	findEffectiveDiscount,
@@ -44,6 +46,8 @@ const testApiKeyId = "test-api-key-swr";
 const testApiKeyToken = "sk-test-swr-token";
 const testProviderKeyOpenAi = "test-provider-key-swr-openai";
 const testProviderKeyAnthropic = "test-provider-key-swr-anthropic";
+const testCustomProviderKey = "test-provider-key-swr-custom";
+const testCustomModelId = "test-custom-model-swr";
 const testIamRuleId = "test-iam-rule-swr";
 const testDiscountId = "test-discount-swr";
 const testRoutingScoreMultiplierId = "test-routing-score-multiplier-swr";
@@ -148,6 +152,25 @@ describe("cached-queries SWR integration", () => {
 			provider: "anthropic",
 			organizationId: testOrgId,
 			status: "active",
+		});
+
+		await db.insert(providerKey).values({
+			id: testCustomProviderKey,
+			token: "swr-test-custom-token",
+			provider: "custom",
+			name: "swr-custom-provider",
+			baseUrl: "https://custom.example.com",
+			organizationId: testOrgId,
+			status: "active",
+		});
+
+		await db.insert(customModel).values({
+			id: testCustomModelId,
+			providerKeyId: testCustomProviderKey,
+			organizationId: testOrgId,
+			modelName: "swr-custom-model",
+			inputPrice: "1e-6",
+			outputPrice: "2e-6",
 		});
 
 		await db.insert(apiKeyIamRule).values({
@@ -262,6 +285,21 @@ describe("cached-queries SWR integration", () => {
 
 			const mirror = await redisClient.get(
 				`${SWR_PREFIX}providerKey:active:${testOrgId}`,
+			);
+			expect(mirror).not.toBeNull();
+		});
+
+		it("findActiveCustomModels primes mirror at customModel:active:{org}", async () => {
+			const result = await findActiveCustomModels(testOrgId);
+			expect(result).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ id: testCustomModelId }),
+				]),
+			);
+			await waitForSwrMirrorWrites();
+
+			const mirror = await redisClient.get(
+				`${SWR_PREFIX}customModel:active:${testOrgId}`,
 			);
 			expect(mirror).not.toBeNull();
 		});
@@ -509,6 +547,25 @@ describe("cached-queries SWR integration", () => {
 			const result = await findEffectiveDiscount(testOrgId, "openai", "gpt-4");
 			expect(result.discount).toBe("0.25");
 			expect(result.source).toBe("org_provider_model");
+
+			selectSpy.mockRestore();
+		});
+
+		it("returns active custom models from SWR when DB errors", async () => {
+			await findActiveCustomModels(testOrgId);
+			await waitForSwrMirrorWrites();
+			await flushDrizzleCache();
+
+			const selectSpy = vi.spyOn(cdb, "select").mockImplementation(() => {
+				throw new Error("postgres unavailable");
+			});
+
+			const result = await findActiveCustomModels(testOrgId);
+			expect(result).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ id: testCustomModelId }),
+				]),
+			);
 
 			selectSpy.mockRestore();
 		});
