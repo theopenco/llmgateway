@@ -3,7 +3,9 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { adminMiddleware } from "@/middleware/admin.js";
+import { getStripe } from "@/routes/payments.js";
 
+import { logAuditEvent } from "@llmgateway/audit";
 import {
 	and,
 	auditLogActions,
@@ -355,6 +357,146 @@ adminOrgDetails.openapi(getOrganizationSettings, async (c) => {
 			createdAt: key.createdAt.toISOString(),
 		})),
 	});
+});
+
+// ==================== Payment Methods ====================
+
+const adminPaymentMethodSchema = z.object({
+	id: z.string(),
+	type: z.string(),
+	createdAt: z.string(),
+	card: z
+		.object({
+			brand: z.string(),
+			last4: z.string(),
+			expiryMonth: z.number(),
+			expiryYear: z.number(),
+		})
+		.nullable(),
+});
+
+const getOrganizationPaymentMethods = createRoute({
+	method: "get",
+	path: "/organizations/{orgId}/payment-methods",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						paymentMethods: z.array(adminPaymentMethodSchema),
+					}),
+				},
+			},
+			description: "Payment methods attached to the Stripe customer.",
+		},
+		404: {
+			description: "Organization not found.",
+		},
+	},
+});
+
+adminOrgDetails.openapi(getOrganizationPaymentMethods, async (c) => {
+	const { orgId } = c.req.valid("param");
+	const org = await requireOrganization(orgId);
+
+	if (!org.stripeCustomerId) {
+		return c.json({ paymentMethods: [] });
+	}
+
+	const paymentMethods = await getStripe().paymentMethods.list({
+		customer: org.stripeCustomerId,
+		type: "card",
+		limit: 100,
+	});
+
+	return c.json({
+		paymentMethods: paymentMethods.data.map((paymentMethod) => ({
+			id: paymentMethod.id,
+			type: paymentMethod.type,
+			createdAt: new Date(paymentMethod.created * 1000).toISOString(),
+			card: paymentMethod.card
+				? {
+						brand: paymentMethod.card.brand,
+						last4: paymentMethod.card.last4,
+						expiryMonth: paymentMethod.card.exp_month,
+						expiryYear: paymentMethod.card.exp_year,
+					}
+				: null,
+		})),
+	});
+});
+
+const deleteOrganizationPaymentMethod = createRoute({
+	method: "delete",
+	path: "/organizations/{orgId}/payment-methods/{paymentMethodId}",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+			paymentMethodId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }),
+				},
+			},
+			description: "Payment method detached from Stripe and removed locally.",
+		},
+		404: {
+			description: "Organization or payment method not found.",
+		},
+	},
+});
+
+adminOrgDetails.openapi(deleteOrganizationPaymentMethod, async (c) => {
+	const { orgId, paymentMethodId } = c.req.valid("param");
+	const org = await requireOrganization(orgId);
+	const user = c.get("user");
+
+	if (!org.stripeCustomerId || !user) {
+		throw new HTTPException(404, { message: "Payment method not found" });
+	}
+
+	const paymentMethod =
+		await getStripe().paymentMethods.retrieve(paymentMethodId);
+	const stripeCustomerId =
+		typeof paymentMethod.customer === "string"
+			? paymentMethod.customer
+			: (paymentMethod.customer?.id ?? null);
+
+	if (stripeCustomerId !== org.stripeCustomerId) {
+		throw new HTTPException(404, { message: "Payment method not found" });
+	}
+
+	await getStripe().paymentMethods.detach(paymentMethodId);
+	await db
+		.delete(tables.paymentMethod)
+		.where(
+			and(
+				eq(tables.paymentMethod.organizationId, orgId),
+				eq(tables.paymentMethod.stripePaymentMethodId, paymentMethodId),
+			),
+		);
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user.id,
+		action: "payment.method.delete",
+		resourceType: "payment_method",
+		resourceId: paymentMethodId,
+		metadata: {
+			cardLast4: paymentMethod.card?.last4,
+		},
+	});
+
+	return c.json({ success: true });
 });
 
 // ==================== Guardrails ====================

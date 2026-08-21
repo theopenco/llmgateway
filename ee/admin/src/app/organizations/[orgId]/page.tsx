@@ -35,6 +35,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
 	addManualCreditsToOrganization,
 	blockOrganization,
+	deleteOrganizationPaymentMethod,
 	giftCreditsToOrganization,
 	manageOrganization,
 	updateReferralBonus,
@@ -219,6 +220,7 @@ export default async function OrganizationPage({
 		auditLogsRes,
 		orgMetricsRes,
 		settingsRes,
+		paymentMethodsRes,
 		guardrailsRes,
 		ssoRes,
 	] = await Promise.all([
@@ -260,6 +262,9 @@ export default async function OrganizationPage({
 		$api.GET("/admin/organizations/{orgId}/settings", {
 			params: { path: { orgId } },
 		}),
+		$api.GET("/admin/organizations/{orgId}/payment-methods", {
+			params: { path: { orgId } },
+		}),
 		$api.GET("/admin/organizations/{orgId}/guardrails", {
 			params: { path: { orgId } },
 		}),
@@ -275,6 +280,7 @@ export default async function OrganizationPage({
 	const membersData = membersRes.data;
 	const auditLogsData = auditLogsRes.data;
 	const settingsData = settingsRes.data;
+	const paymentMethodsData = paymentMethodsRes.data;
 	const guardrailsData = guardrailsRes.data;
 	const ssoData = ssoRes.data;
 
@@ -849,7 +855,18 @@ export default async function OrganizationPage({
 
 				<TabsContent value="settings">
 					{settingsData ? (
-						<OrgSettingsTab settings={settingsData} />
+						<OrgSettingsTab
+							settings={settingsData}
+							paymentMethods={paymentMethodsData?.paymentMethods ?? null}
+							paymentMethodsLoadError={!paymentMethodsData}
+							onDeletePaymentMethod={async (paymentMethodId) => {
+								"use server";
+								return await deleteOrganizationPaymentMethod(
+									orgId,
+									paymentMethodId,
+								);
+							}}
+						/>
 					) : (
 						<p className="py-8 text-center text-sm text-muted-foreground">
 							Failed to load organization settings
