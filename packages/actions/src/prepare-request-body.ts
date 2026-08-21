@@ -16,6 +16,7 @@ import {
 	type OpenAIToolInput,
 	type PromptCacheOptions,
 	type PromptCacheRetention,
+	type ProviderCacheControlMode,
 	type ProviderRequestBody,
 	type ReasoningDetail,
 	type ResponsesToolChoice,
@@ -1300,6 +1301,9 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
  *   per-region variants. Used together with `usedProvider` to disambiguate.
  * @param usedExternalId - Provider-specific upstream model id. Used only as
  *   the `model:` value in the upstream request body — never for lookups.
+ * @param providerCacheControlMode - Project's provider cache-write policy.
+ *   `auto` forwards caller markers and injects more on long prompts,
+ *   `passthrough` only forwards, `off` strips everything.
  */
 export async function prepareRequestBody(
 	usedProvider: ProviderId,
@@ -1337,7 +1341,7 @@ export async function prepareRequestBody(
 	useResponsesApi?: boolean,
 	prompt_cache_key?: string,
 	prompt_cache_retention?: PromptCacheRetention,
-	providerCacheControlEnabled = true,
+	providerCacheControlMode: ProviderCacheControlMode = "auto",
 	n?: number,
 	service_tier?: "auto" | "default" | "flex" | "priority",
 	verbosity?: "low" | "medium" | "high",
@@ -1778,19 +1782,41 @@ export async function prepareRequestBody(
 		processedMessages = transformMessagesForNoSystemRole(processedMessages);
 	}
 
+	// Provider cache-write policy, split into the two things it actually
+	// controls. `off` is the only mode that touches caller-supplied markers;
+	// `passthrough` differs from `auto` purely by not adding markers of our own,
+	// so a client that manages its own caching (Claude Code, Cursor, Cline) keeps
+	// working while traffic that sends no markers never pays the write premium.
+	const allowProviderCacheWrites = providerCacheControlMode !== "off";
+	const autoInjectCacheControl = providerCacheControlMode === "auto";
+
+	// A tool message's `tool_result_cache_control` only has a destination on the
+	// Anthropic Messages API, where it becomes a marker on the tool_result block
+	// the message is lowered to. Anywhere else it would reach the upstream as an
+	// unknown message field, and a project that opted out of provider cache
+	// writes must not emit it at all.
+	if (!anthropicMessagesApi || !allowProviderCacheWrites) {
+		processedMessages = processedMessages.map((m) => {
+			if (m.tool_result_cache_control === undefined) {
+				return m;
+			}
+			const { tool_result_cache_control: _dropped, ...rest } = m;
+			return rest;
+		});
+	}
+
 	// Strip Anthropic-style cache_control markers from caller-supplied content
 	// parts. We do this in two cases:
 	//   1) The resolved provider doesn't natively understand cache_control —
 	//      strip from text blocks so we don't forward an unknown field that
 	//      strict providers (OpenAI, Google, etc.) would 400 on.
-	//   2) The project has opted out of provider cache writes via
-	//      providerCacheControlEnabled=false — strip from ALL content blocks
-	//      so we honor the user's intent that this project never writes to
-	//      provider cache. This covers callers that always emit cache_control
-	//      markers regardless of the user's usage pattern (Claude Code, Cursor,
-	//      Cline, etc.). Without this, a coding agent on a sparse-use account
-	//      would still pay the 1.25× / 2× cache-write premium because the
-	//      agent's markers would flow through unchanged.
+	//   2) The project set providerCacheControlMode="off" — strip from ALL
+	//      content blocks so we honor the user's intent that this project never
+	//      writes to provider cache. This covers callers that always emit
+	//      cache_control markers regardless of the user's usage pattern (Claude
+	//      Code, Cursor, Cline, etc.). Without this, a coding agent on a
+	//      sparse-use account would still pay the 1.25× / 2× cache-write premium
+	//      because the agent's markers would flow through unchanged.
 	// Anthropic and AWS Bedrock branches below transform/forward markers on
 	// their own; Alibaba accepts `cache_control: {type: "ephemeral"}` on its
 	// OpenAI-compatible surface but supports only a fixed 5-minute TTL, so any
@@ -1800,7 +1826,7 @@ export async function prepareRequestBody(
 		usedProvider === "vertex-anthropic" ||
 		usedProvider === "aws-bedrock" ||
 		usedProvider === "alibaba";
-	const stripAllCacheControl = !providerCacheControlEnabled;
+	const stripAllCacheControl = !allowProviderCacheWrites;
 	const stripTextCacheControl = !providerHandlesCacheControl;
 	if (stripAllCacheControl || stripTextCacheControl) {
 		processedMessages = processedMessages.map((m) => {
@@ -1875,7 +1901,7 @@ export async function prepareRequestBody(
 	const keepPromptCacheBreakpoints =
 		usedProvider === "openai" &&
 		supportsOpenAIExplicitPromptCache(usedInternalModel) &&
-		providerCacheControlEnabled;
+		allowProviderCacheWrites;
 	if (!keepPromptCacheBreakpoints) {
 		processedMessages = processedMessages.map((m) => {
 			if (!Array.isArray(m.content)) {
@@ -2262,7 +2288,7 @@ export async function prepareRequestBody(
 						responsesBody.prompt_cache_retention = prompt_cache_retention;
 					}
 					if (supportsOpenAIExplicitPromptCache(usedInternalModel)) {
-						if (!providerCacheControlEnabled) {
+						if (!allowProviderCacheWrites) {
 							// The project opted out of provider cache writes, but GPT-5.6
 							// implicit caching auto-writes (billed at 1.25x) on every
 							// request. Force explicit mode — with all breakpoint markers
@@ -2271,6 +2297,11 @@ export async function prepareRequestBody(
 							responsesBody.prompt_cache_options = { mode: "explicit" };
 						} else if (prompt_cache_options !== undefined) {
 							responsesBody.prompt_cache_options = prompt_cache_options;
+						} else if (!autoInjectCacheControl) {
+							// Passthrough: implicit caching writes a cache the caller never
+							// asked for. Explicit mode confines writes to the caller's own
+							// breakpoints, which is what this mode promises.
+							responsesBody.prompt_cache_options = { mode: "explicit" };
 						}
 					}
 				}
@@ -2429,7 +2460,7 @@ export async function prepareRequestBody(
 						requestBody.prompt_cache_retention = prompt_cache_retention;
 					}
 					if (supportsOpenAIExplicitPromptCache(usedInternalModel)) {
-						if (!providerCacheControlEnabled) {
+						if (!allowProviderCacheWrites) {
 							// The project opted out of provider cache writes, but GPT-5.6
 							// implicit caching auto-writes (billed at 1.25x) on every
 							// request. Force explicit mode — with all breakpoint markers
@@ -2438,6 +2469,11 @@ export async function prepareRequestBody(
 							requestBody.prompt_cache_options = { mode: "explicit" };
 						} else if (prompt_cache_options !== undefined) {
 							requestBody.prompt_cache_options = prompt_cache_options;
+						} else if (!autoInjectCacheControl) {
+							// Passthrough: implicit caching writes a cache the caller never
+							// asked for. Explicit mode confines writes to the caller's own
+							// breakpoints, which is what this mode promises.
+							requestBody.prompt_cache_options = { mode: "explicit" };
 						}
 					}
 				}
@@ -2903,28 +2939,86 @@ export async function prepareRequestBody(
 			);
 
 			// Anthropic requires longer-TTL cache breakpoints to come before
-			// shorter ones (processing order: tools, system, messages). The
-			// gateway's heuristics inject ttl-less markers (5m default), so when
-			// the caller placed an explicit ttl:"1h" marker in the messages, any
-			// auto-injected marker would land before it and Anthropic rejects the
-			// request ("a ttl='1h' cache_control block must not come after a
-			// ttl='5m' cache_control block"). Defer entirely to the caller's
-			// caching strategy in that case. A 1h marker only on system is safe:
+			// shorter ones ("a 1-hour cache entry must appear before any 5-minute
+			// cache entries" —
+			// platform.claude.com/docs/en/build-with-claude/prompt-caching;
+			// processing order: tools, system, messages). The gateway's heuristics
+			// inject ttl-less markers (5m default), so when the caller placed an
+			// explicit ttl:"1h" marker in the messages, any auto-injected marker
+			// would land before it and Anthropic rejects the request ("a ttl='1h'
+			// cache_control block must not come after a ttl='5m' cache_control
+			// block"). Defer entirely to the caller's caching strategy in that
+			// case — including when the 1h marker rides on a tool_result, which
+			// this check would otherwise miss. A 1h marker only on system is safe:
 			// message-level 5m markers after it satisfy the ordering.
 			const callerUses1hTtlInMessages = nonSystemMessages.some(
 				(m) =>
-					Array.isArray(m.content) &&
-					m.content.some(
-						(part) => isTextContent(part) && part.cache_control?.ttl === "1h",
-					),
+					m.tool_result_cache_control?.ttl === "1h" ||
+					(Array.isArray(m.content) &&
+						m.content.some(
+							(part) => isTextContent(part) && part.cache_control?.ttl === "1h",
+						)),
 			);
 			const autoCacheControlEnabled =
-				providerCacheControlEnabled && !callerUses1hTtlInMessages;
+				autoInjectCacheControl && !callerUses1hTtlInMessages;
 
 			// Build the system field with cache_control for long prompts
 			// Track cache_control usage across system and user messages (max 4 total per Anthropic's limit)
-			let systemCacheControlCount = 0;
 			const maxCacheControlBlocks = 4;
+
+			// Anthropic renders `tools` before `system` and `messages`, so a caller
+			// breakpoint on the last tool caches the largest prefix available — and
+			// it is the one an agentic client (Claude Code) reliably sets.
+			const anthropicFunctionTools = (tools ?? []).filter(isFunctionTool);
+
+			// Being first also makes a 5m tool marker the one thing that can strand
+			// a caller's later 1h marker on the wrong side of Anthropic's ordering
+			// rule ("a 1-hour cache entry must appear before any 5-minute cache
+			// entries"). Auto-injected markers are always ttl-less/5m and land after
+			// the tools, so they are safe; a caller mixing TTLs is not. Drop the 5m
+			// tool marker in that case rather than emit a request Anthropic rejects
+			// — the 1h breakpoint the caller paid the 2x write premium for is the
+			// one worth keeping.
+			const callerUses1hTtlAfterTools =
+				callerUses1hTtlInMessages ||
+				systemMessages.some(
+					(sysMsg) =>
+						Array.isArray(sysMsg.content) &&
+						sysMsg.content.some(
+							(part) => isTextContent(part) && part.cache_control?.ttl === "1h",
+						),
+				);
+			let lastOneHourToolIndex = -1;
+			anthropicFunctionTools.forEach((tool, index) => {
+				if (tool.cache_control?.ttl === "1h") {
+					lastOneHourToolIndex = index;
+				}
+			});
+
+			// Decide here which tool markers actually ship, so the budget seeded
+			// below matches them exactly. Counting them after the fact would let the
+			// system and message passes spend slots the tools already took, and
+			// Anthropic rejects the fifth breakpoint outright.
+			let toolMarkersKeptSoFar = 0;
+			const toolCacheControlKept = anthropicFunctionTools.map((tool, index) => {
+				const marker = tool.cache_control;
+				if (
+					!allowProviderCacheWrites ||
+					!marker ||
+					toolMarkersKeptSoFar >= maxCacheControlBlocks
+				) {
+					return false;
+				}
+				const orderingSafe =
+					marker.ttl === "1h" ||
+					(!callerUses1hTtlAfterTools && index > lastOneHourToolIndex);
+				if (!orderingSafe) {
+					return false;
+				}
+				toolMarkersKeptSoFar++;
+				return true;
+			});
+			let systemCacheControlCount = toolMarkersKeptSoFar;
 
 			// Get the minCacheableTokens from the model definition (default to 1024 if not specified)
 			const providerMapping = modelDef?.providers.find(
@@ -3053,9 +3147,9 @@ export async function prepareRequestBody(
 			// Transform tools from OpenAI format to Anthropic format
 			if (tools && tools.length > 0) {
 				// Filter to only function tools (web_search is handled separately)
-				const functionTools = tools.filter(isFunctionTool);
+				const functionTools = anthropicFunctionTools;
 				if (functionTools.length > 0) {
-					requestBody.tools = functionTools.map((tool) => ({
+					requestBody.tools = functionTools.map((tool, index) => ({
 						name: tool.function.name,
 						description: tool.function.description,
 						input_schema: tool.function.parameters,
@@ -3063,6 +3157,11 @@ export async function prepareRequestBody(
 						// section before the cache key is computed, so forwarding this
 						// is what keeps a large tool catalogue out of the cached prefix.
 						...(tool.defer_loading === true && { defer_loading: true }),
+						// Budget and TTL ordering were both settled above, where the
+						// system pass needed the resulting count.
+						...(toolCacheControlKept[index] && {
+							cache_control: tool.cache_control,
+						}),
 					}));
 				}
 				// The tool search tool has to come first: Anthropic rejects a request
@@ -3333,7 +3432,7 @@ export async function prepareRequestBody(
 						),
 				);
 			const bedrockAutoCachePointEnabled =
-				providerCacheControlEnabled && !bedrockCallerUses1hTtlInMessages;
+				autoInjectCacheControl && !bedrockCallerUses1hTtlInMessages;
 
 			// Build the system field with cachePoint for long prompts.
 			// AWS Bedrock uses "cachePoint" (not "cacheControl") as a SEPARATE

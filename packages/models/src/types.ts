@@ -13,14 +13,33 @@ export interface PromptCacheBreakpoint {
 	mode?: "explicit";
 }
 
+/**
+ * Anthropic prompt-cache breakpoint. Ends a cacheable prefix; Anthropic allows
+ * at most 4 of them per request across tools, system and messages.
+ */
+export interface CacheControl {
+	type: "ephemeral";
+	ttl?: "5m" | "1h";
+}
+
+/**
+ * How a project wants provider-side prompt caching handled.
+ *
+ * - `auto`: forward caller-supplied cache markers and additionally inject our
+ *   own on long prompts (Anthropic / Bedrock length heuristic).
+ * - `passthrough`: forward caller-supplied markers verbatim and never inject.
+ *   A request caches iff the client asked it to, which is what coding agents
+ *   (Claude Code, Cursor, Cline) need when the same key also serves traffic
+ *   that should not pay the cache-write premium.
+ * - `off`: strip every marker so the project never writes to a provider cache.
+ */
+export type ProviderCacheControlMode = "auto" | "passthrough" | "off";
+
 // Base content types
 export interface TextContent {
 	type: "text";
 	text: string;
-	cache_control?: {
-		type: "ephemeral";
-		ttl?: "5m" | "1h";
-	};
+	cache_control?: CacheControl;
 	prompt_cache_breakpoint?: PromptCacheBreakpoint;
 }
 
@@ -86,6 +105,12 @@ export interface ToolResultContent {
 	// Anthropic accepts a block array here as well as a plain string; the array
 	// form is what carries `tool_reference` blocks for a client-side tool search.
 	content: string | AnthropicNativeBlock[];
+	// Anthropic accepts a cache breakpoint on a tool_result block ("Tool use and
+	// tool results: content blocks in the messages.content array, in both user
+	// and assistant turns" —
+	// platform.claude.com/docs/en/build-with-claude/prompt-caching), which is
+	// where the stable prefix of an agentic loop usually ends.
+	cache_control?: CacheControl;
 }
 
 /**
@@ -160,6 +185,12 @@ export interface BaseMessage {
 	// is how a client-side tool search returns `tool_reference` blocks. Replayed
 	// on the Anthropic Messages API only and stripped for every other upstream.
 	anthropic_native_blocks?: AnthropicNativeBlock[];
+	// Caller-supplied cache breakpoint on the `tool_result` block this tool
+	// message came from. The OpenAI-format tool message lowers that block to a
+	// plain string and has nowhere to put the marker, so it rides here and is
+	// re-attached to the tool_result block on the Anthropic Messages API path.
+	// Stripped for every other upstream, which would reject the unknown field.
+	tool_result_cache_control?: CacheControl;
 }
 
 // Provider-specific message formats
@@ -218,6 +249,13 @@ export interface OpenAIFunctionToolInput {
 	 * tool search tool discovers it. Stripped for every other upstream.
 	 */
 	defer_loading?: boolean;
+	/**
+	 * Anthropic-only: cache breakpoint ending the tool-definitions prefix, which
+	 * Anthropic renders before system and messages. Placed on the last tool it
+	 * caches every tool up to and including that one. Stripped for every other
+	 * upstream, which would reject the unknown property.
+	 */
+	cache_control?: CacheControl;
 }
 
 // Web search tool input type
@@ -256,6 +294,7 @@ export interface AnthropicTool {
 	name: string;
 	description?: string;
 	input_schema: FunctionParameter;
+	cache_control?: CacheControl;
 }
 
 export interface GoogleTool {

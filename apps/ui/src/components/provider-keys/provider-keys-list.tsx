@@ -40,6 +40,7 @@ import {
 } from "@llmgateway/shared/components";
 
 import { CreateProviderKeyDialog } from "./create-provider-key-dialog";
+import { EditProviderKeyDescriptionDialog } from "./edit-provider-key-description-dialog";
 import { ProviderKeyLimitDialog } from "./provider-key-limit-dialog";
 import { ProviderKeyModelsDialog } from "./provider-key-models-dialog";
 import { RenameProviderKeyDialog } from "./rename-provider-key-dialog";
@@ -438,6 +439,11 @@ export function ProviderKeysList({
 																				Not attested
 																			</Badge>
 																		))}
+																	{providerKey.description && (
+																		<span className="max-w-[240px] truncate text-sm font-medium">
+																			{providerKey.description}
+																		</span>
+																	)}
 																	<span className="max-w-[200px] truncate font-mono text-xs text-muted-foreground">
 																		{providerKey.maskedToken}
 																	</span>
@@ -505,6 +511,22 @@ export function ProviderKeysList({
 																		<DropdownMenuLabel>
 																			Actions
 																		</DropdownMenuLabel>
+																		<EditProviderKeyDescriptionDialog
+																			providerKeyId={providerKey.id}
+																			currentDescription={
+																				providerKey.description
+																			}
+																		>
+																			<DropdownMenuItem
+																				onSelect={(event) =>
+																					event.preventDefault()
+																				}
+																			>
+																				{providerKey.description
+																					? "Edit description"
+																					: "Add description"}
+																			</DropdownMenuItem>
+																		</EditProviderKeyDescriptionDialog>
 																		{provider.id === "custom" && (
 																			<>
 																				<RenameProviderKeyDialog

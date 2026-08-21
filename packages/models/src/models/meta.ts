@@ -235,6 +235,7 @@ export const metaModels = [
 			{
 				providerId: "nebius",
 				externalId: "nvidia/Llama-3_1-Nemotron-Ultra-253B-v1",
+				deactivatedAt: new Date("2026-08-31"),
 				inputPrice: "0.6e-6",
 				outputPrice: "1.8e-6",
 				requestPrice: "0",
@@ -282,6 +283,7 @@ export const metaModels = [
 			{
 				providerId: "nebius",
 				externalId: "meta-llama/Llama-3.3-70B-Instruct",
+				deactivatedAt: new Date("2026-08-31"),
 				inputPrice: "0.13e-6",
 				outputPrice: "0.4e-6",
 				requestPrice: "0",

@@ -74,8 +74,8 @@ export function toAnthropicToolSearchTool(
 
 /**
  * Removes the Anthropic-only tool extensions for upstreams that would reject
- * them (`defer_loading` is an unknown property, and the tool search tool has no
- * counterpart at all).
+ * them (`defer_loading` and `cache_control` are unknown properties, and the
+ * tool search tool has no counterpart at all).
  */
 export function stripAnthropicToolExtensions(
 	tools: OpenAIToolInput[] | undefined,
@@ -86,10 +86,17 @@ export function stripAnthropicToolExtensions(
 	return tools
 		.filter((tool) => !isToolSearchTool(tool))
 		.map((tool) => {
-			if (tool.type !== "function" || tool.defer_loading === undefined) {
+			if (
+				tool.type !== "function" ||
+				(tool.defer_loading === undefined && tool.cache_control === undefined)
+			) {
 				return tool;
 			}
-			const { defer_loading: _deferLoading, ...rest } = tool;
+			const {
+				defer_loading: _deferLoading,
+				cache_control: _cacheControl,
+				...rest
+			} = tool;
 			return rest;
 		});
 }

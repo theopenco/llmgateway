@@ -11,8 +11,9 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { useApi } from "@/lib/fetch-client";
+
+import type { ProviderCacheControlMode } from "@llmgateway/models";
 
 type RoutingStrategy = "auto" | "price" | "throughput" | "latency";
 
@@ -36,16 +37,36 @@ const SERVICE_TIER_OPTIONS: Array<{ value: ServiceTier; label: string }> = [
 	{ value: "flex", label: "Flex" },
 ];
 
+const PROVIDER_CACHE_OPTIONS: Array<{
+	value: ProviderCacheControlMode;
+	label: string;
+	toast: string;
+}> = [
+	{
+		value: "auto",
+		label: "Automatic",
+		toast: "DevPass adds cache markers on long prompts",
+	},
+	{
+		value: "passthrough",
+		label: "Client-managed",
+		toast: "Only your client's own cache markers are used",
+	},
+	{ value: "off", label: "Disabled", toast: "Provider cache writes disabled" },
+];
+
 interface DevPlanSettingsProps {
+	canConfigureServiceTier: boolean;
 	devPlanServiceTier: ServiceTier;
 	defaultRoutingStrategy: RoutingStrategy;
-	providerCacheControlEnabled: boolean;
+	providerCacheControlMode: ProviderCacheControlMode;
 }
 
 export default function DevPlanSettings({
+	canConfigureServiceTier,
 	devPlanServiceTier: initialServiceTier,
 	defaultRoutingStrategy: initialRoutingStrategy,
-	providerCacheControlEnabled: initialProviderCacheControlEnabled,
+	providerCacheControlMode: initialProviderCacheControlMode,
 }: DevPlanSettingsProps) {
 	const api = useApi();
 
@@ -57,8 +78,8 @@ export default function DevPlanSettings({
 	const [serviceTier, setServiceTier] =
 		useState<ServiceTier>(initialServiceTier);
 	const [isUpdatingServiceTier, setIsUpdatingServiceTier] = useState(false);
-	const [providerCacheControlEnabled, setProviderCacheControlEnabled] =
-		useState(initialProviderCacheControlEnabled);
+	const [providerCacheControlMode, setProviderCacheControlMode] =
+		useState<ProviderCacheControlMode>(initialProviderCacheControlMode);
 	const [isUpdatingProviderCache, setIsUpdatingProviderCache] = useState(false);
 
 	const updateSettingsMutation = api.useMutation(
@@ -112,21 +133,21 @@ export default function DevPlanSettings({
 		}
 	};
 
-	const handleProviderCacheChange = async (enabled: boolean) => {
-		const previous = providerCacheControlEnabled;
-		setProviderCacheControlEnabled(enabled);
+	const handleProviderCacheChange = async (value: string) => {
+		const option = PROVIDER_CACHE_OPTIONS.find((o) => o.value === value);
+		if (!option) {
+			return;
+		}
+		const previous = providerCacheControlMode;
+		setProviderCacheControlMode(option.value);
 		setIsUpdatingProviderCache(true);
 		try {
 			await updateSettingsMutation.mutateAsync({
-				body: { providerCacheControlEnabled: enabled },
+				body: { providerCacheControlMode: option.value },
 			});
-			toast.success(
-				enabled
-					? "Provider cache writes enabled"
-					: "Provider cache writes disabled",
-			);
+			toast.success(option.toast);
 		} catch {
-			setProviderCacheControlEnabled(previous);
+			setProviderCacheControlMode(previous);
 			toast.error("Failed to update provider cache writes");
 		} finally {
 			setIsUpdatingProviderCache(false);
@@ -195,53 +216,29 @@ export default function DevPlanSettings({
 								Provider cache writes
 							</Label>
 							<p className="text-xs text-muted-foreground">
-								Enabled by default. DevPass adds and forwards Claude cache
-								markers for reusable prompt prefixes. Cache writes cost 1.25×
-								for 5 minutes or 2× for 1 hour, while cache reads cost 0.1×.
-								Disable this for sporadic sessions that rarely reuse a prompt
-								within the cache lifetime.
-							</p>
-						</div>
-						<Switch
-							id="provider-cache-writes"
-							checked={providerCacheControlEnabled}
-							onCheckedChange={handleProviderCacheChange}
-							disabled={isUpdatingProviderCache}
-						/>
-					</div>
-				</div>
-
-				<div className="rounded-xl border p-5 space-y-4">
-					<div className="flex items-center justify-between gap-4">
-						<div className="space-y-0.5">
-							<Label htmlFor="service-tier" className="text-sm font-medium">
-								Default service tier
-							</Label>
-							<p className="text-xs text-muted-foreground">
-								Flex processing costs less and saves your plan credits, but
-								responses may be slower during peak demand. Only applied for
-								models that support it — everything else stays on standard
-								processing.{" "}
-								<a
-									href="https://docs.llmgateway.io/features/service-tiers"
-									target="_blank"
-									rel="noreferrer"
-									className="underline underline-offset-2"
-								>
-									Learn more
-								</a>
+								Automatic adds cache markers to reusable prompt prefixes and
+								forwards the ones your client sends. Client-managed only
+								forwards your client&apos;s markers, so tools that manage their
+								own caching (Claude Code, Cursor, Cline) keep working while
+								requests without markers never pay for a write. Disabled strips
+								every marker. Cache writes cost 1.25× for 5 minutes or 2× for 1
+								hour, while cache reads cost 0.1×.
 							</p>
 						</div>
 						<Select
-							value={serviceTier}
-							onValueChange={handleServiceTierChange}
-							disabled={isUpdatingServiceTier}
+							value={providerCacheControlMode}
+							onValueChange={handleProviderCacheChange}
+							disabled={isUpdatingProviderCache}
 						>
-							<SelectTrigger id="service-tier" size="sm" className="w-[180px]">
+							<SelectTrigger
+								id="provider-cache-writes"
+								size="sm"
+								className="w-[180px]"
+							>
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
-								{SERVICE_TIER_OPTIONS.map((option) => (
+								{PROVIDER_CACHE_OPTIONS.map((option) => (
 									<SelectItem key={option.value} value={option.value}>
 										{option.label}
 									</SelectItem>
@@ -250,6 +247,52 @@ export default function DevPlanSettings({
 						</Select>
 					</div>
 				</div>
+
+				{canConfigureServiceTier && (
+					<div className="rounded-xl border p-5 space-y-4">
+						<div className="flex items-center justify-between gap-4">
+							<div className="space-y-0.5">
+								<Label htmlFor="service-tier" className="text-sm font-medium">
+									Default service tier
+								</Label>
+								<p className="text-xs text-muted-foreground">
+									Flex processing costs less and saves your plan credits, but
+									responses may be slower during peak demand. Only applied for
+									models that support it — everything else stays on standard
+									processing.{" "}
+									<a
+										href="https://docs.llmgateway.io/features/service-tiers"
+										target="_blank"
+										rel="noreferrer"
+										className="underline underline-offset-2"
+									>
+										Learn more
+									</a>
+								</p>
+							</div>
+							<Select
+								value={serviceTier}
+								onValueChange={handleServiceTierChange}
+								disabled={isUpdatingServiceTier}
+							>
+								<SelectTrigger
+									id="service-tier"
+									size="sm"
+									className="w-[180px]"
+								>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									{SERVICE_TIER_OPTIONS.map((option) => (
+										<SelectItem key={option.value} value={option.value}>
+											{option.label}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</div>
+					</div>
+				)}
 			</div>
 		</div>
 	);

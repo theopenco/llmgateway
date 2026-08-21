@@ -127,12 +127,14 @@ describe("provider keys route", () => {
 				provider: "inference.net",
 				token: "inference-test-token",
 				organizationId: "test-org-id",
+				description: "Production inference",
 			}),
 		});
 		expect(res.status).toBe(200);
 		const json = await res.json();
 		expect(json).toHaveProperty("providerKey");
 		expect(json.providerKey.provider).toBe("inference.net");
+		expect(json.providerKey.description).toBe("Production inference");
 		expect(json.providerKey.maskedToken).toBeDefined();
 		expect(json.providerKey.maskedToken).toContain("•");
 		expect(json.providerKey.token).toBeUndefined();
@@ -503,6 +505,26 @@ describe("provider keys route", () => {
 		});
 		expect(providerKey).not.toBeNull();
 		expect(providerKey?.status).toBe("inactive");
+	});
+
+	test("PATCH /keys/provider/{id} updates its description", async () => {
+		const res = await app.request("/keys/provider/test-provider-key-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ description: "Batch jobs" }),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.providerKey.description).toBe("Batch jobs");
+
+		const providerKey = await db.query.providerKey.findFirst({
+			where: { id: { eq: "test-provider-key-id" } },
+		});
+		expect(providerKey?.description).toBe("Batch jobs");
 	});
 
 	describe("spend limits", () => {

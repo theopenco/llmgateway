@@ -493,6 +493,218 @@ describe("api", () => {
 		}
 	});
 
+	test("/v1/messages keeps a caller's tool_result cache_control on the wire", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "anthropic",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const originalFetch = globalThis.fetch;
+		let upstreamBody: any = null;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+
+				if (url.includes(`${mockServerUrl}/v1/messages`)) {
+					const body =
+						input instanceof Request ? await input.text() : String(init?.body);
+					upstreamBody = JSON.parse(body);
+
+					return new Response(
+						JSON.stringify({
+							id: "msg_tool_result_cache",
+							type: "message",
+							role: "assistant",
+							model: "claude-opus-4-8",
+							content: [{ type: "text", text: "A raincoat." }],
+							stop_reason: "end_turn",
+							stop_sequence: null,
+							usage: { input_tokens: 100, output_tokens: 5 },
+						}),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					);
+				}
+
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+
+		try {
+			const res = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "anthropic/claude-opus-4-8",
+					max_tokens: 1024,
+					messages: [
+						{ role: "user", content: "Look up the weather." },
+						{
+							role: "assistant",
+							content: [
+								{
+									type: "tool_use",
+									id: "toolu_1",
+									name: "get_weather",
+									input: { city: "Paris" },
+								},
+							],
+						},
+						{
+							role: "user",
+							content: [
+								{
+									type: "tool_result",
+									tool_use_id: "toolu_1",
+									content: "sunny",
+									cache_control: { type: "ephemeral", ttl: "1h" },
+								},
+							],
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect(upstreamBody).toBeTruthy();
+
+			// Anthropic accepts a breakpoint on a tool_result block, and in an
+			// agentic loop that is exactly where the stable prefix ends. The request
+			// schema used to strip the marker and the OpenAI tool message it lowers
+			// to had nowhere to keep it, so the caller silently lost the cache hit
+			// they asked for.
+			const toolResultBlocks = upstreamBody.messages.flatMap((m: any) =>
+				Array.isArray(m.content)
+					? m.content.filter((b: any) => b.type === "tool_result")
+					: [],
+			);
+			expect(toolResultBlocks).toHaveLength(1);
+			expect(toolResultBlocks[0].cache_control).toEqual({
+				type: "ephemeral",
+				ttl: "1h",
+			});
+		} finally {
+			fetchSpy.mockRestore();
+		}
+	});
+
+	test("/v1/messages keeps a caller's tool cache_control on the wire", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "anthropic",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const originalFetch = globalThis.fetch;
+		let upstreamBody: any = null;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+
+				if (url.includes(`${mockServerUrl}/v1/messages`)) {
+					const body =
+						input instanceof Request ? await input.text() : String(init?.body);
+					upstreamBody = JSON.parse(body);
+
+					return new Response(
+						JSON.stringify({
+							id: "msg_tool_cache",
+							type: "message",
+							role: "assistant",
+							model: "claude-opus-4-8",
+							content: [{ type: "text", text: "Sunny." }],
+							stop_reason: "end_turn",
+							stop_sequence: null,
+							usage: { input_tokens: 100, output_tokens: 5 },
+						}),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					);
+				}
+
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+
+		try {
+			const res = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "anthropic/claude-opus-4-8",
+					max_tokens: 1024,
+					messages: [{ role: "user", content: "Weather in Paris?" }],
+					tools: [
+						{
+							name: "get_weather",
+							description: "Get the weather",
+							input_schema: { type: "object" },
+						},
+						{
+							name: "get_time",
+							description: "Get the time",
+							input_schema: { type: "object" },
+							cache_control: { type: "ephemeral" },
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect(upstreamBody).toBeTruthy();
+
+			// Tools are the base of Anthropic's cache hierarchy, so a breakpoint on
+			// the last tool caches the largest prefix a caller has. The schema
+			// accepted it and the tool conversion then dropped it, silently costing
+			// an agentic client its biggest cache hit.
+			expect(upstreamBody.tools).toHaveLength(2);
+			expect(upstreamBody.tools[0].cache_control).toBeUndefined();
+			expect(upstreamBody.tools[1].name).toBe("get_time");
+			expect(upstreamBody.tools[1].cache_control).toEqual({
+				type: "ephemeral",
+			});
+		} finally {
+			fetchSpy.mockRestore();
+		}
+	});
+
 	test("/v1/messages surfaces reasoning as a thinking block (non-streaming)", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
@@ -6492,7 +6704,7 @@ describe("api", () => {
 			process.env.LLM_GOOGLE_CLOUD_PROJECT = "vertex-project";
 			process.env.LLM_GOOGLE_VERTEX_BASE_URL = mockServerUrl;
 
-			const makeRequest = (content: string) =>
+			const makeRequest = (content: string, model = "gemini-2.5-flash-lite") =>
 				app.request("/v1/chat/completions", {
 					method: "POST",
 					headers: {
@@ -6500,7 +6712,7 @@ describe("api", () => {
 						Authorization: "Bearer real-token",
 					},
 					body: JSON.stringify({
-						model: "gemini-2.5-flash-lite",
+						model,
 						messages: [{ role: "user", content }],
 					}),
 				});
@@ -6514,6 +6726,45 @@ describe("api", () => {
 			expect(secondRes.status).toBe(200);
 			const secondJson = await secondRes.json();
 			expect(secondJson.metadata.used_provider).toBe("google-vertex");
+
+			const directRes = await makeRequest(
+				"Direct provider rate limit request",
+				"google-ai-studio/gemini-2.5-flash-lite",
+			);
+			expect(directRes.status).toBe(200);
+			const directJson = await directRes.json();
+			expect(directJson.metadata.used_provider).toBe("google-vertex");
+
+			const logs = await waitForLogs(3);
+			const overflowLog = logs.find(
+				(log) =>
+					log.usedProvider === "google-vertex" &&
+					log.routingMetadata?.selectionReason !== "rate-limit-fallback",
+			);
+			expect(overflowLog?.routingMetadata?.providerScores).not.toContainEqual(
+				expect.objectContaining({ providerId: "google-ai-studio" }),
+			);
+			expect(overflowLog?.routingMetadata?.filteredProviders).toContainEqual({
+				providerId: "google-ai-studio",
+				reasons: ["provider is rate limited"],
+				codes: ["rate_limited"],
+			});
+
+			const directFallbackLog = logs.find(
+				(log) => log.routingMetadata?.selectionReason === "rate-limit-fallback",
+			);
+			expect(
+				directFallbackLog?.routingMetadata?.providerScores,
+			).not.toContainEqual(
+				expect.objectContaining({ providerId: "google-ai-studio" }),
+			);
+			expect(
+				directFallbackLog?.routingMetadata?.filteredProviders,
+			).toContainEqual({
+				providerId: "google-ai-studio",
+				reasons: ["provider is rate limited"],
+				codes: ["rate_limited"],
+			});
 		} finally {
 			if (previousVertexKey === undefined) {
 				delete process.env.LLM_GOOGLE_VERTEX_API_KEY;

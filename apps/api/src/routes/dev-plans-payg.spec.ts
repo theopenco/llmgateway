@@ -164,7 +164,36 @@ describe("dev-plan PAYG settings", () => {
 			headers: { Cookie: token },
 		});
 		expect(initialStatus.status).toBe(200);
-		expect((await initialStatus.json()).providerCacheControlEnabled).toBe(true);
+		expect((await initialStatus.json()).providerCacheControlMode).toBe("auto");
+
+		const update = await settingsRequest(
+			{ providerCacheControlMode: "passthrough" },
+			token,
+		);
+		expect(update.status).toBe(200);
+		expect(await update.json()).toMatchObject({
+			providerCacheControlMode: "passthrough",
+		});
+
+		const project = await db.query.project.findFirst({
+			where: { id: { eq: "test-payg-project" } },
+		});
+		expect(project?.providerCacheControlMode).toBe("passthrough");
+
+		const status = await app.request("/dev-plans/status", {
+			headers: { Cookie: token },
+		});
+		expect(status.status).toBe(200);
+		expect((await status.json()).providerCacheControlMode).toBe("passthrough");
+	});
+
+	it("maps the legacy providerCacheControlEnabled boolean to a mode", async () => {
+		await insertOrg();
+		await db.insert(tables.project).values({
+			id: "test-payg-project",
+			name: "Default Project",
+			organizationId: ORG_ID,
+		});
 
 		const update = await settingsRequest(
 			{ providerCacheControlEnabled: false },
@@ -172,19 +201,13 @@ describe("dev-plan PAYG settings", () => {
 		);
 		expect(update.status).toBe(200);
 		expect(await update.json()).toMatchObject({
-			providerCacheControlEnabled: false,
+			providerCacheControlMode: "off",
 		});
 
 		const project = await db.query.project.findFirst({
 			where: { id: { eq: "test-payg-project" } },
 		});
-		expect(project?.providerCacheControlEnabled).toBe(false);
-
-		const status = await app.request("/dev-plans/status", {
-			headers: { Cookie: token },
-		});
-		expect(status.status).toBe(200);
-		expect((await status.json()).providerCacheControlEnabled).toBe(false);
+		expect(project?.providerCacheControlMode).toBe("off");
 	});
 
 	it("configures auto-reload with threshold and amount", async () => {
