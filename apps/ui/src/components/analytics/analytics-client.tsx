@@ -80,7 +80,7 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 	const { buildUrl, orgId, selectedOrganization } = useDashboardNavigation();
 	const api = useApi();
 	const { user } = useUser();
-	const isEnterprise = selectedOrganization?.plan === "enterprise";
+	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 
 	// The per-member breakdown exposes every member's spend, so it carries the
 	// same entitlement as the API gate: enterprise, and an org owner/admin. This

@@ -25,6 +25,13 @@ global:
   nodeEnv: production
 
 # =============================================================================
+# Enterprise license
+# =============================================================================
+enterprise:
+  # -- Signed Enterprise or white-label license. Store in existingSecret for production.
+  license: ""
+
+# =============================================================================
 # Public-facing URLs
 # Set these to match your Ingress hostnames or external load balancer URLs.
 # =============================================================================

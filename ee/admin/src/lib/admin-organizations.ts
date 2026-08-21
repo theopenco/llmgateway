@@ -178,6 +178,30 @@ export async function setOrganizationStatus(
 	return { success: true };
 }
 
+export async function deleteOrganizationPaymentMethod(
+	orgId: string,
+	paymentMethodId: string,
+	replacementPaymentMethodId?: string,
+): Promise<{ success: boolean; error?: string }> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.DELETE(
+		"/admin/organizations/{orgId}/payment-methods/{paymentMethodId}",
+		{
+			params: { path: { orgId, paymentMethodId } },
+			body: { replacementPaymentMethodId },
+		},
+	);
+
+	if (error || !data) {
+		const message =
+			(error as { message?: string } | undefined)?.message ??
+			"Failed to delete payment method";
+		return { success: false, error: message };
+	}
+
+	return { success: true };
+}
+
 export async function blockOrganization(orgId: string): Promise<{
 	success: boolean;
 	error?: string;

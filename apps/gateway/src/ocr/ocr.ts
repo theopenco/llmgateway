@@ -38,6 +38,7 @@ import {
 	applyEndUserSession,
 	assertTestWalletModelAllowed,
 } from "@/lib/end-user-session.js";
+import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
@@ -54,10 +55,7 @@ import {
 } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import {
-	getOrganizationEnvVariant,
-	models as modelDefinitions,
-} from "@llmgateway/models";
+import { models as modelDefinitions } from "@llmgateway/models";
 
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
 import type { ServerTypes } from "@/vars.js";
@@ -582,7 +580,7 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 
 	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
 	// this org's env-credential reads. Undefined = base vars only.
-	const envVariant = getOrganizationEnvVariant(retryOrganization);
+	const envVariant = getLicensedOrganizationEnvVariant(retryOrganization);
 
 	const upstreamRequestBody: Record<string, unknown> = {
 		...ocrParams,

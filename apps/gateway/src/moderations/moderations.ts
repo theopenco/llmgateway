@@ -30,6 +30,7 @@ import {
 	applyEndUserSession,
 	assertTestWalletModelAllowed,
 } from "@/lib/end-user-session.js";
+import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { buildOpenAIErrorBody } from "@/lib/error-response.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
@@ -41,7 +42,7 @@ import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
 import { getProviderHeaders, readProviderKey } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
-import { getOrganizationEnvVariant, models } from "@llmgateway/models";
+import { models } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
 import type { InferSelectModel, tables } from "@llmgateway/db";
@@ -569,7 +570,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 
 	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
 	// this org's env-credential reads. Undefined = base vars only.
-	const envVariant = getOrganizationEnvVariant(organization);
+	const envVariant = getLicensedOrganizationEnvVariant(organization);
 
 	let providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
 	let managedKey: InferSelectModel<typeof tables.providerKey> | undefined;

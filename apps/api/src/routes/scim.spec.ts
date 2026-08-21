@@ -36,6 +36,7 @@ describe("scim audit logging", () => {
 			id: ORG_ID,
 			name: "SCIM Org",
 			billingEmail: "scim@example.com",
+			plan: "enterprise",
 			autoTopUpEnabled: false,
 			autoTopUpThreshold: "10",
 			autoTopUpAmount: "10",

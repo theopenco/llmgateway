@@ -21,6 +21,11 @@ import {
 	isCreditPurchaseBlockEnabled,
 	isCreditPurchaseBlockForcedByEnv,
 } from "@/lib/credit-purchase-guard.js";
+import {
+	EnterpriseSeatLimitError,
+	withEnterpriseSeatsForActivation,
+	withEnterpriseSeatsForPromotion,
+} from "@/lib/enterprise-seats.js";
 import { modeSplitFields } from "@/lib/mode-split.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import {
@@ -7584,23 +7589,40 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 		});
 	}
 
-	await db
-		.update(tables.organization)
-		.set({
-			name,
-			plan,
-			seats,
-			apiKeyLimit,
-			projectLimit,
-			// undefined = leave unchanged (drizzle skips undefined set fields).
-			trustTierOverride,
-			planExpiresAt: expiresAt,
-			planStartedAt: startedAt,
-			isTrialActive,
-			trialStartDate: trialStartsAt,
-			trialEndDate: trialEndsAt,
-		})
-		.where(eq(tables.organization.id, orgId));
+	const updateOrganization = async (
+		executor: Pick<typeof db, "update">,
+	): Promise<void> => {
+		await executor
+			.update(tables.organization)
+			.set({
+				name,
+				plan,
+				seats,
+				apiKeyLimit,
+				projectLimit,
+				// undefined = leave unchanged (drizzle skips undefined set fields).
+				trustTierOverride,
+				planExpiresAt: expiresAt,
+				planStartedAt: startedAt,
+				isTrialActive,
+				trialStartDate: trialStartsAt,
+				trialEndDate: trialEndsAt,
+			})
+			.where(eq(tables.organization.id, orgId));
+	};
+
+	try {
+		if (plan === "enterprise" && org.plan !== "enterprise") {
+			await withEnterpriseSeatsForPromotion(orgId, updateOrganization);
+		} else {
+			await updateOrganization(db);
+		}
+	} catch (error) {
+		if (error instanceof EnterpriseSeatLimitError) {
+			throw new HTTPException(409, { message: error.message });
+		}
+		throw error;
+	}
 
 	await logAuditEvent({
 		organizationId: orgId,
@@ -7750,7 +7772,6 @@ admin.openapi(setOrganizationStatusRoute, async (c) => {
 		throw new HTTPException(404, { message: "Organization not found" });
 	}
 
-	// Re-enabling is always allowed; only the destructive direction is gated.
 	if (status === "deleted") {
 		assertOrganizationDeletable(org);
 	}
@@ -7758,13 +7779,30 @@ admin.openapi(setOrganizationStatusRoute, async (c) => {
 	const cancelledSubscriptionIds =
 		status === "deleted" ? await cancelOrganizationSubscriptions(org) : [];
 
-	await db
-		.update(tables.organization)
-		.set({
-			status,
-			...(status === "deleted" ? getCancelledOrganizationPlanState() : {}),
-		})
-		.where(eq(tables.organization.id, orgId));
+	const updateOrganization = async (
+		executor: Pick<typeof db, "update">,
+	): Promise<void> => {
+		await executor
+			.update(tables.organization)
+			.set({
+				status,
+				...(status === "deleted" ? getCancelledOrganizationPlanState() : {}),
+			})
+			.where(eq(tables.organization.id, orgId));
+	};
+
+	try {
+		if (status === "active" && org.status !== "active") {
+			await withEnterpriseSeatsForActivation(orgId, updateOrganization);
+		} else {
+			await updateOrganization(db);
+		}
+	} catch (error) {
+		if (error instanceof EnterpriseSeatLimitError) {
+			throw new HTTPException(409, { message: error.message });
+		}
+		throw error;
+	}
 
 	await logAuditEvent({
 		organizationId: orgId,

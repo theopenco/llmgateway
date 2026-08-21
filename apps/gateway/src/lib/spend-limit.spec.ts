@@ -24,6 +24,7 @@ const orl = await import("./org-rate-limit.js");
 const T1 = {
 	tier: 1,
 	rpmMultiplier: 2,
+	inflightLimit: 200,
 	dailyCapUsd: 100,
 	monthlyCapUsd: 1_000,
 	topUpDailyCapUsd: 500,

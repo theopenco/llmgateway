@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "17b352e6-095d-456a-b393-71404e3ffa21",
+  "id": "1e9ce527-e0a2-42cb-8965-e3e52a549fe5",
   "prevId": "e794d54a-ba0a-44bc-b255-e03c556674b7",
   "ddl": [
     {
@@ -880,6 +880,22 @@
       "generated": null,
       "identity": null,
       "name": "key_type",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'regular'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "kind",
       "entityType": "columns",
       "schema": "public",
       "table": "api_key"

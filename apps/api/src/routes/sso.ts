@@ -13,6 +13,7 @@ import { logAuditEvent } from "@llmgateway/audit";
 import { and, db, eq, isNull, shortid, tables } from "@llmgateway/db";
 import { SSO_TEAM_DEFAULT_DEVELOPER_BUDGET } from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import { maskToken } from "@llmgateway/shared/mask-token";
 
 import type { ServerTypes } from "@/vars.js";
@@ -46,7 +47,12 @@ async function assertEnterpriseOrgAccess(
 		});
 	}
 
-	if (userOrg.organization?.plan !== "enterprise") {
+	if (
+		!hasOrganizationEnterpriseAccess(
+			userOrg.organization?.id,
+			userOrg.organization?.plan,
+		)
+	) {
 		throw new HTTPException(403, {
 			message: "SSO requires an enterprise plan",
 		});

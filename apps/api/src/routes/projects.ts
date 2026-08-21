@@ -607,6 +607,7 @@ export async function createProjectForOrg(
 	});
 
 	const projectLimit = resolveProjectLimit(
+		organizationRow.id,
 		organizationRow.plan,
 		organizationRow.projectLimit,
 	);

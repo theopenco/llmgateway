@@ -34,6 +34,7 @@ import {
 } from "@/lib/cached-queries.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import { assertProviderCompliant } from "@/lib/compliance.js";
+import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
@@ -53,7 +54,6 @@ import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	ELEVENLABS_VOICE_IDS,
-	getOrganizationEnvVariant,
 	models as modelDefinitions,
 	resolveVertexTokenType,
 } from "@llmgateway/models";
@@ -708,7 +708,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 
 	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
 	// this org's env-credential reads. Undefined = base vars only.
-	const envVariant = getOrganizationEnvVariant(retryOrganization);
+	const envVariant = getLicensedOrganizationEnvVariant(retryOrganization);
 
 	const promptText = request.instructions
 		? `${request.instructions}: ${request.input}`

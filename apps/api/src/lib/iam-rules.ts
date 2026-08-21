@@ -2,6 +2,8 @@ import { HTTPException } from "hono/http-exception";
 import ipaddr from "ipaddr.js";
 import { z } from "zod";
 
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
+
 export const iamRuleTypeEnum = z.enum([
 	"allow_models",
 	"deny_models",
@@ -47,9 +49,13 @@ export function isIpCidrRuleType(
 
 export function assertEnterpriseForIpCidrRule(
 	ruleType: z.infer<typeof iamRuleTypeEnum> | undefined,
+	organizationId: string | null | undefined,
 	plan: string | null | undefined,
 ): void {
-	if (isIpCidrRuleType(ruleType) && plan !== "enterprise") {
+	if (
+		isIpCidrRuleType(ruleType) &&
+		!hasOrganizationEnterpriseAccess(organizationId, plan)
+	) {
 		throw new HTTPException(403, {
 			message: "IP address IAM rules require an enterprise plan",
 		});

@@ -24,7 +24,7 @@ export function PlanExpiryBanner() {
 	const [dismissed, setDismissed] = useState(true);
 
 	const resolved =
-		selectedOrganization?.plan === "enterprise"
+		selectedOrganization?.enterpriseAccess === true
 			? getOrganizationTerm({
 					isTrialActive: selectedOrganization.isTrialActive,
 					trialStartDate: selectedOrganization.trialStartDate,

@@ -11,6 +11,7 @@ import type { ApiKeyLimitConstraints } from "@llmgateway/shared";
 // the dashboard can gate org-level UI for project-scoped "developer" members.
 export type Organization = SerializedOrganization & {
 	role?: "owner" | "admin" | "developer";
+	enterpriseAccess?: boolean;
 };
 export type Project = SerializedProject;
 export type User = SerializedUser | null;
