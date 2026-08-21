@@ -142,6 +142,18 @@ describe("hasProviderKey", () => {
 });
 
 describe("providerKeyLabel", () => {
+	it("prefers the key's description", () => {
+		expect(
+			providerKeyLabel({
+				organizationId: ORG_ID,
+				managed: false,
+				description: "Production workloads",
+				name: "prod-openai",
+				tokenMasked: "sk-live-1234•••••",
+			}),
+		).toBe("Production workloads");
+	});
+
 	it("prefers the key's name", () => {
 		expect(
 			providerKeyLabel({
@@ -178,6 +190,7 @@ describe("providerKeyLabel", () => {
 			providerKeyLabel({
 				organizationId: null,
 				managed: true,
+				description: "Internal account description",
 				name: "shared-openai-pool-3",
 				tokenMasked: "sk-platform-99•••••",
 			}),
