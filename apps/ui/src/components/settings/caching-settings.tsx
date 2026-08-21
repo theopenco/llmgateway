@@ -15,6 +15,8 @@ import {
 	FormMessage,
 } from "@/lib/components/form";
 import { Input } from "@/lib/components/input";
+import { Label } from "@/lib/components/label";
+import { RadioGroup, RadioGroupItem } from "@/lib/components/radio-group";
 import { Separator } from "@/lib/components/separator";
 import { Switch } from "@/lib/components/switch";
 import { useToast } from "@/lib/components/use-toast";
@@ -31,10 +33,31 @@ const cachingFormSchema = z.object({
 			31536000,
 			"Cache duration must not exceed 31,536,000 seconds (1 year)",
 		),
-	providerCacheControlEnabled: z.boolean(),
+	providerCacheControlMode: z.enum(["auto", "passthrough", "off"]),
 });
 
 type CachingFormData = z.infer<typeof cachingFormSchema>;
+
+const PROVIDER_CACHE_CONTROL_OPTIONS = [
+	{
+		value: "auto",
+		label: "Automatic",
+		description:
+			"Forward the cache markers your client sends and add markers on long prompts that have none. Best when your requests do not manage caching themselves.",
+	},
+	{
+		value: "passthrough",
+		label: "Client-managed",
+		description:
+			"Forward your client's markers untouched and never add any. A request writes to the provider cache only when it asked to — pick this when one key serves both a coding agent that sets its own markers and traffic that should not pay the write premium.",
+	},
+	{
+		value: "off",
+		label: "Disabled",
+		description:
+			"Strip every marker, including ones your client sends. No cache writes and no cache reads for this project.",
+	},
+] as const;
 
 interface CachingSettingsProps {
 	initialData: CachingSettingsData;
@@ -59,8 +82,8 @@ export function CachingSettings({
 				initialData.preferences.preferences.cachingEnabled ?? false,
 			cacheDurationSeconds:
 				initialData.preferences.preferences.cacheDurationSeconds ?? 60,
-			providerCacheControlEnabled:
-				initialData.preferences.preferences.providerCacheControlEnabled ?? true,
+			providerCacheControlMode:
+				initialData.preferences.preferences.providerCacheControlMode ?? "auto",
 		},
 	});
 
@@ -84,7 +107,7 @@ export function CachingSettings({
 				body: {
 					cachingEnabled: data.cachingEnabled,
 					cacheDurationSeconds: data.cacheDurationSeconds,
-					providerCacheControlEnabled: data.providerCacheControlEnabled,
+					providerCacheControlMode: data.providerCacheControlMode,
 				},
 			});
 
@@ -168,36 +191,49 @@ export function CachingSettings({
 					<div>
 						<h4 className="text-base font-medium">Provider Cache Writes</h4>
 						<p className="text-muted-foreground text-sm">
-							Anthropic and AWS Bedrock (Claude) only
+							Applies to providers that support explicit prompt-cache markers
 						</p>
 					</div>
 
 					<FormField
 						control={form.control}
-						name="providerCacheControlEnabled"
+						name="providerCacheControlMode"
 						render={({ field }) => (
-							<FormItem className="flex flex-row items-start space-x-3 space-y-0">
+							<FormItem className="space-y-3">
 								<FormControl>
-									<Switch
-										checked={field.value}
-										onCheckedChange={field.onChange}
-									/>
+									<RadioGroup
+										value={field.value}
+										onValueChange={field.onChange}
+										className="gap-3"
+									>
+										{PROVIDER_CACHE_CONTROL_OPTIONS.map((option) => (
+											<div
+												key={option.value}
+												className="flex flex-row items-start space-x-3"
+											>
+												<RadioGroupItem
+													value={option.value}
+													id={`provider-cache-${option.value}`}
+													className="mt-1"
+												/>
+												<div className="space-y-1 leading-none">
+													<Label htmlFor={`provider-cache-${option.value}`}>
+														{option.label}
+													</Label>
+													<p className="text-muted-foreground text-sm">
+														{option.description}
+													</p>
+												</div>
+											</div>
+										))}
+									</RadioGroup>
 								</FormControl>
-								<div className="space-y-1 leading-none">
-									<FormLabel>Allow provider cache writes</FormLabel>
-									<FormDescription>
-										When disabled, the gateway strips all{" "}
-										<code>cache_control</code> markers from outgoing requests —
-										both the ones it adds automatically for long prompts and any
-										markers your client sends (e.g. Claude Code, Cursor, Cline).
-										Cache writes are billed at 1.25× (5m) or 2× (1h) the input
-										price; reads are 0.1×. Disable this if you send long prompts
-										sporadically with gaps longer than the 5-minute cache TTL —
-										otherwise you pay the write premium without ever benefiting
-										from a cache read. Note: changing this setting may take up
-										to 5 minutes to take effect.
-									</FormDescription>
-								</div>
+								<FormDescription>
+									Cache writes are billed at 1.25× (5m) or 2× (1h) the input
+									price; reads are 0.1×. Note: changing this setting may take up
+									to 5 minutes to take effect.
+								</FormDescription>
+								<FormMessage />
 							</FormItem>
 						)}
 					/>

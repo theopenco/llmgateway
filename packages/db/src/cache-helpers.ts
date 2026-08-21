@@ -9,6 +9,7 @@ import {
 	providerKey as providerKeyTable,
 } from "./schema.js";
 
+import type { ProviderCacheControlMode } from "@llmgateway/models";
 import type { InferSelectModel } from "drizzle-orm";
 
 const projectTableName = getTableName(projectTable);
@@ -18,9 +19,9 @@ const providerKeyTableName = getTableName(providerKeyTable);
  * Look up project caching settings.
  *
  * Returns both gateway-side caching settings (`enabled`, `duration`) and the
- * provider-side cache control flag (`providerCacheControlEnabled`) that gates
- * automatic injection of cache_control / cachePoint markers into upstream
- * Anthropic and AWS Bedrock requests.
+ * provider-side cache control mode (`providerCacheControlMode`) that decides
+ * whether caller-supplied cache_control / cachePoint markers are forwarded and
+ * whether the gateway injects its own into upstream requests.
  *
  * Uses the cached database client (cdb) plus swrWrap so the answer survives a
  * Postgres outage (falls back to the last-known value for up to SWR TTL).
@@ -28,7 +29,7 @@ const providerKeyTableName = getTableName(providerKeyTable);
 export async function isCachingEnabled(projectId: string): Promise<{
 	enabled: boolean;
 	duration: number;
-	providerCacheControlEnabled: boolean;
+	providerCacheControlMode: ProviderCacheControlMode;
 }> {
 	try {
 		return await swrWrap(
@@ -39,8 +40,7 @@ export async function isCachingEnabled(projectId: string): Promise<{
 					.select({
 						cachingEnabled: projectTable.cachingEnabled,
 						cacheDurationSeconds: projectTable.cacheDurationSeconds,
-						providerCacheControlEnabled:
-							projectTable.providerCacheControlEnabled,
+						providerCacheControlMode: projectTable.providerCacheControlMode,
 					})
 					.from(projectTable)
 					.where(eq(projectTable.id, projectId))
@@ -52,15 +52,14 @@ export async function isCachingEnabled(projectId: string): Promise<{
 					return {
 						enabled: false,
 						duration: 0,
-						providerCacheControlEnabled: true,
+						providerCacheControlMode: "auto" as ProviderCacheControlMode,
 					};
 				}
 
 				return {
 					enabled: project.cachingEnabled || false,
 					duration: project.cacheDurationSeconds || 60,
-					providerCacheControlEnabled:
-						project.providerCacheControlEnabled ?? true,
+					providerCacheControlMode: project.providerCacheControlMode ?? "auto",
 				};
 			},
 		);

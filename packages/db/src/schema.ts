@@ -1101,7 +1101,15 @@ export const project = pgTable(
 			.references(() => organization.id, { onDelete: "cascade" }),
 		cachingEnabled: boolean().notNull().default(false),
 		cacheDurationSeconds: integer().notNull().default(60),
-		providerCacheControlEnabled: boolean().notNull().default(true),
+		// How provider-side prompt-cache markers are handled for this project.
+		// "passthrough" exists because a single key often serves both a coding
+		// agent that manages its own markers and traffic that must not pay the
+		// cache-write premium; neither "auto" nor "off" can satisfy both.
+		providerCacheControlMode: text({
+			enum: ["auto", "passthrough", "off"],
+		})
+			.notNull()
+			.default("auto"),
 		mode: text({
 			enum: ["api-keys", "credits", "hybrid"],
 		})
