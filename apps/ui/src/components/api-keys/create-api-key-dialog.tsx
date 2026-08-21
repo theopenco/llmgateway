@@ -4,6 +4,7 @@ import { usePostHog } from "posthog-js/react";
 import { useState } from "react";
 
 import { useMyMemberBudget } from "@/hooks/useTeam";
+import { getApiErrorMessage } from "@/lib/api-error";
 import { Button } from "@/lib/components/button";
 import {
 	Dialog,
@@ -122,9 +123,10 @@ export function CreateApiKeyDialog({
 
 			setApiKey(createdKey.token);
 			setStep("created");
-		} catch {
+		} catch (error) {
 			toast({
 				title: "Failed to create API key.",
+				description: getApiErrorMessage(error, "Please try again."),
 				variant: "destructive",
 			});
 		}

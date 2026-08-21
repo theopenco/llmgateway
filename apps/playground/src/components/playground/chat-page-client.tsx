@@ -47,11 +47,6 @@ import { parseImageFile } from "@/lib/image-utils";
 import { mapModels } from "@/lib/mapmodels";
 import { parsePlaygroundMessageMetadata } from "@/lib/message-metadata";
 import {
-	CHAT_MODEL_COOKIE,
-	getModelPreferenceCookie,
-	setModelPreferenceCookie,
-} from "@/lib/model-preferences";
-import {
 	getFallbackReasoningEffortOptions,
 	getReasoningEffortOptions,
 } from "@/lib/model-utils";
@@ -263,7 +258,6 @@ interface ChatPageClientProps {
 	selectedProject: Project | null;
 	initialPrompt?: string;
 	enableWebSearch?: boolean;
-	initialModelPreference?: string | null;
 }
 
 function parseModelSelectorValue(value: string): {
@@ -306,7 +300,6 @@ export default function ChatPageClient({
 	selectedProject,
 	initialPrompt,
 	enableWebSearch = false,
-	initialModelPreference,
 }: ChatPageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
 	// In the personal context selectedOrganization is null; billing + top-ups run
@@ -323,15 +316,12 @@ export default function ChatPageClient({
 	);
 	const [availableModels] = useState<ComboboxModel[]>(mapped);
 
+	// Chat always starts on Auto Route unless the URL pins a model; the last
+	// selection is deliberately not persisted across visits.
 	const getInitialModel = () => {
 		const modelFromUrl = searchParams.get("model");
 		if (modelFromUrl) {
 			return modelFromUrl.split(",")[0] ?? "auto";
-		}
-		const stored =
-			getModelPreferenceCookie(CHAT_MODEL_COOKIE) ?? initialModelPreference;
-		if (stored) {
-			return stored;
 		}
 		return "auto";
 	};
@@ -774,8 +764,10 @@ export default function ChatPageClient({
 
 			// Always forward the user's quality choice (including "auto") so it
 			// surfaces in the activity log; the gateway treats "auto" as a no-op
-			// upstream.
-			const includeQuality = isGptImage && !!imageQuality;
+			// upstream. getModelImageConfig owns which models expose the control,
+			// so it stays the single source of truth for both playground surfaces.
+			const includeQuality =
+				getModelImageConfig(selectedModel).supportsQuality && !!imageQuality;
 
 			// Always send n explicitly to prevent providers from defaulting to >1
 			const imageConfig = useImageGen
@@ -796,6 +788,7 @@ export default function ChatPageClient({
 								aspect_ratio: imageAspectRatio,
 							}),
 							...(imageSize !== "1K" && { image_size: imageSize }),
+							...(includeQuality && { image_quality: imageQuality }),
 							n: imageCount,
 						}
 				: undefined;
@@ -1003,8 +996,7 @@ export default function ChatPageClient({
 		}
 
 		const childIds = (currentChatData as any).comparisonChatIds as
-			| string[]
-			| undefined;
+			string[] | undefined;
 		if (childIds && childIds.length > 0) {
 			setComparisonChatIds(childIds);
 			setExtraPanelIds(childIds.map((_, i) => i + 1));
@@ -1794,9 +1786,6 @@ export default function ChatPageClient({
 				return;
 			}
 			setSelectedModel(model);
-			if (model) {
-				setModelPreferenceCookie(CHAT_MODEL_COOKIE, model);
-			}
 			const currentParams = new URLSearchParams(window.location.search);
 			const allModels =
 				comparisonEnabled && extraPanelModels.length > 0
@@ -1969,7 +1958,7 @@ export default function ChatPageClient({
 	return (
 		<SidebarProvider>
 			<h2 className="sr-only">
-				LLM Gateway Playground - Chat with 200+ AI Models
+				Lounge by LLM Gateway — chat with 200+ AI models
 			</h2>
 			<div className="flex h-svh bg-background w-full overflow-hidden">
 				{isTemporaryChat ? null : (
@@ -2784,8 +2773,10 @@ function ExtraChatPanel({
 
 			// Always forward the user's quality choice (including "auto") so it
 			// surfaces in the activity log; the gateway treats "auto" as a no-op
-			// upstream.
-			const includeQuality = isGptImage && !!imageQuality;
+			// upstream. getModelImageConfig owns which models expose the control,
+			// so it stays the single source of truth for both playground surfaces.
+			const includeQuality =
+				getModelImageConfig(selectedModel).supportsQuality && !!imageQuality;
 
 			// Always send n explicitly to prevent providers from defaulting to >1
 			const imageConfig = useImageGen
@@ -2806,6 +2797,7 @@ function ExtraChatPanel({
 								aspect_ratio: imageAspectRatio,
 							}),
 							...(imageSize !== "1K" && { image_size: imageSize }),
+							...(includeQuality && { image_quality: imageQuality }),
 							n: imageCount,
 						}
 				: undefined;

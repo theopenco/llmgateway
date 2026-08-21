@@ -29,6 +29,7 @@ import {
 import prettyBytes from "pretty-bytes";
 import { useState } from "react";
 
+import { CredentialSourceBadge } from "@/components/credential-source-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -43,6 +44,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { regionFromUsedModel } from "@/used-model.js";
 
 import {
 	formatServiceTierMultiplier,
@@ -56,6 +58,9 @@ import {
 interface RoutingMetadata {
 	selectionReason?: string;
 	usedApiKeyHash?: string;
+	usedCredentialSource?: string;
+	usedProviderKeyLabel?: string;
+	eligibleProviderKeys?: Array<{ id: string; label?: string }>;
 	availableProviders?: string[];
 	xNoFallbackHeaderSet?: boolean;
 	noFallback?: boolean;
@@ -87,8 +92,15 @@ interface RoutingMetadata {
 		status_code?: number;
 		error_type?: string;
 		apiKeyHash?: string;
+		credentialSource?: string;
+		providerKeyLabel?: string;
 		logId?: string;
 	}>;
+	filteredProviders?: Array<{
+		providerId: string;
+		reasons: string[];
+	}>;
+	serviceTierSource?: string;
 }
 
 interface ErrorDetails {
@@ -168,6 +180,7 @@ export interface LogCardData {
 	apiKeyId?: string | null;
 	apiKeyName?: string | null;
 	source?: string | null;
+	apiOrigin?: string | null;
 	mode?: string | null;
 	usedMode?: string | null;
 	retried?: boolean | null;
@@ -221,6 +234,24 @@ export interface LogCardProps {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Display labels for the gateway API surface a request came in through. Logs
+ * written before the column existed have a null `apiOrigin`.
+ */
+export const API_ORIGIN_LABELS: Record<string, string> = {
+	"chat-completions": "Chat Completions",
+	messages: "Messages",
+	responses: "Responses",
+	embeddings: "Embeddings",
+	images: "Images",
+	videos: "Videos",
+	moderations: "Moderations",
+	ocr: "OCR",
+	speech: "Speech",
+	transcriptions: "Transcriptions",
+	rerank: "Rerank",
+};
 
 function formatDuration(ms: number) {
 	if (ms < 1000) {
@@ -356,14 +387,15 @@ export function LogCard({
 	fetchInputImages,
 }: LogCardProps) {
 	const routingMetadata = log.routingMetadata as RoutingMetadata | undefined;
+	// Regional mappings encode the served region as a `:region` suffix on
+	// `usedModel`; providers without regional deployments have none.
+	const usedRegion = regionFromUsedModel(log.usedModel, log.usedProvider);
 	const errorDetails = log.errorDetails as ErrorDetails | undefined;
 	const pluginResults = log.pluginResults as PluginResults | undefined;
 	const toolResults = log.toolResults as ToolCall[] | undefined;
 	const tools = log.tools as unknown[] | undefined;
 	const toolChoice = log.toolChoice as
-		| Record<string, unknown>
-		| string
-		| undefined;
+		Record<string, unknown> | string | undefined;
 	const messages = log.messages as unknown | undefined;
 	const responseFormat = log.responseFormat as { type?: string } | undefined;
 	const params = log.params as Record<string, any> | undefined;
@@ -371,8 +403,7 @@ export function LogCard({
 
 	// Extract image_config from params and compute remaining params
 	const imageConfig = params?.image_config as
-		| Record<string, string | number>
-		| undefined;
+		Record<string, string | number> | undefined;
 	const remainingParams = params
 		? Object.fromEntries(
 				Object.entries(params).filter(([key]) => key !== "image_config"),
@@ -627,6 +658,14 @@ export function LogCard({
 								)}
 								<div className="text-muted-foreground">Provider</div>
 								<div>{log.usedProvider}</div>
+								{usedRegion && (
+									<>
+										<div className="text-muted-foreground">Region</div>
+										<div className="font-mono text-xs break-all">
+											{usedRegion}
+										</div>
+									</>
+								)}
 							</div>
 							{routingMetadata && (
 								<div className="mt-3">
@@ -645,11 +684,28 @@ export function LogCard({
 										{routingMetadata.usedApiKeyHash && (
 											<div className="flex justify-between">
 												<span className="text-muted-foreground">Key</span>
-												<span className="font-mono">
+												<span className="font-mono flex items-center gap-1.5">
 													{formatApiKeyHash(routingMetadata.usedApiKeyHash)}
+													<CredentialSourceBadge
+														source={routingMetadata.usedCredentialSource}
+														keyLabel={routingMetadata.usedProviderKeyLabel}
+													/>
 												</span>
 											</div>
 										)}
+										{routingMetadata.eligibleProviderKeys &&
+											routingMetadata.eligibleProviderKeys.length > 0 && (
+												<div className="flex justify-between gap-2">
+													<span className="text-muted-foreground">
+														Your keys
+													</span>
+													<span className="font-mono text-right">
+														{routingMetadata.eligibleProviderKeys
+															.map((key) => key.label ?? key.id)
+															.join(", ")}
+													</span>
+												</div>
+											)}
 										{routingMetadata.xNoFallbackHeaderSet !== undefined && (
 											<div className="flex justify-between">
 												<span className="text-muted-foreground">
@@ -672,6 +728,31 @@ export function LogCard({
 													<span className="font-mono">
 														{routingMetadata.availableProviders.join(", ")}
 													</span>
+												</div>
+											)}
+										{routingMetadata.filteredProviders &&
+											routingMetadata.filteredProviders.length > 0 && (
+												<div className="pt-1 border-t border-dashed">
+													<div className="text-muted-foreground mb-1">
+														Filtered Out
+													</div>
+													<div className="space-y-1">
+														{routingMetadata.filteredProviders.map(
+															(filtered) => (
+																<div
+																	key={filtered.providerId}
+																	className="flex justify-between items-start gap-2"
+																>
+																	<span className="font-mono text-amber-600">
+																		{filtered.providerId}
+																	</span>
+																	<span className="text-muted-foreground text-right">
+																		{filtered.reasons.join(", ")}
+																	</span>
+																</div>
+															),
+														)}
+													</div>
 												</div>
 											)}
 										{routingMetadata.providerScores &&
@@ -783,6 +864,10 @@ export function LogCard({
 																			key {formatApiKeyHash(attempt.apiKeyHash)}
 																		</span>
 																	)}
+																	<CredentialSourceBadge
+																		source={attempt.credentialSource}
+																		keyLabel={attempt.providerKeyLabel}
+																	/>
 																	{attempt.logId &&
 																		(getDetailUrl ? (
 																			<LinkComponent
@@ -1054,6 +1139,12 @@ export function LogCard({
 													<span className="capitalize">
 														{log.requestedServiceTier}
 													</span>
+													{routingMetadata?.serviceTierSource ===
+														"coding-plan-default" && (
+														<span className="ml-1 text-muted-foreground">
+															(coding plan default)
+														</span>
+													)}
 												</div>
 											</>
 										)}
@@ -1181,6 +1272,12 @@ export function LogCard({
 									copyLabel="Copy API key ID"
 									showCopyButton={showCopyButtons}
 								/>
+								<div className="text-muted-foreground">API Origin</div>
+								<div>
+									{log.apiOrigin
+										? (API_ORIGIN_LABELS[log.apiOrigin] ?? log.apiOrigin)
+										: "—"}
+								</div>
 								<div className="text-muted-foreground">Mode</div>
 								<div>{log.mode ?? "?"}</div>
 								<div className="text-muted-foreground">Used Mode</div>

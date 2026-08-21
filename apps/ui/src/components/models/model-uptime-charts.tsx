@@ -28,19 +28,20 @@ import {
 	type ChartConfig,
 } from "@/lib/components/chart";
 import { useApi } from "@/lib/fetch-client";
+import {
+	formatCompact,
+	hasEnoughRequestsForStats,
+	hasEnoughTtftSamplesForStats,
+	MIN_REQUESTS_FOR_STATS,
+} from "@/lib/provider-stats";
 import { cn } from "@/lib/utils";
 
+import { deriveStabilityMetrics } from "@llmgateway/shared";
 import { getProviderIcon } from "@llmgateway/shared/components";
 
 import type { paths } from "@/lib/api/v1";
 
 type ActiveMetric = "requests" | "errors" | "latency" | "tokens";
-
-// Derived metrics (uptime %, error rate, latency averages, throughput) are only
-// statistically meaningful once a provider has served a reasonable number of
-// requests. Below this threshold we show "—" instead so the numbers don't look
-// misleading.
-const MIN_REQUESTS_FOR_STATS = 1000;
 
 type UptimeResponse =
 	paths["/internal/models/{modelId}/uptime"]["get"]["responses"]["200"]["content"]["application/json"];
@@ -72,31 +73,26 @@ const metricTabs: { key: ActiveMetric; label: string }[] = [
 	{ key: "tokens", label: "Tokens" },
 ];
 
-function formatCompact(n: number): string {
-	if (n >= 1_000_000_000) {
-		return `${(n / 1_000_000_000).toFixed(1)}B`;
-	}
-	if (n >= 1_000_000) {
-		return `${(n / 1_000_000).toFixed(1)}M`;
-	}
-	if (n >= 1_000) {
-		return `${(n / 1_000).toFixed(1)}k`;
-	}
-	return n.toLocaleString();
-}
-
 function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 	const [activeMetric, setActiveMetric] = useState<ActiveMetric>("requests");
 	const ProviderIcon = getProviderIcon(provider.providerId);
 	const config = chartConfigs[activeMetric];
 	const dataKeys = Object.keys(config);
 
-	const hasEnoughData = provider.logsCount > MIN_REQUESTS_FOR_STATS;
+	const hasEnoughData = hasEnoughRequestsForStats(provider.logsCount);
+	// TTFT only has samples from streamed requests, so on top of the request
+	// threshold it also gates on its own streamed-sample count.
+	const hasEnoughTtftData =
+		hasEnoughData && hasEnoughTtftSamplesForStats(provider.ttftCount);
 
 	const errorRate =
-		provider.logsCount > 0
-			? Math.round((provider.errorsCount / provider.logsCount) * 1000) / 10
-			: 0;
+		Math.round(
+			(deriveStabilityMetrics(
+				provider.logsCount,
+				provider.errorsCount + provider.clientErrorsCount,
+				provider.clientErrorsCount,
+			).errorRate ?? 0) * 10,
+		) / 10;
 
 	const uptimeColor =
 		!hasEnoughData || provider.uptime === null
@@ -162,7 +158,7 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 						icon={Clock}
 						label="Avg TTFT"
 						value={
-							hasEnoughData && provider.avgTtft !== null
+							hasEnoughTtftData && provider.avgTtft !== null
 								? `${provider.avgTtft}ms`
 								: "—"
 						}

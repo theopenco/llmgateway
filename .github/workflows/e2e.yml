@@ -1,56 +1,94 @@
 name: e2e
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - "apps/gateway/**"
-      - "packages/actions/**"
-      - "packages/models/**"
-      - "packages/shared/**"
-      - "**/*.e2e.ts"
-      - ".github/workflows/e2e.yml"
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.issue.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.issue.pull_request != null &&
+      startsWith(github.event.comment.body, '/e2e') &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
+    permissions:
+      contents: read
+      issues: write
+      # write, not read: reacting to a comment on a pull request maps to the
+      # pull-requests permission even though it goes through the issues API.
+      pull-requests: write
+    outputs:
+      ref: ${{ steps.target.outputs.ref }}
+    steps:
+      - name: Resolve target commit
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          DISPATCH_SHA: ${{ github.sha }}
+        run: |
+          set -eu
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "ref=$DISPATCH_SHA" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          pr=$(gh api "repos/$REPO/pulls/$PR_NUMBER")
+          head_repo=$(echo "$pr" | jq -r '.head.repo.full_name')
+          head_sha=$(echo "$pr" | jq -r '.head.sha')
+          if [ "$head_repo" != "$REPO" ]; then
+            echo "Refusing to run e2e for a pull request from a fork ($head_repo)." >&2
+            exit 1
+          fi
+          echo "ref=$head_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Acknowledge comment
+        if: github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          # The reaction is cosmetic feedback; a failure to post it (e.g. a
+          # token-permission change) must never block the e2e run itself.
+          gh api --method POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" -f content=rocket ||
+            echo "::warning::could not react to the trigger comment"
+
   e2e-shards:
     runs-on: ubuntu-latest
-    if: ${{ github.actor != 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository }}
+    needs: resolve
     strategy:
       fail-fast: false
       matrix:
         shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     steps:
       - name: Checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
         with:
+          ref: ${{ needs.resolve.outputs.ref }}
           persist-credentials: false
 
-      - name: Collect versions
-        run: |
-          echo "nodejs_version=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
-          echo "pnpm_version=$(cat .tool-versions | grep 'pnpm' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
-
-      - uses: pnpm/action-setup@v6.0.9
-        with:
-          version: ${{ env.pnpm_version }}
-
-      - uses: actions/setup-node@v6.4.0
-        with:
-          node-version: ${{ env.nodejs_version }}
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
 
       - name: Setup and run e2e shard ${{ matrix.shard }}
         run: |
           set -eux
           pnpm run setup
           export DATABASE_URL=postgres://postgres:pw@localhost:5432/test
-          E2E_TEST=true pnpm vitest run -c vitest/vitest.e2e.config.mts --no-file-parallelism --shard=${{ matrix.shard }}/10 --reporter=blob --outputFile=e2e-results-${{ matrix.shard }}.blob || true
+          # Never fail here: the merge job reports the combined result, and a
+          # failing shard must still upload its blob so that report is complete.
+          E2E_TEST=true pnpm vitest run -c vitest/vitest.e2e.config.mts --no-file-parallelism \
+            --shard=${{ matrix.shard }}/${{ strategy.job-total }} \
+            --reporter=blob --outputFile=e2e-results-${{ matrix.shard }}.blob || true
         env:
           LLM_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           LLM_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -75,6 +113,7 @@ jobs:
           LLM_Z_AI_API_KEY: ${{ secrets.Z_AI_API_KEY }}
           LLM_NANO_GPT_API_KEY: ${{ secrets.NANO_GPT_API_KEY }}
           LLM_AWS_BEDROCK_API_KEY: ${{ secrets.AWS_BEDROCK_API_KEY }}
+          LLM_AWS_MANTLE_API_KEY: ${{ secrets.AWS_MANTLE_API_KEY }}
           LLM_AWS_BEDROCK_BASE_URL: ${{ secrets.AWS_BEDROCK_BASE_URL }}
           LLM_AWS_BEDROCK_REGION: ${{ secrets.AWS_BEDROCK_REGION }}
           LLM_AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
@@ -92,6 +131,10 @@ jobs:
           LLM_DEEPINFRA_API_KEY: ${{ secrets.LLM_DEEPINFRA_API_KEY }}
           LLM_SAKANA_API_KEY: ${{ secrets.LLM_SAKANA_API_KEY }}
           LLM_META_API_KEY: ${{ secrets.LLM_META_API_KEY }}
+          LLM_GONKA_24_API_KEY: ${{ secrets.LLM_GONKA_24_API_KEY }}
+          LLM_FIREWORKS_API_KEY: ${{ secrets.LLM_FIREWORKS_API_KEY }}
+          LLM_RANOAI_API_KEY: ${{ secrets.LLM_RANOAI_API_KEY }}
+          LLM_BAIDU_API_KEY: ${{ secrets.LLM_BAIDU_API_KEY }}
 
       - name: Upload shard results
         if: always()
@@ -104,30 +147,16 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
-    needs: e2e-shards
-    if: always() && github.actor != 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository
+    needs: [resolve, e2e-shards]
+    if: always() && needs.resolve.result == 'success'
     steps:
       - name: Checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
         with:
+          ref: ${{ needs.resolve.outputs.ref }}
           persist-credentials: false
 
-      - name: Collect versions
-        run: |
-          echo "nodejs_version=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
-          echo "pnpm_version=$(cat .tool-versions | grep 'pnpm' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
-
-      - uses: pnpm/action-setup@v6.0.9
-        with:
-          version: ${{ env.pnpm_version }}
-
-      - uses: actions/setup-node@v6.4.0
-        with:
-          node-version: ${{ env.nodejs_version }}
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
 
       - name: Download all shard results
         uses: actions/download-artifact@v8

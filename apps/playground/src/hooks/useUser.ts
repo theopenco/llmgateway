@@ -5,6 +5,7 @@ import { usePostHog } from "posthog-js/react";
 import { useEffect } from "react";
 
 import { useApi } from "@/lib/fetch-client";
+import { clearPendingIdentity, identifyUser } from "@/lib/posthog-identity";
 
 export interface UserUpdateData {
 	name?: string;
@@ -38,12 +39,19 @@ export function useUser(options?: UseUserOptions) {
 		},
 	);
 
-	if (data) {
-		posthog.identify(data.user.id, {
-			email: data.user.email,
-			name: data.user.name,
-		});
-	}
+	useEffect(() => {
+		if (data?.user) {
+			// Queued rather than called directly: this effect fires once and can
+			// win the race against the deferred posthog.init(), which would drop
+			// the identify() and leave the whole session anonymous.
+			identifyUser(posthog, data.user.id, {
+				email: data.user.email,
+				name: data.user.name,
+			});
+		} else {
+			clearPendingIdentity();
+		}
+	}, [data?.user, posthog]);
 
 	// Check for onboarding completion for all authenticated users
 	useEffect(() => {

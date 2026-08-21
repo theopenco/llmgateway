@@ -2,28 +2,41 @@ import { createHmac } from "node:crypto";
 
 import { getStopSignal, isStopRequested } from "@/shutdown.js";
 
+import {
+	adjustOrgSpend,
+	managedCredentialOptions,
+	readProviderKey,
+} from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import {
 	and,
 	asc,
 	db,
 	eq,
+	findManagedProviderKeyById,
 	type InferSelectModel,
 	inArray,
 	isNull,
+	type LogInsertData,
 	lte,
 	or,
 	shortid,
+	stripRetentionSensitiveLogFields,
 	tables,
 	UnifiedFinishReason,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
+	type EnvVarVariant,
+	getOrganizationEnvVariant,
 	getProviderEnvConfig,
 	getProviderEnvValue,
 	getProviderEnvVar,
+	getVariantEnvVarName,
+	isStealthProvider,
 	models,
 	type Provider,
+	type ProviderId,
 	type ProviderModelMapping,
 	resolveVertexTokenType,
 	type VertexTokenType,
@@ -45,6 +58,13 @@ import { buildSignedGatewayVideoLogContentUrl } from "@llmgateway/shared/video-a
 
 const UPSTREAM_FETCH_TIMEOUT_MS = 30_000;
 const WEBHOOK_DELIVERY_TIMEOUT_MS = 30_000;
+// A failed video job is reported by an upstream status poll that itself
+// returned 200, so there is no real upstream status code to surface. 502 is a
+// stand-in that matches the status this path has always stamped on the log
+// row's errorDetails — do not "fix" it to the poll's actual status.
+const VIDEO_JOB_PUBLIC_ERROR_STATUS_CODE = 502;
+const VIDEO_JOB_PUBLIC_ERROR_STATUS_TEXT = "Bad Gateway";
+const VIDEO_JOB_PUBLIC_ERROR_TEXT = `Upstream provider error (${VIDEO_JOB_PUBLIC_ERROR_STATUS_CODE} ${VIDEO_JOB_PUBLIC_ERROR_STATUS_TEXT})`;
 
 function fetchWithSignals(
 	url: string,
@@ -86,6 +106,7 @@ const VIDEO_JOB_POLL_CLAIM_TTL_MS = 30_000;
 const VIDEO_JOB_ERROR_BASE_DELAY_MS = 10_000;
 const VIDEO_JOB_ERROR_MAX_DELAY_MS = 5 * 60 * 1000;
 const VIDEO_JOB_MAX_POLL_ERROR_COUNT = 5;
+const VIDEO_JOB_UPSTREAM_ERROR_TEXT_LIMIT = 4000;
 const VIDEO_RESOLUTION_4K = "4k";
 const VIDEO_RESOLUTION_HD = "hd";
 const VIDEO_RESOLUTION_1080P = "1080p";
@@ -185,7 +206,13 @@ async function findActiveProviderKey(
 				eq(tables.providerKey.provider, providerId),
 			),
 		)
-		.orderBy(asc(tables.providerKey.createdAt), asc(tables.providerKey.id));
+		// Same ordering as the gateway's provider-key queries, so a key the
+		// organization dragged to the top ranks first here too.
+		.orderBy(
+			asc(tables.providerKey.sortOrder),
+			asc(tables.providerKey.createdAt),
+			asc(tables.providerKey.id),
+		);
 
 	const filtered = filter ? providerKeys.filter(filter) : providerKeys;
 	return selectLoadBalancedItem(filtered, selectionKey);
@@ -212,8 +239,10 @@ function getVideoProviderKeyFilter(
 function resolveProviderEnvToken(
 	providerId: Provider,
 	configIndex: number | null,
+	variant?: EnvVarVariant,
 ): string {
-	const envVarName = getProviderEnvVar(providerId);
+	const envVarName =
+		getVariantEnvVarName(providerId, variant) ?? getProviderEnvVar(providerId);
 	if (!envVarName) {
 		throw new Error(`No environment variable set for provider: ${providerId}`);
 	}
@@ -284,7 +313,7 @@ async function resolveVideoProviderContext(
 
 		return {
 			baseUrl,
-			token: providerKey.token,
+			token: readProviderKey(providerKey),
 			vertexTokenType: isGoogleVertexVideoProvider(providerId)
 				? resolveVertexTokenType(
 						"google-vertex",
@@ -296,12 +325,57 @@ async function resolveVideoProviderContext(
 		};
 	}
 
-	const token = resolveProviderEnvToken(providerId, job.providerConfigIndex);
+	// Polls must use the same credential as job creation: some providers scope
+	// job visibility to the creating API key. A managed credential is pinned by
+	// id on the job, so it is re-read directly rather than re-selected.
+	if (job.managedProviderKeyId) {
+		const managedKey = await findManagedProviderKeyById(
+			job.managedProviderKeyId,
+		);
+		if (!managedKey) {
+			throw new Error(
+				`The managed credential that created this ${providerId} job no longer exists`,
+			);
+		}
+		const baseUrl = managedKey.config?.baseUrl ?? defaultBaseUrl;
+		if (!baseUrl) {
+			throw new Error(`No base URL set for provider: ${job.usedProvider}`);
+		}
+		return {
+			baseUrl,
+			token: readProviderKey(managedKey),
+			vertexTokenType: isGoogleVertexVideoProvider(providerId)
+				? resolveVertexTokenType(
+						"google-vertex",
+						managedCredentialOptions(managedKey),
+						undefined,
+						true,
+					)
+				: undefined,
+		};
+	}
+
+	// Env credentials are re-resolved with the org's variant so an
+	// enterprise/plan org's job created with a variant override is polled with it.
+	const organization = await db.query.organization.findFirst({
+		where: {
+			id: { eq: job.organizationId },
+		},
+	});
+	const envVariant = getOrganizationEnvVariant(organization);
+
+	const token = resolveProviderEnvToken(
+		providerId,
+		job.providerConfigIndex,
+		envVariant,
+	);
 	const baseUrl =
 		getProviderEnvValue(
 			providerId,
 			"baseUrl",
 			job.providerConfigIndex ?? undefined,
+			undefined,
+			envVariant,
 		) ?? defaultBaseUrl;
 	if (!baseUrl) {
 		throw new Error(`No base URL set for provider: ${job.usedProvider}`);
@@ -316,6 +390,7 @@ async function resolveVideoProviderContext(
 					undefined,
 					job.providerConfigIndex ?? undefined,
 					false,
+					envVariant,
 				)
 			: undefined,
 	};
@@ -553,6 +628,19 @@ function extractError(body: Record<string, unknown>): VideoJobRecord["error"] {
 	};
 }
 
+function clientFacingVideoJobError(
+	providerId: string,
+	error: VideoJobRecord["error"],
+): VideoJobRecord["error"] {
+	if (!error || !isStealthProvider(providerId as ProviderId)) {
+		return error;
+	}
+
+	return {
+		message: VIDEO_JOB_PUBLIC_ERROR_TEXT,
+	};
+}
+
 function toUnixTimestamp(value: Date | null): number | null {
 	return value ? Math.floor(value.getTime() / 1000) : null;
 }
@@ -725,7 +813,7 @@ async function serializeVideoJob(job: VideoJobRecord, logId?: string | null) {
 	return {
 		id: job.id,
 		object: "video" as const,
-		model: job.model,
+		model: getFormattedUsedVideoModel(job),
 		status: job.status,
 		progress:
 			job.status === "completed"
@@ -1173,22 +1261,23 @@ async function fetchJsonResponse(
 ): Promise<{
 	body: Record<string, unknown>;
 	response: Response;
+	responseText: string;
 }> {
 	const response = await fetchWithSignals(url, init, UPSTREAM_FETCH_TIMEOUT_MS);
-	const text = await response.text();
+	const responseText = await response.text();
 
 	let body: Record<string, unknown> = {};
-	if (text.length > 0) {
+	if (responseText.length > 0) {
 		try {
-			body = JSON.parse(text) as Record<string, unknown>;
+			body = JSON.parse(responseText) as Record<string, unknown>;
 		} catch {
 			body = {
-				message: text,
+				message: responseText,
 			};
 		}
 	}
 
-	return { body, response };
+	return { body, response, responseText };
 }
 
 async function fetchAvalancheRecordInfo(
@@ -1523,9 +1612,9 @@ async function fetchGoogleVertexStatus(
 	if (!response.ok) {
 		throw new Error(
 			body.error &&
-			typeof body.error === "object" &&
-			"message" in body.error &&
-			typeof body.error.message === "string"
+				typeof body.error === "object" &&
+				"message" in body.error &&
+				typeof body.error.message === "string"
 				? body.error.message
 				: `Google Vertex status request failed with status ${response.status}`,
 		);
@@ -1660,6 +1749,26 @@ function getVideoInputImageCount(job: VideoJobRecord): number {
 		}
 	}
 
+	return 0;
+}
+
+// Spend-cap estimate the gateway reserved at submission (stamped on the job
+// as llmgateway_reserved_spend_usd); finalization reconciles it against the
+// actual billed cost. Jobs created before the stamp existed read as 0, so
+// they reconcile to the full billed cost — the pre-reservation behavior.
+function getVideoReservedSpendUsd(job: VideoJobRecord): number {
+	for (const candidate of getVideoMetadataCandidates(job)) {
+		const value = readNestedValue(candidate, "llmgateway_reserved_spend_usd");
+		if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+			return value;
+		}
+		if (typeof value === "string" && value.length > 0) {
+			const parsed = Number(value);
+			if (Number.isFinite(parsed) && parsed >= 0) {
+				return parsed;
+			}
+		}
+	}
 	return 0;
 }
 
@@ -1800,20 +1909,38 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 			const totalCost = Number((videoOutputCost + imageInputCost).toFixed(6));
 			const responsePayload = await serializeVideoJob(jobToLog, logId);
 			const responseSize = JSON.stringify(responsePayload).length;
-			const messages =
-				organization?.retentionLevel === "retain"
-					? [
-							{
-								role: "user",
-								content: jobToLog.prompt,
-							},
-						]
-					: null;
+
+			const rawVideoError =
+				jobToLog.upstreamStatusResponse &&
+				typeof jobToLog.upstreamStatusResponse === "object" &&
+				!Array.isArray(jobToLog.upstreamStatusResponse)
+					? extractError(
+							jobToLog.upstreamStatusResponse as Record<string, unknown>,
+						)
+					: jobToLog.error;
+			const redactStealthProviderError = isStealthProvider(
+				jobToLog.usedProvider as ProviderId,
+			);
+			const rawErrorDetails = rawVideoError
+				? {
+						statusCode: VIDEO_JOB_PUBLIC_ERROR_STATUS_CODE,
+						statusText: jobToLog.status,
+						responseText: rawVideoError.message,
+					}
+				: null;
+			const publicErrorDetails =
+				redactStealthProviderError && rawErrorDetails
+					? {
+							statusCode: VIDEO_JOB_PUBLIC_ERROR_STATUS_CODE,
+							statusText: VIDEO_JOB_PUBLIC_ERROR_STATUS_TEXT,
+							responseText: VIDEO_JOB_PUBLIC_ERROR_TEXT,
+						}
+					: rawErrorDetails;
 
 			const isContentFilterFailure =
 				jobToLog.status === "failed" &&
 				isContentFilterErrorText(
-					[jobToLog.error?.code, jobToLog.error?.message]
+					[rawVideoError?.code, rawVideoError?.message]
 						.filter(Boolean)
 						.join(" "),
 				);
@@ -1824,12 +1951,17 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				? UnifiedFinishReason.CONTENT_FILTER
 				: UnifiedFinishReason.UPSTREAM_ERROR;
 
-			await tx.insert(tables.log).values({
+			const logValues: LogInsertData = {
 				id: logId,
 				requestId: jobToLog.requestId,
+				apiOrigin: "videos",
 				organizationId: jobToLog.organizationId,
 				projectId: jobToLog.projectId,
 				apiKeyId: jobToLog.apiKeyId,
+				// Spend attribution: the BYOK key or managed credential that created
+				// the job. BYOK polls may re-select a different key mid-job;
+				// attributing to the creator is acceptable for approximate limits.
+				providerKeyId: jobToLog.providerKeyId ?? jobToLog.managedProviderKeyId,
 				endUserSessionId: jobToLog.endUserSessionId,
 				endCustomerWalletId: jobToLog.endCustomerWalletId,
 				duration: Math.max(0, Date.now() - jobToLog.createdAt.getTime()),
@@ -1850,19 +1982,21 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 						? UnifiedFinishReason.COMPLETED
 						: failureUnifiedFinishReason,
 				hasError: jobToLog.status !== "completed",
-				errorDetails: jobToLog.error
-					? {
-							statusCode: 502,
-							statusText: jobToLog.status,
-							responseText: jobToLog.error.message,
-						}
-					: null,
+				errorDetails: publicErrorDetails,
+				internalErrorDetails: redactStealthProviderError
+					? rawErrorDetails
+					: undefined,
 				cost: totalCost,
 				requestCost: 0,
 				imageInputCost,
 				videoOutputCost,
 				estimatedCost: false,
-				messages,
+				messages: [
+					{
+						role: "user",
+						content: jobToLog.prompt,
+					},
+				],
 				mode: jobToLog.mode,
 				usedMode: jobToLog.usedMode,
 				routingMetadata: jobToLog.routingMetadata ?? null,
@@ -1875,10 +2009,22 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 					jobToLog,
 					"llmgateway_upstream_request",
 				),
-				upstreamResponse: jobToLog.upstreamStatusResponse,
+				upstreamResponse: redactStealthProviderError
+					? null
+					: jobToLog.upstreamStatusResponse,
 				processedAt: null,
 				dataStorageCost: "0",
-			});
+			};
+
+			// Strip request/response payload fields for orgs that don't retain data,
+			// keeping the video log consistent with every other endpoint's policy.
+			await tx
+				.insert(tables.log)
+				.values(
+					organization?.retentionLevel === "retain"
+						? logValues
+						: stripRetentionSensitiveLogFields(logValues),
+				);
 
 			await tx
 				.update(tables.videoJob)
@@ -1893,6 +2039,31 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 		}
 		if (claimedJob) {
 			currentJob = claimedJob;
+			// Video jobs finalize here, never through the gateway's insertLog
+			// chokepoint. The gateway already advanced the spend-cap counters by
+			// its submission-time estimate, so settle the difference to the
+			// actual credits-billed cost: completed jobs add (or refund) the
+			// delta, failed jobs refund the whole estimate. Wallet-funded and
+			// BYOK jobs bill the org nothing here; mirror organizationBilledCost.
+			if (
+				claimedJob.usedMode === "credits" &&
+				!claimedJob.endCustomerWalletId
+			) {
+				const billedVideoCost =
+					claimedJob.status === "completed"
+						? Number(
+								(
+									getVideoOutputCost(claimedJob) +
+									getVideoImageInputCost(claimedJob)
+								).toFixed(6),
+							)
+						: 0;
+				const reservedSpendUsd = getVideoReservedSpendUsd(claimedJob);
+				await adjustOrgSpend(
+					claimedJob.organizationId,
+					Number((billedVideoCost - reservedSpendUsd).toFixed(6)),
+				);
+			}
 		}
 	}
 
@@ -1972,9 +2143,9 @@ async function fetchAtlasCloudStatus(
 	if (!response.ok) {
 		throw new Error(
 			typeof body.error === "object" &&
-			body.error &&
-			"message" in body.error &&
-			typeof body.error.message === "string"
+				body.error &&
+				"message" in body.error &&
+				typeof body.error.message === "string"
 				? body.error.message
 				: `AtlasCloud status request failed with status ${response.status}`,
 		);
@@ -2118,9 +2289,9 @@ async function fetchMinimaxStatus(
 	if (!response.ok) {
 		throw new Error(
 			typeof body.error === "object" &&
-			body.error &&
-			"message" in body.error &&
-			typeof body.error.message === "string"
+				body.error &&
+				"message" in body.error &&
+				typeof body.error.message === "string"
 				? body.error.message
 				: `MiniMax status request failed with status ${response.status}`,
 		);
@@ -2183,9 +2354,9 @@ async function fetchBytedanceStatus(
 	if (!response.ok) {
 		throw new Error(
 			typeof body.error === "object" &&
-			body.error &&
-			"message" in body.error &&
-			typeof body.error.message === "string"
+				body.error &&
+				"message" in body.error &&
+				typeof body.error.message === "string"
 				? body.error.message
 				: `ByteDance status request failed with status ${response.status}`,
 		);
@@ -2268,19 +2439,34 @@ async function fetchGenericVideoStatus(
 	providerContext: ResolvedVideoProviderContext,
 ): Promise<Record<string, unknown>> {
 	const url = joinUrl(providerContext.baseUrl, `/v1/videos/${job.upstreamId}`);
-	const { body, response } = await fetchJsonResponse(url, {
+	const { body, response, responseText } = await fetchJsonResponse(url, {
 		method: "GET",
 		headers: getVideoProviderHeaders(job, providerContext),
 	});
 
 	if (!response.ok) {
+		const upstreamContents = responseText
+			.trim()
+			.slice(0, VIDEO_JOB_UPSTREAM_ERROR_TEXT_LIMIT);
+		if (isContentFilterErrorText(upstreamContents)) {
+			return addRequestedVideoMetadata(job, {
+				...body,
+				status: "failed",
+				progress: 100,
+				error: {
+					code: typeof body.code === "string" ? body.code : undefined,
+					message:
+						typeof body.error === "string"
+							? body.error
+							: "Video generation rejected by content moderation",
+					details: body,
+				},
+			});
+		}
 		throw new Error(
-			typeof body.error === "object" &&
-			body.error &&
-			"message" in body.error &&
-			typeof body.error.message === "string"
-				? body.error.message
-				: `Upstream status request failed with status ${response.status}`,
+			`Upstream status request failed with status ${response.status}${
+				upstreamContents ? `: ${upstreamContents}` : ""
+			}`,
 		);
 	}
 
@@ -2432,7 +2618,10 @@ export async function processPendingVideoJobs(): Promise<void> {
 				.set({
 					status,
 					progress,
-					error: extractError(enrichedUpstreamStatus),
+					error: clientFacingVideoJobError(
+						job.usedProvider,
+						extractError(enrichedUpstreamStatus),
+					),
 					contentUrl:
 						extractContentUrl(enrichedUpstreamStatus) ?? job.contentUrl,
 					storageProvider:
@@ -2536,7 +2725,10 @@ export async function processPendingVideoJobs(): Promise<void> {
 					.set({
 						status: "failed",
 						progress: 100,
-						error: extractError(failedResponse),
+						error: clientFacingVideoJobError(
+							job.usedProvider,
+							extractError(failedResponse),
+						),
 						completedAt: now,
 						lastPolledAt: now,
 						nextPollAt: now,

@@ -15,7 +15,10 @@ import { z } from "zod";
 
 import { PLAYGROUND_KEY_COOKIE_NAME } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
-import { getModelImageConfig } from "@/lib/image-gen";
+import {
+	describeImageGenerationError,
+	getModelImageConfig,
+} from "@/lib/image-gen";
 import {
 	isRecord,
 	readNumber,
@@ -25,6 +28,7 @@ import {
 import { fetchServerData } from "@/lib/server-api";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 
 export const maxDuration = 300; // 5 minutes
 
@@ -76,8 +80,7 @@ interface PlaygroundMetadataFinishStepPart {
 }
 
 type PlaygroundMetadataStreamPart =
-	| PlaygroundMetadataFinishStepPart
-	| { type: string };
+	PlaygroundMetadataFinishStepPart | { type: string };
 
 type GatewayResponseMetadata = Pick<
 	PlaygroundMessageMetadata,
@@ -595,6 +598,60 @@ interface McpClientWrapper {
 	name: string;
 }
 
+/**
+ * Wrap an SSE body with periodic `: ping` comment lines so proxies and load
+ * balancers don't cut the connection during long silent stretches (tool
+ * calls, reasoning, image generation). Uses a push-based ReadableStream with
+ * setInterval so pings flush independently of consumer backpressure.
+ */
+function withSseKeepalive(
+	body: ReadableStream<Uint8Array | string>,
+	intervalMs: number,
+): ReadableStream<Uint8Array> {
+	const encoder = new TextEncoder();
+	const reader = body.getReader();
+	let keepaliveTimer: ReturnType<typeof setInterval> | undefined;
+
+	return new ReadableStream<Uint8Array>({
+		start(controller) {
+			keepaliveTimer = setInterval(() => {
+				try {
+					controller.enqueue(encoder.encode(": ping\n\n"));
+				} catch {
+					// Stream already closed, clean up.
+					clearInterval(keepaliveTimer);
+				}
+			}, intervalMs);
+
+			// Read upstream chunks in a loop and forward them.
+			void (async () => {
+				try {
+					while (true) {
+						const { done, value } = await reader.read();
+						if (done) {
+							clearInterval(keepaliveTimer);
+							controller.close();
+							return;
+						}
+						controller.enqueue(
+							typeof value === "string" ? encoder.encode(value) : value,
+						);
+					}
+				} catch (err) {
+					clearInterval(keepaliveTimer);
+					controller.error(err);
+				}
+			})();
+		},
+		cancel() {
+			clearInterval(keepaliveTimer);
+			void reader.cancel();
+		},
+	});
+}
+
+const KEEPALIVE_INTERVAL_MS = 15_000;
+
 export async function POST(req: Request) {
 	const user = await getUser();
 
@@ -730,7 +787,7 @@ export async function POST(req: Request) {
 		baseURL: gatewayUrl,
 		fetch: gatewayFetch,
 		headers: {
-			"x-source": "chat.llmgateway.io",
+			"x-source": LOUNGE_SOURCE,
 			...(noFallbackHeader ? { "x-no-fallback": noFallbackHeader } : {}),
 		},
 		extraBody: {
@@ -740,7 +797,7 @@ export async function POST(req: Request) {
 		},
 	}) as any;
 
-	// Respect root model IDs passed from the client without adding a provider prefix.
+	// Respect canonical model IDs passed from the client without adding a provider prefix.
 	// Only apply provider-based prefixing when the client did NOT explicitly specify a model
 	// (i.e. we're using a header/default model value).
 	let selectedModel = (model ?? headerModel ?? "auto") as string;
@@ -815,7 +872,12 @@ export async function POST(req: Request) {
 				);
 			}
 
-			const result = await generateImage({
+			// Kick off generation without awaiting so the stream response (and
+			// its SSE bytes) starts flowing immediately. Image generation can
+			// run for minutes (gpt-image-2 at high quality); awaiting here
+			// buffers the whole response and lets proxies kill the idle
+			// connection while the gateway request still completes.
+			const generation = generateImage({
 				model: llmgateway.image(selectedModel),
 				prompt:
 					fileParts.length > 0
@@ -836,6 +898,11 @@ export async function POST(req: Request) {
 						}
 					: {}),
 			});
+			// Safety net: nothing awaits `generation` until execute() runs, so
+			// attach a no-op rejection handler in case stream setup throws
+			// first. execute still awaits the original promise, so errors
+			// reach onError as usual.
+			generation.catch(() => {});
 
 			const stream = createUIMessageStream({
 				execute: async ({ writer }) => {
@@ -844,6 +911,7 @@ export async function POST(req: Request) {
 						messageId: crypto.randomUUID(),
 					});
 					writer.write({ type: "start-step" });
+					const result = await generation;
 					for (const image of result.images) {
 						const mediaType = image.mediaType || "image/png";
 						writer.write({
@@ -855,40 +923,27 @@ export async function POST(req: Request) {
 					writer.write({ type: "finish-step" });
 					writer.write({ type: "finish", finishReason: "stop" });
 				},
+				onError: (error) => describeImageGenerationError(error).message,
 			});
 
-			return createUIMessageStreamResponse({ stream });
-		} catch (error: unknown) {
-			const status =
-				typeof error === "object" &&
-				error !== null &&
-				"status" in error &&
-				typeof (error as { status: unknown }).status === "number"
-					? (error as { status: number }).status
-					: 500;
-
-			const message =
-				error instanceof Error ? error.message : "Image generation failed";
-
-			let detailedMessage: string | undefined;
-			if (typeof error === "object" && error !== null) {
-				const err = error as Record<string, unknown>;
-				if (typeof err.responseBody === "string") {
-					try {
-						const body = JSON.parse(err.responseBody);
-						if (typeof body.message === "string") {
-							detailedMessage = body.message;
-						}
-					} catch {
-						// ignore parse errors
-					}
-				}
+			// Mirror the chat path's SSE keepalive so proxies don't cut the
+			// connection while the image model works.
+			const sseResponse = createUIMessageStreamResponse({ stream });
+			const upstreamBody = sseResponse.body;
+			if (!upstreamBody) {
+				return sseResponse;
 			}
 
 			return new Response(
-				JSON.stringify({ error: detailedMessage ?? message }),
-				{ status },
+				withSseKeepalive(upstreamBody, KEEPALIVE_INTERVAL_MS),
+				{
+					status: sseResponse.status,
+					headers: sseResponse.headers,
+				},
 			);
+		} catch (error: unknown) {
+			const { message, status } = describeImageGenerationError(error);
+			return new Response(JSON.stringify({ error: message }), { status });
 		}
 	}
 
@@ -1315,46 +1370,10 @@ export async function POST(req: Request) {
 
 		// Add SSE keepalive comments (`: ping`) to prevent proxy/load balancer
 		// timeouts on long-running requests (e.g. tool calls, reasoning).
-		// Uses a push-based ReadableStream with setInterval so that pings are
-		// flushed to the response independently of consumer backpressure.
-		const KEEPALIVE_INTERVAL_MS = 15_000;
-		const encoder = new TextEncoder();
-		const reader = sseStream.getReader();
-
-		const streamWithKeepalive = new ReadableStream<Uint8Array>({
-			start(controller) {
-				// Send a keepalive ping every KEEPALIVE_INTERVAL_MS.
-				const keepaliveTimer = setInterval(() => {
-					try {
-						controller.enqueue(encoder.encode(": ping\n\n"));
-					} catch {
-						// Stream already closed, clean up.
-						clearInterval(keepaliveTimer);
-					}
-				}, KEEPALIVE_INTERVAL_MS);
-
-				// Read upstream chunks in a loop and forward them.
-				void (async () => {
-					try {
-						while (true) {
-							const { done, value } = await reader.read();
-							if (done) {
-								clearInterval(keepaliveTimer);
-								controller.close();
-								return;
-							}
-							controller.enqueue(encoder.encode(value));
-						}
-					} catch (err) {
-						clearInterval(keepaliveTimer);
-						controller.error(err);
-					}
-				})();
-			},
-			cancel() {
-				void reader.cancel();
-			},
-		});
+		const streamWithKeepalive = withSseKeepalive(
+			sseStream,
+			KEEPALIVE_INTERVAL_MS,
+		);
 
 		return new Response(streamWithKeepalive, {
 			headers: {

@@ -12,6 +12,10 @@ import {
 import { currencyFormatter } from "@/components/analytics/chart-helpers";
 import { DimensionUsageCard } from "@/components/analytics/dimension-usage-card";
 import { DimensionUsageOverTimeCard } from "@/components/analytics/dimension-usage-over-time-card";
+import {
+	UsageModeSelector,
+	useUsageMode,
+} from "@/components/shared/usage-mode-selector";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useTeamMembers } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
@@ -32,6 +36,7 @@ import {
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
 import { getBrowserTimeZone } from "@/lib/timezone";
+import { applyUsageMode } from "@/lib/usage-mode";
 
 import type { DimensionRow } from "@/components/analytics/chart-helpers";
 import type { Route } from "next";
@@ -42,6 +47,10 @@ interface OrgActivityRow extends DimensionRow {
 	cost: number;
 	requestCount: number;
 	totalTokens: number;
+	creditsRequestCount: number;
+	apiKeysRequestCount: number;
+	creditsCost: number;
+	apiKeysCost: number;
 }
 
 const GROUP_BY_OPTIONS: { value: GroupBy; label: string }[] = [
@@ -138,7 +147,7 @@ export function OrgAnalyticsClient() {
 	const { user } = useUser();
 	const { data: teamData } = useTeamMembers(organizationId);
 
-	const isEnterprise = selectedOrganization?.plan === "enterprise";
+	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 	const currentUserRole = teamData?.members.find(
 		(member) => member.userId === user?.id,
 	)?.role;
@@ -209,7 +218,11 @@ export function OrgAnalyticsClient() {
 		},
 	);
 
-	const rows = (data?.activity ?? []) as OrgActivityRow[];
+	const usageMode = useUsageMode();
+	const rows = ((data?.activity ?? []) as OrgActivityRow[]).map((row) => ({
+		...applyUsageMode(row, usageMode),
+		breakdown: row.breakdown.map((entry) => applyUsageMode(entry, usageMode)),
+	}));
 
 	const totals = rows.reduce(
 		(acc, row) => {
@@ -236,11 +249,14 @@ export function OrgAnalyticsClient() {
 						</p>
 					</div>
 					{isEnterprise && isAdmin && (
-						<AnalyticsDateRange
-							isEnterprise={isEnterprise}
-							buildUrl={buildOrgUrl}
-							path="org/analytics"
-						/>
+						<div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+							<AnalyticsDateRange
+								isEnterprise={isEnterprise}
+								buildUrl={buildOrgUrl}
+								path="org/analytics"
+							/>
+							<UsageModeSelector />
+						</div>
 					)}
 				</div>
 

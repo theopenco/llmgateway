@@ -32,14 +32,12 @@ export const metadata: Metadata = {
 		title: "GitHub Copilot Cost Calculator (2026 AI Credits) | LLM Gateway",
 		description:
 			"Model your team's Copilot AI Credits bill after the June 2026 change and compare the same workload routed through LLM Gateway.",
-		images: [{ url: "/opengraph.png?v=1" }],
 	},
 	twitter: {
 		card: "summary_large_image",
 		title: "GitHub Copilot Cost Calculator (2026 AI Credits) | LLM Gateway",
 		description:
 			"Estimate your team's Copilot AI Credits bill and see what the same usage costs at pass-through token prices with caching.",
-		images: ["/opengraph.png?v=1"],
 	},
 };
 

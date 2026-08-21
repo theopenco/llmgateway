@@ -1,3 +1,4 @@
+import { z } from "@hono/zod-openapi";
 import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 
@@ -5,34 +6,40 @@ import { getStripe } from "@/routes/payments.js";
 import { getPaymentIntentFromInvoicePayments } from "@/stripe.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
+import { db, tables } from "@llmgateway/db";
 import {
 	CHAT_PLAN_PRICES,
 	DEV_PLAN_PRICES,
 	DEV_PLAN_RESET_PASS_PRICES,
+	isRefundFeedbackComplete,
+	REFUND_COMMENTS_MAX_LENGTH,
+	REFUND_REASONS,
+	RESET_PASS_SELF_REFUND_WINDOW_DAYS,
+	SELF_REFUND_USAGE_PERCENT,
+	SELF_REFUND_WINDOW_DAYS,
 	type ChatPlanTier,
 	type DevPlanTier,
 } from "@llmgateway/shared";
 
-import type { tables } from "@llmgateway/db";
+import type { RefundFeedbackKind } from "@llmgateway/db";
+import type { RefundReason } from "@llmgateway/shared";
 
 type OrganizationRow = typeof tables.organization.$inferSelect;
 type TransactionRow = typeof tables.transaction.$inferSelect;
 
-export const SELF_REFUND_WINDOW_DAYS = 14;
-
 const SELF_REFUND_WINDOW_MS = SELF_REFUND_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 
 // Reset Passes get a shorter window than plan payments: an unused pass can be
-// returned for 7 days, after which the purchase is final.
-export const RESET_PASS_SELF_REFUND_WINDOW_DAYS = 7;
-
+// returned within its own window, after which the purchase is final.
 const RESET_PASS_SELF_REFUND_WINDOW_MS =
 	RESET_PASS_SELF_REFUND_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 
-// Usage at or above 10% of the purchased credits denies the self-refund;
-// equivalently, repeat top-ups require the balance to still cover the
-// remaining 90%.
-const SELF_REFUND_USAGE_THRESHOLD = new Decimal("0.1");
+// Usage at or above the threshold share of the purchased credits denies the
+// self-refund; equivalently, repeat top-ups require the balance to still cover
+// the remainder.
+const SELF_REFUND_USAGE_THRESHOLD = new Decimal(SELF_REFUND_USAGE_PERCENT).div(
+	100,
+);
 const SELF_REFUND_BALANCE_FLOOR = new Decimal(1).minus(
 	SELF_REFUND_USAGE_THRESHOLD,
 );
@@ -79,6 +86,43 @@ export function isSelfRefundCandidateType(
 	return (SELF_REFUNDABLE_TYPES as readonly string[]).includes(type);
 }
 
+const REFUND_FEEDBACK_KIND_BY_TYPE: Record<
+	SelfRefundableType,
+	RefundFeedbackKind
+> = {
+	credit_topup: "credits",
+	dev_plan_start: "devpass",
+	dev_plan_renewal: "devpass",
+	dev_plan_reset_pass: "devpass",
+	chat_plan_start: "chat",
+	chat_plan_renewal: "chat",
+};
+
+export function refundFeedbackKindForType(type: string): RefundFeedbackKind {
+	return isSelfRefundCandidateType(type)
+		? REFUND_FEEDBACK_KIND_BY_TYPE[type]
+		: "credits";
+}
+
+/**
+ * Body both self-refund endpoints take: a required category so every refund
+ * yields comparable data, plus optional freeform detail.
+ */
+export const refundFeedbackBodySchema = z.object({
+	reason: z.enum(REFUND_REASONS).openapi({
+		description: "Closest category for why the customer wants a refund",
+	}),
+	comments: z
+		.string()
+		.trim()
+		.max(REFUND_COMMENTS_MAX_LENGTH)
+		.optional()
+		.openapi({
+			description:
+				"Freeform detail. Optional, except when reason is 'other' — that category carries no signal on its own.",
+		}),
+});
+
 function ineligible(
 	reason: SelfRefundIneligibilityReason,
 ): SelfRefundEligibility {
@@ -100,7 +144,8 @@ function latestOf(rows: TransactionRow[]): TransactionRow | undefined {
 /**
  * Total credits ever consumed by the org, reconstructed from the pooled
  * balance: every credit grant and drain besides gateway usage is recorded
- * either as a transaction row (topups, gifts, refunds, end-user bonuses) or on
+ * either as a transaction row (topups, manual payments, gifts, refunds,
+ * end-user bonuses) or on
  * the org row itself (referral earnings, which are only ever incremented), so
  * usage = grants − balance. Referral-bonus reversals aren't reconstructed,
  * which only over-counts usage — erring toward denying the refund.
@@ -117,6 +162,7 @@ function computeUsedCredits(
 		if (
 			t.type === "credit_topup" ||
 			t.type === "credit_gift" ||
+			t.type === "credit_manual_payment" ||
 			t.type === "credit_refund"
 		) {
 			// credit_refund rows carry a negative creditAmount, netting out the
@@ -231,8 +277,9 @@ function checkPlanEligibility(
 
 	// Renewals and re-subscribes: threshold on the dollar price instead of the
 	// virtual allowance. Virtual credits track provider cost, so at a 3x
-	// multiplier 10% of the allowance would leak up to 30% of the payment in
-	// provider cost; gating on dollars caps the leak at 10% of revenue.
+	// multiplier the threshold share of the allowance would leak three times as
+	// much of the payment in provider cost; gating on dollars caps the leak at
+	// the threshold share of revenue.
 	const price = isDev
 		? DEV_PLAN_PRICES[plan as DevPlanTier]
 		: CHAT_PLAN_PRICES[plan as ChatPlanTier];
@@ -382,16 +429,45 @@ export function computeSelfRefundEligibility({
  * the resulting customer.subscription.deleted resets the plan fields. Keeping
  * the cancellation in the webhook means it fires for every refund source, not
  * just this endpoint.
+ *
+ * `reason` and the optional `comments` are why the user says they are
+ * refunding; they are stored before the refund is issued so the feedback
+ * survives a Stripe failure.
  */
 export async function executeSelfRefund({
 	organization,
 	transaction,
 	userId,
+	reason,
+	comments,
 }: {
 	organization: OrganizationRow;
 	transaction: TransactionRow;
 	userId: string;
+	reason: RefundReason;
+	comments?: string;
 }): Promise<{ stripeRefundId: string }> {
+	if (!isRefundFeedbackComplete(reason, comments)) {
+		throw new HTTPException(400, {
+			message: "Tell us what happened so we know what to fix.",
+		});
+	}
+
+	await db
+		.insert(tables.refundFeedback)
+		.values({
+			organizationId: organization.id,
+			userId,
+			transactionId: transaction.id,
+			kind: refundFeedbackKindForType(transaction.type),
+			reason,
+			comments: comments ?? null,
+		})
+		.onConflictDoUpdate({
+			target: tables.refundFeedback.transactionId,
+			set: { reason, comments: comments ?? null, userId },
+		});
+
 	const stripe = getStripe();
 
 	let paymentIntentId = transaction.stripePaymentIntentId;

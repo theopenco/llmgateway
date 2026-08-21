@@ -116,7 +116,7 @@ const comparisonData = [
 				litellm: true,
 			},
 			{
-				title: "Interactive playground",
+				title: "Interactive chat app (Lounge)",
 				description: "Test models directly in the browser",
 				llmgateway: true,
 				litellm: false,

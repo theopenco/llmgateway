@@ -72,6 +72,31 @@ export async function giftCreditsToOrganization(
 	return { success: true };
 }
 
+export async function addManualCreditsToOrganization(
+	orgId: string,
+	body: {
+		creditAmount: number;
+		paymentMethod: "wire" | "crypto" | "paypal" | "other";
+		externalReference?: string;
+		comment?: string;
+	},
+): Promise<{ success: boolean; error?: string }> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.POST(
+		"/admin/organizations/{orgId}/manual-credits",
+		{
+			params: { path: { orgId } },
+			body,
+		},
+	);
+
+	if (error || !data) {
+		return { success: false, error: "Failed to add credits" };
+	}
+
+	return { success: true };
+}
+
 export async function updateReferralBonus(
 	orgId: string,
 	body: { enabled: boolean; percent: number },
@@ -98,9 +123,17 @@ export async function updateReferralBonus(
 export async function manageOrganization(
 	orgId: string,
 	body: {
+		name: string;
 		plan: "free" | "pro" | "enterprise";
 		seats: number | null;
 		apiKeyLimit: number | null;
+		projectLimit: number | null;
+		trustTierOverride: number | null;
+		planExpiresAt: string | null;
+		planStartedAt: string | null;
+		isTrialActive: boolean;
+		trialStartDate: string | null;
+		trialEndDate: string | null;
 	},
 ): Promise<{ success: boolean; error?: string }> {
 	const $api = await createServerApiClient();
@@ -145,6 +178,30 @@ export async function setOrganizationStatus(
 	return { success: true };
 }
 
+export async function deleteOrganizationPaymentMethod(
+	orgId: string,
+	paymentMethodId: string,
+	replacementPaymentMethodId?: string,
+): Promise<{ success: boolean; error?: string }> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.DELETE(
+		"/admin/organizations/{orgId}/payment-methods/{paymentMethodId}",
+		{
+			params: { path: { orgId, paymentMethodId } },
+			body: { replacementPaymentMethodId },
+		},
+	);
+
+	if (error || !data) {
+		const message =
+			(error as { message?: string } | undefined)?.message ??
+			"Failed to delete payment method";
+		return { success: false, error: message };
+	}
+
+	return { success: true };
+}
+
 export async function blockOrganization(orgId: string): Promise<{
 	success: boolean;
 	error?: string;
@@ -168,6 +225,75 @@ export async function blockOrganization(orgId: string): Promise<{
 	return {
 		success: true,
 		cancelledSubscriptionIds: data.cancelledSubscriptionIds,
+	};
+}
+
+export interface BulkBlockPreview {
+	search: string;
+	matched: number;
+	blockable: number;
+	skipped: number;
+	maxBulkSize: number;
+	organizations: {
+		id: string;
+		name: string;
+		billingEmail: string;
+		plan: string;
+		status: string | null;
+		createdAt: string;
+	}[];
+}
+
+export async function previewBulkBlockOrganizations(search: string): Promise<{
+	success: boolean;
+	error?: string;
+	preview?: BulkBlockPreview;
+}> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.GET(
+		"/admin/organizations/bulk-block/preview",
+		{
+			params: { query: { search } },
+		},
+	);
+
+	if (error || !data) {
+		const message =
+			(error as { message?: string } | undefined)?.message ??
+			"Failed to preview bulk block";
+		return { success: false, error: message };
+	}
+
+	return { success: true, preview: data };
+}
+
+export async function bulkBlockOrganizations(
+	search: string,
+	expectedCount: number,
+): Promise<{
+	success: boolean;
+	error?: string;
+	blockedCount?: number;
+	failedCount?: number;
+	failed?: { id: string; name: string; error: string }[];
+}> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.POST("/admin/organizations/bulk-block", {
+		body: { search, expectedCount },
+	});
+
+	if (error || !data) {
+		const message =
+			(error as { message?: string } | undefined)?.message ??
+			"Failed to bulk block organizations";
+		return { success: false, error: message };
+	}
+
+	return {
+		success: true,
+		blockedCount: data.blockedCount,
+		failedCount: data.failedCount,
+		failed: data.failed,
 	};
 }
 

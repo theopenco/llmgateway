@@ -28,10 +28,13 @@ Enable a policy under **Settings → Compliance** in the dashboard and toggle th
 | **GDPR compliant**            | it is GDPR compliant                               |
 | **No training on prompts**    | it does not train on API prompts                   |
 | **No prompt logging**         | it does not log prompts                            |
+| **No stealth providers**      | it is not a stealth provider                       |
 
 Every requirement is **fail-closed**: a provider passes only if its published data policy explicitly satisfies the requirement. If an attribute is unknown for a provider, that provider is treated as non-compliant.
 
-The settings page shows a live preview of which providers are allowed and which are blocked under the current policy, so you can see the impact before saving.
+Stealth providers are undisclosed platforms that LLM Gateway routes to without naming the operator, so their data policy and headquarters are unknown. That already makes them fail every certification and data-policy requirement above, but **No stealth providers** excludes them explicitly — useful when you want them gone without turning on any other requirement.
+
+The settings page shows a live **Provider Impact** preview of which providers are allowed (green) and which are blocked (red) under the current policy, so you can see the impact before saving. Hovering a blocked provider lists exactly which requirements it does not meet — a missing certification, its data policy, its headquarters country, or a provider-list restriction.
 
 ## Provider headquarters
 
@@ -41,6 +44,39 @@ The selector only offers countries that are referenced by a provider in the cata
 
 The country filter composes with the certification and data-policy requirements above — a provider must satisfy all active requirements to be allowed.
 
+## Provider & model restrictions
+
+Beyond attribute-based requirements, the **Provider & Model Restrictions** card lets you block or allow individual providers and models:
+
+- **Blocked providers / blocked models** — deny lists. A listed provider or model is always blocked, even when it satisfies every requirement above.
+- **Allowed providers / allowed models** — fine-grained allow lists. When non-empty, only the listed providers (or models) may be used; everything else is blocked. An empty list applies no restriction.
+
+Deny lists always win over allow lists, and both compose with the requirements above — an allow-listed provider must still satisfy every active certification, data-policy, and country requirement.
+
+<Callout type="warn">
+	A non-empty allowed-providers list blocks **every** provider not on it,
+	regardless of certifications or data policy. If you allow-list only a custom
+	provider, all catalogue providers show as blocked with the reason "Not on the
+	allowed-providers list" — add any additional provider you want to use to the
+	allow list.
+</Callout>
+
+The selectors include your organization's own [custom providers](/features/custom-providers) (stored as `custom:<name>` refs) and their custom-catalog models (stored as `<name>/<model>` refs), so a specific custom deployment can be blocked or allow-listed individually just like a catalogue provider.
+
+### Choosing a compliant provider
+
+The provider dropdowns are policy-aware, so you can tell **before** adding a provider to a list whether it satisfies your policy:
+
+- A **green shield** marks a provider that meets every active certification, data-policy, and headquarters requirement.
+- A **red shield** marks a provider that does not; the requirements it misses (for example "May log prompts" or "Headquartered in China, which is not an allowed country") are listed under its name.
+- The **"Only providers that meet policy requirements"** toggle at the top of the dropdown hides incompatible providers entirely.
+
+These indicators evaluate the requirements only — deliberately ignoring the allowed/blocked lists themselves — so an active allow list never paints every other provider red while you're deciding what to add to it. Your own custom providers are evaluated against their [self-attested posture](#custom-providers); one without an attestation on file shows "No compliance attestation on file".
+
+Elsewhere in the dashboard (for example the API-key provider filter), the colored dot next to a provider is simply the provider's **brand color** and carries no compliance meaning.
+
+These restrictions are **organization-wide** and take precedence over member-level and API-key-level [IAM rules](/features/api-keys): they are enforced after IAM evaluation, so no user-, team-, or key-level allow rule can grant access to a provider or model the compliance policy excludes.
+
 ## Enforcement
 
 When no available provider for a model meets the policy — or a pinned provider is non-compliant — the gateway returns a `403`:
@@ -48,7 +84,7 @@ When no available provider for a model meets the policy — or a pinned provider
 ```json
 {
 	"error": {
-		"message": "This request was blocked by your organization's provider compliance policy. No available provider for deepseek-v3.2 meets the required certifications. Contact your LLMGateway admin to adjust the policy."
+		"message": "This request was blocked by your organization's provider compliance policy. No available provider for deepseek-v3.2 meets the required certifications or provider/model restrictions. Contact your LLMGateway admin to adjust the policy."
 	}
 }
 ```
@@ -60,12 +96,37 @@ This applies to both routing modes:
 
 Each block is recorded as a **security event** so administrators can review what was rejected and why.
 
+## Custom providers
+
+[Custom providers](/features/custom-providers) point at infrastructure your organization operates itself (for example, models hosted in your own cloud account), so they have no entry in the provider catalogue and no published data policy. Under any enabled compliance policy they are therefore **blocked by default** — the same fail-closed rule that applies to catalogue providers with unknown attributes.
+
+To route through a custom provider while a policy is active, an organization owner or admin can record a **self-attestation** of that provider key's compliance posture under **Models → Compliance attestation** in the dashboard. The attestation covers the same attributes as a catalogue data policy — SOC 2 report type, ISO 27001, GDPR, training on API prompts, prompt logging, retention period, and the country the deployment is operated from — and the gateway evaluates it against your policy with **identical fail-closed rules**: an attribute left "unknown" never satisfies a requirement, and only an explicit "No" satisfies requirements like "No training on prompts". Clearing the attestation restores the blocked state.
+
+<Callout type="warn">
+	LLMGateway does not verify attestations — they are your organization's own
+	assertion about infrastructure you operate. Every attestation change is
+	recorded in the audit log with the attesting user and timestamp.
+</Callout>
+
+Attestations only apply to custom provider keys. They can never be used to clear a catalogue provider that fails your policy.
+
+**Known limitation:** the country selector in the compliance policy only offers countries referenced by catalogue providers (see the [providers directory](https://llmgateway.io/providers)). A custom deployment attested to a country outside that set cannot be allowed while a country restriction is active.
+
+## Safety identifiers
+
+Providers that offer an abuse-attribution identifier receive an opaque, random value that LLM Gateway generates once per organization. It contains no personal data — no email address, user id or organization name — and it is the only thing that ties a report of abusive traffic back to an account.
+
+Whether LLM Gateway forwards this identifier depends on the upstream API. Check the [providers directory](https://llmgateway.io/providers) and open a provider to see its current behavior. Any `safety_identifier` you set on a request yourself is ignored — the value is always the one derived from your organization.
+
 ## Access Control
 
 Only organization **owners** and **admins** can view and change the compliance policy.
 
+Project-scoped **developer** members cannot see the policy itself, but they can browse the org's available providers and models — including custom providers and their model catalogs — read-only on the **Models** page. This is the recommended way for developers to discover what they can call without being granted additional permissions.
+
 ## Related
 
+- [Org Models Directory](/features/models-directory) — see per-model eligibility under the active policy in the dashboard.
 - [Data Retention](/features/data-retention) — control whether request and response payloads are stored.
 - [Guardrails](/features/guardrails) — detect and block harmful or sensitive content.
 

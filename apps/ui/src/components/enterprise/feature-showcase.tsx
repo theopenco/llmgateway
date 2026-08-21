@@ -58,12 +58,18 @@ function buildMockRows(): DimensionRow[] {
 				const drift = i * 0.8;
 				const noise = Math.sin(drift + project.phase) * project.wave;
 				const cost = Math.max(2, (project.base + noise) * weekend);
+				const roundedCost = Math.round(cost * 100) / 100;
+				const requestCount = Math.round(cost * 420);
 				return {
 					key: project.key,
 					label: project.label,
-					cost: Math.round(cost * 100) / 100,
-					requestCount: Math.round(cost * 420),
+					cost: roundedCost,
+					requestCount,
 					totalTokens: Math.round(cost * 130_000),
+					creditsRequestCount: requestCount,
+					apiKeysRequestCount: 0,
+					creditsCost: roundedCost,
+					apiKeysCost: 0,
 				};
 			}),
 		});

@@ -17,18 +17,19 @@ import { Button } from "@/components/ui/button";
 import { FlickeringGrid } from "@/components/ui/flickering-grid";
 import { Marquee } from "@/components/ui/marquee";
 import { NumberTicker } from "@/components/ui/number-ticker";
+import { marqueeTools } from "@/lib/agent-tools";
 import { getConfig } from "@/lib/config-server";
+import { buildDevPassProductSchema } from "@/lib/product-schema";
 
 import {
 	DEV_PLAN_PRICES,
 	getDevPlanCreditsLimit,
 	MARKETING_STATS,
+	SELF_REFUND_WINDOW_DAYS,
 } from "@llmgateway/shared";
 import {
 	AnthropicIcon,
-	AutohandIcon,
-	ClineIcon,
-	DevPassCodeIcon,
+	EmpryoIcon,
 	OpenCodeIcon,
 	SoulForgeIcon,
 } from "@llmgateway/shared/components";
@@ -42,24 +43,12 @@ export const metadata: Metadata = {
 const modelCount = parseInt(MARKETING_STATS.models, 10);
 const providerCount = parseInt(MARKETING_STATS.providers, 10);
 
-const marqueeTools = [
-	{ name: "DevPass Code", icon: DevPassCodeIcon },
-	{ name: "Claude Code", icon: AnthropicIcon },
-	{ name: "OpenCode", icon: OpenCodeIcon },
-	{ name: "SoulForge", icon: SoulForgeIcon },
-	{ name: "Autohand", icon: AutohandIcon },
-	{ name: "Cline", icon: ClineIcon },
-	{ name: "Cursor" },
-	{ name: "Aider" },
-	{ name: "Continue" },
-] as const;
-
 const featuredTools = [
 	{
 		name: "Claude Code",
 		icon: AnthropicIcon,
 		description:
-			"Two env vars and Claude Code routes through LLM Gateway. Use any model — Claude, GPT-5, Gemini, GLM — with a single ANTHROPIC_MODEL flip.",
+			"Two env vars and Claude Code routes through LLM Gateway. Use any model — Claude, GPT-5, Gemini, GLM — and switch mid-session with /model.",
 		setup: "ANTHROPIC_BASE_URL + AUTH_TOKEN",
 	},
 	{
@@ -68,6 +57,13 @@ const featuredTools = [
 		description:
 			"LLM Gateway is built into OpenCode. Run `opencode`, type `/connect`, paste your DevPass key. No env vars, no config files.",
 		setup: "/connect → LLM Gateway",
+	},
+	{
+		name: "Empryo",
+		icon: EmpryoIcon,
+		description:
+			"The AI coding agent that edits symbols, not strings. Maps your repo on launch and edits by symbol name. Run `empryo`, type `/keys`, paste your DevPass key.",
+		setup: "/keys → paste your key",
 	},
 	{
 		name: "SoulForge",
@@ -89,7 +85,7 @@ const steps = [
 		step: "02",
 		title: "Plug it into your agent",
 		description:
-			"Two env vars for Claude Code, /connect in OpenCode, /keys in SoulForge. No SDK changes, no code refactor.",
+			"Two env vars for Claude Code, /connect in OpenCode, /keys in Empryo. No SDK changes, no code refactor.",
 	},
 	{
 		step: "03",
@@ -108,8 +104,19 @@ export default function LandingPage() {
 	};
 	const usageRatio = Math.round(credits.lite / DEV_PLAN_PRICES.lite);
 
+	const productSchemaJson = JSON.stringify(
+		buildDevPassProductSchema("https://devpass.llmgateway.io/#pricing"),
+	).replace(/</g, "\\u003c");
+
 	return (
 		<div className="min-h-screen bg-background">
+			<script
+				type="application/ld+json"
+				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
+				dangerouslySetInnerHTML={{
+					__html: productSchemaJson,
+				}}
+			/>
 			<LandingPageTracker />
 			<Header />
 
@@ -132,7 +139,7 @@ export default function LandingPage() {
 									$1 in → $3 of model usage, at provider rates
 								</div>
 								<h1 className="font-display mb-6 text-5xl font-bold tracking-tight text-balance sm:text-6xl lg:text-7xl">
-									One key.
+									One AI coding subscription.
 									<br />
 									Every model.
 									<br />
@@ -167,8 +174,9 @@ export default function LandingPage() {
 									</CodeCTATracker>
 								</div>
 								<p className="mt-5 font-mono text-xs text-muted-foreground">
-									First-month guarantee — cancel within 7 days of your first
-									purchase and we refund your first month, minus metered usage.
+									First-month guarantee — barely used it? Refund yourself in one
+									click from your billing dashboard, up to{" "}
+									{SELF_REFUND_WINDOW_DAYS} days after your first purchase.
 								</p>
 							</div>
 
@@ -344,8 +352,8 @@ export default function LandingPage() {
 									DevPass Code
 								</span>{" "}
 								— our own terminal agent — is the bearer: one-click browser
-								login, no keys to copy. Claude Code, OpenCode, SoulForge, and
-								every OpenAI-compatible tool get stamped in with two env vars.
+								login, no keys to copy. Claude Code, OpenCode, Empryo, and every
+								OpenAI-compatible tool get stamped in with two env vars.
 							</p>
 						</div>
 
@@ -429,6 +437,18 @@ export default function LandingPage() {
 								Claude Opus 4.8, Gemini 3.1 Pro, GPT-5.5, plus the strongest
 								open-weight Chinese coders — included on every tier.
 							</p>
+							<p className="mt-3 text-sm text-muted-foreground">
+								Every request is smart-routed to the best provider in real time
+								— picking a specific provider isn&apos;t possible on DevPass. If
+								you need provider pinning, use{" "}
+								<Link
+									href="https://llmgateway.io"
+									className="underline underline-offset-2 hover:text-foreground"
+								>
+									LLM Gateway&apos;s pay-as-you-go API
+								</Link>{" "}
+								instead.
+							</p>
 						</div>
 						<CodingModelsShowcase />
 					</div>
@@ -468,7 +488,7 @@ export default function LandingPage() {
 							</CodeCTATracker>
 						</div>
 						<p className="mt-6 font-mono text-xs text-muted-foreground">
-							First-month guarantee · no lock-in · no cancellation fee
+							Self-serve first-month refund · no lock-in · no cancellation fee
 						</p>
 					</div>
 				</section>

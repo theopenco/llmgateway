@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 
 import { ReadOnlyChatMessages } from "@/components/playground/chat-ui";
 import { ForkChatButton } from "@/components/playground/fork-chat-button";
-import { Logo } from "@/components/ui/logo";
+import { Wordmark } from "@/components/ui/wordmark";
 import { getConfig } from "@/lib/config-server";
 import { parsePlaygroundMessageMetadata } from "@/lib/message-metadata";
 
@@ -56,6 +56,8 @@ interface StoredImagePart {
 
 const MIN_USER_PROMPT_CHARS = 30;
 const MIN_ASSISTANT_RESPONSE_CHARS = 80;
+const FALLBACK_SHARE_DESCRIPTION =
+	"A shared snapshot of a Lounge chat — open it to see the full conversation.";
 
 function deriveShareDescription(messages: SharedMessage[]): {
 	description: string;
@@ -87,8 +89,7 @@ function deriveShareDescription(messages: SharedMessage[]): {
 		};
 	}
 	return {
-		description:
-			"A shared snapshot of an LLM Gateway chat — open it to see the full conversation.",
+		description: FALLBACK_SHARE_DESCRIPTION,
 		source: "fallback",
 	};
 }
@@ -127,8 +128,7 @@ export async function generateMetadata({
 	const config = getConfig();
 
 	let title = "Shared Chat";
-	let description =
-		"A shared snapshot of an LLM Gateway chat — open it to see the full conversation.";
+	let description = FALLBACK_SHARE_DESCRIPTION;
 	let indexable = true;
 
 	try {
@@ -154,7 +154,7 @@ export async function generateMetadata({
 	const url = `/share/${shareId}`;
 
 	return {
-		title: `${title} | LLM Gateway Playground`,
+		title: `${title} | Lounge by LLM Gateway`,
 		description,
 		alternates: {
 			canonical: url,
@@ -170,7 +170,7 @@ export async function generateMetadata({
 			description,
 			url,
 			type: "article",
-			siteName: "LLM Gateway Playground",
+			siteName: "Lounge by LLM Gateway",
 		},
 		twitter: {
 			card: "summary_large_image",
@@ -201,7 +201,7 @@ export default async function SharedChatPage({
 	const data = (await response.json()) as SharedChatResponse;
 	const messages = data.share.messages.map(toUiMessage);
 
-	const shareUrl = `https://chat.llmgateway.io/share/${data.share.id}`;
+	const shareUrl = `https://lounge.llmgateway.io/share/${data.share.id}`;
 	const { description: articleDescription } = deriveShareDescription(
 		data.share.messages,
 	);
@@ -230,7 +230,7 @@ export default async function SharedChatPage({
 				"@type": "ListItem",
 				position: 1,
 				name: "Home",
-				item: "https://chat.llmgateway.io",
+				item: "https://lounge.llmgateway.io",
 			},
 			{
 				"@type": "ListItem",
@@ -256,8 +256,7 @@ export default async function SharedChatPage({
 			<div className="mx-auto flex min-h-screen w-full max-w-5xl flex-col px-4 py-8">
 				<header className="mx-auto w-full max-w-4xl pb-4">
 					<Link href="/" className="flex w-fit items-center gap-2">
-						<Logo className="size-6" />
-						<span className="text-lg font-semibold">LLM Gateway</span>
+						<Wordmark />
 					</Link>
 					<h1 className="mt-8 text-3xl font-semibold tracking-normal">
 						{data.share.title}

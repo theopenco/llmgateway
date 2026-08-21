@@ -6,25 +6,37 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createAuthMiddleware } from "better-auth/api";
 import { Redis } from "ioredis";
 
+import { flagUserIfAbusiveIp } from "@/lib/account-risk.js";
 import { getApiBaseUrl } from "@/lib/api-url.js";
+import { getClientIpFromHeaders } from "@/lib/client-ip.js";
 import { acceptPendingInvitesForUser } from "@/lib/team-invites.js";
+import {
+	getBlockedSignupCountries,
+	isCountryBlocked,
+} from "@/utils/country-blocking.js";
 import { getOrCreateDefaultOrganization } from "@/utils/default-org.js";
 import { notifyUserSignup } from "@/utils/discord.js";
 import { validateEmail } from "@/utils/email-validation.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 import { resolveSignupName } from "@/utils/infer-name.js";
 import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
-import { autoJoinByEmailDomain } from "@/utils/sso-domain.js";
+import { getCountryFromHeaders } from "@/utils/request-country.js";
+import {
+	autoJoinByEmailDomain,
+	autoJoinSsoProviderOrganization,
+} from "@/utils/sso-domain.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { getResendClient, resendAudienceId } from "@llmgateway/shared/email";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
 const apiUrl = getApiBaseUrl();
 const cookieDomain = process.env.COOKIE_DOMAIN ?? "localhost";
 const uiUrl = process.env.UI_URL ?? "http://localhost:3002";
 const codeUrl = process.env.CODE_URL ?? "http://localhost:3004";
+const adminUrl = process.env.ADMIN_URL ?? "http://localhost:3006";
 const originUrls =
 	process.env.ORIGIN_URLS ??
 	"http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:4002,http://localhost:3006";
@@ -69,10 +81,12 @@ async function isSSOEnforcedForEmail(
 		where: {
 			id: { in: [...new Set(matching.map((p) => p.organizationId as string))] },
 		},
-		columns: { status: true, plan: true },
+		columns: { id: true, status: true, plan: true },
 	});
 	return orgs.some(
-		(org) => org.status !== "deleted" && org.plan === "enterprise",
+		(org) =>
+			org.status !== "deleted" &&
+			hasOrganizationEnterpriseAccess(org.id, org.plan),
 	);
 }
 
@@ -592,14 +606,27 @@ export function isClientJsonError(message: string, args: unknown[]): boolean {
 	);
 }
 
+/**
+ * Better Auth logs failed OAuth callbacks at error severity even when the
+ * failure is ordinary user state rather than a server fault. `signup_disabled`
+ * is emitted every time someone uses social sign-in on a login page with an
+ * email that has no account yet — expected, because both social providers run
+ * with `disableImplicitSignUp: true` — and the UI turns it into a "sign up
+ * instead?" prompt. Logging it at error severity only trips production alerting.
+ */
+const clientAuthErrorCodes = new Set(["signup_disabled"]);
+
+export function isClientAuthError(message: string): boolean {
+	return clientAuthErrorCodes.has(message.trim());
+}
+
 function extractLogExtra(args: unknown[]): object | undefined {
 	const errArg = args.find((arg) => arg instanceof Error);
 	if (errArg) {
 		return errArg as Error;
 	}
 	return args.find((arg) => arg && typeof arg === "object") as
-		| object
-		| undefined;
+		object | undefined;
 }
 
 export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
@@ -613,7 +640,8 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 				) => {
 					const text = `[Better Auth] ${message}`;
 					const effectiveLevel =
-						level === "error" && isClientJsonError(message, args)
+						level === "error" &&
+						(isClientJsonError(message, args) || isClientAuthError(message))
 							? "warn"
 							: level;
 					switch (effectiveLevel) {
@@ -653,9 +681,11 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 				passkey({
 					rpID: process.env.PASSKEY_RP_ID ?? "localhost",
 					rpName: process.env.PASSKEY_RP_NAME ?? "LLMGateway",
-					// Accept passkey ceremonies from both the main dashboard and the
-					// DevPass (code) app, which share the same registrable rpID.
-					origin: [uiUrl, codeUrl],
+					// Accept passkey ceremonies from the main dashboard, the DevPass
+					// (code) app and the admin dashboard, which all share the same
+					// registrable rpID. Passkeys are registered on the main dashboard;
+					// listing the admin origin lets admins reuse them to sign in there.
+					origin: [uiUrl, codeUrl, adminUrl],
 				}),
 				sso({
 					// This app uses a custom organization model (userOrganization),
@@ -663,7 +693,8 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 					// auto-provision orgs. With provisioning disabled and no
 					// organization plugin registered, the plugin only touches the
 					// ssoProvider/user/account models. Org membership is provisioned
-					// out-of-band via SCIM (see routes/scim.ts).
+					// via SCIM (see routes/scim.ts) or JIT-joined to the connection's
+					// org in the post-sign-in hook below.
 					organizationProvisioning: { disabled: true },
 					// Adds `domainVerified` to the plugin's ssoProvider model. The SAML
 					// callback treats a provider as trusted for implicit account linking
@@ -678,6 +709,9 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 			],
 			emailAndPassword: {
 				enabled: true,
+				// Enforced on sign-up/reset/change/set-password only, never on
+				// sign-in, so existing accounts with shorter passwords keep working.
+				minPasswordLength: 12,
 				sendResetPassword: async ({
 					user,
 					url,
@@ -743,16 +777,21 @@ If you didn't request this, you can safely ignore this email. Your password won'
 				},
 			}),
 			socialProviders: {
+				// Social sign-in must never silently create an account: the login
+				// pages ask the user to confirm first and retry with
+				// `requestSignUp: true`, which the signup pages send from the start.
 				...(process.env.GITHUB_CLIENT_ID && {
 					github: {
 						clientId: process.env.GITHUB_CLIENT_ID,
 						clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+						disableImplicitSignUp: true,
 					},
 				}),
 				...(process.env.GOOGLE_CLIENT_ID && {
 					google: {
 						clientId: process.env.GOOGLE_CLIENT_ID,
 						clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+						disableImplicitSignUp: true,
 					},
 				}),
 			},
@@ -760,11 +799,14 @@ If you didn't request this, you can safely ignore this email. Your password won'
 				? {
 						sendOnSignUp: true,
 						autoSignInAfterVerification: true,
-						afterEmailVerification: async (user: {
-							id: string;
-							email: string;
-							name?: string | null;
-						}) => {
+						afterEmailVerification: async (
+							user: {
+								id: string;
+								email: string;
+								name?: string | null;
+							},
+							request?: Request,
+						) => {
 							// Fetch the user's onboarding status to include in Resend
 							const dbUser = await db.query.user.findFirst({
 								where: {
@@ -784,13 +826,27 @@ If you didn't request this, you can safely ignore this email. Your password won'
 								email: user.email,
 							});
 
+							// Throwaway accounts are routinely registered from a clean
+							// address and only activated from the abusive one, so the
+							// verification click is checked as well as the sign-up.
+							await flagUserIfAbusiveIp({
+								userId: user.id,
+								source: "email_verification",
+								headers: request?.headers,
+							});
+
 							// Add verified email to Resend contacts with onboarding status
 							await createResendContact(user.email, user.name ?? undefined, {
 								onboarding_completed: dbUser?.onboardingCompleted ?? false,
 							});
 
 							// Send Discord notification for new verified signup
-							await notifyUserSignup(user.email, user.name, "Email");
+							await notifyUserSignup(
+								user.email,
+								user.name,
+								"Email",
+								getCountryFromHeaders(request?.headers),
+							);
 						},
 						sendVerificationEmail: async (
 							{
@@ -879,11 +935,55 @@ The LLM Gateway Team`.trim();
 						}
 					}
 
+					const ipAddress = getClientIpFromHeaders(ctx.headers) ?? "unknown";
+
+					// Block sign-ups from the countries configured in the admin
+					// dashboard, using the country reported by the load balancer.
+					// Sign-in stays open so
+					// existing accounts keep working. Social sign-up goes through
+					// /sign-in/social with `requestSignUp: true` (both social providers
+					// run with disableImplicitSignUp), so match that too.
+					const isSignupAttempt =
+						ctx.path.startsWith("/sign-up") ||
+						(ctx.path === "/sign-in/social" &&
+							(ctx.body as { requestSignUp?: boolean } | undefined)
+								?.requestSignUp === true);
+					if (isSignupAttempt) {
+						const blockedCountries = await getBlockedSignupCountries();
+						const country = blockedCountries.length
+							? getCountryFromHeaders(ctx.headers)
+							: undefined;
+						// An undetectable country never blocks, so surface it: with a
+						// blocklist configured it means the load balancer geo header is missing.
+						if (blockedCountries.length && !country) {
+							logger.warn("Signup country could not be determined", {
+								ip: ipAddress,
+								path: ctx.path,
+							});
+						}
+						if (isCountryBlocked(country, blockedCountries)) {
+							logger.warn("Signup blocked by country policy", {
+								ip: ipAddress,
+								country,
+								path: ctx.path,
+							});
+							return new Response(
+								JSON.stringify({
+									error: "signup_not_available",
+									message: "Sign-ups are not available in your region.",
+								}),
+								{
+									status: 403,
+									headers: { "Content-Type": "application/json" },
+								},
+							);
+						}
+					}
+
 					// Apply name fallback for email/password signup before user creation
 					if (ctx.path.startsWith("/sign-up/email")) {
 						const body = ctx.body as
-							| { email?: string; name?: string | null }
-							| undefined;
+							{ email?: string; name?: string | null } | undefined;
 						if (body?.email) {
 							body.name = resolveSignupName(body.name, body.email);
 						}
@@ -894,21 +994,6 @@ The LLM Gateway Team`.trim();
 						ctx.path.startsWith("/sign-up") &&
 						process.env.NODE_ENV !== "development"
 					) {
-						// Get IP address from various possible headers, prioritizing CF-Connecting-IP
-						let ipAddress = ctx.headers?.get("cf-connecting-ip");
-						if (!ipAddress) {
-							ipAddress = ctx.headers?.get("x-forwarded-for");
-							if (ipAddress) {
-								// x-forwarded-for can be a comma-separated list, take the first IP
-								ipAddress = ipAddress.split(",")[0]?.trim();
-							} else {
-								ipAddress =
-									ctx.headers?.get("x-real-ip") ??
-									ctx.headers?.get("x-client-ip") ??
-									"unknown";
-							}
-						}
-
 						// Check and record signup attempt with exponential backoff
 						const rateLimitResult =
 							await checkAndRecordSignupAttempt(ipAddress);
@@ -1053,6 +1138,12 @@ The LLM Gateway Team`.trim();
 					// whose slug matches one of the user's linked accounts (the same
 					// derivation used for `isSsoUser`). Logged before the org
 					// auto-creation early-returns below so every SSO login is recorded.
+					// The resolved provider is reused below to JIT-join its org.
+					let ssoProvider: {
+						id: string;
+						providerId: string;
+						organizationId: string | null;
+					} | null = null;
 					if (ctx.path.startsWith("/sso/")) {
 						const linkedAccounts = await db.query.account.findMany({
 							where: { userId: { eq: userId } },
@@ -1069,7 +1160,34 @@ The LLM Gateway Team`.trim();
 									},
 								})
 							: null;
+						ssoProvider = provider ?? null;
 						if (provider?.organizationId) {
+							const organization = await db.query.organization.findFirst({
+								where: { id: { eq: provider.organizationId } },
+								columns: { id: true, plan: true, status: true },
+							});
+							if (
+								!organization ||
+								organization.status === "deleted" ||
+								!hasOrganizationEnterpriseAccess(
+									organization.id,
+									organization.plan,
+								)
+							) {
+								await db
+									.delete(tables.session)
+									.where(eq(tables.session.id, newSession.session.id));
+								return new Response(
+									JSON.stringify({
+										error: "enterprise_license_required",
+										message: "A valid Enterprise license is required",
+									}),
+									{
+										status: 403,
+										headers: { "Content-Type": "application/json" },
+									},
+								);
+							}
 							await logAuditEvent({
 								organizationId: provider.organizationId,
 								userId,
@@ -1139,14 +1257,37 @@ The LLM Gateway Team`.trim();
 						(uo) => uo.organization?.kind === "devpass",
 					);
 
+					// Enterprise SSO JIT join: a user signing in through an org's SSO
+					// connection was vouched for by that org's IdP, so add them to the
+					// org as a developer instead of stranding them in a fresh personal
+					// "Default Organization". Orgs using SCIM already have the
+					// membership, making this a no-op. Never fatal to login.
+					let autoJoinedOrgId: string | null = null;
+					if (ssoProvider?.organizationId && dbUser?.email) {
+						try {
+							autoJoinedOrgId = await autoJoinSsoProviderOrganization({
+								userId,
+								email: dbUser.email,
+								name: dbUser.name,
+								organizationId: ssoProvider.organizationId,
+								ssoProviderId: ssoProvider.providerId,
+							});
+						} catch (error) {
+							logger.error("SSO organization auto-join failed", error);
+						}
+					}
+
 					// Google SSO domain auto-join: if this user has a Google account and
 					// their verified email domain matches an enterprise org's configured
 					// SSO domain, add them to that org as a developer. A successful join
 					// gives them an active dashboard org, so the default-org creation below
 					// is skipped (no redundant personal "Default Organization"). Existing
 					// members are a no-op. Never fatal to login.
-					let autoJoinedOrgId: string | null = null;
-					if (newSession.user.emailVerified && dbUser?.email) {
+					if (
+						!autoJoinedOrgId &&
+						newSession.user.emailVerified &&
+						dbUser?.email
+					) {
 						const googleAccount = await db.query.account.findFirst({
 							where: {
 								userId: { eq: userId },
@@ -1245,6 +1386,19 @@ The LLM Gateway Team`.trim();
 						});
 					}
 
+					// Only brand-new users reach this point (everyone else returned
+					// above), so this is the sign-up moment for both the email and the
+					// social flow. Enterprise SSO logins are exempt: those users were
+					// authenticated by an IdP their organization controls, and a shared
+					// corporate egress IP with a poor reputation must not gate them.
+					if (!ctx.path.startsWith("/sso/")) {
+						await flagUserIfAbusiveIp({
+							userId,
+							source: "signup",
+							headers: ctx.headers,
+						});
+					}
+
 					// Check if this is a social login by querying the account table
 					// For OAuth signups, we need to send notifications and create Resend contacts
 					if (isHosted) {
@@ -1266,6 +1420,7 @@ The LLM Gateway Team`.trim();
 								newSession.user.email,
 								newSession.user.name,
 								providerName,
+								getCountryFromHeaders(ctx.headers),
 							);
 
 							await createResendContact(

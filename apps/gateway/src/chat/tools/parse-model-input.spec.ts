@@ -43,3 +43,25 @@ describe("parseModelInput / resolveModelInfo catalog-id-only routing", () => {
 		expect(result.requestedProvider).toBe("together-ai");
 	});
 });
+
+describe("parseModelInput dynamic routes", () => {
+	it("tags a dynamic route and defers to the auto placeholder", () => {
+		const result = parseModelInput("dynamic/support");
+		expect(result.dynamicRouteName).toBe("support");
+		expect(result.requestedModel).toBe("auto");
+		expect(result.requestedProvider).toBe("llmgateway");
+		expect(result.customProviderName).toBeUndefined();
+		expect(result.requestedRegion).toBeUndefined();
+	});
+
+	it("rejects invalid dynamic route names", () => {
+		expect(() => parseModelInput("dynamic/Bad_Name")).toThrow();
+		expect(() => parseModelInput("dynamic/")).toThrow();
+		expect(() => parseModelInput("dynamic/a--b")).toThrow();
+	});
+
+	it("does not tag ordinary provider-prefixed models", () => {
+		const result = parseModelInput("openai/gpt-4o-mini");
+		expect(result.dynamicRouteName).toBeUndefined();
+	});
+});

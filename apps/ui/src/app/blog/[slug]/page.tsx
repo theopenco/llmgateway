@@ -4,14 +4,31 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { ContentConversionRail } from "@/components/content-conversion-rail";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
+import { plainTextFromMarkdown } from "@/lib/utils/plain-text";
 
 import { CopyMarkdownButton } from "./copy-markdown-button";
 
 import type { Blog } from "content-collections";
 import type { Metadata } from "next";
+
+/**
+ * The rendered page appends the `faqs` frontmatter as its own section, so the
+ * copied markdown has to do the same — otherwise "copy as markdown" silently
+ * drops the Q&A that is visible on the page.
+ */
+function markdownWithFaqs(entry: Blog): string {
+	if (!entry.faqs.length) {
+		return entry.content;
+	}
+	const section = entry.faqs
+		.map((faq) => `### ${faq.question}\n\n${faq.answer}`)
+		.join("\n\n");
+	return `${entry.content.trimEnd()}\n\n## Frequently asked questions\n\n${section}\n`;
+}
 
 interface BlogEntryPageProps {
 	params: Promise<{ slug: string }>;
@@ -34,7 +51,7 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 		headline: entry.title,
 		description: entry.summary ?? "LLM Gateway blog post",
 		datePublished: entry.date,
-		dateModified: entry.date,
+		dateModified: entry.updatedAt ?? entry.date,
 		author: {
 			"@type": "Organization",
 			name: "LLM Gateway",
@@ -64,6 +81,21 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 			},
 		}),
 	};
+
+	const faqSchema = entry.faqs.length
+		? {
+				"@context": "https://schema.org",
+				"@type": "FAQPage",
+				mainEntity: entry.faqs.map((faq) => ({
+					"@type": "Question",
+					name: faq.question,
+					acceptedAnswer: {
+						"@type": "Answer",
+						text: plainTextFromMarkdown(faq.answer),
+					},
+				})),
+			}
+		: null;
 
 	const breadcrumbSchema = {
 		"@context": "https://schema.org",
@@ -106,6 +138,15 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 					__html: JSON.stringify(breadcrumbSchema),
 				}}
 			/>
+			{faqSchema ? (
+				<script
+					type="application/ld+json"
+					// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
+					dangerouslySetInnerHTML={{
+						__html: JSON.stringify(faqSchema),
+					}}
+				/>
+			) : null}
 			<HeroRSC navbarOnly />
 			<div className="min-h-screen bg-white text-black dark:bg-black dark:text-white pt-30">
 				<main className="container mx-auto px-4 py-8">
@@ -118,7 +159,7 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 								<ArrowLeftIcon className="mr-2 h-4 w-4" />
 								Back to blog
 							</Link>
-							<CopyMarkdownButton content={entry.content} />
+							<CopyMarkdownButton content={markdownWithFaqs(entry)} />
 						</div>
 
 						<article className="prose prose-lg dark:prose-invert max-w-none">
@@ -135,6 +176,18 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 											day: "numeric",
 										})}
 									</time>
+									{entry.updatedAt && (
+										<span className="text-sm italic">
+											{" · Updated "}
+											<time dateTime={entry.updatedAt}>
+												{new Date(entry.updatedAt).toLocaleDateString("en-US", {
+													year: "numeric",
+													month: "long",
+													day: "numeric",
+												})}
+											</time>
+										</span>
+									)}
 								</div>
 							</header>
 
@@ -157,11 +210,48 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 									{entry.content}
 								</Markdown>
 							</div>
+
+							{entry.faqs.length ? (
+								<section
+									aria-labelledby="blog-faq-heading"
+									className="mt-12 border-t border-border pt-8"
+								>
+									<h2 id="blog-faq-heading" className="text-2xl font-bold mb-6">
+										Frequently asked questions
+									</h2>
+									<dl className="divide-y divide-border">
+										{entry.faqs.map((faq) => (
+											<div key={faq.question} className="py-5">
+												<dt className="text-lg font-semibold">
+													{faq.question}
+												</dt>
+												<dd className="mt-2 leading-relaxed text-muted-foreground">
+													{/* Answers carry the same inline links and code spans
+													    the body copy does, so they render as markdown
+													    rather than escaping to literal syntax. */}
+													<Markdown options={getMarkdownOptions()}>
+														{faq.answer}
+													</Markdown>
+												</dd>
+											</div>
+										))}
+									</dl>
+								</section>
+							) : null}
 						</article>
 					</div>
 				</main>
 				<Footer />
 			</div>
+			<ContentConversionRail
+				surface="blog"
+				// Follow whichever offer the post's inline cards already make, so the
+				// rail reinforces them instead of competing.
+				variant={
+					entry.content.includes('variant="devpass"') ? "devpass" : "gateway"
+				}
+				model={entry.model}
+			/>
 		</>
 	);
 }

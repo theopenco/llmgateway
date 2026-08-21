@@ -88,6 +88,17 @@ const GEMINI_TTS_VOICES = [
 	"Sulafat",
 ];
 
+// Qwen-Audio-TTS voice rosters are per-model and non-mixable: each tier only
+// accepts its own voices.
+const QWEN_AUDIO_TTS_PLUS_VOICES = ["longanlingxin", "longanlufeng"];
+
+const QWEN_AUDIO_TTS_FLASH_VOICES = [
+	"longanhuan_v3.6",
+	"longjielidou_v3.6",
+	"loongeva_v3.6",
+	"loongjohn",
+];
+
 const ELEVENLABS_VOICES = [
 	"Sarah",
 	"Aria",
@@ -150,6 +161,21 @@ export function getModelAudioConfig(model: string): AudioModelConfig {
 			supportsSpeed: false,
 			availableSpeeds: [],
 			supportsInstructions: true,
+		};
+	}
+
+	if (lower.includes("qwen")) {
+		const isPlus = lower.includes("tts-plus");
+		return {
+			voices: isPlus ? QWEN_AUDIO_TTS_PLUS_VOICES : QWEN_AUDIO_TTS_FLASH_VOICES,
+			defaultVoice: isPlus ? "longanlingxin" : "longanhuan_v3.6",
+			// DashScope's non-streaming TTS endpoint only returns WAV, and
+			// `speed`/`instructions` have no upstream equivalent on Qwen-Audio-TTS.
+			availableFormats: ["wav"],
+			defaultFormat: "wav",
+			supportsSpeed: false,
+			availableSpeeds: [],
+			supportsInstructions: false,
 		};
 	}
 

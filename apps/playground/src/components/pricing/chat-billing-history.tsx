@@ -26,6 +26,14 @@ import {
 } from "@/components/ui/tooltip";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
 
+import {
+	isRefundFeedbackComplete,
+	SELF_REFUND_USAGE_PERCENT,
+	SELF_REFUND_WINDOW_DAYS,
+	type RefundReason,
+} from "@llmgateway/shared";
+import { RefundReasonFieldset } from "@llmgateway/shared/components";
+
 import type { paths } from "@/lib/api/v1";
 
 type Transaction =
@@ -41,6 +49,7 @@ const TYPE_LABELS: Partial<Record<Transaction["type"], string>> = {
 	credit_topup: "Credit top-up",
 	credit_refund: "Credit refund",
 	credit_gift: "Credit gift",
+	credit_manual_payment: "Credits added",
 	end_user_topup: "Credit top-up",
 	end_user_refund: "Credit refund",
 };
@@ -153,12 +162,12 @@ const REFUND_INELIGIBILITY_COPY: Record<string, string> = {
 	unsupported_type: "This payment cannot be refunded",
 	not_completed: "Only completed payments can be refunded",
 	already_refunded: "This payment has already been refunded",
-	window_expired: "Refunds are available for 14 days after purchase",
+	window_expired: `Refunds are available for ${SELF_REFUND_WINDOW_DAYS} days after purchase`,
 	not_owner: "Only the organization owner can request a refund",
 	not_latest_purchase: "Only your most recent payment can be self-refunded",
 	plan_inactive: "The plan for this payment is no longer active",
 	credits_frozen: "Refunds are unavailable while credits are frozen",
-	usage_exceeded: "More than 10% of these credits have been used",
+	usage_exceeded: `More than ${SELF_REFUND_USAGE_PERCENT}% of these credits have been used`,
 };
 
 function isPlanPayment(type: Transaction["type"]): boolean {
@@ -174,12 +183,21 @@ function RefundButton({
 }) {
 	const api = useApi();
 	const queryClient = useQueryClient();
+	const [open, setOpen] = useState(false);
+	const [reason, setReason] = useState<RefundReason | null>(null);
+	const [comments, setComments] = useState("");
+
+	const trimmedComments = comments.trim();
+	const canSubmit = isRefundFeedbackComplete(reason, comments);
 
 	const refundMutation = api.useMutation(
 		"post",
 		"/orgs/{id}/transactions/{transactionId}/refund",
 		{
 			onSuccess: () => {
+				setOpen(false);
+				setReason(null);
+				setComments("");
 				toast.success(
 					isPlanPayment(transaction.type)
 						? "Refund processing. Your chat plan has been cancelled and the refund will arrive within a few business days."
@@ -232,7 +250,7 @@ function RefundButton({
 	}
 
 	return (
-		<AlertDialog>
+		<AlertDialog open={open} onOpenChange={setOpen}>
 			<AlertDialogTrigger asChild>
 				<Button variant="outline" size="sm" disabled={refundMutation.isPending}>
 					{refundMutation.isPending ? (
@@ -243,30 +261,51 @@ function RefundButton({
 					<span className="sr-only sm:not-sr-only">Refund</span>
 				</Button>
 			</AlertDialogTrigger>
-			<AlertDialogContent>
+			<AlertDialogContent className="max-h-[85vh] overflow-y-auto">
 				<AlertDialogHeader>
-					<AlertDialogTitle>Refund this payment?</AlertDialogTitle>
-					<AlertDialogDescription>
-						{formatAmount(transaction.amount, transaction.currency)} will be
-						refunded to your payment method.{" "}
+					<AlertDialogTitle>
 						{isPlanPayment(transaction.type)
-							? "Your chat plan will be cancelled immediately. "
-							: "The purchased credits will be removed from your balance. "}
-						This cannot be undone.
+							? "Refund and cancel your membership?"
+							: "Refund this payment?"}
+					</AlertDialogTitle>
+					<AlertDialogDescription>
+						{isPlanPayment(transaction.type)
+							? `Refunding cancels your Lounge membership completely: ${formatAmount(transaction.amount, transaction.currency)} goes back to your payment method and your access ends right away — not at the end of the billing period — so the rest of this cycle's credits are lost. To keep using the Lounge you would have to subscribe again. This cannot be undone.`
+							: `${formatAmount(transaction.amount, transaction.currency)} will be refunded to your payment method. The purchased credits will be removed from your balance. This cannot be undone.`}
 					</AlertDialogDescription>
 				</AlertDialogHeader>
+				<RefundReasonFieldset
+					idPrefix={transaction.id}
+					reason={reason}
+					onReasonChange={setReason}
+					comments={comments}
+					onCommentsChange={setComments}
+					disabled={refundMutation.isPending}
+				/>
 				<AlertDialogFooter>
-					<AlertDialogCancel>Cancel</AlertDialogCancel>
+					<AlertDialogCancel disabled={refundMutation.isPending}>
+						{isPlanPayment(transaction.type)
+							? "Keep my membership"
+							: "Never mind"}
+					</AlertDialogCancel>
 					<AlertDialogAction
-						onClick={() =>
+						disabled={refundMutation.isPending || !canSubmit}
+						onClick={(e) => {
+							e.preventDefault();
+							if (!reason) {
+								return;
+							}
 							refundMutation.mutate({
 								params: {
 									path: { id: orgId, transactionId: transaction.id },
 								},
-							})
-						}
+								body: { reason, comments: trimmedComments || undefined },
+							});
+						}}
 					>
-						Request refund
+						{isPlanPayment(transaction.type)
+							? "Refund and cancel"
+							: "Request refund"}
 					</AlertDialogAction>
 				</AlertDialogFooter>
 			</AlertDialogContent>

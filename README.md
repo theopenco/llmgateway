@@ -93,7 +93,7 @@ curl -X POST https://api.llmgateway.io/v1/chat/completions \
 ## Folder Structure
 
 - `apps/ui`: Next.js dashboard frontend
-- `apps/playground`: Next.js LLM playground
+- `apps/playground`: Lounge — consumer AI chat app (Next.js)
 - `apps/code`: Next.js Dev Plans + coding tools landing & dashboard
 - `apps/api`: Hono backend
 - `apps/gateway`: API gateway for routing LLM requests
@@ -108,7 +108,7 @@ curl -X POST https://api.llmgateway.io/v1/chat/completions \
 LLMGateway is available under a dual license:
 
 - **Open Source**: Core functionality is licensed under AGPLv3 - see the [LICENSE](LICENSE) file for details.
-- **Enterprise**: Commercial features in the `ee/` directory require an Enterprise license - see [ee/LICENSE](ee/LICENSE) for details.
+- **Enterprise**: Commercial features in the `ee/` directory require an Enterprise license; multi-organization administration requires a white-label license. See [ee/LICENSE](ee/LICENSE) for details.
 
 ### Enterprise features include:
 

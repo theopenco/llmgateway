@@ -1,0 +1,158 @@
+---
+title: Using the AI SDK
+description: Generate text, stream responses, and call tools with the Vercel AI SDK and LLM Gateway
+icon: Zap
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+LLM Gateway ships a first-party provider for the [Vercel AI SDK](https://ai-sdk.dev): [`@llmgateway/ai-sdk-provider`](https://github.com/theopenco/llmgateway-ai-sdk-provider). One provider instance and one API key reach every model in the catalog.
+
+## Install
+
+```bash
+pnpm add ai @llmgateway/ai-sdk-provider
+```
+
+Set your API key (create one from the [dashboard](https://llmgateway.io/dashboard)):
+
+```bash
+export LLM_GATEWAY_API_KEY=llmgtwy_your_key_here
+```
+
+## Generate text
+
+```typescript
+import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { generateText } from "ai";
+
+const llmgateway = createLLMGateway({
+	apiKey: process.env.LLM_GATEWAY_API_KEY,
+});
+
+const { text } = await generateText({
+	model: llmgateway("openai/gpt-4o"),
+	prompt: "Hello!",
+});
+```
+
+Switching models is a one-line change — the same provider serves every model:
+
+```typescript
+const { text } = await generateText({
+	model: llmgateway("anthropic/claude-3-5-sonnet-20241022"),
+	prompt: "Hello!",
+});
+```
+
+## Model ID formats
+
+LLM Gateway supports two model ID formats:
+
+- **Canonical model IDs** (`gpt-4o`) — smart routing picks the best provider based on uptime, throughput, price, and latency
+- **Provider-prefixed IDs** (`openai/gpt-4o`) — routes to a specific provider with automatic failover if uptime drops below 90%
+
+See the [routing documentation](/features/routing) for details and the [models page](https://llmgateway.io/models) for the full catalog.
+
+## Stream responses
+
+```typescript
+import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { streamText } from "ai";
+
+const llmgateway = createLLMGateway({
+	apiKey: process.env.LLM_GATEWAY_API_KEY,
+});
+
+const { textStream } = await streamText({
+	model: llmgateway("anthropic/claude-3-5-sonnet-20241022"),
+	prompt: "Write a poem about coding",
+});
+
+for await (const text of textStream) {
+	process.stdout.write(text);
+}
+```
+
+## Next.js route handler
+
+```typescript
+// app/api/chat/route.ts
+import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { streamText } from "ai";
+
+const llmgateway = createLLMGateway({
+	apiKey: process.env.LLM_GATEWAY_API_KEY,
+});
+
+export async function POST(req: Request) {
+	const { messages } = await req.json();
+
+	const result = await streamText({
+		model: llmgateway("openai/gpt-4o"),
+		messages,
+	});
+
+	return result.toDataStreamResponse();
+}
+```
+
+## Tool calling
+
+```typescript
+import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { generateText, tool } from "ai";
+import { z } from "zod";
+
+const llmgateway = createLLMGateway({
+	apiKey: process.env.LLM_GATEWAY_API_KEY,
+});
+
+const { text, toolResults } = await generateText({
+	model: llmgateway("openai/gpt-4o"),
+	tools: {
+		weather: tool({
+			description: "Get the weather for a location",
+			parameters: z.object({
+				location: z.string(),
+			}),
+			execute: async ({ location }) => {
+				return { temperature: 72, condition: "sunny" };
+			},
+		}),
+	},
+	prompt: "What's the weather in San Francisco?",
+});
+```
+
+## Without the provider package
+
+If you prefer not to add a dependency, point `@ai-sdk/openai` at the gateway with a custom base URL:
+
+```typescript
+import { createOpenAI } from "@ai-sdk/openai";
+import { generateText } from "ai";
+
+const llmgateway = createOpenAI({
+	baseURL: "https://api.llmgateway.io/v1",
+	apiKey: process.env.LLM_GATEWAY_API_KEY,
+});
+
+const { text } = await generateText({
+	model: llmgateway("openai/gpt-4o"),
+	prompt: "Hello!",
+});
+```
+
+<Callout>
+	Every request made through the AI SDK shows up in your
+	[Activity](/learn/activity) and [Usage &amp; Metrics](/learn/usage-metrics)
+	dashboards like any other gateway request — with per-request cost, tokens, and
+	latency.
+</Callout>
+
+## Next steps
+
+- [Image generation with the AI SDK](/developers/ai-sdk-images)
+- [Migrate from Vercel AI Gateway](/migrations/vercel-ai-gateway)
+- [Reasoning support](/features/reasoning) and [caching](/features/caching)

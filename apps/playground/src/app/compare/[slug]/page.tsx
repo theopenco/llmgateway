@@ -39,7 +39,7 @@ export async function generateMetadata({
 			title: comparison.metaTitle,
 			description: comparison.metaDescription,
 			type: "article",
-			url: `https://chat.llmgateway.io${canonical}`,
+			url: `https://lounge.llmgateway.io${canonical}`,
 		},
 		twitter: {
 			card: "summary_large_image",
@@ -76,13 +76,13 @@ export default async function ComparePage({ params }: PageProps) {
 				"@type": "ListItem",
 				position: 1,
 				name: "Compare",
-				item: "https://chat.llmgateway.io/compare",
+				item: "https://lounge.llmgateway.io/compare",
 			},
 			{
 				"@type": "ListItem",
 				position: 2,
-				name: `LLM Gateway Chat vs ${comparison.competitor}`,
-				item: `https://chat.llmgateway.io/compare/${comparison.slug}`,
+				name: `Lounge vs ${comparison.competitor}`,
+				item: `https://lounge.llmgateway.io/compare/${comparison.slug}`,
 			},
 		],
 	};
@@ -131,7 +131,7 @@ export default async function ComparePage({ params }: PageProps) {
 					/>
 				</div>
 				<h1 className="text-3xl font-bold tracking-tight text-balance sm:text-5xl">
-					LLM Gateway Chat vs {comparison.competitor}
+					Lounge vs {comparison.competitor}
 				</h1>
 				<p className="mt-3 text-base font-medium text-muted-foreground">
 					{comparison.competitorTagline}
@@ -175,7 +175,7 @@ export default async function ComparePage({ params }: PageProps) {
 			{/* At a glance */}
 			<section className="mt-16">
 				<h2 className="mb-5 text-xl font-semibold tracking-tight">
-					LLM Gateway Chat vs {comparison.competitor} at a glance
+					Lounge vs {comparison.competitor} at a glance
 				</h2>
 				<ComparisonTable
 					competitor={comparison.competitor}
@@ -196,7 +196,7 @@ export default async function ComparePage({ params }: PageProps) {
 							<div className="rounded-xl border bg-card p-5">
 								<div className="mb-2 flex items-center gap-2 text-sm font-semibold">
 									<UsTile size={22} radius={6} />
-									LLM Gateway Chat
+									Lounge
 								</div>
 								<p className="text-sm leading-relaxed text-muted-foreground">
 									{section.us}
@@ -251,9 +251,7 @@ export default async function ComparePage({ params }: PageProps) {
 				<div className="rounded-2xl border border-foreground/20 bg-card p-6 shadow-sm ring-1 ring-foreground/5">
 					<div className="mb-4 flex items-center gap-2.5">
 						<UsTile size={28} radius={8} />
-						<h2 className="text-lg font-semibold">
-							Choose LLM Gateway Chat if
-						</h2>
+						<h2 className="text-lg font-semibold">Choose Lounge if</h2>
 					</div>
 					<ul className="space-y-3">
 						{comparison.chooseUs.map((item) => (
@@ -349,7 +347,7 @@ export default async function ComparePage({ params }: PageProps) {
 			{/* FAQ */}
 			<section className="mt-16">
 				<h2 className="mb-5 text-xl font-semibold tracking-tight">
-					LLM Gateway Chat vs {comparison.competitor} FAQ
+					Lounge vs {comparison.competitor} FAQ
 				</h2>
 				<div className="divide-y rounded-2xl border bg-card">
 					{comparison.faq.map((item) => (

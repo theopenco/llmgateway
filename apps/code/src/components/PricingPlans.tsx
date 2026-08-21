@@ -15,6 +15,8 @@ import {
 	HIGH_COST_INPUT_PRICE,
 	HIGH_COST_OUTPUT_PRICE,
 	MARKETING_STATS,
+	SELF_REFUND_USAGE_PERCENT,
+	SELF_REFUND_WINDOW_DAYS,
 	type DevPlanTier,
 } from "@llmgateway/shared";
 
@@ -37,7 +39,7 @@ const plans: PlanContent[] = [
 		support: "Email",
 		features: [
 			"All 200+ models — Claude, GPT-5, Gemini, GLM, Qwen, …",
-			"DevPass Code, Claude Code, OpenCode, SoulForge & any OpenAI-compatible tool",
+			"DevPass Code, Claude Code, OpenCode, Empryo, SoulForge & any OpenAI-compatible tool",
 			"Real-time dashboard with per-request cost",
 		],
 	},
@@ -203,7 +205,7 @@ export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 								</Button>
 							</CodePlanTracker>
 							<p className="mt-2.5 text-center font-mono text-[11px] text-muted-foreground">
-								7-day first-month guarantee · no lock-in
+								{SELF_REFUND_WINDOW_DAYS}-day self-serve refund · no lock-in
 							</p>
 						</motion.div>
 					);
@@ -216,7 +218,9 @@ export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 				tokens or ${Math.round(HIGH_COST_OUTPUT_PRICE * 1_000_000)}+ per million
 				output tokens — as a weekly allowance on top of your monthly usage,
 				published right on the card. Every other model draws on your full
-				monthly allowance. No hidden throttling.
+				monthly allowance. No hidden throttling. And the allowance isn&apos;t a
+				wall: opt into pay-as-you-go overflow in your dashboard to keep coding
+				past it, billed from a credits balance at provider rates.
 			</p>
 
 			<div className="mx-auto mt-8 flex max-w-2xl flex-col items-center gap-4 rounded-2xl border border-dashed border-emerald-500/30 bg-emerald-500/[0.04] p-6 text-center sm:flex-row sm:text-left">
@@ -229,16 +233,17 @@ export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 				<div>
 					<p className="text-sm font-semibold">First-month guarantee</p>
 					<p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-						Try DevPass for a week. If it&apos;s not for you, cancel within 7
-						days of your first purchase and we&apos;ll refund your first month
-						minus the usage you consumed at provider rates — one email to{" "}
-						<a
-							href="mailto:contact@llmgateway.io"
+						Try DevPass for real. If it&apos;s not for you, refund yourself from{" "}
+						<Link
+							href="/dashboard/billing"
 							className="font-medium text-foreground underline underline-offset-4"
 						>
-							contact@llmgateway.io
-						</a>
-						.
+							Billing
+						</Link>{" "}
+						in your dashboard — a full refund of your first month, up to{" "}
+						{SELF_REFUND_WINDOW_DAYS} days after purchase, as long as
+						you&apos;ve used less than {SELF_REFUND_USAGE_PERCENT}% of your
+						allowance. One click, no email, no cancellation fee.
 					</p>
 				</div>
 			</div>

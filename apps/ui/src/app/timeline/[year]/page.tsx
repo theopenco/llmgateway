@@ -13,11 +13,14 @@ import {
 	buildTimelineModels,
 	buildTimelineStats,
 	buildYearFaqs,
+	DATASET_CREATOR,
+	DATASET_LICENSE,
 	formatDate,
 	getTimelineYears,
 	getYearSummaries,
 	isoDate,
 	modelsForYear,
+	TIMELINE_DATASET_REF,
 } from "@/lib/timeline-data";
 
 import type { Metadata } from "next";
@@ -104,13 +107,22 @@ export default async function TimelineYearPage({ params }: YearPageProps) {
 	const datasetSchema = {
 		"@context": "https://schema.org",
 		"@type": "Dataset",
+		"@id": `${BASE_URL}/timeline/${year}#dataset`,
 		name: `LLM releases in ${year}`,
 		description: `Large language models released in ${year}, with provider release dates and the date each was added to LLM Gateway.`,
 		url: `${BASE_URL}/timeline/${year}`,
-		isPartOf: { "@type": "Dataset", "@id": `${BASE_URL}/timeline` },
+		isPartOf: TIMELINE_DATASET_REF,
 		temporalCoverage: `${year}-01-01/${year}-12-31`,
-		creator: { "@type": "Organization", name: "LLM Gateway", url: BASE_URL },
+		creator: DATASET_CREATOR,
+		license: DATASET_LICENSE,
 		isAccessibleForFree: true,
+		keywords: [
+			`LLMs released in ${year}`,
+			`AI models ${year}`,
+			`${year} model release dates`,
+			"LLM release timeline",
+		],
+		variableMeasured: ["Provider release date", "Date added to LLM Gateway"],
 		...(summary.latestInYearAt
 			? { dateModified: summary.latestInYearAt.slice(0, 10) }
 			: {}),

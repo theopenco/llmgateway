@@ -26,7 +26,11 @@ import {
 	isInsufficientCreditsError,
 } from "@/lib/credit-error";
 import { useApi } from "@/lib/fetch-client";
-import { getModelImageConfig } from "@/lib/image-gen";
+import {
+	getModelImageConfig,
+	ImageGenerationError,
+	readImageGenerationResponse,
+} from "@/lib/image-gen";
 import { mapModels } from "@/lib/mapmodels";
 import {
 	getModelPreferenceCookie,
@@ -153,10 +157,10 @@ export default function ImagePageClient({
 	const selectedModelDefs = useMemo(() => {
 		return selectedModels
 			.map((modelId) => {
-				const rootId = modelId.includes("/")
+				const canonicalModelId = modelId.includes("/")
 					? modelId.split("/").pop()!
 					: modelId;
-				return imageGenModels.find((m) => m.id === rootId) ?? null;
+				return imageGenModels.find((m) => m.id === canonicalModelId) ?? null;
 			})
 			.filter((m): m is NonNullable<typeof m> => m !== null);
 	}, [selectedModels, imageGenModels]);
@@ -547,6 +551,7 @@ export default function ImagePageClient({
 							aspect_ratio: imageAspectRatio,
 						}),
 						...(imageSize !== "1K" && { image_size: imageSize }),
+						...(includeQuality && { image_quality: imageQuality }),
 						n: imageCount,
 					};
 
@@ -578,25 +583,22 @@ export default function ImagePageClient({
 							}),
 						});
 
-						if (!response.ok) {
-							const errorData = await response.json().catch(() => null);
-							const rawMessage =
-								errorData?.error ??
-								`HTTP ${response.status}: ${response.statusText}`;
-							throw new Error(
-								isChatPlanContext &&
-								isInsufficientCreditsError(response.status, rawMessage)
-									? chatPlanCreditErrorMessage(chatPlanSubscribed, "images")
-									: rawMessage,
-							);
+						let generatedImages: { base64: string; mediaType: string }[];
+						try {
+							generatedImages = await readImageGenerationResponse(response);
+						} catch (error) {
+							if (error instanceof ImageGenerationError) {
+								throw new Error(
+									isChatPlanContext &&
+										isInsufficientCreditsError(error.status, error.message)
+										? chatPlanCreditErrorMessage(chatPlanSubscribed, "images")
+										: error.message,
+								);
+							}
+							throw error;
 						}
 
-						const data = await response.json();
-						const generatedImages = data.images as
-							| { base64: string; mediaType: string }[]
-							| undefined;
-
-						if (!generatedImages || generatedImages.length === 0) {
+						if (generatedImages.length === 0) {
 							throw new Error(
 								"The model did not generate any images. Try a different model.",
 							);

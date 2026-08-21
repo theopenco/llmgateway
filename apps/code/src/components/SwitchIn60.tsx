@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 
 import {
 	AnthropicIcon,
+	EmpryoIcon,
 	OpenCodeIcon,
 	SoulForgeIcon,
 } from "@llmgateway/shared/components";
@@ -49,7 +50,7 @@ const TOOLS: ToolGuide[] = [
 				code: `export ANTHROPIC_BASE_URL=${API_BASE}\nexport ANTHROPIC_AUTH_TOKEN=<your-devpass-key>`,
 			},
 			{
-				label: "Run it — switch models with one ANTHROPIC_MODEL flip",
+				label: "Run it — switch models any time with /model",
 				code: "claude",
 			},
 		],
@@ -62,6 +63,16 @@ const TOOLS: ToolGuide[] = [
 		steps: [
 			{ label: "Launch OpenCode", code: "opencode" },
 			{ label: "Type /connect, pick LLM Gateway, paste your DevPass key" },
+		],
+	},
+	{
+		id: "empryo",
+		label: "Empryo",
+		icon: EmpryoIcon,
+		blurb: "Edits symbols, not strings. One key, every model.",
+		steps: [
+			{ label: "Launch Empryo", code: "empryo" },
+			{ label: "Type /keys and paste your DevPass key" },
 		],
 	},
 	{

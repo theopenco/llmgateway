@@ -24,8 +24,8 @@ import { toast } from "@/lib/components/use-toast";
 
 const formSchema = z
 	.object({
-		password: z.string().min(8, {
-			message: "Password must be at least 8 characters",
+		password: z.string().min(12, {
+			message: "Password must be at least 12 characters",
 		}),
 		confirmPassword: z.string(),
 	})
@@ -121,7 +121,7 @@ function ResetPasswordForm() {
 							Set a new password
 						</h1>
 						<p className="text-sm text-muted-foreground">
-							Choose a strong password — at least 8 characters.
+							Choose a strong password — at least 12 characters.
 						</p>
 					</div>
 

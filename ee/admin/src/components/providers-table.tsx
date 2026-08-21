@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useState } from "react";
 
 import { HistoryChart } from "@/components/history-chart";
+import { TokenBreakdownCell } from "@/components/token-breakdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,7 +19,7 @@ import {
 import { getProviderHistory } from "@/lib/admin-history";
 import { cn } from "@/lib/utils";
 
-import { getProviderIcon } from "@llmgateway/shared";
+import { deriveStabilityMetrics, getProviderIcon } from "@llmgateway/shared";
 
 import type { HistoryWindow } from "@/components/history-chart";
 import type { PageWindow } from "@/lib/page-window";
@@ -49,6 +50,7 @@ type ProviderSortBy =
 	| "status"
 	| "logsCount"
 	| "errorsCount"
+	| "clientErrorsCount"
 	| "cachedCount"
 	| "totalCost"
 	| "avgTimeToFirstToken"
@@ -126,10 +128,12 @@ function ProviderRow({
 	externalWindow?: HistoryWindow;
 }) {
 	const [expanded, setExpanded] = useState(false);
-	const errorRate =
-		provider.logsCount > 0
-			? ((provider.errorsCount / provider.logsCount) * 100).toFixed(1)
-			: "0.0";
+	const stability = deriveStabilityMetrics(
+		provider.logsCount,
+		provider.errorsCount + provider.clientErrorsCount,
+		provider.clientErrorsCount,
+	);
+	const errorRate = (stability.errorRate ?? 0).toFixed(1);
 
 	const ProviderIcon = getProviderIcon(provider.id);
 
@@ -173,7 +177,10 @@ function ProviderRow({
 					{formatNumber(provider.logsCount)}
 				</TableCell>
 				<TableCell className="tabular-nums">
-					{formatNumber(provider.errorsCount)}
+					{formatNumber(stability.errorsCount)}
+				</TableCell>
+				<TableCell className="tabular-nums">
+					{formatNumber(provider.clientErrorsCount)}
 				</TableCell>
 				<TableCell className="tabular-nums">{errorRate}%</TableCell>
 				<TableCell className="tabular-nums">
@@ -181,6 +188,9 @@ function ProviderRow({
 				</TableCell>
 				<TableCell className="tabular-nums">
 					{currencyFormatter.format(provider.totalCost)}
+				</TableCell>
+				<TableCell>
+					<TokenBreakdownCell breakdown={provider} />
 				</TableCell>
 				<TableCell className="tabular-nums">
 					{provider.avgTimeToFirstToken !== null
@@ -206,7 +216,7 @@ function ProviderRow({
 			</TableRow>
 			{expanded && (
 				<TableRow>
-					<TableCell colSpan={11} className="p-4">
+					<TableCell colSpan={12} className="p-4">
 						<HistoryChart
 							title={`${provider.name} — History`}
 							description="Request volume, errors, latency, and tokens over time"
@@ -254,9 +264,11 @@ export function ProvidersTable({
 					{sh("Models", "modelCount")}
 					{sh("Requests", "logsCount")}
 					{sh("Errors", "errorsCount")}
+					{sh("Client", "clientErrorsCount")}
 					<TableHead>Error Rate</TableHead>
 					{sh("Cached", "cachedCount")}
 					{sh("Cost", "totalCost")}
+					<TableHead>Tokens</TableHead>
 					{sh("Avg TTFT", "avgTimeToFirstToken")}
 					{sh("Last Updated", "updatedAt")}
 					<TableHead></TableHead>
@@ -266,7 +278,7 @@ export function ProvidersTable({
 				{providers.length === 0 ? (
 					<TableRow>
 						<TableCell
-							colSpan={11}
+							colSpan={13}
 							className="h-24 text-center text-muted-foreground"
 						>
 							No providers found

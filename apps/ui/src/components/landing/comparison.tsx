@@ -20,7 +20,7 @@ const comparisonData = [
 				title: "Bring Your Own Keys",
 				description: "Use your own provider API keys",
 				llmgateway: "Free — pay providers directly",
-				openrouter: "1M free reqs/mo, then 5% fee",
+				openrouter: "Free to $25k/mo PAYG ($200k enterprise), then 5%",
 			},
 			{
 				title: "Self-hosting option",
@@ -226,6 +226,16 @@ export function Comparison() {
 					<p className="text-sm text-muted-foreground mt-3">
 						No credit card required • Self-host option available • Enterprise
 						support included
+					</p>
+					<p className="text-sm text-muted-foreground mt-3">
+						Weighing more options? See the{" "}
+						<Link
+							href={"/blog/openrouter-alternatives" as any}
+							className="underline underline-offset-4 hover:text-foreground"
+						>
+							10 best OpenRouter alternatives in 2026
+						</Link>
+						.
 					</p>
 				</div>
 			</div>

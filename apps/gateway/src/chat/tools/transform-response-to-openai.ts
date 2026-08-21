@@ -1,3 +1,7 @@
+import { redisClient } from "@llmgateway/cache";
+import { shortid } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
+
 import { dedupeGoogleCandidateParts } from "./google-candidates.js";
 import { mapFinishReasonToOpenai } from "./map-finish-reason-to-openai.js";
 import { formatUsedModelForDisplay } from "./resolve-provider-context.js";
@@ -39,6 +43,11 @@ export interface ResponseMetadataExtras {
 	 * an org-level default (e.g. the DevPass flex setting) stays visible.
 	 */
 	usedServiceTier?: "flex" | "priority" | null;
+	/**
+	 * True when the body is a gateway response-cache replay rather than a fresh
+	 * upstream call. Only emitted on hits, so a missing key means "not cached".
+	 */
+	cached?: boolean;
 }
 
 export function toResponseMetadataExtras(
@@ -61,7 +70,39 @@ export function toResponseMetadataExtras(
 		...(extras.requestedServiceTier || extras.usedServiceTier
 			? { used_service_tier: extras.usedServiceTier ?? null }
 			: {}),
+		...(extras.cached ? { cached: true } : {}),
 	};
+}
+
+/**
+ * Zero the cost fields of a gateway response-cache replay.
+ *
+ * A cache hit never reaches a provider, so it is free — but the stored body
+ * still carries the cost of the original (uncached) call, which made replays
+ * report a full charge to the caller. Token counts are left untouched: they
+ * still describe the completion being returned and are what the log row keeps
+ * for analytics.
+ */
+export function zeroCostsOnCachedResponseUsage(
+	usage: Record<string, unknown> | undefined | null,
+): Record<string, unknown> | undefined | null {
+	if (!usage || typeof usage !== "object") {
+		return usage;
+	}
+
+	const next: Record<string, unknown> = { ...usage };
+	if (typeof next.cost === "number") {
+		next.cost = 0;
+	}
+	const costDetails = next.cost_details;
+	if (costDetails && typeof costDetails === "object") {
+		next.cost_details = Object.fromEntries(
+			Object.entries(costDetails as Record<string, unknown>).map(
+				([key, value]) => [key, typeof value === "number" ? 0 : value],
+			),
+		);
+	}
+	return next;
 }
 
 export function applyExtendedUsageFields(
@@ -385,6 +426,7 @@ export function transformResponseToOpenai(
 	switch (usedProvider) {
 		case "google-ai-studio":
 		case "glacier":
+		case "iceberg":
 		case "google-vertex":
 		case "quartz": {
 			// Multi-candidate responses (n > 1 via candidateCount) map each Google
@@ -412,16 +454,55 @@ export function transformResponseToOpenai(
 							const candidateIndex = candidate.index ?? position;
 							const candidateToolCalls = candidateParts
 								.filter((part: any) => part.functionCall)
-								.map((part: any, fcIndex: number) => ({
-									// Same id scheme as parse-provider-response so choice 0's
-									// ids line up with the cached thought signatures.
-									id: `${part.functionCall.name}_${candidateIndex}_${fcIndex}`,
-									type: "function",
-									function: {
-										name: part.functionCall.name,
-										arguments: JSON.stringify(part.functionCall.args ?? {}),
-									},
-								}));
+								.map((part: any, fcIndex: number) => {
+									// parseProviderResponse only processes candidate 0, and it
+									// caches the thought signature under the id it emits
+									// (`${name}_${shortid(24)}`, as `thought_signature:<id>` in
+									// Redis). Reuse those exact tool calls so the id the client
+									// echoes back on the next turn is the one the signature is
+									// cached under. Regenerating a name+index id here (the scheme
+									// parse abandoned in #1448) made the Redis lookup miss and
+									// Gemini reject the replay with "Corrupted thought signature".
+									// Candidates parse did not process (1+) get the same
+									// treatment inline: unique id, inline signature, and the
+									// Redis entry under the emitted id.
+									if (
+										position === 0 &&
+										Array.isArray(toolResults) &&
+										toolResults[fcIndex]
+									) {
+										return toolResults[fcIndex];
+									}
+									const toolCall: any = {
+										id: `${part.functionCall.name}_${shortid(24)}`,
+										type: "function",
+										function: {
+											name: part.functionCall.name,
+											arguments: JSON.stringify(part.functionCall.args ?? {}),
+										},
+									};
+									if (part.thoughtSignature) {
+										toolCall.extra_content = {
+											google: {
+												thought_signature: part.thoughtSignature,
+											},
+										};
+										// Same cache as parse-provider-response: the id is the
+										// `thought_signature:<id>` key read back on the next turn.
+										redisClient
+											.setex(
+												`thought_signature:${toolCall.id}`,
+												86400,
+												part.thoughtSignature,
+											)
+											.catch((err) => {
+												logger.error("Failed to cache thought_signature", {
+													err,
+												});
+											});
+									}
+									return toolCall;
+								});
 							return {
 								index: candidateIndex,
 								message: {
@@ -568,6 +649,8 @@ export function transformResponseToOpenai(
 		}
 		case "inference.net":
 		case "together-ai":
+		case "scx-ai":
+		case "scx-ai-gp":
 		case "groq": {
 			if (!transformedResponse.id) {
 				transformedResponse = {
@@ -839,6 +922,7 @@ export function transformResponseToOpenai(
 		case "novita":
 		case "sakana":
 		case "meta":
+		case "aws-mantle":
 		case "openai": {
 			// Handle OpenAI / Azure image generation responses (e.g. gpt-image-2)
 			// Format: { created: number, data: [{ b64_json?: string, url?: string }], usage?: {...} }
@@ -1397,6 +1481,13 @@ export function transformResponseToOpenai(
 					if (annotations && annotations.length > 0) {
 						message.annotations = annotations;
 					}
+				}
+				// Update finish_reason with the mapped value so canonicalizations
+				// applied by parseProviderResponse (e.g. "abort" -> "upstream_error",
+				// "tool_use" -> "tool_calls") reach the client instead of the raw
+				// upstream value, matching the provider-specific cases above.
+				if (transformedResponse.choices?.[0] && finishReason !== null) {
+					transformedResponse.choices[0].finish_reason = finishReason;
 				}
 				transformedResponse.model = formatUsedModelForDisplay(
 					usedProvider,

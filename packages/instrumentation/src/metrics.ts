@@ -67,6 +67,26 @@ export const requestsInFlight = new Gauge({
 	registers: [metricsRegistry],
 });
 
+// Gauge for tracking in-flight inference requests across the whole gateway pod
+// (used by the backpressure middleware to shed load above a configured cap).
+// Only inference endpoints are counted; cheap metadata routes are exempt.
+export const gatewayInflightRequests = new Gauge({
+	name: "gateway_inflight_requests",
+	help: "Number of inference requests currently in flight on this gateway pod",
+	registers: [metricsRegistry],
+});
+
+// Counter for requests shed by a concurrency limit. scope="pod" is the
+// pod-wide backpressure cap (HTTP 529); scope="org" is a per-organization
+// in-flight limit (HTTP 429). Lets us alert on dropped traffic and see how
+// often limits are hit, rather than inferring it from the gauge riding the cap.
+export const gatewayRequestsShedTotal = new Counter({
+	name: "gateway_requests_shed_total",
+	help: "Total number of requests shed due to an in-flight concurrency cap",
+	labelNames: ["scope"] as const,
+	registers: [metricsRegistry],
+});
+
 export interface ChatCompletionMetrics {
 	model: string;
 	provider: string;

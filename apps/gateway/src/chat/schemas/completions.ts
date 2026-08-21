@@ -141,6 +141,44 @@ export const completionsRequestSchema = z.object({
 						.passthrough(),
 				)
 				.optional(),
+			phase: z.enum(["commentary", "final_answer"]).optional().openapi({
+				description:
+					"OpenAI Responses assistant-message phase. Replayed upstream for OpenAI Responses API models; stripped for other providers.",
+			}),
+			content_before_tool_calls: z.boolean().optional().openapi({
+				description:
+					"Marks assistant content that preceded the message's tool calls (pre-tool commentary on OpenAI Responses API models), so replay preserves the original item order. Stripped for other providers.",
+			}),
+			message_items: z
+				.array(
+					z.object({
+						text: z.string(),
+						phase: z.enum(["commentary", "final_answer"]).optional(),
+						preceding_tool_calls: z.number().int().nonnegative().optional(),
+					}),
+				)
+				.optional()
+				.openapi({
+					description:
+						"Separate phased assistant message items (e.g. commentary and final_answer) emitted by OpenAI Responses API models in a single turn. preceding_tool_calls records how many of the message's tool calls came before each item. Replayed upstream as individual message items in their original order; stripped for other providers.",
+				}),
+			anthropic_native_blocks: z
+				.array(z.object({ type: z.string() }).passthrough())
+				.optional()
+				.openapi({
+					description:
+						"Anthropic content blocks with no OpenAI-format equivalent. On an assistant message these are the server-side tool search blocks (`server_tool_use` + `tool_search_tool_result`), replayed ahead of the message's tool calls; on a tool message they are the `tool_result` content array, which is how a client-side tool search returns `tool_reference` blocks. Replayed on the Anthropic Messages API only and stripped for every other provider.",
+				}),
+			tool_result_cache_control: z
+				.object({
+					type: z.enum(["ephemeral"]),
+					ttl: z.enum(["5m", "1h"]).optional(),
+				})
+				.optional()
+				.openapi({
+					description:
+						"Prompt-cache breakpoint for the Anthropic `tool_result` block this tool message becomes. The OpenAI tool message shape has nowhere to carry it, so it rides here. Applied on the Anthropic Messages API only and stripped for every other provider.",
+				}),
 		}),
 	),
 	temperature: z
@@ -268,6 +306,31 @@ export const completionsRequestSchema = z.object({
 						description: z.string().optional(),
 						parameters: z.record(z.any()).optional(),
 					}),
+					defer_loading: z.boolean().optional().openapi({
+						description:
+							"Anthropic only. Keeps the tool out of the rendered tools section so it never enters the cached prompt prefix, and loads it on demand once the tool search tool discovers it. Requires a `tool_search` tool in `tools`, and Anthropic rejects a request whose tools are all deferred. Stripped for every other provider, which receives the tool eagerly instead.",
+					}),
+					cache_control: z
+						.object({
+							type: z.enum(["ephemeral"]),
+							ttl: z.enum(["5m", "1h"]).optional(),
+						})
+						.optional()
+						.openapi({
+							description:
+								"Anthropic only. Cache breakpoint ending the tool-definitions prefix, which Anthropic renders before the system prompt and messages. Placed on the last tool it caches every tool up to and including that one, and counts toward Anthropic's limit of 4 breakpoints per request. Stripped for every other provider.",
+						}),
+				}),
+				z.object({
+					type: z.literal("tool_search"),
+					tool_search_type: z
+						.string()
+						.regex(/^tool_search_tool/)
+						.openapi({
+							description:
+								"Anthropic tool search tool type, e.g. `tool_search_tool_regex_20251119` or `tool_search_tool_bm25_20251119`.",
+						}),
+					name: z.string().optional(),
 				}),
 				z.object({
 					type: z.literal("web_search"),
@@ -298,8 +361,15 @@ export const completionsRequestSchema = z.object({
 					name: z.string(),
 				}),
 			}),
+			z.object({
+				type: z.literal("web_search"),
+			}),
 		])
-		.optional(),
+		.optional()
+		.openapi({
+			description:
+				'Controls which tool the model calls. `{"type": "web_search"}` demands a search instead of offering one, and requires a `web_search` tool in `tools`. Providers whose web search is model-elected are unaffected by it — the model already decides — but it is the only way to reach providers that can search solely on demand (currently Alibaba\'s DashScope and its resellers), which are otherwise skipped when routing a web search request.',
+		}),
 	reasoning_effort: z
 		.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"])
 		.nullable()
@@ -325,6 +395,14 @@ export const completionsRequestSchema = z.object({
 					"Exact number of tokens to allocate for reasoning. When specified, overrides effort. Supported by Anthropic and Google thinking models.",
 				example: 4000,
 			}),
+			context: z
+				.enum(["auto", "current_turn", "all_turns"])
+				.optional()
+				.openapi({
+					description:
+						"How much replayed reasoning the model considers (OpenAI Responses API models only). Omitting the field is equivalent to 'auto'. Forwarded upstream as reasoning.context; ignored by other providers.",
+					example: "current_turn",
+				}),
 		})
 		.optional()
 		.openapi({
@@ -356,7 +434,7 @@ export const completionsRequestSchema = z.object({
 		.optional()
 		.openapi({
 			description:
-				"Processing tier for the request. `flex` and `priority` are forwarded only for provider/model mappings that explicitly support the requested tier, such as supported OpenAI and Google mappings. `auto`/`default` use the standard on-demand tier. Unsupported tier requests return a 400 `unsupported_service_tier` error.",
+				"Processing tier for the request. `flex` and `priority` are forwarded only for provider/model mappings that explicitly support the requested tier, such as supported OpenAI and Google mappings. `auto`/`default` use the standard on-demand tier. Unsupported tier requests return a 400 `unsupported_service_tier` error. On coding (dev) plans only `auto`, `default` and `flex` are allowed.",
 			example: "flex",
 		}),
 	routing: z
@@ -374,7 +452,8 @@ export const completionsRequestSchema = z.object({
 	}),
 	onboarding: z.boolean().optional().default(false).openapi({
 		description:
-			"When true, skips email verification for free model usage. Intended for onboarding flows.",
+			"Deprecated and ignored. This once skipped email verification for free model usage, but the flag is client-supplied, so any account could assert it. Onboarding is now recognized server-side by the API proxy; setting this grants nothing.",
+		deprecated: true,
 		example: false,
 	}),
 	no_reasoning: z.boolean().optional().default(false).openapi({

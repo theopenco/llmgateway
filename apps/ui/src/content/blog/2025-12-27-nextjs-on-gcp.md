@@ -28,6 +28,8 @@ The build and deployment pipeline is fully automated via GitHub Actions. On ever
 
 For Next.js specifically, we build in standalone mode and package each app into its own container.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## Performance
 
 The results surprised us. Performance is excellent—response times are consistently fast, and the infrastructure handles our traffic without issues.
@@ -193,3 +195,5 @@ Save as `.github/workflows/build.yml`.
 ## Takeaway
 
 If you're already on GCP and considering whether to add Vercel to your stack, you might not need to. Kubernetes and Cloud Run handle Next.js well, and keeping everything in one place makes operations simpler.
+
+<BlogCta variant="gateway" location="bottom" />

@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { format, formatDistanceToNowStrict } from "date-fns";
 import { Info, Loader2 } from "lucide-react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { usePostHog } from "posthog-js/react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -25,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
+import { useStripe } from "@/lib/stripe";
 import { cn } from "@/lib/utils";
 
 import type { TierChangeTiming } from "@/app/dashboard/components/ActivePlanChangeTier";
@@ -65,6 +67,7 @@ export default function BillingClient({
 	const posthog = usePostHog();
 	const api = useApi();
 	const queryClient = useQueryClient();
+	const { stripe } = useStripe();
 
 	const { data: devPlanStatus } = useDevPlanStatus(initialDevPlanStatus);
 
@@ -97,6 +100,38 @@ export default function BillingClient({
 	const [isResuming, setIsResuming] = useState(false);
 	const [isCancellingDowngrade, setIsCancellingDowngrade] = useState(false);
 
+	// After a 3DS-confirmed upgrade the tier is applied by the
+	// invoice.payment_succeeded webhook, not the change-tier response — poll
+	// status until the new tier lands so the dashboard reflects it promptly.
+	const waitForTierChange = async (newTier: PlanTier): Promise<boolean> => {
+		for (let attempt = 0; attempt < 15; attempt++) {
+			await new Promise((resolve) => setTimeout(resolve, 2000));
+			try {
+				const status = await queryClient.fetchQuery(
+					api.queryOptions("get", "/dev-plans/status"),
+				);
+				if (status?.devPlan === newTier) {
+					return true;
+				}
+			} catch {
+				// Transient fetch failure — keep polling until the attempts run out.
+			}
+		}
+		return false;
+	};
+
+	// Shared post-change refresh: pull the just-recorded upgrade invoice and the
+	// new current tier / pending-change state, and record the analytics event.
+	const refreshAfterTierChange = async (
+		newTier: PlanTier,
+		timing?: TierChangeTiming,
+	): Promise<void> => {
+		await Promise.all([invalidateInvoices(), invalidateStatus()]);
+		if (posthogKey) {
+			posthog.capture("dev_plan_tier_changed", { newTier, timing });
+		}
+	};
+
 	const handleChangeTier = async (
 		newTier: PlanTier,
 		expectedAmountDueCents?: number,
@@ -107,17 +142,41 @@ export default function BillingClient({
 		// and looks up the matching annual or monthly Stripe price ID.
 		setSubscribingTier(newTier);
 		try {
-			await changeTierMutation.mutateAsync({
+			const result = await changeTierMutation.mutateAsync({
 				body: { newTier, expectedAmountDueCents, timing },
 			});
+			if ("status" in result && result.status === "requires_action") {
+				// The bank requires 3DS authentication for the upgrade charge. The
+				// server left the change as a Stripe pending update; confirming the
+				// payment intent here completes it (the webhook then applies the
+				// tier), while abandoning the challenge leaves the plan unchanged.
+				if (!stripe) {
+					throw new Error("Stripe is not ready. Please refresh and try again.");
+				}
+				const confirmation = await stripe.confirmCardPayment(
+					result.clientSecret,
+				);
+				if (confirmation.error) {
+					throw new Error(
+						confirmation.error.message ?? "Payment authentication failed",
+					);
+				}
+				const applied = await waitForTierChange(newTier);
+				await refreshAfterTierChange(newTier, timing);
+				if (applied) {
+					toast.success("Plan updated");
+				} else {
+					toast.success("Payment confirmed", {
+						description: "Your plan will update in a moment.",
+					});
+				}
+				return;
+			}
 			// An immediate upgrade records a new dev_plan_upgrade invoice
 			// server-side; refetch so the Invoices section reflects the just-paid
 			// charge immediately, and refresh status so the current tier /
 			// pending-change state updates.
-			await Promise.all([invalidateInvoices(), invalidateStatus()]);
-			if (posthogKey) {
-				posthog.capture("dev_plan_tier_changed", { newTier, timing });
-			}
+			await refreshAfterTierChange(newTier, timing);
 			toast.success(
 				timing === "next_cycle"
 					? "Plan change scheduled for your next renewal"
@@ -204,7 +263,43 @@ export default function BillingClient({
 	}
 
 	const currentPlan = devPlanStatus.devPlan ?? null;
+	const hasActivePlan = currentPlan !== null && currentPlan !== "none";
 	const currentPlanData = plans.find((p) => p.tier === currentPlan);
+	// A plan that ended — or was refunded, which cancels immediately — clears the
+	// tier, but this page stays useful: invoices and receipts remain
+	// downloadable and an unused Reset Pass is still refundable. Everything that
+	// acts on a live subscription (payment method, tier changes, cancel/resume)
+	// is dropped, since those endpoints require one.
+	if (!hasActivePlan) {
+		return (
+			<div className="space-y-10">
+				<BillingHeader />
+
+				<div className="rounded-xl border bg-card p-6">
+					<div className="flex flex-wrap items-start justify-between gap-4">
+						<div>
+							<h2 className="font-semibold">No active plan</h2>
+							<p className="mt-1 text-sm text-muted-foreground">
+								{devPlanStatus.hasBillingHistory
+									? "Your DevPass subscription has ended. Your invoices and receipts stay available here."
+									: "You don't have a DevPass plan yet."}
+							</p>
+						</div>
+						<Button asChild size="sm">
+							<Link href="/dashboard">Choose a plan</Link>
+						</Button>
+					</div>
+				</div>
+
+				{/* Past invoices */}
+				<DevPassInvoices />
+
+				{/* Billing details (invoice details) */}
+				<DevPassBillingDetails />
+			</div>
+		);
+	}
+
 	const pendingTier = devPlanStatus.devPlanPendingTier ?? null;
 	const pendingPlanData = plans.find((p) => p.tier === pendingTier);
 	const cycle = devPlanStatus.devPlanCycle ?? "monthly";
@@ -256,12 +351,7 @@ export default function BillingClient({
 
 	return (
 		<div className="space-y-10">
-			<div>
-				<h1 className="text-lg font-semibold tracking-tight">Billing</h1>
-				<p className="mt-0.5 text-sm text-muted-foreground">
-					Manage your DevPass subscription and plan.
-				</p>
-			</div>
+			<BillingHeader />
 
 			{/* Current subscription summary */}
 			<div className="rounded-xl border bg-card p-6">
@@ -393,6 +483,17 @@ export default function BillingClient({
 
 			{/* Billing details (invoice details) */}
 			<DevPassBillingDetails />
+		</div>
+	);
+}
+
+function BillingHeader() {
+	return (
+		<div>
+			<h1 className="text-lg font-semibold tracking-tight">Billing</h1>
+			<p className="mt-0.5 text-sm text-muted-foreground">
+				Manage your DevPass subscription and plan.
+			</p>
 		</div>
 	);
 }

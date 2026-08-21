@@ -5,6 +5,7 @@ import { createLogEntry } from "@/chat/tools/create-log-entry.js";
 import { extractCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
 import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
 import { getProviderEnv } from "@/chat/tools/get-provider-env.js";
+import { resolvePlatformCredential } from "@/chat/tools/resolve-platform-credential.js";
 import { shouldRetryAlternateKey } from "@/chat/tools/retry-with-fallback.js";
 import { validateSource } from "@/chat/tools/validate-source.js";
 import {
@@ -23,22 +24,43 @@ import {
 	findProjectById,
 	findProviderKey,
 } from "@/lib/cached-queries.js";
+import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import { assertProviderCompliant } from "@/lib/compliance.js";
 import {
 	applyEndUserSession,
 	assertTestWalletModelAllowed,
 } from "@/lib/end-user-session.js";
+import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { buildOpenAIErrorBody } from "@/lib/error-response.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
+import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
+import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
-import { getProviderHeaders } from "@llmgateway/actions";
+import { getProviderHeaders, readProviderKey } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 import { models } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
 import type { InferSelectModel, tables } from "@llmgateway/db";
+import type { Context } from "hono";
+
+/**
+ * Flat per-request price for `/v1/moderations`, in USD. OpenAI serves the
+ * moderation models for free, but we still pay for the request handling,
+ * logging and storage around it, so every successful moderation is billed at
+ * this fixed rate regardless of input size or moderation model.
+ */
+export const MODERATION_REQUEST_PRICE = 0.00001;
+const MODERATION_MODEL_ID = "openai-moderation";
+const DEFAULT_UPSTREAM_MODERATION_MODEL = "omni-moderation-latest";
+const CANONICAL_MODERATION_MODEL = formatUsedModelForDisplay(
+	"openai",
+	MODERATION_MODEL_ID,
+);
 
 const moderationInputTextSchema = z.string().openapi({
 	description: "Plain text input to classify.",
@@ -129,7 +151,7 @@ const moderationResponseSchema = z
 		}),
 		model: z.string().optional().openapi({
 			description: "Moderation model used for the request.",
-			example: "omni-moderation-latest",
+			example: CANONICAL_MODERATION_MODEL,
 		}),
 		results: z.array(moderationResultSchema).optional().openapi({
 			description: "Moderation results for the submitted input.",
@@ -151,10 +173,15 @@ const moderationErrorSchema = z.object({
 
 const moderationRequestSchema = z.object({
 	input: moderationInputSchema,
-	model: z.string().optional().default("omni-moderation-latest").openapi({
-		description: "OpenAI moderation model. Defaults to omni-moderation-latest.",
-		example: "omni-moderation-latest",
-	}),
+	model: z
+		.string()
+		.optional()
+		.default(DEFAULT_UPSTREAM_MODERATION_MODEL)
+		.openapi({
+			description:
+				"OpenAI moderation model. Defaults to omni-moderation-latest.",
+			example: "omni-moderation-latest",
+		}),
 });
 
 function normalizeModerationInputToMessages(input: unknown) {
@@ -179,6 +206,75 @@ function getResponseContent(responseJson: unknown): string | null {
 	}
 
 	return JSON.stringify(responseJson);
+}
+
+function getAvailableCredits(
+	organization: InferSelectModel<typeof tables.organization>,
+) {
+	const regularCredits = parseFloat(organization.credits ?? "0");
+	const devPlanCreditsRemaining =
+		organization.devPlan !== "none"
+			? parseFloat(organization.devPlanCreditsLimit ?? "0") -
+				parseFloat(organization.devPlanCreditsUsed ?? "0")
+			: 0;
+	const chatPlanCreditsRemaining =
+		organization.chatPlan !== "none"
+			? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
+				parseFloat(organization.chatPlanCreditsUsed ?? "0")
+			: 0;
+
+	return {
+		devPlanCreditsRemaining,
+		chatPlanCreditsRemaining,
+		totalAvailableCredits:
+			regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining,
+	};
+}
+
+/**
+ * Moderation is billed per request, so a request that would be served with our
+ * credentials needs a credit balance behind it. Mirrors the credit gate on the
+ * other paid endpoints; there is no free-model escape hatch here because the
+ * moderation pseudo-model is always billed.
+ */
+async function assertCreditsAvailableForModeration(
+	c: Context,
+	organization: InferSelectModel<typeof tables.organization>,
+	insufficientCreditsMessage: string,
+	devPlanCreditLimitMessage: (renewalDate: string) => string,
+) {
+	// Moderation is always billed, so it is never free-model exempt.
+	await assertSpendLimit(c, organization, false);
+
+	const {
+		devPlanCreditsRemaining,
+		chatPlanCreditsRemaining,
+		totalAvailableCredits,
+	} = getAvailableCredits(organization);
+
+	if (totalAvailableCredits > 0) {
+		return;
+	}
+
+	if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
+		const renewalDate = organization.devPlanExpiresAt
+			? new Date(organization.devPlanExpiresAt).toLocaleDateString()
+			: "your next billing date";
+		throw new HTTPException(402, {
+			message: devPlanCreditLimitMessage(renewalDate),
+		});
+	}
+
+	if (organization.chatPlan !== "none" && chatPlanCreditsRemaining <= 0) {
+		const renewalDate = organization.chatPlanExpiresAt
+			? new Date(organization.chatPlanExpiresAt).toLocaleDateString()
+			: "your next billing date";
+		throw new HTTPException(402, {
+			message: `Chat Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+		});
+	}
+
+	throw new HTTPException(402, { message: insufficientCreditsMessage });
 }
 
 export const moderations = new OpenAPIHono<ServerTypes>();
@@ -227,6 +323,14 @@ const createModeration = createRoute({
 				},
 			},
 			description: "Unauthorized request.",
+		},
+		402: {
+			content: {
+				"application/json": {
+					schema: moderationErrorSchema,
+				},
+			},
+			description: "Payment required / insufficient credits.",
 		},
 		403: {
 			content: {
@@ -331,7 +435,12 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		);
 	}
 
-	const { input, model: upstreamModel } = validationResult.data;
+	const { input, model: requestedModel } = validationResult.data;
+	const upstreamModel =
+		requestedModel === CANONICAL_MODERATION_MODEL ||
+		requestedModel === MODERATION_MODEL_ID
+			? DEFAULT_UPSTREAM_MODERATION_MODEL
+			: requestedModel;
 	const startedAt = Date.now();
 	const source = validateSource(
 		c.req.header("x-source"),
@@ -390,11 +499,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		});
 	}
 
-	if (baseOrganization.status === "deleted") {
-		throw new HTTPException(410, {
-			message: "Organization has been disabled and is no longer accessible",
-		});
-	}
+	assertOrganizationUsable(baseOrganization);
 
 	// LLM SDK: ephemeral end-user sessions bill the bound wallet instead
 	// of the developer's org credits. No-op for normal keys.
@@ -415,6 +520,43 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		models.find((m) => m.id === moderationModelId),
 	);
 
+	// IAM rules (member-level ceiling + key rules) apply to moderation like any
+	// other endpoint, but only provider and IP rule types: the moderation model
+	// is a fixed pseudo-model outside the catalogue, so model/pricing allowlists
+	// can never name it and evaluating them would deny existing keys with no way
+	// to allowlist it. deny/allow_providers ["openai"] and IP CIDR rules still
+	// gate moderation. End-user sessions are exempt: their model allowlists
+	// target chat models and must not block the moderation endpoint.
+	if (!apiKey.endUserSession) {
+		const iamValidation = await validateRequestModelAccess({
+			apiKey,
+			organizationId: project.organizationId,
+			requestedModel: "openai-moderation",
+			activeModelInfo: {
+				id: "openai-moderation",
+				family: "openai",
+				free: false,
+				providers: [
+					{
+						providerId: "openai",
+						externalId: upstreamModel,
+						streaming: false,
+					},
+				],
+			},
+			clientIp: getClientIpFromRequest(c),
+			applicableRuleTypes: [
+				"allow_providers",
+				"deny_providers",
+				"allow_ip_cidrs",
+				"deny_ip_cidrs",
+			],
+		});
+		if (!iamValidation.allowed) {
+			throwIamException(iamValidation.reason ?? "Model access denied");
+		}
+	}
+
 	// Enterprise provider compliance policy: moderation runs on OpenAI, so block
 	// before sending if the org's policy doesn't permit it.
 	await assertProviderCompliant(organization, "openai", {
@@ -426,7 +568,12 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 
 	const retentionLevel = organization.retentionLevel ?? "none";
 
+	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
+	// this org's env-credential reads. Undefined = base vars only.
+	const envVariant = getLicensedOrganizationEnvVariant(organization);
+
 	let providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
+	let managedKey: InferSelectModel<typeof tables.providerKey> | undefined;
 	let usedToken: string | undefined;
 	let configIndex = 0;
 	let envVarName: string | undefined;
@@ -443,14 +590,26 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 					"No API key set for provider: openai. Please add a provider key in your settings or add credits and switch to credits or hybrid mode.",
 			});
 		}
-		usedToken = providerKey.token;
+		usedToken = readProviderKey(providerKey);
 	} else if (project.mode === "credits") {
-		const envResult = getProviderEnv("openai", {
+		await assertCreditsAvailableForModeration(
+			c,
+			organization,
+			`Organization ${organization.id} has insufficient credits`,
+			(renewalDate) =>
+				`Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+		);
+
+		const platformCredential = await resolvePlatformCredential("openai", {
 			selectionScope: upstreamModel,
+			variant: envVariant,
+			region: undefined,
+			requiresServiceTier: false,
 		});
-		usedToken = envResult.token;
-		configIndex = envResult.configIndex;
-		envVarName = envResult.envVarName;
+		managedKey = platformCredential.managedKey;
+		usedToken = platformCredential.token;
+		configIndex = platformCredential.configIndex;
+		envVarName = platformCredential.envVarName;
 	} else if (project.mode === "hybrid") {
 		providerKey = await findProviderKey(
 			project.organizationId,
@@ -458,14 +617,26 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 			upstreamModel,
 		);
 		if (providerKey) {
-			usedToken = providerKey.token;
+			usedToken = readProviderKey(providerKey);
 		} else {
-			const envResult = getProviderEnv("openai", {
+			await assertCreditsAvailableForModeration(
+				c,
+				organization,
+				"No API key set for provider and organization has insufficient credits",
+				(renewalDate) =>
+					`No API key set for provider. Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+			);
+
+			const platformCredential = await resolvePlatformCredential("openai", {
 				selectionScope: upstreamModel,
+				variant: envVariant,
+				region: undefined,
+				requiresServiceTier: false,
 			});
-			usedToken = envResult.token;
-			configIndex = envResult.configIndex;
-			envVarName = envResult.envVarName;
+			managedKey = platformCredential.managedKey;
+			usedToken = platformCredential.token;
+			configIndex = platformCredential.configIndex;
+			envVarName = platformCredential.envVarName;
 		}
 	} else {
 		throw new HTTPException(400, {
@@ -479,7 +650,13 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		});
 	}
 
-	const upstreamUrl = `${providerKey?.baseUrl ?? "https://api.openai.com"}/v1/moderations`;
+	// Moderation has never honored LLM_OPENAI_BASE_URL, so only the credential's
+	// own base URL overrides the default here.
+	const resolvedBaseUrl =
+		providerKey?.baseUrl ??
+		managedKey?.config?.baseUrl ??
+		"https://api.openai.com";
+	const upstreamUrl = `${resolvedBaseUrl}/v1/moderations`;
 	const requestBody = {
 		input,
 		model: upstreamModel,
@@ -489,7 +666,8 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		requestId,
 		project,
 		apiKey,
-		providerKeyId: providerKey?.id,
+		organizationProviderKeyId: providerKey?.id,
+		usedProviderKeyId: providerKey?.id ?? managedKey?.id,
 		usedModel: "openai-moderation",
 		usedModelMapping: upstreamModel,
 		usedProvider: "openai",
@@ -497,6 +675,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		requestedProvider: "openai",
 		messages: normalizedMessages,
 		source,
+		apiOrigin: "moderations",
 		customHeaders,
 		debugMode,
 		userAgent,
@@ -517,7 +696,38 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 	// keys: every tried index is excluded from re-selection.
 	const finalLogId = shortid();
 	const triedEnvIndices = new Set<number>();
-	const rotateToNextEnvKey = (): boolean => {
+	const triedManagedKeyIds = new Set<string>();
+	const rotateToNextCredential = async (): Promise<boolean> => {
+		// A BYOK key is the organization's single credential for the provider;
+		// there is nothing else to rotate to.
+		if (providerKey) {
+			return false;
+		}
+
+		// A provider can have several active managed credentials, so re-resolve
+		// with the failed ones excluded before falling back to env rotation —
+		// mirroring the alternate-key retry in chat, embeddings, speech,
+		// transcriptions and OCR.
+		if (managedKey) {
+			triedManagedKeyIds.add(managedKey.id);
+			const next = await resolvePlatformCredential("openai", {
+				selectionScope: upstreamModel,
+				variant: envVariant,
+				region: undefined,
+				requiresServiceTier: false,
+				excludedProviderKeyIds: triedManagedKeyIds,
+			}).catch(() => undefined);
+
+			if (!next?.token) {
+				return false;
+			}
+			managedKey = next.managedKey;
+			usedToken = next.token;
+			configIndex = next.configIndex;
+			envVarName = next.envVarName;
+			return true;
+		}
+
 		if (envVarName === undefined) {
 			return false;
 		}
@@ -526,6 +736,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 			const envResult = getProviderEnv("openai", {
 				selectionScope: upstreamModel,
 				excludedIndices: triedEnvIndices,
+				variant: envVariant,
 			});
 			usedToken = envResult.token;
 			configIndex = envResult.configIndex;
@@ -565,65 +776,70 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 				if (envVarName !== undefined) {
 					reportKeyError(envVarName, configIndex, 0);
 				}
-				if (providerKey?.id) {
-					reportTrackedKeyError(providerKey.id, 0);
+				const failedKeyId = providerKey?.id ?? managedKey?.id;
+				if (failedKeyId) {
+					reportTrackedKeyError(failedKeyId, 0);
 				}
 
 				const isCanceled =
 					error instanceof Error && error.name === "AbortError";
 				const isTimeout = isTimeoutError(error);
-				const willRetry = !isCanceled && rotateToNextEnvKey();
+				const willRetry = !isCanceled && (await rotateToNextCredential());
 
-				await insertLog({
-					...baseLogEntry,
-					duration,
-					timeToFirstToken: null,
-					timeToFirstReasoningToken: null,
-					responseSize: 0,
-					content: null,
-					reasoningContent: null,
-					finishReason: isCanceled ? "canceled" : "upstream_error",
-					promptTokens: null,
-					completionTokens: null,
-					totalTokens: null,
-					reasoningTokens: null,
-					cachedTokens: null,
-					hasError: !isCanceled,
-					streamed: false,
-					canceled: isCanceled,
-					errorDetails: isCanceled
-						? null
-						: {
-								statusCode: 0,
-								statusText: error instanceof Error ? error.name : "FetchError",
-								responseText:
-									error instanceof Error ? error.message : String(error),
-							},
-					inputCost: 0,
-					outputCost: 0,
-					cachedInputCost: 0,
-					requestCost: 0,
-					webSearchCost: 0,
-					imageInputTokens: null,
-					imageOutputTokens: null,
-					imageInputCost: null,
-					imageOutputCost: null,
-					cost: 0,
-					estimatedCost: false,
-					discount: null,
-					pricingTier: null,
-					dataStorageCost: calculateDataStorageCost(
-						null,
-						null,
-						null,
-						null,
-						retentionLevel,
-					),
-					cached: false,
-					toolResults: null,
-					retried: willRetry,
-					retriedByLogId: willRetry ? finalLogId : null,
-				});
+				await insertLog(
+					{
+						...baseLogEntry,
+						duration,
+						timeToFirstToken: null,
+						timeToFirstReasoningToken: null,
+						responseSize: 0,
+						content: null,
+						reasoningContent: null,
+						finishReason: isCanceled ? "canceled" : "upstream_error",
+						promptTokens: null,
+						completionTokens: null,
+						totalTokens: null,
+						reasoningTokens: null,
+						cachedTokens: null,
+						hasError: !isCanceled,
+						streamed: false,
+						canceled: isCanceled,
+						errorDetails: isCanceled
+							? null
+							: {
+									statusCode: 0,
+									statusText:
+										error instanceof Error ? error.name : "FetchError",
+									responseText:
+										error instanceof Error ? error.message : String(error),
+								},
+						inputCost: 0,
+						outputCost: 0,
+						cachedInputCost: 0,
+						requestCost: 0,
+						webSearchCost: 0,
+						imageInputTokens: null,
+						imageOutputTokens: null,
+						imageInputCost: null,
+						imageOutputCost: null,
+						cost: 0,
+						estimatedCost: false,
+						discount: null,
+						pricingTier: null,
+						dataStorageCost: calculateDataStorageCost(
+							null,
+							null,
+							null,
+							null,
+							retentionLevel,
+						),
+						cached: false,
+						toolResults: null,
+						retried: willRetry,
+						retriedByLogId: willRetry ? finalLogId : null,
+					},
+					{ retentionLevel },
+				);
 
 				if (willRetry) {
 					continue;
@@ -682,9 +898,10 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 						upstreamText,
 					);
 				}
-				if (providerKey?.id) {
+				const failedKeyId = providerKey?.id ?? managedKey?.id;
+				if (failedKeyId) {
 					reportTrackedKeyError(
-						providerKey.id,
+						failedKeyId,
 						upstreamResponse.status,
 						upstreamText,
 					);
@@ -699,55 +916,58 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 						finishReason,
 						upstreamResponse.status,
 						upstreamText,
-					) && rotateToNextEnvKey();
+					) && (await rotateToNextCredential());
 
-				await insertLog({
-					...baseLogEntry,
-					duration,
-					timeToFirstToken: null,
-					timeToFirstReasoningToken: null,
-					responseSize,
-					content: getResponseContent(upstreamJson),
-					reasoningContent: null,
-					finishReason,
-					promptTokens: null,
-					completionTokens: null,
-					totalTokens: null,
-					reasoningTokens: null,
-					cachedTokens: null,
-					hasError: true,
-					streamed: false,
-					canceled: false,
-					errorDetails: {
-						statusCode: upstreamResponse.status,
-						statusText: upstreamResponse.statusText,
-						responseText: upstreamText,
+				await insertLog(
+					{
+						...baseLogEntry,
+						duration,
+						timeToFirstToken: null,
+						timeToFirstReasoningToken: null,
+						responseSize,
+						content: getResponseContent(upstreamJson),
+						reasoningContent: null,
+						finishReason,
+						promptTokens: null,
+						completionTokens: null,
+						totalTokens: null,
+						reasoningTokens: null,
+						cachedTokens: null,
+						hasError: true,
+						streamed: false,
+						canceled: false,
+						errorDetails: {
+							statusCode: upstreamResponse.status,
+							statusText: upstreamResponse.statusText,
+							responseText: upstreamText,
+						},
+						inputCost: 0,
+						outputCost: 0,
+						cachedInputCost: 0,
+						requestCost: 0,
+						webSearchCost: 0,
+						imageInputTokens: null,
+						imageOutputTokens: null,
+						imageInputCost: null,
+						imageOutputCost: null,
+						cost: 0,
+						estimatedCost: false,
+						discount: null,
+						pricingTier: null,
+						dataStorageCost: calculateDataStorageCost(
+							null,
+							null,
+							null,
+							null,
+							retentionLevel,
+						),
+						cached: false,
+						toolResults: null,
+						retried: willRetry,
+						retriedByLogId: willRetry ? finalLogId : null,
 					},
-					inputCost: 0,
-					outputCost: 0,
-					cachedInputCost: 0,
-					requestCost: 0,
-					webSearchCost: 0,
-					imageInputTokens: null,
-					imageOutputTokens: null,
-					imageInputCost: null,
-					imageOutputCost: null,
-					cost: 0,
-					estimatedCost: false,
-					discount: null,
-					pricingTier: null,
-					dataStorageCost: calculateDataStorageCost(
-						null,
-						null,
-						null,
-						null,
-						retentionLevel,
-					),
-					cached: false,
-					toolResults: null,
-					retried: willRetry,
-					retriedByLogId: willRetry ? finalLogId : null,
-				});
+					{ retentionLevel },
+				);
 
 				if (willRetry) {
 					continue;
@@ -765,70 +985,68 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 							status: upstreamResponse.status,
 						}),
 					upstreamResponse.status as
-						| 400
-						| 401
-						| 403
-						| 404
-						| 410
-						| 429
-						| 500
-						| 502
-						| 503
-						| 504,
+						400 | 401 | 403 | 404 | 410 | 429 | 500 | 502 | 503 | 504,
 				);
 			}
 
 			if (envVarName !== undefined) {
 				reportKeySuccess(envVarName, configIndex);
 			}
-			if (providerKey?.id) {
-				reportTrackedKeySuccess(providerKey.id);
+			const succeededKeyId = providerKey?.id ?? managedKey?.id;
+			if (succeededKeyId) {
+				reportTrackedKeySuccess(succeededKeyId);
 			}
 
-			await insertLog({
-				...baseLogEntry,
-				id: finalLogId,
-				duration,
-				timeToFirstToken: null,
-				timeToFirstReasoningToken: null,
-				responseSize,
-				content: getResponseContent(upstreamJson),
-				reasoningContent: null,
-				finishReason: "stop",
-				promptTokens: null,
-				completionTokens: null,
-				totalTokens: null,
-				reasoningTokens: null,
-				cachedTokens: null,
-				hasError: false,
-				streamed: false,
-				canceled: false,
-				errorDetails: null,
-				inputCost: 0,
-				outputCost: 0,
-				cachedInputCost: 0,
-				requestCost: 0,
-				webSearchCost: 0,
-				imageInputTokens: null,
-				imageOutputTokens: null,
-				imageInputCost: null,
-				imageOutputCost: null,
-				cost: 0,
-				estimatedCost: false,
-				discount: null,
-				pricingTier: null,
-				dataStorageCost: calculateDataStorageCost(
-					null,
-					null,
-					null,
-					null,
-					retentionLevel,
-				),
-				cached: false,
-				toolResults: null,
-			});
+			await insertLog(
+				{
+					...baseLogEntry,
+					id: finalLogId,
+					duration,
+					timeToFirstToken: null,
+					timeToFirstReasoningToken: null,
+					responseSize,
+					content: getResponseContent(upstreamJson),
+					reasoningContent: null,
+					finishReason: "stop",
+					promptTokens: null,
+					completionTokens: null,
+					totalTokens: null,
+					reasoningTokens: null,
+					cachedTokens: null,
+					hasError: false,
+					streamed: false,
+					canceled: false,
+					errorDetails: null,
+					inputCost: 0,
+					outputCost: 0,
+					cachedInputCost: 0,
+					requestCost: MODERATION_REQUEST_PRICE,
+					webSearchCost: 0,
+					imageInputTokens: null,
+					imageOutputTokens: null,
+					imageInputCost: null,
+					imageOutputCost: null,
+					cost: MODERATION_REQUEST_PRICE,
+					estimatedCost: false,
+					discount: null,
+					pricingTier: null,
+					dataStorageCost: calculateDataStorageCost(
+						null,
+						null,
+						null,
+						null,
+						retentionLevel,
+					),
+					cached: false,
+					toolResults: null,
+				},
+				{ retentionLevel },
+			);
 
-			return c.json(upstreamJson as any);
+			return c.json({
+				...(upstreamJson as Record<string, unknown>),
+				model: CANONICAL_MODERATION_MODEL,
+			});
 		}
 	} finally {
 		c.req.raw.signal.removeEventListener("abort", onAbort);

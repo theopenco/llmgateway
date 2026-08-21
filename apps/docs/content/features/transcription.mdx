@@ -1,0 +1,87 @@
+---
+title: Transcription
+description: Transcribe audio into text (speech-to-text) with word-level timestamps through the audio transcriptions API
+icon: Mic
+---
+
+# Transcription
+
+LLMGateway exposes a dedicated `/v1/audio/transcriptions` endpoint for
+speech-to-text. It transcribes audio files into text with word-level
+timestamps, optional speaker diarization, and inverse text normalization
+(spoken numbers and currencies formatted in their written form).
+
+Use it when you want to:
+
+- Turn recordings, voicemails, or podcast episodes into text
+- Generate captions or searchable transcripts with per-word timing
+- Feed spoken content into a downstream model or RAG pipeline
+
+For the full request and response schema, see the
+[API reference](/v1_audio_transcriptions).
+
+## Endpoint
+
+`POST https://api.llmgateway.io/v1/audio/transcriptions`
+
+Authenticate with your LLMGateway API key:
+
+```bash
+-H "Authorization: Bearer $LLM_GATEWAY_API_KEY"
+```
+
+The current model is `grok-stt-1-0`, billed at **$0.10 per hour** of input
+audio (against the duration reported by the provider).
+
+## Parameters
+
+The request body is `multipart/form-data`. Either `file` or `url` must be
+provided.
+
+| Parameter      | Type   | Default  | Description                                                                                               |
+| -------------- | ------ | -------- | --------------------------------------------------------------------------------------------------------- |
+| `model`        | string | required | The transcription model to use                                                                            |
+| `file`         | file   | —        | The audio file to transcribe (WAV, MP3, OGG, Opus, FLAC, AAC, MP4, M4A, and more)                         |
+| `url`          | string | —        | URL of an audio file to download and transcribe instead of uploading one                                  |
+| `language`     | string | —        | Language code (e.g. `en`). When set, enables formatting of numbers and currencies into their written form |
+| `diarize`      | string | `false`  | When `"true"`, each word in the response includes a `speaker` field identifying the detected speaker      |
+| `filler_words` | string | `false`  | When `"true"`, filler words (e.g. "uh", "um") are kept in the transcript instead of being removed         |
+| `keyterm`      | string | —        | A key term to bias transcription toward (e.g. product names). Repeat the field for multiple terms         |
+
+## Response
+
+The response includes the full transcript, audio duration, and word-level
+timestamps:
+
+```json
+{
+	"text": "The balance is $167,983.15.",
+	"language": "English",
+	"duration": 3.45,
+	"words": [
+		{ "text": "The", "start": 0.24, "end": 0.48 },
+		{ "text": "balance", "start": 0.48, "end": 0.96 },
+		{ "text": "is", "start": 0.96, "end": 1.12 },
+		{ "text": "$167,983.15.", "start": 1.12, "end": 3.2 }
+	]
+}
+```
+
+## curl
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/audio/transcriptions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -F model=grok-stt-1-0 \
+  -F language=en \
+  -F file=@audio.mp3
+```
+
+### Transcribing from a URL
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/audio/transcriptions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -F model=grok-stt-1-0 \
+  -F url="https://example.com/audio.mp3"
+```

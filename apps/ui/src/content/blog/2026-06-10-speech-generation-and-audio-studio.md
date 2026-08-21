@@ -14,7 +14,7 @@ image:
 
 Adding voice to your app used to mean picking one TTS vendor, learning their SDK, and managing yet another API key and invoice. Today that's one decision lighter: **LLM Gateway now supports speech generation** through the OpenAI-compatible **`/v1/audio/speech`** endpoint — with models from **ElevenLabs, OpenAI, and Google Gemini** behind the same key, billing, and logs you already use for chat, images, and video.
 
-And if you'd rather hear the voices before writing a line of code, the new **[Audio Studio](https://chat.llmgateway.io/audio)** in the Playground lets you generate speech from up to three models side by side.
+And if you'd rather hear the voices before writing a line of code, the new **[Audio Studio](https://lounge.llmgateway.io/audio)** in the Playground lets you generate speech from up to three models side by side.
 
 ## One endpoint, nine models, 60+ voices
 
@@ -70,6 +70,8 @@ Between them you get **60+ prebuilt voices**: 20 named ElevenLabs voices (`Sarah
 
 Browse the full list with live pricing on the [models page](https://llmgateway.io/models?filters=1&audioGeneration=true).
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## Control the delivery
 
 Beyond `model`, `input`, and `voice`, the endpoint accepts:
@@ -82,7 +84,7 @@ Full parameter reference, format support per family, and billing details are in 
 
 ## Audio Studio: hear it before you ship it
 
-Picking a voice from a table is hopeless — you need to listen. The new **Audio Studio** at [chat.llmgateway.io/audio](https://chat.llmgateway.io/audio) joins the Image and Video studios in the Playground:
+Picking a voice from a table is hopeless — you need to listen. The new **Audio Studio** at [lounge.llmgateway.io/audio](https://lounge.llmgateway.io/audio) joins the Image and Video studios in the Playground:
 
 - **Compare mode** — run the same script through up to **3 models in parallel** and listen side by side
 - **Per-model controls** — voice picker, output format, playback speed, and style instructions adapt to whatever each model supports
@@ -104,7 +106,9 @@ One note: streaming speech output isn't supported yet — the endpoint returns t
 
 ## Start talking
 
-- **[Open Audio Studio →](https://chat.llmgateway.io/audio)** — hear the models, no code required
+- **[Open Audio Studio →](https://lounge.llmgateway.io/audio)** — hear the models, no code required
 - **[Read the docs →](https://docs.llmgateway.io/features/speech-generation)** — parameters, formats, and examples
 - **[Browse speech models →](https://llmgateway.io/models?filters=1&audioGeneration=true)** — live pricing and capabilities
 - **[Get your API key →](https://llmgateway.io/dashboard)** — and make your first request in under a minute
+
+<BlogCta variant="gateway" location="bottom" />

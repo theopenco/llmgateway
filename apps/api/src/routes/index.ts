@@ -3,6 +3,11 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { apiAuth as auth } from "@/auth/config.js";
 
 import { activity } from "./activity.js";
+import { adminLicense } from "./admin-license.js";
+import { adminLimitHits } from "./admin-limit-hits.js";
+import { adminOrgDetails } from "./admin-org-details.js";
+import adminProviderCredentials from "./admin-provider-credentials.js";
+import { adminRoutingAnalytics } from "./admin-routing-analytics.js";
 import admin from "./admin.js";
 import { analytics } from "./analytics.js";
 import { auditLogs } from "./audit-logs.js";
@@ -13,12 +18,16 @@ import { chats } from "./chats.js";
 import { customModels } from "./custom-models.js";
 import { devPlanCancellationFeedback } from "./dev-plan-cancellation-feedback.js";
 import { devPlans } from "./dev-plans.js";
+import { dynamicRoutes } from "./dynamic-routes.js";
+import { escape } from "./escape.js";
 import { guardrails } from "./guardrails.js";
 import keysApi from "./keys-api.js";
 import keysProvider from "./keys-provider.js";
 import { logs } from "./logs.js";
+import { lounge } from "./lounge.js";
 import masterKeys from "./master-keys.js";
 import { modelRatings } from "./model-ratings.js";
+import { modelSurvey } from "./model-survey.js";
 import organization from "./organization.js";
 import { payments } from "./payments.js";
 import playground from "./playground.js";
@@ -55,7 +64,12 @@ routes.route("/logs", logs);
 
 routes.route("/activity", activity);
 
+routes.route("/admin", adminLicense);
 routes.route("/admin", admin);
+routes.route("/admin", adminProviderCredentials);
+routes.route("/admin", adminOrgDetails);
+routes.route("/admin", adminRoutingAnalytics);
+routes.route("/admin", adminLimitHits);
 
 routes.route("/analytics", analytics);
 
@@ -76,10 +90,14 @@ routes.route("/subscriptions", subscriptions);
 routes.route("/dev-plans", devPlans);
 routes.route("/dev-plan-cancellation-feedback", devPlanCancellationFeedback);
 routes.route("/chat-plans", chatPlans);
+routes.route("/lounge", lounge);
+routes.route("/escape", escape);
 routes.route("/audit-logs", auditLogs);
 routes.route("/model-ratings", modelRatings);
+routes.route("/model-survey", modelSurvey);
 routes.route("/guardrails", guardrails);
 routes.route("/routing-config", routingConfig);
+routes.route("/dynamic-routes", dynamicRoutes);
 routes.route("/custom-models", customModels);
 routes.route("/video", video);
 routes.route("/sso", sso);

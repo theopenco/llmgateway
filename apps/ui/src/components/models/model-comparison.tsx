@@ -24,6 +24,7 @@ import {
 } from "@/lib/components/table";
 import { useAppConfig } from "@/lib/config";
 import Logo from "@/lib/icons/Logo";
+import { getLoungeStudioPath } from "@/lib/model-utils";
 import { formatContextSize } from "@/lib/utils";
 
 import {
@@ -193,7 +194,7 @@ const groupedRows: Array<{
 			{ key: "parallelToolCalls", label: "Parallel Tool Calls" },
 			{ key: "reasoning", label: "Reasoning" },
 			{ key: "jsonOutput", label: "JSON Output" },
-			{ key: "jsonOutputSchema", label: "JSON Schema" },
+			{ key: "jsonOutputSchema", label: "Structured JSON" },
 			{ key: "webSearch", label: "Web Search" },
 			{ key: "outputTypes", label: "Output Types" },
 		],
@@ -735,13 +736,18 @@ export function ModelComparison() {
 		[rightModelId],
 	);
 
-	const buildPlaygroundUrl = (providerId?: string, modelId?: string) => {
+	const buildPlaygroundUrl = (
+		providerId?: string,
+		modelId?: string,
+		output?: readonly string[] | null,
+	) => {
 		if (!modelId) {
 			return config.playgroundUrl;
 		}
 		const modelParam = providerId ? `${providerId}/${modelId}` : modelId;
+		const studioPath = getLoungeStudioPath(output);
 
-		return `${config.playgroundUrl}/?model=${encodeURIComponent(modelParam)}`;
+		return `${config.playgroundUrl}${studioPath || "/"}?model=${encodeURIComponent(modelParam)}`;
 	};
 
 	return (
@@ -896,11 +902,12 @@ export function ModelComparison() {
 												queryLeftProviderId ??
 													leftModel.providers[0]?.providerId,
 												leftModel.id,
+												leftModel.model.output,
 											)}
 											target="_blank"
 											rel="noopener noreferrer"
 										>
-											Try in Chat
+											Try in Lounge
 										</a>
 									</Button>
 								</>
@@ -920,11 +927,12 @@ export function ModelComparison() {
 												queryRightProviderId ??
 													rightModel.providers[0]?.providerId,
 												rightModel.id,
+												rightModel.model.output,
 											)}
 											target="_blank"
 											rel="noopener noreferrer"
 										>
-											Try in Chat
+											Try in Lounge
 										</a>
 									</Button>
 								</>

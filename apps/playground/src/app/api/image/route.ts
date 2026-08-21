@@ -3,8 +3,10 @@ import { cookies } from "next/headers";
 
 import { PLAYGROUND_KEY_COOKIE_NAME } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
+import { describeImageGenerationError } from "@/lib/image-gen";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 
 export const maxDuration = 300; // 5 minutes
 
@@ -87,7 +89,7 @@ export async function POST(req: Request) {
 		apiKey: finalApiKey,
 		baseURL: gatewayUrl,
 		headers: {
-			"x-source": "chat.llmgateway.io",
+			"x-source": LOUNGE_SOURCE,
 			...(noFallbackHeader ? { "x-no-fallback": noFallbackHeader } : {}),
 		},
 		extraBody: {
@@ -103,8 +105,9 @@ export async function POST(req: Request) {
 		}
 	}
 
+	let generation: ReturnType<typeof generateImage>;
 	try {
-		const result = await generateImage({
+		generation = generateImage({
 			model: llmgateway.image(selectedModel),
 			prompt:
 				input_images && input_images.length > 0
@@ -128,44 +131,71 @@ export async function POST(req: Request) {
 					}
 				: {}),
 		});
-
-		const images = result.images.map((image) => ({
-			base64: image.base64,
-			mediaType: image.mediaType || "image/png",
-		}));
-
-		return new Response(JSON.stringify({ images }), {
-			headers: { "Content-Type": "application/json" },
-		});
 	} catch (error: unknown) {
-		const status =
-			typeof error === "object" &&
-			error !== null &&
-			"status" in error &&
-			typeof (error as { status: unknown }).status === "number"
-				? (error as { status: number }).status
-				: 500;
-
-		const message =
-			error instanceof Error ? error.message : "Image generation failed";
-
-		let detailedMessage: string | undefined;
-		if (typeof error === "object" && error !== null) {
-			const err = error as Record<string, unknown>;
-			if (typeof err.responseBody === "string") {
-				try {
-					const body = JSON.parse(err.responseBody);
-					if (typeof body.message === "string") {
-						detailedMessage = body.message;
-					}
-				} catch {
-					// ignore parse errors
-				}
-			}
-		}
-
-		return new Response(JSON.stringify({ error: detailedMessage ?? message }), {
-			status,
-		});
+		const { message, status } = describeImageGenerationError(error);
+		return new Response(JSON.stringify({ error: message }), { status });
 	}
+
+	// Image generation can run for minutes (gpt-image-2 at high quality),
+	// far past typical proxy/load-balancer idle timeouts. A buffered JSON
+	// response sends zero bytes until the model finishes, so the connection
+	// gets killed upstream while the gateway request still completes — the
+	// user sees a failure but the image shows up in their activity. Stream
+	// newline-delimited JSON keepalive pings while waiting, then deliver the
+	// result (or error) in-band, mirroring the chat route's SSE keepalives.
+	const KEEPALIVE_INTERVAL_MS = 15_000;
+	const encoder = new TextEncoder();
+	let keepaliveTimer: ReturnType<typeof setInterval> | undefined;
+
+	const stream = new ReadableStream<Uint8Array>({
+		start(controller) {
+			keepaliveTimer = setInterval(() => {
+				try {
+					controller.enqueue(
+						encoder.encode(JSON.stringify({ ping: 1 }) + "\n"),
+					);
+				} catch {
+					clearInterval(keepaliveTimer);
+				}
+			}, KEEPALIVE_INTERVAL_MS);
+
+			void (async () => {
+				try {
+					const result = await generation;
+					const images = result.images.map((image) => ({
+						base64: image.base64,
+						mediaType: image.mediaType || "image/png",
+					}));
+					controller.enqueue(encoder.encode(JSON.stringify({ images }) + "\n"));
+				} catch (error: unknown) {
+					const { message, status } = describeImageGenerationError(error);
+					try {
+						controller.enqueue(
+							encoder.encode(JSON.stringify({ error: message, status }) + "\n"),
+						);
+					} catch {
+						// stream cancelled/closed — nothing to deliver to
+					}
+				} finally {
+					clearInterval(keepaliveTimer);
+					try {
+						controller.close();
+					} catch {
+						// already closed/errored
+					}
+				}
+			})();
+		},
+		cancel() {
+			clearInterval(keepaliveTimer);
+		},
+	});
+
+	return new Response(stream, {
+		headers: {
+			"Content-Type": "application/x-ndjson",
+			"Cache-Control": "no-cache",
+			"X-Accel-Buffering": "no",
+		},
+	});
 }

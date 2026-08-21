@@ -19,6 +19,8 @@ For production, run each service separately with [Docker Compose](/self-host/doc
 # Set a strong secret first
 export LLM_GATEWAY_SECRET="your-secret-key-here"
 export GATEWAY_API_KEY_HASH_SECRET="your-api-key-hash-secret-here"
+# Required only for licensed Enterprise features
+export LLMGATEWAY_ENTERPRISE_LICENSE="your-signed-license"
 
 # Run the container
 docker run -d \
@@ -34,6 +36,7 @@ docker run -d \
   -v llmgateway_redis:/var/lib/redis \
   -e AUTH_SECRET="$LLM_GATEWAY_SECRET" \
   -e GATEWAY_API_KEY_HASH_SECRET="$GATEWAY_API_KEY_HASH_SECRET" \
+  -e LLMGATEWAY_ENTERPRISE_LICENSE="$LLMGATEWAY_ENTERPRISE_LICENSE" \
   ghcr.io/theopenco/llmgateway-unified:latest
 ```
 
@@ -76,7 +79,24 @@ LLM_OPENAI_API_KEY=sk-...
 LLM_ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-LLM Gateway supports multiple API keys per provider for load balancing — provide comma-separated values. See [Docker Compose](/self-host/docker-compose#multiple-api-keys-and-load-balancing) for details.
+## Enterprise license
+
+Core gateway and management functionality works without a license. Enterprise
+features require a signed license in production. A standard license is bound to
+one organization. A white-label license permits multiple Enterprise
+organizations and unlocks the multi-organization admin dashboard. Set
+`LLMGATEWAY_ENTERPRISE_LICENSE` and restart the container. Validation is local:
+the image contains the public verification key and never sends the license to a
+remote service.
+
+An expired license has a seven-day grace period. After grace, Enterprise
+features lock while core gateway traffic continues. Contact
+[sales](https://llmgateway.io/enterprise) to obtain or renew a license.
+
+See [Enterprise licensing](/self-host/enterprise-license) for license types,
+installation, verification, expiry behavior, and key rotation.
+
+LLM Gateway supports multiple API keys per provider for load balancing — provide comma-separated values. See [Docker Compose](/self-host/docker-compose#multiple-api-keys-and-load-balancing) for details. Provider env vars also support optional `__ENTERPRISE` / `__PLANS` suffix overrides used only for enterprise-plan or plan-based (DevPass/Chat plan) organizations — see [Enterprise and plan provider env overrides](/self-host/docker-compose#enterprise-and-plan-provider-env-overrides).
 
 ## Next steps
 

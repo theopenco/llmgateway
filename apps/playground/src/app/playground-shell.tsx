@@ -4,12 +4,10 @@ import { notFound, redirect } from "next/navigation";
 import { LastUsedProjectTracker } from "@/components/last-used-project-tracker";
 import ChatPageClient from "@/components/playground/chat-page-client";
 import OrgPageClient from "@/components/playground/org-page-client";
+import { LoungeLandingSections } from "@/components/seo/lounge-landing-sections";
 import { PlaygroundSeoSection } from "@/components/seo/playground-seo-section";
+import { CHAT_CONTEXT_COOKIE } from "@/lib/constants";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
-import {
-	CHAT_MODEL_COOKIE,
-	decodeModelPreference,
-} from "@/lib/model-preferences";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { Organization, Project } from "@/lib/types";
@@ -47,9 +45,6 @@ export async function renderPlaygroundShell({
 	const { projectId } = searchParams;
 	let { model } = searchParams;
 	const cookieStore = await cookies();
-	const initialModelPreference = decodeModelPreference(
-		cookieStore.get(CHAT_MODEL_COOKIE)?.value,
-	);
 
 	if (hints === "search" && !model) {
 		model = "google-ai-studio/gemini-3-flash-preview";
@@ -70,7 +65,39 @@ export async function renderPlaygroundShell({
 		redirect(`/?${newParams.toString()}`);
 	}
 
-	const initialOrganizationsData = await fetchServerData("GET", "/orgs");
+	// Start the model catalogue fetches immediately — they don't depend on any
+	// of the org/billing lookups below, so they resolve while those run.
+	const modelsPromise = fetchModels();
+	const providersPromise = fetchProviders();
+
+	const shouldCheckChatPlan =
+		!orgId && !orgShareView && !cookieStore.get(CHAT_CONTEXT_COOKIE);
+
+	// /orgs, the chat-plan status, and the orgId-scoped projects list are
+	// mutually independent (the projects fetch only happens with an orgId, the
+	// plan check only without one), so resolve them in one round trip. Only the
+	// chat-org fetch below must stay sequenced after the plan-redirect check.
+	const [initialOrganizationsData, chatPlanStatusData, eagerProjectsData] =
+		await Promise.all([
+			fetchServerData("GET", "/orgs"),
+			shouldCheckChatPlan ? fetchServerData("GET", "/chat-plans/status") : null,
+			orgId
+				? fetchServerData("GET", "/orgs/{id}/projects", {
+						params: {
+							path: {
+								id: orgId,
+							},
+						},
+					}).catch((error) => {
+						console.warn(
+							"Failed to fetch projects for organization:",
+							orgId,
+							error,
+						);
+						return null;
+					})
+				: null,
+		]);
 	const allOrganizations = (
 		initialOrganizationsData &&
 		typeof initialOrganizationsData === "object" &&
@@ -87,11 +114,9 @@ export async function renderPlaygroundShell({
 	// org land on that org instead; the Chat plan context stays the default only
 	// when no org has credits, so the plan upsell can take over. Runs before the
 	// chat-org fetch so redirected users never get a Chat org provisioned.
-	if (!orgId && !orgShareView) {
-		const chatPlanStatusData = await fetchServerData(
-			"GET",
-			"/chat-plans/status",
-		);
+	// Skipped when the user explicitly picked the Chat plan context in the org
+	// switcher (cookie) — this fallback must not override an explicit choice.
+	if (shouldCheckChatPlan) {
 		const chatPlanStatus =
 			chatPlanStatusData &&
 			typeof chatPlanStatusData === "object" &&
@@ -138,24 +163,9 @@ export async function renderPlaygroundShell({
 		notFound();
 	}
 
-	let initialProjectsData: { projects: Project[] } | null = null;
-	if (orgId) {
-		try {
-			initialProjectsData = (await fetchServerData(
-				"GET",
-				"/orgs/{id}/projects",
-				{
-					params: {
-						path: {
-							id: orgId,
-						},
-					},
-				},
-			)) as { projects: Project[] };
-		} catch (error) {
-			console.warn("Failed to fetch projects for organization:", orgId, error);
-		}
-	}
+	let initialProjectsData = eagerProjectsData as {
+		projects: Project[];
+	} | null;
 
 	if (
 		projectId &&
@@ -204,8 +214,8 @@ export async function renderPlaygroundShell({
 
 	const projects = (initialProjectsData?.projects ?? []) as Project[];
 	const [models, providers] = await Promise.all([
-		fetchModels(),
-		fetchProviders(),
+		modelsPromise,
+		providersPromise,
 	]);
 
 	let selectedProject: Project | null = null;
@@ -238,6 +248,12 @@ export async function renderPlaygroundShell({
 		);
 	}
 
+	// The chat org is provisioned on demand for every signed-in user, so its
+	// absence is a cheap signed-out signal (no extra request). Signed-out
+	// visitors — which includes crawlers — get the visible landing sections
+	// below the app; members keep the clean full-viewport chat.
+	const isMember = chatOrg !== null;
+
 	return (
 		<>
 			{projectOrgId && selectedProject?.id ? (
@@ -246,9 +262,12 @@ export async function renderPlaygroundShell({
 					projectId={selectedProject.id}
 				/>
 			) : null}
-			<PlaygroundSeoSection variant="chat" />
+			{isMember ? <PlaygroundSeoSection variant="chat" /> : null}
 			<ChatPageClient
-				models={models.filter((m) => !m.output?.includes("embedding"))}
+				models={models.filter(
+					(m) =>
+						!m.output?.includes("embedding") && !m.output?.includes("rerank"),
+				)}
 				providers={providers}
 				organizations={organizations}
 				selectedOrganization={selectedOrganization}
@@ -256,8 +275,8 @@ export async function renderPlaygroundShell({
 				selectedProject={selectedProject}
 				initialPrompt={q}
 				enableWebSearch={hints === "search"}
-				initialModelPreference={initialModelPreference}
 			/>
+			{isMember ? null : <LoungeLandingSections />}
 		</>
 	);
 }

@@ -1,3 +1,5 @@
+import { discountFraction } from "@/lib/discount";
+
 import type { ApiModel, ApiModelProviderMapping } from "./api-types";
 
 export type ModelCategoryFilter =
@@ -112,8 +114,8 @@ export const curatedCategoryModelIds: Record<
 	]),
 	translation: new Set([
 		"gemini-3.1-pro-preview",
-		"gemini-2.5-flash",
-		"gemini-2.5-flash-lite",
+		"gemini-3.6-flash",
+		"gemini-3.1-flash-lite",
 		"gpt-5.6-terra",
 		"gpt-5.6-luna",
 		"gpt-5.4",
@@ -153,12 +155,14 @@ export const curatedCategoryModelIds: Record<
 };
 
 export const OPEN_SOURCE_FAMILIES: ReadonlySet<string> = new Set([
+	"baidu",
 	"meta",
 	"deepseek",
 	"moonshot",
 	"minimax",
 	"nousresearch",
 	"nvidia",
+	"openbmb",
 	"xiaomi",
 	"zai",
 ]);
@@ -196,6 +200,7 @@ export const OPEN_SOURCE_MODEL_IDS: ReadonlySet<string> = new Set([
 // API-only Muse Spark models alongside the open Llama family)
 export const CLOSED_SOURCE_MODEL_IDS: ReadonlySet<string> = new Set([
 	"muse-spark-1.1",
+	"muse-spark-1.2",
 	// API-only at launch; no open weights published (unlike the K2 family)
 	"kimi-k3",
 ]);
@@ -214,7 +219,8 @@ export function isTextOutput(output: string[] | null | undefined): boolean {
 	return (
 		!output?.includes("image") &&
 		!output?.includes("video") &&
-		!output?.includes("embedding")
+		!output?.includes("embedding") &&
+		!output?.includes("rerank")
 	);
 }
 
@@ -256,7 +262,7 @@ export function applyCategoryFilter(
 		case "tools":
 			return mappings.some((m) => m.tools);
 		case "discounted":
-			return mappings.some((m) => m.discount && parseFloat(m.discount) > 0);
+			return mappings.some((m) => discountFraction(m.discount) > 0);
 		case "roleplay":
 		case "coding":
 		case "creative-writing":

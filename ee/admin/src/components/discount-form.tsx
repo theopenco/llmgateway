@@ -28,146 +28,159 @@ import { getProviderIcon } from "@llmgateway/shared";
 
 import type { ProviderModelMapping } from "@/lib/types";
 
-interface DiscountFormProps {
-	providers: Array<{ id: string; name: string }>;
-	mappings: ProviderModelMapping[];
-	onSubmit: (data: {
-		provider: string | null;
-		model: string | null;
-		discountPercent: number;
-		reason: string | null;
-		expiresAt: string | null;
-	}) => Promise<{ success: boolean; error?: string }>;
+interface TargetData {
+	provider: string | null;
+	model: string | null;
+	reason: string | null;
+	expiresAt: string | null;
 }
 
-export function DiscountForm({
+interface TargetOptions {
+	providers: Array<{ id: string; name: string }>;
+	mappings: ProviderModelMapping[];
+}
+
+interface AdjustmentFormProps extends TargetOptions {
+	kind: "discount" | "routing";
+	onSubmit: (
+		data: TargetData & { value: number },
+	) => Promise<{ success: boolean; error?: string }>;
+}
+
+function AdjustmentForm({
+	kind,
 	providers,
 	mappings,
 	onSubmit,
-}: DiscountFormProps) {
+}: AdjustmentFormProps) {
 	const router = useRouter();
 	const [open, setOpen] = useState(false);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-
-	const [provider, setProvider] = useState<string>("__all__");
-	const [model, setModel] = useState<string>("__all__");
-	const [discountPercent, setDiscountPercent] = useState("");
+	const [provider, setProvider] = useState("__all__");
+	const [model, setModel] = useState("__all__");
+	const [value, setValue] = useState("");
 	const [reason, setReason] = useState("");
 	const [expiresAt, setExpiresAt] = useState("");
 
-	// Filter mappings by selected provider
-	const filteredMappings = useMemo(() => {
-		if (provider === "__all__") {
-			return mappings;
-		}
-		return mappings.filter((m) => m.providerId === provider);
-	}, [provider, mappings]);
-
-	// Get unique models for the filtered mappings (deduplicate by root modelId)
+	const filteredMappings = useMemo(
+		() =>
+			provider === "__all__"
+				? mappings
+				: mappings.filter((mapping) => mapping.providerId === provider),
+		[provider, mappings],
+	);
 	const availableModels = useMemo(() => {
 		const uniqueModels = new Map<
 			string,
-			{
-				modelId: string;
-				modelName: string;
-				family: string;
-			}
+			{ modelId: string; modelName: string; family: string }
 		>();
 		for (const mapping of filteredMappings) {
-			if (!uniqueModels.has(mapping.modelId)) {
-				uniqueModels.set(mapping.modelId, {
-					modelId: mapping.modelId,
-					modelName: mapping.modelName,
-					family: mapping.family,
-				});
-			}
+			uniqueModels.set(mapping.modelId, {
+				modelId: mapping.modelId,
+				modelName: mapping.modelName,
+				family: mapping.family,
+			});
 		}
 		return Array.from(uniqueModels.values()).sort((a, b) =>
 			a.modelName.localeCompare(b.modelName),
 		);
 	}, [filteredMappings]);
+	const selectedProvider = providers.find((item) => item.id === provider);
+	const selectedModel = availableModels.find((item) => item.modelId === model);
+	const isDiscount = kind === "discount";
+	const noun = isDiscount ? "Discount" : "Routing Multiplier";
+	const parsedValue = Number.parseFloat(value);
+	const routingPreview = !Number.isFinite(parsedValue)
+		? "Enter -10% to prioritize by 10%, or +10% to deprioritize by 10%."
+		: parsedValue < 0
+			? `Prioritized: routing compares at ${100 + parsedValue}% of the discounted price; billing is unchanged.`
+			: parsedValue > 0
+				? `Deprioritized: routing compares at ${100 + parsedValue}% of the discounted price; billing is unchanged.`
+				: "No change to routing preference or customer billing.";
 
-	const selectedProvider = useMemo(() => {
-		if (provider === "__all__") {
-			return null;
-		}
-		return providers.find((p) => p.id === provider);
-	}, [provider, providers]);
-
-	const selectedModel = useMemo(() => {
-		if (model === "__all__") {
-			return null;
-		}
-		return availableModels.find((m) => m.modelId === model);
-	}, [model, availableModels]);
-
-	// Reset model when provider changes
-	const handleProviderChange = (newProvider: string) => {
-		setProvider(newProvider);
+	const reset = () => {
+		setProvider("__all__");
 		setModel("__all__");
+		setValue("");
+		setReason("");
+		setExpiresAt("");
+		setError(null);
 	};
 
-	const handleSubmit = async (e: React.FormEvent) => {
-		e.preventDefault();
+	const handleSubmit = async (event: React.FormEvent) => {
+		event.preventDefault();
 		setError(null);
-		setLoading(true);
-
-		const percent = parseFloat(discountPercent);
-		if (isNaN(percent) || percent < 0 || percent > 100) {
-			setError("Discount must be between 0 and 100");
-			setLoading(false);
+		if (
+			!Number.isFinite(parsedValue) ||
+			parsedValue < (isDiscount ? 0 : -100) ||
+			(isDiscount && parsedValue > 100)
+		) {
+			setError(
+				isDiscount
+					? "Discount must be between 0 and 100"
+					: "Routing multiplier must be at least -100",
+			);
 			return;
 		}
-
 		if (provider === "__all__" && model === "__all__") {
 			setError("Please select at least a provider or a model");
-			setLoading(false);
 			return;
 		}
 
+		setLoading(true);
 		const result = await onSubmit({
 			provider: provider === "__all__" ? null : provider,
 			model: model === "__all__" ? null : model,
-			discountPercent: percent,
+			value: parsedValue,
 			reason: reason || null,
 			expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
 		});
-
 		setLoading(false);
-
 		if (result.success) {
 			setOpen(false);
-			setProvider("__all__");
-			setModel("__all__");
-			setDiscountPercent("");
-			setReason("");
-			setExpiresAt("");
+			reset();
 			router.refresh();
 		} else {
-			setError(result.error ?? "Failed to create discount");
+			setError(result.error ?? `Failed to create ${noun.toLowerCase()}`);
 		}
 	};
 
 	return (
-		<Dialog open={open} onOpenChange={setOpen}>
+		<Dialog
+			open={open}
+			onOpenChange={(nextOpen) => {
+				setOpen(nextOpen);
+				if (!nextOpen) {
+					reset();
+				}
+			}}
+		>
 			<DialogTrigger asChild>
 				<Button size="sm">
 					<Plus className="h-4 w-4" />
-					Add Discount
+					Add {noun}
 				</Button>
 			</DialogTrigger>
 			<DialogContent>
 				<DialogHeader>
-					<DialogTitle>Add Discount</DialogTitle>
+					<DialogTitle>Add {noun}</DialogTitle>
 					<DialogDescription>
-						Create a new discount for a provider, model, or combination.
+						{isDiscount
+							? "Create a customer discount for a provider, model, or combination."
+							: "Use a negative percentage to prioritize or a positive percentage to deprioritize. Customer billing is unchanged."}
 					</DialogDescription>
 				</DialogHeader>
 				<form onSubmit={handleSubmit} className="space-y-4">
 					<div className="space-y-2">
-						<Label htmlFor="provider">Provider</Label>
-						<Select value={provider} onValueChange={handleProviderChange}>
+						<Label>Provider</Label>
+						<Select
+							value={provider}
+							onValueChange={(nextProvider) => {
+								setProvider(nextProvider);
+								setModel("__all__");
+							}}
+						>
 							<SelectTrigger className="w-full">
 								<SelectValue>
 									{selectedProvider ? (
@@ -185,13 +198,13 @@ export function DiscountForm({
 							</SelectTrigger>
 							<SelectContent>
 								<SelectItem value="__all__">All Providers</SelectItem>
-								{providers.map((p) => {
-									const Icon = getProviderIcon(p.id);
+								{providers.map((item) => {
+									const Icon = getProviderIcon(item.id);
 									return (
-										<SelectItem key={p.id} value={p.id}>
+										<SelectItem key={item.id} value={item.id}>
 											<span className="flex items-center gap-2">
 												<Icon className="h-4 w-4" />
-												{p.name}
+												{item.name}
 											</span>
 										</SelectItem>
 									);
@@ -201,7 +214,7 @@ export function DiscountForm({
 					</div>
 
 					<div className="space-y-2">
-						<Label htmlFor="model">Model</Label>
+						<Label>Model</Label>
 						<Select value={model} onValueChange={setModel}>
 							<SelectTrigger className="w-full">
 								<SelectValue>
@@ -212,37 +225,32 @@ export function DiscountForm({
 							</SelectTrigger>
 							<SelectContent>
 								<SelectItem value="__all__">All Models</SelectItem>
-								{availableModels.map((m) => (
-									<SelectItem key={m.modelId} value={m.modelId}>
-										<span className="truncate">
-											{m.modelName}{" "}
-											<span className="text-muted-foreground">
-												({m.modelId})
-											</span>
+								{availableModels.map((item) => (
+									<SelectItem key={item.modelId} value={item.modelId}>
+										{item.modelName}{" "}
+										<span className="text-muted-foreground">
+											({item.modelId})
 										</span>
 									</SelectItem>
 								))}
 							</SelectContent>
 						</Select>
-						{provider !== "__all__" && (
-							<p className="text-xs text-muted-foreground">
-								Showing models available for {selectedProvider?.name}
-							</p>
-						)}
 					</div>
 
 					<div className="space-y-2">
-						<Label htmlFor="discount">Discount Percentage</Label>
+						<Label htmlFor={`${kind}-value`}>
+							{isDiscount ? "Discount Percentage" : "Routing Score Adjustment"}
+						</Label>
 						<div className="relative">
 							<Input
-								id="discount"
+								id={`${kind}-value`}
 								type="number"
-								min="0"
-								max="100"
+								min={isDiscount ? 0 : -100}
+								max={isDiscount ? 100 : undefined}
 								step="0.1"
-								placeholder="e.g., 30 for 30% off"
-								value={discountPercent}
-								onChange={(e) => setDiscountPercent(e.target.value)}
+								placeholder={isDiscount ? "30" : "-10"}
+								value={value}
+								onChange={(event) => setValue(event.target.value)}
 								required
 							/>
 							<span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
@@ -250,33 +258,29 @@ export function DiscountForm({
 							</span>
 						</div>
 						<p className="text-xs text-muted-foreground">
-							Customer pays {100 - (parseFloat(discountPercent) || 0)}% of the
-							original price
+							{isDiscount
+								? `Customer pays ${100 - (parsedValue || 0)}% of the original price`
+								: routingPreview}
 						</p>
 					</div>
 
 					<div className="space-y-2">
-						<Label htmlFor="reason">Reason (optional)</Label>
+						<Label htmlFor={`${kind}-reason`}>Reason (optional)</Label>
 						<Input
-							id="reason"
-							type="text"
-							placeholder="e.g., Enterprise partner discount"
+							id={`${kind}-reason`}
 							value={reason}
-							onChange={(e) => setReason(e.target.value)}
+							onChange={(event) => setReason(event.target.value)}
 						/>
 					</div>
 
 					<div className="space-y-2">
-						<Label htmlFor="expiresAt">Expires At (optional)</Label>
+						<Label htmlFor={`${kind}-expires`}>Expires At (optional)</Label>
 						<Input
-							id="expiresAt"
+							id={`${kind}-expires`}
 							type="datetime-local"
 							value={expiresAt}
-							onChange={(e) => setExpiresAt(e.target.value)}
+							onChange={(event) => setExpiresAt(event.target.value)}
 						/>
-						<p className="text-xs text-muted-foreground">
-							Leave empty for a discount that never expires
-						</p>
 					</div>
 
 					{error && (
@@ -295,7 +299,7 @@ export function DiscountForm({
 						</Button>
 						<Button type="submit" disabled={loading}>
 							{loading && <Loader2 className="h-4 w-4 animate-spin" />}
-							Create Discount
+							Create {noun}
 						</Button>
 					</DialogFooter>
 				</form>
@@ -304,27 +308,61 @@ export function DiscountForm({
 	);
 }
 
-interface DeleteDiscountButtonProps {
-	discountId: string;
-	onDelete: (discountId: string) => Promise<{ success: boolean }>;
+interface DiscountFormProps extends TargetOptions {
+	onSubmit: (
+		data: TargetData & { discountPercent: number },
+	) => Promise<{ success: boolean; error?: string }>;
 }
 
-export function DeleteDiscountButton({
-	discountId,
-	onDelete,
-}: DeleteDiscountButtonProps) {
+export function DiscountForm({ onSubmit, ...options }: DiscountFormProps) {
+	return (
+		<AdjustmentForm
+			kind="discount"
+			{...options}
+			onSubmit={({ value, ...data }) =>
+				onSubmit({ ...data, discountPercent: value })
+			}
+		/>
+	);
+}
+
+interface RoutingScoreMultiplierFormProps extends TargetOptions {
+	onSubmit: (
+		data: TargetData & { scoreMultiplier: number },
+	) => Promise<{ success: boolean; error?: string }>;
+}
+
+export function RoutingScoreMultiplierForm({
+	onSubmit,
+	...options
+}: RoutingScoreMultiplierFormProps) {
+	return (
+		<AdjustmentForm
+			kind="routing"
+			{...options}
+			onSubmit={({ value, ...data }) =>
+				onSubmit({ ...data, scoreMultiplier: value })
+			}
+		/>
+	);
+}
+
+interface DeleteButtonProps {
+	id: string;
+	noun: string;
+	onDelete: (id: string) => Promise<{ success: boolean }>;
+}
+
+function DeleteButton({ id, noun, onDelete }: DeleteButtonProps) {
 	const router = useRouter();
 	const [loading, setLoading] = useState(false);
-
 	const handleDelete = async () => {
-		if (!confirm("Are you sure you want to delete this discount?")) {
+		if (!confirm(`Are you sure you want to delete this ${noun}?`)) {
 			return;
 		}
-
 		setLoading(true);
-		const result = await onDelete(discountId);
+		const result = await onDelete(id);
 		setLoading(false);
-
 		if (result.success) {
 			router.refresh();
 		}
@@ -344,5 +382,31 @@ export function DeleteDiscountButton({
 				<Trash2 className="h-4 w-4" />
 			)}
 		</Button>
+	);
+}
+
+export function DeleteDiscountButton({
+	discountId,
+	onDelete,
+}: {
+	discountId: string;
+	onDelete: (id: string) => Promise<{ success: boolean }>;
+}) {
+	return <DeleteButton id={discountId} noun="discount" onDelete={onDelete} />;
+}
+
+export function DeleteRoutingScoreMultiplierButton({
+	multiplierId,
+	onDelete,
+}: {
+	multiplierId: string;
+	onDelete: (id: string) => Promise<{ success: boolean }>;
+}) {
+	return (
+		<DeleteButton
+			id={multiplierId}
+			noun="routing multiplier"
+			onDelete={onDelete}
+		/>
 	);
 }

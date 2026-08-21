@@ -1,4 +1,4 @@
-import { sql, tables } from "@llmgateway/db";
+import { and, eq, sql, tables } from "@llmgateway/db";
 
 // All plan/subscription transaction types (DevPass dev plans, legacy
 // subscriptions, Chat Plans). These are excluded from the credits-economy
@@ -12,11 +12,17 @@ export const planExcludedTypes = [
 	"dev_plan_downgrade",
 	"dev_plan_renewal",
 	"dev_plan_cancel",
+	"dev_plan_resume",
 	"dev_plan_end",
 	// Reset Pass purchases are DevPass revenue (real dollars in `amount`, no
 	// creditAmount), reported with the other dev plan rows — not part of the
 	// credits economy.
 	"dev_plan_reset_pass",
+	// Free survey-reward passes carry amount "0" and are never revenue.
+	"dev_plan_reset_pass_reward",
+	// Admin-gifted Reset Passes: bookkeeping rows with no amount and no
+	// creditAmount, never revenue or credits.
+	"dev_plan_reset_pass_gift",
 	"subscription_start",
 	"subscription_cancel",
 	"subscription_end",
@@ -28,6 +34,7 @@ export const planExcludedTypes = [
 	"chat_plan_downgrade",
 	"chat_plan_renewal",
 	"chat_plan_cancel",
+	"chat_plan_resume",
 	"chat_plan_end",
 ] as const;
 
@@ -70,6 +77,25 @@ export const CHAT_PLAN_TX_TYPES = [
 	"chat_plan_renewal",
 ] as const;
 
+// Matches `credit_refund` rows that reverse a top-up the gross top-up sums
+// actually counted: a completed, positive-`amount` `credit_topup` booked on the
+// same organization as the refund. Every gross top-up figure filters on exactly
+// those three things, so matching refunds on the original's type alone lets a
+// refund be subtracted from a base it was never part of — which can push a
+// reported net below zero. Always pair this with the refund-side filters
+// (`type = 'credit_refund'`, `status = 'completed'`, the org scope).
+export function refundsCountedTopupFilter(
+	refund: typeof tables.transaction,
+	original: typeof tables.transaction,
+) {
+	return and(
+		eq(original.type, "credit_topup"),
+		eq(original.status, "completed"),
+		sql`CAST(${original.amount} AS NUMERIC) > 0`,
+		eq(original.organizationId, refund.organizationId),
+	)!;
+}
+
 // Keeps exactly one transaction per (stripe_invoice_id, organization_id): the
 // FIRST invoice of a subscription triggers BOTH `checkout.session.completed`
 // and `invoice.payment_succeeded`, which insert two rows (e.g. a
@@ -98,12 +124,14 @@ export function firstRowPerInvoiceFilter(dedupTypes: readonly string[]) {
 }
 
 // Transaction types that represent an actual customer payment: org credit
-// purchases, dev/chat plan charges (start/upgrade/renewal — cancel, end and
-// downgrade rows are bookkeeping, not payments), legacy subscriptions, and
-// end-user wallet top-ups. Used to count "paid customers", so gifts, refunds
-// and margin bookkeeping never qualify an org as paying.
+// purchases (Stripe or manually credited off-Stripe payments), dev/chat plan
+// charges (start/upgrade/renewal — cancel, end and downgrade rows are
+// bookkeeping, not payments), legacy subscriptions, and end-user wallet
+// top-ups. Used to count "paid customers", so gifts, refunds and margin
+// bookkeeping never qualify an org as paying.
 export const paidTransactionTypes = [
 	"credit_topup",
+	"credit_manual_payment",
 	"subscription_start",
 	"dev_plan_start",
 	"dev_plan_upgrade",

@@ -18,7 +18,11 @@ DevPass plans include a [weekly fair-use allowance](/learn/model-categories) for
 	A Reset Pass removes the weekly limit — it does **not** add credits. Premium
 	usage after a reset draws from your plan's monthly credit allowance exactly as
 	before; the pass just lets you keep using premium models now instead of
-	waiting for the window.
+	waiting for the window. With [pay-as-you-go overflow](/learn/payg-overflow)
+	enabled, premium usage past the cap bills your credits balance at provider
+	rates instead — a pass is what brings that spend back inside the plan
+	allowance you already paid for. And once the monthly allowance itself is
+	exhausted, overflow is what keeps requests flowing, not a pass.
 </Callout>
 
 <Callout type="info">
@@ -41,9 +45,22 @@ Two kinds of stamps appear on the card:
 
 ## Redeeming a pass
 
-Click **Use a pass** on the card. Your premium usage for the week is zeroed immediately and the 7-day window restarts with your next premium request. Redemption is deliberately explicit — a pass is never consumed automatically, and two guards stop a pass from being wasted: a redeem is rejected while your allowance is untouched, and also once you've used more than 90% of your monthly credit allowance (a reset then would restore a cap you have almost nothing left to spend against — the pass keeps until your credits renew).
+Click **Use a pass** on the card. Your premium usage for the week is zeroed immediately and the 7-day window restarts with your next premium request. Redemption is deliberately explicit — a pass is never consumed automatically, and it is rejected while your allowance is untouched. Once you've used more than 90% of your monthly credit allowance, the dashboard also asks you to confirm: a reset restores the weekly cap, but only the remaining monthly allowance is available to spend. Once the monthly allowance is fully used, Reset Passes cannot be redeemed.
 
 Standard models are unaffected either way: they never count against the weekly cap.
+
+## Renewal and the weekly window
+
+Nothing about the weekly allowance carries over between billing cycles — every monthly renewal starts you completely fresh, all at once:
+
+- **The weekly premium allowance resets in full.** Renewal zeroes your premium usage and starts a new 7-day window at the renewal moment, alongside the monthly credit reset. You never begin a cycle mid-window or with a partially used allowance.
+- **Included passes replenish.** Pro's 1 and Max's 2 included passes are restored every cycle; unused ones don't roll over. Purchased passes are unaffected — they persist until redeemed.
+
+An immediate tier upgrade restarts your billing cycle and performs the same full reset.
+
+Between renewals the window is **rolling, not on a fixed schedule**. When a 7-day window ends, the next one starts with your next premium request — and a redeemed pass clears the window entirely, so your next premium request starts a fresh 7 days. There is no weekly reset schedule that redeeming late (or early) can shift into the next cycle.
+
+In practice, a 30-day cycle of steady premium usage fits about five weekly windows (starting around days 0, 7, 14, 21, and 28) before any passes. On Max, whose weekly cap is 18% of the monthly allowance, those five windows plus a single included pass already unlock more than the entire monthly credit pool — so even spending exclusively on premium models needs no front-loaded pass redemptions or timing strategy. Redeem when you actually hit the cap.
 
 If you hit the cap from a coding agent, the gateway's `402` response points here:
 

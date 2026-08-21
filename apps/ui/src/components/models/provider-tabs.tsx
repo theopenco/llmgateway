@@ -18,7 +18,16 @@ export function ProviderTabs({
 	providerIds,
 	activeProviderId,
 }: ProviderTabsProps) {
-	const uniqueProviderIds = Array.from(new Set(providerIds));
+	// Providers with a marketing badge (e.g. SCX.ai "Up to 4x faster") first
+	const uniqueProviderIds = Array.from(new Set(providerIds)).sort(
+		(a, b) =>
+			Number(
+				Boolean(providerDefinitions.find((p) => p.id === b)?.modelCardBadge),
+			) -
+			Number(
+				Boolean(providerDefinitions.find((p) => p.id === a)?.modelCardBadge),
+			),
+	);
 
 	return (
 		<div className="flex flex-wrap gap-2 mb-6">

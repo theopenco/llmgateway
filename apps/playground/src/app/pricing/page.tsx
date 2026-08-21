@@ -5,14 +5,18 @@ import { ChatBillingHistory } from "@/components/pricing/chat-billing-history";
 import { ChatPricingPlans } from "@/components/pricing/chat-pricing-plans";
 import { getUser } from "@/lib/getUser";
 
-import { getChatPlanCreditsMultipliers } from "@llmgateway/shared";
+import {
+	getChatPlanCreditsMultipliers,
+	SELF_REFUND_USAGE_PERCENT,
+	SELF_REFUND_WINDOW_DAYS,
+} from "@llmgateway/shared";
 
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "Pricing — LLMGateway Chat",
+	title: "Membership Pricing",
 	description:
-		"Every frontier model in one subscription — Claude Opus, GPT-5, Gemini and Grok, from $19/mo. Start on fast models from $9/mo. Replaces ChatGPT Plus, Claude Pro and Gemini Advanced — with more usage than you pay for.",
+		"Every frontier model in one membership — Claude Opus, GPT-5, Gemini and Grok, from $19/mo. Start on fast models from $9/mo. Replaces ChatGPT Plus, Claude Pro and Gemini Advanced — with more usage than you pay for.",
 	alternates: {
 		canonical: "/pricing",
 	},
@@ -32,14 +36,21 @@ export default async function PricingPage() {
 			</Link>
 
 			<header className="mb-12 text-center">
-				<h1 className="text-3xl font-bold tracking-tight sm:text-5xl">
-					Every frontier model. One subscription.
+				<p className="mb-4 flex items-center justify-center gap-3 text-[11px] font-semibold uppercase tracking-[0.28em] text-lounge-gold">
+					<span aria-hidden className="h-px w-8 bg-lounge-gold/50" />
+					The Lounge · Membership
+					<span aria-hidden className="h-px w-8 bg-lounge-gold/50" />
+				</p>
+				<h1 className="font-display text-4xl font-semibold tracking-tight sm:text-6xl">
+					Every frontier model.
+					<br />
+					One membership.
 				</h1>
-				<p className="mx-auto mt-4 max-w-2xl text-base text-muted-foreground sm:text-lg">
-					Claude Opus, GPT-5, Gemini and Grok in one place — for less than a
-					single ChatGPT Plus subscription. Start on fast models from $9, or
-					unlock every frontier flagship from $19. Every plan gives you{" "}
-					<strong>more usage than you pay for</strong>.
+				<p className="mx-auto mt-5 max-w-2xl text-base text-muted-foreground sm:text-lg">
+					Claude Opus, GPT-5, Gemini and Grok — all waiting in one place, for
+					less than a single ChatGPT Plus subscription. Take a seat with fast
+					models from $9, or unlock every frontier flagship from $19. Every
+					membership gives you <strong>more usage than you pay for</strong>.
 				</p>
 			</header>
 
@@ -49,22 +60,26 @@ export default async function PricingPage() {
 			/>
 
 			<section className="mx-auto mt-16 max-w-3xl text-sm text-muted-foreground">
-				<h2 className="mb-3 text-base font-semibold text-foreground">
-					How it works
+				<h2 className="mb-3 font-display text-lg font-semibold text-foreground">
+					How membership works
 				</h2>
 				<ul className="space-y-2">
 					<li>
-						<strong>Fresh allowance every cycle.</strong> Your full credit
+						<strong>{"Fresh allowance every cycle. "}</strong>Your full credit
 						allowance refills at the start of each billing cycle, and any
 						unspent credits don&apos;t roll over.
 					</li>
 					<li>
-						<strong>7-day money-back guarantee.</strong> If you&apos;ve barely
-						used your plan, email us within 7 days for a full refund.
+						<strong>
+							{`${SELF_REFUND_WINDOW_DAYS}-day money-back guarantee. `}
+						</strong>
+						If you&apos;ve used less than {SELF_REFUND_USAGE_PERCENT}% of your
+						allowance, refund yourself from your billing history below — a full
+						refund, no email needed.
 					</li>
 					<li>
-						<strong>Cancel anytime.</strong> Subscription stays active until the
-						end of the period you already paid for.
+						<strong>{"Cancel anytime. "}</strong>Your membership stays active
+						until the end of the period you already paid for.
 					</li>
 					<li>
 						<strong>Starter covers the fast models</strong> (Claude Sonnet,

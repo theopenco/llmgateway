@@ -36,6 +36,21 @@ describe("getFinishReasonFromError", () => {
 		).toBe("gateway_error");
 	});
 
+	it("returns gateway_error for Anthropic low credit balance on 400", () => {
+		expect(
+			getFinishReasonFromError(
+				400,
+				'{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."},"request_id":"req_011CdVCeQNHP8ur9sMhB9gu3"}',
+			),
+		).toBe("gateway_error");
+	});
+
+	it("returns gateway_error for insufficient balance on non-402 status", () => {
+		expect(getFinishReasonFromError(400, "Insufficient Balance")).toBe(
+			"gateway_error",
+		);
+	});
+
 	it("returns gateway_error for 405 method not allowed", () => {
 		expect(getFinishReasonFromError(405)).toBe("gateway_error");
 		expect(getFinishReasonFromError(405, "Method Not Allowed")).toBe(

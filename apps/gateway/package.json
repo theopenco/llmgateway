@@ -15,7 +15,7 @@
 	],
 	"scripts": {
 		"build": "tsc && resolve-tspaths && pnpm run generate",
-		"dev": "concurrently \"tsc-watch --onSuccess 'resolve-tspaths'\" \"nodemon --exec node --enable-source-maps --env-file=../../.env dist/serve.js\"",
+		"dev": "concurrently \"tsc-watch --onSuccess 'resolve-tspaths'\" \"REALTIME_INLINE=true nodemon --exec node --enable-source-maps --env-file=../../.env dist/serve.js\"",
 		"exec-dev": "resolve-tspaths && node dist/serve.js",
 		"format": "eslint --fix . && prettier --write .",
 		"generate": "tsx ./src/scripts/generate-openapi.ts",
@@ -23,7 +23,7 @@
 		"start": "node --enable-source-maps dist/serve.js"
 	},
 	"dependencies": {
-		"@hono/node-server": "^1.19.13",
+		"@hono/node-server": "^2.0.10",
 		"@hono/swagger-ui": "^0.5.2",
 		"@hono/zod-openapi": "^0.19.6",
 		"@hono/zod-validator": "^0.7.2",
@@ -40,13 +40,19 @@
 		"@opentelemetry/sdk-node": "0.218.0",
 		"decimal.js": "10.5.0",
 		"dotenv": "17.4.2",
-		"hono": "^4.12.25",
+		"hono": "^4.12.34",
 		"hono-openapi": "^1.1.1",
 		"ioredis": "5.7.0",
 		"ipaddr.js": "2.2.0",
+		"posthog-node": "5.10.4",
 		"redis": "5.9.0",
+		"undici": "8.9.0",
 		"worker": "workspace:*",
+		"ws": "8.21.0",
 		"zod": "3.25.75",
 		"zod-openapi": "^5.4.3"
+	},
+	"devDependencies": {
+		"@types/ws": "8.18.1"
 	}
 }

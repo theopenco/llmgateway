@@ -9,10 +9,15 @@ import {
 	FileJson2,
 	ImagePlus,
 	Gift,
+	AlertCircle,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 
 import { ModelCard } from "@/components/models/model-card";
+import { Button } from "@/lib/components/button";
+
+import { isMappingDeactivated } from "@llmgateway/shared/components";
 
 import type {
 	ApiModel,
@@ -35,6 +40,30 @@ interface ProviderModelsGridProps {
 
 export function ProviderModelsGrid({ models }: ProviderModelsGridProps) {
 	const router = useRouter();
+	const [showDeactivated, setShowDeactivated] = useState(false);
+
+	// One card per provider mapping here, so a model is deactivated for this
+	// provider exactly when its mapping is.
+	const deactivatedCount = useMemo(
+		() =>
+			models.filter((model) =>
+				model.providerDetails.every(({ provider }) =>
+					isMappingDeactivated(provider),
+				),
+			).length,
+		[models],
+	);
+
+	const visibleModels = useMemo(() => {
+		if (showDeactivated) {
+			return models;
+		}
+		return models.filter((model) =>
+			model.providerDetails.some(
+				({ provider }) => !isMappingDeactivated(provider),
+			),
+		);
+	}, [models, showDeactivated]);
 
 	const getCapabilityIcons = (
 		providerMapping: ApiModelProviderMapping,
@@ -150,19 +179,35 @@ export function ProviderModelsGrid({ models }: ProviderModelsGridProps) {
 	};
 
 	return (
-		<div className="grid gap-6 md:grid-cols-3">
-			{models.map((model, index) => (
-				<ModelCard
-					key={`${model.providerDetails[0].provider.providerId}-${model.id}-${index}`}
-					model={model}
-					shouldShowStabilityWarning={shouldShowStabilityWarning}
-					getCapabilityIcons={getCapabilityIcons}
-					goToModel={() =>
-						router.push(`/models/${encodeURIComponent(model.id)}`)
-					}
-					formatPrice={formatPrice}
-				/>
-			))}
-		</div>
+		<>
+			{deactivatedCount > 0 && (
+				<div className="mb-6 flex justify-end">
+					<Button
+						variant="outline"
+						size="sm"
+						onClick={() => setShowDeactivated((prev) => !prev)}
+					>
+						<AlertCircle className="h-3.5 w-3.5 mr-1.5 text-red-500" />
+						{showDeactivated
+							? "Hide deactivated models"
+							: `Show ${deactivatedCount} deactivated model${deactivatedCount === 1 ? "" : "s"}`}
+					</Button>
+				</div>
+			)}
+			<div className="grid gap-6 md:grid-cols-3">
+				{visibleModels.map((model, index) => (
+					<ModelCard
+						key={`${model.providerDetails[0].provider.providerId}-${model.id}-${index}`}
+						model={model}
+						shouldShowStabilityWarning={shouldShowStabilityWarning}
+						getCapabilityIcons={getCapabilityIcons}
+						goToModel={() =>
+							router.push(`/models/${encodeURIComponent(model.id)}`)
+						}
+						formatPrice={formatPrice}
+					/>
+				))}
+			</div>
+		</>
 	);
 }

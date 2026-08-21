@@ -12,7 +12,7 @@ On the OpenAI-compatible endpoints, LLMGateway returns errors in the same format
 
 ## Error Format
 
-Errors on the OpenAI-compatible endpoints (`/v1/chat/completions`, `/v1/embeddings`, `/v1/images`, `/v1/models`, `/v1/moderations`, `/v1/responses`, `/v1/videos`) use the standard OpenAI error envelope:
+Errors on the OpenAI-compatible endpoints (`/v1/chat/completions`, `/v1/embeddings`, `/v1/images`, `/v1/models`, `/v1/moderations`, `/v1/rerank`, `/v1/responses`, `/v1/videos`) use the standard OpenAI error envelope:
 
 ```json
 {
@@ -51,6 +51,7 @@ The gateway maps HTTP status codes to OpenAI error types and codes as follows:
 | 429    | `rate_limit_error`      | `rate_limit_exceeded`    |
 | 499    | `invalid_request_error` | `request_cancelled`      |
 | 504    | `timeout_error`         | `timeout`                |
+| 529    | `overloaded`            | `overloaded`             |
 | 5xx    | `api_error`             | _(`null`)_               |
 
 <Callout type="info">

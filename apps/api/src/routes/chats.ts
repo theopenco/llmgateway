@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 
 import { hasActiveApiKey } from "@/lib/hasActiveApiKey.js";
 import { userHasOrganizationAccess } from "@/utils/authorization.js";
+import { awardLoungePoints } from "@/utils/lounge-points.js";
 import { buildOrgHistoryFilter } from "@/utils/org-history-filter.js";
 
 import {
@@ -608,6 +609,11 @@ chats.openapi(createChat, async (c) => {
 			projectId: body.projectId ?? null,
 		})
 		.returning();
+
+	// Comparison panels create child chats; only the root chat earns points.
+	if (!newChat.parentChatId) {
+		await awardLoungePoints(user.id, "chat_created");
+	}
 
 	return c.json(
 		{
@@ -1805,6 +1811,10 @@ chats.openapi(addMessage, async (c) => {
 		.update(tables.chat)
 		.set({ updatedAt: new Date() })
 		.where(eq(tables.chat.id, id));
+
+	if (body.role === "user") {
+		await awardLoungePoints(user.id, "chat_message");
+	}
 
 	return c.json(
 		{

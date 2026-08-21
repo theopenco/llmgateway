@@ -55,6 +55,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
 			priority: 0.7,
 		},
 		{
+			url: `${baseUrl}/data/${new Date().getUTCFullYear()}`,
+			lastModified: new Date(),
+			changeFrequency: "daily",
+			priority: 0.7,
+		},
+		{
 			url: `${baseUrl}/legal/privacy`,
 			lastModified: new Date(),
 			changeFrequency: "yearly",

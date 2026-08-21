@@ -31,8 +31,23 @@ Each member shows:
 
 ## Actions
 
-- **Update role** — Change a member's role using the dropdown
+Each member row has an actions menu:
+
+- **Details** — Open the member's detail page with their budget and usage
+- **Manage access** — Change the member's role (owners and admins only)
+- **Manage budget** — Set per-member spending limits (owners and admins only)
+- **Manage IAM rules** — Restrict which models, providers, pricing tiers, or IP ranges the member can use (owners and admins only)
 - **Remove** — Remove a member from the organization (requires confirmation)
+
+## Member IAM Rules
+
+Owners and admins can set IAM rules on a member — the same allow/deny rules for models, providers, pricing, and IP ranges that exist on individual API keys, applied organization-wide to that member. As with roles and budgets, admins cannot modify an owner's rules.
+
+Member-level rules are a **ceiling**: they apply to every API key the member creates, and the member's own key rules can only narrow access further, never expand it. For example, if you restrict a member to a single approved [provider](https://llmgateway.io/providers), they can still create a key limited to one of that provider's models, but no key of theirs can reach any other provider.
+
+Members can view (but not edit) their own rules — the per-key IAM page shows a notice when organization-level restrictions apply, and denied requests state that the restriction was set by the org admin.
+
+For the full rule semantics, see [Member-Level IAM Rules](/features/api-keys#member-level-iam-rules). Rules can also be managed programmatically via the [master key API](/features/master-keys#member-iam-rules).
 
 ## Role Permissions
 

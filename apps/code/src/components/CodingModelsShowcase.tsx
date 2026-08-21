@@ -16,7 +16,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 
 import { models, type ModelDefinition } from "@llmgateway/models";
-import { isPremiumModel } from "@llmgateway/shared";
+import { isCodingModel, isPremiumModel } from "@llmgateway/shared";
 import {
 	getModelFamilyIcon,
 	OPEN_WEIGHT_LAB_FAMILIES,
@@ -41,24 +41,12 @@ function isActiveMapping(provider: ModelProvider): boolean {
 	);
 }
 
-// Mirrors the `category=code` filter on the models directory: paid, stable
-// models with at least one active mapping offering tools, JSON output,
-// streaming, and cached input pricing.
-function isCodingModel(model: ModelDefinition): boolean {
-	if (model.free) {
-		return false;
-	}
-	if (model.stability === "unstable" || model.stability === "experimental") {
-		return false;
-	}
-	return model.providers.some(
-		(p) =>
-			isActiveMapping(p) &&
-			(p.jsonOutput ?? p.jsonOutputSchema) &&
-			p.tools &&
-			p.streaming &&
-			p.cachedInputPrice !== undefined,
-	);
+// The gateway's DevPass gate, minus mappings that have already been retired.
+function isShowcaseCodingModel(model: ModelDefinition): boolean {
+	return isCodingModel({
+		...model,
+		providers: model.providers.filter(isActiveMapping),
+	});
 }
 
 // Newest release first; models without a release date sink to the end.
@@ -69,7 +57,7 @@ function byNewestRelease(a: ModelDefinition, b: ModelDefinition): number {
 }
 
 const codingModels = (models as ModelDefinition[])
-	.filter(isCodingModel)
+	.filter(isShowcaseCodingModel)
 	.sort(byNewestRelease);
 
 // Recommended = the latest coding model from each open-weight lab, derived
@@ -282,14 +270,25 @@ export function CodingModelsShowcase({
 								<button
 									type="button"
 									onClick={() => copyToClipboard(model.id)}
-									className="shrink-0 p-1 rounded hover:bg-muted transition-colors"
+									className="shrink-0 p-1 rounded hover:bg-muted transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.98]"
 									title="Copy model ID"
 								>
-									{copiedModel === model.id ? (
-										<Check className="h-3 w-3 text-green-600" />
-									) : (
-										<Copy className="h-3 w-3 text-muted-foreground" />
-									)}
+									<span className="relative flex h-3 w-3 items-center justify-center">
+										<Copy
+											className={`h-3 w-3 text-muted-foreground transition-[opacity,transform] duration-150 ease-out motion-reduce:transition-[opacity] ${
+												copiedModel === model.id
+													? "scale-[0.45] opacity-0"
+													: "scale-100 opacity-100"
+											}`}
+										/>
+										<Check
+											className={`absolute h-3 w-3 text-green-600 transition-[opacity,transform] duration-150 ease-out motion-reduce:transition-[opacity] ${
+												copiedModel === model.id
+													? "scale-100 opacity-100"
+													: "scale-[0.45] opacity-0"
+											}`}
+										/>
+									</span>
 								</button>
 							</div>
 

@@ -33,6 +33,9 @@ const parameterTests: Array<{
 	{ name: "frequency_penalty", params: { frequency_penalty: 0.5 } },
 	{ name: "presence_penalty", params: { presence_penalty: 0.5 } },
 	{ name: "temperature + top_p", params: { temperature: 0.7, top_p: 0.9 } },
+	// providers with a lower ceiling (zai, anthropic) must get this clamped
+	// instead of a 400
+	{ name: "temperature above ceiling", params: { temperature: 1.9 } },
 ];
 
 // Generate test cases: combine each parameter config with each model

@@ -95,15 +95,15 @@ describe("computeSelfRefundEligibility", () => {
 		expect(await getEligibility(tx.id)).toEqual({ eligible: true });
 	});
 
-	test("first credit top-up with usage just under 10% is eligible", async () => {
-		await seedOrg({ credits: "91" });
+	test("first credit top-up with usage just under 20% is eligible", async () => {
+		await seedOrg({ credits: "81" });
 		const tx = await seedTransaction();
 
 		expect(await getEligibility(tx.id)).toEqual({ eligible: true });
 	});
 
-	test("first credit top-up with 10% usage is not eligible", async () => {
-		await seedOrg({ credits: "90" });
+	test("first credit top-up with 20% usage is not eligible", async () => {
+		await seedOrg({ credits: "80" });
 		const tx = await seedTransaction();
 
 		expect(await getEligibility(tx.id)).toEqual({
@@ -113,9 +113,9 @@ describe("computeSelfRefundEligibility", () => {
 	});
 
 	test("gift credit consumption counts against the first top-up threshold", async () => {
-		// 20 gift + 100 purchased, 15 consumed (all attributable to the gift):
-		// still ineligible because all consumption counts.
-		await seedOrg({ credits: "105" });
+		// 20 gift + 100 purchased, 25 consumed (the gift plus a little): still
+		// ineligible because all consumption counts, not just the paid part.
+		await seedOrg({ credits: "95" });
 		await seedTransaction({
 			type: "credit_gift",
 			amount: null,
@@ -159,8 +159,8 @@ describe("computeSelfRefundEligibility", () => {
 		expect(await getEligibility(latest.id)).toEqual({ eligible: true });
 	});
 
-	test("repeat top-up: balance below 90% of the purchase is not eligible", async () => {
-		await seedOrg({ credits: "44" });
+	test("repeat top-up: balance below 80% of the purchase is not eligible", async () => {
+		await seedOrg({ credits: "39" });
 		await seedTransaction({
 			createdAt: daysAgo(5),
 		});
@@ -230,10 +230,10 @@ describe("computeSelfRefundEligibility", () => {
 		});
 	});
 
-	test("first dev plan purchase under 10% of the credit allowance is eligible", async () => {
+	test("first dev plan purchase under 20% of the credit allowance is eligible", async () => {
 		await seedOrg({
 			devPlan: "pro",
-			devPlanCreditsUsed: "23",
+			devPlanCreditsUsed: "47",
 			devPlanCreditsLimit: "237",
 			devPlanStripeSubscriptionId: "sub_test_1",
 		});
@@ -248,10 +248,10 @@ describe("computeSelfRefundEligibility", () => {
 		expect(await getEligibility(tx.id)).toEqual({ eligible: true });
 	});
 
-	test("first dev plan purchase at 10% of the allowance is not eligible", async () => {
+	test("first dev plan purchase at 20% of the allowance is not eligible", async () => {
 		await seedOrg({
 			devPlan: "pro",
-			devPlanCreditsUsed: "23.7",
+			devPlanCreditsUsed: "47.4",
 			devPlanCreditsLimit: "237",
 			devPlanStripeSubscriptionId: "sub_test_1",
 		});
@@ -272,9 +272,9 @@ describe("computeSelfRefundEligibility", () => {
 	test("dev plan renewal gates on the dollar price, not the virtual allowance", async () => {
 		await seedOrg({
 			devPlan: "pro",
-			// 7 < 10% of $79 but far under 10% of the 237-credit allowance either
-			// way; 8 > $7.90 while still < 23.7 credits — the dollar gate decides.
-			devPlanCreditsUsed: "8",
+			// 16 > 20% of $79 ($15.80) while still far under 20% of the
+			// 237-credit allowance (47.4) — the dollar gate is what decides.
+			devPlanCreditsUsed: "16",
 			devPlanCreditsLimit: "237",
 			devPlanStripeSubscriptionId: "sub_test_1",
 		});
@@ -300,10 +300,10 @@ describe("computeSelfRefundEligibility", () => {
 		});
 	});
 
-	test("dev plan renewal under 10% of the price is eligible; the start is no longer refundable", async () => {
+	test("dev plan renewal under 20% of the price is eligible; the start is no longer refundable", async () => {
 		await seedOrg({
 			devPlan: "pro",
-			devPlanCreditsUsed: "7",
+			devPlanCreditsUsed: "15",
 			devPlanCreditsLimit: "237",
 			devPlanStripeSubscriptionId: "sub_test_1",
 		});
@@ -372,11 +372,11 @@ describe("computeSelfRefundEligibility", () => {
 		});
 	});
 
-	test("first chat plan purchase under 10% of the allowance is eligible", async () => {
+	test("first chat plan purchase under 20% of the allowance is eligible", async () => {
 		await seedOrg({
 			kind: "chat",
 			chatPlan: "plus",
-			chatPlanCreditsUsed: "4",
+			chatPlanCreditsUsed: "9",
 			chatPlanCreditsLimit: "47.5",
 			chatPlanStripeSubscriptionId: "sub_test_chat",
 		});
@@ -671,7 +671,14 @@ describe("self-refund endpoints", () => {
 
 		const response = await app.request(
 			`/orgs/${ORG_ID}/transactions/${tx.id}/refund`,
-			{ method: "POST", headers: { Cookie: token } },
+			{
+				method: "POST",
+				headers: { Cookie: token, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					reason: "too_expensive",
+					comments: "A flat $10 tier would have worked",
+				}),
+			},
 		);
 
 		expect(response.status).toBe(200);
@@ -693,6 +700,134 @@ describe("self-refund endpoints", () => {
 		});
 		expect(auditLogs).toHaveLength(1);
 		expect(auditLogs[0]?.resourceId).toBe(tx.id);
+
+		const feedback = await db.query.refundFeedback.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(feedback).toHaveLength(1);
+		expect(feedback[0]).toMatchObject({
+			transactionId: tx.id,
+			userId: "test-user-id",
+			kind: "credits",
+			reason: "too_expensive",
+			comments: "A flat $10 tier would have worked",
+		});
+	});
+
+	test("rejects a missing or unknown reason without calling Stripe", async () => {
+		await seedOrg({ credits: "100" });
+		const tx = await seedTransaction();
+
+		const missing = await app.request(
+			`/orgs/${ORG_ID}/transactions/${tx.id}/refund`,
+			{
+				method: "POST",
+				headers: { Cookie: token, "Content-Type": "application/json" },
+				body: JSON.stringify({}),
+			},
+		);
+		expect(missing.status).toBe(400);
+
+		const unknown = await app.request(
+			`/orgs/${ORG_ID}/transactions/${tx.id}/refund`,
+			{
+				method: "POST",
+				headers: { Cookie: token, "Content-Type": "application/json" },
+				body: JSON.stringify({ reason: "just because" }),
+			},
+		);
+		expect(unknown.status).toBe(400);
+
+		expect(stripeMock.refunds.create).not.toHaveBeenCalled();
+		expect(
+			await db.query.refundFeedback.findMany({
+				where: { organizationId: { eq: ORG_ID } },
+			}),
+		).toHaveLength(0);
+	});
+
+	// "Something else" says nothing on its own, so the endpoint enforces the
+	// follow-up the dialog asks for rather than trusting the client gate.
+	test("rejects reason 'other' with no comments without calling Stripe", async () => {
+		await seedOrg({ credits: "100" });
+		const tx = await seedTransaction();
+
+		const response = await app.request(
+			`/orgs/${ORG_ID}/transactions/${tx.id}/refund`,
+			{
+				method: "POST",
+				headers: { Cookie: token, "Content-Type": "application/json" },
+				body: JSON.stringify({ reason: "other" }),
+			},
+		);
+		expect(response.status).toBe(400);
+
+		expect(stripeMock.refunds.create).not.toHaveBeenCalled();
+		expect(
+			await db.query.refundFeedback.findMany({
+				where: { organizationId: { eq: ORG_ID } },
+			}),
+		).toHaveLength(0);
+	});
+
+	// The category is required, the detail is not — a one-click answer must
+	// still go through.
+	test("accepts a reason with no comments", async () => {
+		await seedOrg({ credits: "100" });
+		const tx = await seedTransaction();
+
+		const response = await app.request(
+			`/orgs/${ORG_ID}/transactions/${tx.id}/refund`,
+			{
+				method: "POST",
+				headers: { Cookie: token, "Content-Type": "application/json" },
+				body: JSON.stringify({ reason: "bought_by_mistake" }),
+			},
+		);
+		expect(response.status).toBe(200);
+
+		const feedback = await db.query.refundFeedback.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(feedback).toHaveLength(1);
+		expect(feedback[0]).toMatchObject({
+			reason: "bought_by_mistake",
+			comments: null,
+		});
+	});
+
+	// The whole point of writing feedback before calling Stripe: a refund that
+	// blows up at the payment provider must not also lose the answer, or the
+	// only people we hear from are the ones whose refunds worked.
+	test("keeps the feedback when Stripe rejects the refund", async () => {
+		await seedOrg({ credits: "100" });
+		const tx = await seedTransaction();
+		stripeMock.refunds.create.mockRejectedValueOnce(new Error("card_declined"));
+
+		const response = await app.request(
+			`/orgs/${ORG_ID}/transactions/${tx.id}/refund`,
+			{
+				method: "POST",
+				headers: { Cookie: token, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					reason: "not_working",
+					comments: "Every request 500s on gpt-5.6",
+				}),
+			},
+		);
+		expect(response.status).toBe(500);
+
+		const feedback = await db.query.refundFeedback.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(feedback).toHaveLength(1);
+		expect(feedback[0]).toMatchObject({
+			transactionId: tx.id,
+			userId: "test-user-id",
+			kind: "credits",
+			reason: "not_working",
+			comments: "Every request 500s on gpt-5.6",
+		});
 	});
 
 	test("refunding a dev plan resolves the invoice payment and issues the refund", async () => {
@@ -727,7 +862,14 @@ describe("self-refund endpoints", () => {
 
 		const response = await app.request(
 			`/orgs/${ORG_ID}/transactions/${tx.id}/refund`,
-			{ method: "POST", headers: { Cookie: token } },
+			{
+				method: "POST",
+				headers: { Cookie: token, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					reason: "too_expensive",
+					comments: "A flat $10 tier would have worked",
+				}),
+			},
 		);
 
 		expect(response.status).toBe(200);
@@ -739,6 +881,12 @@ describe("self-refund endpoints", () => {
 		// charge.refunded webhook (handleChargeRefunded), covering every refund
 		// source, not just this endpoint.
 		expect(stripeMock.subscriptions.cancel).not.toHaveBeenCalled();
+
+		const feedback = await db.query.refundFeedback.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(feedback).toHaveLength(1);
+		expect(feedback[0]?.kind).toBe("devpass");
 	});
 
 	test("rejects ineligible transactions with 400 and does not call Stripe", async () => {
@@ -747,7 +895,14 @@ describe("self-refund endpoints", () => {
 
 		const response = await app.request(
 			`/orgs/${ORG_ID}/transactions/${tx.id}/refund`,
-			{ method: "POST", headers: { Cookie: token } },
+			{
+				method: "POST",
+				headers: { Cookie: token, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					reason: "too_expensive",
+					comments: "A flat $10 tier would have worked",
+				}),
+			},
 		);
 
 		expect(response.status).toBe(400);
@@ -764,7 +919,14 @@ describe("self-refund endpoints", () => {
 
 		const response = await app.request(
 			`/orgs/${ORG_ID}/transactions/${tx.id}/refund`,
-			{ method: "POST", headers: { Cookie: token } },
+			{
+				method: "POST",
+				headers: { Cookie: token, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					reason: "too_expensive",
+					comments: "A flat $10 tier would have worked",
+				}),
+			},
 		);
 
 		expect(response.status).toBe(403);

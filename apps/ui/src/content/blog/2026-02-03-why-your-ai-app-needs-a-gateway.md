@@ -96,6 +96,8 @@ Providers go down. Rate limits get hit. Models get deprecated. A gateway handles
 
 Without failover, a single provider outage takes down every AI feature in your application. With it, your users don't even notice.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## When You Don't Need a Gateway
 
 If you're prototyping, using a single model, and don't care about costs yet — just call the provider directly. Adding infrastructure before you need it is over-engineering.
@@ -134,3 +136,5 @@ const response = await client.chat.completions.create({
 ```
 
 **[Create a free account](/signup)** | **[Browse 200+ models](/models)** | **[Read the docs](https://docs.llmgateway.io)**
+
+<BlogCta variant="gateway" location="bottom" />

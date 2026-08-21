@@ -50,6 +50,271 @@ describe("parseProviderResponse", () => {
 		});
 	});
 
+	describe("openai responses format reasoning", () => {
+		it("extracts encrypted reasoning payloads into reasoningDetails", () => {
+			const json = {
+				id: "resp_123",
+				status: "completed",
+				output: [
+					{
+						type: "reasoning",
+						id: "rs_upstream",
+						summary: [{ type: "summary_text", text: "thinking..." }],
+						encrypted_content: "gAAAA-encrypted-blob",
+					},
+					{
+						type: "message",
+						id: "msg_1",
+						role: "assistant",
+						content: [{ type: "output_text", text: "The answer is 42" }],
+					},
+				],
+				usage: {
+					input_tokens: 10,
+					output_tokens: 50,
+					total_tokens: 60,
+				},
+			};
+
+			const result = parseProviderResponse("openai", "gpt-5.5", json);
+
+			expect(result.content).toBe("The answer is 42");
+			expect(result.reasoningContent).toBe("thinking...");
+			expect(result.reasoningDetails).toEqual([
+				{
+					type: "reasoning.encrypted",
+					data: "gAAAA-encrypted-blob",
+					id: "rs_upstream",
+					format: "openai-responses-v1",
+					index: 0,
+				},
+			]);
+		});
+
+		it("aggregates the summary of every reasoning item, not just the first", () => {
+			// Models emit a reasoning item before each tool call, so a single
+			// response can carry several. The streaming path concatenates every
+			// summary delta; the non-streaming path must agree.
+			const json = {
+				id: "resp_123",
+				status: "completed",
+				output: [
+					{
+						type: "reasoning",
+						id: "rs_1",
+						summary: [{ type: "summary_text", text: "first thought" }],
+						encrypted_content: "blob-1",
+					},
+					{
+						type: "function_call",
+						call_id: "call_1",
+						name: "lookup",
+						arguments: "{}",
+					},
+					{
+						type: "reasoning",
+						id: "rs_2",
+						summary: [
+							{ type: "summary_text", text: "second thought" },
+							{ type: "summary_text", text: "third thought" },
+						],
+						encrypted_content: "blob-2",
+					},
+					{
+						type: "message",
+						id: "msg_1",
+						role: "assistant",
+						content: [{ type: "output_text", text: "done" }],
+					},
+				],
+				usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+			};
+
+			const result = parseProviderResponse("openai", "gpt-5.5", json);
+
+			expect(result.reasoningContent).toBe(
+				"first thought\n\nsecond thought\n\nthird thought",
+			);
+			// Encrypted payloads still keep each item's position in json.output.
+			expect(result.reasoningDetails).toEqual([
+				{
+					type: "reasoning.encrypted",
+					data: "blob-1",
+					id: "rs_1",
+					format: "openai-responses-v1",
+					index: 0,
+				},
+				{
+					type: "reasoning.encrypted",
+					data: "blob-2",
+					id: "rs_2",
+					format: "openai-responses-v1",
+					index: 2,
+				},
+			]);
+		});
+
+		it("leaves reasoningDetails null when reasoning items carry no encrypted content", () => {
+			const json = {
+				id: "resp_123",
+				status: "completed",
+				output: [
+					{
+						type: "reasoning",
+						id: "rs_upstream",
+						summary: [{ type: "summary_text", text: "thinking..." }],
+					},
+					{
+						type: "message",
+						id: "msg_1",
+						role: "assistant",
+						content: [{ type: "output_text", text: "Hi" }],
+					},
+				],
+				usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+			};
+
+			const result = parseProviderResponse("openai", "gpt-5.5", json);
+
+			expect(result.reasoningDetails).toBeNull();
+		});
+
+		it("preserves every phased message item instead of only the first", () => {
+			const json = {
+				id: "resp_123",
+				status: "completed",
+				output: [
+					{
+						type: "message",
+						id: "msg_1",
+						role: "assistant",
+						phase: "commentary",
+						content: [{ type: "output_text", text: "Checking the weather." }],
+					},
+					{
+						type: "function_call",
+						id: "fc_1",
+						call_id: "call_1",
+						name: "get_weather",
+						arguments: "{}",
+					},
+					{
+						type: "message",
+						id: "msg_2",
+						role: "assistant",
+						phase: "final_answer",
+						content: [{ type: "output_text", text: "It is sunny." }],
+					},
+				],
+				usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+			};
+
+			const result = parseProviderResponse("openai", "gpt-5.6", json);
+
+			// Chat surface keeps all text; structure lives in messageItems.
+			expect(result.content).toBe("Checking the weather.\n\nIt is sunny.");
+			expect(result.messageItems).toEqual([
+				{
+					text: "Checking the weather.",
+					phase: "commentary",
+					preceding_tool_calls: 0,
+				},
+				{
+					text: "It is sunny.",
+					phase: "final_answer",
+					preceding_tool_calls: 1,
+				},
+			]);
+			expect(result.messagePhase).toBeNull();
+		});
+
+		it("records the exact position of each message among multiple tool calls", () => {
+			const json = {
+				id: "resp_123",
+				status: "completed",
+				output: [
+					{
+						type: "message",
+						id: "msg_1",
+						role: "assistant",
+						phase: "commentary",
+						content: [{ type: "output_text", text: "Commentary A" }],
+					},
+					{
+						type: "function_call",
+						id: "fc_1",
+						call_id: "call_1",
+						name: "tool_one",
+						arguments: "{}",
+					},
+					{
+						type: "message",
+						id: "msg_2",
+						role: "assistant",
+						phase: "commentary",
+						content: [{ type: "output_text", text: "Commentary B" }],
+					},
+					{
+						type: "function_call",
+						id: "fc_2",
+						call_id: "call_2",
+						name: "tool_two",
+						arguments: "{}",
+					},
+				],
+				usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+			};
+
+			const result = parseProviderResponse("openai", "gpt-5.6", json);
+
+			expect(result.messageItems).toEqual([
+				{ text: "Commentary A", phase: "commentary", preceding_tool_calls: 0 },
+				{ text: "Commentary B", phase: "commentary", preceding_tool_calls: 1 },
+			]);
+		});
+
+		it("keeps the position of a single message between two tool calls", () => {
+			const json = {
+				id: "resp_123",
+				status: "completed",
+				output: [
+					{
+						type: "function_call",
+						id: "fc_1",
+						call_id: "call_1",
+						name: "tool_one",
+						arguments: "{}",
+					},
+					{
+						type: "message",
+						id: "msg_1",
+						role: "assistant",
+						phase: "commentary",
+						content: [{ type: "output_text", text: "Between the calls." }],
+					},
+					{
+						type: "function_call",
+						id: "fc_2",
+						call_id: "call_2",
+						name: "tool_two",
+						arguments: "{}",
+					},
+				],
+				usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+			};
+
+			const result = parseProviderResponse("openai", "gpt-5.6", json);
+
+			expect(result.messageItems).toEqual([
+				{
+					text: "Between the calls.",
+					phase: "commentary",
+					preceding_tool_calls: 1,
+				},
+			]);
+		});
+	});
+
 	describe("google reasoning output", () => {
 		it("treats missing thought text as null when only thought signatures are returned", () => {
 			const json = {
@@ -86,6 +351,42 @@ describe("parseProviderResponse", () => {
 			expect(result.reasoningTokens).toBe(44);
 			expect(result.completionTokens).toBe(45);
 			expect(result.finishReason).toBe("STOP");
+		});
+	});
+
+	describe("google blocked responses", () => {
+		it("retains the original block reason when candidates are missing", () => {
+			const result = parseProviderResponse(
+				"google-ai-studio",
+				"gemini-3-pro-image-preview",
+				{ promptFeedback: { blockReason: "PROHIBITED_CONTENT" } },
+			);
+
+			expect(result.finishReason).toBe("PROHIBITED_CONTENT");
+		});
+
+		it("reports no finish reason when google gives none at all", () => {
+			const result = parseProviderResponse(
+				"google-ai-studio",
+				"gemini-3-pro-image-preview",
+				{ candidates: [] },
+			);
+
+			expect(result.finishReason).toBeNull();
+		});
+
+		it("retains NO_IMAGE rather than reporting it as a content filter", () => {
+			const result = parseProviderResponse(
+				"google-ai-studio",
+				"gemini-3-pro-image-preview",
+				{
+					candidates: [
+						{ content: { role: "model", parts: [] }, finishReason: "NO_IMAGE" },
+					],
+				},
+			);
+
+			expect(result.finishReason).toBe("NO_IMAGE");
 		});
 	});
 
@@ -156,6 +457,62 @@ describe("parseProviderResponse", () => {
 			);
 			expect(result.promptTokens).toBe(10);
 			expect(result.completionTokens).toBe(20);
+		});
+
+		it("generates a unique id per google tool call", () => {
+			// The tool-call id doubles as the `thought_signature:<id>` Redis key.
+			// A name+index id collapsed to `get_weather_0_0` for every caller, so
+			// concurrent conversations (even across organizations) overwrote each
+			// other's signature in one shared slot and Gemini then rejected the
+			// replayed turn with "Corrupted thought signature".
+			const responseWith = (city: string) => ({
+				candidates: [
+					{
+						content: {
+							role: "model",
+							parts: [
+								{
+									functionCall: { name: "get_weather", args: { city } },
+									thoughtSignature: `sig-${city}`,
+								},
+								{
+									functionCall: { name: "get_weather", args: { city: "Rome" } },
+								},
+							],
+						},
+						finishReason: "STOP",
+						index: 0,
+					},
+				],
+				usageMetadata: {
+					promptTokenCount: 1,
+					candidatesTokenCount: 1,
+					totalTokenCount: 2,
+				},
+			});
+
+			const first = parseProviderResponse(
+				"google-ai-studio",
+				"gemini-3.5-flash",
+				responseWith("Paris"),
+			);
+			const second = parseProviderResponse(
+				"google-ai-studio",
+				"gemini-3.5-flash",
+				responseWith("Berlin"),
+			);
+
+			const ids = [
+				...(first.toolResults ?? []),
+				...(second.toolResults ?? []),
+			].map((t) => t.id);
+
+			expect(ids).toHaveLength(4);
+			expect(new Set(ids).size).toBe(4);
+			// Still prefixed with the tool name for readability.
+			for (const id of ids) {
+				expect(id.startsWith("get_weather_")).toBe(true);
+			}
 		});
 	});
 
@@ -393,6 +750,96 @@ describe("parseProviderResponse", () => {
 		});
 	});
 
+	describe("scx-ai finish reason mapping", () => {
+		it("normalizes 'stop' to 'tool_calls' when the message has tool calls", () => {
+			const json = {
+				choices: [
+					{
+						message: {
+							role: "assistant",
+							content: null,
+							tool_calls: [
+								{
+									id: "call_1",
+									type: "function",
+									function: {
+										name: "get_weather",
+										arguments: '{"city":"San Francisco"}',
+									},
+								},
+							],
+						},
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = parseProviderResponse("scx-ai", "MiniMax-M2.7", json);
+
+			expect(result.finishReason).toBe("tool_calls");
+			expect(result.toolResults).toHaveLength(1);
+		});
+
+		it("leaves 'stop' unchanged when there are no tool calls", () => {
+			const json = {
+				choices: [
+					{
+						message: { role: "assistant", content: "Hello" },
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = parseProviderResponse("scx-ai", "MiniMax-M2.7", json);
+
+			expect(result.finishReason).toBe("stop");
+		});
+
+		it("does not normalize 'stop' for the general-purpose tier", () => {
+			const json = {
+				choices: [
+					{
+						message: {
+							role: "assistant",
+							content: null,
+							tool_calls: [
+								{
+									id: "call_1",
+									type: "function",
+									function: {
+										name: "get_weather",
+										arguments: '{"city":"San Francisco"}',
+									},
+								},
+							],
+						},
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = parseProviderResponse("scx-ai-gp", "GLM-5.2", json);
+
+			expect(result.finishReason).toBe("stop");
+			expect(result.toolResults).toHaveLength(1);
+		});
+	});
+
 	describe("openai-format finish reason mapping", () => {
 		it("maps 'abort' finish reason to 'upstream_error' for minimax", () => {
 			const json = {
@@ -412,6 +859,68 @@ describe("parseProviderResponse", () => {
 			const result = parseProviderResponse("minimax", "MiniMax-M3", json);
 
 			expect(result.finishReason).toBe("upstream_error");
+		});
+
+		it("maps 'end_turn' finish reason to 'stop' for groq", () => {
+			const json = {
+				choices: [
+					{
+						message: { content: "Hello", role: "assistant" },
+						finish_reason: "end_turn",
+					},
+				],
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"groq",
+				"llama-3.3-70b-versatile",
+				json,
+			);
+
+			expect(result.finishReason).toBe("stop");
+		});
+
+		it("maps 'tool_use' finish reason to 'tool_calls' for together-ai", () => {
+			const json = {
+				choices: [
+					{
+						message: {
+							role: "assistant",
+							content: null,
+							tool_calls: [
+								{
+									id: "call_1",
+									type: "function",
+									function: {
+										name: "get_weather",
+										arguments: '{"city":"San Francisco"}',
+									},
+								},
+							],
+						},
+						finish_reason: "tool_use",
+					},
+				],
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"together-ai",
+				"deepseek-ai/DeepSeek-V3",
+				json,
+			);
+
+			expect(result.finishReason).toBe("tool_calls");
+			expect(result.toolResults).toHaveLength(1);
 		});
 	});
 
@@ -697,6 +1206,56 @@ describe("parseProviderResponse", () => {
 		});
 	});
 
+	describe("DashScope web search billing", () => {
+		// DashScope returns no search metadata whatsoever, so the count is
+		// inferred from the request. Only a forced request actually searches.
+		const json = {
+			choices: [
+				{
+					message: { content: "Hello", role: "assistant" },
+					finish_reason: "stop",
+				},
+			],
+			usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+		};
+
+		it.each(["alibaba", "scx-ai-gp"] as const)(
+			"%s counts one search when forced",
+			(provider) => {
+				const result = parseProviderResponse(
+					provider,
+					"qwen3.8-max",
+					json,
+					[],
+					true,
+					false,
+					true,
+					true,
+				);
+
+				expect(result.webSearchCount).toBe(1);
+			},
+		);
+
+		it.each(["alibaba", "scx-ai-gp"] as const)(
+			"%s bills nothing for an unforced request",
+			(provider) => {
+				const result = parseProviderResponse(
+					provider,
+					"qwen3.8-max",
+					json,
+					[],
+					true,
+					false,
+					true,
+					false,
+				);
+
+				expect(result.webSearchCount).toBeNull();
+			},
+		);
+	});
+
 	describe("minimax reasoning extraction", () => {
 		it("extracts reasoning from reasoning_details", () => {
 			const json = {
@@ -791,6 +1350,59 @@ describe("parseProviderResponse", () => {
 
 			expect(result.content).toBe("Final answer");
 			expect(result.reasoningContent).toBe("structured reasoning");
+		});
+	});
+
+	describe("xai reasoning tokens", () => {
+		// Real grok-4.6 usage payload: reasoning is reported only in the nested
+		// details object and is NOT part of completion_tokens (note total_tokens =
+		// 213 + 4 + 310), so it has to be read here to be billed at all.
+		const xaiJson = {
+			choices: [
+				{
+					message: { role: "assistant", content: "Hello there friend." },
+					finish_reason: "stop",
+				},
+			],
+			usage: {
+				prompt_tokens: 213,
+				completion_tokens: 4,
+				total_tokens: 527,
+				prompt_tokens_details: { cached_tokens: 128 },
+				completion_tokens_details: { reasoning_tokens: 310 },
+			},
+		};
+
+		it.each(["xai", "vertex-openai"] as const)(
+			"reads reasoning tokens from completion_tokens_details for %s",
+			(provider) => {
+				const result = parseProviderResponse(
+					provider,
+					"grok-4-6",
+					xaiJson,
+					[],
+					true,
+				);
+
+				expect(result.promptTokens).toBe(213);
+				expect(result.completionTokens).toBe(4);
+				expect(result.reasoningTokens).toBe(310);
+				expect(result.cachedTokens).toBe(128);
+			},
+		);
+
+		it("ignores the nested count for other OpenAI-compatible providers", () => {
+			// Everyone else folds reasoning into completion_tokens already, so
+			// reading the nested field would bill the same tokens twice.
+			const result = parseProviderResponse(
+				"openai",
+				"gpt-5.5",
+				xaiJson,
+				[],
+				true,
+			);
+
+			expect(result.reasoningTokens).toBeNull();
 		});
 	});
 });

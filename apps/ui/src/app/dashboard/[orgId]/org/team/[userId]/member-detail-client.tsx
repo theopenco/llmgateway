@@ -10,6 +10,10 @@ import { currencyFormatter } from "@/components/analytics/chart-helpers";
 import { CostByModelCard } from "@/components/analytics/cost-by-model-card";
 import { CostByModelOverTimeCard } from "@/components/analytics/cost-by-model-over-time-card";
 import { DateRangePicker } from "@/components/date-range-picker";
+import {
+	UsageModeSelector,
+	useUsageMode,
+} from "@/components/shared/usage-mode-selector";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useTeamMembers } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
@@ -31,8 +35,10 @@ import {
 } from "@/lib/components/table";
 import { useApi } from "@/lib/fetch-client";
 import { getBrowserTimeZone } from "@/lib/timezone";
+import { applyUsageMode, pickCost, pickRequests } from "@/lib/usage-mode";
 
-import type { ActivityRow } from "@/components/analytics/chart-helpers";
+import { deriveStabilityMetrics } from "@llmgateway/shared";
+
 import type { Route } from "next";
 
 function periodLabel(value: number, unit: string): string {
@@ -48,6 +54,7 @@ export function MemberDetailClient() {
 	const { buildOrgUrl, selectedOrganization } = useDashboardNavigation();
 	const api = useApi();
 	const { user } = useUser();
+	const usageMode = useUsageMode();
 	const { data: teamData } = useTeamMembers(organizationId);
 
 	const teamMember = teamData?.members.find(
@@ -59,7 +66,7 @@ export function MemberDetailClient() {
 		(member) => member.userId === user?.id,
 	)?.role;
 	const isAdmin = currentUserRole === "owner" || currentUserRole === "admin";
-	const isEnterprise = selectedOrganization?.plan === "enterprise";
+	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 	const showUsage = isEnterprise && isAdmin;
 
 	useEffect(() => {
@@ -100,36 +107,60 @@ export function MemberDetailClient() {
 	);
 
 	const summary = data?.summary;
-	const errorRate =
-		summary && summary.requestCount > 0
-			? (summary.errorCount / summary.requestCount) * 100
-			: 0;
+	const errorRate = summary
+		? (deriveStabilityMetrics(
+				summary.requestCount,
+				summary.errorCount + summary.clientErrorCount,
+				summary.clientErrorCount,
+			).errorRate ?? 0)
+		: 0;
 
-	const activity = (data?.activity ?? []) as ActivityRow[];
+	const activity = (data?.activity ?? []).map((row) => ({
+		...row,
+		modelBreakdown: row.modelBreakdown.map((entry) =>
+			applyUsageMode(entry, usageMode),
+		),
+	}));
+
+	const topModels = (data?.topModels ?? [])
+		.map((m) => applyUsageMode(m, usageMode))
+		.sort((a, b) => b.cost - a.cost);
+	const topProviders = (data?.topProviders ?? [])
+		.map((p) => applyUsageMode(p, usageMode))
+		.sort((a, b) => b.cost - a.cost);
 
 	const stats = [
 		{
 			label: "Total Cost",
-			value: currencyFormatter.format(summary?.cost ?? 0),
+			value: currencyFormatter.format(
+				summary ? pickCost(summary, usageMode) : 0,
+			),
 		},
 		{
 			label: "Total Tokens",
 			value: (summary?.totalTokens ?? 0).toLocaleString(),
 		},
-		{ label: "Requests", value: (summary?.requestCount ?? 0).toLocaleString() },
+		{
+			label: "Requests",
+			value: (summary ? pickRequests(summary, usageMode) : 0).toLocaleString(),
+		},
 		{ label: "Error Rate", value: `${errorRate.toFixed(1)}%` },
+		{
+			label: "Client Errors",
+			value: (summary?.clientErrorCount ?? 0).toLocaleString(),
+		},
 		{ label: "API Keys", value: (summary?.apiKeyCount ?? 0).toLocaleString() },
 	];
 
 	const mostUsed = [
 		{
 			label: "Most used model",
-			value: data?.topModels[0]?.key ?? "—",
+			value: topModels[0]?.key ?? "—",
 			icon: Sparkles,
 		},
 		{
 			label: "Most used provider",
-			value: data?.topProviders[0]?.key ?? "—",
+			value: topProviders[0]?.key ?? "—",
 			icon: Boxes,
 		},
 	];
@@ -170,10 +201,13 @@ export function MemberDetailClient() {
 						</div>
 					</div>
 					{showUsage && (
-						<DateRangePicker
-							buildUrl={buildOrgUrl}
-							path={`org/team/${userId}`}
-						/>
+						<div className="flex flex-wrap items-center gap-2">
+							<UsageModeSelector />
+							<DateRangePicker
+								buildUrl={buildOrgUrl}
+								path={`org/team/${userId}`}
+							/>
+						</div>
 					)}
 				</div>
 
@@ -360,7 +394,7 @@ export function MemberDetailClient() {
 										</TableRow>
 									</TableHeader>
 									<TableBody>
-										{(data?.topProviders.length ?? 0) === 0 ? (
+										{topProviders.length === 0 ? (
 											<TableRow>
 												<TableCell
 													colSpan={3}
@@ -370,7 +404,7 @@ export function MemberDetailClient() {
 												</TableCell>
 											</TableRow>
 										) : (
-											data?.topProviders.map((p) => (
+											topProviders.map((p) => (
 												<TableRow key={p.key}>
 													<TableCell className="font-medium">{p.key}</TableCell>
 													<TableCell className="text-right">

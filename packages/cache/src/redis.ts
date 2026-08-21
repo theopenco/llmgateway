@@ -6,6 +6,12 @@ export const redisClient = new Redis({
 	host: process.env.REDIS_HOST ?? "localhost",
 	port: Number(process.env.REDIS_PORT) || 6379,
 	password: process.env.REDIS_PASSWORD,
+	// Batch commands issued in the same event-loop tick into one round trip.
+	// The gateway hot path issues dozens of independent commands per request
+	// (rate-limit peeks, discount lookups, cached queries) on this single
+	// connection; without pipelining they serialize RTT-by-RTT. No consumer
+	// of this client uses blocking commands or subscriptions.
+	enableAutoPipelining: true,
 });
 
 redisClient.on("error", (err) => logger.error("Redis Client Error", err));

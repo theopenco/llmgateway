@@ -25,7 +25,7 @@ import {
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 
-import type { CustomModel } from "./custom-models-client";
+import type { CustomModel } from "./org-models-client";
 
 interface PriceFieldDef {
 	key:
@@ -116,9 +116,10 @@ export function CustomModelDialog({
 	const [open, setOpen] = useState(false);
 	const [form, setForm] = useState<FormState>(() => buildInitialState(model));
 
-	const listKey = api.queryOptions("get", "/custom-models", {
-		params: { query: { providerKeyId } },
-	}).queryKey;
+	// Prefix key matching every "/custom-models" list query (the management
+	// table filters by providerKeyId, the org directory fetches all), so a
+	// mutation refreshes both.
+	const listKey = ["get", "/custom-models"] as const;
 
 	const createMutation = api.useMutation("post", "/custom-models");
 	const updateMutation = api.useMutation("patch", "/custom-models/{id}");

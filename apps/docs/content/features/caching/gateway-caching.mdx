@@ -115,22 +115,44 @@ The default cache duration is 60 seconds. Adjust this based on your use case—l
 
 ## Identifying Cached Responses
 
-Cached responses show zero or minimal token usage since no inference occurred:
+A cache hit replays the stored response body, so it is byte-identical to the original — same `id`, same content. Two markers tell you it was a replay:
+
+- the `x-llmgateway-cache: HIT` response header (set on every lane, including `/v1/messages`, which has no metadata envelope)
+- `metadata.cached: true` on the response body (and on the final metadata chunk of a streamed replay)
+
+All cost fields are zeroed on a replay, because no upstream call was made:
 
 ```json
 {
 	"usage": {
-		"prompt_tokens": 0,
-		"completion_tokens": 0,
-		"total_tokens": 0,
+		"prompt_tokens": 12,
+		"completion_tokens": 48,
+		"total_tokens": 60,
 		"cost": 0,
 		"cost_details": {
 			"total_cost": 0,
 			"input_cost": 0,
 			"output_cost": 0
 		}
+	},
+	"metadata": {
+		"cached": true
 	}
 }
+```
+
+Token counts are **not** zeroed — they still describe the completion you are receiving, and are what the dashboard records for analytics. Note that any prompt-caching fields (`prompt_tokens_details.cached_tokens`, `cache_write_tokens`) describe the _original_ upstream call, not the replay.
+
+## Bypassing the Cache for a Single Request
+
+Send `x-no-cache: true` to skip the cache for one request — the call goes upstream and its response is not stored. Useful when a client retries an identical request and expects a fresh sample (for example an agent loop) without disabling caching for the whole project.
+
+```bash
+curl https://api.llmgateway.io/v1/chat/completions \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -H "x-no-cache: true" \
+  -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Hello"}]}'
 ```
 
 ## Use Cases

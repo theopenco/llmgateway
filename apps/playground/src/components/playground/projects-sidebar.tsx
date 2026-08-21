@@ -2,23 +2,19 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import {
-	AudioLines,
 	ChevronUp,
+	CreditCard,
 	ExternalLink,
-	Film,
 	FolderIcon,
-	ImagePlus,
 	LogOut,
-	MessageSquare,
-	PenTool,
 	Plus,
-	Users,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { CreditsDisplay } from "@/components/credits/credits-display";
 import { ThemeToggle } from "@/components/landing/theme-toggle";
+import { SidebarLoungePoints } from "@/components/lounge/sidebar-points";
 import { Button } from "@/components/ui/button";
 import {
 	DropdownMenu,
@@ -27,7 +23,6 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Logo } from "@/components/ui/logo";
 import {
 	Sidebar,
 	SidebarContent,
@@ -38,6 +33,7 @@ import {
 	SidebarMenuItem,
 	useSidebar,
 } from "@/components/ui/sidebar";
+import { Wordmark } from "@/components/ui/wordmark";
 import { useUser } from "@/hooks/useUser";
 import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
 import { useAuth } from "@/lib/auth-client";
@@ -49,6 +45,7 @@ import {
 	SidebarShortcutKbd,
 	useSidebarShortcut,
 } from "./sidebar-actions";
+import { StudioNav } from "./studio-nav";
 
 import type { ChatProject } from "@/hooks/useChatProjects";
 import type { Organization } from "@/lib/types";
@@ -93,7 +90,7 @@ export function ProjectsSidebar({
 					router.push(
 						process.env.NODE_ENV === "development"
 							? "http://localhost:3003/login"
-							: "https://chat.llmgateway.io/login",
+							: "https://lounge.llmgateway.io/login",
 					);
 				},
 			},
@@ -116,8 +113,7 @@ export function ProjectsSidebar({
 							className="flex self-start items-center gap-2 my-2"
 							prefetch={true}
 						>
-							<Logo className="size-6" />
-							<h1 className="text-xl font-semibold">LLM Gateway</h1>
+							<Wordmark />
 						</Link>
 						<div className="w-full rounded-md border p-4 text-sm">
 							<div className="font-medium mb-2">Sign in required</div>
@@ -131,6 +127,7 @@ export function ProjectsSidebar({
 							</div>
 						</div>
 					</div>
+					<StudioNav />
 				</SidebarHeader>
 			</Sidebar>
 		);
@@ -141,14 +138,9 @@ export function ProjectsSidebar({
 			<SidebarHeader>
 				<SidebarMenu>
 					<SidebarMenuItem>
-						<SidebarMenuButton size="lg" asChild tooltip="LLM Gateway">
+						<SidebarMenuButton size="lg" asChild tooltip="Lounge">
 							<Link href="/" prefetch={true}>
-								<div className="flex aspect-square size-8 items-center justify-center">
-									<Logo className="size-6" />
-								</div>
-								<span className="text-lg font-bold tracking-tight">
-									LLM Gateway
-								</span>
+								<Wordmark size="sm" iconBox />
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
@@ -164,55 +156,8 @@ export function ProjectsSidebar({
 							<SidebarShortcutKbd keys={isMac ? "⌘J" : "Alt+J"} />
 						</SidebarMenuButton>
 					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton asChild tooltip="Chat">
-							<Link href="/" prefetch={true}>
-								<MessageSquare className="h-4 w-4" />
-								<span>Chat</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton asChild tooltip="Group Chat">
-							<Link href="/group" prefetch={true}>
-								<Users className="h-4 w-4" />
-								<span>Group Chat</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton asChild tooltip="Image Studio">
-							<Link href="/image" prefetch={true}>
-								<ImagePlus className="h-4 w-4" />
-								<span>Image Studio</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton asChild tooltip="Video Studio">
-							<Link href="/video" prefetch={true}>
-								<Film className="h-4 w-4" />
-								<span>Video Studio</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton asChild tooltip="Audio Studio">
-							<Link href="/audio" prefetch={true}>
-								<AudioLines className="h-4 w-4" />
-								<span>Audio Studio</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton asChild tooltip="Canvas">
-							<Link href="/canvas" prefetch={true}>
-								<PenTool className="h-4 w-4" />
-								<span>Canvas</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
 				</SidebarMenu>
+				<StudioNav />
 			</SidebarHeader>
 
 			<SidebarContent className="overflow-hidden pb-2">
@@ -267,6 +212,7 @@ export function ProjectsSidebar({
 			</SidebarContent>
 
 			<SidebarFooter>
+				<SidebarLoungePoints />
 				<div className="group-data-[collapsible=icon]:hidden">
 					<CreditsDisplay
 						organization={selectedOrganization}
@@ -307,6 +253,13 @@ export function ProjectsSidebar({
 								align="end"
 								sideOffset={4}
 							>
+								<DropdownMenuItem asChild>
+									<Link href="/pricing" prefetch={true}>
+										<CreditCard className="mr-2 h-4 w-4" />
+										Membership &amp; Billing
+									</Link>
+								</DropdownMenuItem>
+								<DropdownMenuSeparator />
 								<DropdownMenuItem asChild>
 									<a
 										href={

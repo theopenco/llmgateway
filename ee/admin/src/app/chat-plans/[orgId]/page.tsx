@@ -67,7 +67,11 @@ function getTransactionTypeBadgeVariant(
 	if (type.includes("cancel") || type.includes("end")) {
 		return "destructive";
 	}
-	if (type.includes("start") || type.includes("renewal")) {
+	if (
+		type.includes("start") ||
+		type.includes("renewal") ||
+		type.includes("resume")
+	) {
 		return "default";
 	}
 	if (type.includes("upgrade") || type.includes("downgrade")) {
@@ -261,7 +265,7 @@ export default async function ChatPlansDetailPage({
 				</div>
 				<div className="rounded-lg border border-border/60 bg-card p-4">
 					<div className="text-xs uppercase tracking-wide text-muted-foreground">
-						Real provider cost (cycle)
+						Real provider cost (cycle, credits-mode)
 					</div>
 					<div className="mt-2 text-2xl font-semibold tabular-nums">
 						{currencyFormatterPrecise.format(sub.realCost)}
@@ -312,7 +316,7 @@ export default async function ChatPlansDetailPage({
 					</div>
 					<div className="rounded-lg border border-border/60 bg-card p-4">
 						<div className="text-xs uppercase tracking-wide text-muted-foreground">
-							Real provider cost (all-time)
+							Real provider cost (all-time, credits-mode)
 						</div>
 						<div className="mt-2 text-2xl font-semibold tabular-nums">
 							{currencyFormatterPrecise.format(sub.allTimeCost)}

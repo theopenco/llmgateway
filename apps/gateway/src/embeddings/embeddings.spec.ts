@@ -7,7 +7,7 @@ import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harne
 import { resetFailOnceCounter } from "@/test-utils/mock-openai-server.js";
 import { waitForLogs } from "@/test-utils/test-helpers.js";
 
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 
 describe("embeddings", () => {
 	const harness = createGatewayApiTestHarness();
@@ -85,6 +85,7 @@ describe("embeddings", () => {
 		expect(res.status).toBe(200);
 		const json = await res.json();
 		expect(json).toHaveProperty("object", "list");
+		expect(json).toHaveProperty("model", "openai/text-embedding-3-small");
 		expect(Array.isArray(json.data)).toBe(true);
 
 		const logs = await waitForLogs(2);
@@ -129,6 +130,55 @@ describe("embeddings", () => {
 		expect(routing?.[0].apiKeyHash).toBeTruthy();
 		expect(routing?.[1].apiKeyHash).toBeTruthy();
 		expect(routing?.[0].apiKeyHash).not.toBe(routing?.[1].apiKeyHash);
+	});
+
+	test("/v1/embeddings does not persist payload when retention is disabled", async () => {
+		await db
+			.update(tables.organization)
+			.set({ retentionLevel: "none" })
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-embeddings-retention-none",
+			token: "real-token-embeddings-retention-none",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-embeddings-retention-none",
+			token: "openai-token",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: harness.mockServerUrl,
+		});
+
+		const res = await app.request("/v1/embeddings", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-embeddings-retention-none",
+			},
+			body: JSON.stringify({
+				model: "text-embedding-3-small",
+				input: "secret retention payload",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+
+		const logs = await waitForLogs(1);
+		const embeddingLog = logs.find(
+			(l) => l.usedModel === "openai/text-embedding-3-small",
+		);
+		expect(embeddingLog).toBeDefined();
+		expect(embeddingLog?.hasError).toBe(false);
+		expect(embeddingLog?.finishReason).toBe("stop");
+		// Payload never reaches the database for a non-retaining org.
+		expect(embeddingLog?.messages).toBeNull();
+		expect(embeddingLog?.content).toBeNull();
+		expect(embeddingLog?.reasoningContent).toBeNull();
 	});
 
 	test("/v1/embeddings returns upstream error when no alternate key is available", async () => {

@@ -2,7 +2,11 @@ import { trace } from "@opentelemetry/api";
 
 import type { GatewayApiKey } from "@/lib/cached-queries.js";
 import type { RoutingMetadata } from "@llmgateway/actions";
-import type { GatewayContentFilterResponse, Project } from "@llmgateway/db";
+import type {
+	ApiOrigin,
+	GatewayContentFilterResponse,
+	Project,
+} from "@llmgateway/db";
 import type { OpenAIToolInput } from "@llmgateway/models";
 
 export interface PluginResults {
@@ -16,7 +20,26 @@ export interface CreateLogEntryOptions {
 	requestId: string;
 	project: Project;
 	apiKey: GatewayApiKey;
-	providerKeyId?: string;
+	/**
+	 * The ORGANIZATION's own provider key (BYOK) that served this request, and
+	 * nothing else. This is the sole discriminator for `usedMode`, which decides
+	 * whether the worker charges the organization for the request: `credits`
+	 * deducts the full cost, `api-keys` deducts only data storage.
+	 *
+	 * Never pass a platform-managed credential id here. A managed credential is
+	 * LLM Gateway's own key serving credits-mode traffic — the org must still be
+	 * billed for it, exactly as it was when the same traffic ran off `LLM_*`
+	 * environment variables.
+	 */
+	organizationProviderKeyId?: string;
+	/**
+	 * The provider_key row — BYOK *or* platform-managed — whose token was
+	 * actually sent upstream, for per-key spend attribution only. The billing
+	 * worker accumulates log.cost against this key and auto-deactivates it at
+	 * its spend limit. Never feed this into `usedMode`: billing mode is decided
+	 * solely by `organizationProviderKeyId` above.
+	 */
+	usedProviderKeyId?: string;
 	usedModel: string;
 	usedModelMapping?: string;
 	usedProvider: string;
@@ -29,19 +52,14 @@ export interface CreateLogEntryOptions {
 	frequency_penalty?: number;
 	presence_penalty?: number;
 	reasoningEffort?:
-		| "none"
-		| "minimal"
-		| "low"
-		| "medium"
-		| "high"
-		| "xhigh"
-		| "max";
+		"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 	reasoningMaxTokens?: number;
 	effort?: "low" | "medium" | "high";
 	responseFormat?: any;
 	tools?: OpenAIToolInput[];
 	toolChoice?: any;
 	source?: string;
+	apiOrigin?: ApiOrigin;
 	customHeaders: Record<string, string>;
 	debugMode: boolean;
 	userAgent?: string;
@@ -79,7 +97,11 @@ function buildLogEntry(options: CreateLogEntryOptions) {
 		// wallet billing pointer.
 		endUserSessionId: options.apiKey.endUserSession?.id ?? null,
 		endCustomerWalletId: options.apiKey.endCustomerWalletId ?? null,
-		usedMode: options.providerKeyId ? "api-keys" : "credits",
+		// Only an organization-owned key means the org is paying the provider
+		// directly. Platform credentials — env vars and managed provider-key rows
+		// alike — are billed as credits.
+		usedMode: options.organizationProviderKeyId ? "api-keys" : "credits",
+		providerKeyId: options.usedProviderKeyId ?? null,
 		usedModel: options.usedModel,
 		usedModelMapping: options.usedModelMapping,
 		usedProvider: options.usedProvider,
@@ -98,6 +120,7 @@ function buildLogEntry(options: CreateLogEntryOptions) {
 		tools: options.tools ?? null,
 		toolChoice: options.toolChoice ?? null,
 		mode: options.project.mode,
+		apiOrigin: options.apiOrigin ?? null,
 		source: options.source ?? null,
 		customHeaders:
 			Object.keys(options.customHeaders).length > 0
@@ -143,7 +166,7 @@ export function createLogEntry(
 	requestId: string,
 	project: Project,
 	apiKey: GatewayApiKey,
-	providerKeyId: string | undefined,
+	organizationProviderKeyId: string | undefined,
 	usedModel: string,
 	usedModelMapping: string | undefined,
 	usedProvider: string,
@@ -193,7 +216,7 @@ export function createLogEntry(
 	requestIdOrOptions: string | CreateLogEntryOptions,
 	project?: Project,
 	apiKey?: GatewayApiKey,
-	providerKeyId?: string,
+	organizationProviderKeyId?: string,
 	usedModel?: string,
 	usedModelMapping?: string,
 	usedProvider?: string,
@@ -206,13 +229,7 @@ export function createLogEntry(
 	frequency_penalty?: number,
 	presence_penalty?: number,
 	reasoningEffort?:
-		| "none"
-		| "minimal"
-		| "low"
-		| "medium"
-		| "high"
-		| "xhigh"
-		| "max",
+		"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max",
 	reasoningMaxTokens?: number,
 	effort?: "low" | "medium" | "high",
 	responseFormat?: any,
@@ -246,7 +263,7 @@ export function createLogEntry(
 		requestId: requestIdOrOptions,
 		project: requireDefined(project, "project"),
 		apiKey: requireDefined(apiKey, "apiKey"),
-		providerKeyId,
+		organizationProviderKeyId,
 		usedModel: requireDefined(usedModel, "usedModel"),
 		usedModelMapping,
 		usedProvider: requireDefined(usedProvider, "usedProvider"),

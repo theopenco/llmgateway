@@ -7,7 +7,7 @@ icon: KeyRound
 import { Callout } from "fumadocs-ui/components/callout";
 import { ThemedImage } from "@/components/themed-image";
 
-The Provider Keys page lets you add your own API keys from LLM providers (OpenAI, Anthropic, Google, etc.) to route requests directly through your accounts without additional gateway fees.
+The Provider Keys page lets you add your own API keys from LLM providers (OpenAI, Anthropic, Google, etc.) to route requests directly through your accounts without additional gateway fees. The only optional charge is [data storage](/features/data-retention#storage-pricing): if your organization enables full data retention, stored requests are billed at $0.01 per 1M tokens from your credits.
 
 <ThemedImage alt="Provider Keys" basePath="/learn/provider-keys" />
 
@@ -19,6 +19,8 @@ Click **Add Provider Key** to configure a new key:
 - **Custom name** — An optional label to identify the key
 - **API key** — Your provider's API key
 - **Base URL** — Optional custom endpoint (useful for Azure OpenAI or custom deployments)
+- **Allowed models** — Optional allowlist restricting which models the key serves
+- **Max spend** — Optional USD cap; the key is disabled once the spend attributed to it reaches the limit
 
 ## Provider Keys List
 
@@ -37,11 +39,34 @@ Each configured key shows:
 For each provider key:
 
 - **Edit** — Update the key name, value, or base URL
+- **Restrict models** — Choose which models the key may serve
+- **Set spend limit** — Cap the spend attributed to the key
 - **Deactivate** — Temporarily disable the key without deleting it
 - **Delete** — Permanently remove the key
 
+## Restricting a Key to Specific Models
+
+Provider accounts often only have some of a provider's models enabled. Set
+**Allowed models** on a key to list exactly the models it may serve — routing
+then skips that key for anything else instead of sending a request the upstream
+account will reject. Leave the list empty to serve every model the provider
+offers.
+
+The restriction also decides how a key is checked when you save it: a restricted
+key is validated against one of its own allowed models rather than the
+provider's default validation model, so a key with partial model access still
+validates.
+
+<Callout type="info">
+	In hybrid mode, a model excluded by the restriction falls back to your credits
+	rather than failing, so restricting a key never takes a model away from your
+	projects.
+</Callout>
+
 <Callout type="info">
 	When you use your own provider keys, requests are routed directly to the
-	provider. You are only charged the provider's standard rates with no
-	additional gateway markup.
+	provider. You pay the provider's standard rates with no additional gateway
+	markup — the only LLM Gateway charge is the optional [data
+	storage](/features/data-retention#storage-pricing) cost when full data
+	retention is enabled.
 </Callout>

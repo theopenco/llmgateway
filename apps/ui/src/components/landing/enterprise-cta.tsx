@@ -27,8 +27,7 @@ const capabilities = [
 	{
 		icon: Building2,
 		title: "White-label Ready",
-		description:
-			"White-label gateway and chat playground with your own branding",
+		description: "White-label gateway and chat app with your own branding",
 	},
 ];
 

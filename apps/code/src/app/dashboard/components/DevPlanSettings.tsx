@@ -1,6 +1,5 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -12,8 +11,9 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { useApi } from "@/lib/fetch-client";
+
+import type { ProviderCacheControlMode } from "@llmgateway/models";
 
 type RoutingStrategy = "auto" | "price" | "throughput" | "latency";
 
@@ -37,24 +37,38 @@ const SERVICE_TIER_OPTIONS: Array<{ value: ServiceTier; label: string }> = [
 	{ value: "flex", label: "Flex" },
 ];
 
+const PROVIDER_CACHE_OPTIONS: Array<{
+	value: ProviderCacheControlMode;
+	label: string;
+	toast: string;
+}> = [
+	{
+		value: "auto",
+		label: "Automatic",
+		toast: "DevPass adds cache markers on long prompts",
+	},
+	{
+		value: "passthrough",
+		label: "Client-managed",
+		toast: "Only your client's own cache markers are used",
+	},
+	{ value: "off", label: "Disabled", toast: "Provider cache writes disabled" },
+];
+
 interface DevPlanSettingsProps {
+	canConfigureServiceTier: boolean;
 	devPlanServiceTier: ServiceTier;
-	retentionLevel: "retain" | "none";
 	defaultRoutingStrategy: RoutingStrategy;
+	providerCacheControlMode: ProviderCacheControlMode;
 }
 
 export default function DevPlanSettings({
+	canConfigureServiceTier,
 	devPlanServiceTier: initialServiceTier,
-	retentionLevel: initialRetentionLevel,
 	defaultRoutingStrategy: initialRoutingStrategy,
+	providerCacheControlMode: initialProviderCacheControlMode,
 }: DevPlanSettingsProps) {
 	const api = useApi();
-	const queryClient = useQueryClient();
-
-	const [retainData, setRetainData] = useState(
-		initialRetentionLevel === "retain",
-	);
-	const [isUpdatingRetention, setIsUpdatingRetention] = useState(false);
 
 	const [routingStrategy, setRoutingStrategy] = useState<RoutingStrategy>(
 		initialRoutingStrategy,
@@ -64,19 +78,14 @@ export default function DevPlanSettings({
 	const [serviceTier, setServiceTier] =
 		useState<ServiceTier>(initialServiceTier);
 	const [isUpdatingServiceTier, setIsUpdatingServiceTier] = useState(false);
+	const [providerCacheControlMode, setProviderCacheControlMode] =
+		useState<ProviderCacheControlMode>(initialProviderCacheControlMode);
+	const [isUpdatingProviderCache, setIsUpdatingProviderCache] = useState(false);
 
 	const updateSettingsMutation = api.useMutation(
 		"patch",
 		"/dev-plans/settings",
 	);
-
-	const invalidateStatus = () =>
-		queryClient.invalidateQueries({
-			predicate: (query) => {
-				const key = query.queryKey;
-				return Array.isArray(key) && key[1] === "/dev-plans/status";
-			},
-		});
 
 	const handleRoutingChange = async (value: string) => {
 		const strategy = value as RoutingStrategy;
@@ -124,21 +133,24 @@ export default function DevPlanSettings({
 		}
 	};
 
-	const handleRetentionToggle = async (checked: boolean) => {
-		setIsUpdatingRetention(true);
+	const handleProviderCacheChange = async (value: string) => {
+		const option = PROVIDER_CACHE_OPTIONS.find((o) => o.value === value);
+		if (!option) {
+			return;
+		}
+		const previous = providerCacheControlMode;
+		setProviderCacheControlMode(option.value);
+		setIsUpdatingProviderCache(true);
 		try {
 			await updateSettingsMutation.mutateAsync({
-				body: { retentionLevel: checked ? "retain" : "none" },
+				body: { providerCacheControlMode: option.value },
 			});
-			setRetainData(checked);
-			await invalidateStatus();
-			toast.success(
-				checked ? "Data retention enabled" : "Switched to metadata-only",
-			);
+			toast.success(option.toast);
 		} catch {
-			toast.error("Failed to update data retention");
+			setProviderCacheControlMode(previous);
+			toast.error("Failed to update provider cache writes");
 		} finally {
-			setIsUpdatingRetention(false);
+			setIsUpdatingProviderCache(false);
 		}
 	};
 
@@ -194,37 +206,39 @@ export default function DevPlanSettings({
 					</div>
 				</div>
 
-				<div className="rounded-xl border p-5 space-y-4">
-					<div className="flex items-center justify-between gap-4">
+				<div className="rounded-xl border p-5">
+					<div className="flex items-start justify-between gap-4">
 						<div className="space-y-0.5">
-							<Label htmlFor="service-tier" className="text-sm font-medium">
-								Default service tier
+							<Label
+								htmlFor="provider-cache-writes"
+								className="text-sm font-medium"
+							>
+								Provider cache writes
 							</Label>
 							<p className="text-xs text-muted-foreground">
-								Flex processing costs less and saves your plan credits, but
-								responses may be slower during peak demand. Only applied for
-								models that support it — everything else stays on standard
-								processing.{" "}
-								<a
-									href="https://docs.llmgateway.io/features/service-tiers"
-									target="_blank"
-									rel="noreferrer"
-									className="underline underline-offset-2"
-								>
-									Learn more
-								</a>
+								Automatic adds cache markers to reusable prompt prefixes and
+								forwards the ones your client sends. Client-managed only
+								forwards your client&apos;s markers, so tools that manage their
+								own caching (Claude Code, Cursor, Cline) keep working while
+								requests without markers never pay for a write. Disabled strips
+								every marker. Cache writes cost 1.25× for 5 minutes or 2× for 1
+								hour, while cache reads cost 0.1×.
 							</p>
 						</div>
 						<Select
-							value={serviceTier}
-							onValueChange={handleServiceTierChange}
-							disabled={isUpdatingServiceTier}
+							value={providerCacheControlMode}
+							onValueChange={handleProviderCacheChange}
+							disabled={isUpdatingProviderCache}
 						>
-							<SelectTrigger id="service-tier" size="sm" className="w-[180px]">
+							<SelectTrigger
+								id="provider-cache-writes"
+								size="sm"
+								className="w-[180px]"
+							>
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
-								{SERVICE_TIER_OPTIONS.map((option) => (
+								{PROVIDER_CACHE_OPTIONS.map((option) => (
 									<SelectItem key={option.value} value={option.value}>
 										{option.label}
 									</SelectItem>
@@ -234,27 +248,51 @@ export default function DevPlanSettings({
 					</div>
 				</div>
 
-				<div className="rounded-xl border p-5 space-y-4">
-					<div className="flex items-center justify-between gap-4">
-						<div className="space-y-0.5">
-							<Label htmlFor="retain-data" className="text-sm font-medium">
-								Retain request data
-							</Label>
-							<p className="text-xs text-muted-foreground">
-								Store full request and response payloads for analytics and
-								debugging. When off, only metadata is kept. Storage is billed,
-								and this is only required when using the Responses API or for
-								debugging purposes.
-							</p>
+				{canConfigureServiceTier && (
+					<div className="rounded-xl border p-5 space-y-4">
+						<div className="flex items-center justify-between gap-4">
+							<div className="space-y-0.5">
+								<Label htmlFor="service-tier" className="text-sm font-medium">
+									Default service tier
+								</Label>
+								<p className="text-xs text-muted-foreground">
+									Flex processing costs less and saves your plan credits, but
+									responses may be slower during peak demand. Only applied for
+									models that support it — everything else stays on standard
+									processing.{" "}
+									<a
+										href="https://docs.llmgateway.io/features/service-tiers"
+										target="_blank"
+										rel="noreferrer"
+										className="underline underline-offset-2"
+									>
+										Learn more
+									</a>
+								</p>
+							</div>
+							<Select
+								value={serviceTier}
+								onValueChange={handleServiceTierChange}
+								disabled={isUpdatingServiceTier}
+							>
+								<SelectTrigger
+									id="service-tier"
+									size="sm"
+									className="w-[180px]"
+								>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									{SERVICE_TIER_OPTIONS.map((option) => (
+										<SelectItem key={option.value} value={option.value}>
+											{option.label}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
 						</div>
-						<Switch
-							id="retain-data"
-							checked={retainData}
-							onCheckedChange={handleRetentionToggle}
-							disabled={isUpdatingRetention}
-						/>
 					</div>
-				</div>
+				)}
 			</div>
 		</div>
 	);

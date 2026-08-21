@@ -6,6 +6,8 @@ import {
 	type ModelDefinition,
 	getProviderDefinition,
 	getProviderEnvVar,
+	getRegionScopedProviderEnvValue,
+	getSupportedServiceTiers,
 	models,
 	type ProviderModelMapping,
 	providers,
@@ -13,6 +15,7 @@ import {
 	getTestOptions,
 	expandAllProviderRegions,
 } from "@llmgateway/models";
+import { uniqueId } from "@llmgateway/shared/random";
 
 import {
 	clearCache,
@@ -23,7 +26,7 @@ export { getConcurrentTestOptions, getTestOptions };
 
 // Helper function to generate unique request IDs for tests
 export function generateTestRequestId(): string {
-	return `test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+	return uniqueId("test");
 }
 
 export const fullMode = process.env.FULL_MODE;
@@ -180,14 +183,19 @@ if (hasOnlyModels) {
 export const filteredModels = models
 	// Filter out auto/custom models
 	.filter((model) => !["custom", "auto"].includes(model.id))
-	// Filter out video-only and audio-only models (they use dedicated endpoints —
-	// /v1/videos and /v1/audio/speech — not chat completions)
+	// Filter out video-only, audio-only and transcription-only models (they use
+	// dedicated endpoints — /v1/videos, /v1/audio/speech and
+	// /v1/audio/transcriptions — not chat completions)
 	.filter((model) => {
 		const output = (model as ModelDefinition).output;
 		if (!output || output.includes("text")) {
 			return true;
 		}
-		return !output.includes("video") && !output.includes("audio");
+		return (
+			!output.includes("video") &&
+			!output.includes("audio") &&
+			!output.includes("transcription")
+		);
 	})
 	// Filter out OCR models (they use the dedicated /v1/ocr endpoint, not chat
 	// completions, and are covered by ocr.e2e.ts)
@@ -202,6 +210,12 @@ export const filteredModels = models
 			!model.providers.some(
 				(p) => (p as ProviderModelMapping).embeddings === true,
 			),
+	)
+	// Filter out rerank models (they use the dedicated /v1/rerank
+	// endpoint, not chat completions, and are covered by rerank.e2e.ts)
+	.filter(
+		(model) =>
+			!model.providers.some((p) => (p as ProviderModelMapping).rerank === true),
 	)
 	// Filter out unstable models if not in full mode, unless they have test: "only" or are in TEST_MODELS
 	// Note: This only filters models with model-level stability, not provider-level stability
@@ -322,7 +336,7 @@ export const testModels = filteredModels
 		const testCases = [];
 
 		if (process.env.TEST_ALL_VARIATIONS) {
-			// test root model without a specific provider
+			// test canonical model without a specific provider
 			testCases.push({
 				model: model.id,
 				providers: expandAllProviderRegions(
@@ -670,11 +684,273 @@ export const speechModels = models
 		return testCases;
 	});
 
+// Transcription (speech-to-text) models are likewise excluded from
+// filteredModels (transcription-only output, served by the dedicated
+// /v1/audio/transcriptions endpoint). Build a separate list of transcription
+// provider/model mappings for transcriptions.e2e.ts, applying the same
+// TEST_MODELS/TEST_PROVIDERS, deactivation, env-var, and stability filters as
+// speechModels.
+export const transcriptionModels = models
+	.filter((model) => !["custom", "auto"].includes(model.id))
+	.filter((model) =>
+		model.providers.some(
+			(provider: ProviderModelMapping) => provider.transcriptions === true,
+		),
+	)
+	// If any model has test: "only", only include those models
+	.filter((model) => {
+		if (hasOnlyModels) {
+			return model.providers.some(
+				(provider: ProviderModelMapping) => provider.test === "only",
+			);
+		}
+		return true;
+	})
+	.flatMap((model) => {
+		const testCases = [];
+		const expandedProviders = expandAllProviderRegions(
+			model.providers as ProviderModelMapping[],
+		);
+		for (const provider of expandedProviders) {
+			if (!provider.transcriptions) {
+				continue;
+			}
+
+			// Skip deactivated / deprecated provider mappings
+			if (provider.deactivatedAt && new Date() > provider.deactivatedAt) {
+				continue;
+			}
+			if (provider.deprecatedAt && new Date() > provider.deprecatedAt) {
+				continue;
+			}
+
+			if (specifiedModels || specifiedProviders) {
+				if (specifiedProviders) {
+					if (!specifiedProviders.includes(provider.providerId)) {
+						continue;
+					}
+				} else {
+					if (
+						!matchesTestModel(provider.providerId, model.id, provider.region)
+					) {
+						continue;
+					}
+				}
+				// TEST_MODELS/TEST_PROVIDERS takes precedence over test: "skip"
+			} else {
+				if (provider.test === "skip") {
+					continue;
+				}
+				if (
+					provider.test !== "only" &&
+					!hasAllRequiredProviderEnvVars(provider.providerId)
+				) {
+					continue;
+				}
+				if (
+					(provider.stability === "unstable" ||
+						provider.stability === "experimental") &&
+					!fullMode &&
+					provider.test !== "only"
+				) {
+					continue;
+				}
+			}
+
+			// If we have any "only" providers, skip those not marked as "only"
+			if (hasOnlyModels && provider.test !== "only") {
+				continue;
+			}
+
+			testCases.push({
+				model: `${provider.providerId}/${model.id}${provider.region ? `:${provider.region}` : ""}`,
+				provider,
+				originalModel: model.id,
+			});
+		}
+		return testCases;
+	});
+
+// Rerank models are excluded from filteredModels above (they use the
+// dedicated /v1/rerank endpoint). Build a separate list of rerank
+// provider/model mappings for rerank.e2e.ts, applying the same
+// TEST_MODELS/TEST_PROVIDERS, deactivation, env-var, and stability filters
+// as embeddingModels.
+export const rerankModels = models
+	.filter((model) => !["custom", "auto"].includes(model.id))
+	.filter((model) =>
+		model.providers.some(
+			(provider: ProviderModelMapping) => provider.rerank === true,
+		),
+	)
+	// If any model has test: "only", only include those models
+	.filter((model) => {
+		if (hasOnlyModels) {
+			return model.providers.some(
+				(provider: ProviderModelMapping) => provider.test === "only",
+			);
+		}
+		return true;
+	})
+	.flatMap((model) => {
+		const testCases = [];
+		const expandedProviders = expandAllProviderRegions(
+			model.providers as ProviderModelMapping[],
+		);
+		for (const provider of expandedProviders) {
+			if (!provider.rerank) {
+				continue;
+			}
+
+			// Skip deactivated / deprecated provider mappings
+			if (provider.deactivatedAt && new Date() > provider.deactivatedAt) {
+				continue;
+			}
+			if (provider.deprecatedAt && new Date() > provider.deprecatedAt) {
+				continue;
+			}
+
+			if (specifiedModels || specifiedProviders) {
+				if (specifiedProviders) {
+					if (!specifiedProviders.includes(provider.providerId)) {
+						continue;
+					}
+				} else {
+					if (
+						!matchesTestModel(provider.providerId, model.id, provider.region)
+					) {
+						continue;
+					}
+				}
+			} else {
+				if (provider.test === "skip") {
+					continue;
+				}
+				if (
+					provider.test !== "only" &&
+					!hasAllRequiredProviderEnvVars(provider.providerId)
+				) {
+					continue;
+				}
+				if (
+					(provider.stability === "unstable" ||
+						provider.stability === "experimental") &&
+					!fullMode &&
+					provider.test !== "only"
+				) {
+					continue;
+				}
+			}
+
+			// If we have any "only" providers, skip those not marked as "only"
+			if (hasOnlyModels && provider.test !== "only") {
+				continue;
+			}
+
+			testCases.push({
+				model: `${provider.providerId}/${model.id}${provider.region ? `:${provider.region}` : ""}`,
+				provider,
+				originalModel: model.id,
+			});
+		}
+		return testCases;
+	});
+
+// OCR models use the dedicated /v1/ocr endpoint, so they are excluded from
+// filteredModels above. Build a separate list for ocr.e2e.ts with the same
+// TEST_MODELS/TEST_PROVIDERS, deactivation, env-var, and stability filters as
+// rerankModels. The OCR mappings are marked test: "skip" in the catalogue, so
+// this list is empty unless TEST_MODELS names one of them.
+export const ocrModels = models
+	.filter((model) => !["custom", "auto"].includes(model.id))
+	.filter((model) =>
+		model.providers.some(
+			(provider: ProviderModelMapping) => provider.ocr === true,
+		),
+	)
+	// If any model has test: "only", only include those models
+	.filter((model) => {
+		if (hasOnlyModels) {
+			return model.providers.some(
+				(provider: ProviderModelMapping) => provider.test === "only",
+			);
+		}
+		return true;
+	})
+	.flatMap((model) => {
+		const testCases = [];
+		const expandedProviders = expandAllProviderRegions(
+			model.providers as ProviderModelMapping[],
+		);
+		for (const provider of expandedProviders) {
+			if (!provider.ocr) {
+				continue;
+			}
+
+			// Skip deactivated / deprecated provider mappings
+			if (provider.deactivatedAt && new Date() > provider.deactivatedAt) {
+				continue;
+			}
+			if (provider.deprecatedAt && new Date() > provider.deprecatedAt) {
+				continue;
+			}
+
+			if (specifiedModels || specifiedProviders) {
+				if (specifiedProviders) {
+					if (!specifiedProviders.includes(provider.providerId)) {
+						continue;
+					}
+				} else {
+					if (
+						!matchesTestModel(provider.providerId, model.id, provider.region)
+					) {
+						continue;
+					}
+				}
+			} else {
+				if (provider.test === "skip") {
+					continue;
+				}
+				if (
+					provider.test !== "only" &&
+					!hasAllRequiredProviderEnvVars(provider.providerId)
+				) {
+					continue;
+				}
+				if (
+					(provider.stability === "unstable" ||
+						provider.stability === "experimental") &&
+					!fullMode &&
+					provider.test !== "only"
+				) {
+					continue;
+				}
+			}
+
+			// If we have any "only" providers, skip those not marked as "only"
+			if (hasOnlyModels && provider.test !== "only") {
+				continue;
+			}
+
+			testCases.push({
+				model: `${provider.providerId}/${model.id}${provider.region ? `:${provider.region}` : ""}`,
+				provider,
+				originalModel: model.id,
+			});
+		}
+		return testCases;
+	});
+
 // Log the number of test models after filtering
 console.log(`Testing ${testModels.length} model configurations`);
 console.log(`Testing ${providerModels.length} provider model configurations`);
 console.log(`Testing ${embeddingModels.length} embedding model configurations`);
 console.log(`Testing ${speechModels.length} speech model configurations`);
+console.log(
+	`Testing ${transcriptionModels.length} transcription model configurations`,
+);
+console.log(`Testing ${rerankModels.length} rerank model configurations`);
+console.log(`Testing ${ocrModels.length} ocr model configurations`);
 
 export const streamingModels = testModels.filter((m) =>
 	m.providers.some((p: ProviderModelMapping) => {
@@ -725,6 +1001,30 @@ export const reasoningEffortModels = fullMode
 
 export const verbosityModels = testModels.filter((m) =>
 	m.providers.some((p: ProviderModelMapping) => p.verbosity === true),
+);
+
+/**
+ * One case per (provider mapping, service tier) the catalogue declares, so a
+ * mapping that opts into Flex/Priority is exercised against the real upstream.
+ * Only provider-pinned entries are used — the tier is a per-mapping property,
+ * and the tests pin the provider with x-no-fallback so an upstream that rejects
+ * the tier surfaces instead of falling back.
+ */
+export const serviceTierModels = testModels.flatMap((m) =>
+	m.originalModel
+		? m.providers.flatMap((p: ProviderModelMapping) =>
+				getSupportedServiceTiers(
+					m.originalModel as string,
+					p.providerId,
+					p.region ?? null,
+				).map((tier) => ({
+					model: m.model,
+					serviceTier: tier.id,
+					multiplier: tier.multiplier,
+					mapping: p,
+				})),
+			)
+		: [],
 );
 
 export const streamingReasoningModels = reasoningModels.filter((m) =>
@@ -971,6 +1271,17 @@ function providerEnvOptionsForTests(
 ): ProviderKeyOptions | undefined {
 	if (providerId === "azure" && process.env.LLM_AZURE_RESOURCE) {
 		return { azure_resource: process.env.LLM_AZURE_RESOURCE };
+	}
+	if (providerId === "alibaba") {
+		// BYOK keys never read env vars at request time, so a workspace-scoped
+		// region (Frankfurt) is only reachable when the seeded key carries the
+		// workspace id the way a real credential would.
+		const workspaceId = getRegionScopedProviderEnvValue(
+			"alibaba",
+			"workspaceId",
+			"eu-frankfurt",
+		);
+		return workspaceId ? { alibaba_workspace_id: workspaceId } : undefined;
 	}
 	if (providerId === "azure-ai-foundry") {
 		const resource = process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE;

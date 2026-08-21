@@ -2,6 +2,11 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { useApi } from "@/lib/fetch-client";
 
+import type { paths } from "@/lib/api/v1";
+
+type RealtimeHistoryDetail =
+	paths["/playground/realtime-history/{id}"]["get"]["responses"][200]["content"]["application/json"];
+
 export function useImageHistory(enabled = true, organizationId?: string) {
 	const api = useApi();
 	return api.useQuery(
@@ -137,6 +142,123 @@ export function useDeleteAudioHistory() {
 			void queryClient.invalidateQueries({
 				queryKey: api.queryOptions("get", "/playground/audio-history").queryKey,
 			});
+		},
+	});
+}
+
+export function useRealtimeHistory(enabled = true, organizationId?: string) {
+	const api = useApi();
+	return api.useQuery(
+		"get",
+		"/playground/realtime-history",
+		{ params: { query: organizationId ? { organizationId } : {} } },
+		{ enabled },
+	);
+}
+
+// Full call including its transcript, fetched only when a call is opened. The
+// only writes are title renames and continued-call appends, both of which
+// invalidate this query, so the data never goes stale.
+export function useRealtimeHistoryItem(id: string | null) {
+	const api = useApi();
+	return api.useQuery(
+		"get",
+		"/playground/realtime-history/{id}",
+		{ params: { path: { id: id ?? "" } } },
+		{ enabled: !!id, staleTime: Infinity },
+	);
+}
+
+export function useSaveRealtimeHistory() {
+	const queryClient = useQueryClient();
+	const api = useApi();
+	return api.useMutation("post", "/playground/realtime-history", {
+		onSuccess: (data, variables) => {
+			// Seed the detail cache from the request body so opening the call
+			// that just ended doesn't round-trip for a transcript we already have.
+			if (variables?.body) {
+				queryClient.setQueryData(
+					api.queryOptions("get", "/playground/realtime-history/{id}", {
+						params: { path: { id: data.item.id } },
+					}).queryKey,
+					{
+						item: {
+							...data.item,
+							transcript: variables.body.transcript,
+							usage: variables.body.usage ?? null,
+						},
+					},
+				);
+			}
+			void queryClient.invalidateQueries({
+				queryKey: api.queryOptions("get", "/playground/realtime-history")
+					.queryKey,
+			});
+		},
+	});
+}
+
+// Renames a call and/or appends the turns of a continued session to it. Both
+// change the detail payload, so it is invalidated alongside the list.
+export function useUpdateRealtimeHistory() {
+	const queryClient = useQueryClient();
+	const api = useApi();
+	return api.useMutation("patch", "/playground/realtime-history/{id}", {
+		onSuccess: (data, variables) => {
+			void queryClient.invalidateQueries({
+				queryKey: api.queryOptions("get", "/playground/realtime-history")
+					.queryKey,
+			});
+			const id = variables.params?.path?.id;
+			if (!id) {
+				return;
+			}
+			const detailKey = api.queryOptions(
+				"get",
+				"/playground/realtime-history/{id}",
+				{ params: { path: { id } } },
+			).queryKey;
+			const appended = variables.body?.appendTranscript;
+			// Fold the appended turns into the cached detail up front, so a call
+			// that just ended reads complete the instant it is opened rather than
+			// showing its pre-continuation transcript until the refetch lands.
+			// The cache key is tagged as `{}` by openapi-react-query, so the shape
+			// has to be reapplied on read.
+			const previous = queryClient.getQueryData(detailKey) as
+				RealtimeHistoryDetail | undefined;
+			if (appended?.length && previous) {
+				queryClient.setQueryData(detailKey, {
+					item: {
+						...previous.item,
+						...data.item,
+						transcript: [...previous.item.transcript, ...appended],
+					},
+				});
+			}
+			void queryClient.invalidateQueries({ queryKey: detailKey });
+		},
+	});
+}
+
+export function useDeleteRealtimeHistory() {
+	const queryClient = useQueryClient();
+	const api = useApi();
+	return api.useMutation("delete", "/playground/realtime-history/{id}", {
+		onSuccess: (_data, variables) => {
+			void queryClient.invalidateQueries({
+				queryKey: api.queryOptions("get", "/playground/realtime-history")
+					.queryKey,
+			});
+			const id = variables.params?.path?.id;
+			if (id) {
+				queryClient.removeQueries({
+					queryKey: api.queryOptions(
+						"get",
+						"/playground/realtime-history/{id}",
+						{ params: { path: { id } } },
+					).queryKey,
+				});
+			}
 		},
 	});
 }

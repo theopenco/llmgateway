@@ -363,7 +363,7 @@ export function ApiKeyManager({
 					<DialogDescription>
 						{userApiKey && !isEditing
 							? "View, edit, or clear your saved API key."
-							: "To use the playground, you need to provide your own LLM Gateway API key."}
+							: "To use the Lounge, you need to provide your own LLM Gateway API key."}
 					</DialogDescription>
 				</DialogHeader>
 				{renderContent()}

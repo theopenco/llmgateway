@@ -8,6 +8,12 @@ date: 2026-05-11
 
 [OpenCode Desktop](https://opencode.ai/download) is the GUI desktop app version of OpenCode — an open-source AI coding agent with a full visual interface for managing providers, models, and sessions. LLM Gateway is a built-in provider, so setup takes under a minute with no config files required.
 
+## Two Built-In Providers
+
+OpenCode ships two LLM Gateway entries, sharing one endpoint and one API key. **LLM Gateway** lists provider-pinned models (`anthropic/claude-opus-5`, named "Claude Opus 5 (Anthropic)") for pay-as-you-go keys; **DevPass (LLM Gateway)** lists canonical models (`claude-opus-5`) that the gateway routes for you. See the [CLI guide](/guides/opencode) for the full comparison.
+
+> **Using DevPass?** Connect **DevPass (LLM Gateway)**. Provider-pinned routing is not available on coding plans, so canonical model IDs are the ones that work.
+
 ## Prerequisites
 
 - OpenCode Desktop installed — [download for Windows or macOS](https://opencode.ai/download)
@@ -37,11 +43,11 @@ Launch OpenCode Desktop. Click the **Providers** section in the left sidebar und
 
 ### Step 2: Find LLM Gateway
 
-Click **Show more providers** at the bottom of the list, or click **+ Connect** on any entry to open the provider search. Type `LLM` in the search box — **LLM Gateway** will appear under "Other":
+Click **Show more providers** at the bottom of the list, or click **+ Connect** on any entry to open the provider search. Type `LLM` in the search box — both **LLM Gateway** and **DevPass (LLM Gateway)** appear under "Other":
 
 ![Searching for LLM Gateway](/images/guides/opencode-desktop/1-search-llm.png)
 
-Select **LLM Gateway** from the list.
+Select the one matching your key. You can connect both — they take the same key, and each contributes its models to the picker.
 
 ### Step 3: Enter Your API Key
 
@@ -53,7 +59,7 @@ OpenCode will show the **Connect LLM Gateway** dialog. Paste your LLM Gateway AP
 
 ### Step 4: Select a Model
 
-Once connected, open the model picker from the chat input bar. Type `llm` to filter LLM Gateway models — you'll see all available models including Claude Opus 4.7, Claude Sonnet 4.6, DeepSeek, Gemini, and more:
+Once connected, open the model picker from the chat input bar. Type `llm` to filter LLM Gateway models. Pinned entries carry their serving provider in the name — "Claude Opus 5 (Anthropic)", "GPT-5.5 (Azure)" — while DevPass entries show the canonical name:
 
 ![LLM Gateway model selection](/images/guides/opencode-desktop/3-model-selection.png)
 

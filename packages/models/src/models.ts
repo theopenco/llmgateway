@@ -1,10 +1,13 @@
 import { alibabaModels } from "./models/alibaba.js";
 import { anthropicModels } from "./models/anthropic.js";
 import { atlascloudModels } from "./models/atlascloud.js";
+import { baaiModels } from "./models/baai.js";
+import { baiduModels } from "./models/baidu.js";
 import { bytedanceModels } from "./models/bytedance.js";
 import { deepseekModels } from "./models/deepseek.js";
 import { elevenlabsModels } from "./models/elevenlabs.js";
 import { googleModels } from "./models/google.js";
+import { inclusionaiModels } from "./models/inclusionai.js";
 import { llmgatewayModels } from "./models/llmgateway.js";
 import { metaModels } from "./models/meta.js";
 import { microsoftModels } from "./models/microsoft.js";
@@ -14,9 +17,11 @@ import { moonshotModels } from "./models/moonshot.js";
 import { nousresearchModels } from "./models/nousresearch.js";
 import { nvidiaModels } from "./models/nvidia.js";
 import { openaiModels } from "./models/openai.js";
+import { openbmbModels } from "./models/openbmb.js";
 import { perplexityModels } from "./models/perplexity.js";
 import { reveModels } from "./models/reve.js";
 import { sakanaModels } from "./models/sakana.js";
+import { tencentModels } from "./models/tencent.js";
 import { xaiModels } from "./models/xai.js";
 import { xiaomiModels } from "./models/xiaomi.js";
 import { zaiModels } from "./models/zai.js";
@@ -40,13 +45,7 @@ export type Price = string;
  * actually supports is declared per mapping via `reasoningEfforts`.
  */
 export type ReasoningEffort =
-	| "none"
-	| "minimal"
-	| "low"
-	| "medium"
-	| "high"
-	| "xhigh"
-	| "max";
+	"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 /**
  * Pricing tier for models with context-length based pricing
@@ -183,7 +182,7 @@ export interface ProviderModelMapping {
 	providerId: (typeof providers)[number]["id"];
 	/**
 	 * Provider-specific upstream model id used when calling the upstream
-	 * provider. Distinct from the root `ModelDefinition.id` and from any
+	 * provider. Distinct from the canonical `ModelDefinition.id` and from any
 	 * human-readable display name.
 	 */
 	externalId: string;
@@ -207,6 +206,13 @@ export interface ProviderModelMapping {
 	 * the OpenAI speech endpoint returns audio bytes without token usage.
 	 */
 	inputCharacterPrice?: Price;
+	/**
+	 * Price per hour of input audio in USD. Used by transcription
+	 * (speech-to-text) models that bill on audio duration rather than tokens
+	 * (e.g. xAI STT at $0.10/hour). Cost is computed against the `duration`
+	 * (seconds) reported by the upstream transcription response.
+	 */
+	inputAudioHourPrice?: Price;
 	/**
 	 * Price per image output token in USD (for models with separate text/image output pricing)
 	 */
@@ -297,11 +303,80 @@ export interface ProviderModelMapping {
 	 */
 	perSecondPrice?: Record<string, Price>;
 	/**
+	 * Price per generated output image in USD, keyed by resolution tier
+	 * (e.g. "1K", "2K") with a "default" fallback. For image models whose
+	 * provider bills a flat per-image rate that varies with the served
+	 * resolution rather than per token (e.g. Alibaba's qwen-image family,
+	 * whose usage reports the billed tier in `output_image_type`). Billed
+	 * per output image, unlike `requestPrice` which is flat per request.
+	 */
+	perImagePrice?: Record<string, Price>;
+	/**
 	 * Pricing tiers for models with context-length based pricing.
 	 * When set, inputPrice and outputPrice represent the base tier.
 	 * Tiers should be sorted by upToTokens in ascending order.
 	 */
 	pricingTiers?: PricingTier[];
+	/**
+	 * Peak/off-peak time-of-day pricing. The mapping's base
+	 * inputPrice/outputPrice/cachedInputPrice are the regular flat prices,
+	 * billed before `effectiveAt` (and always when `peakPricing` is absent).
+	 * On/after `effectiveAt`, `peak` applies while the current UTC hour falls
+	 * inside `hoursUtc` and `offPeak` applies otherwise. Only DeepSeek's
+	 * first-party API uses this today — peak 01:00-04:00 and 06:00-10:00 UTC
+	 * at double the off-peak rates, effective 2026-08-16.
+	 */
+	peakPricing?: {
+		/**
+		 * ISO-8601 instant when peak/off-peak pricing takes effect. Before
+		 * this date the mapping's base inputPrice/outputPrice/cachedInputPrice
+		 * (the regular flat rates) apply.
+		 */
+		effectiveAt: string;
+		/**
+		 * Prices charged during peak hours (on/after effectiveAt).
+		 */
+		peak: {
+			/**
+			 * Price per input token in USD during peak hours.
+			 */
+			inputPrice: Price;
+			/**
+			 * Price per output token in USD during peak hours.
+			 */
+			outputPrice: Price;
+			/**
+			 * Price per cached input token in USD during peak hours. When
+			 * unset, billing falls back to `inputPrice`, matching base-price
+			 * behavior.
+			 */
+			cachedInputPrice?: Price;
+		};
+		/**
+		 * Prices charged during off-peak hours (on/after effectiveAt).
+		 */
+		offPeak: {
+			/**
+			 * Price per input token in USD during off-peak hours.
+			 */
+			inputPrice: Price;
+			/**
+			 * Price per output token in USD during off-peak hours.
+			 */
+			outputPrice: Price;
+			/**
+			 * Price per cached input token in USD during off-peak hours. When
+			 * unset, billing falls back to `inputPrice`, matching base-price
+			 * behavior.
+			 */
+			cachedInputPrice?: Price;
+		};
+		/**
+		 * Peak hours in UTC as half-open [start, end) hour ranges (0-23). All
+		 * hours outside these ranges are off-peak.
+		 */
+		hoursUtc: readonly [start: number, end: number][];
+	};
 	/**
 	 * Maximum context window size in tokens
 	 */
@@ -329,6 +404,14 @@ export interface ProviderModelMapping {
 	 * Whether this specific model supports vision (image inputs) for this provider
 	 */
 	vision?: boolean;
+	/**
+	 * Whether remote image URLs must be fetched by the gateway and inlined as
+	 * base64 data URLs before the request goes upstream. Some deployments only
+	 * decode a subset of formats when they fetch the URL themselves (e.g.
+	 * Novita's ERNIE 4.5 VL endpoint accepts a remote JPEG but rejects a remote
+	 * PNG outright, while accepting the very same PNG bytes as a data URL).
+	 */
+	requiresBase64Images?: boolean;
 	/**
 	 * Whether this specific model accepts audio inputs (`input_audio` content
 	 * blocks) for this provider. Used by the `model: "auto"` router to avoid
@@ -367,6 +450,29 @@ export interface ProviderModelMapping {
 	 * parameter) when the caller requests reasoning.
 	 */
 	requiresEnableThinking?: boolean;
+	/**
+	 * Whether this provider mapping turns thinking off through a separate binary
+	 * `thinking: { type: "disabled" }` parameter instead of
+	 * `reasoning_effort: "none"`. Together AI serves reasoning models on two
+	 * stacks: its gpt-oss/Gemma deployments validate `reasoning_effort` and take
+	 * `none` there (sending `thinking` has no effect), while its
+	 * DeepSeek/MiniMax/Kimi deployments ignore `reasoning_effort: "none"` and
+	 * only honour the `thinking` switch. Only meaningful on mappings that
+	 * declare `none` in `reasoningEfforts`.
+	 */
+	requiresDisableThinkingParam?: boolean;
+	/**
+	 * Name of the chat-template kwargs key used to control thinking on
+	 * mappings that think by default and expose only a chat-template flag
+	 * (e.g. vLLM-hosted hybrid models). When set, `reasoning_effort: "none"`
+	 * sends `chat_template_kwargs: { [key]: false }` to turn thinking off, and
+	 * any other effort sends `{ [key]: true }` — a boolean value under the
+	 * named key. Differs from `requiresEnableThinking`, which always sends
+	 * `chat_template_kwargs: { thinking: true }`, and
+	 * `requiresDisableThinkingParam`, which sends a top-level
+	 * `thinking: { type: "disabled" }` object.
+	 */
+	chatTemplateThinkingKey?: string;
 	/**
 	 * Whether this model supports the OpenAI responses API (defaults to true if reasoning is true)
 	 */
@@ -425,7 +531,7 @@ export interface ProviderModelMapping {
 	/**
 	 * Whether this model supports explicit reasoning.max_tokens parameter.
 	 * When true, users can specify the exact token budget for reasoning instead of using reasoning_effort levels.
-	 * Supported by Anthropic and Google thinking models.
+	 * Used by Anthropic, Google, Alibaba, DeepSeek, Z.AI, and Moonshot thinking models.
 	 */
 	reasoningMaxTokens?: boolean;
 	/**
@@ -454,7 +560,10 @@ export interface ProviderModelMapping {
 	 */
 	parallelToolCalls?: boolean;
 	/**
-	 * Whether this specific model supports JSON output mode for this provider
+	 * SOFT JSON output (models API: `json_output`): the model can be nudged
+	 * into emitting JSON (response_format json_object / prompt guidance).
+	 * There is no server-side schema guarantee — off-schema or malformed JSON
+	 * is possible and must be caught by the consumer's parser.
 	 */
 	jsonOutput?: boolean;
 	/**
@@ -465,7 +574,13 @@ export interface ProviderModelMapping {
 	 */
 	healStreamingJsonOutput?: boolean;
 	/**
-	 * Whether this provider supports JSON schema output mode (json_schema response format)
+	 * STRICT JSON output schema (models API: `structured_outputs`): the
+	 * UPSTREAM PROVIDER enforces schema-guided decoding (e.g. OpenAI
+	 * structured outputs, vLLM guided decoding). Declare true ONLY when the
+	 * true upstream provider natively supports it. The gateway MUST NOT
+	 * emulate schema enforcement (no prompt+validate adapter); when false,
+	 * requests with response_format: json_schema are rejected with a 400
+	 * ("does not support JSON schema output mode").
 	 */
 	jsonOutputSchema?: boolean;
 	/**
@@ -476,6 +591,27 @@ export interface ProviderModelMapping {
 	 * Price per web search query in USD (charged when web search is used)
 	 */
 	webSearchPrice?: Price;
+	/**
+	 * Whether this mapping's upstream can *only* search when the caller forces
+	 * it, because it has no model-elected search to fall back on.
+	 *
+	 * DashScope's `enable_search` is documented as a hint the model may act on,
+	 * but on the Qwen models mapped here it never fires — even "what is the
+	 * current price of Bitcoin?" comes back at an unchanged prompt size with the
+	 * model stating it has no live access. Only `search_options.forced_search`
+	 * actually retrieves, and that searches on every single call.
+	 *
+	 * Neither half is a sane default: forcing bills a search (plus ~2k tokens of
+	 * injected snippets) on turns that never needed one, which is what a chat UI
+	 * with a "web search" toggle left on would do to every follow-up message,
+	 * and not forcing returns confidently stale answers while still occupying
+	 * the route that a genuinely search-capable provider would have served.
+	 *
+	 * So mappings with this flag are only eligible for a request that forces
+	 * search via `tool_choice: {type: "web_search"}`. A plain `web_search` tool
+	 * with `tool_choice: "auto"` routes elsewhere instead.
+	 */
+	webSearchForcedOnly?: boolean;
 	/**
 	 * Price per content filter violation in USD (charged additionally when the
 	 * provider rejects a request for safety/usage-policy reasons, e.g. xAI's
@@ -502,6 +638,14 @@ export interface ProviderModelMapping {
 	 * is not one of ['system', 'assistant', 'user', 'tool', 'function']").
 	 */
 	supportsDeveloperRole?: boolean;
+	/**
+	 * Whether this mapping's upstream accepts a conversation whose last message is
+	 * an assistant turn (assistant prefill / continuation). Defaults to `true`
+	 * (assumed supported). When set to `false`, routing skips this mapping for
+	 * requests that end on an assistant message, since the upstream rejects them
+	 * with a 400 ("a conversation cannot end on an assistant turn").
+	 */
+	supportsAssistantPrefill?: boolean;
 	/**
 	 * Test skip/only functionality
 	 */
@@ -540,12 +684,44 @@ export interface ProviderModelMapping {
 	 */
 	speechGenerations?: boolean;
 	/**
+	 * Whether this model uses the dedicated realtime WebSocket API.
+	 * When true, sessions are served by the gateway's /v1/realtime endpoint
+	 * (server-to-server WebSocket proxy) rather than /v1/chat/completions.
+	 * Pricing uses the modality-specific token prices on this mapping
+	 * (inputPrice/cachedInputPrice/outputPrice for text, inputAudioPrice/
+	 * cachedInputAudioPrice/outputAudioPrice for audio, imageInputPrice/
+	 * cachedImageInputPrice for image input).
+	 */
+	realtime?: boolean;
+	/**
+	 * Whether this mapping can transcribe input audio for realtime sessions.
+	 * When true, the gateway's /v1/realtime proxy allows this mapping as the
+	 * `input_audio_transcription.model` of a realtime session and bills each
+	 * `conversation.item.input_audio_transcription.completed` event against
+	 * this mapping's token prices (inputPrice for text tokens, inputAudioPrice
+	 * for audio tokens, outputPrice for output tokens). Only token-metered ASR
+	 * mappings may set this; duration-billed models are not priceable here.
+	 */
+	realtimeTranscription?: boolean;
+	/**
+	 * Whether this model uses a dedicated transcription (speech-to-text) API.
+	 * When true, requests are routed to the gateway's /v1/audio/transcriptions
+	 * endpoint, which turns audio into text rather than returning a chat
+	 * completion. Billed on audio duration via inputAudioHourPrice.
+	 */
+	transcriptions?: boolean;
+	/**
 	 * Whether this model uses a dedicated OCR (optical character recognition)
 	 * API. When true, requests are routed to the gateway's /v1/ocr endpoint,
 	 * which extracts text/markdown from documents and images rather than
 	 * returning a chat completion. Billed per page processed via ocrPagePrice.
 	 */
 	ocr?: boolean;
+	/**
+	 * Whether this model uses a dedicated rerank API.
+	 * When true, requests are routed to the gateway's /v1/rerank endpoint.
+	 */
+	rerank?: boolean;
 	/**
 	 * Prebuilt voices supported for speech generation models. The first entry is
 	 * used as the default when the caller does not specify a `voice`.
@@ -595,14 +771,7 @@ export interface ProviderModelMapping {
 export type StabilityLevel = "stable" | "beta" | "unstable" | "experimental";
 
 export type Quantization =
-	| "int4"
-	| "int8"
-	| "fp4"
-	| "fp6"
-	| "fp8"
-	| "fp16"
-	| "bf16"
-	| "fp32";
+	"int4" | "int8" | "fp4" | "fp6" | "fp8" | "fp16" | "bf16" | "fp32";
 
 export interface ModelDefinition {
 	/**
@@ -639,7 +808,16 @@ export interface ModelDefinition {
 	/**
 	 * Output formats supported by the model (defaults to ['text'] if not specified)
 	 */
-	output?: ("text" | "image" | "video" | "embedding" | "audio" | "ocr")[];
+	output?: (
+		| "text"
+		| "image"
+		| "video"
+		| "embedding"
+		| "audio"
+		| "ocr"
+		| "transcription"
+		| "rerank"
+	)[];
 	/**
 	 * Whether this model requires an image input to function (e.g. image editing models).
 	 */
@@ -675,6 +853,7 @@ export const models = [
 	...openaiModels,
 	...anthropicModels,
 	...googleModels,
+	...inclusionaiModels,
 	...perplexityModels,
 	...xaiModels,
 	...xiaomiModels,
@@ -686,11 +865,15 @@ export const models = [
 	...moonshotModels,
 	...alibabaModels,
 	...atlascloudModels,
+	...baaiModels,
+	...baiduModels,
 	...bytedanceModels,
 	...nousresearchModels,
 	...reveModels,
 	...sakanaModels,
+	...tencentModels,
 	...nvidiaModels,
+	...openbmbModels,
 	...zaiModels,
 	...elevenlabsModels,
 ] as const satisfies ModelDefinition[];

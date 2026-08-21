@@ -1,11 +1,22 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { apiAuth as auth, updateResendContact } from "@/auth/config.js";
+import {
+	apiAuth as auth,
+	deleteResendContact,
+	updateResendContact,
+} from "@/auth/config.js";
+import {
+	findSoleMemberOrganizations,
+	tearDownSoleMemberOrganizations,
+} from "@/lib/account-deletion.js";
+import { notifyUserAccountDeleted } from "@/utils/discord.js";
 import { computeProfileData, profileSchema } from "@/utils/profile.js";
 
 import { and, db, eq, tables } from "@llmgateway/db";
+import { getEnterpriseLicenseStatus } from "@llmgateway/shared/enterprise-license";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -15,6 +26,7 @@ const USERNAME_REGEX = /^[a-z0-9_-]{3,30}$/;
 
 const publicUserSchema = z.object({
 	id: z.string(),
+	createdAt: z.string().datetime(),
 	email: z.string(),
 	name: z.string().nullable(),
 	onboardingCompleted: z.boolean(),
@@ -33,6 +45,22 @@ const publicUserSchema = z.object({
 	),
 	hasPasskeys: z.boolean(),
 	isSsoUser: z.boolean(),
+});
+
+const enterpriseLicenseSchema = z.object({
+	status: z.enum([
+		"missing",
+		"invalid",
+		"not_yet_valid",
+		"active",
+		"grace",
+		"expired",
+		"development",
+	]),
+	enterpriseEnabled: z.boolean(),
+	whiteLabelEnabled: z.boolean(),
+	expiresAt: z.string().nullable(),
+	graceEndsAt: z.string().nullable(),
 });
 
 async function getUserAuthInfo(userId: string) {
@@ -75,6 +103,7 @@ function toPublicUser(
 ): z.infer<typeof publicUserSchema> {
 	return {
 		id: userRecord.id,
+		createdAt: userRecord.createdAt.toISOString(),
 		email: userRecord.email,
 		name: userRecord.name,
 		onboardingCompleted: userRecord.onboardingCompleted,
@@ -116,6 +145,7 @@ const get = createRoute({
 				"application/json": {
 					schema: z.object({
 						user: publicUserSchema.openapi({}),
+						enterpriseLicense: enterpriseLicenseSchema.openapi({}),
 					}),
 				},
 			},
@@ -146,9 +176,18 @@ user.openapi(get, async (c) => {
 
 	const authInfo = await getUserAuthInfo(authUser.id);
 	const isAdmin = isAdminEmail(user.email);
+	const license = getEnterpriseLicenseStatus();
 
 	return c.json({
 		user: toPublicUser(user, authInfo, isAdmin),
+		enterpriseLicense: {
+			status: license.status,
+			enterpriseEnabled: license.enterpriseEnabled,
+			whiteLabelEnabled:
+				license.enterpriseEnabled && license.kind === "white_label",
+			expiresAt: license.expiresAt,
+			graceEndsAt: license.graceEndsAt,
+		},
 	});
 });
 
@@ -438,6 +477,88 @@ user.openapi(updatePassword, async (c) => {
 	});
 });
 
+const soleMemberOrganizationSchema = z.object({
+	id: z.string(),
+	name: z.string(),
+	kind: z.enum(["default", "chat", "devpass"]),
+	plan: z.enum(["free", "pro", "enterprise"]),
+	devPlan: z.enum(["none", "lite", "pro", "max"]),
+	chatPlan: z.enum(["none", "starter", "plus", "pro"]),
+	credits: z.string(),
+	hasForfeitableCredits: z.boolean(),
+	activeSubscriptions: z.number(),
+});
+
+const getDeletionPreview = createRoute({
+	method: "get",
+	path: "/me/deletion-preview",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						organizations: z.array(soleMemberOrganizationSchema),
+						activeSubscriptions: z.number(),
+						forfeitedCredits: z.string(),
+					}),
+				},
+			},
+			description:
+				"Organizations that will be closed, the subscriptions that will be cancelled, and the credits that will be forfeited, if the account is deleted.",
+		},
+		401: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Unauthorized.",
+		},
+	},
+});
+
+user.openapi(getDeletionPreview, async (c) => {
+	const authUser = c.get("user");
+
+	if (!authUser) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const organizations = await findSoleMemberOrganizations(authUser.id);
+
+	return c.json(
+		{
+			organizations: organizations.map((org) => ({
+				id: org.id,
+				name: org.name,
+				kind: org.kind,
+				plan: org.plan,
+				devPlan: org.devPlan,
+				chatPlan: org.chatPlan,
+				credits: org.credits,
+				hasForfeitableCredits: org.hasForfeitableCredits,
+				activeSubscriptions: org.subscriptionIds.length,
+			})),
+			activeSubscriptions: organizations.reduce(
+				(total, org) => total + org.subscriptionIds.length,
+				0,
+			),
+			forfeitedCredits: organizations
+				.reduce(
+					(total, org) => total.plus(new Decimal(org.credits)),
+					new Decimal(0),
+				)
+				.toString(),
+		},
+		200,
+	);
+});
+
 const deleteUser = createRoute({
 	method: "delete",
 	path: "/me",
@@ -448,6 +569,9 @@ const deleteUser = createRoute({
 				"application/json": {
 					schema: z.object({
 						message: z.string(),
+						cancelledSubscriptions: z.number(),
+						closedOrganizations: z.number(),
+						forfeitedCredits: z.string(),
 					}),
 				},
 			},
@@ -497,14 +621,54 @@ user.openapi(deleteUser, async (c) => {
 		});
 	}
 
+	// Cancel billing before touching anything else. Deleting the user only
+	// cascades away their membership rows, so an organization they were the last
+	// member of would otherwise survive with a live Stripe subscription and no
+	// way to reach it — DevPass and Chat orgs are personal, so that is always the
+	// case for them. Doing this first means a Stripe failure aborts the deletion
+	// with the account still intact and retryable, rather than deleting the
+	// account while the card keeps being charged.
+	const closedOrganizations = await tearDownSoleMemberOrganizations(
+		authUser.id,
+	);
+	const cancelledSubscriptions = closedOrganizations.reduce(
+		(total, org) => total + org.subscriptionIds.length,
+		0,
+	);
+	const forfeitedCredits = closedOrganizations
+		.reduce(
+			(total, org) => total.plus(new Decimal(org.credits)),
+			new Decimal(0),
+		)
+		.toString();
+
+	// Sign out before deleting the user: the delete cascades the session rows
+	// away, after which better-auth can no longer resolve the session to revoke
+	// it or emit the cookie-clearing headers.
+	const signOutResult = await auth.api.signOut({
+		headers: c.req.raw.headers,
+		returnHeaders: true,
+	});
+
 	await db.delete(tables.user).where(eq(tables.user.id, authUser.id));
 
-	await auth.api.signOut({
-		headers: c.req.raw.headers,
+	await notifyUserAccountDeleted(userRecord.email, userRecord.name, {
+		closedOrganizations: closedOrganizations.length,
+		cancelledSubscriptions,
+		forfeitedCredits,
 	});
+
+	await deleteResendContact(userRecord.email);
+
+	for (const cookie of signOutResult.headers.getSetCookie()) {
+		c.header("set-cookie", cookie, { append: true });
+	}
 
 	return c.json({
 		message: "Account deleted successfully",
+		cancelledSubscriptions,
+		closedOrganizations: closedOrganizations.length,
+		forfeitedCredits,
 	});
 });
 

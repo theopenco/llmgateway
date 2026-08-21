@@ -118,7 +118,7 @@ const comparisonData = [
 			{
 				title: "Versioned prompt management",
 				description: "Prompt registry, templates, and deployments",
-				llmgateway: "Playground only",
+				llmgateway: "Lounge only",
 				portkey: true,
 			},
 			{
@@ -272,6 +272,16 @@ export function ComparisonPortkey() {
 					<p className="text-sm text-muted-foreground mt-3">
 						No credit card required • Self-host option available • Enterprise
 						support included
+					</p>
+					<p className="text-sm text-muted-foreground mt-3">
+						Weighing more options? See the{" "}
+						<Link
+							href="/blog/portkey-alternatives"
+							className="underline underline-offset-4 hover:text-foreground"
+						>
+							8 best Portkey alternatives in 2026
+						</Link>
+						.
 					</p>
 				</div>
 			</div>

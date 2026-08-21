@@ -175,6 +175,10 @@ describe("stats-calculator", () => {
 					unifiedFinishReason: "completed",
 					mode: "api-keys",
 					usedMode: "api-keys",
+					cost: 0.3,
+					inputCost: 0.1,
+					outputCost: 0.18,
+					cachedInputCost: 0.02,
 					createdAt: new Date(previousMinuteStart.getTime() + 30000), // 30 seconds in
 				},
 				{
@@ -198,6 +202,10 @@ describe("stats-calculator", () => {
 					unifiedFinishReason: "upstream_error",
 					mode: "api-keys",
 					usedMode: "api-keys",
+					cost: 0.15,
+					inputCost: 0.06,
+					outputCost: 0.08,
+					cachedInputCost: 0.01,
 					createdAt: new Date(previousMinuteStart.getTime() + 45000), // 45 seconds in
 				},
 				{
@@ -221,6 +229,10 @@ describe("stats-calculator", () => {
 					unifiedFinishReason: "completed",
 					mode: "api-keys",
 					usedMode: "api-keys",
+					cost: 0.5,
+					inputCost: 0.2,
+					outputCost: 0.3,
+					cachedInputCost: 0,
 					createdAt: new Date(previousMinuteStart.getTime() + 30000), // 30 seconds in
 				},
 			]);
@@ -251,6 +263,10 @@ describe("stats-calculator", () => {
 			expect(gptRecord?.totalCachedTokens).toBe(8); // 5 + 3
 			expect(gptRecord?.totalDuration).toBe(3000); // 1000 + 2000
 			expect(gptRecord?.cachedCount).toBe(0); // No cached requests for gpt-4
+			expect(gptRecord?.totalCost).toBeCloseTo(0.45); // 0.3 + 0.15
+			expect(gptRecord?.totalInputCost).toBeCloseTo(0.16); // 0.1 + 0.06
+			expect(gptRecord?.totalOutputCost).toBeCloseTo(0.26); // 0.18 + 0.08
+			expect(gptRecord?.totalCachedInputCost).toBeCloseTo(0.03); // 0.02 + 0.01
 			expect(gptRecord?.minuteTimestamp).toEqual(previousMinuteStart);
 
 			// Check Anthropic Claude record
@@ -271,6 +287,73 @@ describe("stats-calculator", () => {
 			expect(claudeRecord?.totalCachedTokens).toBe(0);
 			expect(claudeRecord?.totalDuration).toBe(1500);
 			expect(claudeRecord?.cachedCount).toBe(0); // No cached requests for claude
+			expect(claudeRecord?.totalInputCost).toBeCloseTo(0.2);
+			expect(claudeRecord?.totalOutputCost).toBeCloseTo(0.3);
+			expect(claudeRecord?.totalCachedInputCost).toBeCloseTo(0);
+		});
+
+		it("should only count requests that recorded a time to first token", async () => {
+			const previousMinuteStart = new Date("2024-01-01T12:29:00.000Z");
+
+			const base = {
+				requestId: "req",
+				organizationId: "org-1",
+				projectId: "proj-1",
+				apiKeyId: "key-1",
+				duration: 1000,
+				requestedModel: "gpt-4",
+				requestedProvider: "openai",
+				usedModel: "openai/gpt-4",
+				usedProvider: "openai",
+				responseSize: 100,
+				hasError: false,
+				promptTokens: "80",
+				completionTokens: "100",
+				totalTokens: "180",
+				unifiedFinishReason: "completed",
+				mode: "api-keys" as const,
+				usedMode: "api-keys" as const,
+				createdAt: new Date(previousMinuteStart.getTime() + 30000),
+			};
+
+			await db.insert(log).values([
+				// Streamed: contributes both a TTFT sample and its latency.
+				{ ...base, id: "log-streamed", streamed: true, timeToFirstToken: 200 },
+				// Non-streaming requests never record a TTFT, so they must not end
+				// up in the denominator — otherwise the average is halved here.
+				{
+					...base,
+					id: "log-non-streamed",
+					streamed: false,
+					timeToFirstToken: null,
+				},
+			]);
+
+			await calculateMinutelyHistory();
+
+			// Filter on the mapping: the rollup also writes zero-stat rows for
+			// every other active mapping, so an unfiltered select would pick an
+			// arbitrary one.
+			const [mappingRecord] = await db
+				.select()
+				.from(modelProviderMappingHistory)
+				.where(
+					and(
+						eq(modelProviderMappingHistory.modelId, "gpt-4"),
+						eq(modelProviderMappingHistory.providerId, "openai"),
+					),
+				);
+			expect(mappingRecord?.logsCount).toBe(2);
+			expect(mappingRecord?.totalTimeToFirstToken).toBe(200);
+			expect(mappingRecord?.timeToFirstTokenCount).toBe(1);
+
+			const [modelRecord] = await db
+				.select()
+				.from(modelHistory)
+				.where(eq(modelHistory.modelId, "gpt-4"));
+			expect(modelRecord?.logsCount).toBe(2);
+			expect(modelRecord?.totalTimeToFirstToken).toBe(200);
+			expect(modelRecord?.timeToFirstTokenCount).toBe(1);
 		});
 
 		it("should attribute region-suffixed logs to the matching regional mappings", async () => {
@@ -1439,6 +1522,9 @@ describe("stats-calculator", () => {
 					cachedCount: 2,
 					totalOutputTokens: 100,
 					totalDuration: 1000,
+					totalInputCost: 0.2,
+					totalOutputCost: 0.4,
+					totalCachedInputCost: 0.05,
 				},
 				{
 					modelId: "gpt-4",
@@ -1448,6 +1534,9 @@ describe("stats-calculator", () => {
 					cachedCount: 1,
 					totalOutputTokens: 50,
 					totalDuration: 500,
+					totalInputCost: 0.1,
+					totalOutputCost: 0.2,
+					totalCachedInputCost: 0.025,
 				},
 				// Previous hour entry should roll up into the 11:00 bucket
 				{
@@ -1499,6 +1588,9 @@ describe("stats-calculator", () => {
 			expect(gptCurrent?.cachedCount).toBe(3);
 			expect(gptCurrent?.totalOutputTokens).toBe(150);
 			expect(gptCurrent?.totalDuration).toBe(1500);
+			expect(gptCurrent?.totalInputCost).toBeCloseTo(0.3);
+			expect(gptCurrent?.totalOutputCost).toBeCloseTo(0.6);
+			expect(gptCurrent?.totalCachedInputCost).toBeCloseTo(0.075);
 
 			const gptPrevious = modelHourly.find(
 				(r) =>

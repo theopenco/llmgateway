@@ -1,3 +1,5 @@
+import { discountFraction, isValidDiscount } from "@llmgateway/shared";
+
 export interface DiscountData {
 	id: string;
 	provider: string | null;
@@ -8,29 +10,35 @@ export interface DiscountData {
 	createdAt: string;
 }
 
-// Discounts are stored as a 0-1 fraction (e.g. "0.5" = 50% off). Values outside
-// (0, 1] are treated as invalid data and ignored to avoid negative or inflated
-// prices.
-function isValidDiscount(discount?: string | null): boolean {
-	if (!discount) {
-		return false;
-	}
-	const n = Number(discount);
-	return Number.isFinite(n) && n > 0 && n <= 1;
-}
-
-// Discounts are always keyed by the root model id — the provider-specific
+// Discounts are always keyed by the canonical model id — the provider-specific
 // externalId is reserved for upstream requests and is never persisted as a
 // discount target.
-export function getBestDiscount(
+export function findEffectiveProviderDiscount(
 	discounts: DiscountData[],
+	providerId: string,
 	modelId: string,
 ): DiscountData | null {
 	const valid = discounts.filter((d) => isValidDiscount(d.discountPercent));
-	// Precedence: model-specific > fully global
-	const modelSpecific = valid.find((d) => d.model === modelId);
-	if (modelSpecific) {
-		return modelSpecific;
+	// Precedence: provider+model > provider > model > fully global
+	const providerModel = valid.find(
+		(d) => d.provider === providerId && d.model === modelId,
+	);
+	if (providerModel) {
+		return providerModel;
+	}
+
+	const providerOnly = valid.find(
+		(d) => d.provider === providerId && d.model === null,
+	);
+	if (providerOnly) {
+		return providerOnly;
+	}
+
+	const modelOnly = valid.find(
+		(d) => d.provider === null && d.model === modelId,
+	);
+	if (modelOnly) {
+		return modelOnly;
 	}
 
 	const fullyGlobal = valid.find(
@@ -43,46 +51,37 @@ export function getBestDiscount(
 	return null;
 }
 
+// The banner on a model page advertises the best deal a user can actually get
+// for that model right now, so it takes the highest effective discount across
+// the providers passed in. Callers pass only routable (non-deactivated)
+// providers, otherwise the banner would promise a price nobody can be served.
+export function getBestDiscount(
+	discounts: DiscountData[],
+	modelId: string,
+	providerIds: string[],
+): DiscountData | null {
+	let best: DiscountData | null = null;
+	for (const providerId of providerIds) {
+		const match = findEffectiveProviderDiscount(discounts, providerId, modelId);
+		if (
+			match &&
+			(!best || Number(match.discountPercent) > Number(best.discountPercent))
+		) {
+			best = match;
+		}
+	}
+	return best;
+}
+
 export function getEffectiveProviderDiscount(
 	discounts: DiscountData[],
 	providerId: string,
 	modelId: string,
 ): string | undefined {
-	const valid = discounts.filter((d) => isValidDiscount(d.discountPercent));
-	// Precedence: provider+model > provider > model > fully global
-	const providerModel = valid.find(
-		(d) => d.provider === providerId && d.model === modelId,
+	return (
+		findEffectiveProviderDiscount(discounts, providerId, modelId)
+			?.discountPercent ?? undefined
 	);
-	if (providerModel) {
-		return providerModel.discountPercent;
-	}
-
-	const providerOnly = valid.find(
-		(d) => d.provider === providerId && d.model === null,
-	);
-	if (providerOnly) {
-		return providerOnly.discountPercent;
-	}
-
-	const modelOnly = valid.find(
-		(d) => d.provider === null && d.model === modelId,
-	);
-	if (modelOnly) {
-		return modelOnly.discountPercent;
-	}
-
-	const fullyGlobal = valid.find(
-		(d) => d.provider === null && d.model === null,
-	);
-	if (fullyGlobal) {
-		return fullyGlobal.discountPercent;
-	}
-
-	return undefined;
-}
-
-export function discountFraction(discount?: string | null): number {
-	return isValidDiscount(discount) ? Number(discount) : 0;
 }
 
 export function applyDiscount(value: number, discount?: string | null): number {
@@ -99,3 +98,5 @@ export function perMillion(
 	const n = typeof price === "number" ? price : parseFloat(price);
 	return Number.isFinite(n) ? n * 1e6 : null;
 }
+
+export { discountFraction, isValidDiscount } from "@llmgateway/shared";

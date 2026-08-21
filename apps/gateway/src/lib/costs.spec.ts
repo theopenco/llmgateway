@@ -1,8 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { logger } from "@llmgateway/logger";
 
 import {
 	calculateCosts,
+	isBilledFailureFinishReason,
 	isRefusalFinishReason,
+	shouldBillCancelledRequests,
 	zeroInferenceCosts,
 } from "./costs.js";
 
@@ -691,6 +695,69 @@ describe("calculateCosts", () => {
 		expect(result.estimatedCost).toBe(false);
 	});
 
+	it("should bill RanoAI cached tokens at the cache-read rate", async () => {
+		// RanoAI does automatic prefix caching and charges input_cache_read
+		// (0.05/M), half the input rate. Without cachedInputPrice the engine
+		// falls back to inputPrice and would bill cached tokens at 2x.
+		const result = await calculateCosts(
+			"gemma-4-31b-it",
+			"ranoai",
+			null,
+			2521,
+			10,
+			2496, // cachedTokens
+		);
+
+		// 25 uncached * 0.1e-6 + 2496 cached * 0.05e-6
+		expect(result.inputCost).toBeCloseTo(0.0000025, 10);
+		expect(result.cachedInputCost).toBeCloseTo(0.0001248, 10);
+	});
+
+	it("should not double-bill RanoAI reasoning tokens", async () => {
+		// RanoAI reports reasoning in completion_tokens_details (hoisted to a
+		// top-level reasoning_tokens by the streaming transform) while already
+		// counting it inside completion_tokens, so it must not be added again.
+		const result = await calculateCosts(
+			"gemma-4-31b-it",
+			"ranoai",
+			null,
+			1000,
+			330, // completionTokens already includes the 267 reasoning tokens
+			null,
+			undefined,
+			267,
+		);
+
+		// inputPrice 0.1e-6, outputPrice 0.3e-6. Precision matters here: billing
+		// 330 vs 597 output tokens differs by only 8e-5, which the default
+		// two-decimal toBeCloseTo would not catch.
+		expect(result.inputCost).toBeCloseTo(0.0001, 10);
+		expect(result.outputCost).toBeCloseTo(0.000099, 10); // 330 * 0.3e-6, not 597
+		expect(result.completionTokens).toBe(330);
+	});
+
+	it("should not double-bill Baidu reasoning tokens", async () => {
+		// Qianfan reports reasoning in completion_tokens_details while already
+		// counting it inside completion_tokens: a thinking-only reply comes back
+		// as completion_tokens === reasoning_tokens, so adding it again would
+		// double the billed output.
+		const result = await calculateCosts(
+			"deepseek-v4-pro",
+			"baidu",
+			null,
+			1000,
+			400, // completionTokens already includes the 400 reasoning tokens
+			null,
+			undefined,
+			400,
+		);
+
+		// inputPrice 1.69e-6, outputPrice 3.38e-6.
+		expect(result.inputCost).toBeCloseTo(0.00169, 10);
+		expect(result.outputCost).toBeCloseTo(0.001352, 10); // 400 * 3.38e-6, not 800
+		expect(result.completionTokens).toBe(400);
+	});
+
 	it("should handle null reasoning tokens gracefully", async () => {
 		const result = await calculateCosts(
 			"gemini-2.5-pro",
@@ -875,6 +942,33 @@ describe("calculateCosts", () => {
 			);
 			expect(result.outputCost).toBeCloseTo(standardOutputCost * 2, 8);
 			expect(result.totalCost).toBeCloseTo(standardCost * 2, 8);
+		});
+
+		it("applies the Fireworks Priority multiplier (1.25x) to token costs", async () => {
+			const result = await calculateCosts(
+				"kimi-k3",
+				"fireworks",
+				null,
+				1000,
+				700,
+				200,
+				undefined,
+				null,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "priority" },
+			);
+			// Fireworks publishes Kimi K3 Priority at $3.75 / $0.375 / $18.75 per
+			// million, i.e. exactly 1.25x the standard $3.00 / $0.30 / $15.00.
+			expect(result.inputCost).toBeCloseTo(800 * 3.75e-6, 8);
+			expect(result.cachedInputCost).toBeCloseTo(200 * 0.375e-6, 8);
+			expect(result.outputCost).toBeCloseTo(700 * 18.75e-6, 8);
 		});
 
 		it("bills a downgraded request (servedServiceTier null) at standard rates", async () => {
@@ -1380,6 +1474,231 @@ describe("calculateCosts", () => {
 		expect(result.imageOutputCost).toBeCloseTo(1120 * (60 / 1e6));
 	});
 
+	it("bills perImagePrice by the served resolution tier for qwen-image-3.0-pro", async () => {
+		// qwen-image-3.0-pro: $0.04/image at 1K, $0.075/image at 2K
+		const at1k = await calculateCosts(
+			"qwen-image-3.0-pro",
+			"alibaba",
+			null,
+			100,
+			0,
+			null,
+			undefined,
+			null,
+			1, // outputImageCount
+			"1K",
+			0,
+		);
+		expect(at1k.imageOutputCost).toBeCloseTo(0.04);
+		expect(at1k.outputCost).toBeCloseTo(0.04);
+
+		const at2k = await calculateCosts(
+			"qwen-image-3.0-pro",
+			"alibaba",
+			null,
+			100,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			"2K",
+			0,
+		);
+		expect(at2k.imageOutputCost).toBeCloseTo(0.075);
+		expect(at2k.outputCost).toBeCloseTo(0.075);
+	});
+
+	it("falls back to the default perImagePrice tier for unknown or missing sizes", async () => {
+		// A raw pixel size that is not a tier key must not undercharge: it falls
+		// back to "default" ($0.075 for the pro model, the no-size 2K case).
+		const unknownSize = await calculateCosts(
+			"qwen-image-3.0-pro",
+			"alibaba",
+			null,
+			100,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			"1024x1024",
+			0,
+		);
+		expect(unknownSize.imageOutputCost).toBeCloseTo(0.075);
+
+		const noSize = await calculateCosts(
+			"qwen-image-3.0-pro",
+			"alibaba",
+			null,
+			100,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			undefined,
+			0,
+		);
+		expect(noSize.imageOutputCost).toBeCloseTo(0.075);
+	});
+
+	it("multiplies perImagePrice by the output image count", async () => {
+		// qwen-image-3.0 is $0.03/image at every tier; n=3 bills 3 images.
+		const result = await calculateCosts(
+			"qwen-image-3.0",
+			"alibaba",
+			null,
+			100,
+			0,
+			null,
+			undefined,
+			null,
+			3,
+			"1K",
+			0,
+		);
+		expect(result.imageOutputCost).toBeCloseTo(0.09);
+		expect(result.outputCost).toBeCloseTo(0.09);
+		expect(result.totalCost).toBeCloseTo(
+			(result.inputCost ?? 0) + 0.09 + (result.requestCost ?? 0),
+		);
+	});
+
+	it("bills perImagePrice even when prompt usage is absent or zero", async () => {
+		// An upstream response that omits prompt usage must still charge for the
+		// generated images instead of bailing out of cost calculation entirely.
+		const noPromptTokens = await calculateCosts(
+			"qwen-image-3.0",
+			"alibaba",
+			null,
+			null,
+			null,
+			null,
+			undefined,
+			null,
+			1,
+			"1K",
+			0,
+		);
+		expect(noPromptTokens.imageOutputCost).toBeCloseTo(0.03);
+		expect(noPromptTokens.outputCost).toBeCloseTo(0.03);
+		expect(noPromptTokens.totalCost).toBeCloseTo(0.03);
+
+		const zeroPromptTokens = await calculateCosts(
+			"qwen-image-3.0",
+			"alibaba",
+			null,
+			0,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			"1K",
+			0,
+		);
+		expect(zeroPromptTokens.imageOutputCost).toBeCloseTo(0.03);
+		expect(zeroPromptTokens.totalCost).toBeCloseTo(0.03);
+	});
+
+	it("bills grok-imagine-image-2.0 on the quality/resolution tier", async () => {
+		// Verified against xAI's own usage.cost_in_usd_ticks for each combination:
+		// low/1k $0.04, low/2k $0.06, medium/1k $0.06, medium/2k $0.08.
+		const grid: [string | undefined, string | undefined, number][] = [
+			["low", "1k", 0.04],
+			["low", "2k", 0.06],
+			["medium", "1k", 0.06],
+			["medium", "2k", 0.08],
+			// Omitted knobs fall back to what xAI serves by default: medium at 1k.
+			[undefined, undefined, 0.06],
+			[undefined, "2k", 0.08],
+			["low", undefined, 0.04],
+			// Pixel dimensions map onto the tier the request body sends.
+			["low", "1024x1024", 0.04],
+			["low", "2048x2048", 0.06],
+			// A quality the gateway drops as unsupported bills at xAI's default.
+			["auto", "1k", 0.06],
+		];
+
+		for (const [quality, size, expected] of grid) {
+			const result = await calculateCosts(
+				"grok-imagine-image-2-0",
+				"xai",
+				null,
+				100,
+				0,
+				null,
+				undefined,
+				null,
+				1,
+				size,
+				0,
+				null,
+				null,
+				quality,
+			);
+			expect(
+				result.imageOutputCost,
+				`quality=${quality} size=${size}`,
+			).toBeCloseTo(expected);
+		}
+	});
+
+	it("matches xAI's own reported cost for grok-4-6", async () => {
+		// Real grok-4.6 response: 213 prompt tokens (128 cached), 4 completion and
+		// 310 reasoning tokens, billed by xAI at 21180000 usd ticks = $0.002118.
+		// xAI reports reasoning tokens outside completion_tokens, so they are
+		// billed on top of the completion count.
+		const result = await calculateCosts(
+			"grok-4-6",
+			"xai",
+			null,
+			213,
+			4,
+			128,
+			undefined,
+			310,
+		);
+		expect(result.totalCost).toBeCloseTo(0.002118, 9);
+	});
+
+	it("bills Vertex Grok 4.6 reasoning outside completion tokens", async () => {
+		const result = await calculateCosts(
+			"grok-4-6",
+			"vertex-openai",
+			"global",
+			216,
+			1,
+			0,
+			undefined,
+			100,
+		);
+		expect(result.totalCost).toBeCloseTo(0.001038, 9);
+	});
+
+	it("multiplies the grok-imagine-image-2.0 tier by the image count", async () => {
+		// n=2 at low/1k billed $0.08 upstream, i.e. 2 x $0.04.
+		const result = await calculateCosts(
+			"grok-imagine-image-2-0",
+			"xai",
+			null,
+			100,
+			0,
+			null,
+			undefined,
+			null,
+			2,
+			"1k",
+			0,
+			null,
+			null,
+			"low",
+		);
+		expect(result.imageOutputCost).toBeCloseTo(0.08);
+		expect(result.outputCost).toBeCloseTo(0.08);
+	});
+
 	it("should include image costs in totalCost sum", async () => {
 		// totalCost = inputCost + outputCost + cachedInputCost + requestCost + webSearchCost
 		// (inputCost already includes imageInputCost, outputCost already includes imageOutputCost)
@@ -1750,6 +2069,185 @@ describe("isRefusalFinishReason", () => {
 	});
 });
 
+describe("output-token estimation guardrails", () => {
+	// Regression for the phantom-charge incident: a truncated agentic stream was
+	// billed 1,165,619 output tokens (9.1x the mapping's maxOutput) estimated
+	// from accumulated tool-call JSON, on a log row recording 0 output tokens.
+	const bigToolCall = [
+		{
+			id: "call_1",
+			type: "function" as const,
+			function: {
+				name: "search",
+				arguments: JSON.stringify({ q: "x".repeat(2_000_000) }),
+			},
+		},
+	];
+
+	it("does not estimate output tokens when estimation is disallowed", async () => {
+		const result = await calculateCosts(
+			"gpt-5.6-sol",
+			"openai",
+			null,
+			1000,
+			null,
+			null,
+			{ prompt: "hi", completion: "", toolResults: bigToolCall },
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			{ allowOutputEstimate: false },
+		);
+
+		expect(result.completionTokens).toBe(0);
+		expect(result.outputCost).toBe(0);
+		expect(result.inputCost).toBeGreaterThan(0);
+	});
+
+	it("clamps an estimated output count to the mapping's maxOutput", async () => {
+		const result = await calculateCosts(
+			"gpt-5.6-sol",
+			"openai",
+			null,
+			1000,
+			null,
+			null,
+			{ prompt: "hi", completion: "", toolResults: bigToolCall },
+		);
+
+		// gpt-5.6-sol advertises maxOutput 128000; the raw estimate is far larger.
+		expect(result.completionTokens).toBe(128000);
+		expect(result.outputCost).toBeCloseTo(128000 * 30e-6, 6);
+	});
+
+	it("never clamps a provider-reported output count", async () => {
+		const reported = 200000;
+		const result = await calculateCosts(
+			"gpt-5.6-sol",
+			"openai",
+			null,
+			1000,
+			reported,
+		);
+
+		expect(result.completionTokens).toBe(reported);
+		expect(result.outputCost).toBeCloseTo(reported * 30e-6, 6);
+	});
+
+	it("does not re-encode tool-call arguments when estimating", async () => {
+		// `arguments` is already a JSON string; JSON.stringify-ing it again
+		// escapes every quote and inflates the chars/4 estimate.
+		const args = JSON.stringify({ query: "a".repeat(400) });
+		const result = await calculateCosts(
+			"gpt-5.6-sol",
+			"openai",
+			null,
+			1000,
+			null,
+			null,
+			{
+				prompt: "hi",
+				completion: "",
+				toolResults: [
+					{
+						id: "call_1",
+						type: "function" as const,
+						function: { name: "search", arguments: args },
+					},
+				],
+			},
+		);
+
+		const withoutReEncoding = Math.ceil(("search" + args).length / 4);
+		expect(result.completionTokens).toBeLessThanOrEqual(withoutReEncoding);
+	});
+});
+
+describe("estimated-cost warning", () => {
+	// So an estimated charge is auditable after the fact: grep the message, and
+	// the trace id the logger attaches leads back to the log row it charged.
+	beforeEach(() => {
+		vi.mocked(mockGetEffectiveDiscount).mockImplementation(async () => ({
+			discount: "0",
+			source: "none",
+		}));
+	});
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	it("warns when a billed request used estimated token counts", async () => {
+		const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+
+		await calculateCosts("gpt-4", "openai", null, null, null, null, {
+			prompt: "Hello, how are you?",
+			completion: "I'm doing well, thank you for asking!",
+		});
+
+		const call = warn.mock.calls.find(
+			([message]) => message === "Billed a request on estimated token counts",
+		);
+		expect(call).toBeDefined();
+		expect(call?.[1]).toMatchObject({
+			model: "gpt-4",
+			provider: "openai",
+			promptTokensEstimated: true,
+			completionTokensEstimated: true,
+		});
+	});
+
+	it("does not warn when both token counts came from the provider", async () => {
+		const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+
+		await calculateCosts("gpt-4", "openai", null, 100, 50, null);
+
+		expect(
+			warn.mock.calls.some(
+				([message]) => message === "Billed a request on estimated token counts",
+			),
+		).toBe(false);
+	});
+
+	it("does not warn when the estimate produced no charge", async () => {
+		const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+
+		// Prompt tokens reported, output estimation disallowed: nothing is
+		// invented, so there is nothing to audit.
+		await calculateCosts(
+			"gpt-4",
+			"openai",
+			null,
+			100,
+			0,
+			null,
+			{ prompt: "hi", completion: "" },
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			{ allowOutputEstimate: false },
+		);
+
+		expect(
+			warn.mock.calls.some(
+				([message]) => message === "Billed a request on estimated token counts",
+			),
+		).toBe(false);
+	});
+});
+
 describe("zeroInferenceCosts", () => {
 	it("zeroes every inference cost field in place but leaves data storage", () => {
 		const costs = {
@@ -1782,5 +2280,175 @@ describe("zeroInferenceCosts", () => {
 		expect(costs.totalCost).toBe(0);
 		// Storage retention is billed separately from inference.
 		expect(costs.dataStorageCost).toBe(0.01);
+	});
+});
+
+describe("isBilledFailureFinishReason", () => {
+	it("keeps client errors and content filters billable", () => {
+		expect(isBilledFailureFinishReason("client_error")).toBe(true);
+		expect(isBilledFailureFinishReason("content_filter")).toBe(true);
+	});
+
+	it("is false for gateway- and upstream-side failures", () => {
+		expect(isBilledFailureFinishReason("upstream_error")).toBe(false);
+		expect(isBilledFailureFinishReason("gateway_error")).toBe(false);
+		// A timeout or buffer overflow aborts before any finish reason is known.
+		expect(isBilledFailureFinishReason(null)).toBe(false);
+		expect(isBilledFailureFinishReason(undefined)).toBe(false);
+	});
+});
+
+describe("shouldBillCancelledRequests", () => {
+	const original = process.env.BILL_CANCELLED_REQUESTS;
+
+	afterEach(() => {
+		if (original === undefined) {
+			delete process.env.BILL_CANCELLED_REQUESTS;
+		} else {
+			process.env.BILL_CANCELLED_REQUESTS = original;
+		}
+	});
+
+	// Regression for GHSA-724j-f2pf-phf7: an unset value must bill cancelled
+	// requests so a client cannot abort a stream after receiving content to
+	// dodge usage/cost accounting.
+	it("defaults to true when unset", () => {
+		delete process.env.BILL_CANCELLED_REQUESTS;
+		expect(shouldBillCancelledRequests()).toBe(true);
+	});
+
+	it("defaults to true for an empty string (Helm's empty ConfigMap value)", () => {
+		process.env.BILL_CANCELLED_REQUESTS = "";
+		expect(shouldBillCancelledRequests()).toBe(true);
+	});
+
+	it("stays enabled when explicitly set to true", () => {
+		process.env.BILL_CANCELLED_REQUESTS = "true";
+		expect(shouldBillCancelledRequests()).toBe(true);
+	});
+
+	it("only disables billing when explicitly set to false", () => {
+		process.env.BILL_CANCELLED_REQUESTS = "false";
+		expect(shouldBillCancelledRequests()).toBe(false);
+	});
+});
+
+describe("peak / off-peak time-of-day pricing (DeepSeek)", () => {
+	beforeEach(() => {
+		vi.mocked(mockGetEffectiveDiscount).mockImplementation(async () => ({
+			discount: "0",
+			source: "none",
+		}));
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	const setTime = (iso: string) => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		vi.setSystemTime(new Date(iso));
+	};
+
+	it("bills off-peak rates outside the peak window", async () => {
+		setTime("2026-08-17T12:00:00Z"); // 12:00 UTC — off-peak
+
+		const flash = await calculateCosts(
+			"deepseek-v4-flash",
+			"deepseek",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		expect(flash.inputCost).toBeCloseTo(0.22);
+		expect(flash.outputCost).toBeCloseTo(0.66);
+		expect(flash.cachedInputCost).toBeCloseTo(0.007);
+
+		const pro = await calculateCosts(
+			"deepseek-v4-pro",
+			"deepseek",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		expect(pro.inputCost).toBeCloseTo(0.66);
+		expect(pro.outputCost).toBeCloseTo(1.98);
+		expect(pro.cachedInputCost).toBeCloseTo(0.022);
+	});
+
+	it("bills peak rates inside the peak window", async () => {
+		setTime("2026-08-17T02:00:00Z"); // 02:00 UTC — peak (01:00-04:00)
+
+		const flash = await calculateCosts(
+			"deepseek-v4-flash",
+			"deepseek",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		expect(flash.inputCost).toBeCloseTo(0.44);
+		expect(flash.outputCost).toBeCloseTo(1.32);
+		expect(flash.cachedInputCost).toBeCloseTo(0.014);
+
+		const pro = await calculateCosts(
+			"deepseek-v4-pro",
+			"deepseek",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		expect(pro.inputCost).toBeCloseTo(1.32);
+		expect(pro.outputCost).toBeCloseTo(3.96);
+		expect(pro.cachedInputCost).toBeCloseTo(0.044);
+	});
+
+	it("bills off-peak rates at the first window boundary (04:00 UTC)", async () => {
+		setTime("2026-08-17T04:00:00Z");
+
+		const flash = await calculateCosts(
+			"deepseek-v4-flash",
+			"deepseek",
+			null,
+			1_000_000,
+			0,
+			null,
+		);
+		expect(flash.inputCost).toBeCloseTo(0.22);
+	});
+
+	it("bills peak rates in the second window (06:00-10:00 UTC)", async () => {
+		setTime("2026-08-17T08:00:00Z");
+
+		const flash = await calculateCosts(
+			"deepseek-v4-flash",
+			"deepseek",
+			null,
+			1_000_000,
+			0,
+			null,
+		);
+		expect(flash.inputCost).toBeCloseTo(0.44);
+	});
+
+	it("bills base (regular flat) rates before effectiveAt", async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		vi.setSystemTime(new Date("2026-08-13T08:00:00Z")); // before effectiveAt
+
+		const flash = await calculateCosts(
+			"deepseek-v4-flash",
+			"deepseek",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		// The base (regular) flat prices apply before effectiveAt
+		expect(flash.inputCost).toBeCloseTo(0.14); // base: 0.14e-6 * 1M (prompt - cached = 1M)
+		expect(flash.outputCost).toBeCloseTo(0.28); // base: 0.28e-6 * 1M
+		expect(flash.cachedInputCost).toBeCloseTo(0.0028); // base: 0.0028e-6 * 1M
 	});
 });

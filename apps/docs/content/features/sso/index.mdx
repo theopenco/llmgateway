@@ -19,14 +19,14 @@ LLM Gateway supports per-organization **SAML 2.0 single sign-on (SSO)** and **SC
 
 ## What each part does
 
-- **SSO (authentication)** — lets your members sign in with your identity provider (Microsoft Entra ID, Okta, or any SAML 2.0 IdP). Sign-in is routed by **email domain**: a user clicks **Sign in with SSO**, enters their work email, and is redirected to the correct provider. A connection can list **multiple domains** (comma-separated, editable on the connection card) — the list must cover every domain the IdP may assert as a user's email, e.g. both the UPN and `mail` domains on Entra when they differ. SSO only _authenticates_ existing members — it does not create the organization.
+- **SSO (authentication)** — lets your members sign in with your identity provider (Microsoft Entra ID, Okta, or any SAML 2.0 IdP). Sign-in is routed by **email domain**: a user clicks **Sign in with SSO**, enters their work email, and is redirected to the correct provider. A connection can list **multiple domains** (comma-separated, editable on the connection card) — the list must cover every domain the IdP may assert as a user's email, e.g. both the UPN and `mail` domains on Entra when they differ. A first-time SSO sign-in automatically joins the user to the organization that owns the connection as a **developer** with the configured default project access — it does not create the organization itself.
 - **SCIM (provisioning)** — pushes user and group create / update / deactivate / delete from your directory into the organization, so people are added and removed automatically. Provisioned members default to the **developer** role.
 - **Group → role mapping** _(optional)_ — map directory groups to organization roles (`admin` / `developer`). On any membership change, a member receives the **highest** mapped role among their groups. Owners are never auto-demoted.
 - **Default project access** _(optional)_ — choose which projects newly provisioned SSO/SCIM members (the `developer` role) can access by default. Owners/admins always see every project, so this only affects developers. Left unconfigured, new members get the organization's first (default) project. Applies to members provisioned after you set it, not retroactively.
 
 ## Prerequisites
 
-1. **Members exist first.** SSO authenticates existing members. People join the organization either through normal signup/invite or by being pushed via SCIM.
+1. **Membership is granted on sign-in.** Anyone your IdP authenticates for the connection joins the organization on their first SSO sign-in (as a **developer**). Members can also join earlier through normal signup/invite or by being pushed via SCIM.
 2. **The organization is on the Enterprise plan.** An admin flips the org to `enterprise` to unlock the feature.
 3. **`SSO_ENABLED=true` on the deployment.** This global env flag controls whether the **Sign in with SSO** button appears on the login page. The admin config page works without it, but end users can't log in via SSO until it's on.
 
@@ -63,9 +63,10 @@ The token is scoped to a single organization, so every user and group your IdP p
 ## Provider guides
 
 - [Microsoft Entra ID](/features/sso/entra) — set up SAML SSO and SCIM provisioning with Entra ID (formerly Azure AD).
+- [Okta](/features/sso/okta) — set up SAML SSO and SCIM provisioning with a custom Okta app integration.
 - [Google Workspace](/features/sso/google) — no SAML app needed: members sign in with the standard **Sign in with Google** button and auto-join your organization by email domain.
 
-Okta and any other SAML 2.0 IdP follow the same flow; pick the matching **Identity provider** type when you create the connection so the correct claim mapping is applied.
+Any other SAML 2.0 IdP follows the same flow; pick the matching **Identity provider** type when you create the connection so the correct claim mapping is applied.
 
 ## End-user sign-in flow
 

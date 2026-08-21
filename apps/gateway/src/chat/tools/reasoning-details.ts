@@ -11,6 +11,25 @@ const THINK_TAG_PAIRS = [
 	},
 ] as const;
 
+/**
+ * Build a "reasoning.encrypted" reasoning_details entry from an OpenAI
+ * Responses API reasoning output item that carries encrypted_content.
+ * `index` is the item's position in the Responses API output array so
+ * replayed items keep their original ordering.
+ */
+export function buildEncryptedReasoningDetail(
+	item: { encrypted_content: string; id?: unknown },
+	index: number,
+): ReasoningDetail {
+	return {
+		type: "reasoning.encrypted",
+		data: item.encrypted_content,
+		...(typeof item.id === "string" && { id: item.id }),
+		format: "openai-responses-v1",
+		index,
+	};
+}
+
 export interface TaggedStreamingReasoningState {
 	inReasoning: boolean;
 	pending: string;

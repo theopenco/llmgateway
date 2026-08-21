@@ -1,0 +1,86 @@
+---
+title: Structured outputs
+description: Soft JSON output vs strict JSON output schema — what LLM Gateway declares and how it enforces each
+icon: Braces
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+LLM Gateway exposes **two distinct JSON capabilities**, and they are kept
+separate on every surface: the models API, the [models
+directory](https://llmgateway.io/models), the model detail pages, and the
+gateway's request validation.
+
+## Soft JSON output (`json_output`)
+
+A model with soft JSON output can be **nudged** into emitting JSON — typically
+via `response_format: { "type": "json_object" }` or prompt guidance. There is
+no server-side schema guarantee: the model may still produce off-schema or
+malformed JSON, so the consumer's parser must be able to handle it.
+
+## Strict JSON output schema (`structured_outputs`)
+
+A model with strict JSON output schema is served by an **upstream provider
+that natively enforces schema-guided decoding** (for example OpenAI structured
+outputs or vLLM guided decoding). You provide a JSON schema via
+`response_format: { "type": "json_schema", "json_schema": { ... } }` and the
+provider guarantees the output conforms to it.
+
+<Callout type="info">
+	The gateway only **declares** this capability — it never emulates schema
+	enforcement (no prompt-and-validate adapter). A model whose provider does not
+	natively support `json_schema` rejects such requests with `400 does not
+	support JSON schema output mode`. That rejection is **by design**, not a
+	missing feature.
+</Callout>
+
+## Field mapping
+
+| Models API field     | Catalogue flag     | Meaning                                       |
+| -------------------- | ------------------ | --------------------------------------------- |
+| `json_output`        | `jsonOutput`       | Soft: nudged JSON, no schema guarantee        |
+| `structured_outputs` | `jsonOutputSchema` | Strict: upstream provider enforces the schema |
+
+The snake_case names are what the OpenAI-compatible [`/v1/models`](/learn/models) endpoint exposes;
+the camelCase names are used in the model catalogue and the directory UI.
+
+The two tiers are **independent per provider mapping**: a provider may support
+strict `json_schema` without soft `json_object` (for example Runware or
+Perplexity declare `structured_outputs` without `json_output`), or soft
+`json_object` without strict schema. The gateway routes each mode by its own
+flag — `json_schema` requests only require `structured_outputs`, they are never
+emulated or silently downgraded.
+
+## How to verify a model
+
+Probe a model with a strict `json_schema` request:
+
+```bash
+curl -s https://api.llmgateway.io/v1/chat/completions \
+  -H "Authorization: Bearer $LLMGATEWAY_API_KEY" \
+  -d '{
+    "model": "gpt-4o-mini",
+    "messages": [{ "role": "user", "content": "Reply JSON: {\"ok\":true}" }],
+    "max_tokens": 16,
+    "response_format": {
+      "type": "json_schema",
+      "json_schema": {
+        "name": "probe",
+        "strict": true,
+        "schema": {
+          "type": "object",
+          "properties": { "ok": { "type": "boolean" } },
+          "required": ["ok"],
+          "additionalProperties": false
+        }
+      }
+    }
+  }'
+```
+
+- `200` → the upstream provider enforces the schema; the model should declare `structured_outputs: true`.
+- `400 does not support JSON schema output mode` → soft-only; the model should expose `json_output` without `structured_outputs`.
+
+The probe above can be run for any model listed in `GET /v1/models`; a
+declared flag that does not match the observed status is a catalog bug and
+should be reported against the repository.

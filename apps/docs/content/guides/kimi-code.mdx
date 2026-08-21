@@ -1,6 +1,6 @@
 ---
 title: Kimi Code Integration
-description: Use GPT-5, Claude, Gemini, or any model with Kimi Code CLI. Custom provider configuration, full cost tracking.
+description: Install Kimi Code CLI on macOS, Linux, or Windows, then point it at GPT-5, Claude, Kimi K3, or 200+ models through LLM Gateway. Provider setup in six steps.
 icon: KimiCode
 ---
 
@@ -10,6 +10,14 @@ import { Callout } from "fumadocs-ui/components/callout";
 [Kimi Code CLI](https://github.com/MoonshotAI/kimi-code) is an open-source, AI-powered coding agent developed by Moonshot AI designed to automate software development tasks directly within your terminal. It can read and edit code, execute shell commands, search files, and autonomously manage complex coding workflows.
 
 Kimi Code features first-class support for the **models.dev** registry, a community-maintained model catalog. This allows Kimi Code to query and configure LLM Gateway dynamically — fetching all compatible models, capabilities (such as thinking or vision), and pricing without requiring manual TOML editing.
+
+<Callout type="info">
+	**Using DevPass?** This integration also works with a
+	[DevPass](https://devpass.llmgateway.io) plan key. Use canonical model IDs
+	without a provider prefix (`claude-sonnet-4-5`, not
+	`anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on
+	coding plans; the gateway picks the provider for you.
+</Callout>
 
 ## Prerequisites
 

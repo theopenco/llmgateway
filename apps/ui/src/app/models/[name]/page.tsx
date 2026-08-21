@@ -4,6 +4,7 @@ import {
 	ArrowLeft,
 	Zap,
 	Eye,
+	FileJson2,
 	Wrench,
 	MessageSquare,
 	ImagePlus,
@@ -22,9 +23,13 @@ import { DetailProviderCards } from "@/components/models/detail-provider-cards";
 import { GlobalDiscountBanner } from "@/components/models/global-discount-banner";
 import { ModelBenchmarks } from "@/components/models/model-benchmarks";
 import { ModelCtaButton } from "@/components/models/model-cta-button";
+import { ModelFaqSection } from "@/components/models/model-faq";
 import { ModelRating } from "@/components/models/model-rating";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
+import { ModelUsageStats } from "@/components/models/model-usage-stats";
 import { ProviderTabs } from "@/components/models/provider-tabs";
+import { RelatedModels } from "@/components/models/related-models";
+import { JsonLd } from "@/components/seo/json-ld";
 import { Badge } from "@/lib/components/badge";
 import {
 	applyDiscount,
@@ -33,6 +38,7 @@ import {
 	perMillion,
 } from "@/lib/discount";
 import { fetchModelDiscounts } from "@/lib/fetch-models";
+import { buildFaqSchema, buildModelFaqs } from "@/lib/model-faq";
 import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -43,6 +49,7 @@ import {
 	type StabilityLevel,
 	type ModelDefinition,
 } from "@llmgateway/models";
+import { isMappingDeactivated } from "@llmgateway/shared/components";
 
 import type { Metadata } from "next";
 
@@ -115,9 +122,29 @@ export default async function ModelPage({ params }: PageProps) {
 			discount: globalDiscount,
 		};
 	});
-	const currentModelDiscount = getBestDiscount(allDiscounts, decodedName);
+	// Aggregated metrics (pricing, context, capabilities) describe what can
+	// actually be routed today, so deactivated providers are excluded. Models
+	// whose providers are all deactivated fall back to showing everything.
+	const activeProviders = modelProviders.filter(
+		(p) => !isMappingDeactivated(p),
+	);
+	const visibleProviders =
+		activeProviders.length > 0 ? activeProviders : modelProviders;
+
+	const currentModelDiscount = getBestDiscount(
+		allDiscounts,
+		decodedName,
+		Array.from(new Set(activeProviders.map((p) => p.providerId))),
+	);
+	const currentModelDiscountProvider = currentModelDiscount?.provider
+		? (providerDefinitions.find((p) => p.id === currentModelDiscount.provider)
+				?.name ?? currentModelDiscount.provider)
+		: null;
 
 	const adaptedModel = adaptModel(modelDef, modelProviders);
+
+	const faqs = buildModelFaqs(modelDef, visibleProviders);
+	const faqSchema = buildFaqSchema(faqs);
 
 	const breadcrumbSchema = {
 		"@context": "https://schema.org",
@@ -144,7 +171,7 @@ export default async function ModelPage({ params }: PageProps) {
 		],
 	};
 
-	const providerPrices = modelProviders
+	const providerPrices = visibleProviders
 		.filter((p) => p.inputPrice)
 		.map((p) => applyDiscount(perMillion(p.inputPrice)!, p.discount));
 	const lowestInputPrice = Math.min(...providerPrices);
@@ -168,7 +195,7 @@ export default async function ModelPage({ params }: PageProps) {
 			priceCurrency: "USD",
 			lowPrice: isFinite(lowestInputPrice) ? lowestInputPrice : 0,
 			highPrice: isFinite(highestInputPrice) ? highestInputPrice : 0,
-			offerCount: modelProviders.length,
+			offerCount: visibleProviders.length,
 			availability: "https://schema.org/InStock",
 			url: `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`,
 		},
@@ -178,20 +205,7 @@ export default async function ModelPage({ params }: PageProps) {
 
 	return (
 		<>
-			<script
-				type="application/ld+json"
-				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-				dangerouslySetInnerHTML={{
-					__html: JSON.stringify(breadcrumbSchema),
-				}}
-			/>
-			<script
-				type="application/ld+json"
-				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-				dangerouslySetInnerHTML={{
-					__html: JSON.stringify(productSchema),
-				}}
-			/>
+			<JsonLd data={[breadcrumbSchema, productSchema, faqSchema]} />
 			<Navbar />
 			<div className="min-h-screen bg-background pt-24 md:pt-32 pb-16">
 				<div className="container mx-auto px-4 py-8">
@@ -276,20 +290,33 @@ export default async function ModelPage({ params }: PageProps) {
 								<Activity className="h-3.5 w-3.5" />
 								View uptime
 							</Link>
+
+							<ModelUsageStats modelId={decodedName} />
 						</div>
 
 						<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm text-muted-foreground mb-4">
 							<div>
 								{Math.max(
-									...modelProviders.map((p) => p.contextSize ?? 0),
+									...visibleProviders.map((p) => p.contextSize ?? 0),
 								).toLocaleString()}{" "}
 								context
 							</div>
-							{modelProviders.some((p) => p.inputPrice) && (
+							{modelDef.releasedAt && (
+								<div>
+									Released{" "}
+									{modelDef.releasedAt.toLocaleDateString("en-US", {
+										year: "numeric",
+										month: "long",
+										day: "numeric",
+										timeZone: "UTC",
+									})}
+								</div>
+							)}
+							{visibleProviders.some((p) => p.inputPrice) && (
 								<div>
 									Starting at{" "}
 									{(() => {
-										const inputPrices = modelProviders
+										const inputPrices = visibleProviders
 											.filter((p) => p.inputPrice)
 											.map((p) => ({
 												price: applyDiscount(
@@ -310,18 +337,18 @@ export default async function ModelPage({ params }: PageProps) {
 											: `$${minPrice.toFixed(2)}/M`;
 									})()}{" "}
 									input tokens
-									{modelProviders.some(
+									{visibleProviders.some(
 										(p) => (p.pricingTiers?.length ?? 0) > 1,
 									) && (
 										<span className="text-muted-foreground/70"> (tiered)</span>
 									)}
 								</div>
 							)}
-							{modelProviders.some((p) => p.outputPrice) && (
+							{visibleProviders.some((p) => p.outputPrice) && (
 								<div>
 									Starting at{" "}
 									{(() => {
-										const outputPrices = modelProviders
+										const outputPrices = visibleProviders
 											.filter((p) => p.outputPrice)
 											.map((p) => ({
 												price: applyDiscount(
@@ -342,18 +369,20 @@ export default async function ModelPage({ params }: PageProps) {
 											: `$${minPrice.toFixed(2)}/M`;
 									})()}{" "}
 									output tokens
-									{modelProviders.some(
+									{visibleProviders.some(
 										(p) => (p.pricingTiers?.length ?? 0) > 1,
 									) && (
 										<span className="text-muted-foreground/70"> (tiered)</span>
 									)}
 								</div>
 							)}
-							{modelProviders.some((p) => p.imageOutputPrice !== undefined) && (
+							{visibleProviders.some(
+								(p) => p.imageOutputPrice !== undefined,
+							) && (
 								<div>
 									Starting at{" "}
 									{(() => {
-										const imageOutputPrices = modelProviders
+										const imageOutputPrices = visibleProviders
 											.filter((p) => p.imageOutputPrice !== undefined)
 											.map((p) => ({
 												price: applyDiscount(
@@ -381,7 +410,7 @@ export default async function ModelPage({ params }: PageProps) {
 									image output tokens
 								</div>
 							)}
-							{modelProviders.some(
+							{visibleProviders.some(
 								(p) =>
 									p.perSecondPrice && Object.keys(p.perSecondPrice).length > 0,
 							) && (
@@ -389,7 +418,7 @@ export default async function ModelPage({ params }: PageProps) {
 									Starting at{" "}
 									{(() => {
 										let minPrice: number | undefined;
-										for (const p of modelProviders) {
+										for (const p of visibleProviders) {
 											if (!p.perSecondPrice) {
 												continue;
 											}
@@ -411,11 +440,42 @@ export default async function ModelPage({ params }: PageProps) {
 									video generation
 								</div>
 							)}
-							{modelProviders.some((p) => p.ocrPagePrice !== undefined) && (
+							{visibleProviders.some(
+								(p) =>
+									p.perImagePrice && Object.keys(p.perImagePrice).length > 0,
+							) && (
 								<div>
 									Starting at{" "}
 									{(() => {
-										const pagePrices = modelProviders
+										let minPrice: number | undefined;
+										for (const p of visibleProviders) {
+											if (!p.perImagePrice) {
+												continue;
+											}
+											for (const v of Object.values(p.perImagePrice)) {
+												const raw =
+													typeof v === "number" ? v : parseFloat(String(v));
+												if (!Number.isFinite(raw)) {
+													continue;
+												}
+												const n = applyDiscount(raw, p.discount);
+												if (minPrice === undefined || n < minPrice) {
+													minPrice = n;
+												}
+											}
+										}
+										return minPrice !== undefined
+											? `$${parseFloat(minPrice.toFixed(4))}/image`
+											: "Unknown";
+									})()}{" "}
+									image generation
+								</div>
+							)}
+							{visibleProviders.some((p) => p.ocrPagePrice !== undefined) && (
+								<div>
+									Starting at{" "}
+									{(() => {
+										const pagePrices = visibleProviders
 											.filter((p) => p.ocrPagePrice !== undefined)
 											.map((p) => Number(p.ocrPagePrice))
 											.filter((n) => Number.isFinite(n));
@@ -439,11 +499,16 @@ export default async function ModelPage({ params }: PageProps) {
 									label: string;
 									color: string;
 								}> = [];
-								const hasStreaming = modelProviders.some((p) => p.streaming);
-								const hasVision = modelProviders.some((p) => p.vision);
-								const hasTools = modelProviders.some((p) => p.tools);
-								const hasReasoning = modelProviders.some((p) => p.reasoning);
-								const hasJsonOutput = modelProviders.some((p) => p.jsonOutput);
+								const hasStreaming = visibleProviders.some((p) => p.streaming);
+								const hasVision = visibleProviders.some((p) => p.vision);
+								const hasTools = visibleProviders.some((p) => p.tools);
+								const hasReasoning = visibleProviders.some((p) => p.reasoning);
+								const hasJsonOutput = visibleProviders.some(
+									(p) => p.jsonOutput,
+								);
+								const hasJsonOutputSchema = visibleProviders.some(
+									(p) => p.jsonOutputSchema,
+								);
 								const hasImageGen = Array.isArray(modelDef.output)
 									? modelDef.output.includes("image")
 									: false;
@@ -494,6 +559,14 @@ export default async function ModelPage({ params }: PageProps) {
 										color: "text-cyan-500",
 									});
 								}
+								if (hasJsonOutputSchema) {
+									items.push({
+										key: "jsonOutputSchema",
+										icon: FileJson2,
+										label: "Structured JSON",
+										color: "text-teal-500",
+									});
+								}
 								if (hasImageGen) {
 									items.push({
 										key: "image",
@@ -536,7 +609,10 @@ export default async function ModelPage({ params }: PageProps) {
 
 					{currentModelDiscount && (
 						<div className="mb-6">
-							<GlobalDiscountBanner discount={currentModelDiscount} />
+							<GlobalDiscountBanner
+								discount={currentModelDiscount}
+								providerName={currentModelDiscountProvider}
+							/>
 						</div>
 					)}
 
@@ -546,7 +622,7 @@ export default async function ModelPage({ params }: PageProps) {
 						</h2>
 						<ProviderTabs
 							modelId={decodedName}
-							providerIds={modelProviders.map((p) => p.providerId)}
+							providerIds={visibleProviders.map((p) => p.providerId)}
 							activeProviderId=""
 						/>
 					</div>
@@ -570,6 +646,14 @@ export default async function ModelPage({ params }: PageProps) {
 					<div className="mb-8">
 						<ModelBenchmarks modelId={decodedName} />
 					</div>
+
+					<div className="mb-12">
+						<ModelFaqSection faqs={faqs} />
+					</div>
+
+					<div className="mb-8">
+						<RelatedModels modelDef={modelDef} />
+					</div>
 				</div>
 			</div>
 			<Footer />
@@ -589,8 +673,7 @@ export async function generateMetadata({
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
 	const model = modelDefinitions.find((m) => m.id === decodedName) as
-		| ModelDefinition
-		| undefined;
+		ModelDefinition | undefined;
 
 	if (!model) {
 		return {};

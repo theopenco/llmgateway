@@ -8,6 +8,8 @@ date: 2026-05-12
 
 [Kilo Code](https://kilo.ai/) is an AI coding assistant that runs as a VS Code extension. It supports autonomous coding, file editing, terminal commands, and browser automation. LLM Gateway is a built-in provider in Kilo Code, so setup takes under a minute — no manual base URL configuration required.
 
+> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use canonical model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
+
 ## Prerequisites
 
 - VS Code or a VS Code-based editor (Cursor, Windsurf, etc.)

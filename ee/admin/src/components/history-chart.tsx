@@ -4,6 +4,7 @@ import { format } from "date-fns";
 import { useCallback, useEffect, useState } from "react";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
+import { TokenBreakdown } from "@/components/token-breakdown";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -18,6 +19,8 @@ import {
 	ChartTooltipContent,
 } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
+
+import { deriveStabilityMetrics } from "@llmgateway/shared";
 
 import type { ChartConfig } from "@/components/ui/chart";
 
@@ -49,7 +52,21 @@ export interface HistoryDataPoint {
 	avgDuration: number | null;
 	totalTokens: number;
 	totalCost: number;
+	inputTokens: number;
+	cachedTokens: number;
+	outputTokens: number;
+	inputCost: number;
+	cachedInputCost: number;
+	outputCost: number;
 }
+
+// Which cost field explains each token series, so the Tokens tooltip can put a
+// dollar figure next to the count it is showing.
+const TOKEN_COST_KEY: Record<string, keyof HistoryDataPoint> = {
+	inputTokens: "inputCost",
+	cachedTokens: "cachedInputCost",
+	outputTokens: "outputCost",
+};
 
 type ActiveMetric = "requests" | "errors" | "latency" | "tokens" | "cost";
 
@@ -68,7 +85,9 @@ const chartConfigs: Record<ActiveMetric, ChartConfig> = {
 		avgDuration: { label: "Avg Duration (ms)", color: "hsl(221 83% 53%)" },
 	},
 	tokens: {
-		totalTokens: { label: "Tokens", color: "hsl(32 95% 44%)" },
+		inputTokens: { label: "Input", color: "hsl(221 83% 53%)" },
+		cachedTokens: { label: "Cached", color: "hsl(142 71% 45%)" },
+		outputTokens: { label: "Output", color: "hsl(32 95% 44%)" },
 	},
 	cost: {
 		totalCost: { label: "Cost ($)", color: "hsl(142 71% 45%)" },
@@ -187,13 +206,21 @@ export function HistoryChart({
 		(sum, d) => sum + d.totalTokens,
 		0,
 	);
+	const totalRequests = data.reduce((sum, d) => sum + d.logsCount, 0);
+	const rawErrors = data.reduce((sum, d) => sum + d.errorsCount, 0);
+	const totalClientErrors = data.reduce(
+		(sum, d) => sum + (d.clientErrorsCount ?? 0),
+		0,
+	);
+	const stability = deriveStabilityMetrics(
+		totalRequests,
+		rawErrors,
+		totalClientErrors,
+	);
 	const summaryStats = {
-		totalRequests: data.reduce((sum, d) => sum + d.logsCount, 0),
-		totalErrors: data.reduce((sum, d) => sum + d.errorsCount, 0),
-		totalClientErrors: data.reduce(
-			(sum, d) => sum + (d.clientErrorsCount ?? 0),
-			0,
-		),
+		totalRequests,
+		totalErrors: stability.errorsCount,
+		totalClientErrors,
 		totalGatewayErrors: data.reduce(
 			(sum, d) => sum + (d.gatewayErrorsCount ?? 0),
 			0,
@@ -204,6 +231,17 @@ export function HistoryChart({
 		),
 		totalTokens: data.reduce((sum, d) => sum + d.totalTokens, 0),
 		totalCost: data.reduce((sum, d) => sum + d.totalCost, 0),
+		breakdown: {
+			inputTokens: data.reduce((sum, d) => sum + (d.inputTokens ?? 0), 0),
+			cachedTokens: data.reduce((sum, d) => sum + (d.cachedTokens ?? 0), 0),
+			outputTokens: data.reduce((sum, d) => sum + (d.outputTokens ?? 0), 0),
+			inputCost: data.reduce((sum, d) => sum + (d.inputCost ?? 0), 0),
+			cachedInputCost: data.reduce(
+				(sum, d) => sum + (d.cachedInputCost ?? 0),
+				0,
+			),
+			outputCost: data.reduce((sum, d) => sum + (d.outputCost ?? 0), 0),
+		},
 		avgTtft:
 			ttftPoints.length > 0
 				? Math.round(
@@ -222,14 +260,7 @@ export function HistoryChart({
 			throughputTotalMs > 0
 				? Math.round(throughputTotalTokens / (throughputTotalMs / 1000))
 				: null,
-		errorRate:
-			data.reduce((sum, d) => sum + d.logsCount, 0) > 0
-				? (
-						(data.reduce((sum, d) => sum + d.errorsCount, 0) /
-							data.reduce((sum, d) => sum + d.logsCount, 0)) *
-						100
-					).toFixed(1)
-				: "0.0",
+		errorRate: (stability.errorRate ?? 0).toFixed(1),
 	};
 
 	function formatCompact(n: number): string {
@@ -306,11 +337,12 @@ export function HistoryChart({
 							{summaryStats.totalUpstreamErrors.toLocaleString()}
 						</strong>
 					</span>
-					<span>
+					<span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
 						Tokens:{" "}
 						<strong className="text-foreground">
 							{formatCompact(summaryStats.totalTokens)}
 						</strong>
+						<TokenBreakdown breakdown={summaryStats.breakdown} short />
 					</span>
 					<span>
 						Cost:{" "}
@@ -424,7 +456,7 @@ export function HistoryChart({
 										labelFormatter={(value: string) =>
 											format(new Date(value), "MMM d, HH:mm")
 										}
-										formatter={(value, name) => {
+										formatter={(value, name, item) => {
 											const label = config[name as string]?.label ?? name;
 											let formatted: string;
 											if (activeMetric === "latency") {
@@ -434,9 +466,24 @@ export function HistoryChart({
 											} else {
 												formatted = Number(value).toLocaleString();
 											}
+											// Token series carry the spend they account for, so the
+											// tooltip answers "what did these tokens cost?" directly.
+											const costKey = TOKEN_COST_KEY[name as string];
+											const point = item?.payload as
+												HistoryDataPoint | undefined;
+											const cost =
+												activeMetric === "tokens" && costKey
+													? Number(point?.[costKey] ?? 0)
+													: null;
 											return (
 												<span>
 													{label}: <strong>{formatted}</strong>
+													{cost !== null && (
+														<span className="text-muted-foreground">
+															{" "}
+															(${cost.toFixed(4)})
+														</span>
+													)}
 												</span>
 											);
 										}}
@@ -448,9 +495,14 @@ export function HistoryChart({
 									key={key}
 									dataKey={key}
 									type="monotone"
+									// The three token series are disjoint slices of the total, so
+									// stacking them keeps the silhouette equal to total tokens.
+									stackId={activeMetric === "tokens" ? "tokens" : undefined}
 									stroke={`var(--color-${key})`}
 									fill={`var(--color-${key})`}
-									fillOpacity={i === 0 ? 0.1 : 0.05}
+									fillOpacity={
+										activeMetric === "tokens" ? 0.3 : i === 0 ? 0.1 : 0.05
+									}
 									strokeWidth={2}
 								/>
 							))}

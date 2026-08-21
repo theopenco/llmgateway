@@ -1,0 +1,4 @@
+"$schema" = "https://conductor.build/schemas/settings.repo.schema.json"
+
+[scripts]
+setup = "cp \"$CONDUCTOR_ROOT_PATH/.env\" .\n\npnpm install"

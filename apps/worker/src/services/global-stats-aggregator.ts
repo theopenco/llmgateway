@@ -3,6 +3,7 @@ import { isStopRequested } from "@/shutdown.js";
 import {
 	db,
 	log,
+	organization,
 	globalModelStats,
 	globalSourceStats,
 	globalAggregationState,
@@ -10,12 +11,13 @@ import {
 	and,
 	eq,
 	getTableColumns,
+	type GlobalStatsOrgKind,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import {
 	formatUTCTimestamp,
-	getCommonAggregationFields,
+	getBaseAggregationFields,
 } from "./project-stats-aggregator.js";
 
 export const GLOBAL_STATS_INTERVAL_SECONDS =
@@ -89,15 +91,10 @@ const AGGREGATE_KEYS = [
 	"imageInputCost",
 	"imageOutputCost",
 	"audioInputCost",
+	"audioOutputCost",
 	"videoOutputCost",
 	"cachedInputCost",
 	"cacheWriteInputCost",
-	"creditsRequestCount",
-	"apiKeysRequestCount",
-	"creditsCost",
-	"apiKeysCost",
-	"creditsDataStorageCost",
-	"apiKeysDataStorageCost",
 ] as const;
 
 type AnyTable = Parameters<typeof getTableColumns>[0];
@@ -144,7 +141,13 @@ function floorToDay(d: Date): Date {
 // Inferred drizzle transaction type so helpers can be called inside a tx.
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-async function aggregateWindowIntoStats(
+// Org kind for the request, falling back to "unknown" when the organization
+// row is missing. The bare SQL is reused verbatim in GROUP BY because the
+// aliased form is not addressable there.
+const ORG_KIND_SQL = sql<GlobalStatsOrgKind>`coalesce(${organization.kind}, 'unknown')`;
+const ORG_KIND_EXPR = ORG_KIND_SQL.as("orgKind");
+
+export async function aggregateWindowIntoStats(
 	database: Tx,
 	windowStart: Date,
 	windowMs: number,
@@ -164,20 +167,28 @@ async function aggregateWindowIntoStats(
 		.select({
 			usedModel: log.usedModel,
 			usedProvider: log.usedProvider,
-			...getCommonAggregationFields(),
+			usedMode: log.usedMode,
+			orgKind: ORG_KIND_EXPR,
+			...getBaseAggregationFields(),
 		})
 		.from(log)
+		// LEFT, not INNER: log.organizationId has no foreign key, so an inner
+		// join would silently drop requests whose organization row is gone
+		// instead of bucketing them under "unknown".
+		.leftJoin(organization, eq(log.organizationId, organization.id))
 		.where(window)
-		.groupBy(log.usedModel, log.usedProvider);
+		.groupBy(log.usedModel, log.usedProvider, log.usedMode, ORG_KIND_SQL);
 
 	for (const row of modelRows) {
-		const { usedModel, usedProvider, ...stats } = row;
+		const { usedModel, usedProvider, usedMode, orgKind, ...stats } = row;
 		await database
 			.insert(globalModelStats)
 			.values({
 				dayTimestamp: sql`${dayTimestamp}::timestamp`,
 				usedModel,
 				usedProvider,
+				usedMode,
+				orgKind,
 				...stats,
 			})
 			.onConflictDoUpdate({
@@ -185,6 +196,8 @@ async function aggregateWindowIntoStats(
 					globalModelStats.dayTimestamp,
 					globalModelStats.usedModel,
 					globalModelStats.usedProvider,
+					globalModelStats.usedMode,
+					globalModelStats.orgKind,
 				],
 				set: {
 					...MODEL_ADD_SET,
@@ -196,23 +209,37 @@ async function aggregateWindowIntoStats(
 	const sourceRows = await database
 		.select({
 			source: sql<string>`coalesce(${log.source}, 'unknown')`.as("source"),
-			...getCommonAggregationFields(),
+			usedMode: log.usedMode,
+			orgKind: ORG_KIND_EXPR,
+			...getBaseAggregationFields(),
 		})
 		.from(log)
+		.leftJoin(organization, eq(log.organizationId, organization.id))
 		.where(window)
-		.groupBy(sql`coalesce(${log.source}, 'unknown')`);
+		.groupBy(
+			sql`coalesce(${log.source}, 'unknown')`,
+			log.usedMode,
+			ORG_KIND_SQL,
+		);
 
 	for (const row of sourceRows) {
-		const { source, ...stats } = row;
+		const { source, usedMode, orgKind, ...stats } = row;
 		await database
 			.insert(globalSourceStats)
 			.values({
 				dayTimestamp: sql`${dayTimestamp}::timestamp`,
 				source,
+				usedMode,
+				orgKind,
 				...stats,
 			})
 			.onConflictDoUpdate({
-				target: [globalSourceStats.dayTimestamp, globalSourceStats.source],
+				target: [
+					globalSourceStats.dayTimestamp,
+					globalSourceStats.source,
+					globalSourceStats.usedMode,
+					globalSourceStats.orgKind,
+				],
 				set: {
 					...SOURCE_ADD_SET,
 					updatedAt: new Date(),

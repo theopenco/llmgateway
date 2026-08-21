@@ -5,10 +5,11 @@ import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { ThemeProvider } from "next-themes";
 import posthog from "posthog-js";
 import { PostHogProvider } from "posthog-js/react";
-import { useEffect, useMemo } from "react";
+import { useEffect, useState } from "react";
 
 import { Toaster } from "@/components/ui/sonner";
 import { AppConfigProvider } from "@/lib/config";
+import { flushPendingIdentity } from "@/lib/posthog-identity";
 
 import type { AppConfig } from "@/lib/config-server";
 import type { ReactNode } from "react";
@@ -19,7 +20,9 @@ interface ProvidersProps {
 }
 
 export function Providers({ children, config }: ProvidersProps) {
-	const queryClient = useMemo(
+	// useState, not useMemo: React may discard a useMemo cache, which would
+	// silently swap in a fresh QueryClient and drop the whole query cache.
+	const [queryClient] = useState(
 		() =>
 			new QueryClient({
 				defaultOptions: {
@@ -30,7 +33,6 @@ export function Providers({ children, config }: ProvidersProps) {
 					},
 				},
 			}),
-		[],
 	);
 
 	useEffect(() => {
@@ -48,6 +50,7 @@ export function Providers({ children, config }: ProvidersProps) {
 				ui_host: host,
 				capture_pageview: "history_change",
 				autocapture: true,
+				loaded: flushPendingIdentity,
 			});
 		};
 		// Captures fired before init() are dropped by posthog-js, so the idle

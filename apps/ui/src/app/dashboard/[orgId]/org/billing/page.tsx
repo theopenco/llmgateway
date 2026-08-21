@@ -52,6 +52,8 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
 						</CardContent>
 					</Card>
 
+					<AutoTopUpSettings />
+
 					<Card>
 						<CardHeader>
 							<CardTitle>Plan Management</CardTitle>
@@ -87,8 +89,6 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
 							<OrganizationBillingEmailSettings />
 						</CardContent>
 					</Card>
-
-					<AutoTopUpSettings />
 				</div>
 			</div>
 		</div>

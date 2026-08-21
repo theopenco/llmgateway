@@ -1,14 +1,11 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowUpRight, Loader2, Plane, Stamp } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
-import Link from "next/link";
-import { usePostHog } from "posthog-js/react";
+import { Loader2, Stamp } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { plans } from "@/app/dashboard/plans";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -21,7 +18,6 @@ import {
 	AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
 import {
@@ -112,38 +108,25 @@ export default function ResetPassCard({
 }: ResetPassCardProps) {
 	const api = useApi();
 	const queryClient = useQueryClient();
-	const { uiUrl, posthogKey } = useAppConfig();
-	const posthog = usePostHog();
-	const [justStamped, setJustStamped] = useState(false);
+	const [stampOverlay, setStampOverlay] = useState<
+		{ kind: "redeemed" } | { kind: "purchased"; amount: number } | null
+	>(null);
+	const reduceMotion = useReducedMotion();
 
 	const available = includedRemaining + purchased;
 	const nothingToReset = premiumCreditsUsed <= 0;
-	// Mirrors the server-side gates: near the end of the monthly credit pool a
-	// pass restores a cap there's nothing left to spend against, so buying is
-	// blocked above 95% cycle usage and redeeming above 90%.
+	// Near the end of the monthly credit pool a pass may restore a cap with
+	// little remaining spend. Buying is blocked above 95%; redeeming remains
+	// available but requires an explicit acknowledgement above 90%.
 	const cycleUsage = getDevPlanCycleUsageFraction(
 		cycleCreditsUsed,
 		cycleCreditsLimit,
 	);
 	const purchaseBlocked =
 		cycleUsage > DEV_PLAN_RESET_PASS_PURCHASE_MAX_CYCLE_USAGE;
-	const redeemBlocked = cycleUsage > DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE;
+	const requiresHighUsageConfirmation =
+		cycleUsage > DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE;
 	const serial = (organizationId ?? "GATEWAY").slice(-6).toUpperCase();
-
-	// Once the gates kick in, passes are a dead end for the rest of the cycle —
-	// give the user the action that actually helps instead: a tier upgrade
-	// (fresh cycle, full allowance, immediately) or PAYG credits on the top
-	// tier, mirroring the promo shown at full exhaustion.
-	const currentIndex = plans.findIndex((p) => p.tier === tier);
-	const nextPlan = currentIndex >= 0 ? (plans[currentIndex + 1] ?? null) : null;
-	const trackGateUpgradeClick = () => {
-		if (posthogKey) {
-			posthog.capture("devpass_reset_gate_upgrade_clicked", {
-				tier,
-				promo: nextPlan ? "upgrade" : "payg",
-			});
-		}
-	};
 
 	const invalidateStatus = () =>
 		queryClient.invalidateQueries({
@@ -158,8 +141,8 @@ export default function ResetPassCard({
 		"/dev-plans/reset-pass/redeem",
 		{
 			onSuccess: async () => {
-				setJustStamped(true);
-				setTimeout(() => setJustStamped(false), 2200);
+				setStampOverlay({ kind: "redeemed" });
+				setTimeout(() => setStampOverlay(null), 2200);
 				await invalidateStatus();
 			},
 			onError: () => {
@@ -173,9 +156,8 @@ export default function ResetPassCard({
 		"/dev-plans/reset-pass/purchase",
 		{
 			onSuccess: async (data) => {
-				toast.success("Reset Pass stamped into your passport", {
-					description: `$${data.amount} was charged to your saved payment method.`,
-				});
+				setStampOverlay({ kind: "purchased", amount: data.amount });
+				setTimeout(() => setStampOverlay(null), 2200);
 				await invalidateStatus();
 			},
 			onError: (error) => {
@@ -202,25 +184,54 @@ export default function ResetPassCard({
 	const overflow = purchased > 4 ? purchased - 4 : 0;
 
 	return (
-		<div className="relative mt-4 overflow-hidden rounded-lg border border-dashed border-stone-400/70 bg-stone-50/70 dark:border-stone-600/70 dark:bg-stone-900/30">
-			{/* Full-card stamp slammed on a successful redeem */}
+		<div
+			id="reset-pass-card"
+			className="relative mt-4 overflow-hidden rounded-lg border border-dashed border-stone-400/70 bg-stone-50/70 dark:border-stone-600/70 dark:bg-stone-900/30"
+		>
+			{/* Full-card stamp slammed on a successful redeem or purchase */}
 			<AnimatePresence>
-				{justStamped && (
+				{stampOverlay && (
 					<motion.div
-						initial={{ opacity: 0, scale: 2.2, rotate: -18 }}
-						animate={{ opacity: 1, scale: 1, rotate: -8 }}
+						key={stampOverlay.kind}
+						initial={
+							reduceMotion
+								? { opacity: 0 }
+								: stampOverlay.kind === "redeemed"
+									? { opacity: 0, scale: 2.2, rotate: -18 }
+									: { opacity: 0, scale: 2.2, rotate: 16 }
+						}
+						animate={
+							reduceMotion
+								? { opacity: 1 }
+								: {
+										opacity: 1,
+										scale: 1,
+										rotate: stampOverlay.kind === "redeemed" ? -8 : 6,
+									}
+						}
 						exit={{ opacity: 0 }}
 						transition={{ type: "spring", duration: 0.4 }}
 						className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
 					>
-						<div className="rounded-md border-4 border-double border-emerald-700/80 px-6 py-2 text-center font-mono uppercase text-emerald-800 mix-blend-multiply dark:border-emerald-400/80 dark:text-emerald-300 dark:mix-blend-screen">
-							<div className="text-sm font-bold tracking-[0.3em]">
-								Allowance restored
+						{stampOverlay.kind === "redeemed" ? (
+							<div className="rounded-md border-4 border-double border-emerald-700/80 px-6 py-2 text-center font-mono uppercase text-emerald-800 mix-blend-multiply dark:border-emerald-400/80 dark:text-emerald-300 dark:mix-blend-screen">
+								<div className="text-sm font-bold tracking-[0.3em]">
+									Allowance restored
+								</div>
+								<div className="mt-0.5 text-[9px] tracking-[0.2em]">
+									Fresh week · full premium limit
+								</div>
 							</div>
-							<div className="mt-0.5 text-[9px] tracking-[0.2em]">
-								Fresh week · full premium limit
+						) : (
+							<div className="rounded-md border-4 border-double border-indigo-700/80 px-6 py-2 text-center font-mono uppercase text-indigo-800 mix-blend-multiply dark:border-indigo-400/80 dark:text-indigo-300 dark:mix-blend-screen">
+								<div className="text-sm font-bold tracking-[0.3em]">
+									Pass acquired
+								</div>
+								<div className="mt-0.5 text-[9px] tracking-[0.2em]">
+									${stampOverlay.amount} charged · redeem anytime
+								</div>
 							</div>
-						</div>
+						)}
 					</motion.div>
 				)}
 			</AnimatePresence>
@@ -249,32 +260,79 @@ export default function ResetPassCard({
 						)}
 					</p>
 					<div className="mt-3 flex flex-wrap items-center gap-2">
-						<Button
-							size="sm"
-							onClick={() => redeemMutation.mutate({})}
-							disabled={
-								available === 0 ||
-								nothingToReset ||
-								redeemBlocked ||
-								redeemMutation.isPending
-							}
-							title={
-								redeemBlocked
-									? "Over 90% of this cycle's credits are used — a reset would give you almost nothing. Your passes keep until your credits renew."
-									: available === 0
-										? "No passes held — buy one below"
-										: nothingToReset
-											? "Nothing to reset yet — your allowance is untouched"
-											: undefined
-							}
-						>
-							{redeemMutation.isPending ? (
-								<Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-							) : (
-								<Stamp className="mr-1.5 h-4 w-4" />
-							)}
-							Use a pass
-						</Button>
+						<AlertDialog>
+							<AlertDialogTrigger asChild>
+								<Button
+									size="sm"
+									disabled={
+										available === 0 ||
+										nothingToReset ||
+										redeemMutation.isPending
+									}
+									title={
+										available === 0
+											? "No passes held — buy one below"
+											: nothingToReset
+												? "Nothing to reset yet — your allowance is untouched"
+												: undefined
+									}
+								>
+									{redeemMutation.isPending ? (
+										<Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+									) : (
+										<Stamp className="mr-1.5 h-4 w-4" />
+									)}
+									Use a pass
+								</Button>
+							</AlertDialogTrigger>
+							<AlertDialogContent data-testid="redeem-pass-confirm">
+								<AlertDialogHeader>
+									<AlertDialogTitle>
+										{requiresHighUsageConfirmation
+											? "Use a Reset Pass with limited monthly allowance?"
+											: "Stamp a Reset Pass now?"}
+									</AlertDialogTitle>
+									<AlertDialogDescription>
+										{requiresHighUsageConfirmation ? (
+											<>
+												More than 90% of this cycle&apos;s monthly allowance is
+												already used. This will reset your weekly premium limit,
+												but it doesn&apos;t add credits, so only the remaining
+												monthly allowance will be available. This spends one
+												pass and can&apos;t be undone.
+											</>
+										) : (
+											<>
+												This spends one of your{" "}
+												{`${available} pass${available === 1 ? "" : "es"}`} (
+												{includedRemaining > 0 ? "included" : "purchased"}) and
+												immediately lifts the weekly premium limit back to{" "}
+												{`$${premiumWeeklyLimit.toFixed(2)}`}. It doesn&apos;t
+												add credits — usage still draws from your monthly
+												allowance, and a spent pass can&apos;t be undone.
+											</>
+										)}
+									</AlertDialogDescription>
+								</AlertDialogHeader>
+								<AlertDialogFooter>
+									<AlertDialogCancel>Not now</AlertDialogCancel>
+									<AlertDialogAction
+										onClick={() =>
+											redeemMutation.mutate({
+												body: {
+													confirmHighCycleUsage: requiresHighUsageConfirmation,
+												},
+											})
+										}
+										data-testid="redeem-pass-confirm-action"
+									>
+										{requiresHighUsageConfirmation
+											? "Use pass anyway"
+											: "Stamp the pass"}
+									</AlertDialogAction>
+								</AlertDialogFooter>
+							</AlertDialogContent>
+						</AlertDialog>
 						{price !== null && purchaseBlocked && (
 							<Button
 								size="sm"
@@ -290,9 +348,7 @@ export default function ResetPassCard({
 								<AlertDialogTrigger asChild>
 									<Button
 										size="sm"
-										variant={
-											available === 0 && !redeemBlocked ? "default" : "outline"
-										}
+										variant={available === 0 ? "default" : "outline"}
 										disabled={purchaseMutation.isPending}
 									>
 										{purchaseMutation.isPending ? (
@@ -324,44 +380,7 @@ export default function ResetPassCard({
 								</AlertDialogContent>
 							</AlertDialog>
 						)}
-						{redeemBlocked &&
-							(nextPlan ? (
-								<Button size="sm" asChild onClick={trackGateUpgradeClick}>
-									<Link href="/dashboard/billing">
-										<Plane className="mr-1.5 h-4 w-4" />
-										Upgrade to {nextPlan.name} · ${nextPlan.price}/mo
-									</Link>
-								</Button>
-							) : (
-								<Button size="sm" asChild onClick={trackGateUpgradeClick}>
-									<a
-										href={`${uiUrl}/dashboard?from=devpass-payg`}
-										target="_blank"
-										rel="noopener noreferrer"
-									>
-										Get PAYG credits on llmgateway.io
-										<ArrowUpRight className="ml-1.5 h-4 w-4" />
-									</a>
-								</Button>
-							))}
 					</div>
-					{redeemBlocked && (
-						<p className="mt-2.5 max-w-md text-xs text-muted-foreground">
-							Over 90% of this cycle&apos;s credits are used, so passes are on
-							hold until your credits renew.{" "}
-							{nextPlan ? (
-								<>
-									Upgrading to {nextPlan.name} starts a fresh cycle instantly
-									with a {`$${nextPlan.usage} `}monthly allowance.
-								</>
-							) : (
-								<>
-									Pay-as-you-go credits on LLM Gateway work with the same coding
-									agents — just swap your API key.
-								</>
-							)}
-						</p>
-					)}
 				</div>
 
 				<div className="flex items-center gap-2">

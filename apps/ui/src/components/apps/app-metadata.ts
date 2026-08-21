@@ -5,6 +5,7 @@ import {
 	CodexIcon,
 	CursorIcon,
 	DevPassCodeIcon,
+	EmpryoIcon,
 	KimiIcon,
 	MimoCodeIcon,
 	N8nIcon,
@@ -123,6 +124,20 @@ export const APP_METADATA: Record<string, AppMetadata> = {
 		category: "coding",
 		Icon: MimoCodeIcon,
 	},
+	traycer: {
+		displayName: "Traycer",
+		url: "https://traycer.ai",
+		description:
+			"Plan-first coding layer for VS Code. Drafts the plan, then hands it to your agent of choice.",
+		category: "coding",
+	},
+	"foundry-toolkit": {
+		displayName: "Foundry Toolkit",
+		url: "https://code.visualstudio.com/docs/intelligentapps/overview",
+		description:
+			"Microsoft's VS Code extension for building and evaluating agents. Compares models side by side.",
+		category: "coding",
+	},
 	zed: {
 		displayName: "Zed",
 		url: "https://zed.dev",
@@ -158,6 +173,13 @@ export const APP_METADATA: Record<string, AppMetadata> = {
 			"Browser-based coding agent. Hands you a working app from a single prompt.",
 		category: "coding",
 		Icon: AutohandIcon,
+	},
+	empryo: {
+		displayName: "Empryo",
+		url: "https://empryo.com/",
+		description: "The AI coding agent that edits symbols, not strings.",
+		category: "coding",
+		Icon: EmpryoIcon,
 	},
 	soulforge: {
 		displayName: "SoulForge",

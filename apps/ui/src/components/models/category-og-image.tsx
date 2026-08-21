@@ -17,6 +17,7 @@ import {
 	type ModelDefinition,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
+import { isPremiumModel } from "@llmgateway/shared";
 
 export const ogSize = {
 	width: 1200,
@@ -239,6 +240,15 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 			isTextOutput(m.output) &&
 			(OPEN_SOURCE_FAMILIES.has(m.family) || OPEN_SOURCE_MODEL_IDS.has(m.id)),
 	},
+	premium: {
+		title: "Premium Models",
+		subtitle: "High-cost frontier models, classified by price",
+		accentColor: "#F59E0B",
+		accentColorDim: "#78350F",
+		// Lucide "Gem" icon path
+		iconSvgPath: "M6 3h12l4 6-10 13L2 9Z M11 3 8 9l4 13 4-13-3-6 M2 9h20",
+		countFilter: (m) => isPremiumModel(m.id),
+	},
 };
 
 async function getCategoryModelCount(
@@ -261,25 +271,23 @@ export async function generateCategoryOgImage(categoryKey: string) {
 	const config = categoryConfigs[categoryKey];
 	if (!config) {
 		return new ImageResponse(
-			(
-				<div
-					style={{
-						width: "100%",
-						height: "100%",
-						display: "flex",
-						alignItems: "center",
-						justifyContent: "center",
-						background: "#000000",
-						color: "white",
-						fontSize: 48,
-						fontWeight: 700,
-						fontFamily:
-							"system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
-					}}
-				>
-					LLM Gateway
-				</div>
-			),
+			<div
+				style={{
+					width: "100%",
+					height: "100%",
+					display: "flex",
+					alignItems: "center",
+					justifyContent: "center",
+					background: "#000000",
+					color: "white",
+					fontSize: 48,
+					fontWeight: 700,
+					fontFamily:
+						"system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+				}}
+			>
+				LLM Gateway
+			</div>,
 			ogSize,
 		);
 	}
@@ -287,186 +295,103 @@ export async function generateCategoryOgImage(categoryKey: string) {
 	const modelCount = await getCategoryModelCount(categoryKey, config);
 
 	return new ImageResponse(
-		(
+		<div
+			style={{
+				width: "100%",
+				height: "100%",
+				display: "flex",
+				flexDirection: "row",
+				background: "#000000",
+				color: "white",
+				fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+				overflow: "hidden",
+			}}
+		>
+			{/* Left accent stripe */}
 			<div
 				style={{
-					width: "100%",
+					width: 8,
 					height: "100%",
+					backgroundColor: config.accentColor,
 					display: "flex",
-					flexDirection: "row",
-					background: "#000000",
-					color: "white",
-					fontFamily:
-						"system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
-					overflow: "hidden",
+				}}
+			/>
+
+			{/* Main content area */}
+			<div
+				style={{
+					flex: 1,
+					display: "flex",
+					flexDirection: "column",
+					justifyContent: "space-between",
+					padding: "56px 56px 56px 48px",
 				}}
 			>
-				{/* Left accent stripe */}
+				{/* Top: Logo bar */}
 				<div
 					style={{
-						width: 8,
-						height: "100%",
-						backgroundColor: config.accentColor,
 						display: "flex",
-					}}
-				/>
-
-				{/* Main content area */}
-				<div
-					style={{
-						flex: 1,
-						display: "flex",
-						flexDirection: "column",
+						flexDirection: "row",
+						alignItems: "center",
 						justifyContent: "space-between",
-						padding: "56px 56px 56px 48px",
 					}}
 				>
-					{/* Top: Logo bar */}
 					<div
 						style={{
 							display: "flex",
 							flexDirection: "row",
 							alignItems: "center",
-							justifyContent: "space-between",
+							gap: 14,
 						}}
 					>
-						<div
-							style={{
-								display: "flex",
-								flexDirection: "row",
-								alignItems: "center",
-								gap: 14,
-							}}
+						<svg
+							fill="none"
+							xmlns="http://www.w3.org/2000/svg"
+							viewBox="0 0 218 232"
+							width={36}
+							height={36}
 						>
-							<svg
-								fill="none"
-								xmlns="http://www.w3.org/2000/svg"
-								viewBox="0 0 218 232"
-								width={36}
-								height={36}
-							>
-								<path
-									d="M218 59.4686c0-4.1697-2.351-7.9813-6.071-9.8441L119.973 3.58361s2.926 3.32316 2.926 7.01529V218.833c0 4.081-2.926 7.016-2.926 7.016l15.24-7.468c2.964-2.232 7.187-7.443 7.438-16.006.293-9.976.61-84.847.732-121.0353.487-3.6678 4.096-11.0032 14.63-11.0032 10.535 0 29.262 5.1348 37.309 7.7022 2.439.7336 7.608 4.1812 8.779 12.1036 1.17 7.9223.975 59.0507.731 83.6247 0 2.445.137 7.069 6.653 7.069 6.515 0 6.515-7.069 6.515-7.069V59.4686Z"
-									fill="#ffffff"
-								/>
-								<path
-									d="M149.235 86.323c0-5.5921 5.132-9.7668 10.589-8.6132l31.457 6.6495c4.061.8585 6.967 4.4207 6.967 8.5824v81.9253c0 5.868 5.121 9.169 5.121 9.169l-51.9-12.658c-1.311-.32-2.234-1.498-2.234-2.852V86.323ZM99.7535 1.15076c7.2925-3.60996 15.8305 1.71119 15.8305 9.86634V220.983c0 8.155-8.538 13.476-15.8305 9.866L6.11596 184.496C2.37105 182.642 0 178.818 0 174.63v-17.868l49.7128 19.865c4.0474 1.617 8.4447-1.372 8.4449-5.741 0-2.66-1.6975-5.022-4.2142-5.863L0 146.992v-14.305l40.2756 7.708c3.9656.759 7.6405-2.289 7.6405-6.337 0-3.286-2.4628-6.048-5.7195-6.413L0 122.917V108.48l78.5181-3.014c4.1532-.16 7.4381-3.582 7.4383-7.7498 0-4.6256-4.0122-8.2229-8.5964-7.7073L0 98.7098V82.4399l53.447-17.8738c2.3764-.7948 3.9791-3.0254 3.9792-5.5374 0-4.0961-4.0978-6.9185-7.9106-5.4486L0 72.6695V57.3696c.0000304-4.1878 2.37107-8.0125 6.11596-9.8664L99.7535 1.15076Z"
-									fill="#ffffff"
-								/>
-							</svg>
-							<span
-								style={{
-									fontSize: 22,
-									fontWeight: 600,
-									color: "#9CA3AF",
-									letterSpacing: "0.02em",
-								}}
-							>
-								LLM Gateway
-							</span>
-						</div>
-
+							<path
+								d="M218 59.4686c0-4.1697-2.351-7.9813-6.071-9.8441L119.973 3.58361s2.926 3.32316 2.926 7.01529V218.833c0 4.081-2.926 7.016-2.926 7.016l15.24-7.468c2.964-2.232 7.187-7.443 7.438-16.006.293-9.976.61-84.847.732-121.0353.487-3.6678 4.096-11.0032 14.63-11.0032 10.535 0 29.262 5.1348 37.309 7.7022 2.439.7336 7.608 4.1812 8.779 12.1036 1.17 7.9223.975 59.0507.731 83.6247 0 2.445.137 7.069 6.653 7.069 6.515 0 6.515-7.069 6.515-7.069V59.4686Z"
+								fill="#ffffff"
+							/>
+							<path
+								d="M149.235 86.323c0-5.5921 5.132-9.7668 10.589-8.6132l31.457 6.6495c4.061.8585 6.967 4.4207 6.967 8.5824v81.9253c0 5.868 5.121 9.169 5.121 9.169l-51.9-12.658c-1.311-.32-2.234-1.498-2.234-2.852V86.323ZM99.7535 1.15076c7.2925-3.60996 15.8305 1.71119 15.8305 9.86634V220.983c0 8.155-8.538 13.476-15.8305 9.866L6.11596 184.496C2.37105 182.642 0 178.818 0 174.63v-17.868l49.7128 19.865c4.0474 1.617 8.4447-1.372 8.4449-5.741 0-2.66-1.6975-5.022-4.2142-5.863L0 146.992v-14.305l40.2756 7.708c3.9656.759 7.6405-2.289 7.6405-6.337 0-3.286-2.4628-6.048-5.7195-6.413L0 122.917V108.48l78.5181-3.014c4.1532-.16 7.4381-3.582 7.4383-7.7498 0-4.6256-4.0122-8.2229-8.5964-7.7073L0 98.7098V82.4399l53.447-17.8738c2.3764-.7948 3.9791-3.0254 3.9792-5.5374 0-4.0961-4.0978-6.9185-7.9106-5.4486L0 72.6695V57.3696c.0000304-4.1878 2.37107-8.0125 6.11596-9.8664L99.7535 1.15076Z"
+								fill="#ffffff"
+							/>
+						</svg>
 						<span
 							style={{
-								fontSize: 18,
-								color: "#6B7280",
-								letterSpacing: "0.05em",
+								fontSize: 22,
+								fontWeight: 600,
+								color: "#9CA3AF",
+								letterSpacing: "0.02em",
 							}}
 						>
-							llmgateway.io
+							LLM Gateway
 						</span>
 					</div>
 
-					{/* Middle: Main content */}
-					<div
+					<span
 						style={{
-							display: "flex",
-							flexDirection: "column",
-							gap: 32,
+							fontSize: 18,
+							color: "#6B7280",
+							letterSpacing: "0.05em",
 						}}
 					>
-						{/* Category icon + label */}
-						<div
-							style={{
-								display: "flex",
-								flexDirection: "row",
-								alignItems: "center",
-								gap: 16,
-							}}
-						>
-							<div
-								style={{
-									width: 56,
-									height: 56,
-									borderRadius: 14,
-									backgroundColor: config.accentColorDim,
-									border: `2px solid ${config.accentColor}`,
-									display: "flex",
-									alignItems: "center",
-									justifyContent: "center",
-								}}
-							>
-								<svg
-									xmlns="http://www.w3.org/2000/svg"
-									width={28}
-									height={28}
-									viewBox="0 0 24 24"
-									fill="none"
-									stroke={config.accentColor}
-									strokeWidth={2}
-									strokeLinecap="round"
-									strokeLinejoin="round"
-								>
-									<path d={config.iconSvgPath} />
-								</svg>
-							</div>
-							<span
-								style={{
-									fontSize: 20,
-									fontWeight: 600,
-									color: config.accentColor,
-									textTransform: "uppercase",
-									letterSpacing: "0.12em",
-								}}
-							>
-								Models
-							</span>
-						</div>
+						llmgateway.io
+					</span>
+				</div>
 
-						{/* Title */}
-						<div
-							style={{
-								display: "flex",
-								flexDirection: "column",
-								gap: 16,
-							}}
-						>
-							<h1
-								style={{
-									fontSize: 82,
-									fontWeight: 700,
-									margin: 0,
-									letterSpacing: "-0.03em",
-									lineHeight: 1,
-									color: "#ffffff",
-								}}
-							>
-								{config.title}
-							</h1>
-							<p
-								style={{
-									fontSize: 28,
-									margin: 0,
-									color: "#9CA3AF",
-									lineHeight: 1.3,
-								}}
-							>
-								{config.subtitle}
-							</p>
-						</div>
-					</div>
-
-					{/* Bottom: Model count */}
+				{/* Middle: Main content */}
+				<div
+					style={{
+						display: "flex",
+						flexDirection: "column",
+						gap: 32,
+					}}
+				>
+					{/* Category icon + label */}
 					<div
 						style={{
 							display: "flex",
@@ -477,65 +402,145 @@ export async function generateCategoryOgImage(categoryKey: string) {
 					>
 						<div
 							style={{
+								width: 56,
+								height: 56,
+								borderRadius: 14,
+								backgroundColor: config.accentColorDim,
+								border: `2px solid ${config.accentColor}`,
 								display: "flex",
-								flexDirection: "row",
-								alignItems: "baseline",
-								gap: 10,
-								backgroundColor: "#0A0A0A",
-								border: "1px solid #1F2937",
-								borderRadius: 12,
-								padding: "12px 24px",
+								alignItems: "center",
+								justifyContent: "center",
 							}}
 						>
-							<span
-								style={{
-									fontSize: 36,
-									fontWeight: 700,
-									color: config.accentColor,
-									fontVariantNumeric: "tabular-nums",
-								}}
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								width={28}
+								height={28}
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke={config.accentColor}
+								strokeWidth={2}
+								strokeLinecap="round"
+								strokeLinejoin="round"
 							>
-								{modelCount}
-							</span>
-							<span
-								style={{
-									fontSize: 20,
-									color: "#6B7280",
-									fontWeight: 500,
-								}}
-							>
-								{modelCount === 1 ? "model" : "models"} available
-							</span>
+								<path d={config.iconSvgPath} />
+							</svg>
 						</div>
+						<span
+							style={{
+								fontSize: 20,
+								fontWeight: 600,
+								color: config.accentColor,
+								textTransform: "uppercase",
+								letterSpacing: "0.12em",
+							}}
+						>
+							Models
+						</span>
+					</div>
+
+					{/* Title */}
+					<div
+						style={{
+							display: "flex",
+							flexDirection: "column",
+							gap: 16,
+						}}
+					>
+						<h1
+							style={{
+								fontSize: 82,
+								fontWeight: 700,
+								margin: 0,
+								letterSpacing: "-0.03em",
+								lineHeight: 1,
+								color: "#ffffff",
+							}}
+						>
+							{config.title}
+						</h1>
+						<p
+							style={{
+								fontSize: 28,
+								margin: 0,
+								color: "#9CA3AF",
+								lineHeight: 1.3,
+							}}
+						>
+							{config.subtitle}
+						</p>
 					</div>
 				</div>
 
-				{/* Right: Large decorative icon */}
+				{/* Bottom: Model count */}
 				<div
 					style={{
-						width: 300,
 						display: "flex",
+						flexDirection: "row",
 						alignItems: "center",
-						justifyContent: "center",
-						opacity: 0.06,
+						gap: 16,
 					}}
 				>
-					<svg
-						xmlns="http://www.w3.org/2000/svg"
-						width={240}
-						height={240}
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke={config.accentColor}
-						strokeWidth={1}
-						strokeLinecap="round"
-						strokeLinejoin="round"
+					<div
+						style={{
+							display: "flex",
+							flexDirection: "row",
+							alignItems: "baseline",
+							gap: 10,
+							backgroundColor: "#0A0A0A",
+							border: "1px solid #1F2937",
+							borderRadius: 12,
+							padding: "12px 24px",
+						}}
 					>
-						<path d={config.iconSvgPath} />
-					</svg>
+						<span
+							style={{
+								fontSize: 36,
+								fontWeight: 700,
+								color: config.accentColor,
+								fontVariantNumeric: "tabular-nums",
+							}}
+						>
+							{modelCount}
+						</span>
+						<span
+							style={{
+								fontSize: 20,
+								color: "#6B7280",
+								fontWeight: 500,
+							}}
+						>
+							{modelCount === 1 ? "model" : "models"} available
+						</span>
+					</div>
 				</div>
 			</div>
-		),
+
+			{/* Right: Large decorative icon */}
+			<div
+				style={{
+					width: 300,
+					display: "flex",
+					alignItems: "center",
+					justifyContent: "center",
+					opacity: 0.06,
+				}}
+			>
+				<svg
+					xmlns="http://www.w3.org/2000/svg"
+					width={240}
+					height={240}
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke={config.accentColor}
+					strokeWidth={1}
+					strokeLinecap="round"
+					strokeLinejoin="round"
+				>
+					<path d={config.iconSvgPath} />
+				</svg>
+			</div>
+		</div>,
 		ogSize,
 	);
 }

@@ -23,6 +23,7 @@
 		"start": "node --enable-source-maps dist/index.js"
 	},
 	"dependencies": {
+		"@llmgateway/actions": "workspace:*",
 		"@llmgateway/cache": "workspace:*",
 		"@llmgateway/db": "workspace:*",
 		"@llmgateway/logger": "workspace:*",

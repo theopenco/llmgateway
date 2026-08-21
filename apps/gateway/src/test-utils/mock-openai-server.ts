@@ -410,6 +410,10 @@ interface MockWebhookDelivery {
 }
 
 const videoJobs = new Map<string, MockVideoJobState>();
+const videoStatusResponses = new Map<
+	string,
+	{ status: number; body: Record<string, unknown> }
+>();
 const webhookDeliveries: MockWebhookDelivery[] = [];
 const webhookStatuses = new Map<string, number>();
 
@@ -540,6 +544,7 @@ export function resetFailOnceCounter() {
 export function resetMockVideoState() {
 	videoCounter = 0;
 	videoJobs.clear();
+	videoStatusResponses.clear();
 	webhookDeliveries.length = 0;
 	webhookStatuses.clear();
 }
@@ -588,6 +593,14 @@ export function getMockVideo(videoId: string): MockVideoJobState | undefined {
 	return videoJobs.get(videoId);
 }
 
+export function setMockVideoStatusResponse(
+	videoId: string,
+	status: number,
+	body: Record<string, unknown>,
+) {
+	videoStatusResponses.set(videoId, { status, body });
+}
+
 export function setMockWebhookStatus(name: string, status: number) {
 	webhookStatuses.set(name, status);
 }
@@ -604,6 +617,17 @@ function delay(ms: number): Promise<void> {
 		setTimeout(resolve, ms);
 	});
 }
+
+// Azure AI Foundry serves the OpenAI-compatible endpoints under an /openai
+// prefix. Rewrite those paths to the plain handlers below so azure provider
+// keys pointing at the mock server can complete requests.
+function stripAzureOpenaiPrefix(c: Context): Response | Promise<Response> {
+	const url = new URL(c.req.url);
+	url.pathname = url.pathname.replace(/^\/openai/, "");
+	return mockOpenAIServer.fetch(new Request(url, c.req.raw));
+}
+mockOpenAIServer.post("/openai/v1/responses", stripAzureOpenaiPrefix);
+mockOpenAIServer.post("/openai/v1/chat/completions", stripAzureOpenaiPrefix);
 
 // Handle OpenAI Responses API endpoint (for gpt-5 and other models with supportsResponsesApi)
 mockOpenAIServer.post("/v1/responses", async (c) => {
@@ -626,6 +650,26 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 		c.status(500);
 		return c.json(sampleErrorResponse);
 	}
+
+	// Mirrors the chat-completions handler so retry/fallback behaviour can be
+	// exercised on the Responses API too (the surface OpenAI's newer models are
+	// served on). Shares the same module-level counter, so a test using it must
+	// call resetFailOnceCounter() first.
+	if (userMessage.includes("TRIGGER_FAIL_ONCE")) {
+		failOnceCounter++;
+		if (failOnceCounter === 1) {
+			c.status(500);
+			return c.json({
+				error: {
+					message: "Temporary server error (will succeed on retry)",
+					type: "server_error",
+					param: null,
+					code: "internal_server_error",
+				},
+			});
+		}
+	}
+
 	const shouldEndAfterDoneEvent = userMessage.includes(
 		"TRIGGER_RESPONSES_DONE_WITHOUT_COMPLETED",
 	);
@@ -776,6 +820,28 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 	return c.json(response);
 });
 
+mockOpenAIServer.post("/v1/messages", async (c) => {
+	const body = await c.req.json();
+	return c.json({
+		id: "msg-123",
+		type: "message",
+		role: "assistant",
+		model: body.model ?? "claude-haiku-4-5",
+		content: [
+			{
+				type: "text",
+				text: "Hello! I'm a mock response from the test server.",
+			},
+		],
+		stop_reason: "end_turn",
+		stop_sequence: null,
+		usage: {
+			input_tokens: 10,
+			output_tokens: 20,
+		},
+	});
+});
+
 // Handle chat completions endpoint
 mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 	const body = await c.req.json();
@@ -889,6 +955,10 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		chatMessages,
 		"TRIGGER_TRUNCATED_STREAM",
 	);
+	const shouldEndWithTrailingError = hasUserMessageTrigger(
+		chatMessages,
+		"TRIGGER_STREAM_TRAILING_ERROR",
+	);
 	const shouldFinishWithoutDone = hasUserMessageTrigger(
 		chatMessages,
 		"TRIGGER_FINISH_WITHOUT_DONE",
@@ -917,6 +987,37 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		typeof body.n === "number" && Number.isInteger(body.n) && body.n > 0
 			? body.n
 			: 1;
+
+	// Simulate an upstream that returns a non-OK status (500) plus a partial
+	// error body, then hangs without finishing it. The gateway's res.text() on
+	// the error path blocks waiting for the rest, letting a test abort the
+	// client mid-read to exercise the error-body cancellation path. Checked
+	// before the stream branch so streaming requests hit it too: a non-OK
+	// upstream response is a plain (non-SSE) body in both modes. The trigger
+	// deliberately avoids the "TRIGGER_ERROR" substring so the generic-error
+	// handler above doesn't short-circuit it.
+	if (hasUserMessageTrigger(chatMessages, "TRIGGER_5XX_BODY_HANG")) {
+		const encoder = new TextEncoder();
+		let sentPartialBody = false;
+		const hangingErrorBody = new ReadableStream({
+			pull(controller) {
+				if (!sentPartialBody) {
+					sentPartialBody = true;
+					// Flush a partial JSON body so headers are written first.
+					controller.enqueue(encoder.encode('{"error":{"message":"partial'));
+					notifyMockCheckpoint("TRIGGER_5XX_BODY_HANG");
+					return;
+				}
+				// Never enqueue more and never close: the body read hangs until the
+				// client disconnects.
+				return new Promise<void>(() => {});
+			},
+		});
+		return new Response(hangingErrorBody, {
+			status: 500,
+			headers: { "Content-Type": "application/json" },
+		});
+	}
 
 	if (body.stream === true) {
 		return streamSSE(c, async (stream) => {
@@ -1066,6 +1167,16 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 				return;
 			}
 
+			// Mimic the Gemini API shedding Flex capacity mid-stream: a raw JSON
+			// error body tail (not an SSE event), then the stream closes without a
+			// finish reason or [DONE].
+			if (shouldEndWithTrailingError) {
+				await stream.write(
+					'\r\n{\n  "error": {\n    "code": 503,\n    "message": "This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.",\n    "status": "UNAVAILABLE"\n  }\n}\n',
+				);
+				return;
+			}
+
 			// Finish chunks: one per choice index. The last finish chunk also
 			// carries the shared usage object (input × 1, output × n) matching
 			// real OpenAI streaming behavior.
@@ -1169,35 +1280,6 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		});
 		return new Response(hangingBody, {
 			status: 200,
-			headers: { "Content-Type": "application/json" },
-		});
-	}
-
-	// Simulate an upstream that returns a non-OK status (500) plus a partial
-	// error body, then hangs without finishing it. The gateway's res.text() on
-	// the error path blocks waiting for the rest, letting a test abort the
-	// client mid-read to exercise the non-streaming error-body cancellation
-	// path. The trigger deliberately avoids the "TRIGGER_ERROR" substring so the
-	// generic-error handler above doesn't short-circuit it.
-	if (hasUserMessageTrigger(chatMessages, "TRIGGER_5XX_BODY_HANG")) {
-		const encoder = new TextEncoder();
-		let sentPartialBody = false;
-		const hangingErrorBody = new ReadableStream({
-			pull(controller) {
-				if (!sentPartialBody) {
-					sentPartialBody = true;
-					// Flush a partial JSON body so headers are written first.
-					controller.enqueue(encoder.encode('{"error":{"message":"partial'));
-					notifyMockCheckpoint("TRIGGER_5XX_BODY_HANG");
-					return;
-				}
-				// Never enqueue more and never close: the body read hangs until the
-				// client disconnects.
-				return new Promise<void>(() => {});
-			},
-		});
-		return new Response(hangingErrorBody, {
-			status: 500,
 			headers: { "Content-Type": "application/json" },
 		});
 	}
@@ -1370,6 +1452,79 @@ mockOpenAIServer.post("/v1/audio/speech", async (c) => {
 
 	return c.body(audio, 200, {
 		"Content-Type": contentTypes[format] ?? "audio/mpeg",
+	});
+});
+
+// Alibaba DashScope non-streaming TTS (SpeechSynthesizer): the response
+// carries a short-lived URL to the synthesized WAV file rather than inline
+// audio, so the mock points the URL back at this server's
+// /mock-dashscope-audio.wav endpoint.
+mockOpenAIServer.post(
+	"/api/v1/services/audio/tts/SpeechSynthesizer",
+	async (c) => {
+		const body = await c.req.json();
+		const text = typeof body.input?.text === "string" ? body.input.text : "";
+
+		const statusTrigger = extractStatusCodeTrigger(text);
+		if (statusTrigger) {
+			c.status(statusTrigger.statusCode as any);
+			return c.json(statusTrigger.errorResponse);
+		}
+		if (text.includes("TRIGGER_ERROR")) {
+			c.status(500);
+			return c.json(sampleErrorResponse);
+		}
+
+		const origin = new URL(c.req.url).origin;
+		return c.json({
+			output: {
+				audio: { url: `${origin}/mock-dashscope-audio.wav` },
+				finish_reason: "stop",
+			},
+			request_id: "mock-dashscope-request-id",
+		});
+	},
+);
+
+mockOpenAIServer.get("/mock-dashscope-audio.wav", (c) => {
+	const audio = Buffer.from("MOCK_DASHSCOPE_AUDIO");
+	return c.body(audio, 200, { "Content-Type": "audio/wav" });
+});
+
+// xAI speech-to-text: POST /v1/stt accepts a multipart form with the audio
+// file (or a url field) and returns the transcript with word-level timestamps
+// and the billed audio duration in seconds.
+mockOpenAIServer.post("/v1/stt", async (c) => {
+	const form = await c.req.formData();
+	const file = form.get("file");
+	const url = form.get("url");
+	const fileName = file instanceof File ? file.name : "";
+	const marker = typeof url === "string" ? url : fileName;
+
+	const statusTrigger = extractStatusCodeTrigger(marker);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+	if (marker.includes("TRIGGER_ERROR")) {
+		c.status(500);
+		return c.json(sampleErrorResponse);
+	}
+	if (!(file instanceof File) && typeof url !== "string") {
+		c.status(400);
+		return c.json(sampleErrorResponse);
+	}
+
+	return c.json({
+		text: "The balance is $167,983.15.",
+		language: "English",
+		duration: 3.45,
+		words: [
+			{ text: "The", start: 0.24, end: 0.48 },
+			{ text: "balance", start: 0.48, end: 0.96 },
+			{ text: "is", start: 0.96, end: 1.12 },
+			{ text: "$167,983.15.", start: 1.12, end: 3.2 },
+		],
 	});
 });
 
@@ -2092,6 +2247,27 @@ mockOpenAIServer.post("/contents/generations/tasks", async (c) => {
 		});
 	}
 
+	const referenceVideoUrls: string[] = [];
+	for (const entry of content) {
+		if (
+			!entry ||
+			typeof entry !== "object" ||
+			(entry as Record<string, unknown>).role !== "reference_video"
+		) {
+			continue;
+		}
+		const videoUrl = (entry as Record<string, unknown>).video_url;
+		const url =
+			typeof videoUrl === "object" &&
+			videoUrl !== null &&
+			typeof (videoUrl as Record<string, unknown>).url === "string"
+				? ((videoUrl as Record<string, unknown>).url as string)
+				: undefined;
+		if (url) {
+			referenceVideoUrls.push(url);
+		}
+	}
+
 	videoCounter++;
 	const id = `bytedance_task_${videoCounter}`;
 	const job: MockVideoJobState = {
@@ -2103,6 +2279,8 @@ mockOpenAIServer.post("/contents/generations/tasks", async (c) => {
 		firstFrame: parseFrameByRole("first_frame"),
 		lastFrame: parseFrameByRole("last_frame"),
 		referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
+		referenceVideoUrls:
+			referenceVideoUrls.length > 0 ? referenceVideoUrls : undefined,
 		duration: typeof body.duration === "number" ? body.duration : undefined,
 		ratio: typeof body.ratio === "string" ? body.ratio : undefined,
 		resolution:
@@ -2635,6 +2813,10 @@ mockOpenAIServer.post(
 	"/v1beta1/projects/:project/locations/:location/publishers/google/models/*",
 	vertexPublisherModelHandler,
 );
+mockOpenAIServer.post(
+	"/v1/publishers/google/models/*",
+	vertexPublisherModelHandler,
+);
 
 // Stub Vertex OAuth token endpoint. Test fixtures build a service-account
 // JSON whose token_uri points here, so the gateway's JWT-grant exchange
@@ -2649,6 +2831,11 @@ mockOpenAIServer.post("/mock-google-oauth/token", async (c) =>
 
 mockOpenAIServer.get("/v1/videos/:id", async (c) => {
 	const id = c.req.param("id");
+	const statusResponse = videoStatusResponses.get(id);
+	if (statusResponse) {
+		c.status(statusResponse.status as Parameters<typeof c.status>[0]);
+		return c.json(statusResponse.body);
+	}
 	const job = videoJobs.get(id);
 
 	if (!job) {
@@ -2730,7 +2917,10 @@ mockOpenAIServer.get("/api/v1/veo/record-info", async (c) => {
 
 	return c.json({
 		code: 200,
-		msg: "success",
+		msg:
+			job.status === "failed"
+				? (job.error?.message ?? "Mock video generation failed")
+				: "success",
 		data: {
 			taskId,
 			successFlag,
@@ -2935,72 +3125,43 @@ mockOpenAIServer.post("/mock-callback/:name", async (c) => {
 });
 
 // Handle Google Vertex AI generateContent endpoint (Gemini models via Vertex)
-mockOpenAIServer.post(
-	"/v1/projects/:project/locations/:location/publishers/google/models/:model\\:generateContent",
-	async (c) => {
-		const body = await c.req.json();
+const vertexGenerateContentHandler = async (c: Context) => {
+	const body = await c.req.json();
 
-		const shouldError = body.contents?.some?.((content: any) =>
-			content.parts?.some?.((part: any) =>
-				part.text?.includes?.("TRIGGER_ERROR"),
-			),
-		);
+	const shouldError = body.contents?.some?.((content: any) =>
+		content.parts?.some?.((part: any) =>
+			part.text?.includes?.("TRIGGER_ERROR"),
+		),
+	);
 
-		if (shouldError) {
-			c.status(500);
-			return c.json({
-				error: {
-					code: 500,
-					message: "Internal server error",
-					status: "INTERNAL",
-				},
-			});
-		}
+	if (shouldError) {
+		c.status(500);
+		return c.json({
+			error: {
+				code: 500,
+				message: "Internal server error",
+				status: "INTERNAL",
+			},
+		});
+	}
 
-		// Speech generation: when the caller requests AUDIO output, return an
-		// inlineData audio part (base64-encoded PCM) like Gemini TTS models do.
-		const vertexResponseModalities: string[] =
-			body.generationConfig?.responseModalities ?? [];
-		if (vertexResponseModalities.includes("AUDIO")) {
-			// 8 samples of 16-bit silence as a deterministic PCM payload.
-			const pcm = Buffer.alloc(16);
-			return c.json({
-				candidates: [
-					{
-						content: {
-							parts: [
-								{
-									inlineData: {
-										mimeType: "audio/L16;codec=pcm;rate=24000",
-										data: pcm.toString("base64"),
-									},
-								},
-							],
-							role: "model",
-						},
-						finishReason: "STOP",
-						index: 0,
-					},
-				],
-				usageMetadata: {
-					promptTokenCount: 5,
-					candidatesTokenCount: 42,
-					totalTokenCount: 47,
-				},
-			});
-		}
-
-		const userMessage =
-			body.contents?.find?.((ct: any) => ct.role === "user")?.parts?.[0]
-				?.text ?? "";
-
+	// Speech generation: when the caller requests AUDIO output, return an
+	// inlineData audio part (base64-encoded PCM) like Gemini TTS models do.
+	const vertexResponseModalities: string[] =
+		body.generationConfig?.responseModalities ?? [];
+	if (vertexResponseModalities.includes("AUDIO")) {
+		// 8 samples of 16-bit silence as a deterministic PCM payload.
+		const pcm = Buffer.alloc(16);
 		return c.json({
 			candidates: [
 				{
 					content: {
 						parts: [
 							{
-								text: `Hello! I received your message: "${userMessage}". This is a mock Google Vertex response.`,
+								inlineData: {
+									mimeType: "audio/L16;codec=pcm;rate=24000",
+									data: pcm.toString("base64"),
+								},
 							},
 						],
 						role: "model",
@@ -3010,12 +3171,46 @@ mockOpenAIServer.post(
 				},
 			],
 			usageMetadata: {
-				promptTokenCount: 10,
-				candidatesTokenCount: 20,
-				totalTokenCount: 30,
+				promptTokenCount: 5,
+				candidatesTokenCount: 42,
+				totalTokenCount: 47,
 			},
 		});
-	},
+	}
+
+	const userMessage =
+		body.contents?.find?.((ct: any) => ct.role === "user")?.parts?.[0]?.text ??
+		"";
+
+	return c.json({
+		candidates: [
+			{
+				content: {
+					parts: [
+						{
+							text: `Hello! I received your message: "${userMessage}". This is a mock Google Vertex response.`,
+						},
+					],
+					role: "model",
+				},
+				finishReason: "STOP",
+				index: 0,
+			},
+		],
+		usageMetadata: {
+			promptTokenCount: 10,
+			candidatesTokenCount: 20,
+			totalTokenCount: 30,
+		},
+	});
+};
+mockOpenAIServer.post(
+	"/v1/projects/:project/locations/:location/publishers/google/models/:model\\:generateContent",
+	vertexGenerateContentHandler,
+);
+mockOpenAIServer.post(
+	"/v1/publishers/google/models/:model\\:generateContent",
+	vertexGenerateContentHandler,
 );
 
 mockOpenAIServer.post("/model/:model/converse", async (c) => {

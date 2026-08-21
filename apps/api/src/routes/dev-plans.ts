@@ -2,19 +2,32 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { assertOrganizationNotHighRisk } from "@/lib/account-risk.js";
+import { assertCreditPurchaseAllowed } from "@/lib/credit-purchase-guard.js";
+import { voidPendingCycleRenewalInvoices } from "@/lib/pending-renewal.js";
 import {
 	computeSelfRefundEligibility,
 	executeSelfRefund,
 	isSelfRefundCandidateType,
+	refundFeedbackBodySchema,
 } from "@/lib/self-refund.js";
+import { getStripeCardErrorMessage } from "@/lib/stripe-card-error.js";
+import { forcedThreeDSecureOptions } from "@/lib/three-d-secure.js";
+import {
+	assertTopUpVelocityAllowed,
+	releaseTopUpReservation,
+} from "@/lib/topup-velocity.js";
 import { posthog } from "@/posthog.js";
 import {
 	ensureStripeCustomer,
 	finalizeDevPlanSetupSession,
 	fulfillResetPassPurchase,
+	getSubscriptionPaymentConfirmation,
 	isDevPlanCardDedupeEnforced,
 } from "@/stripe.js";
 import { findDefaultOrganization } from "@/utils/default-org.js";
+import { getDevPlanPriceId } from "@/utils/dev-plan-prices.js";
+import { LEGACY_DEV_PLAN_TX_TYPES } from "@/utils/devpass-filter.js";
 import {
 	buildInvoiceDataForTransaction,
 	generateAndEmailInvoice,
@@ -24,8 +37,13 @@ import {
 } from "@/utils/invoice.js";
 import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
 import { resolveDevPassBillingDetails } from "@/utils/plan-billing.js";
+import {
+	providerCacheControlModeSchema,
+	resolveProviderCacheControlMode,
+} from "@/utils/provider-cache-control.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
+import { redisClient } from "@llmgateway/cache";
 import {
 	cdb,
 	db,
@@ -41,6 +59,10 @@ import {
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
+	calculateFees,
+	TOPUP_VELOCITY_RESERVATION_TTL_SECONDS,
+	CREDIT_TOP_UP_MAX_AMOUNT,
+	CREDIT_TOP_UP_MIN_AMOUNT,
 	DEV_PLAN_INCLUDED_RESET_PASSES,
 	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
 	DEV_PLAN_PRICES,
@@ -58,9 +80,10 @@ import {
 	type DevPlanTier,
 } from "@llmgateway/shared";
 
-import { getStripe } from "./payments.js";
+import { getStripe, isInternationalPaymentMethod } from "./payments.js";
 
 import type { ServerTypes } from "@/vars.js";
+import type { ProviderCacheControlMode } from "@llmgateway/models";
 import type Stripe from "stripe";
 
 export const devPlans = new OpenAPIHono<ServerTypes>();
@@ -69,6 +92,39 @@ export const devPlans = new OpenAPIHono<ServerTypes>();
 // it over. Well above the Stripe SDK's request timeout (80s per attempt), so a
 // lease this old cannot still have an upgrade charge in flight.
 const STALE_TIER_CHANGE_CLAIM_MS = 15 * 60 * 1000;
+
+// Plan charges that prove the org was (or still is) a paying DevPass
+// subscriber, used to keep the billing page reachable after a plan ends.
+const DEV_PLAN_INVOICE_TYPES = [
+	"dev_plan_start",
+	"dev_plan_renewal",
+	"dev_plan_upgrade",
+	"dev_plan_reset_pass",
+] as const;
+
+// Transaction types that surface in the DevPass billing history: everything a
+// devpass personal org can carry — the plan lifecycle, Reset Passes, PAYG
+// overflow top-ups and the refunds/credit grants booked against them. The
+// remaining types (Pro subscriptions, chat plans, end-user wallets) never
+// occur on a devpass org.
+const DEV_PLAN_HISTORY_TYPES = [
+	"dev_plan_start",
+	"dev_plan_renewal",
+	"dev_plan_upgrade",
+	"dev_plan_downgrade",
+	"dev_plan_cancel",
+	"dev_plan_resume",
+	"dev_plan_end",
+	"dev_plan_reset_pass",
+	"dev_plan_reset_pass_reward",
+	"dev_plan_reset_pass_gift",
+	"credit_topup",
+	"credit_refund",
+	"credit_gift",
+	"credit_manual_payment",
+] as const;
+
+type DevPlanHistoryType = (typeof DEV_PLAN_HISTORY_TYPES)[number];
 
 // A failed release is swallowed: the lease then simply expires via the
 // staleness window instead of blocking upgrades until renewal.
@@ -85,6 +141,15 @@ async function releaseTierChangeLease(organizationId: string) {
 					: new Error(String(releaseError)),
 			);
 		});
+}
+
+// Stripe errors carry a machine-readable `code` (e.g. `card_declined`,
+// `subscription_payment_intent_requires_action`) but the SDK types them as
+// `unknown` at the catch site, so narrow to the string code (or undefined).
+function getStripeErrorCode(error: unknown): string | undefined {
+	return typeof error === "object" && error !== null && "code" in error
+		? String((error as { code?: unknown }).code)
+		: undefined;
 }
 
 // Helper to get or create API key for personal org
@@ -156,24 +221,6 @@ function getPurchasedResetPasses(
 		case "max":
 			return org.devPlanResetPassesMax;
 	}
-}
-
-function getDevPlanPriceId(
-	tier: DevPlanTier,
-	cycle: DevPlanCycle = "monthly",
-): string | undefined {
-	const monthlyKeys: Record<DevPlanTier, string> = {
-		lite: "STRIPE_DEV_PLAN_LITE_PRICE_ID",
-		pro: "STRIPE_DEV_PLAN_PRO_PRICE_ID",
-		max: "STRIPE_DEV_PLAN_MAX_PRICE_ID",
-	};
-	const annualKeys: Record<DevPlanTier, string> = {
-		lite: "STRIPE_DEV_PLAN_LITE_ANNUAL_PRICE_ID",
-		pro: "STRIPE_DEV_PLAN_PRO_ANNUAL_PRICE_ID",
-		max: "STRIPE_DEV_PLAN_MAX_ANNUAL_PRICE_ID",
-	};
-	const key = cycle === "annual" ? annualKeys[tier] : monthlyKeys[tier];
-	return process.env[key];
 }
 
 function getStripeId(value: string | { id?: string } | null | undefined) {
@@ -409,6 +456,7 @@ devPlans.openapi(subscribe, async (c) => {
 			customer: stripeCustomerId,
 			mode: "setup",
 			payment_method_types: ["card"],
+			...(await forcedThreeDSecureOptions()),
 			success_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?setup_session_id={CHECKOUT_SESSION_ID}`,
 			cancel_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?canceled=true`,
 			metadata: {
@@ -986,12 +1034,19 @@ const changeTier = createRoute({
 		200: {
 			content: {
 				"application/json": {
-					schema: z.object({
-						success: z.boolean(),
-					}),
+					schema: z.union([
+						z.object({
+							success: z.boolean(),
+						}),
+						z.object({
+							status: z.literal("requires_action"),
+							clientSecret: z.string(),
+						}),
+					]),
 				},
 			},
-			description: "Dev plan tier changed successfully",
+			description:
+				"Dev plan tier changed successfully, or the upgrade payment requires customer authentication (3DS) — confirm the returned client secret with Stripe.js to complete it",
 		},
 	},
 });
@@ -1193,6 +1248,13 @@ devPlans.openapi(changeTier, async (c) => {
 		}
 
 		if (applyNow) {
+			// If the previous cycle just ended, its renewal invoice may still be
+			// pending (Stripe drafts it at the period boundary and charges ~an hour
+			// later). Void it before re-anchoring — otherwise it would later charge
+			// for a cycle this upgrade replaces and its webhook would clobber the
+			// fresh allowance granted below.
+			await voidPendingCycleRenewalInvoices(subscriptionId);
+
 			// Swap to the new price, reset the billing cycle to now
 			// (`billing_cycle_anchor: "now"`) so Stripe immediately invoices the full
 			// new-tier price and starts a fresh period, and suppress proration
@@ -1200,23 +1262,89 @@ devPlans.openapi(changeTier, async (c) => {
 			// `error_if_incomplete` makes the update atomic: if the charge can't be
 			// collected Stripe throws and leaves the subscription on the old tier, so
 			// there's no half-applied upgrade to roll back.
-			const updated = await getStripe().subscriptions.update(subscriptionId, {
-				items: [
-					{
-						id: subscriptionItemId,
-						price: newPriceId,
+			let updated: Stripe.Subscription;
+			try {
+				updated = await getStripe().subscriptions.update(subscriptionId, {
+					items: [
+						{
+							id: subscriptionItemId,
+							price: newPriceId,
+						},
+					],
+					proration_behavior: "none",
+					billing_cycle_anchor: "now",
+					payment_behavior: "error_if_incomplete",
+					expand: ["latest_invoice.payment_intent"],
+					metadata: {
+						...subscription.metadata,
+						devPlan: newTier,
+						devPlanCycle: existingCycle,
 					},
-				],
-				proration_behavior: "none",
-				billing_cycle_anchor: "now",
-				payment_behavior: "error_if_incomplete",
-				expand: ["latest_invoice.payment_intent"],
-				metadata: {
-					...subscription.metadata,
-					devPlan: newTier,
-					devPlanCycle: existingCycle,
-				},
-			});
+				});
+			} catch (updateError) {
+				const updateErrCode = getStripeErrorCode(updateError);
+				if (updateErrCode !== "subscription_payment_intent_requires_action") {
+					throw updateError;
+				}
+				// The bank demands 3DS/SCA authentication, which only the customer can
+				// complete in the browser. Re-issue the update as a Stripe pending
+				// update (`pending_if_incomplete`): nothing — price, cycle anchor, or
+				// metadata — is applied until the invoice is paid, and if the customer
+				// abandons the challenge Stripe voids the invoice and discards the
+				// update after at most 23 hours, leaving the subscription untouched.
+				// The client confirms the returned payment intent secret with
+				// Stripe.js; on success the `invoice.payment_succeeded` webhook's
+				// `subscription_update` fallback applies the tier change, credit
+				// rollover, transaction row and invoice email idempotently.
+				const pending = await getStripe().subscriptions.update(subscriptionId, {
+					items: [
+						{
+							id: subscriptionItemId,
+							price: newPriceId,
+						},
+					],
+					proration_behavior: "none",
+					billing_cycle_anchor: "now",
+					payment_behavior: "pending_if_incomplete",
+					expand: ["latest_invoice.payment_intent"],
+					metadata: {
+						...subscription.metadata,
+						devPlan: newTier,
+						devPlanCycle: existingCycle,
+					},
+				});
+				const { clientSecret } =
+					await getSubscriptionPaymentConfirmation(pending);
+				if (!clientSecret) {
+					// No confirmable payment intent to hand to the client; surface the
+					// original failure through the shared catch below.
+					throw updateError;
+				}
+				logger.info("Dev plan tier change pending customer authentication", {
+					organizationId: personalOrg.id,
+					subscriptionId,
+					newTier,
+				});
+				// Release the lease: the charge is no longer in flight server-side, and
+				// the webhook completes (or Stripe discards) the change out-of-band.
+				// Releasing here — rather than holding until the webhook resolves — keeps
+				// the common "abandon the 3DS challenge, then retry" path unblocked (the
+				// completion webhook lives in the Stripe handler and never touches the
+				// lease, so a held lease would only clear on the 15-minute staleness
+				// window). A concurrent retry during the challenge cannot double-charge:
+				// a subscription holds at most one pending update, so re-issuing simply
+				// voids the prior invoice and replaces it — last write wins.
+				if (claimedLeaseThisCall) {
+					await releaseTierChangeLease(personalOrg.id);
+				}
+				return c.json(
+					{
+						status: "requires_action" as const,
+						clientSecret,
+					},
+					200,
+				);
+			}
 
 			if (updated.status !== "active" && updated.status !== "trialing") {
 				throw new HTTPException(402, {
@@ -1414,10 +1542,19 @@ devPlans.openapi(changeTier, async (c) => {
 		// so the UI can prompt the user to update billing. This is an expected
 		// user-facing outcome, not a server fault, so log it at warn — never
 		// error — to avoid noisy alerts for declined cards.
-		const errCode =
-			typeof error === "object" && error !== null && "code" in error
-				? String((error as { code?: unknown }).code)
-				: undefined;
+		const errCode = getStripeErrorCode(error);
+		const cardErrorMessage = getStripeCardErrorMessage(error);
+		if (cardErrorMessage) {
+			// Any card error (incorrect CVC, expired card, insufficient funds, plain
+			// decline, ...) carries Stripe's user-facing explanation — pass it
+			// through so the user learns what to fix instead of a generic failure.
+			logger.warn("Dev plan tier change payment declined", {
+				code: errCode,
+			});
+			throw new HTTPException(402, {
+				message: `${cardErrorMessage} Update your payment method and try again.`,
+			});
+		}
 		if (errCode === "card_declined" || errCode === "invoice_payment_required") {
 			logger.warn("Dev plan tier change payment declined", {
 				code: errCode,
@@ -1425,6 +1562,18 @@ devPlans.openapi(changeTier, async (c) => {
 			throw new HTTPException(402, {
 				message:
 					"Upgrade payment could not be collected. Update your payment method and try again.",
+			});
+		}
+		// `error_if_incomplete` throws this when the bank demands 3DS/SCA
+		// authentication, which can't be completed server-side; the subscription
+		// is left unchanged. Also an expected user-facing outcome, so 402 + warn.
+		if (errCode === "subscription_payment_intent_requires_action") {
+			logger.warn("Dev plan tier change requires payment authentication", {
+				code: errCode,
+			});
+			throw new HTTPException(402, {
+				message:
+					"Your bank requires additional verification to complete this payment. Update or re-add your payment method and try again.",
 			});
 		}
 		logger.error(
@@ -1594,6 +1743,10 @@ const getStatus = createRoute({
 				"application/json": {
 					schema: z.object({
 						hasPersonalOrg: z.boolean(),
+						// Whether the org ever produced a DevPass invoice. Stays true
+						// after a plan ends, so the dashboard keeps showing billing to
+						// past subscribers (invoices, receipts, Reset Pass refunds).
+						hasBillingHistory: z.boolean(),
 						devPlan: z.enum(["none", "lite", "pro", "max"]),
 						devPlanPendingTier: z.enum(["lite", "pro", "max"]).nullable(),
 						devPlanCycle: z.enum(["monthly", "annual"]),
@@ -1616,17 +1769,25 @@ const getStatus = createRoute({
 						devPlanCancelled: z.boolean(),
 						devPlanExpiresAt: z.string().nullable(),
 						regularCredits: z.string(),
+						// Opt-in pay-as-you-go overflow: bill the org's regular
+						// credits once the monthly allowance is exhausted.
+						devPlanPaygEnabled: z.boolean(),
+						// Auto-reload: top up automatically when the credits balance
+						// falls below the threshold.
+						autoTopUpEnabled: z.boolean(),
+						autoTopUpThreshold: z.string().nullable(),
+						autoTopUpAmount: z.string().nullable(),
 						organizationId: z.string().nullable(),
 						projectId: z.string().nullable(),
 						apiKey: z.string().nullable(),
 						devPlanServiceTier: z.enum(["default", "flex"]),
-						retentionLevel: z.enum(["retain", "none"]),
 						defaultRoutingStrategy: z.enum([
 							"auto",
 							"price",
 							"throughput",
 							"latency",
 						]),
+						providerCacheControlMode: providerCacheControlModeSchema,
 					}),
 				},
 			},
@@ -1660,6 +1821,7 @@ devPlans.openapi(getStatus, async (c) => {
 	if (!personalOrg) {
 		return c.json({
 			hasPersonalOrg: false,
+			hasBillingHistory: false,
 			devPlan: "none" as const,
 			devPlanPendingTier: null,
 			devPlanCycle: "monthly" as const,
@@ -1677,18 +1839,37 @@ devPlans.openapi(getStatus, async (c) => {
 			devPlanCancelled: false,
 			devPlanExpiresAt: null,
 			regularCredits: "0",
+			devPlanPaygEnabled: false,
+			autoTopUpEnabled: false,
+			autoTopUpThreshold: null,
+			autoTopUpAmount: null,
 			organizationId: null,
 			projectId: null,
 			apiKey: null,
 			devPlanServiceTier: "default" as const,
-			retentionLevel: "none" as const,
 			defaultRoutingStrategy: "auto" as const,
+			providerCacheControlMode: "auto" as const,
 		});
 	}
 
 	const creditsUsed = parseFloat(personalOrg.devPlanCreditsUsed);
 	const creditsLimit = parseFloat(personalOrg.devPlanCreditsLimit);
 	const creditsRemaining = Math.max(0, creditsLimit - creditsUsed);
+
+	// Ending a dev plan clears every devPlan* column on the org, so the billing
+	// transactions are the only lasting record that the user was ever a
+	// subscriber — and the dashboard needs it to keep the billing page reachable.
+	// The legacy `subscription_*` rows predate the DevPass rename and mean a dev
+	// plan only on a devpass-kind org, which `personalOrg` always is. Status is
+	// deliberately not filtered: this mirrors the invoice list, which also
+	// renders pending and failed charges.
+	const billingTransaction = await db.query.transaction.findFirst({
+		where: {
+			organizationId: { eq: personalOrg.id },
+			type: { in: [...DEV_PLAN_INVOICE_TYPES, ...LEGACY_DEV_PLAN_TX_TYPES] },
+		},
+		columns: { id: true },
+	});
 
 	// Weekly premium fair-use allowance, computed with the same helpers the
 	// gateway uses for enforcement. An expired window reports zero usage and no
@@ -1716,6 +1897,7 @@ devPlans.openapi(getStatus, async (c) => {
 	let projectId: string | null = null;
 	let defaultRoutingStrategy: "auto" | "price" | "throughput" | "latency" =
 		"auto";
+	let providerCacheControlMode: ProviderCacheControlMode = "auto";
 	if (personalOrg.devPlan !== "none") {
 		// Find the default project for this org. Order by createdAt asc so we
 		// always return the original "Default Project" rather than whichever
@@ -1734,6 +1916,7 @@ devPlans.openapi(getStatus, async (c) => {
 		if (project) {
 			projectId = project.id;
 			defaultRoutingStrategy = project.defaultRoutingStrategy;
+			providerCacheControlMode = project.providerCacheControlMode;
 			apiKey = await getOrCreatePersonalOrgApiKey(
 				personalOrg.id,
 				project.id,
@@ -1744,6 +1927,7 @@ devPlans.openapi(getStatus, async (c) => {
 
 	return c.json({
 		hasPersonalOrg: true,
+		hasBillingHistory: Boolean(billingTransaction),
 		devPlan: personalOrg.devPlan,
 		devPlanPendingTier: personalOrg.devPlanPendingTier,
 		devPlanCycle: personalOrg.devPlanCycle,
@@ -1777,12 +1961,16 @@ devPlans.openapi(getStatus, async (c) => {
 		devPlanCancelled: personalOrg.devPlanCancelled,
 		devPlanExpiresAt: personalOrg.devPlanExpiresAt?.toISOString() ?? null,
 		regularCredits: personalOrg.credits,
+		devPlanPaygEnabled: personalOrg.devPlanPaygEnabled,
+		autoTopUpEnabled: personalOrg.autoTopUpEnabled,
+		autoTopUpThreshold: personalOrg.autoTopUpThreshold,
+		autoTopUpAmount: personalOrg.autoTopUpAmount,
 		organizationId: personalOrg.id,
 		projectId,
 		apiKey,
 		devPlanServiceTier: personalOrg.devPlanServiceTier,
-		retentionLevel: personalOrg.retentionLevel,
 		defaultRoutingStrategy,
+		providerCacheControlMode,
 	});
 });
 
@@ -1799,10 +1987,25 @@ const updateSettings = createRoute({
 						// plan credits by using cheaper flex processing where the
 						// selected provider supports it.
 						devPlanServiceTier: z.enum(["default", "flex"]).optional(),
-						retentionLevel: z.enum(["retain", "none"]).optional(),
 						// Coding plans optimize for prompt caching, so only the
 						// default weighted routing or the price strategy are allowed.
 						defaultRoutingStrategy: z.enum(["auto", "price"]).optional(),
+						// Control upstream prompt-cache writes for coding clients that
+						// send cache markers automatically.
+						providerCacheControlMode: providerCacheControlModeSchema.optional(),
+						/** @deprecated use providerCacheControlMode. */
+						providerCacheControlEnabled: z.boolean().optional(),
+						// Opt-in pay-as-you-go overflow past the monthly allowance.
+						devPlanPaygEnabled: z.boolean().optional(),
+						// Auto-reload: automatically top up when the credits balance
+						// falls below the threshold. Both values in whole USD.
+						autoTopUpEnabled: z.boolean().optional(),
+						autoTopUpThreshold: z.number().min(5).max(1000).optional(),
+						autoTopUpAmount: z
+							.number()
+							.min(CREDIT_TOP_UP_MIN_AMOUNT)
+							.max(CREDIT_TOP_UP_MAX_AMOUNT)
+							.optional(),
 					}),
 				},
 			},
@@ -1815,13 +2018,17 @@ const updateSettings = createRoute({
 					schema: z.object({
 						success: z.boolean(),
 						devPlanServiceTier: z.enum(["default", "flex"]),
-						retentionLevel: z.enum(["retain", "none"]),
 						defaultRoutingStrategy: z.enum([
 							"auto",
 							"price",
 							"throughput",
 							"latency",
 						]),
+						providerCacheControlMode: providerCacheControlModeSchema,
+						devPlanPaygEnabled: z.boolean(),
+						autoTopUpEnabled: z.boolean(),
+						autoTopUpThreshold: z.string().nullable(),
+						autoTopUpAmount: z.string().nullable(),
 					}),
 				},
 			},
@@ -1832,8 +2039,17 @@ const updateSettings = createRoute({
 
 devPlans.openapi(updateSettings, async (c) => {
 	const user = c.get("user");
-	const { devPlanServiceTier, retentionLevel, defaultRoutingStrategy } =
-		c.req.valid("json");
+	const {
+		devPlanServiceTier,
+		defaultRoutingStrategy,
+		devPlanPaygEnabled,
+		autoTopUpEnabled,
+		autoTopUpThreshold,
+		autoTopUpAmount,
+	} = c.req.valid("json");
+	const providerCacheControlMode = resolveProviderCacheControlMode(
+		c.req.valid("json"),
+	);
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -1869,20 +2085,44 @@ devPlans.openapi(updateSettings, async (c) => {
 
 	const updateData: {
 		devPlanServiceTier?: "default" | "flex";
-		retentionLevel?: "retain" | "none";
+		devPlanPaygEnabled?: boolean;
+		autoTopUpEnabled?: boolean;
+		autoTopUpThreshold?: string;
+		autoTopUpAmount?: string;
 	} = {};
 
 	if (devPlanServiceTier !== undefined) {
 		updateData.devPlanServiceTier = devPlanServiceTier;
 	}
-	if (retentionLevel !== undefined) {
-		updateData.retentionLevel = retentionLevel;
+
+	if (devPlanPaygEnabled !== undefined) {
+		updateData.devPlanPaygEnabled = devPlanPaygEnabled;
+		// Auto-reload without overflow would charge money for credits the org
+		// cannot spend, so disabling overflow always disables auto-reload too.
+		if (!devPlanPaygEnabled && autoTopUpEnabled === undefined) {
+			updateData.autoTopUpEnabled = false;
+		}
+	}
+
+	if (autoTopUpEnabled !== undefined) {
+		updateData.autoTopUpEnabled = autoTopUpEnabled;
+	}
+
+	if (autoTopUpThreshold !== undefined) {
+		updateData.autoTopUpThreshold = autoTopUpThreshold.toString();
+	}
+
+	if (autoTopUpAmount !== undefined) {
+		updateData.autoTopUpAmount = autoTopUpAmount.toString();
 	}
 
 	const changes: Record<string, { old: unknown; new: unknown }> = {};
 
 	if (Object.keys(updateData).length > 0) {
-		await db
+		// Cached client so the gateway's org cache invalidates: the PAYG
+		// opt-in is a billing gate, and "enable, then retry the request"
+		// must work without waiting out a cache TTL.
+		await cdb
 			.update(tables.organization)
 			.set(updateData)
 			.where(eq(tables.organization.id, personalOrg.id));
@@ -1896,21 +2136,52 @@ devPlans.openapi(updateSettings, async (c) => {
 				new: devPlanServiceTier,
 			};
 		}
+
 		if (
-			retentionLevel !== undefined &&
-			retentionLevel !== personalOrg.retentionLevel
+			devPlanPaygEnabled !== undefined &&
+			devPlanPaygEnabled !== personalOrg.devPlanPaygEnabled
 		) {
-			changes.retentionLevel = {
-				old: personalOrg.retentionLevel,
-				new: retentionLevel,
+			changes.devPlanPaygEnabled = {
+				old: personalOrg.devPlanPaygEnabled,
+				new: devPlanPaygEnabled,
+			};
+		}
+
+		if (
+			updateData.autoTopUpEnabled !== undefined &&
+			updateData.autoTopUpEnabled !== personalOrg.autoTopUpEnabled
+		) {
+			changes.autoTopUpEnabled = {
+				old: personalOrg.autoTopUpEnabled,
+				new: updateData.autoTopUpEnabled,
+			};
+		}
+
+		if (
+			updateData.autoTopUpThreshold !== undefined &&
+			updateData.autoTopUpThreshold !== personalOrg.autoTopUpThreshold
+		) {
+			changes.autoTopUpThreshold = {
+				old: personalOrg.autoTopUpThreshold,
+				new: updateData.autoTopUpThreshold,
+			};
+		}
+
+		if (
+			updateData.autoTopUpAmount !== undefined &&
+			updateData.autoTopUpAmount !== personalOrg.autoTopUpAmount
+		) {
+			changes.autoTopUpAmount = {
+				old: personalOrg.autoTopUpAmount,
+				new: updateData.autoTopUpAmount,
 			};
 		}
 	}
 
-	// The default routing strategy lives on the project, not the org. Apply it to
-	// the org's default project (the same one surfaced by the status endpoint).
+	// Project-scoped settings apply to the default project surfaced by status.
 	let effectiveRoutingStrategy: "auto" | "price" | "throughput" | "latency" =
 		"auto";
+	let effectiveProviderCacheControlMode: ProviderCacheControlMode = "auto";
 	const defaultProject = await db.query.project.findFirst({
 		where: {
 			organizationId: {
@@ -1923,22 +2194,50 @@ devPlans.openapi(updateSettings, async (c) => {
 	});
 	if (defaultProject) {
 		effectiveRoutingStrategy = defaultProject.defaultRoutingStrategy;
+		effectiveProviderCacheControlMode = defaultProject.providerCacheControlMode;
+		const projectUpdateData: Partial<typeof tables.project.$inferInsert> = {};
 		if (
 			defaultRoutingStrategy !== undefined &&
 			defaultRoutingStrategy !== defaultProject.defaultRoutingStrategy
 		) {
+			projectUpdateData.defaultRoutingStrategy = defaultRoutingStrategy;
+		}
+		if (
+			providerCacheControlMode !== undefined &&
+			providerCacheControlMode !== defaultProject.providerCacheControlMode
+		) {
+			projectUpdateData.providerCacheControlMode = providerCacheControlMode;
+		}
+		if (Object.keys(projectUpdateData).length > 0) {
 			// Cached client so the gateway's project-cache invalidates and the new
-			// default routing strategy takes effect immediately (see projects.ts).
+			// settings take effect immediately (see projects.ts).
 			await cdb
 				.update(tables.project)
-				.set({ defaultRoutingStrategy })
+				.set(projectUpdateData)
 				.where(eq(tables.project.id, defaultProject.id));
+		}
+		if (
+			defaultRoutingStrategy !== undefined &&
+			defaultRoutingStrategy !== defaultProject.defaultRoutingStrategy
+		) {
 			changes.defaultRoutingStrategy = {
 				old: defaultProject.defaultRoutingStrategy,
 				new: defaultRoutingStrategy,
 			};
-			effectiveRoutingStrategy = defaultRoutingStrategy;
 		}
+		if (
+			providerCacheControlMode !== undefined &&
+			providerCacheControlMode !== defaultProject.providerCacheControlMode
+		) {
+			changes.providerCacheControlMode = {
+				old: defaultProject.providerCacheControlMode,
+				new: providerCacheControlMode,
+			};
+		}
+		effectiveRoutingStrategy =
+			defaultRoutingStrategy ?? effectiveRoutingStrategy;
+		effectiveProviderCacheControlMode =
+			providerCacheControlMode ?? effectiveProviderCacheControlMode;
 	}
 
 	if (Object.keys(changes).length > 0) {
@@ -1954,8 +2253,14 @@ devPlans.openapi(updateSettings, async (c) => {
 	return c.json({
 		success: true,
 		devPlanServiceTier: devPlanServiceTier ?? personalOrg.devPlanServiceTier,
-		retentionLevel: retentionLevel ?? personalOrg.retentionLevel,
 		defaultRoutingStrategy: effectiveRoutingStrategy,
+		providerCacheControlMode: effectiveProviderCacheControlMode,
+		devPlanPaygEnabled: devPlanPaygEnabled ?? personalOrg.devPlanPaygEnabled,
+		autoTopUpEnabled:
+			updateData.autoTopUpEnabled ?? personalOrg.autoTopUpEnabled,
+		autoTopUpThreshold:
+			updateData.autoTopUpThreshold ?? personalOrg.autoTopUpThreshold,
+		autoTopUpAmount: updateData.autoTopUpAmount ?? personalOrg.autoTopUpAmount,
 	});
 });
 
@@ -2122,12 +2427,20 @@ devPlans.openapi(updateBillingDetails, async (c) => {
 			.returning();
 		updatedOrg = updated;
 
+		const changes: Record<string, { old: unknown; new: unknown }> = {};
+		for (const [field, value] of Object.entries(updateData)) {
+			const previous = personalOrg[field as keyof typeof updateData];
+			if (previous !== value) {
+				changes[field] = { old: previous ?? null, new: value };
+			}
+		}
+
 		await logAuditEvent({
 			organizationId: personalOrg.id,
 			userId: user.id,
 			action: "dev_plan.update_billing_details",
 			resourceType: "dev_plan",
-			metadata: { fields: Object.keys(updateData) },
+			metadata: { fields: Object.keys(updateData), changes },
 		});
 	}
 
@@ -2140,8 +2453,9 @@ devPlans.openapi(updateBillingDetails, async (c) => {
 	});
 });
 
-// List past DevPass invoices (plan start, renewals and upgrades) with the
-// amount charged and the virtual credits granted for each billing event.
+// List the full DevPass billing history — charges (plan start, renewals,
+// upgrades, Reset Passes, PAYG top-ups), refunds and the plan lifecycle events
+// in between — with the amount charged and the virtual credits granted.
 const getInvoices = createRoute({
 	method: "get",
 	path: "/invoices",
@@ -2154,12 +2468,7 @@ const getInvoices = createRoute({
 						invoices: z.array(
 							z.object({
 								id: z.string(),
-								type: z.enum([
-									"dev_plan_start",
-									"dev_plan_renewal",
-									"dev_plan_upgrade",
-									"dev_plan_reset_pass",
-								]),
+								type: z.enum(DEV_PLAN_HISTORY_TYPES),
 								date: z.string(),
 								amount: z.string().nullable(),
 								creditAmount: z.string().nullable(),
@@ -2226,21 +2535,19 @@ devPlans.openapi(getInvoices, async (c) => {
 	});
 
 	const invoices = transactions
-		.filter((t) =>
-			[
-				"dev_plan_start",
-				"dev_plan_renewal",
-				"dev_plan_upgrade",
-				"dev_plan_reset_pass",
-			].includes(t.type),
+		.filter(
+			(t) =>
+				(DEV_PLAN_HISTORY_TYPES as readonly string[]).includes(t.type) &&
+				// Negative `credit_topup` rows are reversal bookkeeping for a refund
+				// that already has its own row; showing both double-counts the money.
+				!(
+					t.type === "credit_topup" &&
+					(t.amount === null || parseFloat(t.amount) <= 0)
+				),
 		)
 		.map((t) => ({
 			id: t.id,
-			type: t.type as
-				| "dev_plan_start"
-				| "dev_plan_renewal"
-				| "dev_plan_upgrade"
-				| "dev_plan_reset_pass",
+			type: t.type as DevPlanHistoryType,
 			date: t.createdAt.toISOString(),
 			amount: t.amount,
 			creditAmount: t.creditAmount,
@@ -2272,6 +2579,13 @@ const selfRefundInvoice = createRoute({
 		params: z.object({
 			invoiceId: z.string(),
 		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: refundFeedbackBodySchema,
+				},
+			},
+		},
 	},
 	responses: {
 		200: {
@@ -2296,6 +2610,7 @@ devPlans.openapi(selfRefundInvoice, async (c) => {
 	}
 
 	const { invoiceId } = c.req.param();
+	const { reason, comments } = c.req.valid("json");
 
 	const personalOrg = await findPersonalOrg(user.id);
 	if (!personalOrg) {
@@ -2335,6 +2650,8 @@ devPlans.openapi(selfRefundInvoice, async (c) => {
 		organization: personalOrg,
 		transaction,
 		userId: user.id,
+		reason,
+		comments,
 	});
 
 	return c.json({
@@ -2645,6 +2962,7 @@ devPlans.openapi(createSetupIntent, async (c) => {
 		customer: stripeCustomerId,
 		payment_method_types: ["card"],
 		usage: "off_session",
+		...(await forcedThreeDSecureOptions()),
 		metadata: {
 			organizationId: personalOrg.id,
 			subscriptionType: "dev_plan_update",
@@ -2841,6 +3159,43 @@ devPlans.openapi(updatePaymentMethod, async (c) => {
 	);
 });
 
+// Resolves the card on file for off-session DevPass charges: the
+// subscription's default first, falling back to the customer's default.
+// DevPass subscriptions are card-only, so this is always a card.
+async function resolveDevPassPaymentMethodId(
+	personalOrg: { devPlanStripeSubscriptionId: string | null },
+	stripeCustomerId: string,
+): Promise<string> {
+	let paymentMethodId: string | null = null;
+	if (personalOrg.devPlanStripeSubscriptionId) {
+		try {
+			const subscription = await getStripe().subscriptions.retrieve(
+				personalOrg.devPlanStripeSubscriptionId,
+			);
+			paymentMethodId = getStripeId(subscription.default_payment_method);
+		} catch (err) {
+			logger.warn("Could not read subscription payment method", {
+				error: err instanceof Error ? err.message : String(err),
+			});
+		}
+	}
+	if (!paymentMethodId) {
+		const customer = await getStripe().customers.retrieve(stripeCustomerId);
+		if (!customer.deleted) {
+			paymentMethodId = getStripeId(
+				customer.invoice_settings?.default_payment_method,
+			);
+		}
+	}
+	if (!paymentMethodId) {
+		throw new HTTPException(400, {
+			message:
+				"No saved payment method found. Update your payment method on the billing page and try again.",
+		});
+	}
+	return paymentMethodId;
+}
+
 // Buy a Reset Pass — charges the saved payment method directly (the dashboard
 // shows a confirmation dialog first), so there is no Stripe Checkout redirect.
 // The charge and the fulfilment are synchronous: on success one pass is added
@@ -2915,37 +3270,10 @@ devPlans.openapi(purchaseResetPass, async (c) => {
 	const tier = personalOrg.devPlan;
 	const price = DEV_PLAN_RESET_PASS_PRICES[tier];
 	const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
-
-	// Charge the payment method on file: the subscription's default first,
-	// falling back to the customer's default. DevPass subscriptions are
-	// card-only, so this is always a card.
-	let paymentMethodId: string | null = null;
-	if (personalOrg.devPlanStripeSubscriptionId) {
-		try {
-			const subscription = await getStripe().subscriptions.retrieve(
-				personalOrg.devPlanStripeSubscriptionId,
-			);
-			paymentMethodId = getStripeId(subscription.default_payment_method);
-		} catch (err) {
-			logger.warn("Could not read subscription payment method", {
-				error: err instanceof Error ? err.message : String(err),
-			});
-		}
-	}
-	if (!paymentMethodId) {
-		const customer = await getStripe().customers.retrieve(stripeCustomerId);
-		if (!customer.deleted) {
-			paymentMethodId = getStripeId(
-				customer.invoice_settings?.default_payment_method,
-			);
-		}
-	}
-	if (!paymentMethodId) {
-		throw new HTTPException(400, {
-			message:
-				"No saved payment method found. Update your payment method on the billing page and try again.",
-		});
-	}
+	const paymentMethodId = await resolveDevPassPaymentMethodId(
+		personalOrg,
+		stripeCustomerId,
+	);
 
 	// `kind` (not `baseAmount`) in the metadata keeps this PaymentIntent out
 	// of handlePaymentIntentSucceeded's credit top-up path and routes it to
@@ -2975,14 +3303,11 @@ devPlans.openapi(purchaseResetPass, async (c) => {
 		// tier-change handler. Anything else (configuration, outage,
 		// programming errors) is rethrown to the global error handler.
 		const stripeErr = err as { type?: string; code?: string };
-		if (
-			stripeErr?.type === "StripeCardError" ||
-			stripeErr?.code === "card_declined"
-		) {
+		const cardErrorMessage = getStripeCardErrorMessage(err);
+		if (cardErrorMessage || stripeErr?.code === "card_declined") {
 			logger.warn("Reset Pass charge declined", { code: stripeErr.code });
 			throw new HTTPException(402, {
-				message:
-					"Your card was declined. Update your payment method on the billing page and try again.",
+				message: `${cardErrorMessage ?? "Your card was declined."} Update your payment method on the billing page and try again.`,
 			});
 		}
 		throw err;
@@ -3025,6 +3350,234 @@ devPlans.openapi(purchaseResetPass, async (c) => {
 	});
 });
 
+// Top up pay-as-you-go credits on the DevPass personal org — charges the
+// saved payment method directly, like the Reset Pass purchase. Fulfilment
+// (credits + transaction + invoice) happens in the payment_intent.succeeded
+// webhook, the same path every other credit top-up uses; the dashboard's
+// status poll picks up the new balance.
+const topUpCredits = createRoute({
+	method: "post",
+	path: "/topup",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						amount: z
+							.number()
+							.min(
+								CREDIT_TOP_UP_MIN_AMOUNT,
+								`Minimum top-up amount is $${CREDIT_TOP_UP_MIN_AMOUNT}.`,
+							)
+							.max(
+								CREDIT_TOP_UP_MAX_AMOUNT,
+								`Maximum top-up amount is $${CREDIT_TOP_UP_MAX_AMOUNT}.`,
+							),
+						// Client-generated purchase attempt id, forwarded to Stripe as
+						// the idempotency key so a resubmitted request (double-click,
+						// network retry, lost response) reuses the same PaymentIntent
+						// instead of charging twice. Required: every charge must be
+						// idempotent, including raw API callers.
+						purchaseId: z.string().min(8).max(64),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						success: z.boolean(),
+						// Total charged including fees.
+						totalAmount: z.number(),
+					}),
+				},
+			},
+			description: "Credits topped up successfully",
+		},
+	},
+});
+
+devPlans.openapi(topUpCredits, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	if (!user.emailVerified) {
+		throw new HTTPException(403, {
+			message: "Email verification required",
+		});
+	}
+
+	const { amount, purchaseId } = c.req.valid("json");
+
+	const personalOrg = await findPersonalOrg(user.id);
+
+	if (!personalOrg) {
+		throw new HTTPException(404, {
+			message: "Personal organization not found",
+		});
+	}
+
+	if (personalOrg.devPlan === "none") {
+		throw new HTTPException(400, {
+			message: "An active dev plan is required to top up credits.",
+		});
+	}
+
+	await assertCreditPurchaseAllowed(personalOrg.id);
+	await assertOrganizationNotHighRisk(personalOrg.id);
+
+	// DevPass PAYG top-ups land in organization.credits like dashboard top-ups,
+	// so they get the same tier-based velocity gate — before any Stripe
+	// interaction, reserving the worst-case (international-fee) gross.
+	const gateGrossUsd = calculateFees({
+		amount,
+		isInternational: true,
+	}).totalAmount;
+
+	// Client retries reuse the same purchaseId, and the Stripe idempotency key
+	// below collapses them into ONE PaymentIntent — so the gate and its
+	// reservation must also run once per purchase, or every retry would
+	// double-count the same attempt and can 429 legitimate resubmissions. The
+	// NX marker makes the gate idempotent; retries skip it (the original
+	// attempt's reservation still covers the amount). On failure the marker is
+	// cleared with the reservation so a fresh retry re-gates.
+	const gateMarkerKey = `topup_velocity:devpass_gate:${personalOrg.id}:${purchaseId}`;
+	let firstGateAttempt = true;
+	try {
+		firstGateAttempt =
+			(await redisClient.set(
+				gateMarkerKey,
+				"1",
+				"EX",
+				TOPUP_VELOCITY_RESERVATION_TTL_SECONDS,
+				"NX",
+			)) === "OK";
+	} catch {
+		// Redis unavailable: gate normally (the reservation path degrades to
+		// DB-only inside the check anyway).
+		firstGateAttempt = true;
+	}
+	if (firstGateAttempt) {
+		await assertTopUpVelocityAllowed(personalOrg, gateGrossUsd, { user });
+	}
+	const releaseGate = async () => {
+		if (!firstGateAttempt) {
+			return;
+		}
+		await releaseTopUpReservation(personalOrg.id, gateGrossUsd);
+		try {
+			await redisClient.del(gateMarkerKey);
+		} catch {
+			// Marker expires with its TTL; a stuck marker only skips re-gating.
+		}
+	};
+
+	// A failure before the charge means no money moved — free the reservation.
+	let stripeCustomerId: string;
+	let paymentMethodId: string;
+	let isInternational: boolean;
+	try {
+		stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
+		paymentMethodId = await resolveDevPassPaymentMethodId(
+			personalOrg,
+			stripeCustomerId,
+		);
+		isInternational = await isInternationalPaymentMethod(paymentMethodId);
+	} catch (err) {
+		await releaseGate();
+		throw err;
+	}
+	const feeBreakdown = calculateFees({ amount, isInternational });
+
+	// `baseAmount` in the metadata routes this PaymentIntent through
+	// handlePaymentIntentSucceeded's credit top-up path — the same
+	// fulfilment (dedup, bonus, invoice, analytics) as dashboard top-ups.
+	// The org-scoped idempotency key makes Stripe collapse resubmissions of
+	// the same purchase attempt into one PaymentIntent; the webhook's
+	// transaction dedup (keyed on the PaymentIntent id) then guarantees the
+	// collapsed charge is only credited once.
+	let paymentIntent: Stripe.PaymentIntent;
+	try {
+		paymentIntent = await getStripe().paymentIntents.create(
+			{
+				amount: Math.round(feeBreakdown.totalAmount * 100),
+				currency: "usd",
+				customer: stripeCustomerId,
+				payment_method: paymentMethodId,
+				off_session: true,
+				confirm: true,
+				description: `Credit purchase for ${amount} USD (including fees)`,
+				metadata: {
+					organizationId: personalOrg.id,
+					baseAmount: amount.toString(),
+					platformFee: feeBreakdown.platformFee.toString(),
+					internationalFee: feeBreakdown.internationalFee.toString(),
+					isInternational: isInternational.toString(),
+					userEmail: user.email,
+					userId: user.id,
+				},
+			},
+			{ idempotencyKey: `dev-plan-topup:${personalOrg.id}:${purchaseId}` },
+		);
+	} catch (err) {
+		// The charge did not go through — free the velocity reservation.
+		await releaseGate();
+		const stripeErr = err as { type?: string; code?: string };
+		const cardErrorMessage = getStripeCardErrorMessage(err);
+		if (cardErrorMessage || stripeErr?.code === "card_declined") {
+			logger.warn("DevPass credit top-up declined", { code: stripeErr.code });
+			throw new HTTPException(402, {
+				message: `${cardErrorMessage ?? "Your card was declined."} Update your payment method on the billing page and try again.`,
+			});
+		}
+		// Reusing a purchaseId with different parameters (amount, card) is a
+		// client bug, but Stripe's idempotency conflict must not surface as a
+		// 500 — it is a definitive, retryable client outcome.
+		if (
+			stripeErr?.type === "StripeIdempotencyError" ||
+			stripeErr?.code === "idempotency_error"
+		) {
+			throw new HTTPException(409, {
+				message:
+					"This purchase attempt was already submitted with different details. Start a new attempt and try again.",
+			});
+		}
+		throw err;
+	}
+
+	if (paymentIntent.status !== "succeeded") {
+		throw new HTTPException(402, {
+			message:
+				"The payment could not be completed. Update your payment method on the billing page and try again.",
+		});
+	}
+
+	await logAuditEvent({
+		organizationId: personalOrg.id,
+		userId: user.id,
+		action: "payment.credit_topup",
+		resourceType: "payment",
+		resourceId: paymentIntent.id,
+		metadata: {
+			amount,
+			paymentMethodId,
+		},
+	});
+
+	return c.json({
+		success: true,
+		totalAmount: feeBreakdown.totalAmount,
+	});
+});
+
 // Redeem a Reset Pass: zero the weekly premium usage and clear the window so
 // a fresh 7-day window starts with the next premium request (the same state a
 // naturally expired week resolves to). Included (plan-granted) passes are
@@ -3032,7 +3585,17 @@ devPlans.openapi(purchaseResetPass, async (c) => {
 const redeemResetPass = createRoute({
 	method: "post",
 	path: "/reset-pass/redeem",
-	request: {},
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						confirmHighCycleUsage: z.boolean().optional(),
+					}),
+				},
+			},
+		},
+	},
 	responses: {
 		200: {
 			content: {
@@ -3052,6 +3615,7 @@ const redeemResetPass = createRoute({
 
 devPlans.openapi(redeemResetPass, async (c) => {
 	const user = c.get("user");
+	const { confirmHighCycleUsage = false } = c.req.valid("json");
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -3079,18 +3643,26 @@ devPlans.openapi(redeemResetPass, async (c) => {
 		});
 	}
 
-	// With the monthly credit pool nearly exhausted, a reset would restore a
-	// weekly cap the user can't actually spend against — burning the pass for
-	// almost nothing. The pass keeps until the cycle renews, so hold it.
+	const cycleUsage = getDevPlanCycleUsageFraction(
+		personalOrg.devPlanCreditsUsed,
+		personalOrg.devPlanCreditsLimit,
+	);
+	if (cycleUsage >= 1) {
+		throw new HTTPException(400, {
+			message:
+				"Your monthly credit allowance is fully used, so a Reset Pass cannot unlock any remaining plan usage.",
+		});
+	}
+
+	// A reset remains available late in the cycle, but the caller must affirm
+	// that it understands the pass unlocks only the remaining monthly credits.
 	if (
-		getDevPlanCycleUsageFraction(
-			personalOrg.devPlanCreditsUsed,
-			personalOrg.devPlanCreditsLimit,
-		) > DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE
+		cycleUsage > DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE &&
+		!confirmHighCycleUsage
 	) {
 		throw new HTTPException(400, {
 			message:
-				"You've used more than 90% of this cycle's credit allowance — redeeming now would waste the pass on usage you can't spend. Your pass stays available for when your credits renew.",
+				"You've used more than 90% of this cycle's credit allowance. Confirm that you want to use a Reset Pass with the remaining monthly allowance.",
 		});
 	}
 

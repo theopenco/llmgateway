@@ -1,10 +1,11 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import { WebAuthnAbortService } from "@simplewebauthn/browser";
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
+import { KeySquare, Loader2 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import * as z from "zod";
@@ -60,8 +61,60 @@ export default function Login() {
 		},
 	});
 
+	const passkeyAutofillStarted = useRef(false);
+	useEffect(() => {
+		// Start the conditional (autofill) passkey ceremony exactly once. Re-running
+		// it restarts the WebAuthn request, which flickers the browser/password
+		// manager prompt and aborts an in-progress manual passkey button click.
+		if (passkeyAutofillStarted.current) {
+			return;
+		}
+		if (typeof window === "undefined" || !window.PublicKeyCredential) {
+			return;
+		}
+		passkeyAutofillStarted.current = true;
+		void signIn.passkey({ autoFill: true }).then((res) => {
+			if (res?.data) {
+				queryClient.clear();
+				router.push(returnUrl);
+			} else if (res?.error) {
+				if (res.error.message?.toLowerCase().includes("cancelled")) {
+					return;
+				}
+				toast.error(res.error.message ?? "Failed to sign in with passkey");
+			}
+		});
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
+
+	async function handlePasskeySignIn() {
+		setIsLoading(true);
+		try {
+			// Cancel the pending conditional (autofill) ceremony started on mount so
+			// it doesn't collide with this modal request and abort it as "cancelled".
+			WebAuthnAbortService.cancelCeremony();
+			const res = await signIn.passkey();
+			if (res?.error) {
+				toast.error(res.error.message ?? "Failed to sign in with passkey");
+				return;
+			}
+			queryClient.clear();
+			toast.success("Login successful");
+			router.push(returnUrl);
+		} catch (error: unknown) {
+			toast.error(
+				(error as Error)?.message || "Failed to sign in with passkey",
+			);
+		} finally {
+			setIsLoading(false);
+		}
+	}
+
 	async function onSubmit(values: z.infer<typeof formSchema>) {
 		setIsLoading(true);
+		// Abort the pending conditional (autofill) passkey ceremony so it can't pop a
+		// native passkey/biometric prompt after a successful email sign-in + redirect.
+		WebAuthnAbortService.cancelCeremony();
 		const { error } = await signIn.email(
 			{
 				email: values.email,
@@ -165,6 +218,19 @@ export default function Login() {
 						<span className="bg-background px-2 text-muted-foreground">Or</span>
 					</div>
 				</div>
+				<Button
+					onClick={handlePasskeySignIn}
+					variant="outline"
+					className="w-full"
+					disabled={isLoading}
+				>
+					{isLoading ? (
+						<Loader2 className="mr-2 h-4 w-4 animate-spin" />
+					) : (
+						<KeySquare className="mr-2 h-4 w-4" />
+					)}
+					Sign in with passkey
+				</Button>
 			</div>
 		</div>
 	);

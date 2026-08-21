@@ -1,7 +1,7 @@
 import { DeveloperRouteGuard } from "@/components/dashboard/developer-route-guard";
 import { LastUsedProjectTracker } from "@/components/dashboard/last-used-project-tracker";
 import { UnauthorizedView } from "@/components/dashboard/unauthorized-view";
-import { fetchServerData } from "@/lib/server-api";
+import { getOrgProjects } from "@/lib/server-api";
 
 import type { Project } from "@/lib/types";
 import type { ReactNode } from "react";
@@ -21,17 +21,7 @@ export default async function ProjectLayout({
 	let initialProjectsData = null;
 	if (orgId) {
 		try {
-			initialProjectsData = await fetchServerData(
-				"GET",
-				"/orgs/{id}/projects",
-				{
-					params: {
-						path: {
-							id: orgId,
-						},
-					},
-				},
-			);
+			initialProjectsData = await getOrgProjects(orgId);
 		} catch (error) {
 			console.warn("Failed to fetch projects for organization:", orgId, error);
 		}

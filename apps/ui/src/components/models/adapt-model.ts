@@ -65,6 +65,7 @@ export function adaptProviderMapping(
 			imageOutputTokensByResolution: p.imageOutputTokensByResolution ?? null,
 			requestPrice: toStr(p.requestPrice),
 			ocrPagePrice: toStr(p.ocrPagePrice),
+			inputAudioHourPrice: toStr(p.inputAudioHourPrice),
 			contextSize: p.contextSize ?? null,
 			maxOutput: p.maxOutput ?? null,
 			quantization: p.quantization ?? null,
@@ -84,6 +85,7 @@ export function adaptProviderMapping(
 			supportsVideoAudio: p.supportsVideoAudio ?? null,
 			supportsVideoWithoutAudio: p.supportsVideoWithoutAudio ?? null,
 			perSecondPrice: toStrRecord(p.perSecondPrice),
+			perImagePrice: toStrRecord(p.perImagePrice),
 			pricingTiers: p.pricingTiers
 				? p.pricingTiers.map((t) => ({
 						name: t.name,
@@ -126,6 +128,7 @@ export function adaptProviderMapping(
 			color: p.providerInfo?.color ?? null,
 			website: p.providerInfo?.website ?? null,
 			announcement: null,
+			modelCardBadge: p.providerInfo?.modelCardBadge ?? null,
 			serviceTiers,
 			status: "active" as const,
 		},

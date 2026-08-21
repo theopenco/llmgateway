@@ -13,6 +13,7 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useSidebar } from "@/components/ui/sidebar";
+import { CHAT_CONTEXT_COOKIE } from "@/lib/constants";
 
 import type { Organization } from "@/lib/types";
 
@@ -35,6 +36,13 @@ export function OrganizationSwitcher({
 	}, []);
 
 	const handleSelectOrganization = (org: Organization | null) => {
+		// Remember an explicit "Chat plan" choice so the playground shell's
+		// funded-org fallback doesn't bounce the user back to a dashboard org.
+		if (org) {
+			document.cookie = `${CHAT_CONTEXT_COOKIE}=; path=/; max-age=0; samesite=lax`;
+		} else {
+			document.cookie = `${CHAT_CONTEXT_COOKIE}=1; path=/; max-age=31536000; samesite=lax`;
+		}
 		if (isMobile) {
 			setOpenMobile(false);
 		}

@@ -4,6 +4,10 @@ import { HTTPException } from "hono/http-exception";
 import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
 import { getProviderEnv } from "@/chat/tools/get-provider-env.js";
 import {
+	getCredentialSetting,
+	resolvePlatformCredential,
+} from "@/chat/tools/resolve-platform-credential.js";
+import {
 	getErrorType,
 	selectNextProvider,
 	shouldRetryRequest,
@@ -16,9 +20,12 @@ import {
 import {
 	findApiKeyByToken,
 	findEffectiveDiscount,
+	findEffectiveRoutingScoreMultiplier,
+	findManagedProviderKey,
 	findOrganizationById,
 	findProjectById,
 	findProviderKey,
+	hasManagedProviderCredential,
 	type GatewayApiKey,
 } from "@/lib/cached-queries.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
@@ -26,6 +33,7 @@ import {
 	complianceBlockMessage,
 	filterCompliantProviders,
 	getActiveCompliancePolicy,
+	isModelIdCompliant,
 	isProviderIdCompliant,
 	logComplianceBlock,
 } from "@/lib/compliance.js";
@@ -33,24 +41,34 @@ import {
 	applyEndUserSession,
 	assertTestWalletModelAllowed,
 } from "@/lib/end-user-session.js";
+import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { validateRequestModelAccess } from "@/lib/iam.js";
+import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
+import { assertSpendLimit, recordSpend } from "@/lib/spend-limit.js";
+import { clientFacingUpstreamErrorMessage } from "@/lib/stealth-provider-errors.js";
 
 import {
 	getCheapestFromAvailableProviders,
 	getDiscountedProviderSelectionPrice,
 	getProviderHeaders,
+	managedCredentialOptions,
 	processImageUrl,
+	providerKeyLabel,
+	readProviderKey,
 	type RoutingMetadata,
 	type VideoPricingContext,
 } from "@llmgateway/actions";
-import { redisClient } from "@llmgateway/cache";
+import { redisClient, swrWrap } from "@llmgateway/cache";
 import {
 	and,
+	cdb,
 	db,
 	eq,
+	findManagedProviderKeyById,
+	getTableName,
 	metricsKey,
 	sql,
 	shortid,
@@ -60,6 +78,7 @@ import {
 } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
 import {
+	type EnvVarVariant,
 	getProviderEnvValue,
 	getProviderEnvVar,
 	hasProviderEnvironmentToken,
@@ -91,6 +110,7 @@ import {
 
 import type { ServerTypes } from "@/vars.js";
 import type { ResolvedRoutingConfig } from "@llmgateway/shared/routing-config";
+import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
 import type { Context } from "hono";
 
 function createProviderDiscountResolver(organizationId: string) {
@@ -100,6 +120,15 @@ function createProviderDiscountResolver(organizationId: string) {
 	) =>
 		(await findEffectiveDiscount(organizationId, provider.providerId, modelId))
 			.discount;
+}
+
+function createProviderRoutingScoreMultiplierResolver() {
+	return async (
+		provider: Pick<ProviderModelMapping, "providerId">,
+		modelId: string,
+	) =>
+		(await findEffectiveRoutingScoreMultiplier(provider.providerId, modelId))
+			.scoreMultiplier;
 }
 
 const TERMINAL_VIDEO_STATUSES = new Set([
@@ -346,7 +375,7 @@ const createVideoRequestSchema = z
 		image: videoImageInputSchema.optional(),
 		reference_images: videoReferenceImagesSchema.optional().openapi({
 			description:
-				"Reference images for provider-specific asset or material-guided video generation. ByteDance Seedance 2.0 models accept up to 9; other providers accept up to 3.",
+				"Reference images for provider-specific asset or material-guided video generation. ByteDance Seedance 2.x models accept up to 9; other providers accept up to 3.",
 			example: [
 				{
 					image_url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...",
@@ -355,7 +384,7 @@ const createVideoRequestSchema = z
 		}),
 		reference_videos: videoReferenceVideosSchema.optional().openapi({
 			description:
-				"One to three reference videos (HTTPS URLs) for omni-reference video generation. Currently only supported on ByteDance Seedance 2.0 models and can be combined with reference_images.",
+				"One to three reference videos (HTTPS URLs) for omni-reference video generation. Currently only supported on ByteDance Seedance 2.x models and can be combined with reference_images.",
 			example: [
 				{
 					video_url: "https://example.com/reference-motion.mp4",
@@ -364,7 +393,7 @@ const createVideoRequestSchema = z
 		}),
 		reference_audios: videoReferenceAudiosSchema.optional().openapi({
 			description:
-				"One to three reference audio clips (HTTPS URLs) for omni-reference video generation. Currently only supported on ByteDance Seedance 2.0 models and can be combined with reference_images and reference_videos.",
+				"One to three reference audio clips (HTTPS URLs) for omni-reference video generation. Currently only supported on ByteDance Seedance 2.x models and can be combined with reference_images and reference_videos.",
 			example: [
 				{
 					audio_url: "https://example.com/reference-track.mp3",
@@ -614,6 +643,22 @@ interface ProviderContext {
 	requestId: string;
 	usedMode: "api-keys" | "credits";
 	configIndex: number | null;
+	/**
+	 * Managed credential serving this job, when one did. Persisted on the job
+	 * so polling and content retrieval re-use the exact same credential.
+	 */
+	managedProviderKeyId?: string;
+	/**
+	 * BYOK provider key that created the job, for spend attribution on the
+	 * final log row only. Does not pin polling — BYOK polls re-resolve the
+	 * org's active key as they always did.
+	 */
+	providerKeyId?: string;
+	/**
+	 * That key named as its owner sees it, for the routing view. BYOK only —
+	 * providerKeyLabel() returns undefined for a platform credential.
+	 */
+	providerKeyLabel?: string;
 	vertexProjectId?: string;
 	vertexRegion?: string;
 	vertexTokenType?: VertexTokenType;
@@ -622,30 +667,32 @@ interface ProviderContext {
 
 /**
  * Resolve the Vertex token type for video requests so the upstream call can
- * choose between `?key=` (API key) and `Authorization: Bearer` (OAuth2). BYOK
- * keys resolve from the provider-key option (env skipped); env-backed tokens
- * resolve from the `LLM_GOOGLE_VERTEX_TOKEN_TYPE` env var.
+ * choose between `?key=` (API key) and `Authorization: Bearer` (OAuth2).
+ * Database-backed credentials — an organization's BYOK key or a managed
+ * credential — resolve from their own settings with env skipped; env-backed
+ * tokens resolve from the `LLM_GOOGLE_VERTEX_TOKEN_TYPE` env var.
  */
 function resolveVideoVertexTokenType(
 	providerId: Provider,
 	providerKey: InferSelectModel<typeof tables.providerKey> | undefined,
 	configIndex: number | null,
+	variant?: EnvVarVariant,
+	managedKey?: InferSelectModel<typeof tables.providerKey>,
 ): VertexTokenType | undefined {
 	if (providerId !== "google-vertex") {
 		return undefined;
 	}
-	return providerKey
-		? resolveVertexTokenType(
-				providerId,
-				providerKey.options ?? undefined,
-				undefined,
-				true,
-			)
+	const databaseKeyOptions = providerKey
+		? (providerKey.options ?? undefined)
+		: managedCredentialOptions(managedKey);
+	return providerKey || managedKey
+		? resolveVertexTokenType(providerId, databaseKeyOptions, undefined, true)
 		: resolveVertexTokenType(
 				providerId,
 				undefined,
 				configIndex ?? undefined,
 				false,
+				variant,
 			);
 }
 
@@ -718,6 +765,54 @@ function hasSufficientVideoGenerationBalance(
 	organization: InferSelectModel<typeof tables.organization>,
 ): boolean {
 	return getAvailableCredits(organization) >= MIN_VIDEO_GENERATION_BALANCE;
+}
+
+/**
+ * Deterministic pre-charge estimate for a credits-billed video job. Video
+ * bills only at worker finalization, minutes after submission — without an
+ * up-front counter advance, a burst of submissions would all pass the
+ * spend-cap gate together and overshoot the cap by however many jobs fit in
+ * the async window. The estimate is recorded against the spend counters at
+ * submission, stamped on the job (`llmgateway_reserved_spend_usd`), and
+ * reconciled to the actual billed cost when the worker finalizes.
+ */
+function estimateVideoSpendUsd(
+	mapping: ProviderModelMapping,
+	resolution: string,
+	durationSeconds: number,
+	inputImageCount: number,
+): number {
+	let outputCost = 0;
+	const pricing = mapping.perSecondPrice;
+	if (pricing) {
+		// Prefer the audio-inclusive (higher) rate — overestimating is the safe
+		// direction for a cap, and the finalization reconcile settles the exact
+		// figure either way.
+		const candidates = [
+			`${resolution}_audio`,
+			`${resolution}_video`,
+			resolution,
+			"default",
+		];
+		let perSecond = candidates
+			.map((key) => Number(pricing[key]))
+			.find((value) => Number.isFinite(value));
+		if (perSecond === undefined) {
+			perSecond = Math.max(
+				0,
+				...Object.values(pricing)
+					.map(Number)
+					.filter((value) => Number.isFinite(value)),
+			);
+		}
+		outputCost = durationSeconds * perSecond;
+	} else if (mapping.requestPrice !== undefined) {
+		const requestPrice = Number(mapping.requestPrice);
+		outputCost = Number.isFinite(requestPrice) ? requestPrice : 0;
+	}
+	const perImage = Number(mapping.imageInputPrice ?? 0);
+	const imageCost = Number.isFinite(perImage) ? inputImageCount * perImage : 0;
+	return Number((outputCost + imageCost).toFixed(6));
 }
 
 function getInsufficientVideoGenerationBalanceError(): HTTPException {
@@ -801,11 +896,7 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 		});
 	}
 
-	if (baseOrganization.status === "deleted") {
-		throw new HTTPException(410, {
-			message: "Organization has been disabled and is no longer accessible",
-		});
-	}
+	assertOrganizationUsable(baseOrganization);
 
 	// LLM SDK: ephemeral end-user sessions bill the bound wallet. No-op
 	// for normal keys.
@@ -819,6 +910,7 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 	const requestId = c.req.header("x-request-id")?.trim() || shortid(40);
 	const routingCfg = await getResolvedRoutingConfig(
 		project.id,
+		organization.id,
 		organization.plan,
 	);
 
@@ -924,7 +1016,8 @@ function isBytedanceSeedance2Model(externalId: string): boolean {
 	return (
 		externalId === "dreamina-seedance-2-0-260128" ||
 		externalId === "dreamina-seedance-2-0-fast-260128" ||
-		externalId === "dreamina-seedance-2-0-mini-260615"
+		externalId === "dreamina-seedance-2-0-mini-260615" ||
+		externalId === "dreamina-seedance-2-5-260628"
 	);
 }
 
@@ -1015,7 +1108,7 @@ function getVideoProviderConstraintReasons(
 		if (provider.providerId === "bytedance") {
 			if (!isBytedanceSeedance2Model(provider.externalId)) {
 				reasons.push(
-					"frame inputs are currently only supported on bytedance Seedance 2.0 (seedance-2-0, seedance-2-0-fast, seedance-2-0-mini)",
+					"frame inputs are currently only supported on bytedance Seedance 2.x (seedance-2-0, seedance-2-0-fast, seedance-2-0-mini, seedance-2-5)",
 				);
 			}
 		} else if (isAtlasCloudVideoProvider(provider.providerId)) {
@@ -1073,11 +1166,11 @@ function getVideoProviderConstraintReasons(
 		if (provider.providerId === "bytedance") {
 			if (!isBytedanceSeedance2Model(provider.externalId)) {
 				reasons.push(
-					"reference inputs are currently only supported on bytedance Seedance 2.0 (seedance-2-0, seedance-2-0-fast, seedance-2-0-mini)",
+					"reference inputs are currently only supported on bytedance Seedance 2.x (seedance-2-0, seedance-2-0-fast, seedance-2-0-mini, seedance-2-5)",
 				);
 			} else if (inputImageCount > SEEDANCE_2_MAX_REFERENCE_IMAGES) {
 				reasons.push(
-					`Seedance 2.0 supports at most ${SEEDANCE_2_MAX_REFERENCE_IMAGES} reference images`,
+					`Seedance 2.x supports at most ${SEEDANCE_2_MAX_REFERENCE_IMAGES} reference images`,
 				);
 			}
 
@@ -1086,13 +1179,13 @@ function getVideoProviderConstraintReasons(
 
 		if (referenceVideoCount > 0) {
 			reasons.push(
-				"reference videos are currently only supported on bytedance Seedance 2.0 models",
+				"reference videos are currently only supported on bytedance Seedance 2.x models",
 			);
 		}
 
 		if (referenceAudioCount > 0) {
 			reasons.push(
-				"reference audio is currently only supported on bytedance Seedance 2.0 models",
+				"reference audio is currently only supported on bytedance Seedance 2.x models",
 			);
 		}
 
@@ -1340,12 +1433,13 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 	}
 }
 
-function getVideoProviderKeyFilter(
-	providerId: Provider,
-): ((key: { baseUrl: string | null }) => boolean) | undefined {
-	if (!isGoogleVertexVideoProvider(providerId)) {
-		return undefined;
-	}
+/**
+ * Base URLs a credential may point at and still serve Google Vertex video:
+ * the provider's canonical endpoint plus whatever the deployment configured.
+ * Vertex video writes its output to a bucket in the storage project, so a
+ * credential aimed anywhere else cannot produce a retrievable result.
+ */
+function getAllowedVideoBaseUrls(providerId: Provider): Set<string> {
 	const allowedBaseUrls = new Set<string>();
 	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
 	if (defaultBaseUrl) {
@@ -1355,7 +1449,76 @@ function getVideoProviderKeyFilter(
 	if (envBaseUrl) {
 		allowedBaseUrls.add(envBaseUrl);
 	}
+	return allowedBaseUrls;
+}
+
+function getVideoProviderKeyFilter(
+	providerId: Provider,
+): ((key: { baseUrl: string | null }) => boolean) | undefined {
+	if (!isGoogleVertexVideoProvider(providerId)) {
+		return undefined;
+	}
+	const allowedBaseUrls = getAllowedVideoBaseUrls(providerId);
 	return (key) => !key.baseUrl || allowedBaseUrls.has(key.baseUrl);
+}
+
+/**
+ * Managed credentials that can serve video generation for a provider.
+ *
+ * Mirrors the constraints applied to env credentials by
+ * getVideoExcludedConfigIndices and to BYOK keys by getVideoProviderKeyFilter:
+ * Google Vertex video writes its output to a bucket in the storage project, so
+ * a credential pointed at a different base URL or a different GCP project
+ * cannot serve it.
+ */
+function getManagedVideoCredentialFilter(
+	providerId: Provider,
+): ((key: InferSelectModel<typeof tables.providerKey>) => boolean) | undefined {
+	if (!isGoogleVertexVideoProvider(providerId)) {
+		return undefined;
+	}
+	const allowedBaseUrls = getAllowedVideoBaseUrls(providerId);
+	const storageProjectId = process.env.GOOGLE_CLOUD_PROJECT?.trim();
+	return (key) => {
+		const baseUrl = key.config?.baseUrl;
+		if (baseUrl && !allowedBaseUrls.has(baseUrl)) {
+			return false;
+		}
+		if (storageProjectId) {
+			const project = key.config?.project;
+			if (project && project !== storageProjectId) {
+				return false;
+			}
+		}
+		return true;
+	};
+}
+
+/**
+ * Whether a managed credential exists that can serve video generation for the
+ * provider, i.e. one that is video-eligible and carries every setting video
+ * generation needs. Used for routing availability, where a provider with a
+ * usable managed credential must be offered even with no env var set.
+ */
+async function hasManagedVideoCredential(
+	providerId: Provider,
+	defaultBaseUrl: string | null,
+	variant?: EnvVarVariant,
+): Promise<boolean> {
+	const managedKey = await findManagedProviderKey(providerId, {
+		variant,
+		filter: getManagedVideoCredentialFilter(providerId),
+	});
+	if (!managedKey) {
+		return false;
+	}
+	if (!(managedKey.config?.baseUrl ?? defaultBaseUrl)) {
+		return false;
+	}
+	if (isGoogleVertexVideoProvider(providerId) && !managedKey.config?.project) {
+		return false;
+	}
+	return true;
 }
 
 function getVideoExcludedConfigIndices(
@@ -1439,6 +1602,11 @@ async function resolveProviderContext(
 			"us-central1")
 		: undefined;
 
+	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
+	// this org's env-credential reads. Undefined = base vars only.
+	const organization = await findOrganizationById(organizationId);
+	const envVariant = getLicensedOrganizationEnvVariant(organization);
+
 	if (project.mode === "api-keys") {
 		const providerKey = await findProviderKey(
 			organizationId,
@@ -1472,10 +1640,12 @@ async function resolveProviderContext(
 		const providerContext: ProviderContext = {
 			providerId,
 			baseUrl,
-			token: providerKey.token,
+			token: readProviderKey(providerKey),
 			requestId,
 			usedMode: "api-keys",
 			configIndex: null,
+			providerKeyId: providerKey.id,
+			providerKeyLabel: providerKeyLabel(providerKey),
 			vertexProjectId: sharedVertexProjectId,
 			vertexRegion: sharedVertexRegion,
 			vertexTokenType: resolveVideoVertexTokenType(
@@ -1493,62 +1663,13 @@ async function resolveProviderContext(
 	}
 
 	if (project.mode === "credits") {
-		const env = getProviderEnv(providerId, {
-			excludedIndices: getVideoExcludedConfigIndices(providerId),
-			selectionScope,
-		});
-		const baseUrl =
-			getProviderEnvValue(providerId, "baseUrl", env.configIndex) ??
-			defaultBaseUrl;
-		if (!baseUrl) {
-			throw new HTTPException(500, {
-				message: `Base URL environment variable is required for ${providerId} provider`,
-			});
-		}
-
-		const vertexProjectId = isGoogleVertexVideoProvider(providerId)
-			? getProviderEnvValue(providerId, "project", env.configIndex)
-			: undefined;
-		const vertexRegion = isGoogleVertexVideoProvider(providerId)
-			? (getProviderEnvValue(
-					providerId,
-					"region",
-					env.configIndex,
-					"us-central1",
-				) ?? "us-central1")
-			: undefined;
-
-		if (isGoogleVertexVideoProvider(providerId) && !vertexProjectId) {
-			throw new HTTPException(500, {
-				message: `${providerId} project environment variable is required for video generation`,
-			});
-		}
-
-		const providerContext: ProviderContext = {
+		return await resolvePlatformVideoProviderContext(
 			providerId,
-			baseUrl,
-			token: env.token,
 			requestId,
-			usedMode: "credits",
-			configIndex: env.configIndex,
-			vertexProjectId,
-			vertexRegion,
-			vertexTokenType: resolveVideoVertexTokenType(
-				providerId,
-				undefined,
-				env.configIndex,
-			),
-			uploadBaseUrl:
-				providerId === "avalanche"
-					? getProviderEnvValue(
-							providerId,
-							"fileUploadBaseUrl",
-							env.configIndex,
-						)
-					: undefined,
-		};
-
-		return providerContext;
+			selectionScope,
+			envVariant,
+			defaultBaseUrl,
+		);
 	}
 
 	const providerKey = await findProviderKey(
@@ -1578,10 +1699,12 @@ async function resolveProviderContext(
 		const providerContext: ProviderContext = {
 			providerId,
 			baseUrl,
-			token: providerKey.token,
+			token: readProviderKey(providerKey),
 			requestId,
 			usedMode: "api-keys",
 			configIndex: null,
+			providerKeyId: providerKey.id,
+			providerKeyLabel: providerKeyLabel(providerKey),
 			vertexProjectId: sharedVertexProjectId,
 			vertexRegion: sharedVertexRegion,
 			vertexTokenType: resolveVideoVertexTokenType(
@@ -1598,18 +1721,59 @@ async function resolveProviderContext(
 		return providerContext;
 	}
 
-	if (!hasProviderEnvironmentToken(providerId)) {
+	// A provider with any managed credential is served only by those: its
+	// `LLM_*` vars are superseded and no longer count, even when no managed
+	// credential is video-eligible.
+	const platformCanServe = (await hasManagedProviderCredential(providerId))
+		? await hasManagedVideoCredential(providerId, defaultBaseUrl, envVariant)
+		: hasProviderEnvironmentToken(providerId);
+	if (!platformCanServe) {
 		throw new HTTPException(400, {
 			message: `No provider key or environment token set for provider: ${providerId}. Please add the provider key in the settings or switch the project mode to credits or hybrid.`,
 		});
 	}
 
-	const env = getProviderEnv(providerId, {
-		excludedIndices: getVideoExcludedConfigIndices(providerId),
+	return await resolvePlatformVideoProviderContext(
+		providerId,
+		requestId,
+		selectionScope,
+		envVariant,
+		defaultBaseUrl,
+	);
+}
+
+/**
+ * Credential LLM Gateway itself pays for, for video generation: a managed
+ * provider credential when one is configured, otherwise the provider's `LLM_*`
+ * env vars. Shared by credits mode and hybrid mode's fallback so both persist
+ * the same credential onto the job.
+ */
+async function resolvePlatformVideoProviderContext(
+	providerId: Provider,
+	requestId: string,
+	selectionScope: string,
+	envVariant: EnvVarVariant | undefined,
+	defaultBaseUrl: string | null,
+): Promise<ProviderContext> {
+	const platformCredential = await resolvePlatformCredential(providerId, {
+		selectionScope,
+		variant: envVariant,
+		region: undefined,
+		requiresServiceTier: false,
+		excludedEnvIndices: getVideoExcludedConfigIndices(providerId),
+		filter: getManagedVideoCredentialFilter(providerId),
 	});
-	const baseUrl =
-		getProviderEnvValue(providerId, "baseUrl", env.configIndex) ??
-		defaultBaseUrl;
+	const managedKey = platformCredential.managedKey;
+	const configIndex = platformCredential.configIndex;
+
+	const readSetting = (key: string, defaultValue?: string) =>
+		getCredentialSetting(providerId, key, managedKey, {
+			configIndex,
+			defaultValue,
+			variant: envVariant,
+		});
+
+	const baseUrl = readSetting("baseUrl") ?? defaultBaseUrl;
 	if (!baseUrl) {
 		throw new HTTPException(500, {
 			message: `Base URL environment variable is required for ${providerId} provider`,
@@ -1617,15 +1781,10 @@ async function resolveProviderContext(
 	}
 
 	const vertexProjectId = isGoogleVertexVideoProvider(providerId)
-		? getProviderEnvValue(providerId, "project", env.configIndex)
+		? readSetting("project")
 		: undefined;
 	const vertexRegion = isGoogleVertexVideoProvider(providerId)
-		? (getProviderEnvValue(
-				providerId,
-				"region",
-				env.configIndex,
-				"us-central1",
-			) ?? "us-central1")
+		? (readSetting("region", "us-central1") ?? "us-central1")
 		: undefined;
 
 	if (isGoogleVertexVideoProvider(providerId) && !vertexProjectId) {
@@ -1634,22 +1793,26 @@ async function resolveProviderContext(
 		});
 	}
 
-	const providerContext: ProviderContext = {
+	return {
 		providerId,
 		baseUrl,
-		token: env.token,
+		token: platformCredential.token,
 		requestId,
 		usedMode: "credits",
-		configIndex: env.configIndex,
+		configIndex,
+		managedProviderKeyId: managedKey?.id,
 		vertexProjectId,
 		vertexRegion,
+		vertexTokenType: resolveVideoVertexTokenType(
+			providerId,
+			undefined,
+			configIndex,
+			envVariant,
+			managedKey,
+		),
 		uploadBaseUrl:
-			providerId === "avalanche"
-				? getProviderEnvValue(providerId, "fileUploadBaseUrl", env.configIndex)
-				: undefined,
+			providerId === "avalanche" ? readSetting("fileUploadBaseUrl") : undefined,
 	};
-
-	return providerContext;
 }
 
 async function hasVideoProviderConfiguration(
@@ -1669,16 +1832,20 @@ async function hasVideoProviderConfiguration(
 		);
 		return Boolean(
 			providerKey &&
-				(providerKey.baseUrl ??
-					getProviderEnvValue(providerId, "baseUrl") ??
-					defaultBaseUrl) &&
-				(!isGoogleVertexVideoProvider(providerId) ||
-					Boolean(getProviderEnvValue(providerId, "project"))),
+			(providerKey.baseUrl ??
+				getProviderEnvValue(providerId, "baseUrl") ??
+				defaultBaseUrl) &&
+			(!isGoogleVertexVideoProvider(providerId) ||
+				Boolean(getProviderEnvValue(providerId, "project"))),
 		);
 	}
 
 	if (project.mode === "credits") {
-		return hasVideoEnvConfiguration(providerId, defaultBaseUrl);
+		return await hasPlatformVideoConfiguration(
+			providerId,
+			defaultBaseUrl,
+			organizationId,
+		);
 	}
 
 	const providerKey = await findProviderKey(
@@ -1693,11 +1860,33 @@ async function hasVideoProviderConfiguration(
 			(providerKey.baseUrl ??
 				getProviderEnvValue(providerId, "baseUrl") ??
 				defaultBaseUrl) &&
-				(!isGoogleVertexVideoProvider(providerId) ||
-					Boolean(getProviderEnvValue(providerId, "project"))),
+			(!isGoogleVertexVideoProvider(providerId) ||
+				Boolean(getProviderEnvValue(providerId, "project"))),
 		);
 	}
 
+	return await hasPlatformVideoConfiguration(
+		providerId,
+		defaultBaseUrl,
+		organizationId,
+	);
+}
+
+/**
+ * Whether LLM Gateway holds a credential of its own that can serve video
+ * generation for the provider — a managed credential, or the provider's env
+ * vars when no managed credential has superseded them.
+ */
+async function hasPlatformVideoConfiguration(
+	providerId: Provider,
+	defaultBaseUrl: string | null,
+	organizationId: string,
+): Promise<boolean> {
+	if (await hasManagedProviderCredential(providerId)) {
+		const organization = await findOrganizationById(organizationId);
+		const variant = getLicensedOrganizationEnvVariant(organization);
+		return await hasManagedVideoCredential(providerId, defaultBaseUrl, variant);
+	}
 	return hasVideoEnvConfiguration(providerId, defaultBaseUrl);
 }
 
@@ -1751,6 +1940,8 @@ async function resolveVideoExecution(
 ): Promise<ResolvedVideoExecution> {
 	const providerDiscountResolver =
 		createProviderDiscountResolver(organizationId);
+	const providerRoutingScoreMultiplierResolver =
+		createProviderRoutingScoreMultiplierResolver();
 	const videoPricing: VideoPricingContext = {
 		durationSeconds: videoDurationSeconds,
 		includeAudio,
@@ -1907,6 +2098,7 @@ async function resolveVideoExecution(
 							routingConfig: routingCfg,
 							organizationId,
 							providerDiscountResolver,
+							providerRoutingScoreMultiplierResolver,
 						},
 					);
 
@@ -1979,6 +2171,7 @@ async function resolveVideoExecution(
 					routingConfig: routingCfg,
 					organizationId,
 					providerDiscountResolver,
+					providerRoutingScoreMultiplierResolver,
 				},
 			);
 			if (cheapestResult) {
@@ -2392,7 +2585,7 @@ async function serializeVideoJob(job: VideoJobRecord, logId?: string | null) {
 	return {
 		id: job.id,
 		object: "video" as const,
-		model: job.model,
+		model: getFormattedUsedVideoModel(job.usedProvider as Provider, job.model),
 		status: job.status,
 		progress: TERMINAL_VIDEO_STATUSES.has(job.status)
 			? job.status === "completed"
@@ -2424,22 +2617,91 @@ function getGoogleVertexInlineVideo(
 	]);
 }
 
+// Pinned cdb/SWR TTL for video-job reads on the client poll loop. The worker
+// updates job status outside cdb (no auto-invalidation), so a short fixed TTL
+// keeps polls fresh while collapsing tight poll loops to one query per window.
+// Defaults off under test runners: specs poll immediately after a status
+// transition and a cached "queued" would make them flaky.
+function videoJobCacheTtlSeconds(): number {
+	const explicit = process.env.GATEWAY_VIDEO_JOB_CACHE_SECONDS;
+	if (explicit !== undefined) {
+		const parsed = Number(explicit);
+		return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+	}
+	return process.env.NODE_ENV === "test" || process.env.E2E_TEST === "true"
+		? 0
+		: 2;
+}
+
+// Timestamp columns that must survive the SWR mirror's JSON round trip: a
+// stale-fallback row would otherwise carry ISO strings, and downstream code
+// (serializeVideoJob etc.) calls .getTime() on them.
+const VIDEO_JOB_DATE_FIELDS = [
+	"createdAt",
+	"updatedAt",
+	"storageExpiresAt",
+	"completedAt",
+	"expiresAt",
+	"lastPolledAt",
+	"nextPollAt",
+	"callbackDeliveredAt",
+	"resultLoggedAt",
+] as const;
+
+function rehydrateVideoJobDates(job: VideoJobRecord): VideoJobRecord {
+	const rehydrated = { ...job } as Record<string, unknown>;
+	for (const field of VIDEO_JOB_DATE_FIELDS) {
+		const value = rehydrated[field];
+		if (typeof value === "string") {
+			rehydrated[field] = new Date(value);
+		}
+	}
+	return rehydrated as VideoJobRecord;
+}
+
+async function findVideoJobCached(
+	swrKey: string,
+	tag: string,
+	where: ReturnType<typeof and> | ReturnType<typeof eq>,
+): Promise<VideoJobRecord | undefined> {
+	const ttl = videoJobCacheTtlSeconds();
+	if (ttl <= 0) {
+		// Caching disabled: plain client so not even cdb's default 60s entry
+		// can serve a stale status.
+		const rows = await db.select().from(tables.videoJob).where(where).limit(1);
+		return rows[0];
+	}
+	const rows = await swrWrap(
+		swrKey,
+		[getTableName(tables.videoJob)],
+		async () =>
+			await cdb
+				.select()
+				.from(tables.videoJob)
+				.where(where)
+				.limit(1)
+				.$withCache({
+					tag,
+					autoInvalidate: false,
+					config: { ex: ttl },
+				}),
+	);
+	return rows[0] ? rehydrateVideoJobDates(rows[0]) : undefined;
+}
+
 async function requireVideoJobForProject(
 	projectId: string,
 	videoId: string,
 	sessionWalletId: string | null = null,
 ): Promise<VideoJobRecord> {
-	const job = await db
-		.select()
-		.from(tables.videoJob)
-		.where(
-			and(
-				eq(tables.videoJob.id, videoId),
-				eq(tables.videoJob.projectId, projectId),
-			),
-		)
-		.limit(1)
-		.then((rows) => rows[0]);
+	const job = await findVideoJobCached(
+		`videoJob:${projectId}:${videoId}`,
+		`video-job:${projectId}:${videoId}`,
+		and(
+			eq(tables.videoJob.id, videoId),
+			eq(tables.videoJob.projectId, projectId),
+		),
+	);
 
 	if (!job) {
 		throw new HTTPException(404, {
@@ -2566,18 +2828,54 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 		return {
 			providerId,
 			baseUrl,
-			token: providerKey.token,
+			token: readProviderKey(providerKey),
 			requestId: job.requestId,
 		};
 	}
 
+	// Polls/content retrieval must use the same credential as job creation:
+	// some providers scope job visibility to the creating API key. A managed
+	// credential is pinned by id on the job; env credentials are re-resolved
+	// with the same variant so an enterprise/plan org's job created with a
+	// variant override is also polled with it.
+	if (job.managedProviderKeyId) {
+		const managedKey = await findManagedProviderKeyById(
+			job.managedProviderKeyId,
+		);
+		if (!managedKey) {
+			throw new HTTPException(500, {
+				message: `The managed credential that created this ${providerId} job no longer exists`,
+			});
+		}
+		const baseUrl = managedKey.config?.baseUrl ?? defaultBaseUrl;
+		if (!baseUrl) {
+			throw new HTTPException(500, {
+				message: `No base URL set for provider: ${providerId}`,
+			});
+		}
+		return {
+			providerId,
+			baseUrl,
+			token: readProviderKey(managedKey),
+			requestId: job.requestId,
+		};
+	}
+
+	const organization = await findOrganizationById(job.organizationId);
+	const envVariant = getLicensedOrganizationEnvVariant(organization);
 	const env = getProviderEnv(providerId, {
 		excludedIndices: getVideoExcludedConfigIndices(providerId),
 		selectionScope: job.usedModel,
+		variant: envVariant,
 	});
 	const baseUrl =
-		getProviderEnvValue(providerId, "baseUrl", env.configIndex) ??
-		defaultBaseUrl;
+		getProviderEnvValue(
+			providerId,
+			"baseUrl",
+			env.configIndex,
+			undefined,
+			envVariant,
+		) ?? defaultBaseUrl;
 	if (!baseUrl) {
 		throw new HTTPException(500, {
 			message: `Base URL environment variable is required for ${providerId} provider`,
@@ -2729,6 +3027,7 @@ function isDebugMode(c: Context): boolean {
 async function fetchUpstreamJson(
 	url: string,
 	init: RequestInit,
+	providerId: string,
 ): Promise<Record<string, unknown>> {
 	// SSRF: never follow redirects on a tenant-baseUrl provider request.
 	const response = await fetch(url, { ...init, redirect: "error" });
@@ -2782,6 +3081,13 @@ async function fetchUpstreamJson(
 			: null;
 
 	if (!response.ok) {
+		const rawMessage =
+			typeof body.error === "object" &&
+			body.error &&
+			"message" in body.error &&
+			typeof body.error.message === "string"
+				? body.error.message
+				: `Upstream provider error (${response.status})`;
 		logger.warn("Upstream video request failed", {
 			url,
 			status: response.status,
@@ -2789,25 +3095,13 @@ async function fetchUpstreamJson(
 		});
 		throw new HTTPException(
 			response.status as
-				| 400
-				| 401
-				| 403
-				| 404
-				| 409
-				| 422
-				| 429
-				| 500
-				| 502
-				| 503
-				| 504,
+				400 | 401 | 403 | 404 | 409 | 422 | 429 | 500 | 502 | 503 | 504,
 			{
-				message:
-					typeof body.error === "object" &&
-					body.error &&
-					"message" in body.error &&
-					typeof body.error.message === "string"
-						? body.error.message
-						: `Upstream provider error (${response.status})`,
+				message: clientFacingUpstreamErrorMessage(
+					providerId,
+					response.status,
+					rawMessage,
+				),
 			},
 		);
 	}
@@ -2819,7 +3113,11 @@ async function fetchUpstreamJson(
 			body,
 		});
 		throw new HTTPException(upstreamApplicationError.status, {
-			message: upstreamApplicationError.message,
+			message: clientFacingUpstreamErrorMessage(
+				providerId,
+				upstreamApplicationError.status,
+				upstreamApplicationError.message,
+			),
 		});
 	}
 
@@ -2929,18 +3227,22 @@ async function createOpenAIVideoJob(
 					referenceImages,
 				)
 			: JSON.stringify(upstreamRequest);
-	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
-		method: "POST",
-		headers: {
-			...getProviderHeaders("openai", providerContext.token, {
-				requestId: providerContext.requestId,
-			}),
-			...(referenceImages.length === 0
-				? { "Content-Type": "application/json" }
-				: {}),
+	const rawResponse = await fetchUpstreamJson(
+		upstreamUrl,
+		{
+			method: "POST",
+			headers: {
+				...getProviderHeaders("openai", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
+				...(referenceImages.length === 0
+					? { "Content-Type": "application/json" }
+					: {}),
+			},
+			body: upstreamBody,
 		},
-		body: upstreamBody,
-	});
+		providerContext.providerId,
+	);
 	const upstreamResponse = addRequestedVideoMetadata(
 		{
 			...rawResponse,
@@ -3022,16 +3324,20 @@ async function createAvalancheVeoVideoJob(
 		enableFallback: false,
 		...(imageUrls.length > 0 ? { imageUrls } : {}),
 	};
-	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			...getProviderHeaders("avalanche", providerContext.token, {
-				requestId: providerContext.requestId,
-			}),
+	const rawResponse = await fetchUpstreamJson(
+		upstreamUrl,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...getProviderHeaders("avalanche", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
+			},
+			body: JSON.stringify(upstreamRequest),
 		},
-		body: JSON.stringify(upstreamRequest),
-	});
+		providerContext.providerId,
+	);
 	const upstreamResponse = addRequestedVideoMetadata(
 		{
 			...rawResponse,
@@ -3098,16 +3404,20 @@ async function createAvalancheSoraVideoJob(
 		model: upstreamModelName,
 		input,
 	};
-	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			...getProviderHeaders("avalanche", providerContext.token, {
-				requestId: providerContext.requestId,
-			}),
+	const rawResponse = await fetchUpstreamJson(
+		upstreamUrl,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...getProviderHeaders("avalanche", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
+			},
+			body: JSON.stringify(upstreamRequest),
 		},
-		body: JSON.stringify(upstreamRequest),
-	});
+		providerContext.providerId,
+	);
 	const upstreamResponse = addRequestedVideoMetadata(
 		{
 			...rawResponse,
@@ -3223,15 +3533,21 @@ async function createGoogleVertexVideoJob(
 			...(outputStorageUri ? { storageUri: outputStorageUri } : {}),
 		},
 	};
-	const rawResponse = await fetchUpstreamJson(authenticatedUpstreamUrl, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			"x-request-id": providerContext.requestId,
-			...(useOAuth ? { Authorization: `Bearer ${providerContext.token}` } : {}),
+	const rawResponse = await fetchUpstreamJson(
+		authenticatedUpstreamUrl,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"x-request-id": providerContext.requestId,
+				...(useOAuth
+					? { Authorization: `Bearer ${providerContext.token}` }
+					: {}),
+			},
+			body: JSON.stringify(upstreamRequest),
 		},
-		body: JSON.stringify(upstreamRequest),
-	});
+		providerContext.providerId,
+	);
 	const upstreamId =
 		typeof rawResponse.name === "string" && rawResponse.name.length > 0
 			? rawResponse.name
@@ -3298,13 +3614,17 @@ async function uploadAtlasCloudMedia(
 		}),
 		`input.${fileExtension}`,
 	);
-	const response = await fetchUpstreamJson(uploadUrl, {
-		method: "POST",
-		headers: getProviderHeaders("atlascloud", providerContext.token, {
-			requestId: providerContext.requestId,
-		}),
-		body: formData,
-	});
+	const response = await fetchUpstreamJson(
+		uploadUrl,
+		{
+			method: "POST",
+			headers: getProviderHeaders("atlascloud", providerContext.token, {
+				requestId: providerContext.requestId,
+			}),
+			body: formData,
+		},
+		providerContext.providerId,
+	);
 	const uploadedUrl = extractAtlasCloudUploadedMediaUrl(response);
 
 	if (!uploadedUrl) {
@@ -3453,16 +3773,20 @@ async function createAtlasCloudVideoJob(
 		providerContext.baseUrl,
 		"/api/v1/model/generateVideo",
 	);
-	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			...getProviderHeaders("atlascloud", providerContext.token, {
-				requestId: providerContext.requestId,
-			}),
+	const rawResponse = await fetchUpstreamJson(
+		upstreamUrl,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...getProviderHeaders("atlascloud", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
+			},
+			body: JSON.stringify(upstreamRequest),
 		},
-		body: JSON.stringify(upstreamRequest),
-	});
+		providerContext.providerId,
+	);
 
 	const upstreamResponse = addRequestedVideoMetadata(
 		{
@@ -3588,16 +3912,20 @@ async function createBytedanceVideoJob(
 		providerContext.baseUrl,
 		"/contents/generations/tasks",
 	);
-	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			...getProviderHeaders("bytedance", providerContext.token, {
-				requestId: providerContext.requestId,
-			}),
+	const rawResponse = await fetchUpstreamJson(
+		upstreamUrl,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...getProviderHeaders("bytedance", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
+			},
+			body: JSON.stringify(upstreamRequest),
 		},
-		body: JSON.stringify(upstreamRequest),
-	});
+		providerContext.providerId,
+	);
 
 	const upstreamResponse = addRequestedVideoMetadata(
 		{
@@ -3657,20 +3985,23 @@ async function createMinimaxVideoJob(
 	}
 
 	const upstreamUrl = joinUrl(providerContext.baseUrl, "/v1/video_generation");
-	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			...getProviderHeaders("minimax", providerContext.token, {
-				requestId: providerContext.requestId,
-			}),
+	const rawResponse = await fetchUpstreamJson(
+		upstreamUrl,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...getProviderHeaders("minimax", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
+			},
+			body: JSON.stringify(upstreamRequest),
 		},
-		body: JSON.stringify(upstreamRequest),
-	});
+		providerContext.providerId,
+	);
 
 	const baseResp = rawResponse.base_resp as
-		| { status_code?: number; status_msg?: string }
-		| undefined;
+		{ status_code?: number; status_msg?: string } | undefined;
 	if (baseResp && baseResp.status_code !== 0) {
 		throw new HTTPException(502, {
 			message: `MiniMax video API error: ${baseResp.status_msg ?? "unknown error"} (code ${baseResp.status_code})`,
@@ -3727,16 +4058,20 @@ async function createXaiVideoJob(
 		providerContext.baseUrl,
 		"/v1/videos/generations",
 	);
-	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			...getProviderHeaders("xai", providerContext.token, {
-				requestId: providerContext.requestId,
-			}),
+	const rawResponse = await fetchUpstreamJson(
+		upstreamUrl,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...getProviderHeaders("xai", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
+			},
+			body: JSON.stringify(upstreamRequest),
 		},
-		body: JSON.stringify(upstreamRequest),
-	});
+		providerContext.providerId,
+	);
 
 	const upstreamResponse = addRequestedVideoMetadata(
 		{
@@ -3785,17 +4120,21 @@ async function createAlibabaVideoJob(
 		providerContext.baseUrl,
 		"/api/v1/services/aigc/video-generation/video-synthesis",
 	);
-	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			"X-DashScope-Async": "enable",
-			...getProviderHeaders("alibaba", providerContext.token, {
-				requestId: providerContext.requestId,
-			}),
+	const rawResponse = await fetchUpstreamJson(
+		upstreamUrl,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"X-DashScope-Async": "enable",
+				...getProviderHeaders("alibaba", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
+			},
+			body: JSON.stringify(upstreamRequest),
 		},
-		body: JSON.stringify(upstreamRequest),
-	});
+		providerContext.providerId,
+	);
 
 	const output =
 		rawResponse.output && typeof rawResponse.output === "object"
@@ -4104,6 +4443,35 @@ async function processVideoImageInputs(
 	).filter((image): image is ProcessedVideoImageInput => image !== null);
 }
 
+/**
+ * Whose credential a video attempt ran on. `usedMode` on the provider context
+ * is already decided by whether the organization's own provider key served the
+ * job, so it maps one-to-one onto the routing credential vocabulary.
+ */
+function videoCredentialSource(
+	providerContext: ProviderContext,
+): RoutingCredentialSource {
+	return providerContext.usedMode === "api-keys" ? "byok" : "platform";
+}
+
+/**
+ * Key identity for a video attempt, and only when the organization's own key
+ * served it: `usedMode` is the same BYOK discriminator credentialSource uses,
+ * so a platform credential contributes nothing here.
+ */
+function videoProviderKeyIdentity(providerContext: ProviderContext): {
+	providerKeyId?: string;
+	providerKeyLabel?: string;
+} {
+	if (providerContext.usedMode !== "api-keys") {
+		return {};
+	}
+	return {
+		providerKeyId: providerContext.providerKeyId,
+		providerKeyLabel: providerContext.providerKeyLabel,
+	};
+}
+
 function buildVideoClientErrorRoutingMetadata(
 	routingMetadata: RoutingMetadata | undefined,
 	providerContext: ProviderContext,
@@ -4113,6 +4481,8 @@ function buildVideoClientErrorRoutingMetadata(
 	const routingAttempt: RoutingAttempt = {
 		provider: providerContext.providerId,
 		model: modelId,
+		credentialSource: videoCredentialSource(providerContext),
+		...videoProviderKeyIdentity(providerContext),
 		status_code: statusCode,
 		error_type: "client_error",
 		succeeded: false,
@@ -4172,6 +4542,7 @@ async function insertVideoClientErrorLog(options: {
 	const responseText = options.message;
 	await db.insert(tables.log).values({
 		requestId: options.requestId,
+		apiOrigin: "videos",
 		organizationId: options.organization.id,
 		projectId: options.project.id,
 		apiKeyId: options.apiKey.id,
@@ -4268,19 +4639,23 @@ async function uploadAvalancheBase64Image(
 		),
 		"/api/file-base64-upload",
 	);
-	const response = await fetchUpstreamJson(uploadUrl, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			...getProviderHeaders("avalanche", providerContext.token, {
-				requestId: providerContext.requestId,
+	const response = await fetchUpstreamJson(
+		uploadUrl,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...getProviderHeaders("avalanche", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
+			},
+			body: JSON.stringify({
+				base64Data: `data:${image.mimeType};base64,${image.bytesBase64Encoded}`,
+				uploadPath: "videos/input-images",
 			}),
 		},
-		body: JSON.stringify({
-			base64Data: `data:${image.mimeType};base64,${image.bytesBase64Encoded}`,
-			uploadPath: "videos/input-images",
-		}),
-	});
+		providerContext.providerId,
+	);
 	const data =
 		response.data && typeof response.data === "object"
 			? (response.data as Record<string, unknown>)
@@ -4377,13 +4752,14 @@ videos.openapi(createVideo, async (c) => {
 		request.seconds,
 	);
 
-	const iamValidation = await validateRequestModelAccess(
+	const iamValidation = await validateRequestModelAccess({
 		apiKey,
-		normalizedModel,
+		organizationId: project.organizationId,
+		requestedModel: normalizedModel,
 		requestedProvider,
-		modelInfo,
-		getClientIpFromRequest(c),
-	);
+		activeModelInfo: modelInfo,
+		clientIp: getClientIpFromRequest(c),
+	});
 
 	if (!iamValidation.allowed) {
 		throw new HTTPException(403, {
@@ -4401,11 +4777,16 @@ videos.openapi(createVideo, async (c) => {
 		const pinnedBlocked =
 			requestedProvider !== undefined &&
 			!isProviderIdCompliant(requestedProvider, videoCompliancePolicy);
+		// The policy's model lists block the model outright.
+		const modelBlocked = !isModelIdCompliant(
+			modelInfo.id,
+			videoCompliancePolicy,
+		);
 		const compliantProviders = filterCompliantProviders(
 			modelInfo.providers as ProviderModelMapping[],
 			videoCompliancePolicy,
 		);
-		if (pinnedBlocked || compliantProviders.length === 0) {
+		if (pinnedBlocked || modelBlocked || compliantProviders.length === 0) {
 			await logComplianceBlock(project.organizationId, {
 				apiKeyId: apiKey.id,
 				model: normalizedModel,
@@ -4484,6 +4865,13 @@ videos.openapi(createVideo, async (c) => {
 	const hasVideoGenerationBalance =
 		hasSufficientVideoGenerationBalance(organization);
 
+	// Video generation is the priciest endpoint per request, so the credits-billed
+	// path gets the same per-org spend-cap gate as the other paid endpoints.
+	// Wallet-funded end-user sessions bill the wallet, not org credits — exempt.
+	if (selectedProviderContext.usedMode === "credits" && !wallet) {
+		await assertSpendLimit(c, organization, false);
+	}
+
 	for (;;) {
 		if (
 			selectedProviderContext.usedMode === "credits" &&
@@ -4492,6 +4880,8 @@ videos.openapi(createVideo, async (c) => {
 			routingAttempts.push({
 				provider: selectedProviderContext.providerId,
 				model: modelInfo.id,
+				credentialSource: videoCredentialSource(selectedProviderContext),
+				...videoProviderKeyIdentity(selectedProviderContext),
 				status_code: 402,
 				error_type: "insufficient_credits",
 				succeeded: false,
@@ -4527,6 +4917,12 @@ videos.openapi(createVideo, async (c) => {
 				requestId,
 				modelInfo.id,
 			);
+			// A hybrid project can fall back from a BYOK provider to a
+			// credits-billed one mid-loop; re-apply the spend-cap gate the
+			// pre-loop check only enforced for the initial provider.
+			if (selectedProviderContext.usedMode === "credits" && !wallet) {
+				await assertSpendLimit(c, organization, false);
+			}
 			selectedUpstreamModelName = getVideoUpstreamModelName(
 				nextMapping.providerId as Provider,
 				nextMapping.externalId,
@@ -4545,6 +4941,8 @@ videos.openapi(createVideo, async (c) => {
 			routingAttempts.push({
 				provider: selectedProviderContext.providerId,
 				model: modelInfo.id,
+				credentialSource: videoCredentialSource(selectedProviderContext),
+				...videoProviderKeyIdentity(selectedProviderContext),
 				status_code: statusCode,
 				error_type: "client_error",
 				succeeded: false,
@@ -4583,6 +4981,12 @@ videos.openapi(createVideo, async (c) => {
 				requestId,
 				modelInfo.id,
 			);
+			// A hybrid project can fall back from a BYOK provider to a
+			// credits-billed one mid-loop; re-apply the spend-cap gate the
+			// pre-loop check only enforced for the initial provider.
+			if (selectedProviderContext.usedMode === "credits" && !wallet) {
+				await assertSpendLimit(c, organization, false);
+			}
 			selectedUpstreamModelName = getVideoUpstreamModelName(
 				nextMapping.providerId as Provider,
 				nextMapping.externalId,
@@ -4619,6 +5023,8 @@ videos.openapi(createVideo, async (c) => {
 			routingAttempts.push({
 				provider: selectedProviderContext.providerId,
 				model: modelInfo.id,
+				credentialSource: videoCredentialSource(selectedProviderContext),
+				...videoProviderKeyIdentity(selectedProviderContext),
 				status_code: 200,
 				error_type: "none",
 				succeeded: true,
@@ -4633,6 +5039,8 @@ videos.openapi(createVideo, async (c) => {
 			routingAttempts.push({
 				provider: selectedProviderContext.providerId,
 				model: modelInfo.id,
+				credentialSource: videoCredentialSource(selectedProviderContext),
+				...videoProviderKeyIdentity(selectedProviderContext),
 				status_code: statusCode,
 				error_type: getErrorType(statusCode),
 				succeeded: false,
@@ -4683,6 +5091,12 @@ videos.openapi(createVideo, async (c) => {
 				requestId,
 				modelInfo.id,
 			);
+			// A hybrid project can fall back from a BYOK provider to a
+			// credits-billed one mid-loop; re-apply the spend-cap gate the
+			// pre-loop check only enforced for the initial provider.
+			if (selectedProviderContext.usedMode === "credits" && !wallet) {
+				await assertSpendLimit(c, organization, false);
+			}
 			selectedUpstreamModelName = getVideoUpstreamModelName(
 				nextMapping.providerId as Provider,
 				nextMapping.externalId,
@@ -4725,6 +5139,19 @@ videos.openapi(createVideo, async (c) => {
 	const parsedStorageUri = parseGcsUri(storageUri);
 
 	const initialStatus = normalizeVideoStatus(upstreamResponse.status);
+	// See estimateVideoSpendUsd: reserve the expected cost against the org's
+	// spend-cap counters now so concurrent submissions see each other; the
+	// worker reconciles the stamped figure to the actual billed cost (refunding
+	// it entirely for failed jobs) at finalization.
+	const reservedSpendUsd =
+		selectedProviderContext.usedMode === "credits" && !wallet
+			? estimateVideoSpendUsd(
+					selectedProviderMapping,
+					videoSize.resolution,
+					videoDurationSeconds,
+					inputImageCount,
+				)
+			: 0;
 	const created = await db
 		.insert(tables.videoJob)
 		.values({
@@ -4744,6 +5171,9 @@ videos.openapi(createVideo, async (c) => {
 			usedProvider: selectedProviderContext.providerId,
 			usedModel: selectedUpstreamModelName,
 			providerConfigIndex: selectedProviderContext.configIndex,
+			managedProviderKeyId:
+				selectedProviderContext.managedProviderKeyId ?? null,
+			providerKeyId: selectedProviderContext.providerKeyId ?? null,
 			upstreamId,
 			prompt: request.prompt,
 			status: initialStatus,
@@ -4774,6 +5204,7 @@ videos.openapi(createVideo, async (c) => {
 				llmgateway_requested_resolution: videoSize.resolution,
 				llmgateway_requested_duration_seconds: videoDurationSeconds,
 				llmgateway_input_image_count: inputImageCount,
+				llmgateway_reserved_spend_usd: reservedSpendUsd,
 				...(debugMode
 					? {
 							llmgateway_raw_request: rawBody,
@@ -4785,6 +5216,13 @@ videos.openapi(createVideo, async (c) => {
 		})
 		.returning()
 		.then((rows) => rows[0]);
+
+	if (reservedSpendUsd > 0) {
+		// After the insert: the job row is what tells the worker a reservation
+		// exists to reconcile. recordSpend is fail-open, matching the counters'
+		// overall best-effort semantics.
+		await recordSpend(organization.id, reservedSpendUsd);
+	}
 
 	logger.info("Created video job", {
 		videoId: created.id,
@@ -4818,12 +5256,11 @@ videos.openapi(getVideoLogContent, async (c) => {
 		});
 	}
 
-	const videoJob = await db
-		.select()
-		.from(tables.videoJob)
-		.where(eq(tables.videoJob.logId, logId))
-		.limit(1)
-		.then((rows) => rows[0]);
+	const videoJob = await findVideoJobCached(
+		`videoJob:byLog:${logId}`,
+		`video-job:by-log:${logId}`,
+		eq(tables.videoJob.logId, logId),
+	);
 	if (!videoJob) {
 		throw new HTTPException(404, {
 			message: "Video content is not available",

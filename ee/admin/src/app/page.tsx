@@ -321,13 +321,19 @@ export default async function Page({
 									value: currencyFormatter.format(metrics.grossDevpassRevenue),
 								},
 								{
+									label: "DevPass top-ups",
+									value: currencyFormatter.format(
+										metrics.grossDevpassTopupsRevenue,
+									),
+								},
+								{
 									label: "Reset passes",
 									value: currencyFormatter.format(
 										metrics.grossResetPassRevenue,
 									),
 								},
 								{
-									label: "Chat plans",
+									label: "Lounge plans",
 									value: currencyFormatter.format(
 										metrics.grossChatPlansRevenue,
 									),
@@ -338,6 +344,16 @@ export default async function Page({
 												label: "Pro subs",
 												value: currencyFormatter.format(
 													metrics.grossProSubscriptionsRevenue,
+												),
+											},
+										]
+									: []),
+								...(metrics.grossManualPaymentsRevenue > 0
+									? [
+											{
+												label: "Manual payments",
+												value: currencyFormatter.format(
+													metrics.grossManualPaymentsRevenue,
 												),
 											},
 										]
@@ -404,6 +420,14 @@ export default async function Page({
 								{
 									label: "Spent",
 									value: currencyFormatter.format(metrics.totalSpent),
+								},
+								{
+									label: "Spent (credits)",
+									value: currencyFormatter.format(metrics.totalCreditsSpent),
+								},
+								{
+									label: "Spent (BYOK, not billed)",
+									value: currencyFormatter.format(metrics.totalApiKeysSpent),
 								},
 								{
 									label: "Unused",

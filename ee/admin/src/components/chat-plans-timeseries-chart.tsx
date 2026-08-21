@@ -76,12 +76,13 @@ export function ChatPlansTimeseriesChart({
 		<Card>
 			<CardHeader className="flex flex-col items-stretch space-y-0 border-b p-0 sm:flex-row">
 				<div className="flex flex-1 flex-col justify-center gap-1 px-6 py-5 sm:py-6">
-					<CardTitle>Chat Plans revenue & usage</CardTitle>
+					<CardTitle>Lounge (chat) plans revenue & usage</CardTitle>
 					<CardDescription>
-						Daily revenue from Chat Plan transactions, real provider cost across
-						current and former subscribers, and the resulting margin. Totals
-						aggregate the selected date range — note these will not match the
-						KPI cards above, which always reflect the current billing cycle.
+						Daily revenue from Lounge (chat) plan transactions, real provider
+						cost across current and former subscribers, and the resulting
+						margin. Totals aggregate the selected date range — note these will
+						not match the KPI cards above, which always reflect the current
+						billing cycle.
 					</CardDescription>
 				</div>
 				<div className="flex">
@@ -119,7 +120,7 @@ export function ChatPlansTimeseriesChart({
 			<CardContent className="px-2 sm:p-6">
 				{isError ? (
 					<div className="flex h-[250px] items-center justify-center text-sm text-muted-foreground">
-						Failed to load Chat Plans timeseries.
+						Failed to load Lounge plans timeseries.
 					</div>
 				) : isLoading ? (
 					<div className="flex h-[250px] items-center justify-center text-sm text-muted-foreground">

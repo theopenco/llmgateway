@@ -5,7 +5,10 @@ import { buildRoutingAttempt } from "@/chat/tools/build-routing-attempt.js";
 import { createLogEntry } from "@/chat/tools/create-log-entry.js";
 import { extractCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
 import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
-import { getProviderEnv } from "@/chat/tools/get-provider-env.js";
+import {
+	getCredentialSetting,
+	resolvePlatformCredential,
+} from "@/chat/tools/resolve-platform-credential.js";
 import {
 	getErrorType,
 	isRetryableErrorType,
@@ -35,25 +38,32 @@ import {
 	applyEndUserSession,
 	assertTestWalletModelAllowed,
 } from "@/lib/end-user-session.js";
+import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
+import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
-import { getProviderHeaders } from "@llmgateway/actions";
+import {
+	getProviderHeaders,
+	providerKeyLabel,
+	readProviderKey,
+} from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import {
-	getProviderEnvValue,
-	models as modelDefinitions,
-} from "@llmgateway/models";
+import { models as modelDefinitions } from "@llmgateway/models";
 
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
 import type { ServerTypes } from "@/vars.js";
 import type { RoutingMetadata } from "@llmgateway/actions";
 import type { InferSelectModel, tables } from "@llmgateway/db";
 import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
+import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
+import type { Context } from "hono";
 
 // Mistral accepts either a document URL/PDF or an image. The image_url variant
 // may be a bare string or an object with a `url` field, mirroring the upstream
@@ -245,12 +255,15 @@ function getAvailableCredits(
 	};
 }
 
-function assertCreditsAvailableForOcr(
+async function assertCreditsAvailableForOcr(
+	c: Context,
 	organization: InferSelectModel<typeof tables.organization>,
 	modelDef: ModelDefinition,
 	insufficientCreditsMessage: string,
 	devPlanCreditLimitMessage: (renewalDate: string) => string,
 ) {
+	await assertSpendLimit(c, organization, modelDef.free === true);
+
 	const {
 		devPlanCreditsRemaining,
 		chatPlanCreditsRemaining,
@@ -419,6 +432,12 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 	const { mapping, modelDef, modelDefId, explicitProvider } = match;
 	const upstreamModel = mapping.externalId;
 	const providerId = mapping.providerId;
+	const responseModel = formatUsedModelForDisplay(
+		providerId,
+		modelDefId,
+		undefined,
+		mapping.region,
+	);
 
 	const startedAt = Date.now();
 	const source = validateSource(
@@ -480,11 +499,7 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 		});
 	}
 
-	if (baseOrganization.status === "deleted") {
-		throw new HTTPException(410, {
-			message: "Organization has been disabled and is no longer accessible",
-		});
-	}
+	assertOrganizationUsable(baseOrganization);
 
 	// LLM SDK: ephemeral end-user sessions bill the bound wallet instead of the
 	// developer's org credits. For normal keys this is a no-op.
@@ -507,13 +522,15 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 	}
 
 	const retentionLevel = organization.retentionLevel ?? "none";
-	const iamValidation = await validateRequestModelAccess(
+
+	const iamValidation = await validateRequestModelAccess({
 		apiKey,
-		modelDefId,
-		providerId,
-		modelDef,
-		getClientIpFromRequest(c),
-	);
+		organizationId: project.organizationId,
+		requestedModel: modelDefId,
+		requestedProvider: providerId,
+		activeModelInfo: modelDef,
+		clientIp: getClientIpFromRequest(c),
+	});
 	if (!iamValidation.allowed) {
 		throwIamException(iamValidation.reason ?? "Model access denied");
 	}
@@ -537,11 +554,20 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 	const routingAttempts: RoutingAttempt[] = [];
 	const buildOcrRoutingMetadata = (
 		usedApiKeyHash: string | undefined,
+		usedCredentialSource: RoutingCredentialSource,
+		usedProviderKey: { id?: string; label?: string },
 	): RoutingMetadata => ({
 		availableProviders: [providerId],
 		selectedProvider: providerId,
 		selectionReason,
-		...(usedApiKeyHash ? { usedApiKeyHash } : {}),
+		...(usedApiKeyHash
+			? {
+					usedApiKeyHash,
+					usedCredentialSource,
+					usedProviderKeyId: usedProviderKey.id,
+					usedProviderKeyLabel: usedProviderKey.label,
+				}
+			: {}),
 		providerScores: [],
 		...(routingAttempts.length > 0 ? { routing: routingAttempts } : {}),
 	});
@@ -552,6 +578,10 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 	};
 	const retryOrganization = organization;
 
+	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
+	// this org's env-credential reads. Undefined = base vars only.
+	const envVariant = getLicensedOrganizationEnvVariant(retryOrganization);
+
 	const upstreamRequestBody: Record<string, unknown> = {
 		...ocrParams,
 		model: upstreamModel,
@@ -559,6 +589,8 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 
 	interface OcrAttempt {
 		providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
+		/** Platform-managed credential when one served this attempt. */
+		managedKey: InferSelectModel<typeof tables.providerKey> | undefined;
 		usedToken: string;
 		configIndex: number;
 		envVarName: string | undefined;
@@ -567,6 +599,7 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 
 	async function resolveAttempt(): Promise<OcrAttempt> {
 		let providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
+		let managedKey: InferSelectModel<typeof tables.providerKey> | undefined;
 		let usedToken: string | undefined;
 		let configIndex = 0;
 		let envVarName: string | undefined;
@@ -592,9 +625,10 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 					message: `No API key set for provider: ${providerId}. Please add a provider key in your settings or add credits and switch to credits or hybrid mode.`,
 				});
 			}
-			usedToken = providerKey.token;
+			usedToken = readProviderKey(providerKey);
 		} else if (retryProject.mode === "credits") {
-			assertCreditsAvailableForOcr(
+			await assertCreditsAvailableForOcr(
+				c,
 				retryOrganization,
 				modelDef,
 				`Organization ${retryOrganization.id} has insufficient credits`,
@@ -602,13 +636,18 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 					`Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
 			);
 
-			const envResult = getProviderEnv(providerId, {
+			const platformCredential = await resolvePlatformCredential(providerId, {
 				selectionScope: upstreamModel,
-				excludedIndices: excludedEnvKeyIndices,
+				variant: envVariant,
+				region: undefined,
+				requiresServiceTier: false,
+				excludedEnvIndices: excludedEnvKeyIndices,
+				excludedProviderKeyIds,
 			});
-			usedToken = envResult.token;
-			configIndex = envResult.configIndex;
-			envVarName = envResult.envVarName;
+			managedKey = platformCredential.managedKey;
+			usedToken = platformCredential.token;
+			configIndex = platformCredential.configIndex;
+			envVarName = platformCredential.envVarName;
 		} else if (retryProject.mode === "hybrid") {
 			providerKey = await findProviderKey(
 				retryProject.organizationId,
@@ -617,9 +656,10 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 				excludedProviderKeyIds,
 			);
 			if (providerKey) {
-				usedToken = providerKey.token;
+				usedToken = readProviderKey(providerKey);
 			} else {
-				assertCreditsAvailableForOcr(
+				await assertCreditsAvailableForOcr(
+					c,
 					retryOrganization,
 					modelDef,
 					"No API key set for provider and organization has insufficient credits",
@@ -627,13 +667,18 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 						`No API key set for provider. Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
 				);
 
-				const envResult = getProviderEnv(providerId, {
+				const platformCredential = await resolvePlatformCredential(providerId, {
 					selectionScope: upstreamModel,
-					excludedIndices: excludedEnvKeyIndices,
+					variant: envVariant,
+					region: undefined,
+					requiresServiceTier: false,
+					excludedEnvIndices: excludedEnvKeyIndices,
+					excludedProviderKeyIds,
 				});
-				usedToken = envResult.token;
-				configIndex = envResult.configIndex;
-				envVarName = envResult.envVarName;
+				managedKey = platformCredential.managedKey;
+				usedToken = platformCredential.token;
+				configIndex = platformCredential.configIndex;
+				envVarName = platformCredential.envVarName;
 			}
 		} else {
 			throw new HTTPException(400, {
@@ -657,12 +702,16 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 			});
 		}
 
-		const envBaseUrl = getProviderEnvValue(providerId, "baseUrl", configIndex);
+		const envBaseUrl = getCredentialSetting(providerId, "baseUrl", managedKey, {
+			configIndex,
+			variant: envVariant,
+		});
 		const resolvedBaseUrl =
 			providerKey?.baseUrl ?? envBaseUrl ?? "https://api.mistral.ai";
 
 		return {
 			providerKey,
+			managedKey,
 			usedToken,
 			configIndex,
 			envVarName,
@@ -676,7 +725,8 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 		failedKeys.remember(providerId, undefined, {
 			envVarName: failedAttempt.envVarName,
 			configIndex: failedAttempt.configIndex,
-			providerKeyId: failedAttempt.providerKey?.id,
+			providerKeyId:
+				failedAttempt.providerKey?.id ?? failedAttempt.managedKey?.id,
 		});
 		try {
 			const next = await resolveAttempt();
@@ -706,11 +756,24 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 		while (true) {
 			const attemptLogId = shortid();
 			const usedApiKeyHash = getApiKeyFingerprint(attempt.usedToken);
+			// BYOK only when the organization's own key served the attempt; a
+			// platform-managed credential is LLM Gateway's key and bills as credits.
+			const credentialSource: RoutingCredentialSource = attempt.providerKey
+				? "byok"
+				: "platform";
+			// Named only for the organization's own key; providerKeyLabel()
+			// refuses to describe a platform-managed credential.
+			const providerKeyId = attempt.providerKey?.id;
+			const keyLabel = providerKeyLabel(attempt.providerKey);
+			const usedProviderKey = { id: providerKeyId, label: keyLabel };
 			const baseLogEntry = createLogEntry({
 				requestId,
 				project,
 				apiKey,
-				providerKeyId: attempt.providerKey?.id,
+				// BYOK only: a managed credential is the platform's own key and its
+				// traffic must still bill as credits.
+				organizationProviderKeyId: attempt.providerKey?.id,
+				usedProviderKeyId: attempt.providerKey?.id ?? attempt.managedKey?.id,
 				usedModel: `${providerId}/${modelDefId}`,
 				usedModelMapping: upstreamModel,
 				usedProvider: providerId,
@@ -718,6 +781,7 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 				requestedProvider: providerId,
 				messages: normalizedMessages,
 				source,
+				apiOrigin: "ocr",
 				customHeaders,
 				debugMode,
 				userAgent,
@@ -769,9 +833,11 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 							upstreamModel,
 						);
 					}
-					if (attempt.providerKey?.id) {
+					const trackedKeyHealthId =
+						attempt.providerKey?.id ?? attempt.managedKey?.id;
+					if (trackedKeyHealthId) {
 						reportTrackedKeyError(
-							attempt.providerKey.id,
+							trackedKeyHealthId,
 							0,
 							undefined,
 							upstreamModel,
@@ -798,63 +864,73 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 							false,
 							{
 								apiKeyHash: usedApiKeyHash,
+								credentialSource,
+								providerKeyId,
+								providerKeyLabel: keyLabel,
 								logId: willRetry ? attemptLogId : finalLogId,
 							},
 						),
 					);
 				}
 
-				await insertLog({
-					...baseLogEntry,
-					id: willRetry ? attemptLogId : finalLogId,
-					routingMetadata: buildOcrRoutingMetadata(usedApiKeyHash),
-					duration,
-					timeToFirstToken: null,
-					timeToFirstReasoningToken: null,
-					responseSize: 0,
-					content: null,
-					reasoningContent: null,
-					finishReason: isCanceled ? "canceled" : "upstream_error",
-					promptTokens: null,
-					completionTokens: null,
-					totalTokens: null,
-					reasoningTokens: null,
-					cachedTokens: null,
-					hasError: !isCanceled,
-					streamed: false,
-					canceled: isCanceled,
-					errorDetails: isCanceled
-						? null
-						: {
-								statusCode: 0,
-								statusText: fetchError.name,
-								responseText: fetchError.message,
-							},
-					inputCost: 0,
-					outputCost: 0,
-					cachedInputCost: 0,
-					requestCost: 0,
-					webSearchCost: 0,
-					imageInputTokens: null,
-					imageOutputTokens: null,
-					imageInputCost: null,
-					imageOutputCost: null,
-					cost: 0,
-					estimatedCost: false,
-					discount: null,
-					pricingTier: null,
-					dataStorageCost: calculateDataStorageCost(
-						null,
-						null,
-						null,
-						null,
-						retentionLevel,
-					),
-					cached: false,
-					toolResults: null,
-					retried: willRetry,
-					retriedByLogId: willRetry ? finalLogId : null,
-				});
+				await insertLog(
+					{
+						...baseLogEntry,
+						id: willRetry ? attemptLogId : finalLogId,
+						routingMetadata: buildOcrRoutingMetadata(
+							usedApiKeyHash,
+							credentialSource,
+							usedProviderKey,
+						),
+						duration,
+						timeToFirstToken: null,
+						timeToFirstReasoningToken: null,
+						responseSize: 0,
+						content: null,
+						reasoningContent: null,
+						finishReason: isCanceled ? "canceled" : "upstream_error",
+						promptTokens: null,
+						completionTokens: null,
+						totalTokens: null,
+						reasoningTokens: null,
+						cachedTokens: null,
+						hasError: !isCanceled,
+						streamed: false,
+						canceled: isCanceled,
+						errorDetails: isCanceled
+							? null
+							: {
+									statusCode: 0,
+									statusText: fetchError.name,
+									responseText: fetchError.message,
+								},
+						inputCost: 0,
+						outputCost: 0,
+						cachedInputCost: 0,
+						requestCost: 0,
+						webSearchCost: 0,
+						imageInputTokens: null,
+						imageOutputTokens: null,
+						imageInputCost: null,
+						imageOutputCost: null,
+						cost: 0,
+						estimatedCost: false,
+						discount: null,
+						pricingTier: null,
+						dataStorageCost: calculateDataStorageCost(
+							null,
+							null,
+							null,
+							null,
+							retentionLevel,
+						),
+						cached: false,
+						toolResults: null,
+						retried: willRetry,
+						retriedByLogId: willRetry ? finalLogId : null,
+					},
+					{ retentionLevel },
+				);
 
 				if (willRetry && nextAttempt) {
 					attempt = nextAttempt;
@@ -914,9 +990,11 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 						upstreamModel,
 					);
 				}
-				if (attempt.providerKey?.id) {
+				const trackedKeyHealthId =
+					attempt.providerKey?.id ?? attempt.managedKey?.id;
+				if (trackedKeyHealthId) {
 					reportTrackedKeyError(
-						attempt.providerKey.id,
+						trackedKeyHealthId,
 						status,
 						upstreamText,
 						upstreamModel,
@@ -942,60 +1020,70 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 						false,
 						{
 							apiKeyHash: usedApiKeyHash,
+							credentialSource,
+							providerKeyId,
+							providerKeyLabel: keyLabel,
 							logId: willRetry ? attemptLogId : finalLogId,
 						},
 					),
 				);
 
-				await insertLog({
-					...baseLogEntry,
-					id: willRetry ? attemptLogId : finalLogId,
-					routingMetadata: buildOcrRoutingMetadata(usedApiKeyHash),
-					duration,
-					timeToFirstToken: null,
-					timeToFirstReasoningToken: null,
-					responseSize,
-					content: getResponseContent(upstreamJson),
-					reasoningContent: null,
-					finishReason,
-					promptTokens: null,
-					completionTokens: null,
-					totalTokens: null,
-					reasoningTokens: null,
-					cachedTokens: null,
-					hasError: true,
-					streamed: false,
-					canceled: false,
-					errorDetails: {
-						statusCode: status,
-						statusText: upstreamResponse.statusText,
-						responseText: upstreamText,
+				await insertLog(
+					{
+						...baseLogEntry,
+						id: willRetry ? attemptLogId : finalLogId,
+						routingMetadata: buildOcrRoutingMetadata(
+							usedApiKeyHash,
+							credentialSource,
+							usedProviderKey,
+						),
+						duration,
+						timeToFirstToken: null,
+						timeToFirstReasoningToken: null,
+						responseSize,
+						content: getResponseContent(upstreamJson),
+						reasoningContent: null,
+						finishReason,
+						promptTokens: null,
+						completionTokens: null,
+						totalTokens: null,
+						reasoningTokens: null,
+						cachedTokens: null,
+						hasError: true,
+						streamed: false,
+						canceled: false,
+						errorDetails: {
+							statusCode: status,
+							statusText: upstreamResponse.statusText,
+							responseText: upstreamText,
+						},
+						inputCost: 0,
+						outputCost: 0,
+						cachedInputCost: 0,
+						requestCost: 0,
+						webSearchCost: 0,
+						imageInputTokens: null,
+						imageOutputTokens: null,
+						imageInputCost: null,
+						imageOutputCost: null,
+						cost: 0,
+						estimatedCost: false,
+						discount: null,
+						pricingTier: null,
+						dataStorageCost: calculateDataStorageCost(
+							null,
+							null,
+							null,
+							null,
+							retentionLevel,
+						),
+						cached: false,
+						toolResults: null,
+						retried: willRetry,
+						retriedByLogId: willRetry ? finalLogId : null,
 					},
-					inputCost: 0,
-					outputCost: 0,
-					cachedInputCost: 0,
-					requestCost: 0,
-					webSearchCost: 0,
-					imageInputTokens: null,
-					imageOutputTokens: null,
-					imageInputCost: null,
-					imageOutputCost: null,
-					cost: 0,
-					estimatedCost: false,
-					discount: null,
-					pricingTier: null,
-					dataStorageCost: calculateDataStorageCost(
-						null,
-						null,
-						null,
-						null,
-						retentionLevel,
-					),
-					cached: false,
-					toolResults: null,
-					retried: willRetry,
-					retriedByLogId: willRetry ? finalLogId : null,
-				});
+					{ retentionLevel },
+				);
 
 				if (willRetry && nextAttempt) {
 					attempt = nextAttempt;
@@ -1029,8 +1117,10 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 					upstreamModel,
 				);
 			}
-			if (attempt.providerKey?.id) {
-				reportTrackedKeySuccess(attempt.providerKey.id, upstreamModel);
+			const trackedKeyHealthId =
+				attempt.providerKey?.id ?? attempt.managedKey?.id;
+			if (trackedKeyHealthId) {
+				reportTrackedKeySuccess(trackedKeyHealthId, upstreamModel);
 			}
 
 			const usageInfo =
@@ -1038,8 +1128,7 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 				typeof upstreamJson === "object" &&
 				"usage_info" in (upstreamJson as Record<string, unknown>)
 					? ((upstreamJson as Record<string, unknown>).usage_info as
-							| Record<string, unknown>
-							| undefined)
+							Record<string, unknown> | undefined)
 					: undefined;
 			const pagesProcessedRaw = usageInfo?.pages_processed;
 			const pagesProcessed =
@@ -1067,56 +1156,69 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 					true,
 					{
 						apiKeyHash: usedApiKeyHash,
+						credentialSource,
+						providerKeyId,
+						providerKeyLabel: keyLabel,
 						logId: finalLogId,
 					},
 				),
 			);
 
-			await insertLog({
-				...baseLogEntry,
-				id: finalLogId,
-				routingMetadata: buildOcrRoutingMetadata(usedApiKeyHash),
-				duration,
-				timeToFirstToken: null,
-				timeToFirstReasoningToken: null,
-				responseSize,
-				content: getResponseContent(upstreamJson),
-				reasoningContent: null,
-				finishReason: "stop",
-				promptTokens: null,
-				completionTokens: null,
-				totalTokens: null,
-				reasoningTokens: null,
-				cachedTokens: null,
-				hasError: false,
-				streamed: false,
-				canceled: false,
-				errorDetails: null,
-				inputCost: pageCost,
-				outputCost: 0,
-				cachedInputCost: 0,
-				requestCost,
-				webSearchCost: 0,
-				imageInputTokens: null,
-				imageOutputTokens: null,
-				imageInputCost: null,
-				imageOutputCost: null,
-				cost,
-				estimatedCost: pagesProcessed === null,
-				discount: null,
-				pricingTier: null,
-				dataStorageCost: calculateDataStorageCost(
-					null,
-					null,
-					null,
-					null,
-					retentionLevel,
-				),
-				cached: false,
-				toolResults: null,
-			});
+			await insertLog(
+				{
+					...baseLogEntry,
+					id: finalLogId,
+					routingMetadata: buildOcrRoutingMetadata(
+						usedApiKeyHash,
+						credentialSource,
+						usedProviderKey,
+					),
+					duration,
+					timeToFirstToken: null,
+					timeToFirstReasoningToken: null,
+					responseSize,
+					content: getResponseContent(upstreamJson),
+					reasoningContent: null,
+					finishReason: "stop",
+					promptTokens: null,
+					completionTokens: null,
+					totalTokens: null,
+					reasoningTokens: null,
+					cachedTokens: null,
+					hasError: false,
+					streamed: false,
+					canceled: false,
+					errorDetails: null,
+					inputCost: pageCost,
+					outputCost: 0,
+					cachedInputCost: 0,
+					requestCost,
+					webSearchCost: 0,
+					imageInputTokens: null,
+					imageOutputTokens: null,
+					imageInputCost: null,
+					imageOutputCost: null,
+					cost,
+					estimatedCost: pagesProcessed === null,
+					discount: null,
+					pricingTier: null,
+					dataStorageCost: calculateDataStorageCost(
+						null,
+						null,
+						null,
+						null,
+						retentionLevel,
+					),
+					cached: false,
+					toolResults: null,
+				},
+				{ retentionLevel },
+			);
 
-			return c.json(upstreamJson as z.infer<typeof ocrResponseSchema>);
+			return c.json({
+				...(upstreamJson as z.infer<typeof ocrResponseSchema>),
+				model: responseModel,
+			});
 		}
 	} finally {
 		c.req.raw.signal.removeEventListener("abort", onAbort);

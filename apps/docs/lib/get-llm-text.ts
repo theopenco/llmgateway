@@ -8,7 +8,7 @@ const DOCS_URL = "https://docs.llmgateway.io";
 // are dropped entirely.
 const MDX_COMPONENT_REPLACEMENTS: Record<string, string> = {
 	FeatureCards: `All features are documented under ${DOCS_URL}/features; each feature page is included in full in this file.`,
-	AIToolingCards: `AI tooling: ${DOCS_URL}/llms.txt (docs index for LLMs), ${DOCS_URL}/llms-full.txt (this file), ${DOCS_URL}/guides/mcp (MCP server), ${DOCS_URL}/guides/agent-skills (agent skills), and https://llmgateway.io/templates (templates and agents).`,
+	AIToolingCards: `AI tooling: ${DOCS_URL}/llms.txt (docs index for LLMs), ${DOCS_URL}/llms-full.txt (this file), ${DOCS_URL}/developers/mcp (MCP server), ${DOCS_URL}/guides/agent-skills (agent skills), and https://llmgateway.io/templates (templates and agents).`,
 	SelfHostCards: `Self-hosting guides are documented under ${DOCS_URL}/self-host and included in full in this file.`,
 };
 

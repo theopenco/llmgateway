@@ -7,6 +7,8 @@
  * enterprise "DataFlow AI" organization so every new page renders rich data.
  * Safe to re-run (idempotent via ON CONFLICT).
  */
+import { randomFloat, randomFloatBetween } from "@llmgateway/shared/random";
+
 import { closeDatabase, db, tables } from "./index.js";
 
 const ORG_ID = "org-dataflow";
@@ -128,10 +130,6 @@ function hourBucket(dayOffset: number, hour: number): Date {
 	return d;
 }
 
-function rand(min: number, max: number): number {
-	return min + (max - min) * Math.random(); // eslint-disable-line no-mixed-operators
-}
-
 async function main(): Promise<void> {
 	const keyStatsRows: (typeof tables.apiKeyHourlyStats.$inferInsert)[] = [];
 	const keyModelStatsRows: (typeof tables.apiKeyHourlyModelStats.$inferInsert)[] =
@@ -174,22 +172,30 @@ async function main(): Promise<void> {
 					let hourOutputCost = 0;
 
 					// Each key uses a rotating subset of models.
-					const modelCount = 3 + Math.floor(rand(0, 3));
+					const modelCount = 3 + Math.floor(randomFloatBetween(0, 3));
 					for (let m = 0; m < modelCount; m++) {
 						const model =
 							MODELS[(key.id.length + dayOffset + m) % MODELS.length];
 						const requestCount = Math.max(
 							1,
-							Math.round(owner.weight * activityFactor * rand(2, 10)),
+							Math.round(
+								owner.weight * activityFactor * randomFloatBetween(2, 10),
+							),
 						);
-						const inputTokens = Math.round(requestCount * rand(350, 900));
-						const outputTokens = Math.round(requestCount * rand(180, 520));
+						const inputTokens = Math.round(
+							requestCount * randomFloatBetween(350, 900),
+						);
+						const outputTokens = Math.round(
+							requestCount * randomFloatBetween(180, 520),
+						);
 						const totalTokens = inputTokens + outputTokens;
 						const inputCost = (inputTokens / 1000) * model.inPrice;
 						const outputCost = (outputTokens / 1000) * model.outPrice;
 						const cost = inputCost + outputCost;
-						const errorCount = Math.random() < 0.15 ? 1 : 0;
-						const cacheCount = Math.round(requestCount * rand(0, 0.25));
+						const errorCount = randomFloat() < 0.15 ? 1 : 0;
+						const cacheCount = Math.round(
+							requestCount * randomFloatBetween(0, 0.25),
+						);
 
 						hourRequests += requestCount;
 						hourErrors += errorCount;

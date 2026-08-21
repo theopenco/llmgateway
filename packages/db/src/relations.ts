@@ -37,6 +37,10 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.user.id,
 			to: r.modelRating.userId,
 		}),
+		modelSurveyResponses: r.many.modelSurveyResponse({
+			from: r.user.id,
+			to: r.modelSurveyResponse.userId,
+		}),
 		skills: r.many.skill({
 			from: r.user.id,
 			to: r.skill.userId,
@@ -48,6 +52,10 @@ export const relations = defineRelations(schema, (r) => ({
 		videoHistory: r.many.playgroundVideoHistory({
 			from: r.user.id,
 			to: r.playgroundVideoHistory.userId,
+		}),
+		loungePointEvents: r.many.loungePointEvent({
+			from: r.user.id,
+			to: r.loungePointEvent.userId,
 		}),
 	},
 	organization: {
@@ -70,13 +78,16 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.organization.id,
 			to: r.auditLog.organizationId,
 		}),
+		// Org-level rows only; project overrides live on the project relations.
 		guardrailConfig: r.one.guardrailConfig({
 			from: r.organization.id,
 			to: r.guardrailConfig.organizationId,
+			where: { projectId: { isNull: true } },
 		}),
 		guardrailRules: r.many.guardrailRule({
 			from: r.organization.id,
 			to: r.guardrailRule.organizationId,
+			where: { projectId: { isNull: true } },
 		}),
 		guardrailViolations: r.many.guardrailViolation({
 			from: r.organization.id,
@@ -110,6 +121,10 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.organization.id,
 			to: r.endUserSession.organizationId,
 		}),
+		modelSurveyResponses: r.many.modelSurveyResponse({
+			from: r.organization.id,
+			to: r.modelSurveyResponse.organizationId,
+		}),
 	},
 	referral: {
 		referrerOrganization: r.one.organization({
@@ -133,6 +148,16 @@ export const relations = defineRelations(schema, (r) => ({
 		userProjects: r.many.userProject({
 			from: r.userOrganization.id,
 			to: r.userProject.userOrganizationId,
+		}),
+		iamRules: r.many.userIamRule({
+			from: r.userOrganization.id,
+			to: r.userIamRule.userOrganizationId,
+		}),
+	},
+	userIamRule: {
+		userOrganization: r.one.userOrganization({
+			from: r.userIamRule.userOrganizationId,
+			to: r.userOrganization.id,
 		}),
 	},
 	userProject: {
@@ -184,6 +209,10 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.project.id,
 			to: r.routingConfig.projectId,
 		}),
+		dynamicRoutes: r.many.dynamicRoute({
+			from: r.project.id,
+			to: r.dynamicRoute.projectId,
+		}),
 		endCustomers: r.many.endCustomer({
 			from: r.project.id,
 			to: r.endCustomer.projectId,
@@ -199,6 +228,14 @@ export const relations = defineRelations(schema, (r) => ({
 		webhookEndpoints: r.many.webhookEndpoint({
 			from: r.project.id,
 			to: r.webhookEndpoint.projectId,
+		}),
+		guardrailConfig: r.one.guardrailConfig({
+			from: r.project.id,
+			to: r.guardrailConfig.projectId,
+		}),
+		guardrailRules: r.many.guardrailRule({
+			from: r.project.id,
+			to: r.guardrailRule.projectId,
 		}),
 	},
 	webhookEndpoint: {
@@ -309,6 +346,26 @@ export const relations = defineRelations(schema, (r) => ({
 		project: r.one.project({
 			from: r.routingConfig.projectId,
 			to: r.project.id,
+		}),
+	},
+	dynamicRoute: {
+		project: r.one.project({
+			from: r.dynamicRoute.projectId,
+			to: r.project.id,
+		}),
+		versions: r.many.dynamicRouteVersion({
+			from: r.dynamicRoute.id,
+			to: r.dynamicRouteVersion.routeId,
+		}),
+		publishedVersion: r.one.dynamicRouteVersion({
+			from: r.dynamicRoute.publishedVersionId,
+			to: r.dynamicRouteVersion.id,
+		}),
+	},
+	dynamicRouteVersion: {
+		route: r.one.dynamicRoute({
+			from: r.dynamicRouteVersion.routeId,
+			to: r.dynamicRoute.id,
 		}),
 	},
 	apiKey: {
@@ -527,11 +584,19 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.guardrailConfig.organizationId,
 			to: r.organization.id,
 		}),
+		project: r.one.project({
+			from: r.guardrailConfig.projectId,
+			to: r.project.id,
+		}),
 	},
 	guardrailRule: {
 		organization: r.one.organization({
 			from: r.guardrailRule.organizationId,
 			to: r.organization.id,
+		}),
+		project: r.one.project({
+			from: r.guardrailRule.projectId,
+			to: r.project.id,
 		}),
 	},
 	guardrailViolation: {
@@ -579,6 +644,12 @@ export const relations = defineRelations(schema, (r) => ({
 	playgroundVideoHistory: {
 		user: r.one.user({
 			from: r.playgroundVideoHistory.userId,
+			to: r.user.id,
+		}),
+	},
+	loungePointEvent: {
+		user: r.one.user({
+			from: r.loungePointEvent.userId,
 			to: r.user.id,
 		}),
 	},

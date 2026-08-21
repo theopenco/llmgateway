@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useState } from "react";
 
 import { HistoryChart } from "@/components/history-chart";
+import { TokenBreakdownCell } from "@/components/token-breakdown";
 import { Button } from "@/components/ui/button";
 import {
 	Table,
@@ -17,7 +18,7 @@ import {
 import { getMappingHistory } from "@/lib/admin-history";
 import { cn } from "@/lib/utils";
 
-import { getProviderIcon } from "@llmgateway/shared";
+import { deriveStabilityMetrics, getProviderIcon } from "@llmgateway/shared";
 
 import type { HistoryWindow } from "@/components/history-chart";
 import type { PageWindow } from "@/lib/page-window";
@@ -31,9 +32,16 @@ export interface ProjectMappingEntry {
 	providerName: string;
 	logsCount: number;
 	errorsCount: number;
+	clientErrorsCount: number;
 	cachedCount: number;
 	cost: number;
 	totalTokens: number;
+	inputTokens: number;
+	cachedTokens: number;
+	outputTokens: number;
+	inputCost: number;
+	cachedInputCost: number;
+	outputCost: number;
 }
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -118,10 +126,12 @@ function MappingRow({
 }) {
 	const [expanded, setExpanded] = useState(false);
 	const ProviderIcon = getProviderIcon(mapping.providerId);
-	const errorRate =
-		mapping.logsCount > 0
-			? ((mapping.errorsCount / mapping.logsCount) * 100).toFixed(1)
-			: "0.0";
+	const stability = deriveStabilityMetrics(
+		mapping.logsCount,
+		mapping.errorsCount,
+		mapping.clientErrorsCount,
+	);
+	const errorRate = (stability.errorRate ?? 0).toFixed(1);
 	const displayModel = mapping.modelId.includes("/")
 		? mapping.modelId.split("/").slice(1).join("/")
 		: mapping.modelId;
@@ -155,7 +165,10 @@ function MappingRow({
 					{formatNumber(mapping.logsCount)}
 				</TableCell>
 				<TableCell className="tabular-nums">
-					{formatNumber(mapping.errorsCount)}
+					{formatNumber(stability.errorsCount)}
+				</TableCell>
+				<TableCell className="tabular-nums">
+					{formatNumber(mapping.clientErrorsCount)}
 				</TableCell>
 				<TableCell className="tabular-nums">{errorRate}%</TableCell>
 				<TableCell className="tabular-nums">
@@ -163,6 +176,9 @@ function MappingRow({
 				</TableCell>
 				<TableCell className="tabular-nums">
 					{formatCompactNumber(mapping.totalTokens)}
+				</TableCell>
+				<TableCell>
+					<TokenBreakdownCell breakdown={mapping} />
 				</TableCell>
 				<TableCell className="tabular-nums">
 					{currencyFormatter.format(mapping.cost)}
@@ -184,7 +200,7 @@ function MappingRow({
 			</TableRow>
 			{expanded && (
 				<TableRow>
-					<TableCell colSpan={9} className="p-4">
+					<TableCell colSpan={10} className="p-4">
 						<HistoryChart
 							title={`${mapping.providerId}/${displayModel} — History`}
 							description="Hourly request volume, errors, tokens, and cost for this project"
@@ -239,9 +255,11 @@ export function ProjectMappingsTable({
 					{sh("Model", "modelId")}
 					{sh("Requests", "logsCount")}
 					{sh("Errors", "errorsCount")}
+					<TableHead>Client</TableHead>
 					<TableHead>Error Rate</TableHead>
 					<TableHead>Cached</TableHead>
 					<TableHead>Tokens</TableHead>
+					<TableHead>Token Breakdown</TableHead>
 					{sh("Cost", "cost")}
 					<TableHead></TableHead>
 				</TableRow>
@@ -250,7 +268,7 @@ export function ProjectMappingsTable({
 				{mappings.length === 0 ? (
 					<TableRow>
 						<TableCell
-							colSpan={9}
+							colSpan={10}
 							className="h-24 text-center text-muted-foreground"
 						>
 							No usage data found

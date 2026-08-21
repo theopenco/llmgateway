@@ -6,6 +6,7 @@ import {
 } from "@stripe/react-stripe-js";
 import { useQueryClient } from "@tanstack/react-query";
 import { CreditCard, ExternalLink, Plus } from "lucide-react";
+import { motion, useReducedMotion } from "motion/react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -180,6 +181,63 @@ export function TopUpCreditsDialog({
 	);
 }
 
+interface FeeData {
+	baseAmount: number;
+	platformFee: number;
+	internationalFee: number;
+	totalAmount: number;
+}
+
+function FeeBreakdownReceipt({
+	feeData,
+	feeDataLoading,
+	amount,
+}: {
+	feeData: FeeData | undefined;
+	feeDataLoading: boolean;
+	/** Shown as a plain fallback when fee data is unavailable. */
+	amount?: number;
+}) {
+	return (
+		<div className="rounded-lg border border-dashed bg-muted/40 p-4 font-mono">
+			<p className="mb-2 text-center text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+				· Lounge bar receipt ·
+			</p>
+			{feeDataLoading ? (
+				<div className="flex items-center justify-center py-4">
+					<div className="h-5 w-5 animate-spin border-2 border-muted-foreground border-t-transparent rounded-full" />
+					<span className="ml-2 text-sm text-muted-foreground">
+						Calculating fees...
+					</span>
+				</div>
+			) : feeData ? (
+				<div className="space-y-2 text-sm tabular-nums">
+					<div className="flex justify-between">
+						<span>Credits</span>
+						<span>${feeData.baseAmount.toFixed(2)}</span>
+					</div>
+					<div className="flex justify-between">
+						<span>Platform fee (5%)</span>
+						<span>${feeData.platformFee.toFixed(2)}</span>
+					</div>
+					{feeData.internationalFee > 0 ? (
+						<div className="flex justify-between">
+							<span>Intl. card fee (1.5%)</span>
+							<span>${feeData.internationalFee.toFixed(2)}</span>
+						</div>
+					) : null}
+					<div className="flex justify-between border-t border-dashed pt-2 font-semibold">
+						<span>Total</span>
+						<span>${feeData.totalAmount.toFixed(2)}</span>
+					</div>
+				</div>
+			) : amount !== undefined ? (
+				<p className="text-sm text-muted-foreground">Amount: ${amount}</p>
+			) : null}
+		</div>
+	);
+}
+
 function AmountStep({
 	amount,
 	setAmount,
@@ -236,9 +294,10 @@ function AmountStep({
 		} catch (error: unknown) {
 			toast.error("Checkout Failed", {
 				description:
-					error instanceof Error
+					(error instanceof Error
 						? error.message
-						: "Failed to create checkout session.",
+						: (error as { message?: string } | undefined)?.message) ??
+					"Failed to create checkout session.",
 			});
 			setCheckoutLoading(false);
 		}
@@ -247,7 +306,13 @@ function AmountStep({
 	return (
 		<>
 			<DialogHeader>
-				<DialogTitle>Top Up Credits</DialogTitle>
+				<p className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.28em] text-lounge-gold">
+					<span aria-hidden className="h-px w-5 bg-lounge-gold/50" />
+					The Lounge · Pay as you go
+				</p>
+				<DialogTitle className="font-display text-2xl font-semibold">
+					Top Up Credits
+				</DialogTitle>
 				<DialogDescription>
 					Add credits to your organization account. Confirm details on the next
 					step.
@@ -290,38 +355,10 @@ function AmountStep({
 				</div>
 
 				{isAmountValid && (
-					<div className="border rounded-lg p-4 bg-muted/50">
-						<p className="font-medium mb-2">Fee Breakdown</p>
-						{feeDataLoading ? (
-							<div className="flex items-center justify-center py-4">
-								<div className="h-5 w-5 animate-spin border-2 border-muted-foreground border-t-transparent rounded-full" />
-								<span className="ml-2 text-sm text-muted-foreground">
-									Calculating fees...
-								</span>
-							</div>
-						) : feeData ? (
-							<div className="space-y-1 text-sm">
-								<div className="flex justify-between">
-									<span>Credits</span>
-									<span>${feeData.baseAmount.toFixed(2)}</span>
-								</div>
-								<div className="flex justify-between">
-									<span>Platform fee (5%)</span>
-									<span>${feeData.platformFee.toFixed(2)}</span>
-								</div>
-								{feeData.internationalFee > 0 ? (
-									<div className="flex justify-between">
-										<span>International card fee (1.5%)</span>
-										<span>${feeData.internationalFee.toFixed(2)}</span>
-									</div>
-								) : null}
-								<div className="border-t pt-1 flex justify-between font-medium">
-									<span>Total</span>
-									<span>${feeData.totalAmount.toFixed(2)}</span>
-								</div>
-							</div>
-						) : null}
-					</div>
+					<FeeBreakdownReceipt
+						feeData={feeData}
+						feeDataLoading={Boolean(feeDataLoading)}
+					/>
 				)}
 			</div>
 			<DialogFooter className="flex flex-col gap-3 sm:flex-col">
@@ -368,16 +405,38 @@ function AmountStep({
 }
 
 function SuccessStep({ onClose }: { onClose: () => void }) {
+	const reduceMotion = useReducedMotion();
 	return (
 		<>
 			<DialogHeader>
-				<DialogTitle>Payment Successful</DialogTitle>
+				<DialogTitle className="font-display text-2xl font-semibold">
+					Payment Successful
+				</DialogTitle>
 				<DialogDescription>
 					Your credits have been added to your account.
 				</DialogDescription>
 			</DialogHeader>
-			<div className="py-4">
-				<p>
+			<div className="flex flex-col items-center gap-4 py-4">
+				<motion.span
+					aria-hidden
+					initial={
+						reduceMotion
+							? { opacity: 0 }
+							: { opacity: 0, scale: 2, rotate: -16 }
+					}
+					animate={
+						reduceMotion ? { opacity: 1 } : { opacity: 1, scale: 1, rotate: -6 }
+					}
+					transition={
+						reduceMotion
+							? { duration: 0.2, ease: "easeOut" }
+							: { type: "spring", duration: 0.4 }
+					}
+					className="rounded border-2 border-lounge-gold/60 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.3em] text-lounge-gold"
+				>
+					Credits added
+				</motion.span>
+				<p className="text-center">
 					Thank you for your purchase. Your credits are now available for use.
 				</p>
 			</div>
@@ -730,40 +789,11 @@ function ConfirmPaymentStep({
 				</DialogDescription>
 			</DialogHeader>
 			<form onSubmit={handleSubmit} className="space-y-4 py-4">
-				<div className="border rounded-lg p-4">
-					<p className="font-medium mb-3">Payment Summary</p>
-					{feeDataLoading ? (
-						<div className="flex items-center justify-center py-4">
-							<div className="h-5 w-5 animate-spin border-2 border-muted-foreground border-t-transparent rounded-full" />
-							<span className="ml-2 text-sm text-muted-foreground">
-								Calculating fees...
-							</span>
-						</div>
-					) : feeData ? (
-						<div className="space-y-2 text-sm">
-							<div className="flex justify-between">
-								<span>Credits</span>
-								<span>${feeData.baseAmount.toFixed(2)}</span>
-							</div>
-							<div className="flex justify-between">
-								<span>Platform fee (5%)</span>
-								<span>${feeData.platformFee.toFixed(2)}</span>
-							</div>
-							{feeData.internationalFee > 0 ? (
-								<div className="flex justify-between">
-									<span>International card fee (1.5%)</span>
-									<span>${feeData.internationalFee.toFixed(2)}</span>
-								</div>
-							) : null}
-							<div className="border-t pt-2 flex justify-between font-medium">
-								<span>Total</span>
-								<span>${feeData.totalAmount.toFixed(2)}</span>
-							</div>
-						</div>
-					) : (
-						<p className="text-sm text-muted-foreground">Amount: ${amount}</p>
-					)}
-				</div>
+				<FeeBreakdownReceipt
+					feeData={feeData}
+					feeDataLoading={Boolean(feeDataLoading)}
+					amount={amount}
+				/>
 				<DialogFooter className="flex space-x-2 justify-end">
 					<Button
 						type="button"

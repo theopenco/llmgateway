@@ -25,7 +25,6 @@ export function QuickStartSection({
   -H "Authorization: Bearer ${keyPlaceholder}" \\
   -d '{
   "model": "auto",
-  "free_models_only": true,
   "messages": [
     {"role": "user", "content": "Hello!"}
   ]
@@ -41,8 +40,6 @@ const client = new OpenAI({
 const response = await client.chat.completions.create({
   model: "auto",
   messages: [{ role: "user", content: "Hello!" }],
-  // @ts-expect-error LLM Gateway extension
-  free_models_only: true,
 });`;
 
 	const pythonExample = `from openai import OpenAI
@@ -55,7 +52,6 @@ client = OpenAI(
 response = client.chat.completions.create(
     model="auto",
     messages=[{"role": "user", "content": "Hello!"}],
-    extra_body={"free_models_only": True},
 )`;
 
 	const aiSdkExample = `import { createLLMGateway } from "@llmgateway/ai-sdk-provider";

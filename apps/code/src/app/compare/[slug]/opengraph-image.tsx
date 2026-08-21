@@ -63,150 +63,147 @@ export default async function CompareOgImage({
 	const competitorSpec = getBrand(entry?.competitorLogo ?? entry?.competitor);
 
 	return new ImageResponse(
-		(
+		<div
+			style={{
+				width: "100%",
+				height: "100%",
+				display: "flex",
+				flexDirection: "column",
+				justifyContent: "space-between",
+				background: "#0a0a0b",
+				backgroundImage:
+					"radial-gradient(900px 500px at 50% -10%, rgba(255,255,255,0.10), transparent 60%)",
+				padding: 64,
+				fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+			}}
+		>
+			{/* Header */}
 			<div
 				style={{
-					width: "100%",
-					height: "100%",
 					display: "flex",
-					flexDirection: "column",
+					alignItems: "center",
 					justifyContent: "space-between",
-					background: "#0a0a0b",
-					backgroundImage:
-						"radial-gradient(900px 500px at 50% -10%, rgba(255,255,255,0.10), transparent 60%)",
-					padding: 64,
-					fontFamily:
-						"system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
 				}}
 			>
-				{/* Header */}
-				<div
-					style={{
-						display: "flex",
-						alignItems: "center",
-						justifyContent: "space-between",
-					}}
-				>
-					<div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-						<div
-							style={{
-								display: "flex",
-								alignItems: "center",
-								justifyContent: "center",
-								width: 44,
-								height: 44,
-								borderRadius: 12,
-								background: "#fafafa",
-								color: "#0a0a0b",
-								fontSize: 22,
-								fontWeight: 700,
-							}}
-						>
-							{"</>"}
-						</div>
-						<div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-							<span style={{ color: "#fafafa", fontSize: 30, fontWeight: 700 }}>
-								DevPass
-							</span>
-							<span style={{ color: "#71717a", fontSize: 20 }}>
-								by LLM Gateway
-							</span>
-						</div>
-					</div>
+				<div style={{ display: "flex", alignItems: "center", gap: 14 }}>
 					<div
 						style={{
 							display: "flex",
-							padding: "10px 20px",
-							borderRadius: 9999,
-							background: "rgba(255,255,255,0.06)",
-							border: "1px solid rgba(255,255,255,0.14)",
-							color: "#d4d4d8",
-							fontSize: 20,
-							fontWeight: 600,
-							letterSpacing: 2,
-							textTransform: "uppercase",
-						}}
-					>
-						Comparison
-					</div>
-				</div>
-
-				{/* Arena */}
-				<div
-					style={{
-						display: "flex",
-						flexDirection: "column",
-						alignItems: "center",
-						gap: 34,
-					}}
-				>
-					<div style={{ display: "flex", alignItems: "center", gap: 44 }}>
-						<Tile spec={devpassSpec} devpass />
-						<div
-							style={{
-								display: "flex",
-								alignItems: "center",
-								justifyContent: "center",
-								width: 72,
-								height: 72,
-								borderRadius: 9999,
-								background: "#18181b",
-								border: "1px solid rgba(255,255,255,0.16)",
-								color: "#a1a1aa",
-								fontSize: 26,
-								fontWeight: 700,
-								letterSpacing: 1,
-							}}
-						>
-							VS
-						</div>
-						<Tile spec={competitorSpec} />
-					</div>
-
-					<div
-						style={{
-							display: "flex",
-							color: "#fafafa",
-							fontSize: 68,
+							alignItems: "center",
+							justifyContent: "center",
+							width: 44,
+							height: 44,
+							borderRadius: 12,
+							background: "#fafafa",
+							color: "#0a0a0b",
+							fontSize: 22,
 							fontWeight: 700,
-							letterSpacing: "-0.02em",
-							textAlign: "center",
 						}}
 					>
-						{title}
+						{"</>"}
+					</div>
+					<div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+						<span style={{ color: "#fafafa", fontSize: 30, fontWeight: 700 }}>
+							DevPass
+						</span>
+						<span style={{ color: "#71717a", fontSize: 20 }}>
+							by LLM Gateway
+						</span>
 					</div>
 				</div>
-
-				{/* Footer */}
 				<div
 					style={{
 						display: "flex",
-						alignItems: "flex-end",
-						justifyContent: "space-between",
+						padding: "10px 20px",
+						borderRadius: 9999,
+						background: "rgba(255,255,255,0.06)",
+						border: "1px solid rgba(255,255,255,0.14)",
+						color: "#d4d4d8",
+						fontSize: 20,
+						fontWeight: 600,
+						letterSpacing: 2,
+						textTransform: "uppercase",
 					}}
 				>
-					<div style={{ display: "flex", gap: 40 }}>
-						<div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-							<span style={{ color: "#71717a", fontSize: 18 }}>DevPass</span>
-							<span style={{ color: "#fafafa", fontSize: 26, fontWeight: 600 }}>
-								{entry?.devpassPrice ?? "$29–$179/mo"}
-							</span>
-						</div>
-						<div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-							<span style={{ color: "#71717a", fontSize: 18 }}>
-								{competitorName}
-							</span>
-							<span style={{ color: "#d4d4d8", fontSize: 26, fontWeight: 600 }}>
-								{entry?.competitorPrice ?? "—"}
-							</span>
-						</div>
-					</div>
-					<span style={{ color: "#71717a", fontSize: 20 }}>
-						devpass.llmgateway.io
-					</span>
+					Comparison
 				</div>
 			</div>
-		),
+
+			{/* Arena */}
+			<div
+				style={{
+					display: "flex",
+					flexDirection: "column",
+					alignItems: "center",
+					gap: 34,
+				}}
+			>
+				<div style={{ display: "flex", alignItems: "center", gap: 44 }}>
+					<Tile spec={devpassSpec} devpass />
+					<div
+						style={{
+							display: "flex",
+							alignItems: "center",
+							justifyContent: "center",
+							width: 72,
+							height: 72,
+							borderRadius: 9999,
+							background: "#18181b",
+							border: "1px solid rgba(255,255,255,0.16)",
+							color: "#a1a1aa",
+							fontSize: 26,
+							fontWeight: 700,
+							letterSpacing: 1,
+						}}
+					>
+						VS
+					</div>
+					<Tile spec={competitorSpec} />
+				</div>
+
+				<div
+					style={{
+						display: "flex",
+						color: "#fafafa",
+						fontSize: 68,
+						fontWeight: 700,
+						letterSpacing: "-0.02em",
+						textAlign: "center",
+					}}
+				>
+					{title}
+				</div>
+			</div>
+
+			{/* Footer */}
+			<div
+				style={{
+					display: "flex",
+					alignItems: "flex-end",
+					justifyContent: "space-between",
+				}}
+			>
+				<div style={{ display: "flex", gap: 40 }}>
+					<div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+						<span style={{ color: "#71717a", fontSize: 18 }}>DevPass</span>
+						<span style={{ color: "#fafafa", fontSize: 26, fontWeight: 600 }}>
+							{entry?.devpassPrice ?? "$29–$179/mo"}
+						</span>
+					</div>
+					<div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+						<span style={{ color: "#71717a", fontSize: 18 }}>
+							{competitorName}
+						</span>
+						<span style={{ color: "#d4d4d8", fontSize: 26, fontWeight: 600 }}>
+							{entry?.competitorPrice ?? "—"}
+						</span>
+					</div>
+				</div>
+				<span style={{ color: "#71717a", fontSize: 20 }}>
+					devpass.llmgateway.io
+				</span>
+			</div>
+		</div>,
 		size,
 	);
 }

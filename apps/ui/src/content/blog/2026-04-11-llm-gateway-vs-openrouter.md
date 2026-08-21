@@ -105,6 +105,8 @@ LLM Gateway supports asynchronous video generation through Veo 3.1 with multiple
 
 OpenRouter's generative-media support is newer and more limited; LLM Gateway has routed video models in production for months.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## Where OpenRouter Wins
 
 ### Simplicity for Casual Use
@@ -174,4 +176,8 @@ OpenRouter gives you a unified API for multiple models. LLM Gateway gives you th
 
 If you're building something real, you'll eventually need those features. The question is whether you build them yourself or use a platform that includes them.
 
+Weighing more than these two? See the [10 best OpenRouter alternatives in 2026](/blog/openrouter-alternatives) for the full field.
+
 **[Try LLM Gateway free](/signup)** | **[Migration guide](https://docs.llmgateway.io/migrations/openrouter)** | **[Compare all features](/compare/open-router)**
+
+<BlogCta variant="gateway" location="bottom" />

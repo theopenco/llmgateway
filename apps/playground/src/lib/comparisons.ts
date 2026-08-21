@@ -17,15 +17,12 @@ import {
 } from "@llmgateway/shared";
 
 export type CompetitorCategory =
-	| "single-vendor"
-	| "aggregator"
-	| "answer-engine"
-	| "developer";
+	"single-vendor" | "aggregator" | "answer-engine" | "developer";
 
 export interface ComparisonRow {
 	/** Dimension being compared, e.g. "Model access". */
 	label: string;
-	/** LLM Gateway Chat's answer. */
+	/** Lounge's answer. */
 	us: string;
 	/** Competitor's answer. */
 	them: string;
@@ -88,7 +85,7 @@ export interface Comparison {
 }
 
 /**
- * LLM Gateway Chat — our own profile. Kept here so the same facts feed every
+ * Lounge — our own profile. Kept here so the same facts feed every
  * page and the index. These mirror packages/shared/src/chat-plans.ts.
  */
 /**
@@ -103,8 +100,8 @@ function planFacts(tier: ChatPlanTier) {
 }
 
 export const US = {
-	name: "LLM Gateway Chat",
-	url: "https://chat.llmgateway.io",
+	name: "Lounge",
+	url: "https://lounge.llmgateway.io",
 	modelCount: "200+",
 	plans: {
 		starter: planFacts("starter"),
@@ -120,12 +117,12 @@ export const comparisons: Comparison[] = [
 		competitorFull: "ChatGPT (OpenAI)",
 		competitorTagline: "The mainstream default — OpenAI models only",
 		category: "single-vendor",
-		metaTitle: "LLM Gateway Chat vs ChatGPT — every model, one subscription",
+		metaTitle: "Lounge vs ChatGPT — every model, one subscription",
 		metaDescription:
-			"ChatGPT only runs OpenAI models. LLM Gateway Chat gives you GPT, Claude, Gemini and Grok on one $19/mo subscription — switch models mid-chat.",
+			"ChatGPT only runs OpenAI models. Lounge gives you GPT, Claude, Gemini and Grok on one $19/mo subscription — switch models mid-chat.",
 		eyebrow: "Single vendor vs every frontier model",
 		verdict:
-			"ChatGPT is the most polished single-vendor assistant, and at $20/mo Plus you get GPT plus native image and voice. But you only ever get OpenAI models. LLM Gateway Chat runs GPT, Claude, Gemini, and Grok side by side for $19/mo — so you stop paying separate subscriptions to reach the model that's actually best for the task.",
+			"ChatGPT is the most polished single-vendor assistant, and at $20/mo Plus you get GPT plus native image and voice. But you only ever get OpenAI models. Lounge runs GPT, Claude, Gemini, and Grok side by side for $19/mo — so you stop paying separate subscriptions to reach the model that's actually best for the task.",
 		usPrice: "$19/mo",
 		themPrice: "$20/mo",
 		table: [
@@ -180,21 +177,21 @@ export const comparisons: Comparison[] = [
 				us: "Every message can run on a different model. Draft with GPT, pressure-test the logic with Claude, fact-check with Gemini, all in one thread on one balance.",
 				them: "ChatGPT is OpenAI's storefront for OpenAI's models. When a competing model is better for a task — Claude for code, Gemini for long context — you can't reach it without a second subscription.",
 				bottomLine:
-					"Choose ChatGPT if you only ever want GPT. Choose LLM Gateway Chat if you want the best model per task.",
+					"Choose ChatGPT if you only ever want GPT. Choose Lounge if you want the best model per task.",
 			},
 			{
 				heading: "Pricing and value",
 				us: "Plus is $19/mo and your credits are worth $47.50 at provider rates — 2.5× what you pay. Spend it across any model. When credits run out, pay-as-you-go top-ups keep you going instead of hitting a wall.",
 				them: "Plus is $20/mo for one model family. The next step up is a $200/mo Pro tier, and the cheaper $8 Go tier shows ads in the US.",
 				bottomLine:
-					"Comparable entry price, but LLM Gateway Chat spreads it across every provider.",
+					"Comparable entry price, but Lounge spreads it across every provider.",
 			},
 			{
 				heading: "Features beyond chat",
 				us: "Image, video, and audio generation plus side-by-side group chat all sit in the same subscription and the same credit balance.",
 				them: "ChatGPT has excellent native image generation, Advanced Voice, and Sora video on higher tiers — a genuinely strong, well-integrated suite.",
 				bottomLine:
-					"ChatGPT's native media is more polished; LLM Gateway Chat covers more providers under one balance.",
+					"ChatGPT's native media is more polished; Lounge covers more providers under one balance.",
 			},
 		],
 		chooseThem: [
@@ -216,23 +213,23 @@ export const comparisons: Comparison[] = [
 			"You want to compare answers across models before you trust one",
 		],
 		migration:
-			"There's nothing to migrate — start a chat at chat.llmgateway.io, pick GPT-5 if that's your habit, and add Claude or Gemini to the same thread when you need them. Keep ChatGPT too; many people drop the second subscription once one balance reaches every model.",
+			"There's nothing to migrate — start a chat at lounge.llmgateway.io, pick GPT-5 if that's your habit, and add Claude or Gemini to the same thread when you need them. Keep ChatGPT too; many people drop the second subscription once one balance reaches every model.",
 		faq: [
 			{
-				q: "Is LLM Gateway Chat a ChatGPT alternative?",
+				q: "Is Lounge a ChatGPT alternative?",
 				a: "Yes. It's a multi-model chat app that includes OpenAI's GPT models alongside Claude, Gemini, Grok, and 200+ others, so a single $19/mo subscription replaces ChatGPT Plus plus the other AI subscriptions you'd otherwise stack on top.",
 			},
 			{
-				q: "Can I still use GPT-5 on LLM Gateway Chat?",
+				q: "Can I still use GPT-5 on Lounge?",
 				a: "Yes. GPT-5 and the rest of the OpenAI lineup are available on the Plus and Pro plans. Starter covers most models but excludes frontier tiers like GPT-5.",
 			},
 			{
 				q: "How is the pricing different from ChatGPT Plus?",
-				a: "Both are about $20/mo, but ChatGPT Plus only buys OpenAI models. On LLM Gateway Chat your $19 becomes $47.50 of credits at provider rates that you can spend across every model, with pay-as-you-go top-ups as a fallback.",
+				a: "Both are about $20/mo, but ChatGPT Plus only buys OpenAI models. On Lounge your $19 becomes $47.50 of credits at provider rates that you can spend across every model, with pay-as-you-go top-ups as a fallback.",
 			},
 			{
 				q: "Does it have image generation like ChatGPT?",
-				a: "Yes — image, video, and audio generation are built in. ChatGPT's native image generation is more tightly integrated, but LLM Gateway Chat gives you multiple image, video, and audio models on the same balance.",
+				a: "Yes — image, video, and audio generation are built in. ChatGPT's native image generation is more tightly integrated, but Lounge gives you multiple image, video, and audio models on the same balance.",
 			},
 		],
 	},
@@ -242,13 +239,12 @@ export const comparisons: Comparison[] = [
 		competitorFull: "Claude (Anthropic)",
 		competitorTagline: "Best-in-class writing and code — Anthropic models only",
 		category: "single-vendor",
-		metaTitle:
-			"LLM Gateway Chat vs Claude — keep Claude, add every other model",
+		metaTitle: "Lounge vs Claude — keep Claude, add every other model",
 		metaDescription:
-			"Claude Pro is $20/mo for Anthropic models only. LLM Gateway Chat keeps Claude and adds GPT, Gemini and Grok on one $19/mo balance — no opaque limits.",
+			"Claude Pro is $20/mo for Anthropic models only. Lounge keeps Claude and adds GPT, Gemini and Grok on one $19/mo balance — no opaque limits.",
 		eyebrow: "One great model vs all of them",
 		verdict:
-			"Claude is many people's favorite model for writing and code, and Claude Pro at $20/mo is a clean, ad-free experience. The catch is it only runs Anthropic models, it has no native image generation, and its usage limits are famously opaque. LLM Gateway Chat keeps Claude Opus and Sonnet and adds GPT, Gemini, and Grok on one $19/mo balance.",
+			"Claude is many people's favorite model for writing and code, and Claude Pro at $20/mo is a clean, ad-free experience. The catch is it only runs Anthropic models, it has no native image generation, and its usage limits are famously opaque. Lounge keeps Claude Opus and Sonnet and adds GPT, Gemini, and Grok on one $19/mo balance.",
 		usPrice: "$19/mo",
 		themPrice: "$20/mo",
 		table: [
@@ -304,7 +300,7 @@ export const comparisons: Comparison[] = [
 				us: "Claude Opus and Sonnet are first-class here. The difference is you can switch to GPT or Gemini for a tricky step and switch back, all in the same conversation and the same balance.",
 				them: "Claude only runs Anthropic models. When you want a second opinion or a model that's stronger on a specific task, you leave the app.",
 				bottomLine:
-					"Choose Claude if you only ever want Claude. Choose LLM Gateway Chat if you want Claude and everything else.",
+					"Choose Claude if you only ever want Claude. Choose Lounge if you want Claude and everything else.",
 			},
 			{
 				heading: "Usage limits and transparency",
@@ -318,7 +314,7 @@ export const comparisons: Comparison[] = [
 				us: "Image, video, and audio generation are built in, alongside chat, on the same subscription.",
 				them: "Claude can read and analyze images and produce diagrams or SVG, but it cannot generate photos or illustrations.",
 				bottomLine:
-					"Need to create images, not just read them? That's a clear gap LLM Gateway Chat fills.",
+					"Need to create images, not just read them? That's a clear gap Lounge fills.",
 			},
 		],
 		chooseThem: [
@@ -340,23 +336,23 @@ export const comparisons: Comparison[] = [
 			"You'd rather see exactly what each message costs",
 		],
 		migration:
-			"Keep using Claude exactly as you do — Opus and Sonnet are right here. Start a thread at chat.llmgateway.io, pick Claude, and when you hit a wall or want a comparison, switch to GPT or Gemini in the same conversation. Most people keep Claude as their default model and drop the standalone subscription.",
+			"Keep using Claude exactly as you do — Opus and Sonnet are right here. Start a thread at lounge.llmgateway.io, pick Claude, and when you hit a wall or want a comparison, switch to GPT or Gemini in the same conversation. Most people keep Claude as their default model and drop the standalone subscription.",
 		faq: [
 			{
-				q: "Does LLM Gateway Chat include Claude?",
+				q: "Does Lounge include Claude?",
 				a: "Yes. Claude Opus, Sonnet, and Haiku are available on the Plus and Pro plans, alongside GPT, Gemini, Grok, and 200+ other models on one credit balance.",
 			},
 			{
-				q: "Why use LLM Gateway Chat instead of Claude Pro?",
+				q: "Why use Lounge instead of Claude Pro?",
 				a: "Same roughly $20/mo price, but you get Claude plus every other frontier model, transparent per-message credits instead of opaque caps, and built-in image, video, and audio generation that Claude doesn't offer.",
 			},
 			{
 				q: "Does Claude have usage limits I avoid here?",
-				a: "Claude Pro and Max enforce an unpublished 'conversation budget' with weekly caps. LLM Gateway Chat uses visible credits — you see each message's cost and your remaining balance, with pay-as-you-go top-ups as a fallback.",
+				a: "Claude Pro and Max enforce an unpublished 'conversation budget' with weekly caps. Lounge uses visible credits — you see each message's cost and your remaining balance, with pay-as-you-go top-ups as a fallback.",
 			},
 			{
 				q: "Can I generate images like I can't on Claude?",
-				a: "Yes. Claude can read images but not create them. LLM Gateway Chat includes multiple image, video, and audio generation models in the same subscription.",
+				a: "Yes. Claude can read images but not create them. Lounge includes multiple image, video, and audio generation models in the same subscription.",
 			},
 		],
 	},
@@ -367,12 +363,12 @@ export const comparisons: Comparison[] = [
 		competitorTagline:
 			"Huge context and Google integration — Google models only",
 		category: "single-vendor",
-		metaTitle: "LLM Gateway Chat vs Google Gemini — beyond one model family",
+		metaTitle: "Lounge vs Google Gemini — beyond one model family",
 		metaDescription:
-			"Google AI Pro is $19.99/mo for Gemini only. LLM Gateway Chat puts Gemini next to GPT, Claude and Grok on one $19/mo subscription with clear credits.",
+			"Google AI Pro is $19.99/mo for Gemini only. Lounge puts Gemini next to GPT, Claude and Grok on one $19/mo subscription with clear credits.",
 		eyebrow: "Google's models vs all of them",
 		verdict:
-			"Gemini is a strong, deeply Google-integrated assistant with a massive context window and native video generation, and Google AI Pro is $19.99/mo. But it only runs Google's models and leans on your Google account to feel valuable. LLM Gateway Chat puts Gemini next to GPT, Claude, and Grok for $19/mo on one balance.",
+			"Gemini is a strong, deeply Google-integrated assistant with a massive context window and native video generation, and Google AI Pro is $19.99/mo. But it only runs Google's models and leans on your Google account to feel valuable. Lounge puts Gemini next to GPT, Claude, and Grok for $19/mo on one balance.",
 		usPrice: "$19/mo",
 		themPrice: "$19.99/mo",
 		table: [
@@ -390,7 +386,7 @@ export const comparisons: Comparison[] = [
 			},
 			{
 				label: "Ecosystem lock-in",
-				us: "None — works on its own at chat.llmgateway.io",
+				us: "None — works on its own at lounge.llmgateway.io",
 				them: "Most value comes through your Google account and Workspace",
 				usWins: true,
 			},
@@ -427,11 +423,11 @@ export const comparisons: Comparison[] = [
 				us: "Gemini Pro is available here with its long context intact, but it sits next to GPT, Claude, and Grok so you can switch when another model wins a task.",
 				them: "Gemini runs only Google's models. It's powerful, but it's a single family, and you can't bring a competing model into the conversation.",
 				bottomLine:
-					"Choose Gemini if you're all-in on Google. Choose LLM Gateway Chat if you want Gemini plus everyone else.",
+					"Choose Gemini if you're all-in on Google. Choose Lounge if you want Gemini plus everyone else.",
 			},
 			{
 				heading: "Ecosystem and lock-in",
-				us: "LLM Gateway Chat is standalone. It doesn't need your email or documents to be useful — you sign in and chat across providers.",
+				us: "Lounge is standalone. It doesn't need your email or documents to be useful — you sign in and chat across providers.",
 				them: "Gemini's strongest features lean on Gmail, Drive, and Workspace. If you don't live in Google's ecosystem, a lot of the value drops away, and the plan names (two different 'Ultra' tiers) are confusing.",
 				bottomLine:
 					"Deep in Google Workspace? Gemini integrates beautifully. Otherwise that lock-in is a cost.",
@@ -441,7 +437,7 @@ export const comparisons: Comparison[] = [
 				us: "Your $19 becomes $47.50 of credits at provider rates, visible per message, spendable on any model.",
 				them: "Google AI Pro is $19.99/mo and bundles storage and YouTube perks, but it moved to opaque compute-based usage and removed the monthly media-generation credits users relied on.",
 				bottomLine:
-					"Gemini bundles more Google perks; LLM Gateway Chat gives clearer, model-agnostic value.",
+					"Gemini bundles more Google perks; Lounge gives clearer, model-agnostic value.",
 			},
 		],
 		chooseThem: [
@@ -463,10 +459,10 @@ export const comparisons: Comparison[] = [
 			"The overlapping Ultra plan tiers are hard to reason about",
 		],
 		migration:
-			"Sign in at chat.llmgateway.io and pick Gemini — the long-context model you already use is there. Add GPT or Claude to the same thread whenever you want a second take. Nothing is tied to your Google account, so you keep full control of your data.",
+			"Sign in at lounge.llmgateway.io and pick Gemini — the long-context model you already use is there. Add GPT or Claude to the same thread whenever you want a second take. Nothing is tied to your Google account, so you keep full control of your data.",
 		faq: [
 			{
-				q: "Is LLM Gateway Chat a Google Gemini alternative?",
+				q: "Is Lounge a Google Gemini alternative?",
 				a: "Yes. It includes Gemini's models alongside GPT, Claude, Grok, and 200+ others on one $19/mo balance, without tying your chats to a Google account.",
 			},
 			{
@@ -475,7 +471,7 @@ export const comparisons: Comparison[] = [
 			},
 			{
 				q: "How is this different from Google AI Pro?",
-				a: "Google AI Pro is $19.99/mo for Google's models plus storage and YouTube perks, with value tied to your Google account. LLM Gateway Chat is $19/mo for every frontier model on a standalone, transparent credit balance.",
+				a: "Google AI Pro is $19.99/mo for Google's models plus storage and YouTube perks, with value tied to your Google account. Lounge is $19/mo for every frontier model on a standalone, transparent credit balance.",
 			},
 			{
 				q: "Does it generate video like Gemini?",
@@ -489,12 +485,12 @@ export const comparisons: Comparison[] = [
 		competitorFull: "Poe (by Quora)",
 		competitorTagline: "Multi-model aggregator with a confusing points system",
 		category: "aggregator",
-		metaTitle: "LLM Gateway Chat vs Poe — multi-model chat without points math",
+		metaTitle: "Lounge vs Poe — multi-model chat without points math",
 		metaDescription:
-			"Poe meters every model with confusing compute points. LLM Gateway Chat gives you 200+ models on transparent provider-rate credits for $19/mo.",
+			"Poe meters every model with confusing compute points. Lounge gives you 200+ models on transparent provider-rate credits for $19/mo.",
 		eyebrow: "Compute points vs transparent credits",
 		verdict:
-			"Poe pioneered multi-model chat and has huge breadth, including user-built bots and group chats. Its weak point, by far the most common complaint, is the compute-points system: every model costs a different, hard-to-predict number of points, nothing rolls over, and frontier models drain your balance fast. LLM Gateway Chat is also one balance across every model, but priced as transparent credits at provider rates.",
+			"Poe pioneered multi-model chat and has huge breadth, including user-built bots and group chats. Its weak point, by far the most common complaint, is the compute-points system: every model costs a different, hard-to-predict number of points, nothing rolls over, and frontier models drain your balance fast. Lounge is also one balance across every model, but priced as transparent credits at provider rates.",
 		usPrice: "$19/mo",
 		themPrice: "$19.99/mo",
 		table: [
@@ -555,7 +551,7 @@ export const comparisons: Comparison[] = [
 				us: "When monthly credits are spent, pay-as-you-go top-ups kick in automatically and never expire. You're never forced to stop mid-task.",
 				them: "When points run out you wait for the reset, upgrade a tier, or buy add-on points at roughly $30 per million. Nothing rolls over.",
 				bottomLine:
-					"Both are one balance for many models; LLM Gateway Chat's balance is predictable and has a fallback.",
+					"Both are one balance for many models; Lounge's balance is predictable and has a fallback.",
 			},
 			{
 				heading: "Breadth and bots",
@@ -584,11 +580,11 @@ export const comparisons: Comparison[] = [
 			"You want to know what each message actually costs",
 		],
 		migration:
-			"Bring the same habit — one balance, every model — minus the points math. Sign in at chat.llmgateway.io, and instead of translating messages into points, you spend credits priced at provider rates with each message's cost shown plainly.",
+			"Bring the same habit — one balance, every model — minus the points math. Sign in at lounge.llmgateway.io, and instead of translating messages into points, you spend credits priced at provider rates with each message's cost shown plainly.",
 		faq: [
 			{
-				q: "How is LLM Gateway Chat different from Poe?",
-				a: "Both give you many models on one balance. The difference is the meter: Poe uses compute points that vary per model and don't roll over, while LLM Gateway Chat uses credits priced at real provider rates, shown per message, with pay-as-you-go top-ups as a fallback.",
+				q: "How is Lounge different from Poe?",
+				a: "Both give you many models on one balance. The difference is the meter: Poe uses compute points that vary per model and don't roll over, while Lounge uses credits priced at real provider rates, shown per message, with pay-as-you-go top-ups as a fallback.",
 			},
 			{
 				q: "Does it have as many models as Poe?",
@@ -610,13 +606,12 @@ export const comparisons: Comparison[] = [
 		competitorFull: "T3 Chat (t3.gg)",
 		competitorTagline: "Fast, cheap multi-model chat — light on extras",
 		category: "aggregator",
-		metaTitle:
-			"LLM Gateway Chat vs T3 Chat — multi-model chat with a media studio",
+		metaTitle: "Lounge vs T3 Chat — multi-model chat with a media studio",
 		metaDescription:
-			"T3 Chat is fast $8/mo multi-model chat with no media generation. LLM Gateway Chat adds image, video, audio and group chat across 200+ models.",
+			"T3 Chat is fast $8/mo multi-model chat with no media generation. Lounge adds image, video, audio and group chat across 200+ models.",
 		eyebrow: "Fast and minimal vs full studio",
 		verdict:
-			"T3 Chat is genuinely excellent at one thing: fast, clean multi-model chat for $8/mo, with bring-your-own-key support. It's also deliberately minimal — no native mobile app, no voice, no persistent memory, and no real media generation. LLM Gateway Chat costs more but adds image, video, and audio generation, group chat, and a transparent credit balance.",
+			"T3 Chat is genuinely excellent at one thing: fast, clean multi-model chat for $8/mo, with bring-your-own-key support. It's also deliberately minimal — no native mobile app, no voice, no persistent memory, and no real media generation. Lounge costs more but adds image, video, and audio generation, group chat, and a transparent credit balance.",
 		usPrice: "$19/mo",
 		themPrice: "$8/mo",
 		table: [
@@ -677,14 +672,14 @@ export const comparisons: Comparison[] = [
 				us: "Image, video, and audio generation and side-by-side group chat are built into the same subscription and balance.",
 				them: "T3 is deliberately lean: no native mobile app, no voice mode, no persistent memory across chats, and image generation is limited. Those are conscious omissions, not bugs.",
 				bottomLine:
-					"If you want a media studio and model comparison, not just chat, that's the gap LLM Gateway Chat fills.",
+					"If you want a media studio and model comparison, not just chat, that's the gap Lounge fills.",
 			},
 			{
 				heading: "How you pay",
 				us: "Credits priced at provider rates with 2.5× value on Plus and top-ups that never expire. You see the cost of each message.",
 				them: "A flat $8/mo with a usage bar that refills on a timer, plus bring-your-own-key for unmetered use if you have your own provider keys.",
 				bottomLine:
-					"T3 is cheaper and BYOK-friendly; LLM Gateway Chat trades a higher price for more capability and clearer value.",
+					"T3 is cheaper and BYOK-friendly; Lounge trades a higher price for more capability and clearer value.",
 			},
 		],
 		chooseThem: [
@@ -706,19 +701,19 @@ export const comparisons: Comparison[] = [
 			"You want to compare model answers side by side",
 		],
 		migration:
-			"If you like fast multi-model chat, you'll feel at home — pick a model, start typing at chat.llmgateway.io. The difference is what surrounds the chat: image, video, and audio generation, group chat, persistent and shareable conversations, all on one credit balance.",
+			"If you like fast multi-model chat, you'll feel at home — pick a model, start typing at lounge.llmgateway.io. The difference is what surrounds the chat: image, video, and audio generation, group chat, persistent and shareable conversations, all on one credit balance.",
 		faq: [
 			{
-				q: "Is LLM Gateway Chat worth more than T3 Chat's $8?",
-				a: "It depends on what you need. T3 is cheaper and faster for pure text chat. LLM Gateway Chat costs $19 on Plus but adds image, video, and audio generation, side-by-side group chat, persistent shareable conversations, and 200+ models with transparent credits.",
+				q: "Is Lounge worth more than T3 Chat's $8?",
+				a: "It depends on what you need. T3 is cheaper and faster for pure text chat. Lounge costs $19 on Plus but adds image, video, and audio generation, side-by-side group chat, persistent shareable conversations, and 200+ models with transparent credits.",
 			},
 			{
 				q: "Does it support bring-your-own-key like T3?",
-				a: "LLM Gateway Chat is built around a managed credit balance rather than BYOK. The whole platform, LLM Gateway, does support your own provider keys if you need that route.",
+				a: "Lounge is built around a managed credit balance rather than BYOK. The whole platform, LLM Gateway, does support your own provider keys if you need that route.",
 			},
 			{
 				q: "Is it as fast as T3 Chat?",
-				a: "Responses stream in real time and model switching is instant. T3's UI is purpose-built for raw rendering speed, so it still feels fastest for plain text — LLM Gateway Chat trades a little of that for a full media studio.",
+				a: "Responses stream in real time and model switching is instant. T3's UI is purpose-built for raw rendering speed, so it still feels fastest for plain text — Lounge trades a little of that for a full media studio.",
 			},
 			{
 				q: "Does it remember past conversations?",
@@ -732,12 +727,12 @@ export const comparisons: Comparison[] = [
 		competitorFull: "Perplexity",
 		competitorTagline: "Best-in-class answer engine — not a general chat app",
 		category: "answer-engine",
-		metaTitle: "LLM Gateway Chat vs Perplexity — a chat app, not a search box",
+		metaTitle: "Lounge vs Perplexity — a chat app, not a search box",
 		metaDescription:
-			"Perplexity is the best answer engine but weak at open-ended chat and coding. LLM Gateway Chat is a full multi-model chat and media studio for $19/mo.",
+			"Perplexity is the best answer engine but weak at open-ended chat and coding. Lounge is a full multi-model chat and media studio for $19/mo.",
 		eyebrow: "Cited search vs full multi-model chat",
 		verdict:
-			"Perplexity is the best tool for cited web research — fast, sourced answers to factual questions. But by design it's an answer engine, not a chat partner: it's weaker at open-ended conversation, creative writing, and sustained coding, and it loses the thread in long sessions. LLM Gateway Chat is a general multi-model chat and media studio. They solve different problems.",
+			"Perplexity is the best tool for cited web research — fast, sourced answers to factual questions. But by design it's an answer engine, not a chat partner: it's weaker at open-ended conversation, creative writing, and sustained coding, and it loses the thread in long sessions. Lounge is a general multi-model chat and media studio. They solve different problems.",
 		usPrice: "$19/mo",
 		themPrice: "$20/mo",
 		table: [
@@ -787,10 +782,10 @@ export const comparisons: Comparison[] = [
 		sections: [
 			{
 				heading: "What each is built for",
-				us: "LLM Gateway Chat is a conversation and creation tool: long threads, drafting, coding, brainstorming, and generating images, video, and audio — with full frontier models you switch between.",
+				us: "Lounge is a conversation and creation tool: long threads, drafting, coding, brainstorming, and generating images, video, and audio — with full frontier models you switch between.",
 				them: "Perplexity is an answer engine. Ask a factual question and it returns a fast, cited, well-sourced answer. That's a genuinely different and excellent job.",
 				bottomLine:
-					"For 'find and cite an answer,' use Perplexity. For 'think, write, build, create,' use LLM Gateway Chat.",
+					"For 'find and cite an answer,' use Perplexity. For 'think, write, build, create,' use Lounge.",
 			},
 			{
 				heading: "Conversation and creative depth",
@@ -826,11 +821,11 @@ export const comparisons: Comparison[] = [
 			"You want to generate images, video, and audio too",
 		],
 		migration:
-			"Many people keep Perplexity for cited research and use LLM Gateway Chat for everything else — writing, coding, brainstorming, and media. Sign in at chat.llmgateway.io, pick any frontier model, and you've got a conversation tool Perplexity was never built to be.",
+			"Many people keep Perplexity for cited research and use Lounge for everything else — writing, coding, brainstorming, and media. Sign in at lounge.llmgateway.io, pick any frontier model, and you've got a conversation tool Perplexity was never built to be.",
 		faq: [
 			{
-				q: "Is LLM Gateway Chat a Perplexity alternative?",
-				a: "For general chat, creative work, and coding, yes. Perplexity is purpose-built for cited web search; LLM Gateway Chat is a general multi-model chat and media studio. They're often used together.",
+				q: "Is Lounge a Perplexity alternative?",
+				a: "For general chat, creative work, and coding, yes. Perplexity is purpose-built for cited web search; Lounge is a general multi-model chat and media studio. They're often used together.",
 			},
 			{
 				q: "Does it do cited web research like Perplexity?",
@@ -838,7 +833,7 @@ export const comparisons: Comparison[] = [
 			},
 			{
 				q: "Which is better for coding and writing?",
-				a: "LLM Gateway Chat. It runs full frontier models like GPT, Claude, and Gemini that hold context across long threads, where Perplexity is tuned for short, sourced answers.",
+				a: "Lounge. It runs full frontier models like GPT, Claude, and Gemini that hold context across long threads, where Perplexity is tuned for short, sourced answers.",
 			},
 			{
 				q: "Is it cheaper than Perplexity Pro?",
@@ -852,13 +847,12 @@ export const comparisons: Comparison[] = [
 		competitorFull: "OpenRouter",
 		competitorTagline: "Developer API marketplace with a bare chatroom",
 		category: "developer",
-		metaTitle:
-			"LLM Gateway Chat vs OpenRouter — a real chat app, not a dev tool",
+		metaTitle: "Lounge vs OpenRouter — a real chat app, not a dev tool",
 		metaDescription:
-			"OpenRouter is a developer API with a bare chatroom. LLM Gateway Chat is a polished $19/mo subscription with media generation and monthly credits.",
+			"OpenRouter is a developer API with a bare chatroom. Lounge is a polished $19/mo subscription with media generation and monthly credits.",
 		eyebrow: "Metered dev tool vs consumer subscription",
 		verdict:
-			"OpenRouter is the developer's model marketplace — 400+ models behind one API, zero markup on inference, pay-as-you-go credits. Its chatroom exists, but it's a bare playground with local-only history and no consumer subscription. LLM Gateway Chat is the opposite end: a polished chat app with a real monthly subscription, media generation, and credits at 2.5× value.",
+			"OpenRouter is the developer's model marketplace — 400+ models behind one API, zero markup on inference, pay-as-you-go credits. Its chatroom exists, but it's a bare playground with local-only history and no consumer subscription. Lounge is the opposite end: a polished chat app with a real monthly subscription, media generation, and credits at 2.5× value.",
 		usPrice: "$19/mo",
 		themPrice: "Pay-as-you-go",
 		table: [
@@ -908,7 +902,7 @@ export const comparisons: Comparison[] = [
 		sections: [
 			{
 				heading: "What it actually is",
-				us: "LLM Gateway Chat is a consumer product: you subscribe, you chat, your conversations persist and sync, and you get image, video, and audio generation in the same place.",
+				us: "Lounge is a consumer product: you subscribe, you chat, your conversations persist and sync, and you get image, video, and audio generation in the same place.",
 				them: "OpenRouter is an API marketplace first. Its chatroom is a thin playground for trying models — useful, but history is local to your browser, there's no subscription, and it's not built as a daily chat app.",
 				bottomLine:
 					"Want one API key for your code? OpenRouter is great. Want a chat app? That's us.",
@@ -925,7 +919,7 @@ export const comparisons: Comparison[] = [
 				us: "200+ first-party models with a polished, persistent, media-capable interface.",
 				them: "More raw models — 400+ — and zero inference markup, which genuinely matters if you're building software on the API.",
 				bottomLine:
-					"For sheer model count and API economics, OpenRouter leads; for the chat experience, LLM Gateway Chat does.",
+					"For sheer model count and API economics, OpenRouter leads; for the chat experience, Lounge does.",
 			},
 		],
 		chooseThem: [
@@ -947,15 +941,15 @@ export const comparisons: Comparison[] = [
 			"You want media generation and a polished interface",
 		],
 		migration:
-			"If you've been using OpenRouter's chatroom because you wanted every model in one place, LLM Gateway Chat gives you that as an actual product — persistent, syncing conversations, media generation, and a subscription with monthly credit value. OpenRouter stays the better choice when you're building on the API.",
+			"If you've been using OpenRouter's chatroom because you wanted every model in one place, Lounge gives you that as an actual product — persistent, syncing conversations, media generation, and a subscription with monthly credit value. OpenRouter stays the better choice when you're building on the API.",
 		faq: [
 			{
-				q: "Is LLM Gateway Chat like OpenRouter?",
-				a: "They share the 'every model on one balance' idea, but OpenRouter is a developer API marketplace whose chatroom is a secondary playground. LLM Gateway Chat is a consumer chat app with a subscription, persistent syncing conversations, and built-in media generation.",
+				q: "Is Lounge like OpenRouter?",
+				a: "They share the 'every model on one balance' idea, but OpenRouter is a developer API marketplace whose chatroom is a secondary playground. Lounge is a consumer chat app with a subscription, persistent syncing conversations, and built-in media generation.",
 			},
 			{
 				q: "Does it have more models than OpenRouter?",
-				a: "OpenRouter lists more raw models — 400+ versus 200+ — and has zero inference markup for API developers. For chatting, LLM Gateway Chat focuses on a polished experience across every major provider.",
+				a: "OpenRouter lists more raw models — 400+ versus 200+ — and has zero inference markup for API developers. For chatting, Lounge focuses on a polished experience across every major provider.",
 			},
 			{
 				q: "Why pay a subscription instead of OpenRouter's pay-as-you-go?",
@@ -963,7 +957,7 @@ export const comparisons: Comparison[] = [
 			},
 			{
 				q: "Do my OpenRouter chatroom conversations sync?",
-				a: "On OpenRouter the chatroom stores history locally in your browser. LLM Gateway Chat persists and syncs conversations across devices, and lets you share read-only links.",
+				a: "On OpenRouter the chatroom stores history locally in your browser. Lounge persists and syncs conversations across devices, and lets you share read-only links.",
 			},
 		],
 	},

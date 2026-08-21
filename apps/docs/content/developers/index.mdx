@@ -1,0 +1,27 @@
+---
+title: Overview
+description: Build AI applications on LLM Gateway with the CLI, MCP, the AI SDK, and TanStack AI
+icon: BookOpen
+---
+
+This section is for developers building applications on top of LLM Gateway — with our command-line tool, the MCP server, the [Vercel AI SDK](https://ai-sdk.dev) via our first-party provider package [`@llmgateway/ai-sdk-provider`](https://github.com/theopenco/llmgateway-ai-sdk-provider), and [TanStack AI](https://tanstack.com/ai) via the first-party [`@tanstack/ai-llmgateway`](https://www.npmjs.com/package/@tanstack/ai-llmgateway) adapter.
+
+## Guides
+
+- [**LLM Gateway CLI**](/developers/cli) — Launch coding agents, scaffold projects from templates, generate agent configs, and manage keys, budgets, and usage from the terminal
+- [**Model Context Protocol (MCP)**](/developers/mcp) — Use LLM Gateway as an MCP server from Claude Code, Cursor, and other MCP clients
+- [**Using the AI SDK**](/developers/ai-sdk) — Install the provider, generate and stream text, call tools, and wire up Next.js routes
+- [**Image Generation with the AI SDK**](/developers/ai-sdk-images) — Generate images with `generateImage` and stream image output through chat
+- [**Using TanStack AI**](/developers/tanstack-ai) — Stream chat with `useChat`, call tools, and surface reasoning through the first-party `@tanstack/ai-llmgateway` adapter
+
+## Why the AI SDK
+
+The AI SDK gives you one TypeScript interface for text generation, streaming, tool calling, and image generation. Combined with LLM Gateway, a single provider instance and one API key reach every model in the catalog — see the [models page](https://llmgateway.io/models) for what's available.
+
+## Other ways to integrate
+
+If you're not using the AI SDK:
+
+- Use any OpenAI-compatible SDK against `https://api.llmgateway.io/v1` — see the [Quickstart](/quick-start)
+- Use the Anthropic SDK against the [Anthropic-compatible endpoint](/features/anthropic-endpoint)
+- Call the REST API directly — see the API reference in the sidebar

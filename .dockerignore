@@ -14,6 +14,12 @@
 **/.source
 **/.content-collections
 .conductor
+.context
+scripts/internal
 
 packages/**/*.js
 apps/**/*.js
+# Browser-loaded static assets that happen to be .js must survive the blanket
+# exclusion above, or the image ships without them and the fetch 404s at runtime.
+# Mirrors the same negation in .gitignore.
+!apps/playground/public/worklets/*.js

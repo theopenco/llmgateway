@@ -1,5 +1,9 @@
 import { shortid } from "@llmgateway/db";
 
+import { toResponsesToolCallItem } from "./tool-registry.js";
+
+import type { ToolRegistry } from "./tool-registry.js";
+
 interface ChatCompletionsResponse {
 	id?: string;
 	object?: string;
@@ -19,12 +23,23 @@ interface ChatCompletionsResponse {
 				};
 			}>;
 			reasoning?: string | null;
+			reasoning_details?: Array<Record<string, unknown>>;
+			phase?: string | null;
+			content_before_tool_calls?: boolean;
+			message_items?: Array<{
+				text: string;
+				phase?: string;
+				preceding_tool_calls?: number;
+			}>;
 			refusal?: string | null;
 			annotations?: Array<Record<string, unknown>>;
 		};
 		finish_reason?: string | null;
 	}>;
 	service_tier?: string | null;
+	// Effective reasoning context the provider applied (current_turn/all_turns),
+	// surfaced by the gateway's chat layer for Responses-API upstreams.
+	reasoning_context?: string;
 	usage?: {
 		prompt_tokens?: number;
 		completion_tokens?: number;
@@ -119,7 +134,11 @@ export interface ResponsesApiResponse {
 	frequency_penalty: number;
 	top_logprobs: number;
 	temperature: number;
-	reasoning: { effort: string | null; summary: string | null } | null;
+	reasoning: {
+		effort: string | null;
+		summary: string | null;
+		context?: string;
+	} | null;
 	usage: ResponsesApiUsage | null;
 	max_output_tokens: number | null;
 	max_tool_calls: number | null;
@@ -149,7 +168,11 @@ export interface ResponsesEchoRequest {
 	frequency_penalty?: number;
 	top_logprobs?: number;
 	temperature?: number;
-	reasoning?: { effort?: string | null; summary?: string | null } | null;
+	reasoning?: {
+		effort?: string | null;
+		summary?: string | null;
+		context?: string | null;
+	} | null;
 	max_output_tokens?: number;
 	max_tool_calls?: number;
 	store?: boolean;
@@ -190,6 +213,24 @@ export function normalizeEchoedTools(tools: unknown[] | undefined): unknown[] {
 }
 
 /**
+ * Remove `encrypted_content` from reasoning output items. Encrypted reasoning
+ * is always kept in stored responses (so previous_response_id chaining
+ * preserves reasoning server-side, like OpenAI), but is only returned on the
+ * wire when the request asked for it via include:["reasoning.encrypted_content"].
+ */
+export function stripEncryptedReasoningContent<
+	T extends Record<string, unknown>,
+>(output: T[]): T[] {
+	return output.map((item) => {
+		if (item.type !== "reasoning" || item.encrypted_content === undefined) {
+			return item;
+		}
+		const { encrypted_content: _ignored, ...rest } = item;
+		return rest as unknown as T;
+	});
+}
+
+/**
  * Resolve the processing tier the provider actually served from a chat
  * completions response. OpenAI echoes it as a top-level `service_tier`;
  * other providers (e.g. Google flex/priority) surface it via the gateway's
@@ -209,6 +250,21 @@ function resolveServedServiceTier(
 			: "default";
 	}
 	return undefined;
+}
+
+/**
+ * Resolve the reasoning context to report on a response. The field is defined
+ * as the mode the model actually used, so it is only emitted from a validated
+ * upstream effective value — never echoed from the request (a provider may
+ * ignore the setting entirely).
+ * Returns a spreadable `{ context }` fragment or undefined to omit the field.
+ */
+export function resolveReasoningContext(
+	effectiveContext: string | undefined,
+): { context: string } | undefined {
+	return effectiveContext === "current_turn" || effectiveContext === "all_turns"
+		? { context: effectiveContext }
+		: undefined;
 }
 
 /**
@@ -245,13 +301,43 @@ export function convertChatResponseToResponses(
 	requestedModel: string,
 	responseId?: string,
 	request?: ResponsesEchoRequest,
+	toolRegistry?: ToolRegistry,
 ): ResponsesApiResponse {
 	const choice = chatResponse.choices?.[0];
 	const message = choice?.message;
 	const output: ResponsesApiOutput[] = [];
 
-	// Add reasoning output if present
-	if (message?.reasoning) {
+	// Add reasoning output if present. Encrypted reasoning payloads captured
+	// from the provider ("reasoning.encrypted" reasoning_details entries) are
+	// attached as `encrypted_content` so the reasoning can be replayed on later
+	// turns; the caller strips them from the wire response unless the request
+	// asked for them via include:["reasoning.encrypted_content"].
+	// Only OpenAI-Responses-shaped payloads qualify: `encrypted_content` items
+	// are replayed upstream as OpenAI encrypted reasoning, so a foreign format
+	// (e.g. "anthropic-claude-v1") must not be relabeled by ending up here.
+	const encryptedDetails = (message?.reasoning_details ?? []).filter(
+		(detail) =>
+			detail.type === "reasoning.encrypted" &&
+			typeof detail.data === "string" &&
+			(detail.data as string).length > 0 &&
+			detail.format === "openai-responses-v1",
+	);
+	if (encryptedDetails.length > 0) {
+		encryptedDetails.forEach((detail, index) => {
+			output.push({
+				type: "reasoning",
+				id:
+					typeof detail.id === "string" && detail.id
+						? detail.id
+						: `rs_${shortid(24)}`,
+				summary:
+					index === 0 && message?.reasoning
+						? [{ type: "summary_text", text: message.reasoning }]
+						: [],
+				encrypted_content: detail.data,
+			});
+		});
+	} else if (message?.reasoning) {
 		output.push({
 			type: "reasoning",
 			id: `rs_${shortid(24)}`,
@@ -259,52 +345,112 @@ export function convertChatResponseToResponses(
 		});
 	}
 
-	// Add function calls if present
-	if (message?.tool_calls && message.tool_calls.length > 0) {
-		for (const toolCall of message.tool_calls) {
-			output.push({
-				type: "function_call",
-				id: `fc_${shortid(24)}`,
-				call_id: toolCall.id,
-				name: toolCall.function.name,
-				arguments: toolCall.function.arguments,
-				status: "completed",
-			});
-		}
-	}
-
-	// Add message output. Skip if content is empty/whitespace-only — many
-	// providers return content: "" alongside tool_calls, and emitting an empty
-	// message item pollutes stored conversations: on replay via
+	// Build message output. Providers may emit several phased assistant
+	// message items (e.g. commentary and a final_answer); each is rebuilt as
+	// its own item with its phase and exact position among the function calls
+	// (via preceding_tool_calls), reconstructing the original interleaving —
+	// including a commentary between two calls. Otherwise a single message
+	// item is built from `content` — skipped if empty/whitespace-only, since
+	// many providers return content: "" alongside tool_calls, and emitting an
+	// empty message item pollutes stored conversations: on replay via
 	// previous_response_id it becomes a stray assistant message that separates
 	// the tool_calls assistant from its tool result, causing strict providers
 	// (deepseek, bytedance, aws-bedrock, kimi, etc.) to reject the request.
-	if (
+	const toolCalls = message?.tool_calls ?? [];
+	const messageItems: Array<{
+		precedingToolCalls: number;
+		text: string;
+		phase?: string;
+	}> = [];
+	if (message?.message_items && message.message_items.length > 0) {
+		for (const item of message.message_items) {
+			messageItems.push({
+				precedingToolCalls: item.preceding_tool_calls ?? toolCalls.length,
+				text: item.text,
+				...(item.phase ? { phase: item.phase } : {}),
+			});
+		}
+	} else if (
 		message?.content !== null &&
 		message?.content !== undefined &&
 		message.content.trim() !== ""
 	) {
-		const contentParts: Array<Record<string, unknown>> = [
-			{
-				type: "output_text",
-				text: message.content,
-				annotations: normalizeAnnotationsToResponses(message.annotations),
-			},
-		];
-
-		output.push({
-			type: "message",
-			id: `msg_${shortid(24)}`,
-			role: "assistant",
-			content: contentParts,
-			status: "completed",
+		messageItems.push({
+			precedingToolCalls: message.content_before_tool_calls
+				? 0
+				: toolCalls.length,
+			text: message.content,
+			...(message.phase ? { phase: message.phase } : {}),
 		});
 	}
 
-	// Map finish_reason to status
+	const buildMessageItem = (
+		item: { text: string; phase?: string },
+		isLast: boolean,
+	): ResponsesApiOutput => ({
+		type: "message",
+		id: `msg_${shortid(24)}`,
+		role: "assistant",
+		content: [
+			{
+				type: "output_text",
+				text: item.text,
+				// Annotations aren't attributable to a specific item on the chat
+				// surface; keep them on the last (final) message.
+				annotations: isLast
+					? normalizeAnnotationsToResponses(message?.annotations)
+					: [],
+			},
+		],
+		...(item.phase ? { phase: item.phase } : {}),
+		status: "completed",
+	});
+
+	// Interleave messages and function calls back into their original order.
+	let nextMessage = 0;
+	const emitMessagesUpTo = (callsEmitted: number) => {
+		while (
+			nextMessage < messageItems.length &&
+			messageItems[nextMessage]!.precedingToolCalls <= callsEmitted
+		) {
+			output.push(
+				buildMessageItem(
+					messageItems[nextMessage]!,
+					nextMessage === messageItems.length - 1,
+				),
+			);
+			nextMessage++;
+		}
+	};
+
+	toolCalls.forEach((toolCall, callIndex) => {
+		emitMessagesUpTo(callIndex);
+		output.push(
+			toResponsesToolCallItem(toolRegistry, {
+				id: `fc_${shortid(24)}`,
+				callId: toolCall.id,
+				name: toolCall.function.name,
+				arguments: toolCall.function.arguments,
+				status: "completed",
+			}) as ResponsesApiOutput,
+		);
+	});
+	emitMessagesUpTo(Number.MAX_SAFE_INTEGER);
+
+	// Map finish_reason to status. Providers served via the OpenAI Responses
+	// API surface truncation as finish_reason "incomplete" (from the upstream
+	// response status) rather than "length".
 	let status: "completed" | "incomplete" | "failed" = "completed";
-	if (choice?.finish_reason === "length") {
+	let incompleteReason: string | null = null;
+	if (
+		choice?.finish_reason === "length" ||
+		choice?.finish_reason === "incomplete"
+	) {
 		status = "incomplete";
+		incompleteReason = "max_output_tokens";
+	} else if (choice?.finish_reason === "content_filter") {
+		status = "incomplete";
+		incompleteReason = "content_filter";
 	}
 
 	const usage: ResponsesApiUsage = {
@@ -337,7 +483,9 @@ export function convertChatResponseToResponses(
 		completed_at: status === "completed" ? created : null,
 		status,
 		incomplete_details:
-			status === "incomplete" ? { reason: "max_output_tokens" } : null,
+			status === "incomplete" && incompleteReason
+				? { reason: incompleteReason }
+				: null,
 		model: chatResponse.model ?? requestedModel,
 		previous_response_id: request?.previous_response_id ?? null,
 		instructions: request?.instructions ?? null,
@@ -358,6 +506,9 @@ export function convertChatResponseToResponses(
 		reasoning: {
 			effort: request?.reasoning?.effort ?? null,
 			summary: request?.reasoning?.summary ?? null,
+			// Only the validated effective mode the provider applied is reported;
+			// the requested value is never echoed.
+			...(resolveReasoningContext(chatResponse.reasoning_context) ?? {}),
 		},
 		usage,
 		max_output_tokens: request?.max_output_tokens ?? null,

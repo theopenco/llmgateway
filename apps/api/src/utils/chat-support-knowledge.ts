@@ -9,23 +9,37 @@ const KNOWLEDGE_SITEMAPS = [
 	"https://llmgateway.io/sitemap.xml",
 	"https://devpass.llmgateway.io/sitemap.xml",
 	"https://docs.llmgateway.io/sitemap.xml",
-	"https://chat.llmgateway.io/sitemap.xml",
+	"https://lounge.llmgateway.io/sitemap.xml",
+];
+
+// llms.txt overviews are short, curated markdown summaries of a product —
+// plans, pricing, and key pages. Their content is inlined into the support
+// assistant's system prompt so plan questions (DevPass tiers, Lounge/chat
+// plans) are answerable without a tool call.
+const KNOWLEDGE_LLMS_TXT = [
+	"https://devpass.llmgateway.io/llms.txt",
+	"https://lounge.llmgateway.io/llms.txt",
 ];
 
 // Only pages on these hosts may be fetched by the agent's grounding tool.
+// chat.llmgateway.io stays on the list after the move to lounge.llmgateway.io
+// because links to the old host are still in the wild; it 301s to the new one.
 const ALLOWED_HOSTS = [
 	"llmgateway.io",
 	"devpass.llmgateway.io",
 	"docs.llmgateway.io",
+	"lounge.llmgateway.io",
 	"chat.llmgateway.io",
 ];
 
 const URLS_CACHE_KEY = "chat_support_knowledge_urls";
+const OVERVIEWS_CACHE_KEY = "chat_support_knowledge_overviews";
 const URLS_CACHE_TTL_SECONDS = 60 * 60 * 6; // 6 hours
 const PAGE_CACHE_TTL_SECONDS = 60 * 60 * 24; // 24 hours
 const FETCH_TIMEOUT_MS = 8000;
 const MAX_URLS = 600;
 const MAX_PAGE_CHARS = 6000;
+const MAX_OVERVIEW_CHARS = 4000;
 
 function extractLocs(xml: string): string[] {
 	const matches = xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi);
@@ -95,7 +109,11 @@ export async function getKnowledgeUrls(): Promise<string[]> {
 	const results = await Promise.all(
 		KNOWLEDGE_SITEMAPS.map((sitemap) => collectSitemapUrls(sitemap)),
 	);
-	const urls = Array.from(new Set(results.flat())).slice(0, MAX_URLS);
+	// The llms.txt overviews are listed first so they are always fetchable
+	// targets even when the sitemap list gets truncated at MAX_URLS.
+	const urls = Array.from(
+		new Set([...KNOWLEDGE_LLMS_TXT, ...results.flat()]),
+	).slice(0, MAX_URLS);
 
 	if (urls.length > 0) {
 		try {
@@ -111,6 +129,52 @@ export async function getKnowledgeUrls(): Promise<string[]> {
 	}
 
 	return urls;
+}
+
+export interface KnowledgeOverview {
+	url: string;
+	content: string;
+}
+
+// Fetches the llms.txt product overviews (DevPass and Lounge plans/pricing)
+// so they can be inlined into the support assistant's system prompt. Cached in
+// Redis alongside the URL list; failures degrade to an empty list.
+export async function getKnowledgeOverviews(): Promise<KnowledgeOverview[]> {
+	try {
+		const cached = await redisClient.get(OVERVIEWS_CACHE_KEY);
+		if (cached) {
+			return JSON.parse(cached) as KnowledgeOverview[];
+		}
+	} catch (error) {
+		logger.warn("Chat support overviews cache read failed", { error });
+	}
+
+	const fetched = await Promise.all(
+		KNOWLEDGE_LLMS_TXT.map(async (url) => {
+			const text = await fetchText(url);
+			return text
+				? { url, content: text.trim().slice(0, MAX_OVERVIEW_CHARS) }
+				: null;
+		}),
+	);
+	const overviews = fetched.filter(
+		(overview): overview is KnowledgeOverview => overview !== null,
+	);
+
+	if (overviews.length > 0) {
+		try {
+			await redisClient.set(
+				OVERVIEWS_CACHE_KEY,
+				JSON.stringify(overviews),
+				"EX",
+				URLS_CACHE_TTL_SECONDS,
+			);
+		} catch (error) {
+			logger.warn("Chat support overviews cache write failed", { error });
+		}
+	}
+
+	return overviews;
 }
 
 export function isAllowedKnowledgeUrl(url: string): boolean {
@@ -178,12 +242,19 @@ export async function fetchKnowledgePage(url: string): Promise<string> {
 		logger.warn("Chat support page cache read failed", { url, error });
 	}
 
-	const html = await fetchText(url);
-	if (!html) {
+	const body = await fetchText(url);
+	if (!body) {
 		return "Could not load this page right now.";
 	}
 
-	const text = htmlToText(html).slice(0, MAX_PAGE_CHARS);
+	// Plain-text sources (llms.txt, pricing.md, …) are already readable; the
+	// HTML-stripping pass would only mangle their markdown.
+	const { pathname } = new URL(url);
+	const isPlainText = pathname.endsWith(".txt") || pathname.endsWith(".md");
+	const text = (isPlainText ? body.trim() : htmlToText(body)).slice(
+		0,
+		MAX_PAGE_CHARS,
+	);
 
 	try {
 		await redisClient.set(cacheKey, text, "EX", PAGE_CACHE_TTL_SECONDS);

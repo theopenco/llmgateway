@@ -5,10 +5,10 @@ import { motion } from "motion/react";
 
 export function ChatBrandBadge() {
 	return (
-		<div className="inline-flex items-center gap-2 rounded-full border border-violet-500/20 bg-violet-500/10 px-3 py-1">
-			<div className="h-1.5 w-1.5 rounded-full bg-violet-400" />
-			<span className="text-xs font-medium text-violet-400">
-				LLM Gateway Chat
+		<div className="inline-flex items-center gap-2 rounded-full border border-[#d4b06a]/30 bg-[#d4b06a]/10 px-3 py-1">
+			<div className="h-1.5 w-1.5 rotate-45 bg-[#d4b06a]" />
+			<span className="text-xs font-medium tracking-wide text-[#d4b06a]">
+				The Lounge — by LLM Gateway
 			</span>
 		</div>
 	);
@@ -31,7 +31,17 @@ export function ChatBrandPanel({
 					backgroundSize: "24px 24px",
 				}}
 			/>
-			<div className="absolute left-1/2 top-1/2 h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-violet-500/10 blur-[100px]" />
+			<div className="absolute left-1/2 top-1/2 h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#d4b06a]/10 blur-[100px]" />
+
+			{/* Art-deco frame */}
+			<div
+				aria-hidden
+				className="pointer-events-none absolute inset-4 border border-[#d4b06a]/15"
+			/>
+			<div
+				aria-hidden
+				className="pointer-events-none absolute inset-6 border border-[#d4b06a]/10"
+			/>
 
 			<div className="relative z-10 flex flex-1 flex-col justify-center px-12 xl:px-16">
 				<motion.div
@@ -40,7 +50,7 @@ export function ChatBrandPanel({
 					transition={{ duration: 0.6, ease: "easeOut" }}
 				>
 					<ChatBrandBadge />
-					<h1 className="mt-6 text-4xl font-bold leading-tight tracking-tight text-white xl:text-5xl">
+					<h1 className="mt-6 font-display text-4xl font-semibold leading-tight tracking-tight text-white xl:text-5xl">
 						{headline}
 					</h1>
 					<p className="mt-4 max-w-md text-lg text-zinc-400">{subline}</p>
@@ -58,20 +68,20 @@ export function ChatBrandPanel({
 						<div className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
 						<div className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
 						<span className="ml-2 text-xs text-zinc-600">
-							chat.llmgateway.io
+							lounge.llmgateway.io
 						</span>
 					</div>
 					<div className="space-y-3 p-4 text-sm">
 						<div className="flex justify-end">
-							<p className="max-w-[75%] rounded-2xl rounded-br-sm bg-violet-500/15 px-3.5 py-2 text-zinc-200">
+							<p className="max-w-[75%] rounded-2xl rounded-br-sm bg-[#d4b06a]/15 px-3.5 py-2 text-zinc-200">
 								Which model should I use for this?
 							</p>
 						</div>
 						<div className="flex justify-start">
 							<div className="max-w-[80%] rounded-2xl rounded-bl-sm border border-zinc-800 bg-zinc-900 px-3.5 py-2">
 								<p className="text-zinc-300">
-									Auto-routing picked the best one for the job. Want me to
-									compare a few side by side?
+									They&apos;re all here — auto-routing picked the best one for
+									the job. Want me to compare a few side by side?
 								</p>
 							</div>
 						</div>
@@ -95,7 +105,7 @@ export function ChatBrandPanel({
 					className="mt-8 flex items-center gap-6"
 				>
 					<div className="flex items-center gap-2 text-zinc-500">
-						<MessageSquare className="h-4 w-4" />
+						<MessageSquare className="h-4 w-4 text-[#d4b06a]" />
 						<span className="text-xs">Chat</span>
 					</div>
 					<div className="flex items-center gap-2 text-zinc-500">

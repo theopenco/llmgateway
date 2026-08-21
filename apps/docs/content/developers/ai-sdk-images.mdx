@@ -1,0 +1,86 @@
+---
+title: Image Generation with the AI SDK
+description: Generate images with generateImage or stream image output through chat using the AI SDK
+icon: Image
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+The `@llmgateway/ai-sdk-provider` package supports image generation both through the AI SDK's dedicated `generateImage` function and through chat-based image models that stream images as part of a conversation.
+
+## generateImage
+
+Use `llmgateway.image()` to get an image model:
+
+```typescript
+import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { generateImage } from "ai";
+import { writeFileSync } from "fs";
+
+const llmgateway = createLLMGateway({
+	apiKey: process.env.LLM_GATEWAY_API_KEY,
+});
+
+const result = await generateImage({
+	model: llmgateway.image("gemini-3-pro-image-preview"),
+	prompt:
+		"A cozy cabin in a snowy mountain landscape at night with aurora borealis",
+	size: "1024x1024",
+	n: 1,
+	// aspectRatio and quality are model-specific — only some providers honor them.
+	// aspectRatio works on Gemini image models; OpenAI gpt-image-2 ignores it
+	// (use a literal WxH `size` instead).
+	aspectRatio: "16:9",
+	// quality works on OpenAI gpt-image-2 ("low" | "medium" | "high" | "auto").
+	// The AI SDK only forwards it through providerOptions.
+	providerOptions: {
+		llmgateway: { quality: "high" },
+	},
+});
+
+result.images.forEach((image, i) => {
+	const buf = Buffer.from(image.base64, "base64");
+	writeFileSync(`image-${i}.png`, buf);
+});
+```
+
+<Callout>
+	Which sizes, aspect ratios, and quality settings a model accepts depends on
+	the model — see [Image Generation](/features/image-generation) for the full
+	parameter reference and per-model behavior.
+</Callout>
+
+## Chat-based image models
+
+Multimodal models like `gemini-3-pro-image-preview` can return images inside a chat conversation. Use `llmgateway.chat()` with `streamText` in a route handler:
+
+```typescript
+// app/api/chat/route.ts
+import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { convertToModelMessages, streamText } from "ai";
+
+const llmgateway = createLLMGateway({
+	apiKey: process.env.LLM_GATEWAY_API_KEY,
+});
+
+export async function POST(req: Request) {
+	const { messages } = await req.json();
+
+	const result = streamText({
+		model: llmgateway.chat("gemini-3-pro-image-preview"),
+		messages: convertToModelMessages(messages),
+	});
+
+	return result.toUIMessageStreamResponse();
+}
+```
+
+On the client, image parts arrive as message file parts that you can render with the AI Elements `Image` component or a plain `<img>` tag with a data URL. See [Image Generation](/features/image-generation) for the complete `useChat` frontend example.
+
+## Video and audio
+
+The AI SDK does not yet cover the gateway's video and speech endpoints — call them over REST instead:
+
+- [Video Generation](/features/video-generation) — `POST /v1/videos` (async jobs with optional signed callbacks)
+- [Speech Generation](/features/speech-generation) — `POST /v1/audio/speech`
+- [Transcription](/features/transcription) — `POST /v1/audio/transcriptions`

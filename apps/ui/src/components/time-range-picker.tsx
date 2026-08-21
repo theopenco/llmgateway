@@ -22,8 +22,7 @@ const FREE_RANGES = [
 const PRO_RANGES = [{ value: "30d", label: "30d" }] as const;
 
 export type TimeRangeValue =
-	| (typeof FREE_RANGES)[number]["value"]
-	| (typeof PRO_RANGES)[number]["value"];
+	(typeof FREE_RANGES)[number]["value"] | (typeof PRO_RANGES)[number]["value"];
 
 interface TimeRangePickerProps {
 	value: TimeRangeValue;
@@ -39,7 +38,7 @@ export function TimeRangePicker({
 }: TimeRangePickerProps) {
 	const config = useAppConfig();
 	const { selectedOrganization } = useDashboardNavigation();
-	const isEnterprise = selectedOrganization?.plan === "enterprise";
+	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 	const isGated = config.hosted && !isEnterprise;
 
 	const freeRanges = allowedValues

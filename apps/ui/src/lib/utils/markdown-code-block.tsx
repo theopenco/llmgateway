@@ -188,14 +188,25 @@ function CopyButton({ code }: { code: string }) {
 		<button
 			type="button"
 			onClick={handleCopy}
-			className="absolute top-3 right-3 p-2 rounded-md bg-muted/50 hover:bg-muted transition-colors z-10"
+			className="absolute top-3 right-3 p-2 rounded-md bg-muted/50 hover:bg-muted transition-[background-color,color,transform] duration-150 ease-out z-10 active:scale-[0.98]"
 			aria-label="Copy code"
 		>
-			{copied ? (
-				<CheckIcon className="h-4 w-4 text-green-500" />
-			) : (
-				<CopyIcon className="h-4 w-4 text-muted-foreground" />
-			)}
+			<span className="relative flex h-4 w-4 items-center justify-center">
+				<CopyIcon
+					className={`h-4 w-4 text-muted-foreground transition-[opacity,transform] duration-150 ease-out motion-reduce:transition-[opacity] ${
+						copied
+							? "scale-[0.45] opacity-0 -rotate-[18deg]"
+							: "scale-100 opacity-100 rotate-0"
+					}`}
+				/>
+				<CheckIcon
+					className={`absolute h-4 w-4 text-green-500 transition-[opacity,transform] duration-150 ease-out motion-reduce:transition-[opacity] ${
+						copied
+							? "scale-100 opacity-100 rotate-0"
+							: "scale-[0.45] opacity-0 rotate-[18deg]"
+					}`}
+				/>
+			</span>
 		</button>
 	);
 }

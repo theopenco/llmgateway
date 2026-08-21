@@ -1,0 +1,86 @@
+---
+title: Request Timeouts
+description: Per-request time limits on the gateway, how they interact with streaming and agentic workloads, and how to change them.
+icon: Timer
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Request Timeouts
+
+The gateway enforces hard time limits on every request. These protect the
+platform from stuck upstream connections, but they matter to you directly if
+you run long generations or agentic pipelines: a single completion that runs
+longer than the limit is terminated.
+
+| Limit             | Default    | Applies to                                               |
+| ----------------- | ---------- | -------------------------------------------------------- |
+| **Streaming**     | 20 minutes | Streaming completions (`stream: true`)                   |
+| **Non-streaming** | 10 minutes | Non-streaming completions                                |
+| **End-to-end**    | 25 minutes | Overall ceiling for the whole request, including retries |
+
+## How the limits behave
+
+- **They are total-duration limits, not idle limits.** The timer starts when
+  the gateway opens the upstream provider request and keeps running for the
+  entire response — a stream is cut at the limit even while it is actively
+  producing tokens.
+- **They apply per request, not per session or conversation.** Every
+  completion call gets a fresh window. A long-running agent that makes many
+  calls over hours is unaffected; only a _single_ call exceeding the limit
+  fails.
+- **Tool execution doesn't count.** When a completion finishes with
+  `tool_calls`, the HTTP request ends. The time your application spends
+  running tools (or coordinating subagents) between requests never consumes
+  the window.
+- **On timeout** the gateway returns a `504` with type `timeout_error` (see
+  [Error Handling](/resources/error-handling)). If the limit is hit
+  mid-stream, the stream terminates.
+
+## Long-running agentic workloads
+
+Coordinator/subagent architectures often hold a "master" completion open while
+work happens elsewhere. To stay within the limits:
+
+- **Keep any single completion under 20 minutes.** Structure the coordinator
+  as a loop of discrete completions (the standard tool-calling pattern) rather
+  than one long-lived request that spans the whole investigation.
+- **Stream long generations.** Non-streaming requests are capped at 10
+  minutes; streaming raises the per-request budget to 20 minutes and delivers
+  partial output as it is produced.
+- **Split very long outputs.** If a single generation legitimately needs more
+  than 20 minutes (very large outputs on slow models, extensive reasoning),
+  break it into continuation requests.
+
+## Changing the limits
+
+**Per-project overrides (Enterprise)** can be set under **Project Settings →
+Routing** — see [Per-Project Routing
+Configuration](/features/routing#per-project-routing-configuration-enterprise).
+Overrides can only _lower_ the timeouts: the defaults above are the
+infrastructure ceiling on the hosted platform and cannot be raised per
+project.
+
+**Self-hosted deployments** control the limits with environment variables on
+the gateway service:
+
+| Variable                  | Default   | Controls                  |
+| ------------------------- | --------- | ------------------------- |
+| `AI_STREAMING_TIMEOUT_MS` | `1200000` | Streaming completions     |
+| `AI_TIMEOUT_MS`           | `600000`  | Non-streaming completions |
+| `GATEWAY_TIMEOUT_MS`      | `1500000` | End-to-end ceiling        |
+
+<Callout type="warn">
+	When raising the limits on a self-hosted deployment, raise the surrounding
+	infrastructure in lockstep: your load balancer's backend/response timeout and
+	the gateway's shutdown grace period (`SHUTDOWN_GRACE_PERIOD_MS`, and e.g.
+	Kubernetes `terminationGracePeriodSeconds`) must all be at least as long as
+	the longest stream you allow, or rollouts and intermediaries will still cut
+	long requests.
+</Callout>
+
+<Callout type="info">
+	If your workload genuinely needs single completions longer than 20 minutes on
+	the hosted platform, contact us at contact@llmgateway.io — the ceiling is an
+	infrastructure setting, not a per-model constraint.
+</Callout>

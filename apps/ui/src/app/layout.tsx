@@ -39,7 +39,7 @@ export const metadata: Metadata = {
 		template: "%s | LLM Gateway",
 	},
 	description:
-		"Route, manage, and analyze LLM requests across OpenAI, Anthropic, Google, and 40+ providers through one unified API.",
+		"Route, manage, and analyze LLM requests across OpenAI, Anthropic, Google, and 40+ providers through one unified, OpenAI-compatible API. Free and open source.",
 	authors: [{ name: "LLM Gateway" }],
 	creator: "LLM Gateway",
 	publisher: "LLM Gateway",
@@ -66,7 +66,7 @@ export const metadata: Metadata = {
 	openGraph: {
 		title: "LLM Gateway - Unified API for Multiple LLM Providers",
 		description:
-			"Route, manage, and analyze LLM requests across OpenAI, Anthropic, Google, and 40+ providers through one unified API.",
+			"Route, manage, and analyze LLM requests across OpenAI, Anthropic, Google, and 40+ providers through one unified, OpenAI-compatible API. Free and open source.",
 		images: ["/opengraph.png?v=2"],
 		type: "website",
 		url: "https://llmgateway.io",

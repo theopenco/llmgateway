@@ -1,6 +1,7 @@
 import { and, gte, getTableName, inArray, sql } from "drizzle-orm";
 
 import { swrWrap } from "@llmgateway/cache";
+import { deriveStabilityMetrics } from "@llmgateway/shared";
 import {
 	routingHistoryCacheKey,
 	type RoutingHistoryConfig,
@@ -9,6 +10,7 @@ import {
 import { cdb } from "./cdb.js";
 import { metricsKey, type ProviderMetrics } from "./provider-metrics.js";
 import { modelProviderMappingHistory } from "./schema.js";
+import { effectiveTtftTotals } from "./ttft.js";
 
 const historyTableName = getTableName(modelProviderMappingHistory);
 
@@ -18,32 +20,55 @@ interface HistoryRow {
 	region: string | null;
 	totalLogs: string | number | null;
 	weightedLogs: string | number | null;
-	weightedRoutingErrors: string | number | null;
+	weightedErrors: string | number | null;
+	weightedClientErrors: string | number | null;
 	weightedDuration: string | number | null;
 	weightedOutputTokens: string | number | null;
 	weightedTTFT: string | number | null;
 	weightedTTFRT: string | number | null;
+	weightedTTFTCount: string | number | null;
+	weightedTTFRTCount: string | number | null;
 }
 
 function rowToMetrics(row: HistoryRow): ProviderMetrics | undefined {
 	const totalLogs = Number(row.totalLogs ?? 0);
 	const weightedLogs = Number(row.weightedLogs ?? 0);
-	const weightedRoutingErrors = Number(row.weightedRoutingErrors ?? 0);
+	const weightedErrors = Number(row.weightedErrors ?? 0);
+	const weightedClientErrors = Number(row.weightedClientErrors ?? 0);
 	const weightedDuration = Number(row.weightedDuration ?? 0);
 	const weightedOutputTokens = Number(row.weightedOutputTokens ?? 0);
 	const weightedTTFT = Number(row.weightedTTFT ?? 0);
 	const weightedTTFRT = Number(row.weightedTTFRT ?? 0);
+	const weightedTTFTCount = Number(row.weightedTTFTCount ?? 0);
+	const weightedTTFRTCount = Number(row.weightedTTFRTCount ?? 0);
 
 	if (totalLogs <= 0 || weightedLogs <= 0) {
 		return undefined;
 	}
 
-	const successfulRequests = weightedLogs - weightedRoutingErrors;
-	const uptime = Math.max(0, (successfulRequests / weightedLogs) * 100);
+	const { uptime } = deriveStabilityMetrics(
+		weightedLogs,
+		weightedErrors,
+		weightedClientErrors,
+	);
+	if (uptime === null) {
+		return undefined;
+	}
 
-	const effectiveTTFT = weightedTTFRT > 0 ? weightedTTFRT : weightedTTFT;
+	// Only streamed requests record a first-token latency, so each average
+	// divides by its own sample count. Dividing by the request count instead
+	// would make providers look faster the more non-streaming traffic they see.
+	const { total: effectiveTTFT, count: effectiveTTFTCount } =
+		effectiveTtftTotals({
+			totalTimeToFirstToken: weightedTTFT,
+			timeToFirstTokenCount: weightedTTFTCount,
+			totalTimeToFirstReasoningToken: weightedTTFRT,
+			timeToFirstReasoningTokenCount: weightedTTFRTCount,
+		});
 	const averageLatency =
-		effectiveTTFT > 0 ? effectiveTTFT / weightedLogs : undefined;
+		effectiveTTFT > 0 && effectiveTTFTCount > 0
+			? effectiveTTFT / effectiveTTFTCount
+			: undefined;
 
 	const throughput =
 		weightedDuration > 0
@@ -95,7 +120,9 @@ export async function getProviderMetricsFromHistory(
 		);
 	}
 
-	const cacheKey = `providerMetrics:history:${routingHistoryCacheKey(history)}:${modelIds.join(",")}`;
+	// The version segment is bumped whenever the selected columns change so a
+	// rolling deploy doesn't read rows cached in the previous shape.
+	const cacheKey = `providerMetrics:history:v3:${routingHistoryCacheKey(history)}:${modelIds.join(",")}`;
 
 	const rows = await swrWrap<HistoryRow[]>(
 		cacheKey,
@@ -129,9 +156,13 @@ export async function getProviderMetricsFromHistory(
 						sql<string>`coalesce(sum(${modelProviderMappingHistory.logsCount} * ${weightExpr}), 0)::bigint`.as(
 							"weighted_logs",
 						),
-					weightedRoutingErrors:
-						sql<string>`coalesce(sum(greatest(${modelProviderMappingHistory.errorsCount} - ${modelProviderMappingHistory.clientErrorsCount}, 0) * ${weightExpr}), 0)::bigint`.as(
-							"weighted_routing_errors",
+					weightedErrors:
+						sql<string>`coalesce(sum(${modelProviderMappingHistory.errorsCount} * ${weightExpr}), 0)::bigint`.as(
+							"weighted_errors",
+						),
+					weightedClientErrors:
+						sql<string>`coalesce(sum(${modelProviderMappingHistory.clientErrorsCount} * ${weightExpr}), 0)::bigint`.as(
+							"weighted_client_errors",
 						),
 					weightedDuration:
 						sql<string>`coalesce(sum(${modelProviderMappingHistory.totalDuration} * ${weightExpr}), 0)::bigint`.as(
@@ -148,6 +179,14 @@ export async function getProviderMetricsFromHistory(
 					weightedTTFRT:
 						sql<string>`coalesce(sum(${modelProviderMappingHistory.totalTimeToFirstReasoningToken} * ${weightExpr}), 0)::bigint`.as(
 							"weighted_ttfrt",
+						),
+					weightedTTFTCount:
+						sql<string>`coalesce(sum(${modelProviderMappingHistory.timeToFirstTokenCount} * ${weightExpr}), 0)::bigint`.as(
+							"weighted_ttft_count",
+						),
+					weightedTTFRTCount:
+						sql<string>`coalesce(sum(${modelProviderMappingHistory.timeToFirstReasoningTokenCount} * ${weightExpr}), 0)::bigint`.as(
+							"weighted_ttfrt_count",
 						),
 				})
 				.from(modelProviderMappingHistory)

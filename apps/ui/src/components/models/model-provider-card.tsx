@@ -37,9 +37,13 @@ import {
 } from "@/lib/components/tooltip";
 import { useAppConfig } from "@/lib/config";
 import { XIcon } from "@/lib/icons/XIcon";
+import { getLoungeStudioPath } from "@/lib/model-utils";
 import { formatContextSize, formatDeprecationDate } from "@/lib/utils";
 
-import { getProviderIcon } from "@llmgateway/shared/components";
+import {
+	getProviderIcon,
+	shouldShowDeactivationNotice,
+} from "@llmgateway/shared/components";
 
 import type {
 	ProviderModelMapping,
@@ -71,6 +75,7 @@ export function ModelProviderCard({
 	const providerModelName = `${provider.providerId}/${modelName}`;
 	const ProviderIcon = getProviderIcon(provider.providerId);
 	const providerStability = provider.stability ?? modelStability;
+	const showDeactivationNotice = shouldShowDeactivationNotice(provider);
 
 	const shareUrl = `${config.appUrl}/models/${encodeURIComponent(modelName)}/${encodeURIComponent(provider.providerId)}`;
 	const shareTitle = `${provider.providerInfo?.name ?? provider.providerId} - ${modelName} on LLM Gateway`;
@@ -249,7 +254,7 @@ export function ModelProviderCard({
 					</div>
 				</div>
 
-				{(provider.deprecatedAt ?? provider.deactivatedAt) && (
+				{(provider.deprecatedAt || showDeactivationNotice) && (
 					<div className="flex flex-wrap gap-2 mb-4">
 						{provider.deprecatedAt && (
 							<Badge
@@ -260,13 +265,13 @@ export function ModelProviderCard({
 								{formatDeprecationDate(provider.deprecatedAt, "deprecated")}
 							</Badge>
 						)}
-						{provider.deactivatedAt && (
+						{showDeactivationNotice && (
 							<Badge
 								variant="outline"
 								className="text-xs px-2.5 py-1 gap-1.5 bg-red-50 dark:bg-red-500/5 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/20"
 							>
 								<AlertCircle className="h-3 w-3" />
-								{formatDeprecationDate(provider.deactivatedAt, "deactivated")}
+								{formatDeprecationDate(provider.deactivatedAt!, "deactivated")}
 							</Badge>
 						)}
 					</div>
@@ -613,6 +618,47 @@ export function ModelProviderCard({
 								</div>
 							</div>
 						)}
+					{provider.perImagePrice &&
+						Object.keys(provider.perImagePrice).length > 0 && (
+							<div className="mt-3 pt-3 border-t">
+								<div className="text-muted-foreground text-xs mb-2">
+									Image Pricing (per image, by output resolution)
+								</div>
+								<div className="space-y-1">
+									{(() => {
+										const allEntries = Object.entries(provider.perImagePrice);
+										const tierEntries = allEntries.filter(
+											([key]) => key !== "default",
+										);
+										const entries =
+											tierEntries.length > 0 ? tierEntries : allEntries;
+										const discount = Number(provider.discount ?? "0");
+										return entries.map(([key, price]) => {
+											const effective =
+												discount > 0
+													? Number(price) * (1 - discount)
+													: Number(price);
+											return (
+												<div
+													key={key}
+													className="flex justify-between items-center text-xs py-0.5"
+												>
+													<span className="text-muted-foreground">
+														{key === "default"
+															? "per image"
+															: key.replace(/_/g, " ")}
+													</span>
+													<span className="font-mono">
+														${effective.toFixed(4)}
+														/image
+													</span>
+												</div>
+											);
+										});
+									})()}
+								</div>
+							</div>
+						)}
 					{(() => {
 						const tiers = provider.providerInfo?.serviceTiers;
 						if (
@@ -747,7 +793,7 @@ export function ModelProviderCard({
 										</div>
 									</TooltipTrigger>
 									<TooltipContent>
-										<p>Supports structured JSON output</p>
+										<p>Supports JSON output (soft, no schema guarantee)</p>
 									</TooltipContent>
 								</Tooltip>
 							)}
@@ -806,12 +852,12 @@ export function ModelProviderCard({
 					asChild
 				>
 					<a
-						href={`${config.playgroundUrl}?model=${encodeURIComponent(providerModelName)}`}
+						href={`${config.playgroundUrl}${getLoungeStudioPath(modelOutput)}?model=${encodeURIComponent(providerModelName)}`}
 						target="_blank"
 						rel="noopener noreferrer"
 					>
 						<Play className="h-4 w-4" />
-						Try in Playground
+						Try in Lounge
 					</a>
 				</Button>
 			</CardContent>

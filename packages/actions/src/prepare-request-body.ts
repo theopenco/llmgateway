@@ -16,7 +16,10 @@ import {
 	type OpenAIToolInput,
 	type PromptCacheOptions,
 	type PromptCacheRetention,
+	type ProviderCacheControlMode,
 	type ProviderRequestBody,
+	type ReasoningDetail,
+	type ResponsesToolChoice,
 	supportsOpenAIExplicitPromptCache,
 	supportsOpenAIExtendedPromptCache,
 	supportsServiceTier,
@@ -27,9 +30,16 @@ import {
 import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
 import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
+import {
+	isToolSearchTool,
+	stripAnthropicNativeBlocks,
+	stripAnthropicToolExtensions,
+	toAnthropicToolSearchTool,
+	usesAnthropicMessagesApi,
+} from "./anthropic-tool-search.js";
 import { parseDataUrl } from "./parse-data-url.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
-import { processImageUrl } from "./process-image-url.js";
+import { ImageSizeLimitError, processImageUrl } from "./process-image-url.js";
 import { RequestError } from "./request-error.js";
 import { transformAnthropicMessages } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
@@ -111,6 +121,28 @@ function toolChoiceModeOf(
 		return "function";
 	}
 	return undefined;
+}
+
+/**
+ * Translate a Chat Completions `tool_choice` into the Responses API shape. A
+ * named function choice nests the name under `function` in Chat Completions
+ * but is flat (`{type:"function",name}`) in the Responses API, and upstreams
+ * reject the nested form outright (Bedrock Mantle answers with
+ * `Invalid 'tool_choice': value did not match any expected variant`). The
+ * string modes are identical in both APIs.
+ */
+function toResponsesToolChoice(
+	toolChoice: ToolChoiceType,
+): ResponsesToolChoice {
+	if (typeof toolChoice === "object") {
+		// A web_search choice never reaches here: it is stripped before
+		// tool_choice resolution and applied per-provider instead.
+		if (toolChoice.type === "web_search") {
+			return "auto";
+		}
+		return { type: "function", name: toolChoice.function.name };
+	}
+	return toolChoice;
 }
 
 /**
@@ -272,6 +304,31 @@ function isFunctionTool(
 }
 
 /**
+ * Enables DashScope web search on an OpenAI-compatible request body.
+ *
+ * Only ever called for a caller who forced the search, because forcing is the
+ * one mode DashScope actually performs. `enable_search` alone is documented as
+ * a hint the model may act on, but on these Qwen models it never fires — the
+ * prompt comes back unchanged in size and the model states it has no live
+ * access — so sending it by itself would bill nothing and retrieve nothing
+ * while still consuming the route. `search_options.forced_search` is what
+ * retrieves, and pairing the two guarantees a search ran, which is what lets
+ * the response parser count one without any metadata to read.
+ *
+ * `search_strategy` is deliberately omitted. The documented "agent" and
+ * "agent_max" policies are rejected with a 400 ("The current model does not
+ * support the \"agent\" search strategy") by the Qwen max models mapped here,
+ * and the legacy turbo/standard/pro/max tiers make almost no difference to how
+ * much gets injected — measured at 724/726/728 prompt tokens for
+ * turbo/standard/pro on an identical query — so they are not a cost lever
+ * worth exposing.
+ */
+function applyDashScopeWebSearch(requestBody: Record<string, any>): void {
+	requestBody.enable_search = true;
+	requestBody.search_options = { forced_search: true };
+}
+
+/**
  * Ensures function-tool parameters form a valid JSON Schema object. Some
  * upstreams (e.g. DeepSeek) reject tools whose parameters omit `type` or set
  * it to null, which happens when SDKs serialize parameter-less tools.
@@ -285,9 +342,7 @@ function normalizeToolParameters(tools?: OpenAIToolInput[]): typeof tools {
 			return tool;
 		}
 		const params = tool.function.parameters as
-			| Record<string, unknown>
-			| null
-			| undefined;
+			Record<string, unknown> | null | undefined;
 		if (
 			params &&
 			typeof params === "object" &&
@@ -313,6 +368,27 @@ function normalizeToolParameters(tools?: OpenAIToolInput[]): typeof tools {
 	});
 }
 
+function normalizeGoogleSchemaEnum(values: unknown): string[] | undefined {
+	if (!Array.isArray(values)) {
+		return undefined;
+	}
+
+	const normalized: string[] = [];
+	for (const value of values) {
+		if (
+			value !== null &&
+			typeof value !== "string" &&
+			typeof value !== "number" &&
+			typeof value !== "boolean"
+		) {
+			return undefined;
+		}
+		normalized.push(String(value));
+	}
+
+	return normalized;
+}
+
 /**
  * Converts OpenAI JSON schema format to Google's schema format
  * Google uses uppercase type names (STRING, OBJECT, ARRAY) vs OpenAI's lowercase (string, object, array)
@@ -324,9 +400,21 @@ function convertOpenAISchemaToGoogle(schema: any): any {
 
 	const converted: any = {};
 
-	// Convert type to uppercase
+	// Convert type to uppercase. JSON Schema allows `type` to be an array
+	// (e.g. ["string", "null"] for nullable fields); Google expects a single
+	// uppercase type plus a `nullable` flag instead.
 	if (schema.type) {
-		converted.type = schema.type.toUpperCase();
+		if (Array.isArray(schema.type)) {
+			const nonNullTypes = schema.type.filter((t: unknown) => t !== "null");
+			if (nonNullTypes.length !== schema.type.length) {
+				converted.nullable = true;
+			}
+			if (typeof nonNullTypes[0] === "string") {
+				converted.type = nonNullTypes[0].toUpperCase();
+			}
+		} else if (typeof schema.type === "string") {
+			converted.type = schema.type.toUpperCase();
+		}
 	}
 
 	// Copy description if present
@@ -352,9 +440,11 @@ function convertOpenAISchemaToGoogle(schema: any): any {
 		converted.required = schema.required;
 	}
 
-	// Copy enum if present
-	if (schema.enum) {
-		converted.enum = schema.enum;
+	// Google's Schema proto represents every enum member as a string, including
+	// members of numeric and boolean schemas.
+	const normalizedEnum = normalizeGoogleSchemaEnum(schema.enum);
+	if (normalizedEnum !== undefined) {
+		converted.enum = normalizedEnum;
 	}
 
 	// Copy other common JSON schema properties that Google supports
@@ -456,8 +546,99 @@ function resolveRef(ref: string, rootDefs: Record<string, any>): any {
 }
 
 /**
- * Recursively strips unsupported properties and expands $ref references for Google
- * Google doesn't support $ref, additionalProperties, $schema, and some other JSON schema properties
+ * The only keys Google's `Schema` proto accepts inside a function
+ * declaration's `parameters`. Anything else — a JSON Schema keyword Google
+ * never modelled (`readOnly`, `additionalItems`, `const`, …) or a vendor
+ * extension a client's schema generator invented (`~optional`, `x-*`) —
+ * is rejected outright with `Invalid JSON payload received. Unknown name
+ * "<key>" at 'tools[0].function_declarations[N]…': Cannot find field.`,
+ * failing the entire request with a 400 even though only one property of one
+ * tool carried the key.
+ *
+ * This is an allowlist on purpose. The previous denylist could only ever be
+ * as complete as the last such outage: clients keep emitting new extension
+ * keys, and every unanticipated one is a hard failure rather than a
+ * degradation.
+ *
+ * Deliberately omitted even though Google does accept them: `minLength`,
+ * `maxLength`, `pattern`, `minimum`, `maximum`, `minItems`, `maxItems`,
+ * `minProperties`, `maxProperties` and `not`. The gateway has always stripped
+ * those, and forwarding them would change how models fill tool arguments, so
+ * restoring them is a separate behavioural change rather than part of this
+ * fix. `$ref` / `$defs` / `definitions` are absent because they are consumed
+ * by the inline expansion below instead of being forwarded.
+ */
+const GOOGLE_SUPPORTED_SCHEMA_KEYS: ReadonlySet<string> = new Set([
+	"type",
+	"format",
+	"title",
+	"description",
+	"nullable",
+	"enum",
+	"items",
+	"properties",
+	"required",
+	"default",
+	"anyOf",
+	"oneOf",
+	"allOf",
+	"propertyOrdering",
+	"example",
+]);
+
+/**
+ * Keys whose value is an instance value rather than a subschema. They are
+ * copied verbatim: recursing into them would apply the schema allowlist to the
+ * value's own fields, so an object-typed `default` or `example` would arrive
+ * at the provider emptied out.
+ */
+const GOOGLE_OPAQUE_SCHEMA_VALUE_KEYS: ReadonlySet<string> = new Set([
+	"default",
+	"example",
+]);
+
+/**
+ * JSON Schema lets `type` be a list of alternatives — `["string", "null"]` is
+ * how most schema generators express an optional field — but Google's `Schema`
+ * proto models `type` as a single enum. A list fails the entire request with
+ * `Invalid JSON payload received. Unknown name "type" at
+ * 'tools[0].function_declarations[N].parameters.properties[M].value': Proto
+ * field is not repeating, cannot start list.`, and since that is a 400 it
+ * classifies as `client_error`: no fallback, no retry.
+ *
+ * Collapse it the way the `response_format` path already does: `"null"` becomes
+ * `nullable: true` and the first remaining member becomes the type. Picking one
+ * member of a genuine multi-type union does lose information, but a single node
+ * cannot express the union in Google's schema, and a narrowed type still yields
+ * usable tool calls where the alternative is that every request carrying the
+ * tool fails.
+ */
+function normalizeGoogleSchemaType(type: unknown): {
+	type?: string;
+	nullable: boolean;
+} {
+	if (typeof type === "string") {
+		return { type, nullable: false };
+	}
+	if (!Array.isArray(type)) {
+		return { nullable: false };
+	}
+
+	const nullable = type.includes("null");
+	const firstNonNull = type.find(
+		(entry): entry is string => typeof entry === "string" && entry !== "null",
+	);
+	// `["null"]` on its own has no Google equivalent — its `Type` enum has no
+	// NULL member — so fall back to a nullable string.
+	const resolved = firstNonNull ?? (nullable ? "string" : undefined);
+
+	return { type: resolved, nullable };
+}
+
+/**
+ * Recursively drops everything Google's schema parser does not accept and
+ * expands $ref references inline, since Google supports neither $ref nor the
+ * bulk of JSON Schema's validation vocabulary.
  */
 function stripUnsupportedSchemaProperties(
 	schema: any,
@@ -509,55 +690,32 @@ function stripUnsupportedSchemaProperties(
 	}
 
 	const cleaned: any = {};
+	let nullableFromType = false;
 
 	for (const [key, value] of Object.entries(schema)) {
-		// Skip unsupported properties
-		// Google doesn't support many JSON Schema validation keywords
-		if (
-			key === "additionalProperties" ||
-			key === "$schema" ||
-			key === "$defs" ||
-			key === "definitions" ||
-			key === "$ref" ||
-			key === "ref" ||
-			key === "$id" ||
-			key === "$comment" ||
-			key === "$anchor" ||
-			key === "$dynamicAnchor" ||
-			key === "$dynamicRef" ||
-			key === "$vocabulary" ||
-			key === "examples" ||
-			key === "enumTitles" ||
-			key === "prefill" ||
-			key === "maxLength" ||
-			key === "minLength" ||
-			key === "minimum" ||
-			key === "maximum" ||
-			key === "exclusiveMinimum" ||
-			key === "exclusiveMaximum" ||
-			key === "pattern" ||
-			key === "propertyNames" ||
-			key === "const" ||
-			key === "not" ||
-			key === "if" ||
-			key === "then" ||
-			key === "else" ||
-			key === "multipleOf" ||
-			key === "minItems" ||
-			key === "maxItems" ||
-			key === "uniqueItems" ||
-			key === "minProperties" ||
-			key === "maxProperties" ||
-			key === "patternProperties" ||
-			key === "dependentRequired" ||
-			key === "dependentSchemas" ||
-			key === "unevaluatedProperties" ||
-			key === "unevaluatedItems" ||
-			key === "contentMediaType" ||
-			key === "contentEncoding" ||
-			key === "prefixItems" ||
-			key === "contains"
-		) {
+		if (!GOOGLE_SUPPORTED_SCHEMA_KEYS.has(key)) {
+			continue;
+		}
+
+		if (key === "enum") {
+			const normalizedEnum = normalizeGoogleSchemaEnum(value);
+			if (normalizedEnum !== undefined) {
+				cleaned.enum = normalizedEnum;
+			}
+			continue;
+		}
+
+		if (GOOGLE_OPAQUE_SCHEMA_VALUE_KEYS.has(key)) {
+			cleaned[key] = value;
+			continue;
+		}
+
+		if (key === "type") {
+			const normalized = normalizeGoogleSchemaType(value);
+			if (normalized.type !== undefined) {
+				cleaned.type = normalized.type;
+			}
+			nullableFromType ||= normalized.nullable;
 			continue;
 		}
 
@@ -565,12 +723,10 @@ function stripUnsupportedSchemaProperties(
 		// each value but do not filter the field names themselves — otherwise a
 		// tool parameter legitimately named `examples`, `prefill`, `const`, etc.
 		// would be silently dropped.
-		if (
-			key === "properties" &&
-			value &&
-			typeof value === "object" &&
-			!Array.isArray(value)
-		) {
+		if (key === "properties") {
+			if (!value || typeof value !== "object" || Array.isArray(value)) {
+				continue;
+			}
 			const cleanedProps: Record<string, any> = {};
 			for (const [propName, propSchema] of Object.entries(value)) {
 				cleanedProps[propName] = stripUnsupportedSchemaProperties(
@@ -583,12 +739,29 @@ function stripUnsupportedSchemaProperties(
 			continue;
 		}
 
+		// Draft-4 tuple validation puts a list in `items`, which hits the same
+		// "Proto field is not repeating" 400 as a list-valued `type`; Google's
+		// `items` is a single schema, so keep the first entry.
+		if (key === "items" && Array.isArray(value)) {
+			const [first] = value;
+			if (first && typeof first === "object") {
+				cleaned.items = stripUnsupportedSchemaProperties(first, defs, seenRefs);
+			}
+			continue;
+		}
+
 		// Recursively clean nested objects
 		if (value && typeof value === "object") {
 			cleaned[key] = stripUnsupportedSchemaProperties(value, defs, seenRefs);
 		} else {
 			cleaned[key] = value;
 		}
+	}
+
+	// Applied after the loop so it wins over an explicit `nullable: false` that
+	// contradicts a `"null"` member in the type list, whichever key came first.
+	if (nullableFromType) {
+		cleaned.nullable = true;
 	}
 
 	// Filter 'required' array to only include properties that exist in 'properties'
@@ -616,6 +789,44 @@ function mapGoogleImageSize(imageSize: string): string {
 	}
 
 	return imageSize;
+}
+
+/**
+ * Maps the unified `image_config.image_size` to xAI's `resolution` enum, which
+ * only accepts the lowercase tier names `1k` and `2k` and 422s on anything else
+ * (including `1K` and pixel-dimension strings). Callers pass sizes in whichever
+ * shape their other providers use, so a tier is resolved from the longest pixel
+ * edge when dimensions are given. Returns undefined when the size names no
+ * xAI tier, so the request omits `resolution` and gets xAI's 1k default rather
+ * than a hard rejection.
+ */
+export function mapXaiImageResolution(imageSize: string): string | undefined {
+	const normalized = imageSize.trim().toLowerCase();
+	if (normalized === "1k" || normalized === "2k") {
+		return normalized;
+	}
+
+	const dimensions = normalized.match(/^(\d+)\s*[x*]\s*(\d+)$/);
+	if (dimensions) {
+		const longestEdge = Math.max(Number(dimensions[1]), Number(dimensions[2]));
+		return longestEdge > 1536 ? "2k" : "1k";
+	}
+
+	return undefined;
+}
+
+/**
+ * xAI's image models accept `quality` as a strict enum and 422 on anything
+ * outside it, so the unified `auto` (meaning "let the provider decide") is
+ * dropped rather than forwarded.
+ */
+export function mapXaiImageQuality(imageQuality: string): string | undefined {
+	const normalized = imageQuality.trim().toLowerCase();
+	return normalized === "low" ||
+		normalized === "medium" ||
+		normalized === "high"
+		? normalized
+		: undefined;
 }
 
 /**
@@ -845,6 +1056,58 @@ function transformContentForResponsesApi(content: any, role: string): any {
  * is still unmatched. Ambiguous cases throw rather than risk attaching a result
  * to the wrong call.
  */
+/**
+ * Extract encrypted reasoning payloads carried on an assistant message
+ * (`reasoning_details` entries of type "reasoning.encrypted") back into
+ * Responses API `reasoning` input items. Clients receive these payloads on
+ * prior responses (store:false + include:["reasoning.encrypted_content"]) and
+ * replay them to preserve reasoning across calls without stored responses.
+ * Only OpenAI-Responses-shaped payloads are forwarded — opaque blobs from a
+ * different provider/format would be rejected upstream.
+ */
+interface OpenAIResponsesReasoningItem {
+	type: "reasoning";
+	id?: string;
+	summary: unknown[];
+	encrypted_content: string;
+}
+
+function isEncryptedReasoningDetail(
+	detail: ReasoningDetail,
+): detail is ReasoningDetail & { data: string } {
+	return (
+		detail !== null &&
+		typeof detail === "object" &&
+		detail.type === "reasoning.encrypted" &&
+		typeof detail.data === "string" &&
+		detail.data.length > 0 &&
+		// Require the explicit provenance tag the gateway stamps on every
+		// payload it emits — an untagged blob could be a foreign format that
+		// must not be relabeled as OpenAI encrypted reasoning.
+		detail.format === "openai-responses-v1"
+	);
+}
+
+function extractEncryptedReasoningItems(
+	msg: BaseMessage,
+): OpenAIResponsesReasoningItem[] {
+	if (msg.role !== "assistant" || !Array.isArray(msg.reasoning_details)) {
+		return [];
+	}
+	const items: OpenAIResponsesReasoningItem[] = [];
+	for (const detail of msg.reasoning_details) {
+		if (isEncryptedReasoningDetail(detail)) {
+			items.push({
+				type: "reasoning",
+				...(typeof detail.id === "string" && { id: detail.id }),
+				summary: [],
+				encrypted_content: detail.data,
+			});
+		}
+	}
+	return items;
+}
+
 function transformMessagesForResponsesApi(messages: any[]): any[] {
 	const items: any[] = [];
 
@@ -907,22 +1170,79 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 			continue;
 		}
 
-		// Assistant messages with tool_calls: emit the message, then function_call items
+		// Replay encrypted reasoning from prior turns ahead of the assistant
+		// items it preceded, mirroring the item order the Responses API emits.
+		if (msg.role === "assistant") {
+			const reasoningItems = extractEncryptedReasoningItems(msg);
+			items.push(...reasoningItems);
+			// A reasoning-only carrier (a prior turn that ended before emitting a
+			// message, e.g. on max_output_tokens) has no message to emit — the
+			// reasoning items above are the whole turn.
+			if (
+				reasoningItems.length > 0 &&
+				(msg.content === null || msg.content === undefined) &&
+				(!msg.tool_calls || msg.tool_calls.length === 0)
+			) {
+				continue;
+			}
+		}
+
+		// Assistant messages with tool_calls: emit function_call items and the
+		// message(s) in the provider's original order. Separate phased message
+		// items (message_items) are replayed individually, interleaved with the
+		// calls per their preceding_tool_calls position; otherwise the single
+		// message follows the function calls by default (matching the order the
+		// Responses API emits and convertResponsesInputToMessages folded from),
+		// with pre-tool commentary marked via content_before_tool_calls going
+		// first.
 		if (
 			msg.role === "assistant" &&
 			msg.tool_calls &&
 			msg.tool_calls.length > 0
 		) {
-			// Emit assistant message content if present (preserve empty strings)
-			if (msg.content !== null && msg.content !== undefined) {
-				items.push({
-					role: "assistant",
-					content: transformContentForResponsesApi(msg.content, "assistant"),
+			const toolCallCount = msg.tool_calls.length;
+			const messageItems: Array<{
+				precedingToolCalls: number;
+				item: Record<string, unknown>;
+			}> = [];
+			if (Array.isArray(msg.message_items) && msg.message_items.length > 0) {
+				for (const item of msg.message_items) {
+					messageItems.push({
+						precedingToolCalls: item.preceding_tool_calls ?? toolCallCount,
+						item: {
+							role: "assistant",
+							content: transformContentForResponsesApi(item.text, "assistant"),
+							...(item.phase ? { phase: item.phase } : {}),
+						},
+					});
+				}
+			} else if (msg.content !== null && msg.content !== undefined) {
+				// Single assistant message content (preserve empty strings)
+				messageItems.push({
+					precedingToolCalls: msg.content_before_tool_calls ? 0 : toolCallCount,
+					item: {
+						role: "assistant",
+						content: transformContentForResponsesApi(msg.content, "assistant"),
+						...(msg.phase ? { phase: msg.phase } : {}),
+					},
 				});
 			}
 
-			// Emit each tool call as a separate function_call item
-			for (const toolCall of msg.tool_calls) {
+			let nextMessage = 0;
+			const emitMessagesUpTo = (callsEmitted: number) => {
+				while (
+					nextMessage < messageItems.length &&
+					messageItems[nextMessage]!.precedingToolCalls <= callsEmitted
+				) {
+					items.push(messageItems[nextMessage]!.item);
+					nextMessage++;
+				}
+			};
+
+			// Emit each tool call as a separate function_call item, with any
+			// message items restored to their original positions between them.
+			msg.tool_calls.forEach((toolCall: any, callIndex: number) => {
+				emitMessagesUpTo(callIndex);
 				items.push({
 					type: "function_call",
 					call_id: toolCall.id,
@@ -932,6 +1252,24 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 				pendingCalls.push({
 					callId: toolCall.id,
 					name: toolCall.function?.name,
+				});
+			});
+			emitMessagesUpTo(Number.MAX_SAFE_INTEGER);
+			continue;
+		}
+
+		// Assistant messages carrying separate phased message items but no tool
+		// calls: replay each item individually.
+		if (
+			msg.role === "assistant" &&
+			Array.isArray(msg.message_items) &&
+			msg.message_items.length > 0
+		) {
+			for (const item of msg.message_items) {
+				items.push({
+					role: "assistant",
+					content: transformContentForResponsesApi(item.text, "assistant"),
+					...(item.phase ? { phase: item.phase } : {}),
 				});
 			}
 			continue;
@@ -945,6 +1283,7 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 		items.push({
 			role: msg.role,
 			content: transformContentForResponsesApi(msg.content, msg.role),
+			...(msg.role === "assistant" && msg.phase ? { phase: msg.phase } : {}),
 		});
 	}
 
@@ -955,13 +1294,16 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
  * Prepares the request body for different providers.
  *
  * @param usedProvider - Provider id used for routing.
- * @param usedInternalModel - Canonical LLM Gateway model id (root id). Used
+ * @param usedInternalModel - Canonical LLM Gateway model id. Used
  *   for ALL internal lookups (model def + provider mapping). Never the
  *   provider-specific upstream id.
  * @param usedRegion - Region the request is bound to, when the mapping has
  *   per-region variants. Used together with `usedProvider` to disambiguate.
  * @param usedExternalId - Provider-specific upstream model id. Used only as
  *   the `model:` value in the upstream request body — never for lookups.
+ * @param providerCacheControlMode - Project's provider cache-write policy.
+ *   `auto` forwards caller markers and injects more on long prompts,
+ *   `passthrough` only forwards, `off` strips everything.
  */
 export async function prepareRequestBody(
 	usedProvider: ProviderId,
@@ -979,13 +1321,7 @@ export async function prepareRequestBody(
 	tools?: OpenAIToolInput[],
 	tool_choice?: ToolChoiceType,
 	reasoning_effort?:
-		| "none"
-		| "minimal"
-		| "low"
-		| "medium"
-		| "high"
-		| "xhigh"
-		| "max",
+		"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max",
 	supportsReasoning?: boolean,
 	isProd = false,
 	maxImageSizeMB = 20,
@@ -1005,14 +1341,31 @@ export async function prepareRequestBody(
 	useResponsesApi?: boolean,
 	prompt_cache_key?: string,
 	prompt_cache_retention?: PromptCacheRetention,
-	providerCacheControlEnabled = true,
+	providerCacheControlMode: ProviderCacheControlMode = "auto",
 	n?: number,
 	service_tier?: "auto" | "default" | "flex" | "priority",
 	verbosity?: "low" | "medium" | "high",
 	prompt_cache_options?: PromptCacheOptions,
 	session_id?: string,
+	reasoning_context?: "auto" | "current_turn" | "all_turns",
+	safety_identifier?: string,
 ): Promise<ProviderRequestBody | FormData> {
 	tools = normalizeToolParameters(tools);
+	// Anthropic's server-side tool search (`defer_loading` plus the tool search
+	// tool) only exists on the Anthropic Messages API. Anywhere else the tools
+	// are still sent, just without deferral, so the request degrades to ordinary
+	// eager tool loading instead of failing on an unknown property.
+	const anthropicMessagesApi = usesAnthropicMessagesApi(usedProvider);
+	if (!anthropicMessagesApi) {
+		if (tools?.some(isToolSearchTool)) {
+			logger.warn(
+				"Dropping Anthropic tool search for a non-Anthropic provider",
+				{ usedProvider, usedInternalModel, toolCount: tools.length },
+			);
+		}
+		tools = stripAnthropicToolExtensions(tools);
+		messages = stripAnthropicNativeBlocks(messages);
+	}
 	const modelDef = models.find((m) => m.id === usedInternalModel);
 	const providerMappingForOptions = getProviderMapping(
 		modelDef,
@@ -1032,23 +1385,33 @@ export async function prepareRequestBody(
 
 	// `none` reasoning effort is handled natively by a few providers:
 	// OpenAI/Azure forward it (their newer models accept it to turn reasoning
-	// off), and Google, Moonshot, Alibaba, MiniMax, and Xiaomi reason by
-	// default so they must explicitly disable thinking when asked. Every other
-	// provider treats the absence of reasoning_effort as "off" already, so
-	// normalize `none` away for them to avoid forwarding an unsupported enum
-	// value.
+	// off), and Google, Moonshot, Alibaba, MiniMax, Xiaomi, DeepSeek, Fireworks,
+	// Together AI, ByteDance, and Z.ai reason by default so they must explicitly disable
+	// thinking when asked. Every other provider treats the absence of
+	// reasoning_effort as "off" already, so normalize `none` away for them to
+	// avoid forwarding an unsupported enum value. A mapping that publishes
+	// `none` in its `reasoningEfforts` catalog entry is authoritative too —
+	// it documents that the provider accepts the value, so forward it even
+	// when the provider is not in the allowlist above (#3423).
 	const handlesNoneNatively =
 		usedProvider === "openai" ||
 		usedProvider === "azure" ||
+		usedProvider === "aws-mantle" ||
 		usedProvider === "google-ai-studio" ||
 		usedProvider === "glacier" ||
+		usedProvider === "iceberg" ||
 		usedProvider === "google-vertex" ||
 		usedProvider === "quartz" ||
 		usedProvider === "moonshot" ||
 		usedProvider === "alibaba" ||
 		usedProvider === "minimax" ||
 		usedProvider === "xiaomi" ||
-		providerMappingForOptions?.apiFormat === "openai-chat-completions";
+		usedProvider === "deepseek" ||
+		usedProvider === "fireworks" ||
+		usedProvider === "together-ai" ||
+		usedProvider === "bytedance" ||
+		usedProvider === "zai" ||
+		(providerMappingForOptions?.reasoningEfforts?.includes("none") ?? false);
 	if (reasoning_effort === "none" && !handlesNoneNatively) {
 		reasoning_effort = undefined;
 	}
@@ -1174,6 +1537,12 @@ export async function prepareRequestBody(
 
 		// xAI Grok Imagine uses OpenAI-compatible image generation format
 		// When images are present, use the edits format
+		const xaiQuality = image_config?.image_quality
+			? mapXaiImageQuality(image_config.image_quality)
+			: undefined;
+		const xaiResolution = image_config?.image_size
+			? mapXaiImageResolution(image_config.image_size)
+			: undefined;
 		const xaiImageRequest: any = {
 			model: usedExternalId,
 			prompt,
@@ -1181,6 +1550,8 @@ export async function prepareRequestBody(
 			...(image_config?.aspect_ratio && {
 				aspect_ratio: image_config.aspect_ratio,
 			}),
+			...(xaiQuality && { quality: xaiQuality }),
+			...(xaiResolution && { resolution: xaiResolution }),
 			...(image_config?.n && { n: image_config.n }),
 		};
 
@@ -1411,19 +1782,41 @@ export async function prepareRequestBody(
 		processedMessages = transformMessagesForNoSystemRole(processedMessages);
 	}
 
+	// Provider cache-write policy, split into the two things it actually
+	// controls. `off` is the only mode that touches caller-supplied markers;
+	// `passthrough` differs from `auto` purely by not adding markers of our own,
+	// so a client that manages its own caching (Claude Code, Cursor, Cline) keeps
+	// working while traffic that sends no markers never pays the write premium.
+	const allowProviderCacheWrites = providerCacheControlMode !== "off";
+	const autoInjectCacheControl = providerCacheControlMode === "auto";
+
+	// A tool message's `tool_result_cache_control` only has a destination on the
+	// Anthropic Messages API, where it becomes a marker on the tool_result block
+	// the message is lowered to. Anywhere else it would reach the upstream as an
+	// unknown message field, and a project that opted out of provider cache
+	// writes must not emit it at all.
+	if (!anthropicMessagesApi || !allowProviderCacheWrites) {
+		processedMessages = processedMessages.map((m) => {
+			if (m.tool_result_cache_control === undefined) {
+				return m;
+			}
+			const { tool_result_cache_control: _dropped, ...rest } = m;
+			return rest;
+		});
+	}
+
 	// Strip Anthropic-style cache_control markers from caller-supplied content
 	// parts. We do this in two cases:
 	//   1) The resolved provider doesn't natively understand cache_control —
 	//      strip from text blocks so we don't forward an unknown field that
 	//      strict providers (OpenAI, Google, etc.) would 400 on.
-	//   2) The project has opted out of provider cache writes via
-	//      providerCacheControlEnabled=false — strip from ALL content blocks
-	//      so we honor the user's intent that this project never writes to
-	//      provider cache. This covers callers that always emit cache_control
-	//      markers regardless of the user's usage pattern (Claude Code, Cursor,
-	//      Cline, etc.). Without this, a coding agent on a sparse-use account
-	//      would still pay the 1.25× / 2× cache-write premium because the
-	//      agent's markers would flow through unchanged.
+	//   2) The project set providerCacheControlMode="off" — strip from ALL
+	//      content blocks so we honor the user's intent that this project never
+	//      writes to provider cache. This covers callers that always emit
+	//      cache_control markers regardless of the user's usage pattern (Claude
+	//      Code, Cursor, Cline, etc.). Without this, a coding agent on a
+	//      sparse-use account would still pay the 1.25× / 2× cache-write premium
+	//      because the agent's markers would flow through unchanged.
 	// Anthropic and AWS Bedrock branches below transform/forward markers on
 	// their own; Alibaba accepts `cache_control: {type: "ephemeral"}` on its
 	// OpenAI-compatible surface but supports only a fixed 5-minute TTL, so any
@@ -1433,7 +1826,7 @@ export async function prepareRequestBody(
 		usedProvider === "vertex-anthropic" ||
 		usedProvider === "aws-bedrock" ||
 		usedProvider === "alibaba";
-	const stripAllCacheControl = !providerCacheControlEnabled;
+	const stripAllCacheControl = !allowProviderCacheWrites;
 	const stripTextCacheControl = !providerHandlesCacheControl;
 	if (stripAllCacheControl || stripTextCacheControl) {
 		processedMessages = processedMessages.map((m) => {
@@ -1469,8 +1862,7 @@ export async function prepareRequestBody(
 			const newContent = m.content.map((part) => {
 				const asRecord = part as unknown as Record<string, unknown>;
 				const cc = asRecord?.cache_control as
-					| Record<string, unknown>
-					| undefined;
+					Record<string, unknown> | undefined;
 				if (
 					asRecord &&
 					typeof asRecord === "object" &&
@@ -1509,7 +1901,7 @@ export async function prepareRequestBody(
 	const keepPromptCacheBreakpoints =
 		usedProvider === "openai" &&
 		supportsOpenAIExplicitPromptCache(usedInternalModel) &&
-		providerCacheControlEnabled;
+		allowProviderCacheWrites;
 	if (!keepPromptCacheBreakpoints) {
 		processedMessages = processedMessages.map((m) => {
 			if (!Array.isArray(m.content)) {
@@ -1567,6 +1959,108 @@ export async function prepareRequestBody(
 		});
 	}
 
+	// Some deployments fetch remote image URLs themselves but only decode a
+	// subset of the formats they accept inline (Novita's ERNIE 4.5 VL rejects a
+	// remote PNG while accepting the same bytes as a data URL), so mappings that
+	// declare `requiresBase64Images` get their remote images inlined here,
+	// before any provider branch runs. Every non-`data:` URL goes through
+	// `processImageUrl` with the SSRF guard left on (its default): the guard is
+	// what enforces https-only and refuses internal hosts, so an `http://` URL
+	// is rejected rather than quietly forwarded to the provider to fetch.
+	if (providerMappingForOptions?.requiresBase64Images) {
+		processedMessages = await Promise.all(
+			processedMessages.map(async (m) => {
+				if (!Array.isArray(m.content)) {
+					return m;
+				}
+				const content = await Promise.all(
+					m.content.map(async (part) => {
+						if (part?.type !== "image_url" || !part.image_url) {
+							return part;
+						}
+						const imageUrl =
+							typeof part.image_url === "string"
+								? part.image_url
+								: part.image_url.url;
+						if (!imageUrl || imageUrl.startsWith("data:")) {
+							return part;
+						}
+						const { data, mimeType } = await processImageUrl(
+							imageUrl,
+							isProd,
+							maxImageSizeMB,
+							userPlan,
+						);
+						return {
+							...part,
+							image_url: { url: `data:${mimeType};base64,${data}` },
+						};
+					}),
+				);
+				return { ...m, content };
+			}),
+		);
+	}
+
+	// Keep a pre-strip reference for the OpenAI Responses API path below, which
+	// converts `reasoning_details` entries back into `reasoning` input items.
+	const messagesWithReasoningDetails = processedMessages;
+
+	// `reasoning_details` is the gateway's carrier for opaque reasoning payloads
+	// (e.g. OpenAI encrypted reasoning); `phase` and `content_before_tool_calls`
+	// are OpenAI Responses assistant-message markers. No chat-completions
+	// upstream understands them, and strict providers reject unknown message
+	// fields, so strip them from every path except the Responses API transform
+	// above. An assistant message that carried only reasoning (no
+	// content/tool_calls — an incomplete prior turn replayed for the Responses
+	// API) becomes empty here, so drop it.
+	processedMessages = processedMessages.flatMap((m) => {
+		if (
+			m.reasoning_details === undefined &&
+			m.phase === undefined &&
+			m.content_before_tool_calls === undefined &&
+			m.message_items === undefined
+		) {
+			return [m];
+		}
+		const {
+			reasoning_details: reasoningDetails,
+			phase: _phase,
+			content_before_tool_calls: _contentBeforeToolCalls,
+			message_items: _messageItems,
+			...rest
+		} = m;
+		if (
+			reasoningDetails !== undefined &&
+			m.role === "assistant" &&
+			(m.content === null || m.content === undefined) &&
+			(!m.tool_calls || m.tool_calls.length === 0)
+		) {
+			return [];
+		}
+		return [rest];
+	});
+
+	// The OpenAI-style `reasoning` field on replayed assistant turns is tolerated
+	// (and ignored) by most OpenAI-compatible upstreams, but Fireworks validates
+	// the message schema strictly and rejects it with "Extra inputs are not
+	// permitted, field: 'messages[N].reasoning'". This breaks every multi-turn
+	// continuation of a reasoning model. The providers that actually consume the
+	// field translate it to `reasoning_content` above, so dropping it here costs
+	// nothing. Do not "rescue" the text into `reasoning_content` instead:
+	// Fireworks accepts that field but silently discards it, so replaying an
+	// ~800-token `reasoning_content` leaves prompt_tokens byte-identical to
+	// omitting it. Any existing `reasoning_content` is left untouched below.
+	if (usedProvider === "fireworks") {
+		processedMessages = processedMessages.map((m) => {
+			if (m.reasoning === undefined) {
+				return m;
+			}
+			const { reasoning: _reasoning, ...rest } = m;
+			return rest;
+		});
+	}
+
 	// Start with a base structure that can be modified for each provider
 	const requestBody: any = {
 		model: usedExternalId,
@@ -1588,8 +2082,18 @@ export async function prepareRequestBody(
 	// in the mapping's supportedToolChoices. This keeps forced-tool requests
 	// working on providers that only accept a subset of tool_choice modes,
 	// instead of hard-coding per-provider downgrades here.
-	let resolvedToolChoice = tool_choice;
-	if (tool_choice) {
+	// `tool_choice: {type: "web_search"}` is a gateway-level directive, consumed
+	// via `webSearchTool.forced` and translated into whatever each upstream
+	// understands (DashScope's `search_options.forced_search`). No provider
+	// accepts it under this name in a chat-completions body, so it is never
+	// forwarded verbatim.
+	const isWebSearchToolChoice =
+		typeof tool_choice === "object" &&
+		tool_choice !== null &&
+		(tool_choice as { type?: string }).type === "web_search";
+
+	let resolvedToolChoice = isWebSearchToolChoice ? undefined : tool_choice;
+	if (tool_choice && !isWebSearchToolChoice) {
 		const mapping = modelDef?.providers.find(
 			(p) =>
 				p.providerId === usedProvider &&
@@ -1657,6 +2161,7 @@ export async function prepareRequestBody(
 		case "azure":
 		case "sakana":
 		case "meta":
+		case "aws-mantle":
 		case "openai": {
 			// Determine whether to use Responses API format.
 			// If useResponsesApi is explicitly passed (derived from endpoint URL), use it.
@@ -1683,17 +2188,47 @@ export async function prepareRequestBody(
 				// - Convert content types (text -> input_text/output_text, image_url -> input_image)
 				// - Convert assistant tool_calls to function_call items
 				// - Convert tool role messages to function_call_output items
-				const transformedMessages =
-					transformMessagesForResponsesApi(processedMessages);
+				const transformedMessages = transformMessagesForResponsesApi(
+					messagesWithReasoningDetails,
+				);
 
-				// Fugu always reasons and only accepts "high"/"xhigh" effort — it has
-				// no off switch and rejects none/minimal/low/medium — so every tier at
-				// or below "high" (including a dropped "none") collapses onto its
-				// minimum ("high"), and "max" maps to its top tier ("xhigh").
+				// Bedrock Mantle only accepts `data:` (or `s3://`) image URLs and
+				// rejects remote http(s) references outright, so fetch user-supplied
+				// image URLs (SSRF-guarded) and inline them as data URLs upstream.
+				if (usedProvider === "aws-mantle") {
+					for (const item of transformedMessages) {
+						if (!Array.isArray(item?.content)) {
+							continue;
+						}
+						for (const part of item.content) {
+							if (
+								part?.type === "input_image" &&
+								typeof part.image_url === "string" &&
+								(part.image_url.startsWith("http://") ||
+									part.image_url.startsWith("https://"))
+							) {
+								const { data, mimeType } = await processImageUrl(
+									part.image_url,
+									isProd,
+									maxImageSizeMB,
+									userPlan,
+								);
+								part.image_url = `data:${mimeType};base64,${data}`;
+							}
+						}
+					}
+				}
+
+				// Fugu always reasons and only accepts "high"/"xhigh"/"max" effort — it
+				// has no off switch and rejects none/minimal/low/medium — so every tier
+				// at or below "high" (including a dropped "none") collapses onto its
+				// minimum ("high"). "max" is forwarded unchanged: it is a distinct top
+				// tier on fugu-ultra-v1.1 (what the "fugu-ultra" alias resolves to),
+				// and the older deployments still accept it as an alias of "xhigh".
 				const responsesReasoningEffort =
 					usedProvider === "sakana"
 						? reasoning_effort === "xhigh" || reasoning_effort === "max"
-							? "xhigh"
+							? reasoning_effort
 							: "high"
 						: (reasoning_effort ?? defaultEffort);
 
@@ -1713,8 +2248,33 @@ export async function prepareRequestBody(
 							: {
 									effort: responsesReasoningEffort,
 									summary: "detailed",
+									// reasoning.context is only documented on OpenAI's
+									// Responses API surface; other providers reject
+									// unknown reasoning fields.
+									...(reasoning_context !== undefined &&
+										(usedProvider === "openai" || usedProvider === "azure") && {
+											context: reasoning_context,
+										}),
 								},
 				};
+
+				// Run stateless upstream and ask for encrypted reasoning payloads so
+				// reasoning can be replayed on later turns (the gateway never uses
+				// upstream response storage — conversations are always resent in
+				// full). Only OpenAI and Azure document store/include on their
+				// Responses API surface.
+				if (usedProvider === "openai" || usedProvider === "azure") {
+					responsesBody.store = false;
+					responsesBody.include = ["reasoning.encrypted_content"];
+				}
+
+				if (usedProvider === "aws-mantle") {
+					// Mantle stores responses for 30 days by default (store: true).
+					// The gateway reconstructs conversations itself and never reads
+					// provider-stored responses, so opt out to keep the provider's
+					// zero-retention data policy accurate.
+					responsesBody.store = false;
+				}
 
 				if (usedProvider === "openai") {
 					if (supportedServiceTier) {
@@ -1728,7 +2288,7 @@ export async function prepareRequestBody(
 						responsesBody.prompt_cache_retention = prompt_cache_retention;
 					}
 					if (supportsOpenAIExplicitPromptCache(usedInternalModel)) {
-						if (!providerCacheControlEnabled) {
+						if (!allowProviderCacheWrites) {
 							// The project opted out of provider cache writes, but GPT-5.6
 							// implicit caching auto-writes (billed at 1.25x) on every
 							// request. Force explicit mode — with all breakpoint markers
@@ -1737,19 +2297,26 @@ export async function prepareRequestBody(
 							responsesBody.prompt_cache_options = { mode: "explicit" };
 						} else if (prompt_cache_options !== undefined) {
 							responsesBody.prompt_cache_options = prompt_cache_options;
+						} else if (!autoInjectCacheControl) {
+							// Passthrough: implicit caching writes a cache the caller never
+							// asked for. Explicit mode confines writes to the caller's own
+							// breakpoints, which is what this mode promises.
+							responsesBody.prompt_cache_options = { mode: "explicit" };
 						}
 					}
 				}
 
 				// prompt_cache_key influences upstream cache-shard routing; only
 				// OpenAI, Azure (v1 surface — the Responses API path is always v1),
-				// and Meta support it. Sakana does not document the field. Prefer
-				// the caller's explicit key, then the salted hash of the caller's
-				// session id, then (Meta only, where the key is required for hits
-				// at all) a key derived from the conversation prefix.
+				// Bedrock Mantle, and Meta support it. Sakana does not document the
+				// field. Prefer the caller's explicit key, then the salted hash of
+				// the caller's session id, then (Meta only, where the key is
+				// required for hits at all) a key derived from the conversation
+				// prefix.
 				if (
 					usedProvider === "openai" ||
 					usedProvider === "azure" ||
+					usedProvider === "aws-mantle" ||
 					usedProvider === "meta"
 				) {
 					const upstreamCacheKey =
@@ -1765,6 +2332,17 @@ export async function prepareRequestBody(
 					if (upstreamCacheKey !== undefined) {
 						responsesBody.prompt_cache_key = upstreamCacheKey;
 					}
+				}
+
+				// Abuse-attribution identifier. Only OpenAI and Azure (whose v1
+				// surface is what the Responses API path always uses) document
+				// `safety_identifier`; Bedrock Mantle and Meta are excluded because
+				// neither documents it and an unknown field risks a 400.
+				if (
+					safety_identifier !== undefined &&
+					(usedProvider === "openai" || usedProvider === "azure")
+				) {
+					responsesBody.safety_identifier = safety_identifier;
 				}
 
 				// Add streaming support
@@ -1798,9 +2376,16 @@ export async function prepareRequestBody(
 						webSearch.search_context_size = webSearchTool.search_context_size;
 					}
 					responsesBody.tools.push(webSearch);
+					// The Responses API takes the same directive the gateway accepts,
+					// so a forced search is forwarded rather than translated. Verified
+					// live: "What is 2+2?" produces no web_search_call without it and
+					// one with it.
+					if (webSearchTool.forced) {
+						responsesBody.tool_choice = { type: "web_search" };
+					}
 				}
 				if (resolvedToolChoice) {
-					responsesBody.tool_choice = resolvedToolChoice;
+					responsesBody.tool_choice = toResponsesToolChoice(resolvedToolChoice);
 				}
 
 				// Add optional parameters if they are provided
@@ -1862,6 +2447,11 @@ export async function prepareRequestBody(
 					if (upstreamCacheKey !== undefined) {
 						requestBody.prompt_cache_key = upstreamCacheKey;
 					}
+					// Azure is excluded here for the same reason as the cache key
+					// above; it gets `safety_identifier` on the Responses path only.
+					if (safety_identifier !== undefined) {
+						requestBody.safety_identifier = safety_identifier;
+					}
 					if (
 						prompt_cache_retention !== undefined &&
 						(prompt_cache_retention !== "24h" ||
@@ -1870,7 +2460,7 @@ export async function prepareRequestBody(
 						requestBody.prompt_cache_retention = prompt_cache_retention;
 					}
 					if (supportsOpenAIExplicitPromptCache(usedInternalModel)) {
-						if (!providerCacheControlEnabled) {
+						if (!allowProviderCacheWrites) {
 							// The project opted out of provider cache writes, but GPT-5.6
 							// implicit caching auto-writes (billed at 1.25x) on every
 							// request. Force explicit mode — with all breakpoint markers
@@ -1879,6 +2469,11 @@ export async function prepareRequestBody(
 							requestBody.prompt_cache_options = { mode: "explicit" };
 						} else if (prompt_cache_options !== undefined) {
 							requestBody.prompt_cache_options = prompt_cache_options;
+						} else if (!autoInjectCacheControl) {
+							// Passthrough: implicit caching writes a cache the caller never
+							// asked for. Explicit mode confines writes to the caller's own
+							// breakpoints, which is what this mode promises.
+							requestBody.prompt_cache_options = { mode: "explicit" };
 						}
 					}
 				}
@@ -1954,7 +2549,7 @@ export async function prepareRequestBody(
 					if (usedProvider === "sakana") {
 						// Streaming Fugu uses Chat Completions, which (like its Responses
 						// API) only accepts "high"/"xhigh"/"max". Collapse the lower
-						// OpenAI tiers onto "high".
+						// OpenAI tiers onto "high" and forward the top tiers unchanged.
 						requestBody.reasoning_effort =
 							reasoning_effort === "xhigh" || reasoning_effort === "max"
 								? reasoning_effort
@@ -2031,19 +2626,43 @@ export async function prepareRequestBody(
 			}
 			// ZAI/GLM models use a `thinking` parameter instead of `reasoning_effort`.
 			// Mirror the OpenAI/Anthropic/Google contract: thinking is opt-in via
-			// `reasoning_effort`. Unset or `minimal` => disabled, anything else => enabled.
-			// Exception: disabling thinking corrupts GLM structured output
-			// (verified live: glm-4.5 emits tool calls as raw <tool_call> text,
-			// glm-4.6v-flashx appends a stray "End" token after JSON output), so
-			// for requests with tools or a response_format leave the provider
-			// default (enabled) rather than disabling.
+			// `reasoning_effort`. "none" explicitly disables thinking, "minimal" and
+			// unset also disable, anything else enables. Exception: disabling
+			// thinking corrupts GLM structured output (verified live: glm-4.5 emits
+			// tool calls as raw <tool_call> text, glm-4.6v-flashx appends a stray
+			// "End" token after JSON output), so for requests with tools or a
+			// response_format leave the provider default rather than disabling —
+			// unless the caller explicitly asked for "none".
 			if (supportsReasoning) {
-				const wantsThinking =
-					reasoning_effort !== undefined && reasoning_effort !== "minimal";
-				if (wantsThinking || (!requestBody.tools && !response_format)) {
-					requestBody.thinking = {
-						type: wantsThinking ? "enabled" : "disabled",
-					};
+				// glm-5.3 dropped support for disabling thinking: sending
+				// thinking.type "disabled" fails the request, and effort is
+				// selected via the native `reasoning_effort` field (low/high/max,
+				// default max). A zai mapping whose declared reasoningEfforts
+				// exclude "none" is such an always-on model: keep thinking
+				// enabled, forward the effort tier as-is, and collapse disable
+				// requests (none/minimal) onto the provider default.
+				const declaredEfforts = providerMappingForOptions?.reasoningEfforts;
+				const alwaysThinks =
+					declaredEfforts !== undefined && !declaredEfforts.includes("none");
+				if (alwaysThinks) {
+					requestBody.thinking = { type: "enabled" };
+					if (
+						reasoning_effort !== undefined &&
+						reasoning_effort !== "none" &&
+						reasoning_effort !== "minimal"
+					) {
+						requestBody.reasoning_effort = reasoning_effort;
+					}
+				} else if (reasoning_effort === "none") {
+					requestBody.thinking = { type: "disabled" };
+				} else {
+					const wantsThinking =
+						reasoning_effort !== undefined && reasoning_effort !== "minimal";
+					if (wantsThinking || (!requestBody.tools && !response_format)) {
+						requestBody.thinking = {
+							type: wantsThinking ? "enabled" : "disabled",
+						};
+					}
 				}
 			}
 			// Add sensitive_word_check if provided (Z.ai specific)
@@ -2127,6 +2746,10 @@ export async function prepareRequestBody(
 			}
 			if (response_format) {
 				requestBody.response_format = response_format;
+			}
+
+			if (webSearchTool?.forced) {
+				applyDashScopeWebSearch(requestBody);
 			}
 
 			// Add optional parameters if they are provided
@@ -2256,6 +2879,14 @@ export async function prepareRequestBody(
 			// Remove generic tool_choice that was added earlier
 			delete requestBody.tool_choice;
 
+			// Anthropic's equivalent of OpenAI's `safety_identifier`. Accepted on
+			// both the direct API and Vertex `rawPredict` (verified live). AWS
+			// Bedrock is not covered: it speaks the Converse API, which has no
+			// equivalent field.
+			if (safety_identifier !== undefined) {
+				requestBody.metadata = { user_id: safety_identifier };
+			}
+
 			// Set max_tokens, ensuring it's higher than thinking budget when reasoning is enabled
 			// Use reasoning_max_tokens if provided, otherwise fall back to reasoning_effort mapping
 			const getThinkingBudget = (effort?: string) => {
@@ -2308,28 +2939,86 @@ export async function prepareRequestBody(
 			);
 
 			// Anthropic requires longer-TTL cache breakpoints to come before
-			// shorter ones (processing order: tools, system, messages). The
-			// gateway's heuristics inject ttl-less markers (5m default), so when
-			// the caller placed an explicit ttl:"1h" marker in the messages, any
-			// auto-injected marker would land before it and Anthropic rejects the
-			// request ("a ttl='1h' cache_control block must not come after a
-			// ttl='5m' cache_control block"). Defer entirely to the caller's
-			// caching strategy in that case. A 1h marker only on system is safe:
+			// shorter ones ("a 1-hour cache entry must appear before any 5-minute
+			// cache entries" —
+			// platform.claude.com/docs/en/build-with-claude/prompt-caching;
+			// processing order: tools, system, messages). The gateway's heuristics
+			// inject ttl-less markers (5m default), so when the caller placed an
+			// explicit ttl:"1h" marker in the messages, any auto-injected marker
+			// would land before it and Anthropic rejects the request ("a ttl='1h'
+			// cache_control block must not come after a ttl='5m' cache_control
+			// block"). Defer entirely to the caller's caching strategy in that
+			// case — including when the 1h marker rides on a tool_result, which
+			// this check would otherwise miss. A 1h marker only on system is safe:
 			// message-level 5m markers after it satisfy the ordering.
 			const callerUses1hTtlInMessages = nonSystemMessages.some(
 				(m) =>
-					Array.isArray(m.content) &&
-					m.content.some(
-						(part) => isTextContent(part) && part.cache_control?.ttl === "1h",
-					),
+					m.tool_result_cache_control?.ttl === "1h" ||
+					(Array.isArray(m.content) &&
+						m.content.some(
+							(part) => isTextContent(part) && part.cache_control?.ttl === "1h",
+						)),
 			);
 			const autoCacheControlEnabled =
-				providerCacheControlEnabled && !callerUses1hTtlInMessages;
+				autoInjectCacheControl && !callerUses1hTtlInMessages;
 
 			// Build the system field with cache_control for long prompts
 			// Track cache_control usage across system and user messages (max 4 total per Anthropic's limit)
-			let systemCacheControlCount = 0;
 			const maxCacheControlBlocks = 4;
+
+			// Anthropic renders `tools` before `system` and `messages`, so a caller
+			// breakpoint on the last tool caches the largest prefix available — and
+			// it is the one an agentic client (Claude Code) reliably sets.
+			const anthropicFunctionTools = (tools ?? []).filter(isFunctionTool);
+
+			// Being first also makes a 5m tool marker the one thing that can strand
+			// a caller's later 1h marker on the wrong side of Anthropic's ordering
+			// rule ("a 1-hour cache entry must appear before any 5-minute cache
+			// entries"). Auto-injected markers are always ttl-less/5m and land after
+			// the tools, so they are safe; a caller mixing TTLs is not. Drop the 5m
+			// tool marker in that case rather than emit a request Anthropic rejects
+			// — the 1h breakpoint the caller paid the 2x write premium for is the
+			// one worth keeping.
+			const callerUses1hTtlAfterTools =
+				callerUses1hTtlInMessages ||
+				systemMessages.some(
+					(sysMsg) =>
+						Array.isArray(sysMsg.content) &&
+						sysMsg.content.some(
+							(part) => isTextContent(part) && part.cache_control?.ttl === "1h",
+						),
+				);
+			let lastOneHourToolIndex = -1;
+			anthropicFunctionTools.forEach((tool, index) => {
+				if (tool.cache_control?.ttl === "1h") {
+					lastOneHourToolIndex = index;
+				}
+			});
+
+			// Decide here which tool markers actually ship, so the budget seeded
+			// below matches them exactly. Counting them after the fact would let the
+			// system and message passes spend slots the tools already took, and
+			// Anthropic rejects the fifth breakpoint outright.
+			let toolMarkersKeptSoFar = 0;
+			const toolCacheControlKept = anthropicFunctionTools.map((tool, index) => {
+				const marker = tool.cache_control;
+				if (
+					!allowProviderCacheWrites ||
+					!marker ||
+					toolMarkersKeptSoFar >= maxCacheControlBlocks
+				) {
+					return false;
+				}
+				const orderingSafe =
+					marker.ttl === "1h" ||
+					(!callerUses1hTtlAfterTools && index > lastOneHourToolIndex);
+				if (!orderingSafe) {
+					return false;
+				}
+				toolMarkersKeptSoFar++;
+				return true;
+			});
+			let systemCacheControlCount = toolMarkersKeptSoFar;
 
 			// Get the minCacheableTokens from the model definition (default to 1024 if not specified)
 			const providerMapping = modelDef?.providers.find(
@@ -2458,13 +3147,31 @@ export async function prepareRequestBody(
 			// Transform tools from OpenAI format to Anthropic format
 			if (tools && tools.length > 0) {
 				// Filter to only function tools (web_search is handled separately)
-				const functionTools = tools.filter(isFunctionTool);
+				const functionTools = anthropicFunctionTools;
 				if (functionTools.length > 0) {
-					requestBody.tools = functionTools.map((tool) => ({
+					requestBody.tools = functionTools.map((tool, index) => ({
 						name: tool.function.name,
 						description: tool.function.description,
 						input_schema: tool.function.parameters,
+						// Anthropic strips deferred tools from the rendered tools
+						// section before the cache key is computed, so forwarding this
+						// is what keeps a large tool catalogue out of the cached prefix.
+						...(tool.defer_loading === true && { defer_loading: true }),
+						// Budget and TTL ordering were both settled above, where the
+						// system pass needed the resulting count.
+						...(toolCacheControlKept[index] && {
+							cache_control: tool.cache_control,
+						}),
 					}));
+				}
+				// The tool search tool has to come first: Anthropic rejects a request
+				// whose tools are all deferred, and it is the one tool that never is.
+				const toolSearchTools = tools.filter(isToolSearchTool);
+				if (toolSearchTools.length > 0) {
+					requestBody.tools = [
+						...toolSearchTools.map(toAnthropicToolSearchTool),
+						...((requestBody.tools as unknown[]) ?? []),
+					];
 				}
 			}
 
@@ -2553,6 +3260,16 @@ export async function prepareRequestBody(
 						type: "enabled",
 						budget_tokens: thinkingBudget,
 					};
+					// Anthropic rejects the request outright when `max_tokens` is not
+					// strictly greater than `thinking.budget_tokens`. The budget cannot
+					// be lowered to fit (1024 is Anthropic's minimum), so a caller-
+					// supplied max_tokens that leaves no room for a reply is raised to
+					// the budget plus a minimum response allowance — mirroring the
+					// aws-bedrock branch.
+					const reasoningFloor = thinkingBudget + 1000;
+					if (requestBody.max_tokens < reasoningFloor) {
+						requestBody.max_tokens = reasoningFloor;
+					}
 				}
 				// Anthropic requires temperature to be exactly 1 when thinking is
 				// enabled — but only for models that still accept temperature. The
@@ -2640,9 +3357,7 @@ export async function prepareRequestBody(
 				}
 				if (reasoning_effort !== undefined) {
 					const reasoningEffort =
-						reasoning_effort === "minimal" || reasoning_effort === "xhigh"
-							? "low"
-							: reasoning_effort;
+						reasoning_effort === "minimal" ? "low" : reasoning_effort;
 					requestBody.reasoning = {
 						effort: reasoningEffort,
 					};
@@ -2717,7 +3432,7 @@ export async function prepareRequestBody(
 						),
 				);
 			const bedrockAutoCachePointEnabled =
-				providerCacheControlEnabled && !bedrockCallerUses1hTtlInMessages;
+				autoInjectCacheControl && !bedrockCallerUses1hTtlInMessages;
 
 			// Build the system field with cachePoint for long prompts.
 			// AWS Bedrock uses "cachePoint" (not "cacheControl") as a SEPARATE
@@ -2948,6 +3663,12 @@ export async function prepareRequestBody(
 									},
 								});
 							} catch (error) {
+								// A size rejection is the user's to act on: degrading to a
+								// placeholder would return a 200 that silently ignores the
+								// image and still bills for the turn.
+								if (error instanceof ImageSizeLimitError) {
+									throw error;
+								}
 								logger.error("Failed to process image for Bedrock", {
 									err:
 										error instanceof Error ? error : new Error(String(error)),
@@ -3227,6 +3948,7 @@ export async function prepareRequestBody(
 		}
 		case "google-ai-studio":
 		case "glacier":
+		case "iceberg":
 		case "google-vertex":
 		case "quartz": {
 			delete requestBody.model; // Not used in body
@@ -3296,6 +4018,22 @@ export async function prepareRequestBody(
 			if (webSearchTool) {
 				requestBody.tools ??= [];
 				requestBody.tools.push({ google_search: {} });
+				// Gemini 3+ rejects a request that mixes a built-in tool with
+				// function declarations unless server-side tool invocation is opted
+				// into: "Please enable tool_config.include_server_side_tool_invocations
+				// to use Built-in tools with Function calling." Agentic clients send
+				// both (Codex CLI always includes web_search alongside its function
+				// tools), so opt in whenever the combination occurs rather than
+				// dropping either capability.
+				const hasFunctionDeclarations = requestBody.tools.some(
+					(tool: Record<string, unknown>) => "functionDeclarations" in tool,
+				);
+				if (hasFunctionDeclarations) {
+					requestBody.toolConfig = {
+						...requestBody.toolConfig,
+						includeServerSideToolInvocations: true,
+					};
+				}
 			}
 
 			requestBody.generationConfig = {};
@@ -3443,6 +4181,33 @@ export async function prepareRequestBody(
 			}
 			if (presence_penalty !== undefined) {
 				requestBody.presence_penalty = presence_penalty;
+			}
+
+			// Together AI is OpenAI-compatible on `reasoning_effort`, so graded
+			// tiers are forwarded verbatim (unsupported ones surface the provider's
+			// 4xx per the no-downgrade rule). Turning thinking *off* is not uniform:
+			// Together runs reasoning models on two serving stacks, each with its
+			// own switch (verified live against the API). The gpt-oss and Gemma
+			// deployments validate `reasoning_effort` — they name their accepted
+			// literals in the 400 — and take `none` there, while `thinking` is
+			// ignored. The DeepSeek V4 Pro, MiniMax M3 and Kimi deployments do the
+			// reverse: they accept any `reasoning_effort` string without complaint
+			// and keep thinking on, and only `thinking: { type: "disabled" }`
+			// (which they validate) actually turns it off. Mappings on the second
+			// stack set `requiresDisableThinkingParam`; either way only mappings
+			// that declare `none` in `reasoningEfforts` can disable at all.
+			if (supportsReasoning && reasoning_effort !== undefined) {
+				if (reasoning_effort !== "none") {
+					requestBody.reasoning_effort = reasoning_effort;
+				} else if (
+					providerMappingForOptions?.reasoningEfforts?.includes("none")
+				) {
+					if (providerMappingForOptions.requiresDisableThinkingParam) {
+						requestBody.thinking = { type: "disabled" };
+					} else {
+						requestBody.reasoning_effort = "none";
+					}
+				}
 			}
 			break;
 		}
@@ -3609,6 +4374,98 @@ export async function prepareRequestBody(
 			}
 			break;
 		}
+
+		case "deepseek": {
+			if (stream) {
+				requestBody.stream_options = {
+					include_usage: true,
+				};
+			}
+			if (response_format) {
+				requestBody.response_format = response_format;
+			}
+
+			// Add optional parameters if they are provided
+			if (temperature !== undefined) {
+				requestBody.temperature = temperature;
+			}
+			if (max_tokens !== undefined) {
+				requestBody.max_tokens = max_tokens;
+			}
+			if (top_p !== undefined) {
+				requestBody.top_p = top_p;
+			}
+			if (frequency_penalty !== undefined) {
+				requestBody.frequency_penalty = frequency_penalty;
+			}
+			if (presence_penalty !== undefined) {
+				requestBody.presence_penalty = presence_penalty;
+			}
+
+			// DeepSeek V4 models think by default. Translate reasoning_effort "none"
+			// to the documented binary disable (thinking: { type: "disabled" },
+			// verified to zero out reasoning tokens). Mappings that can turn thinking
+			// off declare none in reasoningEfforts; elsewhere none sends
+			// nothing and the provider default is kept.
+			if (reasoning_effort === "none") {
+				const canDisableThinking =
+					providerMappingForOptions?.reasoningEfforts?.includes("none") ??
+					false;
+				if (supportsReasoning && canDisableThinking) {
+					requestBody.thinking = { type: "disabled" };
+				}
+			} else if (reasoning_effort !== undefined) {
+				requestBody.reasoning_effort = reasoning_effort;
+			}
+			break;
+		}
+
+		case "gonka24": {
+			if (stream) {
+				requestBody.stream_options = {
+					include_usage: true,
+				};
+			}
+			if (response_format) {
+				requestBody.response_format = response_format;
+			}
+
+			// Add optional parameters if they are provided
+			if (temperature !== undefined) {
+				requestBody.temperature = temperature;
+			}
+			if (max_tokens !== undefined) {
+				requestBody.max_tokens = max_tokens;
+			}
+			if (top_p !== undefined) {
+				requestBody.top_p = top_p;
+			}
+			if (frequency_penalty !== undefined) {
+				requestBody.frequency_penalty = frequency_penalty;
+			}
+			if (presence_penalty !== undefined) {
+				requestBody.presence_penalty = presence_penalty;
+			}
+
+			// Gonka24 keeps thinking off by default, and only the binary `thinking`
+			// switch turns it on — `reasoning_effort` alone never does, and the
+			// chat-template flag is ignored. So the effort decides the switch:
+			// "none" disables, any other tier enables. The effort is forwarded
+			// alongside it because the deployment validates it against its enum and
+			// grades the tiers by intent; today they measure the same (low/medium/
+			// high differ by ~6% in reasoning length over 40 samples each, well
+			// inside noise), but forwarding means real grading works the moment the
+			// provider implements it, with no gateway change.
+			if (supportsReasoning && reasoning_effort !== undefined) {
+				requestBody.thinking =
+					reasoning_effort === "none"
+						? { type: "disabled" }
+						: { type: "enabled" };
+				requestBody.reasoning_effort = reasoning_effort;
+			}
+			break;
+		}
+
 		default: {
 			if (stream) {
 				requestBody.stream_options = {
@@ -3617,6 +4474,21 @@ export async function prepareRequestBody(
 			}
 			if (response_format) {
 				requestBody.response_format = response_format;
+			}
+
+			// Fireworks selects the processing tier with the OpenAI-compatible
+			// `service_tier` body field on its chat completions endpoint. Its
+			// schema only accepts auto/default/flex/priority, and supportedServiceTier
+			// already narrows to the tiers the catalog declares for this mapping.
+			if (usedProvider === "fireworks" && supportedServiceTier) {
+				requestBody.service_tier = supportedServiceTier;
+			}
+
+			// SCX resells Alibaba's Qwen models and passes DashScope's search
+			// parameters straight through, so its Qwen mappings take the same shape
+			// as the `alibaba` case above.
+			if (usedProvider === "scx-ai-gp" && webSearchTool?.forced) {
+				applyDashScopeWebSearch(requestBody);
 			}
 
 			// Vertex's OpenAI-compatible chat completions endpoint requires the
@@ -3660,27 +4532,50 @@ export async function prepareRequestBody(
 					supported.length === 0 ||
 					supported.includes("reasoning_effort")
 				) {
-					requestBody.reasoning_effort = reasoning_effort;
-				}
-			}
-			// Hybrid models that keep thinking off by default (e.g. DeepSeek V3.2 on
-			// Novita) ignore `reasoning_effort` and require the vLLM chat-template
-			// flag to turn reasoning on. Only set it when the caller asked for
-			// reasoning so plain requests stay non-thinking.
-			if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
-				const thinkingMapping = modelDef?.providers.find(
-					(p) =>
-						p.providerId === usedProvider &&
-						((p as ProviderModelMapping).region ?? null) === usedRegion,
-				) as ProviderModelMapping | undefined;
-				if (thinkingMapping?.requiresEnableThinking) {
-					requestBody.chat_template_kwargs = {
-						...(requestBody.chat_template_kwargs ?? {}),
-						thinking: true,
-					};
+					if (usedProvider === "embercloud") {
+						// embercloud's documented request body uses a nested
+						// `reasoning` object (`reasoning.enabled` +
+						// `reasoning.effort`) instead of the flat OpenAI-style
+						// `reasoning_effort` field, which it silently ignores
+						// (https://embercloud.ai/docs/request-body). "none"
+						// maps to enabled: false; any other tier enables
+						// reasoning at the requested effort.
+						requestBody.reasoning =
+							reasoning_effort === "none"
+								? { enabled: false }
+								: { enabled: true, effort: reasoning_effort };
+					} else {
+						requestBody.reasoning_effort = reasoning_effort;
+					}
 				}
 			}
 			break;
+		}
+	}
+
+	// vLLM chat-template thinking flags are handled after the provider switch so
+	// every provider branch (not just the OpenAI-compatible default) applies them
+	// uniformly. Hybrid models that keep thinking off by default (e.g. DeepSeek
+	// V3.2 on Novita) ignore `reasoning_effort` and require the chat-template flag
+	// to turn reasoning on; mappings that think by default (e.g. InclusionAI
+	// Ling-3.0-flash) declare `chatTemplateThinkingKey` for the flag that controls
+	// thinking. `reasoning_effort: "none"` flips it to false to turn thinking off,
+	// and any other effort flips it to true. A `reasoning_max_tokens` budget (from
+	// an Anthropic `thinking.budget_tokens`) is intentionally dropped for these
+	// mappings: the chat-template flag is a binary on/off toggle with no budget
+	// dimension, so the gateway only conveys whether thinking is on.
+	if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
+		if (providerMappingForOptions?.chatTemplateThinkingKey) {
+			requestBody.chat_template_kwargs = {
+				...(requestBody.chat_template_kwargs ?? {}),
+				[providerMappingForOptions.chatTemplateThinkingKey]:
+					reasoning_effort !== "none",
+			};
+		} else if (providerMappingForOptions?.requiresEnableThinking) {
+			requestBody.chat_template_kwargs = {
+				...(requestBody.chat_template_kwargs ?? {}),
+				thinking: true,
+			};
 		}
 	}
 

@@ -4,6 +4,7 @@ import { ArrowRight, ArrowUpRight } from "lucide-react";
 
 import {
 	AnthropicIcon,
+	EmpryoIcon,
 	KiloCodeIcon,
 	OpenCodeIcon,
 	SoulForgeIcon,
@@ -33,6 +34,13 @@ const integrations: Integration[] = [
 		description: "Terminal AI assistant",
 		path: "/guides/claude-code",
 		icon: AnthropicIcon,
+	},
+	{
+		name: "Empryo",
+		description: "Edits symbols, not strings",
+		path: "",
+		external: "https://empryo.com/",
+		icon: EmpryoIcon,
 	},
 	{
 		name: "SoulForge",

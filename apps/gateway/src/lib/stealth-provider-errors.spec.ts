@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	buildUpstreamErrorClientPayload,
 	canonicalStatusText,
+	clientFacingUpstreamErrorMessage,
 	clientFacingUpstreamFailureMessage,
 	redactErrorDetails,
 	redactedProviderErrorText,
@@ -115,6 +116,28 @@ describe("clientFacingUpstreamFailureMessage", () => {
 				"getaddrinfo ENOTFOUND api.secretvendor.com",
 			),
 		).toBe("Failed to connect to provider");
+	});
+});
+
+describe("clientFacingUpstreamErrorMessage", () => {
+	it("redacts an HTTP error body for stealth providers", () => {
+		expect(
+			clientFacingUpstreamErrorMessage(
+				"avalanche",
+				500,
+				"quota exceeded at https://plataforma-secreta.example.com",
+			),
+		).toBe(redactedProviderErrorText(500));
+	});
+
+	it("keeps an HTTP error body for non-stealth providers", () => {
+		expect(
+			clientFacingUpstreamErrorMessage(
+				"openai",
+				500,
+				"quota exceeded at https://api.openai.com/v1",
+			),
+		).toBe("quota exceeded at https://api.openai.com/v1");
 	});
 });
 

@@ -36,6 +36,25 @@ const OPENAI_GPT4O_MINI_TTS_VOICES = [
 	"verse",
 ];
 
+/**
+ * Built-in voices for the gpt-realtime family. This list is distinct from the
+ * TTS voice catalogues above; the realtime API does not accept every TTS
+ * voice. The first entry ("marin") is the default when the caller omits a
+ * voice.
+ */
+const OPENAI_REALTIME_VOICES = [
+	"marin",
+	"cedar",
+	"alloy",
+	"ash",
+	"ballad",
+	"coral",
+	"echo",
+	"sage",
+	"shimmer",
+	"verse",
+];
+
 export const openaiModels = [
 	{
 		id: "gpt-4o-mini",
@@ -73,6 +92,10 @@ export const openaiModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				// Azure OpenAI supports structured outputs for gpt-4o-mini.
+				// Mapping is deprecated 2026-01-09 / deactivated 2026-03-31 —
+				// flag kept for data truthfulness (never served post-deactivation).
+				jsonOutputSchema: true,
 				deprecatedAt: new Date("2026-01-09"),
 				deactivatedAt: new Date("2026-03-31"),
 			},
@@ -198,7 +221,7 @@ export const openaiModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
-				webSearch: true, // Supports web_search tool via Responses API
+				webSearch: true,
 				jsonOutputSchema: true,
 				jsonOutput: true,
 				supportsN: true,
@@ -207,6 +230,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-4o",
+				deactivatedAt: new Date("2027-04-14"),
 				inputPrice: "2.5e-6",
 				outputPrice: "10.0e-6",
 				cachedInputPrice: "1.25e-6",
@@ -324,6 +348,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-4.1",
+				deactivatedAt: new Date("2027-04-14"),
 				inputPrice: "2.0e-6",
 				outputPrice: "8.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -369,6 +394,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "o1",
+				deactivatedAt: new Date("2026-10-21"),
 				inputPrice: "15.0e-6",
 				outputPrice: "60.0e-6",
 				cachedInputPrice: "7.5e-6",
@@ -460,6 +486,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-4.1-mini",
+				deactivatedAt: new Date("2027-04-14"),
 				inputPrice: "0.4e-6",
 				outputPrice: "1.6e-6",
 				cachedInputPrice: "0.1e-6",
@@ -504,6 +531,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-4.1-nano",
+				deactivatedAt: new Date("2026-10-14"),
 				inputPrice: "0.1e-6",
 				outputPrice: "0.4e-6",
 				cachedInputPrice: "0.025e-6",
@@ -548,7 +576,9 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "o3",
-				deactivatedAt: new Date("2026-12-10"),
+				// Azure runs its own schedule and retires o3 seven weeks BEFORE
+				// OpenAI's 2026-12-10 first-party shutdown above.
+				deactivatedAt: new Date("2026-10-21"),
 				inputPrice: "2e-6",
 				outputPrice: "8e-6",
 				cachedInputPrice: "0.5e-6",
@@ -591,6 +621,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "o3-mini",
+				deactivatedAt: new Date("2026-10-01"),
 				inputPrice: "1.1e-6",
 				outputPrice: "4.4e-6",
 				cachedInputPrice: "0.55e-6",
@@ -635,6 +666,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "o4-mini",
+				deactivatedAt: new Date("2026-10-16"),
 				inputPrice: "1.1e-6",
 				outputPrice: "4.4e-6",
 				cachedInputPrice: "0.275e-6",
@@ -671,10 +703,10 @@ export const openaiModels = [
 				vision: false,
 				tools: true,
 				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high"],
 				jsonOutput: true,
 			},
 			{
-				// Cerebras: FP16/FP8 (weights only)
 				// Consistently times out in CI due to model size
 				providerId: "cerebras",
 				stability: "unstable",
@@ -700,6 +732,7 @@ export const openaiModels = [
 			},
 			{
 				test: "skip",
+				deactivatedAt: new Date("2026-08-20"),
 				providerId: "nanogpt",
 				externalId: "openai/gpt-oss-120b",
 				inputPrice: "0.05e-6",
@@ -758,6 +791,9 @@ export const openaiModels = [
 				vision: false,
 				tools: true,
 				reasoning: true,
+				// Together validates reasoning_effort on the gpt-oss route and 400s
+				// ("Input validation error") on anything outside low/medium/high.
+				reasoningEfforts: ["low", "medium", "high"],
 				jsonOutput: false,
 			},
 			{
@@ -778,6 +814,37 @@ export const openaiModels = [
 				// Azure's gpt-oss-120b accepts response_format but wraps the output
 				// in a `{"final": "..."}` envelope instead of the requested schema.
 				jsonOutput: false,
+			},
+			{
+				providerId: "runware",
+				externalId: "openai-gpt-oss-120b",
+				inputPrice: "0.032e-6",
+				outputPrice: "0.14e-6",
+				cachedInputPrice: "0.032e-6",
+				requestPrice: "0",
+				contextSize: 131072,
+				maxOutput: 32768,
+				quantization: "bf16",
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
+				providerId: "scx-ai",
+				externalId: "gpt-oss-120b",
+				inputPrice: "0.17e-6",
+				outputPrice: "0.55e-6",
+				requestPrice: "0",
+				contextSize: 131072,
+				maxOutput: 32768,
+				quantization: "fp8",
+				streaming: true,
+				vision: false,
+				tools: true,
+				reasoning: true,
+				jsonOutput: true,
 			},
 		],
 	},
@@ -801,10 +868,12 @@ export const openaiModels = [
 				vision: false,
 				tools: true,
 				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high"],
 				jsonOutput: true,
 			},
 			{
 				test: "skip",
+				deactivatedAt: new Date("2026-08-20"),
 				providerId: "nanogpt",
 				externalId: "openai/gpt-oss-20b",
 				inputPrice: "0.04e-6",
@@ -830,6 +899,9 @@ export const openaiModels = [
 				vision: false,
 				tools: true,
 				reasoning: true,
+				// Together validates reasoning_effort on the gpt-oss route and 400s
+				// ("Input validation error") on anything outside low/medium/high.
+				reasoningEfforts: ["low", "medium", "high"],
 				jsonOutput: false,
 			},
 		],
@@ -840,8 +912,6 @@ export const openaiModels = [
 		description:
 			"Latest flagship model with reasoning, vision, and enhanced capabilities.",
 		family: "openai",
-		// Based on August 2025 launch from AI timeline:
-		// https://raw.githubusercontent.com/NHLOCAL/AiTimeline/refs/heads/main/_data/timeline.yml
 		releasedAt: new Date("2025-08-01"),
 		providers: [
 			{
@@ -859,7 +929,7 @@ export const openaiModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
-				webSearch: true, // Supports web_search tool via Responses API
+				webSearch: true,
 				webSearchPrice: "0.01", // $10 per 1000 searches for reasoning models
 				supportsResponsesApi: true,
 				jsonOutputSchema: true,
@@ -880,7 +950,9 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5",
-				deactivatedAt: new Date("2026-12-10"),
+				// Azure runs its own schedule and keeps this past OpenAI's
+				// 2026-12-10 first-party shutdown above.
+				deactivatedAt: new Date("2027-02-09"),
 				inputPrice: "1.25e-6",
 				outputPrice: "10.0e-6",
 				cachedInputPrice: "0.125e-6",
@@ -951,7 +1023,9 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5-mini",
-				deactivatedAt: new Date("2026-12-10"),
+				// Azure runs its own schedule and keeps this past OpenAI's
+				// 2026-12-10 first-party shutdown above.
+				deactivatedAt: new Date("2027-02-09"),
 				inputPrice: "0.25e-6",
 				outputPrice: "2e-6",
 				cachedInputPrice: "0.025e-6",
@@ -1022,7 +1096,9 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5-nano",
-				deactivatedAt: new Date("2026-12-10"),
+				// Azure runs its own schedule and keeps this past OpenAI's
+				// 2026-12-10 first-party shutdown above.
+				deactivatedAt: new Date("2027-02-09"),
 				inputPrice: "0.05e-6",
 				outputPrice: "0.4e-6",
 				cachedInputPrice: "0.005e-6",
@@ -1060,6 +1136,10 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5-chat-latest",
+				// Shut down by OpenAI on 2026-07-23 (announced 2026-04-22);
+				// requests now 404 with "has been deprecated". Replacement is
+				// gpt-5.6-sol.
+				deactivatedAt: new Date("2026-07-23"),
 				inputPrice: "1.25e-6",
 				outputPrice: "10.0e-6",
 				cachedInputPrice: "0.125e-6",
@@ -1125,6 +1205,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5.1",
+				deactivatedAt: new Date("2027-05-15"),
 				inputPrice: "1.25e-6",
 				outputPrice: "10.0e-6",
 				cachedInputPrice: "0.125e-6",
@@ -1193,6 +1274,11 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.1-codex",
+				// Shut down by OpenAI on 2026-07-23 (announced 2026-04-22);
+				// requests now 404 with "has been deprecated". Replacement is
+				// gpt-5.6-sol. The azure mapping below stays active — Azure runs
+				// its own schedule and does not retire this until 2027-05-15.
+				deactivatedAt: new Date("2026-07-23"),
 				serviceTiers: ["priority"],
 				serviceTierMultipliers: { priority: 2 },
 				inputPrice: "1.25e-6",
@@ -1215,6 +1301,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5.1-codex",
+				deactivatedAt: new Date("2027-05-15"),
 				inputPrice: "1.25e-6",
 				outputPrice: "10e-6",
 				requestPrice: "0",
@@ -1241,6 +1328,11 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.1-codex-mini",
+				// Shut down by OpenAI on 2026-07-23 (announced 2026-04-22);
+				// requests now 404 with "has been deprecated". Replacement is
+				// gpt-5.6-terra. The azure mapping below stays active — Azure runs
+				// its own schedule and does not retire this until 2027-05-15.
+				deactivatedAt: new Date("2026-07-23"),
 				inputPrice: "0.25e-6",
 				outputPrice: "2e-6",
 				cachedInputPrice: "0.025e-6",
@@ -1262,6 +1354,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5.1-codex-mini",
+				deactivatedAt: new Date("2027-05-15"),
 				inputPrice: "0.25e-6",
 				outputPrice: "2e-6",
 				cachedInputPrice: "0.025e-6",
@@ -1321,6 +1414,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5.2",
+				deactivatedAt: new Date("2027-06-08"),
 				inputPrice: "1.75e-6",
 				outputPrice: "14.0e-6",
 				cachedInputPrice: "0.175e-6",
@@ -1491,6 +1585,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5.4",
+				deactivatedAt: new Date("2027-09-02"),
 				inputPrice: "2.5e-6",
 				outputPrice: "15.0e-6",
 				cachedInputPrice: "0.25e-6",
@@ -1553,6 +1648,7 @@ export const openaiModels = [
 				providerId: "azure",
 				test: "skip",
 				externalId: "gpt-5.4-pro",
+				deactivatedAt: new Date("2027-09-07"),
 				inputPrice: "30.0e-6",
 				outputPrice: "180.0e-6",
 				requestPrice: "0",
@@ -1608,6 +1704,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5.4-mini",
+				deactivatedAt: new Date("2027-09-21"),
 				inputPrice: "0.75e-6",
 				outputPrice: "4.5e-6",
 				cachedInputPrice: "0.075e-6",
@@ -1663,6 +1760,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5.4-nano",
+				deactivatedAt: new Date("2027-09-21"),
 				inputPrice: "0.2e-6",
 				outputPrice: "1.25e-6",
 				cachedInputPrice: "0.02e-6",
@@ -1726,6 +1824,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5.5",
+				deactivatedAt: new Date("2027-10-26"),
 				inputPrice: "5.0e-6",
 				outputPrice: "30.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -1845,6 +1944,106 @@ export const openaiModels = [
 				],
 				jsonOutput: true,
 			},
+			{
+				test: "skip",
+				providerId: "azure",
+				externalId: "gpt-5.6-sol",
+				deactivatedAt: new Date("2028-01-11"),
+				inputPrice: "5.0e-6",
+				outputPrice: "30.0e-6",
+				cachedInputPrice: "0.5e-6",
+				cacheWriteInputPrice: "6.25e-6",
+				pricingTiers: [
+					{
+						name: "Up to 272K",
+						upToTokens: 272000,
+						inputPrice: "5.0e-6",
+						outputPrice: "30.0e-6",
+						cachedInputPrice: "0.5e-6",
+						cacheWriteInputPrice: "6.25e-6",
+					},
+					{
+						name: "Over 272K",
+						upToTokens: Infinity,
+						inputPrice: "10.0e-6",
+						outputPrice: "45.0e-6",
+						cachedInputPrice: "1.0e-6",
+						cacheWriteInputPrice: "12.5e-6",
+					},
+				],
+				requestPrice: "0",
+				contextSize: 1050000,
+				maxOutput: 128000,
+				streaming: true,
+				vision: true,
+				tools: true,
+				webSearch: true,
+				webSearchPrice: "0.01",
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				reasoningOutput: "omit",
+				verbosity: true,
+				supportsResponsesApi: true,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"temperature",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"response_format",
+					"verbosity",
+				],
+				jsonOutput: true,
+			},
+			{
+				providerId: "aws-mantle",
+				externalId: "openai.gpt-5.6-sol",
+				// Sol is the one family member AWS has not deployed to us-west-2 —
+				// that region 404s with "The model 'openai.gpt-5.6-sol' does not
+				// exist". Pricing is identical across regions, so the entries carry
+				// no per-region overrides.
+				regions: [{ id: "us-east-1" }, { id: "us-east-2" }],
+				// Mantle is in-region-only (the model cards list Geo and Global
+				// cross-region as unsupported, and AWS lists global cross-region
+				// pricing as "coming soon"), and AWS prices in-region inference at
+				// OpenAI's data-residency tier — a flat 10% premium over the
+				// standard first-party rates. Unlike the usual Bedrock geo/global
+				// split there is no cheaper global rate to route to yet.
+				// AWS displays the cache-write rate rounded to $6.88/M.
+				inputPrice: "5.5e-6",
+				outputPrice: "33.0e-6",
+				cachedInputPrice: "0.55e-6",
+				cacheWriteInputPrice: "6.875e-6",
+				requestPrice: "0",
+				// AWS caps the Mantle deployment at a 272K context (vs 1.05M
+				// first-party). AWS's "272K" is 272 * 1024: upstream rejects prompts
+				// of 278528 tokens or more. No pricingTiers because AWS publishes a
+				// single flat rate for Mantle and does not expose OpenAI's
+				// long-context tier at all.
+				contextSize: 278528,
+				maxOutput: 128000,
+				streaming: true,
+				// Bedrock Mantle only accepts data:/s3:// image URLs; the gateway
+				// inlines remote http(s) image URLs as data URLs for this provider
+				// (see prepare-request-body.ts).
+				vision: true,
+				tools: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				reasoningOutput: "omit",
+				verbosity: true,
+				supportsResponsesApi: true,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"temperature",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"response_format",
+					"verbosity",
+				],
+				jsonOutput: true,
+			},
 		],
 	},
 	{
@@ -1860,26 +2059,26 @@ export const openaiModels = [
 				externalId: "gpt-5.6-terra",
 				serviceTiers: ["flex", "priority"],
 				serviceTierMultipliers: { priority: 2 },
-				inputPrice: "2.5e-6",
-				outputPrice: "15.0e-6",
-				cachedInputPrice: "0.25e-6",
-				cacheWriteInputPrice: "3.125e-6",
+				inputPrice: "2.0e-6",
+				outputPrice: "12.0e-6",
+				cachedInputPrice: "0.2e-6",
+				cacheWriteInputPrice: "2.5e-6",
 				pricingTiers: [
 					{
 						name: "Up to 272K",
 						upToTokens: 272000,
-						inputPrice: "2.5e-6",
-						outputPrice: "15.0e-6",
-						cachedInputPrice: "0.25e-6",
-						cacheWriteInputPrice: "3.125e-6",
+						inputPrice: "2.0e-6",
+						outputPrice: "12.0e-6",
+						cachedInputPrice: "0.2e-6",
+						cacheWriteInputPrice: "2.5e-6",
 					},
 					{
 						name: "Over 272K",
 						upToTokens: Infinity,
-						inputPrice: "5.0e-6",
-						outputPrice: "22.5e-6",
-						cachedInputPrice: "0.5e-6",
-						cacheWriteInputPrice: "6.25e-6",
+						inputPrice: "4.0e-6",
+						outputPrice: "18.0e-6",
+						cachedInputPrice: "0.4e-6",
+						cacheWriteInputPrice: "5.0e-6",
 					},
 				],
 				requestPrice: "0",
@@ -1890,6 +2089,107 @@ export const openaiModels = [
 				tools: true,
 				webSearch: true,
 				webSearchPrice: "0.01",
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				reasoningOutput: "omit",
+				verbosity: true,
+				supportsResponsesApi: true,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"temperature",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"response_format",
+					"verbosity",
+				],
+				jsonOutput: true,
+			},
+			{
+				test: "skip",
+				providerId: "azure",
+				externalId: "gpt-5.6-terra",
+				deactivatedAt: new Date("2028-01-11"),
+				inputPrice: "2.0e-6",
+				outputPrice: "12.0e-6",
+				cachedInputPrice: "0.2e-6",
+				cacheWriteInputPrice: "2.5e-6",
+				pricingTiers: [
+					{
+						name: "Up to 272K",
+						upToTokens: 272000,
+						inputPrice: "2.0e-6",
+						outputPrice: "12.0e-6",
+						cachedInputPrice: "0.2e-6",
+						cacheWriteInputPrice: "2.5e-6",
+					},
+					{
+						name: "Over 272K",
+						upToTokens: Infinity,
+						inputPrice: "4.0e-6",
+						outputPrice: "18.0e-6",
+						cachedInputPrice: "0.4e-6",
+						cacheWriteInputPrice: "5.0e-6",
+					},
+				],
+				requestPrice: "0",
+				contextSize: 1050000,
+				maxOutput: 128000,
+				streaming: true,
+				vision: true,
+				tools: true,
+				webSearch: true,
+				webSearchPrice: "0.01",
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				reasoningOutput: "omit",
+				verbosity: true,
+				supportsResponsesApi: true,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"temperature",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"response_format",
+					"verbosity",
+				],
+				jsonOutput: true,
+			},
+			{
+				providerId: "aws-mantle",
+				externalId: "openai.gpt-5.6-terra",
+				// Pricing is identical across regions, so the entries carry no
+				// per-region overrides.
+				regions: [
+					{ id: "us-east-1" },
+					{ id: "us-east-2" },
+					{ id: "us-west-2" },
+				],
+				// Mantle is in-region-only (the model cards list Geo and Global
+				// cross-region as unsupported, and AWS lists global cross-region
+				// pricing as "coming soon"), and AWS prices in-region inference at
+				// OpenAI's data-residency tier — a flat 10% premium over the
+				// standard first-party rates. Unlike the usual Bedrock geo/global
+				// split there is no cheaper global rate to route to yet.
+				inputPrice: "2.2e-6",
+				outputPrice: "13.2e-6",
+				cachedInputPrice: "0.22e-6",
+				cacheWriteInputPrice: "2.75e-6",
+				requestPrice: "0",
+				// AWS caps the Mantle deployment at a 272K context (vs 1.05M
+				// first-party). AWS's "272K" is 272 * 1024: upstream rejects prompts
+				// of 278528 tokens or more. No pricingTiers because AWS publishes a
+				// single flat rate for Mantle and does not expose OpenAI's
+				// long-context tier at all.
+				contextSize: 278528,
+				maxOutput: 128000,
+				streaming: true,
+				// Bedrock Mantle only accepts data:/s3:// image URLs; the gateway
+				// inlines remote http(s) image URLs as data URLs for this provider
+				// (see prepare-request-body.ts).
+				vision: true,
+				tools: true,
 				reasoning: true,
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
 				reasoningOutput: "omit",
@@ -1921,26 +2221,26 @@ export const openaiModels = [
 				externalId: "gpt-5.6-luna",
 				serviceTiers: ["flex", "priority"],
 				serviceTierMultipliers: { priority: 2 },
-				inputPrice: "1.0e-6",
-				outputPrice: "6.0e-6",
-				cachedInputPrice: "0.1e-6",
-				cacheWriteInputPrice: "1.25e-6",
+				inputPrice: "0.2e-6",
+				outputPrice: "1.2e-6",
+				cachedInputPrice: "0.02e-6",
+				cacheWriteInputPrice: "0.25e-6",
 				pricingTiers: [
 					{
 						name: "Up to 272K",
 						upToTokens: 272000,
-						inputPrice: "1.0e-6",
-						outputPrice: "6.0e-6",
-						cachedInputPrice: "0.1e-6",
-						cacheWriteInputPrice: "1.25e-6",
+						inputPrice: "0.2e-6",
+						outputPrice: "1.2e-6",
+						cachedInputPrice: "0.02e-6",
+						cacheWriteInputPrice: "0.25e-6",
 					},
 					{
 						name: "Over 272K",
 						upToTokens: Infinity,
-						inputPrice: "2.0e-6",
-						outputPrice: "9.0e-6",
-						cachedInputPrice: "0.2e-6",
-						cacheWriteInputPrice: "2.5e-6",
+						inputPrice: "0.4e-6",
+						outputPrice: "1.8e-6",
+						cachedInputPrice: "0.04e-6",
+						cacheWriteInputPrice: "0.5e-6",
 					},
 				],
 				requestPrice: "0",
@@ -1951,6 +2251,107 @@ export const openaiModels = [
 				tools: true,
 				webSearch: true,
 				webSearchPrice: "0.01",
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				reasoningOutput: "omit",
+				verbosity: true,
+				supportsResponsesApi: true,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"temperature",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"response_format",
+					"verbosity",
+				],
+				jsonOutput: true,
+			},
+			{
+				test: "skip",
+				providerId: "azure",
+				externalId: "gpt-5.6-luna",
+				deactivatedAt: new Date("2028-01-11"),
+				inputPrice: "0.2e-6",
+				outputPrice: "1.2e-6",
+				cachedInputPrice: "0.02e-6",
+				cacheWriteInputPrice: "0.25e-6",
+				pricingTiers: [
+					{
+						name: "Up to 272K",
+						upToTokens: 272000,
+						inputPrice: "0.2e-6",
+						outputPrice: "1.2e-6",
+						cachedInputPrice: "0.02e-6",
+						cacheWriteInputPrice: "0.25e-6",
+					},
+					{
+						name: "Over 272K",
+						upToTokens: Infinity,
+						inputPrice: "0.4e-6",
+						outputPrice: "1.8e-6",
+						cachedInputPrice: "0.04e-6",
+						cacheWriteInputPrice: "0.5e-6",
+					},
+				],
+				requestPrice: "0",
+				contextSize: 1050000,
+				maxOutput: 128000,
+				streaming: true,
+				vision: true,
+				tools: true,
+				webSearch: true,
+				webSearchPrice: "0.01",
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				reasoningOutput: "omit",
+				verbosity: true,
+				supportsResponsesApi: true,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"temperature",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"response_format",
+					"verbosity",
+				],
+				jsonOutput: true,
+			},
+			{
+				providerId: "aws-mantle",
+				externalId: "openai.gpt-5.6-luna",
+				// Pricing is identical across regions, so the entries carry no
+				// per-region overrides.
+				regions: [
+					{ id: "us-east-1" },
+					{ id: "us-east-2" },
+					{ id: "us-west-2" },
+				],
+				// Mantle is in-region-only (the model cards list Geo and Global
+				// cross-region as unsupported, and AWS lists global cross-region
+				// pricing as "coming soon"), and AWS prices in-region inference at
+				// OpenAI's data-residency tier — a flat 10% premium over the
+				// standard first-party rates. Unlike the usual Bedrock geo/global
+				// split there is no cheaper global rate to route to yet.
+				inputPrice: "0.22e-6",
+				outputPrice: "1.32e-6",
+				cachedInputPrice: "0.022e-6",
+				cacheWriteInputPrice: "0.275e-6",
+				requestPrice: "0",
+				// AWS caps the Mantle deployment at a 272K context (vs 1.05M
+				// first-party). AWS's "272K" is 272 * 1024: upstream rejects prompts
+				// of 278528 tokens or more. No pricingTiers because AWS publishes a
+				// single flat rate for Mantle and does not expose OpenAI's
+				// long-context tier at all.
+				contextSize: 278528,
+				maxOutput: 128000,
+				streaming: true,
+				// Bedrock Mantle only accepts data:/s3:// image URLs; the gateway
+				// inlines remote http(s) image URLs as data URLs for this provider
+				// (see prepare-request-body.ts).
+				vision: true,
+				tools: true,
 				reasoning: true,
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
 				reasoningOutput: "omit",
@@ -1980,6 +2381,11 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.2-codex",
+				// Shut down by OpenAI on 2026-07-23 (announced 2026-04-22);
+				// requests now 404 with "has been deprecated". Replacement is
+				// gpt-5.6-sol. The azure mapping below stays active — Azure runs
+				// its own schedule and does not retire this until 2027-07-13.
+				deactivatedAt: new Date("2026-07-23"),
 				inputPrice: "1.75e-6",
 				outputPrice: "14.0e-6",
 				cachedInputPrice: "0.175e-6",
@@ -2002,6 +2408,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5.2-codex",
+				deactivatedAt: new Date("2027-07-13"),
 				inputPrice: "1.75e-6",
 				outputPrice: "14.0e-6",
 				cachedInputPrice: "0.175e-6",
@@ -2055,6 +2462,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5.3-codex",
+				deactivatedAt: new Date("2027-08-24"),
 				inputPrice: "1.75e-6",
 				outputPrice: "14.0e-6",
 				cachedInputPrice: "0.175e-6",
@@ -2280,6 +2688,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-image-2",
+				deactivatedAt: new Date("2027-10-21"),
 				inputPrice: "5e-6",
 				outputPrice: "0",
 				cachedInputPrice: "1.25e-6",
@@ -2440,6 +2849,213 @@ export const openaiModels = [
 				jsonOutput: false,
 				speechGenerations: true,
 				supportedVoices: OPENAI_GPT4O_MINI_TTS_VOICES,
+			},
+		],
+	},
+	{
+		id: "gpt-realtime",
+		name: "GPT Realtime",
+		aliases: ["gpt-realtime-2025-08-28"],
+		description:
+			"Legacy OpenAI speech-to-speech realtime model, superseded by gpt-realtime-2.1. Served via the gateway's /v1/realtime WebSocket endpoint with text and audio input/output and function calling.",
+		family: "openai",
+		output: ["text", "audio"],
+		stability: "beta",
+		releasedAt: new Date("2025-08-28"),
+		providers: [
+			{
+				providerId: "openai",
+				externalId: "gpt-realtime",
+				inputPrice: "4.0e-6",
+				cachedInputPrice: "0.4e-6",
+				outputPrice: "16.0e-6",
+				inputAudioPrice: "32.0e-6",
+				cachedInputAudioPrice: "0.4e-6",
+				outputAudioPrice: "64.0e-6",
+				imageInputPrice: "5.0e-6",
+				cachedImageInputPrice: "0.5e-6",
+				requestPrice: "0",
+				contextSize: 32768,
+				maxOutput: 4096,
+				streaming: false,
+				vision: false,
+				audio: true,
+				tools: true,
+				jsonOutput: false,
+				realtime: true,
+				supportedVoices: OPENAI_REALTIME_VOICES,
+				test: "skip",
+				// OpenAI announced deprecation of the legacy realtime family on
+				// 2026-07-20 with removal from the API on 2027-01-20.
+				deprecatedAt: new Date("2026-07-20"),
+				deactivatedAt: new Date("2027-01-20"),
+			},
+		],
+	},
+	{
+		id: "gpt-realtime-mini",
+		name: "GPT Realtime Mini",
+		aliases: ["gpt-realtime-mini-2025-10-06"],
+		description:
+			"Legacy cost-efficient OpenAI speech-to-speech realtime model, superseded by gpt-realtime-2.1-mini. Served via the gateway's /v1/realtime WebSocket endpoint with text and audio input/output and function calling.",
+		family: "openai",
+		output: ["text", "audio"],
+		stability: "beta",
+		releasedAt: new Date("2025-10-06"),
+		providers: [
+			{
+				providerId: "openai",
+				externalId: "gpt-realtime-mini",
+				inputPrice: "0.6e-6",
+				cachedInputPrice: "0.06e-6",
+				outputPrice: "2.4e-6",
+				inputAudioPrice: "10.0e-6",
+				cachedInputAudioPrice: "0.3e-6",
+				outputAudioPrice: "20.0e-6",
+				requestPrice: "0",
+				contextSize: 32768,
+				maxOutput: 4096,
+				streaming: false,
+				vision: false,
+				audio: true,
+				tools: true,
+				jsonOutput: false,
+				realtime: true,
+				supportedVoices: OPENAI_REALTIME_VOICES,
+				test: "skip",
+				// OpenAI announced deprecation of the legacy realtime family on
+				// 2026-07-20 with removal from the API on 2027-01-20.
+				deprecatedAt: new Date("2026-07-20"),
+				deactivatedAt: new Date("2027-01-20"),
+			},
+		],
+	},
+	{
+		id: "gpt-realtime-2.1",
+		name: "GPT Realtime 2.1",
+		description:
+			"OpenAI's current speech-to-speech realtime model. Served via the gateway's /v1/realtime WebSocket endpoint with text and audio input/output and function calling.",
+		family: "openai",
+		output: ["text", "audio"],
+		stability: "beta",
+		releasedAt: new Date("2026-07-06"),
+		providers: [
+			{
+				providerId: "openai",
+				externalId: "gpt-realtime-2.1",
+				inputPrice: "4.0e-6",
+				cachedInputPrice: "0.4e-6",
+				outputPrice: "24.0e-6",
+				inputAudioPrice: "32.0e-6",
+				cachedInputAudioPrice: "0.4e-6",
+				outputAudioPrice: "64.0e-6",
+				imageInputPrice: "5.0e-6",
+				cachedImageInputPrice: "0.5e-6",
+				requestPrice: "0",
+				contextSize: 128000,
+				maxOutput: 32000,
+				streaming: false,
+				vision: false,
+				audio: true,
+				reasoning: true,
+				tools: true,
+				jsonOutput: false,
+				realtime: true,
+				supportedVoices: OPENAI_REALTIME_VOICES,
+				test: "skip",
+			},
+		],
+	},
+	{
+		id: "gpt-realtime-2.1-mini",
+		name: "GPT Realtime 2.1 Mini",
+		description:
+			"Cost-efficient variant of OpenAI's current speech-to-speech realtime model. Served via the gateway's /v1/realtime WebSocket endpoint with text and audio input/output and function calling.",
+		family: "openai",
+		output: ["text", "audio"],
+		stability: "beta",
+		releasedAt: new Date("2026-07-06"),
+		providers: [
+			{
+				providerId: "openai",
+				externalId: "gpt-realtime-2.1-mini",
+				inputPrice: "0.6e-6",
+				cachedInputPrice: "0.06e-6",
+				outputPrice: "2.4e-6",
+				inputAudioPrice: "10.0e-6",
+				cachedInputAudioPrice: "0.3e-6",
+				outputAudioPrice: "20.0e-6",
+				imageInputPrice: "0.8e-6",
+				cachedImageInputPrice: "0.08e-6",
+				requestPrice: "0",
+				contextSize: 128000,
+				maxOutput: 32000,
+				streaming: false,
+				vision: false,
+				audio: true,
+				tools: true,
+				jsonOutput: false,
+				realtime: true,
+				supportedVoices: OPENAI_REALTIME_VOICES,
+				test: "skip",
+			},
+		],
+	},
+	{
+		id: "gpt-4o-mini-transcribe",
+		name: "GPT-4o Mini Transcribe",
+		description:
+			"Cost-efficient token-metered OpenAI speech-to-text model. Used as the default input-audio transcription model for realtime sessions on the gateway's /v1/realtime WebSocket endpoint.",
+		family: "openai",
+		output: ["text"],
+		stability: "beta",
+		releasedAt: new Date("2025-03-20"),
+		providers: [
+			{
+				providerId: "openai",
+				externalId: "gpt-4o-mini-transcribe",
+				inputPrice: "1.25e-6",
+				outputPrice: "5.0e-6",
+				inputAudioPrice: "3.0e-6",
+				requestPrice: "0",
+				contextSize: 16000,
+				maxOutput: 2000,
+				streaming: false,
+				vision: false,
+				audio: true,
+				tools: false,
+				jsonOutput: false,
+				realtimeTranscription: true,
+				test: "skip",
+			},
+		],
+	},
+	{
+		id: "gpt-4o-transcribe",
+		name: "GPT-4o Transcribe",
+		description:
+			"Token-metered OpenAI speech-to-text model. Used as the input-audio transcription model for realtime sessions on the gateway's /v1/realtime WebSocket endpoint.",
+		family: "openai",
+		output: ["text"],
+		stability: "beta",
+		releasedAt: new Date("2025-03-20"),
+		providers: [
+			{
+				providerId: "openai",
+				externalId: "gpt-4o-transcribe",
+				inputPrice: "2.5e-6",
+				outputPrice: "10.0e-6",
+				inputAudioPrice: "6.0e-6",
+				requestPrice: "0",
+				contextSize: 16000,
+				maxOutput: 2000,
+				streaming: false,
+				vision: false,
+				audio: true,
+				tools: false,
+				jsonOutput: false,
+				realtimeTranscription: true,
+				test: "skip",
 			},
 		],
 	},

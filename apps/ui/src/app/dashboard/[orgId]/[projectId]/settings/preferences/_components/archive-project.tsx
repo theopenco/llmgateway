@@ -1,15 +1,5 @@
 import { ArchiveProjectSettings as ArchiveProjectSettingsClient } from "@/components/settings/archive-project-settings";
-import { fetchServerData } from "@/lib/server-api";
-
-import type { Project, Organization } from "@/lib/types";
-
-interface ProjectData {
-	project: Project;
-}
-
-interface OrganizationsData {
-	organizations: Organization[];
-}
+import { getOrganizations, getProject } from "@/lib/server-api";
 
 export const ArchiveProjectSettings = async ({
 	orgId,
@@ -19,14 +9,8 @@ export const ArchiveProjectSettings = async ({
 	projectId: string;
 }) => {
 	const [projectData, organizationsData] = await Promise.all([
-		fetchServerData<ProjectData>("GET", "/projects/{id}", {
-			params: {
-				path: {
-					id: projectId,
-				},
-			},
-		}),
-		fetchServerData<OrganizationsData>("GET", "/orgs"),
+		getProject(projectId),
+		getOrganizations(),
 	]);
 
 	// Handle null data cases

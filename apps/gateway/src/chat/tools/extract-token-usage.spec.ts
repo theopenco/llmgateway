@@ -361,6 +361,50 @@ describe("extractTokenUsage", () => {
 		});
 	});
 
+	describe("vertex-anthropic", () => {
+		// Vertex Anthropic streams the same Anthropic Messages wire format, so it
+		// must extract usage identically to the direct anthropic provider rather
+		// than falling through to the OpenAI-shaped default branch.
+		it("extracts cache and reasoning tokens from a streaming message_start", () => {
+			const data = {
+				type: "message_start",
+				message: {
+					usage: {
+						input_tokens: 100,
+						cache_creation_input_tokens: 50,
+						cache_read_input_tokens: 800,
+						output_tokens: 2928,
+						output_tokens_details: { thinking_tokens: 1502 },
+					},
+				},
+			};
+
+			const result = extractTokenUsage(data, "vertex-anthropic");
+
+			expect(result.promptTokens).toBe(950); // 100 + 50 + 800
+			expect(result.cachedTokens).toBe(800);
+			expect(result.cacheCreationTokens).toBe(50);
+			expect(result.completionTokens).toBe(2928);
+			expect(result.reasoningTokens).toBe(1502);
+			expect(result.totalTokens).toBe(3878); // 950 + 2928, reasoning not double-counted
+		});
+
+		it("matches the direct anthropic provider for the same chunk", () => {
+			const data = {
+				usage: {
+					input_tokens: 51,
+					cache_read_input_tokens: 20,
+					output_tokens: 136,
+					reasoning_output_tokens: 31,
+				},
+			};
+
+			expect(extractTokenUsage(data, "vertex-anthropic")).toEqual(
+				extractTokenUsage(data, "anthropic"),
+			);
+		});
+	});
+
 	describe("alibaba", () => {
 		it("extracts prompt_tokens_details.cache_creation_input_tokens into 5m cache write fields", () => {
 			const data = {
@@ -637,6 +681,49 @@ describe("extractTokenUsage", () => {
 			expect(result.promptTokens).toBe(200);
 			expect(result.completionTokens).toBe(100);
 			expect(result.cachedTokens).toBe(150);
+		});
+	});
+
+	describe("xai-style reasoning usage", () => {
+		it.each(["xai", "vertex-openai"] as const)(
+			"reads reasoning tokens from completion_tokens_details for %s",
+			(provider) => {
+				// Real grok-4.6 usage payload. xAI reports reasoning only in the nested
+				// details object and leaves it OUT of completion_tokens — note
+				// total_tokens = 213 + 4 + 310 — so it has to be picked up here or the
+				// cost engine bills the 4 visible output tokens and nothing else.
+				const data = {
+					usage: {
+						prompt_tokens: 213,
+						completion_tokens: 4,
+						total_tokens: 527,
+						prompt_tokens_details: { cached_tokens: 128 },
+						completion_tokens_details: { reasoning_tokens: 310 },
+					},
+				};
+
+				const result = extractTokenUsage(data, provider);
+
+				expect(result.promptTokens).toBe(213);
+				expect(result.completionTokens).toBe(4);
+				expect(result.reasoningTokens).toBe(310);
+				expect(result.cachedTokens).toBe(128);
+			},
+		);
+
+		it("returns null reasoning tokens for a non-reasoning response", () => {
+			const data = {
+				usage: {
+					prompt_tokens: 20,
+					completion_tokens: 8,
+					total_tokens: 28,
+				},
+			};
+
+			const result = extractTokenUsage(data, "xai");
+
+			expect(result.reasoningTokens).toBeNull();
+			expect(result.cachedTokens).toBeNull();
 		});
 	});
 });

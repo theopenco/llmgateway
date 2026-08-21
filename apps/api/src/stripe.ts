@@ -4,6 +4,10 @@ import Stripe from "stripe";
 import { z } from "zod";
 
 import {
+	checkAndReserveTopUp,
+	releaseTopUpReservation,
+} from "@llmgateway/actions";
+import {
 	and,
 	db,
 	enqueueWebhookDeliveries,
@@ -26,16 +30,24 @@ import {
 } from "@llmgateway/shared";
 
 import { computeReferralBonus } from "./lib/referral-bonus.js";
+import {
+	getForcedThreeDSecure,
+	threeDSecureSubscriptionSettings,
+	type ThreeDSecureRequest,
+} from "./lib/three-d-secure.js";
 import { posthog } from "./posthog.js";
 import { getStripe, type StripeMode } from "./routes/payments.js";
+import { getDevPlanTierFromInvoice } from "./utils/dev-plan-prices.js";
 import {
 	notifyChatPlanCancelled,
 	notifyChatPlanRenewed,
+	notifyChatPlanResumed,
 	notifyChatPlanSubscribed,
 	notifyCreditsPurchased,
 	notifyRefund,
 	notifyDevPlanCancelled,
 	notifyDevPlanRenewed,
+	notifyDevPlanResumed,
 	notifyDevPlanSubscribed,
 	notifyResetPassPurchased,
 } from "./utils/discord.js";
@@ -482,10 +494,7 @@ async function getSubscriptionCardFingerprint(
 					expand: ["payment_intent"],
 				});
 				const paymentIntent = (invoice as any).payment_intent as
-					| Stripe.PaymentIntent
-					| string
-					| null
-					| undefined;
+					Stripe.PaymentIntent | string | null | undefined;
 				const pi =
 					typeof paymentIntent === "string"
 						? await getStripe().paymentIntents.retrieve(paymentIntent)
@@ -627,7 +636,7 @@ async function getSubscriptionInvoice(
 	});
 }
 
-async function getSubscriptionPaymentConfirmation(
+export async function getSubscriptionPaymentConfirmation(
 	subscription: Stripe.Subscription,
 ): Promise<{
 	paymentIntent: Stripe.PaymentIntent | null;
@@ -795,8 +804,16 @@ async function detachDuplicateCardPaymentMethods(
 	}
 }
 
-function shouldForceDevPlan3dsChallenge(): boolean {
-	return process.env.STRIPE_DEV_PLAN_FORCE_3DS === "true";
+/**
+ * `STRIPE_DEV_PLAN_FORCE_3DS=true` forces a challenge on DevPass subscriptions
+ * only; otherwise the account-wide setting (admin dashboard or
+ * `STRIPE_FORCE_3DS`) applies.
+ */
+async function devPlanThreeDSecure(): Promise<ThreeDSecureRequest | undefined> {
+	if (process.env.STRIPE_DEV_PLAN_FORCE_3DS === "true") {
+		return "challenge";
+	}
+	return await getForcedThreeDSecure();
 }
 
 async function resolvePaymentMethodFromSetupSession(
@@ -993,17 +1010,7 @@ export async function finalizeDevPlanSetupSession(
 				items: [{ price: priceId }],
 				default_payment_method: paymentMethod.id,
 				payment_behavior: "default_incomplete",
-				...(shouldForceDevPlan3dsChallenge()
-					? {
-							payment_settings: {
-								payment_method_options: {
-									card: {
-										request_three_d_secure: "challenge" as const,
-									},
-								},
-							},
-						}
-					: {}),
+				...threeDSecureSubscriptionSettings(await devPlanThreeDSecure()),
 				metadata: {
 					organizationId,
 					subscriptionType: "dev_plan",
@@ -1182,6 +1189,8 @@ export async function finalizeDevPlanSetupSession(
 			subscribedUser?.name,
 			devPlanTier,
 			devPlanCycle,
+			parseFloat(invoiceAmount),
+			invoiceCurrency,
 		);
 	}
 
@@ -1371,7 +1380,7 @@ async function handleCheckoutSessionCompleted(
 						currency: (session.currency ?? "USD").toUpperCase(),
 						status: "completed",
 						stripeInvoiceId: stripeInvoiceId,
-						description: `Chat Plan ${chatPlanTier.toUpperCase()} started via Stripe Checkout`,
+						description: `Lounge ${chatPlanTier.toUpperCase()} membership started via Stripe Checkout`,
 					})
 					.returning();
 
@@ -1386,7 +1395,7 @@ async function handleCheckoutSessionCompleted(
 						...billingDetails,
 						lineItems: [
 							{
-								description: `Chat Plan ${chatPlanTier.toUpperCase()} ($${creditsLimit} credits included)`,
+								description: `Lounge ${chatPlanTier.toUpperCase()} membership ($${creditsLimit} credits included)`,
 								amount: (session.amount_total ?? 0) / 100,
 							},
 						],
@@ -1562,6 +1571,8 @@ async function handleCheckoutSessionCompleted(
 					subscribedUser?.name,
 					devPlanTier,
 					devPlanCycle,
+					(session.amount_total ?? 0) / 100,
+					(session.currency ?? "USD").toUpperCase(),
 				);
 			}
 		} else {
@@ -1862,6 +1873,42 @@ async function recordCreditTopUp({
 		})
 		.returning();
 
+	// The completed transaction row now covers this amount in the velocity
+	// window's DB sum, so the initiation-time Redis reservation would count it
+	// twice until its TTL — release it here (never recreates an expired key).
+	try {
+		await releaseTopUpReservation(organizationId, totalAmountInDollars);
+	} catch (e) {
+		logger.error("Top-up velocity settle-release failed", e as Error);
+	}
+
+	// Defense-in-depth observability for the top-up velocity cap: initiation is
+	// where it is enforced, but a payment can settle after the window moved (e.g.
+	// a checkout link paid late). Never refuse or refund a settled payment here —
+	// just surface that the org ended up over its cap.
+	try {
+		const orgRow = await db.query.organization.findFirst({
+			where: { id: { eq: organizationId } },
+		});
+		const overCapCheck = orgRow
+			? await checkAndReserveTopUp({
+					org: orgRow,
+					amountUsd: 0,
+					reserve: false,
+				})
+			: null;
+		if (overCapCheck && !overCapCheck.allowed) {
+			logger.warn("Organization exceeded its top-up velocity cap", {
+				organizationId,
+				capUsd: overCapCheck.capUsd,
+				windowUsedUsd: overCapCheck.usedUsd,
+				settledUsd: totalAmountInDollars,
+			});
+		}
+	} catch (e) {
+		logger.error("Top-up velocity post-check failed", e as Error);
+	}
+
 	const lineItems = [
 		{
 			description: `Credit Top-up ($${creditAmount})`,
@@ -2046,9 +2093,17 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
 		purchaserUserId: resolvedUser?.id ?? null,
 	});
 
-	if (userEmail) {
-		await notifyCreditsPurchased(userEmail, resolvedUser?.name, creditAmount);
-	}
+	await notifyCreditsPurchased({
+		email: userEmail ?? organization.billingEmail,
+		name: resolvedUser?.name,
+		creditAmount,
+		bonusAmount,
+		grossAmount: totalAmountInDollars,
+		currency: (session.currency ?? "USD").toUpperCase(),
+		organizationId,
+		organizationName: organization.name,
+		source: "stripe_checkout",
+	});
 
 	logger.info(
 		`Added ${finalCreditAmount} credits to organization ${organizationId} via Stripe Checkout (paid $${totalAmountInDollars} including fees)`,
@@ -2686,6 +2741,14 @@ async function handlePaymentIntentSucceeded(
 		return;
 	}
 
+	// Credit top-ups paid through Stripe Checkout are fulfilled by
+	// checkout.session.completed (handleCreditTopUpCheckout). Their PaymentIntent
+	// carries the same metadata only so the charge is attributable in the Stripe
+	// dashboard — crediting it here as well would double-credit the organization.
+	if (paymentIntent.metadata.source === "stripe_checkout") {
+		return;
+	}
+
 	// payment_intent.succeeded also fires for subscription invoice payments;
 	// only credit top-up payment intents set baseAmount in metadata.
 	if (paymentIntent.metadata.baseAmount === undefined) {
@@ -2749,10 +2812,15 @@ async function handlePaymentIntentSucceeded(
 	const transactionId = metadata?.transactionId;
 
 	const bonusLabel = getBonusLabel(bonusType);
+	// DevPass orgs buy credits as PAYG overflow — name the billing event
+	// accordingly so the dashboard history, invoices and admin transaction
+	// lists read unambiguously next to plan payments.
+	const isDevpassTopup = organization.kind === "devpass";
+	const topupNoun = isDevpassTopup ? "DevPass credits top-up" : "Credit top-up";
 	const transactionDescription =
 		bonusAmount > 0
-			? `Credit top-up via Stripe (+$${bonusAmount.toFixed(2)} ${bonusLabel})`
-			: "Credit top-up via Stripe";
+			? `${topupNoun} via Stripe (+$${bonusAmount.toFixed(2)} ${bonusLabel})`
+			: `${topupNoun} via Stripe`;
 
 	if (transactionId) {
 		await db
@@ -2786,8 +2854,8 @@ async function handlePaymentIntentSucceeded(
 				stripePaymentIntentId: paymentIntent.id,
 				description:
 					bonusAmount > 0
-						? `Auto top-up completed via Stripe webhook (+$${bonusAmount.toFixed(2)} ${bonusLabel})`
-						: "Auto top-up completed via Stripe webhook",
+						? `${isDevpassTopup ? "DevPass credits auto top-up" : "Auto top-up completed"} via Stripe webhook (+$${bonusAmount.toFixed(2)} ${bonusLabel})`
+						: `${isDevpassTopup ? "DevPass credits auto top-up" : "Auto top-up completed"} via Stripe webhook`,
 				creditAmount: finalCreditAmount.toString(),
 				amount: totalAmountInDollars.toString(),
 			})
@@ -2895,9 +2963,17 @@ async function handlePaymentIntentSucceeded(
 		});
 	}
 
-	if (userEmail) {
-		await notifyCreditsPurchased(userEmail, resolvedUser?.name, creditAmount);
-	}
+	await notifyCreditsPurchased({
+		email: userEmail ?? organization.billingEmail,
+		name: resolvedUser?.name,
+		creditAmount,
+		bonusAmount,
+		grossAmount: totalAmountInDollars,
+		currency: paymentIntent.currency.toUpperCase(),
+		organizationId,
+		organizationName: organization.name,
+		source: transactionId ? "auto_topup" : "payment_intent",
+	});
 
 	logger.info(
 		`Added credits to organization ${organizationId} (paid ${totalAmountInDollars} including fees)`,
@@ -2986,9 +3062,14 @@ export async function handlePaymentIntentFailed(
 	// subscription invoice intents carry neither. Failure tracking above
 	// (paymentFailure row + dunning email) still runs for subscription invoices,
 	// and dev/chat plan credit freezes are handled in handleInvoicePaymentFailed.
+	// Checkout-sourced top-ups are excluded as well: the Stripe-hosted page lets
+	// the customer retry a declined card on the same PaymentIntent, so recording a
+	// row per failure would spam the billing history, and no transaction exists
+	// until checkout.session.completed fulfils the payment.
 	const transactionId = metadata?.transactionId;
 	const isCreditTopup =
-		metadata?.baseAmount !== undefined || transactionId !== undefined;
+		(metadata?.baseAmount !== undefined || transactionId !== undefined) &&
+		metadata?.source !== "stripe_checkout";
 	if (isCreditTopup) {
 		if (transactionId) {
 			// Update existing pending transaction to failed
@@ -3139,7 +3220,7 @@ function refundProductLabel(type: string): string {
 		return "DevPass";
 	}
 	if (type.startsWith("chat_plan")) {
-		return "Chat Plan";
+		return "Lounge";
 	}
 	return "Subscription";
 }
@@ -3509,12 +3590,45 @@ async function handleSetupIntentSucceeded(
 		return;
 	}
 
-	await getStripe().paymentMethods.attach(paymentMethodId, {
-		customer: stripeCustomerId,
-	});
-
 	const paymentMethod =
 		await getStripe().paymentMethods.retrieve(paymentMethodId);
+
+	// Setup intents created with a customer come out of confirmation already
+	// attached; only PMs from legacy customer-less setup intents still need the
+	// manual attach here.
+	const attachedCustomerId =
+		typeof paymentMethod.customer === "string"
+			? paymentMethod.customer
+			: (paymentMethod.customer?.id ?? null);
+
+	if (!attachedCustomerId) {
+		try {
+			await getStripe().paymentMethods.attach(paymentMethodId, {
+				customer: stripeCustomerId,
+			});
+		} catch (error) {
+			// A PM consumed by a payment (or detached) before this webhook ran can
+			// never be attached — failing the webhook would only make Stripe retry
+			// a permanently invalid request for days.
+			if (error instanceof Stripe.errors.StripeInvalidRequestError) {
+				logger.warn("Skipping unattachable payment method from setup intent", {
+					paymentMethodId,
+					organizationId,
+					stripeMessage: error.message,
+				});
+				return;
+			}
+			throw error;
+		}
+	} else if (attachedCustomerId !== stripeCustomerId) {
+		logger.warn("Setup intent payment method is attached to another customer", {
+			paymentMethodId,
+			organizationId,
+			attachedCustomerId,
+			expectedCustomerId: stripeCustomerId,
+		});
+		return;
+	}
 
 	// Check for duplicate card by fingerprint
 	if (paymentMethod.type === "card" && paymentMethod.card?.fingerprint) {
@@ -3551,6 +3665,14 @@ async function handleSetupIntentSucceeded(
 		isDefault,
 	});
 }
+
+// A cycle-renewal invoice's line period end normally matches the org's stored
+// plan expiry exactly (both derive from the subscription's billing anchor), so
+// an invoice whose period ends meaningfully before the stored expiry belongs
+// to a cycle that a mid-cycle upgrade has since replaced. The tolerance only
+// absorbs sub-minute skew; it must stay far below the ~1 hour window Stripe
+// leaves between drafting and charging renewal invoices.
+const STALE_RENEWAL_TOLERANCE_MS = 60_000;
 
 export async function handleInvoicePaymentSucceeded(event: {
 	data: { object: Stripe.Invoice };
@@ -3641,8 +3763,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 	}
 	subscriptionMetadata ??= {};
 	const initialDevPlanTier = subscriptionMetadata.devPlan as
-		| DevPlanTier
-		| undefined;
+		DevPlanTier | undefined;
 	const initialDevPlanCycle: DevPlanCycle =
 		subscriptionMetadata.devPlanCycle === "annual" ? "annual" : "monthly";
 	const isInitialDevPlanSubscription =
@@ -3674,6 +3795,15 @@ export async function handleInvoicePaymentSucceeded(event: {
 	// new-tier price, which Stripe bills as a `subscription_update` invoice.
 	const isChatPlanUpgradeInvoice =
 		isChatPlanSubscription && invoice.billing_reason === "subscription_update";
+
+	// Stripe does not order webhooks: the first invoice of a brand new Lounge
+	// membership can arrive before the `checkout.session.completed` that
+	// activates the chat plan, in which case none of the org's chat fields point
+	// at this subscription yet. Recognise it from the subscription metadata the
+	// checkout set so it isn't mistaken for a Pro subscription below.
+	const isInitialChatPlanSubscription =
+		subscriptionMetadata.subscriptionType === "chat_plan" &&
+		!isChatPlanSubscription;
 
 	logger.info(
 		`Found organization: ${organization.name} (${organization.id}), current plan: ${organization.plan}, billingReason: ${invoice.billing_reason}, isDevPlanRenewal: ${isDevPlanRenewal}, isChatPlanRenewal: ${isChatPlanRenewal}`,
@@ -3792,6 +3922,8 @@ export async function handleInvoicePaymentSucceeded(event: {
 				subscribedUser?.name,
 				initialDevPlanTier,
 				initialDevPlanCycle,
+				invoice.amount_paid / 100,
+				invoice.currency.toUpperCase(),
 			);
 		}
 
@@ -3799,6 +3931,36 @@ export async function handleInvoicePaymentSucceeded(event: {
 			`Activated initial DevPass subscription ${subscriptionId} for organization ${organizationId} from invoice ${invoice.id}`,
 		);
 	} else if (isChatPlanRenewal) {
+		// Same staleness guard as dev plan renewals below: a cycle-renewal
+		// invoice charged after an immediate upgrade re-anchored the billing
+		// cycle bills a period that no longer exists — record the payment but
+		// don't grant a fresh allowance for the superseded cycle.
+		const renewedPeriodEnd = invoice.lines.data.reduce(
+			(max, line) => Math.max(max, line.period?.end ?? 0),
+			0,
+		);
+		if (
+			renewedPeriodEnd > 0 &&
+			organization.chatPlanExpiresAt &&
+			renewedPeriodEnd * 1000 <
+				organization.chatPlanExpiresAt.getTime() - STALE_RENEWAL_TOLERANCE_MS
+		) {
+			await db.insert(tables.transaction).values({
+				organizationId,
+				type: "chat_plan_renewal",
+				amount: (invoice.amount_paid / 100).toString(),
+				currency: invoice.currency.toUpperCase(),
+				status: "completed",
+				stripePaymentIntentId: (invoice as any).payment_intent,
+				stripeInvoiceId: invoice.id,
+				description: `Lounge ${organization.chatPlan?.toUpperCase()} membership renewal charge for a superseded cycle (credits not reset)`,
+			});
+			logger.warn(
+				`Skipped stale chat plan renewal invoice ${invoice.id} for organization ${organizationId}: invoice period ends ${new Date(renewedPeriodEnd * 1000).toISOString()} but the current cycle ends ${organization.chatPlanExpiresAt.toISOString()} — the customer was charged for a cycle replaced by a mid-cycle upgrade; consider a refund`,
+			);
+			return;
+		}
+
 		const creditsLimit = getChatPlanCreditsLimit(
 			organization.chatPlan as ChatPlanTier,
 		);
@@ -3814,7 +3976,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 				status: "completed",
 				stripePaymentIntentId: (invoice as any).payment_intent,
 				stripeInvoiceId: invoice.id,
-				description: `Chat Plan ${organization.chatPlan?.toUpperCase()} renewed`,
+				description: `Lounge ${organization.chatPlan?.toUpperCase()} membership renewed`,
 			})
 			.returning();
 
@@ -3841,7 +4003,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 				...billingDetails,
 				lineItems: [
 					{
-						description: `Chat Plan ${organization.chatPlan?.toUpperCase()} renewal ($${creditsLimit} credits included)`,
+						description: `Lounge ${organization.chatPlan?.toUpperCase()} membership renewal ($${creditsLimit} credits included)`,
 						amount: invoice.amount_paid / 100,
 					},
 				],
@@ -3879,13 +4041,71 @@ export async function handleInvoicePaymentSucceeded(event: {
 			);
 		}
 	} else if (isDevPlanRenewal) {
+		// The renewal invoice's line items cover the upcoming period, so the
+		// latest line period end is the new `current_period_end` (= next renewal
+		// date).
+		const renewedPeriodEnd = invoice.lines.data.reduce(
+			(max, line) => Math.max(max, line.period?.end ?? 0),
+			0,
+		);
+
+		// Staleness guard: Stripe drafts the cycle-renewal invoice at the period
+		// boundary but only finalizes and charges it about an hour later. An
+		// immediate tier upgrade inside that window re-anchors the billing cycle
+		// (`billing_cycle_anchor: "now"`), pushing the org's expiry past this
+		// invoice's period end — the cycle this invoice bills no longer exists.
+		// Applying the renewal reset here would wipe the freshly purchased
+		// allowance and prematurely apply any pending tier change, so record the
+		// payment for the audit trail (it's a refund candidate) and leave org
+		// state untouched. The upgrade path voids pending cycle invoices before
+		// re-anchoring; this is the backstop for a charge that slipped through.
+		if (
+			renewedPeriodEnd > 0 &&
+			organization.devPlanExpiresAt &&
+			renewedPeriodEnd * 1000 <
+				organization.devPlanExpiresAt.getTime() - STALE_RENEWAL_TOLERANCE_MS
+		) {
+			await db.insert(tables.transaction).values({
+				organizationId,
+				type: "dev_plan_renewal",
+				amount: (invoice.amount_paid / 100).toString(),
+				currency: invoice.currency.toUpperCase(),
+				status: "completed",
+				stripePaymentIntentId: (invoice as any).payment_intent,
+				stripeInvoiceId: invoice.id,
+				description: `Dev Plan ${organization.devPlan?.toUpperCase()} renewal charge for a superseded cycle (credits not reset)`,
+			});
+			logger.warn(
+				`Skipped stale dev plan renewal invoice ${invoice.id} for organization ${organizationId}: invoice period ends ${new Date(renewedPeriodEnd * 1000).toISOString()} but the current cycle ends ${organization.devPlanExpiresAt.toISOString()} — the customer was charged for a cycle replaced by a mid-cycle upgrade; consider a refund`,
+			);
+			return;
+		}
+
 		// A scheduled tier change (downgrade, or an upgrade deferred to renewal)
-		// takes effect now, at the renewal boundary: the tier the user selected
-		// mid-cycle becomes the active plan for the new period. When there's no
-		// pending change this is just the current tier. The credit allotment and
-		// the tier we persist below both follow this effective tier.
-		const effectiveTier = (organization.devPlanPendingTier ??
+		// normally takes effect now, at the renewal boundary: the tier the user
+		// selected mid-cycle becomes the active plan for the new period. But the
+		// invoice is the source of truth for what the customer was charged:
+		// Stripe drafts the cycle-renewal invoice at the period boundary, so a
+		// change scheduled after drafting (but before the invoice is paid — the
+		// window is hours to days under dunning) swaps the subscription price
+		// without touching this invoice, which still bills the old tier. Granting
+		// the pending tier then mismatches the charge (e.g. billed the MAX price,
+		// granted PRO credits). So grant the tier the invoice billed and carry
+		// the pending change to the next renewal, whose invoice bills the swapped
+		// price. When no line matches a known dev plan price, fall back to the
+		// pending tier as before.
+		const billedTier = getDevPlanTierFromInvoice(invoice);
+		const scheduledTier = organization.devPlanPendingTier as DevPlanTier | null;
+		const effectiveTier = (billedTier ??
+			scheduledTier ??
 			organization.devPlan) as DevPlanTier;
+		const remainingPendingTier =
+			scheduledTier && scheduledTier !== effectiveTier ? scheduledTier : null;
+		if (remainingPendingTier) {
+			logger.warn(
+				`Dev plan renewal invoice ${invoice.id} for organization ${organizationId} billed tier ${effectiveTier}, but a change to ${remainingPendingTier} was scheduled after the invoice was drafted; granting the billed tier and deferring the change to the next renewal`,
+			);
+		}
 		const creditsLimit = getDevPlanCreditsLimit(effectiveTier);
 
 		// Create transaction record for dev plan renewal
@@ -3927,27 +4147,18 @@ export async function handleInvoicePaymentSucceeded(event: {
 			);
 		}
 
-		// The renewal invoice's line items cover the upcoming period, so the
-		// latest line period end is the new `current_period_end` (= next renewal
-		// date). Record it alongside the cycle reset so the dashboard reflects the
-		// new schedule immediately rather than waiting for the follow-up
-		// `customer.subscription.updated` event.
-		const renewedPeriodEnd = invoice.lines.data.reduce(
-			(max, line) => Math.max(max, line.period?.end ?? 0),
-			0,
-		);
-
 		// Reset credits used and update billing cycle start. Also reset the
 		// limit to the full tier allotment: mid-cycle upgrades leave the limit
 		// above it (unused-credit rollover), and that rollover only lasts until
-		// this renewal. Persist the effective tier and clear the pending
-		// downgrade so a scheduled downgrade becomes the active plan now. Clear
-		// any dunning freeze state since the limit is now authoritative again.
+		// this renewal. Persist the effective tier; a pending change is cleared
+		// when this renewal applied it, and kept when the invoice billed the old
+		// tier (it applies at the next renewal instead). Clear any dunning freeze
+		// state since the limit is now authoritative again.
 		await db
 			.update(tables.organization)
 			.set({
 				devPlan: effectiveTier,
-				devPlanPendingTier: null,
+				devPlanPendingTier: remainingPendingTier,
 				devPlanCreditsLimit: creditsLimit.toString(),
 				devPlanCreditsUsed: "0",
 				devPlanPremiumCreditsUsed: "0",
@@ -4153,7 +4364,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 					status: "completed",
 					stripePaymentIntentId: (invoice as any).payment_intent,
 					stripeInvoiceId: invoice.id,
-					description: `Chat Plan ${toTier.toUpperCase()} upgrade`,
+					description: `Lounge ${toTier.toUpperCase()} membership upgrade`,
 				})
 				.onConflictDoNothing()
 				.returning();
@@ -4185,7 +4396,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 					...billingDetails,
 					lineItems: [
 						{
-							description: `Chat Plan ${toTier.toUpperCase()} upgrade`,
+							description: `Lounge ${toTier.toUpperCase()} membership upgrade`,
 							amount: invoice.amount_paid / 100,
 						},
 					],
@@ -4211,6 +4422,25 @@ export async function handleInvoicePaymentSucceeded(event: {
 		// plan and email a Pro invoice.
 		logger.info(
 			`Skipping non-renewal chat plan invoice for organization ${organizationId} (billingReason: ${invoice.billing_reason})`,
+		);
+	} else if (isInitialChatPlanSubscription) {
+		// First invoice of a new Lounge membership, delivered before its
+		// `checkout.session.completed`. Skip it: the checkout handler owns the
+		// activation (including the duplicate-card check) and records the
+		// `chat_plan_start` row keyed on this same invoice id. Falling through to
+		// the Pro handler instead used to write a `subscription_start` row against
+		// the chat org, which the checkout handler then skipped as "already
+		// recorded" — leaving the membership with a payment row that is not a
+		// self-refund candidate, so the member never saw a Refund button.
+		logger.info(
+			`Skipping initial chat plan invoice ${invoice.id} for organization ${organizationId}; checkout.session.completed records it`,
+		);
+	} else if (organization.kind !== "default") {
+		// Pro is only sold to regular dashboard orgs; devpass/chat orgs use their
+		// product-specific plan fields. Mirrors the same guard in the checkout
+		// handler so a stray subscription invoice can never flip them to "pro".
+		logger.warn(
+			`Skipping plan: "pro" for ${organization.kind} org ${organizationId} (invoice ${invoice.id}) - non-default orgs use product-specific plan fields`,
 		);
 	} else {
 		// Handle regular pro subscription
@@ -4613,7 +4843,7 @@ export async function handleSubscriptionUpdated(
 				type: "chat_plan_cancel",
 				currency: "USD",
 				status: "completed",
-				description: `Chat Plan ${organization.chatPlan?.toUpperCase()} cancelled`,
+				description: `Lounge ${organization.chatPlan?.toUpperCase()} membership cancelled`,
 			});
 
 			const cancelEmail =
@@ -4663,6 +4893,17 @@ export async function handleSubscriptionUpdated(
 		}
 
 		if (isSubscriptionActive && wasChatPlanCancelled) {
+			// Mirror of the `chat_plan_cancel` row above: without it a
+			// cancel/resume/cancel flip-flop reads as a run of bare cancels in the
+			// subscription history.
+			await db.insert(tables.transaction).values({
+				organizationId,
+				type: "chat_plan_resume",
+				currency: "USD",
+				status: "completed",
+				description: `Lounge ${organization.chatPlan?.toUpperCase()} membership resumed`,
+			});
+
 			posthog.capture({
 				distinctId: "organization",
 				event: "chat_plan_reactivated",
@@ -4675,6 +4916,20 @@ export async function handleSubscriptionUpdated(
 					source: "stripe_subscription_updated",
 				},
 			});
+			const resumeEmail =
+				(metadata?.userEmail as string | undefined) ??
+				organization.billingEmail;
+			if (resumeEmail) {
+				const resumeUser = await db.query.user.findFirst({
+					where: { email: { eq: resumeEmail } },
+				});
+				await notifyChatPlanResumed(
+					resumeEmail,
+					resumeUser?.name,
+					organization.chatPlan ?? "unknown",
+				);
+			}
+
 			logger.info(
 				`Reactivated chat plan subscription for organization ${organizationId}`,
 			);
@@ -4764,6 +5019,17 @@ export async function handleSubscriptionUpdated(
 
 		// Track dev plan reactivation if it was previously cancelled and is now active
 		if (isSubscriptionActive && wasDevPlanCancelled) {
+			// Mirror of the `dev_plan_cancel` row above: without it a
+			// cancel/resume/cancel flip-flop reads as a run of bare cancels in the
+			// subscription history.
+			await db.insert(tables.transaction).values({
+				organizationId,
+				type: "dev_plan_resume",
+				currency: "USD",
+				status: "completed",
+				description: `Dev Plan ${organization.devPlan?.toUpperCase()} resumed`,
+			});
+
 			posthog.capture({
 				distinctId: "organization",
 				event: "dev_plan_reactivated",
@@ -4776,6 +5042,20 @@ export async function handleSubscriptionUpdated(
 					source: "stripe_subscription_updated",
 				},
 			});
+			const resumeEmail =
+				(metadata?.userEmail as string | undefined) ??
+				organization.billingEmail;
+			if (resumeEmail) {
+				const resumeUser = await db.query.user.findFirst({
+					where: { email: { eq: resumeEmail } },
+				});
+				await notifyDevPlanResumed(
+					resumeEmail,
+					resumeUser?.name,
+					organization.devPlan ?? "unknown",
+				);
+			}
+
 			logger.info(
 				`Reactivated dev plan subscription for organization ${organizationId}`,
 			);
@@ -4915,7 +5195,7 @@ export async function handleSubscriptionDeleted(
 			type: "chat_plan_end",
 			currency: "USD",
 			status: "completed",
-			description: `Chat Plan ${previousChatPlan?.toUpperCase()} ended`,
+			description: `Lounge ${previousChatPlan?.toUpperCase()} membership ended`,
 		});
 
 		await db
@@ -4937,7 +5217,7 @@ export async function handleSubscriptionDeleted(
 		await sendTransactionalEmail({
 			to: organization.billingEmail,
 			organizationId: organization.id,
-			subject: "Your LLMGateway Chat Plan Has Been Cancelled",
+			subject: "Your Lounge Membership Has Been Cancelled",
 			html: generateSubscriptionCancelledEmailHtml(organization.name),
 		});
 

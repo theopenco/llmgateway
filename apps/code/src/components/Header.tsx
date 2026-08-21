@@ -4,6 +4,8 @@ import { Menu, X } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
+import { ThemeToggle } from "@/components/landing/theme-toggle";
+import { RunwarePromoBanner } from "@/components/RunwarePromoBanner";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/ui/logo";
 import { useUser } from "@/hooks/useUser";
@@ -17,6 +19,7 @@ export function Header() {
 
 	return (
 		<header className="border-b border-border/50">
+			<RunwarePromoBanner />
 			<div className="container mx-auto px-4 py-4 flex items-center justify-between">
 				<div className="flex items-center gap-2">
 					<Link href="/" className="flex items-center gap-2">
@@ -57,6 +60,7 @@ export function Header() {
 							Docs
 						</a>
 					</Button>
+					<ThemeToggle size="compact" />
 					{isAuthenticated ? (
 						<Button size="sm" asChild>
 							<Link href="/dashboard">Dashboard</Link>
@@ -130,6 +134,7 @@ export function Header() {
 					>
 						Docs
 					</a>
+					<ThemeToggle size="compact" />
 					{isAuthenticated ? (
 						<Button size="sm" className="w-full" asChild>
 							<Link href="/dashboard" onClick={() => setMenuOpen(false)}>

@@ -19,6 +19,15 @@ export const toolFunction = z.object({
 export const functionTool = z.object({
 	type: z.literal("function"),
 	function: toolFunction,
+	// Recorded as sent: it is why the tool stayed out of the cached prompt
+	// prefix on an Anthropic upstream.
+	defer_loading: z.boolean().optional(),
+});
+
+export const toolSearchTool = z.object({
+	type: z.literal("tool_search"),
+	tool_search_type: z.string(),
+	name: z.string().optional(),
 });
 
 export const webSearchTool = z.object({
@@ -35,7 +44,7 @@ export const webSearchTool = z.object({
 	max_uses: z.number().optional(),
 });
 
-export const tool = z.union([functionTool, webSearchTool]);
+export const tool = z.union([functionTool, webSearchTool, toolSearchTool]);
 
 export const toolChoice = z.union([
 	z.literal("none"),
@@ -46,6 +55,11 @@ export const toolChoice = z.union([
 		function: z.object({
 			name: z.string(),
 		}),
+	}),
+	// Recorded as sent: it is why a search-on-demand-only provider was routable
+	// for this request, and why a web search was billed.
+	z.object({
+		type: z.literal("web_search"),
 	}),
 ]);
 
@@ -67,14 +81,12 @@ type ProjectBase = InferSelectModel<typeof tables.project>;
 type OrganizationBase = InferSelectModel<typeof tables.organization>;
 type UserBase = InferSelectModel<typeof tables.user>;
 type ApiKeyIamRuleBase = InferSelectModel<typeof tables.apiKeyIamRule>;
+type UserIamRuleBase = InferSelectModel<typeof tables.userIamRule>;
 
 export type ApiKey = Omit<ApiKeyBase, "status" | "keyType"> & {
 	status: "active" | "inactive" | "deleted" | null;
 	keyType:
-		| "user"
-		| "platform_secret"
-		| "platform_publishable"
-		| "end_user_customer";
+		"user" | "platform_secret" | "platform_publishable" | "end_user_customer";
 };
 
 export type EndCustomer = Omit<
@@ -100,12 +112,7 @@ export type WalletLedger = Omit<
 	"type"
 > & {
 	type:
-		| "topup"
-		| "bonus"
-		| "usage_debit"
-		| "refund"
-		| "adjustment"
-		| "reversal";
+		"topup" | "bonus" | "usage_debit" | "refund" | "adjustment" | "reversal";
 };
 
 export type WebhookEndpoint = Omit<
@@ -152,6 +159,19 @@ export type ApiKeyIamRule = Omit<ApiKeyIamRuleBase, "status" | "ruleType"> & {
 	status: "active" | "inactive";
 };
 
+export type UserIamRule = Omit<UserIamRuleBase, "status" | "ruleType"> & {
+	ruleType:
+		| "allow_models"
+		| "deny_models"
+		| "allow_pricing"
+		| "deny_pricing"
+		| "allow_providers"
+		| "deny_providers"
+		| "allow_ip_cidrs"
+		| "deny_ip_cidrs";
+	status: "active" | "inactive";
+};
+
 export type LogInsertData = Omit<
 	InferInsertModel<typeof tables.log>,
 	"id" | "createdAt" | "updatedAt"
@@ -164,15 +184,18 @@ export type SerializedOrganization = Omit<
 	| "createdAt"
 	| "updatedAt"
 	| "planExpiresAt"
+	| "planStartedAt"
 	| "stripeCustomerId"
 	| "stripeSubscriptionId"
 	| "subscriptionCancelled"
 	| "trialStartDate"
 	| "trialEndDate"
-	| "isTrialActive"
 	| "paymentFailureCount"
 	| "lastPaymentFailureAt"
 	| "paymentFailureStartedAt"
+	// Admin-only trust-tier pin; the dashboard reads the resolved tier from
+	// GET /orgs/{id}/limits instead.
+	| "trustTierOverride"
 	| "devPlanBillingCycleStart"
 	| "devPlanPremiumWeekStart"
 	| "devPlanStripeSubscriptionId"
@@ -193,10 +216,18 @@ export type SerializedOrganization = Omit<
 	| "endUserMarginBalance"
 	| "stripeConnectAccountId"
 	| "stripeConnectOnboarded"
+	// Only ever travels gateway -> provider; nothing in the dashboard needs it.
+	| "safetyIdentifier"
+	// Internal abuse-review state, surfaced in the admin dashboard only. The
+	// enforcement messages on top-up and inference already explain the block.
+	| "riskFlagged"
 > & {
 	createdAt: string;
 	updatedAt: string;
 	planExpiresAt: string | null;
+	planStartedAt: string | null;
+	trialStartDate: string | null;
+	trialEndDate: string | null;
 	devPlanBillingCycleStart: string | null;
 	devPlanPremiumWeekStart: string | null;
 	devPlanExpiresAt: string | null;
@@ -229,6 +260,14 @@ export type SerializedApiKey = Omit<
 
 export type SerializedApiKeyIamRule = Omit<
 	ApiKeyIamRule,
+	"createdAt" | "updatedAt"
+> & {
+	createdAt: string;
+	updatedAt: string;
+};
+
+export type SerializedUserIamRule = Omit<
+	UserIamRule,
 	"createdAt" | "updatedAt"
 > & {
 	createdAt: string;

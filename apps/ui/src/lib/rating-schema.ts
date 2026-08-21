@@ -12,9 +12,9 @@ export interface ModelRatingsData {
 export function hasFullRatingData(ratings: ModelRatingsData | null) {
 	return Boolean(
 		ratings &&
-			ratings.ratingCount > 0 &&
-			ratings.averageRating &&
-			ratings.reviews.length > 0,
+		ratings.ratingCount > 0 &&
+		ratings.averageRating &&
+		ratings.reviews.length > 0,
 	);
 }
 

@@ -5,6 +5,7 @@
 ## Key pages
 
 - [Models](https://llmgateway.io/models): Full catalog of supported LLMs with pricing, context windows, and capabilities.
+- [LLM Rankings](https://llmgateway.io/rankings): Which models developers actually run in production — live token volume, trends, and provider market share over 24h/7d/30d windows.
 - [Model release timeline](https://llmgateway.io/timeline): When each LLM was released by its provider and when it was added to LLM Gateway — a reference for AI model release dates (GPT, Claude, Gemini, Llama, Mistral, DeepSeek).
 - [Pricing](https://llmgateway.io/pricing): Per-token at provider rates. Pay-as-you-go credits carry a flat 5% platform fee; Bring-Your-Own-Keys is free; enterprise plans available.
 - [Pricing (machine-readable)](https://llmgateway.io/pricing.md): Plain-markdown pricing summary for AI agents.
@@ -13,6 +14,7 @@
 - [Compare](https://llmgateway.io/compare/open-router): How LLM Gateway compares to OpenRouter, LiteLLM, Portkey, the Vercel AI Gateway, and GitHub Copilot.
 - [GitHub Copilot cost calculator](https://llmgateway.io/copilot-cost-calculator): Estimate a team's monthly Copilot AI Credits bill under the June 2026 usage-based billing and compare the same workload at pass-through token prices with prompt caching.
 - [Migrate from GitHub Copilot](https://llmgateway.io/migration/github-copilot): Map Copilot chat, agent mode, and code review to gateway-backed tools with hard budget caps.
+- [Migrate from OpenRouter](https://llmgateway.io/migration/openrouter): Same OpenAI-compatible API and model strings — swap the base URL and key, keep BYOK free, and self-host if you need prompts inside your own network.
 
 ## Best models by use case
 

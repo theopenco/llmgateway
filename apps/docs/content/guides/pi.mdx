@@ -10,6 +10,14 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 [Pi](https://pi.dev) is a minimal terminal-based coding agent that gives an AI full access to read, write, edit, and run shell commands in your project. By pointing Pi at LLM Gateway, you can use any of our 200+ models — GPT-5.5, Gemini 3.1 Pro, Claude Opus 4.7, DeepSeek V4, and more — with full cost tracking and caching.
 
+<Callout type="info">
+	**Using DevPass?** This integration also works with a
+	[DevPass](https://devpass.llmgateway.io) plan key. Use canonical model IDs
+	without a provider prefix (`claude-sonnet-4-5`, not
+	`anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on
+	coding plans; the gateway picks the provider for you.
+</Callout>
+
 ## Prerequisites
 
 - An LLM Gateway account with an API key

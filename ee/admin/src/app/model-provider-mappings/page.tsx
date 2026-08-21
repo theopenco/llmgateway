@@ -5,8 +5,10 @@ import { Suspense } from "react";
 
 import { MappingsTable } from "@/components/mappings-table";
 import { TimeWindowSelector } from "@/components/time-window-selector";
+import { TokenBreakdown } from "@/components/token-breakdown";
 import { Button } from "@/components/ui/button";
 import {
+	CATALOG_PAGE_WINDOW_DEFAULT,
 	pageWindowOptionsWithMinutes,
 	parsePageWindow,
 	windowToFromTo,
@@ -63,7 +65,10 @@ export default async function ModelProviderMappingsPage({
 	const search = params?.search ?? "";
 	const sortBy = (params?.sortBy as MappingSortBy) ?? "logsCount";
 	const sortOrder = (params?.sortOrder as SortOrder) ?? "desc";
-	const pageWindow = parsePageWindow(params?.window);
+	const pageWindow = parsePageWindow(
+		params?.window,
+		CATALOG_PAGE_WINDOW_DEFAULT,
+	);
 	const { from, to } = windowToFromTo(pageWindow);
 
 	const $api = await createServerApiClient();
@@ -163,6 +168,7 @@ export default async function ModelProviderMappingsPage({
 						<p className="text-xl font-semibold tabular-nums">
 							{formatCompactNumber(totalTokens)}
 						</p>
+						<TokenBreakdown breakdown={data} short className="mt-0.5" />
 					</div>
 					<div>
 						<span className="text-muted-foreground">Total Cost</span>

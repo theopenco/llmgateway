@@ -253,6 +253,63 @@ export function buildTimelineFaqs(
 	return faqs;
 }
 
+const monthYearFormatter = new Intl.DateTimeFormat("en-US", {
+	month: "long",
+	year: "numeric",
+	timeZone: "UTC",
+});
+
+export interface TimelineMonthSummary {
+	/** e.g. "August 2026" */
+	label: string;
+	year: string;
+	/** False when no model has shipped yet this month and we fell back. */
+	isCurrentMonth: boolean;
+	models: TimelineModel[];
+	providerCount: number;
+}
+
+/**
+ * Models released in the month containing `now`, newest first, for the hub's
+ * month answer block. Falls back to the month of the most recent release so
+ * the section never renders empty in the first days of a new month.
+ */
+export function getMonthSummary(
+	models: TimelineModel[],
+	now: Date,
+): TimelineMonthSummary | null {
+	const released = recentModels(models, models.length);
+	if (!released.length) {
+		return null;
+	}
+
+	const monthKey = (d: Date) =>
+		`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+	const currentKey = monthKey(now);
+	let monthModels = released.filter(
+		(model) => monthKey(new Date(model.releasedAt!)) === currentKey,
+	);
+
+	const isCurrentMonth = monthModels.length > 0;
+	const anchor = isCurrentMonth ? now : new Date(released[0].releasedAt!);
+	if (!isCurrentMonth) {
+		const fallbackKey = monthKey(anchor);
+		monthModels = released.filter(
+			(model) => monthKey(new Date(model.releasedAt!)) === fallbackKey,
+		);
+	}
+
+	const providers = new Set(monthModels.map((model) => model.providerName));
+
+	return {
+		label: monthYearFormatter.format(anchor),
+		year: String(anchor.getUTCFullYear()),
+		isCurrentMonth,
+		models: monthModels,
+		providerCount: providers.size,
+	};
+}
+
 export interface TimelineYearSummary {
 	year: string;
 	count: number;
@@ -379,3 +436,37 @@ export function buildYearFaqs(
 
 	return faqs;
 }
+
+const TIMELINE_BASE_URL = "https://llmgateway.io";
+
+/**
+ * Google validates a nested Dataset node (the `isPartOf` reference on a year
+ * page) exactly like a top-level one, so every Dataset we emit — nested or not
+ * — has to carry its own name, description, url, creator and license.
+ */
+export const DATASET_CREATOR = {
+	"@type": "Organization",
+	name: "LLM Gateway",
+	url: TIMELINE_BASE_URL,
+};
+
+export const DATASET_LICENSE = `${TIMELINE_BASE_URL}/legal/terms`;
+
+export const TIMELINE_DATASET_ID = `${TIMELINE_BASE_URL}/timeline#dataset`;
+
+export const TIMELINE_DATASET_NAME = "LLM Model Release Timeline";
+
+export const TIMELINE_DATASET_DESCRIPTION =
+	"A continuously updated dataset of large language model releases: the provider release date and the date each model was added to LLM Gateway.";
+
+/** Fully-specified reference to the parent timeline dataset. */
+export const TIMELINE_DATASET_REF = {
+	"@type": "Dataset",
+	"@id": TIMELINE_DATASET_ID,
+	name: TIMELINE_DATASET_NAME,
+	description: TIMELINE_DATASET_DESCRIPTION,
+	url: `${TIMELINE_BASE_URL}/timeline`,
+	creator: DATASET_CREATOR,
+	license: DATASET_LICENSE,
+	isAccessibleForFree: true,
+};

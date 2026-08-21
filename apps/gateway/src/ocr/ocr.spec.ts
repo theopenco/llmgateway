@@ -4,7 +4,7 @@ import { app } from "@/app.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 import { waitForLogs } from "@/test-utils/test-helpers.js";
 
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 
 const IMAGE_DOCUMENT = {
 	type: "image_url" as const,
@@ -13,6 +13,58 @@ const IMAGE_DOCUMENT = {
 
 describe("ocr", () => {
 	const harness = createGatewayApiTestHarness();
+
+	test("/v1/ocr does not persist payload when retention is disabled", async () => {
+		await db
+			.update(tables.organization)
+			.set({ retentionLevel: "none" })
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-ocr-retention-none",
+			token: "real-token-ocr-retention-none",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-ocr-retention-none",
+			token: "mistral-token",
+			provider: "mistral",
+			organizationId: "org-id",
+			baseUrl: harness.mockServerUrl,
+		});
+
+		const res = await app.request("/v1/ocr", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-ocr-retention-none",
+			},
+			body: JSON.stringify({
+				model: "mistral-ocr-latest",
+				document: {
+					type: "image_url",
+					image_url: "https://example.com/PAGES_3.png",
+				},
+			}),
+		});
+
+		expect(res.status).toBe(200);
+
+		const logs = await waitForLogs(1);
+		const ocrLog = logs.find(
+			(l) => l.usedModel === "mistral/mistral-ocr-latest",
+		);
+		expect(ocrLog).toBeDefined();
+		expect(ocrLog?.hasError).toBe(false);
+		expect(ocrLog?.finishReason).toBe("stop");
+		// Payload never reaches the database for a non-retaining org.
+		expect(ocrLog?.messages).toBeNull();
+		expect(ocrLog?.content).toBeNull();
+		expect(ocrLog?.reasoningContent).toBeNull();
+	});
 
 	test("/v1/ocr returns the OCR result and bills per page", async () => {
 		await db.insert(tables.apiKey).values({
@@ -48,6 +100,7 @@ describe("ocr", () => {
 
 		expect(res.status).toBe(200);
 		const json = await res.json();
+		expect(json.model).toBe("mistral/mistral-ocr-latest");
 		expect(Array.isArray(json.pages)).toBe(true);
 		expect(json.pages).toHaveLength(3);
 		expect(json.usage_info.pages_processed).toBe(3);

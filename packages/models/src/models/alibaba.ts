@@ -1,5 +1,23 @@
 import type { ModelDefinition } from "@/models.js";
 
+/**
+ * Preset system voices for the Qwen-Audio-3.0-TTS models, passed through 1:1
+ * as the upstream DashScope `voice` parameter. Each model only supports its
+ * own voice set (voices cannot be mixed between models), and the first entry
+ * is used as the default when the caller omits `voice`. The gateway validates
+ * `voice` against this allowlist, so only these system voices are accepted;
+ * Alibaba's cloned/custom voice ids are not supported through the speech
+ * endpoint today.
+ * Ref: https://help.aliyun.com/zh/model-studio/qwen-audio-tts-voice-list
+ */
+const QWEN_AUDIO_TTS_PLUS_VOICES = ["longanlingxin", "longanlufeng"];
+const QWEN_AUDIO_TTS_FLASH_VOICES = [
+	"longanhuan_v3.6",
+	"longjielidou_v3.6",
+	"loongeva_v3.6",
+	"loongjohn",
+];
+
 export const alibabaModels = [
 	{
 		id: "qwen-max",
@@ -61,6 +79,10 @@ export const alibabaModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				// Both declared regions are dead: Singapore answers 403 access_denied
+				// and Beijing 404 model_not_found, while plain `qwen-max` still serves
+				// in both.
+				deactivatedAt: new Date("2026-08-11"),
 			},
 		],
 	},
@@ -101,6 +123,7 @@ export const alibabaModels = [
 				],
 				regions: [
 					{ id: "singapore" },
+					{ id: "eu-frankfurt" },
 					{
 						id: "us-virginia",
 						inputPrice: "0.115e-6",
@@ -302,6 +325,52 @@ export const alibabaModels = [
 						],
 					},
 					{
+						id: "eu-frankfurt",
+						pricingTiers: [
+							{
+								name: "Up to 256K",
+								upToTokens: 256000,
+								inputPrice: "0.05e-6",
+								outputPrice: "0.4e-6",
+								cachedInputPrice: "0.01e-6",
+								cacheReadInputPrice: "0.005e-6",
+								cacheWriteInputPrice: "0.0625e-6",
+							},
+							{
+								name: "Over 256K",
+								upToTokens: Infinity,
+								inputPrice: "0.25e-6",
+								outputPrice: "2.0e-6",
+								cachedInputPrice: "0.05e-6",
+								cacheReadInputPrice: "0.025e-6",
+								cacheWriteInputPrice: "0.3125e-6",
+							},
+						],
+					},
+					{
+						id: "us-virginia",
+						pricingTiers: [
+							{
+								name: "Up to 256K",
+								upToTokens: 256000,
+								inputPrice: "0.05e-6",
+								outputPrice: "0.4e-6",
+								cachedInputPrice: "0.01e-6",
+								cacheReadInputPrice: "0.005e-6",
+								cacheWriteInputPrice: "0.0625e-6",
+							},
+							{
+								name: "Over 256K",
+								upToTokens: Infinity,
+								inputPrice: "0.25e-6",
+								outputPrice: "2.0e-6",
+								cachedInputPrice: "0.05e-6",
+								cacheReadInputPrice: "0.025e-6",
+								cacheWriteInputPrice: "0.3125e-6",
+							},
+						],
+					},
+					{
 						id: "cn-beijing",
 						inputPrice: "0.022e-6",
 						outputPrice: "0.216e-6",
@@ -361,6 +430,7 @@ export const alibabaModels = [
 				externalId: "qwen-omni-turbo",
 				inputPrice: "0.2e-6",
 				outputPrice: "0.8e-6",
+				regions: [{ id: "singapore" }, { id: "cn-beijing" }],
 				requestPrice: "0",
 				contextSize: 32768,
 				maxOutput: 8192,
@@ -425,6 +495,7 @@ export const alibabaModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-10-10"),
 			},
 		],
 	},
@@ -475,7 +546,6 @@ export const alibabaModels = [
 				jsonOutput: true,
 			},
 			{
-				// Cerebras: FP16/FP8 (weights only)
 				providerId: "cerebras",
 				test: "skip",
 				externalId: "qwen-3-235b-a22b-instruct-2507",
@@ -516,6 +586,7 @@ export const alibabaModels = [
 			{
 				providerId: "vertex-openai",
 				externalId: "qwen/qwen3-235b-a22b-instruct-2507-maas",
+				deactivatedAt: new Date("2026-10-21"),
 				inputPrice: "0.22e-6",
 				outputPrice: "0.88e-6",
 				requestPrice: "0",
@@ -539,6 +610,9 @@ export const alibabaModels = [
 			{
 				providerId: "nebius",
 				externalId: "Qwen/Qwen3-235B-A22B-Thinking-2507",
+				// Endpoint removed upstream: 404 "The model does not exist"
+				// (verified 2026-07-22)
+				deactivatedAt: new Date("2026-07-22"),
 				inputPrice: "0.2e-6",
 				outputPrice: "0.6e-6",
 				requestPrice: "0",
@@ -651,6 +725,9 @@ export const alibabaModels = [
 			{
 				providerId: "deepinfra",
 				externalId: "Qwen/Qwen3.5-9B",
+				// deepinfra hangs on reasoning + streaming requests
+				// (e2e 180s timeouts, verified 2026-07-21)
+				stability: "unstable",
 				inputPrice: "0.1e-6",
 				outputPrice: "0.15e-6",
 				requestPrice: "0",
@@ -675,10 +752,11 @@ export const alibabaModels = [
 			{
 				providerId: "nebius",
 				externalId: "Qwen/Qwen3-32B",
+				deactivatedAt: new Date("2026-08-31"),
 				inputPrice: "0.1e-6",
 				outputPrice: "0.3e-6",
 				requestPrice: "0",
-				contextSize: 32768,
+				contextSize: 40960,
 				maxOutput: 8192,
 				quantization: "fp8",
 				streaming: true,
@@ -687,7 +765,6 @@ export const alibabaModels = [
 				jsonOutput: true,
 			},
 			{
-				// Cerebras: FP16
 				providerId: "cerebras",
 				externalId: "qwen-3-32b",
 				inputPrice: "0.4e-6",
@@ -708,6 +785,23 @@ export const alibabaModels = [
 					"tool_choice",
 				],
 				deactivatedAt: new Date("2026-02-16"),
+			},
+			{
+				providerId: "scx-ai",
+				externalId: "Qwen3-32B",
+				inputPrice: "0.36e-6",
+				outputPrice: "0.87e-6",
+				requestPrice: "0",
+				contextSize: 32768,
+				maxOutput: 8192,
+				quantization: "bf16",
+				streaming: true,
+				reasoning: true,
+				// SCX omits reasoning content when the model responds with tool calls
+				reasoningOutput: "omit",
+				vision: false,
+				tools: true,
+				jsonOutput: true,
 			},
 		],
 	},
@@ -836,10 +930,11 @@ export const alibabaModels = [
 			{
 				providerId: "nebius",
 				externalId: "Qwen/Qwen2.5-VL-72B-Instruct",
-				inputPrice: "0.13e-6",
-				outputPrice: "0.4e-6",
+				deactivatedAt: new Date("2026-08-31"),
+				inputPrice: "0.25e-6",
+				outputPrice: "0.75e-6",
 				requestPrice: "0",
-				contextSize: 32768,
+				contextSize: 32000,
 				maxOutput: 8192,
 				quantization: "fp8",
 				streaming: true,
@@ -859,7 +954,7 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-vl-8b-instruct",
-				deactivatedAt: new Date("2026-07-11"),
+				deactivatedAt: new Date("2026-07-01"),
 				inputPrice: "0.08e-6",
 				outputPrice: "0.5e-6",
 				requestPrice: "0",
@@ -883,6 +978,9 @@ export const alibabaModels = [
 				providerId: "nebius",
 				stability: "unstable",
 				externalId: "Qwen/Qwen3-Coder-480B-A35B-Instruct",
+				// Endpoint removed upstream: 404 "The model does not exist"
+				// (verified 2026-07-22)
+				deactivatedAt: new Date("2026-07-22"),
 				inputPrice: "0.4e-6",
 				outputPrice: "1.8e-6",
 				requestPrice: "0",
@@ -909,8 +1007,8 @@ export const alibabaModels = [
 				providerId: "novita",
 				stability: "unstable",
 				externalId: "qwen/qwen3-coder-480b-a35b-instruct",
-				inputPrice: "0.3e-6",
-				outputPrice: "1.3e-6",
+				inputPrice: "0.38e-6",
+				outputPrice: "1.55e-6",
 				requestPrice: "0",
 				contextSize: 262144,
 				maxOutput: 65536,
@@ -923,6 +1021,7 @@ export const alibabaModels = [
 			{
 				providerId: "vertex-openai",
 				externalId: "qwen/qwen3-coder-480b-a35b-instruct-maas",
+				deactivatedAt: new Date("2026-10-21"),
 				inputPrice: "0.22e-6",
 				cachedInputPrice: "0.022e-6",
 				outputPrice: "1.8e-6",
@@ -1107,6 +1206,8 @@ export const alibabaModels = [
 				contextSize: 131072,
 				maxOutput: 32768,
 				reasoning: true,
+				reasoningMaxTokens: true,
+				reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh", "max"],
 				reasoningOutput: "omit",
 				streaming: true,
 				vision: false,
@@ -1129,7 +1230,7 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-next-80b-a3b-thinking",
-				deactivatedAt: new Date("2026-07-11"),
+				deactivatedAt: new Date("2026-07-01"),
 				inputPrice: "0.15e-6",
 				outputPrice: "1.5e-6",
 				requestPrice: "0",
@@ -1156,6 +1257,7 @@ export const alibabaModels = [
 			{
 				providerId: "nebius",
 				externalId: "Qwen/Qwen3-Next-80B-A3B-Thinking",
+				deactivatedAt: new Date("2026-08-31"),
 				inputPrice: "0.15e-6",
 				outputPrice: "1.2e-6",
 				requestPrice: "0",
@@ -1182,6 +1284,7 @@ export const alibabaModels = [
 			{
 				providerId: "vertex-openai",
 				externalId: "qwen/qwen3-next-80b-a3b-thinking-maas",
+				deactivatedAt: new Date("2026-10-21"),
 				// Vertex MaaS throttles this model's tiny concurrency quota (429
 				// RESOURCE_EXHAUSTED) even on single requests, flaking e2e
 				stability: "unstable",
@@ -1249,6 +1352,7 @@ export const alibabaModels = [
 			{
 				providerId: "vertex-openai",
 				externalId: "qwen/qwen3-next-80b-a3b-instruct-maas",
+				deactivatedAt: new Date("2026-10-21"),
 				inputPrice: "0.15e-6",
 				outputPrice: "1.2e-6",
 				requestPrice: "0",
@@ -1287,12 +1391,36 @@ export const alibabaModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-10-10"),
 			},
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-max",
+				// Novita tiers this model by prompt length; the flat fields below are
+				// the lowest tier for routing comparisons, actual billing uses
+				// pricingTiers (verified live 2026-08-18).
 				inputPrice: "0.845e-6",
 				outputPrice: "3.38e-6",
+				pricingTiers: [
+					{
+						name: "Up to 32,768 tokens",
+						upToTokens: 32768,
+						inputPrice: "0.845e-6",
+						outputPrice: "3.38e-6",
+					},
+					{
+						name: "32,768–131,072 tokens",
+						upToTokens: 131072,
+						inputPrice: "1.4e-6",
+						outputPrice: "5.64e-6",
+					},
+					{
+						name: "Over 131,072 tokens",
+						upToTokens: Infinity,
+						inputPrice: "2.11e-6",
+						outputPrice: "8.45e-6",
+					},
+				],
 				requestPrice: "0",
 				contextSize: 262144,
 				maxOutput: 65536,
@@ -1325,6 +1453,14 @@ export const alibabaModels = [
 				cacheWriteInputPrice: "3.125e-6",
 				regions: [
 					{ id: "singapore" },
+					{
+						id: "eu-frankfurt",
+						inputPrice: "1.65e-6",
+						outputPrice: "4.951e-6",
+						cachedInputPrice: "0.33e-6",
+						cacheReadInputPrice: "0.165e-6",
+						cacheWriteInputPrice: "2.0625e-6",
+					},
 					{ id: "us-virginia" },
 					{
 						id: "cn-beijing",
@@ -1339,12 +1475,22 @@ export const alibabaModels = [
 				contextSize: 1000000,
 				maxOutput: 65536,
 				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				reasoningMaxTokens: true,
 				reasoningOutput: "omit",
 				streaming: true,
 				vision: false,
 				tools: true,
 				webSearch: true,
+				webSearchForcedOnly: true,
 				webSearchPrice: "0.01",
 				jsonOutput: true,
 				// Qwen thinking models reject tool_choice "required" or object
@@ -1365,7 +1511,7 @@ export const alibabaModels = [
 				providerId: "novita",
 				externalId: "qwen/qwen3.7-max",
 				inputPrice: "1.25e-6",
-				cachedInputPrice: "0.125e-6",
+				cachedInputPrice: "0.25e-6",
 				outputPrice: "3.75e-6",
 				requestPrice: "0",
 				contextSize: 1000000,
@@ -1392,6 +1538,7 @@ export const alibabaModels = [
 			{
 				providerId: "granite",
 				externalId: "qwen3.7-max",
+				deactivatedAt: new Date("2026-08-21"),
 				inputPrice: "2.5e-6",
 				outputPrice: "7.5e-6",
 				cachedInputPrice: "0.5e-6",
@@ -1459,6 +1606,34 @@ export const alibabaModels = [
 				],
 				regions: [
 					{ id: "singapore" },
+					{
+						id: "eu-frankfurt",
+						inputPrice: "0.276e-6",
+						outputPrice: "1.101e-6",
+						cachedInputPrice: "0.0552e-6",
+						cacheReadInputPrice: "0.0276e-6",
+						cacheWriteInputPrice: "0.345e-6",
+						pricingTiers: [
+							{
+								name: "Up to 256K",
+								upToTokens: 256000,
+								inputPrice: "0.276e-6",
+								outputPrice: "1.101e-6",
+								cachedInputPrice: "0.0552e-6",
+								cacheReadInputPrice: "0.0276e-6",
+								cacheWriteInputPrice: "0.345e-6",
+							},
+							{
+								name: "Over 256K",
+								upToTokens: Infinity,
+								inputPrice: "0.826e-6",
+								outputPrice: "3.301e-6",
+								cachedInputPrice: "0.1652e-6",
+								cacheReadInputPrice: "0.0826e-6",
+								cacheWriteInputPrice: "1.0325e-6",
+							},
+						],
+					},
 					{ id: "us-virginia" },
 					{ id: "cn-beijing" },
 				],
@@ -1466,6 +1641,15 @@ export const alibabaModels = [
 				contextSize: 1000000,
 				maxOutput: 65536,
 				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				reasoningMaxTokens: true,
 				reasoningOutput: "omit",
 				streaming: true,
@@ -1473,6 +1657,216 @@ export const alibabaModels = [
 				tools: true,
 				jsonOutput: true,
 				// Qwen thinking models reject tool_choice "required" or object
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"tools",
+					"response_format",
+					"reasoning_effort",
+				],
+			},
+		],
+	},
+	{
+		id: "qwen3.7-flash",
+		name: "Qwen3.7 Flash",
+		description:
+			"Fast, cost-effective Qwen3.7 model with hybrid reasoning and tool calling for high-volume tasks.",
+		family: "alibaba",
+		releasedAt: new Date("2026-07-27"),
+		providers: [
+			{
+				providerId: "alibaba",
+				externalId: "qwen3.7-flash",
+				inputPrice: "0.03e-6",
+				outputPrice: "0.13e-6",
+				cachedInputPrice: "0.006e-6",
+				cacheReadInputPrice: "0.003e-6",
+				cacheWriteInputPrice: "0.0375e-6",
+				pricingTiers: [
+					{
+						name: "Up to 32K",
+						upToTokens: 32000,
+						inputPrice: "0.03e-6",
+						outputPrice: "0.13e-6",
+						cachedInputPrice: "0.006e-6",
+						cacheReadInputPrice: "0.003e-6",
+						cacheWriteInputPrice: "0.0375e-6",
+					},
+					{
+						name: "32K-256K",
+						upToTokens: 256000,
+						inputPrice: "0.10e-6",
+						outputPrice: "0.40e-6",
+						cachedInputPrice: "0.02e-6",
+						cacheReadInputPrice: "0.01e-6",
+						cacheWriteInputPrice: "0.125e-6",
+					},
+					{
+						name: "256K-1M",
+						upToTokens: 1000000,
+						inputPrice: "0.20e-6",
+						outputPrice: "0.80e-6",
+						cachedInputPrice: "0.04e-6",
+						cacheReadInputPrice: "0.02e-6",
+						cacheWriteInputPrice: "0.25e-6",
+					},
+				],
+				regions: [
+					{ id: "singapore" },
+					{ id: "eu-frankfurt" },
+					{ id: "us-virginia" },
+					{ id: "cn-beijing" },
+				],
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 65536,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				reasoningMaxTokens: true,
+				reasoningOutput: "omit",
+				streaming: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"tools",
+					"response_format",
+					"reasoning_effort",
+				],
+			},
+		],
+	},
+	{
+		id: "qwen3.8-max",
+		name: "Qwen3.8 Max",
+		description:
+			"Flagship 2.4-trillion-parameter MoE model in the Qwen3.8 series with native visual understanding, excelling at coding, professional work, and long-horizon autonomous agent tasks.",
+		family: "alibaba",
+		releasedAt: new Date("2026-08-02"),
+		providers: [
+			{
+				providerId: "alibaba",
+				externalId: "qwen3.8-max",
+				inputPrice: "2e-6",
+				outputPrice: "6e-6",
+				// Alibaba publishes off-ratio cache rates for this model: implicit hits
+				// are 0.125x and explicit hits 0.085x of input, not the usual 0.20x/0.10x
+				// (cache creation still follows 1.25x). Do not "correct" these to the ratio.
+				cachedInputPrice: "0.25e-6",
+				cacheReadInputPrice: "0.17e-6",
+				cacheWriteInputPrice: "2.5e-6",
+				regions: [
+					{ id: "singapore" },
+					{ id: "eu-frankfurt" },
+					{ id: "us-virginia" },
+					{ id: "cn-beijing" },
+				],
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 131072,
+				reasoning: true,
+				reasoningMaxTokens: true,
+				reasoningOutput: "omit",
+				streaming: true,
+				vision: true,
+				tools: true,
+				webSearch: true,
+				webSearchForcedOnly: true,
+				webSearchPrice: "0.01",
+				jsonOutput: true,
+				// Qwen thinking models reject tool_choice "required" or object
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"tools",
+					"response_format",
+					"reasoning_effort",
+				],
+			},
+			{
+				providerId: "novita",
+				externalId: "qwen/qwen3.8-max",
+				inputPrice: "2e-6",
+				cachedInputPrice: "0.25e-6",
+				outputPrice: "6e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 131072,
+				// novita accepts every reasoning_effort tier but none of them changes
+				// the deployment's behaviour (thinking stays on even for "none"), so
+				// no tier is declared and reasoning_effort is left out of
+				// supportedParameters below
+				reasoning: true,
+				reasoningOutput: "omit",
+				streaming: true,
+				vision: true,
+				tools: true,
+				// Qwen thinking models reject tool_choice "required" or object
+				supportedToolChoices: ["auto", "none"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				// novita's deployment 400s on the developer role
+				supportsDeveloperRole: false,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"tools",
+					"tool_choice",
+					"response_format",
+				],
+			},
+			{
+				providerId: "scx-ai-gp",
+				externalId: "qwen3.8-max",
+				inputPrice: "1.815e-6",
+				cachedInputPrice: "0.21e-6",
+				cacheReadInputPrice: "0.17e-6",
+				cacheWriteInputPrice: "2.5e-6",
+				outputPrice: "5.4461e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 131072,
+				reasoning: true,
+				reasoningMaxTokens: true,
+				reasoningOutput: "omit",
+				streaming: true,
+				vision: true,
+				tools: true,
+				webSearch: true,
+				webSearchForcedOnly: true,
+				webSearchPrice: "0.01",
+				jsonOutput: true,
 				supportedParameters: [
 					"temperature",
 					"max_tokens",
@@ -1559,6 +1953,33 @@ export const alibabaModels = [
 					"tool_choice",
 				],
 			},
+			{
+				providerId: "deepinfra",
+				externalId: "Qwen/Qwen3-VL-30B-A3B-Instruct",
+				inputPrice: "0.15e-6",
+				outputPrice: "0.60e-6",
+				requestPrice: "0",
+				contextSize: 262144,
+				maxOutput: 32768,
+				quantization: "fp8",
+				streaming: true,
+				vision: true,
+				tools: true,
+				// deepinfra appends a stray ] to tool call arguments on
+				// tool_choice "required" (~53% of calls malformed), so
+				// "required" coerces to "auto" via supportedToolChoices
+				supportedToolChoices: ["auto", "none", "function"],
+				jsonOutput: true,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"response_format",
+					"tools",
+					"tool_choice",
+				],
+			},
 		],
 	},
 	{
@@ -1571,7 +1992,7 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-vl-30b-a3b-thinking",
-				deactivatedAt: new Date("2026-07-11"),
+				deactivatedAt: new Date("2026-07-01"),
 				inputPrice: "0.2e-6",
 				outputPrice: "1e-6",
 				requestPrice: "0",
@@ -1673,8 +2094,12 @@ export const alibabaModels = [
 				externalId: "qwen3.5-397b-a17b",
 				inputPrice: "0.6e-6",
 				outputPrice: "3.6e-6",
+				// No eu-frankfurt: the model answers there, but takes ~120s even for a
+				// single token and returns garbage content, while other models on the
+				// same host reply in ~2s. Tool calls and JSON output never return.
 				regions: [
 					{ id: "singapore" },
+					{ id: "us-virginia" },
 					{
 						id: "cn-beijing",
 						inputPrice: "0.172e-6",
@@ -1699,11 +2124,21 @@ export const alibabaModels = [
 				contextSize: 262144,
 				maxOutput: 65536,
 				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				reasoningMaxTokens: true,
 				streaming: true,
 				vision: true,
 				tools: true,
 				webSearch: true,
+				webSearchForcedOnly: true,
 				webSearchPrice: "0.01",
 				jsonOutput: true,
 				// Qwen thinking models reject tool_choice "required" or object
@@ -1774,6 +2209,69 @@ export const alibabaModels = [
 					"response_format",
 					"tools",
 				],
+			},
+		],
+	},
+	{
+		id: "qwen-image-3.0",
+		name: "Qwen Image 3.0",
+		description:
+			"Alibaba's third-generation Qwen image model for text-to-image generation and image editing with strong text rendering.",
+		family: "alibaba",
+		output: ["text", "image"],
+		releasedAt: new Date("2026-08-05"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "alibaba",
+				externalId: "qwen-image-3.0",
+				inputPrice: "0",
+				outputPrice: "0",
+				// Every resolution bills the same rate, so a single "default" tier
+				// covers all sizes; add explicit tier keys only if pricing splits.
+				perImagePrice: {
+					default: "0.03",
+				},
+				contextSize: 4500,
+				maxOutput: 4096,
+				streaming: false,
+				vision: true,
+				tools: false,
+				jsonOutput: false,
+				imageGenerations: true,
+			},
+		],
+	},
+	{
+		id: "qwen-image-3.0-pro",
+		name: "Qwen Image 3.0 Pro",
+		description:
+			"Alibaba's flagship third-generation Qwen image model for highest quality text-to-image generation and image editing.",
+		family: "alibaba",
+		output: ["text", "image"],
+		releasedAt: new Date("2026-08-05"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "alibaba",
+				externalId: "qwen-image-3.0-pro",
+				inputPrice: "0",
+				outputPrice: "0",
+				// The tier is billed on the served resolution DashScope reports in
+				// usage.output_image_type; "default" covers requests without a size,
+				// where the model auto-picks a resolution and serves 2K.
+				perImagePrice: {
+					"1K": "0.04",
+					"2K": "0.075",
+					default: "0.075",
+				},
+				contextSize: 4500,
+				maxOutput: 4096,
+				streaming: false,
+				vision: true,
+				tools: false,
+				jsonOutput: false,
+				imageGenerations: true,
 			},
 		],
 	},
@@ -1903,7 +2401,6 @@ export const alibabaModels = [
 						// QwQ models are officially stream-only per Alibaba docs:
 						// "Some models only support streaming calls: [...] the commercial
 						// and open-source versions of QwQ"
-						// Ref: https://www.alibabacloud.com/help/en/model-studio/stream
 						streaming: "only",
 					},
 				],
@@ -1933,7 +2430,7 @@ export const alibabaModels = [
 				externalId: "qwen-coder-plus",
 				inputPrice: "0.502e-6",
 				outputPrice: "1.004e-6",
-				regions: [{ id: "cn-beijing" }],
+				regions: [{ id: "singapore" }, { id: "cn-beijing" }],
 				requestPrice: "0",
 				contextSize: 131072,
 				maxOutput: 8192,
@@ -1962,6 +2459,47 @@ export const alibabaModels = [
 				regions: [
 					{
 						id: "singapore",
+						pricingTiers: [
+							{
+								name: "Up to 32K",
+								upToTokens: 32000,
+								inputPrice: "0.3e-6",
+								outputPrice: "1.5e-6",
+								cachedInputPrice: "0.06e-6",
+								cacheReadInputPrice: "0.03e-6",
+								cacheWriteInputPrice: "0.375e-6",
+							},
+							{
+								name: "32K-128K",
+								upToTokens: 128000,
+								inputPrice: "0.5e-6",
+								outputPrice: "2.5e-6",
+								cachedInputPrice: "0.1e-6",
+								cacheReadInputPrice: "0.05e-6",
+								cacheWriteInputPrice: "0.625e-6",
+							},
+							{
+								name: "128K-256K",
+								upToTokens: 256000,
+								inputPrice: "0.8e-6",
+								outputPrice: "4.0e-6",
+								cachedInputPrice: "0.16e-6",
+								cacheReadInputPrice: "0.08e-6",
+								cacheWriteInputPrice: "1.0e-6",
+							},
+							{
+								name: "Over 256K",
+								upToTokens: Infinity,
+								inputPrice: "1.6e-6",
+								outputPrice: "9.6e-6",
+								cachedInputPrice: "0.32e-6",
+								cacheReadInputPrice: "0.16e-6",
+								cacheWriteInputPrice: "2.0e-6",
+							},
+						],
+					},
+					{
+						id: "eu-frankfurt",
 						pricingTiers: [
 							{
 								name: "Up to 32K",
@@ -2122,6 +2660,38 @@ export const alibabaModels = [
 				regions: [
 					{
 						id: "singapore",
+						pricingTiers: [
+							{
+								name: "Up to 32K",
+								upToTokens: 32000,
+								inputPrice: "0.2e-6",
+								outputPrice: "1.6e-6",
+								cachedInputPrice: "0.04e-6",
+								cacheReadInputPrice: "0.02e-6",
+								cacheWriteInputPrice: "0.25e-6",
+							},
+							{
+								name: "32K-128K",
+								upToTokens: 128000,
+								inputPrice: "0.3e-6",
+								outputPrice: "2.4e-6",
+								cachedInputPrice: "0.06e-6",
+								cacheReadInputPrice: "0.03e-6",
+								cacheWriteInputPrice: "0.375e-6",
+							},
+							{
+								name: "128K-256K",
+								upToTokens: 256000,
+								inputPrice: "0.6e-6",
+								outputPrice: "4.8e-6",
+								cachedInputPrice: "0.12e-6",
+								cacheReadInputPrice: "0.06e-6",
+								cacheWriteInputPrice: "0.75e-6",
+							},
+						],
+					},
+					{
+						id: "eu-frankfurt",
 						pricingTiers: [
 							{
 								name: "Up to 32K",
@@ -2343,6 +2913,7 @@ export const alibabaModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-10-10"),
 			},
 		],
 	},
@@ -2379,6 +2950,29 @@ export const alibabaModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+			},
+			{
+				providerId: "deepinfra",
+				externalId: "Qwen/Qwen3-VL-235B-A22B-Instruct",
+				inputPrice: "0.20e-6",
+				outputPrice: "0.88e-6",
+				cachedInputPrice: "0.11e-6",
+				requestPrice: "0",
+				contextSize: 262144,
+				maxOutput: 32768,
+				quantization: "fp8",
+				streaming: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"stream",
+					"tools",
+					"response_format",
+				],
 			},
 		],
 	},
@@ -2442,6 +3036,10 @@ export const alibabaModels = [
 				vision: true,
 				tools: false,
 				jsonOutput: true,
+				// Model Studio answers 403 access_denied on both hosts that serve it
+				// (Singapore and Beijing) and 404s everywhere else, so no request can
+				// succeed on this mapping.
+				deactivatedAt: new Date("2026-08-11"),
 			},
 		],
 	},
@@ -2673,6 +3271,7 @@ export const alibabaModels = [
 					"tools",
 					"reasoning_effort",
 				],
+				deactivatedAt: new Date("2026-10-10"),
 			},
 		],
 	},
@@ -2690,16 +3289,36 @@ export const alibabaModels = [
 				inputPrice: "0.5e-6",
 				outputPrice: "3e-6",
 				cachedInputPrice: "0.05e-6",
-				regions: [{ id: "singapore" }],
+				regions: [
+					{ id: "singapore" },
+					{
+						id: "eu-frankfurt",
+						inputPrice: "0.276e-6",
+						outputPrice: "1.651e-6",
+						cachedInputPrice: "0.0276e-6",
+					},
+					{ id: "us-virginia" },
+					{ id: "cn-beijing" },
+				],
 				requestPrice: "0",
 				contextSize: 262144,
 				maxOutput: 65536,
 				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				reasoningMaxTokens: true,
 				streaming: true,
 				vision: true,
 				tools: true,
 				webSearch: true,
+				webSearchForcedOnly: true,
 				webSearchPrice: "0.01",
 				jsonOutput: true,
 				// Qwen thinking models reject tool_choice "required" or object
@@ -2731,16 +3350,31 @@ export const alibabaModels = [
 				externalId: "qwen3.6-35b-a3b",
 				inputPrice: "0.248e-6",
 				outputPrice: "1.485e-6",
-				regions: [{ id: "singapore" }],
+				regions: [
+					{ id: "singapore" },
+					{ id: "eu-frankfurt" },
+					{ id: "us-virginia" },
+					{ id: "cn-beijing" },
+				],
 				requestPrice: "0",
 				contextSize: 262144,
 				maxOutput: 65536,
 				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				reasoningMaxTokens: true,
 				streaming: true,
 				vision: true,
 				tools: true,
 				webSearch: true,
+				webSearchForcedOnly: true,
 				webSearchPrice: "0.01",
 				jsonOutput: true,
 				// Qwen thinking models reject tool_choice "required" or object
@@ -2789,28 +3423,114 @@ export const alibabaModels = [
 		id: "qwen3.6-flash",
 		name: "Qwen3.6 Flash",
 		description:
-			"Fast, cost-effective Qwen3.6 model with hybrid reasoning, tool calling, and a 262K context window for high-volume tasks.",
+			"Fast, cost-effective Qwen3.6 model with native vision-language capabilities, hybrid reasoning, tool calling, and a 1M context window for high-volume tasks.",
 		family: "alibaba",
 		releasedAt: new Date("2026-04-29"),
 		providers: [
 			{
 				providerId: "alibaba",
 				externalId: "qwen3.6-flash",
-				inputPrice: "0.15e-6",
-				outputPrice: "0.9e-6",
-				cachedInputPrice: "0.015e-6",
+				inputPrice: "0.25e-6",
+				outputPrice: "1.5e-6",
+				cachedInputPrice: "0.05e-6",
+				cacheReadInputPrice: "0.025e-6",
+				cacheWriteInputPrice: "0.3125e-6",
+				pricingTiers: [
+					{
+						name: "Up to 256K",
+						upToTokens: 256000,
+						inputPrice: "0.25e-6",
+						outputPrice: "1.5e-6",
+						cachedInputPrice: "0.05e-6",
+						cacheReadInputPrice: "0.025e-6",
+						cacheWriteInputPrice: "0.3125e-6",
+					},
+					{
+						name: "Over 256K",
+						upToTokens: Infinity,
+						inputPrice: "1.0e-6",
+						outputPrice: "4e-6",
+						cachedInputPrice: "0.2e-6",
+						cacheReadInputPrice: "0.1e-6",
+						cacheWriteInputPrice: "1.25e-6",
+					},
+				],
 				regions: [
 					{ id: "singapore" },
-					{ id: "us-virginia" },
-					{ id: "cn-beijing" },
+					{ id: "eu-frankfurt" },
+					{
+						id: "us-virginia",
+						inputPrice: "0.165e-6",
+						outputPrice: "0.99e-6",
+						cachedInputPrice: "0.033e-6",
+						cacheReadInputPrice: "0.0165e-6",
+						cacheWriteInputPrice: "0.20625e-6",
+						pricingTiers: [
+							{
+								name: "Up to 256K",
+								upToTokens: 256000,
+								inputPrice: "0.165e-6",
+								outputPrice: "0.99e-6",
+								cachedInputPrice: "0.033e-6",
+								cacheReadInputPrice: "0.0165e-6",
+								cacheWriteInputPrice: "0.20625e-6",
+							},
+							{
+								name: "Over 256K",
+								upToTokens: Infinity,
+								inputPrice: "0.66e-6",
+								outputPrice: "3.961e-6",
+								cachedInputPrice: "0.132e-6",
+								cacheReadInputPrice: "0.066e-6",
+								cacheWriteInputPrice: "0.825e-6",
+							},
+						],
+					},
+					{
+						id: "cn-beijing",
+						inputPrice: "0.165e-6",
+						outputPrice: "0.99e-6",
+						cachedInputPrice: "0.033e-6",
+						cacheReadInputPrice: "0.0165e-6",
+						cacheWriteInputPrice: "0.20625e-6",
+						pricingTiers: [
+							{
+								name: "Up to 256K",
+								upToTokens: 256000,
+								inputPrice: "0.165e-6",
+								outputPrice: "0.99e-6",
+								cachedInputPrice: "0.033e-6",
+								cacheReadInputPrice: "0.0165e-6",
+								cacheWriteInputPrice: "0.20625e-6",
+							},
+							{
+								name: "Over 256K",
+								upToTokens: Infinity,
+								inputPrice: "0.66e-6",
+								outputPrice: "3.961e-6",
+								cachedInputPrice: "0.132e-6",
+								cacheReadInputPrice: "0.066e-6",
+								cacheWriteInputPrice: "0.825e-6",
+							},
+						],
+					},
 				],
 				requestPrice: "0",
-				contextSize: 262144,
+				contextSize: 1000000,
 				maxOutput: 65536,
 				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				reasoningMaxTokens: true,
 				streaming: true,
-				vision: false,
+				vision: true,
 				tools: true,
 				jsonOutput: true,
 				// Qwen thinking models reject tool_choice "required" or object
@@ -2826,6 +3546,41 @@ export const alibabaModels = [
 					"tools",
 					"reasoning_effort",
 				],
+			},
+		],
+	},
+	{
+		id: "qwen3-embedding-8b",
+		name: "Qwen3 Embedding 8B",
+		description:
+			"Qwen3 embedding model with 32K context and configurable output dimensions (32–4096) via Matryoshka representation learning. No. 1 on the MTEB multilingual leaderboard as of June 2025 (score 70.58), supporting 100+ languages.",
+		family: "alibaba",
+		output: ["embedding"],
+		releasedAt: new Date("2025-06-05"),
+		providers: [
+			{
+				providerId: "nebius",
+				externalId: "Qwen/Qwen3-Embedding-8B",
+				inputPrice: "0.01e-6",
+				outputPrice: "0",
+				requestPrice: "0",
+				contextSize: 40960,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				embeddings: true,
+			},
+			{
+				providerId: "deepinfra",
+				externalId: "Qwen/Qwen3-Embedding-8B",
+				inputPrice: "0.01e-6",
+				outputPrice: "0",
+				requestPrice: "0",
+				contextSize: 32768,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				embeddings: true,
 			},
 		],
 	},
@@ -2864,6 +3619,131 @@ export const alibabaModels = [
 				],
 				supportsVideoAudio: true,
 				supportsVideoWithoutAudio: false,
+			},
+		],
+	},
+	{
+		id: "qwen-audio-3.0-tts-plus",
+		name: "Qwen-Audio-3.0-TTS Plus",
+		description:
+			"Alibaba's high-quality Qwen-Audio-3.0 text-to-speech model with natural prosody and contextually appropriate intonation across 16 languages. Generates speech via the /v1/audio/speech endpoint.",
+		family: "alibaba",
+		output: ["audio"],
+		releasedAt: new Date("2026-07-20"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "alibaba",
+				externalId: "qwen-audio-3.0-tts-plus",
+				inputPrice: "0",
+				outputPrice: "0",
+				inputCharacterPrice: "20e-6",
+				requestPrice: "0",
+				contextSize: 20000,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				speechGenerations: true,
+				supportedVoices: QWEN_AUDIO_TTS_PLUS_VOICES,
+			},
+		],
+	},
+	{
+		id: "qwen3-reranker-8b",
+		name: "Qwen3 Reranker 8B",
+		description:
+			"Qwen3 cross-encoder reranker with 32K context for search and RAG pipelines. Delivers accurate relevance scoring by jointly encoding query-document pairs. 8B size.",
+		family: "alibaba",
+		output: ["rerank"],
+		releasedAt: new Date("2025-06-06"),
+		providers: [
+			{
+				providerId: "deepinfra",
+				externalId: "Qwen/Qwen3-Reranker-8B",
+				inputPrice: "0.05e-6",
+				outputPrice: "0",
+				requestPrice: "0",
+				contextSize: 32768,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				rerank: true,
+			},
+		],
+	},
+	{
+		id: "qwen-audio-3.0-tts-flash",
+		name: "Qwen-Audio-3.0-TTS Flash",
+		description:
+			"Alibaba's low-latency Qwen-Audio-3.0 text-to-speech model optimized for real-time interaction across 16 languages. Generates speech via the /v1/audio/speech endpoint.",
+		family: "alibaba",
+		output: ["audio"],
+		releasedAt: new Date("2026-07-20"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "alibaba",
+				externalId: "qwen-audio-3.0-tts-flash",
+				inputPrice: "0",
+				outputPrice: "0",
+				inputCharacterPrice: "15e-6",
+				requestPrice: "0",
+				contextSize: 20000,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				speechGenerations: true,
+				supportedVoices: QWEN_AUDIO_TTS_FLASH_VOICES,
+			},
+		],
+	},
+	{
+		id: "qwen3-reranker-4b",
+		name: "Qwen3 Reranker 4B",
+		description:
+			"Mid-size Qwen3 cross-encoder reranker with 32K context, balancing speed and accuracy for document relevance scoring in search and RAG workloads. 4B size.",
+		family: "alibaba",
+		output: ["rerank"],
+		releasedAt: new Date("2025-06-06"),
+		providers: [
+			{
+				providerId: "deepinfra",
+				externalId: "Qwen/Qwen3-Reranker-4B",
+				inputPrice: "0.025e-6",
+				outputPrice: "0",
+				requestPrice: "0",
+				contextSize: 32768,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				rerank: true,
+				// DeepInfra scales this deployment to zero: a cold request blocks
+				// for ~50s before the first response, which exceeds the e2e timeout.
+				// The 0.6B and 8B deployments stay warm and respond in <1s.
+				stability: "unstable",
+			},
+		],
+	},
+	{
+		id: "qwen3-reranker-0.6b",
+		name: "Qwen3 Reranker 0.6B",
+		description:
+			"Lightweight Qwen3 cross-encoder reranker with 32K context for latency-sensitive search and RAG applications. Fast scoring at minimal cost. 0.6B size.",
+		family: "alibaba",
+		output: ["rerank"],
+		releasedAt: new Date("2025-06-06"),
+		providers: [
+			{
+				providerId: "deepinfra",
+				externalId: "Qwen/Qwen3-Reranker-0.6B",
+				inputPrice: "0.01e-6",
+				outputPrice: "0",
+				requestPrice: "0",
+				contextSize: 32768,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				rerank: true,
 			},
 		],
 	},

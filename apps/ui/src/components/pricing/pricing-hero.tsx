@@ -12,7 +12,7 @@ export function PricingHero() {
 						Pricing
 					</Badge>
 					<h1 className="text-3xl font-bold tracking-tighter sm:text-4xl md:text-5xl mb-4">
-						Simple, Transparent Pricing
+						Simple, Transparent LLM API Pricing
 					</h1>
 					<p className="text-xl text-muted-foreground">
 						Start free with no credit card. Pay only for what you use with

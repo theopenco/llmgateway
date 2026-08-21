@@ -5,7 +5,7 @@ import { models } from "@llmgateway/models";
 
 import { validateModelCapabilities } from "./validate-model-capabilities.js";
 
-import type { ModelDefinition } from "@llmgateway/models";
+import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
 
 function getModel(id: string): ModelDefinition {
 	const m = models.find((model) => model.id === id);
@@ -60,6 +60,82 @@ const textImageModel = (() => {
 	}
 	return m;
 })();
+
+// gemma-4-31b-it has runware (supportsAssistantPrefill: false) alongside
+// providers that accept a trailing assistant message.
+const mixedPrefillModel = getModel("gemma-4-31b-it");
+
+// JSON capability fixtures — looked up by capability combination so the tests
+// don't pin to a specific model id that may churn. Only chat-servable models
+// (text/image output) qualify; the "auto"/"custom" sentinel entries are
+// excluded.
+function getModelByJsonCapability(
+	kind: "none" | "soft" | "strict",
+): ModelDefinition {
+	const isChat = (m: ModelDefinition) =>
+		(m.output ?? ["text"]).some((o) => o === "text" || o === "image");
+	const m = (models as readonly ModelDefinition[]).find((model) => {
+		if (!isChat(model) || model.id === "auto" || model.id === "custom") {
+			return false;
+		}
+		const soft = model.providers.some(
+			(p) => (p as ProviderModelMapping).jsonOutput === true,
+		);
+		const strict = model.providers.some(
+			(p) => (p as ProviderModelMapping).jsonOutputSchema === true,
+		);
+		return kind === "none"
+			? !soft && !strict
+			: kind === "soft"
+				? soft && !strict
+				: strict;
+	});
+	if (!m) {
+		throw new Error(
+			`Test fixture missing: no model with JSON capability "${kind}"`,
+		);
+	}
+	return m;
+}
+
+describe("validateModelCapabilities - assistant prefill", () => {
+	it("rejects when the explicit provider rejects a trailing assistant message", () => {
+		expect(() =>
+			validateModelCapabilities(
+				mixedPrefillModel,
+				"gemma-4-31b-it",
+				"runware",
+				{ hasAssistantPrefill: true },
+			),
+		).toThrow(HTTPException);
+	});
+
+	it("allows when a sibling provider accepts a trailing assistant message", () => {
+		expect(() =>
+			validateModelCapabilities(
+				mixedPrefillModel,
+				"gemma-4-31b-it",
+				undefined,
+				{
+					hasAssistantPrefill: true,
+				},
+			),
+		).not.toThrow();
+	});
+
+	it("allows the same provider when the conversation does not end on an assistant turn", () => {
+		expect(() =>
+			validateModelCapabilities(
+				mixedPrefillModel,
+				"gemma-4-31b-it",
+				"runware",
+				{
+					hasAssistantPrefill: false,
+				},
+			),
+		).not.toThrow();
+	});
+});
 
 describe("validateModelCapabilities - vision", () => {
 	it("rejects when explicit provider does not support vision", () => {
@@ -278,6 +354,127 @@ describe("validateModelCapabilities - output capability", () => {
 				undefined,
 				{},
 			),
+		).not.toThrow();
+	});
+	describe("search-on-demand-only web search", () => {
+		// Every mapping on qwen3.8-max is DashScope-backed, so the model has no
+		// model-elected search anywhere to fall back to. Offering the tool is
+		// still a valid request: the caller gets an ordinary unsearched answer,
+		// exactly as they would from a model that chose not to search.
+		const forcedOnlyModel = getModel("qwen3.8-max");
+
+		it("accepts a merely offered web_search tool", () => {
+			expect(() =>
+				validateModelCapabilities(forcedOnlyModel, "qwen3.8-max", "alibaba", {
+					// Extraction pulls web_search out of `tools`, leaving it empty.
+					tools: [],
+					webSearchTool: { type: "web_search" },
+				}),
+			).not.toThrow();
+		});
+
+		it("accepts a forced web_search tool", () => {
+			expect(() =>
+				validateModelCapabilities(forcedOnlyModel, "qwen3.8-max", "alibaba", {
+					tools: [],
+					webSearchTool: { type: "web_search", forced: true },
+				}),
+			).not.toThrow();
+		});
+	});
+});
+
+describe("validateModelCapabilities - reasoning.max_tokens", () => {
+	const lingModel = getModel("ling-3.0-flash");
+	const nonBudgetModel = getModel("gpt-4o-mini");
+
+	it("rejects reasoning.max_tokens for models with no budget support", () => {
+		expect(() =>
+			validateModelCapabilities(nonBudgetModel, nonBudgetModel.id, undefined, {
+				reasoning_max_tokens: 2048,
+			}),
+		).toThrow(HTTPException);
+	});
+
+	it("allows reasoning.max_tokens on chatTemplateThinkingKey mappings (budget is dropped to a binary toggle)", () => {
+		expect(() =>
+			validateModelCapabilities(lingModel, lingModel.id, undefined, {
+				reasoning_max_tokens: 2048,
+			}),
+		).not.toThrow();
+	});
+
+	it("rejects reasoning.max_tokens on a provider with no thinking control (thinking is always on)", () => {
+		// Novita's Ling mapping has no chatTemplateThinkingKey and no
+		// reasoningMaxTokens — its backend ignores the chat-template flag, so a
+		// budget request is rejected rather than silently accepted.
+		expect(() =>
+			validateModelCapabilities(lingModel, lingModel.id, "novita", {
+				reasoning_max_tokens: 2048,
+			}),
+		).toThrow(HTTPException);
+	});
+});
+
+describe("validateModelCapabilities - JSON output", () => {
+	it("rejects json_object for a model without jsonOutput", () => {
+		const m = getModelByJsonCapability("none");
+		expect(() =>
+			validateModelCapabilities(m, m.id, undefined, {
+				response_format: { type: "json_object" },
+			}),
+		).toThrow(/does not support JSON output mode/);
+	});
+
+	it("accepts json_object for a soft-only model (jsonOutput true, schema false)", () => {
+		const m = getModelByJsonCapability("soft");
+		expect(() =>
+			validateModelCapabilities(m, m.id, undefined, {
+				response_format: { type: "json_object" },
+			}),
+		).not.toThrow();
+	});
+
+	it("rejects json_schema for a soft-only model — the gateway never emulates strict schema", () => {
+		const m = getModelByJsonCapability("soft");
+		expect(() =>
+			validateModelCapabilities(m, m.id, undefined, {
+				response_format: { type: "json_schema" },
+			}),
+		).toThrow(/does not support JSON schema output mode/);
+	});
+
+	it("accepts json_schema for a model with jsonOutputSchema true", () => {
+		const m = getModelByJsonCapability("strict");
+		expect(() =>
+			validateModelCapabilities(m, m.id, undefined, {
+				response_format: { type: "json_schema" },
+			}),
+		).not.toThrow();
+	});
+
+	it("rejects json_schema when the pinned provider is soft-only even if a sibling mapping is strict", () => {
+		// gpt-4o: openai is strict, azure is soft-only. The contract is
+		// per mapping, so pinning the soft-only provider must reject json_schema.
+		const m = getModel("gpt-4o");
+		expect(() =>
+			validateModelCapabilities(m, "gpt-4o", "azure", {
+				response_format: { type: "json_schema" },
+			}),
+		).toThrow(/does not support JSON schema output mode/);
+		expect(() =>
+			validateModelCapabilities(m, "gpt-4o", "openai", {
+				response_format: { type: "json_schema" },
+			}),
+		).not.toThrow();
+	});
+
+	it("accepts json_schema when pinning azure gpt-4o-mini (azure supports structured outputs)", () => {
+		const m = getModel("gpt-4o-mini");
+		expect(() =>
+			validateModelCapabilities(m, "gpt-4o-mini", "azure", {
+				response_format: { type: "json_schema" },
+			}),
 		).not.toThrow();
 	});
 });

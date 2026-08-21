@@ -9,6 +9,10 @@ export interface ModelBreakdownEntry {
 	outputTokens: number;
 	totalTokens: number;
 	cost: number;
+	creditsRequestCount: number;
+	apiKeysRequestCount: number;
+	creditsCost: number;
+	apiKeysCost: number;
 }
 
 export interface ActivityRow {
@@ -186,6 +190,10 @@ export interface DimensionEntry {
 	cost: number;
 	requestCount: number;
 	totalTokens: number;
+	creditsRequestCount: number;
+	apiKeysRequestCount: number;
+	creditsCost: number;
+	apiKeysCost: number;
 }
 
 export interface DimensionRow {
@@ -305,6 +313,126 @@ export function buildDimensionTimeseries(
 		series: topKeys.map((key) => ({ key, label: labelByKey.get(key) ?? key })),
 		data,
 	};
+}
+
+// --- Project activity → generic dimension rows ----------------------------
+// The org endpoint (/analytics/activity) already returns a generic `breakdown`,
+// but the project endpoint (/activity) returns one field per dimension. This
+// maps the latter onto DimensionRow so both feed the same cards.
+
+export const UNATTRIBUTED_KEY = "__unattributed__";
+export const UNATTRIBUTED_LABEL = "Unattributed";
+
+// Sub-cent rounding noise between the project rollup and the per-key rollup
+// should not render as a series.
+const RESIDUAL_EPSILON = 1e-9;
+
+export const UNATTRIBUTED_NOTE =
+	"Spend is attributed to the member who created the API key that made each request. Traffic from platform keys cannot be attributed to a member and is shown as Unattributed.";
+
+interface ProjectActivityRow {
+	date: string;
+	cost: number;
+	requestCount: number;
+	totalTokens: number;
+	modelBreakdown: ModelBreakdownEntry[];
+	apiKeyBreakdown: {
+		id: string;
+		description: string;
+		cost: number;
+		requestCount: number;
+		totalTokens: number;
+		creditsRequestCount: number;
+		apiKeysRequestCount: number;
+		creditsCost: number;
+		apiKeysCost: number;
+	}[];
+	userBreakdown: {
+		id: string;
+		name: string;
+		cost: number;
+		requestCount: number;
+		totalTokens: number;
+		creditsRequestCount: number;
+		apiKeysRequestCount: number;
+		creditsCost: number;
+		apiKeysCost: number;
+	}[];
+}
+
+/**
+ * Pass the rows through `applyUsageModeToDaily` first: the residual below is
+ * computed against the day's own `cost`, so both sides must already be
+ * normalized to the same billing mode.
+ */
+export function toDimensionRows(
+	activity: ProjectActivityRow[],
+	groupBy: "model" | "apiKey" | "user",
+	view: ModelView = "mapping",
+): DimensionRow[] {
+	return activity.map((row) => {
+		if (groupBy === "model") {
+			return {
+				date: row.date,
+				breakdown: row.modelBreakdown.map((entry) => ({
+					...entry,
+					key: modelKey(entry, view),
+					label: modelKey(entry, view),
+				})),
+			};
+		}
+
+		if (groupBy === "apiKey") {
+			return {
+				date: row.date,
+				breakdown: row.apiKeyBreakdown.map((entry) => ({
+					...entry,
+					key: entry.id,
+					label: entry.description,
+				})),
+			};
+		}
+
+		const breakdown: DimensionEntry[] = row.userBreakdown.map((entry) => ({
+			...entry,
+			key: entry.id,
+			label: entry.name,
+		}));
+
+		// Per-key rollups only cover "user" and "end_user_customer" keys, so a
+		// project driven by platform keys sums to less than its own total. Surface
+		// the difference instead of letting the breakdown quietly under-report.
+		//
+		// Each metric is tested independently: free-model platform traffic adds
+		// requests and tokens at zero cost, and gating on cost alone would drop it
+		// from the Requests and Tokens views.
+		const residualCost = row.cost - sum(breakdown, "cost");
+		const residualRequests = row.requestCount - sum(breakdown, "requestCount");
+		const residualTokens = row.totalTokens - sum(breakdown, "totalTokens");
+		if (
+			residualCost > RESIDUAL_EPSILON ||
+			residualRequests > 0 ||
+			residualTokens > 0
+		) {
+			breakdown.push({
+				key: UNATTRIBUTED_KEY,
+				label: UNATTRIBUTED_LABEL,
+				cost: Math.max(0, residualCost),
+				requestCount: Math.max(0, residualRequests),
+				totalTokens: Math.max(0, residualTokens),
+				creditsRequestCount: 0,
+				apiKeysRequestCount: 0,
+				creditsCost: 0,
+				apiKeysCost: 0,
+			});
+		}
+
+		return { date: row.date, breakdown };
+	});
+}
+
+function sum(entries: DimensionEntry[], metric: ChartMetric): number {
+	return entries.reduce((total, entry) => total + entry[metric], 0);
 }
 
 export function sanitizeKey(model: string): string {

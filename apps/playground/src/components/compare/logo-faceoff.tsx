@@ -16,7 +16,8 @@ export function UsTile({ size = 44, radius = 12, className }: TileProps) {
 				className,
 			)}
 			style={{ width: size, height: size, borderRadius: radius }}
-			aria-label="LLM Gateway Chat"
+			role="img"
+			aria-label="Lounge"
 		>
 			<Logo style={{ width: size * 0.42, height: size * 0.42 }} />
 		</div>
@@ -46,6 +47,7 @@ export function ThemTile({
 					className,
 				)}
 				style={{ width: size, height: size, borderRadius: radius }}
+				role="img"
 				aria-label={competitor}
 			>
 				<Icon style={{ width: size, height: size }} />
@@ -62,6 +64,7 @@ export function ThemTile({
 					className,
 				)}
 				style={{ width: size, height: size, borderRadius: radius }}
+				role="img"
 				aria-label={competitor}
 			>
 				<Icon
@@ -92,6 +95,7 @@ export function ThemTile({
 				borderRadius: radius,
 				fontSize: size * 0.32,
 			}}
+			role="img"
 			aria-label={competitor}
 		>
 			{initials}

@@ -2,27 +2,117 @@ import { describe, expect, it, vi } from "vitest";
 
 import { transformStreamingToOpenai } from "./transform-streaming-to-openai.js";
 
-const { warn } = vi.hoisted(() => ({
+const { warn, error } = vi.hoisted(() => ({
 	warn: vi.fn(),
+	error: vi.fn(),
 }));
 
 vi.mock("@llmgateway/cache", () => ({
 	redisClient: {
 		get: vi.fn(),
-		setex: vi.fn(),
+		// The caller chains .catch() on this, so it must be thenable.
+		setex: vi.fn(() => Promise.resolve("OK")),
 	},
 }));
 
 vi.mock("@llmgateway/logger", () => ({
 	logger: {
 		warn,
-		error: vi.fn(),
+		error,
 		debug: vi.fn(),
 		info: vi.fn(),
 	},
 }));
 
 describe("transformStreamingToOpenai", () => {
+	it("replaces upstream model ids with the canonical mapping", () => {
+		const result = transformStreamingToOpenai(
+			"deepinfra",
+			"deepinfra/deepseek-v4-flash",
+			{
+				id: "chatcmpl-123",
+				object: "chat.completion.chunk",
+				created: 1234567890,
+				model: "deepseek-ai/DeepSeek-V4-Flash-0731",
+				choices: [
+					{
+						index: 0,
+						delta: { content: "Hello" },
+						finish_reason: null,
+					},
+				],
+			},
+			[],
+		);
+
+		expect(result.model).toBe("deepinfra/deepseek-v4-flash");
+	});
+
+	it("does not warn for Permafrost OpenAI streaming chunks", () => {
+		warn.mockClear();
+
+		const result = transformStreamingToOpenai(
+			"permafrost",
+			"kimi-k3",
+			{
+				id: "chatcmpl_123",
+				object: "chat.completion.chunk",
+				model: "kimi-k3",
+				choices: [
+					{
+						index: 0,
+						delta: { content: "Hello" },
+						finish_reason: null,
+					},
+				],
+			},
+			[],
+		);
+
+		expect(result).toMatchObject({
+			id: "chatcmpl_123",
+			choices: [{ delta: { content: "Hello" } }],
+		});
+		expect(warn).not.toHaveBeenCalled();
+	});
+
+	it("generates a unique id per streamed google tool call", () => {
+		// The id is the `thought_signature:<id>` Redis key. A name+timestamp id
+		// collided whenever two callers invoked the same tool within the same
+		// millisecond, so one conversation could be served another's signature
+		// and Gemini rejected the turn ("Corrupted thought signature").
+		const chunk = () => ({
+			candidates: [
+				{
+					content: {
+						role: "model",
+						parts: [
+							{
+								functionCall: { name: "read_file", args: { path: "a.txt" } },
+								thoughtSignature: "sig-a",
+							},
+						],
+					},
+				},
+			],
+		});
+
+		const ids = Array.from({ length: 3 }, () => {
+			const result = transformStreamingToOpenai(
+				"google-ai-studio",
+				"gemini-3.5-flash",
+				chunk(),
+				[],
+			) as any;
+			return result.choices[0].delta.tool_calls[0].id as string;
+		});
+
+		expect(new Set(ids).size).toBe(3);
+		for (const id of ids) {
+			expect(id.startsWith("read_file_")).toBe(true);
+		}
+	});
+
 	it("maps Anthropic message_start usage with cache creation details", () => {
 		warn.mockClear();
 
@@ -416,6 +506,55 @@ describe("transformStreamingToOpenai", () => {
 		expect(result?.choices?.[0]?.delta?.content).toBe("Hi");
 	});
 
+	it("surfaces encrypted reasoning from output_item.done as reasoning_details", () => {
+		const result = transformStreamingToOpenai(
+			"openai",
+			"gpt-5.5",
+			{
+				type: "response.output_item.done",
+				output_index: 0,
+				item: {
+					type: "reasoning",
+					id: "rs_upstream",
+					summary: [{ type: "summary_text", text: "thinking..." }],
+					encrypted_content: "gAAAA-encrypted-blob",
+				},
+				sequence_number: 5,
+			},
+			[],
+		);
+
+		expect(result?.choices?.[0]?.delta?.reasoning_details).toEqual([
+			{
+				type: "reasoning.encrypted",
+				data: "gAAAA-encrypted-blob",
+				id: "rs_upstream",
+				format: "openai-responses-v1",
+				index: 0,
+			},
+		]);
+	});
+
+	it("emits a plain delta for output_item.done without encrypted reasoning", () => {
+		const result = transformStreamingToOpenai(
+			"openai",
+			"gpt-5.5",
+			{
+				type: "response.output_item.done",
+				output_index: 0,
+				item: {
+					type: "reasoning",
+					id: "rs_upstream",
+					summary: [{ type: "summary_text", text: "thinking..." }],
+				},
+				sequence_number: 5,
+			},
+			[],
+		);
+
+		expect(result?.choices?.[0]?.delta).toEqual({ role: "assistant" });
+	});
+
 	it("preserves Azure Responses API response.completed usage", () => {
 		const result = transformStreamingToOpenai(
 			"azure",
@@ -445,5 +584,192 @@ describe("transformStreamingToOpenai", () => {
 			reasoning_tokens: 9,
 		});
 		expect(result?.choices?.[0]?.finish_reason).toBe("stop");
+	});
+
+	it("preserves Google finishReason on a final chunk that also has text", () => {
+		const result = transformStreamingToOpenai(
+			"google-ai-studio",
+			"gemini-2.5-pro",
+			{
+				candidates: [
+					{
+						content: {
+							role: "model",
+							parts: [{ text: "Done." }],
+						},
+						finishReason: "STOP",
+						index: 0,
+					},
+				],
+				modelVersion: "gemini-2.5-pro",
+				responseId: "resp_final",
+			},
+			[],
+		);
+
+		expect(result).toMatchObject({
+			id: "resp_final",
+			choices: [
+				{
+					index: 0,
+					delta: { role: "assistant", content: "Done." },
+					finish_reason: "stop",
+				},
+			],
+		});
+	});
+
+	it("maps Google MAX_TOKENS on a final chunk that also has text", () => {
+		const result = transformStreamingToOpenai(
+			"google-vertex",
+			"gemini-2.5-pro",
+			{
+				candidates: [
+					{
+						content: {
+							role: "model",
+							parts: [{ text: "Partial answer" }],
+						},
+						finishReason: "MAX_TOKENS",
+						index: 0,
+					},
+				],
+			},
+			[],
+		);
+
+		expect(result?.choices?.[0]).toMatchObject({
+			delta: { role: "assistant", content: "Partial answer" },
+			finish_reason: "length",
+		});
+	});
+
+	it("keeps Google finish_reason null when a content chunk has no finishReason", () => {
+		const result = transformStreamingToOpenai(
+			"google-ai-studio",
+			"gemini-2.5-flash",
+			{
+				candidates: [
+					{
+						content: {
+							role: "model",
+							parts: [{ text: "Still streaming" }],
+						},
+						index: 0,
+					},
+				],
+			},
+			[],
+		);
+
+		expect(result?.choices?.[0]).toMatchObject({
+			delta: { role: "assistant", content: "Still streaming" },
+			finish_reason: null,
+		});
+	});
+
+	it("maps Google STOP to tool_calls on a final function-call chunk", () => {
+		const result = transformStreamingToOpenai(
+			"google-ai-studio",
+			"gemini-2.5-pro",
+			{
+				candidates: [
+					{
+						content: {
+							role: "model",
+							parts: [
+								{
+									functionCall: {
+										name: "get_weather",
+										args: { city: "Paris" },
+									},
+								},
+							],
+						},
+						finishReason: "STOP",
+						index: 0,
+					},
+				],
+			},
+			[],
+		);
+
+		expect(result?.choices?.[0]).toMatchObject({
+			delta: {
+				role: "assistant",
+				tool_calls: [
+					{
+						index: 0,
+						type: "function",
+						function: {
+							name: "get_weather",
+							arguments: JSON.stringify({ city: "Paris" }),
+						},
+					},
+				],
+			},
+			finish_reason: "tool_calls",
+		});
+	});
+
+	it("maps Google usage-only trailing chunk without logging", () => {
+		warn.mockClear();
+		error.mockClear();
+
+		const result = transformStreamingToOpenai(
+			"google-vertex",
+			"gemini-2.5-pro",
+			{
+				usageMetadata: {
+					promptTokenCount: 12,
+					candidatesTokenCount: 34,
+					totalTokenCount: 46,
+				},
+				modelVersion: "gemini-2.5-pro",
+				createTime: "2026-07-22T04:37:29.687Z",
+				responseId: "resp_abc",
+			},
+			[],
+		);
+
+		expect(result).toMatchObject({
+			id: "resp_abc",
+			object: "chat.completion.chunk",
+			model: "gemini-2.5-pro",
+			choices: [
+				{
+					index: 0,
+					delta: { role: "assistant" },
+					finish_reason: null,
+				},
+			],
+			usage: {
+				prompt_tokens: 12,
+				completion_tokens: 34,
+				total_tokens: 46,
+			},
+		});
+		expect(warn).not.toHaveBeenCalled();
+		expect(error).not.toHaveBeenCalled();
+	});
+
+	it("logs error for Google chunk with no candidates and no usage", () => {
+		warn.mockClear();
+		error.mockClear();
+
+		transformStreamingToOpenai(
+			"google-ai-studio",
+			"gemini-2.5-pro",
+			{
+				modelVersion: "gemini-2.5-pro",
+				responseId: "resp_def",
+			},
+			[],
+		);
+
+		expect(error).toHaveBeenCalledWith(
+			"[transform-streaming-to-openai] Google streaming chunk missing candidates",
+			expect.objectContaining({ hasCandidates: false }),
+		);
 	});
 });

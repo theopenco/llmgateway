@@ -14,18 +14,29 @@ API keys are the primary method for authenticating with the LLM Gateway. This gu
 
 LLM Gateway provides comprehensive API key management with the following features:
 
-- **Basic API Key Management**: Create, list, update, and delete API keys
+- **Basic API Key Management**: Create, list, rename, update, and delete API keys
 - **Usage Limits**: Set lifetime and recurring spending limits on individual API keys
 - **Expiration (TTL)**: Give a key a time-to-live so it disables itself automatically
+- **Rotation (Rolling)**: Replace a key's secret in place without losing its settings or history
 - **IAM Rules**: Fine-grained access control for models, providers, and pricing
 - **Usage Tracking**: Monitor API key usage and costs
 - **Status Management**: Enable/disable keys without deletion
 
+### Related key types
+
+This page covers gateway API keys (`llmgtwy_…`), the keys you send to the
+gateway as a bearer token. LLM Gateway also issues three other kinds of keys,
+each with its own page:
+
+| Key                                                   | What it is for                                                                         |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| [Master keys](/features/master-keys)                  | Manage projects, gateway API keys, IAM rules, and custom models programmatically       |
+| [Provider keys](/learn/provider-keys)                 | Bring your own upstream provider credentials so requests bill to your provider account |
+| [Platform secret keys](/features/embeddable-payments) | Mint end-user sessions from your backend when using the Payments SDK (`sk_…`)          |
+
 ## Creating API Keys
 
 ### Via Dashboard
-
-At this time, API keys can only be created via the dashboard.
 
 1. Navigate to your project in the LLM Gateway dashboard
 2. Go to the **API Keys** section
@@ -41,6 +52,30 @@ At this time, API keys can only be created via the dashboard.
 	store them securely.
 </Callout>
 
+### Programmatically
+
+Gateway API keys can also be created, listed, updated, and deleted without the
+dashboard using a [master key](/features/master-keys) — useful when you provision
+a key per customer or per environment from your own backend:
+
+```bash
+curl -X POST https://internal.llmgateway.io/v1/master/keys \
+  -H "Authorization: Bearer $MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "projectId": "proj_...",
+    "description": "Customer ACME — production key",
+    "periodUsageLimit": "10.00",
+    "periodUsageDurationValue": 1,
+    "periodUsageDurationUnit": "day"
+  }'
+```
+
+Usage limits and IAM rules can be configured through the master key API as well.
+Expiration (TTL) and rotation are currently dashboard-only. See the [master key
+API reference](/features/master-keys#create-a-gateway-api-key) for the full
+endpoint list.
+
 ## Using API Keys
 
 Once you have an API key, use it in the `Authorization` header of your requests:
@@ -55,9 +90,42 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   }'
 ```
 
+## Renaming API Keys
+
+A key's name is only a label, so you can change it at any time — from the
+dashboard, or with the `description` field on [`PATCH
+/v1/master/keys/{id}`](/features/master-keys#update-a-gateway-api-key) — without
+affecting the secret, its usage history, limits, or IAM rules.
+
 ## Disabling/Enabling API Keys
 
 You can disable an API key to stop it from being used, but the key is not deleted and can be re-enabled later.
+
+## Rotating (Rolling) API Keys
+
+Rolling a key generates a **new secret for the same key** and invalidates the old
+one immediately. Everything else about the key is preserved: its name, usage
+history and statistics, all-time and recurring limits (including the active
+period window), IAM rules, and expiration.
+
+Use this when a secret may have been exposed — in a commit, a log, a CI
+artifact, or a shared environment — and you want to cut off the leaked value
+without losing the key's spend tracking or access rules.
+
+1. Open the **API Keys** page and pick the key's actions menu
+2. Choose **Roll Key** and confirm
+3. Copy the new secret and update every client that used the old one
+
+<Callout type="warning">
+	The old secret stops working the moment the key is rolled, and the new secret
+	is shown only once. Roll during a window where you can update your clients
+	promptly.
+</Callout>
+
+Requests made with the old secret are rejected with a `401 Unauthorized`.
+Rolling is limited to regular gateway API keys — the auto-generated playground
+key cannot be rolled, and Payments SDK [platform secret
+keys](/features/embeddable-payments) have their own lifecycle.
 
 ## Expiration (TTL)
 
@@ -129,6 +197,8 @@ Control access to specific providers:
 - **Allow Providers**: Only allow access to specific providers
 - **Deny Providers**: Block access to specific providers
 
+Provider rules can also target your organization's own [custom providers](/features/custom-providers). The generic `custom` entry matches every custom provider, while a `custom:<name>` entry (offered in the selector for each of your custom providers) matches only the custom provider with that name. Model rules can likewise reference a custom-catalog model as `<name>/<model>`.
+
 #### Pricing Rules
 
 Control access based on model pricing:
@@ -158,6 +228,20 @@ The gateway reads the client IP from the first entry in the `X-Forwarded-For` he
 - **Allow rules of the same type are unioned**: a request passes if it matches _any_ of them. For example, one `allow_models` rule with `["claude-opus-4-6"]` and another with `["claude-fable-5"]` allow both models — exactly as if you had a single rule listing both.
 - **Allow rules of different types are combined with AND**: the request must satisfy every configured allow rule type (e.g. the model must be in the allowed models _and_ served by an allowed provider).
 - **Deny rules always apply**: a request matching any deny rule is rejected, regardless of allow rules.
+- **Moderation is special-cased**: `/v1/moderations` runs a fixed moderation model that cannot appear in model allowlists, so only provider and IP rules apply to it — model and pricing rules are skipped.
+
+## Member-Level IAM Rules
+
+The same rule types can also be configured **per organization member** by owners and admins on the [Team page](/learn/team) (admins cannot modify an owner's rules). Member-level rules act as an organization-wide ceiling for that member:
+
+- A request must pass **both** the member's rules and the API key's rules. Within each level, rules combine exactly as described above.
+- Key rules can only **narrow** access further — they can never grant anything the member's rules deny. For example, if an admin restricts a member to a single approved [provider](https://llmgateway.io/providers) with an `allow_providers` rule, the member can create a key rule allowing only a specific model from that provider, but a key rule allowing any other provider has no effect.
+- A key with **no rules of its own** is still fully constrained by its owner's member-level rules.
+- Member-level rules apply to all regular API keys created by that member, across every project in the organization.
+
+When a request is denied by a member-level rule, the `403` error message states that the restriction is an organization member IAM rule set by the org admin (rather than the key's own IAM configuration), so key holders know who to contact.
+
+Member-level rules can also be managed programmatically via the [master key API](/features/master-keys#member-iam-rules), addressing members by membership id or email.
 
 ## Error Handling
 
@@ -181,6 +265,7 @@ Common error scenarios:
 - Pricing limits exceeded
 - API key disabled or deleted
 - API key expired (TTL passed)
+- API key rolled, so the old secret is no longer valid
 - Usage limit reached
 
 ## Migration from Legacy Keys

@@ -2,27 +2,78 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { maskToken } from "@/lib/maskToken.js";
 import {
-	buildApiKeyLimitAuditChanges,
-	createApiKeyForProject,
+	MAX_ORG_ACTIVITY_RANGE_DAYS,
+	rangeDaysInclusive,
+	resolveDateRange,
+} from "@/lib/date-range.js";
+import {
 	createIamRuleSchema,
-	hasPeriodConfigChanged,
-	iamRuleSchema,
 	iamRuleStatusEnum,
 	iamRuleTypeEnum,
 	iamRuleValueSchema,
+	validateIamRuleInput,
+} from "@/lib/iam-rules.js";
+import { getOrgProjectIds } from "@/lib/org-projects.js";
+import { assertOrganizationProviderKey } from "@/lib/organization-provider-key.js";
+import {
+	getUsageReport,
+	USAGE_DIMENSIONS,
+	USAGE_GRANULARITIES,
+	usageReportRowSchema,
+	usageReportToCsv,
+	type UsageDimension,
+} from "@/lib/usage-report.js";
+import {
+	applyCustomModelUpdate,
+	createCustomModelSchema,
+	customModelSchema,
+	insertCustomModel,
+	softDeleteCustomModel,
+	updateCustomModelSchema,
+} from "@/routes/custom-models.js";
+import {
+	buildApiKeyLimitAuditChanges,
+	createApiKeyForProject,
+	hasPeriodConfigChanged,
+	iamRuleSchema,
 	isPlaygroundApiKey,
 	mergeApiKeyLimitConfig,
 	parseApiKeyPeriodConfig,
-	validateIamRuleInput,
 	type PartialApiKeyLimitConfig,
 } from "@/routes/keys-api.js";
+import {
+	assertCustomProviderNameAvailable,
+	assertProviderBaseUrlAllowed,
+	complianceAttestationSchema,
+	customProviderNameSchema,
+	isValidProviderToken,
+	providerKeyPublicSchema,
+	stampComplianceAttestation,
+	toPublicProviderKey,
+} from "@/routes/keys-provider.js";
 import { createProjectForOrg } from "@/routes/projects.js";
+import { memberIamRuleSchema } from "@/routes/team.js";
+import {
+	providerCacheControlModeSchema,
+	resolveProviderCacheControlMode,
+	withLegacyProviderCacheControl,
+} from "@/utils/provider-cache-control.js";
+import { timezoneQueryField } from "@/utils/timezone.js";
 
+import { encryptProviderKey, readProviderKey } from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
-import { db, eq, getApiKeyCurrentPeriodState, tables } from "@llmgateway/db";
+import {
+	cdb,
+	db,
+	eq,
+	getApiKeyCurrentPeriodState,
+	shortid,
+	tables,
+} from "@llmgateway/db";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
+import { maskToken } from "@llmgateway/shared/mask-token";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -68,7 +119,12 @@ v1Master.use("*", async (c, next) => {
 		throw new HTTPException(403, { message: "Organization is not active" });
 	}
 
-	if (row.organization?.plan !== "enterprise") {
+	if (
+		!hasOrganizationEnterpriseAccess(
+			row.organization?.id,
+			row.organization?.plan,
+		)
+	) {
 		throw new HTTPException(403, {
 			message: "Master keys require an enterprise plan",
 		});
@@ -94,7 +150,10 @@ v1Master.use("*", async (c, next) => {
 async function loadApiKeyForOrg(apiKeyId: string, organizationId: string) {
 	const apiKey = await db.query.apiKey.findFirst({
 		where: { id: { eq: apiKeyId } },
-		with: { project: true },
+		with: {
+			project: true,
+			creator: { columns: { email: true } },
+		},
 	});
 
 	if (
@@ -129,6 +188,8 @@ interface SerializableApiKey {
 	periodUsageDurationUnit: "hour" | "day" | "week" | "month" | null;
 	currentPeriodUsage: string;
 	currentPeriodStartedAt: Date | null;
+	creator?: { email: string } | null;
+	project: { name: string } | null;
 }
 
 /**
@@ -137,6 +198,10 @@ interface SerializableApiKey {
  * the time the current period resets. Never leaks the plain token.
  */
 function serializeApiKeyForMaster(apiKey: SerializableApiKey) {
+	if (!apiKey.project) {
+		throw new HTTPException(500, { message: "API key project not found" });
+	}
+
 	const currentPeriod = getApiKeyCurrentPeriodState(apiKey);
 
 	return {
@@ -146,7 +211,9 @@ function serializeApiKeyForMaster(apiKey: SerializableApiKey) {
 		description: apiKey.description,
 		status: apiKey.status,
 		projectId: apiKey.projectId,
+		projectName: apiKey.project.name,
 		createdBy: apiKey.createdBy,
+		createdByEmail: apiKey.creator?.email ?? null,
 		maskedToken: maskToken(apiKey.token),
 		usageLimit: apiKey.usageLimit,
 		usage: apiKey.usage,
@@ -169,6 +236,8 @@ const projectSchema = z.object({
 	organizationId: z.string(),
 	cachingEnabled: z.boolean(),
 	cacheDurationSeconds: z.number(),
+	providerCacheControlMode: providerCacheControlModeSchema,
+	/** @deprecated use providerCacheControlMode; false maps to "off". */
 	providerCacheControlEnabled: z.boolean(),
 	mode: projectModeEnum,
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
@@ -178,6 +247,7 @@ const createProjectBody = z.object({
 	name: z.string().min(1).max(255),
 	cachingEnabled: z.boolean().optional(),
 	cacheDurationSeconds: z.number().min(10).max(31536000).optional(),
+	providerCacheControlMode: providerCacheControlModeSchema.optional(),
 	providerCacheControlEnabled: z.boolean().optional(),
 	mode: projectModeEnum.optional(),
 });
@@ -237,7 +307,7 @@ v1Master.openapi(listProjects, async (c) => {
 		},
 	});
 
-	return c.json({ projects });
+	return c.json({ projects: projects.map(withLegacyProviderCacheControl) });
 });
 
 v1Master.openapi(createProject, async (c) => {
@@ -255,7 +325,7 @@ v1Master.openapi(createProject, async (c) => {
 		{ skipAccessCheck: true },
 	);
 
-	return c.json({ project }, 201);
+	return c.json({ project: withLegacyProviderCacheControl(project) }, 201);
 });
 
 const apiKeyPeriodUnit = z.enum(["hour", "day", "week", "month"]);
@@ -362,6 +432,7 @@ const updateProjectBody = z
 		name: z.string().min(1).max(255).optional(),
 		cachingEnabled: z.boolean().optional(),
 		cacheDurationSeconds: z.number().min(10).max(31536000).optional(),
+		providerCacheControlMode: providerCacheControlModeSchema.optional(),
 		providerCacheControlEnabled: z.boolean().optional(),
 		mode: projectModeEnum.optional(),
 		status: z.enum(["active", "inactive"]).optional(),
@@ -404,7 +475,18 @@ v1Master.openapi(updateProject, async (c) => {
 	}
 
 	const { id } = c.req.param();
-	const updates = c.req.valid("json");
+	// The legacy boolean is not a column any more; fold it into the mode so
+	// `.set(updates)` and the audit diff below only ever see real columns.
+	const { providerCacheControlEnabled: _legacy, ...rest } = c.req.valid("json");
+	const providerCacheControlMode = resolveProviderCacheControlMode(
+		c.req.valid("json"),
+	);
+	const updates = {
+		...rest,
+		...(providerCacheControlMode !== undefined
+			? { providerCacheControlMode }
+			: {}),
+	};
 
 	const existing = await db.query.project.findFirst({
 		where: { id: { eq: id } },
@@ -420,7 +502,7 @@ v1Master.openapi(updateProject, async (c) => {
 		});
 	}
 
-	const [updated] = await db
+	const [updated] = await cdb
 		.update(tables.project)
 		.set(updates)
 		.where(eq(tables.project.id, id))
@@ -444,7 +526,7 @@ v1Master.openapi(updateProject, async (c) => {
 		});
 	}
 
-	return c.json({ project: updated });
+	return c.json({ project: withLegacyProviderCacheControl(updated) });
 });
 
 const deleteProject = createRoute({
@@ -503,7 +585,7 @@ v1Master.openapi(deleteProject, async (c) => {
 		});
 	}
 
-	await db
+	await cdb
 		.update(tables.project)
 		.set({ status: "deleted" })
 		.where(eq(tables.project.id, id));
@@ -527,7 +609,9 @@ const apiKeyDetailSchema = z.object({
 	description: z.string(),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	projectId: z.string(),
+	projectName: z.string(),
 	createdBy: z.string(),
+	createdByEmail: z.string().nullable(),
 	maskedToken: z.string(),
 	usageLimit: z.string().nullable(),
 	// Total spend accrued against `usageLimit` over the key's lifetime.
@@ -660,7 +744,7 @@ v1Master.openapi(updateApiKey, async (c) => {
 		}
 	}
 
-	const [updated] = await db
+	const [updated] = await cdb
 		.update(tables.apiKey)
 		.set(setPayload)
 		.where(eq(tables.apiKey.id, id))
@@ -706,7 +790,13 @@ v1Master.openapi(updateApiKey, async (c) => {
 		});
 	}
 
-	return c.json({ apiKey: serializeApiKeyForMaster(updated) });
+	return c.json({
+		apiKey: serializeApiKeyForMaster({
+			...updated,
+			creator: existing.creator,
+			project: existing.project,
+		}),
+	});
 });
 
 const listApiKeysQuery = z.object({
@@ -769,6 +859,10 @@ v1Master.openapi(listApiKeys, async (c) => {
 			status: { ne: "deleted" },
 		},
 		orderBy: { createdAt: "desc" },
+		with: {
+			creator: { columns: { email: true } },
+			project: { columns: { name: true } },
+		},
 	});
 
 	return c.json({ apiKeys: apiKeys.map(serializeApiKeyForMaster) });
@@ -843,7 +937,7 @@ v1Master.openapi(deleteApiKey, async (c) => {
 		});
 	}
 
-	await db
+	await cdb
 		.update(tables.apiKey)
 		.set({ status: "deleted" })
 		.where(eq(tables.apiKey.id, id));
@@ -908,7 +1002,7 @@ v1Master.openapi(createIamRule, async (c) => {
 
 	const apiKey = await loadApiKeyForOrg(id, masterKey.organizationId);
 
-	const [rule] = await db
+	const [rule] = await cdb
 		.insert(tables.apiKeyIamRule)
 		.values({
 			apiKeyId: apiKey.id,
@@ -1024,7 +1118,7 @@ v1Master.openapi(updateIamRule, async (c) => {
 		});
 	}
 
-	const [updated] = await db
+	const [updated] = await cdb
 		.update(tables.apiKeyIamRule)
 		.set(updates)
 		.where(eq(tables.apiKeyIamRule.id, ruleId))
@@ -1090,7 +1184,7 @@ v1Master.openapi(deleteIamRule, async (c) => {
 		});
 	}
 
-	await db
+	await cdb
 		.delete(tables.apiKeyIamRule)
 		.where(eq(tables.apiKeyIamRule.id, ruleId));
 
@@ -1107,6 +1201,1056 @@ v1Master.openapi(deleteIamRule, async (c) => {
 	});
 
 	return c.json({ message: "IAM rule deleted successfully" });
+});
+
+// Resolve a member reference to the membership row in this org. The reference
+// is a userOrganization id, or a user email when it contains "@" (generated
+// ids never do). Email lookups still require the user to be a member of the
+// master key's organization.
+async function loadMemberForOrg(memberRef: string, organizationId: string) {
+	// Personal orgs have no team management (mirrors the team routes); the
+	// master-key middleware only checks plan, not kind, so guard here too.
+	const organization = await db.query.organization.findFirst({
+		where: { id: { eq: organizationId } },
+		columns: { kind: true },
+	});
+	if (organization?.kind === "devpass" || organization?.kind === "chat") {
+		throw new HTTPException(403, {
+			message: "Team management is not available for personal organizations.",
+		});
+	}
+
+	let membership;
+	if (memberRef.includes("@")) {
+		const user = await db.query.user.findFirst({
+			where: { email: { eq: memberRef.toLowerCase() } },
+		});
+		membership = user
+			? await db.query.userOrganization.findFirst({
+					where: {
+						userId: { eq: user.id },
+						organizationId: { eq: organizationId },
+					},
+					with: { user: { columns: { id: true, email: true } } },
+				})
+			: undefined;
+	} else {
+		membership = await db.query.userOrganization.findFirst({
+			where: {
+				id: { eq: memberRef },
+				organizationId: { eq: organizationId },
+			},
+			with: { user: { columns: { id: true, email: true } } },
+		});
+	}
+
+	if (!membership) {
+		throw new HTTPException(404, {
+			message: "Member not found in this organization",
+		});
+	}
+
+	return membership;
+}
+
+const memberParamDescription =
+	"Member reference: a membership id or the member's email address";
+
+const createMemberIamRule = createRoute({
+	method: "post",
+	path: "/members/{member}/iam",
+	request: {
+		params: z.object({
+			member: z.string().openapi({ description: memberParamDescription }),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: createIamRuleSchema,
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: z.object({ rule: memberIamRuleSchema.openapi({}) }),
+				},
+			},
+			description: "Member IAM rule created successfully via master key.",
+		},
+	},
+});
+
+v1Master.openapi(createMemberIamRule, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { member } = c.req.param();
+	const ruleData = c.req.valid("json");
+
+	validateIamRuleInput(ruleData);
+
+	const membership = await loadMemberForOrg(member, masterKey.organizationId);
+
+	const [rule] = await cdb
+		.insert(tables.userIamRule)
+		.values({
+			userOrganizationId: membership.id,
+			...ruleData,
+		})
+		.returning();
+
+	await logAuditEvent({
+		organizationId: masterKey.organizationId,
+		userId: masterKey.createdBy,
+		action: "team_member.iam_rule.create",
+		resourceType: "iam_rule",
+		resourceId: rule.id,
+		metadata: {
+			memberId: membership.id,
+			targetUserId: membership.userId,
+			targetUserEmail: membership.user?.email,
+			ruleType: ruleData.ruleType,
+			ruleValue: ruleData.ruleValue,
+		},
+	});
+
+	return c.json({ rule }, 201);
+});
+
+const listMemberIamRules = createRoute({
+	method: "get",
+	path: "/members/{member}/iam",
+	request: {
+		params: z.object({
+			member: z.string().openapi({ description: memberParamDescription }),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						rules: z.array(memberIamRuleSchema).openapi({}),
+					}),
+				},
+			},
+			description: "List IAM rules for an org member via master key.",
+		},
+	},
+});
+
+v1Master.openapi(listMemberIamRules, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { member } = c.req.param();
+
+	const membership = await loadMemberForOrg(member, masterKey.organizationId);
+
+	const rules = await db.query.userIamRule.findMany({
+		where: { userOrganizationId: { eq: membership.id } },
+	});
+
+	return c.json({ rules });
+});
+
+const updateMemberIamRule = createRoute({
+	method: "patch",
+	path: "/members/{member}/iam/{ruleId}",
+	request: {
+		params: z.object({
+			member: z.string().openapi({ description: memberParamDescription }),
+			ruleId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: updateIamRuleBody,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ rule: memberIamRuleSchema.openapi({}) }),
+				},
+			},
+			description: "Member IAM rule updated successfully via master key.",
+		},
+	},
+});
+
+v1Master.openapi(updateMemberIamRule, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { member, ruleId } = c.req.param();
+	const updates = c.req.valid("json");
+
+	const membership = await loadMemberForOrg(member, masterKey.organizationId);
+
+	const existingRule = await db.query.userIamRule.findFirst({
+		where: { id: { eq: ruleId }, userOrganizationId: { eq: membership.id } },
+	});
+
+	if (!existingRule) {
+		throw new HTTPException(404, {
+			message: "IAM rule not found for this member",
+		});
+	}
+
+	if (updates.ruleType || updates.ruleValue) {
+		validateIamRuleInput({
+			ruleType: updates.ruleType ?? existingRule.ruleType,
+			ruleValue: updates.ruleValue ?? existingRule.ruleValue,
+		});
+	}
+
+	const [updated] = await cdb
+		.update(tables.userIamRule)
+		.set(updates)
+		.where(eq(tables.userIamRule.id, ruleId))
+		.returning();
+
+	const changes: Record<string, { old: unknown; new: unknown }> = {};
+	for (const [key, value] of Object.entries(updates)) {
+		const before = (existingRule as Record<string, unknown>)[key];
+		if (JSON.stringify(before) !== JSON.stringify(value)) {
+			changes[key] = { old: before, new: value };
+		}
+	}
+
+	if (Object.keys(changes).length > 0) {
+		await logAuditEvent({
+			organizationId: masterKey.organizationId,
+			userId: masterKey.createdBy,
+			action: "team_member.iam_rule.update",
+			resourceType: "iam_rule",
+			resourceId: ruleId,
+			metadata: {
+				memberId: membership.id,
+				targetUserId: membership.userId,
+				targetUserEmail: membership.user?.email,
+				changes,
+			},
+		});
+	}
+
+	return c.json({ rule: updated });
+});
+
+const deleteMemberIamRule = createRoute({
+	method: "delete",
+	path: "/members/{member}/iam/{ruleId}",
+	request: {
+		params: z.object({
+			member: z.string().openapi({ description: memberParamDescription }),
+			ruleId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "Member IAM rule deleted successfully via master key.",
+		},
+	},
+});
+
+v1Master.openapi(deleteMemberIamRule, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { member, ruleId } = c.req.param();
+
+	const membership = await loadMemberForOrg(member, masterKey.organizationId);
+
+	const existingRule = await db.query.userIamRule.findFirst({
+		where: { id: { eq: ruleId }, userOrganizationId: { eq: membership.id } },
+	});
+
+	if (!existingRule) {
+		throw new HTTPException(404, {
+			message: "IAM rule not found for this member",
+		});
+	}
+
+	await cdb.delete(tables.userIamRule).where(eq(tables.userIamRule.id, ruleId));
+
+	await logAuditEvent({
+		organizationId: masterKey.organizationId,
+		userId: masterKey.createdBy,
+		action: "team_member.iam_rule.delete",
+		resourceType: "iam_rule",
+		resourceId: ruleId,
+		metadata: {
+			memberId: membership.id,
+			targetUserId: membership.userId,
+			targetUserEmail: membership.user?.email,
+			ruleType: existingRule.ruleType,
+		},
+	});
+
+	return c.json({ message: "Member IAM rule deleted successfully" });
+});
+
+// Custom providers are BYOK provider keys with `provider: "custom"`, addressed
+// by the gateway as `custom/<name>/<model>`. Only custom keys are exposed here:
+// catalog providers require an upstream credential check that isn't meaningful
+// for unattended provisioning.
+async function loadCustomProviderKeyForOrg(id: string, organizationId: string) {
+	const providerKey = await db.query.providerKey.findFirst({
+		where: { id: { eq: id } },
+	});
+
+	if (
+		!providerKey ||
+		providerKey.status === "deleted" ||
+		providerKey.organizationId !== organizationId ||
+		providerKey.provider !== "custom"
+	) {
+		throw new HTTPException(404, {
+			message: "Custom provider not found in this organization",
+		});
+	}
+
+	// Narrows organizationId to non-null for consumers (insertCustomModel etc.).
+	// Guaranteed by the org check above: platform-managed rows have a NULL
+	// organizationId and can never match a master key's organization.
+	assertOrganizationProviderKey(providerKey);
+
+	return providerKey;
+}
+
+async function loadCustomModelForOrg(id: string, organizationId: string) {
+	const customModel = await db.query.customModel.findFirst({
+		where: {
+			id: { eq: id },
+			organizationId: { eq: organizationId },
+			status: { ne: "deleted" },
+		},
+	});
+
+	if (!customModel) {
+		throw new HTTPException(404, {
+			message: "Custom model not found in this organization",
+		});
+	}
+
+	return customModel;
+}
+
+const providerTokenField = z
+	.string()
+	.min(1, "API key is required")
+	.refine(isValidProviderToken, {
+		message:
+			"API key contains invalid characters. Make sure you copied the actual key, not a masked version.",
+	});
+
+const createCustomProviderBody = z.object({
+	name: customProviderNameSchema,
+	baseUrl: z.string().url(),
+	token: providerTokenField,
+	customModelsOnly: z.boolean().optional(),
+	complianceAttestation: complianceAttestationSchema.optional(),
+});
+
+const updateCustomProviderBody = z
+	.object({
+		baseUrl: z.string().url().optional(),
+		token: providerTokenField.optional(),
+		status: z.enum(["active", "inactive"]).optional(),
+		customModelsOnly: z.boolean().optional(),
+		complianceAttestation: complianceAttestationSchema.nullable().optional(),
+	})
+	.refine((v) => Object.keys(v).length > 0, {
+		message: "At least one field must be provided",
+	});
+
+const createCustomProvider = createRoute({
+	method: "post",
+	path: "/custom-providers",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: createCustomProviderBody,
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						customProvider: providerKeyPublicSchema.openapi({}),
+					}),
+				},
+			},
+			description: "Custom provider created successfully via master key.",
+		},
+	},
+});
+
+v1Master.openapi(createCustomProvider, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { name, baseUrl, token, customModelsOnly, complianceAttestation } =
+		c.req.valid("json");
+
+	await assertProviderBaseUrlAllowed(baseUrl);
+	await assertCustomProviderNameAvailable(masterKey.organizationId, name);
+
+	// Generate the id up front so the AAD — which binds the ciphertext to the
+	// row id and the organization id — can be computed before the INSERT.
+	const providerKeyId = shortid();
+	const [providerKey] = await cdb
+		.insert(tables.providerKey)
+		.values({
+			id: providerKeyId,
+			organizationId: masterKey.organizationId,
+			provider: "custom",
+			name,
+			baseUrl,
+			token: null,
+			tokenCiphertext: encryptProviderKey(
+				token,
+				providerKeyId,
+				masterKey.organizationId,
+			),
+			tokenMasked: maskToken(token),
+			tokenHash: getApiKeyFingerprint(token),
+			customModelsOnly: customModelsOnly ?? false,
+			complianceAttestation: complianceAttestation
+				? stampComplianceAttestation(complianceAttestation, masterKey.createdBy)
+				: null,
+		})
+		.returning();
+
+	await logAuditEvent({
+		organizationId: masterKey.organizationId,
+		userId: masterKey.createdBy,
+		action: "provider_key.create",
+		resourceType: "provider_key",
+		resourceId: providerKey.id,
+		metadata: { provider: "custom", resourceName: name },
+	});
+
+	return c.json({ customProvider: toPublicProviderKey(providerKey) }, 201);
+});
+
+const listCustomProviders = createRoute({
+	method: "get",
+	path: "/custom-providers",
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						customProviders: z.array(providerKeyPublicSchema).openapi({}),
+					}),
+				},
+			},
+			description:
+				"List the non-deleted custom providers in the master key's organization.",
+		},
+	},
+});
+
+v1Master.openapi(listCustomProviders, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const providerKeys = await db.query.providerKey.findMany({
+		where: {
+			organizationId: { eq: masterKey.organizationId },
+			provider: { eq: "custom" },
+			status: { ne: "deleted" },
+		},
+		orderBy: { createdAt: "asc" },
+	});
+
+	return c.json({ customProviders: providerKeys.map(toPublicProviderKey) });
+});
+
+const getCustomProvider = createRoute({
+	method: "get",
+	path: "/custom-providers/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						customProvider: providerKeyPublicSchema.openapi({}),
+					}),
+				},
+			},
+			description: "Get a single custom provider via master key.",
+		},
+	},
+});
+
+v1Master.openapi(getCustomProvider, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.param();
+
+	const providerKey = await loadCustomProviderKeyForOrg(
+		id,
+		masterKey.organizationId,
+	);
+
+	return c.json({ customProvider: toPublicProviderKey(providerKey) });
+});
+
+const updateCustomProvider = createRoute({
+	method: "patch",
+	path: "/custom-providers/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: updateCustomProviderBody,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						customProvider: providerKeyPublicSchema.openapi({}),
+					}),
+				},
+			},
+			description: "Custom provider updated successfully via master key.",
+		},
+	},
+});
+
+v1Master.openapi(updateCustomProvider, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.param();
+	const { baseUrl, token, status, customModelsOnly, complianceAttestation } =
+		c.req.valid("json");
+
+	const existing = await loadCustomProviderKeyForOrg(
+		id,
+		masterKey.organizationId,
+	);
+
+	if (baseUrl !== undefined) {
+		await assertProviderBaseUrlAllowed(baseUrl);
+	}
+
+	const updates: Partial<typeof tables.providerKey.$inferInsert> = {};
+	if (baseUrl !== undefined) {
+		updates.baseUrl = baseUrl;
+	}
+	if (token !== undefined) {
+		updates.token = null;
+		updates.tokenCiphertext = encryptProviderKey(
+			token,
+			existing.id,
+			masterKey.organizationId,
+		);
+		updates.tokenMasked = maskToken(token);
+		updates.tokenHash = getApiKeyFingerprint(token);
+	}
+	if (status !== undefined) {
+		updates.status = status;
+	}
+	if (customModelsOnly !== undefined) {
+		updates.customModelsOnly = customModelsOnly;
+	}
+	if (complianceAttestation !== undefined) {
+		updates.complianceAttestation = stampComplianceAttestation(
+			complianceAttestation,
+			masterKey.createdBy,
+		);
+	}
+
+	const [updated] = await cdb
+		.update(tables.providerKey)
+		.set(updates)
+		.where(eq(tables.providerKey.id, id))
+		.returning();
+
+	const changes: Record<string, { old: unknown; new: unknown }> = {};
+	if (baseUrl !== undefined && existing.baseUrl !== baseUrl) {
+		changes.baseUrl = { old: existing.baseUrl, new: baseUrl };
+	}
+	// The token itself is never written to the audit log, only the fact it
+	// rotated. Compare via readProviderKey: the plaintext column is NULL for
+	// encrypted rows, so a raw column comparison would log every no-op
+	// resubmission of the same token as a rotation.
+	if (token !== undefined && readProviderKey(existing) !== token) {
+		changes.token = { old: "<redacted>", new: "<rotated>" };
+	}
+	if (status !== undefined && existing.status !== status) {
+		changes.status = { old: existing.status, new: status };
+	}
+	if (
+		customModelsOnly !== undefined &&
+		existing.customModelsOnly !== customModelsOnly
+	) {
+		changes.customModelsOnly = {
+			old: existing.customModelsOnly,
+			new: customModelsOnly,
+		};
+	}
+	if (complianceAttestation !== undefined) {
+		changes.complianceAttestation = {
+			old: existing.complianceAttestation ?? null,
+			new: updates.complianceAttestation ?? null,
+		};
+	}
+
+	if (Object.keys(changes).length > 0) {
+		await logAuditEvent({
+			organizationId: masterKey.organizationId,
+			userId: masterKey.createdBy,
+			action: "provider_key.update",
+			resourceType: "provider_key",
+			resourceId: id,
+			metadata: {
+				provider: "custom",
+				resourceName: existing.name ?? undefined,
+				changes,
+			},
+		});
+	}
+
+	return c.json({ customProvider: toPublicProviderKey(updated) });
+});
+
+const deleteCustomProvider = createRoute({
+	method: "delete",
+	path: "/custom-providers/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "Custom provider deleted successfully via master key.",
+		},
+	},
+});
+
+v1Master.openapi(deleteCustomProvider, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.param();
+
+	const existing = await loadCustomProviderKeyForOrg(
+		id,
+		masterKey.organizationId,
+	);
+
+	await cdb
+		.update(tables.providerKey)
+		.set({ status: "deleted" })
+		.where(eq(tables.providerKey.id, id));
+
+	await logAuditEvent({
+		organizationId: masterKey.organizationId,
+		userId: masterKey.createdBy,
+		action: "provider_key.delete",
+		resourceType: "provider_key",
+		resourceId: id,
+		metadata: { provider: "custom", resourceName: existing.name ?? undefined },
+	});
+
+	return c.json({ message: "Custom provider deleted successfully" });
+});
+
+const createCustomModel = createRoute({
+	method: "post",
+	path: "/custom-models",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: createCustomModelSchema,
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: z.object({ customModel: customModelSchema.openapi({}) }),
+				},
+			},
+			description: "Custom model created successfully via master key.",
+		},
+	},
+});
+
+v1Master.openapi(createCustomModel, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { providerKeyId, ...fields } = c.req.valid("json");
+
+	const providerKey = await loadCustomProviderKeyForOrg(
+		providerKeyId,
+		masterKey.organizationId,
+	);
+
+	const customModel = await insertCustomModel(
+		providerKey,
+		masterKey.createdBy,
+		fields,
+	);
+
+	return c.json({ customModel }, 201);
+});
+
+const listCustomModels = createRoute({
+	method: "get",
+	path: "/custom-models",
+	request: {
+		query: z.object({
+			providerKeyId: z.string().min(1).optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						customModels: z.array(customModelSchema).openapi({}),
+					}),
+				},
+			},
+			description:
+				"List the custom models in the master key's organization, with their context window, limits and per-token pricing. Optionally filter by providerKeyId.",
+		},
+	},
+});
+
+v1Master.openapi(listCustomModels, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { providerKeyId } = c.req.valid("query");
+
+	if (providerKeyId) {
+		await loadCustomProviderKeyForOrg(providerKeyId, masterKey.organizationId);
+	}
+
+	const customModels = await db.query.customModel.findMany({
+		where: {
+			organizationId: { eq: masterKey.organizationId },
+			status: { ne: "deleted" },
+			...(providerKeyId ? { providerKeyId: { eq: providerKeyId } } : {}),
+		},
+		orderBy: { createdAt: "asc" },
+	});
+
+	return c.json({ customModels });
+});
+
+const getCustomModel = createRoute({
+	method: "get",
+	path: "/custom-models/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ customModel: customModelSchema.openapi({}) }),
+				},
+			},
+			description: "Get a single custom model via master key.",
+		},
+	},
+});
+
+v1Master.openapi(getCustomModel, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.param();
+
+	const customModel = await loadCustomModelForOrg(id, masterKey.organizationId);
+
+	return c.json({ customModel });
+});
+
+const updateCustomModel = createRoute({
+	method: "patch",
+	path: "/custom-models/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: updateCustomModelSchema,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ customModel: customModelSchema.openapi({}) }),
+				},
+			},
+			description: "Custom model updated successfully via master key.",
+		},
+	},
+});
+
+v1Master.openapi(updateCustomModel, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.param();
+	const fields = c.req.valid("json");
+
+	const existing = await loadCustomModelForOrg(id, masterKey.organizationId);
+
+	const customModel = await applyCustomModelUpdate(
+		existing,
+		masterKey.createdBy,
+		fields,
+	);
+
+	return c.json({ customModel });
+});
+
+const deleteCustomModel = createRoute({
+	method: "delete",
+	path: "/custom-models/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "Custom model deleted successfully via master key.",
+		},
+	},
+});
+
+v1Master.openapi(deleteCustomModel, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.param();
+
+	const existing = await loadCustomModelForOrg(id, masterKey.organizationId);
+
+	await softDeleteCustomModel(existing, masterKey.createdBy);
+
+	return c.json({ message: "Custom model deleted successfully" });
+});
+
+// Hourly buckets over a long window explode the row count (a year is ~8800
+// buckets before any dimension fan-out), so hourly granularity gets a much
+// tighter cap than the daily one.
+const MAX_HOURLY_USAGE_RANGE_DAYS = 31;
+
+const usageQuery = z.object({
+	from: z.string().optional(),
+	to: z.string().optional(),
+	timezone: timezoneQueryField,
+	granularity: z.enum(USAGE_GRANULARITIES).optional(),
+	groupBy: z.string().optional(),
+	projectId: z.string().min(1).optional(),
+	userId: z.string().min(1).optional(),
+	apiKeyId: z.string().min(1).optional(),
+	limit: z.coerce.number().int().min(1).max(10000).optional(),
+	offset: z.coerce.number().int().min(0).optional(),
+	format: z.enum(["json", "csv"]).optional(),
+});
+
+const usageResponseSchema = z.object({
+	from: z.string(),
+	to: z.string(),
+	granularity: z.enum(USAGE_GRANULARITIES),
+	groupBy: z.array(z.enum(USAGE_DIMENSIONS)),
+	rows: z.array(usageReportRowSchema),
+	pagination: z.object({
+		limit: z.number(),
+		offset: z.number(),
+		hasMore: z.boolean(),
+	}),
+});
+
+function parseGroupBy(raw: string | undefined): UsageDimension[] {
+	if (raw === undefined) {
+		return ["user", "model"];
+	}
+	const seen = new Set<UsageDimension>();
+	for (const part of raw.split(",")) {
+		const value = part.trim();
+		if (!value) {
+			continue;
+		}
+		if (!(USAGE_DIMENSIONS as readonly string[]).includes(value)) {
+			throw new HTTPException(400, {
+				message: `Invalid groupBy dimension "${value}" (expected any of: ${USAGE_DIMENSIONS.join(", ")})`,
+			});
+		}
+		seen.add(value as UsageDimension);
+	}
+	return Array.from(seen);
+}
+
+const getUsage = createRoute({
+	method: "get",
+	path: "/usage",
+	request: {
+		query: usageQuery,
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: usageResponseSchema.openapi({}),
+				},
+				"text/csv": {
+					schema: z.any().openapi({ type: "string" }),
+				},
+			},
+			description:
+				"Usage and cost for the master key's organization, grouped by any combination of user, model, provider, project and API key, bucketed hourly, daily or not at all. Returns JSON, or CSV when format=csv.",
+		},
+	},
+});
+
+v1Master.openapi(getUsage, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const query = c.req.valid("query");
+	const timeZone = query.timezone || "UTC";
+	const granularity = query.granularity ?? "day";
+	const dimensions = parseGroupBy(query.groupBy);
+	const limit = query.limit ?? 1000;
+	const offset = query.offset ?? 0;
+
+	const { startDate, endDate, fromStr, toStr } = resolveDateRange(
+		query.from,
+		query.to,
+		timeZone,
+	);
+
+	const rangeDays = rangeDaysInclusive(fromStr, toStr);
+	if (rangeDays > MAX_ORG_ACTIVITY_RANGE_DAYS) {
+		throw new HTTPException(400, {
+			message: `Date range too large (max ${MAX_ORG_ACTIVITY_RANGE_DAYS} days)`,
+		});
+	}
+	if (granularity === "hour" && rangeDays > MAX_HOURLY_USAGE_RANGE_DAYS) {
+		throw new HTTPException(400, {
+			message: `Date range too large for hourly granularity (max ${MAX_HOURLY_USAGE_RANGE_DAYS} days)`,
+		});
+	}
+
+	const orgProjectIds = await getOrgProjectIds(masterKey.organizationId);
+	if (query.projectId && !orgProjectIds.includes(query.projectId)) {
+		throw new HTTPException(404, {
+			message: "Project not found in this organization",
+		});
+	}
+
+	const { rows, hasMore } = await getUsageReport({
+		projectIds: query.projectId ? [query.projectId] : orgProjectIds,
+		startDate,
+		endDate,
+		timeZone,
+		granularity,
+		dimensions,
+		userId: query.userId,
+		apiKeyId: query.apiKeyId,
+		limit,
+		offset,
+	});
+
+	if (query.format === "csv") {
+		c.header("Content-Type", "text/csv; charset=utf-8");
+		c.header(
+			"Content-Disposition",
+			`attachment; filename="usage-${fromStr}-to-${toStr}.csv"`,
+		);
+		return c.body(usageReportToCsv(rows));
+	}
+
+	return c.json({
+		from: fromStr,
+		to: toStr,
+		granularity,
+		groupBy: dimensions,
+		rows,
+		pagination: { limit, offset, hasMore },
+	});
 });
 
 export default v1Master;

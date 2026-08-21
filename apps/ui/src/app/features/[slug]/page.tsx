@@ -149,7 +149,7 @@ export default async function FeaturePage({ params }: PageProps) {
 									rel="noopener noreferrer"
 								>
 									<Button variant="outline" size="lg" className="gap-2">
-										Try in Playground
+										Try in Lounge
 										<ExternalLink className="h-4 w-4" />
 									</Button>
 								</a>

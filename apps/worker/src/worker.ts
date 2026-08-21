@@ -6,7 +6,13 @@ import Stripe from "stripe";
 import { z } from "zod";
 
 import {
+	checkAndReserveTopUp,
+	flushLimitHits,
+	releaseTopUpReservation,
+} from "@llmgateway/actions";
+import {
 	closeRedisClient,
+	closeStorageRedisClient,
 	consumeFromQueue,
 	LOG_QUEUE,
 	publishToQueue,
@@ -21,6 +27,7 @@ import {
 	enqueueWebhookDeliveries,
 	eq,
 	inArray,
+	isNotNull,
 	isApiKeyPeriodLimitConfigured,
 	log,
 	type LogInsertData,
@@ -36,7 +43,9 @@ import { hasErrorCode } from "@llmgateway/models";
 import {
 	assertSafeWebhookUrl,
 	calculateFees,
+	getRemainingPremiumWeeklyAllowance,
 	isCreditTopUpAmountInRange,
+	isLoungeSource,
 	isPremiumUsedModel,
 	isPremiumWeekExpired,
 	isPrivateOrReservedIp,
@@ -75,6 +84,8 @@ import {
 	resetShutdown,
 } from "./shutdown.js";
 
+import type { DevPlanTier } from "@llmgateway/shared";
+
 // Configuration for current minute history calculation interval (defaults to 5 seconds)
 const CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS =
 	Number(process.env.CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS) || 5;
@@ -101,6 +112,8 @@ const DATA_RETENTION_LOCK_KEY = "data_retention_cleanup";
 const MODEL_HISTORY_RETENTION_LOCK_KEY = "model_history_retention_cleanup";
 const END_USER_SESSION_CLEANUP_LOCK_KEY = "end_user_session_cleanup";
 const API_KEY_EXPIRATION_LOCK_KEY = "api_key_expiration";
+const LIMIT_HIT_FLUSH_LOCK_KEY = "limit_hit_flush";
+const STALE_TOPUP_PI_LOCK_KEY = "stale_topup_pi_cancel";
 const WEBHOOK_DELIVERY_LOCK_KEY = "platform_webhook_delivery";
 const MARGIN_PAYOUT_LOCK_KEY = "margin_payout";
 const LOCK_DURATION_MINUTES = 5;
@@ -122,11 +135,6 @@ const LOG_QUEUE_CONCURRENCY = Math.max(
 	1,
 	Number(process.env.LOG_QUEUE_CONCURRENCY) || 4,
 );
-// Cache organization retention levels to avoid a serial Postgres round-trip
-// before every log batch insert. retentionLevel changes rarely; the short TTL
-// bounds how long a stale value can keep retaining or stripping log payloads.
-const ORG_RETENTION_CACHE_TTL_MS =
-	Number(process.env.ORG_RETENTION_CACHE_TTL_MS) || 60_000;
 const CREDIT_BATCH_SIZE = Number(process.env.CREDIT_BATCH_SIZE) || 100;
 const BATCH_PROCESSING_INTERVAL_SECONDS =
 	Number(process.env.CREDIT_BATCH_INTERVAL) || 5;
@@ -209,8 +217,10 @@ const schema = z.object({
 	organization_id: z.string(),
 	project_id: z.string(),
 	cost: z.number().nullable(),
+	billing_cost: z.string().nullable(),
 	cached: z.boolean(),
 	api_key_id: z.string(),
+	provider_key_id: z.string().nullable(),
 	end_user_session_id: z.string().nullable(),
 	end_customer_wallet_id: z.string().nullable(),
 	project_mode: z.enum(["api-keys", "credits", "hybrid"]),
@@ -307,6 +317,50 @@ async function recordAutoTopUpFailure(org: {
 		.where(eq(tables.organization.id, org.id));
 }
 
+// DevPass orgs have no payment_method table rows; their card lives on the
+// Stripe subscription (or the customer default). Mirrors the resolution in
+// the /dev-plans/topup route so auto-reload charges the same card.
+async function resolveDevPassStripePaymentMethodId(org: {
+	id: string;
+	devPlanStripeSubscriptionId: string | null;
+	stripeCustomerId: string | null;
+}): Promise<string | null> {
+	if (org.devPlanStripeSubscriptionId) {
+		try {
+			const subscription = await getStripe().subscriptions.retrieve(
+				org.devPlanStripeSubscriptionId,
+			);
+			const pm = subscription.default_payment_method;
+			const id = typeof pm === "string" ? pm : (pm?.id ?? null);
+			if (id) {
+				return id;
+			}
+		} catch (err) {
+			logger.warn(
+				`Could not read DevPass subscription payment method for organization ${org.id}`,
+				{ error: err instanceof Error ? err.message : String(err) },
+			);
+		}
+	}
+	if (org.stripeCustomerId) {
+		try {
+			const customer = await getStripe().customers.retrieve(
+				org.stripeCustomerId,
+			);
+			if (!customer.deleted) {
+				const pm = customer.invoice_settings?.default_payment_method;
+				return typeof pm === "string" ? pm : (pm?.id ?? null);
+			}
+		} catch (err) {
+			logger.warn(
+				`Could not read DevPass customer payment method for organization ${org.id}`,
+				{ error: err instanceof Error ? err.message : String(err) },
+			);
+		}
+	}
+	return null;
+}
+
 export async function processAutoTopUp(): Promise<void> {
 	const lockAcquired = await acquireLock(AUTO_TOPUP_LOCK_KEY);
 	if (!lockAcquired) {
@@ -324,6 +378,17 @@ export async function processAutoTopUp(): Promise<void> {
 
 		// Filter organizations that need top-up based on credits vs threshold
 		const filteredOrgs = orgsNeedingTopUp.filter((org) => {
+			// An organization flagged as high risk cannot buy credits manually, so
+			// it must not keep charging a card automatically either.
+			if (org.riskFlagged) {
+				return false;
+			}
+			// DevPass orgs can only spend credits with the pay-as-you-go
+			// overflow opt-in; without it auto-reload would buy credits the
+			// org cannot use.
+			if (org.kind === "devpass" && !org.devPlanPaygEnabled) {
+				return false;
+			}
 			const credits = Number(org.credits || 0);
 			const threshold = Number(org.autoTopUpThreshold ?? 10);
 			return credits < threshold;
@@ -466,7 +531,17 @@ export async function processAutoTopUp(): Promise<void> {
 					},
 				});
 
-				if (!defaultPaymentMethod) {
+				// DevPass orgs keep their card as the Stripe subscription/customer
+				// default rather than in the payment_method table, so fall back to
+				// it — the same card the manual /dev-plans/topup route charges.
+				let stripePaymentMethodId =
+					defaultPaymentMethod?.stripePaymentMethodId ?? null;
+				if (!stripePaymentMethodId && org.kind === "devpass") {
+					stripePaymentMethodId =
+						await resolveDevPassStripePaymentMethodId(org);
+				}
+
+				if (!stripePaymentMethodId) {
 					logger.info(
 						`No default payment method for organization ${org.id}, skipping auto top-up`,
 					);
@@ -497,7 +572,7 @@ export async function processAutoTopUp(): Promise<void> {
 				let isInternational = false;
 				try {
 					const stripePaymentMethod = await getStripe().paymentMethods.retrieve(
-						defaultPaymentMethod.stripePaymentMethodId,
+						stripePaymentMethodId,
 					);
 
 					const paymentMethodCustomer =
@@ -511,7 +586,7 @@ export async function processAutoTopUp(): Promise<void> {
 					// the failure for backoff/auto-disable instead of charging.
 					if (paymentMethodCustomer !== org.stripeCustomerId) {
 						logger.error(
-							`Default payment method ${defaultPaymentMethod.stripePaymentMethodId} for organization ${org.id} is attached to Stripe customer ${paymentMethodCustomer}, but the organization's Stripe customer is ${org.stripeCustomerId}; skipping auto top-up`,
+							`Default payment method ${stripePaymentMethodId} for organization ${org.id} is attached to Stripe customer ${paymentMethodCustomer}, but the organization's Stripe customer is ${org.stripeCustomerId}; skipping auto top-up`,
 						);
 						await recordAutoTopUpFailure(org);
 						continue;
@@ -521,7 +596,7 @@ export async function processAutoTopUp(): Promise<void> {
 					isInternational = Boolean(country) && country !== "US";
 				} catch (err) {
 					logger.error(
-						`Failed to retrieve payment method ${defaultPaymentMethod.stripePaymentMethodId} for organization ${org.id}; skipping auto top-up cycle to avoid undercharging international cards`,
+						`Failed to retrieve payment method ${stripePaymentMethodId} for organization ${org.id}; skipping auto top-up cycle to avoid undercharging international cards`,
 						err as Error,
 					);
 					continue;
@@ -532,20 +607,79 @@ export async function processAutoTopUp(): Promise<void> {
 					isInternational,
 				});
 
+				// The org row was read once at the start of the pass, and the
+				// payment-method resolution above makes network calls — the user
+				// may have switched auto-reload (or DevPass PAYG overflow) off in
+				// the meantime. Re-read and re-authorize immediately before money
+				// moves: a charge that loses this check stops before the pending
+				// transaction and PaymentIntent are ever created. The residual
+				// window is the Stripe call itself, which a settings write cannot
+				// revoke.
+				const freshOrg = await db.query.organization.findFirst({
+					where: {
+						id: {
+							eq: org.id,
+						},
+					},
+				});
+				if (
+					!freshOrg ||
+					!freshOrg.autoTopUpEnabled ||
+					(freshOrg.kind === "devpass" && !freshOrg.devPlanPaygEnabled) ||
+					Number(freshOrg.credits || 0) >=
+						Number(freshOrg.autoTopUpThreshold ?? 10)
+				) {
+					logger.info(
+						`Skipping auto top-up for organization ${org.id}: settings changed mid-pass`,
+					);
+					continue;
+				}
+
+				// Tier-based top-up velocity cap. Reserving covers the gap between
+				// this check and the pending insert below: a concurrent manual
+				// top-up in that window would otherwise see neither a reservation
+				// nor the pending row and both could pass. On a cap hit just skip
+				// (the blocked attempt released its own reservation) — the next
+				// cycle re-checks once the window rolls, so auto-reload resumes by
+				// itself.
+				const velocity = await checkAndReserveTopUp({
+					org: freshOrg,
+					amountUsd: feeBreakdown.totalAmount,
+				});
+				if (!velocity.allowed) {
+					logger.info(
+						`Skipping auto top-up for organization ${org.id}: top-up velocity cap reached`,
+						{
+							capUsd: velocity.capUsd,
+							usedUsd: velocity.usedUsd,
+							attemptedUsd: feeBreakdown.totalAmount,
+						},
+					);
+					continue;
+				}
+
 				// Insert pending transaction before creating payment intent
-				const pendingTransaction = await db
-					.insert(tables.transaction)
-					.values({
-						organizationId: org.id,
-						type: "credit_topup",
-						creditAmount: feeBreakdown.baseAmount.toString(),
-						amount: feeBreakdown.totalAmount.toString(),
-						currency: "USD",
-						status: "pending",
-						description: `Auto top-up for ${topUpAmount} USD (total: ${feeBreakdown.totalAmount} including fees)`,
-					})
-					.returning()
-					.then((rows) => rows[0]);
+				let pendingTransaction;
+				try {
+					pendingTransaction = await db
+						.insert(tables.transaction)
+						.values({
+							organizationId: org.id,
+							type: "credit_topup",
+							creditAmount: feeBreakdown.baseAmount.toString(),
+							amount: feeBreakdown.totalAmount.toString(),
+							currency: "USD",
+							status: "pending",
+							description: `Auto top-up for ${topUpAmount} USD (total: ${feeBreakdown.totalAmount} including fees)`,
+						})
+						.returning()
+						.then((rows) => rows[0]);
+				} finally {
+					// The pending row now counts in the gate's DB window sum, so the
+					// bridging reservation must go either way (kept on success it
+					// would double-count; kept on failure it would leak headroom).
+					await releaseTopUpReservation(org.id, feeBreakdown.totalAmount);
+				}
 
 				logger.info(
 					`Created pending transaction ${pendingTransaction.id} for organization ${org.id}`,
@@ -556,17 +690,19 @@ export async function processAutoTopUp(): Promise<void> {
 						amount: Math.round(feeBreakdown.totalAmount * 100),
 						currency: "usd",
 						description: `Auto top-up for ${topUpAmount} USD (total: ${feeBreakdown.totalAmount} including fees)`,
-						payment_method: defaultPaymentMethod.stripePaymentMethodId,
+						payment_method: stripePaymentMethodId,
 						customer: org.stripeCustomerId!,
 						confirm: true,
 						off_session: true,
 						metadata: {
 							organizationId: org.id,
+							type: "credit_topup",
 							autoTopUp: "true",
 							transactionId: pendingTransaction.id,
 							baseAmount: feeBreakdown.baseAmount.toString(),
 							platformFee: feeBreakdown.platformFee.toString(),
 							internationalFee: feeBreakdown.internationalFee.toString(),
+							totalAmount: feeBreakdown.totalAmount.toString(),
 							isInternational: isInternational.toString(),
 							...(orgUser?.user?.email && { userEmail: orgUser.user.email }),
 						},
@@ -893,6 +1029,9 @@ export async function batchProcessLogs(): Promise<number> {
 
 	let processedCount = 0;
 	const deductedOrgIds: string[] = [];
+	// Provider keys (BYOK or managed) whose accumulated usage crossed their
+	// spend limit this batch — deactivated after the transaction commits.
+	let overLimitProviderKeyIds: string[] = [];
 	// LLM SDK: wallets that crossed below the low-balance threshold this
 	// batch — webhooks are enqueued after the transaction commits.
 	const walletLowBalanceEvents: Array<{
@@ -916,8 +1055,10 @@ export async function batchProcessLogs(): Promise<number> {
 					organization_id: log.organizationId,
 					project_id: log.projectId,
 					cost: log.cost,
+					billing_cost: log.billingCost,
 					cached: log.cached,
 					api_key_id: log.apiKeyId,
+					provider_key_id: log.providerKeyId,
 					end_user_session_id: log.endUserSessionId,
 					end_customer_wallet_id: log.endCustomerWalletId,
 					project_mode: tables.project.mode,
@@ -966,8 +1107,8 @@ export async function batchProcessLogs(): Promise<number> {
 			// Group logs by organization and api key to calculate total costs.
 			// We split per-org costs into a chat bucket and a default bucket so
 			// the deduction step below can prefer chat-plan credits for requests
-			// originating from chat.llmgateway.io (matching how users mentally
-			// account for their plans), and dev-plan credits everywhere else.
+			// originating from Lounge (matching how users mentally account for
+			// their plans), and dev-plan credits everywhere else.
 			// Use Decimal.js to avoid floating point rounding errors.
 			interface OrgCostBuckets {
 				chat: Decimal;
@@ -985,9 +1126,16 @@ export async function batchProcessLogs(): Promise<number> {
 			// usage_debit ledger row back to a gateway log.
 			const walletCosts = new Map<string, Decimal>();
 			const walletLogIds = new Map<string, string>();
+			// Upstream provider spend attributed per provider_key row (BYOK and
+			// managed alike). Uses the raw `cost` column — what the credential
+			// spends at the provider — not billingCost, which carries plan/margin
+			// adjustments on what the org pays us.
+			const providerKeyCosts = new Map<string, Decimal>();
 
-			const isChatSource = (source: string | null | undefined) =>
-				source === "chat.llmgateway.io";
+			// Accepts both the current and the pre-move Lounge host: logs written
+			// before the domain move are still queued here, and rewriting them is
+			// not an option.
+			const isChatSource = isLoungeSource;
 
 			for (const raw of unprocessedLogs.rows) {
 				const row = schema.parse(raw);
@@ -1031,8 +1179,64 @@ export async function batchProcessLogs(): Promise<number> {
 					unifiedFinishReason: row.unified_finish_reason,
 				});
 
-				if (row.cost && row.cost > 0 && !row.cached) {
-					const apiKeyCost = new Decimal(row.cost);
+				// Cached responses never hit the upstream, so they don't spend
+				// against the credential. Runs before the wallet `continue` below so
+				// end-user-wallet traffic still attributes provider spend.
+				if (
+					row.provider_key_id &&
+					row.cost !== null &&
+					row.cost > 0 &&
+					!row.cached
+				) {
+					providerKeyCosts.set(
+						row.provider_key_id,
+						(providerKeyCosts.get(row.provider_key_id) ?? new Decimal(0)).plus(
+							new Decimal(row.cost),
+						),
+					);
+				}
+
+				const sourceBucket = isChatSource(row.source) ? "chat" : "other";
+
+				const addToBucket = (amount: Decimal, premium: boolean) => {
+					const existing = orgCosts.get(row.organization_id) ?? {
+						chat: new Decimal(0),
+						other: new Decimal(0),
+						chatPremium: new Decimal(0),
+						otherPremium: new Decimal(0),
+					};
+					existing[sourceBucket] = existing[sourceBucket].plus(amount);
+					if (premium) {
+						const premiumBucket =
+							sourceBucket === "chat" ? "chatPremium" : "otherPremium";
+						existing[premiumBucket] = existing[premiumBucket].plus(amount);
+					}
+					orgCosts.set(row.organization_id, existing);
+				};
+
+				// Data retention storage is billed separately from inference (log.cost
+				// never includes it), so it is deducted from org credits for every
+				// mode: credits, api-keys (BYOK) and wallet-backed end-user traffic
+				// alike — and also when inference itself was free or zeroed (e.g.
+				// unbilled refusals keep their storage cost).
+				if (row.data_storage_cost) {
+					const storageCost = new Decimal(row.data_storage_cost);
+					if (storageCost.greaterThan(0)) {
+						addToBucket(storageCost, false);
+					}
+				}
+
+				// Prefer the exact decimal billingCost (realtime and other
+				// decimal-billed rows) over the legacy float cost column.
+				const effectiveCost =
+					row.billing_cost !== null
+						? new Decimal(row.billing_cost)
+						: row.cost !== null
+							? new Decimal(row.cost)
+							: null;
+
+				if (effectiveCost && effectiveCost.greaterThan(0) && !row.cached) {
+					const apiKeyCost = effectiveCost;
 					const usageEvent = {
 						cost: apiKeyCost,
 						createdAt: row.created_at,
@@ -1064,39 +1268,14 @@ export async function batchProcessLogs(): Promise<number> {
 						continue;
 					}
 
-					const sourceBucket = isChatSource(row.source) ? "chat" : "other";
-
-					const addToBucket = (amount: Decimal, premium: boolean) => {
-						const existing = orgCosts.get(row.organization_id) ?? {
-							chat: new Decimal(0),
-							other: new Decimal(0),
-							chatPremium: new Decimal(0),
-							otherPremium: new Decimal(0),
-						};
-						existing[sourceBucket] = existing[sourceBucket].plus(amount);
-						if (premium) {
-							const premiumBucket =
-								sourceBucket === "chat" ? "chatPremium" : "otherPremium";
-							existing[premiumBucket] = existing[premiumBucket].plus(amount);
-						}
-						orgCosts.set(row.organization_id, existing);
-					};
-
-					// Deduct organization credits based on mode:
-					// - Credits mode: deduct full cost (includes request cost + storage cost)
-					// - API keys mode: only deduct storage cost (data retention billing)
+					// Inference cost: credits mode deducts the full cost from org
+					// credits; api-keys mode pays the provider directly (BYOK), so
+					// only the storage cost above is billed.
 					if (row.used_mode === "credits") {
 						addToBucket(
 							apiKeyCost,
 							Boolean(row.used_model && isPremiumUsedModel(row.used_model)),
 						);
-					} else if (row.used_mode === "api-keys") {
-						if (row.data_storage_cost) {
-							const storageCost = new Decimal(row.data_storage_cost);
-							if (storageCost.greaterThan(0)) {
-								addToBucket(storageCost, false);
-							}
-						}
 					}
 				}
 
@@ -1107,7 +1286,7 @@ export async function batchProcessLogs(): Promise<number> {
 			// Also calculate referral earnings (1% of spent credits).
 			//
 			// Deduction order is source-aware:
-			//   • chat.llmgateway.io requests → chat plan → dev plan → regular
+			//   • Lounge requests → chat plan → dev plan → regular
 			//   • everything else → dev plan → chat plan → regular
 			// The non-preferred plan acts as a fallback if the preferred plan's
 			// cycle credits are exhausted, so a single org with both plans gets
@@ -1232,9 +1411,40 @@ export async function batchProcessLogs(): Promise<number> {
 					premiumCost: Decimal,
 					preferred: PlanPool | null,
 					fallback: PlanPool | null,
-				): Promise<Decimal> => {
+				): Promise<{ remaining: Decimal; remainingPremium: Decimal }> => {
 					let remaining = bucketCost;
 					let remainingPremium = premiumCost;
+					// With PAYG overflow enabled, premium spend past the weekly
+					// fair-use allowance must not consume the plan pools: the gateway
+					// admits those requests on the strength of the credits balance, so
+					// the excess is held out of the pool drain here and falls through
+					// to the regular-credits remainder below. Without this the cap
+					// would stop limiting anything — over-cap premium would just keep
+					// draining the monthly pool.
+					// Scoped to buckets whose spend is the dev pool's to pay (its own
+					// bucket, or any bucket when there is no chat pool) — a dual-plan
+					// org's chat-sourced premium keeps draining the chat pool as before.
+					let premiumOverflow = new Decimal(0);
+					if (
+						org?.devPlanPaygEnabled &&
+						devPool &&
+						(preferred === devPool || !chatPool) &&
+						remainingPremium.greaterThan(0)
+					) {
+						const allowanceLeft = new Decimal(
+							getRemainingPremiumWeeklyAllowance(
+								org.devPlan as DevPlanTier,
+								devPool.premiumCreditsUsed?.toNumber() ?? 0,
+								devPool.premiumWeekStart,
+							),
+						);
+						premiumOverflow = Decimal.max(
+							0,
+							remainingPremium.minus(allowanceLeft),
+						);
+						remaining = remaining.minus(premiumOverflow);
+						remainingPremium = remainingPremium.minus(premiumOverflow);
+					}
 					for (const pool of [preferred, fallback]) {
 						if (!pool || remaining.lessThanOrEqualTo(0)) {
 							continue;
@@ -1251,43 +1461,118 @@ export async function batchProcessLogs(): Promise<number> {
 						remaining = remaining.minus(take);
 						remainingPremium = remainingPremium.minus(premiumTake);
 					}
-					return remaining;
+					return {
+						remaining: remaining.plus(premiumOverflow),
+						remainingPremium,
+					};
 				};
 
-				const remainingFromChat = buckets.chat.greaterThan(0)
+				const fromChat = buckets.chat.greaterThan(0)
 					? await drainBucket(
 							buckets.chat,
 							buckets.chatPremium,
 							chatPool,
 							devPool,
 						)
-					: new Decimal(0);
+					: { remaining: new Decimal(0), remainingPremium: new Decimal(0) };
 
-				const remainingFromOther = buckets.other.greaterThan(0)
+				const fromOther = buckets.other.greaterThan(0)
 					? await drainBucket(
 							buckets.other,
 							buckets.otherPremium,
 							devPool,
 							chatPool,
 						)
-					: new Decimal(0);
+					: { remaining: new Decimal(0), remainingPremium: new Decimal(0) };
 
-				const remainingCost = remainingFromChat.plus(remainingFromOther);
+				const remainingCost = fromChat.remaining.plus(fromOther.remaining);
 
-				if (remainingCost.greaterThan(0)) {
-					const costStr = remainingCost.toString();
-					await tx
-						.update(organization)
-						.set({
-							credits: sql`${organization.credits} - ${costStr}`,
-						})
-						.where(eq(organization.id, orgId));
+				// A dev-plan org that has not opted into pay-as-you-go overflow
+				// cannot spend its `credits` balance: getAvailableCredits zeroes
+				// that pool, so the gateway rejects the request rather than
+				// billing it. Draining `credits` here would therefore charge a
+				// balance the org was never allowed to use — silently eating an
+				// admin gift, or pushing an empty balance negative so a later
+				// top-up first pays off phantom debt. The overshoot exists
+				// because requests admitted while the pool still had room can
+				// collectively cost more than was left, so keep it on the plan
+				// pool: usage stays accounted for and the allowance stays the
+				// hard cap the plan promises.
+				const plannedOverflowOnly =
+					org && org.devPlan !== "none" && !org.devPlanPaygEnabled;
 
-					deductedOrgIds.push(orgId);
-
-					logger.debug(
-						`Deducted ${costStr} regular credits from organization ${orgId}`,
+				if (remainingCost.greaterThan(0) && plannedOverflowOnly && devPool) {
+					await deductFromPlanPool(
+						orgId,
+						devPool,
+						remainingCost,
+						fromChat.remainingPremium.plus(fromOther.remainingPremium),
 					);
+					logger.debug(
+						`Kept ${remainingCost.toString()} on the dev plan pool for organization ${orgId} (pay-as-you-go overflow disabled)`,
+					);
+				} else if (remainingCost.greaterThan(0)) {
+					// Overshoot is held off real credits only when a *plan* authorized
+					// the spend, never on org kind alone. getAvailableCredits sums
+					// `credits` with the plan allowance, so a negative balance silently
+					// docks the next cycle's allowance — a chat-plan subscriber would
+					// end up paying for overshoot out of the plan they already bought.
+					// That reasoning needs a plan pool behind it: either one still
+					// active to park the excess on, or a cancelled plan that left no
+					// balance to draw on. A personal org that still holds a balance is
+					// funded by that balance exactly like a `default` org, so it
+					// carries the overage as debt instead of having it forgiven.
+					const overflowPool = chatPool ?? devPool;
+					const balance = Decimal.max(0, new Decimal(org?.credits ?? "0"));
+					const planAuthorized =
+						org &&
+						org.kind !== "default" &&
+						!org.devPlanPaygEnabled &&
+						(overflowPool !== null || balance.lessThanOrEqualTo(0));
+					const chargeToCredits = planAuthorized
+						? Decimal.min(remainingCost, balance)
+						: remainingCost;
+					const overflow = remainingCost.minus(chargeToCredits);
+
+					if (chargeToCredits.greaterThan(0)) {
+						const costStr = chargeToCredits.toString();
+						await tx
+							.update(organization)
+							.set({
+								credits: sql`${organization.credits} - ${costStr}`,
+							})
+							.where(eq(organization.id, orgId));
+
+						deductedOrgIds.push(orgId);
+
+						logger.debug(
+							`Deducted ${costStr} regular credits from organization ${orgId}`,
+						);
+					}
+
+					if (overflow.greaterThan(0)) {
+						// Prefer the pool that authorized the spend. With the plan
+						// already cancelled there is no pool left to hold it, so the
+						// residual is written off rather than turned into phantom debt.
+						if (overflowPool) {
+							await deductFromPlanPool(
+								orgId,
+								overflowPool,
+								overflow,
+								Decimal.min(
+									fromChat.remainingPremium.plus(fromOther.remainingPremium),
+									overflow,
+								),
+							);
+							logger.debug(
+								`Kept ${overflow.toString()} on the ${overflowPool.kind} plan pool for organization ${orgId} (credit balance exhausted)`,
+							);
+						} else {
+							logger.debug(
+								`Wrote off ${overflow.toString()} for organization ${orgId} (no plan pool and no credit balance)`,
+							);
+						}
+					}
 				}
 
 				// 1% referral earnings on the full charge regardless of which pool paid.
@@ -1319,14 +1604,14 @@ export async function batchProcessLogs(): Promise<number> {
 				if (!totalCost.greaterThan(0)) {
 					continue;
 				}
-				const costNumber = totalCost.toNumber();
+				const costStr = totalCost.toString();
 				// Debit atomically and derive the resulting balance from the row we
 				// actually updated, so a concurrent top-up/reversal can't make
 				// balanceAfter or the low-balance crossing check stale.
 				const [updatedWallet] = await tx
 					.update(tables.wallet)
 					.set({
-						balance: sql`${tables.wallet.balance} - ${costNumber}`,
+						balance: sql`${tables.wallet.balance} - ${costStr}`,
 					})
 					.where(eq(tables.wallet.id, walletId))
 					.returning();
@@ -1365,7 +1650,7 @@ export async function batchProcessLogs(): Promise<number> {
 					description: "AI usage",
 				});
 
-				logger.debug(`Debited ${costNumber} from end-user wallet ${walletId}`);
+				logger.debug(`Debited ${costStr} from end-user wallet ${walletId}`);
 			}
 
 			// Apply referral earnings to referrer organizations
@@ -1420,12 +1705,12 @@ export async function batchProcessLogs(): Promise<number> {
 					}
 
 					const usageUpdate = buildApiKeyUsageUpdate(apiKeyRecord, events);
-					const costNumber = usageUpdate.totalUsageCost.toNumber();
+					const costStr = usageUpdate.totalUsageCost.toString();
 
 					await tx
 						.update(apiKey)
 						.set({
-							usage: sql`${apiKey.usage} + ${costNumber}`,
+							usage: sql`${apiKey.usage} + ${costStr}`,
 							...(usageUpdate.hasPeriodUsageUpdate && {
 								currentPeriodUsage: usageUpdate.currentPeriodUsage,
 								currentPeriodStartedAt: usageUpdate.currentPeriodStartedAt,
@@ -1433,7 +1718,7 @@ export async function batchProcessLogs(): Promise<number> {
 						})
 						.where(eq(apiKey.id, apiKeyId));
 
-					logger.debug(`Added ${costNumber} usage to API key ${apiKeyId}`);
+					logger.debug(`Added ${costStr} usage to API key ${apiKeyId}`);
 				}
 			}
 
@@ -1471,12 +1756,12 @@ export async function batchProcessLogs(): Promise<number> {
 					}
 
 					const usageUpdate = buildApiKeyUsageUpdate(sessionRecord, events);
-					const costNumber = usageUpdate.totalUsageCost.toNumber();
+					const costStr = usageUpdate.totalUsageCost.toString();
 
 					await tx
 						.update(tables.endUserSession)
 						.set({
-							usage: sql`${tables.endUserSession.usage} + ${costNumber}`,
+							usage: sql`${tables.endUserSession.usage} + ${costStr}`,
 							...(usageUpdate.hasPeriodUsageUpdate && {
 								currentPeriodUsage: usageUpdate.currentPeriodUsage,
 								currentPeriodStartedAt: usageUpdate.currentPeriodStartedAt,
@@ -1485,9 +1770,40 @@ export async function batchProcessLogs(): Promise<number> {
 						.where(eq(tables.endUserSession.id, sessionId));
 
 					logger.debug(
-						`Added ${costNumber} usage to end-user session ${sessionId}`,
+						`Added ${costStr} usage to end-user session ${sessionId}`,
 					);
 				}
+			}
+
+			// Accumulate upstream spend per provider key. Plain (uncached) writes
+			// on purpose: nothing hot-path reads `usage`, and invalidating the
+			// provider_key read cache every batch would hammer the database.
+			if (providerKeyCosts.size > 0) {
+				for (const [providerKeyId, keyCost] of providerKeyCosts.entries()) {
+					const costStr = keyCost.toString();
+					await tx
+						.update(tables.providerKey)
+						.set({
+							usage: sql`${tables.providerKey.usage} + ${costStr}`,
+						})
+						.where(eq(tables.providerKey.id, providerKeyId));
+				}
+
+				// Detect keys that crossed their spend limit; the status flip
+				// happens after commit so it can go through the cache-invalidating
+				// client without holding the batch transaction open.
+				const overLimitKeys = await tx
+					.select({ id: tables.providerKey.id })
+					.from(tables.providerKey)
+					.where(
+						and(
+							inArray(tables.providerKey.id, [...providerKeyCosts.keys()]),
+							eq(tables.providerKey.status, "active"),
+							isNotNull(tables.providerKey.usageLimit),
+							sql`${tables.providerKey.usage} >= ${tables.providerKey.usageLimit}`,
+						),
+					);
+				overLimitProviderKeyIds = overLimitKeys.map((key) => key.id);
 			}
 
 			// Mark all logs as processed within the same transaction.
@@ -1504,6 +1820,45 @@ export async function batchProcessLogs(): Promise<number> {
 
 			return unprocessedLogs.rows.length;
 		});
+
+		// Auto-deactivate provider keys that hit their spend limit. Goes through
+		// cdb so the gateway's provider_key read cache and SWR mirrors are
+		// invalidated and the key drops out of rotation promptly — and only runs
+		// when a key actually crossed, so the 5s batch loop never busts the
+		// cache on quiet batches. The predicate is repeated to stay idempotent
+		// and to respect a limit raised between commit and flip. If the process
+		// dies in between, the key's next attributed batch re-detects it.
+		if (overLimitProviderKeyIds.length > 0) {
+			const deactivated = await cdb
+				.update(tables.providerKey)
+				.set({ status: "inactive" })
+				.where(
+					and(
+						inArray(tables.providerKey.id, overLimitProviderKeyIds),
+						eq(tables.providerKey.status, "active"),
+						isNotNull(tables.providerKey.usageLimit),
+						sql`${tables.providerKey.usage} >= ${tables.providerKey.usageLimit}`,
+					),
+				)
+				.returning({
+					id: tables.providerKey.id,
+					provider: tables.providerKey.provider,
+					managed: tables.providerKey.managed,
+					organizationId: tables.providerKey.organizationId,
+					usage: tables.providerKey.usage,
+					usageLimit: tables.providerKey.usageLimit,
+				});
+			for (const key of deactivated) {
+				logger.info("Provider key auto-deactivated: spend limit reached", {
+					providerKeyId: key.id,
+					provider: key.provider,
+					managed: key.managed,
+					organizationId: key.organizationId,
+					usage: key.usage,
+					usageLimit: key.usageLimit,
+				});
+			}
+		}
 
 		// Async low-balance alert check (outside transaction, non-blocking)
 		if (deductedOrgIds.length > 0) {
@@ -1686,50 +2041,6 @@ function recordLogInsertSuccess(): void {
 	logInsertCircuit.nextAttemptAt = 0;
 }
 
-const orgRetentionCache = new Map<
-	string,
-	{ retentionLevel: "retain" | "none"; expiresAt: number }
->();
-
-// Resolve organization retention levels, serving from the in-memory cache when
-// fresh and only querying Postgres for the ids that are missing or expired.
-async function getOrganizationRetentionLevels(
-	organizationIds: string[],
-): Promise<Map<string, "retain" | "none">> {
-	const now = Date.now();
-	const result = new Map<string, "retain" | "none">();
-	const missing: string[] = [];
-
-	for (const id of organizationIds) {
-		const cached = orgRetentionCache.get(id);
-		if (cached && cached.expiresAt > now) {
-			result.set(id, cached.retentionLevel);
-		} else {
-			missing.push(id);
-		}
-	}
-
-	if (missing.length > 0) {
-		const organizations = await cdb
-			.select({
-				id: organization.id,
-				retentionLevel: organization.retentionLevel,
-			})
-			.from(organization)
-			.where(inArray(organization.id, missing));
-
-		for (const org of organizations) {
-			result.set(org.id, org.retentionLevel);
-			orgRetentionCache.set(org.id, {
-				retentionLevel: org.retentionLevel,
-				expiresAt: now + ORG_RETENTION_CACHE_TTL_MS,
-			});
-		}
-	}
-
-	return result;
-}
-
 // Returns the number of messages successfully inserted, so the drain loop can
 // decide whether to sleep (partial batch) or immediately fetch the next batch
 // (full batch, queue likely still backed up).
@@ -1747,49 +2058,21 @@ export async function processLogQueue(): Promise<number> {
 	const MAX_RETRIES = 5;
 
 	try {
+		// The gateway decides what to persist: it strips request/response payload
+		// fields before publishing for orgs that don't retain data, so the worker
+		// inserts the queued rows as-is with no per-batch org retention lookup.
 		const logData = message.map((i) => JSON.parse(i) as LogInsertData);
-		const organizationIds = Array.from(
-			new Set(logData.map((data) => data.organizationId)),
-		);
-		const selectStart = Date.now();
-		const retentionByOrg =
-			organizationIds.length > 0
-				? await getOrganizationRetentionLevels(organizationIds)
-				: new Map<string, "retain" | "none">();
-		const selectMs = Date.now() - selectStart;
-
-		const processedLogData: (
-			| LogInsertData
-			| Omit<LogInsertData, "messages" | "content">
-		)[] = logData.map((data) => {
-			if (retentionByOrg.get(data.organizationId) === "none") {
-				const {
-					messages: _messages,
-					content: _content,
-					reasoningContent: _reasoningContent,
-					tools: _tools,
-					toolChoice: _toolChoice,
-					toolResults: _toolResults,
-					responsesApiData: _responsesApiData,
-					...metadataOnly
-				} = data;
-				return metadataOnly;
-			}
-
-			return data;
-		});
 
 		// Insert logs with retry logic
 		let lastError: Error | undefined;
 		for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
 			try {
-				// Type assertion is safe here as both LogInsertData and its subset are compatible with the log insert schema
 				const insertStart = Date.now();
-				await db.insert(log).values(processedLogData as LogInsertData[]);
+				await db.insert(log).values(logData);
 				const insertMs = Date.now() - insertStart;
 				recordLogInsertSuccess();
 				logger.info(
-					`Processed log batch: ${message.length} rows (org lookup ${selectMs}ms, insert ${insertMs}ms)`,
+					`Processed log batch: ${message.length} rows (insert ${insertMs}ms)`,
 				);
 				return message.length; // Success, exit function
 			} catch (insertError) {
@@ -2391,6 +2674,143 @@ async function runApiKeyExpirationLoop() {
 	}
 }
 
+async function flushLimitHitCounters(): Promise<void> {
+	const lockAcquired = await acquireLock(LIMIT_HIT_FLUSH_LOCK_KEY);
+	if (!lockAcquired) {
+		return;
+	}
+
+	try {
+		// Single flusher (the lock) is what makes the RENAME-based drain in
+		// flushLimitHits safe.
+		const flushed = await flushLimitHits();
+		if (flushed > 0) {
+			logger.info(`Flushed ${flushed} limit-hit bucket(s) to Postgres`);
+		}
+	} finally {
+		await releaseLock(LIMIT_HIT_FLUSH_LOCK_KEY);
+	}
+}
+
+async function runLimitHitFlushLoop() {
+	activeLoops++;
+	const interval =
+		parseInt(process.env.LIMIT_HIT_FLUSH_INTERVAL_SECONDS || "60", 10) * 1000;
+	logger.info(
+		`Starting limit-hit flush loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				await flushLimitHitCounters();
+
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in limit-hit flush loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Limit-hit flush loop stopped");
+	}
+}
+
+// Client-confirmation credit top-ups (create-payment-intent hands the browser
+// a client secret to confirm later) can be abandoned. Their velocity
+// reservation self-expires with its TTL, but the client secret stays
+// confirmable — so stockpiled secrets could later all be confirmed at once,
+// blowing through the top-up cap with no reservation counting them. Cancel
+// PIs still unconfirmed well past the reservation TTL; a genuinely active
+// checkout finishes in minutes, and a canceled PI just means starting over.
+const STALE_TOPUP_PI_MAX_AGE_SECONDS = 35 * 60;
+const STALE_TOPUP_PI_CANCELABLE_STATUSES = [
+	"requires_payment_method",
+	"requires_confirmation",
+	"requires_action",
+] as const;
+
+async function cancelStaleTopUpPaymentIntents(): Promise<number> {
+	const nowSeconds = Math.floor(Date.now() / 1000);
+	const cutoff = nowSeconds - STALE_TOPUP_PI_MAX_AGE_SECONDS;
+	let canceled = 0;
+	for (const status of STALE_TOPUP_PI_CANCELABLE_STATUSES) {
+		// Search is eventually consistent (~1 min lag) — irrelevant at a
+		// 35-minute horizon. One page per status per run bounds Stripe traffic;
+		// leftovers are picked up next run.
+		const page = await getStripe().paymentIntents.search({
+			query: `status:"${status}" AND metadata["flow"]:"client_confirmation" AND created<${cutoff}`,
+			limit: 100,
+		});
+		for (const pi of page.data) {
+			try {
+				await getStripe().paymentIntents.cancel(pi.id, {
+					cancellation_reason: "abandoned",
+				});
+				canceled++;
+			} catch (error) {
+				// Lost a race with a just-started confirmation (or another
+				// canceller) — the PI is no longer cancelable; skip it.
+				logger.warn("Could not cancel stale top-up PaymentIntent", {
+					paymentIntentId: pi.id,
+					status,
+					error: error instanceof Error ? error.message : String(error),
+				});
+			}
+		}
+	}
+	return canceled;
+}
+
+async function runStaleTopUpPiCancelLoop() {
+	if (!process.env.STRIPE_SECRET_KEY) {
+		logger.info(
+			"Stale top-up PaymentIntent cancel loop disabled (no STRIPE_SECRET_KEY)",
+		);
+		return;
+	}
+	activeLoops++;
+	const interval =
+		parseInt(process.env.STALE_TOPUP_PI_CANCEL_INTERVAL_SECONDS || "600", 10) *
+		1000;
+	logger.info(
+		`Starting stale top-up PaymentIntent cancel loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				const lockAcquired = await acquireLock(STALE_TOPUP_PI_LOCK_KEY);
+				if (lockAcquired) {
+					try {
+						const canceled = await cancelStaleTopUpPaymentIntents();
+						if (canceled > 0) {
+							logger.info(`Canceled ${canceled} stale top-up PaymentIntent(s)`);
+						}
+					} finally {
+						await releaseLock(STALE_TOPUP_PI_LOCK_KEY);
+					}
+				}
+
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in stale top-up PaymentIntent cancel loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Stale top-up PaymentIntent cancel loop stopped");
+	}
+}
+
 const MAX_WEBHOOK_ATTEMPTS = 5;
 const WEBHOOK_DELIVERY_BATCH_SIZE = 50;
 
@@ -2786,6 +3206,8 @@ export async function startWorker() {
 	void runModelHistoryRetentionLoop();
 	void runEndUserSessionCleanupLoop();
 	void runApiKeyExpirationLoop();
+	void runLimitHitFlushLoop();
+	void runStaleTopUpPiCancelLoop();
 	void runWebhookDeliveryLoop();
 	void runMarginPayoutLoop();
 	void runFollowUpEmailsLoop({
@@ -2846,7 +3268,11 @@ export async function stopWorker(): Promise<boolean> {
 
 	// Close database and Redis connections
 	try {
-		await Promise.all([closeDatabase(), closeRedisClient()]);
+		await Promise.all([
+			closeDatabase(),
+			closeRedisClient(),
+			closeStorageRedisClient(),
+		]);
 		logger.info("All connections closed successfully");
 	} catch (error) {
 		logger.error(

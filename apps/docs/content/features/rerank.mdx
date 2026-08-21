@@ -1,0 +1,118 @@
+---
+title: Rerank
+description: Reorder candidate documents by relevance to a query with the rerank API
+icon: ListOrdered
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Rerank
+
+LLMGateway exposes a Cohere-compatible `/v1/rerank` endpoint that scores a list
+of candidate documents against a query and returns them ordered by relevance.
+
+Rerankers are cross-encoders: they read the query and a document _together_
+rather than embedding each in isolation. That makes them far more accurate than
+vector similarity, but too slow to run over a whole corpus. The usual pattern is
+two-stage retrieval — use [embeddings](/features/embeddings) to cheaply fetch
+the top ~100 candidates, then rerank those down to the handful you actually put
+in the prompt.
+
+Browse available rerank models on the
+[models page](https://llmgateway.io/models?filters=1&rerank=true).
+
+For the full request and response schema, see the
+[API reference](/v1_rerank).
+
+## Endpoint
+
+`POST https://api.llmgateway.io/v1/rerank`
+
+## cURL
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/rerank" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen3-reranker-8b",
+    "query": "What is the capital of France?",
+    "documents": [
+      "Paris is the capital of France.",
+      "Berlin is the capital of Germany.",
+      "Madrid is the capital of Spain."
+    ],
+    "top_n": 2
+  }'
+```
+
+```json
+{
+	"id": "kK1sT9pQ2mR7vX4nB6cL8dF3gH5jW0yZaA2eS4uI",
+	"results": [
+		{ "index": 0, "relevance_score": 0.9781517386436462 },
+		{ "index": 1, "relevance_score": 0.00010548105638008565 }
+	],
+	"meta": {
+		"api_version": { "version": "1" },
+		"billed_units": { "input_tokens": 255, "total_tokens": 255 }
+	}
+}
+```
+
+Results are sorted by `relevance_score` descending. Each `index` refers back to
+the position of that document in the request's `documents` array, so you can map
+scores onto your own records without relying on the returned text.
+
+The response `id` echoes the `x-request-id` header when you send one, which is
+handy for correlating a rerank call with its entry in the activity log.
+
+## Request fields
+
+| Field                | Type       | Description                                                               |
+| -------------------- | ---------- | ------------------------------------------------------------------------- |
+| `model`              | `string`   | Rerank model to use. Optionally prefixed with a provider (`deepinfra/…`). |
+| `query`              | `string`   | The search query to rank documents against.                               |
+| `documents`          | `string[]` | Candidate documents to score. At least one.                               |
+| `top_n`              | `number`   | Return only the top N results. Defaults to all documents.                 |
+| `return_documents`   | `boolean`  | Include the document text on each result. Defaults to `false`.            |
+| `max_chunks_per_doc` | `number`   | Maximum chunks per document. Accepted, but not every provider honors it.  |
+
+## Two-stage retrieval
+
+```ts
+// 1. Cheap recall: embed the query and pull the top 100 candidates
+//    from your vector store.
+const candidates = await vectorStore.search(queryEmbedding, { limit: 100 });
+
+// 2. Precise ordering: rerank those candidates and keep the best 5.
+const res = await fetch("https://api.llmgateway.io/v1/rerank", {
+	method: "POST",
+	headers: {
+		Authorization: `Bearer ${process.env.LLM_GATEWAY_API_KEY}`,
+		"Content-Type": "application/json",
+	},
+	body: JSON.stringify({
+		model: "qwen3-reranker-8b",
+		query,
+		documents: candidates.map((c) => c.text),
+		top_n: 5,
+	}),
+});
+
+const { results } = await res.json();
+const topDocuments = results.map((r) => candidates[r.index]);
+```
+
+<Callout type="info">
+	Rerank models are billed on input tokens only — the query and every document
+	you send are scored as input. There are no output tokens, since the response
+	is a list of scores rather than generated text. Sending 100 long documents
+	costs real money, so keep the first-stage candidate set tight.
+</Callout>
+
+<Callout type="warn">
+	Rerank models only work on `/v1/rerank`. Requesting one on
+	`/v1/chat/completions` returns a 400 pointing you at the right endpoint, and
+	they are not available in the playground.
+</Callout>

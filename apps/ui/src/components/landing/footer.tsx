@@ -6,14 +6,10 @@ import Link from "next/link";
 import Newsletter from "@/components/landing/newsletter";
 import { useAppConfig } from "@/lib/config";
 import { XIcon } from "@/lib/icons/XIcon";
-
-import { providers as providerDefinitions } from "@llmgateway/models";
+import { listedProviders } from "@/lib/providers-catalog";
 
 export default function Footer() {
 	const config = useAppConfig();
-	const filteredProviders = providerDefinitions.filter(
-		(p) => p.name !== "LLM Gateway",
-	);
 
 	return (
 		<footer className="relative py-12 bg-background">
@@ -111,6 +107,24 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
+										href="/products/ai-gateway"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										AI Gateway
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/products/observability"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Observability
+									</Link>
+								</li>
+								<li>
+									<Link
 										href="/models"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch={true}
@@ -129,6 +143,15 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
+										href="/rankings"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Rankings
+									</Link>
+								</li>
+								<li>
+									<Link
 										href="/add-provider"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch={true}
@@ -137,14 +160,22 @@ export default function Footer() {
 									</Link>
 								</li>
 								<li>
-									<a
-										href={config.playgroundUrl}
+									<Link
+										href="/partners"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
-										rel="noopener"
-										target="_blank"
+										prefetch={true}
 									>
-										Chat Playground
-									</a>
+										Partners
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/products/lounge"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Lounge
+									</Link>
 								</li>
 								<li>
 									<Link
@@ -156,12 +187,13 @@ export default function Footer() {
 									</Link>
 								</li>
 								<li>
-									<a
-										href="https://devpass.llmgateway.io"
+									<Link
+										href="/products/devpass"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
 									>
 										DevPass
-									</a>
+									</Link>
 								</li>
 								<li>
 									<Link
@@ -189,6 +221,15 @@ export default function Footer() {
 								Resources
 							</h3>
 							<ul className="space-y-2">
+								<li>
+									<Link
+										href="/legal"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Legal Overview
+									</Link>
+								</li>
 								<li>
 									<Link
 										href="/apps"
@@ -315,22 +356,14 @@ export default function Footer() {
 								</li>
 								<li>
 									<a
-										href="mailto:contact@llmgateway.io"
+										href={config.discordUrl}
 										target="_blank"
-										rel="noreferrer noopener"
+										rel="noopener noreferrer"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 									>
-										Contact Us
+										Discord
 									</a>
 								</li>
-							</ul>
-						</div>
-
-						<div>
-							<h3 className="font-display text-sm font-semibold mb-4 text-foreground">
-								Community
-							</h3>
-							<ul className="space-y-2">
 								<li>
 									<a
 										href={config.twitterUrl}
@@ -343,12 +376,12 @@ export default function Footer() {
 								</li>
 								<li>
 									<a
-										href={config.discordUrl}
+										href="mailto:contact@llmgateway.io"
 										target="_blank"
-										rel="noopener noreferrer"
+										rel="noreferrer noopener"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 									>
-										Discord
+										Contact Us
 									</a>
 								</li>
 							</ul>
@@ -399,11 +432,20 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
-										href="/legal/privacy"
+										href="/legal/providers"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch={true}
 									>
-										GDPR
+										Provider Information
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/legal/sub-processors"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Sub-processors
 									</Link>
 								</li>
 								<li>
@@ -434,6 +476,15 @@ export default function Footer() {
 								Compare
 							</h3>
 							<ul className="space-y-2">
+								<li>
+									<Link
+										href="/compare"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										All Comparisons
+									</Link>
+								</li>
 								<li>
 									<Link
 										href="/compare/github-copilot"
@@ -486,6 +537,15 @@ export default function Footer() {
 										prefetch={true}
 									>
 										Azure AI Foundry
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/compare/vercel-ai-gateway"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Vercel AI Gateway
 									</Link>
 								</li>
 								<li>
@@ -675,7 +735,7 @@ export default function Footer() {
 								Providers
 							</h3>
 							<ul className="space-y-2">
-								{filteredProviders.map((provider) => (
+								{listedProviders.map((provider) => (
 									<li key={provider.id}>
 										<Link
 											href={`/providers/${provider.id}`}

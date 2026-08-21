@@ -5,6 +5,8 @@ import { motion } from "motion/react";
 
 import { ChatPricingPlans } from "@/components/pricing/chat-pricing-plans";
 
+import { SELF_REFUND_WINDOW_DAYS } from "@llmgateway/shared";
+
 type StudioNoun = "images" | "videos" | "audio";
 
 interface ChatPlanUpsellProps {
@@ -15,9 +17,9 @@ interface ChatPlanUpsellProps {
 }
 
 const HEADLINE: Record<StudioNoun, string> = {
-	images: "Pick a plan to keep generating images",
-	videos: "Pick a plan to keep generating videos",
-	audio: "Pick a plan to keep generating audio",
+	images: "Become a member to keep generating images",
+	videos: "Become a member to keep generating videos",
+	audio: "Become a member to keep generating audio",
 };
 
 export function ChatPlanUpsell({
@@ -47,17 +49,18 @@ export function ChatPlanUpsell({
 				transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
 				className="relative mb-9 text-center"
 			>
-				<div className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-foreground/15 bg-foreground/[0.04] px-3 py-1 text-xs font-medium text-foreground/80">
+				<div className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-lounge-gold/30 bg-lounge-gold/[0.07] px-3 py-1 text-xs font-medium text-lounge-gold">
 					<Sparkles className="h-3.5 w-3.5" />
-					Every frontier model — one subscription
+					The Lounge — every frontier model, one membership
 				</div>
-				<h2 className="mx-auto max-w-2xl text-balance text-3xl font-bold leading-tight tracking-tight sm:text-4xl">
+				<h2 className="mx-auto max-w-2xl text-balance font-display text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">
 					{headline}
 				</h2>
 				<p className="mx-auto mt-3 max-w-xl text-pretty text-sm leading-relaxed text-muted-foreground sm:text-base">
 					Fast models plus the image, video and audio studios from $9 — or add
 					Claude Opus, GPT-5, Gemini and Grok with Plus and Pro. More usage than
-					you pay for, and a 7-day money-back guarantee.
+					you pay for, and a self-serve {SELF_REFUND_WINDOW_DAYS}-day money-back
+					guarantee.
 				</p>
 			</motion.div>
 

@@ -23,6 +23,7 @@ export interface ValidateModelCapabilitiesOptions {
 	webSearchTool?: WebSearchTool;
 	hasImages?: boolean;
 	hasDocuments?: boolean;
+	hasAssistantPrefill?: boolean;
 }
 
 /**
@@ -49,6 +50,7 @@ export function validateModelCapabilities(
 		webSearchTool,
 		hasImages,
 		hasDocuments,
+		hasAssistantPrefill,
 	} = options;
 
 	// Custom providers have no catalog entry, so the gateway cannot know which
@@ -108,6 +110,36 @@ export function validateModelCapabilities(
 				message: requestedProvider
 					? `Provider ${requestedProvider} does not support document input for model ${requestedModel}. Remove the file content or use a document-capable model.`
 					: `Model ${requestedModel} does not support document input. Remove the file content or use a document-capable model.`,
+			});
+		}
+	}
+
+	// Validate assistant prefill when the conversation ends on an assistant turn.
+	// Routing already skips mappings that declare `supportsAssistantPrefill: false`,
+	// but that filter is bypassed when the provider is pinned explicitly or the
+	// model has a single mapping, so reject here instead of letting the upstream
+	// return its own 400.
+	if (
+		hasAssistantPrefill &&
+		requestedModel !== "auto" &&
+		requestedModel !== "custom"
+	) {
+		const providersToCheck = requestedProvider
+			? modelInfo.providers.filter(
+					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
+				)
+			: modelInfo.providers;
+
+		const supportsAssistantPrefill = providersToCheck.some(
+			(provider) =>
+				(provider as ProviderModelMapping).supportsAssistantPrefill !== false,
+		);
+
+		if (!supportsAssistantPrefill) {
+			throw new HTTPException(400, {
+				message: requestedProvider
+					? `Provider ${requestedProvider} does not support a conversation ending on an assistant message for model ${requestedModel}. End the conversation with a user or tool message, or use another provider.`
+					: `Model ${requestedModel} does not support a conversation ending on an assistant message. End the conversation with a user or tool message.`,
 			});
 		}
 	}
@@ -228,9 +260,15 @@ export function validateModelCapabilities(
 				)
 			: modelInfo.providers;
 
+		// A mapping that thinks through a binary chat-template flag
+		// (`chatTemplateThinkingKey`) also accepts a budget: the budget is dropped
+		// and only the on/off state is conveyed, so it is not "unsupported" the way
+		// it is on a provider with no thinking control at all.
 		const reasoningMaxTokens = providersToCheck.some(
 			(provider) =>
-				(provider as ProviderModelMapping).reasoningMaxTokens === true,
+				(provider as ProviderModelMapping).reasoningMaxTokens === true ||
+				(provider as ProviderModelMapping).chatTemplateThinkingKey !==
+					undefined,
 		);
 
 		if (!reasoningMaxTokens) {

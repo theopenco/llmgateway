@@ -34,6 +34,8 @@ import {
 } from "@/lib/components/tooltip";
 import { cn } from "@/lib/utils";
 
+import { randomInt } from "@llmgateway/shared/random";
+
 import type { VariantProps } from "class-variance-authority";
 
 const SIDEBAR_STORAGE_KEY = "sidebar_state";
@@ -628,7 +630,7 @@ function SidebarMenuSkeleton({
 }) {
 	// Random width between 50 to 90%.
 	const width = useMemo(() => {
-		return `${Math.floor(Math.random() * 40) + 50}%`;
+		return `${randomInt(50, 90)}%`;
 	}, []);
 
 	return (

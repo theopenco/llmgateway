@@ -13,6 +13,11 @@
 import { customAlphabet } from "nanoid";
 
 import { db, tables } from "@llmgateway/db";
+import {
+	randomFloat,
+	randomFloatBetween,
+	randomInt,
+} from "@llmgateway/shared/random";
 
 const generate = customAlphabet(
 	"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
@@ -121,7 +126,7 @@ const FINISH_REASONS = [
 
 function weightedRandom<T extends { weight: number }>(items: T[]): T {
 	const totalWeight = items.reduce((sum, item) => sum + item.weight, 0);
-	let random = Math.random() * totalWeight;
+	let random = randomFloat() * totalWeight;
 
 	for (const item of items) {
 		random -= item.weight;
@@ -133,27 +138,23 @@ function weightedRandom<T extends { weight: number }>(items: T[]): T {
 	return items[items.length - 1];
 }
 
-function randomInt(min: number, max: number): number {
-	return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-function randomFloat(min: number, max: number): number {
-	// eslint-disable-next-line no-mixed-operators
-	return Math.random() * (max - min) + min;
-}
-
 // Log-normal distribution for more realistic heavy-tailed randomness
 // Most values cluster near the median, but occasional large outliers occur
 function logNormalRandom(median: number, sigma: number): number {
-	const u1 = Math.random();
-	const u2 = Math.random();
+	// 1 - randomFloat() keeps u1 in (0, 1] so Math.log never sees zero.
+	const u1 = 1 - randomFloat();
+	const u2 = randomFloat();
 	const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
 	return median * Math.exp(sigma * z);
 }
 
+// Keeps the millisecond span randomDate draws from well inside the safe
+// integer range that randomInt requires.
+const MAX_DAYS_BACK = 36500;
+
 function randomDate(daysBack: number): Date {
 	const now = new Date();
-	const msBack = randomInt(0, daysBack * 24 * 60 * 60 * 1000);
+	const msBack = randomInt(0, daysBack * 24 * 60 * 60 * 1000 + 1);
 	return new Date(now.getTime() - msBack);
 }
 
@@ -178,10 +179,10 @@ function generateLog(
 	);
 
 	// Determine if this request has cached input tokens
-	const hasCachedTokens = Math.random() < model.cacheChance;
+	const hasCachedTokens = randomFloat() < model.cacheChance;
 	// Cached tokens are a portion (20-80%) of the input tokens
 	const cachedTokens = hasCachedTokens
-		? Math.round(inputTokens * randomFloat(0.2, 0.8))
+		? Math.round(inputTokens * randomFloatBetween(0.2, 0.8))
 		: 0;
 
 	const totalTokens = inputTokens + outputTokens;
@@ -220,8 +221,8 @@ function generateLog(
 	);
 
 	// Random flags
-	const streamed = Math.random() > 0.3; // 70% are streamed
-	const cached = Math.random() > 0.9; // 10% are cached
+	const streamed = randomFloat() > 0.3; // 70% are streamed
+	const cached = randomFloat() > 0.9; // 10% are cached
 
 	// Time to first token (only for streamed, log-normal for variability)
 	const timeToFirstToken = streamed
@@ -247,7 +248,7 @@ function generateLog(
 		requestedProvider: model.provider,
 		usedModel: model.id,
 		usedProvider: model.provider,
-		responseSize: outputTokens * randomInt(3, 6), // Variable bytes-per-token estimate
+		responseSize: outputTokens * randomInt(3, 7), // Variable bytes-per-token estimate
 		promptTokens: String(inputTokens),
 		completionTokens: String(outputTokens),
 		totalTokens: String(totalTokens),
@@ -268,7 +269,7 @@ function generateLog(
 		messages: JSON.stringify([
 			{ role: "user", content: "Test message for visualization" },
 		]),
-		temperature: randomFloat(0, 1.5),
+		temperature: randomFloatBetween(0, 1.5),
 		maxTokens: Math.round(logNormalRandom(2000, 0.6)),
 	};
 }
@@ -303,6 +304,13 @@ async function main() {
 
 	if (isNaN(count) || count <= 0) {
 		console.error("Error: count must be a positive integer");
+		process.exit(1);
+	}
+
+	if (!Number.isInteger(daysBack) || daysBack < 0 || daysBack > MAX_DAYS_BACK) {
+		console.error(
+			`Error: daysBack must be an integer between 0 and ${MAX_DAYS_BACK}`,
+		);
 		process.exit(1);
 	}
 

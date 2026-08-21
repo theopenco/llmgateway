@@ -478,7 +478,7 @@ export default function AudioPageClient({
 								`HTTP ${response.status}: ${response.statusText}`;
 							throw new Error(
 								isChatPlanContext &&
-								isInsufficientCreditsError(response.status, rawMessage)
+									isInsufficientCreditsError(response.status, rawMessage)
 									? chatPlanCreditErrorMessage(chatPlanSubscribed, "audio")
 									: rawMessage,
 							);
@@ -486,8 +486,7 @@ export default function AudioPageClient({
 
 						const data = await response.json();
 						const generatedAudio = data.audio as
-							| { base64: string; mediaType: string }
-							| undefined;
+							{ base64: string; mediaType: string } | undefined;
 
 						if (!generatedAudio?.base64) {
 							throw new Error(

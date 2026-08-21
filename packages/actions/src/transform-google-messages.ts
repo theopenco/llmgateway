@@ -9,6 +9,7 @@ import {
 
 import { parseDataUrl } from "./parse-data-url.js";
 import { processImageUrl } from "./process-image-url.js";
+import { RequestError } from "./request-error.js";
 
 type GoogleAudioFormat =
 	| "wav"
@@ -28,6 +29,7 @@ const VERTEX_FAMILY: ReadonlySet<string> = new Set(["google-vertex", "quartz"]);
 const AI_STUDIO_FAMILY: ReadonlySet<string> = new Set([
 	"google-ai-studio",
 	"glacier",
+	"iceberg",
 ]);
 
 const AI_STUDIO_AUDIO_MIME: Partial<Record<GoogleAudioFormat, string>> = {
@@ -378,6 +380,15 @@ export async function transformGoogleMessages(
 						// Don't expose the URL in the error message for security
 						const errorMsg =
 							error instanceof Error ? error.message : "Unknown error";
+						// Preserve the RequestError type (and its status code) so the
+						// gateway returns a 4xx and logs a client_error row instead of
+						// treating a client-caused image failure as an unhandled 500.
+						if (error instanceof RequestError) {
+							throw new RequestError(
+								`Failed to process image: ${errorMsg}`,
+								error.statusCode,
+							);
+						}
 						throw new Error(`Failed to process image: ${errorMsg}`);
 					}
 				} else if (isInputAudioContent(content)) {

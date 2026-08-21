@@ -6,6 +6,7 @@ import {
 	shutdownInstrumentation,
 } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
+import { getEnterpriseLicenseStatus } from "@llmgateway/shared/enterprise-license";
 
 import { redisClient } from "./auth/config.js";
 import { app } from "./index.js";
@@ -25,7 +26,10 @@ const keepAliveTimeoutS = Number(process.env.KEEP_ALIVE_TIMEOUT_S) || 60;
 let sdk: NodeSDK | null = null;
 
 async function startServer() {
-	const port = Number(process.env.PORT) || 4002;
+	// API_PORT wins over PORT so a local worktree can pin api and gateway to
+	// different ports from one shared shell env (both services read PORT).
+	// Deployments only ever set PORT, so they are unaffected.
+	const port = Number(process.env.API_PORT || process.env.PORT) || 4002;
 
 	// Tag every DB query with the originating service for Cloud SQL Query Insights
 	setQueryTags({ application: "api" });
@@ -60,6 +64,15 @@ async function startServer() {
 
 	// Start daily beacon schedule to track active installations
 	startDailyBeacon();
+
+	const enterpriseLicense = getEnterpriseLicenseStatus();
+	logger.info("Enterprise license status", {
+		status: enterpriseLicense.status,
+		licenseId: enterpriseLicense.licenseId,
+		keyId: enterpriseLicense.keyId,
+		expiresAt: enterpriseLicense.expiresAt,
+		maxSeats: enterpriseLicense.maxSeats,
+	});
 
 	logger.info("Server listening", { port });
 

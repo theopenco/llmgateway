@@ -10,7 +10,9 @@ import { useApi } from "@/lib/fetch-client";
 
 import { AgentModelUsageChart } from "./AgentModelUsageChart";
 import AllowanceExhaustedCard from "./AllowanceExhaustedCard";
+import PayAsYouGoCard from "./PayAsYouGoCard";
 import ResetPassCard from "./ResetPassCard";
+import { UsageBar } from "./UsageBar";
 
 import type { paths } from "@/lib/api/v1";
 import type { DevPlanCycle } from "@llmgateway/shared";
@@ -37,6 +39,11 @@ interface UsageOverviewProps {
 	currentPeriodEnd: string | null;
 	cancelledAtPeriodEnd: boolean;
 	cycle?: DevPlanCycle;
+	paygEnabled: boolean;
+	regularCredits: number;
+	autoTopUpEnabled: boolean;
+	autoTopUpThreshold: string | null;
+	autoTopUpAmount: string | null;
 }
 
 function MetricCard({
@@ -51,16 +58,16 @@ function MetricCard({
 	icon: React.ComponentType<{ className?: string }>;
 }) {
 	return (
-		<div className="rounded-xl border bg-card p-4">
-			<div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground/70">
-				<Icon className="h-3.5 w-3.5" />
+		<div className="min-w-0 rounded-xl border bg-card p-4">
+			<div className="flex items-center gap-2 whitespace-nowrap text-xs uppercase tracking-wider text-muted-foreground/70">
+				<Icon className="h-3.5 w-3.5 shrink-0" />
 				{label}
 			</div>
-			<div className="mt-2 flex items-baseline gap-2">
-				<div className="text-2xl font-bold tracking-tight tabular-nums">
-					{value}
-				</div>
-				{hint && <div className="text-xs text-muted-foreground">{hint}</div>}
+			<div className="mt-2 truncate text-2xl font-bold tracking-tight tabular-nums">
+				{value}
+			</div>
+			<div className="mt-0.5 min-h-4 text-xs leading-snug text-muted-foreground">
+				{hint}
 			</div>
 		</div>
 	);
@@ -73,6 +80,7 @@ function WeeklyAllowanceMeter({
 	limit,
 	resetsAt,
 	resetPassAvailable,
+	overflowCovering,
 }: {
 	used: number;
 	limit: number;
@@ -81,11 +89,17 @@ function WeeklyAllowanceMeter({
 	// replaced by the upgrade/PAYG promo, so don't point at a card that isn't
 	// there — and "standard models keep working" no longer holds either.
 	resetPassAvailable: boolean;
+	// True when PAYG overflow can bill premium usage past the weekly cap
+	// (opt-in on, balance positive): premium keeps accruing past the cap on
+	// the credits balance, so the meter can legitimately exceed 100% and must
+	// not read as an error.
+	overflowCovering: boolean;
 }) {
 	const percentage = limit > 0 ? (used / limit) * 100 : 0;
 	const clamped = Math.min(100, percentage);
 	const isLow = percentage > 80;
 	const isExhausted = percentage >= 100;
+	const isOverCap = percentage > 100;
 
 	return (
 		<div className="space-y-3">
@@ -112,7 +126,9 @@ function WeeklyAllowanceMeter({
 					<div
 						className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${
 							isExhausted
-								? "bg-destructive"
+								? overflowCovering
+									? "bg-amber-500"
+									: "bg-destructive"
 								: isLow
 									? "bg-yellow-500"
 									: "bg-foreground"
@@ -120,8 +136,14 @@ function WeeklyAllowanceMeter({
 						style={{ width: `${clamped}%` }}
 					/>
 				</div>
-				<div className="w-20 shrink-0 text-right text-sm text-muted-foreground tabular-nums">
-					{Math.round(percentage)}% used
+				<div
+					className={`w-20 shrink-0 text-right text-sm tabular-nums ${
+						isOverCap
+							? "font-medium text-amber-600 dark:text-amber-400"
+							: "text-muted-foreground"
+					}`}
+				>
+					{isOverCap ? "Over cap" : `${Math.round(percentage)}% used`}
 				</div>
 			</div>
 			{isLow && !isExhausted && (
@@ -130,74 +152,19 @@ function WeeklyAllowanceMeter({
 					available.
 				</p>
 			)}
-			{isExhausted && (
-				<p className="text-xs text-destructive">
-					{resetPassAvailable
-						? "Weekly premium allowance reached — redeem a Reset Pass below for an instant reset, or standard models keep working until the window resets."
-						: "Weekly premium allowance reached for this window."}
-				</p>
-			)}
-		</div>
-	);
-}
-
-function UsageBar({
-	used,
-	limit,
-	lowMessage = "Above 80% of your monthly allowance. Consider upgrading or wait for the next reset.",
-	exhaustedMessage = "Allowance reached for this billing cycle. Upgrade to keep coding.",
-}: {
-	used: number;
-	limit: number;
-	lowMessage?: string;
-	exhaustedMessage?: string;
-}) {
-	const percentage = limit > 0 ? (used / limit) * 100 : 0;
-	const clamped = Math.min(100, percentage);
-	const isLow = percentage > 80;
-	const isExhausted = percentage >= 100;
-	const remaining = Math.max(0, limit - used);
-
-	return (
-		<div className="space-y-3">
-			<div className="flex items-baseline justify-between gap-3">
-				<div className="min-w-0">
-					<div className="flex items-baseline gap-2">
-						<span className="text-3xl font-bold tracking-tight tabular-nums">
-							${used.toFixed(2)}
-						</span>
-						<span className="text-sm text-muted-foreground">
-							of ${limit.toFixed(limit % 1 === 0 ? 0 : 2)} spent
-						</span>
-					</div>
-				</div>
-				<div className="text-right text-xs text-muted-foreground">
-					<div className="tabular-nums font-medium text-foreground">
-						{Math.round(percentage)}% used
-					</div>
-					<div className="tabular-nums">${remaining.toFixed(2)} remaining</div>
-				</div>
-			</div>
-			<div className="relative h-2.5 overflow-hidden rounded-full bg-muted">
-				<div
-					className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${
-						isExhausted
-							? "bg-destructive"
-							: isLow
-								? "bg-yellow-500"
-								: "bg-foreground"
-					}`}
-					style={{ width: `${clamped}%` }}
-				/>
-			</div>
-			{isLow && !isExhausted && (
-				<p className="text-xs text-yellow-700 dark:text-yellow-400">
-					{lowMessage}
-				</p>
-			)}
-			{isExhausted && (
-				<p className="text-xs text-destructive">{exhaustedMessage}</p>
-			)}
+			{isExhausted &&
+				(overflowCovering ? (
+					<p className="text-xs text-amber-600 dark:text-amber-400">
+						Past the weekly premium allowance — pay-as-you-go overflow is
+						billing premium usage to your credits balance at provider rates.
+					</p>
+				) : (
+					<p className="text-xs text-destructive">
+						{resetPassAvailable
+							? "Weekly premium allowance reached — redeem a Reset Pass below for an instant reset, or standard models keep working until the window resets."
+							: "Weekly premium allowance reached for this window."}
+					</p>
+				))}
 		</div>
 	);
 }
@@ -220,6 +187,11 @@ export default function UsageOverview({
 	currentPeriodEnd,
 	cancelledAtPeriodEnd,
 	cycle = "monthly",
+	paygEnabled,
+	regularCredits,
+	autoTopUpEnabled,
+	autoTopUpThreshold,
+	autoTopUpAmount,
 }: UsageOverviewProps) {
 	const api = useApi();
 	const posthog = usePostHog();
@@ -230,6 +202,10 @@ export default function UsageOverview({
 	// ceiling: once it's gone, Reset Passes can't unlock anything, so the pass
 	// card gives way to the upgrade/PAYG promo.
 	const monthlyExhausted = creditsLimit > 0 && creditsUsed >= creditsLimit;
+	// Overflow only actually flows with a positive balance — an opted-in org
+	// with empty credits still gets 402s, so the copy must say "top up", not
+	// "requests keep flowing".
+	const paygAvailable = paygEnabled && regularCredits > 0;
 
 	// Top of the Reset Pass upsell funnel: the user sees the exhausted weekly
 	// premium meter. reset_pass_purchased/redeemed are captured server-side,
@@ -295,6 +271,14 @@ export default function UsageOverview({
 		(sum, d) => sum + (d.totalTokens ?? 0),
 		0,
 	);
+	const totalCachedTokens = cycleItems.reduce(
+		(sum, d) => sum + (d.cachedTokens ?? 0),
+		0,
+	);
+	// Cached input bills at a fraction of the fresh-input rate, so the cached
+	// share is what reconciles a big token number with a small spend.
+	const cachedShare =
+		totalTokens > 0 ? Math.round((totalCachedTokens / totalTokens) * 100) : 0;
 	const peakDay = cycleItems.reduce<ActivityItem | null>(
 		(best, d) => (best && (best.cost ?? 0) >= (d.cost ?? 0) ? best : d),
 		null,
@@ -362,10 +346,29 @@ export default function UsageOverview({
 					used={creditsUsed}
 					limit={creditsLimit}
 					exhaustedMessage={
-						tierKey === "max"
-							? "Allowance reached for this billing cycle. Switch to pay-as-you-go credits below to keep coding."
-							: undefined
+						paygAvailable
+							? "Allowance reached — pay-as-you-go overflow is active, so requests keep flowing from your credits balance below."
+							: paygEnabled
+								? "Allowance reached — pay-as-you-go overflow is enabled but your credits balance is empty. Top up below to keep coding."
+								: "Allowance reached for this billing cycle. Upgrade, or enable pay-as-you-go overflow below to keep coding."
 					}
+				/>
+				{/* PAYG overflow lives directly under the monthly meter: it extends
+				    the monthly pool, not the weekly premium allowance below. */}
+				{monthlyExhausted && !paygEnabled && (
+					<AllowanceExhaustedCard
+						tier={tierKey}
+						organizationId={organizationId}
+					/>
+				)}
+				<PayAsYouGoCard
+					organizationId={organizationId}
+					paygEnabled={paygEnabled}
+					regularCredits={regularCredits}
+					monthlyExhausted={monthlyExhausted}
+					autoTopUpEnabled={autoTopUpEnabled}
+					autoTopUpThreshold={autoTopUpThreshold}
+					autoTopUpAmount={autoTopUpAmount}
 				/>
 				{premiumWeeklyLimit > 0 && (
 					<div className="mt-6 border-t pt-6">
@@ -383,6 +386,7 @@ export default function UsageOverview({
 							limit={premiumWeeklyLimit}
 							resetsAt={premiumWeekResetsAt}
 							resetPassAvailable={!monthlyExhausted}
+							overflowCovering={paygAvailable}
 						/>
 						{!monthlyExhausted && (
 							<ResetPassCard
@@ -399,12 +403,6 @@ export default function UsageOverview({
 							/>
 						)}
 					</div>
-				)}
-				{monthlyExhausted && (
-					<AllowanceExhaustedCard
-						tier={tierKey}
-						organizationId={organizationId}
-					/>
 				)}
 			</div>
 
@@ -434,6 +432,11 @@ export default function UsageOverview({
 							: totalTokens >= 1_000
 								? `${(totalTokens / 1_000).toFixed(0)}K`
 								: totalTokens.toLocaleString()
+					}
+					hint={
+						cachedShare > 0
+							? `${cachedShare}% served from cache at a reduced rate`
+							: undefined
 					}
 					icon={Cpu}
 				/>

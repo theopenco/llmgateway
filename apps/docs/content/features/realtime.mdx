@@ -1,0 +1,283 @@
+---
+title: Realtime API
+description: Low-latency speech-to-speech conversations over WebSockets through the OpenAI-compatible realtime API
+icon: AudioLines
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Realtime API
+
+LLMGateway supports low-latency, speech-to-speech conversations through the
+OpenAI-compatible **`/v1/realtime`** WebSocket endpoint. Sessions support text
+and audio input/output, server-side voice activity detection (VAD), input
+audio transcription, and function calling — using the same event protocol as
+the OpenAI Realtime API.
+
+The API is a drop-in replacement: point any OpenAI realtime client at
+`wss://api.llmgateway.io/v1/realtime`, authenticate with your LLMGateway API
+key, and keep your existing event handling.
+
+<Callout type="info">
+	Want to talk to a model right now? The [Realtime
+	page](https://lounge.llmgateway.io/realtime) in Lounge runs a full voice call
+	in the browser using this API.
+</Callout>
+
+## Available Models
+
+Browse the available realtime models, with up-to-date pricing, on the
+[models page](https://llmgateway.io/models). Realtime sessions are billed per
+token — text and audio input, cached input, and output are metered separately
+at the model's listed rates, matching the provider's own pricing.
+
+Model names work like everywhere else on LLMGateway: use the plain model id
+(e.g. `gpt-realtime`), a dated alias, or the `provider/model` pinned form
+(e.g. `openai/gpt-realtime`).
+
+## Connecting
+
+Connect a WebSocket to:
+
+```
+wss://api.llmgateway.io/v1/realtime?model=gpt-realtime
+```
+
+Authenticate with your LLMGateway API key in the `Authorization` header (an
+`x-api-key` header also works):
+
+```javascript
+import WebSocket from "ws";
+
+const url = "wss://api.llmgateway.io/v1/realtime?model=gpt-realtime";
+const ws = new WebSocket(url, {
+	headers: {
+		Authorization: "Bearer " + process.env.LLM_GATEWAY_API_KEY,
+	},
+});
+
+ws.on("open", () => {
+	console.log("Connected to server.");
+});
+
+ws.on("message", (message) => {
+	const event = JSON.parse(message.toString());
+	console.log(event.type);
+});
+```
+
+Once connected, the session speaks the standard realtime event protocol:
+send client events like `session.update`, `conversation.item.create`,
+`input_audio_buffer.append`, and `response.create`; receive server events
+like `session.created`, `response.output_audio.delta`, and `response.done`.
+
+```javascript
+ws.on("open", () => {
+	// Configure the session.
+	ws.send(
+		JSON.stringify({
+			type: "session.update",
+			session: {
+				type: "realtime",
+				instructions: "You are a friendly assistant.",
+				audio: {
+					output: { voice: "marin" },
+				},
+			},
+		}),
+	);
+
+	// Ask for a response.
+	ws.send(
+		JSON.stringify({
+			type: "conversation.item.create",
+			item: {
+				type: "message",
+				role: "user",
+				content: [{ type: "input_text", text: "Say hello!" }],
+			},
+		}),
+	);
+	ws.send(JSON.stringify({ type: "response.create" }));
+});
+```
+
+All events are JSON text frames; audio travels base64-encoded inside events
+(binary WebSocket frames are rejected). The model is locked at connection
+time — a `session.update` that tries to change `session.model` is rejected
+with a `model_locked` error event.
+
+<Callout type="warn">
+	Credentials are never accepted as query parameters. A connection URL
+	containing `token`, `api_key`, or `client_secret` query parameters is rejected
+	with HTTP 400. Use the `Authorization` header on servers, or an ephemeral
+	client secret (below) in browsers.
+</Callout>
+
+## Browser Clients and Client Secrets
+
+Never ship a long-lived API key to a browser. Instead, mint a short-lived
+**ephemeral client secret** from your backend with the OpenAI-compatible
+`POST /v1/realtime/client_secrets` endpoint:
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/realtime/client_secrets" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "expires_after": { "anchor": "created_at", "seconds": 120 },
+    "session": {
+      "type": "realtime",
+      "model": "gpt-realtime"
+    }
+  }'
+```
+
+The response contains the secret (`ek_...`) and its expiry:
+
+```json
+{
+	"value": "ek_...",
+	"expires_at": 1753500000,
+	"session": {
+		"type": "realtime",
+		"model": "gpt-realtime"
+	}
+}
+```
+
+The browser then connects using the standard `openai-insecure-api-key`
+WebSocket subprotocol — no `Authorization` header needed:
+
+```javascript
+const ws = new WebSocket("wss://api.llmgateway.io/v1/realtime", [
+	"realtime",
+	"openai-insecure-api-key." + clientSecret,
+]);
+```
+
+Client secret behavior:
+
+- **TTL**: 10–300 seconds (default 60), set via `expires_after.seconds`.
+  Secrets are reusable until they expire; expiry only gates opening the
+  connection, not the session's duration.
+- **Model pinning**: the secret is minted for one model. The `model` query
+  parameter is optional when connecting with a secret; if provided, it must
+  match the minted model.
+- **Transcription pinning**: optionally pin an input transcription model at
+  mint time via `session.audio.input.transcription.model`. The session can
+  then only enable that transcription model.
+- All authentication, credit, model access, and compliance checks run at
+  mint time and again at connection time.
+
+## Input Audio Transcription
+
+Enable transcription of the user's audio with `session.update`. An explicit,
+supported transcription model is required — check the
+[models page](https://llmgateway.io/models) for available realtime
+transcription models and their pricing:
+
+```json
+{
+	"type": "session.update",
+	"session": {
+		"type": "realtime",
+		"audio": {
+			"input": {
+				"transcription": { "model": "gpt-4o-transcribe" }
+			}
+		}
+	}
+}
+```
+
+Transcripts arrive as standard
+`conversation.item.input_audio_transcription.delta` and `.completed` events.
+
+- The provider's implicit default (e.g. `whisper-1`) is not available;
+  omitting `transcription.model` is rejected with
+  `transcription_model_required`. Duration-billed transcription models cannot
+  be metered per token, so only token-metered models are supported.
+- The transcription model is pinned for the session on first use and cannot
+  be switched afterwards; disabling transcription (`"transcription": null`)
+  is always allowed.
+- Transcription is billed separately from the realtime model, at the
+  transcription model's listed per-token rates.
+- Both the current nested form (`session.audio.input.transcription`) and the
+  legacy top-level form (`session.input_audio_transcription`) are accepted.
+
+## Function Calling
+
+Plain function tools work exactly as in the OpenAI Realtime API — declare
+them in `session.update` (or per response in `response.create`), receive
+`response.function_call_arguments` events, and return results with
+`conversation.item.create`:
+
+```json
+{
+	"type": "session.update",
+	"session": {
+		"type": "realtime",
+		"tools": [
+			{
+				"type": "function",
+				"name": "get_weather",
+				"description": "Get the current weather for a location.",
+				"parameters": {
+					"type": "object",
+					"properties": {
+						"location": { "type": "string" }
+					},
+					"required": ["location"]
+				}
+			}
+		],
+		"tool_choice": "auto"
+	}
+}
+```
+
+Hosted tools (MCP servers, web search, code interpreter, etc.) are not yet
+available and are rejected with `tool_type_not_supported`.
+
+## Billing and Session Gating
+
+Realtime sessions bill your organization's pay-as-you-go credits, or your own
+provider key when the project uses [provider keys](/learn/provider-keys). Every
+model generation — whether triggered by your `response.create` or by
+server-side VAD — passes the gateway's authorization gates first (credits,
+API key status, usage limits, IAM rules), so a session cannot run past an
+exhausted balance. A blocked generation surfaces as a standard `error` event
+on the session instead of a response.
+
+Default per-session safety limits:
+
+| Limit                           | Default |
+| ------------------------------- | ------- |
+| Maximum session duration        | 1 hour  |
+| Maximum spend per session       | $10     |
+| Concurrent sessions per org     | 20      |
+| Concurrent sessions per API key | 10      |
+
+Sessions that hit a limit are closed gracefully after in-flight responses are
+billed. Usage appears in your [activity feed](https://llmgateway.io/dashboard)
+like any other request, including separate line items for input transcription.
+
+## Current Limitations
+
+- **WebSocket transport only** — WebRTC and SIP are not yet supported.
+- **Image input** is not yet supported in realtime sessions.
+- **Hosted tools** (MCP, web search, etc.) and **stored prompt references**
+  (`session.prompt`) are not supported; inline your instructions and function
+  tools instead.
+- Realtime requires a regular developer API key on a pay-as-you-go
+  organization. End-user session tokens, platform keys, and DevPass/chat plan
+  organizations are not supported yet.
+
+## Self-Hosting
+
+Realtime is disabled by default on self-hosted deployments. Set
+`REALTIME_INLINE=true` to attach the `/v1/realtime` WebSocket listener (and
+the client-secret mint endpoint) to the gateway process — `pnpm dev` sets
+this automatically. Client secrets require Redis. See `.env.example` for the
+tunables (session caps, concurrency limits, shutdown grace period).

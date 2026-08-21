@@ -10,6 +10,8 @@ date: 2026-05-11
 
 One config change. No code changes. Full cost tracking.
 
+> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use canonical model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
+
 ## Prerequisites
 
 - Hermes Agent installed — see installation below or visit the [Hermes Agent repo](https://github.com/nousresearch/hermes-agent)

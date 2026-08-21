@@ -7,13 +7,17 @@ on:
   merge_group:
     branches:
       - main
+
+permissions:
+  contents: read
+
 jobs:
   quality:
     if: github.event_name == 'pull_request' && github.head_ref != 'main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
@@ -40,7 +44,5 @@ jobs:
       cmd: pnpm build && pnpm run setup && bash .github/start.sh
 
   test:
-    uses: ./.github/workflows/run.yml
+    uses: ./.github/workflows/test-unit.yml
     secrets: inherit
-    with:
-      cmd: pnpm build && pnpm run setup && pnpm test:unit

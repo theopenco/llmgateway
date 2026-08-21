@@ -8,22 +8,22 @@ import { comparisons, US } from "@/lib/comparisons";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "Compare LLM Gateway Chat — vs ChatGPT, Claude, Gemini & more",
+	title: "Compare Lounge — vs ChatGPT, Claude, Gemini & more",
 	description:
-		"Compare LLM Gateway Chat to ChatGPT, Claude, Gemini, Poe, Perplexity and OpenRouter — every frontier model on one $19/mo subscription.",
+		"Compare Lounge to ChatGPT, Claude, Gemini, Poe, Perplexity and OpenRouter — every frontier model on one $19/mo subscription.",
 	alternates: { canonical: "/compare" },
 	openGraph: {
-		title: "Compare LLM Gateway Chat — vs ChatGPT, Claude, Gemini & more",
+		title: "Compare Lounge — vs ChatGPT, Claude, Gemini & more",
 		description:
-			"One subscription, every frontier model. See how LLM Gateway Chat stacks up against the AI chat apps you're evaluating.",
+			"One subscription, every frontier model. See how Lounge stacks up against the AI chat apps you're evaluating.",
 		type: "website",
-		url: "https://chat.llmgateway.io/compare",
+		url: "https://lounge.llmgateway.io/compare",
 	},
 	twitter: {
 		card: "summary_large_image",
-		title: "Compare LLM Gateway Chat — vs ChatGPT, Claude, Gemini & more",
+		title: "Compare Lounge — vs ChatGPT, Claude, Gemini & more",
 		description:
-			"One subscription, every frontier model. See how LLM Gateway Chat stacks up against the AI chat apps you're evaluating.",
+			"One subscription, every frontier model. See how Lounge stacks up against the AI chat apps you're evaluating.",
 	},
 };
 
@@ -53,12 +53,12 @@ export default function CompareIndexPage() {
 	const itemListSchema = {
 		"@context": "https://schema.org",
 		"@type": "ItemList",
-		name: "LLM Gateway Chat comparisons",
+		name: "Lounge comparisons",
 		itemListElement: comparisons.map((c, index) => ({
 			"@type": "ListItem",
 			position: index + 1,
-			name: `LLM Gateway Chat vs ${c.competitor}`,
-			url: `https://chat.llmgateway.io/compare/${c.slug}`,
+			name: `Lounge vs ${c.competitor}`,
+			url: `https://lounge.llmgateway.io/compare/${c.slug}`,
 		})),
 	};
 
@@ -96,13 +96,13 @@ export default function CompareIndexPage() {
 							Comparisons
 						</div>
 						<h1 className="text-4xl font-bold tracking-tight text-balance sm:text-5xl">
-							Compare LLM Gateway Chat
+							Compare Lounge
 						</h1>
 						<p className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-pretty text-muted-foreground">
 							Most AI chat apps lock you into one model family — or one
-							confusing billing system. LLM Gateway Chat gives you{" "}
-							{US.modelCount} models, frontier and open, on one subscription.
-							Here&apos;s how it stacks up.
+							confusing billing system. Lounge gives you {US.modelCount} models,
+							frontier and open, on one subscription. Here&apos;s how it stacks
+							up.
 						</p>
 
 						{/* Logo lineup */}
@@ -162,7 +162,7 @@ export default function CompareIndexPage() {
 										</div>
 
 										<h3 className="text-lg font-semibold tracking-tight text-foreground">
-											LLM Gateway Chat vs {entry.competitor}
+											Lounge vs {entry.competitor}
 										</h3>
 										<p className="mt-1 text-xs font-medium text-muted-foreground">
 											{entry.competitorTagline}

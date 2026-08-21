@@ -1,3 +1,4 @@
+import { ByokErrorsToggle } from "@/components/byok-errors-toggle";
 import {
 	IgnoredErrorMatchersDialog,
 	IgnoredErrorsToggle,
@@ -25,6 +26,8 @@ export default async function UnstableMappingsPage({
 		window?: string;
 		logLimit?: string;
 		ignoreExpected?: string;
+		splitByKey?: string;
+		includeByok?: string;
 	}>;
 }) {
 	await requireSession();
@@ -32,6 +35,8 @@ export default async function UnstableMappingsPage({
 	const params = await searchParams;
 	const includeRetried = params?.includeRetried === "true";
 	const ignoreExpected = params?.ignoreExpected !== "false";
+	const splitByKey = params?.splitByKey === "true";
+	const includeByok = params?.includeByok === "true";
 	const window = parseUnstableWindow(params?.window);
 	const logLimit = parseUnstableLogLimit(params?.logLimit);
 
@@ -44,6 +49,8 @@ export default async function UnstableMappingsPage({
 				includeRetried: includeRetried ? "true" : "false",
 				window,
 				ignoreExpected: ignoreExpected ? "true" : "false",
+				splitByKey: splitByKey ? "true" : "false",
+				includeByok: includeByok ? "true" : "false",
 			},
 		},
 	});
@@ -72,6 +79,9 @@ export default async function UnstableMappingsPage({
 						{data.ignoreExpected
 							? `${data.ignoredMatcherCount.toLocaleString()} expected-error matcher${data.ignoredMatcherCount === 1 ? "" : "s"} applied.`
 							: "Expected-error matchers are disabled."}{" "}
+						{data.splitByKey
+							? "Each row is one provider key's share of a mapping. "
+							: ""}
 						Click a row to load its top 10 error details.
 					</p>
 				</div>
@@ -81,6 +91,22 @@ export default async function UnstableMappingsPage({
 							matcherCount={data.ignoredMatcherCount}
 						/>
 						<IgnoredErrorsToggle ignoreExpected={data.ignoreExpected} />
+						<ByokErrorsToggle includeByok={data.includeByok} />
+					</div>
+					<div className="flex flex-wrap items-center gap-2">
+						<span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+							Group
+						</span>
+						<SegmentedQueryToggle
+							param="splitByKey"
+							label="Group rows by"
+							value={splitByKey ? "true" : "false"}
+							defaultValue="false"
+							options={[
+								{ value: "false", label: "By mapping" },
+								{ value: "true", label: "By key" },
+							]}
+						/>
 					</div>
 					<div className="flex flex-wrap items-center gap-2">
 						<span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -117,6 +143,8 @@ export default async function UnstableMappingsPage({
 					window={window}
 					logLimit={logLimit}
 					ignoreExpected={data.ignoreExpected}
+					splitByKey={data.splitByKey}
+					includeByok={data.includeByok}
 				/>
 			</div>
 		</div>

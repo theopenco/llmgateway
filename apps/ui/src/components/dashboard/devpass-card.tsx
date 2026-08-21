@@ -27,7 +27,7 @@ export function DevPassCard({ defaultCollapsed = false }: DevPassCardProps) {
 	const { selectedOrganization } = useDashboardContext();
 	const [collapsed, setCollapsed] = useState(defaultCollapsed);
 
-	if (selectedOrganization?.plan === "enterprise") {
+	if (selectedOrganization?.enterpriseAccess === true) {
 		return null;
 	}
 

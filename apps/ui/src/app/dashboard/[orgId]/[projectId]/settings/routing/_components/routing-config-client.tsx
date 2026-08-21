@@ -311,7 +311,7 @@ export function RoutingConfigClient({
 
 	const role = teamData?.members.find((m) => m.userId === user?.id)?.role;
 	const canManage =
-		selectedOrganization?.plan === "enterprise" &&
+		selectedOrganization?.enterpriseAccess === true &&
 		(role === "owner" || role === "admin");
 
 	const [state, setState] = useState<RoutingConfigState>(emptyState());
@@ -344,9 +344,7 @@ export function RoutingConfigClient({
 					setDefaults(defaultsRes.data as DefaultsResponse);
 				}
 				const row = configRes.data as
-					| (RoutingConfigState & { id: string })
-					| null
-					| undefined;
+					(RoutingConfigState & { id: string }) | null | undefined;
 				if (row) {
 					setState({
 						enabled: row.enabled,

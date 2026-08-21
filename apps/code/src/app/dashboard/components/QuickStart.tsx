@@ -10,11 +10,13 @@ import {
 	AnthropicIcon,
 	AutohandIcon,
 	ClineIcon,
+	EmpryoIcon,
 	OpenCodeIcon,
 	SoulForgeIcon,
 } from "@llmgateway/shared/components";
 
-type ToolId = "claude-code" | "opencode" | "soulforge" | "autohand" | "cline";
+type ToolId =
+	"claude-code" | "opencode" | "empryo" | "soulforge" | "autohand" | "cline";
 
 interface ToolDef {
 	id: ToolId;
@@ -26,6 +28,11 @@ interface ToolDef {
 const TOOLS: ToolDef[] = [
 	{ id: "claude-code", name: "Claude Code", icon: AnthropicIcon },
 	{ id: "opencode", name: "OpenCode", icon: OpenCodeIcon },
+	{
+		id: "empryo",
+		name: "Empryo",
+		icon: EmpryoIcon,
+	},
 	{
 		id: "soulforge",
 		name: "SoulForge",
@@ -61,6 +68,12 @@ function buildSnippets(apiKey: string): Record<ToolId, Snippet> {
 			exports: [],
 			command: "opencode",
 			comment: "# LLM Gateway is built-in — type /connect to link your key",
+		},
+		empryo: {
+			exports: [],
+			command: "empryo",
+			comment:
+				"# inside: /keys → paste your DevPass key (or: empryo --set-key llmgateway <key>)",
 		},
 		soulforge: {
 			exports: [],
@@ -126,12 +139,21 @@ export default function QuickStart({ apiKey }: { apiKey: string }) {
 					onClick={handleCopy}
 					className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
 				>
-					{copied ? (
-						<Check className="h-3 w-3" />
-					) : (
-						<Copy className="h-3 w-3" />
-					)}
-					{copied ? "Copied" : "Copy"}
+					<span className="relative flex h-3 w-3 items-center justify-center">
+						<Copy
+							className={`h-3 w-3 transition-[opacity,transform] duration-150 ease-out motion-reduce:transition-[opacity] ${
+								copied ? "scale-[0.45] opacity-0" : "scale-100 opacity-100"
+							}`}
+						/>
+						<Check
+							className={`absolute h-3 w-3 transition-[opacity,transform] duration-150 ease-out motion-reduce:transition-[opacity] ${
+								copied ? "scale-100 opacity-100" : "scale-[0.45] opacity-0"
+							}`}
+						/>
+					</span>
+					<span className="min-w-[6ch] text-left">
+						{copied ? "Copied" : "Copy"}
+					</span>
 				</button>
 			</div>
 

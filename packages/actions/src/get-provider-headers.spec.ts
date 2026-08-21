@@ -13,6 +13,37 @@ afterEach(() => {
 });
 
 describe("getProviderHeaders", () => {
+	it("disables response compression for RanoAI", () => {
+		expect(
+			getProviderHeaders("ranoai", "token", { requestId: "request-id" }),
+		).toEqual({
+			"x-request-id": "request-id",
+			Authorization: "Bearer token",
+			"Accept-Encoding": "identity",
+		});
+	});
+
+	describe("anthropic", () => {
+		it("sends no anthropic-beta header", () => {
+			const headers = getProviderHeaders("anthropic", "sk-ant-example");
+			expect(headers).toEqual({
+				"x-api-key": "sk-ant-example",
+				"anthropic-version": "2023-06-01",
+			});
+			expect(headers["anthropic-beta"]).toBeUndefined();
+		});
+
+		it("leaves anthropic-beta free for per-request betas to claim", () => {
+			// Callers build the header from scratch via `currentBeta ? ... : ...`,
+			// so a stale default here would prefix every request's betas.
+			expect(
+				getProviderHeaders("anthropic", "sk-ant-example", {
+					requestId: "req-1",
+				})["anthropic-beta"],
+			).toBeUndefined();
+		});
+	});
+
 	describe("google-vertex", () => {
 		it("returns no auth header by default (api-key mode)", () => {
 			expect(

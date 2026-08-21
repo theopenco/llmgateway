@@ -10,6 +10,7 @@ export interface ApiProvider {
 	color: string | null;
 	website: string | null;
 	announcement: string | null;
+	modelCardBadge?: string | null;
 	serviceTiers?: Array<{
 		id: string;
 		name: string;
@@ -39,6 +40,7 @@ export interface ApiModelProviderMapping {
 	outputAudioPrice: string | null;
 	requestPrice: string | null;
 	ocrPagePrice?: string | null;
+	inputAudioHourPrice?: string | null;
 	contextSize: number | null;
 	maxOutput: number | null;
 	quantization?: string | null;
@@ -46,8 +48,7 @@ export interface ApiModelProviderMapping {
 	vision: boolean | null;
 	reasoning: boolean | null;
 	reasoningEfforts?:
-		| ("none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max")[]
-		| null;
+		("none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max")[] | null;
 	reasoningOutput: string | null;
 	reasoningMaxTokens: boolean | null;
 	tools: boolean | null;
@@ -60,6 +61,7 @@ export interface ApiModelProviderMapping {
 	supportsVideoAudio: boolean | null;
 	supportsVideoWithoutAudio: boolean | null;
 	perSecondPrice: Record<string, string> | null;
+	perImagePrice: Record<string, string> | null;
 	pricingTiers: Array<{
 		name: string;
 		upToTokens: number | null;
@@ -77,6 +79,12 @@ export interface ApiModelProviderMapping {
 	deprecatedAt: string | null;
 	deactivatedAt: string | null;
 	status: "active" | "inactive";
+	/**
+	 * Org directory only: human-readable reasons this mapping is not routable
+	 * under the viewing organization's provider compliance policy. Absent or
+	 * empty on public surfaces and for eligible mappings.
+	 */
+	blockedReasons?: string[];
 }
 
 export interface ApiModel {
@@ -98,6 +106,12 @@ export interface ApiModel {
 	 * function the gateway uses to enforce the DevPass weekly cap.
 	 */
 	premium: boolean;
+	/**
+	 * Org directory only: distinguishes catalogue models from models defined in
+	 * the organization's own custom-model catalog. Absent on public surfaces
+	 * (treated as "catalog").
+	 */
+	source?: "catalog" | "custom";
 }
 
 type NextFetchInit = RequestInit & { next?: { revalidate?: number } };

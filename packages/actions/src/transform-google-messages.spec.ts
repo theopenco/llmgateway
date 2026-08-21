@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { RequestError } from "./request-error.js";
 import {
 	googleProviderSupportsAudioFormat,
 	parseGoogleUpstreamDocumentError,
@@ -120,6 +121,33 @@ describe("transformGoogleMessages — audio MIME resolution", () => {
 			const e = err as UnsupportedAudioFormatError;
 			expect(e.format).toBe("aiff");
 			expect(e.providerTarget).toBe("Vertex AI");
+		}
+	});
+});
+
+describe("transformGoogleMessages — image URL processing errors", () => {
+	it("throws RequestError (400) for a non-HTTPS image URL in production", async () => {
+		const messages: BaseMessage[] = [
+			{
+				role: "user",
+				content: [
+					{
+						type: "image_url",
+						image_url: { url: "http://example.com/image.png" },
+					},
+				],
+			},
+		];
+		try {
+			await transformGoogleMessages(messages, true);
+			throw new Error("expected throw");
+		} catch (err) {
+			expect(err).toBeInstanceOf(RequestError);
+			const e = err as RequestError;
+			expect(e.statusCode).toBe(400);
+			expect(e.message).toBe(
+				"Failed to process image: Image URLs must use HTTPS protocol in production",
+			);
 		}
 	});
 });

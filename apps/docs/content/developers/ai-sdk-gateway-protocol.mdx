@@ -1,0 +1,124 @@
+---
+title: AI SDK Gateway protocol
+description: Point an app built on the Vercel AI Gateway at LLM Gateway without changing its code
+icon: Repeat
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+When you pass a bare model string to the AI SDK — `streamText({ model: "anthropic/claude-sonnet-5" })` — the SDK resolves it through its **default provider**, `@ai-sdk/gateway`. That provider does not speak the OpenAI Chat Completions format: it has its own wire protocol, `LanguageModelV*CallOptions` in and `LanguageModelV*` parts out.
+
+LLM Gateway implements that protocol, so an app written against the Vercel AI Gateway runs here with **no code change** — only its base URL and API key are repointed.
+
+## Repoint the default provider
+
+```ts
+import { createGateway } from "@ai-sdk/gateway";
+
+globalThis.AI_SDK_DEFAULT_PROVIDER = createGateway({
+	baseURL: "https://api.llmgateway.io/v4/ai",
+	apiKey: process.env.LLM_GATEWAY_API_KEY,
+});
+```
+
+Put this wherever your app runs before its first model call — a Next.js [`instrumentation.ts`](https://nextjs.org/docs/app/guides/instrumentation), a server entrypoint, or a platform-injected preamble. Every bare model string in the app then resolves through LLM Gateway.
+
+`@ai-sdk/gateway` is already a transitive dependency of `ai`, so there is nothing extra to install.
+
+<Callout type="info">
+	`@ai-sdk/gateway` reads its API key from `AI_GATEWAY_API_KEY` but has **no**
+	environment variable for the base URL — it is a constructor option only. That
+	is why repointing takes this one line rather than an env var.
+</Callout>
+
+Or construct the provider explicitly and pass it per call:
+
+```ts
+import { createGateway } from "@ai-sdk/gateway";
+import { streamText } from "ai";
+
+const gateway = createGateway({
+	baseURL: "https://api.llmgateway.io/v4/ai",
+	apiKey: process.env.LLM_GATEWAY_API_KEY,
+});
+
+const result = streamText({
+	model: gateway("anthropic/claude-sonnet-5"),
+	prompt: "Hello!",
+});
+```
+
+## Base URL per AI SDK version
+
+The protocol carries the language-model specification version in a request header, and every prefix below serves the same surface — pick the one matching the `@ai-sdk/gateway` your app has, so the default path stays intact:
+
+| AI SDK | Spec version | Base URL                          |
+| ------ | ------------ | --------------------------------- |
+| 5      | 2            | `https://api.llmgateway.io/v1/ai` |
+| 6      | 3            | `https://api.llmgateway.io/v3/ai` |
+| 7      | 4            | `https://api.llmgateway.io/v4/ai` |
+
+## Model IDs
+
+Model IDs use the provider-pinned `provider/model` form (`anthropic/claude-sonnet-5`, `openai/gpt-4o`) — the same convention AI Gateway IDs use, so existing model strings resolve unchanged.
+
+LLM Gateway's smart-routing IDs work here too: pass a bare model ID (`gpt-4o`) to let the gateway pick a provider, or `auto` to let it pick the model. Those are not returned by `getAvailableModels()` because they do not name one provider, but they are accepted.
+
+## Listing models
+
+```ts
+const { models } = await gateway.getAvailableModels();
+```
+
+Returns one entry per active provider mapping, with pricing and an AI SDK `specification` block. This is what backs a model picker built on `GatewayModel[]`.
+
+## Credits
+
+```ts
+const { balance, totalUsed } = await gateway.getCredits();
+```
+
+`balance` is the organization's remaining credit balance and `totalUsed` its lifetime credits spend.
+
+## Gateway-only options
+
+Features that have no field in the AI SDK call options — reasoning effort, service tier, routing strategy, prompt cache keys, plugins — are set through the `llmgateway` provider options namespace, which is passed onto the underlying request:
+
+```ts
+const result = streamText({
+	model: gateway("openai/gpt-5.6-terra"),
+	prompt: "Hello!",
+	providerOptions: {
+		llmgateway: {
+			reasoning_effort: "high",
+			routing: "price",
+		},
+	},
+});
+```
+
+Any field the [chat completions API](/api-reference) accepts works here, except `model`, `messages` and `stream`, which this surface owns.
+
+## Web search
+
+The provider-native web search tools serialize to provider-defined tools, and the gateway maps them onto its [native web search](/features/web-search):
+
+```ts
+import { openai } from "@ai-sdk/openai";
+
+const result = streamText({
+	model: gateway("openai/gpt-4o"),
+	prompt: "What happened in the news today?",
+	tools: { web_search: openai.tools.webSearch() },
+});
+```
+
+Recognised tools: `openai.web_search`, `openai.web_search_preview`, `anthropic.web_search_20250305`, `anthropic.web_search_20260209`, `google.google_search`. Search results come back as `source-url` message parts plus a provider-executed tool call under the name you bound the tool to, so the AI SDK's sources UI works unchanged.
+
+A provider-defined tool the gateway cannot map is reported as an `unsupported-tool` warning on the result rather than failing the request.
+
+## What is not covered
+
+This surface implements language models. Embeddings, images, video, speech, transcription, reranking and realtime are served by the [OpenAI-compatible endpoints](/api-reference) — use [`@llmgateway/ai-sdk-provider`](/developers/ai-sdk) for those.
+
+These call options have no chat completions equivalent and are reported as `unsupported` warnings: `stopSequences`, `seed`, `topK`.

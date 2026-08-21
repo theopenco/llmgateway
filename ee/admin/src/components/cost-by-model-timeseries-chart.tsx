@@ -16,11 +16,16 @@ import {
 	ChartTooltip,
 	ChartTooltipContent,
 } from "@/components/ui/chart";
+import {
+	UsageModeSelector,
+	useUsageMode,
+} from "@/components/usage-mode-selector";
 import { cn } from "@/lib/utils";
 
 import type { ChartConfig } from "@/components/ui/chart";
 import type {
 	CostByModelTimeseriesResponse,
+	CostTimeseriesGroupBy,
 	ModelView,
 	TokenWindow,
 } from "@/lib/types";
@@ -36,6 +41,11 @@ const metricTabs: { key: ActiveMetric; label: string }[] = [
 const modelViewTabs: { key: ModelView; label: string }[] = [
 	{ key: "mapping", label: "Mappings" },
 	{ key: "canonical", label: "Canonical" },
+];
+
+const groupByTabs: { key: CostTimeseriesGroupBy; label: string }[] = [
+	{ key: "model", label: "By model" },
+	{ key: "source", label: "By source" },
 ];
 
 const seriesColors = [
@@ -66,26 +76,32 @@ export function CostByModelTimeseriesChart({
 	description,
 	fetchData,
 	externalWindow,
+	groupBy,
+	onGroupByChange,
 }: {
 	title: string;
 	description?: string;
 	fetchData: (
 		window: TokenWindow,
 		modelView: ModelView,
+		groupBy: CostTimeseriesGroupBy,
 	) => Promise<CostByModelTimeseriesResponse | null>;
 	externalWindow: TokenWindow;
+	groupBy?: CostTimeseriesGroupBy;
+	onGroupByChange?: (groupBy: CostTimeseriesGroupBy) => void;
 }) {
 	const [data, setData] = useState<CostByModelTimeseriesResponse | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [activeMetric, setActiveMetric] = useState<ActiveMetric>("cost");
 	const [modelView, setModelView] = useState<ModelView>("mapping");
 	const latestRequestRef = useRef(0);
+	const activeGroupBy = groupBy ?? "model";
 
 	const loadData = useCallback(async () => {
 		const requestId = ++latestRequestRef.current;
 		setLoading(true);
 		try {
-			const result = await fetchData(externalWindow, modelView);
+			const result = await fetchData(externalWindow, modelView, activeGroupBy);
 			if (requestId !== latestRequestRef.current) {
 				return;
 			}
@@ -101,11 +117,13 @@ export function CostByModelTimeseriesChart({
 				setLoading(false);
 			}
 		}
-	}, [fetchData, externalWindow, modelView]);
+	}, [fetchData, externalWindow, modelView, activeGroupBy]);
 
 	useEffect(() => {
 		void loadData();
 	}, [loadData]);
+
+	const usageMode = useUsageMode();
 
 	const { chartData, config, keyToModel } = useMemo(() => {
 		if (!data) {
@@ -125,6 +143,18 @@ export function CostByModelTimeseriesChart({
 				color: seriesColors[index % seriesColors.length],
 			};
 		});
+		// Cost/request series respect the billing-mode view; tokens are only
+		// tracked blended.
+		const metricKey =
+			usageMode === "total" || activeMetric === "totalTokens"
+				? activeMetric
+				: activeMetric === "cost"
+					? usageMode === "credits"
+						? ("creditsCost" as const)
+						: ("apiKeysCost" as const)
+					: usageMode === "credits"
+						? ("creditsRequestCount" as const)
+						: ("apiKeysRequestCount" as const);
 		const rows = data.data.map((point) => {
 			const row: Record<string, number | string> = {
 				timestamp: point.timestamp,
@@ -134,12 +164,12 @@ export function CostByModelTimeseriesChart({
 			}
 			for (const entry of point.entries) {
 				const key = sanitizeKey(entry.model);
-				row[key] = Number(entry[activeMetric] ?? 0);
+				row[key] = Number(entry[metricKey] ?? 0);
 			}
 			return row;
 		});
 		return { chartData: rows, config: cfg, keyToModel: keyToModelLocal };
-	}, [data, activeMetric]);
+	}, [data, activeMetric, usageMode]);
 
 	const bucket = data?.bucket ?? "day";
 
@@ -180,21 +210,44 @@ export function CostByModelTimeseriesChart({
 							</button>
 						))}
 					</div>
-					<div className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-0.5">
-						{modelViewTabs.map((tab) => (
-							<button
-								key={tab.key}
-								className={cn(
-									"rounded-sm px-2.5 py-1 text-xs font-medium transition-colors",
-									modelView === tab.key
-										? "bg-primary text-primary-foreground"
-										: "text-muted-foreground hover:text-foreground",
-								)}
-								onClick={() => setModelView(tab.key)}
-							>
-								{tab.label}
-							</button>
-						))}
+					<div className="flex flex-wrap items-center gap-2">
+						<UsageModeSelector />
+						{onGroupByChange && (
+							<div className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-0.5">
+								{groupByTabs.map((tab) => (
+									<button
+										key={tab.key}
+										className={cn(
+											"rounded-sm px-2.5 py-1 text-xs font-medium transition-colors",
+											activeGroupBy === tab.key
+												? "bg-primary text-primary-foreground"
+												: "text-muted-foreground hover:text-foreground",
+										)}
+										onClick={() => onGroupByChange(tab.key)}
+									>
+										{tab.label}
+									</button>
+								))}
+							</div>
+						)}
+						{activeGroupBy === "model" && (
+							<div className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-0.5">
+								{modelViewTabs.map((tab) => (
+									<button
+										key={tab.key}
+										className={cn(
+											"rounded-sm px-2.5 py-1 text-xs font-medium transition-colors",
+											modelView === tab.key
+												? "bg-primary text-primary-foreground"
+												: "text-muted-foreground hover:text-foreground",
+										)}
+										onClick={() => setModelView(tab.key)}
+									>
+										{tab.label}
+									</button>
+								))}
+							</div>
+						)}
 					</div>
 				</div>
 			</CardHeader>

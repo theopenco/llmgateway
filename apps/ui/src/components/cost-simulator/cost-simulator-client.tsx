@@ -405,7 +405,7 @@ function TextSimulator() {
 								value={selectorValue}
 								onValueChange={setSelectorValue}
 								placeholder="Select a model..."
-								rootOnly
+								canonicalOnly
 							/>
 							{mapping && (
 								<p className="text-xs text-muted-foreground mt-2">
@@ -705,7 +705,7 @@ function ImageSimulator() {
 								value={selectorValue}
 								onValueChange={setSelectorValue}
 								placeholder="Select an image model..."
-								rootOnly
+								canonicalOnly
 							/>
 							{mapping && (
 								<p className="text-xs text-muted-foreground mt-2">

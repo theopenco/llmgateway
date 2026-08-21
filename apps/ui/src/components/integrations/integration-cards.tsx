@@ -10,10 +10,12 @@ import {
 	AutohandIcon,
 	CodexIcon,
 	ContinueIcon,
+	CrushIcon,
 	OpenClawIcon,
 	ClineIcon,
 	CursorIcon,
 	DevPassCodeIcon,
+	GitHubCopilotIcon,
 	HermesIcon,
 	KiloCodeIcon,
 	KimiIcon,
@@ -65,11 +67,11 @@ const integrations: Integration[] = [
 	{
 		name: "Cursor",
 		description:
-			"Use LLM Gateway with Cursor IDE in plan mode only. Cursor's coding agent does not work with external API endpoints.",
+			"Use LLM Gateway with Cursor IDE in plan and agent mode. Tab autocomplete and inline edit stay on Cursor's backend.",
 		href: "https://docs.llmgateway.io/guides/cursor",
 		icon: CursorIcon,
 		comingSoon: false,
-		badge: "Plan mode only",
+		badge: "Plan + Agent mode",
 	},
 	{
 		name: "Codex CLI",
@@ -94,6 +96,23 @@ const integrations: Integration[] = [
 		href: "/guides/continue",
 		icon: ContinueIcon,
 		comingSoon: false,
+	},
+	{
+		name: "Crush",
+		description:
+			"Use LLM Gateway with Charm's Crush coding agent for AI-powered terminal coding.",
+		href: "/guides/crush",
+		icon: CrushIcon,
+		comingSoon: false,
+	},
+	{
+		name: "GitHub Copilot app",
+		description:
+			"Use LLM Gateway as a model provider in GitHub's Copilot desktop app for agent sessions with any model.",
+		href: "/guides/github-copilot",
+		icon: GitHubCopilotIcon,
+		comingSoon: false,
+		badge: "BYOK",
 	},
 	{
 		name: "Hermes Agent",

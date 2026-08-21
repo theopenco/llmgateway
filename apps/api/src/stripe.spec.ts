@@ -190,6 +190,73 @@ describe("handleSubscriptionUpdated — dev plan cancellation feedback email", (
 		expect(sendEmailMock).not.toHaveBeenCalled();
 	});
 
+	test("records a resume row when a cancelled dev plan is reactivated", async () => {
+		await seedDevPlanOrg({ devPlanCancelled: true });
+
+		await handleSubscriptionUpdated(
+			makeUpdatedEvent({ cancelAtPeriodEnd: false }),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlanCancelled).toBe(false);
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+		expect(txns[0].type).toBe("dev_plan_resume");
+		expect(txns[0].amount).toBeNull();
+		expect(txns[0].description).toBe("Dev Plan PRO resumed");
+	});
+
+	test("does not record a resume row on a routine active update", async () => {
+		await seedDevPlanOrg({ devPlanCancelled: false });
+
+		await handleSubscriptionUpdated(
+			makeUpdatedEvent({ cancelAtPeriodEnd: false }),
+		);
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(0);
+	});
+
+	test("records a resume row when a cancelled chat plan is reactivated", async () => {
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			chatPlan: "plus",
+			chatPlanStripeSubscriptionId: SUB_ID,
+			chatPlanCancelled: true,
+		});
+
+		await handleSubscriptionUpdated(
+			makeUpdatedEvent({
+				cancelAtPeriodEnd: false,
+				metadata: {
+					organizationId: ORG_ID,
+					subscriptionType: "chat_plan",
+				},
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.chatPlanCancelled).toBe(false);
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+		expect(txns[0].type).toBe("chat_plan_resume");
+		expect(txns[0].description).toBe("Lounge PLUS membership resumed");
+	});
+
 	test("does not send dev-plan feedback email for a Pro (non-dev-plan) subscription cancel", async () => {
 		await db.insert(tables.organization).values({
 			id: ORG_ID,
@@ -222,6 +289,7 @@ function makeInvoiceEvent(overrides: {
 	invoiceId: string;
 	metadata?: Record<string, string>;
 	periodEnd?: number;
+	priceId?: string;
 }): Stripe.InvoicePaymentSucceededEvent {
 	return {
 		id: "evt_test_invoice",
@@ -238,8 +306,21 @@ function makeInvoiceEvent(overrides: {
 				metadata: overrides.metadata ?? { organizationId: ORG_ID },
 				lines: {
 					data:
-						overrides.periodEnd !== undefined
-							? [{ period: { end: overrides.periodEnd } }]
+						overrides.periodEnd !== undefined || overrides.priceId
+							? [
+									{
+										...(overrides.periodEnd !== undefined
+											? { period: { end: overrides.periodEnd } }
+											: {}),
+										...(overrides.priceId
+											? {
+													pricing: {
+														price_details: { price: overrides.priceId },
+													},
+												}
+											: {}),
+									},
+								]
 							: [],
 				},
 			},
@@ -380,6 +461,103 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		expect(txns[0].creditAmount).toBe("537");
 	});
 
+	test("grants the billed tier and defers the pending change when the invoice billed the old tier", async () => {
+		// Repro of a production incident: the MAX cycle's renewal invoice was
+		// drafted (at the MAX price) at the period boundary, the first charge
+		// attempt failed, and the customer then scheduled a max→pro downgrade.
+		// The price swap doesn't touch the already-finalized invoice, so when the
+		// retry succeeded days later the customer had paid the MAX price — but
+		// the handler granted the pending PRO allotment. The renewal must follow
+		// the invoice: grant MAX and keep the downgrade pending for the next
+		// cycle (whose invoice bills the swapped PRO price).
+		vi.stubEnv("STRIPE_DEV_PLAN_MAX_PRICE_ID", "price_test_max");
+		try {
+			await db.insert(tables.organization).values({
+				id: ORG_ID,
+				name: "Acme Co",
+				billingEmail: "billing@acme.test",
+				devPlan: "max",
+				devPlanPendingTier: "pro",
+				devPlanCreditsLimit: "537",
+				devPlanCreditsUsed: "400",
+				devPlanStripeSubscriptionId: SUB_ID,
+				devPlanCancelled: false,
+			});
+
+			await handleInvoicePaymentSucceeded(
+				makeInvoiceEvent({
+					billingReason: "subscription_cycle",
+					amountPaid: 17900,
+					invoiceId: "in_cycle_billed_old_tier_001",
+					priceId: "price_test_max",
+				}),
+			);
+
+			const org = await db.query.organization.findFirst({
+				where: { id: { eq: ORG_ID } },
+			});
+			expect(org?.devPlan).toBe("max");
+			expect(org?.devPlanPendingTier).toBe("pro");
+			expect(org?.devPlanCreditsUsed).toBe("0");
+			expect(org?.devPlanCreditsLimit).toBe("537");
+
+			const txns = await db.query.transaction.findMany({
+				where: { organizationId: { eq: ORG_ID } },
+			});
+			expect(txns).toHaveLength(1);
+			expect(txns[0].type).toBe("dev_plan_renewal");
+			expect(txns[0].creditAmount).toBe("537");
+			expect(txns[0].description).toBe("Dev Plan MAX renewed");
+		} finally {
+			vi.unstubAllEnvs();
+		}
+	});
+
+	test("applies the pending change when the invoice billed the new tier", async () => {
+		// The normal scheduled-downgrade flow: the price swap landed before the
+		// renewal invoice was drafted, so the invoice bills the new (pro) price
+		// and the pending change applies and clears.
+		vi.stubEnv("STRIPE_DEV_PLAN_PRO_PRICE_ID", "price_test_pro");
+		try {
+			await db.insert(tables.organization).values({
+				id: ORG_ID,
+				name: "Acme Co",
+				billingEmail: "billing@acme.test",
+				devPlan: "max",
+				devPlanPendingTier: "pro",
+				devPlanCreditsLimit: "537",
+				devPlanCreditsUsed: "400",
+				devPlanStripeSubscriptionId: SUB_ID,
+				devPlanCancelled: false,
+			});
+
+			await handleInvoicePaymentSucceeded(
+				makeInvoiceEvent({
+					billingReason: "subscription_cycle",
+					amountPaid: 7900,
+					invoiceId: "in_cycle_billed_new_tier_001",
+					priceId: "price_test_pro",
+				}),
+			);
+
+			const org = await db.query.organization.findFirst({
+				where: { id: { eq: ORG_ID } },
+			});
+			expect(org?.devPlan).toBe("pro");
+			expect(org?.devPlanPendingTier).toBeNull();
+			expect(org?.devPlanCreditsLimit).toBe("237");
+
+			const txns = await db.query.transaction.findMany({
+				where: { organizationId: { eq: ORG_ID } },
+			});
+			expect(txns).toHaveLength(1);
+			expect(txns[0].creditAmount).toBe("237");
+			expect(txns[0].description).toBe("Dev Plan PRO renewed");
+		} finally {
+			vi.unstubAllEnvs();
+		}
+	});
+
 	test("emails an invoice on renewal, falling back to the org's own billing email when no default org exists", async () => {
 		await seedUsedDevPlanOrg();
 
@@ -504,6 +682,98 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		expect(txns[0].stripeInvoiceId).toBe("in_upgrade_001");
 	});
 
+	test("does not reset credits or apply a pending downgrade on a stale renewal invoice", async () => {
+		// Repro of a production incident: the old cycle's renewal invoice was
+		// drafted at the period boundary but only charged ~1h later — AFTER the
+		// customer had upgraded to pro (re-anchoring the billing cycle) and
+		// scheduled a downgrade back to lite. The stale charge must not wipe the
+		// freshly purchased pro allowance nor apply the pending downgrade early.
+		const nowSeconds = Math.floor(Date.now() / 1000);
+		const thirtyDaysSeconds = 30 * 86400;
+		const upgradedExpiry = new Date((nowSeconds + thirtyDaysSeconds) * 1000);
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			devPlan: "pro",
+			devPlanPendingTier: "lite",
+			devPlanCreditsLimit: "237",
+			devPlanCreditsUsed: "10",
+			devPlanExpiresAt: upgradedExpiry,
+			devPlanStripeSubscriptionId: SUB_ID,
+			devPlanCancelled: false,
+		});
+
+		// The stale invoice's period ends 40 minutes before the re-anchored
+		// cycle's expiry (the upgrade happened 40 minutes after the old period
+		// boundary).
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_cycle",
+				amountPaid: 2900,
+				invoiceId: "in_cycle_stale_001",
+				periodEnd: nowSeconds + thirtyDaysSeconds - 2400,
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlan).toBe("pro");
+		expect(org?.devPlanPendingTier).toBe("lite");
+		expect(org?.devPlanCreditsUsed).toBe("10");
+		expect(org?.devPlanCreditsLimit).toBe("237");
+		expect(org?.devPlanExpiresAt?.getTime()).toBe(upgradedExpiry.getTime());
+
+		// The charge is still recorded for the audit trail (it is a refund
+		// candidate), but grants no credits.
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+		expect(txns[0].type).toBe("dev_plan_renewal");
+		expect(txns[0].amount).toBe("29");
+		expect(txns[0].creditAmount).toBeNull();
+		expect(txns[0].description).toContain("superseded");
+
+		// No renewal invoice email claiming fresh credits were granted.
+		expect(sendEmailMock).not.toHaveBeenCalled();
+	});
+
+	test("still applies the renewal when the invoice period matches the stored expiry", async () => {
+		// At a normal renewal the `customer.subscription.updated` event can land
+		// first and stamp the org's expiry to the new period end. An invoice whose
+		// period matches the stored expiry IS the current cycle's renewal and must
+		// reset credits as usual.
+		const periodEnd = Math.floor(Date.now() / 1000) + SECONDS_IN_TWO_WEEKS;
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			devPlan: "pro",
+			devPlanCreditsLimit: "237",
+			devPlanCreditsUsed: "150",
+			devPlanExpiresAt: new Date(periodEnd * 1000),
+			devPlanStripeSubscriptionId: SUB_ID,
+			devPlanCancelled: false,
+		});
+
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_cycle",
+				amountPaid: 7900,
+				invoiceId: "in_cycle_current_001",
+				periodEnd,
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlanCreditsUsed).toBe("0");
+		expect(org?.devPlanCreditsLimit).toBe("237");
+	});
+
 	test("skips processing an invoice that was already recorded", async () => {
 		await seedUsedDevPlanOrg();
 		await db.insert(tables.transaction).values({
@@ -596,7 +866,7 @@ describe("handleInvoicePaymentSucceeded — chat plan upgrade invoice", () => {
 		expect(txns[0].type).toBe("chat_plan_upgrade");
 		expect(txns[0].amount).toBe("19");
 		expect(txns[0].creditAmount).toBe("47.5");
-		expect(txns[0].description).toBe("Chat Plan PLUS upgrade");
+		expect(txns[0].description).toBe("Lounge PLUS membership upgrade");
 	});
 
 	test("resets to a fresh new-tier cycle when the endpoint never completed (webhook fallback)", async () => {
@@ -636,7 +906,7 @@ describe("handleInvoicePaymentSucceeded — chat plan upgrade invoice", () => {
 		expect(txns).toHaveLength(1);
 		expect(txns[0].type).toBe("chat_plan_upgrade");
 		expect(txns[0].creditAmount).toBe("47.5");
-		expect(txns[0].description).toBe("Chat Plan PLUS upgrade");
+		expect(txns[0].description).toBe("Lounge PLUS membership upgrade");
 	});
 
 	test("does not re-apply the reset on a Stripe retry of the same invoice", async () => {
@@ -674,6 +944,94 @@ describe("handleInvoicePaymentSucceeded — chat plan upgrade invoice", () => {
 			where: { organizationId: { eq: ORG_ID } },
 		});
 		expect(txns).toHaveLength(1);
+	});
+});
+
+describe("handleInvoicePaymentSucceeded — initial chat plan invoice", () => {
+	beforeEach(async () => {
+		await deleteAll();
+		sendEmailMock.mockClear();
+	});
+
+	afterEach(async () => {
+		await db.delete(tables.transaction);
+		await deleteAll();
+	});
+
+	async function seedUnactivatedChatOrg() {
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			kind: "chat",
+		});
+	}
+
+	test("leaves the first invoice to checkout.session.completed instead of recording a Pro subscription", async () => {
+		// Webhook ordering race: the first invoice of a new Lounge membership can
+		// land before the checkout session that activates the chat plan, so none of
+		// the org's chat fields point at the subscription yet. Recording a
+		// `subscription_start` row here would make the checkout handler skip its
+		// `chat_plan_start` insert (same invoice id), and `subscription_start` is
+		// not a self-refund candidate — the member would never get a Refund button.
+		await seedUnactivatedChatOrg();
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUB_ID,
+			metadata: {
+				organizationId: ORG_ID,
+				subscriptionType: "chat_plan",
+				chatPlan: "plus",
+			},
+		});
+
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_create",
+				amountPaid: 1900,
+				invoiceId: "in_chat_initial_race",
+			}),
+		);
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(0);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.plan).toBe("free");
+		expect(org?.chatPlan).toBe("none");
+		expect(sendEmailMock).not.toHaveBeenCalled();
+	});
+
+	test("never flips a non-default org to the Pro plan", async () => {
+		// Even without chat-plan metadata, a subscription invoice for a chat or
+		// devpass org is not a Pro subscription: those orgs use their own plan
+		// fields.
+		await seedUnactivatedChatOrg();
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUB_ID,
+			metadata: {},
+		});
+
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_create",
+				amountPaid: 1900,
+				invoiceId: "in_chat_initial_no_metadata",
+			}),
+		);
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(0);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.plan).toBe("free");
 	});
 });
 

@@ -12,7 +12,10 @@ import {
 } from "vitest";
 
 import { app } from "@/app.js";
-import { clearCache } from "@/test-utils/test-helpers.js";
+import {
+	cleanupTestOrganization,
+	clearCache,
+} from "@/test-utils/test-helpers.js";
 
 import { db, pool, tables } from "@llmgateway/db";
 
@@ -116,16 +119,7 @@ describe("Chat completions caching: repeated requests do not re-read Postgres", 
 	beforeEach(async () => {
 		await clearCache();
 
-		await Promise.all([
-			db.delete(tables.log),
-			db.delete(tables.apiKey),
-			db.delete(tables.providerKey),
-		]);
-		await Promise.all([
-			db.delete(tables.userOrganization),
-			db.delete(tables.project),
-		]);
-		await Promise.all([db.delete(tables.organization), db.delete(tables.user)]);
+		await cleanupTestOrganization("cache-org", ["cache-user"]);
 
 		await db.insert(tables.user).values({
 			id: "cache-user",
@@ -168,37 +162,45 @@ describe("Chat completions caching: repeated requests do not re-read Postgres", 
 		});
 	});
 
-	test("a warm chat request issues zero Postgres reads on cached metadata tables", async () => {
-		// Warm the cache: api key, project, org, provider key, rate limits,
-		// discounts and routing metrics are all looked up and cached here.
-		expect((await sendChat("warm up one")).status).toBe(200);
-		expect((await sendChat("warm up two")).status).toBe(200);
+	// Retried because the cache this measures is global: a test file running in
+	// parallel resets Redis between its own tests, which can evict the entries
+	// warmed below in the window before the measured request. A regression in
+	// the cached lookups themselves fails every attempt.
+	test(
+		"a warm chat request issues zero Postgres reads on cached metadata tables",
+		{ retry: 3 },
+		async () => {
+			// Warm the cache: api key, project, org, provider key, rate limits,
+			// discounts and routing metrics are all looked up and cached here.
+			expect((await sendChat("warm up one")).status).toBe(200);
+			expect((await sendChat("warm up two")).status).toBe(200);
 
-		// Record every statement the shared pool executes during a fresh request.
-		// Both the cached (cdb) and uncached (db) clients use this same pool, so
-		// this captures any query that actually reaches Postgres.
-		const statements: string[] = [];
-		const original = pool.query.bind(pool);
-		const spy = vi.spyOn(pool, "query").mockImplementation(((
-			...args: Parameters<typeof original>
-		) => {
-			statements.push(statementText(args));
-			return original(...args);
-		}) as typeof pool.query);
+			// Record every statement the shared pool executes during a fresh request.
+			// Both the cached (cdb) and uncached (db) clients use this same pool, so
+			// this captures any query that actually reaches Postgres.
+			const statements: string[] = [];
+			const original = pool.query.bind(pool);
+			const spy = vi.spyOn(pool, "query").mockImplementation(((
+				...args: Parameters<typeof original>
+			) => {
+				statements.push(statementText(args));
+				return original(...args);
+			}) as typeof pool.query);
 
-		try {
-			// A unique prompt guarantees the response cache cannot short-circuit
-			// the request, so the full auth/routing/pricing path runs.
-			const res = await sendChat("measured request with a unique prompt");
-			expect(res.status).toBe(200);
-		} finally {
-			spy.mockRestore();
-		}
+			try {
+				// A unique prompt guarantees the response cache cannot short-circuit
+				// the request, so the full auth/routing/pricing path runs.
+				const res = await sendChat("measured request with a unique prompt");
+				expect(res.status).toBe(200);
+			} finally {
+				spy.mockRestore();
+			}
 
-		const leaked = cachedTableReads(statements);
-		expect(
-			leaked,
-			`Expected zero cached-table SELECTs on a warm request, but these hit Postgres:\n${leaked.join("\n")}`,
-		).toEqual([]);
-	});
+			const leaked = cachedTableReads(statements);
+			expect(
+				leaked,
+				`Expected zero cached-table SELECTs on a warm request, but these hit Postgres:\n${leaked.join("\n")}`,
+			).toEqual([]);
+		},
+	);
 });

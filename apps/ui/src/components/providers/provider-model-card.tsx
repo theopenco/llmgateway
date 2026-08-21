@@ -14,6 +14,7 @@ import {
 	TooltipTrigger,
 } from "@/lib/components/tooltip";
 import { useAppConfig } from "@/lib/config";
+import { getLoungeStudioPath } from "@/lib/model-utils";
 import { formatContextSize } from "@/lib/utils";
 
 import type {
@@ -288,12 +289,12 @@ export function ProviderModelCard({
 						asChild
 					>
 						<a
-							href={`${config.playgroundUrl}?model=${encodeURIComponent(providerModelId)}`}
+							href={`${config.playgroundUrl}${getLoungeStudioPath(model.output)}?model=${encodeURIComponent(providerModelId)}`}
 							target="_blank"
 							rel="noopener noreferrer"
 						>
 							<Play className="h-4 w-4" />
-							Try in Playground
+							Try in Lounge
 						</a>
 					</Button>
 				</div>

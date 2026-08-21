@@ -135,6 +135,44 @@ describe("beacon endpoint", () => {
 		});
 	});
 
+	it("should extract the country from the GCP client region header", async () => {
+		const beaconData = {
+			uuid: "123e4567-e89b-12d3-a456-426614174000",
+			type: "self-host",
+			timestamp: "2024-01-01T00:00:00.000Z",
+			version: "v0.0.0-unknown",
+		};
+
+		const response = await app.request("/beacon", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"X-Forwarded-For": "198.51.100.25, 203.0.113.1",
+				"X-Client-Region": "DE",
+				"X-Client-City": "Stuttgart",
+			},
+			body: JSON.stringify(beaconData),
+		});
+
+		expect(response.status).toBe(200);
+
+		expect(posthog.capture).toHaveBeenCalledWith({
+			distinctId: beaconData.uuid,
+			event: "self_hosted_installation_beacon",
+			properties: {
+				installation: beaconData.type,
+				timestamp: beaconData.timestamp,
+				source: "self_hosted_api",
+				version: beaconData.version,
+				client_ip: "198.51.100.25",
+				country: "DE",
+				region: undefined,
+				providers: [],
+				providers_count: 0,
+			},
+		});
+	});
+
 	it("should handle X-Real-IP fallback", async () => {
 		const beaconData = {
 			uuid: "123e4567-e89b-12d3-a456-426614174000",

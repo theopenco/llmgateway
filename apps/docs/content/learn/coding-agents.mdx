@@ -1,0 +1,68 @@
+---
+title: Coding Agents
+description: See which coding tools your DevPass key is being used with
+icon: Terminal
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+import { ThemedImage } from "@/components/themed-image";
+
+The Coding Agents section of the [DevPass dashboard](https://devpass.llmgateway.io/dashboard)
+breaks your DevPass usage down by the tool that produced it, so you can tell at
+a glance whether your allowance is going to Claude Code, Cursor, OpenCode, or
+something else.
+
+<ThemedImage alt="Coding Agents" basePath="/learn/coding-agents" />
+
+Agents are recognised from the `x-source` header their requests send. Supported
+tools include DevPass Code, Claude Code, OpenCode, Cursor, Autohand Code,
+Empryo, SoulForge, Cline, Codex CLI, GitHub Copilot, n8n and OpenClaw — each
+one has a setup guide under [Guides](/guides).
+
+<Callout type="info">
+	The overview lists the **last 7 days**. Open an agent to pick a wider window.
+	If nothing shows up yet, point your tool at DevPass with the two environment
+	variables from the dashboard's Quick start card and run it once.
+</Callout>
+
+## Agent Cards
+
+| Field           | Description                                      |
+| --------------- | ------------------------------------------------ |
+| **Name**        | The coding tool, matched from its request source |
+| **Total cost**  | Spend attributed to this agent                   |
+| **Requests**    | Number of API requests                           |
+| **Tokens**      | Prompt and completion tokens combined            |
+| **Last active** | When the agent last sent a request               |
+
+Click a card to open the agent's detail page.
+
+## Agent Detail
+
+<ThemedImage alt="Coding Agent Detail" basePath="/learn/coding-agents-detail" />
+
+The header repeats the agent's totals for the selected period and holds the
+two controls for the page:
+
+- **Time range** — 1h, 4h, 24h, 7d or 30d (7d by default), stored in the URL so
+  the view can be shared.
+- **Export CSV** — downloads every request in the period, not just the rows
+  currently loaded.
+
+Below it are three blocks:
+
+**Model usage chart** — spend over time, split by model.
+
+**Model usage table** — one row per model with Provider, Requests, Tokens,
+Cost, Cache cost, and a share-of-tokens bar. Every column header sorts.
+
+**Requests** — the individual calls, newest first, each showing the model used,
+cache status, token count and cost. More rows load as you scroll, or with
+**Load more**.
+
+## Related pages
+
+- [**Model Categories & Fair Use**](/learn/model-categories) — which models
+  count against the premium allowance
+- [**Agents Monitoring**](/learn/agents) — the same breakdown for a regular
+  gateway project, with sessions and BYOK filtering

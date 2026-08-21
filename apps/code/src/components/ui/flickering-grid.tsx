@@ -10,6 +10,8 @@ import React, {
 
 import { cn } from "@/lib/utils";
 
+import { fillRandomFloats } from "@llmgateway/shared/random";
+
 interface FlickeringGridProps extends React.HTMLAttributes<HTMLDivElement> {
 	squareSize?: number;
 	gridGap?: number;
@@ -67,20 +69,28 @@ export const FlickeringGrid: React.FC<FlickeringGridProps> = ({
 			const rows = Math.ceil(height / (squareSize + gridGap));
 
 			const squares = new Float32Array(cols * rows);
+			fillRandomFloats(squares);
 			for (let i = 0; i < squares.length; i++) {
-				squares[i] = Math.random() * maxOpacity;
+				squares[i] *= maxOpacity;
 			}
 
-			return { cols, rows, squares, dpr };
+			// Two values per square per frame — one to decide whether it
+			// flickers, one for its new opacity — refilled in a single batch so
+			// the animation loop never makes a crypto call per cell.
+			const noise = new Float32Array(squares.length * 2);
+
+			return { cols, rows, squares, noise, dpr };
 		},
 		[squareSize, gridGap, maxOpacity],
 	);
 
 	const updateSquares = useCallback(
-		(squares: Float32Array, deltaTime: number) => {
+		(squares: Float32Array, noise: Float32Array, deltaTime: number) => {
+			fillRandomFloats(noise);
+			const flickerThreshold = flickerChance * deltaTime;
 			for (let i = 0; i < squares.length; i++) {
-				if (Math.random() < flickerChance * deltaTime) {
-					squares[i] = Math.random() * maxOpacity;
+				if (noise[i] < flickerThreshold) {
+					squares[i] = noise[squares.length + i] * maxOpacity;
 				}
 			}
 		},
@@ -146,7 +156,7 @@ export const FlickeringGrid: React.FC<FlickeringGridProps> = ({
 				const deltaTime = (time - lastTime) / 1000;
 				lastTime = time;
 
-				updateSquares(gridParams.squares, deltaTime);
+				updateSquares(gridParams.squares, gridParams.noise, deltaTime);
 				drawGrid(
 					ctx,
 					canvas.width,

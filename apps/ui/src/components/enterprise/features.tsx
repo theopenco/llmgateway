@@ -61,7 +61,7 @@ const features = [
 		icon: MessageSquare,
 		title: "Chat App & Whitelabel",
 		description:
-			"Full-featured chat playground included. Customize with your branding for internal or customer use.",
+			"Full-featured chat app included. Customize with your branding for internal or customer use.",
 	},
 	{
 		icon: Shield,

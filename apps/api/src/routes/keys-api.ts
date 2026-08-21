@@ -1,9 +1,15 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
-import ipaddr from "ipaddr.js";
 import { z } from "zod";
 
-import { maskToken } from "@/lib/maskToken.js";
+import {
+	assertEnterpriseForIpCidrRule,
+	createIamRuleSchema,
+	iamRuleStatusEnum,
+	iamRuleTypeEnum,
+	iamRuleValueSchema,
+	validateIamRuleInput,
+} from "@/lib/iam-rules.js";
 import { platformKeyMode } from "@/lib/platform-secret-auth.js";
 import { getUserProjectIds } from "@/utils/authorization.js";
 
@@ -22,7 +28,10 @@ import {
 	validateApiKeyLimitsWithinMemberBudget,
 	type ApiKeyPeriodDurationUnit,
 	type InferSelectModel,
+	type MemberBudgetOwner,
 } from "@llmgateway/db";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
+import { maskToken } from "@llmgateway/shared/mask-token";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -93,7 +102,7 @@ function normalizeNullableString(value: unknown): unknown {
 	return trimmedValue === "" ? null : trimmedValue;
 }
 
-function createNullableLimitSchema(fieldLabel: string) {
+export function createNullableLimitSchema(fieldLabel: string) {
 	return z.preprocess(
 		normalizeNullableString,
 		z
@@ -369,6 +378,13 @@ const createApiKeySchema = z
 	})
 	.superRefine(validateApiKeyPeriodConfig);
 
+const memberBudgetConstraintsSchema = z.object({
+	usageLimit: z.string().nullable(),
+	periodUsageLimit: z.string().nullable(),
+	periodUsageDurationValue: z.number().int().nullable(),
+	periodUsageDurationUnit: apiKeyPeriodDurationUnitSchema.nullable(),
+});
+
 // Schema for listing API keys
 const listApiKeysQuerySchema = z.object({
 	projectId: z.string().optional().openapi({
@@ -491,26 +507,6 @@ async function assertPlatformKeyAdminAccess(
 
 	return project;
 }
-
-export const iamRuleTypeEnum = z.enum([
-	"allow_models",
-	"deny_models",
-	"allow_pricing",
-	"deny_pricing",
-	"allow_providers",
-	"deny_providers",
-	"allow_ip_cidrs",
-	"deny_ip_cidrs",
-]);
-
-export const iamRuleValueSchema = z.object({
-	models: z.array(z.string()).optional(),
-	providers: z.array(z.string()).optional(),
-	pricingType: z.enum(["free", "paid"]).optional(),
-	maxInputPrice: z.number().optional(),
-	maxOutputPrice: z.number().optional(),
-	ipCidrs: z.array(z.string()).optional(),
-});
 
 const listPlatformKeys = createRoute({
 	method: "get",
@@ -729,59 +725,6 @@ keysApi.openapi(deletePlatformKey, async (c) => {
 	});
 });
 
-function isValidCidr(cidr: string): boolean {
-	try {
-		const parsed = ipaddr.parseCIDR(cidr);
-		return Array.isArray(parsed) && parsed.length === 2;
-	} catch {
-		return false;
-	}
-}
-
-export function isIpCidrRuleType(
-	ruleType?: z.infer<typeof iamRuleTypeEnum>,
-): boolean {
-	return ruleType === "allow_ip_cidrs" || ruleType === "deny_ip_cidrs";
-}
-
-export function assertEnterpriseForIpCidrRule(
-	ruleType: z.infer<typeof iamRuleTypeEnum> | undefined,
-	plan: string | null | undefined,
-): void {
-	if (isIpCidrRuleType(ruleType) && plan !== "enterprise") {
-		throw new HTTPException(403, {
-			message: "IP address IAM rules require an enterprise plan",
-		});
-	}
-}
-
-export function validateIamRuleInput(input: {
-	ruleType?: z.infer<typeof iamRuleTypeEnum>;
-	ruleValue?: z.infer<typeof iamRuleValueSchema>;
-}): void {
-	const { ruleType, ruleValue } = input;
-	if (!ruleType || !ruleValue) {
-		return;
-	}
-	if (ruleType === "allow_ip_cidrs" || ruleType === "deny_ip_cidrs") {
-		const cidrs = ruleValue.ipCidrs;
-		if (!cidrs || cidrs.length === 0) {
-			throw new HTTPException(400, {
-				message: `ruleValue.ipCidrs is required for ruleType ${ruleType}`,
-			});
-		}
-		for (const cidr of cidrs) {
-			if (!isValidCidr(cidr)) {
-				throw new HTTPException(400, {
-					message: `Invalid CIDR: ${cidr}. Expected IPv4 (e.g. 192.0.2.0/24) or IPv6 (e.g. 2001:db8::/32).`,
-				});
-			}
-		}
-	}
-}
-
-export const iamRuleStatusEnum = z.enum(["active", "inactive"]);
-
 export const iamRuleSchema = z.object({
 	id: z.string(),
 	createdAt: z.date(),
@@ -792,22 +735,27 @@ export const iamRuleSchema = z.object({
 	status: iamRuleStatusEnum,
 });
 
-export const createIamRuleSchema = z.object({
-	ruleType: iamRuleTypeEnum,
-	ruleValue: iamRuleValueSchema,
-	status: iamRuleStatusEnum.default("active"),
-});
-
 // Org-wide cap on active developer API keys. An explicit `organization.apiKeyLimit`
 // override (set by admins) always takes precedence over these plan defaults.
 export function resolveApiKeyLimit(
+	organizationId: string | null | undefined,
 	plan: string | null | undefined,
 	apiKeyLimit: number | null | undefined,
 ): number {
+	if (
+		plan === "enterprise" &&
+		!hasOrganizationEnterpriseAccess(organizationId, plan)
+	) {
+		return 5;
+	}
 	if (apiKeyLimit !== null && apiKeyLimit !== undefined) {
 		return apiKeyLimit;
 	}
-	return plan === "enterprise" ? 500 : plan === "pro" ? 20 : 5;
+	return hasOrganizationEnterpriseAccess(organizationId, plan)
+		? 500
+		: plan === "pro"
+			? 20
+			: 5;
 }
 
 // Create a new API key
@@ -880,6 +828,7 @@ function assertApiKeyLimitsWithinMemberBudget(
 	membership: MemberBudgetColumns | null | undefined,
 	organization: OrgDeveloperDefaultColumns,
 	keyLimits: ApiKeyLimitConfig,
+	owner: MemberBudgetOwner = "self",
 ): void {
 	if (!membership) {
 		return;
@@ -914,11 +863,106 @@ function assertApiKeyLimitsWithinMemberBudget(
 			periodUsageDurationUnit: keyLimits.periodUsageDurationUnit,
 		},
 		budget,
+		owner,
 	);
 
 	if (error) {
 		throw new HTTPException(400, { message: error });
 	}
+}
+
+/**
+ * Effective member budget of each key's creator, keyed by API key id. The limits
+ * editor is shown to owners/admins for keys they did not create, so it has to
+ * validate against the creator's budget rather than the viewer's own — otherwise
+ * the dialog accepts a value the PATCH route then rejects.
+ */
+async function resolveApiKeyOwnerBudgets(
+	apiKeys: Pick<ApiKeyRecord, "id" | "projectId" | "createdBy">[],
+	userOrgs: {
+		organization?:
+			| (OrgDeveloperDefaultColumns & {
+					id: string;
+					projects: { id: string }[];
+			  })
+			| null;
+	}[],
+): Promise<Map<string, ApiKeyLimitConfig>> {
+	const budgets = new Map<string, ApiKeyLimitConfig>();
+
+	if (!apiKeys.length) {
+		return budgets;
+	}
+
+	const orgByProjectId = new Map<
+		string,
+		OrgDeveloperDefaultColumns & { id: string }
+	>();
+	for (const userOrg of userOrgs) {
+		const organization = userOrg.organization;
+		if (!organization) {
+			continue;
+		}
+		for (const project of organization.projects) {
+			orgByProjectId.set(project.id, organization);
+		}
+	}
+
+	const memberships = await db.query.userOrganization.findMany({
+		where: {
+			userId: { in: [...new Set(apiKeys.map((key) => key.createdBy))] },
+			organizationId: {
+				in: [...new Set([...orgByProjectId.values()].map((org) => org.id))],
+			},
+		},
+		columns: {
+			userId: true,
+			organizationId: true,
+			role: true,
+			maxApiKeys: true,
+			usageLimit: true,
+			periodUsageLimit: true,
+			periodUsageDurationValue: true,
+			periodUsageDurationUnit: true,
+		},
+	});
+	const membershipByMember = new Map(
+		memberships.map((membership) => [
+			`${membership.userId}:${membership.organizationId}`,
+			membership,
+		]),
+	);
+
+	for (const key of apiKeys) {
+		const organization = orgByProjectId.get(key.projectId);
+		const membership = organization
+			? membershipByMember.get(`${key.createdBy}:${organization.id}`)
+			: undefined;
+		if (!organization || !membership) {
+			continue;
+		}
+
+		const budget = resolveEffectiveMemberBudget(
+			membership.role as "owner" | "admin" | "developer",
+			{
+				maxApiKeys: membership.maxApiKeys,
+				usageLimit: membership.usageLimit,
+				periodUsageLimit: membership.periodUsageLimit,
+				periodUsageDurationValue: membership.periodUsageDurationValue,
+				periodUsageDurationUnit: membership.periodUsageDurationUnit,
+			},
+			organization,
+		);
+
+		budgets.set(key.id, {
+			usageLimit: budget.usageLimit,
+			periodUsageLimit: budget.periodUsageLimit,
+			periodUsageDurationValue: budget.periodUsageDurationValue,
+			periodUsageDurationUnit: budget.periodUsageDurationUnit,
+		});
+	}
+
+	return budgets;
 }
 
 export async function createApiKeyForProject(
@@ -991,6 +1035,7 @@ export async function createApiKeyForProject(
 	});
 
 	const maxApiKeys = resolveApiKeyLimit(
+		project.organization.id,
 		project.organization.plan,
 		project.organization.apiKeyLimit,
 	);
@@ -1139,6 +1184,11 @@ const list = createRoute({
 								apiKeySchema.omit({ token: true }).extend({
 									// Only return a masked version of the token
 									maskedToken: z.string(),
+									// The effective member budget of whoever created the key, so
+									// the limits editor validates against the cap that actually
+									// applies — not the viewer's own. Null when the creator is no
+									// longer a member of the organization.
+									ownerBudget: memberBudgetConstraintsSchema.nullable(),
 								}),
 							)
 							.openapi({}),
@@ -1278,7 +1328,11 @@ keysApi.openapi(list, async (c) => {
 
 		if (project?.organization) {
 			plan = project.organization.plan as "free" | "pro" | "enterprise";
-			maxKeys = resolveApiKeyLimit(plan, project.organization.apiKeyLimit);
+			maxKeys = resolveApiKeyLimit(
+				project.organization.id,
+				plan,
+				project.organization.apiKeyLimit,
+			);
 
 			const orgProjects = await db.query.project.findMany({
 				where: { organizationId: { eq: project.organization.id } },
@@ -1296,11 +1350,14 @@ keysApi.openapi(list, async (c) => {
 		}
 	}
 
+	const ownerBudgets = await resolveApiKeyOwnerBudgets(apiKeys, userOrgs);
+
 	return c.json({
 		apiKeys: apiKeys.map((key) => ({
 			...serializeApiKey(key),
 			maskedToken: maskToken(key.token),
 			token: undefined,
+			ownerBudget: ownerBudgets.get(key.id) ?? null,
 		})),
 		planLimits: projectId
 			? {
@@ -2049,6 +2106,7 @@ keysApi.openapi(updateUsageLimit, async (c) => {
 			ownerMembership,
 			ownerOrg,
 			nextLimitConfig,
+			apiKey.createdBy === user.id ? "self" : "other",
 		);
 	}
 
@@ -2206,6 +2264,7 @@ keysApi.openapi(createIamRule, async (c) => {
 
 	assertEnterpriseForIpCidrRule(
 		ruleData.ruleType,
+		apiKey.project.organization?.id,
 		apiKey.project.organization?.plan,
 	);
 
@@ -2465,6 +2524,7 @@ keysApi.openapi(updateIamRule, async (c) => {
 	const effectiveRuleType = updateData.ruleType ?? existingRule?.ruleType;
 	assertEnterpriseForIpCidrRule(
 		effectiveRuleType,
+		apiKey.project.organization?.id,
 		apiKey.project.organization?.plan,
 	);
 

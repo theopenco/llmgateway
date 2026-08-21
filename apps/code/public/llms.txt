@@ -1,6 +1,6 @@
 # DevPass by LLM Gateway
 
-> DevPass is a flat-price subscription for AI coding tools. One API key unlocks 200+ models across 40+ providers in any OpenAI-compatible coding agent — DevPass Code, Claude Code, opencode, Cursor, Continue, and more — with a fixed monthly usage allowance instead of surprise token bills.
+> DevPass is a flat-price subscription for AI coding tools. One API key unlocks 200+ models across 40+ providers in any OpenAI-compatible coding agent — DevPass Code, Claude Code, opencode, GitHub Copilot, Cursor, Continue, and more — with a fixed monthly usage allowance instead of surprise token bills. Once the allowance is used, requests pause by default; users can optionally enable pay-as-you-go overflow and top up a credits balance to keep going at provider rates.
 
 ## Plans
 
@@ -8,6 +8,7 @@
 - Pro: $79/month — includes $237 of model usage.
 - Max: $179/month — includes $537 of model usage.
 - Every plan includes the newest frontier models as they are released and full cost tracking.
+- First-month guarantee: refund yourself from the dashboard within 14 days if you've used less than 20% of your monthly allowance.
 
 ## Key pages
 
@@ -21,3 +22,4 @@
 
 - DevPass works with any tool that speaks the OpenAI API format — point it at the gateway base URL.
 - Usage allowances are metered at provider list rates; there is no markup on tokens.
+- DevPass always smart-routes each request to the best provider; pinning a specific provider (provider-prefixed model ids like openai/gpt-4o) is not available on DevPass — use LLM Gateway's pay-as-you-go API for provider pinning.

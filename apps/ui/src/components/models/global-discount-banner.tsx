@@ -9,12 +9,19 @@ export type { DiscountData };
 
 interface GlobalDiscountBannerProps {
 	discount: DiscountData | null;
+	/** Display name of the provider the discount applies through, if scoped. */
+	providerName?: string | null;
 }
 
-export function GlobalDiscountBanner({ discount }: GlobalDiscountBannerProps) {
+export function GlobalDiscountBanner({
+	discount,
+	providerName,
+}: GlobalDiscountBannerProps) {
 	if (!discount) {
 		return null;
 	}
+
+	const provider = providerName ?? discount.provider;
 
 	const percent = (discountFraction(discount.discountPercent) * 100).toFixed(0);
 
@@ -28,8 +35,8 @@ export function GlobalDiscountBanner({ discount }: GlobalDiscountBannerProps) {
 					{percent}% off
 				</span>
 				<span className="text-sm text-muted-foreground">
-					{discount.model ? "this model" : "all models"}
-					{discount.provider ? ` via ${discount.provider}` : ""}
+					this model
+					{provider ? ` via ${provider}` : ""}
 				</span>
 				{discount.expiresAt && (
 					<>

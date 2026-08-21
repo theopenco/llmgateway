@@ -19,6 +19,20 @@ export function LandingPageTracker() {
 	return null;
 }
 
+export function StartPageTracker() {
+	const posthog = usePostHog();
+	const { posthogKey } = useAppConfig();
+
+	useEffect(() => {
+		if (!posthogKey) {
+			return;
+		}
+		posthog.capture("page_viewed_start");
+	}, [posthog, posthogKey]);
+
+	return null;
+}
+
 export function CodeCTATracker({
 	children,
 	cta,

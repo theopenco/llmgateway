@@ -2,9 +2,12 @@ import { notFound } from "next/navigation";
 
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
+import { adaptProviderMapping } from "@/components/models/adapt-model";
 import { Hero } from "@/components/providers/hero";
 import { ProviderModelsGrid } from "@/components/providers/provider-models-grid";
+import { ProviderStatsRow } from "@/components/providers/provider-stats-row";
 import { JsonLd } from "@/components/seo/json-ld";
+import { fetchModels } from "@/lib/fetch-models";
 
 import {
 	models as modelDefinitions,
@@ -13,6 +16,7 @@ import {
 	type ProviderModelMapping,
 } from "@llmgateway/models";
 import { isPremiumModel } from "@llmgateway/shared";
+import { isMappingDeactivated } from "@llmgateway/shared/components";
 
 import type {
 	ApiModel,
@@ -41,119 +45,65 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 		notFound();
 	}
 
+	const apiModels = await fetchModels();
+	const discountByModelId = new Map<string, string>();
+	for (const apiModel of apiModels) {
+		for (const mapping of apiModel.mappings) {
+			if (
+				mapping.providerId === provider.id &&
+				mapping.discount &&
+				parseFloat(mapping.discount) > 0
+			) {
+				discountByModelId.set(apiModel.id, mapping.discount);
+			}
+		}
+	}
+
 	// Convert ModelDefinition to ApiModel-like structure
 	const convertToApiModel = (
 		def: ModelDefinition,
 		map: ProviderModelMapping,
 		providerInfo: (typeof providerDefinitions)[number],
-	): ModelWithProviders => ({
-		id: def.id,
-		premium: isPremiumModel(def.id),
-		createdAt: new Date().toISOString(),
-		releasedAt: def.releasedAt?.toISOString() ?? null,
-		name: def.name ?? null,
-		aliases: def.aliases ?? null,
-		description: def.description ?? null,
-		family: def.family,
-		free: def.free ?? null,
-		output: def.output ?? null,
-		stability: def.stability ?? null,
-		status: "active",
-		mappings: [],
-		providerDetails: [
+	): ModelWithProviders => {
+		const adapted = adaptProviderMapping(
 			{
-				provider: {
-					id: `${map.providerId}-${def.id}`,
-					createdAt: new Date().toISOString(),
-					modelId: def.id,
-					providerId: map.providerId,
-					externalId: map.externalId,
-					inputPrice: map.inputPrice?.toString() ?? null,
-					outputPrice: map.outputPrice?.toString() ?? null,
-					cachedInputPrice: map.cachedInputPrice?.toString() ?? null,
-					cacheWriteInputPrice: map.cacheWriteInputPrice?.toString() ?? null,
-					cacheWriteInputPrice1h:
-						map.cacheWriteInputPrice1h?.toString() ?? null,
-					imageInputPrice: map.imageInputPrice?.toString() ?? null,
-					imageOutputPrice: map.imageOutputPrice?.toString() ?? null,
-					inputCharacterPrice: map.inputCharacterPrice?.toString() ?? null,
-					outputAudioPrice: map.outputAudioPrice?.toString() ?? null,
-					imageInputTokensByResolution:
-						map.imageInputTokensByResolution ?? null,
-					imageOutputTokensByResolution:
-						map.imageOutputTokensByResolution ?? null,
-					requestPrice: map.requestPrice?.toString() ?? null,
-					contextSize: map.contextSize ?? null,
-					maxOutput: map.maxOutput ?? null,
-					streaming: map.streaming === "only" ? true : (map.streaming ?? true),
-					vision: map.vision ?? null,
-					reasoning: map.reasoning ?? null,
-					reasoningOutput: map.reasoningOutput ?? null,
-					reasoningMaxTokens: map.reasoningMaxTokens ?? null,
-					tools: map.tools ?? null,
-					jsonOutput: map.jsonOutput ?? null,
-					jsonOutputSchema: map.jsonOutputSchema ?? null,
-					webSearch: map.webSearch ?? null,
-					webSearchPrice: map.webSearchPrice?.toString() ?? null,
-					supportedVideoSizes: map.supportedVideoSizes ?? null,
-					supportedVideoDurationsSeconds:
-						map.supportedVideoDurationsSeconds ?? null,
-					supportsVideoAudio: map.supportsVideoAudio ?? null,
-					supportsVideoWithoutAudio: map.supportsVideoWithoutAudio ?? null,
-					perSecondPrice: map.perSecondPrice
-						? Object.fromEntries(
-								Object.entries(map.perSecondPrice).map(([k, v]) => [
-									k,
-									v.toString(),
-								]),
-							)
-						: null,
-					pricingTiers: map.pricingTiers
-						? map.pricingTiers.map((t) => ({
-								name: t.name,
-								upToTokens: isFinite(t.upToTokens) ? t.upToTokens : null,
-								inputPrice: String(t.inputPrice),
-								outputPrice: String(t.outputPrice),
-								cachedInputPrice:
-									t.cachedInputPrice !== undefined
-										? String(t.cachedInputPrice)
-										: null,
-								cacheReadInputPrice:
-									t.cacheReadInputPrice !== undefined
-										? String(t.cacheReadInputPrice)
-										: null,
-								cacheWriteInputPrice:
-									t.cacheWriteInputPrice !== undefined
-										? String(t.cacheWriteInputPrice)
-										: null,
-								cacheWriteInputPrice1h:
-									t.cacheWriteInputPrice1h !== undefined
-										? String(t.cacheWriteInputPrice1h)
-										: null,
-							}))
-						: null,
-					discount: null,
-					stability: map.stability ?? null,
-					supportedParameters: map.supportedParameters ?? null,
-					deprecatedAt: map.deprecatedAt?.toISOString() ?? null,
-					deactivatedAt: map.deactivatedAt?.toISOString() ?? null,
-					status: "active",
-				},
-				providerInfo: {
-					id: providerInfo.id,
-					createdAt: new Date().toISOString(),
-					name: providerInfo.name ?? null,
-					description: providerInfo.description ?? null,
-					streaming: providerInfo.streaming ?? null,
-					cancellation: providerInfo.cancellation ?? null,
-					color: providerInfo.color ?? null,
-					website: providerInfo.website ?? null,
-					announcement: providerInfo.announcement ?? null,
-					status: "active",
-				},
+				...map,
+				discount: discountByModelId.get(def.id) ?? null,
+				providerInfo,
 			},
-		],
-	});
+			def.id,
+		);
+
+		return {
+			id: def.id,
+			premium: isPremiumModel(def.id),
+			createdAt: new Date().toISOString(),
+			releasedAt: def.releasedAt?.toISOString() ?? null,
+			name: def.name ?? null,
+			aliases: def.aliases ?? null,
+			description: def.description ?? null,
+			family: def.family,
+			free: def.free ?? null,
+			output: def.output ?? null,
+			stability: def.stability ?? null,
+			status: "active",
+			mappings: [],
+			providerDetails: [
+				{
+					provider: {
+						...adapted.provider,
+						createdAt: new Date().toISOString(),
+					},
+					providerInfo: {
+						...adapted.providerInfo,
+						createdAt: new Date().toISOString(),
+						cancellation: providerInfo.cancellation ?? null,
+						announcement: providerInfo.announcement ?? null,
+					},
+				},
+			],
+		};
+	};
 
 	const providerModels: ModelWithProviders[] = modelDefinitions
 		.filter((model) =>
@@ -175,6 +125,14 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 			return bDate - aDate; // Descending (newest first)
 		});
 
+	// Deactivated models are still reachable behind the grid's toggle, but they
+	// are not part of what this provider currently offers.
+	const activeProviderModels = providerModels.filter((model) =>
+		model.providerDetails.some(
+			({ provider: mapping }) => !isMappingDeactivated(mapping),
+		),
+	);
+
 	const providerUrl = `https://llmgateway.io/providers/${provider.id}`;
 
 	const organizationSchema = {
@@ -193,8 +151,8 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 		"@context": "https://schema.org",
 		"@type": "ItemList",
 		name: `${provider.name} models on LLM Gateway`,
-		numberOfItems: providerModels.length,
-		itemListElement: providerModels.map((model, index) => ({
+		numberOfItems: activeProviderModels.length,
+		itemListElement: activeProviderModels.map((model, index) => ({
 			"@type": "ListItem",
 			position: index + 1,
 			url: `https://llmgateway.io/models/${encodeURIComponent(model.id)}`,
@@ -234,6 +192,8 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 				<Navbar />
 				<Hero providerId={provider.id} />
 
+				<ProviderStatsRow providerId={provider.id} />
+
 				<section className="py-12 bg-background">
 					<div className="container mx-auto px-4">
 						<h2 className="text-3xl font-bold mb-8">Available Models</h2>
@@ -265,8 +225,11 @@ export async function generateMetadata({
 		return {};
 	}
 
-	const modelCount = modelDefinitions.filter((model) =>
-		model.providers.some((p) => p.providerId === provider.id),
+	const modelCount = (modelDefinitions as readonly ModelDefinition[]).filter(
+		(model) =>
+			model.providers.some(
+				(p) => p.providerId === provider.id && !isMappingDeactivated(p),
+			),
 	).length;
 	const description = `Access ${modelCount} ${provider.name} models through LLM Gateway's OpenAI-compatible API with per-token pricing, automatic fallback, caching, and cost analytics.`;
 

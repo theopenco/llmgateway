@@ -50,6 +50,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import {
+	formatPerImagePriceRange,
 	getProviderIcon,
 	providerLogoUrls,
 } from "@llmgateway/shared/components";
@@ -68,7 +69,9 @@ interface ModelSelectorProps {
 	value?: string;
 	onValueChange?: (value: string) => void;
 	placeholder?: string;
-	mode?: "chat" | "video" | "image" | "audio";
+	// "realtime" only affects presentation; capability filtering is the
+	// caller's responsibility (pass a pre-restricted models array).
+	mode?: "chat" | "video" | "image" | "audio" | "realtime";
 	isOptionDisabled?: (value: string) => boolean;
 	getOptionDisabledReason?: (value: string) => string | undefined;
 	/**
@@ -84,7 +87,7 @@ interface FilterState {
 	capabilities: string[];
 	priceRange: "free" | "low" | "medium" | "high" | "all";
 	hideUnstable: boolean;
-	showOnlyRoot: boolean;
+	showOnlyCanonical: boolean;
 	showFavoritesOnly: boolean;
 	showOnlyWithKeys: boolean;
 }
@@ -163,7 +166,9 @@ type PriceField =
 	| "cachedInput"
 	| "request"
 	| "imageInput"
-	| "imageOutput";
+	| "imageOutput"
+	| "inputAudio"
+	| "outputAudio";
 
 interface MappingPriceInfo {
 	label: string;
@@ -191,6 +196,10 @@ function getMappingPriceInfo(
 		basePriceStr = mapping.requestPrice;
 	} else if (field === "imageInput") {
 		basePriceStr = mapping.imageInputPrice;
+	} else if (field === "inputAudio") {
+		basePriceStr = mapping.inputAudioPrice;
+	} else if (field === "outputAudio") {
+		basePriceStr = mapping.outputAudioPrice;
 	}
 
 	if (basePriceStr === null || basePriceStr === undefined) {
@@ -232,19 +241,53 @@ function getMappingPriceInfo(
 	return { label: original, original };
 }
 
-interface RootAggregateInfo {
+function MappingPriceCell({
+	label,
+	mapping,
+	field,
+}: {
+	label: string;
+	mapping: ApiModelProviderMapping | undefined;
+	field: PriceField;
+}) {
+	const price = getMappingPriceInfo(mapping, field);
+	const discounted =
+		price.original && price.discounted && price.original !== price.discounted;
+	return (
+		<div className="space-y-1">
+			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+				{label}
+			</span>
+			<p className="text-xs font-mono">
+				{discounted ? (
+					<>
+						<span className="line-through text-muted-foreground">
+							{price.original}
+						</span>{" "}
+						<span className="text-green-500">{price.discounted}</span>
+					</>
+				) : (
+					price.label
+				)}
+			</p>
+		</div>
+	);
+}
+
+interface CanonicalAggregateInfo {
 	minInputPrice?: number;
 	minOutputPrice?: number;
 	minCachedInputPrice?: number;
 	minRequestPrice?: number;
 	minImageInputPrice?: number;
 	minImageOutputPrice?: number;
+	minPerImagePrice?: number;
 	maxContextSize?: number;
 	maxOutput?: number;
 	capabilities: string[];
 }
 
-function getRootAggregateInfo(model: ApiModel): RootAggregateInfo {
+function getCanonicalAggregateInfo(model: ApiModel): CanonicalAggregateInfo {
 	const now = new Date();
 
 	let minInputPrice: number | undefined;
@@ -253,6 +296,7 @@ function getRootAggregateInfo(model: ApiModel): RootAggregateInfo {
 	let minRequestPrice: number | undefined;
 	let minImageInputPrice: number | undefined;
 	let minImageOutputPrice: number | undefined;
+	let minPerImagePrice: number | undefined;
 	let maxContextSize: number | undefined;
 	let maxOutput: number | undefined;
 	const capabilitySet = new Set<string>();
@@ -338,6 +382,19 @@ function getRootAggregateInfo(model: ApiModel): RootAggregateInfo {
 			minImageInputPrice = effectiveImageInput;
 		}
 
+		if (mapping.perImagePrice) {
+			for (const tier of Object.values(mapping.perImagePrice)) {
+				const effectiveTier = applyDiscount(tier, mapping.discount);
+				if (
+					effectiveTier !== undefined &&
+					effectiveTier > 0 &&
+					(minPerImagePrice === undefined || effectiveTier < minPerImagePrice)
+				) {
+					minPerImagePrice = effectiveTier;
+				}
+			}
+		}
+
 		if (
 			mapping.contextSize !== null &&
 			mapping.contextSize !== undefined &&
@@ -371,6 +428,7 @@ function getRootAggregateInfo(model: ApiModel): RootAggregateInfo {
 		minRequestPrice,
 		minImageInputPrice,
 		minImageOutputPrice,
+		minPerImagePrice,
 		maxContextSize,
 		maxOutput,
 		capabilities: Array.from(capabilitySet),
@@ -403,6 +461,20 @@ function estimateImageCost(
 	}
 	const request = mapping.requestPrice ? parseFloat(mapping.requestPrice) : 0;
 	const discount = mapping.discount ? parseFloat(mapping.discount) : 0;
+	// Flat per-image pricing: estimate on the typical 1K tier.
+	if (mapping.perImagePrice) {
+		const tier =
+			mapping.perImagePrice["1K"] ??
+			mapping.perImagePrice["default"] ??
+			Object.values(mapping.perImagePrice)[0];
+		const base = tier !== undefined ? parseFloat(tier) : NaN;
+		if (Number.isFinite(base) && base > 0) {
+			return {
+				base,
+				discounted: discount > 0 ? base * (1 - discount) : base,
+			};
+		}
+	}
 	const imageOut = mapping.imageOutputPrice
 		? parseFloat(mapping.imageOutputPrice)
 		: 0;
@@ -527,7 +599,7 @@ interface ModelEntry {
 	model: ApiModel;
 	mapping?: ApiModelProviderMapping;
 	provider?: ApiProvider;
-	isRoot?: boolean;
+	isCanonical?: boolean;
 	searchText: string;
 }
 
@@ -546,7 +618,7 @@ interface ModelEntryRowProps {
 			model: ApiModel;
 			mapping?: ApiModelProviderMapping;
 			provider?: ApiProvider;
-			isRoot?: boolean;
+			isCanonical?: boolean;
 		} | null,
 	) => void;
 	setSelectedDetails: (
@@ -583,17 +655,17 @@ function ModelEntryRowComponent({
 		return null;
 	}
 
-	const { model, mapping, provider, isRoot } = entry;
+	const { model, mapping, provider, isCanonical } = entry;
 	const isFocused = index === focusedIndex;
 
-	if (isRoot) {
+	if (isCanonical) {
 		const entryKey = model.id;
 		const disabled = isOptionDisabled?.(entryKey) ?? false;
 		const disabledReason = getOptionDisabledReason?.(entryKey);
 		const hasRequestPrice = model.mappings.some(
 			(p) => p.requestPrice && parseFloat(p.requestPrice) > 0,
 		);
-		const isFreeRoot =
+		const isFreeCanonical =
 			model.free === true &&
 			!hasRequestPrice &&
 			model.mappings.every(
@@ -607,7 +679,7 @@ function ModelEntryRowComponent({
 					title={disabledReason}
 					onMouseEnter={() => {
 						setFocusedIndex(index);
-						setPreviewEntry({ model, mapping, provider, isRoot });
+						setPreviewEntry({ model, mapping, provider, isCanonical });
 					}}
 					onClick={() => {
 						if (disabled) {
@@ -635,7 +707,7 @@ function ModelEntryRowComponent({
 							<div className="flex flex-col min-w-0 flex-1">
 								<div className="flex items-center gap-1 min-w-0">
 									<span className="font-medium truncate">{model.name}</span>
-									{isFreeRoot && (
+									{isFreeCanonical && (
 										<Gift className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
 									)}
 								</div>
@@ -709,7 +781,7 @@ function ModelEntryRowComponent({
 				title={disabledReason}
 				onMouseEnter={() => {
 					setFocusedIndex(index);
-					setPreviewEntry({ model, mapping, provider, isRoot });
+					setPreviewEntry({ model, mapping, provider, isCanonical });
 				}}
 				onClick={() => {
 					if (disabled) {
@@ -838,14 +910,14 @@ export function ModelSelector({
 		model: ApiModel;
 		mapping?: ApiModelProviderMapping;
 		provider?: ApiProvider;
-		isRoot?: boolean;
+		isCanonical?: boolean;
 	} | null>(null);
 	const [filters, setFilters] = React.useState<FilterState>({
 		providers: [],
 		capabilities: [],
 		priceRange: "all",
 		hideUnstable: true,
-		showOnlyRoot: false,
+		showOnlyCanonical: false,
 		showFavoritesOnly: false,
 		showOnlyWithKeys: false,
 	});
@@ -912,7 +984,7 @@ export function ModelSelector({
 			model: ApiModel;
 			mapping?: ApiModelProviderMapping;
 			provider?: ApiProvider;
-			isRoot?: boolean;
+			isCanonical?: boolean;
 			searchText: string;
 		}[] = [];
 		const now = new Date();
@@ -938,7 +1010,7 @@ export function ModelSelector({
 		if (autoModel) {
 			out.push({
 				model: autoModel,
-				isRoot: true,
+				isCanonical: true,
 				searchText: normalize(
 					[
 						autoModel.name ?? "",
@@ -965,15 +1037,15 @@ export function ModelSelector({
 				continue;
 			}
 
-			// Add root model entry (auto-routing)
+			// Add canonical model entry (auto-routing)
 			const aliasText = m.aliases?.join(" ") ?? "";
-			const rootSearchText = normalize(
+			const canonicalSearchText = normalize(
 				[m.name ?? "", m.family ?? "", m.id, aliasText].join(" "),
 			);
 			out.push({
 				model: m,
-				isRoot: true,
-				searchText: rootSearchText,
+				isCanonical: true,
+				searchText: canonicalSearchText,
 			});
 
 			for (const mp of m.mappings) {
@@ -997,7 +1069,7 @@ export function ModelSelector({
 						model: m,
 						mapping: mp,
 						provider,
-						isRoot: false,
+						isCanonical: false,
 						searchText,
 					});
 				}
@@ -1028,14 +1100,14 @@ export function ModelSelector({
 	const filteredEntries = React.useMemo(() => {
 		let list = allEntries;
 
-		if (filters.showOnlyRoot) {
-			list = list.filter((e) => e.isRoot);
+		if (filters.showOnlyCanonical) {
+			list = list.filter((e) => e.isCanonical);
 		}
 
 		if (filters.hideUnstable) {
 			list = list.filter((e) => {
-				// Root models are considered stable unless model itself is unstable
-				if (e.isRoot) {
+				// Canonical models are considered stable unless model itself is unstable
+				if (e.isCanonical) {
 					return (
 						e.model.stability !== "unstable" &&
 						e.model.stability !== "experimental"
@@ -1073,7 +1145,7 @@ export function ModelSelector({
 		}
 		if (filters.priceRange !== "all") {
 			list = list.filter((e) => {
-				// Root models don't have fixed price, exclude from price filter or include?
+				// Canonical models don't have fixed price, exclude from price filter or include?
 				// Let's exclude them if filtering by price, or maybe assume 'free' if unknown?
 				// Safest is to only filter items that have a mapping.
 				if (!e.mapping) {
@@ -1102,7 +1174,7 @@ export function ModelSelector({
 		}
 		if (filters.showFavoritesOnly) {
 			list = list.filter((e) => {
-				if (e.isRoot) {
+				if (e.isCanonical) {
 					return isFavorite(e.model.id);
 				}
 				const mappingId = e.mapping
@@ -1114,7 +1186,7 @@ export function ModelSelector({
 		if (filters.showOnlyWithKeys) {
 			const now = new Date();
 			list = list.filter((e) => {
-				if (e.isRoot) {
+				if (e.isCanonical) {
 					return e.model.mappings?.some(
 						(m) =>
 							providersWithKeys.has(m.providerId) &&
@@ -1131,10 +1203,10 @@ export function ModelSelector({
 				.filter(Boolean);
 			if (tokens.length > 0) {
 				list = [...list].sort((a, b) => {
-					if (a.isRoot === b.isRoot) {
+					if (a.isCanonical === b.isCanonical) {
 						return 0;
 					}
-					return a.isRoot ? -1 : 1;
+					return a.isCanonical ? -1 : 1;
 				});
 			}
 		}
@@ -1151,8 +1223,8 @@ export function ModelSelector({
 			providers: prev.providers.includes(providerId)
 				? prev.providers.filter((id) => id !== providerId)
 				: [...prev.providers, providerId],
-			// If selecting providers, we probably don't want to show root models only
-			showOnlyRoot: false,
+			// If selecting providers, we probably don't want to show canonical models only
+			showOnlyCanonical: false,
 		}));
 	};
 
@@ -1171,7 +1243,7 @@ export function ModelSelector({
 			capabilities: [],
 			priceRange: "all",
 			hideUnstable: true,
-			showOnlyRoot: false,
+			showOnlyCanonical: false,
 			showFavoritesOnly: false,
 			showOnlyWithKeys: false,
 		});
@@ -1182,7 +1254,7 @@ export function ModelSelector({
 		filters.capabilities.length > 0 ||
 		filters.priceRange !== "all" ||
 		!filters.hideUnstable ||
-		filters.showOnlyRoot ||
+		filters.showOnlyCanonical ||
 		filters.showFavoritesOnly ||
 		filters.showOnlyWithKeys;
 
@@ -1217,15 +1289,15 @@ export function ModelSelector({
 			selectedProviderId &&
 			allEntries.find(
 				(e) =>
-					!e.isRoot &&
+					!e.isCanonical &&
 					e.model.id === selectedModel.id &&
 					e.mapping?.providerId === selectedProviderId &&
 					(!selectedMapping || e.mapping?.region === selectedMapping.region),
 			);
 
-		// Fallback to root entry for the selected model
+		// Fallback to canonical entry for the selected model
 		entry ??= allEntries.find(
-			(e) => e.isRoot && e.model.id === selectedModel.id,
+			(e) => e.isCanonical && e.model.id === selectedModel.id,
 		);
 
 		// Fallback to first filtered entry
@@ -1239,7 +1311,7 @@ export function ModelSelector({
 						model: entry.model,
 						mapping: entry.mapping,
 						provider: entry.provider,
-						isRoot: entry.isRoot,
+						isCanonical: entry.isCanonical,
 					}
 				: null,
 		);
@@ -1281,11 +1353,11 @@ export function ModelSelector({
 				if (!entry) {
 					return;
 				}
-				const { model, mapping, isRoot } = entry;
-				const value = isRoot
+				const { model, mapping, isCanonical } = entry;
+				const value = isCanonical
 					? model.id
 					: `${mapping!.providerId}/${model.id}${mapping!.region ? `:${mapping!.region}` : ""}`;
-				const disabled = isRoot
+				const disabled = isCanonical
 					? (isOptionDisabled?.(model.id) ?? false)
 					: (isOptionDisabled?.(value) ?? false);
 				if (disabled) {
@@ -1452,13 +1524,13 @@ export function ModelSelector({
 															htmlFor="show-root"
 															className="text-sm cursor-pointer font-medium"
 														>
-															Show only root models
+															Show only canonical models
 														</Label>
 														<Switch
 															id="show-root"
-															checked={filters.showOnlyRoot}
+															checked={filters.showOnlyCanonical}
 															onCheckedChange={(checked) =>
-																updateFilter("showOnlyRoot", checked)
+																updateFilter("showOnlyCanonical", checked)
 															}
 														/>
 													</div>
@@ -1727,7 +1799,7 @@ export function ModelSelector({
 										{!previewEntry.provider ? (
 											<>
 												<p className="text-xs text-muted-foreground leading-relaxed">
-													This is a root model ID. The Gateway will
+													This is a canonical model ID. The Gateway will
 													automatically select the best provider for this model
 													based on availability, performance, and cost. Specific
 													capabilities and pricing will depend on the selected
@@ -1735,7 +1807,7 @@ export function ModelSelector({
 												</p>
 
 												{(() => {
-													const aggregate = getRootAggregateInfo(
+													const aggregate = getCanonicalAggregateInfo(
 														previewEntry.model,
 													);
 
@@ -1761,7 +1833,8 @@ export function ModelSelector({
 														((aggregate.minRequestPrice !== undefined &&
 															aggregate.minRequestPrice > 0) ||
 															aggregate.minImageInputPrice !== undefined ||
-															aggregate.minImageOutputPrice !== undefined);
+															aggregate.minImageOutputPrice !== undefined ||
+															aggregate.minPerImagePrice !== undefined);
 
 													const imageEstimate =
 														mode === "image"
@@ -1904,6 +1977,23 @@ export function ModelSelector({
 															{hasImagePricing && (
 																<div className="pt-2">
 																	<div className="grid grid-cols-2 gap-3">
+																		{aggregate.minPerImagePrice !==
+																			undefined && (
+																			<div className="space-y-1">
+																				<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																					Per Image
+																				</span>
+																				<p className="text-xs font-mono">
+																					$
+																					{parseFloat(
+																						aggregate.minPerImagePrice.toFixed(
+																							4,
+																						),
+																					)}
+																					/image
+																				</p>
+																			</div>
+																		)}
 																		{aggregate.minRequestPrice !== undefined &&
 																			aggregate.minRequestPrice > 0 && (
 																				<div className="space-y-1">
@@ -2028,7 +2118,9 @@ export function ModelSelector({
 																	<>
 																		<div className="space-y-1">
 																			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																				Input
+																				{mode === "realtime"
+																					? "Text In"
+																					: "Input"}
 																			</span>
 																			<p className="text-xs font-mono">
 																				{(() => {
@@ -2086,6 +2178,20 @@ export function ModelSelector({
 																				})()}
 																			</p>
 																		</div>
+																	</>
+																)}
+																{mode === "realtime" && (
+																	<>
+																		<MappingPriceCell
+																			label="Audio In"
+																			mapping={previewEntry.mapping}
+																			field="inputAudio"
+																		/>
+																		<MappingPriceCell
+																			label="Audio Out"
+																			mapping={previewEntry.mapping}
+																			field="outputAudio"
+																		/>
 																	</>
 																)}
 																<div className="space-y-1">
@@ -2183,9 +2289,33 @@ export function ModelSelector({
 														})()}
 													{/* Image Generation Pricing */}
 													{(previewEntry.mapping?.requestPrice ??
+														previewEntry.mapping?.perImagePrice ??
 														previewEntry.mapping?.imageInputPrice) && (
 														<div className="pt-2">
 															<div className="grid grid-cols-2 gap-3">
+																{previewEntry.mapping?.perImagePrice &&
+																	Object.keys(
+																		previewEntry.mapping.perImagePrice,
+																	).length > 0 && (
+																		<div className="space-y-1">
+																			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																				Per Image
+																			</span>
+																			<p className="text-xs font-mono">
+																				{(() => {
+																					const range =
+																						formatPerImagePriceRange(
+																							previewEntry.mapping
+																								.perImagePrice,
+																							previewEntry.mapping.discount,
+																						);
+																					return range
+																						? `${range}/image`
+																						: "Unknown";
+																				})()}
+																			</p>
+																		</div>
+																	)}
 																{previewEntry.mapping?.requestPrice &&
 																	parseFloat(
 																		previewEntry.mapping.requestPrice,
@@ -2396,14 +2526,15 @@ export function ModelSelector({
 								{!selectedDetails.provider ? (
 									<div className="space-y-4">
 										<p className="text-sm text-muted-foreground leading-relaxed">
-											This is a root model ID. The Gateway will automatically
-											select the best provider for this model based on
-											availability, performance, and cost. Specific capabilities
-											and pricing will depend on the selected provider.
+											This is a canonical model ID. The Gateway will
+											automatically select the best provider for this model
+											based on availability, performance, and cost. Specific
+											capabilities and pricing will depend on the selected
+											provider.
 										</p>
 
 										{(() => {
-											const aggregate = getRootAggregateInfo(
+											const aggregate = getCanonicalAggregateInfo(
 												selectedDetails.model,
 											);
 
@@ -2421,7 +2552,8 @@ export function ModelSelector({
 												(aggregate.minRequestPrice !== undefined &&
 													aggregate.minRequestPrice > 0) ||
 												aggregate.minImageInputPrice !== undefined ||
-												aggregate.minImageOutputPrice !== undefined;
+												aggregate.minImageOutputPrice !== undefined ||
+												aggregate.minPerImagePrice !== undefined;
 
 											const hasCapabilities = aggregate.capabilities.length > 0;
 
@@ -2513,6 +2645,20 @@ export function ModelSelector({
 													{hasImagePricing && (
 														<div className="pt-2">
 															<div className="grid grid-cols-2 gap-3">
+																{aggregate.minPerImagePrice !== undefined && (
+																	<div className="space-y-1">
+																		<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+																			Per Image
+																		</span>
+																		<p className="text-sm font-mono">
+																			$
+																			{parseFloat(
+																				aggregate.minPerImagePrice.toFixed(4),
+																			)}
+																			/image
+																		</p>
+																	</div>
+																)}
 																{aggregate.minRequestPrice !== undefined &&
 																	aggregate.minRequestPrice > 0 && (
 																		<div className="space-y-1">
@@ -2732,12 +2878,33 @@ export function ModelSelector({
 												)}
 											{/* Image Generation Pricing */}
 											{(selectedDetails.mapping?.requestPrice ??
+												selectedDetails.mapping?.perImagePrice ??
 												selectedDetails.mapping?.imageInputPrice) && (
 												<div className="pt-2 border-t border-dashed">
 													<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-2">
 														Image Pricing
 													</span>
 													<div className="grid grid-cols-2 gap-3">
+														{selectedDetails.mapping?.perImagePrice &&
+															Object.keys(selectedDetails.mapping.perImagePrice)
+																.length > 0 && (
+																<div className="space-y-1">
+																	<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+																		Per Image
+																	</span>
+																	<p className="text-sm font-mono">
+																		{(() => {
+																			const range = formatPerImagePriceRange(
+																				selectedDetails.mapping.perImagePrice,
+																				selectedDetails.mapping.discount,
+																			);
+																			return range
+																				? `${range}/image`
+																				: "Unknown";
+																		})()}
+																	</p>
+																</div>
+															)}
 														{selectedDetails.mapping?.requestPrice &&
 															parseFloat(selectedDetails.mapping.requestPrice) >
 																0 && (

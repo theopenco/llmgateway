@@ -63,6 +63,10 @@ export type Member = MembersListResponse["members"][number];
 // Discounts
 export type DiscountsListResponse = GetJsonResponse<"/admin/discounts">;
 export type Discount = DiscountsListResponse["discounts"][number];
+export type RoutingScoreMultipliersListResponse =
+	GetJsonResponse<"/admin/routing-score-multipliers">;
+export type RoutingScoreMultiplier =
+	RoutingScoreMultipliersListResponse["multipliers"][number];
 export type DiscountOptions = GetJsonResponse<"/admin/discounts/options">;
 export type ProviderModelMapping = DiscountOptions["mappings"][number];
 export type RateLimitOptions = GetJsonResponse<"/admin/rate-limits/options">;
@@ -103,6 +107,7 @@ export type CostByModelResponse =
 export type CostByModelTimeseriesResponse =
 	GetJsonResponse<"/admin/organizations/{orgId}/cost-by-model-timeseries">;
 export type ModelView = CostByModelTimeseriesResponse["modelView"];
+export type CostTimeseriesGroupBy = CostByModelTimeseriesResponse["groupBy"];
 
 // Global stats
 export type GlobalStatsResponse = GetJsonResponse<"/admin/global-stats">;

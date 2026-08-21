@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
+import { TokenBreakdownCell } from "@/components/token-breakdown";
 import { Badge } from "@/components/ui/badge";
 import {
 	Table,
@@ -14,6 +15,8 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+
+import { deriveStabilityMetrics } from "@llmgateway/shared";
 
 import type { ProviderModelStats } from "@/lib/types";
 
@@ -39,13 +42,22 @@ function formatCost(n: number) {
 }
 
 function errorRateOf(m: ProviderModelStats) {
-	return m.logsCount > 0 ? (m.errorsCount / m.logsCount) * 100 : 0;
+	return (
+		deriveStabilityMetrics(m.logsCount, m.errorsCount, m.clientErrorsCount)
+			.errorRate ?? 0
+	);
 }
 
 function getValue(m: ProviderModelStats, key: SortKey): number {
 	switch (key) {
 		case "errorRate":
 			return errorRateOf(m);
+		case "errorsCount":
+			return deriveStabilityMetrics(
+				m.logsCount,
+				m.errorsCount,
+				m.clientErrorsCount,
+			).errorsCount;
 		case "avgTimeToFirstToken":
 			return m.avgTimeToFirstToken ?? -1;
 		default:
@@ -153,6 +165,7 @@ export function ProviderModelsTable({
 					<TableHead>Status</TableHead>
 					{sh("Requests", "logsCount")}
 					{sh("Cost", "totalCost")}
+					<TableHead>Tokens</TableHead>
 					{sh("Errors", "errorsCount")}
 					{sh("Client", "clientErrorsCount")}
 					{sh("Gateway", "gatewayErrorsCount")}
@@ -164,10 +177,12 @@ export function ProviderModelsTable({
 			</TableHeader>
 			<TableBody>
 				{sortedModels.map((m) => {
-					const errorRate =
-						m.logsCount > 0
-							? ((m.errorsCount / m.logsCount) * 100).toFixed(1)
-							: "0.0";
+					const stability = deriveStabilityMetrics(
+						m.logsCount,
+						m.errorsCount,
+						m.clientErrorsCount,
+					);
+					const errorRate = (stability.errorRate ?? 0).toFixed(1);
 					return (
 						<TableRow key={m.mappingId} className="hover:bg-muted/50">
 							<TableCell>
@@ -199,8 +214,11 @@ export function ProviderModelsTable({
 							<TableCell className="tabular-nums">
 								{formatCost(m.totalCost)}
 							</TableCell>
+							<TableCell>
+								<TokenBreakdownCell breakdown={m} />
+							</TableCell>
 							<TableCell className="tabular-nums">
-								{formatNumber(m.errorsCount)}
+								{formatNumber(stability.errorsCount)}
 							</TableCell>
 							<TableCell className="tabular-nums">
 								{formatNumber(m.clientErrorsCount)}

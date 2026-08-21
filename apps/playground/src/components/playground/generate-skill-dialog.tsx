@@ -85,8 +85,8 @@ export function GenerateSkillDialog({
 						Generate skill with AI
 					</DialogTitle>
 					<DialogDescription>
-						Describe what you want the skill to do and LLM Gateway will write
-						and save it for you. You can edit it afterwards.
+						Describe what you want the skill to do and Lounge will write and
+						save it for you. You can edit it afterwards.
 					</DialogDescription>
 				</DialogHeader>
 

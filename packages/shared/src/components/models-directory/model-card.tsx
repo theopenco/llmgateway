@@ -3,6 +3,7 @@
 import {
 	AlertTriangle,
 	AlertCircle,
+	Ban,
 	Copy,
 	Check,
 	ChevronDown,
@@ -11,6 +12,7 @@ import {
 	Globe,
 	Linkedin,
 	Share2,
+	Zap,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
@@ -30,6 +32,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { shouldShowDeactivationNotice } from "@/deactivation";
 import { cn } from "@/lib/utils";
 
 import { formatContextSize, formatDeprecationDate } from "./format";
@@ -173,8 +176,13 @@ export function ModelCard({
 	const allHaveDeactivatedAt =
 		model.providerDetails.length > 0 &&
 		model.providerDetails.every(({ provider }) => provider.deactivatedAt);
+	const showModelDeactivationStatus =
+		allHaveDeactivatedAt &&
+		model.providerDetails.every(({ provider }) =>
+			shouldShowDeactivationNotice(provider, now),
+		);
 	const allHaveDeprecatedAt =
-		!allHaveDeactivatedAt &&
+		!showModelDeactivationStatus &&
 		model.providerDetails.length > 0 &&
 		model.providerDetails.every(({ provider }) => provider.deprecatedAt);
 	const deactivationAllPast =
@@ -187,6 +195,22 @@ export function ModelCard({
 		model.providerDetails.every(
 			({ provider }) => new Date(provider.deprecatedAt!) <= now,
 		);
+	// Org directory only: every provider mapping fails the viewing org's
+	// compliance policy, so the model is not routable for this org at all.
+	const allBlocked =
+		model.providerDetails.length > 0 &&
+		model.providerDetails.every(
+			({ provider }) => provider.blockedReasons?.length,
+		);
+	const blockedReasons = allBlocked
+		? Array.from(
+				new Set(
+					model.providerDetails.flatMap(
+						({ provider }) => provider.blockedReasons ?? [],
+					),
+				),
+			)
+		: [];
 
 	const hasProviderStabilityWarning = (
 		provider: ApiModelProviderMapping,
@@ -219,7 +243,12 @@ export function ModelCard({
 			}
 			map.get(key)!.mappings.push(provider);
 		}
-		return Array.from(map.values());
+		// Providers with a marketing badge (e.g. SCX.ai "Up to 4x faster") first
+		return Array.from(map.values()).sort(
+			(a, b) =>
+				Number(Boolean(b.providerInfo?.modelCardBadge)) -
+				Number(Boolean(a.providerInfo?.modelCardBadge)),
+		);
 	}, [model.providerDetails]);
 
 	// Determine the best discount across all providers for the header badge
@@ -310,7 +339,42 @@ export function ModelCard({
 									{Math.round(bestDiscount * 100)}% off
 								</Badge>
 							)}
-							{allHaveDeactivatedAt && (
+							{model.source === "custom" && (
+								<Badge
+									variant="outline"
+									className="text-[10px] px-2 py-0.5 font-medium"
+								>
+									Custom
+								</Badge>
+							)}
+							{allBlocked && (
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<Badge className="text-[10px] px-2 py-0.5 font-semibold bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20 cursor-help">
+											<Ban className="h-2.5 w-2.5" />
+											Not eligible
+										</Badge>
+									</TooltipTrigger>
+									<TooltipContent className="max-w-xs">
+										<p className="text-xs font-medium mb-1">
+											Not available under your organization&apos;s compliance
+											policy:
+										</p>
+										<ul
+											className={cn(
+												"text-xs",
+												blockedReasons.length > 1 &&
+													"list-disc pl-4 space-y-0.5",
+											)}
+										>
+											{blockedReasons.map((reason) => (
+												<li key={reason}>{reason}</li>
+											))}
+										</ul>
+									</TooltipContent>
+								</Tooltip>
+							)}
+							{showModelDeactivationStatus && (
 								<ModelStatusBadge
 									status="deactivated"
 									isPast={deactivationAllPast}
@@ -551,6 +615,7 @@ export function ProviderSection({
 	const [selectedServiceTierId, setSelectedServiceTierId] =
 		useState("standard");
 	const activeMapping = mappings[activeRegionIdx] ?? mappings[0];
+	const showDeactivationNotice = shouldShowDeactivationNotice(activeMapping);
 	const hasMappingDetails =
 		(activeMapping.reasoningEfforts?.length ?? 0) > 0 ||
 		(activeMapping.supportedParameters?.length ?? 0) > 0;
@@ -593,6 +658,12 @@ export function ProviderSection({
 					<StabilityDot stability={activeMapping.stability} />
 					{hasProviderStabilityWarning(activeMapping) && (
 						<AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+					)}
+					{providerInfo?.modelCardBadge && (
+						<Badge className="text-[10px] px-1.5 py-0 h-4 gap-1 font-semibold whitespace-nowrap shrink-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+							<Zap className="h-2.5 w-2.5" />
+							{providerInfo.modelCardBadge}
+						</Badge>
 					)}
 				</div>
 				<div className="flex items-center gap-1 shrink-0">
@@ -738,7 +809,7 @@ export function ProviderSection({
 				</div>
 
 				{/* Deprecation/deactivation warnings */}
-				{(activeMapping.deprecatedAt ?? activeMapping.deactivatedAt) && (
+				{(activeMapping.deprecatedAt || showDeactivationNotice) && (
 					<div className="flex flex-wrap gap-1.5">
 						{activeMapping.deprecatedAt && (
 							<Badge
@@ -752,14 +823,14 @@ export function ProviderSection({
 								)}
 							</Badge>
 						)}
-						{activeMapping.deactivatedAt && (
+						{showDeactivationNotice && (
 							<Badge
 								variant="outline"
 								className="text-[10px] px-2 py-0.5 gap-1 bg-red-500/5 text-red-600 dark:text-red-400 border-red-500/20"
 							>
 								<AlertCircle className="h-2.5 w-2.5" />
 								{formatDeprecationDate(
-									activeMapping.deactivatedAt,
+									activeMapping.deactivatedAt!,
 									"deactivated",
 								)}
 							</Badge>
@@ -801,6 +872,31 @@ export function ProviderSection({
 									(requestPriceNum + outputCost) * serviceTierMultiplier;
 								if (resolutionKey) {
 									label = `Per image (${resolutionKey})`;
+								}
+							}
+						}
+						if (perImage === null && activeMapping.perImagePrice) {
+							const tierEntries = Object.entries(
+								activeMapping.perImagePrice,
+							).filter(([k]) => k !== "default");
+							const entries =
+								tierEntries.length > 0
+									? tierEntries
+									: Object.entries(activeMapping.perImagePrice);
+							const values = entries
+								.map(([, v]) => parseFloat(v))
+								.filter(Number.isFinite);
+							if (values.length > 0) {
+								const min = Math.min(...values);
+								const max = Math.max(...values);
+								perImage = max * serviceTierMultiplier;
+								if (min !== max) {
+									const maxKey = entries.find(
+										([, v]) => parseFloat(v) === max,
+									)?.[0];
+									label = maxKey
+										? `Per image (${maxKey}, cheaper at lower resolutions)`
+										: "Per image";
 								}
 							}
 						}
@@ -929,6 +1025,47 @@ export function ProviderSection({
 							})()}
 						</div>
 					</div>
+				) : activeMapping.inputAudioHourPrice &&
+				  parseFloat(activeMapping.inputAudioHourPrice) > 0 &&
+				  !(parseFloat(activeMapping.inputPrice ?? "0") > 0) &&
+				  !(parseFloat(activeMapping.outputPrice ?? "0") > 0) ? (
+					(() => {
+						const discountNum = activeMapping.discount
+							? parseFloat(activeMapping.discount)
+							: 0;
+						const perHour =
+							parseFloat(activeMapping.inputAudioHourPrice!) *
+							serviceTierMultiplier;
+						const formatHour = (value: number) =>
+							`$${parseFloat(value.toFixed(4))}`;
+						return (
+							<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
+								<div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
+									Audio Transcription Pricing
+								</div>
+								<div className="flex justify-between text-sm">
+									<span className="text-muted-foreground">Input audio</span>
+									<span className="font-semibold tabular-nums">
+										{discountNum > 0 ? (
+											<>
+												<span className="line-through text-muted-foreground mr-1 text-xs">
+													{formatHour(perHour)}
+												</span>
+												<span className="text-green-600">
+													{formatHour(perHour * (1 - discountNum))}
+												</span>
+											</>
+										) : (
+											formatHour(perHour)
+										)}
+										<span className="text-muted-foreground text-xs ml-0.5">
+											/hour
+										</span>
+									</span>
+								</div>
+							</div>
+						);
+					})()
 				) : (
 					<div className="space-y-2">
 						<div className="grid grid-cols-3 gap-px rounded-md bg-border/30 border border-border/30 overflow-hidden">

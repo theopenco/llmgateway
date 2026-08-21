@@ -15,6 +15,8 @@ import {
 	HIGH_COST_INPUT_PRICE,
 	HIGH_COST_OUTPUT_PRICE,
 	MARKETING_STATS,
+	SELF_REFUND_USAGE_PERCENT,
+	SELF_REFUND_WINDOW_DAYS,
 } from "@llmgateway/shared";
 
 import type { ReactNode } from "react";
@@ -67,16 +69,27 @@ const faqData: FaqItem[] = [
 	{
 		question: "What happens if I hit my monthly limit?",
 		answer:
-			"Requests pause until your allowance resets at the start of the next billing cycle. Or upgrade to a higher tier at any time: an immediate upgrade charges the new tier's full price, restarts your billing cycle, and grants the new tier's full monthly allowance right away — plus anything left of your current allowance rolls over. Credits only roll over on an immediate upgrade, never at a regular renewal.",
+			"By default requests pause until your allowance resets at the start of the next billing cycle. You have two ways to keep coding: enable pay-as-you-go overflow in your dashboard — an opt-in that bills extra usage from a credits balance at the same provider rates once your allowance is gone — or upgrade to a higher tier at any time: an immediate upgrade charges the new tier's full price, restarts your billing cycle, and grants the new tier's full monthly allowance right away, plus anything left of your current allowance rolls over. Credits only roll over on an immediate upgrade, never at a regular renewal.",
 		content: (
 			<>
-				Requests pause until your allowance resets at the start of the next
-				billing cycle. Or <strong>upgrade to a higher tier at any time</strong>:
-				an immediate upgrade charges the new tier&apos;s full price, restarts
-				your billing cycle, and grants the new tier&apos;s full monthly
-				allowance right away — plus anything left of your current allowance
-				rolls over. Credits only roll over on an immediate upgrade, never at a
-				regular renewal.
+				<p>
+					By default requests pause until your allowance resets at the start of
+					the next billing cycle. You have two ways to keep coding:
+				</p>
+				<p className="mt-3">
+					<strong>Enable pay-as-you-go overflow</strong> in your dashboard — an
+					opt-in that bills extra usage from a credits balance at the same
+					provider rates, only once your allowance is gone. Your plan stays a
+					hard cap until you turn it on.
+				</p>
+				<p className="mt-3">
+					Or <strong>upgrade to a higher tier at any time</strong>: an immediate
+					upgrade charges the new tier&apos;s full price, restarts your billing
+					cycle, and grants the new tier&apos;s full monthly allowance right
+					away — plus anything left of your current allowance rolls over.
+					Credits only roll over on an immediate upgrade, never at a regular
+					renewal.
+				</p>
 			</>
 		),
 	},
@@ -87,17 +100,73 @@ const faqData: FaqItem[] = [
 	},
 	{
 		question: "Do I need a subscription, or is there pay-as-you-go?",
-		answer: `Both work. DevPass plans turn every dollar into $3 of model usage. If you'd rather not subscribe, LLM Gateway offers pay-as-you-go: top up credits and pay per token at provider rates with a flat ${MARKETING_STATS.platformFee} platform fee, or bring your own provider keys for free.`,
+		answer: `Both work. DevPass plans turn every dollar into $3 of model usage. If you'd rather not subscribe, LLM Gateway offers pay-as-you-go: top up credits and pay per token at provider rates with a flat ${MARKETING_STATS.platformFee} platform fee, or bring your own provider keys for free. Pay-as-you-go organizations can optionally enable full data retention, billed at ${MARKETING_STATS.dataStoragePrice}; DevPass is metadata only and has no retention option.`,
+	},
+	{
+		question: "Can my team or company use DevPass?",
+		answer:
+			"No. DevPass is intended for private, personal use by individual developers — one developer, one account. It can't be purchased or shared as a team or company, and there are no team plans. For teams and companies, use LLM Gateway's pay-as-you-go product instead, and reach out to contact@llmgateway.io for custom solutions and volume discounts.",
+		content: (
+			<>
+				<p>
+					No. DevPass is intended for{" "}
+					<strong>private, personal use by individual developers</strong> — one
+					developer, one account. It can&apos;t be purchased or shared as a team
+					or company, and there are no team plans.
+				</p>
+				<p className="mt-3">
+					For teams and companies, use LLM Gateway&apos;s pay-as-you-go product
+					instead — and reach out to{" "}
+					<Link href="mailto:contact@llmgateway.io" className="underline">
+						contact@llmgateway.io
+					</Link>{" "}
+					for custom solutions and volume discounts.
+				</p>
+			</>
+		),
 	},
 	{
 		question: "Which tools and SDKs work with DevPass?",
 		answer:
-			"Anything that speaks the OpenAI or Anthropic API — Claude Code, SoulForge, Cursor, Cline, Continue, Aider, the OpenAI and Anthropic SDKs, and more. Set two environment variables and you're in.",
+			"Anything that speaks the OpenAI or Anthropic API — Claude Code, GitHub Copilot, Empryo, SoulForge, Cursor, Cline, Continue, Aider, the OpenAI and Anthropic SDKs, and more. Set two environment variables and you're in.",
 	},
 	{
 		question: "Are all 200+ models included on every plan?",
 		answer:
 			"Yes. Every plan includes the full catalog — Claude, GPT-5, Gemini, Llama, Qwen, and the rest. Plans differ in the size of your monthly usage allowance and the weekly fair-use allowance on premium frontier models.",
+	},
+	{
+		question: "Can I pin a specific provider, like on pay-as-you-go?",
+		answer:
+			"No — DevPass always smart-routes. You request a model by its plain id (e.g. claude-sonnet-5) and the gateway picks the best provider in real time based on uptime, speed, price, and prompt caching — that routing is part of how DevPass stretches every dollar into $3 of usage. Provider-prefixed model ids like openai/gpt-4o aren't available on DevPass; your coding sessions still stick to one provider automatically to keep prompt caches warm. If you need to pin an exact provider or region, use LLM Gateway's pay-as-you-go API on llmgateway.io, which fully supports provider pinning.",
+		content: (
+			<>
+				<p>
+					No — DevPass always smart-routes. You request a model by its plain id
+					(e.g. <code className="font-mono text-sm">claude-sonnet-5</code>) and
+					the gateway picks the best provider in real time based on uptime,
+					speed, price, and prompt caching — that routing is part of how DevPass
+					stretches every dollar into $3 of usage. Provider-prefixed model ids
+					like <code className="font-mono text-sm">openai/gpt-4o</code>{" "}
+					aren&apos;t available on DevPass, and your coding sessions still stick
+					to one provider automatically to keep prompt caches warm.
+				</p>
+				<p className="mt-3">
+					If you need to pin an exact provider or region, use{" "}
+					<Link href="https://llmgateway.io" className="underline">
+						LLM Gateway&apos;s pay-as-you-go API
+					</Link>{" "}
+					instead — it fully supports{" "}
+					<Link
+						href="https://docs.llmgateway.io/features/routing#provider-specific-routing"
+						className="underline"
+					>
+						provider-specific routing
+					</Link>
+					.
+				</p>
+			</>
+		),
 	},
 	{
 		question: "Are there limits on premium models?",
@@ -140,18 +209,49 @@ const faqData: FaqItem[] = [
 		answer: `Redeem a Reset Pass: it instantly restores your full weekly premium allowance and starts a fresh 7-day window. A pass removes the weekly limit only — it doesn't add credits, so usage still draws from your monthly allowance. Pro includes ${DEV_PLAN_INCLUDED_RESET_PASSES.pro} pass per billing cycle and Max includes ${DEV_PLAN_INCLUDED_RESET_PASSES.max}; extra passes are a one-time purchase from your dashboard ($${DEV_PLAN_RESET_PASS_PRICES.lite} on Lite, $${DEV_PLAN_RESET_PASS_PRICES.pro} on Pro, $${DEV_PLAN_RESET_PASS_PRICES.max} on Max). Standard models keep working the whole time, and if you're resetting every week, upgrading a tier is usually the better deal.`,
 	},
 	{
-		question: "Can I get a refund?",
+		question: "Does the weekly premium allowance reset when my plan renews?",
 		answer:
-			"Yes — DevPass comes with a first-month guarantee. Cancel within 7 days of your first purchase and email contact@llmgateway.io: we'll refund your first month minus the usage you consumed at provider rates. There's no cancellation fee.",
+			"Yes. Every monthly renewal resets everything at once: your monthly credits, your weekly premium allowance (a fresh 7-day window starts at renewal), and your included Reset Passes. Between renewals the window is rolling — when 7 days end, the next window starts with your next premium request, and redeeming a Reset Pass clears the window so the next request starts a fresh one. There's no reset schedule to manage — neither the weekly window nor unused included passes carry into the next cycle. Purchased Reset Passes are separate: they persist until redeemed.",
 		content: (
 			<>
-				Yes — DevPass comes with a <strong>first-month guarantee</strong>.
-				Cancel within 7 days of your first purchase and email{" "}
-				<Link href="mailto:contact@llmgateway.io" className="underline">
-					contact@llmgateway.io
-				</Link>
-				: we&apos;ll refund your first month minus the usage you consumed at
-				provider rates. There&apos;s no cancellation fee.
+				<p>
+					Yes. Every monthly renewal resets everything at once: your monthly
+					credits, your weekly premium allowance (a fresh 7-day window starts at
+					renewal), and your included Reset Passes.
+				</p>
+				<p className="mt-3">
+					Between renewals the window is rolling — when 7 days end, the next
+					window starts with your next premium request, and redeeming a Reset
+					Pass clears the window so the next request starts a fresh one.
+					There&apos;s no reset schedule to manage — neither the weekly window
+					nor unused included passes carry into the next cycle. Purchased Reset
+					Passes are separate: they persist until redeemed. See{" "}
+					<Link
+						href="https://docs.llmgateway.io/learn/reset-passes"
+						className="underline"
+					>
+						Reset Passes
+					</Link>{" "}
+					for the full mechanics.
+				</p>
+			</>
+		),
+	},
+	{
+		question: "Can I get a refund?",
+		answer: `Yes — DevPass comes with a first-month guarantee, and you don't need to email anyone. If you've used less than ${SELF_REFUND_USAGE_PERCENT}% of your monthly allowance, open Billing in your dashboard and hit Refund on the charge: your first month comes back in full, up to ${SELF_REFUND_WINDOW_DAYS} days after the purchase. The refund ends your plan immediately, and there's no cancellation fee.`,
+		content: (
+			<>
+				Yes — DevPass comes with a <strong>first-month guarantee</strong>, and
+				you don&apos;t need to email anyone. If you&apos;ve used less than{" "}
+				{SELF_REFUND_USAGE_PERCENT}% of your monthly allowance, open{" "}
+				<Link href="/dashboard/billing" className="underline">
+					Billing
+				</Link>{" "}
+				in your dashboard and hit <strong>Refund</strong> on the charge: your
+				first month comes back in full, up to {SELF_REFUND_WINDOW_DAYS} days
+				after the purchase. The refund ends your plan immediately, and
+				there&apos;s no cancellation fee.
 			</>
 		),
 	},

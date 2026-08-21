@@ -1,10 +1,5 @@
 import { models, type ProviderModelMapping } from "./models.js";
-import {
-	providers,
-	type ProviderDefinition,
-	type ProviderId,
-	type ServiceTier,
-} from "./providers.js";
+import { providers, type ServiceTier } from "./providers.js";
 import { expandAllProviderRegions } from "./region-helpers.js";
 
 /**
@@ -201,18 +196,48 @@ export function supportsOpenAIExplicitPromptCache(modelName: string): boolean {
 }
 
 /**
- * Whether a provider is a "stealth" provider — one that has no default base URL
- * and instead requires the base URL to be supplied via a `baseUrl` env var
- * (`env.required.baseUrl`). Because the platform behind such a provider is
- * undisclosed, users cannot self-configure a provider key for it (they can't
- * know the endpoint), so these are hidden from the UI provider selector.
+ * Resolve the per-token rates that apply to a mapping at a given instant.
+ * Without `peakPricing`, the mapping's base inputPrice/outputPrice/
+ * cachedInputPrice are always returned. With `peakPricing`, the base fields
+ * (the regular flat rates) apply before `effectiveAt`; on/after it, the
+ * `peak` rates apply while `now` (UTC) falls inside a peak window and the
+ * `offPeak` rates otherwise.
  */
-export function isStealthProvider(
-	provider: ProviderId | ProviderDefinition,
-): boolean {
-	const def =
-		typeof provider === "string"
-			? providers.find((p) => p.id === provider)
-			: provider;
-	return Boolean(def?.env.required.baseUrl);
+export function resolveTimeBasedPricing(
+	mapping: Pick<
+		ProviderModelMapping,
+		"inputPrice" | "outputPrice" | "cachedInputPrice" | "peakPricing"
+	>,
+	now: Date = new Date(),
+): {
+	inputPrice: string;
+	outputPrice: string;
+	cachedInputPrice: string | undefined;
+} {
+	const peakPricing = mapping.peakPricing;
+	if (!peakPricing) {
+		return {
+			inputPrice: mapping.inputPrice ?? "0",
+			outputPrice: mapping.outputPrice ?? "0",
+			cachedInputPrice: mapping.cachedInputPrice,
+		};
+	}
+	// Before effectiveAt, charge the base (regular flat) prices.
+	if (now.getTime() < Date.parse(peakPricing.effectiveAt)) {
+		return {
+			inputPrice: mapping.inputPrice ?? "0",
+			outputPrice: mapping.outputPrice ?? "0",
+			cachedInputPrice: mapping.cachedInputPrice,
+		};
+	}
+	const hour = now.getUTCHours();
+	const isPeak = peakPricing.hoursUtc.some(
+		([start, end]) => hour >= start && hour < end,
+	);
+	const tier = isPeak ? peakPricing.peak : peakPricing.offPeak;
+	return {
+		inputPrice: tier.inputPrice,
+		outputPrice: tier.outputPrice,
+		cachedInputPrice: tier.cachedInputPrice,
+	};
 }

@@ -7,6 +7,7 @@ import {
 	AutohandIcon,
 	ClineIcon,
 	DevPassCodeIcon,
+	EmpryoIcon,
 	OpenCodeIcon,
 	SoulForgeIcon,
 } from "@llmgateway/shared/components";
@@ -14,6 +15,7 @@ import {
 type Tool =
 	| "devpass-code"
 	| "claude-code"
+	| "empryo"
 	| "soulforge"
 	| "autohand"
 	| "opencode"
@@ -33,6 +35,11 @@ const tools: {
 	},
 	{ id: "claude-code", name: "Claude Code", icon: AnthropicIcon },
 	{ id: "opencode", name: "OpenCode", icon: OpenCodeIcon },
+	{
+		id: "empryo",
+		name: "Empryo",
+		icon: EmpryoIcon,
+	},
 	{
 		id: "soulforge",
 		name: "SoulForge",
@@ -70,6 +77,12 @@ const snippets: Record<
 		command: "claude",
 		comment: "# works with any model — switch freely",
 		modelLine: { key: "ANTHROPIC_MODEL=", value: "gpt-5" },
+	},
+	empryo: {
+		lines: [],
+		command: "empryo",
+		comment:
+			"# inside: /keys → paste your DevPass key (or: empryo --set-key llmgateway <key>)",
 	},
 	soulforge: {
 		lines: [],

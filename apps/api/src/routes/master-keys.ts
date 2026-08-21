@@ -2,14 +2,14 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { maskToken } from "@/lib/maskToken.js";
-
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, shortid, tables } from "@llmgateway/db";
 import {
 	getApiKeyFingerprint,
 	getMasterKeyPrefix,
 } from "@llmgateway/shared/api-key-hash";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
+import { maskToken } from "@llmgateway/shared/mask-token";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -41,7 +41,12 @@ async function assertEnterpriseOrgAccess(
 		});
 	}
 
-	if (userOrg.organization?.plan !== "enterprise") {
+	if (
+		!hasOrganizationEnterpriseAccess(
+			userOrg.organization?.id,
+			userOrg.organization?.plan,
+		)
+	) {
 		throw new HTTPException(403, {
 			message: "Master keys require an enterprise plan",
 		});

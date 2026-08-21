@@ -31,13 +31,19 @@ import {
 	SelectValue,
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
+import {
+	formatCompact,
+	gateProviderStats,
+	hasEnoughRequestsForStats,
+	MIN_REQUESTS_FOR_STATS,
+	type ProviderWindowStats,
+} from "@/lib/provider-stats";
+import { activeModelCounts, listedProviders } from "@/lib/providers-catalog";
 
 import {
 	countryCodeToFlag,
 	getProviderCountries,
 	isProviderCompliant,
-	models as modelDefinitions,
-	providers as providerDefinitions,
 	type ProviderCompliancePolicy,
 	type ProviderId,
 } from "@llmgateway/models";
@@ -56,23 +62,6 @@ const getProviderLogo = (providerId: ProviderId) => {
 	}
 	return <div className="size-12 shrink-0 rounded-lg bg-muted" />;
 };
-
-const getModelsCountByProvider = (): Record<string, number> => {
-	const counts: Record<string, number> = {};
-	for (const model of modelDefinitions) {
-		for (const providerMapping of model.providers) {
-			const providerId = providerMapping.providerId;
-			counts[providerId] = (counts[providerId] || 0) + 1;
-		}
-	}
-	return counts;
-};
-
-const modelCounts = getModelsCountByProvider();
-
-const baseProviders = providerDefinitions.filter(
-	(p) => p.name !== "LLM Gateway" && p.id !== "custom",
-);
 
 const PROVIDER_COUNTRIES = getProviderCountries();
 
@@ -106,41 +95,6 @@ function formatUptime(pct: number | null | undefined): string {
 		return "—";
 	}
 	return `${pct.toFixed(2)}%`;
-}
-
-function speedBadge(ttft: number | null | undefined) {
-	if (ttft === null || ttft === undefined) {
-		return null;
-	}
-	if (ttft < 350) {
-		return {
-			label: "Blazing",
-			className:
-				"bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-emerald-500/20",
-			dot: "bg-emerald-500",
-		};
-	}
-	if (ttft < 800) {
-		return {
-			label: "Fast",
-			className: "bg-sky-500/10 text-sky-600 dark:text-sky-400 ring-sky-500/20",
-			dot: "bg-sky-500",
-		};
-	}
-	if (ttft < 1800) {
-		return {
-			label: "Steady",
-			className:
-				"bg-amber-500/10 text-amber-600 dark:text-amber-400 ring-amber-500/20",
-			dot: "bg-amber-500",
-		};
-	}
-	return {
-		label: "Patient",
-		className:
-			"bg-rose-500/10 text-rose-600 dark:text-rose-400 ring-rose-500/20",
-		dot: "bg-rose-500",
-	};
 }
 
 interface ProvidersGridProps {
@@ -179,14 +133,14 @@ export function ProvidersGrid({
 	const visibleProviders = useMemo(
 		() =>
 			countryCode
-				? baseProviders.filter((p) => p.headquarters === countryCode)
-				: baseProviders,
+				? listedProviders.filter((p) => p.headquarters === countryCode)
+				: listedProviders,
 		[countryCode],
 	);
 
 	const totalProviders = visibleProviders.length;
 	const totalModels = visibleProviders.reduce(
-		(sum, p) => sum + (modelCounts[p.id] || 0),
+		(sum, p) => sum + (activeModelCounts[p.id] || 0),
 		0,
 	);
 
@@ -201,23 +155,19 @@ export function ProvidersGrid({
 	);
 
 	const statsByProvider = useMemo(() => {
-		const map = new Map<
-			string,
-			{
-				uptime: number | null;
-				avgTimeToFirstToken: number | null;
-				throughput: number | null;
-				logsCount: number;
-			}
-		>();
+		const map = new Map<string, ProviderWindowStats>();
 		if (statsData?.providers) {
 			for (const row of statsData.providers) {
-				map.set(row.providerId, {
-					uptime: row.uptime,
-					avgTimeToFirstToken: row.avgTimeToFirstToken,
-					throughput: row.throughput,
-					logsCount: row.logsCount,
-				});
+				map.set(
+					row.providerId,
+					gateProviderStats({
+						logsCount: row.logsCount,
+						uptime: row.uptime,
+						avgTimeToFirstToken: row.avgTimeToFirstToken,
+						timeToFirstTokenCount: row.timeToFirstTokenCount,
+						throughput: row.throughput,
+					}),
+				);
 			}
 		}
 		return map;
@@ -231,7 +181,7 @@ export function ProvidersGrid({
 			return {
 				...provider,
 				stats,
-				modelsCount: modelCounts[provider.id] || 0,
+				modelsCount: activeModelCounts[provider.id] || 0,
 			};
 		});
 
@@ -428,7 +378,6 @@ export function ProvidersGrid({
 			) : (
 				<div className="grid gap-4 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 					{filteredAndSorted.map((provider) => {
-						const badge = speedBadge(provider.stats?.avgTimeToFirstToken);
 						return (
 							<Card
 								key={provider.id}
@@ -451,21 +400,19 @@ export function ProvidersGrid({
 									<div className="space-y-2">
 										<div className="flex flex-wrap items-center gap-2">
 											<CardTitle className="text-xl">{provider.name}</CardTitle>
-											{badge && (
-												<span
-													className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1 ring-inset ${badge.className}`}
-												>
-													<span
-														className={`h-1.5 w-1.5 rounded-full ${badge.dot}`}
-													/>
-													{badge.label}
-												</span>
-											)}
 										</div>
 										<CardDescription className="line-clamp-2 leading-relaxed">
 											{provider.description}
 										</CardDescription>
 									</div>
+
+									{provider.stats &&
+										!hasEnoughRequestsForStats(provider.stats.logsCount) && (
+											<div className="rounded-xl border border-dashed border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground">
+												Stats hidden until{" "}
+												{formatCompact(MIN_REQUESTS_FOR_STATS)} requests
+											</div>
+										)}
 
 									{provider.stats &&
 										(provider.stats.avgTimeToFirstToken !== null ||

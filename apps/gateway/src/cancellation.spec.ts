@@ -9,6 +9,7 @@ import {
 } from "vitest";
 
 import { db, tables } from "@llmgateway/db";
+import { randomToken } from "@llmgateway/shared/random";
 
 import { app } from "./app.js";
 import {
@@ -133,7 +134,12 @@ describe("client cancellation logging", () => {
 	// Pin the gateway's request id (it honors x-request-id) so each test can
 	// wait for exactly its own log row instead of counting all rows in the
 	// table, which is brittle against any stray row from another request.
-	function postChat(content: string, signal: AbortSignal, requestId: string) {
+	function postChat(
+		content: string,
+		signal: AbortSignal,
+		requestId: string,
+		options?: { stream?: boolean },
+	) {
 		return fetch(`${gatewayUrl}/v1/chat/completions`, {
 			method: "POST",
 			headers: {
@@ -144,6 +150,7 @@ describe("client cancellation logging", () => {
 			body: JSON.stringify({
 				model: "llmgateway/custom",
 				messages: [{ role: "user", content }],
+				...(options?.stream ? { stream: true } : {}),
 			}),
 			signal,
 		});
@@ -180,7 +187,7 @@ describe("client cancellation logging", () => {
 			// fixed sleep against slow CI runners.
 			const upstreamRequestReceived = waitForMockCheckpoint("TRIGGER_TIMEOUT");
 			const requestPromise = postChat(
-				`TRIGGER_TIMEOUT_5000 ${Math.random()}`,
+				`TRIGGER_TIMEOUT_5000 ${randomToken()}`,
 				controller.signal,
 				requestId,
 			);
@@ -207,7 +214,7 @@ describe("client cancellation logging", () => {
 			// abort fires.
 			const partialBodyFlushed = waitForMockCheckpoint("TRIGGER_BODY_HANG");
 			const requestPromise = postChat(
-				`TRIGGER_BODY_HANG ${Math.random()}`,
+				`TRIGGER_BODY_HANG ${randomToken()}`,
 				controller.signal,
 				requestId,
 			);
@@ -235,7 +242,7 @@ describe("client cancellation logging", () => {
 			// the abort fires.
 			const partialBodyFlushed = waitForMockCheckpoint("TRIGGER_5XX_BODY_HANG");
 			const requestPromise = postChat(
-				`TRIGGER_5XX_BODY_HANG ${Math.random()}`,
+				`TRIGGER_5XX_BODY_HANG ${randomToken()}`,
 				controller.signal,
 				requestId,
 			);
@@ -244,6 +251,35 @@ describe("client cancellation logging", () => {
 			controller.abort();
 
 			await expect(requestPromise).rejects.toThrow();
+
+			await expectCanceledLog(requestId);
+		},
+	);
+
+	test(
+		"abort while reading a non-OK error body during streaming is logged as canceled",
+		{ timeout: 90000 },
+		async () => {
+			const controller = new AbortController();
+			const requestId = `cancel-stream-error-body-${crypto.randomUUID()}`;
+			// Same 500 + hanging error body as the non-streaming test, but with
+			// stream: true so the abort lands in the streaming handler's wrapped
+			// error-body res.text() instead of the non-streaming one.
+			const partialBodyFlushed = waitForMockCheckpoint("TRIGGER_5XX_BODY_HANG");
+			const requestPromise = postChat(
+				`TRIGGER_5XX_BODY_HANG ${randomToken()}`,
+				controller.signal,
+				requestId,
+				{ stream: true },
+			);
+			await partialBodyFlushed;
+			await settle();
+			controller.abort();
+
+			// The gateway may already have started the SSE response, in which case
+			// the fetch promise resolved and the abort tears down the body read
+			// instead of rejecting the promise. Either way the request is finished.
+			await requestPromise.catch(() => {});
 
 			await expectCanceledLog(requestId);
 		},

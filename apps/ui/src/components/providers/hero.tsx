@@ -7,18 +7,23 @@ import {
 	Database,
 	Eye,
 	Clock,
+	Fingerprint,
 } from "lucide-react";
 
 import { AuthLink } from "@/components/shared/auth-link";
 import { Button } from "@/lib/components/button";
 import { getConfig } from "@/lib/config-server";
 import Logo from "@/lib/icons/Logo";
+import { cn } from "@/lib/utils";
 
 import {
 	providers as providerDefinitions,
 	type ProviderId,
 } from "@llmgateway/models";
-import { providerLogoUrls } from "@llmgateway/shared/components";
+import {
+	providerLogoUrls,
+	RunwareWordmarkIcon,
+} from "@llmgateway/shared/components";
 
 interface HeroProps {
 	providerId: ProviderId;
@@ -76,6 +81,18 @@ export function Hero({ providerId }: HeroProps) {
 	].filter((link): link is { label: string; href: string } => link !== null);
 
 	const getProviderIcon = (providerId: ProviderId) => {
+		// Runware's brand asset is a wide wordmark, so give it the full slot
+		// width instead of the square icon treatment.
+		if (providerId === "runware") {
+			return (
+				<RunwareWordmarkIcon
+					className="h-auto w-full"
+					aria-label="Runware"
+					role="img"
+				/>
+			);
+		}
+
 		const LogoComponent = providerLogoUrls[providerId];
 		if (LogoComponent) {
 			return <LogoComponent className="h-24 w-24 object-contain" />;
@@ -114,7 +131,7 @@ export function Hero({ providerId }: HeroProps) {
 								rel="noopener noreferrer"
 							>
 								<Play className="h-4 w-4" />
-								Try in Playground
+								Try in Lounge
 							</a>
 						</Button>
 						<Button variant="ghost" asChild>
@@ -127,132 +144,123 @@ export function Hero({ providerId }: HeroProps) {
 						</Button>
 					</div>
 
-					{(provider.dataPolicy || provider.headquarters) && (
-						<div className="mt-8 rounded-lg border bg-card p-4">
-							<h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-								{provider.dataPolicy?.apiTraining === false ? (
-									<ShieldCheck className="h-4 w-4 text-green-600 dark:text-green-400" />
-								) : (
-									<ShieldAlert className="h-4 w-4 text-muted-foreground" />
-								)}
-								Data & Privacy
-							</h3>
-							<div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-								{provider.headquarters && (
-									<div className="flex items-center gap-2">
-										<MapPin className="h-3.5 w-3.5 text-muted-foreground" />
-										<span className="text-muted-foreground">HQ:</span>
-										<span className="font-medium">{provider.headquarters}</span>
-									</div>
-								)}
-								{provider.dataPolicy && (
-									<>
-										<div className="flex items-center gap-2">
-											<Database className="h-3.5 w-3.5 text-muted-foreground" />
-											<span className="text-muted-foreground">
-												API Training:
-											</span>
-											<DataPolicyBadge
-												value={provider.dataPolicy.apiTraining}
-												labelTrue="Yes"
-												labelFalse="No"
-												dangerIfTrue
-											/>
-										</div>
-										<div className="flex items-center gap-2">
-											<Database className="h-3.5 w-3.5 text-muted-foreground" />
-											<span className="text-muted-foreground">
-												Consumer Training:
-											</span>
-											<DataPolicyBadge
-												value={provider.dataPolicy.consumerTraining}
-												labelTrue="Yes"
-												labelFalse="No"
-												dangerIfTrue
-											/>
-										</div>
-										<div className="flex items-center gap-2">
-											<Eye className="h-3.5 w-3.5 text-muted-foreground" />
-											<span className="text-muted-foreground">
-												Prompt Logging:
-											</span>
-											<DataPolicyBadge
-												value={provider.dataPolicy.promptLogging}
-												labelTrue="Yes"
-												labelFalse="No"
-												dangerIfTrue
-											/>
-										</div>
-										{provider.dataPolicy.retentionPeriod !== undefined && (
-											<div className="flex items-center gap-2">
-												<Clock className="h-3.5 w-3.5 text-muted-foreground" />
-												<span className="text-muted-foreground">
-													Retention:
-												</span>
-												<span className="font-medium">
-													{provider.dataPolicy.retentionPeriod ?? "Unknown"}
-												</span>
-											</div>
-										)}
-										{provider.dataPolicy.gdpr !== undefined && (
-											<div className="flex items-center gap-2">
-												<ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />
-												<span className="text-muted-foreground">GDPR:</span>
-												<DataPolicyBadge
-													value={provider.dataPolicy.gdpr}
-													labelTrue="Compliant"
-													labelFalse="No"
-												/>
-											</div>
-										)}
-										{provider.dataPolicy.soc2 !== undefined && (
-											<div className="flex items-center gap-2">
-												<ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />
-												<span className="text-muted-foreground">SOC2:</span>
-												<DataPolicyBadge
-													value={Boolean(provider.dataPolicy.soc2)}
-													labelTrue={`Type ${
-														provider.dataPolicy.soc2 === 1 ? "I" : "II"
-													} Certified`}
-													labelFalse="No"
-												/>
-											</div>
-										)}
-										{provider.dataPolicy.iso27001 !== undefined && (
-											<div className="flex items-center gap-2">
-												<ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />
-												<span className="text-muted-foreground">
-													ISO 27001:
-												</span>
-												<DataPolicyBadge
-													value={provider.dataPolicy.iso27001}
-													labelTrue="Certified"
-													labelFalse="No"
-												/>
-											</div>
-										)}
-									</>
-								)}
+					<div className="mt-8 rounded-lg border bg-card p-4">
+						<h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+							{provider.dataPolicy?.apiTraining === false ? (
+								<ShieldCheck className="h-4 w-4 text-green-600 dark:text-green-400" />
+							) : (
+								<ShieldAlert className="h-4 w-4 text-muted-foreground" />
+							)}
+							Data & Privacy
+						</h3>
+						<div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+							{provider.headquarters && (
+								<div className="flex items-center gap-2">
+									<MapPin className="h-3.5 w-3.5 text-muted-foreground" />
+									<span className="text-muted-foreground">HQ:</span>
+									<span className="font-medium">{provider.headquarters}</span>
+								</div>
+							)}
+							<div className="flex items-center gap-2">
+								<Fingerprint className="h-3.5 w-3.5 text-muted-foreground" />
+								<span className="text-muted-foreground">
+									Safety identifier:
+								</span>
+								<span className="inline-flex items-center rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
+									{provider.forwardsSafetyIdentifier
+										? "Forwarded"
+										: "Not forwarded"}
+								</span>
 							</div>
-							{provider.additionalLinks &&
-								provider.additionalLinks.length > 0 && (
-									<div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t pt-3 text-sm text-muted-foreground">
-										{provider.additionalLinks.map((additionalLink) => (
-											<a
-												key={additionalLink.link}
-												href={additionalLink.link}
-												target="_blank"
-												rel="noopener noreferrer"
-												className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
-											>
-												{additionalLink.desc}
-												<ExternalLink className="h-3 w-3" />
-											</a>
-										))}
+							{provider.dataPolicy && (
+								<>
+									<div className="flex items-center gap-2">
+										<Database className="h-3.5 w-3.5 text-muted-foreground" />
+										<span className="text-muted-foreground">API Training:</span>
+										<DataPolicyBadge
+											value={provider.dataPolicy.apiTraining}
+											labelTrue="Yes"
+											labelFalse="No"
+											dangerIfTrue
+										/>
 									</div>
-								)}
+									<div className="flex items-center gap-2">
+										<Eye className="h-3.5 w-3.5 text-muted-foreground" />
+										<span className="text-muted-foreground">
+											Prompt Logging:
+										</span>
+										<DataPolicyBadge
+											value={provider.dataPolicy.promptLogging}
+											labelTrue="Yes"
+											labelFalse="No"
+											dangerIfTrue
+										/>
+									</div>
+									{provider.dataPolicy.retentionPeriod !== undefined && (
+										<div className="flex items-center gap-2">
+											<Clock className="h-3.5 w-3.5 text-muted-foreground" />
+											<span className="text-muted-foreground">Retention:</span>
+											<span className="font-medium">
+												{provider.dataPolicy.retentionPeriod ?? "Unknown"}
+											</span>
+										</div>
+									)}
+									{provider.dataPolicy.gdpr !== undefined && (
+										<div className="flex items-center gap-2">
+											<ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />
+											<span className="text-muted-foreground">GDPR:</span>
+											<DataPolicyBadge
+												value={provider.dataPolicy.gdpr}
+												labelTrue="Compliant"
+												labelFalse="No"
+											/>
+										</div>
+									)}
+									{provider.dataPolicy.soc2 !== undefined && (
+										<div className="flex items-center gap-2">
+											<ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />
+											<span className="text-muted-foreground">SOC2:</span>
+											<DataPolicyBadge
+												value={Boolean(provider.dataPolicy.soc2)}
+												labelTrue={`Type ${
+													provider.dataPolicy.soc2 === 1 ? "I" : "II"
+												} Certified`}
+												labelFalse="No"
+											/>
+										</div>
+									)}
+									{provider.dataPolicy.iso27001 !== undefined && (
+										<div className="flex items-center gap-2">
+											<ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />
+											<span className="text-muted-foreground">ISO 27001:</span>
+											<DataPolicyBadge
+												value={provider.dataPolicy.iso27001}
+												labelTrue="Certified"
+												labelFalse="No"
+											/>
+										</div>
+									)}
+								</>
+							)}
 						</div>
-					)}
+						{provider.additionalLinks &&
+							provider.additionalLinks.length > 0 && (
+								<div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t pt-3 text-sm text-muted-foreground">
+									{provider.additionalLinks.map((additionalLink) => (
+										<a
+											key={additionalLink.link}
+											href={additionalLink.link}
+											target="_blank"
+											rel="noopener noreferrer"
+											className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
+										>
+											{additionalLink.desc}
+											<ExternalLink className="h-3 w-3" />
+										</a>
+									))}
+								</div>
+							)}
+					</div>
 
 					{referenceLinks.length > 0 && (
 						<div className="mt-4 flex items-center gap-x-4 text-sm text-muted-foreground">
@@ -282,7 +290,14 @@ export function Hero({ providerId }: HeroProps) {
 					<div className="flex items-center h-32">
 						<div className="w-0.5 h-52 bg-muted-foreground opacity-50 rounded rotate-[30deg]" />
 					</div>
-					<div className="h-24 w-24 relative top-10">
+					<div
+						className={cn(
+							"relative top-10",
+							providerId === "runware"
+								? "flex h-24 w-56 items-center sm:w-64"
+								: "h-24 w-24",
+						)}
+					>
 						{getProviderIcon(providerId)}
 					</div>
 				</div>

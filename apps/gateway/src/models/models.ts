@@ -16,14 +16,29 @@ export const modelsApi = new OpenAPIHono<ServerTypes>();
 const modelSchema = z.object({
 	id: z.string(),
 	name: z.string(),
+	display_name: z.string().openapi({
+		description:
+			"Human-readable model label, mirroring `name`. Anthropic-format clients such as Claude Code read this field when populating their model picker from gateway model discovery.",
+	}),
 	aliases: z.array(z.string()).optional(),
 	created: z.number().optional(),
 	description: z.string().optional(),
 	family: z.string(),
 	architecture: z.object({
-		input_modalities: z.array(z.enum(["text", "image", "video", "embedding"])),
+		input_modalities: z.array(
+			z.enum(["text", "image", "video", "embedding", "audio"]),
+		),
 		output_modalities: z.array(
-			z.enum(["text", "image", "video", "embedding", "audio", "ocr"]),
+			z.enum([
+				"text",
+				"image",
+				"video",
+				"embedding",
+				"audio",
+				"ocr",
+				"transcription",
+				"rerank",
+			]),
 		),
 		tokenizer: z.string().optional(),
 	}),
@@ -42,16 +57,25 @@ const modelSchema = z.object({
 					prompt: z.string(),
 					completion: z.string(),
 					image: z.string().optional(),
+					input_audio: z.string().optional(),
+					input_audio_cache_read: z.string().optional(),
+					output_audio: z.string().optional(),
 					per_second: z.record(z.string()).optional(),
+					per_image: z.record(z.string()).optional(),
 					request: z.string().optional(),
 					input_cache_read: z.string().optional(),
 					input_cache_write: z.string().optional(),
 					input_cache_write_1h: z.string().optional(),
 					ocr_page: z.string().optional(),
+					input_audio_hour: z.string().optional(),
 				})
 				.optional(),
 			streaming: z.union([z.boolean(), z.literal("only")]),
 			vision: z.boolean(),
+			realtime: z.boolean().optional().openapi({
+				description:
+					"Whether this mapping is served via the /v1/realtime WebSocket endpoint instead of /v1/chat/completions.",
+			}),
 			cancellation: z.boolean(),
 			tools: z.boolean(),
 			parallelToolCalls: z.boolean(),
@@ -69,6 +93,10 @@ const modelSchema = z.object({
 				description:
 					"Minimum prompt length (in tokens) the provider requires before a prompt-cache write can occur. cache_control markers on shorter prompts are accepted but silently not cached by the provider.",
 			}),
+			max_output: z.number().optional().openapi({
+				description:
+					"Maximum output tokens this provider mapping accepts as max_tokens; larger requests are rejected with HTTP 400. Omitted when the mapping declares no limit (any max_tokens is accepted).",
+			}),
 			stability: z
 				.enum(["stable", "beta", "unstable", "experimental"])
 				.optional(),
@@ -78,7 +106,11 @@ const modelSchema = z.object({
 		prompt: z.string(),
 		completion: z.string(),
 		image: z.string().optional(),
+		input_audio: z.string().optional(),
+		input_audio_cache_read: z.string().optional(),
+		output_audio: z.string().optional(),
 		per_second: z.record(z.string()).optional(),
+		per_image: z.record(z.string()).optional(),
 		request: z.string().optional(),
 		input_cache_read: z.string().optional(),
 		input_cache_write: z.string().optional(),
@@ -86,8 +118,13 @@ const modelSchema = z.object({
 		web_search: z.string().optional(),
 		internal_reasoning: z.string().optional(),
 		ocr_page: z.string().optional(),
+		input_audio_hour: z.string().optional(),
 	}),
 	context_length: z.number().optional(),
+	max_output: z.number().optional().openapi({
+		description:
+			"Largest max_tokens value guaranteed to be accepted regardless of which provider mapping serves the request (the minimum across still-servable mappings that declare a limit; deactivated mappings are excluded). Omitted when no such mapping declares one.",
+	}),
 	per_request_limits: z.record(z.string()).optional(),
 	supported_parameters: z.array(z.string()).optional(),
 	json_output: z.boolean(),
@@ -130,6 +167,14 @@ const listModels = createRoute({
 					"Only return models and provider mappings whose provider does not train on API data",
 				)
 				.openapi({ example: "false" }),
+			mapped: z
+				.string()
+				.optional()
+				.transform((val) => val === "true")
+				.describe(
+					"Return one entry per provider mapping with `provider/model-id` ids (the gateway's provider-pinned request format) instead of one aggregated entry per model. Each entry carries that specific mapping's pricing, context length, and capabilities.",
+				)
+				.openapi({ example: "false" }),
 		}),
 	},
 	responses: {
@@ -150,6 +195,7 @@ modelsApi.openapi(listModels, async (c) => {
 		const includeDeactivated = query.include_deactivated || false;
 		const excludeDeprecated = query.exclude_deprecated || false;
 		const noTraining = query.no_training || false;
+		const mapped = query.mapped || false;
 		const currentDate = new Date();
 
 		// Set of provider ids that do not train on API data
@@ -203,15 +249,119 @@ modelsApi.openapi(listModels, async (c) => {
 					.filter((model) => model.providers.length > 0)
 			: deactivationFilteredModels;
 
+		// Mapped view: one entry per provider mapping, addressed the way the
+		// gateway accepts provider-pinned requests (`provider/model-id`). The
+		// deactivation/deprecation filters apply per mapping here — a mapping
+		// drops out on its own rather than only once the whole model flips.
+		if (mapped) {
+			const mappedData = filteredModels.flatMap((model: ModelDefinition) =>
+				model.providers
+					.filter((provider) => {
+						if (
+							!includeDeactivated &&
+							provider.deactivatedAt &&
+							currentDate > provider.deactivatedAt
+						) {
+							return false;
+						}
+						if (
+							excludeDeprecated &&
+							provider.deprecatedAt &&
+							currentDate > provider.deprecatedAt
+						) {
+							return false;
+						}
+						return true;
+					})
+					.map((provider: ProviderModelMapping) => {
+						const providerDef = providers.find(
+							(p) => p.id === provider.providerId,
+						);
+						const name = `${model.name ?? model.id} (${providerDef?.name ?? provider.providerId})`;
+
+						const inputModalities: (
+							"text" | "image" | "video" | "embedding" | "audio"
+						)[] = ["text"];
+						if (provider.vision) {
+							inputModalities.push("image");
+						}
+						if (provider.audio) {
+							inputModalities.push("audio");
+						}
+
+						const outputModalities: (
+							| "text"
+							| "image"
+							| "video"
+							| "embedding"
+							| "audio"
+							| "ocr"
+							| "transcription"
+							| "rerank"
+						)[] = model.output ?? ["text"];
+
+						return {
+							id: `${provider.providerId}/${model.id}`,
+							name,
+							display_name: name,
+							aliases: model.aliases?.map(
+								(alias) => `${provider.providerId}/${alias}`,
+							),
+							created: model.releasedAt
+								? Math.floor(model.releasedAt.getTime() / 1000)
+								: undefined,
+							description: `${model.id} served by ${provider.providerId}`,
+							family: model.family,
+							architecture: {
+								input_modalities: inputModalities,
+								output_modalities: outputModalities,
+								tokenizer: "GPT",
+							},
+							top_provider: {
+								is_moderated: true,
+							},
+							providers: [serializeProviderMapping(provider, model)],
+							pricing: {
+								...buildPricingFields(
+									hasPricing(provider) ? provider : undefined,
+								),
+								web_search: "0",
+								internal_reasoning: "0",
+							},
+							context_length: provider.contextSize,
+							max_output: provider.maxOutput,
+							per_request_limits: getPerRequestLimits(model),
+							supported_parameters: getSupportedParametersFromModel({
+								...model,
+								providers: [provider],
+							}),
+							json_output: provider.jsonOutput === true,
+							structured_outputs: provider.jsonOutputSchema === true,
+							free: model.free ?? false,
+							deprecated_at: provider.deprecatedAt?.toISOString(),
+							deactivated_at: provider.deactivatedAt?.toISOString(),
+							stability: provider.stability ?? model.stability,
+						};
+					}),
+			);
+
+			return c.json({ data: mappedData });
+		}
+
 		const modelData = filteredModels.map((model: ModelDefinition) => {
 			// Determine input modalities (if model supports images)
-			const inputModalities: ("text" | "image" | "video" | "embedding")[] = [
-				"text",
-			];
+			const inputModalities: (
+				"text" | "image" | "video" | "embedding" | "audio"
+			)[] = ["text"];
 
 			// Check if any provider has vision support
 			if (model.providers.some((p) => p.vision)) {
 				inputModalities.push("image");
+			}
+
+			// Models that accept input_audio content (including realtime models)
+			if (model.providers.some((p) => p.audio)) {
+				inputModalities.push("audio");
 			}
 
 			// Determine output modalities from the model definition or default to
@@ -224,6 +374,8 @@ modelsApi.openapi(listModels, async (c) => {
 				| "embedding"
 				| "audio"
 				| "ocr"
+				| "transcription"
+				| "rerank"
 			)[] = model.output ?? ["text"];
 
 			// Source the model-level pricing from the cheapest provider mapping
@@ -234,6 +386,7 @@ modelsApi.openapi(listModels, async (c) => {
 			return {
 				id: model.id,
 				name: model.name ?? model.id,
+				display_name: model.name ?? model.id,
 				aliases: model.aliases,
 				created: model.releasedAt
 					? Math.floor(model.releasedAt.getTime() / 1000)
@@ -248,32 +401,9 @@ modelsApi.openapi(listModels, async (c) => {
 				top_provider: {
 					is_moderated: true,
 				},
-				providers: model.providers.map((provider: ProviderModelMapping) => {
-					// Find the provider definition to get cancellation support
-					const providerDef = providers.find(
-						(p) => p.id === provider.providerId,
-					);
-
-					return {
-						providerId: provider.providerId,
-						externalId: provider.externalId,
-						supportedVideoSizes: provider.supportedVideoSizes,
-						supportsVideoAudio: provider.supportsVideoAudio,
-						supportsVideoWithoutAudio: provider.supportsVideoWithoutAudio,
-						pricing: hasPricing(provider)
-							? buildPricingFields(provider)
-							: undefined,
-						streaming: provider.streaming,
-						vision: provider.vision ?? false,
-						cancellation: providerDef?.cancellation ?? false,
-						tools: provider.tools ?? false,
-						parallelToolCalls: provider.parallelToolCalls ?? false,
-						reasoning: provider.reasoning ?? false,
-						reasoning_efforts: provider.reasoningEfforts,
-						min_cacheable_tokens: provider.minCacheableTokens,
-						stability: provider.stability ?? model.stability,
-					};
-				}),
+				providers: model.providers.map((provider: ProviderModelMapping) =>
+					serializeProviderMapping(provider, model),
+				),
 				pricing: {
 					...buildPricingFields(pricingProvider),
 					web_search: "0", // Not defined in model definitions yet
@@ -283,18 +413,21 @@ modelsApi.openapi(listModels, async (c) => {
 				context_length:
 					Math.max(...model.providers.map((p) => p.contextSize ?? 0)) ??
 					undefined,
+				max_output: getModelLevelMaxOutput(model.providers, currentDate),
 				per_request_limits: getPerRequestLimits(model),
 				// Get supported parameters from model definitions with fallback to defaults
 				supported_parameters: getSupportedParametersFromModel(model),
-				// Add model-level capabilities
-				json_output:
-					model.providers.some(
-						(p) => (p as ProviderModelMapping).jsonOutput === true,
-					) || false,
-				structured_outputs:
-					model.providers.some(
-						(p) => (p as ProviderModelMapping).jsonOutputSchema === true,
-					) || false,
+				// A deactivated mapping can no longer serve requests, so the
+				// JSON capabilities advertised at the model level must come
+				// from mappings that can actually be routed to — the same
+				// deactivation filter used for pricing and max_output.
+				// Deprecated mappings remain routable and keep contributing.
+				json_output: (model.providers as ProviderModelMapping[])
+					.filter((p) => !(p.deactivatedAt && currentDate > p.deactivatedAt))
+					.some((p) => p.jsonOutput === true),
+				structured_outputs: (model.providers as ProviderModelMapping[])
+					.filter((p) => !(p.deactivatedAt && currentDate > p.deactivatedAt))
+					.some((p) => p.jsonOutputSchema === true),
 				free: model.free ?? false,
 				// A model is only deprecated/deactivated once EVERY provider mapping
 				// is — the same `.every()` semantics used for filtering above. Report
@@ -318,6 +451,36 @@ modelsApi.openapi(listModels, async (c) => {
 	}
 });
 
+// Serialize a provider mapping into the public `providers` entry shape shared
+// by the aggregated and mapped views.
+function serializeProviderMapping(
+	provider: ProviderModelMapping,
+	model: ModelDefinition,
+) {
+	// Find the provider definition to get cancellation support
+	const providerDef = providers.find((p) => p.id === provider.providerId);
+
+	return {
+		providerId: provider.providerId,
+		externalId: provider.externalId,
+		supportedVideoSizes: provider.supportedVideoSizes,
+		supportsVideoAudio: provider.supportsVideoAudio,
+		supportsVideoWithoutAudio: provider.supportsVideoWithoutAudio,
+		pricing: hasPricing(provider) ? buildPricingFields(provider) : undefined,
+		streaming: provider.streaming,
+		vision: provider.vision ?? false,
+		realtime: provider.realtime === true ? true : undefined,
+		cancellation: providerDef?.cancellation ?? false,
+		tools: provider.tools ?? false,
+		parallelToolCalls: provider.parallelToolCalls ?? false,
+		reasoning: provider.reasoning ?? false,
+		reasoning_efforts: provider.reasoningEfforts,
+		min_cacheable_tokens: provider.minCacheableTokens,
+		max_output: provider.maxOutput,
+		stability: provider.stability ?? model.stability,
+	};
+}
+
 // Collapse the per-provider-mapping deprecation/deactivation dates into a single
 // model-level date. A model is only considered deprecated/deactivated once every
 // mapping is, so return the latest date (when the last mapping flips) and only
@@ -333,6 +496,24 @@ function getModelLevelDate(dates: (Date | undefined)[]): string | undefined {
 		.toISOString();
 }
 
+// The public max_tokens bound for a model. Requests are validated against the
+// maxOutput of whichever provider mapping ends up serving them, so advertise the
+// minimum across mappings that declare one — the largest value guaranteed to be
+// accepted regardless of routing. Mappings without a declared limit accept any
+// max_tokens and therefore do not constrain the bound. Deactivated mappings can
+// no longer serve requests, so they don't constrain it either; deprecated
+// mappings remain routable and keep enforcing their limit, so they stay in.
+function getModelLevelMaxOutput(
+	mappings: ProviderModelMapping[],
+	currentDate: Date,
+): number | undefined {
+	const limits = mappings
+		.filter((p) => !(p.deactivatedAt && currentDate > p.deactivatedAt))
+		.map((p) => p.maxOutput)
+		.filter((limit): limit is number => limit !== undefined);
+	return limits.length > 0 ? Math.min(...limits) : undefined;
+}
+
 // Whether a provider mapping carries any pricing information at all.
 function hasPricing(p: ProviderModelMapping): boolean {
 	return (
@@ -340,7 +521,9 @@ function hasPricing(p: ProviderModelMapping): boolean {
 		p.outputPrice !== undefined ||
 		p.imageInputPrice !== undefined ||
 		p.perSecondPrice !== undefined ||
-		p.ocrPagePrice !== undefined
+		p.perImagePrice !== undefined ||
+		p.ocrPagePrice !== undefined ||
+		p.inputAudioHourPrice !== undefined
 	);
 }
 
@@ -353,9 +536,20 @@ function buildPricingFields(p: ProviderModelMapping | undefined) {
 		prompt: p?.inputPrice?.toString() ?? "0",
 		completion: p?.outputPrice?.toString() ?? "0",
 		image: p?.imageInputPrice?.toString() ?? "0",
+		input_audio: p?.inputAudioPrice?.toString(),
+		input_audio_cache_read: p?.cachedInputAudioPrice?.toString(),
+		output_audio: p?.outputAudioPrice?.toString(),
 		per_second: p?.perSecondPrice
 			? Object.fromEntries(
 					Object.entries(p.perSecondPrice).map(([resolution, price]) => [
+						resolution,
+						price.toString(),
+					]),
+				)
+			: undefined,
+		per_image: p?.perImagePrice
+			? Object.fromEntries(
+					Object.entries(p.perImagePrice).map(([resolution, price]) => [
 						resolution,
 						price.toString(),
 					]),
@@ -366,6 +560,7 @@ function buildPricingFields(p: ProviderModelMapping | undefined) {
 		input_cache_write: p?.cacheWriteInputPrice?.toString() ?? "0",
 		input_cache_write_1h: p?.cacheWriteInputPrice1h?.toString() ?? "0",
 		ocr_page: p?.ocrPagePrice?.toString(),
+		input_audio_hour: p?.inputAudioHourPrice?.toString(),
 	};
 }
 
@@ -377,14 +572,28 @@ function pricingScore(p: ProviderModelMapping): number {
 	const input = p.inputPrice !== undefined ? Number(p.inputPrice) : undefined;
 	const output =
 		p.outputPrice !== undefined ? Number(p.outputPrice) : undefined;
-	if (input !== undefined || output !== undefined) {
-		return (input ?? 0) + (output ?? 0);
+	const tokenScore =
+		input !== undefined || output !== undefined
+			? (input ?? 0) + (output ?? 0)
+			: undefined;
+	// Only a positive token price is authoritative: per-unit-priced mappings
+	// (image, video, OCR, request) declare token prices as "0", so a zero
+	// token score must fall through to the per-unit branches below.
+	if (tokenScore !== undefined && tokenScore > 0) {
+		return tokenScore;
 	}
 	if (p.ocrPagePrice !== undefined) {
 		return Number(p.ocrPagePrice);
 	}
+	if (p.inputAudioHourPrice !== undefined) {
+		return Number(p.inputAudioHourPrice);
+	}
 	if (p.perSecondPrice) {
 		const values = Object.values(p.perSecondPrice).map(Number);
+		return values.length > 0 ? Math.min(...values) : Infinity;
+	}
+	if (p.perImagePrice) {
+		const values = Object.values(p.perImagePrice).map(Number);
 		return values.length > 0 ? Math.min(...values) : Infinity;
 	}
 	if (p.requestPrice !== undefined) {
@@ -393,7 +602,7 @@ function pricingScore(p: ProviderModelMapping): number {
 	if (p.imageInputPrice !== undefined) {
 		return Number(p.imageInputPrice);
 	}
-	return Infinity;
+	return tokenScore ?? Infinity;
 }
 
 // Pick the provider mapping that represents the model-level pricing: the

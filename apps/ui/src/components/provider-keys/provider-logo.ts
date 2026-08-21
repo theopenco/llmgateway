@@ -11,6 +11,7 @@ export const providerLogoUrls: Partial<
 	elevenlabs: ProviderIcons.elevenlabs,
 	"google-ai-studio": ProviderIcons["google-ai-studio"],
 	glacier: ProviderIcons.glacier,
+	iceberg: ProviderIcons.iceberg,
 	"google-vertex": ProviderIcons["google-vertex"],
 	"vertex-anthropic": ProviderIcons["vertex-anthropic"],
 	"vertex-openai": ProviderIcons["vertex-openai"],
@@ -41,6 +42,13 @@ export const providerLogoUrls: Partial<
 	deepinfra: ProviderIcons.deepinfra,
 	reve: ProviderIcons.reve,
 	sakana: ProviderIcons.sakana,
+	"scx-ai": ProviderIcons["scx-ai"],
+	"scx-ai-gp": ProviderIcons["scx-ai-gp"],
+	gonka24: ProviderIcons.gonka24,
+	fireworks: ProviderIcons.fireworks,
+	runware: ProviderIcons.runware,
+	ranoai: ProviderIcons.ranoai,
+	baidu: ProviderIcons.baidu,
 };
 
 export const getProviderLogoDarkModeClasses = () => {
