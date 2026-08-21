@@ -9,6 +9,7 @@ import { getSessionCookieHeader } from "@/lib/session-cookie";
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 
 const COOKIE_NAME = "llmgateway_admin_key";
+const COOKIE_MAX_AGE = 60 * 60 * 24 * 90;
 
 const emailSchema = z.object({
 	subject: z.string().describe("A concise, professional email subject line"),
@@ -207,7 +208,7 @@ ${leadResearch.text}`,
 		if (keyResult.setCookie) {
 			response.headers.append(
 				"Set-Cookie",
-				`${keyResult.setCookie.name}=${keyResult.setCookie.value}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${60 * 60 * 24 * 30}${process.env.NODE_ENV === "production" ? "; Secure" : ""}`,
+				`${keyResult.setCookie.name}=${keyResult.setCookie.value}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${COOKIE_MAX_AGE}${process.env.NODE_ENV === "production" ? "; Secure" : ""}`,
 			);
 		}
 

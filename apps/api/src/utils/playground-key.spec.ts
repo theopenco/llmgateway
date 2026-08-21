@@ -16,7 +16,7 @@ import { getApiKeyFingerprints } from "@llmgateway/shared/api-key-hash";
 
 import type { ServerTypes } from "@/vars.js";
 
-const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
 describe("getGatewayUrl", () => {
@@ -131,7 +131,7 @@ describe("resolvePlaygroundToken", () => {
 				(key) =>
 					key.expiresAt &&
 					key.expiresAt.getTime() > Date.now() &&
-					key.expiresAt.getTime() <= Date.now() + THIRTY_DAYS_MS,
+					key.expiresAt.getTime() <= Date.now() + NINETY_DAYS_MS,
 			),
 		).toBe(true);
 		expect(
@@ -360,10 +360,10 @@ describe("resolvePlaygroundToken", () => {
 		expect(refreshedResponse.status).toBe(200);
 		expect(refreshedBody.token).toBe(firstBody.token);
 		expect(refreshedResponse.headers.get("set-cookie")).toContain(
-			"Max-Age=2592000",
+			"Max-Age=7776000",
 		);
 		expect(refreshedKey?.expiresAt?.getTime()).toBeGreaterThan(
-			Date.now() + (THIRTY_DAYS_MS - 60_000),
+			Date.now() + (NINETY_DAYS_MS - 60_000),
 		);
 	});
 

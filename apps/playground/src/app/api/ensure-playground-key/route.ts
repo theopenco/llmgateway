@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { getConfig } from "@/lib/config-server";
 import {
 	getPlaygroundKeyCookieName,
+	PLAYGROUND_KEY_COOKIE_MAX_AGE,
 	PLAYGROUND_KEY_COOKIE_NAME,
 } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
@@ -64,7 +65,7 @@ export async function POST(req: NextRequest) {
 			secure: process.env.NODE_ENV === "production",
 			sameSite: "lax",
 			path: "/",
-			maxAge: 60 * 60 * 24 * 30,
+			maxAge: PLAYGROUND_KEY_COOKIE_MAX_AGE,
 		} as const;
 		response.cookies.set(scopedCookieName, data.token, options);
 		response.cookies.set(PLAYGROUND_KEY_COOKIE_NAME, data.token, options);
