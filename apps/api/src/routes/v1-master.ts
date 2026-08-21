@@ -139,7 +139,10 @@ v1Master.use("*", async (c, next) => {
 async function loadApiKeyForOrg(apiKeyId: string, organizationId: string) {
 	const apiKey = await db.query.apiKey.findFirst({
 		where: { id: { eq: apiKeyId } },
-		with: { project: true },
+		with: {
+			project: true,
+			creator: { columns: { email: true } },
+		},
 	});
 
 	if (
@@ -174,6 +177,8 @@ interface SerializableApiKey {
 	periodUsageDurationUnit: "hour" | "day" | "week" | "month" | null;
 	currentPeriodUsage: string;
 	currentPeriodStartedAt: Date | null;
+	creator?: { email: string } | null;
+	project: { name: string } | null;
 }
 
 /**
@@ -182,6 +187,10 @@ interface SerializableApiKey {
  * the time the current period resets. Never leaks the plain token.
  */
 function serializeApiKeyForMaster(apiKey: SerializableApiKey) {
+	if (!apiKey.project) {
+		throw new HTTPException(500, { message: "API key project not found" });
+	}
+
 	const currentPeriod = getApiKeyCurrentPeriodState(apiKey);
 
 	return {
@@ -191,7 +200,9 @@ function serializeApiKeyForMaster(apiKey: SerializableApiKey) {
 		description: apiKey.description,
 		status: apiKey.status,
 		projectId: apiKey.projectId,
+		projectName: apiKey.project.name,
 		createdBy: apiKey.createdBy,
+		createdByEmail: apiKey.creator?.email ?? null,
 		maskedToken: maskToken(apiKey.token),
 		usageLimit: apiKey.usageLimit,
 		usage: apiKey.usage,
@@ -572,7 +583,9 @@ const apiKeyDetailSchema = z.object({
 	description: z.string(),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	projectId: z.string(),
+	projectName: z.string(),
 	createdBy: z.string(),
+	createdByEmail: z.string().nullable(),
 	maskedToken: z.string(),
 	usageLimit: z.string().nullable(),
 	// Total spend accrued against `usageLimit` over the key's lifetime.
@@ -751,7 +764,13 @@ v1Master.openapi(updateApiKey, async (c) => {
 		});
 	}
 
-	return c.json({ apiKey: serializeApiKeyForMaster(updated) });
+	return c.json({
+		apiKey: serializeApiKeyForMaster({
+			...updated,
+			creator: existing.creator,
+			project: existing.project,
+		}),
+	});
 });
 
 const listApiKeysQuery = z.object({
@@ -814,6 +833,10 @@ v1Master.openapi(listApiKeys, async (c) => {
 			status: { ne: "deleted" },
 		},
 		orderBy: { createdAt: "desc" },
+		with: {
+			creator: { columns: { email: true } },
+			project: { columns: { name: true } },
+		},
 	});
 
 	return c.json({ apiKeys: apiKeys.map(serializeApiKeyForMaster) });
