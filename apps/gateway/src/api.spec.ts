@@ -6704,7 +6704,7 @@ describe("api", () => {
 			process.env.LLM_GOOGLE_CLOUD_PROJECT = "vertex-project";
 			process.env.LLM_GOOGLE_VERTEX_BASE_URL = mockServerUrl;
 
-			const makeRequest = (content: string) =>
+			const makeRequest = (content: string, model = "gemini-2.5-flash-lite") =>
 				app.request("/v1/chat/completions", {
 					method: "POST",
 					headers: {
@@ -6712,7 +6712,7 @@ describe("api", () => {
 						Authorization: "Bearer real-token",
 					},
 					body: JSON.stringify({
-						model: "gemini-2.5-flash-lite",
+						model,
 						messages: [{ role: "user", content }],
 					}),
 				});
@@ -6726,6 +6726,45 @@ describe("api", () => {
 			expect(secondRes.status).toBe(200);
 			const secondJson = await secondRes.json();
 			expect(secondJson.metadata.used_provider).toBe("google-vertex");
+
+			const directRes = await makeRequest(
+				"Direct provider rate limit request",
+				"google-ai-studio/gemini-2.5-flash-lite",
+			);
+			expect(directRes.status).toBe(200);
+			const directJson = await directRes.json();
+			expect(directJson.metadata.used_provider).toBe("google-vertex");
+
+			const logs = await waitForLogs(3);
+			const overflowLog = logs.find(
+				(log) =>
+					log.usedProvider === "google-vertex" &&
+					log.routingMetadata?.selectionReason !== "rate-limit-fallback",
+			);
+			expect(overflowLog?.routingMetadata?.providerScores).not.toContainEqual(
+				expect.objectContaining({ providerId: "google-ai-studio" }),
+			);
+			expect(overflowLog?.routingMetadata?.filteredProviders).toContainEqual({
+				providerId: "google-ai-studio",
+				reasons: ["provider is rate limited"],
+				codes: ["rate_limited"],
+			});
+
+			const directFallbackLog = logs.find(
+				(log) => log.routingMetadata?.selectionReason === "rate-limit-fallback",
+			);
+			expect(
+				directFallbackLog?.routingMetadata?.providerScores,
+			).not.toContainEqual(
+				expect.objectContaining({ providerId: "google-ai-studio" }),
+			);
+			expect(
+				directFallbackLog?.routingMetadata?.filteredProviders,
+			).toContainEqual({
+				providerId: "google-ai-studio",
+				reasons: ["provider is rate limited"],
+				codes: ["rate_limited"],
+			});
 		} finally {
 			if (previousVertexKey === undefined) {
 				delete process.env.LLM_GOOGLE_VERTEX_API_KEY;
