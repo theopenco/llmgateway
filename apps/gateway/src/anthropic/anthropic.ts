@@ -27,7 +27,7 @@ import { buildAnthropicErrorEvent } from "./streaming-error-translation.js";
 import { mapAnthropicThinkingToReasoning } from "./thinking-to-reasoning.js";
 
 import type { ServerTypes } from "@/vars.js";
-import type { AnthropicNativeBlock } from "@llmgateway/models";
+import type { AnthropicNativeBlock, CacheControl } from "@llmgateway/models";
 
 // Most of the request schema is built from unions (content blocks, tool
 // variants), and a union issue's own message is a useless "Invalid input" —
@@ -139,6 +139,15 @@ const anthropicMessageSchema = z.object({
 					tool_use_id: z.string(),
 					content: z.union([z.string(), z.array(z.unknown())]).optional(),
 					is_error: z.boolean().optional(),
+					// Anthropic allows a breakpoint here, and in an agentic loop the
+					// stable prefix usually ends on a tool result — dropping it would
+					// cost the caller the cache hit they explicitly asked for.
+					cache_control: z
+						.object({
+							type: z.enum(["ephemeral"]),
+							ttl: z.enum(["5m", "1h"]).optional(),
+						})
+						.optional(),
 				}),
 				// Extended-thinking blocks echoed back in conversation history. They
 				// carry no value for the internal OpenAI-format request, so they're
@@ -765,12 +774,24 @@ anthropic.openapi(messages, async (c) => {
 						: [],
 				);
 
+				// A breakpoint on the tool_result block has no home in the OpenAI
+				// message shape, so carry it alongside. Blocks sharing a tool_use_id
+				// collapse into one message, so the last marker wins — it is the one
+				// that ends the prefix.
+				const toolResultCacheControl = blocks.reduce<CacheControl | undefined>(
+					(marker, block) => block.cache_control ?? marker,
+					undefined,
+				);
+
 				openaiMessages.push({
 					role: "tool",
 					content: combinedContent,
 					tool_call_id: toolUseId,
 					...(referenceBlocks.length > 0 && {
 						anthropic_native_blocks: referenceBlocks,
+					}),
+					...(toolResultCacheControl && {
+						tool_result_cache_control: toolResultCacheControl,
 					}),
 				});
 			}
@@ -920,6 +941,10 @@ anthropic.openapi(messages, async (c) => {
 						// Carried through to Anthropic upstreams and stripped
 						// elsewhere, where the tool is simply loaded eagerly.
 						...(tool.defer_loading === true && { defer_loading: true }),
+						// Same deal for the caller's cache breakpoint: tools are the
+						// base of Anthropic's cache hierarchy, so dropping it here cost
+						// the caller the largest cacheable prefix they have.
+						...(tool.cache_control && { cache_control: tool.cache_control }),
 					};
 				}
 

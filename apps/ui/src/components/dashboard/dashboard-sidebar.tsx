@@ -179,6 +179,7 @@ const PROJECT_SETTINGS = [
 	{
 		href: "settings/dynamic-routes",
 		label: "Dynamic Routes",
+		enterpriseOnly: true,
 	},
 	{
 		href: "settings/guardrails",
