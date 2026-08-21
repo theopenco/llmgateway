@@ -46,9 +46,9 @@ export const ROUTING_EXCLUSION_REASON_MESSAGES = {
 	locked_region: "provider key is locked to a different region",
 	// Catalogue state.
 	deprecated: "mapping is deprecated",
-	// Runtime state. Pre-election rate limits use filteredProviders; fail-open and
-	// retry-time rate limits may still annotate providerScores. Content filters use
-	// contentFilterExcludedProviders. The hourly rollup reads all three forms.
+	// Runtime state. Pre-election exclusions use filteredProviders; fail-open and
+	// retry-time rate limits may still annotate providerScores. Content filters also
+	// retain their summary field for compatibility. The hourly rollup reads all forms.
 	rate_limited: "provider is rate limited",
 	content_filter: "excluded by content-filter routing",
 	compliance: "excluded by the organization's compliance policy",

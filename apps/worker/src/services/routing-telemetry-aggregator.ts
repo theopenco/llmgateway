@@ -146,13 +146,12 @@ async function aggregateElections(tx: Tx, targetHour: Date) {
  * Per (model, provider, reason) exclusion counts for one hour, unioned from the
  * three places routing records an exclusion:
  *
- * - `filteredProviders[].codes` — capability, credential and service-tier drops
- * - `contentFilterExcludedProviders[]` — content-filter rerouting
- * - `providerScores[].rate_limited` — RPM-capped mappings
+ * - `filteredProviders[].codes` — pre-election drops
+ * - `contentFilterExcludedProviders[]` — content-filter compatibility summary
+ * - `providerScores[].rate_limited` — fail-open or retry-time RPM caps
  *
- * The last two already existed in routing metadata, so they are mapped onto
- * exclusion codes here rather than duplicated into filteredProviders by the
- * gateway.
+ * The last two preserve historical and runtime metadata forms. The distinct
+ * counts below prevent duplicated content-filter records from inflating totals.
  *
  * Two counts come out of this, and they answer different questions.
  * `excludedCount` is per reason — "how often did this constraint fire" — and
@@ -215,7 +214,7 @@ async function aggregateExclusions(tx: Tx, targetHour: Date) {
 					coalesce(hour_logs.metadata -> 'contentFilterExcludedProviders', '[]'::jsonb)
 				) as provider_id
 				union all
-				-- rate-limited mappings, annotated on the score entries
+				-- fail-open or retry-time rate limits, annotated on score entries
 				select
 					hour_logs.log_id,
 					hour_logs.model_id,
