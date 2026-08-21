@@ -38,9 +38,14 @@ Build affected apps through Turbo filters, including their workspace
 dependencies. Run the full `pnpm build` before handoff when required by
 `AGENTS.md`.
 
-Launch the configured stack with `pnpm dev`. Use exported service URLs where
-the repository defines them; otherwise construct the local origin from the
-matching app port in `AGENTS.md`.
+Turbo's strict environment mode may not pass the worktree isolation variables
+declared in `.envrc`. Launch an isolated stack with
+`pnpm exec turbo run dev --env-mode=loose`, then confirm the startup logs show
+the selected ports rather than the defaults.
+
+Set `GATEWAY_URL` to the versioned API base, for example
+`http://localhost:${GATEWAY_PORT}/v1`. Playground passes it directly to the AI
+SDK; routes that need the bare gateway origin remove the `/v1` suffix.
 
 ## Drive and capture
 

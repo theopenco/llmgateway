@@ -1681,6 +1681,13 @@
       "when": 1787314721805,
       "tag": "1787314721_daffy_venom",
       "breakpoints": true
+    },
+    {
+      "idx": 240,
+      "version": "8",
+      "when": 1787324668913,
+      "tag": "1787324668_supreme_blue_blade",
+      "breakpoints": true
     }
   ]
 }
