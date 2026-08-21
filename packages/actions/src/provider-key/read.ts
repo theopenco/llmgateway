@@ -86,13 +86,14 @@ export interface ProviderKeyLabelRowLike {
 	organizationId: string | null;
 	managed?: boolean | null;
 	name?: string | null;
+	description?: string | null;
 	tokenMasked?: string | null;
 }
 
 /**
- * How a provider key is named to the organization that owns it: its custom
- * name when it has one, otherwise the masked token the provider-keys page
- * lists it under. Never the plaintext token.
+ * How a provider key is named to the organization that owns it: its
+ * description when set, its custom-provider name next, then the masked token
+ * the provider-keys page lists it under. Never the plaintext token.
  *
  * THE SECURITY GATE FOR CREDENTIAL LABELS LIVES HERE — do not describe a
  * provider key anywhere else. Platform-managed credentials (LLM Gateway's own
@@ -107,5 +108,5 @@ export function providerKeyLabel(
 	if (!row || row.managed || !row.organizationId) {
 		return undefined;
 	}
-	return row.name || row.tokenMasked || undefined;
+	return row.description || row.name || row.tokenMasked || undefined;
 }

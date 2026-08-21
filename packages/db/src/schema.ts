@@ -1714,6 +1714,10 @@ export const providerKey = pgTable(
 		tokenHash: text(),
 		provider: text().notNull(),
 		name: text(), // Optional name for custom providers (lowercase a-z with single hyphens)
+		// Organization-owned label shown alongside this key in routing and log
+		// details. Kept separate from `comment`, which is operator-only metadata
+		// for platform-managed credentials.
+		description: text(),
 		baseUrl: text(), // Optional base URL for custom providers
 		options: jsonb().$type<ProviderKeyOptions>(),
 		// When true (custom providers only), requests through this key are
