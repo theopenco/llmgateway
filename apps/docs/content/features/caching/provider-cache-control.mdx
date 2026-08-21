@@ -46,7 +46,7 @@ For **Anthropic** and **AWS Bedrock Claude**, prompt caching is strictly opt-in 
 
 The mode applies wherever a provider supports explicit cache markers: `cache_control` on Anthropic, Vertex Anthropic and Alibaba, `cachePoint` on AWS Bedrock, and `prompt_cache_breakpoint` on OpenAI models with explicit prompt caching. On those OpenAI models, Client-managed and Disabled also send `prompt_cache_options: {"mode": "explicit"}` so implicit caching does not write a cache the request never asked for. Providers that cache automatically with no marker at all are unaffected.
 
-On Anthropic and Vertex Anthropic, markers are forwarded on `system` blocks, message text blocks, and tool definitions. A `cache_control` on an image or other non-text content block is not forwarded — put the breakpoint on an adjacent text block instead.
+On Anthropic and Vertex Anthropic, markers are forwarded on `system` blocks, message text blocks, tool definitions, and `tool_result` blocks. A `cache_control` on an image or other non-text content block is not forwarded — put the breakpoint on an adjacent text block instead.
 
 Changes take up to 5 minutes to take effect due to the project-settings cache.
 

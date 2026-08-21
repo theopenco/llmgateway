@@ -434,6 +434,31 @@ describe("fallback and error status code handling", () => {
 	}
 
 	describe("custom provider auto routing", () => {
+		test("routes a canonical model id to a cheaper matching custom model", async () => {
+			await setupCustomAutoRouting();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer auto-custom-token",
+				},
+				body: JSON.stringify({
+					model: "claude-haiku-4-5",
+					routing: "price",
+					messages: [{ role: "user", content: "Hello custom route!" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const logs = await waitForLogs(1);
+			expect(logs).toHaveLength(1);
+			expect(logs[0].requestedModel).toBe("claude-haiku-4-5");
+			expect(logs[0].usedProvider).toBe("custom");
+			expect(logs[0].usedModel).toBe("my-custom/claude-haiku-4-5");
+			expect(Number(logs[0].cost)).toBeGreaterThan(0);
+		});
+
 		test("routes to a priced custom model with a matching catalog id", async () => {
 			await setupCustomAutoRouting();
 

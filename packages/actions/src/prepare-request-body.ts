@@ -1790,6 +1790,21 @@ export async function prepareRequestBody(
 	const allowProviderCacheWrites = providerCacheControlMode !== "off";
 	const autoInjectCacheControl = providerCacheControlMode === "auto";
 
+	// A tool message's `tool_result_cache_control` only has a destination on the
+	// Anthropic Messages API, where it becomes a marker on the tool_result block
+	// the message is lowered to. Anywhere else it would reach the upstream as an
+	// unknown message field, and a project that opted out of provider cache
+	// writes must not emit it at all.
+	if (!anthropicMessagesApi || !allowProviderCacheWrites) {
+		processedMessages = processedMessages.map((m) => {
+			if (m.tool_result_cache_control === undefined) {
+				return m;
+			}
+			const { tool_result_cache_control: _dropped, ...rest } = m;
+			return rest;
+		});
+	}
+
 	// Strip Anthropic-style cache_control markers from caller-supplied content
 	// parts. We do this in two cases:
 	//   1) The resolved provider doesn't natively understand cache_control —
@@ -2924,28 +2939,86 @@ export async function prepareRequestBody(
 			);
 
 			// Anthropic requires longer-TTL cache breakpoints to come before
-			// shorter ones (processing order: tools, system, messages). The
-			// gateway's heuristics inject ttl-less markers (5m default), so when
-			// the caller placed an explicit ttl:"1h" marker in the messages, any
-			// auto-injected marker would land before it and Anthropic rejects the
-			// request ("a ttl='1h' cache_control block must not come after a
-			// ttl='5m' cache_control block"). Defer entirely to the caller's
-			// caching strategy in that case. A 1h marker only on system is safe:
+			// shorter ones ("a 1-hour cache entry must appear before any 5-minute
+			// cache entries" —
+			// platform.claude.com/docs/en/build-with-claude/prompt-caching;
+			// processing order: tools, system, messages). The gateway's heuristics
+			// inject ttl-less markers (5m default), so when the caller placed an
+			// explicit ttl:"1h" marker in the messages, any auto-injected marker
+			// would land before it and Anthropic rejects the request ("a ttl='1h'
+			// cache_control block must not come after a ttl='5m' cache_control
+			// block"). Defer entirely to the caller's caching strategy in that
+			// case — including when the 1h marker rides on a tool_result, which
+			// this check would otherwise miss. A 1h marker only on system is safe:
 			// message-level 5m markers after it satisfy the ordering.
 			const callerUses1hTtlInMessages = nonSystemMessages.some(
 				(m) =>
-					Array.isArray(m.content) &&
-					m.content.some(
-						(part) => isTextContent(part) && part.cache_control?.ttl === "1h",
-					),
+					m.tool_result_cache_control?.ttl === "1h" ||
+					(Array.isArray(m.content) &&
+						m.content.some(
+							(part) => isTextContent(part) && part.cache_control?.ttl === "1h",
+						)),
 			);
 			const autoCacheControlEnabled =
 				autoInjectCacheControl && !callerUses1hTtlInMessages;
 
 			// Build the system field with cache_control for long prompts
 			// Track cache_control usage across system and user messages (max 4 total per Anthropic's limit)
-			let systemCacheControlCount = 0;
 			const maxCacheControlBlocks = 4;
+
+			// Anthropic renders `tools` before `system` and `messages`, so a caller
+			// breakpoint on the last tool caches the largest prefix available — and
+			// it is the one an agentic client (Claude Code) reliably sets.
+			const anthropicFunctionTools = (tools ?? []).filter(isFunctionTool);
+
+			// Being first also makes a 5m tool marker the one thing that can strand
+			// a caller's later 1h marker on the wrong side of Anthropic's ordering
+			// rule ("a 1-hour cache entry must appear before any 5-minute cache
+			// entries"). Auto-injected markers are always ttl-less/5m and land after
+			// the tools, so they are safe; a caller mixing TTLs is not. Drop the 5m
+			// tool marker in that case rather than emit a request Anthropic rejects
+			// — the 1h breakpoint the caller paid the 2x write premium for is the
+			// one worth keeping.
+			const callerUses1hTtlAfterTools =
+				callerUses1hTtlInMessages ||
+				systemMessages.some(
+					(sysMsg) =>
+						Array.isArray(sysMsg.content) &&
+						sysMsg.content.some(
+							(part) => isTextContent(part) && part.cache_control?.ttl === "1h",
+						),
+				);
+			let lastOneHourToolIndex = -1;
+			anthropicFunctionTools.forEach((tool, index) => {
+				if (tool.cache_control?.ttl === "1h") {
+					lastOneHourToolIndex = index;
+				}
+			});
+
+			// Decide here which tool markers actually ship, so the budget seeded
+			// below matches them exactly. Counting them after the fact would let the
+			// system and message passes spend slots the tools already took, and
+			// Anthropic rejects the fifth breakpoint outright.
+			let toolMarkersKeptSoFar = 0;
+			const toolCacheControlKept = anthropicFunctionTools.map((tool, index) => {
+				const marker = tool.cache_control;
+				if (
+					!allowProviderCacheWrites ||
+					!marker ||
+					toolMarkersKeptSoFar >= maxCacheControlBlocks
+				) {
+					return false;
+				}
+				const orderingSafe =
+					marker.ttl === "1h" ||
+					(!callerUses1hTtlAfterTools && index > lastOneHourToolIndex);
+				if (!orderingSafe) {
+					return false;
+				}
+				toolMarkersKeptSoFar++;
+				return true;
+			});
+			let systemCacheControlCount = toolMarkersKeptSoFar;
 
 			// Get the minCacheableTokens from the model definition (default to 1024 if not specified)
 			const providerMapping = modelDef?.providers.find(
@@ -3074,9 +3147,9 @@ export async function prepareRequestBody(
 			// Transform tools from OpenAI format to Anthropic format
 			if (tools && tools.length > 0) {
 				// Filter to only function tools (web_search is handled separately)
-				const functionTools = tools.filter(isFunctionTool);
+				const functionTools = anthropicFunctionTools;
 				if (functionTools.length > 0) {
-					requestBody.tools = functionTools.map((tool) => ({
+					requestBody.tools = functionTools.map((tool, index) => ({
 						name: tool.function.name,
 						description: tool.function.description,
 						input_schema: tool.function.parameters,
@@ -3084,6 +3157,11 @@ export async function prepareRequestBody(
 						// section before the cache key is computed, so forwarding this
 						// is what keeps a large tool catalogue out of the cached prefix.
 						...(tool.defer_loading === true && { defer_loading: true }),
+						// Budget and TTL ordering were both settled above, where the
+						// system pass needed the resulting count.
+						...(toolCacheControlKept[index] && {
+							cache_control: tool.cache_control,
+						}),
 					}));
 				}
 				// The tool search tool has to come first: Anthropic rejects a request
