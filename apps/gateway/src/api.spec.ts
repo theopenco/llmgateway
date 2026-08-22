@@ -913,6 +913,116 @@ describe("api", () => {
 		expect(bypassRes.headers.get("x-llmgateway-cache")).toBeNull();
 	});
 
+	test("/v1/messages web search does not reuse a tool-less cached response", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "anthropic",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		await db
+			.update(tables.project)
+			.set({ cachingEnabled: true })
+			.where(eq(tables.project.id, "project-id"));
+
+		let upstreamCalls = 0;
+		const originalFetch = globalThis.fetch;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+
+				if (url.includes(`${mockServerUrl}/v1/messages`)) {
+					upstreamCalls++;
+					const body = JSON.parse(init?.body as string) as {
+						tools?: Array<{ type?: string }>;
+					};
+					const searched = body.tools?.some(
+						(tool) => tool.type === "web_search_20250305",
+					);
+
+					return new Response(
+						JSON.stringify({
+							id: `msg_cache_${upstreamCalls}`,
+							type: "message",
+							role: "assistant",
+							model: "claude-sonnet-5",
+							content: [
+								{
+									type: "text",
+									text: searched ? "searched" : "no search",
+								},
+							],
+							stop_reason: "end_turn",
+							stop_sequence: null,
+							usage: { input_tokens: 15, output_tokens: 2 },
+						}),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					);
+				}
+
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+
+		const prompt = `Check today's news ${randomUUID()}`;
+		const makeRequest = (tools?: Array<Record<string, unknown>>) =>
+			app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "anthropic/claude-sonnet-5",
+					max_tokens: 10240,
+					messages: [{ role: "user", content: prompt }],
+					...(tools ? { tools } : {}),
+				}),
+			});
+
+		const originalNodeEnv = process.env.NODE_ENV;
+		try {
+			process.env.NODE_ENV = "development";
+			const toolLessResponse = await makeRequest();
+			expect(toolLessResponse.status).toBe(200);
+
+			process.env.NODE_ENV = originalNodeEnv;
+			const webSearchResponse = await makeRequest([
+				{
+					type: "web_search_20250305",
+					name: "web_search",
+					max_uses: 5,
+				},
+			]);
+
+			expect(webSearchResponse.status).toBe(200);
+			expect(webSearchResponse.headers.get("x-llmgateway-cache")).toBeNull();
+			expect(await webSearchResponse.json()).toMatchObject({
+				content: [{ type: "text", text: "searched" }],
+			});
+			expect(upstreamCalls).toBe(2);
+		} finally {
+			process.env.NODE_ENV = originalNodeEnv;
+			fetchSpy.mockRestore();
+		}
+	});
+
 	// Anthropic SDK clients key on the `msg_` id prefix; the inner
 	// /v1/chat/completions response carries an OpenAI-style `chatcmpl-` id.
 	test("/v1/messages returns an Anthropic msg_ id", async () => {
