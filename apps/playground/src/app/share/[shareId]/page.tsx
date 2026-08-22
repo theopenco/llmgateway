@@ -6,6 +6,7 @@ import { ForkChatButton } from "@/components/playground/fork-chat-button";
 import { Wordmark } from "@/components/ui/wordmark";
 import { getConfig } from "@/lib/config-server";
 import { parsePlaygroundMessageMetadata } from "@/lib/message-metadata";
+import { visitorIpHeaders } from "@/lib/visitor-ip";
 
 import type { UIMessage } from "ai";
 import type { Metadata } from "next";
@@ -134,7 +135,7 @@ export async function generateMetadata({
 	try {
 		const response = await fetch(
 			`${config.apiBackendUrl}/public/chats/share/${shareId}`,
-			{ cache: "no-store" },
+			{ cache: "no-store", headers: await visitorIpHeaders() },
 		);
 		if (response.ok) {
 			const data = (await response.json()) as SharedChatResponse;
@@ -191,6 +192,7 @@ export default async function SharedChatPage({
 		`${config.apiBackendUrl}/public/chats/share/${shareId}`,
 		{
 			cache: "no-store",
+			headers: await visitorIpHeaders(),
 		},
 	);
 

@@ -18,6 +18,10 @@ import {
 } from "@/utils/chat-support-knowledge.js";
 import { notifyChatSupportEscalation } from "@/utils/discord.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
+import {
+	consumeRateLimit,
+	extractClientIP,
+} from "@/utils/public-rate-limit.js";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { and, db, desc, eq, isNull, tables } from "@llmgateway/db";
@@ -122,37 +126,17 @@ ${urlList}`;
 	return prompt;
 }
 
-function extractClientIP(c: {
-	req: { header: (name: string) => string | undefined };
-}): string | null {
-	const cfConnectingIP = c.req.header("CF-Connecting-IP");
-	if (cfConnectingIP) {
-		return cfConnectingIP;
-	}
-	const xForwardedFor = c.req.header("X-Forwarded-For");
-	if (xForwardedFor) {
-		return xForwardedFor.split(",")[0]?.trim() ?? null;
-	}
-	return c.req.header("X-Real-IP") ?? null;
-}
-
 async function checkRateLimit(
 	identifier: string,
 	bucket: string,
 	max: number,
 	windowSeconds: number,
 ): Promise<boolean> {
-	const key = `chat_support_rate_limit:${bucket}:${identifier}`;
-	try {
-		const count = await redisClient.incr(key);
-		if (count === 1) {
-			await redisClient.expire(key, windowSeconds);
-		}
-		return count <= max;
-	} catch (error) {
-		logger.error("Chat support rate limit check failed", toError(error));
-		return true;
-	}
+	return await consumeRateLimit(
+		`chat_support_rate_limit:${bucket}:${identifier}`,
+		max,
+		windowSeconds,
+	);
 }
 
 // Enforces the burst, hourly and daily windows per IP and per clientId, then
