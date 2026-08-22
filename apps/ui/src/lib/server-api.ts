@@ -1,11 +1,13 @@
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import createFetchClient from "openapi-fetch";
 import { cache } from "react";
+
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 
 import { getConfig } from "./config-server";
 
 import type { paths } from "./api/v1";
-import type { Organization, Project } from "./types";
+import type { Organization, Project, User } from "./types";
 
 // Server-side API client
 export async function createServerApiClient() {
@@ -21,6 +23,10 @@ export async function createServerApiClient() {
 		baseUrl: config.apiBackendUrl,
 		credentials: "include",
 		headers: {
+			// Forward the visitor's address so the API's per-IP limits bucket
+			// them individually rather than lumping every visitor of a
+			// server-rendered page behind this server's own address.
+			...forwardedIpHeaders(await headers()),
 			Cookie: secureSessionCookie
 				? `__Secure-${key}=${secureSessionCookie.value}`
 				: sessionCookie
@@ -139,6 +145,12 @@ export function getProject(projectId: string) {
 				},
 			},
 		}),
+	);
+}
+
+export function getUserMe() {
+	return dedupeRequest("userMe", () =>
+		fetchServerData<{ user: User }>("GET", "/user/me"),
 	);
 }
 

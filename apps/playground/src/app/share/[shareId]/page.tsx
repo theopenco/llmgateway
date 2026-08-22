@@ -1,31 +1,22 @@
-import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { cache } from "react";
 
 import { ReadOnlyChatMessages } from "@/components/playground/chat-ui";
 import { ForkChatButton } from "@/components/playground/fork-chat-button";
 import { Wordmark } from "@/components/ui/wordmark";
-import { getConfig } from "@/lib/config-server";
 import { parsePlaygroundMessageMetadata } from "@/lib/message-metadata";
+import { createServerApiClient } from "@/lib/server-api";
 
-import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
-
+import type { paths } from "@/lib/api/v1";
 import type { UIMessage } from "ai";
 import type { Metadata } from "next";
 
-interface SharedMessage {
-	id: string;
-	role: "user" | "assistant" | "system";
-	content: string | null;
-	images: string | null;
-	audios: string | null;
-	documents: string | null;
-	reasoning: string | null;
-	tools: string | null;
-	metadata?: unknown;
-	sequence: number;
-	createdAt: string;
-}
+// Wire shapes come from the generated OpenAPI schema so optional fields
+// (sources, audios, documents, metadata) stay in sync with the endpoint.
+type SharedChatResponse =
+	paths["/public/chats/share/{shareId}"]["get"]["responses"]["200"]["content"]["application/json"];
+type SharedMessage = SharedChatResponse["share"]["messages"][number];
 
 interface StoredAudioPart {
 	type?: string;
@@ -39,16 +30,6 @@ interface StoredDocumentPart {
 	url?: string;
 	mediaType?: string;
 	name?: string;
-}
-
-interface SharedChatResponse {
-	share: {
-		id: string;
-		title: string;
-		model: string;
-		createdAt: string;
-		messages: SharedMessage[];
-	};
 }
 
 interface StoredImagePart {
@@ -122,25 +103,44 @@ function meetsIndexThreshold(messages: SharedMessage[]): boolean {
 	return hasValidUserTurn && hasValidAssistantTurn;
 }
 
+// cache() dedupes the generateMetadata + page calls within a request — the
+// fetch itself is no-store, so nothing persists beyond the render pass.
+const getSharedChat = cache(
+	async (shareId: string): Promise<SharedChatResponse | null> => {
+		const client = await createServerApiClient();
+		const { data, response } = await client.GET(
+			"/public/chats/share/{shareId}",
+			{
+				params: { path: { shareId } },
+				cache: "no-store",
+			},
+		);
+		if (data) {
+			return data;
+		}
+		// Only a confirmed missing share renders the 404 page; transient API
+		// failures throw so they reach the error boundary instead.
+		if (response.status === 404) {
+			return null;
+		}
+		throw new Error(`Failed to load shared chat (${response.status})`);
+	},
+);
+
 export async function generateMetadata({
 	params,
 }: {
 	params: Promise<{ shareId: string }>;
 }): Promise<Metadata> {
 	const { shareId } = await params;
-	const config = getConfig();
 
 	let title = "Shared Chat";
 	let description = FALLBACK_SHARE_DESCRIPTION;
 	let indexable = true;
 
 	try {
-		const response = await fetch(
-			`${config.apiBackendUrl}/public/chats/share/${shareId}`,
-			{ cache: "no-store", headers: forwardedIpHeaders(await headers()) },
-		);
-		if (response.ok) {
-			const data = (await response.json()) as SharedChatResponse;
+		const data = await getSharedChat(shareId);
+		if (data) {
 			const flatTitle = data.share.title?.replace(/\s+/g, " ").trim();
 			if (flatTitle) {
 				title =
@@ -189,20 +189,12 @@ export default async function SharedChatPage({
 	params: Promise<{ shareId: string }>;
 }) {
 	const { shareId } = await params;
-	const config = getConfig();
-	const response = await fetch(
-		`${config.apiBackendUrl}/public/chats/share/${shareId}`,
-		{
-			cache: "no-store",
-			headers: forwardedIpHeaders(await headers()),
-		},
-	);
+	const data = await getSharedChat(shareId);
 
-	if (!response.ok) {
+	if (!data) {
 		notFound();
 	}
 
-	const data = (await response.json()) as SharedChatResponse;
 	const messages = data.share.messages.map(toUiMessage);
 
 	const shareUrl = `https://lounge.llmgateway.io/share/${data.share.id}`;

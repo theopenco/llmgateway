@@ -1,9 +1,14 @@
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import createFetchClient from "openapi-fetch";
+import { cache } from "react";
+
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 
 import { getConfig } from "./config-server";
 
 import type { paths } from "./api/v1";
+import type { DevPlanStatus } from "@/app/dashboard/useDevPlanStatus";
+import type { UserMe } from "@/hooks/useUser";
 
 // Typed client for public, unauthenticated endpoints. Unlike
 // createServerApiClient below it never reads the request cookies, so pages
@@ -25,6 +30,10 @@ export async function createServerApiClient() {
 		baseUrl: config.apiBackendUrl,
 		credentials: "include",
 		headers: {
+			// Forward the visitor's address so the API's per-IP limits bucket
+			// them individually rather than lumping every visitor of a
+			// server-rendered page behind this server's own address.
+			...forwardedIpHeaders(await headers()),
 			Cookie: secureSessionCookie
 				? `__Secure-${key}=${secureSessionCookie.value}`
 				: sessionCookie
@@ -53,6 +62,17 @@ type DeletePaths = {
 type PatchPaths = {
 	[P in keyof paths]: paths[P] extends { patch: any } ? P : never;
 }[keyof paths];
+
+// The dashboard layout and several pages request these endpoints
+// independently in the same render pass; cache() collapses the duplicate
+// round-trips into one per request.
+export const getUserMe = cache(() =>
+	fetchServerData<UserMe>("GET", "/user/me"),
+);
+
+export const getDevPlanStatus = cache(() =>
+	fetchServerData<DevPlanStatus>("GET", "/dev-plans/status"),
+);
 
 export async function fetchServerData<T>(
 	method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH",

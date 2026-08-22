@@ -32,6 +32,7 @@ import {
 	getEffectiveDiscount,
 	getEffectiveRateLimit,
 	addApiKeyPeriodDuration,
+	organizationCacheTag,
 	providerKeyAllowsModel,
 	organization as organizationTable,
 	project as projectTable,
@@ -333,11 +334,16 @@ export async function findOrganizationCachedById(
 	id: string,
 ): Promise<Organization | undefined> {
 	return await swrWrap(`org:${id}`, [organizationTableName], async () => {
+		// Tagged per org so the worker can evict exactly this entry right after
+		// debiting credits (it writes via the uncached client, so table-level
+		// auto-invalidation never fires for those debits). This is what keeps
+		// the credit gates near-fresh without shortening the cache TTL.
 		const results = await db
 			.select()
 			.from(organizationTable)
 			.where(eq(organizationTable.id, id))
-			.limit(1);
+			.limit(1)
+			.$withCache({ tag: organizationCacheTag(id), autoInvalidate: true });
 		return results[0];
 	});
 }

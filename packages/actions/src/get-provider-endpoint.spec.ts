@@ -935,6 +935,28 @@ describe("getProviderEndpoint", () => {
 				"https://bedrock-proxy.internal/openai/v1/chat/completions",
 			);
 		});
+
+		it("normalizes a long run of trailing base URL slashes", () => {
+			const endpoint = getProviderEndpoint(
+				"aws-bedrock",
+				`https://bedrock-proxy.internal/openai/v1${"/".repeat(100_000)}`,
+				"grok-4-3",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"us-west-2",
+				true,
+				"grok-4-3",
+			);
+
+			expect(endpoint).toBe(
+				"https://bedrock-proxy.internal/openai/v1/chat/completions",
+			);
+		});
 	});
 
 	describe("alibaba regions", () => {

@@ -3,9 +3,11 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeEach, describe, expect, test } from "vitest";
 
 import {
+	cdb,
 	eq,
 	isNull,
 	db,
+	organizationCacheTag,
 	tables,
 	log,
 	organization,
@@ -187,6 +189,51 @@ describe("Log Processing", () => {
 			});
 
 			expect(Number(updatedOrg!.credits)).toBe(initialCredits - 0.01);
+		});
+
+		test("evicts the debited org's tagged cache entry after settling", async () => {
+			// Same tagged read the gateway's findOrganizationCachedById uses.
+			const readCached = async () =>
+				(
+					await cdb
+						.select()
+						.from(organization)
+						.where(eq(organization.id, testOrg.id))
+						.limit(1)
+						.$withCache({
+							tag: organizationCacheTag(testOrg.id),
+							autoInvalidate: true,
+						})
+				)[0];
+
+			// Prime the cache entry with the pre-debit balance.
+			const before = await readCached();
+			expect(Number(before.credits)).toBe(100);
+
+			await db.insert(log).values({
+				requestId: "test-request-cache-evict",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.01,
+				cached: false,
+				usedMode: "credits",
+				duration: 2000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 150,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			// The debit goes through the uncached client, so without the
+			// worker's eviction this read would serve the stale 100.00 for the
+			// full cache TTL.
+			const after = await readCached();
+			expect(Number(after.credits)).toBe(99.99);
 		});
 
 		test("should accrue premium weekly usage for provider-prefixed premium models on dev plans", async () => {

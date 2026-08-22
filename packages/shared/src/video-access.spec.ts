@@ -50,6 +50,16 @@ describe("video access tokens", () => {
 		expect(verifyVideoContentAccessToken(token, "log-1")).toBe(true);
 	});
 
+	test("creates URL-safe unpadded tokens", () => {
+		process.env.NODE_ENV = "test";
+		process.env[VIDEO_CONTENT_TOKEN_SECRET_ENV] = "configured-secret";
+
+		const token = createVideoContentAccessToken("log-/+=");
+
+		expect(token).not.toMatch(/[+/=]/);
+		expect(verifyVideoContentAccessToken(token, "log-/+=")).toBe(true);
+	});
+
 	test("allows the development fallback in development", () => {
 		process.env.NODE_ENV = "development";
 		setOptionalEnv(VIDEO_CONTENT_TOKEN_SECRET_ENV, undefined);
