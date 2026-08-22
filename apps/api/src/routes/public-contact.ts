@@ -1,11 +1,12 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
-import { apiAuth, redisClient } from "@/auth/config.js";
+import { apiAuth } from "@/auth/config.js";
 import {
 	notifyEnterpriseContact,
 	notifyProviderContact,
 } from "@/utils/discord.js";
+import { consumeRateLimit } from "@/utils/public-rate-limit.js";
 
 import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -144,21 +145,11 @@ function isDisposableEmail(email: string): boolean {
 }
 
 async function checkRateLimit(identifier: string): Promise<boolean> {
-	const key = `contact_rate_limit:${identifier}`;
-	try {
-		const count = await redisClient.incr(key);
-		if (count === 1) {
-			await redisClient.expire(key, RATE_LIMIT_WINDOW_SECONDS);
-		}
-		return count <= RATE_LIMIT_MAX;
-	} catch (error) {
-		logger.error("Rate limit check failed", {
-			error,
-			identifier,
-		});
-		// Fail open — allow the request if Redis is down
-		return true;
-	}
+	return await consumeRateLimit(
+		`contact_rate_limit:${identifier}`,
+		RATE_LIMIT_MAX,
+		RATE_LIMIT_WINDOW_SECONDS,
+	);
 }
 
 function escapeHtml(value: string): string {
