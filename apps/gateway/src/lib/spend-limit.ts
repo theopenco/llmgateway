@@ -165,11 +165,14 @@ export async function assertSpendLimit(
 	}
 
 	if (result.limit !== undefined) {
+		c.header("RateLimit-Limit", String(result.limit));
+		c.header("RateLimit-Remaining", "0");
 		c.header("X-RateLimit-Limit", String(result.limit));
 		c.header("X-RateLimit-Remaining", "0");
 	}
 	if (result.retryAfter) {
 		c.header("Retry-After", String(result.retryAfter));
+		c.header("RateLimit-Reset", String(result.retryAfter));
 		c.header(
 			"X-RateLimit-Reset",
 			String(Math.floor(Date.now() / 1000) + result.retryAfter),

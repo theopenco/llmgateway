@@ -61,6 +61,17 @@ export const config = {
 	info: {
 		version: "1.0.0",
 		title: "LLMGateway API",
+		description: `OpenAI-compatible LLM gateway: chat completions, embeddings, images, audio, video, moderation, OCR and rerank across 40+ providers with one API key.
+
+**Authentication**: create an API key at https://llmgateway.io/dashboard and send it as \`Authorization: Bearer <key>\` (or \`x-api-key\`).
+
+**Versioning**: the API is versioned in the URL path (\`/v1/...\`). Backwards-incompatible changes only ship under a new path version. Model and provider deprecations are announced in the changelog (https://llmgateway.io/changelog) and deprecated entries remain listed in \`/v1/models\` with their deactivation date.
+
+**Rate limits**: requests are limited per organization and per endpoint. 429 responses carry \`Retry-After\`, \`RateLimit-Limit\`, \`RateLimit-Remaining\` and \`RateLimit-Reset\` headers (plus legacy \`X-RateLimit-*\`); back off until \`Retry-After\` elapses.
+
+**MCP**: a Model Context Protocol server (Streamable HTTP) is served at \`/mcp\`; OAuth metadata and scopes are published at \`/.well-known/oauth-authorization-server\` and \`/.well-known/oauth-protected-resource\`.
+
+This document: https://api.llmgateway.io/openapi.json (mirrored at https://llmgateway.io/openapi.json).`,
 	},
 	externalDocs: {
 		url: "https://docs.llmgateway.io",
@@ -372,7 +383,18 @@ app.all("/mcp", mcpHandler);
 // This adds OAuth endpoints at /.well-known/oauth-authorization-server and /oauth/*
 registerMcpOAuthRoutes(app);
 
+// `app.doc` does not merge `config.components`, so register the security
+// scheme on the registry too — otherwise the served spec lacks it (the
+// generate-openapi script patches the written file, but /json is live).
+app.openAPIRegistry.registerComponent("securitySchemes", "bearerAuth", {
+	type: "http",
+	scheme: "bearer",
+	description: "Bearer token authentication using API keys",
+});
+
 app.doc("/json", config);
+// Standard, predictable location agents probe for.
+app.doc("/openapi.json", config);
 
 app.get("/docs", swaggerUI({ url: "/json" }));
 

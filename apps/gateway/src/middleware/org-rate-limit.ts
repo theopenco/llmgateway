@@ -118,6 +118,11 @@ export async function orgRateLimitMiddleware(
 			const message = `Rate limit exceeded for ${c.req.path}. Please retry after ${retryAfter} seconds.`;
 			const headers: Record<string, string> = {
 				"Retry-After": String(retryAfter),
+				// Standard draft-ietf-httpapi-ratelimit-headers fields (RateLimit-Reset
+				// is delta-seconds) alongside the legacy X- variants (epoch reset).
+				"RateLimit-Limit": String(result.limit),
+				"RateLimit-Remaining": "0",
+				"RateLimit-Reset": String(retryAfter),
 				"X-RateLimit-Limit": String(result.limit),
 				"X-RateLimit-Remaining": "0",
 				"X-RateLimit-Reset": String(Math.floor(Date.now() / 1000) + retryAfter),
@@ -164,7 +169,12 @@ export async function orgRateLimitMiddleware(
 		if (!acquisition.allowed) {
 			gatewayRequestsShedTotal.inc({ scope: "org" });
 			const message = `Too many concurrent requests for this organization (limit: ${acquisition.limit}). Retry shortly, or reduce request concurrency.`;
-			const headers: Record<string, string> = { "Retry-After": "1" };
+			const headers: Record<string, string> = {
+				"Retry-After": "1",
+				"RateLimit-Limit": String(acquisition.limit),
+				"RateLimit-Remaining": "0",
+				"RateLimit-Reset": "1",
+			};
 
 			if (c.req.path.startsWith("/v1/messages")) {
 				return c.json(

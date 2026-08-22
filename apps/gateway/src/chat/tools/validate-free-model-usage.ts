@@ -40,6 +40,8 @@ export async function validateFreeModelUsage(
 	);
 
 	// Always set limit and remaining headers
+	c.header("RateLimit-Limit", rateLimitResult.limit.toString());
+	c.header("RateLimit-Remaining", rateLimitResult.remaining.toString());
 	c.header("X-RateLimit-Limit", rateLimitResult.limit.toString());
 	c.header("X-RateLimit-Remaining", rateLimitResult.remaining.toString());
 
@@ -48,6 +50,7 @@ export async function validateFreeModelUsage(
 		const retryAfter = rateLimitResult.retryAfter;
 		if (retryAfter) {
 			c.header("Retry-After", retryAfter.toString());
+			c.header("RateLimit-Reset", retryAfter.toString());
 			const resetTime = Math.floor(Date.now() / 1000) + retryAfter;
 			c.header("X-RateLimit-Reset", resetTime.toString());
 		}

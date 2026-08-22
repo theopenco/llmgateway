@@ -152,6 +152,9 @@ describe("orgRateLimitMiddleware", () => {
 		expect(status).toBe(429);
 		expect(headers).toMatchObject({
 			"Retry-After": "12",
+			"RateLimit-Limit": "600",
+			"RateLimit-Remaining": "0",
+			"RateLimit-Reset": "12",
 			"X-RateLimit-Limit": "600",
 			"X-RateLimit-Remaining": "0",
 		});
@@ -214,7 +217,12 @@ describe("orgRateLimitMiddleware", () => {
 			Record<string, string>,
 		];
 		expect(status).toBe(429);
-		expect(headers).toMatchObject({ "Retry-After": "1" });
+		expect(headers).toMatchObject({
+			"Retry-After": "1",
+			"RateLimit-Limit": "500",
+			"RateLimit-Remaining": "0",
+			"RateLimit-Reset": "1",
+		});
 	});
 
 	it("releases the held slot once the response settles", async () => {
