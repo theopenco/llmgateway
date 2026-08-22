@@ -2,7 +2,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
 	BarChart3Icon,
 	EditIcon,
-	InfoIcon,
 	KeyIcon,
 	MoreHorizontal,
 	PencilIcon,
@@ -80,21 +79,6 @@ interface ApiKeysListProps {
 
 type StatusFilter = "all" | "active" | "inactive";
 type CreatorFilter = "mine" | "all";
-
-function PlaygroundKeyNote() {
-	return (
-		<>
-			<DropdownMenuSeparator />
-			<div className="text-muted-foreground flex max-w-52 items-start gap-2 px-2 py-1.5 text-xs">
-				<InfoIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-				<span>
-					The auto-generated Lounge key is managed by LLM Gateway and can't be
-					edited.
-				</span>
-			</div>
-		</>
-	);
-}
 
 export function ApiKeysList({
 	selectedProject,
@@ -637,7 +621,6 @@ export function ApiKeysList({
 					</TableHeader>
 					<TableBody>
 						{filteredKeys.map((key) => {
-							const isPlaygroundKey = key.kind === "playground";
 							return (
 								<TableRow
 									key={key.id}
@@ -645,9 +628,7 @@ export function ApiKeysList({
 								>
 									<TableCell className="font-medium">
 										<span className="text-sm font-medium">
-											{isPlaygroundKey
-												? "Auto-generated Lounge key"
-												: key.description}
+											{key.description}
 										</span>
 									</TableCell>
 									<TableCell className="min-w-40 max-w-40">
@@ -776,71 +757,52 @@ export function ApiKeysList({
 													</Link>
 												</DropdownMenuItem>
 												<DropdownMenuSeparator />
-												<DropdownMenuItem
-													disabled={isPlaygroundKey}
-													onClick={() => setRenameKey(key)}
-												>
+												<DropdownMenuItem onClick={() => setRenameKey(key)}>
 													<PencilIcon className="mr-2 h-4 w-4" />
 													Rename Key
 												</DropdownMenuItem>
-												<DropdownMenuItem
-													disabled={isPlaygroundKey}
-													onClick={() => toggleStatus(key)}
-												>
+												<DropdownMenuItem onClick={() => toggleStatus(key)}>
 													<PowerIcon className="mr-2 h-4 w-4" />
 													{key.status === "active"
 														? "Deactivate"
 														: "Activate"}{" "}
 													Key
 												</DropdownMenuItem>
-												<DropdownMenuItem
-													disabled={isPlaygroundKey}
-													onClick={() => setRollKey(key)}
-												>
+												<DropdownMenuItem onClick={() => setRollKey(key)}>
 													<RefreshCwIcon className="mr-2 h-4 w-4" />
 													Roll Key
 												</DropdownMenuItem>
 												<DropdownMenuSeparator />
-												{isPlaygroundKey ? (
-													<DropdownMenuItem
-														disabled
-														className="text-destructive focus:text-destructive"
-													>
-														Delete
-													</DropdownMenuItem>
-												) : (
-													<AlertDialog>
-														<AlertDialogTrigger asChild>
-															<DropdownMenuItem
-																onSelect={(e) => e.preventDefault()}
-																className="text-destructive focus:text-destructive"
+												<AlertDialog>
+													<AlertDialogTrigger asChild>
+														<DropdownMenuItem
+															onSelect={(e) => e.preventDefault()}
+															className="text-destructive focus:text-destructive"
+														>
+															Delete
+														</DropdownMenuItem>
+													</AlertDialogTrigger>
+													<AlertDialogContent>
+														<AlertDialogHeader>
+															<AlertDialogTitle>
+																Are you absolutely sure?
+															</AlertDialogTitle>
+															<AlertDialogDescription>
+																This action cannot be undone. This will
+																permanently delete the API key and it will no
+																longer be able to access your account.
+															</AlertDialogDescription>
+														</AlertDialogHeader>
+														<AlertDialogFooter>
+															<AlertDialogCancel>Cancel</AlertDialogCancel>
+															<AlertDialogAction
+																onClick={() => deleteKey(key.id)}
 															>
 																Delete
-															</DropdownMenuItem>
-														</AlertDialogTrigger>
-														<AlertDialogContent>
-															<AlertDialogHeader>
-																<AlertDialogTitle>
-																	Are you absolutely sure?
-																</AlertDialogTitle>
-																<AlertDialogDescription>
-																	This action cannot be undone. This will
-																	permanently delete the API key and it will no
-																	longer be able to access your account.
-																</AlertDialogDescription>
-															</AlertDialogHeader>
-															<AlertDialogFooter>
-																<AlertDialogCancel>Cancel</AlertDialogCancel>
-																<AlertDialogAction
-																	onClick={() => deleteKey(key.id)}
-																>
-																	Delete
-																</AlertDialogAction>
-															</AlertDialogFooter>
-														</AlertDialogContent>
-													</AlertDialog>
-												)}
-												{isPlaygroundKey && <PlaygroundKeyNote />}
+															</AlertDialogAction>
+														</AlertDialogFooter>
+													</AlertDialogContent>
+												</AlertDialog>
 											</DropdownMenuContent>
 										</DropdownMenu>
 									</TableCell>
@@ -854,17 +816,12 @@ export function ApiKeysList({
 			{/* Mobile Cards */}
 			<div className="md:hidden space-y-3">
 				{filteredKeys.map((key) => {
-					const isPlaygroundKey = key.kind === "playground";
 					return (
 						<div key={key.id} className="border rounded-lg p-3 space-y-3">
 							<div className="flex items-start justify-between">
 								<div className="flex-1 min-w-0">
 									<div className="flex items-center gap-2">
-										<h3 className="font-medium text-sm">
-											{isPlaygroundKey
-												? "Auto-generated Lounge key"
-												: key.description}
-										</h3>
+										<h3 className="font-medium text-sm">{key.description}</h3>
 										<StatusBadge status={key.status} />
 									</div>
 									{renderExpiry(key)}
@@ -902,61 +859,43 @@ export function ApiKeysList({
 											</Link>
 										</DropdownMenuItem>
 										<DropdownMenuSeparator />
-										<DropdownMenuItem
-											disabled={isPlaygroundKey}
-											onClick={() => toggleStatus(key)}
-										>
+										<DropdownMenuItem onClick={() => toggleStatus(key)}>
 											<PowerIcon className="mr-2 h-4 w-4" />
 											{key.status === "active" ? "Deactivate" : "Activate"} Key
 										</DropdownMenuItem>
-										<DropdownMenuItem
-											disabled={isPlaygroundKey}
-											onClick={() => setRollKey(key)}
-										>
+										<DropdownMenuItem onClick={() => setRollKey(key)}>
 											<RefreshCwIcon className="mr-2 h-4 w-4" />
 											Roll Key
 										</DropdownMenuItem>
 										<DropdownMenuSeparator />
-										{isPlaygroundKey ? (
-											<DropdownMenuItem
-												disabled
-												className="text-destructive focus:text-destructive"
-											>
-												Delete
-											</DropdownMenuItem>
-										) : (
-											<AlertDialog>
-												<AlertDialogTrigger asChild>
-													<DropdownMenuItem
-														onSelect={(e) => e.preventDefault()}
-														className="text-destructive focus:text-destructive"
-													>
+										<AlertDialog>
+											<AlertDialogTrigger asChild>
+												<DropdownMenuItem
+													onSelect={(e) => e.preventDefault()}
+													className="text-destructive focus:text-destructive"
+												>
+													Delete
+												</DropdownMenuItem>
+											</AlertDialogTrigger>
+											<AlertDialogContent>
+												<AlertDialogHeader>
+													<AlertDialogTitle>
+														Are you absolutely sure?
+													</AlertDialogTitle>
+													<AlertDialogDescription>
+														This action cannot be undone. This will permanently
+														delete the API key and it will no longer be able to
+														access your account.
+													</AlertDialogDescription>
+												</AlertDialogHeader>
+												<AlertDialogFooter>
+													<AlertDialogCancel>Cancel</AlertDialogCancel>
+													<AlertDialogAction onClick={() => deleteKey(key.id)}>
 														Delete
-													</DropdownMenuItem>
-												</AlertDialogTrigger>
-												<AlertDialogContent>
-													<AlertDialogHeader>
-														<AlertDialogTitle>
-															Are you absolutely sure?
-														</AlertDialogTitle>
-														<AlertDialogDescription>
-															This action cannot be undone. This will
-															permanently delete the API key and it will no
-															longer be able to access your account.
-														</AlertDialogDescription>
-													</AlertDialogHeader>
-													<AlertDialogFooter>
-														<AlertDialogCancel>Cancel</AlertDialogCancel>
-														<AlertDialogAction
-															onClick={() => deleteKey(key.id)}
-														>
-															Delete
-														</AlertDialogAction>
-													</AlertDialogFooter>
-												</AlertDialogContent>
-											</AlertDialog>
-										)}
-										{isPlaygroundKey && <PlaygroundKeyNote />}
+													</AlertDialogAction>
+												</AlertDialogFooter>
+											</AlertDialogContent>
+										</AlertDialog>
 									</DropdownMenuContent>
 								</DropdownMenu>
 							</div>

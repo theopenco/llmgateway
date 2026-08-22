@@ -24,10 +24,9 @@ export const MASTER_KEY_PREFIX_DEV = "llmgmkdev_";
  * rotation (rotate by prepending the new secret, keep the old one until all
  * ciphertexts are re-encrypted, then drop it).
  *
- * Gateway API-key authentication checks every keyring entry. Other persisted
- * HMAC lookups (master_key.tokenHash, scim_token.tokenHash, log.usedApiKeyHash)
- * still match the current secret alone, so rotate those hashes before removing
- * an old secret.
+ * Gateway API-key, master-key, and SCIM authentication check every keyring
+ * entry. Only log.usedApiKeyHash uses the current secret alone; historical log
+ * fingerprints are not used for authentication.
  */
 export function getApiKeyHashSecrets(): string[] {
 	const secrets = (process.env[API_KEY_HASH_SECRET_ENV] ?? "")
