@@ -6,6 +6,7 @@ import { streamSSE } from "hono/streaming";
 
 import { app } from "@/app.js";
 import { internalApiOriginHeaders } from "@/lib/api-origin.js";
+import { logGatewayClientError } from "@/lib/client-error-log.js";
 import {
 	buildAnthropicErrorBody,
 	getAnthropicErrorType,
@@ -18,7 +19,6 @@ import {
 } from "@llmgateway/actions";
 import { logger, toError } from "@llmgateway/logger";
 
-import { logAnthropicClientError } from "./client-error-log.js";
 import {
 	buildOpenAiRequestRejectionMessage,
 	detectOpenAiChatCompletionsFields,
@@ -74,24 +74,36 @@ export const anthropic = new OpenAPIHono<ServerTypes>({
 		}
 
 		let rawBody: unknown = null;
+		let invalidJson = false;
 		try {
 			rawBody = await c.req.json();
 		} catch {
-			rawBody = null;
+			invalidJson = true;
 		}
 
 		const openAiFields = detectOpenAiChatCompletionsFields(rawBody);
 		const isOpenAiBody = openAiFields.length > 0;
-		const message = isOpenAiBody
-			? buildOpenAiRequestRejectionMessage(openAiFields)
-			: `Invalid request format: ${formatValidationIssues(result.error)}`;
+		const message = invalidJson
+			? "Invalid JSON in request body"
+			: isOpenAiBody
+				? buildOpenAiRequestRejectionMessage(openAiFields)
+				: `Invalid request format: ${formatValidationIssues(result.error)}`;
+		logger.warn("Invalid Messages API request", {
+			issues: result.error.issues,
+			path: c.req.path,
+			method: c.req.method,
+		});
 
-		await logAnthropicClientError(
-			c,
+		await logGatewayClientError(c, {
+			apiOrigin: "messages",
 			rawBody,
 			message,
-			isOpenAiBody ? "openai_request_format" : "invalid_request_format",
-		);
+			cause: invalidJson
+				? "invalid_json"
+				: isOpenAiBody
+					? "openai_request_format"
+					: "invalid_request_format",
+		});
 
 		return c.json(buildAnthropicErrorBody({ message, status: 400 }), 400);
 	},
@@ -557,9 +569,18 @@ anthropic.openapi(messages, async (c) => {
 	try {
 		rawRequest = await c.req.json();
 	} catch (error) {
-		throw new HTTPException(400, {
-			message: `Invalid JSON in request body: ${error}`,
+		const message = `Invalid JSON in request body: ${error}`;
+		logger.warn("Invalid Messages API JSON", {
+			path: c.req.path,
+			method: c.req.method,
 		});
+		await logGatewayClientError(c, {
+			apiOrigin: "messages",
+			rawBody: null,
+			message,
+			cause: "invalid_json",
+		});
+		throw new HTTPException(400, { message });
 	}
 
 	// Note: no OpenAI-format guard runs here. A body that reaches this point has
@@ -573,12 +594,17 @@ anthropic.openapi(messages, async (c) => {
 	const validation = anthropicRequestSchema.safeParse(rawRequest);
 	if (!validation.success) {
 		const message = `Invalid request format: ${formatValidationIssues(validation.error)}`;
-		await logAnthropicClientError(
-			c,
-			rawRequest,
+		logger.warn("Invalid Messages API request", {
+			issues: validation.error.issues,
+			path: c.req.path,
+			method: c.req.method,
+		});
+		await logGatewayClientError(c, {
+			apiOrigin: "messages",
+			rawBody: rawRequest,
 			message,
-			"invalid_request_format",
-		);
+			cause: "invalid_request_format",
+		});
 		throw new HTTPException(400, { message });
 	}
 
