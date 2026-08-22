@@ -406,6 +406,22 @@ describe("extractTokenUsage", () => {
 	});
 
 	describe("alibaba", () => {
+		it("extracts reasoning tokens nested inside completion details", () => {
+			const data = {
+				usage: {
+					prompt_tokens: 100,
+					completion_tokens: 50,
+					total_tokens: 150,
+					completion_tokens_details: { reasoning_tokens: 30 },
+				},
+			};
+
+			const result = extractTokenUsage(data, "alibaba");
+
+			expect(result.reasoningTokens).toBe(30);
+			expect(result.totalTokens).toBe(150);
+		});
+
 		it("extracts prompt_tokens_details.cache_creation_input_tokens into 5m cache write fields", () => {
 			const data = {
 				usage: {

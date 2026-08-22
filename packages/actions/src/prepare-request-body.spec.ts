@@ -2624,6 +2624,25 @@ describe("prepareRequestBody - Alibaba thinking", () => {
 		expect(requestBody.reasoning_effort).toBeUndefined();
 	});
 
+	test("forwards reasoning_effort natively for kimi-k3", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k3",
+			reasoningEffort: "max",
+		});
+		expect(requestBody.reasoning_effort).toBe("max");
+		expect(requestBody.enable_thinking).toBeUndefined();
+		expect(requestBody.thinking_budget).toBeUndefined();
+	});
+
+	test("forwards the kimi-k3 disable effort natively", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k3",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.reasoning_effort).toBe("none");
+		expect(requestBody.enable_thinking).toBeUndefined();
+	});
+
 	test("sends nothing for mappings without budget-controlled thinking", async () => {
 		const requestBody = await prepare({
 			model: "qwq-plus",

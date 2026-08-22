@@ -224,7 +224,10 @@ export function extractTokenUsage(
 				promptTokens = data.usage.prompt_tokens ?? null;
 				completionTokens = data.usage.completion_tokens ?? null;
 				totalTokens = data.usage.total_tokens ?? null;
-				reasoningTokens = data.usage.reasoning_tokens ?? null;
+				reasoningTokens =
+					data.usage.reasoning_tokens ??
+					data.usage.completion_tokens_details?.reasoning_tokens ??
+					null;
 				cachedTokens = data.usage.prompt_tokens_details?.cached_tokens ?? null;
 				const cacheCreation =
 					data.usage.prompt_tokens_details?.cache_creation_input_tokens ?? 0;

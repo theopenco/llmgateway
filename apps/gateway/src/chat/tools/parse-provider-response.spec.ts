@@ -1136,6 +1136,27 @@ describe("parseProviderResponse", () => {
 	});
 
 	describe("alibaba cache creation tokens", () => {
+		it("extracts reasoning tokens nested inside completion details", () => {
+			const json = {
+				choices: [
+					{
+						message: { content: "Hello", role: "assistant" },
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 100,
+					completion_tokens: 50,
+					completion_tokens_details: { reasoning_tokens: 30 },
+				},
+			};
+
+			const result = parseProviderResponse("alibaba", "kimi-k3", json);
+
+			expect(result.reasoningTokens).toBe(30);
+			expect(result.totalTokens).toBe(150);
+		});
+
 		it("extracts prompt_tokens_details.cache_creation_input_tokens into 5m cache write fields", () => {
 			const json = {
 				choices: [

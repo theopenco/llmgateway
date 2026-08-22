@@ -736,6 +736,23 @@ describe("calculateCosts", () => {
 		expect(result.completionTokens).toBe(330);
 	});
 
+	it("should not double-bill Alibaba reasoning tokens", async () => {
+		const result = await calculateCosts(
+			"kimi-k3",
+			"alibaba",
+			null,
+			1000,
+			330,
+			null,
+			undefined,
+			267,
+		);
+
+		expect(result.inputCost).toBeCloseTo(0.003, 10);
+		expect(result.outputCost).toBeCloseTo(0.00495, 10);
+		expect(result.completionTokens).toBe(330);
+	});
+
 	it("should not double-bill Baidu reasoning tokens", async () => {
 		// Qianfan reports reasoning in completion_tokens_details while already
 		// counting it inside completion_tokens: a thinking-only reply comes back
