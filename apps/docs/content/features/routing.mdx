@@ -230,6 +230,8 @@ On a session's **first** request the provider is chosen by the normal weighted s
 
 Because the pinned provider is replayed directly, sticky requests **skip the epsilon-greedy exploration** — a session is never randomly bounced to a different provider mid-conversation.
 
+Request compatibility takes precedence over the saved pin. The gateway first filters mappings for requirements such as input modalities, service tiers, regions, and a non-`auto` `tool_choice`, then looks for the pinned provider in that eligible set. If the pinned mapping cannot honor the request but another mapping can, the session moves to the capable mapping and the pin is updated. For a fixed model or dynamic route where **no** mapping can honor `tool_choice`, the gateway preserves availability instead: it keeps the mappings, downgrades `tool_choice` to `auto`, and sticky routing may retain the existing pin. Automatic model selection does not use that fallback because it can choose a capable model instead.
+
 #### Falling back when a provider is down
 
 An established pin yields only when its provider can no longer serve the session well. A session is re-scored and re-pinned to the current weighted-best provider when its provider:

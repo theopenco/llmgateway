@@ -967,6 +967,16 @@ export const reasoningModels = testModels.filter((m) =>
 	m.providers.some((p: ProviderModelMapping) => p.reasoning === true),
 );
 
+export const thinkingDisabledForcedToolChoiceModels = testModels.filter((m) =>
+	m.providers.some(
+		(p: ProviderModelMapping) =>
+			p.reasoningEfforts?.includes("none") &&
+			(["required", "function"] as const).every((mode) =>
+				p.supportedToolChoicesWithThinkingDisabled?.includes(mode),
+			),
+	),
+);
+
 // Efforts are forwarded to providers as-is and rejected when unsupported, so
 // tests must send an effort the mapping declares. Prefers "medium" and falls
 // back to the strongest declared tier.

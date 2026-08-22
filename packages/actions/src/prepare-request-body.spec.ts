@@ -7849,3 +7849,147 @@ describe("prepareRequestBody - DashScope web search", () => {
 		},
 	);
 });
+
+describe("prepareRequestBody - tool_choice with thinking disabled", () => {
+	const tools = [
+		{
+			type: "function" as const,
+			function: {
+				name: "get_weather",
+				parameters: {
+					type: "object",
+					properties: { city: { type: "string" } },
+				},
+			},
+		},
+	];
+
+	async function prepare(options: {
+		model: string;
+		toolChoice: Parameters<typeof prepareRequestBody>[13];
+		reasoningEffort?: Parameters<typeof prepareRequestBody>[14];
+	}) {
+		return await prepareRequestBody(
+			"canopywave",
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "What is the weather in Paris?" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			tools,
+			options.toolChoice,
+			options.reasoningEffort,
+			true, // supportsReasoning
+		);
+	}
+
+	test.each(["deepseek-v4-pro", "deepseek-v4-flash"])(
+		"%s coerces required to auto while thinking is on",
+		async (model) => {
+			const requestBody = await prepare({ model, toolChoice: "required" });
+
+			expect(requestBody).toMatchObject({ tool_choice: "auto" });
+		},
+	);
+
+	test.each(["deepseek-v4-pro", "deepseek-v4-flash"])(
+		"%s keeps required when thinking is disabled",
+		async (model) => {
+			// CanopyWave's DeepSeek V4 deployments accept "required" and named
+			// functions only with thinking off, so the mapping's extra modes apply
+			// exactly for reasoning_effort "none".
+			const requestBody = await prepare({
+				model,
+				toolChoice: "required",
+				reasoningEffort: "none",
+			});
+
+			expect(requestBody).toMatchObject({
+				reasoning_effort: "none",
+				tool_choice: "required",
+			});
+		},
+	);
+
+	test.each(["deepseek-v4-pro", "deepseek-v4-flash"])(
+		"%s keeps a named function when thinking is disabled",
+		async (model) => {
+			const requestBody = await prepare({
+				model,
+				toolChoice: { type: "function", function: { name: "get_weather" } },
+				reasoningEffort: "none",
+			});
+
+			expect(requestBody).toMatchObject({
+				tool_choice: {
+					type: "function",
+					function: { name: "get_weather" },
+				},
+			});
+		},
+	);
+
+	test("coerces required to auto with a non-none effort", async () => {
+		const requestBody = await prepare({
+			model: "deepseek-v4-flash",
+			toolChoice: "required",
+			reasoningEffort: "low",
+		});
+
+		expect(requestBody).toMatchObject({ tool_choice: "auto" });
+	});
+
+	test("does not widen a mapping without the thinking-disabled opt-in", async () => {
+		// novita/deepseek-v4-flash rejects "required" regardless of thinking, so
+		// its coercion must survive a thinking-disabled request.
+		const requestBody = await prepareRequestBody(
+			"novita",
+			"deepseek-v4-flash",
+			null,
+			"deepseek-v4-flash",
+			[{ role: "user", content: "What is the weather in Paris?" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			tools,
+			"required",
+			"none",
+			true,
+		);
+
+		expect(requestBody).toMatchObject({ tool_choice: "auto" });
+	});
+
+	test("matches routing when supportedParameters omits tool_choice", async () => {
+		const requestBody = await prepareRequestBody(
+			"deepseek",
+			"deepseek-v4-flash",
+			null,
+			"deepseek-v4-flash",
+			[{ role: "user", content: "What is the weather in Paris?" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			tools,
+			"required",
+			"none",
+			true,
+		);
+
+		expect(requestBody).toMatchObject({ tool_choice: "auto" });
+	});
+});

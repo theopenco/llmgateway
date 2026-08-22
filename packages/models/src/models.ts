@@ -631,6 +631,14 @@ export interface ProviderModelMapping {
 	 */
 	supportedToolChoices?: ToolChoiceMode[];
 	/**
+	 * Additional `tool_choice` modes the upstream only accepts while thinking is
+	 * turned off, i.e. for requests sending `reasoning_effort: "none"` to a
+	 * mapping that publishes `none` in `reasoningEfforts`. These modes are added
+	 * to `supportedToolChoices` for such requests and ignored for every other
+	 * one. Only meaningful alongside a non-empty `supportedToolChoices`.
+	 */
+	supportedToolChoicesWithThinkingDisabled?: ToolChoiceMode[];
+	/**
 	 * Whether this mapping's upstream accepts the OpenAI-only `developer` message
 	 * role. Defaults to `true` (assumed supported). When set to `false`, the
 	 * gateway rewrites `developer` messages to `system` before forwarding, since
