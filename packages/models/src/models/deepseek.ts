@@ -307,6 +307,7 @@ export const deepseekModels = [
 					offPeakDays: {
 						daysOfWeek: [0, 6],
 						utcOffsetMinutes: 480,
+						timeZoneLabel: "Beijing time",
 					},
 				},
 				requestPrice: "0",
@@ -627,6 +628,7 @@ export const deepseekModels = [
 					offPeakDays: {
 						daysOfWeek: [0, 6],
 						utcOffsetMinutes: 480,
+						timeZoneLabel: "Beijing time",
 					},
 				},
 				requestPrice: "0",

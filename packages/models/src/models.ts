@@ -375,6 +375,8 @@ export interface ProviderModelMapping {
 		offPeakDays?: {
 			daysOfWeek: readonly number[];
 			utcOffsetMinutes: number;
+			/** Human-readable time zone used in pricing disclosures. */
+			timeZoneLabel: string;
 		};
 	};
 	/**

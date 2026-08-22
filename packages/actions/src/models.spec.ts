@@ -1398,6 +1398,7 @@ describe("getCheapestFromAvailableProviders", () => {
 				offPeakDays: {
 					daysOfWeek: [0, 6] as const,
 					utcOffsetMinutes: 480,
+					timeZoneLabel: "Beijing time",
 				},
 			},
 		};

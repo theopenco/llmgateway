@@ -26,6 +26,7 @@ const peakPricedMapping = {
 		offPeakDays: {
 			daysOfWeek: [0, 6],
 			utcOffsetMinutes: 480,
+			timeZoneLabel: "Beijing time",
 		},
 	},
 } satisfies Pick<

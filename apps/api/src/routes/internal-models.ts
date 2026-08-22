@@ -56,6 +56,25 @@ const pricingTierSchema = z.object({
 	cacheWriteInputPrice1h: z.string().nullable(),
 });
 
+const timeBasedTokenPricesSchema = z.object({
+	inputPrice: z.string(),
+	outputPrice: z.string(),
+	cachedInputPrice: z.string().nullable(),
+});
+
+const peakPricingSchema = z.object({
+	peak: timeBasedTokenPricesSchema,
+	offPeak: timeBasedTokenPricesSchema,
+	hoursUtc: z.array(z.tuple([z.number(), z.number()])),
+	offPeakDays: z
+		.object({
+			daysOfWeek: z.array(z.number()),
+			utcOffsetMinutes: z.number(),
+			timeZoneLabel: z.string(),
+		})
+		.nullable(),
+});
+
 // Model provider mapping schema
 const modelProviderMappingSchema = z.object({
 	id: z.string(),
@@ -111,6 +130,7 @@ const modelProviderMappingSchema = z.object({
 	perSecondPrice: z.record(z.string()).nullable(),
 	perImagePrice: z.record(z.string()).nullable(),
 	pricingTiers: z.array(pricingTierSchema).nullable(),
+	peakPricing: peakPricingSchema.nullable(),
 	serviceTiers: z.array(z.string()).nullable(),
 	deprecatedAt: z.coerce.date().nullable(),
 	deactivatedAt: z.coerce.date().nullable(),
@@ -342,6 +362,45 @@ internalModels.openapi(getModelsRoute, async (c) => {
 								: null,
 					}));
 				})(),
+				peakPricing: sharedMapping?.peakPricing
+					? {
+							peak: {
+								inputPrice: String(sharedMapping.peakPricing.peak.inputPrice),
+								outputPrice: String(sharedMapping.peakPricing.peak.outputPrice),
+								cachedInputPrice:
+									sharedMapping.peakPricing.peak.cachedInputPrice !== undefined
+										? String(sharedMapping.peakPricing.peak.cachedInputPrice)
+										: null,
+							},
+							offPeak: {
+								inputPrice: String(
+									sharedMapping.peakPricing.offPeak.inputPrice,
+								),
+								outputPrice: String(
+									sharedMapping.peakPricing.offPeak.outputPrice,
+								),
+								cachedInputPrice:
+									sharedMapping.peakPricing.offPeak.cachedInputPrice !==
+									undefined
+										? String(sharedMapping.peakPricing.offPeak.cachedInputPrice)
+										: null,
+							},
+							hoursUtc: sharedMapping.peakPricing.hoursUtc.map(
+								([start, end]) => [start, end] as [number, number],
+							),
+							offPeakDays: sharedMapping.peakPricing.offPeakDays
+								? {
+										daysOfWeek: [
+											...sharedMapping.peakPricing.offPeakDays.daysOfWeek,
+										],
+										utcOffsetMinutes:
+											sharedMapping.peakPricing.offPeakDays.utcOffsetMinutes,
+										timeZoneLabel:
+											sharedMapping.peakPricing.offPeakDays.timeZoneLabel,
+									}
+								: null,
+						}
+					: null,
 				serviceTiers: (() => {
 					const tiers = sharedMapping?.serviceTiers ?? null;
 					if (!tiers || tiers.length === 0) {
