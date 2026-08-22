@@ -19,7 +19,17 @@ import {
 import type { ProviderKeyOptions } from "@llmgateway/db";
 
 function appendPath(url: string, path: string): string {
-	return `${url.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
+	let urlEnd = url.length;
+	while (urlEnd > 0 && url[urlEnd - 1] === "/") {
+		urlEnd--;
+	}
+
+	let pathStart = 0;
+	while (pathStart < path.length && path[pathStart] === "/") {
+		pathStart++;
+	}
+
+	return `${url.slice(0, urlEnd)}/${path.slice(pathStart)}`;
 }
 
 function getBedrockMantleBaseUrl(url: string, region?: string): string {
