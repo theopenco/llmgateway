@@ -32,8 +32,9 @@ import {
 	CardTitle,
 } from "@/lib/components/card";
 import { useApi } from "@/lib/fetch-client";
-import { getBrowserTimeZone } from "@/lib/timezone";
 import { applyUsageMode, pickCost, pickRequests } from "@/lib/usage-mode";
+
+import { useDisplayTimeZone } from "@llmgateway/shared";
 
 import type { MyMemberBudgetData } from "@/hooks/useTeam";
 
@@ -77,6 +78,7 @@ export function DeveloperDashboardClient({
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const api = useApi();
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 
 	useEffect(() => {
 		if (!searchParams.get("from") || !searchParams.get("to")) {
@@ -103,7 +105,7 @@ export function DeveloperDashboardClient({
 					projectId,
 					from: fromStr,
 					to: toStr,
-					timezone: getBrowserTimeZone(),
+					timezone: displayTimeZone,
 				},
 			},
 		},

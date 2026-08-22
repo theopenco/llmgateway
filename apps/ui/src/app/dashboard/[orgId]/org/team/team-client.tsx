@@ -86,10 +86,12 @@ import {
 } from "@/lib/components/table";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
-import { getBrowserTimeZone } from "@/lib/timezone";
 import { applyUsageMode } from "@/lib/usage-mode";
 
-import { SSO_TEAM_DEFAULT_DEVELOPER_BUDGET } from "@llmgateway/shared";
+import {
+	SSO_TEAM_DEFAULT_DEVELOPER_BUDGET,
+	useDisplayTimeZone,
+} from "@llmgateway/shared";
 
 import type { Route } from "next";
 
@@ -699,6 +701,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 	const { buildUrl, buildOrgUrl, selectedOrganization } =
 		useDashboardNavigation();
 	const api = useApi();
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 	const { user } = useUser();
 	const usageMode = useUsageMode();
 
@@ -765,7 +768,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 					organizationId,
 					from: fromStr,
 					to: toStr,
-					timezone: getBrowserTimeZone(),
+					timezone: displayTimeZone,
 				},
 			},
 		},

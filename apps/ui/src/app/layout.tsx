@@ -2,6 +2,7 @@ import { Inter, Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
 
 import { Providers } from "@/components/providers";
 import { getConfig } from "@/lib/config-server";
+import { getTimeZonePreference } from "@/lib/timezone-server";
 
 import "./globals.css";
 
@@ -133,8 +134,13 @@ const websiteSchema = {
 	},
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({
+	children,
+}: {
+	children: ReactNode;
+}) {
 	const config = getConfig();
+	const timeZone = await getTimeZonePreference();
 
 	return (
 		<html
@@ -161,7 +167,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 				/>
 			</head>
 			<body className="min-h-screen antialiased">
-				<Providers config={config}>{children}</Providers>
+				<Providers config={config} timeZone={timeZone}>
+					{children}
+				</Providers>
 			</body>
 		</html>
 	);

@@ -55,9 +55,10 @@ import {
 } from "@/lib/components/card";
 import { Skeleton } from "@/lib/components/skeleton";
 import { useApi } from "@/lib/fetch-client";
-import { getBrowserTimeZone } from "@/lib/timezone";
 import { applyUsageModeToDaily } from "@/lib/usage-mode";
 import { cn } from "@/lib/utils";
+
+import { useDisplayTimeZone } from "@llmgateway/shared";
 
 import type { ActivitT } from "@/types/activity";
 
@@ -232,6 +233,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 
 	const { selectedOrganization, selectedProject } = useDashboardNavigation();
 	const api = useApi();
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 
 	const { data, isLoading } = api.useQuery(
 		"get",
@@ -241,7 +243,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 				query: {
 					from: fromStr,
 					to: toStr,
-					timezone: getBrowserTimeZone(),
+					timezone: displayTimeZone,
 					...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
 				},
 			},
@@ -265,7 +267,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 				query: {
 					from: format(prevFrom, "yyyy-MM-dd"),
 					to: format(prevTo, "yyyy-MM-dd"),
-					timezone: getBrowserTimeZone(),
+					timezone: displayTimeZone,
 					...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
 				},
 			},

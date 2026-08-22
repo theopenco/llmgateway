@@ -25,8 +25,9 @@ import {
 	CardTitle,
 } from "@/lib/components/card";
 import { useApi } from "@/lib/fetch-client";
-import { getBrowserTimeZone } from "@/lib/timezone";
 import { applyUsageModeToDaily } from "@/lib/usage-mode";
+
+import { useDisplayTimeZone } from "@llmgateway/shared";
 
 import type { Route } from "next";
 
@@ -43,6 +44,7 @@ export function ApiKeyStatsClient({
 	const searchParams = useSearchParams();
 	const { buildUrl, selectedOrganization } = useDashboardNavigation();
 	const api = useApi();
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 	const usageMode = useUsageMode();
 	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 
@@ -84,7 +86,7 @@ export function ApiKeyStatsClient({
 				query: {
 					from: fromStr,
 					to: toStr,
-					timezone: getBrowserTimeZone(),
+					timezone: displayTimeZone,
 					apiKeyId: keyId,
 					...(projectId ? { projectId } : {}),
 				},

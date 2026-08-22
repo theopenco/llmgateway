@@ -16,7 +16,10 @@ import { Toaster } from "@/lib/components/toaster";
 import { toast } from "@/lib/components/use-toast";
 import { AppConfigProvider } from "@/lib/config";
 
+import { TimeZoneProvider } from "@llmgateway/shared";
+
 import type { AppConfig } from "@/lib/config-server";
+import type { TimeZonePreference } from "@llmgateway/shared";
 import type { ReactNode } from "react";
 
 // The support widget starts collapsed but statically pulls in the AI SDK and
@@ -30,6 +33,9 @@ const ChatSupport = dynamic(() =>
 interface ProvidersProps {
 	children: ReactNode;
 	config: AppConfig;
+	/** Read from the timezone cookie by the root layout, so the first render
+	 *  already uses the user's chosen zone. */
+	timeZone: TimeZonePreference;
 }
 
 function extractErrorMessage(error: unknown): string {
@@ -51,7 +57,7 @@ function extractErrorMessage(error: unknown): string {
 	return "An unknown error occurred.";
 }
 
-export function Providers({ children, config }: ProvidersProps) {
+export function Providers({ children, config, timeZone }: ProvidersProps) {
 	// useState, not useMemo: React may discard a useMemo cache, which would
 	// silently swap in a fresh QueryClient and drop the whole query cache.
 	const [queryClient] = useState(
@@ -117,36 +123,38 @@ export function Providers({ children, config }: ProvidersProps) {
 	}, [config.posthogKey, config.posthogHost]);
 
 	return (
-		<AppConfigProvider config={config}>
-			<ThemeProvider
-				attribute="class"
-				defaultTheme="system"
-				enableSystem
-				storageKey="theme"
-			>
-				<QueryClientProvider client={queryClient}>
-					<PostHogProvider client={posthog}>
-						{children}
-						{/* Gated on init: posthog-js drops captures fired before
+		<TimeZoneProvider initial={timeZone}>
+			<AppConfigProvider config={config}>
+				<ThemeProvider
+					attribute="class"
+					defaultTheme="system"
+					enableSystem
+					storageKey="theme"
+				>
+					<QueryClientProvider client={queryClient}>
+						<PostHogProvider client={posthog}>
+							{children}
+							{/* Gated on init: posthog-js drops captures fired before
 						    init(), and the OAuth signup event has exactly one
 						    chance to fire. */}
-						{posthogReady && (
-							<Suspense>
-								<SignupMethodTracker />
-							</Suspense>
+							{posthogReady && (
+								<Suspense>
+									<SignupMethodTracker />
+								</Suspense>
+							)}
+						</PostHogProvider>
+						{process.env.NODE_ENV === "development" && (
+							<ReactQueryDevtools buttonPosition="bottom-left" />
 						)}
-					</PostHogProvider>
-					{process.env.NODE_ENV === "development" && (
-						<ReactQueryDevtools buttonPosition="bottom-left" />
-					)}
-					<ChatSupport />
-				</QueryClientProvider>
-				<Toaster />
-				<SonnerToaster richColors position="bottom-right" />
-				<Suspense>
-					<ReferralHandler />
-				</Suspense>
-			</ThemeProvider>
-		</AppConfigProvider>
+						<ChatSupport />
+					</QueryClientProvider>
+					<Toaster />
+					<SonnerToaster richColors position="bottom-right" />
+					<Suspense>
+						<ReferralHandler />
+					</Suspense>
+				</ThemeProvider>
+			</AppConfigProvider>
+		</TimeZoneProvider>
 	);
 }

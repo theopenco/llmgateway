@@ -1,6 +1,5 @@
 "use client";
 
-import { format } from "date-fns";
 import { ArrowDown, ArrowRight, ArrowUp, Loader2 } from "lucide-react";
 import { useState } from "react";
 
@@ -19,6 +18,8 @@ import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useApi } from "@/lib/fetch-client";
 import { cn, formatUsageRatio } from "@/lib/utils";
+
+import { formatDateTime, useDisplayTimeZone } from "@llmgateway/shared";
 
 import type { PlanOption, PlanTier } from "@/app/dashboard/types";
 import type { paths } from "@/lib/api/v1";
@@ -331,9 +332,11 @@ function TierChangeDialog({
 	);
 }
 
-function formatRenewalDate(iso: string): string | null {
+function formatRenewalDate(iso: string, timeZone: string): string | null {
 	const date = new Date(iso);
-	return Number.isNaN(date.getTime()) ? null : format(date, "MMM d, yyyy");
+	return Number.isNaN(date.getTime())
+		? null
+		: formatDateTime(date, timeZone, "monthDayYear");
 }
 
 // Shared between the timing chooser and the fallback preview copy so the
@@ -379,7 +382,11 @@ function UpgradeTimingChoice({
 	timing: TierChangeTiming;
 	onTimingChange: (timing: TierChangeTiming) => void;
 }) {
-	const renewalDate = formatRenewalDate(preview.billingPeriodEnd);
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
+	const renewalDate = formatRenewalDate(
+		preview.billingPeriodEnd,
+		displayTimeZone,
+	);
 
 	return (
 		<RadioGroup

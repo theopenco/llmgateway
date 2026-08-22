@@ -1,6 +1,6 @@
 "use client";
 
-import { format, formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow } from "date-fns";
 import {
 	AlertCircle,
 	AudioWaveform,
@@ -30,6 +30,7 @@ import prettyBytes from "pretty-bytes";
 import { useState } from "react";
 
 import { CredentialSourceBadge } from "@/components/credential-source-badge";
+import { Time } from "@/components/time";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -1193,7 +1194,7 @@ export function LogCard({
 							<div className="grid grid-cols-2 gap-2 rounded-md border p-3 text-sm">
 								<div className="text-muted-foreground">Date</div>
 								<div className="font-mono text-xs">
-									{format(new Date(log.createdAt), "dd.MM.yyyy HH:mm:ss")}
+									<Time date={log.createdAt} format="dayMonthYearTime" />
 								</div>
 								<div className="text-muted-foreground">Request ID</div>
 								<div className="flex items-center gap-1 font-mono text-xs break-all">

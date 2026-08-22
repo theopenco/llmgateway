@@ -39,8 +39,9 @@ import {
 	SelectValue,
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
-import { getBrowserTimeZone } from "@/lib/timezone";
 import { applyUsageModeToDaily } from "@/lib/usage-mode";
+
+import { useDisplayTimeZone } from "@llmgateway/shared";
 
 import type { DailyActivity } from "@/types/activity";
 
@@ -79,6 +80,7 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 	const searchParams = useSearchParams();
 	const { buildUrl, orgId, selectedOrganization } = useDashboardNavigation();
 	const api = useApi();
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 	const { user } = useUser();
 	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 
@@ -138,7 +140,7 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 				query: {
 					from: fromStr,
 					to: toStr,
-					timezone: getBrowserTimeZone(),
+					timezone: displayTimeZone,
 					groupBy,
 					...(projectId ? { projectId } : {}),
 				},

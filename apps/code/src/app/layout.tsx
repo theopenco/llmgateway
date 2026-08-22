@@ -3,6 +3,7 @@ import { Bricolage_Grotesque, Inter, Geist_Mono } from "next/font/google";
 import { GoogleTag } from "@/components/google-tag";
 import { Providers } from "@/components/providers";
 import { getConfig } from "@/lib/config-server";
+import { getTimeZonePreference } from "@/lib/timezone-server";
 
 import "./globals.css";
 
@@ -85,8 +86,13 @@ const webSiteSchema = {
 	},
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({
+	children,
+}: {
+	children: ReactNode;
+}) {
 	const config = getConfig();
+	const timeZone = await getTimeZonePreference();
 
 	return (
 		<html
@@ -109,7 +115,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 					googleAdsSignupConversion={config.googleAdsSignupConversion}
 					googleAdsPurchaseConversion={config.googleAdsPurchaseConversion}
 				/>
-				<Providers config={config}>{children}</Providers>
+				<Providers config={config} timeZone={timeZone}>
+					{children}
+				</Providers>
 			</body>
 		</html>
 	);

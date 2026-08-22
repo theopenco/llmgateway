@@ -1,6 +1,5 @@
 "use client";
 
-import { format, parseISO } from "date-fns";
 import { Loader2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
@@ -22,6 +21,8 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { useApi } from "@/lib/fetch-client";
+
+import { formatBucketLabel, useDisplayTimeZone } from "@llmgateway/shared";
 
 import type { paths } from "@/lib/api/v1";
 import type { TooltipProps } from "recharts";
@@ -113,7 +114,7 @@ function ChartTooltipContent({
 		return null;
 	}
 	const dateLabel = label
-		? format(parseISO(label), hourly ? "MMM d, HH:mm" : "MMM d, yyyy")
+		? formatBucketLabel(label, hourly ? "monthDayHourMinute" : "monthDayYear")
 		: "";
 	// Token classes bill at very different rates (cached input is often 10x
 	// cheaper than fresh input, output 6x more expensive), so a flat token
@@ -212,6 +213,7 @@ export function AgentModelUsageChart({ projectId }: AgentModelUsageChartProps) {
 	const [range, setRange] = useState<AgentChartTimeRange>("24h");
 	const [metric, setMetric] = useState<Metric>("cost");
 	const api = useApi();
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 
 	const { data, isLoading, isFetching } = api.useQuery(
 		"get",
@@ -220,6 +222,7 @@ export function AgentModelUsageChart({ projectId }: AgentModelUsageChartProps) {
 			params: {
 				query: {
 					timeRange: range,
+					timezone: displayTimeZone,
 					projectId,
 				},
 			},
@@ -288,8 +291,8 @@ export function AgentModelUsageChart({ projectId }: AgentModelUsageChartProps) {
 				const base: ChartRow = {
 					slot: row.slot,
 					formattedDate: hourly
-						? format(parseISO(row.slot), "HH:mm")
-						: format(parseISO(row.slot), "MMM d"),
+						? formatBucketLabel(row.slot, "hourMinute")
+						: formatBucketLabel(row.slot, "monthDay"),
 					totalRequests: row.totalRequests,
 					totalCost: row.totalCost,
 					totalTokens: row.totalTokens,
@@ -437,13 +440,9 @@ export function AgentModelUsageChart({ projectId }: AgentModelUsageChartProps) {
 								<XAxis
 									dataKey="slot"
 									tickFormatter={(value: string) => {
-										try {
-											return hourly
-												? format(parseISO(value), "HH:mm")
-												: format(parseISO(value), "MMM d");
-										} catch {
-											return value;
-										}
+										return hourly
+											? formatBucketLabel(value, "hourMinute")
+											: formatBucketLabel(value, "monthDay");
 									}}
 									stroke="currentColor"
 									className="text-muted-foreground"

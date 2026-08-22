@@ -34,10 +34,9 @@ import {
 	TableRow,
 } from "@/lib/components/table";
 import { useApi } from "@/lib/fetch-client";
-import { getBrowserTimeZone } from "@/lib/timezone";
 import { applyUsageMode, pickCost, pickRequests } from "@/lib/usage-mode";
 
-import { deriveStabilityMetrics } from "@llmgateway/shared";
+import { deriveStabilityMetrics, useDisplayTimeZone } from "@llmgateway/shared";
 
 import type { Route } from "next";
 
@@ -53,6 +52,7 @@ export function MemberDetailClient() {
 	const searchParams = useSearchParams();
 	const { buildOrgUrl, selectedOrganization } = useDashboardNavigation();
 	const api = useApi();
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 	const { user } = useUser();
 	const usageMode = useUsageMode();
 	const { data: teamData } = useTeamMembers(organizationId);
@@ -99,7 +99,7 @@ export function MemberDetailClient() {
 					organizationId,
 					from: fromStr,
 					to: toStr,
-					timezone: getBrowserTimeZone(),
+					timezone: displayTimeZone,
 				},
 			},
 		},

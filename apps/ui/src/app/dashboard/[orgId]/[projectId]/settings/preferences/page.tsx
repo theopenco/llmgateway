@@ -9,6 +9,8 @@ import {
 	CardTitle,
 } from "@/lib/components/card";
 
+import { TimeZoneSetting } from "@llmgateway/shared";
+
 import { ArchiveProjectSettings } from "./_components/archive-project";
 import { CachingSettingsRsc } from "./_components/caching-settings-rsc";
 import { ProjectModeSettingsRsc } from "./_components/project-mode-settings-rsc";
@@ -45,6 +47,19 @@ export default async function PreferencesPage({
 								value={projectId}
 								copyAriaLabel="Copy project ID"
 							/>
+						</CardContent>
+					</Card>
+
+					<Card>
+						<CardHeader>
+							<CardTitle>Time display</CardTitle>
+							<CardDescription>
+								Choose whether dates and times are shown in your local timezone
+								or in UTC
+							</CardDescription>
+						</CardHeader>
+						<CardContent>
+							<TimeZoneSetting />
 						</CardContent>
 					</Card>
 

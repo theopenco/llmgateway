@@ -1,12 +1,14 @@
 "use client";
 
-import { format, formatDistanceToNowStrict } from "date-fns";
+import { formatDistanceToNowStrict } from "date-fns";
 import { Activity, Coins, Cpu, Gem, TrendingUp } from "lucide-react";
 import { usePostHog } from "posthog-js/react";
 import { useEffect } from "react";
 
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
+
+import { formatDateTime, useDisplayTimeZone } from "@llmgateway/shared";
 
 import { AgentModelUsageChart } from "./AgentModelUsageChart";
 import AllowanceExhaustedCard from "./AllowanceExhaustedCard";
@@ -95,6 +97,7 @@ function WeeklyAllowanceMeter({
 	// not read as an error.
 	overflowCovering: boolean;
 }) {
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 	const percentage = limit > 0 ? (used / limit) * 100 : 0;
 	const clamped = Math.min(100, percentage);
 	const isLow = percentage > 80;
@@ -111,7 +114,7 @@ function WeeklyAllowanceMeter({
 					</div>
 					<div className="mt-0.5 text-xs text-muted-foreground">
 						{resetsAt
-							? `Resets ${format(new Date(resetsAt), "MMM d")}`
+							? `Resets ${formatDateTime(resetsAt, displayTimeZone, "monthDay")}`
 							: "Window starts with your first premium request"}
 					</div>
 				</div>
@@ -195,6 +198,7 @@ export default function UsageOverview({
 }: UsageOverviewProps) {
 	const api = useApi();
 	const posthog = usePostHog();
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 	const { posthogKey } = useAppConfig();
 
 	const tierKey = planName.toLowerCase();
@@ -286,7 +290,7 @@ export default function UsageOverview({
 	const cycleLengthLabel = billingCycleStart ? "this cycle" : "30d";
 
 	const cycleLabel = billingCycleStart
-		? `Since ${format(new Date(billingCycleStart), "MMM d, yyyy")}`
+		? `Since ${formatDateTime(billingCycleStart, displayTimeZone, "monthDayYear")}`
 		: "Active";
 
 	// The renewal/period-end date must come from Stripe's actual
@@ -313,7 +317,7 @@ export default function UsageOverview({
 
 	const cycleEndsHint = cancelledAtPeriodEnd
 		? renewAt
-			? `Cancels ${format(renewAt, "MMM d, yyyy")}`
+			? `Cancels ${formatDateTime(renewAt, displayTimeZone, "monthDayYear")}`
 			: "Cancels at period end"
 		: renewAt
 			? `Renews in ${formatDistanceToNowStrict(renewAt)}`
@@ -449,7 +453,7 @@ export default function UsageOverview({
 					}
 					hint={
 						peakDay && (peakDay.cost ?? 0) > 0
-							? format(new Date(peakDay.date), "MMM d")
+							? formatDateTime(peakDay.date, displayTimeZone, "monthDay")
 							: undefined
 					}
 					icon={TrendingUp}

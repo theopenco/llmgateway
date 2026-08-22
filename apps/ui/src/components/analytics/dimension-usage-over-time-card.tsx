@@ -1,6 +1,5 @@
 "use client";
 
-import { format, parseISO } from "date-fns";
 import { useCallback, useMemo, useState } from "react";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
@@ -17,6 +16,8 @@ import {
 	ChartTooltipContent,
 } from "@/lib/components/chart";
 import { cn } from "@/lib/utils";
+
+import { formatBucketLabel } from "@llmgateway/shared";
 
 import {
 	buildDimensionTimeseries,
@@ -84,7 +85,7 @@ export function DimensionUsageOverTimeCard({
 	const hasData = series.series.length > 0;
 
 	const formatTimestamp = useCallback(
-		(ts: string) => format(parseISO(ts), "MMM d"),
+		(ts: string) => formatBucketLabel(ts, "monthDay"),
 		[],
 	);
 
@@ -168,7 +169,7 @@ export function DimensionUsageOverTimeCard({
 												label={props.label}
 												payload={sortedPayload}
 												labelFormatter={(value: string) =>
-													format(parseISO(value), "MMM d, yyyy")
+													formatBucketLabel(value, "monthDayYear")
 												}
 												formatter={(value, name) => {
 													const label =

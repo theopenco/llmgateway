@@ -19,10 +19,10 @@ import {
 	PopoverTrigger,
 } from "@/lib/components/popover";
 import { useApi } from "@/lib/fetch-client";
-import { getBrowserTimeZone } from "@/lib/timezone";
 import { applyUsageModeToDaily } from "@/lib/usage-mode";
 
 import { providers } from "@llmgateway/models";
+import { useDisplayTimeZone } from "@llmgateway/shared";
 
 import type { ChartConfig } from "@/lib/components/chart";
 import type { ActivitT } from "@/types/activity";
@@ -101,6 +101,7 @@ export function CostBreakdownChart({
 	const effectiveProjectId = projectId ?? selectedProject?.id;
 
 	const api = useApi();
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 	const { data, isLoading, error } = api.useQuery(
 		"get",
 		"/activity",
@@ -109,7 +110,7 @@ export function CostBreakdownChart({
 				query: {
 					from: fromStr,
 					to: toStr,
-					timezone: getBrowserTimeZone(),
+					timezone: displayTimeZone,
 					...(effectiveProjectId ? { projectId: effectiveProjectId } : {}),
 					...(apiKeyId ? { apiKeyId } : {}),
 				},
