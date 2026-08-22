@@ -1,6 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { assertSafeUserContentUrl } from "./url-safety-node.js";
+import {
+	assertSafeResolvedUserUrl,
+	assertSafeUserContentUrl,
+} from "./url-safety-node.js";
+
+const lookupMock = vi.hoisted(() => vi.fn());
+
+vi.mock("node:dns/promises", () => ({
+	lookup: lookupMock,
+}));
 
 describe("assertSafeUserContentUrl", () => {
 	const originalFlag = process.env.ALLOW_INSECURE_PROVIDER_URLS;
@@ -16,6 +25,8 @@ describe("assertSafeUserContentUrl", () => {
 	describe("with the guard enabled", () => {
 		beforeEach(() => {
 			delete process.env.ALLOW_INSECURE_PROVIDER_URLS;
+			lookupMock.mockReset();
+			lookupMock.mockResolvedValue([{ address: "8.8.8.8", family: 4 }]);
 		});
 
 		it("rejects http URLs before any DNS lookup", async () => {
@@ -46,11 +57,31 @@ describe("assertSafeUserContentUrl", () => {
 				assertSafeUserContentUrl("data:image/png;base64,iVBORw0KGgo="),
 			).resolves.toBeUndefined();
 		});
+
+		it("rejects hostnames resolving to unsafe addresses", async () => {
+			lookupMock.mockResolvedValue([{ address: "169.254.169.254", family: 4 }]);
+
+			await expect(
+				assertSafeResolvedUserUrl("https://mcp.example.com/rpc"),
+			).rejects.toThrow("resolves to a disallowed address");
+		});
+
+		it("accepts hostnames only when every resolved address is public", async () => {
+			lookupMock.mockResolvedValue([
+				{ address: "8.8.8.8", family: 4 },
+				{ address: "2606:4700:4700::1111", family: 6 },
+			]);
+
+			await expect(
+				assertSafeResolvedUserUrl("https://mcp.example.com/rpc"),
+			).resolves.toEqual(new URL("https://mcp.example.com/rpc"));
+		});
 	});
 
 	describe("with the guard disabled", () => {
 		beforeEach(() => {
 			process.env.ALLOW_INSECURE_PROVIDER_URLS = "true";
+			lookupMock.mockReset();
 		});
 
 		it("is a no-op even for http and internal targets", async () => {

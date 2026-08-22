@@ -1754,6 +1754,9 @@ importers:
       tailwind-merge:
         specifier: 3.4.0
         version: 3.4.0
+      undici:
+        specifier: 8.9.0
+        version: 8.9.0
       zod:
         specifier: 3.25.75
         version: 3.25.75
