@@ -1,10 +1,10 @@
 /**
- * How close a scheduled deactivation has to be before it is worth surfacing.
- * A date further out than this is catalogue bookkeeping (providers routinely
- * publish retirement dates a year or more ahead) — the mapping routes normally
- * and nothing about it should read as "deactivated".
+ * How close a scheduled deactivation has to be for operational "soon" states.
  */
 export const DEACTIVATION_NOTICE_DAYS = 30;
+
+/** How close a deactivation has to be before the models directory warns. */
+export const MODEL_DEACTIVATION_NOTICE_DAYS = 90;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -39,5 +39,20 @@ export function isDeactivationScheduledSoon(
 	return (
 		deactivatedAt > now &&
 		deactivatedAt.getTime() - now.getTime() <= withinDays * DAY_MS
+	);
+}
+
+/**
+ * True when a deactivation deserves a warning: it has already happened or is
+ * scheduled inside the notice window.
+ */
+export function shouldShowDeactivationNotice(
+	mapping: { deactivatedAt?: Date | string | null },
+	now: Date = new Date(),
+	withinDays: number = MODEL_DEACTIVATION_NOTICE_DAYS,
+): boolean {
+	return (
+		isMappingDeactivated(mapping, now) ||
+		isDeactivationScheduledSoon(mapping, now, withinDays)
 	);
 }

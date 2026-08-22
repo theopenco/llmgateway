@@ -5,7 +5,7 @@ import { models } from "@llmgateway/models";
 
 import { validateModelCapabilities } from "./validate-model-capabilities.js";
 
-import type { ModelDefinition } from "@llmgateway/models";
+import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
 
 function getModel(id: string): ModelDefinition {
 	const m = models.find((model) => model.id === id);
@@ -64,6 +64,39 @@ const textImageModel = (() => {
 // gemma-4-31b-it has runware (supportsAssistantPrefill: false) alongside
 // providers that accept a trailing assistant message.
 const mixedPrefillModel = getModel("gemma-4-31b-it");
+
+// JSON capability fixtures — looked up by capability combination so the tests
+// don't pin to a specific model id that may churn. Only chat-servable models
+// (text/image output) qualify; the "auto"/"custom" sentinel entries are
+// excluded.
+function getModelByJsonCapability(
+	kind: "none" | "soft" | "strict",
+): ModelDefinition {
+	const isChat = (m: ModelDefinition) =>
+		(m.output ?? ["text"]).some((o) => o === "text" || o === "image");
+	const m = (models as readonly ModelDefinition[]).find((model) => {
+		if (!isChat(model) || model.id === "auto" || model.id === "custom") {
+			return false;
+		}
+		const soft = model.providers.some(
+			(p) => (p as ProviderModelMapping).jsonOutput === true,
+		);
+		const strict = model.providers.some(
+			(p) => (p as ProviderModelMapping).jsonOutputSchema === true,
+		);
+		return kind === "none"
+			? !soft && !strict
+			: kind === "soft"
+				? soft && !strict
+				: strict;
+	});
+	if (!m) {
+		throw new Error(
+			`Test fixture missing: no model with JSON capability "${kind}"`,
+		);
+	}
+	return m;
+}
 
 describe("validateModelCapabilities - assistant prefill", () => {
 	it("rejects when the explicit provider rejects a trailing assistant message", () => {
@@ -380,5 +413,68 @@ describe("validateModelCapabilities - reasoning.max_tokens", () => {
 				reasoning_max_tokens: 2048,
 			}),
 		).toThrow(HTTPException);
+	});
+});
+
+describe("validateModelCapabilities - JSON output", () => {
+	it("rejects json_object for a model without jsonOutput", () => {
+		const m = getModelByJsonCapability("none");
+		expect(() =>
+			validateModelCapabilities(m, m.id, undefined, {
+				response_format: { type: "json_object" },
+			}),
+		).toThrow(/does not support JSON output mode/);
+	});
+
+	it("accepts json_object for a soft-only model (jsonOutput true, schema false)", () => {
+		const m = getModelByJsonCapability("soft");
+		expect(() =>
+			validateModelCapabilities(m, m.id, undefined, {
+				response_format: { type: "json_object" },
+			}),
+		).not.toThrow();
+	});
+
+	it("rejects json_schema for a soft-only model — the gateway never emulates strict schema", () => {
+		const m = getModelByJsonCapability("soft");
+		expect(() =>
+			validateModelCapabilities(m, m.id, undefined, {
+				response_format: { type: "json_schema" },
+			}),
+		).toThrow(/does not support JSON schema output mode/);
+	});
+
+	it("accepts json_schema for a model with jsonOutputSchema true", () => {
+		const m = getModelByJsonCapability("strict");
+		expect(() =>
+			validateModelCapabilities(m, m.id, undefined, {
+				response_format: { type: "json_schema" },
+			}),
+		).not.toThrow();
+	});
+
+	it("rejects json_schema when the pinned provider is soft-only even if a sibling mapping is strict", () => {
+		// gpt-4o: openai is strict, azure is soft-only. The contract is
+		// per mapping, so pinning the soft-only provider must reject json_schema.
+		const m = getModel("gpt-4o");
+		expect(() =>
+			validateModelCapabilities(m, "gpt-4o", "azure", {
+				response_format: { type: "json_schema" },
+			}),
+		).toThrow(/does not support JSON schema output mode/);
+		expect(() =>
+			validateModelCapabilities(m, "gpt-4o", "openai", {
+				response_format: { type: "json_schema" },
+			}),
+		).not.toThrow();
+	});
+
+	it("accepts json_schema when pinning azure gpt-4o-mini (azure supports structured outputs)", () => {
+		const m = getModel("gpt-4o-mini");
+		expect(() =>
+			validateModelCapabilities(m, "gpt-4o-mini", "azure", {
+				response_format: { type: "json_schema" },
+			}),
+		).not.toThrow();
 	});
 });

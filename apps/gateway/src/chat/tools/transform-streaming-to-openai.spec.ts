@@ -25,6 +25,57 @@ vi.mock("@llmgateway/logger", () => ({
 }));
 
 describe("transformStreamingToOpenai", () => {
+	it("replaces upstream model ids with the canonical mapping", () => {
+		const result = transformStreamingToOpenai(
+			"deepinfra",
+			"deepinfra/deepseek-v4-flash",
+			{
+				id: "chatcmpl-123",
+				object: "chat.completion.chunk",
+				created: 1234567890,
+				model: "deepseek-ai/DeepSeek-V4-Flash-0731",
+				choices: [
+					{
+						index: 0,
+						delta: { content: "Hello" },
+						finish_reason: null,
+					},
+				],
+			},
+			[],
+		);
+
+		expect(result.model).toBe("deepinfra/deepseek-v4-flash");
+	});
+
+	it("does not warn for Permafrost OpenAI streaming chunks", () => {
+		warn.mockClear();
+
+		const result = transformStreamingToOpenai(
+			"permafrost",
+			"kimi-k3",
+			{
+				id: "chatcmpl_123",
+				object: "chat.completion.chunk",
+				model: "kimi-k3",
+				choices: [
+					{
+						index: 0,
+						delta: { content: "Hello" },
+						finish_reason: null,
+					},
+				],
+			},
+			[],
+		);
+
+		expect(result).toMatchObject({
+			id: "chatcmpl_123",
+			choices: [{ delta: { content: "Hello" } }],
+		});
+		expect(warn).not.toHaveBeenCalled();
+	});
+
 	it("generates a unique id per streamed google tool call", () => {
 		// The id is the `thought_signature:<id>` Redis key. A name+timestamp id
 		// collided whenever two callers invoked the same tool within the same
@@ -533,6 +584,132 @@ describe("transformStreamingToOpenai", () => {
 			reasoning_tokens: 9,
 		});
 		expect(result?.choices?.[0]?.finish_reason).toBe("stop");
+	});
+
+	it("preserves Google finishReason on a final chunk that also has text", () => {
+		const result = transformStreamingToOpenai(
+			"google-ai-studio",
+			"gemini-2.5-pro",
+			{
+				candidates: [
+					{
+						content: {
+							role: "model",
+							parts: [{ text: "Done." }],
+						},
+						finishReason: "STOP",
+						index: 0,
+					},
+				],
+				modelVersion: "gemini-2.5-pro",
+				responseId: "resp_final",
+			},
+			[],
+		);
+
+		expect(result).toMatchObject({
+			id: "resp_final",
+			choices: [
+				{
+					index: 0,
+					delta: { role: "assistant", content: "Done." },
+					finish_reason: "stop",
+				},
+			],
+		});
+	});
+
+	it("maps Google MAX_TOKENS on a final chunk that also has text", () => {
+		const result = transformStreamingToOpenai(
+			"google-vertex",
+			"gemini-2.5-pro",
+			{
+				candidates: [
+					{
+						content: {
+							role: "model",
+							parts: [{ text: "Partial answer" }],
+						},
+						finishReason: "MAX_TOKENS",
+						index: 0,
+					},
+				],
+			},
+			[],
+		);
+
+		expect(result?.choices?.[0]).toMatchObject({
+			delta: { role: "assistant", content: "Partial answer" },
+			finish_reason: "length",
+		});
+	});
+
+	it("keeps Google finish_reason null when a content chunk has no finishReason", () => {
+		const result = transformStreamingToOpenai(
+			"google-ai-studio",
+			"gemini-2.5-flash",
+			{
+				candidates: [
+					{
+						content: {
+							role: "model",
+							parts: [{ text: "Still streaming" }],
+						},
+						index: 0,
+					},
+				],
+			},
+			[],
+		);
+
+		expect(result?.choices?.[0]).toMatchObject({
+			delta: { role: "assistant", content: "Still streaming" },
+			finish_reason: null,
+		});
+	});
+
+	it("maps Google STOP to tool_calls on a final function-call chunk", () => {
+		const result = transformStreamingToOpenai(
+			"google-ai-studio",
+			"gemini-2.5-pro",
+			{
+				candidates: [
+					{
+						content: {
+							role: "model",
+							parts: [
+								{
+									functionCall: {
+										name: "get_weather",
+										args: { city: "Paris" },
+									},
+								},
+							],
+						},
+						finishReason: "STOP",
+						index: 0,
+					},
+				],
+			},
+			[],
+		);
+
+		expect(result?.choices?.[0]).toMatchObject({
+			delta: {
+				role: "assistant",
+				tool_calls: [
+					{
+						index: 0,
+						type: "function",
+						function: {
+							name: "get_weather",
+							arguments: JSON.stringify({ city: "Paris" }),
+						},
+					},
+				],
+			},
+			finish_reason: "tool_calls",
+		});
 	});
 
 	it("maps Google usage-only trailing chunk without logging", () => {

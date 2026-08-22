@@ -34,13 +34,17 @@ import {
 } from "@/lib/cached-queries.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import { assertProviderCompliant } from "@/lib/compliance.js";
+import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
 import {
+	getGoogleVertexPublisherModelPath,
 	getProviderHeaders,
 	managedCredentialOptions,
 	providerKeyLabel,
@@ -50,7 +54,6 @@ import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	ELEVENLABS_VOICE_IDS,
-	getOrganizationEnvVariant,
 	models as modelDefinitions,
 	resolveVertexTokenType,
 } from "@llmgateway/models";
@@ -65,6 +68,7 @@ import type {
 	VertexTokenType,
 } from "@llmgateway/models";
 import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
+import type { Context } from "hono";
 
 const speechRequestSchema = z.object({
 	model: z.string().openapi({
@@ -340,12 +344,15 @@ function getAvailableCredits(
 	};
 }
 
-function assertCreditsAvailable(
+async function assertCreditsAvailable(
+	c: Context,
 	organization: InferSelectModel<typeof tables.organization>,
 	modelDef: ModelDefinition,
 	insufficientCreditsMessage: string,
 	devPlanCreditLimitMessage: (renewalDate: string) => string,
 ) {
+	await assertSpendLimit(c, organization, modelDef.free === true);
+
 	const {
 		devPlanCreditsRemaining,
 		chatPlanCreditsRemaining,
@@ -634,11 +641,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 	if (!organization) {
 		throw new HTTPException(500, { message: "Could not find organization" });
 	}
-	if (organization.status === "deleted") {
-		throw new HTTPException(410, {
-			message: "Organization has been disabled and is no longer accessible",
-		});
-	}
+	assertOrganizationUsable(organization);
 
 	if (organization.kind === "devpass" && organization.devPlan !== "none") {
 		throw new HTTPException(403, {
@@ -705,7 +708,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 
 	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
 	// this org's env-credential reads. Undefined = base vars only.
-	const envVariant = getOrganizationEnvVariant(retryOrganization);
+	const envVariant = getLicensedOrganizationEnvVariant(retryOrganization);
 
 	const promptText = request.instructions
 		? `${request.instructions}: ${request.input}`
@@ -802,7 +805,8 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 			}
 			usedToken = readProviderKey(providerKey);
 		} else if (retryProject.mode === "credits") {
-			assertCreditsAvailable(
+			await assertCreditsAvailable(
+				c,
 				retryOrganization,
 				modelDef,
 				`Organization ${retryOrganization.id} has insufficient credits`,
@@ -832,7 +836,8 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 			if (providerKey) {
 				usedToken = readProviderKey(providerKey);
 			} else {
-				assertCreditsAvailable(
+				await assertCreditsAvailable(
+					c,
 					retryOrganization,
 					modelDef,
 					"No API key set for provider and organization has insufficient credits",
@@ -905,7 +910,16 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 					configIndex,
 					variant: envVariant,
 				});
-			if (!vertexProjectId) {
+			vertexTokenType = resolveVertexTokenType(
+				"google-vertex",
+				providerKey
+					? (providerKey.options ?? undefined)
+					: managedCredentialOptions(managedKey),
+				configIndex,
+				providerKey !== undefined || managedKey !== undefined,
+				envVariant,
+			);
+			if (!vertexProjectId && vertexTokenType === "oauth") {
 				throw new HTTPException(500, {
 					message:
 						"Google Vertex requires a project ID. Set LLM_GOOGLE_CLOUD_PROJECT or configure google_vertex_project_id on the provider key.",
@@ -917,23 +931,11 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 					defaultValue: "global",
 					variant: envVariant,
 				}) ?? "global";
-			// OAuth tokens are sent via the Authorization header; only API keys go
-			// in the `?key=` query param. Resolve once so the header and the query
-			// param agree.
-			vertexTokenType = resolveVertexTokenType(
-				"google-vertex",
-				providerKey
-					? (providerKey.options ?? undefined)
-					: managedCredentialOptions(managedKey),
-				configIndex,
-				providerKey !== undefined || managedKey !== undefined,
-				envVariant,
-			);
 			const vertexAuthQuery =
 				vertexTokenType === "oauth"
 					? ""
 					: `?key=${encodeURIComponent(usedToken)}`;
-			upstreamUrl = `${resolvedBaseUrl}/v1/projects/${vertexProjectId}/locations/${vertexRegion}/publishers/google/models/${upstreamModel}:generateContent${vertexAuthQuery}`;
+			upstreamUrl = `${resolvedBaseUrl}${getGoogleVertexPublisherModelPath(upstreamModel, vertexProjectId, vertexRegion)}:generateContent${vertexAuthQuery}`;
 		} else {
 			upstreamUrl = `${resolvedBaseUrl}/v1beta/models/${upstreamModel}:generateContent?key=${encodeURIComponent(usedToken)}`;
 		}

@@ -198,6 +198,42 @@ Anthropic's server-side web search tool works on this endpoint. Pass it as usual
 
 Replaying the assistant turn verbatim on the next request is supported: the `server_tool_use` and `web_search_tool_result` blocks are accepted and dropped, since the provider re-runs the search rather than reusing the previous results.
 
+### Tool Search
+
+Anthropic's server-side [tool search](https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool) works on this endpoint. Pass a `tool_search_tool_*` tool alongside your catalog and mark the tools that should load on demand with `defer_loading: true`:
+
+```json
+{
+	"model": "claude-sonnet-4-6",
+	"max_tokens": 1024,
+	"messages": [{ "role": "user", "content": "What is the weather in Paris?" }],
+	"tools": [
+		{
+			"type": "tool_search_tool_regex_20251119",
+			"name": "tool_search_tool_regex"
+		},
+		{
+			"name": "get_weather",
+			"description": "Get the weather at a specific location",
+			"input_schema": { "type": "object" },
+			"defer_loading": true
+		}
+	]
+}
+```
+
+Deferred tools stay out of the rendered tools section, so adding one does not invalidate an existing prompt cache. The response carries the `server_tool_use` and `tool_search_tool_result` blocks; replay them verbatim on the next request and Anthropic keeps expanding the `tool_reference` entries they carry, so Claude reuses a discovered tool instead of searching again. `tool_reference` blocks returned from your own client-side search inside a `tool_result` are forwarded unchanged too.
+
+Send every tool definition on every request, including the deferred ones — Anthropic needs them server-side to run the search. At least one tool must stay non-deferred (normally the tool search tool itself), and a tool cannot carry both `defer_loading: true` and `cache_control`.
+
+**Where it works.** Tool search reaches the provider on the Anthropic API and on Anthropic models served through Google Cloud, and it needs a Claude 4.5-generation model or newer — older Claude models reject it upstream. On every other provider, including Anthropic models on AWS Bedrock, the tool search tool and `defer_loading` are dropped and all tools are sent eagerly. The request still succeeds, it just loses the cache and token savings, so pin the provider (`anthropic/claude-sonnet-4-6`) when those savings matter.
+
+<Callout type="info">
+	Bedrock is a transport limitation rather than a missing capability: Anthropic
+	exposes server-side tool search there only through the InvokeModel API, and
+	the gateway routes Bedrock through the Converse API.
+</Callout>
+
 ### Gateway Response Cache
 
 If [gateway caching](/features/caching/gateway-caching) is enabled on the project, a byte-identical request is replayed from cache instead of being sent upstream. Because the replayed body is identical (same `id`, same `usage`), the `x-llmgateway-cache: HIT` response header is the marker to check. Send `x-no-cache: true` to bypass the cache for a single request.

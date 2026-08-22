@@ -1,5 +1,6 @@
-import { and, eq, isNull, or } from "drizzle-orm";
+import { and, eq, getTableName, isNull, or } from "drizzle-orm";
 
+import { swrWrap } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
 
 import { cdb } from "./cdb.js";
@@ -36,13 +37,13 @@ export interface EffectiveDiscount {
  * 5. Global + Provider discount
  * 6. Global + Model discount
  *
- * Discounts are always keyed by the root model ID — provider-specific model
+ * Discounts are always keyed by the canonical model ID — provider-specific model
  * names are reserved for upstream requests and are never persisted as a
  * discount target.
  *
  * @param organizationId - The organization ID (null for global only)
  * @param provider - The provider ID
- * @param model - The root model ID (e.g., "gpt-4o-mini")
+ * @param model - The canonical model ID (e.g., "gpt-4o-mini")
  * @returns The effective discount to apply
  */
 export async function getEffectiveDiscount(
@@ -51,150 +52,13 @@ export async function getEffectiveDiscount(
 	model: string,
 ): Promise<EffectiveDiscount> {
 	try {
-		// The expiry filter is applied in JS below, NOT in SQL: a `now` Date in the
-		// WHERE clause becomes a query parameter, and the cached client keys its
-		// cache on hashQuery(sql, params). A per-request millisecond `now` would
-		// make that key unique every call, so the cache would never hit and this
-		// (hot, per-provider-candidate) lookup would query Postgres on every
-		// request. Keeping the SQL time-independent lets the cache key stay stable
-		// while expiry is still evaluated fresh on each call.
-		const rows = await cdb
-			.select({
-				id: discountTable.id,
-				organizationId: discountTable.organizationId,
-				provider: discountTable.provider,
-				model: discountTable.model,
-				discountPercent: discountTable.discountPercent,
-				expiresAt: discountTable.expiresAt,
-			})
-			.from(discountTable)
-			.where(
-				and(
-					or(
-						isNull(discountTable.organizationId),
-						organizationId
-							? eq(discountTable.organizationId, organizationId)
-							: isNull(discountTable.organizationId),
-					),
-					or(
-						eq(discountTable.provider, provider),
-						isNull(discountTable.provider),
-					),
-					or(eq(discountTable.model, model), isNull(discountTable.model)),
-				),
-			);
-
-		const now = Date.now();
-		const discounts = rows.filter(
-			// expiresAt is a Date on both a fresh query and a Drizzle cache hit (the
-			// cache stores the raw pg result and re-applies the timestamp parser on
-			// restore). Wrap in new Date() defensively so the compare is robust even
-			// if a serialized value ever reaches here.
-			(d) => d.expiresAt === null || new Date(d.expiresAt).getTime() >= now,
+		// SWR mirror on top of the Drizzle cache: on a Postgres outage the last
+		// known discount is served instead of silently dropping to 0%.
+		return await swrWrap(
+			`discount:${organizationId ?? "global"}:${provider}:${model}`,
+			[getTableName(discountTable)],
+			() => queryEffectiveDiscount(organizationId, provider, model),
 		);
-
-		const modelMatches = (discountModel: string | null): boolean =>
-			discountModel !== null && discountModel === model;
-
-		// Find highest precedence discount
-		// Order: org-specific > global, more specific > less specific
-
-		// 1. Org + Provider + Model
-		if (organizationId) {
-			const orgProviderModel = discounts.find(
-				(d) =>
-					d.organizationId === organizationId &&
-					d.provider === provider &&
-					modelMatches(d.model),
-			);
-			if (orgProviderModel) {
-				return {
-					discount: orgProviderModel.discountPercent,
-					source: "org_provider_model",
-					discountId: orgProviderModel.id,
-				};
-			}
-
-			// 2. Org + Provider (any model)
-			const orgProvider = discounts.find(
-				(d) =>
-					d.organizationId === organizationId &&
-					d.provider === provider &&
-					d.model === null,
-			);
-			if (orgProvider) {
-				return {
-					discount: orgProvider.discountPercent,
-					source: "org_provider",
-					discountId: orgProvider.id,
-				};
-			}
-
-			// 3. Org + Model (any provider)
-			const orgModel = discounts.find(
-				(d) =>
-					d.organizationId === organizationId &&
-					d.provider === null &&
-					modelMatches(d.model),
-			);
-			if (orgModel) {
-				return {
-					discount: orgModel.discountPercent,
-					source: "org_model",
-					discountId: orgModel.id,
-				};
-			}
-		}
-
-		// 4. Global + Provider + Model
-		const globalProviderModel = discounts.find(
-			(d) =>
-				d.organizationId === null &&
-				d.provider === provider &&
-				modelMatches(d.model),
-		);
-		if (globalProviderModel) {
-			return {
-				discount: globalProviderModel.discountPercent,
-				source: "global_provider_model",
-				discountId: globalProviderModel.id,
-			};
-		}
-
-		// 5. Global + Provider (any model)
-		const globalProvider = discounts.find(
-			(d) =>
-				d.organizationId === null &&
-				d.provider === provider &&
-				d.model === null,
-		);
-		if (globalProvider) {
-			return {
-				discount: globalProvider.discountPercent,
-				source: "global_provider",
-				discountId: globalProvider.id,
-			};
-		}
-
-		// 6. Global + Model (any provider)
-		const globalModel = discounts.find(
-			(d) =>
-				d.organizationId === null &&
-				d.provider === null &&
-				modelMatches(d.model),
-		);
-		if (globalModel) {
-			return {
-				discount: globalModel.discountPercent,
-				source: "global_model",
-				discountId: globalModel.id,
-			};
-		}
-
-		return {
-			discount: "0",
-			source: "none",
-		};
 	} catch (error) {
 		logger.error("Error fetching effective discount:", error as Error);
 		return {
@@ -202,4 +66,151 @@ export async function getEffectiveDiscount(
 			source: "none",
 		};
 	}
+}
+
+async function queryEffectiveDiscount(
+	organizationId: string | null,
+	provider: string,
+	model: string,
+): Promise<EffectiveDiscount> {
+	// The expiry filter is applied in JS below, NOT in SQL: a `now` Date in the
+	// WHERE clause becomes a query parameter, and the cached client keys its
+	// cache on hashQuery(sql, params). A per-request millisecond `now` would
+	// make that key unique every call, so the cache would never hit and this
+	// (hot, per-provider-candidate) lookup would query Postgres on every
+	// request. Keeping the SQL time-independent lets the cache key stay stable
+	// while expiry is still evaluated fresh on each call.
+	const rows = await cdb
+		.select({
+			id: discountTable.id,
+			organizationId: discountTable.organizationId,
+			provider: discountTable.provider,
+			model: discountTable.model,
+			discountPercent: discountTable.discountPercent,
+			expiresAt: discountTable.expiresAt,
+		})
+		.from(discountTable)
+		.where(
+			and(
+				or(
+					isNull(discountTable.organizationId),
+					organizationId
+						? eq(discountTable.organizationId, organizationId)
+						: isNull(discountTable.organizationId),
+				),
+				or(
+					eq(discountTable.provider, provider),
+					isNull(discountTable.provider),
+				),
+				or(eq(discountTable.model, model), isNull(discountTable.model)),
+			),
+		);
+
+	const now = Date.now();
+	const discounts = rows.filter(
+		// expiresAt is a Date on both a fresh query and a Drizzle cache hit (the
+		// cache stores the raw pg result and re-applies the timestamp parser on
+		// restore). Wrap in new Date() defensively so the compare is robust even
+		// if a serialized value ever reaches here.
+		(d) => d.expiresAt === null || new Date(d.expiresAt).getTime() >= now,
+	);
+
+	const modelMatches = (discountModel: string | null): boolean =>
+		discountModel !== null && discountModel === model;
+
+	// Find highest precedence discount
+	// Order: org-specific > global, more specific > less specific
+
+	// 1. Org + Provider + Model
+	if (organizationId) {
+		const orgProviderModel = discounts.find(
+			(d) =>
+				d.organizationId === organizationId &&
+				d.provider === provider &&
+				modelMatches(d.model),
+		);
+		if (orgProviderModel) {
+			return {
+				discount: orgProviderModel.discountPercent,
+				source: "org_provider_model",
+				discountId: orgProviderModel.id,
+			};
+		}
+
+		// 2. Org + Provider (any model)
+		const orgProvider = discounts.find(
+			(d) =>
+				d.organizationId === organizationId &&
+				d.provider === provider &&
+				d.model === null,
+		);
+		if (orgProvider) {
+			return {
+				discount: orgProvider.discountPercent,
+				source: "org_provider",
+				discountId: orgProvider.id,
+			};
+		}
+
+		// 3. Org + Model (any provider)
+		const orgModel = discounts.find(
+			(d) =>
+				d.organizationId === organizationId &&
+				d.provider === null &&
+				modelMatches(d.model),
+		);
+		if (orgModel) {
+			return {
+				discount: orgModel.discountPercent,
+				source: "org_model",
+				discountId: orgModel.id,
+			};
+		}
+	}
+
+	// 4. Global + Provider + Model
+	const globalProviderModel = discounts.find(
+		(d) =>
+			d.organizationId === null &&
+			d.provider === provider &&
+			modelMatches(d.model),
+	);
+	if (globalProviderModel) {
+		return {
+			discount: globalProviderModel.discountPercent,
+			source: "global_provider_model",
+			discountId: globalProviderModel.id,
+		};
+	}
+
+	// 5. Global + Provider (any model)
+	const globalProvider = discounts.find(
+		(d) =>
+			d.organizationId === null && d.provider === provider && d.model === null,
+	);
+	if (globalProvider) {
+		return {
+			discount: globalProvider.discountPercent,
+			source: "global_provider",
+			discountId: globalProvider.id,
+		};
+	}
+
+	// 6. Global + Model (any provider)
+	const globalModel = discounts.find(
+		(d) =>
+			d.organizationId === null && d.provider === null && modelMatches(d.model),
+	);
+	if (globalModel) {
+		return {
+			discount: globalModel.discountPercent,
+			source: "global_model",
+			discountId: globalModel.id,
+		};
+	}
+
+	return {
+		discount: "0",
+		source: "none",
+	};
 }

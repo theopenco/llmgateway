@@ -14,6 +14,9 @@ import {
 	isRefundFeedbackComplete,
 	REFUND_COMMENTS_MAX_LENGTH,
 	REFUND_REASONS,
+	RESET_PASS_SELF_REFUND_WINDOW_DAYS,
+	SELF_REFUND_USAGE_PERCENT,
+	SELF_REFUND_WINDOW_DAYS,
 	type ChatPlanTier,
 	type DevPlanTier,
 } from "@llmgateway/shared";
@@ -24,21 +27,19 @@ import type { RefundReason } from "@llmgateway/shared";
 type OrganizationRow = typeof tables.organization.$inferSelect;
 type TransactionRow = typeof tables.transaction.$inferSelect;
 
-export const SELF_REFUND_WINDOW_DAYS = 14;
-
 const SELF_REFUND_WINDOW_MS = SELF_REFUND_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 
 // Reset Passes get a shorter window than plan payments: an unused pass can be
-// returned for 7 days, after which the purchase is final.
-export const RESET_PASS_SELF_REFUND_WINDOW_DAYS = 7;
-
+// returned within its own window, after which the purchase is final.
 const RESET_PASS_SELF_REFUND_WINDOW_MS =
 	RESET_PASS_SELF_REFUND_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 
-// Usage at or above 10% of the purchased credits denies the self-refund;
-// equivalently, repeat top-ups require the balance to still cover the
-// remaining 90%.
-const SELF_REFUND_USAGE_THRESHOLD = new Decimal("0.1");
+// Usage at or above the threshold share of the purchased credits denies the
+// self-refund; equivalently, repeat top-ups require the balance to still cover
+// the remainder.
+const SELF_REFUND_USAGE_THRESHOLD = new Decimal(SELF_REFUND_USAGE_PERCENT).div(
+	100,
+);
 const SELF_REFUND_BALANCE_FLOOR = new Decimal(1).minus(
 	SELF_REFUND_USAGE_THRESHOLD,
 );
@@ -276,8 +277,9 @@ function checkPlanEligibility(
 
 	// Renewals and re-subscribes: threshold on the dollar price instead of the
 	// virtual allowance. Virtual credits track provider cost, so at a 3x
-	// multiplier 10% of the allowance would leak up to 30% of the payment in
-	// provider cost; gating on dollars caps the leak at 10% of revenue.
+	// multiplier the threshold share of the allowance would leak three times as
+	// much of the payment in provider cost; gating on dollars caps the leak at
+	// the threshold share of revenue.
 	const price = isDev
 		? DEV_PLAN_PRICES[plan as DevPlanTier]
 		: CHAT_PLAN_PRICES[plan as ChatPlanTier];

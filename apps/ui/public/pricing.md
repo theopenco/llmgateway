@@ -1,6 +1,6 @@
 # LLM Gateway — Pricing
 
-Last updated: 2026-07-10
+Last updated: 2026-08-15
 
 > One OpenAI-compatible API for 200+ models across 40+ providers. Per-token prices match each provider's published rates; LLM Gateway charges a flat 5% platform fee when you buy credits. Bringing your own provider keys is free, and self-hosting is free under AGPLv3.
 
@@ -24,6 +24,11 @@ Last updated: 2026-07-10
 
 - Price: custom — volume discounts, custom routing, unlimited data retention, 99.9% uptime SLA.
 - Details: https://llmgateway.io/enterprise — contact contact@llmgateway.io
+
+## Refunds
+
+- Self-serve, no support ticket: refund a purchase from the billing dashboard within 14 days while less than 20% of it has been used.
+- Applies to credit top-ups, DevPass plan payments, and Lounge memberships. DevPass Reset Passes: within 7 days, while the pass is unused.
 
 ## Related products
 

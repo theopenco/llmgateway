@@ -1,10 +1,17 @@
-import { googleProviderSupportsAudioFormat } from "@llmgateway/actions";
+import {
+	googleProviderSupportsAudioFormat,
+	mappingSupportsToolChoice,
+} from "@llmgateway/actions";
 import {
 	routingExclusionReasonMessage,
 	type RoutingExclusionReason,
 } from "@llmgateway/shared";
 
-import type { ProviderModelMapping, WebSearchTool } from "@llmgateway/models";
+import type {
+	ProviderModelMapping,
+	ToolChoiceType,
+	WebSearchTool,
+} from "@llmgateway/models";
 
 export interface ProviderFilterOptions {
 	webSearchTool?: WebSearchTool | boolean;
@@ -21,6 +28,9 @@ export interface ProviderFilterOptions {
 	hasDocuments?: boolean;
 	hasAssistantPrefill?: boolean;
 	hasTools?: boolean;
+	toolChoice?: ToolChoiceType;
+	/** Drop mappings that would downgrade tool_choice instead of preferring them. */
+	strictToolChoice?: boolean;
 	reasoningEffort?: string;
 	reasoningMaxTokens?: number;
 	noReasoning?: boolean;
@@ -69,6 +79,82 @@ export function exclusionReason(
 }
 
 /**
+ * Whether a requested `tool_choice` is worth narrowing routing for. "auto" is
+ * both the upstream default and the value `prepareRequestBody` downgrades to, so
+ * a mapping that cannot honour it behaves identically anyway — only the modes
+ * that change behaviour ("none", "required", a named function) constrain which
+ * mappings can serve the request.
+ */
+function toolChoiceConstrainsRouting(
+	toolChoice: ToolChoiceType | undefined,
+): toolChoice is Exclude<ToolChoiceType, "auto"> {
+	return (
+		toolChoice !== undefined &&
+		toolChoice !== "auto" &&
+		!(typeof toolChoice === "object" && toolChoice.type === "web_search")
+	);
+}
+
+/**
+ * Whether a mapping honours the request's `tool_choice` verbatim, i.e. whether
+ * `prepareRequestBody` will forward it instead of downgrading it to "auto".
+ */
+export function providerHonorsRequestedToolChoice(
+	provider: ProviderModelMapping,
+	options: ProviderFilterOptions,
+): boolean {
+	if (!toolChoiceConstrainsRouting(options.toolChoice)) {
+		return true;
+	}
+	return mappingSupportsToolChoice(provider, options.toolChoice, {
+		thinkingDisabled: options.reasoningEffort === "none",
+	});
+}
+
+/**
+ * Narrow a candidate list to the mappings that honour the requested
+ * `tool_choice` — but only when at least one of them does.
+ *
+ * Unlike the capability filters, an unsupported `tool_choice` is not fatal:
+ * `prepareRequestBody` downgrades it to "auto" and the request still gets an
+ * answer. So this is a preference, not a requirement — emptying the candidate
+ * set would turn requests that work today into 400s. Auto routing applies the
+ * stricter per-mapping filter instead (via `getProviderFilterReasons`), because
+ * there another model can always take the request.
+ */
+export function preferToolChoiceCapableProviders(
+	providers: ProviderModelMapping[],
+	options: ProviderFilterOptions,
+	filteredOut?: FilteredProvider[],
+): ProviderModelMapping[] {
+	if (!toolChoiceConstrainsRouting(options.toolChoice)) {
+		return providers;
+	}
+
+	const capable = providers.filter((provider) =>
+		providerHonorsRequestedToolChoice(provider, options),
+	);
+	if (capable.length === 0 || capable.length === providers.length) {
+		return providers;
+	}
+
+	if (filteredOut) {
+		// Record a provider only when none of its mappings survived: a provider
+		// that keeps serving through another region is not excluded, and marking
+		// it so would overstate the exclusion in the hourly rollup.
+		const capableProviderIds = new Set(capable.map((p) => p.providerId));
+		for (const provider of providers) {
+			if (!capableProviderIds.has(provider.providerId)) {
+				recordFilteredProvider(filteredOut, provider.providerId, [
+					exclusionReason("tool_choice"),
+				]);
+			}
+		}
+	}
+	return capable;
+}
+
+/**
  * Collects the reasons why a provider mapping would be filtered out during routing.
  * Returns an empty array if the provider passes all checks.
  */
@@ -98,6 +184,12 @@ export function getProviderFilterReasons(
 	}
 	if (options.hasTools && provider.tools !== true) {
 		reasons.push(exclusionReason("tools"));
+	}
+	if (
+		options.strictToolChoice &&
+		!providerHonorsRequestedToolChoice(provider, options)
+	) {
+		reasons.push(exclusionReason("tool_choice"));
 	}
 	if (options.webSearchTool && provider.webSearch !== true) {
 		reasons.push(exclusionReason("web_search"));
@@ -132,8 +224,7 @@ export function getProviderFilterReasons(
 		}
 	}
 	if (
-		(options.responseFormatType === "json_object" ||
-			options.responseFormatType === "json_schema") &&
+		options.responseFormatType === "json_object" &&
 		provider.jsonOutput !== true
 	) {
 		reasons.push(exclusionReason("json_output"));

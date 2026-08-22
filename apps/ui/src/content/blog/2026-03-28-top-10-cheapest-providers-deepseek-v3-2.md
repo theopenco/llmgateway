@@ -47,6 +47,8 @@ Here's what that looks like in practice:
 
 That's **35% cheaper than the official DeepSeek API** and **9% cheaper than GMI** (the next lowest provider). If Canopywave ever goes down, your requests automatically fail over to the next cheapest provider — Novita, Alibaba, Bytedance, or DeepSeek direct — with zero configuration.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## Real Cost at Scale
 
 Cheap per-token pricing only matters if you can quantify the actual savings for your workload. That's why we built the **[Token Cost Calculator](https://llmgateway.io/token-cost-calculator)**.
@@ -110,3 +112,5 @@ No vendor lock-in. No platform fees. Just the cheapest path to every model.
 ---
 
 **[Calculate your costs](https://llmgateway.io/token-cost-calculator)** | **[Try DeepSeek V3.2 in the Playground](https://lounge.llmgateway.io/?model=deepseek/deepseek-v3.2)** | **[Get started free](https://llmgateway.io/signup)**
+
+<BlogCta variant="gateway" location="bottom" />

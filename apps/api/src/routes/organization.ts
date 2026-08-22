@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { isUserHighRisk } from "@/lib/account-risk.js";
 import {
 	computeSelfRefundEligibility,
 	executeSelfRefund,
@@ -19,9 +20,15 @@ import {
 	isInvoiceableTransaction,
 	isRefundTransaction,
 } from "@/utils/invoice.js";
+import { providerCacheControlModeSchema } from "@/utils/provider-cache-control.js";
 import { isConfigurableDomain, normalizeDomain } from "@/utils/sso-domain.js";
 
+import {
+	getOrgTierQualifyingSpendUsd,
+	getTopUpVelocityUsage,
+} from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
+import { redisClient } from "@llmgateway/cache";
 import {
 	and,
 	db,
@@ -38,7 +45,21 @@ import { getProviderCountries, models, providers } from "@llmgateway/models";
 import {
 	CREDIT_TOP_UP_MAX_AMOUNT,
 	CUSTOM_PROVIDER_NAME_REGEX,
+	getBaseLimit,
+	getNextSpendTier,
+	getOrgSpendTier,
+	getPlanClass,
+	isCappedOrg,
+	isOrgRateLimitEnabled,
+	isSpendCapEnabled,
+	isTopUpVelocityEnabled,
+	isTopUpVelocityGatedOrg,
+	PATH_RATE_LIMITS,
+	resolveTrustTierOverride,
+	spendDailyKey,
+	spendMonthlyKey,
 } from "@llmgateway/shared";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -132,6 +153,8 @@ const organizationSchema = z.object({
 	seats: z.number().nullable(),
 	// Manual API-key-limit override; null = use the plan default.
 	apiKeyLimit: z.number().nullable(),
+	// Manual project-limit override; null = use the plan default.
+	projectLimit: z.number().nullable(),
 	retentionLevel: z.enum(["retain", "none"]),
 	providerCompliancePolicy: providerCompliancePolicySchema.nullable(),
 	ssoAutoJoinDomain: z.string().nullable(),
@@ -179,6 +202,7 @@ const organizationSchema = z.object({
 	// dashboard can gate org-level UI (e.g. hide org nav from project-scoped
 	// "developer" members). Omitted by single-org endpoints.
 	role: z.enum(["owner", "admin", "developer"]).optional(),
+	enterpriseAccess: z.boolean().optional(),
 });
 
 const projectSchema = z.object({
@@ -189,7 +213,7 @@ const projectSchema = z.object({
 	organizationId: z.string(),
 	cachingEnabled: z.boolean(),
 	cacheDurationSeconds: z.number(),
-	providerCacheControlEnabled: z.boolean(),
+	providerCacheControlMode: providerCacheControlModeSchema,
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
 	defaultRoutingStrategy: z.enum(["auto", "price", "throughput", "latency"]),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
@@ -364,7 +388,14 @@ organization.openapi(getOrganizations, async (c) => {
 	const { includePersonal, includeChat } = c.req.valid("query");
 
 	let organizations = userOrganizations
-		.map((uo) => ({ ...uo.organization!, role: uo.role }))
+		.map((uo) => ({
+			...uo.organization!,
+			role: uo.role,
+			enterpriseAccess: hasOrganizationEnterpriseAccess(
+				uo.organization?.id,
+				uo.organization?.plan,
+			),
+		}))
 		.filter((org) => org.status !== "deleted")
 		// Personal and chat orgs are hidden from the regular dashboard. The
 		// devpass/playground surfaces opt in via ?includePersonal=true /
@@ -382,7 +413,16 @@ organization.openapi(getOrganizations, async (c) => {
 			defaultOrganization.status !== "deleted" &&
 			defaultOrganization.kind !== "devpass"
 		) {
-			organizations = [{ ...defaultOrganization, role: "owner" as const }];
+			organizations = [
+				{
+					...defaultOrganization,
+					role: "owner" as const,
+					enterpriseAccess: hasOrganizationEnterpriseAccess(
+						defaultOrganization.id,
+						defaultOrganization.plan,
+					),
+				},
+			];
 		}
 	}
 
@@ -517,6 +557,8 @@ organization.openapi(createOrganization, async (c) => {
 		.values({
 			name,
 			billingEmail: user.email,
+			// A flagged user cannot escape the block by creating a fresh org.
+			riskFlagged: await isUserHighRisk(user.id),
 		})
 		.returning();
 
@@ -677,7 +719,12 @@ organization.openapi(updateOrganization, async (c) => {
 	// Provider compliance policies are an enterprise feature managed by owners
 	// and admins (matching the Guardrails settings page).
 	if (providerCompliancePolicy !== undefined) {
-		if (userOrganization.organization?.plan !== "enterprise") {
+		if (
+			!hasOrganizationEnterpriseAccess(
+				userOrganization.organization?.id,
+				userOrganization.organization?.plan,
+			)
+		) {
 			throw new HTTPException(403, {
 				message: "Provider compliance policies require an enterprise plan",
 			});
@@ -696,7 +743,12 @@ organization.openapi(updateOrganization, async (c) => {
 	// admins. The value is normalized and validated before storage.
 	let normalizedSsoDomain: string | null | undefined;
 	if (ssoAutoJoinDomain !== undefined) {
-		if (userOrganization.organization?.plan !== "enterprise") {
+		if (
+			!hasOrganizationEnterpriseAccess(
+				userOrganization.organization?.id,
+				userOrganization.organization?.plan,
+			)
+		) {
 			throw new HTTPException(403, {
 				message: "SSO auto-join requires an enterprise plan",
 			});
@@ -1521,7 +1573,7 @@ organization.openapi(getCreditsRunway, async (c) => {
 	// blended `cost` would overstate the burn rate for BYOK-heavy orgs.
 	const result = await db
 		.select({
-			totalCost: sql<number>`COALESCE(SUM(${projectHourlyStats.creditsCost}), 0) + COALESCE(SUM(${projectHourlyStats.apiKeysDataStorageCost}), 0)`,
+			totalCost: sql<number>`COALESCE(SUM(cast(${projectHourlyStats.creditsCost} as double precision)), 0) + COALESCE(SUM(cast(${projectHourlyStats.apiKeysDataStorageCost} as double precision)), 0)`,
 		})
 		.from(projectHourlyStats)
 		.innerJoin(
@@ -1548,6 +1600,213 @@ organization.openapi(getCreditsRunway, async (c) => {
 		avgDailySpend7d: Math.round(avgDailySpend7d * 100) / 100,
 		runwayDays,
 		balance,
+	});
+});
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+const getOrganizationLimits = createRoute({
+	method: "get",
+	path: "/{id}/limits",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						// enterprise orgs have no gateway rate limits or spend caps at all
+						enterprise: z.boolean(),
+						planClass: z.enum(["regular", "dev", "chat"]),
+						// False when GATEWAY_RATE_LIMITS_ENABLED=false: the endpoint RPM
+						// table is not enforced platform-wide.
+						rateLimitsApply: z.boolean(),
+						// True when support pinned the tier; progression does not apply.
+						tierOverridden: z.boolean(),
+						// whether daily/monthly USD spend caps apply (regular PAYG orgs)
+						capsApply: z.boolean(),
+						plan: z.string(),
+						accountAgeDays: z.number(),
+						lifetimeSpendUsd: z.number(),
+						tier: z.object({
+							tier: z.number(),
+							rpmMultiplier: z.number(),
+							dailyCapUsd: z.number(),
+							monthlyCapUsd: z.number(),
+							topUpDailyCapUsd: z.number(),
+						}),
+						usage: z.object({
+							dailySpentUsd: z.number(),
+							monthlySpentUsd: z.number(),
+						}),
+						// Rolling-24h top-up allowance; null when the org is exempt.
+						topUp: z
+							.object({
+								capUsd: z.number(),
+								windowHours: z.number(),
+								usedUsd: z.number(),
+								remainingUsd: z.number(),
+							})
+							.nullable(),
+						nextTier: z
+							.object({
+								tier: z.number(),
+								rpmMultiplier: z.number(),
+								dailyCapUsd: z.number(),
+								monthlyCapUsd: z.number(),
+								topUpDailyCapUsd: z.number(),
+								ageDaysRequired: z.number(),
+								spendUsdRequired: z.number(),
+								daysUntilQualify: z.number(),
+								spendUsdUntilQualify: z.number(),
+								minAgeDaysRequired: z.number(),
+								daysUntilSpendPathUnlocks: z.number(),
+							})
+							.nullable(),
+						endpoints: z.array(
+							z.object({
+								key: z.string(),
+								path: z.string(),
+								rpm: z.number(),
+							}),
+						),
+					}),
+				},
+			},
+			description: "Organization rate-limit and spend-cap tier info",
+		},
+	},
+});
+
+organization.openapi(getOrganizationLimits, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.param();
+	const membership = await db.query.userOrganization.findFirst({
+		where: { userId: { eq: user.id }, organizationId: { eq: id } },
+	});
+	if (!membership) {
+		throw new HTTPException(403, {
+			message: "You do not have access to this organization",
+		});
+	}
+	// Spend and org-wide caps are financial data, so developers (project-scoped
+	// members) are excluded, mirroring the credits-runway endpoint.
+	if (membership.role === "developer") {
+		throw new HTTPException(403, {
+			message: "Only organization owners and admins can view limits",
+		});
+	}
+
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: id } },
+	});
+	if (!org || org.status === "deleted") {
+		throw new HTTPException(404, { message: "Organization not found" });
+	}
+
+	const enterprise = org.plan === "enterprise";
+	// Mirror the enforcement kill switches: when caps are disabled platform-wide
+	// the Limits page must not claim they apply.
+	const capsApply = isCappedOrg(org) && isSpendCapEnabled();
+
+	// Tier-qualifying spend: lifetime usage minus completed refunds, floored at
+	// 0 — the same figure the gateway uses to resolve the trust tier, so the
+	// dashboard shows exactly what the tier is computed from.
+	const lifetimeSpendUsd = await getOrgTierQualifyingSpendUsd(id);
+
+	const now = Date.now();
+	const planClass = getPlanClass(org);
+	const tier = getOrgSpendTier(org, lifetimeSpendUsd, now);
+	const nextTier = getNextSpendTier(org, lifetimeSpendUsd, now);
+
+	const [dailyRaw, monthlyRaw] = await redisClient.mget(
+		spendDailyKey(id, now),
+		spendMonthlyKey(id, now),
+	);
+
+	const accountAgeDays = Math.floor(
+		(now - new Date(org.createdAt).getTime()) / 86_400_000,
+	);
+
+	// Entries sharing a key (the AI SDK spec-version prefixes) share one bucket
+	// — show them once.
+	const uniquePathConfigs = PATH_RATE_LIMITS.filter(
+		(cfg, index) =>
+			PATH_RATE_LIMITS.findIndex((c) => c.key === cfg.key) === index,
+	);
+	const endpoints = uniquePathConfigs.map((cfg) => {
+		const base = getBaseLimit(cfg, planClass);
+		// Only regular orgs get the spend-tier multiplier; dev/chat stay flat.
+		const rpm =
+			planClass === "regular" ? Math.floor(base * tier.rpmMultiplier) : base;
+		return { key: cfg.key, path: cfg.prefix, rpm };
+	});
+
+	// Rolling-24h top-up allowance (windowed transaction sum + in-flight
+	// reservations), shown only when the org is actually gated.
+	let topUp: {
+		capUsd: number;
+		windowHours: number;
+		usedUsd: number;
+		remainingUsd: number;
+	} | null = null;
+	if (
+		isTopUpVelocityEnabled() &&
+		isTopUpVelocityGatedOrg(org) &&
+		tier.topUpDailyCapUsd > 0
+	) {
+		const usage = await getTopUpVelocityUsage(id, now);
+		const usedUsd = usage.dbSumUsd + usage.reservedUsd;
+		topUp = {
+			capUsd: tier.topUpDailyCapUsd,
+			windowHours: 24,
+			usedUsd: round2(usedUsd),
+			remainingUsd: round2(Math.max(0, tier.topUpDailyCapUsd - usedUsd)),
+		};
+	}
+
+	return c.json({
+		enterprise,
+		planClass,
+		rateLimitsApply: isOrgRateLimitEnabled(),
+		tierOverridden: resolveTrustTierOverride(org) !== null,
+		capsApply,
+		plan: org.plan,
+		accountAgeDays,
+		lifetimeSpendUsd: round2(lifetimeSpendUsd),
+		tier: {
+			tier: tier.tier,
+			rpmMultiplier: tier.rpmMultiplier,
+			dailyCapUsd: tier.dailyCapUsd,
+			monthlyCapUsd: tier.monthlyCapUsd,
+			topUpDailyCapUsd: tier.topUpDailyCapUsd,
+		},
+		usage: {
+			dailySpentUsd: round2(Number(dailyRaw ?? 0) || 0),
+			monthlySpentUsd: round2(Number(monthlyRaw ?? 0) || 0),
+		},
+		topUp,
+		nextTier: nextTier
+			? {
+					tier: nextTier.tier,
+					rpmMultiplier: nextTier.rpmMultiplier,
+					dailyCapUsd: nextTier.dailyCapUsd,
+					monthlyCapUsd: nextTier.monthlyCapUsd,
+					topUpDailyCapUsd: nextTier.topUpDailyCapUsd,
+					ageDaysRequired: nextTier.ageDaysRequired,
+					spendUsdRequired: nextTier.spendUsdRequired,
+					daysUntilQualify: nextTier.daysUntilQualify,
+					spendUsdUntilQualify: round2(nextTier.spendUsdUntilQualify),
+					minAgeDaysRequired: nextTier.minAgeDaysRequired,
+					daysUntilSpendPathUnlocks: nextTier.daysUntilSpendPathUnlocks,
+				}
+			: null,
+		endpoints,
 	});
 });
 

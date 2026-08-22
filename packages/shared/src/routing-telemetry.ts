@@ -22,6 +22,7 @@ export const ROUTING_EXCLUSION_REASON_MESSAGES = {
 	reasoning_effort: "reasoning_effort not supported",
 	reasoning_max_tokens: "reasoning_max_tokens not supported",
 	tools: "tools not supported",
+	tool_choice: "requested tool_choice not supported",
 	web_search: "web_search not supported",
 	web_search_forced_only:
 		"web_search only supported when required via tool_choice",
@@ -46,11 +47,9 @@ export const ROUTING_EXCLUSION_REASON_MESSAGES = {
 	locked_region: "provider key is locked to a different region",
 	// Catalogue state.
 	deprecated: "mapping is deprecated",
-	// Runtime state. `rate_limited` and `content_filter` are not emitted by
-	// recordFilteredProvider — routing already records them in their own metadata
-	// fields (providerScores[].rate_limited and contentFilterExcludedProviders),
-	// and the hourly rollup maps those onto these codes so every exclusion shows
-	// up in one place.
+	// Runtime state. Pre-election exclusions use filteredProviders; fail-open and
+	// retry-time rate limits may still annotate providerScores. Content filters also
+	// retain their summary field for compatibility. The hourly rollup reads all forms.
 	rate_limited: "provider is rate limited",
 	content_filter: "excluded by content-filter routing",
 	compliance: "excluded by the organization's compliance policy",
@@ -74,6 +73,7 @@ export const ROUTING_EXCLUSION_REASON_LABELS: Record<
 	reasoning_effort: "Reasoning effort",
 	reasoning_max_tokens: "Reasoning max tokens",
 	tools: "Tools",
+	tool_choice: "Tool choice",
 	web_search: "Web search",
 	web_search_forced_only: "Web search not required",
 	n_unsupported: "n > 1",

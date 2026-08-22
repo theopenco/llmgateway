@@ -36,6 +36,7 @@ interface SocialAuthButtonsProps {
 	setIsLoading: (loading: boolean) => void;
 	callbackPath: string;
 	errorCallbackPath: string;
+	newUserCallbackPath?: string;
 	/**
 	 * Explicitly allow creating a new account (signup pages). Without it, social
 	 * sign-in only signs in existing users: when no account matches, the OAuth
@@ -50,6 +51,7 @@ export function SocialAuthButtons({
 	setIsLoading,
 	callbackPath,
 	errorCallbackPath,
+	newUserCallbackPath,
 	requestSignUp,
 }: SocialAuthButtonsProps) {
 	const router = useRouter();
@@ -104,12 +106,22 @@ export function SocialAuthButtons({
 		WebAuthnAbortService.cancelCeremony();
 		try {
 			sessionStorage.setItem(PENDING_PROVIDER_KEY, provider);
+			const origin = location.protocol + "//" + location.host;
 			const res = await signIn.social({
 				provider,
 				requestSignUp: requestSignUp || options?.requestSignUp,
-				callbackURL: location.protocol + "//" + location.host + callbackPath,
-				errorCallbackURL:
-					location.protocol + "//" + location.host + errorCallbackPath,
+				callbackURL: origin + callbackPath,
+				errorCallbackURL: origin + errorCallbackPath,
+				// New accounts land with a signup_method param so the dashboard can
+				// fire the signup analytics the email path fires inline — OAuth
+				// redirects away from this page before we could capture here.
+				newUserCallbackURL: newUserCallbackPath
+					? origin +
+						newUserCallbackPath +
+						(newUserCallbackPath.includes("?") ? "&" : "?") +
+						"signup_method=" +
+						provider
+					: undefined,
 			});
 			if (res?.error) {
 				toast({

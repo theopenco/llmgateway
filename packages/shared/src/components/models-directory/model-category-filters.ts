@@ -1,3 +1,5 @@
+import { discountFraction } from "@/lib/discount";
+
 import type { ApiModel, ApiModelProviderMapping } from "./api-types";
 
 export type ModelCategoryFilter =
@@ -260,7 +262,7 @@ export function applyCategoryFilter(
 		case "tools":
 			return mappings.some((m) => m.tools);
 		case "discounted":
-			return mappings.some((m) => m.discount && parseFloat(m.discount) > 0);
+			return mappings.some((m) => discountFraction(m.discount) > 0);
 		case "roleplay":
 		case "coding":
 		case "creative-writing":

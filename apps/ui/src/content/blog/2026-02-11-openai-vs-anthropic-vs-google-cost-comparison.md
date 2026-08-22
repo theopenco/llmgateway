@@ -40,6 +40,8 @@ For most production use cases, mid-tier models offer the best quality-to-cost ra
 
 Gemini 2.5 Flash is the clear cost leader here — roughly 10x cheaper on input and 4-6x cheaper on output than its competitors, while still offering reasoning capabilities and a massive 1M token context window.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## Budget Models: High-Volume Workloads
 
 When you're processing millions of requests and need to keep costs down.
@@ -99,3 +101,5 @@ With intelligent routing through an LLM gateway, you can achieve flagship-qualit
 Want to explore pricing for all 200+ models we support? Use our [model comparison tool](/models) to filter by provider, price, context window, and capabilities — then test any model in the [Playground](https://lounge.llmgateway.io).
 
 **[Browse all models](/models)** | **[Run the Token Cost Calculator](/token-cost-calculator)** | **[Try the Playground](https://lounge.llmgateway.io)** | **[Get started](/signup)**
+
+<BlogCta variant="gateway" location="bottom" />

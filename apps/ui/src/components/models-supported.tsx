@@ -134,6 +134,7 @@ const convertToApiModel = (
 					reasoning: map.reasoning ?? null,
 					reasoningOutput: map.reasoningOutput ?? null,
 					reasoningMaxTokens: map.reasoningMaxTokens ?? null,
+					rerank: map.rerank ?? null,
 					tools: map.tools ?? null,
 					jsonOutput: map.jsonOutput ?? null,
 					jsonOutputSchema: map.jsonOutputSchema ?? null,

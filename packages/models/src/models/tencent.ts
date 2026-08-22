@@ -41,6 +41,8 @@ export const tencentModels = [
 				reasoningEfforts: ["none", "low", "high"],
 				vision: false,
 				tools: true,
+				// novita 400s on a named function choice for this deployment
+				supportedToolChoices: ["auto", "none", "required"],
 				jsonOutputSchema: true,
 			},
 			{

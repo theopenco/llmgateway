@@ -289,6 +289,7 @@ function makeInvoiceEvent(overrides: {
 	invoiceId: string;
 	metadata?: Record<string, string>;
 	periodEnd?: number;
+	priceId?: string;
 }): Stripe.InvoicePaymentSucceededEvent {
 	return {
 		id: "evt_test_invoice",
@@ -305,8 +306,21 @@ function makeInvoiceEvent(overrides: {
 				metadata: overrides.metadata ?? { organizationId: ORG_ID },
 				lines: {
 					data:
-						overrides.periodEnd !== undefined
-							? [{ period: { end: overrides.periodEnd } }]
+						overrides.periodEnd !== undefined || overrides.priceId
+							? [
+									{
+										...(overrides.periodEnd !== undefined
+											? { period: { end: overrides.periodEnd } }
+											: {}),
+										...(overrides.priceId
+											? {
+													pricing: {
+														price_details: { price: overrides.priceId },
+													},
+												}
+											: {}),
+									},
+								]
 							: [],
 				},
 			},
@@ -445,6 +459,103 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		expect(txns).toHaveLength(1);
 		expect(txns[0].type).toBe("dev_plan_renewal");
 		expect(txns[0].creditAmount).toBe("537");
+	});
+
+	test("grants the billed tier and defers the pending change when the invoice billed the old tier", async () => {
+		// Repro of a production incident: the MAX cycle's renewal invoice was
+		// drafted (at the MAX price) at the period boundary, the first charge
+		// attempt failed, and the customer then scheduled a max→pro downgrade.
+		// The price swap doesn't touch the already-finalized invoice, so when the
+		// retry succeeded days later the customer had paid the MAX price — but
+		// the handler granted the pending PRO allotment. The renewal must follow
+		// the invoice: grant MAX and keep the downgrade pending for the next
+		// cycle (whose invoice bills the swapped PRO price).
+		vi.stubEnv("STRIPE_DEV_PLAN_MAX_PRICE_ID", "price_test_max");
+		try {
+			await db.insert(tables.organization).values({
+				id: ORG_ID,
+				name: "Acme Co",
+				billingEmail: "billing@acme.test",
+				devPlan: "max",
+				devPlanPendingTier: "pro",
+				devPlanCreditsLimit: "537",
+				devPlanCreditsUsed: "400",
+				devPlanStripeSubscriptionId: SUB_ID,
+				devPlanCancelled: false,
+			});
+
+			await handleInvoicePaymentSucceeded(
+				makeInvoiceEvent({
+					billingReason: "subscription_cycle",
+					amountPaid: 17900,
+					invoiceId: "in_cycle_billed_old_tier_001",
+					priceId: "price_test_max",
+				}),
+			);
+
+			const org = await db.query.organization.findFirst({
+				where: { id: { eq: ORG_ID } },
+			});
+			expect(org?.devPlan).toBe("max");
+			expect(org?.devPlanPendingTier).toBe("pro");
+			expect(org?.devPlanCreditsUsed).toBe("0");
+			expect(org?.devPlanCreditsLimit).toBe("537");
+
+			const txns = await db.query.transaction.findMany({
+				where: { organizationId: { eq: ORG_ID } },
+			});
+			expect(txns).toHaveLength(1);
+			expect(txns[0].type).toBe("dev_plan_renewal");
+			expect(txns[0].creditAmount).toBe("537");
+			expect(txns[0].description).toBe("Dev Plan MAX renewed");
+		} finally {
+			vi.unstubAllEnvs();
+		}
+	});
+
+	test("applies the pending change when the invoice billed the new tier", async () => {
+		// The normal scheduled-downgrade flow: the price swap landed before the
+		// renewal invoice was drafted, so the invoice bills the new (pro) price
+		// and the pending change applies and clears.
+		vi.stubEnv("STRIPE_DEV_PLAN_PRO_PRICE_ID", "price_test_pro");
+		try {
+			await db.insert(tables.organization).values({
+				id: ORG_ID,
+				name: "Acme Co",
+				billingEmail: "billing@acme.test",
+				devPlan: "max",
+				devPlanPendingTier: "pro",
+				devPlanCreditsLimit: "537",
+				devPlanCreditsUsed: "400",
+				devPlanStripeSubscriptionId: SUB_ID,
+				devPlanCancelled: false,
+			});
+
+			await handleInvoicePaymentSucceeded(
+				makeInvoiceEvent({
+					billingReason: "subscription_cycle",
+					amountPaid: 7900,
+					invoiceId: "in_cycle_billed_new_tier_001",
+					priceId: "price_test_pro",
+				}),
+			);
+
+			const org = await db.query.organization.findFirst({
+				where: { id: { eq: ORG_ID } },
+			});
+			expect(org?.devPlan).toBe("pro");
+			expect(org?.devPlanPendingTier).toBeNull();
+			expect(org?.devPlanCreditsLimit).toBe("237");
+
+			const txns = await db.query.transaction.findMany({
+				where: { organizationId: { eq: ORG_ID } },
+			});
+			expect(txns).toHaveLength(1);
+			expect(txns[0].creditAmount).toBe("237");
+			expect(txns[0].description).toBe("Dev Plan PRO renewed");
+		} finally {
+			vi.unstubAllEnvs();
+		}
 	});
 
 	test("emails an invoice on renewal, falling back to the org's own billing email when no default org exists", async () => {

@@ -23,3 +23,5 @@ Plain and simple: enter `BLACKFRIDAY` where you see the promo code field, and yo
 If you have any questions, reach out on [GitHub](https://github.com/theopenco/llmgateway) or [Discord](https://llmgateway.io/discord).
 
 Happy building – and happy Black Friday. 🎉
+
+<BlogCta variant="gateway" location="bottom" />

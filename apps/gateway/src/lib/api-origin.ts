@@ -37,6 +37,24 @@ export function internalApiOriginHeaders(
 }
 
 /**
+ * Whether a request is a trusted internal `app.request()` re-dispatch from this
+ * process (vs. an external caller). True only when the origin header carries
+ * this process's internal token, so a spoofed header from an external caller
+ * returns false. Used to skip re-applying the org rate limiter to the internal
+ * chat-completions hop that messages/responses/images already counted.
+ */
+export function isInternalApiOrigin(c: Pick<Context, "req">): boolean {
+	const header = c.req.header(API_ORIGIN_HEADER)?.trim();
+	if (!header) {
+		return false;
+	}
+	const separator = header.indexOf(":");
+	return (
+		separator !== -1 && header.slice(0, separator) === INTERNAL_ORIGIN_TOKEN
+	);
+}
+
+/**
  * Resolves the API origin for a chat completions request. The header is honored
  * only when it carries this process's internal token and names an origin that
  * actually re-dispatches through here; anything else — including a spoofed

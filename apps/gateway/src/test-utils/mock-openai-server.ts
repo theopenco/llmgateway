@@ -410,6 +410,10 @@ interface MockWebhookDelivery {
 }
 
 const videoJobs = new Map<string, MockVideoJobState>();
+const videoStatusResponses = new Map<
+	string,
+	{ status: number; body: Record<string, unknown> }
+>();
 const webhookDeliveries: MockWebhookDelivery[] = [];
 const webhookStatuses = new Map<string, number>();
 
@@ -540,6 +544,7 @@ export function resetFailOnceCounter() {
 export function resetMockVideoState() {
 	videoCounter = 0;
 	videoJobs.clear();
+	videoStatusResponses.clear();
 	webhookDeliveries.length = 0;
 	webhookStatuses.clear();
 }
@@ -586,6 +591,14 @@ export function setMockVideoStatus(
 
 export function getMockVideo(videoId: string): MockVideoJobState | undefined {
 	return videoJobs.get(videoId);
+}
+
+export function setMockVideoStatusResponse(
+	videoId: string,
+	status: number,
+	body: Record<string, unknown>,
+) {
+	videoStatusResponses.set(videoId, { status, body });
 }
 
 export function setMockWebhookStatus(name: string, status: number) {
@@ -807,6 +820,28 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 	return c.json(response);
 });
 
+mockOpenAIServer.post("/v1/messages", async (c) => {
+	const body = await c.req.json();
+	return c.json({
+		id: "msg-123",
+		type: "message",
+		role: "assistant",
+		model: body.model ?? "claude-haiku-4-5",
+		content: [
+			{
+				type: "text",
+				text: "Hello! I'm a mock response from the test server.",
+			},
+		],
+		stop_reason: "end_turn",
+		stop_sequence: null,
+		usage: {
+			input_tokens: 10,
+			output_tokens: 20,
+		},
+	});
+});
+
 // Handle chat completions endpoint
 mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 	const body = await c.req.json();
@@ -919,6 +954,10 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 	const shouldTruncateStream = hasUserMessageTrigger(
 		chatMessages,
 		"TRIGGER_TRUNCATED_STREAM",
+	);
+	const shouldEndWithTrailingError = hasUserMessageTrigger(
+		chatMessages,
+		"TRIGGER_STREAM_TRAILING_ERROR",
 	);
 	const shouldFinishWithoutDone = hasUserMessageTrigger(
 		chatMessages,
@@ -1125,6 +1164,16 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 			}
 
 			if (shouldTruncateStream) {
+				return;
+			}
+
+			// Mimic the Gemini API shedding Flex capacity mid-stream: a raw JSON
+			// error body tail (not an SSE event), then the stream closes without a
+			// finish reason or [DONE].
+			if (shouldEndWithTrailingError) {
+				await stream.write(
+					'\r\n{\n  "error": {\n    "code": 503,\n    "message": "This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.",\n    "status": "UNAVAILABLE"\n  }\n}\n',
+				);
 				return;
 			}
 
@@ -2764,6 +2813,10 @@ mockOpenAIServer.post(
 	"/v1beta1/projects/:project/locations/:location/publishers/google/models/*",
 	vertexPublisherModelHandler,
 );
+mockOpenAIServer.post(
+	"/v1/publishers/google/models/*",
+	vertexPublisherModelHandler,
+);
 
 // Stub Vertex OAuth token endpoint. Test fixtures build a service-account
 // JSON whose token_uri points here, so the gateway's JWT-grant exchange
@@ -2778,6 +2831,11 @@ mockOpenAIServer.post("/mock-google-oauth/token", async (c) =>
 
 mockOpenAIServer.get("/v1/videos/:id", async (c) => {
 	const id = c.req.param("id");
+	const statusResponse = videoStatusResponses.get(id);
+	if (statusResponse) {
+		c.status(statusResponse.status as Parameters<typeof c.status>[0]);
+		return c.json(statusResponse.body);
+	}
 	const job = videoJobs.get(id);
 
 	if (!job) {
@@ -3067,72 +3125,43 @@ mockOpenAIServer.post("/mock-callback/:name", async (c) => {
 });
 
 // Handle Google Vertex AI generateContent endpoint (Gemini models via Vertex)
-mockOpenAIServer.post(
-	"/v1/projects/:project/locations/:location/publishers/google/models/:model\\:generateContent",
-	async (c) => {
-		const body = await c.req.json();
+const vertexGenerateContentHandler = async (c: Context) => {
+	const body = await c.req.json();
 
-		const shouldError = body.contents?.some?.((content: any) =>
-			content.parts?.some?.((part: any) =>
-				part.text?.includes?.("TRIGGER_ERROR"),
-			),
-		);
+	const shouldError = body.contents?.some?.((content: any) =>
+		content.parts?.some?.((part: any) =>
+			part.text?.includes?.("TRIGGER_ERROR"),
+		),
+	);
 
-		if (shouldError) {
-			c.status(500);
-			return c.json({
-				error: {
-					code: 500,
-					message: "Internal server error",
-					status: "INTERNAL",
-				},
-			});
-		}
+	if (shouldError) {
+		c.status(500);
+		return c.json({
+			error: {
+				code: 500,
+				message: "Internal server error",
+				status: "INTERNAL",
+			},
+		});
+	}
 
-		// Speech generation: when the caller requests AUDIO output, return an
-		// inlineData audio part (base64-encoded PCM) like Gemini TTS models do.
-		const vertexResponseModalities: string[] =
-			body.generationConfig?.responseModalities ?? [];
-		if (vertexResponseModalities.includes("AUDIO")) {
-			// 8 samples of 16-bit silence as a deterministic PCM payload.
-			const pcm = Buffer.alloc(16);
-			return c.json({
-				candidates: [
-					{
-						content: {
-							parts: [
-								{
-									inlineData: {
-										mimeType: "audio/L16;codec=pcm;rate=24000",
-										data: pcm.toString("base64"),
-									},
-								},
-							],
-							role: "model",
-						},
-						finishReason: "STOP",
-						index: 0,
-					},
-				],
-				usageMetadata: {
-					promptTokenCount: 5,
-					candidatesTokenCount: 42,
-					totalTokenCount: 47,
-				},
-			});
-		}
-
-		const userMessage =
-			body.contents?.find?.((ct: any) => ct.role === "user")?.parts?.[0]
-				?.text ?? "";
-
+	// Speech generation: when the caller requests AUDIO output, return an
+	// inlineData audio part (base64-encoded PCM) like Gemini TTS models do.
+	const vertexResponseModalities: string[] =
+		body.generationConfig?.responseModalities ?? [];
+	if (vertexResponseModalities.includes("AUDIO")) {
+		// 8 samples of 16-bit silence as a deterministic PCM payload.
+		const pcm = Buffer.alloc(16);
 		return c.json({
 			candidates: [
 				{
 					content: {
 						parts: [
 							{
-								text: `Hello! I received your message: "${userMessage}". This is a mock Google Vertex response.`,
+								inlineData: {
+									mimeType: "audio/L16;codec=pcm;rate=24000",
+									data: pcm.toString("base64"),
+								},
 							},
 						],
 						role: "model",
@@ -3142,12 +3171,46 @@ mockOpenAIServer.post(
 				},
 			],
 			usageMetadata: {
-				promptTokenCount: 10,
-				candidatesTokenCount: 20,
-				totalTokenCount: 30,
+				promptTokenCount: 5,
+				candidatesTokenCount: 42,
+				totalTokenCount: 47,
 			},
 		});
-	},
+	}
+
+	const userMessage =
+		body.contents?.find?.((ct: any) => ct.role === "user")?.parts?.[0]?.text ??
+		"";
+
+	return c.json({
+		candidates: [
+			{
+				content: {
+					parts: [
+						{
+							text: `Hello! I received your message: "${userMessage}". This is a mock Google Vertex response.`,
+						},
+					],
+					role: "model",
+				},
+				finishReason: "STOP",
+				index: 0,
+			},
+		],
+		usageMetadata: {
+			promptTokenCount: 10,
+			candidatesTokenCount: 20,
+			totalTokenCount: 30,
+		},
+	});
+};
+mockOpenAIServer.post(
+	"/v1/projects/:project/locations/:location/publishers/google/models/:model\\:generateContent",
+	vertexGenerateContentHandler,
+);
+mockOpenAIServer.post(
+	"/v1/publishers/google/models/:model\\:generateContent",
+	vertexGenerateContentHandler,
 );
 
 mockOpenAIServer.post("/model/:model/converse", async (c) => {

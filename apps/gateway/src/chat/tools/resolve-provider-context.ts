@@ -6,6 +6,8 @@ import {
 	findProviderKey,
 	listEligibleProviderKeys,
 } from "@/lib/cached-queries.js";
+import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
+import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { posthog } from "@/posthog.js";
 
 import {
@@ -22,7 +24,6 @@ import {
 import { providerKeyAllowsModel } from "@llmgateway/db";
 import {
 	type BaseMessage,
-	getOrganizationEnvVariant,
 	getRegionSpecificEnvVarName,
 	getVariantEnvVarNameFor,
 	hasMaxTokens,
@@ -32,6 +33,7 @@ import {
 	type PromptCacheOptions,
 	type PromptCacheRetention,
 	type Provider,
+	type ProviderCacheControlMode,
 	type ProviderRequestBody,
 	providers,
 	resolveVertexTokenType,
@@ -171,11 +173,10 @@ export interface ProviderContextOptions {
 	userPlan: "free" | "pro" | "enterprise" | null;
 	hasExistingToolCalls: boolean;
 	customProviderName: string | undefined;
-	webSearchEnabled: boolean;
 	excludedEnvKeyIndices?: ReadonlySet<number>;
 	excludedProviderKeyIds?: ReadonlySet<string>;
 	n?: number;
-	providerCacheControlEnabled: boolean;
+	providerCacheControlMode: ProviderCacheControlMode;
 	service_tier?: "auto" | "default" | "flex" | "priority";
 	/**
 	 * The premium tier the client asked for itself, or null when `service_tier`
@@ -194,6 +195,8 @@ interface ProjectInfo {
 
 interface OrgInfo {
 	id: string;
+	/** Opaque per-org identifier forwarded to providers for abuse attribution. */
+	safetyIdentifier: string;
 	credits: string | null;
 	plan: string;
 	kind: string;
@@ -463,20 +466,7 @@ function assertOrganizationHasCreditsForEnvFallback(
 	});
 }
 
-export function formatUsedModelForDisplay(
-	usedProvider: string,
-	usedInternalModel: string,
-	customProviderName?: string,
-	usedRegion?: string,
-): string {
-	const usedModelProviderPrefix =
-		usedProvider === "custom" && customProviderName
-			? customProviderName
-			: usedProvider;
-
-	const base = `${usedModelProviderPrefix}/${usedInternalModel}`;
-	return usedRegion ? `${base}:${usedRegion}` : base;
-}
+export { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 
 /**
  * Which of an organization's own keys may serve a given model.
@@ -581,7 +571,7 @@ export async function resolveProviderContext(
 
 	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
 	// this org's env-credential reads. Undefined = base vars only.
-	const envVariant = getOrganizationEnvVariant(organization);
+	const envVariant = getLicensedOrganizationEnvVariant(organization);
 
 	// Flex/Priority is only honored when the request reaches the provider's real
 	// upstream endpoint on a tier-capable location. Skip provider keys whose
@@ -979,12 +969,14 @@ export async function resolveProviderContext(
 		useResponsesApi,
 		options.prompt_cache_key,
 		options.prompt_cache_retention,
-		options.providerCacheControlEnabled,
+		options.providerCacheControlMode,
 		options.n,
 		forwardedServiceTier,
 		options.verbosity,
 		options.prompt_cache_options,
 		options.session_id,
+		undefined,
+		organization.safetyIdentifier,
 	);
 
 	// Post-validation of max_tokens in request body
@@ -1028,7 +1020,6 @@ export async function resolveProviderContext(
 	// --- Headers ---
 	const headers = getProviderHeaders(usedProvider as Provider, usedToken, {
 		requestId: options.requestId,
-		webSearchEnabled: options.webSearchEnabled,
 		tokenType: vertexTokenType,
 	});
 	headers["Content-Type"] = "application/json";

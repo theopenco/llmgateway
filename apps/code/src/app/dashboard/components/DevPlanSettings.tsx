@@ -13,6 +13,8 @@ import {
 } from "@/components/ui/select";
 import { useApi } from "@/lib/fetch-client";
 
+import type { ProviderCacheControlMode } from "@llmgateway/models";
+
 type RoutingStrategy = "auto" | "price" | "throughput" | "latency";
 
 // Coding plans optimize for prompt caching, so only "auto" and "price" are
@@ -35,14 +37,36 @@ const SERVICE_TIER_OPTIONS: Array<{ value: ServiceTier; label: string }> = [
 	{ value: "flex", label: "Flex" },
 ];
 
+const PROVIDER_CACHE_OPTIONS: Array<{
+	value: ProviderCacheControlMode;
+	label: string;
+	toast: string;
+}> = [
+	{
+		value: "auto",
+		label: "Automatic",
+		toast: "DevPass adds cache markers on long prompts",
+	},
+	{
+		value: "passthrough",
+		label: "Client-managed",
+		toast: "Only your client's own cache markers are used",
+	},
+	{ value: "off", label: "Disabled", toast: "Provider cache writes disabled" },
+];
+
 interface DevPlanSettingsProps {
+	canConfigureServiceTier: boolean;
 	devPlanServiceTier: ServiceTier;
 	defaultRoutingStrategy: RoutingStrategy;
+	providerCacheControlMode: ProviderCacheControlMode;
 }
 
 export default function DevPlanSettings({
+	canConfigureServiceTier,
 	devPlanServiceTier: initialServiceTier,
 	defaultRoutingStrategy: initialRoutingStrategy,
+	providerCacheControlMode: initialProviderCacheControlMode,
 }: DevPlanSettingsProps) {
 	const api = useApi();
 
@@ -54,6 +78,9 @@ export default function DevPlanSettings({
 	const [serviceTier, setServiceTier] =
 		useState<ServiceTier>(initialServiceTier);
 	const [isUpdatingServiceTier, setIsUpdatingServiceTier] = useState(false);
+	const [providerCacheControlMode, setProviderCacheControlMode] =
+		useState<ProviderCacheControlMode>(initialProviderCacheControlMode);
+	const [isUpdatingProviderCache, setIsUpdatingProviderCache] = useState(false);
 
 	const updateSettingsMutation = api.useMutation(
 		"patch",
@@ -103,6 +130,27 @@ export default function DevPlanSettings({
 			toast.error("Failed to update service tier");
 		} finally {
 			setIsUpdatingServiceTier(false);
+		}
+	};
+
+	const handleProviderCacheChange = async (value: string) => {
+		const option = PROVIDER_CACHE_OPTIONS.find((o) => o.value === value);
+		if (!option) {
+			return;
+		}
+		const previous = providerCacheControlMode;
+		setProviderCacheControlMode(option.value);
+		setIsUpdatingProviderCache(true);
+		try {
+			await updateSettingsMutation.mutateAsync({
+				body: { providerCacheControlMode: option.value },
+			});
+			toast.success(option.toast);
+		} catch {
+			setProviderCacheControlMode(previous);
+			toast.error("Failed to update provider cache writes");
+		} finally {
+			setIsUpdatingProviderCache(false);
 		}
 	};
 
@@ -158,37 +206,39 @@ export default function DevPlanSettings({
 					</div>
 				</div>
 
-				<div className="rounded-xl border p-5 space-y-4">
-					<div className="flex items-center justify-between gap-4">
+				<div className="rounded-xl border p-5">
+					<div className="flex items-start justify-between gap-4">
 						<div className="space-y-0.5">
-							<Label htmlFor="service-tier" className="text-sm font-medium">
-								Default service tier
+							<Label
+								htmlFor="provider-cache-writes"
+								className="text-sm font-medium"
+							>
+								Provider cache writes
 							</Label>
 							<p className="text-xs text-muted-foreground">
-								Flex processing costs less and saves your plan credits, but
-								responses may be slower during peak demand. Only applied for
-								models that support it — everything else stays on standard
-								processing.{" "}
-								<a
-									href="https://docs.llmgateway.io/features/service-tiers"
-									target="_blank"
-									rel="noreferrer"
-									className="underline underline-offset-2"
-								>
-									Learn more
-								</a>
+								Automatic adds cache markers to reusable prompt prefixes and
+								forwards the ones your client sends. Client-managed only
+								forwards your client&apos;s markers, so tools that manage their
+								own caching (Claude Code, Cursor, Cline) keep working while
+								requests without markers never pay for a write. Disabled strips
+								every marker. Cache writes cost 1.25× for 5 minutes or 2× for 1
+								hour, while cache reads cost 0.1×.
 							</p>
 						</div>
 						<Select
-							value={serviceTier}
-							onValueChange={handleServiceTierChange}
-							disabled={isUpdatingServiceTier}
+							value={providerCacheControlMode}
+							onValueChange={handleProviderCacheChange}
+							disabled={isUpdatingProviderCache}
 						>
-							<SelectTrigger id="service-tier" size="sm" className="w-[180px]">
+							<SelectTrigger
+								id="provider-cache-writes"
+								size="sm"
+								className="w-[180px]"
+							>
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
-								{SERVICE_TIER_OPTIONS.map((option) => (
+								{PROVIDER_CACHE_OPTIONS.map((option) => (
 									<SelectItem key={option.value} value={option.value}>
 										{option.label}
 									</SelectItem>
@@ -197,6 +247,52 @@ export default function DevPlanSettings({
 						</Select>
 					</div>
 				</div>
+
+				{canConfigureServiceTier && (
+					<div className="rounded-xl border p-5 space-y-4">
+						<div className="flex items-center justify-between gap-4">
+							<div className="space-y-0.5">
+								<Label htmlFor="service-tier" className="text-sm font-medium">
+									Default service tier
+								</Label>
+								<p className="text-xs text-muted-foreground">
+									Flex processing costs less and saves your plan credits, but
+									responses may be slower during peak demand. Only applied for
+									models that support it — everything else stays on standard
+									processing.{" "}
+									<a
+										href="https://docs.llmgateway.io/features/service-tiers"
+										target="_blank"
+										rel="noreferrer"
+										className="underline underline-offset-2"
+									>
+										Learn more
+									</a>
+								</p>
+							</div>
+							<Select
+								value={serviceTier}
+								onValueChange={handleServiceTierChange}
+								disabled={isUpdatingServiceTier}
+							>
+								<SelectTrigger
+									id="service-tier"
+									size="sm"
+									className="w-[180px]"
+								>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									{SERVICE_TIER_OPTIONS.map((option) => (
+										<SelectItem key={option.value} value={option.value}>
+											{option.label}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</div>
+					</div>
+				)}
 			</div>
 		</div>
 	);

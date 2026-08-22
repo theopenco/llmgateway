@@ -1,8 +1,13 @@
+import {
+	EnterpriseSeatLimitError,
+	withEnterpriseSeatForOrganization,
+} from "@/lib/enterprise-seats.js";
 import { resolveSeatLimit } from "@/lib/seat-limit.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
 /**
  * Accept every pending, non-expired organization invite matching the user's
@@ -48,6 +53,12 @@ export async function acceptPendingInvitesForUser(user: {
 			if (!org || org.status === "deleted") {
 				continue;
 			}
+			if (
+				invite.role === "developer" &&
+				!hasOrganizationEnterpriseAccess(org.id, org.plan)
+			) {
+				continue;
+			}
 
 			const existingMembership = await db.query.userOrganization.findFirst({
 				where: {
@@ -62,7 +73,7 @@ export async function acceptPendingInvitesForUser(user: {
 					where: { organizationId: { eq: invite.organizationId } },
 					columns: { id: true },
 				});
-				const seatLimit = resolveSeatLimit(org.plan, org.seats);
+				const seatLimit = resolveSeatLimit(org.id, org.plan, org.seats);
 				if (currentMembers.length >= seatLimit) {
 					// Leave the invite pending so admins still see it and can free a
 					// seat; it will be retried on the user's next sign-in.
@@ -77,14 +88,19 @@ export async function acceptPendingInvitesForUser(user: {
 					continue;
 				}
 
-				const [membership] = await db
-					.insert(tables.userOrganization)
-					.values({
-						userId: user.id,
-						organizationId: invite.organizationId,
-						role: invite.role,
-					})
-					.returning({ id: tables.userOrganization.id });
+				const [membership] = await withEnterpriseSeatForOrganization(
+					invite.organizationId,
+					user.id,
+					async (tx) =>
+						await tx
+							.insert(tables.userOrganization)
+							.values({
+								userId: user.id,
+								organizationId: invite.organizationId,
+								role: invite.role,
+							})
+							.returning({ id: tables.userOrganization.id }),
+				);
 
 				if (invite.role === "developer" && invite.projectIds?.length) {
 					// Grant only the invited projects that still exist in the org.
@@ -133,6 +149,18 @@ export async function acceptPendingInvitesForUser(user: {
 				},
 			});
 		} catch (error) {
+			if (error instanceof EnterpriseSeatLimitError) {
+				logger.warn(
+					"Skipping team invite acceptance: Enterprise license at seat limit",
+					{
+						inviteId: invite.id,
+						organizationId: invite.organizationId,
+						maxSeats: error.maxSeats,
+						seatsUsed: error.seatsUsed,
+					},
+				);
+				continue;
+			}
 			logger.error(
 				"Failed to accept pending team invite",
 				error instanceof Error ? error : new Error(String(error)),

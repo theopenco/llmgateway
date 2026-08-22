@@ -1,9 +1,11 @@
 import { logger } from "@llmgateway/logger";
 
 const discordWebhookUrl = process.env.DISCORD_NOTIFICATION_URL;
+const DISCORD_ALERT_TIMEOUT_MS = 5_000;
 
 interface DiscordEmbed {
 	title: string;
+	url?: string;
 	description?: string;
 	color?: number;
 	fields?: Array<{
@@ -22,10 +24,11 @@ interface DiscordWebhookPayload {
 async function sendDiscordNotification(
 	payload: DiscordWebhookPayload,
 	webhookUrl: string | undefined = discordWebhookUrl,
+	timeoutMs?: number,
 ): Promise<void> {
 	if (!webhookUrl) {
 		logger.debug(
-			"DISCORD_NOTIFICATION_URL not configured, skipping notification",
+			"Discord notification webhook not configured, skipping notification",
 		);
 		return;
 	}
@@ -37,6 +40,7 @@ async function sendDiscordNotification(
 				"Content-Type": "application/json",
 			},
 			body: JSON.stringify(payload),
+			...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
 		});
 
 		if (!response.ok) {
@@ -66,6 +70,7 @@ export async function notifyUserSignup(
 	email: string,
 	name: string | null | undefined,
 	authMethod?: string,
+	countryCode?: string | null,
 ): Promise<void> {
 	const displayName = name ?? "Unknown";
 	const method = authMethod ?? "Unknown";
@@ -89,6 +94,11 @@ export async function notifyUserSignup(
 					{
 						name: "Auth Method",
 						value: method,
+						inline: true,
+					},
+					{
+						name: "Country",
+						value: countryCode ?? "Unknown",
 						inline: true,
 					},
 				],
@@ -190,6 +200,56 @@ export async function notifyCreditsPurchased(args: {
 			},
 		],
 	});
+}
+
+export async function notifyTopUpVelocityLimit(args: {
+	email: string;
+	name?: string | null;
+	organizationId: string;
+	capUsd: number;
+	usedUsd: number;
+	attemptedUsd: number;
+}): Promise<void> {
+	const { email, name, organizationId, capUsd, usedUsd, attemptedUsd } = args;
+
+	await sendDiscordNotification(
+		{
+			content: "⚠️ A credit top-up was blocked by the velocity limit.",
+			embeds: [
+				{
+					title: "Top-Up Velocity Limit Reached",
+					color: 0xf59e0b, // Amber
+					fields: [
+						{ name: "Email", value: email, inline: true },
+						{ name: "Name", value: name ?? "Unknown", inline: true },
+						{
+							name: "Organization",
+							value: organizationId,
+							inline: false,
+						},
+						{
+							name: "Limit",
+							value: formatAmount(capUsd, "USD"),
+							inline: true,
+						},
+						{
+							name: "Used",
+							value: formatAmount(usedUsd, "USD"),
+							inline: true,
+						},
+						{
+							name: "Attempted",
+							value: formatAmount(attemptedUsd, "USD"),
+							inline: true,
+						},
+					],
+					timestamp: new Date().toISOString(),
+				},
+			],
+		},
+		process.env.DISCORD_TOPUP_VELOCITY_NOTIFICATION_URL,
+		DISCORD_ALERT_TIMEOUT_MS,
+	);
 }
 
 export async function notifyRefund(
@@ -391,10 +451,18 @@ export async function notifyChatSupportEscalation(args: {
 	name?: string;
 	email?: string;
 	conversationId: string;
+	adminConversationUrl: string;
 	ipAddress?: string;
 	lastMessage?: string;
 }): Promise<void> {
-	const { name, email, conversationId, ipAddress, lastMessage } = args;
+	const {
+		name,
+		email,
+		conversationId,
+		adminConversationUrl,
+		ipAddress,
+		lastMessage,
+	} = args;
 	const truncatedMessage =
 		lastMessage && lastMessage.length > 1000
 			? `${lastMessage.slice(0, 1000)}…`
@@ -406,6 +474,7 @@ export async function notifyChatSupportEscalation(args: {
 			embeds: [
 				{
 					title: "Chat Support Escalation",
+					url: adminConversationUrl,
 					color: 0xf59e0b, // Amber
 					fields: [
 						{ name: "Name", value: name || "Not provided", inline: true },
@@ -413,6 +482,11 @@ export async function notifyChatSupportEscalation(args: {
 						{
 							name: "Conversation ID",
 							value: conversationId,
+							inline: false,
+						},
+						{
+							name: "Admin dashboard",
+							value: `[View support ticket](${adminConversationUrl})`,
 							inline: false,
 						},
 						...(ipAddress
@@ -677,6 +751,50 @@ export async function notifyChatPlanRenewed(
 			},
 		],
 	});
+}
+
+export async function notifyHighRiskAccount(args: {
+	email: string;
+	name?: string | null;
+	source: "signup" | "email_verification";
+	reason: string;
+	countryCode?: string | null;
+	organizationIds: string[];
+}): Promise<void> {
+	await sendDiscordNotification(
+		{
+			embeds: [
+				{
+					title: "High-Risk Account Flagged",
+					color: 0xf59e0b, // Amber
+					fields: [
+						{ name: "Email", value: args.email, inline: true },
+						{ name: "Name", value: args.name ?? "Unknown", inline: true },
+						{
+							name: "Detected At",
+							value:
+								args.source === "signup" ? "Sign-up" : "Email verification",
+							inline: true,
+						},
+						{ name: "Reason", value: args.reason, inline: false },
+						{
+							name: "Country",
+							value: args.countryCode ?? "Unknown",
+							inline: true,
+						},
+						{
+							name: "Organizations",
+							value: args.organizationIds.join(", ") || "None",
+							inline: true,
+						},
+					],
+					timestamp: new Date().toISOString(),
+				},
+			],
+		},
+		process.env.DISCORD_TOPUP_VELOCITY_NOTIFICATION_URL,
+		DISCORD_ALERT_TIMEOUT_MS,
+	);
 }
 
 export async function notifyUserAccountDeleted(

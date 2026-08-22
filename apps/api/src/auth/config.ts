@@ -6,14 +6,21 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createAuthMiddleware } from "better-auth/api";
 import { Redis } from "ioredis";
 
+import { flagUserIfAbusiveIp } from "@/lib/account-risk.js";
 import { getApiBaseUrl } from "@/lib/api-url.js";
+import { getClientIpFromHeaders } from "@/lib/client-ip.js";
 import { acceptPendingInvitesForUser } from "@/lib/team-invites.js";
+import {
+	getBlockedSignupCountries,
+	isCountryBlocked,
+} from "@/utils/country-blocking.js";
 import { getOrCreateDefaultOrganization } from "@/utils/default-org.js";
 import { notifyUserSignup } from "@/utils/discord.js";
 import { validateEmail } from "@/utils/email-validation.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 import { resolveSignupName } from "@/utils/infer-name.js";
 import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
+import { getCountryFromHeaders } from "@/utils/request-country.js";
 import {
 	autoJoinByEmailDomain,
 	autoJoinSsoProviderOrganization,
@@ -23,6 +30,7 @@ import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { getResendClient, resendAudienceId } from "@llmgateway/shared/email";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
 const apiUrl = getApiBaseUrl();
 const cookieDomain = process.env.COOKIE_DOMAIN ?? "localhost";
@@ -73,10 +81,12 @@ async function isSSOEnforcedForEmail(
 		where: {
 			id: { in: [...new Set(matching.map((p) => p.organizationId as string))] },
 		},
-		columns: { status: true, plan: true },
+		columns: { id: true, status: true, plan: true },
 	});
 	return orgs.some(
-		(org) => org.status !== "deleted" && org.plan === "enterprise",
+		(org) =>
+			org.status !== "deleted" &&
+			hasOrganizationEnterpriseAccess(org.id, org.plan),
 	);
 }
 
@@ -789,11 +799,14 @@ If you didn't request this, you can safely ignore this email. Your password won'
 				? {
 						sendOnSignUp: true,
 						autoSignInAfterVerification: true,
-						afterEmailVerification: async (user: {
-							id: string;
-							email: string;
-							name?: string | null;
-						}) => {
+						afterEmailVerification: async (
+							user: {
+								id: string;
+								email: string;
+								name?: string | null;
+							},
+							request?: Request,
+						) => {
 							// Fetch the user's onboarding status to include in Resend
 							const dbUser = await db.query.user.findFirst({
 								where: {
@@ -813,13 +826,27 @@ If you didn't request this, you can safely ignore this email. Your password won'
 								email: user.email,
 							});
 
+							// Throwaway accounts are routinely registered from a clean
+							// address and only activated from the abusive one, so the
+							// verification click is checked as well as the sign-up.
+							await flagUserIfAbusiveIp({
+								userId: user.id,
+								source: "email_verification",
+								headers: request?.headers,
+							});
+
 							// Add verified email to Resend contacts with onboarding status
 							await createResendContact(user.email, user.name ?? undefined, {
 								onboarding_completed: dbUser?.onboardingCompleted ?? false,
 							});
 
 							// Send Discord notification for new verified signup
-							await notifyUserSignup(user.email, user.name, "Email");
+							await notifyUserSignup(
+								user.email,
+								user.name,
+								"Email",
+								getCountryFromHeaders(request?.headers),
+							);
 						},
 						sendVerificationEmail: async (
 							{
@@ -908,6 +935,51 @@ The LLM Gateway Team`.trim();
 						}
 					}
 
+					const ipAddress = getClientIpFromHeaders(ctx.headers) ?? "unknown";
+
+					// Block sign-ups from the countries configured in the admin
+					// dashboard, using the country reported by the load balancer.
+					// Sign-in stays open so
+					// existing accounts keep working. Social sign-up goes through
+					// /sign-in/social with `requestSignUp: true` (both social providers
+					// run with disableImplicitSignUp), so match that too.
+					const isSignupAttempt =
+						ctx.path.startsWith("/sign-up") ||
+						(ctx.path === "/sign-in/social" &&
+							(ctx.body as { requestSignUp?: boolean } | undefined)
+								?.requestSignUp === true);
+					if (isSignupAttempt) {
+						const blockedCountries = await getBlockedSignupCountries();
+						const country = blockedCountries.length
+							? getCountryFromHeaders(ctx.headers)
+							: undefined;
+						// An undetectable country never blocks, so surface it: with a
+						// blocklist configured it means the load balancer geo header is missing.
+						if (blockedCountries.length && !country) {
+							logger.warn("Signup country could not be determined", {
+								ip: ipAddress,
+								path: ctx.path,
+							});
+						}
+						if (isCountryBlocked(country, blockedCountries)) {
+							logger.warn("Signup blocked by country policy", {
+								ip: ipAddress,
+								country,
+								path: ctx.path,
+							});
+							return new Response(
+								JSON.stringify({
+									error: "signup_not_available",
+									message: "Sign-ups are not available in your region.",
+								}),
+								{
+									status: 403,
+									headers: { "Content-Type": "application/json" },
+								},
+							);
+						}
+					}
+
 					// Apply name fallback for email/password signup before user creation
 					if (ctx.path.startsWith("/sign-up/email")) {
 						const body = ctx.body as
@@ -922,21 +994,6 @@ The LLM Gateway Team`.trim();
 						ctx.path.startsWith("/sign-up") &&
 						process.env.NODE_ENV !== "development"
 					) {
-						// Get IP address from various possible headers, prioritizing CF-Connecting-IP
-						let ipAddress = ctx.headers?.get("cf-connecting-ip");
-						if (!ipAddress) {
-							ipAddress = ctx.headers?.get("x-forwarded-for");
-							if (ipAddress) {
-								// x-forwarded-for can be a comma-separated list, take the first IP
-								ipAddress = ipAddress.split(",")[0]?.trim();
-							} else {
-								ipAddress =
-									ctx.headers?.get("x-real-ip") ??
-									ctx.headers?.get("x-client-ip") ??
-									"unknown";
-							}
-						}
-
 						// Check and record signup attempt with exponential backoff
 						const rateLimitResult =
 							await checkAndRecordSignupAttempt(ipAddress);
@@ -1105,6 +1162,32 @@ The LLM Gateway Team`.trim();
 							: null;
 						ssoProvider = provider ?? null;
 						if (provider?.organizationId) {
+							const organization = await db.query.organization.findFirst({
+								where: { id: { eq: provider.organizationId } },
+								columns: { id: true, plan: true, status: true },
+							});
+							if (
+								!organization ||
+								organization.status === "deleted" ||
+								!hasOrganizationEnterpriseAccess(
+									organization.id,
+									organization.plan,
+								)
+							) {
+								await db
+									.delete(tables.session)
+									.where(eq(tables.session.id, newSession.session.id));
+								return new Response(
+									JSON.stringify({
+										error: "enterprise_license_required",
+										message: "A valid Enterprise license is required",
+									}),
+									{
+										status: 403,
+										headers: { "Content-Type": "application/json" },
+									},
+								);
+							}
 							await logAuditEvent({
 								organizationId: provider.organizationId,
 								userId,
@@ -1303,6 +1386,19 @@ The LLM Gateway Team`.trim();
 						});
 					}
 
+					// Only brand-new users reach this point (everyone else returned
+					// above), so this is the sign-up moment for both the email and the
+					// social flow. Enterprise SSO logins are exempt: those users were
+					// authenticated by an IdP their organization controls, and a shared
+					// corporate egress IP with a poor reputation must not gate them.
+					if (!ctx.path.startsWith("/sso/")) {
+						await flagUserIfAbusiveIp({
+							userId,
+							source: "signup",
+							headers: ctx.headers,
+						});
+					}
+
 					// Check if this is a social login by querying the account table
 					// For OAuth signups, we need to send notifications and create Resend contacts
 					if (isHosted) {
@@ -1324,6 +1420,7 @@ The LLM Gateway Team`.trim();
 								newSession.user.email,
 								newSession.user.name,
 								providerName,
+								getCountryFromHeaders(ctx.headers),
 							);
 
 							await createResendContact(

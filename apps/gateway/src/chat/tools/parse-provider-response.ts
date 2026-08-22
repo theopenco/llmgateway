@@ -1,3 +1,4 @@
+import { isToolSearchBlock } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -15,7 +16,11 @@ import {
 } from "./reasoning-details.js";
 
 import type { Annotation, ImageObject } from "./types.js";
-import type { Provider, ReasoningDetail } from "@llmgateway/models";
+import type {
+	AnthropicNativeBlock,
+	Provider,
+	ReasoningDetail,
+} from "@llmgateway/models";
 
 /**
  * Parses response content and metadata from different providers
@@ -60,6 +65,7 @@ export function parseProviderResponse(
 	let audioInputTokens: number | null = null;
 	let cachedAudioInputTokens: number | null = null;
 	let toolResults = null;
+	let anthropicNativeBlocks: AnthropicNativeBlock[] | null = null;
 	let images: ImageObject[] = [];
 	const annotations: Annotation[] = [];
 	let webSearchCount = 0;
@@ -302,6 +308,16 @@ export function parseProviderResponse(
 						? promptTokens + completionTokens
 						: null;
 			}
+			// Server-side tool search leaves a server_tool_use +
+			// tool_search_tool_result pair in the content. Neither has an
+			// OpenAI-format equivalent, so surface them verbatim for the
+			// /v1/messages layer to replay — Anthropic expands the tool_reference
+			// entries they carry on every later turn.
+			const toolSearchBlocks = contentBlocks.filter(isToolSearchBlock);
+			if (toolSearchBlocks.length > 0) {
+				anthropicNativeBlocks = toolSearchBlocks;
+			}
+
 			// Extract tool calls from Anthropic format
 			toolResults =
 				json.content
@@ -1147,16 +1163,14 @@ export function parseProviderResponse(
 				// Standard OpenAI-style token parsing
 				promptTokens = json.usage?.prompt_tokens ?? null;
 				completionTokens = json.usage?.completion_tokens ?? null;
-				// xAI is the exception among the OpenAI-compatible providers: its
-				// `completion_tokens` EXCLUDES reasoning (total_tokens = prompt +
-				// completion + reasoning) and the count only ever appears nested
-				// under `completion_tokens_details`. Reading it here is what makes
-				// reasoning billable at all. Providers that fold reasoning into
-				// `completion_tokens` must keep reading the top-level field only,
-				// or the same tokens would be billed a second time.
+				// xAI and Vertex's xAI endpoint report reasoning outside
+				// `completion_tokens` and only expose the count in the nested details.
+				// Reading it here is what makes reasoning billable at all. Providers
+				// that fold reasoning into `completion_tokens` must keep reading the
+				// top-level field only, or the same tokens would be billed twice.
 				reasoningTokens =
 					json.usage?.reasoning_tokens ??
-					(usedProvider === "xai"
+					(usedProvider === "xai" || usedProvider === "vertex-openai"
 						? (json.usage?.completion_tokens_details?.reasoning_tokens ?? null)
 						: null);
 				cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens ?? null;
@@ -1277,6 +1291,7 @@ export function parseProviderResponse(
 		audioInputTokens,
 		cachedAudioInputTokens,
 		toolResults,
+		anthropicNativeBlocks,
 		images,
 		annotations: annotations.length > 0 ? annotations : null,
 		webSearchCount: webSearchCount > 0 ? webSearchCount : null,

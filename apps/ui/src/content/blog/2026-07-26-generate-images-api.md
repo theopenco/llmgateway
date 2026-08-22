@@ -5,6 +5,15 @@ date: "2026-07-26"
 title: "How to Generate Images with One API (2026 Guide)"
 summary: "A practical AI image generation API tutorial: call gpt-image-2, Gemini, and Seedream through one OpenAI-compatible endpoint, pick sizes and quality, edit existing images, and see the exact cost of every generation."
 categories: ["Guides"]
+faqs:
+  - question: "Which image generation models can I use through the API?"
+    answer: "Every model on the [models page with the image filter](https://llmgateway.io/models?filters=1&imageGeneration=true) — including OpenAI, Google, ByteDance, Alibaba, xAI, and more — through the same endpoint. The list updates as new models ship."
+  - question: "Do I need separate API keys per provider?"
+    answer: "No. One LLM Gateway key covers every provider. You can bring your own provider keys for free, or use pay-as-you-go credits with a flat 5% platform fee."
+  - question: "Can I generate images conversationally?"
+    answer: "Yes. Multimodal models like `gemini-3-pro-image-preview` can return images through `/v1/chat/completions`, which is useful for iterative editing in a chat UI. The [image generation docs](https://docs.llmgateway.io/features/image-generation) cover the chat flow."
+  - question: "Is there a way to try models before writing code?"
+    answer: "The [Image Studio in Lounge](https://lounge.llmgateway.io/image) generates 1, 2, or 4 images per prompt and lets you compare models side by side."
 image:
   src: "/blog/generate-images-api.png"
   alt: "A glowing image frame being generated on a circuit board, representing an AI image generation API"
@@ -72,6 +81,8 @@ response.data.forEach((image, i) => {
 
 Switching from `gpt-image-2` to a Gemini or Seedream model is a one-line change to `model` — same request, same response shape.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## The parameters that matter
 
 | Parameter      | What it does                                                           |
@@ -128,24 +139,6 @@ See the [AI SDK developer docs](https://docs.llmgateway.io/developers/ai-sdk-ima
 
 Every generation is logged with its exact cost. The [Activity page](https://docs.llmgateway.io/learn/activity) shows per-request image output costs, and the [dashboard](https://docs.llmgateway.io/learn/dashboard) rolls them up by model and project — so you can compare not just output quality across models, but price per image. Set a [spending limit on the API key](https://docs.llmgateway.io/learn/api-keys) if you want a hard cap.
 
-## Frequently Asked Questions
-
-### Which image generation models can I use through the API?
-
-Every model on the [models page with the image filter](https://llmgateway.io/models?filters=1&imageGeneration=true) — including OpenAI, Google, ByteDance, Alibaba, xAI, and more — through the same endpoint. The list updates as new models ship.
-
-### Do I need separate API keys per provider?
-
-No. One LLM Gateway key covers every provider. You can bring your own provider keys for free, or use pay-as-you-go credits with a flat 5% platform fee.
-
-### Can I generate images conversationally?
-
-Yes. Multimodal models like `gemini-3-pro-image-preview` can return images through `/v1/chat/completions`, which is useful for iterative editing in a chat UI. The [image generation docs](https://docs.llmgateway.io/features/image-generation) cover the chat flow.
-
-### Is there a way to try models before writing code?
-
-The [Image Studio in Lounge](https://lounge.llmgateway.io/image) generates 1, 2, or 4 images per prompt and lets you compare models side by side.
-
 ---
 
 **Get started:**
@@ -153,3 +146,5 @@ The [Image Studio in Lounge](https://lounge.llmgateway.io/image) generates 1, 2,
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** — one key for every image model
 - **[Image generation docs](https://docs.llmgateway.io/features/image-generation)** — full parameter reference
 - **[How to generate videos with the API](/blog/generate-videos-api)** — the async counterpart to this guide
+
+<BlogCta variant="gateway" location="bottom" />

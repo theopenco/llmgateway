@@ -14,6 +14,7 @@ import {
 	GitCompare,
 	Gift,
 	Github,
+	Handshake,
 	KeyRound,
 	LayoutGrid,
 	Menu,
@@ -267,6 +268,14 @@ export const Navbar = ({
 			icon: KeyRound,
 			gradient:
 				"hover:from-cyan-500/20 hover:to-blue-600/30 hover:shadow-cyan-500/10 group-hover/product:text-cyan-500 dark:group-hover/product:text-cyan-400",
+		},
+		{
+			title: "Partners",
+			href: "/partners",
+			description: "The inference partners powering the gateway.",
+			icon: Handshake,
+			gradient:
+				"hover:from-teal-500/20 hover:to-emerald-600/30 hover:shadow-teal-500/10 group-hover/product:text-teal-500 dark:group-hover/product:text-teal-400",
 		},
 		{
 			title: "Rankings",

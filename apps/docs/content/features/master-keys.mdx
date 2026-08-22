@@ -125,15 +125,16 @@ curl -X PATCH https://internal.llmgateway.io/v1/master/projects/proj_... \
 
 Body parameters (all optional, at least one required):
 
-| Field                  | Type                                  | Description                         |
-| ---------------------- | ------------------------------------- | ----------------------------------- |
-| `name`                 | string                                | 1–255 chars                         |
-| `cachingEnabled`       | boolean                               |                                     |
-| `cacheDurationSeconds` | number                                | 10–31536000                         |
-| `mode`                 | `"api-keys" \| "credits" \| "hybrid"` |                                     |
-| `status`               | `"active" \| "inactive"`              | Toggle the project without deleting |
+| Field                      | Type                                  | Description                                                       |
+| -------------------------- | ------------------------------------- | ----------------------------------------------------------------- |
+| `name`                     | string                                | 1–255 chars                                                       |
+| `cachingEnabled`           | boolean                               |                                                                   |
+| `cacheDurationSeconds`     | number                                | 10–31536000                                                       |
+| `providerCacheControlMode` | `"auto" \| "passthrough" \| "off"`    | [Provider cache writes](/features/caching/provider-cache-control) |
+| `mode`                     | `"api-keys" \| "credits" \| "hybrid"` |                                                                   |
+| `status`                   | `"active" \| "inactive"`              | Toggle the project without deleting                               |
 
-Response (200): the updated project.
+Response (200): the updated project. It carries both `providerCacheControlMode` and the older `providerCacheControlEnabled` boolean, which reports `false` only for `"off"`.
 
 ### Delete a project
 
@@ -156,7 +157,7 @@ Response (200):
 
 `GET /v1/master/keys`
 
-Returns the developer-created gateway API keys in the master key's organization, each with its configured limits, the usage consumed so far, and — when a windowed limit is set — the time the current period resets. Pass an optional `projectId` query parameter to scope the list to a single project.
+Returns the developer-created gateway API keys in the master key's organization, each with its creator, project, configured limits, the usage consumed so far, and — when a windowed limit is set — the time the current period resets. `projectName` provides the human-readable project name alongside `projectId`. `createdBy` contains the creator's internal user ID, while `createdByEmail` contains their email address (`null` when unavailable). Pass an optional `projectId` query parameter to scope the list to a single project.
 
 ```bash
 curl "https://internal.llmgateway.io/v1/master/keys?projectId=proj_..." \
@@ -173,7 +174,9 @@ Response (200):
 			"description": "Customer ACME — production key",
 			"status": "active",
 			"projectId": "proj_...",
+			"projectName": "Customer ACME",
 			"createdBy": "usr_...",
+			"createdByEmail": "member@example.com",
 			"maskedToken": "llmgtwy_...abcd",
 			"usageLimit": "100.00",
 			"usage": "42.13",
@@ -225,7 +228,9 @@ Response (200):
 		"description": "Customer ACME — production key",
 		"status": "active",
 		"projectId": "proj_...",
+		"projectName": "Customer ACME",
 		"createdBy": "usr_...",
+		"createdByEmail": "member@example.com",
 		"maskedToken": "llmgtwy_...abcd",
 		"usageLimit": "100.00",
 		"usage": "42.13",

@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { redisClient } from "@llmgateway/cache";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import { app } from "./app.js";
@@ -146,7 +147,7 @@ describe("api", () => {
 		});
 
 		// Direct provider routing is never available on dev plans. The
-		// `provider/model` format stays blocked; only the canonical root id
+		// `provider/model` format stays blocked; only the canonical model id
 		// (`deepseek-v4-pro`) is allowed on dev plans.
 		await harness.setDevPlan({ devPlan: "pro" });
 
@@ -492,6 +493,218 @@ describe("api", () => {
 		}
 	});
 
+	test("/v1/messages keeps a caller's tool_result cache_control on the wire", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "anthropic",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const originalFetch = globalThis.fetch;
+		let upstreamBody: any = null;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+
+				if (url.includes(`${mockServerUrl}/v1/messages`)) {
+					const body =
+						input instanceof Request ? await input.text() : String(init?.body);
+					upstreamBody = JSON.parse(body);
+
+					return new Response(
+						JSON.stringify({
+							id: "msg_tool_result_cache",
+							type: "message",
+							role: "assistant",
+							model: "claude-opus-4-8",
+							content: [{ type: "text", text: "A raincoat." }],
+							stop_reason: "end_turn",
+							stop_sequence: null,
+							usage: { input_tokens: 100, output_tokens: 5 },
+						}),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					);
+				}
+
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+
+		try {
+			const res = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "anthropic/claude-opus-4-8",
+					max_tokens: 1024,
+					messages: [
+						{ role: "user", content: "Look up the weather." },
+						{
+							role: "assistant",
+							content: [
+								{
+									type: "tool_use",
+									id: "toolu_1",
+									name: "get_weather",
+									input: { city: "Paris" },
+								},
+							],
+						},
+						{
+							role: "user",
+							content: [
+								{
+									type: "tool_result",
+									tool_use_id: "toolu_1",
+									content: "sunny",
+									cache_control: { type: "ephemeral", ttl: "1h" },
+								},
+							],
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect(upstreamBody).toBeTruthy();
+
+			// Anthropic accepts a breakpoint on a tool_result block, and in an
+			// agentic loop that is exactly where the stable prefix ends. The request
+			// schema used to strip the marker and the OpenAI tool message it lowers
+			// to had nowhere to keep it, so the caller silently lost the cache hit
+			// they asked for.
+			const toolResultBlocks = upstreamBody.messages.flatMap((m: any) =>
+				Array.isArray(m.content)
+					? m.content.filter((b: any) => b.type === "tool_result")
+					: [],
+			);
+			expect(toolResultBlocks).toHaveLength(1);
+			expect(toolResultBlocks[0].cache_control).toEqual({
+				type: "ephemeral",
+				ttl: "1h",
+			});
+		} finally {
+			fetchSpy.mockRestore();
+		}
+	});
+
+	test("/v1/messages keeps a caller's tool cache_control on the wire", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "anthropic",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const originalFetch = globalThis.fetch;
+		let upstreamBody: any = null;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+
+				if (url.includes(`${mockServerUrl}/v1/messages`)) {
+					const body =
+						input instanceof Request ? await input.text() : String(init?.body);
+					upstreamBody = JSON.parse(body);
+
+					return new Response(
+						JSON.stringify({
+							id: "msg_tool_cache",
+							type: "message",
+							role: "assistant",
+							model: "claude-opus-4-8",
+							content: [{ type: "text", text: "Sunny." }],
+							stop_reason: "end_turn",
+							stop_sequence: null,
+							usage: { input_tokens: 100, output_tokens: 5 },
+						}),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					);
+				}
+
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+
+		try {
+			const res = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "anthropic/claude-opus-4-8",
+					max_tokens: 1024,
+					messages: [{ role: "user", content: "Weather in Paris?" }],
+					tools: [
+						{
+							name: "get_weather",
+							description: "Get the weather",
+							input_schema: { type: "object" },
+						},
+						{
+							name: "get_time",
+							description: "Get the time",
+							input_schema: { type: "object" },
+							cache_control: { type: "ephemeral" },
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect(upstreamBody).toBeTruthy();
+
+			// Tools are the base of Anthropic's cache hierarchy, so a breakpoint on
+			// the last tool caches the largest prefix a caller has. The schema
+			// accepted it and the tool conversion then dropped it, silently costing
+			// an agentic client its biggest cache hit.
+			expect(upstreamBody.tools).toHaveLength(2);
+			expect(upstreamBody.tools[0].cache_control).toBeUndefined();
+			expect(upstreamBody.tools[1].name).toBe("get_time");
+			expect(upstreamBody.tools[1].cache_control).toEqual({
+				type: "ephemeral",
+			});
+		} finally {
+			fetchSpy.mockRestore();
+		}
+	});
+
 	test("/v1/messages surfaces reasoning as a thinking block (non-streaming)", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
@@ -700,6 +913,116 @@ describe("api", () => {
 		expect(bypassRes.headers.get("x-llmgateway-cache")).toBeNull();
 	});
 
+	test("/v1/messages web search does not reuse a tool-less cached response", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "anthropic",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		await db
+			.update(tables.project)
+			.set({ cachingEnabled: true })
+			.where(eq(tables.project.id, "project-id"));
+
+		let upstreamCalls = 0;
+		const originalFetch = globalThis.fetch;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+
+				if (url.includes(`${mockServerUrl}/v1/messages`)) {
+					upstreamCalls++;
+					const body = JSON.parse(init?.body as string) as {
+						tools?: Array<{ type?: string }>;
+					};
+					const searched = body.tools?.some(
+						(tool) => tool.type === "web_search_20250305",
+					);
+
+					return new Response(
+						JSON.stringify({
+							id: `msg_cache_${upstreamCalls}`,
+							type: "message",
+							role: "assistant",
+							model: "claude-sonnet-5",
+							content: [
+								{
+									type: "text",
+									text: searched ? "searched" : "no search",
+								},
+							],
+							stop_reason: "end_turn",
+							stop_sequence: null,
+							usage: { input_tokens: 15, output_tokens: 2 },
+						}),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					);
+				}
+
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+
+		const prompt = `Check today's news ${randomUUID()}`;
+		const makeRequest = (tools?: Array<Record<string, unknown>>) =>
+			app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "anthropic/claude-sonnet-5",
+					max_tokens: 10240,
+					messages: [{ role: "user", content: prompt }],
+					...(tools ? { tools } : {}),
+				}),
+			});
+
+		const originalNodeEnv = process.env.NODE_ENV;
+		try {
+			process.env.NODE_ENV = "development";
+			const toolLessResponse = await makeRequest();
+			expect(toolLessResponse.status).toBe(200);
+
+			process.env.NODE_ENV = originalNodeEnv;
+			const webSearchResponse = await makeRequest([
+				{
+					type: "web_search_20250305",
+					name: "web_search",
+					max_uses: 5,
+				},
+			]);
+
+			expect(webSearchResponse.status).toBe(200);
+			expect(webSearchResponse.headers.get("x-llmgateway-cache")).toBeNull();
+			expect(await webSearchResponse.json()).toMatchObject({
+				content: [{ type: "text", text: "searched" }],
+			});
+			expect(upstreamCalls).toBe(2);
+		} finally {
+			process.env.NODE_ENV = originalNodeEnv;
+			fetchSpy.mockRestore();
+		}
+	});
+
 	// Anthropic SDK clients key on the `msg_` id prefix; the inner
 	// /v1/chat/completions response carries an OpenAI-style `chatcmpl-` id.
 	test("/v1/messages returns an Anthropic msg_ id", async () => {
@@ -738,6 +1061,7 @@ describe("api", () => {
 		expect(res.status).toBe(200);
 		const json = await res.json();
 		expect(json.id).toMatch(/^msg_/);
+		expect(json.model).toBe("llmgateway/custom");
 
 		const streamRes = await makeRequest(true);
 		expect(streamRes.status).toBe(200);
@@ -751,6 +1075,7 @@ describe("api", () => {
 		const messageStart = events.find((e) => e.type === "message_start");
 		expect(messageStart).toBeTruthy();
 		expect(messageStart.message.id).toMatch(/^msg_/);
+		expect(messageStart.message.model).toBe("llmgateway/custom");
 	});
 
 	test("/v1/messages surfaces reasoning as thinking_delta events (streaming)", async () => {
@@ -1351,7 +1676,6 @@ describe("api", () => {
 				iso27001: true,
 				gdpr: true,
 				apiTraining: false,
-				consumerTraining: false,
 				promptLogging: false,
 				headquarters: "US",
 			},
@@ -1958,6 +2282,7 @@ describe("api", () => {
 		expect(res.status).toBe(200);
 		const json = await res.json();
 		expect(json.id).toMatch(/^resp_/);
+		expect(json.model).toBe("openai/gpt-4o-mini");
 		expect(json.output.length).toBeGreaterThan(0);
 
 		// The stored response is retrievable (state lives in responses storage).
@@ -1969,6 +2294,7 @@ describe("api", () => {
 		expect(getRes.status).toBe(200);
 		const stored = await getRes.json();
 		expect(stored.id).toBe(json.id);
+		expect(stored.model).toBe("openai/gpt-4o-mini");
 		expect(stored.output.length).toBeGreaterThan(0);
 
 		// The log row keeps metadata only — no payload, no responsesApiData.
@@ -2367,7 +2693,7 @@ describe("api", () => {
 				Authorization: "Bearer real-token-service-tier-stream",
 			},
 			body: JSON.stringify({
-				model: "openai/gpt-5.5",
+				model: "gpt-5.5",
 				service_tier: "priority",
 				stream: true,
 				stream_options: { include_usage: true },
@@ -2536,6 +2862,12 @@ describe("api", () => {
 
 		expect(res.status).toBe(200);
 		const raw = await res.text();
+		const createdLine = raw
+			.split("\n")
+			.find(
+				(line) =>
+					line.startsWith("data: ") && line.includes('"response.created"'),
+			);
 		const completedLine = raw
 			.split("\n")
 			.find(
@@ -2543,7 +2875,11 @@ describe("api", () => {
 					line.startsWith("data: ") && line.includes('"response.completed"'),
 			);
 		expect(completedLine).toBeDefined();
+		expect(createdLine).toBeDefined();
+		const created = JSON.parse(createdLine!.slice(6));
 		const completed = JSON.parse(completedLine!.slice(6));
+		expect(created.response.model).toBe("openai/gpt-5.5");
+		expect(completed.response.model).toBe("openai/gpt-5.5");
 		expect(completed.response.service_tier).toBe("priority");
 
 		const logs = await waitForLogs(1);
@@ -3003,6 +3339,7 @@ describe("api", () => {
 			},
 			body: JSON.stringify({
 				input: "I want to attack someone.",
+				model: "openai/openai-moderation",
 			}),
 		});
 
@@ -3010,7 +3347,7 @@ describe("api", () => {
 
 		const json = await res.json();
 		expect(json).toHaveProperty("id", "modr-123");
-		expect(json).toHaveProperty("model", "omni-moderation-latest");
+		expect(json).toHaveProperty("model", "openai/openai-moderation");
 		expect(json.results[0].flagged).toBe(true);
 
 		const logs = await waitForLogs(1);
@@ -3250,7 +3587,7 @@ describe("api", () => {
 
 		const json = await res.json();
 		expect(json).toHaveProperty("object", "list");
-		expect(json).toHaveProperty("model", "text-embedding-3-small");
+		expect(json).toHaveProperty("model", "openai/text-embedding-3-small");
 		expect(Array.isArray(json.data)).toBe(true);
 		expect(json.data[0]).toHaveProperty("embedding");
 		expect(Array.isArray(json.data[0].embedding)).toBe(true);
@@ -3395,6 +3732,55 @@ describe("api", () => {
 		);
 	});
 
+	test("/v1/chat/completions returns 429 when the org is over its daily spend cap", async () => {
+		await harness.setProjectMode("credits");
+		await harness.setOrganizationCredits("100");
+		await db
+			.update(tables.organization)
+			.set({ retentionLevel: "none" })
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-spend-cap",
+			token: "real-token-spend-cap",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const now = new Date();
+		const dayKey = `${now.getUTCFullYear()}-${String(
+			now.getUTCMonth() + 1,
+		).padStart(2, "0")}-${String(now.getUTCDate()).padStart(2, "0")}`;
+		const counterKey = `spend_cap:daily:org-id:${dayKey}`;
+
+		process.env.GATEWAY_SPEND_CAPS_ENABLED = "true";
+		// Well above any tier's daily cap so this holds regardless of the seeded
+		// org's age/spend tier.
+		await redisClient.set(counterKey, "1000000");
+		try {
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-spend-cap",
+				},
+				body: JSON.stringify({
+					model: "gpt-4o-mini",
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(429);
+			const json = await res.json();
+			expect(json.error.type).toBe("rate_limit_error");
+			expect(json.error.message).toContain("spend limit");
+		} finally {
+			delete process.env.GATEWAY_SPEND_CAPS_ENABLED;
+			await redisClient.del(counterKey);
+		}
+	});
+
 	test("/v1/embeddings hybrid fallback requires credits", async () => {
 		await harness.setProjectMode("hybrid");
 		await harness.setOrganizationCredits("0");
@@ -3508,7 +3894,10 @@ describe("api", () => {
 
 		const json = await res.json();
 		expect(json).toHaveProperty("object", "list");
-		expect(json).toHaveProperty("model", "gemini-embedding-001");
+		expect(json).toHaveProperty(
+			"model",
+			"google-ai-studio/gemini-embedding-001",
+		);
 		expect(Array.isArray(json.data)).toBe(true);
 		expect(json.data).toHaveLength(1);
 		expect(json.data[0]).toHaveProperty("object", "embedding");
@@ -3584,7 +3973,10 @@ describe("api", () => {
 			expect(res.status).toBe(200);
 			const json = await res.json();
 			expect(json).toHaveProperty("object", "list");
-			expect(json).toHaveProperty("model", "gemini-embedding-001");
+			expect(json).toHaveProperty(
+				"model",
+				"google-ai-studio/gemini-embedding-001",
+			);
 			expect(json.data).toHaveLength(1);
 			expect(json.data[0].embedding).toHaveLength(768);
 
@@ -4029,7 +4421,7 @@ describe("api", () => {
 		}
 	});
 
-	test("/v1/embeddings google-vertex requires project id", async () => {
+	test("/v1/embeddings google-vertex supports a projectless managed API key", async () => {
 		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 		delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
 		try {
@@ -4041,12 +4433,14 @@ describe("api", () => {
 				createdBy: "user-id",
 			});
 
-			await db.insert(tables.providerKey).values({
-				id: "provider-key-id-embeddings-vertex-noproj",
+			await harness.setProjectMode("credits");
+			await cdb.insert(tables.providerKey).values({
+				id: "managed-key-embeddings-vertex-noproj",
 				token: "vertex-test-token",
 				provider: "google-vertex",
-				organizationId: "org-id",
-				baseUrl: mockServerUrl,
+				managed: true,
+				organizationId: null,
+				config: { baseUrl: mockServerUrl },
 			});
 
 			const res = await app.request("/v1/embeddings", {
@@ -4061,10 +4455,12 @@ describe("api", () => {
 				}),
 			});
 
-			expect(res.status).toBe(500);
+			expect(res.status).toBe(200);
 			const json = await res.json();
-			expect(json.error?.code).toBe("missing_project_id");
+			expect(json.data).toHaveLength(1);
+			expect(json.data[0].embedding).toHaveLength(3072);
 		} finally {
+			await harness.setProjectMode("api-keys");
 			if (originalGoogleCloudProject !== undefined) {
 				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
 			} else {
@@ -6418,7 +6814,7 @@ describe("api", () => {
 			process.env.LLM_GOOGLE_CLOUD_PROJECT = "vertex-project";
 			process.env.LLM_GOOGLE_VERTEX_BASE_URL = mockServerUrl;
 
-			const makeRequest = (content: string) =>
+			const makeRequest = (content: string, model = "gemini-2.5-flash-lite") =>
 				app.request("/v1/chat/completions", {
 					method: "POST",
 					headers: {
@@ -6426,7 +6822,7 @@ describe("api", () => {
 						Authorization: "Bearer real-token",
 					},
 					body: JSON.stringify({
-						model: "gemini-2.5-flash-lite",
+						model,
 						messages: [{ role: "user", content }],
 					}),
 				});
@@ -6440,6 +6836,45 @@ describe("api", () => {
 			expect(secondRes.status).toBe(200);
 			const secondJson = await secondRes.json();
 			expect(secondJson.metadata.used_provider).toBe("google-vertex");
+
+			const directRes = await makeRequest(
+				"Direct provider rate limit request",
+				"google-ai-studio/gemini-2.5-flash-lite",
+			);
+			expect(directRes.status).toBe(200);
+			const directJson = await directRes.json();
+			expect(directJson.metadata.used_provider).toBe("google-vertex");
+
+			const logs = await waitForLogs(3);
+			const overflowLog = logs.find(
+				(log) =>
+					log.usedProvider === "google-vertex" &&
+					log.routingMetadata?.selectionReason !== "rate-limit-fallback",
+			);
+			expect(overflowLog?.routingMetadata?.providerScores).not.toContainEqual(
+				expect.objectContaining({ providerId: "google-ai-studio" }),
+			);
+			expect(overflowLog?.routingMetadata?.filteredProviders).toContainEqual({
+				providerId: "google-ai-studio",
+				reasons: ["provider is rate limited"],
+				codes: ["rate_limited"],
+			});
+
+			const directFallbackLog = logs.find(
+				(log) => log.routingMetadata?.selectionReason === "rate-limit-fallback",
+			);
+			expect(
+				directFallbackLog?.routingMetadata?.providerScores,
+			).not.toContainEqual(
+				expect.objectContaining({ providerId: "google-ai-studio" }),
+			);
+			expect(
+				directFallbackLog?.routingMetadata?.filteredProviders,
+			).toContainEqual({
+				providerId: "google-ai-studio",
+				reasons: ["provider is rate limited"],
+				codes: ["rate_limited"],
+			});
 		} finally {
 			if (previousVertexKey === undefined) {
 				delete process.env.LLM_GOOGLE_VERTEX_API_KEY;
@@ -6617,7 +7052,7 @@ describe("api", () => {
 			createdBy: "user-id",
 		});
 
-		// Auto-routing now selects from Claude root models, so use a Claude-capable
+		// Auto-routing now selects from Claude canonical models, so use a Claude-capable
 		// provider that the mock server supports.
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
@@ -7170,6 +7605,65 @@ describe("api", () => {
 			expect(logs[0].unifiedFinishReason).toBe("upstream_error");
 			expect(logs[0].hasError).toBe(true);
 			expect(logs[0].errorDetails?.statusCode).toBe(502);
+			expect(logs[0].errorDetails?.statusText).toBe(
+				"Upstream Stream Terminated",
+			);
+		});
+
+		test("streaming request surfaces a trailing upstream error tail", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "llmgateway",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					messages: [
+						{
+							role: "user",
+							content: "TRIGGER_STREAM_TRAILING_ERROR",
+						},
+					],
+					stream: true,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const streamResult = await readAll(res.body);
+
+			expect(streamResult.hasContent).toBe(true);
+			expect(streamResult.hasError).toBe(true);
+			expect(streamResult.errorEvents.length).toBeGreaterThan(0);
+			expect(streamResult.errorEvents[0].error.type).toBe("upstream_error");
+			expect(streamResult.errorEvents[0].error.code).toBe("UNAVAILABLE");
+			expect(streamResult.errorEvents[0].error.message).toContain(
+				"high demand",
+			);
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].finishReason).toBe("upstream_error");
+			expect(logs[0].unifiedFinishReason).toBe("upstream_error");
+			expect(logs[0].hasError).toBe(true);
+			expect(logs[0].errorDetails?.statusCode).toBe(503);
 			expect(logs[0].errorDetails?.statusText).toBe(
 				"Upstream Stream Terminated",
 			);
@@ -9103,6 +9597,367 @@ describe("api", () => {
 					city: "San Francisco",
 					country: "US",
 				});
+			} finally {
+				fetchSpy.mockRestore();
+			}
+		});
+
+		// Anthropic's server-side tool search is the one server tool whose value
+		// is entirely in what it keeps OUT of the request: `defer_loading` holds
+		// the deferred definitions out of the cached prompt prefix. Both the tool
+		// and the flag have to survive the OpenAI-format round trip, and the
+		// resulting server_tool_use / tool_search_tool_result pair has to come
+		// back so the client can replay it.
+		test("forwards the tool search tool, defer_loading and the replayed pair", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "anthropic",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			let capturedBody: any;
+			const originalFetch = globalThis.fetch;
+			const fetchSpy = vi
+				.spyOn(globalThis, "fetch")
+				.mockImplementation(async (input, init) => {
+					const url =
+						typeof input === "string"
+							? input
+							: input instanceof URL
+								? input.toString()
+								: input.url;
+
+					if (url.includes(`${mockServerUrl}/v1/messages`)) {
+						capturedBody = JSON.parse(init?.body as string);
+						return new Response(
+							JSON.stringify({
+								id: "msg_ts",
+								type: "message",
+								role: "assistant",
+								model: "claude-sonnet-4-6",
+								content: [
+									{
+										type: "server_tool_use",
+										id: "srvtoolu_2",
+										name: "tool_search_tool_regex",
+										input: { pattern: "weather" },
+									},
+									{
+										type: "tool_search_tool_result",
+										tool_use_id: "srvtoolu_2",
+										content: {
+											type: "tool_search_tool_search_result",
+											tool_references: [
+												{ type: "tool_reference", tool_name: "get_weather" },
+											],
+										},
+									},
+									{ type: "text", text: "Found a weather tool." },
+								],
+								stop_reason: "end_turn",
+								stop_sequence: null,
+								usage: { input_tokens: 50, output_tokens: 10 },
+							}),
+							{
+								status: 200,
+								headers: { "Content-Type": "application/json" },
+							},
+						);
+					}
+
+					return await originalFetch(input as RequestInfo | URL, init);
+				});
+
+			try {
+				const res = await app.request("/v1/messages", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-sonnet-4-6",
+						max_tokens: 1024,
+						messages: [
+							{ role: "user", content: "What is the weather in Paris?" },
+							{
+								role: "assistant",
+								content: [
+									{
+										type: "server_tool_use",
+										id: "srvtoolu_1",
+										name: "tool_search_tool_regex",
+										input: { pattern: "weather" },
+									},
+									{
+										type: "tool_search_tool_result",
+										tool_use_id: "srvtoolu_1",
+										content: {
+											type: "tool_search_tool_search_result",
+											tool_references: [
+												{ type: "tool_reference", tool_name: "get_weather" },
+											],
+										},
+									},
+									{ type: "text", text: "Let me check." },
+									{
+										type: "tool_use",
+										id: "toolu_1",
+										name: "get_weather",
+										input: { location: "Paris" },
+									},
+								],
+							},
+							{
+								role: "user",
+								content: [
+									{
+										type: "tool_result",
+										tool_use_id: "toolu_1",
+										content: "sunny",
+									},
+								],
+							},
+						],
+						tools: [
+							{
+								type: "tool_search_tool_regex_20251119",
+								name: "tool_search_tool_regex",
+							},
+							{
+								name: "get_weather",
+								description: "Get the weather at a specific location",
+								input_schema: {
+									type: "object",
+									properties: { location: { type: "string" } },
+									required: ["location"],
+								},
+								defer_loading: true,
+							},
+						],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+
+				// The tool search tool reaches Anthropic under its own type, and the
+				// deferred tool keeps its flag — without which the whole point of
+				// the feature (a cache-stable prefix) is lost.
+				expect(capturedBody?.tools).toEqual([
+					{
+						type: "tool_search_tool_regex_20251119",
+						name: "tool_search_tool_regex",
+					},
+					{
+						name: "get_weather",
+						description: "Get the weather at a specific location",
+						input_schema: {
+							type: "object",
+							properties: { location: { type: "string" } },
+							required: ["location"],
+						},
+						defer_loading: true,
+					},
+				]);
+
+				// The replayed pair has to reach Anthropic ahead of the tool_use it
+				// led to, or Claude re-searches for a tool it already found.
+				const assistantTurn = capturedBody?.messages?.find(
+					(m: { role: string }) => m.role === "assistant",
+				);
+				expect(
+					assistantTurn?.content?.map((b: { type: string }) => b.type),
+				).toEqual([
+					"text",
+					"server_tool_use",
+					"tool_search_tool_result",
+					"tool_use",
+				]);
+
+				// And the client gets the new pair back so it can replay it next turn.
+				const json: any = await res.json();
+				expect(json.content.map((b: { type: string }) => b.type)).toEqual([
+					"server_tool_use",
+					"tool_search_tool_result",
+					"text",
+				]);
+				expect(json.content[1].content.tool_references).toEqual([
+					{ type: "tool_reference", tool_name: "get_weather" },
+				]);
+			} finally {
+				fetchSpy.mockRestore();
+			}
+		});
+
+		test("re-emits the streamed tool search pair as content blocks", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "anthropic",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const sse = [
+				`event: message_start\ndata: ${JSON.stringify({
+					type: "message_start",
+					message: {
+						id: "msg_ts_stream",
+						type: "message",
+						role: "assistant",
+						model: "claude-sonnet-4-6",
+						content: [],
+						usage: { input_tokens: 50, output_tokens: 0 },
+					},
+				})}\n\n`,
+				`event: content_block_start\ndata: ${JSON.stringify({
+					type: "content_block_start",
+					index: 0,
+					content_block: {
+						type: "server_tool_use",
+						id: "srvtoolu_stream",
+						name: "tool_search_tool_regex",
+					},
+				})}\n\n`,
+				`event: content_block_delta\ndata: ${JSON.stringify({
+					type: "content_block_delta",
+					index: 0,
+					delta: {
+						type: "input_json_delta",
+						partial_json: '{"pattern":"weather"}',
+					},
+				})}\n\n`,
+				`event: content_block_stop\ndata: ${JSON.stringify({
+					type: "content_block_stop",
+					index: 0,
+				})}\n\n`,
+				`event: content_block_start\ndata: ${JSON.stringify({
+					type: "content_block_start",
+					index: 1,
+					content_block: {
+						type: "tool_search_tool_result",
+						tool_use_id: "srvtoolu_stream",
+						content: {
+							type: "tool_search_tool_search_result",
+							tool_references: [
+								{ type: "tool_reference", tool_name: "get_weather" },
+							],
+						},
+					},
+				})}\n\n`,
+				`event: content_block_start\ndata: ${JSON.stringify({
+					type: "content_block_start",
+					index: 2,
+					content_block: { type: "text", text: "" },
+				})}\n\n`,
+				`event: content_block_delta\ndata: ${JSON.stringify({
+					type: "content_block_delta",
+					index: 2,
+					delta: { type: "text_delta", text: "Found it." },
+				})}\n\n`,
+				`event: message_delta\ndata: ${JSON.stringify({
+					type: "message_delta",
+					delta: { stop_reason: "end_turn" },
+					usage: { output_tokens: 12 },
+				})}\n\n`,
+				`event: message_stop\ndata: ${JSON.stringify({
+					type: "message_stop",
+				})}\n\n`,
+			].join("");
+
+			const originalFetch = globalThis.fetch;
+			const fetchSpy = vi
+				.spyOn(globalThis, "fetch")
+				.mockImplementation(async (input, init) => {
+					const url =
+						typeof input === "string"
+							? input
+							: input instanceof URL
+								? input.toString()
+								: input.url;
+
+					if (url.includes(`${mockServerUrl}/v1/messages`)) {
+						return new Response(sse, {
+							status: 200,
+							headers: { "Content-Type": "text/event-stream" },
+						});
+					}
+
+					return await originalFetch(input as RequestInfo | URL, init);
+				});
+
+			try {
+				const res = await app.request("/v1/messages", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-sonnet-4-6",
+						max_tokens: 1024,
+						stream: true,
+						messages: [
+							{ role: "user", content: "What is the weather in Paris?" },
+						],
+						tools: [
+							{
+								type: "tool_search_tool_regex_20251119",
+								name: "tool_search_tool_regex",
+							},
+						],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				const text = await res.text();
+				const starts = text
+					.split("\n")
+					.filter((line) => line.startsWith("data: "))
+					.map((line) => {
+						try {
+							return JSON.parse(line.slice(6));
+						} catch {
+							return null;
+						}
+					})
+					.filter(
+						(event) => event && event.type === "content_block_start",
+					) as any[];
+
+				const searchCall = starts.find(
+					(event) => event.content_block?.type === "server_tool_use",
+				);
+				expect(searchCall?.content_block).toMatchObject({
+					id: "srvtoolu_stream",
+					name: "tool_search_tool_regex",
+					input: { pattern: "weather" },
+				});
+
+				const searchResult = starts.find(
+					(event) => event.content_block?.type === "tool_search_tool_result",
+				);
+				expect(searchResult?.content_block?.content?.tool_references).toEqual([
+					{ type: "tool_reference", tool_name: "get_weather" },
+				]);
 			} finally {
 				fetchSpy.mockRestore();
 			}

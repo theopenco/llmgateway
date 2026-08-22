@@ -65,6 +65,8 @@ LLM Gateway negotiates volume-based pricing with infrastructure providers and pa
 
 You pay the discounted rate. We charge zero platform markup on top.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## Stacking Discounts: DeepSeek Cache + LLM Gateway Partner Pricing
 
 DeepSeek's official API already offers a **90% discount on cached input tokens** — $0.028/M instead of $0.28/M for prompt cache hits. When you access DeepSeek through LLM Gateway's discounted providers, you can stack both savings:
@@ -134,3 +136,5 @@ Smart routing picks the cheapest discounted provider automatically. No configura
 ---
 
 **[Browse discounted models](/models?discounted=true)** | **[Try DeepSeek V3.2](https://lounge.llmgateway.io/?model=deepseek/deepseek-v3.2)** | **[Token Cost Calculator](https://llmgateway.io/token-cost-calculator)** | **[Get started free](https://llmgateway.io/signup)**
+
+<BlogCta variant="gateway" location="bottom" />

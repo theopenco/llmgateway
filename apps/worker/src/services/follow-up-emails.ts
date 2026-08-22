@@ -318,7 +318,7 @@ async function processLowUsageEmails(): Promise<void> {
 		LEFT JOIN (
 			SELECT
 				${project.organizationId} AS organization_id,
-				SUM(${projectHourlyStats.cost}) AS total_spent
+				SUM(cast(${projectHourlyStats.cost} as double precision)) AS total_spent
 			FROM ${projectHourlyStats}
 			JOIN ${project} ON ${project.id} = ${projectHourlyStats.projectId}
 			GROUP BY ${project.organizationId}
@@ -394,7 +394,7 @@ async function processNoRepurchaseEmails(): Promise<void> {
 		LEFT JOIN (
 			SELECT
 				${project.organizationId} AS organization_id,
-				SUM(${projectHourlyStats.cost}) AS total_spent
+				SUM(cast(${projectHourlyStats.cost} as double precision)) AS total_spent
 			FROM ${projectHourlyStats}
 			JOIN ${project} ON ${project.id} = ${projectHourlyStats.projectId}
 			GROUP BY ${project.organizationId}

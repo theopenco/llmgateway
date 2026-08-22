@@ -107,18 +107,27 @@ function buildVertexCompatibleEndpoint(
 	const projectId =
 		credentialConfig?.project ??
 		providerKeyOptions?.google_vertex_project_id ??
-		getProviderEnvValue(provider, "project", configIndex, undefined, variant);
+		(skipEnvVars
+			? undefined
+			: getProviderEnvValue(
+					provider,
+					"project",
+					configIndex,
+					undefined,
+					variant,
+				));
 	const region =
 		credentialConfig?.region ??
-		getProviderEnvValue(provider, "region", configIndex, "global", variant) ??
+		(skipEnvVars
+			? undefined
+			: getProviderEnvValue(
+					provider,
+					"region",
+					configIndex,
+					"global",
+					variant,
+				)) ??
 		"global";
-
-	if (!projectId) {
-		const providerEnv = getProviderEnvConfig(provider);
-		throw new Error(
-			`${providerEnv?.required.project ?? "LLM_GOOGLE_CLOUD_PROJECT"} environment variable is required for Vertex-compatible model "${model}"`,
-		);
-	}
 
 	// Only Google Vertex supports OAuth bearer auth; Quartz always uses the
 	// `?key=` API-key query param.
@@ -133,7 +142,18 @@ function buildVertexCompatibleEndpoint(
 					variant,
 				))
 			: "api-key";
-	const baseEndpoint = `${url}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:${endpoint}`;
+	if (!projectId && (provider === "quartz" || tokenType === "oauth")) {
+		const providerEnv = getProviderEnvConfig(provider);
+		const projectEnv =
+			providerEnv?.required.project ??
+			providerEnv?.optional?.project ??
+			"LLM_GOOGLE_CLOUD_PROJECT";
+		throw new Error(
+			`${projectEnv} environment variable is required for Vertex-compatible model "${model}"`,
+		);
+	}
+
+	const baseEndpoint = `${url}${getGoogleVertexPublisherModelPath(model, projectId, region)}:${endpoint}`;
 	const queryParams = [];
 	if (token && tokenType === "api-key") {
 		queryParams.push(`key=${token}`);
@@ -144,6 +164,17 @@ function buildVertexCompatibleEndpoint(
 	return queryParams.length > 0
 		? `${baseEndpoint}?${queryParams.join("&")}`
 		: baseEndpoint;
+}
+
+export function getGoogleVertexPublisherModelPath(
+	model: string,
+	projectId?: string,
+	region = "global",
+): string {
+	const modelPath = `publishers/google/models/${model}`;
+	return projectId
+		? `/v1/projects/${projectId}/locations/${region}/${modelPath}`
+		: `/v1/${modelPath}`;
 }
 
 /**
@@ -188,6 +219,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	gonka24: "https://api.gonka24.com",
 	fireworks: "https://api.fireworks.ai/inference",
 	ranoai: "https://api.ranoai.com",
+	baidu: "https://api.baiduqianfan.ai",
 	tokenhub: "https://tokenhub-intl.tencentcloudmaas.com",
 };
 
@@ -207,7 +239,7 @@ export function getProviderDefaultBaseUrl(
  *   pass it directly.
  * @param modelId - Canonical gateway model id, used to look up
  *   capability info (e.g. supportsResponsesApi). When omitted, falls back to
- *   `model` — but pass the root id explicitly whenever you have it.
+ *   `model` — but pass the canonical model id explicitly whenever you have it.
  */
 export function getProviderEndpoint(
 	provider: ProviderId,
@@ -293,6 +325,7 @@ export function getProviderEndpoint(
 					throw new Error(`Provider ${provider} requires a baseUrl`);
 				}
 				break;
+			case "anthropic":
 			case "openai":
 			case "google-ai-studio":
 			case "google-vertex":
@@ -423,6 +456,24 @@ export function getProviderEndpoint(
 				if (!url) {
 					throw new Error(
 						"Tundra provider requires LLM_TUNDRA_BASE_URL environment variable",
+					);
+				}
+				break;
+			case "permafrost":
+				url =
+					credentialConfig?.baseUrl ??
+					(skipEnvVars
+						? undefined
+						: getProviderEnvValue(
+								"permafrost",
+								"baseUrl",
+								configIndex,
+								undefined,
+								variant,
+							));
+				if (!url) {
+					throw new Error(
+						"Permafrost provider requires LLM_PERMAFROST_BASE_URL environment variable",
 					);
 				}
 				break;
@@ -953,6 +1004,7 @@ export function getProviderEndpoint(
 			}
 			return `${url}/v1/chat/completions`;
 		}
+		case "baidu":
 		case "deepseek":
 		case "moonshot":
 		case "nebius":
@@ -962,6 +1014,7 @@ export function getProviderEndpoint(
 		case "xiaomi":
 		case "embercloud":
 		case "tundra":
+		case "permafrost":
 		case "scx-ai":
 		case "scx-ai-gp":
 		case "ranoai":

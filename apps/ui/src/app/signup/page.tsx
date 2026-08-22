@@ -293,6 +293,7 @@ export default function Signup() {
 					setIsLoading={setIsLoading}
 					callbackPath="/dashboard"
 					errorCallbackPath="/signup"
+					newUserCallbackPath="/dashboard"
 					requestSignUp
 				/>
 			</div>

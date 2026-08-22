@@ -390,6 +390,220 @@ describe("fallback and error status code handling", () => {
 		);
 	}
 
+	async function setupCustomAutoRouting() {
+		await db
+			.update(tables.organization)
+			.set({ plan: "enterprise" })
+			.where(eq(tables.organization.id, "org-id"));
+		await db.insert(tables.apiKey).values({
+			id: "auto-custom-token-id",
+			token: "auto-custom-token",
+			projectId: "project-id",
+			description: "Custom auto-routing key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.providerKey).values([
+			{
+				id: "auto-custom-provider-key",
+				token: "sk-custom-auto",
+				provider: "custom",
+				name: "my-custom",
+				baseUrl: mockServerUrl,
+				organizationId: "org-id",
+				customModelsOnly: true,
+			},
+			{
+				id: "auto-anthropic-provider-key",
+				token: "sk-anthropic-auto",
+				provider: "anthropic",
+				baseUrl: mockServerUrl,
+				organizationId: "org-id",
+			},
+		]);
+		await db.insert(tables.customModel).values({
+			id: "auto-custom-model",
+			providerKeyId: "auto-custom-provider-key",
+			organizationId: "org-id",
+			modelName: "claude-haiku-4-5",
+			inputPrice: "0.1e-6",
+			outputPrice: "0.2e-6",
+			contextSize: 200_000,
+			jsonOutput: true,
+			streaming: "true",
+		});
+	}
+
+	describe("custom provider auto routing", () => {
+		test("streams a catalog-backed custom model", async () => {
+			await setupCustomAutoRouting();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer auto-custom-token",
+				},
+				body: JSON.stringify({
+					model: "my-custom/claude-haiku-4-5",
+					messages: [{ role: "user", content: "Hello custom stream!" }],
+					stream: true,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const streamResult = await readAll(res.body);
+			expect(streamResult.hasError).toBe(false);
+			expect(streamResult.eventCount).toBeGreaterThan(0);
+
+			const logs = await waitForLogs(1);
+			expect(logs[0].usedProvider).toBe("custom");
+			expect(logs[0].streamed).toBe(true);
+		});
+
+		test("routes a canonical model id to a cheaper matching custom model", async () => {
+			await setupCustomAutoRouting();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer auto-custom-token",
+				},
+				body: JSON.stringify({
+					model: "claude-haiku-4-5",
+					routing: "price",
+					messages: [{ role: "user", content: "Hello custom route!" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const logs = await waitForLogs(1);
+			expect(logs).toHaveLength(1);
+			expect(logs[0].requestedModel).toBe("claude-haiku-4-5");
+			expect(logs[0].usedProvider).toBe("custom");
+			expect(logs[0].usedModel).toBe("my-custom/claude-haiku-4-5");
+			expect(Number(logs[0].cost)).toBeGreaterThan(0);
+		});
+
+		test("honors scoring weights with a matching custom model", async () => {
+			await setupCustomAutoRouting();
+			await db.insert(tables.routingConfig).values({
+				projectId: "project-id",
+				enabled: true,
+				weights: {
+					price: 0,
+					imagePrice: 0,
+					uptime: 0,
+					throughput: 1,
+					latency: 0,
+					cache: 0,
+				},
+				sticky: { enabled: false },
+				providerPriorities: { anthropic: 1, custom: 1 },
+			});
+			await setRoutingMetrics("claude-haiku-4-5", "anthropic", 100, {
+				routingThroughput: 100,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer auto-custom-token",
+				},
+				body: JSON.stringify({
+					model: "claude-haiku-4-5",
+					messages: [{ role: "user", content: "Honor routing weights" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const logs = await waitForLogs(1);
+			expect(logs[0].usedProvider).toBe("anthropic");
+			expect(logs[0].routingMetadata?.selectionReason).toBe("weighted-score");
+		});
+
+		test("routes to a priced custom model with a matching catalog id", async () => {
+			await setupCustomAutoRouting();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer auto-custom-token",
+				},
+				body: JSON.stringify({
+					model: "auto",
+					messages: [{ role: "user", content: "Hello custom auto!" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const logs = await waitForLogs(1);
+			expect(logs).toHaveLength(1);
+			expect(logs[0].usedProvider).toBe("custom");
+			expect(logs[0].usedModel).toBe("my-custom/claude-haiku-4-5");
+			expect(Number(logs[0].cost)).toBeGreaterThan(0);
+		});
+
+		test("routes JSON schema requests to capable custom models", async () => {
+			await setupCustomAutoRouting();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer auto-custom-token",
+				},
+				body: JSON.stringify({
+					model: "auto",
+					messages: [{ role: "user", content: "Return JSON" }],
+					response_format: {
+						type: "json_schema",
+						json_schema: {
+							name: "response",
+							schema: { type: "object" },
+						},
+					},
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const logs = await waitForLogs(1);
+			expect(logs).toHaveLength(1);
+			expect(logs[0].usedProvider).toBe("custom");
+			expect(logs[0].usedModel).toBe("my-custom/claude-haiku-4-5");
+		});
+
+		test("falls back after an auto-selected custom provider fails", async () => {
+			await setupCustomAutoRouting();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer auto-custom-token",
+				},
+				body: JSON.stringify({
+					model: "auto",
+					messages: [
+						{ role: "user", content: "TRIGGER_FAIL_ONCE custom auto" },
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const logs = await waitForLogs(2);
+			const failedLog = logs.find((log: Log) => log.hasError);
+			const successLog = logs.find((log: Log) => !log.hasError);
+			expect(failedLog?.usedProvider).toBe("custom");
+			expect(failedLog?.retried).toBe(true);
+			expect(successLog?.usedProvider).toBe("anthropic");
+			expect(successLog?.usedModel).toBe("anthropic/claude-haiku-4-5");
+			expect(failedLog?.retriedByLogId).toBe(successLog?.id);
+		});
+	});
+
 	describe("error status code classification", () => {
 		test("500 upstream error is classified as upstream_error with correct metadata in response and DB log", async () => {
 			await setupCustomKeys();
@@ -1857,13 +2071,14 @@ describe("fallback and error status code handling", () => {
 					contentFilterRerouted: true,
 					contentFilterExcludedProviders: ["together-ai"],
 				});
-				expect(log.routingMetadata?.providerScores).toContainEqual(
-					expect.objectContaining({
-						providerId: "together-ai",
-						contentFilterProvider: true,
-						excludedByContentFilter: true,
-					}),
+				expect(log.routingMetadata?.providerScores).not.toContainEqual(
+					expect.objectContaining({ providerId: "together-ai" }),
 				);
+				expect(log.routingMetadata?.filteredProviders).toContainEqual({
+					providerId: "together-ai",
+					reasons: ["excluded by content-filter routing"],
+					codes: ["content_filter"],
+				});
 			} finally {
 				if (originalContentFilterFlag === undefined) {
 					delete togetherProvider.contentFilter;

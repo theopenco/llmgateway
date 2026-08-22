@@ -68,10 +68,20 @@ function formatDateTime(dateString: string) {
 	});
 }
 
+// Money going back to the customer. Stored with a positive `amount` (see
+// stripe.ts), so the panel renders it negative to keep the column readable as
+// a ledger.
+function isRefundType(type: string) {
+	return type === "credit_refund";
+}
+
 function formatTransactionType(type: string) {
 	// On a DevPass org, credit_topup rows are PAYG overflow purchases.
 	if (type === "credit_topup") {
 		return "PAYG Top-up";
+	}
+	if (isRefundType(type)) {
+		return "Refund";
 	}
 	return type.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
@@ -79,7 +89,7 @@ function formatTransactionType(type: string) {
 function getTransactionTypeBadgeVariant(
 	type: string,
 ): "default" | "secondary" | "outline" | "destructive" {
-	if (type.includes("cancel") || type.includes("end")) {
+	if (isRefundType(type) || type.includes("cancel") || type.includes("end")) {
 		return "destructive";
 	}
 	if (
@@ -513,7 +523,7 @@ export default async function DevpassDetailPage({
 				<TabsList className="w-full justify-start overflow-x-auto sm:w-auto">
 					<TabsTrigger value="transactions">
 						<Receipt className="mr-1.5 h-4 w-4" />
-						Subscription history ({data.transactions.length})
+						Billing history ({data.transactions.length})
 					</TabsTrigger>
 					<TabsTrigger value="payment-failures">
 						<CreditCard className="mr-1.5 h-4 w-4" />
@@ -543,7 +553,7 @@ export default async function DevpassDetailPage({
 											colSpan={8}
 											className="h-24 text-center text-muted-foreground"
 										>
-											No subscription events recorded
+											No billing events recorded
 										</TableCell>
 									</TableRow>
 								) : (
@@ -560,9 +570,19 @@ export default async function DevpassDetailPage({
 													{formatTransactionType(t.type)}
 												</Badge>
 											</TableCell>
-											<TableCell className="tabular-nums">
+											<TableCell
+												className={cn(
+													"tabular-nums",
+													isRefundType(t.type) &&
+														"text-rose-600 dark:text-rose-400",
+												)}
+											>
 												{t.amount
-													? currencyFormatter.format(parseFloat(t.amount))
+													? currencyFormatter.format(
+															isRefundType(t.type)
+																? -parseFloat(t.amount)
+																: parseFloat(t.amount),
+														)
 													: "—"}
 											</TableCell>
 											<TableCell className="tabular-nums">
@@ -583,8 +603,14 @@ export default async function DevpassDetailPage({
 													{t.status}
 												</Badge>
 											</TableCell>
-											<TableCell className="max-w-[300px] truncate text-muted-foreground">
-												{t.description ?? "—"}
+											<TableCell className="max-w-[300px] text-muted-foreground">
+												<div className="truncate">{t.description ?? "—"}</div>
+												{isRefundType(t.type) && t.relatedTransactionId && (
+													<div className="mt-1 flex items-center gap-1 text-xs">
+														<span>reverses</span>
+														<CopyableId id={t.relatedTransactionId} />
+													</div>
+												)}
 											</TableCell>
 											<TableCell className="text-right">
 												<div className="flex items-center justify-end gap-2">

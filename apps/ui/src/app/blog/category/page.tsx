@@ -18,7 +18,6 @@ export const metadata: Metadata = {
 			"Browse LLM Gateway blog posts by category — product updates, tutorials, deep-dives, and more.",
 		url: "https://llmgateway.io/blog/category",
 		type: "website",
-		images: ["/opengraph.png?v=2"],
 	},
 };
 

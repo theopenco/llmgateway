@@ -3,6 +3,10 @@
 // receive `{ error: { message, type, param, code } }`; the Anthropic
 // `/v1/messages` endpoint receives `{ type: "error", error: { type, message } }`.
 
+import type { ServerTypes } from "@/vars.js";
+import type { Context } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
+
 export interface OpenAIErrorBody {
 	error: {
 		message: string;
@@ -49,6 +53,8 @@ export function getOpenAIErrorMeta(status: number): {
 			return { type: "invalid_request_error", code: "request_cancelled" };
 		case 504:
 			return { type: "timeout_error", code: "timeout" };
+		case 529:
+			return { type: "overloaded", code: "overloaded" };
 		default:
 			if (status >= 500) {
 				return { type: "api_error", code: null };
@@ -117,4 +123,20 @@ export function buildAnthropicErrorBody(opts: {
 			message: opts.message,
 		},
 	};
+}
+
+// Renders a gateway-level error in a provider-compatible shape. The Anthropic
+// `/v1/messages` endpoint expects Anthropic's `{ type: "error", error: {...} }`
+// envelope; every other (OpenAI-compatible) endpoint expects OpenAI's
+// `{ error: { message, type, param, code } }` envelope.
+export function renderGatewayError(
+	c: Context<ServerTypes>,
+	status: number,
+	message: string,
+) {
+	const jsonStatus = status as ContentfulStatusCode;
+	if (c.req.path.startsWith("/v1/messages")) {
+		return c.json(buildAnthropicErrorBody({ message, status }), jsonStatus);
+	}
+	return c.json(buildOpenAIErrorBody({ message, status }), jsonStatus);
 }

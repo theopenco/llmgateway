@@ -58,6 +58,7 @@ export function CreateProviderKeyDialog({
 	const [baseUrl, setBaseUrl] = useState("");
 	const [customName, setCustomName] = useState("");
 	const [token, setToken] = useState("");
+	const [description, setDescription] = useState("");
 	const [azureResource, setAzureResource] = useState("");
 	const [azureApiVersion, setAzureApiVersion] = useState("2024-10-21");
 	const [azureDeploymentType, setAzureDeploymentType] = useState<
@@ -206,6 +207,7 @@ export function CreateProviderKeyDialog({
 			provider: string;
 			token: string;
 			name?: string;
+			description?: string;
 			baseUrl?: string;
 			options?: Record<string, string | undefined>;
 			organizationId: string;
@@ -216,6 +218,9 @@ export function CreateProviderKeyDialog({
 			token: trimmedToken,
 			organizationId: selectedOrganization.id,
 		};
+		if (description.trim()) {
+			payload.description = description.trim();
+		}
 		if (baseUrl) {
 			payload.baseUrl = baseUrl;
 		}
@@ -388,6 +393,7 @@ export function CreateProviderKeyDialog({
 			setBaseUrl("");
 			setCustomName("");
 			setToken("");
+			setDescription("");
 			setAzureResource("");
 			setAzureApiVersion("2024-10-21");
 			setAzureDeploymentType("ai-foundry");
@@ -479,6 +485,23 @@ export function CreateProviderKeyDialog({
 								</p>
 							);
 						})()}
+					</div>
+
+					<div className="space-y-2">
+						<Label htmlFor="provider-key-description">
+							Description (optional)
+						</Label>
+						<Input
+							id="provider-key-description"
+							placeholder="Production workloads"
+							value={description}
+							onChange={(event) => setDescription(event.target.value)}
+							maxLength={200}
+						/>
+						<p className="text-sm text-muted-foreground">
+							Shown in request logs and routing details so you can identify
+							which key was used.
+						</p>
 					</div>
 
 					{selectedProvider === "llmgateway" && (
@@ -613,8 +636,8 @@ export function CreateProviderKeyDialog({
 								onChange={(e) => setGoogleVertexProjectId(e.target.value)}
 							/>
 							<p className="text-sm text-muted-foreground">
-								Your Google Cloud project ID, found in the Google Cloud Console.
-								Required for non-lite Vertex AI models.
+								Optional for API-key chat, embedding, and speech requests.
+								Required for OAuth and video generation.
 							</p>
 						</div>
 					)}

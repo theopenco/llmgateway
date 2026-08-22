@@ -336,7 +336,7 @@ export const testModels = filteredModels
 		const testCases = [];
 
 		if (process.env.TEST_ALL_VARIATIONS) {
-			// test root model without a specific provider
+			// test canonical model without a specific provider
 			testCases.push({
 				model: model.id,
 				providers: expandAllProviderRegions(
@@ -965,6 +965,16 @@ export const streamingModels = testModels.filter((m) =>
 
 export const reasoningModels = testModels.filter((m) =>
 	m.providers.some((p: ProviderModelMapping) => p.reasoning === true),
+);
+
+export const thinkingDisabledForcedToolChoiceModels = testModels.filter((m) =>
+	m.providers.some(
+		(p: ProviderModelMapping) =>
+			p.reasoningEfforts?.includes("none") &&
+			(["required", "function"] as const).every((mode) =>
+				p.supportedToolChoicesWithThinkingDisabled?.includes(mode),
+			),
+	),
 );
 
 // Efforts are forwarded to providers as-is and rejected when unsupported, so

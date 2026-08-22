@@ -46,7 +46,6 @@ describe("isProviderIdCompliant with custom providers", () => {
 			iso27001: true,
 			gdpr: true,
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			headquarters: "US",
 		};

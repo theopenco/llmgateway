@@ -5,8 +5,12 @@ import {
 	Eye,
 	Wrench,
 	MessageSquare,
-	ImagePlus,
+	Sliders,
 	Braces,
+	FileJson2,
+	Globe,
+	ListOrdered,
+	ImagePlus,
 } from "lucide-react";
 import Link from "next/link";
 import { notFound, permanentRedirect } from "next/navigation";
@@ -333,12 +337,28 @@ export default async function ModelProviderPage({ params }: PageProps) {
 										color: "text-orange-500",
 									});
 								}
+								if (providerMapping.reasoningMaxTokens) {
+									items.push({
+										key: "reasoningMaxTokens",
+										icon: Sliders,
+										label: "Reasoning Budget",
+										color: "text-amber-500",
+									});
+								}
 								if (providerMapping.jsonOutput) {
 									items.push({
 										key: "jsonOutput",
 										icon: Braces,
 										label: "JSON Output",
 										color: "text-cyan-500",
+									});
+								}
+								if (providerMapping.jsonOutputSchema) {
+									items.push({
+										key: "jsonOutputSchema",
+										icon: FileJson2,
+										label: "Structured JSON",
+										color: "text-teal-500",
 									});
 								}
 								const hasImageGen = Array.isArray(modelDef.output)
@@ -350,6 +370,22 @@ export default async function ModelProviderPage({ params }: PageProps) {
 										icon: ImagePlus,
 										label: "Image Generation",
 										color: "text-pink-500",
+									});
+								}
+								if (providerMapping.rerank) {
+									items.push({
+										key: "rerank",
+										icon: ListOrdered,
+										label: "Rerank",
+										color: "text-amber-500",
+									});
+								}
+								if (providerMapping.webSearch) {
+									items.push({
+										key: "webSearch",
+										icon: Globe,
+										label: "Web Search",
+										color: "text-sky-500",
 									});
 								}
 

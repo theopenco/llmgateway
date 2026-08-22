@@ -13,6 +13,7 @@ import {
 } from "./billing.js";
 import { RealtimeProxySession } from "./session.js";
 
+import type { RealtimeMappingMatch } from "./catalog.js";
 import type { RealtimePreflightResult } from "./preflight.js";
 import type { WebSocket } from "ws";
 
@@ -52,7 +53,8 @@ vi.mock("@/lib/compliance.js", () => ({
 	assertProviderCompliant: vi.fn(async () => {}),
 }));
 
-vi.mock("@llmgateway/db", () => ({
+vi.mock("@llmgateway/db", async (importOriginal) => ({
+	...(await importOriginal<Record<string, unknown>>()),
 	getEffectiveDiscount: vi.fn(async () => ({ discount: 0 })),
 }));
 
@@ -161,7 +163,10 @@ async function flush(): Promise<void> {
 	}
 }
 
-function createSession(preflightOverrides: Record<string, unknown> = {}) {
+function createSession(
+	preflightOverrides: Record<string, unknown> = {},
+	allowedTranscription: RealtimeMappingMatch | null = null,
+) {
 	const client = new FakeSocket();
 	const upstream = new FakeSocket();
 	const session = new RealtimeProxySession({
@@ -177,7 +182,7 @@ function createSession(preflightOverrides: Record<string, unknown> = {}) {
 		lease: { sessionId: "rts_1", organizationId: "org_1", apiKeyId: "key_1" },
 		source: "lounge.llmgateway.io",
 		userAgent: "vitest",
-		allowedTranscription: null,
+		allowedTranscription,
 		onClosed: () => {},
 	});
 	const clientSends = (event: Record<string, unknown>) => {
@@ -194,6 +199,68 @@ beforeEach(() => {
 });
 
 describe("RealtimeProxySession turn handling", () => {
+	it("accepts canonical model ids in session updates", async () => {
+		const preflight = buildPreflight();
+		const { client, upstream, session, clientSends } = createSession({
+			match: {
+				...preflight.match,
+				mapping: {
+					...preflight.match.mapping,
+					externalId: "upstream-deployment",
+				},
+			},
+		});
+
+		clientSends({
+			type: "session.update",
+			session: { model: "openai/gpt-realtime-2.1-mini" },
+		});
+		await flush();
+
+		expect(client.sent).toHaveLength(0);
+		expect(upstream.sent).toHaveLength(1);
+		const forwarded = JSON.parse(upstream.sent[0]) as {
+			session: { model: string };
+		};
+		expect(forwarded.session.model).toBe("upstream-deployment");
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("canonicalizes model ids in upstream lifecycle events", async () => {
+		const allowedTranscription = {
+			modelId: "gpt-4o-mini-transcribe",
+			mapping: { providerId: "openai" },
+		} as unknown as RealtimeMappingMatch;
+		const { client, session, upstreamSends } = createSession(
+			{},
+			allowedTranscription,
+		);
+
+		upstreamSends({
+			type: "session.created",
+			session: {
+				id: "sess_1",
+				model: "upstream-deployment",
+				input_audio_transcription: { model: "upstream-transcription" },
+			},
+		});
+		upstreamSends({
+			type: "response.created",
+			response: { id: "resp_1", model: "upstream-deployment" },
+		});
+		await flush();
+
+		const events = client.sent.map((value) => JSON.parse(value));
+		expect(events[0].session.model).toBe("openai/gpt-realtime-2.1-mini");
+		expect(events[0].session.input_audio_transcription.model).toBe(
+			"openai/gpt-4o-mini-transcribe",
+		);
+		expect(events[1].response.model).toBe("openai/gpt-realtime-2.1-mini");
+
+		session.shutdown(1000, "test_done");
+	});
+
 	it("starts the pending auto-response only after a commit-during-response's response.done is billed", async () => {
 		const { upstream, session, clientSends, upstreamSends } = createSession();
 

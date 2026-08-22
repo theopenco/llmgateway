@@ -162,6 +162,23 @@ export const completionsRequestSchema = z.object({
 					description:
 						"Separate phased assistant message items (e.g. commentary and final_answer) emitted by OpenAI Responses API models in a single turn. preceding_tool_calls records how many of the message's tool calls came before each item. Replayed upstream as individual message items in their original order; stripped for other providers.",
 				}),
+			anthropic_native_blocks: z
+				.array(z.object({ type: z.string() }).passthrough())
+				.optional()
+				.openapi({
+					description:
+						"Anthropic content blocks with no OpenAI-format equivalent. On an assistant message these are the server-side tool search blocks (`server_tool_use` + `tool_search_tool_result`), replayed ahead of the message's tool calls; on a tool message they are the `tool_result` content array, which is how a client-side tool search returns `tool_reference` blocks. Replayed on the Anthropic Messages API only and stripped for every other provider.",
+				}),
+			tool_result_cache_control: z
+				.object({
+					type: z.enum(["ephemeral"]),
+					ttl: z.enum(["5m", "1h"]).optional(),
+				})
+				.optional()
+				.openapi({
+					description:
+						"Prompt-cache breakpoint for the Anthropic `tool_result` block this tool message becomes. The OpenAI tool message shape has nowhere to carry it, so it rides here. Applied on the Anthropic Messages API only and stripped for every other provider.",
+				}),
 		}),
 	),
 	temperature: z
@@ -289,6 +306,31 @@ export const completionsRequestSchema = z.object({
 						description: z.string().optional(),
 						parameters: z.record(z.any()).optional(),
 					}),
+					defer_loading: z.boolean().optional().openapi({
+						description:
+							"Anthropic only. Keeps the tool out of the rendered tools section so it never enters the cached prompt prefix, and loads it on demand once the tool search tool discovers it. Requires a `tool_search` tool in `tools`, and Anthropic rejects a request whose tools are all deferred. Stripped for every other provider, which receives the tool eagerly instead.",
+					}),
+					cache_control: z
+						.object({
+							type: z.enum(["ephemeral"]),
+							ttl: z.enum(["5m", "1h"]).optional(),
+						})
+						.optional()
+						.openapi({
+							description:
+								"Anthropic only. Cache breakpoint ending the tool-definitions prefix, which Anthropic renders before the system prompt and messages. Placed on the last tool it caches every tool up to and including that one, and counts toward Anthropic's limit of 4 breakpoints per request. Stripped for every other provider.",
+						}),
+				}),
+				z.object({
+					type: z.literal("tool_search"),
+					tool_search_type: z
+						.string()
+						.regex(/^tool_search_tool/)
+						.openapi({
+							description:
+								"Anthropic tool search tool type, e.g. `tool_search_tool_regex_20251119` or `tool_search_tool_bm25_20251119`.",
+						}),
+					name: z.string().optional(),
 				}),
 				z.object({
 					type: z.literal("web_search"),

@@ -46,6 +46,8 @@ When you are done writing code features or bug fixes, ALWAYS commit your changes
 
 Keep everything you write short and concise — code comments, docs, skills, commit messages, PR descriptions. Say a thing once, at the level of detail a reader needs to act on it. Do not elaborate beyond that, do not restate a rule that already lives elsewhere, and do not add filler like "apply the usual rules" that carries no information.
 
+Use the local `skill-authoring` skill when creating or editing repository skills.
+
 ### Documentation
 
 - NEVER hardcode a list of models, providers, provider countries/headquarters, or any other catalogue-derived enumeration into documentation (`apps/docs`), changelog entries, or marketing copy. These lists go stale the moment the catalogue changes and are annoying to keep in sync. Instead, link to the relevant live page that is generated from the catalogue (e.g. the [models page](https://llmgateway.io/models) or [providers page](https://llmgateway.io/providers)).
@@ -192,13 +194,17 @@ Running the built `dist/serve.js` gives no watch (rebuild + restart after code c
 
 #### E2E Test Structure
 
-E2E tests are organized for optimal performance:
+Reserve `*.e2e.ts` for tests that make real upstream provider requests. Tests
+that use a local or mocked upstream belong in `*.spec.ts` and run with
+`pnpm test:unit`, even when they exercise the full gateway request path,
+routing, persistence, or streaming.
 
-- **Parallel execution**: Tests run up to 16 in parallel using Vitest's thread pool (minimum 8 threads)
-- **Split structure**:
-  - `apps/gateway/src/api.e2e.ts` - Contains all `.each()` tests that benefit from parallelization
-  - `apps/gateway/src/api-individual.e2e.ts` - Contains individual test cases that need isolation
-- **Concurrent mode**: The main test suite uses `{ concurrent: true }` to enable parallel execution of `.each()` tests
+`pnpm test:e2e` discovers `*.e2e.ts` files sequentially with
+`--no-file-parallelism`. Parameterized chat-completion coverage lives in the
+`apps/gateway/src/chat-*.e2e.ts` files; those suites use
+`getConcurrentTestOptions()` and run their cases concurrently unless
+`CONCURRENT_TESTS=false`. Tests that need isolation live in
+`apps/gateway/src/api-individual.e2e.ts`.
 
 #### Gateway test harness resets shared state per test
 
@@ -318,10 +324,10 @@ When creating a new package in `packages/`, include these config files. Copy the
 - Apply DRY principles for code reuse
 - Do not add explicit caching or memoization around `process.env` reads or parsed env-var values unless there is a measured hot-path need
 - Exception: in `packages/models`, explicit duplication of model/provider mappings is acceptable and preferred over helper-based expansion. This is the only place in the repo where duplicating model definitions is OK. NEVER add helper functions (e.g. `makeModel(...)`/`makeProvider(...)`) that build model or provider definition objects, even when it means repeating fields across entries — write each model and provider mapping out in full as a plain object literal in the `models` array. Small shared `const` values are fine, but the definition objects themselves must not be constructed by a function.
-- Models and provider mappings in `packages/models` can NEVER be removed, only deactivated. To retire a model or provider mapping, set `deactivatedAt: new Date("YYYY-MM-DD")` (today's date) on the relevant provider mapping(s) instead of deleting the definition. Historical usage records and analytics reference these definitions, so deleting them breaks lookups.
+- Models and provider mappings already present on `origin/main` can NEVER be removed, only deactivated. To retire one, set `deactivatedAt: new Date("YYYY-MM-DD")` on the relevant provider mapping(s) instead of deleting the definition. Use the actual retirement date when known, including retroactively; otherwise use today's date. Historical usage records and analytics reference these definitions, so deleting them breaks lookups. New definitions added only on the current unmerged branch may be removed normally.
 - In `packages/models`, ALWAYS express per-token prices (`inputPrice`, `outputPrice`, `cachedInputPrice`, and any other per-token price field) using `e-6` notation so the coefficient reads directly as USD per million tokens (e.g. `"1.4e-6"` for $1.40/M — the exact number providers publish). Never use `e-3` or other exponents for per-token prices. This does NOT apply to `requestPrice`, which is a flat USD amount charged per request (e.g. `"0.035"`), nor to `perSecondPrice`.
 - In `packages/models`, never add comments that only cite a source or restate a value — e.g. "taken from provider X's pricing page", "// Ref: https://…", "verified live on <date>", or `webSearchPrice: "0.01", // $0.01 per search`. They add nothing the field does not already say, and they rot as soon as the catalogue changes. Comments explaining WHY a field is set to a non-obvious value ARE valuable and must be kept and maintained: why a capability flag is `false` or restricted (`jsonOutput: false`, `supportedToolChoices`, a trimmed `reasoningEfforts` list), why a mapping is `stability: "unstable"` / `test: "skip"` / `deactivatedAt`, or any deployment quirk that a future reader would otherwise "fix" by reverting.
-- In `packages/models`, a single model definition must never contain two provider mappings with the same `providerId` (regional variants belong in that mapping's `regions` array instead). Mapping lookup keys on `(providerId, region)` throughout the gateway — `selectProviderMapping`, `costs.ts`, `prepare-request-body.ts` — so a second same-provider mapping is unaddressable: it silently resolves back to the first one, meaning requests get validated and **billed** at the wrong mapping's prices, and e2e generates two identically-named test cases that both exercise only the first. A distinct upstream deployment (e.g. a provider's "fast"/priority router with its own `externalId` and pricing) needs its own root model entry with its own `id`.
+- In `packages/models`, a single model definition must never contain two provider mappings with the same `providerId` (regional variants belong in that mapping's `regions` array instead). Mapping lookup keys on `(providerId, region)` throughout the gateway — `selectProviderMapping`, `costs.ts`, `prepare-request-body.ts` — so a second same-provider mapping is unaddressable: it silently resolves back to the first one, meaning requests get validated and **billed** at the wrong mapping's prices, and e2e generates two identically-named test cases that both exercise only the first. A distinct upstream deployment (e.g. a provider's "fast"/priority router with its own `externalId` and pricing) needs its own canonical model entry with its own `id`.
 - No unnecessary code comments
 - Organizations backing LLM SDK end-user wallets are always regular PAYG (credits) organizations — never `devpass` or `chat` plan orgs. Gateway logic gated on the org's `kind`/plan (e.g. dev-plan model restrictions or the dev-plan default service tier) therefore never needs to account for the end-user-wallet credits substitution (`withWalletCredits`); that substitution only affects downstream credit gating.
 - `organization.kind` (`default` / `devpass` / `chat`) is **immutable**: it is assigned when the organization is created and there is no code path — API route, admin action or migration — that changes it afterwards. An org never migrates between kinds; a user who signs up for DevPass or Chat gets a separate organization (see `apps/api/src/utils/personal-org.ts`). Treat it as a fixed attribute: it is safe to join to it when attributing historical data, and analytics keyed on it never need a slowly-changing-dimension snapshot. `organization.plan` is the opposite — it does change over time, so never treat the two the same way.

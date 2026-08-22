@@ -2,6 +2,8 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { assertOrganizationNotHighRisk } from "@/lib/account-risk.js";
+import { assertCreditPurchaseAllowed } from "@/lib/credit-purchase-guard.js";
 import { voidPendingCycleRenewalInvoices } from "@/lib/pending-renewal.js";
 import {
 	computeSelfRefundEligibility,
@@ -10,6 +12,11 @@ import {
 	refundFeedbackBodySchema,
 } from "@/lib/self-refund.js";
 import { getStripeCardErrorMessage } from "@/lib/stripe-card-error.js";
+import { forcedThreeDSecureOptions } from "@/lib/three-d-secure.js";
+import {
+	assertTopUpVelocityAllowed,
+	releaseTopUpReservation,
+} from "@/lib/topup-velocity.js";
 import { posthog } from "@/posthog.js";
 import {
 	ensureStripeCustomer,
@@ -19,6 +26,7 @@ import {
 	isDevPlanCardDedupeEnforced,
 } from "@/stripe.js";
 import { findDefaultOrganization } from "@/utils/default-org.js";
+import { getDevPlanPriceId } from "@/utils/dev-plan-prices.js";
 import { LEGACY_DEV_PLAN_TX_TYPES } from "@/utils/devpass-filter.js";
 import {
 	buildInvoiceDataForTransaction,
@@ -29,8 +37,13 @@ import {
 } from "@/utils/invoice.js";
 import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
 import { resolveDevPassBillingDetails } from "@/utils/plan-billing.js";
+import {
+	providerCacheControlModeSchema,
+	resolveProviderCacheControlMode,
+} from "@/utils/provider-cache-control.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
+import { redisClient } from "@llmgateway/cache";
 import {
 	cdb,
 	db,
@@ -47,6 +60,7 @@ import {
 import { logger } from "@llmgateway/logger";
 import {
 	calculateFees,
+	TOPUP_VELOCITY_RESERVATION_TTL_SECONDS,
 	CREDIT_TOP_UP_MAX_AMOUNT,
 	CREDIT_TOP_UP_MIN_AMOUNT,
 	DEV_PLAN_INCLUDED_RESET_PASSES,
@@ -69,6 +83,7 @@ import {
 import { getStripe, isInternationalPaymentMethod } from "./payments.js";
 
 import type { ServerTypes } from "@/vars.js";
+import type { ProviderCacheControlMode } from "@llmgateway/models";
 import type Stripe from "stripe";
 
 export const devPlans = new OpenAPIHono<ServerTypes>();
@@ -78,13 +93,38 @@ export const devPlans = new OpenAPIHono<ServerTypes>();
 // lease this old cannot still have an upgrade charge in flight.
 const STALE_TIER_CHANGE_CLAIM_MS = 15 * 60 * 1000;
 
-// Transaction types that surface as invoices on the DevPass billing page.
+// Plan charges that prove the org was (or still is) a paying DevPass
+// subscriber, used to keep the billing page reachable after a plan ends.
 const DEV_PLAN_INVOICE_TYPES = [
 	"dev_plan_start",
 	"dev_plan_renewal",
 	"dev_plan_upgrade",
 	"dev_plan_reset_pass",
 ] as const;
+
+// Transaction types that surface in the DevPass billing history: everything a
+// devpass personal org can carry — the plan lifecycle, Reset Passes, PAYG
+// overflow top-ups and the refunds/credit grants booked against them. The
+// remaining types (Pro subscriptions, chat plans, end-user wallets) never
+// occur on a devpass org.
+const DEV_PLAN_HISTORY_TYPES = [
+	"dev_plan_start",
+	"dev_plan_renewal",
+	"dev_plan_upgrade",
+	"dev_plan_downgrade",
+	"dev_plan_cancel",
+	"dev_plan_resume",
+	"dev_plan_end",
+	"dev_plan_reset_pass",
+	"dev_plan_reset_pass_reward",
+	"dev_plan_reset_pass_gift",
+	"credit_topup",
+	"credit_refund",
+	"credit_gift",
+	"credit_manual_payment",
+] as const;
+
+type DevPlanHistoryType = (typeof DEV_PLAN_HISTORY_TYPES)[number];
 
 // A failed release is swallowed: the lease then simply expires via the
 // staleness window instead of blocking upgrades until renewal.
@@ -181,24 +221,6 @@ function getPurchasedResetPasses(
 		case "max":
 			return org.devPlanResetPassesMax;
 	}
-}
-
-function getDevPlanPriceId(
-	tier: DevPlanTier,
-	cycle: DevPlanCycle = "monthly",
-): string | undefined {
-	const monthlyKeys: Record<DevPlanTier, string> = {
-		lite: "STRIPE_DEV_PLAN_LITE_PRICE_ID",
-		pro: "STRIPE_DEV_PLAN_PRO_PRICE_ID",
-		max: "STRIPE_DEV_PLAN_MAX_PRICE_ID",
-	};
-	const annualKeys: Record<DevPlanTier, string> = {
-		lite: "STRIPE_DEV_PLAN_LITE_ANNUAL_PRICE_ID",
-		pro: "STRIPE_DEV_PLAN_PRO_ANNUAL_PRICE_ID",
-		max: "STRIPE_DEV_PLAN_MAX_ANNUAL_PRICE_ID",
-	};
-	const key = cycle === "annual" ? annualKeys[tier] : monthlyKeys[tier];
-	return process.env[key];
 }
 
 function getStripeId(value: string | { id?: string } | null | undefined) {
@@ -434,6 +456,7 @@ devPlans.openapi(subscribe, async (c) => {
 			customer: stripeCustomerId,
 			mode: "setup",
 			payment_method_types: ["card"],
+			...(await forcedThreeDSecureOptions()),
 			success_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?setup_session_id={CHECKOUT_SESSION_ID}`,
 			cancel_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?canceled=true`,
 			metadata: {
@@ -1764,6 +1787,7 @@ const getStatus = createRoute({
 							"throughput",
 							"latency",
 						]),
+						providerCacheControlMode: providerCacheControlModeSchema,
 					}),
 				},
 			},
@@ -1824,6 +1848,7 @@ devPlans.openapi(getStatus, async (c) => {
 			apiKey: null,
 			devPlanServiceTier: "default" as const,
 			defaultRoutingStrategy: "auto" as const,
+			providerCacheControlMode: "auto" as const,
 		});
 	}
 
@@ -1872,6 +1897,7 @@ devPlans.openapi(getStatus, async (c) => {
 	let projectId: string | null = null;
 	let defaultRoutingStrategy: "auto" | "price" | "throughput" | "latency" =
 		"auto";
+	let providerCacheControlMode: ProviderCacheControlMode = "auto";
 	if (personalOrg.devPlan !== "none") {
 		// Find the default project for this org. Order by createdAt asc so we
 		// always return the original "Default Project" rather than whichever
@@ -1890,6 +1916,7 @@ devPlans.openapi(getStatus, async (c) => {
 		if (project) {
 			projectId = project.id;
 			defaultRoutingStrategy = project.defaultRoutingStrategy;
+			providerCacheControlMode = project.providerCacheControlMode;
 			apiKey = await getOrCreatePersonalOrgApiKey(
 				personalOrg.id,
 				project.id,
@@ -1943,6 +1970,7 @@ devPlans.openapi(getStatus, async (c) => {
 		apiKey,
 		devPlanServiceTier: personalOrg.devPlanServiceTier,
 		defaultRoutingStrategy,
+		providerCacheControlMode,
 	});
 });
 
@@ -1962,6 +1990,11 @@ const updateSettings = createRoute({
 						// Coding plans optimize for prompt caching, so only the
 						// default weighted routing or the price strategy are allowed.
 						defaultRoutingStrategy: z.enum(["auto", "price"]).optional(),
+						// Control upstream prompt-cache writes for coding clients that
+						// send cache markers automatically.
+						providerCacheControlMode: providerCacheControlModeSchema.optional(),
+						/** @deprecated use providerCacheControlMode. */
+						providerCacheControlEnabled: z.boolean().optional(),
 						// Opt-in pay-as-you-go overflow past the monthly allowance.
 						devPlanPaygEnabled: z.boolean().optional(),
 						// Auto-reload: automatically top up when the credits balance
@@ -1991,6 +2024,7 @@ const updateSettings = createRoute({
 							"throughput",
 							"latency",
 						]),
+						providerCacheControlMode: providerCacheControlModeSchema,
 						devPlanPaygEnabled: z.boolean(),
 						autoTopUpEnabled: z.boolean(),
 						autoTopUpThreshold: z.string().nullable(),
@@ -2013,6 +2047,9 @@ devPlans.openapi(updateSettings, async (c) => {
 		autoTopUpThreshold,
 		autoTopUpAmount,
 	} = c.req.valid("json");
+	const providerCacheControlMode = resolveProviderCacheControlMode(
+		c.req.valid("json"),
+	);
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -2141,10 +2178,10 @@ devPlans.openapi(updateSettings, async (c) => {
 		}
 	}
 
-	// The default routing strategy lives on the project, not the org. Apply it to
-	// the org's default project (the same one surfaced by the status endpoint).
+	// Project-scoped settings apply to the default project surfaced by status.
 	let effectiveRoutingStrategy: "auto" | "price" | "throughput" | "latency" =
 		"auto";
+	let effectiveProviderCacheControlMode: ProviderCacheControlMode = "auto";
 	const defaultProject = await db.query.project.findFirst({
 		where: {
 			organizationId: {
@@ -2157,22 +2194,50 @@ devPlans.openapi(updateSettings, async (c) => {
 	});
 	if (defaultProject) {
 		effectiveRoutingStrategy = defaultProject.defaultRoutingStrategy;
+		effectiveProviderCacheControlMode = defaultProject.providerCacheControlMode;
+		const projectUpdateData: Partial<typeof tables.project.$inferInsert> = {};
 		if (
 			defaultRoutingStrategy !== undefined &&
 			defaultRoutingStrategy !== defaultProject.defaultRoutingStrategy
 		) {
+			projectUpdateData.defaultRoutingStrategy = defaultRoutingStrategy;
+		}
+		if (
+			providerCacheControlMode !== undefined &&
+			providerCacheControlMode !== defaultProject.providerCacheControlMode
+		) {
+			projectUpdateData.providerCacheControlMode = providerCacheControlMode;
+		}
+		if (Object.keys(projectUpdateData).length > 0) {
 			// Cached client so the gateway's project-cache invalidates and the new
-			// default routing strategy takes effect immediately (see projects.ts).
+			// settings take effect immediately (see projects.ts).
 			await cdb
 				.update(tables.project)
-				.set({ defaultRoutingStrategy })
+				.set(projectUpdateData)
 				.where(eq(tables.project.id, defaultProject.id));
+		}
+		if (
+			defaultRoutingStrategy !== undefined &&
+			defaultRoutingStrategy !== defaultProject.defaultRoutingStrategy
+		) {
 			changes.defaultRoutingStrategy = {
 				old: defaultProject.defaultRoutingStrategy,
 				new: defaultRoutingStrategy,
 			};
-			effectiveRoutingStrategy = defaultRoutingStrategy;
 		}
+		if (
+			providerCacheControlMode !== undefined &&
+			providerCacheControlMode !== defaultProject.providerCacheControlMode
+		) {
+			changes.providerCacheControlMode = {
+				old: defaultProject.providerCacheControlMode,
+				new: providerCacheControlMode,
+			};
+		}
+		effectiveRoutingStrategy =
+			defaultRoutingStrategy ?? effectiveRoutingStrategy;
+		effectiveProviderCacheControlMode =
+			providerCacheControlMode ?? effectiveProviderCacheControlMode;
 	}
 
 	if (Object.keys(changes).length > 0) {
@@ -2189,6 +2254,7 @@ devPlans.openapi(updateSettings, async (c) => {
 		success: true,
 		devPlanServiceTier: devPlanServiceTier ?? personalOrg.devPlanServiceTier,
 		defaultRoutingStrategy: effectiveRoutingStrategy,
+		providerCacheControlMode: effectiveProviderCacheControlMode,
 		devPlanPaygEnabled: devPlanPaygEnabled ?? personalOrg.devPlanPaygEnabled,
 		autoTopUpEnabled:
 			updateData.autoTopUpEnabled ?? personalOrg.autoTopUpEnabled,
@@ -2387,8 +2453,9 @@ devPlans.openapi(updateBillingDetails, async (c) => {
 	});
 });
 
-// List past DevPass invoices (plan start, renewals and upgrades) with the
-// amount charged and the virtual credits granted for each billing event.
+// List the full DevPass billing history — charges (plan start, renewals,
+// upgrades, Reset Passes, PAYG top-ups), refunds and the plan lifecycle events
+// in between — with the amount charged and the virtual credits granted.
 const getInvoices = createRoute({
 	method: "get",
 	path: "/invoices",
@@ -2401,14 +2468,7 @@ const getInvoices = createRoute({
 						invoices: z.array(
 							z.object({
 								id: z.string(),
-								type: z.enum([
-									"dev_plan_start",
-									"dev_plan_renewal",
-									"dev_plan_upgrade",
-									"dev_plan_reset_pass",
-									// PAYG overflow credits purchases (manual and auto-reload).
-									"credit_topup",
-								]),
+								type: z.enum(DEV_PLAN_HISTORY_TYPES),
 								date: z.string(),
 								amount: z.string().nullable(),
 								creditAmount: z.string().nullable(),
@@ -2477,22 +2537,17 @@ devPlans.openapi(getInvoices, async (c) => {
 	const invoices = transactions
 		.filter(
 			(t) =>
-				(DEV_PLAN_INVOICE_TYPES as readonly string[]).includes(t.type) ||
-				// PAYG overflow top-ups (manual + auto-reload) are DevPass charges
-				// too. Positive amounts only: reversal rows are bookkeeping, not a
-				// billing event the user should see.
-				(t.type === "credit_topup" &&
-					t.amount !== null &&
-					parseFloat(t.amount) > 0),
+				(DEV_PLAN_HISTORY_TYPES as readonly string[]).includes(t.type) &&
+				// Negative `credit_topup` rows are reversal bookkeeping for a refund
+				// that already has its own row; showing both double-counts the money.
+				!(
+					t.type === "credit_topup" &&
+					(t.amount === null || parseFloat(t.amount) <= 0)
+				),
 		)
 		.map((t) => ({
 			id: t.id,
-			type: t.type as
-				| "dev_plan_start"
-				| "dev_plan_renewal"
-				| "dev_plan_upgrade"
-				| "dev_plan_reset_pass"
-				| "credit_topup",
+			type: t.type as DevPlanHistoryType,
 			date: t.createdAt.toISOString(),
 			amount: t.amount,
 			creditAmount: t.creditAmount,
@@ -2907,6 +2962,7 @@ devPlans.openapi(createSetupIntent, async (c) => {
 		customer: stripeCustomerId,
 		payment_method_types: ["card"],
 		usage: "off_session",
+		...(await forcedThreeDSecureOptions()),
 		metadata: {
 			organizationId: personalOrg.id,
 			subscriptionType: "dev_plan_update",
@@ -3375,13 +3431,70 @@ devPlans.openapi(topUpCredits, async (c) => {
 		});
 	}
 
-	const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
-	const paymentMethodId = await resolveDevPassPaymentMethodId(
-		personalOrg,
-		stripeCustomerId,
-	);
+	await assertCreditPurchaseAllowed(personalOrg.id);
+	await assertOrganizationNotHighRisk(personalOrg.id);
 
-	const isInternational = await isInternationalPaymentMethod(paymentMethodId);
+	// DevPass PAYG top-ups land in organization.credits like dashboard top-ups,
+	// so they get the same tier-based velocity gate — before any Stripe
+	// interaction, reserving the worst-case (international-fee) gross.
+	const gateGrossUsd = calculateFees({
+		amount,
+		isInternational: true,
+	}).totalAmount;
+
+	// Client retries reuse the same purchaseId, and the Stripe idempotency key
+	// below collapses them into ONE PaymentIntent — so the gate and its
+	// reservation must also run once per purchase, or every retry would
+	// double-count the same attempt and can 429 legitimate resubmissions. The
+	// NX marker makes the gate idempotent; retries skip it (the original
+	// attempt's reservation still covers the amount). On failure the marker is
+	// cleared with the reservation so a fresh retry re-gates.
+	const gateMarkerKey = `topup_velocity:devpass_gate:${personalOrg.id}:${purchaseId}`;
+	let firstGateAttempt = true;
+	try {
+		firstGateAttempt =
+			(await redisClient.set(
+				gateMarkerKey,
+				"1",
+				"EX",
+				TOPUP_VELOCITY_RESERVATION_TTL_SECONDS,
+				"NX",
+			)) === "OK";
+	} catch {
+		// Redis unavailable: gate normally (the reservation path degrades to
+		// DB-only inside the check anyway).
+		firstGateAttempt = true;
+	}
+	if (firstGateAttempt) {
+		await assertTopUpVelocityAllowed(personalOrg, gateGrossUsd, { user });
+	}
+	const releaseGate = async () => {
+		if (!firstGateAttempt) {
+			return;
+		}
+		await releaseTopUpReservation(personalOrg.id, gateGrossUsd);
+		try {
+			await redisClient.del(gateMarkerKey);
+		} catch {
+			// Marker expires with its TTL; a stuck marker only skips re-gating.
+		}
+	};
+
+	// A failure before the charge means no money moved — free the reservation.
+	let stripeCustomerId: string;
+	let paymentMethodId: string;
+	let isInternational: boolean;
+	try {
+		stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
+		paymentMethodId = await resolveDevPassPaymentMethodId(
+			personalOrg,
+			stripeCustomerId,
+		);
+		isInternational = await isInternationalPaymentMethod(paymentMethodId);
+	} catch (err) {
+		await releaseGate();
+		throw err;
+	}
 	const feeBreakdown = calculateFees({ amount, isInternational });
 
 	// `baseAmount` in the metadata routes this PaymentIntent through
@@ -3415,6 +3528,8 @@ devPlans.openapi(topUpCredits, async (c) => {
 			{ idempotencyKey: `dev-plan-topup:${personalOrg.id}:${purchaseId}` },
 		);
 	} catch (err) {
+		// The charge did not go through — free the velocity reservation.
+		await releaseGate();
 		const stripeErr = err as { type?: string; code?: string };
 		const cardErrorMessage = getStripeCardErrorMessage(err);
 		if (cardErrorMessage || stripeErr?.code === "card_declined") {
@@ -3470,7 +3585,17 @@ devPlans.openapi(topUpCredits, async (c) => {
 const redeemResetPass = createRoute({
 	method: "post",
 	path: "/reset-pass/redeem",
-	request: {},
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						confirmHighCycleUsage: z.boolean().optional(),
+					}),
+				},
+			},
+		},
+	},
 	responses: {
 		200: {
 			content: {
@@ -3490,6 +3615,7 @@ const redeemResetPass = createRoute({
 
 devPlans.openapi(redeemResetPass, async (c) => {
 	const user = c.get("user");
+	const { confirmHighCycleUsage = false } = c.req.valid("json");
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -3517,18 +3643,26 @@ devPlans.openapi(redeemResetPass, async (c) => {
 		});
 	}
 
-	// With the monthly credit pool nearly exhausted, a reset would restore a
-	// weekly cap the user can't actually spend against — burning the pass for
-	// almost nothing. The pass keeps until the cycle renews, so hold it.
+	const cycleUsage = getDevPlanCycleUsageFraction(
+		personalOrg.devPlanCreditsUsed,
+		personalOrg.devPlanCreditsLimit,
+	);
+	if (cycleUsage >= 1) {
+		throw new HTTPException(400, {
+			message:
+				"Your monthly credit allowance is fully used, so a Reset Pass cannot unlock any remaining plan usage.",
+		});
+	}
+
+	// A reset remains available late in the cycle, but the caller must affirm
+	// that it understands the pass unlocks only the remaining monthly credits.
 	if (
-		getDevPlanCycleUsageFraction(
-			personalOrg.devPlanCreditsUsed,
-			personalOrg.devPlanCreditsLimit,
-		) > DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE
+		cycleUsage > DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE &&
+		!confirmHighCycleUsage
 	) {
 		throw new HTTPException(400, {
 			message:
-				"You've used more than 90% of this cycle's credit allowance — redeeming now would waste the pass on usage you can't spend. Your pass stays available for when your credits renew.",
+				"You've used more than 90% of this cycle's credit allowance. Confirm that you want to use a Reset Pass with the remaining monthly allowance.",
 		});
 	}
 

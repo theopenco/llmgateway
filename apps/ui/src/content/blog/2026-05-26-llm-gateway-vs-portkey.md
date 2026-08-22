@@ -93,6 +93,8 @@ Portkey is focused on text and, increasingly, agents. If your roadmap includes g
 
 LLM Gateway is free to self-host. On the managed tier it's a flat 5% platform fee, or **bring your own provider keys and pay 0%**. No per-seat math, no log-retention tiers to reason about.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## Where Portkey Wins
 
 ### Prompt Management Is Genuinely Strong
@@ -148,3 +150,5 @@ Portkey is an excellent AI gateway with a strong LLMOps layer on top — especia
 If you're evaluating a **Portkey alternative** because you'd rather have a single, fully open platform than a gateway-plus-suite, LLM Gateway is built for exactly that.
 
 **[Try LLM Gateway free](/signup)** | **[Compare all features](/compare/portkey)** | **[The 8 best Portkey alternatives](/blog/portkey-alternatives)** | **[The 8 best AI gateways in 2026](/blog/best-ai-gateways)**
+
+<BlogCta variant="gateway" location="bottom" />

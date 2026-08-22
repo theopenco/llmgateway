@@ -1,3 +1,4 @@
+import { TOOL_SEARCH_TOOL_TYPE_PREFIX } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -13,7 +14,7 @@ import { buildEncryptedReasoningDetail } from "./reasoning-details.js";
 import { transformOpenaiStreaming } from "./transform-openai-streaming.js";
 
 import type { Annotation, StreamingDelta } from "./types.js";
-import type { Provider } from "@llmgateway/models";
+import type { AnthropicNativeBlock, Provider } from "@llmgateway/models";
 
 function normalizeAnthropicUsage(usage: any): any {
 	if (!usage || typeof usage !== "object") {
@@ -58,6 +59,17 @@ function normalizeAnthropicUsage(usage: any): any {
 	return normalizedUsage;
 }
 
+/**
+ * Per-stream accumulator for Anthropic's server-side tool search calls, keyed
+ * by content block index. The search input arrives as `input_json_delta`
+ * chunks, so the `server_tool_use` block can only be emitted once its
+ * `tool_search_tool_result` shows up — which is also when it is useful.
+ */
+export type AnthropicToolSearchState = Map<
+	number,
+	{ id: string; name: string; input: string }
+>;
+
 export function transformStreamingToOpenai(
 	usedProvider: Provider,
 	usedModel: string,
@@ -65,6 +77,7 @@ export function transformStreamingToOpenai(
 	messages: any[],
 	serverToolUseIndices?: Set<number>,
 	supportsReasoning = true,
+	toolSearchState?: AnthropicToolSearchState,
 ): any {
 	let transformedData = data;
 
@@ -160,6 +173,20 @@ export function transformStreamingToOpenai(
 				if (serverToolUseIndices && data.index !== undefined) {
 					serverToolUseIndices.add(data.index);
 				}
+				// Tool search calls are replayable, so hold on to this one until
+				// its result block arrives and completes the pair.
+				if (
+					toolSearchState &&
+					data.index !== undefined &&
+					typeof data.content_block.name === "string" &&
+					data.content_block.name.startsWith(TOOL_SEARCH_TOOL_TYPE_PREFIX)
+				) {
+					toolSearchState.set(data.index, {
+						id: data.content_block.id,
+						name: data.content_block.name,
+						input: "",
+					});
+				}
 				transformedData = {
 					id: data.id ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -222,6 +249,10 @@ export function transformStreamingToOpenai(
 					data.index !== undefined &&
 					serverToolUseIndices.has(data.index)
 				) {
+					const pendingSearch = toolSearchState?.get(data.index);
+					if (pendingSearch) {
+						pendingSearch.input += partialJson;
+					}
 					transformedData = {
 						id: data.id ?? `chatcmpl-${Date.now()}`,
 						object: "chat.completion.chunk",
@@ -293,6 +324,64 @@ export function transformStreamingToOpenai(
 							delta: {
 								role: "assistant",
 								...(annotations.length > 0 && { annotations }),
+							},
+							finish_reason: null,
+						},
+					],
+					usage: normalizeAnthropicUsage(usage),
+				};
+			} else if (
+				data.type === "content_block_start" &&
+				data.content_block?.type === "tool_search_tool_result"
+			) {
+				// The tool search pair has no OpenAI representation, so forward both
+				// blocks verbatim for the /v1/messages layer to re-emit. The result
+				// block arriving is what tells us the matching server_tool_use call
+				// is complete, so they are emitted together.
+				const resultBlock = data.content_block;
+				let searchCall: { id: string; name: string; input: string } | undefined;
+				if (toolSearchState) {
+					for (const [index, pending] of toolSearchState) {
+						if (pending.id === resultBlock.tool_use_id) {
+							searchCall = pending;
+							toolSearchState.delete(index);
+							break;
+						}
+					}
+				}
+				const nativeBlocks: AnthropicNativeBlock[] = [];
+				if (searchCall) {
+					let input: unknown = {};
+					try {
+						input = searchCall.input ? JSON.parse(searchCall.input) : {};
+					} catch {
+						// A truncated search input is not worth failing the stream over;
+						// the result block below is what carries the discovered tools.
+						input = {};
+					}
+					nativeBlocks.push({
+						type: "server_tool_use",
+						id: searchCall.id,
+						name: searchCall.name,
+						input,
+					});
+				}
+				nativeBlocks.push({
+					type: "tool_search_tool_result",
+					tool_use_id: resultBlock.tool_use_id,
+					content: resultBlock.content,
+				});
+				transformedData = {
+					id: data.id ?? `chatcmpl-${Date.now()}`,
+					object: "chat.completion.chunk",
+					created: data.created ?? Math.floor(Date.now() / 1000),
+					model: data.model ?? usedModel,
+					choices: [
+						{
+							index: 0,
+							delta: {
+								role: "assistant",
+								anthropic_native_blocks: nativeBlocks,
 							},
 							finish_reason: null,
 						},
@@ -653,7 +742,15 @@ export function transformStreamingToOpenai(
 							? candidate.index
 							: candidateIdx,
 					delta,
-					finish_reason: null,
+					finish_reason:
+						candidate.finishReason === undefined
+							? null
+							: mapFinishReasonToOpenai(
+									candidate.finishReason,
+									usedProvider,
+									toolCalls.length > 0,
+									data.promptFeedback?.blockReason,
+								),
 				};
 			});
 
@@ -1439,8 +1536,10 @@ export function transformStreamingToOpenai(
 		case "runware":
 		case "gonka24":
 		case "ranoai":
+		case "baidu":
 		case "granite":
 		case "tundra":
+		case "permafrost":
 		case "xiaomi":
 		case "azure-ai-foundry":
 		case "vertex-openai":
@@ -1498,6 +1597,12 @@ export function transformStreamingToOpenai(
 			);
 			break;
 		}
+	}
+
+	// Upstream model names are deployment identifiers. The client-facing stream
+	// must consistently expose the gateway's canonical provider/model mapping.
+	if (transformedData && typeof transformedData === "object") {
+		transformedData.model = usedModel;
 	}
 
 	return transformedData;

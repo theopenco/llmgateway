@@ -52,6 +52,8 @@ Browse [models with tool calling support](https://llmgateway.io/models?filters=1
 | `gpt-4o-mini`                        | Routine tasks, cost-conscious usage         | $    |
 | `glm-4.5v`                           | Similar quality, 50-70% cheaper than Claude | $    |
 
+<BlogCta variant="devpass" location="mid_article" />
+
 ## Advanced Configuration
 
 ### Model Switching
@@ -101,3 +103,5 @@ Instead of managing credits across Anthropic, OpenAI, and Google, you get one ac
 4. Run `claude` and start coding with any model
 
 Questions? Check out our [documentation](https://docs.llmgateway.io) or [join our Discord](https://llmgateway.io/discord).
+
+<BlogCta variant="devpass" location="bottom" />

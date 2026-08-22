@@ -39,6 +39,7 @@ import {
 	apiKeyHourlyStats,
 	apiKeyHourlyModelStats,
 } from "@llmgateway/db";
+import { deriveStabilityMetrics } from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
 import type { AnyColumn } from "@llmgateway/db";
@@ -105,6 +106,7 @@ const dailyActivitySchema = z.object({
 	cachedInputCost: z.number(),
 	cacheWriteInputCost: z.number(),
 	errorCount: z.number(),
+	clientErrorCount: z.number(),
 	errorRate: z.number(),
 	cacheCount: z.number(),
 	cacheRate: z.number(),
@@ -144,6 +146,7 @@ function buildEmptyActivityRow(date: string): ActivityRow {
 		cachedInputCost: 0,
 		cacheWriteInputCost: 0,
 		errorCount: 0,
+		clientErrorCount: 0,
 		errorRate: 0,
 		cacheCount: 0,
 		cacheRate: 0,
@@ -370,55 +373,59 @@ activity.openapi(getActivity, async (c) => {
 					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
 						"totalTokens",
 					),
-				cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as(
+				cost: sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.cost} as double precision)), 0)`.as(
 					"cost",
 				),
 				inputCost:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.inputCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.inputCost} as double precision)), 0)`.as(
 						"inputCost",
 					),
 				outputCost:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.outputCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.outputCost} as double precision)), 0)`.as(
 						"outputCost",
 					),
 				requestCost:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.requestCost} as double precision)), 0)`.as(
 						"requestCost",
 					),
 				dataStorageCost:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.dataStorageCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.dataStorageCost} as double precision)), 0)`.as(
 						"dataStorageCost",
 					),
 				errorCount:
 					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.errorCount}), 0)`.as(
 						"errorCount",
 					),
+				clientErrorCount:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.clientErrorCount}), 0)`.as(
+						"clientErrorCount",
+					),
 				cacheCount:
 					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cacheCount}), 0)`.as(
 						"cacheCount",
 					),
 				discountSavings:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.discountSavings}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.discountSavings} as double precision)), 0)`.as(
 						"discountSavings",
 					),
 				imageInputCost:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.imageInputCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.imageInputCost} as double precision)), 0)`.as(
 						"imageInputCost",
 					),
 				audioInputCost:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.audioInputCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.audioInputCost} as double precision)), 0)`.as(
 						"audioInputCost",
 					),
 				audioOutputCost:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.audioOutputCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.audioOutputCost} as double precision)), 0)`.as(
 						"audioOutputCost",
 					),
 				imageOutputCost:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.imageOutputCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.imageOutputCost} as double precision)), 0)`.as(
 						"imageOutputCost",
 					),
 				videoOutputCost:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.videoOutputCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.videoOutputCost} as double precision)), 0)`.as(
 						"videoOutputCost",
 					),
 				cachedTokens:
@@ -430,11 +437,11 @@ activity.openapi(getActivity, async (c) => {
 						"cacheWriteTokens",
 					),
 				cachedInputCost:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cachedInputCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.cachedInputCost} as double precision)), 0)`.as(
 						"cachedInputCost",
 					),
 				cacheWriteInputCost:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cacheWriteInputCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.cacheWriteInputCost} as double precision)), 0)`.as(
 						"cacheWriteInputCost",
 					),
 				creditsRequestCount:
@@ -446,19 +453,19 @@ activity.openapi(getActivity, async (c) => {
 						"apiKeysRequestCount",
 					),
 				creditsCost:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.creditsCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.creditsCost} as double precision)), 0)`.as(
 						"creditsCost",
 					),
 				apiKeysCost:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.apiKeysCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.apiKeysCost} as double precision)), 0)`.as(
 						"apiKeysCost",
 					),
 				creditsDataStorageCost:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.creditsDataStorageCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.creditsDataStorageCost} as double precision)), 0)`.as(
 						"creditsDataStorageCost",
 					),
 				apiKeysDataStorageCost:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.apiKeysDataStorageCost}), 0)`.as(
+					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.apiKeysDataStorageCost} as double precision)), 0)`.as(
 						"apiKeysDataStorageCost",
 					),
 			})
@@ -501,7 +508,7 @@ activity.openapi(getActivity, async (c) => {
 					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
 						"totalTokens",
 					),
-				cost: sql<number>`COALESCE(SUM(${apiKeyHourlyModelStats.cost}), 0)`.as(
+				cost: sql<number>`COALESCE(SUM(cast(${apiKeyHourlyModelStats.cost} as double precision)), 0)`.as(
 					"cost",
 				),
 				...modeSplitFields(apiKeyHourlyModelStats),
@@ -576,7 +583,7 @@ activity.openapi(getActivity, async (c) => {
 						sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
 							"totalTokens",
 						),
-					cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as(
+					cost: sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.cost} as double precision)), 0)`.as(
 						"cost",
 					),
 					...modeSplitFields(apiKeyHourlyStats),
@@ -629,7 +636,12 @@ activity.openapi(getActivity, async (c) => {
 			const outputCost = Number(day.outputCost);
 			const requestCost = Number(day.requestCost);
 			const dataStorageCost = Number(day.dataStorageCost);
-			const errorCount = Number(day.errorCount);
+			const clientErrorCount = Number(day.clientErrorCount);
+			const stability = deriveStabilityMetrics(
+				requestCount,
+				Number(day.errorCount),
+				clientErrorCount,
+			);
 			const cacheCount = Number(day.cacheCount);
 			const discountSavings = Number(day.discountSavings);
 			const imageInputCost = Number(day.imageInputCost);
@@ -647,8 +659,7 @@ activity.openapi(getActivity, async (c) => {
 			const creditsDataStorageCost = Number(day.creditsDataStorageCost);
 			const apiKeysDataStorageCost = Number(day.apiKeysDataStorageCost);
 
-			const errorRate =
-				requestCount > 0 ? (errorCount / requestCount) * 100 : 0;
+			const errorRate = stability.errorRate ?? 0;
 			const cacheRate =
 				requestCount > 0 ? (cacheCount / requestCount) * 100 : 0;
 
@@ -672,7 +683,8 @@ activity.openapi(getActivity, async (c) => {
 				videoOutputCost,
 				cachedInputCost,
 				cacheWriteInputCost,
-				errorCount,
+				errorCount: stability.errorsCount,
+				clientErrorCount,
 				errorRate,
 				cacheCount,
 				cacheRate,
@@ -735,63 +747,67 @@ activity.openapi(getActivity, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
 					"totalTokens",
 				),
-			cost: sql<number>`COALESCE(SUM(${projectHourlyStats.cost}), 0)`.as(
+			cost: sql<number>`COALESCE(SUM(cast(${projectHourlyStats.cost} as double precision)), 0)`.as(
 				"cost",
 			),
 			inputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.inputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.inputCost} as double precision)), 0)`.as(
 					"inputCost",
 				),
 			outputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.outputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.outputCost} as double precision)), 0)`.as(
 					"outputCost",
 				),
 			requestCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.requestCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.requestCost} as double precision)), 0)`.as(
 					"requestCost",
 				),
 			dataStorageCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.dataStorageCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.dataStorageCost} as double precision)), 0)`.as(
 					"dataStorageCost",
 				),
 			imageInputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.imageInputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.imageInputCost} as double precision)), 0)`.as(
 					"imageInputCost",
 				),
 			audioInputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.audioInputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.audioInputCost} as double precision)), 0)`.as(
 					"audioInputCost",
 				),
 			audioOutputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.audioOutputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.audioOutputCost} as double precision)), 0)`.as(
 					"audioOutputCost",
 				),
 			imageOutputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.imageOutputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.imageOutputCost} as double precision)), 0)`.as(
 					"imageOutputCost",
 				),
 			videoOutputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.videoOutputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.videoOutputCost} as double precision)), 0)`.as(
 					"videoOutputCost",
 				),
 			cachedInputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.cachedInputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.cachedInputCost} as double precision)), 0)`.as(
 					"cachedInputCost",
 				),
 			cacheWriteInputCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.cacheWriteInputCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.cacheWriteInputCost} as double precision)), 0)`.as(
 					"cacheWriteInputCost",
 				),
 			errorCount:
 				sql<number>`COALESCE(SUM(${projectHourlyStats.errorCount}), 0)`.as(
 					"errorCount",
 				),
+			clientErrorCount:
+				sql<number>`COALESCE(SUM(${projectHourlyStats.clientErrorCount}), 0)`.as(
+					"clientErrorCount",
+				),
 			cacheCount:
 				sql<number>`COALESCE(SUM(${projectHourlyStats.cacheCount}), 0)`.as(
 					"cacheCount",
 				),
 			discountSavings:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.discountSavings}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.discountSavings} as double precision)), 0)`.as(
 					"discountSavings",
 				),
 			creditsRequestCount:
@@ -803,19 +819,19 @@ activity.openapi(getActivity, async (c) => {
 					"apiKeysRequestCount",
 				),
 			creditsCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.creditsCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.creditsCost} as double precision)), 0)`.as(
 					"creditsCost",
 				),
 			apiKeysCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.apiKeysCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.apiKeysCost} as double precision)), 0)`.as(
 					"apiKeysCost",
 				),
 			creditsDataStorageCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.creditsDataStorageCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.creditsDataStorageCost} as double precision)), 0)`.as(
 					"creditsDataStorageCost",
 				),
 			apiKeysDataStorageCost:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.apiKeysDataStorageCost}), 0)`.as(
+				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.apiKeysDataStorageCost} as double precision)), 0)`.as(
 					"apiKeysDataStorageCost",
 				),
 		})
@@ -863,7 +879,7 @@ activity.openapi(getActivity, async (c) => {
 					sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
 						"totalTokens",
 					),
-				cost: sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
+				cost: sql<number>`COALESCE(SUM(cast(${projectHourlyModelStats.cost} as double precision)), 0)`.as(
 					"cost",
 				),
 				...modeSplitFields(projectHourlyModelStats),
@@ -929,7 +945,7 @@ activity.openapi(getActivity, async (c) => {
 					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
 						"totalTokens",
 					),
-				cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as(
+				cost: sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.cost} as double precision)), 0)`.as(
 					"cost",
 				),
 				...modeSplitFields(apiKeyHourlyStats),
@@ -1019,7 +1035,12 @@ activity.openapi(getActivity, async (c) => {
 		const videoOutputCost = Number(day.videoOutputCost);
 		const cachedInputCost = Number(day.cachedInputCost);
 		const cacheWriteInputCost = Number(day.cacheWriteInputCost);
-		const errorCount = Number(day.errorCount);
+		const clientErrorCount = Number(day.clientErrorCount);
+		const stability = deriveStabilityMetrics(
+			requestCount,
+			Number(day.errorCount),
+			clientErrorCount,
+		);
 		const cacheCount = Number(day.cacheCount);
 		const discountSavings = Number(day.discountSavings);
 
@@ -1030,7 +1051,7 @@ activity.openapi(getActivity, async (c) => {
 		const creditsDataStorageCost = Number(day.creditsDataStorageCost);
 		const apiKeysDataStorageCost = Number(day.apiKeysDataStorageCost);
 
-		const errorRate = requestCount > 0 ? (errorCount / requestCount) * 100 : 0;
+		const errorRate = stability.errorRate ?? 0;
 		const cacheRate = requestCount > 0 ? (cacheCount / requestCount) * 100 : 0;
 
 		return {
@@ -1053,7 +1074,8 @@ activity.openapi(getActivity, async (c) => {
 			videoOutputCost,
 			cachedInputCost,
 			cacheWriteInputCost,
-			errorCount,
+			errorCount: stability.errorsCount,
+			clientErrorCount,
 			errorRate,
 			cacheCount,
 			cacheRate,
@@ -1201,7 +1223,7 @@ activity.openapi(getSourceActivity, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${projectHourlySourceStats.totalTokens} AS NUMERIC)), 0)`.as(
 					"totalTokens",
 				),
-			cost: sql<number>`COALESCE(SUM(${projectHourlySourceStats.cost}), 0)`.as(
+			cost: sql<number>`COALESCE(SUM(cast(${projectHourlySourceStats.cost} as double precision)), 0)`.as(
 				"cost",
 			),
 			...modeSplitFields(projectHourlySourceStats),
@@ -1220,7 +1242,11 @@ activity.openapi(getSourceActivity, async (c) => {
 			),
 		)
 		.groupBy(projectHourlySourceStats.source)
-		.orderBy(desc(sql`COALESCE(SUM(${projectHourlySourceStats.cost}), 0)`));
+		.orderBy(
+			desc(
+				sql`COALESCE(SUM(cast(${projectHourlySourceStats.cost} as double precision)), 0)`,
+			),
+		);
 
 	return c.json({
 		sources: rows.map((r) => ({

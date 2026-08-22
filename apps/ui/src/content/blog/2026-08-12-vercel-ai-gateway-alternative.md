@@ -5,6 +5,15 @@ date: "2026-08-12"
 title: "A Vercel AI Gateway Alternative Without the Rewrite"
 summary: "Switching off the Vercel AI Gateway used to mean rewriting how your AI SDK app resolves models — and losing provider-native web search on the way out. LLM Gateway now implements the AI SDK's own gateway protocol, so the migration is one line and your bare model strings keep working."
 categories: ["Announcements", "Engineering"]
+faqs:
+  - question: "Is there a Vercel AI Gateway alternative that works without changing my code?"
+    answer: "Yes — as long as your app uses the AI SDK. LLM Gateway implements the same gateway protocol `@ai-sdk/gateway` speaks, so setting `globalThis.AI_SDK_DEFAULT_PROVIDER` to a `createGateway({ baseURL })` instance is the entire migration. Model strings, tool definitions, streaming, and the message-part rendering in your UI all stay as they are."
+  - question: "Why can't I just use an OpenAI-compatible provider instead?"
+    answer: "You can, and for a simple text app it works. What you lose is everything that lives above the OpenAI wire format: provider-native web search, the `source-url` citation parts your sources UI renders, and `getAvailableModels()` for the model picker. `@ai-sdk/openai-compatible` has no annotation handling at all, so citations cannot survive that path even if the gateway returns them."
+  - question: "Which AI SDK versions are supported?"
+    answer: "AI SDK 5, 6, and 7 — language model specification versions 2, 3, and 4. Each `@ai-sdk/gateway` major has a different default base-URL path, so use the matching prefix from the table above. The specification version travels in a request header and the gateway answers in the shape that version expects, including its usage-reporting format."
+  - question: "Do I have to move everything at once?"
+    answer: "No. `createGateway({ baseURL })` produces an ordinary provider instance, so you can point one route at LLM Gateway and leave the rest where it is. Set `globalThis.AI_SDK_DEFAULT_PROVIDER` only when you are ready for every bare model string to move."
 image:
   src: "/blog/vercel-ai-gateway-alternative.png"
   alt: "A circuit board with a glowing doorway on the central chip, representing a drop-in Vercel AI Gateway alternative for the AI SDK"
@@ -83,6 +92,8 @@ Pick the prefix matching the `@ai-sdk/gateway` your app has — the protocol ver
 
 Model IDs use the same `provider/model` convention, so `anthropic/claude-sonnet-5` and `openai/gpt-4o` resolve unchanged. LLM Gateway's own routing IDs work too: pass a bare `gpt-4o` to let the gateway pick the provider on price, throughput, or latency, or `auto` to let it pick the model.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## Web Search Keeps Its Citations
 
 This is the part an OpenAI-compatible port cannot recover, so it is worth showing working:
@@ -133,24 +144,6 @@ Honest limits, so you find them here rather than in production:
 
 No plan gating: this works on the free plan with any API key.
 
-## Frequently Asked Questions
-
-### Is there a Vercel AI Gateway alternative that works without changing my code?
-
-Yes — as long as your app uses the AI SDK. LLM Gateway implements the same gateway protocol `@ai-sdk/gateway` speaks, so setting `globalThis.AI_SDK_DEFAULT_PROVIDER` to a `createGateway({ baseURL })` instance is the entire migration. Model strings, tool definitions, streaming, and the message-part rendering in your UI all stay as they are.
-
-### Why can't I just use an OpenAI-compatible provider instead?
-
-You can, and for a simple text app it works. What you lose is everything that lives above the OpenAI wire format: provider-native web search, the `source-url` citation parts your sources UI renders, and `getAvailableModels()` for the model picker. `@ai-sdk/openai-compatible` has no annotation handling at all, so citations cannot survive that path even if the gateway returns them.
-
-### Which AI SDK versions are supported?
-
-AI SDK 5, 6, and 7 — language model specification versions 2, 3, and 4. Each `@ai-sdk/gateway` major has a different default base-URL path, so use the matching prefix from the table above. The specification version travels in a request header and the gateway answers in the shape that version expects, including its usage-reporting format.
-
-### Do I have to move everything at once?
-
-No. `createGateway({ baseURL })` produces an ordinary provider instance, so you can point one route at LLM Gateway and leave the rest where it is. Set `globalThis.AI_SDK_DEFAULT_PROVIDER` only when you are ready for every bare model string to move.
-
 ---
 
 **[Try LLM Gateway free](https://llmgateway.io/signup)** — one API across every major provider, with automatic failover.
@@ -158,3 +151,5 @@ No. `createGateway({ baseURL })` produces an ordinary provider instance, so you 
 - **[AI SDK Gateway protocol docs →](https://docs.llmgateway.io/developers/ai-sdk-gateway-protocol)** — the full surface, including provider options
 - **[Migrate from the Vercel AI Gateway →](https://docs.llmgateway.io/migrations/vercel-ai-gateway)** — both migration paths side by side
 - **[Ranked #1 on an independent AI gateway benchmark →](/blog/ai-gateway-benchmark)** — what the extra hop actually costs
+
+<BlogCta variant="gateway" location="bottom" />

@@ -147,7 +147,7 @@ export function OrgAnalyticsClient() {
 	const { user } = useUser();
 	const { data: teamData } = useTeamMembers(organizationId);
 
-	const isEnterprise = selectedOrganization?.plan === "enterprise";
+	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 	const currentUserRole = teamData?.members.find(
 		(member) => member.userId === user?.id,
 	)?.role;

@@ -1373,20 +1373,23 @@ describe("parseProviderResponse", () => {
 			},
 		};
 
-		it("reads reasoning tokens from completion_tokens_details", () => {
-			const result = parseProviderResponse(
-				"xai",
-				"grok-4-6",
-				xaiJson,
-				[],
-				true,
-			);
+		it.each(["xai", "vertex-openai"] as const)(
+			"reads reasoning tokens from completion_tokens_details for %s",
+			(provider) => {
+				const result = parseProviderResponse(
+					provider,
+					"grok-4-6",
+					xaiJson,
+					[],
+					true,
+				);
 
-			expect(result.promptTokens).toBe(213);
-			expect(result.completionTokens).toBe(4);
-			expect(result.reasoningTokens).toBe(310);
-			expect(result.cachedTokens).toBe(128);
-		});
+				expect(result.promptTokens).toBe(213);
+				expect(result.completionTokens).toBe(4);
+				expect(result.reasoningTokens).toBe(310);
+				expect(result.cachedTokens).toBe(128);
+			},
+		);
 
 		it("ignores the nested count for other OpenAI-compatible providers", () => {
 			// Everyone else folds reasoning into completion_tokens already, so

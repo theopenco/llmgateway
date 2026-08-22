@@ -4,12 +4,18 @@ import {
 	ArrowLeft,
 	Zap,
 	Eye,
+	FileJson2,
 	Wrench,
 	MessageSquare,
+	Sliders,
 	ImagePlus,
 	Video,
 	Boxes,
 	Braces,
+	Volume2,
+	Mic,
+	ListOrdered,
+	Globe,
 } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -502,9 +508,16 @@ export default async function ModelPage({ params }: PageProps) {
 								const hasVision = visibleProviders.some((p) => p.vision);
 								const hasTools = visibleProviders.some((p) => p.tools);
 								const hasReasoning = visibleProviders.some((p) => p.reasoning);
+								const hasReasoningMaxTokens = visibleProviders.some(
+									(p) => p.reasoningMaxTokens,
+								);
 								const hasJsonOutput = visibleProviders.some(
 									(p) => p.jsonOutput,
 								);
+								const hasJsonOutputSchema = visibleProviders.some(
+									(p) => p.jsonOutputSchema,
+								);
+								const hasWebSearch = visibleProviders.some((p) => p.webSearch);
 								const hasImageGen = Array.isArray(modelDef.output)
 									? modelDef.output.includes("image")
 									: false;
@@ -513,6 +526,15 @@ export default async function ModelPage({ params }: PageProps) {
 									: false;
 								const hasEmbedding = Array.isArray(modelDef.output)
 									? modelDef.output.includes("embedding")
+									: false;
+								const hasRerank = Array.isArray(modelDef.output)
+									? modelDef.output.includes("rerank")
+									: false;
+								const hasAudio = Array.isArray(modelDef.output)
+									? modelDef.output.includes("audio")
+									: false;
+								const hasTranscription = Array.isArray(modelDef.output)
+									? modelDef.output.includes("transcription")
 									: false;
 
 								if (hasStreaming) {
@@ -547,12 +569,28 @@ export default async function ModelPage({ params }: PageProps) {
 										color: "text-orange-500",
 									});
 								}
+								if (hasReasoningMaxTokens) {
+									items.push({
+										key: "reasoningMaxTokens",
+										icon: Sliders,
+										label: "Reasoning Budget",
+										color: "text-amber-500",
+									});
+								}
 								if (hasJsonOutput) {
 									items.push({
 										key: "jsonOutput",
 										icon: Braces,
 										label: "JSON Output",
 										color: "text-cyan-500",
+									});
+								}
+								if (hasJsonOutputSchema) {
+									items.push({
+										key: "jsonOutputSchema",
+										icon: FileJson2,
+										label: "Structured JSON",
+										color: "text-teal-500",
 									});
 								}
 								if (hasImageGen) {
@@ -571,12 +609,44 @@ export default async function ModelPage({ params }: PageProps) {
 										color: "text-violet-500",
 									});
 								}
+								if (hasAudio) {
+									items.push({
+										key: "audio",
+										icon: Volume2,
+										label: "Speech Generation",
+										color: "text-rose-500",
+									});
+								}
+								if (hasTranscription) {
+									items.push({
+										key: "transcription",
+										icon: Mic,
+										label: "Transcription",
+										color: "text-sky-500",
+									});
+								}
 								if (hasEmbedding) {
 									items.push({
 										key: "embedding",
 										icon: Boxes,
 										label: "Embeddings",
 										color: "text-indigo-500",
+									});
+								}
+								if (hasRerank) {
+									items.push({
+										key: "rerank",
+										icon: ListOrdered,
+										label: "Rerank",
+										color: "text-amber-500",
+									});
+								}
+								if (hasWebSearch) {
+									items.push({
+										key: "webSearch",
+										icon: Globe,
+										label: "Web Search",
+										color: "text-sky-500",
 									});
 								}
 

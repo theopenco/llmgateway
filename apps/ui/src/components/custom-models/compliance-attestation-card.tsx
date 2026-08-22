@@ -54,19 +54,16 @@ const TRI_STATE_FIELDS: { key: TriStateKey; label: string }[] = [
 	{ key: "iso27001", label: "ISO 27001 certified" },
 	{ key: "gdpr", label: "GDPR compliant" },
 	{ key: "apiTraining", label: "Trains on API prompts" },
-	{ key: "consumerTraining", label: "Trains on consumer data" },
 	{ key: "promptLogging", label: "Logs prompts" },
 ];
 
-type TriStateKey =
-	"iso27001" | "gdpr" | "apiTraining" | "consumerTraining" | "promptLogging";
+type TriStateKey = "iso27001" | "gdpr" | "apiTraining" | "promptLogging";
 
 interface FormState {
 	soc2: "unknown" | "1" | "2";
 	iso27001: string;
 	gdpr: string;
 	apiTraining: string;
-	consumerTraining: string;
 	promptLogging: string;
 	retentionPeriod: string;
 	headquarters: string;
@@ -101,7 +98,6 @@ function buildInitialState(
 		iso27001: triStateFromValue(attestation?.iso27001),
 		gdpr: triStateFromValue(attestation?.gdpr),
 		apiTraining: triStateFromValue(attestation?.apiTraining),
-		consumerTraining: triStateFromValue(attestation?.consumerTraining),
 		promptLogging: triStateFromValue(attestation?.promptLogging),
 		retentionPeriod: attestation?.retentionPeriod ?? "",
 		headquarters: attestation?.headquarters ?? "",
@@ -201,7 +197,6 @@ export function ComplianceAttestationCard({
 			iso27001: triStateToValue(form.iso27001),
 			gdpr: triStateToValue(form.gdpr),
 			apiTraining: triStateToValue(form.apiTraining),
-			consumerTraining: triStateToValue(form.consumerTraining),
 			promptLogging: triStateToValue(form.promptLogging),
 			retentionPeriod:
 				form.retentionPeriod.trim() === "" ? null : form.retentionPeriod.trim(),

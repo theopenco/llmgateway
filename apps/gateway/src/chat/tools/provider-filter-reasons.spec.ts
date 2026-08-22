@@ -9,6 +9,7 @@ import {
 	exclusionReason,
 	getProviderFilterReasons,
 	mergeFilteredProvider,
+	preferToolChoiceCapableProviders,
 	recordFilteredProvider,
 	type FilteredProvider,
 } from "./provider-filter-reasons.js";
@@ -174,6 +175,25 @@ describe("getProviderFilterReasons", () => {
 		).toEqual([exclusionReason("json_schema")]);
 	});
 
+	it("treats the two JSON tiers independently for json_schema routing", () => {
+		// A provider that supports strict json_schema without json_object
+		// (e.g. Runware, Perplexity, Anthropic) must not be excluded from
+		// json_schema routing just because it lacks soft jsonOutput.
+		expect(
+			getProviderFilterReasons(
+				mapping({ jsonOutputSchema: true, jsonOutput: false }),
+				{ responseFormatType: "json_schema" },
+			),
+		).toEqual([]);
+		// ...but json_object still requires soft jsonOutput.
+		expect(
+			getProviderFilterReasons(
+				mapping({ jsonOutputSchema: true, jsonOutput: false }),
+				{ responseFormatType: "json_object" },
+			),
+		).toEqual([exclusionReason("json_output")]);
+	});
+
 	it("flags unsupported modalities", () => {
 		expect(getProviderFilterReasons(mapping(), { hasImages: true })).toEqual([
 			exclusionReason("vision"),
@@ -217,6 +237,102 @@ describe("getProviderFilterReasons", () => {
 		expect(getProviderFilterReasons(mapping(), { maxTokens: 8192 })).toEqual(
 			[],
 		);
+	});
+
+	it("flags a tool_choice the mapping cannot honour during strict routing", () => {
+		const restricted = mapping({
+			tools: true,
+			supportedToolChoices: ["auto", "none"],
+		});
+		expect(
+			getProviderFilterReasons(restricted, {
+				toolChoice: "required",
+				strictToolChoice: true,
+			}),
+		).toEqual([exclusionReason("tool_choice")]);
+		expect(
+			getProviderFilterReasons(restricted, {
+				toolChoice: { type: "function", function: { name: "get_weather" } },
+				strictToolChoice: true,
+			}),
+		).toEqual([exclusionReason("tool_choice")]);
+		expect(
+			getProviderFilterReasons(restricted, {
+				toolChoice: "none",
+				strictToolChoice: true,
+			}),
+		).toEqual([]);
+	});
+
+	it("preserves unsupported tool_choice candidates for pinned fallback", () => {
+		expect(
+			getProviderFilterReasons(
+				mapping({
+					tools: true,
+					supportedToolChoices: ["auto", "none"],
+				}),
+				{ toolChoice: "required" },
+			),
+		).toEqual([]);
+	});
+
+	it("never flags tool_choice auto", () => {
+		// "auto" is what prepareRequestBody downgrades to, so a mapping that
+		// cannot honour it serves the request identically — narrowing routing on
+		// it would drop candidates for no behavioural gain.
+		expect(
+			getProviderFilterReasons(
+				mapping({ tools: true, supportedToolChoices: ["auto"] }),
+				{ toolChoice: "auto" },
+			),
+		).toEqual([]);
+	});
+
+	it("does not treat forced web search as a function tool choice", () => {
+		expect(
+			getProviderFilterReasons(
+				mapping({
+					webSearch: true,
+					supportedToolChoices: ["auto", "none"],
+				}),
+				{
+					toolChoice: { type: "web_search" },
+					strictToolChoice: true,
+				},
+			),
+		).toEqual([]);
+	});
+
+	it("honours a mapping's thinking-disabled tool_choice modes", () => {
+		const canopywaveLike = mapping({
+			tools: true,
+			reasoning: true,
+			supportedToolChoices: ["auto", "none"],
+			supportedToolChoicesWithThinkingDisabled: ["required", "function"],
+		});
+		expect(
+			getProviderFilterReasons(canopywaveLike, {
+				toolChoice: "required",
+				reasoningEffort: "high",
+				strictToolChoice: true,
+			}),
+		).toEqual([exclusionReason("tool_choice")]);
+		expect(
+			getProviderFilterReasons(canopywaveLike, {
+				toolChoice: "required",
+				reasoningEffort: "none",
+				strictToolChoice: true,
+			}),
+		).toEqual([]);
+	});
+
+	it("matches request shaping when supportedParameters omits tool_choice", () => {
+		expect(
+			getProviderFilterReasons(
+				mapping({ tools: true, supportedParameters: ["temperature", "tools"] }),
+				{ toolChoice: "required", strictToolChoice: true },
+			),
+		).toEqual([exclusionReason("tool_choice")]);
 	});
 
 	it("collects multiple reasons at once", () => {
@@ -343,5 +459,99 @@ describe("mergeFilteredProvider", () => {
 				codes: ["max_tokens"],
 			},
 		]);
+	});
+});
+
+describe("preferToolChoiceCapableProviders", () => {
+	const capable = mapping({
+		providerId: "deepinfra",
+		tools: true,
+	});
+	const restricted = mapping({
+		providerId: "canopywave",
+		tools: true,
+		supportedToolChoices: ["auto", "none"],
+	});
+
+	it("keeps only the mappings that honour a forced tool choice", () => {
+		const filteredOut: FilteredProvider[] = [];
+		expect(
+			preferToolChoiceCapableProviders(
+				[restricted, capable],
+				{ toolChoice: "required" },
+				filteredOut,
+			),
+		).toEqual([capable]);
+		expect(filteredOut).toEqual([
+			{
+				providerId: "canopywave",
+				reasons: [routingExclusionReasonMessage("tool_choice")],
+				codes: ["tool_choice"],
+			},
+		]);
+	});
+
+	it("keeps every mapping when none can honour the choice", () => {
+		// Dropping the last candidate would fail a request that succeeds today,
+		// downgraded to "auto" by prepareRequestBody.
+		const filteredOut: FilteredProvider[] = [];
+		expect(
+			preferToolChoiceCapableProviders(
+				[restricted],
+				{ toolChoice: "required" },
+				filteredOut,
+			),
+		).toEqual([restricted]);
+		expect(filteredOut).toEqual([]);
+	});
+
+	it("keeps a provider whose other region can honour the choice", () => {
+		const restrictedRegion = mapping({
+			providerId: "canopywave",
+			region: "us-east-1",
+			tools: true,
+			supportedToolChoices: ["auto", "none"],
+		});
+		const capableRegion = mapping({
+			providerId: "canopywave",
+			region: "eu-west-1",
+			tools: true,
+		});
+		const filteredOut: FilteredProvider[] = [];
+		expect(
+			preferToolChoiceCapableProviders(
+				[restrictedRegion, capableRegion],
+				{ toolChoice: "required" },
+				filteredOut,
+			),
+		).toEqual([capableRegion]);
+		expect(filteredOut).toEqual([]);
+	});
+
+	it("passes the list through for auto and for no tool_choice", () => {
+		expect(
+			preferToolChoiceCapableProviders([restricted, capable], {
+				toolChoice: "auto",
+			}),
+		).toEqual([restricted, capable]);
+		expect(preferToolChoiceCapableProviders([restricted, capable], {})).toEqual(
+			[restricted, capable],
+		);
+	});
+
+	it("keeps a thinking-disabled request on the restricted mapping", () => {
+		const canopywaveLike = mapping({
+			providerId: "canopywave",
+			tools: true,
+			reasoning: true,
+			supportedToolChoices: ["auto", "none"],
+			supportedToolChoicesWithThinkingDisabled: ["required", "function"],
+		});
+		expect(
+			preferToolChoiceCapableProviders([canopywaveLike, capable], {
+				toolChoice: "required",
+				reasoningEffort: "none",
+			}),
+		).toEqual([canopywaveLike, capable]);
 	});
 });

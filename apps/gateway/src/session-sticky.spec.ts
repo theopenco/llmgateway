@@ -17,7 +17,7 @@ import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harne
 // shortcut in chat.ts; that shortcut must keep the session pin in sync so a
 // later request without the tier stays on openai instead of re-scoring to
 // azure and cold-starting a different provider's prompt cache.
-describe("session stickiness across service tier changes", () => {
+describe("session stickiness across candidate changes", () => {
 	const harness = createGatewayApiTestHarness();
 	let mockServerUrl = "";
 
@@ -27,14 +27,15 @@ describe("session stickiness across service tier changes", () => {
 
 	const MODEL = "gpt-5.5";
 
-	function sessionPinKey(sessionId: string): string {
-		return `session_provider:org-id:${MODEL}:${sessionId}`;
+	function sessionPinKey(sessionId: string, model = MODEL): string {
+		return `session_provider:org-id:${model}:${sessionId}`;
 	}
 
 	async function readSessionPin(
 		sessionId: string,
+		model = MODEL,
 	): Promise<{ providerId: string; region?: string } | null> {
-		const raw = await redisClient.get(sessionPinKey(sessionId));
+		const raw = await redisClient.get(sessionPinKey(sessionId, model));
 		return raw ? JSON.parse(raw) : null;
 	}
 
@@ -238,5 +239,68 @@ describe("session stickiness across service tier changes", () => {
 			1000,
 		);
 		expect(keys).toEqual([]);
+	});
+
+	test("tool-choice capability takes precedence over an existing session pin", async () => {
+		const model = "deepseek-v4-flash";
+		const sessionId = "session-tool-choice-precedence";
+		const token = "real-token-session-sticky-tool-choice";
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-session-sticky-tool-choice",
+			token,
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.providerKey).values([
+			{
+				id: "provider-key-session-sticky-canopywave",
+				token: "sk-canopywave-test-key",
+				provider: "canopywave",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			},
+			{
+				id: "provider-key-session-sticky-deepinfra",
+				token: "sk-deepinfra-test-key",
+				provider: "deepinfra",
+				organizationId: "org-id",
+				baseUrl: `${mockServerUrl}/v1`,
+			},
+		]);
+		await redisClient.set(
+			sessionPinKey(sessionId, model),
+			JSON.stringify({ providerId: "canopywave" }),
+			"EX",
+			3600,
+		);
+
+		const res = await chatCompletion(
+			token,
+			{
+				model,
+				messages: [{ role: "user", content: "Use the lookup tool" }],
+				tools: [
+					{
+						type: "function",
+						function: {
+							name: "lookup",
+							description: "Look up a value",
+							parameters: { type: "object", properties: {} },
+						},
+					},
+				],
+				tool_choice: "required",
+			},
+			{ "x-session-id": sessionId },
+		);
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.metadata?.used_provider).toBe("deepinfra");
+		expect(await readSessionPin(sessionId, model)).toMatchObject({
+			providerId: "deepinfra",
+		});
 	});
 });

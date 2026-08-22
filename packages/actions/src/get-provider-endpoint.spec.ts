@@ -4,6 +4,7 @@ import { getProviderEndpoint } from "./get-provider-endpoint.js";
 
 const originalAiStudioBaseUrl = process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
 const originalGlacierBaseUrl = process.env.LLM_GLACIER_BASE_URL;
+const originalPermafrostBaseUrl = process.env.LLM_PERMAFROST_BASE_URL;
 const originalVertexBaseUrl = process.env.LLM_GOOGLE_VERTEX_BASE_URL;
 const originalVertexProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 const originalVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
@@ -31,6 +32,12 @@ afterEach(() => {
 		delete process.env.LLM_GLACIER_BASE_URL;
 	} else {
 		process.env.LLM_GLACIER_BASE_URL = originalGlacierBaseUrl;
+	}
+
+	if (originalPermafrostBaseUrl === undefined) {
+		delete process.env.LLM_PERMAFROST_BASE_URL;
+	} else {
+		process.env.LLM_PERMAFROST_BASE_URL = originalPermafrostBaseUrl;
 	}
 
 	if (originalVertexBaseUrl === undefined) {
@@ -126,6 +133,22 @@ describe("getProviderEndpoint", () => {
 		);
 	});
 
+	it("builds Permafrost endpoints from env base URL", () => {
+		process.env.LLM_PERMAFROST_BASE_URL = "https://permafrost.example.com";
+
+		expect(getProviderEndpoint("permafrost", undefined, "kimi-k3")).toBe(
+			"https://permafrost.example.com/v1/chat/completions",
+		);
+	});
+
+	it("requires Permafrost base URL when no override is provided", () => {
+		delete process.env.LLM_PERMAFROST_BASE_URL;
+
+		expect(() => getProviderEndpoint("permafrost")).toThrow(
+			"Permafrost provider requires LLM_PERMAFROST_BASE_URL environment variable",
+		);
+	});
+
 	it("uses the OpenAI base URL override when configured", () => {
 		process.env.LLM_OPENAI_BASE_URL = "http://localhost:8787/openai";
 
@@ -206,6 +229,37 @@ describe("getProviderEndpoint", () => {
 		expect(endpoint).toBe(
 			"https://vertex-override.example/v1/projects/project-a/locations/global/publishers/google/models/gemini-2.5-flash-lite:generateContent",
 		);
+	});
+
+	it("uses the projectless Vertex endpoint for API-key auth", () => {
+		process.env.LLM_GOOGLE_VERTEX_BASE_URL = "https://vertex-override.example";
+		delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+
+		const endpoint = getProviderEndpoint(
+			"google-vertex",
+			undefined,
+			"gemini-2.5-flash",
+			"vertex-api-key",
+			true,
+		);
+
+		expect(endpoint).toBe(
+			"https://vertex-override.example/v1/publishers/google/models/gemini-2.5-flash:streamGenerateContent?key=vertex-api-key&alt=sse",
+		);
+	});
+
+	it("requires a Vertex project for OAuth auth", () => {
+		delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE = "oauth";
+
+		expect(() =>
+			getProviderEndpoint(
+				"google-vertex",
+				undefined,
+				"gemini-2.5-flash",
+				"oauth-token",
+			),
+		).toThrow(/LLM_GOOGLE_CLOUD_PROJECT/);
 	});
 
 	it("uses the first Vertex base URL when multiple values are configured without a config slot", () => {
@@ -557,6 +611,44 @@ describe("getProviderEndpoint", () => {
 			expect(endpoint).toBe(
 				"https://bedrock-runtime.us-east-1.amazonaws.com/model/global.anthropic.claude-3-5-sonnet-20241022-v2:0/converse",
 			);
+		});
+
+		it("honors an anthropic credential base URL override", () => {
+			const endpoint = getProviderEndpoint(
+				"anthropic",
+				undefined,
+				"claude-opus-5",
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ env_config: { baseUrl: "https://anthropic.example" } },
+				undefined,
+				undefined,
+				undefined,
+				true, // skipEnvVars
+			);
+
+			expect(endpoint).toBe("https://anthropic.example/v1/messages");
+		});
+
+		it("falls back to the anthropic default when no base URL is configured", () => {
+			const endpoint = getProviderEndpoint(
+				"anthropic",
+				undefined,
+				"claude-opus-5",
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				true, // skipEnvVars
+			);
+
+			expect(endpoint).toBe("https://api.anthropic.com/v1/messages");
 		});
 
 		it("still uses explicit baseUrl even when skipEnvVars is true", () => {

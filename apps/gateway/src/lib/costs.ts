@@ -14,6 +14,7 @@ import {
 	type ToolCall,
 	expandAllProviderRegions,
 	getSupportedServiceTiers,
+	resolveTimeBasedPricing,
 } from "@llmgateway/models";
 
 /**
@@ -221,10 +222,10 @@ function getPricingForTokenCount(
  * If promptTokens or completionTokens are not available, it will try to
  * calculate them from the fullOutput parameter if provided.
  *
- * @param model - Root model id from `ModelDefinition.id`. Callers MUST pass
- *   the canonical root id, never the provider-specific upstream id
+ * @param model - Canonical model id from `ModelDefinition.id`. Callers MUST pass
+ *   the canonical model id, never the provider-specific upstream id
  *   (`externalId`). The upstream id is only ever for sending to the provider
- *   API; pricing/discount/rate-limit lookups all key on the root id.
+ *   API; pricing/discount/rate-limit lookups all key on the canonical model id.
  * @param provider - Provider id (e.g. "openai", "anthropic"). Required for
  *   per-provider pricing resolution.
  * @param region - Region id when the provider mapping defines per-region
@@ -309,7 +310,7 @@ export async function calculateCosts(
 	const customPricing = options?.customPricing;
 	const allowOutputEstimate = options?.allowOutputEstimate ?? true;
 
-	// Look up the model definition by the canonical root id only.
+	// Look up the model definition by the canonical model id only.
 	// externalId-based lookups are intentionally not supported here — the
 	// upstream provider id must never leak into pricing/discount lookups.
 	// For custom-provider requests with a catalog override, use a synthetic
@@ -419,7 +420,7 @@ export async function calculateCosts(
 	isEstimated = promptTokensEstimated || completionTokensEstimated;
 
 	// Find the provider-specific pricing, keyed by providerId + region.
-	// Region matters when a single root model id has multiple per-region
+	// Region matters when a single canonical model id has multiple per-region
 	// entries with different prices (see `regions:` on ProviderModelMapping);
 	// expandAllProviderRegions flattens those into one mapping per region.
 	//
@@ -536,12 +537,16 @@ export async function calculateCosts(
 	// Set completion tokens to 0 if not available (but still calculate input costs)
 	calculatedCompletionTokens ??= 0;
 
-	// Get pricing based on token count (supports tiered pricing)
+	// Resolve peak/off-peak time-of-day pricing (DeepSeek first-party): use the
+	// peak rates while the current UTC hour is inside the mapping's peak window,
+	// the off-peak base rates otherwise. Tier selection below then overrides by
+	// token count for mappings that price by context length.
+	const timeBasedPricing = resolveTimeBasedPricing(providerInfo);
 	const pricing = getPricingForTokenCount(
 		providerInfo.pricingTiers,
-		providerInfo.inputPrice ?? "0",
-		providerInfo.outputPrice ?? "0",
-		providerInfo.cachedInputPrice,
+		timeBasedPricing.inputPrice,
+		timeBasedPricing.outputPrice,
+		timeBasedPricing.cachedInputPrice,
 		providerInfo.cacheReadInputPrice,
 		providerInfo.cacheWriteInputPrice,
 		providerInfo.cacheWriteInputPrice1h,
@@ -571,7 +576,7 @@ export async function calculateCosts(
 			: cacheWriteInputPrice;
 	const requestPrice = new Decimal(providerInfo.requestPrice ?? "0");
 
-	// Discounts are keyed by the root model ID only.
+	// Discounts are keyed by the canonical model ID only.
 	const effectiveDiscountResult = await getEffectiveDiscount(
 		organizationId,
 		provider,
@@ -739,8 +744,12 @@ export async function calculateCosts(
 	// reports reasoning in `completion_tokens_details` (which the streaming
 	// transform hoists to a top-level `reasoning_tokens`) while already counting
 	// it inside `completion_tokens`, so adding it again would roughly double the
-	// billed output on reasoning requests. For remaining providers, add
-	// reasoning separately.
+	// billed output on reasoning requests. Baidu's Qianfan reports the same way
+	// (a thinking-only reply returns completion_tokens === reasoning_tokens).
+	// Gonka24 is the same shape without reporting any reasoning count of its own:
+	// its `completion_tokens` covers the `reasoning` text too, and with thinking
+	// on the chars-per-token ratio only matches the non-reasoning baseline once
+	// that text is counted. For remaining providers, add reasoning separately.
 	const completionIncludesReasoning =
 		provider === "google-ai-studio" ||
 		provider === "glacier" ||
@@ -752,6 +761,9 @@ export async function calculateCosts(
 		provider === "sakana" ||
 		provider === "meta" ||
 		provider === "ranoai" ||
+		provider === "baidu" ||
+		provider === "permafrost" ||
+		provider === "gonka24" ||
 		provider === "tokenhub" ||
 		provider === "aws-mantle";
 	const totalOutputTokens = completionIncludesReasoning

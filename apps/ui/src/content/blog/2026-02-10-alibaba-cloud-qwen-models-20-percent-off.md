@@ -94,6 +94,8 @@ Text-to-image and image editing models for visual content creation.
 | [Qwen Image Edit Plus](/models/qwen-image-edit-plus) | $0.032            | [Try it](https://lounge.llmgateway.io/?model=alibaba/qwen-image-edit-plus) |
 | [Qwen Image Edit Max](/models/qwen-image-edit-max)   | $0.064            | [Try it](https://lounge.llmgateway.io/?model=alibaba/qwen-image-edit-max)  |
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## How It Works
 
 The 20% discount is applied automatically to all Alibaba Cloud models on LLM Gateway. There's nothing to configure — just use any Qwen model through our OpenAI-compatible API and pay the discounted rate.
@@ -121,3 +123,5 @@ If you have questions, reach out on [GitHub](https://github.com/theopenco/llmgat
 ---
 
 **[Browse all discounted models](/models?discounted=true)** | **[Try Qwen3 Max in the Playground](https://lounge.llmgateway.io/?model=alibaba/qwen3-max-2026-01-23)** | **[Get started](/signup)**
+
+<BlogCta variant="gateway" location="bottom" />

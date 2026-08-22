@@ -108,6 +108,8 @@ In LLM Gateway, caching is a project-level switch. TTL from 10 seconds to 1 year
 
 LiteLLM covers some of this through plugins or external services. LLM Gateway bundles it.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## Where LiteLLM Wins
 
 ### Pure Self-Hosting Flexibility
@@ -187,3 +189,5 @@ If you enjoy owning infrastructure, LiteLLM is excellent at being what it is. If
 Still shopping around? We compared the [8 best LiteLLM alternatives](/blog/litellm-alternatives) — including the managed routers and self-hosted proxies teams switch to.
 
 **[Try LLM Gateway free](/signup)** | **[Migration guide](https://docs.llmgateway.io/migrations/litellm)** | **[Compare all features](/compare/litellm)**
+
+<BlogCta variant="gateway" location="bottom" />

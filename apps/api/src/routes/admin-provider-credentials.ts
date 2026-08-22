@@ -642,7 +642,7 @@ adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 		db
 			.select({
 				timestamp: bucketLabelExpr.as("bucket"),
-				cost: sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.cost}), 0)`.as(
+				cost: sql<number>`COALESCE(SUM(cast(${tables.providerKeyHourlyStats.cost} as double precision)), 0)`.as(
 					"cost",
 				),
 				requestCount:
@@ -673,7 +673,7 @@ adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 			.select({
 				organizationId: tables.project.organizationId,
 				organizationName: tables.organization.name,
-				cost: sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.cost}), 0)`.as(
+				cost: sql<number>`COALESCE(SUM(cast(${tables.providerKeyHourlyStats.cost} as double precision)), 0)`.as(
 					"cost",
 				),
 				requestCount:
@@ -692,7 +692,11 @@ adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 			)
 			.where(baseFilter)
 			.groupBy(tables.project.organizationId, tables.organization.name)
-			.orderBy(desc(sql`SUM(${tables.providerKeyHourlyStats.cost})`))
+			.orderBy(
+				desc(
+					sql`SUM(cast(${tables.providerKeyHourlyStats.cost} as double precision))`,
+				),
+			)
 			.limit(20),
 	]);
 
@@ -827,7 +831,7 @@ adminProviderCredentials.openapi(getSpendOverview, async (c) => {
 			.select({
 				timestamp: bucketLabelExpr.as("bucket"),
 				providerKeyId: tables.providerKeyHourlyStats.providerKeyId,
-				cost: sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.cost}), 0)`.as(
+				cost: sql<number>`COALESCE(SUM(cast(${tables.providerKeyHourlyStats.cost} as double precision)), 0)`.as(
 					"cost",
 				),
 				requestCount:

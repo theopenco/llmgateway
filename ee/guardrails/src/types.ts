@@ -20,6 +20,12 @@ export interface GuardrailConfigData {
 	piiAction: GuardrailAction;
 }
 
+export interface GuardrailScope {
+	config: GuardrailConfigData;
+	/** The project owning this config, or null when the organization config applies. */
+	projectId: string | null;
+}
+
 export interface RuleViolation {
 	ruleId: string;
 	ruleName: string;
@@ -69,6 +75,8 @@ export interface FileInfo {
 
 export interface GuardrailInput {
 	organizationId: string;
+	/** When set, a project-level override replaces the organization config. */
+	projectId?: string;
 	messages: Message[];
 	files?: FileInfo[];
 }

@@ -9,6 +9,7 @@ import {
 	getUserProjectIds,
 	userHasProjectAccess,
 } from "@/utils/authorization.js";
+import { scrubMessagesBase64 } from "@/utils/scrub-messages-base64.js";
 
 import {
 	and,
@@ -72,34 +73,6 @@ async function enrichLogsWithVideoContentUrls<T extends LogRecord>(
 			? { ...log, content: buildSignedGatewayVideoLogContentUrl(log.id) }
 			: log,
 	);
-}
-
-const BASE64_INPUT_PLACEHOLDER = "[base64_image_input_redacted]";
-
-function scrubMessagesBase64(messages: unknown): unknown {
-	if (messages === null || messages === undefined) {
-		return messages;
-	}
-	if (typeof messages === "string") {
-		if (
-			messages.length > 1000 &&
-			(messages.includes(";base64,") || /[A-Za-z0-9+/=]{800,}/.test(messages))
-		) {
-			return BASE64_INPUT_PLACEHOLDER;
-		}
-		return messages;
-	}
-	if (Array.isArray(messages)) {
-		return messages.map((item) => scrubMessagesBase64(item));
-	}
-	if (typeof messages === "object") {
-		const out: Record<string, unknown> = {};
-		for (const [key, value] of Object.entries(messages)) {
-			out[key] = scrubMessagesBase64(value);
-		}
-		return out;
-	}
-	return messages;
 }
 
 // Use the log schema directly from the database

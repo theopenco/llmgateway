@@ -5,6 +5,15 @@ date: "2026-08-04"
 title: "8 Best Portkey Alternatives in 2026 (Compared)"
 summary: "The 8 best Portkey alternatives in 2026, compared honestly — open-source gateways, managed routers, and VPC platforms — with fees, self-hosting, governance, and who each option genuinely fits after the Palo Alto Networks acquisition."
 categories: ["Guides"]
+faqs:
+  - question: "What is the best Portkey alternative in 2026?"
+    answer: "LLM Gateway is the strongest overall alternative: fully open source (AGPLv3), self-hostable, offered as a managed cloud, with governance — compliance policies, audit logs, guardrails — built in rather than metered per log. The right choice depends on what you used Portkey for: governance (LLM Gateway, TrueFoundry, Kong) or routing (Vercel AI Gateway, OpenRouter)."
+  - question: "Is Portkey still an independent company?"
+    answer: "No. Palo Alto Networks' acquisition of Portkey closed in May 2026, and the product is being folded into Prisma AIRS. Existing deployments keep working; the roadmap and sales motion now run through Palo Alto Networks."
+  - question: "Is there a fully open-source Portkey alternative?"
+    answer: "Portkey's Gateway 2.0 open-sourced much of the stack under MIT, but persistent storage and compliance features remain cloud-only. LLM Gateway (AGPLv3), LiteLLM, and Bifrost are self-hostable end to end — LLM Gateway is the one that ships the dashboard, analytics, and governance rather than just a proxy."
+  - question: "How hard is it to migrate off Portkey?"
+    answer: "The API change is minutes — both sides speak the OpenAI format. Budget the real time for recreating routing configs, budgets, guardrails, and permissions in the new platform, and for updating any code that used Portkey-specific headers or the Portkey SDK wrapper."
 image:
   src: "/blog/portkey-alternatives.png"
   alt: "The best Portkey alternatives in 2026 — gateway routes diverging from a central hub on a circuit board"
@@ -79,6 +88,8 @@ const client = new OpenAI({
 **Best for:** Teams that adopted Portkey for governance but want the whole platform open, self-hostable, and free of per-log fees. See the full [LLM Gateway vs Portkey](/blog/llm-gateway-vs-portkey) breakdown or the [feature-by-feature comparison](/compare/portkey).
 
 ---
+
+<BlogCta variant="gateway" location="mid_article" />
 
 ## 2. Kong AI Gateway
 
@@ -286,26 +297,6 @@ Portkey's gateway speaks the OpenAI format, so the mechanical change is small �
 
 The real work is recreating what lived in Portkey's dashboard: routing configs, budgets, guardrails, and team permissions. Map each to the new platform before you cut over — on LLM Gateway that's [routing](https://docs.llmgateway.io/features/routing), per-key limits, [guardrails](https://llmgateway.io/enterprise/guardrails), and [compliance policies](https://docs.llmgateway.io/features/compliance).
 
-## Frequently Asked Questions
-
-### What is the best Portkey alternative in 2026?
-
-LLM Gateway is the strongest overall alternative: fully open source (AGPLv3), self-hostable, offered as a managed cloud, with governance — compliance policies, audit logs, guardrails — built in rather than metered per log. The right choice depends on what you used Portkey for: governance (LLM Gateway, TrueFoundry, Kong) or routing (Vercel AI Gateway, OpenRouter).
-
-### Is Portkey still an independent company?
-
-No. Palo Alto Networks' acquisition of Portkey closed in May 2026, and the product is being folded into Prisma AIRS. Existing deployments keep working; the roadmap and sales motion now run through Palo Alto Networks.
-
-### Is there a fully open-source Portkey alternative?
-
-Portkey's Gateway 2.0 open-sourced much of the stack under MIT, but persistent storage and compliance features remain cloud-only. LLM Gateway (AGPLv3), LiteLLM, and Bifrost are self-hostable end to end — LLM Gateway is the one that ships the dashboard, analytics, and governance rather than just a proxy.
-
-### How hard is it to migrate off Portkey?
-
-The API change is minutes — both sides speak the OpenAI format. Budget the real time for recreating routing configs, budgets, guardrails, and permissions in the new platform, and for updating any code that used Portkey-specific headers or the Portkey SDK wrapper.
-
----
-
 ## Try the Top Pick
 
 If you want Portkey-grade governance on a gateway you can own:
@@ -313,3 +304,5 @@ If you want Portkey-grade governance on a gateway you can own:
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** — no credit card required, point your SDK at `https://api.llmgateway.io/v1`
 - **[Read the compliance policy docs](https://docs.llmgateway.io/features/compliance)** — fail-closed provider requirements, enforced before data leaves the gateway
 - **[LLM Gateway vs Portkey](/blog/llm-gateway-vs-portkey)** — the detailed head-to-head if you're still deciding
+
+<BlogCta variant="gateway" location="bottom" />
