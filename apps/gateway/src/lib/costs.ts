@@ -750,8 +750,9 @@ export async function calculateCosts(
 	// its `completion_tokens` covers the `reasoning` text too, and with thinking
 	// on the chars-per-token ratio only matches the non-reasoning baseline once
 	// that text is counted. For remaining providers, add reasoning separately.
-	// Alibaba's OpenAI-compatible stream likewise reports reasoning inside
-	// completion_tokens while exposing the nested detail for observability.
+	// Alibaba's Kimi K3 reports reasoning_tokens + text_tokens ===
+	// completion_tokens in both streaming and non-streaming usage, while
+	// total_tokens === prompt_tokens + completion_tokens.
 	const completionIncludesReasoning =
 		provider === "google-ai-studio" ||
 		provider === "glacier" ||
@@ -764,7 +765,7 @@ export async function calculateCosts(
 		provider === "meta" ||
 		provider === "ranoai" ||
 		provider === "baidu" ||
-		provider === "alibaba" ||
+		(provider === "alibaba" && model === "kimi-k3") ||
 		provider === "permafrost" ||
 		provider === "gonka24" ||
 		provider === "aws-mantle";

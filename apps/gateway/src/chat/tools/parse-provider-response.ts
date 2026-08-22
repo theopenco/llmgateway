@@ -684,7 +684,9 @@ export function parseProviderResponse(
 				totalTokens =
 					json.usage?.total_tokens ??
 					(promptTokens !== null && completionTokens !== null
-						? promptTokens + completionTokens
+						? promptTokens +
+							completionTokens +
+							(usedModel === "kimi-k3" ? 0 : (reasoningTokens ?? 0))
 						: null);
 				// Alibaba uses Anthropic-style `cache_control: {type: "ephemeral"}` on
 				// the request, but reports usage in OpenAI shape with
