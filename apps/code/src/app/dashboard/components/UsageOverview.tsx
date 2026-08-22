@@ -2,13 +2,13 @@
 
 import { format, formatDistanceToNowStrict } from "date-fns";
 import { Activity, Coins, Cpu, Gem, TrendingUp } from "lucide-react";
+import dynamic from "next/dynamic";
 import { usePostHog } from "posthog-js/react";
 import { useEffect } from "react";
 
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
-import { AgentModelUsageChart } from "./AgentModelUsageChart";
 import AllowanceExhaustedCard from "./AllowanceExhaustedCard";
 import PayAsYouGoCard from "./PayAsYouGoCard";
 import ResetPassCard from "./ResetPassCard";
@@ -16,6 +16,14 @@ import { UsageBar } from "./UsageBar";
 
 import type { paths } from "@/lib/api/v1";
 import type { DevPlanCycle } from "@llmgateway/shared";
+
+// The model usage chart pulls in recharts and renders below the fold, so
+// keep it out of the usage page's initial bundle.
+const AgentModelUsageChart = dynamic(
+	() =>
+		import("./AgentModelUsageChart").then((mod) => mod.AgentModelUsageChart),
+	{ ssr: false, loading: () => <div className="h-[280px]" /> },
+);
 
 type ActivityResponse =
 	paths["/activity"]["get"]["responses"][200]["content"]["application/json"];
