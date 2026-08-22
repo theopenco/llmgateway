@@ -1397,6 +1397,11 @@ describe("getCheapestFromAvailableProviders", () => {
 					[1, 4],
 					[6, 10],
 				] as [number, number][],
+				offPeakDays: {
+					effectiveAt: "2026-08-22T16:00:00Z",
+					daysOfWeek: [0, 6] as const,
+					utcOffsetMinutes: 480,
+				},
 			},
 		};
 
@@ -1416,6 +1421,16 @@ describe("getCheapestFromAvailableProviders", () => {
 					deepseekLikeMapping,
 					undefined,
 					new Date("2026-08-17T12:00:00Z"),
+				).toNumber(),
+			).toBe((0.66e-6 + 1.98e-6) / 2);
+		});
+
+		it("returns the off-peak average during Beijing weekends", () => {
+			expect(
+				getProviderSelectionPrice(
+					deepseekLikeMapping,
+					undefined,
+					new Date("2026-08-29T02:00:00Z"),
 				).toNumber(),
 			).toBe((0.66e-6 + 1.98e-6) / 2);
 		});

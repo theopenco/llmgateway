@@ -286,7 +286,8 @@ export const deepseekModels = [
 				// Base fields are the regular flat rates, billed before
 				// effectiveAt (2026-08-16 16:00 UTC). On/after, peak hours
 				// (01:00-04:00 and 06:00-10:00 UTC) bill at the peak rates
-				// below, all other hours at the offPeak rates.
+				// below, all other hours at the offPeak rates. From 2026-08-23
+				// Beijing time, weekends are off-peak all day.
 				inputPrice: "0.435e-6",
 				outputPrice: "0.87e-6",
 				cachedInputPrice: "0.003625e-6",
@@ -306,6 +307,11 @@ export const deepseekModels = [
 						[1, 4],
 						[6, 10],
 					],
+					offPeakDays: {
+						effectiveAt: "2026-08-22T16:00:00Z",
+						daysOfWeek: [0, 6],
+						utcOffsetMinutes: 480,
+					},
 				},
 				requestPrice: "0",
 				contextSize: 1050000,
@@ -604,7 +610,8 @@ export const deepseekModels = [
 				// Base fields are the regular flat rates, billed before
 				// effectiveAt (2026-08-16 16:00 UTC). On/after, peak hours
 				// (01:00-04:00 and 06:00-10:00 UTC) bill at the peak rates
-				// below, all other hours at the offPeak rates.
+				// below, all other hours at the offPeak rates. From 2026-08-23
+				// Beijing time, weekends are off-peak all day.
 				inputPrice: "0.14e-6",
 				outputPrice: "0.28e-6",
 				cachedInputPrice: "0.0028e-6",
@@ -624,6 +631,11 @@ export const deepseekModels = [
 						[1, 4],
 						[6, 10],
 					],
+					offPeakDays: {
+						effectiveAt: "2026-08-22T16:00:00Z",
+						daysOfWeek: [0, 6],
+						utcOffsetMinutes: 480,
+					},
 				},
 				requestPrice: "0",
 				contextSize: 1050000,

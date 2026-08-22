@@ -322,9 +322,9 @@ export interface ProviderModelMapping {
 	 * inputPrice/outputPrice/cachedInputPrice are the regular flat prices,
 	 * billed before `effectiveAt` (and always when `peakPricing` is absent).
 	 * On/after `effectiveAt`, `peak` applies while the current UTC hour falls
-	 * inside `hoursUtc` and `offPeak` applies otherwise. Only DeepSeek's
-	 * first-party API uses this today — peak 01:00-04:00 and 06:00-10:00 UTC
-	 * at double the off-peak rates, effective 2026-08-16.
+	 * inside `hoursUtc` and `offPeak` applies otherwise. `offPeakDays` can
+	 * override those windows for provider-defined local calendar days. Only
+	 * DeepSeek's first-party API uses this today.
 	 */
 	peakPricing?: {
 		/**
@@ -376,6 +376,16 @@ export interface ProviderModelMapping {
 		 * hours outside these ranges are off-peak.
 		 */
 		hoursUtc: readonly [start: number, end: number][];
+		/**
+		 * Local calendar days that are always billed off-peak. Days use
+		 * JavaScript's numbering (Sunday = 0, Saturday = 6), shifted from UTC by
+		 * `utcOffsetMinutes`. The override applies on/after its own effectiveAt.
+		 */
+		offPeakDays?: {
+			effectiveAt: string;
+			daysOfWeek: readonly number[];
+			utcOffsetMinutes: number;
+		};
 	};
 	/**
 	 * Maximum context window size in tokens
