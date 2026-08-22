@@ -9,20 +9,27 @@ interface HeaderContext {
 /**
  * Header precedence for the originating client IP, most trusted first.
  *
- * X-Forwarded-For comes first because it is what the GCP load balancer in
- * front of every deployed service sets, and it is what the gateway's IAM CIDR
- * rules already key on (its first hop is the client). The rest are fallbacks
- * for other proxies and local dev.
+ * X-Client-Ip is the only entry that cannot be forged: the load balancer sets
+ * it from `{client_ip_address}` on every route with a backend, and `set` (not
+ * `add`) overwrites whatever the caller sent. Anything arriving from outside
+ * the cluster carries it.
+ *
+ * X-Forwarded-For is next, and is trusted only because the request has to have
+ * come from inside the cluster to lack X-Client-Ip: the load balancer appends
+ * to the chain rather than replacing it, so its first hop is caller-supplied.
+ * That is what server-rendered pages and proxy routes forward on a visitor's
+ * behalf (see `forwardedIpHeaders`), reaching the API over the in-cluster
+ * Service. The rest are fallbacks for other proxies and local dev.
  *
  * We do NOT use Cloudflare, so `cf-connecting-ip` is never present in
  * production — it is kept only as a fallback for self-hosted deployments that
  * do sit behind it.
  */
 const CLIENT_IP_HEADERS = [
+	"x-client-ip",
 	"x-forwarded-for",
 	"cf-connecting-ip",
 	"x-real-ip",
-	"x-client-ip",
 	"remote-addr",
 ] as const;
 
@@ -55,17 +62,25 @@ export function getClientIpFromContext(c: HeaderContext): string | null {
 
 /** Hono-flavoured alias used by the gateway routes. */
 export function getClientIpFromRequest(c: HeaderContext): string | undefined {
-	return getClientIpFromForwardedFor(c.req.header("x-forwarded-for"));
+	return getClientIpFromContext(c) ?? undefined;
 }
 
 /**
  * Headers to attach when calling the API on a visitor's behalf from a
  * server-rendered page or proxy route. Without them the API sees the calling
  * server's address and every visitor shares one rate-limit bucket.
+ *
+ * Prefers the load balancer's X-Client-Ip, which the visitor cannot forge, and
+ * falls back to passing the X-Forwarded-For chain through for deployments with
+ * no load balancer in front (local dev, self-hosting).
  */
 export function forwardedIpHeaders(
 	headers: Headers | null | undefined,
 ): Record<string, string> {
+	const clientIp = headers?.get("x-client-ip");
+	if (clientIp) {
+		return { "x-client-ip": clientIp };
+	}
 	const forwardedFor = headers?.get("x-forwarded-for");
 	return forwardedFor ? { "x-forwarded-for": forwardedFor } : {};
 }
