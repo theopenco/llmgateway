@@ -113,6 +113,7 @@ import {
 	createStreamingCombinedSignal,
 	isTimeoutError,
 } from "@/lib/timeout-config.js";
+import { getUnsettledOrganizationSpend } from "@/lib/unsettled-spend.js";
 import { validateModelOutput } from "@/lib/validate-model-output.js";
 
 import {
@@ -5580,10 +5581,21 @@ chat.openapi(completions, async (c) => {
 		// We trust the bare `modelInfo.free` flag here: free models are always
 		// marked explicitly in the catalog, so a `free: true` model is intended
 		// to be usable without credits. Do not switch this to isModelTrulyFree.
-		if (
-			totalAvailableCredits <= 0 &&
-			!((finalModelInfo ?? modelInfo) as ModelDefinition).free
-		) {
+		const isFreeModel = Boolean(
+			((finalModelInfo ?? modelInfo) as ModelDefinition).free,
+		);
+		// Post-paid billing lags request completion (log queue + worker batch
+		// debit) and the org read is cached, so also count spend that is logged
+		// but not yet debited — without it a burst keeps passing this gate on a
+		// stale positive balance far past zero. Wallet-funded sessions gate on
+		// the wallet mirror, which the org's unsettled spend must not drain.
+		const effectiveAvailableCredits =
+			!isFreeModel && !endUserWallet && totalAvailableCredits > 0
+				? totalAvailableCredits -
+					(await getUnsettledOrganizationSpend(organization.id)).toNumber()
+				: totalAvailableCredits;
+
+		if (effectiveAvailableCredits <= 0 && !isFreeModel) {
 			if (
 				organization.chatPlan !== "none" &&
 				chatPlanCreditsRemaining <= 0 &&
@@ -5735,10 +5747,19 @@ chat.openapi(completions, async (c) => {
 				totalAvailableCredits,
 			} = getAvailableCredits(organization);
 
-			if (
-				totalAvailableCredits <= 0 &&
-				!isModelTrulyFree((finalModelInfo ?? modelInfo) as ModelDefinition)
-			) {
+			// Same unsettled-spend correction as the credits branch above: this
+			// path bills org credits identically, so it must not admit requests
+			// on a stale positive balance either.
+			const isFreeModelFallback = isModelTrulyFree(
+				(finalModelInfo ?? modelInfo) as ModelDefinition,
+			);
+			const effectiveAvailableCredits =
+				!isFreeModelFallback && !endUserWallet && totalAvailableCredits > 0
+					? totalAvailableCredits -
+						(await getUnsettledOrganizationSpend(organization.id)).toNumber()
+					: totalAvailableCredits;
+
+			if (effectiveAvailableCredits <= 0 && !isFreeModelFallback) {
 				if (
 					organization.chatPlan !== "none" &&
 					chatPlanCreditsRemaining <= 0 &&

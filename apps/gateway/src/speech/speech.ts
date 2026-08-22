@@ -42,6 +42,7 @@ import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
+import { getUnsettledOrganizationSpend } from "@/lib/unsettled-spend.js";
 
 import {
 	getGoogleVertexPublisherModelPath,
@@ -359,7 +360,16 @@ async function assertCreditsAvailable(
 		totalAvailableCredits,
 	} = getAvailableCredits(organization);
 
-	if (totalAvailableCredits > 0 || modelDef.free) {
+	if (modelDef.free) {
+		return;
+	}
+	// Also count spend that is logged but not yet debited, so a burst cannot
+	// keep passing on a stale positive balance.
+	if (
+		totalAvailableCredits > 0 &&
+		totalAvailableCredits >
+			(await getUnsettledOrganizationSpend(organization.id)).toNumber()
+	) {
 		return;
 	}
 

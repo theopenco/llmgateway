@@ -49,6 +49,7 @@ import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
 import { assertSpendLimit, recordSpend } from "@/lib/spend-limit.js";
 import { clientFacingUpstreamErrorMessage } from "@/lib/stealth-provider-errors.js";
+import { getUnsettledOrganizationSpend } from "@/lib/unsettled-spend.js";
 
 import {
 	getCheapestFromAvailableProviders,
@@ -761,10 +762,19 @@ function getAvailableCredits(
 	return regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
 }
 
-function hasSufficientVideoGenerationBalance(
+async function hasSufficientVideoGenerationBalance(
 	organization: InferSelectModel<typeof tables.organization>,
-): boolean {
-	return getAvailableCredits(organization) >= MIN_VIDEO_GENERATION_BALANCE;
+	includeUnsettledSpend: boolean,
+): Promise<boolean> {
+	let available = getAvailableCredits(organization);
+	if (includeUnsettledSpend && available > 0) {
+		// Also count spend that is logged but not yet debited, so a burst cannot
+		// keep passing on a stale positive balance.
+		available -= (
+			await getUnsettledOrganizationSpend(organization.id)
+		).toNumber();
+	}
+	return available >= MIN_VIDEO_GENERATION_BALANCE;
 }
 
 /**
@@ -4862,8 +4872,12 @@ videos.openapi(createVideo, async (c) => {
 	let upstreamId: string | undefined;
 	let upstreamRequest: Record<string, unknown> | undefined;
 	let upstreamResponse: Record<string, unknown> | undefined;
-	const hasVideoGenerationBalance =
-		hasSufficientVideoGenerationBalance(organization);
+	// Wallet-funded sessions gate on the wallet mirror, which the org's
+	// unsettled spend must not drain.
+	const hasVideoGenerationBalance = await hasSufficientVideoGenerationBalance(
+		organization,
+		!wallet,
+	);
 
 	// Video generation is the priciest endpoint per request, so the credits-billed
 	// path gets the same per-org spend-cap gate as the other paid endpoints.

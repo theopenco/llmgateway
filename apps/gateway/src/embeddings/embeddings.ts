@@ -53,6 +53,7 @@ import {
 	shouldRedactProviderError,
 } from "@/lib/stealth-provider-errors.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
+import { getUnsettledOrganizationSpend } from "@/lib/unsettled-spend.js";
 
 import {
 	getGoogleVertexPublisherModelPath,
@@ -315,8 +316,20 @@ async function assertCreditsAvailableForEmbedding(
 		totalAvailableCredits,
 	} = getAvailableCredits(organization);
 
-	if (totalAvailableCredits > 0 || modelDef.free) {
+	if (modelDef.free) {
 		return;
+	}
+	if (totalAvailableCredits > 0) {
+		// Also count spend that is logged but not yet debited, so a burst cannot
+		// keep passing on a stale positive balance. Wallet-funded sessions gate
+		// on the wallet mirror, which org unsettled spend must not drain.
+		if (
+			walletFunded ||
+			totalAvailableCredits >
+				(await getUnsettledOrganizationSpend(organization.id)).toNumber()
+		) {
+			return;
+		}
 	}
 
 	if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {

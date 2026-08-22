@@ -1,0 +1,13 @@
+-- Build out of band BEFORE deploying this migration, otherwise the migrator
+-- scans all of "log" while holding a lock on it:
+--
+--   CREATE INDEX CONCURRENTLY IF NOT EXISTS "log_unsettled_organization_id_idx"
+--     ON "log" ("organization_id") WHERE processed_at IS NULL;
+--
+-- Run that with psql (autocommit) — CONCURRENTLY cannot run in a transaction —
+-- then check pg_index.indisvalid: a failed concurrent build leaves an INVALID
+-- index that must be dropped with DROP INDEX CONCURRENTLY before retrying.
+--
+-- IF NOT EXISTS then makes this migration a no-op there, while small databases
+-- (dev, CI, fresh installs) just build the index inline.
+CREATE INDEX IF NOT EXISTS "log_unsettled_organization_id_idx" ON "log" ("organization_id") WHERE processed_at IS NULL;

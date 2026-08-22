@@ -53,6 +53,7 @@ import {
 	shouldRedactProviderError,
 } from "@/lib/stealth-provider-errors.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
+import { getUnsettledOrganizationSpend } from "@/lib/unsettled-spend.js";
 import { validateModelOutput } from "@/lib/validate-model-output.js";
 
 import {
@@ -220,12 +221,24 @@ async function assertCreditsAvailableForRerank(
 	modelDef: ModelDefinition,
 	insufficientCreditsMessage: string,
 	devPlanCreditLimitMessage: (renewalDate: string) => string,
+	walletFunded = false,
 ) {
 	await assertSpendLimit(c, organization, modelDef.free === true);
 
 	const { totalAvailableCredits } = getAvailableCredits(organization);
 
-	if (totalAvailableCredits > 0 || modelDef.free) {
+	if (modelDef.free) {
+		return;
+	}
+	// Also count spend that is logged but not yet debited, so a burst cannot
+	// keep passing on a stale positive balance. Wallet-funded sessions gate on
+	// the wallet mirror, which org unsettled spend must not drain.
+	if (
+		totalAvailableCredits > 0 &&
+		(walletFunded ||
+			totalAvailableCredits >
+				(await getUnsettledOrganizationSpend(organization.id)).toNumber())
+	) {
 		return;
 	}
 
@@ -651,6 +664,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 				`Organization ${organization.id} has insufficient credits`,
 				(renewalDate) =>
 					`Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+				Boolean(wallet),
 			);
 
 			await resolveCredits();
@@ -671,6 +685,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 					"No API key set for provider and organization has insufficient credits",
 					(renewalDate) =>
 						`No API key set for provider. Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+					Boolean(wallet),
 				);
 
 				await resolveCredits();

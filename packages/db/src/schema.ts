@@ -2184,6 +2184,14 @@ export const log = pgTable(
 		index("log_processed_at_null_idx")
 			.on(table.createdAt)
 			.where(sql`processed_at IS NULL`),
+		// The credit gates read an organization's unsettled spend
+		// (organization_id = ? AND processed_at IS NULL) on every credits-billed
+		// request. The partial predicate keeps the index to the unprocessed
+		// backlog the worker is still draining rather than every log row ever
+		// written.
+		index("log_unsettled_organization_id_idx")
+			.on(table.organizationId)
+			.where(sql`processed_at IS NULL`),
 		// Idempotent realtime billing: one row per (session, usage key) even if
 		// the upstream provider redelivers a terminal usage event.
 		uniqueIndex("log_realtime_session_usage_key_unique")

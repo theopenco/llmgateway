@@ -39,6 +39,7 @@ import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
+import { getUnsettledOrganizationSpend } from "@/lib/unsettled-spend.js";
 
 import { getProviderHeaders, readProviderKey } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
@@ -242,6 +243,7 @@ async function assertCreditsAvailableForModeration(
 	organization: InferSelectModel<typeof tables.organization>,
 	insufficientCreditsMessage: string,
 	devPlanCreditLimitMessage: (renewalDate: string) => string,
+	walletFunded = false,
 ) {
 	// Moderation is always billed, so it is never free-model exempt.
 	await assertSpendLimit(c, organization, false);
@@ -252,7 +254,15 @@ async function assertCreditsAvailableForModeration(
 		totalAvailableCredits,
 	} = getAvailableCredits(organization);
 
-	if (totalAvailableCredits > 0) {
+	// Also count spend that is logged but not yet debited, so a burst cannot
+	// keep passing on a stale positive balance. Wallet-funded sessions gate on
+	// the wallet mirror, which org unsettled spend must not drain.
+	if (
+		totalAvailableCredits > 0 &&
+		(walletFunded ||
+			totalAvailableCredits >
+				(await getUnsettledOrganizationSpend(organization.id)).toNumber())
+	) {
 		return;
 	}
 
@@ -598,6 +608,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 			`Organization ${organization.id} has insufficient credits`,
 			(renewalDate) =>
 				`Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+			Boolean(wallet),
 		);
 
 		const platformCredential = await resolvePlatformCredential("openai", {
@@ -625,6 +636,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 				"No API key set for provider and organization has insufficient credits",
 				(renewalDate) =>
 					`No API key set for provider. Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+				Boolean(wallet),
 			);
 
 			const platformCredential = await resolvePlatformCredential("openai", {

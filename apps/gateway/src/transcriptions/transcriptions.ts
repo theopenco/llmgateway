@@ -47,6 +47,7 @@ import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
+import { getUnsettledOrganizationSpend } from "@/lib/unsettled-spend.js";
 
 import {
 	getProviderHeaders,
@@ -214,6 +215,7 @@ async function assertCreditsAvailableForTranscription(
 	modelDef: ModelDefinition,
 	insufficientCreditsMessage: string,
 	devPlanCreditLimitMessage: (renewalDate: string) => string,
+	walletFunded = false,
 ) {
 	await assertSpendLimit(c, organization, modelDef.free === true);
 
@@ -223,7 +225,18 @@ async function assertCreditsAvailableForTranscription(
 		totalAvailableCredits,
 	} = getAvailableCredits(organization);
 
-	if (totalAvailableCredits > 0 || modelDef.free) {
+	if (modelDef.free) {
+		return;
+	}
+	// Also count spend that is logged but not yet debited, so a burst cannot
+	// keep passing on a stale positive balance. Wallet-funded sessions gate on
+	// the wallet mirror, which org unsettled spend must not drain.
+	if (
+		totalAvailableCredits > 0 &&
+		(walletFunded ||
+			totalAvailableCredits >
+				(await getUnsettledOrganizationSpend(organization.id)).toNumber())
+	) {
 		return;
 	}
 
@@ -671,6 +684,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 				`Organization ${retryOrganization.id} has insufficient credits`,
 				(renewalDate) =>
 					`Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+				Boolean(wallet),
 			);
 
 			const platformCredential = await resolvePlatformCredential(providerId, {
@@ -702,6 +716,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 					"No API key set for provider and organization has insufficient credits",
 					(renewalDate) =>
 						`No API key set for provider. Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+					Boolean(wallet),
 				);
 
 				const platformCredential = await resolvePlatformCredential(providerId, {
