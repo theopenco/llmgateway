@@ -91,7 +91,7 @@ export function DeveloperDashboardClient({
 		}
 	}, [searchParams, router, buildUrl]);
 
-	const { from, to } = getDateRangeFromParams(searchParams);
+	const { from, to } = getDateRangeFromParams(searchParams, displayTimeZone);
 	const fromStr = format(from, "yyyy-MM-dd");
 	const toStr = format(to, "yyyy-MM-dd");
 

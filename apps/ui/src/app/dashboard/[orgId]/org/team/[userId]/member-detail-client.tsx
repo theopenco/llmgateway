@@ -1,6 +1,5 @@
 "use client";
 
-import { format, subDays } from "date-fns";
 import { ArrowLeftIcon, Boxes, Mail, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -36,7 +35,12 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { applyUsageMode, pickCost, pickRequests } from "@/lib/usage-mode";
 
-import { deriveStabilityMetrics, useDisplayTimeZone } from "@llmgateway/shared";
+import {
+	deriveStabilityMetrics,
+	formatDayKey,
+	shiftDayKey,
+	useDisplayTimeZone,
+} from "@llmgateway/shared";
 
 import type { Route } from "next";
 
@@ -76,18 +80,22 @@ export function MemberDetailClient() {
 		if (!searchParams.get("from") || !searchParams.get("to")) {
 			const params2 = new URLSearchParams(searchParams.toString());
 			params2.delete("days");
-			const today = new Date();
-			params2.set("from", format(subDays(today, 6), "yyyy-MM-dd"));
-			params2.set("to", format(today, "yyyy-MM-dd"));
+			// Anchor on the display zone's calendar day: the queries below bucket
+			// in that zone, so a browser-local "today" can be a day off.
+			const today = formatDayKey(new Date(), displayTimeZone);
+			params2.set("from", shiftDayKey(today, -6));
+			params2.set("to", today);
 			router.replace(
 				`${buildOrgUrl(`org/team/${userId}`)}?${params2.toString()}` as Route,
 			);
 		}
-	}, [showUsage, searchParams, router, buildOrgUrl, userId]);
+	}, [showUsage, searchParams, router, buildOrgUrl, userId, displayTimeZone]);
 
 	const fromStr =
-		searchParams.get("from") ?? format(subDays(new Date(), 6), "yyyy-MM-dd");
-	const toStr = searchParams.get("to") ?? format(new Date(), "yyyy-MM-dd");
+		searchParams.get("from") ??
+		shiftDayKey(formatDayKey(new Date(), displayTimeZone), -6);
+	const toStr =
+		searchParams.get("to") ?? formatDayKey(new Date(), displayTimeZone);
 
 	const { data, isLoading } = api.useQuery(
 		"get",

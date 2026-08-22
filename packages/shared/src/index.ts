@@ -142,6 +142,7 @@ export {
 	formatDayKey,
 	isDayString,
 	isNaiveDateTimeString,
+	shiftDayKey,
 } from "./lib/format-date.js";
 
 export {

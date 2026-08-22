@@ -299,7 +299,7 @@ export function ActivityChart({
 				...breakdownParam,
 			};
 		}
-		const { from, to } = getDateRangeFromParams(searchParams);
+		const { from, to } = getDateRangeFromParams(searchParams, displayTimeZone);
 		return {
 			from: format(from, "yyyy-MM-dd"),
 			to: format(to, "yyyy-MM-dd"),
@@ -360,10 +360,10 @@ export function ActivityChart({
 			}
 			return `last ${hours / 24} days`;
 		}
-		const { from, to } = getDateRangeFromParams(searchParams);
+		const { from, to } = getDateRangeFromParams(searchParams, displayTimeZone);
 		const days = differenceInCalendarDays(to, from) + 1;
 		return `${days} days`;
-	}, [timeRange, searchParams]);
+	}, [timeRange, searchParams, displayTimeZone]);
 
 	const seriesNoun = DIMENSION_LABELS[groupBy].noun;
 	const cardTitle = DIMENSION_LABELS[groupBy].cardTitle;
@@ -452,7 +452,7 @@ export function ActivityChart({
 	if (timeRange) {
 		slots.push(...data.activity.map((item) => item.date));
 	} else {
-		const { from, to } = getDateRangeFromParams(searchParams);
+		const { from, to } = getDateRangeFromParams(searchParams, displayTimeZone);
 		const totalDays = differenceInCalendarDays(to, from) + 1;
 		for (let i = 0; i < totalDays; i++) {
 			const date = addDays(from, i);

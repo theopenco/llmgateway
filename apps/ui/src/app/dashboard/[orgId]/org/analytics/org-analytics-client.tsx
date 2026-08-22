@@ -1,6 +1,5 @@
 "use client";
 
-import { format, subDays } from "date-fns";
 import { Coins, Mail, Zap, Hash } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
@@ -37,7 +36,11 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { applyUsageMode } from "@/lib/usage-mode";
 
-import { useDisplayTimeZone } from "@llmgateway/shared";
+import {
+	formatDayKey,
+	shiftDayKey,
+	useDisplayTimeZone,
+} from "@llmgateway/shared";
 
 import type { DimensionRow } from "@/components/analytics/chart-helpers";
 import type { Route } from "next";
@@ -172,14 +175,16 @@ export function OrgAnalyticsClient() {
 		if (!searchParams.get("from") || !searchParams.get("to")) {
 			const next = new URLSearchParams(searchParams.toString());
 			next.delete("days");
-			const today = new Date();
-			next.set("from", format(subDays(today, 6), "yyyy-MM-dd"));
-			next.set("to", format(today, "yyyy-MM-dd"));
+			// Anchor on the display zone's calendar day: the queries below bucket
+			// in that zone, so a browser-local "today" can be a day off.
+			const today = formatDayKey(new Date(), displayTimeZone);
+			next.set("from", shiftDayKey(today, -6));
+			next.set("to", today);
 			router.replace(
 				`${buildOrgUrl("org/analytics")}?${next.toString()}` as Route,
 			);
 		}
-	}, [searchParams, router, buildOrgUrl, isEnterprise]);
+	}, [searchParams, router, buildOrgUrl, isEnterprise, displayTimeZone]);
 
 	const updateGroupBy = (next: GroupBy) => {
 		const nextParams = new URLSearchParams(searchParams.toString());

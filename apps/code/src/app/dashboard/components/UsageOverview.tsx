@@ -8,7 +8,11 @@ import { useEffect } from "react";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
-import { formatDateTime, useDisplayTimeZone } from "@llmgateway/shared";
+import {
+	formatBucketLabel,
+	formatDateTime,
+	useDisplayTimeZone,
+} from "@llmgateway/shared";
 
 import { AgentModelUsageChart } from "./AgentModelUsageChart";
 import AllowanceExhaustedCard from "./AllowanceExhaustedCard";
@@ -453,7 +457,7 @@ export default function UsageOverview({
 					}
 					hint={
 						peakDay && (peakDay.cost ?? 0) > 0
-							? formatDateTime(peakDay.date, displayTimeZone, "monthDay")
+							? formatBucketLabel(peakDay.date, "monthDay")
 							: undefined
 					}
 					icon={TrendingUp}

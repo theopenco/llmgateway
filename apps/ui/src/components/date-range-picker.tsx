@@ -29,6 +29,8 @@ import {
 } from "@/lib/components/popover";
 import { cn } from "@/lib/utils";
 
+import { formatDayKey, shiftDayKey } from "@llmgateway/shared";
+
 interface DatePreset {
 	label: string;
 	value: string;
@@ -189,7 +191,15 @@ function findMatchingPreset(
 	return "custom";
 }
 
-function getDateRangeFromParams(searchParams: URLSearchParams) {
+/** `timeZone` anchors the *default* window on that zone's calendar day. The
+ *  analytics endpoints bucket in the same zone, so a browser-local "today"
+ *  near a midnight boundary would ask for a day the API considers the future
+ *  and drop the oldest intended one. Explicit from/to params are already
+ *  calendar dates and need no zone. */
+function getDateRangeFromParams(
+	searchParams: URLSearchParams,
+	timeZone?: string,
+) {
 	const fromParam = searchParams.get("from");
 	const toParam = searchParams.get("to");
 
@@ -197,6 +207,14 @@ function getDateRangeFromParams(searchParams: URLSearchParams) {
 		return {
 			from: new Date(fromParam + "T00:00:00"),
 			to: new Date(toParam + "T00:00:00"),
+		};
+	}
+
+	if (timeZone) {
+		const todayKey = formatDayKey(new Date(), timeZone);
+		return {
+			from: new Date(shiftDayKey(todayKey, -6) + "T00:00:00"),
+			to: new Date(todayKey + "T00:00:00"),
 		};
 	}
 

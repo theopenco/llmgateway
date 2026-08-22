@@ -1,6 +1,5 @@
 "use client";
 
-import { format, subDays } from "date-fns";
 import { Coins, Hash, Layers } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo } from "react";
@@ -41,7 +40,11 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { applyUsageModeToDaily } from "@/lib/usage-mode";
 
-import { useDisplayTimeZone } from "@llmgateway/shared";
+import {
+	formatDayKey,
+	shiftDayKey,
+	useDisplayTimeZone,
+} from "@llmgateway/shared";
 
 import type { DailyActivity } from "@/types/activity";
 
@@ -109,12 +112,14 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 		if (!searchParams.get("from") || !searchParams.get("to")) {
 			const params = new URLSearchParams(searchParams.toString());
 			params.delete("days");
-			const today = new Date();
-			params.set("from", format(subDays(today, 6), "yyyy-MM-dd"));
-			params.set("to", format(today, "yyyy-MM-dd"));
+			// Anchor on the display zone's calendar day: the queries below bucket
+			// in that zone, so a browser-local "today" can be a day off.
+			const today = formatDayKey(new Date(), displayTimeZone);
+			params.set("from", shiftDayKey(today, -6));
+			params.set("to", today);
 			router.replace(`${buildUrl("analytics")}?${params.toString()}`);
 		}
-	}, [searchParams, router, buildUrl, isEnterprise]);
+	}, [searchParams, router, buildUrl, isEnterprise, displayTimeZone]);
 
 	const updateGroupBy = (newGroupBy: GroupBy) => {
 		const params = new URLSearchParams(searchParams);

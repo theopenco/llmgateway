@@ -1,6 +1,5 @@
 "use client";
 
-import { format, subDays } from "date-fns";
 import { ArrowLeftIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -27,7 +26,11 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { applyUsageModeToDaily } from "@/lib/usage-mode";
 
-import { useDisplayTimeZone } from "@llmgateway/shared";
+import {
+	formatDayKey,
+	shiftDayKey,
+	useDisplayTimeZone,
+} from "@llmgateway/shared";
 
 import type { Route } from "next";
 
@@ -55,14 +58,16 @@ export function ApiKeyStatsClient({
 		if (!searchParams.get("from") || !searchParams.get("to")) {
 			const params = new URLSearchParams(searchParams.toString());
 			params.delete("days");
-			const today = new Date();
-			params.set("from", format(subDays(today, 6), "yyyy-MM-dd"));
-			params.set("to", format(today, "yyyy-MM-dd"));
+			// Anchor on the display zone's calendar day: the queries below bucket
+			// in that zone, so a browser-local "today" can be a day off.
+			const today = formatDayKey(new Date(), displayTimeZone);
+			params.set("from", shiftDayKey(today, -6));
+			params.set("to", today);
 			router.replace(
 				`${buildUrl(`api-keys/${keyId}`)}?${params.toString()}` as Route,
 			);
 		}
-	}, [searchParams, router, buildUrl, keyId, isEnterprise]);
+	}, [searchParams, router, buildUrl, keyId, isEnterprise, displayTimeZone]);
 
 	const { fromStr, toStr } = getAnalyticsRange(
 		isEnterprise,

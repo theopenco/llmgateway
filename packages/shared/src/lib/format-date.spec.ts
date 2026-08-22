@@ -6,6 +6,7 @@ import {
 	formatDateTime,
 	formatDayKey,
 	isNaiveDateTimeString,
+	shiftDayKey,
 } from "./format-date.js";
 import {
 	DEFAULT_TIME_ZONE_PREFERENCE,
@@ -94,6 +95,31 @@ describe("formatDateTime", () => {
 		).toBe("Aug 12, 2026");
 	});
 
+	// A runtime zone whose DST gap covers the target zone's wall clock used to
+	// normalize the fields forward an hour (02:30 -> 03:30 in America/New_York
+	// on a spring-forward day), so the same instant rendered differently
+	// depending on where the browser was.
+	it("is unaffected by a DST gap in the runtime zone", () => {
+		expect(
+			formatDateTime("2026-03-08T02:30:00Z", "UTC", "monthDayYearHourMinute"),
+		).toBe("Mar 8, 2026 02:30");
+		expect(
+			formatDateTime("2026-03-08T02:30:00", "UTC", "monthDayYearHourMinute"),
+		).toBe("Mar 8, 2026 02:30");
+	});
+
+	it("renders every token in the table", () => {
+		expect(
+			formatDateTime("2026-08-05T16:07:09Z", "UTC", "dayMonthYearTime"),
+		).toBe("05.08.2026 16:07:09");
+		expect(
+			formatDateTime("2026-08-05T16:07:09Z", "UTC", "weekdayMonthDayYear"),
+		).toBe("Wed, Aug 5, 2026");
+		expect(formatBucketLabel("2026-08-05", "weekdayMonthDayYear")).toBe(
+			"Wed, Aug 5, 2026",
+		);
+	});
+
 	it("returns an empty string rather than throwing on an invalid date", () => {
 		expect(formatDateTime("not-a-date", "UTC", "monthDayYear")).toBe("");
 	});
@@ -104,6 +130,17 @@ describe("formatDateTime", () => {
 				formatDateTime(instant, "UTC", key as keyof typeof dateFormats).length,
 			).toBeGreaterThan(0);
 		}
+	});
+});
+
+describe("shiftDayKey", () => {
+	it("does calendar arithmetic with no timezone involved", () => {
+		expect(shiftDayKey("2026-08-12", -6)).toBe("2026-08-06");
+		expect(shiftDayKey("2026-01-01", -1)).toBe("2025-12-31");
+		expect(shiftDayKey("2026-02-28", 1)).toBe("2026-03-01");
+		// Spans a US spring-forward transition — a Date-based shift in a local
+		// zone can land an hour short and roll back a day.
+		expect(shiftDayKey("2026-03-09", -6)).toBe("2026-03-03");
 	});
 });
 

@@ -206,7 +206,8 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 	const { buildUrl, buildOrgUrl } = useDashboardNavigation();
 
 	// Get date range from URL params
-	const { from, to } = getDateRangeFromParams(searchParams);
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
+	const { from, to } = getDateRangeFromParams(searchParams, displayTimeZone);
 	const fromStr = format(from, "yyyy-MM-dd");
 	const toStr = format(to, "yyyy-MM-dd");
 
@@ -233,7 +234,6 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 
 	const { selectedOrganization, selectedProject } = useDashboardNavigation();
 	const api = useApi();
-	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 
 	const { data, isLoading } = api.useQuery(
 		"get",
