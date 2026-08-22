@@ -32,7 +32,7 @@ One call renders a complete key list in your own product — no per-ID lookups t
 
 ## Grok 4.6 on Bedrock and Vertex
 
-xAI's Grok 4.6 — 500K context — now also routes through **AWS Bedrock** ($2.20/M input, $6.60/M output, $0.55/M cached input) and **Vertex AI**'s global endpoint. Both mappings were verified live across the full capability matrix: vision, tools, JSON schema output, and every documented reasoning effort up to `xhigh`. Same model string, two more deployments for smart routing and automatic fallback to land on.
+xAI's Grok 4.6 — 500K context — now also routes through **AWS Bedrock** ($2.00/M input, $6.00/M output, $0.50/M cached input) and **Vertex AI**'s global endpoint. Both mappings were verified live across the full capability matrix: vision, tools, JSON schema output, and reasoning effort control — `low` through `xhigh` on Bedrock, `minimal` through `high` on Vertex. Same model string, two more deployments for smart routing and automatic fallback to land on.
 
 ## GLM-5.2 Turbo and an Australian Region
 
