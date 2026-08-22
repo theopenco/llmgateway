@@ -1161,6 +1161,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "azure-anthropic",
 		name: "Azure Anthropic",
+		forwardsSafetyIdentifier: true,
 		description:
 			"Anthropic Claude models on Microsoft Foundry via the Anthropic Messages API",
 		env: {
@@ -1184,7 +1185,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
