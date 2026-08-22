@@ -106,6 +106,42 @@ export const bytedanceModels = [
 		],
 	},
 	{
+		id: "seed-2-1-turbo",
+		name: "Seed 2.1 Turbo",
+		description:
+			"ByteDance Seed 2.1 Turbo multimodal model built for coding and long-horizon agent workflows with a 256K context window",
+		family: "bytedance",
+		releasedAt: new Date("2026-08-10"),
+		providers: [
+			{
+				deactivatedAt: new Date("2026-08-20"),
+				providerId: "nanogpt",
+				externalId: "bytedance-seed/seed-2-1-turbo",
+				inputPrice: "0.5e-6",
+				outputPrice: "2.5e-6",
+				requestPrice: "0",
+				contextSize: 262144,
+				maxOutput: 262144,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				// The upstream NanoGPT routes for this model reject image parts even
+				// though Seed 2.1 Turbo itself is multimodal.
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+		],
+	},
+	{
 		id: "seedream-4-0",
 		name: "Seedream 4.0",
 		description:

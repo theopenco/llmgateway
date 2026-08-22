@@ -77,29 +77,18 @@ jobs:
           ref: ${{ needs.resolve.outputs.ref }}
           persist-credentials: false
 
-      - name: Collect versions
-        run: |
-          echo "nodejs_version=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
-          echo "pnpm_version=$(cat .tool-versions | grep 'pnpm' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
-
-      - uses: pnpm/action-setup@v6.0.9
-        with:
-          version: ${{ env.pnpm_version }}
-
-      - uses: actions/setup-node@v7.0.0
-        with:
-          node-version: ${{ env.nodejs_version }}
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
 
       - name: Setup and run e2e shard ${{ matrix.shard }}
         run: |
           set -eux
           pnpm run setup
           export DATABASE_URL=postgres://postgres:pw@localhost:5432/test
-          E2E_TEST=true pnpm vitest run -c vitest/vitest.e2e.config.mts --no-file-parallelism --shard=${{ matrix.shard }}/10 --reporter=blob --outputFile=e2e-results-${{ matrix.shard }}.blob || true
+          # Never fail here: the merge job reports the combined result, and a
+          # failing shard must still upload its blob so that report is complete.
+          E2E_TEST=true pnpm vitest run -c vitest/vitest.e2e.config.mts --no-file-parallelism \
+            --shard=${{ matrix.shard }}/${{ strategy.job-total }} \
+            --reporter=blob --outputFile=e2e-results-${{ matrix.shard }}.blob || true
         env:
           LLM_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           LLM_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -145,6 +134,7 @@ jobs:
           LLM_GONKA_24_API_KEY: ${{ secrets.LLM_GONKA_24_API_KEY }}
           LLM_FIREWORKS_API_KEY: ${{ secrets.LLM_FIREWORKS_API_KEY }}
           LLM_RANOAI_API_KEY: ${{ secrets.LLM_RANOAI_API_KEY }}
+          LLM_BAIDU_API_KEY: ${{ secrets.LLM_BAIDU_API_KEY }}
 
       - name: Upload shard results
         if: always()
@@ -166,22 +156,7 @@ jobs:
           ref: ${{ needs.resolve.outputs.ref }}
           persist-credentials: false
 
-      - name: Collect versions
-        run: |
-          echo "nodejs_version=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
-          echo "pnpm_version=$(cat .tool-versions | grep 'pnpm' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
-
-      - uses: pnpm/action-setup@v6.0.9
-        with:
-          version: ${{ env.pnpm_version }}
-
-      - uses: actions/setup-node@v7.0.0
-        with:
-          node-version: ${{ env.nodejs_version }}
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
 
       - name: Download all shard results
         uses: actions/download-artifact@v8

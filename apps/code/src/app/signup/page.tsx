@@ -25,6 +25,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
+import { useAuthErrorToast } from "@/lib/auth-errors";
 import { useAppConfig } from "@/lib/config";
 import { trackSignupConversion } from "@/lib/google-tag";
 
@@ -68,6 +69,8 @@ function SignupForm() {
 		}
 		posthog.capture("page_viewed_signup", { plan: selectedPlan });
 	}, [posthog, posthogKey, selectedPlan]);
+
+	useAuthErrorToast();
 
 	const form = useForm<z.infer<typeof formSchema>>({
 		resolver: zodResolver(formSchema),
@@ -341,6 +344,7 @@ function SignupForm() {
 							callbackPath={returnUrl}
 							errorCallbackPath="/signup"
 							newUserCallbackPath={returnUrl}
+							requestSignUp
 						/>
 					</div>
 

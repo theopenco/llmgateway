@@ -32,6 +32,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { shouldShowDeactivationNotice } from "@/deactivation";
 import { cn } from "@/lib/utils";
 
 import { formatContextSize, formatDeprecationDate } from "./format";
@@ -175,8 +176,13 @@ export function ModelCard({
 	const allHaveDeactivatedAt =
 		model.providerDetails.length > 0 &&
 		model.providerDetails.every(({ provider }) => provider.deactivatedAt);
+	const showModelDeactivationStatus =
+		allHaveDeactivatedAt &&
+		model.providerDetails.every(({ provider }) =>
+			shouldShowDeactivationNotice(provider, now),
+		);
 	const allHaveDeprecatedAt =
-		!allHaveDeactivatedAt &&
+		!showModelDeactivationStatus &&
 		model.providerDetails.length > 0 &&
 		model.providerDetails.every(({ provider }) => provider.deprecatedAt);
 	const deactivationAllPast =
@@ -368,7 +374,7 @@ export function ModelCard({
 									</TooltipContent>
 								</Tooltip>
 							)}
-							{allHaveDeactivatedAt && (
+							{showModelDeactivationStatus && (
 								<ModelStatusBadge
 									status="deactivated"
 									isPast={deactivationAllPast}
@@ -609,6 +615,7 @@ export function ProviderSection({
 	const [selectedServiceTierId, setSelectedServiceTierId] =
 		useState("standard");
 	const activeMapping = mappings[activeRegionIdx] ?? mappings[0];
+	const showDeactivationNotice = shouldShowDeactivationNotice(activeMapping);
 	const hasMappingDetails =
 		(activeMapping.reasoningEfforts?.length ?? 0) > 0 ||
 		(activeMapping.supportedParameters?.length ?? 0) > 0;
@@ -802,7 +809,7 @@ export function ProviderSection({
 				</div>
 
 				{/* Deprecation/deactivation warnings */}
-				{(activeMapping.deprecatedAt ?? activeMapping.deactivatedAt) && (
+				{(activeMapping.deprecatedAt || showDeactivationNotice) && (
 					<div className="flex flex-wrap gap-1.5">
 						{activeMapping.deprecatedAt && (
 							<Badge
@@ -816,14 +823,14 @@ export function ProviderSection({
 								)}
 							</Badge>
 						)}
-						{activeMapping.deactivatedAt && (
+						{showDeactivationNotice && (
 							<Badge
 								variant="outline"
 								className="text-[10px] px-2 py-0.5 gap-1 bg-red-500/5 text-red-600 dark:text-red-400 border-red-500/20"
 							>
 								<AlertCircle className="h-2.5 w-2.5" />
 								{formatDeprecationDate(
-									activeMapping.deactivatedAt,
+									activeMapping.deactivatedAt!,
 									"deactivated",
 								)}
 							</Badge>

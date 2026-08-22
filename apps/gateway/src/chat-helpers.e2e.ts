@@ -6,6 +6,7 @@ import {
 	type ModelDefinition,
 	getProviderDefinition,
 	getProviderEnvVar,
+	getRegionScopedProviderEnvValue,
 	getSupportedServiceTiers,
 	models,
 	type ProviderModelMapping,
@@ -335,7 +336,7 @@ export const testModels = filteredModels
 		const testCases = [];
 
 		if (process.env.TEST_ALL_VARIATIONS) {
-			// test root model without a specific provider
+			// test canonical model without a specific provider
 			testCases.push({
 				model: model.id,
 				providers: expandAllProviderRegions(
@@ -966,6 +967,16 @@ export const reasoningModels = testModels.filter((m) =>
 	m.providers.some((p: ProviderModelMapping) => p.reasoning === true),
 );
 
+export const thinkingDisabledForcedToolChoiceModels = testModels.filter((m) =>
+	m.providers.some(
+		(p: ProviderModelMapping) =>
+			p.reasoningEfforts?.includes("none") &&
+			p.supportedToolChoicesWithThinkingDisabled?.some(
+				(mode) => mode === "required" || mode === "function",
+			),
+	),
+);
+
 // Efforts are forwarded to providers as-is and rejected when unsupported, so
 // tests must send an effort the mapping declares. Prefers "medium" and falls
 // back to the strongest declared tier.
@@ -1270,6 +1281,17 @@ function providerEnvOptionsForTests(
 ): ProviderKeyOptions | undefined {
 	if (providerId === "azure" && process.env.LLM_AZURE_RESOURCE) {
 		return { azure_resource: process.env.LLM_AZURE_RESOURCE };
+	}
+	if (providerId === "alibaba") {
+		// BYOK keys never read env vars at request time, so a workspace-scoped
+		// region (Frankfurt) is only reachable when the seeded key carries the
+		// workspace id the way a real credential would.
+		const workspaceId = getRegionScopedProviderEnvValue(
+			"alibaba",
+			"workspaceId",
+			"eu-frankfurt",
+		);
+		return workspaceId ? { alibaba_workspace_id: workspaceId } : undefined;
 	}
 	if (providerId === "azure-ai-foundry") {
 		const resource = process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE;

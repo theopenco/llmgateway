@@ -1,6 +1,6 @@
 ---
 title: Master Keys
-description: Provision projects, gateway API keys, and custom providers/models programmatically with org-scoped bearer tokens (Enterprise only)
+description: Provision projects, gateway API keys, and custom providers/models — and pull per-member usage and cost data — programmatically with org-scoped bearer tokens (Enterprise only)
 icon: KeyRound
 ---
 
@@ -9,6 +9,8 @@ import { Callout } from "fumadocs-ui/components/callout";
 # Master Keys
 
 Master keys are org-scoped bearer tokens that let you create projects, gateway API keys, IAM rules (both per key and per organization member), and your organization's custom providers and custom models programmatically — without going through the dashboard. They are intended for server-to-server provisioning (e.g. multi-tenant onboarding from your own backend).
+
+They also expose [usage and cost reporting](#usage-and-cost-reporting), so you can pull per-member and per-model spend into your own dashboards, data warehouse, or chargeback process.
 
 <Callout type="info">
 	Master keys are available on the **Enterprise** plan only. Contact us at
@@ -123,15 +125,16 @@ curl -X PATCH https://internal.llmgateway.io/v1/master/projects/proj_... \
 
 Body parameters (all optional, at least one required):
 
-| Field                  | Type                                  | Description                         |
-| ---------------------- | ------------------------------------- | ----------------------------------- |
-| `name`                 | string                                | 1–255 chars                         |
-| `cachingEnabled`       | boolean                               |                                     |
-| `cacheDurationSeconds` | number                                | 10–31536000                         |
-| `mode`                 | `"api-keys" \| "credits" \| "hybrid"` |                                     |
-| `status`               | `"active" \| "inactive"`              | Toggle the project without deleting |
+| Field                      | Type                                  | Description                                                       |
+| -------------------------- | ------------------------------------- | ----------------------------------------------------------------- |
+| `name`                     | string                                | 1–255 chars                                                       |
+| `cachingEnabled`           | boolean                               |                                                                   |
+| `cacheDurationSeconds`     | number                                | 10–31536000                                                       |
+| `providerCacheControlMode` | `"auto" \| "passthrough" \| "off"`    | [Provider cache writes](/features/caching/provider-cache-control) |
+| `mode`                     | `"api-keys" \| "credits" \| "hybrid"` |                                                                   |
+| `status`                   | `"active" \| "inactive"`              | Toggle the project without deleting                               |
 
-Response (200): the updated project.
+Response (200): the updated project. It carries both `providerCacheControlMode` and the older `providerCacheControlEnabled` boolean, which reports `false` only for `"off"`.
 
 ### Delete a project
 
@@ -154,7 +157,7 @@ Response (200):
 
 `GET /v1/master/keys`
 
-Returns the developer-created gateway API keys in the master key's organization, each with its configured limits, the usage consumed so far, and — when a windowed limit is set — the time the current period resets. Pass an optional `projectId` query parameter to scope the list to a single project.
+Returns the developer-created gateway API keys in the master key's organization, each with its creator, project, configured limits, the usage consumed so far, and — when a windowed limit is set — the time the current period resets. `projectName` provides the human-readable project name alongside `projectId`. `createdBy` contains the creator's internal user ID, while `createdByEmail` contains their email address (`null` when unavailable). Pass an optional `projectId` query parameter to scope the list to a single project.
 
 ```bash
 curl "https://internal.llmgateway.io/v1/master/keys?projectId=proj_..." \
@@ -171,7 +174,9 @@ Response (200):
 			"description": "Customer ACME — production key",
 			"status": "active",
 			"projectId": "proj_...",
+			"projectName": "Customer ACME",
 			"createdBy": "usr_...",
+			"createdByEmail": "member@example.com",
 			"maskedToken": "llmgtwy_...abcd",
 			"usageLimit": "100.00",
 			"usage": "42.13",
@@ -223,7 +228,9 @@ Response (200):
 		"description": "Customer ACME — production key",
 		"status": "active",
 		"projectId": "proj_...",
+		"projectName": "Customer ACME",
 		"createdBy": "usr_...",
+		"createdByEmail": "member@example.com",
 		"maskedToken": "llmgtwy_...abcd",
 		"usageLimit": "100.00",
 		"usage": "42.13",
@@ -344,6 +351,119 @@ Response (200):
 	The auto-generated Lounge (playground) API key cannot be deleted via the
 	master API.
 </Callout>
+
+## Usage and cost reporting
+
+`GET /v1/master/usage`
+
+Returns usage and cost for the master key's organization as a flat list of rows, grouped by any combination of member, model, provider, project, and API key, and bucketed hourly, daily, or not at all. This is the endpoint to point an internal reporting tool, data warehouse, or chargeback job at — it is the only usage surface that authenticates with a token rather than a dashboard session.
+
+<Callout type="info">
+	Like every `/v1/master/*` endpoint, this requires an **Enterprise** plan. A
+	master key on any other plan receives a `403`.
+</Callout>
+
+```bash
+# Cost per member for a month
+curl -G https://internal.llmgateway.io/v1/master/usage \
+  -H "Authorization: Bearer $MASTER_KEY" \
+  -d from=2026-07-01 -d to=2026-07-31 \
+  -d granularity=total -d groupBy=user
+```
+
+Query parameters:
+
+| Param         | Type                                                              | Default      | Description                                                                              |
+| ------------- | ----------------------------------------------------------------- | ------------ | ---------------------------------------------------------------------------------------- |
+| `from`, `to`  | `YYYY-MM-DD`                                                      | last 7 days  | Inclusive window, interpreted as wall-clock days in `timezone`. Max 366 days             |
+| `timezone`    | IANA timezone                                                     | `UTC`        | Timezone the day/hour buckets are labelled in                                            |
+| `granularity` | `hour` \| `day` \| `total`                                        | `day`        | Time bucket. `total` collapses the window into one row per group. `hour` caps at 31 days |
+| `groupBy`     | comma-separated: `user`, `model`, `provider`, `project`, `apiKey` | `user,model` | Dimensions to break down by. Pass an empty value for organization-wide totals            |
+| `projectId`   | string                                                            | —            | Restrict to one project. `404` if it is not in this organization                         |
+| `userId`      | string                                                            | —            | Restrict to one member                                                                   |
+| `apiKeyId`    | string                                                            | —            | Restrict to one gateway API key                                                          |
+| `limit`       | 1–10000                                                           | `1000`       | Rows per page                                                                            |
+| `offset`      | ≥ 0                                                               | `0`          | Row offset for paging                                                                    |
+| `format`      | `json` \| `csv`                                                   | `json`       | `csv` returns a `text/csv` attachment with a fixed header                                |
+
+Response (200):
+
+```json
+{
+	"from": "2026-07-01",
+	"to": "2026-07-31",
+	"granularity": "day",
+	"groupBy": ["user", "model"],
+	"rows": [
+		{
+			"date": "2026-07-01",
+			"userId": "usr_...",
+			"userName": "Ada Lovelace",
+			"userEmail": "ada@example.com",
+			"projectId": null,
+			"projectName": null,
+			"apiKeyId": null,
+			"apiKeyName": null,
+			"model": "gpt-5.6",
+			"provider": "openai",
+			"requestCount": 128,
+			"errorCount": 2,
+			"inputTokens": 481203,
+			"outputTokens": 92844,
+			"totalTokens": 574047,
+			"cachedTokens": 120000,
+			"reasoningTokens": 18320,
+			"cost": 3.4127,
+			"inputCost": 2.1,
+			"outputCost": 1.3127,
+			"creditsRequestCount": 128,
+			"apiKeysRequestCount": 0,
+			"creditsCost": 3.4127,
+			"apiKeysCost": 0
+		}
+	],
+	"pagination": { "limit": 1000, "offset": 0, "hasMore": false }
+}
+```
+
+Every row carries the full column set. Dimension fields you did not group by are `null`, and `date` is `null` when `granularity=total`, so the row shape stays stable for a schema-driven consumer. `creditsCost` / `apiKeysCost` split the blended `cost` into credit-billed and BYOK traffic.
+
+### Per-member, per-model breakdown
+
+Combine the two dimensions to get the cross-tab most reporting tools want — one row per member, model, and day:
+
+```bash
+curl -G https://internal.llmgateway.io/v1/master/usage \
+  -H "Authorization: Bearer $MASTER_KEY" \
+  -d from=2026-07-01 -d to=2026-07-31 \
+  -d granularity=day -d groupBy=user,model \
+  -d timezone=Europe/Berlin
+```
+
+### CSV export
+
+```bash
+curl -G https://internal.llmgateway.io/v1/master/usage \
+  -H "Authorization: Bearer $MASTER_KEY" \
+  -d from=2026-07-01 -d to=2026-07-31 \
+  -d granularity=day -d groupBy=user,model -d format=csv \
+  -o usage-july.csv
+```
+
+The CSV header is the same fixed column set regardless of the dimensions requested, so a scheduled export never changes shape.
+
+<Callout type="warn">
+	**Usage is attributed to the member who created the API key** (there is no
+	per-caller identity on an inference request). A key shared by several people
+	reports entirely under its creator. For accurate per-person reporting, issue
+	one gateway API key per member — the per-member key limit under **Organization
+	→ Members** is the lever that enforces it.
+</Callout>
+
+Two more things worth knowing:
+
+- These figures come from hourly rollups, not the request log, so they are **not** affected by your [data retention](/features/data-retention) setting — per-member and per-model history stays available even with retention turned off.
+- Traffic from [embeddable payments](/features/embeddable-payments) end-user keys rolls up to the member who provisioned the platform key.
 
 ## IAM rules
 

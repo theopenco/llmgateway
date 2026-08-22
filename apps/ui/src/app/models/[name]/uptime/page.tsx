@@ -131,7 +131,7 @@ export default async function ModelUptimePage({ params }: PageProps) {
 				name: `How is ${modelLabel} uptime measured?`,
 				acceptedAnswer: {
 					"@type": "Answer",
-					text: `Uptime is the share of requests that completed successfully on the upstream provider over the last 4 hours. Client errors (4xx from your request) and gateway errors are excluded so the number reflects the provider's reliability, not user errors.`,
+					text: `Uptime is the share of valid requests that completed successfully over the last 4 hours. Client errors (4xx from your request) are excluded so the number reflects service reliability, not invalid requests.`,
 				},
 			},
 			{
@@ -297,7 +297,7 @@ export default async function ModelUptimePage({ params }: PageProps) {
 						<div className="grid gap-4 md:grid-cols-2">
 							<FaqItem
 								question={`How is ${modelLabel} uptime measured?`}
-								answer={`Uptime is the share of requests that completed successfully on the upstream provider over the last 4 hours. Client errors (4xx from your request) and gateway errors are excluded so the number reflects the provider's reliability, not user errors.`}
+								answer={`Uptime is the share of valid requests that completed successfully over the last 4 hours. Client errors (4xx from your request) are excluded so the number reflects service reliability, not invalid requests.`}
 							/>
 							<FaqItem
 								question={`Which providers serve ${modelLabel}?`}

@@ -89,9 +89,10 @@ function WeeklyAllowanceMeter({
 	// replaced by the upgrade/PAYG promo, so don't point at a card that isn't
 	// there — and "standard models keep working" no longer holds either.
 	resetPassAvailable: boolean;
-	// True when PAYG overflow is actively billing usage (monthly pool gone,
-	// balance positive): premium usage keeps accruing past the cap, so the
-	// meter can legitimately exceed 100% and must not read as an error.
+	// True when PAYG overflow can bill premium usage past the weekly cap
+	// (opt-in on, balance positive): premium keeps accruing past the cap on
+	// the credits balance, so the meter can legitimately exceed 100% and must
+	// not read as an error.
 	overflowCovering: boolean;
 }) {
 	const percentage = limit > 0 ? (used / limit) * 100 : 0;
@@ -270,6 +271,14 @@ export default function UsageOverview({
 		(sum, d) => sum + (d.totalTokens ?? 0),
 		0,
 	);
+	const totalCachedTokens = cycleItems.reduce(
+		(sum, d) => sum + (d.cachedTokens ?? 0),
+		0,
+	);
+	// Cached input bills at a fraction of the fresh-input rate, so the cached
+	// share is what reconciles a big token number with a small spend.
+	const cachedShare =
+		totalTokens > 0 ? Math.round((totalCachedTokens / totalTokens) * 100) : 0;
 	const peakDay = cycleItems.reduce<ActivityItem | null>(
 		(best, d) => (best && (best.cost ?? 0) >= (d.cost ?? 0) ? best : d),
 		null,
@@ -377,7 +386,7 @@ export default function UsageOverview({
 							limit={premiumWeeklyLimit}
 							resetsAt={premiumWeekResetsAt}
 							resetPassAvailable={!monthlyExhausted}
-							overflowCovering={monthlyExhausted && paygAvailable}
+							overflowCovering={paygAvailable}
 						/>
 						{!monthlyExhausted && (
 							<ResetPassCard
@@ -423,6 +432,11 @@ export default function UsageOverview({
 							: totalTokens >= 1_000
 								? `${(totalTokens / 1_000).toFixed(0)}K`
 								: totalTokens.toLocaleString()
+					}
+					hint={
+						cachedShare > 0
+							? `${cachedShare}% served from cache at a reduced rate`
+							: undefined
 					}
 					icon={Cpu}
 				/>

@@ -92,6 +92,60 @@ describe("getProviderFilterReasons", () => {
 		).toEqual([exclusionReason("web_search")]);
 	});
 
+	describe("search-on-demand-only mappings", () => {
+		const dashScope = mapping({
+			providerId: "alibaba",
+			webSearch: true,
+			webSearchForcedOnly: true,
+		});
+
+		it("skips them when the tool is merely offered", () => {
+			// The chat-toggle case: the tool rides along on every turn with
+			// tool_choice auto. These mappings cannot elect a search, so letting
+			// them win the route would answer from stale weights.
+			expect(
+				getProviderFilterReasons(dashScope, { webSearchTool: true }),
+			).toEqual([exclusionReason("web_search_forced_only")]);
+		});
+
+		it("allows them once the caller forces", () => {
+			expect(
+				getProviderFilterReasons(dashScope, {
+					webSearchTool: true,
+					webSearchForced: true,
+				}),
+			).toEqual([]);
+		});
+
+		it("reads intent off the tool when no separate flag is passed", () => {
+			// filterEligibleModelProviders forwards the extracted tool and no
+			// webSearchForced flag, so missing this would filter out the mappings
+			// a forced request exists to reach.
+			expect(
+				getProviderFilterReasons(dashScope, {
+					webSearchTool: { type: "web_search", forced: true },
+				}),
+			).toEqual([]);
+			expect(
+				getProviderFilterReasons(dashScope, {
+					webSearchTool: { type: "web_search" },
+				}),
+			).toEqual([exclusionReason("web_search_forced_only")]);
+		});
+
+		it("leaves them alone when no web search was requested", () => {
+			expect(getProviderFilterReasons(dashScope, {})).toEqual([]);
+		});
+
+		it("does not constrain providers that elect their own searches", () => {
+			expect(
+				getProviderFilterReasons(mapping({ webSearch: true }), {
+					webSearchTool: true,
+				}),
+			).toEqual([]);
+		});
+	});
+
 	it("flags n > 1 constraints", () => {
 		expect(getProviderFilterReasons(mapping(), { n: 2 })).toEqual([
 			exclusionReason("n_unsupported"),
@@ -119,6 +173,25 @@ describe("getProviderFilterReasons", () => {
 				responseFormatType: "json_schema",
 			}),
 		).toEqual([exclusionReason("json_schema")]);
+	});
+
+	it("treats the two JSON tiers independently for json_schema routing", () => {
+		// A provider that supports strict json_schema without json_object
+		// (e.g. Runware, Perplexity, Anthropic) must not be excluded from
+		// json_schema routing just because it lacks soft jsonOutput.
+		expect(
+			getProviderFilterReasons(
+				mapping({ jsonOutputSchema: true, jsonOutput: false }),
+				{ responseFormatType: "json_schema" },
+			),
+		).toEqual([]);
+		// ...but json_object still requires soft jsonOutput.
+		expect(
+			getProviderFilterReasons(
+				mapping({ jsonOutputSchema: true, jsonOutput: false }),
+				{ responseFormatType: "json_object" },
+			),
+		).toEqual([exclusionReason("json_output")]);
 	});
 
 	it("flags unsupported modalities", () => {
@@ -166,21 +239,40 @@ describe("getProviderFilterReasons", () => {
 		);
 	});
 
-	it("flags a tool_choice the mapping cannot honour", () => {
+	it("flags a tool_choice the mapping cannot honour during strict routing", () => {
 		const restricted = mapping({
 			tools: true,
 			supportedToolChoices: ["auto", "none"],
 		});
 		expect(
-			getProviderFilterReasons(restricted, { toolChoice: "required" }),
+			getProviderFilterReasons(restricted, {
+				toolChoice: "required",
+				strictToolChoice: true,
+			}),
 		).toEqual([exclusionReason("tool_choice")]);
 		expect(
 			getProviderFilterReasons(restricted, {
 				toolChoice: { type: "function", function: { name: "get_weather" } },
+				strictToolChoice: true,
 			}),
 		).toEqual([exclusionReason("tool_choice")]);
 		expect(
-			getProviderFilterReasons(restricted, { toolChoice: "none" }),
+			getProviderFilterReasons(restricted, {
+				toolChoice: "none",
+				strictToolChoice: true,
+			}),
+		).toEqual([]);
+	});
+
+	it("preserves unsupported tool_choice candidates for pinned fallback", () => {
+		expect(
+			getProviderFilterReasons(
+				mapping({
+					tools: true,
+					supportedToolChoices: ["auto", "none"],
+				}),
+				{ toolChoice: "required" },
+			),
 		).toEqual([]);
 	});
 
@@ -196,6 +288,21 @@ describe("getProviderFilterReasons", () => {
 		).toEqual([]);
 	});
 
+	it("does not treat forced web search as a function tool choice", () => {
+		expect(
+			getProviderFilterReasons(
+				mapping({
+					webSearch: true,
+					supportedToolChoices: ["auto", "none"],
+				}),
+				{
+					toolChoice: { type: "web_search" },
+					strictToolChoice: true,
+				},
+			),
+		).toEqual([]);
+	});
+
 	it("honours a mapping's thinking-disabled tool_choice modes", () => {
 		const canopywaveLike = mapping({
 			tools: true,
@@ -207,26 +314,25 @@ describe("getProviderFilterReasons", () => {
 			getProviderFilterReasons(canopywaveLike, {
 				toolChoice: "required",
 				reasoningEffort: "high",
+				strictToolChoice: true,
 			}),
 		).toEqual([exclusionReason("tool_choice")]);
 		expect(
 			getProviderFilterReasons(canopywaveLike, {
 				toolChoice: "required",
 				reasoningEffort: "none",
+				strictToolChoice: true,
 			}),
 		).toEqual([]);
 	});
 
-	it("ignores supportedParameters when judging tool_choice", () => {
-		// Those lists are not exhaustive — most mappings that honour "required"
-		// never enumerate tool_choice — so their silence must not exclude a
-		// provider from routing.
+	it("matches request shaping when supportedParameters omits tool_choice", () => {
 		expect(
 			getProviderFilterReasons(
 				mapping({ tools: true, supportedParameters: ["temperature", "tools"] }),
-				{ toolChoice: "required" },
+				{ toolChoice: "required", strictToolChoice: true },
 			),
-		).toEqual([]);
+		).toEqual([exclusionReason("tool_choice")]);
 	});
 
 	it("collects multiple reasons at once", () => {

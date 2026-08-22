@@ -6,6 +6,7 @@ import { getUser } from "@/lib/getUser";
 import { describeImageGenerationError } from "@/lib/image-gen";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 
 export const maxDuration = 300; // 5 minutes
 
@@ -88,7 +89,7 @@ export async function POST(req: Request) {
 		apiKey: finalApiKey,
 		baseURL: gatewayUrl,
 		headers: {
-			"x-source": "chat.llmgateway.io",
+			"x-source": LOUNGE_SOURCE,
 			...(noFallbackHeader ? { "x-no-fallback": noFallbackHeader } : {}),
 		},
 		extraBody: {

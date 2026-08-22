@@ -35,14 +35,12 @@ export const metadata: Metadata = {
 		title: "LLM Token Cost Calculator & Tokenizer | LLM Gateway",
 		description:
 			"Paste a prompt to count tokens, then compare cost across GPT-5, Claude, Gemini, and 200+ models at zero markup.",
-		images: [{ url: "/opengraph.png?v=1" }],
 	},
 	twitter: {
 		card: "summary_large_image",
 		title: "LLM Token Cost Calculator & Tokenizer | LLM Gateway",
 		description:
 			"Count your prompt's exact tokens and compare the cost across 200+ LLMs with LLM Gateway.",
-		images: ["/opengraph.png?v=1"],
 	},
 };
 

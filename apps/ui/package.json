@@ -13,12 +13,13 @@
 		"format": "eslint --fix . && prettier --write .",
 		"generate": "openapi-typescript ../api/openapi.json -o ./src/lib/api/v1.d.ts",
 		"lint": "eslint . && prettier --check .",
-		"start": "next start"
+		"start": "next start",
+		"test:e2e": "playwright test"
 	},
 	"dependencies": {
 		"@ai-sdk/react": "3.0.29",
-		"@better-auth/passkey": "1.6.25",
-		"@better-auth/sso": "1.6.25",
+		"@better-auth/passkey": "1.6.26",
+		"@better-auth/sso": "1.6.26",
 		"@content-collections/core": "0.15.0",
 		"@content-collections/next": "0.2.11",
 		"@hookform/resolvers": "5.2.2",
@@ -60,7 +61,7 @@
 		"ai": "6.0.27",
 		"api": "workspace:*",
 		"babel-plugin-react-compiler": "1.0.0",
-		"better-auth": "1.6.25",
+		"better-auth": "1.6.26",
 		"class-variance-authority": "0.7.1",
 		"clsx": "^2.1.1",
 		"cmdk": "^1.1.1",
@@ -94,6 +95,7 @@
 		"tailwindcss-animate": "1.0.7"
 	},
 	"devDependencies": {
+		"@playwright/test": "1.61.1",
 		"@tanstack/react-query-devtools": "5.90.2",
 		"@types/react": "^19.2.18",
 		"@types/react-dom": "^19.2.4",

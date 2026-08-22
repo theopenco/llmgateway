@@ -21,6 +21,8 @@ import {
 import { logger, toError } from "@llmgateway/logger";
 import { HealthChecker } from "@llmgateway/shared";
 
+import { aisdk } from "./aisdk/aisdk.js";
+import { creditsRoute } from "./aisdk/credits.js";
 import { anthropic } from "./anthropic/anthropic.js";
 import { chat } from "./chat/chat.js";
 import { extractErrorCause } from "./chat/tools/extract-error-cause.js";
@@ -28,12 +30,11 @@ import { isUpstreamTermination } from "./chat/tools/normalize-streaming-error.js
 import { embeddingsRoute } from "./embeddings/route.js";
 import { imagesRoute } from "./images/route.js";
 import { keyRoute } from "./key/route.js";
-import {
-	buildAnthropicErrorBody,
-	buildOpenAIErrorBody,
-} from "./lib/error-response.js";
+import { backpressureMiddleware } from "./lib/backpressure.js";
+import { renderGatewayError } from "./lib/error-response.js";
 import { mcpHandler, registerMcpOAuthRoutes } from "./mcp/mcp.js";
 import { corsMiddleware } from "./middleware/cors.js";
+import { orgRateLimitMiddleware } from "./middleware/org-rate-limit.js";
 import { tracingMiddleware } from "./middleware/tracing.js";
 import { models } from "./models/route.js";
 import { moderationsRoute } from "./moderations/route.js";
@@ -46,8 +47,6 @@ import { transcriptionsRoute } from "./transcriptions/route.js";
 import { videosRoute } from "./videos/route.js";
 
 import type { ServerTypes } from "./vars.js";
-import type { Context } from "hono";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
 
 export const config = {
 	servers: [
@@ -92,6 +91,24 @@ app.use("*", requestLifecycleMiddleware);
 app.use("*", honoRequestLogger);
 app.use("*", corsMiddleware);
 
+// Shed excess inference load early so each pod fast-fails with a retryable
+// 529 instead of piling up unbounded connections. Only inference endpoints
+// are counted — everything else completes near-instantly and keeps working
+// under overload. Registered after CORS so shed responses still carry the
+// Access-Control-* headers browser clients need to surface the 529, and
+// before the org limiter so pod protection costs no Redis/DB lookups.
+app.use("*", backpressureMiddleware);
+
+// Per-organization, per-path rate limiting plus the per-org in-flight
+// concurrency cap. Registered before the other request gates (content-type
+// validation) and ahead of every downstream DB check and rate limiter in the
+// route handlers (credit checks, free-model and provider rate limits), so an
+// over-limit org is rejected as early as possible. Enterprise orgs skip the
+// RPM limits but get an elevated concurrency ceiling; regular org RPM limits
+// scale with the organization's lifetime spend tier. Only configured `/v1/*`
+// paths are throttled; everything else passes through.
+app.use("*", orgRateLimitMiddleware);
+
 // Middleware to check for application/json content type on POST requests
 // Excludes /mcp endpoint which handles its own content type validation
 // Excludes /oauth endpoints which accept form-urlencoded or JSON
@@ -115,22 +132,6 @@ app.use("*", async (c, next) => {
 	}
 	return await next();
 });
-
-// Renders a gateway-level error in a provider-compatible shape. The Anthropic
-// `/v1/messages` endpoint expects Anthropic's `{ type: "error", error: {...} }`
-// envelope; every other (OpenAI-compatible) endpoint expects OpenAI's
-// `{ error: { message, type, param, code } }` envelope.
-function renderGatewayError(
-	c: Context<ServerTypes>,
-	status: number,
-	message: string,
-) {
-	const jsonStatus = status as ContentfulStatusCode;
-	if (c.req.path.startsWith("/v1/messages")) {
-		return c.json(buildAnthropicErrorBody({ message, status }), jsonStatus);
-	}
-	return c.json(buildOpenAIErrorBody({ message, status }), jsonStatus);
-}
 
 app.onError((error, c) => {
 	if (error instanceof UnsupportedAudioFormatError) {
@@ -349,8 +350,20 @@ v1.route("/audio/speech", speechRoute);
 v1.route("/audio/transcriptions", transcriptionsRoute);
 v1.route("/realtime", realtimeClientSecretsRoute);
 v1.route("/videos", videosRoute);
+v1.route("/credits", creditsRoute);
 
 app.route("/v1", v1);
+
+// AI SDK Gateway protocol surface. `@ai-sdk/gateway` derives its default base
+// URL from the spec version it implements (`/v4/ai` for AI SDK 7, `/v2|3/ai`
+// for the versions before it), and the request carries the spec version in a
+// header — so every prefix maps to the same router, which answers in whichever
+// shape the header asked for. `/v1/ai` is registered too, for AI SDK 5's base
+// URL; it is registered after `app.route("/v1", v1)` because the `/v1` sub-app
+// has no `/ai` route and Hono falls through to the next matching handler.
+for (const prefix of ["/v1/ai", "/v2/ai", "/v3/ai", "/v4/ai"]) {
+	app.route(prefix, aisdk);
+}
 
 // MCP endpoint - Model Context Protocol server
 app.all("/mcp", mcpHandler);

@@ -14,6 +14,7 @@ import {
 	auditLogActions,
 	auditLogResourceTypes,
 } from "@llmgateway/db";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -159,7 +160,12 @@ auditLogs.openapi(getAuditLogs, async (c) => {
 	}
 
 	// Check if organization has enterprise plan
-	if (userOrg.organization?.plan !== "enterprise") {
+	if (
+		!hasOrganizationEnterpriseAccess(
+			userOrg.organization?.id,
+			userOrg.organization?.plan,
+		)
+	) {
 		throw new HTTPException(403, {
 			message: "Audit logs require an enterprise plan",
 		});
@@ -352,7 +358,12 @@ auditLogs.openapi(getFilterOptions, async (c) => {
 	}
 
 	// Check if organization has enterprise plan
-	if (userOrg.organization?.plan !== "enterprise") {
+	if (
+		!hasOrganizationEnterpriseAccess(
+			userOrg.organization?.id,
+			userOrg.organization?.plan,
+		)
+	) {
 		throw new HTTPException(403, {
 			message: "Audit logs require an enterprise plan",
 		});

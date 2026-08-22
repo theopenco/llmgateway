@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+import { SELF_REFUND_WINDOW_DAYS } from "@llmgateway/shared";
+
 // Requires a locally running stack (API on :4002, playground on :3003) with a
 // freshly seeded database (`pnpm setup`): the login test signs in as the
 // seeded admin. The tests only read branding, so no reseed is needed between
@@ -31,7 +33,9 @@ test("pricing page sells memberships, not plans", async ({ page }) => {
 		page.getByRole("heading", { name: "How membership works" }),
 	).toBeVisible();
 	await expect(
-		page.getByText("7-day money-back guarantee.").first(),
+		page
+			.getByText(`${SELF_REFUND_WINDOW_DAYS}-day money-back guarantee.`)
+			.first(),
 	).toBeVisible();
 
 	// Plan tiers keep their billing identities.

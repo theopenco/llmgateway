@@ -228,7 +228,7 @@ export default async function EscapeRunOgImage({
 							color: "rgba(52,211,153,0.55)",
 						}}
 					>
-						chat.llmgateway.io/escape — one API call per step
+						lounge.llmgateway.io/escape — one API call per step
 					</span>
 				</div>
 

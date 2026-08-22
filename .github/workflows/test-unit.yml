@@ -1,0 +1,80 @@
+name: test-unit
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  shard:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+
+      - name: Run unit test shard ${{ matrix.shard }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -eux
+          # `setup` runs build:core itself. A full `pnpm build` would add ~15min
+          # per shard to build the five Next.js apps, which no spec file needs —
+          # the `build` job already covers that.
+          pnpm run setup
+          # Never fail here: the merge job reports the combined result, and a
+          # failing shard must still upload its blob so that report is complete.
+          pnpm vitest run --no-file-parallelism \
+            --shard=${{ matrix.shard }}/${{ strategy.job-total }} \
+            --reporter=blob --outputFile=unit-results-${{ matrix.shard }}.blob || true
+
+      - name: Upload shard results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: unit-results-${{ matrix.shard }}
+          path: unit-results-${{ matrix.shard }}.blob
+          retention-days: 1
+          if-no-files-found: ignore
+
+  # Named `run` so the aggregated check stays `test / run`, which is what the
+  # branch ruleset requires.
+  run:
+    runs-on: ubuntu-latest
+    needs: shard
+    if: always()
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+
+      - name: Download all shard results
+        uses: actions/download-artifact@v8
+        with:
+          path: ./unit-results
+          pattern: unit-results-*
+
+      - name: Merge reports and show final results
+        run: |
+          mkdir -p .vitest-reports
+          find ./unit-results -name "*.blob" -exec mv {} .vitest-reports/ \;
+          # Fails if any test failed, providing the final status.
+          pnpm vitest run --merge-reports
+
+      - name: Fail if any shard did not succeed
+        if: always() && needs.shard.result != 'success'
+        run: |
+          echo "shard result was '${{ needs.shard.result }}', expected 'success'."
+          echo "At least one shard failed to run before it could produce results, so the merged report above is incomplete."
+          exit 1

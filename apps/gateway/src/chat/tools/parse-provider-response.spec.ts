@@ -1206,6 +1206,56 @@ describe("parseProviderResponse", () => {
 		});
 	});
 
+	describe("DashScope web search billing", () => {
+		// DashScope returns no search metadata whatsoever, so the count is
+		// inferred from the request. Only a forced request actually searches.
+		const json = {
+			choices: [
+				{
+					message: { content: "Hello", role: "assistant" },
+					finish_reason: "stop",
+				},
+			],
+			usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+		};
+
+		it.each(["alibaba", "scx-ai-gp"] as const)(
+			"%s counts one search when forced",
+			(provider) => {
+				const result = parseProviderResponse(
+					provider,
+					"qwen3.8-max",
+					json,
+					[],
+					true,
+					false,
+					true,
+					true,
+				);
+
+				expect(result.webSearchCount).toBe(1);
+			},
+		);
+
+		it.each(["alibaba", "scx-ai-gp"] as const)(
+			"%s bills nothing for an unforced request",
+			(provider) => {
+				const result = parseProviderResponse(
+					provider,
+					"qwen3.8-max",
+					json,
+					[],
+					true,
+					false,
+					true,
+					false,
+				);
+
+				expect(result.webSearchCount).toBeNull();
+			},
+		);
+	});
+
 	describe("minimax reasoning extraction", () => {
 		it("extracts reasoning from reasoning_details", () => {
 			const json = {
@@ -1300,6 +1350,59 @@ describe("parseProviderResponse", () => {
 
 			expect(result.content).toBe("Final answer");
 			expect(result.reasoningContent).toBe("structured reasoning");
+		});
+	});
+
+	describe("xai reasoning tokens", () => {
+		// Real grok-4.6 usage payload: reasoning is reported only in the nested
+		// details object and is NOT part of completion_tokens (note total_tokens =
+		// 213 + 4 + 310), so it has to be read here to be billed at all.
+		const xaiJson = {
+			choices: [
+				{
+					message: { role: "assistant", content: "Hello there friend." },
+					finish_reason: "stop",
+				},
+			],
+			usage: {
+				prompt_tokens: 213,
+				completion_tokens: 4,
+				total_tokens: 527,
+				prompt_tokens_details: { cached_tokens: 128 },
+				completion_tokens_details: { reasoning_tokens: 310 },
+			},
+		};
+
+		it.each(["xai", "vertex-openai"] as const)(
+			"reads reasoning tokens from completion_tokens_details for %s",
+			(provider) => {
+				const result = parseProviderResponse(
+					provider,
+					"grok-4-6",
+					xaiJson,
+					[],
+					true,
+				);
+
+				expect(result.promptTokens).toBe(213);
+				expect(result.completionTokens).toBe(4);
+				expect(result.reasoningTokens).toBe(310);
+				expect(result.cachedTokens).toBe(128);
+			},
+		);
+
+		it("ignores the nested count for other OpenAI-compatible providers", () => {
+			// Everyone else folds reasoning into completion_tokens already, so
+			// reading the nested field would bill the same tokens twice.
+			const result = parseProviderResponse(
+				"openai",
+				"gpt-5.5",
+				xaiJson,
+				[],
+				true,
+			);
+
+			expect(result.reasoningTokens).toBeNull();
 		});
 	});
 });

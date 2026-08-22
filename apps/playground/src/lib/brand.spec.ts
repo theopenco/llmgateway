@@ -11,7 +11,7 @@ describe("Lounge brand", () => {
 		expect(BRAND.fullName).toBe("Lounge by LLM Gateway");
 		expect(BRAND.publisher).toBe("LLM Gateway");
 		expect(BRAND.tagline).toBe("Every frontier model. One membership.");
-		expect(BRAND.url).toBe("https://chat.llmgateway.io");
+		expect(BRAND.url).toBe("https://lounge.llmgateway.io");
 	});
 
 	test("web manifest uses the Lounge lockup", () => {

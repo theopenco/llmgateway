@@ -13,6 +13,7 @@ export const EMPTY_MANAGED_PROVIDER_AVAILABILITY: ManagedProviderAvailability =
 	{
 		configured: new Set(),
 		usable: new Set(),
+		defaultRegionUsable: new Set(),
 		pinnedRegions: new Map(),
 	};
 
@@ -54,6 +55,25 @@ export function platformCredentialCoversRegion(
 }
 
 /**
+ * Whether the platform can serve the provider before a region is known. Such a
+ * request is sent to the provider's default region, so a credential pinned to
+ * that region serves it just as a region-agnostic one does — the only shape
+ * available for a provider with no global region, whose every credential is
+ * necessarily region-pinned (Alibaba). Providers whose credential is shared
+ * across regions (AWS Bedrock) are excluded from `defaultRegionUsable`, so for
+ * them this stays exactly `usable`.
+ */
+export function platformCredentialServesDefaultRegion(
+	providerId: string,
+	managed: ManagedProviderAvailability,
+): boolean {
+	return (
+		managed.usable.has(providerId) ||
+		managed.defaultRegionUsable.has(providerId)
+	);
+}
+
+/**
  * Providers LLM Gateway can serve itself, i.e. the ones it holds a credential
  * for. A credential is either a managed provider-key row (the database-backed
  * configuration) or the provider's `LLM_*` environment variable — and once the
@@ -73,7 +93,7 @@ export function getPlatformBackedProviders(
 		.filter((provider) => provider.id !== "llmgateway")
 		.filter(
 			(provider) =>
-				managed.usable.has(provider.id) ||
+				platformCredentialServesDefaultRegion(provider.id, managed) ||
 				environmentServesProvider(provider.id, managed),
 		)
 		.map((provider) => provider.id);

@@ -24,6 +24,12 @@ const describeWebSearch = testWebSearch ? describe : describe.skip;
 // providers backed by it can report that a search ran but never where it read.
 const providersWithoutWebSearchAnnotations = ["zai/", "alibaba/", "scx-ai-gp/"];
 
+// Every case here asserts that a search actually ran, so every case demands
+// one. Providers that elect their own searches are unaffected — the directive
+// is not forwarded to them — but mappings flagged `webSearchForcedOnly` are
+// only routable with it, and would otherwise be filtered out of these tests.
+const FORCE_WEB_SEARCH = { type: "web_search" } as const;
+
 const expectsWebSearchAnnotations = (model: string) =>
 	!providersWithoutWebSearchAnnotations.some((prefix) =>
 		model.startsWith(prefix),
@@ -65,6 +71,7 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 							type: "web_search",
 						},
 					],
+					tool_choice: FORCE_WEB_SEARCH,
 				}),
 			});
 
@@ -150,6 +157,7 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 							type: "web_search",
 						},
 					],
+					tool_choice: FORCE_WEB_SEARCH,
 				}),
 			});
 
@@ -220,6 +228,7 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 							type: "web_search",
 						},
 					],
+					tool_choice: FORCE_WEB_SEARCH,
 					stream: true,
 				}),
 			});

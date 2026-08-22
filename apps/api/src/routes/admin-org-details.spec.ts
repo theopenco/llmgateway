@@ -199,6 +199,31 @@ describe("admin organization details endpoints", () => {
 			},
 		]);
 
+		// A project override must not leak into the org-level config or rules.
+		await db.insert(tables.project).values({
+			id: "guardrail-project",
+			organizationId: ORG_ID,
+			name: "Guardrail Project",
+		});
+		await db.insert(tables.guardrailConfig).values({
+			id: "gc-project",
+			organizationId: ORG_ID,
+			projectId: "guardrail-project",
+			inheritOrganization: false,
+			enabled: true,
+			maxFileSizeMb: 1,
+		});
+		await db.insert(tables.guardrailRule).values({
+			id: "gr-project",
+			organizationId: ORG_ID,
+			projectId: "guardrail-project",
+			name: "Project only",
+			type: "custom_regex",
+			config: { type: "custom_regex", pattern: "\\bACC-\\d{9}\\b" },
+			priority: 20,
+			action: "redact",
+		});
+
 		const res = await get("/guardrails", cookie);
 		expect(res.status).toBe(200);
 		const json = await res.json();

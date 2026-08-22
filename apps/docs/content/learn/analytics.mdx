@@ -6,11 +6,29 @@ icon: ChartArea
 
 import { ThemedImage } from "@/components/themed-image";
 
-The Analytics page shows where a project's spend actually goes. It breaks usage down by model — as a ranking and over time — so you can see which models drive cost, requests, and tokens across any date range.
+The Analytics page shows where a project's spend actually goes. It leads with the project's totals for the range, then breaks usage down — as a ranking and over time — so you can see what drives cost, requests, and tokens across any date range.
 
 <ThemedImage alt="Project Analytics" basePath="/learn/analytics" />
 
 Open it from the **Analytics** item in the project sidebar. Like the rest of the dashboard, the page respects the shared date-range picker at the top, so every chart reflects the same window.
+
+## Totals
+
+Three cards at the top show the project's **total cost**, **requests**, and **tokens** for the selected range, each with a sparkline of its daily values. They are computed from the same data as the charts below, so the total and the breakdown always agree.
+
+## Choosing a breakdown
+
+The **Group by** selector switches which dimension the two charts break the project down by:
+
+| Breakdown   | What it shows                                              |
+| ----------- | ---------------------------------------------------------- |
+| **Model**   | Spend per model (the default)                              |
+| **API key** | Spend per API key in the project                           |
+| **User**    | Spend per team member — Enterprise, owners and admins only |
+
+**Breakdown by user** answers "what is each person on this team costing us?" in the same view as the project total. It is available to organization owners and admins on the Enterprise plan — see [Member Analytics](/learn/member-analytics).
+
+Spend is attributed to whoever **created** the API key that made each request. Traffic from platform keys has no member behind it, so it is shown as **Unattributed** rather than dropped, keeping the per-member rows summing to the project total.
 
 ## Cost by Model
 
@@ -32,6 +50,8 @@ A stacked area chart that plots the same three metrics across the date range, wi
 - **Canonical** — variants of the same underlying model are collapsed into one canonical model (the provider prefix and tag are dropped), so `openai/gpt-5.5` and a custom mapping of it count as a single line.
 
 Switch to **Canonical** when you care about the underlying model's total footprint; stay on **Mappings** when you need to compare specific routes.
+
+The **Mappings / Canonical** toggle is specific to models — the API key and user breakdowns rank named entities, so there is nothing to collapse.
 
 ## How the data is computed
 

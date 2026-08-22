@@ -74,7 +74,7 @@ describe("parseClientSecretRecord", () => {
 		token: "llmgtwy_test",
 		model: "openai/gpt-realtime-2.1-mini",
 		transcriptionModel: "gpt-4o-mini-transcribe",
-		source: "chat.llmgateway.io",
+		source: "lounge.llmgateway.io",
 		createdAt: 1_784_800_000,
 		expiresAt: 1_784_800_060,
 	};

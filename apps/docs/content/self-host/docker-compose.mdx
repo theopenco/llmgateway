@@ -72,6 +72,31 @@ LLM_OPENAI_API_KEY=sk-...
 LLM_ANTHROPIC_API_KEY=sk-ant-...
 ```
 
+## Enterprise license
+
+Add the signed license supplied with your Enterprise agreement to `.env`:
+
+```bash
+LLMGATEWAY_ENTERPRISE_LICENSE=your-signed-license
+```
+
+Restart the API and gateway containers after changing it. Every replica may use
+the same license. The token is verified offline against a public key included in
+the images; it is never sent to LLM Gateway. Core features continue working when
+the key is missing or invalid. A standard Enterprise license is bound to one
+organization. A white-label license permits multiple Enterprise organizations
+and unlocks the multi-organization admin dashboard. Expired licenses receive a
+seven-day grace period.
+
+After restart, a signed-in administrator can check `GET /admin/license` for the
+state, expiry, scope, seat cap, and current distinct-seat usage. For signing-key
+rotation, upgrade the API and gateway images so they contain the new public key
+before installing a token with the new key ID. Old public keys remain in the
+image during the rotation window.
+
+See [Enterprise licensing](/self-host/enterprise-license) for license types,
+installation, verification, expiry behavior, and key rotation.
+
 ## Management commands
 
 ```bash
@@ -105,6 +130,15 @@ Managed credentials cover the same axes as the environment variables they replac
 - A per-credential audience (all organizations / enterprise plans / DevPass and
   Chat plans), mirroring the `__ENTERPRISE` and `__PLANS` suffixes below.
 - An optional region, mirroring the `{ENV_VAR}__{REGION}` overrides.
+
+A request that resolves no region is served from the provider's default region,
+so it is served by a region-agnostic credential or by one pinned to that default
+region. Providers whose keys are region-scoped — those with no global region, so
+every credential belongs to exactly one region — are therefore fully covered by
+one credential per region, with no region-agnostic credential needed. Providers
+whose key works across every region (AWS Bedrock) are stricter: a region on the
+credential scopes it to that region only, and a request for another region fails
+rather than borrowing it.
 
 Video generation pins the credential that created a job onto the job itself, so
 polling and content retrieval hours later go back through the same credential
@@ -145,6 +179,8 @@ LLM_GOOGLE_VERTEX_REGION=us-central1,europe-west1,asia-east1
 ```
 
 When the gateway selects `key2`, it automatically uses `project-b` and `europe-west1`. If you have fewer configuration values than keys, the last value is reused for the remaining keys.
+
+`LLM_GOOGLE_CLOUD_PROJECT` is optional for Google Vertex API-key chat, embedding, and speech requests, which use the projectless publisher-model endpoint when it is unset. Set it for OAuth authentication, video generation, or project-scoped Vertex URLs.
 
 ## Enterprise and plan provider env overrides
 

@@ -39,10 +39,14 @@ import {
 	applyEndUserSession,
 	assertTestWalletModelAllowed,
 } from "@/lib/end-user-session.js";
+import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
+import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { assertSpendLimit } from "@/lib/spend-limit.js";
 import {
 	clientFacingUpstreamFailureMessage,
 	redactedProviderErrorText,
@@ -51,15 +55,16 @@ import {
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
 import {
+	getGoogleVertexPublisherModelPath,
 	getProviderDefaultBaseUrl,
 	getProviderHeaders,
 	managedCredentialOptions,
+	providerKeyLabel,
 	readProviderKey,
 } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
-	getOrganizationEnvVariant,
 	models as modelDefinitions,
 	resolveVertexTokenType,
 	type VertexTokenType,
@@ -70,6 +75,8 @@ import type { ServerTypes } from "@/vars.js";
 import type { RoutingMetadata } from "@llmgateway/actions";
 import type { InferSelectModel, tables } from "@llmgateway/db";
 import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
+import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
+import type { Context } from "hono";
 
 const embeddingInputSchema = z
 	.union([
@@ -283,12 +290,25 @@ function getAvailableCredits(
 	};
 }
 
-function assertCreditsAvailableForEmbedding(
+async function assertCreditsAvailableForEmbedding(
+	c: Pick<Context, "header">,
 	organization: InferSelectModel<typeof tables.organization>,
 	modelDef: ModelDefinition,
 	insufficientCreditsMessage: string,
 	devPlanCreditLimitMessage: (renewalDate: string) => string,
+	walletFunded = false,
 ) {
+	// Per-org daily/monthly USD spend caps, checked even when the org has
+	// credits (a funded org can still hit its cap). Free models are exempt; the
+	// kind/enterprise/enabled gates live inside the helper, which also sets
+	// Retry-After and the X-RateLimit-* reset headers on the 429. Wallet-funded
+	// end-user sessions bill the wallet, not org credits — their inference is
+	// exempt from the org cap (the credit checks below still gate the wallet's
+	// mirrored balance).
+	if (!walletFunded) {
+		await assertSpendLimit(c, organization, modelDef.free ?? false);
+	}
+
 	const {
 		devPlanCreditsRemaining,
 		chatPlanCreditsRemaining,
@@ -505,6 +525,12 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 	const { mapping, modelDef, modelDefId, explicitProvider } = match;
 	const upstreamModel = mapping.externalId;
 	const providerId = mapping.providerId;
+	const responseModel = formatUsedModelForDisplay(
+		providerId,
+		modelDefId,
+		undefined,
+		mapping.region,
+	);
 
 	const isTokenIdInput = (() => {
 		if (!Array.isArray(input)) {
@@ -592,11 +618,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		});
 	}
 
-	if (baseOrganization.status === "deleted") {
-		throw new HTTPException(410, {
-			message: "Organization has been disabled and is no longer accessible",
-		});
-	}
+	assertOrganizationUsable(baseOrganization);
 
 	// LLM SDK: ephemeral end-user sessions bill the bound wallet instead
 	// of the developer's org credits (the log's endCustomerWalletId redirects the
@@ -656,11 +678,20 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 	const routingAttempts: RoutingAttempt[] = [];
 	const buildEmbeddingRoutingMetadata = (
 		usedApiKeyHash: string | undefined,
+		usedCredentialSource: RoutingCredentialSource,
+		usedProviderKey: { id?: string; label?: string },
 	): RoutingMetadata => ({
 		availableProviders: [providerId],
 		selectedProvider: providerId,
 		selectionReason,
-		...(usedApiKeyHash ? { usedApiKeyHash } : {}),
+		...(usedApiKeyHash
+			? {
+					usedApiKeyHash,
+					usedCredentialSource,
+					usedProviderKeyId: usedProviderKey.id,
+					usedProviderKeyLabel: usedProviderKey.label,
+				}
+			: {}),
 		providerScores: [],
 		...(routingAttempts.length > 0 ? { routing: routingAttempts } : {}),
 	});
@@ -674,7 +705,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 
 	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
 	// this org's env-credential reads. Undefined = base vars only.
-	const envVariant = getOrganizationEnvVariant(retryOrganization);
+	const envVariant = getLicensedOrganizationEnvVariant(retryOrganization);
 
 	const isGoogleAiStudio = providerId === "google-ai-studio";
 	const isGoogleVertex = providerId === "google-vertex";
@@ -740,12 +771,14 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			}
 			usedToken = readProviderKey(providerKey);
 		} else if (retryProject.mode === "credits") {
-			assertCreditsAvailableForEmbedding(
+			await assertCreditsAvailableForEmbedding(
+				c,
 				retryOrganization,
 				modelDef,
 				`Organization ${retryOrganization.id} has insufficient credits`,
 				(renewalDate) =>
 					`Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+				Boolean(wallet),
 			);
 
 			const platformCredential = await resolvePlatformCredential(providerId, {
@@ -770,12 +803,14 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			if (providerKey) {
 				usedToken = readProviderKey(providerKey);
 			} else {
-				assertCreditsAvailableForEmbedding(
+				await assertCreditsAvailableForEmbedding(
+					c,
 					retryOrganization,
 					modelDef,
 					"No API key set for provider and organization has insufficient credits",
 					(renewalDate) =>
 						`No API key set for provider. Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+					Boolean(wallet),
 				);
 
 				const platformCredential = await resolvePlatformCredential(providerId, {
@@ -860,8 +895,9 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			}
 		} else if (isGoogleVertex) {
 			// All exposed google-vertex embedding models go through PredictionService's
-			// :predict endpoint, which accepts API-key auth via ?key= just like the
-			// chat path. The text-embedding-* family natively batches up to 250
+			// :predict endpoint. API keys can use the projectless publisher-model
+			// resource, while OAuth credentials still require an explicit project.
+			// The text-embedding-* family natively batches up to 250
 			// inputs per request; gemini-embedding-001 is the one model that only
 			// accepts a single input per call, so we reject batches for it upfront
 			// rather than fanning out silently (which would hide cost/quota/latency).
@@ -886,7 +922,16 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 					configIndex,
 					variant: envVariant,
 				});
-			if (!vertexProjectId) {
+			vertexTokenType = resolveVertexTokenType(
+				"google-vertex",
+				providerKey
+					? (providerKey.options ?? undefined)
+					: managedCredentialOptions(managedKey),
+				configIndex,
+				providerKey !== undefined || managedKey !== undefined,
+				envVariant,
+			);
+			if (!vertexProjectId && vertexTokenType === "oauth") {
 				return {
 					kind: "json_error",
 					status: 500,
@@ -908,24 +953,11 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 					variant: envVariant,
 				}) ?? "global";
 
-			// OAuth tokens are sent via the Authorization header (below); only API
-			// keys go in the `?key=` query param. Resolve once so the header and
-			// the query param agree. No region-env override here, so providerKey
-			// presence is an accurate BYOK signal.
-			vertexTokenType = resolveVertexTokenType(
-				"google-vertex",
-				providerKey
-					? (providerKey.options ?? undefined)
-					: managedCredentialOptions(managedKey),
-				configIndex,
-				providerKey !== undefined || managedKey !== undefined,
-				envVariant,
-			);
 			const vertexAuthQuery =
 				vertexTokenType === "oauth"
 					? ""
 					: `?key=${encodeURIComponent(usedToken)}`;
-			upstreamUrl = `${resolvedBaseUrl}/v1/projects/${vertexProjectId}/locations/${vertexRegion}/publishers/google/models/${upstreamModel}:predict${vertexAuthQuery}`;
+			upstreamUrl = `${resolvedBaseUrl}${getGoogleVertexPublisherModelPath(upstreamModel, vertexProjectId, vertexRegion)}:predict${vertexAuthQuery}`;
 			requestBody = {
 				instances: googleInputs.map((text) => ({ content: text })),
 			};
@@ -1031,6 +1063,16 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		while (true) {
 			const attemptLogId = shortid();
 			const usedApiKeyHash = getApiKeyFingerprint(attempt.usedToken);
+			// BYOK only when the organization's own key served the attempt; a
+			// platform-managed credential is LLM Gateway's key and bills as credits.
+			const credentialSource: RoutingCredentialSource = attempt.providerKey
+				? "byok"
+				: "platform";
+			// Named only for the organization's own key; providerKeyLabel()
+			// refuses to describe a platform-managed credential.
+			const providerKeyId = attempt.providerKey?.id;
+			const keyLabel = providerKeyLabel(attempt.providerKey);
+			const usedProviderKey = { id: providerKeyId, label: keyLabel };
 			const baseLogEntry = createLogEntry({
 				requestId,
 				project,
@@ -1145,6 +1187,9 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 							false,
 							{
 								apiKeyHash: usedApiKeyHash,
+								credentialSource,
+								providerKeyId,
+								providerKeyLabel: keyLabel,
 								logId: willRetry ? attemptLogId : finalLogId,
 							},
 						),
@@ -1155,7 +1200,11 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 					{
 						...baseLogEntry,
 						id: willRetry ? attemptLogId : finalLogId,
-						routingMetadata: buildEmbeddingRoutingMetadata(usedApiKeyHash),
+						routingMetadata: buildEmbeddingRoutingMetadata(
+							usedApiKeyHash,
+							credentialSource,
+							usedProviderKey,
+						),
 						duration,
 						timeToFirstToken: null,
 						timeToFirstReasoningToken: null,
@@ -1297,6 +1346,9 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 						false,
 						{
 							apiKeyHash: usedApiKeyHash,
+							credentialSource,
+							providerKeyId,
+							providerKeyLabel: keyLabel,
 							logId: willRetry ? attemptLogId : finalLogId,
 						},
 					),
@@ -1306,7 +1358,11 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 					{
 						...baseLogEntry,
 						id: willRetry ? attemptLogId : finalLogId,
-						routingMetadata: buildEmbeddingRoutingMetadata(usedApiKeyHash),
+						routingMetadata: buildEmbeddingRoutingMetadata(
+							usedApiKeyHash,
+							credentialSource,
+							usedProviderKey,
+						),
 						duration,
 						timeToFirstToken: null,
 						timeToFirstReasoningToken: null,
@@ -1462,7 +1518,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				normalizedResponse = {
 					object: "list",
 					data,
-					model: requestedModel,
+					model: responseModel,
 					usage: {
 						prompt_tokens: promptTokens,
 						total_tokens: totalTokens,
@@ -1519,7 +1575,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				normalizedResponse = {
 					object: "list",
 					data,
-					model: requestedModel,
+					model: responseModel,
 					usage: {
 						prompt_tokens: promptTokens,
 						total_tokens: totalTokens,
@@ -1548,6 +1604,8 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				}
 			}
 
+			normalizedResponse.model = responseModel;
+
 			const inputPrice = Number(mapping.inputPrice ?? "0");
 			const inputCost = promptTokens !== null ? promptTokens * inputPrice : 0;
 			const requestCost = Number(mapping.requestPrice ?? "0");
@@ -1562,6 +1620,9 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 					true,
 					{
 						apiKeyHash: usedApiKeyHash,
+						credentialSource,
+						providerKeyId,
+						providerKeyLabel: keyLabel,
 						logId: finalLogId,
 					},
 				),
@@ -1571,7 +1632,11 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				{
 					...baseLogEntry,
 					id: finalLogId,
-					routingMetadata: buildEmbeddingRoutingMetadata(usedApiKeyHash),
+					routingMetadata: buildEmbeddingRoutingMetadata(
+						usedApiKeyHash,
+						credentialSource,
+						usedProviderKey,
+					),
 					duration,
 					timeToFirstToken: null,
 					timeToFirstReasoningToken: null,

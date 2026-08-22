@@ -67,7 +67,7 @@ const MAX_CONTEXT_MESSAGES = 30;
 
 const DOCS_BASE_URL = "https://docs.llmgateway.io";
 
-const BASE_SYSTEM_PROMPT = `You are the LLM Gateway support assistant. You ONLY answer questions related to LLM Gateway — the unified API gateway for multiple LLM providers — and its products (the dashboard at llmgateway.io, DevPass at devpass.llmgateway.io, the docs at docs.llmgateway.io, and Lounge, the AI chat app at chat.llmgateway.io).
+const BASE_SYSTEM_PROMPT = `You are the LLM Gateway support assistant. You ONLY answer questions related to LLM Gateway — the unified API gateway for multiple LLM providers — and its products (the dashboard at llmgateway.io, DevPass at devpass.llmgateway.io, the docs at docs.llmgateway.io, and Lounge, the AI chat app at lounge.llmgateway.io).
 
 Your knowledge covers:
 - Getting started, quick start, and setup
@@ -115,7 +115,7 @@ ${overviewSections}`;
 		const urlList = urls.map((u) => `- ${u}`).join("\n");
 		prompt += `
 
-Available pages (sourced from the live sitemaps and llms.txt files of llmgateway.io, devpass.llmgateway.io, docs.llmgateway.io and chat.llmgateway.io). Use these for accurate links and as targets for the \`fetchPage\` tool:
+Available pages (sourced from the live sitemaps and llms.txt files of llmgateway.io, devpass.llmgateway.io, docs.llmgateway.io and lounge.llmgateway.io). Use these for accurate links and as targets for the \`fetchPage\` tool:
 ${urlList}`;
 	}
 
@@ -538,7 +538,7 @@ publicChatSupport.post("/", async (c) => {
 		tools: {
 			fetchPage: tool({
 				description:
-					"Fetch the readable text content of an LLM Gateway page (llmgateway.io, devpass/docs/chat.llmgateway.io) to ground your answer in accurate, up-to-date information. Pass a full https URL from the available pages list.",
+					"Fetch the readable text content of an LLM Gateway page (llmgateway.io, devpass/docs/lounge.llmgateway.io) to ground your answer in accurate, up-to-date information. Pass a full https URL from the available pages list.",
 				inputSchema: z.object({
 					url: z
 						.string()
@@ -895,6 +895,7 @@ publicChatSupport.post("/escalate", async (c) => {
 			name,
 			email,
 			conversationId,
+			adminConversationUrl,
 			ipAddress,
 			lastMessage: lastUserMessage,
 		}),

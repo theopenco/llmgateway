@@ -112,8 +112,15 @@ function buildTextSummary(message: BaseMessage): string | null {
 				continue;
 			}
 
-			if (part.type === "tool_result" && part.content.trim().length > 0) {
-				segments.push(`tool_result: ${part.content.trim()}`);
+			if (part.type === "tool_result") {
+				// The content is a block array when a client-side tool search
+				// answered with tool_reference blocks; there is no user text in
+				// those, so only the string form is worth screening.
+				const text =
+					typeof part.content === "string" ? part.content.trim() : "";
+				if (text.length > 0) {
+					segments.push(`tool_result: ${text}`);
+				}
 			}
 		}
 	}

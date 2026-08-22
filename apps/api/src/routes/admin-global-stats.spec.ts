@@ -6,6 +6,9 @@ import { createTestUser, deleteAll } from "@/testing.js";
 import { db, eq, tables } from "@llmgateway/db";
 
 const MODEL = "openai/global-stats-model";
+// Separate model id so the bulk precision fixture cannot collide with the
+// per-bucket rows above on (day, model, provider, mode, kind).
+const BULK_MODEL = "openai/global-stats-bulk-model";
 const SOURCE = "global-stats-source";
 
 const DAY = new Date();
@@ -16,6 +19,7 @@ interface Bucket {
 	usedMode: "credits" | "api-keys" | "unknown";
 	orgKind: "default" | "devpass" | "chat" | "unknown";
 	requestCount: number;
+	clientErrorCount?: number;
 	cost: number;
 	tokens: number;
 }
@@ -28,6 +32,7 @@ const BUCKETS: Bucket[] = [
 		usedMode: "credits",
 		orgKind: "default",
 		requestCount: 10,
+		clientErrorCount: 1,
 		cost: 1,
 		tokens: 100,
 	},
@@ -53,6 +58,12 @@ const BUCKETS: Bucket[] = [
 		tokens: 10,
 	},
 ];
+
+// The per-bucket fixture above also lands in the window every query covers.
+const BASE_FIXTURE_COST = BUCKETS.reduce(
+	(sum, bucket) => sum + Math.fround(bucket.cost),
+	0,
+);
 
 interface GlobalStatsResponse {
 	totals: {
@@ -101,6 +112,9 @@ const clearFixtures = async () => {
 		.delete(tables.globalModelStats)
 		.where(eq(tables.globalModelStats.usedModel, MODEL));
 	await db
+		.delete(tables.globalModelStats)
+		.where(eq(tables.globalModelStats.usedModel, BULK_MODEL));
+	await db
 		.delete(tables.globalSourceStats)
 		.where(eq(tables.globalSourceStats.source, SOURCE));
 };
@@ -122,6 +136,7 @@ describe("admin — global stats mode/kind dimensions", () => {
 				orgKind: bucket.orgKind,
 				requestCount: bucket.requestCount,
 				errorCount: 1,
+				clientErrorCount: bucket.clientErrorCount ?? 0,
 				cost: bucket.cost,
 				totalTokens: String(bucket.tokens),
 				inputTokens: String(bucket.tokens / 2),
@@ -136,6 +151,7 @@ describe("admin — global stats mode/kind dimensions", () => {
 				orgKind: bucket.orgKind,
 				requestCount: bucket.requestCount,
 				errorCount: 1,
+				clientErrorCount: bucket.clientErrorCount ?? 0,
 				cost: bucket.cost,
 				totalTokens: String(bucket.tokens),
 				inputTokens: String(bucket.tokens / 2),
@@ -164,7 +180,7 @@ describe("admin — global stats mode/kind dimensions", () => {
 		// per-mode column pairs could never do.
 		expect(body.totals.totalTokens).toBe(120);
 		expect(body.totals.inputTokens).toBe(60);
-		expect(body.totals.errorCount).toBe(2);
+		expect(body.totals.errorCount).toBe(1);
 	});
 
 	test("narrows to the selected organization kind", async () => {
@@ -226,6 +242,64 @@ describe("admin — global stats mode/kind dimensions", () => {
 		expect(
 			byok.composition.byKind.find((item) => item.requestCount > 0)?.key,
 		).toBe("default");
+	});
+
+	// Costs are stored in float4 columns. Summing them *as* float4 (Postgres'
+	// default for SUM(real)) runs out of significant digits well before the
+	// all-time totals this page shows, and the error depends on how the rows were
+	// grouped — so the headline stopped matching the slices underneath it. A
+	// handful of rows never showed it; the drift only appears at production
+	// magnitude, hence the bulk fixture.
+	test("large all-time sums stay exact and grouping-independent", async () => {
+		const DAYS = 700;
+		const PER_ROW_COST = 4321.1234;
+		const days = Array.from(
+			{ length: DAYS },
+			(_, i) => new Date(DAY.getTime() - i * 24 * 60 * 60 * 1000), // eslint-disable-line no-mixed-operators
+		);
+
+		await db.insert(tables.globalModelStats).values(
+			days.flatMap((day) =>
+				BUCKETS.map((bucket) => ({
+					dayTimestamp: day,
+					usedModel: BULK_MODEL,
+					usedProvider: "openai",
+					usedMode: bucket.usedMode,
+					orgKind: bucket.orgKind,
+					requestCount: bucket.requestCount,
+					cost: PER_ROW_COST,
+				})),
+			),
+		);
+
+		const from = days[days.length - 1].toISOString().split("T")[0];
+		const body = await fetchStats(cookie, { from, to: DATE });
+
+		// The reported symptom: the headline and the slices under it are the same
+		// rows grouped two ways, so they have to agree to the cent.
+		const byMode = body.composition.byMode.reduce(
+			(sum, item) => sum + item.cost,
+			0,
+		);
+		const byKind = body.composition.byKind.reduce(
+			(sum, item) => sum + item.cost,
+			0,
+		);
+		const timeseriesTotal = body.timeseries.reduce(
+			(sum, point) => sum + point.cost,
+			0,
+		);
+		expect(byMode).toBeCloseTo(body.totals.cost, 2);
+		expect(byKind).toBeCloseTo(body.totals.cost, 2);
+		expect(timeseriesTotal).toBeCloseTo(body.totals.cost, 2);
+
+		// float4 rounds PER_ROW_COST on the way in, so compare against the value
+		// the column actually holds rather than the literal above.
+		const stored = Math.fround(PER_ROW_COST);
+		expect(body.totals.cost).toBeCloseTo(
+			stored * DAYS * BUCKETS.length + BASE_FIXTURE_COST, // eslint-disable-line no-mixed-operators
+			2,
+		);
 	});
 
 	test("groups the breakdown by billing mode and organization kind", async () => {

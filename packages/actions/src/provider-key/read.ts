@@ -80,3 +80,33 @@ export function hasProviderKey(
 	}
 	return !isAbsent(row.tokenCiphertext) || !isAbsent(row.token);
 }
+
+/** Row shape needed to describe a credential to the organization that owns it. */
+export interface ProviderKeyLabelRowLike {
+	organizationId: string | null;
+	managed?: boolean | null;
+	name?: string | null;
+	description?: string | null;
+	tokenMasked?: string | null;
+}
+
+/**
+ * How a provider key is named to the organization that owns it: its
+ * description when set, its custom-provider name next, then the masked token
+ * the provider-keys page lists it under. Never the plaintext token.
+ *
+ * THE SECURITY GATE FOR CREDENTIAL LABELS LIVES HERE — do not describe a
+ * provider key anywhere else. Platform-managed credentials (LLM Gateway's own
+ * keys, which have no owning organization) return undefined: their name, mask
+ * and comment are operator-only, and surfacing them in a tenant's routing view
+ * or API response would leak platform infrastructure to every customer whose
+ * request happened to fall back onto credits.
+ */
+export function providerKeyLabel(
+	row: ProviderKeyLabelRowLike | null | undefined,
+): string | undefined {
+	if (!row || row.managed || !row.organizationId) {
+		return undefined;
+	}
+	return row.description || row.name || row.tokenMasked || undefined;
+}

@@ -1,4 +1,5 @@
 import {
+	type AnyColumn,
 	db,
 	log,
 	projectHourlyStats,
@@ -47,6 +48,16 @@ function getCurrentHourStart(): string {
 				0,
 			),
 		),
+	);
+}
+
+/**
+ * SUM of a money column in double precision. Never `SUM(<real column>)` — that
+ * accumulates in float4 and loses cents long before the hour is over.
+ */
+function sumLogMoney(column: AnyColumn, alias: string) {
+	return sql<number>`coalesce(sum(cast(${column} as double precision)), 0)`.as(
+		alias,
 	);
 }
 
@@ -137,51 +148,37 @@ export function getBaseAggregationFields() {
 			sql<string>`coalesce(sum(cast(${log.cacheWriteTokens} as numeric)), 0)`.as(
 				"cacheWriteTokens",
 			),
-		// Costs
-		cost: sql<number>`coalesce(sum(${log.cost}), 0)`.as("cost"),
-		inputCost: sql<number>`coalesce(sum(${log.inputCost}), 0)`.as("inputCost"),
-		outputCost: sql<number>`coalesce(sum(${log.outputCost}), 0)`.as(
-			"outputCost",
-		),
-		requestCost: sql<number>`coalesce(sum(${log.requestCost}), 0)`.as(
-			"requestCost",
-		),
-		dataStorageCost:
-			sql<number>`coalesce(sum(cast(${log.dataStorageCost} as real)), 0)`.as(
-				"dataStorageCost",
-			),
+		// Costs. `log.cost` and friends are float4, and Postgres accumulates
+		// SUM(real) in float4 too — a busy hour is tens of thousands of rows, so the
+		// running sum runs out of its ~7 significant digits and the bucket is stored
+		// already-wrong. Casting to double precision first keeps the accumulation
+		// accurate; the target column is still float4, so only the final value is
+		// rounded rather than every partial sum along the way.
+		cost: sumLogMoney(log.cost, "cost"),
+		inputCost: sumLogMoney(log.inputCost, "inputCost"),
+		outputCost: sumLogMoney(log.outputCost, "outputCost"),
+		requestCost: sumLogMoney(log.requestCost, "requestCost"),
+		dataStorageCost: sumLogMoney(log.dataStorageCost, "dataStorageCost"),
 		discountSavings: sql<number>`coalesce(
 			sum(
 				case
 					when ${log.discount} > 0 and ${log.discount} < 1
-					then ${log.cost} * ${log.discount} / (1 - ${log.discount})
+					then cast(${log.cost} as double precision) * ${log.discount} / (1 - ${log.discount})
 					else 0
 				end
 			),
 			0
 		)`.as("discountSavings"),
-		imageInputCost: sql<number>`coalesce(sum(${log.imageInputCost}), 0)`.as(
-			"imageInputCost",
+		imageInputCost: sumLogMoney(log.imageInputCost, "imageInputCost"),
+		imageOutputCost: sumLogMoney(log.imageOutputCost, "imageOutputCost"),
+		audioInputCost: sumLogMoney(log.audioInputCost, "audioInputCost"),
+		audioOutputCost: sumLogMoney(log.audioOutputCost, "audioOutputCost"),
+		videoOutputCost: sumLogMoney(log.videoOutputCost, "videoOutputCost"),
+		cachedInputCost: sumLogMoney(log.cachedInputCost, "cachedInputCost"),
+		cacheWriteInputCost: sumLogMoney(
+			log.cacheWriteInputCost,
+			"cacheWriteInputCost",
 		),
-		imageOutputCost: sql<number>`coalesce(sum(${log.imageOutputCost}), 0)`.as(
-			"imageOutputCost",
-		),
-		audioInputCost: sql<number>`coalesce(sum(${log.audioInputCost}), 0)`.as(
-			"audioInputCost",
-		),
-		audioOutputCost: sql<number>`coalesce(sum(${log.audioOutputCost}), 0)`.as(
-			"audioOutputCost",
-		),
-		videoOutputCost: sql<number>`coalesce(sum(${log.videoOutputCost}), 0)`.as(
-			"videoOutputCost",
-		),
-		cachedInputCost: sql<number>`coalesce(sum(${log.cachedInputCost}), 0)`.as(
-			"cachedInputCost",
-		),
-		cacheWriteInputCost:
-			sql<number>`coalesce(sum(${log.cacheWriteInputCost}), 0)`.as(
-				"cacheWriteInputCost",
-			),
 	};
 }
 
@@ -202,19 +199,19 @@ export function getCommonAggregationFields() {
 				"apiKeysRequestCount",
 			),
 		creditsCost:
-			sql<number>`coalesce(sum(case when ${log.usedMode} = 'credits' then ${log.cost} else 0 end), 0)`.as(
+			sql<number>`coalesce(sum(case when ${log.usedMode} = 'credits' then cast(${log.cost} as double precision) else 0 end), 0)`.as(
 				"creditsCost",
 			),
 		apiKeysCost:
-			sql<number>`coalesce(sum(case when ${log.usedMode} = 'api-keys' then ${log.cost} else 0 end), 0)`.as(
+			sql<number>`coalesce(sum(case when ${log.usedMode} = 'api-keys' then cast(${log.cost} as double precision) else 0 end), 0)`.as(
 				"apiKeysCost",
 			),
 		creditsDataStorageCost:
-			sql<number>`coalesce(sum(case when ${log.usedMode} = 'credits' then cast(${log.dataStorageCost} as real) else 0 end), 0)`.as(
+			sql<number>`coalesce(sum(case when ${log.usedMode} = 'credits' then cast(${log.dataStorageCost} as double precision) else 0 end), 0)`.as(
 				"creditsDataStorageCost",
 			),
 		apiKeysDataStorageCost:
-			sql<number>`coalesce(sum(case when ${log.usedMode} = 'api-keys' then cast(${log.dataStorageCost} as real) else 0 end), 0)`.as(
+			sql<number>`coalesce(sum(case when ${log.usedMode} = 'api-keys' then cast(${log.dataStorageCost} as double precision) else 0 end), 0)`.as(
 				"apiKeysDataStorageCost",
 			),
 	};
@@ -497,7 +494,7 @@ function getProviderKeySpendAggregationFields() {
 			sql<string>`coalesce(sum(cast(${log.totalTokens} as numeric)), 0)`.as(
 				"totalTokens",
 			),
-		cost: sql<number>`coalesce(sum(${log.cost}), 0)`.as("cost"),
+		cost: sumLogMoney(log.cost, "cost"),
 	};
 }
 

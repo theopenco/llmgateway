@@ -39,10 +39,14 @@ import {
 	applyEndUserSession,
 	assertTestWalletModelAllowed,
 } from "@/lib/end-user-session.js";
+import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
+import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { assertSpendLimit } from "@/lib/spend-limit.js";
 import {
 	clientFacingUpstreamFailureMessage,
 	redactedProviderErrorText,
@@ -54,20 +58,19 @@ import { validateModelOutput } from "@/lib/validate-model-output.js";
 import {
 	getProviderDefaultBaseUrl,
 	getProviderHeaders,
+	providerKeyLabel,
 	readProviderKey,
 } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
-import {
-	getOrganizationEnvVariant,
-	models as modelDefinitions,
-	type Provider,
-} from "@llmgateway/models";
+import { models as modelDefinitions, type Provider } from "@llmgateway/models";
 
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
 import type { ServerTypes } from "@/vars.js";
 import type { RoutingMetadata } from "@llmgateway/actions";
 import type { InferSelectModel, tables } from "@llmgateway/db";
 import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
+import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
+import type { Context } from "hono";
 
 const rerankRequestSchema = z.object({
 	model: z.string().openapi({
@@ -135,6 +138,7 @@ const rerankMetaSchema = z
 const rerankResponseSchema = z
 	.object({
 		id: z.string().optional(),
+		model: z.string(),
 		results: z.array(rerankResultSchema),
 		meta: rerankMetaSchema.optional(),
 	})
@@ -210,12 +214,15 @@ function getAvailableCredits(
 	};
 }
 
-function assertCreditsAvailableForRerank(
+async function assertCreditsAvailableForRerank(
+	c: Context,
 	organization: InferSelectModel<typeof tables.organization>,
 	modelDef: ModelDefinition,
 	insufficientCreditsMessage: string,
 	devPlanCreditLimitMessage: (renewalDate: string) => string,
 ) {
+	await assertSpendLimit(c, organization, modelDef.free === true);
+
 	const { totalAvailableCredits } = getAvailableCredits(organization);
 
 	if (totalAvailableCredits > 0 || modelDef.free) {
@@ -463,11 +470,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 		});
 	}
 
-	if (baseOrganization.status === "deleted") {
-		throw new HTTPException(410, {
-			message: "Organization has been disabled and is no longer accessible",
-		});
-	}
+	assertOrganizationUsable(baseOrganization);
 
 	// LLM SDK: ephemeral end-user sessions
 	const { project, organization, wallet } = await applyEndUserSession(
@@ -503,6 +506,12 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 	} = result;
 	const providerId = rerankMapping.providerId;
 	const upstreamModel = rerankMapping.externalId;
+	const responseModel = formatUsedModelForDisplay(
+		providerId,
+		modelDefId,
+		undefined,
+		rerankMapping.region,
+	);
 
 	// 3. Validate model output includes "rerank"
 	validateModelOutput(modelDef, requestedModel, ["rerank"]);
@@ -543,13 +552,22 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 
 	const buildRerankRoutingMetadata = (
 		usedApiKeyHash: string | undefined,
+		usedCredentialSource: RoutingCredentialSource,
+		usedProviderKey: { id?: string; label?: string },
 	): RoutingMetadata => ({
 		availableProviders: [providerId],
 		selectedProvider: providerId,
 		selectionReason: explicitProvider
 			? "direct-provider-specified"
 			: "single-provider-available",
-		...(usedApiKeyHash ? { usedApiKeyHash } : {}),
+		...(usedApiKeyHash
+			? {
+					usedApiKeyHash,
+					usedCredentialSource,
+					usedProviderKeyId: usedProviderKey.id,
+					usedProviderKeyLabel: usedProviderKey.label,
+				}
+			: {}),
 		providerScores: [],
 		...(routingAttempts.length > 0 ? { routing: routingAttempts } : {}),
 	});
@@ -583,7 +601,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 		let usedToken: string | undefined;
 		let configIndex = 0;
 		let envVarName: string | undefined;
-		const envVariant = getOrganizationEnvVariant(organization);
+		const envVariant = getLicensedOrganizationEnvVariant(organization);
 
 		const excludedProviderKeyIds = failedKeys.providerKeyIdsFor(
 			providerId,
@@ -626,7 +644,8 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 			}
 			usedToken = readProviderKey(providerKeyInner);
 		} else if (project.mode === "credits") {
-			assertCreditsAvailableForRerank(
+			await assertCreditsAvailableForRerank(
+				c,
 				organization,
 				modelDef,
 				`Organization ${organization.id} has insufficient credits`,
@@ -645,7 +664,8 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 			if (providerKeyInner) {
 				usedToken = readProviderKey(providerKeyInner);
 			} else {
-				assertCreditsAvailableForRerank(
+				await assertCreditsAvailableForRerank(
+					c,
 					organization,
 					modelDef,
 					"No API key set for provider and organization has insufficient credits",
@@ -774,6 +794,16 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 		while (true) {
 			const attemptLogId = shortid();
 			const usedApiKeyHash = getApiKeyFingerprint(attempt.usedToken);
+			// BYOK only when the organization's own key served the attempt; a
+			// platform-managed credential is LLM Gateway's key and bills as credits.
+			const credentialSource: RoutingCredentialSource = attempt.providerKey
+				? "byok"
+				: "platform";
+			// Named only for the organization's own key; providerKeyLabel()
+			// refuses to describe a platform-managed credential.
+			const providerKeyId = attempt.providerKey?.id;
+			const keyLabel = providerKeyLabel(attempt.providerKey);
+			const usedProviderKey = { id: providerKeyId, label: keyLabel };
 			const baseLogEntry = createLogEntry({
 				requestId,
 				project,
@@ -880,6 +910,9 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 							false,
 							{
 								apiKeyHash: usedApiKeyHash,
+								credentialSource,
+								providerKeyId,
+								providerKeyLabel: keyLabel,
 								logId: willRetry ? attemptLogId : finalLogId,
 							},
 						),
@@ -889,7 +922,11 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 				await insertLog({
 					...baseLogEntry,
 					id: willRetry ? attemptLogId : finalLogId,
-					routingMetadata: buildRerankRoutingMetadata(usedApiKeyHash),
+					routingMetadata: buildRerankRoutingMetadata(
+						usedApiKeyHash,
+						credentialSource,
+						usedProviderKey,
+					),
 					duration,
 					timeToFirstToken: null,
 					timeToFirstReasoningToken: null,
@@ -1029,6 +1066,9 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 						false,
 						{
 							apiKeyHash: usedApiKeyHash,
+							credentialSource,
+							providerKeyId,
+							providerKeyLabel: keyLabel,
 							logId: willRetry ? attemptLogId : finalLogId,
 						},
 					),
@@ -1037,7 +1077,11 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 				await insertLog({
 					...baseLogEntry,
 					id: willRetry ? attemptLogId : finalLogId,
-					routingMetadata: buildRerankRoutingMetadata(usedApiKeyHash),
+					routingMetadata: buildRerankRoutingMetadata(
+						usedApiKeyHash,
+						credentialSource,
+						usedProviderKey,
+					),
 					duration,
 					timeToFirstToken: null,
 					timeToFirstReasoningToken: null,
@@ -1189,6 +1233,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 					normalizedResponse.id = requestId;
 				}
 			}
+			normalizedResponse.model = responseModel;
 
 			// Calculate cost from input tokens
 			const inputPrice = Number(rerankMapping.inputPrice ?? "0");
@@ -1196,10 +1241,31 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 			const requestCostNum = Number(rerankMapping.requestPrice ?? "0");
 			const cost = inputCost + requestCostNum;
 
+			routingAttempts.push(
+				buildRoutingAttempt(
+					providerId,
+					modelDefId,
+					upstreamResponse.status,
+					"none",
+					true,
+					{
+						apiKeyHash: usedApiKeyHash,
+						credentialSource,
+						providerKeyId,
+						providerKeyLabel: keyLabel,
+						logId: finalLogId,
+					},
+				),
+			);
+
 			await insertLog({
 				...baseLogEntry,
 				id: finalLogId,
-				routingMetadata: buildRerankRoutingMetadata(usedApiKeyHash),
+				routingMetadata: buildRerankRoutingMetadata(
+					usedApiKeyHash,
+					credentialSource,
+					usedProviderKey,
+				),
 				duration,
 				timeToFirstToken: null,
 				timeToFirstReasoningToken: null,

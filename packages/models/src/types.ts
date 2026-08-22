@@ -13,14 +13,33 @@ export interface PromptCacheBreakpoint {
 	mode?: "explicit";
 }
 
+/**
+ * Anthropic prompt-cache breakpoint. Ends a cacheable prefix; Anthropic allows
+ * at most 4 of them per request across tools, system and messages.
+ */
+export interface CacheControl {
+	type: "ephemeral";
+	ttl?: "5m" | "1h";
+}
+
+/**
+ * How a project wants provider-side prompt caching handled.
+ *
+ * - `auto`: forward caller-supplied cache markers and additionally inject our
+ *   own on long prompts (Anthropic / Bedrock length heuristic).
+ * - `passthrough`: forward caller-supplied markers verbatim and never inject.
+ *   A request caches iff the client asked it to, which is what coding agents
+ *   (Claude Code, Cursor, Cline) need when the same key also serves traffic
+ *   that should not pay the cache-write premium.
+ * - `off`: strip every marker so the project never writes to a provider cache.
+ */
+export type ProviderCacheControlMode = "auto" | "passthrough" | "off";
+
 // Base content types
 export interface TextContent {
 	type: "text";
 	text: string;
-	cache_control?: {
-		type: "ephemeral";
-		ttl?: "5m" | "1h";
-	};
+	cache_control?: CacheControl;
 	prompt_cache_breakpoint?: PromptCacheBreakpoint;
 }
 
@@ -83,7 +102,27 @@ export interface ToolUseContent {
 export interface ToolResultContent {
 	type: "tool_result";
 	tool_use_id: string;
-	content: string;
+	// Anthropic accepts a block array here as well as a plain string; the array
+	// form is what carries `tool_reference` blocks for a client-side tool search.
+	content: string | AnthropicNativeBlock[];
+	// Anthropic accepts a cache breakpoint on a tool_result block ("Tool use and
+	// tool results: content blocks in the messages.content array, in both user
+	// and assistant turns" —
+	// platform.claude.com/docs/en/build-with-claude/prompt-caching), which is
+	// where the stable prefix of an agentic loop usually ends.
+	cache_control?: CacheControl;
+}
+
+/**
+ * Anthropic content block with no OpenAI-format equivalent — currently the
+ * server-side tool search pair (`server_tool_use` + `tool_search_tool_result`)
+ * and the `tool_reference` blocks a client-side tool search returns. Carried
+ * verbatim between the caller and the Anthropic Messages API and dropped for
+ * every other upstream.
+ */
+export interface AnthropicNativeBlock {
+	type: string;
+	[key: string]: unknown;
 }
 
 export type MessageContent =
@@ -139,6 +178,19 @@ export interface BaseMessage {
 		phase?: "commentary" | "final_answer";
 		preceding_tool_calls?: number;
 	}>;
+	// Anthropic content blocks that survive a round trip verbatim because the
+	// OpenAI format has no equivalent. On an assistant message these are the
+	// server-side tool search blocks, spliced back in ahead of the tool_use
+	// blocks; on a tool message they are the `tool_result` content array, which
+	// is how a client-side tool search returns `tool_reference` blocks. Replayed
+	// on the Anthropic Messages API only and stripped for every other upstream.
+	anthropic_native_blocks?: AnthropicNativeBlock[];
+	// Caller-supplied cache breakpoint on the `tool_result` block this tool
+	// message came from. The OpenAI-format tool message lowers that block to a
+	// plain string and has nowhere to put the marker, so it rides here and is
+	// re-attached to the tool_result block on the Anthropic Messages API path.
+	// Stripped for every other upstream, which would reject the unknown field.
+	tool_result_cache_control?: CacheControl;
 }
 
 // Provider-specific message formats
@@ -148,7 +200,7 @@ export interface OpenAIMessage extends BaseMessage {
 
 export interface AnthropicMessage {
 	role: "user" | "assistant";
-	content: MessageContent[];
+	content: (MessageContent | AnthropicNativeBlock)[];
 }
 
 export interface GoogleMessage {
@@ -191,6 +243,19 @@ export interface OpenAIFunctionToolInput {
 		description?: string;
 		parameters?: FunctionParameter | Record<string, any>;
 	};
+	/**
+	 * Anthropic-only: keep this tool out of the rendered tools section so it
+	 * never enters the cached prompt prefix, and load it on demand when the
+	 * tool search tool discovers it. Stripped for every other upstream.
+	 */
+	defer_loading?: boolean;
+	/**
+	 * Anthropic-only: cache breakpoint ending the tool-definitions prefix, which
+	 * Anthropic renders before system and messages. Placed on the last tool it
+	 * caches every tool up to and including that one. Stripped for every other
+	 * upstream, which would reject the unknown property.
+	 */
+	cache_control?: CacheControl;
 }
 
 // Web search tool input type
@@ -206,14 +271,30 @@ export interface OpenAIWebSearchToolInput {
 	max_uses?: number;
 }
 
-// Compatible type for API requests - accepts both function and web_search tools
+/**
+ * Anthropic's server-side tool search tool. It has no OpenAI equivalent, so it
+ * travels through the gateway under its own `type` and is emitted verbatim on
+ * the Anthropic Messages API and dropped everywhere else.
+ */
+export interface OpenAIToolSearchToolInput {
+	type: "tool_search";
+	/** Anthropic tool type, e.g. `tool_search_tool_regex_20251119`. */
+	tool_search_type: string;
+	name?: string;
+}
+
+// Compatible type for API requests - accepts function, web_search and
+// tool_search tools
 export type OpenAIToolInput =
-	OpenAIFunctionToolInput | OpenAIWebSearchToolInput;
+	| OpenAIFunctionToolInput
+	| OpenAIWebSearchToolInput
+	| OpenAIToolSearchToolInput;
 
 export interface AnthropicTool {
 	name: string;
 	description?: string;
 	input_schema: FunctionParameter;
+	cache_control?: CacheControl;
 }
 
 export interface GoogleTool {
@@ -234,6 +315,14 @@ export type ToolChoiceType =
 			function: {
 				name: string;
 			};
+	  }
+	| {
+			/**
+			 * Demands a web search rather than offering one. Consumed by the
+			 * gateway (as `WebSearchTool.forced`) rather than forwarded upstream,
+			 * since no provider accepts it under this name in a chat body.
+			 */
+			type: "web_search";
 	  };
 
 /**
@@ -250,6 +339,14 @@ export type ResponsesToolChoice =
 	| {
 			type: "function";
 			name: string;
+	  }
+	| {
+			/**
+			 * Forces the native web search tool. Accepted by the Responses API
+			 * only — OpenAI's chat completions endpoint rejects a `web_search`
+			 * tool outright ("Supported values are: 'function' and 'custom'").
+			 */
+			type: "web_search";
 	  };
 
 export type PromptCacheRetention = "in_memory" | "24h";
@@ -293,6 +390,7 @@ export interface OpenAIRequestBody extends BaseRequestBody {
 	prompt_cache_key?: string;
 	prompt_cache_retention?: PromptCacheRetention;
 	prompt_cache_options?: PromptCacheOptions;
+	safety_identifier?: string;
 	response_format?: {
 		type: "text" | "json_object" | "json_schema";
 		json_schema?: {
@@ -345,6 +443,7 @@ export interface OpenAIResponsesRequestBody {
 	prompt_cache_key?: string;
 	prompt_cache_retention?: PromptCacheRetention;
 	prompt_cache_options?: PromptCacheOptions;
+	safety_identifier?: string;
 	reasoning: {
 		effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 		summary: "detailed";
@@ -413,6 +512,13 @@ export interface AnthropicRequestBody extends BaseRequestBody {
 		  };
 	output_config?: {
 		effort?: "low" | "medium" | "high" | "xhigh" | "max";
+	};
+	/**
+	 * Abuse-attribution identifier. `user_id` must be opaque (uuid or hash) and
+	 * free of PII; Anthropic uses it to tie abusive traffic back to one caller.
+	 */
+	metadata?: {
+		user_id?: string;
 	};
 }
 
@@ -634,6 +740,17 @@ export interface WebSearchTool {
 	 * with allowed_domains.
 	 */
 	blocked_domains?: string[];
+	/**
+	 * Whether the caller demanded a search rather than offering one, i.e. sent
+	 * `tool_choice: {type: "web_search"}`. Not part of the tool the client
+	 * sends: the gateway derives it from `tool_choice` and carries it here so
+	 * every consumer of the extracted tool can see the caller's intent.
+	 *
+	 * Providers whose search is model-elected ignore this — the model already
+	 * decides. It matters for mappings flagged `webSearchForcedOnly`, which are
+	 * only routable when it is set.
+	 */
+	forced?: boolean;
 }
 
 /**

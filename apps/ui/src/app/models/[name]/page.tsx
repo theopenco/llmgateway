@@ -4,6 +4,7 @@ import {
 	ArrowLeft,
 	Zap,
 	Eye,
+	FileJson2,
 	Wrench,
 	MessageSquare,
 	ImagePlus,
@@ -505,6 +506,9 @@ export default async function ModelPage({ params }: PageProps) {
 								const hasJsonOutput = visibleProviders.some(
 									(p) => p.jsonOutput,
 								);
+								const hasJsonOutputSchema = visibleProviders.some(
+									(p) => p.jsonOutputSchema,
+								);
 								const hasImageGen = Array.isArray(modelDef.output)
 									? modelDef.output.includes("image")
 									: false;
@@ -553,6 +557,14 @@ export default async function ModelPage({ params }: PageProps) {
 										icon: Braces,
 										label: "JSON Output",
 										color: "text-cyan-500",
+									});
+								}
+								if (hasJsonOutputSchema) {
+									items.push({
+										key: "jsonOutputSchema",
+										icon: FileJson2,
+										label: "Structured JSON",
+										color: "text-teal-500",
 									});
 								}
 								if (hasImageGen) {

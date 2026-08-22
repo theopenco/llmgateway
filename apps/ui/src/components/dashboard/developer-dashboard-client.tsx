@@ -35,6 +35,8 @@ import { useApi } from "@/lib/fetch-client";
 import { getBrowserTimeZone } from "@/lib/timezone";
 import { applyUsageMode, pickCost, pickRequests } from "@/lib/usage-mode";
 
+import type { MyMemberBudgetData } from "@/hooks/useTeam";
+
 function SummaryStat({
 	label,
 	value,
@@ -63,7 +65,11 @@ function SummaryStat({
 	);
 }
 
-export function DeveloperDashboardClient() {
+export function DeveloperDashboardClient({
+	initialMemberBudget,
+}: {
+	initialMemberBudget?: MyMemberBudgetData;
+}) {
 	const params = useParams();
 	const organizationId = params.orgId as string;
 	const projectId = params.projectId as string;
@@ -151,7 +157,10 @@ export function DeveloperDashboardClient() {
 					</div>
 				</div>
 
-				<MemberLimitsCard organizationId={organizationId} />
+				<MemberLimitsCard
+					organizationId={organizationId}
+					initialData={initialMemberBudget}
+				/>
 
 				<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 					{stats.map((stat) => (

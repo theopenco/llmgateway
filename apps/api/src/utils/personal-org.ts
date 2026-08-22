@@ -1,3 +1,5 @@
+import { isUserHighRisk } from "@/lib/account-risk.js";
+
 import { db, tables, eq } from "@llmgateway/db";
 
 interface PersonalOrgUser {
@@ -35,6 +37,7 @@ export async function getOrCreatePersonalOrg(user: PersonalOrgUser) {
 				// DevPass never retains request/response payloads — only metadata.
 				// There is no setting to opt in.
 				retentionLevel: "none",
+				riskFlagged: await isUserHighRisk(user.id),
 			})
 			.returning();
 
@@ -55,7 +58,7 @@ export async function getOrCreatePersonalOrg(user: PersonalOrgUser) {
 }
 
 // Get or create the dedicated "Chat" organization for a user. This backs
-// chat.llmgateway.io (apps/playground): the chat plan, pay-as-you-go top-ups,
+// lounge.llmgateway.io (apps/playground): the chat plan, pay-as-you-go top-ups,
 // and all playground billing live here, kept separate from the DevPass personal
 // org used by the coding product.
 //
@@ -95,6 +98,7 @@ export async function getOrCreateChatOrg(user: PersonalOrgUser) {
 				kind: "chat",
 				billingEmail: user.email,
 				retentionLevel: "none",
+				riskFlagged: await isUserHighRisk(user.id),
 				...(migratedCredits ? { credits: migratedCredits } : {}),
 			})
 			.returning();

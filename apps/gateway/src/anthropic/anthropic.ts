@@ -12,14 +12,90 @@ import {
 } from "@/lib/error-response.js";
 import { extractAnthropicSessionId } from "@/lib/session-id.js";
 
+import {
+	isToolSearchBlock,
+	TOOL_SEARCH_TOOL_TYPE_PREFIX,
+} from "@llmgateway/actions";
 import { logger, toError } from "@llmgateway/logger";
 
+import { logAnthropicClientError } from "./client-error-log.js";
+import {
+	buildOpenAiRequestRejectionMessage,
+	detectOpenAiChatCompletionsFields,
+} from "./openai-request-detection.js";
 import { buildAnthropicErrorEvent } from "./streaming-error-translation.js";
 import { mapAnthropicThinkingToReasoning } from "./thinking-to-reasoning.js";
 
 import type { ServerTypes } from "@/vars.js";
+import type { AnthropicNativeBlock, CacheControl } from "@llmgateway/models";
 
-export const anthropic = new OpenAPIHono<ServerTypes>();
+// Most of the request schema is built from unions (content blocks, tool
+// variants), and a union issue's own message is a useless "Invalid input" —
+// the actionable detail sits in its branch errors. Expand those, then dedupe
+// and cap so a body that mismatches every branch doesn't produce a wall of
+// text.
+const MAX_REPORTED_ISSUES = 12;
+
+function flattenZodIssues(issues: z.ZodIssue[], depth = 0): string[] {
+	const flattened: string[] = [];
+	for (const issue of issues) {
+		if (issue.code === "invalid_union" && depth < 3) {
+			for (const unionError of issue.unionErrors) {
+				flattened.push(...flattenZodIssues(unionError.issues, depth + 1));
+			}
+			continue;
+		}
+		flattened.push(`${issue.path.join(".")}: ${issue.message}`);
+	}
+	return flattened;
+}
+
+function formatValidationIssues(error: z.ZodError): string {
+	const unique = [...new Set(flattenZodIssues(error.issues))];
+	const reported = unique.slice(0, MAX_REPORTED_ISSUES);
+	if (unique.length > reported.length) {
+		reported.push(`… and ${unique.length - reported.length} more`);
+	}
+	return reported.join(", ");
+}
+
+// Request validation runs before the handler, so its failures never reached the
+// handler's own error formatting and leaked a raw `{ success: false, error:
+// ZodError }` body — a shape no Anthropic client can parse. Render every
+// validation failure in Anthropic's error envelope instead, and upgrade the
+// message when the body is recognisably an OpenAI Chat Completions request.
+//
+// This hook only runs once the schema has already rejected the request, so it
+// changes what a failure says, never whether one happens.
+export const anthropic = new OpenAPIHono<ServerTypes>({
+	defaultHook: async (result, c) => {
+		if (result.success) {
+			return;
+		}
+
+		let rawBody: unknown = null;
+		try {
+			rawBody = await c.req.json();
+		} catch {
+			rawBody = null;
+		}
+
+		const openAiFields = detectOpenAiChatCompletionsFields(rawBody);
+		const isOpenAiBody = openAiFields.length > 0;
+		const message = isOpenAiBody
+			? buildOpenAiRequestRejectionMessage(openAiFields)
+			: `Invalid request format: ${formatValidationIssues(result.error)}`;
+
+		await logAnthropicClientError(
+			c,
+			rawBody,
+			message,
+			isOpenAiBody ? "openai_request_format" : "invalid_request_format",
+		);
+
+		return c.json(buildAnthropicErrorBody({ message, status: 400 }), 400);
+	},
+});
 
 const anthropicMessageSchema = z.object({
 	role: z.enum([
@@ -63,6 +139,15 @@ const anthropicMessageSchema = z.object({
 					tool_use_id: z.string(),
 					content: z.union([z.string(), z.array(z.unknown())]).optional(),
 					is_error: z.boolean().optional(),
+					// Anthropic allows a breakpoint here, and in an agentic loop the
+					// stable prefix usually ends on a tool result — dropping it would
+					// cost the caller the cache hit they explicitly asked for.
+					cache_control: z
+						.object({
+							type: z.enum(["ephemeral"]),
+							ttl: z.enum(["5m", "1h"]).optional(),
+						})
+						.optional(),
 				}),
 				// Extended-thinking blocks echoed back in conversation history. They
 				// carry no value for the internal OpenAI-format request, so they're
@@ -96,6 +181,15 @@ const anthropicMessageSchema = z.object({
 					content: z
 						.union([z.array(z.unknown()), z.record(z.unknown())])
 						.optional(),
+				}),
+				// Server-side tool search results. Unlike the web-search blocks
+				// above these ARE forwarded: Anthropic expands the tool_reference
+				// entries they carry throughout the history, which is what lets
+				// Claude reuse a discovered tool without searching again.
+				z.object({
+					type: z.literal("tool_search_tool_result"),
+					tool_use_id: z.string(),
+					content: z.record(z.unknown()).optional(),
 				}),
 			]),
 		),
@@ -137,6 +231,15 @@ const anthropicCustomToolSchema = z.object({
 			ttl: z.enum(["5m", "1h"]).optional(),
 		})
 		.nullish(),
+	defer_loading: z.boolean().optional(),
+});
+
+// Anthropic's server-side tool search tool. Matched by prefix so the undated
+// aliases and any future dated version keep working. `name` is optional
+// because several Anthropic SDKs omit it.
+const anthropicToolSearchToolSchema = z.object({
+	type: z.string().regex(/^tool_search_tool/),
+	name: z.string().optional(),
 });
 
 // Anthropic server-side tools (e.g. web_search_20250305, code_execution_*).
@@ -167,6 +270,7 @@ const anthropicServerToolSchema = z.object({
 
 const anthropicToolSchema = z.union([
 	anthropicCustomToolSchema,
+	anthropicToolSearchToolSchema,
 	anthropicServerToolSchema,
 ]);
 
@@ -260,6 +364,7 @@ const anthropicContentBlockSchema = z.object({
 		"thinking",
 		"server_tool_use",
 		"web_search_tool_result",
+		"tool_search_tool_result",
 	]),
 	text: z.string().optional(),
 	thinking: z.string().optional(),
@@ -267,7 +372,8 @@ const anthropicContentBlockSchema = z.object({
 	name: z.string().optional(),
 	input: z.record(z.unknown()).optional(),
 	tool_use_id: z.string().optional(),
-	content: z.array(z.unknown()).optional(),
+	// An array for web search results, an object for tool search results.
+	content: z.union([z.array(z.unknown()), z.record(z.unknown())]).optional(),
 });
 
 const anthropicResponseSchema = z.object({
@@ -320,13 +426,26 @@ interface AnthropicWebSearchResult {
 
 // Response-only Anthropic content blocks. Clients replay the assistant turn
 // verbatim on the next request, so these arrive back here; none of them has an
-// OpenAI-format equivalent, so they're dropped on the request direction.
+// OpenAI-format equivalent, so they're dropped from the lowered content. The
+// tool search pair is carried separately on `anthropic_native_blocks` and
+// spliced back in for Anthropic upstreams — see collectToolSearchBlocks.
 const NON_FORWARDABLE_CONTENT_BLOCK_TYPES = new Set([
 	"thinking",
 	"redacted_thinking",
 	"server_tool_use",
 	"web_search_tool_result",
+	"tool_search_tool_result",
 ]);
+
+// The tool search pair out of an assistant turn. `server_tool_use` is matched
+// on its name because the web-search variant shares the block type and must
+// stay dropped: replaying it needs an `encrypted_content` the gateway cannot
+// reconstruct from url_citation annotations.
+function collectToolSearchBlocks(
+	content: Array<{ type: string; name?: string }>,
+): AnthropicNativeBlock[] {
+	return content.filter(isToolSearchBlock) as AnthropicNativeBlock[];
+}
 
 function generateServerToolUseId(): string {
 	return `srvtoolu_${randomUUID()}`;
@@ -443,12 +562,24 @@ anthropic.openapi(messages, async (c) => {
 		});
 	}
 
+	// Note: no OpenAI-format guard runs here. A body that reaches this point has
+	// already satisfied the Anthropic schema, and rejecting it for carrying an
+	// OpenAI-only parameter the schema stripped (`response_format`, `stop`,
+	// `n`, …) would deny requests that succeed today. Unknown parameters stay
+	// silently ignored; only structurally-OpenAI bodies are rejected, by the
+	// schema itself, and the validation hook explains those.
+
 	// Validate with our schema
 	const validation = anthropicRequestSchema.safeParse(rawRequest);
 	if (!validation.success) {
-		throw new HTTPException(400, {
-			message: `Invalid request format: ${validation.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join(", ")}`,
-		});
+		const message = `Invalid request format: ${formatValidationIssues(validation.error)}`;
+		await logAnthropicClientError(
+			c,
+			rawRequest,
+			message,
+			"invalid_request_format",
+		);
+		throw new HTTPException(400, { message });
 	}
 
 	const anthropicRequest: AnthropicRequest = validation.data;
@@ -586,10 +717,15 @@ anthropic.openapi(messages, async (c) => {
 				.map((block) => block.text)
 				.join("");
 
+			const toolSearchBlocks = collectToolSearchBlocks(message.content);
+
 			openaiMessages.push({
 				role: message.role,
 				content: textContent || "",
 				tool_calls: toolCalls,
+				...(toolSearchBlocks.length > 0 && {
+					anthropic_native_blocks: toolSearchBlocks,
+				}),
 			});
 			continue;
 		}
@@ -623,10 +759,40 @@ anthropic.openapi(messages, async (c) => {
 					)
 					.join("\n");
 
+				// A client-side tool search answers with `tool_reference` blocks in
+				// the tool_result content array. Stringifying them would leave
+				// Anthropic nothing to expand, so keep the originals alongside the
+				// lowered string and replay them on Anthropic upstreams.
+				const referenceBlocks = blocks.flatMap((block) =>
+					Array.isArray(block.content)
+						? block.content.filter(
+								(entry: unknown): entry is AnthropicNativeBlock =>
+									!!entry &&
+									typeof entry === "object" &&
+									(entry as { type?: unknown }).type === "tool_reference",
+							)
+						: [],
+				);
+
+				// A breakpoint on the tool_result block has no home in the OpenAI
+				// message shape, so carry it alongside. Blocks sharing a tool_use_id
+				// collapse into one message, so the last marker wins — it is the one
+				// that ends the prefix.
+				const toolResultCacheControl = blocks.reduce<CacheControl | undefined>(
+					(marker, block) => block.cache_control ?? marker,
+					undefined,
+				);
+
 				openaiMessages.push({
 					role: "tool",
 					content: combinedContent,
 					tool_call_id: toolUseId,
+					...(referenceBlocks.length > 0 && {
+						anthropic_native_blocks: referenceBlocks,
+					}),
+					...(toolResultCacheControl && {
+						tool_result_cache_control: toolResultCacheControl,
+					}),
 				});
 			}
 
@@ -669,11 +835,24 @@ anthropic.openapi(messages, async (c) => {
 			const forwardableBlocks = message.content.filter(
 				(block) => !NON_FORWARDABLE_CONTENT_BLOCK_TYPES.has(block.type),
 			);
+			const toolSearchBlocks =
+				message.role === "assistant"
+					? collectToolSearchBlocks(message.content)
+					: [];
 
 			// A turn made up entirely of dropped blocks (e.g. a `pause_turn` reply
 			// carrying only server_tool_use) would otherwise become an empty
-			// message, which providers reject.
+			// message, which providers reject. A search-only turn is the exception:
+			// its blocks still have to reach Anthropic, so it is forwarded with
+			// empty content and dropped again for providers that can't take them.
 			if (forwardableBlocks.length === 0) {
+				if (toolSearchBlocks.length > 0) {
+					openaiMessages.push({
+						role: message.role,
+						content: "",
+						anthropic_native_blocks: toolSearchBlocks,
+					});
+				}
 				continue;
 			}
 
@@ -696,6 +875,9 @@ anthropic.openapi(messages, async (c) => {
 				openaiMessages.push({
 					role: message.role,
 					content: textContent,
+					...(toolSearchBlocks.length > 0 && {
+						anthropic_native_blocks: toolSearchBlocks,
+					}),
 				});
 			} else {
 				// For multi-modal content, or text content with cache_control markers,
@@ -725,6 +907,9 @@ anthropic.openapi(messages, async (c) => {
 				openaiMessages.push({
 					role: message.role,
 					content,
+					...(toolSearchBlocks.length > 0 && {
+						anthropic_native_blocks: toolSearchBlocks,
+					}),
 				});
 			}
 		} else {
@@ -753,21 +938,41 @@ anthropic.openapi(messages, async (c) => {
 							description: tool.description,
 							parameters: tool.input_schema,
 						},
+						// Carried through to Anthropic upstreams and stripped
+						// elsewhere, where the tool is simply loaded eagerly.
+						...(tool.defer_loading === true && { defer_loading: true }),
+						// Same deal for the caller's cache breakpoint: tools are the
+						// base of Anthropic's cache hierarchy, so dropping it here cost
+						// the caller the largest cacheable prefix they have.
+						...(tool.cache_control && { cache_control: tool.cache_control }),
+					};
+				}
+
+				if (tool.type.startsWith(TOOL_SEARCH_TOOL_TYPE_PREFIX)) {
+					return {
+						type: "tool_search",
+						tool_search_type: tool.type,
+						...(tool.name ? { name: tool.name } : {}),
 					};
 				}
 
 				if (tool.type.startsWith("web_search")) {
+					// The tool-search variant shares this branch's union but carries
+					// none of the web-search options, so narrow before reading them.
+					const searchTool = tool as z.infer<typeof anthropicServerToolSchema>;
 					return {
 						type: "web_search",
-						...(tool.max_uses !== undefined ? { max_uses: tool.max_uses } : {}),
-						...(tool.user_location
-							? { user_location: tool.user_location }
+						...(searchTool.max_uses !== undefined
+							? { max_uses: searchTool.max_uses }
 							: {}),
-						...(tool.allowed_domains
-							? { allowed_domains: tool.allowed_domains }
+						...(searchTool.user_location
+							? { user_location: searchTool.user_location }
 							: {}),
-						...(tool.blocked_domains
-							? { blocked_domains: tool.blocked_domains }
+						...(searchTool.allowed_domains
+							? { allowed_domains: searchTool.allowed_domains }
+							: {}),
+						...(searchTool.blocked_domains
+							? { blocked_domains: searchTool.blocked_domains }
 							: {}),
 					};
 				}
@@ -1324,6 +1529,54 @@ anthropic.openapi(messages, async (c) => {
 									}
 								}
 
+								// Handle Anthropic's server-side tool search blocks, which
+								// the inner stream forwards verbatim. Emitted complete
+								// (start + stop) like the web-search pair above, and for
+								// the same reason: they carry no incremental deltas by the
+								// time they reach here.
+								if (
+									Array.isArray(delta.anthropic_native_blocks) &&
+									delta.anthropic_native_blocks.length > 0
+								) {
+									// Anthropic streams blocks strictly sequentially, so close
+									// any open text block first — text that follows the search
+									// opens a new block after it.
+									if (currentTextBlockIndex !== null) {
+										contentBlocks[currentTextBlockIndex].stopped = true;
+										await stream.writeSSE({
+											data: JSON.stringify({
+												type: "content_block_stop",
+												index: currentTextBlockIndex,
+											}),
+											event: "content_block_stop",
+										});
+										currentTextBlockIndex = null;
+									}
+
+									for (const block of delta.anthropic_native_blocks) {
+										const blockIndex = contentBlocks.length;
+										contentBlocks.push({
+											type: block.type,
+											stopped: true,
+										});
+										await stream.writeSSE({
+											data: JSON.stringify({
+												type: "content_block_start",
+												index: blockIndex,
+												content_block: block,
+											}),
+											event: "content_block_start",
+										});
+										await stream.writeSSE({
+											data: JSON.stringify({
+												type: "content_block_stop",
+												index: blockIndex,
+											}),
+											event: "content_block_stop",
+										});
+									}
+								}
+
 								// Handle content delta
 								if (delta.content) {
 									// Find or create a text block
@@ -1571,6 +1824,16 @@ anthropic.openapi(messages, async (c) => {
 			tool_use_id: serverToolUseId,
 			content: responseWebSearchResults,
 		});
+	}
+
+	// Anthropic's server-side tool search blocks come back verbatim from the
+	// inner response. They precede the text and tool_use blocks they led to, and
+	// the client has to replay them for Anthropic to keep expanding the
+	// tool_reference entries they carry.
+	const responseToolSearchBlocks =
+		openaiResponse.choices?.[0]?.message?.anthropic_native_blocks;
+	if (Array.isArray(responseToolSearchBlocks)) {
+		content.push(...responseToolSearchBlocks);
 	}
 
 	if (openaiResponse.choices?.[0]?.message?.content) {

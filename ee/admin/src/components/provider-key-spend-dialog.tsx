@@ -2,7 +2,7 @@
 
 import { format } from "date-fns";
 import { BarChart3 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
 import { Badge } from "@/components/ui/badge";
@@ -86,6 +86,18 @@ export function ProviderKeySpendDialog({
 		(sum, point) => sum + Number(point.totalTokens),
 		0,
 	);
+	// The rollup only returns buckets that saw traffic, which would shrink the
+	// axis to the busy days; zero-fill against the window's full bucket grid so
+	// the chart always covers the selected duration.
+	const chartData = useMemo(() => {
+		const byTimestamp = new Map(
+			points.map((point) => [point.timestamp, point]),
+		);
+		return (data?.buckets ?? []).map(
+			(timestamp) =>
+				byTimestamp.get(timestamp) ?? { timestamp, cost: 0, requestCount: 0 },
+		);
+	}, [data?.buckets, points]);
 
 	return (
 		<Dialog open={open} onOpenChange={setOpen}>
@@ -155,7 +167,7 @@ export function ProviderKeySpendDialog({
 							</p>
 						) : (
 							<ChartContainer config={chartConfig} className="h-64 w-full">
-								<AreaChart data={points}>
+								<AreaChart data={chartData}>
 									<CartesianGrid vertical={false} />
 									<XAxis
 										dataKey="timestamp"

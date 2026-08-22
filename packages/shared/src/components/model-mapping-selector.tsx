@@ -35,15 +35,15 @@ interface ModelMappingSelectorProps {
 	models: readonly UnifiedModel[];
 	providers: readonly UnifiedProvider[];
 	/**
-	 * `provider/model` for a mapping, or a bare `model` id for a root model
-	 * entry. A bare id still renders correctly even with `includeRootModels`
+	 * `provider/model` for a mapping, or a bare `model` id for a canonical model
+	 * entry. A bare id still renders correctly even with `includeCanonicalModels`
 	 * off, so pre-existing links keep working.
 	 */
 	value?: string | null;
 	onValueChange: (value: string) => void;
 	placeholder?: string;
 	/** Also offer the model itself (auto-routed across all of its providers). */
-	includeRootModels?: boolean;
+	includeCanonicalModels?: boolean;
 	/** Offer one entry per region instead of one entry per provider. */
 	includeRegions?: boolean;
 	/** Include mappings whose `deactivatedAt` has passed. */
@@ -96,7 +96,7 @@ export function ModelMappingSelector({
 	value,
 	onValueChange,
 	placeholder = "Select a mapping…",
-	includeRootModels = false,
+	includeCanonicalModels = false,
 	includeRegions = false,
 	includeDeactivated = false,
 	filter,
@@ -120,7 +120,7 @@ export function ModelMappingSelector({
 		for (const model of [...models].sort((a, b) => a.id.localeCompare(b.id))) {
 			const modelName = getModelName(model);
 
-			if (includeRootModels && (!filter || filter({ model }))) {
+			if (includeCanonicalModels && (!filter || filter({ model }))) {
 				out.push({
 					value: model.id,
 					model,
@@ -167,7 +167,7 @@ export function ModelMappingSelector({
 	}, [
 		models,
 		providers,
-		includeRootModels,
+		includeCanonicalModels,
 		includeRegions,
 		includeDeactivated,
 		filter,
@@ -198,7 +198,7 @@ export function ModelMappingSelector({
 			return exact;
 		}
 		// The value may point at a mapping that is filtered out (deactivated,
-		// unknown provider) or at a bare model id while root entries are off.
+		// unknown provider) or at a bare model id while canonical entries are off.
 		const parsed = parseMappingValue(value);
 		const model = models.find((m) => m.id === parsed.modelId);
 		if (!model) {

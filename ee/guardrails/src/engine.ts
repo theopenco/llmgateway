@@ -8,8 +8,10 @@ import {
 	guardrailViolation,
 	defaultSystemRulesConfig,
 	defaultAllowedFileTypes,
+	and,
 	eq,
 	desc,
+	isNull,
 } from "@llmgateway/db";
 
 import {
@@ -27,6 +29,7 @@ import type {
 	RuleViolation,
 	RedactionInfo,
 	GuardrailConfigData,
+	GuardrailScope,
 	Message,
 } from "./types.js";
 import type {
@@ -40,43 +43,150 @@ import type {
 const guardrailConfigTableName = getTableName(guardrailConfig);
 const guardrailRuleTableName = getTableName(guardrailRule);
 
-export async function getGuardrailConfig(
+async function getOrganizationGuardrailConfig(
 	organizationId: string,
 ): Promise<GuardrailConfigData | null> {
 	return await swrWrap(
-		`guardrailConfig:${organizationId}`,
+		`guardrailConfig:org:${organizationId}`,
 		[guardrailConfigTableName],
 		async () => {
 			const configs = await cdb
 				.select()
 				.from(guardrailConfig)
-				.where(eq(guardrailConfig.organizationId, organizationId))
+				.where(
+					and(
+						eq(guardrailConfig.organizationId, organizationId),
+						isNull(guardrailConfig.projectId),
+					),
+				)
+				.limit(1);
+
+			return toConfigData(configs[0]);
+		},
+	);
+}
+
+async function getProjectGuardrailConfig(
+	projectId: string,
+): Promise<GuardrailConfigData | null> {
+	return await swrWrap(
+		`guardrailConfig:project:${projectId}`,
+		[guardrailConfigTableName],
+		async () => {
+			const configs = await cdb
+				.select()
+				.from(guardrailConfig)
+				.where(eq(guardrailConfig.projectId, projectId))
 				.limit(1);
 
 			const config = configs[0];
 
-			if (!config) {
+			// A project row that still inherits is not an override — the caller
+			// falls back to the organization config.
+			if (!config || config.inheritOrganization) {
 				return null;
 			}
 
-			return {
-				enabled: config.enabled,
-				systemRules: config.systemRules ?? defaultSystemRulesConfig,
-				maxFileSizeMb: config.maxFileSizeMb,
-				allowedFileTypes: config.allowedFileTypes ?? defaultAllowedFileTypes,
-				piiAction: config.piiAction ?? "redact",
-			};
+			return toConfigData(config);
 		},
+	);
+}
+
+function toConfigData(
+	config:
+		| {
+				enabled: boolean;
+				systemRules: SystemRulesConfig | null;
+				maxFileSizeMb: number;
+				allowedFileTypes: string[] | null;
+				piiAction: GuardrailAction | null;
+		  }
+		| undefined,
+): GuardrailConfigData | null {
+	if (!config) {
+		return null;
+	}
+
+	return {
+		enabled: config.enabled,
+		systemRules: config.systemRules ?? defaultSystemRulesConfig,
+		maxFileSizeMb: config.maxFileSizeMb,
+		allowedFileTypes: config.allowedFileTypes ?? defaultAllowedFileTypes,
+		piiAction: config.piiAction ?? "redact",
+	};
+}
+
+/**
+ * Resolve the guardrail scope that applies to a request. A project that has
+ * opted out of the organization config owns both its config and its custom
+ * rules; otherwise the organization scope applies.
+ */
+export async function resolveGuardrailScope(
+	organizationId: string,
+	projectId?: string,
+): Promise<GuardrailScope | null> {
+	if (projectId) {
+		const projectConfig = await getProjectGuardrailConfig(projectId);
+		if (projectConfig) {
+			return { config: projectConfig, projectId };
+		}
+	}
+
+	const orgConfig = await getOrganizationGuardrailConfig(organizationId);
+	return orgConfig ? { config: orgConfig, projectId: null } : null;
+}
+
+export async function getGuardrailConfig(
+	organizationId: string,
+	projectId?: string,
+): Promise<GuardrailConfigData | null> {
+	const scope = await resolveGuardrailScope(organizationId, projectId);
+	return scope?.config ?? null;
+}
+
+function getGuardrailRules(organizationId: string, scope: GuardrailScope) {
+	if (scope.projectId) {
+		const { projectId } = scope;
+		return swrWrap(
+			`guardrailRules:project:${projectId}`,
+			[guardrailRuleTableName],
+			async () =>
+				await cdb
+					.select()
+					.from(guardrailRule)
+					.where(eq(guardrailRule.projectId, projectId))
+					.orderBy(desc(guardrailRule.priority)),
+		);
+	}
+
+	return swrWrap(
+		`guardrailRules:org:${organizationId}`,
+		[guardrailRuleTableName],
+		async () =>
+			await cdb
+				.select()
+				.from(guardrailRule)
+				.where(
+					and(
+						eq(guardrailRule.organizationId, organizationId),
+						isNull(guardrailRule.projectId),
+					),
+				)
+				.orderBy(desc(guardrailRule.priority)),
 	);
 }
 
 export async function checkGuardrails(
 	input: GuardrailInput,
 ): Promise<GuardrailResult> {
-	const config = await getGuardrailConfig(input.organizationId);
+	const scope = await resolveGuardrailScope(
+		input.organizationId,
+		input.projectId,
+	);
+	const config = scope?.config;
 
 	// If no config exists or guardrails are disabled, allow everything
-	if (!config || !config.enabled) {
+	if (!scope || !config || !config.enabled) {
 		return {
 			passed: true,
 			blocked: false,
@@ -108,34 +218,28 @@ export async function checkGuardrails(
 			const result = rule.check(content, ruleConfig);
 
 			if (!result.passed) {
-				let matchedPattern = result.matches.join(", ");
+				// The PII and secrets rules report detector labels rather than
+				// matched values, so neither field may carry the content those
+				// rules exist to keep out of storage.
+				let matchedContent = content;
+				let kind: RedactionInfo["kind"] | undefined;
 
-				if (ruleConfig.action === "redact") {
-					if (rule.id === "system:pii_detection") {
-						const { patterns } = redactPii(content);
-						if (patterns.length > 0) {
-							redactions.push({
-								ruleId: rule.id,
-								messageIndex,
-								kind: "pii",
-								matches: [],
-								pattern: patterns.join(", "),
-							});
-						}
-						// Avoid logging the raw PII; log the detected types instead
-						matchedPattern = patterns.join(", ");
-					} else if (rule.id === "system:secrets") {
-						const { patterns } = redactSecrets(content);
-						if (patterns.length > 0) {
-							redactions.push({
-								ruleId: rule.id,
-								messageIndex,
-								kind: "secrets",
-								matches: [],
-								pattern: patterns.join(", "),
-							});
-						}
-					}
+				if (rule.id === "system:pii_detection") {
+					matchedContent = redactPii(matchedContent).redacted;
+					kind = "pii";
+				} else if (rule.id === "system:secrets") {
+					matchedContent = redactSecrets(matchedContent).redacted;
+					kind = "secrets";
+				}
+
+				if (ruleConfig.action === "redact" && kind) {
+					redactions.push({
+						ruleId: rule.id,
+						messageIndex,
+						kind,
+						matches: [],
+						pattern: result.matches.join(", "),
+					});
 				}
 
 				violations.push({
@@ -143,24 +247,15 @@ export async function checkGuardrails(
 					ruleName: rule.name,
 					category: rule.category,
 					action: ruleConfig.action,
-					matchedPattern,
-					matchedContent: content.substring(0, 100),
+					matchedPattern: result.matches.join(", "),
+					matchedContent: matchedContent.substring(0, 100),
 				});
 			}
 		}
 	}
 
 	// Check custom rules
-	const customRules = await swrWrap(
-		`guardrailRules:${input.organizationId}`,
-		[guardrailRuleTableName],
-		async () =>
-			await cdb
-				.select()
-				.from(guardrailRule)
-				.where(eq(guardrailRule.organizationId, input.organizationId))
-				.orderBy(desc(guardrailRule.priority)),
-	);
+	const customRules = await getGuardrailRules(input.organizationId, scope);
 
 	for (const rule of customRules) {
 		if (!rule.enabled) {

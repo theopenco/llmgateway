@@ -5,6 +5,15 @@ date: "2026-08-04"
 title: "The LLM Compliance Checklist for Production Teams"
 summary: "An eight-point LLM compliance checklist for putting model traffic in production: provider vetting, routing restrictions, data residency, retention, access control, and the audit trail — with what to enforce at the gateway versus document by hand."
 categories: ["Guides"]
+faqs:
+  - question: "What should an LLM compliance checklist cover?"
+    answer: "Provider inventory, routing restrictions, geographic control, retention (yours and your providers'), access gating, an audit trail, coverage for internal deployments, and diligence on the gateway vendor itself. The distinguishing question for each: is it enforced mechanically, or documented and hoped for?"
+  - question: "Can compliance rules be enforced before data reaches a provider?"
+    answer: "Yes — that's the point of enforcing at the gateway. LLM Gateway blocks requests that would violate the compliance policy with a `403` before any data leaves the gateway, on both automatic routing and pinned-provider requests."
+  - question: "Which parts of this need an Enterprise plan?"
+    answer: "Provider compliance policies, the headquarters filter, org-level restrictions over IAM, custom retention periods, and audit logs are [Enterprise features](https://llmgateway.io/enterprise). Metadata-only retention, the provider directory, and self-hosting the AGPLv3 core are available to everyone."
+  - question: "Does self-hosting remove the need for this checklist?"
+    answer: "No — self-hosting moves the gateway inside your boundary but your traffic still fans out to providers. Points 1–5 apply identically; you're just running the enforcement point yourself."
 image:
   src: "/blog/llm-compliance-checklist.png"
   alt: "LLM compliance checklist concept — a glowing clipboard chip with checkmarks on a circuit board"
@@ -86,23 +95,5 @@ The gateway sees everything, so it has to clear a higher bar than the providers 
 | 6   | Audit trail                    | Security events + audit logs                    | Enterprise |
 | 7   | Custom-deployment attestations | Self-attestation, fail-closed evaluation        | Enterprise |
 | 8   | Gateway vendor diligence       | SOC 2 Type II + trust center + AGPLv3 source    | —          |
-
-## Frequently Asked Questions
-
-### What should an LLM compliance checklist cover?
-
-Provider inventory, routing restrictions, geographic control, retention (yours and your providers'), access gating, an audit trail, coverage for internal deployments, and diligence on the gateway vendor itself. The distinguishing question for each: is it enforced mechanically, or documented and hoped for?
-
-### Can compliance rules be enforced before data reaches a provider?
-
-Yes — that's the point of enforcing at the gateway. LLM Gateway blocks requests that would violate the compliance policy with a `403` before any data leaves the gateway, on both automatic routing and pinned-provider requests.
-
-### Which parts of this need an Enterprise plan?
-
-Provider compliance policies, the headquarters filter, org-level restrictions over IAM, custom retention periods, and audit logs are [Enterprise features](https://llmgateway.io/enterprise). Metadata-only retention, the provider directory, and self-hosting the AGPLv3 core are available to everyone.
-
-### Does self-hosting remove the need for this checklist?
-
-No — self-hosting moves the gateway inside your boundary but your traffic still fans out to providers. Points 1–5 apply identically; you're just running the enforcement point yourself.
 
 <BlogCta variant="enterprise" location="bottom" />

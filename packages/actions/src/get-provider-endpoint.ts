@@ -9,8 +9,11 @@ import {
 	type VertexTokenType,
 	getProviderEnvValue,
 	getProviderEnvConfig,
+	getRegionEnvVarSuffix,
+	getRegionScopedProviderEnvValue,
 	getVariantEnvVarNameFor,
 	resolveVertexTokenType,
+	REGION_WORKSPACE_ID_PLACEHOLDER,
 } from "@llmgateway/models";
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
@@ -36,6 +39,55 @@ function getBedrockMantleBaseUrl(url: string, region?: string): string {
 	return appendPath(url, "/openai/v1");
 }
 
+/**
+ * Fill the workspace placeholder of a workspace-scoped region endpoint
+ * (Alibaba Frankfurt), falling back to the region's shared entry point when no
+ * workspace id is configured. The workspace id becomes part of the hostname,
+ * so it is validated against the character set Model Studio issues (`ws-…`)
+ * rather than interpolated blindly.
+ */
+function resolveWorkspaceScopedEndpoint(
+	provider: ProviderId,
+	baseUrl: string,
+	region: string | undefined,
+	workspaceId: string | undefined,
+): string {
+	if (!baseUrl.includes(REGION_WORKSPACE_ID_PLACEHOLDER)) {
+		return baseUrl;
+	}
+
+	const envConfig = getProviderEnvConfig(provider);
+	const workspaceEnvVar = envConfig?.optional?.workspaceId;
+	const regionalEnvVar =
+		workspaceEnvVar && region
+			? `${workspaceEnvVar}__${getRegionEnvVarSuffix(region)}`
+			: workspaceEnvVar;
+
+	if (!workspaceId) {
+		// No workspace id: fall back to the region's shared entry point, which
+		// resolves the workspace from the API key. Only a region without such a
+		// host is unroutable.
+		const providerDef = providers.find((p) => p.id === provider) as
+			ProviderDefinition | undefined;
+		const fallback = region
+			? providerDef?.regionConfig?.endpointFallbackMap?.[region]
+			: undefined;
+		if (fallback) {
+			return fallback;
+		}
+		throw new Error(
+			`Provider ${provider} region ${region} is only reachable through a workspace-dedicated endpoint - set the workspace id on the provider key or via the ${regionalEnvVar} env var`,
+		);
+	}
+	if (!/^[a-zA-Z0-9-]{1,64}$/.test(workspaceId)) {
+		throw new Error(
+			`Provider ${provider} workspace id is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or the ${regionalEnvVar} env var)`,
+		);
+	}
+
+	return baseUrl.replace(REGION_WORKSPACE_ID_PLACEHOLDER, workspaceId);
+}
+
 function buildVertexCompatibleEndpoint(
 	provider: "google-vertex" | "quartz",
 	url: string,
@@ -55,18 +107,27 @@ function buildVertexCompatibleEndpoint(
 	const projectId =
 		credentialConfig?.project ??
 		providerKeyOptions?.google_vertex_project_id ??
-		getProviderEnvValue(provider, "project", configIndex, undefined, variant);
+		(skipEnvVars
+			? undefined
+			: getProviderEnvValue(
+					provider,
+					"project",
+					configIndex,
+					undefined,
+					variant,
+				));
 	const region =
 		credentialConfig?.region ??
-		getProviderEnvValue(provider, "region", configIndex, "global", variant) ??
+		(skipEnvVars
+			? undefined
+			: getProviderEnvValue(
+					provider,
+					"region",
+					configIndex,
+					"global",
+					variant,
+				)) ??
 		"global";
-
-	if (!projectId) {
-		const providerEnv = getProviderEnvConfig(provider);
-		throw new Error(
-			`${providerEnv?.required.project ?? "LLM_GOOGLE_CLOUD_PROJECT"} environment variable is required for Vertex-compatible model "${model}"`,
-		);
-	}
 
 	// Only Google Vertex supports OAuth bearer auth; Quartz always uses the
 	// `?key=` API-key query param.
@@ -81,7 +142,18 @@ function buildVertexCompatibleEndpoint(
 					variant,
 				))
 			: "api-key";
-	const baseEndpoint = `${url}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:${endpoint}`;
+	if (!projectId && (provider === "quartz" || tokenType === "oauth")) {
+		const providerEnv = getProviderEnvConfig(provider);
+		const projectEnv =
+			providerEnv?.required.project ??
+			providerEnv?.optional?.project ??
+			"LLM_GOOGLE_CLOUD_PROJECT";
+		throw new Error(
+			`${projectEnv} environment variable is required for Vertex-compatible model "${model}"`,
+		);
+	}
+
+	const baseEndpoint = `${url}${getGoogleVertexPublisherModelPath(model, projectId, region)}:${endpoint}`;
 	const queryParams = [];
 	if (token && tokenType === "api-key") {
 		queryParams.push(`key=${token}`);
@@ -92,6 +164,17 @@ function buildVertexCompatibleEndpoint(
 	return queryParams.length > 0
 		? `${baseEndpoint}?${queryParams.join("&")}`
 		: baseEndpoint;
+}
+
+export function getGoogleVertexPublisherModelPath(
+	model: string,
+	projectId?: string,
+	region = "global",
+): string {
+	const modelPath = `publishers/google/models/${model}`;
+	return projectId
+		? `/v1/projects/${projectId}/locations/${region}/${modelPath}`
+		: `/v1/${modelPath}`;
 }
 
 /**
@@ -136,6 +219,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	gonka24: "https://api.gonka24.com",
 	fireworks: "https://api.fireworks.ai/inference",
 	ranoai: "https://api.ranoai.com",
+	baidu: "https://api.baiduqianfan.ai",
 };
 
 export function getProviderDefaultBaseUrl(
@@ -154,7 +238,7 @@ export function getProviderDefaultBaseUrl(
  *   pass it directly.
  * @param modelId - Canonical gateway model id, used to look up
  *   capability info (e.g. supportsResponsesApi). When omitted, falls back to
- *   `model` — but pass the root id explicitly whenever you have it.
+ *   `model` — but pass the canonical model id explicitly whenever you have it.
  */
 export function getProviderEndpoint(
 	provider: ProviderId,
@@ -240,6 +324,7 @@ export function getProviderEndpoint(
 					throw new Error(`Provider ${provider} requires a baseUrl`);
 				}
 				break;
+			case "anthropic":
 			case "openai":
 			case "google-ai-studio":
 			case "google-vertex":
@@ -373,9 +458,41 @@ export function getProviderEndpoint(
 					);
 				}
 				break;
+			case "permafrost":
+				url =
+					credentialConfig?.baseUrl ??
+					(skipEnvVars
+						? undefined
+						: getProviderEnvValue(
+								"permafrost",
+								"baseUrl",
+								configIndex,
+								undefined,
+								variant,
+							));
+				if (!url) {
+					throw new Error(
+						"Permafrost provider requires LLM_PERMAFROST_BASE_URL environment variable",
+					);
+				}
+				break;
 			case "alibaba": {
-				const alibabaBaseUrl =
-					regionBaseUrl ?? "https://dashscope-intl.aliyuncs.com";
+				const alibabaBaseUrl = resolveWorkspaceScopedEndpoint(
+					"alibaba",
+					regionBaseUrl ?? "https://dashscope-intl.aliyuncs.com",
+					region,
+					credentialConfig?.workspaceId ??
+						providerKeyOptions?.alibaba_workspace_id ??
+						(skipEnvVars
+							? undefined
+							: getRegionScopedProviderEnvValue(
+									"alibaba",
+									"workspaceId",
+									region,
+									configIndex,
+									variant,
+								)),
+				);
 				// Use different base URL for image generation vs chat completions
 				if (imageGenerations) {
 					url = alibabaBaseUrl;
@@ -610,10 +727,13 @@ export function getProviderEndpoint(
 			return `${url}/v1/projects/${projectId}/locations/${vertexRegion}/endpoints/openapi/chat/completions`;
 		}
 		case "vertex-anthropic": {
+			// A managed credential states its project outright: by the time a
+			// request is built its service-account JSON has already been exchanged
+			// for an access token, so nothing downstream can derive one from it.
+			let vaProjectId = credentialConfig?.project;
 			// BYOK provider keys hold the customer's service-account JSON; derive
 			// the project from it so requests hit their project, not the server's.
-			let vaProjectId: string | undefined;
-			if (token) {
+			if (!vaProjectId && token) {
 				try {
 					const sa = JSON.parse(token) as { project_id?: string };
 					vaProjectId = sa.project_id;
@@ -623,11 +743,13 @@ export function getProviderEndpoint(
 				}
 			}
 			if (!vaProjectId) {
-				vaProjectId =
-					process.env[
-						getVariantEnvVarNameFor("LLM_VERTEX_ANTHROPIC_PROJECT", variant) ??
-							"LLM_VERTEX_ANTHROPIC_PROJECT"
-					];
+				vaProjectId = getProviderEnvValue(
+					"vertex-anthropic",
+					"project",
+					configIndex,
+					undefined,
+					variant,
+				);
 			}
 			if (!vaProjectId) {
 				const saJson =
@@ -663,7 +785,7 @@ export function getProviderEndpoint(
 
 			if (!vaProjectId) {
 				throw new Error(
-					"vertex-anthropic provider requires LLM_VERTEX_ANTHROPIC_PROJECT or a valid LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON with project_id",
+					"vertex-anthropic provider requires a project setting on the credential, LLM_VERTEX_ANTHROPIC_PROJECT, or a valid LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON with project_id",
 				);
 			}
 
@@ -881,6 +1003,7 @@ export function getProviderEndpoint(
 			}
 			return `${url}/v1/chat/completions`;
 		}
+		case "baidu":
 		case "deepseek":
 		case "moonshot":
 		case "nebius":
@@ -890,6 +1013,7 @@ export function getProviderEndpoint(
 		case "xiaomi":
 		case "embercloud":
 		case "tundra":
+		case "permafrost":
 		case "scx-ai":
 		case "scx-ai-gp":
 		case "ranoai":

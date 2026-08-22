@@ -1,6 +1,6 @@
 ---
 title: Cline Integration
-description: Use LLM Gateway with Cline for AI-powered coding assistance in VS Code
+description: Run Cline, the autonomous VS Code coding agent, on Kimi K3 or 200+ models through LLM Gateway. One OpenAI-compatible endpoint, full cost tracking.
 image: guides/cline/overview.png
 icon: Cline
 ---
@@ -12,10 +12,10 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 <Callout type="info">
 	**Using DevPass?** This integration also works with a
-	[DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without
-	a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) —
-	provider-pinned routing is not available on coding plans; the gateway picks
-	the provider for you.
+	[DevPass](https://devpass.llmgateway.io) plan key. Use canonical model IDs
+	without a provider prefix (`claude-sonnet-4-5`, not
+	`anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on
+	coding plans; the gateway picks the provider for you.
 </Callout>
 
 ## Prerequisites

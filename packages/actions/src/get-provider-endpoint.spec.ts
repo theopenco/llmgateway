@@ -4,6 +4,7 @@ import { getProviderEndpoint } from "./get-provider-endpoint.js";
 
 const originalAiStudioBaseUrl = process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
 const originalGlacierBaseUrl = process.env.LLM_GLACIER_BASE_URL;
+const originalPermafrostBaseUrl = process.env.LLM_PERMAFROST_BASE_URL;
 const originalVertexBaseUrl = process.env.LLM_GOOGLE_VERTEX_BASE_URL;
 const originalVertexProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 const originalVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
@@ -18,6 +19,9 @@ const originalBedrockRegion = process.env.LLM_AWS_BEDROCK_REGION;
 const originalMantleRegion = process.env.LLM_AWS_MANTLE_REGION;
 
 afterEach(() => {
+	delete process.env.LLM_ALIBABA_WORKSPACE_ID__EU_FRANKFURT;
+	delete process.env.LLM_ALIBABA_WORKSPACE_ID__ENTERPRISE__EU_FRANKFURT;
+
 	if (originalAiStudioBaseUrl === undefined) {
 		delete process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
 	} else {
@@ -28,6 +32,12 @@ afterEach(() => {
 		delete process.env.LLM_GLACIER_BASE_URL;
 	} else {
 		process.env.LLM_GLACIER_BASE_URL = originalGlacierBaseUrl;
+	}
+
+	if (originalPermafrostBaseUrl === undefined) {
+		delete process.env.LLM_PERMAFROST_BASE_URL;
+	} else {
+		process.env.LLM_PERMAFROST_BASE_URL = originalPermafrostBaseUrl;
 	}
 
 	if (originalVertexBaseUrl === undefined) {
@@ -123,6 +133,22 @@ describe("getProviderEndpoint", () => {
 		);
 	});
 
+	it("builds Permafrost endpoints from env base URL", () => {
+		process.env.LLM_PERMAFROST_BASE_URL = "https://permafrost.example.com";
+
+		expect(getProviderEndpoint("permafrost", undefined, "kimi-k3")).toBe(
+			"https://permafrost.example.com/v1/chat/completions",
+		);
+	});
+
+	it("requires Permafrost base URL when no override is provided", () => {
+		delete process.env.LLM_PERMAFROST_BASE_URL;
+
+		expect(() => getProviderEndpoint("permafrost")).toThrow(
+			"Permafrost provider requires LLM_PERMAFROST_BASE_URL environment variable",
+		);
+	});
+
 	it("uses the OpenAI base URL override when configured", () => {
 		process.env.LLM_OPENAI_BASE_URL = "http://localhost:8787/openai";
 
@@ -203,6 +229,37 @@ describe("getProviderEndpoint", () => {
 		expect(endpoint).toBe(
 			"https://vertex-override.example/v1/projects/project-a/locations/global/publishers/google/models/gemini-2.5-flash-lite:generateContent",
 		);
+	});
+
+	it("uses the projectless Vertex endpoint for API-key auth", () => {
+		process.env.LLM_GOOGLE_VERTEX_BASE_URL = "https://vertex-override.example";
+		delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+
+		const endpoint = getProviderEndpoint(
+			"google-vertex",
+			undefined,
+			"gemini-2.5-flash",
+			"vertex-api-key",
+			true,
+		);
+
+		expect(endpoint).toBe(
+			"https://vertex-override.example/v1/publishers/google/models/gemini-2.5-flash:streamGenerateContent?key=vertex-api-key&alt=sse",
+		);
+	});
+
+	it("requires a Vertex project for OAuth auth", () => {
+		delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE = "oauth";
+
+		expect(() =>
+			getProviderEndpoint(
+				"google-vertex",
+				undefined,
+				"gemini-2.5-flash",
+				"oauth-token",
+			),
+		).toThrow(/LLM_GOOGLE_CLOUD_PROJECT/);
 	});
 
 	it("uses the first Vertex base URL when multiple values are configured without a config slot", () => {
@@ -556,6 +613,44 @@ describe("getProviderEndpoint", () => {
 			);
 		});
 
+		it("honors an anthropic credential base URL override", () => {
+			const endpoint = getProviderEndpoint(
+				"anthropic",
+				undefined,
+				"claude-opus-5",
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ env_config: { baseUrl: "https://anthropic.example" } },
+				undefined,
+				undefined,
+				undefined,
+				true, // skipEnvVars
+			);
+
+			expect(endpoint).toBe("https://anthropic.example/v1/messages");
+		});
+
+		it("falls back to the anthropic default when no base URL is configured", () => {
+			const endpoint = getProviderEndpoint(
+				"anthropic",
+				undefined,
+				"claude-opus-5",
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				true, // skipEnvVars
+			);
+
+			expect(endpoint).toBe("https://api.anthropic.com/v1/messages");
+		});
+
 		it("still uses explicit baseUrl even when skipEnvVars is true", () => {
 			const endpoint = getProviderEndpoint(
 				"google-ai-studio",
@@ -838,6 +933,136 @@ describe("getProviderEndpoint", () => {
 
 			expect(endpoint).toBe(
 				"https://bedrock-proxy.internal/openai/v1/chat/completions",
+			);
+		});
+	});
+
+	describe("alibaba regions", () => {
+		const callAlibaba = (
+			region: string | undefined,
+			providerKeyOptions?: Parameters<typeof getProviderEndpoint>[7],
+		) =>
+			getProviderEndpoint(
+				"alibaba",
+				undefined,
+				"qwen3.7-max",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				providerKeyOptions,
+				undefined,
+				undefined,
+				region,
+				true, // skipEnvVars
+			);
+
+		it.each([
+			{
+				region: undefined,
+				host: "https://dashscope-intl.aliyuncs.com",
+			},
+			{ region: "singapore", host: "https://dashscope-intl.aliyuncs.com" },
+			{ region: "us-virginia", host: "https://dashscope-us.aliyuncs.com" },
+			{ region: "cn-beijing", host: "https://dashscope.aliyuncs.com" },
+		])("routes $region to its DashScope host", ({ region, host }) => {
+			expect(callAlibaba(region)).toBe(
+				`${host}/compatible-mode/v1/chat/completions`,
+			);
+		});
+
+		it("builds the workspace-dedicated host for eu-frankfurt", () => {
+			expect(
+				callAlibaba("eu-frankfurt", { alibaba_workspace_id: "llm-abc123" }),
+			).toBe(
+				"https://llm-abc123.eu-central-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions",
+			);
+		});
+
+		it("falls back to the shared entry point without a workspace id", () => {
+			expect(callAlibaba("eu-frankfurt")).toBe(
+				"https://trial.eu-central-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions",
+			);
+		});
+
+		it("rejects a workspace id that is not a bare hostname label", () => {
+			expect(() =>
+				callAlibaba("eu-frankfurt", {
+					alibaba_workspace_id: "evil.example.com/x",
+				}),
+			).toThrow(/workspace id is invalid/);
+		});
+
+		it("reads the workspace id from the region-specific env var", () => {
+			process.env.LLM_ALIBABA_WORKSPACE_ID__EU_FRANKFURT = "llm-from-env";
+
+			const endpoint = getProviderEndpoint(
+				"alibaba",
+				undefined,
+				"qwen3.7-max",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"eu-frankfurt",
+			);
+
+			expect(endpoint).toBe(
+				"https://llm-from-env.eu-central-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions",
+			);
+		});
+
+		it("prefers the variant-regional workspace id for matching orgs", () => {
+			process.env.LLM_ALIBABA_WORKSPACE_ID__EU_FRANKFURT = "llm-shared";
+			process.env.LLM_ALIBABA_WORKSPACE_ID__ENTERPRISE__EU_FRANKFURT =
+				"llm-enterprise";
+
+			const endpoint = getProviderEndpoint(
+				"alibaba",
+				undefined,
+				"qwen3.7-max",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"eu-frankfurt",
+				undefined,
+				undefined,
+				undefined,
+				"enterprise",
+			);
+
+			expect(endpoint).toBe(
+				"https://llm-enterprise.eu-central-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions",
+			);
+		});
+
+		it("selects the regional workspace id matching configIndex", () => {
+			process.env.LLM_ALIBABA_WORKSPACE_ID__EU_FRANKFURT =
+				"llm-first,llm-second";
+
+			const endpoint = getProviderEndpoint(
+				"alibaba",
+				undefined,
+				"qwen3.7-max",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				1, // configIndex
+				undefined,
+				"eu-frankfurt",
+			);
+
+			expect(endpoint).toBe(
+				"https://llm-second.eu-central-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions",
 			);
 		});
 	});

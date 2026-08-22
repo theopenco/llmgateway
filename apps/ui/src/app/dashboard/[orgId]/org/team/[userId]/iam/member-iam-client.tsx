@@ -23,7 +23,7 @@ export function MemberIamClient() {
 	const organizationId = params.orgId as string;
 	const userId = params.userId as string;
 	const { buildOrgUrl, selectedOrganization } = useDashboardNavigation();
-	const isEnterprise = selectedOrganization?.plan === "enterprise";
+	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 	const { user } = useUser();
 
 	const { data: teamData, isLoading: isTeamLoading } =

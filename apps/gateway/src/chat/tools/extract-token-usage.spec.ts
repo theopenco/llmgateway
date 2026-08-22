@@ -683,6 +683,49 @@ describe("extractTokenUsage", () => {
 			expect(result.cachedTokens).toBe(150);
 		});
 	});
+
+	describe("xai-style reasoning usage", () => {
+		it.each(["xai", "vertex-openai"] as const)(
+			"reads reasoning tokens from completion_tokens_details for %s",
+			(provider) => {
+				// Real grok-4.6 usage payload. xAI reports reasoning only in the nested
+				// details object and leaves it OUT of completion_tokens — note
+				// total_tokens = 213 + 4 + 310 — so it has to be picked up here or the
+				// cost engine bills the 4 visible output tokens and nothing else.
+				const data = {
+					usage: {
+						prompt_tokens: 213,
+						completion_tokens: 4,
+						total_tokens: 527,
+						prompt_tokens_details: { cached_tokens: 128 },
+						completion_tokens_details: { reasoning_tokens: 310 },
+					},
+				};
+
+				const result = extractTokenUsage(data, provider);
+
+				expect(result.promptTokens).toBe(213);
+				expect(result.completionTokens).toBe(4);
+				expect(result.reasoningTokens).toBe(310);
+				expect(result.cachedTokens).toBe(128);
+			},
+		);
+
+		it("returns null reasoning tokens for a non-reasoning response", () => {
+			const data = {
+				usage: {
+					prompt_tokens: 20,
+					completion_tokens: 8,
+					total_tokens: 28,
+				},
+			};
+
+			const result = extractTokenUsage(data, "xai");
+
+			expect(result.reasoningTokens).toBeNull();
+			expect(result.cachedTokens).toBeNull();
+		});
+	});
 });
 
 describe("adjustGoogleCandidateTokens", () => {

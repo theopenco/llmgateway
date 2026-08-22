@@ -44,7 +44,7 @@ export function ApiKeyStatsClient({
 	const { buildUrl, selectedOrganization } = useDashboardNavigation();
 	const api = useApi();
 	const usageMode = useUsageMode();
-	const isEnterprise = selectedOrganization?.plan === "enterprise";
+	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 
 	useEffect(() => {
 		if (!isEnterprise) {
@@ -112,9 +112,16 @@ export function ApiKeyStatsClient({
 				acc.totalTokens += row.totalTokens;
 				acc.requestCount += row.requestCount;
 				acc.errorCount += row.errorCount;
+				acc.clientErrorCount += row.clientErrorCount;
 				return acc;
 			},
-			{ cost: 0, totalTokens: 0, requestCount: 0, errorCount: 0 },
+			{
+				cost: 0,
+				totalTokens: 0,
+				requestCount: 0,
+				errorCount: 0,
+				clientErrorCount: 0,
+			},
 		);
 	}, [activity]);
 
@@ -122,7 +129,10 @@ export function ApiKeyStatsClient({
 	// traffic regardless of the selected usage mode.
 	const blendedRequestCount = useMemo(
 		() =>
-			(data?.activity ?? []).reduce((sum, row) => sum + row.requestCount, 0),
+			(data?.activity ?? []).reduce(
+				(sum, row) => sum + row.requestCount - row.clientErrorCount,
+				0,
+			),
 		[data],
 	);
 

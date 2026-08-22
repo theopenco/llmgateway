@@ -86,6 +86,8 @@ SOC 2, ISO 27001, HIPAA-adjacent, or an enterprise customer asking "who in your 
 
 If your codebase has a file called `llm-client.ts` or `ai-provider.ts` that's started growing — fallback logic, retry logic, provider selection, API key management, cost tracking — you're building a gateway. That's fine if gateway-building is the product. If it isn't, you're spending engineering cycles on non-differentiated infrastructure.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## Direct API vs Gateway: Side by Side
 
 | Concern                     | Direct API                        | LLM Gateway                               |
@@ -153,3 +155,5 @@ Two or three yeses: you're building the gateway either way. Use one that exists.
 - LLM Gateway is open source, self-hostable, and has a free tier. Try it when you're ready.
 
 **[Try LLM Gateway free](/signup)** | **[How we handle failover](/blog/how-we-handle-llm-provider-failover)** | **[Why your AI app needs a gateway](/blog/why-your-ai-app-needs-a-gateway)**
+
+<BlogCta variant="gateway" location="bottom" />

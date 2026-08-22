@@ -1,12 +1,7 @@
 import { CachingSettings } from "@/components/settings/caching-settings";
-import { fetchServerData } from "@/lib/server-api";
+import { getProject } from "@/lib/server-api";
 
-import type { Project } from "@/lib/types";
 import type { CachingSettingsData } from "@/types/settings";
-
-interface ProjectData {
-	project: Project;
-}
 
 export const CachingSettingsRsc = async ({
 	orgId,
@@ -15,17 +10,7 @@ export const CachingSettingsRsc = async ({
 	orgId: string;
 	projectId: string;
 }) => {
-	const projectData = await fetchServerData<ProjectData>(
-		"GET",
-		"/projects/{id}",
-		{
-			params: {
-				path: {
-					id: projectId,
-				},
-			},
-		},
-	);
+	const projectData = await getProject(projectId);
 
 	// Handle null data cases
 	if (!projectData) {
@@ -49,7 +34,7 @@ export const CachingSettingsRsc = async ({
 			preferences: {
 				cachingEnabled: project.cachingEnabled,
 				cacheDurationSeconds: project.cacheDurationSeconds,
-				providerCacheControlEnabled: project.providerCacheControlEnabled,
+				providerCacheControlMode: project.providerCacheControlMode,
 			},
 		},
 	};

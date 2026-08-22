@@ -247,6 +247,94 @@ describe(
 			},
 		);
 
+		// A Model Studio credential comes in two shapes: a legacy account key and
+		// a newer workspace-scoped `sk-ws-…` key. Both must register through the
+		// same dialog, and the workspace id is only ever an optional upgrade.
+		describe("alibaba credential shapes", () => {
+			const legacyKey = process.env.LLM_ALIBABA_API_KEY;
+			const frankfurtKey = process.env.LLM_ALIBABA_API_KEY__EU_FRANKFURT;
+			const frankfurtWorkspaceId =
+				process.env.LLM_ALIBABA_WORKSPACE_ID__EU_FRANKFURT;
+
+			async function createAlibabaKey(
+				providerToken: string,
+				options?: Record<string, string>,
+			) {
+				const { token, orgId } = await setupTestData();
+				const res = await app.request("/keys/provider", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Cookie: token,
+					},
+					body: JSON.stringify({
+						provider: "alibaba",
+						token: providerToken,
+						organizationId: orgId,
+						...(options ? { options } : {}),
+					}),
+				});
+				return { res, orgId };
+			}
+
+			test("registers a key for a region with a shared DashScope host", async () => {
+				if (!legacyKey) {
+					console.log("Skipping - no LLM_ALIBABA_API_KEY provided");
+					return;
+				}
+				const { res } = await createAlibabaKey(legacyKey, {
+					alibaba_region: "singapore",
+				});
+				expect(await res.json()).toHaveProperty("providerKey");
+				expect(res.status).toBe(200);
+			});
+
+			test("registers a workspace-scoped key with its workspace id", async () => {
+				if (!frankfurtKey || !frankfurtWorkspaceId) {
+					console.log("Skipping - no Frankfurt key/workspace id provided");
+					return;
+				}
+				const { res, orgId } = await createAlibabaKey(frankfurtKey, {
+					alibaba_region: "eu-frankfurt",
+					alibaba_workspace_id: frankfurtWorkspaceId,
+				});
+				expect(res.status).toBe(200);
+
+				const providerKey = await db.query.providerKey.findFirst({
+					where: {
+						provider: { eq: "alibaba" },
+						organizationId: { eq: orgId },
+					},
+				});
+				expect(providerKey?.options?.alibaba_workspace_id).toBe(
+					frankfurtWorkspaceId,
+				);
+			});
+
+			test("registers a workspace-scoped key without a workspace id", async () => {
+				if (!frankfurtKey) {
+					console.log("Skipping - no Frankfurt key provided");
+					return;
+				}
+				const { res } = await createAlibabaKey(frankfurtKey, {
+					alibaba_region: "eu-frankfurt",
+				});
+				expect(res.status).toBe(200);
+			});
+
+			test("rejects a workspace id that is not a bare hostname label", async () => {
+				if (!frankfurtKey) {
+					console.log("Skipping - no Frankfurt key provided");
+					return;
+				}
+				const { res } = await createAlibabaKey(frankfurtKey, {
+					alibaba_region: "eu-frankfurt",
+					alibaba_workspace_id: "evil.example.com/x",
+				});
+				expect(res.status).toBe(400);
+			});
+		});
+
 		describe("SSRF protection at registration", () => {
 			const originalFlag = process.env.ALLOW_INSECURE_PROVIDER_URLS;
 

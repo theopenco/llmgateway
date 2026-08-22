@@ -16,6 +16,7 @@ import {
 	type OpenAIToolInput,
 	type PromptCacheOptions,
 	type PromptCacheRetention,
+	type ProviderCacheControlMode,
 	type ProviderRequestBody,
 	type ReasoningDetail,
 	type ResponsesToolChoice,
@@ -28,6 +29,13 @@ import {
 import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
 import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
+import {
+	isToolSearchTool,
+	stripAnthropicNativeBlocks,
+	stripAnthropicToolExtensions,
+	toAnthropicToolSearchTool,
+	usesAnthropicMessagesApi,
+} from "./anthropic-tool-search.js";
 import { parseDataUrl } from "./parse-data-url.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
 import { ImageSizeLimitError, processImageUrl } from "./process-image-url.js";
@@ -106,6 +114,11 @@ function toResponsesToolChoice(
 	toolChoice: ToolChoiceType,
 ): ResponsesToolChoice {
 	if (typeof toolChoice === "object") {
+		// A web_search choice never reaches here: it is stripped before
+		// tool_choice resolution and applied per-provider instead.
+		if (toolChoice.type === "web_search") {
+			return "auto";
+		}
 		return { type: "function", name: toolChoice.function.name };
 	}
 	return toolChoice;
@@ -272,17 +285,22 @@ function isFunctionTool(
 /**
  * Enables DashScope web search on an OpenAI-compatible request body.
  *
- * `enable_search` on its own is only a hint that the model is free to ignore,
- * and in practice it always does: the prompt comes back the same size and the
- * model answers that it has no live access. Pairing it with
- * `search_options.forced_search` is what actually retrieves, so the two are
- * always sent together and a search is guaranteed to have run.
+ * Only ever called for a caller who forced the search, because forcing is the
+ * one mode DashScope actually performs. `enable_search` alone is documented as
+ * a hint the model may act on, but on these Qwen models it never fires — the
+ * prompt comes back unchanged in size and the model states it has no live
+ * access — so sending it by itself would bill nothing and retrieve nothing
+ * while still consuming the route. `search_options.forced_search` is what
+ * retrieves, and pairing the two guarantees a search ran, which is what lets
+ * the response parser count one without any metadata to read.
  *
  * `search_strategy` is deliberately omitted. The documented "agent" and
  * "agent_max" policies are rejected with a 400 ("The current model does not
  * support the \"agent\" search strategy") by the Qwen max models mapped here,
- * and the legacy turbo/standard/pro/max tiers only vary how many snippets get
- * injected into the prompt.
+ * and the legacy turbo/standard/pro/max tiers make almost no difference to how
+ * much gets injected — measured at 724/726/728 prompt tokens for
+ * turbo/standard/pro on an identical query — so they are not a cost lever
+ * worth exposing.
  */
 function applyDashScopeWebSearch(requestBody: Record<string, any>): void {
 	requestBody.enable_search = true;
@@ -327,6 +345,27 @@ function normalizeToolParameters(tools?: OpenAIToolInput[]): typeof tools {
 			},
 		};
 	});
+}
+
+function normalizeGoogleSchemaEnum(values: unknown): string[] | undefined {
+	if (!Array.isArray(values)) {
+		return undefined;
+	}
+
+	const normalized: string[] = [];
+	for (const value of values) {
+		if (
+			value !== null &&
+			typeof value !== "string" &&
+			typeof value !== "number" &&
+			typeof value !== "boolean"
+		) {
+			return undefined;
+		}
+		normalized.push(String(value));
+	}
+
+	return normalized;
 }
 
 /**
@@ -380,9 +419,11 @@ function convertOpenAISchemaToGoogle(schema: any): any {
 		converted.required = schema.required;
 	}
 
-	// Copy enum if present
-	if (schema.enum) {
-		converted.enum = schema.enum;
+	// Google's Schema proto represents every enum member as a string, including
+	// members of numeric and boolean schemas.
+	const normalizedEnum = normalizeGoogleSchemaEnum(schema.enum);
+	if (normalizedEnum !== undefined) {
+		converted.enum = normalizedEnum;
 	}
 
 	// Copy other common JSON schema properties that Google supports
@@ -533,7 +574,6 @@ const GOOGLE_SUPPORTED_SCHEMA_KEYS: ReadonlySet<string> = new Set([
 const GOOGLE_OPAQUE_SCHEMA_VALUE_KEYS: ReadonlySet<string> = new Set([
 	"default",
 	"example",
-	"enum",
 ]);
 
 /**
@@ -636,6 +676,14 @@ function stripUnsupportedSchemaProperties(
 			continue;
 		}
 
+		if (key === "enum") {
+			const normalizedEnum = normalizeGoogleSchemaEnum(value);
+			if (normalizedEnum !== undefined) {
+				cleaned.enum = normalizedEnum;
+			}
+			continue;
+		}
+
 		if (GOOGLE_OPAQUE_SCHEMA_VALUE_KEYS.has(key)) {
 			cleaned[key] = value;
 			continue;
@@ -720,6 +768,44 @@ function mapGoogleImageSize(imageSize: string): string {
 	}
 
 	return imageSize;
+}
+
+/**
+ * Maps the unified `image_config.image_size` to xAI's `resolution` enum, which
+ * only accepts the lowercase tier names `1k` and `2k` and 422s on anything else
+ * (including `1K` and pixel-dimension strings). Callers pass sizes in whichever
+ * shape their other providers use, so a tier is resolved from the longest pixel
+ * edge when dimensions are given. Returns undefined when the size names no
+ * xAI tier, so the request omits `resolution` and gets xAI's 1k default rather
+ * than a hard rejection.
+ */
+export function mapXaiImageResolution(imageSize: string): string | undefined {
+	const normalized = imageSize.trim().toLowerCase();
+	if (normalized === "1k" || normalized === "2k") {
+		return normalized;
+	}
+
+	const dimensions = normalized.match(/^(\d+)\s*[x*]\s*(\d+)$/);
+	if (dimensions) {
+		const longestEdge = Math.max(Number(dimensions[1]), Number(dimensions[2]));
+		return longestEdge > 1536 ? "2k" : "1k";
+	}
+
+	return undefined;
+}
+
+/**
+ * xAI's image models accept `quality` as a strict enum and 422 on anything
+ * outside it, so the unified `auto` (meaning "let the provider decide") is
+ * dropped rather than forwarded.
+ */
+export function mapXaiImageQuality(imageQuality: string): string | undefined {
+	const normalized = imageQuality.trim().toLowerCase();
+	return normalized === "low" ||
+		normalized === "medium" ||
+		normalized === "high"
+		? normalized
+		: undefined;
 }
 
 /**
@@ -1187,13 +1273,16 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
  * Prepares the request body for different providers.
  *
  * @param usedProvider - Provider id used for routing.
- * @param usedInternalModel - Canonical LLM Gateway model id (root id). Used
+ * @param usedInternalModel - Canonical LLM Gateway model id. Used
  *   for ALL internal lookups (model def + provider mapping). Never the
  *   provider-specific upstream id.
  * @param usedRegion - Region the request is bound to, when the mapping has
  *   per-region variants. Used together with `usedProvider` to disambiguate.
  * @param usedExternalId - Provider-specific upstream model id. Used only as
  *   the `model:` value in the upstream request body — never for lookups.
+ * @param providerCacheControlMode - Project's provider cache-write policy.
+ *   `auto` forwards caller markers and injects more on long prompts,
+ *   `passthrough` only forwards, `off` strips everything.
  */
 export async function prepareRequestBody(
 	usedProvider: ProviderId,
@@ -1231,15 +1320,31 @@ export async function prepareRequestBody(
 	useResponsesApi?: boolean,
 	prompt_cache_key?: string,
 	prompt_cache_retention?: PromptCacheRetention,
-	providerCacheControlEnabled = true,
+	providerCacheControlMode: ProviderCacheControlMode = "auto",
 	n?: number,
 	service_tier?: "auto" | "default" | "flex" | "priority",
 	verbosity?: "low" | "medium" | "high",
 	prompt_cache_options?: PromptCacheOptions,
 	session_id?: string,
 	reasoning_context?: "auto" | "current_turn" | "all_turns",
+	safety_identifier?: string,
 ): Promise<ProviderRequestBody | FormData> {
 	tools = normalizeToolParameters(tools);
+	// Anthropic's server-side tool search (`defer_loading` plus the tool search
+	// tool) only exists on the Anthropic Messages API. Anywhere else the tools
+	// are still sent, just without deferral, so the request degrades to ordinary
+	// eager tool loading instead of failing on an unknown property.
+	const anthropicMessagesApi = usesAnthropicMessagesApi(usedProvider);
+	if (!anthropicMessagesApi) {
+		if (tools?.some(isToolSearchTool)) {
+			logger.warn(
+				"Dropping Anthropic tool search for a non-Anthropic provider",
+				{ usedProvider, usedInternalModel, toolCount: tools.length },
+			);
+		}
+		tools = stripAnthropicToolExtensions(tools);
+		messages = stripAnthropicNativeBlocks(messages);
+	}
 	const modelDef = models.find((m) => m.id === usedInternalModel);
 	const providerMappingForOptions = getProviderMapping(
 		modelDef,
@@ -1411,6 +1516,12 @@ export async function prepareRequestBody(
 
 		// xAI Grok Imagine uses OpenAI-compatible image generation format
 		// When images are present, use the edits format
+		const xaiQuality = image_config?.image_quality
+			? mapXaiImageQuality(image_config.image_quality)
+			: undefined;
+		const xaiResolution = image_config?.image_size
+			? mapXaiImageResolution(image_config.image_size)
+			: undefined;
 		const xaiImageRequest: any = {
 			model: usedExternalId,
 			prompt,
@@ -1418,6 +1529,8 @@ export async function prepareRequestBody(
 			...(image_config?.aspect_ratio && {
 				aspect_ratio: image_config.aspect_ratio,
 			}),
+			...(xaiQuality && { quality: xaiQuality }),
+			...(xaiResolution && { resolution: xaiResolution }),
 			...(image_config?.n && { n: image_config.n }),
 		};
 
@@ -1648,19 +1761,41 @@ export async function prepareRequestBody(
 		processedMessages = transformMessagesForNoSystemRole(processedMessages);
 	}
 
+	// Provider cache-write policy, split into the two things it actually
+	// controls. `off` is the only mode that touches caller-supplied markers;
+	// `passthrough` differs from `auto` purely by not adding markers of our own,
+	// so a client that manages its own caching (Claude Code, Cursor, Cline) keeps
+	// working while traffic that sends no markers never pays the write premium.
+	const allowProviderCacheWrites = providerCacheControlMode !== "off";
+	const autoInjectCacheControl = providerCacheControlMode === "auto";
+
+	// A tool message's `tool_result_cache_control` only has a destination on the
+	// Anthropic Messages API, where it becomes a marker on the tool_result block
+	// the message is lowered to. Anywhere else it would reach the upstream as an
+	// unknown message field, and a project that opted out of provider cache
+	// writes must not emit it at all.
+	if (!anthropicMessagesApi || !allowProviderCacheWrites) {
+		processedMessages = processedMessages.map((m) => {
+			if (m.tool_result_cache_control === undefined) {
+				return m;
+			}
+			const { tool_result_cache_control: _dropped, ...rest } = m;
+			return rest;
+		});
+	}
+
 	// Strip Anthropic-style cache_control markers from caller-supplied content
 	// parts. We do this in two cases:
 	//   1) The resolved provider doesn't natively understand cache_control —
 	//      strip from text blocks so we don't forward an unknown field that
 	//      strict providers (OpenAI, Google, etc.) would 400 on.
-	//   2) The project has opted out of provider cache writes via
-	//      providerCacheControlEnabled=false — strip from ALL content blocks
-	//      so we honor the user's intent that this project never writes to
-	//      provider cache. This covers callers that always emit cache_control
-	//      markers regardless of the user's usage pattern (Claude Code, Cursor,
-	//      Cline, etc.). Without this, a coding agent on a sparse-use account
-	//      would still pay the 1.25× / 2× cache-write premium because the
-	//      agent's markers would flow through unchanged.
+	//   2) The project set providerCacheControlMode="off" — strip from ALL
+	//      content blocks so we honor the user's intent that this project never
+	//      writes to provider cache. This covers callers that always emit
+	//      cache_control markers regardless of the user's usage pattern (Claude
+	//      Code, Cursor, Cline, etc.). Without this, a coding agent on a
+	//      sparse-use account would still pay the 1.25× / 2× cache-write premium
+	//      because the agent's markers would flow through unchanged.
 	// Anthropic and AWS Bedrock branches below transform/forward markers on
 	// their own; Alibaba accepts `cache_control: {type: "ephemeral"}` on its
 	// OpenAI-compatible surface but supports only a fixed 5-minute TTL, so any
@@ -1670,7 +1805,7 @@ export async function prepareRequestBody(
 		usedProvider === "vertex-anthropic" ||
 		usedProvider === "aws-bedrock" ||
 		usedProvider === "alibaba";
-	const stripAllCacheControl = !providerCacheControlEnabled;
+	const stripAllCacheControl = !allowProviderCacheWrites;
 	const stripTextCacheControl = !providerHandlesCacheControl;
 	if (stripAllCacheControl || stripTextCacheControl) {
 		processedMessages = processedMessages.map((m) => {
@@ -1745,7 +1880,7 @@ export async function prepareRequestBody(
 	const keepPromptCacheBreakpoints =
 		usedProvider === "openai" &&
 		supportsOpenAIExplicitPromptCache(usedInternalModel) &&
-		providerCacheControlEnabled;
+		allowProviderCacheWrites;
 	if (!keepPromptCacheBreakpoints) {
 		processedMessages = processedMessages.map((m) => {
 			if (!Array.isArray(m.content)) {
@@ -1801,6 +1936,49 @@ export async function prepareRequestBody(
 			const reasoning = m.reasoning ?? fallback;
 			return { ...m, reasoning_content: reasoning || fallback };
 		});
+	}
+
+	// Some deployments fetch remote image URLs themselves but only decode a
+	// subset of the formats they accept inline (Novita's ERNIE 4.5 VL rejects a
+	// remote PNG while accepting the same bytes as a data URL), so mappings that
+	// declare `requiresBase64Images` get their remote images inlined here,
+	// before any provider branch runs. Every non-`data:` URL goes through
+	// `processImageUrl` with the SSRF guard left on (its default): the guard is
+	// what enforces https-only and refuses internal hosts, so an `http://` URL
+	// is rejected rather than quietly forwarded to the provider to fetch.
+	if (providerMappingForOptions?.requiresBase64Images) {
+		processedMessages = await Promise.all(
+			processedMessages.map(async (m) => {
+				if (!Array.isArray(m.content)) {
+					return m;
+				}
+				const content = await Promise.all(
+					m.content.map(async (part) => {
+						if (part?.type !== "image_url" || !part.image_url) {
+							return part;
+						}
+						const imageUrl =
+							typeof part.image_url === "string"
+								? part.image_url
+								: part.image_url.url;
+						if (!imageUrl || imageUrl.startsWith("data:")) {
+							return part;
+						}
+						const { data, mimeType } = await processImageUrl(
+							imageUrl,
+							isProd,
+							maxImageSizeMB,
+							userPlan,
+						);
+						return {
+							...part,
+							image_url: { url: `data:${mimeType};base64,${data}` },
+						};
+					}),
+				);
+				return { ...m, content };
+			}),
+		);
 	}
 
 	// Keep a pre-strip reference for the OpenAI Responses API path below, which
@@ -1883,19 +2061,23 @@ export async function prepareRequestBody(
 	// in the mapping's supportedToolChoices. This keeps forced-tool requests
 	// working on providers that only accept a subset of tool_choice modes,
 	// instead of hard-coding per-provider downgrades here.
-	let resolvedToolChoice = tool_choice;
-	if (tool_choice) {
+	// `tool_choice: {type: "web_search"}` is a gateway-level directive, consumed
+	// via `webSearchTool.forced` and translated into whatever each upstream
+	// understands (DashScope's `search_options.forced_search`). No provider
+	// accepts it under this name in a chat-completions body, so it is never
+	// forwarded verbatim.
+	const isWebSearchToolChoice =
+		typeof tool_choice === "object" &&
+		tool_choice !== null &&
+		(tool_choice as { type?: string }).type === "web_search";
+
+	let resolvedToolChoice = isWebSearchToolChoice ? undefined : tool_choice;
+	if (tool_choice && !isWebSearchToolChoice) {
 		const mapping = modelDef?.providers.find(
 			(p) =>
 				p.providerId === usedProvider &&
 				((p as ProviderModelMapping).region ?? null) === usedRegion,
 		) as ProviderModelMapping | undefined;
-
-		const supportedParams = mapping?.supportedParameters;
-		const toolChoiceParamSupported =
-			!supportedParams ||
-			supportedParams.length === 0 ||
-			supportedParams.includes("tool_choice");
 
 		// `reasoning_effort` is already normalized above, so "none" here means the
 		// mapping really turns thinking off upstream — which some mappings require
@@ -1906,8 +2088,7 @@ export async function prepareRequestBody(
 				thinkingDisabled: reasoning_effort === "none",
 			});
 
-		resolvedToolChoice =
-			toolChoiceParamSupported && modeSupported ? tool_choice : "auto";
+		resolvedToolChoice = modeSupported ? tool_choice : "auto";
 		requestBody.tool_choice = resolvedToolChoice;
 	}
 
@@ -2081,7 +2262,7 @@ export async function prepareRequestBody(
 						responsesBody.prompt_cache_retention = prompt_cache_retention;
 					}
 					if (supportsOpenAIExplicitPromptCache(usedInternalModel)) {
-						if (!providerCacheControlEnabled) {
+						if (!allowProviderCacheWrites) {
 							// The project opted out of provider cache writes, but GPT-5.6
 							// implicit caching auto-writes (billed at 1.25x) on every
 							// request. Force explicit mode — with all breakpoint markers
@@ -2090,6 +2271,11 @@ export async function prepareRequestBody(
 							responsesBody.prompt_cache_options = { mode: "explicit" };
 						} else if (prompt_cache_options !== undefined) {
 							responsesBody.prompt_cache_options = prompt_cache_options;
+						} else if (!autoInjectCacheControl) {
+							// Passthrough: implicit caching writes a cache the caller never
+							// asked for. Explicit mode confines writes to the caller's own
+							// breakpoints, which is what this mode promises.
+							responsesBody.prompt_cache_options = { mode: "explicit" };
 						}
 					}
 				}
@@ -2120,6 +2306,17 @@ export async function prepareRequestBody(
 					if (upstreamCacheKey !== undefined) {
 						responsesBody.prompt_cache_key = upstreamCacheKey;
 					}
+				}
+
+				// Abuse-attribution identifier. Only OpenAI and Azure (whose v1
+				// surface is what the Responses API path always uses) document
+				// `safety_identifier`; Bedrock Mantle and Meta are excluded because
+				// neither documents it and an unknown field risks a 400.
+				if (
+					safety_identifier !== undefined &&
+					(usedProvider === "openai" || usedProvider === "azure")
+				) {
+					responsesBody.safety_identifier = safety_identifier;
 				}
 
 				// Add streaming support
@@ -2153,6 +2350,13 @@ export async function prepareRequestBody(
 						webSearch.search_context_size = webSearchTool.search_context_size;
 					}
 					responsesBody.tools.push(webSearch);
+					// The Responses API takes the same directive the gateway accepts,
+					// so a forced search is forwarded rather than translated. Verified
+					// live: "What is 2+2?" produces no web_search_call without it and
+					// one with it.
+					if (webSearchTool.forced) {
+						responsesBody.tool_choice = { type: "web_search" };
+					}
 				}
 				if (resolvedToolChoice) {
 					responsesBody.tool_choice = toResponsesToolChoice(resolvedToolChoice);
@@ -2217,6 +2421,11 @@ export async function prepareRequestBody(
 					if (upstreamCacheKey !== undefined) {
 						requestBody.prompt_cache_key = upstreamCacheKey;
 					}
+					// Azure is excluded here for the same reason as the cache key
+					// above; it gets `safety_identifier` on the Responses path only.
+					if (safety_identifier !== undefined) {
+						requestBody.safety_identifier = safety_identifier;
+					}
 					if (
 						prompt_cache_retention !== undefined &&
 						(prompt_cache_retention !== "24h" ||
@@ -2225,7 +2434,7 @@ export async function prepareRequestBody(
 						requestBody.prompt_cache_retention = prompt_cache_retention;
 					}
 					if (supportsOpenAIExplicitPromptCache(usedInternalModel)) {
-						if (!providerCacheControlEnabled) {
+						if (!allowProviderCacheWrites) {
 							// The project opted out of provider cache writes, but GPT-5.6
 							// implicit caching auto-writes (billed at 1.25x) on every
 							// request. Force explicit mode — with all breakpoint markers
@@ -2234,6 +2443,11 @@ export async function prepareRequestBody(
 							requestBody.prompt_cache_options = { mode: "explicit" };
 						} else if (prompt_cache_options !== undefined) {
 							requestBody.prompt_cache_options = prompt_cache_options;
+						} else if (!autoInjectCacheControl) {
+							// Passthrough: implicit caching writes a cache the caller never
+							// asked for. Explicit mode confines writes to the caller's own
+							// breakpoints, which is what this mode promises.
+							requestBody.prompt_cache_options = { mode: "explicit" };
 						}
 					}
 				}
@@ -2394,7 +2608,26 @@ export async function prepareRequestBody(
 			// response_format leave the provider default rather than disabling —
 			// unless the caller explicitly asked for "none".
 			if (supportsReasoning) {
-				if (reasoning_effort === "none") {
+				// glm-5.3 dropped support for disabling thinking: sending
+				// thinking.type "disabled" fails the request, and effort is
+				// selected via the native `reasoning_effort` field (low/high/max,
+				// default max). A zai mapping whose declared reasoningEfforts
+				// exclude "none" is such an always-on model: keep thinking
+				// enabled, forward the effort tier as-is, and collapse disable
+				// requests (none/minimal) onto the provider default.
+				const declaredEfforts = providerMappingForOptions?.reasoningEfforts;
+				const alwaysThinks =
+					declaredEfforts !== undefined && !declaredEfforts.includes("none");
+				if (alwaysThinks) {
+					requestBody.thinking = { type: "enabled" };
+					if (
+						reasoning_effort !== undefined &&
+						reasoning_effort !== "none" &&
+						reasoning_effort !== "minimal"
+					) {
+						requestBody.reasoning_effort = reasoning_effort;
+					}
+				} else if (reasoning_effort === "none") {
 					requestBody.thinking = { type: "disabled" };
 				} else {
 					const wantsThinking =
@@ -2489,7 +2722,7 @@ export async function prepareRequestBody(
 				requestBody.response_format = response_format;
 			}
 
-			if (webSearchTool) {
+			if (webSearchTool?.forced) {
 				applyDashScopeWebSearch(requestBody);
 			}
 
@@ -2620,6 +2853,14 @@ export async function prepareRequestBody(
 			// Remove generic tool_choice that was added earlier
 			delete requestBody.tool_choice;
 
+			// Anthropic's equivalent of OpenAI's `safety_identifier`. Accepted on
+			// both the direct API and Vertex `rawPredict` (verified live). AWS
+			// Bedrock is not covered: it speaks the Converse API, which has no
+			// equivalent field.
+			if (safety_identifier !== undefined) {
+				requestBody.metadata = { user_id: safety_identifier };
+			}
+
 			// Set max_tokens, ensuring it's higher than thinking budget when reasoning is enabled
 			// Use reasoning_max_tokens if provided, otherwise fall back to reasoning_effort mapping
 			const getThinkingBudget = (effort?: string) => {
@@ -2672,28 +2913,86 @@ export async function prepareRequestBody(
 			);
 
 			// Anthropic requires longer-TTL cache breakpoints to come before
-			// shorter ones (processing order: tools, system, messages). The
-			// gateway's heuristics inject ttl-less markers (5m default), so when
-			// the caller placed an explicit ttl:"1h" marker in the messages, any
-			// auto-injected marker would land before it and Anthropic rejects the
-			// request ("a ttl='1h' cache_control block must not come after a
-			// ttl='5m' cache_control block"). Defer entirely to the caller's
-			// caching strategy in that case. A 1h marker only on system is safe:
+			// shorter ones ("a 1-hour cache entry must appear before any 5-minute
+			// cache entries" —
+			// platform.claude.com/docs/en/build-with-claude/prompt-caching;
+			// processing order: tools, system, messages). The gateway's heuristics
+			// inject ttl-less markers (5m default), so when the caller placed an
+			// explicit ttl:"1h" marker in the messages, any auto-injected marker
+			// would land before it and Anthropic rejects the request ("a ttl='1h'
+			// cache_control block must not come after a ttl='5m' cache_control
+			// block"). Defer entirely to the caller's caching strategy in that
+			// case — including when the 1h marker rides on a tool_result, which
+			// this check would otherwise miss. A 1h marker only on system is safe:
 			// message-level 5m markers after it satisfy the ordering.
 			const callerUses1hTtlInMessages = nonSystemMessages.some(
 				(m) =>
-					Array.isArray(m.content) &&
-					m.content.some(
-						(part) => isTextContent(part) && part.cache_control?.ttl === "1h",
-					),
+					m.tool_result_cache_control?.ttl === "1h" ||
+					(Array.isArray(m.content) &&
+						m.content.some(
+							(part) => isTextContent(part) && part.cache_control?.ttl === "1h",
+						)),
 			);
 			const autoCacheControlEnabled =
-				providerCacheControlEnabled && !callerUses1hTtlInMessages;
+				autoInjectCacheControl && !callerUses1hTtlInMessages;
 
 			// Build the system field with cache_control for long prompts
 			// Track cache_control usage across system and user messages (max 4 total per Anthropic's limit)
-			let systemCacheControlCount = 0;
 			const maxCacheControlBlocks = 4;
+
+			// Anthropic renders `tools` before `system` and `messages`, so a caller
+			// breakpoint on the last tool caches the largest prefix available — and
+			// it is the one an agentic client (Claude Code) reliably sets.
+			const anthropicFunctionTools = (tools ?? []).filter(isFunctionTool);
+
+			// Being first also makes a 5m tool marker the one thing that can strand
+			// a caller's later 1h marker on the wrong side of Anthropic's ordering
+			// rule ("a 1-hour cache entry must appear before any 5-minute cache
+			// entries"). Auto-injected markers are always ttl-less/5m and land after
+			// the tools, so they are safe; a caller mixing TTLs is not. Drop the 5m
+			// tool marker in that case rather than emit a request Anthropic rejects
+			// — the 1h breakpoint the caller paid the 2x write premium for is the
+			// one worth keeping.
+			const callerUses1hTtlAfterTools =
+				callerUses1hTtlInMessages ||
+				systemMessages.some(
+					(sysMsg) =>
+						Array.isArray(sysMsg.content) &&
+						sysMsg.content.some(
+							(part) => isTextContent(part) && part.cache_control?.ttl === "1h",
+						),
+				);
+			let lastOneHourToolIndex = -1;
+			anthropicFunctionTools.forEach((tool, index) => {
+				if (tool.cache_control?.ttl === "1h") {
+					lastOneHourToolIndex = index;
+				}
+			});
+
+			// Decide here which tool markers actually ship, so the budget seeded
+			// below matches them exactly. Counting them after the fact would let the
+			// system and message passes spend slots the tools already took, and
+			// Anthropic rejects the fifth breakpoint outright.
+			let toolMarkersKeptSoFar = 0;
+			const toolCacheControlKept = anthropicFunctionTools.map((tool, index) => {
+				const marker = tool.cache_control;
+				if (
+					!allowProviderCacheWrites ||
+					!marker ||
+					toolMarkersKeptSoFar >= maxCacheControlBlocks
+				) {
+					return false;
+				}
+				const orderingSafe =
+					marker.ttl === "1h" ||
+					(!callerUses1hTtlAfterTools && index > lastOneHourToolIndex);
+				if (!orderingSafe) {
+					return false;
+				}
+				toolMarkersKeptSoFar++;
+				return true;
+			});
+			let systemCacheControlCount = toolMarkersKeptSoFar;
 
 			// Get the minCacheableTokens from the model definition (default to 1024 if not specified)
 			const providerMapping = modelDef?.providers.find(
@@ -2822,13 +3121,31 @@ export async function prepareRequestBody(
 			// Transform tools from OpenAI format to Anthropic format
 			if (tools && tools.length > 0) {
 				// Filter to only function tools (web_search is handled separately)
-				const functionTools = tools.filter(isFunctionTool);
+				const functionTools = anthropicFunctionTools;
 				if (functionTools.length > 0) {
-					requestBody.tools = functionTools.map((tool) => ({
+					requestBody.tools = functionTools.map((tool, index) => ({
 						name: tool.function.name,
 						description: tool.function.description,
 						input_schema: tool.function.parameters,
+						// Anthropic strips deferred tools from the rendered tools
+						// section before the cache key is computed, so forwarding this
+						// is what keeps a large tool catalogue out of the cached prefix.
+						...(tool.defer_loading === true && { defer_loading: true }),
+						// Budget and TTL ordering were both settled above, where the
+						// system pass needed the resulting count.
+						...(toolCacheControlKept[index] && {
+							cache_control: tool.cache_control,
+						}),
 					}));
+				}
+				// The tool search tool has to come first: Anthropic rejects a request
+				// whose tools are all deferred, and it is the one tool that never is.
+				const toolSearchTools = tools.filter(isToolSearchTool);
+				if (toolSearchTools.length > 0) {
+					requestBody.tools = [
+						...toolSearchTools.map(toAnthropicToolSearchTool),
+						...((requestBody.tools as unknown[]) ?? []),
+					];
 				}
 			}
 
@@ -3014,9 +3331,7 @@ export async function prepareRequestBody(
 				}
 				if (reasoning_effort !== undefined) {
 					const reasoningEffort =
-						reasoning_effort === "minimal" || reasoning_effort === "xhigh"
-							? "low"
-							: reasoning_effort;
+						reasoning_effort === "minimal" ? "low" : reasoning_effort;
 					requestBody.reasoning = {
 						effort: reasoningEffort,
 					};
@@ -3091,7 +3406,7 @@ export async function prepareRequestBody(
 						),
 				);
 			const bedrockAutoCachePointEnabled =
-				providerCacheControlEnabled && !bedrockCallerUses1hTtlInMessages;
+				autoInjectCacheControl && !bedrockCallerUses1hTtlInMessages;
 
 			// Build the system field with cachePoint for long prompts.
 			// AWS Bedrock uses "cachePoint" (not "cacheControl") as a SEPARATE
@@ -4079,6 +4394,52 @@ export async function prepareRequestBody(
 			break;
 		}
 
+		case "gonka24": {
+			if (stream) {
+				requestBody.stream_options = {
+					include_usage: true,
+				};
+			}
+			if (response_format) {
+				requestBody.response_format = response_format;
+			}
+
+			// Add optional parameters if they are provided
+			if (temperature !== undefined) {
+				requestBody.temperature = temperature;
+			}
+			if (max_tokens !== undefined) {
+				requestBody.max_tokens = max_tokens;
+			}
+			if (top_p !== undefined) {
+				requestBody.top_p = top_p;
+			}
+			if (frequency_penalty !== undefined) {
+				requestBody.frequency_penalty = frequency_penalty;
+			}
+			if (presence_penalty !== undefined) {
+				requestBody.presence_penalty = presence_penalty;
+			}
+
+			// Gonka24 keeps thinking off by default, and only the binary `thinking`
+			// switch turns it on — `reasoning_effort` alone never does, and the
+			// chat-template flag is ignored. So the effort decides the switch:
+			// "none" disables, any other tier enables. The effort is forwarded
+			// alongside it because the deployment validates it against its enum and
+			// grades the tiers by intent; today they measure the same (low/medium/
+			// high differ by ~6% in reasoning length over 40 samples each, well
+			// inside noise), but forwarding means real grading works the moment the
+			// provider implements it, with no gateway change.
+			if (supportsReasoning && reasoning_effort !== undefined) {
+				requestBody.thinking =
+					reasoning_effort === "none"
+						? { type: "disabled" }
+						: { type: "enabled" };
+				requestBody.reasoning_effort = reasoning_effort;
+			}
+			break;
+		}
+
 		default: {
 			if (stream) {
 				requestBody.stream_options = {
@@ -4100,7 +4461,7 @@ export async function prepareRequestBody(
 			// SCX resells Alibaba's Qwen models and passes DashScope's search
 			// parameters straight through, so its Qwen mappings take the same shape
 			// as the `alibaba` case above.
-			if (usedProvider === "scx-ai-gp" && webSearchTool) {
+			if (usedProvider === "scx-ai-gp" && webSearchTool?.forced) {
 				applyDashScopeWebSearch(requestBody);
 			}
 
@@ -4162,24 +4523,33 @@ export async function prepareRequestBody(
 					}
 				}
 			}
-			// Hybrid models that keep thinking off by default (e.g. DeepSeek V3.2 on
-			// Novita) ignore `reasoning_effort` and require the vLLM chat-template
-			// flag to turn reasoning on. Only set it when the caller asked for
-			// reasoning so plain requests stay non-thinking.
-			if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
-				const thinkingMapping = modelDef?.providers.find(
-					(p) =>
-						p.providerId === usedProvider &&
-						((p as ProviderModelMapping).region ?? null) === usedRegion,
-				) as ProviderModelMapping | undefined;
-				if (thinkingMapping?.requiresEnableThinking) {
-					requestBody.chat_template_kwargs = {
-						...(requestBody.chat_template_kwargs ?? {}),
-						thinking: true,
-					};
-				}
-			}
 			break;
+		}
+	}
+
+	// vLLM chat-template thinking flags are handled after the provider switch so
+	// every provider branch (not just the OpenAI-compatible default) applies them
+	// uniformly. Hybrid models that keep thinking off by default (e.g. DeepSeek
+	// V3.2 on Novita) ignore `reasoning_effort` and require the chat-template flag
+	// to turn reasoning on; mappings that think by default (e.g. InclusionAI
+	// Ling-3.0-flash) declare `chatTemplateThinkingKey` for the flag that controls
+	// thinking. `reasoning_effort: "none"` flips it to false to turn thinking off,
+	// and any other effort flips it to true. A `reasoning_max_tokens` budget (from
+	// an Anthropic `thinking.budget_tokens`) is intentionally dropped for these
+	// mappings: the chat-template flag is a binary on/off toggle with no budget
+	// dimension, so the gateway only conveys whether thinking is on.
+	if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
+		if (providerMappingForOptions?.chatTemplateThinkingKey) {
+			requestBody.chat_template_kwargs = {
+				...(requestBody.chat_template_kwargs ?? {}),
+				[providerMappingForOptions.chatTemplateThinkingKey]:
+					reasoning_effort !== "none",
+			};
+		} else if (providerMappingForOptions?.requiresEnableThinking) {
+			requestBody.chat_template_kwargs = {
+				...(requestBody.chat_template_kwargs ?? {}),
+				thinking: true,
+			};
 		}
 	}
 

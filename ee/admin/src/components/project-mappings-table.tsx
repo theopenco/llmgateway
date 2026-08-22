@@ -18,7 +18,7 @@ import {
 import { getMappingHistory } from "@/lib/admin-history";
 import { cn } from "@/lib/utils";
 
-import { getProviderIcon } from "@llmgateway/shared";
+import { deriveStabilityMetrics, getProviderIcon } from "@llmgateway/shared";
 
 import type { HistoryWindow } from "@/components/history-chart";
 import type { PageWindow } from "@/lib/page-window";
@@ -32,6 +32,7 @@ export interface ProjectMappingEntry {
 	providerName: string;
 	logsCount: number;
 	errorsCount: number;
+	clientErrorsCount: number;
 	cachedCount: number;
 	cost: number;
 	totalTokens: number;
@@ -125,10 +126,12 @@ function MappingRow({
 }) {
 	const [expanded, setExpanded] = useState(false);
 	const ProviderIcon = getProviderIcon(mapping.providerId);
-	const errorRate =
-		mapping.logsCount > 0
-			? ((mapping.errorsCount / mapping.logsCount) * 100).toFixed(1)
-			: "0.0";
+	const stability = deriveStabilityMetrics(
+		mapping.logsCount,
+		mapping.errorsCount,
+		mapping.clientErrorsCount,
+	);
+	const errorRate = (stability.errorRate ?? 0).toFixed(1);
 	const displayModel = mapping.modelId.includes("/")
 		? mapping.modelId.split("/").slice(1).join("/")
 		: mapping.modelId;
@@ -162,7 +165,10 @@ function MappingRow({
 					{formatNumber(mapping.logsCount)}
 				</TableCell>
 				<TableCell className="tabular-nums">
-					{formatNumber(mapping.errorsCount)}
+					{formatNumber(stability.errorsCount)}
+				</TableCell>
+				<TableCell className="tabular-nums">
+					{formatNumber(mapping.clientErrorsCount)}
 				</TableCell>
 				<TableCell className="tabular-nums">{errorRate}%</TableCell>
 				<TableCell className="tabular-nums">
@@ -249,6 +255,7 @@ export function ProjectMappingsTable({
 					{sh("Model", "modelId")}
 					{sh("Requests", "logsCount")}
 					{sh("Errors", "errorsCount")}
+					<TableHead>Client</TableHead>
 					<TableHead>Error Rate</TableHead>
 					<TableHead>Cached</TableHead>
 					<TableHead>Tokens</TableHead>

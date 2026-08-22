@@ -124,12 +124,14 @@ export function firstRowPerInvoiceFilter(dedupTypes: readonly string[]) {
 }
 
 // Transaction types that represent an actual customer payment: org credit
-// purchases, dev/chat plan charges (start/upgrade/renewal — cancel, end and
-// downgrade rows are bookkeeping, not payments), legacy subscriptions, and
-// end-user wallet top-ups. Used to count "paid customers", so gifts, refunds
-// and margin bookkeeping never qualify an org as paying.
+// purchases (Stripe or manually credited off-Stripe payments), dev/chat plan
+// charges (start/upgrade/renewal — cancel, end and downgrade rows are
+// bookkeeping, not payments), legacy subscriptions, and end-user wallet
+// top-ups. Used to count "paid customers", so gifts, refunds and margin
+// bookkeeping never qualify an org as paying.
 export const paidTransactionTypes = [
 	"credit_topup",
+	"credit_manual_payment",
 	"subscription_start",
 	"dev_plan_start",
 	"dev_plan_upgrade",

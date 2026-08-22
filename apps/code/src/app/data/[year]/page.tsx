@@ -176,6 +176,8 @@ export default async function CensusPage({
 			name: "LLM Gateway",
 			url: "https://llmgateway.io",
 		},
+		license: "https://llmgateway.io/legal/terms",
+		isAccessibleForFree: true,
 		temporalCoverage: `${year}`,
 		variableMeasured: [
 			"value for money (1-5)",

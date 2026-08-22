@@ -1,5 +1,36 @@
 import { z } from "@hono/zod-openapi";
 
+/**
+ * Flatten a Zod error into `path: message` pairs a client can act on.
+ *
+ * Union failures report a single issue at the union's own path ("Invalid
+ * input"), burying the reason in `unionErrors`. That is useless on a schema
+ * whose `input` is a union of unions: a request rejected for one bad item in a
+ * 200-item array reports only "input: Invalid input". Each union is expanded to
+ * the branch that got furthest into the value, which is the branch the client
+ * meant.
+ */
+function expandIssues(issues: z.ZodIssue[]): z.ZodIssue[] {
+	return issues.flatMap((issue) => {
+		if (issue.code !== z.ZodIssueCode.invalid_union) {
+			return [issue];
+		}
+		const nested = issue.unionErrors.flatMap((error) =>
+			expandIssues(error.issues),
+		);
+		const deepest = Math.max(0, ...nested.map((i) => i.path.length));
+		return nested.filter((i) => i.path.length === deepest);
+	});
+}
+
+export function formatValidationError(error: z.ZodError): string {
+	const seen = new Set<string>();
+	for (const issue of expandIssues(error.issues)) {
+		seen.add(`${issue.path.join(".")}: ${issue.message}`);
+	}
+	return [...seen].slice(0, 5).join(", ");
+}
+
 // OpenAI explicit prompt cache breakpoint marker (GPT-5.6 and later).
 const promptCacheBreakpointSchema = z
 	.object({
@@ -32,7 +63,7 @@ const responseInputContentSchema = z.union([
 ]);
 
 const messageItemSchema = z.object({
-	type: z.literal("message").optional(),
+	type: z.literal("message"),
 	role: z.enum(["user", "assistant", "system", "developer"]),
 	phase: z.enum(["commentary", "final_answer"]).optional(),
 	content: z
@@ -44,6 +75,7 @@ const messageItemSchema = z.object({
 					z.object({
 						type: z.literal("output_text"),
 						text: z.string(),
+						prompt_cache_breakpoint: promptCacheBreakpointSchema,
 					}),
 					z.object({
 						type: z.literal("text"),
@@ -79,31 +111,136 @@ const messageItemSchema = z.object({
 		.optional(),
 });
 
-const functionCallItemSchema = z.object({
-	type: z.literal("function_call"),
-	call_id: z.string(),
-	name: z.string(),
-	arguments: z.string(),
-});
-
-const functionCallOutputItemSchema = z.object({
-	type: z.literal("function_call_output"),
-	id: z.string().optional(),
-	call_id: z.string(),
-	output: z.union([z.string(), z.array(responseInputContentSchema)]),
-	status: z.enum(["in_progress", "completed", "incomplete"]).optional(),
-});
-
-// Clients replaying reasoning items statelessly (Codex sends the whole prior
-// output back as `input`) serialize their absent optional fields as explicit
-// nulls, so every field here must accept null as well as being omitted —
-// rejecting them 400s a client on reasoning the gateway itself just emitted.
-// Nulls are normalized to undefined so downstream conversion stays unchanged.
+// Clients replaying items statelessly (Codex sends the whole prior output back
+// as `input`) serialize their absent optional fields as explicit nulls, so
+// fields here must accept null as well as being omitted — rejecting them 400s a
+// client on items the gateway itself just emitted. Nulls are normalized to
+// undefined so downstream conversion stays unchanged.
 const nullishToUndefined = <T extends z.ZodTypeAny>(schema: T) =>
 	schema
 		.nullable()
 		.optional()
 		.transform((val) => (val === null ? undefined : val));
+
+const itemStatusSchema = nullishToUndefined(
+	z.enum(["in_progress", "completed", "incomplete"]),
+);
+
+const functionCallItemSchema = z.object({
+	type: z.literal("function_call"),
+	id: nullishToUndefined(z.string()),
+	call_id: z.string(),
+	name: z.string(),
+	// Tool registries group tools under a namespace; the call names the tool
+	// within it. The gateway flattens namespaces into unique chat-completions
+	// tool names and restores this field on the way back out.
+	namespace: nullishToUndefined(z.string()),
+	arguments: z.string(),
+	status: itemStatusSchema,
+});
+
+const functionCallOutputItemSchema = z.object({
+	type: z.literal("function_call_output"),
+	id: nullishToUndefined(z.string()),
+	call_id: z.string(),
+	output: z.union([z.string(), z.array(responseInputContentSchema)]),
+	status: itemStatusSchema,
+});
+
+// Freeform ("custom") tool calls carry a raw text payload in `input` instead of
+// JSON `arguments`, so the model can emit e.g. a patch or a script without
+// JSON-escaping it.
+const customToolCallItemSchema = z.object({
+	type: z.literal("custom_tool_call"),
+	id: nullishToUndefined(z.string()),
+	call_id: z.string(),
+	name: z.string(),
+	namespace: nullishToUndefined(z.string()),
+	input: z.string(),
+	status: itemStatusSchema,
+});
+
+const customToolCallOutputItemSchema = z.object({
+	type: z.literal("custom_tool_call_output"),
+	id: nullishToUndefined(z.string()),
+	call_id: z.string(),
+	output: z.union([z.string(), z.array(responseInputContentSchema)]),
+	status: itemStatusSchema,
+});
+
+// A tool declared inside an `additional_tools` item. Namespaces nest, so this
+// is recursive; `custom` tools are freeform (no JSON schema).
+export type ToolTreeNode =
+	| {
+			type: "namespace";
+			name: string;
+			description?: string;
+			tools: ToolTreeNode[];
+	  }
+	| {
+			type: "function";
+			name: string;
+			description?: string;
+			parameters?: Record<string, unknown>;
+			strict?: boolean;
+	  }
+	| { type: "custom"; name: string; description?: string };
+
+const toolTreeNodeSchema: z.ZodType<ToolTreeNode, z.ZodTypeDef, unknown> =
+	z.lazy(() =>
+		z.discriminatedUnion("type", [
+			z.object({
+				type: z.literal("namespace"),
+				name: z.string(),
+				description: nullishToUndefined(z.string()),
+				tools: z.array(toolTreeNodeSchema),
+			}),
+			z.object({
+				type: z.literal("function"),
+				name: z.string(),
+				description: nullishToUndefined(z.string()),
+				parameters: nullishToUndefined(z.record(z.any())),
+				strict: nullishToUndefined(z.boolean()),
+			}),
+			z.object({
+				type: z.literal("custom"),
+				name: z.string(),
+				description: nullishToUndefined(z.string()),
+			}),
+		]),
+	);
+
+// Codex 0.144+ declares its tools here instead of in the top-level `tools`
+// array. The gateway flattens the tree into `tools` before conversion.
+const additionalToolsItemSchema = z.object({
+	type: z.literal("additional_tools"),
+	id: nullishToUndefined(z.string()),
+	role: nullishToUndefined(
+		z.enum(["user", "assistant", "system", "developer"]),
+	),
+	tools: z.array(toolTreeNodeSchema),
+});
+
+// Item types that record client-side or provider-built-in activity the gateway
+// cannot replay through provider routing (it never offers these tools). They
+// are accepted so a client replaying its own transcript is not rejected, and
+// dropped during conversion to chat messages.
+export const UNREPLAYABLE_ITEM_TYPES = [
+	"agent_message",
+	"local_shell_call",
+	"local_shell_call_output",
+	"web_search_call",
+	"image_generation_call",
+	"tool_search_call",
+	"tool_search_output",
+	"compaction",
+	"compaction_trigger",
+	"context_compaction",
+] as const;
+
+const unreplayableItemSchema = z
+	.object({ type: z.enum(UNREPLAYABLE_ITEM_TYPES) })
+	.passthrough();
 
 const reasoningItemSchema = z.object({
 	type: z.literal("reasoning"),
@@ -111,9 +248,7 @@ const reasoningItemSchema = z.object({
 	summary: nullishToUndefined(z.array(z.record(z.any()))),
 	content: nullishToUndefined(z.array(z.record(z.any()))),
 	encrypted_content: nullishToUndefined(z.string()),
-	status: nullishToUndefined(
-		z.enum(["in_progress", "completed", "incomplete"]),
-	),
+	status: itemStatusSchema,
 });
 
 // Reference to an item produced by a previous (stored) response. Stateful
@@ -126,13 +261,30 @@ const itemReferenceItemSchema = z.object({
 	id: z.string(),
 });
 
-const inputItemSchema = z.union([
-	messageItemSchema,
-	reasoningItemSchema,
-	functionCallItemSchema,
-	functionCallOutputItemSchema,
-	itemReferenceItemSchema,
-]);
+// `type` is optional on message items in the Responses API, so default it
+// before discriminating. A discriminated union is what makes a bad item report
+// itself: a plain z.union collapses every branch failure into a single
+// "input: Invalid input" that names neither the index nor the offending type.
+const inputItemSchema = z.preprocess(
+	(value) =>
+		value &&
+		typeof value === "object" &&
+		!Array.isArray(value) &&
+		(value as Record<string, unknown>).type === undefined
+			? { ...(value as Record<string, unknown>), type: "message" }
+			: value,
+	z.discriminatedUnion("type", [
+		messageItemSchema,
+		reasoningItemSchema,
+		functionCallItemSchema,
+		functionCallOutputItemSchema,
+		customToolCallItemSchema,
+		customToolCallOutputItemSchema,
+		additionalToolsItemSchema,
+		itemReferenceItemSchema,
+		unreplayableItemSchema,
+	]),
+);
 
 export const responsesRequestSchema = z.object({
 	model: z.string().openapi({
@@ -223,6 +375,11 @@ export const responsesRequestSchema = z.object({
 				function: z.object({
 					name: z.string(),
 				}),
+			}),
+			// Demands a web search rather than offering one. See the Chat
+			// Completions schema for what this unlocks.
+			z.object({
+				type: z.literal("web_search"),
 			}),
 		])
 		.optional(),

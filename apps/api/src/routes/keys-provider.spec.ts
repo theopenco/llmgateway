@@ -127,12 +127,14 @@ describe("provider keys route", () => {
 				provider: "inference.net",
 				token: "inference-test-token",
 				organizationId: "test-org-id",
+				description: "Production inference",
 			}),
 		});
 		expect(res.status).toBe(200);
 		const json = await res.json();
 		expect(json).toHaveProperty("providerKey");
 		expect(json.providerKey.provider).toBe("inference.net");
+		expect(json.providerKey.description).toBe("Production inference");
 		expect(json.providerKey.maskedToken).toBeDefined();
 		expect(json.providerKey.maskedToken).toContain("•");
 		expect(json.providerKey.token).toBeUndefined();
@@ -237,6 +239,43 @@ describe("provider keys route", () => {
 			}),
 		});
 		expect(res.status).toBe(400);
+	});
+
+	describe("POST /keys/provider workspace-scoped regions", () => {
+		const postAlibabaKey = (options: Record<string, string>) =>
+			app.request("/keys/provider", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+				},
+				body: JSON.stringify({
+					provider: "alibaba",
+					token: "sk-alibaba-test-key",
+					organizationId: "test-org-id",
+					options,
+				}),
+			});
+
+		// Frankfurt reaches a shared entry point without one, so the workspace id
+		// is an upgrade rather than a requirement.
+		test("accepts eu-frankfurt without a workspace id", async () => {
+			const res = await postAlibabaKey({ alibaba_region: "eu-frankfurt" });
+			expect(res.status).not.toBe(400);
+		});
+
+		test("rejects a workspace id that is not a bare hostname label", async () => {
+			const res = await postAlibabaKey({
+				alibaba_region: "eu-frankfurt",
+				alibaba_workspace_id: "evil.example.com/x",
+			});
+			expect(res.status).toBe(400);
+		});
+
+		test("accepts regions served by a shared host without a workspace id", async () => {
+			const res = await postAlibabaKey({ alibaba_region: "singapore" });
+			expect(res.status).not.toBe(400);
+		});
 	});
 
 	test("POST /keys/provider with invalid provider", async () => {
@@ -466,6 +505,26 @@ describe("provider keys route", () => {
 		});
 		expect(providerKey).not.toBeNull();
 		expect(providerKey?.status).toBe("inactive");
+	});
+
+	test("PATCH /keys/provider/{id} updates its description", async () => {
+		const res = await app.request("/keys/provider/test-provider-key-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ description: "Batch jobs" }),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.providerKey.description).toBe("Batch jobs");
+
+		const providerKey = await db.query.providerKey.findFirst({
+			where: { id: { eq: "test-provider-key-id" } },
+		});
+		expect(providerKey?.description).toBe("Batch jobs");
 	});
 
 	describe("spend limits", () => {

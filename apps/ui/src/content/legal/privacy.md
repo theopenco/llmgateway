@@ -92,18 +92,13 @@ We do **not** sell your personal information, and we do **not** use Customer Dat
 We do **not sell** your personal information. We share limited data only as needed with:
 
 - **Service Providers / Sub-processors:** for hosting, analytics, payments, and email (see below).
-- **AI Providers:** when routing your API requests to the model you select (e.g., OpenAI, Anthropic, Google, Mistral, and others). Once your request reaches a provider, that provider processes it under **its own terms, privacy policy, and data-training practices**, which vary by provider and which we do not control. You can review each provider's terms, privacy policy, headquarters, certifications, and AI-training and data-retention practices on our [Providers page](https://llmgateway.io/providers) before selecting a model.
+- **AI Providers:** when routing your API requests to the model you select (e.g., OpenAI, Anthropic, Google, Mistral, and others). Once your request reaches a provider, that provider processes it under **its own terms, privacy policy, and data-training practices**, which vary by provider and which we do not control. You can review each provider's terms, privacy policy, headquarters, certifications, and AI-training and data-retention practices on our [Provider Information page](https://llmgateway.io/legal/providers) before selecting a model.
 - **Legal Authorities:** only where required by law or to protect our rights, users, or the public.
 - **Business transfers:** in connection with a merger, acquisition, financing, or sale of assets, subject to this Policy.
 
 ### Sub-processors
 
-We rely on a small set of vetted sub-processors, each bound by contractual data-protection obligations:
-
-- **Stripe** — payment and subscription processing. Stripe acts as a separate processor and retains its own payment records to meet its legal and tax obligations, under their [Privacy Policy](https://stripe.com/privacy).
-- **Google Cloud** — application hosting and database storage
-- **Resend** — transactional and product email delivery
-- **AI Providers** — as listed on our [Providers page](https://llmgateway.io/providers), when routing your requests
+We rely on a small set of vetted sub-processors for hosting, payments, email, analytics, and AI request processing. The complete, versioned list — including each sub-processor's purpose, the data it processes, its primary processing locations, and how we notify you before the list changes — is maintained on our [Sub-processor page](https://llmgateway.io/legal/sub-processors). That page is the authoritative disclosure; we do not duplicate the list here because it is updated independently of this Policy.
 
 ---
 
@@ -171,13 +166,13 @@ We will honor erasure requests except where we are legally obliged to retain dat
 
 When you route a request, the **content of that request is sent to the AI provider you select** so it can generate a response. Each provider handles data under its own policies, which differ in retention, sub-processing, geographic location, certifications (e.g., SOC 2, ISO 27001), and whether they use inputs for model training. We do not control those practices.
 
-Before selecting a model, we encourage you to review the provider's policies on our [Providers page](https://llmgateway.io/providers), which links to each provider's terms, privacy policy, and data-training and compliance information. You are responsible for ensuring your selected provider is appropriate for the sensitivity of the data you submit.
+Before selecting a model, we encourage you to review the provider's policies on our [Provider Information page](https://llmgateway.io/legal/providers), which links to each provider's terms, privacy policy, and data-training and compliance information. You are responsible for ensuring your selected provider is appropriate for the sensitivity of the data you submit.
 
 ### Stealth and Undisclosed Providers
 
 To improve availability, performance, and pricing, we may route some requests through **stealth providers** whose identity is not publicly disclosed (for example, providers offering preview or unreleased models under confidentiality). For these providers we **endeavor to obtain the same terms, privacy, and data-handling guarantees** described in this Policy, but because their identity and underlying practices are not disclosed to us or to you, **we cannot guarantee that they meet those standards**.
 
-If you do not want your requests routed through stealth or undisclosed providers, you can **pin your requests to specific providers** that publicly declare their terms, privacy policy, and compliance posture on our [Providers page](https://llmgateway.io/providers). You are responsible for selecting providers appropriate for the sensitivity of the data you submit.
+If you do not want your requests routed through stealth or undisclosed providers, you can **pin your requests to specific providers** that publicly declare their terms, privacy policy, and compliance posture on our [Provider Information page](https://llmgateway.io/legal/providers). You are responsible for selecting providers appropriate for the sensitivity of the data you submit.
 
 ---
 

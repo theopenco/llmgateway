@@ -1597,6 +1597,97 @@
       "when": 1786284875565,
       "tag": "1786284875_eager_meltdown",
       "breakpoints": true
+    },
+    {
+      "idx": 228,
+      "version": "8",
+      "when": 1786398375414,
+      "tag": "1786398375_pretty_hedge_knight",
+      "breakpoints": true
+    },
+    {
+      "idx": 229,
+      "version": "8",
+      "when": 1786707787055,
+      "tag": "1786707787_fair_mister_fear",
+      "breakpoints": true
+    },
+    {
+      "idx": 230,
+      "version": "8",
+      "when": 1786816075214,
+      "tag": "1786816075_mean_stark_industries",
+      "breakpoints": true
+    },
+    {
+      "idx": 231,
+      "version": "8",
+      "when": 1786828559856,
+      "tag": "1786828559_milky_colonel_america",
+      "breakpoints": true
+    },
+    {
+      "idx": 232,
+      "version": "8",
+      "when": 1786917280136,
+      "tag": "1786917280_kind_zarek",
+      "breakpoints": true
+    },
+    {
+      "idx": 233,
+      "version": "8",
+      "when": 1786962617289,
+      "tag": "1786962617_flimsy_sentry",
+      "breakpoints": true
+    },
+    {
+      "idx": 234,
+      "version": "8",
+      "when": 1786966181012,
+      "tag": "1786966181_hard_firestar",
+      "breakpoints": true
+    },
+    {
+      "idx": 235,
+      "version": "8",
+      "when": 1786993793424,
+      "tag": "1786993793_tough_jackpot",
+      "breakpoints": true
+    },
+    {
+      "idx": 236,
+      "version": "8",
+      "when": 1787073015985,
+      "tag": "1787073015_sweet_wolfpack",
+      "breakpoints": true
+    },
+    {
+      "idx": 237,
+      "version": "8",
+      "when": 1787148647545,
+      "tag": "1787148647_round_absorbing_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 238,
+      "version": "8",
+      "when": 1787234670541,
+      "tag": "1787234670_clear_puppet_master",
+      "breakpoints": true
+    },
+    {
+      "idx": 239,
+      "version": "8",
+      "when": 1787314721805,
+      "tag": "1787314721_daffy_venom",
+      "breakpoints": true
+    },
+    {
+      "idx": 240,
+      "version": "8",
+      "when": 1787325167119,
+      "tag": "1787325167_curved_nighthawk",
+      "breakpoints": true
     }
   ]
 }

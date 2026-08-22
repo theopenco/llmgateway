@@ -28,6 +28,7 @@ import {
 import { fetchServerData } from "@/lib/server-api";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 
 export const maxDuration = 300; // 5 minutes
 
@@ -786,7 +787,7 @@ export async function POST(req: Request) {
 		baseURL: gatewayUrl,
 		fetch: gatewayFetch,
 		headers: {
-			"x-source": "chat.llmgateway.io",
+			"x-source": LOUNGE_SOURCE,
 			...(noFallbackHeader ? { "x-no-fallback": noFallbackHeader } : {}),
 		},
 		extraBody: {
@@ -796,7 +797,7 @@ export async function POST(req: Request) {
 		},
 	}) as any;
 
-	// Respect root model IDs passed from the client without adding a provider prefix.
+	// Respect canonical model IDs passed from the client without adding a provider prefix.
 	// Only apply provider-based prefixing when the client did NOT explicitly specify a model
 	// (i.e. we're using a header/default model value).
 	let selectedModel = (model ?? headerModel ?? "auto") as string;

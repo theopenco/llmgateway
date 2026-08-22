@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { redisClient } from "@llmgateway/cache";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import { app } from "./app.js";
@@ -146,7 +147,7 @@ describe("api", () => {
 		});
 
 		// Direct provider routing is never available on dev plans. The
-		// `provider/model` format stays blocked; only the canonical root id
+		// `provider/model` format stays blocked; only the canonical model id
 		// (`deepseek-v4-pro`) is allowed on dev plans.
 		await harness.setDevPlan({ devPlan: "pro" });
 
@@ -492,6 +493,218 @@ describe("api", () => {
 		}
 	});
 
+	test("/v1/messages keeps a caller's tool_result cache_control on the wire", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "anthropic",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const originalFetch = globalThis.fetch;
+		let upstreamBody: any = null;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+
+				if (url.includes(`${mockServerUrl}/v1/messages`)) {
+					const body =
+						input instanceof Request ? await input.text() : String(init?.body);
+					upstreamBody = JSON.parse(body);
+
+					return new Response(
+						JSON.stringify({
+							id: "msg_tool_result_cache",
+							type: "message",
+							role: "assistant",
+							model: "claude-opus-4-8",
+							content: [{ type: "text", text: "A raincoat." }],
+							stop_reason: "end_turn",
+							stop_sequence: null,
+							usage: { input_tokens: 100, output_tokens: 5 },
+						}),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					);
+				}
+
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+
+		try {
+			const res = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "anthropic/claude-opus-4-8",
+					max_tokens: 1024,
+					messages: [
+						{ role: "user", content: "Look up the weather." },
+						{
+							role: "assistant",
+							content: [
+								{
+									type: "tool_use",
+									id: "toolu_1",
+									name: "get_weather",
+									input: { city: "Paris" },
+								},
+							],
+						},
+						{
+							role: "user",
+							content: [
+								{
+									type: "tool_result",
+									tool_use_id: "toolu_1",
+									content: "sunny",
+									cache_control: { type: "ephemeral", ttl: "1h" },
+								},
+							],
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect(upstreamBody).toBeTruthy();
+
+			// Anthropic accepts a breakpoint on a tool_result block, and in an
+			// agentic loop that is exactly where the stable prefix ends. The request
+			// schema used to strip the marker and the OpenAI tool message it lowers
+			// to had nowhere to keep it, so the caller silently lost the cache hit
+			// they asked for.
+			const toolResultBlocks = upstreamBody.messages.flatMap((m: any) =>
+				Array.isArray(m.content)
+					? m.content.filter((b: any) => b.type === "tool_result")
+					: [],
+			);
+			expect(toolResultBlocks).toHaveLength(1);
+			expect(toolResultBlocks[0].cache_control).toEqual({
+				type: "ephemeral",
+				ttl: "1h",
+			});
+		} finally {
+			fetchSpy.mockRestore();
+		}
+	});
+
+	test("/v1/messages keeps a caller's tool cache_control on the wire", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "anthropic",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const originalFetch = globalThis.fetch;
+		let upstreamBody: any = null;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+
+				if (url.includes(`${mockServerUrl}/v1/messages`)) {
+					const body =
+						input instanceof Request ? await input.text() : String(init?.body);
+					upstreamBody = JSON.parse(body);
+
+					return new Response(
+						JSON.stringify({
+							id: "msg_tool_cache",
+							type: "message",
+							role: "assistant",
+							model: "claude-opus-4-8",
+							content: [{ type: "text", text: "Sunny." }],
+							stop_reason: "end_turn",
+							stop_sequence: null,
+							usage: { input_tokens: 100, output_tokens: 5 },
+						}),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					);
+				}
+
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+
+		try {
+			const res = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "anthropic/claude-opus-4-8",
+					max_tokens: 1024,
+					messages: [{ role: "user", content: "Weather in Paris?" }],
+					tools: [
+						{
+							name: "get_weather",
+							description: "Get the weather",
+							input_schema: { type: "object" },
+						},
+						{
+							name: "get_time",
+							description: "Get the time",
+							input_schema: { type: "object" },
+							cache_control: { type: "ephemeral" },
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect(upstreamBody).toBeTruthy();
+
+			// Tools are the base of Anthropic's cache hierarchy, so a breakpoint on
+			// the last tool caches the largest prefix a caller has. The schema
+			// accepted it and the tool conversion then dropped it, silently costing
+			// an agentic client its biggest cache hit.
+			expect(upstreamBody.tools).toHaveLength(2);
+			expect(upstreamBody.tools[0].cache_control).toBeUndefined();
+			expect(upstreamBody.tools[1].name).toBe("get_time");
+			expect(upstreamBody.tools[1].cache_control).toEqual({
+				type: "ephemeral",
+			});
+		} finally {
+			fetchSpy.mockRestore();
+		}
+	});
+
 	test("/v1/messages surfaces reasoning as a thinking block (non-streaming)", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
@@ -738,6 +951,7 @@ describe("api", () => {
 		expect(res.status).toBe(200);
 		const json = await res.json();
 		expect(json.id).toMatch(/^msg_/);
+		expect(json.model).toBe("llmgateway/custom");
 
 		const streamRes = await makeRequest(true);
 		expect(streamRes.status).toBe(200);
@@ -751,6 +965,7 @@ describe("api", () => {
 		const messageStart = events.find((e) => e.type === "message_start");
 		expect(messageStart).toBeTruthy();
 		expect(messageStart.message.id).toMatch(/^msg_/);
+		expect(messageStart.message.model).toBe("llmgateway/custom");
 	});
 
 	test("/v1/messages surfaces reasoning as thinking_delta events (streaming)", async () => {
@@ -845,6 +1060,154 @@ describe("api", () => {
 		expect(body.type).toBe("error");
 		expect(body.error.type).toBe("invalid_request_error");
 		expect(body.error.message).toContain("thinking.type.adaptive");
+	});
+
+	test("/v1/messages still accepts a valid body carrying OpenAI-only parameters", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		// The messages endpoint must never deny a request that is otherwise a
+		// sound Anthropic body just because it carries a stray OpenAI-only
+		// parameter: the schema strips unknown keys, so these all succeed today
+		// and a caller relying on that must not start seeing 400s. Diagnosing a
+		// misdirected OpenAI client is not worth breaking them.
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				max_tokens: 100,
+				messages: [{ role: "user", content: "Hello!" }],
+				response_format: { type: "json_object" },
+				stream_options: { include_usage: true },
+				max_completion_tokens: 100,
+				frequency_penalty: 0.5,
+				presence_penalty: 0.5,
+				tool_choice: "auto",
+				seed: 7,
+				stop: ["\n"],
+				n: 1,
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { type: string; content: any[] };
+		expect(body.type).toBe("message");
+		expect(body.content[0].type).toBe("text");
+	});
+
+	test("/v1/messages renders schema validation failures as Anthropic errors", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		// Anthropic requires `max_tokens`. Validation runs before the handler, so
+		// this used to leak a raw `{ success: false, error: ZodError }` body that
+		// no Anthropic client can parse.
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as {
+			type: string;
+			error: { type: string; message: string };
+		};
+		expect(body.type).toBe("error");
+		expect(body.error.type).toBe("invalid_request_error");
+		expect(body.error.message).toContain("max_tokens");
+
+		const logs = await waitForLogs(1);
+		expect(logs[0].finishReason).toBe("client_error");
+		expect(logs[0].errorDetails?.responseText).toContain("max_tokens");
+	});
+
+	test("/v1/messages explains an OpenAI-format tools rejection", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		// OpenAI-shaped tools already failed the Anthropic tool union before this
+		// change — the 400 is unchanged, only the message is, from an opaque
+		// "tools.0: Invalid input" to something that names the actual mismatch.
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				max_tokens: 100,
+				messages: [{ role: "user", content: "Hello!" }],
+				tools: [
+					{
+						type: "function",
+						function: {
+							name: "get_weather",
+							parameters: { type: "object", properties: {} },
+						},
+					},
+				],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as {
+			type: string;
+			error: { type: string; message: string };
+		};
+		expect(body.type).toBe("error");
+		expect(body.error.message).toContain("tools[0].function");
+		expect(body.error.message).toContain("/v1/chat/completions");
+
+		// The rejection happens before the internal /v1/chat/completions hop that
+		// owns log writing, so it must be logged here — otherwise the caller sees
+		// a 400 and nothing in their activity feed.
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		const log = logs[0];
+		expect(log.finishReason).toBe("client_error");
+		expect(log.hasError).toBe(true);
+		expect(log.errorDetails?.statusCode).toBe(400);
+		expect(log.errorDetails?.responseText).toContain("tools[0].function");
+		expect(log.requestedModel).toBe("llmgateway/custom");
+		// A rejected request never reached a provider, so it costs nothing.
+		expect(Number(log.cost ?? 0)).toBe(0);
+		expect(log.promptTokens).toBeNull();
+		expect(log.completionTokens).toBeNull();
 	});
 
 	test("/v1/chat/completions blocks providers failing the compliance policy", async () => {
@@ -1203,7 +1566,6 @@ describe("api", () => {
 				iso27001: true,
 				gdpr: true,
 				apiTraining: false,
-				consumerTraining: false,
 				promptLogging: false,
 				headquarters: "US",
 			},
@@ -1810,6 +2172,7 @@ describe("api", () => {
 		expect(res.status).toBe(200);
 		const json = await res.json();
 		expect(json.id).toMatch(/^resp_/);
+		expect(json.model).toBe("openai/gpt-4o-mini");
 		expect(json.output.length).toBeGreaterThan(0);
 
 		// The stored response is retrievable (state lives in responses storage).
@@ -1821,6 +2184,7 @@ describe("api", () => {
 		expect(getRes.status).toBe(200);
 		const stored = await getRes.json();
 		expect(stored.id).toBe(json.id);
+		expect(stored.model).toBe("openai/gpt-4o-mini");
 		expect(stored.output.length).toBeGreaterThan(0);
 
 		// The log row keeps metadata only — no payload, no responsesApiData.
@@ -2219,7 +2583,7 @@ describe("api", () => {
 				Authorization: "Bearer real-token-service-tier-stream",
 			},
 			body: JSON.stringify({
-				model: "openai/gpt-5.5",
+				model: "gpt-5.5",
 				service_tier: "priority",
 				stream: true,
 				stream_options: { include_usage: true },
@@ -2388,6 +2752,12 @@ describe("api", () => {
 
 		expect(res.status).toBe(200);
 		const raw = await res.text();
+		const createdLine = raw
+			.split("\n")
+			.find(
+				(line) =>
+					line.startsWith("data: ") && line.includes('"response.created"'),
+			);
 		const completedLine = raw
 			.split("\n")
 			.find(
@@ -2395,7 +2765,11 @@ describe("api", () => {
 					line.startsWith("data: ") && line.includes('"response.completed"'),
 			);
 		expect(completedLine).toBeDefined();
+		expect(createdLine).toBeDefined();
+		const created = JSON.parse(createdLine!.slice(6));
 		const completed = JSON.parse(completedLine!.slice(6));
+		expect(created.response.model).toBe("openai/gpt-5.5");
+		expect(completed.response.model).toBe("openai/gpt-5.5");
 		expect(completed.response.service_tier).toBe("priority");
 
 		const logs = await waitForLogs(1);
@@ -2855,6 +3229,7 @@ describe("api", () => {
 			},
 			body: JSON.stringify({
 				input: "I want to attack someone.",
+				model: "openai/openai-moderation",
 			}),
 		});
 
@@ -2862,7 +3237,7 @@ describe("api", () => {
 
 		const json = await res.json();
 		expect(json).toHaveProperty("id", "modr-123");
-		expect(json).toHaveProperty("model", "omni-moderation-latest");
+		expect(json).toHaveProperty("model", "openai/openai-moderation");
 		expect(json.results[0].flagged).toBe(true);
 
 		const logs = await waitForLogs(1);
@@ -3102,7 +3477,7 @@ describe("api", () => {
 
 		const json = await res.json();
 		expect(json).toHaveProperty("object", "list");
-		expect(json).toHaveProperty("model", "text-embedding-3-small");
+		expect(json).toHaveProperty("model", "openai/text-embedding-3-small");
 		expect(Array.isArray(json.data)).toBe(true);
 		expect(json.data[0]).toHaveProperty("embedding");
 		expect(Array.isArray(json.data[0].embedding)).toBe(true);
@@ -3247,6 +3622,55 @@ describe("api", () => {
 		);
 	});
 
+	test("/v1/chat/completions returns 429 when the org is over its daily spend cap", async () => {
+		await harness.setProjectMode("credits");
+		await harness.setOrganizationCredits("100");
+		await db
+			.update(tables.organization)
+			.set({ retentionLevel: "none" })
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-spend-cap",
+			token: "real-token-spend-cap",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const now = new Date();
+		const dayKey = `${now.getUTCFullYear()}-${String(
+			now.getUTCMonth() + 1,
+		).padStart(2, "0")}-${String(now.getUTCDate()).padStart(2, "0")}`;
+		const counterKey = `spend_cap:daily:org-id:${dayKey}`;
+
+		process.env.GATEWAY_SPEND_CAPS_ENABLED = "true";
+		// Well above any tier's daily cap so this holds regardless of the seeded
+		// org's age/spend tier.
+		await redisClient.set(counterKey, "1000000");
+		try {
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-spend-cap",
+				},
+				body: JSON.stringify({
+					model: "gpt-4o-mini",
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(429);
+			const json = await res.json();
+			expect(json.error.type).toBe("rate_limit_error");
+			expect(json.error.message).toContain("spend limit");
+		} finally {
+			delete process.env.GATEWAY_SPEND_CAPS_ENABLED;
+			await redisClient.del(counterKey);
+		}
+	});
+
 	test("/v1/embeddings hybrid fallback requires credits", async () => {
 		await harness.setProjectMode("hybrid");
 		await harness.setOrganizationCredits("0");
@@ -3360,7 +3784,10 @@ describe("api", () => {
 
 		const json = await res.json();
 		expect(json).toHaveProperty("object", "list");
-		expect(json).toHaveProperty("model", "gemini-embedding-001");
+		expect(json).toHaveProperty(
+			"model",
+			"google-ai-studio/gemini-embedding-001",
+		);
 		expect(Array.isArray(json.data)).toBe(true);
 		expect(json.data).toHaveLength(1);
 		expect(json.data[0]).toHaveProperty("object", "embedding");
@@ -3436,7 +3863,10 @@ describe("api", () => {
 			expect(res.status).toBe(200);
 			const json = await res.json();
 			expect(json).toHaveProperty("object", "list");
-			expect(json).toHaveProperty("model", "gemini-embedding-001");
+			expect(json).toHaveProperty(
+				"model",
+				"google-ai-studio/gemini-embedding-001",
+			);
 			expect(json.data).toHaveLength(1);
 			expect(json.data[0].embedding).toHaveLength(768);
 
@@ -3881,7 +4311,7 @@ describe("api", () => {
 		}
 	});
 
-	test("/v1/embeddings google-vertex requires project id", async () => {
+	test("/v1/embeddings google-vertex supports a projectless managed API key", async () => {
 		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 		delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
 		try {
@@ -3893,12 +4323,14 @@ describe("api", () => {
 				createdBy: "user-id",
 			});
 
-			await db.insert(tables.providerKey).values({
-				id: "provider-key-id-embeddings-vertex-noproj",
+			await harness.setProjectMode("credits");
+			await cdb.insert(tables.providerKey).values({
+				id: "managed-key-embeddings-vertex-noproj",
 				token: "vertex-test-token",
 				provider: "google-vertex",
-				organizationId: "org-id",
-				baseUrl: mockServerUrl,
+				managed: true,
+				organizationId: null,
+				config: { baseUrl: mockServerUrl },
 			});
 
 			const res = await app.request("/v1/embeddings", {
@@ -3913,10 +4345,12 @@ describe("api", () => {
 				}),
 			});
 
-			expect(res.status).toBe(500);
+			expect(res.status).toBe(200);
 			const json = await res.json();
-			expect(json.error?.code).toBe("missing_project_id");
+			expect(json.data).toHaveLength(1);
+			expect(json.data[0].embedding).toHaveLength(3072);
 		} finally {
+			await harness.setProjectMode("api-keys");
 			if (originalGoogleCloudProject !== undefined) {
 				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
 			} else {
@@ -6270,7 +6704,7 @@ describe("api", () => {
 			process.env.LLM_GOOGLE_CLOUD_PROJECT = "vertex-project";
 			process.env.LLM_GOOGLE_VERTEX_BASE_URL = mockServerUrl;
 
-			const makeRequest = (content: string) =>
+			const makeRequest = (content: string, model = "gemini-2.5-flash-lite") =>
 				app.request("/v1/chat/completions", {
 					method: "POST",
 					headers: {
@@ -6278,7 +6712,7 @@ describe("api", () => {
 						Authorization: "Bearer real-token",
 					},
 					body: JSON.stringify({
-						model: "gemini-2.5-flash-lite",
+						model,
 						messages: [{ role: "user", content }],
 					}),
 				});
@@ -6292,6 +6726,45 @@ describe("api", () => {
 			expect(secondRes.status).toBe(200);
 			const secondJson = await secondRes.json();
 			expect(secondJson.metadata.used_provider).toBe("google-vertex");
+
+			const directRes = await makeRequest(
+				"Direct provider rate limit request",
+				"google-ai-studio/gemini-2.5-flash-lite",
+			);
+			expect(directRes.status).toBe(200);
+			const directJson = await directRes.json();
+			expect(directJson.metadata.used_provider).toBe("google-vertex");
+
+			const logs = await waitForLogs(3);
+			const overflowLog = logs.find(
+				(log) =>
+					log.usedProvider === "google-vertex" &&
+					log.routingMetadata?.selectionReason !== "rate-limit-fallback",
+			);
+			expect(overflowLog?.routingMetadata?.providerScores).not.toContainEqual(
+				expect.objectContaining({ providerId: "google-ai-studio" }),
+			);
+			expect(overflowLog?.routingMetadata?.filteredProviders).toContainEqual({
+				providerId: "google-ai-studio",
+				reasons: ["provider is rate limited"],
+				codes: ["rate_limited"],
+			});
+
+			const directFallbackLog = logs.find(
+				(log) => log.routingMetadata?.selectionReason === "rate-limit-fallback",
+			);
+			expect(
+				directFallbackLog?.routingMetadata?.providerScores,
+			).not.toContainEqual(
+				expect.objectContaining({ providerId: "google-ai-studio" }),
+			);
+			expect(
+				directFallbackLog?.routingMetadata?.filteredProviders,
+			).toContainEqual({
+				providerId: "google-ai-studio",
+				reasons: ["provider is rate limited"],
+				codes: ["rate_limited"],
+			});
 		} finally {
 			if (previousVertexKey === undefined) {
 				delete process.env.LLM_GOOGLE_VERTEX_API_KEY;
@@ -6469,7 +6942,7 @@ describe("api", () => {
 			createdBy: "user-id",
 		});
 
-		// Auto-routing now selects from Claude root models, so use a Claude-capable
+		// Auto-routing now selects from Claude canonical models, so use a Claude-capable
 		// provider that the mock server supports.
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
@@ -7022,6 +7495,65 @@ describe("api", () => {
 			expect(logs[0].unifiedFinishReason).toBe("upstream_error");
 			expect(logs[0].hasError).toBe(true);
 			expect(logs[0].errorDetails?.statusCode).toBe(502);
+			expect(logs[0].errorDetails?.statusText).toBe(
+				"Upstream Stream Terminated",
+			);
+		});
+
+		test("streaming request surfaces a trailing upstream error tail", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "llmgateway",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					messages: [
+						{
+							role: "user",
+							content: "TRIGGER_STREAM_TRAILING_ERROR",
+						},
+					],
+					stream: true,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const streamResult = await readAll(res.body);
+
+			expect(streamResult.hasContent).toBe(true);
+			expect(streamResult.hasError).toBe(true);
+			expect(streamResult.errorEvents.length).toBeGreaterThan(0);
+			expect(streamResult.errorEvents[0].error.type).toBe("upstream_error");
+			expect(streamResult.errorEvents[0].error.code).toBe("UNAVAILABLE");
+			expect(streamResult.errorEvents[0].error.message).toContain(
+				"high demand",
+			);
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].finishReason).toBe("upstream_error");
+			expect(logs[0].unifiedFinishReason).toBe("upstream_error");
+			expect(logs[0].hasError).toBe(true);
+			expect(logs[0].errorDetails?.statusCode).toBe(503);
 			expect(logs[0].errorDetails?.statusText).toBe(
 				"Upstream Stream Terminated",
 			);
@@ -8443,6 +8975,402 @@ describe("api", () => {
 		});
 	});
 
+	describe("upstream failure billing", () => {
+		// A request the gateway records as an upstream/gateway failure hands the
+		// caller an error, so it is not billed for whatever the provider emitted
+		// before dying — even though the tokens are still recorded for analytics.
+		function spyUpstreamResponse(
+			matchUrlFragment: string,
+			body: string,
+			contentType: string,
+		): ReturnType<typeof vi.spyOn> {
+			const originalFetch = globalThis.fetch;
+			return vi
+				.spyOn(globalThis, "fetch")
+				.mockImplementation(async (input, init) => {
+					const url =
+						typeof input === "string"
+							? input
+							: input instanceof URL
+								? input.toString()
+								: input.url;
+
+					if (url.includes(matchUrlFragment)) {
+						const stream = new ReadableStream({
+							start(controller) {
+								controller.enqueue(new TextEncoder().encode(body));
+								controller.close();
+							},
+						});
+						return new Response(stream, {
+							status: 200,
+							headers: { "Content-Type": contentType },
+						});
+					}
+
+					return await originalFetch(input as RequestInfo | URL, init);
+				});
+		}
+
+		test("stream truncated after partial output is not billed", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "anthropic",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			// Partial output, then the upstream drops the connection without ever
+			// sending a terminal event — the shape of a mid-stream provider failure.
+			const sse = [
+				`event: message_start\ndata: ${JSON.stringify({
+					type: "message_start",
+					message: {
+						id: "msg_truncated",
+						type: "message",
+						role: "assistant",
+						model: "claude-opus-4-8",
+						content: [],
+						usage: { input_tokens: 100, output_tokens: 0 },
+					},
+				})}\n\n`,
+				`event: content_block_start\ndata: ${JSON.stringify({
+					type: "content_block_start",
+					index: 0,
+					content_block: { type: "text", text: "" },
+				})}\n\n`,
+				`event: content_block_delta\ndata: ${JSON.stringify({
+					type: "content_block_delta",
+					index: 0,
+					delta: { type: "text_delta", text: "Here is the start of an answer" },
+				})}\n\n`,
+			].join("");
+
+			const fetchSpy = spyUpstreamResponse(
+				`${mockServerUrl}/v1/messages`,
+				sse,
+				"text/event-stream",
+			);
+
+			try {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-opus-4-8",
+						messages: [{ role: "user", content: "Truncate the stream" }],
+						stream: true,
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				const streamResult = await readAll(res.body);
+				expect(streamResult.hasError).toBe(true);
+				expect(streamResult.errorEvents[0].error.type).toBe("upstream_error");
+			} finally {
+				fetchSpy.mockRestore();
+			}
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].finishReason).toBe("upstream_error");
+			expect(logs[0].hasError).toBe(true);
+			// The caller got an error, so nothing is charged.
+			expect(Number(logs[0].cost)).toBe(0);
+			expect(Number(logs[0].inputCost)).toBe(0);
+			expect(Number(logs[0].outputCost)).toBe(0);
+			// Tokens are still recorded for analytics.
+			expect(Number(logs[0].promptTokens)).toBe(100);
+		});
+
+		// The expensive real-world shape: a long agentic run that streams only
+		// tool calls (no assistant text) and dies before the provider ever sends
+		// a usage frame. calculateCosts then estimates the completion count from
+		// the accumulated tool-call JSON — an estimate that never reaches
+		// log.completionTokens, so the row shows 0 output tokens next to a large
+		// output cost. Zeroing the failure has to cover this path too.
+		test("stream truncated after tool calls only is not billed", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "anthropic",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			// Large tool-call arguments, no text content at all.
+			const toolArgs = JSON.stringify({
+				query: "x".repeat(4000),
+			}).slice(1, -1);
+			const sse = [
+				`event: message_start\ndata: ${JSON.stringify({
+					type: "message_start",
+					message: {
+						id: "msg_tool_truncated",
+						type: "message",
+						role: "assistant",
+						model: "claude-opus-4-8",
+						content: [],
+						usage: { input_tokens: 100, output_tokens: 0 },
+					},
+				})}\n\n`,
+				`event: content_block_start\ndata: ${JSON.stringify({
+					type: "content_block_start",
+					index: 0,
+					content_block: { type: "tool_use", id: "toolu_1", name: "search" },
+				})}\n\n`,
+				`event: content_block_delta\ndata: ${JSON.stringify({
+					type: "content_block_delta",
+					index: 0,
+					delta: { type: "input_json_delta", partial_json: `{${toolArgs}}` },
+				})}\n\n`,
+			].join("");
+
+			const fetchSpy = spyUpstreamResponse(
+				`${mockServerUrl}/v1/messages`,
+				sse,
+				"text/event-stream",
+			);
+
+			try {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-opus-4-8",
+						messages: [{ role: "user", content: "Call a tool" }],
+						tools: [
+							{
+								type: "function",
+								function: {
+									name: "search",
+									description: "Search",
+									parameters: {
+										type: "object",
+										properties: { query: { type: "string" } },
+									},
+								},
+							},
+						],
+						stream: true,
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				const streamResult = await readAll(res.body);
+				expect(streamResult.hasError).toBe(true);
+			} finally {
+				fetchSpy.mockRestore();
+			}
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].finishReason).toBe("upstream_error");
+			expect(logs[0].hasError).toBe(true);
+			// The provider never reported a completion count, so the row records
+			// none — the charge must not be conjured from an estimate either.
+			expect(Number(logs[0].completionTokens ?? 0)).toBe(0);
+			expect(Number(logs[0].cost)).toBe(0);
+			expect(Number(logs[0].outputCost)).toBe(0);
+		});
+
+		// The invariant that would have made the phantom charges self-evident:
+		// whatever count the charge was computed from is the count the row shows.
+		test("a successful stream logs the completion count it was billed for", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "anthropic",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			// Completes cleanly, but the provider never reports output_tokens and
+			// emits tool calls only — so the cost comes from an estimate.
+			const toolArgs = JSON.stringify({ query: "y".repeat(4000) });
+			const sse = [
+				`event: message_start\ndata: ${JSON.stringify({
+					type: "message_start",
+					message: {
+						id: "msg_no_usage",
+						type: "message",
+						role: "assistant",
+						model: "claude-opus-4-8",
+						content: [],
+						usage: { input_tokens: 100 },
+					},
+				})}\n\n`,
+				`event: content_block_start\ndata: ${JSON.stringify({
+					type: "content_block_start",
+					index: 0,
+					content_block: { type: "tool_use", id: "toolu_1", name: "search" },
+				})}\n\n`,
+				`event: content_block_delta\ndata: ${JSON.stringify({
+					type: "content_block_delta",
+					index: 0,
+					delta: { type: "input_json_delta", partial_json: toolArgs },
+				})}\n\n`,
+				`event: content_block_stop\ndata: ${JSON.stringify({
+					type: "content_block_stop",
+					index: 0,
+				})}\n\n`,
+				`event: message_delta\ndata: ${JSON.stringify({
+					type: "message_delta",
+					delta: { stop_reason: "tool_use", stop_sequence: null },
+				})}\n\n`,
+				`event: message_stop\ndata: ${JSON.stringify({ type: "message_stop" })}\n\n`,
+			].join("");
+
+			const fetchSpy = spyUpstreamResponse(
+				`${mockServerUrl}/v1/messages`,
+				sse,
+				"text/event-stream",
+			);
+
+			try {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-opus-4-8",
+						messages: [{ role: "user", content: "Call a tool" }],
+						tools: [
+							{
+								type: "function",
+								function: {
+									name: "search",
+									description: "Search",
+									parameters: {
+										type: "object",
+										properties: { query: { type: "string" } },
+									},
+								},
+							},
+						],
+						stream: true,
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				await readAll(res.body);
+			} finally {
+				fetchSpy.mockRestore();
+			}
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].hasError).toBe(false);
+
+			// Cost and tokens must tell the same story: outputCost is exactly the
+			// logged completion count at the mapping's output price, never a
+			// number that appears nowhere in the row.
+			const loggedCompletion = Number(logs[0].completionTokens ?? 0);
+			expect(loggedCompletion).toBeGreaterThan(0);
+			expect(Number(logs[0].outputCost)).toBeCloseTo(
+				loggedCompletion * 25e-6,
+				8,
+			);
+		});
+
+		test("empty non-streaming response is not billed", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "anthropic",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const fetchSpy = spyUpstreamResponse(
+				`${mockServerUrl}/v1/messages`,
+				JSON.stringify({
+					id: "msg_empty",
+					type: "message",
+					role: "assistant",
+					model: "claude-opus-4-8",
+					content: [],
+					stop_reason: "end_turn",
+					stop_sequence: null,
+					usage: { input_tokens: 100, output_tokens: 0 },
+				}),
+				"application/json",
+			);
+
+			let json: { usage?: { cost?: number } };
+			try {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-opus-4-8",
+						messages: [{ role: "user", content: "Return nothing" }],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				json = await res.json();
+			} finally {
+				fetchSpy.mockRestore();
+			}
+
+			// The cost echoed to the client matches the zeroed charge.
+			expect(json.usage?.cost).toBe(0);
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].finishReason).toBe("upstream_error");
+			expect(logs[0].hasError).toBe(true);
+			expect(Number(logs[0].cost)).toBe(0);
+			expect(Number(logs[0].inputCost)).toBe(0);
+			expect(Number(logs[0].promptTokens)).toBe(100);
+		});
+	});
+
 	describe("native /v1/messages server-side tools", () => {
 		// Anthropic server-side tools (e.g. web_search_20250305) carry a versioned
 		// `type` and no `description`/`input_schema`. They must pass validation and
@@ -8564,6 +9492,367 @@ describe("api", () => {
 			}
 		});
 
+		// Anthropic's server-side tool search is the one server tool whose value
+		// is entirely in what it keeps OUT of the request: `defer_loading` holds
+		// the deferred definitions out of the cached prompt prefix. Both the tool
+		// and the flag have to survive the OpenAI-format round trip, and the
+		// resulting server_tool_use / tool_search_tool_result pair has to come
+		// back so the client can replay it.
+		test("forwards the tool search tool, defer_loading and the replayed pair", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "anthropic",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			let capturedBody: any;
+			const originalFetch = globalThis.fetch;
+			const fetchSpy = vi
+				.spyOn(globalThis, "fetch")
+				.mockImplementation(async (input, init) => {
+					const url =
+						typeof input === "string"
+							? input
+							: input instanceof URL
+								? input.toString()
+								: input.url;
+
+					if (url.includes(`${mockServerUrl}/v1/messages`)) {
+						capturedBody = JSON.parse(init?.body as string);
+						return new Response(
+							JSON.stringify({
+								id: "msg_ts",
+								type: "message",
+								role: "assistant",
+								model: "claude-sonnet-4-6",
+								content: [
+									{
+										type: "server_tool_use",
+										id: "srvtoolu_2",
+										name: "tool_search_tool_regex",
+										input: { pattern: "weather" },
+									},
+									{
+										type: "tool_search_tool_result",
+										tool_use_id: "srvtoolu_2",
+										content: {
+											type: "tool_search_tool_search_result",
+											tool_references: [
+												{ type: "tool_reference", tool_name: "get_weather" },
+											],
+										},
+									},
+									{ type: "text", text: "Found a weather tool." },
+								],
+								stop_reason: "end_turn",
+								stop_sequence: null,
+								usage: { input_tokens: 50, output_tokens: 10 },
+							}),
+							{
+								status: 200,
+								headers: { "Content-Type": "application/json" },
+							},
+						);
+					}
+
+					return await originalFetch(input as RequestInfo | URL, init);
+				});
+
+			try {
+				const res = await app.request("/v1/messages", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-sonnet-4-6",
+						max_tokens: 1024,
+						messages: [
+							{ role: "user", content: "What is the weather in Paris?" },
+							{
+								role: "assistant",
+								content: [
+									{
+										type: "server_tool_use",
+										id: "srvtoolu_1",
+										name: "tool_search_tool_regex",
+										input: { pattern: "weather" },
+									},
+									{
+										type: "tool_search_tool_result",
+										tool_use_id: "srvtoolu_1",
+										content: {
+											type: "tool_search_tool_search_result",
+											tool_references: [
+												{ type: "tool_reference", tool_name: "get_weather" },
+											],
+										},
+									},
+									{ type: "text", text: "Let me check." },
+									{
+										type: "tool_use",
+										id: "toolu_1",
+										name: "get_weather",
+										input: { location: "Paris" },
+									},
+								],
+							},
+							{
+								role: "user",
+								content: [
+									{
+										type: "tool_result",
+										tool_use_id: "toolu_1",
+										content: "sunny",
+									},
+								],
+							},
+						],
+						tools: [
+							{
+								type: "tool_search_tool_regex_20251119",
+								name: "tool_search_tool_regex",
+							},
+							{
+								name: "get_weather",
+								description: "Get the weather at a specific location",
+								input_schema: {
+									type: "object",
+									properties: { location: { type: "string" } },
+									required: ["location"],
+								},
+								defer_loading: true,
+							},
+						],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+
+				// The tool search tool reaches Anthropic under its own type, and the
+				// deferred tool keeps its flag — without which the whole point of
+				// the feature (a cache-stable prefix) is lost.
+				expect(capturedBody?.tools).toEqual([
+					{
+						type: "tool_search_tool_regex_20251119",
+						name: "tool_search_tool_regex",
+					},
+					{
+						name: "get_weather",
+						description: "Get the weather at a specific location",
+						input_schema: {
+							type: "object",
+							properties: { location: { type: "string" } },
+							required: ["location"],
+						},
+						defer_loading: true,
+					},
+				]);
+
+				// The replayed pair has to reach Anthropic ahead of the tool_use it
+				// led to, or Claude re-searches for a tool it already found.
+				const assistantTurn = capturedBody?.messages?.find(
+					(m: { role: string }) => m.role === "assistant",
+				);
+				expect(
+					assistantTurn?.content?.map((b: { type: string }) => b.type),
+				).toEqual([
+					"text",
+					"server_tool_use",
+					"tool_search_tool_result",
+					"tool_use",
+				]);
+
+				// And the client gets the new pair back so it can replay it next turn.
+				const json: any = await res.json();
+				expect(json.content.map((b: { type: string }) => b.type)).toEqual([
+					"server_tool_use",
+					"tool_search_tool_result",
+					"text",
+				]);
+				expect(json.content[1].content.tool_references).toEqual([
+					{ type: "tool_reference", tool_name: "get_weather" },
+				]);
+			} finally {
+				fetchSpy.mockRestore();
+			}
+		});
+
+		test("re-emits the streamed tool search pair as content blocks", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "anthropic",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const sse = [
+				`event: message_start\ndata: ${JSON.stringify({
+					type: "message_start",
+					message: {
+						id: "msg_ts_stream",
+						type: "message",
+						role: "assistant",
+						model: "claude-sonnet-4-6",
+						content: [],
+						usage: { input_tokens: 50, output_tokens: 0 },
+					},
+				})}\n\n`,
+				`event: content_block_start\ndata: ${JSON.stringify({
+					type: "content_block_start",
+					index: 0,
+					content_block: {
+						type: "server_tool_use",
+						id: "srvtoolu_stream",
+						name: "tool_search_tool_regex",
+					},
+				})}\n\n`,
+				`event: content_block_delta\ndata: ${JSON.stringify({
+					type: "content_block_delta",
+					index: 0,
+					delta: {
+						type: "input_json_delta",
+						partial_json: '{"pattern":"weather"}',
+					},
+				})}\n\n`,
+				`event: content_block_stop\ndata: ${JSON.stringify({
+					type: "content_block_stop",
+					index: 0,
+				})}\n\n`,
+				`event: content_block_start\ndata: ${JSON.stringify({
+					type: "content_block_start",
+					index: 1,
+					content_block: {
+						type: "tool_search_tool_result",
+						tool_use_id: "srvtoolu_stream",
+						content: {
+							type: "tool_search_tool_search_result",
+							tool_references: [
+								{ type: "tool_reference", tool_name: "get_weather" },
+							],
+						},
+					},
+				})}\n\n`,
+				`event: content_block_start\ndata: ${JSON.stringify({
+					type: "content_block_start",
+					index: 2,
+					content_block: { type: "text", text: "" },
+				})}\n\n`,
+				`event: content_block_delta\ndata: ${JSON.stringify({
+					type: "content_block_delta",
+					index: 2,
+					delta: { type: "text_delta", text: "Found it." },
+				})}\n\n`,
+				`event: message_delta\ndata: ${JSON.stringify({
+					type: "message_delta",
+					delta: { stop_reason: "end_turn" },
+					usage: { output_tokens: 12 },
+				})}\n\n`,
+				`event: message_stop\ndata: ${JSON.stringify({
+					type: "message_stop",
+				})}\n\n`,
+			].join("");
+
+			const originalFetch = globalThis.fetch;
+			const fetchSpy = vi
+				.spyOn(globalThis, "fetch")
+				.mockImplementation(async (input, init) => {
+					const url =
+						typeof input === "string"
+							? input
+							: input instanceof URL
+								? input.toString()
+								: input.url;
+
+					if (url.includes(`${mockServerUrl}/v1/messages`)) {
+						return new Response(sse, {
+							status: 200,
+							headers: { "Content-Type": "text/event-stream" },
+						});
+					}
+
+					return await originalFetch(input as RequestInfo | URL, init);
+				});
+
+			try {
+				const res = await app.request("/v1/messages", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-sonnet-4-6",
+						max_tokens: 1024,
+						stream: true,
+						messages: [
+							{ role: "user", content: "What is the weather in Paris?" },
+						],
+						tools: [
+							{
+								type: "tool_search_tool_regex_20251119",
+								name: "tool_search_tool_regex",
+							},
+						],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				const text = await res.text();
+				const starts = text
+					.split("\n")
+					.filter((line) => line.startsWith("data: "))
+					.map((line) => {
+						try {
+							return JSON.parse(line.slice(6));
+						} catch {
+							return null;
+						}
+					})
+					.filter(
+						(event) => event && event.type === "content_block_start",
+					) as any[];
+
+				const searchCall = starts.find(
+					(event) => event.content_block?.type === "server_tool_use",
+				);
+				expect(searchCall?.content_block).toMatchObject({
+					id: "srvtoolu_stream",
+					name: "tool_search_tool_regex",
+					input: { pattern: "weather" },
+				});
+
+				const searchResult = starts.find(
+					(event) => event.content_block?.type === "tool_search_tool_result",
+				);
+				expect(searchResult?.content_block?.content?.tool_references).toEqual([
+					{ type: "tool_reference", tool_name: "get_weather" },
+				]);
+			} finally {
+				fetchSpy.mockRestore();
+			}
+		});
+
 		test("still rejects a custom tool missing input_schema", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
@@ -8590,6 +9879,460 @@ describe("api", () => {
 			expect(res.status).toBe(400);
 			const json = await res.json();
 			expect(JSON.stringify(json)).toContain("input_schema");
+		});
+	});
+
+	describe("native /v1/messages reasoning controls for Ling-3.0-flash", () => {
+		// Ling-3.0-flash is a hybrid reasoning model that thinks by default; its
+		// only reasoning control is the vLLM chat-template flag `enable_thinking`
+		// (declared via `chatTemplateThinkingKey` on the DeepInfra mapping).
+		// These tests exercise the full Anthropic -> unified reasoning
+		// -> chat_template_kwargs chain: `thinking` controls on the native
+		// /v1/messages lane must reach the upstream body as
+		// `chat_template_kwargs.enable_thinking` and never leak `reasoning_effort`.
+		// Novita is an exception: its backend ignores the chat-template flag
+		// (verified live 2026-08-10), so its tests assert no kwargs and thinking
+		// stays on.
+		const lingProviders = ["deepinfra", "novita"] as const;
+		const upstreamModels = {
+			deepinfra: "inclusionAI/Ling-3.0-flash",
+			novita: "inclusionai/ling-3.0-flash",
+		} as const;
+
+		// Anthropic custom tool + the OpenAI function tool it translates to
+		// (mirrors the mapping in anthropic.ts so the forwarded tools can be
+		// asserted verbatim).
+		const weatherTool = {
+			name: "get_weather",
+			description: "Get the weather for a city",
+			input_schema: {
+				type: "object",
+				properties: { city: { type: "string" } },
+				required: ["city"],
+			},
+		};
+		const expectedOpenaiTool = [
+			{
+				type: "function",
+				function: {
+					name: "get_weather",
+					description: "Get the weather for a city",
+					parameters: {
+						type: "object",
+						properties: { city: { type: "string" } },
+						required: ["city"],
+					},
+				},
+			},
+		];
+
+		// The upstream OpenAI-compatible body the gateway sends for a Ling
+		// request, plus the chat-template flag that controls thinking.
+		interface CapturedLingBody {
+			model?: string;
+			reasoning_effort?: string;
+			chat_template_kwargs?: Record<string, boolean>;
+			tools?: unknown[];
+			thinking?: unknown;
+			anthropic_version?: unknown;
+		}
+
+		// Insert the API key + provider key(s) pinned to the mock server, then
+		// capture the body the gateway sends upstream. deepinfra/novita POST to
+		// `${baseUrl}/chat/completions` (no `/v1/` prefix), which the mock server
+		// doesn't serve, so the spy returns the canned completion itself.
+		// `model` defaults to the prefixed id; pass a bare id to exercise standard
+		// routing, which needs both providers' keys present to resolve a provider.
+		async function exerciseLingMessages(
+			provider: (typeof lingProviders)[number],
+			body: Record<string, unknown>,
+			options: {
+				model?: string;
+				insertBothProviderKeys?: boolean;
+				insertNoProviderKeys?: boolean;
+			} = {},
+		) {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			const providerIds = options.insertNoProviderKeys
+				? []
+				: options.insertBothProviderKeys
+					? lingProviders
+					: [provider];
+
+			for (const [index, providerId] of providerIds.entries()) {
+				await db.insert(tables.providerKey).values({
+					id: `provider-key-id-${index}`,
+					token: "sk-test-key",
+					provider: providerId,
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				});
+			}
+
+			let capturedBody: CapturedLingBody | undefined;
+			const originalFetch = globalThis.fetch;
+			const fetchSpy = vi
+				.spyOn(globalThis, "fetch")
+				.mockImplementation(async (input, init) => {
+					const url =
+						typeof input === "string"
+							? input
+							: input instanceof URL
+								? input.toString()
+								: input.url;
+
+					if (url === `${mockServerUrl}/chat/completions`) {
+						capturedBody = JSON.parse(
+							String(init?.body ?? ""),
+						) as CapturedLingBody;
+						return new Response(
+							JSON.stringify({
+								id: "chatcmpl-ling-3.0-flash",
+								object: "chat.completion",
+								created: 1774549411,
+								model: options.model
+									? "inclusionAI/Ling-3.0-flash"
+									: upstreamModels[provider],
+								choices: [
+									{
+										index: 0,
+										message: {
+											role: "assistant",
+											content: "It's sunny in Paris.",
+										},
+										finish_reason: "stop",
+									},
+								],
+								usage: {
+									prompt_tokens: 5,
+									completion_tokens: 3,
+									total_tokens: 8,
+								},
+							}),
+							{
+								status: 200,
+								headers: { "Content-Type": "application/json" },
+							},
+						);
+					}
+
+					return await originalFetch(input as RequestInfo | URL, init);
+				});
+
+			try {
+				const res = await app.request("/v1/messages", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: options.model ?? `${provider}/ling-3.0-flash`,
+						max_tokens: 1024,
+						messages: [
+							{ role: "user", content: "What is the weather in Paris?" },
+						],
+						...body,
+					}),
+				});
+
+				return { res, capturedBody };
+			} finally {
+				fetchSpy.mockRestore();
+			}
+		}
+
+		test.each(lingProviders)(
+			"maps thinking disabled to enable_thinking false upstream on %s",
+			async (provider) => {
+				const { res, capturedBody } = await exerciseLingMessages(provider, {
+					thinking: { type: "disabled" },
+				});
+
+				expect(res.status).toBe(200);
+				// DeepInfra honors the chat-template flag; Novita ignores it
+				// (verified live 2026-08-10), so thinking stays on and no flag is
+				// sent upstream.
+				if (provider === "deepinfra") {
+					expect(capturedBody?.chat_template_kwargs).toEqual({
+						enable_thinking: false,
+					});
+				} else {
+					expect(capturedBody?.chat_template_kwargs).toBeUndefined();
+				}
+				expect(capturedBody?.reasoning_effort).toBeUndefined();
+				// The Anthropic-only thinking block must not leak into the upstream
+				// OpenAI-compatible body.
+				expect(capturedBody?.thinking).toBeUndefined();
+				expect(capturedBody?.anthropic_version).toBeUndefined();
+			},
+		);
+
+		test.each(lingProviders)(
+			"maps thinking adaptive to enable_thinking true upstream on %s",
+			async (provider) => {
+				const { res, capturedBody } = await exerciseLingMessages(provider, {
+					thinking: { type: "adaptive" },
+				});
+
+				expect(res.status).toBe(200);
+				if (provider === "deepinfra") {
+					expect(capturedBody?.chat_template_kwargs).toEqual({
+						enable_thinking: true,
+					});
+				} else {
+					expect(capturedBody?.chat_template_kwargs).toBeUndefined();
+				}
+				expect(capturedBody?.reasoning_effort).toBeUndefined();
+				expect(capturedBody?.thinking).toBeUndefined();
+				expect(capturedBody?.anthropic_version).toBeUndefined();
+			},
+		);
+
+		// The most common Anthropic shape (what Claude Code sends): extended
+		// thinking with a token budget. Ling controls thinking through a binary
+		// chat-template flag, so the budget is dropped and thinking is enabled.
+		// DeepInfra honors the chat-template flag and accepts a budget (dropped to
+		// a binary toggle). Novita has no thinking control at all, so the budget
+		// request is rejected with Anthropic's "thinking not supported" 400 — the
+		// honest outcome for a backend that always thinks.
+		test.each(["deepinfra"] as const)(
+			"maps thinking enabled with budget to enable_thinking true upstream on %s",
+			async (provider) => {
+				const { res, capturedBody } = await exerciseLingMessages(provider, {
+					thinking: { type: "enabled", budget_tokens: 2048 },
+				});
+
+				expect(res.status).toBe(200);
+				expect(capturedBody?.chat_template_kwargs).toEqual({
+					enable_thinking: true,
+				});
+				expect(capturedBody?.reasoning_effort).toBeUndefined();
+				expect(capturedBody?.thinking).toBeUndefined();
+				expect(capturedBody?.anthropic_version).toBeUndefined();
+			},
+		);
+
+		test("rejects thinking enabled with budget on novita (thinking is always on, no control)", async () => {
+			const { res } = await exerciseLingMessages("novita", {
+				thinking: { type: "enabled", budget_tokens: 2048 },
+			});
+
+			expect(res.status).toBe(400);
+			const json = (await res.json()) as {
+				error?: { message?: string };
+			};
+			expect(json.error?.message).toContain(
+				'Remove the "thinking" parameter or use a model that supports extended thinking',
+			);
+		});
+
+		test.each(lingProviders)(
+			"forwards tools intact and applies enable_thinking false with thinking disabled on %s",
+			async (provider) => {
+				const { res, capturedBody } = await exerciseLingMessages(provider, {
+					thinking: { type: "disabled" },
+					tools: [weatherTool],
+				});
+
+				expect(res.status).toBe(200);
+				expect(capturedBody?.tools).toEqual(expectedOpenaiTool);
+				if (provider === "deepinfra") {
+					expect(capturedBody?.chat_template_kwargs).toEqual({
+						enable_thinking: false,
+					});
+				} else {
+					expect(capturedBody?.chat_template_kwargs).toBeUndefined();
+				}
+				expect(capturedBody?.reasoning_effort).toBeUndefined();
+				expect(capturedBody?.thinking).toBeUndefined();
+				expect(capturedBody?.anthropic_version).toBeUndefined();
+			},
+		);
+
+		test.each(lingProviders)(
+			"keeps the provider default (thinking on) with no thinking control on %s",
+			async (provider) => {
+				const { res, capturedBody } = await exerciseLingMessages(provider, {});
+
+				expect(res.status).toBe(200);
+				expect(capturedBody?.chat_template_kwargs).toBeUndefined();
+				expect(capturedBody?.reasoning_effort).toBeUndefined();
+				expect(capturedBody?.thinking).toBeUndefined();
+				expect(capturedBody?.anthropic_version).toBeUndefined();
+			},
+		);
+
+		// A client that can't send a provider prefix (e.g. devpass) relies on the
+		// gateway's standard routing to resolve a bare catalog id to a provider.
+		// Both DeepInfra and Novita mappings are active and keyed, so routing
+		// picks the cheapest (DeepInfra, $0.045 vs $0.06 input) and the request
+		// still goes through the same chat-template thinking translation.
+		test("resolves a bare ling-3.0-flash id to the cheapest Ling provider and applies enable_thinking false", async () => {
+			const { res, capturedBody } = await exerciseLingMessages(
+				"deepinfra",
+				{ thinking: { type: "disabled" } },
+				{ model: "ling-3.0-flash", insertBothProviderKeys: true },
+			);
+
+			expect(res.status).toBe(200);
+			// Standard routing lands on DeepInfra (cheapest of the two keyed
+			// Ling mappings), so the upstream model is its external id.
+			expect(capturedBody?.model).toBe("inclusionAI/Ling-3.0-flash");
+			expect(capturedBody?.chat_template_kwargs).toEqual({
+				enable_thinking: false,
+			});
+			expect(capturedBody?.reasoning_effort).toBeUndefined();
+		});
+
+		// With only one of the two Ling providers keyed, bare-id routing resolves
+		// to that single provider instead of failing.
+		test.each(lingProviders)(
+			"resolves a bare ling-3.0-flash id to the only keyed provider (%s) and applies enable_thinking false",
+			async (provider) => {
+				const { res, capturedBody } = await exerciseLingMessages(
+					provider,
+					{ thinking: { type: "disabled" } },
+					{ model: "ling-3.0-flash" },
+				);
+
+				expect(res.status).toBe(200);
+				expect(capturedBody?.model).toBe(upstreamModels[provider]);
+				if (provider === "deepinfra") {
+					expect(capturedBody?.chat_template_kwargs).toEqual({
+						enable_thinking: false,
+					});
+				} else {
+					expect(capturedBody?.chat_template_kwargs).toBeUndefined();
+				}
+				expect(capturedBody?.reasoning_effort).toBeUndefined();
+			},
+		);
+
+		// With neither provider keyed, bare-id routing has no candidate provider
+		// and the request fails with the standard no-provider-key error.
+		test("rejects a bare ling-3.0-flash id when no Ling provider has a key", async () => {
+			const { res, capturedBody } = await exerciseLingMessages(
+				"deepinfra",
+				{ thinking: { type: "disabled" } },
+				{ model: "ling-3.0-flash", insertNoProviderKeys: true },
+			);
+
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(JSON.stringify(json)).toContain(
+				"No provider key set for any of the providers that support model ling-3.0-flash",
+			);
+			expect(capturedBody).toBeUndefined();
+		});
+
+		// Native /v1/chat/completions twin of the bare-id /v1/messages test: a
+		// bare catalog id resolves through standard routing to the cheapest Ling
+		// provider (DeepInfra), and `reasoning_effort: "none"` (the OpenAI-path
+		// thinking control) reaches the upstream body as `enable_thinking: false`.
+		test("native OpenAI path resolves a bare ling-3.0-flash id to DeepInfra and maps reasoning none to enable_thinking false", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			for (const [index, providerId] of lingProviders.entries()) {
+				await db.insert(tables.providerKey).values({
+					id: `provider-key-id-${index}`,
+					token: "sk-test-key",
+					provider: providerId,
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				});
+			}
+
+			let capturedBody: CapturedLingBody | undefined;
+			const originalFetch = globalThis.fetch;
+			const fetchSpy = vi
+				.spyOn(globalThis, "fetch")
+				.mockImplementation(async (input, init) => {
+					const url =
+						typeof input === "string"
+							? input
+							: input instanceof URL
+								? input.toString()
+								: input.url;
+
+					if (url === `${mockServerUrl}/chat/completions`) {
+						capturedBody = JSON.parse(
+							String(init?.body ?? ""),
+						) as CapturedLingBody;
+						return new Response(
+							JSON.stringify({
+								id: "chatcmpl-ling-3.0-flash",
+								object: "chat.completion",
+								created: 1774549411,
+								model: "inclusionAI/Ling-3.0-flash",
+								choices: [
+									{
+										index: 0,
+										message: {
+											role: "assistant",
+											content: "It's sunny in Paris.",
+										},
+										finish_reason: "stop",
+									},
+								],
+								usage: {
+									prompt_tokens: 5,
+									completion_tokens: 3,
+									total_tokens: 8,
+								},
+							}),
+							{
+								status: 200,
+								headers: { "Content-Type": "application/json" },
+							},
+						);
+					}
+
+					return await originalFetch(input as RequestInfo | URL, init);
+				});
+
+			try {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "ling-3.0-flash",
+						reasoning_effort: "none",
+						messages: [
+							{ role: "user", content: "What is the weather in Paris?" },
+						],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				const json = await res.json();
+				expect(json.metadata?.used_provider).toBe("deepinfra");
+				expect(capturedBody?.model).toBe("inclusionAI/Ling-3.0-flash");
+				expect(capturedBody?.chat_template_kwargs).toEqual({
+					enable_thinking: false,
+				});
+				expect(capturedBody?.reasoning_effort).toBeUndefined();
+			} finally {
+				fetchSpy.mockRestore();
+			}
 		});
 	});
 });

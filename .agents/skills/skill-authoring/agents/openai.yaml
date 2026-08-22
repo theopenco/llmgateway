@@ -1,0 +1,4 @@
+interface:
+  display_name: "Skill Authoring"
+  short_description: "Create and audit repository skills safely"
+  default_prompt: "Use $skill-authoring to create or audit a repository-local skill against the current codebase."

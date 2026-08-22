@@ -35,19 +35,28 @@ export function toolChoiceModeOf(
  * is disabled — so `supportedToolChoicesWithThinkingDisabled` is folded in for
  * those requests.
  *
- * Deliberately ignores `supportedParameters`: those lists are not exhaustive
- * (most omit `tool_choice` while the upstream honours it), so routing must not
- * read anything into their silence. `prepareRequestBody` applies its own
- * `supportedParameters` gate on top of this.
+ * A non-empty `supportedParameters` list is authoritative when present, matching
+ * request shaping. Keeping that gate here prevents routing from selecting a
+ * mapping as capable only for `prepareRequestBody` to downgrade the choice.
  */
 export function mappingSupportsToolChoice(
 	mapping: Pick<
 		ProviderModelMapping,
-		"supportedToolChoices" | "supportedToolChoicesWithThinkingDisabled"
+		| "supportedParameters"
+		| "supportedToolChoices"
+		| "supportedToolChoicesWithThinkingDisabled"
 	>,
 	toolChoice: ToolChoiceType,
 	options?: { thinkingDisabled?: boolean },
 ): boolean {
+	const supportedParameters = mapping.supportedParameters;
+	if (
+		supportedParameters?.length &&
+		!supportedParameters.includes("tool_choice")
+	) {
+		return false;
+	}
+
 	const declaredModes = mapping.supportedToolChoices;
 	if (!declaredModes || declaredModes.length === 0) {
 		return true;

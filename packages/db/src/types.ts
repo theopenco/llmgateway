@@ -19,6 +19,15 @@ export const toolFunction = z.object({
 export const functionTool = z.object({
 	type: z.literal("function"),
 	function: toolFunction,
+	// Recorded as sent: it is why the tool stayed out of the cached prompt
+	// prefix on an Anthropic upstream.
+	defer_loading: z.boolean().optional(),
+});
+
+export const toolSearchTool = z.object({
+	type: z.literal("tool_search"),
+	tool_search_type: z.string(),
+	name: z.string().optional(),
 });
 
 export const webSearchTool = z.object({
@@ -35,7 +44,7 @@ export const webSearchTool = z.object({
 	max_uses: z.number().optional(),
 });
 
-export const tool = z.union([functionTool, webSearchTool]);
+export const tool = z.union([functionTool, webSearchTool, toolSearchTool]);
 
 export const toolChoice = z.union([
 	z.literal("none"),
@@ -46,6 +55,11 @@ export const toolChoice = z.union([
 		function: z.object({
 			name: z.string(),
 		}),
+	}),
+	// Recorded as sent: it is why a search-on-demand-only provider was routable
+	// for this request, and why a web search was billed.
+	z.object({
+		type: z.literal("web_search"),
 	}),
 ]);
 
@@ -179,6 +193,9 @@ export type SerializedOrganization = Omit<
 	| "paymentFailureCount"
 	| "lastPaymentFailureAt"
 	| "paymentFailureStartedAt"
+	// Admin-only trust-tier pin; the dashboard reads the resolved tier from
+	// GET /orgs/{id}/limits instead.
+	| "trustTierOverride"
 	| "devPlanBillingCycleStart"
 	| "devPlanPremiumWeekStart"
 	| "devPlanStripeSubscriptionId"
@@ -199,6 +216,11 @@ export type SerializedOrganization = Omit<
 	| "endUserMarginBalance"
 	| "stripeConnectAccountId"
 	| "stripeConnectOnboarded"
+	// Only ever travels gateway -> provider; nothing in the dashboard needs it.
+	| "safetyIdentifier"
+	// Internal abuse-review state, surfaced in the admin dashboard only. The
+	// enforcement messages on top-up and inference already explain the block.
+	| "riskFlagged"
 > & {
 	createdAt: string;
 	updatedAt: string;

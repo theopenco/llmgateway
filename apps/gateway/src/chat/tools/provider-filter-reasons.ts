@@ -15,6 +15,12 @@ import type {
 
 export interface ProviderFilterOptions {
 	webSearchTool?: WebSearchTool | boolean;
+	/**
+	 * Whether the caller sent `tool_choice: {type: "web_search"}`. Passed
+	 * separately because `webSearchTool` is often narrowed to a boolean by the
+	 * time routing runs.
+	 */
+	webSearchForced?: boolean;
 	responseFormatType?: string;
 	hasImages?: boolean;
 	hasAudio?: boolean;
@@ -23,6 +29,8 @@ export interface ProviderFilterOptions {
 	hasAssistantPrefill?: boolean;
 	hasTools?: boolean;
 	toolChoice?: ToolChoiceType;
+	/** Drop mappings that would downgrade tool_choice instead of preferring them. */
+	strictToolChoice?: boolean;
 	reasoningEffort?: string;
 	reasoningMaxTokens?: number;
 	noReasoning?: boolean;
@@ -80,7 +88,11 @@ export function exclusionReason(
 function toolChoiceConstrainsRouting(
 	toolChoice: ToolChoiceType | undefined,
 ): toolChoice is Exclude<ToolChoiceType, "auto"> {
-	return toolChoice !== undefined && toolChoice !== "auto";
+	return (
+		toolChoice !== undefined &&
+		toolChoice !== "auto" &&
+		!(typeof toolChoice === "object" && toolChoice.type === "web_search")
+	);
 }
 
 /**
@@ -173,11 +185,34 @@ export function getProviderFilterReasons(
 	if (options.hasTools && provider.tools !== true) {
 		reasons.push(exclusionReason("tools"));
 	}
-	if (!providerHonorsRequestedToolChoice(provider, options)) {
+	if (
+		options.strictToolChoice &&
+		!providerHonorsRequestedToolChoice(provider, options)
+	) {
 		reasons.push(exclusionReason("tool_choice"));
 	}
 	if (options.webSearchTool && provider.webSearch !== true) {
 		reasons.push(exclusionReason("web_search"));
+	}
+	// Mappings that can only search on demand are no use to a request that
+	// merely offers the tool: they would answer from stale weights while
+	// occupying a route a model-electing provider could have served.
+	//
+	// Callers that still hold the extracted tool carry the caller's intent on
+	// it; the ones that narrowed it to a boolean pass `webSearchForced`
+	// alongside. Read whichever is available, or a forced request would filter
+	// out the very mappings it exists to reach.
+	const webSearchForced =
+		options.webSearchForced ??
+		(typeof options.webSearchTool === "object" &&
+			options.webSearchTool !== null &&
+			options.webSearchTool.forced === true);
+	if (
+		options.webSearchTool &&
+		provider.webSearchForcedOnly === true &&
+		!webSearchForced
+	) {
+		reasons.push(exclusionReason("web_search_forced_only"));
 	}
 	if (options.n !== undefined && options.n > 1) {
 		if (provider.supportsN !== true) {
@@ -189,8 +224,7 @@ export function getProviderFilterReasons(
 		}
 	}
 	if (
-		(options.responseFormatType === "json_object" ||
-			options.responseFormatType === "json_schema") &&
+		options.responseFormatType === "json_object" &&
 		provider.jsonOutput !== true
 	) {
 		reasons.push(exclusionReason("json_output"));

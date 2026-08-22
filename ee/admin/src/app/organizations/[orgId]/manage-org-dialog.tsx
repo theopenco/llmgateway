@@ -44,6 +44,8 @@ interface ManageOrgDialogProps {
 	plan: string;
 	seats: number | null;
 	apiKeyLimit: number | null;
+	projectLimit: number | null;
+	trustTierOverride: number | null;
 	planExpiresAt: string | null;
 	planStartedAt: string | null;
 	isTrialActive: boolean;
@@ -54,6 +56,8 @@ interface ManageOrgDialogProps {
 		plan: Plan;
 		seats: number | null;
 		apiKeyLimit: number | null;
+		projectLimit: number | null;
+		trustTierOverride: number | null;
 		planExpiresAt: string | null;
 		planStartedAt: string | null;
 		isTrialActive: boolean;
@@ -72,6 +76,12 @@ const PLAN_DEFAULT_API_KEYS: Record<Plan, number> = {
 	free: 5,
 	pro: 20,
 	enterprise: 500,
+};
+
+const PLAN_DEFAULT_PROJECTS: Record<Plan, number> = {
+	free: 10,
+	pro: 10,
+	enterprise: 250,
 };
 
 // Contract lengths we actually sell, offered as one-click presets so booking a
@@ -108,6 +118,8 @@ export function ManageOrgDialog({
 	plan,
 	seats,
 	apiKeyLimit,
+	projectLimit,
+	trustTierOverride,
 	planExpiresAt,
 	planStartedAt,
 	isTrialActive,
@@ -128,6 +140,12 @@ export function ManageOrgDialog({
 	);
 	const [apiKeyLimitValue, setApiKeyLimitValue] = useState(
 		apiKeyLimit === null ? "" : String(apiKeyLimit),
+	);
+	const [projectLimitValue, setProjectLimitValue] = useState(
+		projectLimit === null ? "" : String(projectLimit),
+	);
+	const [trustTierValue, setTrustTierValue] = useState(
+		trustTierOverride === null ? "auto" : String(trustTierOverride),
 	);
 	const [startedAtValue, setStartedAtValue] = useState(
 		toDateInputValue(planStartedAt),
@@ -241,6 +259,17 @@ export function ManageOrgDialog({
 			apiKeyLimitToSave = parsed;
 		}
 
+		let projectLimitToSave: number | null = null;
+		const trimmedProjectLimit = projectLimitValue.trim();
+		if (trimmedProjectLimit !== "") {
+			const parsed = Number(trimmedProjectLimit);
+			if (!Number.isInteger(parsed) || parsed < 0) {
+				setError("Project limit must be a non-negative whole number");
+				return;
+			}
+			projectLimitToSave = parsed;
+		}
+
 		if (startedAtValue !== "" && expiresAtValue === "") {
 			setError("A plan start date needs an expiry date too");
 			return;
@@ -277,6 +306,9 @@ export function ManageOrgDialog({
 			plan: planValue,
 			seats: seatsToSave,
 			apiKeyLimit: apiKeyLimitToSave,
+			projectLimit: projectLimitToSave,
+			trustTierOverride:
+				trustTierValue === "auto" ? null : Number(trustTierValue),
 			planStartedAt: startedAtValue === "" ? null : startedAtValue,
 			planExpiresAt: expiresAtValue === "" ? null : expiresAtValue,
 			isTrialActive: trialActiveValue,
@@ -307,7 +339,7 @@ export function ManageOrgDialog({
 					<DialogTitle>Manage {orgName}</DialogTitle>
 					<DialogDescription>
 						Change the plan tier, set the plan term or trial window, and
-						override the team-member seat limit and API-key limit.
+						override the team-member seat, API-key and project limits.
 					</DialogDescription>
 				</DialogHeader>
 
@@ -604,6 +636,51 @@ export function ManageOrgDialog({
 							{PLAN_DEFAULT_API_KEYS[planValue]} active API keys per
 							organization). When set, this value takes precedence for both
 							display and enforcement.
+						</p>
+					</div>
+
+					<div className="space-y-2">
+						<Label htmlFor="manageProjectLimit">Project limit override</Label>
+						<Input
+							id="manageProjectLimit"
+							type="number"
+							min="0"
+							step="1"
+							value={projectLimitValue}
+							onChange={(e) => setProjectLimitValue(e.target.value)}
+							placeholder={`Default (${PLAN_DEFAULT_PROJECTS[planValue]})`}
+						/>
+						<p className="text-xs text-muted-foreground">
+							Leave empty to use the plan default (
+							{PLAN_DEFAULT_PROJECTS[planValue]} projects per organization).
+							When set, this value takes precedence when enforcing the cap on
+							project creation.
+						</p>
+					</div>
+
+					<div className="space-y-2">
+						<Label htmlFor="manageTrustTier">Trust tier override</Label>
+						<Select value={trustTierValue} onValueChange={setTrustTierValue}>
+							<SelectTrigger id="manageTrustTier">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="auto">
+									Automatic (age/spend ladder)
+								</SelectItem>
+								<SelectItem value="0">Tier 0 — tightest limits</SelectItem>
+								<SelectItem value="1">Tier 1</SelectItem>
+								<SelectItem value="2">Tier 2</SelectItem>
+								<SelectItem value="3">Tier 3</SelectItem>
+								<SelectItem value="4">Tier 4 — highest limits</SelectItem>
+							</SelectContent>
+						</Select>
+						<p className="text-xs text-muted-foreground">
+							Pins the anti-abuse trust tier (RPM multiplier, daily/monthly
+							spend caps, top-up allowance). Takes precedence over the computed
+							age/spend ladder in both directions — hold an abusive org down or
+							lift a vetted one past the age floors. Automatic follows the
+							ladder.
 						</p>
 					</div>
 

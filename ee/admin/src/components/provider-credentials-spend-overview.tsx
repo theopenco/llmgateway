@@ -146,6 +146,8 @@ interface ProviderSeries {
 	/** Series keys in stacking order (largest spender first). */
 	seriesKeys: string[];
 	data: Record<string, number | string>[];
+	/** Whether any bucket in the window carried traffic for this provider. */
+	hasTraffic: boolean;
 	windowCost: number;
 	windowRequests: number;
 	windowTokens: number;
@@ -153,13 +155,15 @@ interface ProviderSeries {
 
 /**
  * Pivots the flat (bucket, credential) rows into one stacked series set per
- * provider. Every series is zero-filled across the provider's buckets — a
- * stacked area with holes would silently reassign the missing band to the
- * series below it.
+ * provider. Every series is zero-filled across the window's full bucket grid —
+ * a stacked area with holes would silently reassign the missing band to the
+ * series below it, and a chart built only from buckets that saw traffic would
+ * quietly shrink its axis to the busy days instead of the selected window.
  */
 function buildProviderSeries(
 	keys: OverviewKey[],
 	points: OverviewPoint[],
+	buckets: string[],
 	metric: Metric,
 ): ProviderSeries[] {
 	const pointsByKey = new Map<string, OverviewPoint[]>();
@@ -211,10 +215,14 @@ function buildProviderSeries(
 
 		const foldedIds = new Set(folded.map((key) => key.id));
 		const rows = new Map<string, Record<string, number | string>>();
-		const timestamps = new Set<string>();
+		// The server's grid spans the whole window; the provider's own buckets are
+		// unioned in so nothing is dropped if a rollup row falls just outside it.
+		const timestamps = new Set<string>(buckets);
+		let hasTraffic = false;
 		for (const key of providerKeys) {
 			for (const point of pointsByKey.get(key.id) ?? []) {
 				timestamps.add(point.timestamp);
+				hasTraffic = true;
 			}
 		}
 		for (const timestamp of Array.from(timestamps).sort()) {
@@ -237,6 +245,7 @@ function buildProviderSeries(
 			config,
 			seriesKeys,
 			data: Array.from(rows.values()),
+			hasTraffic,
 			windowCost: providerKeys.reduce((sum, key) => sum + key.totalCost, 0),
 			windowRequests: providerKeys.reduce(
 				(sum, key) => sum + key.totalRequests,
@@ -276,7 +285,7 @@ function ProviderSpendChart({
 					{compactFormatter.format(series.windowTokens)} tokens
 				</span>
 			</div>
-			{series.data.length === 0 ? (
+			{!series.hasTraffic ? (
 				<div className="flex h-56 items-center justify-center text-sm text-muted-foreground">
 					No attributed spend in this window.
 				</div>
@@ -395,7 +404,7 @@ export function ProviderCredentialsSpendOverview({
 		const keys = (data.keys as OverviewKey[]).filter(
 			(key) => providerFilter === null || key.provider === providerFilter,
 		);
-		return buildProviderSeries(keys, data.data, metric);
+		return buildProviderSeries(keys, data.data, data.buckets, metric);
 	}, [data, providerFilter, metric]);
 
 	const bucketIsHour = data?.bucket === "hour";

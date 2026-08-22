@@ -5,13 +5,12 @@ import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { ThemeProvider } from "next-themes";
 import posthog from "posthog-js";
 import { PostHogProvider } from "posthog-js/react";
-import { useEffect, useMemo } from "react";
+import { useEffect, useState } from "react";
 
 import { Toaster } from "@/components/ui/sonner";
 import { AppConfigProvider } from "@/lib/config";
 
 import type { AppConfig } from "@/lib/config-server";
-import type { PostHogConfig } from "posthog-js";
 import type { ReactNode } from "react";
 
 interface ProvidersProps {
@@ -20,7 +19,9 @@ interface ProvidersProps {
 }
 
 export function Providers({ children, config }: ProvidersProps) {
-	const queryClient = useMemo(
+	// useState, not useMemo: React may discard a useMemo cache, which would
+	// silently swap in a fresh QueryClient and drop the whole query cache.
+	const [queryClient] = useState(
 		() =>
 			new QueryClient({
 				defaultOptions: {
@@ -31,20 +32,6 @@ export function Providers({ children, config }: ProvidersProps) {
 					},
 				},
 			}),
-		[],
-	);
-
-	const posthogOptions = useMemo<Partial<PostHogConfig>>(
-		() => ({
-			// Ingest through our own origin (see the /ingest rewrites in
-			// next.config.ts) so ad blockers that block *.posthog.com don't
-			// silently drop client events.
-			api_host: "/ingest",
-			ui_host: config.posthogHost,
-			capture_pageview: "history_change",
-			autocapture: true,
-		}),
-		[config.posthogHost],
 	);
 
 	useEffect(() => {
@@ -52,8 +39,20 @@ export function Providers({ children, config }: ProvidersProps) {
 			return;
 		}
 		const key = config.posthogKey;
+		const host = config.posthogHost;
+		// Built inline and keyed on primitives: a memoized options object that
+		// React discards would re-run this effect, and its cleanup would cancel
+		// the already-queued init.
 		const init = () => {
-			posthog.init(key, posthogOptions);
+			posthog.init(key, {
+				// Ingest through our own origin (see the /ingest rewrites in
+				// next.config.ts) so ad blockers that block *.posthog.com don't
+				// silently drop client events.
+				api_host: "/ingest",
+				ui_host: host,
+				capture_pageview: "history_change",
+				autocapture: true,
+			});
 		};
 		// Captures fired before init() are dropped by posthog-js, so the idle
 		// deferral must be bounded — a busy main thread can starve
@@ -64,7 +63,7 @@ export function Providers({ children, config }: ProvidersProps) {
 		}
 		const timer = setTimeout(init, 300);
 		return () => clearTimeout(timer);
-	}, [config.posthogKey, posthogOptions]);
+	}, [config.posthogKey, config.posthogHost]);
 
 	return (
 		<AppConfigProvider config={config}>

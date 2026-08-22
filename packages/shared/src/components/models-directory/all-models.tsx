@@ -46,7 +46,6 @@ import Link from "next/link.js";
 import { usePathname, useRouter, useSearchParams } from "next/navigation.js";
 import React, { useMemo, useState, useCallback, useEffect } from "react";
 
-import { isCodingModel } from "@/coding-models.js";
 import { getProviderIcon } from "@/components/provider-icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -74,12 +73,22 @@ import {
 	TooltipProvider,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { isMappingDeactivated } from "@/deactivation";
+import {
+	isMappingDeactivated,
+	shouldShowDeactivationNotice,
+} from "@/deactivation";
+import { discountFraction } from "@/lib/discount";
 import { cn } from "@/lib/utils";
 
+import { matchesCapability } from "./capability-filters";
 import { formatDeprecationDate, formatPerImagePriceRange } from "./format";
 import { ModelCard } from "./model-card";
 import { applyCategoryFilter } from "./model-category-filters";
+import {
+	applyUseCaseFilter,
+	isUseCaseCategory,
+	providerRowPassesFilters,
+} from "./use-case-filters";
 import { useIsMobile } from "./use-mobile";
 
 import type {
@@ -138,7 +147,12 @@ interface AllModelsProps {
 }
 
 type SortField =
-	"provider" | "name" | "inputPrice" | "outputPrice" | "cachedInputPrice";
+	| "provider"
+	| "name"
+	| "inputPrice"
+	| "outputPrice"
+	| "cachedInputPrice"
+	| "discount";
 type SortDirection = "asc" | "desc";
 
 // Capability icon type
@@ -285,6 +299,7 @@ const ModelTableRow = React.memo(
 		const isCustom = row.model.source === "custom";
 		const blockedReasons = row.provider.blockedReasons ?? [];
 		const isBlocked = blockedReasons.length > 0;
+		const showDeactivationNotice = shouldShowDeactivationNotice(row.provider);
 
 		return (
 			<>
@@ -386,7 +401,7 @@ const ModelTableRow = React.memo(
 									</TooltipContent>
 								</Tooltip>
 							)}
-							{row.provider.deactivatedAt && (
+							{showDeactivationNotice && (
 								<Tooltip>
 									<TooltipTrigger asChild>
 										<span className="shrink-0 cursor-help">
@@ -396,14 +411,14 @@ const ModelTableRow = React.memo(
 									<TooltipContent>
 										<p className="text-xs">
 											{formatDeprecationDate(
-												row.provider.deactivatedAt,
+												row.provider.deactivatedAt!,
 												"deactivated",
 											)}
 										</p>
 									</TooltipContent>
 								</Tooltip>
 							)}
-							{!row.provider.deactivatedAt && row.provider.deprecatedAt && (
+							{!showDeactivationNotice && row.provider.deprecatedAt && (
 								<Tooltip>
 									<TooltipTrigger asChild>
 										<span className="shrink-0 cursor-help">
@@ -748,18 +763,32 @@ export function AllModels({
 	);
 
 	// Sorting states
+	const sortFieldParam = searchParams.get("sortField") as SortField | null;
+	const sortDirParam = searchParams.get("sortDir");
+	const discountedDefault =
+		categoryFilter === "discounted" && !sortFieldParam && !sortDirParam;
 	const [sortField, setSortField] = useState<SortField | null>(
-		(searchParams.get("sortField") as SortField) || null,
+		sortFieldParam || (discountedDefault ? "discount" : null),
 	);
 	const [sortDirection, setSortDirection] = useState<SortDirection>(
-		(searchParams.get("sortDir") as SortDirection) === "desc" ? "desc" : "asc",
+		sortDirParam === "desc" || sortDirParam === "asc"
+			? sortDirParam
+			: discountedDefault
+				? "desc"
+				: "asc",
 	);
+	const urlCategory = searchParams.get("category");
 	const [filters, setFilters] = useState({
 		// With the selector hidden there is no way to see or change the
-		// category, so ignore any URL override and pin the default.
+		// category, so ignore any URL override and pin the default. When the
+		// selector is shown, only accept a known category from the URL so an
+		// unsupported value falls back to the default instead of silently
+		// matching every row.
 		category: hideUseCaseFilter
 			? defaultCategory
-			: (searchParams.get("category") ?? defaultCategory),
+			: isUseCaseCategory(urlCategory)
+				? urlCategory
+				: defaultCategory,
 		tier: searchParams.get("tier") ?? "all",
 		capabilities: {
 			streaming: searchParams.get("streaming") === "true",
@@ -939,75 +968,18 @@ export function AllModels({
 				}
 			}
 
-			// Category filter
-			if (filters.category && filters.category !== "all") {
-				switch (filters.category) {
-					case "code": {
-						// Exactly the predicate the gateway enforces for DevPass coding
-						// plans, so this list can never claim less than the plan serves.
-						if (
-							!isCodingModel({
-								free: model.free,
-								stability: model.stability,
-								providers: model.providerDetails.map((p) => p.provider),
-							})
-						) {
-							return false;
-						}
-						break;
-					}
-					case "chat": {
-						// Chat & Assistants: general chat models with streaming and cached input pricing
-						const hasStreaming = model.providerDetails.some(
-							(p) =>
-								p.provider.streaming && p.provider.cachedInputPrice !== null,
-						);
-						if (!hasStreaming) {
-							return false;
-						}
-						break;
-					}
-					case "reasoning": {
-						// Reasoning & Analysis: models with reasoning capability
-						const hasReasoning = model.providerDetails.some(
-							(p) => p.provider.reasoning,
-						);
-						if (!hasReasoning) {
-							return false;
-						}
-						break;
-					}
-					case "creative": {
-						// Creative & Writing: exclude image generation models
-						if (model.output?.includes("image")) {
-							return false;
-						}
-						const hasCreativeStreaming = model.providerDetails.some(
-							(p) => p.provider.streaming,
-						);
-						if (!hasCreativeStreaming) {
-							return false;
-						}
-						break;
-					}
-					case "image": {
-						// Image Generation
-						if (!model.output?.includes("image")) {
-							return false;
-						}
-						break;
-					}
-					case "multimodal": {
-						// Multimodal: vision capability
-						const hasVision = model.providerDetails.some(
-							(p) => p.provider.vision,
-						);
-						if (!hasVision) {
-							return false;
-						}
-						break;
-					}
-				}
+			// Use Case filter (chat/reasoning/creative/image/multimodal/code) —
+			// a model qualifies via any one of its mappings.
+			if (
+				filters.category &&
+				filters.category !== "all" &&
+				!applyUseCaseFilter(
+					filters.category,
+					model,
+					model.providerDetails.map((p) => p.provider),
+				)
+			) {
+				return false;
 			}
 
 			// Pricing tier filter: premium is the fair-use category enforced by
@@ -1022,43 +994,57 @@ export function AllModels({
 			// Capability filters
 			if (
 				filters.capabilities.streaming &&
-				!model.providerDetails.some((p) => p.provider.streaming)
+				!model.providerDetails.some((p) =>
+					matchesCapability("streaming", p.provider),
+				)
 			) {
 				return false;
 			}
 			if (
 				filters.capabilities.vision &&
-				!model.providerDetails.some((p) => p.provider.vision)
+				!model.providerDetails.some((p) =>
+					matchesCapability("vision", p.provider),
+				)
 			) {
 				return false;
 			}
 			if (
 				filters.capabilities.tools &&
-				!model.providerDetails.some((p) => p.provider.tools)
+				!model.providerDetails.some((p) =>
+					matchesCapability("tools", p.provider),
+				)
 			) {
 				return false;
 			}
 			if (
 				filters.capabilities.reasoning &&
-				!model.providerDetails.some((p) => p.provider.reasoning)
+				!model.providerDetails.some((p) =>
+					matchesCapability("reasoning", p.provider),
+				)
 			) {
 				return false;
 			}
 			if (
 				filters.capabilities.reasoningBudget &&
-				!model.providerDetails.some((p) => p.provider.reasoningMaxTokens)
+				!model.providerDetails.some((p) =>
+					matchesCapability("reasoningMaxTokens", p.provider),
+				)
 			) {
 				return false;
 			}
 			if (
 				filters.capabilities.jsonOutput &&
-				!model.providerDetails.some((p) => p.provider.jsonOutput)
+				!model.providerDetails.some((p) =>
+					matchesCapability("jsonOutput", p.provider),
+				)
 			) {
 				return false;
 			}
 			if (
 				filters.capabilities.jsonOutputSchema &&
-				!model.providerDetails.some((p) => p.provider.jsonOutputSchema)
+				!model.providerDetails.some((p) =>
+					matchesCapability("jsonOutputSchema", p.provider),
+				)
 			) {
 				return false;
 			}
@@ -1091,7 +1077,9 @@ export function AllModels({
 			}
 			if (
 				filters.capabilities.webSearch &&
-				!model.providerDetails.some((p) => p.provider.webSearch)
+				!model.providerDetails.some((p) =>
+					matchesCapability("webSearch", p.provider),
+				)
 			) {
 				return false;
 			}
@@ -1114,8 +1102,8 @@ export function AllModels({
 			}
 			if (
 				filters.capabilities.discounted &&
-				!model.providerDetails.some(
-					(p) => p.provider.discount && parseFloat(p.provider.discount) > 0,
+				!model.providerDetails.some((p) =>
+					matchesCapability("discounted", p.provider),
 				)
 			) {
 				return false;
@@ -1289,6 +1277,18 @@ export function AllModels({
 							: Infinity;
 					break;
 				}
+				case "discount": {
+					// Highest discount across all providers for this model
+					const aDiscounts = a.providerDetails.map((m) =>
+						discountFraction(m.provider.discount),
+					);
+					const bDiscounts = b.providerDetails.map((m) =>
+						discountFraction(m.provider.discount),
+					);
+					aValue = aDiscounts.length > 0 ? Math.max(...aDiscounts) : 0;
+					bValue = bDiscounts.length > 0 ? Math.max(...bDiscounts) : 0;
+					break;
+				}
 				default:
 					return 0;
 			}
@@ -1332,7 +1332,19 @@ export function AllModels({
 
 		for (const model of modelsWithProviders) {
 			for (const { provider, providerInfo } of model.providerDetails) {
-				if (providerFilter && provider.providerId !== providerFilter) {
+				// Single source of truth for which rows belong in the filtered
+				// table: provider, capability, category, and use-case filters
+				// are all re-checked per row here (the same code the tests
+				// exercise), so a mapping that qualifies a model at the model
+				// level but fails an active filter is kept out of the table.
+				if (
+					!providerRowPassesFilters(model, provider, {
+						providerFilter,
+						capabilities: filters.capabilities,
+						categoryFilter,
+						category: filters.category,
+					})
+				) {
 					continue;
 				}
 
@@ -1436,6 +1448,10 @@ export function AllModels({
 							: Infinity;
 					break;
 				}
+				case "discount":
+					aValue = discountFraction(a.provider.discount);
+					bValue = discountFraction(b.provider.discount);
+					break;
 				default:
 					return 0;
 			}
@@ -1451,6 +1467,7 @@ export function AllModels({
 	}, [modelsWithProviders, sortField, sortDirection, filters.selectedProvider]);
 
 	const hasActiveFilters =
+		categoryFilter ||
 		searchQuery ||
 		(filters.category && filters.category !== defaultCategory) ||
 		(filters.tier && filters.tier !== "all") ||
@@ -1908,9 +1925,29 @@ export function AllModels({
 												[key]: pressed,
 											},
 										}));
-										updateUrlWithFilters({
-											[key]: pressed ? "true" : undefined,
-										});
+										if (key === "discounted") {
+											if (pressed) {
+												setSortField("discount");
+												setSortDirection("desc");
+												updateUrlWithFilters({
+													[key]: "true",
+													sortField: "discount",
+													sortDir: "desc",
+												});
+											} else {
+												setSortField(null);
+												setSortDirection("desc");
+												updateUrlWithFilters({
+													[key]: undefined,
+													sortField: undefined,
+													sortDir: undefined,
+												});
+											}
+										} else {
+											updateUrlWithFilters({
+												[key]: pressed ? "true" : undefined,
+											});
+										}
 									}}
 									className="gap-1.5"
 								>
@@ -2351,6 +2388,7 @@ export function AllModels({
 												className="ml-2 px-1 py-0 text-xs"
 											>
 												{[
+													categoryFilter ? 1 : 0,
 													searchQuery ? 1 : 0,
 													filters.category &&
 													filters.category !== defaultCategory

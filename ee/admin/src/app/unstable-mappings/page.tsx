@@ -1,3 +1,4 @@
+import { ByokErrorsToggle } from "@/components/byok-errors-toggle";
 import {
 	IgnoredErrorMatchersDialog,
 	IgnoredErrorsToggle,
@@ -26,6 +27,7 @@ export default async function UnstableMappingsPage({
 		logLimit?: string;
 		ignoreExpected?: string;
 		splitByKey?: string;
+		includeByok?: string;
 	}>;
 }) {
 	await requireSession();
@@ -34,6 +36,7 @@ export default async function UnstableMappingsPage({
 	const includeRetried = params?.includeRetried === "true";
 	const ignoreExpected = params?.ignoreExpected !== "false";
 	const splitByKey = params?.splitByKey === "true";
+	const includeByok = params?.includeByok === "true";
 	const window = parseUnstableWindow(params?.window);
 	const logLimit = parseUnstableLogLimit(params?.logLimit);
 
@@ -47,6 +50,7 @@ export default async function UnstableMappingsPage({
 				window,
 				ignoreExpected: ignoreExpected ? "true" : "false",
 				splitByKey: splitByKey ? "true" : "false",
+				includeByok: includeByok ? "true" : "false",
 			},
 		},
 	});
@@ -87,6 +91,7 @@ export default async function UnstableMappingsPage({
 							matcherCount={data.ignoredMatcherCount}
 						/>
 						<IgnoredErrorsToggle ignoreExpected={data.ignoreExpected} />
+						<ByokErrorsToggle includeByok={data.includeByok} />
 					</div>
 					<div className="flex flex-wrap items-center gap-2">
 						<span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -139,6 +144,7 @@ export default async function UnstableMappingsPage({
 					logLimit={logLimit}
 					ignoreExpected={data.ignoreExpected}
 					splitByKey={data.splitByKey}
+					includeByok={data.includeByok}
 				/>
 			</div>
 		</div>

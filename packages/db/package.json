@@ -23,7 +23,8 @@
 		"migrate": "pnpm drizzle-kit migrate --config drizzle.config.ts",
 		"migrations": "pnpm drizzle-kit generate --config drizzle.config.ts",
 		"push": "pnpm drizzle-kit push --force --config drizzle.config.ts",
-		"seed": "node dist/seed.js"
+		"seed": "node dist/seed.js",
+		"seed-demo": "node dist/seed-demo.js"
 	},
 	"dependencies": {
 		"@kubiks/otel-drizzle": "2.0.3",
