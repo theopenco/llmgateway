@@ -1,6 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
-import { streamSSE } from "hono/streaming";
 
 import { detectCodingAgentFromUserAgent } from "@/chat/tools/detect-coding-agent.js";
 import { extractFirstSseEventData } from "@/chat/tools/extract-first-sse-event-data.js";
@@ -84,6 +83,7 @@ import {
 } from "@/lib/logs.js";
 import { isSponsoredOnboardingRequest } from "@/lib/onboarding-sponsorship.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { streamSSE } from "@/lib/pending-work.js";
 import {
 	createSessionProviderStore,
 	getPreferredProvider,
