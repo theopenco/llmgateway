@@ -6441,6 +6441,104 @@ describe("api", () => {
 		expect(afterBypass.filter((log) => log.cached).length).toBe(1);
 	});
 
+	// GHSA-h9ww-f95j-h54c: cache keys are project-scoped, so a byte-identical
+	// request from another organization must never replay a victim's cached
+	// response.
+	test("/v1/chat/completions cache is not shared across tenants", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-cache-victim",
+			token: "real-token-cache-victim",
+			projectId: "project-id",
+			description: "Victim API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-cache-victim",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		await db
+			.update(tables.project)
+			.set({ cachingEnabled: true })
+			.where(eq(tables.project.id, "project-id"));
+
+		// Second, unrelated organization with caching enabled as well.
+		await db.insert(tables.organization).values({
+			id: "org-id-attacker",
+			name: "Attacker Organization",
+			billingEmail: "attacker",
+			plan: "pro",
+			retentionLevel: "retain",
+			credits: "100.00",
+		});
+
+		await db.insert(tables.project).values({
+			id: "project-id-attacker",
+			name: "Attacker Project",
+			organizationId: "org-id-attacker",
+			mode: "api-keys",
+			cachingEnabled: true,
+		});
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-cache-attacker",
+			token: "real-token-cache-attacker",
+			projectId: "project-id-attacker",
+			description: "Attacker API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-cache-attacker",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id-attacker",
+			baseUrl: mockServerUrl,
+		});
+
+		const body = JSON.stringify({
+			model: "openai/gpt-4o-mini",
+			messages: [{ role: "user", content: `Cross tenant? ${randomUUID()}` }],
+		});
+
+		const makeRequest = (token: string) =>
+			app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${token}`,
+				},
+				body,
+			});
+
+		// Victim primes the cache (setCache is a no-op under NODE_ENV=test).
+		const originalNodeEnv = process.env.NODE_ENV;
+		try {
+			process.env.NODE_ENV = "development";
+			const primeRes = await makeRequest("real-token-cache-victim");
+			expect(primeRes.status).toBe(200);
+			expect(primeRes.headers.get("x-llmgateway-cache")).toBeNull();
+		} finally {
+			process.env.NODE_ENV = originalNodeEnv;
+		}
+
+		// The victim's own replay hits, proving the entry exists...
+		const victimReplay = await makeRequest("real-token-cache-victim");
+		expect(victimReplay.status).toBe(200);
+		expect(victimReplay.headers.get("x-llmgateway-cache")).toBe("HIT");
+
+		// ...but the byte-identical request from another tenant must miss.
+		const attackerRes = await makeRequest("real-token-cache-attacker");
+		expect(attackerRes.status).toBe(200);
+		expect(attackerRes.headers.get("x-llmgateway-cache")).toBeNull();
+		const attackerJson = await attackerRes.json();
+		expect(attackerJson.metadata.cached).toBeUndefined();
+	});
+
 	test("/v1/chat/completions streaming cache hits are marked and free", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-cache-stream",
