@@ -15,7 +15,7 @@ import {
 import { notifyUserAccountDeleted } from "@/utils/discord.js";
 import { computeProfileData, profileSchema } from "@/utils/profile.js";
 
-import { and, db, eq, tables } from "@llmgateway/db";
+import { and, db, eq, ne, sql, tables } from "@llmgateway/db";
 import { getEnterpriseLicenseStatus } from "@llmgateway/shared/enterprise-license";
 
 import type { ServerTypes } from "@/vars.js";
@@ -203,7 +203,13 @@ user.openapi(get, async (c) => {
 
 const updateUserSchema = z.object({
 	name: z.string().optional(),
-	email: z.string().email("Invalid email address").optional(),
+	// Lowercased to match better-auth, which stores emails lowercase and looks
+	// them up lowercased on sign-in — a mixed-case stored email is unloginable.
+	email: z
+		.string()
+		.transform((v) => v.trim().toLowerCase())
+		.pipe(z.string().email("Invalid email address"))
+		.optional(),
 	username: z
 		.string()
 		.transform((v) => v.trim().toLowerCase())
@@ -367,20 +373,26 @@ user.openapi(updateUser, async (c) => {
 
 	const emailChanged =
 		updateData.email !== undefined &&
-		updateData.email.toLowerCase() !== userRecord.email.toLowerCase();
+		updateData.email !== userRecord.email.toLowerCase();
 
 	// A new address is unproven until the owner clicks the verification link, so
 	// reject it if another account already holds it (clean 400 instead of a DB
 	// constraint 500) and drop `emailVerified` below. Skipping this let an
 	// attacker point their account at an invited/admin address and inherit its
 	// authority, since invite auto-accept and admin checks key on email.
+	// Compared via lower() to also catch legacy mixed-case rows the DB's
+	// case-sensitive unique constraint would treat as distinct.
 	if (emailChanged) {
-		const existing = await db.query.user.findFirst({
-			where: {
-				email: updateData.email!,
-				id: { ne: authUser.id },
-			},
-		});
+		const [existing] = await db
+			.select({ id: tables.user.id })
+			.from(tables.user)
+			.where(
+				and(
+					sql`lower(${tables.user.email}) = ${updateData.email}`,
+					ne(tables.user.id, authUser.id),
+				),
+			)
+			.limit(1);
 		if (existing) {
 			throw new HTTPException(400, {
 				message: "That email address is already in use",
