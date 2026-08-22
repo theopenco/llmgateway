@@ -160,12 +160,19 @@ export function parseGoogleUpstreamDocumentError(
 	if (typeof message !== "string") {
 		return null;
 	}
-	const match = message.match(/^Unsupported MIME type:\s*(.+?)\.?\s*$/i);
-	if (!match) {
+	const prefix = "unsupported mime type:";
+	if (message.slice(0, prefix.length).toLowerCase() !== prefix) {
+		return null;
+	}
+	let mimeType = message.slice(prefix.length).trim();
+	if (mimeType.endsWith(".")) {
+		mimeType = mimeType.slice(0, -1).trimEnd();
+	}
+	if (!mimeType || mimeType.includes("\n") || mimeType.includes("\r")) {
 		return null;
 	}
 	return new UnsupportedDocumentFormatError(
-		match[1].trim(),
+		mimeType,
 		resolveGoogleProviderTarget(providerId),
 	);
 }
