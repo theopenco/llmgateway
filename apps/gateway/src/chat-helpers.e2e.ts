@@ -971,8 +971,8 @@ export const thinkingDisabledForcedToolChoiceModels = testModels.filter((m) =>
 	m.providers.some(
 		(p: ProviderModelMapping) =>
 			p.reasoningEfforts?.includes("none") &&
-			p.supportedToolChoicesWithThinkingDisabled?.some(
-				(mode) => mode === "required" || mode === "function",
+			(["required", "function"] as const).every((mode) =>
+				p.supportedToolChoicesWithThinkingDisabled?.includes(mode),
 			),
 	),
 );
