@@ -71,11 +71,14 @@ function isGlobalAllowed(max: number, windowMs: number): boolean {
 	return true;
 }
 
+// Mirrors the header precedence of the API's `getClientIp` — X-Forwarded-For
+// first, since that is what the load balancer in front of us sets. The docs
+// app cannot import from apps/api, hence the local copy.
 function extractClientIP(req: Request): string {
 	return (
-		req.headers.get("cf-connecting-ip") ??
 		req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
 		req.headers.get("x-real-ip") ??
+		req.headers.get("x-client-ip") ??
 		"unknown"
 	);
 }

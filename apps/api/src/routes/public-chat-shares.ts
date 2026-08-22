@@ -1,9 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 
-import {
-	consumeRateLimit,
-	extractClientIP,
-} from "@/utils/public-rate-limit.js";
+import { getClientIpFromContext } from "@/lib/client-ip.js";
+import { consumeRateLimit } from "@/utils/public-rate-limit.js";
 
 import { db, tables, eq, isNull, and, desc } from "@llmgateway/db";
 
@@ -14,8 +12,8 @@ const publicChatShares = new OpenAPIHono<ServerTypes>();
 // Both endpoints are public and unauthenticated, and every call joins
 // chatShare to chat in Postgres — without a limit a single address can turn
 // them into a database load generator. Limits are per IP; the Lounge share
-// pages render server-side and forward the visitor's address so real traffic
-// is bucketed per visitor rather than behind one server IP.
+// pages render server-side and forward the visitor's X-Forwarded-For so real
+// traffic is bucketed per visitor rather than behind one server IP.
 const RATE_LIMIT_BURST_WINDOW_SECONDS = 20;
 const RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
 // A single share page view costs three calls (metadata, page, OG image), so
@@ -43,7 +41,7 @@ async function withinRateLimit(
 	burstMax: number,
 	hourlyMax: number,
 ): Promise<boolean> {
-	const identifier = `ip:${extractClientIP(c) ?? "unknown"}`;
+	const identifier = `ip:${getClientIpFromContext(c) ?? "unknown"}`;
 	const burstOk = await consumeRateLimit(
 		`chat_share_rate_limit:${bucket}_burst:${identifier}`,
 		burstMax,

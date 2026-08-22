@@ -11,6 +11,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 
 import { redisClient } from "@/auth/config.js";
+import { getClientIpFromContext } from "@/lib/client-ip.js";
 import {
 	fetchKnowledgePage,
 	getKnowledgeOverviews,
@@ -18,10 +19,7 @@ import {
 } from "@/utils/chat-support-knowledge.js";
 import { notifyChatSupportEscalation } from "@/utils/discord.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
-import {
-	consumeRateLimit,
-	extractClientIP,
-} from "@/utils/public-rate-limit.js";
+import { consumeRateLimit } from "@/utils/public-rate-limit.js";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { and, db, desc, eq, isNull, tables } from "@llmgateway/db";
@@ -422,7 +420,7 @@ const chatSupportRequestSchema = z.object({
 export const publicChatSupport = new Hono<ServerTypes>();
 
 publicChatSupport.post("/", async (c) => {
-	const ipAddress = extractClientIP(c) ?? "unknown";
+	const ipAddress = getClientIpFromContext(c) ?? "unknown";
 
 	const parsed = chatSupportRequestSchema.safeParse(
 		await c.req.json().catch(() => null),
@@ -600,7 +598,7 @@ publicChatSupport.post("/", async (c) => {
 // can restore history across reloads and surface admin replies. Archived
 // conversations resolve to an empty result — they are hidden from the visitor.
 publicChatSupport.get("/conversation", async (c) => {
-	if (!(await checkMetaRateLimit(extractClientIP(c) ?? "unknown"))) {
+	if (!(await checkMetaRateLimit(getClientIpFromContext(c) ?? "unknown"))) {
 		return c.json({ error: "Too many requests. Please try again later." }, 429);
 	}
 
@@ -667,7 +665,7 @@ publicChatSupport.get("/conversation", async (c) => {
 
 // Records a thumbs up/down on a specific assistant message.
 publicChatSupport.post("/reaction", async (c) => {
-	if (!(await checkMetaRateLimit(extractClientIP(c) ?? "unknown"))) {
+	if (!(await checkMetaRateLimit(getClientIpFromContext(c) ?? "unknown"))) {
 		return c.json({ error: "Too many requests. Please try again later." }, 429);
 	}
 
@@ -715,7 +713,7 @@ publicChatSupport.post("/reaction", async (c) => {
 
 // Lets the visitor resolve their conversation and rate it from 0 to 5 stars.
 publicChatSupport.post("/resolve", async (c) => {
-	if (!(await checkMetaRateLimit(extractClientIP(c) ?? "unknown"))) {
+	if (!(await checkMetaRateLimit(getClientIpFromContext(c) ?? "unknown"))) {
 		return c.json({ error: "Too many requests. Please try again later." }, 429);
 	}
 
@@ -752,7 +750,7 @@ publicChatSupport.post("/resolve", async (c) => {
 });
 
 publicChatSupport.post("/escalate", async (c) => {
-	const ipAddress = extractClientIP(c) ?? "unknown";
+	const ipAddress = getClientIpFromContext(c) ?? "unknown";
 	// Throttle escalation on its own buckets — never the message buckets — so a
 	// visitor who has used up their hourly message quota can still reach a human.
 	const hourOk = await checkRateLimit(

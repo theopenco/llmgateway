@@ -16,13 +16,13 @@ export async function POST(req: Request) {
 		headers["user-agent"] = userAgent;
 	}
 
-	// Only forward `cf-connecting-ip`: Cloudflare overwrites any client-supplied
-	// value, so it's the one IP header we can trust. Never pass through
-	// `x-forwarded-for` or `x-real-ip` — clients can set those via fetch and
-	// poison the backend's IP-based rate limiter.
-	const cfConnectingIp = req.headers.get("cf-connecting-ip");
-	if (cfConnectingIp) {
-		headers["cf-connecting-ip"] = cfConnectingIp;
+	// Forward the visitor's `x-forwarded-for` — the header the load balancer in
+	// front of us sets and the one the backend reads back. Without it every
+	// visitor reaches the backend from this server's address and shares a
+	// single per-IP rate-limit bucket.
+	const forwardedFor = req.headers.get("x-forwarded-for");
+	if (forwardedFor) {
+		headers["x-forwarded-for"] = forwardedFor;
 	}
 
 	const upstream = await fetch(target, {

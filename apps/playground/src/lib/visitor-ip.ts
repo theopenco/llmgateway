@@ -6,11 +6,11 @@ import { headers } from "next/headers";
  * every visitor of a server-rendered page shares one bucket, and a single
  * scraper locks everyone out.
  *
- * Only `cf-connecting-ip` is forwarded: Cloudflare overwrites any
- * client-supplied value, so it is the one IP header a visitor cannot poison.
- * Never forward `x-forwarded-for` or `x-real-ip`.
+ * `x-forwarded-for` is what the load balancer in front of us sets and what the
+ * API reads back (`getClientIpFromContext`), so the visitor's chain is passed
+ * through unchanged.
  */
 export async function visitorIpHeaders(): Promise<Record<string, string>> {
-	const visitorIp = (await headers()).get("cf-connecting-ip");
-	return visitorIp ? { "cf-connecting-ip": visitorIp } : {};
+	const forwardedFor = (await headers()).get("x-forwarded-for");
+	return forwardedFor ? { "x-forwarded-for": forwardedFor } : {};
 }

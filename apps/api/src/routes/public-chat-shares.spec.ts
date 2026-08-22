@@ -33,13 +33,13 @@ async function seedLimit(
 
 async function getShare(ip: string): Promise<Response> {
 	return await app.request(`/public/chats/share/${uniqueId("share")}`, {
-		headers: { "CF-Connecting-IP": ip },
+		headers: { "X-Forwarded-For": ip },
 	});
 }
 
 async function listShares(ip: string): Promise<Response> {
 	return await app.request("/public/chats/share?limit=1", {
-		headers: { "CF-Connecting-IP": ip },
+		headers: { "X-Forwarded-For": ip },
 	});
 }
 
