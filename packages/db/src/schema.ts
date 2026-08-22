@@ -2096,13 +2096,6 @@ export const log = pgTable(
 			strippedParameters?: string[];
 		}>(),
 		processedAt: timestamp(),
-		// Set when batch credit processing gave up on this row because it
-		// deterministically failed (unreadable shape, or an update that keeps
-		// erroring). processedAt is stamped at the same time so the row leaves
-		// every `processed_at IS NULL` queue — including the unsettled-spend gate
-		// — instead of blocking them forever; this column is the record that its
-		// cost was never billed. Query it to find rows that need manual attention.
-		processingError: text(),
 		rawRequest: jsonb(),
 		rawResponse: jsonb(),
 		upstreamRequest: jsonb(),

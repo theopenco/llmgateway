@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeEach, describe, expect, test } from "vitest";
 
 import {
-	and,
 	eq,
 	isNull,
 	sql,
@@ -1159,15 +1158,17 @@ describe("Log Processing", () => {
 			return entry;
 		};
 
-		/** Runs the queue until it is empty, with a hard cap so a stall fails. */
+		/**
+		 * Runs the queue until it is empty, with a hard cap so a stall fails the
+		 * test rather than hanging. beforeEach clears stray unprocessed rows, so
+		 * checking globally is safe and covers logs from any organization.
+		 */
 		const drainQueue = async (maxPasses = 15) => {
 			for (let pass = 0; pass < maxPasses; pass++) {
 				const [remaining] = await db
 					.select({ id: log.id })
 					.from(log)
-					.where(
-						and(eq(log.organizationId, testOrg.id), isNull(log.processedAt)),
-					)
+					.where(isNull(log.processedAt))
 					.limit(1);
 				if (!remaining) {
 					return pass;
@@ -1189,7 +1190,6 @@ describe("Log Processing", () => {
 				where: { id: { eq: entry.id } },
 			});
 			expect(processed!.processedAt).toBeTruthy();
-			expect(processed!.processingError).toBeNull();
 
 			const org = await db.query.organization.findFirst({
 				where: { id: { eq: testOrg.id } },
@@ -1209,7 +1209,6 @@ describe("Log Processing", () => {
 				where: { id: { eq: entry.id } },
 			});
 			expect(processed!.processedAt).toBeTruthy();
-			expect(processed!.processingError).toBeNull();
 
 			// NaN is read as "no cost recorded", so the balance stays intact
 			// instead of being poisoned.
@@ -1234,13 +1233,11 @@ describe("Log Processing", () => {
 				where: { id: { eq: poison.id } },
 			});
 			expect(quarantined!.processedAt).toBeTruthy();
-			expect(quarantined!.processingError).toBeTruthy();
 
 			const processed = await db.query.log.findFirst({
 				where: { id: { eq: healthy.id } },
 			});
 			expect(processed!.processedAt).toBeTruthy();
-			expect(processed!.processingError).toBeNull();
 
 			// Only the healthy log was billed.
 			const org = await db.query.organization.findFirst({
@@ -1250,12 +1247,25 @@ describe("Log Processing", () => {
 		});
 
 		test("quarantines a row whose update keeps failing", async () => {
+			// The poison row bills its own organization, so a trigger on that one
+			// org row raises for every batch containing it — at any batch size —
+			// the way a genuine deterministic SQL fault would, while leaving the
+			// healthy rows' own updates alone.
+			const poisonOrgId = "poison-guard-org";
+			await db.delete(organization).where(eq(organization.id, poisonOrgId));
+			await db.insert(organization).values({
+				id: poisonOrgId,
+				name: "Poison Org",
+				billingEmail: "poison@example.com",
+				credits: "50.00",
+			});
+
 			const older = await insertLog({
 				cost: 0.01,
 				createdAt: new Date(Date.now() - 3000),
 			});
 			const poison = await insertLog({
-				requestId: "poison-guard-marker",
+				organizationId: poisonOrgId,
 				cost: 0.05,
 				createdAt: new Date(Date.now() - 2000),
 			});
@@ -1264,13 +1274,10 @@ describe("Log Processing", () => {
 				createdAt: new Date(Date.now() - 1000),
 			});
 
-			// Make the poison row raise inside the transaction, the way a genuine
-			// deterministic SQL fault would. The quarantine write (which sets
-			// processing_error) is allowed through so the row can be retired.
 			await db.execute(sql`
-				create or replace function poison_log_guard() returns trigger as $$
+				create or replace function poison_org_guard() returns trigger as $$
 				begin
-					if new.request_id = 'poison-guard-marker' and new.processing_error is null then
+					if new.id = 'poison-guard-org' then
 						raise exception 'poison row';
 					end if;
 					return new;
@@ -1278,32 +1285,46 @@ describe("Log Processing", () => {
 				$$ language plpgsql
 			`);
 			await db.execute(
-				sql`create trigger poison_log_guard before update on "log" for each row execute function poison_log_guard()`,
+				sql`create trigger poison_org_guard before update on "organization" for each row execute function poison_org_guard()`,
 			);
+
+			let poisonProcessedAt: Date | null = null;
+			let poisonOrgCredits: string | null = null;
 
 			try {
 				await drainQueue();
+
+				// Read before the cleanup below removes both rows.
+				poisonProcessedAt =
+					(await db.query.log.findFirst({ where: { id: { eq: poison.id } } }))
+						?.processedAt ?? null;
+				poisonOrgCredits =
+					(
+						await db.query.organization.findFirst({
+							where: { id: { eq: poisonOrgId } },
+						})
+					)?.credits ?? null;
 			} finally {
-				await db.execute(sql`drop trigger if exists poison_log_guard on "log"`);
-				await db.execute(sql`drop function if exists poison_log_guard()`);
+				await db.execute(
+					sql`drop trigger if exists poison_org_guard on "organization"`,
+				);
+				await db.execute(sql`drop function if exists poison_org_guard()`);
+				await db.delete(log).where(eq(log.organizationId, poisonOrgId));
+				await db.delete(organization).where(eq(organization.id, poisonOrgId));
 			}
 
-			const quarantined = await db.query.log.findFirst({
-				where: { id: { eq: poison.id } },
-			});
-			expect(quarantined!.processedAt).toBeTruthy();
-			expect(quarantined!.processingError).toContain("poison row");
+			// Retired without ever being billed.
+			expect(poisonProcessedAt).toBeTruthy();
+			expect(Number(poisonOrgCredits)).toBeCloseTo(50, 8);
 
 			for (const entry of [older, newer]) {
 				const processed = await db.query.log.findFirst({
 					where: { id: { eq: entry.id } },
 				});
 				expect(processed!.processedAt).toBeTruthy();
-				expect(processed!.processingError).toBeNull();
 			}
 
-			// The healthy logs on both sides of the poison row were still billed;
-			// only the quarantined one was skipped.
+			// The healthy logs on both sides of the poison row were still billed.
 			const org = await db.query.organization.findFirst({
 				where: { id: { eq: testOrg.id } },
 			});

@@ -142,7 +142,6 @@ const CREDIT_BATCH_SIZE = Number(process.env.CREDIT_BATCH_SIZE) || 100;
 // row its billing, while bounding how long one poison row can stall billing.
 const POISON_LOG_MAX_ATTEMPTS =
 	Number(process.env.CREDIT_POISON_LOG_MAX_ATTEMPTS) || 3;
-const PROCESSING_ERROR_MAX_LENGTH = 2000;
 const BATCH_PROCESSING_INTERVAL_SECONDS =
 	Number(process.env.CREDIT_BATCH_INTERVAL) || 5;
 const VIDEO_JOB_POLL_INTERVAL_SECONDS =
@@ -1050,8 +1049,8 @@ interface CreditBatchResult {
 	processed: number;
 	/** True when the transaction rolled back; the same rows are still queued. */
 	failed: boolean;
-	/** Ids the batch had selected, kept across the rollback for narrowing. */
-	selectedLogIds: string[];
+	/** Rows the batch had selected, kept across the rollback for narrowing. */
+	selectedLogs: Array<{ id: string; organizationId: string }>;
 	error?: Error;
 }
 
@@ -1064,7 +1063,7 @@ async function runCreditBatch(batchSize: number): Promise<CreditBatchResult> {
 	let processedCount = 0;
 	// Captured inside the transaction and deliberately read after a rollback:
 	// this is what tells the caller which rows the failing batch covered.
-	const selectedLogIds: string[] = [];
+	const selectedLogs: CreditBatchResult["selectedLogs"] = [];
 	const deductedOrgIds: string[] = [];
 	// Provider keys (BYOK or managed) whose accumulated usage crossed their
 	// spend limit this batch — deactivated after the transaction commits.
@@ -1134,7 +1133,10 @@ async function runCreditBatch(batchSize: number): Promise<CreditBatchResult> {
 			const unprocessedLogs = { rows };
 
 			for (const row of rows) {
-				selectedLogIds.push(row.id);
+				selectedLogs.push({
+					id: row.id,
+					organizationId: row.organization_id,
+				});
 			}
 
 			if (unprocessedLogs.rows.length === 0) {
@@ -1172,10 +1174,11 @@ async function runCreditBatch(batchSize: number): Promise<CreditBatchResult> {
 			// spends at the provider — not billingCost, which carries plan/margin
 			// adjustments on what the org pays us.
 			const providerKeyCosts = new Map<string, Decimal>();
-			// Rows we could not even read. They are stamped processed with a
-			// reason instead of throwing, because a single unreadable row would
-			// otherwise roll back every batch it lands in — forever.
-			const unreadableLogs = new Map<string, string>();
+			// Rows we could not even read. They are stamped processed instead of
+			// throwing, because a single unreadable row would otherwise roll back
+			// every batch it lands in — forever. The reason goes to the infra logs
+			// only, never to a column on this table.
+			const unreadableLogIds: string[] = [];
 
 			// Accepts both the current and the pre-move Lounge host: logs written
 			// before the domain move are still queued here, and rewriting them is
@@ -1185,11 +1188,17 @@ async function runCreditBatch(batchSize: number): Promise<CreditBatchResult> {
 			for (const raw of unprocessedLogs.rows) {
 				const parsed = schema.safeParse(raw);
 				if (!parsed.success) {
-					unreadableLogs.set(raw.id, parsed.error.message);
+					unreadableLogIds.push(raw.id);
 					logger.error(
 						`Quarantining unreadable log ${raw.id}: its cost will not be billed`,
 						parsed.error,
-						{ kind: "log-quarantine", logId: raw.id, reason: "unparseable" },
+						{
+							kind: "log-quarantine",
+							logId: raw.id,
+							organizationId: raw.organization_id,
+							cause: "unparseable",
+							reason: parsed.error.message,
+						},
 					);
 					continue;
 				}
@@ -1825,28 +1834,29 @@ async function runCreditBatch(batchSize: number): Promise<CreditBatchResult> {
 
 			logger.debug(`Marked ${logIds.length} logs as processed`);
 
-			// Retire unreadable rows in the same transaction. processedAt is set
-			// alongside the reason so they drop out of every `processed_at IS NULL`
-			// consumer (the batch queue itself, the unsettled-spend gate) rather
-			// than blocking them indefinitely. Alert on `kind: "log-quarantine"`:
-			// more than the occasional row means the schema here has drifted from
-			// what the gateway writes, and those rows need re-queueing by hand
-			// (`processed_at = NULL, processing_error = NULL`).
-			if (unreadableLogs.size > 0) {
+			// Retire unreadable rows in the same transaction so they drop out of
+			// every `processed_at IS NULL` consumer (the batch queue itself, the
+			// unsettled-spend gate) rather than blocking them indefinitely. Alert
+			// on `kind: "log-quarantine"`: more than the occasional row means this
+			// schema has drifted from what the gateway writes, and the ids in
+			// those log lines are what a re-queue would run against.
+			if (unreadableLogIds.length > 0) {
 				logger.error(
-					`Quarantined ${unreadableLogs.size} of ${unprocessedLogs.rows.length} logs in this batch`,
-					{ kind: "log-quarantine-batch", count: unreadableLogs.size },
+					`Quarantined ${unreadableLogIds.length} of ${unprocessedLogs.rows.length} logs in this batch`,
+					{
+						kind: "log-quarantine-batch",
+						cause: "unparseable",
+						count: unreadableLogIds.length,
+						logIds: unreadableLogIds,
+					},
 				);
-			}
 
-			for (const [logId, reason] of unreadableLogs.entries()) {
 				await tx
 					.update(log)
 					.set({
 						processedAt: new Date(),
-						processingError: truncateProcessingError(reason),
 					})
-					.where(eq(log.id, logId));
+					.where(sql`${log.id} = ANY(${sql.param(unreadableLogIds)}::text[])`);
 			}
 
 			return unprocessedLogs.rows.length;
@@ -1855,7 +1865,7 @@ async function runCreditBatch(batchSize: number): Promise<CreditBatchResult> {
 		return {
 			processed: 0,
 			failed: true,
-			selectedLogIds,
+			selectedLogs,
 			error: error instanceof Error ? error : new Error(String(error)),
 		};
 	}
@@ -1935,13 +1945,7 @@ async function runCreditBatch(batchSize: number): Promise<CreditBatchResult> {
 		);
 	}
 
-	return { processed: processedCount, failed: false, selectedLogIds };
-}
-
-function truncateProcessingError(reason: string): string {
-	return reason.length > PROCESSING_ERROR_MAX_LENGTH
-		? `${reason.slice(0, PROCESSING_ERROR_MAX_LENGTH - 1)}…`
-		: reason;
+	return { processed: processedCount, failed: false, selectedLogs };
 }
 
 /**
@@ -1964,25 +1968,33 @@ function describeError(error: Error): string {
 
 /**
  * Retires a log the batch could not process, so it stops blocking the queue.
- * Deliberately marks it processed as well: every other consumer keys off
- * `processed_at IS NULL`, and leaving it null would just move the stall.
+ * Marking it processed is the whole mechanism: every other consumer keys off
+ * `processed_at IS NULL`, and leaving it null would just move the stall. Why it
+ * was dropped lives in the infra logs — alert on `kind: "log-quarantine"`.
  */
-async function quarantineLog(logId: string, error?: Error): Promise<void> {
-	const reason = error ? describeError(error) : "unknown error";
-
+async function quarantineLog(
+	logId: string,
+	organizationId: string | undefined,
+	error?: Error,
+): Promise<void> {
 	try {
 		await db
 			.update(log)
 			.set({
 				processedAt: new Date(),
-				processingError: truncateProcessingError(reason),
 			})
 			.where(and(eq(log.id, logId), sql`${log.processedAt} IS NULL`));
 
 		logger.error(
 			`Quarantined log ${logId} after ${POISON_LOG_MAX_ATTEMPTS} failed credit-processing attempts: its cost will not be billed`,
 			error,
-			{ kind: "log-quarantine", logId, reason: "processing-failure" },
+			{
+				kind: "log-quarantine",
+				logId,
+				organizationId,
+				cause: "processing-failure",
+				reason: error ? describeError(error) : "unknown error",
+			},
 		);
 	} catch (updateError) {
 		// The database itself is unhealthy — nothing was quarantined, so the row
@@ -2023,11 +2035,11 @@ export async function batchProcessLogs(): Promise<number> {
 			}
 
 			logger.error(
-				`Error processing batch credit deductions (batch size ${batchSize}, ${result.selectedLogIds.length} logs selected)`,
+				`Error processing batch credit deductions (batch size ${batchSize}, ${result.selectedLogs.length} logs selected)`,
 				result.error,
 			);
 
-			if (result.selectedLogIds.length === 0) {
+			if (result.selectedLogs.length === 0) {
 				// The select itself failed, so the fault is not row-specific (the
 				// database is unreachable, a lock timed out, …). Narrowing cannot
 				// help; let the caller back off and try again.
@@ -2050,7 +2062,8 @@ export async function batchProcessLogs(): Promise<number> {
 				continue;
 			}
 
-			await quarantineLog(result.selectedLogIds[0], result.error);
+			const poisonLog = result.selectedLogs[0];
+			await quarantineLog(poisonLog.id, poisonLog.organizationId, result.error);
 			return 0;
 		}
 
