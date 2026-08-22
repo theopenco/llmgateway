@@ -42,6 +42,7 @@ function makeMapping(
 		reasoning: false,
 		reasoningOutput: null,
 		reasoningMaxTokens: false,
+		rerank: false,
 		tools: false,
 		jsonOutput: false,
 		jsonOutputSchema: false,

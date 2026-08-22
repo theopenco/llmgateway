@@ -261,6 +261,13 @@ function computeCapabilities(
 			color: "text-indigo-500",
 		});
 	}
+	if (model?.output?.includes("rerank")) {
+		capabilities.push({
+			icon: ListOrdered,
+			label: "Rerank",
+			color: "text-amber-500",
+		});
+	}
 	if (provider.webSearch) {
 		capabilities.push({
 			icon: Globe,
@@ -270,6 +277,25 @@ function computeCapabilities(
 	}
 	return capabilities;
 }
+
+// Maps capability filter toggle keys to the capability label they pin to the
+// front of the features column, so the icon the user is filtering by is always
+// visible.
+const CAPABILITY_LABEL_BY_FILTER_KEY: Record<string, string> = {
+	streaming: "Streaming",
+	vision: "Vision",
+	tools: "Tools",
+	reasoning: "Reasoning",
+	reasoningBudget: "Reasoning Budget",
+	jsonOutput: "JSON Output",
+	jsonOutputSchema: "Structured JSON",
+	imageGeneration: "Image Generation",
+	videoGeneration: "Video Generation",
+	audioGeneration: "Speech Generation",
+	embedding: "Embeddings",
+	rerank: "Rerank",
+	webSearch: "Web Search",
+};
 
 // Memoized table row component for performance
 const ModelTableRow = React.memo(
@@ -282,6 +308,7 @@ const ModelTableRow = React.memo(
 		onNavigate,
 		formatPrice,
 		modelHref,
+		pinnedCapabilityKeys,
 	}: {
 		row: FlattenedModelRow;
 		isExpanded: boolean;
@@ -294,6 +321,7 @@ const ModelTableRow = React.memo(
 			discount?: string | null,
 		) => React.ReactNode;
 		modelHref: (path: string) => string;
+		pinnedCapabilityKeys: string[];
 	}) => {
 		const { ProviderIcon } = row;
 		const isCustom = row.model.source === "custom";
@@ -625,15 +653,55 @@ const ModelTableRow = React.memo(
 
 					{/* Features Column */}
 					<TableCell className="text-center">
-						<div className="flex justify-center gap-1">
-							{row.capabilities
-								.slice(0, 4)
-								.map(({ icon: Icon, label, color }) => (
-									<div key={label} className="p-0.5" title={label}>
-										<Icon className={`h-4 w-4 ${color}`} />
-									</div>
-								))}
-						</div>
+						{(() => {
+							const pinnedLabels = pinnedCapabilityKeys
+								.map((key) => CAPABILITY_LABEL_BY_FILTER_KEY[key])
+								.filter((label): label is string => Boolean(label));
+							const ordered = [
+								...row.capabilities.filter((c) =>
+									pinnedLabels.includes(c.label),
+								),
+								...row.capabilities.filter(
+									(c) => !pinnedLabels.includes(c.label),
+								),
+							];
+							const visible = ordered.slice(0, 4);
+							const overflow = ordered.slice(4);
+							return (
+								<div className="flex justify-center gap-1">
+									{visible.map(({ icon: Icon, label, color }) => (
+										<div key={label} className="p-0.5" title={label}>
+											<Icon className={`h-4 w-4 ${color}`} />
+										</div>
+									))}
+									{overflow.length > 0 && (
+										<Tooltip>
+											<TooltipTrigger asChild>
+												<button
+													className="p-0.5 text-xs font-medium text-muted-foreground"
+													onClick={(e) => e.stopPropagation()}
+												>
+													+{overflow.length}
+												</button>
+											</TooltipTrigger>
+											<TooltipContent>
+												<div className="flex flex-col gap-1 text-xs">
+													{overflow.map(({ icon: Icon, label }) => (
+														<span
+															className="flex items-center gap-1.5"
+															key={label}
+														>
+															<Icon className="h-4 w-4 text-background" />
+															{label}
+														</span>
+													))}
+												</div>
+											</TooltipContent>
+										</Tooltip>
+									)}
+								</div>
+							);
+						})()}
 					</TableCell>
 				</TableRow>
 
@@ -2179,99 +2247,117 @@ export function AllModels({
 		</Card>
 	);
 
-	const renderTableView = () => (
-		<div className="rounded-md border">
-			<div className="relative w-full overflow-x-auto">
-				<Table>
-					<TableHeader className="top-0 z-10 bg-background/95 backdrop-blur">
-						<TableRow>
-							<TableHead className="w-[180px] bg-background/95 backdrop-blur-sm border-b">
-								<Button
-									variant="ghost"
-									onClick={() => handleSort("provider")}
-									className="h-auto p-0 font-semibold hover:bg-transparent justify-start uppercase text-xs tracking-wider"
-								>
-									Provider
-									{getSortIcon("provider")}
-								</Button>
-							</TableHead>
-							<TableHead className="w-[280px] bg-background/95 backdrop-blur-sm border-b">
-								<Button
-									variant="ghost"
-									onClick={() => handleSort("name")}
-									className="h-auto p-0 font-semibold hover:bg-transparent justify-start uppercase text-xs tracking-wider"
-								>
-									Model ID
-									{getSortIcon("name")}
-								</Button>
-							</TableHead>
-							<TableHead className="text-right bg-background/95 backdrop-blur-sm border-b">
-								<Button
-									variant="ghost"
-									onClick={() => handleSort("inputPrice")}
-									className="h-auto p-0 font-semibold hover:bg-transparent uppercase text-xs tracking-wider"
-								>
-									Input $/M
-									{getSortIcon("inputPrice")}
-								</Button>
-							</TableHead>
-							<TableHead className="text-right bg-background/95 backdrop-blur-sm border-b">
-								<Button
-									variant="ghost"
-									onClick={() => handleSort("outputPrice")}
-									className="h-auto p-0 font-semibold hover:bg-transparent uppercase text-xs tracking-wider"
-								>
-									Output $/M
-									{getSortIcon("outputPrice")}
-								</Button>
-							</TableHead>
-							<TableHead className="text-right bg-background/95 backdrop-blur-sm border-b">
-								<Button
-									variant="ghost"
-									onClick={() => handleSort("cachedInputPrice")}
-									className="h-auto p-0 font-semibold hover:bg-transparent uppercase text-xs tracking-wider"
-								>
-									Cache Read $/M
-									{getSortIcon("cachedInputPrice")}
-								</Button>
-							</TableHead>
-							<TableHead className="text-center bg-background/95 backdrop-blur-sm border-b uppercase text-xs tracking-wider font-semibold">
-								Features
-							</TableHead>
-						</TableRow>
-					</TableHeader>
-					<TableBody>
-						{paginatedFlattenedRows.map((row) => (
-							<ModelTableRow
-								key={row.rowKey}
-								row={row}
-								isExpanded={expandedRows.has(row.rowKey)}
-								copiedModel={copiedModel}
-								onToggleExpand={() => toggleRowExpanded(row.rowKey)}
-								onCopy={copyToClipboard}
-								onNavigate={() => {
-									// Custom models have no public model page to navigate to.
-									if (row.model.source === "custom") {
-										return;
-									}
-									const url = modelHref(
-										`/models/${encodeURIComponent(row.model.id)}/${row.provider.providerId}`,
-									);
-									if (modelHrefBase) {
-										window.open(url, "_blank");
-									} else {
-										router.push(url);
-									}
-								}}
-								formatPrice={formatPrice}
-								modelHref={modelHref}
-							/>
-						))}
-					</TableBody>
-				</Table>
-			</div>
-		</div>
+	// Capability filter keys that are active, used to pin the matching icon to
+	// the front of the features column in the table view.
+	const pinnedCapabilityKeys = useMemo(
+		() =>
+			(
+				Object.entries(filters.capabilities) as Array<
+					[keyof typeof filters.capabilities, boolean]
+				>
+			)
+				.filter(([, pressed]) => pressed)
+				.map(([key]) => key)
+				.filter((key) => CAPABILITY_LABEL_BY_FILTER_KEY[key]),
+		[filters.capabilities],
 	);
+
+	const renderTableView = () => {
+		return (
+			<div className="rounded-md border">
+				<div className="relative w-full overflow-x-auto">
+					<Table>
+						<TableHeader className="top-0 z-10 bg-background/95 backdrop-blur">
+							<TableRow>
+								<TableHead className="w-[180px] bg-background/95 backdrop-blur-sm border-b">
+									<Button
+										variant="ghost"
+										onClick={() => handleSort("provider")}
+										className="h-auto p-0 font-semibold hover:bg-transparent justify-start uppercase text-xs tracking-wider"
+									>
+										Provider
+										{getSortIcon("provider")}
+									</Button>
+								</TableHead>
+								<TableHead className="w-[280px] bg-background/95 backdrop-blur-sm border-b">
+									<Button
+										variant="ghost"
+										onClick={() => handleSort("name")}
+										className="h-auto p-0 font-semibold hover:bg-transparent justify-start uppercase text-xs tracking-wider"
+									>
+										Model ID
+										{getSortIcon("name")}
+									</Button>
+								</TableHead>
+								<TableHead className="text-right bg-background/95 backdrop-blur-sm border-b">
+									<Button
+										variant="ghost"
+										onClick={() => handleSort("inputPrice")}
+										className="h-auto p-0 font-semibold hover:bg-transparent uppercase text-xs tracking-wider"
+									>
+										Input $/M
+										{getSortIcon("inputPrice")}
+									</Button>
+								</TableHead>
+								<TableHead className="text-right bg-background/95 backdrop-blur-sm border-b">
+									<Button
+										variant="ghost"
+										onClick={() => handleSort("outputPrice")}
+										className="h-auto p-0 font-semibold hover:bg-transparent uppercase text-xs tracking-wider"
+									>
+										Output $/M
+										{getSortIcon("outputPrice")}
+									</Button>
+								</TableHead>
+								<TableHead className="text-right bg-background/95 backdrop-blur-sm border-b">
+									<Button
+										variant="ghost"
+										onClick={() => handleSort("cachedInputPrice")}
+										className="h-auto p-0 font-semibold hover:bg-transparent uppercase text-xs tracking-wider"
+									>
+										Cache Read $/M
+										{getSortIcon("cachedInputPrice")}
+									</Button>
+								</TableHead>
+								<TableHead className="text-center bg-background/95 backdrop-blur-sm border-b uppercase text-xs tracking-wider font-semibold">
+									Features
+								</TableHead>
+							</TableRow>
+						</TableHeader>
+						<TableBody>
+							{paginatedFlattenedRows.map((row) => (
+								<ModelTableRow
+									key={row.rowKey}
+									row={row}
+									isExpanded={expandedRows.has(row.rowKey)}
+									copiedModel={copiedModel}
+									onToggleExpand={() => toggleRowExpanded(row.rowKey)}
+									onCopy={copyToClipboard}
+									onNavigate={() => {
+										// Custom models have no public model page to navigate to.
+										if (row.model.source === "custom") {
+											return;
+										}
+										const url = modelHref(
+											`/models/${encodeURIComponent(row.model.id)}/${row.provider.providerId}`,
+										);
+										if (modelHrefBase) {
+											window.open(url, "_blank");
+										} else {
+											router.push(url);
+										}
+									}}
+									formatPrice={formatPrice}
+									modelHref={modelHref}
+									pinnedCapabilityKeys={pinnedCapabilityKeys}
+								/>
+							))}
+						</TableBody>
+					</Table>
+				</div>
+			</div>
+		);
+	};
 
 	const renderGridView = () => (
 		<div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">

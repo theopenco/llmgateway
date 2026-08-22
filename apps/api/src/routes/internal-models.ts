@@ -93,6 +93,8 @@ const modelProviderMappingSchema = z.object({
 		.array(z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"]))
 		.nullable(),
 	reasoningOutput: z.string().nullable(),
+	reasoningMaxTokens: z.boolean().nullable(),
+	rerank: z.boolean().nullable(),
 	tools: z.boolean().nullable(),
 	jsonOutput: z.boolean().nullable(),
 	jsonOutputSchema: z.boolean().nullable(),
@@ -256,6 +258,8 @@ internalModels.openapi(getModelsRoute, async (c) => {
 				discount: getGlobalDiscount(mapping.providerId, model.id),
 				quantization: sharedMapping?.quantization ?? null,
 				reasoningEfforts: sharedMapping?.reasoningEfforts ?? null,
+				reasoningMaxTokens: sharedMapping?.reasoningMaxTokens ?? null,
+				rerank: sharedMapping?.rerank ?? null,
 				audio: sharedMapping?.audio ?? null,
 				document: sharedMapping?.document ?? null,
 				realtime: sharedMapping?.realtime ?? null,
