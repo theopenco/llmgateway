@@ -6414,6 +6414,7 @@ chat.openapi(completions, async (c) => {
 						audioInputTokens,
 						explicitCacheUsed,
 						customPricing: customPricingMapping,
+						streamed: true,
 					},
 				);
 
@@ -6437,6 +6438,10 @@ chat.openapi(completions, async (c) => {
 								costs.promptTokens ?? promptTokens,
 								completionTokens,
 								reasoningTokens,
+								{
+									model: usedInternalModel,
+									streamed: true,
+								},
 							).toString()
 						: (totalTokens?.toString() ?? null),
 					reasoningTokens: reasoningTokens?.toString() ?? null,
@@ -9796,6 +9801,10 @@ chat.openapi(completions, async (c) => {
 										finalPromptTokens,
 										finalCompletionTokens,
 										reasoningTokens,
+										{
+											model: usedInternalModel,
+											streamed: true,
+										},
 									);
 								}
 
@@ -9837,6 +9846,7 @@ chat.openapi(completions, async (c) => {
 											explicitCacheUsed,
 											servedServiceTier,
 											customPricing: customPricingMapping,
+											streamed: true,
 										},
 									);
 									streamingCosts.dataStorageCost = toDataStorageCostNumber(
@@ -9867,16 +9877,7 @@ chat.openapi(completions, async (c) => {
 											streamingCosts.completionTokens ??
 											finalCompletionTokens ??
 											0,
-										total_tokens: Math.max(
-											1,
-											sumTotalTokens(
-												usedProvider,
-												streamingCosts.promptTokens ?? finalPromptTokens,
-												streamingCosts.completionTokens ??
-													finalCompletionTokens,
-												reasoningTokens,
-											),
-										),
+										total_tokens: Math.max(1, finalTotalTokens ?? 0),
 										...(calculatedReasoningTokens !== null &&
 											calculatedReasoningTokens > 0 && {
 												reasoning_tokens: calculatedReasoningTokens,
@@ -10235,7 +10236,6 @@ chat.openapi(completions, async (c) => {
 									serverToolUseIndices,
 									supportsReasoning,
 									toolSearchState,
-									fullContent,
 								);
 
 								// Skip null events (some providers have non-data events)
@@ -11384,6 +11384,7 @@ chat.openapi(completions, async (c) => {
 											explicitCacheUsed,
 											servedServiceTier,
 											customPricing: customPricingMapping,
+											streamed: true,
 										},
 										finishReason === "content_filter",
 									);
@@ -11727,6 +11728,7 @@ chat.openapi(completions, async (c) => {
 										explicitCacheUsed,
 										servedServiceTier,
 										customPricing: customPricingMapping,
+										streamed: true,
 										// A stream that died never delivered a usage frame, so
 										// there is nothing to estimate from but the partial text
 										// and tool-call JSON that happened to arrive. Don't guess.

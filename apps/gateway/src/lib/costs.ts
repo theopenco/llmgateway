@@ -238,24 +238,16 @@ function getPricingForTokenCount(
  * resolve-reasoning-tokens derives from that text must not be added on top.
  *
  * Adding reasoning on top for a provider on this list would roughly double the
- * billed output — and the reported `total_tokens` — on reasoning requests.
+ * billed output on reasoning requests.
  *
  * xAI is the notable exception and must stay off this list: `grok-4` reports
  * `completion_tokens: 1` alongside `reasoning_tokens: 118` and
  * `total_tokens: 324` for a one-token answer, i.e. its completion count
  * genuinely excludes reasoning and its own total adds it back.
  *
- * Note that only a *top-level* `usage.reasoning_tokens` reaches the cost path
- * for OpenAI-format providers (extract-token-usage reads the raw upstream
- * chunk, not the normalized one), so most of these providers are latent rather
- * than actively mis-billed today.
- *
- * Canopywave is inclusive when non-streaming, but its streaming shape varies
- * BY MODEL — some models stream reasoning-exclusive counts, others inclusive
- * ones. extract-token-usage (streaming-only) detects the shape per payload
- * (canopywaveCompletionIncludesReasoning) and folds the reasoning back into
- * the completion count only when excluded, so by the time counts reach this
- * flag both modes are inclusive.
+ * Canopywave is inclusive except for its deepseek-v4-pro streaming endpoint,
+ * which reports reasoning separately. That stable model/transport exception
+ * is handled below without changing the provider-reported usage fields.
  */
 const COMPLETION_INCLUDES_REASONING = new Set([
 	"alibaba",
@@ -290,7 +282,22 @@ const COMPLETION_INCLUDES_REASONING = new Set([
 	"zai",
 ]);
 
-export function completionIncludesReasoning(provider: string): boolean {
+interface CompletionUsageContext {
+	model?: string;
+	streamed?: boolean;
+}
+
+export function completionIncludesReasoning(
+	provider: string,
+	context?: CompletionUsageContext,
+): boolean {
+	if (
+		provider === "canopywave" &&
+		context?.streamed &&
+		context.model === "deepseek-v4-pro"
+	) {
+		return false;
+	}
 	return COMPLETION_INCLUDES_REASONING.has(provider);
 }
 
@@ -305,11 +312,14 @@ export function sumTotalTokens(
 	promptTokens: number | null | undefined,
 	completionTokens: number | null | undefined,
 	reasoningTokens: number | null | undefined,
+	context?: CompletionUsageContext,
 ): number {
 	return (
 		(promptTokens ?? 0) +
 		(completionTokens ?? 0) +
-		(completionIncludesReasoning(provider) ? 0 : (reasoningTokens ?? 0))
+		(completionIncludesReasoning(provider, context)
+			? 0
+			: (reasoningTokens ?? 0))
 	);
 }
 
@@ -394,6 +404,8 @@ export async function calculateCosts(
 		 * up charged for 1.17M of them.
 		 */
 		allowOutputEstimate?: boolean;
+		/** Whether these counts came from a streaming response. */
+		streamed?: boolean;
 	},
 	contentFilterTriggered = false,
 ) {
@@ -833,7 +845,10 @@ export async function calculateCosts(
 		.plus(imageInputCost ?? 0)
 		.plus(audioInputCost ?? 0);
 
-	const totalOutputTokens = completionIncludesReasoning(provider)
+	const totalOutputTokens = completionIncludesReasoning(provider, {
+		model,
+		streamed: options?.streamed,
+	})
 		? calculatedCompletionTokens
 		: calculatedCompletionTokens + (reasoningTokens ?? 0);
 

@@ -730,10 +730,7 @@ describe("transformStreamingToOpenai", () => {
 		expect(error).not.toHaveBeenCalled();
 	});
 
-	it("folds canopywave streamed reasoning into completion and total tokens", () => {
-		// Exclusive-shape canopywave stream (deepseek-v4-pro probe): reasoning
-		// is outside completion_tokens and total_tokens. Forwarded chunks must
-		// carry the inclusive shape so they match the final usage chunk.
+	it("preserves canopywave usage that reports reasoning separately", () => {
 		const result = transformStreamingToOpenai(
 			"canopywave",
 			"deepseek-v4-pro",
@@ -750,24 +747,17 @@ describe("transformStreamingToOpenai", () => {
 				},
 			},
 			[],
-			undefined,
-			true,
-			undefined,
-			"9",
 		);
 
 		expect(result.usage).toMatchObject({
 			prompt_tokens: 40,
-			completion_tokens: 123,
-			total_tokens: 163,
+			completion_tokens: 1,
+			total_tokens: 41,
 			reasoning_tokens: 122,
 		});
 	});
 
-	it("does not fold canopywave usage that already includes reasoning", () => {
-		// Inclusive-shape canopywave stream (deepseek-v4-flash probe):
-		// completion_tokens already contains the reasoning; folding here would
-		// double-count it.
+	it("preserves canopywave usage that includes reasoning in completion", () => {
 		const result = transformStreamingToOpenai(
 			"canopywave",
 			"deepseek-v4-flash",
@@ -784,10 +774,6 @@ describe("transformStreamingToOpenai", () => {
 				},
 			},
 			[],
-			undefined,
-			true,
-			undefined,
-			"The answer is 42.",
 		);
 
 		expect(result.usage).toMatchObject({

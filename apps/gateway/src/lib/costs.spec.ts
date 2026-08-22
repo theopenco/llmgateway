@@ -804,6 +804,32 @@ describe("calculateCosts", () => {
 		expect(result.completionTokens).toBe(82);
 	});
 
+	it("adds separately reported Canopywave streaming reasoning", async () => {
+		const result = await calculateCosts(
+			"deepseek-v4-pro",
+			"canopywave",
+			null,
+			40,
+			1,
+			0,
+			undefined,
+			122,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			{ streamed: true },
+		);
+
+		expect(result.inputCost).toBeCloseTo(0.0000696, 10);
+		expect(result.outputCost).toBeCloseTo(0.00042804, 10);
+		expect(result.completionTokens).toBe(1);
+	});
+
 	it("should still add reasoning tokens for xAI", async () => {
 		// xAI is the verified exception: grok-4 answering "9" reports
 		// completion_tokens 1, reasoning_tokens 118 and total_tokens 324, so its
@@ -2451,6 +2477,27 @@ describe("sumTotalTokens", () => {
 			expect(sumTotalTokens(provider, 51, 136, 31)).toBe(218);
 			expect(completionIncludesReasoning(provider)).toBe(false);
 		}
+	});
+
+	it("uses Canopywave model and transport semantics", () => {
+		const streamingPro = {
+			model: "deepseek-v4-pro",
+			streamed: true,
+		};
+
+		expect(completionIncludesReasoning("canopywave", streamingPro)).toBe(false);
+		expect(sumTotalTokens("canopywave", 40, 1, 122, streamingPro)).toBe(163);
+		expect(
+			completionIncludesReasoning("canopywave", {
+				model: "deepseek-v4-pro",
+			}),
+		).toBe(true);
+		expect(
+			completionIncludesReasoning("canopywave", {
+				model: "deepseek-v4-flash",
+				streamed: true,
+			}),
+		).toBe(true);
 	});
 
 	it("treats null and undefined token counts as zero", () => {
