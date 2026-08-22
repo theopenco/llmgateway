@@ -22,7 +22,11 @@ import {
 } from "@/components/ui/select";
 import { useApi } from "@/lib/fetch-client";
 
-import { formatBucketLabel, useDisplayTimeZone } from "@llmgateway/shared";
+import {
+	formatBucketLabel,
+	formatBucketLabelWithZone,
+	useDisplayTimeZone,
+} from "@llmgateway/shared";
 
 import type { paths } from "@/lib/api/v1";
 import type { TooltipProps } from "recharts";
@@ -101,9 +105,11 @@ function ChartTooltipContent({
 	label,
 	metric,
 	hourly,
+	timeZone,
 }: TooltipProps<number, string> & {
 	metric: Metric;
 	hourly: boolean;
+	timeZone: string;
 }) {
 	if (!active || !payload || payload.length === 0) {
 		return null;
@@ -114,7 +120,11 @@ function ChartTooltipContent({
 		return null;
 	}
 	const dateLabel = label
-		? formatBucketLabel(label, hourly ? "monthDayHourMinute" : "monthDayYear")
+		? formatBucketLabelWithZone(
+				label,
+				hourly ? "monthDayHourMinute" : "monthDayYear",
+				timeZone,
+			)
 		: "";
 	// Token classes bill at very different rates (cached input is often 10x
 	// cheaper than fresh input, output 6x more expensive), so a flat token
@@ -472,7 +482,11 @@ export function AgentModelUsageChart({ projectId }: AgentModelUsageChartProps) {
 										fill: "color-mix(in srgb, currentColor 8%, transparent)",
 									}}
 									content={
-										<ChartTooltipContent metric={metric} hourly={hourly} />
+										<ChartTooltipContent
+											metric={metric}
+											hourly={hourly}
+											timeZone={displayTimeZone}
+										/>
 									}
 								/>
 								{models.map((modelId, i) => (

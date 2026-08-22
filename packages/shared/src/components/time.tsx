@@ -18,6 +18,8 @@ export function Time({
 	className,
 }: {
 	date: Date | string | number;
+	/** Pick a *Zone layout when the value would otherwise be ambiguous about
+	 *  which clock it is on. */
 	format?: DateFormat;
 	className?: string;
 }) {

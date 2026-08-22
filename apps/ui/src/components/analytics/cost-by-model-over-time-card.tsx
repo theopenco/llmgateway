@@ -17,7 +17,11 @@ import {
 } from "@/lib/components/chart";
 import { cn } from "@/lib/utils";
 
-import { formatBucketLabel } from "@llmgateway/shared";
+import {
+	formatBucketLabel,
+	formatBucketLabelWithZone,
+	useDisplayTimeZone,
+} from "@llmgateway/shared";
 
 import {
 	buildModelTimeseries,
@@ -57,6 +61,7 @@ export function CostByModelOverTimeCard({
 }: CostByModelOverTimeCardProps) {
 	const [activeMetric, setActiveMetric] = useState<ChartMetric>("cost");
 	const [modelView, setModelView] = useState<ModelView>("mapping");
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 
 	const series = useMemo(
 		() => buildModelTimeseries(activity, modelView),
@@ -204,11 +209,12 @@ export function CostByModelOverTimeCard({
 												label={props.label}
 												payload={sortedPayload}
 												labelFormatter={(value: string) =>
-													formatBucketLabel(
+													formatBucketLabelWithZone(
 														value,
 														bucket === "hour"
 															? "monthDayHourMinute"
 															: "monthDayYear",
+														displayTimeZone,
 													)
 												}
 												formatter={(value, name) => {

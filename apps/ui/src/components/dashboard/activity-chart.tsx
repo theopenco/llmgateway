@@ -33,7 +33,11 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { applyUsageModeToDaily } from "@/lib/usage-mode";
 
-import { formatBucketLabel, useDisplayTimeZone } from "@llmgateway/shared";
+import {
+	formatBucketLabel,
+	formatBucketLabelWithZone,
+	useDisplayTimeZone,
+} from "@llmgateway/shared";
 
 import type { TimeRangeValue } from "@/components/time-range-picker";
 import type { GroupBy } from "@/components/usage/group-by";
@@ -178,6 +182,9 @@ const CustomTooltip = ({
 	hourly = false,
 	groupBy = "model",
 }: CustomTooltipProps) => {
+	// Reads the zone from context rather than a prop: recharts owns this
+	// element, so the parent can't thread anything into it.
+	const { timeZone } = useDisplayTimeZone();
 	if (active && payload && payload.length) {
 		const data = payload[0].payload;
 		const items = pickBreakdown(data, groupBy);
@@ -185,9 +192,10 @@ const CustomTooltip = ({
 			<div className="rounded-lg border bg-popover text-popover-foreground p-2 shadow-sm">
 				<p className="font-medium">
 					{label &&
-						formatBucketLabel(
+						formatBucketLabelWithZone(
 							label,
 							hourly ? "monthDayYearHourMinute" : "monthDayYear",
+							timeZone,
 						)}
 				</p>
 				<p className="text-sm">

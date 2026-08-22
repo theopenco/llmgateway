@@ -5,10 +5,9 @@ import { UTC_TIME_ZONE } from "./timezone.js";
  * `formatDateTime` only accepts these keys, so a new layout has to be added
  * here instead of being inlined at a call site.
  *
- * Only the tokens in TOKEN_RE are supported. Offset/zone tokens (`z`, `X`,
- * `O`) deliberately aren't: the value being rendered is a set of wall-clock
- * fields in the target zone, and any offset printed alongside them could only
- * come from the runtime's own zone.
+ * Only the tokens in TOKEN_RE are supported. `zzz` is the target zone's own
+ * short name as reported by Intl ("UTC", "GMT+9", "EDT") — never the
+ * runtime's. date-fns-style offset tokens (`X`, `O`) are not supported.
  */
 export const dateFormats = {
 	/** Aug 5 */
@@ -25,6 +24,14 @@ export const dateFormats = {
 	weekdayMonthDayYear: "EEE, MMM d, yyyy",
 	/** 05.08.2026 16:00:00 */
 	dayMonthYearTime: "dd.MM.yyyy HH:mm:ss",
+	/** Aug 5, 16:00 UTC */
+	monthDayHourMinuteZone: "MMM d, HH:mm zzz",
+	/** Aug 5, 2026 16:00 UTC */
+	monthDayYearHourMinuteZone: "MMM d, yyyy HH:mm zzz",
+	/** 16:00 UTC */
+	hourMinuteZone: "HH:mm zzz",
+	/** 05.08.2026 16:00:00 UTC */
+	dayMonthYearTimeZone: "dd.MM.yyyy HH:mm:ss zzz",
 } as const;
 
 export type DateFormat = keyof typeof dateFormats;
@@ -61,7 +68,7 @@ const MONTHS = [
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 // Longest-first so MMM isn't matched as MM, and dd isn't matched as d.
-const TOKEN_RE = /EEE|yyyy|MMM|MM|dd|HH|mm|ss|d/g;
+const TOKEN_RE = /EEE|zzz|yyyy|MMM|MM|dd|HH|mm|ss|d/g;
 
 interface WallClock {
 	year: number;
@@ -71,6 +78,9 @@ interface WallClock {
 	minute: number;
 	second: number;
 	weekday: number; // 0-6, Sunday first
+	/** Short zone name at this instant: "UTC", "GMT+9", "EDT". Empty for a
+	 *  naive string, which carries no zone of its own. */
+	zone: string;
 }
 
 const pad = (value: number) => String(value).padStart(2, "0");
@@ -105,6 +115,8 @@ function renderWallClock(wall: WallClock, pattern: string): string {
 				return pad(wall.second);
 			case "EEE":
 				return WEEKDAYS[wall.weekday] ?? "";
+			case "zzz":
+				return wall.zone;
 			default:
 				return token;
 		}
@@ -122,6 +134,7 @@ function wallClockInTimeZone(date: Date, timeZone: string): WallClock {
 		minute: "2-digit",
 		second: "2-digit",
 		weekday: "short",
+		timeZoneName: "short",
 		hourCycle: "h23",
 	}).formatToParts(date);
 	const read = (type: string) =>
@@ -136,6 +149,7 @@ function wallClockInTimeZone(date: Date, timeZone: string): WallClock {
 		minute: read("minute"),
 		second: read("second"),
 		weekday: Math.max(0, WEEKDAYS.indexOf(weekdayName)),
+		zone: parts.find((part) => part.type === "timeZoneName")?.value ?? "",
 	};
 }
 
@@ -153,7 +167,23 @@ function wallClockFromNaive(value: string): WallClock {
 		second,
 		// Date.UTC has no DST, so the weekday is exact for any calendar date.
 		weekday: new Date(Date.UTC(year, month - 1, date)).getUTCDay(),
+		zone: "",
 	};
+}
+
+/**
+ * The short name of `timeZone` at `at` — "UTC", "GMT+9", "EDT". Used to label
+ * values that would otherwise be ambiguous about which zone they're in.
+ *
+ * Zones with DST have two names (EDT/EST), so this is evaluated at a specific
+ * instant. Bucket labels have no instant of their own; they pass the current
+ * time, which is right except for buckets on the far side of a changeover.
+ */
+export function formatZoneName(
+	timeZone: string,
+	at: Date = new Date(),
+): string {
+	return wallClockInTimeZone(at, timeZone || UTC_TIME_ZONE).zone;
 }
 
 /**
@@ -169,6 +199,19 @@ export function formatBucketLabel(
 	pattern: DateFormat = "monthDay",
 ): string {
 	return formatDateTime(label, UTC_TIME_ZONE, pattern);
+}
+
+/**
+ * A bucket label with the zone it was bucketed in appended, so a chart tooltip
+ * says which clock it is showing. The label itself still renders literally —
+ * only the suffix is derived from `timeZone`.
+ */
+export function formatBucketLabelWithZone(
+	label: string,
+	pattern: DateFormat,
+	timeZone: string,
+): string {
+	return `${formatBucketLabel(label, pattern)} ${formatZoneName(timeZone)}`;
 }
 
 /** The "YYYY-MM-DD" calendar day an instant falls on in `timeZone`. Matches

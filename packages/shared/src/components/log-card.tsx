@@ -1194,7 +1194,7 @@ export function LogCard({
 							<div className="grid grid-cols-2 gap-2 rounded-md border p-3 text-sm">
 								<div className="text-muted-foreground">Date</div>
 								<div className="font-mono text-xs">
-									<Time date={log.createdAt} format="dayMonthYearTime" />
+									<Time date={log.createdAt} format="dayMonthYearTimeZone" />
 								</div>
 								<div className="text-muted-foreground">Request ID</div>
 								<div className="flex items-center gap-1 font-mono text-xs break-all">

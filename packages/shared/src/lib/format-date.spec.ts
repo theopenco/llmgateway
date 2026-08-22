@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
 	dateFormats,
 	formatBucketLabel,
+	formatBucketLabelWithZone,
 	formatDateTime,
 	formatDayKey,
+	formatZoneName,
 	isNaiveDateTimeString,
 	shiftDayKey,
 } from "./format-date.js";
@@ -130,6 +132,49 @@ describe("formatDateTime", () => {
 				formatDateTime(instant, "UTC", key as keyof typeof dateFormats).length,
 			).toBeGreaterThan(0);
 		}
+	});
+});
+
+describe("zone naming", () => {
+	const summer = new Date("2026-08-22T12:00:00Z");
+	const winter = new Date("2026-01-15T12:00:00Z");
+
+	it("names the target zone, never the runtime's", () => {
+		expect(formatZoneName("UTC", summer)).toBe("UTC");
+		expect(formatZoneName("Asia/Tokyo", summer)).toBe("GMT+9");
+		expect(formatZoneName("Asia/Kolkata", summer)).toBe("GMT+5:30");
+	});
+
+	it("tracks DST for zones that rename across it", () => {
+		expect(formatZoneName("America/New_York", summer)).toBe("EDT");
+		expect(formatZoneName("America/New_York", winter)).toBe("EST");
+	});
+
+	it("labels an instant with the zone it is rendered in", () => {
+		expect(
+			formatDateTime(
+				"2026-08-12T04:00:00Z",
+				"Asia/Tokyo",
+				"monthDayYearHourMinuteZone",
+			),
+		).toBe("Aug 12, 2026 13:00 GMT+9");
+		expect(
+			formatDateTime("2026-08-12T04:00:00Z", "UTC", "hourMinuteZone"),
+		).toBe("04:00 UTC");
+	});
+
+	it("labels a bucket with the zone it was bucketed in", () => {
+		// The label itself stays literal; only the suffix comes from the zone.
+		expect(
+			formatBucketLabelWithZone(
+				"2026-08-12T14:00:00",
+				"monthDayYearHourMinute",
+				"Asia/Tokyo",
+			),
+		).toBe("Aug 12, 2026 14:00 GMT+9");
+		expect(
+			formatBucketLabelWithZone("2026-08-12", "monthDayYear", "UTC"),
+		).toBe("Aug 12, 2026 UTC");
 	});
 });
 

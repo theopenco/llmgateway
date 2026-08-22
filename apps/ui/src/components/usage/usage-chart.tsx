@@ -17,7 +17,11 @@ import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
 import { pickRequests } from "@/lib/usage-mode";
 
-import { formatBucketLabel, useDisplayTimeZone } from "@llmgateway/shared";
+import {
+	formatBucketLabel,
+	formatBucketLabelWithZone,
+	useDisplayTimeZone,
+} from "@llmgateway/shared";
 
 import type { ActivitT } from "@/types/activity";
 import type { TooltipProps } from "recharts";
@@ -36,11 +40,14 @@ const CustomTooltip = ({
 	payload: { value: number }[];
 	label: string;
 }) => {
+	// Reads the zone from context rather than a prop: recharts owns this
+	// element, so the parent can't thread anything into it.
+	const { timeZone } = useDisplayTimeZone();
 	if (active && payload && payload.length) {
 		return (
 			<div className="rounded-lg border bg-popover text-popover-foreground p-2 shadow-sm">
 				<p className="font-medium">
-					{label && formatBucketLabel(label, "monthDayYear")}
+					{label && formatBucketLabelWithZone(label, "monthDayYear", timeZone)}
 				</p>
 				<p className="text-sm">
 					<span className="font-medium">{payload[0].value}</span> Requests

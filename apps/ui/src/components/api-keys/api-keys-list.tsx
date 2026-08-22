@@ -679,7 +679,7 @@ export function ApiKeysList({
 												<p className="max-w-xs text-xs whitespace-nowrap">
 													<Time
 														date={key.createdAt}
-														format="monthDayYearHourMinute"
+														format="monthDayYearHourMinuteZone"
 													/>
 												</p>
 											</TooltipContent>
@@ -871,7 +871,7 @@ export function ApiKeysList({
 										<span className="text-xs text-muted-foreground">
 											<Time
 												date={key.createdAt}
-												format="monthDayYearHourMinute"
+												format="monthDayYearHourMinuteZone"
 											/>
 										</span>
 									</div>
