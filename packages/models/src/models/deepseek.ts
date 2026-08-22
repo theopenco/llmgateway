@@ -383,7 +383,6 @@ export const deepseekModels = [
 				// reasoning_effort.
 				reasoningEfforts: ["none", "high", "max"],
 				requiresDisableThinkingParam: true,
-				reasoningOutput: "omit",
 				vision: false,
 				tools: true,
 				jsonOutput: true,
@@ -522,10 +521,13 @@ export const deepseekModels = [
 				vision: false,
 				tools: true,
 				// The deployment 400s on "required" and named-function tool_choice
-				// with "Thinking mode does not support this tool_choice"; both only
-				// work when thinking is off, which the catalogue cannot express, so
-				// they coerce to "auto" (verified 2026-08-09).
+				// with "Thinking mode does not support this tool_choice" while
+				// thinking is on, so those modes coerce to "auto". Both work once
+				// thinking is disabled via reasoning_effort "none", which the
+				// mapping declares below (confirmed by CanopyWave, verified live
+				// 2026-08-10).
 				supportedToolChoices: ["auto", "none"],
+				supportedToolChoicesWithThinkingDisabled: ["required", "function"],
 				jsonOutput: true,
 			},
 			{
@@ -827,7 +829,6 @@ export const deepseekModels = [
 				// through the `thinking` switch, not through reasoning_effort.
 				reasoningEfforts: ["none", "xhigh", "max"],
 				requiresDisableThinkingParam: true,
-				reasoningOutput: "omit",
 				vision: false,
 				tools: true,
 				jsonOutput: true,
@@ -902,10 +903,13 @@ export const deepseekModels = [
 				vision: false,
 				tools: true,
 				// The deployment 400s on "required" and named-function tool_choice
-				// with "Thinking mode does not support this tool_choice"; both only
-				// work when thinking is off, which the catalogue cannot express, so
-				// they coerce to "auto" (verified 2026-08-09).
+				// with "Thinking mode does not support this tool_choice" while
+				// thinking is on, so those modes coerce to "auto". Both work once
+				// thinking is disabled via reasoning_effort "none", which the
+				// mapping declares below (confirmed by CanopyWave, verified live
+				// 2026-08-10).
 				supportedToolChoices: ["auto", "none"],
+				supportedToolChoicesWithThinkingDisabled: ["required", "function"],
 				jsonOutput: true,
 			},
 			{

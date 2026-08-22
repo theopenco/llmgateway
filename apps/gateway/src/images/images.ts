@@ -250,11 +250,7 @@ async function extractImagesFromChatResponse(
 				) {
 					// Handle URL-based images (e.g. Z.AI, Alibaba, ByteDance)
 					try {
-						// Trusted upstream provider response, not request input: skip the
-						// user-content SSRF guard (CDNs may redirect to signed URLs).
-						const result = await processImageUrl(imageUrl, false, 20, null, {
-							validateSsrf: false,
-						});
+						const result = await processImageUrl(imageUrl);
 						imageObjects.push({
 							b64_json: result.data,
 							revised_prompt: prompt,
