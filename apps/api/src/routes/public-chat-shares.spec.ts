@@ -78,4 +78,25 @@ describe("public chat share rate limiting", () => {
 		expect((await getShare(ip)).status).toBe(429);
 		expect((await getShare(uniqueIp())).status).not.toBe(429);
 	});
+
+	it("gives a freshly created counter an expiry", async () => {
+		const ip = uniqueIp();
+		await getShare(ip);
+		expect(
+			await redisClient.ttl(`chat_share_rate_limit:share_burst:ip:${ip}`),
+		).toBeGreaterThan(0);
+	});
+
+	// A counter with no TTL is what a failed EXPIRE used to leave behind, and it
+	// blocked the identifier forever: the window never reset and every later
+	// call skipped EXPIRE because the count was no longer 1.
+	it("repairs a counter left without an expiry", async () => {
+		const ip = uniqueIp();
+		const key = `chat_share_rate_limit:share_burst:ip:${ip}`;
+		await redisClient.set(key, String(SHARE_BURST_MAX));
+		expect(await redisClient.ttl(key)).toBe(-1);
+
+		expect((await getShare(ip)).status).toBe(429);
+		expect(await redisClient.ttl(key)).toBeGreaterThan(0);
+	});
 });
