@@ -3550,6 +3550,29 @@ export const alibabaModels = [
 		],
 	},
 	{
+		id: "qwen3-embedding-0.6b",
+		name: "Qwen3 Embedding 0.6B",
+		description:
+			"Compact Qwen3 embedding model with 32K context and configurable output dimensions (32–1024) via Matryoshka representation learning, supporting 100+ languages.",
+		family: "alibaba",
+		output: ["embedding"],
+		releasedAt: new Date("2025-06-05"),
+		providers: [
+			{
+				providerId: "deepinfra",
+				externalId: "Qwen/Qwen3-Embedding-0.6B",
+				inputPrice: "0.01e-6",
+				outputPrice: "0",
+				requestPrice: "0",
+				contextSize: 32768,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				embeddings: true,
+			},
+		],
+	},
+	{
 		id: "qwen3-embedding-8b",
 		name: "Qwen3 Embedding 8B",
 		description:
