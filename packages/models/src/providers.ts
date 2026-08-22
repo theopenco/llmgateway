@@ -1958,14 +1958,14 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
-		id: "tokenhub",
-		name: "Tencent Cloud TokenHub",
+		id: "tencent",
+		name: "Tencent Cloud",
 		forwardsSafetyIdentifier: false,
 		description:
 			"Tencent Cloud's TokenHub model gateway, serving Tencent's own Hunyuan models alongside third-party models through a single OpenAI-compatible API.",
 		env: {
 			required: {
-				apiKey: "LLM_TOKENHUB_API_KEY",
+				apiKey: "LLM_TENCENT_API_KEY",
 			},
 		},
 		streaming: true,

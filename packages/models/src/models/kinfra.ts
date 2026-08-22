@@ -11,7 +11,7 @@ export const kinfraModels = [
 		releasedAt: new Date("2026-06-30"),
 		providers: [
 			{
-				providerId: "tokenhub",
+				providerId: "tencent",
 				externalId: "kinfra-text-embedding-0.6b",
 				inputPrice: "0.07e-6",
 				outputPrice: "0",
@@ -34,7 +34,7 @@ export const kinfraModels = [
 		releasedAt: new Date("2026-06-30"),
 		providers: [
 			{
-				providerId: "tokenhub",
+				providerId: "tencent",
 				externalId: "kinfra-text-embedding-4b",
 				inputPrice: "0.084e-6",
 				outputPrice: "0",
@@ -57,7 +57,7 @@ export const kinfraModels = [
 		releasedAt: new Date("2026-06-30"),
 		providers: [
 			{
-				providerId: "tokenhub",
+				providerId: "tencent",
 				externalId: "kinfra-vl-embedding-2b",
 				// TokenHub bills this model per input modality (text 0.07, image
 				// 0.098, video 0.21 per million tokens). The gateway's embeddings
@@ -86,7 +86,7 @@ export const kinfraModels = [
 		releasedAt: new Date("2026-06-30"),
 		providers: [
 			{
-				providerId: "tokenhub",
+				providerId: "tencent",
 				externalId: "kinfra-vl-embedding-8b",
 				// Text rate only, for the same reason as kinfra-vl-embedding-2b:
 				// image input is 0.126 and video 0.252 per million tokens, neither

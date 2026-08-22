@@ -591,7 +591,7 @@ export const deepseekModels = [
 				jsonOutput: true,
 			},
 			{
-				providerId: "tokenhub",
+				providerId: "tencent",
 				// The dated id is TokenHub's "Vendor Direct" deployment, priced at
 				// DeepSeek's own rate. The undated `deepseek-v4-pro` id is
 				// Tencent's own hosting at 1.74/3.48 — 4x the input and output
@@ -1003,7 +1003,7 @@ export const deepseekModels = [
 				jsonOutput: true,
 			},
 			{
-				providerId: "tokenhub",
+				providerId: "tencent",
 				// TokenHub serves two DeepSeek V4 Flash deployments: this dated id
 				// is the "Vendor Direct" one routed to DeepSeek itself, which is
 				// why it matches DeepSeek's own cache rate. The undated

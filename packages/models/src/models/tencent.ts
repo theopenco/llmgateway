@@ -46,7 +46,7 @@ export const tencentModels = [
 				jsonOutputSchema: true,
 			},
 			{
-				providerId: "tokenhub",
+				providerId: "tencent",
 				externalId: "hy3",
 				inputPrice: "0.132e-6",
 				cachedInputPrice: "0.033e-6",
@@ -78,7 +78,7 @@ export const tencentModels = [
 		releasedAt: new Date("2026-05-21"),
 		providers: [
 			{
-				providerId: "tokenhub",
+				providerId: "tencent",
 				externalId: "hy-mt2-plus",
 				inputPrice: "0.074e-6",
 				outputPrice: "0.295e-6",

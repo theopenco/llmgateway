@@ -73,7 +73,7 @@ export const xiaomiModels = [
 				jsonOutput: false,
 			},
 			{
-				providerId: "tokenhub",
+				providerId: "tencent",
 				externalId: "mimo-v2.5-pro",
 				inputPrice: "0.435e-6",
 				cachedInputPrice: "0.0036e-6",

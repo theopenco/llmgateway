@@ -1357,8 +1357,8 @@ export const RanoAIIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 	</svg>
 );
 
-// The Tencent Cloud mark, used for the TokenHub provider (a Tencent Cloud
-// product) and for the `tencent` model family. Extracted from the cloud glyph
+// The Tencent Cloud mark, used for both the `tencent` provider and the
+// `tencent` model family. Extracted from the cloud glyph
 // of Tencent Cloud's own wordmark, whose viewBox is 162x24; the box below is
 // squared up around the glyph's 33x24 bounds so it centres in a square slot.
 export const TencentCloudIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
@@ -1632,7 +1632,7 @@ export const ProviderIcons = {
 	runware: RunwareIcon,
 	ranoai: RanoAIIcon,
 	baidu: BaiduIcon,
-	tokenhub: TencentCloudIcon,
+	tencent: TencentCloudIcon,
 } as const;
 
 // Type for provider icon keys
@@ -1686,7 +1686,7 @@ export const providerLogoUrls: Partial<
 	runware: ProviderIcons.runware,
 	ranoai: ProviderIcons.ranoai,
 	baidu: ProviderIcons.baidu,
-	tokenhub: ProviderIcons.tokenhub,
+	tencent: ProviderIcons.tencent,
 };
 
 export const getProviderLogoDarkModeClasses = () => {

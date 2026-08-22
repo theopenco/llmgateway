@@ -293,7 +293,7 @@ export const zaiModels = [
 				jsonOutput: true,
 			},
 			{
-				providerId: "tokenhub",
+				providerId: "tencent",
 				externalId: "glm-5.2",
 				inputPrice: "1.4e-6",
 				cachedInputPrice: "0.26e-6",
@@ -515,7 +515,7 @@ export const zaiModels = [
 				jsonOutput: true,
 			},
 			{
-				providerId: "tokenhub",
+				providerId: "tencent",
 				externalId: "glm-5.1",
 				inputPrice: "1.4e-6",
 				cachedInputPrice: "0.26e-6",
@@ -721,7 +721,7 @@ export const zaiModels = [
 				// routes JSON-mode traffic elsewhere.
 			},
 			{
-				providerId: "tokenhub",
+				providerId: "tencent",
 				externalId: "glm-5",
 				inputPrice: "1e-6",
 				cachedInputPrice: "0.2e-6",
@@ -1566,7 +1566,7 @@ export const zaiModels = [
 		releasedAt: new Date("2026-03-15"),
 		providers: [
 			{
-				providerId: "tokenhub",
+				providerId: "tencent",
 				externalId: "glm-5-turbo",
 				inputPrice: "1.2e-6",
 				cachedInputPrice: "0.24e-6",
@@ -1595,7 +1595,7 @@ export const zaiModels = [
 		releasedAt: new Date("2026-04-01"),
 		providers: [
 			{
-				providerId: "tokenhub",
+				providerId: "tencent",
 				externalId: "glm-5v-turbo",
 				inputPrice: "1.2e-6",
 				cachedInputPrice: "0.24e-6",

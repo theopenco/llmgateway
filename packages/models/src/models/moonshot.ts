@@ -597,7 +597,7 @@ export const moonshotModels = [
 				jsonOutput: true,
 			},
 			{
-				providerId: "tokenhub",
+				providerId: "tencent",
 				externalId: "kimi-k2.6",
 				inputPrice: "0.858e-6",
 				cachedInputPrice: "0.145e-6",
@@ -703,7 +703,7 @@ export const moonshotModels = [
 				jsonOutput: false,
 			},
 			{
-				providerId: "tokenhub",
+				providerId: "tencent",
 				externalId: "kimi-k2.7-code",
 				inputPrice: "0.95e-6",
 				cachedInputPrice: "0.19e-6",
@@ -760,7 +760,7 @@ export const moonshotModels = [
 				],
 			},
 			{
-				providerId: "tokenhub",
+				providerId: "tencent",
 				externalId: "kimi-k2.7-code-highspeed",
 				inputPrice: "1.9e-6",
 				cachedInputPrice: "0.38e-6",
@@ -957,7 +957,7 @@ export const moonshotModels = [
 				jsonOutput: true,
 			},
 			{
-				providerId: "tokenhub",
+				providerId: "tencent",
 				externalId: "kimi-k3",
 				inputPrice: "3.0e-6",
 				cachedInputPrice: "0.3e-6",

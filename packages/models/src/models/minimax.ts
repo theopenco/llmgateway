@@ -75,7 +75,7 @@ export const minimaxModels = [
 				jsonOutput: false,
 			},
 			{
-				providerId: "tokenhub",
+				providerId: "tencent",
 				externalId: "minimax-m3",
 				// TokenHub bills M3 in two input-length bands; the mapping-level
 				// prices mirror the first band so a request that never crosses
@@ -211,7 +211,7 @@ export const minimaxModels = [
 				jsonOutput: true,
 			},
 			{
-				providerId: "tokenhub",
+				providerId: "tencent",
 				externalId: "minimax-m2.7",
 				inputPrice: "0.3e-6",
 				cachedInputPrice: "0.06e-6",
