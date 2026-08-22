@@ -168,6 +168,50 @@ describe("keys route", () => {
 		expect(json.apiKeys[0].tokenHash).toBeUndefined();
 	});
 
+	test("GET /keys/api summarizes playground keys as one virtual row", async () => {
+		await db.insert(tables.apiKey).values([
+			{
+				id: "playground-session-key-1",
+				token: "playground-session-token-1",
+				projectId: "test-project-id",
+				description: "Session key 1",
+				kind: "playground",
+				usage: "1.25",
+				createdBy: "test-user-id",
+			},
+			{
+				id: "playground-session-key-2",
+				token: "playground-session-token-2",
+				projectId: "test-project-id",
+				description: "Session key 2",
+				kind: "playground",
+				usage: "2.75",
+				createdBy: "test-user-id",
+			},
+		]);
+
+		const res = await app.request("/keys/api?projectId=test-project-id", {
+			headers: { Cookie: token },
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		const playgroundRows = json.apiKeys.filter(
+			(key: { kind: string }) => key.kind === "playground",
+		);
+		expect(playgroundRows).toEqual([
+			expect.objectContaining({
+				id: "playground",
+				description: "Playground keys (virtual)",
+				maskedToken: "No API key",
+				usage: "4",
+			}),
+		]);
+		expect(
+			json.apiKeys.some((key: { id: string }) => key.id.includes("session")),
+		).toBe(false);
+	});
+
 	test("POST /keys/platform creates an SDK platform secret", async () => {
 		const res = await app.request("/keys/platform", {
 			method: "POST",

@@ -80,6 +80,59 @@ interface ApiKeysListProps {
 type StatusFilter = "all" | "active" | "inactive";
 type CreatorFilter = "mine" | "all";
 
+function VirtualPlaygroundTableRow({ apiKey }: { apiKey: ApiKey }) {
+	return (
+		<TableRow className="hover:bg-muted/30 transition-colors">
+			<TableCell className="font-medium">{apiKey.description}</TableCell>
+			<TableCell className="text-sm text-muted-foreground">
+				No API key
+			</TableCell>
+			<TableCell>
+				<Badge variant="outline">Virtual</Badge>
+			</TableCell>
+			<TableCell className="text-muted-foreground">—</TableCell>
+			<TableCell className="text-muted-foreground">
+				Playground sessions
+			</TableCell>
+			<TableCell>{formatCurrencyAmount(apiKey.usage)}</TableCell>
+			<TableCell className="text-muted-foreground">—</TableCell>
+			<TableCell className="text-muted-foreground">Not applicable</TableCell>
+			<TableCell className="text-muted-foreground">Not applicable</TableCell>
+			<TableCell className="sticky right-0 bg-card" />
+		</TableRow>
+	);
+}
+
+function VirtualPlaygroundCard({ apiKey }: { apiKey: ApiKey }) {
+	return (
+		<div className="border rounded-lg p-3 space-y-3">
+			<div className="flex items-center gap-2">
+				<h3 className="font-medium text-sm">{apiKey.description}</h3>
+				<Badge variant="outline">Virtual</Badge>
+			</div>
+			<p className="text-xs text-muted-foreground">
+				Aggregated usage across automatically provisioned playground sessions.
+			</p>
+			<div className="pt-2 border-t grid grid-cols-2 gap-3">
+				<div>
+					<div className="text-xs text-muted-foreground mb-1">API Key</div>
+					<div className="text-sm">No API key</div>
+				</div>
+				<div>
+					<div className="text-xs text-muted-foreground mb-1">Usage</div>
+					<div className="font-mono text-xs">
+						{formatCurrencyAmount(apiKey.usage)}
+					</div>
+				</div>
+			</div>
+			<div className="pt-2 border-t">
+				<div className="text-xs text-muted-foreground mb-1">Created By</div>
+				<div className="text-sm">Playground sessions</div>
+			</div>
+		</div>
+	);
+}
+
 export function ApiKeysList({
 	selectedProject,
 	initialData,
@@ -621,6 +674,10 @@ export function ApiKeysList({
 					</TableHeader>
 					<TableBody>
 						{filteredKeys.map((key) => {
+							if (key.kind === "playground") {
+								return <VirtualPlaygroundTableRow key={key.id} apiKey={key} />;
+							}
+
 							return (
 								<TableRow
 									key={key.id}
@@ -816,6 +873,10 @@ export function ApiKeysList({
 			{/* Mobile Cards */}
 			<div className="md:hidden space-y-3">
 				{filteredKeys.map((key) => {
+					if (key.kind === "playground") {
+						return <VirtualPlaygroundCard key={key.id} apiKey={key} />;
+					}
+
 					return (
 						<div key={key.id} className="border rounded-lg p-3 space-y-3">
 							<div className="flex items-start justify-between">

@@ -1,7 +1,9 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { PLAYGROUND_ANALYTICS_KEY } from "@/lib/api-key-analytics.js";
 import {
 	assertEnterpriseForIpCidrRule,
 	createIamRuleSchema,
@@ -388,6 +390,11 @@ const memberBudgetConstraintsSchema = z.object({
 	periodUsageLimit: z.string().nullable(),
 	periodUsageDurationValue: z.number().int().nullable(),
 	periodUsageDurationUnit: apiKeyPeriodDurationUnitSchema.nullable(),
+});
+
+const listedApiKeySchema = apiKeySchema.omit({ token: true }).extend({
+	maskedToken: z.string(),
+	ownerBudget: memberBudgetConstraintsSchema.nullable(),
 });
 
 // Schema for listing API keys
@@ -1186,19 +1193,7 @@ const list = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
-						apiKeys: z
-							.array(
-								apiKeySchema.omit({ token: true }).extend({
-									// Only return a masked version of the token
-									maskedToken: z.string(),
-									// The effective member budget of whoever created the key, so
-									// the limits editor validates against the cap that actually
-									// applies — not the viewer's own. Null when the creator is no
-									// longer a member of the organization.
-									ownerBudget: memberBudgetConstraintsSchema.nullable(),
-								}),
-							)
-							.openapi({}),
+						apiKeys: z.array(listedApiKeySchema).openapi({}),
 						planLimits: z
 							.object({
 								currentCount: z.number(),
@@ -1287,33 +1282,55 @@ keysApi.openapi(list, async (c) => {
 	// always restricted to the keys they created.
 	const shouldFilterByCreator = filter === "mine" || developerScoped;
 
-	// Get API keys for the specified project or all accessible projects
-	const apiKeys = await db.query.apiKey.findMany({
-		where: {
-			projectId: {
-				in: projectId ? [projectId] : projectIds,
-			},
-			// Hide platform and LLM SDK aggregate keys from the dashboard —
-			// only show developer-created keys.
-			keyType: { eq: "user" },
-			kind: { ne: "playground" },
-			...(shouldFilterByCreator && {
-				createdBy: {
-					eq: user.id,
+	// Get regular keys plus the playground rows needed for the project-level
+	// virtual usage rollup. Never return the underlying playground credentials.
+	const [apiKeys, playgroundKeys] = await Promise.all([
+		db.query.apiKey.findMany({
+			where: {
+				projectId: {
+					in: projectId ? [projectId] : projectIds,
 				},
-			}),
-		},
-		with: {
-			iamRules: true,
-			creator: {
-				columns: {
-					id: true,
-					name: true,
-					email: true,
+				// Hide platform and LLM SDK aggregate keys from the dashboard —
+				// only show developer-created keys.
+				keyType: { eq: "user" },
+				kind: { ne: "playground" },
+				...(shouldFilterByCreator && {
+					createdBy: {
+						eq: user.id,
+					},
+				}),
+			},
+			with: {
+				iamRules: true,
+				creator: {
+					columns: {
+						id: true,
+						name: true,
+						email: true,
+					},
 				},
 			},
-		},
-	});
+		}),
+		projectId
+			? db.query.apiKey.findMany({
+					where: {
+						projectId: { eq: projectId },
+						keyType: { eq: "user" },
+						kind: { eq: "playground" },
+						status: { ne: "deleted" },
+						...(shouldFilterByCreator && {
+							createdBy: { eq: user.id },
+						}),
+					},
+					columns: {
+						createdAt: true,
+						updatedAt: true,
+						usage: true,
+						currentPeriodUsage: true,
+					},
+				})
+			: Promise.resolve([]),
+	]);
 
 	// Get organization plan info if projectId is specified. The cap is org-wide,
 	// so currentCount counts active developer keys across ALL of the org's
@@ -1360,14 +1377,54 @@ keysApi.openapi(list, async (c) => {
 	}
 
 	const ownerBudgets = await resolveApiKeyOwnerBudgets(apiKeys, userOrgs);
+	const virtualPlaygroundKey: z.infer<typeof listedApiKeySchema> | null =
+		projectId && playgroundKeys.length > 0
+			? {
+					id: PLAYGROUND_ANALYTICS_KEY,
+					createdAt: new Date(
+						Math.min(...playgroundKeys.map((key) => key.createdAt.getTime())),
+					),
+					updatedAt: new Date(
+						Math.max(...playgroundKeys.map((key) => key.updatedAt.getTime())),
+					),
+					description: "Playground keys (virtual)",
+					kind: "playground",
+					status: "active",
+					usageLimit: null,
+					usage: playgroundKeys
+						.reduce((sum, key) => sum.plus(key.usage), new Decimal(0))
+						.toString(),
+					periodUsageLimit: null,
+					periodUsageDurationValue: null,
+					periodUsageDurationUnit: null,
+					currentPeriodUsage: playgroundKeys
+						.reduce(
+							(sum, key) => sum.plus(key.currentPeriodUsage),
+							new Decimal(0),
+						)
+						.toString(),
+					currentPeriodStartedAt: null,
+					currentPeriodResetAt: null,
+					expiresAt: null,
+					projectId,
+					createdBy: user.id,
+					creator: null,
+					iamRules: [],
+					maskedToken: "No API key",
+					ownerBudget: null,
+				}
+			: null;
 
 	return c.json({
-		apiKeys: apiKeys.map((key) => ({
-			...serializeApiKey(key),
-			maskedToken: getMaskedApiKey(key),
-			token: undefined,
-			ownerBudget: ownerBudgets.get(key.id) ?? null,
-		})),
+		apiKeys: [
+			...apiKeys.map((key) => ({
+				...serializeApiKey(key),
+				maskedToken: getMaskedApiKey(key),
+				token: undefined,
+				ownerBudget: ownerBudgets.get(key.id) ?? null,
+			})),
+			...(virtualPlaygroundKey ? [virtualPlaygroundKey] : []),
+		],
 		planLimits: projectId
 			? {
 					currentCount,
