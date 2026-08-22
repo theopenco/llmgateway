@@ -913,6 +913,116 @@ describe("api", () => {
 		expect(bypassRes.headers.get("x-llmgateway-cache")).toBeNull();
 	});
 
+	test("/v1/messages web search does not reuse a tool-less cached response", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "anthropic",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		await db
+			.update(tables.project)
+			.set({ cachingEnabled: true })
+			.where(eq(tables.project.id, "project-id"));
+
+		let upstreamCalls = 0;
+		const originalFetch = globalThis.fetch;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+
+				if (url.includes(`${mockServerUrl}/v1/messages`)) {
+					upstreamCalls++;
+					const body = JSON.parse(init?.body as string) as {
+						tools?: Array<{ type?: string }>;
+					};
+					const searched = body.tools?.some(
+						(tool) => tool.type === "web_search_20250305",
+					);
+
+					return new Response(
+						JSON.stringify({
+							id: `msg_cache_${upstreamCalls}`,
+							type: "message",
+							role: "assistant",
+							model: "claude-sonnet-5",
+							content: [
+								{
+									type: "text",
+									text: searched ? "searched" : "no search",
+								},
+							],
+							stop_reason: "end_turn",
+							stop_sequence: null,
+							usage: { input_tokens: 15, output_tokens: 2 },
+						}),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					);
+				}
+
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+
+		const prompt = `Check today's news ${randomUUID()}`;
+		const makeRequest = (tools?: Array<Record<string, unknown>>) =>
+			app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "anthropic/claude-sonnet-5",
+					max_tokens: 10240,
+					messages: [{ role: "user", content: prompt }],
+					...(tools ? { tools } : {}),
+				}),
+			});
+
+		const originalNodeEnv = process.env.NODE_ENV;
+		try {
+			process.env.NODE_ENV = "development";
+			const toolLessResponse = await makeRequest();
+			expect(toolLessResponse.status).toBe(200);
+
+			process.env.NODE_ENV = originalNodeEnv;
+			const webSearchResponse = await makeRequest([
+				{
+					type: "web_search_20250305",
+					name: "web_search",
+					max_uses: 5,
+				},
+			]);
+
+			expect(webSearchResponse.status).toBe(200);
+			expect(webSearchResponse.headers.get("x-llmgateway-cache")).toBeNull();
+			expect(await webSearchResponse.json()).toMatchObject({
+				content: [{ type: "text", text: "searched" }],
+			});
+			expect(upstreamCalls).toBe(2);
+		} finally {
+			process.env.NODE_ENV = originalNodeEnv;
+			fetchSpy.mockRestore();
+		}
+	});
+
 	// Anthropic SDK clients key on the `msg_` id prefix; the inner
 	// /v1/chat/completions response carries an OpenAI-style `chatcmpl-` id.
 	test("/v1/messages returns an Anthropic msg_ id", async () => {
@@ -1112,6 +1222,42 @@ describe("api", () => {
 		expect(body.content[0].type).toBe("text");
 	});
 
+	test("/v1/messages accepts compatibility instruction roles", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				max_tokens: 100,
+				messages: [
+					{ role: "user", content: "Hello!" },
+					{ role: "system", content: "Be concise from now on." },
+					{ role: "developer", content: "Reply in plain text." },
+				],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+	});
+
 	test("/v1/messages renders schema validation failures as Anthropic errors", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
@@ -1148,6 +1294,101 @@ describe("api", () => {
 		const logs = await waitForLogs(1);
 		expect(logs[0].finishReason).toBe("client_error");
 		expect(logs[0].errorDetails?.responseText).toContain("max_tokens");
+	});
+
+	test("/v1/messages rejects unknown message roles", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				max_tokens: 100,
+				messages: [{ role: "invalid", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as {
+			type: string;
+			error: { type: string; message: string };
+		};
+		expect(body.type).toBe("error");
+		expect(body.error.type).toBe("invalid_request_error");
+		expect(body.error.message).toContain("Invalid enum value");
+
+		const logs = await waitForLogs(1);
+		expect(logs[0].finishReason).toBe("client_error");
+	});
+
+	test("/v1/chat/completions logs invalid message roles", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const requestId = "invalid-chat-role-request";
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+				"x-request-id": requestId,
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				messages: [{ role: "invalid", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const log = await waitForLogByRequestId(requestId);
+		expect(log.finishReason).toBe("client_error");
+		expect(log.apiOrigin).toBe("chat-completions");
+		expect(log.errorDetails?.cause).toBe("invalid_parameters");
+	});
+
+	test("/v1/responses logs invalid message roles", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const requestId = "invalid-responses-role-request";
+		const res = await app.request("/v1/responses", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+				"x-request-id": requestId,
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				input: [{ role: "invalid", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const log = await waitForLogByRequestId(requestId);
+		expect(log.finishReason).toBe("client_error");
+		expect(log.apiOrigin).toBe("responses");
+		expect(log.errorDetails?.cause).toBe("invalid_request");
 	});
 
 	test("/v1/messages explains an OpenAI-format tools rejection", async () => {
