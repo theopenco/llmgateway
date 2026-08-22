@@ -50,14 +50,25 @@ derive or round them when the provider publishes exact values.
 **Token semantics** — establish each from a live `usage` block:
 
 - Reasoning inside `completion_tokens`? `costs.ts` keys this on the
-  `completionIncludesReasoning` provider allowlist; a new provider that folds it
-  in must be added there or output double-bills. Verify both streaming and
-  non-streaming extraction. xAI is already special-cased to read
+  `completionIncludesReasoning` condition; a mapping that folds it in must be
+  added there or output double-bills. Verify both streaming and non-streaming
+  extraction. xAI is already special-cased to read
   `completion_tokens_details.reasoning_tokens`.
 - Cached tokens inside `prompt_tokens`? `costs.ts` assumes yes and subtracts
   them.
 - Cache writes priced (`cacheWriteInputPrice`, `cacheWriteInputPrice1h`)? A
   missing 1h rate silently bills 1h writes at the 5m rate.
+
+Scope token-semantics conclusions to the exact `(model, provider, region)`
+mapping. "OpenAI-compatible," another model on the same provider, or one API
+mode is not evidence for any other mapping. Before treating reasoning as part of
+completion, capture a response with nonzero reasoning in both streaming and
+non-streaming modes and verify the reported counters: when details exist,
+`reasoning_tokens + text_tokens === completion_tokens`, and
+`prompt_tokens + completion_tokens === total_tokens`. A nested reasoning field
+by itself proves only where the count is reported. Key the billing exception to
+the model as well as the provider unless every affected mapping was independently
+verified with the same semantics.
 
 **Reconcile.** Pin the provider and vary the prompt (Redis caches on the body):
 
@@ -104,7 +115,8 @@ Probe the deployment. The same model differs between providers, and an
   `model-metadata.spec.ts`.
 
 A new provider also needs a `providers.ts` entry, endpoint wiring in
-`get-provider-endpoint.ts`, and possibly a `completionIncludesReasoning` entry.
+`get-provider-endpoint.ts`, and possibly a mapping-scoped
+`completionIncludesReasoning` condition.
 
 ## 5. Reasoning efforts
 
@@ -214,7 +226,7 @@ sizes/qualities/durations match exactly what the deployment accepted in §6.
 | Reasoning-effort case 400s                    | trim the tier from `reasoningEfforts`                                                                |
 | Forced tool_choice 400s                       | narrow `supportedToolChoices`                                                                        |
 | Vision case 400s                              | `vision: false` on that mapping                                                                      |
-| Cost ~2x the provider's on reasoning requests | reasoning double-counted — add the provider to `completionIncludesReasoning`                         |
+| Cost ~2x the provider's on reasoning requests | reasoning may be double-counted — prove its usage semantics, then add the exact mapping to `completionIncludesReasoning` |
 | Cost far below on reasoning requests          | reasoning tokens never extracted (nested `completion_tokens_details`)                                |
 | Cost mismatch only on long prompts            | wrong or missing `pricingTiers` band                                                                 |
 | Manual curl hits the wrong provider           | missing `x-no-fallback: true`                                                                        |
