@@ -383,7 +383,6 @@ export const deepseekModels = [
 				// reasoning_effort.
 				reasoningEfforts: ["none", "high", "max"],
 				requiresDisableThinkingParam: true,
-				reasoningOutput: "omit",
 				vision: false,
 				tools: true,
 				jsonOutput: true,
@@ -830,7 +829,6 @@ export const deepseekModels = [
 				// through the `thinking` switch, not through reasoning_effort.
 				reasoningEfforts: ["none", "xhigh", "max"],
 				requiresDisableThinkingParam: true,
-				reasoningOutput: "omit",
 				vision: false,
 				tools: true,
 				jsonOutput: true,
