@@ -9,7 +9,6 @@ const peakPricedMapping = {
 	outputPrice: "0.28e-6",
 	cachedInputPrice: "0.0028e-6",
 	peakPricing: {
-		effectiveAt: "2026-08-16T16:00:00Z",
 		peak: {
 			inputPrice: "0.44e-6",
 			outputPrice: "1.32e-6",
@@ -24,6 +23,11 @@ const peakPricedMapping = {
 			[1, 4],
 			[6, 10],
 		],
+		offPeakDays: {
+			daysOfWeek: [0, 6],
+			utcOffsetMinutes: 480,
+			timeZoneLabel: "Beijing time",
+		},
 	},
 } satisfies Pick<
 	ProviderModelMapping,
@@ -79,61 +83,25 @@ describe("resolveTimeBasedPricing", () => {
 		});
 	});
 
-	const effectiveAtMapping = {
-		inputPrice: "0.14e-6",
-		outputPrice: "0.28e-6",
-		cachedInputPrice: "0.0028e-6",
-		peakPricing: {
-			effectiveAt: "2026-08-16T16:00:00Z",
-			peak: {
-				inputPrice: "0.44e-6",
-				outputPrice: "1.32e-6",
-				cachedInputPrice: "0.014e-6",
-			},
-			offPeak: {
-				inputPrice: "0.22e-6",
-				outputPrice: "0.66e-6",
-				cachedInputPrice: "0.007e-6",
-			},
-			hoursUtc: [
-				[1, 4],
-				[6, 10],
-			],
-		},
-	} satisfies Pick<
-		ProviderModelMapping,
-		"inputPrice" | "outputPrice" | "cachedInputPrice" | "peakPricing"
-	>;
-
-	it("returns the base (regular) prices before effectiveAt", () => {
-		expect(
-			resolveTimeBasedPricing(effectiveAtMapping, at("2026-08-16T15:59:00Z")),
-		).toEqual({
-			inputPrice: "0.14e-6",
-			outputPrice: "0.28e-6",
-			cachedInputPrice: "0.0028e-6",
+	it.each([
+		["Sunday", "2026-08-23T02:00:00Z"],
+		["Saturday", "2026-08-29T02:00:00Z"],
+	])("applies off-peak rates all day on Beijing %s", (_label, iso) => {
+		expect(resolveTimeBasedPricing(peakPricedMapping, at(iso))).toEqual({
+			inputPrice: "0.22e-6",
+			outputPrice: "0.66e-6",
+			cachedInputPrice: "0.007e-6",
 		});
+	});
+
+	it("keeps peak rates on weekdays", () => {
 		expect(
-			resolveTimeBasedPricing(effectiveAtMapping, at("2026-08-16T16:00:00Z")),
-		).toEqual({
-			inputPrice: "0.22e-6",
-			outputPrice: "0.66e-6",
-			cachedInputPrice: "0.007e-6",
-		}); // at effectiveAt — off-peak rates apply
-		expect(
-			resolveTimeBasedPricing(effectiveAtMapping, at("2026-08-16T17:00:00Z")),
-		).toEqual({
-			inputPrice: "0.22e-6",
-			outputPrice: "0.66e-6",
-			cachedInputPrice: "0.007e-6",
-		}); // off-peak hour on effective date — off-peak rates
-		expect(
-			resolveTimeBasedPricing(effectiveAtMapping, at("2026-08-17T02:00:00Z")),
+			resolveTimeBasedPricing(peakPricedMapping, at("2026-08-24T02:00:00Z")),
 		).toEqual({
 			inputPrice: "0.44e-6",
 			outputPrice: "1.32e-6",
 			cachedInputPrice: "0.014e-6",
-		}); // peak hour after effectiveAt — peak rates
+		});
 	});
 
 	it("returns undefined peak cached rate when peakPricing omits it", () => {
@@ -141,7 +109,6 @@ describe("resolveTimeBasedPricing", () => {
 			inputPrice: "0.14e-6",
 			outputPrice: "0.28e-6",
 			peakPricing: {
-				effectiveAt: "2026-08-16T16:00:00Z",
 				peak: {
 					inputPrice: "0.44e-6",
 					outputPrice: "1.32e-6",
