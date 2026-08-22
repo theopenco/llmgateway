@@ -1663,6 +1663,20 @@ describe("calculateCosts", () => {
 		expect(result.totalCost).toBeCloseTo(0.002118, 9);
 	});
 
+	it("bills Vertex Grok 4.6 reasoning outside completion tokens", async () => {
+		const result = await calculateCosts(
+			"grok-4-6",
+			"vertex-openai",
+			"global",
+			216,
+			1,
+			0,
+			undefined,
+			100,
+		);
+		expect(result.totalCost).toBeCloseTo(0.001038, 9);
+	});
+
 	it("multiplies the grok-imagine-image-2.0 tier by the image count", async () => {
 		// n=2 at low/1k billed $0.08 upstream, i.e. 2 x $0.04.
 		const result = await calculateCosts(

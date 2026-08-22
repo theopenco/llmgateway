@@ -6,9 +6,11 @@ export const completionsRequestSchema = z.object({
 	}),
 	messages: z.array(
 		z.object({
-			role: z.string().openapi({
-				example: "user",
-			}),
+			role: z
+				.enum(["developer", "system", "user", "assistant", "tool", "function"])
+				.openapi({
+					example: "user",
+				}),
 			content: z
 				.union([
 					z.string().openapi({

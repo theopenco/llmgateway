@@ -22,6 +22,7 @@ export const ROUTING_EXCLUSION_REASON_MESSAGES = {
 	reasoning_effort: "reasoning_effort not supported",
 	reasoning_max_tokens: "reasoning_max_tokens not supported",
 	tools: "tools not supported",
+	tool_choice: "requested tool_choice not supported",
 	web_search: "web_search not supported",
 	web_search_forced_only:
 		"web_search only supported when required via tool_choice",
@@ -72,6 +73,7 @@ export const ROUTING_EXCLUSION_REASON_LABELS: Record<
 	reasoning_effort: "Reasoning effort",
 	reasoning_max_tokens: "Reasoning max tokens",
 	tools: "Tools",
+	tool_choice: "Tool choice",
 	web_search: "Web search",
 	web_search_forced_only: "Web search not required",
 	n_unsupported: "n > 1",

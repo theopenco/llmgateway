@@ -2448,6 +2448,21 @@ async function fetchGenericVideoStatus(
 		const upstreamContents = responseText
 			.trim()
 			.slice(0, VIDEO_JOB_UPSTREAM_ERROR_TEXT_LIMIT);
+		if (isContentFilterErrorText(upstreamContents)) {
+			return addRequestedVideoMetadata(job, {
+				...body,
+				status: "failed",
+				progress: 100,
+				error: {
+					code: typeof body.code === "string" ? body.code : undefined,
+					message:
+						typeof body.error === "string"
+							? body.error
+							: "Video generation rejected by content moderation",
+					details: body,
+				},
+			});
+		}
 		throw new Error(
 			`Upstream status request failed with status ${response.status}${
 				upstreamContents ? `: ${upstreamContents}` : ""

@@ -705,13 +705,14 @@ export function transformResponseToOpenai(
 				// Also update content and finish_reason with parsed values
 				if (transformedResponse.choices?.[0]?.message) {
 					const message = transformedResponse.choices[0].message;
-					// Update content with parsed content (handles JSON unwrapping for Mistral/Novita)
-					if (content !== null) {
+					// content/reasoning aggregate all choices when n > 1, so only
+					// write them into choice 0 for single-choice responses.
+					const isSingleChoice = transformedResponse.choices.length === 1;
+					if (content !== null && isSingleChoice) {
 						message.content = content;
 					}
-					if (reasoningContent !== null) {
+					if (reasoningContent !== null && isSingleChoice) {
 						message.reasoning = reasoningContent;
-						// Remove the old reasoning_content field if it exists
 						delete message.reasoning_content;
 					}
 				}
@@ -1150,10 +1151,13 @@ export function transformResponseToOpenai(
 				if (transformedResponse && typeof transformedResponse === "object") {
 					if (transformedResponse.choices?.[0]?.message) {
 						const message = transformedResponse.choices[0].message;
-						if (content !== null) {
+						// content/reasoning aggregate all choices when n > 1, so only
+						// write them into choice 0 for single-choice responses.
+						const isSingleChoice = transformedResponse.choices.length === 1;
+						if (content !== null && isSingleChoice) {
 							message.content = content;
 						}
-						if (reasoningContent !== null) {
+						if (reasoningContent !== null && isSingleChoice) {
 							message.reasoning = reasoningContent;
 							delete message.reasoning_content;
 						}
@@ -1249,10 +1253,13 @@ export function transformResponseToOpenai(
 				if (transformedResponse && typeof transformedResponse === "object") {
 					if (transformedResponse.choices?.[0]?.message) {
 						const message = transformedResponse.choices[0].message;
-						if (content !== null) {
+						// content/reasoning aggregate all choices when n > 1, so only
+						// write them into choice 0 for single-choice responses.
+						const isSingleChoice = transformedResponse.choices.length === 1;
+						if (content !== null && isSingleChoice) {
 							message.content = content;
 						}
-						if (reasoningContent !== null) {
+						if (reasoningContent !== null && isSingleChoice) {
 							message.reasoning = reasoningContent;
 							delete message.reasoning_content;
 						}
@@ -1349,10 +1356,13 @@ export function transformResponseToOpenai(
 				if (transformedResponse && typeof transformedResponse === "object") {
 					if (transformedResponse.choices?.[0]?.message) {
 						const message = transformedResponse.choices[0].message;
-						if (content !== null) {
+						// content/reasoning aggregate all choices when n > 1, so only
+						// write them into choice 0 for single-choice responses.
+						const isSingleChoice = transformedResponse.choices.length === 1;
+						if (content !== null && isSingleChoice) {
 							message.content = content;
 						}
-						if (reasoningContent !== null) {
+						if (reasoningContent !== null && isSingleChoice) {
 							message.reasoning = reasoningContent;
 							delete message.reasoning_content;
 						}
@@ -1457,13 +1467,14 @@ export function transformResponseToOpenai(
 				// Ensure content and reasoning fields are present with parsed/healed values
 				if (transformedResponse.choices?.[0]?.message) {
 					const message = transformedResponse.choices[0].message;
-					// Update content with parsed content (includes healed JSON for response healing)
-					if (content !== null) {
+					// content/reasoning aggregate all choices when n > 1, so only
+					// write them into choice 0 for single-choice responses.
+					const isSingleChoice = transformedResponse.choices.length === 1;
+					if (content !== null && isSingleChoice) {
 						message.content = content;
 					}
-					if (reasoningContent !== null) {
+					if (reasoningContent !== null && isSingleChoice) {
 						message.reasoning = reasoningContent;
-						// Remove the old reasoning_content field if it exists
 						delete message.reasoning_content;
 					}
 					// Add annotations if present

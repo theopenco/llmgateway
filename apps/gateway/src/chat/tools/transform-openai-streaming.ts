@@ -100,11 +100,13 @@ export function transformOpenaiStreaming(
 		) {
 			delete newDelta.tool_calls;
 		} else if (Array.isArray(newDelta.tool_calls)) {
-			// Some upstreams announce a tool call before sending its function data.
-			// Strict OpenAI clients still require the function key on every frame.
+			// Some upstreams announce a tool call with null placeholders before
+			// sending its function data. Strict OpenAI clients still require the
+			// function key and reject a present type unless it is "function".
 			newDelta.tool_calls = newDelta.tool_calls.map(
 				(toolCall: Record<string, unknown>) => ({
 					...toolCall,
+					type: toolCall.type ?? "function",
 					function: toolCall.function ?? {},
 				}),
 			);

@@ -75,6 +75,7 @@ export function adaptProviderMapping(
 			reasoningEfforts: p.reasoningEfforts ?? null,
 			reasoningOutput: p.reasoningOutput ?? null,
 			reasoningMaxTokens: p.reasoningMaxTokens ?? null,
+			rerank: p.rerank ?? null,
 			tools: p.tools ?? null,
 			jsonOutput: p.jsonOutput ?? null,
 			jsonOutputSchema: p.jsonOutputSchema ?? null,

@@ -243,6 +243,7 @@ export function OrgModelsClient({
 				reasoning: model.reasoning,
 				reasoningOutput: null,
 				reasoningMaxTokens: null,
+				rerank: null,
 				tools: model.tools,
 				jsonOutput: model.jsonOutput,
 				jsonOutputSchema: null,

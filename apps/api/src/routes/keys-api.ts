@@ -17,6 +17,7 @@ import { getUserProjectIds } from "@/utils/authorization.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
+	and,
 	apiKeyPeriodDurationMaxValues,
 	apiKeyPeriodDurationUnits,
 	cdb,
@@ -1254,10 +1255,22 @@ keysApi.openapi(list, async (c) => {
 		});
 	}
 
+	// Projects where the user is a "developer" member: developers may only ever
+	// see their OWN keys, regardless of whether the listing is project-scoped.
+	const developerProjectIds = new Set(
+		userOrgs
+			.filter((org) => org.role === "developer")
+			.flatMap((org) =>
+				org
+					.organization!.projects.filter(
+						(project) => project.status !== "deleted",
+					)
+					.map((project) => project.id),
+			),
+	);
+
 	// Determine user's role for the relevant organization
 	let userRole: "owner" | "admin" | "developer" = "developer";
-	// Project-scoped "developer" members may only ever see their OWN keys.
-	let developerScoped = false;
 	if (projectId) {
 		const project = await db.query.project.findFirst({
 			where: {
@@ -1273,18 +1286,15 @@ keysApi.openapi(list, async (c) => {
 			);
 			if (userOrg) {
 				userRole = userOrg.role as "owner" | "admin" | "developer";
-				developerScoped = userRole === "developer";
 			}
 		}
 	}
 
-	// Owners/admins see all keys (with an optional "mine" filter); developers are
-	// always restricted to the keys they created.
-	const shouldFilterByCreator = filter === "mine" || developerScoped;
+	const shouldFilterByCreator = filter === "mine";
 
 	// Get regular keys plus the playground rows needed for the project-level
 	// virtual usage rollup. Never return the underlying playground credentials.
-	const [apiKeys, playgroundKeys] = await Promise.all([
+	const [fetchedApiKeys, playgroundKeys] = await Promise.all([
 		db.query.apiKey.findMany({
 			where: {
 				projectId: {
@@ -1318,9 +1328,11 @@ keysApi.openapi(list, async (c) => {
 						keyType: { eq: "user" },
 						kind: { eq: "playground" },
 						status: { ne: "deleted" },
-						...(shouldFilterByCreator && {
-							createdBy: { eq: user.id },
-						}),
+						...(shouldFilterByCreator || developerProjectIds.has(projectId)
+							? {
+									createdBy: { eq: user.id },
+								}
+							: {}),
 					},
 					columns: {
 						createdAt: true,
@@ -1331,6 +1343,11 @@ keysApi.openapi(list, async (c) => {
 				})
 			: Promise.resolve([]),
 	]);
+
+	const apiKeys = fetchedApiKeys.filter(
+		(key) =>
+			key.createdBy === user.id || !developerProjectIds.has(key.projectId),
+	);
 
 	// Get organization plan info if projectId is specified. The cap is org-wide,
 	// so currentCount counts active developer keys across ALL of the org's
@@ -2559,25 +2576,36 @@ keysApi.openapi(updateIamRule, async (c) => {
 		});
 	}
 
-	// Get the existing rule to track changes
+	// Get the existing rule to track changes; the apiKeyId predicate is the
+	// tenant boundary — without it any authenticated user could target another
+	// organization's rule via {ruleId} (GHSA-pjj8-5gpw-f42r).
 	const existingRule = await db.query.apiKeyIamRule.findFirst({
 		where: {
 			id: {
 				eq: ruleId,
 			},
+			apiKeyId: {
+				eq: id,
+			},
 		},
 	});
 
+	if (!existingRule) {
+		throw new HTTPException(404, {
+			message: "IAM rule not found",
+		});
+	}
+
 	// Re-validate using the effective ruleType + ruleValue after merging
 	// with the existing rule, so partial updates can't bypass CIDR checks.
-	if (existingRule && (updateData.ruleType || updateData.ruleValue)) {
+	if (updateData.ruleType || updateData.ruleValue) {
 		validateIamRuleInput({
 			ruleType: updateData.ruleType ?? existingRule.ruleType,
 			ruleValue: updateData.ruleValue ?? existingRule.ruleValue,
 		});
 	}
 
-	const effectiveRuleType = updateData.ruleType ?? existingRule?.ruleType;
+	const effectiveRuleType = updateData.ruleType ?? existingRule.ruleType;
 	assertEnterpriseForIpCidrRule(
 		effectiveRuleType,
 		apiKey.project.organization?.id,
@@ -2591,7 +2619,12 @@ keysApi.openapi(updateIamRule, async (c) => {
 		[updatedRule] = await cdb
 			.update(tables.apiKeyIamRule)
 			.set(updateData)
-			.where(eq(tables.apiKeyIamRule.id, ruleId))
+			.where(
+				and(
+					eq(tables.apiKeyIamRule.id, ruleId),
+					eq(tables.apiKeyIamRule.apiKeyId, id),
+				),
+			)
 			.returning();
 	}
 
@@ -2611,17 +2644,17 @@ keysApi.openapi(updateIamRule, async (c) => {
 			apiKeyId: id,
 			changes: {
 				...(updateData.ruleType !== undefined &&
-				existingRule?.ruleType !== updateData.ruleType
+				existingRule.ruleType !== updateData.ruleType
 					? {
 							ruleType: {
-								old: existingRule?.ruleType,
+								old: existingRule.ruleType,
 								new: updateData.ruleType,
 							},
 						}
 					: {}),
 				...(updateData.status !== undefined &&
-				existingRule?.status !== updateData.status
-					? { status: { old: existingRule?.status, new: updateData.status } }
+				existingRule.status !== updateData.status
+					? { status: { old: existingRule.status, new: updateData.status } }
 					: {}),
 			},
 		},
@@ -2728,10 +2761,17 @@ keysApi.openapi(deleteIamRule, async (c) => {
 		});
 	}
 
-	// Delete the IAM rule
+	// Delete the IAM rule; the apiKeyId predicate is the tenant boundary —
+	// without it any authenticated user could delete another organization's
+	// rule via {ruleId} (GHSA-pjj8-5gpw-f42r).
 	const result = await cdb
 		.delete(tables.apiKeyIamRule)
-		.where(eq(tables.apiKeyIamRule.id, ruleId))
+		.where(
+			and(
+				eq(tables.apiKeyIamRule.id, ruleId),
+				eq(tables.apiKeyIamRule.apiKeyId, id),
+			),
+		)
 		.returning();
 
 	if (!result.length) {

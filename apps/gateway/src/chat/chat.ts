@@ -35,6 +35,7 @@ import {
 	type ManagedProviderAvailability,
 } from "@/lib/cached-queries.js";
 import { raceClientAbort } from "@/lib/client-abort.js";
+import { logGatewayClientError } from "@/lib/client-error-log.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import {
 	isCodingModel,
@@ -178,6 +179,7 @@ import {
 	type ProviderRequestBody,
 	providers,
 	resolveVertexTokenType,
+	type ToolChoiceType,
 	type VertexTokenType,
 	type WebSearchTool,
 	expandAllProviderRegions,
@@ -269,6 +271,7 @@ import {
 	exclusionReason,
 	getProviderFilterReasons,
 	mergeFilteredProvider,
+	preferToolChoiceCapableProviders,
 	recordFilteredProvider,
 } from "./tools/provider-filter-reasons.js";
 import {
@@ -692,14 +695,15 @@ function filterEligibleModelProviders(
 		audioFormats?: string[];
 		hasDocuments: boolean;
 		hasAssistantPrefill?: boolean;
+		toolChoice?: ToolChoiceType;
 		maxTokens?: number;
 		reasoningEffort?: string;
 		n?: number;
 		stream?: boolean;
 	},
-	filteredOut?: Array<{ providerId: string; reasons: string[] }>,
+	filteredOut?: FilteredProvider[],
 ): ProviderModelMapping[] {
-	return availableModelProviders.filter((provider) => {
+	const eligible = availableModelProviders.filter((provider) => {
 		if (
 			options.availableProviders &&
 			!options.availableProviders.includes(provider.providerId)
@@ -753,6 +757,12 @@ function filterEligibleModelProviders(
 
 		return true;
 	});
+
+	// The model is pinned here, so an unsupported tool_choice only narrows the
+	// candidates when another mapping of the same model can honour it — dropping
+	// the last candidate would fail a request that works today (downgraded to
+	// "auto" by prepareRequestBody).
+	return preferToolChoiceCapableProviders(eligible, options, filteredOut);
 }
 
 interface ContentFilterRoutingDecision {
@@ -1305,7 +1315,49 @@ export async function inspectImmediateStreamingProviderError(
 	};
 }
 
-export const chat = new OpenAPIHono<ServerTypes>();
+export const chat = new OpenAPIHono<ServerTypes>({
+	defaultHook: async (result, c) => {
+		if (result.success) {
+			return;
+		}
+
+		let rawBody: unknown = null;
+		let invalidJson = false;
+		try {
+			rawBody = await c.req.json();
+		} catch {
+			invalidJson = true;
+		}
+
+		const message = invalidJson
+			? "Invalid JSON in request body"
+			: "Invalid request parameters";
+		const cause = invalidJson ? "invalid_json" : "invalid_parameters";
+		logger.warn("Invalid chat completions request", {
+			issues: result.error.issues,
+			path: c.req.path,
+			method: c.req.method,
+		});
+		await logGatewayClientError(c, {
+			apiOrigin: "chat-completions",
+			rawBody,
+			message,
+			cause,
+		});
+
+		return c.json(
+			{
+				error: {
+					message,
+					type: "invalid_request_error",
+					param: null,
+					code: cause,
+				},
+			},
+			400,
+		);
+	},
+});
 
 const completions = createRoute({
 	operationId: "v1_chat_completions",
@@ -1522,10 +1574,21 @@ chat.openapi(completions, async (c) => {
 	try {
 		rawBody = await c.req.json();
 	} catch {
+		const message = "Invalid JSON in request body";
+		logger.warn("Invalid chat completions JSON", {
+			path: c.req.path,
+			method: c.req.method,
+		});
+		await logGatewayClientError(c, {
+			apiOrigin: "chat-completions",
+			rawBody: null,
+			message,
+			cause: "invalid_json",
+		});
 		return c.json(
 			{
 				error: {
-					message: "Invalid JSON in request body",
+					message,
 					type: "invalid_request_error",
 					param: null,
 					code: "invalid_json",
@@ -1538,10 +1601,22 @@ chat.openapi(completions, async (c) => {
 	// Validate against schema
 	const validationResult = completionsRequestSchema.safeParse(rawBody);
 	if (!validationResult.success) {
+		const message = "Invalid request parameters";
+		logger.warn("Invalid chat completions request", {
+			issues: validationResult.error.issues,
+			path: c.req.path,
+			method: c.req.method,
+		});
+		await logGatewayClientError(c, {
+			apiOrigin: "chat-completions",
+			rawBody,
+			message,
+			cause: "invalid_parameters",
+		});
 		return c.json(
 			{
 				error: {
-					message: "Invalid request parameters",
+					message,
 					type: "invalid_request_error",
 					param: null,
 					code: "invalid_parameters",
@@ -3627,6 +3702,11 @@ chat.openapi(completions, async (c) => {
 			// array; an empty tools list must not require function-tool support.
 			hasTools:
 				(tools !== undefined && tools.length > 0) || forcesFunctionTools,
+			// Auto routing can pick another model entirely, so a mapping that would
+			// have to downgrade the requested tool_choice is dropped outright rather
+			// than merely deprioritized.
+			toolChoice: tool_choice,
+			strictToolChoice: !dynamicRouteSelection,
 			reasoningEffort: reasoning_effort,
 			reasoningMaxTokens: reasoning_max_tokens,
 			noReasoning: no_reasoning,
@@ -3890,9 +3970,19 @@ chat.openapi(completions, async (c) => {
 					return true;
 				},
 			);
+			// A dynamic route has already fixed the model, so treat its providers like
+			// pinned-model candidates: prefer mappings that honour tool_choice, but keep
+			// the downgrade-to-auto fallback when none do.
+			const toolChoiceSuitableProviders = dynamicRouteSelection
+				? preferToolChoiceCapableProviders(
+						suitableProviders,
+						autoFilterOpts,
+						filteredOutForModel,
+					)
+				: suitableProviders;
 			const deduplicatedSuitableProviders =
 				await keepCheapestCustomRoutingMapping(
-					suitableProviders,
+					toolChoiceSuitableProviders,
 					modelDef.id,
 					project.organizationId,
 					providerDiscountResolver,
@@ -4237,6 +4327,7 @@ chat.openapi(completions, async (c) => {
 					audioFormats,
 					hasDocuments,
 					hasAssistantPrefill,
+					toolChoice: tool_choice,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 					n,
@@ -4620,6 +4711,7 @@ chat.openapi(completions, async (c) => {
 						audioFormats,
 						hasDocuments,
 						hasAssistantPrefill,
+						toolChoice: tool_choice,
 						maxTokens: max_tokens,
 						reasoningEffort: reasoning_effort,
 						n,
@@ -4864,6 +4956,7 @@ chat.openapi(completions, async (c) => {
 				audioFormats,
 				hasDocuments,
 				hasAssistantPrefill,
+				toolChoice: tool_choice,
 				maxTokens: max_tokens,
 				reasoningEffort: reasoning_effort,
 			};
@@ -5230,6 +5323,7 @@ chat.openapi(completions, async (c) => {
 					audioFormats,
 					hasDocuments,
 					hasAssistantPrefill,
+					toolChoice: tool_choice,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 					n,
@@ -6301,6 +6395,9 @@ chat.openapi(completions, async (c) => {
 			frequency_penalty,
 			presence_penalty,
 			response_format,
+			tools: tools?.length ? tools : undefined,
+			tool_choice,
+			webSearchTool,
 			reasoning_effort,
 			reasoning_max_tokens,
 			prompt_cache_key,
@@ -6311,7 +6408,7 @@ chat.openapi(completions, async (c) => {
 		};
 
 		if (stream) {
-			streamingCacheKey = generateStreamingCacheKey(cachePayload);
+			streamingCacheKey = generateStreamingCacheKey(project.id, cachePayload);
 			const cachedStreamingResponse =
 				await getStreamingCache(streamingCacheKey);
 			if (cachedStreamingResponse?.metadata.completed) {
@@ -6667,7 +6764,7 @@ chat.openapi(completions, async (c) => {
 				);
 			}
 		} else {
-			cacheKey = generateCacheKey(cachePayload);
+			cacheKey = generateCacheKey(project.id, cachePayload);
 			const cachedResponse = cacheKey ? await getCache(cacheKey) : null;
 			if (cachedResponse) {
 				// Log the cached request
