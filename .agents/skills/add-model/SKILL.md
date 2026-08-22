@@ -64,11 +64,15 @@ mapping. "OpenAI-compatible," another model on the same provider, or one API
 mode is not evidence for any other mapping. Before treating reasoning as part of
 completion, capture a response with nonzero reasoning in both streaming and
 non-streaming modes and verify the reported counters: when details exist,
-`reasoning_tokens + text_tokens === completion_tokens`, and
-`prompt_tokens + completion_tokens === total_tokens`. A nested reasoning field
-by itself proves only where the count is reported. Key the billing exception to
-the model as well as the provider unless every affected mapping was independently
-verified with the same semantics.
+record their exact relationship and verify whether
+`prompt_tokens + completion_tokens === total_tokens`. Do not assume
+`text_tokens` excludes reasoning: Kimi K3 reports
+`reasoning_tokens + text_tokens === completion_tokens`, while Alibaba Qwen 3.8
+Max can report `text_tokens === completion_tokens` with reasoning overlapping
+it. The total identity, not a nested field name, establishes whether completion
+already includes reasoning. Key the billing exception to the model as well as
+the provider unless every affected mapping was independently verified with the
+same semantics.
 
 **Reconcile.** Pin the provider and vary the prompt (Redis caches on the body):
 
