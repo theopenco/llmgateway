@@ -16,6 +16,7 @@ import {
 	findProjectById,
 	findOrganizationById,
 } from "@/lib/cached-queries.js";
+import { logGatewayClientError } from "@/lib/client-error-log.js";
 import { getOrganizationBlockReason } from "@/lib/organization-access.js";
 import {
 	setResponsesContext,
@@ -158,10 +159,21 @@ responses.post("/", async (c) => {
 			rawBody = await c.req.json();
 		}
 	} catch {
+		const message = "Invalid JSON in request body";
+		logger.warn("Invalid Responses API JSON", {
+			path: c.req.path,
+			method: c.req.method,
+		});
+		await logGatewayClientError(c, {
+			apiOrigin: "responses",
+			rawBody: null,
+			message,
+			cause: "invalid_json",
+		});
 		return c.json(
 			{
 				error: {
-					message: "Invalid JSON in request body",
+					message,
 					type: "invalid_request_error",
 					code: "invalid_json",
 				},
@@ -172,10 +184,22 @@ responses.post("/", async (c) => {
 
 	const validation = responsesRequestSchema.safeParse(rawBody);
 	if (!validation.success) {
+		const message = `Invalid request: ${formatValidationError(validation.error)}`;
+		logger.warn("Invalid Responses API request", {
+			issues: validation.error.issues,
+			path: c.req.path,
+			method: c.req.method,
+		});
+		await logGatewayClientError(c, {
+			apiOrigin: "responses",
+			rawBody,
+			message,
+			cause: "invalid_request",
+		});
 		return c.json(
 			{
 				error: {
-					message: `Invalid request: ${formatValidationError(validation.error)}`,
+					message,
 					type: "invalid_request_error",
 					code: "invalid_request",
 				},
@@ -674,10 +698,21 @@ responses.post("/compact", async (c) => {
 			rawBody = await c.req.json();
 		}
 	} catch {
+		const message = "Invalid JSON in request body";
+		logger.warn("Invalid Responses compact JSON", {
+			path: c.req.path,
+			method: c.req.method,
+		});
+		await logGatewayClientError(c, {
+			apiOrigin: "responses",
+			rawBody: null,
+			message,
+			cause: "invalid_json",
+		});
 		return c.json(
 			{
 				error: {
-					message: "Invalid JSON in request body",
+					message,
 					type: "invalid_request_error",
 					code: "invalid_json",
 				},
@@ -688,10 +723,22 @@ responses.post("/compact", async (c) => {
 
 	const validation = compactRequestSchema.safeParse(rawBody);
 	if (!validation.success) {
+		const message = `Invalid request: ${formatValidationError(validation.error)}`;
+		logger.warn("Invalid Responses compact request", {
+			issues: validation.error.issues,
+			path: c.req.path,
+			method: c.req.method,
+		});
+		await logGatewayClientError(c, {
+			apiOrigin: "responses",
+			rawBody,
+			message,
+			cause: "invalid_request",
+		});
 		return c.json(
 			{
 				error: {
-					message: `Invalid request: ${formatValidationError(validation.error)}`,
+					message,
 					type: "invalid_request_error",
 					code: "invalid_request",
 				},

@@ -101,6 +101,18 @@ describe("detectOpenAiChatCompletionsFields", () => {
 		).toEqual(["tools[1].function"]);
 	});
 
+	test("flags OpenAI-only message roles", () => {
+		expect(
+			detectOpenAiChatCompletionsFields({
+				messages: [
+					{ role: "developer", content: "be concise" },
+					{ role: "system", content: "new instructions" },
+					{ role: "tool", content: "done" },
+				],
+			}),
+		).toEqual(['messages[0].role "developer"', 'messages[2].role "tool"']);
+	});
+
 	test("flags OpenAI-only content parts and null assistant content", () => {
 		expect(
 			detectOpenAiChatCompletionsFields({

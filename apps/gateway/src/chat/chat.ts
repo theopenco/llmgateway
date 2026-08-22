@@ -35,6 +35,7 @@ import {
 	type ManagedProviderAvailability,
 } from "@/lib/cached-queries.js";
 import { raceClientAbort } from "@/lib/client-abort.js";
+import { logGatewayClientError } from "@/lib/client-error-log.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import {
 	isCodingModel,
@@ -1305,7 +1306,49 @@ export async function inspectImmediateStreamingProviderError(
 	};
 }
 
-export const chat = new OpenAPIHono<ServerTypes>();
+export const chat = new OpenAPIHono<ServerTypes>({
+	defaultHook: async (result, c) => {
+		if (result.success) {
+			return;
+		}
+
+		let rawBody: unknown = null;
+		let invalidJson = false;
+		try {
+			rawBody = await c.req.json();
+		} catch {
+			invalidJson = true;
+		}
+
+		const message = invalidJson
+			? "Invalid JSON in request body"
+			: "Invalid request parameters";
+		const cause = invalidJson ? "invalid_json" : "invalid_parameters";
+		logger.warn("Invalid chat completions request", {
+			issues: result.error.issues,
+			path: c.req.path,
+			method: c.req.method,
+		});
+		await logGatewayClientError(c, {
+			apiOrigin: "chat-completions",
+			rawBody,
+			message,
+			cause,
+		});
+
+		return c.json(
+			{
+				error: {
+					message,
+					type: "invalid_request_error",
+					param: null,
+					code: cause,
+				},
+			},
+			400,
+		);
+	},
+});
 
 const completions = createRoute({
 	operationId: "v1_chat_completions",
@@ -1522,10 +1565,21 @@ chat.openapi(completions, async (c) => {
 	try {
 		rawBody = await c.req.json();
 	} catch {
+		const message = "Invalid JSON in request body";
+		logger.warn("Invalid chat completions JSON", {
+			path: c.req.path,
+			method: c.req.method,
+		});
+		await logGatewayClientError(c, {
+			apiOrigin: "chat-completions",
+			rawBody: null,
+			message,
+			cause: "invalid_json",
+		});
 		return c.json(
 			{
 				error: {
-					message: "Invalid JSON in request body",
+					message,
 					type: "invalid_request_error",
 					param: null,
 					code: "invalid_json",
@@ -1538,10 +1592,22 @@ chat.openapi(completions, async (c) => {
 	// Validate against schema
 	const validationResult = completionsRequestSchema.safeParse(rawBody);
 	if (!validationResult.success) {
+		const message = "Invalid request parameters";
+		logger.warn("Invalid chat completions request", {
+			issues: validationResult.error.issues,
+			path: c.req.path,
+			method: c.req.method,
+		});
+		await logGatewayClientError(c, {
+			apiOrigin: "chat-completions",
+			rawBody,
+			message,
+			cause: "invalid_parameters",
+		});
 		return c.json(
 			{
 				error: {
-					message: "Invalid request parameters",
+					message,
 					type: "invalid_request_error",
 					param: null,
 					code: "invalid_parameters",

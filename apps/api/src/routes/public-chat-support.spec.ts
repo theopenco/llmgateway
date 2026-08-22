@@ -36,7 +36,11 @@ async function seedLimit(
 	return key;
 }
 
-async function sendMessage(ip: string, clientId: string): Promise<Response> {
+async function sendMessage(
+	ip: string,
+	clientId: string,
+	role: "user" | "developer" = "user",
+): Promise<Response> {
 	return await app.request("/public/chat-support", {
 		method: "POST",
 		headers: {
@@ -45,9 +49,7 @@ async function sendMessage(ip: string, clientId: string): Promise<Response> {
 		},
 		body: JSON.stringify({
 			clientId,
-			messages: [
-				{ id: "1", role: "user", parts: [{ type: "text", text: "hi" }] },
-			],
+			messages: [{ id: "1", role, parts: [{ type: "text", text: "hi" }] }],
 		}),
 	});
 }
@@ -60,6 +62,13 @@ describe("public chat support rate limiting", () => {
 		expect(blocked.status).toBe(429);
 		const json = await blocked.json();
 		expect(json.error).toContain("too quickly");
+	});
+
+	it("accepts the developer message role", async () => {
+		const ip = uniqueIp();
+		await seedLimit("burst", `ip:${ip}`, BURST_LIMIT_MAX);
+		const blocked = await sendMessage(ip, uniqueClientId(), "developer");
+		expect(blocked.status).toBe(429);
 	});
 
 	it("blocks messages once the clientId burst window is exhausted", async () => {

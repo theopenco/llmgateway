@@ -65,6 +65,22 @@ vi.mock("@llmgateway/logger", () => ({
 }));
 
 describe("responsesRequestSchema", () => {
+	it("accepts only Responses API message roles", () => {
+		for (const role of ["developer", "system", "user", "assistant"]) {
+			const result = responsesRequestSchema.safeParse({
+				model: "gpt-5",
+				input: [{ role, content: "hi" }],
+			});
+			expect(result.success).toBe(true);
+		}
+
+		const invalid = responsesRequestSchema.safeParse({
+			model: "gpt-5",
+			input: [{ role: "invalid", content: "hi" }],
+		});
+		expect(invalid.success).toBe(false);
+	});
+
 	it("accepts reasoning items with function call outputs", () => {
 		const result = responsesRequestSchema.safeParse({
 			model: "gpt-5.3-codex",

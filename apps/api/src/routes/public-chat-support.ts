@@ -417,7 +417,7 @@ async function persistMessage(
 // front and reject anything malformed instead of crashing deeper in the flow.
 const chatSupportMessageSchema = z.object({
 	id: z.string().optional(),
-	role: z.enum(["system", "user", "assistant"], {
+	role: z.enum(["system", "developer", "user", "assistant"], {
 		errorMap: () => ({ message: "Invalid message role" }),
 	}),
 	parts: z.array(z.object({ type: z.string() }).passthrough()),
@@ -457,7 +457,12 @@ publicChatSupport.post("/", async (c) => {
 		);
 	}
 	const { name, email, clientId } = parsed.data;
-	const messages = parsed.data.messages as unknown as UIMessage[];
+	const messages = parsed.data.messages.map((message) => ({
+		...message,
+		// AI SDK UI messages have no developer role. It has the same instruction
+		// precedence as system here, so normalize it before conversion.
+		role: message.role === "developer" ? "system" : message.role,
+	})) as unknown as UIMessage[];
 
 	// Checked only after validation so malformed requests can't consume the
 	// per-identifier buckets — or worse, trip the global breaker for free.
