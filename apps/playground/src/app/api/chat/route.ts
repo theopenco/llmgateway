@@ -1004,42 +1004,73 @@ export async function POST(req: Request) {
 		mcp_servers?.filter((server) => server.enabled) ?? [];
 
 	try {
-		// Create MCP clients for each enabled server (with timeout)
-		for (const server of enabledMcpServers) {
-			try {
-				// SSRF Protection: Validate URL before creating transport
-				const urlValidation = validateMcpServerUrl(server.url);
-				if (!urlValidation.valid) {
-					continue; // Skip this server
-				}
+		// Create MCP clients for all enabled servers in parallel (each with its
+		// own timeout) — the connections are independent, so connecting serially
+		// would stack the per-server latency ahead of the first token.
+		const connectionResults = await Promise.all(
+			enabledMcpServers.map(
+				async (server): Promise<McpClientWrapper | null> => {
+					try {
+						// SSRF Protection: Validate URL before creating transport
+						const urlValidation = validateMcpServerUrl(server.url);
+						if (!urlValidation.valid) {
+							return null; // Skip this server
+						}
 
-				// Use the official MCP SDK transport for better compatibility
-				const transport = new StreamableHTTPClientTransport(
-					urlValidation.url!,
-					{
-						requestInit: {
-							headers: server.apiKey
-								? { Authorization: `Bearer ${server.apiKey}` }
-								: undefined,
-						},
-					},
-				);
+						// Use the official MCP SDK transport for better compatibility
+						const transport = new StreamableHTTPClientTransport(
+							urlValidation.url!,
+							{
+								requestInit: {
+									headers: server.apiKey
+										? { Authorization: `Bearer ${server.apiKey}` }
+										: undefined,
+								},
+							},
+						);
 
-				const clientPromise = createMCPClient({ transport });
+						const clientPromise = createMCPClient({ transport });
 
-				// Add 10 second timeout to prevent hanging
-				const timeoutPromise = new Promise<never>((_, reject) => {
-					setTimeout(
-						() =>
-							reject(new Error(`MCP connection timeout for ${server.name}`)),
-						10000,
-					);
-				});
+						// Add 10 second timeout to prevent hanging
+						let timeoutId: ReturnType<typeof setTimeout> | undefined;
+						const timeoutPromise = new Promise<never>((_, reject) => {
+							timeoutId = setTimeout(
+								() =>
+									reject(
+										new Error(`MCP connection timeout for ${server.name}`),
+									),
+								10000,
+							);
+						});
 
-				const client = await Promise.race([clientPromise, timeoutPromise]);
-				mcpClients.push({ client, name: server.name });
-			} catch {
-				// Continue with other servers
+						try {
+							const client = await Promise.race([
+								clientPromise,
+								timeoutPromise,
+							]);
+							return { client, name: server.name };
+						} catch {
+							// Timeout or connection failure: losing the race does not
+							// cancel the connection attempt, so tear down the transport
+							// and close a client that may still resolve later.
+							void transport.close().catch(() => {});
+							void clientPromise
+								.then((client) => client.close())
+								.catch(() => {});
+							return null;
+						} finally {
+							clearTimeout(timeoutId);
+						}
+					} catch {
+						// Continue with other servers
+						return null;
+					}
+				},
+			),
+		);
+		for (const wrapper of connectionResults) {
+			if (wrapper) {
+				mcpClients.push(wrapper);
 			}
 		}
 
