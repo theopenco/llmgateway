@@ -138,6 +138,16 @@ const LOG_QUEUE_CONCURRENCY = Math.max(
 const CREDIT_BATCH_SIZE = Number(process.env.CREDIT_BATCH_SIZE) || 100;
 const BATCH_PROCESSING_INTERVAL_SECONDS =
 	Number(process.env.CREDIT_BATCH_INTERVAL) || 5;
+// How often the credit-processing heartbeat below is emitted. Independent of
+// the batch interval because the loop skips its sleep while draining a backlog,
+// which is exactly when the heartbeat's own query must not run every cycle.
+const CREDIT_HEARTBEAT_INTERVAL_SECONDS =
+	Number(process.env.CREDIT_HEARTBEAT_INTERVAL_SECONDS) || 30;
+// Upper bound on the backlog count so a large stall cannot turn the heartbeat
+// into a scan of the entire `log_processed_at_null_idx` partial index. Above
+// this the reported count saturates and `backlogCapped` is set.
+const CREDIT_BACKLOG_COUNT_CAP =
+	Number(process.env.CREDIT_BACKLOG_COUNT_CAP) || 100000;
 const VIDEO_JOB_POLL_INTERVAL_SECONDS =
 	Number(process.env.VIDEO_JOB_POLL_INTERVAL_SECONDS) || 5;
 const VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS =
@@ -1021,6 +1031,12 @@ export async function cleanupExpiredModelHistory(): Promise<void> {
 	}
 }
 
+// Number of consecutive `batchProcessLogs` transactions that rolled back. Reset
+// on every batch that commits, so a sustained value means the same batch keeps
+// failing rather than an occasional transient error.
+let creditBatchConsecutiveFailures = 0;
+let lastCreditHeartbeatAt = 0;
+
 export async function batchProcessLogs(): Promise<number> {
 	const lockAcquired = await acquireLock(CREDIT_PROCESSING_LOCK_KEY);
 	if (!lockAcquired) {
@@ -1773,6 +1789,8 @@ export async function batchProcessLogs(): Promise<number> {
 			return unprocessedLogs.rows.length;
 		});
 
+		creditBatchConsecutiveFailures = 0;
+
 		// Auto-deactivate provider keys that hit their spend limit. Goes through
 		// cdb so the gateway's provider_key read cache and SWR mirrors are
 		// invalidated and the key drops out of rotation promptly — and only runs
@@ -1838,15 +1856,83 @@ export async function batchProcessLogs(): Promise<number> {
 			}
 		}
 	} catch (error) {
+		creditBatchConsecutiveFailures++;
 		logger.error(
 			"Error processing batch credit deductions",
 			error instanceof Error ? error : new Error(String(error)),
+			{
+				kind: "credit-batch-error",
+				consecutiveFailures: creditBatchConsecutiveFailures,
+			},
 		);
 	} finally {
 		await releaseLock(CREDIT_PROCESSING_LOCK_KEY);
 	}
 
 	return processedCount;
+}
+
+/**
+ * Emits the credit-processing health heartbeat that alerting is built on.
+ *
+ * The per-row "log-process" line is written *inside* the batch transaction, so
+ * a batch that keeps rolling back re-logs the same rows every cycle and any
+ * throughput metric derived from it looks perfectly healthy while nothing is
+ * committed. This heartbeat reports only committed state — how far behind the
+ * oldest unprocessed log is, how big the backlog is, and how many batches in a
+ * row have failed — so a stall is visible as a stall.
+ *
+ * Reads `log` directly on purpose: the aggregation tables cannot answer "what
+ * has not been settled yet". Cost is bounded by CREDIT_BACKLOG_COUNT_CAP and
+ * the `log_processed_at_null_idx` partial index.
+ */
+export async function reportCreditProcessingHealth(
+	force = false,
+): Promise<void> {
+	const now = Date.now();
+	if (
+		!force &&
+		now - lastCreditHeartbeatAt < CREDIT_HEARTBEAT_INTERVAL_SECONDS * 1000
+	) {
+		return;
+	}
+	lastCreditHeartbeatAt = now;
+
+	// Diagnostics must never take the drain loop down with them.
+	try {
+		const result = await db.execute<{
+			backlog: number;
+			lag_seconds: number | null;
+		}>(sql`
+			SELECT
+				count(*)::int AS backlog,
+				COALESCE(EXTRACT(EPOCH FROM (now() - min(created_at))), 0)::float8 AS lag_seconds
+			FROM (
+				SELECT created_at
+				FROM ${log}
+				WHERE processed_at IS NULL
+				ORDER BY created_at ASC
+				LIMIT ${CREDIT_BACKLOG_COUNT_CAP}
+			) AS unprocessed
+		`);
+
+		const row = result.rows[0];
+		const backlog = Number(row?.backlog ?? 0);
+		const lagSeconds = Math.max(0, Number(row?.lag_seconds ?? 0));
+
+		logger.info("credit processing heartbeat", {
+			kind: "credit-batch",
+			backlog,
+			backlogCapped: backlog >= CREDIT_BACKLOG_COUNT_CAP,
+			lagSeconds,
+			consecutiveFailures: creditBatchConsecutiveFailures,
+			batchSize: CREDIT_BATCH_SIZE,
+		});
+	} catch (error) {
+		logger.warn("Failed to report credit processing health", {
+			error: error instanceof Error ? error.message : String(error),
+		});
+	}
 }
 
 async function checkLowBalanceAlerts(orgIds: string[]): Promise<void> {
@@ -2168,6 +2254,8 @@ async function runBatchProcessLoop() {
 		while (!isStopRequested()) {
 			try {
 				const processed = await batchProcessLogs();
+
+				await reportCreditProcessingHealth();
 
 				// A full batch means more unprocessed logs remain, so loop straight
 				// into the next batch instead of sleeping. Without this the loop is

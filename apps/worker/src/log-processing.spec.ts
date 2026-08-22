@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { afterAll, beforeEach, describe, expect, test } from "vitest";
+import { afterAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 import {
 	eq,
@@ -13,8 +13,9 @@ import {
 	apiKey,
 	user,
 } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 
-import { batchProcessLogs } from "./worker.js";
+import { batchProcessLogs, reportCreditProcessingHealth } from "./worker.js";
 
 describe("Log Processing", () => {
 	interface TestIds {
@@ -1126,6 +1127,94 @@ describe("Log Processing", () => {
 			});
 			expect(Number(updated!.usage)).toBeCloseTo(0.06, 8);
 			expect(updated!.status).toBe("inactive");
+		});
+	});
+
+	describe("reportCreditProcessingHealth", () => {
+		const tenMinutesMs = 10 * 60 * 1000;
+
+		interface HeartbeatFields {
+			kind: string;
+			backlog: number;
+			backlogCapped: boolean;
+			lagSeconds: number;
+			consecutiveFailures: number;
+			batchSize: number;
+		}
+
+		const findHeartbeat = (calls: unknown[][]) =>
+			calls.find((args) => args[0] === "credit processing heartbeat")?.[1] as
+				HeartbeatFields | undefined;
+
+		const insertUnprocessedLog = async (createdAt: Date) =>
+			await db.insert(log).values({
+				requestId: `heartbeat-${randomUUID()}`,
+				createdAt,
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.001,
+				cached: false,
+				usedMode: "credits",
+				duration: 1000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 100,
+				mode: "credits",
+			});
+
+		test("reports the backlog size and the age of the oldest unprocessed log", async () => {
+			const oldest = new Date(Date.now() - tenMinutesMs);
+			await insertUnprocessedLog(oldest);
+			await insertUnprocessedLog(new Date());
+
+			const info = vi.spyOn(logger, "info").mockImplementation(() => {});
+			try {
+				await reportCreditProcessingHealth(true);
+
+				const heartbeat = findHeartbeat(info.mock.calls);
+				expect(heartbeat).toBeTruthy();
+				expect(heartbeat!.kind).toBe("credit-batch");
+				expect(heartbeat!.backlog).toBe(2);
+				expect(heartbeat!.backlogCapped).toBe(false);
+				expect(heartbeat!.lagSeconds).toBeGreaterThanOrEqual(9 * 60);
+				expect(heartbeat!.consecutiveFailures).toBe(0);
+			} finally {
+				info.mockRestore();
+			}
+		});
+
+		test("reports an empty backlog with no lag once the batch has drained", async () => {
+			await insertUnprocessedLog(new Date(Date.now() - tenMinutesMs));
+			await batchProcessLogs();
+
+			const info = vi.spyOn(logger, "info").mockImplementation(() => {});
+			try {
+				await reportCreditProcessingHealth(true);
+
+				const heartbeat = findHeartbeat(info.mock.calls);
+				expect(heartbeat).toBeTruthy();
+				expect(heartbeat!.backlog).toBe(0);
+				expect(heartbeat!.lagSeconds).toBe(0);
+			} finally {
+				info.mockRestore();
+			}
+		});
+
+		test("throttles unforced heartbeats so a draining loop cannot spam the query", async () => {
+			await insertUnprocessedLog(new Date());
+			await reportCreditProcessingHealth(true);
+
+			const info = vi.spyOn(logger, "info").mockImplementation(() => {});
+			try {
+				await reportCreditProcessingHealth();
+
+				expect(findHeartbeat(info.mock.calls)).toBeUndefined();
+			} finally {
+				info.mockRestore();
+			}
 		});
 	});
 });
