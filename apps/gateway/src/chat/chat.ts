@@ -6342,7 +6342,7 @@ chat.openapi(completions, async (c) => {
 		};
 
 		if (stream) {
-			streamingCacheKey = generateStreamingCacheKey(cachePayload);
+			streamingCacheKey = generateStreamingCacheKey(project.id, cachePayload);
 			const cachedStreamingResponse =
 				await getStreamingCache(streamingCacheKey);
 			if (cachedStreamingResponse?.metadata.completed) {
@@ -6698,7 +6698,7 @@ chat.openapi(completions, async (c) => {
 				);
 			}
 		} else {
-			cacheKey = generateCacheKey(cachePayload);
+			cacheKey = generateCacheKey(project.id, cachePayload);
 			const cachedResponse = cacheKey ? await getCache(cacheKey) : null;
 			if (cachedResponse) {
 				// Log the cached request
