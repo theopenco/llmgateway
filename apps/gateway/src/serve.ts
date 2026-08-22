@@ -150,9 +150,9 @@ const realtimeShutdownGracePeriodMs =
 
 // How long to wait for handler tails (billing, log insertion) that outlive
 // their HTTP connection before closing the database pool and Redis. These are
-// a few DB/Redis round-trips, so 60s is generous.
+// a few DB/Redis round-trips, so 20s is generous.
 const pendingWorkTimeoutMs =
-	Number(process.env.SHUTDOWN_PENDING_WORK_TIMEOUT_MS) || 60000;
+	Number(process.env.SHUTDOWN_PENDING_WORK_TIMEOUT_MS) || 20000;
 
 const closeServer = (server: ServerType): Promise<void> => {
 	return new Promise((resolve, reject) => {
