@@ -341,9 +341,9 @@ When creating a new package in `packages/`, include these config files. Copy the
 
 **WE DO NOT USE CLOUDFLARE.** The edge in front of every deployed service is a GCP load balancer. `CF-Connecting-IP`, `CF-IPCountry` and every other `CF-*` header are therefore ALWAYS absent in production — anything keyed on them silently resolves to `null`/`"unknown"` for every visitor, which turns a per-IP rate limiter into one shared global bucket. Never write "Cloudflare overwrites this header, so it is the one we can trust": that reasoning does not apply here, and a `CF-*` value that does arrive is client-supplied and forgeable.
 
-- Never write a new IP extractor. Use `getClientIpFromContext` / `getClientIpFromHeaders` / `getClientIp` from `apps/api/src/lib/client-ip.ts` (or `getClientIpFromRequest` / `getClientIpFromForwardedFor` from `apps/gateway/src/lib/client-ip.ts`). They read `X-Forwarded-For` first, which is what the GCP load balancer sets, then fall back through the other proxy headers.
+- Never write a new IP extractor, in any app. Everything lives in `@llmgateway/shared/client-ip`: `getClientIp`, `getClientIpFromHeaders`, `getClientIpFromContext`, `getClientIpFromRequest`, `getClientIpFromForwardedFor`, `isPublicIp`, `ipMatchesCidr`, `anyCidrMatches`, `forwardedIpHeaders`. They read `X-Forwarded-For` first, which is what the GCP load balancer sets, then fall back through the other proxy headers. If a new caller needs a variant, add it there rather than inlining a header lookup.
 - For country, use `getCountryFromHeaders` (`apps/api/src/utils/request-country.ts`), which reads GCP's `X-Client-Region` / `X-Client-Geo-Location`.
-- A server-rendered page or Next.js proxy route that calls the API on a visitor's behalf must forward `x-forwarded-for`, or every visitor shares the calling server's rate-limit bucket.
+- A server-rendered page or Next.js proxy route that calls the API on a visitor's behalf must spread `forwardedIpHeaders(headers)` into the request, or every visitor shares the calling server's rate-limit bucket.
 
 ### Testing and Quality Assurance
 

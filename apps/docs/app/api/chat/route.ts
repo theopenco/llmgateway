@@ -11,6 +11,7 @@ import { z } from "zod";
 import { source } from "@/lib/source";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { getClientIpFromHeaders } from "@llmgateway/shared/client-ip";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -69,18 +70,6 @@ function isGlobalAllowed(max: number, windowMs: number): boolean {
 	}
 	globalHits.push(now);
 	return true;
-}
-
-// Mirrors the header precedence of the API's `getClientIp` — X-Forwarded-For
-// first, since that is what the load balancer in front of us sets. The docs
-// app cannot import from apps/api, hence the local copy.
-function extractClientIP(req: Request): string {
-	return (
-		req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-		req.headers.get("x-real-ip") ??
-		req.headers.get("x-client-ip") ??
-		"unknown"
-	);
 }
 
 interface CustomDocument extends DocumentData {
@@ -181,7 +170,7 @@ export async function POST(req: Request) {
 
 	// Narrower windows first so a blocked request doesn't consume the wider
 	// quotas; the global bucket last so per-IP rejections don't eat into it.
-	const ip = extractClientIP(req);
+	const ip = getClientIpFromHeaders(req.headers) ?? "unknown";
 	if (!isAllowed(`burst:${ip}`, BURST_LIMIT_MAX, BURST_LIMIT_WINDOW_MS)) {
 		return Response.json(
 			{

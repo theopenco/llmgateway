@@ -32,7 +32,6 @@ import {
 	findProjectById,
 	findProviderKey,
 } from "@/lib/cached-queries.js";
-import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import { assertProviderCompliant } from "@/lib/compliance.js";
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
@@ -57,6 +56,7 @@ import {
 	models as modelDefinitions,
 	resolveVertexTokenType,
 } from "@llmgateway/models";
+import { getClientIpFromRequest } from "@llmgateway/shared/client-ip";
 
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
 import type { ServerTypes } from "@/vars.js";

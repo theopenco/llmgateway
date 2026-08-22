@@ -4,7 +4,6 @@ import {
 	findActiveIamRules,
 	findActiveUserIamRules,
 } from "@/lib/cached-queries.js";
-import { anyCidrMatches } from "@/lib/client-ip.js";
 import { validateEndUserSessionModelAccess } from "@/lib/end-user-session.js";
 
 import {
@@ -14,6 +13,7 @@ import {
 	type ModelDefinition,
 	type ProviderId,
 } from "@llmgateway/models";
+import { anyCidrMatches } from "@llmgateway/shared/client-ip";
 
 import type { GatewayApiKey } from "@/lib/cached-queries.js";
 

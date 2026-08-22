@@ -33,7 +33,6 @@ import {
 	findProviderKey,
 } from "@/lib/cached-queries.js";
 import { raceClientAbort } from "@/lib/client-abort.js";
-import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import { assertProviderCompliant } from "@/lib/compliance.js";
 import {
 	applyEndUserSession,
@@ -69,6 +68,7 @@ import {
 	resolveVertexTokenType,
 	type VertexTokenType,
 } from "@llmgateway/models";
+import { getClientIpFromRequest } from "@llmgateway/shared/client-ip";
 
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
 import type { ServerTypes } from "@/vars.js";

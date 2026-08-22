@@ -6,9 +6,9 @@ import {
 	reportTrackedKeyError,
 	reportTrackedKeySuccess,
 } from "@/lib/api-key-health.js";
-import { getClientIpFromForwardedFor } from "@/lib/client-ip.js";
 
 import { logger } from "@llmgateway/logger";
+import { getClientIpFromForwardedFor } from "@llmgateway/shared/client-ip";
 
 import {
 	closeRealtimeSessionRecord,

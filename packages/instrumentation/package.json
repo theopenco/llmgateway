@@ -25,6 +25,7 @@
 		"@google-cloud/opentelemetry-cloud-trace-exporter": "3.0.0",
 		"@google-cloud/opentelemetry-cloud-trace-propagator": "0.21.0",
 		"@llmgateway/logger": "workspace:*",
+		"@llmgateway/shared": "workspace:*",
 		"@opentelemetry/api": "1.9.0",
 		"@opentelemetry/auto-instrumentations-node": "0.76.0",
 		"@opentelemetry/core": "2.8.0",

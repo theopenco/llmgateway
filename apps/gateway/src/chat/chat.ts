@@ -35,7 +35,6 @@ import {
 	type ManagedProviderAvailability,
 } from "@/lib/cached-queries.js";
 import { raceClientAbort } from "@/lib/client-abort.js";
-import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import {
 	isCodingModel,
 	providerSupportsCachedInput,
@@ -193,6 +192,7 @@ import {
 	isRecognizedCodingAgent,
 	normalizeSourceToAgentId,
 } from "@llmgateway/shared";
+import { getClientIpFromRequest } from "@llmgateway/shared/client-ip";
 import { parseCustomDynamicRouteModelRef } from "@llmgateway/shared/dynamic-route";
 import {
 	applyRoutingPreference,

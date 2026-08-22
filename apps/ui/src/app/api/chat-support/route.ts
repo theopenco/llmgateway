@@ -1,5 +1,7 @@
 import { getConfig } from "@/lib/config-server";
 
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
+
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
@@ -16,14 +18,7 @@ export async function POST(req: Request) {
 		headers["user-agent"] = userAgent;
 	}
 
-	// Forward the visitor's `x-forwarded-for` — the header the load balancer in
-	// front of us sets and the one the backend reads back. Without it every
-	// visitor reaches the backend from this server's address and shares a
-	// single per-IP rate-limit bucket.
-	const forwardedFor = req.headers.get("x-forwarded-for");
-	if (forwardedFor) {
-		headers["x-forwarded-for"] = forwardedFor;
-	}
+	Object.assign(headers, forwardedIpHeaders(req.headers));
 
 	const upstream = await fetch(target, {
 		method: "POST",

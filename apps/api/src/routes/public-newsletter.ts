@@ -2,9 +2,9 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import { redisClient } from "@/auth/config.js";
-import { getClientIpFromContext } from "@/lib/client-ip.js";
 
 import { logger } from "@llmgateway/logger";
+import { getClientIpFromContext } from "@llmgateway/shared/client-ip";
 
 import type { ServerTypes } from "@/vars.js";
 

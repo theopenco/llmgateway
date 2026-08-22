@@ -11,7 +11,6 @@ import { Hono } from "hono";
 import { z } from "zod";
 
 import { redisClient } from "@/auth/config.js";
-import { getClientIpFromContext } from "@/lib/client-ip.js";
 import {
 	fetchKnowledgePage,
 	getKnowledgeOverviews,
@@ -24,6 +23,7 @@ import { consumeRateLimit } from "@/utils/public-rate-limit.js";
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { and, db, desc, eq, isNull, tables } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
+import { getClientIpFromContext } from "@llmgateway/shared/client-ip";
 import { replyToEmail } from "@llmgateway/shared/email";
 
 import type { ServerTypes } from "@/vars.js";

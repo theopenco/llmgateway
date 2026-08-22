@@ -7,8 +7,8 @@ import { logger, toError } from "@llmgateway/logger";
  * exceeded. Fails open: a Redis outage must not take the public endpoints
  * down with it.
  *
- * Key the window on `getClientIpFromContext` (`@/lib/client-ip.js`) for
- * per-IP limits — never on a hand-rolled header lookup.
+ * Key the window on `getClientIpFromContext` (`@llmgateway/shared/client-ip`)
+ * for per-IP limits — never on a hand-rolled header lookup.
  */
 export async function consumeRateLimit(
 	key: string,

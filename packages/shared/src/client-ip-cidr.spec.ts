@@ -6,14 +6,12 @@ import {
 	ipMatchesCidr,
 } from "./client-ip.js";
 
-import type { Context } from "hono";
-
-function mockContext(headers: Record<string, string>): Context {
+function mockContext(headers: Record<string, string>) {
 	return {
 		req: {
 			header: (name: string) => headers[name.toLowerCase()],
 		},
-	} as unknown as Context;
+	};
 }
 
 describe("getClientIpFromRequest", () => {

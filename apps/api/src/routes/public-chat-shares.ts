@@ -1,9 +1,9 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 
-import { getClientIpFromContext } from "@/lib/client-ip.js";
 import { consumeRateLimit } from "@/utils/public-rate-limit.js";
 
 import { db, tables, eq, isNull, and, desc } from "@llmgateway/db";
+import { getClientIpFromContext } from "@llmgateway/shared/client-ip";
 
 import type { ServerTypes } from "@/vars.js";
 

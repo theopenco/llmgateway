@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -6,7 +7,8 @@ import { ForkChatButton } from "@/components/playground/fork-chat-button";
 import { Wordmark } from "@/components/ui/wordmark";
 import { getConfig } from "@/lib/config-server";
 import { parsePlaygroundMessageMetadata } from "@/lib/message-metadata";
-import { visitorIpHeaders } from "@/lib/visitor-ip";
+
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 
 import type { UIMessage } from "ai";
 import type { Metadata } from "next";
@@ -135,7 +137,7 @@ export async function generateMetadata({
 	try {
 		const response = await fetch(
 			`${config.apiBackendUrl}/public/chats/share/${shareId}`,
-			{ cache: "no-store", headers: await visitorIpHeaders() },
+			{ cache: "no-store", headers: forwardedIpHeaders(await headers()) },
 		);
 		if (response.ok) {
 			const data = (await response.json()) as SharedChatResponse;
@@ -192,7 +194,7 @@ export default async function SharedChatPage({
 		`${config.apiBackendUrl}/public/chats/share/${shareId}`,
 		{
 			cache: "no-store",
-			headers: await visitorIpHeaders(),
+			headers: forwardedIpHeaders(await headers()),
 		},
 	);
 
