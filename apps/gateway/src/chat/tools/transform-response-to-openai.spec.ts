@@ -7,6 +7,8 @@ import {
 	withCurrentRequestMetadataOnOpenAiResponse,
 } from "./transform-response-to-openai.js";
 
+import type { Provider } from "@llmgateway/models";
+
 const { setexMock } = vi.hoisted(() => ({
 	setexMock: vi.fn().mockResolvedValue("OK"),
 }));
@@ -448,6 +450,80 @@ describe("transformResponseToOpenai", () => {
 		expect(response.choices[0].message.content).toBe("variant 1");
 		expect(response.choices[1].message.content).toBe("variant 2");
 	});
+
+	// The OpenAI-compatible provider branches route through the same
+	// choice-aggregating parser default as the "openai" branch above, so the
+	// per-choice guard has to hold for them too.
+	test.each<Provider>([
+		"groq",
+		"together-ai",
+		"inference.net",
+		"bytedance",
+		"xai",
+		"zai",
+		"embercloud",
+		"deepseek",
+	])(
+		"does not overwrite choice 0 content on multi-choice %s responses",
+		(provider) => {
+			const json = {
+				id: "chatcmpl-multi",
+				object: "chat.completion",
+				created: 1,
+				model: "model-x",
+				choices: [
+					{
+						index: 0,
+						message: {
+							role: "assistant",
+							content: "variant 1",
+							reasoning_content: "reasoning 1",
+						},
+						finish_reason: "stop",
+					},
+					{
+						index: 1,
+						message: {
+							role: "assistant",
+							content: "variant 2",
+							reasoning_content: "reasoning 2",
+						},
+						finish_reason: "stop",
+					},
+				],
+				usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+			};
+
+			const response = transformResponseToOpenai(
+				provider,
+				"model-x",
+				json,
+				"variant 1variant 2",
+				"reasoning 1reasoning 2",
+				"stop",
+				10,
+				20,
+				30,
+				null,
+				null,
+				null,
+				[],
+				"model-x",
+				null,
+				"model-x",
+				null,
+				false,
+				null,
+				null,
+				"req_multi",
+			);
+
+			expect(response.choices[0].message.content).toBe("variant 1");
+			expect(response.choices[1].message.content).toBe("variant 2");
+			expect(response.choices[0].message.reasoning_content).toBe("reasoning 1");
+			expect(response.choices[1].message.reasoning_content).toBe("reasoning 2");
+		},
+	);
 
 	test("strips request-scoped metadata before caching", () => {
 		const response = stripRequestScopedMetadataFromOpenAiResponse({

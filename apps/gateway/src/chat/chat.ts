@@ -178,6 +178,7 @@ import {
 	type ProviderRequestBody,
 	providers,
 	resolveVertexTokenType,
+	type ToolChoiceType,
 	type VertexTokenType,
 	type WebSearchTool,
 	expandAllProviderRegions,
@@ -269,6 +270,7 @@ import {
 	exclusionReason,
 	getProviderFilterReasons,
 	mergeFilteredProvider,
+	preferToolChoiceCapableProviders,
 	recordFilteredProvider,
 } from "./tools/provider-filter-reasons.js";
 import {
@@ -692,14 +694,15 @@ function filterEligibleModelProviders(
 		audioFormats?: string[];
 		hasDocuments: boolean;
 		hasAssistantPrefill?: boolean;
+		toolChoice?: ToolChoiceType;
 		maxTokens?: number;
 		reasoningEffort?: string;
 		n?: number;
 		stream?: boolean;
 	},
-	filteredOut?: Array<{ providerId: string; reasons: string[] }>,
+	filteredOut?: FilteredProvider[],
 ): ProviderModelMapping[] {
-	return availableModelProviders.filter((provider) => {
+	const eligible = availableModelProviders.filter((provider) => {
 		if (
 			options.availableProviders &&
 			!options.availableProviders.includes(provider.providerId)
@@ -753,6 +756,12 @@ function filterEligibleModelProviders(
 
 		return true;
 	});
+
+	// The model is pinned here, so an unsupported tool_choice only narrows the
+	// candidates when another mapping of the same model can honour it — dropping
+	// the last candidate would fail a request that works today (downgraded to
+	// "auto" by prepareRequestBody).
+	return preferToolChoiceCapableProviders(eligible, options, filteredOut);
 }
 
 interface ContentFilterRoutingDecision {
@@ -3627,6 +3636,11 @@ chat.openapi(completions, async (c) => {
 			// array; an empty tools list must not require function-tool support.
 			hasTools:
 				(tools !== undefined && tools.length > 0) || forcesFunctionTools,
+			// Auto routing can pick another model entirely, so a mapping that would
+			// have to downgrade the requested tool_choice is dropped outright rather
+			// than merely deprioritized.
+			toolChoice: tool_choice,
+			strictToolChoice: !dynamicRouteSelection,
 			reasoningEffort: reasoning_effort,
 			reasoningMaxTokens: reasoning_max_tokens,
 			noReasoning: no_reasoning,
@@ -3890,9 +3904,19 @@ chat.openapi(completions, async (c) => {
 					return true;
 				},
 			);
+			// A dynamic route has already fixed the model, so treat its providers like
+			// pinned-model candidates: prefer mappings that honour tool_choice, but keep
+			// the downgrade-to-auto fallback when none do.
+			const toolChoiceSuitableProviders = dynamicRouteSelection
+				? preferToolChoiceCapableProviders(
+						suitableProviders,
+						autoFilterOpts,
+						filteredOutForModel,
+					)
+				: suitableProviders;
 			const deduplicatedSuitableProviders =
 				await keepCheapestCustomRoutingMapping(
-					suitableProviders,
+					toolChoiceSuitableProviders,
 					modelDef.id,
 					project.organizationId,
 					providerDiscountResolver,
@@ -4237,6 +4261,7 @@ chat.openapi(completions, async (c) => {
 					audioFormats,
 					hasDocuments,
 					hasAssistantPrefill,
+					toolChoice: tool_choice,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 					n,
@@ -4620,6 +4645,7 @@ chat.openapi(completions, async (c) => {
 						audioFormats,
 						hasDocuments,
 						hasAssistantPrefill,
+						toolChoice: tool_choice,
 						maxTokens: max_tokens,
 						reasoningEffort: reasoning_effort,
 						n,
@@ -4864,6 +4890,7 @@ chat.openapi(completions, async (c) => {
 				audioFormats,
 				hasDocuments,
 				hasAssistantPrefill,
+				toolChoice: tool_choice,
 				maxTokens: max_tokens,
 				reasoningEffort: reasoning_effort,
 			};
@@ -5230,6 +5257,7 @@ chat.openapi(completions, async (c) => {
 					audioFormats,
 					hasDocuments,
 					hasAssistantPrefill,
+					toolChoice: tool_choice,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 					n,
