@@ -972,8 +972,22 @@ export function GlobalStatsClient() {
 												<td className="px-3 py-2 font-mono text-xs">
 													{b.label}
 												</td>
-												<td className="px-3 py-2 text-right tabular-nums">
-													{metricFormatter(chartMetric)(b[chartMetric])}
+												<td
+													className="px-3 py-2 text-right tabular-nums"
+													title={
+														chartMetric === "totalTokens"
+															? numberFormatter.format(b.totalTokens)
+															: undefined
+													}
+												>
+													{chartMetric === "totalTokens"
+														? compactNumberFormatter.format(b.totalTokens)
+														: metricFormatter(chartMetric)(b[chartMetric])}
+													{chartMetric === "totalTokens" ? (
+														<span className="block whitespace-nowrap text-xs font-normal text-muted-foreground">
+															{`(in ${compactNumberFormatter.format(b.inputTokens)} · cached ${compactNumberFormatter.format(b.cachedTokens)} · out ${compactNumberFormatter.format(b.outputTokens)})`}
+														</span>
+													) : null}
 												</td>
 											</tr>
 										))
