@@ -974,6 +974,11 @@ export function GlobalStatsClient() {
 												</td>
 												<td className="px-3 py-2 text-right tabular-nums">
 													{metricFormatter(chartMetric)(b[chartMetric])}
+													{chartMetric === "totalTokens" ? (
+														<span className="block whitespace-nowrap text-xs font-normal text-muted-foreground">
+															{`(in ${compactNumberFormatter.format(b.inputTokens)} · cached ${compactNumberFormatter.format(b.cachedTokens)} · out ${compactNumberFormatter.format(b.outputTokens)})`}
+														</span>
+													) : null}
 												</td>
 											</tr>
 										))
