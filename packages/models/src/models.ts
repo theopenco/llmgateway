@@ -318,23 +318,14 @@ export interface ProviderModelMapping {
 	 */
 	pricingTiers?: PricingTier[];
 	/**
-	 * Peak/off-peak time-of-day pricing. The mapping's base
-	 * inputPrice/outputPrice/cachedInputPrice are the regular flat prices,
-	 * billed before `effectiveAt` (and always when `peakPricing` is absent).
-	 * On/after `effectiveAt`, `peak` applies while the current UTC hour falls
-	 * inside `hoursUtc` and `offPeak` applies otherwise. `offPeakDays` can
-	 * override those windows for provider-defined local calendar days. Only
-	 * DeepSeek's first-party API uses this today.
+	 * Peak/off-peak time-of-day pricing. When present, `peak` applies while the
+	 * current UTC hour falls inside `hoursUtc` and `offPeak` applies otherwise.
+	 * `offPeakDays` can override those windows for provider-defined local
+	 * calendar days. Only DeepSeek's first-party API uses this today.
 	 */
 	peakPricing?: {
 		/**
-		 * ISO-8601 instant when peak/off-peak pricing takes effect. Before
-		 * this date the mapping's base inputPrice/outputPrice/cachedInputPrice
-		 * (the regular flat rates) apply.
-		 */
-		effectiveAt: string;
-		/**
-		 * Prices charged during peak hours (on/after effectiveAt).
+		 * Prices charged during peak hours.
 		 */
 		peak: {
 			/**
@@ -353,7 +344,7 @@ export interface ProviderModelMapping {
 			cachedInputPrice?: Price;
 		};
 		/**
-		 * Prices charged during off-peak hours (on/after effectiveAt).
+		 * Prices charged during off-peak hours.
 		 */
 		offPeak: {
 			/**
@@ -379,10 +370,9 @@ export interface ProviderModelMapping {
 		/**
 		 * Local calendar days that are always billed off-peak. Days use
 		 * JavaScript's numbering (Sunday = 0, Saturday = 6), shifted from UTC by
-		 * `utcOffsetMinutes`. The override applies on/after its own effectiveAt.
+		 * `utcOffsetMinutes`.
 		 */
 		offPeakDays?: {
-			effectiveAt: string;
 			daysOfWeek: readonly number[];
 			utcOffsetMinutes: number;
 		};

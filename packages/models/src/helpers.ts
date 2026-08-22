@@ -198,11 +198,10 @@ export function supportsOpenAIExplicitPromptCache(modelName: string): boolean {
 /**
  * Resolve the per-token rates that apply to a mapping at a given instant.
  * Without `peakPricing`, the mapping's base inputPrice/outputPrice/
- * cachedInputPrice are always returned. With `peakPricing`, the base fields
- * (the regular flat rates) apply before `effectiveAt`; on/after it, the
- * `peak` rates apply while `now` (UTC) falls inside a peak window and the
- * `offPeak` rates otherwise. A matching `offPeakDays` calendar day overrides
- * the hourly windows once that rule is effective.
+ * cachedInputPrice are always returned. With `peakPricing`, the `peak` rates
+ * apply while `now` (UTC) falls inside a peak window and the `offPeak` rates
+ * otherwise. A matching `offPeakDays` calendar day overrides the hourly
+ * windows.
  */
 export function resolveTimeBasedPricing(
 	mapping: Pick<
@@ -223,19 +222,10 @@ export function resolveTimeBasedPricing(
 			cachedInputPrice: mapping.cachedInputPrice,
 		};
 	}
-	// Before effectiveAt, charge the base (regular flat) prices.
-	if (now.getTime() < Date.parse(peakPricing.effectiveAt)) {
-		return {
-			inputPrice: mapping.inputPrice ?? "0",
-			outputPrice: mapping.outputPrice ?? "0",
-			cachedInputPrice: mapping.cachedInputPrice,
-		};
-	}
 	const offPeakDays = peakPricing.offPeakDays;
 	const utcOffsetMilliseconds = (offPeakDays?.utcOffsetMinutes ?? 0) * 60_000;
 	const isOffPeakDay =
 		offPeakDays !== undefined &&
-		now.getTime() >= Date.parse(offPeakDays.effectiveAt) &&
 		offPeakDays.daysOfWeek.includes(
 			new Date(now.getTime() + utcOffsetMilliseconds).getUTCDay(),
 		);

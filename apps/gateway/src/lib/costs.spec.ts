@@ -2461,22 +2461,4 @@ describe("peak / off-peak time-of-day pricing (DeepSeek)", () => {
 		);
 		expect(flash.inputCost).toBeCloseTo(0.44);
 	});
-
-	it("bills base (regular flat) rates before effectiveAt", async () => {
-		vi.useFakeTimers({ shouldAdvanceTime: true });
-		vi.setSystemTime(new Date("2026-08-13T08:00:00Z")); // before effectiveAt
-
-		const flash = await calculateCosts(
-			"deepseek-v4-flash",
-			"deepseek",
-			null,
-			2_000_000,
-			1_000_000,
-			1_000_000,
-		);
-		// The base (regular) flat prices apply before effectiveAt
-		expect(flash.inputCost).toBeCloseTo(0.14); // base: 0.14e-6 * 1M (prompt - cached = 1M)
-		expect(flash.outputCost).toBeCloseTo(0.28); // base: 0.28e-6 * 1M
-		expect(flash.cachedInputCost).toBeCloseTo(0.0028); // base: 0.0028e-6 * 1M
-	});
 });

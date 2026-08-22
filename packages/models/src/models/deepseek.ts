@@ -283,16 +283,13 @@ export const deepseekModels = [
 			{
 				providerId: "deepseek",
 				externalId: "deepseek-v4-pro",
-				// Base fields are the regular flat rates, billed before
-				// effectiveAt (2026-08-16 16:00 UTC). On/after, peak hours
-				// (01:00-04:00 and 06:00-10:00 UTC) bill at the peak rates
-				// below, all other hours at the offPeak rates. From 2026-08-23
-				// Beijing time, weekends are off-peak all day.
+				// Peak hours (01:00-04:00 and 06:00-10:00 UTC) bill at the peak
+				// rates below. All other hours and Beijing-time weekends bill at
+				// the off-peak rates.
 				inputPrice: "0.435e-6",
 				outputPrice: "0.87e-6",
 				cachedInputPrice: "0.003625e-6",
 				peakPricing: {
-					effectiveAt: "2026-08-16T16:00:00Z",
 					peak: {
 						inputPrice: "1.32e-6",
 						outputPrice: "3.96e-6",
@@ -308,7 +305,6 @@ export const deepseekModels = [
 						[6, 10],
 					],
 					offPeakDays: {
-						effectiveAt: "2026-08-22T16:00:00Z",
 						daysOfWeek: [0, 6],
 						utcOffsetMinutes: 480,
 					},
@@ -607,16 +603,13 @@ export const deepseekModels = [
 			{
 				providerId: "deepseek",
 				externalId: "deepseek-v4-flash",
-				// Base fields are the regular flat rates, billed before
-				// effectiveAt (2026-08-16 16:00 UTC). On/after, peak hours
-				// (01:00-04:00 and 06:00-10:00 UTC) bill at the peak rates
-				// below, all other hours at the offPeak rates. From 2026-08-23
-				// Beijing time, weekends are off-peak all day.
+				// Peak hours (01:00-04:00 and 06:00-10:00 UTC) bill at the peak
+				// rates below. All other hours and Beijing-time weekends bill at
+				// the off-peak rates.
 				inputPrice: "0.14e-6",
 				outputPrice: "0.28e-6",
 				cachedInputPrice: "0.0028e-6",
 				peakPricing: {
-					effectiveAt: "2026-08-16T16:00:00Z",
 					peak: {
 						inputPrice: "0.44e-6",
 						outputPrice: "1.32e-6",
@@ -632,7 +625,6 @@ export const deepseekModels = [
 						[6, 10],
 					],
 					offPeakDays: {
-						effectiveAt: "2026-08-22T16:00:00Z",
 						daysOfWeek: [0, 6],
 						utcOffsetMinutes: 480,
 					},
