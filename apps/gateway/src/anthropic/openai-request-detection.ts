@@ -72,12 +72,6 @@ export function detectOpenAiChatCompletionsFields(raw: unknown): string[] {
 			if (!isRecord(message)) {
 				return;
 			}
-			if (
-				typeof message.role === "string" &&
-				["developer", "tool", "function"].includes(message.role)
-			) {
-				found.push(`messages[${index}].role "${message.role}"`);
-			}
 			// OpenAI assistant turns that only call tools carry `content: null`;
 			// Anthropic requires a string or a content-block array.
 			if (message.content === null) {

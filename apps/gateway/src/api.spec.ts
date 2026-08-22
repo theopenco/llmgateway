@@ -1112,7 +1112,7 @@ describe("api", () => {
 		expect(body.content[0].type).toBe("text");
 	});
 
-	test("/v1/messages accepts mid-conversation system messages", async () => {
+	test("/v1/messages accepts compatibility instruction roles", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			token: "real-token",
@@ -1140,6 +1140,7 @@ describe("api", () => {
 				messages: [
 					{ role: "user", content: "Hello!" },
 					{ role: "system", content: "Be concise from now on." },
+					{ role: "developer", content: "Reply in plain text." },
 				],
 			}),
 		});
@@ -1185,7 +1186,7 @@ describe("api", () => {
 		expect(logs[0].errorDetails?.responseText).toContain("max_tokens");
 	});
 
-	test("/v1/messages rejects non-Anthropic message roles", async () => {
+	test("/v1/messages rejects unknown message roles", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			token: "real-token",
@@ -1203,7 +1204,7 @@ describe("api", () => {
 			body: JSON.stringify({
 				model: "llmgateway/custom",
 				max_tokens: 100,
-				messages: [{ role: "developer", content: "Hello!" }],
+				messages: [{ role: "invalid", content: "Hello!" }],
 			}),
 		});
 
@@ -1214,7 +1215,7 @@ describe("api", () => {
 		};
 		expect(body.type).toBe("error");
 		expect(body.error.type).toBe("invalid_request_error");
-		expect(body.error.message).toContain("/v1/chat/completions");
+		expect(body.error.message).toContain("Invalid enum value");
 
 		const logs = await waitForLogs(1);
 		expect(logs[0].finishReason).toBe("client_error");

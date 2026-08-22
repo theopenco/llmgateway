@@ -110,7 +110,14 @@ export const anthropic = new OpenAPIHono<ServerTypes>({
 });
 
 const anthropicMessageSchema = z.object({
-	role: z.enum(["system", "user", "assistant"]),
+	role: z.enum([
+		"system",
+		"developer",
+		"user",
+		"assistant",
+		"tool",
+		"function",
+	]),
 	content: z.union([
 		z.string(),
 		z.array(
@@ -644,7 +651,39 @@ anthropic.openapi(messages, async (c) => {
 
 	// Transform messages using the approach from claude-code-proxy
 
+	// Ids of preceding assistant `function_call` turns (synthesized when the
+	// client omitted one), so the legacy `function` result that follows can
+	// reference the same call. Falling back to the function name instead would
+	// break the tool_call_id pairing contract of the inner completions endpoint.
+	const pendingLegacyToolCallIds: string[] = [];
+
 	for (const message of anthropicRequest.messages) {
+		// Handle tool role → convert to OpenAI tool format
+		if (message.role === "tool") {
+			openaiMessages.push({
+				role: "tool",
+				content:
+					typeof message.content === "string"
+						? message.content
+						: JSON.stringify(message.content),
+				tool_call_id: message.tool_call_id,
+			});
+			continue;
+		}
+
+		// Handle function role → convert to OpenAI tool format (legacy)
+		if (message.role === "function") {
+			openaiMessages.push({
+				role: "tool",
+				content: message.content,
+				tool_call_id:
+					message.tool_call_id ??
+					pendingLegacyToolCallIds.shift() ??
+					message.name,
+			});
+			continue;
+		}
+
 		// Handle assistant messages with tool_calls (OpenAI format)
 		if (message.role === "assistant" && message.tool_calls) {
 			openaiMessages.push({
@@ -658,6 +697,7 @@ anthropic.openapi(messages, async (c) => {
 		// Handle assistant messages with function_call (legacy OpenAI format)
 		if (message.role === "assistant" && message.function_call) {
 			const toolCallId = message.function_call.id ?? `call_${randomUUID()}`;
+			pendingLegacyToolCallIds.push(toolCallId);
 
 			const toolCalls = [
 				{
