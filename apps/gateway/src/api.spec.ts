@@ -9034,6 +9034,90 @@ describe("api", () => {
 			);
 		});
 
+		test("final stream usage aligns total with an estimated completion", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "openai",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const sse = [
+				`data: ${JSON.stringify({
+					id: "chatcmpl-zero-usage",
+					object: "chat.completion.chunk",
+					created: 1,
+					model: "gpt-4o-mini",
+					choices: [
+						{
+							index: 0,
+							delta: {
+								role: "assistant",
+								content: "Estimated completion output",
+							},
+							finish_reason: null,
+						},
+					],
+				})}\n\n`,
+				`data: ${JSON.stringify({
+					id: "chatcmpl-zero-usage",
+					object: "chat.completion.chunk",
+					created: 1,
+					model: "gpt-4o-mini",
+					choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+					usage: {
+						prompt_tokens: 10,
+						completion_tokens: 0,
+						total_tokens: 10,
+					},
+				})}\n\n`,
+				"data: [DONE]\n\n",
+			].join("");
+
+			const fetchSpy = spyUpstreamResponse(
+				`${mockServerUrl}/v1/chat/completions`,
+				sse,
+				"text/event-stream",
+			);
+
+			try {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "openai/gpt-4o-mini",
+						messages: [{ role: "user", content: "Return an answer" }],
+						stream: true,
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				const streamResult = await readAll(res.body);
+				const adjustedUsage = streamResult.chunks.find(
+					(chunk) => (chunk.usage?.completion_tokens ?? 0) > 0,
+				)?.usage;
+
+				expect(adjustedUsage).toBeDefined();
+				expect(adjustedUsage.total_tokens).toBe(
+					adjustedUsage.prompt_tokens + adjustedUsage.completion_tokens,
+				);
+			} finally {
+				fetchSpy.mockRestore();
+			}
+		});
+
 		test("empty non-streaming response is not billed", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",

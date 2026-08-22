@@ -9867,17 +9867,35 @@ chat.openapi(completions, async (c) => {
 										reasoningTokens,
 										fullReasoningContent,
 									);
+									const finalStreamPromptTokens = Math.max(
+										1,
+										streamingCosts.promptTokens ?? finalPromptTokens ?? 1,
+									);
+									const finalStreamCompletionTokens =
+										streamingCosts.completionTokens ??
+										finalCompletionTokens ??
+										0;
+									const canonicalCountsChanged =
+										finalStreamPromptTokens !== promptTokens ||
+										finalStreamCompletionTokens !== completionTokens;
+									const finalStreamTotalTokens =
+										finalTotalTokens !== null && !canonicalCountsChanged
+											? finalTotalTokens
+											: sumTotalTokens(
+													usedProvider,
+													finalStreamPromptTokens,
+													finalStreamCompletionTokens,
+													reasoningTokens,
+													{
+														model: usedInternalModel,
+														streamed: true,
+													},
+												);
 
 									const finalStreamUsage: Record<string, any> = {
-										prompt_tokens: Math.max(
-											1,
-											streamingCosts.promptTokens ?? finalPromptTokens ?? 1,
-										),
-										completion_tokens:
-											streamingCosts.completionTokens ??
-											finalCompletionTokens ??
-											0,
-										total_tokens: Math.max(1, finalTotalTokens ?? 0),
+										prompt_tokens: finalStreamPromptTokens,
+										completion_tokens: finalStreamCompletionTokens,
+										total_tokens: Math.max(1, finalStreamTotalTokens),
 										...(calculatedReasoningTokens !== null &&
 											calculatedReasoningTokens > 0 && {
 												reasoning_tokens: calculatedReasoningTokens,
