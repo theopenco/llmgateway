@@ -1,0 +1,1 @@
+ALTER TABLE "log" ADD COLUMN "processing_error" text;

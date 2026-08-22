@@ -3,8 +3,10 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeEach, describe, expect, test } from "vitest";
 
 import {
+	and,
 	eq,
 	isNull,
+	sql,
 	db,
 	tables,
 	log,
@@ -1126,6 +1128,186 @@ describe("Log Processing", () => {
 			});
 			expect(Number(updated!.usage)).toBeCloseTo(0.06, 8);
 			expect(updated!.status).toBe("inactive");
+		});
+	});
+
+	// A row that deterministically fails must never be able to hold up the
+	// queue: the batch always takes the oldest logs first, so without isolation
+	// one bad row freezes credit deduction for every organization.
+	describe("poison log isolation", () => {
+		const insertLog = async (overrides: Partial<typeof log.$inferInsert>) => {
+			const [entry] = await db
+				.insert(log)
+				.values({
+					requestId: `poison-request-${randomUUID()}`,
+					organizationId: testOrg.id,
+					projectId: testProject.id,
+					apiKeyId: testApiKey.id,
+					cost: 0.01,
+					cached: false,
+					usedMode: "credits",
+					duration: 1000,
+					requestedModel: "openai/gpt-4o-mini",
+					requestedProvider: "openai",
+					usedModel: "gpt-4o-mini",
+					usedProvider: "openai",
+					responseSize: 100,
+					mode: "credits",
+					...overrides,
+				})
+				.returning();
+			return entry;
+		};
+
+		/** Runs the queue until it is empty, with a hard cap so a stall fails. */
+		const drainQueue = async (maxPasses = 15) => {
+			for (let pass = 0; pass < maxPasses; pass++) {
+				const [remaining] = await db
+					.select({ id: log.id })
+					.from(log)
+					.where(
+						and(eq(log.organizationId, testOrg.id), isNull(log.processedAt)),
+					)
+					.limit(1);
+				if (!remaining) {
+					return pass;
+				}
+				await batchProcessLogs();
+			}
+			throw new Error(`queue still not drained after ${maxPasses} passes`);
+		};
+
+		test("processes logs whose project was hard-deleted", async () => {
+			// project_mode comes from a left join, so a deleted project yields NULL.
+			const entry = await insertLog({
+				projectId: `deleted-project-${randomUUID()}`,
+			});
+
+			await batchProcessLogs();
+
+			const processed = await db.query.log.findFirst({
+				where: { id: { eq: entry.id } },
+			});
+			expect(processed!.processedAt).toBeTruthy();
+			expect(processed!.processingError).toBeNull();
+
+			const org = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+			expect(Number(org!.credits)).toBeCloseTo(99.99, 8);
+		});
+
+		test("processes logs carrying a non-finite cost", async () => {
+			const entry = await insertLog({});
+			await db.execute(
+				sql`update "log" set cost = 'NaN'::real where id = ${entry.id}`,
+			);
+
+			await batchProcessLogs();
+
+			const processed = await db.query.log.findFirst({
+				where: { id: { eq: entry.id } },
+			});
+			expect(processed!.processedAt).toBeTruthy();
+			expect(processed!.processingError).toBeNull();
+
+			// NaN is read as "no cost recorded", so the balance stays intact
+			// instead of being poisoned.
+			const org = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+			expect(Number(org!.credits)).toBeCloseTo(100, 8);
+		});
+
+		test("quarantines an unreadable row without blocking the rest", async () => {
+			const poison = await insertLog({});
+			// `used_mode` has no database-level constraint, so an out-of-enum value
+			// is exactly the kind of row the strict parse chokes on.
+			await db.execute(
+				sql`update "log" set used_mode = 'bogus' where id = ${poison.id}`,
+			);
+			const healthy = await insertLog({ cost: 0.02 });
+
+			await batchProcessLogs();
+
+			const quarantined = await db.query.log.findFirst({
+				where: { id: { eq: poison.id } },
+			});
+			expect(quarantined!.processedAt).toBeTruthy();
+			expect(quarantined!.processingError).toBeTruthy();
+
+			const processed = await db.query.log.findFirst({
+				where: { id: { eq: healthy.id } },
+			});
+			expect(processed!.processedAt).toBeTruthy();
+			expect(processed!.processingError).toBeNull();
+
+			// Only the healthy log was billed.
+			const org = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+			expect(Number(org!.credits)).toBeCloseTo(99.98, 8);
+		});
+
+		test("quarantines a row whose update keeps failing", async () => {
+			const older = await insertLog({
+				cost: 0.01,
+				createdAt: new Date(Date.now() - 3000),
+			});
+			const poison = await insertLog({
+				requestId: "poison-guard-marker",
+				cost: 0.05,
+				createdAt: new Date(Date.now() - 2000),
+			});
+			const newer = await insertLog({
+				cost: 0.02,
+				createdAt: new Date(Date.now() - 1000),
+			});
+
+			// Make the poison row raise inside the transaction, the way a genuine
+			// deterministic SQL fault would. The quarantine write (which sets
+			// processing_error) is allowed through so the row can be retired.
+			await db.execute(sql`
+				create or replace function poison_log_guard() returns trigger as $$
+				begin
+					if new.request_id = 'poison-guard-marker' and new.processing_error is null then
+						raise exception 'poison row';
+					end if;
+					return new;
+				end;
+				$$ language plpgsql
+			`);
+			await db.execute(
+				sql`create trigger poison_log_guard before update on "log" for each row execute function poison_log_guard()`,
+			);
+
+			try {
+				await drainQueue();
+			} finally {
+				await db.execute(sql`drop trigger if exists poison_log_guard on "log"`);
+				await db.execute(sql`drop function if exists poison_log_guard()`);
+			}
+
+			const quarantined = await db.query.log.findFirst({
+				where: { id: { eq: poison.id } },
+			});
+			expect(quarantined!.processedAt).toBeTruthy();
+			expect(quarantined!.processingError).toContain("poison row");
+
+			for (const entry of [older, newer]) {
+				const processed = await db.query.log.findFirst({
+					where: { id: { eq: entry.id } },
+				});
+				expect(processed!.processedAt).toBeTruthy();
+				expect(processed!.processingError).toBeNull();
+			}
+
+			// The healthy logs on both sides of the poison row were still billed;
+			// only the quarantined one was skipped.
+			const org = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+			expect(Number(org!.credits)).toBeCloseTo(99.97, 8);
 		});
 	});
 });
