@@ -175,15 +175,44 @@ function wallClockFromNaive(value: string): WallClock {
  * The short name of `timeZone` at `at` — "UTC", "GMT+9", "EDT". Used to label
  * values that would otherwise be ambiguous about which zone they're in.
  *
- * Zones with DST have two names (EDT/EST), so this is evaluated at a specific
- * instant. Bucket labels have no instant of their own; they pass the current
- * time, which is right except for buckets on the far side of a changeover.
+ * Zones with DST have two names, so this is always evaluated at a specific
+ * instant: asking "now" for a January bucket would label it EDT in August.
  */
 export function formatZoneName(
 	timeZone: string,
 	at: Date = new Date(),
 ): string {
 	return wallClockInTimeZone(at, timeZone || UTC_TIME_ZONE).zone;
+}
+
+/** How far `timeZone` is from UTC at `date`, in ms. */
+function zoneOffsetMs(date: Date, timeZone: string): number {
+	const wall = wallClockInTimeZone(date, timeZone);
+	const asUtc = Date.UTC(
+		wall.year,
+		wall.month - 1,
+		wall.day,
+		wall.hour,
+		wall.minute,
+		wall.second,
+	);
+	return asUtc - Math.trunc(date.getTime() / 1000) * 1000;
+}
+
+/**
+ * The instant a naive wall-clock label refers to in `timeZone`. Two passes so
+ * the offset converges across a DST boundary, where the offset at the naive
+ * reading differs from the offset at the real instant.
+ */
+function instantFromZonedWallClock(label: string, timeZone: string): Date {
+	const naive = new Date(
+		`${label.length === 10 ? `${label}T00:00:00` : label}Z`,
+	);
+	if (Number.isNaN(naive.getTime())) {
+		return new Date();
+	}
+	const guess = new Date(naive.getTime() - zoneOffsetMs(naive, timeZone));
+	return new Date(naive.getTime() - zoneOffsetMs(guess, timeZone));
 }
 
 /**
@@ -211,7 +240,12 @@ export function formatBucketLabelWithZone(
 	pattern: DateFormat,
 	timeZone: string,
 ): string {
-	return `${formatBucketLabel(label, pattern)} ${formatZoneName(timeZone)}`;
+	const zone = isNaiveDateTimeString(label)
+		? // Resolve the bucket's own instant: a January bucket must read EST even
+			// when it is being viewed in August.
+			formatZoneName(timeZone, instantFromZonedWallClock(label, timeZone))
+		: formatZoneName(timeZone);
+	return `${formatBucketLabel(label, pattern)} ${zone}`;
 }
 
 /** The "YYYY-MM-DD" calendar day an instant falls on in `timeZone`. Matches

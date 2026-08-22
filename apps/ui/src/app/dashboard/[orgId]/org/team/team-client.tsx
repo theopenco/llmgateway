@@ -1,6 +1,5 @@
 "use client";
 
-import { format, subDays } from "date-fns";
 import {
 	BarChart3Icon,
 	Info,
@@ -90,6 +89,9 @@ import { applyUsageMode } from "@/lib/usage-mode";
 
 import {
 	SSO_TEAM_DEFAULT_DEVELOPER_BUDGET,
+	Time,
+	formatDayKey,
+	shiftDayKey,
 	useDisplayTimeZone,
 } from "@llmgateway/shared";
 
@@ -746,18 +748,22 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 		if (!searchParams.get("from") || !searchParams.get("to")) {
 			const params2 = new URLSearchParams(searchParams.toString());
 			params2.delete("days");
-			const today = new Date();
-			params2.set("from", format(subDays(today, 6), "yyyy-MM-dd"));
-			params2.set("to", format(today, "yyyy-MM-dd"));
+			// Anchor on the display zone's calendar day: the query below buckets
+			// in that zone, so a browser-local "today" can be a day off.
+			const today = formatDayKey(new Date(), displayTimeZone);
+			params2.set("from", shiftDayKey(today, -6));
+			params2.set("to", today);
 			router.replace(
 				`${buildOrgUrl("org/team")}?${params2.toString()}` as Route,
 			);
 		}
-	}, [showUsage, searchParams, router, buildOrgUrl]);
+	}, [showUsage, searchParams, router, buildOrgUrl, displayTimeZone]);
 
 	const fromStr =
-		searchParams.get("from") ?? format(subDays(new Date(), 6), "yyyy-MM-dd");
-	const toStr = searchParams.get("to") ?? format(new Date(), "yyyy-MM-dd");
+		searchParams.get("from") ??
+		shiftDayKey(formatDayKey(new Date(), displayTimeZone), -6);
+	const toStr =
+		searchParams.get("to") ?? formatDayKey(new Date(), displayTimeZone);
 
 	const { data: usageData } = api.useQuery(
 		"get",
@@ -1342,10 +1348,10 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 													)}
 												</TableCell>
 												<TableCell>
-													{format(new Date(invite.createdAt), "MMM d, yyyy")}
+													<Time date={invite.createdAt} format="monthDayYear" />
 												</TableCell>
 												<TableCell>
-													{format(new Date(invite.expiresAt), "MMM d, yyyy")}
+													<Time date={invite.expiresAt} format="monthDayYear" />
 												</TableCell>
 												{isAdmin && (
 													<TableCell className="text-right">

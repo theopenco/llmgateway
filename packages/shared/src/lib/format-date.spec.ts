@@ -163,6 +163,31 @@ describe("zone naming", () => {
 		).toBe("04:00 UTC");
 	});
 
+	it("labels a bucket with the zone name at the bucket's own instant", () => {
+		// Viewed at any time of year, a January bucket is EST and a July one EDT.
+		expect(
+			formatBucketLabelWithZone(
+				"2026-01-15T14:00:00",
+				"monthDayYearHourMinute",
+				"America/New_York",
+			),
+		).toBe("Jan 15, 2026 14:00 EST");
+		expect(
+			formatBucketLabelWithZone(
+				"2026-07-15T14:00:00",
+				"monthDayYearHourMinute",
+				"America/New_York",
+			),
+		).toBe("Jul 15, 2026 14:00 EDT");
+		expect(
+			formatBucketLabelWithZone(
+				"2026-01-15",
+				"monthDayYear",
+				"America/New_York",
+			),
+		).toBe("Jan 15, 2026 EST");
+	});
+
 	it("labels a bucket with the zone it was bucketed in", () => {
 		// The label itself stays literal; only the suffix comes from the zone.
 		expect(
@@ -172,9 +197,9 @@ describe("zone naming", () => {
 				"Asia/Tokyo",
 			),
 		).toBe("Aug 12, 2026 14:00 GMT+9");
-		expect(
-			formatBucketLabelWithZone("2026-08-12", "monthDayYear", "UTC"),
-		).toBe("Aug 12, 2026 UTC");
+		expect(formatBucketLabelWithZone("2026-08-12", "monthDayYear", "UTC")).toBe(
+			"Aug 12, 2026 UTC",
+		);
 	});
 });
 

@@ -1,6 +1,5 @@
 "use client";
 
-import { subDays, subHours, format } from "date-fns";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
 
@@ -41,6 +40,12 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { USAGE_MODE_ALL_TRAFFIC_NOTE } from "@/lib/usage-mode";
 
+import {
+	formatDayKey,
+	shiftDayKey,
+	useDisplayTimeZone,
+} from "@llmgateway/shared";
+
 import type { ActivitT } from "@/types/activity";
 
 interface UsageClientProps {
@@ -48,19 +53,22 @@ interface UsageClientProps {
 	projectId: string | undefined;
 }
 
-function timeRangeToDateRange(timeRange: TimeRangeValue) {
+/** Day keys for a range, in the zone the queries bucket by. Deriving them
+ *  from the browser calendar would ask for a day the API considers the future
+ *  whenever the two zones are on different dates. */
+function timeRangeToDayKeys(timeRange: TimeRangeValue, timeZone: string) {
 	const now = new Date();
+	const today = formatDayKey(now, timeZone);
 	switch (timeRange) {
 		case "1h":
-			return { from: subHours(now, 1), to: now };
 		case "4h":
-			return { from: subHours(now, 4), to: now };
+			return { from: today, to: today };
 		case "24h":
-			return { from: subDays(now, 1), to: now };
+			return { from: shiftDayKey(today, -1), to: today };
 		case "7d":
-			return { from: subDays(now, 7), to: now };
+			return { from: shiftDayKey(today, -7), to: today };
 		case "30d":
-			return { from: subDays(now, 30), to: now };
+			return { from: shiftDayKey(today, -30), to: today };
 	}
 }
 
@@ -69,6 +77,7 @@ export function UsageClient({
 	projectId,
 }: UsageClientProps) {
 	const router = useRouter();
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 	const searchParams = useSearchParams();
 	const { buildUrl } = useDashboardNavigation();
 	const api = useApi();
@@ -100,17 +109,17 @@ export function UsageClient({
 	// If no from/to params, set them based on timeRange
 	useEffect(() => {
 		if (!searchParams.get("from") || !searchParams.get("to")) {
-			const { from, to } = timeRangeToDateRange(timeRange);
+			const { from, to } = timeRangeToDayKeys(timeRange, displayTimeZone);
 			const params = new URLSearchParams(searchParams);
 			params.delete("days");
-			params.set("from", format(from, "yyyy-MM-dd"));
-			params.set("to", format(to, "yyyy-MM-dd"));
+			params.set("from", from);
+			params.set("to", to);
 			if (!params.has("timeRange")) {
 				params.set("timeRange", timeRange);
 			}
 			router.replace(`${buildUrl("usage")}?${params.toString()}`);
 		}
-	}, [searchParams, router, buildUrl, timeRange]);
+	}, [searchParams, router, buildUrl, timeRange, displayTimeZone]);
 
 	// Function to update apiKeyId in URL
 	const updateApiKeyIdInUrl = (newApiKeyId: string | undefined) => {
@@ -125,11 +134,11 @@ export function UsageClient({
 
 	// Function to update timeRange in URL
 	const updateTimeRange = (newTimeRange: TimeRangeValue) => {
-		const { from, to } = timeRangeToDateRange(newTimeRange);
+		const { from, to } = timeRangeToDayKeys(newTimeRange, displayTimeZone);
 		const params = new URLSearchParams(searchParams);
 		params.set("timeRange", newTimeRange);
-		params.set("from", format(from, "yyyy-MM-dd"));
-		params.set("to", format(to, "yyyy-MM-dd"));
+		params.set("from", from);
+		params.set("to", to);
 		params.delete("days");
 		router.push(`${buildUrl("usage")}?${params.toString()}`);
 	};
