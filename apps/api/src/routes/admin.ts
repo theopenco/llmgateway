@@ -10398,8 +10398,8 @@ const getProjectModelProviderStats = createRoute({
 				.enum(["logsCount", "errorsCount", "cost", "modelId", "providerId"])
 				.optional(),
 			sortOrder: z.enum(["asc", "desc"]).optional(),
-			limit: z.coerce.number().optional(),
-			offset: z.coerce.number().optional(),
+			limit: z.coerce.number().min(1).max(100).optional(),
+			offset: z.coerce.number().min(0).optional(),
 			from: z.string().optional(),
 			to: z.string().optional(),
 		}),
@@ -10645,8 +10645,8 @@ const getModelProviderMappings = createRoute({
 				])
 				.optional(),
 			sortOrder: z.enum(["asc", "desc"]).optional(),
-			limit: z.coerce.number().optional(),
-			offset: z.coerce.number().optional(),
+			limit: z.coerce.number().min(1).max(100).optional(),
+			offset: z.coerce.number().min(0).optional(),
 			from: z.string().optional(),
 			to: z.string().optional(),
 		}),
