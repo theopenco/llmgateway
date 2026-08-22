@@ -121,18 +121,28 @@ function toPublicUser(
 	};
 }
 
-function isAdminEmail(email: string | null | undefined): boolean {
+// Admin authority is keyed on the email address, so an unverified one must
+// never count — otherwise changing your email to an unregistered ADMIN_EMAILS
+// address would grant admin. Mirrors adminAuthMiddleware.
+function isAdminUser(userRecord: {
+	email: string | null | undefined;
+	emailVerified: boolean;
+}): boolean {
+	if (!userRecord.emailVerified) {
+		return false;
+	}
+
 	const adminEmailsEnv = process.env.ADMIN_EMAILS ?? "";
 	const adminEmails = adminEmailsEnv
 		.split(",")
 		.map((value) => value.trim().toLowerCase())
 		.filter(Boolean);
 
-	if (!email || adminEmails.length === 0) {
+	if (!userRecord.email || adminEmails.length === 0) {
 		return false;
 	}
 
-	return adminEmails.includes(email.toLowerCase());
+	return adminEmails.includes(userRecord.email.toLowerCase());
 }
 
 const get = createRoute({
@@ -175,7 +185,7 @@ user.openapi(get, async (c) => {
 	}
 
 	const authInfo = await getUserAuthInfo(authUser.id);
-	const isAdmin = isAdminEmail(user.email);
+	const isAdmin = isAdminUser(user);
 	const license = getEnterpriseLicenseStatus();
 
 	return c.json({
@@ -355,6 +365,29 @@ user.openapi(updateUser, async (c) => {
 		});
 	}
 
+	const emailChanged =
+		updateData.email !== undefined &&
+		updateData.email.toLowerCase() !== userRecord.email.toLowerCase();
+
+	// A new address is unproven until the owner clicks the verification link, so
+	// reject it if another account already holds it (clean 400 instead of a DB
+	// constraint 500) and drop `emailVerified` below. Skipping this let an
+	// attacker point their account at an invited/admin address and inherit its
+	// authority, since invite auto-accept and admin checks key on email.
+	if (emailChanged) {
+		const existing = await db.query.user.findFirst({
+			where: {
+				email: updateData.email!,
+				id: { ne: authUser.id },
+			},
+		});
+		if (existing) {
+			throw new HTTPException(400, {
+				message: "That email address is already in use",
+			});
+		}
+	}
+
 	// Resolve the final state. `username` is only present in updateData when the
 	// client explicitly sends it (including null to clear it); otherwise the
 	// existing value is kept.
@@ -390,6 +423,10 @@ user.openapi(updateUser, async (c) => {
 		.update(tables.user)
 		.set({
 			...updateData,
+			// A changed address must be re-proven before it grants any authority.
+			// On self-hosted deployments the next sign-in re-verifies it (see
+			// auth/config.ts); on hosted the verification banner prompts the user.
+			...(emailChanged ? { emailVerified: false } : {}),
 		})
 		.where(eq(tables.user.id, authUser.id))
 		.returning();
@@ -399,7 +436,7 @@ user.openapi(updateUser, async (c) => {
 		await updateResendContact(updatedUser.email, { name: updateData.name });
 	}
 
-	const isAdmin = isAdminEmail(updatedUser.email);
+	const isAdmin = isAdminUser(updatedUser);
 
 	return c.json({
 		user: toPublicUser(updatedUser, authInfo, isAdmin),
@@ -757,7 +794,7 @@ user.openapi(completeOnboarding, async (c) => {
 		});
 	}
 
-	const isAdmin = isAdminEmail(updatedUser.email);
+	const isAdmin = isAdminUser(updatedUser);
 
 	return c.json({
 		user: toPublicUser(updatedUser, authInfo, isAdmin),

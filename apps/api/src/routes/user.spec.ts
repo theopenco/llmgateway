@@ -364,4 +364,68 @@ describe("user accounts and email editability", () => {
 		const json = await res.json();
 		expect(json.user.accounts).toHaveLength(2);
 	});
+
+	it("PATCH /user/me should reset emailVerified when the email changes", async () => {
+		const res = await app.request("/user/me", {
+			method: "PATCH",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({ email: "changed@example.com" }),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.user.email).toBe("changed@example.com");
+		expect(json.user.emailVerified).toBe(false);
+		expect(json.user.isAdmin).toBe(false);
+
+		const stored = await db.query.user.findFirst({
+			where: { id: { eq: "test-user-id" } },
+		});
+		expect(stored!.emailVerified).toBe(false);
+	});
+
+	it("PATCH /user/me should keep emailVerified when the email is unchanged", async () => {
+		const res = await app.request("/user/me", {
+			method: "PATCH",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({ email: "admin@example.com", name: "Same Email" }),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.user.emailVerified).toBe(true);
+	});
+
+	it("PATCH /user/me should reject an email already used by another account", async () => {
+		await db.insert(tables.user).values({
+			id: "taken-user-id",
+			name: "Taken",
+			email: "taken@example.com",
+			emailVerified: true,
+		});
+
+		const res = await app.request("/user/me", {
+			method: "PATCH",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({ email: "taken@example.com" }),
+		});
+
+		expect(res.status).toBe(400);
+
+		const stored = await db.query.user.findFirst({
+			where: { id: { eq: "test-user-id" } },
+		});
+		expect(stored!.email).toBe("admin@example.com");
+
+		await db.delete(tables.user).where(eq(tables.user.id, "taken-user-id"));
+	});
 });
