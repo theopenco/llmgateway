@@ -124,6 +124,7 @@ export const openaiModels = [
 				tools: false, // Search models don't support additional tools
 				jsonOutput: false,
 				supportedParameters: ["max_tokens", "response_format"],
+				deactivatedAt: new Date("2026-08-22"),
 			},
 		],
 	},
@@ -150,6 +151,7 @@ export const openaiModels = [
 				tools: false, // Search models don't support additional tools
 				jsonOutput: false,
 				supportedParameters: ["max_tokens", "response_format"],
+				deactivatedAt: new Date("2026-08-22"),
 			},
 		],
 	},
