@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { redisClient } from "@/auth/config.js";
 import { app } from "@/index.js";
 
+import { logger } from "@llmgateway/logger";
 import { randomInt, uniqueId } from "@llmgateway/shared/random";
 
 const BURST_LIMIT_MAX = 5;
@@ -122,6 +123,46 @@ describe("public chat support rate limiting", () => {
 			`chat_support_rate_limit:burst:ip:${ip}`,
 		);
 		expect(burst).toBeNull();
+	});
+
+	it("returns a logged client error for an invalid message role", async () => {
+		const ip = uniqueIp();
+		const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+
+		try {
+			const res = await app.request("/public/chat-support", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"CF-Connecting-IP": ip,
+				},
+				body: JSON.stringify({
+					clientId: uniqueClientId(),
+					messages: [
+						{
+							id: "1",
+							role: "invalid",
+							parts: [{ type: "text", text: "hi" }],
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			expect(await res.json()).toEqual({ error: "Invalid message role" });
+			expect(warn).toHaveBeenCalledWith(
+				"Invalid chat support request",
+				expect.objectContaining({
+					path: "/public/chat-support",
+					method: "POST",
+				}),
+			);
+			expect(
+				await redisClient.get(`chat_support_rate_limit:burst:ip:${ip}`),
+			).toBeNull();
+		} finally {
+			warn.mockRestore();
+		}
 	});
 
 	it("throttles the cheap endpoints on a shared per-IP bucket", async () => {

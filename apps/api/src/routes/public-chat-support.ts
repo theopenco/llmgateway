@@ -417,7 +417,9 @@ async function persistMessage(
 // front and reject anything malformed instead of crashing deeper in the flow.
 const chatSupportMessageSchema = z.object({
 	id: z.string().optional(),
-	role: z.string(),
+	role: z.enum(["system", "user", "assistant"], {
+		errorMap: () => ({ message: "Invalid message role" }),
+	}),
 	parts: z.array(z.object({ type: z.string() }).passthrough()),
 	metadata: z.unknown().optional(),
 });
@@ -444,6 +446,11 @@ publicChatSupport.post("/", async (c) => {
 		await c.req.json().catch(() => null),
 	);
 	if (!parsed.success) {
+		logger.warn("Invalid chat support request", {
+			issues: parsed.error.issues,
+			path: c.req.path,
+			method: c.req.method,
+		});
 		return c.json(
 			{ error: parsed.error.issues[0]?.message ?? "Invalid request body" },
 			400,
