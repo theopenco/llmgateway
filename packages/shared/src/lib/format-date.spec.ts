@@ -126,6 +126,26 @@ describe("formatDateTime", () => {
 		expect(formatDateTime("not-a-date", "UTC", "monthDayYear")).toBe("");
 	});
 
+	it("rejects naive strings that are the right shape but not real dates", () => {
+		// The shape regex alone would happily render "Feb 30".
+		for (const bad of [
+			"2026-02-30",
+			"2026-13-01",
+			"2026-00-10",
+			"2026-01-32",
+			"2026-01-10T25:00:00",
+			"2026-01-10T10:61:00",
+		]) {
+			expect(formatDateTime(bad, "UTC", "monthDayYear")).toBe("");
+			expect(formatBucketLabelWithZone(bad, "monthDayYear", "UTC")).toBe("");
+		}
+		// Leap years are still real.
+		expect(formatDateTime("2028-02-29", "UTC", "monthDayYear")).toBe(
+			"Feb 29, 2028",
+		);
+		expect(formatDateTime("2026-02-29", "UTC", "monthDayYear")).toBe("");
+	});
+
 	it("exposes every layout through the pattern table", () => {
 		for (const key of Object.keys(dateFormats)) {
 			expect(

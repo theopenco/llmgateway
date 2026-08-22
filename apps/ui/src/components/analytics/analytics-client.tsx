@@ -30,6 +30,7 @@ import {
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useTeamMembers } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
+import { useZonedRangeDefaults } from "@/hooks/useZonedRangeDefaults";
 import {
 	Select,
 	SelectContent,
@@ -40,11 +41,7 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { applyUsageModeToDaily } from "@/lib/usage-mode";
 
-import {
-	formatDayKey,
-	shiftDayKey,
-	useDisplayTimeZone,
-} from "@llmgateway/shared";
+import {} from "@llmgateway/shared";
 
 import type { DailyActivity } from "@/types/activity";
 
@@ -83,7 +80,13 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 	const searchParams = useSearchParams();
 	const { buildUrl, orgId, selectedOrganization } = useDashboardNavigation();
 	const api = useApi();
-	const { timeZone: displayTimeZone } = useDisplayTimeZone();
+	const {
+		from: defaultFrom,
+		to: defaultTo,
+		timeZone: displayTimeZone,
+		markGenerated,
+		shouldApplyDefaults,
+	} = useZonedRangeDefaults();
 	const { user } = useUser();
 	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 
@@ -109,17 +112,27 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 		if (!isEnterprise) {
 			return;
 		}
-		if (!searchParams.get("from") || !searchParams.get("to")) {
-			const params = new URLSearchParams(searchParams.toString());
-			params.delete("days");
-			// Anchor on the display zone's calendar day: the queries below bucket
-			// in that zone, so a browser-local "today" can be a day off.
-			const today = formatDayKey(new Date(), displayTimeZone);
-			params.set("from", shiftDayKey(today, -6));
-			params.set("to", today);
-			router.replace(`${buildUrl("analytics")}?${params.toString()}`);
+		if (
+			!shouldApplyDefaults(searchParams.get("from"), searchParams.get("to"))
+		) {
+			return;
 		}
-	}, [searchParams, router, buildUrl, isEnterprise, displayTimeZone]);
+		const params = new URLSearchParams(searchParams.toString());
+		params.delete("days");
+		params.set("from", defaultFrom);
+		params.set("to", defaultTo);
+		markGenerated(defaultFrom, defaultTo);
+		router.replace(`${buildUrl("analytics")}?${params.toString()}`);
+	}, [
+		searchParams,
+		router,
+		buildUrl,
+		isEnterprise,
+		defaultFrom,
+		defaultTo,
+		markGenerated,
+		shouldApplyDefaults,
+	]);
 
 	const updateGroupBy = (newGroupBy: GroupBy) => {
 		const params = new URLSearchParams(searchParams);
@@ -135,6 +148,7 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 		isEnterprise,
 		searchParams.get("from"),
 		searchParams.get("to"),
+		displayTimeZone,
 	);
 
 	const { data, isLoading } = api.useQuery(

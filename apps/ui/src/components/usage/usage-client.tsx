@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import {
 	UsageModeSelector,
@@ -78,6 +78,9 @@ export function UsageClient({
 }: UsageClientProps) {
 	const router = useRouter();
 	const { timeZone: displayTimeZone } = useDisplayTimeZone();
+	// Ranges this component wrote, so a zone toggle can refresh them without
+	// clobbering one the user chose.
+	const generated = useRef<Set<string>>(new Set());
 	const searchParams = useSearchParams();
 	const { buildUrl } = useDashboardNavigation();
 	const api = useApi();
@@ -108,17 +111,30 @@ export function UsageClient({
 
 	// If no from/to params, set them based on timeRange
 	useEffect(() => {
-		if (!searchParams.get("from") || !searchParams.get("to")) {
-			const { from, to } = timeRangeToDayKeys(timeRange, displayTimeZone);
-			const params = new URLSearchParams(searchParams);
-			params.delete("days");
-			params.set("from", from);
-			params.set("to", to);
-			if (!params.has("timeRange")) {
-				params.set("timeRange", timeRange);
-			}
-			router.replace(`${buildUrl("usage")}?${params.toString()}`);
+		const { from, to } = timeRangeToDayKeys(timeRange, displayTimeZone);
+		const currentFrom = searchParams.get("from");
+		const currentTo = searchParams.get("to");
+		// Leave a range the user picked alone; refresh one we generated, so a
+		// zone toggle moves it instead of stranding it in the previous zone.
+		if (
+			currentFrom &&
+			currentTo &&
+			!generated.current.has(`${currentFrom}|${currentTo}`)
+		) {
+			return;
 		}
+		if (currentFrom === from && currentTo === to) {
+			return;
+		}
+		generated.current.add(`${from}|${to}`);
+		const params = new URLSearchParams(searchParams);
+		params.delete("days");
+		params.set("from", from);
+		params.set("to", to);
+		if (!params.has("timeRange")) {
+			params.set("timeRange", timeRange);
+		}
+		router.replace(`${buildUrl("usage")}?${params.toString()}`);
 	}, [searchParams, router, buildUrl, timeRange, displayTimeZone]);
 
 	// Function to update apiKeyId in URL
@@ -135,6 +151,7 @@ export function UsageClient({
 	// Function to update timeRange in URL
 	const updateTimeRange = (newTimeRange: TimeRangeValue) => {
 		const { from, to } = timeRangeToDayKeys(newTimeRange, displayTimeZone);
+		generated.current.add(`${from}|${to}`);
 		const params = new URLSearchParams(searchParams);
 		params.set("timeRange", newTimeRange);
 		params.set("from", from);

@@ -34,6 +34,7 @@ import {
 	type TeamMembersData,
 } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
+import { useZonedRangeDefaults } from "@/hooks/useZonedRangeDefaults";
 import { Alert, AlertDescription } from "@/lib/components/alert";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
@@ -87,13 +88,7 @@ import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 import { applyUsageMode } from "@/lib/usage-mode";
 
-import {
-	SSO_TEAM_DEFAULT_DEVELOPER_BUDGET,
-	Time,
-	formatDayKey,
-	shiftDayKey,
-	useDisplayTimeZone,
-} from "@llmgateway/shared";
+import { SSO_TEAM_DEFAULT_DEVELOPER_BUDGET, Time } from "@llmgateway/shared";
 
 import type { Route } from "next";
 
@@ -703,7 +698,13 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 	const { buildUrl, buildOrgUrl, selectedOrganization } =
 		useDashboardNavigation();
 	const api = useApi();
-	const { timeZone: displayTimeZone } = useDisplayTimeZone();
+	const {
+		from: defaultFrom,
+		to: defaultTo,
+		timeZone: displayTimeZone,
+		markGenerated,
+		shouldApplyDefaults,
+	} = useZonedRangeDefaults();
 	const { user } = useUser();
 	const usageMode = useUsageMode();
 
@@ -745,25 +746,30 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 		if (!showUsage) {
 			return;
 		}
-		if (!searchParams.get("from") || !searchParams.get("to")) {
-			const params2 = new URLSearchParams(searchParams.toString());
-			params2.delete("days");
-			// Anchor on the display zone's calendar day: the query below buckets
-			// in that zone, so a browser-local "today" can be a day off.
-			const today = formatDayKey(new Date(), displayTimeZone);
-			params2.set("from", shiftDayKey(today, -6));
-			params2.set("to", today);
-			router.replace(
-				`${buildOrgUrl("org/team")}?${params2.toString()}` as Route,
-			);
+		if (
+			!shouldApplyDefaults(searchParams.get("from"), searchParams.get("to"))
+		) {
+			return;
 		}
-	}, [showUsage, searchParams, router, buildOrgUrl, displayTimeZone]);
+		const params2 = new URLSearchParams(searchParams.toString());
+		params2.delete("days");
+		params2.set("from", defaultFrom);
+		params2.set("to", defaultTo);
+		markGenerated(defaultFrom, defaultTo);
+		router.replace(`${buildOrgUrl("org/team")}?${params2.toString()}` as Route);
+	}, [
+		showUsage,
+		searchParams,
+		router,
+		buildOrgUrl,
+		defaultFrom,
+		defaultTo,
+		markGenerated,
+		shouldApplyDefaults,
+	]);
 
-	const fromStr =
-		searchParams.get("from") ??
-		shiftDayKey(formatDayKey(new Date(), displayTimeZone), -6);
-	const toStr =
-		searchParams.get("to") ?? formatDayKey(new Date(), displayTimeZone);
+	const fromStr = searchParams.get("from") ?? defaultFrom;
+	const toStr = searchParams.get("to") ?? defaultTo;
 
 	const { data: usageData } = api.useQuery(
 		"get",

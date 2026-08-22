@@ -29,7 +29,11 @@ import {
 } from "@/lib/components/popover";
 import { cn } from "@/lib/utils";
 
-import { formatDayKey, shiftDayKey } from "@llmgateway/shared";
+import {
+	formatDayKey,
+	shiftDayKey,
+	useDisplayTimeZone,
+} from "@llmgateway/shared";
 
 interface DatePreset {
 	label: string;
@@ -61,8 +65,13 @@ function getQuarterLabel(date: Date): string {
 	return `Q${getQuarter(date)} ${format(date, "yyyy")}`;
 }
 
-function buildPresets(): DatePreset[] {
-	const today = new Date();
+/** `timeZone` anchors every preset on that zone's calendar day. The calendar
+ *  arithmetic below then operates on the right date, and the day keys written
+ *  to the URL match what the analytics endpoints bucket by. */
+function buildPresets(timeZone: string): DatePreset[] {
+	// Local midnight of the display zone's today: a Date whose *calendar* fields
+	// are the ones the presets should reason about.
+	const today = new Date(`${formatDayKey(new Date(), timeZone)}T00:00:00`);
 	return [
 		{
 			label: "Custom",
@@ -359,8 +368,12 @@ export function DateRangePicker({ buildUrl, path }: DateRangePickerProps) {
 	const [search, setSearch] = useState("");
 	const [showCalendar, setShowCalendar] = useState(false);
 
-	const { from, to } = getDateRangeFromParams(searchParams);
-	const presets = useMemo(() => buildPresets(), []);
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
+	const { from, to } = getDateRangeFromParams(searchParams, displayTimeZone);
+	const presets = useMemo(
+		() => buildPresets(displayTimeZone),
+		[displayTimeZone],
+	);
 	const activePreset = useMemo(
 		() => findMatchingPreset(from, to, presets),
 		[from, to, presets],

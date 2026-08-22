@@ -1,6 +1,6 @@
 "use client";
 
-import { format, parseISO, subDays } from "date-fns";
+import { format } from "date-fns";
 import { Coins, Hash, KeyRound, Zap } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
@@ -24,6 +24,7 @@ import {
 } from "@/components/shared/usage-mode-selector";
 import { MemberLimitsCard } from "@/components/team/member-limits-card";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
+import { useZonedRangeDefaults } from "@/hooks/useZonedRangeDefaults";
 import {
 	Card,
 	CardContent,
@@ -34,7 +35,10 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { applyUsageMode, pickCost, pickRequests } from "@/lib/usage-mode";
 
-import { useDisplayTimeZone } from "@llmgateway/shared";
+import {
+	formatBucketLabel,
+	formatBucketLabelWithZone,
+} from "@llmgateway/shared";
 
 import type { MyMemberBudgetData } from "@/hooks/useTeam";
 
@@ -78,18 +82,35 @@ export function DeveloperDashboardClient({
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const api = useApi();
-	const { timeZone: displayTimeZone } = useDisplayTimeZone();
+	const {
+		from: defaultFrom,
+		to: defaultTo,
+		timeZone: displayTimeZone,
+		markGenerated,
+		shouldApplyDefaults,
+	} = useZonedRangeDefaults();
 
 	useEffect(() => {
-		if (!searchParams.get("from") || !searchParams.get("to")) {
-			const next = new URLSearchParams(searchParams.toString());
-			next.delete("days");
-			const today = new Date();
-			next.set("from", format(subDays(today, 6), "yyyy-MM-dd"));
-			next.set("to", format(today, "yyyy-MM-dd"));
-			router.replace(`${buildUrl("me")}?${next.toString()}`);
+		if (
+			!shouldApplyDefaults(searchParams.get("from"), searchParams.get("to"))
+		) {
+			return;
 		}
-	}, [searchParams, router, buildUrl]);
+		const next = new URLSearchParams(searchParams.toString());
+		next.delete("days");
+		next.set("from", defaultFrom);
+		next.set("to", defaultTo);
+		markGenerated(defaultFrom, defaultTo);
+		router.replace(`${buildUrl("me")}?${next.toString()}`);
+	}, [
+		searchParams,
+		router,
+		buildUrl,
+		defaultFrom,
+		defaultTo,
+		markGenerated,
+		shouldApplyDefaults,
+	]);
 
 	const { from, to } = getDateRangeFromParams(searchParams, displayTimeZone);
 	const fromStr = format(from, "yyyy-MM-dd");
@@ -196,7 +217,9 @@ export function DeveloperDashboardClient({
 								</defs>
 								<XAxis
 									dataKey="date"
-									tickFormatter={(d: string) => format(parseISO(d), "MMM d")}
+									tickFormatter={(d: string) =>
+										formatBucketLabel(d, "monthDay")
+									}
 									tickLine={false}
 									axisLine={false}
 									className="text-xs"
@@ -212,7 +235,11 @@ export function DeveloperDashboardClient({
 								<Tooltip
 									formatter={(v: number) => currencyFormatter.format(v)}
 									labelFormatter={(d: string) =>
-										format(parseISO(d), "MMM d, yyyy")
+										formatBucketLabelWithZone(
+											d,
+											"monthDayYear",
+											displayTimeZone,
+										)
 									}
 								/>
 								<Area

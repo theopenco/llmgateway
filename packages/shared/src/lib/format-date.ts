@@ -153,11 +153,36 @@ function wallClockInTimeZone(date: Date, timeZone: string): WallClock {
 	};
 }
 
-/** The wall-clock fields a naive "YYYY-MM-DD[THH:mm[:ss]]" string already is. */
-function wallClockFromNaive(value: string): WallClock {
+const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+function daysInMonth(year: number, month: number): number {
+	if (month === 2) {
+		const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+		return leap ? 29 : 28;
+	}
+	return DAYS_IN_MONTH[month - 1] ?? 0;
+}
+
+/**
+ * The wall-clock fields a naive "YYYY-MM-DD[THH:mm[:ss]]" string already is,
+ * or null if it isn't a real calendar instant. The shape regex alone would
+ * accept "2026-02-30" and render an impossible date rather than nothing.
+ */
+function wallClockFromNaive(value: string): WallClock | null {
 	const [day, time = "00:00:00"] = value.split("T");
 	const [year, month, date] = day.split("-").map(Number);
 	const [hour, minute, second = 0] = time.split(":").map(Number);
+	if (
+		month < 1 ||
+		month > 12 ||
+		date < 1 ||
+		date > daysInMonth(year, month) ||
+		hour > 23 ||
+		minute > 59 ||
+		second > 59
+	) {
+		return null;
+	}
 	return {
 		year,
 		month,
@@ -242,12 +267,16 @@ export function formatBucketLabelWithZone(
 	pattern: DateFormat,
 	timeZone: string,
 ): string {
+	const rendered = formatBucketLabel(label, pattern);
+	if (!rendered) {
+		return "";
+	}
 	const zone = isNaiveDateTimeString(label)
 		? // Resolve the bucket's own instant: a January bucket must read EST even
 			// when it is being viewed in August.
 			formatZoneName(timeZone, instantFromZonedWallClock(label, timeZone))
 		: formatZoneName(timeZone);
-	return `${formatBucketLabel(label, pattern)} ${zone}`;
+	return `${rendered} ${zone}`;
 }
 
 /** The "YYYY-MM-DD" calendar day an instant falls on in `timeZone`. Matches
@@ -286,7 +315,8 @@ export function formatDateTime(
 ): string {
 	const layout = dateFormats[pattern];
 	if (typeof value === "string" && isNaiveDateTimeString(value)) {
-		return renderWallClock(wallClockFromNaive(value), layout);
+		const wall = wallClockFromNaive(value);
+		return wall ? renderWallClock(wall, layout) : "";
 	}
 	const instant = value instanceof Date ? value : new Date(value);
 	if (Number.isNaN(instant.getTime())) {

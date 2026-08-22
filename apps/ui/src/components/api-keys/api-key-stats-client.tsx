@@ -17,6 +17,7 @@ import {
 	useUsageMode,
 } from "@/components/shared/usage-mode-selector";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
+import { useZonedRangeDefaults } from "@/hooks/useZonedRangeDefaults";
 import {
 	Card,
 	CardContent,
@@ -25,12 +26,6 @@ import {
 } from "@/lib/components/card";
 import { useApi } from "@/lib/fetch-client";
 import { applyUsageModeToDaily } from "@/lib/usage-mode";
-
-import {
-	formatDayKey,
-	shiftDayKey,
-	useDisplayTimeZone,
-} from "@llmgateway/shared";
 
 import type { Route } from "next";
 
@@ -47,7 +42,13 @@ export function ApiKeyStatsClient({
 	const searchParams = useSearchParams();
 	const { buildUrl, selectedOrganization } = useDashboardNavigation();
 	const api = useApi();
-	const { timeZone: displayTimeZone } = useDisplayTimeZone();
+	const {
+		from: defaultFrom,
+		to: defaultTo,
+		timeZone: displayTimeZone,
+		markGenerated,
+		shouldApplyDefaults,
+	} = useZonedRangeDefaults();
 	const usageMode = useUsageMode();
 	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 
@@ -55,24 +56,38 @@ export function ApiKeyStatsClient({
 		if (!isEnterprise) {
 			return;
 		}
-		if (!searchParams.get("from") || !searchParams.get("to")) {
+		if (
+			!shouldApplyDefaults(searchParams.get("from"), searchParams.get("to"))
+		) {
+			return;
+		}
+		{
 			const params = new URLSearchParams(searchParams.toString());
 			params.delete("days");
-			// Anchor on the display zone's calendar day: the queries below bucket
-			// in that zone, so a browser-local "today" can be a day off.
-			const today = formatDayKey(new Date(), displayTimeZone);
-			params.set("from", shiftDayKey(today, -6));
-			params.set("to", today);
+			params.set("from", defaultFrom);
+			params.set("to", defaultTo);
+			markGenerated(defaultFrom, defaultTo);
 			router.replace(
 				`${buildUrl(`api-keys/${keyId}`)}?${params.toString()}` as Route,
 			);
 		}
-	}, [searchParams, router, buildUrl, keyId, isEnterprise, displayTimeZone]);
+	}, [
+		searchParams,
+		router,
+		buildUrl,
+		keyId,
+		isEnterprise,
+		defaultFrom,
+		defaultTo,
+		markGenerated,
+		shouldApplyDefaults,
+	]);
 
 	const { fromStr, toStr } = getAnalyticsRange(
 		isEnterprise,
 		searchParams.get("from"),
 		searchParams.get("to"),
+		displayTimeZone,
 	);
 
 	const { data: apiKeysData } = api.useQuery(

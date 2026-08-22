@@ -64,6 +64,9 @@ import type { ActivitT } from "@/types/activity";
 
 interface DashboardClientProps {
 	initialActivityData?: ActivitT;
+	/** Zone the server fetched `initialActivityData` in, so the client can tell
+	 *  whether it still matches the zone it now wants to render. */
+	initialActivityTimeZone?: string;
 }
 
 function formatCredits(credits: number) {
@@ -200,7 +203,10 @@ function StatCell({
 	);
 }
 
-export function DashboardClient({ initialActivityData }: DashboardClientProps) {
+export function DashboardClient({
+	initialActivityData,
+	initialActivityTimeZone,
+}: DashboardClientProps) {
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const { buildUrl, buildOrgUrl } = useDashboardNavigation();
@@ -250,7 +256,15 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 		},
 		{
 			enabled: !!selectedProject?.id,
-			initialData: searchParams.get("from") ? initialActivityData : undefined,
+			// Only seed the server payload when it was bucketed in the zone this
+			// query asks for. The client can detect a different zone than the
+			// cookie held (first visit, or the machine moved), and a mismatched
+			// payload would sit there labelled as the new zone for the whole
+			// staleTime.
+			initialData:
+				searchParams.get("from") && initialActivityTimeZone === displayTimeZone
+					? initialActivityData
+					: undefined,
 			refetchOnWindowFocus: false,
 			staleTime: 1000 * 60 * 5, // 5 minutes
 		},

@@ -59,6 +59,9 @@ export default async function Dashboard({
 	const initialActivityData = await initialActivityDataPromise;
 
 	return (
-		<DashboardClient initialActivityData={initialActivityData ?? undefined} />
+		<DashboardClient
+			initialActivityData={initialActivityData ?? undefined}
+			initialActivityTimeZone={timeZone}
+		/>
 	);
 }

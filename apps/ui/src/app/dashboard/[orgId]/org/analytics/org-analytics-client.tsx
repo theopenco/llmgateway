@@ -18,6 +18,7 @@ import {
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useTeamMembers } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
+import { useZonedRangeDefaults } from "@/hooks/useZonedRangeDefaults";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
@@ -35,12 +36,6 @@ import {
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
 import { applyUsageMode } from "@/lib/usage-mode";
-
-import {
-	formatDayKey,
-	shiftDayKey,
-	useDisplayTimeZone,
-} from "@llmgateway/shared";
 
 import type { DimensionRow } from "@/components/analytics/chart-helpers";
 import type { Route } from "next";
@@ -148,7 +143,13 @@ export function OrgAnalyticsClient() {
 	const searchParams = useSearchParams();
 	const { buildOrgUrl, selectedOrganization } = useDashboardNavigation();
 	const api = useApi();
-	const { timeZone: displayTimeZone } = useDisplayTimeZone();
+	const {
+		from: defaultFrom,
+		to: defaultTo,
+		timeZone: displayTimeZone,
+		markGenerated,
+		shouldApplyDefaults,
+	} = useZonedRangeDefaults();
 	const { user } = useUser();
 	const { data: teamData } = useTeamMembers(organizationId);
 
@@ -172,19 +173,31 @@ export function OrgAnalyticsClient() {
 		if (!isEnterprise) {
 			return;
 		}
-		if (!searchParams.get("from") || !searchParams.get("to")) {
+		if (
+			!shouldApplyDefaults(searchParams.get("from"), searchParams.get("to"))
+		) {
+			return;
+		}
+		{
 			const next = new URLSearchParams(searchParams.toString());
 			next.delete("days");
-			// Anchor on the display zone's calendar day: the queries below bucket
-			// in that zone, so a browser-local "today" can be a day off.
-			const today = formatDayKey(new Date(), displayTimeZone);
-			next.set("from", shiftDayKey(today, -6));
-			next.set("to", today);
+			next.set("from", defaultFrom);
+			next.set("to", defaultTo);
+			markGenerated(defaultFrom, defaultTo);
 			router.replace(
 				`${buildOrgUrl("org/analytics")}?${next.toString()}` as Route,
 			);
 		}
-	}, [searchParams, router, buildOrgUrl, isEnterprise, displayTimeZone]);
+	}, [
+		searchParams,
+		router,
+		buildOrgUrl,
+		isEnterprise,
+		defaultFrom,
+		defaultTo,
+		markGenerated,
+		shouldApplyDefaults,
+	]);
 
 	const updateGroupBy = (next: GroupBy) => {
 		const nextParams = new URLSearchParams(searchParams.toString());
@@ -202,6 +215,7 @@ export function OrgAnalyticsClient() {
 		isEnterprise,
 		searchParams.get("from"),
 		searchParams.get("to"),
+		displayTimeZone,
 	);
 
 	const { data, isLoading } = api.useQuery(

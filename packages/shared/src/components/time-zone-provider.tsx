@@ -63,17 +63,31 @@ export function TimeZoneProvider({
 	const [browserTimeZone, setBrowserTimeZone] = useState(initial.timeZone);
 
 	useEffect(() => {
-		const detected = getBrowserTimeZone();
-		setBrowserTimeZone(detected);
-		if (preference.mode !== "local" || preference.timeZone === detected) {
-			return;
-		}
-		// Either the cookie is missing (server fell back to UTC) or the user has
-		// travelled since it was written. Either way the detected zone wins.
-		const next: TimeZonePreference = { mode: "local", timeZone: detected };
-		writeCookie(next);
-		setPreference(next);
-	}, [preference.mode, preference.timeZone]);
+		const sync = () => {
+			const detected = getBrowserTimeZone();
+			setBrowserTimeZone(detected);
+			setPreference((current) => {
+				if (current.mode !== "local" || current.timeZone === detected) {
+					return current;
+				}
+				// Either the cookie is missing (server fell back to UTC) or the
+				// machine's zone has changed since it was written — travel, or the
+				// OS correcting itself. Either way the detected zone wins.
+				const next: TimeZonePreference = { mode: "local", timeZone: detected };
+				writeCookie(next);
+				return next;
+			});
+		};
+		sync();
+		// A long-lived tab outlives a system zone change, and there is no event
+		// for one; re-check whenever the tab is looked at again.
+		window.addEventListener("focus", sync);
+		document.addEventListener("visibilitychange", sync);
+		return () => {
+			window.removeEventListener("focus", sync);
+			document.removeEventListener("visibilitychange", sync);
+		};
+	}, []);
 
 	const setMode = useCallback((mode: TimeZoneMode) => {
 		const next: TimeZonePreference = {
