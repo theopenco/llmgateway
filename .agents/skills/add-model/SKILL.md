@@ -91,6 +91,12 @@ Probe the deployment. The same model differs between providers, and an
 - `supportedToolChoices` — probe `auto`, `none`, `required`, named function.
   Unlisted modes are downgraded to `auto`. Some deployments accept `required`
   only with thinking off.
+- Capability combinations — probe tool calls and structured output with
+  reasoning both enabled and disabled. If a capability only fails while
+  reasoning is on, do not immediately flatten the mapping to `tools: false` or
+  `jsonOutput: false`: first check `ProviderModelMapping` and request shaping
+  for an existing conditional compatibility mechanism. If none can express the
+  result, call out the gap instead of misrepresenting the standalone capability.
 - `jsonOutput` / `jsonOutputSchema` — probe `json_object` and `json_schema`
   separately.
 - `supportedParameters` — probe before declaring; omission elsewhere is not a
