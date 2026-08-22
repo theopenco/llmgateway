@@ -196,7 +196,9 @@ function zoneOffsetMs(date: Date, timeZone: string): number {
 		wall.minute,
 		wall.second,
 	);
-	return asUtc - Math.trunc(date.getTime() / 1000) * 1000;
+	// Whole seconds: the wall-clock read above has no sub-second precision.
+	const wholeSecondsMs = Math.trunc(date.getTime() / 1000) * 1000;
+	return asUtc - wholeSecondsMs;
 }
 
 /**
