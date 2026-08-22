@@ -1,3 +1,5 @@
+import { verifiedAlibabaCompletionIncludesReasoning } from "@/lib/alibaba-reasoning-usage.js";
+
 import { isToolSearchBlock } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { shortid } from "@llmgateway/db";
@@ -39,6 +41,7 @@ export function parseProviderResponse(
 	 * request actually searches, so an unforced one must count zero.
 	 */
 	webSearchForced = false,
+	usedRegion: string | null = null,
 ) {
 	let content = null;
 	let reasoningContent = null;
@@ -678,7 +681,13 @@ export function parseProviderResponse(
 				completionTokens = json.usage?.completion_tokens ?? null;
 				reasoningTokens =
 					json.usage?.reasoning_tokens ??
-					json.usage?.completion_tokens_details?.reasoning_tokens ??
+					(verifiedAlibabaCompletionIncludesReasoning(
+						usedProvider,
+						usedModel,
+						usedRegion,
+					)
+						? json.usage?.completion_tokens_details?.reasoning_tokens
+						: undefined) ??
 					null;
 				cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens ?? null;
 				totalTokens =
@@ -686,7 +695,13 @@ export function parseProviderResponse(
 					(promptTokens !== null && completionTokens !== null
 						? promptTokens +
 							completionTokens +
-							(usedModel === "kimi-k3" ? 0 : (reasoningTokens ?? 0))
+							(verifiedAlibabaCompletionIncludesReasoning(
+								usedProvider,
+								usedModel,
+								usedRegion,
+							)
+								? 0
+								: (reasoningTokens ?? 0))
 						: null);
 				// Alibaba uses Anthropic-style `cache_control: {type: "ephemeral"}` on
 				// the request, but reports usage in OpenAI shape with

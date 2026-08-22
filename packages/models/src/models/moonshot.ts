@@ -752,8 +752,9 @@ export const moonshotModels = [
 			{
 				providerId: "alibaba",
 				externalId: "kimi-k3",
-				// Named function choice returns a tool call with finish_reason "stop";
-				// auto, none, and required return spec-compliant finish reasons.
+				// Named function choice returns a tool call with finish_reason "stop"
+				// with reasoning both on and off. Required returns "tool_calls" in
+				// both states, so there are no thinking-disabled-only modes.
 				supportedToolChoices: ["auto", "none", "required"],
 				inputPrice: "3.0e-6",
 				cachedInputPrice: "0.3e-6",

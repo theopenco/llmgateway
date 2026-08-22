@@ -10423,6 +10423,8 @@ chat.openapi(completions, async (c) => {
 										usedProvider,
 										fullContent,
 										imageByteSize,
+										usedInternalModel,
+										usedRegion,
 									);
 
 									logVertexTrafficType(
@@ -10842,6 +10844,8 @@ chat.openapi(completions, async (c) => {
 									streamFormatProvider,
 									fullContent,
 									imageByteSize,
+									usedInternalModel,
+									usedRegion,
 								);
 								if (usage.promptTokens !== null) {
 									promptTokens = usage.promptTokens;
@@ -13974,6 +13978,7 @@ chat.openapi(completions, async (c) => {
 		splitTaggedReasoning,
 		!!webSearchTool,
 		!!webSearchTool?.forced,
+		usedRegion,
 	);
 	let { content, totalTokens } = parsedResponse;
 	const {

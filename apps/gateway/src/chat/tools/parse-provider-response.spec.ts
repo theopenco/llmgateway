@@ -1161,6 +1161,41 @@ describe("parseProviderResponse", () => {
 			expect(result.totalTokens).toBe(341);
 		});
 
+		it("extracts verified Qwen reasoning included in completion tokens", () => {
+			const json = {
+				choices: [
+					{
+						message: { content: "Hello", role: "assistant" },
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 65,
+					completion_tokens: 528,
+					completion_tokens_details: {
+						reasoning_tokens: 512,
+						text_tokens: 528,
+					},
+				},
+			};
+
+			const result = parseProviderResponse(
+				"alibaba",
+				"qwen3.8-max",
+				json,
+				[],
+				true,
+				false,
+				false,
+				false,
+				"singapore",
+			);
+
+			expect(result.reasoningTokens).toBe(512);
+			expect(result.completionTokens).toBe(528);
+			expect(result.totalTokens).toBe(593);
+		});
+
 		it("keeps separate reasoning in other Alibaba fallback totals", () => {
 			const json = {
 				choices: [

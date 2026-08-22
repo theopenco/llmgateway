@@ -17,6 +17,8 @@ import {
 	resolveTimeBasedPricing,
 } from "@llmgateway/models";
 
+import { verifiedAlibabaCompletionIncludesReasoning } from "./alibaba-reasoning-usage.js";
+
 /**
  * Resolve the price multiplier for a served processing tier (Flex / Priority).
  * The tier is what the provider actually served — Vertex reports it via
@@ -750,9 +752,6 @@ export async function calculateCosts(
 	// its `completion_tokens` covers the `reasoning` text too, and with thinking
 	// on the chars-per-token ratio only matches the non-reasoning baseline once
 	// that text is counted. For remaining providers, add reasoning separately.
-	// Alibaba's Kimi K3 reports reasoning_tokens + text_tokens ===
-	// completion_tokens in both streaming and non-streaming usage, while
-	// total_tokens === prompt_tokens + completion_tokens.
 	const completionIncludesReasoning =
 		provider === "google-ai-studio" ||
 		provider === "glacier" ||
@@ -765,7 +764,7 @@ export async function calculateCosts(
 		provider === "meta" ||
 		provider === "ranoai" ||
 		provider === "baidu" ||
-		(provider === "alibaba" && model === "kimi-k3") ||
+		verifiedAlibabaCompletionIncludesReasoning(provider, model, region) ||
 		provider === "permafrost" ||
 		provider === "gonka24" ||
 		provider === "aws-mantle";

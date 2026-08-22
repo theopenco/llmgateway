@@ -753,6 +753,23 @@ describe("calculateCosts", () => {
 		expect(result.completionTokens).toBe(236);
 	});
 
+	it("should not double-bill verified Alibaba Qwen reasoning tokens", async () => {
+		const result = await calculateCosts(
+			"qwen3.8-max",
+			"alibaba",
+			"singapore",
+			65,
+			528,
+			null,
+			undefined,
+			512,
+		);
+
+		expect(result.inputCost).toBeCloseTo(0.00013, 10);
+		expect(result.outputCost).toBeCloseTo(0.003168, 10);
+		expect(result.completionTokens).toBe(528);
+	});
+
 	it("should not double-bill Baidu reasoning tokens", async () => {
 		// Qianfan reports reasoning in completion_tokens_details while already
 		// counting it inside completion_tokens: a thinking-only reply comes back
