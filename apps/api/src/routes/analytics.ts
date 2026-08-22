@@ -3,6 +3,11 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import {
+	apiKeyAnalyticsId,
+	apiKeyAnalyticsLabel,
+	countAnalyticsApiKeys,
+} from "@/lib/api-key-analytics.js";
+import {
 	MAX_ORG_ACTIVITY_RANGE_DAYS,
 	rangeDaysInclusive,
 	resolveDateRange,
@@ -132,18 +137,18 @@ analytics.openapi(getMembersUsage, async (c) => {
 		.select({
 			id: tables.apiKey.id,
 			createdBy: tables.apiKey.createdBy,
+			kind: tables.apiKey.kind,
 		})
 		.from(tables.apiKey)
 		.where(inArray(tables.apiKey.projectId, projectIds));
 
 	const keyToCreator = new Map<string, string>();
-	const keyCountByCreator = new Map<string, number>();
+	const keysByCreator = new Map<string, { id: string; kind: string }[]>();
 	for (const key of keys) {
 		keyToCreator.set(key.id, key.createdBy);
-		keyCountByCreator.set(
-			key.createdBy,
-			(keyCountByCreator.get(key.createdBy) ?? 0) + 1,
-		);
+		const creatorKeys = keysByCreator.get(key.createdBy) ?? [];
+		creatorKeys.push(key);
+		keysByCreator.set(key.createdBy, creatorKeys);
 	}
 
 	const usageRows = await db
@@ -233,7 +238,7 @@ analytics.openapi(getMembersUsage, async (c) => {
 				name: m.user?.name ?? null,
 				email: m.user?.email ?? "",
 				role: m.role,
-				apiKeyCount: keyCountByCreator.get(m.userId) ?? 0,
+				apiKeyCount: countAnalyticsApiKeys(keysByCreator.get(m.userId) ?? []),
 				cost: agg?.cost ?? 0,
 				totalTokens: agg?.totalTokens ?? 0,
 				requestCount: agg?.requestCount ?? 0,
@@ -399,7 +404,7 @@ analytics.openapi(getMemberDetail, async (c) => {
 	}
 
 	const memberKeys = await db
-		.select({ id: tables.apiKey.id })
+		.select({ id: tables.apiKey.id, kind: tables.apiKey.kind })
 		.from(tables.apiKey)
 		.where(
 			and(
@@ -479,7 +484,7 @@ analytics.openapi(getMemberDetail, async (c) => {
 		errorCount: stability.errorsCount,
 		clientErrorCount: Number(summaryRow?.clientErrorCount ?? 0),
 		cacheCount: Number(summaryRow?.cacheCount ?? 0),
-		apiKeyCount: keyIds.length,
+		apiKeyCount: countAnalyticsApiKeys(memberKeys),
 		creditsRequestCount: Number(summaryRow?.creditsRequestCount ?? 0),
 		apiKeysRequestCount: Number(summaryRow?.apiKeysRequestCount ?? 0),
 		creditsCost: Number(summaryRow?.creditsCost ?? 0),
@@ -747,7 +752,7 @@ analytics.openapi(getSelfUsage, async (c) => {
 	}));
 
 	const myKeys = await db
-		.select({ id: tables.apiKey.id })
+		.select({ id: tables.apiKey.id, kind: tables.apiKey.kind })
 		.from(tables.apiKey)
 		.where(
 			and(
@@ -808,7 +813,7 @@ analytics.openapi(getSelfUsage, async (c) => {
 		totalTokens: Number(s?.totalTokens ?? 0),
 		requestCount: Number(s?.requestCount ?? 0),
 		errorCount: Number(s?.errorCount ?? 0),
-		apiKeyCount: keyIds.length,
+		apiKeyCount: countAnalyticsApiKeys(myKeys),
 		creditsRequestCount: Number(s?.creditsRequestCount ?? 0),
 		apiKeysRequestCount: Number(s?.apiKeysRequestCount ?? 0),
 		creditsCost: Number(s?.creditsCost ?? 0),
@@ -1215,8 +1220,14 @@ analytics.openapi(getOrgActivity, async (c) => {
 				date: bucketDate(apiKeyHourlyStats.hourTimestamp, timeZone, false).as(
 					"date",
 				),
-				apiKeyId: apiKeyHourlyStats.apiKeyId,
-				description: tables.apiKey.description,
+				apiKeyId: apiKeyAnalyticsId(
+					apiKeyHourlyStats.apiKeyId,
+					tables.apiKey.kind,
+				).as("apiKeyId"),
+				description: apiKeyAnalyticsLabel(
+					tables.apiKey.description,
+					tables.apiKey.kind,
+				).as("description"),
 				cost: sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.cost} as double precision)), 0)`.as(
 					"cost",
 				),
@@ -1240,9 +1251,7 @@ analytics.openapi(getOrgActivity, async (c) => {
 					lte(apiKeyHourlyStats.hourTimestamp, endDate),
 				),
 			)
-			.groupBy(
-				sql`1, ${apiKeyHourlyStats.apiKeyId}, ${tables.apiKey.description}`,
-			)
+			.groupBy(sql`1, 2, 3`)
 			.orderBy(sql`1 ASC`);
 
 		for (const row of rows) {

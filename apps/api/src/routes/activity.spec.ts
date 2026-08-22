@@ -370,6 +370,83 @@ describe("activity endpoint", () => {
 		);
 	});
 
+	test("GET /activity rolls playground keys into one breakdown", async () => {
+		const today = new Date();
+
+		await db.insert(tables.apiKey).values([
+			{
+				id: "playground-key-1",
+				token: "playground-token-1",
+				projectId: "test-project-id",
+				description: "Auto-generated playground key",
+				kind: "playground",
+				createdBy: "test-user-id",
+			},
+			{
+				id: "playground-key-2",
+				token: "playground-token-2",
+				projectId: "test-project-id",
+				description: "Auto-generated playground key",
+				kind: "playground",
+				createdBy: "test-user-id",
+			},
+		]);
+
+		await db.insert(tables.log).values(
+			["playground-key-1", "playground-key-2"].map((apiKeyId, index) => ({
+				id: `playground-log-${index + 1}`,
+				requestId: `playground-log-${index + 1}`,
+				createdAt: today,
+				updatedAt: today,
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId,
+				duration: 100,
+				requestedModel: "gpt-4",
+				requestedProvider: "openai",
+				usedModel: "gpt-4",
+				usedProvider: "openai",
+				responseSize: 1000,
+				promptTokens: "10",
+				completionTokens: "20",
+				totalTokens: "30",
+				cost: index === 0 ? 0.2 : 0.3,
+				messages: JSON.stringify([{ role: "user", content: "Hello" }]),
+				mode: "credits" as const,
+				usedMode: "credits" as const,
+			})),
+		);
+
+		await aggregateLogsForTesting();
+
+		const res = await app.request(
+			"/activity?days=7&projectId=test-project-id&groupBy=apiKey",
+			{ headers: { Cookie: token } },
+		);
+		expect(res.status).toBe(200);
+		const data = await res.json();
+		const playgroundEntries = data.activity
+			.flatMap(
+				(row: {
+					apiKeyBreakdown: Array<{
+						id: string;
+						description: string;
+						requestCount: number;
+						cost: number;
+					}>;
+				}) => row.apiKeyBreakdown,
+			)
+			.filter((entry: { id: string }) => entry.id === "playground");
+
+		expect(playgroundEntries).toHaveLength(1);
+		expect(playgroundEntries[0]).toMatchObject({
+			id: "playground",
+			description: "Playground",
+			requestCount: 2,
+		});
+		expect(playgroundEntries[0].cost).toBeCloseTo(0.5, 5);
+	});
+
 	test("GET /activity should require authentication", async () => {
 		const res = await app.request("/activity?days=7");
 		expect(res.status).toBe(401);

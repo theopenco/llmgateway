@@ -1,6 +1,11 @@
 import { z } from "zod";
 
 import {
+	apiKeyAnalyticsId,
+	PLAYGROUND_ANALYTICS_KEY,
+	PLAYGROUND_ANALYTICS_LABEL,
+} from "@/lib/api-key-analytics.js";
+import {
 	mapModeSplit,
 	modeSplitFields,
 	modeSplitSchema,
@@ -152,7 +157,9 @@ export async function getUsageReport(
 		projectId: wanted.has("project")
 			? apiKeyHourlyModelStats.projectId
 			: nullText,
-		apiKeyId: wanted.has("apiKey") ? apiKeyHourlyModelStats.apiKeyId : nullText,
+		apiKeyId: wanted.has("apiKey")
+			? apiKeyAnalyticsId(apiKeyHourlyModelStats.apiKeyId, tables.apiKey.kind)
+			: nullText,
 		requestCount:
 			sql<number>`COALESCE(SUM(${apiKeyHourlyModelStats.requestCount}), 0)`.as(
 				"requestCount",
@@ -331,13 +338,20 @@ async function loadApiKeyNames(ids: string[]) {
 	if (!ids.length) {
 		return names;
 	}
+	const storedIds = ids.filter((id) => id !== PLAYGROUND_ANALYTICS_KEY);
+	if (ids.includes(PLAYGROUND_ANALYTICS_KEY)) {
+		names.set(PLAYGROUND_ANALYTICS_KEY, PLAYGROUND_ANALYTICS_LABEL);
+	}
+	if (!storedIds.length) {
+		return names;
+	}
 	const rows = await db
 		.select({
 			id: tables.apiKey.id,
 			description: tables.apiKey.description,
 		})
 		.from(tables.apiKey)
-		.where(inArray(tables.apiKey.id, ids));
+		.where(inArray(tables.apiKey.id, storedIds));
 	for (const row of rows) {
 		names.set(row.id, row.description);
 	}

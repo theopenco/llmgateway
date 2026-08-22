@@ -70,6 +70,49 @@ function insertLog(o: LogOverrides) {
 	});
 }
 
+async function insertPlaygroundUsage() {
+	await db.insert(tables.apiKey).values([
+		{
+			id: "playground-key-1",
+			token: "playground-token-1",
+			projectId: PROJECT_ID,
+			description: "Auto-generated playground key",
+			kind: "playground",
+			createdBy: OWNER_ID,
+		},
+		{
+			id: "playground-key-2",
+			token: "playground-token-2",
+			projectId: PROJECT_ID,
+			description: "Auto-generated playground key",
+			kind: "playground",
+			createdBy: OWNER_ID,
+		},
+	]);
+
+	await insertLog({
+		id: "playground-log-1",
+		apiKeyId: "playground-key-1",
+		usedModel: "gpt-4",
+		usedProvider: "openai",
+		cost: 0.2,
+		promptTokens: "10",
+		completionTokens: "20",
+		totalTokens: "30",
+	});
+	await insertLog({
+		id: "playground-log-2",
+		apiKeyId: "playground-key-2",
+		usedModel: "gpt-4",
+		usedProvider: "openai",
+		cost: 0.3,
+		promptTokens: "15",
+		completionTokens: "25",
+		totalTokens: "40",
+	});
+	await aggregateLogsForTesting();
+}
+
 describe("analytics endpoints", () => {
 	let token: string;
 
@@ -313,6 +356,36 @@ describe("analytics endpoints", () => {
 		});
 	});
 
+	test("summarizes playground keys in API key counts", async () => {
+		await insertPlaygroundUsage();
+
+		const membersRes = await app.request(
+			`/analytics/members?organizationId=${ORG_ID}`,
+			{ headers: { Cookie: token } },
+		);
+		expect(membersRes.status).toBe(200);
+		const membersData = await membersRes.json();
+		expect(
+			membersData.members.find(
+				(member: { userId: string }) => member.userId === OWNER_ID,
+			).apiKeyCount,
+		).toBe(2);
+
+		const memberRes = await app.request(
+			`/analytics/members/${OWNER_ID}?organizationId=${ORG_ID}`,
+			{ headers: { Cookie: token } },
+		);
+		expect(memberRes.status).toBe(200);
+		expect((await memberRes.json()).summary.apiKeyCount).toBe(2);
+
+		const selfRes = await app.request(
+			`/analytics/me?organizationId=${ORG_ID}&projectId=${PROJECT_ID}`,
+			{ headers: { Cookie: token } },
+		);
+		expect(selfRes.status).toBe(200);
+		expect((await selfRes.json()).summary.apiKeyCount).toBe(2);
+	});
+
 	describe("GET /analytics/members/{userId}", () => {
 		test("returns detailed usage for a member", async () => {
 			const res = await app.request(
@@ -515,6 +588,28 @@ describe("analytics endpoints", () => {
 			expect((byKey.get("key-member") as { label: string }).label).toBe(
 				"Member Key",
 			);
+		});
+
+		test("rolls playground keys into one apiKey group", async () => {
+			await insertPlaygroundUsage();
+
+			const res = await app.request(
+				`/analytics/activity?organizationId=${ORG_ID}&groupBy=apiKey`,
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(200);
+			const data = await res.json();
+			const playgroundEntries = activeRows(data.activity).flatMap((row) =>
+				row.breakdown.filter((entry) => entry.key === "playground"),
+			);
+
+			expect(playgroundEntries).toHaveLength(1);
+			expect(playgroundEntries[0]).toMatchObject({
+				key: "playground",
+				label: "Playground",
+				requestCount: 2,
+			});
+			expect(playgroundEntries[0].cost).toBeCloseTo(0.5, 5);
 		});
 
 		test("returns a zeroed padded series when the org has no projects", async () => {
