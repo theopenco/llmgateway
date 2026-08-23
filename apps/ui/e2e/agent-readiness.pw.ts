@@ -100,10 +100,13 @@ test.describe("mcp endpoint", () => {
 	test("JSON-RPC POSTs to /mcp reach the gateway MCP server", async ({
 		request,
 	}) => {
+		// Seeded test API key (packages/db/src/seed.ts) so the request passes
+		// MCP auth and exercises a real initialize through the proxy.
 		const res = await request.post("/mcp", {
 			headers: {
 				"content-type": "application/json",
 				accept: "application/json, text/event-stream",
+				authorization: "Bearer test-token",
 			},
 			data: {
 				jsonrpc: "2.0",
@@ -116,8 +119,26 @@ test.describe("mcp endpoint", () => {
 				},
 			},
 		});
+		expect(res.ok()).toBe(true);
 		const body = await res.json();
 		expect(body.jsonrpc).toBe("2.0");
+		expect(body.error).toBeUndefined();
+		expect(body.result.protocolVersion).toBeTruthy();
+	});
+
+	test("unauthenticated /mcp POSTs get a JSON-RPC auth error, not HTML", async ({
+		request,
+	}) => {
+		const res = await request.post("/mcp", {
+			headers: {
+				"content-type": "application/json",
+				accept: "application/json, text/event-stream",
+			},
+			data: { jsonrpc: "2.0", id: 1, method: "initialize", params: {} },
+		});
+		const body = await res.json();
+		expect(body.jsonrpc).toBe("2.0");
+		expect(body.error.code).toBeDefined();
 	});
 
 	test("browsers still get the marketing page on /mcp", async ({ page }) => {

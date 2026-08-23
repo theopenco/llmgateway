@@ -112,4 +112,19 @@ describe("oauth discovery metadata", () => {
 		const body = (await res.json()) as { issuer: string };
 		expect(body.issuer.startsWith("https://")).toBe(true);
 	});
+
+	it("uses only the first value of a forwarded proto chain and rejects junk", async () => {
+		const chained = await app.request(
+			"/.well-known/oauth-authorization-server",
+			{ headers: { "x-forwarded-proto": "https, http" } },
+		);
+		const chainedBody = (await chained.json()) as { issuer: string };
+		expect(chainedBody.issuer.startsWith("https://")).toBe(true);
+
+		const junk = await app.request("/.well-known/oauth-authorization-server", {
+			headers: { "x-forwarded-proto": "gopher" },
+		});
+		const junkBody = (await junk.json()) as { issuer: string };
+		expect(junkBody.issuer.startsWith("http://")).toBe(true);
+	});
 });

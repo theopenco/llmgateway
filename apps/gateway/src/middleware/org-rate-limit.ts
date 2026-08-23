@@ -174,6 +174,9 @@ export async function orgRateLimitMiddleware(
 				"RateLimit-Limit": String(acquisition.limit),
 				"RateLimit-Remaining": "0",
 				"RateLimit-Reset": "1",
+				"X-RateLimit-Limit": String(acquisition.limit),
+				"X-RateLimit-Remaining": "0",
+				"X-RateLimit-Reset": String(Math.floor(Date.now() / 1000) + 1),
 			};
 
 			if (c.req.path.startsWith("/v1/messages")) {

@@ -222,6 +222,8 @@ describe("orgRateLimitMiddleware", () => {
 			"RateLimit-Limit": "500",
 			"RateLimit-Remaining": "0",
 			"RateLimit-Reset": "1",
+			"X-RateLimit-Limit": "500",
+			"X-RateLimit-Remaining": "0",
 		});
 	});
 

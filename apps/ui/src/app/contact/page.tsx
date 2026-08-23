@@ -113,12 +113,21 @@ export default function ContactPage() {
 									<p className="mt-2 text-sm text-muted-foreground">
 										{description}
 									</p>
-									<a
-										href={link.href}
-										className="mt-4 inline-block text-sm font-medium text-primary underline underline-offset-4 hover:text-primary/80"
-									>
-										{link.linkLabel}
-									</a>
+									{link.href === "/enterprise" ? (
+										<Link
+											href="/enterprise"
+											className="mt-4 inline-block text-sm font-medium text-primary underline underline-offset-4 hover:text-primary/80"
+										>
+											{link.linkLabel}
+										</Link>
+									) : (
+										<a
+											href={link.href}
+											className="mt-4 inline-block text-sm font-medium text-primary underline underline-offset-4 hover:text-primary/80"
+										>
+											{link.linkLabel}
+										</a>
+									)}
 								</div>
 							))}
 						</div>

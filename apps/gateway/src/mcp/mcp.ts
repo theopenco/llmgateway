@@ -1903,7 +1903,17 @@ async function oauthRegisterHandler(c: Context): Promise<Response> {
  */
 function resolveRequestBaseUrl(c: Context): string {
 	const url = new URL(c.req.url);
-	const proto = c.req.header("x-forwarded-proto") ?? url.protocol.slice(0, -1);
+	// x-forwarded-proto may be a comma-separated chain when multiple proxies
+	// are involved; only the first (client-facing) value is meaningful, and
+	// anything but http/https would produce an invalid URL.
+	const forwarded = (c.req.header("x-forwarded-proto") ?? "")
+		.split(",")[0]!
+		.trim()
+		.toLowerCase();
+	const proto =
+		forwarded === "http" || forwarded === "https"
+			? forwarded
+			: url.protocol.slice(0, -1);
 	return `${proto}://${url.host}`;
 }
 
