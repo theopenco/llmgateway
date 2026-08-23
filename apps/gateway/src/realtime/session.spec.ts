@@ -166,6 +166,7 @@ async function flush(): Promise<void> {
 function createSession(
 	preflightOverrides: Record<string, unknown> = {},
 	allowedTranscription: RealtimeMappingMatch | null = null,
+	pinned: { instructions?: string | null; voice?: string | null } = {},
 ) {
 	const client = new FakeSocket();
 	const upstream = new FakeSocket();
@@ -183,6 +184,8 @@ function createSession(
 		source: "lounge.llmgateway.io",
 		userAgent: "vitest",
 		allowedTranscription,
+		pinnedInstructions: pinned.instructions ?? null,
+		pinnedVoice: pinned.voice ?? null,
 		onClosed: () => {},
 	});
 	const clientSends = (event: Record<string, unknown>) => {
@@ -783,6 +786,141 @@ describe("RealtimeProxySession transcription", () => {
 			expect.stringContaining("unpriceable_transcription"),
 			expect.anything(),
 		);
+
+		session.shutdown(1000, "test_done");
+	});
+});
+
+describe("RealtimeProxySession pinned instructions", () => {
+	const INSTRUCTIONS = "You are the operator's support agent.";
+
+	it("applies pinned instructions and voice in the control session.update", async () => {
+		const { upstream, session, upstreamSends } = createSession({}, null, {
+			instructions: INSTRUCTIONS,
+			voice: "marin",
+		});
+
+		upstreamSends({ type: "session.created", session: { id: "sess_1" } });
+		await flush();
+
+		const control = JSON.parse(upstream.sent[0]) as {
+			session: {
+				instructions: string;
+				audio: {
+					input: { turn_detection: { create_response: boolean } };
+					output: { voice: string };
+				};
+			};
+		};
+		expect(control.session.instructions).toBe(INSTRUCTIONS);
+		expect(control.session.audio.output.voice).toBe("marin");
+		// The auto-response control this message already carried still applies.
+		expect(control.session.audio.input.turn_detection.create_response).toBe(
+			false,
+		);
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("omits instructions from the control update when nothing is pinned", async () => {
+		const { upstream, session, upstreamSends } = createSession();
+
+		upstreamSends({ type: "session.created", session: { id: "sess_1" } });
+		await flush();
+
+		const control = JSON.parse(upstream.sent[0]) as {
+			session: Record<string, unknown>;
+		};
+		expect(control.session).not.toHaveProperty("instructions");
+		expect(control.session.audio).not.toHaveProperty("output");
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("rejects a client session.update that changes instructions", async () => {
+		const { client, upstream, session, clientSends } = createSession({}, null, {
+			instructions: INSTRUCTIONS,
+		});
+
+		clientSends({
+			type: "session.update",
+			session: { type: "realtime", instructions: "You are a pirate." },
+		});
+		await flush();
+
+		expect(client.sent.some((m) => m.includes("instructions_locked"))).toBe(
+			true,
+		);
+		expect(upstream.sent).toHaveLength(0);
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("rejects per-response instructions that would bypass the lock", async () => {
+		const { client, upstream, session, clientSends } = createSession({}, null, {
+			instructions: INSTRUCTIONS,
+		});
+
+		clientSends({
+			type: "response.create",
+			response: { instructions: "You are a pirate." },
+		});
+		await flush();
+
+		expect(client.sent.some((m) => m.includes("instructions_locked"))).toBe(
+			true,
+		);
+		expect(upstream.sent).toHaveLength(0);
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("allows unrelated session updates while instructions are pinned", async () => {
+		const { client, upstream, session, clientSends } = createSession({}, null, {
+			instructions: INSTRUCTIONS,
+		});
+
+		clientSends({
+			type: "session.update",
+			session: { type: "realtime", audio: { output: { voice: "cedar" } } },
+		});
+		await flush();
+
+		expect(client.sent).toHaveLength(0);
+		expect(upstream.sent).toHaveLength(1);
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("leaves instructions to the client when nothing is pinned", async () => {
+		const { client, upstream, session, clientSends } = createSession();
+
+		clientSends({
+			type: "session.update",
+			session: { type: "realtime", instructions: "client owns this" },
+		});
+		await flush();
+
+		expect(client.sent).toHaveLength(0);
+		expect(upstream.sent).toHaveLength(1);
+		expect(upstream.sent[0]).toContain("client owns this");
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("strips pinned instructions from session events echoed to the client", async () => {
+		const { client, session, upstreamSends } = createSession({}, null, {
+			instructions: INSTRUCTIONS,
+		});
+
+		// The provider echoes the whole session state, instructions included.
+		upstreamSends({
+			type: "session.updated",
+			session: { id: "sess_1", instructions: INSTRUCTIONS },
+		});
+		await flush();
+
+		expect(client.sent.join("")).not.toContain(INSTRUCTIONS);
 
 		session.shutdown(1000, "test_done");
 	});

@@ -294,6 +294,8 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 			let requestedModel = url.searchParams.get("model") ?? undefined;
 			let source = extractSource(req);
 			let secretTranscriptionModel: string | null = null;
+			let pinnedInstructions: string | null = null;
+			let pinnedVoice: string | null = null;
 
 			if (subprotocolSecret) {
 				if (!subprotocolSecret.startsWith(CLIENT_SECRET_PREFIX)) {
@@ -340,6 +342,8 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 				token = record.token;
 				source = record.source;
 				secretTranscriptionModel = record.transcriptionModel;
+				pinnedInstructions = record.instructions;
+				pinnedVoice = record.voice;
 			}
 
 			// Full preflight runs against the WebSocket request's actual client IP:
@@ -545,6 +549,8 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 									sessionRecordId: sessionRecord.id,
 									lease,
 									source,
+									pinnedInstructions,
+									pinnedVoice,
 									userAgent: req.headers["user-agent"],
 									onClosed: (closed) => {
 										sessions.delete(closed);
@@ -560,6 +566,8 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 									lease,
 									source,
 									allowedTranscription,
+									pinnedInstructions,
+									pinnedVoice,
 									userAgent: req.headers["user-agent"],
 									onClosed: (closed) => {
 										sessions.delete(closed);
