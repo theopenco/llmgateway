@@ -12512,6 +12512,45 @@ admin.openapi(deleteChatSupportConversation, async (c) => {
 	return c.json({ success: true });
 });
 
+// ── Bulk Delete Chat Support Conversations ────────────────────────────────────
+
+const bulkDeleteChatSupportConversations = createRoute({
+	method: "post",
+	path: "/chat-support-logs/bulk-delete",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						ids: z.array(z.string()).min(1).max(100),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ deletedCount: z.number() }).openapi({}),
+				},
+			},
+			description: "Conversations deleted.",
+		},
+	},
+});
+
+admin.openapi(bulkDeleteChatSupportConversations, async (c) => {
+	const { ids } = c.req.valid("json");
+
+	const deleted = await db
+		.delete(tables.chatSupportConversation)
+		.where(inArray(tables.chatSupportConversation.id, ids))
+		.returning({ id: tables.chatSupportConversation.id });
+
+	return c.json({ deletedCount: deleted.length });
+});
+
 // ── Delete Contact Submission ─────────────────────────────────────────────────
 
 const deleteContactSubmission = createRoute({
