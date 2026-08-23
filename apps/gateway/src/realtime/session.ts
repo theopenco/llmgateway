@@ -193,12 +193,15 @@ export class RealtimeProxySession {
 	private clientQueue: Promise<void> = Promise.resolve();
 	private upstreamQueue: Promise<void> = Promise.resolve();
 
-	// Client and upstream frames are chained separately, so a client that sends
-	// response.create without waiting for session.created can otherwise reach
-	// the provider before the control session.update below — generating a turn
-	// under the provider's defaults instead of the pinned instructions and the
-	// disabled auto-response. Generation waits on this; it is resolved once the
-	// control update is forwarded, and on teardown so nothing waits forever.
+	// Client and upstream frames are chained separately, so without a gate a
+	// client that configures on socket open rather than on session.created —
+	// which is the common shape — races the gateway's own control
+	// session.update. Losing that race means generating under the provider's
+	// defaults instead of the pinned instructions, or having the client's own
+	// session.update overwritten by the control update that lands after it. The
+	// whole client queue therefore starts behind this promise, which resolves
+	// once the control update is forwarded and on teardown so nothing waits
+	// forever.
 	private resolveUpstreamConfigured!: () => void;
 	private readonly upstreamConfigured = new Promise<void>((resolve) => {
 		this.resolveUpstreamConfigured = resolve;
@@ -218,6 +221,7 @@ export class RealtimeProxySession {
 		this.pinnedInstructions = options.pinnedInstructions;
 		this.pinnedVoice = options.pinnedVoice;
 		this.onClosed = options.onClosed;
+		this.clientQueue = this.upstreamConfigured;
 
 		this.client.on("message", (data, isBinary) => {
 			this.clientQueue = this.clientQueue
@@ -632,11 +636,6 @@ export class RealtimeProxySession {
 	private async handleResponseCreate(
 		message: Record<string, unknown>,
 	): Promise<void> {
-		// Never generate before the session's control update has reached the
-		// provider. Later client frames stay behind this one on clientQueue, so
-		// ordering is preserved for the audio that follows too.
-		await this.upstreamConfigured;
-
 		// response.create may carry inline input items and per-response tools;
 		// apply the same deferred-capability guards as session-level config.
 		const response =

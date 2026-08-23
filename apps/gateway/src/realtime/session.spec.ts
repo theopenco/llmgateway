@@ -218,15 +218,17 @@ beforeEach(() => {
 describe("RealtimeProxySession turn handling", () => {
 	it("accepts canonical model ids in session updates", async () => {
 		const preflight = buildPreflight();
-		const { client, upstream, session, clientSends } = createSession({
-			match: {
-				...preflight.match,
-				mapping: {
-					...preflight.match.mapping,
-					externalId: "upstream-deployment",
+		const { client, upstream, session, clientSends } = await openSession(
+			createSession({
+				match: {
+					...preflight.match,
+					mapping: {
+						...preflight.match.mapping,
+						externalId: "upstream-deployment",
+					},
 				},
-			},
-		});
+			}),
+		);
 
 		clientSends({
 			type: "session.update",
@@ -326,7 +328,8 @@ describe("RealtimeProxySession turn handling", () => {
 	});
 
 	it("does not queue an auto-response for commits when turn detection is disabled", async () => {
-		const { upstream, session, clientSends, upstreamSends } = createSession();
+		const { upstream, session, clientSends, upstreamSends } =
+			await openSession(createSession());
 
 		clientSends({
 			type: "session.update",
@@ -346,9 +349,11 @@ describe("RealtimeProxySession turn handling", () => {
 
 describe("RealtimeProxySession authorization", () => {
 	it("rejects a transcription model the key's IAM rules do not allow", async () => {
-		const { client, upstream, session, clientSends } = createSession({
-			allowedTranscriptionModelIds: ["gpt-4o-mini-transcribe"],
-		});
+		const { client, upstream, session, clientSends } = await openSession(
+			createSession({
+				allowedTranscriptionModelIds: ["gpt-4o-mini-transcribe"],
+			}),
+		);
 
 		clientSends({
 			type: "session.update",
@@ -416,7 +421,8 @@ describe("RealtimeProxySession authorization", () => {
 
 describe("RealtimeProxySession transcription", () => {
 	it("rejects unsupported transcription models in session.update", async () => {
-		const { client, upstream, session, clientSends } = createSession();
+		const { client, upstream, session, clientSends } =
+			await openSession(createSession());
 
 		clientSends({
 			type: "session.update",
@@ -436,7 +442,8 @@ describe("RealtimeProxySession transcription", () => {
 	});
 
 	it("pins the ASR mapping and rewrites the forwarded model to the upstream id", async () => {
-		const { client, upstream, session, clientSends } = createSession();
+		const { client, upstream, session, clientSends } =
+			await openSession(createSession());
 
 		clientSends({
 			type: "session.update",
@@ -480,7 +487,7 @@ describe("RealtimeProxySession transcription", () => {
 
 	it("drains a disconnect until the pending transcription is billed", async () => {
 		const { client, upstream, session, clientSends, upstreamSends } =
-			createSession();
+			await openSession(createSession());
 
 		clientSends({
 			type: "session.update",
@@ -605,7 +612,7 @@ describe("RealtimeProxySession transcription", () => {
 
 	it("does not start an auto-response while draining a disconnect", async () => {
 		const { client, upstream, session, clientSends, upstreamSends } =
-			createSession();
+			await openSession(createSession());
 
 		clientSends({
 			type: "session.update",
@@ -648,7 +655,8 @@ describe("RealtimeProxySession transcription", () => {
 	});
 
 	it("does not pin transcription when a later field of the same update is rejected", async () => {
-		const { client, upstream, session, clientSends } = createSession();
+		const { client, upstream, session, clientSends } =
+			await openSession(createSession());
 
 		clientSends({
 			type: "session.update",
@@ -687,7 +695,8 @@ describe("RealtimeProxySession transcription", () => {
 	});
 
 	it("does not track commits as pending when the enabling update was rejected", async () => {
-		const { client, session, clientSends, upstreamSends } = createSession();
+		const { client, session, clientSends, upstreamSends } =
+			await openSession(createSession());
 
 		clientSends({
 			type: "session.update",
@@ -725,7 +734,8 @@ describe("RealtimeProxySession transcription", () => {
 	});
 
 	it("closes the session when the API key is revoked between transcriptions", async () => {
-		const { client, session, clientSends, upstreamSends } = createSession();
+		const { client, session, clientSends, upstreamSends } =
+			await openSession(createSession());
 
 		clientSends({
 			type: "session.update",
@@ -774,7 +784,8 @@ describe("RealtimeProxySession transcription", () => {
 	});
 
 	it("fails closed on duration-based transcription usage", async () => {
-		const { session, clientSends, upstreamSends } = createSession();
+		const { session, clientSends, upstreamSends } =
+			await openSession(createSession());
 
 		clientSends({
 			type: "session.update",
@@ -856,9 +867,11 @@ describe("RealtimeProxySession pinned instructions", () => {
 	});
 
 	it("rejects a client session.update that changes instructions", async () => {
-		const { client, upstream, session, clientSends } = createSession({}, null, {
-			instructions: INSTRUCTIONS,
-		});
+		const { client, upstream, session, clientSends } = await openSession(
+			createSession({}, null, {
+				instructions: INSTRUCTIONS,
+			}),
+		);
 
 		clientSends({
 			type: "session.update",
@@ -894,9 +907,11 @@ describe("RealtimeProxySession pinned instructions", () => {
 	});
 
 	it("allows unrelated session updates while instructions are pinned", async () => {
-		const { client, upstream, session, clientSends } = createSession({}, null, {
-			instructions: INSTRUCTIONS,
-		});
+		const { client, upstream, session, clientSends } = await openSession(
+			createSession({}, null, {
+				instructions: INSTRUCTIONS,
+			}),
+		);
 
 		clientSends({
 			type: "session.update",
@@ -911,7 +926,8 @@ describe("RealtimeProxySession pinned instructions", () => {
 	});
 
 	it("leaves instructions to the client when nothing is pinned", async () => {
-		const { client, upstream, session, clientSends } = createSession();
+		const { client, upstream, session, clientSends } =
+			await openSession(createSession());
 
 		clientSends({
 			type: "session.update",
@@ -945,6 +961,41 @@ describe("RealtimeProxySession pinned instructions", () => {
 		expect(upstream.sent).toHaveLength(2);
 		expect(upstream.sent[0]).toContain(INSTRUCTIONS);
 		expect(JSON.parse(upstream.sent[1]).type).toBe("response.create");
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("keeps an early client voice update effective over the pinned default", async () => {
+		// Real clients configure on socket open rather than on session.created, so
+		// the client's own update must land after the gateway's control update —
+		// voice is a default, not a lock.
+		const { upstream, session, clientSends, upstreamSends } = createSession(
+			{},
+			null,
+			{ instructions: INSTRUCTIONS, voice: "marin" },
+		);
+
+		clientSends({
+			type: "session.update",
+			session: { type: "realtime", audio: { output: { voice: "cedar" } } },
+		});
+		await flush();
+		expect(upstream.sent).toHaveLength(0);
+
+		upstreamSends({ type: "session.created", session: { id: "sess_1" } });
+		await flush();
+
+		expect(upstream.sent).toHaveLength(2);
+		const control = JSON.parse(upstream.sent[0]) as {
+			session: { instructions: string; audio: { output: { voice: string } } };
+		};
+		const clientUpdate = JSON.parse(upstream.sent[1]) as {
+			session: { audio: { output: { voice: string } } };
+		};
+		expect(control.session.instructions).toBe(INSTRUCTIONS);
+		expect(control.session.audio.output.voice).toBe("marin");
+		// The client's choice is applied last, so it is the one in effect.
+		expect(clientUpdate.session.audio.output.voice).toBe("cedar");
 
 		session.shutdown(1000, "test_done");
 	});
