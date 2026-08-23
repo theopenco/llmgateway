@@ -106,6 +106,16 @@ export interface RealtimeProxySessionOptions {
 	 * upstream provider.
 	 */
 	allowedTranscription: RealtimeMappingMatch | null;
+	/**
+	 * Instructions pinned by the client secret, applied on connect and locked
+	 * against any client change. Null leaves instructions to the client.
+	 */
+	pinnedInstructions: string | null;
+	/**
+	 * Output voice pinned by the client secret, applied as the session default.
+	 * Not locked, unlike instructions: the client may still change it.
+	 */
+	pinnedVoice: string | null;
 	onClosed: (session: RealtimeProxySession) => void;
 }
 
@@ -158,6 +168,8 @@ export class RealtimeProxySession {
 	// committed audio items will produce a billable transcription event.
 	private transcriptionEnabled = false;
 	private readonly allowedTranscription: RealtimeMappingMatch | null;
+	private readonly pinnedInstructions: string | null;
+	private readonly pinnedVoice: string | null;
 	// Committed user audio items whose billable transcription terminal event
 	// (completed or failed) has not arrived yet. Draining must wait for these
 	// so no billable transcription tail is dropped on disconnect.
@@ -181,6 +193,20 @@ export class RealtimeProxySession {
 	private clientQueue: Promise<void> = Promise.resolve();
 	private upstreamQueue: Promise<void> = Promise.resolve();
 
+	// Client and upstream frames are chained separately, so without a gate a
+	// client that configures on socket open rather than on session.created —
+	// which is the common shape — races the gateway's own control
+	// session.update. Losing that race means generating under the provider's
+	// defaults instead of the pinned instructions, or having the client's own
+	// session.update overwritten by the control update that lands after it. The
+	// whole client queue therefore starts behind this promise, which resolves
+	// once the control update is forwarded and on teardown so nothing waits
+	// forever.
+	private resolveUpstreamConfigured!: () => void;
+	private readonly upstreamConfigured = new Promise<void>((resolve) => {
+		this.resolveUpstreamConfigured = resolve;
+	});
+
 	public constructor(options: RealtimeProxySessionOptions) {
 		this.client = options.clientSocket;
 		this.upstream = options.upstreamSocket;
@@ -192,7 +218,10 @@ export class RealtimeProxySession {
 		this.source = options.source;
 		this.userAgent = options.userAgent;
 		this.allowedTranscription = options.allowedTranscription;
+		this.pinnedInstructions = options.pinnedInstructions;
+		this.pinnedVoice = options.pinnedVoice;
 		this.onClosed = options.onClosed;
+		this.clientQueue = this.upstreamConfigured;
 
 		this.client.on("message", (data, isBinary) => {
 			this.clientQueue = this.clientQueue
@@ -373,6 +402,21 @@ export class RealtimeProxySession {
 				buildErrorEvent(
 					"model_locked",
 					"The session model is locked at connection time and cannot be changed via session.update.",
+				),
+			);
+			return;
+		}
+
+		// Rejected rather than ignored, so a caller that believes it configured
+		// the prompt learns that it did not.
+		if (
+			this.pinnedInstructions !== null &&
+			session.instructions !== undefined
+		) {
+			this.sendToClientRaw(
+				buildErrorEvent(
+					"instructions_locked",
+					"The session instructions were pinned when this session's client secret was created and cannot be changed via session.update.",
 				),
 			);
 			return;
@@ -630,6 +674,20 @@ export class RealtimeProxySession {
 				this.sendToClientRaw(buildErrorEvent(...PROMPT_NOT_SUPPORTED));
 				return;
 			}
+			// Per-response instructions override the session's, so the lock has to
+			// be enforced here as well as on session.update.
+			if (
+				this.pinnedInstructions !== null &&
+				response.instructions !== undefined
+			) {
+				this.sendToClientRaw(
+					buildErrorEvent(
+						"instructions_locked",
+						"The session instructions were pinned when this session's client secret was created and cannot be overridden per response.",
+					),
+				);
+				return;
+			}
 		}
 
 		const allowed = await this.runGenerationGates();
@@ -852,6 +910,17 @@ export class RealtimeProxySession {
 		);
 	}
 
+	/**
+	 * Strip pinned instructions from a session object on its way to the client.
+	 * The provider echoes the full session state on every session.updated, which
+	 * would otherwise hand the pinned prompt back to the client.
+	 */
+	private redactPinnedInstructions(session: Record<string, unknown>): void {
+		if (this.pinnedInstructions !== null && "instructions" in session) {
+			delete session.instructions;
+		}
+	}
+
 	private normalizeSessionModelIds(session: Record<string, unknown>): void {
 		session.model = this.canonicalModelId(this.preflight.match);
 		const audio =
@@ -921,10 +990,12 @@ export class RealtimeProxySession {
 					});
 				}
 				this.normalizeSessionModelIds(session);
+				this.redactPinnedInstructions(session);
 				this.sendToClientRaw(JSON.stringify(event));
 				// Disable the provider's automatic VAD response so every generation
-				// passes the gateway's authorization gates. The echoed
-				// session.updated for this control message is suppressed below.
+				// passes the gateway's authorization gates, and apply any pinned
+				// instructions and voice. The echoed session.updated for this
+				// control message is suppressed below.
 				this.suppressSessionUpdated += 1;
 				this.forwardToUpstream(
 					JSON.stringify({
@@ -932,6 +1003,9 @@ export class RealtimeProxySession {
 						event_id: AUTO_RESPONSE_CONTROL_EVENT_ID,
 						session: {
 							type: "realtime",
+							...(this.pinnedInstructions !== null
+								? { instructions: this.pinnedInstructions }
+								: {}),
 							audio: {
 								input: {
 									turn_detection: {
@@ -939,10 +1013,14 @@ export class RealtimeProxySession {
 										create_response: false,
 									},
 								},
+								...(this.pinnedVoice !== null
+									? { output: { voice: this.pinnedVoice } }
+									: {}),
 							},
 						},
 					}),
 				);
+				this.resolveUpstreamConfigured();
 				return;
 			}
 			case "session.updated": {
@@ -955,6 +1033,7 @@ export class RealtimeProxySession {
 						? (event.session as Record<string, unknown>)
 						: {};
 				this.normalizeSessionModelIds(session);
+				this.redactPinnedInstructions(session);
 				this.sendToClientRaw(JSON.stringify(event));
 				return;
 			}
@@ -1353,6 +1432,9 @@ export class RealtimeProxySession {
 			return;
 		}
 		this.finalized = true;
+		// Release anything still waiting for the control update; the checks after
+		// it drop the frame once the session is finalized.
+		this.resolveUpstreamConfigured();
 
 		for (const timer of this.timers) {
 			clearInterval(timer);
