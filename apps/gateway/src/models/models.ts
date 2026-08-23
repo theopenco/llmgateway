@@ -1,6 +1,8 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
+import { publicErrorResponses } from "@/lib/error-schemas.js";
+
 import { logger, toError } from "@llmgateway/logger";
 import {
 	models as modelsList,
@@ -186,10 +188,11 @@ const listModels = createRoute({
 			},
 			description: "List of available models",
 		},
+		...publicErrorResponses(),
 	},
 });
 
-modelsApi.openapi(listModels, async (c) => {
+modelsApi.openapi(listModels, async (c): Promise<any> => {
 	try {
 		const query = c.req.valid("query");
 		const includeDeactivated = query.include_deactivated || false;

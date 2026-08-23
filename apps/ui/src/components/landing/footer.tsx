@@ -375,14 +375,20 @@ export default function Footer() {
 									</a>
 								</li>
 								<li>
-									<a
-										href="mailto:contact@llmgateway.io"
-										target="_blank"
-										rel="noreferrer noopener"
+									<Link
+										href="/about"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+									>
+										About
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/contact"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 									>
 										Contact Us
-									</a>
+									</Link>
 								</li>
 							</ul>
 						</div>

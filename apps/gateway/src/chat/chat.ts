@@ -69,6 +69,7 @@ import {
 	getLicensedOrganizationPlan,
 	hasOrganizationEnterpriseAccess,
 } from "@/lib/enterprise.js";
+import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import {
 	getGcpAccessToken,
@@ -1526,24 +1527,7 @@ const completions = createRoute({
 			},
 			description: "User response object or streaming response.",
 		},
-		500: {
-			content: {
-				"application/json": {
-					schema: z.object({
-						error: z.object({
-							message: z.string(),
-							type: z.string(),
-							param: z.string().nullable(),
-							code: z.string(),
-						}),
-					}),
-				},
-				"text/event-stream": {
-					schema: z.any(),
-				},
-			},
-			description: "Error response object.",
-		},
+		...standardErrorResponses(),
 	},
 });
 
@@ -5992,9 +5976,11 @@ chat.openapi(completions, async (c) => {
 				const retryAfter = providerRateLimitResult.retryAfter;
 				if (retryAfter) {
 					c.header("Retry-After", retryAfter.toString());
+					c.header("RateLimit-Reset", retryAfter.toString());
 					const resetTime = Math.floor(Date.now() / 1000) + retryAfter;
 					c.header("X-RateLimit-Reset", resetTime.toString());
 				}
+				c.header("RateLimit-Remaining", "0");
 
 				const blockedLimits = providerRateLimitResult.blockedBy
 					.map(

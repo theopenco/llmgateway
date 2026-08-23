@@ -42,6 +42,7 @@ import {
 	assertTestWalletModelAllowed,
 } from "@/lib/end-user-session.js";
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
+import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { validateRequestModelAccess } from "@/lib/iam.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
@@ -532,6 +533,7 @@ const createVideo = createRoute({
 			},
 			description: "Video job created.",
 		},
+		...standardErrorResponses(),
 	},
 });
 
@@ -560,6 +562,7 @@ const getVideo = createRoute({
 			},
 			description: "Video job state.",
 		},
+		...standardErrorResponses(),
 	},
 });
 
@@ -4693,7 +4696,7 @@ async function getAvalancheImageUrl(
 	return await uploadAvalancheBase64Image(providerContext, processedImage);
 }
 
-videos.openapi(createVideo, async (c) => {
+videos.openapi(createVideo, async (c): Promise<any> => {
 	const startedAt = Date.now();
 	const { rawBody, request } = await parseJsonBody(c);
 	const { apiKey, project, organization, wallet, requestId, routingCfg } =
@@ -5236,7 +5239,7 @@ videos.openapi(createVideo, async (c) => {
 	return c.json(await serializeVideoJob(created));
 });
 
-videos.openapi(getVideo, async (c) => {
+videos.openapi(getVideo, async (c): Promise<any> => {
 	const { project, apiKey } = await requireRequestContext(c);
 	const { video_id: videoId } = c.req.valid("param");
 	const job = await requireVideoJobForProject(

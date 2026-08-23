@@ -10,6 +10,7 @@ import {
 	findOrganizationById,
 	findProjectById,
 } from "@/lib/cached-queries.js";
+import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { validateModelOutput } from "@/lib/validate-model-output.js";
@@ -129,6 +130,7 @@ const generations = createRoute({
 			},
 			description: "Image generation response.",
 		},
+		...standardErrorResponses(),
 	},
 });
 
@@ -664,7 +666,7 @@ async function forwardToChatCompletions(
 
 export const images = new OpenAPIHono<ServerTypes>();
 
-images.openapi(generations, async (c) => {
+images.openapi(generations, async (c): Promise<any> => {
 	const startedAt = Date.now();
 	const getLogContext = createImageClientErrorLogContextResolver(c);
 
@@ -888,6 +890,7 @@ const edits = createRoute({
 			},
 			description: "Image edit response.",
 		},
+		...standardErrorResponses(),
 	},
 });
 
@@ -1232,7 +1235,7 @@ images.post("/edits", async (c, next) => {
 	return await processImageEdit(c, getLogContext, request, startedAt);
 });
 
-images.openapi(edits, async (c) => {
+images.openapi(edits, async (c): Promise<any> => {
 	const startedAt = Date.now();
 	const getLogContext = createImageClientErrorLogContextResolver(c);
 	let rawBody: unknown;
