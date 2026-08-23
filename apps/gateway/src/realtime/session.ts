@@ -193,6 +193,17 @@ export class RealtimeProxySession {
 	private clientQueue: Promise<void> = Promise.resolve();
 	private upstreamQueue: Promise<void> = Promise.resolve();
 
+	// Client and upstream frames are chained separately, so a client that sends
+	// response.create without waiting for session.created can otherwise reach
+	// the provider before the control session.update below — generating a turn
+	// under the provider's defaults instead of the pinned instructions and the
+	// disabled auto-response. Generation waits on this; it is resolved once the
+	// control update is forwarded, and on teardown so nothing waits forever.
+	private resolveUpstreamConfigured!: () => void;
+	private readonly upstreamConfigured = new Promise<void>((resolve) => {
+		this.resolveUpstreamConfigured = resolve;
+	});
+
 	public constructor(options: RealtimeProxySessionOptions) {
 		this.client = options.clientSocket;
 		this.upstream = options.upstreamSocket;
@@ -621,6 +632,11 @@ export class RealtimeProxySession {
 	private async handleResponseCreate(
 		message: Record<string, unknown>,
 	): Promise<void> {
+		// Never generate before the session's control update has reached the
+		// provider. Later client frames stay behind this one on clientQueue, so
+		// ordering is preserved for the audio that follows too.
+		await this.upstreamConfigured;
+
 		// response.create may carry inline input items and per-response tools;
 		// apply the same deferred-capability guards as session-level config.
 		const response =
@@ -1005,6 +1021,7 @@ export class RealtimeProxySession {
 						},
 					}),
 				);
+				this.resolveUpstreamConfigured();
 				return;
 			}
 			case "session.updated": {
@@ -1416,6 +1433,9 @@ export class RealtimeProxySession {
 			return;
 		}
 		this.finalized = true;
+		// Release anything still waiting for the control update; the checks after
+		// it drop the frame once the session is finalized.
+		this.resolveUpstreamConfigured();
 
 		for (const timer of this.timers) {
 			clearInterval(timer);

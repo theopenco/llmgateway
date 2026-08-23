@@ -197,6 +197,20 @@ function createSession(
 	return { client, upstream, session, clientSends, upstreamSends };
 }
 
+/**
+ * Drive the upstream session.created handshake and clear the buffers, so the
+ * test starts from a configured session. Generation is held until the gateway's
+ * control session.update has been forwarded, so any test sending
+ * response.create needs this first.
+ */
+async function openSession(harness: ReturnType<typeof createSession>) {
+	harness.upstreamSends({ type: "session.created", session: { id: "sess_1" } });
+	await flush();
+	harness.upstream.sent.length = 0;
+	harness.client.sent.length = 0;
+	return harness;
+}
+
 beforeEach(() => {
 	vi.clearAllMocks();
 });
@@ -265,7 +279,8 @@ describe("RealtimeProxySession turn handling", () => {
 	});
 
 	it("starts the pending auto-response only after a commit-during-response's response.done is billed", async () => {
-		const { upstream, session, clientSends, upstreamSends } = createSession();
+		const { upstream, session, clientSends, upstreamSends } =
+			await openSession(createSession());
 
 		clientSends({ type: "response.create" });
 		await flush();
@@ -353,7 +368,8 @@ describe("RealtimeProxySession authorization", () => {
 	});
 
 	it("rejects stored prompt references in session.update and response.create", async () => {
-		const { client, upstream, session, clientSends } = createSession();
+		const { client, upstream, session, clientSends } =
+			await openSession(createSession());
 
 		clientSends({
 			type: "session.update",
@@ -375,7 +391,8 @@ describe("RealtimeProxySession authorization", () => {
 	});
 
 	it("closes the session when IAM revokes model access mid-session", async () => {
-		const { client, upstream, clientSends } = createSession();
+		const { client, upstream, clientSends } =
+			await openSession(createSession());
 
 		vi.mocked(validateRequestModelAccess).mockResolvedValueOnce({
 			allowed: false,
@@ -523,7 +540,8 @@ describe("RealtimeProxySession transcription", () => {
 	});
 
 	it("still bills a pending transcription after transcription is disabled", async () => {
-		const { upstream, session, clientSends, upstreamSends } = createSession();
+		const { upstream, session, clientSends, upstreamSends } =
+			await openSession(createSession());
 
 		clientSends({
 			type: "session.update",
@@ -857,9 +875,9 @@ describe("RealtimeProxySession pinned instructions", () => {
 	});
 
 	it("rejects per-response instructions that would bypass the lock", async () => {
-		const { client, upstream, session, clientSends } = createSession({}, null, {
-			instructions: INSTRUCTIONS,
-		});
+		const { client, upstream, session, clientSends } = await openSession(
+			createSession({}, null, { instructions: INSTRUCTIONS }),
+		);
 
 		clientSends({
 			type: "response.create",
@@ -904,6 +922,29 @@ describe("RealtimeProxySession pinned instructions", () => {
 		expect(client.sent).toHaveLength(0);
 		expect(upstream.sent).toHaveLength(1);
 		expect(upstream.sent[0]).toContain("client owns this");
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("holds generation until the pinned instructions reach the provider", async () => {
+		// A client that does not wait for session.created must not be able to
+		// generate a turn under the provider's defaults.
+		const { upstream, session, clientSends, upstreamSends } = createSession(
+			{},
+			null,
+			{ instructions: INSTRUCTIONS },
+		);
+
+		clientSends({ type: "response.create" });
+		await flush();
+		expect(upstream.sent).toHaveLength(0);
+
+		upstreamSends({ type: "session.created", session: { id: "sess_1" } });
+		await flush();
+
+		expect(upstream.sent).toHaveLength(2);
+		expect(upstream.sent[0]).toContain(INSTRUCTIONS);
+		expect(JSON.parse(upstream.sent[1]).type).toBe("response.create");
 
 		session.shutdown(1000, "test_done");
 	});
