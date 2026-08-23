@@ -265,9 +265,10 @@ function getErrorTypeFromUnifiedFinishReason(
 
 /**
  * Calculate data storage cost based on token usage
- * $0.01 per 1M tokens (total tokens = input + output + reasoning)
+ * $0.01 per 1M tokens (total tokens = input + output)
  * promptTokens is the canonical total input count and already includes cached
- * input tokens for providers that report them separately.
+ * input tokens for providers that report them separately. completionTokens is
+ * the canonical total output count and already includes reasoning tokens.
  * Returns "0" if retention level is "none" since no data is stored
  */
 export function calculateDataStorageCost(
@@ -284,9 +285,8 @@ export function calculateDataStorageCost(
 
 	const prompt = Number(promptTokens) || 0;
 	const completion = Number(completionTokens) || 0;
-	const reasoning = Number(reasoningTokens) || 0;
 
-	const totalTokens = prompt + completion + reasoning;
+	const totalTokens = prompt + completion;
 
 	// $0.01 per 1M tokens
 	const cost = (totalTokens / 1_000_000) * 0.01;

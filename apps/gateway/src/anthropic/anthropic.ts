@@ -10,6 +10,10 @@ import {
 	buildAnthropicErrorBody,
 	getAnthropicErrorType,
 } from "@/lib/error-response.js";
+import {
+	anthropicErrorSchema,
+	standardErrorResponses,
+} from "@/lib/error-schemas.js";
 import { streamSSE } from "@/lib/pending-work.js";
 import { extractAnthropicSessionId } from "@/lib/session-id.js";
 
@@ -560,6 +564,7 @@ const messages = createRoute({
 			},
 			description: "Successful response",
 		},
+		...standardErrorResponses(anthropicErrorSchema),
 	},
 });
 
