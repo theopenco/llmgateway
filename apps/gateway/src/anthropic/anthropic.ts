@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
-import { streamSSE } from "hono/streaming";
 
 import { app } from "@/app.js";
 import { internalApiOriginHeaders } from "@/lib/api-origin.js";
@@ -15,6 +14,7 @@ import {
 	anthropicErrorSchema,
 	standardErrorResponses,
 } from "@/lib/error-schemas.js";
+import { streamSSE } from "@/lib/pending-work.js";
 import { extractAnthropicSessionId } from "@/lib/session-id.js";
 
 import {

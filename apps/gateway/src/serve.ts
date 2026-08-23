@@ -11,6 +11,7 @@ import { logger, toError } from "@llmgateway/logger";
 import { getEnterpriseLicenseStatus } from "@llmgateway/shared/enterprise-license";
 
 import { app } from "./app.js";
+import { pendingWorkCount, waitForPendingWork } from "./lib/pending-work.js";
 import {
 	closeUpstreamDispatcher,
 	installUpstreamDispatcher,
@@ -147,6 +148,12 @@ const realtimeShutdownGracePeriodMs =
 	Number(process.env.REALTIME_SHUTDOWN_GRACE_PERIOD_MS) ||
 	((Number(process.env.REALTIME_MAX_SESSION_SECONDS) || 3600) + 60) * 1000;
 
+// How long to wait for handler tails (billing, log insertion) that outlive
+// their HTTP connection before closing the database pool and Redis. These are
+// a few DB/Redis round-trips, so 20s is generous.
+const pendingWorkTimeoutMs =
+	Number(process.env.SHUTDOWN_PENDING_WORK_TIMEOUT_MS) || 20000;
+
 const closeServer = (server: ServerType): Promise<void> => {
 	return new Promise((resolve, reject) => {
 		const httpServer = server as Server;
@@ -234,6 +241,24 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 			logger.info("Closing metrics server");
 			await closeServer(metricsServer);
 			logger.info("Metrics server closed");
+		}
+
+		// Handlers whose client disconnected (or hung up right after [DONE])
+		// outlive their connection, so the server is closed while their billing
+		// and logging tail still runs. Wait for that work — before the upstream
+		// dispatcher, database pool, and Redis close underneath it.
+		const pendingAtClose = pendingWorkCount();
+		if (pendingAtClose > 0) {
+			logger.info("Waiting for pending request work", {
+				pending: pendingAtClose,
+			});
+			const remaining = await waitForPendingWork(pendingWorkTimeoutMs);
+			if (remaining > 0) {
+				logger.warn("Pending request work did not finish before shutdown", {
+					remaining,
+					timeoutMs: pendingWorkTimeoutMs,
+				});
+			}
 		}
 
 		logger.info("Closing upstream dispatcher");
