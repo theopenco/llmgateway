@@ -98,6 +98,7 @@ const organizationSchema = {
 	"@context": "https://schema.org",
 	"@type": "Organization",
 	name: "LLM Gateway",
+	alternateName: "LLMGateway",
 	url: "https://llmgateway.io",
 	logo: {
 		"@type": "ImageObject",
@@ -132,6 +133,7 @@ const websiteSchema = {
 	"@context": "https://schema.org",
 	"@type": "WebSite",
 	name: "LLM Gateway",
+	alternateName: ["LLMGateway", "llmgateway.io"],
 	url: "https://llmgateway.io",
 	potentialAction: {
 		"@type": "SearchAction",

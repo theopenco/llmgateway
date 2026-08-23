@@ -67,7 +67,7 @@ export const config = {
 
 **Versioning**: the API is versioned in the URL path (\`/v1/...\`). Backwards-incompatible changes only ship under a new path version. Model and provider deprecations are announced in the changelog (https://llmgateway.io/changelog) and deprecated entries remain listed in \`/v1/models\` with their deactivation date.
 
-**Rate limits**: requests are limited per organization and per endpoint. 429 responses carry \`Retry-After\`, \`RateLimit-Limit\`, \`RateLimit-Remaining\` and \`RateLimit-Reset\` headers (plus legacy \`X-RateLimit-*\`); back off until \`Retry-After\` elapses.
+**Rate limits**: requests are limited per organization and per endpoint. 429 responses carry \`Retry-After\`, \`RateLimit-Limit\`, \`RateLimit-Remaining\` and \`RateLimit-Reset\` headers (plus legacy \`X-RateLimit-*\`); back off until \`Retry-After\` elapses. Successful authenticated responses on limited endpoints also carry \`RateLimit-Limit\` and \`RateLimit-Remaining\` so clients can self-throttle.
 
 **MCP**: a Model Context Protocol server (Streamable HTTP) is served at \`/mcp\`; OAuth metadata and scopes are published at \`/.well-known/oauth-authorization-server\` and \`/.well-known/oauth-protected-resource\`.
 

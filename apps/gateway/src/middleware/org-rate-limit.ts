@@ -141,6 +141,14 @@ export async function orgRateLimitMiddleware(
 				headers,
 			);
 		}
+
+		// Surface the remaining request budget on successful responses too, so
+		// clients can self-throttle before ever hitting a 429. `limit` is 0 on
+		// the disabled/error bypass paths, where there is nothing to report.
+		if (result.limit > 0) {
+			c.header("RateLimit-Limit", String(result.limit));
+			c.header("RateLimit-Remaining", String(result.remaining));
+		}
 	}
 
 	// Per-org fleet-wide in-flight concurrency limit: one budget across all

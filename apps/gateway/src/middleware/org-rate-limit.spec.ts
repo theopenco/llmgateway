@@ -47,6 +47,7 @@ function makeContext(
 	return {
 		req: { path, method, header: (name: string) => headers[name] },
 		json: vi.fn(),
+		header: vi.fn(),
 		env: {},
 	} as unknown as Context;
 }
@@ -126,6 +127,33 @@ describe("orgRateLimitMiddleware", () => {
 		await orgRateLimitMiddleware(c, next);
 
 		expect(lib.checkOrgRateLimit).toHaveBeenCalledOnce();
+		expect(next).toHaveBeenCalledOnce();
+	});
+
+	it("surfaces the remaining budget on allowed responses", async () => {
+		vi.mocked(findOrganizationCachedById).mockResolvedValue(orgWith("pro"));
+		const c = makeContext();
+		const next = vi.fn(async () => undefined) as unknown as Next;
+
+		await orgRateLimitMiddleware(c, next);
+
+		expect(c.header).toHaveBeenCalledWith("RateLimit-Limit", "600");
+		expect(c.header).toHaveBeenCalledWith("RateLimit-Remaining", "5");
+	});
+
+	it("sets no budget headers when the limiter is bypassed (limit 0)", async () => {
+		vi.mocked(findOrganizationCachedById).mockResolvedValue(orgWith("pro"));
+		vi.mocked(lib.checkOrgRateLimit).mockResolvedValue({
+			allowed: true,
+			remaining: 0,
+			limit: 0,
+		});
+		const c = makeContext();
+		const next = vi.fn(async () => undefined) as unknown as Next;
+
+		await orgRateLimitMiddleware(c, next);
+
+		expect(c.header).not.toHaveBeenCalled();
 		expect(next).toHaveBeenCalledOnce();
 	});
 
