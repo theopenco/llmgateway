@@ -25,7 +25,7 @@ Windows (PowerShell):
 irm https://empryo.com/install.ps1 | iex
 ```
 
-Both installers verify checksums before running anything. Direct binaries and the desktop app are on the [download page](https://empryo.com/download).
+Each script downloads the release's `SHA256SUMS.txt`, checks its RSA-4096 signature against a key pinned in the script, and verifies the binary's checksum before installing it — the one-liner itself is a bootstrapper, so if you'd rather not pipe it into your shell, download it first and read it, or grab a binary and its checksum from the [download page](https://empryo.com/download) and verify by hand.
 
 ## Setup
 
