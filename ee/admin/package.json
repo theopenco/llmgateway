@@ -16,7 +16,7 @@
 		"start": "next start"
 	},
 	"dependencies": {
-		"@better-auth/passkey": "1.6.26",
+		"@better-auth/passkey": "1.7.1",
 		"@hookform/resolvers": "5.2.2",
 		"@llmgateway/ai-sdk-provider": "3.7.0",
 		"@llmgateway/models": "workspace:*",
@@ -45,7 +45,7 @@
 		"ai": "6.0.27",
 		"api": "workspace:*",
 		"babel-plugin-react-compiler": "1.0.0",
-		"better-auth": "1.6.26",
+		"better-auth": "1.7.1",
 		"class-variance-authority": "0.7.1",
 		"clsx": "^2.1.1",
 		"cmdk": "^1.1.1",
