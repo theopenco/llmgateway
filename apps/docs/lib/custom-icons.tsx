@@ -1,4 +1,4 @@
-import type { ComponentType, SVGProps } from "react";
+import type { ComponentType, CSSProperties, SVGProps } from "react";
 
 type IconComponent = ComponentType<SVGProps<SVGSVGElement>>;
 
@@ -151,6 +151,20 @@ export const customIcons: Record<string, IconComponent> = {
 				strokeLinejoin="round"
 			/>
 		</svg>
+	),
+	Empryo: ({ className, style }) => (
+		// Raster mark hosted at /integrations/empryo.png in the docs public dir.
+		<img
+			src="/integrations/empryo.png"
+			alt="Empryo"
+			className={className as string | undefined}
+			style={
+				{
+					objectFit: "contain",
+					...(style as CSSProperties | undefined),
+				} as CSSProperties
+			}
+		/>
 	),
 	OpenClaw: (props) => (
 		<svg
