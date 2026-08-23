@@ -54,13 +54,18 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 export const config = {
 	servers: [
 		{
+			url: "https://internal.llmgateway.io",
+		},
+		{
 			url: "http://localhost:4002",
 		},
 	],
 	openapi: "3.0.0",
 	info: {
 		version: "1.0.0",
-		title: "My API",
+		title: "LLM Gateway Platform API",
+		description:
+			"Internal platform API for the LLM Gateway dashboard (user, organization, billing and analytics management). The public LLM inference API is documented at https://api.llmgateway.io/openapi.json.",
 	},
 };
 
