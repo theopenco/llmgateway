@@ -30,6 +30,8 @@ import { Textarea } from "@/lib/components/textarea";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 
+import { Time } from "@llmgateway/shared";
+
 import { validateGraphText } from "./flow-graph";
 
 import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
@@ -672,7 +674,10 @@ export function DynamicRoutesClient({ projectId }: { projectId: string }) {
 															v{version.version}
 														</span>
 														<span className="text-xs text-muted-foreground">
-															{new Date(version.createdAt).toLocaleString()}
+															<Time
+																date={version.createdAt}
+																format="monthDayYearHourMinuteZone"
+															/>
 														</span>
 														{version.published && (
 															<Badge variant="secondary">published</Badge>

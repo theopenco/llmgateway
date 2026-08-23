@@ -44,12 +44,12 @@ export function ModelUsageTable({
 	const { selectedProject } = useDashboardState();
 	const usageMode = useUsageMode();
 
-	const { from, to } = getDateRangeFromParams(searchParams);
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
+	const { from, to } = getDateRangeFromParams(searchParams, displayTimeZone);
 	const fromStr = format(from, "yyyy-MM-dd");
 	const toStr = format(to, "yyyy-MM-dd");
 
 	const api = useApi();
-	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 	const { data, isLoading, error } = api.useQuery(
 		"get",
 		"/activity",

@@ -56,21 +56,17 @@ export function ApiKeyStatsClient({
 		if (!isEnterprise) {
 			return;
 		}
-		if (
-			!shouldApplyDefaults(searchParams.get("from"), searchParams.get("to"))
-		) {
+		if (!shouldApplyDefaults(searchParams)) {
 			return;
 		}
-		{
-			const params = new URLSearchParams(searchParams.toString());
-			params.delete("days");
-			params.set("from", defaultFrom);
-			params.set("to", defaultTo);
-			markGenerated(defaultFrom, defaultTo);
-			router.replace(
-				`${buildUrl(`api-keys/${keyId}`)}?${params.toString()}` as Route,
-			);
-		}
+		const params = new URLSearchParams(searchParams.toString());
+		params.delete("days");
+		params.set("from", defaultFrom);
+		params.set("to", defaultTo);
+		markGenerated(params);
+		router.replace(
+			`${buildUrl(`api-keys/${keyId}`)}?${params.toString()}` as Route,
+		);
 	}, [
 		searchParams,
 		router,

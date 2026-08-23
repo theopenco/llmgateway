@@ -91,16 +91,14 @@ export function DeveloperDashboardClient({
 	} = useZonedRangeDefaults();
 
 	useEffect(() => {
-		if (
-			!shouldApplyDefaults(searchParams.get("from"), searchParams.get("to"))
-		) {
+		if (!shouldApplyDefaults(searchParams)) {
 			return;
 		}
 		const next = new URLSearchParams(searchParams.toString());
 		next.delete("days");
 		next.set("from", defaultFrom);
 		next.set("to", defaultTo);
-		markGenerated(defaultFrom, defaultTo);
+		markGenerated(next);
 		router.replace(`${buildUrl("me")}?${next.toString()}`);
 	}, [
 		searchParams,

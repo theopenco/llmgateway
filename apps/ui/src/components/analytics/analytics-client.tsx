@@ -112,16 +112,14 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 		if (!isEnterprise) {
 			return;
 		}
-		if (
-			!shouldApplyDefaults(searchParams.get("from"), searchParams.get("to"))
-		) {
+		if (!shouldApplyDefaults(searchParams)) {
 			return;
 		}
 		const params = new URLSearchParams(searchParams.toString());
 		params.delete("days");
 		params.set("from", defaultFrom);
 		params.set("to", defaultTo);
-		markGenerated(defaultFrom, defaultTo);
+		markGenerated(params);
 		router.replace(`${buildUrl("analytics")}?${params.toString()}`);
 	}, [
 		searchParams,

@@ -21,6 +21,7 @@ import { ChevronDownIcon, ChevronLeftIcon } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 
+import { GENERATED_RANGE_PARAM } from "@/hooks/useZonedRangeDefaults";
 import { Input } from "@/lib/components/input";
 import {
 	Popover,
@@ -207,7 +208,7 @@ function findMatchingPreset(
  *  calendar dates and need no zone. */
 function getDateRangeFromParams(
 	searchParams: URLSearchParams,
-	timeZone?: string,
+	timeZone: string,
 ) {
 	const fromParam = searchParams.get("from");
 	const toParam = searchParams.get("to");
@@ -219,18 +220,10 @@ function getDateRangeFromParams(
 		};
 	}
 
-	if (timeZone) {
-		const todayKey = formatDayKey(new Date(), timeZone);
-		return {
-			from: new Date(shiftDayKey(todayKey, -6) + "T00:00:00"),
-			to: new Date(todayKey + "T00:00:00"),
-		};
-	}
-
-	const today = new Date();
+	const todayKey = formatDayKey(new Date(), timeZone);
 	return {
-		from: subDays(today, 6),
-		to: today,
+		from: new Date(shiftDayKey(todayKey, -6) + "T00:00:00"),
+		to: new Date(todayKey + "T00:00:00"),
 	};
 }
 
@@ -249,7 +242,10 @@ interface MonthRangePickerProps {
 }
 
 function MonthRangePicker({ from, to, onSelect }: MonthRangePickerProps) {
-	const today = new Date();
+	const { timeZone } = useDisplayTimeZone();
+	// The display zone's calendar day, so "future month" is judged against the
+	// same clock the ranges are written in.
+	const today = new Date(`${formatDayKey(new Date(), timeZone)}T00:00:00`);
 	const [leftYear, setLeftYear] = useState(() => today.getFullYear() - 1);
 	const [pendingFrom, setPendingFrom] = useState<Date | null>(null);
 	const [hoverMonth, setHoverMonth] = useState<Date | null>(null);
@@ -392,6 +388,8 @@ export function DateRangePicker({ buildUrl, path }: DateRangePickerProps) {
 	const updateDateRange = (newFrom: Date, newTo: Date) => {
 		const params = new URLSearchParams(searchParams.toString());
 		params.delete("days");
+		// The user picked this range, so it must survive a timezone toggle.
+		params.delete(GENERATED_RANGE_PARAM);
 		params.set("from", format(newFrom, "yyyy-MM-dd"));
 		params.set("to", format(newTo, "yyyy-MM-dd"));
 		const url = `${path ? buildUrl(path) : buildUrl()}?${params.toString()}`;

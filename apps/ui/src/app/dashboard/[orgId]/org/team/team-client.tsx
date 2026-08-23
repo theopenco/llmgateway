@@ -746,16 +746,14 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 		if (!showUsage) {
 			return;
 		}
-		if (
-			!shouldApplyDefaults(searchParams.get("from"), searchParams.get("to"))
-		) {
+		if (!shouldApplyDefaults(searchParams)) {
 			return;
 		}
 		const params2 = new URLSearchParams(searchParams.toString());
 		params2.delete("days");
 		params2.set("from", defaultFrom);
 		params2.set("to", defaultTo);
-		markGenerated(defaultFrom, defaultTo);
+		markGenerated(params2);
 		router.replace(`${buildOrgUrl("org/team")}?${params2.toString()}` as Route);
 	}, [
 		showUsage,

@@ -1,12 +1,18 @@
 "use client";
 
-import { useCallback, useRef } from "react";
+import { useCallback } from "react";
 
 import {
 	formatDayKey,
 	shiftDayKey,
 	useDisplayTimeZone,
 } from "@llmgateway/shared";
+
+/** Marks a `from`/`to` pair in the URL as one we generated rather than one the
+ *  user chose. Provenance has to live in the URL: a ref is empty after a
+ *  reload or on a shared link, which would strand a generated range in the
+ *  zone it was created in. */
+export const GENERATED_RANGE_PARAM = "autorange";
 
 /**
  * Default `from`/`to` day keys for the analytics range pickers, derived in the
@@ -18,52 +24,36 @@ import {
  *   differ, so a browser-derived range asks for a day the API considers the
  *   future and drops the oldest intended one.
  * - The effects that seed the URL bail out once `from`/`to` are present, so a
- *   range generated under the old zone would survive a toggle. `wasGenerated`
- *   tells a caller whether the current params are its own default (safe to
- *   regenerate) or a range the user picked (leave alone).
+ *   range generated under the old zone would survive a toggle. Anything the
+ *   user picked clears the marker, so only our own defaults get refreshed.
  */
 export function useZonedRangeDefaults(days = 6) {
 	const { timeZone } = useDisplayTimeZone();
-	// Every default this hook has handed out, so a range written under a
-	// previous zone is still recognised as generated after a toggle.
-	const generated = useRef<Set<string>>(new Set());
 
 	const to = formatDayKey(new Date(), timeZone);
 	const from = shiftDayKey(to, -days);
 
-	const markGenerated = useCallback((nextFrom: string, nextTo: string) => {
-		generated.current.add(`${nextFrom}|${nextTo}`);
+	/** Stamp the marker onto params the caller is about to write. */
+	const markGenerated = useCallback((params: URLSearchParams) => {
+		params.set(GENERATED_RANGE_PARAM, "1");
 	}, []);
 
-	const wasGenerated = useCallback(
-		(currentFrom: string | null, currentTo: string | null) =>
-			!!currentFrom &&
-			!!currentTo &&
-			generated.current.has(`${currentFrom}|${currentTo}`),
-		[],
-	);
-
 	/** True when the URL range should be (re)written with the defaults above:
-	 *  either nothing is set yet, or what is set is a stale default of ours. */
+	 *  nothing is set yet, or what is set is a stale default of ours. */
 	const shouldApplyDefaults = useCallback(
-		(currentFrom: string | null, currentTo: string | null) => {
+		(params: URLSearchParams) => {
+			const currentFrom = params.get("from");
+			const currentTo = params.get("to");
 			if (!currentFrom || !currentTo) {
 				return true;
 			}
 			if (currentFrom === from && currentTo === to) {
 				return false;
 			}
-			return generated.current.has(`${currentFrom}|${currentTo}`);
+			return params.get(GENERATED_RANGE_PARAM) === "1";
 		},
 		[from, to],
 	);
 
-	return {
-		from,
-		to,
-		timeZone,
-		markGenerated,
-		wasGenerated,
-		shouldApplyDefaults,
-	};
+	return { from, to, timeZone, markGenerated, shouldApplyDefaults };
 }

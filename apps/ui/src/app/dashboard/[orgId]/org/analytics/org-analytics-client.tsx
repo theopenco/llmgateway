@@ -173,21 +173,17 @@ export function OrgAnalyticsClient() {
 		if (!isEnterprise) {
 			return;
 		}
-		if (
-			!shouldApplyDefaults(searchParams.get("from"), searchParams.get("to"))
-		) {
+		if (!shouldApplyDefaults(searchParams)) {
 			return;
 		}
-		{
-			const next = new URLSearchParams(searchParams.toString());
-			next.delete("days");
-			next.set("from", defaultFrom);
-			next.set("to", defaultTo);
-			markGenerated(defaultFrom, defaultTo);
-			router.replace(
-				`${buildOrgUrl("org/analytics")}?${next.toString()}` as Route,
-			);
-		}
+		const next = new URLSearchParams(searchParams.toString());
+		next.delete("days");
+		next.set("from", defaultFrom);
+		next.set("to", defaultTo);
+		markGenerated(next);
+		router.replace(
+			`${buildOrgUrl("org/analytics")}?${next.toString()}` as Route,
+		);
 	}, [
 		searchParams,
 		router,

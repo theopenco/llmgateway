@@ -208,6 +208,34 @@ describe("zone naming", () => {
 		).toBe("Jan 15, 2026 EST");
 	});
 
+	it("resolves a fall-back-hour bucket to its first occurrence", () => {
+		// 2026-11-01 01:30 in New York happens twice (05:30Z EDT, 06:30Z EST).
+		// The label carries nothing to disambiguate, so this pins the choice
+		// rather than leaving it accidental. The wall clock is right either way.
+		expect(
+			formatBucketLabelWithZone(
+				"2026-11-01T01:30:00",
+				"monthDayYearHourMinute",
+				"America/New_York",
+			),
+		).toBe("Nov 1, 2026 01:30 EDT");
+		// An hour either side is unambiguous.
+		expect(
+			formatBucketLabelWithZone(
+				"2026-11-01T00:30:00",
+				"monthDayYearHourMinute",
+				"America/New_York",
+			),
+		).toBe("Nov 1, 2026 00:30 EDT");
+		expect(
+			formatBucketLabelWithZone(
+				"2026-11-01T03:30:00",
+				"monthDayYearHourMinute",
+				"America/New_York",
+			),
+		).toBe("Nov 1, 2026 03:30 EST");
+	});
+
 	it("labels a bucket with the zone it was bucketed in", () => {
 		// The label itself stays literal; only the suffix comes from the zone.
 		expect(

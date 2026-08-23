@@ -230,6 +230,14 @@ function zoneOffsetMs(date: Date, timeZone: string): number {
  * The instant a naive wall-clock label refers to in `timeZone`. Two passes so
  * the offset converges across a DST boundary, where the offset at the naive
  * reading differs from the offset at the real instant.
+ *
+ * During a fall-back hour the label is genuinely ambiguous — 01:30 in
+ * America/New_York happens twice, once at 05:30Z (EDT) and once at 06:30Z
+ * (EST) — and a naive bucket label carries nothing to tell them apart. This
+ * resolves to the first occurrence, matching how the analytics endpoints
+ * generate their buckets. Only the zone *name* is affected; the wall clock the
+ * user reads is right either way. Sending an offset alongside each bucket
+ * would remove the ambiguity, but that is an API change.
  */
 function instantFromZonedWallClock(label: string, timeZone: string): Date {
 	const naive = new Date(

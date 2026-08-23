@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 
 import {
 	UsageModeSelector,
@@ -17,6 +17,7 @@ import { ErrorRateChart } from "@/components/usage/error-rate-chart";
 import { ModelUsageTable } from "@/components/usage/model-usage-table";
 import { UsageChart } from "@/components/usage/usage-chart";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
+import { GENERATED_RANGE_PARAM } from "@/hooks/useZonedRangeDefaults";
 import {
 	Card,
 	CardContent,
@@ -59,12 +60,20 @@ interface UsageClientProps {
 function timeRangeToDayKeys(timeRange: TimeRangeValue, timeZone: string) {
 	const now = new Date();
 	const today = formatDayKey(now, timeZone);
+	// Sub-day windows straddle midnight whenever "now" is less than the window
+	// length into the day, so take the day the window actually starts on rather
+	// than assuming it is today.
+	const hoursAgo = (hours: number) => {
+		const windowMs = hours * 60 * 60 * 1000;
+		return formatDayKey(new Date(now.getTime() - windowMs), timeZone);
+	};
 	switch (timeRange) {
 		case "1h":
+			return { from: hoursAgo(1), to: today };
 		case "4h":
-			return { from: today, to: today };
+			return { from: hoursAgo(4), to: today };
 		case "24h":
-			return { from: shiftDayKey(today, -1), to: today };
+			return { from: hoursAgo(24), to: today };
 		case "7d":
 			return { from: shiftDayKey(today, -7), to: today };
 		case "30d":
@@ -78,9 +87,6 @@ export function UsageClient({
 }: UsageClientProps) {
 	const router = useRouter();
 	const { timeZone: displayTimeZone } = useDisplayTimeZone();
-	// Ranges this component wrote, so a zone toggle can refresh them without
-	// clobbering one the user chose.
-	const generated = useRef<Set<string>>(new Set());
 	const searchParams = useSearchParams();
 	const { buildUrl } = useDashboardNavigation();
 	const api = useApi();
@@ -119,15 +125,15 @@ export function UsageClient({
 		if (
 			currentFrom &&
 			currentTo &&
-			!generated.current.has(`${currentFrom}|${currentTo}`)
+			searchParams.get(GENERATED_RANGE_PARAM) !== "1"
 		) {
 			return;
 		}
 		if (currentFrom === from && currentTo === to) {
 			return;
 		}
-		generated.current.add(`${from}|${to}`);
 		const params = new URLSearchParams(searchParams);
+		params.set(GENERATED_RANGE_PARAM, "1");
 		params.delete("days");
 		params.set("from", from);
 		params.set("to", to);
@@ -151,8 +157,10 @@ export function UsageClient({
 	// Function to update timeRange in URL
 	const updateTimeRange = (newTimeRange: TimeRangeValue) => {
 		const { from, to } = timeRangeToDayKeys(newTimeRange, displayTimeZone);
-		generated.current.add(`${from}|${to}`);
 		const params = new URLSearchParams(searchParams);
+		// Derived from the time-range control, so a zone toggle should re-derive
+		// it rather than preserve stale day keys.
+		params.set(GENERATED_RANGE_PARAM, "1");
 		params.set("timeRange", newTimeRange);
 		params.set("from", from);
 		params.set("to", to);
