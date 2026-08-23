@@ -1356,7 +1356,7 @@ describe("parseProviderResponse", () => {
 	describe("xai reasoning tokens", () => {
 		// Real grok-4.6 usage payload: reasoning is reported only in the nested
 		// details object and is NOT part of completion_tokens (note total_tokens =
-		// 213 + 4 + 310), so it has to be read here to be billed at all.
+		// 213 + 4 + 310). Parsing normalizes completion to the inclusive count.
 		const xaiJson = {
 			choices: [
 				{
@@ -1385,24 +1385,30 @@ describe("parseProviderResponse", () => {
 				);
 
 				expect(result.promptTokens).toBe(213);
-				expect(result.completionTokens).toBe(4);
+				expect(result.completionTokens).toBe(314);
 				expect(result.reasoningTokens).toBe(310);
 				expect(result.cachedTokens).toBe(128);
 			},
 		);
 
-		it("ignores the nested count for other OpenAI-compatible providers", () => {
-			// Everyone else folds reasoning into completion_tokens already, so
-			// reading the nested field would bill the same tokens twice.
+		it("keeps inclusive OpenAI-compatible completion tokens unchanged", () => {
+			const inclusiveJson = {
+				...xaiJson,
+				usage: {
+					...xaiJson.usage,
+					completion_tokens: 314,
+				},
+			};
 			const result = parseProviderResponse(
 				"openai",
 				"gpt-5.5",
-				xaiJson,
+				inclusiveJson,
 				[],
 				true,
 			);
 
-			expect(result.reasoningTokens).toBeNull();
+			expect(result.completionTokens).toBe(314);
+			expect(result.reasoningTokens).toBe(310);
 		});
 	});
 });

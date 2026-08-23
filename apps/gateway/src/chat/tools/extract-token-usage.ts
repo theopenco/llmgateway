@@ -57,6 +57,34 @@ export function extractBedrockCacheCreationDetails(usage: any): {
 }
 
 /**
+ * Normalize completion tokens to the inclusive billable output count.
+ *
+ * Most providers already include reasoning in completion tokens. A few return
+ * visible completion and reasoning separately, which is unambiguous when the
+ * reported total equals prompt + completion + reasoning.
+ */
+export function normalizeCompletionTokens(
+	promptTokens: number | null,
+	completionTokens: number | null,
+	reasoningTokens: number | null,
+	totalTokens: number | null,
+): number | null {
+	if (
+		promptTokens === null ||
+		completionTokens === null ||
+		reasoningTokens === null ||
+		reasoningTokens <= 0 ||
+		totalTokens === null
+	) {
+		return completionTokens;
+	}
+
+	return totalTokens === promptTokens + completionTokens + reasoningTokens
+		? completionTokens + reasoningTokens
+		: completionTokens;
+}
+
+/**
  * Extracts token usage information from streaming data based on provider format
  */
 export function extractTokenUsage(
@@ -224,7 +252,10 @@ export function extractTokenUsage(
 				promptTokens = data.usage.prompt_tokens ?? null;
 				completionTokens = data.usage.completion_tokens ?? null;
 				totalTokens = data.usage.total_tokens ?? null;
-				reasoningTokens = data.usage.reasoning_tokens ?? null;
+				reasoningTokens =
+					data.usage.reasoning_tokens ??
+					data.usage.completion_tokens_details?.reasoning_tokens ??
+					null;
 				cachedTokens = data.usage.prompt_tokens_details?.cached_tokens ?? null;
 				const cacheCreation =
 					data.usage.prompt_tokens_details?.cache_creation_input_tokens ?? 0;
@@ -232,22 +263,6 @@ export function extractTokenUsage(
 					cacheCreationTokens = cacheCreation;
 					cacheCreation5mTokens = cacheCreation;
 				}
-			}
-			break;
-		case "xai":
-		case "vertex-openai":
-			// xAI and Vertex's xAI endpoint report reasoning outside
-			// `completion_tokens`, so the nested count has to reach the cost engine
-			// to be billed. The default OpenAI branch only reads a top-level count.
-			if (data.usage) {
-				promptTokens = data.usage.prompt_tokens ?? null;
-				completionTokens = data.usage.completion_tokens ?? null;
-				totalTokens = data.usage.total_tokens ?? null;
-				reasoningTokens =
-					data.usage.completion_tokens_details?.reasoning_tokens ??
-					data.usage.reasoning_tokens ??
-					null;
-				cachedTokens = data.usage.prompt_tokens_details?.cached_tokens ?? null;
 			}
 			break;
 		case "sakana":
@@ -295,7 +310,10 @@ export function extractTokenUsage(
 				promptTokens = data.usage.prompt_tokens ?? null;
 				completionTokens = data.usage.completion_tokens ?? null;
 				totalTokens = data.usage.total_tokens ?? null;
-				reasoningTokens = data.usage.reasoning_tokens ?? null;
+				reasoningTokens =
+					data.usage.reasoning_tokens ??
+					data.usage.completion_tokens_details?.reasoning_tokens ??
+					null;
 				cachedTokens = data.usage.prompt_tokens_details?.cached_tokens ?? null;
 				// GPT-5.6+ bills prompt-cache writes at 1.25x and reports them in
 				// `cache_write_tokens` (a subset of prompt_tokens, like cached_tokens).
@@ -307,6 +325,13 @@ export function extractTokenUsage(
 			}
 			break;
 	}
+
+	completionTokens = normalizeCompletionTokens(
+		promptTokens,
+		completionTokens,
+		reasoningTokens,
+		totalTokens,
+	);
 
 	return {
 		promptTokens,

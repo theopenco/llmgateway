@@ -246,7 +246,7 @@ export async function calculateCosts(
 		completion?: string;
 		toolResults?: ToolCall[];
 	},
-	reasoningTokens: number | null = null,
+	_reasoningTokens: number | null = null,
 	outputImageCount = 0,
 	imageSize?: string,
 	inputImageCount = 0,
@@ -737,37 +737,7 @@ export async function calculateCosts(
 		.plus(imageInputCost ?? 0)
 		.plus(audioInputCost ?? 0);
 
-	// For Google models, completionTokens already includes reasoning tokens
-	// (merged during extraction). The same holds for OpenAI-style Responses API
-	// providers (OpenAI, Azure, Sakana, Meta), whose `output_tokens` counts
-	// reasoning — their `reasoning_tokens` detail is informational only. RanoAI
-	// reports reasoning in `completion_tokens_details` (which the streaming
-	// transform hoists to a top-level `reasoning_tokens`) while already counting
-	// it inside `completion_tokens`, so adding it again would roughly double the
-	// billed output on reasoning requests. Baidu's Qianfan reports the same way
-	// (a thinking-only reply returns completion_tokens === reasoning_tokens).
-	// Gonka24 is the same shape without reporting any reasoning count of its own:
-	// its `completion_tokens` covers the `reasoning` text too, and with thinking
-	// on the chars-per-token ratio only matches the non-reasoning baseline once
-	// that text is counted. For remaining providers, add reasoning separately.
-	const completionIncludesReasoning =
-		provider === "google-ai-studio" ||
-		provider === "glacier" ||
-		provider === "iceberg" ||
-		provider === "google-vertex" ||
-		provider === "quartz" ||
-		provider === "openai" ||
-		provider === "azure" ||
-		provider === "sakana" ||
-		provider === "meta" ||
-		provider === "ranoai" ||
-		provider === "baidu" ||
-		provider === "permafrost" ||
-		provider === "gonka24" ||
-		provider === "aws-mantle";
-	const totalOutputTokens = completionIncludesReasoning
-		? calculatedCompletionTokens
-		: calculatedCompletionTokens + (reasoningTokens ?? 0);
+	const totalOutputTokens = calculatedCompletionTokens;
 
 	// Calculate output cost, handling separate image output pricing if applicable.
 	// Models with token-based image pricing use imageOutputTokensByResolution

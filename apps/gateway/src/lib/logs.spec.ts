@@ -373,9 +373,9 @@ describe("calculateDataStorageCost", () => {
 
 	it("does not double-count cached tokens when promptTokens already includes them", () => {
 		// promptTokens is the canonical input count in gateway logs.
-		// cachedTokens is tracked separately for pricing and diagnostics, but should
-		// not increase storage accounting a second time.
-		const cost = calculateDataStorageCost(500000, 250000, 250000, 250000);
+		// completionTokens is the inclusive output count. The cached and reasoning
+		// breakdowns must not increase storage accounting a second time.
+		const cost = calculateDataStorageCost(500000, 250000, 500000, 250000);
 		expect(cost).toBe("0.01"); // 1M tokens * $0.01 per 1M = $0.01
 	});
 

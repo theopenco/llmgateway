@@ -1645,17 +1645,16 @@ describe("calculateCosts", () => {
 		}
 	});
 
-	it("matches xAI's own reported cost for grok-4-6", async () => {
+	it("matches xAI's own reported cost with normalized completion tokens", async () => {
 		// Real grok-4.6 response: 213 prompt tokens (128 cached), 4 completion and
 		// 310 reasoning tokens, billed by xAI at 21180000 usd ticks = $0.002118.
-		// xAI reports reasoning tokens outside completion_tokens, so they are
-		// billed on top of the completion count.
+		// Extraction normalizes the raw output to 314 inclusive completion tokens.
 		const result = await calculateCosts(
 			"grok-4-6",
 			"xai",
 			null,
 			213,
-			4,
+			314,
 			128,
 			undefined,
 			310,
@@ -1663,13 +1662,13 @@ describe("calculateCosts", () => {
 		expect(result.totalCost).toBeCloseTo(0.002118, 9);
 	});
 
-	it("bills Vertex Grok 4.6 reasoning outside completion tokens", async () => {
+	it("bills normalized Vertex Grok 4.6 completion tokens", async () => {
 		const result = await calculateCosts(
 			"grok-4-6",
 			"vertex-openai",
 			"global",
 			216,
-			1,
+			101,
 			0,
 			undefined,
 			100,
