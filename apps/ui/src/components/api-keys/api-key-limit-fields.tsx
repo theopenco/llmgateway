@@ -176,7 +176,7 @@ export function validateApiKeyLimitPayloadWithinMemberBudget(
 	);
 }
 
-export function formatCurrencyAmount(value: string): string {
+export function formatCurrencyAmount(value: string | number): string {
 	return `$${Number(value).toFixed(2)}`;
 }
 
@@ -202,6 +202,28 @@ export function formatPeriodLimitSummary(
 	}
 
 	return `${formatCurrencyAmount(apiKey.periodUsageLimit)} / ${formatPeriodWindowLabel(apiKey.periodUsageDurationValue, apiKey.periodUsageDurationUnit)}`;
+}
+
+const periodResetFormat = new Intl.DateTimeFormat(undefined, {
+	month: "short",
+	day: "numeric",
+	hour: "2-digit",
+	minute: "2-digit",
+});
+
+export function formatApiKeyPeriodResetLabel(
+	resetAt: string | Date | null | undefined,
+): string | null {
+	if (resetAt === null || resetAt === undefined) {
+		return null;
+	}
+
+	const date = resetAt instanceof Date ? resetAt : new Date(resetAt);
+	if (Number.isNaN(date.getTime())) {
+		return null;
+	}
+
+	return periodResetFormat.format(date);
 }
 
 export function formatCurrentPeriodUsageSummary(
@@ -230,20 +252,7 @@ export function formatCurrentPeriodUsageSummary(
 		};
 	}
 
-	const resetAt =
-		apiKey.currentPeriodResetAt !== null &&
-		apiKey.currentPeriodResetAt !== undefined
-			? new Date(apiKey.currentPeriodResetAt)
-			: null;
-	const resetLabel =
-		resetAt && !Number.isNaN(resetAt.getTime())
-			? Intl.DateTimeFormat(undefined, {
-					month: "short",
-					day: "numeric",
-					hour: "2-digit",
-					minute: "2-digit",
-				}).format(resetAt)
-			: null;
+	const resetLabel = formatApiKeyPeriodResetLabel(apiKey.currentPeriodResetAt);
 
 	return {
 		summary: `${formatCurrencyAmount(apiKey.currentPeriodUsage)} / ${formatCurrencyAmount(apiKey.periodUsageLimit)}`,

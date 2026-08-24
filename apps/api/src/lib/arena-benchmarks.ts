@@ -186,28 +186,25 @@ async function fetchLeaderboard(
 		}
 
 		// Fallback: look for JSON-LD or embedded data
-		const jsonLdMatch = html.match(
-			/<script type="application\/json"[^>]*>([\s\S]*?)<\/script>/g,
+		const jsonLdMatches = html.matchAll(
+			/<script type="application\/json"[^>]*>([\s\S]*?)<\/script>/gi,
 		);
-		if (jsonLdMatch) {
-			for (const script of jsonLdMatch) {
-				try {
-					const content = script.replace(/<script[^>]*>|<\/script>/g, "");
-					const data = JSON.parse(content);
-					if (Array.isArray(data)) {
-						for (const item of data) {
-							if (item.model && item.score) {
-								entries.push({
-									rank: item.rank ?? entries.length + 1,
-									model: String(item.model),
-									score: Number(item.score),
-								});
-							}
+		for (const match of jsonLdMatches) {
+			try {
+				const data = JSON.parse(match[1] ?? "");
+				if (Array.isArray(data)) {
+					for (const item of data) {
+						if (item.model && item.score) {
+							entries.push({
+								rank: item.rank ?? entries.length + 1,
+								model: String(item.model),
+								score: Number(item.score),
+							});
 						}
 					}
-				} catch {
-					// skip invalid JSON
 				}
+			} catch {
+				// skip invalid JSON
 			}
 		}
 

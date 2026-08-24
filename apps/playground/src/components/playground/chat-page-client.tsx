@@ -311,11 +311,10 @@ export default function ChatPageClient({
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
 	const skillIdFromUrl = searchParams.get("skillId");
-	const mapped = useMemo(
+	const availableModels = useMemo(
 		() => mapModels(models, providers),
 		[models, providers],
 	);
-	const [availableModels] = useState<ComboboxModel[]>(mapped);
 
 	// Chat always starts on Auto Route unless the URL pins a model; the last
 	// selection is deliberately not persisted across visits.

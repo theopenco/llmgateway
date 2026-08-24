@@ -74,6 +74,8 @@ describe("parseClientSecretRecord", () => {
 		token: "llmgtwy_test",
 		model: "openai/gpt-realtime-2.1-mini",
 		transcriptionModel: "gpt-4o-mini-transcribe",
+		instructions: "You are a support agent.",
+		voice: "marin",
 		source: "lounge.llmgateway.io",
 		createdAt: 1_784_800_000,
 		expiresAt: 1_784_800_060,
@@ -86,6 +88,28 @@ describe("parseClientSecretRecord", () => {
 	it("accepts null transcriptionModel and source", () => {
 		const record = { ...valid, transcriptionModel: null, source: null };
 		expect(parseClientSecretRecord(JSON.stringify(record))).toEqual(record);
+	});
+
+	it("reads a record minted before instructions existed as unpinned", () => {
+		// Secrets minted by an older build stay valid for their remaining TTL
+		// across a deploy, so absent keys must not invalidate the record.
+		const { instructions, voice, ...legacy } = valid;
+		expect(instructions).toBeDefined();
+		expect(voice).toBeDefined();
+		expect(parseClientSecretRecord(JSON.stringify(legacy))).toEqual({
+			...legacy,
+			instructions: null,
+			voice: null,
+		});
+	});
+
+	it("rejects non-string instructions and voice", () => {
+		expect(
+			parseClientSecretRecord(JSON.stringify({ ...valid, instructions: 42 })),
+		).toBeNull();
+		expect(
+			parseClientSecretRecord(JSON.stringify({ ...valid, voice: 42 })),
+		).toBeNull();
 	});
 
 	it("rejects malformed JSON", () => {

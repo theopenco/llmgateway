@@ -282,6 +282,7 @@ export {
 export {
 	assertSafeContentUrl,
 	assertSafeProviderBaseUrl,
+	assertSafeUserUrl,
 	assertSafeWebhookUrl,
 	isPrivateOrReservedIp,
 	isProviderUrlGuardEnabled,

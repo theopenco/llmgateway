@@ -11,6 +11,7 @@ import {
 	CrushIcon,
 	CursorIcon,
 	DevPassCodeIcon,
+	EmpryoIcon,
 	GitHubCopilotIcon,
 	HermesIcon,
 	KiloCodeIcon,
@@ -43,6 +44,14 @@ export const DEFAULT_INTEGRATION_GUIDES: IntegrationGuide[] = [
 			"Our open-source terminal coding agent built for LLM Gateway. One browser login, every model, no per-provider keys.",
 		href: "/guides/devpass-code",
 		icon: DevPassCodeIcon,
+		comingSoon: false,
+	},
+	{
+		name: "Empryo",
+		description:
+			"Use LLM Gateway with Empryo, the graph-powered coding agent — one browser login for terminal, desktop, and headless runs.",
+		href: "/guides/empryo",
+		icon: EmpryoIcon,
 		comingSoon: false,
 	},
 	{

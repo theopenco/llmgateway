@@ -97,7 +97,19 @@ export type ChatUIMessage = UIMessage<
 	}
 >;
 
-const searchServer = createSearchServer();
+// Built lazily on first search: indexing reads every docs page, which should
+// not run at import time (nor when the route only ever answers 503 because
+// Ask AI is unconfigured). An eager module-scope promise would also be an
+// unhandled rejection if indexing fails before the first request.
+let searchServerPromise: Promise<Document<CustomDocument>> | undefined;
+
+function getSearchServer(): Promise<Document<CustomDocument>> {
+	searchServerPromise ??= createSearchServer().catch((error: unknown) => {
+		searchServerPromise = undefined;
+		throw error;
+	});
+	return searchServerPromise;
+}
 
 async function createSearchServer() {
 	const search = new Document<CustomDocument>({
@@ -159,7 +171,7 @@ const searchTool = tool({
 		limit: z.number().int().min(1).max(100).default(10),
 	}),
 	async execute({ query, limit }: { query: string; limit: number }) {
-		const search = await searchServer;
+		const search = await getSearchServer();
 		return await search.searchAsync(query, {
 			limit,
 			merge: true,

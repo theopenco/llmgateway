@@ -1375,14 +1375,12 @@ describe("getCheapestFromAvailableProviders", () => {
 
 	describe("time-of-day pricing in provider selection", () => {
 		// Mirrors the DeepSeek V4 Pro first-party mapping: peak 01:00-04:00 and
-		// 06:00-10:00 UTC at double the off-peak rates, base (regular) flat
-		// rates before effectiveAt.
+		// 06:00-10:00 UTC at double the off-peak rates.
 		const deepseekLikeMapping = {
 			inputPrice: "0.435e-6",
 			outputPrice: "0.87e-6",
 			cachedInputPrice: "0.003625e-6",
 			peakPricing: {
-				effectiveAt: "2026-08-16T16:00:00Z",
 				peak: {
 					inputPrice: "1.32e-6",
 					outputPrice: "3.96e-6",
@@ -1397,6 +1395,11 @@ describe("getCheapestFromAvailableProviders", () => {
 					[1, 4],
 					[6, 10],
 				] as [number, number][],
+				offPeakDays: {
+					daysOfWeek: [0, 6] as const,
+					utcOffsetMinutes: 480,
+					timeZoneLabel: "Beijing time",
+				},
 			},
 		};
 
@@ -1420,14 +1423,14 @@ describe("getCheapestFromAvailableProviders", () => {
 			).toBe((0.66e-6 + 1.98e-6) / 2);
 		});
 
-		it("returns the base average before effectiveAt", () => {
+		it("returns the off-peak average during Beijing weekends", () => {
 			expect(
 				getProviderSelectionPrice(
 					deepseekLikeMapping,
 					undefined,
-					new Date("2026-08-15T12:00:00Z"),
+					new Date("2026-08-29T02:00:00Z"),
 				).toNumber(),
-			).toBe((0.435e-6 + 0.87e-6) / 2);
+			).toBe((0.66e-6 + 1.98e-6) / 2);
 		});
 
 		it("returns the plain average for a mapping without peakPricing", () => {
@@ -1440,9 +1443,9 @@ describe("getCheapestFromAvailableProviders", () => {
 		});
 
 		it("ranks with peak rates through full provider selection", async () => {
-			// The deepseek mapping's peak window covers every hour and
-			// effectiveAt is in the past, so the selection price is the peak
-			// rate regardless of wall clock. At the raw base rates deepseek's
+			// The deepseek mapping's peak window covers every hour, so the
+			// selection price is the peak rate regardless of wall clock. At the
+			// raw base rates, DeepSeek's
 			// average (0.375e-6) beats openai's (0.75e-6); with peak rates
 			// applied deepseek's average rises to 1.125e-6 and openai wins —
 			// so selecting openai proves time-of-day pricing was applied.
@@ -1464,7 +1467,6 @@ describe("getCheapestFromAvailableProviders", () => {
 						inputPrice: "0.25e-6",
 						outputPrice: "0.5e-6",
 						peakPricing: {
-							effectiveAt: "2020-01-01T00:00:00Z",
 							peak: {
 								inputPrice: "0.75e-6",
 								outputPrice: "1.5e-6",

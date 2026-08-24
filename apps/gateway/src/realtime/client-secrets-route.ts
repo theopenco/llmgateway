@@ -6,9 +6,14 @@ import { extractApiToken } from "@/lib/extract-api-token.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 
 import { logger } from "@llmgateway/logger";
+import { estimateTokensFromText } from "@llmgateway/shared";
 
 import { findRealtimeTranscriptionMapping } from "./catalog.js";
-import { clampClientSecretTtl, createClientSecret } from "./client-secrets.js";
+import {
+	clampClientSecretTtl,
+	createClientSecret,
+	MAX_CLIENT_SECRET_INSTRUCTIONS_TOKENS,
+} from "./client-secrets.js";
 import { RealtimeConnectError } from "./errors.js";
 import { runRealtimePreflight } from "./preflight.js";
 
@@ -48,9 +53,16 @@ const sessionAudioInputSchema = z
 	})
 	.strict();
 
+const sessionAudioOutputSchema = z
+	.object({
+		voice: z.string().min(1).optional(),
+	})
+	.strict();
+
 const sessionAudioSchema = z
 	.object({
 		input: sessionAudioInputSchema.optional(),
+		output: sessionAudioOutputSchema.optional(),
 	})
 	.strict();
 
@@ -58,6 +70,9 @@ const clientSecretSessionSchema = z
 	.object({
 		type: z.literal("realtime"),
 		model: z.string().min(1),
+		// Locked for the session's lifetime once set; see instructions_locked in
+		// session.ts.
+		instructions: z.string().min(1).optional(),
 		audio: sessionAudioSchema.optional(),
 	})
 	.strict();
@@ -184,6 +199,32 @@ realtimeClientSecretsRoute.post("/client_secrets", async (c) => {
 		);
 	}
 
+	const instructions = body.session.instructions ?? null;
+	if (instructions !== null) {
+		const estimatedTokens = estimateTokensFromText(instructions);
+		if (estimatedTokens > MAX_CLIENT_SECRET_INSTRUCTIONS_TOKENS) {
+			return errorResponse(
+				c,
+				400,
+				"instructions_too_large",
+				`Session instructions are too large for a realtime session: roughly ${estimatedTokens} tokens, limit ${MAX_CLIENT_SECRET_INSTRUCTIONS_TOKENS}.`,
+			);
+		}
+	}
+
+	const voice = body.session.audio?.output?.voice ?? null;
+	if (voice !== null) {
+		const supportedVoices = preflight.match.mapping.supportedVoices ?? [];
+		if (supportedVoices.length > 0 && !supportedVoices.includes(voice)) {
+			return errorResponse(
+				c,
+				400,
+				"voice_not_supported",
+				`Unsupported voice '${voice}' for model ${preflight.match.modelId}. Supported voices: ${supportedVoices.join(", ")}.`,
+			);
+		}
+	}
+
 	const ttlSeconds = clampClientSecretTtl(body.expires_after?.seconds);
 	const responseModel = formatUsedModelForDisplay(
 		preflight.match.mapping.providerId,
@@ -198,6 +239,8 @@ realtimeClientSecretsRoute.post("/client_secrets", async (c) => {
 			token,
 			model: responseModel,
 			transcriptionModel,
+			instructions,
+			voice,
 			source,
 			ttlSeconds,
 		});

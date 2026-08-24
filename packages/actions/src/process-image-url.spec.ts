@@ -5,7 +5,6 @@ import { RequestError } from "./request-error.js";
 
 const MAX_SIZE_MB = 1;
 const REMOTE_URL = "https://example.com/huge.png";
-const NO_SSRF = { validateSsrf: false } as const;
 
 function imageResponseWithContentLength(bytes: number): Response {
 	return new Response(new Uint8Array(0), {
@@ -51,7 +50,6 @@ describe("processImageUrl size limits", () => {
 			false,
 			MAX_SIZE_MB,
 			"free",
-			NO_SSRF,
 		).catch((err: unknown) => err);
 
 		expect(error).toBeInstanceOf(ImageSizeLimitError);
@@ -70,7 +68,6 @@ describe("processImageUrl size limits", () => {
 			false,
 			MAX_SIZE_MB,
 			"free",
-			NO_SSRF,
 		).catch((err: unknown) => err);
 
 		expect(error).toBeInstanceOf(ImageSizeLimitError);
@@ -89,7 +86,6 @@ describe("processImageUrl size limits", () => {
 			false,
 			MAX_SIZE_MB,
 			"free",
-			NO_SSRF,
 		).catch((err: unknown) => err);
 
 		expect(error).toBeInstanceOf(RequestError);
@@ -114,7 +110,6 @@ describe("processImageUrl size limits", () => {
 			false,
 			MAX_SIZE_MB,
 			"free",
-			NO_SSRF,
 		).catch((err: unknown) => err);
 
 		expect(error).toBeInstanceOf(ImageSizeLimitError);
@@ -134,7 +129,6 @@ describe("processImageUrl size limits", () => {
 			false,
 			MAX_SIZE_MB,
 			"free",
-			NO_SSRF,
 		).catch((err: unknown) => err);
 		const dataUrl = await processImageUrl(
 			`data:image/png;base64,${"A".repeat(2 * 1024 * 1024)}`,
@@ -162,7 +156,6 @@ describe("processImageUrl size limits", () => {
 			false,
 			MAX_SIZE_MB,
 			"free",
-			NO_SSRF,
 		).catch((err: unknown) => err);
 
 		expect((error as Error).message).not.toContain("(1.0MB)");
@@ -180,7 +173,6 @@ describe("processImageUrl size limits", () => {
 			false,
 			MAX_SIZE_MB,
 			null,
-			NO_SSRF,
 		).catch((err: unknown) => err);
 
 		expect((error as Error).message).toBe(
@@ -199,7 +191,7 @@ describe("processImageUrl size limits", () => {
 		);
 
 		await expect(
-			processImageUrl(REMOTE_URL, false, MAX_SIZE_MB, "free", NO_SSRF),
+			processImageUrl(REMOTE_URL, false, MAX_SIZE_MB, "free"),
 		).rejects.toThrow("URL does not point to a valid image");
 	});
 
@@ -209,8 +201,21 @@ describe("processImageUrl size limits", () => {
 		);
 
 		await expect(
-			processImageUrl(REMOTE_URL, false, MAX_SIZE_MB, "free", NO_SSRF),
+			processImageUrl(REMOTE_URL, false, MAX_SIZE_MB, "free"),
 		).rejects.toThrow("Failed to process image from URL");
+	});
+
+	it("refuses redirects even when the URL guard is disabled", async () => {
+		vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "true");
+		const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response(new Uint8Array(0), {
+				headers: { "content-type": "image/png" },
+			}),
+		);
+
+		await processImageUrl(REMOTE_URL);
+
+		expect(fetchSpy).toHaveBeenCalledWith(REMOTE_URL, { redirect: "error" });
 	});
 });
 
@@ -247,7 +252,6 @@ describe("processImageUrl data URLs", () => {
 			false,
 			MAX_SIZE_MB,
 			"free",
-			NO_SSRF,
 		);
 
 		expect(Buffer.from(data, "base64").byteLength).toBe(

@@ -27,6 +27,14 @@ const ttlMaxValues: Record<ApiKeyTtlUnit, number> = {
 	day: 365,
 };
 
+const expiryDateFormat = new Intl.DateTimeFormat(undefined, {
+	month: "short",
+	day: "numeric",
+	year: "numeric",
+	hour: "2-digit",
+	minute: "2-digit",
+});
+
 export interface ApiKeyTtlFormValue {
 	enabled: boolean;
 	unit: ApiKeyTtlUnit;
@@ -73,13 +81,7 @@ export function formatApiKeyExpiry(
 
 	return {
 		expired: date.getTime() <= Date.now(),
-		label: Intl.DateTimeFormat(undefined, {
-			month: "short",
-			day: "numeric",
-			year: "numeric",
-			hour: "2-digit",
-			minute: "2-digit",
-		}).format(date),
+		label: expiryDateFormat.format(date),
 	};
 }
 
@@ -110,13 +112,7 @@ export function ApiKeyTtlFields({
 	const preview = buildApiKeyTtlExpiresAt(value);
 	const previewLabel =
 		value.enabled && preview.expiresAt
-			? Intl.DateTimeFormat(undefined, {
-					month: "short",
-					day: "numeric",
-					year: "numeric",
-					hour: "2-digit",
-					minute: "2-digit",
-				}).format(new Date(preview.expiresAt))
+			? expiryDateFormat.format(new Date(preview.expiresAt))
 			: null;
 
 	return (

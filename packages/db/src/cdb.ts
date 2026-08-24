@@ -6,13 +6,17 @@ import { pool } from "./db.js";
 import { RedisCache } from "./redis-cache.js";
 import { relations } from "./relations.js";
 
+// Exported so writers that bypass this client (the worker debits credits via
+// the plain `db` client inside a transaction) can still evict tagged entries.
+export const drizzleCache = new RedisCache(redisClient);
+
 // Use the shared pool from db.ts instead of creating a separate pool
 // This prevents connection exhaustion from having multiple pools
 const _cdb = drizzle({
 	client: pool,
 	casing: "snake_case",
 	relations,
-	cache: new RedisCache(redisClient),
+	cache: drizzleCache,
 });
 
 /**

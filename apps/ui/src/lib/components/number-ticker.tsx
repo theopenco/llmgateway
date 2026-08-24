@@ -43,18 +43,21 @@ export function NumberTicker({
 		return () => {};
 	}, [motionValue, isInView, delay, value, direction, startValue]);
 
-	useEffect(
-		() =>
-			springValue.on("change", (latest) => {
-				if (ref.current) {
-					ref.current.textContent = Intl.NumberFormat("en-US", {
-						minimumFractionDigits: decimalPlaces,
-						maximumFractionDigits: decimalPlaces,
-					}).format(Number(latest.toFixed(decimalPlaces)));
-				}
-			}),
-		[springValue, decimalPlaces],
-	);
+	useEffect(() => {
+		// One formatter per subscription — the spring change handler fires every
+		// animation frame, so it must not construct an Intl.NumberFormat each call.
+		const format = new Intl.NumberFormat("en-US", {
+			minimumFractionDigits: decimalPlaces,
+			maximumFractionDigits: decimalPlaces,
+		});
+		return springValue.on("change", (latest) => {
+			if (ref.current) {
+				ref.current.textContent = format.format(
+					Number(latest.toFixed(decimalPlaces)),
+				);
+			}
+		});
+	}, [springValue, decimalPlaces]);
 
 	return (
 		<span

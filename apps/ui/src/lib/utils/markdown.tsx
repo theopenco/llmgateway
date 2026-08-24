@@ -1,6 +1,12 @@
+import dynamic from "next/dynamic";
+
 import { BlogCta } from "@/components/blog/blog-cta";
 
-import { SyntaxHighlightedPre } from "./markdown-code-block";
+// Defer the prism-based highlighter chunk until a markdown document actually
+// renders a fenced code block.
+const SyntaxHighlightedPre = dynamic(() =>
+	import("./markdown-code-block").then((mod) => mod.SyntaxHighlightedPre),
+);
 
 export interface ChangelogFrontmatter {
 	id: string;

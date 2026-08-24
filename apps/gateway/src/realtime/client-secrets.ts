@@ -11,6 +11,14 @@ export const MIN_CLIENT_SECRET_TTL_SECONDS = 10;
 export const MAX_CLIENT_SECRET_TTL_SECONDS = 300;
 
 /**
+ * Upper bound on pinned session instructions, in estimated tokens. 16,384 is
+ * OpenAI's realtime instructions cap, applied to every realtime provider as a
+ * single conservative guard. The estimate is chars/4 rather than a real
+ * tokenizer, so the provider stays authoritative for the exact boundary.
+ */
+export const MAX_CLIENT_SECRET_INSTRUCTIONS_TOKENS = 16_384;
+
+/**
  * Versioned record stored in Redis for one ephemeral client secret. The
  * bearer secret itself never appears in Redis keys or values — records are
  * addressed by the secret's SHA-256 fingerprint.
@@ -31,6 +39,16 @@ export interface RealtimeClientSecretRecord {
 	 * not authorize input transcription.
 	 */
 	transcriptionModel: string | null;
+	/**
+	 * Session instructions pinned at mint time, or null when the caller did not
+	 * pin any. Applied by the gateway on connect and locked thereafter.
+	 */
+	instructions: string | null;
+	/**
+	 * Output voice pinned at mint time, or null for the provider default. Only a
+	 * default, not a lock: the client may still change it via session.update.
+	 */
+	voice: string | null;
 	/**
 	 * Validated x-source header captured at mint time for billing attribution.
 	 */
@@ -74,6 +92,8 @@ export interface CreateClientSecretInput {
 	token: string;
 	model: string;
 	transcriptionModel: string | null;
+	instructions: string | null;
+	voice: string | null;
 	source: string | null;
 	ttlSeconds: number;
 }
@@ -95,6 +115,8 @@ export async function createClientSecret(
 		token: input.token,
 		model: input.model,
 		transcriptionModel: input.transcriptionModel,
+		instructions: input.instructions,
+		voice: input.voice,
 		source: input.source,
 		createdAt: Math.floor(now / 1000),
 		expiresAt,
@@ -163,6 +185,23 @@ export function parseClientSecretRecord(
 	) {
 		return null;
 	}
+	// instructions/voice postdate the v1 record shape. Secrets minted by an
+	// older build stay valid for their remaining TTL across a deploy, so an
+	// absent key is "not pinned" rather than a malformed record.
+	if (
+		record.instructions !== undefined &&
+		record.instructions !== null &&
+		typeof record.instructions !== "string"
+	) {
+		return null;
+	}
+	if (
+		record.voice !== undefined &&
+		record.voice !== null &&
+		typeof record.voice !== "string"
+	) {
+		return null;
+	}
 	if (record.source !== null && typeof record.source !== "string") {
 		return null;
 	}
@@ -177,6 +216,8 @@ export function parseClientSecretRecord(
 		token: record.token,
 		model: record.model,
 		transcriptionModel: record.transcriptionModel,
+		instructions: record.instructions ?? null,
+		voice: record.voice ?? null,
 		source: record.source,
 		createdAt: record.createdAt,
 		expiresAt: record.expiresAt,
