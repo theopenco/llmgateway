@@ -1,11 +1,14 @@
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { app } from "@/app.js";
 import { clearCache } from "@/test-utils/test-helpers.js";
 
 import { db, eq, tables } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 
-describe("MCP endpoint authentication", () => {
+describe("MCP endpoint", () => {
 	async function seedActiveKey() {
 		await db
 			.insert(tables.user)
@@ -135,5 +138,60 @@ describe("MCP endpoint authentication", () => {
 		expect(res.status).toBe(401);
 		const json = await res.json();
 		expect(json.error.code).toBe(-32001);
+	});
+
+	test("returns a gateway timeout without logging a server error", async () => {
+		await seedActiveKey();
+
+		const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
+		const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+		const callToolSpy = vi
+			.spyOn(Client.prototype, "callTool")
+			.mockRejectedValue(
+				new McpError(ErrorCode.RequestTimeout, "Request timed out", {
+					timeout: 60_000,
+				}),
+			);
+
+		try {
+			const responsePromise = app.request("/mcp", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					jsonrpc: "2.0",
+					id: 1,
+					method: "tools/call",
+					params: {
+						name: "chat",
+						arguments: {
+							model: "gpt-4o-mini",
+							messages: [{ role: "user", content: "hello" }],
+						},
+					},
+				}),
+			});
+
+			const response = await responsePromise;
+			const json = await response.json();
+
+			expect(response.status).toBe(504);
+			expect(json.error).toMatchObject({
+				code: -32001,
+				message: "Request timed out",
+				data: { timeout: 60_000 },
+			});
+			expect(warnSpy).toHaveBeenCalledWith("MCP request timeout", {
+				message: "MCP error -32001: Request timed out",
+				data: { timeout: 60_000 },
+			});
+			expect(errorSpy).not.toHaveBeenCalled();
+		} finally {
+			callToolSpy.mockRestore();
+			warnSpy.mockRestore();
+			errorSpy.mockRestore();
+		}
 	});
 });
