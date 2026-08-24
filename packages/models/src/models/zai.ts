@@ -32,6 +32,27 @@ export const zaiModels = [
 				webSearchPrice: "0.01",
 				jsonOutput: true,
 			},
+			{
+				providerId: "baidu",
+				externalId: "glm-5.3",
+				// Qianfan's Chinese rate card lists the deployment, but the public
+				// international model catalogue does not expose it yet.
+				stability: "unstable",
+				test: "skip",
+				inputPrice: "1.1267605633802817e-6",
+				cachedInputPrice: "0.28169014084507044e-6",
+				outputPrice: "3.943661971830986e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				// GLM-5.3 always thinks and rejects attempts to disable thinking.
+				reasoningEfforts: ["low", "high", "max"],
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
 		],
 	},
 	{
@@ -269,24 +290,9 @@ export const zaiModels = [
 			{
 				providerId: "baidu",
 				externalId: "glm-5.2",
-				// Qianfan bills 08:00-22:00 China Standard Time at 50% off
-				// and the remaining hours at 60% off.
-				inputPrice: "0.56e-6",
-				cachedInputPrice: "0.104e-6",
-				outputPrice: "1.76e-6",
-				peakPricing: {
-					peak: {
-						inputPrice: "0.7e-6",
-						cachedInputPrice: "0.13e-6",
-						outputPrice: "2.2e-6",
-					},
-					offPeak: {
-						inputPrice: "0.56e-6",
-						cachedInputPrice: "0.104e-6",
-						outputPrice: "1.76e-6",
-					},
-					hoursUtc: [[0, 14]],
-				},
+				inputPrice: "1.1267605633802817e-6",
+				cachedInputPrice: "0.28169014084507044e-6",
+				outputPrice: "3.943661971830986e-6",
 				requestPrice: "0",
 				contextSize: 1048576,
 				maxOutput: 131072,

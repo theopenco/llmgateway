@@ -2462,8 +2462,8 @@ describe("peak / off-peak time-of-day pricing", () => {
 		expect(flash.inputCost).toBeCloseTo(0.44);
 	});
 
-	it("bills Baidu GLM-5.2 peak rates from 00:00 through 14:00 UTC", async () => {
-		setTime("2026-08-24T13:59:00Z");
+	it("bills Baidu GLM-5.2 at its list price", async () => {
+		setTime("2026-08-25T13:59:00Z");
 
 		const costs = await calculateCosts(
 			"glm-5.2",
@@ -2473,24 +2473,56 @@ describe("peak / off-peak time-of-day pricing", () => {
 			1_000_000,
 			1_000_000,
 		);
-		expect(costs.inputCost).toBeCloseTo(0.7);
-		expect(costs.outputCost).toBeCloseTo(2.2);
-		expect(costs.cachedInputCost).toBeCloseTo(0.13);
+		expect(costs.inputCost).toBeCloseTo(1.1267605633802817);
+		expect(costs.outputCost).toBeCloseTo(3.943661971830986);
+		expect(costs.cachedInputCost).toBeCloseTo(0.28169014084507044);
 	});
 
-	it("bills Baidu GLM-5.2 off-peak rates from 14:00 through 00:00 UTC", async () => {
-		setTime("2026-08-24T14:00:00Z");
+	it("bills Baidu GLM-5.3 at its list price", async () => {
+		setTime("2026-08-25T14:00:00Z");
 
 		const costs = await calculateCosts(
-			"glm-5.2",
+			"glm-5.3",
 			"baidu",
 			null,
 			2_000_000,
 			1_000_000,
 			1_000_000,
 		);
-		expect(costs.inputCost).toBeCloseTo(0.56);
-		expect(costs.outputCost).toBeCloseTo(1.76);
-		expect(costs.cachedInputCost).toBeCloseTo(0.104);
+		expect(costs.inputCost).toBeCloseTo(1.1267605633802817);
+		expect(costs.outputCost).toBeCloseTo(3.943661971830986);
+		expect(costs.cachedInputCost).toBeCloseTo(0.28169014084507044);
+	});
+
+	it("bills Baidu DeepSeek V4 Flash at peak rates", async () => {
+		setTime("2026-08-25T13:59:00Z");
+
+		const costs = await calculateCosts(
+			"deepseek-v4-flash",
+			"baidu",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		expect(costs.inputCost).toBeCloseTo(0.4225352112676056);
+		expect(costs.outputCost).toBeCloseTo(1.267605633802817);
+		expect(costs.cachedInputCost).toBeCloseTo(0.04225352112676056);
+	});
+
+	it("bills Baidu DeepSeek V4 Flash at off-peak rates", async () => {
+		setTime("2026-08-25T14:00:00Z");
+
+		const costs = await calculateCosts(
+			"deepseek-v4-flash",
+			"baidu",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		expect(costs.inputCost).toBeCloseTo(0.2112676056338028);
+		expect(costs.outputCost).toBeCloseTo(0.6338028169014085);
+		expect(costs.cachedInputCost).toBeCloseTo(0.02112676056338028);
 	});
 });
