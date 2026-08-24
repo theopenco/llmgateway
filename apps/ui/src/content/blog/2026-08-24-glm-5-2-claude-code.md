@@ -43,10 +43,10 @@ That's the whole migration. Every primary request now routes through LLM Gateway
 One refinement worth adding: Claude Code uses a second, smaller model for routine background work, and you can point it at something nearly free:
 
 ```bash
-export ANTHROPIC_SMALL_FAST_MODEL=mimo-v2.5
+export ANTHROPIC_DEFAULT_HAIKU_MODEL=mimo-v2.5
 ```
 
-That puts GLM-5.2 on the real work and a $0.14/M-input model on the housekeeping.
+That puts GLM-5.2 on the real work and a model priced from $0.14/M input and $0.28/M output on the housekeeping.
 
 ## GLM-5.2 in Cursor
 
