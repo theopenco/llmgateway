@@ -10,6 +10,8 @@ const originalAdminEmails = process.env.ADMIN_EMAILS;
 interface KpisResponse {
 	totalSubscribers: number;
 	totalSubscribersExcludingRefunded: number;
+	grossSubscriptionRevenue: number;
+	subscriptionRevenueExcludingRefunds: number;
 }
 
 async function insertOrg(id: string, kind: "default" | "devpass" = "devpass") {
@@ -46,6 +48,9 @@ describe("admin devpass subscriber KPIs", () => {
 			insertOrg("payment-without-start"),
 			insertOrg("failed-refund"),
 			insertOrg("unrelated-refund"),
+			insertOrg("upgrade-subscriber"),
+			insertOrg("downgrade-subscriber"),
+			insertOrg("renewal-subscriber"),
 			insertOrg("non-devpass", "default"),
 		]);
 
@@ -118,6 +123,42 @@ describe("admin devpass subscriber KPIs", () => {
 				relatedTransactionId: "reset-pass",
 			},
 			{
+				organizationId: "upgrade-subscriber",
+				type: "dev_plan_start",
+				amount: "0",
+				status: "completed",
+			},
+			{
+				organizationId: "upgrade-subscriber",
+				type: "dev_plan_upgrade",
+				amount: "49",
+				status: "completed",
+			},
+			{
+				organizationId: "downgrade-subscriber",
+				type: "dev_plan_start",
+				amount: "0",
+				status: "completed",
+			},
+			{
+				organizationId: "downgrade-subscriber",
+				type: "dev_plan_downgrade",
+				amount: "19",
+				status: "completed",
+			},
+			{
+				organizationId: "renewal-subscriber",
+				type: "dev_plan_start",
+				amount: "0",
+				status: "completed",
+			},
+			{
+				organizationId: "renewal-subscriber",
+				type: "dev_plan_renewal",
+				amount: "79",
+				status: "completed",
+			},
+			{
 				organizationId: "non-devpass",
 				type: "subscription_start",
 				amount: "99",
@@ -131,7 +172,9 @@ describe("admin devpass subscriber KPIs", () => {
 		expect(res.status).toBe(200);
 		const body = (await res.json()) as KpisResponse;
 
-		expect(body.totalSubscribers).toBe(4);
-		expect(body.totalSubscribersExcludingRefunded).toBe(3);
+		expect(body.totalSubscribers).toBe(7);
+		expect(body.totalSubscribersExcludingRefunded).toBe(6);
+		expect(body.grossSubscriptionRevenue).toBe(413);
+		expect(body.subscriptionRevenueExcludingRefunds).toBe(334);
 	});
 });
