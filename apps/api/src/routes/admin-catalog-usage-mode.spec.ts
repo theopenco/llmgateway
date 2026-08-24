@@ -49,17 +49,20 @@ describe("admin catalog usage mode", () => {
 			id: PROVIDER_ID,
 			name: "Catalog Mode Provider",
 			description: "Test provider",
+			avgTimeToFirstToken: 999,
 		});
 		await db.insert(tables.model).values({
 			id: MODEL_ID,
 			name: "Catalog Mode Model",
 			family: "test",
+			avgTimeToFirstToken: 999,
 		});
 		await db.insert(tables.modelProviderMapping).values({
 			id: MAPPING_ID,
 			modelId: MODEL_ID,
 			providerId: PROVIDER_ID,
 			externalId: MODEL_ID,
+			avgTimeToFirstToken: 999,
 		});
 
 		const buckets = [
@@ -190,6 +193,62 @@ describe("admin catalog usage mode", () => {
 			});
 		});
 	}
+
+	it("keeps filtered latency null without a mode sample", async () => {
+		await Promise.all([
+			db
+				.update(tables.modelHistory)
+				.set({ timeToFirstTokenCount: 0 })
+				.where(
+					and(
+						eq(tables.modelHistory.modelId, MODEL_ID),
+						eq(tables.modelHistory.usedMode, "api-keys"),
+					),
+				),
+			db
+				.update(tables.modelProviderMappingHistory)
+				.set({ timeToFirstTokenCount: 0 })
+				.where(
+					and(
+						eq(
+							tables.modelProviderMappingHistory.modelProviderMappingId,
+							MAPPING_ID,
+						),
+						eq(tables.modelProviderMappingHistory.usedMode, "api-keys"),
+					),
+				),
+		]);
+
+		for (const path of [
+			"models",
+			"providers",
+			"model-provider-mappings",
+		] as const) {
+			await expect(fetchCatalog(path, "api-keys")).resolves.toMatchObject({
+				requests: 2,
+				avgTimeToFirstToken: null,
+			});
+		}
+	});
+
+	it("requires a complete range for narrowed modes", async () => {
+		for (const path of [
+			"models",
+			"providers",
+			"model-provider-mappings",
+		] as const) {
+			for (const query of [
+				"mode=credits",
+				`mode=credits&from=${encodeURIComponent(BUCKET.toISOString())}`,
+				`mode=credits&to=${encodeURIComponent(BUCKET.toISOString())}`,
+			]) {
+				const response = await app.request(`/admin/${path}?${query}`, {
+					headers: { Cookie: cookie },
+				});
+				expect(response.status).toBe(400);
+			}
+		}
+	});
 
 	it("filters expanded history charts by usage mode", async () => {
 		for (const path of [

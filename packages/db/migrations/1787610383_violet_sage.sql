@@ -1,7 +1,7 @@
--- Run these commands with psql before deploying on a large database. Adding a
--- constant-default column is metadata-only; the old worker safely writes
--- "unknown" until the constraint cutover. CONCURRENTLY must run outside a
--- transaction:
+-- The production startup migrator runs these commands in autocommit before
+-- Drizzle opens its migration transaction. Adding a constant-default column is
+-- metadata-only; the old worker safely writes "unknown" until the constraint
+-- cutover. They are listed here for operational visibility:
 --
 --   ALTER TABLE "model_history" ADD COLUMN IF NOT EXISTS "used_mode" text DEFAULT 'unknown' NOT NULL;
 --   ALTER TABLE "model_history_hourly" ADD COLUMN IF NOT EXISTS "used_mode" text DEFAULT 'unknown' NOT NULL;
@@ -20,9 +20,9 @@
 --   CREATE INDEX CONCURRENTLY IF NOT EXISTS "mpm_history_hourly_provider_stats_v4_idx"
 --     ON "model_provider_mapping_history_hourly" ("hour_timestamp","used_mode","provider_id","logs_count","errors_count","client_errors_count","cached_count","total_time_to_first_token","time_to_first_token_count","total_output_tokens","total_duration");
 --
--- The conditional statements below then become no-ops. Small and fresh
--- databases build inline, and the old constraints and indexes remain until all
--- replacements exist.
+-- The conditional statements below then become no-ops. Fresh databases, where
+-- the tables do not exist during the pre-migration phase, build inline. The old
+-- constraints and indexes remain until all replacements exist.
 ALTER TABLE "model_history" ADD COLUMN IF NOT EXISTS "used_mode" text DEFAULT 'unknown' NOT NULL;--> statement-breakpoint
 ALTER TABLE "model_history_hourly" ADD COLUMN IF NOT EXISTS "used_mode" text DEFAULT 'unknown' NOT NULL;--> statement-breakpoint
 ALTER TABLE "model_provider_mapping_history" ADD COLUMN IF NOT EXISTS "used_mode" text DEFAULT 'unknown' NOT NULL;--> statement-breakpoint
