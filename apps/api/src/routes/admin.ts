@@ -417,8 +417,7 @@ const timeseriesDataPointSchema = z.object({
 	devpassRevenue: z.number(),
 	devpassRefunds: z.number(),
 	devpassNet: z.number(),
-	// Enterprise deal revenue has no credits, Stripe fees, or provider cost
-	// attached, so its revenue and net profit are the same value.
+	// Enterprise deal revenue is recorded gross and has no credit amount attached.
 	enterpriseRevenue: z.number(),
 	// Per-day (non-cumulative) values. The cumulative series above start from a
 	// pre-range baseline, so clients cannot derive day-one deltas themselves.

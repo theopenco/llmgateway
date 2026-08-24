@@ -145,8 +145,8 @@ export function EnterpriseDealDialog({
 						{editing ? "Edit Enterprise Deal" : "Add Enterprise Deal"}
 					</DialogTitle>
 					<DialogDescription>
-						Record contract revenue for {orgName}. It counts toward total
-						revenue and net profit without adding credits to the organization.
+						Record contract revenue for {orgName}. It counts toward total gross
+						revenue without adding credits to the organization.
 					</DialogDescription>
 				</DialogHeader>
 

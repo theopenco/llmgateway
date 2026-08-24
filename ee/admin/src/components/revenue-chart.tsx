@@ -50,7 +50,7 @@ const chartConfig = {
 		color: "hsl(142 71% 45%)",
 	},
 	enterpriseRevenue: {
-		label: "Net profit",
+		label: "Enterprise licensing fees",
 		color: "hsl(271 81% 56%)",
 	},
 } satisfies ChartConfig;
@@ -60,18 +60,21 @@ const revenueViews = {
 		label: "Credits Net",
 		description:
 			"Cumulative processed, revenue (after fees), and net (after fees & refunds) for credit purchases",
+		dailyLabel: "Net gain",
 		lines: ["processed", "revenue", "net"],
 	},
 	devpass: {
 		label: "DevPass Net",
 		description:
 			"Cumulative gross and net (after refunds) DevPass plan revenue",
+		dailyLabel: "Net gain",
 		lines: ["devpassRevenue", "devpassNet"],
 	},
 	enterprise: {
-		label: "Enterprise",
+		label: "Enterprise Gross",
 		description:
-			"Cumulative enterprise deal revenue and net profit; these deals do not grant credits",
+			"Cumulative gross revenue from enterprise licensing deals; these deals do not grant credits",
+		dailyLabel: "Enterprise licensing fees",
 		lines: ["enterpriseRevenue"],
 	},
 } as const;
@@ -195,7 +198,7 @@ export function RevenueChart({
 				</ChartContainer>
 				<div className="mt-2 px-2 sm:px-0">
 					<p className="mb-1 px-2 text-xs text-muted-foreground sm:px-3">
-						Net gain per day
+						{revenueViews[activeView].dailyLabel} per day
 					</p>
 					<ChartContainer
 						config={chartConfig}
@@ -214,7 +217,9 @@ export function RevenueChart({
 										}}
 										formatter={(value) => (
 											<>
-												<span className="text-muted-foreground">Net gain</span>
+												<span className="text-muted-foreground">
+													{revenueViews[activeView].dailyLabel}
+												</span>
 												<span className="ml-auto font-mono font-medium tabular-nums">
 													{currencyFormatter.format(Number(value))}
 												</span>

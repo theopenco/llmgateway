@@ -361,7 +361,7 @@ export default async function Page({
 								...(metrics.grossEnterpriseDealsRevenue > 0
 									? [
 											{
-												label: "Enterprise deals",
+												label: "Enterprise licensing",
 												value: currencyFormatter.format(
 													metrics.grossEnterpriseDealsRevenue,
 												),
