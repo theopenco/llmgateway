@@ -9,24 +9,30 @@ import type {
 	TokenWindow,
 } from "./types";
 import type { HistoryWindow } from "@/components/history-chart";
+import type { UsageMode } from "@/lib/usage-mode";
 
 export async function getProviderHistory(
 	providerId: string,
 	window: HistoryWindow,
+	mode: UsageMode = "total",
 ) {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/admin/providers/{providerId}/history", {
-		params: { path: { providerId }, query: { window } },
+		params: { path: { providerId }, query: { window, mode } },
 	});
 	return data?.data ?? null;
 }
 
-export async function getModelHistory(modelId: string, window: HistoryWindow) {
+export async function getModelHistory(
+	modelId: string,
+	window: HistoryWindow,
+	mode: UsageMode = "total",
+) {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/admin/models/{modelId}/history", {
 		params: {
 			path: { modelId: encodeURIComponent(modelId) },
-			query: { window },
+			query: { window, mode },
 		},
 	});
 	return data?.data ?? null;
@@ -38,6 +44,7 @@ export async function getMappingHistory(
 	window: HistoryWindow,
 	projectId?: string,
 	region?: string,
+	mode: UsageMode = "total",
 ) {
 	const $api = await createServerApiClient();
 	const { data, error, response } = await $api.GET(
@@ -49,6 +56,7 @@ export async function getMappingHistory(
 					window,
 					...(projectId ? { projectId } : {}),
 					...(region ? { region } : {}),
+					mode,
 				},
 			},
 		},

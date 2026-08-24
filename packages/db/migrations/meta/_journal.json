@@ -1688,6 +1688,13 @@
       "when": 1787325167119,
       "tag": "1787325167_curved_nighthawk",
       "breakpoints": true
+    },
+    {
+      "idx": 241,
+      "version": "8",
+      "when": 1787606606892,
+      "tag": "1787606606_lying_doctor_spectrum",
+      "breakpoints": true
     }
   ]
 }

@@ -5870,6 +5870,7 @@ const providerSortBySchema = z.enum([
 	"modelCount",
 	"updatedAt",
 ]);
+const catalogUsageModeSchema = z.enum(["total", "credits", "api-keys"]);
 
 const providerStatsSchema = z.object({
 	id: z.string(),
@@ -5903,6 +5904,7 @@ const getProviderStats = createRoute({
 		query: z.object({
 			sortBy: providerSortBySchema.default("logsCount").optional(),
 			sortOrder: sortOrderSchema.default("desc").optional(),
+			mode: catalogUsageModeSchema.default("total").optional(),
 			from: z.string().optional(),
 			to: z.string().optional(),
 		}),
@@ -5923,6 +5925,7 @@ admin.openapi(getProviderStats, async (c) => {
 	const query = c.req.valid("query");
 	const sortBy = query.sortBy ?? "logsCount";
 	const sortOrder = query.sortOrder ?? "desc";
+	const mode = query.mode ?? "total";
 	const { from, to } = query;
 
 	const modelCountSub = db
@@ -5989,6 +5992,7 @@ admin.openapi(getProviderStats, async (c) => {
 				and(
 					gte(mphTs, startDate),
 					lt(mphTs, endDateExclusive),
+					mode === "total" ? undefined : eq(mph.usedMode, mode),
 					excludeRegionalMappingRows(mph),
 				),
 			)
@@ -6232,6 +6236,7 @@ const getModelStats = createRoute({
 			family: z.string().optional(),
 			sortBy: modelSortBySchema.default("logsCount").optional(),
 			sortOrder: sortOrderSchema.default("desc").optional(),
+			mode: catalogUsageModeSchema.default("total").optional(),
 			limit: z.coerce.number().min(1).max(100).default(50).optional(),
 			offset: z.coerce.number().min(0).default(0).optional(),
 			from: z.string().optional(),
@@ -6256,6 +6261,7 @@ admin.openapi(getModelStats, async (c) => {
 	const family = query.family;
 	const sortBy = query.sortBy ?? "logsCount";
 	const sortOrderVal = query.sortOrder ?? "desc";
+	const mode = query.mode ?? "total";
 	const limit = query.limit ?? 50;
 	const offset = query.offset ?? 0;
 	const { from, to } = query;
@@ -6329,7 +6335,13 @@ admin.openapi(getModelStats, async (c) => {
 				...tokenBreakdownSums(mh),
 			})
 			.from(mh)
-			.where(and(gte(mhTs, startDate), lt(mhTs, endDateExclusive)))
+			.where(
+				and(
+					gte(mhTs, startDate),
+					lt(mhTs, endDateExclusive),
+					mode === "total" ? undefined : eq(mh.usedMode, mode),
+				),
+			)
 			.groupBy(mh.modelId)
 			.as("model_agg_sub");
 
@@ -8697,6 +8709,7 @@ const getProviderHistory = createRoute({
 		params: z.object({ providerId: z.string() }),
 		query: z.object({
 			window: historyWindowSchema.default("4h").optional(),
+			mode: catalogUsageModeSchema.default("total").optional(),
 		}),
 	},
 	responses: {
@@ -8713,6 +8726,7 @@ admin.openapi(getProviderHistory, async (c) => {
 	const { providerId } = c.req.valid("param");
 	const query = c.req.valid("query");
 	const window = query.window ?? "4h";
+	const mode = query.mode ?? "total";
 	const startDate = getHistoryStartDate(window);
 	const hourStartDate = floorToHourStart(startDate);
 
@@ -8781,6 +8795,9 @@ admin.openapi(getProviderHistory, async (c) => {
 				and(
 					eq(modelProviderMappingHistoryHourly.providerId, providerId),
 					gte(modelProviderMappingHistoryHourly.hourTimestamp, hourStartDate),
+					mode === "total"
+						? undefined
+						: eq(modelProviderMappingHistoryHourly.usedMode, mode),
 					// Provider totals across models: the region-less root row already
 					// carries each mapping's regional traffic.
 					excludeRegionalMappingRows(modelProviderMappingHistoryHourly),
@@ -8792,94 +8809,77 @@ admin.openapi(getProviderHistory, async (c) => {
 		return c.json({ data: mapHistoryRows(rows) });
 	}
 
-	const [rows, costRows] = await Promise.all([
-		db
-			.select({
-				minuteTimestamp: modelProviderMappingHistory.minuteTimestamp,
-				logsCount:
-					sql<number>`SUM(${modelProviderMappingHistory.logsCount})`.as(
-						"logs_count",
-					),
-				errorsCount:
-					sql<number>`SUM(${modelProviderMappingHistory.errorsCount})`.as(
-						"errors_count",
-					),
-				clientErrorsCount:
-					sql<number>`SUM(${modelProviderMappingHistory.clientErrorsCount})`.as(
-						"client_errors_count",
-					),
-				gatewayErrorsCount:
-					sql<number>`SUM(${modelProviderMappingHistory.gatewayErrorsCount})`.as(
-						"gateway_errors_count",
-					),
-				upstreamErrorsCount:
-					sql<number>`SUM(${modelProviderMappingHistory.upstreamErrorsCount})`.as(
-						"upstream_errors_count",
-					),
-				cachedCount:
-					sql<number>`SUM(${modelProviderMappingHistory.cachedCount})`.as(
-						"cached_count",
-					),
-				totalDuration:
-					sql<number>`SUM(${modelProviderMappingHistory.totalDuration})`.as(
-						"total_duration",
-					),
-				totalTimeToFirstToken:
-					sql<number>`SUM(${modelProviderMappingHistory.totalTimeToFirstToken})`.as(
-						"total_ttft",
-					),
-				timeToFirstTokenCount:
-					sql<number>`SUM(${modelProviderMappingHistory.timeToFirstTokenCount})`.as(
-						"ttft_count",
-					),
-				totalTimeToFirstReasoningToken:
-					sql<number>`SUM(${modelProviderMappingHistory.totalTimeToFirstReasoningToken})`.as(
-						"total_ttfrt",
-					),
-				timeToFirstReasoningTokenCount:
-					sql<number>`SUM(${modelProviderMappingHistory.timeToFirstReasoningTokenCount})`.as(
-						"ttfrt_count",
-					),
-				totalTokens:
-					sql<number>`SUM(${modelProviderMappingHistory.totalTokens})`.as(
-						"total_tokens",
-					),
-				...tokenBreakdownSums(modelProviderMappingHistory),
-			})
-			.from(modelProviderMappingHistory)
-			.where(
-				and(
-					eq(modelProviderMappingHistory.providerId, providerId),
-					gte(modelProviderMappingHistory.minuteTimestamp, startDate),
-					excludeRegionalMappingRows(modelProviderMappingHistory),
+	const rows = await db
+		.select({
+			minuteTimestamp: modelProviderMappingHistory.minuteTimestamp,
+			logsCount: sql<number>`SUM(${modelProviderMappingHistory.logsCount})`.as(
+				"logs_count",
+			),
+			errorsCount:
+				sql<number>`SUM(${modelProviderMappingHistory.errorsCount})`.as(
+					"errors_count",
 				),
-			)
-			.groupBy(modelProviderMappingHistory.minuteTimestamp)
-			.orderBy(asc(modelProviderMappingHistory.minuteTimestamp)),
-		db
-			.select({
-				hourTimestamp: projectHourlyModelStats.hourTimestamp,
-				cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`,
-			})
-			.from(projectHourlyModelStats)
-			.where(
-				and(
-					eq(projectHourlyModelStats.usedProvider, providerId),
-					gte(projectHourlyModelStats.hourTimestamp, hourStartDate),
+			clientErrorsCount:
+				sql<number>`SUM(${modelProviderMappingHistory.clientErrorsCount})`.as(
+					"client_errors_count",
 				),
-			)
-			.groupBy(projectHourlyModelStats.hourTimestamp),
-	]);
+			gatewayErrorsCount:
+				sql<number>`SUM(${modelProviderMappingHistory.gatewayErrorsCount})`.as(
+					"gateway_errors_count",
+				),
+			upstreamErrorsCount:
+				sql<number>`SUM(${modelProviderMappingHistory.upstreamErrorsCount})`.as(
+					"upstream_errors_count",
+				),
+			cachedCount:
+				sql<number>`SUM(${modelProviderMappingHistory.cachedCount})`.as(
+					"cached_count",
+				),
+			totalDuration:
+				sql<number>`SUM(${modelProviderMappingHistory.totalDuration})`.as(
+					"total_duration",
+				),
+			totalTimeToFirstToken:
+				sql<number>`SUM(${modelProviderMappingHistory.totalTimeToFirstToken})`.as(
+					"total_ttft",
+				),
+			timeToFirstTokenCount:
+				sql<number>`SUM(${modelProviderMappingHistory.timeToFirstTokenCount})`.as(
+					"ttft_count",
+				),
+			totalTimeToFirstReasoningToken:
+				sql<number>`SUM(${modelProviderMappingHistory.totalTimeToFirstReasoningToken})`.as(
+					"total_ttfrt",
+				),
+			timeToFirstReasoningTokenCount:
+				sql<number>`SUM(${modelProviderMappingHistory.timeToFirstReasoningTokenCount})`.as(
+					"ttfrt_count",
+				),
+			totalTokens:
+				sql<number>`SUM(${modelProviderMappingHistory.totalTokens})`.as(
+					"total_tokens",
+				),
+			totalCost:
+				sql<number>`SUM(cast(${modelProviderMappingHistory.totalCost} as double precision))`.as(
+					"total_cost",
+				),
+			...tokenBreakdownSums(modelProviderMappingHistory),
+		})
+		.from(modelProviderMappingHistory)
+		.where(
+			and(
+				eq(modelProviderMappingHistory.providerId, providerId),
+				gte(modelProviderMappingHistory.minuteTimestamp, startDate),
+				mode === "total"
+					? undefined
+					: eq(modelProviderMappingHistory.usedMode, mode),
+				excludeRegionalMappingRows(modelProviderMappingHistory),
+			),
+		)
+		.groupBy(modelProviderMappingHistory.minuteTimestamp)
+		.orderBy(asc(modelProviderMappingHistory.minuteTimestamp));
 
-	const costByHour = new Map<string, number>(
-		costRows.map((r) => {
-			const d = new Date(r.hourTimestamp);
-			d.setMinutes(0, 0, 0);
-			return [d.toISOString(), Number(r.cost)];
-		}),
-	);
-
-	return c.json({ data: mapHistoryRows(rows, costByHour) });
+	return c.json({ data: mapHistoryRows(rows) });
 });
 
 // Model history
@@ -8891,6 +8891,7 @@ const getModelHistory = createRoute({
 		query: z.object({
 			window: historyWindowSchema.default("4h").optional(),
 			projectId: z.string().optional(),
+			mode: catalogUsageModeSchema.default("total").optional(),
 		}),
 	},
 	responses: {
@@ -8908,6 +8909,7 @@ admin.openapi(getModelHistory, async (c) => {
 	const query = c.req.valid("query");
 	const window = query.window ?? "4h";
 	const projectId = query.projectId;
+	const mode = query.mode ?? "total";
 	const startDate = getHistoryStartDate(window);
 
 	if (projectId) {
@@ -9046,6 +9048,7 @@ admin.openapi(getModelHistory, async (c) => {
 				and(
 					eq(modelHistoryHourly.modelId, modelId),
 					gte(modelHistoryHourly.hourTimestamp, hourStartDate),
+					mode === "total" ? undefined : eq(modelHistoryHourly.usedMode, mode),
 				),
 			)
 			.groupBy(modelHistoryHourly.hourTimestamp)
@@ -9108,6 +9111,7 @@ admin.openapi(getModelHistory, async (c) => {
 			and(
 				eq(modelHistory.modelId, modelId),
 				gte(modelHistory.minuteTimestamp, startDate),
+				mode === "total" ? undefined : eq(modelHistory.usedMode, mode),
 			),
 		)
 		.groupBy(modelHistory.minuteTimestamp)
@@ -9129,6 +9133,7 @@ const getMappingHistory = createRoute({
 			window: historyWindowSchema.default("4h").optional(),
 			projectId: z.string().optional(),
 			region: z.string().optional(),
+			mode: catalogUsageModeSchema.default("total").optional(),
 		}),
 	},
 	responses: {
@@ -9147,6 +9152,7 @@ admin.openapi(getMappingHistory, async (c) => {
 	const window = query.window ?? "4h";
 	const projectId = query.projectId;
 	const region = query.region;
+	const mode = query.mode ?? "total";
 	const startDate = getHistoryStartDate(window);
 	const hourStartDate = new Date(startDate);
 	hourStartDate.setMinutes(0, 0, 0);
@@ -9332,6 +9338,9 @@ admin.openapi(getMappingHistory, async (c) => {
 					eq(modelProviderMappingHistoryHourly.providerId, providerId),
 					eq(modelProviderMappingHistoryHourly.modelId, modelId),
 					gte(modelProviderMappingHistoryHourly.hourTimestamp, hourStartDate),
+					mode === "total"
+						? undefined
+						: eq(modelProviderMappingHistoryHourly.usedMode, mode),
 					hourlyRegionMappingFilter,
 				),
 			)
@@ -9404,6 +9413,9 @@ admin.openapi(getMappingHistory, async (c) => {
 				eq(modelProviderMappingHistory.providerId, providerId),
 				eq(modelProviderMappingHistory.modelId, modelId),
 				gte(modelProviderMappingHistory.minuteTimestamp, startDate),
+				mode === "total"
+					? undefined
+					: eq(modelProviderMappingHistory.usedMode, mode),
 				regionMappingFilter,
 			),
 		)
@@ -10931,6 +10943,7 @@ const getModelProviderMappings = createRoute({
 			sortOrder: z.enum(["asc", "desc"]).optional(),
 			limit: z.coerce.number().optional(),
 			offset: z.coerce.number().optional(),
+			mode: catalogUsageModeSchema.default("total").optional(),
 			from: z.string().optional(),
 			to: z.string().optional(),
 		}),
@@ -10954,6 +10967,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 	const limit = query.limit ?? 100;
 	const offset = query.offset ?? 0;
 	const search = query.search ?? "";
+	const mode = query.mode ?? "total";
 	const { from, to } = query;
 
 	const concreteRegionalMapping = aliasedTable(
@@ -11053,6 +11067,9 @@ admin.openapi(getModelProviderMappings, async (c) => {
 					and(
 						gte(mappingHistory.bucket, dateRange!.startDate),
 						lt(mappingHistory.bucket, dateRange!.endDateExclusive),
+						mode === "total"
+							? undefined
+							: eq(mappingHistory.table.usedMode, mode),
 					),
 				)
 				.groupBy(mappingHistory.table.modelProviderMappingId)
@@ -11110,6 +11127,9 @@ admin.openapi(getModelProviderMappings, async (c) => {
 						whereClause,
 						gte(mappingHistory.bucket, dateRange!.startDate),
 						lt(mappingHistory.bucket, dateRange!.endDateExclusive),
+						mode === "total"
+							? undefined
+							: eq(mappingHistory.table.usedMode, mode),
 					),
 				)
 		: Promise.resolve([

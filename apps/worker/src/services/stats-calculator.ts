@@ -44,11 +44,14 @@ const usedRegionSql = sql<
 const serviceTierSourceSql = sql<
 	string | null
 >`(${log.routingMetadata}::jsonb ->> 'serviceTierSource')`;
+const HISTORY_USAGE_MODES = ["credits", "api-keys"] as const;
+type HistoryUsageMode = (typeof HISTORY_USAGE_MODES)[number];
 
 interface MappingMinuteStats {
 	modelId: string | null;
 	providerId: string | null;
 	region: string | null;
+	usedMode: HistoryUsageMode;
 	logsCount: number;
 	errorsCount: number;
 	clientErrorsCount: number;
@@ -84,11 +87,13 @@ interface MappingMinuteStats {
 function createEmptyMappingMinuteStats(
 	modelId: string,
 	providerId: string,
+	usedMode: HistoryUsageMode,
 ): MappingMinuteStats {
 	return {
 		modelId,
 		providerId,
 		region: null,
+		usedMode,
 		logsCount: 0,
 		errorsCount: 0,
 		clientErrorsCount: 0,
@@ -294,6 +299,7 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 	const modelStats = await database
 		.select({
 			modelId: usedBaseModelSql.as("modelId"),
+			usedMode: log.usedMode,
 			logsCount: sql<number>`count(*)::int`.as("logsCount"),
 			errorsCount:
 				sql<number>`sum(case when ${log.hasError} = true then 1 else 0 end)::int`.as(
@@ -431,7 +437,7 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 				excludeRecoveredSameProviderRegionRetry(),
 			),
 		)
-		.groupBy(usedBaseModelSql);
+		.groupBy(usedBaseModelSql, log.usedMode);
 
 	// Get all active models to ensure we create entries for inactive ones too
 	const allModels = await database
@@ -443,9 +449,11 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 
 	// Create a map of models that had logs
 	const activeModelsMap = new Map<string, (typeof modelStats)[0]>();
+	const activeModelIds = new Set<string>();
 	for (const stat of modelStats) {
 		if (stat.modelId) {
-			activeModelsMap.set(stat.modelId, stat);
+			activeModelsMap.set(`${stat.modelId}-${stat.usedMode}`, stat);
+			activeModelIds.add(stat.modelId);
 		}
 	}
 
@@ -454,83 +462,88 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 	const modelHistoryValues: (typeof modelHistory.$inferInsert)[] = [];
 
 	for (const modelEntry of allModels) {
-		if (processedModels.has(modelEntry.modelId)) {
-			continue;
+		for (const usedMode of HISTORY_USAGE_MODES) {
+			const historyKey = `${modelEntry.modelId}-${usedMode}`;
+			if (processedModels.has(historyKey)) {
+				continue;
+			}
+			processedModels.add(historyKey);
+
+			const stat = activeModelsMap.get(historyKey);
+
+			// Use actual stats if available, otherwise create zero stats
+			const logsCount = stat?.logsCount ?? 0;
+			const errorsCount = stat?.errorsCount ?? 0;
+			const clientErrorsCount = stat?.clientErrorsCount ?? 0;
+			const gatewayErrorsCount = stat?.gatewayErrorsCount ?? 0;
+			const upstreamErrorsCount = stat?.upstreamErrorsCount ?? 0;
+			const completedCount = stat?.completedCount ?? 0;
+			const lengthLimitCount = stat?.lengthLimitCount ?? 0;
+			const contentFilterCount = stat?.contentFilterCount ?? 0;
+			const toolCallsCount = stat?.toolCallsCount ?? 0;
+			const canceledCount = stat?.canceledCount ?? 0;
+			const unknownFinishCount = stat?.unknownFinishCount ?? 0;
+			const cachedCount = stat?.cachedCount ?? 0;
+			const totalInputTokens = stat?.totalInputTokens ?? 0;
+			const totalOutputTokens = stat?.totalOutputTokens ?? 0;
+			const totalTokens = stat?.totalTokens ?? 0;
+			const totalReasoningTokens = stat?.totalReasoningTokens ?? 0;
+			const totalCachedTokens = stat?.totalCachedTokens ?? 0;
+			const totalDuration = stat?.totalDuration ?? 0;
+			const totalTimeToFirstToken = stat?.totalTimeToFirstToken ?? 0;
+			const totalTimeToFirstReasoningToken =
+				stat?.totalTimeToFirstReasoningToken ?? 0;
+			const timeToFirstTokenCount = stat?.timeToFirstTokenCount ?? 0;
+			const timeToFirstReasoningTokenCount =
+				stat?.timeToFirstReasoningTokenCount ?? 0;
+			const totalCost = stat?.totalCost ?? 0;
+			const totalInputCost = stat?.totalInputCost ?? 0;
+			const totalOutputCost = stat?.totalOutputCost ?? 0;
+			const totalCachedInputCost = stat?.totalCachedInputCost ?? 0;
+			const serviceTierExplicitCount = stat?.serviceTierExplicitCount ?? 0;
+			const serviceTierImplicitCount = stat?.serviceTierImplicitCount ?? 0;
+			const serviceTierServedCount = stat?.serviceTierServedCount ?? 0;
+			const serviceTierUnconfirmedCount =
+				stat?.serviceTierUnconfirmedCount ?? 0;
+
+			// Collect the history record for this minute; written in one bulk upsert
+			// below instead of a per-model round-trip.
+			modelHistoryValues.push({
+				modelId: modelEntry.modelId,
+				usedMode,
+				minuteTimestamp: roundedTargetMinute,
+				logsCount,
+				errorsCount,
+				clientErrorsCount,
+				gatewayErrorsCount,
+				upstreamErrorsCount,
+				completedCount,
+				lengthLimitCount,
+				contentFilterCount,
+				toolCallsCount,
+				canceledCount,
+				unknownFinishCount,
+				cachedCount,
+				totalInputTokens,
+				totalOutputTokens,
+				totalTokens,
+				totalReasoningTokens,
+				totalCachedTokens,
+				totalDuration,
+				totalTimeToFirstToken,
+				totalTimeToFirstReasoningToken,
+				timeToFirstTokenCount,
+				timeToFirstReasoningTokenCount,
+				totalCost,
+				totalInputCost,
+				totalOutputCost,
+				totalCachedInputCost,
+				serviceTierExplicitCount,
+				serviceTierImplicitCount,
+				serviceTierServedCount,
+				serviceTierUnconfirmedCount,
+			});
 		}
-		processedModels.add(modelEntry.modelId);
-
-		const stat = activeModelsMap.get(modelEntry.modelId);
-
-		// Use actual stats if available, otherwise create zero stats
-		const logsCount = stat?.logsCount ?? 0;
-		const errorsCount = stat?.errorsCount ?? 0;
-		const clientErrorsCount = stat?.clientErrorsCount ?? 0;
-		const gatewayErrorsCount = stat?.gatewayErrorsCount ?? 0;
-		const upstreamErrorsCount = stat?.upstreamErrorsCount ?? 0;
-		const completedCount = stat?.completedCount ?? 0;
-		const lengthLimitCount = stat?.lengthLimitCount ?? 0;
-		const contentFilterCount = stat?.contentFilterCount ?? 0;
-		const toolCallsCount = stat?.toolCallsCount ?? 0;
-		const canceledCount = stat?.canceledCount ?? 0;
-		const unknownFinishCount = stat?.unknownFinishCount ?? 0;
-		const cachedCount = stat?.cachedCount ?? 0;
-		const totalInputTokens = stat?.totalInputTokens ?? 0;
-		const totalOutputTokens = stat?.totalOutputTokens ?? 0;
-		const totalTokens = stat?.totalTokens ?? 0;
-		const totalReasoningTokens = stat?.totalReasoningTokens ?? 0;
-		const totalCachedTokens = stat?.totalCachedTokens ?? 0;
-		const totalDuration = stat?.totalDuration ?? 0;
-		const totalTimeToFirstToken = stat?.totalTimeToFirstToken ?? 0;
-		const totalTimeToFirstReasoningToken =
-			stat?.totalTimeToFirstReasoningToken ?? 0;
-		const timeToFirstTokenCount = stat?.timeToFirstTokenCount ?? 0;
-		const timeToFirstReasoningTokenCount =
-			stat?.timeToFirstReasoningTokenCount ?? 0;
-		const totalCost = stat?.totalCost ?? 0;
-		const totalInputCost = stat?.totalInputCost ?? 0;
-		const totalOutputCost = stat?.totalOutputCost ?? 0;
-		const totalCachedInputCost = stat?.totalCachedInputCost ?? 0;
-		const serviceTierExplicitCount = stat?.serviceTierExplicitCount ?? 0;
-		const serviceTierImplicitCount = stat?.serviceTierImplicitCount ?? 0;
-		const serviceTierServedCount = stat?.serviceTierServedCount ?? 0;
-		const serviceTierUnconfirmedCount = stat?.serviceTierUnconfirmedCount ?? 0;
-
-		// Collect the history record for this minute; written in one bulk upsert
-		// below instead of a per-model round-trip.
-		modelHistoryValues.push({
-			modelId: modelEntry.modelId,
-			minuteTimestamp: roundedTargetMinute,
-			logsCount,
-			errorsCount,
-			clientErrorsCount,
-			gatewayErrorsCount,
-			upstreamErrorsCount,
-			completedCount,
-			lengthLimitCount,
-			contentFilterCount,
-			toolCallsCount,
-			canceledCount,
-			unknownFinishCount,
-			cachedCount,
-			totalInputTokens,
-			totalOutputTokens,
-			totalTokens,
-			totalReasoningTokens,
-			totalCachedTokens,
-			totalDuration,
-			totalTimeToFirstToken,
-			totalTimeToFirstReasoningToken,
-			timeToFirstTokenCount,
-			timeToFirstReasoningTokenCount,
-			totalCost,
-			totalInputCost,
-			totalOutputCost,
-			totalCachedInputCost,
-			serviceTierExplicitCount,
-			serviceTierImplicitCount,
-			serviceTierServedCount,
-			serviceTierUnconfirmedCount,
-		});
 	}
 
 	const modelHistoryUpsertSet = buildHistoryUpsertSet(modelHistory);
@@ -544,15 +557,29 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 			.insert(modelHistory)
 			.values(chunk)
 			.onConflictDoUpdate({
-				target: [modelHistory.modelId, modelHistory.minuteTimestamp],
+				target: [
+					modelHistory.modelId,
+					modelHistory.minuteTimestamp,
+					modelHistory.usedMode,
+				],
 				set: modelHistoryUpsertSet,
 			});
 	}
+	// Once the per-mode rows are complete, remove the legacy blended bucket for
+	// this minute so the default All view cannot count both representations.
+	await database
+		.delete(modelHistory)
+		.where(
+			and(
+				eq(modelHistory.minuteTimestamp, roundedTargetMinute),
+				eq(modelHistory.usedMode, "unknown"),
+			),
+		);
 
 	return {
 		totalModels: allModels.length,
-		activeModels: modelStats.length,
-		inactiveModels: allModels.length - modelStats.length,
+		activeModels: activeModelIds.size,
+		inactiveModels: allModels.length - activeModelIds.size,
 	};
 }
 
@@ -573,6 +600,7 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 			modelId: usedBaseModelSql.as("modelId"),
 			providerId: log.usedProvider,
 			region: usedRegionSql.as("region"),
+			usedMode: log.usedMode,
 			logsCount: sql<number>`count(*)::int`.as("logsCount"),
 			errorsCount:
 				sql<number>`sum(case when ${log.hasError} = true then 1 else 0 end)::int`.as(
@@ -710,7 +738,7 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 				excludeRecoveredSameProviderRegionRetry(),
 			),
 		)
-		.groupBy(usedBaseModelSql, log.usedProvider, usedRegionSql);
+		.groupBy(usedBaseModelSql, log.usedProvider, usedRegionSql, log.usedMode);
 
 	// Get all active model-provider mappings to ensure we create entries for inactive ones too
 	const allMappings = await database
@@ -727,7 +755,7 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 	const activeMappingsMap = new Map<string, MappingMinuteStats>();
 	for (const stat of mappingStats) {
 		if (stat.modelId && stat.providerId) {
-			const key = `${stat.modelId}-${stat.providerId}-${stat.region ?? ""}`;
+			const key = `${stat.modelId}-${stat.providerId}-${stat.region ?? ""}-${stat.usedMode}`;
 			activeMappingsMap.set(key, stat);
 		}
 	}
@@ -762,25 +790,32 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 			continue;
 		}
 
-		const existingRootStat = activeMappingsMap.get(rootKey);
-		let aggregateStat = existingRootStat
-			? { ...existingRootStat, region: null }
-			: createEmptyMappingMinuteStats(mapping.modelId, mapping.providerId);
+		for (const usedMode of HISTORY_USAGE_MODES) {
+			const modeRootKey = `${rootKey}-${usedMode}`;
+			const existingRootStat = activeMappingsMap.get(modeRootKey);
+			let aggregateStat = existingRootStat
+				? { ...existingRootStat, region: null }
+				: createEmptyMappingMinuteStats(
+						mapping.modelId,
+						mapping.providerId,
+						usedMode,
+					);
 
-		let hasRegionalTraffic = false;
-		for (const regionalMapping of regionalMappings) {
-			const regionalKey = `${regionalMapping.modelId}-${regionalMapping.providerId}-${regionalMapping.region}`;
-			const regionalStat = activeMappingsMap.get(regionalKey);
-			if (!regionalStat) {
-				continue;
+			let hasRegionalTraffic = false;
+			for (const regionalMapping of regionalMappings) {
+				const regionalKey = `${regionalMapping.modelId}-${regionalMapping.providerId}-${regionalMapping.region}-${usedMode}`;
+				const regionalStat = activeMappingsMap.get(regionalKey);
+				if (!regionalStat) {
+					continue;
+				}
+
+				aggregateStat = mergeMappingMinuteStats(aggregateStat, regionalStat);
+				hasRegionalTraffic = true;
 			}
 
-			aggregateStat = mergeMappingMinuteStats(aggregateStat, regionalStat);
-			hasRegionalTraffic = true;
-		}
-
-		if (existingRootStat || hasRegionalTraffic) {
-			activeMappingsMap.set(rootKey, aggregateStat);
+			if (existingRootStat || hasRegionalTraffic) {
+				activeMappingsMap.set(modeRootKey, aggregateStat);
+			}
 		}
 	}
 
@@ -789,94 +824,98 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 	const mappingHistoryValues: (typeof modelProviderMappingHistory.$inferInsert)[] =
 		[];
 
-	let activeMappingsCount = 0;
+	const activeMappingIds = new Set<string>();
 
 	for (const mapping of allMappings) {
-		// Use mapping ID to prevent duplicates
-		if (processedMappings.has(mapping.id)) {
-			continue;
+		for (const usedMode of HISTORY_USAGE_MODES) {
+			const historyKey = `${mapping.id}-${usedMode}`;
+			if (processedMappings.has(historyKey)) {
+				continue;
+			}
+			processedMappings.add(historyKey);
+
+			const key = `${mapping.modelId}-${mapping.providerId}-${mapping.region ?? ""}-${usedMode}`;
+			const stat = activeMappingsMap.get(key);
+
+			// Use actual stats if available, otherwise create zero stats
+			const logsCount = stat?.logsCount ?? 0;
+			const errorsCount = stat?.errorsCount ?? 0;
+			const clientErrorsCount = stat?.clientErrorsCount ?? 0;
+			const gatewayErrorsCount = stat?.gatewayErrorsCount ?? 0;
+			const upstreamErrorsCount = stat?.upstreamErrorsCount ?? 0;
+			const completedCount = stat?.completedCount ?? 0;
+			const lengthLimitCount = stat?.lengthLimitCount ?? 0;
+			const contentFilterCount = stat?.contentFilterCount ?? 0;
+			const toolCallsCount = stat?.toolCallsCount ?? 0;
+			const canceledCount = stat?.canceledCount ?? 0;
+			const unknownFinishCount = stat?.unknownFinishCount ?? 0;
+			const cachedCount = stat?.cachedCount ?? 0;
+			const totalInputTokens = stat?.totalInputTokens ?? 0;
+			const totalOutputTokens = stat?.totalOutputTokens ?? 0;
+			const totalTokens = stat?.totalTokens ?? 0;
+			const totalReasoningTokens = stat?.totalReasoningTokens ?? 0;
+			const totalCachedTokens = stat?.totalCachedTokens ?? 0;
+			const totalDuration = stat?.totalDuration ?? 0;
+			const totalTimeToFirstToken = stat?.totalTimeToFirstToken ?? 0;
+			const totalTimeToFirstReasoningToken =
+				stat?.totalTimeToFirstReasoningToken ?? 0;
+			const timeToFirstTokenCount = stat?.timeToFirstTokenCount ?? 0;
+			const timeToFirstReasoningTokenCount =
+				stat?.timeToFirstReasoningTokenCount ?? 0;
+			const totalCost = stat?.totalCost ?? 0;
+			const totalInputCost = stat?.totalInputCost ?? 0;
+			const totalOutputCost = stat?.totalOutputCost ?? 0;
+			const totalCachedInputCost = stat?.totalCachedInputCost ?? 0;
+			const serviceTierExplicitCount = stat?.serviceTierExplicitCount ?? 0;
+			const serviceTierImplicitCount = stat?.serviceTierImplicitCount ?? 0;
+			const serviceTierServedCount = stat?.serviceTierServedCount ?? 0;
+			const serviceTierUnconfirmedCount =
+				stat?.serviceTierUnconfirmedCount ?? 0;
+
+			if (logsCount > 0) {
+				activeMappingIds.add(mapping.id);
+			}
+
+			// Collect the history record for this minute; written in one bulk upsert
+			// below instead of a per-mapping round-trip.
+			mappingHistoryValues.push({
+				modelId: mapping.modelId, // LLMGateway model name
+				providerId: mapping.providerId,
+				modelProviderMappingId: mapping.id, // Exact model_provider_mapping.id
+				usedMode,
+				minuteTimestamp: roundedTargetMinute,
+				logsCount,
+				errorsCount,
+				clientErrorsCount,
+				gatewayErrorsCount,
+				upstreamErrorsCount,
+				completedCount,
+				lengthLimitCount,
+				contentFilterCount,
+				toolCallsCount,
+				canceledCount,
+				unknownFinishCount,
+				cachedCount,
+				totalInputTokens,
+				totalOutputTokens,
+				totalTokens,
+				totalReasoningTokens,
+				totalCachedTokens,
+				totalDuration,
+				totalTimeToFirstToken,
+				totalTimeToFirstReasoningToken,
+				timeToFirstTokenCount,
+				timeToFirstReasoningTokenCount,
+				totalCost,
+				totalInputCost,
+				totalOutputCost,
+				totalCachedInputCost,
+				serviceTierExplicitCount,
+				serviceTierImplicitCount,
+				serviceTierServedCount,
+				serviceTierUnconfirmedCount,
+			});
 		}
-		processedMappings.add(mapping.id);
-
-		const key = `${mapping.modelId}-${mapping.providerId}-${mapping.region ?? ""}`;
-		const stat = activeMappingsMap.get(key);
-
-		// Use actual stats if available, otherwise create zero stats
-		const logsCount = stat?.logsCount ?? 0;
-		const errorsCount = stat?.errorsCount ?? 0;
-		const clientErrorsCount = stat?.clientErrorsCount ?? 0;
-		const gatewayErrorsCount = stat?.gatewayErrorsCount ?? 0;
-		const upstreamErrorsCount = stat?.upstreamErrorsCount ?? 0;
-		const completedCount = stat?.completedCount ?? 0;
-		const lengthLimitCount = stat?.lengthLimitCount ?? 0;
-		const contentFilterCount = stat?.contentFilterCount ?? 0;
-		const toolCallsCount = stat?.toolCallsCount ?? 0;
-		const canceledCount = stat?.canceledCount ?? 0;
-		const unknownFinishCount = stat?.unknownFinishCount ?? 0;
-		const cachedCount = stat?.cachedCount ?? 0;
-		const totalInputTokens = stat?.totalInputTokens ?? 0;
-		const totalOutputTokens = stat?.totalOutputTokens ?? 0;
-		const totalTokens = stat?.totalTokens ?? 0;
-		const totalReasoningTokens = stat?.totalReasoningTokens ?? 0;
-		const totalCachedTokens = stat?.totalCachedTokens ?? 0;
-		const totalDuration = stat?.totalDuration ?? 0;
-		const totalTimeToFirstToken = stat?.totalTimeToFirstToken ?? 0;
-		const totalTimeToFirstReasoningToken =
-			stat?.totalTimeToFirstReasoningToken ?? 0;
-		const timeToFirstTokenCount = stat?.timeToFirstTokenCount ?? 0;
-		const timeToFirstReasoningTokenCount =
-			stat?.timeToFirstReasoningTokenCount ?? 0;
-		const totalCost = stat?.totalCost ?? 0;
-		const totalInputCost = stat?.totalInputCost ?? 0;
-		const totalOutputCost = stat?.totalOutputCost ?? 0;
-		const totalCachedInputCost = stat?.totalCachedInputCost ?? 0;
-		const serviceTierExplicitCount = stat?.serviceTierExplicitCount ?? 0;
-		const serviceTierImplicitCount = stat?.serviceTierImplicitCount ?? 0;
-		const serviceTierServedCount = stat?.serviceTierServedCount ?? 0;
-		const serviceTierUnconfirmedCount = stat?.serviceTierUnconfirmedCount ?? 0;
-
-		if (logsCount > 0) {
-			activeMappingsCount++;
-		}
-
-		// Collect the history record for this minute; written in one bulk upsert
-		// below instead of a per-mapping round-trip.
-		mappingHistoryValues.push({
-			modelId: mapping.modelId, // LLMGateway model name
-			providerId: mapping.providerId,
-			modelProviderMappingId: mapping.id, // Exact model_provider_mapping.id
-			minuteTimestamp: roundedTargetMinute,
-			logsCount,
-			errorsCount,
-			clientErrorsCount,
-			gatewayErrorsCount,
-			upstreamErrorsCount,
-			completedCount,
-			lengthLimitCount,
-			contentFilterCount,
-			toolCallsCount,
-			canceledCount,
-			unknownFinishCount,
-			cachedCount,
-			totalInputTokens,
-			totalOutputTokens,
-			totalTokens,
-			totalReasoningTokens,
-			totalCachedTokens,
-			totalDuration,
-			totalTimeToFirstToken,
-			totalTimeToFirstReasoningToken,
-			timeToFirstTokenCount,
-			timeToFirstReasoningTokenCount,
-			totalCost,
-			totalInputCost,
-			totalOutputCost,
-			totalCachedInputCost,
-			serviceTierExplicitCount,
-			serviceTierImplicitCount,
-			serviceTierServedCount,
-			serviceTierUnconfirmedCount,
-		});
 	}
 
 	const mappingHistoryUpsertSet = buildHistoryUpsertSet(
@@ -895,15 +934,24 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 				target: [
 					modelProviderMappingHistory.modelProviderMappingId,
 					modelProviderMappingHistory.minuteTimestamp,
+					modelProviderMappingHistory.usedMode,
 				],
 				set: mappingHistoryUpsertSet,
 			});
 	}
+	await database
+		.delete(modelProviderMappingHistory)
+		.where(
+			and(
+				eq(modelProviderMappingHistory.minuteTimestamp, roundedTargetMinute),
+				eq(modelProviderMappingHistory.usedMode, "unknown"),
+			),
+		);
 
 	return {
 		totalMappings: allMappings.length,
-		activeMappings: activeMappingsCount,
-		inactiveMappings: allMappings.length - activeMappingsCount,
+		activeMappings: activeMappingIds.size,
+		inactiveMappings: allMappings.length - activeMappingIds.size,
 	};
 }
 
@@ -1106,6 +1154,7 @@ async function calculateModelHistoryForHour(targetHour: Date) {
 	const hourlyStats = await database
 		.select({
 			modelId: modelHistory.modelId,
+			usedMode: modelHistory.usedMode,
 			logsCount: sql<number>`coalesce(sum(${modelHistory.logsCount}), 0)::int`,
 			errorsCount: sql<number>`coalesce(sum(${modelHistory.errorsCount}), 0)::int`,
 			clientErrorsCount: sql<number>`coalesce(sum(${modelHistory.clientErrorsCount}), 0)::int`,
@@ -1144,20 +1193,25 @@ async function calculateModelHistoryForHour(targetHour: Date) {
 				lt(modelHistory.minuteTimestamp, hourEnd),
 			),
 		)
-		.groupBy(modelHistory.modelId);
+		.groupBy(modelHistory.modelId, modelHistory.usedMode);
 
 	for (const row of hourlyStats) {
-		const { modelId, ...stats } = row;
+		const { modelId, usedMode, ...stats } = row;
 		await database
 			.insert(modelHistoryHourly)
-			.values({ modelId, hourTimestamp: roundedHour, ...stats })
+			.values({ modelId, usedMode, hourTimestamp: roundedHour, ...stats })
 			.onConflictDoUpdate({
-				target: [modelHistoryHourly.modelId, modelHistoryHourly.hourTimestamp],
+				target: [
+					modelHistoryHourly.modelId,
+					modelHistoryHourly.hourTimestamp,
+					modelHistoryHourly.usedMode,
+				],
 				set: { ...stats, updatedAt: new Date() },
 			});
 	}
-
-	return { totalModels: hourlyStats.length };
+	return {
+		totalModels: new Set(hourlyStats.map((row) => row.modelId)).size,
+	};
 }
 
 /**
@@ -1176,6 +1230,7 @@ async function calculateMappingHistoryForHour(targetHour: Date) {
 				modelProviderMappingHistory.modelProviderMappingId,
 			modelId: modelProviderMappingHistory.modelId,
 			providerId: modelProviderMappingHistory.providerId,
+			usedMode: modelProviderMappingHistory.usedMode,
 			logsCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.logsCount}), 0)::int`,
 			errorsCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.errorsCount}), 0)::int`,
 			clientErrorsCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.clientErrorsCount}), 0)::int`,
@@ -1218,16 +1273,19 @@ async function calculateMappingHistoryForHour(targetHour: Date) {
 			modelProviderMappingHistory.modelProviderMappingId,
 			modelProviderMappingHistory.modelId,
 			modelProviderMappingHistory.providerId,
+			modelProviderMappingHistory.usedMode,
 		);
 
 	for (const row of hourlyStats) {
-		const { modelProviderMappingId, modelId, providerId, ...stats } = row;
+		const { modelProviderMappingId, modelId, providerId, usedMode, ...stats } =
+			row;
 		await database
 			.insert(modelProviderMappingHistoryHourly)
 			.values({
 				modelProviderMappingId,
 				modelId,
 				providerId,
+				usedMode,
 				hourTimestamp: roundedHour,
 				...stats,
 			})
@@ -1235,12 +1293,15 @@ async function calculateMappingHistoryForHour(targetHour: Date) {
 				target: [
 					modelProviderMappingHistoryHourly.modelProviderMappingId,
 					modelProviderMappingHistoryHourly.hourTimestamp,
+					modelProviderMappingHistoryHourly.usedMode,
 				],
 				set: { ...stats, updatedAt: new Date() },
 			});
 	}
-
-	return { totalMappings: hourlyStats.length };
+	return {
+		totalMappings: new Set(hourlyStats.map((row) => row.modelProviderMappingId))
+			.size,
+	};
 }
 
 /**
