@@ -561,16 +561,23 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "baidu",
-				externalId: "deepseek-v4-pro",
-				// Unlike Flash (which Qianfan lists separately as
-				// deepseek-v4-flash-0731), Qianfan has no dated/GA slug for Pro:
-				// this listing's hugging_face_id is still deepseek-ai/DeepSeek-V4-Pro
-				// (the pre-0813 preview repo) and its description never mentions an
-				// official/GA release (verified 2026-08-18). Pricing is correct for
-				// what's actually served — the preview build, not 0813 GA.
-				inputPrice: "1.69e-6",
-				cachedInputPrice: "0.14e-6",
-				outputPrice: "3.38e-6",
+				externalId: "deepseek-v4-pro-0813",
+				inputPrice: "0.396e-6",
+				cachedInputPrice: "0.0396e-6",
+				outputPrice: "1.188e-6",
+				peakPricing: {
+					peak: {
+						inputPrice: "0.792e-6",
+						cachedInputPrice: "0.0792e-6",
+						outputPrice: "2.376e-6",
+					},
+					offPeak: {
+						inputPrice: "0.396e-6",
+						cachedInputPrice: "0.0396e-6",
+						outputPrice: "1.188e-6",
+					},
+					hoursUtc: [[0, 14]],
+				},
 				requestPrice: "0",
 				contextSize: 1048576,
 				// /v1/models reports 393216 while Qianfan's model page caps output at
@@ -955,19 +962,19 @@ export const deepseekModels = [
 			{
 				providerId: "baidu",
 				externalId: "deepseek-v4-flash-0731",
-				inputPrice: "0.2113e-6",
-				cachedInputPrice: "0.0211e-6",
-				outputPrice: "0.6338e-6",
+				inputPrice: "0.132e-6",
+				cachedInputPrice: "0.0132e-6",
+				outputPrice: "0.396e-6",
 				peakPricing: {
 					peak: {
-						inputPrice: "0.4225e-6",
-						cachedInputPrice: "0.0423e-6",
-						outputPrice: "1.2676e-6",
+						inputPrice: "0.264e-6",
+						cachedInputPrice: "0.0264e-6",
+						outputPrice: "0.792e-6",
 					},
 					offPeak: {
-						inputPrice: "0.2113e-6",
-						cachedInputPrice: "0.0211e-6",
-						outputPrice: "0.6338e-6",
+						inputPrice: "0.132e-6",
+						cachedInputPrice: "0.0132e-6",
+						outputPrice: "0.396e-6",
 					},
 					hoursUtc: [[0, 14]],
 				},

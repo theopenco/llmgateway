@@ -742,7 +742,7 @@ describe("calculateCosts", () => {
 		// as completion_tokens === reasoning_tokens, so adding it again would
 		// double the billed output.
 		const result = await calculateCosts(
-			"deepseek-v4-pro",
+			"glm-5.3",
 			"baidu",
 			null,
 			1000,
@@ -752,9 +752,9 @@ describe("calculateCosts", () => {
 			400,
 		);
 
-		// inputPrice 1.69e-6, outputPrice 3.38e-6.
-		expect(result.inputCost).toBeCloseTo(0.00169, 10);
-		expect(result.outputCost).toBeCloseTo(0.001352, 10); // 400 * 3.38e-6, not 800
+		// inputPrice 1.4e-6, outputPrice 4.4e-6.
+		expect(result.inputCost).toBeCloseTo(0.0014, 10);
+		expect(result.outputCost).toBeCloseTo(0.00176, 10); // 400 * 4.4e-6, not 800
 		expect(result.completionTokens).toBe(400);
 	});
 
@@ -2462,7 +2462,7 @@ describe("peak / off-peak time-of-day pricing", () => {
 		expect(flash.inputCost).toBeCloseTo(0.44);
 	});
 
-	it("bills Baidu GLM-5.2 at its list price", async () => {
+	it("bills Baidu GLM-5.2 at peak rates", async () => {
 		setTime("2026-08-25T13:59:00Z");
 
 		const costs = await calculateCosts(
@@ -2473,9 +2473,25 @@ describe("peak / off-peak time-of-day pricing", () => {
 			1_000_000,
 			1_000_000,
 		);
-		expect(costs.inputCost).toBeCloseTo(1.1268);
-		expect(costs.outputCost).toBeCloseTo(3.9437);
-		expect(costs.cachedInputCost).toBeCloseTo(0.2817);
+		expect(costs.inputCost).toBeCloseTo(0.7);
+		expect(costs.outputCost).toBeCloseTo(2.2);
+		expect(costs.cachedInputCost).toBeCloseTo(0.13);
+	});
+
+	it("bills Baidu GLM-5.2 at off-peak rates", async () => {
+		setTime("2026-08-25T14:00:00Z");
+
+		const costs = await calculateCosts(
+			"glm-5.2",
+			"baidu",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		expect(costs.inputCost).toBeCloseTo(0.56);
+		expect(costs.outputCost).toBeCloseTo(1.76);
+		expect(costs.cachedInputCost).toBeCloseTo(0.104);
 	});
 
 	it("bills Baidu GLM-5.3 at its list price", async () => {
@@ -2489,9 +2505,41 @@ describe("peak / off-peak time-of-day pricing", () => {
 			1_000_000,
 			1_000_000,
 		);
-		expect(costs.inputCost).toBeCloseTo(1.1268);
-		expect(costs.outputCost).toBeCloseTo(3.9437);
-		expect(costs.cachedInputCost).toBeCloseTo(0.2817);
+		expect(costs.inputCost).toBeCloseTo(1.4);
+		expect(costs.outputCost).toBeCloseTo(4.4);
+		expect(costs.cachedInputCost).toBeCloseTo(0.26);
+	});
+
+	it("bills Baidu DeepSeek V4 Pro at peak rates", async () => {
+		setTime("2026-08-25T13:59:00Z");
+
+		const costs = await calculateCosts(
+			"deepseek-v4-pro",
+			"baidu",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		expect(costs.inputCost).toBeCloseTo(0.792);
+		expect(costs.outputCost).toBeCloseTo(2.376);
+		expect(costs.cachedInputCost).toBeCloseTo(0.0792);
+	});
+
+	it("bills Baidu DeepSeek V4 Pro at off-peak rates", async () => {
+		setTime("2026-08-25T14:00:00Z");
+
+		const costs = await calculateCosts(
+			"deepseek-v4-pro",
+			"baidu",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		expect(costs.inputCost).toBeCloseTo(0.396);
+		expect(costs.outputCost).toBeCloseTo(1.188);
+		expect(costs.cachedInputCost).toBeCloseTo(0.0396);
 	});
 
 	it("bills Baidu DeepSeek V4 Flash at peak rates", async () => {
@@ -2505,9 +2553,9 @@ describe("peak / off-peak time-of-day pricing", () => {
 			1_000_000,
 			1_000_000,
 		);
-		expect(costs.inputCost).toBeCloseTo(0.4225);
-		expect(costs.outputCost).toBeCloseTo(1.2676);
-		expect(costs.cachedInputCost).toBeCloseTo(0.0423);
+		expect(costs.inputCost).toBeCloseTo(0.264);
+		expect(costs.outputCost).toBeCloseTo(0.792);
+		expect(costs.cachedInputCost).toBeCloseTo(0.0264);
 	});
 
 	it("bills Baidu DeepSeek V4 Flash at off-peak rates", async () => {
@@ -2521,8 +2569,8 @@ describe("peak / off-peak time-of-day pricing", () => {
 			1_000_000,
 			1_000_000,
 		);
-		expect(costs.inputCost).toBeCloseTo(0.2113);
-		expect(costs.outputCost).toBeCloseTo(0.6338);
-		expect(costs.cachedInputCost).toBeCloseTo(0.0211);
+		expect(costs.inputCost).toBeCloseTo(0.132);
+		expect(costs.outputCost).toBeCloseTo(0.396);
+		expect(costs.cachedInputCost).toBeCloseTo(0.0132);
 	});
 });
