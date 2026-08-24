@@ -214,9 +214,9 @@ export function createGatewayApiTestHarness() {
 		) {
 			await ensureRoutingMetricMapping(modelId, providerId);
 
-			// Routing now reads metrics on-demand from
-			// model_provider_mapping_history (see packages/db/src/provider-metrics-history.ts).
-			// Seed a single recent history row whose unweighted aggregates
+			// Routing reads credit-funded metrics on-demand from
+			// model_provider_mapping_usage_history (see packages/db/src/provider-metrics-history.ts).
+			// Seed a single recent credits row whose unweighted aggregates
 			// produce the requested uptime/latency/throughput.
 			const totalRequests = metrics.totalRequests ?? 100;
 			const latency = metrics.latency ?? 100;
@@ -232,11 +232,12 @@ export function createGatewayApiTestHarness() {
 			const minuteTimestamp = new Date(Math.floor(Date.now() / 60000) * 60000);
 
 			await db
-				.insert(tables.modelProviderMappingHistory)
+				.insert(tables.modelProviderMappingUsageHistory)
 				.values({
 					modelId,
 					providerId,
 					modelProviderMappingId: `${modelId}::${providerId}`,
+					usedMode: "credits",
 					minuteTimestamp,
 					logsCount: totalRequests,
 					errorsCount,
@@ -253,8 +254,9 @@ export function createGatewayApiTestHarness() {
 				})
 				.onConflictDoUpdate({
 					target: [
-						tables.modelProviderMappingHistory.modelProviderMappingId,
-						tables.modelProviderMappingHistory.minuteTimestamp,
+						tables.modelProviderMappingUsageHistory.modelProviderMappingId,
+						tables.modelProviderMappingUsageHistory.minuteTimestamp,
+						tables.modelProviderMappingUsageHistory.usedMode,
 					],
 					set: {
 						logsCount: totalRequests,
