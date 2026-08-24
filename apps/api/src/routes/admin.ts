@@ -13505,6 +13505,10 @@ const devpassKpisSchema = z.object({
 		pro: z.number(),
 		max: z.number(),
 	}),
+	totalSubscribers: z.number(),
+	totalSubscribersExcludingRefunded: z.number(),
+	grossSubscriptionRevenue: z.number(),
+	subscriptionRevenueExcludingRefunds: z.number(),
 	totalActive: z.number(),
 	cancelledPending: z.number(),
 	churned: z.number(),
@@ -14612,11 +14616,97 @@ admin.openapi(getDevpassKpis, async (c) => {
 		tables.transaction,
 		"reset_pass_refund_original_tx",
 	);
+	const subscriberStartTx = aliasedTable(
+		tables.transaction,
+		"subscriber_start_tx",
+	);
+	const subscriberRefundTx = aliasedTable(
+		tables.transaction,
+		"subscriber_refund_tx",
+	);
+	const subscriberRefundOriginalTx = aliasedTable(
+		tables.transaction,
+		"subscriber_refund_original_tx",
+	);
+	const subscriberPaymentTypes = [
+		...DEV_PLAN_SUBSCRIPTION_TX_TYPES,
+		"subscription_start",
+	] as const;
+
+	const subscriberStartsSub = db
+		.select({ organizationId: subscriberStartTx.organizationId })
+		.from(subscriberStartTx)
+		.where(
+			and(
+				eq(subscriberStartTx.status, "completed"),
+				inArray(subscriberStartTx.type, [
+					"dev_plan_start",
+					"subscription_start",
+				]),
+			),
+		)
+		.groupBy(subscriberStartTx.organizationId)
+		.as("subscriber_starts");
+	const subscriberPaymentsSub = db
+		.select({
+			organizationId: tables.transaction.organizationId,
+			grossRevenue:
+				sql<string>`SUM(CAST(${tables.transaction.amount} AS NUMERIC))`.as(
+					"gross_subscription_revenue",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				inArray(tables.transaction.type, subscriberPaymentTypes),
+				isNotNull(tables.transaction.amount),
+				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+				firstRowPerInvoiceFilter(subscriberPaymentTypes),
+			),
+		)
+		.groupBy(tables.transaction.organizationId)
+		.as("subscriber_payments");
+	const subscriberRefundsSub = db
+		.select({
+			organizationId: subscriberRefundTx.organizationId,
+			refundedAmount:
+				sql<string>`SUM(CAST(${subscriberRefundTx.amount} AS NUMERIC))`.as(
+					"subscriber_refunded_amount",
+				),
+		})
+		.from(subscriberRefundTx)
+		.innerJoin(
+			subscriberRefundOriginalTx,
+			eq(
+				subscriberRefundTx.relatedTransactionId,
+				subscriberRefundOriginalTx.id,
+			),
+		)
+		.where(
+			and(
+				eq(subscriberRefundTx.type, "credit_refund"),
+				eq(subscriberRefundTx.status, "completed"),
+				isNotNull(subscriberRefundTx.amount),
+				sql`CAST(${subscriberRefundTx.amount} AS NUMERIC) > 0`,
+				eq(
+					subscriberRefundOriginalTx.organizationId,
+					subscriberRefundTx.organizationId,
+				),
+				eq(subscriberRefundOriginalTx.status, "completed"),
+				inArray(subscriberRefundOriginalTx.type, subscriberPaymentTypes),
+				isNotNull(subscriberRefundOriginalTx.amount),
+				sql`CAST(${subscriberRefundOriginalTx.amount} AS NUMERIC) > 0`,
+			),
+		)
+		.groupBy(subscriberRefundTx.organizationId)
+		.as("subscriber_refunds");
 
 	// Every KPI is an independent aggregate over the same universe, so they run
 	// concurrently rather than serially.
 	const [
 		activeRows,
+		[subscriberCountsRow],
 		[churnedRow],
 		[startsRow],
 		[endsRow],
@@ -14644,6 +14734,34 @@ admin.openapi(getDevpassKpis, async (c) => {
 				tables.organization.devPlan,
 				tables.organization.devPlanCancelled,
 			),
+		// Historical subscribers must have both a completed plan start and a
+		// completed, positive plan payment. The secondary count drops anyone with
+		// a completed refund against one of those payments.
+		db
+			.select({
+				total: sql<number>`COUNT(*)`,
+				excludingRefunded: sql<number>`COUNT(*) FILTER (WHERE ${subscriberRefundsSub.organizationId} IS NULL)`,
+				grossRevenue: sql<string>`COALESCE(SUM(CAST(${subscriberPaymentsSub.grossRevenue} AS NUMERIC)), 0)`,
+				revenueExcludingRefunds: sql<string>`GREATEST(
+						COALESCE(SUM(CAST(${subscriberPaymentsSub.grossRevenue} AS NUMERIC)), 0)
+						- COALESCE(SUM(CAST(${subscriberRefundsSub.refundedAmount} AS NUMERIC)), 0),
+						0
+					)`,
+			})
+			.from(tables.organization)
+			.innerJoin(
+				subscriberStartsSub,
+				eq(tables.organization.id, subscriberStartsSub.organizationId),
+			)
+			.innerJoin(
+				subscriberPaymentsSub,
+				eq(tables.organization.id, subscriberPaymentsSub.organizationId),
+			)
+			.leftJoin(
+				subscriberRefundsSub,
+				eq(tables.organization.id, subscriberRefundsSub.organizationId),
+			)
+			.where(eq(tables.organization.kind, "devpass")),
 		db
 			.select({
 				count: sql<number>`COUNT(DISTINCT ${tables.transaction.organizationId})`,
@@ -14853,6 +14971,14 @@ admin.openapi(getDevpassKpis, async (c) => {
 
 	return c.json({
 		activeByTier,
+		totalSubscribers: Number(subscriberCountsRow?.total ?? 0),
+		totalSubscribersExcludingRefunded: Number(
+			subscriberCountsRow?.excludingRefunded ?? 0,
+		),
+		grossSubscriptionRevenue: Number(subscriberCountsRow?.grossRevenue ?? 0),
+		subscriptionRevenueExcludingRefunds: Number(
+			subscriberCountsRow?.revenueExcludingRefunds ?? 0,
+		),
 		totalActive,
 		cancelledPending,
 		churned: Number(churnedRow?.count ?? 0),
