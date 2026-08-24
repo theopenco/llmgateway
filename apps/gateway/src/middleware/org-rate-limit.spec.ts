@@ -47,6 +47,7 @@ function makeContext(
 	return {
 		req: { path, method, header: (name: string) => headers[name] },
 		json: vi.fn(),
+		header: vi.fn(),
 		env: {},
 	} as unknown as Context;
 }
@@ -129,6 +130,33 @@ describe("orgRateLimitMiddleware", () => {
 		expect(next).toHaveBeenCalledOnce();
 	});
 
+	it("surfaces the remaining budget on allowed responses", async () => {
+		vi.mocked(findOrganizationCachedById).mockResolvedValue(orgWith("pro"));
+		const c = makeContext();
+		const next = vi.fn(async () => undefined) as unknown as Next;
+
+		await orgRateLimitMiddleware(c, next);
+
+		expect(c.header).toHaveBeenCalledWith("RateLimit-Limit", "600");
+		expect(c.header).toHaveBeenCalledWith("RateLimit-Remaining", "5");
+	});
+
+	it("sets no budget headers when the limiter is bypassed (limit 0)", async () => {
+		vi.mocked(findOrganizationCachedById).mockResolvedValue(orgWith("pro"));
+		vi.mocked(lib.checkOrgRateLimit).mockResolvedValue({
+			allowed: true,
+			remaining: 0,
+			limit: 0,
+		});
+		const c = makeContext();
+		const next = vi.fn(async () => undefined) as unknown as Next;
+
+		await orgRateLimitMiddleware(c, next);
+
+		expect(c.header).not.toHaveBeenCalled();
+		expect(next).toHaveBeenCalledOnce();
+	});
+
 	it("blocks with 429 when a non-enterprise org is over the limit", async () => {
 		vi.mocked(findOrganizationCachedById).mockResolvedValue(orgWith("free"));
 		vi.mocked(lib.checkOrgRateLimit).mockResolvedValue({
@@ -152,6 +180,9 @@ describe("orgRateLimitMiddleware", () => {
 		expect(status).toBe(429);
 		expect(headers).toMatchObject({
 			"Retry-After": "12",
+			"RateLimit-Limit": "600",
+			"RateLimit-Remaining": "0",
+			"RateLimit-Reset": "12",
 			"X-RateLimit-Limit": "600",
 			"X-RateLimit-Remaining": "0",
 		});
@@ -214,7 +245,14 @@ describe("orgRateLimitMiddleware", () => {
 			Record<string, string>,
 		];
 		expect(status).toBe(429);
-		expect(headers).toMatchObject({ "Retry-After": "1" });
+		expect(headers).toMatchObject({
+			"Retry-After": "1",
+			"RateLimit-Limit": "500",
+			"RateLimit-Remaining": "0",
+			"RateLimit-Reset": "1",
+			"X-RateLimit-Limit": "500",
+			"X-RateLimit-Remaining": "0",
+		});
 	});
 
 	it("releases the held slot once the response settles", async () => {

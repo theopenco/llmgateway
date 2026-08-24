@@ -3,7 +3,6 @@ import { zstdDecompress } from "node:zlib";
 
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { streamSSE } from "hono/streaming";
 
 import { app } from "@/app.js";
 import {
@@ -18,6 +17,7 @@ import {
 } from "@/lib/cached-queries.js";
 import { logGatewayClientError } from "@/lib/client-error-log.js";
 import { getOrganizationBlockReason } from "@/lib/organization-access.js";
+import { streamSSE } from "@/lib/pending-work.js";
 import {
 	setResponsesContext,
 	deleteResponsesContext,

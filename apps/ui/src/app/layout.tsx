@@ -99,6 +99,7 @@ const organizationSchema = {
 	"@context": "https://schema.org",
 	"@type": "Organization",
 	name: "LLM Gateway",
+	alternateName: "LLMGateway",
 	url: "https://llmgateway.io",
 	logo: {
 		"@type": "ImageObject",
@@ -112,10 +113,20 @@ const organizationSchema = {
 		"https://x.com/llmgateway",
 		"https://github.com/theopenco/llmgateway",
 	],
+	legalName: "Polar Lights LLC",
+	address: {
+		"@type": "PostalAddress",
+		streetAddress: "16192 Coastal Highway",
+		addressLocality: "Lewes",
+		addressRegion: "DE",
+		postalCode: "19958",
+		addressCountry: "US",
+	},
 	contactPoint: {
 		"@type": "ContactPoint",
 		email: "contact@llmgateway.io",
 		contactType: "customer support",
+		url: "https://llmgateway.io/contact",
 	},
 };
 
@@ -123,6 +134,7 @@ const websiteSchema = {
 	"@context": "https://schema.org",
 	"@type": "WebSite",
 	name: "LLM Gateway",
+	alternateName: ["LLMGateway", "llmgateway.io"],
 	url: "https://llmgateway.io",
 	potentialAction: {
 		"@type": "SearchAction",

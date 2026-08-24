@@ -7,7 +7,8 @@
 	"exports": {
 		".": {
 			"types": "./dist/index.d.ts",
-			"import": "./dist/index.js"
+			"import": "./dist/index.js",
+			"default": "./dist/index.js"
 		}
 	},
 	"module": "./dist/index.js",
@@ -26,6 +27,6 @@
 		"ioredis": "5.7.0"
 	},
 	"devDependencies": {
-		"@types/node": "^26.1.2"
+		"@types/node": "^26.2.0"
 	}
 }
