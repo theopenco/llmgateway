@@ -1,3 +1,5 @@
+import { cookies } from "next/headers";
+
 import { DashboardLayoutClient } from "@/components/dashboard/dashboard-layout-client";
 import { UnauthorizedView } from "@/components/dashboard/unauthorized-view";
 import { UserProvider } from "@/components/providers/user-provider";
@@ -72,9 +74,13 @@ export default async function OrgLayout({ children, params }: OrgLayoutProps) {
 	// Recent changelog + blog entries for the notifications bell
 	const announcementEntries = await getAnnouncementEntries();
 
+	const cookieStore = await cookies();
+	const sidebarDefaultOpen =
+		cookieStore.get("sidebar_state")?.value !== "false";
+
 	return (
 		<UserProvider initialUserData={initialUserData}>
-			<SidebarProvider>
+			<SidebarProvider defaultOpen={sidebarDefaultOpen}>
 				<DashboardLayoutClient
 					initialOrganizationsData={initialOrganizationsData}
 					initialProjectsData={initialProjectsData}

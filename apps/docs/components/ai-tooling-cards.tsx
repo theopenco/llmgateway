@@ -1,5 +1,3 @@
-"use client";
-
 import {
 	ArrowRight,
 	Bot,
@@ -8,8 +6,8 @@ import {
 	ScrollText,
 	Sparkles,
 } from "lucide-react";
-import Link from "next/link";
-import { usePostHog } from "posthog-js/react";
+
+import { TrackedLink } from "@/components/tracked-link";
 
 import type { ReactNode } from "react";
 
@@ -59,20 +57,14 @@ const tools: Tool[] = [
 ];
 
 export function AIToolingCards() {
-	const posthog = usePostHog();
-
 	return (
 		<div className="not-prose grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
 			{tools.map((tool) => (
-				<Link
+				<TrackedLink
 					key={tool.href}
 					href={tool.href}
-					onClick={() => {
-						posthog.capture("docs_ai_tooling_card_click", {
-							tool: tool.title,
-							href: tool.href,
-						});
-					}}
+					event="docs_ai_tooling_card_click"
+					properties={{ tool: tool.title, href: tool.href }}
 					className="group relative flex flex-col gap-3 rounded-xl border border-fd-border bg-fd-card p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md hover:border-fd-primary/40"
 				>
 					<div className="flex items-center justify-between">
@@ -89,7 +81,7 @@ export function AIToolingCards() {
 					<p className="text-[13px] leading-relaxed text-fd-muted-foreground">
 						{tool.description}
 					</p>
-				</Link>
+				</TrackedLink>
 			))}
 		</div>
 	);

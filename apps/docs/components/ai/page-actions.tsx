@@ -15,7 +15,21 @@ import { cn } from "@/lib/cn";
 
 import { Logo } from "../logo";
 
+// Bounded: each entry holds a full page's markdown for the lifetime of the
+// tab, so evict the oldest entries instead of growing with every page copied.
+const CACHE_MAX_ENTRIES = 16;
 const cache = new Map<string, string>();
+
+function cachePage(url: string, content: string) {
+	cache.set(url, content);
+	while (cache.size > CACHE_MAX_ENTRIES) {
+		const oldest = cache.keys().next().value;
+		if (oldest === undefined) {
+			break;
+		}
+		cache.delete(oldest);
+	}
+}
 
 export function LLMCopyButton({
 	/**
@@ -40,7 +54,7 @@ export function LLMCopyButton({
 				new ClipboardItem({
 					"text/plain": fetch(markdownUrl).then(async (res) => {
 						const content = await res.text();
-						cache.set(markdownUrl, content);
+						cachePage(markdownUrl, content);
 
 						return content;
 					}),
