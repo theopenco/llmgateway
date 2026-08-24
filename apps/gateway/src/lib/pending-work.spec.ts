@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { describe, expect, test } from "vitest";
 
 import {
+	drainPendingWork,
 	pendingWorkCount,
 	streamSSE,
 	trackPendingWork,
@@ -45,6 +46,29 @@ describe("pending-work registry", () => {
 
 		work.resolve();
 		expect(await waitForPendingWork(1000)).toBe(0);
+	});
+
+	test("drainPendingWork keeps dependencies alive after the warning threshold", async () => {
+		const work = deferred();
+		const delayed = deferred();
+		void trackPendingWork(work.promise);
+
+		let reportedRemaining = 0;
+		let drained = false;
+		const drain = drainPendingWork(0, (remaining) => {
+			reportedRemaining = remaining;
+			delayed.resolve();
+		}).then(() => {
+			drained = true;
+		});
+
+		await delayed.promise;
+		expect(reportedRemaining).toBe(1);
+		expect(drained).toBe(false);
+
+		work.resolve();
+		await drain;
+		expect(drained).toBe(true);
 	});
 
 	test("streamSSE tail work stays tracked after the response is fully consumed", async () => {
