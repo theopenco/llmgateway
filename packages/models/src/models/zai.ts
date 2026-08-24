@@ -35,9 +35,6 @@ export const zaiModels = [
 			{
 				providerId: "baidu",
 				externalId: "glm-5.3",
-				// Authenticated inference works, but Qianfan still omits this
-				// deployment from its international /v1/models catalogue.
-				stability: "unstable",
 				inputPrice: "1.1268e-6",
 				cachedInputPrice: "0.2817e-6",
 				outputPrice: "3.9437e-6",
