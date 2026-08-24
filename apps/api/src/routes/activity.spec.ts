@@ -445,6 +445,28 @@ describe("activity endpoint", () => {
 			requestCount: 2,
 		});
 		expect(playgroundEntries[0].cost).toBeCloseTo(0.5, 5);
+
+		const filteredResponse = await app.request(
+			"/activity?days=7&projectId=test-project-id&groupBy=apiKey&apiKeyId=playground",
+			{ headers: { Cookie: token } },
+		);
+		expect(filteredResponse.status).toBe(200);
+		const filteredData = await filteredResponse.json();
+		const filteredEntries = filteredData.activity.flatMap(
+			(row: {
+				apiKeyBreakdown: Array<{
+					id: string;
+					requestCount: number;
+					cost: number;
+				}>;
+			}) => row.apiKeyBreakdown,
+		);
+		expect(filteredEntries).toHaveLength(1);
+		expect(filteredEntries[0]).toMatchObject({
+			id: "playground",
+			requestCount: 2,
+		});
+		expect(filteredEntries[0].cost).toBeCloseTo(0.5, 5);
 	});
 
 	test("GET /activity should require authentication", async () => {

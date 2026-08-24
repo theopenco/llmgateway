@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import {
+	apiKeyAnalyticsFilter,
 	apiKeyAnalyticsId,
 	apiKeyAnalyticsLabel,
 } from "@/lib/api-key-analytics.js";
@@ -474,9 +475,16 @@ activity.openapi(getActivity, async (c) => {
 					),
 			})
 			.from(apiKeyHourlyStats)
+			.leftJoin(apiKey, eq(apiKey.id, apiKeyHourlyStats.apiKeyId))
 			.where(
 				and(
-					apiKeyId ? eq(apiKeyHourlyStats.apiKeyId, apiKeyId) : undefined,
+					apiKeyId
+						? apiKeyAnalyticsFilter(
+								apiKeyId,
+								apiKeyHourlyStats.apiKeyId,
+								apiKey.kind,
+							)
+						: undefined,
 					scopeFilter(apiKeyHourlyStats.projectId, apiKeyHourlyStats.apiKeyId),
 					inArray(apiKeyHourlyStats.projectId, projectIds),
 					gte(apiKeyHourlyStats.hourTimestamp, startDate),
@@ -518,9 +526,16 @@ activity.openapi(getActivity, async (c) => {
 				...modeSplitFields(apiKeyHourlyModelStats),
 			})
 			.from(apiKeyHourlyModelStats)
+			.leftJoin(apiKey, eq(apiKey.id, apiKeyHourlyModelStats.apiKeyId))
 			.where(
 				and(
-					apiKeyId ? eq(apiKeyHourlyModelStats.apiKeyId, apiKeyId) : undefined,
+					apiKeyId
+						? apiKeyAnalyticsFilter(
+								apiKeyId,
+								apiKeyHourlyModelStats.apiKeyId,
+								apiKey.kind,
+							)
+						: undefined,
 					scopeFilter(
 						apiKeyHourlyModelStats.projectId,
 						apiKeyHourlyModelStats.apiKeyId,
@@ -601,7 +616,13 @@ activity.openapi(getActivity, async (c) => {
 				.leftJoin(apiKey, eq(apiKey.id, apiKeyHourlyStats.apiKeyId))
 				.where(
 					and(
-						apiKeyId ? eq(apiKeyHourlyStats.apiKeyId, apiKeyId) : undefined,
+						apiKeyId
+							? apiKeyAnalyticsFilter(
+									apiKeyId,
+									apiKeyHourlyStats.apiKeyId,
+									apiKey.kind,
+								)
+							: undefined,
 						scopeFilter(
 							apiKeyHourlyStats.projectId,
 							apiKeyHourlyStats.apiKeyId,

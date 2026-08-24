@@ -468,6 +468,17 @@ describe("GET /v1/master/usage", () => {
 			requestCount: 6,
 			cost: 8,
 		});
+
+		const filtered = await fetchJson(
+			"granularity=total&groupBy=apiKey&apiKeyId=playground",
+		);
+		expect(filtered.rows).toHaveLength(1);
+		expect(filtered.rows[0]).toMatchObject({
+			apiKeyId: "playground",
+			apiKeyName: "Playground",
+			requestCount: 6,
+			cost: 8,
+		});
 	});
 
 	test("labels projects when grouping by project", async () => {

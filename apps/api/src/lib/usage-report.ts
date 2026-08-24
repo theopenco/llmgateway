@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+	apiKeyAnalyticsFilter,
 	apiKeyAnalyticsId,
 	PLAYGROUND_ANALYTICS_KEY,
 	PLAYGROUND_ANALYTICS_LABEL,
@@ -212,7 +213,13 @@ export async function getUsageReport(
 		filters.push(eq(tables.apiKey.createdBy, userId));
 	}
 	if (apiKeyId) {
-		filters.push(eq(apiKeyHourlyModelStats.apiKeyId, apiKeyId));
+		filters.push(
+			apiKeyAnalyticsFilter(
+				apiKeyId,
+				apiKeyHourlyModelStats.apiKeyId,
+				tables.apiKey.kind,
+			),
+		);
 	}
 
 	let query = db

@@ -295,7 +295,7 @@ describe("resolvePlaygroundToken", () => {
 		).toBe(2);
 	});
 
-	test("renews the key expiry when refreshing its cookies", async () => {
+	test("keeps restored cookies within the key expiry", async () => {
 		const membership = await db.query.userOrganization.findFirst({
 			where: { userId: { eq: "test-user-id" } },
 		});
@@ -323,16 +323,17 @@ describe("resolvePlaygroundToken", () => {
 		});
 		const firstBody = await firstResponse.json();
 		const [tokenHash] = getApiKeyFingerprints(firstBody.token);
+		const expiresAt = new Date(Date.now() + ONE_HOUR_MS);
 		await db
 			.update(tables.apiKey)
-			.set({ expiresAt: new Date(Date.now() + ONE_HOUR_MS) })
+			.set({ expiresAt })
 			.where(eq(tables.apiKey.tokenHash, tokenHash));
 
 		const refreshedResponse = await app.request("/playground/ensure-key", {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
-				Cookie: `${authCookie}; ${getPlaygroundKeyCookieName(project.id)}=${firstBody.token}`,
+				Cookie: `${authCookie}; ${PLAYGROUND_KEY_COOKIE_NAME}=${firstBody.token}`,
 			},
 			body: JSON.stringify({ projectId: project.id }),
 		});
@@ -343,12 +344,12 @@ describe("resolvePlaygroundToken", () => {
 
 		expect(refreshedResponse.status).toBe(200);
 		expect(refreshedBody.token).toBe(firstBody.token);
+		expect(refreshedBody.expiresIn).toBeGreaterThan(3500);
+		expect(refreshedBody.expiresIn).toBeLessThanOrEqual(3600);
 		expect(refreshedResponse.headers.get("set-cookie")).toContain(
-			"Max-Age=7776000",
+			`Max-Age=${refreshedBody.expiresIn}`,
 		);
-		expect(refreshedKey?.expiresAt?.getTime()).toBeGreaterThan(
-			Date.now() + (NINETY_DAYS_MS - 60_000),
-		);
+		expect(refreshedKey?.expiresAt?.getTime()).toBe(expiresAt.getTime());
 	});
 
 	test("expires sessions without consuming developer-key quota", async () => {

@@ -1,14 +1,22 @@
-export const PLAYGROUND_KEY_COOKIE_NAME = "llmgateway_playground_key";
-export const PLAYGROUND_KEY_COOKIE_MAX_AGE = 60 * 60 * 24 * 90;
+import {
+	getPlaygroundKeyCookieName,
+	getPlaygroundKeyCookieNamesToRemove,
+	PLAYGROUND_KEY_COOKIE_MAX_AGE,
+	PLAYGROUND_KEY_COOKIE_NAME,
+} from "@llmgateway/shared";
+
+export {
+	getPlaygroundKeyCookieName,
+	getPlaygroundKeyCookieNamesToRemove,
+	PLAYGROUND_KEY_COOKIE_MAX_AGE,
+	PLAYGROUND_KEY_COOKIE_NAME,
+};
+
 export const PLAYGROUND_PROJECT_HEADER = "x-llmgateway-project-id";
 export const PLAYGROUND_KEY_COOKIE_NAMES = [
 	PLAYGROUND_KEY_COOKIE_NAME,
 	`__Host-${PLAYGROUND_KEY_COOKIE_NAME}`,
 ] as const;
-
-export function getPlaygroundKeyCookieName(projectId: string): string {
-	return `${PLAYGROUND_KEY_COOKIE_NAME}_${projectId}`;
-}
 
 interface PlaygroundCookieStore {
 	get: (name: string) => { value: string } | undefined;

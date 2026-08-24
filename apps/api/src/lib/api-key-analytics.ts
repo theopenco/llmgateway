@@ -19,6 +19,16 @@ export function apiKeyAnalyticsLabel(
 	return sql<string>`CASE WHEN ${apiKeyKind} = 'playground' THEN 'Playground' ELSE ${description} END`;
 }
 
+export function apiKeyAnalyticsFilter(
+	requestedId: string,
+	apiKeyId: SQLWrapper,
+	apiKeyKind: SQLWrapper,
+): SQL {
+	return requestedId === PLAYGROUND_ANALYTICS_KEY
+		? sql`${apiKeyKind} = 'playground'`
+		: sql`${apiKeyId} = ${requestedId}`;
+}
+
 export function countAnalyticsApiKeys(
 	keys: { id: string; kind: string }[],
 ): number {

@@ -36,7 +36,11 @@ const ensureKey = createRoute({
 		200: {
 			content: {
 				"application/json": {
-					schema: z.object({ ok: z.boolean(), token: z.string() }),
+					schema: z.object({
+						ok: z.boolean(),
+						token: z.string(),
+						expiresIn: z.number().int().positive(),
+					}),
 				},
 			},
 			description: "Ensured playground key and set cookie",
@@ -73,18 +77,17 @@ playground.openapi(ensureKey, async (c) => {
 		});
 	}
 
-	const { token } = await getOrCreatePlaygroundApiKey(
+	const { token, cookieMaxAge } = await getOrCreatePlaygroundApiKey(
 		projectId,
 		user.id,
 		getCookie(c, getPlaygroundKeyCookieName(projectId)) ??
 			getCookie(c, PLAYGROUND_KEY_COOKIE_NAME),
-		true,
 	);
 
 	// Set httpOnly cookie for playground API key (API domain)
-	setPlaygroundKeyCookie(c, projectId, token);
+	setPlaygroundKeyCookie(c, projectId, token, cookieMaxAge);
 
-	return c.json({ ok: true, token });
+	return c.json({ ok: true, token, expiresIn: cookieMaxAge });
 });
 
 const getChatOrg = createRoute({

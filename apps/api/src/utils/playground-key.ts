@@ -1,8 +1,14 @@
-import { getCookie, setCookie } from "hono/cookie";
+import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 
 import { getOrCreateChatOrg } from "@/utils/personal-org.js";
 
 import { cdb, db, eq, tables, shortid } from "@llmgateway/db";
+import {
+	getPlaygroundKeyCookieName,
+	getPlaygroundKeyCookieNamesToRemove,
+	PLAYGROUND_KEY_COOKIE_MAX_AGE,
+	PLAYGROUND_KEY_COOKIE_NAME,
+} from "@llmgateway/shared";
 import {
 	getApiKeyFingerprints,
 	hashApiKeyForStorage,
@@ -12,26 +18,26 @@ import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 import type { ServerTypes } from "@/vars.js";
 import type { Context } from "hono";
 
-export const PLAYGROUND_KEY_COOKIE_NAME = "llmgateway_playground_key";
+export {
+	getPlaygroundKeyCookieName,
+	PLAYGROUND_KEY_COOKIE_MAX_AGE,
+	PLAYGROUND_KEY_COOKIE_NAME,
+};
+
 export const PLAYGROUND_KEY_DESCRIPTION = "Auto-generated playground key";
-const PLAYGROUND_KEY_COOKIE_MAX_AGE = 60 * 60 * 24 * 90;
 const PLAYGROUND_KEY_TTL_MS = PLAYGROUND_KEY_COOKIE_MAX_AGE * 1000;
 
 interface PlaygroundApiKeyResult {
 	token: string;
 	issued: boolean;
 	cookieNeedsRefresh: boolean;
-}
-
-export function getPlaygroundKeyCookieName(projectId: string): string {
-	return `${PLAYGROUND_KEY_COOKIE_NAME}_${projectId}`;
+	cookieMaxAge: number;
 }
 
 export async function getOrCreatePlaygroundApiKey(
 	projectId: string,
 	userId: string,
 	existingToken?: string,
-	renewExpiration = false,
 ): Promise<PlaygroundApiKeyResult> {
 	if (existingToken) {
 		const matchingKey = await db.query.apiKey.findFirst({
@@ -53,15 +59,14 @@ export async function getOrCreatePlaygroundApiKey(
 			(!matchingKey.expiresAt || matchingKey.expiresAt.getTime() > Date.now())
 		) {
 			const isLegacyKey = matchingKey.token !== null;
-			if (isLegacyKey || renewExpiration) {
+			const expiresAt =
+				matchingKey.expiresAt ?? new Date(Date.now() + PLAYGROUND_KEY_TTL_MS);
+			if (isLegacyKey || !matchingKey.expiresAt) {
 				await cdb
 					.update(tables.apiKey)
 					.set({
 						...(isLegacyKey ? hashApiKeyForStorage(existingToken) : {}),
-						expiresAt:
-							renewExpiration || !matchingKey.expiresAt
-								? new Date(Date.now() + PLAYGROUND_KEY_TTL_MS)
-								: matchingKey.expiresAt,
+						expiresAt,
 					})
 					.where(eq(tables.apiKey.id, matchingKey.id));
 			}
@@ -69,7 +74,14 @@ export async function getOrCreatePlaygroundApiKey(
 			return {
 				token: existingToken,
 				issued: false,
-				cookieNeedsRefresh: isLegacyKey || renewExpiration,
+				cookieNeedsRefresh: isLegacyKey || !matchingKey.expiresAt,
+				cookieMaxAge: Math.max(
+					1,
+					Math.min(
+						PLAYGROUND_KEY_COOKIE_MAX_AGE,
+						Math.floor((expiresAt.getTime() - Date.now()) / 1000),
+					),
+				),
 			};
 		}
 	}
@@ -88,22 +100,34 @@ export async function getOrCreatePlaygroundApiKey(
 		createdBy: userId,
 	});
 
-	return { token, issued: true, cookieNeedsRefresh: true };
+	return {
+		token,
+		issued: true,
+		cookieNeedsRefresh: true,
+		cookieMaxAge: PLAYGROUND_KEY_COOKIE_MAX_AGE,
+	};
 }
 
 export function setPlaygroundKeyCookie(
 	c: Context<ServerTypes>,
 	projectId: string,
 	token: string,
+	maxAge: number,
 ): void {
 	const options = {
 		httpOnly: true,
 		secure: process.env.NODE_ENV === "production",
 		sameSite: "Lax",
 		path: "/",
-		maxAge: PLAYGROUND_KEY_COOKIE_MAX_AGE,
+		maxAge,
 	} as const;
 
+	for (const name of getPlaygroundKeyCookieNamesToRemove(
+		Object.keys(getCookie(c)),
+		projectId,
+	)) {
+		deleteCookie(c, name, { path: "/" });
+	}
 	setCookie(c, getPlaygroundKeyCookieName(projectId), token, options);
 	setCookie(c, PLAYGROUND_KEY_COOKIE_NAME, token, options);
 }
@@ -148,7 +172,7 @@ export async function resolvePlaygroundToken(
 		scopedToken ?? getCookie(c, PLAYGROUND_KEY_COOKIE_NAME),
 	);
 	if (result.cookieNeedsRefresh || !scopedToken) {
-		setPlaygroundKeyCookie(c, project.id, result.token);
+		setPlaygroundKeyCookie(c, project.id, result.token, result.cookieMaxAge);
 	}
 	return result.token;
 }

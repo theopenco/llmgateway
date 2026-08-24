@@ -17,7 +17,9 @@ import {
 	and,
 	closeDatabase,
 	db,
+	drizzleCache,
 	eq,
+	getTableName,
 	isNotNull,
 	isNull,
 	tables,
@@ -93,6 +95,11 @@ async function main(): Promise<void> {
 		console.log(`Migrated ${migrated}/${pendingCount} API keys`);
 	}
 
+	if (migrated > 0) {
+		await drizzleCache.onMutate({
+			tables: getTableName(tables.apiKey),
+		});
+	}
 	console.log(`Backfill complete. Migrated ${migrated} API keys.`);
 }
 

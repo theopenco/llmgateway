@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import {
 	getPlaygroundKeyForRequest,
+	getPlaygroundKeyCookieNamesToRemove,
 	PLAYGROUND_KEY_COOKIE_NAME,
 	PLAYGROUND_PROJECT_HEADER,
 } from "@/lib/constants";
@@ -55,5 +56,27 @@ describe("getPlaygroundKeyForRequest", () => {
 				request,
 			),
 		).toBe("global-token");
+	});
+});
+
+describe("getPlaygroundKeyCookieNamesToRemove", () => {
+	test("caps project-scoped cookies while retaining the current project", () => {
+		const names = Array.from(
+			{ length: 10 },
+			(_, index) => `${PLAYGROUND_KEY_COOKIE_NAME}_project-${index}`,
+		);
+
+		expect(
+			getPlaygroundKeyCookieNamesToRemove(names, "current-project"),
+		).toEqual([`${PLAYGROUND_KEY_COOKIE_NAME}_project-0`]);
+	});
+
+	test("does not evict cookies below the limit", () => {
+		expect(
+			getPlaygroundKeyCookieNamesToRemove(
+				[`${PLAYGROUND_KEY_COOKIE_NAME}_project-a`],
+				"project-b",
+			),
+		).toEqual([]);
 	});
 });

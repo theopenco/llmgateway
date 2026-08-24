@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { getConfig } from "@/lib/config-server";
 import {
 	getPlaygroundKeyCookieName,
+	getPlaygroundKeyCookieNamesToRemove,
 	PLAYGROUND_KEY_COOKIE_MAX_AGE,
 	PLAYGROUND_KEY_COOKIE_NAME,
 } from "@/lib/constants";
@@ -57,16 +58,27 @@ export async function POST(req: NextRequest) {
 	}
 
 	// Set httpOnly cookie on the playground domain so the chat route can read it via cookies()
-	const data = (await res.json()) as { ok: boolean; token?: string };
+	const data = (await res.json()) as {
+		ok: boolean;
+		token?: string;
+		expiresIn?: number;
+	};
 	const response = NextResponse.json({ ok: true });
 	if (data?.token) {
+		const maxAge = data.expiresIn ?? PLAYGROUND_KEY_COOKIE_MAX_AGE;
 		const options = {
 			httpOnly: true,
 			secure: process.env.NODE_ENV === "production",
 			sameSite: "lax",
 			path: "/",
-			maxAge: PLAYGROUND_KEY_COOKIE_MAX_AGE,
+			maxAge,
 		} as const;
+		for (const name of getPlaygroundKeyCookieNamesToRemove(
+			cookieStore.getAll().map((cookie) => cookie.name),
+			projectId,
+		)) {
+			response.cookies.set(name, "", { ...options, maxAge: 0 });
+		}
 		response.cookies.set(scopedCookieName, data.token, options);
 		response.cookies.set(PLAYGROUND_KEY_COOKIE_NAME, data.token, options);
 	}
