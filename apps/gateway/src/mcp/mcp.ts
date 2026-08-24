@@ -1066,6 +1066,23 @@ async function processMcpRequest(
 					},
 				};
 		}
+	} catch (error) {
+		if (error instanceof McpError && error.code === -32001) {
+			logger.warn("MCP request timeout", {
+				message: error.message,
+				data: error.data,
+			});
+			return {
+				jsonrpc: "2.0",
+				id: request.id ?? null,
+				error: {
+					code: error.code,
+					message: "Request timed out",
+					data: error.data,
+				},
+			};
+		}
+		throw error;
 	} finally {
 		await client.close();
 	}
@@ -1325,25 +1342,6 @@ export async function mcpHandler(c: Context): Promise<Response> {
 				"mcp-session-id": sessionId,
 			});
 		} catch (error) {
-			if (error instanceof McpError && error.code === -32001) {
-				logger.warn("MCP request timeout", {
-					message: error.message,
-					data: error.data,
-				});
-				return c.json(
-					{
-						jsonrpc: "2.0",
-						error: {
-							code: error.code,
-							message: "Request timed out",
-							data: error.data,
-						},
-						id: null,
-					},
-					504,
-				);
-			}
-
 			// Check if this is a JSON parse error (-32700 Parse error)
 			const isParseError =
 				error instanceof SyntaxError ||

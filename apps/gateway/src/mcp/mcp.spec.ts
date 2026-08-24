@@ -140,7 +140,7 @@ describe("MCP endpoint", () => {
 		expect(json.error.code).toBe(-32001);
 	});
 
-	test("returns a gateway timeout without logging a server error", async () => {
+	test("returns correlated timeouts without logging a server error", async () => {
 		await seedActiveKey();
 
 		const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
@@ -154,35 +154,65 @@ describe("MCP endpoint", () => {
 			);
 
 		try {
-			const responsePromise = app.request("/mcp", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
-				},
-				body: JSON.stringify({
-					jsonrpc: "2.0",
-					id: 1,
-					method: "tools/call",
-					params: {
-						name: "chat",
-						arguments: {
-							model: "gpt-4o-mini",
-							messages: [{ role: "user", content: "hello" }],
-						},
+			const makeRequest = (id: string | number) => ({
+				jsonrpc: "2.0",
+				id,
+				method: "tools/call",
+				params: {
+					name: "chat",
+					arguments: {
+						model: "gpt-4o-mini",
+						messages: [{ role: "user", content: "hello" }],
 					},
-				}),
+				},
 			});
+			const request = (body: unknown) =>
+				app.request("/mcp", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify(body),
+				});
 
-			const response = await responsePromise;
+			const response = await request(makeRequest(1));
 			const json = await response.json();
 
-			expect(response.status).toBe(504);
-			expect(json.error).toMatchObject({
-				code: -32001,
-				message: "Request timed out",
-				data: { timeout: 60_000 },
+			expect(response.status).toBe(200);
+			expect(json).toMatchObject({
+				id: 1,
+				error: {
+					code: -32001,
+					message: "Request timed out",
+					data: { timeout: 60_000 },
+				},
 			});
+
+			const batchResponse = await request([
+				makeRequest(2),
+				makeRequest("three"),
+			]);
+			const batchJson = await batchResponse.json();
+
+			expect(batchResponse.status).toBe(200);
+			expect(batchJson).toMatchObject([
+				{
+					id: 2,
+					error: {
+						code: -32001,
+						message: "Request timed out",
+					},
+				},
+				{
+					id: "three",
+					error: {
+						code: -32001,
+						message: "Request timed out",
+					},
+				},
+			]);
+			expect(warnSpy).toHaveBeenCalledTimes(3);
 			expect(warnSpy).toHaveBeenCalledWith("MCP request timeout", {
 				message: "MCP error -32001: Request timed out",
 				data: { timeout: 60_000 },
