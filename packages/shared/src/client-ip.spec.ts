@@ -16,14 +16,23 @@ function context(headers: Record<string, string>) {
 	};
 }
 
-const originalClientIpHeader = process.env.CLIENT_IP_HEADER;
+const originalEnv = {
+	CLIENT_IP_HEADER: process.env.CLIENT_IP_HEADER,
+	HOSTED: process.env.HOSTED,
+};
 
-// These tests rename the trusted header, which is read at call time.
+// These tests rename the trusted header and toggle HOSTED, both read at call
+// time.
 afterEach(() => {
-	if (originalClientIpHeader === undefined) {
+	if (originalEnv.CLIENT_IP_HEADER === undefined) {
 		delete process.env.CLIENT_IP_HEADER;
 	} else {
-		process.env.CLIENT_IP_HEADER = originalClientIpHeader;
+		process.env.CLIENT_IP_HEADER = originalEnv.CLIENT_IP_HEADER;
+	}
+	if (originalEnv.HOSTED === undefined) {
+		delete process.env.HOSTED;
+	} else {
+		process.env.HOSTED = originalEnv.HOSTED;
 	}
 });
 
@@ -53,11 +62,11 @@ describe("the configured client IP header", () => {
 		expect(getClientIpFromHeaders(headers)).toBe(null);
 	});
 
-	test("throws rather than guessing when unconfigured", () => {
+	test("falls back to X-Forwarded-For when unconfigured", () => {
 		delete process.env.CLIENT_IP_HEADER;
-		expect(() =>
+		expect(
 			getClientIpFromHeaders(new Headers({ "X-Forwarded-For": "5.6.7.8" })),
-		).toThrow("CLIENT_IP_HEADER");
+		).toBe("5.6.7.8");
 	});
 
 	test("takes the first hop of a forwarding chain", () => {
@@ -89,20 +98,29 @@ describe("the configured client IP header", () => {
 });
 
 describe("assertClientIpHeaderConfigured", () => {
-	// Startup calls this so a deployment that forgot the variable dies here
-	// instead of silently bucketing every visitor together.
-	test("throws when the header is not named", () => {
+	// Only hosting requires it: there the default is forgeable and the failure
+	// is invisible. Self-hosting and local runs must not need the variable.
+	test("throws on a hosted deployment that has not named the header", () => {
+		process.env.HOSTED = "true";
 		delete process.env.CLIENT_IP_HEADER;
 		expect(() => assertClientIpHeaderConfigured()).toThrow("CLIENT_IP_HEADER");
 	});
 
-	test("throws when the value is blank", () => {
+	test("throws on a hosted deployment with a blank value", () => {
+		process.env.HOSTED = "true";
 		process.env.CLIENT_IP_HEADER = "   ";
 		expect(() => assertClientIpHeaderConfigured()).toThrow("CLIENT_IP_HEADER");
 	});
 
-	test("passes once configured", () => {
+	test("passes when hosted and configured", () => {
+		process.env.HOSTED = "true";
 		process.env.CLIENT_IP_HEADER = "X-Client-Ip";
+		expect(() => assertClientIpHeaderConfigured()).not.toThrow();
+	});
+
+	test("does not require the variable when not hosted", () => {
+		delete process.env.HOSTED;
+		delete process.env.CLIENT_IP_HEADER;
 		expect(() => assertClientIpHeaderConfigured()).not.toThrow();
 	});
 });

@@ -6,38 +6,57 @@ interface HeaderContext {
 	req: { header: (name: string) => string | undefined };
 }
 
-const MISSING_CLIENT_IP_HEADER =
-	"CLIENT_IP_HEADER is not set. It must name the header the edge overwrites with the client address — X-Client-Ip on the hosted deployment, or whatever your reverse proxy sets. There is no default: guessing would silently key rate limits and IP allow-lists on a header a caller can forge.";
+/**
+ * Header the client IP is read from when nothing is configured. Correct behind
+ * a reverse proxy that overwrites it, which is the usual self-hosted shape —
+ * and why a plain build or local run needs no configuration at all.
+ *
+ * Not correct on the hosted deployment: the load balancer there *appends* to
+ * the chain rather than replacing it, so the first hop is caller-supplied and
+ * forgeable. That is why hosting requires the variable instead of falling back
+ * to this.
+ */
+const DEFAULT_CLIENT_IP_HEADER = "x-forwarded-for";
 
 /**
- * The one header carrying the client IP, named once per deployment by
- * `CLIENT_IP_HEADER`.
+ * The one header carrying the client IP, named by `CLIENT_IP_HEADER`.
  *
- * There is deliberately no list of candidates and no default. Trying several
- * headers in turn means trusting whichever one a caller happened to send, so a
- * single forged header picks the identity — useless for rate limiting and
- * actively wrong for IP allow-lists. Naming the header makes the trust
- * boundary explicit: it is whatever the edge overwrites, and nothing else.
+ * There is deliberately no list of candidates. Trying several headers in turn
+ * means trusting whichever one a caller happened to send, so a single forged
+ * header picks the identity — useless for rate limiting and actively wrong for
+ * IP allow-lists. Naming the header makes the trust boundary explicit: it is
+ * whatever the edge overwrites, and nothing else.
  *
- * Throws when unset. A deployment that has not named the header is
- * misconfigured, and failing at startup is far better than serving traffic
- * that silently buckets every visitor together.
+ * The hosted deployment sets it to `X-Client-Ip`, which the load balancer
+ * writes from `{client_ip_address}` with `set` (not `add`), so a caller cannot
+ * forge it.
  */
 export function getClientIpHeaderName(): string {
-	const configured = process.env.CLIENT_IP_HEADER?.trim();
-	if (!configured) {
-		throw new Error(MISSING_CLIENT_IP_HEADER);
-	}
-	return configured.toLowerCase();
+	return (
+		process.env.CLIENT_IP_HEADER?.trim().toLowerCase() ||
+		DEFAULT_CLIENT_IP_HEADER
+	);
 }
 
 /**
- * Fails startup when the deployment has not named the header. Call this before
- * a service begins serving, so the mistake surfaces at deploy time rather than
- * as wrong rate-limit buckets and denied IP allow-lists under real traffic.
+ * Refuses to start a hosted deployment that has not named the header. Call
+ * this before a service begins serving: on the hosted setup the default is
+ * forgeable, and the failure is invisible — every visitor silently shares one
+ * rate-limit bucket and the gateway denies keys carrying an IP allow-list —
+ * so it has to surface at deploy time instead.
+ *
+ * Self-hosted and local runs fall back to the default and are left alone;
+ * building or running the stack should not require this variable.
  */
 export function assertClientIpHeaderConfigured(): void {
-	getClientIpHeaderName();
+	if (process.env.HOSTED !== "true") {
+		return;
+	}
+	if (!process.env.CLIENT_IP_HEADER?.trim()) {
+		throw new Error(
+			"CLIENT_IP_HEADER is not set. A hosted deployment must name the header the load balancer overwrites with the client address (X-Client-Ip). Without it the client IP would be read from a header a caller can forge, silently keying every rate limit and IP allow-list on it.",
+		);
+	}
 }
 
 /** First hop of a comma-separated forwarding chain, which is the client. */
