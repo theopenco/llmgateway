@@ -5,6 +5,14 @@ import { parseDataUrl } from "./parse-data-url.js";
 import { RequestError } from "./request-error.js";
 
 /**
+ * Deadline for fetching a remote image. Any API-key holder controls the URL
+ * behind `image_url.url`, and this fetch happens before the provider call, so
+ * it is not covered by the provider request timeout.
+ */
+const IMAGE_FETCH_TIMEOUT_MS =
+	Number(process.env.IMAGE_FETCH_TIMEOUT_MS) || 15_000;
+
+/**
  * Thrown when an image exceeds the caller's size limit. A `RequestError` so the
  * gateway maps it to a 400 and writes a client_error log row: the chat path
  * only preserves `RequestError`, so a plain `Error` here would still reach the
@@ -190,7 +198,12 @@ export async function processImageUrl(
 	await assertSafeUserContentUrl(url);
 
 	try {
-		const response = await fetch(url, { redirect: "error" });
+		const response = await fetch(url, {
+			redirect: "error",
+			// Bounds the whole download, headers and body. undici's bodyTimeout is
+			// refreshed on every chunk, so a host that trickles bytes never trips it.
+			signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS),
+		});
 
 		if (!response.ok) {
 			logger.warn(`Failed to fetch image from URL (${response.status})`, {
