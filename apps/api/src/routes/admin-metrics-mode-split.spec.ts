@@ -283,6 +283,52 @@ describe("admin — credits vs BYOK mode split", () => {
 		expect(gpt4!.apiKeysRequestCount).toBe(1);
 	});
 
+	test.each([
+		["project", "Mode Split Project"],
+		["api-key", "Mode Split Key"],
+		["user", "admin@example.com"],
+	] as const)(
+		"GET organization cost breakdown groups by %s",
+		async (groupBy, expectedLabel) => {
+			const res = await app.request(
+				`/admin/organizations/${ORG_ID}/cost-by-model?window=1d&groupBy=${groupBy}`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(res.status).toBe(200);
+			const body = (await res.json()) as {
+				models: { model: string; cost: number }[];
+			};
+
+			expect(body.models).toHaveLength(1);
+			expect(body.models[0]?.model).toContain(expectedLabel);
+			expect(body.models[0]?.cost).toBeCloseTo(50, 3);
+		},
+	);
+
+	test.each(["project", "api-key", "user"] as const)(
+		"GET organization cost timeseries groups by %s",
+		async (groupBy) => {
+			const res = await app.request(
+				`/admin/organizations/${ORG_ID}/cost-by-model-timeseries?window=1d&groupBy=${groupBy}`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(res.status).toBe(200);
+			const body = (await res.json()) as {
+				groupBy: string;
+				models: string[];
+				data: { entries: { cost: number }[] }[];
+			};
+
+			expect(body.groupBy).toBe(groupBy);
+			expect(body.models).toHaveLength(1);
+			expect(
+				body.data
+					.flatMap((point) => point.entries)
+					.reduce((sum, entry) => sum + entry.cost, 0),
+			).toBeCloseTo(50, 3);
+		},
+	);
+
 	test("DevPass real provider cost excludes BYOK usage", async () => {
 		const res = await app.request(`/admin/devpass/${DEVPASS_ORG_ID}`, {
 			headers: { Cookie: cookie },
