@@ -96,6 +96,24 @@ describe("anthropic tool search", () => {
 		]);
 	});
 
+	// Microsoft Foundry fronts the Messages API directly and accepts
+	// defer_loading on a live deployment, so Claude on Azure gets the same
+	// treatment as the direct API.
+	test("forwards the same tools on azure-anthropic", async () => {
+		const body = (await prepare(
+			"azure-anthropic",
+			"claude-opus-4-8",
+			[{ role: "user", content: "What is the weather in Paris?" }],
+			[TOOL_SEARCH_TOOL, DEFERRED_TOOL],
+		)) as AnthropicRequestBody;
+
+		expect(body.tools?.[0]).toEqual({
+			type: "tool_search_tool_regex_20251119",
+			name: "tool_search_tool_regex",
+		});
+		expect(body.tools?.[1]).toMatchObject({ defer_loading: true });
+	});
+
 	// Anthropic lists tool search as available on Google Cloud, and the gateway
 	// posts a Messages body to :rawPredict there, so Vertex gets the same
 	// treatment as the direct API.

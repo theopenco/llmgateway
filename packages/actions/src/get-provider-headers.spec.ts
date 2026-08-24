@@ -180,6 +180,24 @@ describe("getProviderHeaders - Google Vertex service tiers", () => {
 		expect(headers["x-request-id"]).toBe("req-123");
 	});
 
+	describe("azure-anthropic", () => {
+		it("authenticates with Anthropic's x-api-key header, not Azure's api-key", () => {
+			const headers = getProviderHeaders("azure-anthropic", "azure-key");
+
+			expect(headers["x-api-key"]).toBe("azure-key");
+			expect(headers["anthropic-version"]).toBe("2023-06-01");
+			expect(headers["api-key"]).toBeUndefined();
+			expect(headers.Authorization).toBeUndefined();
+		});
+
+		it("keeps using Azure's api-key header for azure-ai-foundry", () => {
+			const headers = getProviderHeaders("azure-ai-foundry", "foundry-key");
+
+			expect(headers["api-key"]).toBe("foundry-key");
+			expect(headers["x-api-key"]).toBeUndefined();
+		});
+	});
+
 	it("does not set the Vertex tier header for other providers", () => {
 		const openai = getProviderHeaders("openai", "token", {
 			serviceTier: "priority",

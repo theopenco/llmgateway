@@ -9,7 +9,10 @@ import { Step, Steps } from "fumadocs-ui/components/steps";
 Azure provides access to OpenAI's powerful language models through Microsoft's enterprise cloud infrastructure. This guide shows how to create an Azure resource, deploy models, and integrate them with LLM Gateway.
 
 <Callout type="info">
-	Only OpenAI models are supported via Azure at this time. [Open an
+	Azure exposes three separate providers in LLM Gateway: `azure` for OpenAI
+	models, `azure-ai-foundry` for third-party models served through the Azure
+	Models inference endpoint, and `azure-anthropic` for Claude models on
+	Microsoft Foundry. [Open an
 	issue](https://github.com/theopenco/llmgateway/issues/new) to request support
 	for other model types.
 </Callout>
@@ -147,6 +150,31 @@ Once configured, you can access your Azure deployments through LLM Gateway:
 **Note**: Only models you have deployed in Azure Studio will be available. Ensure your deployment names match the expected model identifiers.
 
 Browse all available models at [llmgateway.io/models](https://llmgateway.io/models?provider=azure)
+
+## Claude models on Microsoft Foundry
+
+Claude models are served by Microsoft Foundry through Anthropic's Messages API rather than an OpenAI-compatible endpoint, so they use their own `azure-anthropic` provider in LLM Gateway.
+
+1. In the Foundry portal, deploy the Claude model you want. The deployment name is what you pass as the model at inference time, so keep the default (the model ID) unless you have a reason to rename it.
+2. Add an **Azure Anthropic** provider key in LLM Gateway with your Foundry API key and the resource name from `https://<resource-name>.services.ai.azure.com`.
+3. Call it with the `azure-anthropic/<model>` model string:
+
+```bash
+curl -X POST https://api.llmgateway.io/v1/chat/completions \
+  -H "Authorization: Bearer YOUR_LLMGATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "azure-anthropic/claude-opus-4-8",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hello from Microsoft Foundry!"
+      }
+    ]
+  }'
+```
+
+If a request returns `DeploymentNotFound`, the model has not been deployed in that Foundry resource, or the deployment name does not match the model string you sent. Browse the Claude models routed through this provider at [llmgateway.io/models](https://llmgateway.io/models?provider=azure-anthropic).
 
 ## Troubleshooting
 

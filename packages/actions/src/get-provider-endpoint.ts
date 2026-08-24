@@ -634,6 +634,34 @@ export function getProviderEndpoint(
 				url = `https://${resource}.services.ai.azure.com`;
 				break;
 			}
+			case "azure-anthropic": {
+				const resource =
+					providerKeyOptions?.azure_anthropic_resource ??
+					(skipEnvVars
+						? undefined
+						: getProviderEnvValue(
+								"azure-anthropic",
+								"resource",
+								configIndex,
+								undefined,
+								variant,
+							));
+
+				if (!resource) {
+					const azureAnthropicEnv = getProviderEnvConfig("azure-anthropic");
+					throw new Error(
+						`Azure Anthropic resource is required - set via provider options or ${azureAnthropicEnv?.required.resource ?? "LLM_AZURE_ANTHROPIC_RESOURCE"} env var`,
+					);
+				}
+				if (!/^[a-zA-Z0-9-]{1,64}$/.test(resource)) {
+					const azureAnthropicEnv = getProviderEnvConfig("azure-anthropic");
+					throw new Error(
+						`Azure Anthropic resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or ${azureAnthropicEnv?.required.resource ?? "LLM_AZURE_ANTHROPIC_RESOURCE"} env var)`,
+					);
+				}
+				url = `https://${resource}.services.ai.azure.com`;
+				break;
+			}
 			case "custom":
 				if (!baseUrl) {
 					throw new Error(`Custom provider requires a baseUrl`);
@@ -929,6 +957,10 @@ export function getProviderEndpoint(
 				"2024-05-01-preview";
 			return `${url}/models/chat/completions?api-version=${apiVersion}`;
 		}
+		case "azure-anthropic":
+			// Claude models on Microsoft Foundry are only served through the
+			// Anthropic Messages API; there is no OpenAI-compatible surface.
+			return `${url}/anthropic/v1/messages`;
 		case "openai": {
 			if (imageGenerations) {
 				return `${url}/v1/images/generations`;
