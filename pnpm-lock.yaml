@@ -17840,7 +17840,7 @@ snapshots:
 
   '@types/mssql@9.1.8':
     dependencies:
-      '@types/node': 26.1.2
+      '@types/node': 26.2.0
       tarn: 3.1.2
       tedious: 20.0.0
     transitivePeerDependencies:
@@ -17864,7 +17864,6 @@ snapshots:
   '@types/node@26.2.0':
     dependencies:
       undici-types: 8.3.0
-    optional: true
 
   '@types/normalize-package-data@2.4.4': {}
 
@@ -17913,7 +17912,7 @@ snapshots:
 
   '@types/readable-stream@4.0.24':
     dependencies:
-      '@types/node': 26.1.2
+      '@types/node': 26.2.0
 
   '@types/request@2.48.13':
     dependencies:
@@ -24776,7 +24775,7 @@ snapshots:
       '@azure/identity': 4.13.2
       '@azure/keyvault-keys': 4.10.2
       '@js-joda/core': 5.7.0
-      '@types/node': 26.1.2
+      '@types/node': 26.2.0
       bl: 6.1.6
       iconv-lite: 0.6.3
       js-md4: 0.3.2
@@ -24791,7 +24790,7 @@ snapshots:
       '@azure/identity': 4.13.2
       '@azure/keyvault-keys': 4.10.2
       '@js-joda/core': 6.1.0
-      '@types/node': 26.1.2
+      '@types/node': 26.2.0
       bl: 6.1.6
       iconv-lite: 0.7.3
       js-md4: 0.3.2

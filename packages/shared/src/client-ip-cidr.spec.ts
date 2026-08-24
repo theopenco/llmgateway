@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect } from "vitest";
 
 import {
 	anyCidrMatches,
@@ -14,25 +14,30 @@ function mockContext(headers: Record<string, string>) {
 	};
 }
 
+// The suite runs against X-Forwarded-For, as the test setup names it.
+const originalClientIpHeader = process.env.CLIENT_IP_HEADER;
+
+afterEach(() => {
+	if (originalClientIpHeader === undefined) {
+		delete process.env.CLIENT_IP_HEADER;
+	} else {
+		process.env.CLIENT_IP_HEADER = originalClientIpHeader;
+	}
+});
+
 describe("getClientIpFromRequest", () => {
 	// IAM CIDR rules key on this, so only the configured header counts — a
 	// caller cannot pick the identity by sending a different one.
 	it("reads only the configured header", () => {
 		process.env.CLIENT_IP_HEADER = "X-Client-Ip";
-		try {
-			const c = mockContext({
-				"x-client-ip": "198.51.100.9",
-				"x-forwarded-for": "203.0.113.7, 192.0.2.1",
-			});
-			expect(getClientIpFromRequest(c)).toBe("198.51.100.9");
-			expect(
-				getClientIpFromRequest(
-					mockContext({ "x-forwarded-for": "203.0.113.7" }),
-				),
-			).toBeUndefined();
-		} finally {
-			delete process.env.CLIENT_IP_HEADER;
-		}
+		const c = mockContext({
+			"x-client-ip": "198.51.100.9",
+			"x-forwarded-for": "203.0.113.7, 192.0.2.1",
+		});
+		expect(getClientIpFromRequest(c)).toBe("198.51.100.9");
+		expect(
+			getClientIpFromRequest(mockContext({ "x-forwarded-for": "203.0.113.7" })),
+		).toBeUndefined();
 	});
 
 	it("returns the first hop of X-Forwarded-For", () => {

@@ -6,47 +6,38 @@ interface HeaderContext {
 	req: { header: (name: string) => string | undefined };
 }
 
-/**
- * Header the edge writes the client IP into, when nothing is configured. Only
- * correct where a reverse proxy overwrites it; behind a load balancer that
- * *appends* to the chain the first hop is caller-supplied and forgeable, which
- * is why production must configure `CLIENT_IP_HEADER` instead.
- */
-const DEFAULT_CLIENT_IP_HEADER = "x-forwarded-for";
+const MISSING_CLIENT_IP_HEADER =
+	"CLIENT_IP_HEADER is not set. It must name the header the edge overwrites with the client address — X-Client-Ip on the hosted deployment, or whatever your reverse proxy sets. There is no default: guessing would silently key rate limits and IP allow-lists on a header a caller can forge.";
 
 /**
  * The one header carrying the client IP, named once per deployment by
  * `CLIENT_IP_HEADER`.
  *
- * There is deliberately no list of candidates. Trying several in turn means
- * trusting whichever a caller happened to send, so a single forged header
- * anywhere in the chain picks the identity — useless for rate limiting and
+ * There is deliberately no list of candidates and no default. Trying several
+ * headers in turn means trusting whichever one a caller happened to send, so a
+ * single forged header picks the identity — useless for rate limiting and
  * actively wrong for IP allow-lists. Naming the header makes the trust
  * boundary explicit: it is whatever the edge overwrites, and nothing else.
  *
- * Production sets it to `X-Client-Ip`, which the load balancer writes from
- * `{client_ip_address}` with `set` (not `add`), so a caller cannot forge it.
+ * Throws when unset. A deployment that has not named the header is
+ * misconfigured, and failing at startup is far better than serving traffic
+ * that silently buckets every visitor together.
  */
 export function getClientIpHeaderName(): string {
-	return (
-		process.env.CLIENT_IP_HEADER?.trim().toLowerCase() ||
-		DEFAULT_CLIENT_IP_HEADER
-	);
+	const configured = process.env.CLIENT_IP_HEADER?.trim();
+	if (!configured) {
+		throw new Error(MISSING_CLIENT_IP_HEADER);
+	}
+	return configured.toLowerCase();
 }
 
 /**
- * A message to log at startup when a hosted deployment has not named the
- * header, or null when it is configured. Hosted traffic arrives through a load
- * balancer that appends to X-Forwarded-For, so the default is forgeable there.
+ * Fails startup when the deployment has not named the header. Call this before
+ * a service begins serving, so the mistake surfaces at deploy time rather than
+ * as wrong rate-limit buckets and denied IP allow-lists under real traffic.
  */
-export function getClientIpHeaderMisconfiguration(): string | null {
-	if (process.env.CLIENT_IP_HEADER?.trim()) {
-		return null;
-	}
-	if (process.env.HOSTED !== "true") {
-		return null;
-	}
-	return `CLIENT_IP_HEADER is not set, so the client IP is read from ${DEFAULT_CLIENT_IP_HEADER}, which a caller can forge. Set it to the header the load balancer overwrites (X-Client-Ip).`;
+export function assertClientIpHeaderConfigured(): void {
+	getClientIpHeaderName();
 }
 
 /** First hop of a comma-separated forwarding chain, which is the client. */

@@ -6,7 +6,7 @@ import {
 	shutdownInstrumentation,
 } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
-import { getClientIpHeaderMisconfiguration } from "@llmgateway/shared/client-ip";
+import { assertClientIpHeaderConfigured } from "@llmgateway/shared/client-ip";
 import { getEnterpriseLicenseStatus } from "@llmgateway/shared/enterprise-license";
 
 import { redisClient } from "./auth/config.js";
@@ -32,10 +32,10 @@ async function startServer() {
 	// Deployments only ever set PORT, so they are unaffected.
 	const port = Number(process.env.API_PORT || process.env.PORT) || 4002;
 
-	const clientIpWarning = getClientIpHeaderMisconfiguration();
-	if (clientIpWarning) {
-		logger.error(clientIpWarning);
-	}
+	// Refuse to serve without a named client IP header: every rate limit and
+	// IP allow-list keys on it, and getting it wrong fails silently under real
+	// traffic rather than here.
+	assertClientIpHeaderConfigured();
 
 	// Tag every DB query with the originating service for Cloud SQL Query Insights
 	setQueryTags({ application: "api" });
