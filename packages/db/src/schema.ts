@@ -516,7 +516,7 @@ export const transaction = pgTable(
 				// Revenue from a negotiated enterprise contract. This is accounting
 				// only: `amount` records the payment while `creditAmount` stays null,
 				// so the deal never changes the organization's credit balance.
-				"enterprise_deal",
+				"enterprise_license_fee",
 				"dev_plan_start",
 				"dev_plan_upgrade",
 				"dev_plan_downgrade",
@@ -574,7 +574,7 @@ export const transaction = pgTable(
 		relatedTransactionId: text(),
 		refundReason: text(),
 		// Off-Stripe payment channel, set on `credit_manual_payment` and
-		// `enterprise_deal` rows so revenue can be reconciled per channel.
+		// `enterprise_license_fee` rows so revenue can be reconciled per channel.
 		// Stripe-settled rows leave this null — the payment method lives in Stripe.
 		paymentMethod: text({
 			enum: ["wire", "crypto", "paypal", "other"],
@@ -3720,9 +3720,9 @@ export const auditLogActions = [
 	// Credits
 	"credits.gift",
 	"credits.manual_payment",
-	// Enterprise deals
-	"enterprise_deal.create",
-	"enterprise_deal.update",
+	// Enterprise license fees
+	"enterprise_license_fee.create",
+	"enterprise_license_fee.update",
 	// Referral
 	"referral_bonus.update",
 	// Dev Plan

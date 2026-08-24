@@ -141,7 +141,7 @@ function getTransactionTypeBadgeVariant(type: string) {
 		type.includes("topup") ||
 		type.includes("gift") ||
 		type.includes("manual_payment") ||
-		type === "enterprise_deal"
+		type === "enterprise_license_fee"
 	) {
 		return "default";
 	}
@@ -682,7 +682,7 @@ export default async function OrganizationPage({
 														)}
 													</TableCell>
 													<TableCell className="text-right">
-														{transaction.type === "enterprise_deal" ? (
+														{transaction.type === "enterprise_license_fee" ? (
 															<EnterpriseDealDialog
 																orgName={org.name}
 																deal={transaction}

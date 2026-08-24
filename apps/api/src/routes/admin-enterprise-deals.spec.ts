@@ -64,7 +64,7 @@ describe("admin enterprise deals", () => {
 			where: { id: { eq: createBody.transactionId } },
 		});
 		expect(deal).toMatchObject({
-			type: "enterprise_deal",
+			type: "enterprise_license_fee",
 			creditAmount: null,
 			paymentMethod: "wire",
 			externalReference: "INVOICE-42",
@@ -123,7 +123,7 @@ describe("admin enterprise deals", () => {
 		const deal = await db.query.transaction.findFirst({
 			where: {
 				organizationId: { eq: ORG_ID },
-				type: { eq: "enterprise_deal" },
+				type: { eq: "enterprise_license_fee" },
 			},
 		});
 		expect(deal!.createdAt.getTime()).toBeGreaterThanOrEqual(beforeCreate);
@@ -133,7 +133,7 @@ describe("admin enterprise deals", () => {
 	test("reports enterprise revenue separately from credit flow", async () => {
 		await db.insert(tables.transaction).values({
 			organizationId: ORG_ID,
-			type: "enterprise_deal",
+			type: "enterprise_license_fee",
 			amount: "800",
 			creditAmount: null,
 			paymentMethod: "wire",
@@ -193,7 +193,7 @@ describe("admin enterprise deals", () => {
 		const deals = await db.query.transaction.findMany({
 			where: {
 				organizationId: { eq: ORG_ID },
-				type: { eq: "enterprise_deal" },
+				type: { eq: "enterprise_license_fee" },
 			},
 		});
 		expect(deals).toHaveLength(0);

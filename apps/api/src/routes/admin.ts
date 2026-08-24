@@ -1067,7 +1067,7 @@ admin.openapi(getMetrics, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
-				ne(tables.transaction.type, "enterprise_deal"),
+				ne(tables.transaction.type, "enterprise_license_fee"),
 				notPlanFilter,
 				notEndUserNonRevenueFilter,
 				transactionDateFilter,
@@ -1182,7 +1182,7 @@ admin.openapi(getMetrics, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
-				ne(tables.transaction.type, "enterprise_deal"),
+				ne(tables.transaction.type, "enterprise_license_fee"),
 				notPlanFilter,
 				notEndUserNonRevenueFilter,
 				transactionDateFilter,
@@ -1470,7 +1470,7 @@ admin.openapi(getMetrics, async (c) => {
 		.where(
 			and(
 				eq(tables.transaction.status, "completed"),
-				eq(tables.transaction.type, "enterprise_deal"),
+				eq(tables.transaction.type, "enterprise_license_fee"),
 				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
 				transactionDateFilter,
 			),
@@ -1612,7 +1612,7 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
-				ne(tables.transaction.type, "enterprise_deal"),
+				ne(tables.transaction.type, "enterprise_license_fee"),
 				notPlanFilter,
 				notEndUserNonRevenueFilter,
 				gte(tables.transaction.createdAt, startDate),
@@ -1634,7 +1634,7 @@ admin.openapi(getTimeseries, async (c) => {
 		.where(
 			and(
 				eq(tables.transaction.status, "completed"),
-				eq(tables.transaction.type, "enterprise_deal"),
+				eq(tables.transaction.type, "enterprise_license_fee"),
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
 			),
@@ -1656,7 +1656,7 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
-				ne(tables.transaction.type, "enterprise_deal"),
+				ne(tables.transaction.type, "enterprise_license_fee"),
 				notPlanFilter,
 				notEndUserNonRevenueFilter,
 				gte(tables.transaction.createdAt, startDate),
@@ -1774,7 +1774,7 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
-				ne(tables.transaction.type, "enterprise_deal"),
+				ne(tables.transaction.type, "enterprise_license_fee"),
 				notPlanFilter,
 				notEndUserNonRevenueFilter,
 				sql`${tables.transaction.createdAt} < ${startDate}`,
@@ -1793,7 +1793,7 @@ admin.openapi(getTimeseries, async (c) => {
 		.where(
 			and(
 				eq(tables.transaction.status, "completed"),
-				eq(tables.transaction.type, "enterprise_deal"),
+				eq(tables.transaction.type, "enterprise_license_fee"),
 				sql`${tables.transaction.createdAt} < ${startDate}`,
 			),
 		);
@@ -1813,7 +1813,7 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
-				ne(tables.transaction.type, "enterprise_deal"),
+				ne(tables.transaction.type, "enterprise_license_fee"),
 				notPlanFilter,
 				notEndUserNonRevenueFilter,
 				sql`${tables.transaction.createdAt} < ${startDate}`,
@@ -7497,7 +7497,7 @@ admin.openapi(createEnterpriseDealRoute, async (c) => {
 		.insert(tables.transaction)
 		.values({
 			organizationId: orgId,
-			type: "enterprise_deal",
+			type: "enterprise_license_fee",
 			createdAt: parseEnterpriseTransactionDate(transactionDate),
 			amount: amount.toString(),
 			creditAmount: null,
@@ -7512,7 +7512,7 @@ admin.openapi(createEnterpriseDealRoute, async (c) => {
 	await logAuditEvent({
 		organizationId: orgId,
 		userId: user!.id,
-		action: "enterprise_deal.create",
+		action: "enterprise_license_fee.create",
 		resourceType: "transaction",
 		resourceId: deal.id,
 		metadata: {
@@ -7582,7 +7582,7 @@ admin.openapi(updateEnterpriseDealRoute, async (c) => {
 			and(
 				eq(tables.transaction.id, transactionId),
 				eq(tables.transaction.organizationId, orgId),
-				eq(tables.transaction.type, "enterprise_deal"),
+				eq(tables.transaction.type, "enterprise_license_fee"),
 			),
 		)
 		.returning({ id: tables.transaction.id });
@@ -7596,7 +7596,7 @@ admin.openapi(updateEnterpriseDealRoute, async (c) => {
 	await logAuditEvent({
 		organizationId: orgId,
 		userId: user!.id,
-		action: "enterprise_deal.update",
+		action: "enterprise_license_fee.update",
 		resourceType: "transaction",
 		resourceId: updatedDeal.id,
 		metadata: {

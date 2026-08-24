@@ -303,7 +303,7 @@ const transactionSchema = z.object({
 		"credit_refund",
 		"credit_gift",
 		"credit_manual_payment",
-		"enterprise_deal",
+		"enterprise_license_fee",
 		"dev_plan_start",
 		"dev_plan_upgrade",
 		"dev_plan_downgrade",
