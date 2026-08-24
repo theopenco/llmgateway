@@ -191,6 +191,13 @@ Running the built `dist/serve.js` gives no watch (rebuild + restart after code c
   `TEST_MODELS` always overrides provider mappings marked with `test: "skip"`. For example, `TEST_MODELS="anthropic/claude-opus-4-6"` will include that Anthropic mapping even if it is skipped by default, so metadata-driven e2e assertions such as `reasoningOutput` still apply.
 - `FULL_MODE` - Include free models in tests (default: only paid models)
 - `LOG_MODE` - Enable detailed logging of responses
+- `TEST_WEB_SEARCH` - Run `chat-websearch.e2e.ts` (skipped by default). Every case forces a real search, which providers bill per call on top of tokens, so opt in deliberately and scope it with `TEST_MODELS`.
+
+#### Pointing e2e at a proxy or alternate upstream
+
+`beforeAllHook` stamps each provider's `baseUrl` env var (`LLM_OPENAI_BASE_URL`, `LLM_ANTHROPIC_BASE_URL`, …) onto the provider key it seeds, so exporting that var plus the matching `LLM_*_API_KEY` is enough to run the whole suite through a proxy — no test changes needed. An `http://` base URL additionally needs `ALLOW_INSECURE_PROVIDER_URLS=true`.
+
+`chat-service-tier.e2e.ts` cannot pass in that setup: `providerKeyBaseUrlSupportsServiceTier` makes a key with a non-upstream base URL ineligible for Flex/Priority, so every case 400s by design. Exclude that file rather than treating the failures as a regression.
 
 #### E2E Test Structure
 

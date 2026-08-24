@@ -21,6 +21,7 @@ import { ChevronDownIcon, ChevronLeftIcon } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 
+import { GENERATED_RANGE_PARAM } from "@/hooks/useZonedRangeDefaults";
 import { Input } from "@/lib/components/input";
 import {
 	Popover,
@@ -28,6 +29,12 @@ import {
 	PopoverTrigger,
 } from "@/lib/components/popover";
 import { cn } from "@/lib/utils";
+
+import {
+	formatDayKey,
+	shiftDayKey,
+	useDisplayTimeZone,
+} from "@llmgateway/shared";
 
 interface DatePreset {
 	label: string;
@@ -59,8 +66,13 @@ function getQuarterLabel(date: Date): string {
 	return `Q${getQuarter(date)} ${format(date, "yyyy")}`;
 }
 
-function buildPresets(): DatePreset[] {
-	const today = new Date();
+/** `timeZone` anchors every preset on that zone's calendar day. The calendar
+ *  arithmetic below then operates on the right date, and the day keys written
+ *  to the URL match what the analytics endpoints bucket by. */
+function buildPresets(timeZone: string): DatePreset[] {
+	// Local midnight of the display zone's today: a Date whose *calendar* fields
+	// are the ones the presets should reason about.
+	const today = new Date(`${formatDayKey(new Date(), timeZone)}T00:00:00`);
 	return [
 		{
 			label: "Custom",
@@ -189,7 +201,15 @@ function findMatchingPreset(
 	return "custom";
 }
 
-function getDateRangeFromParams(searchParams: URLSearchParams) {
+/** `timeZone` anchors the *default* window on that zone's calendar day. The
+ *  analytics endpoints bucket in the same zone, so a browser-local "today"
+ *  near a midnight boundary would ask for a day the API considers the future
+ *  and drop the oldest intended one. Explicit from/to params are already
+ *  calendar dates and need no zone. */
+function getDateRangeFromParams(
+	searchParams: URLSearchParams,
+	timeZone: string,
+) {
 	const fromParam = searchParams.get("from");
 	const toParam = searchParams.get("to");
 
@@ -200,10 +220,10 @@ function getDateRangeFromParams(searchParams: URLSearchParams) {
 		};
 	}
 
-	const today = new Date();
+	const todayKey = formatDayKey(new Date(), timeZone);
 	return {
-		from: subDays(today, 6),
-		to: today,
+		from: new Date(shiftDayKey(todayKey, -6) + "T00:00:00"),
+		to: new Date(todayKey + "T00:00:00"),
 	};
 }
 
@@ -222,7 +242,10 @@ interface MonthRangePickerProps {
 }
 
 function MonthRangePicker({ from, to, onSelect }: MonthRangePickerProps) {
-	const today = new Date();
+	const { timeZone } = useDisplayTimeZone();
+	// The display zone's calendar day, so "future month" is judged against the
+	// same clock the ranges are written in.
+	const today = new Date(`${formatDayKey(new Date(), timeZone)}T00:00:00`);
 	const [leftYear, setLeftYear] = useState(() => today.getFullYear() - 1);
 	const [pendingFrom, setPendingFrom] = useState<Date | null>(null);
 	const [hoverMonth, setHoverMonth] = useState<Date | null>(null);
@@ -341,8 +364,12 @@ export function DateRangePicker({ buildUrl, path }: DateRangePickerProps) {
 	const [search, setSearch] = useState("");
 	const [showCalendar, setShowCalendar] = useState(false);
 
-	const { from, to } = getDateRangeFromParams(searchParams);
-	const presets = useMemo(() => buildPresets(), []);
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
+	const { from, to } = getDateRangeFromParams(searchParams, displayTimeZone);
+	const presets = useMemo(
+		() => buildPresets(displayTimeZone),
+		[displayTimeZone],
+	);
 	const activePreset = useMemo(
 		() => findMatchingPreset(from, to, presets),
 		[from, to, presets],
@@ -361,6 +388,8 @@ export function DateRangePicker({ buildUrl, path }: DateRangePickerProps) {
 	const updateDateRange = (newFrom: Date, newTo: Date) => {
 		const params = new URLSearchParams(searchParams.toString());
 		params.delete("days");
+		// The user picked this range, so it must survive a timezone toggle.
+		params.delete(GENERATED_RANGE_PARAM);
 		params.set("from", format(newFrom, "yyyy-MM-dd"));
 		params.set("to", format(newTo, "yyyy-MM-dd"));
 		const url = `${path ? buildUrl(path) : buildUrl()}?${params.toString()}`;

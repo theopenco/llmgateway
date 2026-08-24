@@ -127,8 +127,38 @@ export {
 export {
 	ModelSelector,
 	ProviderIcons,
+	Time,
+	TimeZoneProvider,
+	TimeZoneSetting,
 	getProviderIcon,
+	useDisplayTimeZone,
 } from "./components/index.js";
+
+export {
+	type DateFormat,
+	dateFormats,
+	formatBucketLabel,
+	formatBucketLabelWithZone,
+	formatDateTime,
+	formatDayKey,
+	formatZoneName,
+	isDayString,
+	isNaiveDateTimeString,
+	shiftDayKey,
+} from "./lib/format-date.js";
+
+export {
+	DEFAULT_TIME_ZONE_PREFERENCE,
+	TIMEZONE_COOKIE_MAX_AGE_DAYS,
+	TIMEZONE_COOKIE_NAME,
+	type TimeZoneMode,
+	type TimeZonePreference,
+	UTC_TIME_ZONE,
+	getBrowserTimeZone,
+	isValidTimeZone,
+	parseTimeZoneCookie,
+	serializeTimeZonePreference,
+} from "./lib/timezone.js";
 
 export { useIsMobile } from "./hooks/use-mobile.js";
 

@@ -9,6 +9,7 @@ import {
 
 import { isInternalApiOrigin } from "./api-origin.js";
 import { renderGatewayError } from "./error-response.js";
+import { trackPendingWork } from "./pending-work.js";
 import { runWithResponseCleanup } from "./response-cleanup.js";
 
 import type { ServerTypes } from "@/vars.js";
@@ -65,8 +66,13 @@ export const backpressureMiddleware: MiddlewareHandler<ServerTypes> = async (
 	inFlight++;
 	gatewayInflightRequests.set(inFlight);
 
-	return await runWithResponseCleanup(c, next, () => {
-		inFlight--;
-		gatewayInflightRequests.set(inFlight);
-	});
+	// Tracked so graceful shutdown waits for the handler chain (billing,
+	// logging) even when the client disconnects mid-request — the HTTP server
+	// considers such a connection closed while the handler keeps running.
+	return await trackPendingWork(
+		runWithResponseCleanup(c, next, () => {
+			inFlight--;
+			gatewayInflightRequests.set(inFlight);
+		}),
+	);
 };

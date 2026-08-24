@@ -326,6 +326,17 @@ export const GitHubCopilotIcon = ({ size = 100 }: OgIconProps) => (
 );
 
 // Map slugs to their icons
+// Empryo Icon — raster mark, served from the marketing site's public dir.
+export const EmpryoIcon = ({ size = 100 }: OgIconProps) => (
+	<img
+		src="https://llmgateway.io/integrations/empryo.png"
+		alt="Empryo"
+		width={size}
+		height={size}
+		style={{ objectFit: "contain" }}
+	/>
+);
+
 export function getIconForGuide(slug: string) {
 	const iconMap: Record<string, (props: OgIconProps) => React.JSX.Element> = {
 		"claude-code": AnthropicIcon,
@@ -345,6 +356,7 @@ export function getIconForGuide(slug: string) {
 		mimocode: MimoCodeIcon,
 		"kilo-code": KiloCodeIcon,
 		"devpass-code": DevPassCodeIcon,
+		empryo: EmpryoIcon,
 		"github-copilot": GitHubCopilotIcon,
 		mcp: McpIcon,
 	};

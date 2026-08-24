@@ -78,10 +78,11 @@ export function useUser(options?: UseUserOptions) {
 export function useUpdateUser() {
 	const queryClient = useQueryClient();
 	const api = useApi();
+	const userQueryKey = api.queryOptions("get", "/user/me", {}).queryKey;
 
 	return api.useMutation("patch", "/user/me", {
 		onSuccess: () => {
-			void queryClient.invalidateQueries({ queryKey: ["user"] });
+			void queryClient.invalidateQueries({ queryKey: userQueryKey });
 			void queryClient.invalidateQueries({ queryKey: ["session"] });
 		},
 	});

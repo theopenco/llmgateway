@@ -375,6 +375,24 @@ describe("checkOrgRateLimit", () => {
 		expect(getMultiplier).not.toHaveBeenCalled();
 	});
 
+	it("fails open as unenforced (limit 0) on a Redis error", async () => {
+		process.env.GATEWAY_RATE_LIMIT_CHAT_COMPLETIONS_RPM = "10";
+		vi.mocked(redis.zremrangebyscore).mockRejectedValueOnce(
+			new Error("redis down"),
+		);
+
+		const result = await checkOrgRateLimit(
+			orgId,
+			chatConfig,
+			"regular",
+			multiplierOf(1),
+		);
+
+		// limit 0 marks the result as unenforced so the middleware emits no
+		// budget headers for a limit that was never actually checked.
+		expect(result).toEqual({ allowed: true, remaining: 0, limit: 0 });
+	});
+
 	it("blocks requests at the limit with a retryAfter", async () => {
 		process.env.GATEWAY_RATE_LIMIT_CHAT_COMPLETIONS_RPM = "5";
 		vi.mocked(redis.zcard).mockResolvedValue(5);

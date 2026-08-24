@@ -7,71 +7,88 @@
 	"exports": {
 		".": {
 			"types": "./dist/index.d.ts",
-			"import": "./dist/index.js"
+			"import": "./dist/index.js",
+			"default": "./dist/index.js"
 		},
 		"./gcs": {
 			"types": "./dist/gcs.d.ts",
-			"import": "./dist/gcs.js"
+			"import": "./dist/gcs.js",
+			"default": "./dist/gcs.js"
 		},
 		"./video-access": {
 			"types": "./dist/video-access.d.ts",
-			"import": "./dist/video-access.js"
+			"import": "./dist/video-access.js",
+			"default": "./dist/video-access.js"
 		},
 		"./enterprise-license": {
 			"types": "./dist/enterprise-license.d.ts",
-			"import": "./dist/enterprise-license.js"
+			"import": "./dist/enterprise-license.js",
+			"default": "./dist/enterprise-license.js"
 		},
 		"./deactivation": {
 			"types": "./dist/deactivation.d.ts",
-			"import": "./dist/deactivation.js"
+			"import": "./dist/deactivation.js",
+			"default": "./dist/deactivation.js"
 		},
 		"./components": {
 			"types": "./dist/components/index.d.ts",
-			"import": "./dist/components/index.js"
+			"import": "./dist/components/index.js",
+			"default": "./dist/components/index.js"
 		},
 		"./email": {
 			"types": "./dist/email.d.ts",
-			"import": "./dist/email.js"
+			"import": "./dist/email.js",
+			"default": "./dist/email.js"
 		},
 		"./api-key-hash": {
 			"types": "./dist/api-key-hash.d.ts",
-			"import": "./dist/api-key-hash.js"
+			"import": "./dist/api-key-hash.js",
+			"default": "./dist/api-key-hash.js"
 		},
 		"./mask-token": {
 			"types": "./dist/mask-token.d.ts",
-			"import": "./dist/mask-token.js"
+			"import": "./dist/mask-token.js",
+			"default": "./dist/mask-token.js"
 		},
 		"./random": {
 			"types": "./dist/random.d.ts",
-			"import": "./dist/random.js"
+			"import": "./dist/random.js",
+			"default": "./dist/random.js"
 		},
 		"./lounge-source": {
 			"types": "./dist/lounge-source.d.ts",
-			"import": "./dist/lounge-source.js"
+			"import": "./dist/lounge-source.js",
+			"default": "./dist/lounge-source.js"
 		},
 		"./sandbox-escape": {
 			"types": "./dist/sandbox-escape.d.ts",
-			"import": "./dist/sandbox-escape.js"
+			"import": "./dist/sandbox-escape.js",
+			"default": "./dist/sandbox-escape.js"
 		},
 		"./routing-config": {
 			"types": "./dist/routing-config.d.ts",
-			"import": "./dist/routing-config.js"
+			"import": "./dist/routing-config.js",
+			"default": "./dist/routing-config.js"
 		},
 		"./dynamic-route": {
 			"types": "./dist/dynamic-route.d.ts",
-			"import": "./dist/dynamic-route.js"
+			"import": "./dist/dynamic-route.js",
+			"default": "./dist/dynamic-route.js"
 		},
 		"./routing-telemetry": {
 			"types": "./dist/routing-telemetry.d.ts",
-			"import": "./dist/routing-telemetry.js"
+			"import": "./dist/routing-telemetry.js",
+			"default": "./dist/routing-telemetry.js"
 		},
 		"./url-safety-node": {
 			"types": "./dist/url-safety-node.d.ts",
-			"import": "./dist/url-safety-node.js"
+			"import": "./dist/url-safety-node.js",
+			"default": "./dist/url-safety-node.js"
 		},
 		"./client-ip": {
 			"types": "./dist/client-ip.d.ts",
-			"import": "./dist/client-ip.js"
+			"import": "./dist/client-ip.js",
+			"default": "./dist/client-ip.js"
 		}
 	},
 	"module": "./dist/index.js",

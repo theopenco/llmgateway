@@ -1,7 +1,6 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { format } from "date-fns";
 import {
 	ChevronLeft,
 	ChevronRight,
@@ -27,10 +26,11 @@ import { Button } from "@/components/ui/button";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
 
 import {
-	isRefundFeedbackComplete,
 	RESET_PASS_SELF_REFUND_WINDOW_DAYS,
 	SELF_REFUND_USAGE_PERCENT,
 	SELF_REFUND_WINDOW_DAYS,
+	Time,
+	isRefundFeedbackComplete,
 	type RefundReason,
 } from "@llmgateway/shared";
 import { RefundReasonFieldset } from "@llmgateway/shared/components";
@@ -389,7 +389,7 @@ export default function DevPassInvoices() {
 						className="grid grid-cols-2 gap-x-4 gap-y-1 border-b px-5 py-4 last:border-b-0 sm:col-span-5 sm:grid-cols-subgrid sm:items-center"
 					>
 						<div className="text-sm tabular-nums">
-							{format(new Date(invoice.date), "MMM d, yyyy")}
+							<Time date={invoice.date} format="monthDayYear" />
 						</div>
 						<div className="text-sm">
 							<span>{TYPE_LABELS[invoice.type]}</span>

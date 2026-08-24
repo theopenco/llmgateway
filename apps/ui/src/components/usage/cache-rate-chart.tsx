@@ -1,5 +1,5 @@
 "use client";
-import { addDays, differenceInCalendarDays, format, parseISO } from "date-fns";
+import { addDays, differenceInCalendarDays, format } from "date-fns";
 import { useSearchParams } from "next/navigation";
 import {
 	Line,
@@ -14,7 +14,12 @@ import {
 import { getDateRangeFromParams } from "@/components/date-range-picker";
 import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
-import { getBrowserTimeZone } from "@/lib/timezone";
+
+import {
+	formatBucketLabel,
+	formatBucketLabelWithZone,
+	useDisplayTimeZone,
+} from "@llmgateway/shared";
 
 import type { ActivitT } from "@/types/activity";
 import type { TooltipProps } from "recharts";
@@ -33,11 +38,14 @@ const CustomTooltip = ({
 	payload: { value: number }[];
 	label: string;
 }) => {
+	// Reads the zone from context rather than a prop: recharts owns this
+	// element, so the parent can't thread anything into it.
+	const { timeZone } = useDisplayTimeZone();
 	if (active && payload && payload.length) {
 		return (
 			<div className="rounded-lg border bg-popover text-popover-foreground p-2 shadow-sm">
 				<p className="font-medium">
-					{label && format(parseISO(label), "MMM d, yyyy")}
+					{label && formatBucketLabelWithZone(label, "monthDayYear", timeZone)}
 				</p>
 				<p className="text-sm">
 					<span className="font-medium">
@@ -59,7 +67,8 @@ export function CacheRateChart({
 	const searchParams = useSearchParams();
 	const { selectedProject } = useDashboardState();
 
-	const { from, to } = getDateRangeFromParams(searchParams);
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
+	const { from, to } = getDateRangeFromParams(searchParams, displayTimeZone);
 	const fromStr = format(from, "yyyy-MM-dd");
 	const toStr = format(to, "yyyy-MM-dd");
 
@@ -72,7 +81,7 @@ export function CacheRateChart({
 				query: {
 					from: fromStr,
 					to: toStr,
-					timezone: getBrowserTimeZone(),
+					timezone: displayTimeZone,
 					...(projectId ? { projectId: projectId } : {}),
 					...(apiKeyId ? { apiKeyId } : {}),
 				},
@@ -140,13 +149,13 @@ export function CacheRateChart({
 			const dayData = dataByDate.get(date)!;
 			return {
 				date,
-				formattedDate: format(parseISO(date), "MMM d"),
+				formattedDate: formatBucketLabel(date, "monthDay"),
 				cacheRate: dayData.cacheRate,
 			};
 		}
 		return {
 			date,
-			formattedDate: format(parseISO(date), "MMM d"),
+			formattedDate: formatBucketLabel(date, "monthDay"),
 			cacheRate: 0,
 		};
 	});
@@ -166,7 +175,9 @@ export function CacheRateChart({
 					<CartesianGrid strokeDasharray="3 3" vertical={false} />
 					<XAxis
 						dataKey="date"
-						tickFormatter={(value: string) => format(parseISO(value), "MMM d")}
+						tickFormatter={(value: string) =>
+							formatBucketLabel(value, "monthDay")
+						}
 						stroke="#888888"
 						fontSize={12}
 						tickLine={false}

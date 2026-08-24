@@ -1,9 +1,9 @@
 import { Hono } from "hono";
-import { streamSSE } from "hono/streaming";
 
 import { app } from "@/app.js";
 import { internalApiOriginHeaders } from "@/lib/api-origin.js";
 import { findApiKeyByToken } from "@/lib/cached-queries.js";
+import { streamSSE } from "@/lib/pending-work.js";
 
 import { logger } from "@llmgateway/logger";
 
