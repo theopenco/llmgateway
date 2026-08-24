@@ -887,7 +887,11 @@ export async function resolveProviderContext(
 	}
 
 	// Anthropic does not allow temperature and top_p simultaneously
-	if (usedProvider === "anthropic" || usedProvider === "vertex-anthropic") {
+	if (
+		usedProvider === "anthropic" ||
+		usedProvider === "vertex-anthropic" ||
+		usedProvider === "azure-anthropic"
+	) {
 		if (temperature !== undefined && top_p !== undefined) {
 			top_p = undefined;
 		}

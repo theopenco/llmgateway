@@ -67,6 +67,7 @@ export function CreateProviderKeyDialog({
 	const [azureValidationModel, setAzureValidationModel] =
 		useState("gpt-4o-mini");
 	const [azureAiFoundryResource, setAzureAiFoundryResource] = useState("");
+	const [azureAnthropicResource, setAzureAnthropicResource] = useState("");
 	const [azureAiFoundryApiVersion, setAzureAiFoundryApiVersion] =
 		useState("2024-05-01-preview");
 	const [selectedRegion, setSelectedRegion] = useState("");
@@ -320,6 +321,30 @@ export function CreateProviderKeyDialog({
 				...(azureAiFoundryApiVersion
 					? { azure_ai_foundry_api_version: azureAiFoundryApiVersion }
 					: {}),
+			};
+		}
+
+		if (selectedProvider === "azure-anthropic") {
+			if (!azureAnthropicResource) {
+				toast({
+					title: "Error",
+					description: "Azure Anthropic resource name is required",
+					variant: "destructive",
+				});
+				return;
+			}
+			if (!/^[a-zA-Z0-9-]{1,64}$/.test(azureAnthropicResource)) {
+				toast({
+					title: "Error",
+					description:
+						"Resource name must be 1-64 characters and contain only letters, numbers, and hyphens",
+					variant: "destructive",
+				});
+				return;
+			}
+			payload.options = {
+				...payload.options,
+				azure_anthropic_resource: azureAnthropicResource,
 			};
 		}
 
@@ -621,6 +646,24 @@ export function CreateProviderKeyDialog({
 								</p>
 							</div>
 						</>
+					)}
+
+					{selectedProvider === "azure-anthropic" && (
+						<div className="space-y-2">
+							<Label htmlFor="azure-anthropic-resource">Resource Name</Label>
+							<Input
+								id="azure-anthropic-resource"
+								type="text"
+								placeholder="my-resource"
+								value={azureAnthropicResource}
+								onChange={(e) => setAzureAnthropicResource(e.target.value)}
+								required
+							/>
+							<p className="text-sm text-muted-foreground">
+								Your Microsoft Foundry resource name from the base URL:
+								https://&lt;resource-name&gt;.services.ai.azure.com
+							</p>
+						</div>
 					)}
 
 					{selectedProvider === "google-vertex" && (

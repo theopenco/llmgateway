@@ -1159,6 +1159,40 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
+		id: "azure-anthropic",
+		name: "Azure Anthropic",
+		forwardsSafetyIdentifier: true,
+		description:
+			"Anthropic Claude models on Microsoft Foundry via the Anthropic Messages API",
+		env: {
+			required: {
+				apiKey: "LLM_AZURE_ANTHROPIC_API_KEY",
+				resource: "LLM_AZURE_ANTHROPIC_RESOURCE",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#0078D4",
+		website:
+			"https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/claude-models",
+		statusPageUrl: "https://status.ai.azure.com",
+		announcement: null,
+		apiKeyInstructions:
+			"The resource name can be found in your Microsoft Foundry base URL: https://<resource-name>.services.ai.azure.com",
+		learnMore: "https://docs.llmgateway.io/integrations/azure",
+		termsUrl: "https://www.microsoft.com/licensing/terms",
+		privacyPolicyUrl: "https://privacy.microsoft.com/privacystatement",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: 2,
+			iso27001: true,
+			gdpr: true,
+		},
+	},
+	{
 		id: "zai",
 		name: "Z AI",
 		forwardsSafetyIdentifier: false,

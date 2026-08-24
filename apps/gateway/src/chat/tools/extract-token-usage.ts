@@ -168,6 +168,7 @@ export function extractTokenUsage(
 			break;
 		case "anthropic":
 		case "vertex-anthropic":
+		case "azure-anthropic":
 			{
 				const usage = data.message?.usage ?? data.usage;
 				if (!usage) {

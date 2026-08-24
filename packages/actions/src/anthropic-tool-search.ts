@@ -24,6 +24,11 @@ export const TOOL_SEARCH_TOOL_TYPE_PREFIX = "tool_search_tool";
  * `vertex-anthropic` qualifies because it posts an Anthropic Messages body to
  * `:rawPredict`, and Anthropic lists tool search as available on Google Cloud.
  *
+ * `azure-anthropic` qualifies because Microsoft Foundry fronts the Messages API
+ * directly. Its published capability table omits server-side tool search, but a
+ * live Foundry deployment accepts `defer_loading` and returns the same
+ * `server_tool_use` / `tool_search_tool_regex` blocks as the direct API.
+ *
  * AWS Bedrock is excluded for a transport reason, not a capability one:
  * Anthropic offers tool search there only through InvokeModel, and this gateway
  * drives Bedrock through the Converse API (see get-provider-endpoint). Moving
@@ -36,7 +41,11 @@ export const TOOL_SEARCH_TOOL_TYPE_PREFIX = "tool_search_tool";
  * way unsupported reasoning efforts are handled.
  */
 export function usesAnthropicMessagesApi(provider: ProviderId): boolean {
-	return provider === "anthropic" || provider === "vertex-anthropic";
+	return (
+		provider === "anthropic" ||
+		provider === "vertex-anthropic" ||
+		provider === "azure-anthropic"
+	);
 }
 
 export function isToolSearchTool(
