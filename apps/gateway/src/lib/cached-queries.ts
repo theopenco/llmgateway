@@ -175,11 +175,11 @@ export type GatewayApiKey = ApiKey & {
 export async function findApiKeyByToken(
 	token: string,
 ): Promise<GatewayApiKey | undefined> {
+	const tokenHashes = getApiKeyFingerprints(token);
 	const key = await swrWrap(
-		`apiKey:token:${getApiKeyFingerprint(token)}`,
+		`apiKey:token:${tokenHashes.join(":")}`,
 		[apiKeyTableName],
 		async () => {
-			const tokenHashes = getApiKeyFingerprints(token);
 			const results = await db
 				.select()
 				.from(apiKeyTable)

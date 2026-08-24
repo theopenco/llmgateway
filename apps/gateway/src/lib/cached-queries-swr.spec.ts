@@ -21,8 +21,9 @@ import {
 	user,
 	userOrganization,
 } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
-import { getApiKeyFingerprint } from "./api-key-fingerprint.js";
+import { getApiKeyFingerprints } from "./api-key-fingerprint.js";
 import {
 	findActiveIamRules,
 	findActiveCustomModels,
@@ -205,6 +206,7 @@ describe("cached-queries SWR integration", () => {
 
 	afterEach(async () => {
 		vi.restoreAllMocks();
+		vi.unstubAllEnvs();
 		await waitForSwrMirrorWrites();
 		await db.delete(apiKeyIamRule);
 		await db.delete(apiKey);
@@ -227,7 +229,7 @@ describe("cached-queries SWR integration", () => {
 			await waitForSwrMirrorWrites();
 
 			const mirror = await redisClient.get(
-				`${SWR_PREFIX}apiKey:token:${getApiKeyFingerprint(testApiKeyToken)}`,
+				`${SWR_PREFIX}apiKey:token:${getApiKeyFingerprints(testApiKeyToken).join(":")}`,
 			);
 			expect(mirror).not.toBeNull();
 			const raw = await redisClient.get(
@@ -374,6 +376,39 @@ describe("cached-queries SWR integration", () => {
 	});
 
 	describe("fallback when DB fails", () => {
+		it("does not use a mirror after its hash secret is retired", async () => {
+			const retiredToken = "sk-retired-secret-token";
+			vi.stubEnv("GATEWAY_API_KEY_HASH_SECRET", "retired-secret");
+			await db.insert(apiKey).values({
+				id: "test-retired-secret-key",
+				...hashApiKeyForStorage(retiredToken),
+				projectId: testProjectId,
+				description: "Retired secret key",
+				status: "active",
+				createdBy: testUserId,
+			});
+
+			vi.stubEnv(
+				"GATEWAY_API_KEY_HASH_SECRET",
+				"current-secret,retired-secret",
+			);
+			expect((await findApiKeyByToken(retiredToken))?.id).toBe(
+				"test-retired-secret-key",
+			);
+			await waitForSwrMirrorWrites();
+			await flushDrizzleCache();
+
+			vi.stubEnv("GATEWAY_API_KEY_HASH_SECRET", "current-secret");
+			const selectSpy = vi.spyOn(cdb, "select").mockImplementation(() => {
+				throw new Error("postgres unavailable");
+			});
+
+			await expect(findApiKeyByToken(retiredToken)).rejects.toThrow(
+				"postgres unavailable",
+			);
+			selectSpy.mockRestore();
+		});
+
 		it("returns SWR mirror when Drizzle cache is flushed and DB errors", async () => {
 			await findApiKeyByToken(testApiKeyToken);
 			await waitForSwrMirrorWrites();
