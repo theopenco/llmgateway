@@ -11,6 +11,7 @@ import type { ComponentProps } from "react";
 export function TrackedLink({
 	event,
 	properties,
+	onClick,
 	...props
 }: ComponentProps<typeof Link> & {
 	event: string;
@@ -21,7 +22,8 @@ export function TrackedLink({
 	return (
 		<Link
 			{...props}
-			onClick={() => {
+			onClick={(clickEvent) => {
+				onClick?.(clickEvent);
 				posthog.capture(event, properties);
 			}}
 		/>
