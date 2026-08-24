@@ -397,6 +397,9 @@ const adminMetricsSchema = z.object({
 	// Credits paid for outside Stripe (wire, crypto, …) and credited manually by
 	// an administrator. Real revenue, just settled on another channel.
 	grossManualPaymentsRevenue: z.number(),
+	// Negotiated enterprise revenue recorded by an administrator. These rows do
+	// not grant credits and are kept separate from manual credit payments.
+	grossEnterpriseDealsRevenue: z.number(),
 });
 
 const timeseriesRangeSchema = z.enum(["7d", "30d", "90d", "365d", "all"]);
@@ -414,12 +417,15 @@ const timeseriesDataPointSchema = z.object({
 	devpassRevenue: z.number(),
 	devpassRefunds: z.number(),
 	devpassNet: z.number(),
+	// Enterprise deal revenue is recorded gross and has no credit amount attached.
+	enterpriseRevenue: z.number(),
 	// Per-day (non-cumulative) values. The cumulative series above start from a
 	// pre-range baseline, so clients cannot derive day-one deltas themselves.
 	dailySignups: z.number(),
 	dailyPaidCustomers: z.number(),
 	dailyNet: z.number(),
 	dailyDevpassNet: z.number(),
+	dailyEnterpriseRevenue: z.number(),
 });
 
 const adminTimeseriesSchema = z.object({
@@ -435,6 +441,7 @@ const adminTimeseriesSchema = z.object({
 		devpassRevenue: z.number(),
 		devpassRefunds: z.number(),
 		devpassNet: z.number(),
+		enterpriseRevenue: z.number(),
 	}),
 });
 
@@ -543,7 +550,8 @@ const transactionSchema = z.object({
 	currency: z.string(),
 	status: z.string(),
 	description: z.string().nullable(),
-	// Off-Stripe payment channel and its reference, set on manual payments only.
+	// Off-Stripe payment channel and its reference, set on manually recorded
+	// payments only.
 	paymentMethod: z.string().nullable(),
 	externalReference: z.string().nullable(),
 	stripePaymentIntentId: z.string().nullable(),
@@ -1043,10 +1051,8 @@ admin.openapi(getMetrics, async (c) => {
 
 	const payingCustomers = Number(payingRow?.count ?? 0);
 
-	// Total revenue: completed credit-purchase rows — org credit top-ups,
-	// manually credited off-Stripe payments (`credit_manual_payment`) AND
-	// end-user wallet top-ups (`end_user_topup`, reversed on refund) — using
-	// creditAmount to exclude Stripe fees. Excludes gifts, all plan rows
+	// Total credits revenue: completed credit-purchase rows use `creditAmount` to
+	// exclude Stripe fees. Excludes enterprise deals, gifts, all plan rows
 	// (DevPass/legacy subscription/Chat Plan), and the non-revenue end-user rows
 	// (developer margin + funded bonus).
 	const [revenueRow] = await db
@@ -1061,6 +1067,7 @@ admin.openapi(getMetrics, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
+				ne(tables.transaction.type, "enterprise_license_fee"),
 				notPlanFilter,
 				notEndUserNonRevenueFilter,
 				transactionDateFilter,
@@ -1160,8 +1167,9 @@ admin.openapi(getMetrics, async (c) => {
 	const totalApiKeysSpent = Number(spentRow?.apiKeysValue ?? 0);
 	const totalDebitedSpend = Number(spentRow?.debitedValue ?? 0);
 
-	// Total processed (gross payment amounts from completed non-gift, non-plan
-	// transactions — Stripe charges plus off-Stripe manual payments)
+	// Total processed credits (gross payment amounts from completed non-gift,
+	// non-plan transactions — Stripe charges plus off-Stripe manual payments).
+	// Enterprise deals are reported separately.
 	const [processedRow] = await db
 		.select({
 			value:
@@ -1174,6 +1182,7 @@ admin.openapi(getMetrics, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
+				ne(tables.transaction.type, "enterprise_license_fee"),
 				notPlanFilter,
 				notEndUserNonRevenueFilter,
 				transactionDateFilter,
@@ -1447,6 +1456,30 @@ admin.openapi(getMetrics, async (c) => {
 
 	const grossManualPaymentsRevenue = Number(grossManualPaymentsRow?.value ?? 0);
 
+	// Enterprise deals: negotiated contract revenue recorded outside the credits
+	// economy. `creditAmount` is always null, so this split never changes credit
+	// flow or balances.
+	const [grossEnterpriseDealsRow] = await db
+		.select({
+			value:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"value",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.transaction.type, "enterprise_license_fee"),
+				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+				transactionDateFilter,
+			),
+		);
+
+	const grossEnterpriseDealsRevenue = Number(
+		grossEnterpriseDealsRow?.value ?? 0,
+	);
+
 	const grossRevenue =
 		grossCreditsRevenue +
 		grossDevpassRevenue +
@@ -1454,7 +1487,8 @@ admin.openapi(getMetrics, async (c) => {
 		grossResetPassRevenue +
 		grossChatPlansRevenue +
 		grossProSubscriptionsRevenue +
-		grossManualPaymentsRevenue;
+		grossManualPaymentsRevenue +
+		grossEnterpriseDealsRevenue;
 
 	// Balance derivation must use debited spend, not blended cost: BYOK usage
 	// never drains purchased credits, so subtracting it would understate
@@ -1487,6 +1521,7 @@ admin.openapi(getMetrics, async (c) => {
 		grossChatPlansRevenue,
 		grossProSubscriptionsRevenue,
 		grossManualPaymentsRevenue,
+		grossEnterpriseDealsRevenue,
 	});
 });
 
@@ -1562,7 +1597,8 @@ admin.openapi(getTimeseries, async (c) => {
 		.groupBy(sql`DATE(${tables.user.createdAt})`)
 		.orderBy(asc(sql`DATE(${tables.user.createdAt})`));
 
-	// Revenue per day (creditAmount, post-fees; matches /admin/metrics totalRevenue)
+	// Revenue per day (post-fees credit revenue; matches /admin/metrics
+	// totalRevenue). Enterprise deals are a separate series below.
 	const revenuePerDay = await db
 		.select({
 			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
@@ -1576,8 +1612,29 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
+				ne(tables.transaction.type, "enterprise_license_fee"),
 				notPlanFilter,
 				notEndUserNonRevenueFilter,
+				gte(tables.transaction.createdAt, startDate),
+				lte(tables.transaction.createdAt, endDate),
+			),
+		)
+		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
+		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
+
+	const enterpriseRevenuePerDay = await db
+		.select({
+			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
+			total:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.transaction.type, "enterprise_license_fee"),
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
 			),
@@ -1599,6 +1656,7 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
+				ne(tables.transaction.type, "enterprise_license_fee"),
 				notPlanFilter,
 				notEndUserNonRevenueFilter,
 				gte(tables.transaction.createdAt, startDate),
@@ -1716,12 +1774,32 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
+				ne(tables.transaction.type, "enterprise_license_fee"),
 				notPlanFilter,
 				notEndUserNonRevenueFilter,
 				sql`${tables.transaction.createdAt} < ${startDate}`,
 			),
 		);
 	const preRangeRevenue = Number(preRangeRevenueRow?.total ?? 0);
+
+	const [preRangeEnterpriseRevenueRow] = await db
+		.select({
+			total:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.transaction.type, "enterprise_license_fee"),
+				sql`${tables.transaction.createdAt} < ${startDate}`,
+			),
+		);
+	const preRangeEnterpriseRevenue = Number(
+		preRangeEnterpriseRevenueRow?.total ?? 0,
+	);
 
 	const [preRangeProcessedRow] = await db
 		.select({
@@ -1735,6 +1813,7 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
+				ne(tables.transaction.type, "enterprise_license_fee"),
 				notPlanFilter,
 				notEndUserNonRevenueFilter,
 				sql`${tables.transaction.createdAt} < ${startDate}`,
@@ -1904,6 +1983,11 @@ admin.openapi(getTimeseries, async (c) => {
 		devpassRefundsMap.set(row.date, Number(row.total));
 	}
 
+	const enterpriseRevenueMap = new Map<string, number>();
+	for (const row of enterpriseRevenuePerDay) {
+		enterpriseRevenueMap.set(row.date, Number(row.total));
+	}
+
 	const newPaidMap = new Map<string, number>();
 	for (const row of firstTransactionPerOrg) {
 		newPaidMap.set(row.date, Number(row.count));
@@ -1921,10 +2005,12 @@ admin.openapi(getTimeseries, async (c) => {
 		devpassRevenue: number;
 		devpassRefunds: number;
 		devpassNet: number;
+		enterpriseRevenue: number;
 		dailySignups: number;
 		dailyPaidCustomers: number;
 		dailyNet: number;
 		dailyDevpassNet: number;
+		dailyEnterpriseRevenue: number;
 	}> = [];
 	let cumulativePaid = preRangeCount;
 	let totalSignups = 0;
@@ -1933,6 +2019,7 @@ admin.openapi(getTimeseries, async (c) => {
 	let totalRefunds = preRangeRefunds;
 	let totalDevpassRevenue = preRangeDevpassRevenue;
 	let totalDevpassRefunds = preRangeDevpassRefunds;
+	let totalEnterpriseRevenue = preRangeEnterpriseRevenue;
 
 	const totalDays = Math.ceil(
 		(endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000),
@@ -1947,6 +2034,7 @@ admin.openapi(getTimeseries, async (c) => {
 		const dailyRefunds = refundsMap.get(dateStr) ?? 0;
 		const dailyDevpassRevenue = devpassRevenueMap.get(dateStr) ?? 0;
 		const dailyDevpassRefunds = devpassRefundsMap.get(dateStr) ?? 0;
+		const dailyEnterpriseRevenue = enterpriseRevenueMap.get(dateStr) ?? 0;
 		const dailyPaidCustomers = newPaidMap.get(dateStr) ?? 0;
 		cumulativePaid += dailyPaidCustomers;
 
@@ -1956,6 +2044,7 @@ admin.openapi(getTimeseries, async (c) => {
 		totalRefunds += dailyRefunds;
 		totalDevpassRevenue += dailyDevpassRevenue;
 		totalDevpassRefunds += dailyDevpassRefunds;
+		totalEnterpriseRevenue += dailyEnterpriseRevenue;
 
 		data.push({
 			date: dateStr,
@@ -1968,10 +2057,12 @@ admin.openapi(getTimeseries, async (c) => {
 			devpassRevenue: totalDevpassRevenue,
 			devpassRefunds: totalDevpassRefunds,
 			devpassNet: totalDevpassRevenue - totalDevpassRefunds,
+			enterpriseRevenue: totalEnterpriseRevenue,
 			dailySignups,
 			dailyPaidCustomers,
 			dailyNet: dailyRevenue - dailyRefunds,
 			dailyDevpassNet: dailyDevpassRevenue - dailyDevpassRefunds,
+			dailyEnterpriseRevenue,
 		});
 	}
 
@@ -1988,6 +2079,7 @@ admin.openapi(getTimeseries, async (c) => {
 			devpassRevenue: totalDevpassRevenue,
 			devpassRefunds: totalDevpassRefunds,
 			devpassNet: totalDevpassRevenue - totalDevpassRefunds,
+			enterpriseRevenue: totalEnterpriseRevenue,
 		},
 	});
 });
@@ -7325,6 +7417,198 @@ admin.openapi(manualCreditsRoute, async (c) => {
 		message: "Credits added successfully",
 		credits: updatedCredits,
 	});
+});
+
+const enterprisePaymentMethods = ["wire", "crypto", "other"] as const;
+
+const enterpriseTransactionDateSchema = z.string().refine((value) => {
+	const date = new Date(`${value}T00:00:00.000Z`);
+	return (
+		!Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
+	);
+}, "Invalid transaction date");
+
+const enterpriseDealBodySchema = z.object({
+	amount: z.number().min(0.01, "Deal amount must be positive"),
+	paymentMethod: z.enum(enterprisePaymentMethods),
+	transactionDate: enterpriseTransactionDateSchema.optional(),
+	externalReference: z.string().trim().max(255).optional(),
+	comment: z.string().trim().max(2000).optional(),
+});
+
+function parseEnterpriseTransactionDate(transactionDate?: string) {
+	return transactionDate
+		? new Date(`${transactionDate}T00:00:00.000Z`)
+		: undefined;
+}
+
+const createEnterpriseDealRoute = createRoute({
+	method: "post",
+	path: "/organizations/{orgId}/enterprise-deals",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: enterpriseDealBodySchema,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						transactionId: z.string(),
+					}),
+				},
+			},
+			description: "Enterprise deal recorded successfully.",
+		},
+		404: {
+			description: "Organization not found.",
+		},
+	},
+});
+
+admin.openapi(createEnterpriseDealRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+	const { amount, paymentMethod, transactionDate, externalReference, comment } =
+		c.req.valid("json");
+
+	const org = await db.query.organization.findFirst({
+		where: {
+			id: { eq: orgId },
+		},
+	});
+
+	if (!org || org.status === "deleted") {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	const [deal] = await db
+		.insert(tables.transaction)
+		.values({
+			organizationId: orgId,
+			type: "enterprise_license_fee",
+			createdAt: parseEnterpriseTransactionDate(transactionDate),
+			amount: amount.toString(),
+			creditAmount: null,
+			currency: "USD",
+			status: "completed",
+			description: comment || null,
+			paymentMethod,
+			externalReference: externalReference || null,
+		})
+		.returning({ id: tables.transaction.id });
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "enterprise_license_fee.create",
+		resourceType: "transaction",
+		resourceId: deal.id,
+		metadata: {
+			amount,
+			paymentMethod,
+			transactionDate,
+			externalReference,
+			comment,
+		},
+	});
+
+	return c.json({
+		message: "Enterprise deal recorded successfully",
+		transactionId: deal.id,
+	});
+});
+
+const updateEnterpriseDealRoute = createRoute({
+	method: "patch",
+	path: "/organizations/{orgId}/enterprise-deals/{transactionId}",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+			transactionId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: enterpriseDealBodySchema,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "Enterprise deal updated successfully.",
+		},
+		404: {
+			description: "Enterprise deal not found.",
+		},
+	},
+});
+
+admin.openapi(updateEnterpriseDealRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId, transactionId } = c.req.valid("param");
+	const { amount, paymentMethod, transactionDate, externalReference, comment } =
+		c.req.valid("json");
+	const createdAt = parseEnterpriseTransactionDate(transactionDate);
+
+	const [updatedDeal] = await db
+		.update(tables.transaction)
+		.set({
+			...(createdAt ? { createdAt } : {}),
+			amount: amount.toString(),
+			creditAmount: null,
+			description: comment || null,
+			paymentMethod,
+			externalReference: externalReference || null,
+		})
+		.where(
+			and(
+				eq(tables.transaction.id, transactionId),
+				eq(tables.transaction.organizationId, orgId),
+				eq(tables.transaction.type, "enterprise_license_fee"),
+			),
+		)
+		.returning({ id: tables.transaction.id });
+
+	if (!updatedDeal) {
+		throw new HTTPException(404, {
+			message: "Enterprise deal not found",
+		});
+	}
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "enterprise_license_fee.update",
+		resourceType: "transaction",
+		resourceId: updatedDeal.id,
+		metadata: {
+			amount,
+			paymentMethod,
+			transactionDate,
+			externalReference,
+			comment,
+		},
+	});
+
+	return c.json({ message: "Enterprise deal updated successfully" });
 });
 
 // Configure the referral signup bonus for an organization
