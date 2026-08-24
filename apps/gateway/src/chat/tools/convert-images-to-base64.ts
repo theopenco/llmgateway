@@ -3,6 +3,17 @@ import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import type { ImageObject } from "./types.js";
 
+/**
+ * Deadline for fetching a provider-returned image before converting it to a
+ * base64 data URL. These URLs come from the upstream provider response, which
+ * the SSRF guard below already treats as untrusted user-influenced input (a
+ * BYOK/custom-baseUrl tenant controls what the "provider" returns), and this
+ * fetch has no other timeout, so an unresponsive host would otherwise hang the
+ * request indefinitely across every retry.
+ */
+const IMAGE_FETCH_TIMEOUT_MS =
+	Number(process.env.IMAGE_FETCH_TIMEOUT_MS) || 15_000;
+
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
 
@@ -21,7 +32,12 @@ async function fetchImageWithRetry(
 
 	for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
 		try {
-			const response = await fetch(url, { redirect: "error" });
+			const response = await fetch(url, {
+				redirect: "error",
+				// Bounds the whole download, headers and body. undici's bodyTimeout is
+				// refreshed on every chunk, so a host that trickles bytes never trips it.
+				signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS),
+			});
 			if (response.ok) {
 				const contentType = response.headers.get("content-type") ?? "image/png";
 				const arrayBuffer = await response.arrayBuffer();

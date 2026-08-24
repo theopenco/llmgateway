@@ -41,7 +41,30 @@ describe("convertImagesToBase64 URL safety", () => {
 
 		expect(fetchSpy).toHaveBeenCalledWith("https://cdn.example.com/image.png", {
 			redirect: "error",
+			signal: expect.any(AbortSignal),
 		});
 		expect(result[0]?.image_url.url).toBe("data:image/png;base64,AQID");
+	});
+
+	it("bounds the image fetch with an abort signal and falls back when it aborts", async () => {
+		vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "true");
+		// Simulate the fetch deadline firing: reject as AbortSignal.timeout would.
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation((_url, init) => {
+				expect((init as RequestInit).signal).toBeInstanceOf(AbortSignal);
+				return Promise.reject(
+					Object.assign(new Error("The operation was aborted"), {
+						name: "TimeoutError",
+					}),
+				);
+			});
+
+		const input = image("https://cdn.example.com/slow.png");
+		// Must resolve (fall back to the original image), never hang.
+		await expect(convertImagesToBase64([input])).resolves.toEqual([input]);
+		expect(fetchSpy).toHaveBeenCalled();
+		const firstCall = fetchSpy.mock.calls[0];
+		expect((firstCall?.[1] as RequestInit).signal).toBeInstanceOf(AbortSignal);
 	});
 });
