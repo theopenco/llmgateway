@@ -955,19 +955,19 @@ export const deepseekModels = [
 			{
 				providerId: "baidu",
 				externalId: "deepseek-v4-flash-0731",
-				inputPrice: "0.2112676056338028e-6",
-				cachedInputPrice: "0.02112676056338028e-6",
-				outputPrice: "0.6338028169014085e-6",
+				inputPrice: "0.2113e-6",
+				cachedInputPrice: "0.0211e-6",
+				outputPrice: "0.6338e-6",
 				peakPricing: {
 					peak: {
-						inputPrice: "0.4225352112676056e-6",
-						cachedInputPrice: "0.04225352112676056e-6",
-						outputPrice: "1.267605633802817e-6",
+						inputPrice: "0.4225e-6",
+						cachedInputPrice: "0.0423e-6",
+						outputPrice: "1.2676e-6",
 					},
 					offPeak: {
-						inputPrice: "0.2112676056338028e-6",
-						cachedInputPrice: "0.02112676056338028e-6",
-						outputPrice: "0.6338028169014085e-6",
+						inputPrice: "0.2113e-6",
+						cachedInputPrice: "0.0211e-6",
+						outputPrice: "0.6338e-6",
 					},
 					hoursUtc: [[0, 14]],
 				},

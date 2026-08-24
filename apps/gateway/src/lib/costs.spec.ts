@@ -2473,9 +2473,9 @@ describe("peak / off-peak time-of-day pricing", () => {
 			1_000_000,
 			1_000_000,
 		);
-		expect(costs.inputCost).toBeCloseTo(1.1267605633802817);
-		expect(costs.outputCost).toBeCloseTo(3.943661971830986);
-		expect(costs.cachedInputCost).toBeCloseTo(0.28169014084507044);
+		expect(costs.inputCost).toBeCloseTo(1.1268);
+		expect(costs.outputCost).toBeCloseTo(3.9437);
+		expect(costs.cachedInputCost).toBeCloseTo(0.2817);
 	});
 
 	it("bills Baidu GLM-5.3 at its list price", async () => {
@@ -2489,9 +2489,9 @@ describe("peak / off-peak time-of-day pricing", () => {
 			1_000_000,
 			1_000_000,
 		);
-		expect(costs.inputCost).toBeCloseTo(1.1267605633802817);
-		expect(costs.outputCost).toBeCloseTo(3.943661971830986);
-		expect(costs.cachedInputCost).toBeCloseTo(0.28169014084507044);
+		expect(costs.inputCost).toBeCloseTo(1.1268);
+		expect(costs.outputCost).toBeCloseTo(3.9437);
+		expect(costs.cachedInputCost).toBeCloseTo(0.2817);
 	});
 
 	it("bills Baidu DeepSeek V4 Flash at peak rates", async () => {
@@ -2505,9 +2505,9 @@ describe("peak / off-peak time-of-day pricing", () => {
 			1_000_000,
 			1_000_000,
 		);
-		expect(costs.inputCost).toBeCloseTo(0.4225352112676056);
-		expect(costs.outputCost).toBeCloseTo(1.267605633802817);
-		expect(costs.cachedInputCost).toBeCloseTo(0.04225352112676056);
+		expect(costs.inputCost).toBeCloseTo(0.4225);
+		expect(costs.outputCost).toBeCloseTo(1.2676);
+		expect(costs.cachedInputCost).toBeCloseTo(0.0423);
 	});
 
 	it("bills Baidu DeepSeek V4 Flash at off-peak rates", async () => {
@@ -2521,8 +2521,8 @@ describe("peak / off-peak time-of-day pricing", () => {
 			1_000_000,
 			1_000_000,
 		);
-		expect(costs.inputCost).toBeCloseTo(0.2112676056338028);
-		expect(costs.outputCost).toBeCloseTo(0.6338028169014085);
-		expect(costs.cachedInputCost).toBeCloseTo(0.02112676056338028);
+		expect(costs.inputCost).toBeCloseTo(0.2113);
+		expect(costs.outputCost).toBeCloseTo(0.6338);
+		expect(costs.cachedInputCost).toBeCloseTo(0.0211);
 	});
 });
