@@ -9,8 +9,23 @@ import { RequestError } from "./request-error.js";
  * behind `image_url.url`, and this fetch happens before the provider call, so
  * it is not covered by the provider request timeout.
  */
-const IMAGE_FETCH_TIMEOUT_MS =
-	Number(process.env.IMAGE_FETCH_TIMEOUT_MS) || 15_000;
+const DEFAULT_IMAGE_FETCH_TIMEOUT_MS = 15_000;
+// Largest delay AbortSignal.timeout accepts; a bigger (or non-finite) value
+// throws and would break the fetch, so we clamp to a safe range.
+const MAX_IMAGE_FETCH_TIMEOUT_MS = 2_147_483_647;
+
+/**
+ * Resolves the fetch deadline from IMAGE_FETCH_TIMEOUT_MS, guarding against
+ * values that would make AbortSignal.timeout throw. Only a finite integer in
+ * [0, 2_147_483_647] is honoured; anything else (NaN, negative, fractional,
+ * Infinity) falls back to the default.
+ */
+export function resolveImageFetchTimeoutMs(): number {
+	const raw = Number(process.env.IMAGE_FETCH_TIMEOUT_MS);
+	return Number.isInteger(raw) && raw >= 0 && raw <= MAX_IMAGE_FETCH_TIMEOUT_MS
+		? raw
+		: DEFAULT_IMAGE_FETCH_TIMEOUT_MS;
+}
 
 /**
  * Thrown when an image exceeds the caller's size limit. A `RequestError` so the
@@ -202,7 +217,7 @@ export async function processImageUrl(
 			redirect: "error",
 			// Bounds the whole download, headers and body. undici's bodyTimeout is
 			// refreshed on every chunk, so a host that trickles bytes never trips it.
-			signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS),
+			signal: AbortSignal.timeout(resolveImageFetchTimeoutMs()),
 		});
 
 		if (!response.ok) {

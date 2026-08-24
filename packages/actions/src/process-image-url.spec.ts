@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ImageSizeLimitError, processImageUrl } from "./process-image-url.js";
+import {
+	ImageSizeLimitError,
+	processImageUrl,
+	resolveImageFetchTimeoutMs,
+} from "./process-image-url.js";
 import { RequestError } from "./request-error.js";
 
 const MAX_SIZE_MB = 1;
@@ -296,5 +300,37 @@ describe("processImageUrl data URLs", () => {
 		expect(Buffer.from(data, "base64").byteLength).toBe(
 			MAX_SIZE_MB * 1024 * 1024,
 		);
+	});
+});
+
+describe("resolveImageFetchTimeoutMs", () => {
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
+	it("defaults to 15000 when unset", () => {
+		delete process.env.IMAGE_FETCH_TIMEOUT_MS;
+		expect(resolveImageFetchTimeoutMs()).toBe(15_000);
+	});
+
+	it.each(["-1", "Infinity", "1.5", "not-a-number"])(
+		"falls back to 15000 for invalid value %s (never throws)",
+		(value) => {
+			vi.stubEnv("IMAGE_FETCH_TIMEOUT_MS", value);
+			expect(resolveImageFetchTimeoutMs()).toBe(15_000);
+			expect(() =>
+				AbortSignal.timeout(resolveImageFetchTimeoutMs()),
+			).not.toThrow();
+		},
+	);
+
+	it("honours a valid integer value", () => {
+		vi.stubEnv("IMAGE_FETCH_TIMEOUT_MS", "5000");
+		expect(resolveImageFetchTimeoutMs()).toBe(5000);
+	});
+
+	it("honours 0", () => {
+		vi.stubEnv("IMAGE_FETCH_TIMEOUT_MS", "0");
+		expect(resolveImageFetchTimeoutMs()).toBe(0);
 	});
 });
