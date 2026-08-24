@@ -4125,6 +4125,12 @@ export async function prepareRequestBody(
 		}
 		case "inference.net":
 		case "together-ai": {
+			if (stream && usedProvider === "together-ai") {
+				requestBody.stream_options = {
+					include_usage: true,
+				};
+			}
+
 			if (usedExternalId.startsWith(`${usedProvider}/`)) {
 				requestBody.model = usedExternalId.substring(usedProvider.length + 1);
 			}
