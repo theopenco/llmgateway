@@ -1,0 +1,84 @@
+---
+title: DevPass Usage API
+description: Read DevPass monthly and weekly usage limits from an application using its gateway API key
+icon: Gauge
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# DevPass Usage API
+
+Use `GET /v1/key` to show DevPass allowance meters in a coding tool or other
+trusted application. The endpoint uses the application's existing gateway API
+key, so it does not require a dashboard session.
+
+<Callout type="warning">
+	A regular gateway API key is a secret. Do not embed it in public browser code
+	or distribute it with an application. Read it from the user's secure local
+	configuration or call the endpoint from a trusted backend.
+</Callout>
+
+## Request
+
+```bash
+curl https://api.llmgateway.io/v1/key \
+  -H "Authorization: Bearer llmgtwy_your_api_key_here"
+```
+
+Only regular gateway API keys can use this endpoint. Platform publishable keys
+and end-user sessions receive `403 Forbidden` because they cannot read
+organization-level plan state.
+
+## Response
+
+```json
+{
+	"data": {
+		"label": "My coding tool",
+		"usage": "31.42",
+		"limit": null,
+		"devPlan": "pro",
+		"devPlanCreditsUsed": "25",
+		"devPlanCreditsLimit": "237",
+		"devPlanCreditsRemaining": "212.00",
+		"devPlanPremiumWeeklyLimit": "35.55",
+		"devPlanPremiumCreditsUsed": "5.00",
+		"devPlanPremiumWeekResetsAt": "2026-08-28T12:00:00.000Z"
+	}
+}
+```
+
+| Field                        | Meaning                                                        |
+| ---------------------------- | -------------------------------------------------------------- |
+| `label`                      | Description of the key                                         |
+| `usage`                      | All-time usage attributed to the key, in USD                   |
+| `limit`                      | All-time key usage limit in USD, or `null`                     |
+| `devPlan`                    | `lite`, `pro`, `max`, or `none`                                |
+| `devPlanCreditsUsed`         | Plan credits used in the current billing cycle                 |
+| `devPlanCreditsLimit`        | Plan credit allowance for the current billing cycle            |
+| `devPlanCreditsRemaining`    | Remaining plan credits, clamped to zero                        |
+| `devPlanPremiumWeeklyLimit`  | Weekly premium-model allowance                                 |
+| `devPlanPremiumCreditsUsed`  | Premium-model credits used in the current weekly window        |
+| `devPlanPremiumWeekResetsAt` | ISO 8601 reset time, or `null` when no weekly window is active |
+
+All USD values are decimal strings. Parse them before calculating percentages
+or remaining premium allowance.
+
+## Weekly window behavior
+
+The premium window starts with the first premium-model request and lasts seven
+days. When it expires, the endpoint returns `"0.00"` for
+`devPlanPremiumCreditsUsed` and `null` for `devPlanPremiumWeekResetsAt`; the
+full weekly allowance is already available, and the next premium request starts
+a new window.
+
+Pay-as-you-go keys return `"none"` for `devPlan` and zero for every DevPass
+field. This lets one integration support both key types without a separate
+account lookup.
+
+The endpoint remains readable when the key has exceeded its own usage limit,
+so an integration can explain why requests stopped. Invalid or inactive keys
+receive `401 Unauthorized`.
+
+See [Retrieve key status](/v1_key_retrieve) for the generated API reference and
+complete response schema.
