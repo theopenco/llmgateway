@@ -2,11 +2,6 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import {
-	apiKeyAnalyticsFilter,
-	apiKeyAnalyticsId,
-	apiKeyAnalyticsLabel,
-} from "@/lib/api-key-analytics.js";
 import { apiKeyScopeFilter } from "@/lib/api-key-scope-filter.js";
 import {
 	mapModeSplit,
@@ -475,16 +470,9 @@ activity.openapi(getActivity, async (c) => {
 					),
 			})
 			.from(apiKeyHourlyStats)
-			.leftJoin(apiKey, eq(apiKey.id, apiKeyHourlyStats.apiKeyId))
 			.where(
 				and(
-					apiKeyId
-						? apiKeyAnalyticsFilter(
-								apiKeyId,
-								apiKeyHourlyStats.apiKeyId,
-								apiKey.kind,
-							)
-						: undefined,
+					apiKeyId ? eq(apiKeyHourlyStats.apiKeyId, apiKeyId) : undefined,
 					scopeFilter(apiKeyHourlyStats.projectId, apiKeyHourlyStats.apiKeyId),
 					inArray(apiKeyHourlyStats.projectId, projectIds),
 					gte(apiKeyHourlyStats.hourTimestamp, startDate),
@@ -526,16 +514,9 @@ activity.openapi(getActivity, async (c) => {
 				...modeSplitFields(apiKeyHourlyModelStats),
 			})
 			.from(apiKeyHourlyModelStats)
-			.leftJoin(apiKey, eq(apiKey.id, apiKeyHourlyModelStats.apiKeyId))
 			.where(
 				and(
-					apiKeyId
-						? apiKeyAnalyticsFilter(
-								apiKeyId,
-								apiKeyHourlyModelStats.apiKeyId,
-								apiKey.kind,
-							)
-						: undefined,
+					apiKeyId ? eq(apiKeyHourlyModelStats.apiKeyId, apiKeyId) : undefined,
 					scopeFilter(
 						apiKeyHourlyModelStats.projectId,
 						apiKeyHourlyModelStats.apiKeyId,
@@ -584,13 +565,8 @@ activity.openapi(getActivity, async (c) => {
 						timeZone,
 						isHourly,
 					).as("date"),
-					apiKeyId: apiKeyAnalyticsId(
-						apiKeyHourlyStats.apiKeyId,
-						apiKey.kind,
-					).as("apiKeyId"),
-					description: apiKeyAnalyticsLabel(apiKey.description, apiKey.kind).as(
-						"description",
-					),
+					apiKeyId: apiKeyHourlyStats.apiKeyId,
+					description: apiKey.description,
 					requestCount:
 						sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCount}), 0)`.as(
 							"requestCount",
@@ -616,13 +592,7 @@ activity.openapi(getActivity, async (c) => {
 				.leftJoin(apiKey, eq(apiKey.id, apiKeyHourlyStats.apiKeyId))
 				.where(
 					and(
-						apiKeyId
-							? apiKeyAnalyticsFilter(
-									apiKeyId,
-									apiKeyHourlyStats.apiKeyId,
-									apiKey.kind,
-								)
-							: undefined,
+						apiKeyId ? eq(apiKeyHourlyStats.apiKeyId, apiKeyId) : undefined,
 						scopeFilter(
 							apiKeyHourlyStats.projectId,
 							apiKeyHourlyStats.apiKeyId,
@@ -633,8 +603,8 @@ activity.openapi(getActivity, async (c) => {
 						lte(apiKeyHourlyStats.hourTimestamp, endDate),
 					),
 				)
-				.groupBy(sql`1, 2, 3`)
-				.orderBy(sql`1 ASC, 2 ASC`);
+				.groupBy(sql`1, ${apiKeyHourlyStats.apiKeyId}, ${apiKey.description}`)
+				.orderBy(sql`1 ASC, ${apiKeyHourlyStats.apiKeyId} ASC`);
 
 			for (const breakdown of apiKeyBreakdowns) {
 				if (!apiKeyBreakdownByDate.has(breakdown.date)) {
@@ -957,12 +927,8 @@ activity.openapi(getActivity, async (c) => {
 					timeZone,
 					isHourly,
 				).as("date"),
-				apiKeyId: apiKeyAnalyticsId(apiKeyHourlyStats.apiKeyId, apiKey.kind).as(
-					"apiKeyId",
-				),
-				description: apiKeyAnalyticsLabel(apiKey.description, apiKey.kind).as(
-					"description",
-				),
+				apiKeyId: apiKeyHourlyStats.apiKeyId,
+				description: apiKey.description,
 				requestCount:
 					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCount}), 0)`.as(
 						"requestCount",
@@ -994,8 +960,8 @@ activity.openapi(getActivity, async (c) => {
 					lte(apiKeyHourlyStats.hourTimestamp, endDate),
 				),
 			)
-			.groupBy(sql`1, 2, 3`)
-			.orderBy(sql`1 ASC, 2 ASC`);
+			.groupBy(sql`1, ${apiKeyHourlyStats.apiKeyId}, ${apiKey.description}`)
+			.orderBy(sql`1 ASC, ${apiKeyHourlyStats.apiKeyId} ASC`);
 
 		for (const breakdown of apiKeyBreakdowns) {
 			if (!apiKeyBreakdownByDate.has(breakdown.date)) {

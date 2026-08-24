@@ -370,37 +370,27 @@ describe("activity endpoint", () => {
 		);
 	});
 
-	test("GET /activity rolls playground keys into one breakdown", async () => {
+	test("GET /activity reports the stable playground key", async () => {
 		const today = new Date();
 
-		await db.insert(tables.apiKey).values([
-			{
-				id: "playground-key-1",
-				token: "playground-token-1",
-				projectId: "test-project-id",
-				description: "Auto-generated playground key",
-				kind: "playground",
-				createdBy: "test-user-id",
-			},
-			{
-				id: "playground-key-2",
-				token: "playground-token-2",
-				projectId: "test-project-id",
-				description: "Auto-generated playground key",
-				kind: "playground",
-				createdBy: "test-user-id",
-			},
-		]);
+		await db.insert(tables.apiKey).values({
+			id: "playground-key",
+			token: "playground-token",
+			projectId: "test-project-id",
+			description: "Playground",
+			kind: "playground",
+			createdBy: "test-user-id",
+		});
 
 		await db.insert(tables.log).values(
-			["playground-key-1", "playground-key-2"].map((apiKeyId, index) => ({
+			[0, 1].map((index) => ({
 				id: `playground-log-${index + 1}`,
 				requestId: `playground-log-${index + 1}`,
 				createdAt: today,
 				updatedAt: today,
 				organizationId: "test-org-id",
 				projectId: "test-project-id",
-				apiKeyId,
+				apiKeyId: "playground-key",
 				duration: 100,
 				requestedModel: "gpt-4",
 				requestedProvider: "openai",
@@ -436,18 +426,18 @@ describe("activity endpoint", () => {
 					}>;
 				}) => row.apiKeyBreakdown,
 			)
-			.filter((entry: { id: string }) => entry.id === "playground");
+			.filter((entry: { id: string }) => entry.id === "playground-key");
 
 		expect(playgroundEntries).toHaveLength(1);
 		expect(playgroundEntries[0]).toMatchObject({
-			id: "playground",
+			id: "playground-key",
 			description: "Playground",
 			requestCount: 2,
 		});
 		expect(playgroundEntries[0].cost).toBeCloseTo(0.5, 5);
 
 		const filteredResponse = await app.request(
-			"/activity?days=7&projectId=test-project-id&groupBy=apiKey&apiKeyId=playground",
+			"/activity?days=7&projectId=test-project-id&groupBy=apiKey&apiKeyId=playground-key",
 			{ headers: { Cookie: token } },
 		);
 		expect(filteredResponse.status).toBe(200);
@@ -463,7 +453,7 @@ describe("activity endpoint", () => {
 		);
 		expect(filteredEntries).toHaveLength(1);
 		expect(filteredEntries[0]).toMatchObject({
-			id: "playground",
+			id: "playground-key",
 			requestCount: 2,
 		});
 		expect(filteredEntries[0].cost).toBeCloseTo(0.5, 5);

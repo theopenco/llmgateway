@@ -200,7 +200,6 @@ export default function RealtimePageClient({
 	} = useVoiceCall({
 		model: selectedModel || null,
 		voice: voice || null,
-		projectId: selectedProject?.id ?? null,
 		// Realtime mappings are already filtered to the active ones, so the first
 		// mapping is the provider the gateway will pin the session to.
 		provider: selectedMapping?.providerId ?? null,

@@ -22,6 +22,7 @@ import {
 	getTableName,
 	isNotNull,
 	isNull,
+	ne,
 	tables,
 } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
@@ -35,6 +36,7 @@ import {
 const legacyApiKeyFilter = and(
 	isNotNull(tables.apiKey.token),
 	isNull(tables.apiKey.tokenHash),
+	ne(tables.apiKey.keyType, "platform_publishable"),
 );
 
 async function main(): Promise<void> {

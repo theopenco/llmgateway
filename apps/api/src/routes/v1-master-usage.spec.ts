@@ -412,69 +412,48 @@ describe("GET /v1/master/usage", () => {
 		});
 	});
 
-	test("rolls playground keys into one api key group", async () => {
-		await db.insert(tables.apiKey).values([
-			{
-				id: "playground-key-1",
-				token: "playground-token-1",
-				projectId: "project-1-id",
-				description: "Auto-generated playground key",
-				kind: "playground",
-				createdBy: "test-user-id",
-			},
-			{
-				id: "playground-key-2",
-				token: "playground-token-2",
-				projectId: "project-1-id",
-				description: "Auto-generated playground key",
-				kind: "playground",
-				createdBy: "test-user-id",
-			},
-		]);
-		await db.insert(apiKeyHourlyModelStats).values([
+	test("reports playground usage under its stable api key id", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "playground-key",
+			token: "playground-token",
+			projectId: "project-1-id",
+			description: "Playground",
+			kind: "playground",
+			createdBy: "test-user-id",
+		});
+		await db.insert(apiKeyHourlyModelStats).values(
 			statsRow({
-				id: "stat-playground-1",
-				apiKeyId: "playground-key-1",
+				id: "stat-playground",
+				apiKeyId: "playground-key",
 				projectId: "project-1-id",
 				hour: "2026-03-01T10:00:00.000Z",
 				usedModel: "gpt-5.6",
 				usedProvider: "openai",
-				requestCount: 2,
-				cost: 3,
-				totalTokens: 30,
+				requestCount: 6,
+				cost: 8,
+				totalTokens: 80,
 			}),
-			statsRow({
-				id: "stat-playground-2",
-				apiKeyId: "playground-key-2",
-				projectId: "project-1-id",
-				hour: "2026-03-01T10:00:00.000Z",
-				usedModel: "gpt-5.6",
-				usedProvider: "openai",
-				requestCount: 4,
-				cost: 5,
-				totalTokens: 50,
-			}),
-		]);
+		);
 
 		const body = await fetchJson("granularity=total&groupBy=apiKey");
 		const playgroundRows = body.rows.filter(
-			(row) => row.apiKeyId === "playground",
+			(row) => row.apiKeyId === "playground-key",
 		);
 
 		expect(playgroundRows).toHaveLength(1);
 		expect(playgroundRows[0]).toMatchObject({
-			apiKeyId: "playground",
+			apiKeyId: "playground-key",
 			apiKeyName: "Playground",
 			requestCount: 6,
 			cost: 8,
 		});
 
 		const filtered = await fetchJson(
-			"granularity=total&groupBy=apiKey&apiKeyId=playground",
+			"granularity=total&groupBy=apiKey&apiKeyId=playground-key",
 		);
 		expect(filtered.rows).toHaveLength(1);
 		expect(filtered.rows[0]).toMatchObject({
-			apiKeyId: "playground",
+			apiKeyId: "playground-key",
 			apiKeyName: "Playground",
 			requestCount: 6,
 			cost: 8,

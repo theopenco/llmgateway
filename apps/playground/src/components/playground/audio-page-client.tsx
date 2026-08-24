@@ -20,7 +20,6 @@ import {
 } from "@/hooks/usePlaygroundHistory";
 import { useUser } from "@/hooks/useUser";
 import { getModelAudioConfig } from "@/lib/audio-gen";
-import { PLAYGROUND_PROJECT_HEADER } from "@/lib/constants";
 import {
 	chatPlanCreditErrorMessage,
 	isInsufficientCreditsError,
@@ -454,9 +453,6 @@ export default function AudioPageClient({
 							method: "POST",
 							headers: {
 								"Content-Type": "application/json",
-								...(selectedProject
-									? { [PLAYGROUND_PROJECT_HEADER]: selectedProject.id }
-									: {}),
 								...(noFallback ? { "x-no-fallback": "true" } : {}),
 							},
 							body: JSON.stringify({

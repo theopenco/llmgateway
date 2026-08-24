@@ -1,9 +1,7 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
-import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { PLAYGROUND_ANALYTICS_KEY } from "@/lib/api-key-analytics.js";
 import {
 	assertEnterpriseForIpCidrRule,
 	createIamRuleSchema,
@@ -45,6 +43,16 @@ export function isPlaygroundApiKey(apiKey: {
 	kind: "regular" | "playground";
 }): boolean {
 	return apiKey.kind === "playground";
+}
+
+function assertApiKeyIsUserManaged(apiKey: {
+	kind: "regular" | "playground";
+}): void {
+	if (isPlaygroundApiKey(apiKey)) {
+		throw new HTTPException(403, {
+			message: "The playground API key is managed automatically.",
+		});
+	}
 }
 
 type ApiKeyRecord = InferSelectModel<typeof tables.apiKey>;
@@ -1292,57 +1300,30 @@ keysApi.openapi(list, async (c) => {
 
 	const shouldFilterByCreator = filter === "mine";
 
-	// Get regular keys plus the playground rows needed for the project-level
-	// virtual usage rollup. Never return the underlying playground credentials.
-	const [fetchedApiKeys, playgroundKeys] = await Promise.all([
-		db.query.apiKey.findMany({
-			where: {
-				projectId: {
-					in: projectId ? [projectId] : projectIds,
-				},
-				// Hide platform and LLM SDK aggregate keys from the dashboard —
-				// only show developer-created keys.
-				keyType: { eq: "user" },
-				kind: { ne: "playground" },
-				...(shouldFilterByCreator && {
-					createdBy: {
-						eq: user.id,
-					},
-				}),
+	const fetchedApiKeys = await db.query.apiKey.findMany({
+		where: {
+			projectId: {
+				in: projectId ? [projectId] : projectIds,
 			},
-			with: {
-				iamRules: true,
-				creator: {
-					columns: {
-						id: true,
-						name: true,
-						email: true,
-					},
+			// Hide platform and LLM SDK aggregate keys from the dashboard.
+			keyType: { eq: "user" },
+			...(shouldFilterByCreator && {
+				createdBy: {
+					eq: user.id,
+				},
+			}),
+		},
+		with: {
+			iamRules: true,
+			creator: {
+				columns: {
+					id: true,
+					name: true,
+					email: true,
 				},
 			},
-		}),
-		projectId
-			? db.query.apiKey.findMany({
-					where: {
-						projectId: { eq: projectId },
-						keyType: { eq: "user" },
-						kind: { eq: "playground" },
-						status: { ne: "deleted" },
-						...(shouldFilterByCreator || developerProjectIds.has(projectId)
-							? {
-									createdBy: { eq: user.id },
-								}
-							: {}),
-					},
-					columns: {
-						createdAt: true,
-						updatedAt: true,
-						usage: true,
-						currentPeriodUsage: true,
-					},
-				})
-			: Promise.resolve([]),
-	]);
+		},
+	});
 
 	const apiKeys = fetchedApiKeys.filter(
 		(key) =>
@@ -1394,54 +1375,16 @@ keysApi.openapi(list, async (c) => {
 	}
 
 	const ownerBudgets = await resolveApiKeyOwnerBudgets(apiKeys, userOrgs);
-	const virtualPlaygroundKey: z.infer<typeof listedApiKeySchema> | null =
-		projectId && playgroundKeys.length > 0
-			? {
-					id: PLAYGROUND_ANALYTICS_KEY,
-					createdAt: new Date(
-						Math.min(...playgroundKeys.map((key) => key.createdAt.getTime())),
-					),
-					updatedAt: new Date(
-						Math.max(...playgroundKeys.map((key) => key.updatedAt.getTime())),
-					),
-					description: "Playground keys (virtual)",
-					kind: "playground",
-					status: "active",
-					usageLimit: null,
-					usage: playgroundKeys
-						.reduce((sum, key) => sum.plus(key.usage), new Decimal(0))
-						.toString(),
-					periodUsageLimit: null,
-					periodUsageDurationValue: null,
-					periodUsageDurationUnit: null,
-					currentPeriodUsage: playgroundKeys
-						.reduce(
-							(sum, key) => sum.plus(key.currentPeriodUsage),
-							new Decimal(0),
-						)
-						.toString(),
-					currentPeriodStartedAt: null,
-					currentPeriodResetAt: null,
-					expiresAt: null,
-					projectId,
-					createdBy: user.id,
-					creator: null,
-					iamRules: [],
-					maskedToken: "No API key",
-					ownerBudget: null,
-				}
-			: null;
 
 	return c.json({
-		apiKeys: [
-			...apiKeys.map((key) => ({
-				...serializeApiKey(key),
-				maskedToken: getMaskedApiKey(key),
-				token: undefined,
-				ownerBudget: ownerBudgets.get(key.id) ?? null,
-			})),
-			...(virtualPlaygroundKey ? [virtualPlaygroundKey] : []),
-		],
+		apiKeys: apiKeys.map((key) => ({
+			...serializeApiKey(key),
+			maskedToken: getMaskedApiKey(key),
+			token: undefined,
+			ownerBudget: isPlaygroundApiKey(key)
+				? null
+				: (ownerBudgets.get(key.id) ?? null),
+		})),
 		planLimits: projectId
 			? {
 					currentCount,
@@ -1734,19 +1677,7 @@ keysApi.openapi(updateStatus, async (c) => {
 		});
 	}
 
-	// Prevent deactivation of the auto-generated playground key
-	if (isPlaygroundApiKey(apiKey) && status === "inactive") {
-		throw new HTTPException(403, {
-			message:
-				"Cannot deactivate the playground API key. This key is required for the playground to function.",
-		});
-	}
-
-	if (isPlaygroundApiKey(apiKey) && descriptionInput !== undefined) {
-		throw new HTTPException(403, {
-			message: "Cannot rename the playground API key.",
-		});
-	}
+	assertApiKeyIsUserManaged(apiKey);
 
 	// Check user role and permissions
 	const projectOrgId = apiKey.project.organizationId;
@@ -1961,6 +1892,8 @@ keysApi.openapi(roll, async (c) => {
 		});
 	}
 
+	assertApiKeyIsUserManaged(apiKey);
+
 	// Only developer keys are rolled here; platform/embeddable keys use a
 	// different token format and lifecycle.
 	if (apiKey.keyType !== "user") {
@@ -2131,6 +2064,8 @@ keysApi.openapi(updateUsageLimit, async (c) => {
 			message: "Project not found for API key",
 		});
 	}
+
+	assertApiKeyIsUserManaged(apiKey);
 
 	// Check user role and permissions
 	const projectOrgId = apiKey.project.organizationId;
@@ -2321,6 +2256,8 @@ keysApi.openapi(createIamRule, async (c) => {
 			message: "Project not found for API key",
 		});
 	}
+
+	assertApiKeyIsUserManaged(apiKey);
 
 	// Check user role and permissions
 	const projectOrgId = apiKey.project.organizationId;
@@ -2563,6 +2500,8 @@ keysApi.openapi(updateIamRule, async (c) => {
 		});
 	}
 
+	assertApiKeyIsUserManaged(apiKey);
+
 	// Check user role and permissions
 	const projectOrgId = apiKey.project.organizationId;
 	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
@@ -2747,6 +2686,8 @@ keysApi.openapi(deleteIamRule, async (c) => {
 			message: "Project not found for API key",
 		});
 	}
+
+	assertApiKeyIsUserManaged(apiKey);
 
 	// Check user role and permissions
 	const projectOrgId = apiKey.project.organizationId;

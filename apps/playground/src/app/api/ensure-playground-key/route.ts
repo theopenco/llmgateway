@@ -3,8 +3,6 @@ import { NextResponse } from "next/server";
 
 import { getConfig } from "@/lib/config-server";
 import {
-	getPlaygroundKeyCookieName,
-	getPlaygroundKeyCookieNamesToRemove,
 	PLAYGROUND_KEY_COOKIE_MAX_AGE,
 	PLAYGROUND_KEY_COOKIE_NAME,
 } from "@/lib/constants";
@@ -33,13 +31,12 @@ export async function POST(req: NextRequest) {
 		: sessionCookie
 			? `${key}=${sessionCookie.value}`
 			: "";
-	const scopedCookieName = getPlaygroundKeyCookieName(projectId);
-	const playgroundCookie =
-		cookieStore.get(scopedCookieName) ??
-		cookieStore.get(PLAYGROUND_KEY_COOKIE_NAME);
+	const playgroundCookie = cookieStore.get(PLAYGROUND_KEY_COOKIE_NAME);
 	const cookieHeader = [
 		authCookie,
-		playgroundCookie ? `${scopedCookieName}=${playgroundCookie.value}` : "",
+		playgroundCookie
+			? `${PLAYGROUND_KEY_COOKIE_NAME}=${playgroundCookie.value}`
+			: "",
 	]
 		.filter(Boolean)
 		.join("; ");
@@ -73,13 +70,6 @@ export async function POST(req: NextRequest) {
 			path: "/",
 			maxAge,
 		} as const;
-		for (const name of getPlaygroundKeyCookieNamesToRemove(
-			cookieStore.getAll().map((cookie) => cookie.name),
-			projectId,
-		)) {
-			response.cookies.set(name, "", { ...options, maxAge: 0 });
-		}
-		response.cookies.set(scopedCookieName, data.token, options);
 		response.cookies.set(PLAYGROUND_KEY_COOKIE_NAME, data.token, options);
 	}
 	return response;

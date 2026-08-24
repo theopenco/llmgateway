@@ -26,7 +26,6 @@ import { EscapeSidebar } from "@/components/playground/escape-sidebar";
 import { Button } from "@/components/ui/button";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { useUser } from "@/hooks/useUser";
-import { PLAYGROUND_PROJECT_HEADER } from "@/lib/constants";
 import { useApi } from "@/lib/fetch-client";
 import {
 	ESCAPE_MODEL_COOKIE,
@@ -288,12 +287,7 @@ export function EscapeClient({
 		try {
 			const response = await fetch("/api/escape/move", {
 				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					...(selectedProject
-						? { [PLAYGROUND_PROJECT_HEADER]: selectedProject.id }
-						: {}),
-				},
+				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					levelId,
 					moves: stateRef.current.moves,

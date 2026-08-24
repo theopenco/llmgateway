@@ -1,11 +1,9 @@
-import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import { getCookie, setCookie } from "hono/cookie";
 
 import { getOrCreateChatOrg } from "@/utils/personal-org.js";
 
-import { cdb, db, eq, tables, shortid } from "@llmgateway/db";
+import { and, asc, cdb, db, eq, sql, tables, shortid } from "@llmgateway/db";
 import {
-	getPlaygroundKeyCookieName,
-	getPlaygroundKeyCookieNamesToRemove,
 	PLAYGROUND_KEY_COOKIE_MAX_AGE,
 	PLAYGROUND_KEY_COOKIE_NAME,
 } from "@llmgateway/shared";
@@ -18,13 +16,9 @@ import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 import type { ServerTypes } from "@/vars.js";
 import type { Context } from "hono";
 
-export {
-	getPlaygroundKeyCookieName,
-	PLAYGROUND_KEY_COOKIE_MAX_AGE,
-	PLAYGROUND_KEY_COOKIE_NAME,
-};
+export { PLAYGROUND_KEY_COOKIE_MAX_AGE, PLAYGROUND_KEY_COOKIE_NAME };
 
-export const PLAYGROUND_KEY_DESCRIPTION = "Auto-generated playground key";
+export const PLAYGROUND_KEY_DESCRIPTION = "Playground";
 const PLAYGROUND_KEY_TTL_MS = PLAYGROUND_KEY_COOKIE_MAX_AGE * 1000;
 
 interface PlaygroundApiKeyResult {
@@ -39,78 +33,108 @@ export async function getOrCreatePlaygroundApiKey(
 	userId: string,
 	existingToken?: string,
 ): Promise<PlaygroundApiKeyResult> {
-	if (existingToken) {
-		const matchingKey = await db.query.apiKey.findFirst({
-			where: {
-				projectId: { eq: projectId },
-				createdBy: { eq: userId },
-				status: { eq: "active" },
-				keyType: { eq: "user" },
-				kind: { eq: "playground" },
-				OR: [
-					{ token: { eq: existingToken } },
-					{ tokenHash: { in: getApiKeyFingerprints(existingToken) } },
-				],
-			},
-		});
+	return await cdb.transaction(async (tx) => {
+		await tx.execute(
+			sql`SELECT ${tables.project.id} FROM ${tables.project} WHERE ${tables.project.id} = ${projectId} FOR UPDATE`,
+		);
+
+		const [key] = await tx
+			.select()
+			.from(tables.apiKey)
+			.where(
+				and(
+					eq(tables.apiKey.projectId, projectId),
+					eq(tables.apiKey.status, "active"),
+					eq(tables.apiKey.keyType, "user"),
+					eq(tables.apiKey.kind, "playground"),
+				),
+			)
+			.orderBy(asc(tables.apiKey.createdAt))
+			.limit(1);
+
+		const now = Date.now();
+		const tokenMatches =
+			key &&
+			existingToken &&
+			(key.token === existingToken ||
+				(key.tokenHash !== null &&
+					getApiKeyFingerprints(existingToken).includes(key.tokenHash)));
 
 		if (
-			matchingKey &&
-			(!matchingKey.expiresAt || matchingKey.expiresAt.getTime() > Date.now())
+			key &&
+			existingToken &&
+			tokenMatches &&
+			(!key.expiresAt || key.expiresAt.getTime() > now)
 		) {
-			const isLegacyKey = matchingKey.token !== null;
-			const expiresAt =
-				matchingKey.expiresAt ?? new Date(Date.now() + PLAYGROUND_KEY_TTL_MS);
-			if (isLegacyKey || !matchingKey.expiresAt) {
-				await cdb
+			const isLegacyKey = key.token !== null;
+			const expiresAt = key.expiresAt ?? new Date(now + PLAYGROUND_KEY_TTL_MS);
+			const shouldUpdate =
+				isLegacyKey ||
+				!key.expiresAt ||
+				key.description !== PLAYGROUND_KEY_DESCRIPTION;
+
+			if (shouldUpdate) {
+				await tx
 					.update(tables.apiKey)
 					.set({
 						...(isLegacyKey ? hashApiKeyForStorage(existingToken) : {}),
+						description: PLAYGROUND_KEY_DESCRIPTION,
 						expiresAt,
 					})
-					.where(eq(tables.apiKey.id, matchingKey.id));
+					.where(eq(tables.apiKey.id, key.id));
 			}
 
 			return {
 				token: existingToken,
 				issued: false,
-				cookieNeedsRefresh: isLegacyKey || !matchingKey.expiresAt,
+				cookieNeedsRefresh: isLegacyKey || !key.expiresAt,
 				cookieMaxAge: Math.max(
 					1,
 					Math.min(
 						PLAYGROUND_KEY_COOKIE_MAX_AGE,
-						Math.floor((expiresAt.getTime() - Date.now()) / 1000),
+						Math.floor((expiresAt.getTime() - now) / 1000),
 					),
 				),
 			};
 		}
-	}
 
-	const prefix =
-		process.env.NODE_ENV === "development" ? "llmgdev_" : "llmgtwy_";
-	const token = prefix + shortid(40);
+		const prefix =
+			process.env.NODE_ENV === "development" ? "llmgdev_" : "llmgtwy_";
+		const token = prefix + shortid(40);
+		const expiresAt = new Date(now + PLAYGROUND_KEY_TTL_MS);
 
-	await cdb.insert(tables.apiKey).values({
-		...hashApiKeyForStorage(token),
-		projectId,
-		description: PLAYGROUND_KEY_DESCRIPTION,
-		kind: "playground",
-		expiresAt: new Date(Date.now() + PLAYGROUND_KEY_TTL_MS),
-		usageLimit: null,
-		createdBy: userId,
+		if (key) {
+			await tx
+				.update(tables.apiKey)
+				.set({
+					...hashApiKeyForStorage(token),
+					description: PLAYGROUND_KEY_DESCRIPTION,
+					expiresAt,
+				})
+				.where(eq(tables.apiKey.id, key.id));
+		} else {
+			await tx.insert(tables.apiKey).values({
+				...hashApiKeyForStorage(token),
+				projectId,
+				description: PLAYGROUND_KEY_DESCRIPTION,
+				kind: "playground",
+				expiresAt,
+				usageLimit: null,
+				createdBy: userId,
+			});
+		}
+
+		return {
+			token,
+			issued: true,
+			cookieNeedsRefresh: true,
+			cookieMaxAge: PLAYGROUND_KEY_COOKIE_MAX_AGE,
+		};
 	});
-
-	return {
-		token,
-		issued: true,
-		cookieNeedsRefresh: true,
-		cookieMaxAge: PLAYGROUND_KEY_COOKIE_MAX_AGE,
-	};
 }
 
 export function setPlaygroundKeyCookie(
 	c: Context<ServerTypes>,
-	projectId: string,
 	token: string,
 	maxAge: number,
 ): void {
@@ -122,13 +146,6 @@ export function setPlaygroundKeyCookie(
 		maxAge,
 	} as const;
 
-	for (const name of getPlaygroundKeyCookieNamesToRemove(
-		Object.keys(getCookie(c)),
-		projectId,
-	)) {
-		deleteCookie(c, name, { path: "/" });
-	}
-	setCookie(c, getPlaygroundKeyCookieName(projectId), token, options);
 	setCookie(c, PLAYGROUND_KEY_COOKIE_NAME, token, options);
 }
 
@@ -165,14 +182,13 @@ export async function resolvePlaygroundToken(
 			})
 			.returning();
 	}
-	const scopedToken = getCookie(c, getPlaygroundKeyCookieName(project.id));
 	const result = await getOrCreatePlaygroundApiKey(
 		project.id,
 		user.id,
-		scopedToken ?? getCookie(c, PLAYGROUND_KEY_COOKIE_NAME),
+		getCookie(c, PLAYGROUND_KEY_COOKIE_NAME),
 	);
-	if (result.cookieNeedsRefresh || !scopedToken) {
-		setPlaygroundKeyCookie(c, project.id, result.token, result.cookieMaxAge);
+	if (result.cookieNeedsRefresh) {
+		setPlaygroundKeyCookie(c, result.token, result.cookieMaxAge);
 	}
 	return result.token;
 }

@@ -321,11 +321,8 @@ export {
 export { parseUsedModel, regionFromUsedModel } from "./used-model.js";
 
 export {
-	getPlaygroundKeyCookieName,
-	getPlaygroundKeyCookieNamesToRemove,
 	PLAYGROUND_KEY_COOKIE_MAX_AGE,
 	PLAYGROUND_KEY_COOKIE_NAME,
-	PLAYGROUND_SCOPED_COOKIE_LIMIT,
 } from "./playground-key-cookie.js";
 
 export {

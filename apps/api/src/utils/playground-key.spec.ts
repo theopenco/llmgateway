@@ -6,12 +6,11 @@ import { createTestUser, deleteAll } from "@/testing.js";
 import {
 	getOrCreatePlaygroundApiKey,
 	getGatewayUrl,
-	getPlaygroundKeyCookieName,
 	PLAYGROUND_KEY_COOKIE_NAME,
 	resolvePlaygroundToken,
 } from "@/utils/playground-key.js";
 
-import { db, eq, inArray, tables } from "@llmgateway/db";
+import { and, db, eq, tables } from "@llmgateway/db";
 import { getApiKeyFingerprints } from "@llmgateway/shared/api-key-hash";
 
 import type { ServerTypes } from "@/vars.js";
@@ -67,17 +66,25 @@ describe("resolvePlaygroundToken", () => {
 		await deleteAll();
 	});
 
-	test("issues independent session keys and preserves existing cookies", async () => {
+	test("rotates one stable key and invalidates another browser", async () => {
 		const firstResponse = await resolver.request("/");
 		const firstBody = await firstResponse.json();
 		const firstCookie = firstResponse.headers.get("set-cookie");
-		if (!firstCookie) {
-			throw new Error("Playground key cookie was not set");
-		}
 		expect(firstCookie).toContain(
 			`${PLAYGROUND_KEY_COOKIE_NAME}=${firstBody.token}`,
 		);
 		expect(firstCookie).toContain("HttpOnly");
+
+		const firstKey = await db.query.apiKey.findFirst({
+			where: { kind: { eq: "playground" } },
+		});
+		if (!firstKey) {
+			throw new Error("Playground key was not created");
+		}
+		expect(firstKey?.expiresAt?.getTime()).toBeGreaterThan(Date.now());
+		expect(firstKey?.expiresAt?.getTime()).toBeLessThanOrEqual(
+			Date.now() + NINETY_DAYS_MS,
+		);
 
 		const secondResponse = await resolver.request("/");
 		const secondBody = await secondResponse.json();
@@ -86,118 +93,73 @@ describe("resolvePlaygroundToken", () => {
 			`${PLAYGROUND_KEY_COOKIE_NAME}=${secondBody.token}`,
 		);
 
-		const chatOrg = await db.query.organization.findFirst({
-			where: { kind: { eq: "chat" } },
+		const secondKey = await db.query.apiKey.findFirst({
+			where: { kind: { eq: "playground" } },
 		});
-		if (!chatOrg) {
-			throw new Error("Chat organization was not created");
-		}
-		const project = await db.query.project.findFirst({
-			where: { organizationId: { eq: chatOrg.id } },
-		});
-		if (!project) {
-			throw new Error("Chat project was not created");
-		}
-		const keys = await db.query.apiKey.findMany({
-			where: {
-				projectId: { eq: project.id },
-				kind: { eq: "playground" },
-				status: { eq: "active" },
+		expect(secondKey?.id).toBe(firstKey?.id);
+		expect(
+			await db.$count(tables.apiKey, eq(tables.apiKey.kind, "playground")),
+		).toBe(1);
+		expect(firstKey?.createdBy).toBe(secondKey?.createdBy);
+
+		const staleResponse = await resolver.request("/", {
+			headers: {
+				Cookie: `${PLAYGROUND_KEY_COOKIE_NAME}=${firstBody.token}`,
 			},
 		});
-		expect(keys).toHaveLength(2);
-		expect(firstCookie).toContain(
-			`${getPlaygroundKeyCookieName(project.id)}=${firstBody.token}`,
+		const staleBody = await staleResponse.json();
+		expect(staleBody.token).not.toBe(firstBody.token);
+		expect(staleBody.token).not.toBe(secondBody.token);
+		const rotatedKey = await db.query.apiKey.findFirst({
+			where: { id: { eq: firstKey.id } },
+		});
+		expect(rotatedKey?.tokenHash).not.toBeNull();
+		expect(getApiKeyFingerprints(staleBody.token)).toContain(
+			rotatedKey?.tokenHash,
 		);
-		expect(
-			keys.every(
-				(key) =>
-					key.expiresAt &&
-					key.expiresAt.getTime() > Date.now() &&
-					key.expiresAt.getTime() <= Date.now() + NINETY_DAYS_MS,
-			),
-		).toBe(true);
-		expect(
-			keys.some(
-				(key) =>
-					key.tokenHash !== null &&
-					getApiKeyFingerprints(firstBody.token).includes(key.tokenHash),
-			),
-		).toBe(true);
-		expect(
-			keys.some(
-				(key) =>
-					key.tokenHash !== null &&
-					getApiKeyFingerprints(secondBody.token).includes(key.tokenHash),
-			),
-		).toBe(true);
+		expect(getApiKeyFingerprints(firstBody.token)).not.toContain(
+			rotatedKey?.tokenHash,
+		);
+		expect(getApiKeyFingerprints(secondBody.token)).not.toContain(
+			rotatedKey?.tokenHash,
+		);
 
 		const reusedResponse = await resolver.request("/", {
-			headers: { Cookie: firstCookie.split(";", 1)[0] },
+			headers: {
+				Cookie: `${PLAYGROUND_KEY_COOKIE_NAME}=${staleBody.token}`,
+			},
 		});
-		expect(await reusedResponse.json()).toEqual({ token: firstBody.token });
+		expect(await reusedResponse.json()).toEqual({ token: staleBody.token });
 		expect(reusedResponse.headers.get("set-cookie")).toBeNull();
-
-		const keyCount = await db.$count(
-			tables.apiKey,
-			eq(tables.apiKey.projectId, project.id),
-		);
-		expect(keyCount).toBe(2);
 	});
 
-	test("does not reuse another user's playground key", async () => {
-		await resolver.request("/");
-		const chatOrg = await db.query.organization.findFirst({
-			where: { kind: { eq: "chat" } },
-		});
-		if (!chatOrg) {
-			throw new Error("Chat organization was not created");
-		}
-		const project = await db.query.project.findFirst({
-			where: { organizationId: { eq: chatOrg.id } },
-		});
+	test("serializes concurrent first-use requests into one row", async () => {
+		const project = await db.query.project.findFirst();
 		if (!project) {
-			throw new Error("Chat project was not created");
+			throw new Error("Test project was not created");
 		}
 
-		await db.insert(tables.user).values({
-			id: "other-playground-user",
-			name: "Other Playground User",
-			email: "other-playground@example.com",
-			emailVerified: true,
-		});
-		await db.insert(tables.apiKey).values({
-			token: "other-playground-token",
-			projectId: project.id,
-			description: "Session key",
-			kind: "playground",
-			createdBy: "other-playground-user",
-		});
+		const [firstResult, secondResult] = await Promise.all([
+			getOrCreatePlaygroundApiKey(project.id, "test-user-id"),
+			getOrCreatePlaygroundApiKey(project.id, "test-user-id"),
+		]);
 
-		const result = await getOrCreatePlaygroundApiKey(
-			project.id,
-			"test-user-id",
-			"other-playground-token",
-		);
-		expect(result.issued).toBe(true);
-		expect(result.token).not.toBe("other-playground-token");
+		expect(firstResult.token).not.toBe(secondResult.token);
+		expect(
+			await db.$count(
+				tables.apiKey,
+				and(
+					eq(tables.apiKey.projectId, project.id),
+					eq(tables.apiKey.kind, "playground"),
+					eq(tables.apiKey.status, "active"),
+				),
+			),
+		).toBe(1);
 	});
 
-	test("migrates a legacy session key without changing its token", async () => {
+	test("migrates a matching plaintext key without changing its token", async () => {
 		const firstResponse = await resolver.request("/");
 		const firstBody = await firstResponse.json();
-		const chatOrg = await db.query.organization.findFirst({
-			where: { kind: { eq: "chat" } },
-		});
-		if (!chatOrg) {
-			throw new Error("Chat organization was not created");
-		}
-		const project = await db.query.project.findFirst({
-			where: { organizationId: { eq: chatOrg.id } },
-		});
-		if (!project) {
-			throw new Error("Chat project was not created");
-		}
 		const [tokenHash] = getApiKeyFingerprints(firstBody.token);
 		const key = await db.query.apiKey.findFirst({
 			where: { tokenHash: { eq: tokenHash } },
@@ -212,18 +174,19 @@ describe("resolvePlaygroundToken", () => {
 				token: firstBody.token,
 				tokenHash: null,
 				tokenMasked: null,
+				description: "Auto-generated playground key",
 				expiresAt: null,
 			})
 			.where(eq(tables.apiKey.id, key.id));
 
 		const response = await resolver.request("/", {
 			headers: {
-				Cookie: `${getPlaygroundKeyCookieName(project.id)}=${firstBody.token}`,
+				Cookie: `${PLAYGROUND_KEY_COOKIE_NAME}=${firstBody.token}`,
 			},
 		});
 		expect(await response.json()).toEqual({ token: firstBody.token });
 		expect(response.headers.get("set-cookie")).toContain(
-			`${getPlaygroundKeyCookieName(project.id)}=${firstBody.token}`,
+			`${PLAYGROUND_KEY_COOKIE_NAME}=${firstBody.token}`,
 		);
 
 		const migrated = await db.query.apiKey.findFirst({
@@ -232,70 +195,45 @@ describe("resolvePlaygroundToken", () => {
 		expect(migrated?.token).toBeNull();
 		expect(migrated?.tokenHash).toBe(tokenHash);
 		expect(migrated?.tokenMasked).not.toBeNull();
+		expect(migrated?.description).toBe("Playground");
 		expect(migrated?.expiresAt?.getTime()).toBeGreaterThan(Date.now());
 	});
 
-	test("reuses project-scoped cookies when switching projects", async () => {
-		const membership = await db.query.userOrganization.findFirst({
-			where: { userId: { eq: "test-user-id" } },
+	test("rotates an expired key without changing its id", async () => {
+		const firstResponse = await resolver.request("/");
+		const firstBody = await firstResponse.json();
+		const [firstHash] = getApiKeyFingerprints(firstBody.token);
+		const firstKey = await db.query.apiKey.findFirst({
+			where: { tokenHash: { eq: firstHash } },
 		});
-		if (!membership) {
-			throw new Error("Default organization membership was not created");
-		}
-		const projects = await db
-			.insert(tables.project)
-			.values([
-				{
-					name: "Playground Project A",
-					organizationId: membership.organizationId,
-				},
-				{
-					name: "Playground Project B",
-					organizationId: membership.organizationId,
-				},
-			])
-			.returning();
-		const [projectA, projectB] = projects;
-		if (!projectA || !projectB) {
-			throw new Error("Playground projects were not created");
+		if (!firstKey) {
+			throw new Error("Playground key was not created");
 		}
 
-		const ensure = async (projectId: string, cookie = authCookie) => {
-			const response = await app.request("/playground/ensure-key", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Cookie: cookie,
-				},
-				body: JSON.stringify({ projectId }),
-			});
-			expect(response.status).toBe(200);
-			return {
-				body: await response.json(),
-				cookie: response.headers.get("set-cookie"),
-			};
-		};
+		await db
+			.update(tables.apiKey)
+			.set({ expiresAt: new Date(Date.now() - 1000) })
+			.where(eq(tables.apiKey.id, firstKey.id));
 
-		const firstA = await ensure(projectA.id);
-		const firstB = await ensure(projectB.id);
-		const scopedACookie = `${getPlaygroundKeyCookieName(projectA.id)}=${firstA.body.token}`;
-		const secondA = await ensure(
-			projectA.id,
-			`${authCookie}; ${scopedACookie}`,
+		const replacement = await resolver.request("/", {
+			headers: {
+				Cookie: `${PLAYGROUND_KEY_COOKIE_NAME}=${firstBody.token}`,
+			},
+		});
+		const replacementBody = await replacement.json();
+		const [replacementHash] = getApiKeyFingerprints(replacementBody.token);
+		const replacementKey = await db.query.apiKey.findFirst({
+			where: { tokenHash: { eq: replacementHash } },
+		});
+
+		expect(replacementBody.token).not.toBe(firstBody.token);
+		expect(replacementKey?.id).toBe(firstKey.id);
+		expect(replacement.headers.get("set-cookie")).toContain(
+			`${PLAYGROUND_KEY_COOKIE_NAME}=${replacementBody.token}`,
 		);
-
-		expect(firstA.cookie).toContain(scopedACookie);
-		expect(firstB.cookie).toContain(getPlaygroundKeyCookieName(projectB.id));
-		expect(secondA.body.token).toBe(firstA.body.token);
-		expect(
-			await db.$count(
-				tables.apiKey,
-				inArray(tables.apiKey.projectId, [projectA.id, projectB.id]),
-			),
-		).toBe(2);
 	});
 
-	test("keeps restored cookies within the key expiry", async () => {
+	test("keeps a restored cookie within the stored expiry", async () => {
 		const membership = await db.query.userOrganization.findFirst({
 			where: { userId: { eq: "test-user-id" } },
 		});
@@ -309,9 +247,6 @@ describe("resolvePlaygroundToken", () => {
 				organizationId: membership.organizationId,
 			})
 			.returning();
-		if (!project) {
-			throw new Error("Playground project was not created");
-		}
 
 		const firstResponse = await app.request("/playground/ensure-key", {
 			method: "POST",
@@ -338,9 +273,6 @@ describe("resolvePlaygroundToken", () => {
 			body: JSON.stringify({ projectId: project.id }),
 		});
 		const refreshedBody = await refreshedResponse.json();
-		const refreshedKey = await db.query.apiKey.findFirst({
-			where: { tokenHash: { eq: tokenHash } },
-		});
 
 		expect(refreshedResponse.status).toBe(200);
 		expect(refreshedBody.token).toBe(firstBody.token);
@@ -349,26 +281,21 @@ describe("resolvePlaygroundToken", () => {
 		expect(refreshedResponse.headers.get("set-cookie")).toContain(
 			`Max-Age=${refreshedBody.expiresIn}`,
 		);
-		expect(refreshedKey?.expiresAt?.getTime()).toBe(expiresAt.getTime());
 	});
 
-	test("expires sessions without consuming developer-key quota", async () => {
+	test("does not consume the developer-key quota", async () => {
 		for (let index = 0; index < 5; index++) {
-			const response = await resolver.request("/");
-			expect(response.headers.get("set-cookie")).toContain(
-				PLAYGROUND_KEY_COOKIE_NAME,
-			);
+			await resolver.request("/");
 		}
 
 		const chatOrg = await db.query.organization.findFirst({
 			where: { kind: { eq: "chat" } },
 		});
-		if (!chatOrg) {
-			throw new Error("Chat organization was not created");
-		}
-		const project = await db.query.project.findFirst({
-			where: { organizationId: { eq: chatOrg.id } },
-		});
+		const project = chatOrg
+			? await db.query.project.findFirst({
+					where: { organizationId: { eq: chatOrg.id } },
+				})
+			: null;
 		if (!project) {
 			throw new Error("Chat project was not created");
 		}
@@ -386,31 +313,37 @@ describe("resolvePlaygroundToken", () => {
 		});
 
 		expect(createResponse.status).toBe(200);
-		const body = await createResponse.json();
-		expect(body.apiKey.tokenHash).toBeUndefined();
+		expect(
+			await db.$count(tables.apiKey, eq(tables.apiKey.kind, "playground")),
+		).toBe(1);
 	});
 
-	test("replaces an expired session and resets its cookie", async () => {
+	test("preserves the original creator when another user rolls the row", async () => {
 		const firstResponse = await resolver.request("/");
 		const firstBody = await firstResponse.json();
-		const firstCookie = firstResponse.headers.get("set-cookie");
-		if (!firstCookie) {
-			throw new Error("Playground key cookie was not set");
+		const key = await db.query.apiKey.findFirst({
+			where: { kind: { eq: "playground" } },
+		});
+		if (!key) {
+			throw new Error("Playground key was not created");
 		}
 
-		const [firstHash] = getApiKeyFingerprints(firstBody.token);
-		await db
-			.update(tables.apiKey)
-			.set({ expiresAt: new Date(Date.now() - 1000) })
-			.where(eq(tables.apiKey.tokenHash, firstHash));
-
-		const replacement = await resolver.request("/", {
-			headers: { Cookie: firstCookie.split(";", 1)[0] },
+		await db.insert(tables.user).values({
+			id: "other-playground-user",
+			name: "Other Playground User",
+			email: "other-playground@example.com",
+			emailVerified: true,
 		});
-		const replacementBody = await replacement.json();
-		expect(replacementBody.token).not.toBe(firstBody.token);
-		expect(replacement.headers.get("set-cookie")).toContain(
-			`${PLAYGROUND_KEY_COOKIE_NAME}=${replacementBody.token}`,
+		const result = await getOrCreatePlaygroundApiKey(
+			key.projectId,
+			"other-playground-user",
+			`${firstBody.token}-stale`,
 		);
+		const rolled = await db.query.apiKey.findFirst({
+			where: { id: { eq: key.id } },
+		});
+
+		expect(result.issued).toBe(true);
+		expect(rolled?.createdBy).toBe(key.createdBy);
 	});
 });

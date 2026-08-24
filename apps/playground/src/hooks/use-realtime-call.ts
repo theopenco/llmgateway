@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { PLAYGROUND_PROJECT_HEADER } from "@/lib/constants";
 import {
 	computeRms,
 	floatToPcm16Base64,
@@ -76,7 +75,6 @@ const MAX_CALL_AUDIO_BYTES = 24 * 1024 * 1024;
 interface UseRealtimeCallOptions {
 	model: string | null;
 	voice: string | null;
-	projectId: string | null;
 	onCallError?: (message: string) => void;
 }
 
@@ -94,7 +92,6 @@ function readCount(value: unknown): number {
 export function useRealtimeCall({
 	model,
 	voice,
-	projectId,
 	onCallError,
 }: UseRealtimeCallOptions) {
 	const [status, setStatus] = useState<RealtimeCallStatus>("idle");
@@ -626,10 +623,7 @@ export function useRealtimeCall({
 			try {
 				const response = await fetch("/api/realtime/session", {
 					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-						...(projectId ? { [PLAYGROUND_PROJECT_HEADER]: projectId } : {}),
-					},
+					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({ model: currentModel }),
 				});
 				if (!response.ok) {
@@ -752,7 +746,7 @@ export function useRealtimeCall({
 				}
 			}
 		},
-		[failCall, handleServerEvent, model, projectId, updateStatus],
+		[failCall, handleServerEvent, model, updateStatus],
 	);
 
 	/** Clear the finished call from view. No-op while a call is in progress. */

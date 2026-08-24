@@ -66,7 +66,6 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useUser } from "@/hooks/useUser";
 import { registry } from "@/lib/canvas/registry";
 import { emptySpec, templates } from "@/lib/canvas/templates";
-import { PLAYGROUND_PROJECT_HEADER } from "@/lib/constants";
 import { canvasSuggestions, sampleSuggestions } from "@/lib/hero-suggestions";
 import {
 	CANVAS_MODEL_COOKIE,
@@ -455,12 +454,7 @@ export default function CanvasPageClient({
 			try {
 				const response = await fetch("/api/canvas/generate", {
 					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-						...(selectedProject
-							? { [PLAYGROUND_PROJECT_HEADER]: selectedProject.id }
-							: {}),
-					},
+					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({
 						prompt,
 						model: selectedModel,

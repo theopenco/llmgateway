@@ -70,7 +70,7 @@ export async function POST(req: Request) {
 	const noFallbackHeader = req.headers.get("x-no-fallback") ?? undefined;
 
 	const cookieStore = await cookies();
-	const cookieApiKey = getPlaygroundKeyForRequest(cookieStore, req);
+	const cookieApiKey = getPlaygroundKeyForRequest(cookieStore);
 	const finalApiKey = apiKey ?? headerApiKey ?? cookieApiKey;
 	if (!finalApiKey) {
 		return new Response(JSON.stringify({ error: "Missing API key" }), {

@@ -686,21 +686,9 @@ v1Master.openapi(updateApiKey, async (c) => {
 	const existing = await loadApiKeyForOrg(id, masterKey.organizationId);
 
 	if (isPlaygroundApiKey(existing)) {
-		if (
-			updates.description !== undefined &&
-			updates.description !== existing.description
-		) {
-			throw new HTTPException(403, {
-				message:
-					"Cannot rename the playground API key. This key is required for the playground to function.",
-			});
-		}
-		if (updates.status === "inactive") {
-			throw new HTTPException(403, {
-				message:
-					"Cannot deactivate the playground API key. This key is required for the playground to function.",
-			});
-		}
+		throw new HTTPException(403, {
+			message: "The playground API key is managed automatically.",
+		});
 	}
 
 	const limitUpdate: PartialApiKeyLimitConfig = {};

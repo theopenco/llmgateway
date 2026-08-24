@@ -18,7 +18,7 @@ export async function POST(req: Request) {
 	}
 
 	const cookieStore = await cookies();
-	const apiKey = getPlaygroundKeyForRequest(cookieStore, req);
+	const apiKey = getPlaygroundKeyForRequest(cookieStore);
 
 	if (!apiKey) {
 		return NextResponse.json({ error: "Missing API key" }, { status: 400 });

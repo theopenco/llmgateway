@@ -2,7 +2,7 @@
 
 import { cookies } from "next/headers";
 
-import { isPlaygroundKeyCookieName } from "@/lib/constants";
+import { PLAYGROUND_KEY_COOKIE_NAMES } from "@/lib/constants";
 
 const COOKIE_NAME = "llmgateway-last-used-project";
 
@@ -38,9 +38,7 @@ export async function clearLastUsedProjectCookiesAction(): Promise<void> {
 		}
 	}
 
-	for (const cookie of allCookies) {
-		if (isPlaygroundKeyCookieName(cookie.name)) {
-			cookieStore.delete(cookie.name);
-		}
+	for (const name of PLAYGROUND_KEY_COOKIE_NAMES) {
+		cookieStore.delete(name);
 	}
 }

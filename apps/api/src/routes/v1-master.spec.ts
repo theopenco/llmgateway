@@ -157,6 +157,30 @@ describe("v1/master cache invalidation", () => {
 		expect(body.apiKeys[0]?.id).toBe("test-api-key-id");
 	});
 
+	test("managed playground keys reject master-key mutations", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "playground-key",
+			token: "playground-token",
+			projectId: "test-project-id",
+			description: "Playground",
+			kind: "playground",
+			createdBy: "test-user-id",
+		});
+
+		const update = await app.request("/v1/master/keys/playground-key", {
+			method: "PATCH",
+			headers: authHeaders({ "Content-Type": "application/json" }),
+			body: JSON.stringify({ usageLimit: "10" }),
+		});
+		expect(update.status).toBe(403);
+
+		const remove = await app.request("/v1/master/keys/playground-key", {
+			method: "DELETE",
+			headers: authHeaders(),
+		});
+		expect(remove.status).toBe(403);
+	});
+
 	test("PATCH /keys allows the playground description on a regular key", async () => {
 		const res = await app.request("/v1/master/keys/test-api-key-id", {
 			method: "PATCH",

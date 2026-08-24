@@ -71,28 +71,18 @@ function insertLog(o: LogOverrides) {
 }
 
 async function insertPlaygroundUsage() {
-	await db.insert(tables.apiKey).values([
-		{
-			id: "playground-key-1",
-			token: "playground-token-1",
-			projectId: PROJECT_ID,
-			description: "Auto-generated playground key",
-			kind: "playground",
-			createdBy: OWNER_ID,
-		},
-		{
-			id: "playground-key-2",
-			token: "playground-token-2",
-			projectId: PROJECT_ID,
-			description: "Auto-generated playground key",
-			kind: "playground",
-			createdBy: OWNER_ID,
-		},
-	]);
+	await db.insert(tables.apiKey).values({
+		id: "playground-key",
+		token: "playground-token",
+		projectId: PROJECT_ID,
+		description: "Playground",
+		kind: "playground",
+		createdBy: OWNER_ID,
+	});
 
 	await insertLog({
 		id: "playground-log-1",
-		apiKeyId: "playground-key-1",
+		apiKeyId: "playground-key",
 		usedModel: "gpt-4",
 		usedProvider: "openai",
 		cost: 0.2,
@@ -102,7 +92,7 @@ async function insertPlaygroundUsage() {
 	});
 	await insertLog({
 		id: "playground-log-2",
-		apiKeyId: "playground-key-2",
+		apiKeyId: "playground-key",
 		usedModel: "gpt-4",
 		usedProvider: "openai",
 		cost: 0.3,
@@ -356,7 +346,7 @@ describe("analytics endpoints", () => {
 		});
 	});
 
-	test("summarizes playground keys in API key counts", async () => {
+	test("counts the stable playground key once", async () => {
 		await insertPlaygroundUsage();
 
 		const membersRes = await app.request(
@@ -590,7 +580,7 @@ describe("analytics endpoints", () => {
 			);
 		});
 
-		test("rolls playground keys into one apiKey group", async () => {
+		test("reports playground usage under its stable apiKey id", async () => {
 			await insertPlaygroundUsage();
 
 			const res = await app.request(
@@ -600,12 +590,12 @@ describe("analytics endpoints", () => {
 			expect(res.status).toBe(200);
 			const data = await res.json();
 			const playgroundEntries = activeRows(data.activity).flatMap((row) =>
-				row.breakdown.filter((entry) => entry.key === "playground"),
+				row.breakdown.filter((entry) => entry.key === "playground-key"),
 			);
 
 			expect(playgroundEntries).toHaveLength(1);
 			expect(playgroundEntries[0]).toMatchObject({
-				key: "playground",
+				key: "playground-key",
 				label: "Playground",
 				requestCount: 2,
 			});

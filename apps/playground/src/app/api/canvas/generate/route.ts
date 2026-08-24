@@ -46,7 +46,7 @@ export async function POST(req: Request) {
 	const headerApiKey = req.headers.get("x-llmgateway-key")?.trim() || undefined;
 
 	const cookieStore = await cookies();
-	const cookieApiKey = getPlaygroundKeyForRequest(cookieStore, req)?.trim();
+	const cookieApiKey = getPlaygroundKeyForRequest(cookieStore)?.trim();
 	const finalApiKey = headerApiKey || cookieApiKey;
 
 	if (!finalApiKey) {

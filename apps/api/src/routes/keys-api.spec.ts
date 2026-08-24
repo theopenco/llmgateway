@@ -146,15 +146,6 @@ describe("keys route", () => {
 	});
 
 	test("GET /keys/api", async () => {
-		await db.insert(tables.apiKey).values({
-			id: "playground-session-key",
-			token: "playground-session-token",
-			projectId: "test-project-id",
-			description: "Session key",
-			kind: "playground",
-			createdBy: "test-user-id",
-		});
-
 		const res = await app.request("/keys/api", {
 			headers: {
 				Cookie: token,
@@ -168,27 +159,16 @@ describe("keys route", () => {
 		expect(json.apiKeys[0].tokenHash).toBeUndefined();
 	});
 
-	test("GET /keys/api summarizes playground keys as one virtual row", async () => {
-		await db.insert(tables.apiKey).values([
-			{
-				id: "playground-session-key-1",
-				token: "playground-session-token-1",
-				projectId: "test-project-id",
-				description: "Session key 1",
-				kind: "playground",
-				usage: "1.25",
-				createdBy: "test-user-id",
-			},
-			{
-				id: "playground-session-key-2",
-				token: "playground-session-token-2",
-				projectId: "test-project-id",
-				description: "Session key 2",
-				kind: "playground",
-				usage: "2.75",
-				createdBy: "test-user-id",
-			},
-		]);
+	test("GET /keys/api returns the managed playground row", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "playground-key",
+			token: "playground-token",
+			projectId: "test-project-id",
+			description: "Playground",
+			kind: "playground",
+			usage: "4",
+			createdBy: "test-user-id",
+		});
 
 		const res = await app.request("/keys/api?projectId=test-project-id", {
 			headers: { Cookie: token },
@@ -201,15 +181,80 @@ describe("keys route", () => {
 		);
 		expect(playgroundRows).toEqual([
 			expect.objectContaining({
-				id: "playground",
-				description: "Playground keys (virtual)",
-				maskedToken: "No API key",
+				id: "playground-key",
+				description: "Playground",
+				maskedToken: expect.stringContaining("playground"),
 				usage: "4",
 			}),
 		]);
-		expect(
-			json.apiKeys.some((key: { id: string }) => key.id.includes("session")),
-		).toBe(false);
+		expect(playgroundRows[0].token).toBeUndefined();
+		expect(playgroundRows[0].tokenHash).toBeUndefined();
+	});
+
+	test("managed playground keys reject all mutation routes", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "playground-key",
+			token: "playground-token",
+			projectId: "test-project-id",
+			description: "Playground",
+			kind: "playground",
+			createdBy: "test-user-id",
+		});
+		await db.insert(tables.apiKeyIamRule).values({
+			id: "playground-rule",
+			apiKeyId: "playground-key",
+			ruleType: "allow_models",
+			ruleValue: { models: ["openai/gpt-4o-mini"] },
+		});
+
+		const requests = [
+			new Request("http://localhost/keys/api/playground-key", {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({ status: "inactive" }),
+			}),
+			new Request("http://localhost/keys/api/playground-key/roll", {
+				method: "POST",
+				headers: { Cookie: token },
+			}),
+			new Request("http://localhost/keys/api/limit/playground-key", {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({ usageLimit: "10" }),
+			}),
+			new Request("http://localhost/keys/api/playground-key/iam", {
+				method: "POST",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({
+					ruleType: "allow_models",
+					ruleValue: { models: ["openai/gpt-4o-mini"] },
+				}),
+			}),
+			new Request(
+				"http://localhost/keys/api/playground-key/iam/playground-rule",
+				{
+					method: "PATCH",
+					headers: { "Content-Type": "application/json", Cookie: token },
+					body: JSON.stringify({ status: "inactive" }),
+				},
+			),
+			new Request(
+				"http://localhost/keys/api/playground-key/iam/playground-rule",
+				{
+					method: "DELETE",
+					headers: { Cookie: token },
+				},
+			),
+			new Request("http://localhost/keys/api/playground-key", {
+				method: "DELETE",
+				headers: { Cookie: token },
+			}),
+		];
+
+		for (const request of requests) {
+			const response = await app.request(request);
+			expect(response.status).toBe(403);
+		}
 	});
 
 	test("POST /keys/platform creates an SDK platform secret", async () => {

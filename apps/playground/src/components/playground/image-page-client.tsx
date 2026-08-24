@@ -21,7 +21,6 @@ import {
 } from "@/hooks/usePlaygroundHistory";
 import { useUser } from "@/hooks/useUser";
 import { useAppConfig } from "@/lib/config";
-import { PLAYGROUND_PROJECT_HEADER } from "@/lib/constants";
 import {
 	chatPlanCreditErrorMessage,
 	isInsufficientCreditsError,
@@ -567,9 +566,6 @@ export default function ImagePageClient({
 							method: "POST",
 							headers: {
 								"Content-Type": "application/json",
-								...(selectedProject
-									? { [PLAYGROUND_PROJECT_HEADER]: selectedProject.id }
-									: {}),
 								...(noFallback ? { "x-no-fallback": "true" } : {}),
 							},
 							body: JSON.stringify({
