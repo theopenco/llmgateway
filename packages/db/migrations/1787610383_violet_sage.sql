@@ -1,6 +1,12 @@
--- Deploy the preceding used_mode column migration first, then build these
--- indexes out of band before deploying this migration on a large database:
+-- Run these commands with psql before deploying on a large database. Adding a
+-- constant-default column is metadata-only; the old worker safely writes
+-- "unknown" until the constraint cutover. CONCURRENTLY must run outside a
+-- transaction:
 --
+--   ALTER TABLE "model_history" ADD COLUMN IF NOT EXISTS "used_mode" text DEFAULT 'unknown' NOT NULL;
+--   ALTER TABLE "model_history_hourly" ADD COLUMN IF NOT EXISTS "used_mode" text DEFAULT 'unknown' NOT NULL;
+--   ALTER TABLE "model_provider_mapping_history" ADD COLUMN IF NOT EXISTS "used_mode" text DEFAULT 'unknown' NOT NULL;
+--   ALTER TABLE "model_provider_mapping_history_hourly" ADD COLUMN IF NOT EXISTS "used_mode" text DEFAULT 'unknown' NOT NULL;
 --   CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "model_history_model_minute_mode_unique"
 --     ON "model_history" ("model_id","minute_timestamp","used_mode");
 --   CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "model_history_model_hour_mode_unique"
@@ -14,10 +20,13 @@
 --   CREATE INDEX CONCURRENTLY IF NOT EXISTS "mpm_history_hourly_provider_stats_v4_idx"
 --     ON "model_provider_mapping_history_hourly" ("hour_timestamp","used_mode","provider_id","logs_count","errors_count","client_errors_count","cached_count","total_time_to_first_token","time_to_first_token_count","total_output_tokens","total_duration");
 --
--- CONCURRENTLY must run outside a transaction. IF NOT EXISTS makes the
--- migration a no-op for prebuilt indexes; small and fresh databases build
--- them inline. The old constraints and covering indexes remain until the
+-- The conditional statements below then become no-ops. Small and fresh
+-- databases build inline, and the old constraints and indexes remain until all
 -- replacements exist.
+ALTER TABLE "model_history" ADD COLUMN IF NOT EXISTS "used_mode" text DEFAULT 'unknown' NOT NULL;--> statement-breakpoint
+ALTER TABLE "model_history_hourly" ADD COLUMN IF NOT EXISTS "used_mode" text DEFAULT 'unknown' NOT NULL;--> statement-breakpoint
+ALTER TABLE "model_provider_mapping_history" ADD COLUMN IF NOT EXISTS "used_mode" text DEFAULT 'unknown' NOT NULL;--> statement-breakpoint
+ALTER TABLE "model_provider_mapping_history_hourly" ADD COLUMN IF NOT EXISTS "used_mode" text DEFAULT 'unknown' NOT NULL;--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "model_history_model_minute_mode_unique" ON "model_history" ("model_id","minute_timestamp","used_mode");--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "model_history_model_hour_mode_unique" ON "model_history_hourly" ("model_id","hour_timestamp","used_mode");--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "mpm_history_mapping_minute_mode_unique" ON "model_provider_mapping_history" ("model_provider_mapping_id","minute_timestamp","used_mode");--> statement-breakpoint

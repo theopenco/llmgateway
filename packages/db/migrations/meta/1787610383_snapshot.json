@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "41f86f36-af99-4ed1-8c0e-6b8c75ff433a",
+  "id": "3661f281-9b5f-4d96-a196-414bfa91ce57",
   "prevId": "e794d54a-ba0a-44bc-b255-e03c556674b7",
   "ddl": [
     {
@@ -26234,6 +26234,13 @@
           "opclass": null
         },
         {
+          "value": "used_mode",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "provider_id",
           "isExpression": false,
           "asc": true,
@@ -26302,7 +26309,7 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "model_provider_mapping_history_provider_stats_v3_idx",
+      "name": "model_provider_mapping_history_provider_stats_v4_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "model_provider_mapping_history"
@@ -26423,6 +26430,13 @@
           "opclass": null
         },
         {
+          "value": "used_mode",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "provider_id",
           "isExpression": false,
           "asc": true,
@@ -26491,7 +26505,7 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "mpm_history_hourly_provider_stats_v3_idx",
+      "name": "mpm_history_hourly_provider_stats_v4_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "model_provider_mapping_history_hourly"
@@ -32305,25 +32319,27 @@
       "table": "global_source_stats"
     },
     {
-      "nameExplicit": false,
+      "nameExplicit": true,
       "columns": [
         "model_id",
-        "minute_timestamp"
+        "minute_timestamp",
+        "used_mode"
       ],
       "nullsNotDistinct": false,
-      "name": "model_history_model_id_minute_timestamp_unique",
+      "name": "model_history_model_minute_mode_unique",
       "entityType": "uniques",
       "schema": "public",
       "table": "model_history"
     },
     {
-      "nameExplicit": false,
+      "nameExplicit": true,
       "columns": [
         "model_id",
-        "hour_timestamp"
+        "hour_timestamp",
+        "used_mode"
       ],
       "nullsNotDistinct": false,
-      "name": "model_history_hourly_model_id_hour_timestamp_unique",
+      "name": "model_history_model_hour_mode_unique",
       "entityType": "uniques",
       "schema": "public",
       "table": "model_history_hourly"
@@ -32342,25 +32358,27 @@
       "table": "model_provider_mapping"
     },
     {
-      "nameExplicit": false,
+      "nameExplicit": true,
       "columns": [
         "model_provider_mapping_id",
-        "minute_timestamp"
+        "minute_timestamp",
+        "used_mode"
       ],
       "nullsNotDistinct": false,
-      "name": "model_provider_mapping_history_model_provider_mapping_id_minute_timestamp_unique",
+      "name": "mpm_history_mapping_minute_mode_unique",
       "entityType": "uniques",
       "schema": "public",
       "table": "model_provider_mapping_history"
     },
     {
-      "nameExplicit": false,
+      "nameExplicit": true,
       "columns": [
         "model_provider_mapping_id",
-        "hour_timestamp"
+        "hour_timestamp",
+        "used_mode"
       ],
       "nullsNotDistinct": false,
-      "name": "model_provider_mapping_history_hourly_model_provider_mapping_id_hour_timestamp_unique",
+      "name": "mpm_history_mapping_hour_mode_unique",
       "entityType": "uniques",
       "schema": "public",
       "table": "model_provider_mapping_history_hourly"
