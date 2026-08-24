@@ -1,3 +1,5 @@
+import { Agent as HttpAgent } from "node:http";
+import { Agent as HttpsAgent } from "node:https";
 import { promisify } from "node:util";
 import { zstdCompress, zstdDecompress } from "node:zlib";
 
@@ -46,6 +48,23 @@ const MESSAGES_PREVIEW_TAIL_COUNT = 10;
 const GENERATED_IMAGE_PLACEHOLDER = "[image_generated]";
 const OMITTED_PART_PLACEHOLDER = "[omitted]";
 
+// The SDK leaves every timeout at 0 (disabled) by default, so a hung object
+// store would stall a log detail request or a whole worker log batch forever
+// instead of failing into their existing fallback paths.
+const CONNECTION_TIMEOUT_MS = 3_000;
+// Idle timeout: catches a connection that stops delivering bytes.
+const SOCKET_TIMEOUT_MS = 10_000;
+// Absolute ceiling per attempt. Generous enough that a large multi-MB blob
+// still transfers, since this bounds total time rather than idle time.
+const REQUEST_TIMEOUT_MS = 30_000;
+const MAX_ATTEMPTS = 3;
+
+// One keep-alive pool shared by every payload storage client, so rebuilding
+// the client below (tests toggle the env) reuses sockets instead of churning
+// them. The SDK builds its node:http handler around these.
+const httpAgent = new HttpAgent({ keepAlive: true });
+const httpsAgent = new HttpsAgent({ keepAlive: true });
+
 let payloadStorageClient: S3Client | null = null;
 let payloadStorageClientKey = "";
 
@@ -85,6 +104,17 @@ export function getPayloadStorageClient(): S3Client {
 			...(endpoint ? { endpoint } : {}),
 			region,
 			forcePathStyle,
+			requestHandler: {
+				httpAgent,
+				httpsAgent,
+				connectionTimeout: CONNECTION_TIMEOUT_MS,
+				socketTimeout: SOCKET_TIMEOUT_MS,
+				requestTimeout: REQUEST_TIMEOUT_MS,
+				// Without this, a breached requestTimeout only logs a warning and
+				// the request keeps running — it does not abort.
+				throwOnRequestTimeout: true,
+			},
+			maxAttempts: MAX_ATTEMPTS,
 			...(accessKeyId && secretAccessKey
 				? { credentials: { accessKeyId, secretAccessKey } }
 				: {}),
