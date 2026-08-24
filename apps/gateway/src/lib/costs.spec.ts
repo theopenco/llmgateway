@@ -2478,6 +2478,22 @@ describe("peak / off-peak time-of-day pricing", () => {
 		expect(costs.cachedInputCost).toBeCloseTo(0.2817);
 	});
 
+	it("bills Baidu GLM-5.3 at its list price", async () => {
+		setTime("2026-08-25T13:59:00Z");
+
+		const costs = await calculateCosts(
+			"glm-5.3",
+			"baidu",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		expect(costs.inputCost).toBeCloseTo(1.1268);
+		expect(costs.outputCost).toBeCloseTo(3.9437);
+		expect(costs.cachedInputCost).toBeCloseTo(0.2817);
+	});
+
 	it("bills Baidu DeepSeek V4 Flash at peak rates", async () => {
 		setTime("2026-08-25T13:59:00Z");
 

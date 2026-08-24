@@ -32,6 +32,26 @@ export const zaiModels = [
 				webSearchPrice: "0.01",
 				jsonOutput: true,
 			},
+			{
+				providerId: "baidu",
+				externalId: "glm-5.3",
+				// Authenticated inference works, but Qianfan still omits this
+				// deployment from its international /v1/models catalogue.
+				stability: "unstable",
+				inputPrice: "1.1268e-6",
+				cachedInputPrice: "0.2817e-6",
+				outputPrice: "3.9437e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				// GLM-5.3 always thinks and rejects attempts to disable thinking.
+				reasoningEfforts: ["low", "high", "max"],
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
 		],
 	},
 	{
