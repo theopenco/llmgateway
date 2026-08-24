@@ -1,3 +1,5 @@
+import { LegalSummary } from "@/components/LegalSummary";
+
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -16,6 +18,7 @@ export default function PrivacyPage() {
 				<br />
 				<strong>Last Updated:</strong> August 2, 2026
 			</p>
+			<LegalSummary variant="privacy" />
 			<p>
 				This Supplemental Privacy Policy describes how{" "}
 				<strong>LLM Gateway</strong> (&ldquo;we&rdquo;, &ldquo;our&rdquo;, or
@@ -138,25 +141,16 @@ export default function PrivacyPage() {
 			</p>
 			<hr />
 			<h2>4. Sub-processors</h2>
-			<p>We rely on a small set of vetted sub-processors:</p>
-			<ul>
-				<li>
-					<strong>Stripe</strong> — billing and subscription management
-				</li>
-				<li>
-					<strong>PostgreSQL / Redis hosting</strong> — application data and
-					caching
-				</li>
-				<li>
-					<strong>PostHog</strong> — product analytics
-				</li>
-				<li>
-					<strong>Email delivery providers</strong> — transactional email
-				</li>
-				<li>AI providers, as listed in the DevPass model catalog</li>
-			</ul>
 			<p>
-				Each sub-processor is bound by contractual data-protection obligations.
+				DevPass uses the same sub-processors as the rest of the LLM Gateway
+				platform. The complete, versioned list — including what each one
+				processes, its primary processing locations, and how changes are
+				notified — is maintained on the{" "}
+				<a href="https://llmgateway.io/legal/sub-processors">
+					LLM Gateway Sub-processor page
+				</a>
+				. That page is the authoritative disclosure and is updated independently
+				of this supplemental policy.
 			</p>
 			<hr />
 			<h2>5. Data Retention</h2>

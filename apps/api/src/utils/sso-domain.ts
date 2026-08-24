@@ -1,8 +1,13 @@
+import {
+	EnterpriseSeatLimitError,
+	withEnterpriseSeatForOrganization,
+} from "@/lib/enterprise-seats.js";
 import { resolveDefaultProjectIds } from "@/lib/sso-default-projects.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
 import { generateAutoJoinEmailHtml, sendTransactionalEmail } from "./email.js";
 
@@ -60,36 +65,21 @@ interface AutoJoinParams {
 	name?: string | null;
 }
 
+interface JoinableOrganization {
+	id: string;
+	name: string;
+}
+
 /**
- * Auto-joins a user to the enterprise organization that has claimed their email
- * domain for Google SSO auto-join. Returns the joined organization id, or null
- * when no join happened (no match, consumer domain, or already a member).
- *
- * Intended to run inside the auth post-sign-in hook for Google logins. It must
- * never throw into the login flow — failures are logged and swallowed.
+ * Adds a user to an organization as a developer with the org's default project
+ * grants, then audits the join and notifies the user. Returns the organization
+ * id, or null when the user is already a member.
  */
-export async function autoJoinByEmailDomain({
-	userId,
-	email,
-	name,
-}: AutoJoinParams): Promise<string | null> {
-	const domain = extractEmailDomain(email);
-	if (!domain || CONSUMER_EMAIL_DOMAINS.has(domain)) {
-		return null;
-	}
-
-	const organization = await db.query.organization.findFirst({
-		where: {
-			ssoAutoJoinDomain: { eq: domain },
-			status: { ne: "deleted" },
-			plan: { eq: "enterprise" },
-		},
-	});
-
-	if (!organization) {
-		return null;
-	}
-
+async function joinOrganizationAsDeveloper(
+	organization: JoinableOrganization,
+	{ userId, email, name }: AutoJoinParams,
+	auditMetadata: Record<string, string>,
+): Promise<string | null> {
 	const existingMembership = await db.query.userOrganization.findFirst({
 		where: {
 			userId: { eq: userId },
@@ -101,14 +91,19 @@ export async function autoJoinByEmailDomain({
 		return null;
 	}
 
-	const [membership] = await db
-		.insert(tables.userOrganization)
-		.values({
-			userId,
-			organizationId: organization.id,
-			role: "developer",
-		})
-		.returning();
+	const [membership] = await withEnterpriseSeatForOrganization(
+		organization.id,
+		userId,
+		async (tx) =>
+			await tx
+				.insert(tables.userOrganization)
+				.values({
+					userId,
+					organizationId: organization.id,
+					role: "developer",
+				})
+				.returning(),
+	);
 
 	// Same default project grants as SSO/SCIM provisioning: the org's configured
 	// selection, or the oldest project when unconfigured. Only on membership
@@ -132,10 +127,10 @@ export async function autoJoinByEmailDomain({
 		action: "team_member.auto_join",
 		resourceType: "team_member",
 		resourceId: userId,
-		metadata: { domain },
+		metadata: auditMetadata,
 	});
 
-	// Notify the joined user at their own (Google-verified) address. No
+	// Notify the joined user at their own (IdP-verified) address. No
 	// organizationId gate here: that flag gates on the org owner's verification,
 	// but we're emailing the member, not the owner.
 	await sendTransactionalEmail({
@@ -148,11 +143,129 @@ export async function autoJoinByEmailDomain({
 		),
 	});
 
-	logger.info("Auto-joined user to organization via SSO domain match", {
-		userId,
-		organizationId: organization.id,
-		domain,
+	return organization.id;
+}
+
+/**
+ * Auto-joins a user to the enterprise organization that has claimed their email
+ * domain for Google SSO auto-join. Returns the joined organization id, or null
+ * when no join happened (no match, consumer domain, or already a member).
+ *
+ * Intended to run inside the auth post-sign-in hook for Google logins. It must
+ * never throw into the login flow — failures are logged and swallowed.
+ */
+export async function autoJoinByEmailDomain(
+	params: AutoJoinParams,
+): Promise<string | null> {
+	const domain = extractEmailDomain(params.email);
+	if (!domain || CONSUMER_EMAIL_DOMAINS.has(domain)) {
+		return null;
+	}
+
+	const organization = await db.query.organization.findFirst({
+		where: {
+			ssoAutoJoinDomain: { eq: domain },
+			status: { ne: "deleted" },
+			plan: { eq: "enterprise" },
+		},
 	});
 
-	return organization.id;
+	if (
+		!organization ||
+		!hasOrganizationEnterpriseAccess(organization.id, organization.plan)
+	) {
+		return null;
+	}
+
+	let joinedOrgId: string | null;
+	try {
+		joinedOrgId = await joinOrganizationAsDeveloper(organization, params, {
+			domain,
+		});
+	} catch (error) {
+		if (error instanceof EnterpriseSeatLimitError) {
+			logger.warn("Skipped SSO domain auto-join at Enterprise seat limit", {
+				userId: params.userId,
+				organizationId: organization.id,
+				maxSeats: error.maxSeats,
+				seatsUsed: error.seatsUsed,
+			});
+			return null;
+		}
+		throw error;
+	}
+
+	if (joinedOrgId) {
+		logger.info("Auto-joined user to organization via SSO domain match", {
+			userId: params.userId,
+			organizationId: joinedOrgId,
+			domain,
+		});
+	}
+
+	return joinedOrgId;
+}
+
+interface SsoProviderJoinParams extends AutoJoinParams {
+	organizationId: string;
+	ssoProviderId: string;
+}
+
+/**
+ * Joins a user to the organization that owns the SSO connection they just
+ * authenticated through (JIT provisioning). The org's IdP vouched for the
+ * user, so membership intent is proven — without this, first-time SSO logins
+ * at orgs without SCIM would be stranded in a fresh personal org instead of
+ * joining their team. Returns the joined organization id, or null when no join
+ * happened (org deleted or already a member).
+ *
+ * Intended to run inside the auth post-sign-in hook for SSO callback logins.
+ * It must never throw into the login flow — failures are logged and swallowed.
+ */
+export async function autoJoinSsoProviderOrganization({
+	organizationId,
+	ssoProviderId,
+	...params
+}: SsoProviderJoinParams): Promise<string | null> {
+	const organization = await db.query.organization.findFirst({
+		where: {
+			id: { eq: organizationId },
+			status: { ne: "deleted" },
+		},
+	});
+
+	if (
+		!organization ||
+		!hasOrganizationEnterpriseAccess(organization.id, organization.plan)
+	) {
+		return null;
+	}
+
+	let joinedOrgId: string | null;
+	try {
+		joinedOrgId = await joinOrganizationAsDeveloper(organization, params, {
+			ssoProviderId,
+		});
+	} catch (error) {
+		if (error instanceof EnterpriseSeatLimitError) {
+			logger.warn("Skipped SSO auto-join at Enterprise seat limit", {
+				userId: params.userId,
+				organizationId: organization.id,
+				maxSeats: error.maxSeats,
+				seatsUsed: error.seatsUsed,
+			});
+			return null;
+		}
+		throw error;
+	}
+
+	if (joinedOrgId) {
+		logger.info("Auto-joined user to organization via SSO sign-in", {
+			userId: params.userId,
+			organizationId: joinedOrgId,
+			ssoProviderId,
+		});
+	}
+
+	return joinedOrgId;
 }

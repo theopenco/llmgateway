@@ -17,6 +17,8 @@ import {
 	DEV_PLAN_PRICES,
 	getDevPlanCreditsLimit,
 	MARKETING_STATS,
+	SELF_REFUND_USAGE_PERCENT,
+	SELF_REFUND_WINDOW_DAYS,
 } from "@llmgateway/shared";
 
 import type { Metadata } from "next";
@@ -120,9 +122,10 @@ export default function StartPage() {
 								</CodeCTATracker>
 							</div>
 							<p className="mt-5 font-mono text-xs text-muted-foreground">
-								First-month guarantee — cancel within 7 days of your first
-								purchase for a full refund of your first month, minus metered
-								usage.
+								First-month guarantee — if you&apos;ve used less than{" "}
+								{SELF_REFUND_USAGE_PERCENT}% of your allowance, refund yourself
+								from your billing dashboard within {SELF_REFUND_WINDOW_DAYS}{" "}
+								days of your first purchase.
 							</p>
 						</div>
 					</div>
@@ -339,8 +342,9 @@ export default function StartPage() {
 							</CodeCTATracker>
 						</div>
 						<p className="mt-6 font-mono text-xs text-muted-foreground">
-							First-month guarantee — cancel within 7 days of your first
-							purchase for a full refund, minus metered usage.
+							First-month guarantee — barely used it? Refund yourself from your
+							billing dashboard within {SELF_REFUND_WINDOW_DAYS} days of your
+							first purchase.
 						</p>
 					</div>
 				</section>

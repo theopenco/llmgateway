@@ -85,6 +85,7 @@ describe("embeddings", () => {
 		expect(res.status).toBe(200);
 		const json = await res.json();
 		expect(json).toHaveProperty("object", "list");
+		expect(json).toHaveProperty("model", "openai/text-embedding-3-small");
 		expect(Array.isArray(json.data)).toBe(true);
 
 		const logs = await waitForLogs(2);

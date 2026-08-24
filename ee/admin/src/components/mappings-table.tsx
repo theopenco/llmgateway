@@ -19,7 +19,7 @@ import {
 import { getMappingHistory } from "@/lib/admin-history";
 import { cn } from "@/lib/utils";
 
-import { getProviderIcon } from "@llmgateway/shared";
+import { deriveStabilityMetrics, getProviderIcon } from "@llmgateway/shared";
 
 import type { HistoryWindow } from "@/components/history-chart";
 import type { PageWindow } from "@/lib/page-window";
@@ -133,10 +133,12 @@ function MappingRow({
 }) {
 	const [expanded, setExpanded] = useState(false);
 	const ProviderIcon = getProviderIcon(mapping.providerId);
-	const errorRate =
-		mapping.logsCount > 0
-			? ((mapping.errorsCount / mapping.logsCount) * 100).toFixed(1)
-			: "0.0";
+	const stability = deriveStabilityMetrics(
+		mapping.logsCount,
+		mapping.errorsCount + mapping.clientErrorsCount,
+		mapping.clientErrorsCount,
+	);
+	const errorRate = (stability.errorRate ?? 0).toFixed(1);
 
 	const fetchData = useCallback(
 		async (window: HistoryWindow) => {
@@ -214,7 +216,7 @@ function MappingRow({
 					<TokenBreakdownCell breakdown={mapping} />
 				</TableCell>
 				<TableCell className="tabular-nums">
-					{formatNumber(mapping.errorsCount)}
+					{formatNumber(stability.errorsCount)}
 				</TableCell>
 				<TableCell className="tabular-nums">
 					{formatNumber(mapping.clientErrorsCount)}

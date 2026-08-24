@@ -1,3 +1,5 @@
+import { hasOrganizationEnterpriseAccess } from "@/lib/enterprise.js";
+
 import { swrWrap } from "@llmgateway/cache";
 import {
 	cdb,
@@ -36,9 +38,10 @@ interface StoredRoutingOverrides {
 
 export async function getResolvedRoutingConfig(
 	projectId: string | undefined,
+	organizationId: string | undefined,
 	orgPlan: string | undefined,
 ): Promise<ResolvedRoutingConfig> {
-	if (!projectId || orgPlan !== "enterprise") {
+	if (!projectId || !hasOrganizationEnterpriseAccess(organizationId, orgPlan)) {
 		return resolveRoutingConfig(null, providerPriorityDefaults);
 	}
 

@@ -9,6 +9,7 @@ import {
 	isValidElement,
 	use,
 	useDeferredValue,
+	useEffect,
 } from "react";
 import { Fragment, jsx, jsxs } from "react/jsx-runtime";
 import { remark } from "remark";
@@ -123,11 +124,59 @@ export function Markdown({ text }: { text: string }) {
 	);
 }
 
+// Streaming answers render one snapshot per token, so cap the cache to keep
+// intermediate strings from accumulating for the lifetime of the tab.
 const cache = new Map<string, Promise<ReactNode>>();
+const cacheLimit = 200;
+
+// Text a mounted Renderer still depends on, by reference count. Evicting one of
+// these would make that Renderer re-suspend on its next render and flash an
+// already-answered message back to the invisible fallback — messages stop
+// re-rendering once they finish streaming (apps/docs runs the React Compiler),
+// so LRU ordering alone does not keep them warm.
+const pinned = new Map<string, number>();
+
+function evictColdEntries(exclude?: string) {
+	for (const key of cache.keys()) {
+		if (cache.size <= cacheLimit) {
+			return;
+		}
+		if (key !== exclude && !pinned.has(key)) {
+			cache.delete(key);
+		}
+	}
+}
 
 function Renderer({ text }: { text: string }) {
-	const result = cache.get(text) ?? processor.process(text);
+	useEffect(() => {
+		pinned.set(text, (pinned.get(text) ?? 0) + 1);
+
+		return () => {
+			const count = pinned.get(text) ?? 0;
+			if (count > 1) {
+				pinned.set(text, count - 1);
+			} else {
+				pinned.delete(text);
+			}
+			// A slot just went cold; reclaim it so the cache shrinks back once
+			// long-lived messages unmount.
+			evictColdEntries();
+		};
+	}, [text]);
+
+	let result = cache.get(text);
+
+	if (result) {
+		// Refresh insertion order so eviction removes cold entries first.
+		cache.delete(text);
+	} else {
+		result = processor.process(text);
+	}
 	cache.set(text, result);
+	// The current entry is not pinned until the effect runs, so shield it from
+	// eviction — deleting it here would recreate the promise every render and
+	// suspend the message indefinitely once all other slots are pinned.
+	evictColdEntries(text);
 
 	return use(result);
 }

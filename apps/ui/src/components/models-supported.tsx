@@ -134,6 +134,7 @@ const convertToApiModel = (
 					reasoning: map.reasoning ?? null,
 					reasoningOutput: map.reasoningOutput ?? null,
 					reasoningMaxTokens: map.reasoningMaxTokens ?? null,
+					rerank: map.rerank ?? null,
 					tools: map.tools ?? null,
 					jsonOutput: map.jsonOutput ?? null,
 					jsonOutputSchema: map.jsonOutputSchema ?? null,
@@ -147,6 +148,14 @@ const convertToApiModel = (
 					perSecondPrice: map.perSecondPrice
 						? Object.fromEntries(
 								Object.entries(map.perSecondPrice).map(([k, v]) => [
+									k,
+									v.toString(),
+								]),
+							)
+						: null,
+					perImagePrice: map.perImagePrice
+						? Object.fromEntries(
+								Object.entries(map.perImagePrice).map(([k, v]) => [
 									k,
 									v.toString(),
 								]),

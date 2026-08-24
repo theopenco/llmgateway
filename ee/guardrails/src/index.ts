@@ -1,12 +1,14 @@
 export {
 	checkGuardrails,
 	getGuardrailConfig,
+	resolveGuardrailScope,
 	logViolation,
 	applyRedactions,
 } from "./engine.js";
 
 export type {
 	GuardrailConfigData,
+	GuardrailScope,
 	RuleViolation,
 	RedactionInfo,
 	GuardrailResult,

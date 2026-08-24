@@ -1,34 +1,40 @@
-import { cookies } from "next/headers";
-
 import { getConfig } from "@/lib/config-server";
+import { getSessionCookieHeader } from "@/lib/session-cookie";
 
-import type { User } from "better-auth/types";
+export interface SessionUser {
+	id: string;
+	email: string;
+	name: string | null;
+	isAdmin: boolean;
+}
 
-export async function getUser() {
+export async function getUser(): Promise<SessionUser | null> {
 	const config = getConfig();
-	const cookieStore = await cookies();
 
-	const key = "better-auth.session_token";
-	// Get session cookie for authentication
-	const sessionCookie = cookieStore.get(`${key}`);
-	const secureSessionCookie = cookieStore.get(`__Secure-${key}`);
-
-	const data = await fetch(`${config.apiBackendUrl}/user/me`, {
+	const res = await fetch(`${config.apiBackendUrl}/user/me`, {
 		method: "GET",
 		headers: {
-			Cookie: secureSessionCookie
-				? `__Secure-${key}=${secureSessionCookie.value}`
-				: sessionCookie
-					? `${key}=${sessionCookie.value}`
-					: "",
+			Cookie: await getSessionCookieHeader(),
 		},
 	});
 
-	if (!data.ok) {
+	if (!res.ok) {
 		return null;
 	}
 
-	const user: User = await data.json();
+	const data = (await res.json()) as { user?: SessionUser };
 
-	return user;
+	return data.user ?? null;
+}
+
+/**
+ * Same as {@link getUser}, but only resolves for users on the API's admin
+ * allowlist. Route handlers under `/api/*` must use this: the session cookie is
+ * shared with the main dashboard, and the proxy skips its admin check for that
+ * path prefix, so any signed-in user reaches them otherwise.
+ */
+export async function getAdminUser(): Promise<SessionUser | null> {
+	const user = await getUser();
+
+	return user?.isAdmin ? user : null;
 }

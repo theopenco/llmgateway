@@ -43,10 +43,10 @@ The rename runs through the whole product, not just the landing page:
 
 - **In the app** — a proper Lounge wordmark in every sidebar, the login and signup pages, shared-chat pages, and the PWA install name.
 - **On invoices and emails** — Stripe line items and billing history now read "Lounge PLUS membership renewed" instead of "Chat Plan PLUS renewed".
-- **Across the site and docs** — the dashboard, the [comparison pages](https://chat.llmgateway.io/compare), and the [docs](https://docs.llmgateway.io/learn/chat-plans) all say Lounge now.
+- **Across the site and docs** — the dashboard, the [comparison pages](https://lounge.llmgateway.io/compare), and the [docs](https://docs.llmgateway.io/learn/chat-plans) all say Lounge now.
 
 DevPass is your all-access pass for coding tools; Lounge is your seat for everything else. One account, one balance, both products.
 
 ---
 
-**[Take a seat →](https://chat.llmgateway.io)** | **[See memberships →](https://chat.llmgateway.io/pricing)**
+**[Take a seat →](https://lounge.llmgateway.io)** | **[See memberships →](https://lounge.llmgateway.io/pricing)**

@@ -12,6 +12,7 @@ import {
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { db, tables, eq, and, count, desc, asc } from "@llmgateway/db";
+import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -1017,7 +1018,7 @@ chatProjects.openapi(extractMemories, async (c) => {
 		apiKey: token,
 		baseURL: getGatewayUrl(),
 		headers: {
-			"x-source": "chat.llmgateway.io",
+			"x-source": LOUNGE_SOURCE,
 		},
 	});
 

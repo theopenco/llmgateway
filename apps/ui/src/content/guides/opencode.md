@@ -2,13 +2,25 @@
 id: opencode
 slug: opencode
 title: OpenCode Integration
-description: Connect OpenCode to 200+ models through LLM Gateway's built-in provider. No config files needed — just select, authenticate, and code.
+seoTitle: "OpenCode Setup: Run 200+ Models in the CLI"
+description: Connect OpenCode to 200+ models via LLM Gateway's built-in provider. No config files — select, authenticate, and code. Kimi K3, GPT-5 and Claude included.
 date: 2026-01-09
 ---
 
-OpenCode is an open-source AI coding agent for your terminal, IDE, or desktop. LLM Gateway is a built-in provider in OpenCode, so setup takes under a minute — no config files or npm adapters required. You get access to 200+ models from 40+ providers, all tracked in one dashboard.
+OpenCode is an open-source AI coding agent for your terminal, IDE, or desktop. LLM Gateway is built in, so setup takes under a minute — no config files or npm adapters required. You get access to 200+ models from 40+ providers, all tracked in one dashboard.
 
-> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
+## Two Built-In Providers
+
+OpenCode ships two LLM Gateway entries. They share the same endpoint and the same API key — only the model IDs differ:
+
+| Provider in OpenCode      | Model IDs                          | Use it for                                                                                                                       |
+| ------------------------- | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| **LLM Gateway**           | `anthropic/claude-opus-5` (pinned) | Pay-as-you-go keys. One entry per upstream deployment, carrying that deployment's own pricing, context limits, and capabilities. |
+| **DevPass (LLM Gateway)** | `claude-opus-5` (canonical)        | [DevPass](https://devpass.llmgateway.io) plan keys, and pay-as-you-go when you want the gateway to pick the provider for you.    |
+
+Because pinned entries name the serving provider — "GPT-5.5 (Azure)" versus "GPT-5.5 (OpenAI)" — you can tell duplicate deployments of the same model apart and pick on price or region.
+
+> **Using DevPass?** Pick **DevPass (LLM Gateway)**. Provider-pinned routing is not available on coding plans, so canonical model IDs are the ones that work.
 
 ## Prerequisites
 
@@ -44,9 +56,11 @@ Once OpenCode launches, run the `/providers` or `/connect` command to open the p
 
 ### Step 3: Select LLM Gateway
 
-LLM Gateway is listed as a built-in provider. Select "LLM Gateway" from the provider list:
+Both LLM Gateway entries are listed as built-in providers. Select **LLM Gateway** for pay-as-you-go, or **DevPass (LLM Gateway)** if you have a DevPass plan key:
 
 ![Select LLM Gateway Provider](/images/guides/opencode/select-provider.png)
+
+You can connect both — they take the same key, and each contributes its models to the picker.
 
 ### Step 4: Enter Your API Key
 
@@ -74,13 +88,14 @@ Try asking OpenCode about your project or request help with coding tasks:
 
 - **200+ models** — GPT-5, Claude, Gemini, Llama, and more from 40+ providers
 - **One API key** — Stop juggling credentials for every provider
+- **Pin a provider** — Choose the exact upstream deployment, with its own pricing and limits, or let the gateway route for you
 - **Cost tracking** — See what each coding session costs in your dashboard
 - **Response caching** — Repeated requests hit cache automatically
 - **Volume discounts** — The more you use, the more you save
 
 ## Adding Custom Models
 
-The built-in provider gives you access to all standard LLM Gateway models. If you want to add custom model aliases or configure models not yet listed in the built-in provider, you can create a `config.json` in your OpenCode configuration directory:
+The built-in providers cover the standard LLM Gateway catalog. If you want to add custom model aliases or a model not yet listed, you can create a `config.json` in your OpenCode configuration directory:
 
 **macOS/Linux:** `~/.config/opencode/config.json`
 
@@ -89,24 +104,18 @@ The built-in provider gives you access to all standard LLM Gateway models. If yo
 ```json
 {
   "provider": {
-    "llmgateway": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "LLM Gateway",
-      "options": {
-        "baseURL": "https://api.llmgateway.io/v1"
-      },
+    "llmgateway-providers": {
       "models": {
-        "deepseek/deepseek-chat": {
-          "name": "DeepSeek Chat"
-        },
-        "meta/llama-3.3-70b": {
-          "name": "Llama 3.3 70B"
+        "deepseek/deepseek-v3.2": {
+          "name": "DeepSeek V3.2 (DeepSeek)"
         }
       }
     }
   }
 }
 ```
+
+Both entries are built-in providers, so you only specify what you're adding — OpenCode merges your config with the built-in definition, and `npm`, `name`, and `baseURL` don't need to be repeated. Use `llmgateway-providers` for pinned `provider/model` IDs and `llmgateway` for canonical ones.
 
 After updating `config.json`, restart OpenCode to see the new models.
 
@@ -116,9 +125,11 @@ Select a different model directly in the OpenCode interface, or update the `mode
 
 ```json
 {
-  "model": "llmgateway/gpt-5-mini"
+  "model": "llmgateway-providers/anthropic/claude-opus-5"
 }
 ```
+
+Canonical routing uses the other provider instead — `llmgateway/claude-opus-5`, which lets the gateway choose the upstream provider.
 
 ## Troubleshooting
 

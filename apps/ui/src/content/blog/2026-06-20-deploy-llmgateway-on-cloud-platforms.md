@@ -42,6 +42,8 @@ A request flows like this: a client calls the **gateway**, which checks **Redis*
 
 The practical takeaway: the gateway is the only service that needs to scale aggressively. The API and UI serve your team, not your traffic. Postgres and Redis should be durable and backed up, which is exactly what a managed database gives you.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## Run the stores as managed services
 
 You _can_ run PostgreSQL and Redis in containers. In production, don't. Every major cloud offers a managed equivalent that handles backups, failover, patching, and encryption at rest for you:
@@ -88,3 +90,5 @@ If you'd rather not assemble the cloud resources by hand, our [Enterprise plan](
 Self-hosting LLM Gateway gives you full control over where your LLM traffic flows and where your data lives, with no platform fees. Pick your cloud, provision a managed Postgres and Redis, and deploy the Helm chart — or [talk to us about Terraform](https://llmgateway.io/enterprise) and have it running in a single command.
 
 Start with the [self-hosting docs](https://docs.llmgateway.io/self-host), or [get in touch](https://llmgateway.io/enterprise#contact) if you want help putting it into production.
+
+<BlogCta variant="gateway" location="bottom" />

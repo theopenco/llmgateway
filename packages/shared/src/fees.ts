@@ -24,6 +24,31 @@ export function isCreditTopUpAmountInRange(amount: number): boolean {
 	);
 }
 
+export function getMaxCreditTopUpAmount(
+	grossAllowanceUsd: number,
+	isInternational: boolean,
+): number {
+	if (!Number.isFinite(grossAllowanceUsd)) {
+		return CREDIT_TOP_UP_MAX_AMOUNT;
+	}
+
+	let low = 0;
+	let high = CREDIT_TOP_UP_MAX_AMOUNT;
+	while (low < high) {
+		const candidate = Math.ceil((low + high) / 2);
+		if (
+			calculateFees({ amount: candidate, isInternational }).totalAmount <=
+			grossAllowanceUsd
+		) {
+			low = candidate;
+		} else {
+			high = candidate - 1;
+		}
+	}
+
+	return low;
+}
+
 const PLATFORM_FEE_PERCENTAGE = 0.05;
 export const INTERNATIONAL_CARD_FEE_PERCENTAGE = 0.015;
 

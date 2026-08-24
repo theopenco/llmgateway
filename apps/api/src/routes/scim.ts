@@ -1,6 +1,10 @@
 import { Hono } from "hono";
 
 import { getApiBaseUrl } from "@/lib/api-url.js";
+import {
+	EnterpriseSeatLimitError,
+	withEnterpriseSeatForOrganization,
+} from "@/lib/enterprise-seats.js";
 import { revokeMemberApiKeys } from "@/lib/revoke-member-api-keys.js";
 import { resolveDefaultProjectIds } from "@/lib/sso-default-projects.js";
 import { recomputeUserRole as applyUserRole } from "@/lib/sso-roles.js";
@@ -19,6 +23,7 @@ import {
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
 import type { Context } from "hono";
 
@@ -97,9 +102,14 @@ async function logScimAudit(
 	});
 }
 
-function scimError(status: number, detail: string) {
+function scimError(status: number, detail: string, scimType?: string) {
 	return Response.json(
-		{ schemas: [SCHEMA_ERROR], status: String(status), detail },
+		{
+			schemas: [SCHEMA_ERROR],
+			status: String(status),
+			detail,
+			...(scimType ? { scimType } : {}),
+		},
 		{ status, headers: { "Content-Type": SCIM_CONTENT_TYPE } },
 	);
 }
@@ -135,6 +145,18 @@ scim.use("/*", async (c, next) => {
 
 	if (!row) {
 		return scimError(401, "Invalid SCIM token");
+	}
+
+	const organization = await db.query.organization.findFirst({
+		where: { id: { eq: row.organizationId } },
+		columns: { plan: true, status: true },
+	});
+	if (
+		!organization ||
+		organization.status === "deleted" ||
+		!hasOrganizationEnterpriseAccess(row.organizationId, organization.plan)
+	) {
+		return scimError(403, "A valid Enterprise license is required");
 	}
 
 	c.set("scimOrgId", row.organizationId);
@@ -486,15 +508,28 @@ scim.post("/Users", async (c) => {
 	const active =
 		payload.active === undefined ? true : parseScimBoolean(payload.active);
 	if (active) {
-		const [membership] = await db
-			.insert(tables.userOrganization)
-			.values({
-				userId: user.id,
-				organizationId: orgId,
-				role: "developer",
-				scimExternalId: payload.externalId ?? null,
-			})
-			.returning({ id: tables.userOrganization.id });
+		let membership: { id: string };
+		try {
+			[membership] = await withEnterpriseSeatForOrganization(
+				orgId,
+				user.id,
+				async (tx) =>
+					await tx
+						.insert(tables.userOrganization)
+						.values({
+							userId: user.id,
+							organizationId: orgId,
+							role: "developer",
+							scimExternalId: payload.externalId ?? null,
+						})
+						.returning({ id: tables.userOrganization.id }),
+			);
+		} catch (error) {
+			if (error instanceof EnterpriseSeatLimitError) {
+				return scimError(409, error.message, "tooMany");
+			}
+			throw error;
+		}
 
 		await grantDefaultProjects(membership.id, orgId);
 
@@ -595,15 +630,20 @@ async function ensureMembership(
 ): Promise<boolean> {
 	const existing = await getMembership(userId, organizationId);
 	if (!existing) {
-		const [membership] = await db
-			.insert(tables.userOrganization)
-			.values({
-				userId,
-				organizationId,
-				role: "developer",
-				scimExternalId: externalId ?? null,
-			})
-			.returning({ id: tables.userOrganization.id });
+		const [membership] = await withEnterpriseSeatForOrganization(
+			organizationId,
+			userId,
+			async (tx) =>
+				await tx
+					.insert(tables.userOrganization)
+					.values({
+						userId,
+						organizationId,
+						role: "developer",
+						scimExternalId: externalId ?? null,
+					})
+					.returning({ id: tables.userOrganization.id }),
+		);
 		await grantDefaultProjects(membership.id, organizationId);
 		return true;
 	}
@@ -686,7 +726,20 @@ scim.put("/Users/:id", async (c) => {
 	// Activation provisions (or keeps) membership in this org — only then is it
 	// safe to mutate the shared user row, so a foreign token can't rename users
 	// in other orgs.
-	if (await ensureMembership(user.id, orgId, payload.externalId)) {
+	let membershipCreated: boolean;
+	try {
+		membershipCreated = await ensureMembership(
+			user.id,
+			orgId,
+			payload.externalId,
+		);
+	} catch (error) {
+		if (error instanceof EnterpriseSeatLimitError) {
+			return scimError(409, error.message, "tooMany");
+		}
+		throw error;
+	}
+	if (membershipCreated) {
 		await logScimAudit(c, {
 			action: "scim.user.activate",
 			resourceType: "scim_user",
@@ -780,7 +833,16 @@ scim.patch("/Users/:id", async (c) => {
 	}
 
 	if (active) {
-		if (await ensureMembership(user.id, orgId)) {
+		let membershipCreated: boolean;
+		try {
+			membershipCreated = await ensureMembership(user.id, orgId);
+		} catch (error) {
+			if (error instanceof EnterpriseSeatLimitError) {
+				return scimError(409, error.message, "tooMany");
+			}
+			throw error;
+		}
+		if (membershipCreated) {
 			await logScimAudit(c, {
 				action: "scim.user.activate",
 				resourceType: "scim_user",

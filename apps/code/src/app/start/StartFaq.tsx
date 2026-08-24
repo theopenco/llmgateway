@@ -9,7 +9,11 @@ import {
 	AccordionTrigger,
 } from "@/components/ui/accordion";
 
-import { MARKETING_STATS } from "@llmgateway/shared";
+import {
+	MARKETING_STATS,
+	SELF_REFUND_USAGE_PERCENT,
+	SELF_REFUND_WINDOW_DAYS,
+} from "@llmgateway/shared";
 
 import type { ReactNode } from "react";
 
@@ -17,7 +21,25 @@ const faqItems: { question: string; answer: ReactNode }[] = [
 	{
 		question: "Which coding agents work with DevPass?",
 		answer:
-			"Anything that speaks the OpenAI or Anthropic API — DevPass Code, Claude Code, OpenCode, Empryo, SoulForge, Cursor, Cline, Continue, Aider, the OpenAI and Anthropic SDKs, and more. Set two environment variables and you're in.",
+			"Anything that speaks the OpenAI or Anthropic API — DevPass Code, Claude Code, OpenCode, GitHub Copilot, Empryo, SoulForge, Cursor, Cline, Continue, Aider, the OpenAI and Anthropic SDKs, and more. Set two environment variables and you're in.",
+	},
+	{
+		question: "Can I pick which provider serves my requests?",
+		answer: (
+			<>
+				No — DevPass always smart-routes. You request a model by its plain id
+				(e.g. <code className="font-mono text-sm">claude-sonnet-5</code>) and
+				the gateway picks the best provider in real time based on uptime, speed,
+				price, and prompt caching. Provider-prefixed ids like{" "}
+				<code className="font-mono text-sm">openai/gpt-4o</code> aren&apos;t
+				available on DevPass. If you need to pin an exact provider or region,
+				use{" "}
+				<Link href="https://llmgateway.io" className="underline">
+					LLM Gateway&apos;s pay-as-you-go API
+				</Link>{" "}
+				instead.
+			</>
+		),
 	},
 	{
 		question: "What models are included?",
@@ -32,12 +54,15 @@ const faqItems: { question: string; answer: ReactNode }[] = [
 		question: "What's the first-month guarantee?",
 		answer: (
 			<>
-				Cancel within 7 days of your first purchase and email{" "}
-				<Link href="mailto:contact@llmgateway.io" className="underline">
-					contact@llmgateway.io
-				</Link>
-				: we&apos;ll refund your first month minus the usage you consumed at
-				provider rates. There&apos;s no cancellation fee.
+				If DevPass isn&apos;t for you and you&apos;ve used less than{" "}
+				{SELF_REFUND_USAGE_PERCENT}% of your monthly allowance, refund yourself
+				from{" "}
+				<Link href="/dashboard/billing" className="underline">
+					Billing
+				</Link>{" "}
+				in your dashboard — no email needed. You get your first month back in
+				full, up to {SELF_REFUND_WINDOW_DAYS} days after the purchase; the
+				refund ends the plan right away, and there&apos;s no cancellation fee.
 			</>
 		),
 	},

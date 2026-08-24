@@ -1,11 +1,5 @@
 import { ProjectNameSettings } from "@/components/settings/project-name-settings";
-import { fetchServerData } from "@/lib/server-api";
-
-import type { Project } from "@/lib/types";
-
-interface ProjectData {
-	project: Project;
-}
+import { getProject } from "@/lib/server-api";
 
 export const ProjectNameSettingsRsc = async ({
 	orgId,
@@ -14,17 +8,7 @@ export const ProjectNameSettingsRsc = async ({
 	orgId: string;
 	projectId: string;
 }) => {
-	const projectData = await fetchServerData<ProjectData>(
-		"GET",
-		"/projects/{id}",
-		{
-			params: {
-				path: {
-					id: projectId,
-				},
-			},
-		},
-	);
+	const projectData = await getProject(projectId);
 
 	if (!projectData) {
 		return (

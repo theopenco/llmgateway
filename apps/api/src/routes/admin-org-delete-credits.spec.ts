@@ -1,9 +1,23 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
+
+import type * as PaymentsModule from "@/routes/payments.js";
+
+const stripeMock = vi.hoisted(() => ({
+	subscriptions: { cancel: vi.fn() },
+}));
+
+vi.mock("@/routes/payments.js", async (importOriginal) => {
+	const original = await importOriginal<typeof PaymentsModule>();
+	return {
+		...original,
+		getStripe: () => stripeMock,
+	};
+});
 
 const originalAdminEmails = process.env.ADMIN_EMAILS;
 
@@ -48,6 +62,8 @@ describe("admin organization deletion credit guard", () => {
 	beforeEach(async () => {
 		process.env.ADMIN_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
+		stripeMock.subscriptions.cancel.mockReset();
+		stripeMock.subscriptions.cancel.mockResolvedValue({ status: "canceled" });
 	});
 
 	afterEach(async () => {
@@ -142,5 +158,153 @@ describe("admin organization deletion credit guard", () => {
 			where: { id: { eq: "credit-member" } },
 		});
 		expect(member?.status).toBe("active");
+	});
+
+	it("disables an organization without deactivating its members", async () => {
+		await insertOrg("disable-member-org", "0");
+		await db.insert(tables.user).values({
+			id: "disable-member",
+			name: "Disable Member",
+			email: "disable-member@credits.test",
+			emailVerified: true,
+		});
+		await db.insert(tables.userOrganization).values({
+			userId: "disable-member",
+			organizationId: "disable-member-org",
+			role: "owner",
+		});
+
+		expect(
+			(await setStatus("disable-member-org", "deleted", cookie)).status,
+		).toBe(200);
+
+		const member = await db.query.user.findFirst({
+			where: { id: { eq: "disable-member" } },
+		});
+		expect(member?.status).toBe("active");
+	});
+
+	it("escalates a disabled organization to a member block", async () => {
+		await insertOrg("disabled-block-org", "0");
+		await db.insert(tables.user).values({
+			id: "disabled-block-member",
+			name: "Disabled Block Member",
+			email: "disabled-block-member@credits.test",
+			emailVerified: true,
+		});
+		await db.insert(tables.userOrganization).values({
+			userId: "disabled-block-member",
+			organizationId: "disabled-block-org",
+			role: "owner",
+		});
+
+		expect(
+			(await setStatus("disabled-block-org", "deleted", cookie)).status,
+		).toBe(200);
+		expect((await block("disabled-block-org", cookie)).status).toBe(200);
+
+		const member = await db.query.user.findFirst({
+			where: { id: { eq: "disabled-block-member" } },
+		});
+		expect(member?.status).toBe("deactivated");
+		expect(await getStatus("disabled-block-org")).toBe("deleted");
+	});
+
+	it("blocks members even when they belong to another active organization", async () => {
+		await insertOrg("block-member-org", "0");
+		await insertOrg("other-active-org", "0");
+		await db.insert(tables.user).values({
+			id: "block-member",
+			name: "Block Member",
+			email: "block-member@credits.test",
+			emailVerified: true,
+		});
+		await db.insert(tables.userOrganization).values([
+			{
+				userId: "block-member",
+				organizationId: "block-member-org",
+				role: "owner",
+			},
+			{
+				userId: "block-member",
+				organizationId: "other-active-org",
+				role: "owner",
+			},
+		]);
+
+		expect((await block("block-member-org", cookie)).status).toBe(200);
+
+		const member = await db.query.user.findFirst({
+			where: { id: { eq: "block-member" } },
+		});
+		expect(member?.status).toBe("deactivated");
+		expect(await getStatus("other-active-org")).toBe("active");
+	});
+
+	it.each([
+		["blocks", (orgId: string, token: string) => block(orgId, token)],
+		[
+			"disables",
+			(orgId: string, token: string) => setStatus(orgId, "deleted", token),
+		],
+	])(
+		"%s an organization and cancels every subscription",
+		async (_label, act) => {
+			await db.insert(tables.organization).values({
+				id: "subscription-org",
+				name: "Subscription Org",
+				billingEmail: "subscription-org@credits.test",
+				plan: "pro",
+				stripeSubscriptionId: "sub_pro",
+				devPlan: "max",
+				devPlanStripeSubscriptionId: "sub_devpass",
+				chatPlan: "plus",
+				chatPlanStripeSubscriptionId: "sub_chat",
+			});
+
+			expect((await act("subscription-org", cookie)).status).toBe(200);
+			expect(
+				stripeMock.subscriptions.cancel.mock.calls.map((call) => call[0]),
+			).toEqual(["sub_pro", "sub_devpass", "sub_chat"]);
+
+			const org = await db.query.organization.findFirst({
+				where: { id: { eq: "subscription-org" } },
+			});
+			expect(org).toMatchObject({
+				status: "deleted",
+				plan: "free",
+				stripeSubscriptionId: null,
+				devPlan: "none",
+				devPlanStripeSubscriptionId: null,
+				chatPlan: "none",
+				chatPlanStripeSubscriptionId: null,
+			});
+		},
+	);
+
+	it("re-enabling an organization does not reactivate a blocked member", async () => {
+		await insertOrg("blocked-member-org", "0");
+		await db.insert(tables.user).values({
+			id: "blocked-member",
+			name: "Blocked Member",
+			email: "blocked-member@credits.test",
+			emailVerified: true,
+		});
+		await db.insert(tables.userOrganization).values({
+			userId: "blocked-member",
+			organizationId: "blocked-member-org",
+			role: "owner",
+		});
+
+		expect((await block("blocked-member-org", cookie)).status).toBe(200);
+		expect(
+			(await setStatus("blocked-member-org", "active", cookie)).status,
+		).toBe(200);
+
+		const member = await db.query.user.findFirst({
+			where: { id: { eq: "blocked-member" } },
+		});
+		expect(member?.status).toBe("deactivated");
+		expect(await getStatus("blocked-member-org")).toBe("active");
 	});
 });

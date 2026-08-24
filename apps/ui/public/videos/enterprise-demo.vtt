@@ -1,0 +1,301 @@
+WEBVTT
+
+00:00.011 --> 00:04.537
+Hey everyone, this is a quick demo of LLM Gateway
+
+00:04.739 --> 00:06.824
+and its enterprise features. So,
+
+00:06.825 --> 00:10.449
+after signing up, you'll see this dashboard. You can top up any amount of
+
+00:10.450 --> 00:14.964
+credits and then spend these credits on any
+
+00:14.965 --> 00:18.893
+of these models listed here. If you want to bring your own keys,
+
+00:18.894 --> 00:21.004
+if you have credits on an account,
+
+00:21.005 --> 00:24.075
+you can do this here.
+
+00:24.076 --> 00:28.270
+You have the activity page where you can see the exact breakdown of every
+
+00:28.271 --> 00:31.399
+single request, how much money we saved you in terms of,
+
+00:31.400 --> 00:35.366
+uh, in case of a promotion that we have ongoing right now.
+
+00:35.367 --> 00:39.545
+You can see the routing decisions, so you can always choose if you want
+
+00:39.844 --> 00:42.349
+a specific price to log in or a specific provider.
+
+00:42.350 --> 00:48.139
+By default, we choose the best route for you with our routing algorithm.
+
+00:48.140 --> 00:50.891
+You can see the breakdown of agents.
+
+00:51.165 --> 00:55.487
+We support all the coding agents that are out there,
+
+00:56.218 --> 00:59.238
+so you can use any model with any of these. You can see the
+
+00:59.239 --> 01:01.990
+breakdown by model, by API key.
+
+01:02.498 --> 01:05.939
+In the enterprise level, we also breakdown of the whole organizations and users.
+
+01:05.940 --> 01:09.281
+I'll show that in a second. For full insights,
+
+01:09.282 --> 01:13.076
+you can also drill down by API key,
+
+01:13.078 --> 01:15.571
+if you need, and see the exact spend.
+
+01:15.797 --> 01:23.734
+Let's see the spend here. Cost. Yep. Uh,
+
+01:23.735 --> 01:28.414
+you have a bunch more stuff. The API keys page allows
+
+01:28.415 --> 01:29.224
+you to provision API keys and send it either to your team, or you
+
+01:29.225 --> 01:33.766
+can give it to specific, uh, agents. All of the API
+
+01:33.767 --> 01:36.267
+keys can have specific restrictions.
+
+01:36.268 --> 01:38.407
+In terms of expiration, usage limits,
+
+01:38.881 --> 01:41.976
+and specifically also rules,
+
+01:41.977 --> 01:45.295
+so that you can only allow specific models or providers,
+
+01:45.886 --> 01:49.695
+or pricing constraints, IP ranges in the enterprise offering,
+
+01:49.696 --> 01:54.643
+so you can restrict however you want in
+
+01:54.644 --> 01:58.089
+the end. Let's see,
+
+01:59.022 --> 02:03.460
+we have some caching, we can save you some costs in terms of identical
+
+02:03.461 --> 02:06.680
+LLM requests, the provider tokens caching is always enabled,
+
+02:06.681 --> 02:11.541
+of course. We have the team management here,
+
+02:11.905 --> 02:15.711
+let's switch to our enterprise organization for this real quick,
+
+02:15.712 --> 02:18.962
+so, we have the team here,
+
+02:22.087 --> 02:26.868
+you can invite All right. People set the specific role,
+
+02:26.869 --> 02:30.200
+uhm, give them access to specific projects,
+
+02:31.885 --> 02:36.475
+we have a compliance page where you can customize your
+
+02:36.476 --> 02:39.844
+compliance, uhm,
+
+02:39.854 --> 02:43.698
+yeah, requirements, so you can choose specific ones,
+
+02:44.210 --> 02:47.382
+maybe let's say we only want to route to US companies,
+
+02:47.383 --> 02:50.363
+and you will see here. what providers are eligible.
+
+02:51.406 --> 02:54.541
+We have, uh, also custom providers and custom models,
+
+02:57.185 --> 03:01.610
+which, uh, you will also, which you will also see in the model catalog
+
+03:01.611 --> 03:05.012
+once you edit, this is all available in the enterprise plan.
+
+03:07.537 --> 03:09.671
+We also have guardrails,
+
+03:09.691 --> 03:14.218
+so you can block specific actions.
+
+03:14.879 --> 03:17.305
+For some, we also have RedactN1,
+
+03:17.306 --> 03:20.082
+so, for example, for personal, personal information,
+
+03:20.370 --> 03:22.492
+in case it's detected, it can be redacted,
+
+03:22.641 --> 03:25.989
+and then it will show up in the security events page here.
+
+03:27.385 --> 03:31.586
+This helps you just to prevent leaking of internal company information,
+
+03:31.587 --> 03:33.879
+uhm,
+
+03:33.889 --> 03:36.587
+or outright block it. Thank you.
+
+03:36.588 --> 03:41.047
+And this is also something we continuously improve and push updates on.
+
+03:43.076 --> 03:46.421
+We have organization-wide analytics,
+
+03:46.765 --> 03:51.114
+so you can see the spend by user.
+
+03:51.115 --> 03:55.362
+Let me switch to an organization real quick,
+
+03:55.363 --> 03:58.576
+because this one is configured with SSO.
+
+03:58.685 --> 04:01.786
+So, we have this SSO page here. This is already configured. You can configure
+
+04:01.787 --> 04:07.224
+this with Microsoft Entra or Okta or whatever SSO tool
+
+04:07.225 --> 04:12.006
+that you use. We also have SCIM, so it will automatically sync from your
+
+04:12.007 --> 04:16.228
+SSO provider. So here the team is synced.
+
+04:16.229 --> 04:19.655
+You can add some default spend limits.
+
+04:20.371 --> 04:24.715
+so you can see developers can spend a lot more money.
+
+04:24.716 --> 04:28.425
+More than $200 a month on them. You can still override it for specific
+
+04:28.426 --> 04:31.277
+users specifically.
+
+04:31.278 --> 04:36.192
+So that will take precedence. You can also manage for specific users,
+
+04:36.193 --> 04:39.473
+what models or providers they can or cannot use.
+
+04:41.985 --> 04:46.865
+The analytics, uh, page allows
+
+04:46.866 --> 04:51.668
+you to see organizations. So you can break
+
+04:51.669 --> 04:54.814
+down by project, you can break down by user,
+
+04:56.359 --> 05:00.848
+see the spend over time or in total.
+
+05:01.338 --> 05:06.094
+Of course, you can break this down for whatever time duration that you need.
+
+05:06.648 --> 05:09.346
+And so this is an admin or owner.
+
+05:09.347 --> 05:12.837
+So this has, this user has access to all of the things.
+
+05:12.838 --> 05:14.958
+We have master keys as well,
+
+05:16.219 --> 05:20.246
+so that you can program it, programmatically export statistics.
+
+05:21.070 --> 05:24.336
+You can manage API key permissions, provision API keys,
+
+05:24.337 --> 05:28.413
+revoke API keys, roll API keys and all of that stuff.
+
+05:28.682 --> 05:31.085
+And then for a specific user,
+
+05:31.086 --> 05:35.670
+this is how it would look. So we have the login page
+
+05:35.671 --> 05:38.419
+here, right? then you would. Login with SSO,
+
+05:38.753 --> 05:41.212
+as a developer, and then you sign in,
+
+05:41.248 --> 05:43.320
+you see it goes to Microsoft Entra.
+
+05:43.321 --> 05:46.938
+In this case, I'm already logged in. And the user,
+
+05:47.762 --> 05:52.462
+this user is a developer, so they have only insights into their own usage.
+
+05:52.463 --> 05:55.190
+So on the dashboard, they see their own usage only,
+
+05:55.812 --> 05:57.813
+they can self-provision their API keys,
+
+05:57.881 --> 06:00.971
+So they have the same mechanism.
+
+06:00.972 --> 06:03.546
+In this case, they want to create different API keys for different agents or
+
+06:03.547 --> 06:03.876
+on the cloud.
+
+06:12.272 --> 06:16.226
+Of course, it will inherit the limits that are set on the organization And
+
+06:16.507 --> 06:21.111
+this will also have the model catalog that they can choose
+
+06:21.112 --> 06:24.374
+from. Here is, of course, whatever the organization policy sets.
+
+06:24.375 --> 06:28.116
+So, for example, the. This one is, uh, not, uh,
+
+06:28.126 --> 06:32.866
+available under the current company's settings.
+
+06:34.528 --> 06:35.414
+Yeah.

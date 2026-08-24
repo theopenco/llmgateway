@@ -94,11 +94,16 @@ export function getModelImageConfig(model: string) {
 		"gemini-3.1-flash-lite-image",
 	);
 
+	// Grok Imagine Image 2.0 is the only xAI image model with resolution and
+	// quality knobs; it serves 1k or 2k at low or medium quality and rejects
+	// anything else, and each combination is priced separately.
+	const isGrokImagine20 = lower.includes("grok-imagine-image-2-0");
+
 	const availableSizes = isGptImage
 		? GPT_IMAGE_SIZES
 		: isReve
 			? (["2K"] as const)
-			: isSeedreamPro
+			: isSeedreamPro || isGrokImagine20
 				? (["1K", "2K"] as const)
 				: isSeedream
 					? (["2K", "4K"] as const)
@@ -116,11 +121,19 @@ export function getModelImageConfig(model: string) {
 				? "2K"
 				: "1K";
 
-	const supportsQuality = isGptImage;
+	const supportsQuality = isGptImage || isGrokImagine20;
 	const availableQualities = isGptImage
 		? (["auto", "low", "medium", "high"] as const)
-		: ([] as readonly string[]);
-	const defaultQuality: string | undefined = isGptImage ? "low" : undefined;
+		: isGrokImagine20
+			? (["low", "medium"] as const)
+			: ([] as readonly string[]);
+	// Grok Imagine 2.0 defaults to the same tier xAI serves for a bare request,
+	// so the playground and a plain API call produce the same image and price.
+	const defaultQuality: string | undefined = isGptImage
+		? "low"
+		: isGrokImagine20
+			? "medium"
+			: undefined;
 
 	const maxInputImages = getMaxInputImages(lower);
 

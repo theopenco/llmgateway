@@ -647,6 +647,7 @@ describe("activity endpoint", () => {
 				completionTokens: "20",
 				totalTokens: "30",
 				hasError: true,
+				unifiedFinishReason: "upstream_error",
 				messages: JSON.stringify([{ role: "user", content: "Test" }]),
 				mode: "api-keys",
 				usedMode: "api-keys",
@@ -669,6 +670,7 @@ describe("activity endpoint", () => {
 				completionTokens: "20",
 				totalTokens: "30",
 				hasError: true,
+				unifiedFinishReason: "client_error",
 				messages: JSON.stringify([{ role: "user", content: "Test" }]),
 				mode: "api-keys",
 				usedMode: "api-keys",
@@ -756,9 +758,10 @@ describe("activity endpoint", () => {
 		const todayData = data.activity[0];
 
 		expect(todayData.requestCount).toBe(5);
-		expect(todayData.errorCount).toBe(2);
-		// Error rate = (2/5) * 100 = 40%
-		expect(todayData.errorRate).toBeCloseTo(40, 2);
+		expect(todayData.errorCount).toBe(1);
+		expect(todayData.clientErrorCount).toBe(1);
+		// Client errors are excluded from both sides: 1/4 = 25%.
+		expect(todayData.errorRate).toBeCloseTo(25, 2);
 	});
 
 	test("GET /activity should correctly calculate cache rate", async () => {
@@ -2336,6 +2339,149 @@ describe("activity endpoint", () => {
 			);
 
 			expect(res.status).toBe(403);
+		});
+	});
+
+	describe("credits vs BYOK mode split", () => {
+		beforeEach(async () => {
+			const now = new Date();
+			await db.insert(tables.log).values([
+				{
+					id: "mode-log-credits",
+					requestId: "mode-log-credits",
+					createdAt: now,
+					updatedAt: now,
+					organizationId: "test-org-id",
+					projectId: "test-project-id",
+					apiKeyId: "test-api-key-id",
+					duration: 100,
+					requestedModel: "mode-model",
+					requestedProvider: "openai",
+					usedModel: "mode-model",
+					usedProvider: "openai",
+					responseSize: 100,
+					promptTokens: "10",
+					completionTokens: "10",
+					totalTokens: "20",
+					messages: JSON.stringify([{ role: "user", content: "credits" }]),
+					mode: "hybrid",
+					usedMode: "credits",
+					cost: 1.5,
+					source: "test-agent",
+				},
+				{
+					id: "mode-log-byok",
+					requestId: "mode-log-byok",
+					createdAt: now,
+					updatedAt: now,
+					organizationId: "test-org-id",
+					projectId: "test-project-id",
+					apiKeyId: "test-api-key-id",
+					duration: 100,
+					requestedModel: "mode-model",
+					requestedProvider: "openai",
+					usedModel: "mode-model",
+					usedProvider: "openai",
+					responseSize: 100,
+					promptTokens: "10",
+					completionTokens: "10",
+					totalTokens: "20",
+					messages: JSON.stringify([{ role: "user", content: "byok" }]),
+					mode: "hybrid",
+					usedMode: "api-keys",
+					cost: 2.5,
+					source: "test-agent",
+				},
+			]);
+			await aggregateLogsForTesting();
+		});
+
+		test("splits day totals and model breakdown by usedMode", async () => {
+			const res = await app.request(
+				"/activity?days=7&projectId=test-project-id",
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(200);
+			const data = await res.json();
+
+			const day = data.activity.find(
+				(d: { creditsCost: number }) => d.creditsCost > 0,
+			);
+			expect(day).toBeDefined();
+			expect(day.creditsCost).toBeCloseTo(1.5, 5);
+			expect(day.apiKeysCost).toBeCloseTo(2.5, 5);
+			expect(day.creditsRequestCount).toBe(1);
+			// The two seeded api-keys logs from the outer beforeEach plus the BYOK
+			// log above.
+			expect(day.apiKeysRequestCount).toBe(3);
+			expect(day.cost).toBeCloseTo(4, 5);
+
+			const model = day.modelBreakdown.find(
+				(m: { id: string }) => m.id === "mode-model",
+			);
+			expect(model).toBeDefined();
+			expect(model.creditsCost).toBeCloseTo(1.5, 5);
+			expect(model.apiKeysCost).toBeCloseTo(2.5, 5);
+			expect(model.creditsRequestCount).toBe(1);
+			expect(model.apiKeysRequestCount).toBe(1);
+		});
+
+		test("splits the api key breakdown by usedMode", async () => {
+			const res = await app.request(
+				"/activity?days=7&projectId=test-project-id&groupBy=apiKey",
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(200);
+			const data = await res.json();
+
+			const entries = data.activity.flatMap(
+				(d: { apiKeyBreakdown: { id: string; creditsCost: number }[] }) =>
+					d.apiKeyBreakdown,
+			);
+			const entry = entries.find(
+				(e: { id: string; creditsCost: number }) =>
+					e.id === "test-api-key-id" && e.creditsCost > 0,
+			);
+			expect(entry).toBeDefined();
+			expect(entry.creditsCost).toBeCloseTo(1.5, 5);
+			expect(entry.apiKeysCost).toBeCloseTo(2.5, 5);
+			expect(entry.creditsRequestCount).toBe(1);
+			expect(entry.apiKeysRequestCount).toBe(3);
+		});
+
+		test("splits the source aggregation by usedMode", async () => {
+			// aggregateLogsForTesting does not cover the source rollup, so seed it
+			// directly like the other /activity/sources tests do.
+			await db.insert(tables.projectHourlySourceStats).values({
+				projectId: "test-project-id",
+				hourTimestamp: new Date(),
+				source: "test-agent",
+				requestCount: 2,
+				inputTokens: "20",
+				outputTokens: "20",
+				totalTokens: "40",
+				cost: 4,
+				creditsRequestCount: 1,
+				apiKeysRequestCount: 1,
+				creditsCost: 1.5,
+				apiKeysCost: 2.5,
+			});
+
+			const res = await app.request(
+				"/activity/sources?projectId=test-project-id",
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(200);
+			const data = await res.json();
+
+			const source = data.sources.find(
+				(s: { source: string }) => s.source === "test-agent",
+			);
+			expect(source).toBeDefined();
+			expect(source.creditsCost).toBeCloseTo(1.5, 5);
+			expect(source.apiKeysCost).toBeCloseTo(2.5, 5);
+			expect(source.creditsRequestCount).toBe(1);
+			expect(source.apiKeysRequestCount).toBe(1);
 		});
 	});
 });

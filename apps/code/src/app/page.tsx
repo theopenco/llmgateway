@@ -25,6 +25,7 @@ import {
 	DEV_PLAN_PRICES,
 	getDevPlanCreditsLimit,
 	MARKETING_STATS,
+	SELF_REFUND_WINDOW_DAYS,
 } from "@llmgateway/shared";
 import {
 	AnthropicIcon,
@@ -173,8 +174,9 @@ export default function LandingPage() {
 									</CodeCTATracker>
 								</div>
 								<p className="mt-5 font-mono text-xs text-muted-foreground">
-									First-month guarantee — cancel within 7 days of your first
-									purchase and we refund your first month, minus metered usage.
+									First-month guarantee — barely used it? Refund yourself in one
+									click from your billing dashboard, up to{" "}
+									{SELF_REFUND_WINDOW_DAYS} days after your first purchase.
 								</p>
 							</div>
 
@@ -435,6 +437,18 @@ export default function LandingPage() {
 								Claude Opus 4.8, Gemini 3.1 Pro, GPT-5.5, plus the strongest
 								open-weight Chinese coders — included on every tier.
 							</p>
+							<p className="mt-3 text-sm text-muted-foreground">
+								Every request is smart-routed to the best provider in real time
+								— picking a specific provider isn&apos;t possible on DevPass. If
+								you need provider pinning, use{" "}
+								<Link
+									href="https://llmgateway.io"
+									className="underline underline-offset-2 hover:text-foreground"
+								>
+									LLM Gateway&apos;s pay-as-you-go API
+								</Link>{" "}
+								instead.
+							</p>
 						</div>
 						<CodingModelsShowcase />
 					</div>
@@ -474,7 +488,7 @@ export default function LandingPage() {
 							</CodeCTATracker>
 						</div>
 						<p className="mt-6 font-mono text-xs text-muted-foreground">
-							First-month guarantee · no lock-in · no cancellation fee
+							Self-serve first-month refund · no lock-in · no cancellation fee
 						</p>
 					</div>
 				</section>

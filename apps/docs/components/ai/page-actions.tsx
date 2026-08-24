@@ -147,7 +147,7 @@ export function ViewOptions({
 						? `http://localhost:3003?${new URLSearchParams({
 								q,
 							})}&hints=search&model=google-ai-studio/gemini-3-flash-preview`
-						: `https://chat.llmgateway.io?${new URLSearchParams({
+						: `https://lounge.llmgateway.io?${new URLSearchParams({
 								q,
 							})}&hints=search&model=google-ai-studio/gemini-3-flash-preview`,
 				icon: <Logo />,

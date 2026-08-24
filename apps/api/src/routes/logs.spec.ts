@@ -275,6 +275,68 @@ describe("logs route", () => {
 			expect(json.pagination.limit).toBe(50);
 		});
 
+		test("should filter logs by usedMode", async () => {
+			await db.insert(tables.log).values({
+				id: "test-log-credits",
+				requestId: "test-log-credits",
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "test-api-key-id",
+				duration: 100,
+				requestedModel: "gpt-4",
+				requestedProvider: "openai",
+				usedModel: "gpt-4",
+				usedProvider: "openai",
+				responseSize: 500,
+				promptTokens: "5",
+				completionTokens: "5",
+				totalTokens: "10",
+				messages: JSON.stringify([{ role: "user", content: "credits" }]),
+				mode: "hybrid",
+				usedMode: "credits",
+			});
+
+			const creditsRes = await app.request(
+				"/logs?" +
+					new URLSearchParams({
+						projectId: "test-project-id",
+						usedMode: "credits",
+					}),
+				{ headers: { Cookie: token } },
+			);
+			expect(creditsRes.status).toBe(200);
+			const creditsJson = await creditsRes.json();
+			expect(creditsJson.logs.length).toBe(1);
+			expect(creditsJson.logs[0].id).toBe("test-log-credits");
+			expect(creditsJson.logs[0].usedMode).toBe("credits");
+
+			const byokRes = await app.request(
+				"/logs?" +
+					new URLSearchParams({
+						projectId: "test-project-id",
+						usedMode: "api-keys",
+					}),
+				{ headers: { Cookie: token } },
+			);
+			expect(byokRes.status).toBe(200);
+			const byokJson = await byokRes.json();
+			expect(byokJson.logs.length).toBe(1);
+			expect(byokJson.logs[0].id).toBe("test-log-id-1");
+
+			// "all" behaves like no filter.
+			const allRes = await app.request(
+				"/logs?" +
+					new URLSearchParams({
+						projectId: "test-project-id",
+						usedMode: "all",
+					}),
+				{ headers: { Cookie: token } },
+			);
+			expect(allRes.status).toBe(200);
+			const allJson = await allRes.json();
+			expect(allJson.logs.length).toBe(2);
+		});
+
 		test("should filter by second projectId", async () => {
 			const params = new URLSearchParams({ projectId: "test-project-id-2" });
 			const res = await app.request("/logs?" + params, {
@@ -705,6 +767,77 @@ describe("logs route", () => {
 			expect(json.log.errorDetails.responseText).toBe(
 				"Upstream provider error (500 Internal Server Error)",
 			);
+		});
+	});
+
+	// Network failures log a bare "fetch failed" message; the actual reason only
+	// exists in the cause chain, so the public endpoints have to serve it for the
+	// dashboard to show anything useful.
+	describe("error cause is served to the dashboard", () => {
+		const CAUSE =
+			"HeadersTimeoutError: Headers Timeout Error (code: UND_ERR_HEADERS_TIMEOUT)";
+
+		beforeEach(async () => {
+			await db.insert(tables.log).values({
+				id: "fetch-failed-log-id",
+				requestId: "fetch-failed-log-id",
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "test-api-key-id",
+				duration: 301880,
+				requestedModel: "gpt-4",
+				requestedProvider: "openai",
+				usedModel: "gpt-4",
+				usedProvider: "openai",
+				responseSize: 0,
+				finishReason: "upstream_error",
+				unifiedFinishReason: "upstream_error",
+				hasError: true,
+				errorDetails: {
+					statusCode: 0,
+					statusText: "TypeError",
+					responseText: "fetch failed",
+					cause: CAUSE,
+				},
+				messages: JSON.stringify([{ role: "user", content: "Hello" }]),
+				mode: "credits",
+				usedMode: "credits",
+			});
+		});
+
+		test("list endpoint serves the error cause", async () => {
+			const params = new URLSearchParams({ projectId: "test-project-id" });
+			const res = await app.request("/logs?" + params, {
+				method: "GET",
+				headers: {
+					Cookie: token,
+				},
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			const log = json.logs.find(
+				(entry: { id: string }) => entry.id === "fetch-failed-log-id",
+			);
+			expect(log.errorDetails.cause).toBe(CAUSE);
+		});
+
+		test("detail endpoint serves the error cause", async () => {
+			const res = await app.request("/logs/fetch-failed-log-id", {
+				method: "GET",
+				headers: {
+					Cookie: token,
+				},
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.log.errorDetails).toEqual({
+				statusCode: 0,
+				statusText: "TypeError",
+				responseText: "fetch failed",
+				cause: CAUSE,
+			});
 		});
 	});
 	// Project access is not key access: a developer may only read logs produced by

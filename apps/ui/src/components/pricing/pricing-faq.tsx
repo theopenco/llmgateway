@@ -2,7 +2,11 @@ import Link from "next/link";
 
 import { JsonLd } from "@/components/seo/json-ld";
 
-import { MARKETING_STATS } from "@llmgateway/shared";
+import {
+	MARKETING_STATS,
+	SELF_REFUND_USAGE_PERCENT,
+	SELF_REFUND_WINDOW_DAYS,
+} from "@llmgateway/shared";
 
 interface PricingFaqItem {
 	question: string;
@@ -45,6 +49,10 @@ const FAQ_ITEMS: PricingFaqItem[] = [
 		question: "What does the Enterprise plan include?",
 		answer: `Enterprise adds volume discounts, custom routing, unlimited data retention, and a ${MARKETING_STATS.uptimeSla} uptime SLA on top of everything in the free plan.`,
 		links: [{ href: "/enterprise", label: "Explore Enterprise" }],
+	},
+	{
+		question: "Can I get a refund?",
+		answer: `Yes — refunds are self-serve. If you've used less than ${SELF_REFUND_USAGE_PERCENT}% of a credit purchase, open Billing in your dashboard and hit Refund on the charge within ${SELF_REFUND_WINDOW_DAYS} days of buying: the money goes back to your card, no support ticket needed.`,
 	},
 	{
 		question: "Can I self-host LLM Gateway?",

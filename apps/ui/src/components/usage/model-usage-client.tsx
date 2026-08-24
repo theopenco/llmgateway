@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
 
 import { ActivityChart } from "@/components/dashboard/activity-chart";
+import { UsageModeSelector } from "@/components/shared/usage-mode-selector";
 import {
 	TimeRangePicker,
 	type TimeRangeValue,
@@ -66,7 +67,7 @@ export function ModelUsageClient({ projectId }: ModelUsageClientProps) {
 	// The per-member breakdown exposes every member's spend, so it carries the
 	// same entitlement as the organization-wide member analytics. This only hides
 	// the option — the API enforces it independently.
-	const isEnterprise = selectedOrganization?.plan === "enterprise";
+	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 	const { data: teamData } = useTeamMembers(orgId, undefined, {
 		enabled: isEnterprise,
 	});
@@ -181,6 +182,7 @@ export function ModelUsageClient({ projectId }: ModelUsageClientProps) {
 							</SelectContent>
 						</Select>
 						<TimeRangePicker value={timeRange} onChange={updateTimeRange} />
+						<UsageModeSelector />
 					</div>
 				</div>
 				<div className="space-y-4">

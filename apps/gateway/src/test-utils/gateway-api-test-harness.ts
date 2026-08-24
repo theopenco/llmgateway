@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect } from "vitest";
 
 import { db, eq, pool, tables } from "@llmgateway/db";
 import { getProviderDefinition, models } from "@llmgateway/models";
+import { getGatewayPublicBaseUrl } from "@llmgateway/shared";
 import { verifyVideoContentAccessToken } from "@llmgateway/shared/video-access";
 
 import {
@@ -124,9 +125,14 @@ export function createGatewayApiTestHarness() {
 
 	beforeAll(async () => {
 		mockServerUrl = await startMockServer();
+		// The mock stands in for every provider upstream, so service-tier requests
+		// would otherwise be rejected for not targeting the catalogue's real
+		// endpoint. Trusting it here keeps the positive tier paths exercisable.
+		process.env.SERVICE_TIER_TRUSTED_BASE_URLS = mockServerUrl;
 	});
 
 	afterAll(() => {
+		delete process.env.SERVICE_TIER_TRUSTED_BASE_URLS;
 		stopMockServer();
 	});
 
@@ -180,6 +186,7 @@ export function createGatewayApiTestHarness() {
 			creditsLimit?: string;
 			premiumCreditsUsed?: string;
 			premiumWeekStart?: Date | null;
+			paygEnabled?: boolean;
 		}) {
 			await db
 				.update(tables.organization)
@@ -191,6 +198,7 @@ export function createGatewayApiTestHarness() {
 					devPlanCreditsLimit: options.creditsLimit ?? "100",
 					devPlanPremiumCreditsUsed: options.premiumCreditsUsed ?? "0",
 					devPlanPremiumWeekStart: options.premiumWeekStart ?? null,
+					devPlanPaygEnabled: options.paygEnabled ?? false,
 				})
 				.where(eq(tables.organization.id, TEST_ORGANIZATION_ID));
 		},
@@ -268,7 +276,7 @@ export function createGatewayApiTestHarness() {
 			const validAfterSixDays = 6 * 24 * 60 * 60 * 1000;
 			const expiredAfterEightDays = 8 * 24 * 60 * 60 * 1000;
 			const parsed = new URL(url);
-			expect(parsed.origin).toBe("http://localhost:4001");
+			expect(parsed.origin).toBe(new URL(getGatewayPublicBaseUrl()).origin);
 			expect(parsed.pathname).toBe(`/v1/videos/logs/${logId}/content`);
 			const token = parsed.searchParams.get("token");
 			expect(token).toBeTruthy();

@@ -48,6 +48,14 @@ const TOOL_CALL_DENYLIST = new Set<string>([
 ]);
 
 const responsesTestModels = oneModelPerProvider(testModels);
+// Image-generation mappings answer every request with an image (the Responses
+// layer emits placeholder output text), so the multi-turn name-recall
+// assertion is unsatisfiable for them; they still run the single-turn case.
+// Only reachable when TEST_MODELS pins image-only models for a provider.
+const responsesMultiTurnModels = responsesTestModels.filter(
+	(m) =>
+		!m.providers.some((p: ProviderModelMapping) => p.imageGenerations === true),
+);
 const responsesToolCallModels = oneModelPerProvider(toolCallModels).filter(
 	(m) => !TOOL_CALL_DENYLIST.has(m.model),
 );
@@ -157,7 +165,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 		},
 	);
 
-	test.each(responsesTestModels)(
+	test.each(responsesMultiTurnModels)(
 		"responses multi-turn $model",
 		getTestOptions(),
 		async ({ model }) => {
@@ -206,11 +214,15 @@ describe("e2e", getConcurrentTestOptions(), () => {
 		"responses stateless encrypted reasoning $model",
 		getTestOptions(),
 		async ({ model }) => {
+			// The prompt has to make the model actually think: cheap reasoning
+			// models (e.g. gpt-5.6-luna) spend zero reasoning tokens on a trivial
+			// "remember my name" turn and then emit no reasoning item at all, so
+			// there would be no encrypted payload to round-trip.
 			const firstInput = [
 				{
 					role: "user",
 					content:
-						"My name is Ada. Please remember it. Reply with a brief acknowledgement.",
+						"My name is Ada. Please remember it. Also work out 17 * 23 step by step and state the result.",
 				},
 			];
 			const firstRequestId = generateTestRequestId();

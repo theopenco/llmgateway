@@ -1100,3 +1100,241 @@ describe("dev plan tier changes", () => {
 		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
 	});
 });
+
+describe("dev plan status billing history", () => {
+	let token: string;
+
+	beforeEach(async () => {
+		vi.clearAllMocks();
+		token = await createTestUser();
+
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Personal Org",
+			billingEmail: "admin@example.com",
+			kind: "devpass",
+			devPlan: "lite",
+			devPlanStripeSubscriptionId: SUBSCRIPTION_ID,
+		});
+		await db.insert(tables.userOrganization).values({
+			userId: "test-user-id",
+			organizationId: ORG_ID,
+			role: "owner",
+		});
+	});
+
+	afterEach(async () => {
+		await db.delete(tables.transaction);
+		await deleteAll();
+	});
+
+	async function getStatus() {
+		const res = await app.request("/dev-plans/status", {
+			headers: { Cookie: token },
+		});
+		expect(res.status).toBe(200);
+		return await res.json();
+	}
+
+	it("reports no billing history before the first charge", async () => {
+		expect(await getStatus()).toMatchObject({
+			hasPersonalOrg: true,
+			hasBillingHistory: false,
+		});
+	});
+
+	it("reports billing history once a plan payment exists", async () => {
+		await db.insert(tables.transaction).values({
+			organizationId: ORG_ID,
+			type: "dev_plan_start",
+			amount: "29",
+			currency: "USD",
+			status: "completed",
+		});
+
+		expect(await getStatus()).toMatchObject({ hasBillingHistory: true });
+	});
+
+	it("keeps reporting billing history after the plan ends", async () => {
+		// Ending a plan clears every devPlan* column, so the invoices are the only
+		// remaining signal that this user still needs the billing page.
+		await db.insert(tables.transaction).values({
+			organizationId: ORG_ID,
+			type: "dev_plan_start",
+			amount: "29",
+			currency: "USD",
+			status: "completed",
+		});
+		await db
+			.update(tables.organization)
+			.set({ devPlan: "none", devPlanStripeSubscriptionId: null })
+			.where(eq(tables.organization.id, ORG_ID));
+
+		expect(await getStatus()).toMatchObject({
+			devPlan: "none",
+			hasBillingHistory: true,
+		});
+	});
+
+	it("ignores non-invoice bookkeeping rows", async () => {
+		await db.insert(tables.transaction).values({
+			organizationId: ORG_ID,
+			type: "dev_plan_cancel",
+			currency: "USD",
+			status: "completed",
+		});
+
+		expect(await getStatus()).toMatchObject({ hasBillingHistory: false });
+	});
+
+	it("counts legacy pre-rename subscription rows", async () => {
+		// Dev plans were billed as `subscription_*` before the DevPass rename; on
+		// a devpass-kind org those rows are a past DevPass subscriber.
+		await db.insert(tables.transaction).values({
+			organizationId: ORG_ID,
+			type: "subscription_start",
+			amount: "50",
+			currency: "USD",
+			status: "completed",
+		});
+		await db
+			.update(tables.organization)
+			.set({ devPlan: "none", devPlanStripeSubscriptionId: null })
+			.where(eq(tables.organization.id, ORG_ID));
+
+		expect(await getStatus()).toMatchObject({ hasBillingHistory: true });
+	});
+
+	it("counts an unsettled charge, matching the invoice list", async () => {
+		// The invoices endpoint renders pending and failed charges too (with a
+		// status badge), so the page has content to show and must stay reachable.
+		await db.insert(tables.transaction).values({
+			organizationId: ORG_ID,
+			type: "dev_plan_start",
+			amount: "29",
+			currency: "USD",
+			status: "failed",
+		});
+
+		expect(await getStatus()).toMatchObject({ hasBillingHistory: true });
+	});
+});
+
+describe("dev plan billing history list", () => {
+	let token: string;
+
+	beforeEach(async () => {
+		vi.clearAllMocks();
+		token = await createTestUser();
+
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Personal Org",
+			billingEmail: "admin@example.com",
+			kind: "devpass",
+			devPlan: "none",
+		});
+		await db.insert(tables.userOrganization).values({
+			userId: "test-user-id",
+			organizationId: ORG_ID,
+			role: "owner",
+		});
+	});
+
+	afterEach(async () => {
+		await db.delete(tables.transaction);
+		await deleteAll();
+	});
+
+	async function getInvoices() {
+		const res = await app.request("/dev-plans/invoices", {
+			headers: { Cookie: token },
+		});
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as {
+			invoices: {
+				id: string;
+				type: string;
+				amount: string | null;
+				creditAmount: string | null;
+			}[];
+		};
+		return body.invoices;
+	}
+
+	it("lists refunds and plan lifecycle rows alongside the charges", async () => {
+		await db.insert(tables.transaction).values([
+			{
+				id: "tx-start",
+				organizationId: ORG_ID,
+				type: "dev_plan_start",
+				amount: "29",
+				creditAmount: "87",
+				status: "completed",
+				createdAt: new Date("2026-07-15T00:00:00Z"),
+			},
+			{
+				id: "tx-cancel",
+				organizationId: ORG_ID,
+				type: "dev_plan_cancel",
+				status: "completed",
+				createdAt: new Date("2026-07-31T00:00:00Z"),
+			},
+			{
+				id: "tx-refund",
+				organizationId: ORG_ID,
+				type: "credit_refund",
+				amount: "29",
+				creditAmount: "0",
+				status: "completed",
+				relatedTransactionId: "tx-start",
+				createdAt: new Date("2026-08-12T00:00:00Z"),
+			},
+			{
+				id: "tx-end",
+				organizationId: ORG_ID,
+				type: "dev_plan_end",
+				status: "completed",
+				createdAt: new Date("2026-08-12T00:01:00Z"),
+			},
+		]);
+
+		const invoices = await getInvoices();
+
+		expect(invoices.map((i) => i.id)).toEqual([
+			"tx-end",
+			"tx-refund",
+			"tx-cancel",
+			"tx-start",
+		]);
+		expect(invoices[1]).toMatchObject({
+			type: "credit_refund",
+			amount: "29",
+		});
+	});
+
+	it("still hides negative top-up reversal rows", async () => {
+		await db.insert(tables.transaction).values([
+			{
+				id: "tx-topup",
+				organizationId: ORG_ID,
+				type: "credit_topup",
+				amount: "26.25",
+				creditAmount: "25",
+				status: "completed",
+				createdAt: new Date("2026-08-02T00:00:00Z"),
+			},
+			{
+				id: "tx-topup-reversal",
+				organizationId: ORG_ID,
+				type: "credit_topup",
+				amount: "-26.25",
+				creditAmount: "-25",
+				status: "completed",
+				createdAt: new Date("2026-08-03T00:00:00Z"),
+			},
+		]);
+
+		expect((await getInvoices()).map((i) => i.id)).toEqual(["tx-topup"]);
+	});
+});

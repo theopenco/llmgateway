@@ -91,3 +91,23 @@ export function useDeleteAccount() {
 	const api = useApi();
 	return api.useMutation("delete", "/user/me");
 }
+
+/**
+ * What deleting the account will tear down: the organizations the user is the
+ * last member of, and the Stripe subscriptions those organizations still hold.
+ * Fetched so the confirmation dialog can name them instead of cancelling the
+ * DevPass subscription silently.
+ */
+export function useAccountDeletionPreview(enabled = true) {
+	const api = useApi();
+	return api.useQuery(
+		"get",
+		"/user/me/deletion-preview",
+		{},
+		{
+			enabled,
+			staleTime: 60 * 1000,
+			refetchOnWindowFocus: false,
+		},
+	);
+}

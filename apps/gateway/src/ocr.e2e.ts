@@ -11,6 +11,7 @@ import {
 	getConcurrentTestOptions,
 	getTestOptions,
 	logMode,
+	ocrModels,
 } from "@/chat-helpers.e2e.js";
 
 import { db, tables } from "@llmgateway/db";
@@ -32,10 +33,6 @@ function readFixtureImageDataUrl(): string {
 	const bytes = fs.readFileSync(FIXTURE_IMAGE_PATH);
 	return `data:image/png;base64,${bytes.toString("base64")}`;
 }
-
-// OCR resolves a real provider key from env vars (credits mode), so skip when
-// the Mistral key isn't configured rather than failing with an auth error.
-const hasMistralKey = Boolean(process.env.LLM_MISTRAL_API_KEY);
 
 async function ocrBeforeAllHook() {
 	await beforeAllHook();
@@ -72,10 +69,10 @@ describe("e2e ocr", getConcurrentTestOptions(), () => {
 		expect(true).toBe(true);
 	});
 
-	test.skipIf(!hasMistralKey)(
-		"/v1/ocr extracts a document via mistral-ocr-latest",
+	test.each(ocrModels)(
+		"/v1/ocr extracts a document via $model",
 		{ ...getTestOptions(), timeout: 120_000 },
-		async () => {
+		async ({ model }) => {
 			const res = await app.request("/v1/ocr", {
 				method: "POST",
 				headers: {
@@ -83,7 +80,7 @@ describe("e2e ocr", getConcurrentTestOptions(), () => {
 					Authorization: `Bearer ${OCR_API_KEY_TOKEN}`,
 				},
 				body: JSON.stringify({
-					model: "mistral-ocr-latest",
+					model,
 					document: {
 						type: "image_url",
 						image_url: readFixtureImageDataUrl(),
@@ -106,7 +103,9 @@ describe("e2e ocr", getConcurrentTestOptions(), () => {
 		},
 	);
 
-	test.skipIf(!hasMistralKey)(
+	// Pure request validation — rejected before any provider is contacted, so it
+	// needs no provider key and runs regardless of the OCR model selection.
+	test(
 		"/v1/ocr rejects an unknown model with 400",
 		getTestOptions(),
 		async () => {

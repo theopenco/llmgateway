@@ -40,6 +40,64 @@ describe("normalizeStreamingError", () => {
 		expect(normalized.log.details.cause).toContain("UND_ERR_SOCKET");
 	});
 
+	it("surfaces a structured trailing upstream error on termination", () => {
+		// The Gemini API sheds Flex-tier capacity by writing a raw JSON error
+		// tail and closing the socket; the tail is still in the stream buffer.
+		const socketCloseError = new Error("other side closed") as Error & {
+			code?: string;
+		};
+		socketCloseError.name = "SocketError";
+		socketCloseError.code = "UND_ERR_SOCKET";
+		const error = new TypeError("terminated", { cause: socketCloseError });
+
+		const bufferSnapshot =
+			'\n\r\n{\n  "error": {\n    "code": 503,\n    "message": "This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.",\n    "status": "UNAVAILABLE"\n  }\n}\n';
+
+		const normalized = normalizeStreamingError({
+			error,
+			provider: "google-ai-studio",
+			model: "gemini-3.7-flash",
+			bufferSnapshot,
+			phase: "upstream_read",
+		});
+
+		expect(normalized.terminated).toBe(true);
+		expect(normalized.client.message).toContain("high demand");
+		expect(normalized.client.details.statusCode).toBe(503);
+		expect(normalized.client.details.statusText).toBe(
+			"Upstream Stream Terminated",
+		);
+	});
+
+	it("keeps the scrubbed payload when a trailing error is redacted", () => {
+		const socketCloseError = new Error("other side closed") as Error & {
+			code?: string;
+		};
+		socketCloseError.name = "SocketError";
+		socketCloseError.code = "UND_ERR_SOCKET";
+		const error = new TypeError("terminated", { cause: socketCloseError });
+
+		const bufferSnapshot =
+			'{"error":{"code":503,"message":"SecretVendor is currently experiencing high demand.","status":"UNAVAILABLE"}}';
+
+		const normalized = normalizeStreamingError({
+			error,
+			provider: "tundra",
+			model: "kimi-k2.6",
+			bufferSnapshot,
+			phase: "upstream_read",
+			redact: true,
+		});
+
+		// The upstream status still classifies the failure, but the vendor's
+		// message never reaches the client.
+		expect(normalized.client.details.statusCode).toBe(503);
+		expect(normalized.client.message).toBe(redactedProviderErrorText(503));
+		const clientSerialized = JSON.stringify(normalized.client);
+		expect(clientSerialized).not.toContain("SecretVendor");
+		expect(normalized.log.details.bufferSnapshot).toBe(bufferSnapshot);
+	});
+
 	it("preserves generic streaming read errors with 500 classification", () => {
 		const error = new SyntaxError("Unexpected end of JSON input");
 

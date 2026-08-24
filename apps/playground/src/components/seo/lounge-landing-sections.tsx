@@ -6,6 +6,8 @@ import {
 	CHAT_PLAN_PRICES,
 	getChatPlanCreditsLimit,
 	MARKETING_STATS,
+	SELF_REFUND_USAGE_PERCENT,
+	SELF_REFUND_WINDOW_DAYS,
 } from "@llmgateway/shared";
 
 const MODEL_FAMILIES = [
@@ -141,8 +143,7 @@ const FAQ_ITEMS = [
 	},
 	{
 		question: "What happens to unused credits?",
-		answer:
-			"Your full credit allowance refills at the start of each billing cycle, and unspent credits don't roll over. If you've barely used a new membership, there's a 7-day money-back guarantee.",
+		answer: `Your full credit allowance refills at the start of each billing cycle, and unspent credits don't roll over. If you've barely used a new membership, you can refund yourself from your billing history for up to ${SELF_REFUND_WINDOW_DAYS} days, as long as you're under ${SELF_REFUND_USAGE_PERCENT}% of your allowance.`,
 	},
 ];
 
@@ -328,8 +329,8 @@ export function LoungeLandingSections() {
 						))}
 					</div>
 					<p className="mt-6 text-sm text-muted-foreground">
-						Cancel anytime, with a 7-day money-back guarantee on new
-						memberships.{" "}
+						Cancel anytime, with a self-serve {SELF_REFUND_WINDOW_DAYS}-day
+						money-back guarantee on new memberships.{" "}
 						<Link
 							href="/pricing"
 							className="text-foreground underline underline-offset-4"

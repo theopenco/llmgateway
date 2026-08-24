@@ -33,6 +33,10 @@ interface DatePreset {
 
 export const DEFAULT_GLOBAL_STATS_PRESET = "last_7_days";
 
+// All time has no client-side date range: the API derives the span from the
+// first/last recorded day, so it travels as `range=all` instead of from/to.
+export const ALL_TIME_PRESET = "all_time";
+
 function buildPresets(today: Date): DatePreset[] {
 	return [
 		{
@@ -89,14 +93,20 @@ function buildPresets(today: Date): DatePreset[] {
 	];
 }
 
-export function resolveGlobalStatsRange(searchParams: URLSearchParams): {
-	from: string;
-	to: string;
-} {
+export type ResolvedGlobalStatsRange =
+	| { allTime: true; from: undefined; to: undefined }
+	| { allTime: false; from: string; to: string };
+
+export function resolveGlobalStatsRange(
+	searchParams: URLSearchParams,
+): ResolvedGlobalStatsRange {
+	if (searchParams.get("range") === "all") {
+		return { allTime: true, from: undefined, to: undefined };
+	}
 	const fromParam = searchParams.get("from");
 	const toParam = searchParams.get("to");
 	if (fromParam && toParam) {
-		return { from: fromParam, to: toParam };
+		return { allTime: false, from: fromParam, to: toParam };
 	}
 	const today = new Date();
 	const presets = buildPresets(today);
@@ -104,6 +114,7 @@ export function resolveGlobalStatsRange(searchParams: URLSearchParams): {
 		presets.find((p) => p.value === DEFAULT_GLOBAL_STATS_PRESET) ?? presets[0];
 	const range = preset.getRange();
 	return {
+		allTime: false,
 		from: format(range.from, "yyyy-MM-dd"),
 		to: format(range.to, "yyyy-MM-dd"),
 	};
@@ -120,11 +131,30 @@ export function GlobalStatsRangePicker() {
 	const today = useMemo(() => new Date(), []);
 	const presets = useMemo(() => buildPresets(today), [today]);
 
-	const { from, to } = resolveGlobalStatsRange(searchParams);
-	const fromDate = useMemo(() => new Date(`${from}T00:00:00`), [from]);
-	const toDate = useMemo(() => new Date(`${to}T00:00:00`), [to]);
+	const { allTime, from, to } = resolveGlobalStatsRange(searchParams);
+	// All time has no explicit bounds, so the calendar still opens on the
+	// default preset's window rather than an empty selection.
+	const fallbackRange = useMemo(
+		() =>
+			(
+				presets.find((p) => p.value === DEFAULT_GLOBAL_STATS_PRESET) ??
+				presets[0]
+			).getRange(),
+		[presets],
+	);
+	const fromDate = useMemo(
+		() => (from ? new Date(`${from}T00:00:00`) : fallbackRange.from),
+		[from, fallbackRange],
+	);
+	const toDate = useMemo(
+		() => (to ? new Date(`${to}T00:00:00`) : fallbackRange.to),
+		[to, fallbackRange],
+	);
 
 	const activePreset = useMemo(() => {
+		if (allTime) {
+			return ALL_TIME_PRESET;
+		}
 		for (const preset of presets) {
 			const r = preset.getRange();
 			if (
@@ -135,7 +165,7 @@ export function GlobalStatsRangePicker() {
 			}
 		}
 		return "custom";
-	}, [presets, from, to]);
+	}, [allTime, presets, from, to]);
 
 	const updateRange = (newFrom: Date, newTo: Date) => {
 		const params = new URLSearchParams(searchParams.toString());
@@ -148,6 +178,15 @@ export function GlobalStatsRangePicker() {
 	const handlePresetSelect = (preset: DatePreset) => {
 		const r = preset.getRange();
 		updateRange(r.from, r.to);
+		setOpen(false);
+	};
+
+	const handleAllTimeSelect = () => {
+		const params = new URLSearchParams(searchParams.toString());
+		params.delete("from");
+		params.delete("to");
+		params.set("range", "all");
+		router.replace(`${pathname}?${params.toString()}`, { scroll: false });
 		setOpen(false);
 	};
 
@@ -165,12 +204,15 @@ export function GlobalStatsRangePicker() {
 	};
 
 	const triggerLabel = useMemo(() => {
+		if (allTime) {
+			return "All time";
+		}
 		const preset = presets.find((p) => p.value === activePreset);
 		if (preset) {
 			return preset.label;
 		}
 		return `${format(fromDate, "MMM d, yyyy")} – ${format(toDate, "MMM d, yyyy")}`;
-	}, [activePreset, presets, fromDate, toDate]);
+	}, [allTime, activePreset, presets, fromDate, toDate]);
 
 	return (
 		<Popover
@@ -208,6 +250,16 @@ export function GlobalStatsRangePicker() {
 								{preset.label}
 							</button>
 						))}
+						<button
+							type="button"
+							onClick={handleAllTimeSelect}
+							className={cn(
+								"w-full px-3 py-2 text-left text-sm transition-colors hover:bg-accent",
+								activePreset === ALL_TIME_PRESET && "bg-accent/50",
+							)}
+						>
+							All time
+						</button>
 						<div className="my-1 border-t border-border/60" />
 						<button
 							type="button"

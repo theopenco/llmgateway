@@ -9,6 +9,7 @@ import {
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { db, tables, eq, and } from "@llmgateway/db";
+import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -394,7 +395,7 @@ skills.openapi(generateSkill, async (c) => {
 		apiKey: token,
 		baseURL: gatewayUrl,
 		headers: {
-			"x-source": "chat.llmgateway.io",
+			"x-source": LOUNGE_SOURCE,
 		},
 	});
 

@@ -5,6 +5,15 @@ date: 2026-07-12
 title: "Microsoft Copilot Enterprise Pricing in 2026, Explained"
 summary: "Microsoft repriced enterprise Copilot three times in June 2026: GitHub Copilot moved to usage-based AI Credits, Copilot Cowork added per-task billing on top of the $30 seat, and volume discounts expired. What it costs now — and the cost-control playbook enterprises are adopting instead."
 categories: ["Guides"]
+faqs:
+  - question: "How much does Microsoft 365 Copilot cost in 2026?"
+    answer: "$30 per user per month, on top of a qualifying Microsoft 365 license (E3 is now $39, E5 $60, Business Standard $14). Volume discounts on the add-on expired June 30, 2026, and agentic Copilot Cowork tasks bill separately at roughly $1–3 for light tasks, $4–7 for medium, and $7+ for heavy."
+  - question: "What is Copilot Cowork and how is it priced?"
+    answer: "Cowork is Microsoft's agentic mode that executes multi-step tasks across enterprise data. It launched globally June 16, 2026. Pricing is per task — driven by the model used, context retrieved, tool calls, and runtime — billed in Copilot Credits on top of the $30 Copilot license, via pay-as-you-go or a volume commitment."
+  - question: "How much does GitHub Copilot Enterprise cost after the June 2026 change?"
+    answer: "The seat is still $39 per user per month, but chat, agent mode, code review, and CLI usage now meter as AI Credits at $0.01 each with no default cap. Real-world overages range from a few dollars for light users to hundreds per developer for agent-heavy workflows."
+  - question: "How can enterprises cap Copilot-style AI spend?"
+    answer: "Put a gateway between your tools and the model providers. LLM Gateway enforces hard budget limits per organization, project, and API key, records cost per request, caches repeated context automatically, and passes provider prices through with no markup — so spend is visible, attributable, and bounded."
 image:
   src: "/blog/microsoft-copilot-enterprise-pricing.png"
   alt: "Microsoft Copilot enterprise pricing in 2026 — seat-based costs turning into metered usage flowing through a controlled gateway"
@@ -39,6 +48,8 @@ The practical numbers:
 There is no ceiling unless you configure one. Plans include monthly credit allowances, and spending budgets exist in the billing dashboard — but the budgets are off by default, an inversion of how the product was sold to procurement, where the seat price was the cap.
 
 For the developer-tool side of this, see the [best GitHub Copilot alternatives](/blog/github-copilot-alternatives) and the [LLM Gateway vs GitHub Copilot comparison](/compare/github-copilot).
+
+<BlogCta variant="devpass" location="mid_article" />
 
 ## Microsoft 365 Copilot: Higher Floors, Metered Ceilings
 
@@ -81,26 +92,6 @@ For enterprises specifically:
 
 Migrating developer workloads takes an afternoon, not a quarter — the [GitHub Copilot migration guide](/migration/github-copilot) walks through it feature by feature.
 
-## Frequently Asked Questions
-
-### How much does Microsoft 365 Copilot cost in 2026?
-
-$30 per user per month, on top of a qualifying Microsoft 365 license (E3 is now $39, E5 $60, Business Standard $14). Volume discounts on the add-on expired June 30, 2026, and agentic Copilot Cowork tasks bill separately at roughly $1–3 for light tasks, $4–7 for medium, and $7+ for heavy.
-
-### What is Copilot Cowork and how is it priced?
-
-Cowork is Microsoft's agentic mode that executes multi-step tasks across enterprise data. It launched globally June 16, 2026. Pricing is per task — driven by the model used, context retrieved, tool calls, and runtime — billed in Copilot Credits on top of the $30 Copilot license, via pay-as-you-go or a volume commitment.
-
-### How much does GitHub Copilot Enterprise cost after the June 2026 change?
-
-The seat is still $39 per user per month, but chat, agent mode, code review, and CLI usage now meter as AI Credits at $0.01 each with no default cap. Real-world overages range from a few dollars for light users to hundreds per developer for agent-heavy workflows.
-
-### How can enterprises cap Copilot-style AI spend?
-
-Put a gateway between your tools and the model providers. LLM Gateway enforces hard budget limits per organization, project, and API key, records cost per request, caches repeated context automatically, and passes provider prices through with no markup — so spend is visible, attributable, and bounded.
-
----
-
 ## Get Ahead of the Next Repricing
 
 If June 2026 is the month AI spend became a line item your CFO reads:
@@ -108,3 +99,5 @@ If June 2026 is the month AI spend became a line item your CFO reads:
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** — no credit card required, one API for 200+ models
 - **[Estimate your Copilot costs](/copilot-cost-calculator)** — model your team's usage under AI Credits vs pass-through pricing
 - **[Talk to us about an enterprise pilot](/enterprise)** — 30 days on production workloads, with your own keys if you prefer
+
+<BlogCta variant="devpass" location="bottom" />

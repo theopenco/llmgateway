@@ -4,6 +4,8 @@ import { NextResponse } from "next/server";
 import { PLAYGROUND_KEY_COOKIE_NAME } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
 
+import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
+
 import { getGatewayErrorMessage, readGatewayResponseBody } from "./utils";
 
 export const maxDuration = 60;
@@ -37,7 +39,7 @@ export async function POST(req: Request) {
 		headers: {
 			"Content-Type": "application/json",
 			Authorization: `Bearer ${apiKey}`,
-			"x-source": "chat.llmgateway.io",
+			"x-source": LOUNGE_SOURCE,
 			...(noFallback ? { "x-no-fallback": noFallback } : {}),
 		},
 		body: JSON.stringify(requestBody),

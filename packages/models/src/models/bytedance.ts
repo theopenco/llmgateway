@@ -106,6 +106,42 @@ export const bytedanceModels = [
 		],
 	},
 	{
+		id: "seed-2-1-turbo",
+		name: "Seed 2.1 Turbo",
+		description:
+			"ByteDance Seed 2.1 Turbo multimodal model built for coding and long-horizon agent workflows with a 256K context window",
+		family: "bytedance",
+		releasedAt: new Date("2026-08-10"),
+		providers: [
+			{
+				deactivatedAt: new Date("2026-08-20"),
+				providerId: "nanogpt",
+				externalId: "bytedance-seed/seed-2-1-turbo",
+				inputPrice: "0.5e-6",
+				outputPrice: "2.5e-6",
+				requestPrice: "0",
+				contextSize: 262144,
+				maxOutput: 262144,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				// The upstream NanoGPT routes for this model reject image parts even
+				// though Seed 2.1 Turbo itself is multimodal.
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+		],
+	},
+	{
 		id: "seedream-4-0",
 		name: "Seedream 4.0",
 		description:
@@ -128,6 +164,58 @@ export const bytedanceModels = [
 				tools: false,
 				jsonOutput: false,
 				imageGenerations: true,
+			},
+		],
+	},
+	{
+		id: "seedance-2-5",
+		name: "Seedance 2.5",
+		description:
+			"ByteDance Seedance 2.5 video generation model with single-shot clips up to 30 seconds and omni-reference image/video/audio conditioning",
+		family: "bytedance",
+		output: ["video"],
+		maxVideoDurationSeconds: 30,
+		releasedAt: new Date("2026-08-08"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "bytedance",
+				externalId: "dreamina-seedance-2-5-260628",
+				inputPrice: undefined,
+				outputPrice: undefined,
+				requestPrice: undefined,
+				perSecondPrice: {
+					default_audio: "0.2311",
+					default_video: "0.2311",
+					"480p_audio": "0.1028",
+					"480p_video": "0.1028",
+					"1080p_audio": "0.52",
+					"1080p_video": "0.52",
+				},
+				contextSize: 2000,
+				maxOutput: 1,
+				streaming: false,
+				vision: false,
+				tools: false,
+				jsonOutput: false,
+				videoGenerations: true,
+				// BytePlus rejects `2k` and `4k` on this deployment even though the
+				// console rate card lists a 4K tier, so 4K sizes stay off the mapping.
+				supportedVideoSizes: [
+					"848x480",
+					"854x480",
+					"480x854",
+					"1280x720",
+					"720x1280",
+					"1920x1080",
+					"1080x1920",
+				],
+				supportedVideoDurationsSeconds: [
+					4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+					23, 24, 25, 26, 27, 28, 29, 30,
+				],
+				supportsVideoAudio: true,
+				supportsVideoWithoutAudio: true,
 			},
 		],
 	},

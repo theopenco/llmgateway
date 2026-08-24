@@ -15,7 +15,7 @@ A roundup of everything else that shipped recently — new ways to pay, new ways
 
 ## Chat Subscription Plans
 
-[Chat](https://chat.llmgateway.io) now has monthly plans, so you can use every studio without topping up credits manually:
+[Chat](https://lounge.llmgateway.io) now has monthly plans, so you can use every studio without topping up credits manually:
 
 - **Starter — $9/mo** with **2×** credits ($18 of usage)
 - **Plus — $19/mo** with **2.5×** credits ($47.50 of usage)
@@ -66,4 +66,4 @@ Claim a username and share your AI coding activity. Your profile shows your acti
 
 ---
 
-**[Open your dashboard →](https://llmgateway.io/dashboard)** | **[Try Chat →](https://chat.llmgateway.io)**
+**[Open your dashboard →](https://llmgateway.io/dashboard)** | **[Try Chat →](https://lounge.llmgateway.io)**

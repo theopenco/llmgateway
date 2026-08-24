@@ -70,6 +70,8 @@ Even without security concerns, organizations need to control what topics their 
 
 Policy guardrails enforce these boundaries automatically, rather than relying on system prompts that can be bypassed.
 
+<BlogCta variant="enterprise" location="mid_article" />
+
 ## How Guardrails Work in Practice
 
 A guardrails system typically provides two layers: system rules (built-in protections) and custom rules (organization-specific policies).
@@ -176,3 +178,5 @@ Guardrails are available on LLM Gateway's Enterprise plan. The implementation fl
 No code changes required in your application. Guardrails run at the gateway level, so every API request is automatically protected regardless of which client or SDK you use.
 
 **[Learn more about Enterprise features](/enterprise)** | **[Read the guardrails docs](https://docs.llmgateway.io/features/guardrails)** | **[Contact us](/enterprise)**
+
+<BlogCta variant="enterprise" location="bottom" />

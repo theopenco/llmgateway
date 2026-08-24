@@ -18,6 +18,10 @@ import {
 	DateRangePicker,
 	getDateRangeFromParams,
 } from "@/components/date-range-picker";
+import {
+	UsageModeSelector,
+	useUsageMode,
+} from "@/components/shared/usage-mode-selector";
 import { MemberLimitsCard } from "@/components/team/member-limits-card";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import {
@@ -29,6 +33,9 @@ import {
 } from "@/lib/components/card";
 import { useApi } from "@/lib/fetch-client";
 import { getBrowserTimeZone } from "@/lib/timezone";
+import { applyUsageMode, pickCost, pickRequests } from "@/lib/usage-mode";
+
+import type { MyMemberBudgetData } from "@/hooks/useTeam";
 
 function SummaryStat({
 	label,
@@ -58,7 +65,11 @@ function SummaryStat({
 	);
 }
 
-export function DeveloperDashboardClient() {
+export function DeveloperDashboardClient({
+	initialMemberBudget,
+}: {
+	initialMemberBudget?: MyMemberBudgetData;
+}) {
 	const params = useParams();
 	const organizationId = params.orgId as string;
 	const projectId = params.projectId as string;
@@ -99,18 +110,23 @@ export function DeveloperDashboardClient() {
 		{ enabled: !!organizationId && !!projectId, refetchOnWindowFocus: false },
 	);
 
+	const usageMode = useUsageMode();
 	const summary = data?.summary;
-	const activity = data?.activity ?? [];
+	const activity = (data?.activity ?? []).map((row) =>
+		applyUsageMode(row, usageMode),
+	);
 
 	const stats = [
 		{
 			label: "Total cost",
-			value: currencyFormatter.format(summary?.cost ?? 0),
+			value: currencyFormatter.format(
+				summary ? pickCost(summary, usageMode) : 0,
+			),
 			icon: Coins,
 		},
 		{
 			label: "Requests",
-			value: (summary?.requestCount ?? 0).toLocaleString(),
+			value: (summary ? pickRequests(summary, usageMode) : 0).toLocaleString(),
 			icon: Zap,
 		},
 		{
@@ -135,10 +151,16 @@ export function DeveloperDashboardClient() {
 							Your usage and API keys for this project
 						</p>
 					</div>
-					<DateRangePicker buildUrl={buildUrl} path="me" />
+					<div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+						<DateRangePicker buildUrl={buildUrl} path="me" />
+						<UsageModeSelector />
+					</div>
 				</div>
 
-				<MemberLimitsCard organizationId={organizationId} />
+				<MemberLimitsCard
+					organizationId={organizationId}
+					initialData={initialMemberBudget}
+				/>
 
 				<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 					{stats.map((stat) => (

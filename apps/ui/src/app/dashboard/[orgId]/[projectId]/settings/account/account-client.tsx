@@ -5,7 +5,11 @@ import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
 
-import { useDeleteAccount, useUpdateUser } from "@/hooks/useUser";
+import {
+	useAccountDeletionPreview,
+	useDeleteAccount,
+	useUpdateUser,
+} from "@/hooks/useUser";
 import { useUser } from "@/hooks/useUser";
 import {
 	AlertDialog,
@@ -31,6 +35,40 @@ import {
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
 import { toast } from "@/lib/components/use-toast";
+
+interface DeletionPreviewOrganization {
+	id: string;
+	name: string;
+	kind: "default" | "chat" | "devpass";
+	plan: "free" | "pro" | "enterprise";
+	devPlan: "none" | "lite" | "pro" | "max";
+	chatPlan: "none" | "starter" | "plus" | "pro";
+	credits: string;
+	hasForfeitableCredits: boolean;
+	activeSubscriptions: number;
+}
+
+function formatCredits(credits: string): string {
+	return new Intl.NumberFormat("en-US", {
+		style: "currency",
+		currency: "USD",
+	}).format(Number(credits));
+}
+
+function titleCase(value: string): string {
+	return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function describeSubscription(org: DeletionPreviewOrganization): string {
+	switch (org.kind) {
+		case "devpass":
+			return `DevPass ${titleCase(org.devPlan)}`;
+		case "chat":
+			return `Chat ${titleCase(org.chatPlan)}`;
+		default:
+			return `${org.name} — ${titleCase(org.plan)} plan`;
+	}
+}
 
 function formatProviderName(providerId: string): string {
 	switch (providerId) {
@@ -71,6 +109,15 @@ export function AccountClient() {
 
 	const updateUserMutation = useUpdateUser();
 	const deleteAccountMutation = useDeleteAccount();
+	const { data: deletionPreview } = useAccountDeletionPreview();
+
+	const previewOrganizations = deletionPreview?.organizations ?? [];
+	const subscribedOrganizations = previewOrganizations.filter(
+		(org) => org.activeSubscriptions > 0,
+	);
+	const organizationsWithCredits = previewOrganizations.filter(
+		(org) => org.hasForfeitableCredits,
+	);
 
 	const handleUpdateUser = async () => {
 		try {
@@ -194,6 +241,10 @@ export function AccountClient() {
 								permanently deleted.
 							</p>
 							<p className="text-muted-foreground text-sm">
+								Any organization you are the last member of is closed, and its
+								active subscriptions are cancelled immediately.
+							</p>
+							<p className="text-muted-foreground text-sm">
 								Billing records of credits you purchased and spent are retained
 								for 10 years as required by tax and accounting law. See our{" "}
 								<a
@@ -229,6 +280,38 @@ export function AccountClient() {
 											purchased and spent are retained for 10 years as required
 											by tax and accounting law.
 										</AlertDialogDescription>
+										{subscribedOrganizations.length > 0 && (
+											<div className="border-destructive/40 bg-destructive/5 rounded-md border p-3 text-left text-sm">
+												<p className="font-medium">
+													You are the only member of these organizations, so
+													their subscriptions will be cancelled immediately:
+												</p>
+												<ul className="text-muted-foreground mt-2 list-disc pl-4">
+													{subscribedOrganizations.map((org) => (
+														<li key={org.id}>{describeSubscription(org)}</li>
+													))}
+												</ul>
+											</div>
+										)}
+										{organizationsWithCredits.length > 0 && (
+											<div className="border-destructive/40 bg-destructive/5 rounded-md border p-3 text-left text-sm">
+												<p className="font-medium">
+													These organizations still hold credits, which are
+													forfeited when your account is deleted:
+												</p>
+												<ul className="text-muted-foreground mt-2 list-disc pl-4">
+													{organizationsWithCredits.map((org) => (
+														<li key={org.id}>
+															{org.name} — {formatCredits(org.credits)}
+														</li>
+													))}
+												</ul>
+												<p className="text-muted-foreground mt-2">
+													Spend or request a refund of the balance first if you
+													want to keep it.
+												</p>
+											</div>
+										)}
 									</AlertDialogHeader>
 									<AlertDialogFooter>
 										<AlertDialogCancel>Cancel</AlertDialogCancel>

@@ -58,18 +58,13 @@ export function DetailProviderCards({ model }: { model: ModelWithProviders }) {
 			);
 			return (
 				<div
-					className={`flex flex-col gap-0.5 ${align === "end" ? "items-end" : "items-center"}`}
+					className={`flex items-center gap-1 ${align === "end" ? "justify-end" : "justify-center"}`}
 				>
-					<div className="flex items-center gap-1">
-						<span className="line-through text-muted-foreground text-xs">
-							${originalPrice}
-						</span>
-						<span className="text-green-600 font-semibold">
-							${discountedPrice}
-						</span>
-					</div>
-					<span className="text-[9px] font-semibold leading-none rounded px-1 py-0.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-						{Math.round(discountNum * 100)}% off
+					<span className="line-through text-muted-foreground text-xs">
+						${originalPrice}
+					</span>
+					<span className="text-green-600 font-semibold">
+						${discountedPrice}
 					</span>
 				</div>
 			);

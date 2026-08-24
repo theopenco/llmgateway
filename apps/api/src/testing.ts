@@ -7,8 +7,10 @@ import {
 	projectHourlySourceStats,
 	apiKeyHourlyStats,
 	apiKeyHourlyModelStats,
+	providerKeyHourlyStats,
 	eq,
 	inArray,
+	isNotNull,
 } from "@llmgateway/db";
 
 import { app } from "./index.js";
@@ -46,6 +48,7 @@ export async function deleteAll() {
 			await db.delete(projectHourlySourceStats);
 			await db.delete(apiKeyHourlyStats);
 			await db.delete(apiKeyHourlyModelStats);
+			await db.delete(providerKeyHourlyStats);
 			await db.delete(tables.apiKey);
 			await db.delete(tables.providerKey);
 			await db.delete(tables.organizationInvite);
@@ -56,6 +59,7 @@ export async function deleteAll() {
 			await db.delete(tables.verification);
 			await db.delete(tables.organization);
 			await db.delete(tables.user);
+			await db.delete(tables.systemSetting);
 			return;
 		} catch (error) {
 			if (attempt >= 3 || !isDeadlockError(error)) {
@@ -147,56 +151,61 @@ function getCommonAggregationFields() {
 			sql<string>`coalesce(sum(cast(${tables.log.cacheWriteTokens} as numeric)), 0)`.as(
 				"cacheWriteTokens",
 			),
-		cost: sql<number>`coalesce(sum(${tables.log.cost}), 0)`.as("cost"),
-		inputCost: sql<number>`coalesce(sum(${tables.log.inputCost}), 0)`.as(
-			"inputCost",
+		cost: sql<number>`coalesce(sum(cast(${tables.log.cost} as double precision)), 0)`.as(
+			"cost",
 		),
-		outputCost: sql<number>`coalesce(sum(${tables.log.outputCost}), 0)`.as(
-			"outputCost",
-		),
-		requestCost: sql<number>`coalesce(sum(${tables.log.requestCost}), 0)`.as(
-			"requestCost",
-		),
+		inputCost:
+			sql<number>`coalesce(sum(cast(${tables.log.inputCost} as double precision)), 0)`.as(
+				"inputCost",
+			),
+		outputCost:
+			sql<number>`coalesce(sum(cast(${tables.log.outputCost} as double precision)), 0)`.as(
+				"outputCost",
+			),
+		requestCost:
+			sql<number>`coalesce(sum(cast(${tables.log.requestCost} as double precision)), 0)`.as(
+				"requestCost",
+			),
 		dataStorageCost:
-			sql<number>`coalesce(sum(cast(${tables.log.dataStorageCost} as real)), 0)`.as(
+			sql<number>`coalesce(sum(cast(${tables.log.dataStorageCost} as double precision)), 0)`.as(
 				"dataStorageCost",
 			),
 		discountSavings: sql<number>`coalesce(
 			sum(
 				case
 					when ${tables.log.discount} > 0 and ${tables.log.discount} < 1
-					then ${tables.log.cost} * ${tables.log.discount} / (1 - ${tables.log.discount})
+					then cast(${tables.log.cost} as double precision) * ${tables.log.discount} / (1 - ${tables.log.discount})
 					else 0
 				end
 			),
 			0
 		)`.as("discountSavings"),
 		imageInputCost:
-			sql<number>`coalesce(sum(${tables.log.imageInputCost}), 0)`.as(
+			sql<number>`coalesce(sum(cast(${tables.log.imageInputCost} as double precision)), 0)`.as(
 				"imageInputCost",
 			),
 		imageOutputCost:
-			sql<number>`coalesce(sum(${tables.log.imageOutputCost}), 0)`.as(
+			sql<number>`coalesce(sum(cast(${tables.log.imageOutputCost} as double precision)), 0)`.as(
 				"imageOutputCost",
 			),
 		audioInputCost:
-			sql<number>`coalesce(sum(${tables.log.audioInputCost}), 0)`.as(
+			sql<number>`coalesce(sum(cast(${tables.log.audioInputCost} as double precision)), 0)`.as(
 				"audioInputCost",
 			),
 		audioOutputCost:
-			sql<number>`coalesce(sum(${tables.log.audioOutputCost}), 0)`.as(
+			sql<number>`coalesce(sum(cast(${tables.log.audioOutputCost} as double precision)), 0)`.as(
 				"audioOutputCost",
 			),
 		videoOutputCost:
-			sql<number>`coalesce(sum(${tables.log.videoOutputCost}), 0)`.as(
+			sql<number>`coalesce(sum(cast(${tables.log.videoOutputCost} as double precision)), 0)`.as(
 				"videoOutputCost",
 			),
 		cachedInputCost:
-			sql<number>`coalesce(sum(${tables.log.cachedInputCost}), 0)`.as(
+			sql<number>`coalesce(sum(cast(${tables.log.cachedInputCost} as double precision)), 0)`.as(
 				"cachedInputCost",
 			),
 		cacheWriteInputCost:
-			sql<number>`coalesce(sum(${tables.log.cacheWriteInputCost}), 0)`.as(
+			sql<number>`coalesce(sum(cast(${tables.log.cacheWriteInputCost} as double precision)), 0)`.as(
 				"cacheWriteInputCost",
 			),
 		// Per-mode breakdowns
@@ -209,19 +218,19 @@ function getCommonAggregationFields() {
 				"apiKeysRequestCount",
 			),
 		creditsCost:
-			sql<number>`coalesce(sum(case when ${tables.log.usedMode} = 'credits' then ${tables.log.cost} else 0 end), 0)`.as(
+			sql<number>`coalesce(sum(case when ${tables.log.usedMode} = 'credits' then cast(${tables.log.cost} as double precision) else 0 end), 0)`.as(
 				"creditsCost",
 			),
 		apiKeysCost:
-			sql<number>`coalesce(sum(case when ${tables.log.usedMode} = 'api-keys' then ${tables.log.cost} else 0 end), 0)`.as(
+			sql<number>`coalesce(sum(case when ${tables.log.usedMode} = 'api-keys' then cast(${tables.log.cost} as double precision) else 0 end), 0)`.as(
 				"apiKeysCost",
 			),
 		creditsDataStorageCost:
-			sql<number>`coalesce(sum(case when ${tables.log.usedMode} = 'credits' then cast(${tables.log.dataStorageCost} as real) else 0 end), 0)`.as(
+			sql<number>`coalesce(sum(case when ${tables.log.usedMode} = 'credits' then cast(${tables.log.dataStorageCost} as double precision) else 0 end), 0)`.as(
 				"creditsDataStorageCost",
 			),
 		apiKeysDataStorageCost:
-			sql<number>`coalesce(sum(case when ${tables.log.usedMode} = 'api-keys' then cast(${tables.log.dataStorageCost} as real) else 0 end), 0)`.as(
+			sql<number>`coalesce(sum(case when ${tables.log.usedMode} = 'api-keys' then cast(${tables.log.dataStorageCost} as double precision) else 0 end), 0)`.as(
 				"apiKeysDataStorageCost",
 			),
 	};
@@ -243,6 +252,7 @@ export async function aggregateLogsForTesting() {
 		db.delete(projectHourlyModelStats),
 		db.delete(apiKeyHourlyStats),
 		db.delete(apiKeyHourlyModelStats),
+		db.delete(providerKeyHourlyStats),
 	]);
 
 	const hourTrunc = sql`date_trunc('hour', ${tables.log.createdAt})`;
@@ -413,6 +423,74 @@ export async function aggregateLogsForTesting() {
 					apiKeyHourlyModelStats.hourTimestamp,
 					apiKeyHourlyModelStats.usedModel,
 					apiKeyHourlyModelStats.usedProvider,
+				],
+				set: {
+					...fields,
+					updatedAt: new Date(),
+				},
+			});
+	}
+
+	// Provider key hourly stats. Mirrors the worker's slimmer column set: only
+	// the attributed upstream cost plus volume and upstream-error signal.
+	const providerKeyStats = await db
+		.select({
+			providerKeyId: sql<string>`${tables.log.providerKeyId}`.as(
+				"providerKeyId",
+			),
+			projectId: tables.log.projectId,
+			hourTimestamp:
+				sql<string>`to_char(${hourTrunc}, 'YYYY-MM-DD HH24:MI:SS')`.as(
+					"hourTimestamp",
+				),
+			requestCount: sql<number>`count(*)::int`.as("requestCount"),
+			errorCount:
+				sql<number>`sum(case when ${tables.log.hasError} = true then 1 else 0 end)::int`.as(
+					"errorCount",
+				),
+			upstreamErrorCount:
+				sql<number>`sum(case when ${tables.log.unifiedFinishReason} = 'upstream_error' then 1 else 0 end)::int`.as(
+					"upstreamErrorCount",
+				),
+			cacheCount:
+				sql<number>`sum(case when ${tables.log.cached} = true then 1 else 0 end)::int`.as(
+					"cacheCount",
+				),
+			inputTokens:
+				sql<string>`coalesce(sum(cast(${tables.log.promptTokens} as numeric)), 0)`.as(
+					"inputTokens",
+				),
+			outputTokens:
+				sql<string>`coalesce(sum(cast(${tables.log.completionTokens} as numeric)), 0)`.as(
+					"outputTokens",
+				),
+			totalTokens:
+				sql<string>`coalesce(sum(cast(${tables.log.totalTokens} as numeric)), 0)`.as(
+					"totalTokens",
+				),
+			cost: sql<number>`coalesce(sum(cast(${tables.log.cost} as double precision)), 0)`.as(
+				"cost",
+			),
+		})
+		.from(tables.log)
+		.where(isNotNull(tables.log.providerKeyId))
+		.groupBy(tables.log.providerKeyId, tables.log.projectId, hourTrunc);
+
+	for (const stat of providerKeyStats) {
+		const { providerKeyId, projectId, hourTimestamp, ...fields } = stat;
+		await db
+			.insert(providerKeyHourlyStats)
+			.values({
+				providerKeyId,
+				projectId,
+				hourTimestamp: sql`${hourTimestamp}::timestamp`,
+				...fields,
+			})
+			.onConflictDoUpdate({
+				target: [
+					providerKeyHourlyStats.providerKeyId,
+					providerKeyHourlyStats.projectId,
+					providerKeyHourlyStats.hourTimestamp,
 				],
 				set: {
 					...fields,

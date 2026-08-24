@@ -3,13 +3,27 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import {
+	MAX_ORG_ACTIVITY_RANGE_DAYS,
+	rangeDaysInclusive,
+	resolveDateRange,
+} from "@/lib/date-range.js";
+import {
 	createIamRuleSchema,
 	iamRuleStatusEnum,
 	iamRuleTypeEnum,
 	iamRuleValueSchema,
 	validateIamRuleInput,
 } from "@/lib/iam-rules.js";
-import { maskToken } from "@/lib/maskToken.js";
+import { getOrgProjectIds } from "@/lib/org-projects.js";
+import { assertOrganizationProviderKey } from "@/lib/organization-provider-key.js";
+import {
+	getUsageReport,
+	USAGE_DIMENSIONS,
+	USAGE_GRANULARITIES,
+	usageReportRowSchema,
+	usageReportToCsv,
+	type UsageDimension,
+} from "@/lib/usage-report.js";
 import {
 	applyCustomModelUpdate,
 	createCustomModelSchema,
@@ -34,25 +48,34 @@ import {
 	complianceAttestationSchema,
 	customProviderNameSchema,
 	isValidProviderToken,
-	providerKeyResponseSchema,
-	serializeProviderKey,
+	providerKeyPublicSchema,
 	stampComplianceAttestation,
+	toPublicProviderKey,
 } from "@/routes/keys-provider.js";
 import { createProjectForOrg } from "@/routes/projects.js";
 import { memberIamRuleSchema } from "@/routes/team.js";
+import {
+	providerCacheControlModeSchema,
+	resolveProviderCacheControlMode,
+	withLegacyProviderCacheControl,
+} from "@/utils/provider-cache-control.js";
+import { timezoneQueryField } from "@/utils/timezone.js";
 
+import { encryptProviderKey, readProviderKey } from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
 import {
 	cdb,
 	db,
 	eq,
 	getApiKeyCurrentPeriodState,
+	shortid,
 	tables,
 } from "@llmgateway/db";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
+import { maskToken } from "@llmgateway/shared/mask-token";
 
 import type { ServerTypes } from "@/vars.js";
-import type { ProviderKeyComplianceAttestation } from "@llmgateway/db";
 
 export const v1Master = new OpenAPIHono<ServerTypes>();
 
@@ -96,7 +119,12 @@ v1Master.use("*", async (c, next) => {
 		throw new HTTPException(403, { message: "Organization is not active" });
 	}
 
-	if (row.organization?.plan !== "enterprise") {
+	if (
+		!hasOrganizationEnterpriseAccess(
+			row.organization?.id,
+			row.organization?.plan,
+		)
+	) {
 		throw new HTTPException(403, {
 			message: "Master keys require an enterprise plan",
 		});
@@ -122,7 +150,10 @@ v1Master.use("*", async (c, next) => {
 async function loadApiKeyForOrg(apiKeyId: string, organizationId: string) {
 	const apiKey = await db.query.apiKey.findFirst({
 		where: { id: { eq: apiKeyId } },
-		with: { project: true },
+		with: {
+			project: true,
+			creator: { columns: { email: true } },
+		},
 	});
 
 	if (
@@ -157,6 +188,8 @@ interface SerializableApiKey {
 	periodUsageDurationUnit: "hour" | "day" | "week" | "month" | null;
 	currentPeriodUsage: string;
 	currentPeriodStartedAt: Date | null;
+	creator?: { email: string } | null;
+	project: { name: string } | null;
 }
 
 /**
@@ -165,6 +198,10 @@ interface SerializableApiKey {
  * the time the current period resets. Never leaks the plain token.
  */
 function serializeApiKeyForMaster(apiKey: SerializableApiKey) {
+	if (!apiKey.project) {
+		throw new HTTPException(500, { message: "API key project not found" });
+	}
+
 	const currentPeriod = getApiKeyCurrentPeriodState(apiKey);
 
 	return {
@@ -174,7 +211,9 @@ function serializeApiKeyForMaster(apiKey: SerializableApiKey) {
 		description: apiKey.description,
 		status: apiKey.status,
 		projectId: apiKey.projectId,
+		projectName: apiKey.project.name,
 		createdBy: apiKey.createdBy,
+		createdByEmail: apiKey.creator?.email ?? null,
 		maskedToken: maskToken(apiKey.token),
 		usageLimit: apiKey.usageLimit,
 		usage: apiKey.usage,
@@ -197,6 +236,8 @@ const projectSchema = z.object({
 	organizationId: z.string(),
 	cachingEnabled: z.boolean(),
 	cacheDurationSeconds: z.number(),
+	providerCacheControlMode: providerCacheControlModeSchema,
+	/** @deprecated use providerCacheControlMode; false maps to "off". */
 	providerCacheControlEnabled: z.boolean(),
 	mode: projectModeEnum,
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
@@ -206,6 +247,7 @@ const createProjectBody = z.object({
 	name: z.string().min(1).max(255),
 	cachingEnabled: z.boolean().optional(),
 	cacheDurationSeconds: z.number().min(10).max(31536000).optional(),
+	providerCacheControlMode: providerCacheControlModeSchema.optional(),
 	providerCacheControlEnabled: z.boolean().optional(),
 	mode: projectModeEnum.optional(),
 });
@@ -265,7 +307,7 @@ v1Master.openapi(listProjects, async (c) => {
 		},
 	});
 
-	return c.json({ projects });
+	return c.json({ projects: projects.map(withLegacyProviderCacheControl) });
 });
 
 v1Master.openapi(createProject, async (c) => {
@@ -283,7 +325,7 @@ v1Master.openapi(createProject, async (c) => {
 		{ skipAccessCheck: true },
 	);
 
-	return c.json({ project }, 201);
+	return c.json({ project: withLegacyProviderCacheControl(project) }, 201);
 });
 
 const apiKeyPeriodUnit = z.enum(["hour", "day", "week", "month"]);
@@ -390,6 +432,7 @@ const updateProjectBody = z
 		name: z.string().min(1).max(255).optional(),
 		cachingEnabled: z.boolean().optional(),
 		cacheDurationSeconds: z.number().min(10).max(31536000).optional(),
+		providerCacheControlMode: providerCacheControlModeSchema.optional(),
 		providerCacheControlEnabled: z.boolean().optional(),
 		mode: projectModeEnum.optional(),
 		status: z.enum(["active", "inactive"]).optional(),
@@ -432,7 +475,18 @@ v1Master.openapi(updateProject, async (c) => {
 	}
 
 	const { id } = c.req.param();
-	const updates = c.req.valid("json");
+	// The legacy boolean is not a column any more; fold it into the mode so
+	// `.set(updates)` and the audit diff below only ever see real columns.
+	const { providerCacheControlEnabled: _legacy, ...rest } = c.req.valid("json");
+	const providerCacheControlMode = resolveProviderCacheControlMode(
+		c.req.valid("json"),
+	);
+	const updates = {
+		...rest,
+		...(providerCacheControlMode !== undefined
+			? { providerCacheControlMode }
+			: {}),
+	};
 
 	const existing = await db.query.project.findFirst({
 		where: { id: { eq: id } },
@@ -472,7 +526,7 @@ v1Master.openapi(updateProject, async (c) => {
 		});
 	}
 
-	return c.json({ project: updated });
+	return c.json({ project: withLegacyProviderCacheControl(updated) });
 });
 
 const deleteProject = createRoute({
@@ -555,7 +609,9 @@ const apiKeyDetailSchema = z.object({
 	description: z.string(),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	projectId: z.string(),
+	projectName: z.string(),
 	createdBy: z.string(),
+	createdByEmail: z.string().nullable(),
 	maskedToken: z.string(),
 	usageLimit: z.string().nullable(),
 	// Total spend accrued against `usageLimit` over the key's lifetime.
@@ -734,7 +790,13 @@ v1Master.openapi(updateApiKey, async (c) => {
 		});
 	}
 
-	return c.json({ apiKey: serializeApiKeyForMaster(updated) });
+	return c.json({
+		apiKey: serializeApiKeyForMaster({
+			...updated,
+			creator: existing.creator,
+			project: existing.project,
+		}),
+	});
 });
 
 const listApiKeysQuery = z.object({
@@ -797,6 +859,10 @@ v1Master.openapi(listApiKeys, async (c) => {
 			status: { ne: "deleted" },
 		},
 		orderBy: { createdAt: "desc" },
+		with: {
+			creator: { columns: { email: true } },
+			project: { columns: { name: true } },
+		},
 	});
 
 	return c.json({ apiKeys: apiKeys.map(serializeApiKeyForMaster) });
@@ -1464,6 +1530,11 @@ async function loadCustomProviderKeyForOrg(id: string, organizationId: string) {
 		});
 	}
 
+	// Narrows organizationId to non-null for consumers (insertCustomModel etc.).
+	// Guaranteed by the org check above: platform-managed rows have a NULL
+	// organizationId and can never match a master key's organization.
+	assertOrganizationProviderKey(providerKey);
+
 	return providerKey;
 }
 
@@ -1530,7 +1601,7 @@ const createCustomProvider = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
-						customProvider: providerKeyResponseSchema.openapi({}),
+						customProvider: providerKeyPublicSchema.openapi({}),
 					}),
 				},
 			},
@@ -1551,14 +1622,25 @@ v1Master.openapi(createCustomProvider, async (c) => {
 	await assertProviderBaseUrlAllowed(baseUrl);
 	await assertCustomProviderNameAvailable(masterKey.organizationId, name);
 
+	// Generate the id up front so the AAD — which binds the ciphertext to the
+	// row id and the organization id — can be computed before the INSERT.
+	const providerKeyId = shortid();
 	const [providerKey] = await cdb
 		.insert(tables.providerKey)
 		.values({
+			id: providerKeyId,
 			organizationId: masterKey.organizationId,
 			provider: "custom",
 			name,
 			baseUrl,
-			token,
+			token: null,
+			tokenCiphertext: encryptProviderKey(
+				token,
+				providerKeyId,
+				masterKey.organizationId,
+			),
+			tokenMasked: maskToken(token),
+			tokenHash: getApiKeyFingerprint(token),
 			customModelsOnly: customModelsOnly ?? false,
 			complianceAttestation: complianceAttestation
 				? stampComplianceAttestation(complianceAttestation, masterKey.createdBy)
@@ -1575,7 +1657,7 @@ v1Master.openapi(createCustomProvider, async (c) => {
 		metadata: { provider: "custom", resourceName: name },
 	});
 
-	return c.json({ customProvider: serializeProviderKey(providerKey) }, 201);
+	return c.json({ customProvider: toPublicProviderKey(providerKey) }, 201);
 });
 
 const listCustomProviders = createRoute({
@@ -1586,7 +1668,7 @@ const listCustomProviders = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
-						customProviders: z.array(providerKeyResponseSchema).openapi({}),
+						customProviders: z.array(providerKeyPublicSchema).openapi({}),
 					}),
 				},
 			},
@@ -1611,7 +1693,7 @@ v1Master.openapi(listCustomProviders, async (c) => {
 		orderBy: { createdAt: "asc" },
 	});
 
-	return c.json({ customProviders: providerKeys.map(serializeProviderKey) });
+	return c.json({ customProviders: providerKeys.map(toPublicProviderKey) });
 });
 
 const getCustomProvider = createRoute({
@@ -1625,7 +1707,7 @@ const getCustomProvider = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
-						customProvider: providerKeyResponseSchema.openapi({}),
+						customProvider: providerKeyPublicSchema.openapi({}),
 					}),
 				},
 			},
@@ -1647,7 +1729,7 @@ v1Master.openapi(getCustomProvider, async (c) => {
 		masterKey.organizationId,
 	);
 
-	return c.json({ customProvider: serializeProviderKey(providerKey) });
+	return c.json({ customProvider: toPublicProviderKey(providerKey) });
 });
 
 const updateCustomProvider = createRoute({
@@ -1668,7 +1750,7 @@ const updateCustomProvider = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
-						customProvider: providerKeyResponseSchema.openapi({}),
+						customProvider: providerKeyPublicSchema.openapi({}),
 					}),
 				},
 			},
@@ -1696,18 +1778,19 @@ v1Master.openapi(updateCustomProvider, async (c) => {
 		await assertProviderBaseUrlAllowed(baseUrl);
 	}
 
-	const updates: {
-		baseUrl?: string;
-		token?: string;
-		status?: "active" | "inactive";
-		customModelsOnly?: boolean;
-		complianceAttestation?: ProviderKeyComplianceAttestation | null;
-	} = {};
+	const updates: Partial<typeof tables.providerKey.$inferInsert> = {};
 	if (baseUrl !== undefined) {
 		updates.baseUrl = baseUrl;
 	}
 	if (token !== undefined) {
-		updates.token = token;
+		updates.token = null;
+		updates.tokenCiphertext = encryptProviderKey(
+			token,
+			existing.id,
+			masterKey.organizationId,
+		);
+		updates.tokenMasked = maskToken(token);
+		updates.tokenHash = getApiKeyFingerprint(token);
 	}
 	if (status !== undefined) {
 		updates.status = status;
@@ -1732,8 +1815,11 @@ v1Master.openapi(updateCustomProvider, async (c) => {
 	if (baseUrl !== undefined && existing.baseUrl !== baseUrl) {
 		changes.baseUrl = { old: existing.baseUrl, new: baseUrl };
 	}
-	// The token itself is never written to the audit log, only the fact it rotated.
-	if (token !== undefined && existing.token !== token) {
+	// The token itself is never written to the audit log, only the fact it
+	// rotated. Compare via readProviderKey: the plaintext column is NULL for
+	// encrypted rows, so a raw column comparison would log every no-op
+	// resubmission of the same token as a rotation.
+	if (token !== undefined && readProviderKey(existing) !== token) {
 		changes.token = { old: "<redacted>", new: "<rotated>" };
 	}
 	if (status !== undefined && existing.status !== status) {
@@ -1770,7 +1856,7 @@ v1Master.openapi(updateCustomProvider, async (c) => {
 		});
 	}
 
-	return c.json({ customProvider: serializeProviderKey(updated) });
+	return c.json({ customProvider: toPublicProviderKey(updated) });
 });
 
 const deleteCustomProvider = createRoute({
@@ -2021,6 +2107,150 @@ v1Master.openapi(deleteCustomModel, async (c) => {
 	await softDeleteCustomModel(existing, masterKey.createdBy);
 
 	return c.json({ message: "Custom model deleted successfully" });
+});
+
+// Hourly buckets over a long window explode the row count (a year is ~8800
+// buckets before any dimension fan-out), so hourly granularity gets a much
+// tighter cap than the daily one.
+const MAX_HOURLY_USAGE_RANGE_DAYS = 31;
+
+const usageQuery = z.object({
+	from: z.string().optional(),
+	to: z.string().optional(),
+	timezone: timezoneQueryField,
+	granularity: z.enum(USAGE_GRANULARITIES).optional(),
+	groupBy: z.string().optional(),
+	projectId: z.string().min(1).optional(),
+	userId: z.string().min(1).optional(),
+	apiKeyId: z.string().min(1).optional(),
+	limit: z.coerce.number().int().min(1).max(10000).optional(),
+	offset: z.coerce.number().int().min(0).optional(),
+	format: z.enum(["json", "csv"]).optional(),
+});
+
+const usageResponseSchema = z.object({
+	from: z.string(),
+	to: z.string(),
+	granularity: z.enum(USAGE_GRANULARITIES),
+	groupBy: z.array(z.enum(USAGE_DIMENSIONS)),
+	rows: z.array(usageReportRowSchema),
+	pagination: z.object({
+		limit: z.number(),
+		offset: z.number(),
+		hasMore: z.boolean(),
+	}),
+});
+
+function parseGroupBy(raw: string | undefined): UsageDimension[] {
+	if (raw === undefined) {
+		return ["user", "model"];
+	}
+	const seen = new Set<UsageDimension>();
+	for (const part of raw.split(",")) {
+		const value = part.trim();
+		if (!value) {
+			continue;
+		}
+		if (!(USAGE_DIMENSIONS as readonly string[]).includes(value)) {
+			throw new HTTPException(400, {
+				message: `Invalid groupBy dimension "${value}" (expected any of: ${USAGE_DIMENSIONS.join(", ")})`,
+			});
+		}
+		seen.add(value as UsageDimension);
+	}
+	return Array.from(seen);
+}
+
+const getUsage = createRoute({
+	method: "get",
+	path: "/usage",
+	request: {
+		query: usageQuery,
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: usageResponseSchema.openapi({}),
+				},
+				"text/csv": {
+					schema: z.any().openapi({ type: "string" }),
+				},
+			},
+			description:
+				"Usage and cost for the master key's organization, grouped by any combination of user, model, provider, project and API key, bucketed hourly, daily or not at all. Returns JSON, or CSV when format=csv.",
+		},
+	},
+});
+
+v1Master.openapi(getUsage, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const query = c.req.valid("query");
+	const timeZone = query.timezone || "UTC";
+	const granularity = query.granularity ?? "day";
+	const dimensions = parseGroupBy(query.groupBy);
+	const limit = query.limit ?? 1000;
+	const offset = query.offset ?? 0;
+
+	const { startDate, endDate, fromStr, toStr } = resolveDateRange(
+		query.from,
+		query.to,
+		timeZone,
+	);
+
+	const rangeDays = rangeDaysInclusive(fromStr, toStr);
+	if (rangeDays > MAX_ORG_ACTIVITY_RANGE_DAYS) {
+		throw new HTTPException(400, {
+			message: `Date range too large (max ${MAX_ORG_ACTIVITY_RANGE_DAYS} days)`,
+		});
+	}
+	if (granularity === "hour" && rangeDays > MAX_HOURLY_USAGE_RANGE_DAYS) {
+		throw new HTTPException(400, {
+			message: `Date range too large for hourly granularity (max ${MAX_HOURLY_USAGE_RANGE_DAYS} days)`,
+		});
+	}
+
+	const orgProjectIds = await getOrgProjectIds(masterKey.organizationId);
+	if (query.projectId && !orgProjectIds.includes(query.projectId)) {
+		throw new HTTPException(404, {
+			message: "Project not found in this organization",
+		});
+	}
+
+	const { rows, hasMore } = await getUsageReport({
+		projectIds: query.projectId ? [query.projectId] : orgProjectIds,
+		startDate,
+		endDate,
+		timeZone,
+		granularity,
+		dimensions,
+		userId: query.userId,
+		apiKeyId: query.apiKeyId,
+		limit,
+		offset,
+	});
+
+	if (query.format === "csv") {
+		c.header("Content-Type", "text/csv; charset=utf-8");
+		c.header(
+			"Content-Disposition",
+			`attachment; filename="usage-${fromStr}-to-${toStr}.csv"`,
+		);
+		return c.body(usageReportToCsv(rows));
+	}
+
+	return c.json({
+		from: fromStr,
+		to: toStr,
+		granularity,
+		groupBy: dimensions,
+		rows,
+		pagination: { limit, offset, hasMore },
+	});
 });
 
 export default v1Master;

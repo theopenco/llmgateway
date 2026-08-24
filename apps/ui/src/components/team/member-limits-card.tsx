@@ -10,6 +10,8 @@ import {
 	CardTitle,
 } from "@/lib/components/card";
 
+import type { MyMemberBudgetData } from "@/hooks/useTeam";
+
 function periodLabel(value: number, unit: string): string {
 	return value === 1 ? unit : `${value} ${unit}s`;
 }
@@ -19,13 +21,18 @@ function periodLabel(value: number, unit: string): string {
  * API keys, total spend cap, rolling period cap) and current usage against
  * them. Renders nothing when no limits are set, so it stays out of the way for
  * unrestricted members.
+ *
+ * `initialData` is fetched server-side so the card renders filled in on the
+ * first paint instead of popping in after hydration.
  */
 export function MemberLimitsCard({
 	organizationId,
+	initialData,
 }: {
 	organizationId: string;
+	initialData?: MyMemberBudgetData;
 }) {
-	const { data } = useMyMemberBudget(organizationId);
+	const { data } = useMyMemberBudget(organizationId, initialData);
 
 	const budget = data?.budget ?? null;
 	const spend = data?.spend ?? null;

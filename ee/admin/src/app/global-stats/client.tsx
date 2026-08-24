@@ -1,7 +1,15 @@
 "use client";
 
 import { format, parseISO } from "date-fns";
-import { BarChart3, Coins, Cpu, Layers, Server } from "lucide-react";
+import {
+	BarChart3,
+	Building2,
+	Coins,
+	Cpu,
+	Layers,
+	Server,
+	Wallet,
+} from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import {
@@ -20,6 +28,7 @@ import {
 	GlobalStatsRangePicker,
 	resolveGlobalStatsRange,
 } from "@/components/global-stats-range-picker";
+import { OrgKindSelector, useOrgKind } from "@/components/org-kind-selector";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -35,17 +44,33 @@ import {
 	ChartTooltip,
 	ChartTooltipContent,
 } from "@/components/ui/chart";
+import {
+	UsageModeSelector,
+	useUsageMode,
+} from "@/components/usage-mode-selector";
 import { useApi } from "@/lib/fetch-client";
+import { orgKindDescription, orgKindLabel } from "@/lib/org-kind";
+import { usageModeDescription, usageModeLabel } from "@/lib/usage-mode";
 import { cn } from "@/lib/utils";
 
 import type { ChartConfig } from "@/components/ui/chart";
 
-type GroupBy = "model" | "source";
+type GroupBy = "model" | "source" | "mode" | "kind";
 type ModelView = "mapping" | "canonical" | "provider";
+
+interface CompositionItem {
+	key: string;
+	label: string;
+	requestCount: number;
+	cost: number;
+	totalTokens: number;
+}
 
 const GROUP_OPTIONS: { value: GroupBy; label: string; icon: typeof Cpu }[] = [
 	{ value: "model", label: "By model", icon: Cpu },
 	{ value: "source", label: "By x-source", icon: Layers },
+	{ value: "mode", label: "By mode", icon: Wallet },
+	{ value: "kind", label: "By org kind", icon: Building2 },
 ];
 
 const MODEL_VIEW_OPTIONS: {
@@ -106,7 +131,7 @@ const timeseriesChartConfig = {
 
 type TimeseriesMetric = keyof typeof timeseriesChartConfig;
 
-const VALID_GROUPS: GroupBy[] = ["model", "source"];
+const VALID_GROUPS: GroupBy[] = ["model", "source", "mode", "kind"];
 const VALID_METRICS: TimeseriesMetric[] = [
 	"requestCount",
 	"cost",
@@ -190,6 +215,22 @@ function StatCard({
 	);
 }
 
+/**
+ * "PAYG: $12.30 · DevPass: $4.10" from a composition slice, skipping empty
+ * buckets. Null when there is nothing to compare against, so the caller can
+ * fall back to a different subtitle.
+ */
+function compositionSubtitle(
+	items: CompositionItem[] | undefined,
+	format: (item: CompositionItem) => string,
+): string | null {
+	const populated = (items ?? []).filter((item) => item.requestCount > 0);
+	if (populated.length < 2) {
+		return null;
+	}
+	return populated.map((item) => `${item.label}: ${format(item)}`).join(" · ");
+}
+
 function metricFormatter(metric: TimeseriesMetric) {
 	switch (metric) {
 		case "cost":
@@ -218,20 +259,13 @@ export function GlobalStatsClient() {
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
 
-	const { from, to } = resolveGlobalStatsRange(searchParams);
+	const { allTime, from, to } = resolveGlobalStatsRange(searchParams);
+	const usageMode = useUsageMode();
+	const orgKind = useOrgKind();
 	const groupBy = parseGroupBy(searchParams.get("groupBy"));
 	const chartMetric = parseMetric(searchParams.get("metric"));
 	const modelView = parseModelView(searchParams.get("modelView"));
 	const showTimeseriesBreakdown = parseBreakdown(searchParams.get("breakdown"));
-
-	const rangeLabel = useMemo(() => {
-		const fromDate = parseISO(from);
-		const toDate = parseISO(to);
-		if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
-			return "selected range";
-		}
-		return `${format(fromDate, "MMM d, yyyy")} – ${format(toDate, "MMM d, yyyy")}`;
-	}, [from, to]);
 
 	const updateParam = useCallback(
 		(key: string, value: string) => {
@@ -244,12 +278,13 @@ export function GlobalStatsClient() {
 
 	const [breakdownPage, setBreakdownPage] = useState(1);
 
-	// The range picker writes from/to directly to the URL, so reset pagination
-	// during render when the selected window changes.
-	const rangeKey = `${from}|${to}`;
-	const [lastRangeKey, setLastRangeKey] = useState(rangeKey);
-	if (rangeKey !== lastRangeKey) {
-		setLastRangeKey(rangeKey);
+	// The range picker and the mode/kind selectors write to the URL directly, so
+	// reset pagination during render when any of them changes (each also
+	// re-sorts the breakdown).
+	const viewKey = `${allTime ? "all" : `${from}|${to}`}|${usageMode}|${orgKind}`;
+	const [lastViewKey, setLastViewKey] = useState(viewKey);
+	if (viewKey !== lastViewKey) {
+		setLastViewKey(viewKey);
 		setBreakdownPage(1);
 	}
 
@@ -279,13 +314,40 @@ export function GlobalStatsClient() {
 	}, [updateParam, showTimeseriesBreakdown]);
 
 	const $api = useApi();
+	// mode/kind are applied server-side (both are part of the aggregation key),
+	// so every metric below is already narrowed to the selected slice and the
+	// filters take part in the query key.
+	// All time carries no bounds: the API derives the span from the first and
+	// last recorded day, so it is requested as `range=all` instead of from/to.
 	const { data, isLoading, isError } = $api.useQuery(
 		"get",
 		"/admin/global-stats",
 		{
-			params: { query: { from, to, groupBy, modelView } },
+			params: {
+				query: {
+					...(allTime ? { range: "all" as const } : { from, to }),
+					groupBy,
+					modelView,
+					mode: usageMode,
+					kind: orgKind,
+				},
+			},
 		},
 	);
+
+	const rangeLabel = useMemo(() => {
+		const start = from ?? data?.start;
+		const end = to ?? data?.end;
+		if (!start || !end) {
+			return "all time";
+		}
+		const startDate = parseISO(start);
+		const endDate = parseISO(end);
+		if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+			return allTime ? "all time" : "selected range";
+		}
+		return `${format(startDate, "MMM d, yyyy")} – ${format(endDate, "MMM d, yyyy")}`;
+	}, [allTime, from, to, data?.start, data?.end]);
 
 	const totals = data?.totals;
 	const timeseries = useMemo(() => data?.timeseries ?? [], [data?.timeseries]);
@@ -294,6 +356,44 @@ export function GlobalStatsClient() {
 		[data?.timeseriesBreakdown],
 	);
 	const breakdown = useMemo(() => data?.breakdown ?? [], [data?.breakdown]);
+
+	const composition = data?.composition;
+
+	// Each composition slice deliberately ignores its own filter server-side, so
+	// it still sums to the un-narrowed total. That makes it wrong to show under a
+	// headline the same filter narrowed: "DevPass cost $257" over a list naming
+	// every kind reads as if those were the parts of $257. Only offer the split
+	// while the corresponding dimension is unfiltered.
+	const modeComposition =
+		usageMode === "total" ? composition?.byMode : undefined;
+	const kindComposition = orgKind === "all" ? composition?.byKind : undefined;
+
+	// Rows aggregated before mode/kind attribution existed. A filter silently
+	// excludes them, so say so rather than letting the totals quietly shrink.
+	const unattributedNote = useMemo(() => {
+		const unknownIn = (items: { key: string; requestCount: number }[] = []) =>
+			items.find((item) => item.key === "unknown")?.requestCount ?? 0;
+		const parts: string[] = [];
+		if (usageMode !== "total") {
+			const count = unknownIn(composition?.byMode);
+			if (count > 0) {
+				parts.push(
+					`${numberFormatter.format(count)} requests predate billing-mode attribution`,
+				);
+			}
+		}
+		if (orgKind !== "all") {
+			const count = unknownIn(composition?.byKind);
+			if (count > 0) {
+				parts.push(
+					`${numberFormatter.format(count)} requests predate organization-kind attribution`,
+				);
+			}
+		}
+		return parts.length > 0
+			? `${parts.join(" and ")} — they are excluded from this view.`
+			: null;
+	}, [composition, usageMode, orgKind]);
 
 	// Pie data: top 10 by the selected metric, the rest collapsed into "Other".
 	const pieData = useMemo(() => {
@@ -392,13 +492,32 @@ export function GlobalStatsClient() {
 			? modelView === "provider"
 				? "providers"
 				: "models"
-			: "sources";
+			: groupBy === "mode"
+				? "billing modes"
+				: groupBy === "kind"
+					? "org kinds"
+					: "sources";
 	const breakdownNounSingular =
 		groupBy === "model"
 			? modelView === "provider"
 				? "Provider"
 				: "Model"
-			: "Source";
+			: groupBy === "mode"
+				? "Billing mode"
+				: groupBy === "kind"
+					? "Org kind"
+					: "Source";
+
+	const scopeNotes = [
+		usageModeDescription(usageMode),
+		orgKindDescription(orgKind),
+	].filter(Boolean);
+	const scopeParts = [
+		orgKind === "all" ? null : orgKindLabel(orgKind),
+		usageMode === "total" ? null : usageModeLabel(usageMode),
+	].filter((part): part is string => part !== null);
+	const scopeSuffix = scopeParts.map((label) => ` · ${label}`).join("");
+	const scopeLabel = scopeParts.length > 0 ? scopeParts.join(" · ") : "Total";
 
 	const breakdownTotalPages = Math.max(
 		1,
@@ -419,11 +538,19 @@ export function GlobalStatsClient() {
 						Global Stats
 					</h1>
 					<p className="mt-1 text-sm text-muted-foreground">
-						Cross-organization usage aggregated by day, grouped by model or
-						x-source header.
+						Cross-organization usage aggregated by day, grouped by model,
+						x-source header, billing mode or organization kind.
+						{scopeNotes.length > 0 ? ` ${scopeNotes.join(" ")}` : ""}
 					</p>
+					{unattributedNote ? (
+						<p className="mt-1 text-xs text-muted-foreground">
+							{unattributedNote}
+						</p>
+					) : null}
 				</div>
 				<div className="flex flex-wrap items-center gap-3">
+					<UsageModeSelector compact />
+					<OrgKindSelector compact />
 					<div className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-1">
 						{GROUP_OPTIONS.map((opt) => {
 							const Icon = opt.icon;
@@ -453,19 +580,28 @@ export function GlobalStatsClient() {
 
 			<section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
 				<StatCard
-					label="Total requests"
+					label={`${scopeLabel} requests`}
 					value={totals ? numberFormatter.format(totals.requestCount) : "—"}
-					subtitle={isLoading ? "Loading…" : undefined}
+					subtitle={
+						isLoading
+							? "Loading…"
+							: (compositionSubtitle(modeComposition, (item) =>
+									numberFormatter.format(item.requestCount),
+								) ?? undefined)
+					}
 					icon={<BarChart3 className="h-4 w-4" />}
 					accent="blue"
 				/>
 				<StatCard
-					label="Total cost"
+					label={`${scopeLabel} cost`}
 					value={totals ? currencyFormatter.format(totals.cost) : "—"}
 					subtitle={
-						totals
-							? `Input: ${currencyFormatter.format(totals.inputCost)} · Output: ${currencyFormatter.format(totals.outputCost)}`
-							: undefined
+						!totals
+							? undefined
+							: (compositionSubtitle(kindComposition, (item) =>
+									currencyFormatter.format(item.cost),
+								) ??
+								`Input: ${currencyFormatter.format(totals.inputCost)} · Output: ${currencyFormatter.format(totals.outputCost)}`)
 					}
 					icon={<Coins className="h-4 w-4" />}
 					accent="green"
@@ -496,6 +632,10 @@ export function GlobalStatsClient() {
 							) : (
 								<Cpu className="h-4 w-4" />
 							)
+						) : groupBy === "mode" ? (
+							<Wallet className="h-4 w-4" />
+						) : groupBy === "kind" ? (
+							<Building2 className="h-4 w-4" />
 						) : (
 							<Layers className="h-4 w-4" />
 						)
@@ -524,10 +664,10 @@ export function GlobalStatsClient() {
 												: modelView === "canonical"
 													? "canonical model"
 													: "mapping"
-											: "source"
+											: breakdownNounSingular.toLowerCase()
 									}`
-								: ` across all ${groupBy === "model" ? "models" : "sources"}`}
-							.
+								: ` across all ${breakdownNoun}`}
+							.{scopeParts.length > 0 ? ` ${scopeLabel} traffic only.` : ""}
 						</CardDescription>
 					</div>
 					<div className="flex flex-wrap items-center gap-2">
@@ -539,6 +679,10 @@ export function GlobalStatsClient() {
 						>
 							{groupBy === "model" ? (
 								<Cpu className="h-3.5 w-3.5" />
+							) : groupBy === "mode" ? (
+								<Wallet className="h-3.5 w-3.5" />
+							) : groupBy === "kind" ? (
+								<Building2 className="h-3.5 w-3.5" />
 							) : (
 								<Layers className="h-3.5 w-3.5" />
 							)}
@@ -697,11 +841,13 @@ export function GlobalStatsClient() {
 						<CardTitle>
 							{timeseriesChartConfig[chartMetric].label as string} share —{" "}
 							{breakdownNoun}
+							{scopeSuffix}
 						</CardTitle>
 						<CardDescription>
 							{breakdown.length > 10
 								? `Top 10 + Other across ${rangeLabel}.`
 								: `All ${breakdown.length} ${breakdownNoun} across ${rangeLabel}.`}
+							{scopeParts.length > 0 ? ` ${scopeLabel} traffic only.` : ""}
 						</CardDescription>
 					</div>
 					<div className="flex flex-wrap items-center gap-3">
@@ -826,8 +972,22 @@ export function GlobalStatsClient() {
 												<td className="px-3 py-2 font-mono text-xs">
 													{b.label}
 												</td>
-												<td className="px-3 py-2 text-right tabular-nums">
-													{metricFormatter(chartMetric)(b[chartMetric])}
+												<td
+													className="px-3 py-2 text-right tabular-nums"
+													title={
+														chartMetric === "totalTokens"
+															? numberFormatter.format(b.totalTokens)
+															: undefined
+													}
+												>
+													{chartMetric === "totalTokens"
+														? compactNumberFormatter.format(b.totalTokens)
+														: metricFormatter(chartMetric)(b[chartMetric])}
+													{chartMetric === "totalTokens" ? (
+														<span className="block whitespace-nowrap text-xs font-normal text-muted-foreground">
+															{`(in ${compactNumberFormatter.format(b.inputTokens)} · cached ${compactNumberFormatter.format(b.cachedTokens)} · out ${compactNumberFormatter.format(b.outputTokens)})`}
+														</span>
+													) : null}
 												</td>
 											</tr>
 										))

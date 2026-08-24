@@ -30,6 +30,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
+import { useAuthErrorToast } from "@/lib/auth-errors";
 
 const formSchema = z.object({
 	email: z.string().email({ message: "Please enter a valid email address" }),
@@ -74,6 +75,10 @@ function Login() {
 	useEffect(() => {
 		posthog.capture("page_viewed_login");
 	}, [posthog]);
+
+	// `signup_disabled` is handled by SocialAuthButtons, which turns it into a
+	// "you need to sign up" dialog instead of an error toast.
+	useAuthErrorToast(["signup_disabled"]);
 
 	const form = useForm<z.infer<typeof formSchema>>({
 		resolver: zodResolver(formSchema),

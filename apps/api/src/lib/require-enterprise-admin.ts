@@ -1,6 +1,7 @@
 import { HTTPException } from "hono/http-exception";
 
 import { db } from "@llmgateway/db";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
 /**
  * Ensures the authenticated user is an owner/admin of an enterprise
@@ -38,7 +39,7 @@ export async function requireEnterpriseAdmin(
 		throw new HTTPException(404, { message: "Organization not found" });
 	}
 
-	if (organization.plan !== "enterprise") {
+	if (!hasOrganizationEnterpriseAccess(organization.id, organization.plan)) {
 		throw new HTTPException(403, {
 			message: "Member analytics require an enterprise plan",
 		});

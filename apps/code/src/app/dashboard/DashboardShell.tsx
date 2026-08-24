@@ -6,9 +6,11 @@ import {
 	Code,
 	CreditCard,
 	ExternalLink,
+	LayoutDashboard,
 	Loader2,
 	LogOut,
 	Settings,
+	Sparkles,
 	Stamp,
 	UserRound,
 } from "lucide-react";
@@ -59,11 +61,25 @@ const InactivePlanChooser = dynamic(
 
 const navItems: Array<{ label: string; href: Route; icon: typeof BarChart3 }> =
 	[
-		{ label: "Usage", href: "/dashboard" as Route, icon: BarChart3 },
+		{
+			label: "Overview",
+			href: "/dashboard" as Route,
+			icon: LayoutDashboard,
+		},
+		{ label: "Usage", href: "/dashboard/usage" as Route, icon: BarChart3 },
 		{ label: "Billing", href: "/dashboard/billing" as Route, icon: CreditCard },
 		{ label: "Profile", href: "/dashboard/profile" as Route, icon: UserRound },
 		{ label: "Settings", href: "/dashboard/settings" as Route, icon: Settings },
 	];
+
+// Pages that stay usable without an active plan: past invoices, receipts and
+// self-refunds, the public profile, and account settings all outlive the
+// subscription. Only the usage overview is replaced by the plan chooser.
+const planIndependentRoutes: string[] = [
+	"/dashboard/billing",
+	"/dashboard/profile",
+	"/dashboard/settings",
+];
 
 // Pages that live on the DevPass site but outside the dashboard shell, so
 // they're rendered in their own subtle nav section with a link-out marker.
@@ -160,7 +176,6 @@ export default function DashboardShell({
 	const { posthogKey, googleAdsPurchaseConversion, googleAdsSignupConversion } =
 		config;
 	const api = useApi();
-	const { stripe, isLoading: stripeLoading } = useStripe();
 	const queryClient = useQueryClient();
 
 	const { user } = useUser({
@@ -175,6 +190,11 @@ export default function DashboardShell({
 	const subscribeMutation = api.useMutation("post", "/dev-plans/subscribe");
 	const finalizeMutation = api.useMutation("post", "/dev-plans/finalize");
 	const setupSessionId = searchParams.get("setup_session_id");
+	// Stripe.js is only needed to finalize a checkout setup session, so skip
+	// loading it on every other dashboard view.
+	const { stripe, isLoading: stripeLoading } = useStripe(
+		Boolean(setupSessionId),
+	);
 	const signupMethod = searchParams.get("signup_method");
 	const signupTracked = useRef(false);
 
@@ -442,7 +462,49 @@ export default function DashboardShell({
 
 	const hasActivePlan =
 		devPlanStatus?.devPlan && devPlanStatus.devPlan !== "none";
+	const isPlanIndependentRoute = planIndependentRoutes.includes(pathname);
+	// A plan that ended (or was refunded) clears the tier, but the user still
+	// needs billing: past invoices, receipts, unused Reset Pass refunds. Keep the
+	// full dashboard chrome for anyone who has ever been billed, and for the
+	// account pages themselves — brand-new visitors still land on the focused,
+	// full-width plan chooser.
+	const showDashboardChrome =
+		hasActivePlan ||
+		Boolean(devPlanStatus?.hasBillingHistory) ||
+		isPlanIndependentRoute;
 	const currentPlanName = devPlanStatus?.devPlan?.toUpperCase() ?? "";
+	// Without a plan the usage tab is the plan chooser, so label it as such.
+	const mainNavItems = hasActivePlan
+		? navItems
+		: navItems.map((item) =>
+				item.href === "/dashboard"
+					? { ...item, label: "Plans", icon: Sparkles }
+					: item,
+			);
+	const planChooser = (
+		<div className="space-y-10">
+			<div className="mx-auto max-w-md text-center pt-4">
+				<div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+					<Code className="h-6 w-6 text-muted-foreground" />
+				</div>
+				<h1 className="text-xl font-semibold mb-2">
+					{devPlanStatus?.hasBillingHistory
+						? "Choose a new Dev Plan"
+						: "Choose your Dev Plan"}
+				</h1>
+				<p className="text-sm text-muted-foreground leading-relaxed">
+					Pick a plan to get your API key and start coding with 200+ models.
+					Every dollar gives you 3x in usage.
+				</p>
+			</div>
+
+			<InactivePlanChooser
+				plans={plans}
+				subscribingTier={subscribingTier}
+				onSubscribe={handleSubscribe}
+			/>
+		</div>
+	);
 	const activeSetupActivationStatus =
 		setupActivationStatus ?? (setupSessionId ? "finalizing" : null);
 	const activeSetupActivationCopy = activeSetupActivationStatus
@@ -579,12 +641,12 @@ export default function DashboardShell({
 						<Skeleton className="h-32 w-full rounded-xl" />
 					</main>
 				</div>
-			) : hasActivePlan ? (
+			) : showDashboardChrome ? (
 				<div className="container mx-auto flex flex-col gap-8 px-4 py-8 lg:flex-row">
 					{/* Sidebar */}
 					<aside className="lg:w-56 lg:shrink-0">
 						<nav className="flex gap-1 overflow-x-auto lg:sticky lg:top-8 lg:flex-col lg:overflow-visible">
-							{navItems.map((item) => {
+							{mainNavItems.map((item) => {
 								const isActive = pathname === item.href;
 								const Icon = item.icon;
 								return (
@@ -623,31 +685,15 @@ export default function DashboardShell({
 						</nav>
 					</aside>
 
-					{/* Page content */}
-					<main className="min-w-0 flex-1">{children}</main>
+					{/* Page content — the usage overview needs a plan, the account and
+					    billing pages do not. */}
+					<main className="min-w-0 flex-1">
+						{hasActivePlan || isPlanIndependentRoute ? children : planChooser}
+					</main>
 				</div>
 			) : (
 				<main className="container mx-auto max-w-6xl px-4 py-8">
-					<div className="space-y-10">
-						<div className="mx-auto max-w-md text-center pt-4">
-							<div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-								<Code className="h-6 w-6 text-muted-foreground" />
-							</div>
-							<h1 className="text-xl font-semibold mb-2">
-								Choose your Dev Plan
-							</h1>
-							<p className="text-sm text-muted-foreground leading-relaxed">
-								Pick a plan to get your API key and start coding with 200+
-								models. Every dollar gives you 3x in usage.
-							</p>
-						</div>
-
-						<InactivePlanChooser
-							plans={plans}
-							subscribingTier={subscribingTier}
-							onSubscribe={handleSubscribe}
-						/>
-					</div>
+					{planChooser}
 				</main>
 			)}
 		</div>

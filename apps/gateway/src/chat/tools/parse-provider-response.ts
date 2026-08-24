@@ -1,3 +1,4 @@
+import { isToolSearchBlock } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -15,7 +16,11 @@ import {
 } from "./reasoning-details.js";
 
 import type { Annotation, ImageObject } from "./types.js";
-import type { Provider, ReasoningDetail } from "@llmgateway/models";
+import type {
+	AnthropicNativeBlock,
+	Provider,
+	ReasoningDetail,
+} from "@llmgateway/models";
 
 /**
  * Parses response content and metadata from different providers
@@ -28,6 +33,12 @@ export function parseProviderResponse(
 	supportsReasoning = true,
 	splitTaggedReasoning = false,
 	webSearchRequested = false,
+	/**
+	 * Whether the caller forced the search. DashScope reports no search metadata
+	 * at all, so its count is inferred from the request — but only a forced
+	 * request actually searches, so an unforced one must count zero.
+	 */
+	webSearchForced = false,
 ) {
 	let content = null;
 	let reasoningContent = null;
@@ -54,6 +65,7 @@ export function parseProviderResponse(
 	let audioInputTokens: number | null = null;
 	let cachedAudioInputTokens: number | null = null;
 	let toolResults = null;
+	let anthropicNativeBlocks: AnthropicNativeBlock[] | null = null;
 	let images: ImageObject[] = [];
 	const annotations: Annotation[] = [];
 	let webSearchCount = 0;
@@ -296,6 +308,16 @@ export function parseProviderResponse(
 						? promptTokens + completionTokens
 						: null;
 			}
+			// Server-side tool search leaves a server_tool_use +
+			// tool_search_tool_result pair in the content. Neither has an
+			// OpenAI-format equivalent, so surface them verbatim for the
+			// /v1/messages layer to replay — Anthropic expands the tool_reference
+			// entries they carry on every later turn.
+			const toolSearchBlocks = contentBlocks.filter(isToolSearchBlock);
+			if (toolSearchBlocks.length > 0) {
+				anthropicNativeBlocks = toolSearchBlocks;
+			}
+
 			// Extract tool calls from Anthropic format
 			toolResults =
 				json.content
@@ -318,20 +340,24 @@ export function parseProviderResponse(
 		case "iceberg":
 		case "google-vertex":
 		case "quartz": {
-			// Check if response is missing candidates - treat as content filter
-			if (!json.candidates || json.candidates.length === 0) {
-				// Only log warning if there's no blockReason explaining why
-				if (!json.promptFeedback?.blockReason) {
-					logger.warn(
-						"[parse-provider-response] Google response missing candidates",
-						{
-							usedProvider,
-							usedModel,
-							fullResponse: json,
-						},
-					);
-				}
-				finishReason = "content_filter";
+			// A response with no candidates used to be assigned "content_filter"
+			// here, which won over the `promptFeedback.blockReason` assignment
+			// below, so every such response was logged as the generic
+			// "content_filter" and the actual Google reason was lost. When Google
+			// reports no reason at all the finish reason is left unset (logged as
+			// "unknown") rather than guessing at a block — the warning below
+			// carries the full response for diagnosis.
+			const missingCandidates =
+				!json.candidates || json.candidates.length === 0;
+			if (missingCandidates && !json.promptFeedback?.blockReason) {
+				logger.warn(
+					"[parse-provider-response] Google response missing candidates",
+					{
+						usedProvider,
+						usedModel,
+						fullResponse: json,
+					},
+				);
 			}
 
 			// AI Studio duplicates the other candidates' parts into candidate 0
@@ -391,7 +417,7 @@ export function parseProviderResponse(
 			toolResults =
 				parts
 					.filter((part: any) => part.functionCall)
-					.map((part: any, index: number) => {
+					.map((part: any) => {
 						const toolCall: any = {
 							// Google doesn't provide an id, so generate one. It MUST be
 							// globally unique: the id is the `thought_signature:<id>` Redis
@@ -448,7 +474,6 @@ export function parseProviderResponse(
 
 			// Preserve the original Google finish reason for logging
 			// Use promptBlockReason if present, otherwise use googleFinishReason
-			// Don't overwrite if already set (e.g., content_filter for missing candidates)
 			if (!finishReason) {
 				if (promptBlockReason) {
 					finishReason = promptBlockReason;
@@ -672,6 +697,13 @@ export function parseProviderResponse(
 				if (json.choices?.[0]?.message?.images) {
 					images = json.choices[0].message.images;
 				}
+			}
+			// DashScope's OpenAI-compatible protocol never returns `search_info`,
+			// so there is no per-response signal that a search ran. Forcing is the
+			// only mode that searches, and it always searches, so a forced request
+			// is exactly one search and an unforced one is none.
+			if (webSearchRequested && webSearchForced) {
+				webSearchCount = 1;
 			}
 			break;
 		}
@@ -1067,7 +1099,10 @@ export function parseProviderResponse(
 				reasoningContent = hasReasoning ? aggregatedReasoning : null;
 				finishReason = allChoices[0]?.finish_reason ?? null;
 
-				if (finishReason === "abort") {
+				// Map non-standard finish reasons to OpenAI-compatible values
+				if (finishReason === "end_turn") {
+					finishReason = "stop";
+				} else if (finishReason === "abort") {
 					logger.warn("Upstream sent abort finish_reason", {
 						provider: usedProvider,
 						model: usedModel,
@@ -1080,6 +1115,8 @@ export function parseProviderResponse(
 					// "abort" is an upstream-initiated interruption, not a client
 					// cancellation, so it counts as an upstream error.
 					finishReason = "upstream_error";
+				} else if (finishReason === "tool_use") {
+					finishReason = "tool_calls";
 				}
 
 				// ZAI-specific fix for incorrect finish_reason in tool response scenarios
@@ -1126,7 +1163,16 @@ export function parseProviderResponse(
 				// Standard OpenAI-style token parsing
 				promptTokens = json.usage?.prompt_tokens ?? null;
 				completionTokens = json.usage?.completion_tokens ?? null;
-				reasoningTokens = json.usage?.reasoning_tokens ?? null;
+				// xAI and Vertex's xAI endpoint report reasoning outside
+				// `completion_tokens` and only expose the count in the nested details.
+				// Reading it here is what makes reasoning billable at all. Providers
+				// that fold reasoning into `completion_tokens` must keep reading the
+				// top-level field only, or the same tokens would be billed twice.
+				reasoningTokens =
+					json.usage?.reasoning_tokens ??
+					(usedProvider === "xai" || usedProvider === "vertex-openai"
+						? (json.usage?.completion_tokens_details?.reasoning_tokens ?? null)
+						: null);
 				cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens ?? null;
 				totalTokens =
 					json.usage?.total_tokens ??
@@ -1193,6 +1239,17 @@ export function parseProviderResponse(
 						webSearchCount = 1;
 					}
 				}
+
+				// SCX resells Qwen through DashScope, which returns no search
+				// metadata over the OpenAI-compatible protocol. See the `alibaba`
+				// case: only a forced request searches, and it always does.
+				if (
+					usedProvider === "scx-ai-gp" &&
+					webSearchRequested &&
+					webSearchForced
+				) {
+					webSearchCount = 1;
+				}
 			}
 			break;
 	}
@@ -1234,6 +1291,7 @@ export function parseProviderResponse(
 		audioInputTokens,
 		cachedAudioInputTokens,
 		toolResults,
+		anthropicNativeBlocks,
 		images,
 		annotations: annotations.length > 0 ? annotations : null,
 		webSearchCount: webSearchCount > 0 ? webSearchCount : null,

@@ -1,6 +1,7 @@
 import { and, gte, getTableName, inArray, sql } from "drizzle-orm";
 
 import { swrWrap } from "@llmgateway/cache";
+import { deriveStabilityMetrics } from "@llmgateway/shared";
 import {
 	routingHistoryCacheKey,
 	type RoutingHistoryConfig,
@@ -19,7 +20,8 @@ interface HistoryRow {
 	region: string | null;
 	totalLogs: string | number | null;
 	weightedLogs: string | number | null;
-	weightedRoutingErrors: string | number | null;
+	weightedErrors: string | number | null;
+	weightedClientErrors: string | number | null;
 	weightedDuration: string | number | null;
 	weightedOutputTokens: string | number | null;
 	weightedTTFT: string | number | null;
@@ -31,7 +33,8 @@ interface HistoryRow {
 function rowToMetrics(row: HistoryRow): ProviderMetrics | undefined {
 	const totalLogs = Number(row.totalLogs ?? 0);
 	const weightedLogs = Number(row.weightedLogs ?? 0);
-	const weightedRoutingErrors = Number(row.weightedRoutingErrors ?? 0);
+	const weightedErrors = Number(row.weightedErrors ?? 0);
+	const weightedClientErrors = Number(row.weightedClientErrors ?? 0);
 	const weightedDuration = Number(row.weightedDuration ?? 0);
 	const weightedOutputTokens = Number(row.weightedOutputTokens ?? 0);
 	const weightedTTFT = Number(row.weightedTTFT ?? 0);
@@ -43,8 +46,14 @@ function rowToMetrics(row: HistoryRow): ProviderMetrics | undefined {
 		return undefined;
 	}
 
-	const successfulRequests = weightedLogs - weightedRoutingErrors;
-	const uptime = Math.max(0, (successfulRequests / weightedLogs) * 100);
+	const { uptime } = deriveStabilityMetrics(
+		weightedLogs,
+		weightedErrors,
+		weightedClientErrors,
+	);
+	if (uptime === null) {
+		return undefined;
+	}
 
 	// Only streamed requests record a first-token latency, so each average
 	// divides by its own sample count. Dividing by the request count instead
@@ -113,7 +122,7 @@ export async function getProviderMetricsFromHistory(
 
 	// The version segment is bumped whenever the selected columns change so a
 	// rolling deploy doesn't read rows cached in the previous shape.
-	const cacheKey = `providerMetrics:history:v2:${routingHistoryCacheKey(history)}:${modelIds.join(",")}`;
+	const cacheKey = `providerMetrics:history:v3:${routingHistoryCacheKey(history)}:${modelIds.join(",")}`;
 
 	const rows = await swrWrap<HistoryRow[]>(
 		cacheKey,
@@ -147,9 +156,13 @@ export async function getProviderMetricsFromHistory(
 						sql<string>`coalesce(sum(${modelProviderMappingHistory.logsCount} * ${weightExpr}), 0)::bigint`.as(
 							"weighted_logs",
 						),
-					weightedRoutingErrors:
-						sql<string>`coalesce(sum(greatest(${modelProviderMappingHistory.errorsCount} - ${modelProviderMappingHistory.clientErrorsCount}, 0) * ${weightExpr}), 0)::bigint`.as(
-							"weighted_routing_errors",
+					weightedErrors:
+						sql<string>`coalesce(sum(${modelProviderMappingHistory.errorsCount} * ${weightExpr}), 0)::bigint`.as(
+							"weighted_errors",
+						),
+					weightedClientErrors:
+						sql<string>`coalesce(sum(${modelProviderMappingHistory.clientErrorsCount} * ${weightExpr}), 0)::bigint`.as(
+							"weighted_client_errors",
 						),
 					weightedDuration:
 						sql<string>`coalesce(sum(${modelProviderMappingHistory.totalDuration} * ${weightExpr}), 0)::bigint`.as(

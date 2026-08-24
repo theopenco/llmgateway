@@ -16,6 +16,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
+import { getApiErrorMessage } from "@/lib/api-error";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -55,6 +56,7 @@ import {
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 import { extractOrgAndProjectFromPath } from "@/lib/navigation-utils";
+import { cn } from "@/lib/utils";
 
 import {
 	formatCurrentPeriodUsageSummary,
@@ -62,6 +64,12 @@ import {
 	formatPeriodLimitSummary,
 	type ApiKeyLimitPayload,
 } from "./api-key-limit-fields";
+import {
+	ApiKeyLimitBadge,
+	ApiKeyLimitMeter,
+	apiKeyLimitTextTone,
+} from "./api-key-limit-indicators";
+import { getApiKeyLimitStatus } from "./api-key-limit-status";
 import { ApiKeyLimitsDialog } from "./api-key-limits-dialog";
 import { formatApiKeyExpiry } from "./api-key-ttl-fields";
 import { CreateApiKeyDialog } from "./create-api-key-dialog";
@@ -69,6 +77,7 @@ import { ReactivateApiKeyDialog } from "./reactivate-api-key-dialog";
 import { RenameApiKeyDialog } from "./rename-api-key-dialog";
 import { RollApiKeyDialog } from "./roll-api-key-dialog";
 
+import type { ApiKeyLimitStatus } from "./api-key-limit-status";
 import type { ApiKey, Project } from "@/lib/types";
 import type { Route } from "next";
 
@@ -79,6 +88,7 @@ interface ApiKeysListProps {
 
 type StatusFilter = "all" | "active" | "inactive";
 type CreatorFilter = "mine" | "all";
+type LimitFilter = "all" | "approaching" | "reached";
 
 const PLAYGROUND_KEY_DESCRIPTION = "Auto-generated playground key";
 
@@ -113,6 +123,7 @@ export function ApiKeysList({
 	);
 	const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
 	const [creatorFilter, setCreatorFilter] = useState<CreatorFilter>("all");
+	const [limitFilter, setLimitFilter] = useState<LimitFilter>("all");
 	const [reactivateKey, setReactivateKey] = useState<ApiKey | null>(null);
 	const [rollKey, setRollKey] = useState<ApiKey | null>(null);
 	const [renameKey, setRenameKey] = useState<ApiKey | null>(null);
@@ -147,6 +158,7 @@ export function ApiKeysList({
 					apiKeys: initialData.map((key) => ({
 						...key,
 						maskedToken: key.maskedToken,
+						ownerBudget: key.ownerBudget ?? null,
 					})),
 					userRole: "owner" as const,
 				},
@@ -180,7 +192,13 @@ export function ApiKeysList({
 	const inactiveKeys = allKeys.filter((key) => key.status === "inactive");
 	const planLimits = data?.planLimits;
 
-	const filteredKeys = (() => {
+	const limitStatuses = new Map<string, ApiKeyLimitStatus>(
+		allKeys.map((key) => [key.id, getApiKeyLimitStatus(key)]),
+	);
+	const limitStatusOf = (key: ApiKey): ApiKeyLimitStatus =>
+		limitStatuses.get(key.id) ?? { period: null, state: null, total: null };
+
+	const statusFilteredKeys = (() => {
 		switch (statusFilter) {
 			case "active":
 				return activeKeys;
@@ -192,9 +210,28 @@ export function ApiKeysList({
 		}
 	})();
 
+	const approachingKeys = statusFilteredKeys.filter(
+		(key) => limitStatusOf(key).state === "approaching",
+	);
+	const reachedKeys = statusFilteredKeys.filter(
+		(key) => limitStatusOf(key).state === "reached",
+	);
+
+	const filteredKeys = (() => {
+		switch (limitFilter) {
+			case "approaching":
+				return approachingKeys;
+			case "reached":
+				return reachedKeys;
+			case "all":
+			default:
+				return statusFilteredKeys;
+		}
+	})();
+
 	// Auto-switch to a tab with content if current tab becomes empty
 	useEffect(() => {
-		if (filteredKeys.length === 0 && allKeys.length > 0) {
+		if (statusFilteredKeys.length === 0 && allKeys.length > 0) {
 			if (statusFilter === "active" && inactiveKeys.length > 0) {
 				setStatusFilter("inactive");
 			} else if (statusFilter === "inactive" && activeKeys.length > 0) {
@@ -204,12 +241,21 @@ export function ApiKeysList({
 			}
 		}
 	}, [
-		filteredKeys.length,
+		statusFilteredKeys.length,
 		allKeys.length,
 		activeKeys.length,
 		inactiveKeys.length,
 		statusFilter,
 	]);
+
+	// Drop a usage filter once no key in the current status tab matches it.
+	useEffect(() => {
+		if (limitFilter === "approaching" && approachingKeys.length === 0) {
+			setLimitFilter("all");
+		} else if (limitFilter === "reached" && reachedKeys.length === 0) {
+			setLimitFilter("all");
+		}
+	}, [limitFilter, approachingKeys.length, reachedKeys.length]);
 
 	// Show message if no project is selected
 	if (!selectedProject) {
@@ -342,9 +388,10 @@ export function ApiKeysList({
 				title: "API Key Reactivated",
 				description: "The API key is active again with a new expiration.",
 			});
-		} catch {
+		} catch (error) {
 			toast({
 				title: "Failed to reactivate API key.",
+				description: getApiErrorMessage(error, "Please try again."),
 				variant: "destructive",
 			});
 		}
@@ -370,9 +417,10 @@ export function ApiKeysList({
 			});
 
 			return data.apiKey.token;
-		} catch {
+		} catch (error) {
 			toast({
 				title: "Failed to roll API key.",
+				description: getApiErrorMessage(error, "Please try again."),
 				variant: "destructive",
 			});
 			return undefined;
@@ -401,9 +449,10 @@ export function ApiKeysList({
 				title: "API Key Renamed",
 				description: "The API key has been renamed.",
 			});
-		} catch {
+		} catch (error) {
 			toast({
 				title: "Failed to rename API key.",
+				description: getApiErrorMessage(error, "Please try again."),
 				variant: "destructive",
 			});
 		}
@@ -441,34 +490,65 @@ export function ApiKeysList({
 		} catch (error) {
 			toast({
 				title: "Failed to update API key limits.",
+				description: getApiErrorMessage(error, "Please try again."),
 				variant: "destructive",
 			});
 			throw error;
 		}
 	};
 
-	const renderCurrentPeriodUsage = (key: ApiKey) => {
-		const summary = formatCurrentPeriodUsageSummary(key);
+	const renderUsage = (key: ApiKey) => {
+		const total = limitStatusOf(key).total;
 
 		return (
 			<div className="space-y-1">
 				<div
-					className={
+					className={cn(
+						"font-mono text-xs",
+						total && apiKeyLimitTextTone[total.state],
+					)}
+				>
+					{formatCurrencyAmount(key.usage)}
+					{total ? ` / ${formatCurrencyAmount(total.limit)}` : ""}
+				</div>
+				{total && <ApiKeyLimitMeter gauge={total} />}
+			</div>
+		);
+	};
+
+	const renderCurrentPeriodUsage = (key: ApiKey) => {
+		const summary = formatCurrentPeriodUsageSummary(key);
+		const period = limitStatusOf(key).period;
+		const reached = period?.state === "reached";
+
+		return (
+			<div className="space-y-1">
+				<div
+					className={cn(
 						summary.windowLabel
 							? "font-mono text-xs"
-							: "text-muted-foreground text-xs"
-					}
+							: "text-muted-foreground text-xs",
+						period && apiKeyLimitTextTone[period.state],
+					)}
 				>
 					{summary.summary}
 				</div>
+				{period && <ApiKeyLimitMeter gauge={period} />}
 				{summary.windowLabel && (
 					<div className="text-muted-foreground text-xs">
 						Every {summary.windowLabel}
 					</div>
 				)}
 				{summary.resetLabel && (
-					<div className="text-muted-foreground text-xs">
-						Resets {summary.resetLabel}
+					<div
+						className={cn(
+							"text-xs",
+							reached
+								? "text-destructive font-medium"
+								: "text-muted-foreground",
+						)}
+					>
+						{reached ? "Unblocks" : "Resets"} {summary.resetLabel}
 					</div>
 				)}
 			</div>
@@ -490,18 +570,34 @@ export function ApiKeysList({
 		);
 	};
 
-	const renderLimitSummary = (key: ApiKey) => (
-		<div className="text-left">
-			<div className="font-mono text-xs">
-				{key.usageLimit
-					? formatCurrencyAmount(key.usageLimit)
-					: "No all-time limit"}
+	const renderLimitSummary = (key: ApiKey) => {
+		const { period, total } = limitStatusOf(key);
+
+		return (
+			<div className="text-left">
+				<div
+					className={cn(
+						"font-mono text-xs",
+						total && apiKeyLimitTextTone[total.state],
+					)}
+				>
+					{key.usageLimit
+						? formatCurrencyAmount(key.usageLimit)
+						: "No all-time limit"}
+				</div>
+				<div
+					className={cn(
+						"text-xs",
+						period && period.state !== "ok"
+							? apiKeyLimitTextTone[period.state]
+							: "text-muted-foreground",
+					)}
+				>
+					{formatPeriodLimitSummary(key)}
+				</div>
 			</div>
-			<div className="text-muted-foreground text-xs">
-				{formatPeriodLimitSummary(key)}
-			</div>
-		</div>
-	);
+		);
+	};
 
 	if (allKeys.length === 0) {
 		return (
@@ -553,45 +649,87 @@ export function ApiKeysList({
 					</Tabs>
 				)}
 
-				{/* Status Filter Tabs */}
-				<Tabs
-					value={statusFilter}
-					onValueChange={(value) => setStatusFilter(value as StatusFilter)}
-				>
-					<TabsList className="flex space-x-2 w-full md:w-fit">
-						<TabsTrigger value="all">
-							All{" "}
-							<Badge
-								variant={statusFilter === "all" ? "default" : "outline"}
-								className="text-xs"
-							>
-								{allKeys.length}
-							</Badge>
-						</TabsTrigger>
-						{activeKeys.length > 0 && (
-							<TabsTrigger value="active">
-								Active{" "}
+				<div className="flex flex-col gap-4 md:flex-row md:items-center">
+					{/* Status Filter Tabs */}
+					<Tabs
+						value={statusFilter}
+						onValueChange={(value) => setStatusFilter(value as StatusFilter)}
+					>
+						<TabsList className="flex space-x-2 w-full md:w-fit">
+							<TabsTrigger value="all">
+								All{" "}
 								<Badge
-									variant={statusFilter === "active" ? "default" : "outline"}
+									variant={statusFilter === "all" ? "default" : "outline"}
 									className="text-xs"
 								>
-									{activeKeys.length}
+									{allKeys.length}
 								</Badge>
 							</TabsTrigger>
-						)}
-						{inactiveKeys.length > 0 && (
-							<TabsTrigger value="inactive">
-								Inactive{" "}
-								<Badge
-									variant={statusFilter === "inactive" ? "default" : "outline"}
-									className="text-xs"
-								>
-									{inactiveKeys.length}
-								</Badge>
-							</TabsTrigger>
-						)}
-					</TabsList>
-				</Tabs>
+							{activeKeys.length > 0 && (
+								<TabsTrigger value="active">
+									Active{" "}
+									<Badge
+										variant={statusFilter === "active" ? "default" : "outline"}
+										className="text-xs"
+									>
+										{activeKeys.length}
+									</Badge>
+								</TabsTrigger>
+							)}
+							{inactiveKeys.length > 0 && (
+								<TabsTrigger value="inactive">
+									Inactive{" "}
+									<Badge
+										variant={
+											statusFilter === "inactive" ? "default" : "outline"
+										}
+										className="text-xs"
+									>
+										{inactiveKeys.length}
+									</Badge>
+								</TabsTrigger>
+							)}
+						</TabsList>
+					</Tabs>
+
+					{/* Usage Limit Filter Tabs */}
+					{(approachingKeys.length > 0 || reachedKeys.length > 0) && (
+						<Tabs
+							value={limitFilter}
+							onValueChange={(value) => setLimitFilter(value as LimitFilter)}
+						>
+							<TabsList className="flex space-x-2 w-full md:w-fit">
+								<TabsTrigger value="all">Any usage</TabsTrigger>
+								{approachingKeys.length > 0 && (
+									<TabsTrigger value="approaching">
+										Near limit{" "}
+										<Badge
+											variant={
+												limitFilter === "approaching" ? "default" : "outline"
+											}
+											className="text-xs"
+										>
+											{approachingKeys.length}
+										</Badge>
+									</TabsTrigger>
+								)}
+								{reachedKeys.length > 0 && (
+									<TabsTrigger value="reached">
+										Limit reached{" "}
+										<Badge
+											variant={
+												limitFilter === "reached" ? "default" : "outline"
+											}
+											className="text-xs"
+										>
+											{reachedKeys.length}
+										</Badge>
+									</TabsTrigger>
+								)}
+							</TabsList>
+						</Tabs>
+					)}
+				</div>
 			</div>
 
 			{/* Plan Limits Display */}
@@ -611,6 +749,12 @@ export function ApiKeysList({
 							</div>
 						)}
 					</div>
+				</div>
+			)}
+
+			{filteredKeys.length === 0 && (
+				<div className="text-muted-foreground py-10 text-center text-sm">
+					No API keys match the selected filters.
 				</div>
 			)}
 
@@ -657,6 +801,10 @@ export function ApiKeysList({
 									<TableCell>
 										<div className="space-y-1">
 											<StatusBadge status={key.status} variant="detailed" />
+											<ApiKeyLimitBadge
+												apiKey={key}
+												status={limitStatusOf(key)}
+											/>
 											{renderExpiry(key)}
 										</div>
 									</TableCell>
@@ -698,12 +846,11 @@ export function ApiKeysList({
 											</TooltipContent>
 										</Tooltip>
 									</TableCell>
-									<TableCell>{formatCurrencyAmount(key.usage)}</TableCell>
+									<TableCell>{renderUsage(key)}</TableCell>
 									<TableCell>{renderCurrentPeriodUsage(key)}</TableCell>
 									<TableCell>
 										<ApiKeyLimitsDialog
 											apiKey={key}
-											organizationId={orgId ?? ""}
 											onSubmit={(payload) =>
 												updateKeyUsageLimit(key.id, payload)
 											}
@@ -865,6 +1012,10 @@ export function ApiKeysList({
 												: key.description}
 										</h3>
 										<StatusBadge status={key.status} />
+										<ApiKeyLimitBadge
+											apiKey={key}
+											status={limitStatusOf(key)}
+										/>
 									</div>
 									{renderExpiry(key)}
 									<div className="flex items-center gap-2 mt-1">
@@ -972,9 +1123,7 @@ export function ApiKeysList({
 									<div className="text-xs text-muted-foreground mb-1">
 										Usage
 									</div>
-									<div className="font-mono text-xs break-all">
-										{formatCurrencyAmount(key.usage)}
-									</div>
+									{renderUsage(key)}
 								</div>
 								<div className="py-1">
 									<div className="text-xs text-muted-foreground mb-1">
@@ -985,7 +1134,6 @@ export function ApiKeysList({
 								<div>
 									<ApiKeyLimitsDialog
 										apiKey={key}
-										organizationId={orgId ?? ""}
 										onSubmit={(payload) => updateKeyUsageLimit(key.id, payload)}
 									>
 										<Button

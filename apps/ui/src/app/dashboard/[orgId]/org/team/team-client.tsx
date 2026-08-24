@@ -19,6 +19,10 @@ import {
 	ProjectMultiSelect,
 	type OrgProject,
 } from "@/components/projects/project-multi-select";
+import {
+	UsageModeSelector,
+	useUsageMode,
+} from "@/components/shared/usage-mode-selector";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import {
 	useTeamMembers,
@@ -83,6 +87,7 @@ import {
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 import { getBrowserTimeZone } from "@/lib/timezone";
+import { applyUsageMode } from "@/lib/usage-mode";
 
 import { SSO_TEAM_DEFAULT_DEVELOPER_BUDGET } from "@llmgateway/shared";
 
@@ -695,6 +700,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 		useDashboardNavigation();
 	const api = useApi();
 	const { user } = useUser();
+	const usageMode = useUsageMode();
 
 	const { data, isLoading } = useTeamMembers(organizationId, initialData);
 	const addMemberMutation = useAddTeamMember(organizationId);
@@ -705,7 +711,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 		(member) => member.userId === user?.id,
 	)?.role;
 	const isAdmin = currentUserRole === "owner" || currentUserRole === "admin";
-	const isEnterprise = selectedOrganization?.plan === "enterprise";
+	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 	const showUsage = isEnterprise && isAdmin;
 
 	const [email, setEmail] = useState("");
@@ -767,7 +773,10 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 	);
 
 	const usageByUserId = new Map(
-		(usageData?.members ?? []).map((member) => [member.userId, member]),
+		(usageData?.members ?? []).map((member) => [
+			member.userId,
+			applyUsageMode(member, usageMode),
+		]),
 	);
 
 	const usageColumnCount = 4;
@@ -890,7 +899,10 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 						</div>
 						<div className="flex items-center gap-2">
 							{showUsage && (
-								<DateRangePicker buildUrl={buildOrgUrl} path="org/team" />
+								<>
+									<UsageModeSelector />
+									<DateRangePicker buildUrl={buildOrgUrl} path="org/team" />
+								</>
 							)}
 							<Dialog
 								open={isAddDialogOpen}

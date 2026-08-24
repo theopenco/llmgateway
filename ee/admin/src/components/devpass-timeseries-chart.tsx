@@ -32,6 +32,10 @@ const chartConfig = {
 		label: "Raw revenue",
 		color: "hsl(258 90% 66%)",
 	},
+	topupRevenue: {
+		label: "PAYG top-ups",
+		color: "hsl(188 86% 40%)",
+	},
 	cost: {
 		label: "Provider cost",
 		color: "hsl(32 95% 44%)",
@@ -44,7 +48,13 @@ const chartConfig = {
 
 type SeriesKey = keyof typeof chartConfig;
 
-const SERIES_KEYS = ["revenue", "rawRevenue", "cost", "margin"] as const;
+const SERIES_KEYS = [
+	"revenue",
+	"rawRevenue",
+	"topupRevenue",
+	"cost",
+	"margin",
+] as const;
 
 const compactCurrency = new Intl.NumberFormat("en-US", {
 	style: "currency",
@@ -90,14 +100,23 @@ export function DevpassTimeseriesChart({
 		}
 		let revenue = 0;
 		let rawRevenue = 0;
+		let topupRevenue = 0;
 		let cost = 0;
 		let margin = 0;
 		return rows.map((row) => {
 			revenue += row.revenue;
 			rawRevenue += row.rawRevenue;
+			topupRevenue += row.topupRevenue;
 			cost += row.cost;
 			margin += row.margin;
-			return { date: row.date, revenue, rawRevenue, cost, margin };
+			return {
+				date: row.date,
+				revenue,
+				rawRevenue,
+				topupRevenue,
+				cost,
+				margin,
+			};
 		});
 	}, [data, cumulative]);
 
@@ -111,61 +130,18 @@ export function DevpassTimeseriesChart({
 	};
 
 	return (
-		<Card>
-			<CardHeader className="flex flex-col items-stretch space-y-0 border-b p-0 sm:flex-row">
-				<div className="flex flex-1 flex-col justify-center gap-1 px-6 py-5 sm:py-6">
+		<Card className="gap-0 py-0">
+			<CardHeader className="flex flex-col gap-4 space-y-0 px-6 py-5 sm:flex-row sm:items-start sm:justify-between">
+				<div className="flex flex-col gap-1">
 					<CardTitle>DevPass revenue & usage</CardTitle>
-					<CardDescription>
-						Daily revenue from DevPass transactions (net of refunds), raw gross
-						revenue from DevPass subscriptions, real provider cost across
-						current and former subscribers, and the resulting margin. Click the
-						totals to toggle series on the chart. Totals aggregate the selected
-						date range — note these will not match the KPI cards above, which
-						always reflect the current billing cycle.
+					<CardDescription className="max-w-3xl">
+						Daily revenue net of refunds, raw gross subscription revenue, PAYG
+						overflow top-ups, real provider cost, and the resulting margin
+						(plans + top-ups − cost). Click a total to toggle its series. Range
+						totals won&apos;t match the cycle-scoped KPI cards above.
 					</CardDescription>
 				</div>
-				<div className="flex flex-wrap">
-					{SERIES_KEYS.map((key) => {
-						const value = totals?.[key] ?? 0;
-						const active = activeSeries.includes(key);
-						return (
-							<button
-								key={key}
-								type="button"
-								aria-pressed={active}
-								data-active={active}
-								className={cn(
-									"relative z-30 flex flex-1 flex-col justify-center gap-1 border-t px-6 py-4 text-left even:border-l data-[active=true]:bg-muted/50 sm:border-l sm:border-t-0 sm:px-8 sm:py-6",
-								)}
-								onClick={() => toggleSeries(key)}
-							>
-								<span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-									<span
-										className={cn(
-											"size-2 shrink-0 rounded-[2px]",
-											active ? "" : "opacity-30",
-										)}
-										style={{ backgroundColor: chartConfig[key].color }}
-									/>
-									{chartConfig[key].label}
-								</span>
-								<span
-									className={cn(
-										"text-lg font-bold leading-none sm:text-3xl",
-										key === "margin" && value < 0
-											? "text-rose-600 dark:text-rose-400"
-											: "",
-									)}
-								>
-									{compactCurrency.format(value)}
-								</span>
-							</button>
-						);
-					})}
-				</div>
-			</CardHeader>
-			<CardContent className="px-2 pt-4 sm:p-6">
-				<div className="mb-4 flex items-center justify-end gap-2 px-4 sm:px-0">
+				<div className="flex shrink-0 items-center gap-2">
 					<Label
 						htmlFor="devpass-cumulative"
 						className="text-xs font-normal text-muted-foreground"
@@ -178,6 +154,50 @@ export function DevpassTimeseriesChart({
 						onCheckedChange={setCumulative}
 					/>
 				</div>
+			</CardHeader>
+			<div className="grid grid-cols-2 border-y sm:grid-cols-5">
+				{SERIES_KEYS.map((key, index) => {
+					const value = totals?.[key] ?? 0;
+					const active = activeSeries.includes(key);
+					return (
+						<button
+							key={key}
+							type="button"
+							aria-pressed={active}
+							data-active={active}
+							className={cn(
+								"flex flex-col gap-1 border-border/60 px-4 py-3 text-left transition-colors hover:bg-muted/30 data-[active=true]:bg-muted/50 sm:px-6",
+								index > 0 && "border-l max-sm:odd:border-l-0",
+								index > 1 && "max-sm:border-t",
+							)}
+							onClick={() => toggleSeries(key)}
+						>
+							<span className="flex items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground">
+								<span
+									className={cn(
+										"size-2 shrink-0 rounded-[2px]",
+										active ? "" : "opacity-30",
+									)}
+									style={{ backgroundColor: chartConfig[key].color }}
+								/>
+								{chartConfig[key].label}
+							</span>
+							<span
+								className={cn(
+									"text-xl font-bold leading-none tabular-nums sm:text-2xl",
+									!active && "text-muted-foreground/60",
+									key === "margin" && value < 0
+										? "text-rose-600 dark:text-rose-400"
+										: "",
+								)}
+							>
+								{compactCurrency.format(value)}
+							</span>
+						</button>
+					);
+				})}
+			</div>
+			<CardContent className="px-2 pb-6 pt-6 sm:px-6">
 				{isError ? (
 					<div className="flex h-[250px] items-center justify-center text-sm text-muted-foreground">
 						Failed to load DevPass timeseries.

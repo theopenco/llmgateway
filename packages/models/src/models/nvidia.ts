@@ -13,8 +13,8 @@ export const nvidiaModels = [
 				providerId: "deepinfra",
 				externalId: "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B",
 				inputPrice: "0.5e-6",
-				outputPrice: "2.5e-6",
-				cachedInputPrice: "0.15e-6",
+				outputPrice: "2.2e-6",
+				cachedInputPrice: "0.1e-6",
 				requestPrice: "0",
 				contextSize: 262144,
 				maxOutput: undefined,
@@ -28,6 +28,7 @@ export const nvidiaModels = [
 			{
 				providerId: "nebius",
 				externalId: "nvidia/Nemotron-3-Ultra-550b-a55b",
+				deactivatedAt: new Date("2026-08-31"),
 				inputPrice: "1.0e-6",
 				outputPrice: "3.0e-6",
 				requestPrice: "0",
@@ -81,6 +82,7 @@ export const nvidiaModels = [
 			{
 				providerId: "nebius",
 				externalId: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+				deactivatedAt: new Date("2026-08-31"),
 				inputPrice: "0.06e-6",
 				outputPrice: "0.24e-6",
 				requestPrice: "0",
@@ -106,6 +108,7 @@ export const nvidiaModels = [
 			{
 				providerId: "nebius",
 				externalId: "nvidia/Nemotron-3-Nano-Omni",
+				deactivatedAt: new Date("2026-08-31"),
 				inputPrice: "0.06e-6",
 				outputPrice: "0.24e-6",
 				requestPrice: "0",
@@ -131,6 +134,7 @@ export const nvidiaModels = [
 			{
 				providerId: "nebius",
 				externalId: "nvidia/Cosmos3-Super-Reasoner",
+				deactivatedAt: new Date("2026-08-31"),
 				inputPrice: "0.1e-6",
 				outputPrice: "0.3e-6",
 				requestPrice: "0",

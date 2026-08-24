@@ -15,15 +15,20 @@ import {
 const dbSelectLimit = vi.fn().mockResolvedValue([]);
 vi.mock("@llmgateway/db", async (importOriginal) => {
 	const actual = await importOriginal<Record<string, unknown>>();
+	// The legacy fallbacks query through the cached client and end the chain
+	// with .$withCache(config), which is what resolves the rows.
+	const resolveRows = {
+		$withCache: (...args: unknown[]) => dbSelectLimit(...args),
+	};
 	return {
 		...actual,
-		db: {
+		cdb: {
 			select: vi.fn().mockReturnValue({
 				from: vi.fn().mockReturnValue({
 					where: vi.fn().mockReturnValue({
-						limit: (...args: unknown[]) => dbSelectLimit(...args),
+						limit: vi.fn().mockReturnValue(resolveRows),
 						orderBy: vi.fn().mockReturnValue({
-							limit: (...args: unknown[]) => dbSelectLimit(...args),
+							limit: vi.fn().mockReturnValue(resolveRows),
 						}),
 					}),
 				}),
@@ -35,6 +40,11 @@ vi.mock("@llmgateway/db", async (importOriginal) => {
 vi.mock("@llmgateway/cache", () => ({
 	redisClient: {},
 	storageRedisClient: {},
+	swrWrap: async <T>(
+		_key: string,
+		_tables: string[],
+		fetcher: () => Promise<T>,
+	) => await fetcher(),
 }));
 
 vi.mock("@llmgateway/logger", () => ({

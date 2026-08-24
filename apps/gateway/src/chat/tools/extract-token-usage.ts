@@ -234,6 +234,22 @@ export function extractTokenUsage(
 				}
 			}
 			break;
+		case "xai":
+		case "vertex-openai":
+			// xAI and Vertex's xAI endpoint report reasoning outside
+			// `completion_tokens`, so the nested count has to reach the cost engine
+			// to be billed. The default OpenAI branch only reads a top-level count.
+			if (data.usage) {
+				promptTokens = data.usage.prompt_tokens ?? null;
+				completionTokens = data.usage.completion_tokens ?? null;
+				totalTokens = data.usage.total_tokens ?? null;
+				reasoningTokens =
+					data.usage.completion_tokens_details?.reasoning_tokens ??
+					data.usage.reasoning_tokens ??
+					null;
+				cachedTokens = data.usage.prompt_tokens_details?.cached_tokens ?? null;
+			}
+			break;
 		case "sakana":
 			// Fugu streams over Chat Completions and bills the orchestration tokens
 			// consumed by its underlying agent pool on top of the user-visible

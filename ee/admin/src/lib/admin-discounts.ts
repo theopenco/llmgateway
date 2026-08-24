@@ -30,6 +30,37 @@ export async function deleteGlobalDiscount(
 	return data?.success ?? false;
 }
 
+export async function getRoutingScoreMultipliers() {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET("/admin/routing-score-multipliers");
+	return data ?? null;
+}
+
+export async function createRoutingScoreMultiplier(body: {
+	provider?: string | null;
+	model?: string | null;
+	scoreMultiplier: number;
+	reason?: string | null;
+	expiresAt?: string | null;
+}) {
+	const $api = await createServerApiClient();
+	const { data } = await $api.POST("/admin/routing-score-multipliers", {
+		body,
+	});
+	return data ?? null;
+}
+
+export async function deleteRoutingScoreMultiplier(
+	multiplierId: string,
+): Promise<boolean> {
+	const $api = await createServerApiClient();
+	const { data } = await $api.DELETE(
+		"/admin/routing-score-multipliers/{multiplierId}",
+		{ params: { path: { multiplierId } } },
+	);
+	return data?.success ?? false;
+}
+
 export async function getAllOrganizationDiscounts() {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/admin/discounts/organizations");

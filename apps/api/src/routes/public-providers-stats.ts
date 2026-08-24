@@ -6,7 +6,15 @@ import {
 	pickMappingHistoryTable,
 } from "@/utils/history-window.js";
 
-import { and, cdb, effectiveTtftTotals, gte, sql } from "@llmgateway/db";
+import {
+	and,
+	cdb,
+	effectiveTtftTotals,
+	excludeRegionalMappingRows,
+	gte,
+	sql,
+} from "@llmgateway/db";
+import { deriveStabilityMetrics } from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -101,6 +109,7 @@ publicProvidersStats.openapi(listRoute, async (c) => {
 			providerId: mph.providerId,
 			logsCount: sql<string>`COALESCE(SUM(${mph.logsCount}), 0)`,
 			errorsCount: sql<string>`COALESCE(SUM(${mph.errorsCount}), 0)`,
+			clientErrorsCount: sql<string>`COALESCE(SUM(${mph.clientErrorsCount}), 0)`,
 			cachedCount: sql<string>`COALESCE(SUM(${mph.cachedCount}), 0)`,
 			totalTimeToFirstToken: sql<string>`COALESCE(SUM(${mph.totalTimeToFirstToken}), 0)`,
 			timeToFirstTokenCount: sql<string>`COALESCE(SUM(${mph.timeToFirstTokenCount}), 0)`,
@@ -112,7 +121,9 @@ publicProvidersStats.openapi(listRoute, async (c) => {
 			updatedAt: sql<Date | null>`MAX(${mphTs})`,
 		})
 		.from(mph)
-		.where(and(gte(mphTs, startDate)))
+		// Grouped per provider, so the regional rows have to be dropped: the
+		// region-less root row of a mapping already includes their traffic.
+		.where(and(gte(mphTs, startDate), excludeRegionalMappingRows(mph)))
 		.groupBy(mph.providerId)
 		// Pin a stable, window-scoped cache tag. Without it Drizzle keys the
 		// cache on the rendered SQL + params, and `startDate` is derived from
@@ -123,14 +134,18 @@ publicProvidersStats.openapi(listRoute, async (c) => {
 		.$withCache({
 			// The version prefix is bumped whenever the selected columns change so
 			// a rolling deploy doesn't serve rows cached in the previous shape.
-			tag: `publicProviderStats:v4:${window}`,
+			tag: `publicProviderStats:v6:${window}`,
 			autoInvalidate: false,
 			config: { ex: STATS_CACHE_TTL_SECONDS },
 		});
 
 	const providers = rows.map((r) => {
 		const logsCount = Number(r.logsCount) || 0;
-		const errorsCount = Number(r.errorsCount) || 0;
+		const { errorsCount, uptime } = deriveStabilityMetrics(
+			logsCount,
+			Number(r.errorsCount) || 0,
+			Number(r.clientErrorsCount) || 0,
+		);
 		const cachedCount = Number(r.cachedCount) || 0;
 		const totalOutputTokens = Number(r.totalOutputTokens) || 0;
 		const totalDuration = Number(r.totalDuration) || 0;
@@ -157,9 +172,6 @@ publicProvidersStats.openapi(listRoute, async (c) => {
 
 		const throughput =
 			totalDuration > 0 ? (totalOutputTokens / totalDuration) * 1000 : null;
-
-		const uptime =
-			logsCount > 0 ? ((logsCount - errorsCount) / logsCount) * 100 : null;
 
 		return {
 			providerId: r.providerId,

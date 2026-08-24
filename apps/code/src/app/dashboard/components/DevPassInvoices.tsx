@@ -28,6 +28,9 @@ import { useApi, useFetchClient } from "@/lib/fetch-client";
 
 import {
 	isRefundFeedbackComplete,
+	RESET_PASS_SELF_REFUND_WINDOW_DAYS,
+	SELF_REFUND_USAGE_PERCENT,
+	SELF_REFUND_WINDOW_DAYS,
 	type RefundReason,
 } from "@llmgateway/shared";
 import { RefundReasonFieldset } from "@llmgateway/shared/components";
@@ -40,14 +43,22 @@ const PAGE_SIZE = 10;
 type Invoice =
 	paths["/dev-plans/invoices"]["get"]["responses"]["200"]["content"]["application/json"]["invoices"][number];
 
-// A DevPass invoice is downloadable when it is a completed, positive charge
-// (mirrors isInvoiceableTransaction on the API).
+// A DevPass billing event has a downloadable document when it is completed with
+// a positive amount (mirrors isInvoiceableTransaction on the API): a charge
+// yields an invoice, a refund a credit note. Lifecycle rows (cancel, end,
+// resume) carry no amount and have nothing to document.
 function isInvoiceable(invoice: Invoice): boolean {
 	return (
 		invoice.status === "completed" &&
 		invoice.amount !== null &&
 		Number(invoice.amount) > 0
 	);
+}
+
+// Refunds store the returned amount as a positive `amount` (see stripe.ts);
+// they render as a negative line in the history and as a credit note PDF.
+function isRefund(type: Invoice["type"]): boolean {
+	return type === "credit_refund";
 }
 
 // Invisible stand-in that reserves the exact footprint of an action button so
@@ -71,6 +82,9 @@ function InvoiceDownloadButton({ invoice }: { invoice: Invoice }) {
 	const fetchClient = useFetchClient();
 	const [loading, setLoading] = useState(false);
 
+	const refund = isRefund(invoice.type);
+	const label = refund ? "Credit note" : "Invoice";
+
 	async function handleDownload() {
 		setLoading(true);
 		try {
@@ -83,19 +97,21 @@ function InvoiceDownloadButton({ invoice }: { invoice: Invoice }) {
 			);
 
 			if (!response.ok || !data) {
-				throw new Error("Failed to download invoice");
+				throw new Error("Failed to download document");
 			}
 
 			const url = URL.createObjectURL(data as unknown as Blob);
 			const link = document.createElement("a");
 			link.href = url;
-			link.download = `invoice-${invoice.id}.pdf`;
+			link.download = `${refund ? "credit-note" : "invoice"}-${invoice.id}.pdf`;
 			document.body.appendChild(link);
 			link.click();
 			link.remove();
 			URL.revokeObjectURL(url);
 		} catch {
-			toast.error("Could not download invoice. Please try again later.");
+			toast.error(
+				`Could not download ${label.toLowerCase()}. Please try again later.`,
+			);
 		} finally {
 			setLoading(false);
 		}
@@ -113,7 +129,7 @@ function InvoiceDownloadButton({ invoice }: { invoice: Invoice }) {
 			) : (
 				<Download className="h-4 w-4" />
 			)}
-			<span className="sr-only sm:not-sr-only">Invoice</span>
+			<span className="sr-only sm:not-sr-only">{label}</span>
 		</Button>
 	);
 }
@@ -122,12 +138,12 @@ const REFUND_INELIGIBILITY_COPY: Record<string, string> = {
 	unsupported_type: "This payment cannot be refunded",
 	not_completed: "Only completed payments can be refunded",
 	already_refunded: "This payment has already been refunded",
-	window_expired: "Refunds are available for 14 days after purchase",
+	window_expired: `Refunds are available for ${SELF_REFUND_WINDOW_DAYS} days after purchase`,
 	not_owner: "Only the organization owner can request a refund",
 	not_latest_purchase: "Only your most recent payment can be self-refunded",
 	plan_inactive: "Your DevPass is no longer active",
 	credits_frozen: "Refunds are unavailable while credits are frozen",
-	usage_exceeded: "More than 10% of this period's credits have been used",
+	usage_exceeded: `More than ${SELF_REFUND_USAGE_PERCENT}% of this period's credits have been used`,
 	pass_already_used: "This Reset Pass has already been redeemed",
 };
 
@@ -135,7 +151,7 @@ function refundIneligibilityCopy(invoice: Invoice): string {
 	const reason = invoice.refund?.reason ?? "unsupported_type";
 	// Reset Passes have a shorter return window than plan payments.
 	if (reason === "window_expired" && invoice.type === "dev_plan_reset_pass") {
-		return "Unused Reset Passes can be refunded for 7 days after purchase";
+		return `Unused Reset Passes can be refunded for ${RESET_PASS_SELF_REFUND_WINDOW_DAYS} days after purchase`;
 	}
 	return REFUND_INELIGIBILITY_COPY[reason] ?? "This payment cannot be refunded";
 }
@@ -144,6 +160,9 @@ function RefundButton({ invoice }: { invoice: Invoice }) {
 	const api = useApi();
 	const queryClient = useQueryClient();
 	const isResetPass = invoice.type === "dev_plan_reset_pass";
+	// PAYG top-up refunds return the money and remove the credits — the
+	// DevPass subscription itself is untouched, unlike plan-payment refunds.
+	const isCreditTopup = invoice.type === "credit_topup";
 	const [open, setOpen] = useState(false);
 	const [reason, setReason] = useState<RefundReason | null>(null);
 	const [comments, setComments] = useState("");
@@ -162,7 +181,9 @@ function RefundButton({ invoice }: { invoice: Invoice }) {
 				toast.success(
 					isResetPass
 						? "Refund processing. The unused pass has been returned and the refund will arrive within a few business days."
-						: "Refund processing. Your DevPass has been cancelled and the refund will arrive within a few business days.",
+						: isCreditTopup
+							? "Refund processing. The credits have been removed from your balance and the refund will arrive within a few business days."
+							: "Refund processing. Your DevPass has been cancelled and the refund will arrive within a few business days.",
 				);
 				void queryClient.invalidateQueries({
 					predicate: (query) => {
@@ -221,12 +242,16 @@ function RefundButton({ invoice }: { invoice: Invoice }) {
 					<AlertDialogTitle>
 						{isResetPass
 							? "Refund this Reset Pass?"
-							: "Refund and cancel your DevPass?"}
+							: isCreditTopup
+								? "Refund this credits top-up?"
+								: "Refund and cancel your DevPass?"}
 					</AlertDialogTitle>
 					<AlertDialogDescription>
 						{isResetPass
 							? `${formatAmount(invoice.amount, invoice.currency)} will be refunded to your payment method and the unused pass removed from your passport. Your DevPass plan is not affected. This cannot be undone.`
-							: `Refunding cancels your subscription completely: ${formatAmount(invoice.amount, invoice.currency)} goes back to your payment method and your DevPass ends right away — not at the end of the billing period — so the rest of this cycle's credits are lost. To use DevPass again you would have to subscribe from scratch. This cannot be undone.`}
+							: isCreditTopup
+								? `${formatAmount(invoice.amount, invoice.currency)} will be refunded to your payment method and the purchased credits removed from your balance. Your DevPass plan is not affected. This cannot be undone.`
+								: `Refunding cancels your subscription completely: ${formatAmount(invoice.amount, invoice.currency)} goes back to your payment method and your DevPass ends right away — not at the end of the billing period — so the rest of this cycle's credits are lost. To use DevPass again you would have to subscribe from scratch. This cannot be undone.`}
 					</AlertDialogDescription>
 				</AlertDialogHeader>
 				<RefundReasonFieldset
@@ -239,7 +264,11 @@ function RefundButton({ invoice }: { invoice: Invoice }) {
 				/>
 				<AlertDialogFooter>
 					<AlertDialogCancel disabled={refundMutation.isPending}>
-						{isResetPass ? "Keep my pass" : "Keep my DevPass"}
+						{isResetPass
+							? "Keep my pass"
+							: isCreditTopup
+								? "Keep my credits"
+								: "Keep my DevPass"}
 					</AlertDialogCancel>
 					<AlertDialogAction
 						disabled={refundMutation.isPending || !canSubmit}
@@ -254,7 +283,11 @@ function RefundButton({ invoice }: { invoice: Invoice }) {
 							});
 						}}
 					>
-						{isResetPass ? "Refund pass" : "Refund and cancel"}
+						{isResetPass
+							? "Refund pass"
+							: isCreditTopup
+								? "Refund top-up"
+								: "Refund and cancel"}
 					</AlertDialogAction>
 				</AlertDialogFooter>
 			</AlertDialogContent>
@@ -266,7 +299,17 @@ const TYPE_LABELS: Record<Invoice["type"], string> = {
 	dev_plan_start: "Plan started",
 	dev_plan_renewal: "Renewal",
 	dev_plan_upgrade: "Upgrade",
+	dev_plan_downgrade: "Downgrade",
+	dev_plan_cancel: "Plan cancelled",
+	dev_plan_resume: "Plan resumed",
+	dev_plan_end: "Plan ended",
 	dev_plan_reset_pass: "Reset Pass",
+	dev_plan_reset_pass_reward: "Reset Pass reward",
+	dev_plan_reset_pass_gift: "Reset Pass gift",
+	credit_topup: "Credits top-up",
+	credit_refund: "Refund",
+	credit_gift: "Credits gift",
+	credit_manual_payment: "Credits added",
 };
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -288,6 +331,15 @@ function formatAmount(amount: string | null, currency: string): string {
 	return `${value.toFixed(2)} ${currency}`;
 }
 
+// Refunds move money back to the customer, so the history shows the amount as
+// negative. The stored `amount` stays positive (it feeds the credit note).
+function amountCell(invoice: Invoice): string {
+	const formatted = formatAmount(invoice.amount, invoice.currency);
+	return isRefund(invoice.type) && invoice.amount !== null
+		? `-${formatted}`
+		: formatted;
+}
+
 function formatCredits(creditAmount: string | null): string {
 	if (creditAmount === null) {
 		return "—";
@@ -296,7 +348,8 @@ function formatCredits(creditAmount: string | null): string {
 	if (!Number.isFinite(value)) {
 		return "—";
 	}
-	return `$${value.toFixed(2)}`;
+	const formatted = `$${Math.abs(value).toFixed(2)}`;
+	return value < 0 ? `-${formatted}` : formatted;
 }
 
 export default function DevPassInvoices() {
@@ -315,19 +368,19 @@ export default function DevPassInvoices() {
 
 	return (
 		<div>
-			<h2 className="mb-1 font-semibold">Invoices</h2>
+			<h2 className="mb-1 font-semibold">Billing history</h2>
 			<p className="mb-4 text-sm text-muted-foreground">
-				A record of every DevPass charge, including the amount debited and the
-				usage credits granted for that billing period.
+				A record of every DevPass billing event — charges, refunds and plan
+				changes — with the amount debited and the usage credits granted.
 			</p>
 
 			<div className="overflow-hidden rounded-xl border sm:grid sm:grid-cols-[1fr_1fr_auto_auto_auto]">
 				<div className="hidden grid-cols-subgrid gap-4 border-b bg-muted/40 px-5 py-3 text-xs font-medium text-muted-foreground sm:col-span-5 sm:grid">
 					<div>Date</div>
 					<div>Description</div>
-					<div className="text-right">Amount debited</div>
-					<div className="text-right">Credits granted</div>
-					<div className="text-right">Invoice</div>
+					<div className="text-right">Amount</div>
+					<div className="text-right">Credits</div>
+					<div className="text-right">Document</div>
 				</div>
 
 				{pageInvoices.map((invoice) => (
@@ -355,7 +408,7 @@ export default function DevPassInvoices() {
 							<span className="text-xs text-muted-foreground sm:hidden">
 								Amount{" "}
 							</span>
-							{formatAmount(invoice.amount, invoice.currency)}
+							{amountCell(invoice)}
 						</div>
 						<div className="text-right text-sm tabular-nums text-muted-foreground sm:text-right">
 							<span className="text-xs sm:hidden">Credits </span>
