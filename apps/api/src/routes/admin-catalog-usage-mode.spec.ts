@@ -20,6 +20,7 @@ interface CatalogResponse {
 	requests: number;
 	tokens: number;
 	cost: number;
+	avgTimeToFirstToken: number | null;
 }
 
 async function clearFixtures() {
@@ -62,9 +63,27 @@ describe("admin catalog usage mode", () => {
 		});
 
 		const buckets = [
-			{ usedMode: "credits" as const, requests: 3, tokens: 30, cost: 0.3 },
-			{ usedMode: "api-keys" as const, requests: 2, tokens: 20, cost: 0.2 },
-			{ usedMode: "unknown" as const, requests: 1, tokens: 10, cost: 0.1 },
+			{
+				usedMode: "credits" as const,
+				requests: 3,
+				tokens: 30,
+				cost: 0.3,
+				totalTimeToFirstToken: 300,
+			},
+			{
+				usedMode: "api-keys" as const,
+				requests: 2,
+				tokens: 20,
+				cost: 0.2,
+				totalTimeToFirstToken: 400,
+			},
+			{
+				usedMode: "unknown" as const,
+				requests: 1,
+				tokens: 10,
+				cost: 0.1,
+				totalTimeToFirstToken: 300,
+			},
 		];
 		await db.insert(tables.modelHistory).values(
 			buckets.map((bucket) => ({
@@ -76,6 +95,8 @@ describe("admin catalog usage mode", () => {
 				totalInputTokens: bucket.tokens,
 				totalCost: bucket.cost,
 				totalInputCost: bucket.cost,
+				totalTimeToFirstToken: bucket.totalTimeToFirstToken,
+				timeToFirstTokenCount: bucket.requests,
 			})),
 		);
 		await db.insert(tables.modelProviderMappingHistory).values(
@@ -90,6 +111,8 @@ describe("admin catalog usage mode", () => {
 				totalInputTokens: bucket.tokens,
 				totalCost: bucket.cost,
 				totalInputCost: bucket.cost,
+				totalTimeToFirstToken: bucket.totalTimeToFirstToken,
+				timeToFirstTokenCount: bucket.requests,
 			})),
 		);
 	});
@@ -109,13 +132,24 @@ describe("admin catalog usage mode", () => {
 		});
 		expect(response.status).toBe(200);
 		const body = (await response.json()) as {
-			models?: { logsCount: number; totalTokens: number; totalCost: number }[];
+			models?: {
+				logsCount: number;
+				totalTokens: number;
+				totalCost: number;
+				avgTimeToFirstToken: number | null;
+			}[];
 			providers?: {
 				logsCount: number;
 				totalTokens: number;
 				totalCost: number;
+				avgTimeToFirstToken: number | null;
 			}[];
-			mappings?: { logsCount: number; inputTokens: number; cost: number }[];
+			mappings?: {
+				logsCount: number;
+				inputTokens: number;
+				cost: number;
+				avgTimeToFirstToken: number | null;
+			}[];
 		};
 		const row =
 			body.models?.find((item) => item.totalTokens > 0) ??
@@ -126,6 +160,7 @@ describe("admin catalog usage mode", () => {
 			requests: row!.logsCount,
 			tokens: "totalTokens" in row! ? row!.totalTokens : row!.inputTokens,
 			cost: "cost" in row! ? row!.cost : row!.totalCost,
+			avgTimeToFirstToken: row!.avgTimeToFirstToken,
 		};
 	}
 
@@ -139,16 +174,19 @@ describe("admin catalog usage mode", () => {
 				requests: 3,
 				tokens: 30,
 				cost: expect.closeTo(0.3),
+				avgTimeToFirstToken: 100,
 			});
 			await expect(fetchCatalog(path, "api-keys")).resolves.toEqual({
 				requests: 2,
 				tokens: 20,
 				cost: expect.closeTo(0.2),
+				avgTimeToFirstToken: 200,
 			});
 			await expect(fetchCatalog(path)).resolves.toEqual({
 				requests: 6,
 				tokens: 60,
 				cost: expect.closeTo(0.6),
+				avgTimeToFirstToken: expect.closeTo(1000 / 6),
 			});
 		});
 	}

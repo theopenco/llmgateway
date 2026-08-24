@@ -6324,6 +6324,7 @@ admin.openapi(getModelStats, async (c) => {
 				cachedCount: sql<number>`COALESCE(SUM(${mh.cachedCount}), 0)`.as(
 					"cachedCount",
 				),
+				avgTimeToFirstToken: avgEffectiveTtftSql(mh).as("avgTimeToFirstToken"),
 				totalTokens:
 					sql<number>`COALESCE(SUM(CAST(${mh.totalTokens} AS NUMERIC)), 0)`.as(
 						"totalTokens",
@@ -6388,7 +6389,7 @@ admin.openapi(getModelStats, async (c) => {
 			gatewayErrorsCount: sql`COALESCE(${modelAggSub.gatewayErrorsCount}, 0)`,
 			upstreamErrorsCount: sql`COALESCE(${modelAggSub.upstreamErrorsCount}, 0)`,
 			cachedCount: sql`COALESCE(${modelAggSub.cachedCount}, 0)`,
-			avgTimeToFirstToken: sql`COALESCE(${tables.model.avgTimeToFirstReasoningToken}, ${tables.model.avgTimeToFirstToken})`,
+			avgTimeToFirstToken: sql`COALESCE(${modelAggSub.avgTimeToFirstToken}, ${tables.model.avgTimeToFirstReasoningToken}, ${tables.model.avgTimeToFirstToken})`,
 			providerCount: sql`COALESCE(${providerCountSub.count}, 0)`,
 			updatedAt: tables.model.updatedAt,
 		} as const;
@@ -6447,7 +6448,7 @@ admin.openapi(getModelStats, async (c) => {
 				),
 				avgTimeToFirstToken: sql<
 					number | null
-				>`COALESCE(${tables.model.avgTimeToFirstReasoningToken}, ${tables.model.avgTimeToFirstToken})`.as(
+				>`COALESCE(${modelAggSub.avgTimeToFirstToken}, ${tables.model.avgTimeToFirstReasoningToken}, ${tables.model.avgTimeToFirstToken})`.as(
 					"avgTimeToFirstToken",
 				),
 				providerCount: sql<number>`COALESCE(${providerCountSub.count}, 0)`.as(
@@ -11057,6 +11058,9 @@ admin.openapi(getModelProviderMappings, async (c) => {
 						sql<number>`COALESCE(SUM(${mappingHistory.table.cachedCount}), 0)`.as(
 							"cachedCount",
 						),
+					avgTimeToFirstToken: avgEffectiveTtftSql(mappingHistory.table).as(
+						"avgTimeToFirstToken",
+					),
 					cost: sql<number>`COALESCE(SUM(cast(${mappingHistory.table.totalCost} as double precision)), 0)`.as(
 						"cost",
 					),
@@ -11083,6 +11087,11 @@ admin.openapi(getModelProviderMappings, async (c) => {
 					gatewayErrorsCount: tables.modelProviderMapping.gatewayErrorsCount,
 					upstreamErrorsCount: tables.modelProviderMapping.upstreamErrorsCount,
 					cachedCount: tables.modelProviderMapping.cachedCount,
+					avgTimeToFirstToken: sql<
+						number | null
+					>`COALESCE(${tables.modelProviderMapping.avgTimeToFirstReasoningToken}, ${tables.modelProviderMapping.avgTimeToFirstToken})`.as(
+						"avgTimeToFirstToken",
+					),
 					// Cost and the token breakdown are only tracked in the history
 					// table, so they are only available when a date range is provided
 					// (mirrors the models list).
@@ -11151,7 +11160,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 		gatewayErrorsCount: sql`COALESCE(${statsJoin.gatewayErrorsCount}, 0)`,
 		upstreamErrorsCount: sql`COALESCE(${statsJoin.upstreamErrorsCount}, 0)`,
 		cost: sql`COALESCE(${statsJoin.cost}, 0)`,
-		avgTimeToFirstToken: sql`COALESCE(${tables.modelProviderMapping.avgTimeToFirstReasoningToken}, ${tables.modelProviderMapping.avgTimeToFirstToken})`,
+		avgTimeToFirstToken: statsJoin.avgTimeToFirstToken,
 		updatedAt: tables.modelProviderMapping.updatedAt,
 	} as const;
 
@@ -11196,9 +11205,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 				cost: sql<number>`COALESCE(${statsJoin.cost}, 0)`.as("cost"),
 				avgTimeToFirstToken: sql<
 					number | null
-				>`COALESCE(${tables.modelProviderMapping.avgTimeToFirstReasoningToken}, ${tables.modelProviderMapping.avgTimeToFirstToken})`.as(
-					"avgTimeToFirstToken",
-				),
+				>`${statsJoin.avgTimeToFirstToken}`.as("avgTimeToFirstToken"),
 				...tokenBreakdownFromSub(statsJoin),
 				inputPrice: tables.modelProviderMapping.inputPrice,
 				outputPrice: tables.modelProviderMapping.outputPrice,
