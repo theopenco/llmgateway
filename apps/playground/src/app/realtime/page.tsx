@@ -31,11 +31,23 @@ export default async function RealtimePage({
 		cookieStore.get(REALTIME_MODEL_COOKIE)?.value,
 	);
 
-	const [models, providers, initialOrganizationsData] = await Promise.all([
-		fetchModels(),
-		fetchProviders(),
-		fetchServerData("GET", "/orgs"),
-	]);
+	const [models, providers, initialOrganizationsData, orgIdProjectsData] =
+		await Promise.all([
+			fetchModels(),
+			fetchProviders(),
+			fetchServerData("GET", "/orgs"),
+			// Start the projects fetch for the URL's org eagerly; it is discarded
+			// below when that org doesn't end up selected.
+			orgId
+				? fetchServerData("GET", "/orgs/{id}/projects", {
+						params: {
+							path: {
+								id: orgId,
+							},
+						},
+					})
+				: null,
+		]);
 
 	const allOrganizations = (
 		initialOrganizationsData &&
@@ -54,8 +66,11 @@ export default async function RealtimePage({
 		organizations[0] ??
 		null;
 
-	let initialProjectsData: { projects: Project[] } | null = null;
-	if (selectedOrganization?.id) {
+	let initialProjectsData: { projects: Project[] } | null =
+		selectedOrganization?.id === orgId && orgIdProjectsData
+			? (orgIdProjectsData as { projects: Project[] })
+			: null;
+	if (!initialProjectsData && selectedOrganization?.id) {
 		try {
 			initialProjectsData = (await fetchServerData(
 				"GET",
