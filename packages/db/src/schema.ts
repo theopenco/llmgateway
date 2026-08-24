@@ -3223,11 +3223,6 @@ export const modelProviderMappingHistory = pgTable(
 		modelId: text().notNull(), // LLMGateway model name (e.g., "gpt-4")
 		providerId: text().notNull(), // Provider ID (e.g., "openai")
 		modelProviderMappingId: text().notNull(), // Reference to the exact model_provider_mapping.id
-		// Billing mode is part of the history grain so admin usage views can
-		// narrow every metric, not only request counts and spend.
-		usedMode: text({ enum: ["credits", "api-keys", "unknown"] })
-			.notNull()
-			.default("unknown"),
 		// Unique timestamp key for one-minute intervals (rounded down to the minute)
 		minuteTimestamp: timestamp().notNull(),
 		logsCount: integer().notNull().default(0),
@@ -3284,11 +3279,7 @@ export const modelProviderMappingHistory = pgTable(
 	},
 	(table) => [
 		// Unique constraint ensures one record per mapping-minute combination
-		unique("mpm_history_mapping_minute_mode_unique").on(
-			table.modelProviderMappingId,
-			table.minuteTimestamp,
-			table.usedMode,
-		),
+		unique().on(table.modelProviderMappingId, table.minuteTimestamp),
 		// Index for ORDER BY minuteTimestamp DESC queries
 		index("model_provider_mapping_history_minute_timestamp_idx").on(
 			table.minuteTimestamp,
@@ -3322,9 +3313,8 @@ export const modelProviderMappingHistory = pgTable(
 		// build the replacement CONCURRENTLY before this migration runs — a
 		// rebuild under the same name would lock a table the worker writes to
 		// every minute for the duration of the scan.
-		index("model_provider_mapping_history_provider_stats_v4_idx").on(
+		index("model_provider_mapping_history_provider_stats_v3_idx").on(
 			table.minuteTimestamp,
-			table.usedMode,
 			table.providerId,
 			table.logsCount,
 			table.errorsCount,
@@ -3348,9 +3338,6 @@ export const modelHistory = pgTable(
 			.defaultNow()
 			.$onUpdate(() => new Date()),
 		modelId: text().notNull(),
-		usedMode: text({ enum: ["credits", "api-keys", "unknown"] })
-			.notNull()
-			.default("unknown"),
 		// Unique timestamp key for one-minute intervals (rounded down to the minute)
 		minuteTimestamp: timestamp().notNull(),
 		logsCount: integer().notNull().default(0),
@@ -3392,11 +3379,7 @@ export const modelHistory = pgTable(
 	},
 	(table) => [
 		// Unique constraint ensures one record per model-minute combination
-		unique("model_history_model_minute_mode_unique").on(
-			table.modelId,
-			table.minuteTimestamp,
-			table.usedMode,
-		),
+		unique().on(table.modelId, table.minuteTimestamp),
 		// Index for ORDER BY minuteTimestamp DESC queries
 		index("model_history_minute_timestamp_idx").on(table.minuteTimestamp),
 		// Index for admin model history queries (filter by model + time range)
@@ -3422,9 +3405,6 @@ export const modelProviderMappingHistoryHourly = pgTable(
 		modelId: text().notNull(), // LLMGateway model name (e.g., "gpt-4")
 		providerId: text().notNull(), // Provider ID (e.g., "openai")
 		modelProviderMappingId: text().notNull(), // Reference to the exact model_provider_mapping.id
-		usedMode: text({ enum: ["credits", "api-keys", "unknown"] })
-			.notNull()
-			.default("unknown"),
 		// Unique timestamp key for one-hour intervals (rounded down to the hour)
 		hourTimestamp: timestamp().notNull(),
 		logsCount: integer().notNull().default(0),
@@ -3466,11 +3446,7 @@ export const modelProviderMappingHistoryHourly = pgTable(
 	},
 	(table) => [
 		// Unique constraint ensures one record per mapping-hour combination
-		unique("mpm_history_mapping_hour_mode_unique").on(
-			table.modelProviderMappingId,
-			table.hourTimestamp,
-			table.usedMode,
-		),
+		unique().on(table.modelProviderMappingId, table.hourTimestamp),
 		// Index for ORDER BY hourTimestamp DESC queries
 		index("mpm_history_hourly_ts_idx").on(table.hourTimestamp),
 		// Composite index for aggregation queries by providerId
@@ -3492,9 +3468,8 @@ export const modelProviderMappingHistoryHourly = pgTable(
 		// (filter by hourTimestamp range, group by providerId, sum metrics).
 		// See model_provider_mapping_history_provider_stats_v3_idx for why this is
 		// a new name rather than a rebuild in place.
-		index("mpm_history_hourly_provider_stats_v4_idx").on(
+		index("mpm_history_hourly_provider_stats_v3_idx").on(
 			table.hourTimestamp,
-			table.usedMode,
 			table.providerId,
 			table.logsCount,
 			table.errorsCount,
@@ -3520,9 +3495,6 @@ export const modelHistoryHourly = pgTable(
 			.defaultNow()
 			.$onUpdate(() => new Date()),
 		modelId: text().notNull(),
-		usedMode: text({ enum: ["credits", "api-keys", "unknown"] })
-			.notNull()
-			.default("unknown"),
 		// Unique timestamp key for one-hour intervals (rounded down to the hour)
 		hourTimestamp: timestamp().notNull(),
 		logsCount: integer().notNull().default(0),
@@ -3564,16 +3536,222 @@ export const modelHistoryHourly = pgTable(
 	},
 	(table) => [
 		// Unique constraint ensures one record per model-hour combination
-		unique("model_history_model_hour_mode_unique").on(
-			table.modelId,
-			table.hourTimestamp,
-			table.usedMode,
-		),
+		unique().on(table.modelId, table.hourTimestamp),
 		// Index for ORDER BY hourTimestamp DESC queries
 		index("model_history_hourly_ts_idx").on(table.hourTimestamp),
 		// Index for admin model history queries (filter by model + time range)
 		index("model_history_hourly_model_ts_idx").on(
 			table.modelId,
+			table.hourTimestamp,
+		),
+	],
+);
+
+// Mode-specific catalog history is additive so the established history tables
+// keep their original conflict targets during rolling worker deployments.
+function minuteUsageHistoryMetricColumns() {
+	return {
+		logsCount: integer().notNull().default(0),
+		errorsCount: integer().notNull().default(0),
+		clientErrorsCount: integer().notNull().default(0),
+		gatewayErrorsCount: integer().notNull().default(0),
+		upstreamErrorsCount: integer().notNull().default(0),
+		completedCount: integer().notNull().default(0),
+		lengthLimitCount: integer().notNull().default(0),
+		contentFilterCount: integer().notNull().default(0),
+		toolCallsCount: integer().notNull().default(0),
+		canceledCount: integer().notNull().default(0),
+		unknownFinishCount: integer().notNull().default(0),
+		cachedCount: integer().notNull().default(0),
+		totalInputTokens: integer().notNull().default(0),
+		totalOutputTokens: integer().notNull().default(0),
+		totalTokens: integer().notNull().default(0),
+		totalReasoningTokens: integer().notNull().default(0),
+		totalCachedTokens: integer().notNull().default(0),
+		totalDuration: integer().notNull().default(0),
+		totalTimeToFirstToken: integer().notNull().default(0),
+		totalTimeToFirstReasoningToken: integer().notNull().default(0),
+		timeToFirstTokenCount: integer().notNull().default(0),
+		timeToFirstReasoningTokenCount: integer().notNull().default(0),
+		totalCost: real().notNull().default(0),
+		totalInputCost: real().notNull().default(0),
+		totalOutputCost: real().notNull().default(0),
+		totalCachedInputCost: real().notNull().default(0),
+		serviceTierExplicitCount: integer().notNull().default(0),
+		serviceTierImplicitCount: integer().notNull().default(0),
+		serviceTierServedCount: integer().notNull().default(0),
+		serviceTierUnconfirmedCount: integer().notNull().default(0),
+	};
+}
+
+function hourlyUsageHistoryMetricColumns() {
+	return {
+		...minuteUsageHistoryMetricColumns(),
+		totalInputTokens: bigint({ mode: "number" }).notNull().default(0),
+		totalOutputTokens: bigint({ mode: "number" }).notNull().default(0),
+		totalTokens: bigint({ mode: "number" }).notNull().default(0),
+		totalReasoningTokens: bigint({ mode: "number" }).notNull().default(0),
+		totalCachedTokens: bigint({ mode: "number" }).notNull().default(0),
+	};
+}
+
+export const modelProviderMappingUsageHistory = pgTable(
+	"model_provider_mapping_usage_history",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		modelId: text().notNull(),
+		providerId: text().notNull(),
+		modelProviderMappingId: text().notNull(),
+		usedMode: text({ enum: ["credits", "api-keys"] }).notNull(),
+		minuteTimestamp: timestamp().notNull(),
+		...minuteUsageHistoryMetricColumns(),
+	},
+	(table) => [
+		unique("mpm_usage_history_mapping_minute_mode_unique").on(
+			table.modelProviderMappingId,
+			table.minuteTimestamp,
+			table.usedMode,
+		),
+		index("mpm_usage_history_mode_ts_model_idx").on(
+			table.usedMode,
+			table.minuteTimestamp,
+			table.modelId,
+		),
+		index("mpm_usage_history_mapping_mode_ts_idx").on(
+			table.modelProviderMappingId,
+			table.usedMode,
+			table.minuteTimestamp,
+		),
+		index("mpm_usage_history_provider_stats_idx").on(
+			table.usedMode,
+			table.minuteTimestamp,
+			table.providerId,
+			table.logsCount,
+			table.errorsCount,
+			table.clientErrorsCount,
+			table.cachedCount,
+			table.totalTimeToFirstToken,
+			table.timeToFirstTokenCount,
+			table.totalOutputTokens,
+			table.totalDuration,
+		),
+	],
+);
+
+export const modelUsageHistory = pgTable(
+	"model_usage_history",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		modelId: text().notNull(),
+		usedMode: text({ enum: ["credits", "api-keys"] }).notNull(),
+		minuteTimestamp: timestamp().notNull(),
+		...minuteUsageHistoryMetricColumns(),
+	},
+	(table) => [
+		unique("model_usage_history_model_minute_mode_unique").on(
+			table.modelId,
+			table.minuteTimestamp,
+			table.usedMode,
+		),
+		index("model_usage_history_mode_ts_model_idx").on(
+			table.usedMode,
+			table.minuteTimestamp,
+			table.modelId,
+		),
+		index("model_usage_history_model_mode_ts_idx").on(
+			table.modelId,
+			table.usedMode,
+			table.minuteTimestamp,
+		),
+	],
+);
+
+export const modelProviderMappingUsageHistoryHourly = pgTable(
+	"model_provider_mapping_usage_history_hourly",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		modelId: text().notNull(),
+		providerId: text().notNull(),
+		modelProviderMappingId: text().notNull(),
+		usedMode: text({ enum: ["credits", "api-keys"] }).notNull(),
+		hourTimestamp: timestamp().notNull(),
+		...hourlyUsageHistoryMetricColumns(),
+	},
+	(table) => [
+		unique("mpm_usage_history_mapping_hour_mode_unique").on(
+			table.modelProviderMappingId,
+			table.hourTimestamp,
+			table.usedMode,
+		),
+		index("mpm_usage_history_hourly_mode_ts_model_idx").on(
+			table.usedMode,
+			table.hourTimestamp,
+			table.modelId,
+		),
+		index("mpm_usage_history_hourly_mapping_mode_ts_idx").on(
+			table.modelProviderMappingId,
+			table.usedMode,
+			table.hourTimestamp,
+		),
+		index("mpm_usage_history_hourly_provider_stats_idx").on(
+			table.usedMode,
+			table.hourTimestamp,
+			table.providerId,
+			table.logsCount,
+			table.errorsCount,
+			table.clientErrorsCount,
+			table.cachedCount,
+			table.totalTimeToFirstToken,
+			table.timeToFirstTokenCount,
+			table.totalOutputTokens,
+			table.totalDuration,
+		),
+	],
+);
+
+export const modelUsageHistoryHourly = pgTable(
+	"model_usage_history_hourly",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		modelId: text().notNull(),
+		usedMode: text({ enum: ["credits", "api-keys"] }).notNull(),
+		hourTimestamp: timestamp().notNull(),
+		...hourlyUsageHistoryMetricColumns(),
+	},
+	(table) => [
+		unique("model_usage_history_model_hour_mode_unique").on(
+			table.modelId,
+			table.hourTimestamp,
+			table.usedMode,
+		),
+		index("model_usage_history_hourly_mode_ts_model_idx").on(
+			table.usedMode,
+			table.hourTimestamp,
+			table.modelId,
+		),
+		index("model_usage_history_hourly_model_mode_ts_idx").on(
+			table.modelId,
+			table.usedMode,
 			table.hourTimestamp,
 		),
 	],

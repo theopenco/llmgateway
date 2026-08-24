@@ -25,6 +25,12 @@ interface CatalogResponse {
 
 async function clearFixtures() {
 	await db
+		.delete(tables.modelProviderMappingUsageHistory)
+		.where(eq(tables.modelProviderMappingUsageHistory.modelId, MODEL_ID));
+	await db
+		.delete(tables.modelUsageHistory)
+		.where(eq(tables.modelUsageHistory.modelId, MODEL_ID));
+	await db
 		.delete(tables.modelProviderMappingHistory)
 		.where(eq(tables.modelProviderMappingHistory.modelId, MODEL_ID));
 	await db
@@ -80,15 +86,19 @@ describe("admin catalog usage mode", () => {
 				cost: 0.2,
 				totalTimeToFirstToken: 400,
 			},
-			{
-				usedMode: "unknown" as const,
-				requests: 1,
-				tokens: 10,
-				cost: 0.1,
-				totalTimeToFirstToken: 300,
-			},
 		];
-		await db.insert(tables.modelHistory).values(
+		await db.insert(tables.modelHistory).values({
+			modelId: MODEL_ID,
+			minuteTimestamp: BUCKET,
+			logsCount: 6,
+			totalTokens: 60,
+			totalInputTokens: 60,
+			totalCost: 0.6,
+			totalInputCost: 0.6,
+			totalTimeToFirstToken: 1000,
+			timeToFirstTokenCount: 6,
+		});
+		await db.insert(tables.modelUsageHistory).values(
 			buckets.map((bucket) => ({
 				modelId: MODEL_ID,
 				minuteTimestamp: BUCKET,
@@ -102,7 +112,20 @@ describe("admin catalog usage mode", () => {
 				timeToFirstTokenCount: bucket.requests,
 			})),
 		);
-		await db.insert(tables.modelProviderMappingHistory).values(
+		await db.insert(tables.modelProviderMappingHistory).values({
+			modelId: MODEL_ID,
+			providerId: PROVIDER_ID,
+			modelProviderMappingId: MAPPING_ID,
+			minuteTimestamp: BUCKET,
+			logsCount: 6,
+			totalTokens: 60,
+			totalInputTokens: 60,
+			totalCost: 0.6,
+			totalInputCost: 0.6,
+			totalTimeToFirstToken: 1000,
+			timeToFirstTokenCount: 6,
+		});
+		await db.insert(tables.modelProviderMappingUsageHistory).values(
 			buckets.map((bucket) => ({
 				modelId: MODEL_ID,
 				providerId: PROVIDER_ID,
@@ -197,24 +220,24 @@ describe("admin catalog usage mode", () => {
 	it("keeps filtered latency null without a mode sample", async () => {
 		await Promise.all([
 			db
-				.update(tables.modelHistory)
+				.update(tables.modelUsageHistory)
 				.set({ timeToFirstTokenCount: 0 })
 				.where(
 					and(
-						eq(tables.modelHistory.modelId, MODEL_ID),
-						eq(tables.modelHistory.usedMode, "api-keys"),
+						eq(tables.modelUsageHistory.modelId, MODEL_ID),
+						eq(tables.modelUsageHistory.usedMode, "api-keys"),
 					),
 				),
 			db
-				.update(tables.modelProviderMappingHistory)
+				.update(tables.modelProviderMappingUsageHistory)
 				.set({ timeToFirstTokenCount: 0 })
 				.where(
 					and(
 						eq(
-							tables.modelProviderMappingHistory.modelProviderMappingId,
+							tables.modelProviderMappingUsageHistory.modelProviderMappingId,
 							MAPPING_ID,
 						),
-						eq(tables.modelProviderMappingHistory.usedMode, "api-keys"),
+						eq(tables.modelProviderMappingUsageHistory.usedMode, "api-keys"),
 					),
 				),
 		]);
@@ -295,18 +318,17 @@ describe("admin catalog usage mode", () => {
 
 	it("keeps history mode buckets unique", async () => {
 		const rows = await db
-			.select({ usedMode: tables.modelHistory.usedMode })
-			.from(tables.modelHistory)
+			.select({ usedMode: tables.modelUsageHistory.usedMode })
+			.from(tables.modelUsageHistory)
 			.where(
 				and(
-					eq(tables.modelHistory.modelId, MODEL_ID),
-					eq(tables.modelHistory.minuteTimestamp, BUCKET),
+					eq(tables.modelUsageHistory.modelId, MODEL_ID),
+					eq(tables.modelUsageHistory.minuteTimestamp, BUCKET),
 				),
 			);
 		expect(rows.map((row) => row.usedMode).sort()).toEqual([
 			"api-keys",
 			"credits",
-			"unknown",
 		]);
 	});
 });

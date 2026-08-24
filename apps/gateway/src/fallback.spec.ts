@@ -98,7 +98,7 @@ describe("fallback and error status code handling", () => {
 		resetFailOnceCounter();
 		resetKeyHealth();
 		await clearCache();
-		await db.delete(tables.modelProviderMappingHistory);
+		await db.delete(tables.modelProviderMappingUsageHistory);
 
 		// Sequential, children before parents: concurrent deletes on
 		// cascade-linked tables (e.g. user -> account) deadlock in postgres.
@@ -300,7 +300,7 @@ describe("fallback and error status code handling", () => {
 			: `${modelId}::${providerId}`;
 
 		await db
-			.insert(tables.modelProviderMappingHistory)
+			.insert(tables.modelProviderMappingUsageHistory)
 			.values({
 				modelId,
 				providerId,
@@ -322,9 +322,9 @@ describe("fallback and error status code handling", () => {
 			})
 			.onConflictDoUpdate({
 				target: [
-					tables.modelProviderMappingHistory.modelProviderMappingId,
-					tables.modelProviderMappingHistory.minuteTimestamp,
-					tables.modelProviderMappingHistory.usedMode,
+					tables.modelProviderMappingUsageHistory.modelProviderMappingId,
+					tables.modelProviderMappingUsageHistory.minuteTimestamp,
+					tables.modelProviderMappingUsageHistory.usedMode,
 				],
 				set: {
 					logsCount: totalRequests,

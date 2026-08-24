@@ -7,6 +7,8 @@ import {
 	modelHistory,
 	modelProviderMappingHistoryHourly,
 	modelHistoryHourly,
+	modelProviderMappingUsageHistory,
+	modelUsageHistory,
 	routingElectionHourly,
 	log,
 	sql,
@@ -15,7 +17,6 @@ import {
 	gte,
 	lt,
 	and,
-	inArray,
 	type SQL,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -204,6 +205,27 @@ const HISTORY_METRIC_COLUMNS = [
 	"serviceTierUnconfirmedCount",
 ] as const;
 
+type HistoryMetricValues = Record<
+	(typeof HISTORY_METRIC_COLUMNS)[number],
+	number
+>;
+
+function createEmptyHistoryMetricValues(): HistoryMetricValues {
+	return Object.fromEntries(
+		HISTORY_METRIC_COLUMNS.map((column) => [column, 0]),
+	) as HistoryMetricValues;
+}
+
+function addHistoryMetricValues(
+	target: HistoryMetricValues,
+	source: Partial<HistoryMetricValues>,
+): HistoryMetricValues {
+	for (const column of HISTORY_METRIC_COLUMNS) {
+		target[column] += source[column] ?? 0;
+	}
+	return target;
+}
+
 // Chunk size for bulk upserts. Postgres caps a statement at 65535 bind
 // parameters; history rows have ~25 columns, so 1000 rows stays well under it.
 const HISTORY_UPSERT_CHUNK_SIZE = 1000;
@@ -228,6 +250,59 @@ function buildHistoryUpsertSet(
 	}
 	set.updatedAt = sql`now()`;
 	return set;
+}
+
+function buildUsageHistoryHourlyRollupSql(options: {
+	minuteTable: string;
+	hourlyTable: string;
+	dimensions: string[];
+	conflictColumns: string[];
+	roundedHour: Date;
+	hourEnd: Date;
+}) {
+	const metricColumns = HISTORY_METRIC_COLUMNS.map(toSnakeCase);
+	const insertColumns = [
+		"id",
+		...options.dimensions,
+		"used_mode",
+		"hour_timestamp",
+		...metricColumns,
+	];
+	const selectColumns = [
+		sql`md5(random()::text || clock_timestamp()::text)`,
+		...options.dimensions.map((column) => sql.identifier(column)),
+		sql.identifier("used_mode"),
+		sql`${options.roundedHour}`,
+		...metricColumns.map((column) => sql`sum(${sql.identifier(column)})`),
+	];
+	const updateColumns = metricColumns.map(
+		(column) =>
+			sql`${sql.identifier(column)} = excluded.${sql.identifier(column)}`,
+	);
+
+	return sql`
+		insert into ${sql.identifier(options.hourlyTable)}
+			(${sql.join(
+				insertColumns.map((column) => sql.identifier(column)),
+				sql`, `,
+			)})
+		select ${sql.join(selectColumns, sql`, `)}
+		from ${sql.identifier(options.minuteTable)}
+		where ${sql.identifier("minute_timestamp")} >= ${options.roundedHour}
+			and ${sql.identifier("minute_timestamp")} < ${options.hourEnd}
+		group by ${sql.join(
+			[...options.dimensions, "used_mode"].map((column) =>
+				sql.identifier(column),
+			),
+			sql`, `,
+		)}
+		on conflict (${sql.join(
+			options.conflictColumns.map((column) => sql.identifier(column)),
+			sql`, `,
+		)}) do update set
+			${sql.join(updateColumns, sql`, `)},
+			${sql.identifier("updated_at")} = now()
+	`;
 }
 
 /**
@@ -460,7 +535,7 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 
 	// Process all models
 	const processedModels = new Set<string>();
-	const modelHistoryValues: (typeof modelHistory.$inferInsert)[] = [];
+	const modelUsageHistoryValues: (typeof modelUsageHistory.$inferInsert)[] = [];
 
 	for (const modelEntry of allModels) {
 		for (const usedMode of HISTORY_USAGE_MODES) {
@@ -509,7 +584,7 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 
 			// Collect the history record for this minute; written in one bulk upsert
 			// below instead of a per-model round-trip.
-			modelHistoryValues.push({
+			modelUsageHistoryValues.push({
 				modelId: modelEntry.modelId,
 				usedMode,
 				minuteTimestamp: roundedTargetMinute,
@@ -547,35 +622,60 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 		}
 	}
 
+	const modelUsageHistoryUpsertSet = buildHistoryUpsertSet(modelUsageHistory);
+	for (
+		let i = 0;
+		i < modelUsageHistoryValues.length;
+		i += HISTORY_UPSERT_CHUNK_SIZE
+	) {
+		const chunk = modelUsageHistoryValues.slice(
+			i,
+			i + HISTORY_UPSERT_CHUNK_SIZE,
+		);
+		await database
+			.insert(modelUsageHistory)
+			.values(chunk)
+			.onConflictDoUpdate({
+				target: [
+					modelUsageHistory.modelId,
+					modelUsageHistory.minuteTimestamp,
+					modelUsageHistory.usedMode,
+				],
+				set: modelUsageHistoryUpsertSet,
+			});
+	}
+
+	const totalsByModel = new Map<string, HistoryMetricValues>();
+	for (const row of modelUsageHistoryValues) {
+		const total =
+			totalsByModel.get(row.modelId) ?? createEmptyHistoryMetricValues();
+		addHistoryMetricValues(total, row);
+		totalsByModel.set(row.modelId, total);
+	}
+	const totalModelHistoryValues: (typeof modelHistory.$inferInsert)[] =
+		allModels.map(({ modelId }) => ({
+			modelId,
+			minuteTimestamp: roundedTargetMinute,
+			...(totalsByModel.get(modelId) ?? createEmptyHistoryMetricValues()),
+		}));
 	const modelHistoryUpsertSet = buildHistoryUpsertSet(modelHistory);
 	for (
 		let i = 0;
-		i < modelHistoryValues.length;
+		i < totalModelHistoryValues.length;
 		i += HISTORY_UPSERT_CHUNK_SIZE
 	) {
-		const chunk = modelHistoryValues.slice(i, i + HISTORY_UPSERT_CHUNK_SIZE);
+		const chunk = totalModelHistoryValues.slice(
+			i,
+			i + HISTORY_UPSERT_CHUNK_SIZE,
+		);
 		await database
 			.insert(modelHistory)
 			.values(chunk)
 			.onConflictDoUpdate({
-				target: [
-					modelHistory.modelId,
-					modelHistory.minuteTimestamp,
-					modelHistory.usedMode,
-				],
+				target: [modelHistory.modelId, modelHistory.minuteTimestamp],
 				set: modelHistoryUpsertSet,
 			});
 	}
-	// Once the per-mode rows are complete, remove the legacy blended bucket for
-	// this minute so the default All view cannot count both representations.
-	await database
-		.delete(modelHistory)
-		.where(
-			and(
-				eq(modelHistory.minuteTimestamp, roundedTargetMinute),
-				eq(modelHistory.usedMode, "unknown"),
-			),
-		);
 
 	return {
 		totalModels: allModels.length,
@@ -822,7 +922,7 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 
 	// Process all model-provider mappings
 	const processedMappings = new Set<string>();
-	const mappingHistoryValues: (typeof modelProviderMappingHistory.$inferInsert)[] =
+	const mappingUsageHistoryValues: (typeof modelProviderMappingUsageHistory.$inferInsert)[] =
 		[];
 
 	const activeMappingIds = new Set<string>();
@@ -879,7 +979,7 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 
 			// Collect the history record for this minute; written in one bulk upsert
 			// below instead of a per-mapping round-trip.
-			mappingHistoryValues.push({
+			mappingUsageHistoryValues.push({
 				modelId: mapping.modelId, // LLMGateway model name
 				providerId: mapping.providerId,
 				modelProviderMappingId: mapping.id, // Exact model_provider_mapping.id
@@ -919,15 +1019,59 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 		}
 	}
 
+	const mappingUsageHistoryUpsertSet = buildHistoryUpsertSet(
+		modelProviderMappingUsageHistory,
+	);
+	for (
+		let i = 0;
+		i < mappingUsageHistoryValues.length;
+		i += HISTORY_UPSERT_CHUNK_SIZE
+	) {
+		const chunk = mappingUsageHistoryValues.slice(
+			i,
+			i + HISTORY_UPSERT_CHUNK_SIZE,
+		);
+		await database
+			.insert(modelProviderMappingUsageHistory)
+			.values(chunk)
+			.onConflictDoUpdate({
+				target: [
+					modelProviderMappingUsageHistory.modelProviderMappingId,
+					modelProviderMappingUsageHistory.minuteTimestamp,
+					modelProviderMappingUsageHistory.usedMode,
+				],
+				set: mappingUsageHistoryUpsertSet,
+			});
+	}
+
+	const totalsByMapping = new Map<string, HistoryMetricValues>();
+	for (const row of mappingUsageHistoryValues) {
+		const total =
+			totalsByMapping.get(row.modelProviderMappingId) ??
+			createEmptyHistoryMetricValues();
+		addHistoryMetricValues(total, row);
+		totalsByMapping.set(row.modelProviderMappingId, total);
+	}
+	const totalMappingHistoryValues: (typeof modelProviderMappingHistory.$inferInsert)[] =
+		allMappings.map((mapping) => ({
+			modelId: mapping.modelId,
+			providerId: mapping.providerId,
+			modelProviderMappingId: mapping.id,
+			minuteTimestamp: roundedTargetMinute,
+			...(totalsByMapping.get(mapping.id) ?? createEmptyHistoryMetricValues()),
+		}));
 	const mappingHistoryUpsertSet = buildHistoryUpsertSet(
 		modelProviderMappingHistory,
 	);
 	for (
 		let i = 0;
-		i < mappingHistoryValues.length;
+		i < totalMappingHistoryValues.length;
 		i += HISTORY_UPSERT_CHUNK_SIZE
 	) {
-		const chunk = mappingHistoryValues.slice(i, i + HISTORY_UPSERT_CHUNK_SIZE);
+		const chunk = totalMappingHistoryValues.slice(
+			i,
+			i + HISTORY_UPSERT_CHUNK_SIZE,
+		);
 		await database
 			.insert(modelProviderMappingHistory)
 			.values(chunk)
@@ -935,19 +1079,10 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 				target: [
 					modelProviderMappingHistory.modelProviderMappingId,
 					modelProviderMappingHistory.minuteTimestamp,
-					modelProviderMappingHistory.usedMode,
 				],
 				set: mappingHistoryUpsertSet,
 			});
 	}
-	await database
-		.delete(modelProviderMappingHistory)
-		.where(
-			and(
-				eq(modelProviderMappingHistory.minuteTimestamp, roundedTargetMinute),
-				eq(modelProviderMappingHistory.usedMode, "unknown"),
-			),
-		);
 
 	return {
 		totalMappings: allMappings.length,
@@ -1155,7 +1290,6 @@ async function calculateModelHistoryForHour(targetHour: Date) {
 	const hourlyStats = await database
 		.select({
 			modelId: modelHistory.modelId,
-			usedMode: modelHistory.usedMode,
 			logsCount: sql<number>`coalesce(sum(${modelHistory.logsCount}), 0)::int`,
 			errorsCount: sql<number>`coalesce(sum(${modelHistory.errorsCount}), 0)::int`,
 			clientErrorsCount: sql<number>`coalesce(sum(${modelHistory.clientErrorsCount}), 0)::int`,
@@ -1194,45 +1328,28 @@ async function calculateModelHistoryForHour(targetHour: Date) {
 				lt(modelHistory.minuteTimestamp, hourEnd),
 			),
 		)
-		.groupBy(modelHistory.modelId, modelHistory.usedMode);
+		.groupBy(modelHistory.modelId);
 
 	for (const row of hourlyStats) {
-		const { modelId, usedMode, ...stats } = row;
+		const { modelId, ...stats } = row;
 		await database
 			.insert(modelHistoryHourly)
-			.values({ modelId, usedMode, hourTimestamp: roundedHour, ...stats })
+			.values({ modelId, hourTimestamp: roundedHour, ...stats })
 			.onConflictDoUpdate({
-				target: [
-					modelHistoryHourly.modelId,
-					modelHistoryHourly.hourTimestamp,
-					modelHistoryHourly.usedMode,
-				],
+				target: [modelHistoryHourly.modelId, modelHistoryHourly.hourTimestamp],
 				set: { ...stats, updatedAt: new Date() },
 			});
 	}
-	const legacyModelIds = new Set(
-		hourlyStats
-			.filter((row) => row.usedMode === "unknown")
-			.map((row) => row.modelId),
+	await database.execute(
+		buildUsageHistoryHourlyRollupSql({
+			minuteTable: "model_usage_history",
+			hourlyTable: "model_usage_history_hourly",
+			dimensions: ["model_id"],
+			conflictColumns: ["model_id", "hour_timestamp", "used_mode"],
+			roundedHour,
+			hourEnd,
+		}),
 	);
-	const replacedModelIds = [
-		...new Set(
-			hourlyStats
-				.filter((row) => row.usedMode !== "unknown")
-				.map((row) => row.modelId),
-		),
-	].filter((modelId) => !legacyModelIds.has(modelId));
-	if (replacedModelIds.length > 0) {
-		await database
-			.delete(modelHistoryHourly)
-			.where(
-				and(
-					eq(modelHistoryHourly.hourTimestamp, roundedHour),
-					eq(modelHistoryHourly.usedMode, "unknown"),
-					inArray(modelHistoryHourly.modelId, replacedModelIds),
-				),
-			);
-	}
 	return {
 		totalModels: new Set(hourlyStats.map((row) => row.modelId)).size,
 	};
@@ -1254,7 +1371,6 @@ async function calculateMappingHistoryForHour(targetHour: Date) {
 				modelProviderMappingHistory.modelProviderMappingId,
 			modelId: modelProviderMappingHistory.modelId,
 			providerId: modelProviderMappingHistory.providerId,
-			usedMode: modelProviderMappingHistory.usedMode,
 			logsCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.logsCount}), 0)::int`,
 			errorsCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.errorsCount}), 0)::int`,
 			clientErrorsCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.clientErrorsCount}), 0)::int`,
@@ -1297,19 +1413,16 @@ async function calculateMappingHistoryForHour(targetHour: Date) {
 			modelProviderMappingHistory.modelProviderMappingId,
 			modelProviderMappingHistory.modelId,
 			modelProviderMappingHistory.providerId,
-			modelProviderMappingHistory.usedMode,
 		);
 
 	for (const row of hourlyStats) {
-		const { modelProviderMappingId, modelId, providerId, usedMode, ...stats } =
-			row;
+		const { modelProviderMappingId, modelId, providerId, ...stats } = row;
 		await database
 			.insert(modelProviderMappingHistoryHourly)
 			.values({
 				modelProviderMappingId,
 				modelId,
 				providerId,
-				usedMode,
 				hourTimestamp: roundedHour,
 				...stats,
 			})
@@ -1317,37 +1430,24 @@ async function calculateMappingHistoryForHour(targetHour: Date) {
 				target: [
 					modelProviderMappingHistoryHourly.modelProviderMappingId,
 					modelProviderMappingHistoryHourly.hourTimestamp,
-					modelProviderMappingHistoryHourly.usedMode,
 				],
 				set: { ...stats, updatedAt: new Date() },
 			});
 	}
-	const legacyMappingIds = new Set(
-		hourlyStats
-			.filter((row) => row.usedMode === "unknown")
-			.map((row) => row.modelProviderMappingId),
+	await database.execute(
+		buildUsageHistoryHourlyRollupSql({
+			minuteTable: "model_provider_mapping_usage_history",
+			hourlyTable: "model_provider_mapping_usage_history_hourly",
+			dimensions: ["model_provider_mapping_id", "model_id", "provider_id"],
+			conflictColumns: [
+				"model_provider_mapping_id",
+				"hour_timestamp",
+				"used_mode",
+			],
+			roundedHour,
+			hourEnd,
+		}),
 	);
-	const replacedMappingIds = [
-		...new Set(
-			hourlyStats
-				.filter((row) => row.usedMode !== "unknown")
-				.map((row) => row.modelProviderMappingId),
-		),
-	].filter((mappingId) => !legacyMappingIds.has(mappingId));
-	if (replacedMappingIds.length > 0) {
-		await database
-			.delete(modelProviderMappingHistoryHourly)
-			.where(
-				and(
-					eq(modelProviderMappingHistoryHourly.hourTimestamp, roundedHour),
-					eq(modelProviderMappingHistoryHourly.usedMode, "unknown"),
-					inArray(
-						modelProviderMappingHistoryHourly.modelProviderMappingId,
-						replacedMappingIds,
-					),
-				),
-			);
-	}
 	return {
 		totalMappings: new Set(hourlyStats.map((row) => row.modelProviderMappingId))
 			.size,
