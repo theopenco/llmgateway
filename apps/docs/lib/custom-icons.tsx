@@ -157,6 +157,8 @@ export const customIcons: Record<string, IconComponent> = {
 		<img
 			src="/integrations/empryo.png"
 			alt="Empryo"
+			width={24}
+			height={24}
 			className={className as string | undefined}
 			style={
 				{
