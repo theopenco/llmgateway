@@ -1806,6 +1806,7 @@ export async function prepareRequestBody(
 	const providerHandlesCacheControl =
 		usedProvider === "anthropic" ||
 		usedProvider === "vertex-anthropic" ||
+		usedProvider === "azure-anthropic" ||
 		usedProvider === "aws-bedrock" ||
 		usedProvider === "alibaba";
 	const stripAllCacheControl = !allowProviderCacheWrites;
@@ -2852,7 +2853,8 @@ export async function prepareRequestBody(
 			break;
 		}
 		case "anthropic":
-		case "vertex-anthropic": {
+		case "vertex-anthropic":
+		case "azure-anthropic": {
 			// Remove generic tool_choice that was added earlier
 			delete requestBody.tool_choice;
 
@@ -4125,6 +4127,12 @@ export async function prepareRequestBody(
 		}
 		case "inference.net":
 		case "together-ai": {
+			if (stream && usedProvider === "together-ai") {
+				requestBody.stream_options = {
+					include_usage: true,
+				};
+			}
+
 			if (usedExternalId.startsWith(`${usedProvider}/`)) {
 				requestBody.model = usedExternalId.substring(usedProvider.length + 1);
 			}
