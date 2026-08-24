@@ -108,7 +108,7 @@ describe("organization route", () => {
 			headers: {
 				"Content-Type": "application/json",
 				Origin: codeUrl,
-				"CF-Connecting-IP": `192.168.32.${randomInt(0, 255)}`,
+				"X-Forwarded-For": `192.168.32.${randomInt(0, 255)}`,
 			},
 			body: JSON.stringify({ email, password, name: "Dev User" }),
 		});

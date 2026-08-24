@@ -143,7 +143,7 @@ describe("public chat support rate limiting", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"CF-Connecting-IP": ip,
+					"X-Forwarded-For": ip,
 				},
 				body: JSON.stringify({
 					clientId: uniqueClientId(),

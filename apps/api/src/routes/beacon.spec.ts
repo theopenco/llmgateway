@@ -56,7 +56,7 @@ describe("beacon endpoint", () => {
 		});
 	});
 
-	it("should extract Cloudflare headers correctly", async () => {
+	it("should extract the client IP and geo headers correctly", async () => {
 		const beaconData = {
 			uuid: "123e4567-e89b-12d3-a456-426614174000",
 			type: "self-host",
@@ -68,7 +68,7 @@ describe("beacon endpoint", () => {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
-				"CF-Connecting-IP": "203.0.113.42",
+				"X-Forwarded-For": "203.0.113.42",
 				"CF-IPCountry": "US",
 				"CF-Region": "California",
 				"CF-Ray": "8a1b2c3d4e5f6789-SJC",
@@ -78,7 +78,7 @@ describe("beacon endpoint", () => {
 
 		expect(response.status).toBe(200);
 
-		// Verify PostHog was called with Cloudflare data
+		// Verify PostHog was called with the forwarded client data
 		expect(posthog.capture).toHaveBeenCalledWith({
 			distinctId: beaconData.uuid,
 			event: "self_hosted_installation_beacon",
@@ -173,7 +173,7 @@ describe("beacon endpoint", () => {
 		});
 	});
 
-	it("should handle X-Real-IP fallback", async () => {
+	it("should record no client IP when the header is absent", async () => {
 		const beaconData = {
 			uuid: "123e4567-e89b-12d3-a456-426614174000",
 			type: "self-host",
@@ -192,7 +192,8 @@ describe("beacon endpoint", () => {
 
 		expect(response.status).toBe(200);
 
-		// Verify PostHog was called with X-Real-IP data
+		// Only the configured header is read, so an X-Real-IP a caller happened
+		// to send is ignored rather than trusted as the client address.
 		expect(posthog.capture).toHaveBeenCalledWith({
 			distinctId: beaconData.uuid,
 			event: "self_hosted_installation_beacon",
@@ -201,7 +202,7 @@ describe("beacon endpoint", () => {
 				timestamp: beaconData.timestamp,
 				source: "self_hosted_api",
 				version: beaconData.version,
-				client_ip: "192.0.2.123",
+				client_ip: null,
 				country: undefined,
 				region: undefined,
 				providers: [],
