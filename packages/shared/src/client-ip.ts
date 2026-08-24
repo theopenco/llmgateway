@@ -7,33 +7,49 @@ interface HeaderContext {
 }
 
 /**
- * Header precedence for the originating client IP, most trusted first.
- *
- * X-Client-Ip is the only entry that cannot be forged: the load balancer sets
- * it from `{client_ip_address}` on every route with a backend, and `set` (not
- * `add`) overwrites whatever the caller sent. Anything arriving from outside
- * the cluster carries it.
- *
- * X-Forwarded-For is next, and is trusted only because the request has to have
- * come from inside the cluster to lack X-Client-Ip: the load balancer appends
- * to the chain rather than replacing it, so its first hop is caller-supplied.
- * That is what server-rendered pages and proxy routes forward on a visitor's
- * behalf (see `forwardedIpHeaders`), reaching the API over the in-cluster
- * Service. The rest are fallbacks for other proxies and local dev.
- *
- * We do NOT use Cloudflare, so `cf-connecting-ip` is never present in
- * production — it is kept only as a fallback for self-hosted deployments that
- * do sit behind it.
+ * Header the edge writes the client IP into, when nothing is configured. Only
+ * correct where a reverse proxy overwrites it; behind a load balancer that
+ * *appends* to the chain the first hop is caller-supplied and forgeable, which
+ * is why production must configure `CLIENT_IP_HEADER` instead.
  */
-const CLIENT_IP_HEADERS = [
-	"x-client-ip",
-	"x-forwarded-for",
-	"cf-connecting-ip",
-	"x-real-ip",
-	"remote-addr",
-] as const;
+const DEFAULT_CLIENT_IP_HEADER = "x-forwarded-for";
 
-/** First hop of an X-Forwarded-For chain, which is the originating client. */
+/**
+ * The one header carrying the client IP, named once per deployment by
+ * `CLIENT_IP_HEADER`.
+ *
+ * There is deliberately no list of candidates. Trying several in turn means
+ * trusting whichever a caller happened to send, so a single forged header
+ * anywhere in the chain picks the identity — useless for rate limiting and
+ * actively wrong for IP allow-lists. Naming the header makes the trust
+ * boundary explicit: it is whatever the edge overwrites, and nothing else.
+ *
+ * Production sets it to `X-Client-Ip`, which the load balancer writes from
+ * `{client_ip_address}` with `set` (not `add`), so a caller cannot forge it.
+ */
+export function getClientIpHeaderName(): string {
+	return (
+		process.env.CLIENT_IP_HEADER?.trim().toLowerCase() ||
+		DEFAULT_CLIENT_IP_HEADER
+	);
+}
+
+/**
+ * A message to log at startup when a hosted deployment has not named the
+ * header, or null when it is configured. Hosted traffic arrives through a load
+ * balancer that appends to X-Forwarded-For, so the default is forgeable there.
+ */
+export function getClientIpHeaderMisconfiguration(): string | null {
+	if (process.env.CLIENT_IP_HEADER?.trim()) {
+		return null;
+	}
+	if (process.env.HOSTED !== "true") {
+		return null;
+	}
+	return `CLIENT_IP_HEADER is not set, so the client IP is read from ${DEFAULT_CLIENT_IP_HEADER}, which a caller can forge. Set it to the header the load balancer overwrites (X-Client-Ip).`;
+}
+
+/** First hop of a comma-separated forwarding chain, which is the client. */
 export function getClientIpFromForwardedFor(
 	xff: string | null | undefined,
 ): string | undefined {
@@ -41,13 +57,9 @@ export function getClientIpFromForwardedFor(
 }
 
 export function getClientIp(getHeader: HeaderGetter): string | null {
-	for (const header of CLIENT_IP_HEADERS) {
-		const value = getClientIpFromForwardedFor(getHeader(header));
-		if (value) {
-			return value;
-		}
-	}
-	return null;
+	return (
+		getClientIpFromForwardedFor(getHeader(getClientIpHeaderName())) ?? null
+	);
 }
 
 export function getClientIpFromHeaders(
@@ -66,23 +78,17 @@ export function getClientIpFromRequest(c: HeaderContext): string | undefined {
 }
 
 /**
- * Headers to attach when calling the API on a visitor's behalf from a
- * server-rendered page or proxy route. Without them the API sees the calling
- * server's address and every visitor shares one rate-limit bucket.
- *
- * Prefers the load balancer's X-Client-Ip, which the visitor cannot forge, and
- * falls back to passing the X-Forwarded-For chain through for deployments with
- * no load balancer in front (local dev, self-hosting).
+ * Header to attach when calling the API on a visitor's behalf from a
+ * server-rendered page or proxy route: the same one the API reads, passed
+ * through verbatim. Without it the API sees the calling server's address and
+ * every visitor shares one rate-limit bucket.
  */
 export function forwardedIpHeaders(
 	headers: Headers | null | undefined,
 ): Record<string, string> {
-	const clientIp = headers?.get("x-client-ip");
-	if (clientIp) {
-		return { "x-client-ip": clientIp };
-	}
-	const forwardedFor = headers?.get("x-forwarded-for");
-	return forwardedFor ? { "x-forwarded-for": forwardedFor } : {};
+	const name = getClientIpHeaderName();
+	const value = headers?.get(name);
+	return value ? { [name]: value } : {};
 }
 
 /**

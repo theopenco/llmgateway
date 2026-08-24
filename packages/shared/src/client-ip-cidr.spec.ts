@@ -15,14 +15,24 @@ function mockContext(headers: Record<string, string>) {
 }
 
 describe("getClientIpFromRequest", () => {
-	// IAM CIDR rules key on this, so a forgeable X-Forwarded-For must never
-	// beat the load-balancer-set header.
-	it("prefers X-Client-Ip over X-Forwarded-For", () => {
-		const c = mockContext({
-			"x-client-ip": "198.51.100.9",
-			"x-forwarded-for": "203.0.113.7, 192.0.2.1",
-		});
-		expect(getClientIpFromRequest(c)).toBe("198.51.100.9");
+	// IAM CIDR rules key on this, so only the configured header counts — a
+	// caller cannot pick the identity by sending a different one.
+	it("reads only the configured header", () => {
+		process.env.CLIENT_IP_HEADER = "X-Client-Ip";
+		try {
+			const c = mockContext({
+				"x-client-ip": "198.51.100.9",
+				"x-forwarded-for": "203.0.113.7, 192.0.2.1",
+			});
+			expect(getClientIpFromRequest(c)).toBe("198.51.100.9");
+			expect(
+				getClientIpFromRequest(
+					mockContext({ "x-forwarded-for": "203.0.113.7" }),
+				),
+			).toBeUndefined();
+		} finally {
+			delete process.env.CLIENT_IP_HEADER;
+		}
 	});
 
 	it("returns the first hop of X-Forwarded-For", () => {

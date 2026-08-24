@@ -6,6 +6,7 @@ import {
 	shutdownInstrumentation,
 } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
+import { getClientIpHeaderMisconfiguration } from "@llmgateway/shared/client-ip";
 import { getEnterpriseLicenseStatus } from "@llmgateway/shared/enterprise-license";
 
 import { redisClient } from "./auth/config.js";
@@ -30,6 +31,11 @@ async function startServer() {
 	// different ports from one shared shell env (both services read PORT).
 	// Deployments only ever set PORT, so they are unaffected.
 	const port = Number(process.env.API_PORT || process.env.PORT) || 4002;
+
+	const clientIpWarning = getClientIpHeaderMisconfiguration();
+	if (clientIpWarning) {
+		logger.error(clientIpWarning);
+	}
 
 	// Tag every DB query with the originating service for Cloud SQL Query Insights
 	setQueryTags({ application: "api" });
