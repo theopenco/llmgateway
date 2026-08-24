@@ -58,6 +58,8 @@ import { useApi } from "@/lib/fetch-client";
 import { extractOrgAndProjectFromPath } from "@/lib/navigation-utils";
 import { cn } from "@/lib/utils";
 
+import { Time } from "@llmgateway/shared";
+
 import {
 	formatCurrentPeriodUsageSummary,
 	formatCurrencyAmount,
@@ -91,19 +93,6 @@ type CreatorFilter = "mine" | "all";
 type LimitFilter = "all" | "approaching" | "reached";
 
 const PLAYGROUND_KEY_DESCRIPTION = "Auto-generated playground key";
-
-const createdDateFormat = new Intl.DateTimeFormat(undefined, {
-	month: "short",
-	day: "numeric",
-	year: "numeric",
-});
-const createdDateTimeFormat = new Intl.DateTimeFormat(undefined, {
-	month: "short",
-	day: "numeric",
-	year: "numeric",
-	hour: "2-digit",
-	minute: "2-digit",
-});
 
 function PlaygroundKeyNote() {
 	return (
@@ -825,14 +814,15 @@ export function ApiKeysList({
 										<Tooltip>
 											<TooltipTrigger asChild>
 												<span className="text-muted-foreground cursor-help border-b border-dotted border-muted-foreground/50 hover:border-muted-foreground">
-													{createdDateFormat.format(new Date(key.createdAt))}
+													<Time date={key.createdAt} format="monthDayYear" />
 												</span>
 											</TooltipTrigger>
 											<TooltipContent>
 												<p className="max-w-xs text-xs whitespace-nowrap">
-													{createdDateTimeFormat.format(
-														new Date(key.createdAt),
-													)}
+													<Time
+														date={key.createdAt}
+														format="monthDayYearHourMinuteZone"
+													/>
 												</p>
 											</TooltipContent>
 										</Tooltip>
@@ -1025,7 +1015,10 @@ export function ApiKeysList({
 									{renderExpiry(key)}
 									<div className="flex items-center gap-2 mt-1">
 										<span className="text-xs text-muted-foreground">
-											{createdDateTimeFormat.format(new Date(key.createdAt))}
+											<Time
+												date={key.createdAt}
+												format="monthDayYearHourMinuteZone"
+											/>
 										</span>
 									</div>
 								</div>

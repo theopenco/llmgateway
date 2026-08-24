@@ -6,6 +6,8 @@ import { useDevPlanStatus } from "@/app/dashboard/useDevPlanStatus";
 import { useUser } from "@/hooks/useUser";
 import { canConfigureDevPlanServiceTier } from "@/lib/dev-plan-service-tier";
 
+import { TimeZoneSetting } from "@llmgateway/shared";
+
 const DevPlanSettings = dynamic(
 	() => import("@/app/dashboard/components/DevPlanSettings"),
 );
@@ -41,6 +43,14 @@ export default function SettingsPage() {
 							{user?.email ?? "—"}
 						</p>
 					</div>
+				</div>
+			</div>
+
+			{/* Display */}
+			<div>
+				<h2 className="mb-4 font-semibold">Display</h2>
+				<div className="rounded-xl border p-5">
+					<TimeZoneSetting />
 				</div>
 			</div>
 
