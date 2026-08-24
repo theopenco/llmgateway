@@ -99,11 +99,11 @@ export function DevpassKpis({ from, to }: { from?: string; to?: string }) {
 
 	return (
 		<section className="space-y-3">
-			<div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+			<div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
 				{kpisError ? (
 					<KpiError label="DevPass KPIs" />
 				) : !kpis ? (
-					<KpiSkeleton count={3} />
+					<KpiSkeleton count={4} />
 				) : (
 					<>
 						<KpiCard
@@ -125,6 +125,17 @@ export function DevpassKpis({ from, to }: { from?: string; to?: string }) {
 										</span>
 									</>
 								) : null}
+							</div>
+						</KpiCard>
+						<KpiCard
+							icon={<Users className="h-3.5 w-3.5" />}
+							label="Total subscribers"
+						>
+							<div className="mt-2 text-2xl font-semibold tabular-nums">
+								{kpis.totalSubscribers}
+							</div>
+							<div className="mt-1 text-xs text-muted-foreground">
+								{kpis.totalSubscribersExcludingRefunded} excluding refunded
 							</div>
 						</KpiCard>
 						<KpiCard
