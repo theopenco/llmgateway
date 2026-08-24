@@ -40,13 +40,13 @@ claude
 
 That's the whole migration. Every request now routes through LLM Gateway to Kimi K3, and every request shows up in your dashboard with its exact cost, token counts, and cache-hit rate.
 
-One refinement worth adding: Claude Code uses a second, smaller model for routine background work, and you can point it at something cheap — or free:
+One refinement worth adding: Claude Code uses a second, smaller model for routine background work, and you can point it at something cheap:
 
 ```bash
-export ANTHROPIC_SMALL_FAST_MODEL=glm-4.7-flash-free
+export ANTHROPIC_SMALL_FAST_MODEL=mimo-v2.5
 ```
 
-That puts K3 on the hard reasoning and a $0 model on the housekeeping.
+That puts K3 on the hard reasoning and a $0.14/M-input model on the housekeeping.
 
 ## Kimi K3 in Cursor
 

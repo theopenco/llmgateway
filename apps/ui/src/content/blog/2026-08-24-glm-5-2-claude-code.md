@@ -40,13 +40,13 @@ claude
 
 That's the whole migration. Every request now routes through LLM Gateway to GLM-5.2, and every request shows up in your dashboard with its exact cost, token counts, and cache-hit rate.
 
-One refinement worth adding: Claude Code uses a second, smaller model for routine background work, and you can point it at something free:
+One refinement worth adding: Claude Code uses a second, smaller model for routine background work, and you can point it at something nearly free:
 
 ```bash
-export ANTHROPIC_SMALL_FAST_MODEL=glm-4.7-flash-free
+export ANTHROPIC_SMALL_FAST_MODEL=mimo-v2.5
 ```
 
-That keeps the whole session in the GLM family — 5.2 on the real work, a $0 model on the housekeeping.
+That puts GLM-5.2 on the real work and a $0.14/M-input model on the housekeeping.
 
 ## GLM-5.2 in Cursor
 
