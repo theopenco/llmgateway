@@ -100,6 +100,7 @@ export async function addManualCreditsToOrganization(
 export interface EnterpriseDealInput {
 	amount: number;
 	paymentMethod: "wire" | "crypto" | "other";
+	transactionDate?: string;
 	externalReference?: string;
 	comment?: string;
 }

@@ -27,6 +27,7 @@ import { Textarea } from "@/components/ui/textarea";
 
 interface EnterpriseDeal {
 	id: string;
+	createdAt: string;
 	amount: string | null;
 	paymentMethod: string | null;
 	externalReference: string | null;
@@ -47,6 +48,7 @@ interface EnterpriseDealDialogProps {
 	onSave: (data: {
 		amount: number;
 		paymentMethod: EnterprisePaymentMethod;
+		transactionDate?: string;
 		externalReference?: string;
 		comment?: string;
 	}) => Promise<{ success: boolean; error?: string }>;
@@ -74,6 +76,9 @@ export function EnterpriseDealDialog({
 	const [paymentMethod, setPaymentMethod] = useState<EnterprisePaymentMethod>(
 		toPaymentMethod(deal?.paymentMethod),
 	);
+	const [transactionDate, setTransactionDate] = useState(
+		deal?.createdAt.slice(0, 10) ?? "",
+	);
 	const [externalReference, setExternalReference] = useState(
 		deal?.externalReference ?? "",
 	);
@@ -92,6 +97,7 @@ export function EnterpriseDealDialog({
 		const result = await onSave({
 			amount: parsedAmount,
 			paymentMethod,
+			transactionDate: transactionDate || undefined,
 			externalReference: externalReference.trim() || undefined,
 			comment: comment.trim() || undefined,
 		});
@@ -103,6 +109,7 @@ export function EnterpriseDealDialog({
 			if (!editing) {
 				setAmount("");
 				setPaymentMethod("wire");
+				setTransactionDate("");
 				setExternalReference("");
 				setComment("");
 			}
@@ -159,6 +166,21 @@ export function EnterpriseDealDialog({
 						/>
 						<p className="text-xs text-muted-foreground">
 							Booked as revenue only; no credits are granted
+						</p>
+					</div>
+
+					<div className="space-y-2">
+						<Label htmlFor={`enterpriseDate-${deal?.id ?? "new"}`}>
+							Transaction Date (Optional)
+						</Label>
+						<Input
+							id={`enterpriseDate-${deal?.id ?? "new"}`}
+							type="date"
+							value={transactionDate}
+							onChange={(event) => setTransactionDate(event.target.value)}
+						/>
+						<p className="text-xs text-muted-foreground">
+							Leave empty to use the current date
 						</p>
 					</div>
 

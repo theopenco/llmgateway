@@ -7422,12 +7422,26 @@ admin.openapi(manualCreditsRoute, async (c) => {
 
 const enterprisePaymentMethods = ["wire", "crypto", "other"] as const;
 
+const enterpriseTransactionDateSchema = z.string().refine((value) => {
+	const date = new Date(`${value}T00:00:00.000Z`);
+	return (
+		!Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
+	);
+}, "Invalid transaction date");
+
 const enterpriseDealBodySchema = z.object({
 	amount: z.number().min(0.01, "Deal amount must be positive"),
 	paymentMethod: z.enum(enterprisePaymentMethods),
+	transactionDate: enterpriseTransactionDateSchema.optional(),
 	externalReference: z.string().trim().max(255).optional(),
 	comment: z.string().trim().max(2000).optional(),
 });
+
+function parseEnterpriseTransactionDate(transactionDate?: string) {
+	return transactionDate
+		? new Date(`${transactionDate}T00:00:00.000Z`)
+		: undefined;
+}
 
 const createEnterpriseDealRoute = createRoute({
 	method: "post",
@@ -7465,7 +7479,7 @@ const createEnterpriseDealRoute = createRoute({
 admin.openapi(createEnterpriseDealRoute, async (c) => {
 	const user = c.get("user");
 	const { orgId } = c.req.valid("param");
-	const { amount, paymentMethod, externalReference, comment } =
+	const { amount, paymentMethod, transactionDate, externalReference, comment } =
 		c.req.valid("json");
 
 	const org = await db.query.organization.findFirst({
@@ -7485,6 +7499,7 @@ admin.openapi(createEnterpriseDealRoute, async (c) => {
 		.values({
 			organizationId: orgId,
 			type: "enterprise_deal",
+			createdAt: parseEnterpriseTransactionDate(transactionDate),
 			amount: amount.toString(),
 			creditAmount: null,
 			currency: "USD",
@@ -7504,6 +7519,7 @@ admin.openapi(createEnterpriseDealRoute, async (c) => {
 		metadata: {
 			amount,
 			paymentMethod,
+			transactionDate,
 			externalReference,
 			comment,
 		},
@@ -7549,12 +7565,14 @@ const updateEnterpriseDealRoute = createRoute({
 admin.openapi(updateEnterpriseDealRoute, async (c) => {
 	const user = c.get("user");
 	const { orgId, transactionId } = c.req.valid("param");
-	const { amount, paymentMethod, externalReference, comment } =
+	const { amount, paymentMethod, transactionDate, externalReference, comment } =
 		c.req.valid("json");
+	const createdAt = parseEnterpriseTransactionDate(transactionDate);
 
 	const [updatedDeal] = await db
 		.update(tables.transaction)
 		.set({
+			...(createdAt ? { createdAt } : {}),
 			amount: amount.toString(),
 			creditAmount: null,
 			description: comment || null,
@@ -7585,6 +7603,7 @@ admin.openapi(updateEnterpriseDealRoute, async (c) => {
 		metadata: {
 			amount,
 			paymentMethod,
+			transactionDate,
 			externalReference,
 			comment,
 		},

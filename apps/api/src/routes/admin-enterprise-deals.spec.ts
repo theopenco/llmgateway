@@ -44,6 +44,7 @@ describe("admin enterprise deals", () => {
 				body: JSON.stringify({
 					amount: 1200,
 					paymentMethod: "wire",
+					transactionDate: "2026-01-15",
 					externalReference: "INVOICE-42",
 					comment: "Annual agreement",
 				}),
@@ -70,6 +71,7 @@ describe("admin enterprise deals", () => {
 			description: "Annual agreement",
 		});
 		expect(Number(deal!.amount)).toBe(1200);
+		expect(deal!.createdAt.toISOString()).toBe("2026-01-15T00:00:00.000Z");
 
 		const updateResponse = await app.request(
 			`/admin/organizations/${ORG_ID}/enterprise-deals/${createBody.transactionId}`,
@@ -79,6 +81,7 @@ describe("admin enterprise deals", () => {
 				body: JSON.stringify({
 					amount: 1500,
 					paymentMethod: "crypto",
+					transactionDate: "2026-02-20",
 					externalReference: "INVOICE-43",
 					comment: "Updated agreement",
 				}),
@@ -95,12 +98,36 @@ describe("admin enterprise deals", () => {
 			where: { id: { eq: createBody.transactionId } },
 		});
 		expect(Number(deal!.amount)).toBe(1500);
+		expect(deal!.createdAt.toISOString()).toBe("2026-02-20T00:00:00.000Z");
 		expect(deal).toMatchObject({
 			creditAmount: null,
 			paymentMethod: "crypto",
 			externalReference: "INVOICE-43",
 			description: "Updated agreement",
 		});
+	});
+
+	test("defaults the transaction date to now when omitted", async () => {
+		const beforeCreate = Date.now();
+		const response = await app.request(
+			`/admin/organizations/${ORG_ID}/enterprise-deals`,
+			{
+				method: "POST",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({ amount: 50, paymentMethod: "other" }),
+			},
+		);
+		const afterCreate = Date.now();
+		expect(response.status).toBe(200);
+
+		const deal = await db.query.transaction.findFirst({
+			where: {
+				organizationId: { eq: ORG_ID },
+				type: { eq: "enterprise_deal" },
+			},
+		});
+		expect(deal!.createdAt.getTime()).toBeGreaterThanOrEqual(beforeCreate);
+		expect(deal!.createdAt.getTime()).toBeLessThanOrEqual(afterCreate);
 	});
 
 	test("reports enterprise revenue separately from credit flow", async () => {
