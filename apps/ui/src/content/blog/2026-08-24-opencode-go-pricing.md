@@ -45,11 +45,11 @@ The $10 plan stacks three time-window caps:
 
 On top of that, each model carries its own monthly allocation:
 
-| Allocation | Models                                                                                            |
-| ---------- | ------------------------------------------------------------------------------------------------- |
-| $15/mo     | Grok 4.5, GPT-5.6 Luna, GLM-5.3, Kimi K3, Qwen3.8 Max, DeepSeek V4 Pro, MiMo V2.5 Pro             |
-| $30/mo     | DeepSeek V4 Flash                                                                                 |
-| $60/mo     | GLM-5.2, GLM-5.1, Kimi K2.7 Code, Kimi K2.6, Qwen3.7 Max, MiniMax M3, MiMo V2.5, LongCat-2.0, Hy3 |
+| Allocation | Models                                                                                                              |
+| ---------- | ------------------------------------------------------------------------------------------------------------------- |
+| $15/mo     | Grok 4.5, GPT-5.6 Luna, GLM-5.3, Kimi K3, Qwen3.8 Max, DeepSeek V4 Pro, DeepSeek V4 Flash Vision Exp, MiMo V2.5 Pro |
+| $30/mo     | DeepSeek V4 Flash                                                                                                   |
+| $60/mo     | GLM-5.2, GLM-5.1, Kimi K2.7 Code, Kimi K2.6, Qwen3.7 Max, MiniMax M3, MiniMax M2.7, MiMo V2.5, LongCat-2.0, Hy3     |
 
 Because metering runs at per-token rates, how far $60 goes depends entirely on which model you pick. At Grok 4.5's rates ($2/M input, $6/M output) the $15 allocation is a handful of serious agent sessions. At MiMo V2.5's rates ($0.14/M in, $0.28/M out) the monthly ceiling is, for most people, effectively unreachable.
 
@@ -59,14 +59,14 @@ Past a limit, requests drop to the free models — currently Ox Alpha Free, expl
 
 Here's the part worth being honest about: **$10 for up to $60 of usage is a 6× ratio, and that's the best ratio of any flat coding plan we know of** — including ours. [DevPass](https://devpass.llmgateway.io) turns every $1 into roughly $3 of usage at provider rates.
 
-The difference is what the ratio is attached to. Go's 6× ends at $60, hard. There is no bigger plan to move to, and the per-model allocations mean the models you'd most want for hard problems — Grok 4.5, GPT-5.6 Luna, Kimi K3 — stop at $15 each. DevPass's 3× is attached to allowances of ~$87 (Lite, $29), ~$237 (Pro, $79) and ~$537 (Max, $179), with [Claude Opus 5, GPT-5.6 and Gemini 3.1 Pro](https://llmgateway.io/models) in the catalog and opt-in pay-as-you-go overflow past the cap.
+The difference is what the ratio is attached to. Go's 6× ends at $60 of included usage — you can keep going from an opted-in Zen balance, but that's your own money at 1×. There is no bigger plan to move to, and the per-model allocations mean the models you'd most want for hard problems — Grok 4.5, GPT-5.6 Luna, Kimi K3 — stop at $15 each. DevPass's 3× is attached to allowances of ~$87 (Lite, $29), ~$237 (Pro, $79) and ~$537 (Max, $179), with [Claude Opus 5, GPT-5.6 Sol and Gemini 3.1 Pro](https://llmgateway.io/models) in the catalog and opt-in pay-as-you-go overflow past the cap.
 
 So the decision reduces to two questions:
 
 - **Does your month fit inside $60 of usage?** Count agent sessions honestly — a single long Claude Code-style run can burn several dollars on a mid-priced model.
 - **Do you ever need Claude, Gemini, or frontier-tier GPT?** Go has none of them. GPT-5.6 Luna is OpenAI's cost-optimized variant, not the frontier Sol tier.
 
-Two yeses to the first and noes to the second: take Go, it's the cheapest seat in the market. Otherwise the ceiling — not the price — is what you're actually choosing.
+If your month fits inside $60 of usage and you don't need Claude, Gemini or frontier-tier GPT, take Go — it's the cheapest seat in the market. If either condition fails, choose the bigger allowance: the ceiling, not the price, is what you're actually choosing between.
 
 <BlogCta variant="devpass" location="mid_article" />
 

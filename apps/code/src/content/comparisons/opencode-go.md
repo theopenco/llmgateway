@@ -4,7 +4,7 @@ slug: opencode-go
 date: 2026-08-24
 title: DevPass vs OpenCode Go
 metaTitle: "DevPass vs OpenCode Go: Best AI Coding Plan in 2026?"
-description: "DevPass vs OpenCode Go compared after Go's pricing change — $10/mo now buys up to $60 of dollar-metered usage across ~20 models; DevPass includes $87–$537 of usage and adds Claude Opus 5, GPT-5.6 and Gemini across 200+ models under one key."
+description: "DevPass vs OpenCode Go compared after Go's pricing change — $10/mo now buys up to $60 of dollar-metered usage across ~20 models; DevPass includes $87–$537 of usage and adds Claude Opus 5, GPT-5.6 Sol and Gemini across 200+ models under one key."
 competitor: OpenCode Go
 competitorLogo: opencode-go
 competitorTagline: Low-cost dollar-metered plan for open coding models
@@ -82,7 +82,7 @@ OpenCode Go wins on raw price. DevPass wins on ceiling and breadth:
 - **DevPass Pro** — $79/mo, ~$237 of usage. Where most developers ship from.
 - **DevPass Max** — $179/mo, ~$537 of usage. Built for all-day agent runs.
 
-Both plans throttle frontier usage — Go with the $15/month per-model allocation, DevPass with a weekly fair-use allowance on premium models that scales with your tier (plus Reset Passes and opt-in PAYG overflow when a heavy week needs more). The difference is the height of the ceiling: Go tops out at $60 of total usage no matter what, while DevPass Lite alone includes more than that and Max carries you to $537.
+Both plans throttle frontier usage — Go with per-model monthly allocations ($15 on the frontier names, $30–$60 on the standard coders), DevPass with a weekly fair-use allowance on premium models that scales with your tier (plus Reset Passes and opt-in PAYG overflow when a heavy week needs more). The difference is the height of the ceiling: Go's plan includes at most $60 of usage — past it you're spending your own Zen balance — while DevPass Lite alone includes more than that and Max carries you to $537.
 
 ## The real difference: model coverage
 

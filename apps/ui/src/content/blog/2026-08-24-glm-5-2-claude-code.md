@@ -22,7 +22,7 @@ image:
   height: 1024
 ---
 
-GLM-5.2 has quietly become the workhorse of the open-coder wave: Zhipu's flagship for long-horizon agentic engineering, a 1M-token context, reasoning support, and output priced at $4.40 per million tokens — a fraction of frontier rates. It anchors [Z.ai's own coding plan](https://devpass.llmgateway.io/compare/z-ai-glm-coding-plan) and sits in the uncapped tier of [OpenCode Go's catalog](/blog/opencode-go-pricing). But Zhipu doesn't ship a coding agent, and your coding agent doesn't ship GLM-5.2.
+GLM-5.2 has quietly become the workhorse of the open-coder wave: Zhipu's flagship for long-horizon agentic engineering, a 1M-token context, reasoning support, and output listed at $4.40 per million tokens (Z.ai's list rate — [several gateway providers](https://llmgateway.io/models) serve it for less) — a fraction of frontier rates. It anchors [Z.ai's own coding plan](https://devpass.llmgateway.io/compare/z-ai-glm-coding-plan) and sits in the uncapped tier of [OpenCode Go's catalog](/blog/opencode-go-pricing). But Zhipu doesn't ship a coding agent, and your coding agent doesn't ship GLM-5.2.
 
 **LLM Gateway** bridges that gap. It speaks both the Anthropic and OpenAI API formats, so the tools you already use can run GLM-5.2 — or any of [200+ models](https://llmgateway.io/models) — with a base-URL change. Here is the exact setup for each tool.
 
@@ -38,7 +38,7 @@ export ANTHROPIC_MODEL=glm-5.2
 claude
 ```
 
-That's the whole migration. Every request now routes through LLM Gateway to GLM-5.2, and every request shows up in your dashboard with its exact cost, token counts, and cache-hit rate.
+That's the whole migration. Every primary request now routes through LLM Gateway to GLM-5.2, and every request shows up in your dashboard with its exact cost, token counts, and cache-hit rate.
 
 One refinement worth adding: Claude Code uses a second, smaller model for routine background work, and you can point it at something nearly free:
 
@@ -85,11 +85,11 @@ Agent loops are token-hungry, which is exactly the case [DevPass](https://devpas
 | **Pro** | **$79/mo** | **~$237**              |
 | Max     | $179/mo    | ~$537                  |
 
-Here's what makes GLM-5.2 special on DevPass: it's a **standard-tier model**, so unlike Kimi K3 or the frontier flagships it has **no weekly allowance cap** — it draws only from your monthly credit pool. At GLM-5.2's rates ($1.40/M input, $0.26/M cached input, $4.40/M output), a heavy agent session — a few million tokens in, most of them cache hits — lands around $2. The Pro allowance covers over a hundred of those a month, and the cached-input rate is what makes the math work: agent loops re-send the same context every step, and cache hits bill at less than a fifth of the fresh rate.
+Here's what makes GLM-5.2 special on DevPass: it's a **standard-tier model**, so unlike Kimi K3 or the frontier flagships it has **no weekly allowance cap** — it draws only from your monthly credit pool. At GLM-5.2's list rates ($1.40/M input, $0.26/M cached input, $4.40/M output — discounted providers only improve the math), a heavy agent session — a few million tokens in, most of them cache hits — lands around $2. The Pro allowance covers over a hundred of those a month, and the cached-input rate is what makes the math work: agent loops re-send the same context every step, and cache hits bill at less than a fifth of the fresh rate.
 
 The pattern most developers settle into: GLM-5.2 for the bulk of the loop, and a premium model — [Kimi K3](/blog/kimi-k3-claude-code), Claude Opus 5 — for the planning passes and the bugs that resist it. Same key, same session, one model switch.
 
-Prefer straight metering? Pay-as-you-go credits work with the identical setup: top up from $10 and pay the published rates plus a 5% platform fee at top-up.
+Prefer straight metering? Pay-as-you-go credits work with the identical setup: top up from $10 and pay the published rates plus a 5% platform fee when you buy credits (plus 1.5% for international cards).
 
 ## Getting started
 

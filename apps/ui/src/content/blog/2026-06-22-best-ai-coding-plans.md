@@ -246,7 +246,7 @@ OpenCode Go, from the team behind the open-source OpenCode agent, [repriced in A
 
 **Weaknesses:**
 
-- **$60/month is a hard ceiling** ($12 per 5 hours, $30 per week) with no bigger tier to move to
+- **$60/month of included usage is the ceiling** ($12 per 5 hours, $30 per week), with no bigger tier to move to — past it you're on free models or your own opt-in balance
 - The premium names — Grok 4.5, GPT-5.6 Luna, Kimi K3 — are capped at $15/month each
 - Still no Claude, no Gemini, and no frontier-tier GPT (Luna is the cost-optimized 5.6 variant)
 
@@ -316,7 +316,7 @@ Aider is a beloved terminal-based coding assistant that works with any model API
 | Windsurf          | No (credits)    | No (curated)         | No (editor)        | No               | No         |
 | Cline             | N/A (BYOK)      | Depends on key       | Yes                | No               | Yes        |
 | Augment           | No (seat/usage) | No (curated)         | No                 | No               | No         |
-| OpenCode Go       | Yes             | No (capped extras)   | Yes (any agent)    | Yes ($60 cap)    | No         |
+| OpenCode Go       | Yes             | No (capped extras)   | Yes (any agent)    | Yes ($60 incl.)  | No         |
 | Z.ai GLM Plan     | Yes             | No (GLM only)        | Yes                | Yes              | No         |
 | Aider             | N/A (BYOK)      | Depends on key       | Yes                | No               | Yes        |
 
@@ -330,7 +330,7 @@ Aider is a beloved terminal-based coding assistant that works with any model API
 
 **You only ever use one model:** A single-vendor plan like Claude Max or the Z.ai GLM Coding Plan can be the cheapest fit. The moment you need a second model, you're buying a second subscription.
 
-**You want the smallest possible bill:** OpenCode Go's $10 plan is the cheapest way to run open models — as long as your month fits inside [its $60 usage ceiling](/blog/opencode-go-pricing). Outgrow it and DevPass Lite is the next rung up.
+**You want the smallest possible bill:** OpenCode Go's $10 plan is the cheapest way to run open models — as long as your month fits inside [its $60 of included usage](/blog/opencode-go-pricing). Outgrow it and DevPass Lite is the next rung up.
 
 **You're comparing the gateways underneath these plans:** see how LLM Gateway stacks up against [OpenRouter](/blog/llm-gateway-vs-openrouter) and [LiteLLM](/blog/llm-gateway-vs-litellm), or the full breakdown of [what every AI gateway actually charges](/blog/ai-gateway-fees-compared).
 
