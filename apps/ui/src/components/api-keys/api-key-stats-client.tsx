@@ -1,6 +1,5 @@
 "use client";
 
-import { format, subDays } from "date-fns";
 import { ArrowLeftIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -18,6 +17,7 @@ import {
 	useUsageMode,
 } from "@/components/shared/usage-mode-selector";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
+import { useZonedRangeDefaults } from "@/hooks/useZonedRangeDefaults";
 import {
 	Card,
 	CardContent,
@@ -25,7 +25,6 @@ import {
 	CardTitle,
 } from "@/lib/components/card";
 import { useApi } from "@/lib/fetch-client";
-import { getBrowserTimeZone } from "@/lib/timezone";
 import { applyUsageModeToDaily } from "@/lib/usage-mode";
 
 import type { Route } from "next";
@@ -43,6 +42,13 @@ export function ApiKeyStatsClient({
 	const searchParams = useSearchParams();
 	const { buildUrl, selectedOrganization } = useDashboardNavigation();
 	const api = useApi();
+	const {
+		from: defaultFrom,
+		to: defaultTo,
+		timeZone: displayTimeZone,
+		markGenerated,
+		shouldApplyDefaults,
+	} = useZonedRangeDefaults();
 	const usageMode = useUsageMode();
 	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 
@@ -50,22 +56,34 @@ export function ApiKeyStatsClient({
 		if (!isEnterprise) {
 			return;
 		}
-		if (!searchParams.get("from") || !searchParams.get("to")) {
-			const params = new URLSearchParams(searchParams.toString());
-			params.delete("days");
-			const today = new Date();
-			params.set("from", format(subDays(today, 6), "yyyy-MM-dd"));
-			params.set("to", format(today, "yyyy-MM-dd"));
-			router.replace(
-				`${buildUrl(`api-keys/${keyId}`)}?${params.toString()}` as Route,
-			);
+		if (!shouldApplyDefaults(searchParams)) {
+			return;
 		}
-	}, [searchParams, router, buildUrl, keyId, isEnterprise]);
+		const params = new URLSearchParams(searchParams.toString());
+		params.delete("days");
+		params.set("from", defaultFrom);
+		params.set("to", defaultTo);
+		markGenerated(params);
+		router.replace(
+			`${buildUrl(`api-keys/${keyId}`)}?${params.toString()}` as Route,
+		);
+	}, [
+		searchParams,
+		router,
+		buildUrl,
+		keyId,
+		isEnterprise,
+		defaultFrom,
+		defaultTo,
+		markGenerated,
+		shouldApplyDefaults,
+	]);
 
 	const { fromStr, toStr } = getAnalyticsRange(
 		isEnterprise,
 		searchParams.get("from"),
 		searchParams.get("to"),
+		displayTimeZone,
 	);
 
 	const { data: apiKeysData } = api.useQuery(
@@ -84,7 +102,7 @@ export function ApiKeyStatsClient({
 				query: {
 					from: fromStr,
 					to: toStr,
-					timezone: getBrowserTimeZone(),
+					timezone: displayTimeZone,
 					apiKeyId: keyId,
 					...(projectId ? { projectId } : {}),
 				},

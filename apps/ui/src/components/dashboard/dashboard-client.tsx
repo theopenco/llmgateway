@@ -55,14 +55,18 @@ import {
 } from "@/lib/components/card";
 import { Skeleton } from "@/lib/components/skeleton";
 import { useApi } from "@/lib/fetch-client";
-import { getBrowserTimeZone } from "@/lib/timezone";
 import { applyUsageModeToDaily } from "@/lib/usage-mode";
 import { cn } from "@/lib/utils";
+
+import { useDisplayTimeZone } from "@llmgateway/shared";
 
 import type { ActivitT } from "@/types/activity";
 
 interface DashboardClientProps {
 	initialActivityData?: ActivitT;
+	/** Zone the server fetched `initialActivityData` in, so the client can tell
+	 *  whether it still matches the zone it now wants to render. */
+	initialActivityTimeZone?: string;
 }
 
 function formatCredits(credits: number) {
@@ -199,13 +203,17 @@ function StatCell({
 	);
 }
 
-export function DashboardClient({ initialActivityData }: DashboardClientProps) {
+export function DashboardClient({
+	initialActivityData,
+	initialActivityTimeZone,
+}: DashboardClientProps) {
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const { buildUrl, buildOrgUrl } = useDashboardNavigation();
 
 	// Get date range from URL params
-	const { from, to } = getDateRangeFromParams(searchParams);
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
+	const { from, to } = getDateRangeFromParams(searchParams, displayTimeZone);
 	const fromStr = format(from, "yyyy-MM-dd");
 	const toStr = format(to, "yyyy-MM-dd");
 
@@ -241,14 +249,22 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 				query: {
 					from: fromStr,
 					to: toStr,
-					timezone: getBrowserTimeZone(),
+					timezone: displayTimeZone,
 					...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
 				},
 			},
 		},
 		{
 			enabled: !!selectedProject?.id,
-			initialData: searchParams.get("from") ? initialActivityData : undefined,
+			// Only seed the server payload when it was bucketed in the zone this
+			// query asks for. The client can detect a different zone than the
+			// cookie held (first visit, or the machine moved), and a mismatched
+			// payload would sit there labelled as the new zone for the whole
+			// staleTime.
+			initialData:
+				searchParams.get("from") && initialActivityTimeZone === displayTimeZone
+					? initialActivityData
+					: undefined,
 			refetchOnWindowFocus: false,
 			staleTime: 1000 * 60 * 5, // 5 minutes
 		},
@@ -265,7 +281,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 				query: {
 					from: format(prevFrom, "yyyy-MM-dd"),
 					to: format(prevTo, "yyyy-MM-dd"),
-					timezone: getBrowserTimeZone(),
+					timezone: displayTimeZone,
 					...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
 				},
 			},

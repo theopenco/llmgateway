@@ -20,6 +20,8 @@ import {
 } from "@/lib/components/table";
 import { useApi } from "@/lib/fetch-client";
 
+import { Time } from "@llmgateway/shared";
+
 interface TransactionsClientProps {
 	initialTransactionsData?: any;
 }
@@ -193,7 +195,10 @@ export function TransactionsClient({
 												<div>Amount: ${transaction.amount}</div>
 												<div>
 													Date:{" "}
-													{new Date(transaction.createdAt).toLocaleDateString()}
+													<Time
+														date={transaction.createdAt}
+														format="monthDayYear"
+													/>
 												</div>
 												{transaction.description && (
 													<div>Description: {transaction.description}</div>
@@ -232,7 +237,10 @@ export function TransactionsClient({
 													</Badge>
 												</TableCell>
 												<TableCell>
-													{new Date(transaction.createdAt).toLocaleDateString()}
+													<Time
+														date={transaction.createdAt}
+														format="monthDayYear"
+													/>
 												</TableCell>
 												<TableCell>{transaction.description ?? "—"}</TableCell>
 											</TableRow>

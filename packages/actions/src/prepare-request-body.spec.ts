@@ -1394,6 +1394,60 @@ describe("prepareRequestBody - Anthropic", () => {
 			type: "ephemeral",
 		});
 	});
+
+	test("drops the auto system marker when caller markers already fill the limit", async () => {
+		// Long enough to clear the model's minCacheableTokens threshold so the
+		// system heuristic would fire.
+		const longSystemPrompt = "A".repeat(30000);
+		const marker = { type: "ephemeral" as const };
+		const requestBody = (await prepareRequestBody(
+			"vertex-anthropic",
+			"claude-opus-4-6",
+			null,
+			"claude-opus-4-6",
+			[
+				{ role: "system", content: longSystemPrompt },
+				{
+					role: "user",
+					content: [{ type: "text", text: "one", cache_control: marker }],
+				},
+				{ role: "assistant", content: "ok" },
+				{
+					role: "user",
+					content: [{ type: "text", text: "two", cache_control: marker }],
+				},
+				{ role: "assistant", content: "ok" },
+				{
+					role: "user",
+					content: [{ type: "text", text: "three", cache_control: marker }],
+				},
+				{ role: "assistant", content: "ok" },
+				{
+					role: "user",
+					content: [{ type: "text", text: "four", cache_control: marker }],
+				},
+			] as any,
+			true,
+			undefined,
+			1024,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+		)) as AnthropicRequestBody;
+
+		// System and messages draw from one budget, so the auto-injected system
+		// marker plus the caller's four cannot add up to the five Vertex rejects.
+		const systemMarkers = (requestBody.system as unknown[]).filter((block) =>
+			getCacheControl(block),
+		).length;
+		const messageMarkers = requestBody.messages.flatMap((msg) =>
+			Array.isArray(msg.content)
+				? msg.content.filter((block) => getCacheControl(block))
+				: [],
+		).length;
+		expect(systemMarkers + messageMarkers).toBe(4);
+	});
 });
 
 describe("prepareRequestBody - OpenAI image generation", () => {
@@ -4907,6 +4961,65 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 			);
 		},
 	);
+
+	test("caps cachePoint blocks at 4 — Bedrock enforces Anthropic's limit too", async () => {
+		const marker = { type: "ephemeral" as const };
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-opus-4-6",
+			null,
+			"anthropic.claude-opus-4-6-v1",
+			[
+				{
+					role: "system",
+					content: [
+						{ type: "text", text: "A".repeat(30000), cache_control: marker },
+					],
+				},
+				{
+					role: "user",
+					content: [{ type: "text", text: "one", cache_control: marker }],
+				},
+				{ role: "assistant", content: "ok" },
+				{
+					role: "user",
+					content: [{ type: "text", text: "two", cache_control: marker }],
+				},
+				{ role: "assistant", content: "ok" },
+				{
+					role: "user",
+					content: [{ type: "text", text: "three", cache_control: marker }],
+				},
+				{ role: "assistant", content: "ok" },
+				{
+					role: "user",
+					content: [{ type: "text", text: "four", cache_control: marker }],
+				},
+				{ role: "assistant", content: "ok" },
+				{
+					role: "user",
+					content: [{ type: "text", text: "five", cache_control: marker }],
+				},
+			] as any,
+			false,
+			undefined,
+			1024,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+		)) as any;
+
+		let cachePoints = (requestBody.system as unknown[]).filter(
+			(block) => (block as { cachePoint?: unknown }).cachePoint,
+		).length;
+		for (const msg of requestBody.messages) {
+			cachePoints += (msg.content as unknown[]).filter(
+				(block) => (block as { cachePoint?: unknown }).cachePoint,
+			).length;
+		}
+		expect(cachePoints).toBe(4);
+	});
 
 	test("forwards base64 image blocks as Bedrock image content", async () => {
 		const pngBase64 =
