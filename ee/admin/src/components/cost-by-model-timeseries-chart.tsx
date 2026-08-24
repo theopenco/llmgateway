@@ -255,6 +255,7 @@ export function CostByModelTimeseriesChart({
 									return (
 										<Button
 											key={option}
+											aria-pressed={activeGroupBy === option}
 											variant={activeGroupBy === option ? "default" : "ghost"}
 											size="sm"
 											className="h-7 gap-1.5 px-3 text-xs"

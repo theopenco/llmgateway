@@ -9938,6 +9938,8 @@ const costByModelResponseSchema = z.object({
 	models: z.array(costByModelEntrySchema),
 	totalCost: z.number(),
 	totalRequests: z.number(),
+	totalCreditsRequests: z.number(),
+	totalApiKeysRequests: z.number(),
 	totalCreditsCost: z.number(),
 	totalApiKeysCost: z.number(),
 });
@@ -9962,6 +9964,14 @@ function summarizeCostBreakdown(
 		models: sorted.slice(0, 20),
 		totalCost: sorted.reduce((sum, row) => sum + row.cost, 0),
 		totalRequests: sorted.reduce((sum, row) => sum + row.requestCount, 0),
+		totalCreditsRequests: sorted.reduce(
+			(sum, row) => sum + row.creditsRequestCount,
+			0,
+		),
+		totalApiKeysRequests: sorted.reduce(
+			(sum, row) => sum + row.apiKeysRequestCount,
+			0,
+		),
 		totalCreditsCost: sorted.reduce((sum, row) => sum + row.creditsCost, 0),
 		totalApiKeysCost: sorted.reduce((sum, row) => sum + row.apiKeysCost, 0),
 	};
@@ -9969,6 +9979,18 @@ function summarizeCostBreakdown(
 
 function dimensionLabel(label: string | null, id: string): string {
 	return label && label !== id ? `${label} · ${id.slice(-6)}` : id;
+}
+
+function apiKeyDimensionColumns(groupBy: "api-key" | "user") {
+	return groupBy === "user"
+		? {
+				id: sql<string>`COALESCE(${tables.user.id}, 'deleted-user')`,
+				label: sql<string>`COALESCE(${tables.user.email}, 'Deleted user')`,
+			}
+		: {
+				id: sql<string>`COALESCE(${tables.apiKey.id}, ${tables.apiKeyHourlyStats.apiKeyId})`,
+				label: tables.apiKey.description,
+			};
 }
 
 // Global cost by model
@@ -10037,40 +10059,23 @@ admin.openapi(getGlobalCostByModel, async (c) => {
 		.groupBy(projectHourlyModelStats.usedModel)
 		.orderBy(
 			desc(sql`SUM(cast(${projectHourlyModelStats.cost} as double precision))`),
-		)
-		.limit(20);
+		);
 
-	const totalCost = rows.reduce((sum, r) => sum + Number(r.cost), 0);
-	const totalRequests = rows.reduce(
-		(sum, r) => sum + Number(r.requestCount),
-		0,
+	return c.json(
+		summarizeCostBreakdown(
+			rows.map((r) => ({
+				model: r.usedModel,
+				cost: Number(r.cost),
+				requestCount: Number(r.requestCount),
+				totalTokens: Number(r.totalTokens),
+				creditsRequestCount: Number(r.creditsRequestCount),
+				apiKeysRequestCount: Number(r.apiKeysRequestCount),
+				creditsCost: Number(r.creditsCost),
+				apiKeysCost: Number(r.apiKeysCost),
+			})),
+			window,
+		),
 	);
-	const totalCreditsCost = rows.reduce(
-		(sum, r) => sum + Number(r.creditsCost),
-		0,
-	);
-	const totalApiKeysCost = rows.reduce(
-		(sum, r) => sum + Number(r.apiKeysCost),
-		0,
-	);
-
-	return c.json({
-		window,
-		models: rows.map((r) => ({
-			model: r.usedModel,
-			cost: Number(r.cost),
-			requestCount: Number(r.requestCount),
-			totalTokens: Number(r.totalTokens),
-			creditsRequestCount: Number(r.creditsRequestCount),
-			apiKeysRequestCount: Number(r.apiKeysRequestCount),
-			creditsCost: Number(r.creditsCost),
-			apiKeysCost: Number(r.apiKeysCost),
-		})),
-		totalCost,
-		totalRequests,
-		totalCreditsCost,
-		totalApiKeysCost,
-	});
 });
 
 // Org cost by model
@@ -10130,6 +10135,8 @@ admin.openapi(getOrgCostByModel, async (c) => {
 			models: [],
 			totalCost: 0,
 			totalRequests: 0,
+			totalCreditsRequests: 0,
+			totalApiKeysRequests: 0,
 			totalCreditsCost: 0,
 			totalApiKeysCost: 0,
 		});
@@ -10183,11 +10190,11 @@ admin.openapi(getOrgCostByModel, async (c) => {
 	}
 
 	if (groupBy === "api-key" || groupBy === "user") {
+		const dimension = apiKeyDimensionColumns(groupBy);
 		const rows = await db
 			.select({
-				id: groupBy === "user" ? tables.user.id : tables.apiKey.id,
-				label:
-					groupBy === "user" ? tables.user.email : tables.apiKey.description,
+				id: dimension.id,
+				label: dimension.label,
 				cost: sql<number>`SUM(cast(${tables.apiKeyHourlyStats.cost} as double precision))`.as(
 					"cost",
 				),
@@ -10202,27 +10209,26 @@ admin.openapi(getOrgCostByModel, async (c) => {
 				...modeSplitFields(tables.apiKeyHourlyStats),
 			})
 			.from(tables.apiKeyHourlyStats)
-			.innerJoin(
+			.leftJoin(
 				tables.apiKey,
 				eq(tables.apiKey.id, tables.apiKeyHourlyStats.apiKeyId),
 			)
-			.innerJoin(tables.user, eq(tables.user.id, tables.apiKey.createdBy))
+			.leftJoin(tables.user, eq(tables.user.id, tables.apiKey.createdBy))
 			.where(
 				and(
 					inArray(tables.apiKeyHourlyStats.projectId, ids),
 					gte(tables.apiKeyHourlyStats.hourTimestamp, startDate),
 				),
 			)
-			.groupBy(
-				groupBy === "user" ? tables.user.id : tables.apiKey.id,
-				groupBy === "user" ? tables.user.email : tables.apiKey.description,
-			);
+			.groupBy(dimension.id, dimension.label);
 
 		return c.json(
 			summarizeCostBreakdown(
 				rows.map((row) => ({
 					model:
-						groupBy === "user" ? row.label : dimensionLabel(row.label, row.id),
+						groupBy === "user"
+							? (row.label ?? "Deleted user")
+							: dimensionLabel(row.label, row.id),
 					cost: Number(row.cost),
 					requestCount: Number(row.requestCount),
 					totalTokens: Number(row.totalTokens),
@@ -10639,36 +10645,37 @@ async function buildCostByApiKeyDimensionTimeseries({
 	models: string[];
 	data: z.infer<typeof costByModelTimeseriesPointSchema>[];
 }> {
-	const idColumn = groupBy === "user" ? tables.user.id : tables.apiKey.id;
-	const labelColumn =
-		groupBy === "user" ? tables.user.email : tables.apiKey.description;
+	const dimension = apiKeyDimensionColumns(groupBy);
 	const baseFilter = and(
 		inArray(tables.apiKeyHourlyStats.projectId, projectIds),
 		gte(tables.apiKeyHourlyStats.hourTimestamp, startDate),
 	);
 	const totals = await db
 		.select({
-			id: idColumn,
-			label: labelColumn,
+			id: dimension.id,
+			label: dimension.label,
 			cost: sql<number>`SUM(cast(${tables.apiKeyHourlyStats.cost} as double precision))`.as(
 				"cost",
 			),
 		})
 		.from(tables.apiKeyHourlyStats)
-		.innerJoin(
+		.leftJoin(
 			tables.apiKey,
 			eq(tables.apiKey.id, tables.apiKeyHourlyStats.apiKeyId),
 		)
-		.innerJoin(tables.user, eq(tables.user.id, tables.apiKey.createdBy))
+		.leftJoin(tables.user, eq(tables.user.id, tables.apiKey.createdBy))
 		.where(baseFilter)
-		.groupBy(idColumn, labelColumn);
+		.groupBy(dimension.id, dimension.label);
 
 	const top = [...totals]
 		.sort((a, b) => Number(b.cost) - Number(a.cost))
 		.slice(0, TOP_TIMESERIES_SERIES)
 		.map((row) => ({
 			id: row.id,
-			label: groupBy === "user" ? row.label : dimensionLabel(row.label, row.id),
+			label:
+				groupBy === "user"
+					? (row.label ?? "Deleted user")
+					: dimensionLabel(row.label, row.id),
 		}));
 	if (top.length === 0) {
 		return { models: [], data: [] };
@@ -10680,7 +10687,7 @@ async function buildCostByApiKeyDimensionTimeseries({
 	const rows = await db
 		.select({
 			bucket: bucketExpr.as("bucket"),
-			id: idColumn,
+			id: dimension.id,
 			cost: sql<number>`SUM(cast(${tables.apiKeyHourlyStats.cost} as double precision))`.as(
 				"cost",
 			),
@@ -10695,13 +10702,13 @@ async function buildCostByApiKeyDimensionTimeseries({
 			...modeSplitFields(tables.apiKeyHourlyStats),
 		})
 		.from(tables.apiKeyHourlyStats)
-		.innerJoin(
+		.leftJoin(
 			tables.apiKey,
 			eq(tables.apiKey.id, tables.apiKeyHourlyStats.apiKeyId),
 		)
-		.innerJoin(tables.user, eq(tables.user.id, tables.apiKey.createdBy))
-		.where(and(baseFilter, inArray(idColumn, topIds)))
-		.groupBy(bucketExpr, idColumn)
+		.leftJoin(tables.user, eq(tables.user.id, tables.apiKey.createdBy))
+		.where(and(baseFilter, inArray(dimension.id, topIds)))
+		.groupBy(bucketExpr, dimension.id)
 		.orderBy(asc(bucketExpr));
 
 	return {

@@ -46,6 +46,8 @@ export interface CostByModelData {
 	models: CostByModelEntry[];
 	totalCost: number;
 	totalRequests: number;
+	totalCreditsRequests?: number;
+	totalApiKeysRequests?: number;
 	totalCreditsCost?: number;
 	totalApiKeysCost?: number;
 }
@@ -209,7 +211,10 @@ export function CostByModelChart({
 	const displayTotalRequests =
 		usageMode === "total"
 			? (data?.totalRequests ?? 0)
-			: displayModels.reduce((sum, m) => sum + m.requestCount, 0);
+			: ((usageMode === "credits"
+					? data?.totalCreditsRequests
+					: data?.totalApiKeysRequests) ??
+				displayModels.reduce((sum, m) => sum + m.requestCount, 0));
 
 	const config = viewConfigs[activeView];
 	const dataKey = Object.keys(config)[0];
@@ -289,6 +294,7 @@ export function CostByModelChart({
 									return (
 										<Button
 											key={opt.value}
+											aria-pressed={groupBy === opt.value}
 											variant={groupBy === opt.value ? "default" : "ghost"}
 											size="sm"
 											className="h-7 gap-1.5 px-3 text-xs"
