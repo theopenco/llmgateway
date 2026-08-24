@@ -1501,6 +1501,141 @@ describe("getCheapestFromAvailableProviders", () => {
 		});
 	});
 
+	describe("cache-aware pricing for cache-relevant requests", () => {
+		it("blends cachedInputPrice and scales output by the assumed ratio", () => {
+			expect(
+				getProviderSelectionPrice(
+					{
+						inputPrice: "1.0e-6",
+						outputPrice: "2.0e-6",
+						cachedInputPrice: "0.1e-6",
+					},
+					undefined,
+					undefined,
+					{ hitRate: 0.5, outputRatio: 0.2 },
+				).toNumber(),
+				// ((0.1*0.5 + 1.0*0.5) + 2.0*0.2) / 2
+			).toBe(0.475e-6);
+		});
+
+		it("falls back to inputPrice when no cachedInputPrice is declared", () => {
+			expect(
+				getProviderSelectionPrice(
+					{ inputPrice: "1.0e-6", outputPrice: "2.0e-6" },
+					undefined,
+					undefined,
+					{ hitRate: 0.5, outputRatio: 0.2 },
+				).toNumber(),
+				// (1.0 + 2.0*0.2) / 2
+			).toBe(0.7e-6);
+		});
+
+		it("keeps today's ranking price without a cache-pricing context", () => {
+			expect(
+				getProviderSelectionPrice({
+					inputPrice: "1.0e-6",
+					outputPrice: "2.0e-6",
+					cachedInputPrice: "0.1e-6",
+				}).toNumber(),
+			).toBe(1.5e-6);
+		});
+
+		it("uses the time-resolved cached price under peak pricing", () => {
+			expect(
+				getProviderSelectionPrice(
+					{
+						inputPrice: "0.435e-6",
+						outputPrice: "0.87e-6",
+						cachedInputPrice: "0.003625e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "1.0e-6",
+								outputPrice: "2.0e-6",
+								cachedInputPrice: "0.1e-6",
+							},
+							offPeak: {
+								inputPrice: "0.5e-6",
+								outputPrice: "1.0e-6",
+								cachedInputPrice: "0.05e-6",
+							},
+							hoursUtc: [[0, 24]] as [number, number][],
+						},
+					},
+					undefined,
+					new Date("2026-08-17T12:00:00Z"),
+					{ hitRate: 1, outputRatio: 0 },
+				).toNumber(),
+				// Fully cached, no output: peak cachedInputPrice / 2
+			).toBe(0.05e-6);
+		});
+
+		// Mirrors the live kimi-k2.5 mappings: embercloud is cheapest on list
+		// prices but charges 55.6% of input for a cache read where deepinfra
+		// charges 15.6%, so a cache-heavy workload is cheaper on deepinfra.
+		const kimiLikeModel = {
+			id: "kimi-like-model",
+			name: "Kimi Like Model",
+			family: "moonshot" as const,
+			providers: [
+				{
+					providerId: "embercloud" as const,
+					externalId: "kimi-like",
+					inputPrice: "0.405e-6",
+					outputPrice: "1.98e-6",
+					cachedInputPrice: "0.225e-6",
+					streaming: true as const,
+				},
+				{
+					providerId: "deepinfra" as const,
+					externalId: "kimi-like",
+					inputPrice: "0.45e-6",
+					outputPrice: "2.25e-6",
+					cachedInputPrice: "0.07e-6",
+					streaming: true as const,
+				},
+			],
+		};
+
+		const equalPriority = resolveRoutingConfig(
+			{ providerPriorities: { embercloud: 1, deepinfra: 1 } },
+			buildProviderPriorityDefaults(),
+		);
+
+		it("routes small prompts to the cheapest list price", async () => {
+			const result = await getCheapestFromAvailableProviders(
+				kimiLikeModel.providers,
+				kimiLikeModel,
+				{ promptTokens: 1000, routingConfig: equalPriority },
+			);
+			expect(result?.provider.providerId).toBe("embercloud");
+		});
+
+		it("routes large prompts to the cheapest cached-workload price", async () => {
+			const result = await getCheapestFromAvailableProviders(
+				kimiLikeModel.providers,
+				kimiLikeModel,
+				{ promptTokens: 20_000, routingConfig: equalPriority },
+			);
+			expect(result?.provider.providerId).toBe("deepinfra");
+		});
+
+		it("ranks large prompts on list prices when cacheHitRate is 0", async () => {
+			const listPriceOnly = resolveRoutingConfig(
+				{
+					thresholds: { cacheHitRate: 0, cacheOutputRatio: 1 },
+					providerPriorities: { embercloud: 1, deepinfra: 1 },
+				},
+				buildProviderPriorityDefaults(),
+			);
+			const result = await getCheapestFromAvailableProviders(
+				kimiLikeModel.providers,
+				kimiLikeModel,
+				{ promptTokens: 20_000, routingConfig: listPriceOnly },
+			);
+			expect(result?.provider.providerId).toBe("embercloud");
+		});
+	});
+
 	describe("cache support weighting", () => {
 		const cacheTestModel = {
 			id: "cache-test-model",
