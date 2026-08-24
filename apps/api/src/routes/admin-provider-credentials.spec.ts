@@ -1702,4 +1702,27 @@ describe("managed credential allowed models", () => {
 		expect(res.status).toBe(200);
 		expect(((await res.json()) as { allValid: boolean }).allValid).toBe(true);
 	});
+
+	test("verify-models passes managed Azure Anthropic settings", async () => {
+		vi.stubEnv("E2E_TEST", "true");
+		validateProviderKeyMock.mockResolvedValueOnce({ valid: true });
+		const [model] = await catalogModels("azure-anthropic");
+
+		const res = await post("/admin/provider-credentials/verify-models", {
+			provider: "azure-anthropic",
+			token: "azure-anthropic-key",
+			config: { resource: "managed-resource" },
+			models: [model],
+		});
+
+		expect(res.status).toBe(200);
+		expect(validateProviderKeyMock).toHaveBeenCalledWith(
+			"azure-anthropic",
+			"azure-anthropic-key",
+			undefined,
+			false,
+			{ env_config: { resource: "managed-resource" } },
+			model,
+		);
+	});
 });
