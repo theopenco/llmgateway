@@ -4,6 +4,7 @@ import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpError } from "@modelcontextprotocol/sdk/types.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -1065,6 +1066,23 @@ async function processMcpRequest(
 					},
 				};
 		}
+	} catch (error) {
+		if (error instanceof McpError && error.code === -32001) {
+			logger.warn("MCP request timeout", {
+				message: error.message,
+				data: error.data,
+			});
+			return {
+				jsonrpc: "2.0",
+				id: request.id ?? null,
+				error: {
+					code: error.code,
+					message: "Request timed out",
+					data: error.data,
+				},
+			};
+		}
+		throw error;
 	} finally {
 		await client.close();
 	}
