@@ -27,6 +27,11 @@ HEALTH_ROUTES["docs"]="/v1_chat_completions"
 # HEALTH_ROUTES["api"]="/health"
 # HEALTH_ROUTES["gateway"]="/health"
 
+# Every service refuses to start without a named client IP header, so the
+# smoke test has to supply one like a deployment does. X-Forwarded-For is the
+# right choice here: there is no load balancer in front of these processes.
+export CLIENT_IP_HEADER="${CLIENT_IP_HEADER:-X-Forwarded-For}"
+
 rm -rf dist/
 
 # Array to store PIDs of started processes
