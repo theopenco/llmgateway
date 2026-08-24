@@ -510,6 +510,29 @@ describe("getProviderEndpoint", () => {
 			);
 		});
 
+		it("uses the managed credential resource", () => {
+			delete process.env.LLM_AZURE_ANTHROPIC_RESOURCE;
+
+			const endpoint = getProviderEndpoint(
+				"azure-anthropic",
+				undefined,
+				"claude-sonnet-5",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				{ env_config: { resource: "managed-resource" } },
+				undefined,
+				undefined,
+				undefined,
+				true,
+			);
+
+			expect(endpoint).toBe(
+				"https://managed-resource.services.ai.azure.com/anthropic/v1/messages",
+			);
+		});
+
 		it("throws when no resource is configured", () => {
 			delete process.env.LLM_AZURE_ANTHROPIC_RESOURCE;
 

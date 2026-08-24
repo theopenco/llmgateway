@@ -636,6 +636,7 @@ export function getProviderEndpoint(
 			}
 			case "azure-anthropic": {
 				const resource =
+					credentialConfig?.resource ??
 					providerKeyOptions?.azure_anthropic_resource ??
 					(skipEnvVars
 						? undefined
