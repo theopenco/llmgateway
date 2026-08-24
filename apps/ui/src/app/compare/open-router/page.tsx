@@ -32,6 +32,12 @@ const openRouterFaqs: CompareFaqItem[] = [
 		answer:
 			"Yes. LLM Gateway is OpenAI-compatible, so you migrate by swapping the base URL and API key — no code rewrite required.",
 	},
+	{
+		question:
+			"Does Stripe's reported acquisition of OpenRouter change this comparison?",
+		answer:
+			"Not the facts on this page. Bloomberg reported on August 16, 2026 that Stripe agreed to acquire OpenRouter for more than $7 billion, and neither company has confirmed it — the API, fees and catalog are unchanged as of publication. What it changes is who sets them next. Regulated teams should treat it as a prompt to verify with the vendor which legal entity is the counterparty after close, and whether the sub-processor list, retention terms or transfer mechanism change at all, before updating a DPA or vendor record. We wrote up what is verified and how to check whether you could migrate off any gateway at /blog/stripe-openrouter-acquisition.",
+	},
 ];
 
 export default function CompareOpenRouterPage() {

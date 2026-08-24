@@ -4,20 +4,26 @@ import { getApiKeyFingerprint } from "@/lib/api-key-fingerprint.js";
 import {
 	findCustomProviderKey,
 	findProviderKey,
+	listEligibleProviderKeys,
 } from "@/lib/cached-queries.js";
+import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
+import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
+import { posthog } from "@/posthog.js";
 
 import {
 	getGcpServiceAccountAccessToken,
 	getProviderEndpoint,
 	getProviderHeaders,
 	isPremiumServiceTier,
+	managedCredentialOptions,
 	prepareRequestBody,
-	providerKeyBaseUrlSupportsServiceTier,
+	providerKeyLabel,
+	readProviderKey,
 	selectProviderMapping,
 } from "@llmgateway/actions";
+import { providerKeyAllowsModel } from "@llmgateway/db";
 import {
 	type BaseMessage,
-	getOrganizationEnvVariant,
 	getRegionSpecificEnvVarName,
 	getVariantEnvVarNameFor,
 	hasMaxTokens,
@@ -27,6 +33,7 @@ import {
 	type PromptCacheOptions,
 	type PromptCacheRetention,
 	type Provider,
+	type ProviderCacheControlMode,
 	type ProviderRequestBody,
 	providers,
 	resolveVertexTokenType,
@@ -42,10 +49,12 @@ import {
 } from "@llmgateway/shared";
 
 import { clampTemperature } from "./clamp-temperature.js";
+import { resolvePlatformCredential } from "./resolve-platform-credential.js";
 import {
-	getProviderEnv,
-	getServiceTierIneligibleEnvIndices,
-} from "./get-provider-env.js";
+	assertServiceTierHonored,
+	getForwardedServiceTier,
+	providerKeySupportsServiceTier,
+} from "./service-tier.js";
 
 import type { InferSelectModel, tables } from "@llmgateway/db";
 
@@ -67,6 +76,12 @@ export interface ProviderContext {
 	usedToken: string;
 	usedApiKeyHash: string;
 	providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
+	/**
+	 * Platform-managed credential serving this credits-mode request, when one
+	 * is configured. Distinct from `providerKey`, which is always the
+	 * organization's own BYOK key.
+	 */
+	managedKey: InferSelectModel<typeof tables.providerKey> | undefined;
 	/**
 	 * Provider-key id to attribute health failures to via reportTrackedKey*.
 	 * Equal to `providerKey.id` when the BYOK key is the credential actually
@@ -97,6 +112,12 @@ export interface ProviderContext {
 	strippedParameters: string[];
 	headers: Record<string, string>;
 	usedRegion: string | undefined;
+	/**
+	 * The organization's own keys that could have served this provider, in
+	 * selection order — the candidate set the credential above was chosen from.
+	 * Undefined in credits mode, which routes on platform credentials only.
+	 */
+	eligibleProviderKeys: Array<{ id: string; label?: string }> | undefined;
 }
 
 export interface OriginalRequestParams {
@@ -109,6 +130,13 @@ export interface OriginalRequestParams {
 
 export interface ProviderContextOptions {
 	requestId: string;
+	/**
+	 * Set when the request is a zero-rated onboarding call. The credit assertion
+	 * below mirrors chat.ts's gate, so without this a fallback to a platform
+	 * credential re-imposes the 402 that the sponsored path just waived — only on
+	 * the flaky-provider branch, so it fails intermittently and invisibly.
+	 */
+	sponsoredOnboarding?: boolean;
 	stream: boolean;
 	effectiveStream: boolean;
 	messages: BaseMessage[];
@@ -145,12 +173,18 @@ export interface ProviderContextOptions {
 	userPlan: "free" | "pro" | "enterprise" | null;
 	hasExistingToolCalls: boolean;
 	customProviderName: string | undefined;
-	webSearchEnabled: boolean;
 	excludedEnvKeyIndices?: ReadonlySet<number>;
 	excludedProviderKeyIds?: ReadonlySet<string>;
 	n?: number;
-	providerCacheControlEnabled: boolean;
+	providerCacheControlMode: ProviderCacheControlMode;
 	service_tier?: "auto" | "default" | "flex" | "priority";
+	/**
+	 * The premium tier the client asked for itself, or null when `service_tier`
+	 * only carries an org-level default. A client-requested tier is strict: a
+	 * candidate that cannot serve it is rejected rather than downgraded, so the
+	 * retry loop moves on instead of quietly serving standard.
+	 */
+	clientRequestedServiceTier?: "flex" | "priority" | null;
 	verbosity?: "low" | "medium" | "high";
 }
 
@@ -161,10 +195,13 @@ interface ProjectInfo {
 
 interface OrgInfo {
 	id: string;
+	/** Opaque per-org identifier forwarded to providers for abuse attribution. */
+	safetyIdentifier: string;
 	credits: string | null;
 	plan: string;
 	kind: string;
 	devPlan: string;
+	devPlanPaygEnabled: boolean;
 	devPlanCreditsLimit: string | null;
 	devPlanCreditsUsed: string | null;
 	devPlanPremiumCreditsUsed: string | null;
@@ -176,17 +213,118 @@ interface OrgInfo {
 	chatPlanExpiresAt: Date | null;
 }
 
+export interface AvailableCredits {
+	regularCredits: number;
+	devPlanCreditsRemaining: number;
+	chatPlanCreditsRemaining: number;
+	totalAvailableCredits: number;
+}
+
+/**
+ * Computes the credit pools a request may draw on. For dev-plan (DevPass)
+ * orgs the regular PAYG `credits` balance only counts once the org has
+ * opted into pay-as-you-go overflow (devPlanPaygEnabled); without the
+ * opt-in the plan allowance is a hard cap, even if the org somehow holds
+ * a credits balance (e.g. an admin gift).
+ */
+export function getAvailableCredits(
+	organization: Pick<
+		OrgInfo,
+		| "credits"
+		| "devPlan"
+		| "devPlanPaygEnabled"
+		| "devPlanCreditsLimit"
+		| "devPlanCreditsUsed"
+		| "chatPlan"
+		| "chatPlanCreditsLimit"
+		| "chatPlanCreditsUsed"
+	>,
+): AvailableCredits {
+	const paygBalance = parseFloat(organization.credits ?? "0");
+	const regularCredits =
+		organization.devPlan === "none" || organization.devPlanPaygEnabled
+			? paygBalance
+			: 0;
+	const devPlanCreditsRemaining =
+		organization.devPlan !== "none"
+			? parseFloat(organization.devPlanCreditsLimit ?? "0") -
+				parseFloat(organization.devPlanCreditsUsed ?? "0")
+			: 0;
+	const chatPlanCreditsRemaining =
+		organization.chatPlan !== "none"
+			? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
+				parseFloat(organization.chatPlanCreditsUsed ?? "0")
+			: 0;
+	return {
+		regularCredits,
+		devPlanCreditsRemaining,
+		chatPlanCreditsRemaining,
+		totalAvailableCredits:
+			regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining,
+	};
+}
+
+/**
+ * The 402 thrown when a dev-plan org exhausts its monthly allowance. The
+ * hint tells opted-in orgs their PAYG balance is empty and everyone else
+ * that overflow exists — the moment this error fires is the moment that
+ * information is actionable.
+ *
+ * An org that already holds a balance it cannot spend (an admin credit gift,
+ * a referral bonus, credits left over from before it subscribed) is told the
+ * amount: without it the generic "enable overflow" nudge reads as "go spend
+ * more money" and the credits sit unused, which is exactly the case gifting
+ * credits to a maxed-out subscriber is meant to solve.
+ */
+export function buildDevPlanCreditLimitError(
+	organization: Pick<
+		OrgInfo,
+		"credits" | "devPlanPaygEnabled" | "devPlanExpiresAt"
+	>,
+	messagePrefix = "",
+): HTTPException {
+	const renewalDate = organization.devPlanExpiresAt
+		? new Date(organization.devPlanExpiresAt).toLocaleDateString()
+		: "your next billing date";
+	const waitingBalance = parseFloat(organization.credits ?? "0");
+	const paygHint = organization.devPlanPaygEnabled
+		? " Your pay-as-you-go balance is empty — top up credits from your DevPass dashboard to keep going."
+		: waitingBalance > 0
+			? ` You have $${waitingBalance.toFixed(2)} in credits waiting — enable pay-as-you-go overflow in your DevPass dashboard to spend them.`
+			: " Or enable pay-as-you-go overflow in your DevPass dashboard to keep going past your allowance.";
+	return new HTTPException(402, {
+		message: `${messagePrefix}Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.${paygHint}`,
+	});
+}
+
 /**
  * Throws when a DevPass subscriber has exhausted the weekly fair-use
  * allowance for premium-tier models. No-op for non-DevPass orgs and
  * non-premium models.
+ *
+ * trackRejection must only be true at request-entry gates. The env-fallback
+ * call sites below run inside provider retry loops that swallow this throw
+ * (tryResolveAlternateKeyForCurrentProvider catches and returns null), so
+ * tracking there would emit one event per fallback candidate — including for
+ * requests that ultimately succeed on another key.
  */
 export function assertDevPlanPremiumCapNotExceeded(
 	organization: Pick<
 		OrgInfo,
-		"devPlan" | "devPlanPremiumCreditsUsed" | "devPlanPremiumWeekStart"
+		| "id"
+		| "credits"
+		| "devPlan"
+		| "devPlanPaygEnabled"
+		| "devPlanCreditsLimit"
+		| "devPlanCreditsUsed"
+		| "devPlanPremiumCreditsUsed"
+		| "devPlanPremiumWeekStart"
+		| "chatPlan"
+		| "chatPlanCreditsLimit"
+		| "chatPlanCreditsUsed"
 	>,
 	modelInfo: Pick<ModelDefinition, "id">,
+	trackRejection = false,
 ): void {
 	if (organization.devPlan === "none") {
 		return;
@@ -203,6 +341,22 @@ export function assertDevPlanPremiumCapNotExceeded(
 	if (remaining > 0) {
 		return;
 	}
+	// PAYG overflow: the weekly premium cap is a fair-use limiter on the plan
+	// allowance, not on the org's own money. An opted-in org gets premium
+	// requests admitted past the cap whenever overflow can actually pay:
+	// either the monthly pool is already exhausted (the regular credit gate
+	// downstream takes over), or the org holds a positive credits balance —
+	// in which case the worker routes the over-cap premium spend to that
+	// balance at provider rates, so the plan pool still never pays past the
+	// cap and Reset Passes remain the way to keep premium usage inside the
+	// plan. Opted in with an empty balance mid-cycle, the cap still bites.
+	if (organization.devPlanPaygEnabled) {
+		const { regularCredits, devPlanCreditsRemaining } =
+			getAvailableCredits(organization);
+		if (devPlanCreditsRemaining <= 0 || regularCredits > 0) {
+			return;
+		}
+	}
 	const weekStart = organization.devPlanPremiumWeekStart
 		? new Date(organization.devPlanPremiumWeekStart)
 		: new Date();
@@ -210,8 +364,38 @@ export function assertDevPlanPremiumCapNotExceeded(
 		weekStart.getTime() + DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
 	);
 	const msUntilReset = Math.max(0, resetAt.getTime() - Date.now());
+	// Every rejected request is a sized signal of Reset Pass demand: the
+	// dashboard's devpass_weekly_cap_hit_viewed only fires when the user
+	// opens the dashboard, but most cap hits happen inside a coding agent
+	// that swallows this 402 — without this event the funnel undercounts.
+	// $process_person_profile: false — the distinct id is an org id, not a
+	// user; don't mint a person profile for it.
+	if (trackRejection) {
+		try {
+			posthog.capture({
+				distinctId: organization.id,
+				event: "devpass_premium_cap_rejected",
+				groups: { organization: organization.id },
+				properties: {
+					devPlan: tier,
+					model: modelInfo.id,
+					msUntilReset,
+					organization: organization.id,
+					$process_person_profile: false,
+				},
+			});
+		} catch {
+			// Telemetry must never change the response: the 402 below is a
+			// billing gate, and a capture failure must not turn it into a 500.
+		}
+	}
+	// Reaching here with the opt-in means the balance is empty, so a top-up is
+	// the one action that unblocks premium immediately.
+	const paygHint = organization.devPlanPaygEnabled
+		? " Pay-as-you-go overflow is enabled but your credits balance is empty — top up from your DevPass dashboard to keep premium models flowing."
+		: "";
 	throw new HTTPException(402, {
-		message: `You've used your weekly allowance for premium-tier models on the ${tier} plan. Redeem a Reset Pass from your dashboard for an instant reset, upgrade for a higher allowance, or use any standard model now. Resets in ${formatTimeUntilReset(msUntilReset)}.`,
+		message: `You've used your weekly allowance for premium-tier models on the ${tier} plan. Redeem a Reset Pass from your dashboard for an instant reset, upgrade for a higher allowance, or use any standard model now. Resets in ${formatTimeUntilReset(msUntilReset)}.${paygHint}`,
 	});
 }
 
@@ -243,24 +427,17 @@ export function formatTimeUntilReset(ms: number): string {
 function assertOrganizationHasCreditsForEnvFallback(
 	organization: OrgInfo,
 	modelInfo: ModelDefinition,
+	sponsoredOnboarding = false,
 ): void {
 	if (modelInfo.free) {
 		return;
 	}
 	assertDevPlanPremiumCapNotExceeded(organization, modelInfo);
-	const regularCredits = parseFloat(organization.credits ?? "0");
-	const devPlanCreditsRemaining =
-		organization.devPlan !== "none"
-			? parseFloat(organization.devPlanCreditsLimit ?? "0") -
-				parseFloat(organization.devPlanCreditsUsed ?? "0")
-			: 0;
-	const chatPlanCreditsRemaining =
-		organization.chatPlan !== "none"
-			? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
-				parseFloat(organization.chatPlanCreditsUsed ?? "0")
-			: 0;
-	const totalAvailableCredits =
-		regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
+	const {
+		devPlanCreditsRemaining,
+		chatPlanCreditsRemaining,
+		totalAvailableCredits,
+	} = getAvailableCredits(organization);
 	if (totalAvailableCredits > 0) {
 		return;
 	}
@@ -277,31 +454,79 @@ function assertOrganizationHasCreditsForEnvFallback(
 		});
 	}
 	if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
-		const renewalDate = organization.devPlanExpiresAt
-			? new Date(organization.devPlanExpiresAt).toLocaleDateString()
-			: "your next billing date";
-		throw new HTTPException(402, {
-			message: `Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
-		});
+		throw buildDevPlanCreditLimitError(organization);
+	}
+	// Matches chat.ts: sponsorship waives only the plain zero-balance case, never
+	// the plan allowances asserted above.
+	if (sponsoredOnboarding) {
+		return;
 	}
 	throw new HTTPException(402, {
 		message: `Organization ${organization.id} has insufficient credits`,
 	});
 }
 
-export function formatUsedModelForDisplay(
-	usedProvider: string,
-	usedInternalModel: string,
-	customProviderName?: string,
-	usedRegion?: string,
-): string {
-	const usedModelProviderPrefix =
-		usedProvider === "custom" && customProviderName
-			? customProviderName
-			: usedProvider;
+export { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 
-	const base = `${usedModelProviderPrefix}/${usedInternalModel}`;
-	return usedRegion ? `${base}:${usedRegion}` : base;
+/**
+ * Which of an organization's own keys may serve a given model.
+ *
+ * Skips BYOK keys whose allowedModels restriction excludes the model being
+ * served, so a key that cannot satisfy the request upstream is never picked
+ * over a sibling key (or the credits fallback in hybrid mode) that can, and
+ * layers on the service-tier filter when the request asks for a premium tier.
+ *
+ * Shared with the routing metadata so the "your keys" list can never disagree
+ * with the set the gateway actually chose from. Custom provider keys are
+ * exempt: their catalog already scopes them.
+ */
+export function buildByokKeyFilter(
+	usedInternalModel: string,
+	serviceTierKeyFilter?: (
+		key: InferSelectModel<typeof tables.providerKey>,
+	) => boolean,
+): (key: InferSelectModel<typeof tables.providerKey>) => boolean {
+	return (key) =>
+		providerKeyAllowsModel(key.allowedModels, usedInternalModel) &&
+		(serviceTierKeyFilter ? serviceTierKeyFilter(key) : true);
+}
+
+/**
+ * The organization's own keys that could have served this provider and model,
+ * in selection order, named the way their owner sees them.
+ *
+ * Only BYOK-capable modes have candidates: a credits-mode project routes on
+ * platform credentials, which are never listed. Custom providers are excluded
+ * because their keys are looked up by provider name through a different query,
+ * so the list would not describe the same candidate set.
+ */
+export async function resolveEligibleProviderKeys(args: {
+	projectMode: string;
+	organizationId: string;
+	provider: string;
+	usedInternalModel: string;
+	serviceTierKeyFilter?: (
+		key: InferSelectModel<typeof tables.providerKey>,
+	) => boolean;
+}): Promise<Array<{ id: string; label?: string }> | undefined> {
+	if (
+		(args.projectMode !== "api-keys" && args.projectMode !== "hybrid") ||
+		args.provider === "custom"
+	) {
+		return undefined;
+	}
+
+	const keys = await listEligibleProviderKeys(
+		args.organizationId,
+		args.provider,
+		buildByokKeyFilter(args.usedInternalModel, args.serviceTierKeyFilter),
+	);
+
+	if (keys.length === 0) {
+		return undefined;
+	}
+
+	return keys.map((key) => ({ id: key.id, label: providerKeyLabel(key) }));
 }
 
 /**
@@ -339,39 +564,37 @@ export async function resolveProviderContext(
 
 	// --- Token resolution ---
 	let providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
+	let managedKey: InferSelectModel<typeof tables.providerKey> | undefined;
 	let usedToken: string | undefined;
 	let configIndex = 0;
 	let envVarName: string | undefined;
 
 	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
 	// this org's env-credential reads. Undefined = base vars only.
-	const envVariant = getOrganizationEnvVariant(organization);
+	const envVariant = getLicensedOrganizationEnvVariant(organization);
 
 	// Flex/Priority is only honored when the request reaches the provider's real
-	// upstream endpoint. Skip provider keys whose custom base URL (proxy) may
-	// silently drop the tier, so a compliant key (or the managed env credential)
-	// is used instead.
+	// upstream endpoint on a tier-capable location. Skip provider keys whose
+	// custom base URL (proxy) may silently drop the tier, and Vertex keys pinned
+	// to a regional endpoint, so a compliant key (or the managed env credential)
+	// is used instead. This is what keeps an alternate-key retry from rotating a
+	// Flex request onto a credential that would serve it as standard.
 	const serviceTierKeyFilter = isPremiumServiceTier(options.service_tier)
-		? (key: InferSelectModel<typeof tables.providerKey>) =>
-				providerKeyBaseUrlSupportsServiceTier(
-					key.provider as Provider,
-					key.baseUrl,
-				)
+		? providerKeySupportsServiceTier
 		: undefined;
-	// Exclude env credential indices whose base URL can't honor the tier, merged
-	// with any already-failed indices, so env fallback also lands on the upstream.
-	const serviceTierEnvExcludedIndices = (
-		provider: Provider,
-	): ReadonlySet<number> | undefined => {
-		if (!serviceTierKeyFilter) {
-			return options.excludedEnvKeyIndices;
-		}
-		const ineligible = getServiceTierIneligibleEnvIndices(provider, envVariant);
-		if (ineligible.size === 0) {
-			return options.excludedEnvKeyIndices;
-		}
-		return new Set([...(options.excludedEnvKeyIndices ?? []), ...ineligible]);
-	};
+
+	const byokKeyFilter = buildByokKeyFilter(
+		usedInternalModel,
+		serviceTierKeyFilter,
+	);
+
+	const eligibleProviderKeys = await resolveEligibleProviderKeys({
+		projectMode: project.mode,
+		organizationId: project.organizationId,
+		provider: usedProvider,
+		usedInternalModel,
+		serviceTierKeyFilter,
+	});
 
 	if (project.mode === "api-keys") {
 		if (usedProvider === "custom" && options.customProviderName) {
@@ -387,7 +610,7 @@ export async function resolveProviderContext(
 				usedProvider,
 				usedInternalModel,
 				options.excludedProviderKeyIds,
-				serviceTierKeyFilter,
+				byokKeyFilter,
 			);
 		}
 
@@ -397,17 +620,29 @@ export async function resolveProviderContext(
 			});
 		}
 
-		usedToken = providerKey.token;
+		usedToken = readProviderKey(providerKey);
 	} else if (project.mode === "credits") {
-		assertOrganizationHasCreditsForEnvFallback(organization, modelInfo);
-		const envResult = getProviderEnv(usedProvider as Provider, {
-			excludedIndices: serviceTierEnvExcludedIndices(usedProvider as Provider),
-			selectionScope: usedInternalModel,
-			variant: envVariant,
-		});
-		usedToken = envResult.token;
-		configIndex = envResult.configIndex;
-		envVarName = envResult.envVarName;
+		assertOrganizationHasCreditsForEnvFallback(
+			organization,
+			modelInfo,
+			options.sponsoredOnboarding,
+		);
+		const platformCredential = await resolvePlatformCredential(
+			usedProvider as Provider,
+			{
+				selectionScope: usedInternalModel,
+				model: usedInternalModel,
+				variant: envVariant,
+				region: providerMapping.region,
+				requiresServiceTier: serviceTierKeyFilter !== undefined,
+				excludedEnvIndices: options.excludedEnvKeyIndices,
+				excludedProviderKeyIds: options.excludedProviderKeyIds,
+			},
+		);
+		managedKey = platformCredential.managedKey;
+		usedToken = platformCredential.token;
+		configIndex = platformCredential.configIndex;
+		envVarName = platformCredential.envVarName;
 	} else if (project.mode === "hybrid") {
 		if (usedProvider === "custom" && options.customProviderName) {
 			providerKey = await findCustomProviderKey(
@@ -422,24 +657,34 @@ export async function resolveProviderContext(
 				usedProvider,
 				usedInternalModel,
 				options.excludedProviderKeyIds,
-				serviceTierKeyFilter,
+				byokKeyFilter,
 			);
 		}
 
 		if (providerKey) {
-			usedToken = providerKey.token;
+			usedToken = readProviderKey(providerKey);
 		} else {
-			assertOrganizationHasCreditsForEnvFallback(organization, modelInfo);
-			const envResult = getProviderEnv(usedProvider as Provider, {
-				excludedIndices: serviceTierEnvExcludedIndices(
-					usedProvider as Provider,
-				),
-				selectionScope: usedInternalModel,
-				variant: envVariant,
-			});
-			usedToken = envResult.token;
-			configIndex = envResult.configIndex;
-			envVarName = envResult.envVarName;
+			assertOrganizationHasCreditsForEnvFallback(
+				organization,
+				modelInfo,
+				options.sponsoredOnboarding,
+			);
+			const platformCredential = await resolvePlatformCredential(
+				usedProvider as Provider,
+				{
+					selectionScope: usedInternalModel,
+					model: usedInternalModel,
+					variant: envVariant,
+					region: providerMapping.region,
+					requiresServiceTier: serviceTierKeyFilter !== undefined,
+					excludedEnvIndices: options.excludedEnvKeyIndices,
+					excludedProviderKeyIds: options.excludedProviderKeyIds,
+				},
+			);
+			managedKey = platformCredential.managedKey;
+			usedToken = platformCredential.token;
+			configIndex = platformCredential.configIndex;
+			envVarName = platformCredential.envVarName;
 		}
 	}
 
@@ -476,9 +721,10 @@ export async function resolveProviderContext(
 	}
 
 	// Override with region-specific env var if a non-default region is selected
-	// (credits/hybrid mode). Health attribution must follow the credential we
-	// actually send.
-	if (usedRegion && !providerKey) {
+	// (credits/hybrid mode). Managed credentials are already selected per
+	// region, so this only applies to the env-var path. Health attribution must
+	// follow the credential we actually send.
+	if (usedRegion && !providerKey && !managedKey) {
 		const regionEnvVarName = getRegionSpecificEnvVarName(
 			usedProvider,
 			usedRegion,
@@ -494,6 +740,28 @@ export async function resolveProviderContext(
 		}
 	}
 
+	// The tier this attempt will actually be sent at. Resolved here — after the
+	// provider, region and credential are known — because a fallback attempt
+	// picks its own, and a mapping/credential that cannot carry the tier would
+	// otherwise be served (and billed) as standard without the caller knowing.
+	// Throwing rejects this candidate: the retry loop treats a context-resolution
+	// failure as "try the next provider/key".
+	const forwardedServiceTier = getForwardedServiceTier(
+		usedInternalModel,
+		usedProvider,
+		usedRegion,
+		options.service_tier,
+		configIndex,
+		envVariant,
+	);
+	assertServiceTierHonored({
+		clientRequestedServiceTier: options.clientRequestedServiceTier ?? null,
+		forwardedServiceTier,
+		provider: usedProvider,
+		model: usedInternalModel,
+		region: usedRegion,
+	});
+
 	const usedApiKeyHash = getApiKeyFingerprint(usedToken);
 
 	// --- Check if model supports reasoning (from selected provider, not any) ---
@@ -507,37 +775,46 @@ export async function resolveProviderContext(
 	const isImageGeneration =
 		providerMappingForSelected?.imageGenerations === true;
 
+	// When a database-backed credential is used — the organization's BYOK key
+	// or the platform-managed credential — env vars are skipped entirely. Only
+	// that credential's own settings and the hardcoded provider defaults apply.
+	const isBYOK = providerKey !== undefined;
+	const usesDatabaseCredential = isBYOK || managedKey !== undefined;
+	const credentialOptions = isBYOK
+		? (providerKey?.options ?? undefined)
+		: managedCredentialOptions(managedKey);
+	const credentialBaseUrl = isBYOK
+		? (providerKey?.baseUrl ?? undefined)
+		: undefined;
+
 	// Apply azure_deployment_name override (if set) to the upstream model
 	// name. Must run after providerKey is resolved so retry fallbacks also
 	// pick up the override.
 	const azureDeploymentName =
 		usedProvider === "azure"
-			? providerKey?.options?.azure_deployment_name
+			? credentialOptions?.azure_deployment_name
 			: undefined;
 	const upstreamModelName = azureDeploymentName || usedExternalId;
 
 	// --- URL resolution ---
-	// When using a provider key (BYOK), skip env vars entirely —
-	// only the provider key's baseUrl or hardcoded provider defaults should be used.
-	const isBYOK = providerKey !== undefined;
 	// Resolve the Google Vertex token type once and feed it to both the endpoint
 	// (`?key=` query param) and the headers (`Authorization: Bearer`) so they
-	// never disagree. There is no BYOK region-env override here (the override
-	// above only runs when `!providerKey`), so `isBYOK` correctly reflects
-	// whether the DB key is the active credential.
+	// never disagree. There is no region-env override here for database-backed
+	// credentials (the override above only runs when neither is set), so
+	// `usesDatabaseCredential` correctly reflects whether the DB key is active.
 	const vertexTokenType: VertexTokenType | undefined =
 		usedProvider === "google-vertex"
 			? resolveVertexTokenType(
 					usedProvider,
-					providerKey?.options ?? undefined,
+					credentialOptions,
 					configIndex,
-					isBYOK,
+					usesDatabaseCredential,
 					envVariant,
 				)
 			: undefined;
 	const url = getProviderEndpoint(
 		usedProvider as Provider,
-		providerKey?.baseUrl ?? undefined,
+		credentialBaseUrl,
 		upstreamModelName,
 		usedProvider === "google-ai-studio" ||
 			usedProvider === "glacier" ||
@@ -550,11 +827,11 @@ export async function resolveProviderContext(
 		options.stream,
 		supportsReasoning,
 		options.hasExistingToolCalls,
-		providerKey?.options ?? undefined,
+		credentialOptions,
 		configIndex,
 		isImageGeneration,
 		usedRegion,
-		isBYOK,
+		usesDatabaseCredential,
 		usedInternalModel,
 		vertexTokenType,
 		envVariant,
@@ -692,12 +969,14 @@ export async function resolveProviderContext(
 		useResponsesApi,
 		options.prompt_cache_key,
 		options.prompt_cache_retention,
-		options.providerCacheControlEnabled,
+		options.providerCacheControlMode,
 		options.n,
-		options.service_tier,
+		forwardedServiceTier,
 		options.verbosity,
 		options.prompt_cache_options,
 		options.session_id,
+		undefined,
+		organization.safetyIdentifier,
 	);
 
 	// Post-validation of max_tokens in request body
@@ -727,7 +1006,7 @@ export async function resolveProviderContext(
 	// Read the env var directly to bypass round-robin comma-splitting (an SA
 	// JSON value contains commas and would otherwise be truncated).
 	if (usedProvider === "vertex-openai") {
-		const fullSaJson = providerKey
+		const fullSaJson = usesDatabaseCredential
 			? usedToken
 			: (process.env[
 					getVariantEnvVarNameFor(
@@ -741,7 +1020,6 @@ export async function resolveProviderContext(
 	// --- Headers ---
 	const headers = getProviderHeaders(usedProvider as Provider, usedToken, {
 		requestId: options.requestId,
-		webSearchEnabled: options.webSearchEnabled,
 		tokenType: vertexTokenType,
 	});
 	headers["Content-Type"] = "application/json";
@@ -772,7 +1050,8 @@ export async function resolveProviderContext(
 		usedToken,
 		usedApiKeyHash,
 		providerKey,
-		trackedKeyHealthId: providerKey?.id,
+		managedKey,
+		trackedKeyHealthId: providerKey?.id ?? managedKey?.id,
 		configIndex,
 		envVarName,
 		url,
@@ -791,5 +1070,6 @@ export async function resolveProviderContext(
 		strippedParameters,
 		headers,
 		usedRegion,
+		eligibleProviderKeys,
 	};
 }

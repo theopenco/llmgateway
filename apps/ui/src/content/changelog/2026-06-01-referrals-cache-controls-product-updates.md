@@ -47,4 +47,4 @@ Request logs now break out **cache-write** and **audio** tokens and cost separat
 
 ---
 
-**[Open your dashboard →](https://llmgateway.io/dashboard)** | **[Try Chat →](https://chat.llmgateway.io)** | **[Talk to sales →](https://llmgateway.io/enterprise)**
+**[Open your dashboard →](https://llmgateway.io/dashboard)** | **[Try Chat →](https://lounge.llmgateway.io)** | **[Talk to sales →](https://llmgateway.io/enterprise)**

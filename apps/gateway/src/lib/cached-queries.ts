@@ -21,26 +21,29 @@ import {
 	isNull,
 	ne,
 	or,
-	sum,
+	sql,
 	cdb as db,
 	apiKey as apiKeyTable,
 	apiKeyHourlyStats as apiKeyHourlyStatsTable,
 	apiKeyIamRule as apiKeyIamRuleTable,
 	customModel as customModelTable,
-	discount as discountTable,
 	endCustomer as endCustomerTable,
 	endUserSession as endUserSessionTable,
+	getEffectiveDiscount,
 	getEffectiveRateLimit,
 	addApiKeyPeriodDuration,
+	organizationCacheTag,
+	providerKeyAllowsModel,
 	organization as organizationTable,
 	project as projectTable,
 	providerKey as providerKeyTable,
-	rateLimit as rateLimitTable,
+	routingScoreMultiplier as routingScoreMultiplierTable,
 	user as userTable,
 	userIamRule as userIamRuleTable,
 	userOrganization as userOrganizationTable,
 	wallet as walletTable,
 } from "@llmgateway/db";
+import { getRegionScopedDefaultRegion } from "@llmgateway/models";
 
 import { getApiKeyFingerprint } from "./api-key-fingerprint.js";
 import {
@@ -66,6 +69,7 @@ import type {
 	userOrganization,
 	wallet,
 } from "@llmgateway/db";
+import type { EnvVarVariant } from "@llmgateway/models";
 
 // Type aliases for cleaner function signatures
 type ApiKey = InferSelectModel<typeof apiKey>;
@@ -83,14 +87,15 @@ type Wallet = InferSelectModel<typeof wallet>;
 const apiKeyTableName = getTableName(apiKeyTable);
 const apiKeyHourlyStatsTableName = getTableName(apiKeyHourlyStatsTable);
 const apiKeyIamRuleTableName = getTableName(apiKeyIamRuleTable);
-const discountTableName = getTableName(discountTable);
 const endCustomerTableName = getTableName(endCustomerTable);
 const endUserSessionTableName = getTableName(endUserSessionTable);
 const organizationTableName = getTableName(organizationTable);
 const projectTableName = getTableName(projectTable);
 const providerKeyTableName = getTableName(providerKeyTable);
 const customModelTableName = getTableName(customModelTable);
-const rateLimitTableName = getTableName(rateLimitTable);
+const routingScoreMultiplierTableName = getTableName(
+	routingScoreMultiplierTable,
+);
 const userTableName = getTableName(userTable);
 const userIamRuleTableName = getTableName(userIamRuleTable);
 const userOrganizationTableName = getTableName(userOrganizationTable);
@@ -318,6 +323,32 @@ export async function findOrganizationByIdFresh(
 }
 
 /**
+ * Find an organization by ID using only the cached path (no 0-credit bypass).
+ *
+ * Use this when a slightly stale view is acceptable and a guaranteed cache hit
+ * matters more than fresh credits (e.g. checking the org `plan` for rate
+ * limiting). For credit/billing decisions use {@link findOrganizationById},
+ * which refetches via a short-TTL fresh read when credits are exhausted.
+ */
+export async function findOrganizationCachedById(
+	id: string,
+): Promise<Organization | undefined> {
+	return await swrWrap(`org:${id}`, [organizationTableName], async () => {
+		// Tagged per org so the worker can evict exactly this entry right after
+		// debiting credits (it writes via the uncached client, so table-level
+		// auto-invalidation never fires for those debits). This is what keeps
+		// the credit gates near-fresh without shortening the cache TTL.
+		const results = await db
+			.select()
+			.from(organizationTable)
+			.where(eq(organizationTable.id, id))
+			.limit(1)
+			.$withCache({ tag: organizationCacheTag(id), autoInvalidate: true });
+		return results[0];
+	});
+}
+
+/**
  * Find an organization by ID (cacheable)
  * When the organization has 0 credits, refetch via a short-TTL fresh read so
  * topups and usage updates are reflected within FRESH_TTL_SECONDS without
@@ -326,14 +357,7 @@ export async function findOrganizationByIdFresh(
 export async function findOrganizationById(
 	id: string,
 ): Promise<Organization | undefined> {
-	const org = await swrWrap(`org:${id}`, [organizationTableName], async () => {
-		const results = await db
-			.select()
-			.from(organizationTable)
-			.where(eq(organizationTable.id, id))
-			.limit(1);
-		return results[0];
-	});
+	const org = await findOrganizationCachedById(id);
 
 	// If org has 0 or negative credits, refetch via the short-TTL fresh read
 	// so topups are reflected promptly without a per-request Postgres hit
@@ -429,7 +453,15 @@ export async function findCustomProviderKey(
 						eq(providerKeyTable.name, customProviderName),
 					),
 				)
-				.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id)),
+				.orderBy(
+					// Explicit position first (Postgres sorts ASC as NULLS LAST, so
+					// unpositioned keys keep the age order they always had), then the
+					// original createdAt/id tiebreak. Index 0 of this array is what
+					// selectProviderKeyWithFailover treats as the primary key.
+					asc(providerKeyTable.sortOrder),
+					asc(providerKeyTable.createdAt),
+					asc(providerKeyTable.id),
+				),
 	);
 	return selectProviderKeyWithFailover(results, selectionScope, excludedKeyIds);
 }
@@ -463,16 +495,38 @@ export async function findCustomModel(
 	return results[0];
 }
 
+/** Find every active custom model catalog entry for an organization. */
+export async function findActiveCustomModels(
+	organizationId: string,
+): Promise<CustomModel[]> {
+	return await swrWrap(
+		`customModel:active:${organizationId}`,
+		[customModelTableName],
+		async () =>
+			await db
+				.select()
+				.from(customModelTable)
+				.where(
+					and(
+						eq(customModelTable.status, "active"),
+						eq(customModelTable.organizationId, organizationId),
+					),
+				),
+	);
+}
+
 /**
- * Find a provider key by organization and provider (cacheable)
+ * The organization's own keys for a provider that can serve this request, in
+ * selection order (index 0 is the primary). This is exactly the candidate set
+ * findProviderKey picks from, before health failover and per-attempt
+ * exclusions narrow it — the "which of my keys could have been used" answer
+ * surfaced in routing metadata.
  */
-export async function findProviderKey(
+export async function listEligibleProviderKeys(
 	organizationId: string,
 	provider: string,
-	selectionScope?: string,
-	excludedKeyIds?: ReadonlySet<string>,
 	filter?: (key: ProviderKey) => boolean,
-): Promise<ProviderKey | undefined> {
+): Promise<ProviderKey[]> {
 	const results = await swrWrap(
 		`providerKey:${organizationId}:${provider}`,
 		[providerKeyTableName],
@@ -487,11 +541,36 @@ export async function findProviderKey(
 						eq(providerKeyTable.provider, provider),
 					),
 				)
-				.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id)),
+				.orderBy(
+					// Explicit position first (Postgres sorts ASC as NULLS LAST, so
+					// unpositioned keys keep the age order they always had), then the
+					// original createdAt/id tiebreak. Index 0 of this array is what
+					// selectProviderKeyWithFailover treats as the primary key.
+					asc(providerKeyTable.sortOrder),
+					asc(providerKeyTable.createdAt),
+					asc(providerKeyTable.id),
+				),
 	);
-	const filtered = filter ? results.filter(filter) : results;
+	return filter ? results.filter(filter) : results;
+}
+
+/**
+ * Find a provider key by organization and provider (cacheable)
+ */
+export async function findProviderKey(
+	organizationId: string,
+	provider: string,
+	selectionScope?: string,
+	excludedKeyIds?: ReadonlySet<string>,
+	filter?: (key: ProviderKey) => boolean,
+): Promise<ProviderKey | undefined> {
+	const eligible = await listEligibleProviderKeys(
+		organizationId,
+		provider,
+		filter,
+	);
 	return selectProviderKeyWithFailover(
-		filtered,
+		eligible,
 		selectionScope,
 		excludedKeyIds,
 	);
@@ -516,7 +595,15 @@ export async function findActiveProviderKeys(
 						eq(providerKeyTable.organizationId, organizationId),
 					),
 				)
-				.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id)),
+				.orderBy(
+					// Explicit position first (Postgres sorts ASC as NULLS LAST, so
+					// unpositioned keys keep the age order they always had), then the
+					// original createdAt/id tiebreak. Index 0 of this array is what
+					// selectProviderKeyWithFailover treats as the primary key.
+					asc(providerKeyTable.sortOrder),
+					asc(providerKeyTable.createdAt),
+					asc(providerKeyTable.id),
+				),
 	);
 }
 
@@ -545,8 +632,293 @@ export async function findProviderKeysByProviders(
 						inArray(providerKeyTable.provider, providers),
 					),
 				)
-				.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id)),
+				.orderBy(
+					// Explicit position first (Postgres sorts ASC as NULLS LAST, so
+					// unpositioned keys keep the age order they always had), then the
+					// original createdAt/id tiebreak. Index 0 of this array is what
+					// selectProviderKeyWithFailover treats as the primary key.
+					asc(providerKeyTable.sortOrder),
+					asc(providerKeyTable.createdAt),
+					asc(providerKeyTable.id),
+				),
 	);
+}
+
+export interface FindManagedProviderKeyOptions {
+	/**
+	 * Env-var variant the organization maps to. A credential configured for the
+	 * variant wins; when none exists the shared `default` credentials serve the
+	 * request, mirroring how `{ENV}__ENTERPRISE` falls back to `{ENV}`.
+	 */
+	variant?: EnvVarVariant;
+	/**
+	 * Region the request routes to. Region-scoped credentials win for their own
+	 * region; region-agnostic ones (region IS NULL) serve everything else,
+	 * mirroring `{ENV}__{REGION}` falling back to `{ENV}`.
+	 */
+	region?: string;
+	selectionScope?: string;
+	excludedKeyIds?: ReadonlySet<string>;
+	filter?: (key: ProviderKey) => boolean;
+}
+
+/**
+ * Every active platform-managed credential for a provider (cacheable). These
+ * rows are the database-backed replacement for the `LLM_*` environment
+ * variables: they are not owned by any organization and carry their own base
+ * URL, project, region and other provider settings.
+ */
+export async function listManagedProviderKeys(
+	provider: string,
+): Promise<ProviderKey[]> {
+	return await swrWrap(
+		`providerKey:managed:${provider}`,
+		[providerKeyTableName],
+		async () =>
+			await db
+				.select()
+				.from(providerKeyTable)
+				.where(
+					and(
+						eq(providerKeyTable.status, "active"),
+						eq(providerKeyTable.managed, true),
+						eq(providerKeyTable.provider, provider),
+					),
+				)
+				.orderBy(
+					// Explicit position first (Postgres sorts ASC as NULLS LAST, so
+					// unpositioned keys keep the age order they always had), then the
+					// original createdAt/id tiebreak. Index 0 of this array is what
+					// selectProviderKeyWithFailover treats as the primary key.
+					asc(providerKeyTable.sortOrder),
+					asc(providerKeyTable.createdAt),
+					asc(providerKeyTable.id),
+				),
+	);
+}
+
+/**
+ * Whether the provider has any active managed credential at all — regardless of
+ * variant, region or model restrictions.
+ *
+ * Managed credentials do not sit alongside the provider's `LLM_*` environment
+ * variables, they replace them: once a single one exists, the environment is
+ * ignored for that provider everywhere — routing, credential selection and
+ * every fallback. A request no managed credential can serve therefore fails
+ * instead of quietly spending an env key the operator has already superseded.
+ */
+export async function hasManagedProviderCredential(
+	provider: string,
+): Promise<boolean> {
+	return (await listManagedProviderKeys(provider)).length > 0;
+}
+
+/**
+ * Narrow a provider's managed credentials to the ones that can serve this
+ * region.
+ *
+ * With a region in hand, a credential pinned to it wins and a region-agnostic
+ * one is the fallback — the same precedence `{ENV}__{REGION}` has over `{ENV}`.
+ *
+ * Without one, the request is sent to the provider's default region. A
+ * region-agnostic credential still serves it, and so does one pinned to that
+ * default region — which is all a provider with no global region can offer,
+ * since every one of its credentials is necessarily region-scoped (Alibaba).
+ * Providers whose credential works across regions (AWS Bedrock) are excluded
+ * from that last step by `getRegionScopedDefaultRegion`: a region on their
+ * credential is the operator scoping it deliberately, so the request fails
+ * rather than borrowing a credential meant for another region.
+ */
+function narrowManagedKeysToRegion(
+	keys: ProviderKey[],
+	provider: string,
+	region: string | undefined,
+): ProviderKey[] {
+	if (region) {
+		const pinned = keys.filter((key) => key.region === region);
+		return pinned.length > 0 ? pinned : keys.filter((key) => !key.region);
+	}
+
+	const regionAgnostic = keys.filter((key) => !key.region);
+	if (regionAgnostic.length > 0) {
+		return regionAgnostic;
+	}
+
+	const defaultRegion = getRegionScopedDefaultRegion(provider);
+	return defaultRegion
+		? keys.filter((key) => key.region === defaultRegion)
+		: [];
+}
+
+/**
+ * Find a platform-managed provider credential for credits-mode traffic
+ * (cacheable).
+ *
+ * Returns undefined when no managed credential can serve the request. Callers
+ * must not read the environment in that case unless
+ * `hasManagedProviderCredential` is false — see its comment.
+ */
+export async function findManagedProviderKey(
+	provider: string,
+	options: FindManagedProviderKeyOptions = {},
+): Promise<ProviderKey | undefined> {
+	const results = await listManagedProviderKeys(provider);
+
+	const candidates = options.filter ? results.filter(options.filter) : results;
+	if (candidates.length === 0) {
+		return undefined;
+	}
+
+	const variant = options.variant ?? "default";
+	const variantMatches = candidates.filter((key) => key.variant === variant);
+	const byVariant =
+		variantMatches.length > 0
+			? variantMatches
+			: candidates.filter((key) => key.variant === "default");
+
+	const byRegion = narrowManagedKeysToRegion(
+		byVariant,
+		provider,
+		options.region,
+	);
+
+	return selectProviderKeyWithFailover(
+		byRegion,
+		options.selectionScope,
+		options.excludedKeyIds,
+	);
+}
+
+/**
+ * What the platform-managed credential fleet can serve, as routing needs it
+ * (cacheable).
+ *
+ * `configured` is the authority on whether a provider still reads its `LLM_*`
+ * environment variables at all: any active managed credential supersedes them
+ * entirely, so routing must decide that provider purely from `usable` /
+ * `pinnedRegions` and never consult the environment for it.
+ *
+ * `usable` mirrors how `findManagedProviderKey` selects, on both axes, because
+ * a provider advertised there that then has no selectable credential fails the
+ * request outright: `resolvePlatformCredential` has no environment to fall back
+ * to for a configured provider, and credential resolution happens outside the
+ * provider-fallback loop so nothing recovers.
+ *
+ * - Variant: an `enterprise`/`plans` request may fall back to a `default`
+ *   credential, but a `default` request can never use a variant-scoped one,
+ *   and a variant that has its own credentials never falls back.
+ * - Region: routing picks a provider before a region is known, so a request
+ *   that resolves no region is served from the provider's default region. Both
+ *   a region-agnostic credential (`usable`) and one pinned to that default
+ *   region (`defaultRegionUsable`) can therefore serve it; a credential pinned
+ *   to any other region cannot, exactly like `{ENV}__{REGION}`, which
+ *   `hasProviderEnvironmentToken` ignores in favour of the base variable. Which
+ *   regions those credentials do cover is reported separately in
+ *   `pinnedRegions`, for the region filter that runs before a provider is
+ *   chosen.
+ * - Model: a credential restricted via `allowedModels` cannot serve any other
+ *   model, so when the caller knows the model it is routing, credentials that
+ *   exclude it are ignored — a provider whose every credential excludes the
+ *   model is not advertised for it.
+ */
+export interface ManagedProviderAvailability {
+	/**
+	 * Providers with at least one active managed credential, whatever its
+	 * variant, region or model restriction. Their `LLM_*` variables are ignored.
+	 */
+	configured: ReadonlySet<string>;
+	/** Providers a region-agnostic managed credential can serve for this request. */
+	usable: ReadonlySet<string>;
+	/**
+	 * Providers whose credential for this request is pinned to their own default
+	 * region. They serve every request that resolves no region — which is what a
+	 * provider with no global region, such as Alibaba, can only ever offer — but,
+	 * unlike `usable`, they cover no other region.
+	 */
+	defaultRegionUsable: ReadonlySet<string>;
+	/**
+	 * Regions each provider has a region-pinned managed credential for. Variant-
+	 * and model-agnostic, matching how `hasRegionSpecificEnvKey` reads the
+	 * environment: the region filter runs before either is known.
+	 */
+	pinnedRegions: ReadonlyMap<string, ReadonlySet<string>>;
+}
+
+export async function findManagedProviderAvailability(
+	variant?: EnvVarVariant,
+	modelId?: string,
+): Promise<ManagedProviderAvailability> {
+	// Fetched whole and narrowed in memory so the request's variant stays out
+	// of the cache key, the same way findManagedProviderKey keeps variant,
+	// region and exclusions out of its own.
+	const rows = await swrWrap(
+		`providerKey:managedProviderScopes`,
+		[providerKeyTableName],
+		async () =>
+			await db
+				.select({
+					provider: providerKeyTable.provider,
+					variant: providerKeyTable.variant,
+					region: providerKeyTable.region,
+					allowedModels: providerKeyTable.allowedModels,
+				})
+				.from(providerKeyTable)
+				.where(
+					and(
+						eq(providerKeyTable.status, "active"),
+						eq(providerKeyTable.managed, true),
+					),
+				),
+	);
+
+	const configured = new Set<string>();
+	const pinnedRegions = new Map<string, Set<string>>();
+	const byProvider = new Map<string, typeof rows>();
+	for (const row of rows) {
+		configured.add(row.provider);
+		if (row.region) {
+			const regions = pinnedRegions.get(row.provider);
+			if (regions) {
+				regions.add(row.region);
+			} else {
+				pinnedRegions.set(row.provider, new Set([row.region]));
+			}
+		}
+		if (modelId && !providerKeyAllowsModel(row.allowedModels, modelId)) {
+			continue;
+		}
+		const existing = byProvider.get(row.provider);
+		if (existing) {
+			existing.push(row);
+		} else {
+			byProvider.set(row.provider, [row]);
+		}
+	}
+
+	const effectiveVariant = variant ?? "default";
+	const usable = new Set<string>();
+	const defaultRegionUsable = new Set<string>();
+	for (const [provider, candidates] of byProvider) {
+		const variantMatches = candidates.filter(
+			(key) => key.variant === effectiveVariant,
+		);
+		const byVariant =
+			variantMatches.length > 0
+				? variantMatches
+				: candidates.filter((key) => key.variant === "default");
+
+		if (byVariant.some((key) => !key.region)) {
+			usable.add(provider);
+		}
+		const defaultRegion = getRegionScopedDefaultRegion(provider);
+		if (
+			defaultRegion &&
+			byVariant.some((key) => key.region === defaultRegion)
+		) {
+			defaultRegionUsable.add(provider);
+		}
+	}
+	return { configured, usable, defaultRegionUsable, pinnedRegions };
 }
 
 /**
@@ -607,172 +979,117 @@ export async function findActiveUserIamRules(
 }
 
 /**
- * Get the effective rate limits for an org/provider/model combination (SWR-cached).
- * Falls back to the last known Redis value when Postgres is unreachable.
+ * Get the effective rate limits for an org/provider/model combination.
+ *
+ * Thin alias for {@link getEffectiveRateLimit}, which carries both cache
+ * layers itself (cdb + an internal swrWrap on the same `rateLimit:*` key) so
+ * every caller shares one cached implementation. Do NOT re-wrap this in
+ * swrWrap: nesting the same key would deadlock the in-flight coalescer.
  */
 export async function findEffectiveRateLimit(
 	organizationId: string | null,
 	provider: string,
 	model: string,
 ): Promise<EffectiveRateLimit> {
-	const orgPart = organizationId ?? "global";
-	return await swrWrap(
-		`rateLimit:${orgPart}:${provider}:${model}`,
-		[rateLimitTableName],
-		() => getEffectiveRateLimit(organizationId, provider, model),
-	);
+	return await getEffectiveRateLimit(organizationId, provider, model);
 }
 
 /**
- * Get the effective discount for an org/provider/model combination (SWR-cached).
- * Falls back to the last known Redis value when Postgres is unreachable.
+ * Get the effective discount for an org/provider/model combination.
+ *
+ * Thin alias for {@link getEffectiveDiscount}, which carries both cache layers
+ * itself (cdb + an internal swrWrap on the same `discount:*` key) so every
+ * caller — routing, billing, realtime — shares one cached implementation. Do
+ * NOT re-wrap this in swrWrap: nesting the same key would deadlock the
+ * in-flight coalescer.
  */
 export async function findEffectiveDiscount(
 	organizationId: string | null,
 	provider: string,
 	model: string,
 ): Promise<EffectiveDiscount> {
-	const orgPart = organizationId ?? "global";
+	return await getEffectiveDiscount(organizationId, provider, model);
+}
+
+export interface EffectiveRoutingScoreMultiplier {
+	scoreMultiplier: string;
+	source: "provider_model" | "provider" | "model" | "none";
+	multiplierId?: string;
+}
+
+/**
+ * Get the internal routing score adjustment for a provider/model combination.
+ * The stable SQL shape is cached by Drizzle and the result is mirrored in SWR.
+ */
+export async function findEffectiveRoutingScoreMultiplier(
+	provider: string,
+	model: string,
+): Promise<EffectiveRoutingScoreMultiplier> {
 	return await swrWrap(
-		`discount:${orgPart}:${provider}:${model}`,
-		[discountTableName],
+		`routingScoreMultiplier:${provider}:${model}`,
+		[routingScoreMultiplierTableName],
 		async () => {
-			// The expiry filter is applied in JS below, NOT in SQL: a `now` Date in
-			// the WHERE clause becomes a query parameter, and the cached client keys
-			// its cache on hashQuery(sql, params). A per-request millisecond `now`
-			// would make that key unique every call, so the cache would never hit and
-			// this (hot, per-provider-candidate) lookup would query Postgres on every
-			// request. Keeping the SQL time-independent lets the cache key stay stable
-			// while expiry is still evaluated fresh on each call.
 			const rows = await db
 				.select({
-					id: discountTable.id,
-					organizationId: discountTable.organizationId,
-					provider: discountTable.provider,
-					model: discountTable.model,
-					discountPercent: discountTable.discountPercent,
-					expiresAt: discountTable.expiresAt,
+					id: routingScoreMultiplierTable.id,
+					provider: routingScoreMultiplierTable.provider,
+					model: routingScoreMultiplierTable.model,
+					scoreMultiplier: routingScoreMultiplierTable.scoreMultiplier,
+					expiresAt: routingScoreMultiplierTable.expiresAt,
 				})
-				.from(discountTable)
+				.from(routingScoreMultiplierTable)
 				.where(
 					and(
 						or(
-							isNull(discountTable.organizationId),
-							organizationId
-								? eq(discountTable.organizationId, organizationId)
-								: isNull(discountTable.organizationId),
+							eq(routingScoreMultiplierTable.provider, provider),
+							isNull(routingScoreMultiplierTable.provider),
 						),
 						or(
-							eq(discountTable.provider, provider),
-							isNull(discountTable.provider),
+							eq(routingScoreMultiplierTable.model, model),
+							isNull(routingScoreMultiplierTable.model),
 						),
-						or(eq(discountTable.model, model), isNull(discountTable.model)),
 					),
 				);
 
 			const now = Date.now();
-			const discounts = rows.filter(
-				// expiresAt is a Date on both a fresh query and a Drizzle cache hit
-				// (the cache stores the raw pg result and re-applies the timestamp
-				// parser on restore). Wrap in new Date() defensively so the compare
-				// is robust even if a serialized value ever reaches here.
+			const multipliers = rows.filter(
 				(row) =>
 					row.expiresAt === null || new Date(row.expiresAt).getTime() >= now,
 			);
-
-			const modelMatches = (discountModel: string | null): boolean =>
-				discountModel !== null && discountModel === model;
-
-			if (organizationId) {
-				const orgProviderModel = discounts.find(
-					(discount) =>
-						discount.organizationId === organizationId &&
-						discount.provider === provider &&
-						modelMatches(discount.model),
-				);
-				if (orgProviderModel) {
-					return {
-						discount: orgProviderModel.discountPercent,
-						source: "org_provider_model",
-						discountId: orgProviderModel.id,
-					};
-				}
-
-				const orgProvider = discounts.find(
-					(discount) =>
-						discount.organizationId === organizationId &&
-						discount.provider === provider &&
-						discount.model === null,
-				);
-				if (orgProvider) {
-					return {
-						discount: orgProvider.discountPercent,
-						source: "org_provider",
-						discountId: orgProvider.id,
-					};
-				}
-
-				const orgModel = discounts.find(
-					(discount) =>
-						discount.organizationId === organizationId &&
-						discount.provider === null &&
-						modelMatches(discount.model),
-				);
-				if (orgModel) {
-					return {
-						discount: orgModel.discountPercent,
-						source: "org_model",
-						discountId: orgModel.id,
-					};
-				}
-			}
-
-			const globalProviderModel = discounts.find(
-				(discount) =>
-					discount.organizationId === null &&
-					discount.provider === provider &&
-					modelMatches(discount.model),
+			const providerModel = multipliers.find(
+				(row) => row.provider === provider && row.model === model,
 			);
-			if (globalProviderModel) {
+			if (providerModel) {
 				return {
-					discount: globalProviderModel.discountPercent,
-					source: "global_provider_model",
-					discountId: globalProviderModel.id,
+					scoreMultiplier: providerModel.scoreMultiplier,
+					source: "provider_model" as const,
+					multiplierId: providerModel.id,
 				};
 			}
 
-			const globalProvider = discounts.find(
-				(discount) =>
-					discount.organizationId === null &&
-					discount.provider === provider &&
-					discount.model === null,
+			const providerOnly = multipliers.find(
+				(row) => row.provider === provider && row.model === null,
 			);
-			if (globalProvider) {
+			if (providerOnly) {
 				return {
-					discount: globalProvider.discountPercent,
-					source: "global_provider",
-					discountId: globalProvider.id,
+					scoreMultiplier: providerOnly.scoreMultiplier,
+					source: "provider" as const,
+					multiplierId: providerOnly.id,
 				};
 			}
 
-			const globalModel = discounts.find(
-				(discount) =>
-					discount.organizationId === null &&
-					discount.provider === null &&
-					modelMatches(discount.model),
+			const modelOnly = multipliers.find(
+				(row) => row.provider === null && row.model === model,
 			);
-			if (globalModel) {
+			if (modelOnly) {
 				return {
-					discount: globalModel.discountPercent,
-					source: "global_model",
-					discountId: globalModel.id,
+					scoreMultiplier: modelOnly.scoreMultiplier,
+					source: "model" as const,
+					multiplierId: modelOnly.id,
 				};
 			}
 
-			return {
-				discount: "0",
-				source: "none",
-			};
+			return { scoreMultiplier: "0", source: "none" as const };
 		},
 	);
 }
@@ -909,7 +1226,10 @@ export async function getMemberPeriodSpend(
 		[apiKeyHourlyStatsTableName, apiKeyTableName, projectTableName],
 		async () =>
 			await db
-				.select({ total: sum(apiKeyHourlyStatsTable.cost) })
+				// cost is float4; SUM(real) accumulates in float4 too, so cast first.
+				.select({
+					total: sql<string>`coalesce(sum(cast(${apiKeyHourlyStatsTable.cost} as double precision)), 0)`,
+				})
 				.from(apiKeyHourlyStatsTable)
 				.where(
 					and(

@@ -1,3 +1,10 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
+
+import { toast } from "@/lib/components/use-toast";
+
 // Error codes emitted by better-auth's social OAuth callback as the `?error=`
 // query param. The callback derives them from `result.error.split(" ").join("_")`
 // (see better-auth dist/api/routes/callback.mjs and dist/oauth2/link-account.mjs).
@@ -8,7 +15,8 @@ const authErrorMessages: Record<string, string> = {
 		"This provider account is already linked to a different user.",
 	unable_to_link_account:
 		"We couldn't link this account. Please try a different sign-in method.",
-	signup_disabled: "Sign ups are currently disabled.",
+	signup_disabled:
+		"No account exists for that sign-in. Please sign up first to create one.",
 	unable_to_create_user: "We couldn't create your account. Please try again.",
 	unable_to_create_session:
 		"We couldn't start your session. Please try signing in again.",
@@ -32,4 +40,32 @@ export function getAuthErrorMessage(code: string | null | undefined): string {
 		authErrorMessages[code] ??
 		"An error occurred during sign-in. Please try again."
 	);
+}
+
+/**
+ * Surfaces the `?error=` code a failed OAuth callback redirects back with, then
+ * strips it from the URL so a reload doesn't repeat it. Without this the user
+ * silently lands back on the login page as if nothing happened.
+ *
+ * `ignoredCodes` is for codes a page renders itself — login pages pass
+ * `signup_disabled`, which SocialAuthButtons turns into a "you need to sign up"
+ * dialog offering to create the account.
+ */
+export function useAuthErrorToast(ignoredCodes: string[] = []): void {
+	const router = useRouter();
+	useEffect(() => {
+		const params = new URLSearchParams(window.location.search);
+		const error = params.get("error");
+		if (!error || ignoredCodes.includes(error)) {
+			return;
+		}
+		toast({
+			title: getAuthErrorMessage(error),
+			variant: "destructive",
+		});
+		params.delete("error");
+		const query = params.toString();
+		router.replace(window.location.pathname + (query ? `?${query}` : ""));
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [router]);
 }

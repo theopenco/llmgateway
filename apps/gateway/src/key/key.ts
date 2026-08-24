@@ -6,7 +6,9 @@ import {
 	findOrganizationById,
 	findProjectById,
 } from "@/lib/cached-queries.js";
+import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
+import { assertOrganizationUsable } from "@/lib/organization-access.js";
 
 import {
 	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
@@ -75,10 +77,11 @@ const getKey = createRoute({
 			},
 			description: "Status of the API key and its organization's dev plan.",
 		},
+		...standardErrorResponses(),
 	},
 });
 
-key.openapi(getKey, async (c) => {
+key.openapi(getKey, async (c): Promise<any> => {
 	const token = extractApiToken(c);
 	const apiKey = await findApiKeyByToken(token);
 
@@ -125,11 +128,7 @@ key.openapi(getKey, async (c) => {
 		});
 	}
 
-	if (organization.status === "deleted") {
-		throw new HTTPException(410, {
-			message: "Organization has been disabled and is no longer accessible",
-		});
-	}
+	assertOrganizationUsable(organization);
 
 	// Per-key and per-member usage limits are deliberately NOT enforced here:
 	// a client most needs to read remaining quota exactly when the key is

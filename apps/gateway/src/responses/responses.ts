@@ -3,7 +3,6 @@ import { zstdDecompress } from "node:zlib";
 
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { streamSSE } from "hono/streaming";
 
 import { app } from "@/app.js";
 import {
@@ -16,6 +15,9 @@ import {
 	findProjectById,
 	findOrganizationById,
 } from "@/lib/cached-queries.js";
+import { logGatewayClientError } from "@/lib/client-error-log.js";
+import { getOrganizationBlockReason } from "@/lib/organization-access.js";
+import { streamSSE } from "@/lib/pending-work.js";
 import {
 	setResponsesContext,
 	deleteResponsesContext,
@@ -24,7 +26,11 @@ import {
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
-import { compactRequestSchema, responsesRequestSchema } from "./schemas.js";
+import {
+	compactRequestSchema,
+	formatValidationError,
+	responsesRequestSchema,
+} from "./schemas.js";
 import { convertChatResponseToCompaction } from "./tools/convert-chat-to-compaction.js";
 import {
 	convertChatResponseToResponses,
@@ -46,6 +52,7 @@ import {
 	getStoredResponse,
 	resolveItemReferences,
 } from "./tools/response-state.js";
+import { extractAdditionalTools } from "./tools/tool-registry.js";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -105,10 +112,11 @@ async function authenticateRequest(
 		return { error: "Could not find organization", status: 500 as const };
 	}
 
-	if (organization.status === "deleted") {
+	const organizationBlocked = getOrganizationBlockReason(organization);
+	if (organizationBlocked) {
 		return {
-			error: "Organization has been disabled and is no longer accessible",
-			status: 410 as const,
+			error: organizationBlocked.message,
+			status: organizationBlocked.status,
 		};
 	}
 
@@ -151,10 +159,21 @@ responses.post("/", async (c) => {
 			rawBody = await c.req.json();
 		}
 	} catch {
+		const message = "Invalid JSON in request body";
+		logger.warn("Invalid Responses API JSON", {
+			path: c.req.path,
+			method: c.req.method,
+		});
+		await logGatewayClientError(c, {
+			apiOrigin: "responses",
+			rawBody: null,
+			message,
+			cause: "invalid_json",
+		});
 		return c.json(
 			{
 				error: {
-					message: "Invalid JSON in request body",
+					message,
 					type: "invalid_request_error",
 					code: "invalid_json",
 				},
@@ -165,10 +184,22 @@ responses.post("/", async (c) => {
 
 	const validation = responsesRequestSchema.safeParse(rawBody);
 	if (!validation.success) {
+		const message = `Invalid request: ${formatValidationError(validation.error)}`;
+		logger.warn("Invalid Responses API request", {
+			issues: validation.error.issues,
+			path: c.req.path,
+			method: c.req.method,
+		});
+		await logGatewayClientError(c, {
+			apiOrigin: "responses",
+			rawBody,
+			message,
+			cause: "invalid_request",
+		});
 		return c.json(
 			{
 				error: {
-					message: `Invalid request: ${validation.error.errors.map((e) => `${e.path.join(".")}: ${e.message}`).join(", ")}`,
+					message,
 					type: "invalid_request_error",
 					code: "invalid_request",
 				},
@@ -243,6 +274,16 @@ responses.post("/", async (c) => {
 	// back to their concrete stored items before conversion.
 	inputItems = await resolveItemReferences(inputItems, projectId);
 
+	// Clients using the Responses tool registry (Codex 0.144+) declare their
+	// tools as an `additional_tools` input item instead of the top-level `tools`
+	// array. Lift them out before the input becomes chat messages.
+	const additionalTools = extractAdditionalTools(inputItems);
+	inputItems = additionalTools.items;
+	const toolRegistry = additionalTools.registry;
+	if (additionalTools.tools.length > 0) {
+		req.tools = [...(req.tools ?? []), ...additionalTools.tools];
+	}
+
 	// Convert Responses API input to chat completions messages
 	const messages = convertResponsesInputToMessages(
 		inputItems as typeof req.input,
@@ -313,7 +354,14 @@ responses.post("/", async (c) => {
 		chatRequest.tools = tools;
 	}
 	if (req.tool_choice) {
-		chatRequest.tool_choice = req.tool_choice;
+		// The chat handler speaks Chat Completions, so a Responses-shaped named
+		// function choice (`{type:"function",name}`) has to be nested back under
+		// `function` here; prepare-request-body flattens it again for upstreams
+		// that take the Responses API.
+		chatRequest.tool_choice =
+			typeof req.tool_choice === "object" && "name" in req.tool_choice
+				? { type: "function", function: { name: req.tool_choice.name } }
+				: req.tool_choice;
 	}
 	if (req.reasoning?.effort) {
 		chatRequest.reasoning_effort = req.reasoning.effort;
@@ -351,7 +399,7 @@ responses.post("/", async (c) => {
 	// Generate log ID with resp_ prefix — this is both the log entry's primary key
 	// and the Responses API response ID
 	const logId = `resp_${shortid(24)}`;
-	const state = createStreamingState(req.model, logId, req);
+	const state = createStreamingState(req.model, logId, req, toolRegistry);
 
 	// Make internal request to the existing chat completions endpoint
 	const internalHeaders: Record<string, string> = {
@@ -429,6 +477,21 @@ responses.post("/", async (c) => {
 			const reader = streamBody.getReader();
 			const decoder = new TextDecoder();
 			let buffer = "";
+			let createdSent = false;
+			const sendCreated = async (chunk?: Record<string, unknown>) => {
+				if (createdSent) {
+					return;
+				}
+				if (typeof chunk?.model === "string" && chunk.model) {
+					state.model = chunk.model;
+				}
+				const createdEvent = createResponseCreatedEvent(state);
+				await stream.writeSSE({
+					event: createdEvent.event,
+					data: createdEvent.data,
+				});
+				createdSent = true;
+			};
 
 			// SSE keepalive to prevent proxy/load balancer and client idle
 			// timeouts from closing the connection during quiet gaps (slow
@@ -445,13 +508,6 @@ responses.post("/", async (c) => {
 				});
 			}, KEEPALIVE_INTERVAL_MS);
 
-			// Send response.created
-			const createdEvent = createResponseCreatedEvent(state);
-			await stream.writeSSE({
-				event: createdEvent.event,
-				data: createdEvent.data,
-			});
-
 			const processLine = async (line: string) => {
 				if (!line.startsWith("data: ")) {
 					return false;
@@ -459,6 +515,7 @@ responses.post("/", async (c) => {
 				const data = line.slice(6).trim();
 
 				if (data === "[DONE]") {
+					await sendCreated();
 					// Send completion events
 					const completionEvents = createCompletionEvents(
 						state,
@@ -486,7 +543,7 @@ responses.post("/", async (c) => {
 								input: inputItems,
 								output: buildFinalOutputItems(state),
 								instructions: req.instructions,
-								model: req.model,
+								model: state.model,
 								status: completedResponse?.status ?? "completed",
 								incomplete_details:
 									completedResponse?.incomplete_details ?? null,
@@ -511,6 +568,7 @@ responses.post("/", async (c) => {
 					return false;
 				}
 
+				await sendCreated(chunk);
 				const events = processStreamChunk(chunk, state);
 				for (const event of events) {
 					await stream.writeSSE({
@@ -559,6 +617,7 @@ responses.post("/", async (c) => {
 						error,
 					});
 					try {
+						await sendCreated();
 						const failedEvent = createFailedEvent(state);
 						await stream.writeSSE({
 							event: failedEvent.event,
@@ -584,6 +643,7 @@ responses.post("/", async (c) => {
 		req.model,
 		logId,
 		req,
+		toolRegistry,
 	);
 
 	// Store for previous_response_id (unless store: false). Storage always
@@ -597,7 +657,7 @@ responses.post("/", async (c) => {
 				input: inputItems,
 				output: responsesResponse.output,
 				instructions: req.instructions,
-				model: req.model,
+				model: responsesResponse.model,
 				status: responsesResponse.status as
 					"completed" | "incomplete" | "failed",
 				incomplete_details: responsesResponse.incomplete_details,
@@ -638,10 +698,21 @@ responses.post("/compact", async (c) => {
 			rawBody = await c.req.json();
 		}
 	} catch {
+		const message = "Invalid JSON in request body";
+		logger.warn("Invalid Responses compact JSON", {
+			path: c.req.path,
+			method: c.req.method,
+		});
+		await logGatewayClientError(c, {
+			apiOrigin: "responses",
+			rawBody: null,
+			message,
+			cause: "invalid_json",
+		});
 		return c.json(
 			{
 				error: {
-					message: "Invalid JSON in request body",
+					message,
 					type: "invalid_request_error",
 					code: "invalid_json",
 				},
@@ -652,10 +723,22 @@ responses.post("/compact", async (c) => {
 
 	const validation = compactRequestSchema.safeParse(rawBody);
 	if (!validation.success) {
+		const message = `Invalid request: ${formatValidationError(validation.error)}`;
+		logger.warn("Invalid Responses compact request", {
+			issues: validation.error.issues,
+			path: c.req.path,
+			method: c.req.method,
+		});
+		await logGatewayClientError(c, {
+			apiOrigin: "responses",
+			rawBody,
+			message,
+			cause: "invalid_request",
+		});
 		return c.json(
 			{
 				error: {
-					message: `Invalid request: ${validation.error.errors.map((e) => `${e.path.join(".")}: ${e.message}`).join(", ")}`,
+					message,
 					type: "invalid_request_error",
 					code: "invalid_request",
 				},
@@ -820,6 +903,14 @@ responses.post("/compact", async (c) => {
 		compactionId,
 		createdAt,
 	);
+	const responseModel =
+		chatJson &&
+		typeof chatJson === "object" &&
+		"model" in chatJson &&
+		typeof chatJson.model === "string" &&
+		chatJson.model.trim().length > 0
+			? chatJson.model
+			: req.model;
 
 	await storeResponse(
 		compactionId,
@@ -828,7 +919,7 @@ responses.post("/compact", async (c) => {
 			input: inputItems,
 			output: compactionResponse.output,
 			instructions: req.instructions,
-			model: req.model,
+			model: responseModel,
 			status: "completed",
 			usage: compactionResponse.usage as unknown as Record<string, unknown>,
 			created_at: createdAt,

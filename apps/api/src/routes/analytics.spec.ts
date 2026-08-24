@@ -38,6 +38,7 @@ interface LogOverrides {
 	completionTokens: string;
 	totalTokens: string;
 	hasError?: boolean;
+	unifiedFinishReason?: "client_error" | "gateway_error" | "upstream_error";
 	cached?: boolean;
 }
 
@@ -61,6 +62,7 @@ function insertLog(o: LogOverrides) {
 		totalTokens: o.totalTokens,
 		cost: o.cost,
 		hasError: o.hasError ?? false,
+		unifiedFinishReason: o.unifiedFinishReason,
 		cached: o.cached ?? false,
 		messages: JSON.stringify([{ role: "user", content: "Test" }]),
 		mode: "api-keys",
@@ -145,6 +147,7 @@ describe("analytics endpoints", () => {
 			completionTokens: "20",
 			totalTokens: "30",
 			hasError: true,
+			unifiedFinishReason: "upstream_error",
 		});
 		await insertLog({
 			id: "log-owner-2",
@@ -181,7 +184,17 @@ describe("analytics endpoints", () => {
 		cost: number;
 		requestCount: number;
 		totalTokens: number;
-		breakdown: { key: string; label: string; cost: number }[];
+		creditsRequestCount: number;
+		apiKeysRequestCount: number;
+		creditsCost: number;
+		apiKeysCost: number;
+		breakdown: {
+			key: string;
+			label: string;
+			cost: number;
+			creditsCost: number;
+			apiKeysCost: number;
+		}[];
 	}
 
 	function activeRows(rows: ActivitySeriesRow[]): ActivitySeriesRow[] {
@@ -315,6 +328,7 @@ describe("analytics endpoints", () => {
 			expect(data.summary.cost).toBeCloseTo(0.3, 5);
 			expect(data.summary.requestCount).toBe(2);
 			expect(data.summary.errorCount).toBe(1);
+			expect(data.summary.clientErrorCount).toBe(0);
 			expect(data.summary.cacheCount).toBe(1);
 			expect(data.summary.totalTokens).toBe(70);
 			expect(data.summary.apiKeyCount).toBe(1);
@@ -330,6 +344,32 @@ describe("analytics endpoints", () => {
 			expect(active[0].date).toBe(localDay(logTime, "UTC"));
 			expect(active[0].modelBreakdown[0].id).toBe("gpt-4");
 			expect(active[0].modelBreakdown[0].provider).toBe("openai");
+		});
+
+		test("keeps client errors out of the stability error total", async () => {
+			await insertLog({
+				id: "log-owner-client-error",
+				apiKeyId: "key-owner",
+				usedModel: "gpt-4",
+				usedProvider: "openai",
+				cost: 0,
+				promptTokens: "0",
+				completionTokens: "0",
+				totalTokens: "0",
+				hasError: true,
+				unifiedFinishReason: "client_error",
+			});
+			await aggregateLogsForTesting();
+
+			const res = await app.request(
+				`/analytics/members/${OWNER_ID}?organizationId=${ORG_ID}`,
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(200);
+			const data = await res.json();
+			expect(data.summary.requestCount).toBe(3);
+			expect(data.summary.errorCount).toBe(1);
+			expect(data.summary.clientErrorCount).toBe(1);
 		});
 
 		test("pads a window that has no usage with empty days", async () => {
@@ -677,6 +717,122 @@ describe("analytics endpoints", () => {
 			const athensDay = activeRows((await athensRes.json()).activity)[0];
 			expect(athensDay.date).toBe(localDay(boundary, "Europe/Athens"));
 			expect(athensDay.date).not.toBe(utcDay.date);
+		});
+	});
+
+	describe("credits vs BYOK mode split", () => {
+		beforeEach(async () => {
+			// The base fixture is entirely usedMode=api-keys; add one credits-mode
+			// log for the owner so every endpoint has both modes to split.
+			await db.insert(tables.log).values({
+				id: "log-owner-credits",
+				requestId: "log-owner-credits",
+				createdAt: logTime,
+				updatedAt: logTime,
+				organizationId: ORG_ID,
+				projectId: PROJECT_ID,
+				apiKeyId: "key-owner",
+				duration: 100,
+				requestedModel: "gpt-4",
+				requestedProvider: "openai",
+				usedModel: "gpt-4",
+				usedProvider: "openai",
+				responseSize: 1000,
+				promptTokens: "10",
+				completionTokens: "20",
+				totalTokens: "30",
+				cost: 0.4,
+				messages: JSON.stringify([{ role: "user", content: "credits" }]),
+				mode: "hybrid",
+				usedMode: "credits",
+			});
+			await aggregateLogsForTesting();
+		});
+
+		test("GET /analytics/members splits per-member usage", async () => {
+			const res = await app.request(
+				`/analytics/members?organizationId=${ORG_ID}`,
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(200);
+			const data = await res.json();
+
+			const owner = data.members.find(
+				(m: { userId: string }) => m.userId === OWNER_ID,
+			);
+			expect(owner.cost).toBeCloseTo(0.7, 5);
+			expect(owner.creditsCost).toBeCloseTo(0.4, 5);
+			expect(owner.apiKeysCost).toBeCloseTo(0.3, 5);
+			expect(owner.creditsRequestCount).toBe(1);
+			expect(owner.apiKeysRequestCount).toBe(2);
+
+			const member = data.members.find(
+				(m: { userId: string }) => m.userId === MEMBER_ID,
+			);
+			expect(member.creditsCost).toBe(0);
+			expect(member.apiKeysCost).toBeCloseTo(0.05, 5);
+		});
+
+		test("GET /analytics/members/{userId} splits summary and breakdowns", async () => {
+			const res = await app.request(
+				`/analytics/members/${OWNER_ID}?organizationId=${ORG_ID}`,
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(200);
+			const data = await res.json();
+
+			expect(data.summary.creditsCost).toBeCloseTo(0.4, 5);
+			expect(data.summary.apiKeysCost).toBeCloseTo(0.3, 5);
+			expect(data.summary.creditsRequestCount).toBe(1);
+			expect(data.summary.apiKeysRequestCount).toBe(2);
+
+			const gpt4 = data.costByModel.find(
+				(m: { key: string }) => m.key === "gpt-4",
+			);
+			expect(gpt4.creditsCost).toBeCloseTo(0.4, 5);
+			expect(gpt4.apiKeysCost).toBeCloseTo(0.3, 5);
+		});
+
+		test("GET /analytics/activity splits totals and breakdown", async () => {
+			const res = await app.request(
+				`/analytics/activity?organizationId=${ORG_ID}`,
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(200);
+			const data = await res.json();
+
+			const day = activeRows(data.activity)[0];
+			expect(day.creditsCost).toBeCloseTo(0.4, 5);
+			expect(day.apiKeysCost).toBeCloseTo(0.35, 5);
+			expect(day.creditsRequestCount).toBe(1);
+			expect(day.apiKeysRequestCount).toBe(3);
+
+			const gpt4 = day.breakdown.find((b) => b.key === "gpt-4");
+			expect(gpt4).toBeDefined();
+			expect(gpt4!.creditsCost).toBeCloseTo(0.4, 5);
+			expect(gpt4!.apiKeysCost).toBeCloseTo(0.3, 5);
+		});
+
+		test("GET /analytics/me splits summary, activity and top models", async () => {
+			const res = await app.request(
+				`/analytics/me?organizationId=${ORG_ID}&projectId=${PROJECT_ID}`,
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(200);
+			const data = await res.json();
+
+			expect(data.summary.creditsCost).toBeCloseTo(0.4, 5);
+			expect(data.summary.apiKeysCost).toBeCloseTo(0.3, 5);
+
+			const day = activeRows(data.activity)[0];
+			expect(day.creditsCost).toBeCloseTo(0.4, 5);
+			expect(day.apiKeysCost).toBeCloseTo(0.3, 5);
+
+			const gpt4 = data.topModels.find(
+				(m: { key: string }) => m.key === "gpt-4",
+			);
+			expect(gpt4.creditsCost).toBeCloseTo(0.4, 5);
+			expect(gpt4.apiKeysCost).toBeCloseTo(0.3, 5);
 		});
 	});
 });

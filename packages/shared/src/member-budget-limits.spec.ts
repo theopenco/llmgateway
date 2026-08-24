@@ -126,6 +126,16 @@ describe("validateApiKeyLimitsWithinMemberBudget", () => {
 		).toBeNull();
 	});
 
+	it("names the key owner's limit when validating someone else's key", () => {
+		const message = validateApiKeyLimitsWithinMemberBudget(
+			{ ...NO_LIMITS, usageLimit: "150" },
+			{ ...NO_LIMITS, usageLimit: "100" },
+			"other",
+		);
+		expect(message).toMatch(/the key owner's limit of \$100\.00/);
+		expect(message).toMatch(/Team page/);
+	});
+
 	it("requires a recurring key limit when the member has one", () => {
 		expect(
 			validateApiKeyLimitsWithinMemberBudget(NO_LIMITS, {

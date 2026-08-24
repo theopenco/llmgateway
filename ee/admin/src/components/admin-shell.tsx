@@ -9,6 +9,7 @@ import {
 	Cpu,
 	Gauge,
 	GitMerge,
+	KeyRound,
 	LayoutDashboard,
 	LogOut,
 	Mail,
@@ -16,13 +17,17 @@ import {
 	MessageCircle,
 	MessageSquare,
 	Percent,
+	Route,
 	Server,
+	Settings,
+	ShieldAlert,
 	Sparkles,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
 import { ThemeToggle } from "@/components/landing/theme-toggle";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
 	Sidebar,
@@ -39,14 +44,135 @@ import {
 	SidebarTrigger,
 	useSidebar,
 } from "@/components/ui/sidebar";
+import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
 
 import { Logo } from "./ui/logo";
 
+import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
+
+interface NavItem {
+	href: string;
+	label: string;
+	icon: LucideIcon;
+	/**
+	 * "prefix" highlights the entry on its detail routes too; "exact" keeps the
+	 * highlight on the index page only.
+	 */
+	match: "exact" | "prefix";
+}
+
+const navItems: NavItem[] = [
+	{ href: "/", label: "Dashboard", icon: LayoutDashboard, match: "exact" },
+	{
+		href: "/organizations",
+		label: "Organizations",
+		icon: Building2,
+		match: "prefix",
+	},
+	{ href: "/devpass", label: "DevPass", icon: Sparkles, match: "prefix" },
+	{
+		href: "/chat-plans",
+		label: "Lounge Plans",
+		icon: MessageSquare,
+		match: "prefix",
+	},
+	{
+		href: "/global-stats",
+		label: "Global Stats",
+		icon: BarChart3,
+		match: "prefix",
+	},
+	{ href: "/discounts", label: "Discounts", icon: Percent, match: "exact" },
+	{
+		href: "/rate-limits",
+		label: "Global Rate Limits",
+		icon: Gauge,
+		match: "exact",
+	},
+	{ href: "/providers", label: "Providers", icon: Server, match: "exact" },
+	{
+		href: "/provider-credentials",
+		label: "Provider Credentials",
+		icon: KeyRound,
+		match: "prefix",
+	},
+	{ href: "/models", label: "Models", icon: Cpu, match: "exact" },
+	{
+		href: "/model-provider-mappings",
+		label: "Model Mappings",
+		icon: GitMerge,
+		match: "exact",
+	},
+	{
+		href: "/routing-analytics",
+		label: "Routing Analytics",
+		icon: Route,
+		match: "prefix",
+	},
+	{
+		href: "/unstable-mappings",
+		label: "Unstable Mappings",
+		icon: Activity,
+		match: "prefix",
+	},
+	{
+		href: "/contact-submissions",
+		label: "Contact Submissions",
+		icon: Mail,
+		match: "prefix",
+	},
+	{
+		href: "/provider-listing-requests",
+		label: "Provider Requests",
+		icon: Building2,
+		match: "prefix",
+	},
+	{
+		href: "/chat-support-logs",
+		label: "Chat Support Logs",
+		icon: MessageCircle,
+		match: "prefix",
+	},
+	{
+		href: "/payment-failures",
+		label: "Payment Failures",
+		icon: AlertTriangle,
+		match: "prefix",
+	},
+	{
+		href: "/flagged-accounts",
+		label: "Flagged Accounts",
+		icon: ShieldAlert,
+		match: "prefix",
+	},
+	{
+		href: "/limit-hits",
+		label: "Limit Hits",
+		icon: ShieldAlert,
+		match: "prefix",
+	},
+	{ href: "/settings", label: "Settings", icon: Settings, match: "exact" },
+];
+
+function isActive(item: NavItem, pathname: string): boolean {
+	if (item.href === "/") {
+		return pathname === "/" || pathname === "";
+	}
+	return item.match === "exact"
+		? pathname === item.href
+		: pathname.startsWith(item.href);
+}
 
 interface AdminShellProps {
 	children: ReactNode;
+	/**
+	 * Server-rendered session-cookie presence. Used only as the fallback while
+	 * `/user/me` is still in flight, so the navigation does not flash in or out
+	 * on every full page load.
+	 */
+	signedIn: boolean;
 }
 
 function MobileHeader() {
@@ -81,29 +207,28 @@ function MobileHeader() {
 	);
 }
 
-export function AdminShell({ children }: AdminShellProps) {
+export function AdminShell({ children, signedIn }: AdminShellProps) {
 	const pathname = usePathname();
 	const router = useRouter();
 	const { signOut } = useAuth();
 	const queryClient = useQueryClient();
+	const { user, isLoading, error, data } = useUser();
 
-	const isDashboard = pathname === "/" || pathname === "";
-	const isOrganizations = pathname.startsWith("/organizations");
-	const isDevpass = pathname.startsWith("/devpass");
-	const isChatPlans = pathname.startsWith("/chat-plans");
-	const isGlobalStats = pathname.startsWith("/global-stats");
-	const isDiscounts = pathname === "/discounts";
-	const isRateLimits = pathname === "/rate-limits";
-	const isProviders = pathname === "/providers";
-	const isModels = pathname === "/models";
-	const isModelProviderMappings = pathname === "/model-provider-mappings";
-	const isUnstableMappings = pathname.startsWith("/unstable-mappings");
-	const isContactSubmissions = pathname.startsWith("/contact-submissions");
-	const isProviderListingRequests = pathname.startsWith(
-		"/provider-listing-requests",
-	);
-	const isChatSupportLogs = pathname.startsWith("/chat-support-logs");
-	const isPaymentFailures = pathname.startsWith("/payment-failures");
+	// Visitors without an admin session never see the navigation: the section
+	// list would suggest there is something reachable behind it, and a sign out
+	// button makes no sense when nobody is signed in.
+	const showNav = user ? user.isAdmin : isLoading && !error && signedIn;
+
+	if (!showNav) {
+		return (
+			<div className="relative min-h-svh w-full">
+				<div className="absolute right-4 top-4 z-50">
+					<ThemeToggle size="compact" />
+				</div>
+				{children}
+			</div>
+		);
+	}
 
 	const handleSignOut = async () => {
 		await signOut({
@@ -141,132 +266,22 @@ export function AdminShell({ children }: AdminShellProps) {
 					<SidebarGroup>
 						<SidebarGroupLabel>Main</SidebarGroupLabel>
 						<SidebarMenu>
-							<SidebarMenuItem>
-								<Link href="/" className="block">
-									<SidebarMenuButton isActive={isDashboard} size="lg">
-										<LayoutDashboard className="h-4 w-4" />
-										<span>Dashboard</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
-							<SidebarMenuItem>
-								<Link href="/organizations" className="block">
-									<SidebarMenuButton isActive={isOrganizations} size="lg">
-										<Building2 className="h-4 w-4" />
-										<span>Organizations</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
-							<SidebarMenuItem>
-								<Link href="/devpass" className="block">
-									<SidebarMenuButton isActive={isDevpass} size="lg">
-										<Sparkles className="h-4 w-4" />
-										<span>DevPass</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
-							<SidebarMenuItem>
-								<Link href="/chat-plans" className="block">
-									<SidebarMenuButton isActive={isChatPlans} size="lg">
-										<MessageSquare className="h-4 w-4" />
-										<span>Lounge Plans</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
-							<SidebarMenuItem>
-								<Link href="/global-stats" className="block">
-									<SidebarMenuButton isActive={isGlobalStats} size="lg">
-										<BarChart3 className="h-4 w-4" />
-										<span>Global Stats</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
-							<SidebarMenuItem>
-								<Link href="/discounts" className="block">
-									<SidebarMenuButton isActive={isDiscounts} size="lg">
-										<Percent className="h-4 w-4" />
-										<span>Discounts</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
-							<SidebarMenuItem>
-								<Link href="/rate-limits" className="block">
-									<SidebarMenuButton isActive={isRateLimits} size="lg">
-										<Gauge className="h-4 w-4" />
-										<span>Global Rate Limits</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
-							<SidebarMenuItem>
-								<Link href="/providers" className="block">
-									<SidebarMenuButton isActive={isProviders} size="lg">
-										<Server className="h-4 w-4" />
-										<span>Providers</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
-							<SidebarMenuItem>
-								<Link href="/models" className="block">
-									<SidebarMenuButton isActive={isModels} size="lg">
-										<Cpu className="h-4 w-4" />
-										<span>Models</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
-							<SidebarMenuItem>
-								<Link href="/model-provider-mappings" className="block">
-									<SidebarMenuButton
-										isActive={isModelProviderMappings}
-										size="lg"
-									>
-										<GitMerge className="h-4 w-4" />
-										<span>Model Mappings</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
-							<SidebarMenuItem>
-								<Link href="/unstable-mappings" className="block">
-									<SidebarMenuButton isActive={isUnstableMappings} size="lg">
-										<Activity className="h-4 w-4" />
-										<span>Unstable Mappings</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
-							<SidebarMenuItem>
-								<Link href="/contact-submissions" className="block">
-									<SidebarMenuButton isActive={isContactSubmissions} size="lg">
-										<Mail className="h-4 w-4" />
-										<span>Contact Submissions</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
-							<SidebarMenuItem>
-								<Link href="/provider-listing-requests" className="block">
-									<SidebarMenuButton
-										isActive={isProviderListingRequests}
-										size="lg"
-									>
-										<Building2 className="h-4 w-4" />
-										<span>Provider Requests</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
-							<SidebarMenuItem>
-								<Link href="/chat-support-logs" className="block">
-									<SidebarMenuButton isActive={isChatSupportLogs} size="lg">
-										<MessageCircle className="h-4 w-4" />
-										<span>Chat Support Logs</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
-							<SidebarMenuItem>
-								<Link href="/payment-failures" className="block">
-									<SidebarMenuButton isActive={isPaymentFailures} size="lg">
-										<AlertTriangle className="h-4 w-4" />
-										<span>Payment Failures</span>
-									</SidebarMenuButton>
-								</Link>
-							</SidebarMenuItem>
+							{navItems.map((item) => {
+								const Icon = item.icon;
+								return (
+									<SidebarMenuItem key={item.href}>
+										<Link href={item.href} prefetch={true} className="block">
+											<SidebarMenuButton
+												isActive={isActive(item, pathname)}
+												size="lg"
+											>
+												<Icon className="h-4 w-4" />
+												<span>{item.label}</span>
+											</SidebarMenuButton>
+										</Link>
+									</SidebarMenuItem>
+								);
+							})}
 						</SidebarMenu>
 					</SidebarGroup>
 				</SidebarContent>
@@ -287,6 +302,16 @@ export function AdminShell({ children }: AdminShellProps) {
 			</Sidebar>
 			<SidebarInset>
 				<MobileHeader />
+				{data?.enterpriseLicense?.status === "grace" && (
+					<Alert className="rounded-none border-x-0 border-t-0 border-amber-500/40 bg-amber-500/10 px-6 text-amber-950 dark:text-amber-100">
+						<AlertTriangle />
+						<AlertTitle>Enterprise license expired</AlertTitle>
+						<AlertDescription>
+							Admin access remains available during the seven-day grace period.
+							Install a renewed license before it ends.
+						</AlertDescription>
+					</Alert>
+				)}
 				{children}
 			</SidebarInset>
 		</SidebarProvider>

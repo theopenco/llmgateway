@@ -20,8 +20,8 @@ key, and keep your existing event handling.
 
 <Callout type="info">
 	Want to talk to a model right now? The [Realtime
-	page](https://chat.llmgateway.io/realtime) in Lounge runs a full voice call in
-	the browser using this API.
+	page](https://lounge.llmgateway.io/realtime) in Lounge runs a full voice call
+	in the browser using this API.
 </Callout>
 
 ## Available Models
@@ -167,8 +167,49 @@ Client secret behavior:
 - **Transcription pinning**: optionally pin an input transcription model at
   mint time via `session.audio.input.transcription.model`. The session can
   then only enable that transcription model.
+- **Instruction pinning**: optionally pin the session prompt at mint time via
+  `session.instructions` — see below.
+- **Voice**: optionally set the session's default output voice at mint time
+  via `session.audio.output.voice`. Unlike instructions this is only a
+  default; the client may still change it.
 - All authentication, credit, model access, and compliance checks run at
   mint time and again at connection time.
+
+### Server-Authoritative Instructions
+
+By default the session prompt is set by whoever holds the socket, so a browser
+client has to send `session.instructions` itself. If your server owns the
+prompt, pin it at mint time instead:
+
+```json
+{
+	"session": {
+		"type": "realtime",
+		"model": "gpt-realtime",
+		"instructions": "You are a support agent for ACME."
+	}
+}
+```
+
+The gateway then applies the instructions itself when the session connects, so
+the prompt never has to travel through the browser. It is not echoed in the
+mint response, and it is stripped from the `session.created` and
+`session.updated` events the client receives.
+
+Once pinned, the instructions are locked for the session's lifetime, the same
+way `session.model` is. A client that tries to change them gets an
+`instructions_locked` error event and the change is not applied — this covers
+both `session.update` and per-response `response.create.instructions`.
+
+Instructions larger than 16,384 estimated tokens are rejected at mint time with
+a 400 `instructions_too_large`, so an oversized prompt fails server-to-server
+rather than mid-call.
+
+<Callout type="info">
+	On Gemini realtime models the same pin applies to `setup.systemInstruction`,
+	and a client-supplied `systemInstruction` is rejected with the same
+	`instructions_locked` code.
+</Callout>
 
 ## Input Audio Transcription
 

@@ -6,19 +6,27 @@ import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harne
 import {
 	getMockVideo,
 	setMockVideoStatus,
+	setMockVideoStatusResponse,
 } from "@/test-utils/mock-openai-server.js";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
+import { buildGatewayVideoLogContentUrl } from "@llmgateway/shared";
 
 describe("videos", () => {
 	const harness = createGatewayApiTestHarness();
 	let mockServerUrl: string;
 	let originalGoogleVertexBaseUrl: string | undefined;
+	let originalAvalancheApiKey: string | undefined;
+	let originalAvalancheBaseUrl: string | undefined;
 
 	beforeAll(() => {
 		mockServerUrl = harness.mockServerUrl;
 		originalGoogleVertexBaseUrl = process.env.LLM_GOOGLE_VERTEX_BASE_URL;
+		originalAvalancheApiKey = process.env.LLM_AVALANCHE_API_KEY;
+		originalAvalancheBaseUrl = process.env.LLM_AVALANCHE_BASE_URL;
 		process.env.LLM_GOOGLE_VERTEX_BASE_URL = mockServerUrl;
+		process.env.LLM_AVALANCHE_API_KEY = "avalanche-env-key";
+		process.env.LLM_AVALANCHE_BASE_URL = mockServerUrl;
 	});
 
 	afterAll(() => {
@@ -26,6 +34,16 @@ describe("videos", () => {
 			process.env.LLM_GOOGLE_VERTEX_BASE_URL = originalGoogleVertexBaseUrl;
 		} else {
 			delete process.env.LLM_GOOGLE_VERTEX_BASE_URL;
+		}
+		if (originalAvalancheApiKey !== undefined) {
+			process.env.LLM_AVALANCHE_API_KEY = originalAvalancheApiKey;
+		} else {
+			delete process.env.LLM_AVALANCHE_API_KEY;
+		}
+		if (originalAvalancheBaseUrl !== undefined) {
+			process.env.LLM_AVALANCHE_BASE_URL = originalAvalancheBaseUrl;
+		} else {
+			delete process.env.LLM_AVALANCHE_BASE_URL;
 		}
 	});
 
@@ -83,6 +101,84 @@ describe("videos", () => {
 		expect(JSON.stringify(json)).toContain("duration 6s");
 		expect(JSON.stringify(json)).toContain("aspect_ratio");
 		expect(JSON.stringify(json)).toContain("fixed 8s clips");
+	});
+
+	test("/v1/videos redacts stealth-provider errors persisted by the worker", async () => {
+		const secret =
+			"SecretVendor SensitiveContentDetected at https://api.secretvendor.com";
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-avalanche-key",
+			provider: "avalanche",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "avalanche/veo-3.1-generate-preview",
+				prompt: "A mountain range at sunrise",
+				size: "1920x1080",
+				seconds: 8,
+			}),
+		});
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		const job = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(job).toBeTruthy();
+		setMockVideoStatus(job!.upstreamId, "failed", {
+			error: { message: secret },
+		});
+
+		await processPendingVideoJobs();
+
+		const persistedJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		const log = await db.query.log.findFirst({
+			where: { requestId: { eq: job!.requestId } },
+		});
+		expect(persistedJob).toBeTruthy();
+		expect(log).toBeTruthy();
+		expect(JSON.stringify(persistedJob!.upstreamStatusResponse)).toContain(
+			secret,
+		);
+		expect(log!.finishReason).toBe("content_filter");
+		expect(log!.upstreamResponse).toBeNull();
+		expect(log!.internalErrorDetails).toMatchObject({ responseText: secret });
+		expect(log!.errorDetails).toEqual({
+			statusCode: 502,
+			statusText: "Bad Gateway",
+			responseText: "Upstream provider error (502 Bad Gateway)",
+		});
+		const { internalErrorDetails: _internalErrorDetails, ...publicLog } = log!;
+		expect(JSON.stringify(publicLog)).not.toContain("SecretVendor");
+		expect(JSON.stringify(publicLog)).not.toContain("secretvendor.com");
+
+		const statusRes = await app.request(`/v1/videos/${created.id}`, {
+			headers: { Authorization: "Bearer real-token" },
+		});
+		expect(statusRes.status).toBe(200);
+		const responseText = await statusRes.text();
+		expect(responseText).not.toContain("SecretVendor");
+		expect(responseText).not.toContain("secretvendor.com");
+		expect(JSON.parse(responseText).error).toEqual({
+			message: "Upstream provider error (502 Bad Gateway)",
+		});
 	});
 
 	test("/v1/videos rejects dev-plan personal orgs with 403", async () => {
@@ -313,7 +409,9 @@ describe("videos", () => {
 		const json = await res.json();
 		expect(json.error.message).toContain("Invalid image input");
 		expect(json.error.message).toContain("Image size");
-		expect(json.error.message).toContain("exceeds your current limit");
+		expect(json.error.message).toContain(
+			"exceeds the 20MB limit for image inputs",
+		);
 
 		const logs = await db.query.log.findMany({
 			where: { requestId: { eq: requestId } },
@@ -429,6 +527,7 @@ describe("videos", () => {
 
 		expect(createRes.status).toBe(200);
 		const created = await createRes.json();
+		expect(created.model).toBe("atlascloud/kling-v3-0");
 		const videoJob = await db.query.videoJob.findFirst({
 			where: { id: { eq: created.id } },
 		});
@@ -776,7 +875,7 @@ describe("videos", () => {
 		expect(totalCosts[1]).toBeCloseTo(expectedCost, 6);
 	});
 
-	test("/v1/videos restricts reference inputs to Seedance 2.0 models", async () => {
+	test("/v1/videos restricts reference inputs to Seedance 2.x models", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			token: "real-token",
@@ -802,7 +901,7 @@ describe("videos", () => {
 
 		expect(res.status).toBe(400);
 		const json = await res.json();
-		expect(JSON.stringify(json)).toContain("Seedance 2.0");
+		expect(JSON.stringify(json)).toContain("Seedance 2.x");
 	});
 
 	test("/v1/videos forwards up to nine reference images to Seedance 2.0 Fast", async () => {
@@ -851,6 +950,105 @@ describe("videos", () => {
 
 		const mockVideo = getMockVideo(videoJob!.upstreamId);
 		expect(mockVideo?.referenceImages).toHaveLength(9);
+	});
+
+	test("/v1/videos routes Seedance 2.5 with its own resolution and duration range", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-bytedance-key",
+			provider: "bytedance",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "seedance-2-5",
+				prompt: "A long single-shot walk through a night market",
+				size: "848x480",
+				seconds: 30,
+				audio: false,
+				reference_videos: ["https://example.com/reference-motion.mp4"],
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(videoJob?.usedProvider).toBe("bytedance");
+		expect(videoJob?.usedModel).toBe("dreamina-seedance-2-5-260628");
+
+		const mockVideo = getMockVideo(videoJob!.upstreamId);
+		expect(mockVideo?.resolution).toBe("480p");
+		expect(mockVideo?.duration).toBe(30);
+		expect(mockVideo?.ratio).toBe("16:9");
+		expect(mockVideo?.referenceVideoUrls).toEqual([
+			"https://example.com/reference-motion.mp4",
+		]);
+	});
+
+	test("/v1/videos rejects 4K and over-30s durations on Seedance 2.5", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-bytedance-key",
+			provider: "bytedance",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const fourKRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "bytedance/seedance-2-5",
+				prompt: "A night market",
+				size: "3840x2160",
+				seconds: 4,
+			}),
+		});
+		expect(fourKRes.status).toBe(400);
+
+		const tooLongRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "bytedance/seedance-2-5",
+				prompt: "A night market",
+				size: "1280x720",
+				seconds: 31,
+			}),
+		});
+		expect(tooLongRes.status).toBe(400);
 	});
 
 	test("/v1/videos rejects more than nine reference images on Seedance 2.0 Fast", async () => {
@@ -1020,6 +1218,173 @@ describe("videos", () => {
 					originalGoogleVertexVideoOutputBucket;
 			} else {
 				delete process.env.LLM_GOOGLE_VERTEX_VIDEO_OUTPUT_BUCKET;
+			}
+		}
+	});
+
+	test("/v1/videos serves credits mode from a managed credential and pins it to the job", async () => {
+		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		const originalRuntimeGoogleCloudProject = process.env.GOOGLE_CLOUD_PROJECT;
+		const originalGoogleVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
+		const originalGoogleVertexApiKey = process.env.LLM_GOOGLE_VERTEX_API_KEY;
+		// No LLM_* credential for the provider: the managed credential alone must
+		// make it routable and carry every setting video generation needs.
+		delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		delete process.env.LLM_GOOGLE_VERTEX_API_KEY;
+		process.env.GOOGLE_CLOUD_PROJECT = "managed-video-project";
+		process.env.LLM_GOOGLE_VERTEX_REGION = "us-central1";
+
+		try {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await harness.setProjectMode("credits");
+
+			await cdb.insert(tables.providerKey).values({
+				id: "managed-vertex-video",
+				provider: "google-vertex",
+				token: "vertex-test-token",
+				managed: true,
+				organizationId: null,
+				config: {
+					baseUrl: mockServerUrl,
+					project: "managed-video-project",
+					region: "us-central1",
+				},
+			});
+
+			const res = await app.request("/v1/videos", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "google-vertex/veo-3.1-generate-preview",
+					prompt: "A managed credential rendering a sunrise",
+					size: "1920x1080",
+					seconds: 8,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const json = await res.json();
+			const videoJob = await db.query.videoJob.findFirst({
+				where: { id: { eq: json.id } },
+			});
+			expect(videoJob?.usedProvider).toBe("google-vertex");
+			expect(videoJob?.usedMode).toBe("credits");
+			// Polling happens later, possibly from the worker, so the exact
+			// credential that created the job is recorded on it.
+			expect(videoJob?.managedProviderKeyId).toBe("managed-vertex-video");
+
+			// And the job stays pollable through that same credential — both from
+			// the gateway and from the worker, which runs long after the request
+			// with no env var to fall back on.
+			const statusRes = await app.request(`/v1/videos/${json.id}`, {
+				headers: { Authorization: "Bearer real-token" },
+			});
+			expect(statusRes.status).toBe(200);
+			expect((await statusRes.json()).model).toBe(
+				"google-vertex/veo-3.1-generate-preview",
+			);
+
+			setMockVideoStatus(videoJob!.upstreamId, "completed");
+			await processPendingVideoJobs();
+
+			const completedRes = await app.request(`/v1/videos/${json.id}`, {
+				headers: { Authorization: "Bearer real-token" },
+			});
+			expect(completedRes.status).toBe(200);
+			expect((await completedRes.json()).status).toBe("completed");
+		} finally {
+			await harness.setProjectMode("api-keys");
+			if (originalGoogleCloudProject !== undefined) {
+				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
+			}
+			if (originalRuntimeGoogleCloudProject !== undefined) {
+				process.env.GOOGLE_CLOUD_PROJECT = originalRuntimeGoogleCloudProject;
+			} else {
+				delete process.env.GOOGLE_CLOUD_PROJECT;
+			}
+			if (originalGoogleVertexRegion !== undefined) {
+				process.env.LLM_GOOGLE_VERTEX_REGION = originalGoogleVertexRegion;
+			} else {
+				delete process.env.LLM_GOOGLE_VERTEX_REGION;
+			}
+			if (originalGoogleVertexApiKey !== undefined) {
+				process.env.LLM_GOOGLE_VERTEX_API_KEY = originalGoogleVertexApiKey;
+			}
+		}
+	});
+
+	test("/v1/videos excludes a projectless managed Vertex API key", async () => {
+		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		const originalGoogleVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
+		const originalGoogleVertexApiKey = process.env.LLM_GOOGLE_VERTEX_API_KEY;
+		process.env.LLM_GOOGLE_CLOUD_PROJECT = "env-video-project";
+		process.env.LLM_GOOGLE_VERTEX_REGION = "us-central1";
+		process.env.LLM_GOOGLE_VERTEX_API_KEY = "env-vertex-test-token";
+
+		try {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await harness.setProjectMode("credits");
+
+			await cdb.insert(tables.providerKey).values({
+				id: "managed-vertex-video-projectless",
+				provider: "google-vertex",
+				token: "vertex-test-token",
+				managed: true,
+				organizationId: null,
+				config: {
+					baseUrl: mockServerUrl,
+					region: "us-central1",
+				},
+			});
+
+			const res = await app.request("/v1/videos", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "google-vertex/veo-3.1-generate-preview",
+					prompt: "A projectless credential must not reach Veo",
+					size: "1920x1080",
+					seconds: 8,
+				}),
+			});
+
+			expect(res.status).toBe(400);
+		} finally {
+			await harness.setProjectMode("api-keys");
+			if (originalGoogleCloudProject !== undefined) {
+				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
+			} else {
+				delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+			}
+			if (originalGoogleVertexRegion !== undefined) {
+				process.env.LLM_GOOGLE_VERTEX_REGION = originalGoogleVertexRegion;
+			} else {
+				delete process.env.LLM_GOOGLE_VERTEX_REGION;
+			}
+			if (originalGoogleVertexApiKey !== undefined) {
+				process.env.LLM_GOOGLE_VERTEX_API_KEY = originalGoogleVertexApiKey;
+			} else {
+				delete process.env.LLM_GOOGLE_VERTEX_API_KEY;
 			}
 		}
 	});
@@ -1217,9 +1582,7 @@ describe("videos", () => {
 		);
 
 		expect(logs[0].usedModelMapping).toBe("veo3_fast");
-		expect(logs[0].content).toBe(
-			`http://localhost:4001/v1/videos/logs/${logs[0].id}/content`,
-		);
+		expect(logs[0].content).toBe(buildGatewayVideoLogContentUrl(logs[0].id));
 		expect(logs[0].requestCost).toBe(0);
 		expect(logs[0].videoOutputCost).toBe(2.8);
 		expect(logs[0].cost).toBe(2.8);
@@ -1398,6 +1761,144 @@ describe("videos", () => {
 		expect(logs[0].cost).toBe(0.85);
 	});
 
+	test("/v1/videos caps logged xAI polling error response contents", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "xai-test-token",
+			provider: "xai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "xai/grok-imagine-video-1-5",
+				prompt: "A cat walking across a rooftop at sunset",
+				size: "1280x720",
+				seconds: 6,
+				image: { image_url: "data:image/png;base64,aGVsbG8=" },
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(videoJob).toBeTruthy();
+
+		const upstreamError = {
+			detail: `The input image could not be processed: ${"x".repeat(5000)}discarded-suffix`,
+			request_id: "upstream-request-id",
+		};
+		setMockVideoStatusResponse(videoJob!.upstreamId, 400, upstreamError);
+		await db
+			.update(tables.videoJob)
+			.set({
+				upstreamStatusResponse: {
+					llmgateway_poll_error_count: 4,
+				},
+			})
+			.where(eq(tables.videoJob.id, videoJob!.id));
+
+		await processPendingVideoJobs();
+
+		const persistedJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		const log = await db.query.log.findFirst({
+			where: { requestId: { eq: videoJob!.requestId } },
+		});
+		const expectedError = `Upstream status request failed with status 400: ${JSON.stringify(upstreamError).slice(0, 4000)}`;
+		const statusResponse = persistedJob?.upstreamStatusResponse as Record<
+			string,
+			unknown
+		>;
+		expect(persistedJob?.status).toBe("failed");
+		expect(persistedJob?.error?.message).toContain(expectedError);
+		expect(statusResponse.llmgateway_last_poll_error).toBe(expectedError);
+		expect(log?.errorDetails?.responseText).toContain(expectedError);
+		expect(JSON.stringify(persistedJob)).not.toContain("discarded-suffix");
+		expect(JSON.stringify(log)).not.toContain("discarded-suffix");
+	});
+
+	test("/v1/videos maps xAI poll moderation to content_filter", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "xai-test-token",
+			provider: "xai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "xai/grok-imagine-video-1-5",
+				prompt: "A cat walking across a rooftop at sunset",
+				size: "1280x720",
+				seconds: 6,
+				image: { image_url: "data:image/png;base64,aGVsbG8=" },
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(videoJob).toBeTruthy();
+
+		const upstreamError = {
+			code: "imagine:content-moderated",
+			error: "Generated video rejected by content moderation.",
+			usage: { cost_in_usd_ticks: 0 },
+		};
+		setMockVideoStatusResponse(videoJob!.upstreamId, 400, upstreamError);
+
+		await processPendingVideoJobs();
+
+		const persistedJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		const log = await db.query.log.findFirst({
+			where: { requestId: { eq: videoJob!.requestId } },
+		});
+		expect(persistedJob?.status).toBe("failed");
+		expect(persistedJob?.pollAttemptCount).toBe(1);
+		expect(persistedJob?.error).toMatchObject({
+			code: "imagine:content-moderated",
+			message: "Generated video rejected by content moderation.",
+		});
+		expect(log?.finishReason).toBe("content_filter");
+		expect(log?.unifiedFinishReason).toBe("content_filter");
+	});
+
 	test("/v1/videos supports completed google-vertex jobs", async () => {
 		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 		const originalRuntimeGoogleCloudProject = process.env.GOOGLE_CLOUD_PROJECT;
@@ -1493,9 +1994,7 @@ describe("videos", () => {
 			);
 
 			expect(logs[0].usedModelMapping).toBe("veo-3.1-generate-001");
-			expect(logs[0].content).toBe(
-				`http://localhost:4001/v1/videos/logs/${logs[0].id}/content`,
-			);
+			expect(logs[0].content).toBe(buildGatewayVideoLogContentUrl(logs[0].id));
 			expect(logs[0].videoOutputCost).toBe(4.8);
 			expect(logs[0].cost).toBe(4.8);
 		} finally {
@@ -1886,7 +2385,7 @@ describe("videos", () => {
 		expect(res.status).toBe(400);
 		const json = await res.json();
 		expect(JSON.stringify(json)).toContain(
-			"frame inputs are currently only supported on bytedance Seedance 2.0",
+			"frame inputs are currently only supported on bytedance Seedance 2.x",
 		);
 	});
 

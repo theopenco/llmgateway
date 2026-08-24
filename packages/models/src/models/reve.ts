@@ -24,6 +24,8 @@ export const reveModels = [
 				tools: false,
 				jsonOutput: false,
 				imageGenerations: true,
+				// Reve's public API is winding down, with a full sunset on 2026-08-14
+				deactivatedAt: new Date("2026-08-06"),
 			},
 		],
 	},

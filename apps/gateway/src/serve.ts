@@ -1,5 +1,6 @@
-import { serve } from "@hono/node-server";
+import { createAdaptorServer, serve } from "@hono/node-server";
 
+import { startProviderEnvInventoryPublisher } from "@llmgateway/actions";
 import { redisClient, storageRedisClient } from "@llmgateway/cache";
 import { closeDatabase, setQueryTags } from "@llmgateway/db";
 import {
@@ -7,13 +8,16 @@ import {
 	shutdownInstrumentation,
 } from "@llmgateway/instrumentation";
 import { logger, toError } from "@llmgateway/logger";
+import { getEnterpriseLicenseStatus } from "@llmgateway/shared/enterprise-license";
 
 import { app } from "./app.js";
+import { pendingWorkCount, waitForPendingWork } from "./lib/pending-work.js";
 import {
 	closeUpstreamDispatcher,
 	installUpstreamDispatcher,
 } from "./lib/upstream-dispatcher.js";
 import { metricsApp } from "./metrics-app.js";
+import { posthog } from "./posthog.js";
 import { attachRealtimeServer } from "./realtime/server.js";
 
 import type { RealtimeServer } from "./realtime/server.js";
@@ -21,7 +25,10 @@ import type { ServerType } from "@hono/node-server";
 import type { NodeSDK } from "@opentelemetry/sdk-node";
 import type { Server } from "node:http";
 
-const port = Number(process.env.PORT) || 4001;
+// GATEWAY_PORT wins over PORT so a local worktree can pin gateway and api to
+// different ports from one shared shell env (both services read PORT).
+// Deployments only ever set PORT, so they are unaffected.
+const port = Number(process.env.GATEWAY_PORT || process.env.PORT) || 4001;
 
 // The Prometheus metrics endpoint is served on a separate port so it can be
 // exposed only internally (via the cluster network / Service) and never through
@@ -42,6 +49,7 @@ const realtimeInline = process.env.REALTIME_INLINE === "true";
 let sdk: NodeSDK | null = null;
 let metricsServer: ServerType | null = null;
 let realtime: RealtimeServer | null = null;
+let stopEnvInventoryPublisher: (() => void) | null = null;
 
 async function startServer() {
 	// Tag every DB query with the originating service for Cloud SQL Query Insights
@@ -67,17 +75,55 @@ async function startServer() {
 		fetch: metricsApp.fetch,
 	});
 
-	logger.info("Server starting", { port });
-
-	const server = serve({
-		port,
-		fetch: app.fetch,
+	const enterpriseLicense = getEnterpriseLicenseStatus();
+	logger.info("Enterprise license status", {
+		status: enterpriseLicense.status,
+		licenseId: enterpriseLicense.licenseId,
+		keyId: enterpriseLicense.keyId,
+		expiresAt: enterpriseLicense.expiresAt,
+		maxSeats: enterpriseLicense.maxSeats,
 	});
+
+	// Node's default accept backlog (511) overflows under connection bursts, which
+	// the GKE L7 LB surfaces as "connection timeout". Raise it so bursts queue
+	// instead of being dropped. The kernel caps the effective value at
+	// net.core.somaxconn (4096 on modern COS nodes), so 1024 is honored.
+	const listenBacklog = Number(process.env.LISTEN_BACKLOG) || 1024;
+
+	logger.info("Server starting", { port, backlog: listenBacklog });
+
+	const server = createAdaptorServer({ fetch: app.fetch });
+
+	// Wait for the bind to succeed (or fail) before resolving, so a bind error
+	// (e.g. EADDRINUSE) rejects startup → process.exit(1) instead of being
+	// swallowed by the log-and-continue uncaughtException handler, which would
+	// otherwise leave the process alive without accepting traffic.
+	await new Promise<void>((resolve, reject) => {
+		const onError = (error: Error) => {
+			server.off("listening", onListening);
+			reject(error);
+		};
+		const onListening = () => {
+			server.off("error", onError);
+			resolve();
+		};
+		server.once("error", onError);
+		server.once("listening", onListening);
+		server.listen({ port, backlog: listenBacklog });
+	});
+
+	logger.info("Server listening", { port, backlog: listenBacklog });
 
 	if (realtimeInline) {
 		realtime = attachRealtimeServer(server as Server);
 		logger.info("Realtime WebSocket proxy attached inline", { port });
 	}
+
+	// Publish which LLM_* API keys this process holds (masked and fingerprinted,
+	// never the tokens) so the admin dashboard lists the keys actually serving
+	// traffic. The API is a separate deployment and generally has no provider
+	// keys of its own to report.
+	stopEnvInventoryPublisher = startProviderEnvInventoryPublisher();
 
 	return server;
 }
@@ -101,6 +147,12 @@ const shutdownGracePeriodMs =
 const realtimeShutdownGracePeriodMs =
 	Number(process.env.REALTIME_SHUTDOWN_GRACE_PERIOD_MS) ||
 	((Number(process.env.REALTIME_MAX_SESSION_SECONDS) || 3600) + 60) * 1000;
+
+// How long to wait for handler tails (billing, log insertion) that outlive
+// their HTTP connection before closing the database pool and Redis. These are
+// a few DB/Redis round-trips, so 20s is generous.
+const pendingWorkTimeoutMs =
+	Number(process.env.SHUTDOWN_PENDING_WORK_TIMEOUT_MS) || 20000;
 
 const closeServer = (server: ServerType): Promise<void> => {
 	return new Promise((resolve, reject) => {
@@ -147,6 +199,11 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 		signal,
 	});
 
+	// Stop refreshing before the Redis connection closes below; the snapshot
+	// expires on its own once no gateway is publishing.
+	stopEnvInventoryPublisher?.();
+	stopEnvInventoryPublisher = null;
+
 	try {
 		// Stop accepting new realtime sessions, then let the live calls hang up
 		// on their own rather than cutting them off mid-conversation. This runs
@@ -186,8 +243,37 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 			logger.info("Metrics server closed");
 		}
 
+		// Handlers whose client disconnected (or hung up right after [DONE])
+		// outlive their connection, so the server is closed while their billing
+		// and logging tail still runs. Wait for that work — before the upstream
+		// dispatcher, database pool, and Redis close underneath it.
+		const pendingAtClose = pendingWorkCount();
+		if (pendingAtClose > 0) {
+			logger.info("Waiting for pending request work", {
+				pending: pendingAtClose,
+			});
+			const remaining = await waitForPendingWork(pendingWorkTimeoutMs);
+			if (remaining > 0) {
+				logger.warn("Pending request work did not finish before shutdown", {
+					remaining,
+					timeoutMs: pendingWorkTimeoutMs,
+				});
+			}
+		}
+
 		logger.info("Closing upstream dispatcher");
 		await closeUpstreamDispatcher();
+
+		// Flush batched analytics before the process winds down — posthog-node
+		// buffers events (~10s), and a redeploy would otherwise drop the tail.
+		// Guarded: a telemetry flush failure must not abort the shutdown.
+		try {
+			await posthog.shutdown();
+		} catch (error) {
+			logger.warn("PostHog flush failed during shutdown", {
+				error: String(error),
+			});
+		}
 
 		logger.info("Closing database connection");
 		await closeDatabase();
@@ -221,17 +307,19 @@ startServer()
 		process.on("SIGTERM", () => gracefulShutdown("SIGTERM", server));
 		process.on("SIGINT", () => gracefulShutdown("SIGINT", server));
 
-		// Handle uncaught errors gracefully - allow in-flight requests to complete
-		// before exiting. This prevents 502s for all concurrent requests when
-		// a single request causes an unhandled error.
+		// Log and continue on process-level errors instead of shutting down. In an
+		// async proxy these are common and usually benign (aborted streams, stray
+		// upstream socket errors); self-terminating on them causes restart-cycling
+		// under load, which surfaces as more 503s. We accept that an
+		// uncaughtException leaves Node in an officially-undefined state in
+		// exchange for not restart-cycling a proxy under load. SIGTERM/SIGINT still
+		// trigger graceful shutdown so k8s rollouts/draining work normally.
 		process.on("uncaughtException", (error) => {
-			logger.fatal("Uncaught exception, initiating graceful shutdown", error);
-			void gracefulShutdown("uncaughtException", server);
+			logger.error("Uncaught exception (continuing)", toError(error));
 		});
 
 		process.on("unhandledRejection", (reason) => {
-			logger.fatal("Unhandled rejection, initiating graceful shutdown", reason);
-			void gracefulShutdown("unhandledRejection", server);
+			logger.error("Unhandled rejection (continuing)", toError(reason));
 		});
 	})
 	.catch((error) => {

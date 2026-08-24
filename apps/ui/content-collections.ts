@@ -29,10 +29,23 @@ const blog = defineCollection({
 		id: z.string(),
 		slug: z.string(),
 		date: z.string(),
+		updatedAt: z.string().optional(),
 		title: z.string(),
 		summary: z.string(),
 		draft: z.boolean().optional(),
 		categories: z.array(z.string()).default([]),
+		// Catalogue id of the model a post is specifically about, so the
+		// conversion rail can send the reader to that model instead of the
+		// full catalogue.
+		model: z.string().optional(),
+		faqs: z
+			.array(
+				z.object({
+					question: z.string(),
+					answer: z.string(),
+				}),
+			)
+			.default([]),
 		image: z
 			.object({
 				src: z.string(),
@@ -65,6 +78,9 @@ const guides = defineCollection({
 		id: z.string(),
 		slug: z.string(),
 		title: z.string(),
+		// Optional longer <title> for search results. `title` stays short so the
+		// index cards and page heading read cleanly.
+		seoTitle: z.string().optional(),
 		description: z.string(),
 		date: z.string(),
 		image: z

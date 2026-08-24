@@ -4,7 +4,7 @@ import { app } from "@/app.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 import { waitForLogs } from "@/test-utils/test-helpers.js";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 
 describe("speech", () => {
 	const harness = createGatewayApiTestHarness();
@@ -295,7 +295,7 @@ describe("speech", () => {
 				headers: {
 					"Content-Type": "application/json",
 					Authorization: "Bearer real-token-speech-chat-plan",
-					"x-source": "chat.llmgateway.io",
+					"x-source": "lounge.llmgateway.io",
 				},
 				body: JSON.stringify({
 					model: "gemini-2.5-flash-preview-tts",
@@ -320,46 +320,68 @@ describe("speech", () => {
 		}
 	});
 
-	test("/v1/audio/speech returns a WAV file via Google Vertex", async () => {
-		await seedKeys(
-			"real-token-speech-vertex",
-			"token-id-speech-vertex",
-			"google-vertex",
-		);
+	test("/v1/audio/speech supports a projectless managed Vertex API key", async () => {
+		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		try {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-speech-vertex",
+				token: "real-token-speech-vertex",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await harness.setProjectMode("credits");
+			await cdb.insert(tables.providerKey).values({
+				id: "managed-key-speech-vertex",
+				token: "google-test-key",
+				provider: "google-vertex",
+				managed: true,
+				organizationId: null,
+				config: { baseUrl: harness.mockServerUrl },
+			});
 
-		const res = await app.request("/v1/audio/speech", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer real-token-speech-vertex",
-			},
-			body: JSON.stringify({
-				model: "google-vertex/gemini-2.5-pro-preview-tts",
-				input: "Hello there",
-				voice: "Kore",
-			}),
-		});
+			const res = await app.request("/v1/audio/speech", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-speech-vertex",
+				},
+				body: JSON.stringify({
+					model: "google-vertex/gemini-2.5-pro-preview-tts",
+					input: "Hello there",
+					voice: "Kore",
+				}),
+			});
 
-		expect(res.status).toBe(200);
-		expect(res.headers.get("Content-Type")).toBe("audio/wav");
+			expect(res.status).toBe(200);
+			expect(res.headers.get("Content-Type")).toBe("audio/wav");
 
-		const bytes = Buffer.from(await res.arrayBuffer());
-		expect(bytes.subarray(0, 4).toString("ascii")).toBe("RIFF");
-		expect(bytes.subarray(8, 12).toString("ascii")).toBe("WAVE");
-		expect(bytes.length).toBe(44 + 16);
+			const bytes = Buffer.from(await res.arrayBuffer());
+			expect(bytes.subarray(0, 4).toString("ascii")).toBe("RIFF");
+			expect(bytes.subarray(8, 12).toString("ascii")).toBe("WAVE");
+			expect(bytes.length).toBe(44 + 16);
 
-		const logs = await waitForLogs(1);
-		const log = logs.find(
-			(l) => l.usedModel === "google-vertex/gemini-2.5-pro-preview-tts",
-		);
-		expect(log).toBeDefined();
-		expect(log?.hasError).toBe(false);
-		expect(log?.finishReason).toBe("stop");
-		expect(log?.usedModelMapping).toBe("gemini-2.5-pro-tts");
-		expect(log?.promptTokens).toBe("5");
-		expect(log?.completionTokens).toBe("42");
-		// 42 audio output tokens * $20/1M.
-		expect(Number(log?.outputCost)).toBeCloseTo(42 * 20e-6, 10);
+			const logs = await waitForLogs(1);
+			const log = logs.find(
+				(l) => l.usedModel === "google-vertex/gemini-2.5-pro-preview-tts",
+			);
+			expect(log).toBeDefined();
+			expect(log?.hasError).toBe(false);
+			expect(log?.finishReason).toBe("stop");
+			expect(log?.usedModelMapping).toBe("gemini-2.5-pro-tts");
+			expect(log?.promptTokens).toBe("5");
+			expect(log?.completionTokens).toBe("42");
+			// 42 audio output tokens * $20/1M.
+			expect(Number(log?.outputCost)).toBeCloseTo(42 * 20e-6, 10);
+		} finally {
+			await harness.setProjectMode("api-keys");
+			if (originalGoogleCloudProject !== undefined) {
+				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
+			} else {
+				delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+			}
+		}
 	});
 
 	test("/v1/audio/speech serves gemini-3.1-flash-tts-preview via Vertex", async () => {

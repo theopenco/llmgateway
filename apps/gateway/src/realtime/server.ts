@@ -14,7 +14,10 @@ import {
 	closeRealtimeSessionRecord,
 	createRealtimeSessionRecord,
 } from "./billing.js";
-import { findRealtimeTranscriptionMapping } from "./catalog.js";
+import {
+	findRealtimeMapping,
+	findRealtimeTranscriptionMapping,
+} from "./catalog.js";
 import {
 	CLIENT_SECRET_PREFIX,
 	getClientSecretRecord,
@@ -46,6 +49,24 @@ interface ShutdownableSession {
 	 * charge the provider has already made.
 	 */
 	close: (code: number, reason: string) => void;
+}
+
+export function realtimeModelIdsMatch(
+	requestedModel: string,
+	pinnedModel: string,
+): boolean {
+	if (requestedModel === pinnedModel) {
+		return true;
+	}
+	const requestedMatch = findRealtimeMapping(requestedModel);
+	const pinnedMatch = findRealtimeMapping(pinnedModel);
+	return (
+		requestedMatch !== null &&
+		pinnedMatch !== null &&
+		requestedMatch.modelId === pinnedMatch.modelId &&
+		requestedMatch.mapping.providerId === pinnedMatch.mapping.providerId &&
+		requestedMatch.mapping.region === pinnedMatch.mapping.region
+	);
 }
 
 function writeHttpError(
@@ -273,6 +294,8 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 			let requestedModel = url.searchParams.get("model") ?? undefined;
 			let source = extractSource(req);
 			let secretTranscriptionModel: string | null = null;
+			let pinnedInstructions: string | null = null;
+			let pinnedVoice: string | null = null;
 
 			if (subprotocolSecret) {
 				if (!subprotocolSecret.startsWith(CLIENT_SECRET_PREFIX)) {
@@ -303,7 +326,10 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 					);
 					return;
 				}
-				if (requestedModel && requestedModel !== record.model) {
+				if (
+					requestedModel &&
+					!realtimeModelIdsMatch(requestedModel, record.model)
+				) {
 					writeHttpError(
 						socket,
 						400,
@@ -316,6 +342,8 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 				token = record.token;
 				source = record.source;
 				secretTranscriptionModel = record.transcriptionModel;
+				pinnedInstructions = record.instructions;
+				pinnedVoice = record.voice;
 			}
 
 			// Full preflight runs against the WebSocket request's actual client IP:
@@ -447,9 +475,9 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 						preflight.match.modelId,
 					);
 				}
-				if (preflight.providerKey?.id) {
+				if (preflight.trackedKeyHealthId) {
 					reportTrackedKeyError(
-						preflight.providerKey.id,
+						preflight.trackedKeyHealthId,
 						0,
 						undefined,
 						preflight.match.modelId,
@@ -476,9 +504,9 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 					preflight.match.modelId,
 				);
 			}
-			if (preflight.providerKey?.id) {
+			if (preflight.trackedKeyHealthId) {
 				reportTrackedKeySuccess(
-					preflight.providerKey.id,
+					preflight.trackedKeyHealthId,
 					preflight.match.modelId,
 				);
 			}
@@ -521,6 +549,8 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 									sessionRecordId: sessionRecord.id,
 									lease,
 									source,
+									pinnedInstructions,
+									pinnedVoice,
 									userAgent: req.headers["user-agent"],
 									onClosed: (closed) => {
 										sessions.delete(closed);
@@ -536,6 +566,8 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 									lease,
 									source,
 									allowedTranscription,
+									pinnedInstructions,
+									pinnedVoice,
 									userAgent: req.headers["user-agent"],
 									onClosed: (closed) => {
 										sessions.delete(closed);

@@ -1,13 +1,17 @@
-name: llmgateway
+# Every host-facing name/port is overridable so multiple worktrees can run
+# their own isolated stack side by side. Defaults reproduce the historical
+# single-stack setup exactly. STACK_SUFFIX must include its own separator
+# (e.g. STACK_SUFFIX=-tel-aviv).
+name: llmgateway${STACK_SUFFIX:-}
 
 services:
   postgres:
-    container_name: postgres
+    container_name: postgres${STACK_SUFFIX:-}
     command: postgres -c log_statement=all
     image: postgres:17-alpine
     restart: always
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: pw
@@ -17,12 +21,12 @@ services:
       - ./packages/db/init:/docker-entrypoint-initdb.d
 
   redis:
-    container_name: redis
+    container_name: redis${STACK_SUFFIX:-}
     image: redis:8
     command: ["redis-server", "--protected-mode", "no", "--bind", "0.0.0.0"]
     restart: always
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     environment:
       CI: ${CI}
 
@@ -71,7 +75,7 @@ services:
   # Storage Redis: Responses API state (30d retention) + gateway response
   # cache. AOF persistence because it holds a source of truth, not just cache.
   redis-storage:
-    container_name: redis-storage
+    container_name: redis-storage${STACK_SUFFIX:-}
     image: redis:8
     command:
       [
@@ -85,7 +89,7 @@ services:
       ]
     restart: always
     ports:
-      - "6479:6379"
+      - "${STORAGE_REDIS_PORT:-6479}:6379"
     environment:
       CI: ${CI}
     volumes:

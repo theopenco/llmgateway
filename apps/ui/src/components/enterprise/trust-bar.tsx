@@ -59,9 +59,9 @@ export function TrustBarEnterprise() {
 	return (
 		<section className="border-y border-border bg-muted/30 py-12">
 			<div className="container mx-auto px-4 sm:px-6 lg:px-8">
-				<p className="mb-8 text-center text-sm text-muted-foreground uppercase tracking-wider">
+				<h2 className="mb-8 text-center text-sm font-normal text-muted-foreground uppercase tracking-wider">
 					Trusted by innovative teams worldwide
-				</p>
+				</h2>
 				<div className="flex flex-wrap items-center justify-center gap-10 sm:gap-14">
 					{companies.map((company) => (
 						<div

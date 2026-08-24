@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
 
+import { getModelMappings, getModelReleasedAt } from "./model-entries";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import {
@@ -18,73 +19,12 @@ import {
 } from "./ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 
-import type {
-	ModelDefinition,
-	ProviderDefinition,
-	StabilityLevel,
-} from "@llmgateway/models";
-
-interface ApiModel {
-	id: string;
-	createdAt: string;
-	releasedAt: string | null;
-	name: string | null;
-	aliases: string[] | null;
-	description: string | null;
-	family: string;
-	free: boolean | null;
-	output: string[] | null;
-	stability: StabilityLevel | null;
-	status: "active" | "inactive";
-	mappings: ApiModelProviderMapping[];
-}
-
-interface ApiModelProviderMapping {
-	id: string;
-	createdAt: string;
-	modelId: string;
-	providerId: string;
-	externalId: string;
-	region?: string | null;
-	inputPrice: string | null;
-	outputPrice: string | null;
-	cachedInputPrice: string | null;
-	imageInputPrice: string | null;
-	requestPrice: string | null;
-	contextSize: number | null;
-	maxOutput: number | null;
-	streaming: boolean;
-	vision: boolean | null;
-	reasoning: boolean | null;
-	reasoningOutput: string | null;
-	tools: boolean | null;
-	jsonOutput: boolean | null;
-	jsonOutputSchema: boolean | null;
-	webSearch: boolean | null;
-	discount: string | null;
-	stability: StabilityLevel | null;
-	supportedParameters: string[] | null;
-	deprecatedAt: string | null;
-	deactivatedAt: string | null;
-	status: "active" | "inactive";
-}
-
-interface ApiProvider {
-	id: string;
-	createdAt: string;
-	name: string | null;
-	description: string | null;
-	streaming: boolean | null;
-	cancellation: boolean | null;
-	color: string | null;
-	website: string | null;
-	announcement: string | null;
-	status: "active" | "inactive";
-}
+import type { UnifiedModel, UnifiedProvider } from "./model-entries";
+import type { StabilityLevel } from "@llmgateway/models";
 
 interface MultiModelSelectorProps {
-	models: readonly ModelDefinition[] | ApiModel[];
-	providers: readonly ProviderDefinition[] | ApiProvider[];
+	models: readonly UnifiedModel[];
+	providers: readonly UnifiedProvider[];
 	selectedModels: string[];
 	onModelsChange: (models: string[]) => void;
 	placeholder?: string;
@@ -119,34 +59,6 @@ function shouldShowStabilityWarning(stability?: StabilityLevel | null) {
 	return stability && ["unstable", "experimental"].includes(stability);
 }
 
-type UnifiedModel = ModelDefinition | ApiModel;
-
-function isApiModel(model: UnifiedModel): model is ApiModel {
-	return "mappings" in model;
-}
-
-function getModelProviders(model: UnifiedModel) {
-	if (isApiModel(model)) {
-		return model.mappings.map((m) => ({
-			providerId: m.providerId,
-			region: m.region ?? null,
-			stability: m.stability,
-		}));
-	}
-	return model.providers.map((p) => ({
-		providerId: p.providerId,
-		region: p.region ?? null,
-		stability: p.stability,
-	}));
-}
-
-function getModelReleasedAt(model: UnifiedModel): string | Date | undefined {
-	if (isApiModel(model)) {
-		return model.releasedAt ?? undefined;
-	}
-	return model.releasedAt;
-}
-
 function getMostUnstableStability(
 	model: UnifiedModel,
 ): StabilityLevel | null | undefined {
@@ -157,7 +69,7 @@ function getMostUnstableStability(
 		"stable",
 	];
 
-	const providers = getModelProviders(model);
+	const providers = getModelMappings(model);
 	const allStabilities = [
 		model.stability,
 		...providers.map((p) => p.stability ?? model.stability),
@@ -198,7 +110,7 @@ export function MultiModelSelector({
 				return dateB - dateA;
 			})
 			.map((model) => {
-				const modelProviders = getModelProviders(model);
+				const modelProviders = getModelMappings(model);
 				return {
 					...model,
 					providersWithInfo: modelProviders.map((provider) => ({

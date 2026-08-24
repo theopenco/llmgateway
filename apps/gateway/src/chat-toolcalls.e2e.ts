@@ -10,6 +10,7 @@ import {
 	getTestOptions,
 	logMode,
 	streamingToolCallModels,
+	thinkingDisabledForcedToolChoiceModels,
 	toolCallModels,
 	validateLogByRequestId,
 } from "@/chat-helpers.e2e.js";
@@ -129,6 +130,79 @@ describe("e2e", getConcurrentTestOptions(), () => {
 			expect(json.usage.prompt_tokens).toBeGreaterThan(0);
 			expect(json.usage.completion_tokens).toBeGreaterThan(0);
 			expect(json.usage.total_tokens).toBeGreaterThan(0);
+		},
+	);
+
+	test.each(
+		thinkingDisabledForcedToolChoiceModels.flatMap(({ model }) => [
+			{
+				model,
+				toolChoice: "required" as const,
+				toolChoiceLabel: "required",
+			},
+			{
+				model,
+				toolChoice: {
+					type: "function" as const,
+					function: { name: "get_weather" },
+				},
+				toolChoiceLabel: "named function",
+			},
+		]),
+	)(
+		"thinking disabled supports $toolChoiceLabel tool choice $model",
+		getTestOptions(),
+		async ({ model, toolChoice }) => {
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-no-fallback": "true",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model,
+					messages: [
+						{
+							role: "user",
+							content: "What's the weather like in San Francisco?",
+						},
+					],
+					tools: [
+						{
+							type: "function",
+							function: {
+								name: "get_weather",
+								description: "Get the current weather for a given city",
+								parameters: {
+									type: "object",
+									properties: {
+										city: { type: "string" },
+									},
+									required: ["city"],
+								},
+							},
+						},
+					],
+					tool_choice: toolChoice,
+					reasoning_effort: "none",
+				}),
+			});
+
+			const json = await res.json();
+			if (logMode || res.status !== 200) {
+				console.log(
+					"thinking-disabled tool choice response:",
+					JSON.stringify(json, null, 2),
+				);
+			}
+
+			expect(res.status).toBe(200);
+			expect(json.choices[0].message.tool_calls[0]).toMatchObject({
+				type: "function",
+				function: { name: "get_weather" },
+			});
+			expect(json.choices[0].finish_reason).toBe("tool_calls");
 		},
 	);
 

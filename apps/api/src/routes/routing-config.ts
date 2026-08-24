@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { cdb, db, eq, tables } from "@llmgateway/db";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import {
 	buildProviderPriorityDefaults,
 	DEFAULT_ROUTING_HISTORY,
@@ -30,7 +31,7 @@ import type {
 
 export const routingConfig = new OpenAPIHono<ServerTypes>();
 
-async function checkProjectEnterpriseAccess(
+export async function checkProjectEnterpriseAccess(
 	userId: string,
 	projectId: string,
 ): Promise<{
@@ -66,7 +67,12 @@ async function checkProjectEnterpriseAccess(
 		});
 	}
 
-	if (userOrg.organization?.plan !== "enterprise") {
+	if (
+		!hasOrganizationEnterpriseAccess(
+			userOrg.organization?.id,
+			userOrg.organization?.plan,
+		)
+	) {
 		throw new HTTPException(403, {
 			message: "Routing configuration requires an enterprise plan",
 		});

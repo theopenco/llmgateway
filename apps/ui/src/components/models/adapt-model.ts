@@ -75,6 +75,7 @@ export function adaptProviderMapping(
 			reasoningEfforts: p.reasoningEfforts ?? null,
 			reasoningOutput: p.reasoningOutput ?? null,
 			reasoningMaxTokens: p.reasoningMaxTokens ?? null,
+			rerank: p.rerank ?? null,
 			tools: p.tools ?? null,
 			jsonOutput: p.jsonOutput ?? null,
 			jsonOutputSchema: p.jsonOutputSchema ?? null,
@@ -85,6 +86,7 @@ export function adaptProviderMapping(
 			supportsVideoAudio: p.supportsVideoAudio ?? null,
 			supportsVideoWithoutAudio: p.supportsVideoWithoutAudio ?? null,
 			perSecondPrice: toStrRecord(p.perSecondPrice),
+			perImagePrice: toStrRecord(p.perImagePrice),
 			pricingTiers: p.pricingTiers
 				? p.pricingTiers.map((t) => ({
 						name: t.name,
@@ -108,6 +110,37 @@ export function adaptProviderMapping(
 								? String(t.cacheWriteInputPrice1h)
 								: null,
 					}))
+				: null,
+			peakPricing: p.peakPricing
+				? {
+						peak: {
+							inputPrice: String(p.peakPricing.peak.inputPrice),
+							outputPrice: String(p.peakPricing.peak.outputPrice),
+							cachedInputPrice:
+								p.peakPricing.peak.cachedInputPrice !== undefined
+									? String(p.peakPricing.peak.cachedInputPrice)
+									: null,
+						},
+						offPeak: {
+							inputPrice: String(p.peakPricing.offPeak.inputPrice),
+							outputPrice: String(p.peakPricing.offPeak.outputPrice),
+							cachedInputPrice:
+								p.peakPricing.offPeak.cachedInputPrice !== undefined
+									? String(p.peakPricing.offPeak.cachedInputPrice)
+									: null,
+						},
+						hoursUtc: p.peakPricing.hoursUtc.map(([start, end]) => [
+							start,
+							end,
+						]),
+						offPeakDays: p.peakPricing.offPeakDays
+							? {
+									daysOfWeek: [...p.peakPricing.offPeakDays.daysOfWeek],
+									utcOffsetMinutes: p.peakPricing.offPeakDays.utcOffsetMinutes,
+									timeZoneLabel: p.peakPricing.offPeakDays.timeZoneLabel,
+								}
+							: null,
+					}
 				: null,
 			serviceTiers: p.serviceTiers ?? null,
 			discount: p.discount ?? null,

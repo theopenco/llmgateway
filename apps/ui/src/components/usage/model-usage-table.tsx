@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 import { getDateRangeFromParams } from "@/components/date-range-picker";
+import { useUsageMode } from "@/components/shared/usage-mode-selector";
 import { Button } from "@/lib/components/button";
 import { Progress } from "@/lib/components/progress";
 import {
@@ -18,6 +19,7 @@ import {
 import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
 import { getBrowserTimeZone } from "@/lib/timezone";
+import { applyUsageMode } from "@/lib/usage-mode";
 
 import type { ActivityModelUsage, ActivitT } from "@/types/activity";
 
@@ -39,6 +41,7 @@ export function ModelUsageTable({
 	const [sortColumn, setSortColumn] = useState<SortColumn>("totalTokens");
 	const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
 	const { selectedProject } = useDashboardState();
+	const usageMode = useUsageMode();
 
 	const { from, to } = getDateRangeFromParams(searchParams);
 	const fromStr = format(from, "yyyy-MM-dd");
@@ -131,7 +134,8 @@ export function ModelUsageTable({
 	const modelMap = new Map<string, ActivityModelUsage>();
 
 	data.activity.forEach((day) => {
-		day.modelBreakdown.forEach((model) => {
+		day.modelBreakdown.forEach((rawModel) => {
+			const model = applyUsageMode(rawModel, usageMode);
 			const key = `${model.provider}|${model.id}`;
 			if (modelMap.has(key)) {
 				const existing = modelMap.get(key)!;

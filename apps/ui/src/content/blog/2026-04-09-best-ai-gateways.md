@@ -56,6 +56,8 @@ const response = await client.chat.completions.create({
 
 ---
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## 2. OpenRouter
 
 **Large model catalog, community-driven.**
@@ -104,7 +106,7 @@ Portkey positions itself as an AI gateway for enterprises, with emphasis on obse
 
 **Pricing:** Free tier with limited requests. Paid plans for higher volume and enterprise features.
 
-**Best for:** Large enterprises with strict compliance and governance requirements.
+**Best for:** Large enterprises with strict compliance and governance requirements. Re-evaluating after the Palo Alto Networks acquisition? See the [8 best Portkey alternatives in 2026](/blog/portkey-alternatives).
 
 ---
 
@@ -157,7 +159,7 @@ Helicone started as an LLM observability platform and added gateway features. It
 
 **Pricing:** Free tier with limited requests. Usage-based pricing beyond that.
 
-**Best for:** Teams whose primary need is visibility into LLM usage rather than routing and failover.
+**Best for:** Teams whose primary need is visibility into LLM usage rather than routing and failover. With the project in maintenance mode, see the [8 best Helicone alternatives in 2026](/blog/helicone-alternatives).
 
 ---
 
@@ -283,3 +285,5 @@ If you want to try the top pick, you can be running in under two minutes:
 That's it. Your existing code works. Every request gets logged, cached, and tracked automatically.
 
 **[Create a free account](https://llmgateway.io/signup)** | **[Browse 200+ models](https://llmgateway.io/models)** | **[Read the docs](https://docs.llmgateway.io)**
+
+<BlogCta variant="gateway" location="bottom" />

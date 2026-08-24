@@ -2,6 +2,7 @@
 
 import {
 	AudioLines,
+	DoorOpen,
 	Film,
 	Folder,
 	ImagePlus,
@@ -32,6 +33,12 @@ export const STUDIO_NAV_ITEMS = [
 	{ href: "/canvas", label: "Canvas", tooltip: "Canvas", icon: PenTool },
 	{ href: "/projects", label: "Projects", tooltip: "Projects", icon: Folder },
 	{ href: "/skills", label: "Skills", tooltip: "Skills", icon: ScrollText },
+	{
+		href: "/escape",
+		label: "Escape",
+		tooltip: "Sandbox Escape",
+		icon: DoorOpen,
+	},
 ] as const;
 
 // Compact studio switcher shared by every playground sidebar. Renders the

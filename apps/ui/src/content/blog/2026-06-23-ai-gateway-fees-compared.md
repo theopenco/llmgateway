@@ -2,7 +2,8 @@
 id: "blog-ai-gateway-fees-compared"
 slug: "ai-gateway-fees-compared"
 date: "2026-06-23"
-title: "AI Gateway Fees Compared: Who Marks Up Your Tokens?"
+updatedAt: "2026-08-05"
+title: "AI Gateway Pricing: Fees & Markups Compared (2026)"
 summary: "AI gateway pricing hides in two places — the platform fee on credits and the markup on tokens. Here's what OpenRouter, Vercel, Cloudflare, Portkey, LiteLLM, and LLM Gateway actually charge, and how to pay the least."
 categories: ["Guides"]
 image:
@@ -10,6 +11,13 @@ image:
   alt: "Token streams flowing through a gateway, each tagged with a percentage fee"
   width: 1536
   height: 1024
+faqs:
+  - question: "Do AI gateways mark up your tokens?"
+    answer: "In 2026, the major ones don't. LLM Gateway, OpenRouter, Vercel AI Gateway, Cloudflare, Eden AI, Portkey, and LiteLLM all pass provider token rates through without a per-token markup. They make money on a platform/credit fee or a subscription instead — so compare those, not the token rates."
+  - question: "What is the cheapest AI gateway?"
+    answer: "For most teams, the cheapest path is bringing your own provider keys (0% fee on LLM Gateway) or self-hosting an open-source gateway (LLM Gateway or LiteLLM), which removes the platform fee entirely. On the managed tier, LLM Gateway's flat 5% credit fee is among the lowest, and lower than OpenRouter's 5.5%."
+  - question: "Is a platform fee or a token markup worse?"
+    answer: "A token markup is worse. It scales with every token you ever send, so it compounds as you grow. A flat platform fee on credits is a one-time percentage when you load funds — predictable and far smaller over time."
 ---
 
 Comparing AI gateways on price sounds simple until you read the fine print. The number on the pricing page is rarely the number on your invoice, because gateway fees hide in two separate places: a **platform fee** on the credits you buy, and a **markup** on the tokens you spend. Miss either one and your "cheap" gateway quietly costs more than the provider you were trying to save money on.
@@ -39,6 +47,8 @@ The healthiest pricing model is **zero token markup** plus a transparent, predic
 
 The good news: in 2026, **none of the major gateways mark up tokens** — they all pass provider rates through. The competition has moved to the platform fee, BYOK terms, and whether you can self-host to pay nothing at all.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## The costs that don't show up on the pricing page
 
 A few line items are easy to miss when you're comparing:
@@ -55,22 +65,12 @@ Three levers, in order of impact:
 2. **Self-host.** If data residency or absolute cost control matters, run the gateway yourself. LLM Gateway is AGPLv3 and self-hostable end to end; LiteLLM is a self-hosted proxy. Both drop your platform fee to zero.
 3. **Cache and route.** The cheapest token is the one you never send. Built-in response caching makes repeat requests free, and routing simple requests to budget models keeps your blended cost down. Run your real traffic through the [Token Cost Calculator](/token-cost-calculator) before you commit.
 
-## Frequently Asked Questions
-
-### Do AI gateways mark up your tokens?
-
-In 2026, the major ones don't. LLM Gateway, OpenRouter, Vercel AI Gateway, Cloudflare, Eden AI, Portkey, and LiteLLM all pass provider token rates through without a per-token markup. They make money on a platform/credit fee or a subscription instead — so compare those, not the token rates.
-
-### What is the cheapest AI gateway?
-
-For most teams, the cheapest path is bringing your own provider keys (0% fee on LLM Gateway) or self-hosting an open-source gateway (LLM Gateway or LiteLLM), which removes the platform fee entirely. On the managed tier, LLM Gateway's flat 5% credit fee is among the lowest, and lower than OpenRouter's 5.5%.
-
-### Is a platform fee or a token markup worse?
-
-A token markup is worse. It scales with every token you ever send, so it compounds as you grow. A flat platform fee on credits is a one-time percentage when you load funds — predictable and far smaller over time.
-
 ## Pay provider rates, not gateway rates
 
 The whole point of a gateway is to save you money and effort, not add a tax. LLM Gateway passes provider token rates through with no markup, charges a flat 5% on credits (or 0% with your own keys), and is free to self-host if you'd rather pay nothing at all.
 
+Want the head-to-head detail behind these numbers? Read [LLM Gateway vs OpenRouter](/blog/llm-gateway-vs-openrouter), [LLM Gateway vs LiteLLM](/blog/llm-gateway-vs-litellm), and [LLM Gateway vs Portkey](/blog/llm-gateway-vs-portkey).
+
 **[Try LLM Gateway free](https://llmgateway.io/signup)** | **[Run the Token Cost Calculator](/token-cost-calculator)** | **[See the 8 best AI gateways in 2026](/blog/best-ai-gateways)**
+
+<BlogCta variant="gateway" location="bottom" />

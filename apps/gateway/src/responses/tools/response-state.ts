@@ -1,6 +1,16 @@
 import crypto from "crypto";
 
-import { and, db, desc, eq, gte, log, sql } from "@llmgateway/db";
+import { swrWrap } from "@llmgateway/cache";
+import {
+	and,
+	cdb,
+	desc,
+	eq,
+	getTableName,
+	gte,
+	log,
+	sql,
+} from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import { getResponsesStorage } from "./response-storage.js";
@@ -31,6 +41,10 @@ export const RESPONSES_TTL_SECONDS = 30 * 24 * 60 * 60;
 // the move to dedicated storage) scans rows within this recent window to keep
 // the (un-indexed) JSONB containment query bounded.
 const ITEM_FALLBACK_LOOKBACK_MS = RESPONSES_TTL_SECONDS * 1000;
+
+// Pinned cdb/SWR TTL for the legacy log fallback lookups: the underlying rows
+// are immutable, so this only bounds Redis memory, not staleness.
+const LEGACY_FALLBACK_TTL_SECONDS = 300;
 
 /**
  * A stored response is a small record of metadata plus ordered lists of item
@@ -114,18 +128,37 @@ export async function resolveStoredItem(
 
 	// Fallback: scan recently stored legacy responses for an output/input item
 	// with this id. Bounded by project and a recent time window to keep the
-	// un-indexed JSONB containment query cheap.
+	// un-indexed JSONB containment query cheap. Cached with swrWrap + cdb; the
+	// cutoff is floored to the UTC day so the SQL bind (and with it the Drizzle
+	// cache key) stays stable instead of rotating every millisecond — legacy
+	// rows are immutable, so a day of cutoff slack changes nothing.
 	try {
-		const cutoff = new Date(Date.now() - ITEM_FALLBACK_LOOKBACK_MS);
+		const dayMs = 86_400_000;
+		const flooredNow = Math.floor(Date.now() / dayMs) * dayMs;
+		const cutoff = new Date(flooredNow - ITEM_FALLBACK_LOOKBACK_MS);
 		const match = sql`(${log.responsesApiData} -> 'output' @> ${JSON.stringify([{ id: itemId }])}::jsonb OR ${log.responsesApiData} -> 'input' @> ${JSON.stringify([{ id: itemId }])}::jsonb)`;
-		const rows = await db
-			.select({ responsesApiData: log.responsesApiData })
-			.from(log)
-			.where(
-				and(eq(log.projectId, projectId), gte(log.createdAt, cutoff), match),
-			)
-			.orderBy(desc(log.createdAt))
-			.limit(1);
+		const rows = await swrWrap(
+			`respItem:${projectId}:${itemId}`,
+			[getTableName(log)],
+			async () =>
+				await cdb
+					.select({ responsesApiData: log.responsesApiData })
+					.from(log)
+					.where(
+						and(
+							eq(log.projectId, projectId),
+							gte(log.createdAt, cutoff),
+							match,
+						),
+					)
+					.orderBy(desc(log.createdAt))
+					.limit(1)
+					.$withCache({
+						tag: `resp-item:${projectId}:${itemId}`,
+						autoInvalidate: false,
+						config: { ex: LEGACY_FALLBACK_TTL_SECONDS },
+					}),
+		);
 
 		const data = rows[0]?.responsesApiData as
 			{ input?: unknown[]; output?: unknown[] } | undefined;
@@ -302,13 +335,25 @@ export async function getStoredResponse(
 	}
 
 	// Legacy fallback: responses stored in log.responsesApiData before the move
-	// to dedicated storage.
+	// to dedicated storage. Cached with swrWrap + a pinned cdb entry — these
+	// rows are immutable once written, so a fixed TTL is safe and chained
+	// turns that keep resolving the same legacy response skip the DB.
 	try {
-		const rows = await db
-			.select({ responsesApiData: log.responsesApiData })
-			.from(log)
-			.where(and(eq(log.id, responseId), eq(log.projectId, projectId)))
-			.limit(1);
+		const rows = await swrWrap(
+			`respLegacy:${projectId}:${responseId}`,
+			[getTableName(log)],
+			async () =>
+				await cdb
+					.select({ responsesApiData: log.responsesApiData })
+					.from(log)
+					.where(and(eq(log.id, responseId), eq(log.projectId, projectId)))
+					.limit(1)
+					.$withCache({
+						tag: `resp-legacy:${projectId}:${responseId}`,
+						autoInvalidate: false,
+						config: { ex: LEGACY_FALLBACK_TTL_SECONDS },
+					}),
+		);
 
 		const row = rows[0];
 		if (!row?.responsesApiData) {

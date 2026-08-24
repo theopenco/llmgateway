@@ -41,7 +41,10 @@ import {
 	getServiceTier,
 } from "@llmgateway/models";
 import { regionFromUsedModel } from "@llmgateway/shared";
-import { API_ORIGIN_LABELS } from "@llmgateway/shared/components";
+import {
+	API_ORIGIN_LABELS,
+	CredentialSourceBadge,
+} from "@llmgateway/shared/components";
 
 import type { LogDetailData } from "@/types/activity";
 import type { Log } from "@llmgateway/db";
@@ -679,12 +682,28 @@ export function LogDetailClient({
 									{log.routingMetadata.usedApiKeyHash && (
 										<Field
 											label="Key"
-											value={formatApiKeyHash(
-												log.routingMetadata.usedApiKeyHash,
-											)}
+											value={
+												<span className="inline-flex items-center gap-1.5">
+													{formatApiKeyHash(log.routingMetadata.usedApiKeyHash)}
+													<CredentialSourceBadge
+														source={log.routingMetadata.usedCredentialSource}
+														keyLabel={log.routingMetadata.usedProviderKeyLabel}
+													/>
+												</span>
+											}
 											mono
 										/>
 									)}
+									{log.routingMetadata.eligibleProviderKeys &&
+										log.routingMetadata.eligibleProviderKeys.length > 0 && (
+											<Field
+												label="Your keys"
+												value={log.routingMetadata.eligibleProviderKeys
+													.map((key) => key.label ?? key.id)
+													.join(", ")}
+												mono
+											/>
+										)}
 									{log.routingMetadata.availableProviders &&
 										log.routingMetadata.availableProviders.length > 0 && (
 											<Field
@@ -806,6 +825,10 @@ export function LogDetailClient({
 																		key {formatApiKeyHash(attempt.apiKeyHash)}
 																	</span>
 																)}
+																<CredentialSourceBadge
+																	source={attempt.credentialSource}
+																	keyLabel={attempt.providerKeyLabel}
+																/>
 																{attempt.logId && (
 																	<Link
 																		href={`/dashboard/${orgId}/${projectId}/activity/${attempt.logId}`}
@@ -981,7 +1004,11 @@ export function LogDetailClient({
 												label="Requested Service Tier"
 												value={
 													log.requestedServiceTier.charAt(0).toUpperCase() +
-													log.requestedServiceTier.slice(1)
+													log.requestedServiceTier.slice(1) +
+													(log.routingMetadata?.serviceTierSource ===
+													"coding-plan-default"
+														? " (coding plan default)"
+														: "")
 												}
 											/>
 										)}
@@ -1416,6 +1443,17 @@ export function LogDetailClient({
 									{log.errorDetails.responseText}
 								</pre>
 							</div>
+							{/* Network failures surface as a bare "fetch failed" message; the
+							    underlying reason (timeouts, DNS, TLS, connection resets) only
+							    exists in the cause chain, so it has to be shown separately. */}
+							{!!log.errorDetails.cause && (
+								<div>
+									<p className="text-xs text-red-400 mb-1">Cause</p>
+									<pre className="text-xs overflow-auto whitespace-pre-wrap break-all font-mono bg-background rounded border p-3">
+										{log.errorDetails.cause}
+									</pre>
+								</div>
+							)}
 							{log.retried && log.retriedByLogId && (
 								<div className="flex items-center gap-2 rounded-md border border-amber-500/20 bg-amber-500/10 p-3 text-sm">
 									<RefreshCw className="h-4 w-4 text-amber-600" />

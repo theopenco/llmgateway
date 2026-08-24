@@ -94,10 +94,20 @@ describe("shouldRetryRequest", () => {
 		);
 	});
 
-	it("does not retry for custom provider", () => {
+	it("retries for an auto-selected custom provider", () => {
 		expect(shouldRetryRequest({ ...defaultOpts, usedProvider: "custom" })).toBe(
-			false,
+			true,
 		);
+	});
+
+	it("does not retry for a pinned custom provider", () => {
+		expect(
+			shouldRetryRequest({
+				...defaultOpts,
+				requestedProvider: "custom",
+				usedProvider: "custom",
+			}),
+		).toBe(false);
 	});
 
 	it("does not retry for llmgateway provider", () => {

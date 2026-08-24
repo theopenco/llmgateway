@@ -106,12 +106,17 @@ export function ErrorsReliabilityCard({
 		(sum, day) => sum + day.errorCount,
 		0,
 	);
+	const uptimeRequests = activityData.reduce(
+		(sum, day) => sum + day.requestCount - day.clientErrorCount,
+		0,
+	);
 	const totalCached = activityData.reduce(
 		(sum, day) => sum + day.cacheCount,
 		0,
 	);
 
-	const errorRate = totalRequests > 0 ? (totalErrors / totalRequests) * 100 : 0;
+	const errorRate =
+		uptimeRequests > 0 ? (totalErrors / uptimeRequests) * 100 : 0;
 	const cacheRate = totalRequests > 0 ? (totalCached / totalRequests) * 100 : 0;
 	const successRate = 100 - errorRate;
 
@@ -136,7 +141,7 @@ export function ErrorsReliabilityCard({
 					<RateStat
 						label="Error rate"
 						rate={errorRate}
-						detail={`${totalErrors.toLocaleString()} failed of ${totalRequests.toLocaleString()} requests`}
+						detail={`${totalErrors.toLocaleString()} failed of ${uptimeRequests.toLocaleString()} valid requests`}
 						tone={errorTone}
 					/>
 					<RateStat

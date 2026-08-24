@@ -14,7 +14,10 @@ import { Switch } from "@/lib/components/switch";
 import { validateApiKeyLimitsWithinMemberBudget } from "@llmgateway/shared";
 
 import type { ApiKey } from "@/lib/types";
-import type { ApiKeyLimitConstraints } from "@llmgateway/shared";
+import type {
+	ApiKeyLimitConstraints,
+	MemberBudgetOwner,
+} from "@llmgateway/shared";
 
 export type MemberBudgetConstraint = ApiKeyLimitConstraints;
 
@@ -161,14 +164,19 @@ export function buildApiKeyLimitPayload(value: ApiKeyLimitFormValue): {
 export function validateApiKeyLimitPayloadWithinMemberBudget(
 	payload: ApiKeyLimitPayload,
 	memberBudget: MemberBudgetConstraint | null | undefined,
+	budgetOwner: MemberBudgetOwner = "self",
 ): string | null {
 	if (!memberBudget || !hasMemberBudgetCaps(memberBudget)) {
 		return null;
 	}
-	return validateApiKeyLimitsWithinMemberBudget(payload, memberBudget);
+	return validateApiKeyLimitsWithinMemberBudget(
+		payload,
+		memberBudget,
+		budgetOwner,
+	);
 }
 
-export function formatCurrencyAmount(value: string): string {
+export function formatCurrencyAmount(value: string | number): string {
 	return `$${Number(value).toFixed(2)}`;
 }
 
@@ -194,6 +202,26 @@ export function formatPeriodLimitSummary(
 	}
 
 	return `${formatCurrencyAmount(apiKey.periodUsageLimit)} / ${formatPeriodWindowLabel(apiKey.periodUsageDurationValue, apiKey.periodUsageDurationUnit)}`;
+}
+
+export function formatApiKeyPeriodResetLabel(
+	resetAt: string | Date | null | undefined,
+): string | null {
+	if (resetAt === null || resetAt === undefined) {
+		return null;
+	}
+
+	const date = resetAt instanceof Date ? resetAt : new Date(resetAt);
+	if (Number.isNaN(date.getTime())) {
+		return null;
+	}
+
+	return Intl.DateTimeFormat(undefined, {
+		month: "short",
+		day: "numeric",
+		hour: "2-digit",
+		minute: "2-digit",
+	}).format(date);
 }
 
 export function formatCurrentPeriodUsageSummary(
@@ -222,20 +250,7 @@ export function formatCurrentPeriodUsageSummary(
 		};
 	}
 
-	const resetAt =
-		apiKey.currentPeriodResetAt !== null &&
-		apiKey.currentPeriodResetAt !== undefined
-			? new Date(apiKey.currentPeriodResetAt)
-			: null;
-	const resetLabel =
-		resetAt && !Number.isNaN(resetAt.getTime())
-			? Intl.DateTimeFormat(undefined, {
-					month: "short",
-					day: "numeric",
-					hour: "2-digit",
-					minute: "2-digit",
-				}).format(resetAt)
-			: null;
+	const resetLabel = formatApiKeyPeriodResetLabel(apiKey.currentPeriodResetAt);
 
 	return {
 		summary: `${formatCurrencyAmount(apiKey.currentPeriodUsage)} / ${formatCurrencyAmount(apiKey.periodUsageLimit)}`,
@@ -252,9 +267,19 @@ interface ApiKeyLimitFieldsProps {
 	onChange: (value: ApiKeyLimitFormValue) => void;
 	value: ApiKeyLimitFormValue;
 	memberBudget?: MemberBudgetConstraint | null;
+	budgetOwner?: MemberBudgetOwner;
+	ownerName?: string | null;
 }
 
-function MemberBudgetNotice({ budget }: { budget: MemberBudgetConstraint }) {
+function MemberBudgetNotice({
+	budget,
+	budgetOwner,
+	ownerName,
+}: {
+	budget: MemberBudgetConstraint;
+	budgetOwner: MemberBudgetOwner;
+	ownerName?: string | null;
+}) {
 	const parts: string[] = [];
 	if (budget.usageLimit !== null) {
 		parts.push(`${formatCurrencyAmount(budget.usageLimit)} total`);
@@ -276,6 +301,17 @@ function MemberBudgetNotice({ budget }: { budget: MemberBudgetConstraint }) {
 		return null;
 	}
 
+	if (budgetOwner === "other") {
+		return (
+			<div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+				{ownerName ?? "The member who created this key"} is limited to{" "}
+				<span className="font-medium">{parts.join(" and ")}</span>. This
+				key&apos;s limits must be at or below that — raise their limit on the
+				Team page first.
+			</div>
+		);
+	}
+
 	return (
 		<div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
 			Your organization limits you to{" "}
@@ -290,6 +326,8 @@ export function ApiKeyLimitFields({
 	onChange,
 	value,
 	memberBudget,
+	budgetOwner = "self",
+	ownerName,
 }: ApiKeyLimitFieldsProps) {
 	const updateValue = <K extends keyof ApiKeyLimitFormValue>(
 		key: K,
@@ -304,7 +342,11 @@ export function ApiKeyLimitFields({
 	return (
 		<div className="space-y-4">
 			{memberBudget && hasMemberBudgetCaps(memberBudget) && (
-				<MemberBudgetNotice budget={memberBudget} />
+				<MemberBudgetNotice
+					budget={memberBudget}
+					budgetOwner={budgetOwner}
+					ownerName={ownerName}
+				/>
 			)}
 			<div className="rounded-md border p-4 space-y-3">
 				<div className="flex items-center gap-2">

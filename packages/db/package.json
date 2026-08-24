@@ -7,7 +7,8 @@
 	"exports": {
 		".": {
 			"types": "./dist/index.d.ts",
-			"import": "./dist/index.js"
+			"import": "./dist/index.js",
+			"default": "./dist/index.js"
 		}
 	},
 	"module": "./dist/index.js",
@@ -23,7 +24,8 @@
 		"migrate": "pnpm drizzle-kit migrate --config drizzle.config.ts",
 		"migrations": "pnpm drizzle-kit generate --config drizzle.config.ts",
 		"push": "pnpm drizzle-kit push --force --config drizzle.config.ts",
-		"seed": "node dist/seed.js"
+		"seed": "node dist/seed.js",
+		"seed-demo": "node dist/seed-demo.js"
 	},
 	"dependencies": {
 		"@kubiks/otel-drizzle": "2.0.3",
@@ -33,7 +35,7 @@
 		"@llmgateway/shared": "workspace:*",
 		"@opentelemetry/api": "1.9.0",
 		"drizzle-orm": "1.0.0-beta.1",
-		"nanoid": "5.1.5",
+		"nanoid": "5.1.16",
 		"pg": "^8.16.3",
 		"zod": "3.25.75"
 	},

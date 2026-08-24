@@ -2,6 +2,41 @@ import type { ModelDefinition } from "@/models.js";
 
 export const metaModels = [
 	{
+		id: "muse-spark-1.2",
+		name: "Muse Spark 1.2",
+		description:
+			"Meta's latest multimodal reasoning model, improving on Muse Spark 1.1's agentic tool calling, coding, structured output, and long-context workflows with image and video understanding.",
+		family: "meta",
+		releasedAt: new Date("2026-08-06"),
+		providers: [
+			{
+				providerId: "meta",
+				externalId: "muse-spark-1.2",
+				stability: "beta",
+				inputPrice: "1.25e-6",
+				cachedInputPrice: "0.15e-6",
+				outputPrice: "4.25e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"],
+				reasoningMode: "adaptive",
+				reasoningOutput: "omit",
+				supportsResponsesApi: true,
+				vision: true,
+				tools: true,
+				// Muse Spark's endpoint only accepts tool_choice="auto"; it rejects
+				// "none", "required", and named function choices with
+				// invalid_request_error (same endpoint behavior as 1.1)
+				supportedToolChoices: ["auto"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+		],
+	},
+	{
 		id: "muse-spark-1.1",
 		name: "Muse Spark 1.1",
 		description:
@@ -200,6 +235,7 @@ export const metaModels = [
 			{
 				providerId: "nebius",
 				externalId: "nvidia/Llama-3_1-Nemotron-Ultra-253B-v1",
+				deactivatedAt: new Date("2026-08-31"),
 				inputPrice: "0.6e-6",
 				outputPrice: "1.8e-6",
 				requestPrice: "0",
@@ -247,6 +283,7 @@ export const metaModels = [
 			{
 				providerId: "nebius",
 				externalId: "meta-llama/Llama-3.3-70B-Instruct",
+				deactivatedAt: new Date("2026-08-31"),
 				inputPrice: "0.13e-6",
 				outputPrice: "0.4e-6",
 				requestPrice: "0",

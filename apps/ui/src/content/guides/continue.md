@@ -2,7 +2,8 @@
 id: continue
 slug: continue
 title: Continue CLI Integration
-description: Use any model with Continue CLI through LLM Gateway. One config file, 200+ models, full cost tracking.
+seoTitle: "Continue CLI Setup: 200+ Models, One Config"
+description: Point Continue CLI at Kimi K3, GPT-5, Claude, or 200+ models through LLM Gateway. One config file, unified billing, full cost tracking.
 date: 2026-05-11
 ---
 
@@ -10,7 +11,7 @@ date: 2026-05-11
 
 One config file. Any model. Full cost visibility.
 
-> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
+> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use canonical model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
 
 ## Prerequisites
 

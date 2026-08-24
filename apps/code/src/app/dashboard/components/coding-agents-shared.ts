@@ -6,6 +6,7 @@ import {
 	CursorIcon,
 	DevPassCodeIcon,
 	EmpryoIcon,
+	GitHubCopilotIcon,
 	N8nIcon,
 	OpenClawIcon,
 	OpenCodeIcon,
@@ -91,6 +92,13 @@ export const AGENTS: AgentDefinition[] = [
 		icon: CodexIcon,
 		sources: ["codex"],
 		guideUrl: "/guides/codex",
+	},
+	{
+		id: "github-copilot",
+		label: "GitHub Copilot",
+		icon: GitHubCopilotIcon,
+		sources: ["github-copilot", "copilot"],
+		guideUrl: "/guides/github-copilot",
 	},
 	{
 		id: "n8n",

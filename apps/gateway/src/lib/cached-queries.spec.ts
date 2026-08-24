@@ -1,9 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
+import { redisClient } from "@llmgateway/cache";
 import {
+	cdb,
 	db,
+	eq,
 	apiKey,
 	apiKeyIamRule,
+	customModel,
 	organization,
 	project,
 	providerKey,
@@ -21,6 +25,7 @@ import {
 	findProjectById,
 	findOrganizationById,
 	findCustomProviderKey,
+	findActiveCustomModels,
 	findProviderKey,
 	findActiveProviderKeys,
 	findProviderKeysByProviders,
@@ -122,6 +127,24 @@ describe("Cached Queries - Gateway Database Access", () => {
 			organizationId: testOrgId,
 			status: "active",
 		});
+
+		await db.insert(customModel).values([
+			{
+				id: "test-active-custom-model",
+				providerKeyId: "test-custom-provider-key",
+				organizationId: testOrgId,
+				modelName: "claude-haiku-4-5",
+				inputPrice: "1e-6",
+				outputPrice: "2e-6",
+			},
+			{
+				id: "test-inactive-custom-model",
+				providerKeyId: "test-custom-provider-key",
+				organizationId: testOrgId,
+				modelName: "inactive-model",
+				status: "inactive",
+			},
+		]);
 
 		await db.insert(apiKeyIamRule).values({
 			id: testIamRuleId,
@@ -233,6 +256,20 @@ describe("Cached Queries - Gateway Database Access", () => {
 		});
 	});
 
+	describe("findActiveCustomModels", () => {
+		it("finds active custom models for an organization", async () => {
+			const result = await findActiveCustomModels(testOrgId);
+
+			expect(result.map((model) => model.id)).toEqual([
+				"test-active-custom-model",
+			]);
+		});
+
+		it("returns an empty array for another organization", async () => {
+			expect(await findActiveCustomModels("nonexistent-org")).toEqual([]);
+		});
+	});
+
 	describe("findProviderKey", () => {
 		it("should find provider key by organization and provider", async () => {
 			const result = await findProviderKey(testOrgId, "openai");
@@ -321,6 +358,126 @@ describe("Cached Queries - Gateway Database Access", () => {
 			const result = await findProviderKey(testOrgId, "nonexistent");
 
 			expect(result).toBeUndefined();
+		});
+	});
+
+	/**
+	 * Order is what defines the primary key: selectProviderKeyWithFailover
+	 * treats index 0 of the query result as primary. Before sortOrder existed
+	 * that just meant "oldest", so an organization could not promote a key.
+	 */
+	describe("findProviderKey - manual order", () => {
+		// This file seeds through the plain client, which does not invalidate the
+		// cache, while these cases mutate through cdb, which does. Without a
+		// flush a previous case's ordered result survives the reseed and leaks
+		// into the next one.
+		beforeEach(async () => {
+			await redisClient.flushdb();
+		});
+
+		async function setOrder(entries: Record<string, number | null>) {
+			for (const [id, value] of Object.entries(entries)) {
+				await cdb
+					.update(providerKey)
+					.set({ sortOrder: value })
+					.where(eq(providerKey.id, id));
+			}
+		}
+
+		it("prefers the manually ordered key over the older one", async () => {
+			await setOrder({
+				"test-provider-key-cached-queries-2": 0,
+				[testProviderKeyId]: 1,
+			});
+
+			const result = await findProviderKey(testOrgId, "openai");
+
+			expect(result?.id).toBe("test-provider-key-cached-queries-2");
+		});
+
+		it("falls back to createdAt order when nothing is positioned", async () => {
+			// Every row NULL is the post-migration state, and must behave exactly
+			// as it did before the column existed.
+			const result = await findProviderKey(testOrgId, "openai");
+
+			expect(result?.id).toBe(testProviderKeyId);
+		});
+
+		it("sorts an unpositioned key after every positioned one", async () => {
+			// Guards the nullable-no-default choice: a `default(0)` column would
+			// tie this key with position 0 and slot it second instead of last.
+			await db.insert(providerKey).values({
+				id: "test-provider-key-cached-queries-3",
+				token: "test-provider-token-3",
+				provider: "openai",
+				organizationId: testOrgId,
+				status: "active",
+			});
+			await setOrder({
+				[testProviderKeyId]: 0,
+				"test-provider-key-cached-queries-2": 1,
+			});
+
+			const ordered = await findActiveProviderKeys(testOrgId);
+			const openaiIds = ordered
+				.filter((key) => key.provider === "openai")
+				.map((key) => key.id);
+
+			expect(openaiIds).toEqual([
+				testProviderKeyId,
+				"test-provider-key-cached-queries-2",
+				"test-provider-key-cached-queries-3",
+			]);
+		});
+
+		it("still fails over when the manual primary is unhealthy", async () => {
+			await setOrder({
+				"test-provider-key-cached-queries-2": 0,
+				[testProviderKeyId]: 1,
+			});
+			reportTrackedKeyError("test-provider-key-cached-queries-2", 500);
+			reportTrackedKeyError("test-provider-key-cached-queries-2", 500);
+			reportTrackedKeyError("test-provider-key-cached-queries-2", 500);
+
+			const result = await findProviderKey(testOrgId, "openai");
+
+			expect(result?.id).toBe(testProviderKeyId);
+		});
+
+		it("still fails over when a later key has materially better uptime", async () => {
+			// The uptime override is a deliberate product decision: manual order
+			// picks the primary, health still wins.
+			await setOrder({
+				"test-provider-key-cached-queries-2": 0,
+				[testProviderKeyId]: 1,
+			});
+			reportTrackedKeySuccess("test-provider-key-cached-queries-2");
+			reportTrackedKeyError("test-provider-key-cached-queries-2", 500);
+			reportTrackedKeySuccess("test-provider-key-cached-queries-2");
+			reportTrackedKeyError("test-provider-key-cached-queries-2", 500);
+			for (let i = 0; i < 4; i++) {
+				reportTrackedKeySuccess(testProviderKeyId);
+			}
+
+			const result = await findProviderKey(testOrgId, "openai");
+
+			expect(result?.id).toBe(testProviderKeyId);
+		});
+
+		it("returns manual order from the raw list queries", async () => {
+			await setOrder({
+				"test-provider-key-cached-queries-2": 0,
+				[testProviderKeyId]: 1,
+			});
+
+			const byProviders = await findProviderKeysByProviders(testOrgId, [
+				"openai",
+			]);
+
+			expect(byProviders.map((key) => key.id)).toEqual([
+				"test-provider-key-cached-queries-2",
+				testProviderKeyId,
+			]);
 		});
 	});
 

@@ -18,6 +18,35 @@ function getActivePeriodStartedAt() {
 	return new Date(Date.now() - ONE_HOUR_MS);
 }
 
+/** A second, developer-role member of the test org plus a key they created. */
+async function seedOtherMemberKey(budget: {
+	usageLimit?: string;
+	periodUsageLimit?: string;
+	periodUsageDurationValue?: number;
+	periodUsageDurationUnit?: "hour" | "day" | "week" | "month";
+}) {
+	await db.insert(tables.user).values({
+		id: "other-user-id",
+		name: "Other Developer",
+		email: "other-developer@example.com",
+		emailVerified: true,
+	});
+	await db.insert(tables.userOrganization).values({
+		id: "other-user-org-id",
+		userId: "other-user-id",
+		organizationId: "test-org-id",
+		role: "developer",
+		...budget,
+	});
+	await db.insert(tables.apiKey).values({
+		id: "other-api-key-id",
+		token: "other-api-key-token",
+		projectId: "test-project-id",
+		description: "Other Developer Key",
+		createdBy: "other-user-id",
+	});
+}
+
 describe("keys route", () => {
 	let token: string;
 
@@ -446,6 +475,159 @@ describe("keys route", () => {
 		expect(await readActiveIamRules()).toHaveLength(1);
 	});
 
+	// Regression tests for GHSA-pjj8-5gpw-f42r: the rule mutation endpoints
+	// authorized only the {id} API key while resolving the rule by {ruleId}
+	// alone, letting any authenticated user tamper with other organizations'
+	// IAM rules.
+	describe("IAM rule tenant isolation", () => {
+		beforeEach(async () => {
+			// A victim organization the test user is NOT a member of, with its own
+			// project, API key, and IAM rule.
+			await db.insert(tables.organization).values({
+				id: "victim-org-id",
+				name: "Victim Organization",
+				billingEmail: "victim@example.com",
+			});
+			await db.insert(tables.project).values({
+				id: "victim-project-id",
+				name: "Victim Project",
+				organizationId: "victim-org-id",
+			});
+			await db.insert(tables.user).values({
+				id: "victim-user-id",
+				name: "Victim User",
+				email: "victim-user@example.com",
+				emailVerified: true,
+			});
+			await db.insert(tables.apiKey).values({
+				id: "victim-api-key-id",
+				token: "victim-api-key-token",
+				projectId: "victim-project-id",
+				description: "Victim Key",
+				createdBy: "victim-user-id",
+			});
+			await db.insert(tables.apiKeyIamRule).values({
+				id: "victim-rule-id",
+				apiKeyId: "victim-api-key-id",
+				ruleType: "allow_models",
+				ruleValue: { models: ["openai/gpt-4o-mini"] },
+				status: "active",
+			});
+		});
+
+		test("PATCH cannot update another organization's IAM rule", async () => {
+			const res = await app.request(
+				"/keys/api/test-api-key-id/iam/victim-rule-id",
+				{
+					method: "PATCH",
+					headers: {
+						"Content-Type": "application/json",
+						Cookie: token,
+					},
+					body: JSON.stringify({ status: "inactive" }),
+				},
+			);
+			expect(res.status).toBe(404);
+
+			const rule = await db.query.apiKeyIamRule.findFirst({
+				where: { id: { eq: "victim-rule-id" } },
+			});
+			expect(rule?.status).toBe("active");
+		});
+
+		test("DELETE cannot delete another organization's IAM rule", async () => {
+			const res = await app.request(
+				"/keys/api/test-api-key-id/iam/victim-rule-id",
+				{
+					method: "DELETE",
+					headers: {
+						Cookie: token,
+					},
+				},
+			);
+			expect(res.status).toBe(404);
+
+			const rule = await db.query.apiKeyIamRule.findFirst({
+				where: { id: { eq: "victim-rule-id" } },
+			});
+			expect(rule).toBeDefined();
+		});
+
+		test("PATCH and DELETE still work for a rule on the caller's own key", async () => {
+			await db.insert(tables.apiKeyIamRule).values({
+				id: "own-rule-id",
+				apiKeyId: "test-api-key-id",
+				ruleType: "allow_models",
+				ruleValue: { models: ["openai/gpt-4o-mini"] },
+				status: "active",
+			});
+
+			const patch = await app.request(
+				"/keys/api/test-api-key-id/iam/own-rule-id",
+				{
+					method: "PATCH",
+					headers: {
+						"Content-Type": "application/json",
+						Cookie: token,
+					},
+					body: JSON.stringify({ status: "inactive" }),
+				},
+			);
+			expect(patch.status).toBe(200);
+			const patched = await patch.json();
+			expect(patched.rule.status).toBe("inactive");
+
+			const del = await app.request(
+				"/keys/api/test-api-key-id/iam/own-rule-id",
+				{
+					method: "DELETE",
+					headers: {
+						Cookie: token,
+					},
+				},
+			);
+			expect(del.status).toBe(200);
+
+			const rule = await db.query.apiKeyIamRule.findFirst({
+				where: { id: { eq: "own-rule-id" } },
+			});
+			expect(rule).toBeUndefined();
+		});
+	});
+
+	test("GET /keys/api without projectId hides other members' keys from developers", async () => {
+		await seedOtherMemberKey({});
+		// Give the developer a credential account (same password as the admin
+		// fixture) and sign in as them.
+		await db.insert(tables.account).values({
+			id: "other-account-id",
+			providerId: "credential",
+			accountId: "other-account-id",
+			userId: "other-user-id",
+			password:
+				"c11ef27a7f9264be08db228ebb650888:a4d985a9c6bd98608237fd507534424950aa7fc255930d972242b81cbe78594f8568feb0d067e95ddf7be242ad3e9d013f695f4414fce68bfff091079f1dc460",
+		});
+		const auth = await app.request("/auth/sign-in/email", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				email: "other-developer@example.com",
+				password: "admin@example.com1A",
+			}),
+		});
+		expect(auth.status).toBe(200);
+		const devToken = auth.headers.get("set-cookie")!;
+
+		const res = await app.request("/keys/api", {
+			headers: { Cookie: devToken },
+		});
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		const ids = json.apiKeys.map((key: { id: string }) => key.id);
+		expect(ids).toContain("other-api-key-id");
+		expect(ids).not.toContain("test-api-key-id");
+	});
+
 	test("POST /keys/api creates a period usage limit", async () => {
 		const res = await app.request("/keys/api", {
 			method: "POST",
@@ -557,6 +739,53 @@ describe("keys route", () => {
 		expect(res.status).toBe(400);
 		const json = await res.json();
 		expect(json.message).toMatch(/organization limit of \$10\.00/);
+	});
+
+	test("PATCH /keys/api/limit/{id} blames the key owner's budget", async () => {
+		await seedOtherMemberKey({ usageLimit: "10" });
+
+		const res = await app.request("/keys/api/limit/other-api-key-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ usageLimit: "50" }),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.message).toMatch(/the key owner's limit of \$10\.00/);
+		expect(json.message).toMatch(/Team page/);
+	});
+
+	test("GET /keys/api returns each key owner's effective budget", async () => {
+		await seedOtherMemberKey({});
+		await db
+			.update(tables.organization)
+			.set({
+				defaultDeveloperPeriodUsageLimit: "500",
+				defaultDeveloperPeriodUsageDurationValue: 1,
+				defaultDeveloperPeriodUsageDurationUnit: "month",
+			})
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		const res = await app.request("/keys/api?projectId=test-project-id", {
+			headers: { Cookie: token },
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		const otherKey = json.apiKeys.find(
+			(key: { id: string }) => key.id === "other-api-key-id",
+		);
+		// The developer inherits the org-wide default developer budget.
+		expect(otherKey.ownerBudget).toEqual({
+			usageLimit: null,
+			periodUsageLimit: "500",
+			periodUsageDurationValue: 1,
+			periodUsageDurationUnit: "month",
+		});
 	});
 
 	test("PATCH /keys/api/limit/{id} updates and resets period usage", async () => {

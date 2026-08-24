@@ -76,7 +76,7 @@ describe("Models", () => {
 		const isZero = (p: string | undefined) =>
 			p !== undefined && Number(p) === 0;
 
-		// Filter models that have zero input/output pricing AND no request or per-second price
+		// Filter models that have zero input/output pricing AND no request, per-second, or per-image price
 		const modelsWithZeroPricing = models.filter((model) =>
 			model.providers.some(
 				(provider) =>
@@ -84,6 +84,9 @@ describe("Models", () => {
 					!(provider as ProviderModelMapping).requestPrice &&
 					!Object.values(
 						(provider as ProviderModelMapping).perSecondPrice ?? {},
+					).some((price) => Number(price) > 0) &&
+					!Object.values(
+						(provider as ProviderModelMapping).perImagePrice ?? {},
 					).some((price) => Number(price) > 0) &&
 					!hasImagePricing(provider as ProviderModelMapping) &&
 					!isEmbeddingProvider(provider as ProviderModelMapping),
@@ -102,6 +105,9 @@ describe("Models", () => {
 						!(p as ProviderModelMapping).requestPrice &&
 						!Object.values(
 							(p as ProviderModelMapping).perSecondPrice ?? {},
+						).some((price) => Number(price) > 0) &&
+						!Object.values(
+							(p as ProviderModelMapping).perImagePrice ?? {},
 						).some((price) => Number(price) > 0) &&
 						!hasImagePricing(p as ProviderModelMapping) &&
 						!isEmbeddingProvider(p as ProviderModelMapping),
@@ -1000,6 +1006,66 @@ describe("getCheapestFromAvailableProviders", () => {
 		).toBe(0.8);
 	});
 
+	it("should apply signed routing adjustments without changing reported price", async () => {
+		const routingModel = {
+			id: "routing-adjustment-test",
+			name: "Routing Adjustment Test",
+			family: "openai" as const,
+			providers: [
+				{
+					providerId: "openai" as const,
+					externalId: "routing-adjustment-test",
+					inputPrice: "2",
+					outputPrice: "2",
+					streaming: true as const,
+				},
+				{
+					providerId: "anthropic" as const,
+					externalId: "routing-adjustment-test",
+					inputPrice: "1",
+					outputPrice: "1",
+					streaming: true as const,
+				},
+			],
+		};
+		const equalPriorityConfig = resolveRoutingConfig(
+			{ providerPriorities: { openai: 1, anthropic: 1 } },
+			buildProviderPriorityDefaults(),
+		);
+
+		const preferred = await getCheapestFromAvailableProviders(
+			routingModel.providers,
+			routingModel,
+			{
+				routingConfig: equalPriorityConfig,
+				providerRoutingScoreMultiplierResolver: (provider) =>
+					provider.providerId === "openai" ? "-0.6" : "0",
+			},
+		);
+		expect(preferred?.provider.providerId).toBe("openai");
+		expect(
+			preferred?.metadata.providerScores.find(
+				(score) => score.providerId === "openai",
+			)?.price,
+		).toBe(2);
+
+		const penalized = await getCheapestFromAvailableProviders(
+			routingModel.providers,
+			routingModel,
+			{
+				routingConfig: equalPriorityConfig,
+				providerRoutingScoreMultiplierResolver: (provider) =>
+					provider.providerId === "anthropic" ? "1.5" : "0",
+			},
+		);
+		expect(penalized?.provider.providerId).toBe("openai");
+		expect(
+			penalized?.metadata.providerScores.find(
+				(score) => score.providerId === "anthropic",
+			)?.price,
+		).toBe(1);
+	});
+
 	it("should disable random exploration for vitest processes", async () => {
 		const videoModel = models.find(
 			(model) => model.id === "veo-3.1-generate-preview",
@@ -1305,6 +1371,134 @@ describe("getCheapestFromAvailableProviders", () => {
 				outputPrice: "0.6e-6",
 			}).toNumber(),
 		).toBe(0.375 / 1e6);
+	});
+
+	describe("time-of-day pricing in provider selection", () => {
+		// Mirrors the DeepSeek V4 Pro first-party mapping: peak 01:00-04:00 and
+		// 06:00-10:00 UTC at double the off-peak rates.
+		const deepseekLikeMapping = {
+			inputPrice: "0.435e-6",
+			outputPrice: "0.87e-6",
+			cachedInputPrice: "0.003625e-6",
+			peakPricing: {
+				peak: {
+					inputPrice: "1.32e-6",
+					outputPrice: "3.96e-6",
+					cachedInputPrice: "0.044e-6",
+				},
+				offPeak: {
+					inputPrice: "0.66e-6",
+					outputPrice: "1.98e-6",
+					cachedInputPrice: "0.022e-6",
+				},
+				hoursUtc: [
+					[1, 4],
+					[6, 10],
+				] as [number, number][],
+				offPeakDays: {
+					daysOfWeek: [0, 6] as const,
+					utcOffsetMinutes: 480,
+					timeZoneLabel: "Beijing time",
+				},
+			},
+		};
+
+		it("returns the peak average during peak hours", () => {
+			expect(
+				getProviderSelectionPrice(
+					deepseekLikeMapping,
+					undefined,
+					new Date("2026-08-17T02:00:00Z"),
+				).toNumber(),
+			).toBe((1.32e-6 + 3.96e-6) / 2);
+		});
+
+		it("returns the off-peak average outside peak hours", () => {
+			expect(
+				getProviderSelectionPrice(
+					deepseekLikeMapping,
+					undefined,
+					new Date("2026-08-17T12:00:00Z"),
+				).toNumber(),
+			).toBe((0.66e-6 + 1.98e-6) / 2);
+		});
+
+		it("returns the off-peak average during Beijing weekends", () => {
+			expect(
+				getProviderSelectionPrice(
+					deepseekLikeMapping,
+					undefined,
+					new Date("2026-08-29T02:00:00Z"),
+				).toNumber(),
+			).toBe((0.66e-6 + 1.98e-6) / 2);
+		});
+
+		it("returns the plain average for a mapping without peakPricing", () => {
+			expect(
+				getProviderSelectionPrice({
+					inputPrice: "0.5e-6",
+					outputPrice: "1.5e-6",
+				}).toNumber(),
+			).toBe(1e-6);
+		});
+
+		it("ranks with peak rates through full provider selection", async () => {
+			// The deepseek mapping's peak window covers every hour, so the
+			// selection price is the peak rate regardless of wall clock. At the
+			// raw base rates, DeepSeek's
+			// average (0.375e-6) beats openai's (0.75e-6); with peak rates
+			// applied deepseek's average rises to 1.125e-6 and openai wins —
+			// so selecting openai proves time-of-day pricing was applied.
+			const alwaysPeakModel = {
+				id: "always-peak-model",
+				name: "Always Peak Model",
+				family: "openai" as const,
+				providers: [
+					{
+						providerId: "openai" as const,
+						externalId: "always-peak",
+						inputPrice: "0.5e-6",
+						outputPrice: "1.0e-6",
+						streaming: true as const,
+					},
+					{
+						providerId: "deepseek" as const,
+						externalId: "always-peak",
+						inputPrice: "0.25e-6",
+						outputPrice: "0.5e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "0.75e-6",
+								outputPrice: "1.5e-6",
+							},
+							offPeak: {
+								inputPrice: "0.25e-6",
+								outputPrice: "0.5e-6",
+							},
+							hoursUtc: [[0, 24]] as [number, number][],
+						},
+						streaming: true as const,
+					},
+				],
+			};
+
+			const equalPriority = resolveRoutingConfig(
+				{ providerPriorities: { openai: 1, deepseek: 1 } },
+				buildProviderPriorityDefaults(),
+			);
+
+			const result = await getCheapestFromAvailableProviders(
+				alwaysPeakModel.providers,
+				alwaysPeakModel,
+				{ routingConfig: equalPriority },
+			);
+
+			expect(result?.provider.providerId).toBe("openai");
+			const deepseekScore = result?.metadata.providerScores.find(
+				(s) => s.providerId === "deepseek",
+			);
+			expect(deepseekScore?.price).toBe((0.75e-6 + 1.5e-6) / 2);
+		});
 	});
 
 	describe("cache support weighting", () => {

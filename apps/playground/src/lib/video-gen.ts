@@ -12,7 +12,34 @@ export type VideoSize =
 	| "3840x2160"
 	| "2160x3840";
 
-export type VideoDuration = 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15;
+export type VideoDuration =
+	| 4
+	| 5
+	| 6
+	| 7
+	| 8
+	| 9
+	| 10
+	| 11
+	| 12
+	| 13
+	| 14
+	| 15
+	| 16
+	| 17
+	| 18
+	| 19
+	| 20
+	| 21
+	| 22
+	| 23
+	| 24
+	| 25
+	| 26
+	| 27
+	| 28
+	| 29
+	| 30;
 
 export interface VideoInputImage {
 	dataUrl: string;
@@ -68,7 +95,8 @@ export interface VideoGalleryItem {
 export type VideoInputMode = "none" | "frames" | "reference";
 
 const VIDEO_DURATIONS: VideoDuration[] = [
-	4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+	4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+	25, 26, 27, 28, 29, 30,
 ];
 
 const VIDEO_SIZE_LABELS: Record<VideoSize, string> = {
@@ -95,29 +123,29 @@ export function getVideoDurations(): VideoDuration[] {
 }
 
 export function supportsVideoFrameInput(modelId: string): boolean {
-	const [providerId, rootModelId] = modelId.includes("/")
+	const [providerId, canonicalModelId] = modelId.includes("/")
 		? modelId.split("/", 2)
 		: [undefined, modelId];
 
-	if (isSeedance2ReferenceModel(rootModelId)) {
+	if (isSeedance2ReferenceModel(canonicalModelId)) {
 		return providerId === undefined || providerId === "bytedance";
 	}
 
-	if (rootModelId === "minimax-hailuo-2-3") {
+	if (canonicalModelId === "minimax-hailuo-2-3") {
 		return providerId === undefined || providerId === "minimax";
 	}
 
-	if (isGrokImagineVideoModel(rootModelId)) {
+	if (isGrokImagineVideoModel(canonicalModelId)) {
 		return providerId === undefined || providerId === "xai";
 	}
 
-	if (isAtlasCloudKlingVideoModel(rootModelId)) {
+	if (isAtlasCloudKlingVideoModel(canonicalModelId)) {
 		return providerId === undefined || providerId === "atlascloud";
 	}
 
 	if (
-		rootModelId !== "veo-3.1-generate-preview" &&
-		rootModelId !== "veo-3.1-fast-generate-preview"
+		canonicalModelId !== "veo-3.1-generate-preview" &&
+		canonicalModelId !== "veo-3.1-fast-generate-preview"
 	) {
 		return false;
 	}
@@ -129,48 +157,54 @@ export function supportsVideoFrameInput(modelId: string): boolean {
 	);
 }
 
-function isSeedance2ReferenceModel(rootModelId: string): boolean {
-	return rootModelId === "seedance-2-0" || rootModelId === "seedance-2-0-fast";
-}
-
-function isGrokImagineVideoModel(rootModelId: string): boolean {
+function isSeedance2ReferenceModel(canonicalModelId: string): boolean {
 	return (
-		rootModelId === "grok-imagine-video-1-5" ||
-		rootModelId === "grok-imagine-video-1-5-preview" ||
-		rootModelId === "grok-imagine-video-1.5-preview"
+		canonicalModelId === "seedance-2-0" ||
+		canonicalModelId === "seedance-2-0-fast" ||
+		canonicalModelId === "seedance-2-5"
 	);
 }
 
-function isAtlasCloudKlingVideoModel(rootModelId: string): boolean {
-	return rootModelId === "kling-v3-0" || rootModelId === "kling-v3-0-turbo";
+function isGrokImagineVideoModel(canonicalModelId: string): boolean {
+	return (
+		canonicalModelId === "grok-imagine-video-1-5" ||
+		canonicalModelId === "grok-imagine-video-1-5-preview" ||
+		canonicalModelId === "grok-imagine-video-1.5-preview"
+	);
+}
+
+function isAtlasCloudKlingVideoModel(canonicalModelId: string): boolean {
+	return (
+		canonicalModelId === "kling-v3-0" || canonicalModelId === "kling-v3-0-turbo"
+	);
 }
 
 export function supportsVideoReferenceInput(modelId: string): boolean {
-	const [providerId, rootModelId] = modelId.includes("/")
+	const [providerId, canonicalModelId] = modelId.includes("/")
 		? modelId.split("/", 2)
 		: [undefined, modelId];
 
 	if (providerId === "bytedance") {
-		return isSeedance2ReferenceModel(rootModelId);
+		return isSeedance2ReferenceModel(canonicalModelId);
 	}
 
 	if (providerId === "google-vertex") {
-		return rootModelId === "veo-3.1-generate-preview";
+		return canonicalModelId === "veo-3.1-generate-preview";
 	}
 
 	if (providerId === "avalanche") {
-		return rootModelId === "veo-3.1-fast-generate-preview";
+		return canonicalModelId === "veo-3.1-fast-generate-preview";
 	}
 
 	return (
-		rootModelId === "veo-3.1-generate-preview" ||
-		rootModelId === "veo-3.1-fast-generate-preview" ||
-		isSeedance2ReferenceModel(rootModelId)
+		canonicalModelId === "veo-3.1-generate-preview" ||
+		canonicalModelId === "veo-3.1-fast-generate-preview" ||
+		isSeedance2ReferenceModel(canonicalModelId)
 	);
 }
 
 export function supportsVideoReferenceVideoInput(modelId: string): boolean {
-	const [providerId, rootModelId] = modelId.includes("/")
+	const [providerId, canonicalModelId] = modelId.includes("/")
 		? modelId.split("/", 2)
 		: [undefined, modelId];
 
@@ -178,11 +212,11 @@ export function supportsVideoReferenceVideoInput(modelId: string): boolean {
 		return false;
 	}
 
-	return isSeedance2ReferenceModel(rootModelId);
+	return isSeedance2ReferenceModel(canonicalModelId);
 }
 
 export function supportsVideoReferenceAudioInput(modelId: string): boolean {
-	const [providerId, rootModelId] = modelId.includes("/")
+	const [providerId, canonicalModelId] = modelId.includes("/")
 		? modelId.split("/", 2)
 		: [undefined, modelId];
 
@@ -190,17 +224,17 @@ export function supportsVideoReferenceAudioInput(modelId: string): boolean {
 		return false;
 	}
 
-	return isSeedance2ReferenceModel(rootModelId);
+	return isSeedance2ReferenceModel(canonicalModelId);
 }
 
 function getSelectedVideoMappings(
 	models: ApiModel[],
 	modelId: string,
 ): ApiModelProviderMapping[] {
-	const [providerId, rootModelId] = modelId.includes("/")
+	const [providerId, canonicalModelId] = modelId.includes("/")
 		? modelId.split("/", 2)
 		: [undefined, modelId];
-	const model = models.find((candidate) => candidate.id === rootModelId);
+	const model = models.find((candidate) => candidate.id === canonicalModelId);
 	if (!model) {
 		return [];
 	}
@@ -241,12 +275,9 @@ function mappingSupportsVideoRequest(
 	}
 
 	if (inputMode === "frames") {
-		// Match by canonical root model id — never by the upstream externalId.
+		// Match by canonical model id — never by the upstream externalId.
 		if (mapping.providerId === "bytedance") {
-			return (
-				mapping.modelId === "seedance-2-0" ||
-				mapping.modelId === "seedance-2-0-fast"
-			);
+			return isSeedance2ReferenceModel(mapping.modelId);
 		}
 
 		if (
@@ -261,12 +292,9 @@ function mappingSupportsVideoRequest(
 	}
 
 	if (inputMode === "reference") {
-		// Match by canonical root model id — never by the upstream externalId.
+		// Match by canonical model id — never by the upstream externalId.
 		if (mapping.providerId === "bytedance") {
-			return (
-				mapping.modelId === "seedance-2-0" ||
-				mapping.modelId === "seedance-2-0-fast"
-			);
+			return isSeedance2ReferenceModel(mapping.modelId);
 		}
 
 		// Veo reference images are only supported on the veo-3.1 family.

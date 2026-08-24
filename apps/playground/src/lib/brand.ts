@@ -14,5 +14,5 @@ export const BRAND = {
 	/** Parent brand, unchanged by the rebrand. */
 	publisher: "LLM Gateway",
 	tagline: "Every frontier model. One membership.",
-	url: "https://chat.llmgateway.io",
+	url: "https://lounge.llmgateway.io",
 } as const;

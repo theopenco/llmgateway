@@ -15,7 +15,8 @@ LLM Gateway supports native web search capabilities that allow models to access 
 When you include the `web_search` tool in your request, the model can search the web to gather relevant information before generating a response:
 
 1. You send a request with the `web_search` tool enabled
-2. The model determines if web search is needed based on the query
+2. The model determines if web search is needed based on the query, unless you
+   [require one](#requiring-a-search)
 3. If needed, the model performs web searches to gather current information
 4. The model synthesizes the search results and generates a response
 5. Citations are included in the response to show information sources
@@ -129,6 +130,36 @@ Limit the number of searches per request (provider-dependent):
 	"max_uses": 3
 }
 ```
+
+## Requiring a Search
+
+By default the `web_search` tool offers the model a search and lets it judge
+whether the question needs one. To require a search on every request, set
+`tool_choice`:
+
+```json
+{
+	"model": "...",
+	"messages": [{ "role": "user", "content": "What shipped in AI this week?" }],
+	"tools": [{ "type": "web_search" }],
+	"tool_choice": { "type": "web_search" }
+}
+```
+
+Reach for this sparingly. A forced search is billed on every request that
+carries it, and the retrieved snippets are appended to your prompt, so they are
+billed as input tokens too — on a question the model could have answered from
+memory, you pay for both and gain nothing. If you are building a chat interface
+with a "web search" toggle, leaving the tool attached with the default
+`tool_choice` is usually what you want, so that follow-ups like "shorter,
+please" do not trigger a search.
+
+A few upstreams have no model-elected search at all and can only search when
+asked to. Requiring a search is the only way to use their search; without it
+they behave like a model that decided not to search, and the gateway prefers to
+route a merely offered tool to a provider that can make that decision for
+itself. You can find the models with native web search on the
+[models page](https://llmgateway.io/models?filters=1&webSearch=true).
 
 ## Using with SDKs
 

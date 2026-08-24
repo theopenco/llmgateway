@@ -169,7 +169,7 @@ export default async function CompareOgImage({
 					<Pill>${plusCredits} credits on Plus</Pill>
 				</div>
 				<span style={{ color: "#A1A1AA", fontSize: 21, fontWeight: 500 }}>
-					chat.llmgateway.io
+					lounge.llmgateway.io
 				</span>
 			</div>
 		</div>,

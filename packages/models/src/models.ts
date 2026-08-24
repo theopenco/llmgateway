@@ -2,10 +2,12 @@ import { alibabaModels } from "./models/alibaba.js";
 import { anthropicModels } from "./models/anthropic.js";
 import { atlascloudModels } from "./models/atlascloud.js";
 import { baaiModels } from "./models/baai.js";
+import { baiduModels } from "./models/baidu.js";
 import { bytedanceModels } from "./models/bytedance.js";
 import { deepseekModels } from "./models/deepseek.js";
 import { elevenlabsModels } from "./models/elevenlabs.js";
 import { googleModels } from "./models/google.js";
+import { inclusionaiModels } from "./models/inclusionai.js";
 import { llmgatewayModels } from "./models/llmgateway.js";
 import { metaModels } from "./models/meta.js";
 import { microsoftModels } from "./models/microsoft.js";
@@ -180,7 +182,7 @@ export interface ProviderModelMapping {
 	providerId: (typeof providers)[number]["id"];
 	/**
 	 * Provider-specific upstream model id used when calling the upstream
-	 * provider. Distinct from the root `ModelDefinition.id` and from any
+	 * provider. Distinct from the canonical `ModelDefinition.id` and from any
 	 * human-readable display name.
 	 */
 	externalId: string;
@@ -301,11 +303,82 @@ export interface ProviderModelMapping {
 	 */
 	perSecondPrice?: Record<string, Price>;
 	/**
+	 * Price per generated output image in USD, keyed by resolution tier
+	 * (e.g. "1K", "2K") with a "default" fallback. For image models whose
+	 * provider bills a flat per-image rate that varies with the served
+	 * resolution rather than per token (e.g. Alibaba's qwen-image family,
+	 * whose usage reports the billed tier in `output_image_type`). Billed
+	 * per output image, unlike `requestPrice` which is flat per request.
+	 */
+	perImagePrice?: Record<string, Price>;
+	/**
 	 * Pricing tiers for models with context-length based pricing.
 	 * When set, inputPrice and outputPrice represent the base tier.
 	 * Tiers should be sorted by upToTokens in ascending order.
 	 */
 	pricingTiers?: PricingTier[];
+	/**
+	 * Peak/off-peak time-of-day pricing. When present, `peak` applies while the
+	 * current UTC hour falls inside `hoursUtc` and `offPeak` applies otherwise.
+	 * `offPeakDays` can override those windows for provider-defined local
+	 * calendar days. Only DeepSeek's first-party API uses this today.
+	 */
+	peakPricing?: {
+		/**
+		 * Prices charged during peak hours.
+		 */
+		peak: {
+			/**
+			 * Price per input token in USD during peak hours.
+			 */
+			inputPrice: Price;
+			/**
+			 * Price per output token in USD during peak hours.
+			 */
+			outputPrice: Price;
+			/**
+			 * Price per cached input token in USD during peak hours. When
+			 * unset, billing falls back to `inputPrice`, matching base-price
+			 * behavior.
+			 */
+			cachedInputPrice?: Price;
+		};
+		/**
+		 * Prices charged during off-peak hours.
+		 */
+		offPeak: {
+			/**
+			 * Price per input token in USD during off-peak hours.
+			 */
+			inputPrice: Price;
+			/**
+			 * Price per output token in USD during off-peak hours.
+			 */
+			outputPrice: Price;
+			/**
+			 * Price per cached input token in USD during off-peak hours. When
+			 * unset, billing falls back to `inputPrice`, matching base-price
+			 * behavior.
+			 */
+			cachedInputPrice?: Price;
+		};
+		/**
+		 * Peak hours in UTC as half-open [start, end) hour ranges (0-23). All
+		 * hours outside these ranges are off-peak.
+		 */
+		hoursUtc: readonly [start: number, end: number][];
+		/**
+		 * Local calendar days that are always billed off-peak. Days use
+		 * JavaScript's numbering (Sunday = 0, Saturday = 6), shifted from UTC by
+		 * `utcOffsetMinutes`.
+		 */
+		offPeakDays?: {
+			daysOfWeek: readonly number[];
+			utcOffsetMinutes: number;
+			/** Human-readable time zone used in pricing disclosures. */
+			timeZoneLabel: string;
+		};
+	};
 	/**
 	 * Maximum context window size in tokens
 	 */
@@ -333,6 +406,14 @@ export interface ProviderModelMapping {
 	 * Whether this specific model supports vision (image inputs) for this provider
 	 */
 	vision?: boolean;
+	/**
+	 * Whether remote image URLs must be fetched by the gateway and inlined as
+	 * base64 data URLs before the request goes upstream. Some deployments only
+	 * decode a subset of formats when they fetch the URL themselves (e.g.
+	 * Novita's ERNIE 4.5 VL endpoint accepts a remote JPEG but rejects a remote
+	 * PNG outright, while accepting the very same PNG bytes as a data URL).
+	 */
+	requiresBase64Images?: boolean;
 	/**
 	 * Whether this specific model accepts audio inputs (`input_audio` content
 	 * blocks) for this provider. Used by the `model: "auto"` router to avoid
@@ -382,6 +463,18 @@ export interface ProviderModelMapping {
 	 * declare `none` in `reasoningEfforts`.
 	 */
 	requiresDisableThinkingParam?: boolean;
+	/**
+	 * Name of the chat-template kwargs key used to control thinking on
+	 * mappings that think by default and expose only a chat-template flag
+	 * (e.g. vLLM-hosted hybrid models). When set, `reasoning_effort: "none"`
+	 * sends `chat_template_kwargs: { [key]: false }` to turn thinking off, and
+	 * any other effort sends `{ [key]: true }` — a boolean value under the
+	 * named key. Differs from `requiresEnableThinking`, which always sends
+	 * `chat_template_kwargs: { thinking: true }`, and
+	 * `requiresDisableThinkingParam`, which sends a top-level
+	 * `thinking: { type: "disabled" }` object.
+	 */
+	chatTemplateThinkingKey?: string;
 	/**
 	 * Whether this model supports the OpenAI responses API (defaults to true if reasoning is true)
 	 */
@@ -440,7 +533,7 @@ export interface ProviderModelMapping {
 	/**
 	 * Whether this model supports explicit reasoning.max_tokens parameter.
 	 * When true, users can specify the exact token budget for reasoning instead of using reasoning_effort levels.
-	 * Supported by Anthropic and Google thinking models.
+	 * Used by Anthropic, Google, Alibaba, DeepSeek, Z.AI, and Moonshot thinking models.
 	 */
 	reasoningMaxTokens?: boolean;
 	/**
@@ -469,7 +562,10 @@ export interface ProviderModelMapping {
 	 */
 	parallelToolCalls?: boolean;
 	/**
-	 * Whether this specific model supports JSON output mode for this provider
+	 * SOFT JSON output (models API: `json_output`): the model can be nudged
+	 * into emitting JSON (response_format json_object / prompt guidance).
+	 * There is no server-side schema guarantee — off-schema or malformed JSON
+	 * is possible and must be caught by the consumer's parser.
 	 */
 	jsonOutput?: boolean;
 	/**
@@ -480,7 +576,13 @@ export interface ProviderModelMapping {
 	 */
 	healStreamingJsonOutput?: boolean;
 	/**
-	 * Whether this provider supports JSON schema output mode (json_schema response format)
+	 * STRICT JSON output schema (models API: `structured_outputs`): the
+	 * UPSTREAM PROVIDER enforces schema-guided decoding (e.g. OpenAI
+	 * structured outputs, vLLM guided decoding). Declare true ONLY when the
+	 * true upstream provider natively supports it. The gateway MUST NOT
+	 * emulate schema enforcement (no prompt+validate adapter); when false,
+	 * requests with response_format: json_schema are rejected with a 400
+	 * ("does not support JSON schema output mode").
 	 */
 	jsonOutputSchema?: boolean;
 	/**
@@ -491,6 +593,27 @@ export interface ProviderModelMapping {
 	 * Price per web search query in USD (charged when web search is used)
 	 */
 	webSearchPrice?: Price;
+	/**
+	 * Whether this mapping's upstream can *only* search when the caller forces
+	 * it, because it has no model-elected search to fall back on.
+	 *
+	 * DashScope's `enable_search` is documented as a hint the model may act on,
+	 * but on the Qwen models mapped here it never fires — even "what is the
+	 * current price of Bitcoin?" comes back at an unchanged prompt size with the
+	 * model stating it has no live access. Only `search_options.forced_search`
+	 * actually retrieves, and that searches on every single call.
+	 *
+	 * Neither half is a sane default: forcing bills a search (plus ~2k tokens of
+	 * injected snippets) on turns that never needed one, which is what a chat UI
+	 * with a "web search" toggle left on would do to every follow-up message,
+	 * and not forcing returns confidently stale answers while still occupying
+	 * the route that a genuinely search-capable provider would have served.
+	 *
+	 * So mappings with this flag are only eligible for a request that forces
+	 * search via `tool_choice: {type: "web_search"}`. A plain `web_search` tool
+	 * with `tool_choice: "auto"` routes elsewhere instead.
+	 */
+	webSearchForcedOnly?: boolean;
 	/**
 	 * Price per content filter violation in USD (charged additionally when the
 	 * provider rejects a request for safety/usage-policy reasons, e.g. xAI's
@@ -509,6 +632,14 @@ export interface ProviderModelMapping {
 	 * Modes: "auto", "none", "required", "function" (a named function choice).
 	 */
 	supportedToolChoices?: ToolChoiceMode[];
+	/**
+	 * Additional `tool_choice` modes the upstream only accepts while thinking is
+	 * turned off, i.e. for requests sending `reasoning_effort: "none"` to a
+	 * mapping that publishes `none` in `reasoningEfforts`. These modes are added
+	 * to `supportedToolChoices` for such requests and ignored for every other
+	 * one. Only meaningful alongside a non-empty `supportedToolChoices`.
+	 */
+	supportedToolChoicesWithThinkingDisabled?: ToolChoiceMode[];
 	/**
 	 * Whether this mapping's upstream accepts the OpenAI-only `developer` message
 	 * role. Defaults to `true` (assumed supported). When set to `false`, the
@@ -732,6 +863,7 @@ export const models = [
 	...openaiModels,
 	...anthropicModels,
 	...googleModels,
+	...inclusionaiModels,
 	...perplexityModels,
 	...xaiModels,
 	...xiaomiModels,
@@ -744,6 +876,7 @@ export const models = [
 	...alibabaModels,
 	...atlascloudModels,
 	...baaiModels,
+	...baiduModels,
 	...bytedanceModels,
 	...nousresearchModels,
 	...reveModels,

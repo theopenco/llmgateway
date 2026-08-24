@@ -6,12 +6,12 @@ import {
 	ShieldCheck,
 	Zap,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
-import { ModelUptimeCharts } from "@/components/models/model-uptime-charts";
 import { Badge } from "@/lib/components/badge";
 import {
 	Card,
@@ -29,6 +29,14 @@ import {
 } from "@llmgateway/models";
 
 import type { Metadata } from "next";
+
+// The uptime charts pull in recharts; load them lazily so the chart library
+// stays out of the route's initial bundle.
+const ModelUptimeCharts = dynamic(() =>
+	import("@/components/models/model-uptime-charts").then(
+		(mod) => mod.ModelUptimeCharts,
+	),
+);
 
 interface PageProps {
 	params: Promise<{ name: string }>;
@@ -131,7 +139,7 @@ export default async function ModelUptimePage({ params }: PageProps) {
 				name: `How is ${modelLabel} uptime measured?`,
 				acceptedAnswer: {
 					"@type": "Answer",
-					text: `Uptime is the share of requests that completed successfully on the upstream provider over the last 4 hours. Client errors (4xx from your request) and gateway errors are excluded so the number reflects the provider's reliability, not user errors.`,
+					text: `Uptime is the share of valid requests that completed successfully over the last 4 hours. Client errors (4xx from your request) are excluded so the number reflects service reliability, not invalid requests.`,
 				},
 			},
 			{
@@ -297,7 +305,7 @@ export default async function ModelUptimePage({ params }: PageProps) {
 						<div className="grid gap-4 md:grid-cols-2">
 							<FaqItem
 								question={`How is ${modelLabel} uptime measured?`}
-								answer={`Uptime is the share of requests that completed successfully on the upstream provider over the last 4 hours. Client errors (4xx from your request) and gateway errors are excluded so the number reflects the provider's reliability, not user errors.`}
+								answer={`Uptime is the share of valid requests that completed successfully over the last 4 hours. Client errors (4xx from your request) are excluded so the number reflects service reliability, not invalid requests.`}
 							/>
 							<FaqItem
 								question={`Which providers serve ${modelLabel}?`}

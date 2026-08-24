@@ -68,6 +68,20 @@ export function clientFacingUpstreamFailureMessage(
 }
 
 /**
+ * Client-facing message for an upstream HTTP error. Non-stealth providers
+ * retain the upstream message; stealth providers expose only the status code.
+ */
+export function clientFacingUpstreamErrorMessage(
+	provider: string,
+	statusCode: number,
+	rawMessage: string,
+): string {
+	return shouldRedactProviderError(provider)
+		? redactedProviderErrorText(statusCode)
+		: rawMessage;
+}
+
+/**
  * Client-facing `message`/`responseText` pair for an upstream HTTP error.
  * Non-stealth providers pass the raw upstream body through unchanged.
  */

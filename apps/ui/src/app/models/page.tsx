@@ -140,7 +140,16 @@ export default async function ModelsPage() {
 											tool calling, or long context — then compare price per
 											million tokens and context window. The filters above
 											narrow the directory, and each model&apos;s page lists
-											provider availability, live pricing, and uptime.
+											provider availability, live pricing, and uptime. Not sure
+											where to start? See which models developers actually run
+											in production in the{" "}
+											<Link
+												href="/rankings"
+												className="text-foreground underline underline-offset-4"
+											>
+												live rankings
+											</Link>
+											.
 										</p>
 									</div>
 									<div>
@@ -176,7 +185,7 @@ export default async function ModelsPage() {
 											API — switch models by changing a single string. Chat with
 											any of them first in the{" "}
 											<a
-												href="https://chat.llmgateway.io"
+												href="https://lounge.llmgateway.io"
 												className="text-foreground underline underline-offset-4"
 											>
 												Lounge

@@ -86,6 +86,6 @@ curl -X POST https://api.llmgateway.io/v1/chat/completions \
 
 ---
 
-**[Try in Playground](https://chat.llmgateway.io/?model=sherlock/sherlock-dash-alpha)** 🚀
+**[Try in Playground](https://lounge.llmgateway.io/?model=sherlock/sherlock-dash-alpha)** 🚀
 
 **[Get started now](/signup)** 🚀

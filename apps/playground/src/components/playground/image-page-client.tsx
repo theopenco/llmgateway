@@ -157,10 +157,10 @@ export default function ImagePageClient({
 	const selectedModelDefs = useMemo(() => {
 		return selectedModels
 			.map((modelId) => {
-				const rootId = modelId.includes("/")
+				const canonicalModelId = modelId.includes("/")
 					? modelId.split("/").pop()!
 					: modelId;
-				return imageGenModels.find((m) => m.id === rootId) ?? null;
+				return imageGenModels.find((m) => m.id === canonicalModelId) ?? null;
 			})
 			.filter((m): m is NonNullable<typeof m> => m !== null);
 	}, [selectedModels, imageGenModels]);
@@ -551,6 +551,7 @@ export default function ImagePageClient({
 							aspect_ratio: imageAspectRatio,
 						}),
 						...(imageSize !== "1K" && { image_size: imageSize }),
+						...(includeQuality && { image_quality: imageQuality }),
 						n: imageCount,
 					};
 

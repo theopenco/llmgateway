@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { assertOrganizationProviderKey } from "@/lib/organization-provider-key.js";
 import {
 	getActiveUserOrganizationIds,
 	getAdminOrganizationIds,
@@ -9,6 +10,7 @@ import {
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { cdb, db, eq, tables } from "@llmgateway/db";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -255,13 +257,20 @@ async function getManageableProviderKey(userId: string, providerKeyId: string) {
 		});
 	}
 
+	assertOrganizationProviderKey(providerKey);
+
 	if (providerKey.provider !== "custom") {
 		throw new HTTPException(400, {
 			message: "Custom models can only be defined for custom provider keys",
 		});
 	}
 
-	if (providerKey.organization?.plan !== "enterprise") {
+	if (
+		!hasOrganizationEnterpriseAccess(
+			providerKey.organization?.id,
+			providerKey.organization?.plan,
+		)
+	) {
 		throw new HTTPException(403, {
 			message: "Custom models require an enterprise plan",
 		});

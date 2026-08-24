@@ -26,10 +26,22 @@ interface UnstableMapping {
 	usedModel: string;
 	providerId: string;
 	providerName: string;
+	providerKeyId: string | null;
+	providerKeyLabel: string | null;
+	providerKeyMaskedToken: string | null;
+	providerKeyManaged: boolean | null;
 	logsCount: number;
 	errorsCount: number;
 	errorRate: number;
 }
+
+/**
+ * Sentinel the errors endpoint accepts for "logs with no provider key at all"
+ * — env-var credentials, or failures that never resolved one. Keeps the
+ * drilldown of an unattributed row scoped to that row instead of silently
+ * mixing every key's errors back together.
+ */
+const UNATTRIBUTED_KEY = "__unattributed__";
 
 const percentFormatter = new Intl.NumberFormat("en-US", {
 	style: "percent",
@@ -93,17 +105,21 @@ function errorRateClass(rate: number): string {
 function ErrorDetails({
 	usedModel,
 	provider,
+	providerKeyId,
 	includeRetried,
 	window,
 	logLimit,
 	ignoreExpected,
+	includeByok,
 }: {
 	usedModel: string;
 	provider: string;
+	providerKeyId: string | undefined;
 	includeRetried: boolean;
 	window: UnstableWindow;
 	logLimit: number;
 	ignoreExpected: boolean;
+	includeByok: boolean;
 }) {
 	const $api = useApi();
 	const { data, isLoading, isError } = $api.useQuery(
@@ -114,10 +130,12 @@ function ErrorDetails({
 				query: {
 					model: usedModel,
 					provider,
+					providerKeyId,
 					includeRetried: includeRetried ? "true" : "false",
 					window,
 					logLimit,
 					ignoreExpected: ignoreExpected ? "true" : "false",
+					includeByok: includeByok ? "true" : "false",
 				},
 			},
 		},
@@ -238,14 +256,19 @@ export function UnstableMappingsTable({
 	window,
 	logLimit,
 	ignoreExpected,
+	splitByKey,
+	includeByok,
 }: {
 	mappings: UnstableMapping[];
 	includeRetried: boolean;
 	window: UnstableWindow;
 	logLimit: number;
 	ignoreExpected: boolean;
+	splitByKey: boolean;
+	includeByok: boolean;
 }) {
 	const [expanded, setExpanded] = useState<string | null>(null);
+	const columnCount = splitByKey ? 7 : 6;
 
 	if (mappings.length === 0) {
 		return (
@@ -262,6 +285,7 @@ export function UnstableMappingsTable({
 					<TableHead className="w-8" />
 					<TableHead>Provider</TableHead>
 					<TableHead>Model</TableHead>
+					{splitByKey && <TableHead>Key</TableHead>}
 					<TableHead className="text-right">Error Rate</TableHead>
 					<TableHead className="text-right">Errors</TableHead>
 					<TableHead className="text-right">Logs</TableHead>
@@ -269,7 +293,7 @@ export function UnstableMappingsTable({
 			</TableHeader>
 			<TableBody>
 				{mappings.map((mapping) => {
-					const key = `${mapping.providerId}/${mapping.usedModel}`;
+					const key = `${mapping.providerId}/${mapping.usedModel}/${mapping.providerKeyId ?? "none"}`;
 					const isOpen = expanded === key;
 					const ProviderIcon = getProviderIcon(mapping.providerId);
 					return (
@@ -314,6 +338,37 @@ export function UnstableMappingsTable({
 										)}
 									</Link>
 								</TableCell>
+								{splitByKey && (
+									<TableCell>
+										{mapping.providerKeyId ? (
+											<div className="flex items-center gap-2">
+												<span
+													className="max-w-[220px] truncate font-mono text-xs"
+													title={
+														mapping.providerKeyMaskedToken ??
+														mapping.providerKeyLabel ??
+														mapping.providerKeyId
+													}
+												>
+													{mapping.providerKeyLabel ?? mapping.providerKeyId}
+												</span>
+												<Badge
+													variant="secondary"
+													className="text-[11px] text-muted-foreground"
+												>
+													{mapping.providerKeyManaged ? "managed" : "byok"}
+												</Badge>
+											</div>
+										) : (
+											<span
+												className="text-xs text-muted-foreground"
+												title="Served by an env-var key, or the request failed before a credential was resolved."
+											>
+												env / unattributed
+											</span>
+										)}
+									</TableCell>
+								)}
 								<TableCell className="text-right">
 									<Badge
 										className={cn(
@@ -333,14 +388,20 @@ export function UnstableMappingsTable({
 							</TableRow>
 							{isOpen && (
 								<TableRow className="hover:bg-transparent">
-									<TableCell colSpan={6} className="bg-muted/20 p-0">
+									<TableCell colSpan={columnCount} className="bg-muted/20 p-0">
 										<ErrorDetails
 											usedModel={mapping.usedModel}
 											provider={mapping.providerId}
+											providerKeyId={
+												splitByKey
+													? (mapping.providerKeyId ?? UNATTRIBUTED_KEY)
+													: undefined
+											}
 											includeRetried={includeRetried}
 											window={window}
 											logLimit={logLimit}
 											ignoreExpected={ignoreExpected}
+											includeByok={includeByok}
 										/>
 									</TableCell>
 								</TableRow>

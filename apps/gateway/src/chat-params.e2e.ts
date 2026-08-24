@@ -14,6 +14,8 @@ import {
 	validateResponse,
 } from "@/chat-helpers.e2e.js";
 
+import type { ProviderModelMapping } from "@llmgateway/models";
+
 // Use all testModels - filter via TEST_MODELS env var for specific providers
 const paramTestModels = testModels;
 
@@ -26,12 +28,19 @@ console.log(
 const parameterTests: Array<{
 	name: string;
 	params: Record<string, unknown>;
+	isSupported?: (providers: ProviderModelMapping[]) => boolean;
 }> = [
 	{ name: "temperature", params: { temperature: 0.5 } },
 	{ name: "max_tokens", params: { max_tokens: 100 } },
 	{ name: "top_p", params: { top_p: 0.9 } },
 	{ name: "frequency_penalty", params: { frequency_penalty: 0.5 } },
 	{ name: "presence_penalty", params: { presence_penalty: 0.5 } },
+	{
+		name: "n",
+		params: { n: 2 },
+		isSupported: (providers) =>
+			providers.some((provider) => provider.supportsN === true),
+	},
 	{ name: "temperature + top_p", params: { temperature: 0.7, top_p: 0.9 } },
 	// providers with a lower ceiling (zai, anthropic) must get this clamped
 	// instead of a 400
@@ -40,11 +49,17 @@ const parameterTests: Array<{
 
 // Generate test cases: combine each parameter config with each model
 const paramModelTestCases = parameterTests.flatMap((paramConfig) =>
-	paramTestModels.map((modelConfig) => ({
-		...modelConfig,
-		paramName: paramConfig.name,
-		params: paramConfig.params,
-	})),
+	paramTestModels
+		.filter(
+			(modelConfig) =>
+				!paramConfig.isSupported ||
+				paramConfig.isSupported(modelConfig.providers),
+		)
+		.map((modelConfig) => ({
+			...modelConfig,
+			paramName: paramConfig.name,
+			params: paramConfig.params,
+		})),
 );
 
 describe("e2e params", getConcurrentTestOptions(), () => {
@@ -93,6 +108,9 @@ describe("e2e params", getConcurrentTestOptions(), () => {
 
 				expect(res.status).toBe(200);
 				validateResponse(json);
+				if (typeof params.n === "number") {
+					expect(json.choices).toHaveLength(params.n);
+				}
 				await validateLogByRequestId(requestId);
 			},
 		);

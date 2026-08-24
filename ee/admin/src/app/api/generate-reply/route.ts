@@ -3,7 +3,8 @@ import { cookies } from "next/headers";
 import { z } from "zod";
 
 import { getConfig } from "@/lib/config-server";
-import { getUser } from "@/lib/getUser";
+import { getAdminUser } from "@/lib/getUser";
+import { getSessionCookieHeader } from "@/lib/session-cookie";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 
@@ -36,20 +37,8 @@ async function getApiKey(): Promise<{
 		return { token: existing };
 	}
 
-	const user = await getUser();
-	if (!user) {
-		return null;
-	}
-
 	const config = getConfig();
-	const key = "better-auth.session_token";
-	const sessionCookie = cookieStore.get(`${key}`);
-	const secureSessionCookie = cookieStore.get(`__Secure-${key}`);
-	const cookieHeader = secureSessionCookie
-		? `__Secure-${key}=${secureSessionCookie.value}`
-		: sessionCookie
-			? `${key}=${sessionCookie.value}`
-			: "";
+	const cookieHeader = await getSessionCookieHeader();
 
 	// Get user's first org
 	const orgsRes = await fetch(`${config.apiBackendUrl}/orgs`, {
@@ -109,6 +98,10 @@ async function getApiKey(): Promise<{
 }
 
 export async function POST(req: Request) {
+	if (!(await getAdminUser())) {
+		return Response.json({ error: "Forbidden" }, { status: 403 });
+	}
+
 	let data: GenerateReplyRequest;
 	try {
 		data = await req.json();

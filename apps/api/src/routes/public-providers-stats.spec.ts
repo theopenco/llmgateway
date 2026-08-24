@@ -18,6 +18,8 @@ async function seedMinute(
 	minutesAgo: number,
 	stats: {
 		logsCount: number;
+		errorsCount?: number;
+		clientErrorsCount?: number;
 		totalTimeToFirstToken: number;
 		timeToFirstTokenCount: number;
 		totalTimeToFirstReasoningToken?: number;
@@ -105,5 +107,19 @@ describe("public providers stats", () => {
 		expect(provider.logsCount).toBe(25);
 		expect(provider.avgTimeToFirstToken).toBeNull();
 		expect(provider.timeToFirstTokenCount).toBe(0);
+	});
+
+	test("excludes client errors from uptime and error totals", async () => {
+		await seedMinute(1, {
+			logsCount: 10,
+			errorsCount: 3,
+			clientErrorsCount: 1,
+			totalTimeToFirstToken: 0,
+			timeToFirstTokenCount: 0,
+		});
+
+		const provider = await fetchProviderStats();
+		expect(provider.errorsCount).toBe(2);
+		expect(provider.uptime).toBeCloseTo((7 / 9) * 100);
 	});
 });

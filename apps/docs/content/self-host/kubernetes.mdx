@@ -42,6 +42,27 @@ config:
 helm install llmgateway oci://ghcr.io/theopenco/charts/llmgateway -f values.yaml
 ```
 
+## Enterprise license
+
+For the chart-managed Secret, set the signed license in your values:
+
+```yaml
+enterprise:
+  license: "your-signed-license"
+```
+
+For production, prefer `existingSecret` and add the key
+`LLMGATEWAY_ENTERPRISE_LICENSE` to that Secret. API and gateway replicas verify
+the license offline using the public key in their images. A standard license is
+bound to one organization; a white-label license permits multiple Enterprise
+organizations and unlocks the multi-organization admin dashboard. Rotating the
+Secret requires restarting those pods. An expired license remains active for
+seven days, then Enterprise features lock without affecting core gateway
+availability.
+
+See [Enterprise licensing](/self-host/enterprise-license) for license types,
+Secret installation, verification, expiry behavior, and key rotation.
+
 Provider keys support comma-separated values for load balancing and optional `__ENTERPRISE` / `__PLANS` suffix overrides used only for enterprise-plan or plan-based (DevPass/Chat plan) organizations — see [Enterprise and plan provider env overrides](/self-host/docker-compose#enterprise-and-plan-provider-env-overrides).
 
 In production, store secrets in your cluster's secret manager rather than committing them to `values.yaml`. The cloud guides cover the recommended approach for each provider:

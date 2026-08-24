@@ -3,11 +3,17 @@ import { OpenAPIHono, z } from "@hono/zod-openapi";
 import { validateSource } from "@/chat/tools/validate-source.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
+import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 
 import { logger } from "@llmgateway/logger";
+import { estimateTokensFromText } from "@llmgateway/shared";
 
 import { findRealtimeTranscriptionMapping } from "./catalog.js";
-import { clampClientSecretTtl, createClientSecret } from "./client-secrets.js";
+import {
+	clampClientSecretTtl,
+	createClientSecret,
+	MAX_CLIENT_SECRET_INSTRUCTIONS_TOKENS,
+} from "./client-secrets.js";
 import { RealtimeConnectError } from "./errors.js";
 import { runRealtimePreflight } from "./preflight.js";
 
@@ -47,9 +53,16 @@ const sessionAudioInputSchema = z
 	})
 	.strict();
 
+const sessionAudioOutputSchema = z
+	.object({
+		voice: z.string().min(1).optional(),
+	})
+	.strict();
+
 const sessionAudioSchema = z
 	.object({
 		input: sessionAudioInputSchema.optional(),
+		output: sessionAudioOutputSchema.optional(),
 	})
 	.strict();
 
@@ -57,6 +70,9 @@ const clientSecretSessionSchema = z
 	.object({
 		type: z.literal("realtime"),
 		model: z.string().min(1),
+		// Locked for the session's lifetime once set; see instructions_locked in
+		// session.ts.
+		instructions: z.string().min(1).optional(),
 		audio: sessionAudioSchema.optional(),
 	})
 	.strict();
@@ -175,17 +191,56 @@ realtimeClientSecretsRoute.post("/client_secrets", async (c) => {
 				`This API key is not allowed to use the transcription model ${match.modelId}.`,
 			);
 		}
-		transcriptionModel = requestedTranscription.model;
+		transcriptionModel = formatUsedModelForDisplay(
+			match.mapping.providerId,
+			match.modelId,
+			undefined,
+			match.mapping.region,
+		);
+	}
+
+	const instructions = body.session.instructions ?? null;
+	if (instructions !== null) {
+		const estimatedTokens = estimateTokensFromText(instructions);
+		if (estimatedTokens > MAX_CLIENT_SECRET_INSTRUCTIONS_TOKENS) {
+			return errorResponse(
+				c,
+				400,
+				"instructions_too_large",
+				`Session instructions are too large for a realtime session: roughly ${estimatedTokens} tokens, limit ${MAX_CLIENT_SECRET_INSTRUCTIONS_TOKENS}.`,
+			);
+		}
+	}
+
+	const voice = body.session.audio?.output?.voice ?? null;
+	if (voice !== null) {
+		const supportedVoices = preflight.match.mapping.supportedVoices ?? [];
+		if (supportedVoices.length > 0 && !supportedVoices.includes(voice)) {
+			return errorResponse(
+				c,
+				400,
+				"voice_not_supported",
+				`Unsupported voice '${voice}' for model ${preflight.match.modelId}. Supported voices: ${supportedVoices.join(", ")}.`,
+			);
+		}
 	}
 
 	const ttlSeconds = clampClientSecretTtl(body.expires_after?.seconds);
+	const responseModel = formatUsedModelForDisplay(
+		preflight.match.mapping.providerId,
+		preflight.match.modelId,
+		undefined,
+		preflight.match.mapping.region,
+	);
 
 	let secret;
 	try {
 		secret = await createClientSecret({
 			token,
-			model: body.session.model,
+			model: responseModel,
 			transcriptionModel,
+			instructions,
+			voice,
 			source,
 			ttlSeconds,
 		});
@@ -207,7 +262,7 @@ realtimeClientSecretsRoute.post("/client_secrets", async (c) => {
 		expires_at: secret.expiresAt,
 		session: {
 			type: "realtime" as const,
-			model: body.session.model,
+			model: responseModel,
 		},
 	});
 });

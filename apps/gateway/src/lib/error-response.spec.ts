@@ -64,4 +64,28 @@ describe("error-response", () => {
 		expect(getAnthropicErrorType(429)).toBe("rate_limit_error");
 		expect(getAnthropicErrorType(500)).toBe("api_error");
 	});
+
+	test("maps 529 overload to both provider shapes", () => {
+		expect(getOpenAIErrorMeta(529)).toEqual({
+			type: "overloaded",
+			code: "overloaded",
+		});
+		expect(getAnthropicErrorType(529)).toBe("overloaded_error");
+		expect(
+			buildOpenAIErrorBody({ message: "Gateway overloaded", status: 529 }),
+		).toEqual({
+			error: {
+				message: "Gateway overloaded",
+				type: "overloaded",
+				param: null,
+				code: "overloaded",
+			},
+		});
+		expect(
+			buildAnthropicErrorBody({ message: "Gateway overloaded", status: 529 }),
+		).toEqual({
+			type: "error",
+			error: { type: "overloaded_error", message: "Gateway overloaded" },
+		});
+	});
 });

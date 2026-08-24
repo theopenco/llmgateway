@@ -6,6 +6,7 @@ import {
 } from "fumadocs-ui/components/ui/collapsible";
 import { ThumbsDown, ThumbsUp } from "lucide-react";
 import { usePathname } from "next/navigation";
+import { usePostHog } from "posthog-js/react";
 import {
 	type SyntheticEvent,
 	useEffect,
@@ -43,17 +44,37 @@ interface Result extends Feedback {
 	response?: ActionResponse;
 }
 
+// localStorage throws outright in Safari Private Browsing and when site data is
+// blocked, so persistence is best-effort: it must never take the widget down or
+// block the confirmation UI.
 function readStoredFeedback(url: string): Result | null {
-	const item = localStorage.getItem(`docs-feedback-${url}`);
-	return item === null ? null : (JSON.parse(item) as Result);
+	try {
+		const item = localStorage.getItem(`docs-feedback-${url}`);
+		return item === null ? null : (JSON.parse(item) as Result);
+	} catch {
+		return null;
+	}
+}
+
+function writeStoredFeedback(url: string, result: Result | null) {
+	try {
+		if (result) {
+			localStorage.setItem(`docs-feedback-${url}`, JSON.stringify(result));
+		} else {
+			localStorage.removeItem(`docs-feedback-${url}`);
+		}
+	} catch {
+		// Ignore: the rating is already recorded server-side and in PostHog.
+	}
 }
 
 export function Feedback({
 	onRateAction,
 }: {
-	onRateAction: (url: string, feedback: Feedback) => Promise<ActionResponse>;
+	onRateAction: (url: string) => Promise<ActionResponse>;
 }) {
 	const url = usePathname();
+	const posthog = usePostHog();
 	const [previous, replacePrevious] = useReducer(
 		(_previous: Result | null, nextPrevious: Result | null) => nextPrevious,
 		null,
@@ -66,16 +87,6 @@ export function Feedback({
 		replacePrevious(readStoredFeedback(url));
 	}, [url]);
 
-	useEffect(() => {
-		const key = `docs-feedback-${url}`;
-
-		if (previous) {
-			localStorage.setItem(key, JSON.stringify(previous));
-		} else {
-			localStorage.removeItem(key);
-		}
-	}, [previous, url]);
-
 	function submit(e?: SyntheticEvent) {
 		if (opinion === null) {
 			return;
@@ -87,13 +98,18 @@ export function Feedback({
 				message,
 			};
 
-			void onRateAction(url, feedback).then((response) => {
-				replacePrevious({
+			posthog.capture("on_rate_docs", { ...feedback, url });
+			void onRateAction(url).then((response) => {
+				const result: Result = {
 					response,
 					...feedback,
-				});
+				};
+				// Commit the UI first: a storage failure must not swallow the
+				// confirmation panel and leave Submit looking unresponsive.
+				replacePrevious(result);
 				setMessage("");
 				setOpinion(null);
+				writeStoredFeedback(url, result);
 			});
 		});
 
@@ -172,6 +188,7 @@ export function Feedback({
 								onClick={() => {
 									setOpinion(previous.opinion);
 									replacePrevious(null);
+									writeStoredFeedback(url, null);
 								}}
 							>
 								Submit Again

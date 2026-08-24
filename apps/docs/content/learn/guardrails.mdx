@@ -20,6 +20,14 @@ The Guardrails page lets you configure content safety rules that automatically s
 
 A global toggle at the top enables or disables all guardrails for your organization. Click **Save Changes** to apply.
 
+## Organization vs. Project
+
+The same page exists in each project's settings. By default a project uses the organization guardrails, and the project page shows them read-only alongside a banner naming the project — for example "Enterprise Project uses the organization guardrails".
+
+Turn off **Use organization guardrails** on the project page to give that project its own configuration and custom rules, which then replace the organization's for that project's traffic. The project starts from a copy of the organization's current settings, so opting out does not drop the rules that were already in force — edit down from there and click **Save Changes**.
+
+The organization page names any projects that override it ("The settings below apply to every project except …"), so it is always clear where these settings do and do not apply.
+
 ## System Rules
 
 Six built-in rules with individual enable/disable toggles:

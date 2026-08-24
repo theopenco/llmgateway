@@ -120,6 +120,11 @@ export const deepseekModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				// DeepSeek's API 400s on the OpenAI-only `developer` role
+				// ("unknown variant `developer`, expected one of `system`, `user`,
+				// `assistant`, `tool`, `latest_reminder`"), so it gets rewritten to
+				// `system` before the request goes out.
+				supportsDeveloperRole: false,
 				deactivatedAt: new Date("2026-05-01"),
 			},
 			{
@@ -182,14 +187,36 @@ export const deepseekModels = [
 			{
 				providerId: "bytedance",
 				externalId: "deepseek-v3-2-251201",
+				// Base fields are the [0, 32K] prompt-length band; Ark doubles the
+				// input and output rates above it.
 				inputPrice: "0.28e-6",
 				cachedInputPrice: "0.056e-6",
 				outputPrice: "0.42e-6",
+				pricingTiers: [
+					{
+						name: "Up to 32K",
+						upToTokens: 32768,
+						inputPrice: "0.28e-6",
+						outputPrice: "0.42e-6",
+						cachedInputPrice: "0.056e-6",
+					},
+					{
+						name: "Over 32K",
+						upToTokens: Infinity,
+						inputPrice: "0.56e-6",
+						outputPrice: "0.84e-6",
+						// The cache-hit rate is flat across both bands.
+						cachedInputPrice: "0.056e-6",
+					},
+				],
 				requestPrice: "0",
 				contextSize: 131072,
 				reasoning: true,
+				// Ark ignores `reasoning_effort` on this deployment and only reasons
+				// when sent `thinking: {type: "enabled"}`, which the gateway does not
+				// emit for bytedance, so no reasoning content ever comes back.
 				reasoningOutput: "omit" as const,
-				maxOutput: 131072,
+				maxOutput: 32768,
 				streaming: true,
 				vision: false,
 				tools: true,
@@ -256,18 +283,51 @@ export const deepseekModels = [
 			{
 				providerId: "deepseek",
 				externalId: "deepseek-v4-pro",
+				// Peak hours (01:00-04:00 and 06:00-10:00 UTC) bill at the peak
+				// rates below. All other hours and Beijing-time weekends bill at
+				// the off-peak rates.
 				inputPrice: "0.435e-6",
 				outputPrice: "0.87e-6",
 				cachedInputPrice: "0.003625e-6",
+				peakPricing: {
+					peak: {
+						inputPrice: "1.32e-6",
+						outputPrice: "3.96e-6",
+						cachedInputPrice: "0.044e-6",
+					},
+					offPeak: {
+						inputPrice: "0.66e-6",
+						outputPrice: "1.98e-6",
+						cachedInputPrice: "0.022e-6",
+					},
+					hoursUtc: [
+						[1, 4],
+						[6, 10],
+					],
+					offPeakDays: {
+						daysOfWeek: [0, 6],
+						utcOffsetMinutes: 480,
+						timeZoneLabel: "Beijing time",
+					},
+				},
 				requestPrice: "0",
 				contextSize: 1050000,
 				maxOutput: 393216,
 				jsonOutput: true,
 				streaming: true,
 				reasoning: true,
+				// DeepSeek maps `low` onto `high` on the pro model, so it is left
+				// undeclared: `low` and `high` produce the same amount of thinking,
+				// while `max` reasons several times longer. The flash deployment
+				// does distinguish `low`, which is why it declares one more tier.
 				reasoningEfforts: ["none", "high", "max"],
 				vision: false,
 				tools: true,
+				// DeepSeek's API 400s on the OpenAI-only `developer` role
+				// ("unknown variant `developer`, expected one of `system`, `user`,
+				// `assistant`, `tool`, `latest_reminder`"), so it gets rewritten to
+				// `system` before the request goes out.
+				supportsDeveloperRole: false,
 				supportedParameters: [
 					"temperature",
 					"max_tokens",
@@ -290,6 +350,7 @@ export const deepseekModels = [
 				requestPrice: "0",
 				contextSize: 1048576,
 				maxOutput: 384000,
+				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
 				// Runware maps reasoning_effort onto its thinkingLevel setting and
@@ -307,23 +368,24 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "together-ai",
-				externalId: "deepseek-ai/DeepSeek-V4-Pro",
-				inputPrice: "1.74e-6",
-				cachedInputPrice: "0.2e-6",
-				outputPrice: "3.48e-6",
+				externalId: "deepseek-ai/DeepSeek-V4-Pro-0813",
+				// Together also lists an undated `deepseek-ai/DeepSeek-V4-Pro` slug at
+				// its own (higher input, lower output) rate; this mapping must stay on
+				// the dated -0813 slug's own live pricing, not that one.
+				inputPrice: "1.32e-6",
+				cachedInputPrice: "0.13e-6",
+				outputPrice: "3.96e-6",
 				requestPrice: "0",
-				contextSize: 163840,
+				contextSize: 1048576,
 				maxOutput: 163840,
 				streaming: true,
 				reasoning: true,
-				// Together's deployment accepts any reasoning_effort string without
-				// validating it, and only the top tiers measurably change behaviour:
-				// xhigh and max roughly double the reasoning tokens, while
-				// low/medium/high land on the provider default. `none` is honoured
-				// through the `thinking` switch, not through reasoning_effort.
-				reasoningEfforts: ["none", "xhigh", "max"],
+				// Together's docs list two native effort levels (high, max);
+				// low/medium are normalized to high and xhigh to max upstream.
+				// `none` is honoured through the `thinking` switch, not through
+				// reasoning_effort.
+				reasoningEfforts: ["none", "high", "max"],
 				requiresDisableThinkingParam: true,
-				reasoningOutput: "omit",
 				vision: false,
 				tools: true,
 				jsonOutput: true,
@@ -331,12 +393,13 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "alibaba",
-				externalId: "deepseek-v4-pro",
+				externalId: "deepseek-v4-pro-0813",
 				inputPrice: "2.4e-6",
 				cachedInputPrice: "0.2e-6",
 				outputPrice: "4.8e-6",
 				regions: [
 					{ id: "singapore" },
+					{ id: "eu-frankfurt" },
 					{ id: "us-virginia" },
 					{
 						id: "cn-beijing",
@@ -351,6 +414,18 @@ export const deepseekModels = [
 				streaming: true,
 				reasoning: true,
 				reasoningMaxTokens: true,
+				// DashScope is driven through `enable_thinking`/`thinking_budget`,
+				// never `reasoning_effort`, so every tier maps onto its own native
+				// budget and is genuinely distinct; `none` disables thinking outright.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				vision: false,
 				tools: true,
 				jsonOutput: true,
@@ -358,33 +433,46 @@ export const deepseekModels = [
 			{
 				providerId: "deepinfra",
 				externalId: "deepseek-ai/DeepSeek-V4-Pro",
-				inputPrice: "1.74e-6",
-				cachedInputPrice: "0.145e-6",
-				outputPrice: "3.48e-6",
+				inputPrice: "1.3e-6",
+				cachedInputPrice: "0.1e-6",
+				outputPrice: "2.6e-6",
 				requestPrice: "0",
-				contextSize: 64000,
+				contextSize: 1048576,
 				maxOutput: 64000,
-				quantization: "fp4",
+				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
-				reasoningEfforts: ["none", "low", "medium", "high", "xhigh"],
+				reasoningEfforts: ["none", "high", "max"],
 				vision: false,
 				tools: true,
 				jsonOutput: true,
 			},
 			{
 				providerId: "bytedance",
-				externalId: "deepseek-v4-pro-260425",
-				inputPrice: "1.74e-6",
-				cachedInputPrice: "0.145e-6",
-				outputPrice: "3.48e-6",
+				// The GA deployment, which is the same 0813 build the other providers
+				// serve here. `deepseek-v4-pro-260425` is the superseded preview and
+				// carries its own (higher input, lower output) rate card.
+				externalId: "deepseek-v4-pro-ga-260813",
+				inputPrice: "1.32e-6",
+				cachedInputPrice: "0.044e-6",
+				outputPrice: "3.96e-6",
 				requestPrice: "0",
 				contextSize: 1048576,
 				maxOutput: 393216,
 				streaming: true,
 				reasoning: true,
-				reasoningEfforts: ["minimal", "low", "medium", "high", "max"],
-				reasoningOutput: "omit" as const,
+				// The GA deployment accepts the full enum; the preview 400d `none` and
+				// `xhigh` ("Valid values are: ['high', 'low', 'max', 'medium',
+				// 'minimal']"). `none` and `minimal` both return no reasoning at all.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				vision: false,
 				tools: true,
 				jsonOutput: false,
@@ -407,6 +495,104 @@ export const deepseekModels = [
 				tools: true,
 				jsonOutput: true,
 			},
+			{
+				providerId: "canopywave",
+				externalId: "deepseek/deepseek-v4-pro",
+				// Unlike Flash (whose CanopyWave listing/title is
+				// deepseek-v4-flash-0731), Pro has no dated/GA slug here: the live
+				// listing's description still opens "We present a preview version of
+				// DeepSeek-V4 series..." (verified 2026-08-18). Pricing is correct
+				// for what's actually served — the preview build, not 0813 GA.
+				inputPrice: "1.74e-6",
+				cachedInputPrice: "0.01e-6",
+				outputPrice: "3.48e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 393216,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: false,
+				tools: true,
+				// The deployment 400s on "required" and named-function tool_choice
+				// with "Thinking mode does not support this tool_choice" while
+				// thinking is on, so those modes coerce to "auto". Both work once
+				// thinking is disabled via reasoning_effort "none", which the
+				// mapping declares below (confirmed by CanopyWave, verified live
+				// 2026-08-10).
+				supportedToolChoices: ["auto", "none"],
+				supportedToolChoicesWithThinkingDisabled: ["required", "function"],
+				jsonOutput: true,
+			},
+			{
+				providerId: "fireworks",
+				// Fireworks keeps the unversioned `deepseek-v4-pro` slug pointed at
+				// the original preview build, at its own rate card, even after the
+				// 0813 GA release; the GA build only serves under this dedicated slug.
+				externalId: "accounts/fireworks/models/deepseek-v4-pro-0813",
+				inputPrice: "1.32e-6",
+				cachedInputPrice: "0.044e-6",
+				outputPrice: "3.96e-6",
+				requestPrice: "0",
+				// Fireworks prices DeepSeek's Priority tier at 1.5x standard rather
+				// than the 1.25x that applies to the rest of its catalogue.
+				serviceTiers: ["priority"],
+				serviceTierMultipliers: { priority: 1.5 },
+				contextSize: 1048576,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				// Fireworks rejects "minimal" for this model; the rest of the enum
+				// (plus "none" for non-thinking mode) is accepted.
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+			{
+				providerId: "baidu",
+				externalId: "deepseek-v4-pro",
+				// Unlike Flash (which Qianfan lists separately as
+				// deepseek-v4-flash-0731), Qianfan has no dated/GA slug for Pro:
+				// this listing's hugging_face_id is still deepseek-ai/DeepSeek-V4-Pro
+				// (the pre-0813 preview repo) and its description never mentions an
+				// official/GA release (verified 2026-08-18). Pricing is correct for
+				// what's actually served — the preview build, not 0813 GA.
+				inputPrice: "1.69e-6",
+				cachedInputPrice: "0.14e-6",
+				outputPrice: "3.38e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				// /v1/models reports 393216 while Qianfan's model page caps output at
+				// 128K; the lower bound is the safe one to advertise.
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				// Qianfan ignores reasoning_effort="none"; its thinking switch works.
+				requiresDisableThinkingParam: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
 		],
 	},
 	{
@@ -420,18 +606,47 @@ export const deepseekModels = [
 			{
 				providerId: "deepseek",
 				externalId: "deepseek-v4-flash",
+				// Peak hours (01:00-04:00 and 06:00-10:00 UTC) bill at the peak
+				// rates below. All other hours and Beijing-time weekends bill at
+				// the off-peak rates.
 				inputPrice: "0.14e-6",
 				outputPrice: "0.28e-6",
 				cachedInputPrice: "0.0028e-6",
+				peakPricing: {
+					peak: {
+						inputPrice: "0.44e-6",
+						outputPrice: "1.32e-6",
+						cachedInputPrice: "0.014e-6",
+					},
+					offPeak: {
+						inputPrice: "0.22e-6",
+						outputPrice: "0.66e-6",
+						cachedInputPrice: "0.007e-6",
+					},
+					hoursUtc: [
+						[1, 4],
+						[6, 10],
+					],
+					offPeakDays: {
+						daysOfWeek: [0, 6],
+						utcOffsetMinutes: 480,
+						timeZoneLabel: "Beijing time",
+					},
+				},
 				requestPrice: "0",
 				contextSize: 1050000,
 				maxOutput: 393216,
 				jsonOutput: true,
 				streaming: true,
 				reasoning: true,
-				reasoningEfforts: ["none", "high", "max"],
+				reasoningEfforts: ["none", "low", "high", "max"],
 				vision: false,
 				tools: true,
+				// DeepSeek's API 400s on the OpenAI-only `developer` role
+				// ("unknown variant `developer`, expected one of `system`, `user`,
+				// `assistant`, `tool`, `latest_reminder`"), so it gets rewritten to
+				// `system` before the request goes out.
+				supportsDeveloperRole: false,
 				supportedParameters: [
 					"temperature",
 					"max_tokens",
@@ -454,6 +669,7 @@ export const deepseekModels = [
 				requestPrice: "0",
 				contextSize: 1048576,
 				maxOutput: 384000,
+				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
 				// Runware maps reasoning_effort onto its thinkingLevel setting and
@@ -481,6 +697,8 @@ export const deepseekModels = [
 				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
+				// Novita documents no reasoning_effort tiers for this model, so none
+				// are declared; the gateway still forwards whatever the caller sends.
 				vision: false,
 				tools: true,
 				// The -0731 deployment 400s on "required" and named-function
@@ -497,6 +715,7 @@ export const deepseekModels = [
 				outputPrice: "0.4e-6",
 				regions: [
 					{ id: "singapore" },
+					{ id: "eu-frankfurt" },
 					{ id: "us-virginia" },
 					{
 						id: "cn-beijing",
@@ -511,6 +730,18 @@ export const deepseekModels = [
 				streaming: true,
 				reasoning: true,
 				reasoningMaxTokens: true,
+				// DashScope is driven through `enable_thinking`/`thinking_budget`,
+				// never `reasoning_effort`, so every tier maps onto its own native
+				// budget and is genuinely distinct; `none` disables thinking outright.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				vision: false,
 				tools: true,
 				jsonOutput: true,
@@ -518,32 +749,45 @@ export const deepseekModels = [
 			{
 				providerId: "deepinfra",
 				externalId: "deepseek-ai/DeepSeek-V4-Flash-0731",
-				inputPrice: "0.14e-6",
-				cachedInputPrice: "0.028e-6",
-				outputPrice: "0.28e-6",
+				inputPrice: "0.08e-6",
+				cachedInputPrice: "0.016e-6",
+				outputPrice: "0.18e-6",
 				requestPrice: "0",
 				contextSize: 1000000,
 				maxOutput: 393216,
-				quantization: "fp4",
+				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
+				// DeepInfra keeps thinking off unless an effort is requested, and
+				// takes `none` to keep it off, exactly like its V4 Pro deployment.
+				reasoningEfforts: ["none", "low", "high", "max"],
 				vision: false,
 				tools: true,
 				jsonOutput: true,
 			},
 			{
 				providerId: "bytedance",
-				externalId: "deepseek-v4-flash-260425",
-				inputPrice: "0.14e-6",
-				cachedInputPrice: "0.028e-6",
-				outputPrice: "0.28e-6",
+				// The GA deployment; `deepseek-v4-flash-260425` is the superseded
+				// preview.
+				externalId: "deepseek-v4-flash-ga-260731",
+				inputPrice: "0.44e-6",
+				cachedInputPrice: "0.014e-6",
+				outputPrice: "1.32e-6",
 				requestPrice: "0",
 				contextSize: 1048576,
 				maxOutput: 393216,
 				streaming: true,
 				reasoning: true,
-				reasoningEfforts: ["minimal", "low", "medium", "high", "max"],
-				reasoningOutput: "omit" as const,
+				// `none` and `minimal` both return no reasoning at all.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				vision: false,
 				tools: true,
 				jsonOutput: false,
@@ -572,6 +816,167 @@ export const deepseekModels = [
 				tools: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
+			},
+			{
+				providerId: "together-ai",
+				externalId: "deepseek-ai/DeepSeek-V4-Flash-0731",
+				inputPrice: "0.14e-6",
+				cachedInputPrice: "0.03e-6",
+				outputPrice: "0.28e-6",
+				requestPrice: "0",
+				contextSize: 163840,
+				maxOutput: 163840,
+				streaming: true,
+				reasoning: true,
+				// Together's deployment accepts any reasoning_effort string without
+				// validating it, and only the top tiers measurably change behaviour:
+				// xhigh and max roughly double the reasoning tokens, while
+				// low/medium/high land on the provider default. `none` is honoured
+				// through the `thinking` switch, not through reasoning_effort.
+				reasoningEfforts: ["none", "xhigh", "max"],
+				requiresDisableThinkingParam: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+			{
+				// RanoAI serves DeepSeek V4 Flash on Furiosa RNGD NPUs. The NPU
+				// deployment exposes a 1M-token context and accepts up to 393216 output
+				// tokens, rejecting 393217.
+				// Reasoning arrives as `reasoning_content` (streamed as deltas) only
+				// when `reasoning_effort` is passed explicitly — a request without it
+				// returns no reasoning at all, and "none" suppresses it.
+				// `reasoning_tokens` is reported inside completion_tokens, so costs.ts
+				// lists this provider in completionIncludesReasoning.
+				//
+				// All four tool_choice modes are honoured, so none are declared here.
+				// The endpoint silently ignores n > 1 and returns one choice, so this
+				// mapping must not advertise supportsN.
+				// Prompt caching is automatic prefix caching — the first request
+				// misses and later ones report `cached_tokens` — priced at the
+				// `input_cache_read` rate /v1/models advertises.
+				providerId: "ranoai",
+				externalId: "deepseek-v4-flash",
+				inputPrice: "0.14e-6",
+				outputPrice: "0.28e-6",
+				cachedInputPrice: "0.028e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 393216,
+				// RanoAI serves NVFP4 weights; the catalogue's quantization union only
+				// carries the generic 4-bit float value.
+				quantization: "fp4",
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: false,
+				tools: true,
+				// json_object returns valid JSON but often ignores requested fields and
+				// emits an empty object; schema-constrained output is reliable.
+				jsonOutput: false,
+				jsonOutputSchema: true,
+			},
+			{
+				providerId: "canopywave",
+				externalId: "deepseek/deepseek-v4-flash",
+				inputPrice: "0.14e-6",
+				cachedInputPrice: "0.03e-6",
+				outputPrice: "0.28e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 393216,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: false,
+				tools: true,
+				// The deployment 400s on "required" and named-function tool_choice
+				// with "Thinking mode does not support this tool_choice" while
+				// thinking is on, so those modes coerce to "auto". Both work once
+				// thinking is disabled via reasoning_effort "none", which the
+				// mapping declares below (confirmed by CanopyWave, verified live
+				// 2026-08-10).
+				supportedToolChoices: ["auto", "none"],
+				supportedToolChoicesWithThinkingDisabled: ["required", "function"],
+				jsonOutput: true,
+			},
+			{
+				providerId: "gonka24",
+				externalId: "deepseek-v4-flash-0731",
+				inputPrice: "0.075e-6",
+				cachedInputPrice: "0.0155e-6",
+				outputPrice: "0.175e-6",
+				requestPrice: "0",
+				// The deployment shares one 390000-token window between prompt and
+				// completion, and stops generating at 16384 tokens with
+				// finish_reason "length" no matter how high max_tokens is.
+				contextSize: 390000,
+				maxOutput: 16384,
+				streaming: true,
+				reasoning: true,
+				// The provider's accepted enum; anything outside it is a hard 400.
+				// Thinking is off by default and is turned on by the binary `thinking`
+				// switch the gateway derives from the effort (see the gonka24 case in
+				// prepare-request-body), not by the effort itself.
+				reasoningEfforts: ["none", "low", "medium", "high"],
+				vision: false,
+				tools: true,
+				// tool_choice "required" is not enforced — the model keeps answering
+				// in plain text — so it coerces to "auto"; named-function choice is
+				// honoured.
+				supportedToolChoices: ["auto", "none", "function"],
+				// The gateway rejects the OpenAI-only `developer` role ("Invalid enum
+				// value. Expected 'system' | 'user' | 'assistant' | 'tool'").
+				supportsDeveloperRole: false,
+				jsonOutput: true,
+				// `json_schema` is only prompt-steered, not constrained-decoded: the
+				// deployment emits the right keys but never stops, running into the
+				// output cap and returning truncated, unparseable JSON.
+				jsonOutputSchema: false,
+			},
+			{
+				providerId: "baidu",
+				externalId: "deepseek-v4-flash",
+				inputPrice: "0.14e-6",
+				cachedInputPrice: "0.028e-6",
+				outputPrice: "0.28e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				// Qianfan ignores reasoning_effort="none"; its thinking switch works.
+				requiresDisableThinkingParam: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
 			},
 		],
 	},
