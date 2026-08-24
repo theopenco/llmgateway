@@ -250,6 +250,21 @@ describe("admin catalog usage mode", () => {
 		}
 	});
 
+	it("rejects narrowed project-scoped history", async () => {
+		for (const path of [
+			`models/${MODEL_ID}/history`,
+			`providers/${PROVIDER_ID}/models/${MODEL_ID}/history`,
+		]) {
+			for (const mode of ["credits", "api-keys"]) {
+				const response = await app.request(
+					`/admin/${path}?projectId=test-project&mode=${mode}`,
+					{ headers: { Cookie: cookie } },
+				);
+				expect(response.status).toBe(400);
+			}
+		}
+	});
+
 	it("filters expanded history charts by usage mode", async () => {
 		for (const path of [
 			`models/${MODEL_ID}/history`,

@@ -5889,6 +5889,22 @@ function requireCatalogUsageDateRange(
 	}
 }
 
+function rejectProjectScopedCatalogUsageMode(
+	query: {
+		projectId?: string;
+		mode?: z.infer<typeof catalogUsageModeSchema>;
+	},
+	ctx: z.RefinementCtx,
+) {
+	if (query.projectId && (query.mode ?? "total") !== "total") {
+		ctx.addIssue({
+			code: z.ZodIssueCode.custom,
+			message: "usage mode is not available for project-scoped history",
+			path: ["mode"],
+		});
+	}
+}
+
 const providerStatsSchema = z.object({
 	id: z.string(),
 	name: z.string(),
@@ -8916,11 +8932,13 @@ const getModelHistory = createRoute({
 	path: "/models/{modelId}/history",
 	request: {
 		params: z.object({ modelId: z.string() }),
-		query: z.object({
-			window: historyWindowSchema.default("4h").optional(),
-			projectId: z.string().optional(),
-			mode: catalogUsageModeSchema.default("total").optional(),
-		}),
+		query: z
+			.object({
+				window: historyWindowSchema.default("4h").optional(),
+				projectId: z.string().optional(),
+				mode: catalogUsageModeSchema.default("total").optional(),
+			})
+			.superRefine(rejectProjectScopedCatalogUsageMode),
 	},
 	responses: {
 		200: {
@@ -9157,12 +9175,14 @@ const getMappingHistory = createRoute({
 			providerId: z.string(),
 			modelId: z.string(),
 		}),
-		query: z.object({
-			window: historyWindowSchema.default("4h").optional(),
-			projectId: z.string().optional(),
-			region: z.string().optional(),
-			mode: catalogUsageModeSchema.default("total").optional(),
-		}),
+		query: z
+			.object({
+				window: historyWindowSchema.default("4h").optional(),
+				projectId: z.string().optional(),
+				region: z.string().optional(),
+				mode: catalogUsageModeSchema.default("total").optional(),
+			})
+			.superRefine(rejectProjectScopedCatalogUsageMode),
 	},
 	responses: {
 		200: {
