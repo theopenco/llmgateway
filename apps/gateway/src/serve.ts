@@ -11,7 +11,7 @@ import { logger, toError } from "@llmgateway/logger";
 import { getEnterpriseLicenseStatus } from "@llmgateway/shared/enterprise-license";
 
 import { app } from "./app.js";
-import { pendingWorkCount, waitForPendingWork } from "./lib/pending-work.js";
+import { drainPendingWork, pendingWorkCount } from "./lib/pending-work.js";
 import {
 	closeUpstreamDispatcher,
 	installUpstreamDispatcher,
@@ -148,9 +148,10 @@ const realtimeShutdownGracePeriodMs =
 	Number(process.env.REALTIME_SHUTDOWN_GRACE_PERIOD_MS) ||
 	((Number(process.env.REALTIME_MAX_SESSION_SECONDS) || 3600) + 60) * 1000;
 
-// How long to wait for handler tails (billing, log insertion) that outlive
-// their HTTP connection before closing the database pool and Redis. These are
-// a few DB/Redis round-trips, so 20s is generous.
+// Warn when handler tails (billing, log insertion) outlive their HTTP
+// connection longer than expected. Shutdown continues waiting after this
+// threshold because closing shared dependencies underneath live handlers is
+// guaranteed to make them fail; the orchestrator owns the hard deadline.
 const pendingWorkTimeoutMs =
 	Number(process.env.SHUTDOWN_PENDING_WORK_TIMEOUT_MS) || 20000;
 
@@ -252,13 +253,12 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 			logger.info("Waiting for pending request work", {
 				pending: pendingAtClose,
 			});
-			const remaining = await waitForPendingWork(pendingWorkTimeoutMs);
-			if (remaining > 0) {
-				logger.warn("Pending request work did not finish before shutdown", {
+			await drainPendingWork(pendingWorkTimeoutMs, (remaining) => {
+				logger.warn("Pending request work is still draining", {
 					remaining,
-					timeoutMs: pendingWorkTimeoutMs,
+					warningThresholdMs: pendingWorkTimeoutMs,
 				});
-			}
+			});
 		}
 
 		logger.info("Closing upstream dispatcher");

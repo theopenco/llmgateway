@@ -44,6 +44,26 @@ export async function waitForPendingWork(timeoutMs: number): Promise<number> {
 }
 
 /**
+ * Waits for all tracked work before shutdown closes shared dependencies.
+ * The timeout is only a diagnostic threshold: closing the database or Redis
+ * while work remains would make the pending handlers fail by construction.
+ */
+export async function drainPendingWork(
+	warnAfterMs: number,
+	onDelayed: (remaining: number) => void,
+): Promise<void> {
+	const remaining = await waitForPendingWork(warnAfterMs);
+	if (remaining === 0) {
+		return;
+	}
+
+	onDelayed(remaining);
+	while (pending.size > 0) {
+		await Promise.all([...pending]);
+	}
+}
+
+/**
  * Drop-in replacement for hono/streaming's streamSSE that tracks the stream
  * callback in the pending-work registry for its full duration. Gateway routes
  * must use this instead of importing from hono/streaming directly, or their
