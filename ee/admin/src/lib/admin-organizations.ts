@@ -97,6 +97,54 @@ export async function addManualCreditsToOrganization(
 	return { success: true };
 }
 
+export interface EnterpriseDealInput {
+	amount: number;
+	paymentMethod: "wire" | "crypto" | "other";
+	externalReference?: string;
+	comment?: string;
+}
+
+export async function addEnterpriseDealToOrganization(
+	orgId: string,
+	body: EnterpriseDealInput,
+): Promise<{ success: boolean; error?: string }> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.POST(
+		"/admin/organizations/{orgId}/enterprise-deals",
+		{
+			params: { path: { orgId } },
+			body,
+		},
+	);
+
+	if (error || !data) {
+		return { success: false, error: "Failed to add enterprise deal" };
+	}
+
+	return { success: true };
+}
+
+export async function updateEnterpriseDeal(
+	orgId: string,
+	transactionId: string,
+	body: EnterpriseDealInput,
+): Promise<{ success: boolean; error?: string }> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.PATCH(
+		"/admin/organizations/{orgId}/enterprise-deals/{transactionId}",
+		{
+			params: { path: { orgId, transactionId } },
+			body,
+		},
+	);
+
+	if (error || !data) {
+		return { success: false, error: "Failed to update enterprise deal" };
+	}
+
+	return { success: true };
+}
+
 export async function updateReferralBonus(
 	orgId: string,
 	body: { enabled: boolean; percent: number },

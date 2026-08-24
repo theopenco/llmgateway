@@ -18,6 +18,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { BlockOrgButton } from "@/components/block-org-button";
+import { EnterpriseDealDialog } from "@/components/enterprise-deal-dialog";
 import { GiftCreditsDialog } from "@/components/gift-credits-dialog";
 import { ManualCreditsDialog } from "@/components/manual-credits-dialog";
 import { PlanTermBadge } from "@/components/plan-term-badge";
@@ -33,11 +34,13 @@ import {
 } from "@/components/ui/table";
 import { TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+	addEnterpriseDealToOrganization,
 	addManualCreditsToOrganization,
 	blockOrganization,
 	deleteOrganizationPaymentMethod,
 	giftCreditsToOrganization,
 	manageOrganization,
+	updateEnterpriseDeal,
 	updateReferralBonus,
 } from "@/lib/admin-organizations";
 import { KEY_STATUS_DEFAULT, parseKeyStatus } from "@/lib/key-status";
@@ -137,7 +140,8 @@ function getTransactionTypeBadgeVariant(type: string) {
 		type.includes("start") ||
 		type.includes("topup") ||
 		type.includes("gift") ||
-		type.includes("manual_payment")
+		type.includes("manual_payment") ||
+		type === "enterprise_deal"
 	) {
 		return "default";
 	}
@@ -454,6 +458,13 @@ export default async function OrganizationPage({
 							return await addManualCreditsToOrganization(orgId, data);
 						}}
 					/>
+					<EnterpriseDealDialog
+						orgName={org.name}
+						onSave={async (data) => {
+							"use server";
+							return await addEnterpriseDealToOrganization(orgId, data);
+						}}
+					/>
 					<ReferralBonusDialog
 						orgName={org.name}
 						enabled={org.referralBonusEnabled ?? false}
@@ -592,13 +603,14 @@ export default async function OrganizationPage({
 										<TableHead>Reference</TableHead>
 										<TableHead>Description</TableHead>
 										<TableHead>Stripe</TableHead>
+										<TableHead className="text-right">Actions</TableHead>
 									</TableRow>
 								</TableHeader>
 								<TableBody>
 									{transactions.length === 0 ? (
 										<TableRow>
 											<TableCell
-												colSpan={8}
+												colSpan={9}
 												className="h-24 text-center text-muted-foreground"
 											>
 												No transactions found
@@ -668,6 +680,22 @@ export default async function OrganizationPage({
 														) : (
 															<span className="text-muted-foreground">—</span>
 														)}
+													</TableCell>
+													<TableCell className="text-right">
+														{transaction.type === "enterprise_deal" ? (
+															<EnterpriseDealDialog
+																orgName={org.name}
+																deal={transaction}
+																onSave={async (data) => {
+																	"use server";
+																	return await updateEnterpriseDeal(
+																		orgId,
+																		transaction.id,
+																		data,
+																	);
+																}}
+															/>
+														) : null}
 													</TableCell>
 												</TableRow>
 											);

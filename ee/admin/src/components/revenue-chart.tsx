@@ -49,6 +49,10 @@ const chartConfig = {
 		label: "Net",
 		color: "hsl(142 71% 45%)",
 	},
+	enterpriseRevenue: {
+		label: "Net profit",
+		color: "hsl(271 81% 56%)",
+	},
 } satisfies ChartConfig;
 
 const revenueViews = {
@@ -63,6 +67,12 @@ const revenueViews = {
 		description:
 			"Cumulative gross and net (after refunds) DevPass plan revenue",
 		lines: ["devpassRevenue", "devpassNet"],
+	},
+	enterprise: {
+		label: "Enterprise",
+		description:
+			"Cumulative enterprise deal revenue and net profit; these deals do not grant credits",
+		lines: ["enterpriseRevenue"],
 	},
 } as const;
 
@@ -84,7 +94,7 @@ export function RevenueChart({
 	totals,
 }: {
 	data: TimeseriesDataPoint[];
-	totals: { credits: number; devpass: number };
+	totals: { credits: number; devpass: number; enterprise: number };
 }) {
 	const [activeView, setActiveView] = useState<ActiveView>("credits");
 
@@ -93,7 +103,11 @@ export function RevenueChart({
 			data.map((point) => ({
 				date: point.date,
 				dailyNet:
-					activeView === "credits" ? point.dailyNet : point.dailyDevpassNet,
+					activeView === "credits"
+						? point.dailyNet
+						: activeView === "devpass"
+							? point.dailyDevpassNet
+							: point.dailyEnterpriseRevenue,
 			})),
 		[data, activeView],
 	);
@@ -103,14 +117,14 @@ export function RevenueChart({
 			<CardHeader className="flex flex-col items-stretch space-y-0 border-b p-0 sm:flex-row">
 				<div className="flex flex-1 flex-col justify-center gap-1.5 px-6 py-5 sm:py-6">
 					<CardTitle className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-						Credits & DevPass Revenue
+						Credits, DevPass & Enterprise Revenue
 					</CardTitle>
 					<CardDescription className="text-xs">
 						{revenueViews[activeView].description}
 					</CardDescription>
 				</div>
 				<div className="flex">
-					{(["credits", "devpass"] as const).map((key) => (
+					{(["credits", "devpass", "enterprise"] as const).map((key) => (
 						<button
 							key={key}
 							data-active={activeView === key}
