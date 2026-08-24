@@ -2333,7 +2333,7 @@ describe("shouldBillCancelledRequests", () => {
 	});
 });
 
-describe("peak / off-peak time-of-day pricing (DeepSeek)", () => {
+describe("peak / off-peak time-of-day pricing", () => {
 	beforeEach(() => {
 		vi.mocked(mockGetEffectiveDiscount).mockImplementation(async () => ({
 			discount: "0",
@@ -2460,5 +2460,37 @@ describe("peak / off-peak time-of-day pricing (DeepSeek)", () => {
 			null,
 		);
 		expect(flash.inputCost).toBeCloseTo(0.44);
+	});
+
+	it("bills Baidu GLM-5.2 peak rates from 00:00 through 14:00 UTC", async () => {
+		setTime("2026-08-24T13:59:00Z");
+
+		const costs = await calculateCosts(
+			"glm-5.2",
+			"baidu",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		expect(costs.inputCost).toBeCloseTo(0.7);
+		expect(costs.outputCost).toBeCloseTo(2.2);
+		expect(costs.cachedInputCost).toBeCloseTo(0.13);
+	});
+
+	it("bills Baidu GLM-5.2 off-peak rates from 14:00 through 00:00 UTC", async () => {
+		setTime("2026-08-24T14:00:00Z");
+
+		const costs = await calculateCosts(
+			"glm-5.2",
+			"baidu",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		expect(costs.inputCost).toBeCloseTo(0.56);
+		expect(costs.outputCost).toBeCloseTo(1.76);
+		expect(costs.cachedInputCost).toBeCloseTo(0.104);
 	});
 });
