@@ -10,7 +10,7 @@ import {
 	models as allModels,
 	providers as allProviders,
 } from "@llmgateway/models";
-import { getDevPlanCreditsLimit } from "@llmgateway/shared";
+import { DEV_PLAN_PRICES, getDevPlanCreditsLimit } from "@llmgateway/shared";
 
 import { closeDatabase, db, tables } from "./index.js";
 import { logs } from "./logs.js";
@@ -700,6 +700,13 @@ const TRANSACTION_TYPES = [
 	"dev_plan_renewal",
 ] as const;
 
+// DevPass subscription history is seeded deterministically below so its
+// subscriber and revenue KPIs stay internally consistent across seed runs.
+const DEV_PASS_RANDOM_TRANSACTION_TYPES = [
+	"credit_topup",
+	"credit_refund",
+] as const;
+
 function generateTransactions() {
 	const transactions = [];
 	let txIdx = 0;
@@ -711,7 +718,11 @@ function generateTransactions() {
 					? randomInt(4, 8)
 					: randomInt(1, 3);
 		for (let i = 0; i < numTx; i++) {
-			const type = randomChoice([...TRANSACTION_TYPES]);
+			const type = randomChoice([
+				...(org.kind === "devpass"
+					? DEV_PASS_RANDOM_TRANSACTION_TYPES
+					: TRANSACTION_TYPES),
+			]);
 			const isCredit = type === "credit_topup";
 			const isRefund = type === "credit_refund";
 			const isSub =
@@ -2349,6 +2360,22 @@ async function seed() {
 		description: "Test credit top-up for referral eligibility",
 	});
 
+	const devpassStartCreatedAt = daysAgo(36);
+	await upsert(tables.transaction, {
+		id: "test-devpass-start-transaction-id",
+		organizationId: "test-personal-org-id",
+		createdAt: devpassStartCreatedAt,
+		updatedAt: devpassStartCreatedAt,
+		type: "dev_plan_start",
+		amount: String(DEV_PLAN_PRICES.pro),
+		creditAmount: String(getDevPlanCreditsLimit("pro")),
+		currency: "USD",
+		status: "completed",
+		stripePaymentIntentId: "pi_seed_devpass_start",
+		stripeInvoiceId: "in_seed_devpass_start",
+		description: "Seeded DevPass Pro start for admin dashboard",
+	});
+
 	const devpassRenewalCreatedAt = daysAgo(6);
 	await upsert(tables.transaction, {
 		id: "test-devpass-renewal-transaction-id",
@@ -2709,6 +2736,29 @@ async function seed() {
 
 	const transactions = generateTransactions();
 	await bulkInsert(tables.transaction, transactions);
+
+	const devpassSubscriptionStarts = EXTRA_ORGS.flatMap((org) => {
+		if (org.kind !== "devpass" || org.devPlan === "none") {
+			return [];
+		}
+		return [
+			{
+				id: `seed-devpass-start-${org.id}`,
+				organizationId: org.id,
+				createdAt: org.createdAt,
+				updatedAt: org.createdAt,
+				type: "dev_plan_start" as const,
+				amount: String(DEV_PLAN_PRICES[org.devPlan]),
+				creditAmount: String(getDevPlanCreditsLimit(org.devPlan)),
+				currency: "USD",
+				status: "completed" as const,
+				stripePaymentIntentId: `pi_seed_devpass_start_${org.id}`,
+				stripeInvoiceId: `in_seed_devpass_start_${org.id}`,
+				description: `Seeded DevPass ${org.devPlan.toUpperCase()} start for admin dashboard`,
+			},
+		];
+	});
+	await bulkInsert(tables.transaction, devpassSubscriptionStarts);
 
 	const discounts = generateDiscounts();
 	await bulkInsert(tables.discount, discounts);
