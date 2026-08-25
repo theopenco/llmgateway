@@ -54,6 +54,7 @@ import {
 	notEndUserNonRevenueFilter,
 	notEndUserWalletFilter,
 	notPlanFilter,
+	notRefundFilter,
 	paidTransactionFilter,
 	refundsCountedTopupFilter,
 } from "@/utils/devpass-filter.js";
@@ -381,7 +382,12 @@ const adminMetricsSchema = z.object({
 	overage: z.number(),
 	totalGiftedCredits: z.number(),
 	totalBonusCredits: z.number(),
+	// Gross dollars refunded (platform fee included) and, separately, the credit
+	// value clawed back. Net credit revenue is `totalRevenue -
+	// totalRefundedCredits`; subtracting `totalRefunds` from it would mix a gross
+	// figure into a post-fee one.
 	totalRefunds: z.number(),
+	totalRefundedCredits: z.number(),
 	// Gross revenue across all products (Stripe `amount`, i.e. before Stripe
 	// fees; refunds not netted out), split by product.
 	grossRevenue: z.number(),
@@ -410,7 +416,10 @@ const timeseriesDataPointSchema = z.object({
 	paidCustomers: z.number(),
 	revenue: z.number(),
 	processed: z.number(),
+	// Gross dollars refunded, and the credit value clawed back — `net` uses the
+	// latter so it stays on the same post-fee basis as `revenue`.
 	refunds: z.number(),
+	refundedCredits: z.number(),
 	net: z.number(),
 	// DevPass plan revenue (gross Stripe amount, deduplicated per invoice) and
 	// net (after refunds), cumulative like the credits series above.
@@ -437,6 +446,7 @@ const adminTimeseriesSchema = z.object({
 		revenue: z.number(),
 		processed: z.number(),
 		refunds: z.number(),
+		refundedCredits: z.number(),
 		net: z.number(),
 		devpassRevenue: z.number(),
 		devpassRefunds: z.number(),
@@ -1051,10 +1061,12 @@ admin.openapi(getMetrics, async (c) => {
 
 	const payingCustomers = Number(payingRow?.count ?? 0);
 
-	// Total credits revenue: completed credit-purchase rows use `creditAmount` to
-	// exclude Stripe fees. Excludes enterprise deals, gifts, all plan rows
-	// (DevPass/legacy subscription/Chat Plan), and the non-revenue end-user rows
-	// (developer margin + funded bonus).
+	// Total credits revenue: completed credit-purchase rows use `creditAmount`,
+	// which is the credit value granted and so excludes the platform fee charged
+	// on top. Excludes enterprise deals, gifts, all plan rows (DevPass/legacy
+	// subscription/Chat Plan), the non-revenue end-user rows (developer margin +
+	// funded bonus), and refund reversals — refunds are netted out once, via
+	// `totalRefundedCredits`.
 	const [revenueRow] = await db
 		.select({
 			value:
@@ -1070,6 +1082,7 @@ admin.openapi(getMetrics, async (c) => {
 				ne(tables.transaction.type, "enterprise_license_fee"),
 				notPlanFilter,
 				notEndUserNonRevenueFilter,
+				notRefundFilter,
 				transactionDateFilter,
 			),
 		);
@@ -1169,7 +1182,9 @@ admin.openapi(getMetrics, async (c) => {
 
 	// Total processed credits (gross payment amounts from completed non-gift,
 	// non-plan transactions — Stripe charges plus off-Stripe manual payments).
-	// Enterprise deals are reported separately.
+	// Enterprise deals are reported separately. Refund rows carry a POSITIVE
+	// `amount` (the dollars sent back), so they are excluded here rather than
+	// counted as another charge; `totalRefunds` reports them.
 	const [processedRow] = await db
 		.select({
 			value:
@@ -1185,6 +1200,7 @@ admin.openapi(getMetrics, async (c) => {
 				ne(tables.transaction.type, "enterprise_license_fee"),
 				notPlanFilter,
 				notEndUserNonRevenueFilter,
+				notRefundFilter,
 				transactionDateFilter,
 			),
 		);
@@ -1234,12 +1250,20 @@ admin.openapi(getMetrics, async (c) => {
 
 	const totalBonusCredits = -Number(bonusRow?.value ?? 0);
 
-	// Total refunds (positive `amount` on credit_refund rows — Stripe-side refunds).
+	// Refunds, on both bases: `amount` is the gross refunded to the customer
+	// (platform fee included, since the whole charge is sent back) and
+	// `creditAmount` is the negative clawback of the granted credits. Netting a
+	// credit-basis figure like `totalRevenue` needs the credit-basis refund, so
+	// report both rather than mixing them.
 	const [refundsRow] = await db
 		.select({
 			value:
 				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
 					"value",
+				),
+			creditsValue:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
+					"creditsValue",
 				),
 		})
 		.from(tables.transaction)
@@ -1252,6 +1276,7 @@ admin.openapi(getMetrics, async (c) => {
 		);
 
 	const totalRefunds = Number(refundsRow?.value ?? 0);
+	const totalRefundedCredits = -Number(refundsRow?.creditsValue ?? 0);
 
 	// Gross revenue splits: actual dollars charged via Stripe (`amount`, so
 	// including Stripe fees), before netting refunds out.
@@ -1513,6 +1538,7 @@ admin.openapi(getMetrics, async (c) => {
 		totalGiftedCredits,
 		totalBonusCredits,
 		totalRefunds,
+		totalRefundedCredits,
 		grossRevenue,
 		grossCreditsRevenue,
 		grossDevpassRevenue,
@@ -1597,7 +1623,7 @@ admin.openapi(getTimeseries, async (c) => {
 		.groupBy(sql`DATE(${tables.user.createdAt})`)
 		.orderBy(asc(sql`DATE(${tables.user.createdAt})`));
 
-	// Revenue per day (post-fees credit revenue; matches /admin/metrics
+	// Revenue per day (post-fee credit revenue; matches /admin/metrics
 	// totalRevenue). Enterprise deals are a separate series below.
 	const revenuePerDay = await db
 		.select({
@@ -1615,6 +1641,7 @@ admin.openapi(getTimeseries, async (c) => {
 				ne(tables.transaction.type, "enterprise_license_fee"),
 				notPlanFilter,
 				notEndUserNonRevenueFilter,
+				notRefundFilter,
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
 			),
@@ -1659,6 +1686,7 @@ admin.openapi(getTimeseries, async (c) => {
 				ne(tables.transaction.type, "enterprise_license_fee"),
 				notPlanFilter,
 				notEndUserNonRevenueFilter,
+				notRefundFilter,
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
 			),
@@ -1666,13 +1694,18 @@ admin.openapi(getTimeseries, async (c) => {
 		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
 		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
 
-	// Refunds per day (positive amount on credit_refund rows)
+	// Refunds per day, gross (positive `amount`) and on a credit basis (the
+	// negated `creditAmount` clawback), mirroring /admin/metrics.
 	const refundsPerDay = await db
 		.select({
 			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
 			total:
 				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
 					"total",
+				),
+			credits:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
+					"credits",
 				),
 		})
 		.from(tables.transaction)
@@ -1777,6 +1810,7 @@ admin.openapi(getTimeseries, async (c) => {
 				ne(tables.transaction.type, "enterprise_license_fee"),
 				notPlanFilter,
 				notEndUserNonRevenueFilter,
+				notRefundFilter,
 				sql`${tables.transaction.createdAt} < ${startDate}`,
 			),
 		);
@@ -1816,6 +1850,7 @@ admin.openapi(getTimeseries, async (c) => {
 				ne(tables.transaction.type, "enterprise_license_fee"),
 				notPlanFilter,
 				notEndUserNonRevenueFilter,
+				notRefundFilter,
 				sql`${tables.transaction.createdAt} < ${startDate}`,
 			),
 		);
@@ -1827,6 +1862,10 @@ admin.openapi(getTimeseries, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
 					"total",
 				),
+			credits:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
+					"credits",
+				),
 		})
 		.from(tables.transaction)
 		.where(
@@ -1837,6 +1876,7 @@ admin.openapi(getTimeseries, async (c) => {
 			),
 		);
 	const preRangeRefunds = Number(preRangeRefundsRow?.total ?? 0);
+	const preRangeRefundedCredits = -Number(preRangeRefundsRow?.credits ?? 0);
 
 	const [preRangeDevpassRevenueRow] = await db
 		.select({
@@ -1969,8 +2009,10 @@ admin.openapi(getTimeseries, async (c) => {
 	}
 
 	const refundsMap = new Map<string, number>();
+	const refundedCreditsMap = new Map<string, number>();
 	for (const row of refundsPerDay) {
 		refundsMap.set(row.date, Number(row.total));
+		refundedCreditsMap.set(row.date, -Number(row.credits));
 	}
 
 	const devpassRevenueMap = new Map<string, number>();
@@ -2001,6 +2043,7 @@ admin.openapi(getTimeseries, async (c) => {
 		revenue: number;
 		processed: number;
 		refunds: number;
+		refundedCredits: number;
 		net: number;
 		devpassRevenue: number;
 		devpassRefunds: number;
@@ -2017,6 +2060,7 @@ admin.openapi(getTimeseries, async (c) => {
 	let totalRevenue = preRangeRevenue;
 	let totalProcessed = preRangeProcessed;
 	let totalRefunds = preRangeRefunds;
+	let totalRefundedCredits = preRangeRefundedCredits;
 	let totalDevpassRevenue = preRangeDevpassRevenue;
 	let totalDevpassRefunds = preRangeDevpassRefunds;
 	let totalEnterpriseRevenue = preRangeEnterpriseRevenue;
@@ -2032,6 +2076,7 @@ admin.openapi(getTimeseries, async (c) => {
 		const dailyRevenue = revenueMap.get(dateStr) ?? 0;
 		const dailyProcessed = processedMap.get(dateStr) ?? 0;
 		const dailyRefunds = refundsMap.get(dateStr) ?? 0;
+		const dailyRefundedCredits = refundedCreditsMap.get(dateStr) ?? 0;
 		const dailyDevpassRevenue = devpassRevenueMap.get(dateStr) ?? 0;
 		const dailyDevpassRefunds = devpassRefundsMap.get(dateStr) ?? 0;
 		const dailyEnterpriseRevenue = enterpriseRevenueMap.get(dateStr) ?? 0;
@@ -2042,6 +2087,7 @@ admin.openapi(getTimeseries, async (c) => {
 		totalRevenue += dailyRevenue;
 		totalProcessed += dailyProcessed;
 		totalRefunds += dailyRefunds;
+		totalRefundedCredits += dailyRefundedCredits;
 		totalDevpassRevenue += dailyDevpassRevenue;
 		totalDevpassRefunds += dailyDevpassRefunds;
 		totalEnterpriseRevenue += dailyEnterpriseRevenue;
@@ -2053,14 +2099,15 @@ admin.openapi(getTimeseries, async (c) => {
 			revenue: totalRevenue,
 			processed: totalProcessed,
 			refunds: totalRefunds,
-			net: totalRevenue - totalRefunds,
+			refundedCredits: totalRefundedCredits,
+			net: totalRevenue - totalRefundedCredits,
 			devpassRevenue: totalDevpassRevenue,
 			devpassRefunds: totalDevpassRefunds,
 			devpassNet: totalDevpassRevenue - totalDevpassRefunds,
 			enterpriseRevenue: totalEnterpriseRevenue,
 			dailySignups,
 			dailyPaidCustomers,
-			dailyNet: dailyRevenue - dailyRefunds,
+			dailyNet: dailyRevenue - dailyRefundedCredits,
 			dailyDevpassNet: dailyDevpassRevenue - dailyDevpassRefunds,
 			dailyEnterpriseRevenue,
 		});
@@ -2075,7 +2122,8 @@ admin.openapi(getTimeseries, async (c) => {
 			revenue: totalRevenue,
 			processed: totalProcessed,
 			refunds: totalRefunds,
-			net: totalRevenue - totalRefunds,
+			refundedCredits: totalRefundedCredits,
+			net: totalRevenue - totalRefundedCredits,
 			devpassRevenue: totalDevpassRevenue,
 			devpassRefunds: totalDevpassRefunds,
 			devpassNet: totalDevpassRevenue - totalDevpassRefunds,

@@ -77,6 +77,13 @@ export const CHAT_PLAN_TX_TYPES = [
 	"chat_plan_renewal",
 ] as const;
 
+// `credit_refund` rows are a reversal, not a purchase: `amount` is the gross
+// refunded back to the customer and `creditAmount` is the negative clawback of
+// the granted credits. Purchase-side sums (credits granted, dollars charged)
+// must exclude them, otherwise a refund both inflates "processed" and deflates
+// "revenue" — and is then double-counted by the explicit refund subtraction.
+export const notRefundFilter = sql`${tables.transaction.type} <> 'credit_refund'`;
+
 // Matches `credit_refund` rows that reverse a top-up the gross top-up sums
 // actually counted: a completed, positive-`amount` `credit_topup` booked on the
 // same organization as the refund. Every gross top-up figure filters on exactly
