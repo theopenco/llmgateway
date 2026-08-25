@@ -11499,9 +11499,13 @@ admin.openapi(getModelProviderMappings, async (c) => {
 				)
 				.where(
 					and(
-						whereClause,
+						// Page rows may include both the synthetic root mapping and its
+						// concrete regions. Totals use the root, which already contains
+						// all regional traffic, independently of which rows are rendered.
+						searchClause,
 						gte(mappingHistory.bucket, dateRange!.startDate),
 						lt(mappingHistory.bucket, dateRange!.endDateExclusive),
+						excludeRegionalMappingRows(mappingHistory.table),
 					),
 				)
 		: Promise.resolve([
