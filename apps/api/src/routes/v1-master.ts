@@ -33,6 +33,7 @@ import {
 	updateCustomModelSchema,
 } from "@/routes/custom-models.js";
 import {
+	assertApiKeyIsUserManaged,
 	buildApiKeyLimitAuditChanges,
 	createApiKeyForProject,
 	hasPeriodConfigChanged,
@@ -685,11 +686,7 @@ v1Master.openapi(updateApiKey, async (c) => {
 
 	const existing = await loadApiKeyForOrg(id, masterKey.organizationId);
 
-	if (isPlaygroundApiKey(existing)) {
-		throw new HTTPException(403, {
-			message: "The playground API key is managed automatically.",
-		});
-	}
+	assertApiKeyIsUserManaged(existing);
 
 	const limitUpdate: PartialApiKeyLimitConfig = {};
 	if ("usageLimit" in updates) {
@@ -999,6 +996,8 @@ v1Master.openapi(createIamRule, async (c) => {
 
 	const apiKey = await loadApiKeyForOrg(id, masterKey.organizationId);
 
+	assertApiKeyIsUserManaged(apiKey);
+
 	const [rule] = await cdb
 		.insert(tables.apiKeyIamRule)
 		.values({
@@ -1098,6 +1097,8 @@ v1Master.openapi(updateIamRule, async (c) => {
 
 	const apiKey = await loadApiKeyForOrg(id, masterKey.organizationId);
 
+	assertApiKeyIsUserManaged(apiKey);
+
 	const existingRule = await db.query.apiKeyIamRule.findFirst({
 		where: { id: { eq: ruleId }, apiKeyId: { eq: apiKey.id } },
 	});
@@ -1170,6 +1171,8 @@ v1Master.openapi(deleteIamRule, async (c) => {
 	const { id, ruleId } = c.req.param();
 
 	const apiKey = await loadApiKeyForOrg(id, masterKey.organizationId);
+
+	assertApiKeyIsUserManaged(apiKey);
 
 	const existingRule = await db.query.apiKeyIamRule.findFirst({
 		where: { id: { eq: ruleId }, apiKeyId: { eq: apiKey.id } },
