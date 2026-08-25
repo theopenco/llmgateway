@@ -3364,11 +3364,13 @@ export async function handleChargeRefunded(
 	);
 
 	// Only credit_topup purchases add to organization.credits, so only those
-	// refunds should deduct credits back. Dev plan, chat plan, and subscription
-	// refunds are recorded for revenue reporting only — those plans use virtual
+	// refunds should deduct credits back and be recorded as credit_refund. Dev
+	// plan, chat plan, and legacy subscription refunds are recorded as
+	// subscription_refund for revenue reporting only — those plans use virtual
 	// plan credits, and the subscription cancel/end webhooks handle the plan
 	// state changes separately.
 	const isCreditTopup = originalTransaction.type === "credit_topup";
+	const refundType = isCreditTopup ? "credit_refund" : "subscription_refund";
 
 	// Calculate proportional credit refund
 	const refundRatio =
@@ -3384,7 +3386,9 @@ export async function handleChargeRefunded(
 	const existingRefund = await db.query.transaction.findFirst({
 		where: {
 			stripeRefundId: { eq: latestRefund.id },
-			type: { eq: "credit_refund" },
+			// Match both types so rows recorded before subscription_refund existed
+			// still dedupe.
+			type: { in: ["credit_refund", "subscription_refund"] },
 		},
 	});
 
@@ -3398,7 +3402,7 @@ export async function handleChargeRefunded(
 	// Create refund transaction
 	await db.insert(tables.transaction).values({
 		organizationId: originalTransaction.organizationId,
-		type: "credit_refund",
+		type: refundType,
 		amount: refundAmountInDollars.toString(),
 		creditAmount: (-creditRefundAmount).toString(),
 		currency: originalTransaction.currency,
@@ -3407,7 +3411,7 @@ export async function handleChargeRefunded(
 		stripeRefundId: latestRefund.id,
 		relatedTransactionId: originalTransaction.id,
 		refundReason: latestRefund.reason ?? null,
-		description: `Credit refund: $${refundAmountInDollars.toFixed(2)} (${(refundRatio * 100).toFixed(1)}% of original purchase)`,
+		description: `${isCreditTopup ? "Credit" : "Subscription"} refund: $${refundAmountInDollars.toFixed(2)} (${(refundRatio * 100).toFixed(1)}% of original purchase)`,
 	});
 
 	// Deduct credits from organization (allow negative) — only for credit_topup

@@ -2398,7 +2398,7 @@ async function seed() {
 		organizationId: "test-personal-org-id",
 		createdAt: devpassRefundCreatedAt,
 		updatedAt: devpassRefundCreatedAt,
-		type: "credit_refund",
+		type: "subscription_refund",
 		amount: "15",
 		creditAmount: "0",
 		currency: "USD",

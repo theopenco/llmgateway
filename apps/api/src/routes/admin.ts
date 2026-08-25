@@ -213,6 +213,12 @@ export const admin = new OpenAPIHono<ServerTypes>();
 
 admin.use("/*", adminMiddleware);
 
+// Stripe-side refund rows. subscription_refund covers dev/chat plan and legacy
+// subscription refunds; credit_refund covers credit top-up refunds plus all
+// refunds recorded before subscription_refund existed, so refund queries must
+// match both and disambiguate via the related original transaction.
+const REFUND_TX_TYPES = ["credit_refund", "subscription_refund"] as const;
+
 // Token counts split by billed token type, plus the cost each type accounts for.
 // Spliced into every admin stats payload so the dashboard can explain a cost
 // figure rather than only showing the lump sum. The three costs are slices of
@@ -1234,7 +1240,7 @@ admin.openapi(getMetrics, async (c) => {
 
 	const totalBonusCredits = -Number(bonusRow?.value ?? 0);
 
-	// Total refunds (positive `amount` on credit_refund rows — Stripe-side refunds).
+	// Total refunds (positive `amount` on refund rows — Stripe-side refunds).
 	const [refundsRow] = await db
 		.select({
 			value:
@@ -1246,7 +1252,7 @@ admin.openapi(getMetrics, async (c) => {
 		.where(
 			and(
 				eq(tables.transaction.status, "completed"),
-				eq(tables.transaction.type, "credit_refund"),
+				inArray(tables.transaction.type, [...REFUND_TX_TYPES]),
 				transactionDateFilter,
 			),
 		);
@@ -1354,7 +1360,7 @@ admin.openapi(getMetrics, async (c) => {
 
 	// Reset Passes: one-time PaymentIntent purchases on devpass orgs — no
 	// invoice, so no dedup needed. Gross like the other splits (refunds are
-	// separate `credit_refund` rows and not netted out here).
+	// separate refund rows and not netted out here).
 	const [grossResetPassRow] = await db
 		.select({
 			value:
@@ -1666,7 +1672,7 @@ admin.openapi(getTimeseries, async (c) => {
 		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
 		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
 
-	// Refunds per day (positive amount on credit_refund rows)
+	// Refunds per day (positive amount on refund rows)
 	const refundsPerDay = await db
 		.select({
 			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
@@ -1679,7 +1685,7 @@ admin.openapi(getTimeseries, async (c) => {
 		.where(
 			and(
 				eq(tables.transaction.status, "completed"),
-				eq(tables.transaction.type, "credit_refund"),
+				inArray(tables.transaction.type, [...REFUND_TX_TYPES]),
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
 			),
@@ -1722,7 +1728,7 @@ admin.openapi(getTimeseries, async (c) => {
 		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
 		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
 
-	// DevPass refunds per day: `credit_refund` rows linked back to a dev plan
+	// DevPass refunds per day: refund rows linked back to a dev plan
 	// payment via `relatedTransactionId`. Mirrors /admin/devpass/timeseries.
 	const devpassRefundOriginalTx = aliasedTable(
 		tables.transaction,
@@ -1747,7 +1753,7 @@ admin.openapi(getTimeseries, async (c) => {
 		)
 		.where(
 			and(
-				eq(tables.transaction.type, "credit_refund"),
+				inArray(tables.transaction.type, [...REFUND_TX_TYPES]),
 				eq(tables.transaction.status, "completed"),
 				eq(tables.organization.kind, "devpass"),
 				inArray(devpassRefundOriginalTx.type, [
@@ -1832,7 +1838,7 @@ admin.openapi(getTimeseries, async (c) => {
 		.where(
 			and(
 				eq(tables.transaction.status, "completed"),
-				eq(tables.transaction.type, "credit_refund"),
+				inArray(tables.transaction.type, [...REFUND_TX_TYPES]),
 				sql`${tables.transaction.createdAt} < ${startDate}`,
 			),
 		);
@@ -1885,7 +1891,7 @@ admin.openapi(getTimeseries, async (c) => {
 		)
 		.where(
 			and(
-				eq(tables.transaction.type, "credit_refund"),
+				inArray(tables.transaction.type, [...REFUND_TX_TYPES]),
 				eq(tables.transaction.status, "completed"),
 				eq(tables.organization.kind, "devpass"),
 				inArray(devpassRefundOriginalTx.type, [
@@ -14582,7 +14588,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		)
 		.where(
 			and(
-				eq(tables.transaction.type, "credit_refund"),
+				inArray(tables.transaction.type, [...REFUND_TX_TYPES]),
 				eq(tables.transaction.status, "completed"),
 				or(
 					inArray(allTimeRefundOriginalTx.type, [
@@ -15171,7 +15177,7 @@ admin.openapi(getDevpassKpis, async (c) => {
 			)
 			.where(
 				and(
-					eq(tables.transaction.type, "credit_refund"),
+					inArray(tables.transaction.type, [...REFUND_TX_TYPES]),
 					eq(tables.transaction.status, "completed"),
 					gte(tables.transaction.createdAt, monthStart),
 					eq(tables.organization.kind, "devpass"),
@@ -15220,7 +15226,7 @@ admin.openapi(getDevpassKpis, async (c) => {
 			)
 			.where(
 				and(
-					eq(tables.transaction.type, "credit_refund"),
+					inArray(tables.transaction.type, [...REFUND_TX_TYPES]),
 					eq(tables.transaction.status, "completed"),
 					eq(tables.organization.kind, "devpass"),
 					eq(resetPassRefundOriginalTx.type, "dev_plan_reset_pass"),
@@ -15445,7 +15451,7 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
 		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
 
-	// Refunds per day for DevPass transactions. `credit_refund` rows store the
+	// Refunds per day for DevPass transactions. Refund rows store the
 	// refunded amount as a positive `amount` and link back via
 	// `relatedTransactionId`. Net them out of revenue when the refunded
 	// transaction was a dev plan or (legacy + personal org) subscription row.
@@ -15469,7 +15475,7 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 		)
 		.where(
 			and(
-				eq(tables.transaction.type, "credit_refund"),
+				inArray(tables.transaction.type, [...REFUND_TX_TYPES]),
 				eq(tables.transaction.status, "completed"),
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
@@ -15533,7 +15539,7 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 		)
 		.where(
 			and(
-				eq(tables.transaction.type, "credit_refund"),
+				inArray(tables.transaction.type, [...REFUND_TX_TYPES]),
 				eq(tables.transaction.status, "completed"),
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
@@ -15771,7 +15777,7 @@ admin.openapi(getDevpassPaygStats, async (c) => {
 		)
 		.where(
 			and(
-				eq(tables.transaction.type, "credit_refund"),
+				inArray(tables.transaction.type, [...REFUND_TX_TYPES]),
 				eq(tables.transaction.status, "completed"),
 				eq(tables.organization.kind, "devpass"),
 				refundsCountedTopupFilter(tables.transaction, paygRefundOriginalTx),
@@ -16145,7 +16151,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		.where(
 			and(
 				eq(tables.transaction.organizationId, orgId),
-				eq(tables.transaction.type, "credit_refund"),
+				inArray(tables.transaction.type, [...REFUND_TX_TYPES]),
 				eq(tables.transaction.status, "completed"),
 				or(
 					inArray(detailRefundOriginalTx.type, allTimeRevenueTypes),
@@ -16277,11 +16283,12 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 					"dev_plan_reset_pass_reward",
 					// PAYG overflow top-ups are DevPass billing events too.
 					"credit_topup",
-					// Money and credits going back out. Without `credit_refund` a
+					// Money and credits going back out. Without the refund types a
 					// refunded payment reads as a charge that was never reversed —
 					// the refund exists only as a badge on the original row — and
 					// gifted or manually paid credits appear from nowhere.
 					"credit_refund",
+					"subscription_refund",
 					"credit_gift",
 					"credit_manual_payment",
 					// Legacy types — pre dev_plan_* rename, still in DB for older
@@ -17000,7 +17007,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 		)
 		.where(
 			and(
-				eq(tables.transaction.type, "credit_refund"),
+				inArray(tables.transaction.type, [...REFUND_TX_TYPES]),
 				eq(tables.transaction.status, "completed"),
 				inArray(allTimeRefundOriginalTx.type, [...CHAT_PLAN_TX_TYPES]),
 			),
@@ -17323,7 +17330,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 		)
 		.where(
 			and(
-				eq(tables.transaction.type, "credit_refund"),
+				inArray(tables.transaction.type, [...REFUND_TX_TYPES]),
 				eq(tables.transaction.status, "completed"),
 				gte(tables.transaction.createdAt, monthStart),
 				eq(tables.organization.kind, "chat"),
@@ -17563,7 +17570,7 @@ admin.openapi(getChatPlansTimeseries, async (c) => {
 		)
 		.where(
 			and(
-				eq(tables.transaction.type, "credit_refund"),
+				inArray(tables.transaction.type, [...REFUND_TX_TYPES]),
 				eq(tables.transaction.status, "completed"),
 				eq(tables.organization.kind, "chat"),
 				gte(tables.transaction.createdAt, startDate),
@@ -17971,7 +17978,7 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 		.where(
 			and(
 				eq(tables.transaction.organizationId, orgId),
-				eq(tables.transaction.type, "credit_refund"),
+				inArray(tables.transaction.type, [...REFUND_TX_TYPES]),
 				eq(tables.transaction.status, "completed"),
 				inArray(detailRefundOriginalTx.type, [...CHAT_PLAN_TX_TYPES]),
 			),

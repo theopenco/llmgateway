@@ -1425,7 +1425,7 @@ describe("handleChargeRefunded — dev plan refund tracking", () => {
 		const refund = await db.query.transaction.findFirst({
 			where: { stripeRefundId: { eq: "re_devpass_refund" } },
 		});
-		expect(refund?.type).toBe("credit_refund");
+		expect(refund?.type).toBe("subscription_refund");
 		expect(refund?.amount).toBe("79");
 		expect(refund?.relatedTransactionId).toBe(original.id);
 
@@ -1594,7 +1594,7 @@ describe("handleChargeRefunded — dev plan refund tracking", () => {
 		const refund = await db.query.transaction.findFirst({
 			where: { stripeRefundId: { eq: "re_chat_refund" } },
 		});
-		expect(refund?.type).toBe("credit_refund");
+		expect(refund?.type).toBe("subscription_refund");
 		expect(refund?.amount).toBe("20");
 		expect(refund?.relatedTransactionId).toBe(original.id);
 
@@ -1647,7 +1647,7 @@ describe("handleChargeRefunded — dev plan refund tracking", () => {
 		const refund = await db.query.transaction.findFirst({
 			where: { stripeRefundId: { eq: "re_chat_upgrade" } },
 		});
-		expect(refund?.type).toBe("credit_refund");
+		expect(refund?.type).toBe("subscription_refund");
 		expect(refund?.amount).toBe("10");
 		expect(refund?.relatedTransactionId).toBe(original.id);
 
@@ -1655,6 +1655,53 @@ describe("handleChargeRefunded — dev plan refund tracking", () => {
 			where: { id: { eq: ORG_ID } },
 		});
 		expect(org?.credits).toBe("0");
+	});
+
+	test("records a credit_topup refund as credit_refund and deducts credits", async () => {
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			stripeCustomerId: "cus_topup_refund",
+			credits: "100",
+		});
+		const [original] = await db
+			.insert(tables.transaction)
+			.values({
+				organizationId: ORG_ID,
+				type: "credit_topup",
+				amount: "50",
+				creditAmount: "50",
+				currency: "USD",
+				status: "completed",
+				stripePaymentIntentId: "pi_topup_refund",
+			})
+			.returning();
+
+		// Partial refund of half the purchase deducts half the credits.
+		stripeMock.refunds.list.mockResolvedValue({
+			data: [{ id: "re_topup_refund", amount: 2500, reason: null }],
+		});
+
+		await handleChargeRefunded(
+			makeChargeRefundedEvent({
+				paymentIntentId: "pi_topup_refund",
+				customer: "cus_topup_refund",
+			}),
+		);
+
+		const refund = await db.query.transaction.findFirst({
+			where: { stripeRefundId: { eq: "re_topup_refund" } },
+		});
+		expect(refund?.type).toBe("credit_refund");
+		expect(refund?.amount).toBe("25");
+		expect(refund?.creditAmount).toBe("-25");
+		expect(refund?.relatedTransactionId).toBe(original.id);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.credits).toBe("75");
 	});
 });
 

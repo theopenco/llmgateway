@@ -58,7 +58,7 @@ function isInvoiceable(invoice: Invoice): boolean {
 // Refunds store the returned amount as a positive `amount` (see stripe.ts);
 // they render as a negative line in the history and as a credit note PDF.
 function isRefund(type: Invoice["type"]): boolean {
-	return type === "credit_refund";
+	return type === "credit_refund" || type === "subscription_refund";
 }
 
 // Invisible stand-in that reserves the exact footprint of an action button so
@@ -308,6 +308,7 @@ const TYPE_LABELS: Record<Invoice["type"], string> = {
 	dev_plan_reset_pass_gift: "Reset Pass gift",
 	credit_topup: "Credits top-up",
 	credit_refund: "Refund",
+	subscription_refund: "Refund",
 	credit_gift: "Credits gift",
 	credit_manual_payment: "Credits added",
 };

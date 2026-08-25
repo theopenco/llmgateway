@@ -206,6 +206,33 @@ describe("computeSelfRefundEligibility", () => {
 		});
 	});
 
+	test("plan payments refunded as subscription_refund are not eligible", async () => {
+		await seedOrg({
+			devPlan: "pro",
+			devPlanStripeSubscriptionId: "sub_test_1",
+		});
+		const tx = await seedTransaction({
+			type: "dev_plan_start",
+			amount: "79",
+			creditAmount: "0",
+			stripePaymentIntentId: null,
+			stripeInvoiceId: "in_test_1",
+		});
+		await seedTransaction({
+			type: "subscription_refund",
+			amount: "79",
+			creditAmount: "0",
+			stripeRefundId: "re_test_2",
+			relatedTransactionId: tx.id,
+			stripePaymentIntentId: null,
+		});
+
+		expect(await getEligibility(tx.id)).toEqual({
+			eligible: false,
+			reason: "already_refunded",
+		});
+	});
+
 	test("non-owners are not eligible", async () => {
 		await seedOrg({ credits: "100" });
 		const tx = await seedTransaction();
@@ -522,8 +549,9 @@ describe("computeSelfRefundEligibility", () => {
 			createdAt: daysAgo(1),
 			stripePaymentIntentId: "pi_test_newer",
 		});
+		// Reset Pass refunds are recorded as subscription_refund by the webhook.
 		await seedTransaction({
-			type: "credit_refund",
+			type: "subscription_refund",
 			amount: "29",
 			creditAmount: "0",
 			stripeRefundId: "re_test_newer",

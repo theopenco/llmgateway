@@ -506,6 +506,10 @@ export const transaction = pgTable(
 				"subscription_end",
 				"credit_topup",
 				"credit_refund",
+				// Refund of a plan/subscription charge (dev plan, chat plan, legacy
+				// subscription) — recorded for revenue reporting only; never touches
+				// organization.credits, unlike credit_refund.
+				"subscription_refund",
 				"credit_gift",
 				// Credits granted by an administrator against a payment that was
 				// received outside Stripe (wire transfer, crypto, …). Unlike

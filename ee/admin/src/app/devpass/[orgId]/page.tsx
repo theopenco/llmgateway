@@ -72,7 +72,7 @@ function formatDateTime(dateString: string) {
 // stripe.ts), so the panel renders it negative to keep the column readable as
 // a ledger.
 function isRefundType(type: string) {
-	return type === "credit_refund";
+	return type === "credit_refund" || type === "subscription_refund";
 }
 
 function formatTransactionType(type: string) {

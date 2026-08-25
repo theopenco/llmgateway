@@ -120,6 +120,7 @@ const DEV_PLAN_HISTORY_TYPES = [
 	"dev_plan_reset_pass_gift",
 	"credit_topup",
 	"credit_refund",
+	"subscription_refund",
 	"credit_gift",
 	"credit_manual_payment",
 ] as const;

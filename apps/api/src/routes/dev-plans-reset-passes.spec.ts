@@ -731,7 +731,10 @@ describe("reset pass lifecycle and status", () => {
 		expect(stripeMock.subscriptions.cancel).not.toHaveBeenCalled();
 
 		const refundRows = await db.query.transaction.findMany({
-			where: { organizationId: { eq: ORG_ID }, type: { eq: "credit_refund" } },
+			where: {
+				organizationId: { eq: ORG_ID },
+				type: { eq: "subscription_refund" },
+			},
 		});
 		expect(refundRows).toHaveLength(1);
 		expect(refundRows[0].stripeRefundId).toBe("re_full");
