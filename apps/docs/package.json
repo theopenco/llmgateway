@@ -22,6 +22,7 @@
 	"dependencies": {
 		"@ai-sdk/react": "3.0.29",
 		"@llmgateway/ai-sdk-provider": "3.8.0",
+		"@llmgateway/shared": "workspace:*",
 		"@radix-ui/react-presence": "1.1.5",
 		"ai": "6.0.27",
 		"babel-plugin-react-compiler": "1.0.0",

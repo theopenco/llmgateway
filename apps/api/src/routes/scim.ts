@@ -22,7 +22,7 @@ import {
 	type AuditLogResourceType,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
+import { getApiKeyFingerprints } from "@llmgateway/shared/api-key-hash";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
 import type { Context } from "hono";
@@ -133,7 +133,7 @@ scim.use("/*", async (c, next) => {
 
 	const row = await db.query.scimToken.findFirst({
 		where: {
-			tokenHash: { eq: getApiKeyFingerprint(token) },
+			tokenHash: { in: getApiKeyFingerprints(token) },
 			status: { eq: "active" },
 		},
 		columns: {

@@ -273,6 +273,7 @@ async function computeMemberSpend(
 					usage: true,
 					status: true,
 					keyType: true,
+					kind: true,
 				},
 			})
 		: [];
@@ -289,7 +290,11 @@ async function computeMemberSpend(
 		};
 		entry.keyIds.push(key.id);
 		entry.lifetime += Number(key.usage ?? 0);
-		if (key.status === "active" && key.keyType === "user") {
+		if (
+			key.status === "active" &&
+			key.keyType === "user" &&
+			key.kind !== "playground"
+		) {
 			entry.activeApiKeys += 1;
 		}
 		keysByUser.set(key.createdBy, entry);
