@@ -1598,6 +1598,16 @@ describe("stats-calculator", () => {
 					minuteTimestamp: recentMinute,
 				}),
 			]);
+			await Promise.all([
+				db
+					.update(model)
+					.set({ status: "inactive" })
+					.where(eq(model.id, "gpt-4")),
+				db
+					.update(modelProviderMapping)
+					.set({ status: "inactive" })
+					.where(eq(modelProviderMapping.id, "mapping-1")),
+			]);
 
 			await backfillHistoryIfNeeded();
 
@@ -1633,8 +1643,48 @@ describe("stats-calculator", () => {
 						eq(modelHistory.minuteTimestamp, oldMinute),
 					),
 				);
+			const [inactiveMappingUsage] = await db
+				.select()
+				.from(modelProviderMappingUsageHistory)
+				.where(
+					and(
+						eq(
+							modelProviderMappingUsageHistory.modelProviderMappingId,
+							"mapping-1",
+						),
+						eq(modelProviderMappingUsageHistory.usedMode, "credits"),
+						eq(modelProviderMappingUsageHistory.minuteTimestamp, oldMinute),
+					),
+				);
+			const [warmMinuteUsage] = await db
+				.select()
+				.from(modelUsageHistory)
+				.where(
+					and(
+						eq(modelUsageHistory.modelId, "gpt-4"),
+						eq(modelUsageHistory.usedMode, "credits"),
+						eq(
+							modelUsageHistory.minuteTimestamp,
+							new Date("2024-01-01T12:29:00.000Z"),
+						),
+					),
+				);
+			const [archiveMinuteUsage] = await db
+				.select()
+				.from(modelUsageHistory)
+				.where(
+					and(
+						eq(modelUsageHistory.modelId, "gpt-4"),
+						eq(modelUsageHistory.usedMode, "credits"),
+						eq(modelUsageHistory.minuteTimestamp, oldMinute),
+					),
+				);
 			expect(retainedMapping?.logsCount).toBe(42);
 			expect(retainedModel?.logsCount).toBe(42);
+			expect(inactiveMappingUsage).toBeDefined();
+			expect(archiveMinuteUsage?.createdAt.getTime()).toBeGreaterThanOrEqual(
+				warmMinuteUsage?.createdAt.getTime() ?? Number.POSITIVE_INFINITY,
+			);
 		});
 
 		it("should backfill missing periods", async () => {

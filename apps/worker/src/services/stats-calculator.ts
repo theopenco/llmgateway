@@ -22,6 +22,7 @@ import {
 	type SQL,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { ROUTING_HISTORY_MAX_WINDOW_MINUTES } from "@llmgateway/shared/routing-config";
 
 import { excludeRecoveredSameProviderRegionRetry } from "./log-filters.js";
 import { calculateRoutingTelemetryForHour } from "./routing-telemetry-aggregator.js";
@@ -520,13 +521,14 @@ async function calculateModelHistoryForMinute(
 		)
 		.groupBy(usedBaseModelSql, log.usedMode);
 
-	// Get all active models to ensure we create entries for inactive ones too
-	const allModels = await database
-		.select({
-			modelId: model.id,
-		})
-		.from(model)
-		.where(eq(model.status, "active"));
+	// Upgrade backfills also reconstruct retired catalogue identities. Live
+	// minute writes stay limited to active models.
+	const allModels = preserveExistingTotalHistory
+		? await database.select({ modelId: model.id }).from(model)
+		: await database
+				.select({ modelId: model.id })
+				.from(model)
+				.where(eq(model.status, "active"));
 
 	// Create a map of models that had logs
 	const activeModelsMap = new Map<string, (typeof modelStats)[0]>();
@@ -853,16 +855,20 @@ async function calculateHistoryForMinute(
 		)
 		.groupBy(usedBaseModelSql, log.usedProvider, usedRegionSql, log.usedMode);
 
-	// Get all active model-provider mappings to ensure we create entries for inactive ones too
-	const allMappings = await database
-		.select({
-			id: modelProviderMapping.id, // The mapping ID
-			modelId: modelProviderMapping.modelId, // LLMGateway model name
-			providerId: modelProviderMapping.providerId,
-			region: modelProviderMapping.region,
-		})
-		.from(modelProviderMapping)
-		.where(eq(modelProviderMapping.status, "active"));
+	const mappingSelection = {
+		id: modelProviderMapping.id,
+		modelId: modelProviderMapping.modelId,
+		providerId: modelProviderMapping.providerId,
+		region: modelProviderMapping.region,
+	};
+	// As with models, retired mappings are needed only while reconstructing
+	// retained history during an upgrade.
+	const allMappings = preserveExistingTotalHistory
+		? await database.select(mappingSelection).from(modelProviderMapping)
+		: await database
+				.select(mappingSelection)
+				.from(modelProviderMapping)
+				.where(eq(modelProviderMapping.status, "active"));
 
 	// Create a map of active mappings that had logs
 	const activeMappingsMap = new Map<string, MappingMinuteStats>();
@@ -1131,6 +1137,7 @@ export async function backfillHistoryIfNeeded() {
 		] = await Promise.all([
 			database
 				.select({
+					minutes: sql<number>`count(distinct ${modelProviderMappingHistory.minuteTimestamp})::int`,
 					earliest:
 						sql`min(${modelProviderMappingHistory.minuteTimestamp})`.mapWith(
 							modelProviderMappingHistory.minuteTimestamp,
@@ -1143,6 +1150,7 @@ export async function backfillHistoryIfNeeded() {
 				.from(modelProviderMappingHistory),
 			database
 				.select({
+					minutes: sql<number>`count(distinct ${modelHistory.minuteTimestamp})::int`,
 					earliest: sql`min(${modelHistory.minuteTimestamp})`.mapWith(
 						modelHistory.minuteTimestamp,
 					),
@@ -1153,6 +1161,7 @@ export async function backfillHistoryIfNeeded() {
 				.from(modelHistory),
 			database
 				.select({
+					minutes: sql<number>`count(distinct ${modelProviderMappingUsageHistory.minuteTimestamp})::int`,
 					earliest:
 						sql`min(${modelProviderMappingUsageHistory.minuteTimestamp})`.mapWith(
 							modelProviderMappingUsageHistory.minuteTimestamp,
@@ -1166,6 +1175,7 @@ export async function backfillHistoryIfNeeded() {
 				.where(eq(modelProviderMappingUsageHistory.usedMode, "credits")),
 			database
 				.select({
+					minutes: sql<number>`count(distinct ${modelUsageHistory.minuteTimestamp})::int`,
 					earliest: sql`min(${modelUsageHistory.minuteTimestamp})`.mapWith(
 						modelUsageHistory.minuteTimestamp,
 					),
@@ -1185,24 +1195,28 @@ export async function backfillHistoryIfNeeded() {
 		];
 		const usageHistoryRanges = [
 			{
-				legacy: mappingHistoryRange[0]?.earliest,
-				usage: mappingUsageHistoryRange[0]?.earliest,
+				legacy: mappingHistoryRange[0],
+				usage: mappingUsageHistoryRange[0],
 			},
 			{
-				legacy: modelHistoryRange[0]?.earliest,
-				usage: modelUsageHistoryRange[0]?.earliest,
+				legacy: modelHistoryRange[0],
+				usage: modelUsageHistoryRange[0],
 			},
 		];
 		const usageHistoryIncomplete = usageHistoryRanges.some(
 			({ legacy, usage }) => {
-				if (!legacy) {
+				if (!legacy?.earliest) {
 					return false;
 				}
-				return !usage || usage > legacy;
+				return (
+					!usage?.earliest ||
+					usage.earliest > legacy.earliest ||
+					usage.minutes < legacy.minutes
+				);
 			},
 		);
 		const usageBackfillStarts = usageHistoryRanges
-			.map(({ legacy }) => legacy)
+			.map(({ legacy }) => legacy?.earliest)
 			.filter(
 				(minute): minute is Date => minute !== null && minute !== undefined,
 			);
@@ -1240,46 +1254,47 @@ export async function backfillHistoryIfNeeded() {
 				`History tables are empty or incomplete. Starting backfill from ${backfillStartRounded.toISOString()} to ${previousMinute.toISOString()}`,
 			);
 
-			let minute = new Date(backfillStartRounded);
-			let iterationCount = 0;
-			const maxIterations =
-				Math.floor(
-					(previousMinute.getTime() - backfillStartRounded.getTime()) /
-						ONE_MINUTE_MS,
-				) + 1;
-
-			while (minute <= previousMinute && iterationCount < maxIterations) {
-				const mappingResult = await calculateHistoryForMinute(
-					minute,
-					usageHistoryIncomplete,
-				);
-				const modelResult = await calculateModelHistoryForMinute(
-					minute,
-					usageHistoryIncomplete,
-				);
-				logger.info(
-					`Backfilled ${mappingResult.totalMappings} mappings and ${modelResult.totalModels} models for ${minute.toISOString()}`,
-				);
-
-				const nextMinute = roundToMinuteStart(
-					new Date(minute.getTime() + ONE_MINUTE_MS),
-				);
-
-				// Safety check to prevent infinite loops
-				if (nextMinute.getTime() <= minute.getTime()) {
-					logger.error(
-						`Loop safety break: Time calculation error at ${minute.toISOString()}`,
+			const backfillRange = async (rangeStart: Date, rangeEnd: Date) => {
+				let minute = new Date(rangeStart);
+				while (minute <= rangeEnd) {
+					const mappingResult = await calculateHistoryForMinute(
+						minute,
+						usageHistoryIncomplete,
 					);
-					break;
+					const modelResult = await calculateModelHistoryForMinute(
+						minute,
+						usageHistoryIncomplete,
+					);
+					logger.info(
+						`Backfilled ${mappingResult.totalMappings} mappings and ${modelResult.totalModels} models for ${minute.toISOString()}`,
+					);
+
+					const nextMinute = roundToMinuteStart(
+						new Date(minute.getTime() + ONE_MINUTE_MS),
+					);
+					if (nextMinute.getTime() <= minute.getTime()) {
+						throw new Error(
+							`Backfill time calculation failed at ${minute.toISOString()}`,
+						);
+					}
+					minute = nextMinute;
 				}
+			};
 
-				minute = nextMinute;
-				iterationCount++;
-			}
+			const routingWindowOffsetMinutes = ROUTING_HISTORY_MAX_WINDOW_MINUTES - 1;
+			const routingWindowOffsetMs = routingWindowOffsetMinutes * ONE_MINUTE_MS;
+			const routingWindowStart = new Date(
+				previousMinute.getTime() - routingWindowOffsetMs,
+			);
+			const warmStart = new Date(
+				Math.max(backfillStartRounded.getTime(), routingWindowStart.getTime()),
+			);
+			await backfillRange(warmStart, previousMinute);
 
-			if (minute <= previousMinute && iterationCount >= maxIterations) {
-				logger.warn(
-					`Backfill stopped at iteration limit ${maxIterations} to prevent infinite loop`,
+			if (backfillStartRounded < warmStart) {
+				await backfillRange(
+					backfillStartRounded,
+					new Date(warmStart.getTime() - ONE_MINUTE_MS),
 				);
 			}
 			return;
