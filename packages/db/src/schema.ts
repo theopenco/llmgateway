@@ -4341,10 +4341,11 @@ export const providerCompanyMember = pgTable(
 	],
 );
 
-// A verified claim of a catalogue provider id by a provider company. Claims
-// are granted only when the claimer's verified email domain matches the
-// provider's API endpoint (or website) registrable domain, so `providerId`
-// deliberately has no FK — the catalogue is code-defined in packages/models.
+// A claim of a catalogue provider id by a provider company. Claims can only
+// be filed when the claimer's verified email domain matches the provider's
+// API endpoint (or website) registrable domain, and only become operational
+// once an admin approves them. `providerId` deliberately has no FK — the
+// catalogue is code-defined in packages/models.
 export const providerClaim = pgTable(
 	"provider_claim",
 	{
@@ -4361,17 +4362,22 @@ export const providerClaim = pgTable(
 		// The registrable email domain that satisfied the match, lowercase.
 		matchedDomain: text().notNull(),
 		claimedBy: text().references(() => user.id, { onDelete: "set null" }),
-		status: text({ enum: ["active", "revoked"] })
+		status: text({ enum: ["pending", "active", "rejected", "revoked"] })
 			.notNull()
-			.default("active"),
+			.default("pending"),
+		reviewedBy: text(),
+		reviewNote: text(),
+		reviewedAt: timestamp(),
 		revokedAt: timestamp(),
 	},
 	(table) => [
-		// Only one live claim per catalogue provider; revoking frees it up.
+		// Only one live claim (pending or approved) per catalogue provider;
+		// rejecting or revoking frees it up.
 		uniqueIndex("provider_claim_active_provider_uidx")
 			.on(table.providerId)
-			.where(sql`status = 'active'`),
+			.where(sql`status IN ('pending', 'active')`),
 		index("provider_claim_company_idx").on(table.providerCompanyId),
+		index("provider_claim_status_idx").on(table.status),
 	],
 );
 

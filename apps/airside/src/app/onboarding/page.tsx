@@ -1,13 +1,20 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { BadgeCheck, Building2, Loader2, PlaneTakeoff } from "lucide-react";
+import {
+	BadgeCheck,
+	Building2,
+	Hourglass,
+	Loader2,
+	PlaneTakeoff,
+} from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 
 import { EmailVerificationBanner } from "@/components/EmailVerificationBanner";
 import { Logo } from "@/components/Logo";
+import { SlackCard } from "@/components/SlackCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,7 +61,9 @@ export default function OnboardingPage() {
 					queryKey: api.queryOptions("get", "/airside/claimable", {}).queryKey,
 				}),
 			]);
-			toast.success("Carrier claimed — welcome airside.");
+			toast.success(
+				"Claim filed — we review every new carrier before it goes live.",
+			);
 		},
 		onError: (error) => {
 			toast.error(
@@ -181,7 +190,7 @@ export default function OnboardingPage() {
 								<p className="text-muted-foreground text-sm">
 									Providers whose endpoint domain matches{" "}
 									<span className="font-mono">@{user.email.split("@")[1]}</span>
-									.
+									. Claims are reviewed by our team before going live.
 								</p>
 							</div>
 						</div>
@@ -205,11 +214,16 @@ export default function OnboardingPage() {
 												{p.providerId} · matched {p.matchedDomain}
 											</div>
 										</div>
-										{p.claimedByMyCompany ? (
+										{p.claimedByMyCompany && p.myClaimStatus === "active" ? (
 											<Badge variant="success">
 												<BadgeCheck className="size-3" /> Claimed
 											</Badge>
-										) : p.claimed ? (
+										) : p.claimedByMyCompany &&
+										  p.myClaimStatus === "pending" ? (
+											<Badge variant="pending">
+												<Hourglass className="size-3" /> Under review
+											</Badge>
+										) : p.claimed && !p.claimedByMyCompany ? (
 											<Badge variant="secondary">Claimed by another team</Badge>
 										) : (
 											<Button
@@ -239,6 +253,8 @@ export default function OnboardingPage() {
 							</ul>
 						)}
 					</section>
+
+					<SlackCard />
 
 					<div className="flex justify-end">
 						<Button

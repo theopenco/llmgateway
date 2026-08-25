@@ -42,7 +42,20 @@ async function claimProvider(
 		json(cookie, { providerCompanyId, providerId }),
 	);
 	expect(res.status).toBe(201);
-	return (await res.json()).claim as { id: string; providerId: string };
+	return (await res.json()).claim as {
+		id: string;
+		providerId: string;
+		status: string;
+	};
+}
+
+// Fast-path activation for tests that aren't about the review flow itself —
+// the admin approval endpoints get their own lifecycle test below.
+async function activateClaim(providerId = "mistral") {
+	await db
+		.update(tables.providerClaim)
+		.set({ status: "active" })
+		.where(eq(tables.providerClaim.providerId, providerId));
 }
 
 async function createModel(
@@ -133,6 +146,7 @@ describe("airside provider portal", () => {
 				providerId: "mistral",
 				claimed: false,
 				claimedByMyCompany: false,
+				myClaimStatus: null,
 			}),
 		]);
 	});
@@ -149,8 +163,11 @@ describe("airside provider portal", () => {
 
 		const claim = await claimProvider(cookie, company.id);
 		expect(claim.providerId).toBe("mistral");
+		// Claims land pending: carriers only go live once we approve them.
+		expect(claim.status).toBe("pending");
 
-		// A company can hold several providers, but a provider only one claim.
+		// A company can hold several providers, but a provider only one live
+		// claim — even while the first one is still under review.
 		const secondCompany = await createCompany(cookie, "Mistral EU");
 		const duplicate = await app.request(
 			"/airside/claims",
@@ -161,20 +178,93 @@ describe("airside provider portal", () => {
 		);
 		expect(duplicate.status).toBe(409);
 
-		// The claim shows up on /claimable as owned by one of my companies.
+		// The claim shows up on /claimable as under review by my company.
 		const claimable = await app.request("/airside/claimable", {
 			headers: { Cookie: cookie },
 		});
 		expect((await claimable.json()).providers[0]).toMatchObject({
 			claimed: true,
 			claimedByMyCompany: true,
+			myClaimStatus: "pending",
 		});
+	});
+
+	it("blocks model listing until the claim is approved", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		const res = await createModel(cookie, company.id);
+		expect(res.status).toBe(403);
+		expect((await res.json()).message).toContain("under review");
+
+		await activateClaim();
+		const approved = await createModel(cookie, company.id);
+		expect(approved.status).toBe(201);
+	});
+
+	it("runs the claim review lifecycle through the admin queue", async () => {
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		const claim = await claimProvider(cookie, company.id);
+
+		const queue = await app.request("/admin/airside/claims?status=pending", {
+			headers: { Cookie: cookie },
+		});
+		expect(queue.status).toBe(200);
+		const queueBody = await queue.json();
+		expect(queueBody.pendingCount).toBe(1);
+		expect(queueBody.claims[0]).toMatchObject({
+			id: claim.id,
+			providerId: "mistral",
+			matchedDomain: "mistral.ai",
+			claimedByEmail: "ops@mistral.ai",
+			company: expect.objectContaining({ name: "Mistral Ops" }),
+		});
+
+		// Reject → the provider becomes claimable again.
+		const rejected = await app.request(
+			`/admin/airside/claims/${claim.id}/reject`,
+			json(cookie, { reviewNote: "Cannot verify the company" }),
+		);
+		expect(rejected.status).toBe(200);
+		expect((await rejected.json()).claim.status).toBe("rejected");
+
+		const reclaimable = await app.request("/airside/claimable", {
+			headers: { Cookie: cookie },
+		});
+		expect((await reclaimable.json()).providers[0]).toMatchObject({
+			claimed: false,
+			myClaimStatus: null,
+		});
+
+		// Re-claim and approve → active, with routing settings provisioned.
+		const secondClaim = await claimProvider(cookie, company.id);
+		const approved = await app.request(
+			`/admin/airside/claims/${secondClaim.id}/approve`,
+			json(cookie),
+		);
+		expect(approved.status).toBe(200);
+		expect((await approved.json()).claim.status).toBe("active");
+
+		// Re-review of the same claim conflicts.
+		const again = await app.request(
+			`/admin/airside/claims/${secondClaim.id}/approve`,
+			json(cookie),
+		);
+		expect(again.status).toBe(409);
+
+		const settings = await db.query.providerRoutingSettings.findFirst({
+			where: { providerId: { eq: "mistral" } },
+		});
+		expect(settings).toBeTruthy();
 	});
 
 	it("drafts a model with an initial price filing and blocks price edits", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		await claimProvider(cookie, company.id);
+		await activateClaim();
 
 		const created = await createModel(cookie, company.id);
 		expect(created.status).toBe(201);
@@ -243,6 +333,7 @@ describe("airside provider portal", () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		await claimProvider(cookie, company.id);
+		await activateClaim();
 		const created = await createModel(cookie, company.id);
 		const { model } = await created.json();
 		const filingId = model.pendingFiling.id as string;
@@ -330,6 +421,7 @@ describe("airside provider portal", () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		await claimProvider(cookie, company.id);
+		await activateClaim();
 
 		const hour = new Date();
 		hour.setMinutes(0, 0, 0);
@@ -387,6 +479,7 @@ describe("airside provider portal", () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		await claimProvider(cookie, company.id);
+		await activateClaim();
 
 		const defaults = await app.request(
 			`/airside/routing-settings?providerCompanyId=${company.id}`,

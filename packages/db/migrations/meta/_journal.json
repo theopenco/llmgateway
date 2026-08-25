@@ -1702,6 +1702,13 @@
       "when": 1787672031082,
       "tag": "1787672031_solid_lord_tyger",
       "breakpoints": true
+    },
+    {
+      "idx": 243,
+      "version": "8",
+      "when": 1787678951966,
+      "tag": "1787678951_dark_juggernaut",
+      "breakpoints": true
     }
   ]
 }

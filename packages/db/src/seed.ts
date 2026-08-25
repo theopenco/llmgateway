@@ -2943,6 +2943,47 @@ async function seedAirside() {
 		matchedDomain: "mistral.ai",
 		claimedBy: "airside-user-mistral",
 		status: "active",
+		reviewedBy: "test-user-id",
+		reviewedAt: daysAgo(20),
+	});
+
+	// A second carrier whose claim is still pending review, so the admin
+	// claims queue has content. Login: ops@moonshot.ai / ops@moonshot.ai.
+	await upsert(tables.user, {
+		id: "airside-user-moonshot",
+		name: "Moonshot Ops",
+		email: "ops@moonshot.ai",
+		emailVerified: true,
+	});
+
+	await upsert(tables.account, {
+		id: "airside-account-moonshot",
+		providerId: "credential",
+		accountId: "airside-account-moonshot",
+		password: await hashPassword("ops@moonshot.ai"),
+		userId: "airside-user-moonshot",
+	});
+
+	await upsert(tables.providerCompany, {
+		id: "airside-company-moonshot",
+		name: "Moonshot AI",
+		website: "https://moonshot.ai",
+	});
+
+	await upsert(tables.providerCompanyMember, {
+		id: "airside-member-moonshot",
+		providerCompanyId: "airside-company-moonshot",
+		userId: "airside-user-moonshot",
+		role: "owner",
+	});
+
+	await upsert(tables.providerClaim, {
+		id: "airside-claim-moonshot",
+		providerCompanyId: "airside-company-moonshot",
+		providerId: "moonshot",
+		matchedDomain: "moonshot.ai",
+		claimedBy: "airside-user-moonshot",
+		status: "pending",
 	});
 
 	// Accepting a lower margin plus a small discount → routing boost.

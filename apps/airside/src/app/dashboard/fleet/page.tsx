@@ -129,7 +129,12 @@ export default function FleetPage() {
 	}
 
 	const models = modelsQuery.data?.models ?? [];
-	const providerIds = company.claims.map((claim) => claim.providerId);
+	const providerIds = company.claims
+		.filter((claim) => claim.status === "active")
+		.map((claim) => claim.providerId);
+	const hasPendingClaim = company.claims.some(
+		(claim) => claim.status === "pending",
+	);
 
 	return (
 		<div className="space-y-6" data-testid="fleet-page">
@@ -158,11 +163,17 @@ export default function FleetPage() {
 
 			{providerIds.length === 0 ? (
 				<p className="text-muted-foreground text-sm">
-					Claim a carrier before registering models —{" "}
-					<Link href="/onboarding" className="text-primary hover:underline">
-						claim yours
-					</Link>
-					.
+					{hasPendingClaim ? (
+						"Your carrier claim is under review — you can register models as soon as it is approved."
+					) : (
+						<>
+							Claim a carrier before registering models —{" "}
+							<Link href="/onboarding" className="text-primary hover:underline">
+								claim yours
+							</Link>
+							.
+						</>
+					)}
 				</p>
 			) : null}
 

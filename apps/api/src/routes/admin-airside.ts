@@ -274,6 +274,213 @@ adminAirside.openapi(rejectFiling, async (c) => {
 	});
 });
 
+// ---------------------------------------------------------------------------
+// Carrier claims — new carriers only go live once approved here.
+// ---------------------------------------------------------------------------
+
+const adminClaimSchema = z.object({
+	id: z.string(),
+	providerId: z.string(),
+	matchedDomain: z.string(),
+	status: z.enum(["pending", "active", "rejected", "revoked"]),
+	claimedByEmail: z.string().nullable(),
+	reviewNote: z.string().nullable(),
+	reviewedAt: z.string().nullable(),
+	createdAt: z.string(),
+	company: z.object({
+		id: z.string(),
+		name: z.string(),
+		website: z.string().nullable(),
+	}),
+});
+
+type ClaimWithRelations = typeof tables.providerClaim.$inferSelect & {
+	providerCompany: typeof tables.providerCompany.$inferSelect;
+};
+
+async function serializeAdminClaim(row: ClaimWithRelations) {
+	const claimer = row.claimedBy
+		? await db.query.user.findFirst({
+				where: { id: { eq: row.claimedBy } },
+				columns: { email: true },
+			})
+		: null;
+	return {
+		id: row.id,
+		providerId: row.providerId,
+		matchedDomain: row.matchedDomain,
+		status: row.status,
+		claimedByEmail: claimer?.email ?? null,
+		reviewNote: row.reviewNote,
+		reviewedAt: row.reviewedAt ? row.reviewedAt.toISOString() : null,
+		createdAt: row.createdAt.toISOString(),
+		company: {
+			id: row.providerCompany.id,
+			name: row.providerCompany.name,
+			website: row.providerCompany.website,
+		},
+	};
+}
+
+const listClaims = createRoute({
+	method: "get",
+	path: "/airside/claims",
+	request: {
+		query: z.object({
+			status: z.enum(["pending", "active", "rejected", "revoked"]).optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						claims: z.array(adminClaimSchema),
+						pendingCount: z.number(),
+					}),
+				},
+			},
+			description: "Carrier claims, oldest pending first.",
+		},
+	},
+});
+
+adminAirside.openapi(listClaims, async (c) => {
+	const query = c.req.valid("query");
+	const rows = await db.query.providerClaim.findMany({
+		where: query.status ? { status: { eq: query.status } } : undefined,
+		with: { providerCompany: true },
+		orderBy: { createdAt: "asc" },
+		limit: 100,
+	});
+	const pending = await db.query.providerClaim.findMany({
+		where: { status: { eq: "pending" } },
+		columns: { id: true },
+	});
+	const claims = [];
+	for (const row of rows) {
+		claims.push(await serializeAdminClaim(row as ClaimWithRelations));
+	}
+	return c.json({ claims, pendingCount: pending.length });
+});
+
+async function getPendingClaim(id: string) {
+	const claim = await db.query.providerClaim.findFirst({
+		where: { id: { eq: id } },
+		with: { providerCompany: true },
+	});
+	if (!claim) {
+		throw new HTTPException(404, { message: "Claim not found" });
+	}
+	if (claim.status !== "pending") {
+		throw new HTTPException(409, {
+			message: "This claim has already been reviewed.",
+		});
+	}
+	return claim as ClaimWithRelations;
+}
+
+const approveClaim = createRoute({
+	method: "post",
+	path: "/airside/claims/{id}/approve",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ claim: adminClaimSchema }),
+				},
+			},
+			description:
+				"The approved claim. The carrier becomes operational immediately.",
+		},
+	},
+});
+
+adminAirside.openapi(approveClaim, async (c) => {
+	const user = c.get("user");
+	const { id } = c.req.valid("param");
+	const claim = await getPendingClaim(id);
+	await db.transaction(async (tx) => {
+		await tx
+			.update(tables.providerClaim)
+			.set({
+				status: "active",
+				reviewedBy: user?.id ?? null,
+				reviewedAt: new Date(),
+			})
+			.where(eq(tables.providerClaim.id, id));
+		const settings = await tx.query.providerRoutingSettings.findFirst({
+			where: { providerId: { eq: claim.providerId } },
+		});
+		if (!settings) {
+			await tx.insert(tables.providerRoutingSettings).values({
+				providerCompanyId: claim.providerCompanyId,
+				providerId: claim.providerId,
+			});
+		}
+	});
+	const updated = await db.query.providerClaim.findFirst({
+		where: { id: { eq: id } },
+		with: { providerCompany: true },
+	});
+	return c.json({
+		claim: await serializeAdminClaim(updated as ClaimWithRelations),
+	});
+});
+
+const rejectClaim = createRoute({
+	method: "post",
+	path: "/airside/claims/{id}/reject",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						reviewNote: z.string().max(1000).optional(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ claim: adminClaimSchema }),
+				},
+			},
+			description: "The rejected claim. The provider becomes claimable again.",
+		},
+	},
+});
+
+adminAirside.openapi(rejectClaim, async (c) => {
+	const user = c.get("user");
+	const { id } = c.req.valid("param");
+	const { reviewNote } = c.req.valid("json");
+	await getPendingClaim(id);
+	await db
+		.update(tables.providerClaim)
+		.set({
+			status: "rejected",
+			reviewedBy: user?.id ?? null,
+			reviewNote: reviewNote ?? null,
+			reviewedAt: new Date(),
+		})
+		.where(eq(tables.providerClaim.id, id));
+	const updated = await db.query.providerClaim.findFirst({
+		where: { id: { eq: id } },
+		with: { providerCompany: true },
+	});
+	return c.json({
+		claim: await serializeAdminClaim(updated as ClaimWithRelations),
+	});
+});
+
 const listCompanies = createRoute({
 	method: "get",
 	path: "/airside/companies",
@@ -298,7 +505,12 @@ const listCompanies = createRoute({
 									z.object({
 										providerId: z.string(),
 										matchedDomain: z.string(),
-										status: z.enum(["active", "revoked"]),
+										status: z.enum([
+											"pending",
+											"active",
+											"rejected",
+											"revoked",
+										]),
 									}),
 								),
 								modelCount: z.number(),

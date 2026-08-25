@@ -60,7 +60,10 @@ export function AirsideFilingsClient() {
 	const $api = useApi();
 	const queryClient = useQueryClient();
 	const [status, setStatus] = useState<FilingStatus | "all">("pending");
-	const [rejecting, setRejecting] = useState<string | null>(null);
+	const [rejecting, setRejecting] = useState<{
+		kind: "filing" | "claim";
+		id: string;
+	} | null>(null);
 	const [rejectNote, setRejectNote] = useState("");
 
 	const query = $api.useQuery("get", "/admin/airside/filings", {
@@ -68,12 +71,15 @@ export function AirsideFilingsClient() {
 			query: status === "all" ? {} : { status },
 		},
 	});
+	const claimsQuery = $api.useQuery("get", "/admin/airside/claims", {
+		params: { query: { status: "pending" } },
+	});
 
 	const invalidate = () => {
 		void queryClient.invalidateQueries({
 			predicate: (q) =>
 				Array.isArray(q.queryKey) &&
-				JSON.stringify(q.queryKey).includes("/admin/airside/filings"),
+				JSON.stringify(q.queryKey).includes("/admin/airside/"),
 		});
 	};
 
@@ -107,16 +113,50 @@ export function AirsideFilingsClient() {
 		},
 	);
 
+	const approveClaimMutation = $api.useMutation(
+		"post",
+		"/admin/airside/claims/{id}/approve",
+		{
+			onSuccess: () => {
+				toast.success("Carrier claim approved.");
+				invalidate();
+			},
+			onError: (error) => {
+				toast.error(apiErrorMessage(error, "The review action failed"));
+			},
+		},
+	);
+
+	const rejectClaimMutation = $api.useMutation(
+		"post",
+		"/admin/airside/claims/{id}/reject",
+		{
+			onSuccess: () => {
+				toast.success("Carrier claim rejected.");
+				setRejecting(null);
+				setRejectNote("");
+				invalidate();
+			},
+			onError: (error) => {
+				toast.error(apiErrorMessage(error, "The review action failed"));
+			},
+		},
+	);
+
 	const filings = query.data?.filings ?? [];
+	const pendingClaims = claimsQuery.data?.claims ?? [];
 
 	return (
 		<div className="space-y-6 p-6">
 			<div className="flex flex-wrap items-center justify-between gap-3">
 				<div>
-					<h1 className="text-2xl font-bold">Airside filings</h1>
+					<h1 className="text-2xl font-bold">Airside review</h1>
 					<p className="text-muted-foreground text-sm">
-						Provider model listings and price changes awaiting review.
-						{query.data ? ` ${query.data.pendingCount} pending.` : ""}
+						Carrier claims, model listings and price changes awaiting review.
+						{query.data ? ` ${query.data.pendingCount} filings pending.` : ""}
+						{claimsQuery.data
+							? ` ${claimsQuery.data.pendingCount} claims pending.`
+							: ""}
 					</p>
 				</div>
 				<div className="flex gap-1">
@@ -132,6 +172,89 @@ export function AirsideFilingsClient() {
 					))}
 				</div>
 			</div>
+
+			<Card>
+				<CardHeader>
+					<CardTitle>Carrier claims</CardTitle>
+					<CardDescription>
+						New carriers only go live once their claim is approved. Their email
+						domain already matched the provider's endpoint domain.
+					</CardDescription>
+				</CardHeader>
+				<CardContent>
+					{pendingClaims.length === 0 ? (
+						<p className="text-muted-foreground py-4 text-center text-sm">
+							No carriers awaiting review.
+						</p>
+					) : (
+						<Table>
+							<TableHeader>
+								<TableRow>
+									<TableHead>Company</TableHead>
+									<TableHead>Provider</TableHead>
+									<TableHead>Matched domain</TableHead>
+									<TableHead>Requested by</TableHead>
+									<TableHead>Filed</TableHead>
+									<TableHead className="text-right">Actions</TableHead>
+								</TableRow>
+							</TableHeader>
+							<TableBody>
+								{pendingClaims.map((claim) => (
+									<TableRow key={claim.id} data-testid={`claim-${claim.id}`}>
+										<TableCell>
+											<div className="font-medium">{claim.company.name}</div>
+											{claim.company.website ? (
+												<div className="text-muted-foreground text-xs">
+													{claim.company.website}
+												</div>
+											) : null}
+										</TableCell>
+										<TableCell className="font-mono text-sm">
+											{claim.providerId}
+										</TableCell>
+										<TableCell className="font-mono text-xs">
+											{claim.matchedDomain}
+										</TableCell>
+										<TableCell className="text-muted-foreground text-xs">
+											{claim.claimedByEmail ?? "—"}
+										</TableCell>
+										<TableCell className="text-muted-foreground text-xs">
+											{new Date(claim.createdAt).toLocaleDateString()}
+										</TableCell>
+										<TableCell className="text-right">
+											<div className="flex justify-end gap-1">
+												<Button
+													size="sm"
+													disabled={approveClaimMutation.isPending}
+													data-testid={`approve-claim-${claim.providerId}`}
+													onClick={() =>
+														approveClaimMutation.mutate({
+															params: { path: { id: claim.id } },
+														})
+													}
+												>
+													<Check className="size-3.5" /> Approve
+												</Button>
+												<Button
+													size="sm"
+													variant="destructive"
+													disabled={rejectClaimMutation.isPending}
+													data-testid={`reject-claim-${claim.providerId}`}
+													onClick={() =>
+														setRejecting({ kind: "claim", id: claim.id })
+													}
+												>
+													<X className="size-3.5" /> Reject
+												</Button>
+											</div>
+										</TableCell>
+									</TableRow>
+								))}
+							</TableBody>
+						</Table>
+					)}
+				</CardContent>
+			</Card>
 
 			<Card>
 				<CardHeader>
@@ -226,7 +349,9 @@ export function AirsideFilingsClient() {
 														variant="destructive"
 														disabled={rejectMutation.isPending}
 														data-testid={`reject-${filing.id}`}
-														onClick={() => setRejecting(filing.id)}
+														onClick={() =>
+															setRejecting({ kind: "filing", id: filing.id })
+														}
 													>
 														<X className="size-3.5" /> Reject
 													</Button>
@@ -257,9 +382,13 @@ export function AirsideFilingsClient() {
 			>
 				<DialogContent>
 					<DialogHeader>
-						<DialogTitle>Reject filing</DialogTitle>
+						<DialogTitle>
+							{rejecting?.kind === "claim" ? "Reject claim" : "Reject filing"}
+						</DialogTitle>
 						<DialogDescription>
-							The note is shown to the provider in their filing history.
+							{rejecting?.kind === "claim"
+								? "The provider becomes claimable again; the note is shown to the company."
+								: "The note is shown to the provider in their filing history."}
 						</DialogDescription>
 					</DialogHeader>
 					<Input
@@ -270,17 +399,29 @@ export function AirsideFilingsClient() {
 					<DialogFooter>
 						<Button
 							variant="destructive"
-							disabled={rejectMutation.isPending}
+							disabled={
+								rejectMutation.isPending || rejectClaimMutation.isPending
+							}
 							onClick={() => {
-								if (rejecting) {
-									rejectMutation.mutate({
-										params: { path: { id: rejecting } },
-										body: rejectNote ? { reviewNote: rejectNote } : {},
-									});
+								if (!rejecting) {
+									return;
+								}
+								const args = {
+									params: { path: { id: rejecting.id } },
+									body: rejectNote ? { reviewNote: rejectNote } : {},
+								};
+								if (rejecting.kind === "claim") {
+									rejectClaimMutation.mutate(args);
+								} else {
+									rejectMutation.mutate(args);
 								}
 							}}
 						>
-							{rejectMutation.isPending ? "Rejecting…" : "Reject filing"}
+							{rejectMutation.isPending || rejectClaimMutation.isPending
+								? "Rejecting…"
+								: rejecting?.kind === "claim"
+									? "Reject claim"
+									: "Reject filing"}
 						</Button>
 					</DialogFooter>
 				</DialogContent>

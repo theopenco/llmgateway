@@ -11,6 +11,7 @@ import Link from "next/link";
 
 import { useCompany } from "@/components/dashboard/company-context";
 import { TrafficChart } from "@/components/dashboard/TrafficChart";
+import { SlackCard } from "@/components/SlackCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -117,13 +118,29 @@ export default function OperationsPage() {
 				</div>
 				<div className="flex flex-wrap gap-2">
 					{company.claims.map((claim) => (
-						<Badge key={claim.id} variant="outline">
+						<Badge
+							key={claim.id}
+							variant={claim.status === "active" ? "outline" : "pending"}
+						>
 							<PlaneTakeoff className="size-3" />
 							{claim.providerName}
+							{claim.status === "pending" ? " · under review" : ""}
 						</Badge>
 					))}
 				</div>
 			</div>
+
+			{company.claims.length > 0 &&
+			company.claims.every((claim) => claim.status !== "active") ? (
+				<div
+					className="border-primary/40 bg-primary/10 rounded-lg border px-4 py-3 text-sm"
+					data-testid="claim-review-notice"
+				>
+					Your carrier claim is with the regulator — we approve every new
+					carrier before it goes live. We&apos;ll ping you in the shared Slack
+					channel once you&apos;re cleared.
+				</div>
+			) : null}
 
 			<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 				<StatCard
@@ -239,6 +256,8 @@ export default function OperationsPage() {
 					</CardContent>
 				</Card>
 			</div>
+
+			<SlackCard />
 		</div>
 	);
 }

@@ -47,7 +47,7 @@ const claimSchema = z.object({
 	providerId: z.string(),
 	providerName: z.string(),
 	matchedDomain: z.string(),
-	status: z.enum(["active", "revoked"]),
+	status: z.enum(["pending", "active", "rejected", "revoked"]),
 	createdAt: z.string(),
 });
 
@@ -323,7 +323,10 @@ airside.openapi(listCompanies, async (c) => {
 					role: m.role,
 					createdAt: company.createdAt.toISOString(),
 					claims: company.claims
-						.filter((claim) => claim.status === "active")
+						.filter(
+							(claim) =>
+								claim.status === "active" || claim.status === "pending",
+						)
 						.map((claim) => serializeClaim(claim, providerNames)),
 				},
 			];
@@ -409,6 +412,9 @@ const listClaimable = createRoute({
 								matchedDomain: z.string(),
 								claimed: z.boolean(),
 								claimedByMyCompany: z.boolean(),
+								myClaimStatus: z
+									.enum(["pending", "active", "rejected", "revoked"])
+									.nullable(),
 							}),
 						),
 					}),
@@ -430,7 +436,7 @@ airside.openapi(listClaimable, async (c) => {
 		? await db.query.providerClaim.findMany({
 				where: {
 					providerId: { in: matches.map((m) => m.providerId) },
-					status: { eq: "active" },
+					status: { in: ["pending", "active"] },
 				},
 			})
 		: [];
@@ -444,14 +450,16 @@ airside.openapi(listClaimable, async (c) => {
 		emailVerified: user.emailVerified,
 		providers: matches.map((m) => {
 			const existing = claimByProvider.get(m.providerId);
+			const mine = existing
+				? myCompanyIds.has(existing.providerCompanyId)
+				: false;
 			return {
 				providerId: m.providerId,
 				name: m.name,
 				matchedDomain: m.matchedDomain,
 				claimed: !!existing,
-				claimedByMyCompany: existing
-					? myCompanyIds.has(existing.providerCompanyId)
-					: false,
+				claimedByMyCompany: mine,
+				myClaimStatus: mine && existing ? existing.status : null,
 			};
 		}),
 	});
@@ -500,35 +508,31 @@ airside.openapi(createClaim, async (c) => {
 	}
 
 	const existing = await db.query.providerClaim.findFirst({
-		where: { providerId: { eq: providerId }, status: { eq: "active" } },
+		where: {
+			providerId: { eq: providerId },
+			status: { in: ["pending", "active"] },
+		},
 	});
 	if (existing) {
 		throw new HTTPException(409, {
-			message: "This provider has already been claimed.",
+			message:
+				existing.status === "pending"
+					? "A claim for this provider is already under review."
+					: "This provider has already been claimed.",
 		});
 	}
 
-	const claim = await db.transaction(async (tx) => {
-		const [created] = await tx
-			.insert(tables.providerClaim)
-			.values({
-				providerCompanyId,
-				providerId,
-				matchedDomain: match.matchedDomain,
-				claimedBy: user.id,
-			})
-			.returning();
-		const settings = await tx.query.providerRoutingSettings.findFirst({
-			where: { providerId: { eq: providerId } },
-		});
-		if (!settings) {
-			await tx.insert(tables.providerRoutingSettings).values({
-				providerCompanyId,
-				providerId,
-			});
-		}
-		return created;
-	});
+	// Claims land as pending: a carrier only becomes operational once an
+	// admin approves the claim in the review queue.
+	const [claim] = await db
+		.insert(tables.providerClaim)
+		.values({
+			providerCompanyId,
+			providerId,
+			matchedDomain: match.matchedDomain,
+			claimedBy: user.id,
+		})
+		.returning();
 	const providerNames = providerNamesById;
 	return c.json({ claim: serializeClaim(claim, providerNames) }, 201);
 });
@@ -619,12 +623,18 @@ airside.openapi(createModel, async (c) => {
 		where: {
 			providerCompanyId: { eq: body.providerCompanyId },
 			providerId: { eq: body.providerId },
-			status: { eq: "active" },
+			status: { in: ["pending", "active"] },
 		},
 	});
 	if (!claim) {
 		throw new HTTPException(403, {
 			message: "This provider is not claimed by the company.",
+		});
+	}
+	if (claim.status !== "active") {
+		throw new HTTPException(403, {
+			message:
+				"This carrier claim is still under review — models can be listed once it is approved.",
 		});
 	}
 

@@ -138,15 +138,23 @@ test("new provider signs up and claims by email domain", async ({ page }) => {
 	});
 
 	// The matched provider is listed. On the first seeded run it is
-	// claimable; on re-runs a previous run's company already holds it.
+	// claimable; on re-runs a previous run's company already holds a
+	// pending claim on it.
 	await expect(page.getByText("deepseek · matched deepseek.com")).toBeVisible();
 	const claimButton = page.getByRole("button", { name: "Claim", exact: true });
 	if (await claimButton.isVisible()) {
 		await claimButton.click();
-		await expect(page.getByText("Claimed", { exact: true })).toBeVisible({
+		// Claims are reviewed by the team before the carrier goes live.
+		await expect(page.getByText("Under review")).toBeVisible({
 			timeout: 15_000,
 		});
 	} else {
 		await expect(page.getByText("Claimed by another team")).toBeVisible();
 	}
+
+	// Every new carrier is invited to the shared cross-team Slack channel.
+	await expect(page.getByTestId("slack-card")).toBeVisible();
+	await expect(
+		page.getByRole("link", { name: "Join our Slack" }),
+	).toHaveAttribute("href", /llmgatewayworkspace\.slack\.com/);
 });
