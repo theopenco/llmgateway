@@ -9,6 +9,8 @@ import {
 	modelHistoryHourly,
 	modelProviderMappingUsageHistory,
 	modelUsageHistory,
+	modelProviderMappingUsageHistoryHourly,
+	modelUsageHistoryHourly,
 	routingElectionHourly,
 	log,
 	sql,
@@ -20,6 +22,7 @@ import {
 	type SQL,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { ROUTING_HISTORY_MAX_WINDOW_MINUTES } from "@llmgateway/shared/routing-config";
 
 import { excludeRecoveredSameProviderRegionRetry } from "./log-filters.js";
 import { calculateRoutingTelemetryForHour } from "./routing-telemetry-aggregator.js";
@@ -1100,48 +1103,128 @@ export async function backfillHistoryIfNeeded() {
 	try {
 		const database = db;
 
-		// Get the most recent history entry to see if we need to backfill (check both tables)
-		const latestMappingHistory = await database
-			.select({ minuteTimestamp: modelProviderMappingHistory.minuteTimestamp })
-			.from(modelProviderMappingHistory)
-			.orderBy(sql`${modelProviderMappingHistory.minuteTimestamp} DESC`)
-			.limit(1);
+		// The shared watermark is the oldest latest row across every table this
+		// pass writes. A newly added or partially written table must not be hidden
+		// by a current legacy-table watermark. Both usage modes are written together,
+		// so credits is also an index-friendly coverage marker for those tables.
+		const [
+			mappingHistoryRange,
+			modelHistoryRange,
+			mappingUsageHistoryRange,
+			modelUsageHistoryRange,
+		] = await Promise.all([
+			database
+				.select({
+					earliest:
+						sql`min(${modelProviderMappingHistory.minuteTimestamp})`.mapWith(
+							modelProviderMappingHistory.minuteTimestamp,
+						),
+					latest:
+						sql`max(${modelProviderMappingHistory.minuteTimestamp})`.mapWith(
+							modelProviderMappingHistory.minuteTimestamp,
+						),
+				})
+				.from(modelProviderMappingHistory),
+			database
+				.select({
+					earliest: sql`min(${modelHistory.minuteTimestamp})`.mapWith(
+						modelHistory.minuteTimestamp,
+					),
+					latest: sql`max(${modelHistory.minuteTimestamp})`.mapWith(
+						modelHistory.minuteTimestamp,
+					),
+				})
+				.from(modelHistory),
+			database
+				.select({
+					earliest:
+						sql`min(${modelProviderMappingUsageHistory.minuteTimestamp})`.mapWith(
+							modelProviderMappingUsageHistory.minuteTimestamp,
+						),
+					latest:
+						sql`max(${modelProviderMappingUsageHistory.minuteTimestamp})`.mapWith(
+							modelProviderMappingUsageHistory.minuteTimestamp,
+						),
+				})
+				.from(modelProviderMappingUsageHistory)
+				.where(eq(modelProviderMappingUsageHistory.usedMode, "credits")),
+			database
+				.select({
+					earliest: sql`min(${modelUsageHistory.minuteTimestamp})`.mapWith(
+						modelUsageHistory.minuteTimestamp,
+					),
+					latest: sql`max(${modelUsageHistory.minuteTimestamp})`.mapWith(
+						modelUsageHistory.minuteTimestamp,
+					),
+				})
+				.from(modelUsageHistory)
+				.where(eq(modelUsageHistory.usedMode, "credits")),
+		]);
 
-		const latestModelHistory = await database
-			.select({ minuteTimestamp: modelHistory.minuteTimestamp })
-			.from(modelHistory)
-			.orderBy(sql`${modelHistory.minuteTimestamp} DESC`)
-			.limit(1);
-
-		// Use the most recent timestamp from either table
-		let lastMinute: Date | null = null;
-		if (latestMappingHistory.length > 0 && latestModelHistory.length > 0) {
-			const mappingTime = latestMappingHistory[0]!.minuteTimestamp.getTime();
-			const modelTime = latestModelHistory[0]!.minuteTimestamp.getTime();
-			lastMinute = new Date(Math.max(mappingTime, modelTime));
-		} else if (latestMappingHistory.length > 0) {
-			lastMinute = latestMappingHistory[0]!.minuteTimestamp;
-		} else if (latestModelHistory.length > 0) {
-			lastMinute = latestModelHistory[0]!.minuteTimestamp;
-		}
+		const latestMinutes: (Date | null | undefined)[] = [
+			mappingHistoryRange[0]?.latest,
+			modelHistoryRange[0]?.latest,
+			mappingUsageHistoryRange[0]?.latest,
+			modelUsageHistoryRange[0]?.latest,
+		];
+		const routingWindowMs = ROUTING_HISTORY_MAX_WINDOW_MINUTES * ONE_MINUTE_MS;
+		const routingWindowStart = roundToMinuteStart(
+			new Date(Date.now() - routingWindowMs),
+		);
+		const usageHistoryIncomplete = [
+			{
+				legacy: mappingHistoryRange[0]?.earliest,
+				usage: mappingUsageHistoryRange[0]?.earliest,
+			},
+			{
+				legacy: modelHistoryRange[0]?.earliest,
+				usage: modelUsageHistoryRange[0]?.earliest,
+			},
+		].some(({ legacy, usage }) => {
+			if (!legacy) {
+				return false;
+			}
+			const requiredStart = new Date(
+				Math.max(legacy.getTime(), routingWindowStart.getTime()),
+			);
+			return !usage || usage > requiredStart;
+		});
+		const completeLatestMinutes = latestMinutes.filter(
+			(minute): minute is Date => minute !== null && minute !== undefined,
+		);
+		const lastMinute =
+			completeLatestMinutes.length === latestMinutes.length
+				? new Date(
+						Math.min(
+							...completeLatestMinutes.map((minute) => minute.getTime()),
+						),
+					)
+				: null;
 
 		const previousMinute = getPreviousMinuteStart();
 
-		if (!lastMinute) {
-			// No history exists, start from configured backfill duration ago
-			const backfillMs = BACKFILL_DURATION_SECONDS * 1000;
+		if (!lastMinute || usageHistoryIncomplete) {
+			// When the mode tables are new on an existing installation, populate a
+			// complete routing window before the gateway relies on credits-only data.
+			const backfillDurationSeconds = usageHistoryIncomplete
+				? Math.max(
+						BACKFILL_DURATION_SECONDS,
+						ROUTING_HISTORY_MAX_WINDOW_MINUTES * 60,
+					)
+				: BACKFILL_DURATION_SECONDS;
+			const backfillMs = backfillDurationSeconds * 1000;
 			const backfillStart = new Date(Date.now() - backfillMs);
 			const backfillStartRounded = roundToMinuteStart(backfillStart);
 
 			logger.info(
-				`No existing history found. Starting backfill from ${backfillStartRounded.toISOString()} to ${previousMinute.toISOString()}`,
+				`History tables are empty or incomplete. Starting backfill from ${backfillStartRounded.toISOString()} to ${previousMinute.toISOString()}`,
 			);
 
 			let minute = new Date(backfillStartRounded);
 			let iterationCount = 0;
 			// Dynamic safety limit based on backfill duration (with max of 1440 for 24 hours)
 			const maxIterations = Math.min(
-				Math.ceil(BACKFILL_DURATION_SECONDS / 60),
+				Math.ceil(backfillDurationSeconds / 60),
 				1440,
 			);
 
@@ -1168,7 +1251,7 @@ export async function backfillHistoryIfNeeded() {
 				iterationCount++;
 			}
 
-			if (iterationCount >= maxIterations) {
+			if (minute <= previousMinute && iterationCount >= maxIterations) {
 				logger.warn(
 					`Backfill stopped at iteration limit ${maxIterations} to prevent infinite loop`,
 				);
@@ -1463,7 +1546,7 @@ async function calculateHistoryForHour(targetHour: Date) {
 	const mappingResult = await calculateMappingHistoryForHour(targetHour);
 	const modelResult = await calculateModelHistoryForHour(targetHour);
 	// Routing telemetry is diagnostic, and it reads `log` rather than the minute
-	// history the two rollups above are built from. A failure in it must not cost
+	// history the four rollups above are built from. A failure in it must not cost
 	// us the hour's usage and cost stats, so it is logged and skipped instead of
 	// propagating. The hour then stays absent from routing_election_hourly, which
 	// is exactly what makes the next backfill pass retry it.
@@ -1506,7 +1589,7 @@ export async function calculateHourlyHistory() {
 /**
  * Backfill missing hourly summary rows by walking every completed hour from the
  * earliest minute-history entry up to the previous complete hour and recomputing
- * only the hours absent from ANY summary table — the two history rollups, plus
+ * only the hours absent from ANY summary table — the four history rollups, plus
  * routing telemetry for hours whose logs still exist. Detecting missing hours
  * (rather than resuming from the latest entry) is what makes this robust: the
  * minutely loop writes the current and previous hour on startup, so the latest
@@ -1538,6 +1621,20 @@ export async function backfillHourlyHistoryIfNeeded() {
 			.select({ minuteTimestamp: modelHistory.minuteTimestamp })
 			.from(modelHistory)
 			.orderBy(asc(modelHistory.minuteTimestamp))
+			.limit(1);
+		const earliestMappingUsageMinute = await database
+			.select({
+				minuteTimestamp: modelProviderMappingUsageHistory.minuteTimestamp,
+			})
+			.from(modelProviderMappingUsageHistory)
+			.where(eq(modelProviderMappingUsageHistory.usedMode, "credits"))
+			.orderBy(asc(modelProviderMappingUsageHistory.minuteTimestamp))
+			.limit(1);
+		const earliestModelUsageMinute = await database
+			.select({ minuteTimestamp: modelUsageHistory.minuteTimestamp })
+			.from(modelUsageHistory)
+			.where(eq(modelUsageHistory.usedMode, "credits"))
+			.orderBy(asc(modelUsageHistory.minuteTimestamp))
 			.limit(1);
 
 		let earliestMinute: Date | null = null;
@@ -1579,10 +1676,24 @@ export async function backfillHourlyHistoryIfNeeded() {
 		const earliestLogHourMs = earliestLog[0]
 			? roundToHourStart(earliestLog[0].createdAt).getTime()
 			: null;
+		const earliestMappingUsageHourMs = earliestMappingUsageMinute[0]
+			? roundToHourStart(
+					earliestMappingUsageMinute[0].minuteTimestamp,
+				).getTime()
+			: null;
+		const earliestModelUsageHourMs = earliestModelUsageMinute[0]
+			? roundToHourStart(earliestModelUsageMinute[0].minuteTimestamp).getTime()
+			: null;
 
 		// Hours already summarized in each table (excluding the in-progress current
 		// hour). An hour is recomputed only when it is missing from any set.
-		const [mappingHours, modelHours, routingHours] = await Promise.all([
+		const [
+			mappingHours,
+			modelHours,
+			mappingUsageHours,
+			modelUsageHours,
+			routingHours,
+		] = await Promise.all([
 			database
 				.select({
 					hourTimestamp: modelProviderMappingHistoryHourly.hourTimestamp,
@@ -1596,6 +1707,23 @@ export async function backfillHourlyHistoryIfNeeded() {
 				.from(modelHistoryHourly)
 				.where(lt(modelHistoryHourly.hourTimestamp, currentHourStart)),
 			database
+				.selectDistinct({
+					hourTimestamp: modelProviderMappingUsageHistoryHourly.hourTimestamp,
+				})
+				.from(modelProviderMappingUsageHistoryHourly)
+				.where(
+					lt(
+						modelProviderMappingUsageHistoryHourly.hourTimestamp,
+						currentHourStart,
+					),
+				),
+			database
+				.selectDistinct({
+					hourTimestamp: modelUsageHistoryHourly.hourTimestamp,
+				})
+				.from(modelUsageHistoryHourly)
+				.where(lt(modelUsageHistoryHourly.hourTimestamp, currentHourStart)),
+			database
 				.selectDistinct({ hourTimestamp: routingElectionHourly.hourTimestamp })
 				.from(routingElectionHourly)
 				.where(lt(routingElectionHourly.hourTimestamp, currentHourStart)),
@@ -1606,6 +1734,12 @@ export async function backfillHourlyHistoryIfNeeded() {
 		);
 		const modelHourSet = new Set(
 			modelHours.map((r) => r.hourTimestamp.getTime()),
+		);
+		const mappingUsageHourSet = new Set(
+			mappingUsageHours.map((r) => r.hourTimestamp.getTime()),
+		);
+		const modelUsageHourSet = new Set(
+			modelUsageHours.map((r) => r.hourTimestamp.getTime()),
 		);
 		const routingHourSet = new Set(
 			routingHours.map((r) => r.hourTimestamp.getTime()),
@@ -1623,15 +1757,29 @@ export async function backfillHourlyHistoryIfNeeded() {
 			scanned < HOURLY_BACKFILL_MAX_ITERATIONS
 		) {
 			const ms = hour.getTime();
-			// Routing telemetry shipped after the two history tables, so on the first
-			// pass after deploy every historical hour is present in those two and
+			// Routing telemetry shipped after the legacy history tables, so on the first
+			// pass after deploy every historical hour is present in those tables and
 			// absent from routing — checking only them would leave routing telemetry
 			// permanently unbackfilled.
 			const routingMissing =
 				earliestLogHourMs !== null &&
 				ms >= earliestLogHourMs &&
 				!routingHourSet.has(ms);
-			if (!mappingHourSet.has(ms) || !modelHourSet.has(ms) || routingMissing) {
+			const mappingUsageMissing =
+				earliestMappingUsageHourMs !== null &&
+				ms >= earliestMappingUsageHourMs &&
+				!mappingUsageHourSet.has(ms);
+			const modelUsageMissing =
+				earliestModelUsageHourMs !== null &&
+				ms >= earliestModelUsageHourMs &&
+				!modelUsageHourSet.has(ms);
+			if (
+				!mappingHourSet.has(ms) ||
+				!modelHourSet.has(ms) ||
+				mappingUsageMissing ||
+				modelUsageMissing ||
+				routingMissing
+			) {
 				const result = await calculateHistoryForHour(hour);
 				logger.info(
 					`Backfilled hourly history for ${hour.toISOString()}: ${result.mappingResult.totalMappings} mappings, ${result.modelResult.totalModels} models, ${result.routingResult?.electionRows ?? 0} routing elections`,
@@ -1651,7 +1799,10 @@ export async function backfillHourlyHistoryIfNeeded() {
 			scanned++;
 		}
 
-		if (scanned >= HOURLY_BACKFILL_MAX_ITERATIONS) {
+		if (
+			hour <= previousHourStart &&
+			scanned >= HOURLY_BACKFILL_MAX_ITERATIONS
+		) {
 			logger.warn(
 				`Hourly backfill stopped at iteration limit ${HOURLY_BACKFILL_MAX_ITERATIONS} to prevent runaway backfill`,
 			);

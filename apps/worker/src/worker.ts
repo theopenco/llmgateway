@@ -912,24 +912,25 @@ export async function cleanupExpiredLogData(): Promise<void> {
 }
 
 // Delete minute-level model/mapping history rows older than the retention
-// window. These tables gain one row per active model (and per mapping) every
-// minute and otherwise grow unbounded. The hourly rollups
-// (model_history_hourly, model_provider_mapping_history_hourly) are kept
-// forever and now serve every window beyond 24h (7d/30d/90d public stats), so
-// the only readers of the minute tables are short windows (<=24h). 30 days
-// leaves a comfortable buffer over the largest minute-level reader.
+// window. The four total and usage-mode tables grow every minute; their hourly
+// rollups are kept forever and serve longer windows. Thirty days leaves a
+// comfortable buffer over the largest minute-level reader.
 const MODEL_HISTORY_RETENTION_DAYS = 30;
 const MODEL_HISTORY_CLEANUP_BATCH_SIZE = 10000;
 // Cap the work per run (per table) so a single cleanup reliably finishes well
 // within the lock TTL (LOCK_DURATION_MINUTES), even on a large initial backlog.
 // The loop runs hourly, so any remaining rows are drained over subsequent runs.
-// At steady state (~640 rows/min across both tables, i.e. a handful of batches
+// At steady state (~1280 rows/min across all four tables, i.e. a few batches
 // per hour) this cap is never approached; it only bounds the initial backlog
 // drain. Each table gets its own budget so neither starves the other.
 const MODEL_HISTORY_MAX_BATCHES_PER_RUN = 50;
 
 async function cleanupModelHistoryTable(
-	table: typeof tables.modelHistory | typeof tables.modelProviderMappingHistory,
+	table:
+		| typeof tables.modelHistory
+		| typeof tables.modelProviderMappingHistory
+		| typeof tables.modelUsageHistory
+		| typeof tables.modelProviderMappingUsageHistory,
 	cutoffDate: Date,
 	maxBatches: number,
 ): Promise<{ deleted: number; batches: number }> {
@@ -1004,13 +1005,30 @@ export async function cleanupExpiredModelHistory(): Promise<void> {
 			cutoffDate,
 			MODEL_HISTORY_MAX_BATCHES_PER_RUN,
 		);
+		const mappingUsage = await cleanupModelHistoryTable(
+			tables.modelProviderMappingUsageHistory,
+			cutoffDate,
+			MODEL_HISTORY_MAX_BATCHES_PER_RUN,
+		);
+		const modelUsage = await cleanupModelHistoryTable(
+			tables.modelUsageHistory,
+			cutoffDate,
+			MODEL_HISTORY_MAX_BATCHES_PER_RUN,
+		);
 
 		const mappingDeleted = mapping.deleted;
 		const modelDeleted = model.deleted;
+		const mappingUsageDeleted = mappingUsage.deleted;
+		const modelUsageDeleted = modelUsage.deleted;
 
-		if (mappingDeleted > 0 || modelDeleted > 0) {
+		if (
+			mappingDeleted > 0 ||
+			modelDeleted > 0 ||
+			mappingUsageDeleted > 0 ||
+			modelUsageDeleted > 0
+		) {
 			logger.info(
-				`Model history retention cleanup deleted ${mappingDeleted} model_provider_mapping_history and ${modelDeleted} model_history rows (older than ${MODEL_HISTORY_RETENTION_DAYS} days)`,
+				`Model history retention cleanup deleted ${mappingDeleted} mapping, ${modelDeleted} model, ${mappingUsageDeleted} mapping-mode, and ${modelUsageDeleted} model-mode rows (older than ${MODEL_HISTORY_RETENTION_DAYS} days)`,
 			);
 		}
 

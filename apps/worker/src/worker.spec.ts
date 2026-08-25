@@ -78,6 +78,17 @@ describe("worker", () => {
 
 	const cleanupRetentionTestData = async () => {
 		await db
+			.delete(tables.modelProviderMappingUsageHistory)
+			.where(
+				inArray(tables.modelProviderMappingUsageHistory.id, [
+					"mpuh-old",
+					"mpuh-recent",
+				]),
+			);
+		await db
+			.delete(tables.modelUsageHistory)
+			.where(inArray(tables.modelUsageHistory.id, ["muh-old", "muh-recent"]));
+		await db
 			.delete(tables.modelProviderMappingHistory)
 			.where(
 				inArray(tables.modelProviderMappingHistory.id, [
@@ -704,6 +715,38 @@ describe("worker", () => {
 					minuteTimestamp: recentTimestamp,
 				},
 			]);
+			await db.insert(tables.modelProviderMappingUsageHistory).values([
+				{
+					id: "mpuh-old",
+					modelId: "retention-model",
+					providerId: "retention-provider",
+					modelProviderMappingId: "retention-mapping",
+					usedMode: "credits",
+					minuteTimestamp: oldTimestamp,
+				},
+				{
+					id: "mpuh-recent",
+					modelId: "retention-model",
+					providerId: "retention-provider",
+					modelProviderMappingId: "retention-mapping",
+					usedMode: "credits",
+					minuteTimestamp: recentTimestamp,
+				},
+			]);
+			await db.insert(tables.modelUsageHistory).values([
+				{
+					id: "muh-old",
+					modelId: "retention-model",
+					usedMode: "credits",
+					minuteTimestamp: oldTimestamp,
+				},
+				{
+					id: "muh-recent",
+					modelId: "retention-model",
+					usedMode: "credits",
+					minuteTimestamp: recentTimestamp,
+				},
+			]);
 
 			await cleanupExpiredModelHistory();
 
@@ -713,9 +756,18 @@ describe("worker", () => {
 			const modelRows = await db.query.modelHistory.findMany({
 				where: { id: { in: ["mh-old", "mh-recent"] } },
 			});
+			const mappingUsageRows =
+				await db.query.modelProviderMappingUsageHistory.findMany({
+					where: { id: { in: ["mpuh-old", "mpuh-recent"] } },
+				});
+			const modelUsageRows = await db.query.modelUsageHistory.findMany({
+				where: { id: { in: ["muh-old", "muh-recent"] } },
+			});
 
 			expect(mappingRows.map((r) => r.id)).toEqual(["mph-recent"]);
 			expect(modelRows.map((r) => r.id)).toEqual(["mh-recent"]);
+			expect(mappingUsageRows.map((r) => r.id)).toEqual(["mpuh-recent"]);
+			expect(modelUsageRows.map((r) => r.id)).toEqual(["muh-recent"]);
 		});
 	});
 });
