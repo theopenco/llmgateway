@@ -218,7 +218,7 @@ The endpoint returns responses in Anthropic's message format:
 ## Get Started
 
 1. [Sign up free](https://llmgateway.io/signup) — no credit card required
-2. Copy your API key from the dashboard
+2. Create or roll an API key in the dashboard and copy the newly shown secret
 3. Set the environment variables above, or drop them into `~/.claude/settings.json`
 4. Run `claude` and start coding — switch models any time with `/model`
 

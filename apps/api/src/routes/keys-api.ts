@@ -31,6 +31,7 @@ import {
 	type InferSelectModel,
 	type MemberBudgetOwner,
 } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import { maskToken } from "@llmgateway/shared/mask-token";
 
@@ -38,12 +39,20 @@ import type { ServerTypes } from "@/vars.js";
 
 export const keysApi = new OpenAPIHono<ServerTypes>();
 
-export const PLAYGROUND_API_KEY_DESCRIPTION = "Auto-generated playground key";
-
 export function isPlaygroundApiKey(apiKey: {
-	description: string | null;
+	kind: "regular" | "playground";
 }): boolean {
-	return apiKey.description === PLAYGROUND_API_KEY_DESCRIPTION;
+	return apiKey.kind === "playground";
+}
+
+function assertApiKeyIsUserManaged(apiKey: {
+	kind: "regular" | "playground";
+}): void {
+	if (isPlaygroundApiKey(apiKey)) {
+		throw new HTTPException(403, {
+			message: "The playground API key is managed automatically.",
+		});
+	}
 }
 
 type ApiKeyRecord = InferSelectModel<typeof tables.apiKey>;
@@ -199,14 +208,19 @@ function validateApiKeyPeriodConfig(
 }
 
 function serializeApiKey<T extends ApiKeyResponseRecord>(apiKey: T) {
+	const { tokenHash: _tokenHash, ...publicApiKey } = apiKey;
 	const currentPeriod = getApiKeyCurrentPeriodState(apiKey);
 
 	return {
-		...apiKey,
+		...publicApiKey,
 		currentPeriodUsage: currentPeriod.usage,
 		currentPeriodStartedAt: currentPeriod.startedAt,
 		currentPeriodResetAt: currentPeriod.resetAt,
 	};
+}
+
+function getMaskedApiKey(apiKey: Pick<ApiKeyRecord, "token" | "tokenMasked">) {
+	return apiKey.tokenMasked ?? maskToken(apiKey.token ?? "");
 }
 
 export function hasPeriodConfigChanged(
@@ -307,6 +321,7 @@ const apiKeySchema = z.object({
 	updatedAt: z.date(),
 	token: z.string(),
 	description: z.string(),
+	kind: z.enum(["regular", "playground"]),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	usageLimit: z.string().nullable(),
 	usage: z.string(),
@@ -384,6 +399,11 @@ const memberBudgetConstraintsSchema = z.object({
 	periodUsageLimit: z.string().nullable(),
 	periodUsageDurationValue: z.number().int().nullable(),
 	periodUsageDurationUnit: apiKeyPeriodDurationUnitSchema.nullable(),
+});
+
+const listedApiKeySchema = apiKeySchema.omit({ token: true }).extend({
+	maskedToken: z.string(),
+	ownerBudget: memberBudgetConstraintsSchema.nullable(),
 });
 
 // Schema for listing API keys
@@ -557,8 +577,8 @@ keysApi.openapi(listPlatformKeys, async (c) => {
 			status: platformKey.status,
 			projectId: platformKey.projectId,
 			createdBy: platformKey.createdBy,
-			maskedToken: maskToken(platformKey.token),
-			mode: platformKeyMode(platformKey.token),
+			maskedToken: getMaskedApiKey(platformKey),
+			mode: platformKeyMode(getMaskedApiKey(platformKey)),
 		})),
 	});
 });
@@ -610,7 +630,7 @@ keysApi.openapi(createPlatformKey, async (c) => {
 	const [platformKey] = await cdb
 		.insert(tables.apiKey)
 		.values({
-			token,
+			...hashApiKeyForStorage(token),
 			projectId,
 			description,
 			keyType: "platform_secret",
@@ -1025,12 +1045,13 @@ export async function createApiKeyForProject(
 	const orgProjectIds = orgProjects.map((p) => p.id);
 
 	// Org-wide cap on active developer API keys across all of the org's projects.
-	// Platform and hidden LLM SDK aggregate keys are excluded (keyType: "user").
+	// Platform, LLM SDK aggregate, and playground session keys are excluded.
 	const orgActiveApiKeys = await db.query.apiKey.findMany({
 		where: {
 			projectId: { in: orgProjectIds },
 			status: { eq: "active" },
 			keyType: { eq: "user" },
+			kind: { ne: "playground" },
 		},
 		columns: { id: true },
 	});
@@ -1093,6 +1114,7 @@ export async function createApiKeyForProject(
 				createdBy: { eq: userId },
 				status: { eq: "active" },
 				keyType: { eq: "user" },
+				kind: { ne: "playground" },
 				projectId: { in: orgProjectIds },
 			},
 			columns: { id: true },
@@ -1112,7 +1134,7 @@ export async function createApiKeyForProject(
 	const [apiKey] = await cdb
 		.insert(tables.apiKey)
 		.values({
-			token,
+			...hashApiKeyForStorage(token),
 			projectId,
 			description,
 			usageLimit,
@@ -1180,19 +1202,7 @@ const list = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
-						apiKeys: z
-							.array(
-								apiKeySchema.omit({ token: true }).extend({
-									// Only return a masked version of the token
-									maskedToken: z.string(),
-									// The effective member budget of whoever created the key, so
-									// the limits editor validates against the cap that actually
-									// applies — not the viewer's own. Null when the creator is no
-									// longer a member of the organization.
-									ownerBudget: memberBudgetConstraintsSchema.nullable(),
-								}),
-							)
-							.openapi({}),
+						apiKeys: z.array(listedApiKeySchema).openapi({}),
 						planLimits: z
 							.object({
 								currentCount: z.number(),
@@ -1290,14 +1300,12 @@ keysApi.openapi(list, async (c) => {
 
 	const shouldFilterByCreator = filter === "mine";
 
-	// Get API keys for the specified project or all accessible projects
 	const fetchedApiKeys = await db.query.apiKey.findMany({
 		where: {
 			projectId: {
 				in: projectId ? [projectId] : projectIds,
 			},
-			// Hide platform and LLM SDK aggregate keys from the dashboard —
-			// only show developer-created keys.
+			// Hide platform and LLM SDK aggregate keys from the dashboard.
 			keyType: { eq: "user" },
 			...(shouldFilterByCreator && {
 				createdBy: {
@@ -1358,6 +1366,7 @@ keysApi.openapi(list, async (c) => {
 					projectId: { in: orgProjects.map((p) => p.id) },
 					status: { eq: "active" },
 					keyType: { eq: "user" },
+					kind: { ne: "playground" },
 				},
 				columns: { id: true },
 			});
@@ -1370,9 +1379,11 @@ keysApi.openapi(list, async (c) => {
 	return c.json({
 		apiKeys: apiKeys.map((key) => ({
 			...serializeApiKey(key),
-			maskedToken: maskToken(key.token),
+			maskedToken: getMaskedApiKey(key),
 			token: undefined,
-			ownerBudget: ownerBudgets.get(key.id) ?? null,
+			ownerBudget: isPlaygroundApiKey(key)
+				? null
+				: (ownerBudgets.get(key.id) ?? null),
 		})),
 		planLimits: projectId
 			? {
@@ -1666,29 +1677,7 @@ keysApi.openapi(updateStatus, async (c) => {
 		});
 	}
 
-	// Prevent deactivation of the auto-generated playground key
-	if (isPlaygroundApiKey(apiKey) && status === "inactive") {
-		throw new HTTPException(403, {
-			message:
-				"Cannot deactivate the playground API key. This key is required for the playground to function.",
-		});
-	}
-
-	// Renaming the auto-generated playground key would break the UI's lookup
-	// of it by its fixed description.
-	if (isPlaygroundApiKey(apiKey) && descriptionInput !== undefined) {
-		throw new HTTPException(403, {
-			message: "Cannot rename the playground API key.",
-		});
-	}
-
-	// A regular key must not take on the reserved playground description,
-	// or it would collide with the playground key's fixed-description lookup.
-	if (descriptionInput === PLAYGROUND_API_KEY_DESCRIPTION) {
-		throw new HTTPException(403, {
-			message: "This name is reserved for the playground API key.",
-		});
-	}
+	assertApiKeyIsUserManaged(apiKey);
 
 	// Check user role and permissions
 	const projectOrgId = apiKey.project.organizationId;
@@ -1788,7 +1777,7 @@ keysApi.openapi(updateStatus, async (c) => {
 				: "API key updated",
 		apiKey: {
 			...serializeApiKey(updatedApiKey),
-			maskedToken: maskToken(updatedApiKey.token),
+			maskedToken: getMaskedApiKey(updatedApiKey),
 			token: undefined,
 		},
 	});
@@ -1903,6 +1892,8 @@ keysApi.openapi(roll, async (c) => {
 		});
 	}
 
+	assertApiKeyIsUserManaged(apiKey);
+
 	// Only developer keys are rolled here; platform/embeddable keys use a
 	// different token format and lifecycle.
 	if (apiKey.keyType !== "user") {
@@ -1933,7 +1924,7 @@ keysApi.openapi(roll, async (c) => {
 	// Otherwise the old secret would keep authenticating until the cache expired.
 	const [updatedApiKey] = await cdb
 		.update(tables.apiKey)
-		.set({ token })
+		.set(hashApiKeyForStorage(token))
 		.where(eq(tables.apiKey.id, id))
 		.returning();
 
@@ -2074,6 +2065,8 @@ keysApi.openapi(updateUsageLimit, async (c) => {
 		});
 	}
 
+	assertApiKeyIsUserManaged(apiKey);
+
 	// Check user role and permissions
 	const projectOrgId = apiKey.project.organizationId;
 	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
@@ -2162,7 +2155,7 @@ keysApi.openapi(updateUsageLimit, async (c) => {
 		message: "API key limits updated successfully.",
 		apiKey: {
 			...serializeApiKey(updatedApiKey),
-			maskedToken: maskToken(updatedApiKey.token),
+			maskedToken: getMaskedApiKey(updatedApiKey),
 			token: undefined,
 		},
 	});
@@ -2263,6 +2256,8 @@ keysApi.openapi(createIamRule, async (c) => {
 			message: "Project not found for API key",
 		});
 	}
+
+	assertApiKeyIsUserManaged(apiKey);
 
 	// Check user role and permissions
 	const projectOrgId = apiKey.project.organizationId;
@@ -2505,6 +2500,8 @@ keysApi.openapi(updateIamRule, async (c) => {
 		});
 	}
 
+	assertApiKeyIsUserManaged(apiKey);
+
 	// Check user role and permissions
 	const projectOrgId = apiKey.project.organizationId;
 	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
@@ -2689,6 +2686,8 @@ keysApi.openapi(deleteIamRule, async (c) => {
 			message: "Project not found for API key",
 		});
 	}
+
+	assertApiKeyIsUserManaged(apiKey);
 
 	// Check user role and permissions
 	const projectOrgId = apiKey.project.organizationId;

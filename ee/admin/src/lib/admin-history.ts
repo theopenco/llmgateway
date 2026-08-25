@@ -3,9 +3,10 @@
 import { createServerApiClient } from "./server-api";
 
 import type {
-	CostTimeseriesGroupBy,
 	GlobalStatsModelView,
 	ModelView,
+	OrganizationCostGroupBy,
+	ProjectCostTimeseriesGroupBy,
 	TokenWindow,
 } from "./types";
 import type { HistoryWindow } from "@/components/history-chart";
@@ -168,12 +169,17 @@ export async function getGlobalCostByModel(
 	return mapGlobalStatsToCostByModel(data, "30d");
 }
 
-export async function getOrgCostByModel(orgId: string, window: TokenWindow) {
+export async function getOrgCostByModel(
+	orgId: string,
+	window: TokenWindow,
+	modelView: ModelView = "mapping",
+	groupBy: OrganizationCostGroupBy = "model",
+) {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET(
 		"/admin/organizations/{orgId}/cost-by-model",
 		{
-			params: { path: { orgId }, query: { window } },
+			params: { path: { orgId }, query: { window, modelView, groupBy } },
 		},
 	);
 	return data ?? null;
@@ -183,12 +189,13 @@ export async function getOrgCostByModelTimeseries(
 	orgId: string,
 	window: TokenWindow,
 	modelView: ModelView = "mapping",
+	groupBy: OrganizationCostGroupBy = "model",
 ) {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET(
 		"/admin/organizations/{orgId}/cost-by-model-timeseries",
 		{
-			params: { path: { orgId }, query: { window, modelView } },
+			params: { path: { orgId }, query: { window, modelView, groupBy } },
 		},
 	);
 	return data ?? null;
@@ -199,7 +206,7 @@ export async function getProjectCostByModelTimeseries(
 	projectId: string,
 	window: TokenWindow,
 	modelView: ModelView = "mapping",
-	groupBy: CostTimeseriesGroupBy = "model",
+	groupBy: ProjectCostTimeseriesGroupBy = "model",
 ) {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET(

@@ -16,7 +16,7 @@ export default function PrivacyPage() {
 			<p>
 				<strong>Effective Date:</strong> April 26, 2026
 				<br />
-				<strong>Last Updated:</strong> August 2, 2026
+				<strong>Last Updated:</strong> August 20, 2026
 			</p>
 			<LegalSummary variant="privacy" />
 			<p>
@@ -56,6 +56,12 @@ export default function PrivacyPage() {
 				<strong>email address</strong>, and authentication credentials. For paid
 				plans, we also collect billing details (company name, country, payment
 				method) processed securely through <strong>Stripe</strong>.
+			</p>
+			<p>
+				Your DevPass API key secret is shown only when it is created or rolled.
+				We retain a keyed one-way hash and masked preview; authentication hashes
+				the secret you present and compares the result. Previously issued keys
+				remain valid and move to hash-only storage when rolled.
 			</p>
 			<h3>b. Usage and Request Data</h3>
 			<p>

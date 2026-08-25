@@ -395,9 +395,9 @@ export default async function Page({
 						/>
 						<MetricCell
 							label="Credits revenue"
-							value={metrics.totalRevenue - metrics.totalRefunds}
+							value={metrics.totalRevenue - metrics.totalRefundedCredits}
 							format="currency"
-							sublabel="Net credits — excl. Stripe fees & refunds"
+							sublabel="Net credits — excl. platform fee & refunds"
 							icon={<CircleDollarSign className="h-4 w-4" strokeWidth={1.75} />}
 							accent="green"
 							style={revealAt(4)}
@@ -413,8 +413,12 @@ export default async function Page({
 									),
 								},
 								{
-									label: "Refunds",
+									label: "Refunds (gross)",
 									value: currencyFormatter.format(metrics.totalRefunds),
+								},
+								{
+									label: "Refunds (credits)",
+									value: currencyFormatter.format(metrics.totalRefundedCredits),
 								},
 							]}
 						/>

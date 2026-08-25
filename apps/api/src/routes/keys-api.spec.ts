@@ -10,6 +10,7 @@ import {
 	waitForSwrMirrorWrites,
 } from "@llmgateway/cache";
 import { and, cdb, db, eq, getTableName, tables } from "@llmgateway/db";
+import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 const ONE_MINUTE_MS = 60 * 1000;
 const ONE_HOUR_MS = 60 * ONE_MINUTE_MS;
@@ -107,6 +108,23 @@ describe("keys route", () => {
 		expect(res.status).toBe(401);
 	});
 
+	test("POST /keys/api treats the playground description as a regular key", async () => {
+		const res = await app.request("/keys/api", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				description: "Auto-generated playground key",
+				projectId: "test-project-id",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect((await res.json()).apiKey.kind).toBe("regular");
+	});
+
 	test("DELETE /keys/api/test-api-key-id unauthorized", async () => {
 		const res = await app.request("/keys/api/test-api-key-id", {
 			method: "DELETE",
@@ -136,8 +154,107 @@ describe("keys route", () => {
 		expect(res.status).toBe(200);
 		const json = await res.json();
 		expect(json).toHaveProperty("apiKeys");
-		expect(json.apiKeys.length).toBe(2);
-		expect(json.apiKeys[1].description).toBe("Test API Key");
+		expect(json.apiKeys.length).toBe(1);
+		expect(json.apiKeys[0].description).toBe("Test API Key");
+		expect(json.apiKeys[0].tokenHash).toBeUndefined();
+	});
+
+	test("GET /keys/api returns the managed playground row", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "playground-key",
+			token: "playground-token",
+			projectId: "test-project-id",
+			description: "Playground",
+			kind: "playground",
+			usage: "4",
+			createdBy: "test-user-id",
+		});
+
+		const res = await app.request("/keys/api?projectId=test-project-id", {
+			headers: { Cookie: token },
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		const playgroundRows = json.apiKeys.filter(
+			(key: { kind: string }) => key.kind === "playground",
+		);
+		expect(playgroundRows).toEqual([
+			expect.objectContaining({
+				id: "playground-key",
+				description: "Playground",
+				maskedToken: expect.stringContaining("playground"),
+				usage: "4",
+			}),
+		]);
+		expect(playgroundRows[0].token).toBeUndefined();
+		expect(playgroundRows[0].tokenHash).toBeUndefined();
+	});
+
+	test("managed playground keys reject all mutation routes", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "playground-key",
+			token: "playground-token",
+			projectId: "test-project-id",
+			description: "Playground",
+			kind: "playground",
+			createdBy: "test-user-id",
+		});
+		await db.insert(tables.apiKeyIamRule).values({
+			id: "playground-rule",
+			apiKeyId: "playground-key",
+			ruleType: "allow_models",
+			ruleValue: { models: ["openai/gpt-4o-mini"] },
+		});
+
+		const requests = [
+			new Request("http://localhost/keys/api/playground-key", {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({ status: "inactive" }),
+			}),
+			new Request("http://localhost/keys/api/playground-key/roll", {
+				method: "POST",
+				headers: { Cookie: token },
+			}),
+			new Request("http://localhost/keys/api/limit/playground-key", {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({ usageLimit: "10" }),
+			}),
+			new Request("http://localhost/keys/api/playground-key/iam", {
+				method: "POST",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({
+					ruleType: "allow_models",
+					ruleValue: { models: ["openai/gpt-4o-mini"] },
+				}),
+			}),
+			new Request(
+				"http://localhost/keys/api/playground-key/iam/playground-rule",
+				{
+					method: "PATCH",
+					headers: { "Content-Type": "application/json", Cookie: token },
+					body: JSON.stringify({ status: "inactive" }),
+				},
+			),
+			new Request(
+				"http://localhost/keys/api/playground-key/iam/playground-rule",
+				{
+					method: "DELETE",
+					headers: { Cookie: token },
+				},
+			),
+			new Request("http://localhost/keys/api/playground-key", {
+				method: "DELETE",
+				headers: { Cookie: token },
+			}),
+		];
+
+		for (const request of requests) {
+			const response = await app.request(request);
+			expect(response.status).toBe(403);
+		}
 	});
 
 	test("POST /keys/platform creates an SDK platform secret", async () => {
@@ -167,7 +284,29 @@ describe("keys route", () => {
 			},
 		});
 		expect(platformKey?.keyType).toBe("platform_secret");
-		expect(platformKey?.token).toBe(json.platformKey.token);
+		expect(platformKey?.token).toBeNull();
+		expect(platformKey?.tokenHash).toBe(
+			getApiKeyFingerprint(json.platformKey.token),
+		);
+	});
+
+	test("POST /keys/platform allows the playground key description", async () => {
+		const res = await app.request("/keys/platform", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				projectId: "test-project-id",
+				description: "Auto-generated playground key",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect((await res.json()).platformKey.description).toBe(
+			"Auto-generated playground key",
+		);
 	});
 
 	test("POST /keys/platform rejects projects without Payments SDK preview", async () => {
@@ -320,6 +459,7 @@ describe("keys route", () => {
 		expect(json).toHaveProperty("message");
 		expect(json).toHaveProperty("apiKey");
 		expect(json.apiKey.status).toBe("inactive");
+		expect(json.apiKey.tokenHash).toBeUndefined();
 
 		// Verify the key was updated in the database
 		const apiKey = await db.query.apiKey.findFirst({
@@ -361,6 +501,7 @@ describe("keys route", () => {
 		expect(typeof json.apiKey.token).toBe("string");
 		expect(json.apiKey.token).not.toBe("test-token");
 		expect(json.apiKey.id).toBe("test-api-key-id");
+		expect(json.apiKey.tokenHash).toBeUndefined();
 
 		// Verify the DB was updated and metadata/stats are intact.
 		const apiKey = await db.query.apiKey.findFirst({
@@ -370,8 +511,9 @@ describe("keys route", () => {
 				},
 			},
 		});
-		expect(apiKey?.token).toBe(json.apiKey.token);
-		expect(apiKey?.token).not.toBe("test-token");
+		expect(apiKey?.token).toBeNull();
+		expect(apiKey?.tokenHash).toBe(getApiKeyFingerprint(json.apiKey.token));
+		expect(apiKey?.tokenMasked).not.toContain(json.apiKey.token);
 		expect(apiKey?.description).toBe("Keep Me");
 		expect(apiKey?.usage).toBe("12.34");
 		expect(apiKey?.usageLimit).toBe("100");
@@ -654,6 +796,7 @@ describe("keys route", () => {
 		expect(json.apiKey.currentPeriodUsage).toBe("0");
 		expect(json.apiKey.currentPeriodStartedAt).toBeNull();
 		expect(json.apiKey.currentPeriodResetAt).toBeNull();
+		expect(json.apiKey.tokenHash).toBeUndefined();
 
 		const apiKey = await db.query.apiKey.findFirst({
 			where: {
@@ -666,6 +809,8 @@ describe("keys route", () => {
 		expect(apiKey?.periodUsageLimit).toBe("5");
 		expect(apiKey?.periodUsageDurationValue).toBe(2);
 		expect(apiKey?.periodUsageDurationUnit).toBe("day");
+		expect(apiKey?.token).toBeNull();
+		expect(apiKey?.tokenHash).toBe(getApiKeyFingerprint(json.apiKey.token));
 	});
 
 	test("POST /keys/api rejects a limit above the member budget", async () => {
@@ -817,6 +962,7 @@ describe("keys route", () => {
 		expect(json.apiKey.currentPeriodUsage).toBe("0");
 		expect(json.apiKey.currentPeriodStartedAt).toBeNull();
 		expect(json.apiKey.currentPeriodResetAt).toBeNull();
+		expect(json.apiKey.tokenHash).toBeUndefined();
 
 		const apiKey = await db.query.apiKey.findFirst({
 			where: {

@@ -1,6 +1,6 @@
 import { isUserHighRisk } from "@/lib/account-risk.js";
 
-import { db, shortid, tables } from "@llmgateway/db";
+import { db, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 interface DefaultOrganizationUser {
@@ -121,25 +121,10 @@ export async function getOrCreateDefaultOrganization(
 			role: "owner",
 		});
 
-		const [project] = await tx
-			.insert(tables.project)
-			.values({
-				name: "Default Project",
-				organizationId: organization.id,
-				mode: "hybrid",
-			})
-			.returning();
-
-		const prefix =
-			process.env.NODE_ENV === "development" ? `llmgdev_` : "llmgtwy_";
-		const token = prefix + shortid(40);
-
-		await tx.insert(tables.apiKey).values({
-			projectId: project.id,
-			token,
-			description: "Auto-generated playground key",
-			usageLimit: null,
-			createdBy: user.id,
+		await tx.insert(tables.project).values({
+			name: "Default Project",
+			organizationId: organization.id,
+			mode: "hybrid",
 		});
 
 		if (options.referralOrganizationId) {

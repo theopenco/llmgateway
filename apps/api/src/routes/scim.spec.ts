@@ -3,11 +3,20 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 const SCIM_TOKEN = "scim_test_token_abcdef0123456789";
 const ORG_ID = "scim-test-org";
+const ORIGINAL_HASH_SECRET = process.env.GATEWAY_API_KEY_HASH_SECRET;
+
+function setHashSecret(value: string | undefined) {
+	if (value === undefined) {
+		delete process.env.GATEWAY_API_KEY_HASH_SECRET;
+	} else {
+		process.env.GATEWAY_API_KEY_HASH_SECRET = value;
+	}
+}
 
 function scimHeaders(extra: Record<string, string> = {}) {
 	return {
@@ -48,7 +57,29 @@ describe("scim audit logging", () => {
 	});
 
 	afterEach(async () => {
+		setHashSecret(ORIGINAL_HASH_SECRET);
 		await deleteAll();
+	});
+
+	test("authenticates tokens hashed with a retained secret", async () => {
+		setHashSecret("retained-secret");
+		const retainedHash = getApiKeyFingerprint(SCIM_TOKEN);
+		setHashSecret("current-secret,retained-secret");
+		const token = await db.query.scimToken.findFirst({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		if (!token) {
+			throw new Error("SCIM token was not created");
+		}
+		await db
+			.update(tables.scimToken)
+			.set({ tokenHash: retainedHash })
+			.where(eq(tables.scimToken.id, token.id));
+
+		const response = await app.request("/scim/v2/Users", {
+			headers: scimHeaders(),
+		});
+		expect(response.status).toBe(200);
 	});
 
 	test("POST /Users logs scim.user.provision", async () => {
