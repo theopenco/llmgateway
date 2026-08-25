@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { isMappingDeactivated } from "@/deactivation.js";
+import { getMappingStatus, isMappingDeactivated } from "@/deactivation.js";
 
 import type { ApiModel, ApiModelProviderMapping } from "./api-types";
 
@@ -234,6 +234,20 @@ describe("today's mapping visibility rules (phase 0 baseline)", () => {
 			eligibleOnly: true,
 		});
 		expect(visible.map((m) => m.providerId)).toEqual(["healthy"]);
+	});
+});
+
+describe("getMappingStatus classification of the baseline fixtures", () => {
+	test("classifies each phase-0 fixture exactly once", () => {
+		expect(getMappingStatus(healthy, NOW)).toBe("active");
+		expect(getMappingStatus(scheduledSoon, NOW)).toBe("scheduled");
+		// 91 days out is beyond the directory's 90-day notice window.
+		expect(getMappingStatus(scheduledFar, NOW)).toBe("active");
+		expect(getMappingStatus(deactivated, NOW)).toBe("deactivated");
+		expect(getMappingStatus(deactivatedBoundary, NOW)).toBe("deactivated");
+		expect(getMappingStatus(deprecatedPast, NOW)).toBe("deprecated");
+		expect(getMappingStatus(deprecatedFuture, NOW)).toBe("deprecated");
+		expect(getMappingStatus(deprecatedThenScheduled, NOW)).toBe("scheduled");
 	});
 });
 

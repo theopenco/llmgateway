@@ -56,3 +56,34 @@ export function shouldShowDeactivationNotice(
 		isDeactivationScheduledSoon(mapping, now, withinDays)
 	);
 }
+
+/**
+ * The single retirement status a mapping can be in. Exactly one applies,
+ * resolved by urgency: deactivated beats scheduled beats deprecated — a
+ * mapping that is both deprecated and scheduled-to-die counts as scheduled.
+ * Far-future deactivations (beyond the directory's notice window) stay
+ * "active" so the directory never nags about models dying next year.
+ */
+export type ModelMappingStatus =
+	"active" | "scheduled" | "deprecated" | "deactivated";
+
+export function getMappingStatus(
+	mapping: {
+		deactivatedAt?: Date | string | null;
+		deprecatedAt?: Date | string | null;
+	},
+	now: Date = new Date(),
+): ModelMappingStatus {
+	if (isMappingDeactivated(mapping, now)) {
+		return "deactivated";
+	}
+	if (
+		isDeactivationScheduledSoon(mapping, now, MODEL_DEACTIVATION_NOTICE_DAYS)
+	) {
+		return "scheduled";
+	}
+	if (mapping.deprecatedAt) {
+		return "deprecated";
+	}
+	return "active";
+}
