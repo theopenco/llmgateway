@@ -3629,29 +3629,6 @@ export const modelProviderMappingUsageHistory = pgTable(
 			table.minuteTimestamp,
 			table.usedMode,
 		),
-		index("mpm_usage_history_mode_ts_model_idx").on(
-			table.usedMode,
-			table.minuteTimestamp,
-			table.modelId,
-		),
-		index("mpm_usage_history_mapping_mode_ts_idx").on(
-			table.modelProviderMappingId,
-			table.usedMode,
-			table.minuteTimestamp,
-		),
-		index("mpm_usage_history_provider_stats_idx").on(
-			table.usedMode,
-			table.minuteTimestamp,
-			table.providerId,
-			table.logsCount,
-			table.errorsCount,
-			table.clientErrorsCount,
-			table.cachedCount,
-			table.totalTimeToFirstToken,
-			table.timeToFirstTokenCount,
-			table.totalOutputTokens,
-			table.totalDuration,
-		),
 	],
 );
 
@@ -3674,16 +3651,6 @@ export const modelUsageHistory = pgTable(
 			table.modelId,
 			table.minuteTimestamp,
 			table.usedMode,
-		),
-		index("model_usage_history_mode_ts_model_idx").on(
-			table.usedMode,
-			table.minuteTimestamp,
-			table.modelId,
-		),
-		index("model_usage_history_model_mode_ts_idx").on(
-			table.modelId,
-			table.usedMode,
-			table.minuteTimestamp,
 		),
 	],
 );
@@ -3710,29 +3677,6 @@ export const modelProviderMappingUsageHistoryHourly = pgTable(
 			table.hourTimestamp,
 			table.usedMode,
 		),
-		index("mpm_usage_history_hourly_mode_ts_model_idx").on(
-			table.usedMode,
-			table.hourTimestamp,
-			table.modelId,
-		),
-		index("mpm_usage_history_hourly_mapping_mode_ts_idx").on(
-			table.modelProviderMappingId,
-			table.usedMode,
-			table.hourTimestamp,
-		),
-		index("mpm_usage_history_hourly_provider_stats_idx").on(
-			table.usedMode,
-			table.hourTimestamp,
-			table.providerId,
-			table.logsCount,
-			table.errorsCount,
-			table.clientErrorsCount,
-			table.cachedCount,
-			table.totalTimeToFirstToken,
-			table.timeToFirstTokenCount,
-			table.totalOutputTokens,
-			table.totalDuration,
-		),
 	],
 );
 
@@ -3755,16 +3699,6 @@ export const modelUsageHistoryHourly = pgTable(
 			table.modelId,
 			table.hourTimestamp,
 			table.usedMode,
-		),
-		index("model_usage_history_hourly_mode_ts_model_idx").on(
-			table.usedMode,
-			table.hourTimestamp,
-			table.modelId,
-		),
-		index("model_usage_history_hourly_model_mode_ts_idx").on(
-			table.modelId,
-			table.usedMode,
-			table.hourTimestamp,
 		),
 	],
 );
