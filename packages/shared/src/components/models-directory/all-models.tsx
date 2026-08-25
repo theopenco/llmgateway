@@ -2145,7 +2145,7 @@ export function AllModels({
 						)}
 
 						<div className="font-medium text-sm">Status</div>
-						<div className="flex flex-wrap gap-2">
+						<div className="flex flex-col gap-1.5">
 							<Toggle
 								variant="outline"
 								size="sm"
@@ -2153,7 +2153,7 @@ export function AllModels({
 								onPressedChange={(pressed) => {
 									setStatusFilter(pressed ? "deactivated" : null);
 								}}
-								className="gap-1.5"
+								className="w-full justify-start gap-1.5"
 							>
 								<AlertCircle className="h-3.5 w-3.5 text-red-500" />
 								<span className="text-xs">Deactivated</span>
@@ -2165,7 +2165,7 @@ export function AllModels({
 								onPressedChange={(pressed) => {
 									setStatusFilter(pressed ? "scheduled" : null);
 								}}
-								className="gap-1.5"
+								className="w-full justify-start gap-1.5"
 							>
 								<Clock className="h-3.5 w-3.5 text-amber-500" />
 								<span className="text-xs">Scheduled</span>
@@ -2177,7 +2177,7 @@ export function AllModels({
 								onPressedChange={(pressed) => {
 									setStatusFilter(pressed ? "deprecated" : null);
 								}}
-								className="gap-1.5"
+								className="w-full justify-start gap-1.5"
 							>
 								<AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
 								<span className="text-xs">Deprecated</span>
@@ -2189,7 +2189,7 @@ export function AllModels({
 								onPressedChange={(pressed) => {
 									setStatusFilter(pressed ? "active" : null);
 								}}
-								className="gap-1.5"
+								className="w-full justify-start gap-1.5"
 							>
 								<Check className="h-3.5 w-3.5 text-green-500" />
 								<span className="text-xs">Active</span>
