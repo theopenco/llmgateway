@@ -1695,6 +1695,13 @@
       "when": 1787668425275,
       "tag": "1787668425_crazy_freak",
       "breakpoints": true
+    },
+    {
+      "idx": 242,
+      "version": "8",
+      "when": 1787671884537,
+      "tag": "1787671884_yielding_power_man",
+      "breakpoints": true
     }
   ]
 }
