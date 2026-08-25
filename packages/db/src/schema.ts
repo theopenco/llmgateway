@@ -1263,7 +1263,8 @@ export const endUserSession = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
-		// Legacy plaintext column. New sessions store only tokenHash.
+		// Legacy plaintext column. New sessions store only tokenHash; backfilled
+		// rows retain plaintext during the staged rollout.
 		token: text().unique(),
 		tokenHash: text().unique(),
 		status: text({
@@ -1299,10 +1300,6 @@ export const endUserSession = pgTable(
 		currentPeriodStartedAt: timestamp(),
 	},
 	(table) => [
-		check(
-			"end_user_session_token_xor",
-			sql`(${table.token} IS NULL) <> (${table.tokenHash} IS NULL)`,
-		),
 		index("end_user_session_project_id_idx").on(table.projectId),
 		index("end_user_session_wallet_id_idx").on(table.walletId),
 		index("end_user_session_status_expires_at_idx").on(
@@ -1451,8 +1448,8 @@ export const apiKey = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
-		// Legacy plaintext column. New writes store only tokenHash + tokenMasked.
-		// Existing rows remain valid until their secret is rolled.
+		// Legacy plaintext column. New writes store only tokenHash + tokenMasked;
+		// backfilled rows retain plaintext during the staged rollout.
 		token: text().unique(),
 		tokenHash: text().unique(),
 		tokenMasked: text(),
@@ -1503,10 +1500,6 @@ export const apiKey = pgTable(
 			.references(() => user.id, { onDelete: "cascade" }),
 	},
 	(table) => [
-		check(
-			"api_key_token_xor",
-			sql`(${table.token} IS NULL) <> (${table.tokenHash} IS NULL)`,
-		),
 		index("api_key_project_id_idx").on(table.projectId),
 		index("api_key_created_by_idx").on(table.createdBy),
 		index("api_key_key_type_expires_at_idx").on(table.keyType, table.expiresAt),

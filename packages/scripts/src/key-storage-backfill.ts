@@ -1,5 +1,10 @@
 /* eslint-disable no-console */
 
+import {
+	hashApiKeyForStorage,
+	hashTokenForStorage,
+} from "@llmgateway/shared/api-key-hash";
+
 const HASH_SECRET_ENV = "GATEWAY_API_KEY_HASH_SECRET";
 const DEFAULT_BATCH_SIZE = 100;
 const MAX_BATCH_SIZE = 1000;
@@ -11,6 +16,16 @@ export function isRetrievableApiKeyType(keyType: string): boolean {
 	return RETRIEVABLE_API_KEY_TYPES.some(
 		(retrievableType) => retrievableType === keyType,
 	);
+}
+
+/** Add hash storage without removing the legacy plaintext during rollout. */
+export function hashApiKeyForBackfill(token: string) {
+	return { ...hashApiKeyForStorage(token), token } as const;
+}
+
+/** Add a session fingerprint while retaining its legacy plaintext token. */
+export function hashTokenForBackfill(token: string) {
+	return { ...hashTokenForStorage(token), token } as const;
 }
 
 export interface KeyStorageBackfillOptions {

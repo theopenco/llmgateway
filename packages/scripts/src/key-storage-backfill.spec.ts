@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
 	describeDatabaseTarget,
+	hashApiKeyForBackfill,
+	hashTokenForBackfill,
 	isRetrievableApiKeyType,
 	parseKeyStorageBackfillOptions,
 	RETRIEVABLE_API_KEY_TYPES,
@@ -98,6 +100,23 @@ describe("API key type policy", () => {
 		expect(
 			RETRIEVABLE_API_KEY_TYPES.every(isRetrievableApiKeyType),
 		).toBe(true);
+	});
+});
+
+describe("staged hash backfill", () => {
+	it("retains API key plaintext while adding hash storage", () => {
+		const values = hashApiKeyForBackfill("llmgtwy_legacy-token");
+
+		expect(values.token).toBe("llmgtwy_legacy-token");
+		expect(values.tokenHash).toHaveLength(64);
+		expect(values.tokenMasked).not.toBe("llmgtwy_legacy-token");
+	});
+
+	it("retains session plaintext while adding its fingerprint", () => {
+		const values = hashTokenForBackfill("es_legacy-token");
+
+		expect(values.token).toBe("es_legacy-token");
+		expect(values.tokenHash).toHaveLength(64);
 	});
 });
 

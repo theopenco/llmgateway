@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "1445ca60-96a0-4877-99c3-ab7a351cc881",
+  "id": "a3294493-8581-4af9-86ac-9daedae96152",
   "prevId": "e794d54a-ba0a-44bc-b255-e03c556674b7",
   "ddl": [
     {
@@ -32705,13 +32705,6 @@
       "entityType": "uniques"
     },
     {
-      "value": "(\"token\" IS NULL) <> (\"token_hash\" IS NULL)",
-      "name": "api_key_token_xor",
-      "entityType": "checks",
-      "schema": "public",
-      "table": "api_key"
-    },
-    {
       "value": "\"rating\" IS NULL OR (\"rating\" >= 0 AND \"rating\" <= 5)",
       "name": "chat_support_conversation_rating_check",
       "entityType": "checks",
@@ -32724,13 +32717,6 @@
       "entityType": "checks",
       "schema": "public",
       "table": "chat_support_message"
-    },
-    {
-      "value": "(\"token\" IS NULL) <> (\"token_hash\" IS NULL)",
-      "name": "end_user_session_token_xor",
-      "entityType": "checks",
-      "schema": "public",
-      "table": "end_user_session"
     },
     {
       "value": "\"deployment\" IS NULL OR \"deployment\" IN ('self_host', 'cloud', 'not_sure')",

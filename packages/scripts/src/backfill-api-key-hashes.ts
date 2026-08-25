@@ -1,8 +1,8 @@
 /* eslint-disable no-console */
 /**
- * Replace legacy plaintext gateway API keys and embeddable session tokens with
- * their hash-only storage form. Existing mixed deployments remain compatible
- * while this script runs.
+ * Add fingerprints and display masks to legacy plaintext gateway API keys and
+ * embeddable session tokens. Plaintext remains populated during the staged
+ * rollout so the backfill is reversible.
  *
  * Usage:
  *   pnpm --filter @llmgateway/scripts backfill-api-key-hashes
@@ -27,11 +27,8 @@ import {
 	tables,
 } from "@llmgateway/db";
 import {
-	hashApiKeyForStorage,
-	hashTokenForStorage,
-} from "@llmgateway/shared/api-key-hash";
-
-import {
+	hashApiKeyForBackfill,
+	hashTokenForBackfill,
 	parseKeyStorageBackfillOptions,
 	printKeyStorageBackfillHeader,
 	RETRIEVABLE_API_KEY_TYPES,
@@ -95,7 +92,7 @@ async function main(): Promise<void> {
 			const updated = await db
 				.update(tables.apiKey)
 				.set({
-					...hashApiKeyForStorage(row.token),
+					...hashApiKeyForBackfill(row.token),
 					updatedAt: row.updatedAt,
 				})
 				.where(
@@ -142,7 +139,7 @@ async function main(): Promise<void> {
 			const updated = await db
 				.update(tables.endUserSession)
 				.set({
-					...hashTokenForStorage(row.token),
+					...hashTokenForBackfill(row.token),
 					updatedAt: row.updatedAt,
 				})
 				.where(
