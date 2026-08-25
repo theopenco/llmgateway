@@ -412,6 +412,54 @@ describe("GET /v1/master/usage", () => {
 		});
 	});
 
+	test("reports playground usage under its stable api key id", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "playground-key",
+			token: "playground-token",
+			projectId: "project-1-id",
+			description: "Playground",
+			kind: "playground",
+			createdBy: "test-user-id",
+		});
+		await db.insert(apiKeyHourlyModelStats).values(
+			statsRow({
+				id: "stat-playground",
+				apiKeyId: "playground-key",
+				projectId: "project-1-id",
+				hour: "2026-03-01T10:00:00.000Z",
+				usedModel: "gpt-5.6",
+				usedProvider: "openai",
+				requestCount: 6,
+				cost: 8,
+				totalTokens: 80,
+			}),
+		);
+
+		const body = await fetchJson("granularity=total&groupBy=apiKey");
+		const playgroundRows = body.rows.filter(
+			(row) => row.apiKeyId === "playground-key",
+		);
+
+		expect(playgroundRows).toHaveLength(1);
+		expect(playgroundRows[0]).toMatchObject({
+			apiKeyId: "playground-key",
+			apiKeyName: "Playground",
+			requestCount: 6,
+			cost: 8,
+		});
+
+		const filtered = await fetchJson(
+			"granularity=total&groupBy=apiKey&apiKeyId=playground-key",
+		);
+		expect(filtered.rows).toHaveLength(1);
+		expect(filtered.rows[0]).toMatchObject({
+			apiKeyId: "playground-key",
+			apiKeyName: "Playground",
+			requestCount: 6,
+			cost: 8,
+		});
+	});
+
 	test("labels projects when grouping by project", async () => {
 		const body = await fetchJson("granularity=total&groupBy=project");
 		const byProject = indexBy(body.rows, (row) => row.projectId!);

@@ -60,6 +60,10 @@
 			"import": "./dist/lounge-source.js",
 			"default": "./dist/lounge-source.js"
 		},
+		"./gateway-url": {
+			"types": "./dist/gateway-url.d.ts",
+			"import": "./dist/gateway-url.js"
+		},
 		"./sandbox-escape": {
 			"types": "./dist/sandbox-escape.d.ts",
 			"import": "./dist/sandbox-escape.js",

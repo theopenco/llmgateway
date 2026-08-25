@@ -5,6 +5,7 @@ import { z } from "zod";
 import { endUserSessionAuth } from "@/lib/end-user-session-auth.js";
 
 import { db, eq, shortid, tables } from "@llmgateway/db";
+import { hashTokenForStorage } from "@llmgateway/shared/api-key-hash";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -62,7 +63,7 @@ platformSessionRefresh.openapi(refresh, async (c) => {
 		const [created] = await tx
 			.insert(tables.endUserSession)
 			.values({
-				token,
+				...hashTokenForStorage(token),
 				projectId: oldSession.projectId,
 				organizationId: oldSession.organizationId,
 				endCustomerId: oldSession.endCustomerId,

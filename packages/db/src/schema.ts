@@ -1263,7 +1263,10 @@ export const endUserSession = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
-		token: text().notNull().unique(),
+		// Legacy plaintext column. New sessions store only tokenHash; backfilled
+		// rows retain plaintext during the staged rollout.
+		token: text().unique(),
+		tokenHash: text().unique(),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		})
@@ -1445,14 +1448,19 @@ export const apiKey = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
-		token: text().notNull().unique(),
+		// Legacy plaintext column. New writes store only tokenHash + tokenMasked;
+		// backfilled rows retain plaintext during the staged rollout.
+		token: text().unique(),
+		tokenHash: text().unique(),
+		tokenMasked: text(),
 		description: text().notNull(),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
 		// Discriminates normal developer keys from embeddable-SDK principals.
-		// `platform_secret`/`platform_publishable` are long-lived keys on a hidden
-		// per-org project. `end_user_customer` is a hidden per-customer aggregate
+		// `platform_secret` is a long-lived secret on a hidden per-org project.
+		// `platform_publishable` is an intentionally public browser identifier and
+		// remains retrievable. `end_user_customer` is a hidden per-customer aggregate
 		// key used as the stable log/api-key stats principal for browser sessions.
 		keyType: text({
 			enum: [
@@ -1464,6 +1472,10 @@ export const apiKey = pgTable(
 		})
 			.notNull()
 			.default("user"),
+		// Separates user-managed keys from automatically managed playground keys.
+		kind: text({ enum: ["regular", "playground"] })
+			.notNull()
+			.default("regular"),
 		// Browser-session wallet binding now lives on end_user_session.wallet_id.
 		endCustomerWalletId: text().references(() => wallet.id, {
 			onDelete: "cascade",

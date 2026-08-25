@@ -1,25 +1,156 @@
-import { getCookie } from "hono/cookie";
+import { getCookie, setCookie } from "hono/cookie";
 
 import { getOrCreateChatOrg } from "@/utils/personal-org.js";
 
-import { db, tables, shortid } from "@llmgateway/db";
+import { and, asc, cdb, db, eq, sql, tables, shortid } from "@llmgateway/db";
+import {
+	PLAYGROUND_KEY_COOKIE_MAX_AGE,
+	PLAYGROUND_KEY_COOKIE_NAME,
+} from "@llmgateway/shared";
+import {
+	getApiKeyFingerprints,
+	hashApiKeyForStorage,
+} from "@llmgateway/shared/api-key-hash";
+import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 
 import type { ServerTypes } from "@/vars.js";
 import type { Context } from "hono";
 
-export const PLAYGROUND_KEY_COOKIE_NAME = "llmgateway_playground_key";
+export { PLAYGROUND_KEY_COOKIE_MAX_AGE, PLAYGROUND_KEY_COOKIE_NAME };
+
+export const PLAYGROUND_KEY_DESCRIPTION = "Playground";
+const PLAYGROUND_KEY_TTL_MS = PLAYGROUND_KEY_COOKIE_MAX_AGE * 1000;
+
+interface PlaygroundApiKeyResult {
+	token: string;
+	issued: boolean;
+	cookieNeedsRefresh: boolean;
+	cookieMaxAge: number;
+}
+
+export async function getOrCreatePlaygroundApiKey(
+	projectId: string,
+	userId: string,
+	existingToken?: string,
+): Promise<PlaygroundApiKeyResult> {
+	return await cdb.transaction(async (tx) => {
+		await tx.execute(
+			sql`SELECT ${tables.project.id} FROM ${tables.project} WHERE ${tables.project.id} = ${projectId} FOR UPDATE`,
+		);
+
+		const [key] = await tx
+			.select()
+			.from(tables.apiKey)
+			.where(
+				and(
+					eq(tables.apiKey.projectId, projectId),
+					eq(tables.apiKey.status, "active"),
+					eq(tables.apiKey.keyType, "user"),
+					eq(tables.apiKey.kind, "playground"),
+				),
+			)
+			.orderBy(asc(tables.apiKey.createdAt))
+			.limit(1);
+
+		const now = Date.now();
+		const tokenMatches =
+			key &&
+			existingToken &&
+			(key.token === existingToken ||
+				(key.tokenHash !== null &&
+					getApiKeyFingerprints(existingToken).includes(key.tokenHash)));
+
+		if (
+			key &&
+			existingToken &&
+			tokenMatches &&
+			(!key.expiresAt || key.expiresAt.getTime() > now)
+		) {
+			const isLegacyKey = key.token !== null;
+			const expiresAt = key.expiresAt ?? new Date(now + PLAYGROUND_KEY_TTL_MS);
+			const shouldUpdate =
+				isLegacyKey ||
+				!key.expiresAt ||
+				key.description !== PLAYGROUND_KEY_DESCRIPTION;
+
+			if (shouldUpdate) {
+				await tx
+					.update(tables.apiKey)
+					.set({
+						...(isLegacyKey ? hashApiKeyForStorage(existingToken) : {}),
+						description: PLAYGROUND_KEY_DESCRIPTION,
+						expiresAt,
+					})
+					.where(eq(tables.apiKey.id, key.id));
+			}
+
+			return {
+				token: existingToken,
+				issued: false,
+				cookieNeedsRefresh: isLegacyKey || !key.expiresAt,
+				cookieMaxAge: Math.max(
+					1,
+					Math.min(
+						PLAYGROUND_KEY_COOKIE_MAX_AGE,
+						Math.floor((expiresAt.getTime() - now) / 1000),
+					),
+				),
+			};
+		}
+
+		const prefix =
+			process.env.NODE_ENV === "development" ? "llmgdev_" : "llmgtwy_";
+		const token = prefix + shortid(40);
+		const expiresAt = new Date(now + PLAYGROUND_KEY_TTL_MS);
+
+		if (key) {
+			await tx
+				.update(tables.apiKey)
+				.set({
+					...hashApiKeyForStorage(token),
+					description: PLAYGROUND_KEY_DESCRIPTION,
+					expiresAt,
+				})
+				.where(eq(tables.apiKey.id, key.id));
+		} else {
+			await tx.insert(tables.apiKey).values({
+				...hashApiKeyForStorage(token),
+				projectId,
+				description: PLAYGROUND_KEY_DESCRIPTION,
+				kind: "playground",
+				expiresAt,
+				usageLimit: null,
+				createdBy: userId,
+			});
+		}
+
+		return {
+			token,
+			issued: true,
+			cookieNeedsRefresh: true,
+			cookieMaxAge: PLAYGROUND_KEY_COOKIE_MAX_AGE,
+		};
+	});
+}
+
+export function setPlaygroundKeyCookie(
+	c: Context<ServerTypes>,
+	token: string,
+	maxAge: number,
+): void {
+	const options = {
+		httpOnly: true,
+		secure: process.env.NODE_ENV === "production",
+		sameSite: "Lax",
+		path: "/",
+		maxAge,
+	} as const;
+
+	setCookie(c, PLAYGROUND_KEY_COOKIE_NAME, token, options);
+}
 
 export function getGatewayUrl() {
-	const configured = process.env.GATEWAY_URL?.trim();
-	if (configured) {
-		// GATEWAY_URL is set both with and without the `/v1` suffix depending on
-		// the environment (the frontends strip it off, every caller of this
-		// helper appends `/v1` paths), so normalize to exactly one `/v1`.
-		return `${configured.replace(/\/+$/, "").replace(/(\/v1)+$/, "")}/v1`;
-	}
-	return process.env.NODE_ENV === "development"
-		? "http://localhost:4001/v1"
-		: "https://api.llmgateway.io/v1";
+	return getGatewayApiBaseUrl();
 }
 
 interface PlaygroundKeyUser {
@@ -34,11 +165,6 @@ export async function resolvePlaygroundToken(
 	c: Context<ServerTypes>,
 	user: PlaygroundKeyUser,
 ): Promise<string> {
-	const cookieToken = getCookie(c, PLAYGROUND_KEY_COOKIE_NAME);
-	if (cookieToken) {
-		return cookieToken;
-	}
-
 	const chatOrg = await getOrCreateChatOrg(user);
 	let project = await db.query.project.findFirst({
 		where: {
@@ -56,25 +182,13 @@ export async function resolvePlaygroundToken(
 			})
 			.returning();
 	}
-	let key = await db.query.apiKey.findFirst({
-		where: {
-			projectId: { eq: project.id },
-			status: { eq: "active" },
-		},
-	});
-	if (!key) {
-		const prefix =
-			process.env.NODE_ENV === "development" ? "llmgdev_" : "llmgtwy_";
-		[key] = await db
-			.insert(tables.apiKey)
-			.values({
-				token: prefix + shortid(40),
-				projectId: project.id,
-				description: "Auto-generated playground key",
-				usageLimit: null,
-				createdBy: user.id,
-			})
-			.returning();
+	const result = await getOrCreatePlaygroundApiKey(
+		project.id,
+		user.id,
+		getCookie(c, PLAYGROUND_KEY_COOKIE_NAME),
+	);
+	if (result.cookieNeedsRefresh) {
+		setPlaygroundKeyCookie(c, result.token, result.cookieMaxAge);
 	}
-	return key.token;
+	return result.token;
 }

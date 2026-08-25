@@ -130,7 +130,7 @@ Check that `openai_base_url` is set to `https://api.llmgateway.io/v1` (note the 
 ## Get Started
 
 1. [Sign up free](https://llmgateway.io/signup) — no credit card required
-2. Copy your API key from the dashboard
+2. Create or roll an API key in the dashboard and copy the newly shown secret
 3. Run `codex logout` to clear any existing ChatGPT session
 4. Create the config file above
 5. Run `codex`, select **Provide your own API key** when prompted, and paste your LLM Gateway key

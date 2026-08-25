@@ -109,6 +109,7 @@ export {
 
 export {
 	buildGatewayVideoLogContentUrl,
+	getGatewayApiBaseUrl,
 	getGatewayPublicBaseUrl,
 } from "./gateway-url.js";
 
@@ -318,6 +319,11 @@ export {
 } from "./url-safety.js";
 
 export { parseUsedModel, regionFromUsedModel } from "./used-model.js";
+
+export {
+	PLAYGROUND_KEY_COOKIE_MAX_AGE,
+	PLAYGROUND_KEY_COOKIE_NAME,
+} from "./playground-key-cookie.js";
 
 export {
 	baseLimitEnvVar,

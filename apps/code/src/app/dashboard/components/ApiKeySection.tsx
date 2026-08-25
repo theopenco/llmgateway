@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 
 interface ApiKeySectionProps {
 	apiKey: string;
+	isRevealable: boolean;
 	uiUrl: string;
 	onRotate: () => void | Promise<void>;
 	isRotating: boolean;
@@ -25,6 +26,7 @@ interface ApiKeySectionProps {
 
 export default function ApiKeySection({
 	apiKey,
+	isRevealable,
 	uiUrl,
 	onRotate,
 	isRotating,
@@ -33,6 +35,9 @@ export default function ApiKeySection({
 	const [confirmingRotate, setConfirmingRotate] = useState(false);
 
 	const copy = async () => {
+		if (!isRevealable) {
+			return;
+		}
 		await navigator.clipboard.writeText(apiKey);
 		toast.success("Copied to clipboard");
 	};
@@ -44,6 +49,7 @@ export default function ApiKeySection({
 			return;
 		}
 		setConfirmingRotate(false);
+		setVisible(false);
 		await onRotate();
 	};
 
@@ -55,29 +61,32 @@ export default function ApiKeySection({
 			</div>
 			<div className="flex gap-2">
 				<Input
-					type={visible ? "text" : "password"}
+					type={isRevealable && !visible ? "password" : "text"}
 					value={apiKey}
 					readOnly
 					className="font-mono text-sm h-9"
 				/>
-				<Button
-					variant="outline"
-					size="icon"
-					className="h-9 w-9 shrink-0"
-					onClick={() => setVisible(!visible)}
-					title={visible ? "Hide" : "Reveal"}
-				>
-					{visible ? (
-						<EyeOff className="h-3.5 w-3.5" />
-					) : (
-						<Eye className="h-3.5 w-3.5" />
-					)}
-				</Button>
+				{isRevealable && (
+					<Button
+						variant="outline"
+						size="icon"
+						className="h-9 w-9 shrink-0"
+						onClick={() => setVisible(!visible)}
+						title={visible ? "Hide" : "Reveal"}
+					>
+						{visible ? (
+							<EyeOff className="h-3.5 w-3.5" />
+						) : (
+							<Eye className="h-3.5 w-3.5" />
+						)}
+					</Button>
+				)}
 				<Button
 					variant="outline"
 					size="icon"
 					className="h-9 w-9 shrink-0"
 					onClick={copy}
+					disabled={!isRevealable}
 					title="Copy"
 				>
 					<Copy className="h-3.5 w-3.5" />
@@ -103,6 +112,12 @@ export default function ApiKeySection({
 					)}
 				</Button>
 			</div>
+			{!isRevealable && (
+				<p className="text-xs text-muted-foreground">
+					The secret is only shown once. Rotate the key to generate and reveal a
+					new one.
+				</p>
+			)}
 			{confirmingRotate && !isRotating && (
 				<p className="text-xs text-amber-600 dark:text-amber-400">
 					Click rotate again to confirm. The current key will stop working

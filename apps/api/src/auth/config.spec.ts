@@ -195,6 +195,9 @@ describe("API auth hooks functionality", () => {
 
 		expect(project).not.toBeNull();
 		expect(project?.name).toBe("Default Project");
+		expect(
+			await db.$count(tables.apiKey, eq(tables.apiKey.projectId, project!.id)),
+		).toBe(0);
 	});
 
 	test("should create personal organization for DevPass (code app) signup", async () => {

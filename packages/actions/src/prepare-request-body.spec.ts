@@ -6858,6 +6858,30 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 	});
 
 	describe("together-ai", () => {
+		test("requests usage details for streams", async () => {
+			const requestBody = (await prepareRequestBody(
+				"together-ai",
+				"kimi-k3",
+				null,
+				"moonshotai/Kimi-K3",
+				[{ role: "user", content: "Hello!" }],
+				true,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				true,
+				false,
+			)) as { stream_options?: { include_usage: boolean } };
+
+			expect(requestBody.stream_options).toEqual({ include_usage: true });
+		});
+
 		test("forwards caller-supplied max_tokens verbatim", async () => {
 			const requestBody = (await prepareRequestBody(
 				"together-ai",

@@ -59,7 +59,7 @@ const revenueViews = {
 	credits: {
 		label: "Credits Net",
 		description:
-			"Cumulative processed, revenue (after fees), and net (after fees & refunds) for credit purchases",
+			"Cumulative processed, revenue (after the platform fee), and net (after the platform fee & refunded credits) for credit purchases",
 		dailyLabel: "Net gain",
 		lines: ["processed", "revenue", "net"],
 	},

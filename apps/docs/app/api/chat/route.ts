@@ -12,6 +12,7 @@ import { source } from "@/lib/source";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { getClientIpFromHeaders } from "@llmgateway/shared/client-ip";
+import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -210,7 +211,7 @@ export async function POST(req: Request) {
 
 	const llmgateway = createLLMGateway({
 		apiKey,
-		baseURL: process.env.GATEWAY_URL ?? "https://api.llmgateway.io/v1",
+		baseURL: getGatewayApiBaseUrl(),
 		headers: {
 			"x-source": "docs-ask-ai",
 		},

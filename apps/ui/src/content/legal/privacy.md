@@ -1,7 +1,7 @@
 ---
 id: "2"
 slug: "privacy"
-date: "2026-06-11"
+date: "2026-08-20"
 title: "Privacy Policy"
 description: "Read LLM Gateway’s Privacy Policy to understand how we collect, use, share, and protect your data, our roles as controller and processor, AI provider routing, your GDPR and CCPA rights, data retention, and international transfers."
 ---
@@ -9,7 +9,7 @@ description: "Read LLM Gateway’s Privacy Policy to understand how we collect, 
 # Privacy Policy
 
 **Effective Date:** October 21, 2025  
-**Last Updated:** June 11, 2026
+**Last Updated:** August 20, 2026
 
 LLM Gateway (“we”, “our”, or “us”) provides a unified AI gateway platform that enables users to connect, manage, and analyze AI models across multiple providers. This Privacy Policy explains how we collect, use, share, and protect personal information when you use our website, APIs, SDKs, dashboards, and related services (collectively, the “Service”).
 
@@ -130,6 +130,9 @@ Where we retain billing records after account deletion, we restrict processing o
 We implement industry-standard technical and organizational measures to protect personal data, including:
 
 - HTTPS and encryption in transit
+- Encryption at rest for stored provider credentials, and keyed one-way hashes
+  for new and rotated gateway API key secrets; authentication compares hashes
+  instead of recovering those secrets
 - Access controls and authentication for sensitive data
 - Regular security reviews and monitoring
 

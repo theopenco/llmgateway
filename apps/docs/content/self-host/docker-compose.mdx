@@ -144,12 +144,24 @@ Video generation pins the credential that created a job onto the job itself, so
 polling and content retrieval hours later go back through the same credential
 rather than re-selecting one.
 
-Credential tokens are encrypted at rest with AES-256-GCM. The key is derived
-from `GATEWAY_API_KEY_HASH_SECRET`, so there is no extra variable to set — but
-that secret now protects stored provider credentials as well as API-key hashes.
-Give it a strong random value on every service (`openssl rand -base64 32`).
-Rotating it makes existing credentials undecryptable, so re-enter each
-credential after a rotation.
+Provider credential tokens are encrypted at rest with AES-256-GCM because the
+gateway must recover them for upstream requests. New and rolled gateway API
+keys are stored only as keyed HMAC-SHA-256 fingerprints; incoming secrets are
+fingerprinted and compared during authentication. Both protections derive from
+`GATEWAY_API_KEY_HASH_SECRET`, so there is no extra variable to set. Give it a
+strong random value (`openssl rand -base64 32`) and configure that same value
+on every service.
+
+For rotation, prepend the same new secret to the comma-separated keyring on
+every service and retain the old entries while credentials and hashes still use
+them. Authentication checks every retained entry, while new hashes use the
+first entry. Removing an old entry makes its provider credentials undecryptable
+and its remaining hashes unusable.
+
+When upgrading from a release that stored gateway API keys as plaintext, update
+the gateway first and wait for it to become healthy before updating the API.
+The compatible gateway accepts both legacy plaintext keys and new hash-only
+keys; reversing that order can briefly reject keys created during the rollout.
 
 ## Multiple API keys and load balancing
 
