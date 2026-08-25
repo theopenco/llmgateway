@@ -74,7 +74,6 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
-	isMappingDeactivated,
 	isModelMappingStatus,
 	shouldShowDeactivationNotice,
 	type ModelMappingStatus,
@@ -86,6 +85,7 @@ import { matchesCapability } from "./capability-filters";
 import { formatDeprecationDate, formatPerImagePriceRange } from "./format";
 import { ModelCard } from "./model-card";
 import { applyCategoryFilter } from "./model-category-filters";
+import { isVisibleMapping } from "./status-filters";
 import {
 	applyUseCaseFilter,
 	isUseCaseCategory,
@@ -945,19 +945,30 @@ export function AllModels({
 
 		// Count models that have at least one visible mapping
 		const visibleModelCount = models.filter((model) =>
-			model.mappings.some((mapping) => {
-				if (mapping.deprecatedAt && new Date(mapping.deprecatedAt) <= now) {
-					return false;
-				}
-				return filters.showDeactivated || !isMappingDeactivated(mapping, now);
-			}),
+			model.mappings.some((mapping) =>
+				isVisibleMapping(
+					mapping,
+					{
+						status: filters.status,
+						showDeactivated: filters.showDeactivated,
+						eligibleOnly: filters.eligibleOnly,
+					},
+					now,
+				),
+			),
 		).length;
 
 		return {
 			totalModelCount: visibleModelCount,
 			totalProviderCount: providers.length,
 		};
-	}, [models, providers, filters.showDeactivated]);
+	}, [
+		models,
+		providers,
+		filters.status,
+		filters.showDeactivated,
+		filters.eligibleOnly,
+	]);
 
 	const modelsWithProviders: ModelWithProviders[] = useMemo(() => {
 		const now = new Date();
@@ -974,19 +985,19 @@ export function AllModels({
 			})
 			.map((model) => {
 				// Filter out deprecated provider mappings, plus deactivated ones
-				// unless the visitor opted into seeing them
-				const visibleMappings = model.mappings.filter((mapping) => {
-					if (mapping.deprecatedAt && new Date(mapping.deprecatedAt) <= now) {
-						return false;
-					}
-					if (!filters.showDeactivated && isMappingDeactivated(mapping, now)) {
-						return false;
-					}
-					if (filters.eligibleOnly && mapping.blockedReasons?.length) {
-						return false;
-					}
-					return true;
-				});
+				// unless the visitor opted into seeing them; with a status chip
+				// active only mappings of exactly that status remain
+				const visibleMappings = model.mappings.filter((mapping) =>
+					isVisibleMapping(
+						mapping,
+						{
+							status: filters.status,
+							showDeactivated: filters.showDeactivated,
+							eligibleOnly: filters.eligibleOnly,
+						},
+						now,
+					),
+				);
 
 				return {
 					...model,

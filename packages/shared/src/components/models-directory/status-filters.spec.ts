@@ -2,14 +2,19 @@ import { describe, expect, test } from "vitest";
 
 import { getMappingStatus, isMappingDeactivated } from "@/deactivation.js";
 
+import { isVisibleMapping } from "./status-filters";
+
 import type { ApiModel, ApiModelProviderMapping } from "./api-types";
 
 const NOW = new Date("2026-08-25T00:00:00.000Z");
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-const daysFromNow = (days: number): string =>
-	new Date(NOW.getTime() + days * DAY_MS).toISOString();
+const daysFromNow = (days: number): string => {
+	const offset = days * DAY_MS;
+	return new Date(NOW.getTime() + offset).toISOString();
+};
+
 function makeMapping(
 	overrides: Partial<ApiModelProviderMapping> & { providerId: string },
 ): ApiModelProviderMapping {
@@ -45,13 +50,8 @@ function makeMapping(
 		webSearch: false,
 		webSearchPrice: null,
 		quantization: null,
-		audio: null,
-		document: null,
-		realtime: null,
-		supportedVoices: null,
 		supportedVideoSizes: null,
 		supportedVideoDurationsSeconds: null,
-		supportedVideoDurationsSecondsImageToVideo: null,
 		supportsVideoAudio: null,
 		supportsVideoWithoutAudio: null,
 		perSecondPrice: null,
@@ -78,7 +78,7 @@ function makeModel(id: string, mappings: ApiModelProviderMapping[]): ApiModel {
 		family: "mock",
 		free: false,
 		output: ["text"],
-		imageInputRequired: false,
+		premium: false,
 		stability: "stable",
 		status: "active",
 		mappings,
@@ -248,6 +248,128 @@ describe("getMappingStatus classification of the baseline fixtures", () => {
 		expect(getMappingStatus(deprecatedPast, NOW)).toBe("deprecated");
 		expect(getMappingStatus(deprecatedFuture, NOW)).toBe("deprecated");
 		expect(getMappingStatus(deprecatedThenScheduled, NOW)).toBe("scheduled");
+	});
+});
+
+describe("isVisibleMapping (phase 3 pipeline)", () => {
+	const options = (
+		overrides: Partial<{
+			status: "active" | "scheduled" | "deprecated" | "deactivated" | null;
+			showDeactivated: boolean;
+			eligibleOnly: boolean;
+		}> = {},
+	) => ({
+		status: null,
+		showDeactivated: false,
+		...overrides,
+	});
+
+	test("null status reproduces the phase-0 default rules exactly", () => {
+		const all = [
+			healthy,
+			scheduledSoon,
+			scheduledFar,
+			deactivated,
+			deactivatedBoundary,
+			deprecatedPast,
+			deprecatedFuture,
+			deprecatedThenScheduled,
+		];
+		expect(all.filter((m) => isVisibleMapping(m, options(), NOW))).toEqual(
+			todayVisibleMappings(all, { showDeactivated: false }),
+		);
+	});
+
+	test("null status with legacy show deactivated reproduces the unhide rules", () => {
+		const all = [healthy, deactivated, deprecatedPast, deprecatedThenScheduled];
+		expect(
+			all.filter((m) =>
+				isVisibleMapping(m, options({ showDeactivated: true }), NOW),
+			),
+		).toEqual(todayVisibleMappings(all, { showDeactivated: true }));
+	});
+
+	test("legacy show deactivated overrides a selected status", () => {
+		expect(
+			isVisibleMapping(
+				healthy,
+				options({ status: "deactivated", showDeactivated: true }),
+				NOW,
+			),
+		).toBe(true);
+		expect(
+			isVisibleMapping(
+				deprecatedPast,
+				options({ status: "deactivated", showDeactivated: true }),
+				NOW,
+			),
+		).toBe(false);
+	});
+
+	test("deactivated chip keeps only past-deactivated mappings", () => {
+		const all = [healthy, scheduledSoon, deactivated, deprecatedPast];
+		expect(
+			all
+				.filter((m) =>
+					isVisibleMapping(m, options({ status: "deactivated" }), NOW),
+				)
+				.map((m) => m.providerId),
+		).toEqual(["deactivated"]);
+	});
+
+	test("scheduled chip keeps only in-window scheduled mappings", () => {
+		const all = [healthy, scheduledSoon, scheduledFar, deactivated];
+		expect(
+			all
+				.filter((m) =>
+					isVisibleMapping(m, options({ status: "scheduled" }), NOW),
+				)
+				.map((m) => m.providerId),
+		).toEqual(["scheduled-soon"]);
+	});
+
+	test("deprecated chip reveals past-deprecated mappings", () => {
+		const all = [healthy, deprecatedPast, deprecatedFuture, deactivated];
+		expect(
+			all
+				.filter((m) =>
+					isVisibleMapping(m, options({ status: "deprecated" }), NOW),
+				)
+				.map((m) => m.providerId),
+		).toEqual(["deprecated-past", "deprecated-future"]);
+	});
+
+	test("active chip keeps strictly healthy mappings only", () => {
+		const all = [
+			healthy,
+			scheduledSoon,
+			scheduledFar,
+			deactivated,
+			deprecatedFuture,
+		];
+		expect(
+			all
+				.filter((m) => isVisibleMapping(m, options({ status: "active" }), NOW))
+				.map((m) => m.providerId),
+		).toEqual(["healthy", "scheduled-far"]);
+	});
+
+	test("eligibleOnly composes inside a selected status", () => {
+		const blockedDead = makeMapping({
+			providerId: "blocked-dead",
+			deactivatedAt: daysFromNow(-1),
+			blockedReasons: ["compliance"],
+		});
+		expect(
+			isVisibleMapping(
+				blockedDead,
+				options({ status: "deactivated", eligibleOnly: true }),
+				NOW,
+			),
+		).toBe(false);
+		expect(
+			isVisibleMapping(blockedDead, options({ status: "deactivated" }), NOW),
+		).toBe(true);
 	});
 });
 
