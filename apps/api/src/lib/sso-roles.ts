@@ -74,7 +74,12 @@ export async function recomputeUserRole(
 	if (membership.role !== mappedRole) {
 		await db
 			.update(tables.userOrganization)
-			.set({ role: mappedRole })
+			.set({
+				role: mappedRole,
+				...(mappedRole === "developer"
+					? {}
+					: { teamId: null, teamAssignmentSource: "manual" as const }),
+			})
 			.where(eq(tables.userOrganization.id, membership.id));
 		return { old: membership.role, new: mappedRole };
 	}

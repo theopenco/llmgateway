@@ -608,7 +608,7 @@ organizationTeams.openapi(assignMember, async (c) => {
 	}
 	await cdb
 		.update(tables.userOrganization)
-		.set({ teamId })
+		.set({ teamId, teamAssignmentSource: "manual" })
 		.where(eq(tables.userOrganization.id, memberId));
 	await logAuditEvent({
 		organizationId,

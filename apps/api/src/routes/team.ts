@@ -1281,7 +1281,12 @@ team.openapi(updateMember, async (c) => {
 		// Privileged roles must never inherit team restrictions. Clear the team in
 		// the same write that promotes the member so no intermediate locked state
 		// can be observed.
-		.set({ role, ...(role === "developer" ? {} : { teamId: null }) })
+		.set({
+			role,
+			...(role === "developer"
+				? {}
+				: { teamId: null, teamAssignmentSource: "manual" as const }),
+		})
 		.where(eq(tables.userOrganization.id, memberId))
 		.returning();
 

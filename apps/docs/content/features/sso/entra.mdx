@@ -226,6 +226,34 @@ Assigned users are created in LLM Gateway and added to the organization (default
 
 On the **SSO** page, add mappings such as `Acme Admins → admin`. When Entra pushes group membership over SCIM, each member gets the **highest** mapped role among their groups (default `developer`). Owners are never auto-demoted, so you can't accidentally lock yourself out of the owner role.
 
+## Group → team mapping (optional)
+
+The **Group team mapping** card on the **SSO** page maps an Entra group to an organization team. Developer members then inherit that team's project, IAM, API-key, and budget policy.
+
+- Enter the group's exact **display name**, select a team, and save. Saving the same group again replaces its team.
+- Assign the group itself to the Enterprise App and leave group provisioning enabled under **Provisioning → Attribute mapping → Groups**. Assigning only individual users provisions the users but does not push the group object or its membership.
+- Assignments are recomputed on provisioning and reactivation, membership changes, group renames and deletions, and immediately when a mapping is saved or deleted. Leaving the last mapped group removes a SCIM-assigned team.
+- A team explicitly assigned by an admin on the **Members** page is never overwritten. If an admin only removes a synced assignment, the next SCIM event restores the mapped team.
+- A developer can belong to one organization team. If several mapped groups apply, the alphabetically first exact group name wins. A group → role mapping that makes the member an owner or admin takes precedence, because privileged members cannot belong to teams.
+
+<Callout type="info">
+	Team project access is an additional ceiling: a developer can use a project
+	only when both their personal/default project grants and their team allow it.
+</Callout>
+
+<Callout type="info">
+	To test without waiting for Entra's provisioning cycle, use **Provision on
+	demand** with the group and select the affected member. Provisioning only the
+	user does not push group membership.
+</Callout>
+
+<Callout type="warn">
+	If the mapped group is a user's only assignment to the Enterprise App,
+	removing them from it can deprovision the user entirely instead of only
+	removing their team. Assign users through a broader group or directly when
+	group leave should only change policy.
+</Callout>
+
 ## Default project access (optional)
 
 Provisioned members join as **developers**, who only see the projects they're granted (owners/admins always see every project). Use the **Default project access** card on the **SSO** page to choose which projects newly provisioned SSO/SCIM developers get by default. If you leave it unconfigured, new members get your organization's first (default) project so they can see something out of the box; select an empty set to instead grant nothing and manage project access manually per member.

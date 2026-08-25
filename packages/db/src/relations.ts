@@ -61,6 +61,7 @@ export const relations = defineRelations(schema, (r) => ({
 	organization: {
 		userOrganizations: r.many.userOrganization(),
 		teams: r.many.organizationTeam(),
+		ssoTeamMappings: r.many.ssoTeamMapping(),
 		projects: r.many.project(),
 		providerKeys: r.many.providerKey(),
 		masterKeys: r.many.masterKey({
@@ -175,6 +176,20 @@ export const relations = defineRelations(schema, (r) => ({
 		iamRules: r.many.organizationTeamIamRule({
 			from: r.organizationTeam.id,
 			to: r.organizationTeamIamRule.teamId,
+		}),
+		ssoMappings: r.many.ssoTeamMapping({
+			from: r.organizationTeam.id,
+			to: r.ssoTeamMapping.teamId,
+		}),
+	},
+	ssoTeamMapping: {
+		organization: r.one.organization({
+			from: r.ssoTeamMapping.organizationId,
+			to: r.organization.id,
+		}),
+		team: r.one.organizationTeam({
+			from: r.ssoTeamMapping.teamId,
+			to: r.organizationTeam.id,
 		}),
 	},
 	organizationTeamIamRule: {

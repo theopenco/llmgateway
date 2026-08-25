@@ -1016,6 +1016,11 @@ export const userOrganization = pgTable(
 		teamId: text().references(() => organizationTeam.id, {
 			onDelete: "restrict",
 		}),
+		teamAssignmentSource: text({
+			enum: ["manual", "sso"],
+		})
+			.notNull()
+			.default("manual"),
 		role: text({
 			enum: ["owner", "admin", "developer"],
 		})
@@ -2788,6 +2793,35 @@ export const ssoRoleMapping = pgTable(
 	],
 );
 
+// Admin-defined mapping from a SCIM/IdP group name to an organization team.
+// One developer can inherit one team; when several mapped groups apply, the
+// alphabetically first group name wins (see lib/sso-teams.ts).
+export const ssoTeamMapping = pgTable(
+	"sso_team_mapping",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		groupName: text().notNull(),
+		teamId: text()
+			.notNull()
+			.references(() => organizationTeam.id, { onDelete: "cascade" }),
+	},
+	(table) => [
+		uniqueIndex("sso_team_mapping_org_group_unique").on(
+			table.organizationId,
+			table.groupName,
+		),
+		index("sso_team_mapping_team_id_idx").on(table.teamId),
+	],
+);
+
 // Default project grants for `developer` members provisioned via SSO/SCIM.
 // Owners/admins already have implicit access to every project, so this only
 // affects developer provisioning: when a new SSO/SCIM member is created they
@@ -3885,6 +3919,9 @@ export const auditLogActions = [
 	"sso_provider.delete",
 	"sso_role_mapping.create",
 	"sso_role_mapping.delete",
+	"sso_team_mapping.create",
+	"sso_team_mapping.update",
+	"sso_team_mapping.delete",
 	"sso_default_projects.update",
 	"sso.sign_in",
 	// SCIM
@@ -3897,6 +3934,7 @@ export const auditLogActions = [
 	"scim.user.deactivate",
 	"scim.user.deprovision",
 	"scim.user.role_change",
+	"scim.user.team_change",
 	"scim.group.create",
 	"scim.group.update",
 	"scim.group.delete",
@@ -3921,6 +3959,7 @@ export const auditLogResourceTypes = [
 	"chat_plan",
 	"sso_provider",
 	"sso_role_mapping",
+	"sso_team_mapping",
 	"sso_default_project",
 	"sso_session",
 	"scim_token",
