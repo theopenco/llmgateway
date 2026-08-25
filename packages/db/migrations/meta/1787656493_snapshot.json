@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "9e15e0c3-f2f8-441f-b511-0efd2a7b4972",
+  "id": "2d780803-dae0-45ee-97bc-845a4a0e825d",
   "prevId": "e794d54a-ba0a-44bc-b255-e03c556674b7",
   "ddl": [
     {
@@ -4984,12 +4984,25 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": true,
+      "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
       "name": "token",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "end_user_session"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "token_hash",
       "entityType": "columns",
       "schema": "public",
       "table": "end_user_session"
@@ -32507,6 +32520,17 @@
     {
       "nameExplicit": false,
       "columns": [
+        "token_hash"
+      ],
+      "nullsNotDistinct": false,
+      "name": "end_user_session_token_hash_key",
+      "schema": "public",
+      "table": "end_user_session",
+      "entityType": "uniques"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "uuid"
       ],
       "nullsNotDistinct": false,
@@ -32700,6 +32724,13 @@
       "entityType": "checks",
       "schema": "public",
       "table": "chat_support_message"
+    },
+    {
+      "value": "(\"token\" IS NULL) <> (\"token_hash\" IS NULL)",
+      "name": "end_user_session_token_xor",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "end_user_session"
     },
     {
       "value": "\"deployment\" IS NULL OR \"deployment\" IN ('self_host', 'cloud', 'not_sure')",
