@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { adminMiddleware } from "@/middleware/admin.js";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { and, cdb, db, eq, isNull, tables } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -184,15 +184,29 @@ adminAirside.openapi(approveFiling, async (c) => {
 	const user = c.get("user");
 	const { id } = c.req.valid("param");
 	const filing = await getPendingFiling(id);
-	await db.transaction(async (tx) => {
-		await tx
+	// cdb: approval flips a model live — the gateway's cached lookup must see it.
+	await cdb.transaction(async (tx) => {
+		// Guard on status inside the UPDATE so two concurrent reviews cannot
+		// both apply — the loser sees zero rows and conflicts.
+		const updated = await tx
 			.update(tables.providerPriceFiling)
 			.set({
 				status: "approved",
 				reviewedBy: user?.id ?? null,
 				reviewedAt: new Date(),
 			})
-			.where(eq(tables.providerPriceFiling.id, id));
+			.where(
+				and(
+					eq(tables.providerPriceFiling.id, id),
+					eq(tables.providerPriceFiling.status, "pending"),
+				),
+			)
+			.returning({ id: tables.providerPriceFiling.id });
+		if (updated.length === 0) {
+			throw new HTTPException(409, {
+				message: "This filing has already been reviewed.",
+			});
+		}
 		if (filing.kind === "initial") {
 			await tx
 				.update(tables.providerDraftModel)
@@ -245,8 +259,8 @@ adminAirside.openapi(rejectFiling, async (c) => {
 	const { id } = c.req.valid("param");
 	const { reviewNote } = c.req.valid("json");
 	const filing = await getPendingFiling(id);
-	await db.transaction(async (tx) => {
-		await tx
+	await cdb.transaction(async (tx) => {
+		const updated = await tx
 			.update(tables.providerPriceFiling)
 			.set({
 				status: "rejected",
@@ -254,7 +268,18 @@ adminAirside.openapi(rejectFiling, async (c) => {
 				reviewNote: reviewNote ?? null,
 				reviewedAt: new Date(),
 			})
-			.where(eq(tables.providerPriceFiling.id, id));
+			.where(
+				and(
+					eq(tables.providerPriceFiling.id, id),
+					eq(tables.providerPriceFiling.status, "pending"),
+				),
+			)
+			.returning({ id: tables.providerPriceFiling.id });
+		if (updated.length === 0) {
+			throw new HTTPException(409, {
+				message: "This filing has already been reviewed.",
+			});
+		}
 		if (filing.kind === "initial") {
 			await tx
 				.update(tables.providerDraftModel)
@@ -404,14 +429,25 @@ adminAirside.openapi(approveClaim, async (c) => {
 	const { id } = c.req.valid("param");
 	const claim = await getPendingClaim(id);
 	await db.transaction(async (tx) => {
-		await tx
+		const updated = await tx
 			.update(tables.providerClaim)
 			.set({
 				status: "active",
 				reviewedBy: user?.id ?? null,
 				reviewedAt: new Date(),
 			})
-			.where(eq(tables.providerClaim.id, id));
+			.where(
+				and(
+					eq(tables.providerClaim.id, id),
+					eq(tables.providerClaim.status, "pending"),
+				),
+			)
+			.returning({ id: tables.providerClaim.id });
+		if (updated.length === 0) {
+			throw new HTTPException(409, {
+				message: "This claim has already been reviewed.",
+			});
+		}
 		const settings = await tx.query.providerRoutingSettings.findFirst({
 			where: { providerId: { eq: claim.providerId } },
 		});
@@ -420,6 +456,17 @@ adminAirside.openapi(approveClaim, async (c) => {
 				providerCompanyId: claim.providerCompanyId,
 				providerId: claim.providerId,
 			});
+		} else if (settings.providerCompanyId !== claim.providerCompanyId) {
+			// The provider changed hands: reset the routing knobs to defaults
+			// under the new owner instead of inheriting the old company's.
+			await tx
+				.update(tables.providerRoutingSettings)
+				.set({
+					providerCompanyId: claim.providerCompanyId,
+					discountPercent: "0",
+					marginPercent: String(0.2),
+				})
+				.where(eq(tables.providerRoutingSettings.id, settings.id));
 		}
 	});
 	const updated = await db.query.providerClaim.findFirst({
@@ -463,7 +510,7 @@ adminAirside.openapi(rejectClaim, async (c) => {
 	const { id } = c.req.valid("param");
 	const { reviewNote } = c.req.valid("json");
 	await getPendingClaim(id);
-	await db
+	const guarded = await db
 		.update(tables.providerClaim)
 		.set({
 			status: "rejected",
@@ -471,7 +518,109 @@ adminAirside.openapi(rejectClaim, async (c) => {
 			reviewNote: reviewNote ?? null,
 			reviewedAt: new Date(),
 		})
-		.where(eq(tables.providerClaim.id, id));
+		.where(
+			and(
+				eq(tables.providerClaim.id, id),
+				eq(tables.providerClaim.status, "pending"),
+			),
+		)
+		.returning({ id: tables.providerClaim.id });
+	if (guarded.length === 0) {
+		throw new HTTPException(409, {
+			message: "This claim has already been reviewed.",
+		});
+	}
+	const updated = await db.query.providerClaim.findFirst({
+		where: { id: { eq: id } },
+		with: { providerCompany: true },
+	});
+	return c.json({
+		claim: await serializeAdminClaim(updated as ClaimWithRelations),
+	});
+});
+
+const revokeClaim = createRoute({
+	method: "post",
+	path: "/airside/claims/{id}/revoke",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						reviewNote: z.string().max(1000).optional(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ claim: adminClaimSchema }),
+				},
+			},
+			description:
+				"The revoked claim. The carrier loses portal control of the provider and its routing boost is removed.",
+		},
+	},
+});
+
+adminAirside.openapi(revokeClaim, async (c) => {
+	const user = c.get("user");
+	const { id } = c.req.valid("param");
+	const { reviewNote } = c.req.valid("json");
+	const claim = await db.query.providerClaim.findFirst({
+		where: { id: { eq: id } },
+		with: { providerCompany: true },
+	});
+	if (!claim) {
+		throw new HTTPException(404, { message: "Claim not found" });
+	}
+	if (claim.status !== "active") {
+		throw new HTTPException(409, {
+			message: "Only active claims can be revoked.",
+		});
+	}
+	// cdb so the gateway's cached multiplier reads are invalidated.
+	await cdb.transaction(async (tx) => {
+		const updated = await tx
+			.update(tables.providerClaim)
+			.set({
+				status: "revoked",
+				reviewedBy: user?.id ?? null,
+				reviewNote: reviewNote ?? null,
+				reviewedAt: new Date(),
+				revokedAt: new Date(),
+			})
+			.where(
+				and(
+					eq(tables.providerClaim.id, id),
+					eq(tables.providerClaim.status, "active"),
+				),
+			)
+			.returning({ id: tables.providerClaim.id });
+		if (updated.length === 0) {
+			throw new HTTPException(409, {
+				message: "Only active claims can be revoked.",
+			});
+		}
+		// Tear down what the carrier controlled: their routing boost and the
+		// settings row (a future owner starts from defaults).
+		await tx
+			.delete(tables.routingScoreMultiplier)
+			.where(
+				and(
+					eq(tables.routingScoreMultiplier.provider, claim.providerId),
+					isNull(tables.routingScoreMultiplier.model),
+					eq(tables.routingScoreMultiplier.reason, "airside routing settings"),
+				),
+			);
+		await tx
+			.delete(tables.providerRoutingSettings)
+			.where(eq(tables.providerRoutingSettings.providerId, claim.providerId));
+	});
 	const updated = await db.query.providerClaim.findFirst({
 		where: { id: { eq: id } },
 		with: { providerCompany: true },

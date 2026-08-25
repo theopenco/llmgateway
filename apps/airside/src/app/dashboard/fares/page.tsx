@@ -81,7 +81,11 @@ function FareCard({
 		},
 	);
 
-	const adjustment = margin - baselineMargin - discount;
+	const adjustment =
+		setting.adjustmentSource === "admin"
+			? setting.routingAdjustment
+			: baselineMargin - margin - discount;
+	const managedByAdmin = setting.adjustmentSource === "admin";
 	const dirty =
 		discount !== setting.discountPercent || margin !== setting.marginPercent;
 
@@ -95,11 +99,13 @@ function FareCard({
 					<CardDescription>Fares & landing fees</CardDescription>
 				</div>
 				<Badge variant={adjustment < 0 ? "success" : "secondary"}>
-					{adjustment < 0
-						? `Routing boost ${formatPercent(-adjustment)}`
-						: adjustment > 0
-							? `Routing penalty ${formatPercent(adjustment)}`
-							: "Neutral"}
+					{managedByAdmin
+						? `Managed by gateway team (${adjustment >= 0 ? "+" : ""}${Math.round(adjustment * 100)}%)`
+						: adjustment < 0
+							? `Routing boost ${formatPercent(-adjustment)}`
+							: adjustment > 0
+								? `Routing penalty ${formatPercent(adjustment)}`
+								: "Neutral"}
 				</Badge>
 			</CardHeader>
 			<CardContent className="space-y-6">

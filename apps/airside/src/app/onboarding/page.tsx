@@ -203,53 +203,71 @@ export default function OnboardingPage() {
 							</p>
 						) : (
 							<ul className="space-y-3">
-								{claimable.map((p) => (
-									<li
-										key={p.providerId}
-										className="border-border flex items-center justify-between rounded-lg border px-4 py-3"
-									>
-										<div>
-											<div className="font-medium">{p.name}</div>
-											<div className="text-muted-foreground font-mono text-xs">
-												{p.providerId} · matched {p.matchedDomain}
+								{claimable.map((p) => {
+									const rejectedClaim = company?.claims.find(
+										(claim) =>
+											claim.providerId === p.providerId &&
+											claim.status === "rejected",
+									);
+									return (
+										<li
+											key={p.providerId}
+											className="border-border flex items-center justify-between rounded-lg border px-4 py-3"
+										>
+											<div>
+												<div className="font-medium">{p.name}</div>
+												<div className="text-muted-foreground font-mono text-xs">
+													{p.providerId} · matched {p.matchedDomain}
+												</div>
+												{rejectedClaim && !p.claimedByMyCompany ? (
+													<div className="text-destructive mt-1 text-xs">
+														Previous claim rejected
+														{rejectedClaim.reviewNote
+															? `: ${rejectedClaim.reviewNote}`
+															: ""}
+														{" — you can file again."}
+													</div>
+												) : null}
 											</div>
-										</div>
-										{p.claimedByMyCompany && p.myClaimStatus === "active" ? (
-											<Badge variant="success">
-												<BadgeCheck className="size-3" /> Claimed
-											</Badge>
-										) : p.claimedByMyCompany &&
-										  p.myClaimStatus === "pending" ? (
-											<Badge variant="pending">
-												<Hourglass className="size-3" /> Under review
-											</Badge>
-										) : p.claimed && !p.claimedByMyCompany ? (
-											<Badge variant="secondary">Claimed by another team</Badge>
-										) : (
-											<Button
-												size="sm"
-												disabled={
-													!company ||
-													!user.emailVerified ||
-													createClaim.isPending
-												}
-												onClick={() => {
-													if (!company) {
-														return;
+											{p.claimedByMyCompany && p.myClaimStatus === "active" ? (
+												<Badge variant="success">
+													<BadgeCheck className="size-3" /> Claimed
+												</Badge>
+											) : p.claimedByMyCompany &&
+											  p.myClaimStatus === "pending" ? (
+												<Badge variant="pending">
+													<Hourglass className="size-3" /> Under review
+												</Badge>
+											) : p.claimed && !p.claimedByMyCompany ? (
+												<Badge variant="secondary">
+													Claimed by another team
+												</Badge>
+											) : (
+												<Button
+													size="sm"
+													disabled={
+														!company ||
+														!user.emailVerified ||
+														createClaim.isPending
 													}
-													createClaim.mutate({
-														body: {
-															providerCompanyId: company.id,
-															providerId: p.providerId,
-														},
-													});
-												}}
-											>
-												Claim
-											</Button>
-										)}
-									</li>
-								))}
+													onClick={() => {
+														if (!company) {
+															return;
+														}
+														createClaim.mutate({
+															body: {
+																providerCompanyId: company.id,
+																providerId: p.providerId,
+															},
+														});
+													}}
+												>
+													Claim
+												</Button>
+											)}
+										</li>
+									);
+								})}
 							</ul>
 						)}
 					</section>

@@ -77,7 +77,11 @@ export function RegisterModelDialog({
 		jsonOutput: false,
 		reasoning: false,
 	});
-	const providerId = providerIds[0] ?? "";
+	const sortedProviderIds = [...providerIds].sort();
+	const [providerId, setProviderId] = useState(sortedProviderIds[0] ?? "");
+	const effectiveProviderId = sortedProviderIds.includes(providerId)
+		? providerId
+		: (sortedProviderIds[0] ?? "");
 
 	const createModel = api.useMutation("post", "/airside/models", {
 		onSuccess: async () => {
@@ -108,7 +112,8 @@ export function RegisterModelDialog({
 						Register an aircraft
 					</DialogTitle>
 					<DialogDescription>
-						List a model on <span className="font-mono">{providerId}</span>. The
+						List a model on{" "}
+						<span className="font-mono">{effectiveProviderId}</span>. The
 						listing is drafted until we approve its initial fare — prices per
 						token, exponent notation welcome (e.g.{" "}
 						<span className="font-mono">2e-6</span> = $2/M).
@@ -132,6 +137,25 @@ export function RegisterModelDialog({
 						});
 					}}
 				>
+					{sortedProviderIds.length > 1 ? (
+						<div className="space-y-2">
+							<Label>Carrier</Label>
+							<div className="flex flex-wrap gap-2">
+								{sortedProviderIds.map((id) => (
+									<Button
+										key={id}
+										type="button"
+										size="sm"
+										variant={id === effectiveProviderId ? "default" : "outline"}
+										className="font-mono"
+										onClick={() => setProviderId(id)}
+									>
+										{id}
+									</Button>
+								))}
+							</div>
+						</div>
+					) : null}
 					<div className="grid gap-4 sm:grid-cols-2">
 						<div className="space-y-2">
 							<Label htmlFor="model-name">Model ID</Label>
@@ -231,7 +255,7 @@ export function RegisterModelDialog({
 					<DialogFooter>
 						<Button
 							type="submit"
-							disabled={createModel.isPending || !providerId}
+							disabled={createModel.isPending || !effectiveProviderId}
 							data-testid="register-model-submit"
 							className="font-semibold"
 						>
@@ -269,6 +293,19 @@ export function EditModelDialog({
 		reasoning: model.reasoning,
 	});
 
+	function resetFromModel() {
+		setDisplayName(model.displayName ?? "");
+		setDescription(model.description ?? "");
+		setContextSize(model.contextSize ? String(model.contextSize) : "");
+		setCapabilities({
+			streaming: model.streaming,
+			tools: model.tools,
+			vision: model.vision,
+			jsonOutput: model.jsonOutput,
+			reasoning: model.reasoning,
+		});
+	}
+
 	const updateModel = api.useMutation("patch", "/airside/models/{id}", {
 		onSuccess: async () => {
 			await invalidate();
@@ -283,7 +320,17 @@ export function EditModelDialog({
 	});
 
 	return (
-		<Dialog open={open} onOpenChange={setOpen}>
+		<Dialog
+			open={open}
+			onOpenChange={(next) => {
+				if (next) {
+					// Re-seed from the latest server state; the component stays
+					// mounted across refetches, so mount-time state goes stale.
+					resetFromModel();
+				}
+				setOpen(next);
+			}}
+		>
 			<DialogTrigger asChild>{children}</DialogTrigger>
 			<DialogContent className="sm:max-w-lg">
 				<DialogHeader>
@@ -396,6 +443,12 @@ export function FileFareDialog({
 	);
 	const [note, setNote] = useState("");
 
+	function resetFromModel() {
+		setInputPrice(model.currentPricing?.inputPrice ?? "");
+		setOutputPrice(model.currentPricing?.outputPrice ?? "");
+		setNote("");
+	}
+
 	const fileFare = api.useMutation(
 		"post",
 		"/airside/models/{id}/price-filings",
@@ -415,7 +468,15 @@ export function FileFareDialog({
 	);
 
 	return (
-		<Dialog open={open} onOpenChange={setOpen}>
+		<Dialog
+			open={open}
+			onOpenChange={(next) => {
+				if (next) {
+					resetFromModel();
+				}
+				setOpen(next);
+			}}
+		>
 			<DialogTrigger asChild>{children}</DialogTrigger>
 			<DialogContent className="sm:max-w-md">
 				<DialogHeader>

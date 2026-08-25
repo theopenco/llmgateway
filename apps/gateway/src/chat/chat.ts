@@ -280,6 +280,7 @@ import {
 	splitTaggedStreamingContentChunk,
 	splitReasoningFromTaggedContent,
 } from "./tools/reasoning-details.js";
+import { resolveAirsideModel } from "./tools/resolve-airside-model.js";
 import { resolveModelInfo } from "./tools/resolve-model-info.js";
 import { resolvePlatformCredential } from "./tools/resolve-platform-credential.js";
 import {
@@ -2011,8 +2012,14 @@ chat.openapi(completions, async (c) => {
 	// Store the original llmgateway model ID for logging purposes
 	const initialRequestedModel = modelInput;
 
+	// Airside carrier listings: a "provider/model" id that misses the static
+	// catalogue may be an approved Airside listing — resolve it from the DB
+	// before the (throwing) static parse.
+	const airsideResolution = await resolveAirsideModel(modelInput);
+
 	// Parse model input to resolve model, provider, and custom provider name
-	const parseResult = parseModelInput(modelInput);
+	const parseResult =
+		airsideResolution?.parseResult ?? parseModelInput(modelInput);
 	let requestedModel = parseResult.requestedModel;
 	let customProviderName = parseResult.customProviderName;
 	let requestedRegion = parseResult.requestedRegion;
@@ -2026,10 +2033,9 @@ chat.openapi(completions, async (c) => {
 			: 0;
 
 	// Resolve model info and filter deactivated providers
-	const modelInfoResult = resolveModelInfo(
-		requestedModel,
-		parseResult.requestedProvider,
-	);
+	const modelInfoResult =
+		airsideResolution?.modelInfoResult ??
+		resolveModelInfo(requestedModel, parseResult.requestedProvider);
 	const useExpandedRoutingProviders =
 		Boolean(modelInfoResult.requestedProvider) &&
 		modelInfoResult.requestedProvider !== "llmgateway" &&
@@ -3475,7 +3481,8 @@ chat.openapi(completions, async (c) => {
 	// custom model catalog entry. Threaded into every calculateCosts call below
 	// so the request is billed at the catalog rates; undefined otherwise (those
 	// requests stay unbilled, as before).
-	let customPricingMapping: ProviderModelMapping | undefined;
+	let customPricingMapping: ProviderModelMapping | undefined =
+		airsideResolution?.pricingMapping;
 	const applySelectedCustomProvider = (provider: ProviderModelMapping) => {
 		if (!isCustomAutoRoutingMapping(provider)) {
 			return;
@@ -7462,7 +7469,9 @@ chat.openapi(completions, async (c) => {
 		if (usedProvider !== "custom") {
 			customProviderName = undefined;
 			customProviderKey = undefined;
-			customPricingMapping = undefined;
+			// Airside listings keep their filed prices across provider context
+			// changes; everything else resets to catalogue pricing.
+			customPricingMapping = airsideResolution?.pricingMapping;
 		}
 		usedInternalModel = ctx.usedInternalModel;
 		usedExternalId = ctx.usedExternalId;

@@ -14,6 +14,7 @@ import { swrWrap } from "@llmgateway/cache";
 import {
 	and,
 	asc,
+	desc,
 	eq,
 	getTableName,
 	gte,
@@ -36,6 +37,8 @@ import {
 	providerKeyAllowsModel,
 	organization as organizationTable,
 	project as projectTable,
+	providerDraftModel as providerDraftModelTable,
+	providerPriceFiling as providerPriceFilingTable,
 	providerKey as providerKeyTable,
 	routingScoreMultiplier as routingScoreMultiplierTable,
 	user as userTable,
@@ -83,6 +86,10 @@ export type CustomModel = InferSelectModel<typeof customModel>;
 type Organization = InferSelectModel<typeof organization>;
 type Project = InferSelectModel<typeof project>;
 type ProviderKey = InferSelectModel<typeof providerKey>;
+export interface AirsideListedModel {
+	model: InferSelectModel<typeof providerDraftModelTable>;
+	pricing: InferSelectModel<typeof providerPriceFilingTable>;
+}
 type User = InferSelectModel<typeof user>;
 type UserOrganization = InferSelectModel<typeof userOrganization>;
 type Wallet = InferSelectModel<typeof wallet>;
@@ -96,6 +103,8 @@ const organizationTableName = getTableName(organizationTable);
 const projectTableName = getTableName(projectTable);
 const providerKeyTableName = getTableName(providerKeyTable);
 const customModelTableName = getTableName(customModelTable);
+const providerDraftModelTableName = getTableName(providerDraftModelTable);
+const providerPriceFilingTableName = getTableName(providerPriceFilingTable);
 const routingScoreMultiplierTableName = getTableName(
 	routingScoreMultiplierTable,
 );
@@ -502,6 +511,49 @@ export async function findCustomModel(
 						eq(customModelTable.modelName, modelName),
 					),
 				)
+				.limit(1),
+	);
+	return results[0];
+}
+
+/**
+ * Find an active Airside-listed model for a catalogue provider, together with
+ * its latest approved price filing. This is what makes approved carrier
+ * listings routable: a "provider/model" request that misses the static
+ * catalogue is resolved here instead.
+ */
+export async function findAirsideModel(
+	providerId: string,
+	modelName: string,
+): Promise<AirsideListedModel | undefined> {
+	const results = await swrWrap(
+		`airsideModel:${providerId}:${modelName}`,
+		[providerDraftModelTableName, providerPriceFilingTableName],
+		async () =>
+			await db
+				.select({
+					model: providerDraftModelTable,
+					pricing: providerPriceFilingTable,
+				})
+				.from(providerDraftModelTable)
+				.innerJoin(
+					providerPriceFilingTable,
+					and(
+						eq(
+							providerPriceFilingTable.draftModelId,
+							providerDraftModelTable.id,
+						),
+						eq(providerPriceFilingTable.status, "approved"),
+					),
+				)
+				.where(
+					and(
+						eq(providerDraftModelTable.status, "active"),
+						eq(providerDraftModelTable.providerId, providerId),
+						eq(providerDraftModelTable.modelName, modelName),
+					),
+				)
+				.orderBy(desc(providerPriceFilingTable.createdAt))
 				.limit(1),
 	);
 	return results[0];

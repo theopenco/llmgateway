@@ -61,7 +61,7 @@ export function AirsideFilingsClient() {
 	const queryClient = useQueryClient();
 	const [status, setStatus] = useState<FilingStatus | "all">("pending");
 	const [rejecting, setRejecting] = useState<{
-		kind: "filing" | "claim";
+		kind: "filing" | "claim" | "revoke";
 		id: string;
 	} | null>(null);
 	const [rejectNote, setRejectNote] = useState("");
@@ -74,6 +74,12 @@ export function AirsideFilingsClient() {
 	const claimsQuery = $api.useQuery("get", "/admin/airside/claims", {
 		params: { query: { status: "pending" } },
 	});
+	const activeClaimsQuery = $api.useQuery(
+		"get",
+		"/admin/airside/claims",
+		{ params: { query: { status: "active" } } },
+		{ enabled: status === "approved" },
+	);
 
 	const invalidate = () => {
 		void queryClient.invalidateQueries({
@@ -143,8 +149,26 @@ export function AirsideFilingsClient() {
 		},
 	);
 
+	const revokeClaimMutation = $api.useMutation(
+		"post",
+		"/admin/airside/claims/{id}/revoke",
+		{
+			onSuccess: () => {
+				toast.success("Carrier claim revoked.");
+				setRejecting(null);
+				setRejectNote("");
+				invalidate();
+			},
+			onError: (error) => {
+				toast.error(apiErrorMessage(error, "The review action failed"));
+			},
+		},
+	);
+
 	const filings = query.data?.filings ?? [];
 	const pendingClaims = claimsQuery.data?.claims ?? [];
+	const activeClaims =
+		status === "approved" ? (activeClaimsQuery.data?.claims ?? []) : [];
 
 	return (
 		<div className="space-y-6 p-6">
@@ -253,6 +277,53 @@ export function AirsideFilingsClient() {
 							</TableBody>
 						</Table>
 					)}
+					{activeClaims.length > 0 ? (
+						<div className="mt-6">
+							<p className="text-muted-foreground mb-2 text-xs font-medium tracking-wide uppercase">
+								Approved carriers
+							</p>
+							<Table>
+								<TableHeader>
+									<TableRow>
+										<TableHead>Company</TableHead>
+										<TableHead>Provider</TableHead>
+										<TableHead>Approved</TableHead>
+										<TableHead className="text-right">Actions</TableHead>
+									</TableRow>
+								</TableHeader>
+								<TableBody>
+									{activeClaims.map((claim) => (
+										<TableRow key={claim.id}>
+											<TableCell className="font-medium">
+												{claim.company.name}
+											</TableCell>
+											<TableCell className="font-mono text-sm">
+												{claim.providerId}
+											</TableCell>
+											<TableCell className="text-muted-foreground text-xs">
+												{claim.reviewedAt
+													? new Date(claim.reviewedAt).toLocaleDateString()
+													: "—"}
+											</TableCell>
+											<TableCell className="text-right">
+												<Button
+													size="sm"
+													variant="destructive"
+													disabled={revokeClaimMutation.isPending}
+													data-testid={`revoke-claim-${claim.providerId}`}
+													onClick={() =>
+														setRejecting({ kind: "revoke", id: claim.id })
+													}
+												>
+													<X className="size-3.5" /> Revoke
+												</Button>
+											</TableCell>
+										</TableRow>
+									))}
+								</TableBody>
+							</Table>
+						</div>
+					) : null}
 				</CardContent>
 			</Card>
 
@@ -383,12 +454,18 @@ export function AirsideFilingsClient() {
 				<DialogContent>
 					<DialogHeader>
 						<DialogTitle>
-							{rejecting?.kind === "claim" ? "Reject claim" : "Reject filing"}
+							{rejecting?.kind === "claim"
+								? "Reject claim"
+								: rejecting?.kind === "revoke"
+									? "Revoke carrier"
+									: "Reject filing"}
 						</DialogTitle>
 						<DialogDescription>
 							{rejecting?.kind === "claim"
 								? "The provider becomes claimable again; the note is shown to the company."
-								: "The note is shown to the provider in their filing history."}
+								: rejecting?.kind === "revoke"
+									? "The company loses portal control of this provider and its routing boost is removed."
+									: "The note is shown to the provider in their filing history."}
 						</DialogDescription>
 					</DialogHeader>
 					<Input
@@ -412,16 +489,22 @@ export function AirsideFilingsClient() {
 								};
 								if (rejecting.kind === "claim") {
 									rejectClaimMutation.mutate(args);
+								} else if (rejecting.kind === "revoke") {
+									revokeClaimMutation.mutate(args);
 								} else {
 									rejectMutation.mutate(args);
 								}
 							}}
 						>
-							{rejectMutation.isPending || rejectClaimMutation.isPending
-								? "Rejecting…"
+							{rejectMutation.isPending ||
+							rejectClaimMutation.isPending ||
+							revokeClaimMutation.isPending
+								? "Working…"
 								: rejecting?.kind === "claim"
 									? "Reject claim"
-									: "Reject filing"}
+									: rejecting?.kind === "revoke"
+										? "Revoke carrier"
+										: "Reject filing"}
 						</Button>
 					</DialogFooter>
 				</DialogContent>

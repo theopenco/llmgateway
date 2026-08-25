@@ -2986,20 +2986,21 @@ async function seedAirside() {
 		status: "pending",
 	});
 
-	// Accepting a lower margin plus a small discount → routing boost.
+	// Accepting a larger gateway margin plus a small discount → routing boost
+	// (adjustment = baseline 0.2 − margin 0.3 − discount 0.05 = −0.15).
 	await upsert(tables.providerRoutingSettings, {
 		id: "airside-settings-mistral",
 		providerCompanyId: "airside-company-mistral",
 		providerId: "mistral",
 		discountPercent: "0.05",
-		marginPercent: "0.15",
+		marginPercent: "0.3",
 	});
 
 	await upsert(tables.routingScoreMultiplier, {
 		id: "airside-rsm-mistral",
 		provider: "mistral",
 		model: null,
-		scoreMultiplier: "-0.1",
+		scoreMultiplier: "-0.15",
 		reason: "airside routing settings",
 	});
 

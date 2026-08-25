@@ -475,6 +475,121 @@ describe("airside provider portal", () => {
 		expect(body.daily).toHaveLength(1);
 	});
 
+	it("rejects malformed price strings", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		for (const bad of ["", " ", "0x1F", "-1e-6", "1,4e-6"]) {
+			const res = await createModel(cookie, company.id, {
+				pricing: { inputPrice: bad, outputPrice: "1e-6" },
+			});
+			expect(res.status).toBe(400);
+		}
+	});
+
+	it("reports an admin-owned multiplier instead of pretending to apply", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		await db.insert(tables.routingScoreMultiplier).values({
+			provider: "mistral",
+			model: null,
+			scoreMultiplier: "0.5",
+			reason: "manual penalty",
+		});
+
+		const updated = await app.request(
+			"/airside/routing-settings/mistral",
+			json(
+				cookie,
+				{
+					providerCompanyId: company.id,
+					discountPercent: 0.2,
+					marginPercent: 0.3,
+				},
+				"PUT",
+			),
+		);
+		expect(updated.status).toBe(200);
+		const { settings } = await updated.json();
+		// The admin row shadows the carrier's settings and is reported as-is.
+		expect(settings.adjustmentSource).toBe("admin");
+		expect(settings.routingAdjustment).toBeCloseTo(0.5);
+
+		const listed = await app.request(
+			`/airside/routing-settings?providerCompanyId=${company.id}`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect((await listed.json()).settings[0]).toMatchObject({
+			adjustmentSource: "admin",
+		});
+		await db.delete(tables.routingScoreMultiplier);
+	});
+
+	it("revokes an active carrier and tears down its routing state", async () => {
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		const claim = await claimProvider(cookie, company.id);
+		const approved = await app.request(
+			`/admin/airside/claims/${claim.id}/approve`,
+			json(cookie),
+		);
+		expect(approved.status).toBe(200);
+
+		// Give the carrier a live boost first.
+		await app.request(
+			"/airside/routing-settings/mistral",
+			json(
+				cookie,
+				{
+					providerCompanyId: company.id,
+					discountPercent: 0.1,
+					marginPercent: 0.3,
+				},
+				"PUT",
+			),
+		);
+		expect(
+			await db.query.routingScoreMultiplier.findFirst({
+				where: { provider: { eq: "mistral" } },
+			}),
+		).toBeTruthy();
+
+		const revoked = await app.request(
+			`/admin/airside/claims/${claim.id}/revoke`,
+			json(cookie, { reviewNote: "Ownership dispute" }),
+		);
+		expect(revoked.status).toBe(200);
+		expect((await revoked.json()).claim.status).toBe("revoked");
+
+		// Boost and settings are gone; the provider is claimable again.
+		expect(
+			await db.query.routingScoreMultiplier.findFirst({
+				where: { provider: { eq: "mistral" } },
+			}),
+		).toBeFalsy();
+		expect(
+			await db.query.providerRoutingSettings.findFirst({
+				where: { providerId: { eq: "mistral" } },
+			}),
+		).toBeFalsy();
+		const claimable = await app.request("/airside/claimable", {
+			headers: { Cookie: cookie },
+		});
+		expect((await claimable.json()).providers[0]).toMatchObject({
+			claimed: false,
+		});
+		// Revoking twice conflicts.
+		const again = await app.request(
+			`/admin/airside/claims/${claim.id}/revoke`,
+			json(cookie, {}),
+		);
+		expect(again.status).toBe(409);
+	});
+
 	it("updates routing settings and mirrors them into routing multipliers", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
@@ -492,9 +607,11 @@ describe("airside provider portal", () => {
 			marginPercent: 0.2,
 			discountPercent: 0,
 			routingAdjustment: 0,
+			adjustmentSource: "none",
 		});
 
-		// Lower accepted margin + discount → negative adjustment (boost).
+		// Accepting a larger gateway margin + a discount → negative adjustment
+		// (routing boost): 0.2 − 0.3 − 0.1 = −0.2.
 		const updated = await app.request(
 			"/airside/routing-settings/mistral",
 			json(
@@ -502,7 +619,7 @@ describe("airside provider portal", () => {
 				{
 					providerCompanyId: company.id,
 					discountPercent: 0.1,
-					marginPercent: 0.1,
+					marginPercent: 0.3,
 				},
 				"PUT",
 			),
@@ -510,6 +627,7 @@ describe("airside provider portal", () => {
 		expect(updated.status).toBe(200);
 		const { settings } = await updated.json();
 		expect(settings.routingAdjustment).toBeCloseTo(-0.2);
+		expect(settings.adjustmentSource).toBe("airside");
 
 		const multiplier = await db.query.routingScoreMultiplier.findFirst({
 			where: { provider: { eq: "mistral" } },

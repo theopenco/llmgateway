@@ -4,7 +4,18 @@ import { z } from "zod";
 
 import { claimableProvidersForEmail } from "@/lib/airside-domains.js";
 
-import { and, db, desc, eq, gte, inArray, sql, tables } from "@llmgateway/db";
+import {
+	and,
+	cdb,
+	db,
+	desc,
+	eq,
+	gte,
+	inArray,
+	isNull,
+	sql,
+	tables,
+} from "@llmgateway/db";
 import { providers as catalogueProviders } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
@@ -19,8 +30,8 @@ import type { ServerTypes } from "@/vars.js";
 
 export const airside = new OpenAPIHono<ServerTypes>();
 
-// The gateway's standard margin. A carrier accepting a larger margin or
-// offering a discount is boosted in routing (and vice versa) — see
+// The gateway's standard margin. A carrier that accepts a larger gateway
+// margin or offers a discount is boosted in routing (and vice versa) — see
 // syncRoutingScoreMultiplier below.
 export const AIRSIDE_BASELINE_MARGIN = 0.2;
 export const AIRSIDE_MARGIN_MIN = 0.05;
@@ -28,10 +39,14 @@ export const AIRSIDE_MARGIN_MAX = 0.5;
 export const AIRSIDE_DISCOUNT_MAX = 0.5;
 const AIRSIDE_MULTIPLIER_REASON = "airside routing settings";
 
+// Plain decimal or scientific notation only — Number("") and Number("0x1F")
+// would otherwise slip through as 0 / 31.
+const PRICE_PATTERN = /^\d+(\.\d+)?([eE][+-]?\d+)?$/;
+
 const priceValue = z
 	.string()
-	.refine((v) => Number.isFinite(Number(v)) && Number(v) >= 0, {
-		message: "Price must be a non-negative number string",
+	.refine((v) => PRICE_PATTERN.test(v) && Number.isFinite(Number(v)), {
+		message: "Price must be a non-negative decimal number string",
 	});
 
 const pricingSchema = z.object({
@@ -48,6 +63,8 @@ const claimSchema = z.object({
 	providerName: z.string(),
 	matchedDomain: z.string(),
 	status: z.enum(["pending", "active", "rejected", "revoked"]),
+	// Set when we rejected the claim — shown to the company.
+	reviewNote: z.string().nullable(),
 	createdAt: z.string(),
 });
 
@@ -106,6 +123,9 @@ const routingSettingsSchema = z.object({
 	// The signed routing-price adjustment currently applied for this provider
 	// (negative = boosted, i.e. routed as if cheaper).
 	routingAdjustment: z.number(),
+	// Where the applied adjustment comes from: the carrier's own settings, an
+	// admin-set multiplier that shadows them, or nothing (neutral).
+	adjustmentSource: z.enum(["airside", "admin", "none"]),
 	updatedAt: z.string().nullable(),
 });
 
@@ -124,6 +144,7 @@ function serializeClaim(
 		providerName: providerNames.get(row.providerId) ?? row.providerId,
 		matchedDomain: row.matchedDomain,
 		status: row.status,
+		reviewNote: row.reviewNote,
 		createdAt: row.createdAt.toISOString(),
 	};
 }
@@ -244,42 +265,77 @@ function clampAdjustment(value: number): number {
  * provider-wide rows it created itself (matched on `reason`); an admin-set
  * multiplier for the same provider always wins and is left alone.
  */
+interface RoutingSyncResult {
+	// The signed routing-price adjustment now in effect for the provider
+	// (negative = boosted). When an admin-owned multiplier shadows the
+	// carrier's settings, this reports the admin value actually applied.
+	routingAdjustment: number;
+	adjustmentSource: "airside" | "admin" | "none";
+}
+
+function computeAirsideAdjustment(
+	discountPercent: number,
+	marginPercent: number,
+): number {
+	// Accepting a larger gateway margin or offering a discount lowers the
+	// routing price (boost); paying less than the standard margin prices the
+	// carrier up.
+	return clampAdjustment(
+		AIRSIDE_BASELINE_MARGIN - marginPercent - discountPercent,
+	);
+}
+
 async function syncRoutingScoreMultiplier(
 	providerId: string,
 	discountPercent: number,
 	marginPercent: number,
-) {
-	const adjustment = clampAdjustment(
-		marginPercent - AIRSIDE_BASELINE_MARGIN - discountPercent,
-	);
-	const existing = await db.query.routingScoreMultiplier.findFirst({
-		where: { provider: { eq: providerId }, model: { isNull: true } },
-	});
-	if (existing && existing.reason !== AIRSIDE_MULTIPLIER_REASON) {
-		return adjustment;
+): Promise<RoutingSyncResult> {
+	const adjustment = computeAirsideAdjustment(discountPercent, marginPercent);
+	// Read uncached (plain db): this is a read-modify-write and a cached row
+	// here would resurrect deleted state.
+	const rows = await db
+		.select()
+		.from(tables.routingScoreMultiplier)
+		.where(
+			and(
+				eq(tables.routingScoreMultiplier.provider, providerId),
+				isNull(tables.routingScoreMultiplier.model),
+			),
+		);
+	const adminRow = rows.find((row) => row.reason !== AIRSIDE_MULTIPLIER_REASON);
+	if (adminRow) {
+		// An admin-set multiplier always wins; report what actually applies.
+		return {
+			routingAdjustment: Number(adminRow.scoreMultiplier),
+			adjustmentSource: "admin",
+		};
 	}
-	if (adjustment === 0) {
-		if (existing) {
-			await db
-				.delete(tables.routingScoreMultiplier)
-				.where(eq(tables.routingScoreMultiplier.id, existing.id));
+	// Writes go through cdb so the gateway's Redis query cache is
+	// invalidated. Delete-then-insert in one transaction is idempotent and
+	// self-heals duplicate provider-wide rows (the table has no unique
+	// constraint for model IS NULL).
+	await cdb.transaction(async (tx) => {
+		await tx
+			.delete(tables.routingScoreMultiplier)
+			.where(
+				and(
+					eq(tables.routingScoreMultiplier.provider, providerId),
+					isNull(tables.routingScoreMultiplier.model),
+					eq(tables.routingScoreMultiplier.reason, AIRSIDE_MULTIPLIER_REASON),
+				),
+			);
+		if (adjustment !== 0) {
+			await tx.insert(tables.routingScoreMultiplier).values({
+				provider: providerId,
+				model: null,
+				scoreMultiplier: String(adjustment),
+				reason: AIRSIDE_MULTIPLIER_REASON,
+			});
 		}
-		return adjustment;
-	}
-	if (existing) {
-		await db
-			.update(tables.routingScoreMultiplier)
-			.set({ scoreMultiplier: String(adjustment) })
-			.where(eq(tables.routingScoreMultiplier.id, existing.id));
-	} else {
-		await db.insert(tables.routingScoreMultiplier).values({
-			provider: providerId,
-			model: null,
-			scoreMultiplier: String(adjustment),
-			reason: AIRSIDE_MULTIPLIER_REASON,
-		});
-	}
-	return adjustment;
+	});
+	return adjustment === 0
+		? { routingAdjustment: 0, adjustmentSource: "none" }
+		: { routingAdjustment: adjustment, adjustmentSource: "airside" };
 }
 
 // ---------------------------------------------------------------------------
@@ -323,10 +379,9 @@ airside.openapi(listCompanies, async (c) => {
 					role: m.role,
 					createdAt: company.createdAt.toISOString(),
 					claims: company.claims
-						.filter(
-							(claim) =>
-								claim.status === "active" || claim.status === "pending",
-						)
+						// Rejected claims stay visible so the carrier sees the
+						// review note; only revoked ones disappear.
+						.filter((claim) => claim.status !== "revoked")
 						.map((claim) => serializeClaim(claim, providerNames)),
 				},
 			];
@@ -651,7 +706,8 @@ airside.openapi(createModel, async (c) => {
 		});
 	}
 
-	const created = await db.transaction(async (tx) => {
+	// cdb: the gateway caches airside model lookups; writes must invalidate.
+	const created = await cdb.transaction(async (tx) => {
 		const [model] = await tx
 			.insert(tables.providerDraftModel)
 			.values({
@@ -729,7 +785,7 @@ const updateModel = createRoute({
 });
 
 airside.openapi(updateModel, async (c) => {
-	const user = requireUser(c.get("user"));
+	const user = requireVerifiedUser(c.get("user"));
 	const { id } = c.req.valid("param");
 	const body = c.req.valid("json");
 	const model = await db.query.providerDraftModel.findFirst({
@@ -744,7 +800,7 @@ airside.openapi(updateModel, async (c) => {
 			message: "Delisted models cannot be edited.",
 		});
 	}
-	const [updated] = await db
+	const [updated] = await cdb
 		.update(tables.providerDraftModel)
 		.set({
 			...(body.displayName !== undefined
@@ -796,7 +852,7 @@ const deleteModel = createRoute({
 });
 
 airside.openapi(deleteModel, async (c) => {
-	const user = requireUser(c.get("user"));
+	const user = requireVerifiedUser(c.get("user"));
 	const { id } = c.req.valid("param");
 	const model = await db.query.providerDraftModel.findFirst({
 		where: { id: { eq: id } },
@@ -806,12 +862,12 @@ airside.openapi(deleteModel, async (c) => {
 	}
 	await requireCompanyMembership(user.id, model.providerCompanyId);
 	if (model.status === "draft" || model.status === "rejected") {
-		await db
+		await cdb
 			.delete(tables.providerDraftModel)
 			.where(eq(tables.providerDraftModel.id, id));
 		return c.json({ status: "deleted" as const });
 	}
-	await db
+	await cdb
 		.update(tables.providerDraftModel)
 		.set({ status: "delisted", delistedAt: new Date() })
 		.where(eq(tables.providerDraftModel.id, id));
@@ -870,7 +926,7 @@ airside.openapi(createPriceFiling, async (c) => {
 		});
 	}
 	const kind = model.status === "active" ? "update" : "initial";
-	const filing = await db.transaction(async (tx) => {
+	const filing = await cdb.transaction(async (tx) => {
 		if (model.status === "rejected") {
 			await tx
 				.update(tables.providerDraftModel)
@@ -1122,7 +1178,14 @@ airside.openapi(statsRoute, async (c) => {
 					estimatedPayout,
 				}
 			: emptyTotals,
-		byModel: byModelRows,
+		// The gateway logs used_model as "provider/model"; seeded rollups use
+		// bare names. Normalize for display.
+		byModel: byModelRows.map((row) => ({
+			...row,
+			model: row.model.startsWith(`${row.providerId}/`)
+				? row.model.slice(row.providerId.length + 1)
+				: row.model,
+		})),
 		daily: dailyRows.map((row) => ({
 			...row,
 			day: new Date(row.day).toISOString(),
@@ -1166,6 +1229,19 @@ airside.openapi(listRoutingSettings, async (c) => {
 			})
 		: [];
 	const rowByProvider = new Map(rows.map((row) => [row.providerId, row]));
+	// Read what is actually applied: an admin-set provider-wide multiplier
+	// shadows the carrier's own settings.
+	const multiplierRows = providerIds.length
+		? await db
+				.select()
+				.from(tables.routingScoreMultiplier)
+				.where(
+					and(
+						inArray(tables.routingScoreMultiplier.provider, providerIds),
+						isNull(tables.routingScoreMultiplier.model),
+					),
+				)
+		: [];
 	return c.json({
 		baselineMargin: AIRSIDE_BASELINE_MARGIN,
 		settings: providerIds.map((providerId) => {
@@ -1174,14 +1250,23 @@ airside.openapi(listRoutingSettings, async (c) => {
 			const marginPercent = row
 				? Number(row.marginPercent)
 				: AIRSIDE_BASELINE_MARGIN;
+			const adminRow = multiplierRows.find(
+				(m) =>
+					m.provider === providerId && m.reason !== AIRSIDE_MULTIPLIER_REASON,
+			);
 			return {
 				providerId,
 				providerCompanyId,
 				discountPercent,
 				marginPercent,
-				routingAdjustment: clampAdjustment(
-					marginPercent - AIRSIDE_BASELINE_MARGIN - discountPercent,
-				),
+				routingAdjustment: adminRow
+					? Number(adminRow.scoreMultiplier)
+					: computeAirsideAdjustment(discountPercent, marginPercent),
+				adjustmentSource: adminRow
+					? ("admin" as const)
+					: computeAirsideAdjustment(discountPercent, marginPercent) === 0
+						? ("none" as const)
+						: ("airside" as const),
 				updatedAt: row ? row.updatedAt.toISOString() : null,
 			};
 		}),
@@ -1261,7 +1346,7 @@ airside.openapi(updateRoutingSettings, async (c) => {
 				})
 				.returning();
 
-	const routingAdjustment = await syncRoutingScoreMultiplier(
+	const sync = await syncRoutingScoreMultiplier(
 		providerId,
 		body.discountPercent,
 		body.marginPercent,
@@ -1273,7 +1358,8 @@ airside.openapi(updateRoutingSettings, async (c) => {
 			providerCompanyId: body.providerCompanyId,
 			discountPercent: Number(row.discountPercent),
 			marginPercent: Number(row.marginPercent),
-			routingAdjustment,
+			routingAdjustment: sync.routingAdjustment,
+			adjustmentSource: sync.adjustmentSource,
 			updatedAt: row.updatedAt.toISOString(),
 		},
 	});
