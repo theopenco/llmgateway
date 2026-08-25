@@ -9,15 +9,10 @@ import {
 	modelHistory,
 	modelProviderMappingHistoryHourly,
 	modelHistoryHourly,
-	modelProviderMappingUsageHistory,
-	modelUsageHistory,
-	modelProviderMappingUsageHistoryHourly,
-	modelUsageHistoryHourly,
 	log,
 	organization,
 	project,
 	apiKey,
-	systemSetting,
 	eq,
 	and,
 	user,
@@ -41,15 +36,10 @@ describe("stats-calculator", () => {
 
 		// Clean up test data before each test
 		await db.delete(log);
-		await db.delete(modelProviderMappingUsageHistoryHourly);
-		await db.delete(modelUsageHistoryHourly);
-		await db.delete(modelProviderMappingUsageHistory);
-		await db.delete(modelUsageHistory);
 		await db.delete(modelProviderMappingHistoryHourly);
 		await db.delete(modelHistoryHourly);
 		await db.delete(modelProviderMappingHistory);
 		await db.delete(modelHistory);
-		await db.delete(systemSetting);
 		await db.delete(modelProviderMapping);
 		await db.delete(model);
 		await db.delete(provider);
@@ -300,81 +290,6 @@ describe("stats-calculator", () => {
 			expect(claudeRecord?.totalInputCost).toBeCloseTo(0.2);
 			expect(claudeRecord?.totalOutputCost).toBeCloseTo(0.3);
 			expect(claudeRecord?.totalCachedInputCost).toBeCloseTo(0);
-		});
-
-		it("stores mode rollups without changing total history", async () => {
-			const minuteTimestamp = new Date("2024-01-01T12:29:00.000Z");
-			const base = {
-				organizationId: "org-1",
-				projectId: "proj-1",
-				apiKeyId: "key-1",
-				duration: 1000,
-				requestedModel: "gpt-4",
-				requestedProvider: "openai",
-				usedModel: "openai/gpt-4",
-				usedProvider: "openai",
-				responseSize: 100,
-				hasError: false,
-				cached: false,
-				createdAt: new Date(minuteTimestamp.getTime() + 30_000),
-			};
-			await db.insert(log).values([
-				{
-					...base,
-					id: "credits-log",
-					requestId: "credits-request",
-					promptTokens: "30",
-					totalTokens: "30",
-					cost: 0.3,
-					mode: "credits",
-					usedMode: "credits",
-				},
-				{
-					...base,
-					id: "byok-log",
-					requestId: "byok-request",
-					promptTokens: "20",
-					totalTokens: "20",
-					cost: 0.2,
-					mode: "api-keys",
-					usedMode: "api-keys",
-				},
-			]);
-
-			await calculateMinutelyHistory();
-
-			const [total] = await db
-				.select()
-				.from(modelHistory)
-				.where(eq(modelHistory.modelId, "gpt-4"));
-			expect(total).toMatchObject({ logsCount: 2, totalTokens: 50 });
-
-			const modeRows = await db
-				.select()
-				.from(modelUsageHistory)
-				.where(eq(modelUsageHistory.modelId, "gpt-4"));
-			expect(
-				modeRows
-					.map((row) => ({ mode: row.usedMode, requests: row.logsCount }))
-					.sort((a, b) => a.mode.localeCompare(b.mode)),
-			).toEqual([
-				{ mode: "api-keys", requests: 1 },
-				{ mode: "credits", requests: 1 },
-			]);
-
-			await calculateHourlyHistory();
-			const hourlyModeRows = await db
-				.select()
-				.from(modelUsageHistoryHourly)
-				.where(eq(modelUsageHistoryHourly.modelId, "gpt-4"));
-			expect(
-				hourlyModeRows
-					.map((row) => ({ mode: row.usedMode, requests: row.logsCount }))
-					.sort((a, b) => a.mode.localeCompare(b.mode)),
-			).toEqual([
-				{ mode: "api-keys", requests: 1 },
-				{ mode: "credits", requests: 1 },
-			]);
 		});
 
 		it("should only count requests that recorded a time to first token", async () => {
@@ -1494,37 +1409,6 @@ describe("stats-calculator", () => {
 	});
 
 	describe("backfillHistoryIfNeeded", () => {
-		async function seedCompleteHistoryWatermark(minuteTimestamp: Date) {
-			await Promise.all([
-				db.insert(modelProviderMappingHistory).values({
-					modelId: "gpt-4",
-					providerId: "openai",
-					modelProviderMappingId: "mapping-1",
-					minuteTimestamp,
-				}),
-				db.insert(modelHistory).values({
-					modelId: "gpt-4",
-					minuteTimestamp,
-				}),
-				db.insert(modelProviderMappingUsageHistory).values({
-					modelId: "gpt-4",
-					providerId: "openai",
-					modelProviderMappingId: "mapping-1",
-					usedMode: "credits",
-					minuteTimestamp,
-				}),
-				db.insert(modelUsageHistory).values({
-					modelId: "gpt-4",
-					usedMode: "credits",
-					minuteTimestamp,
-				}),
-				db.insert(systemSetting).values({
-					id: "catalog-usage-history-backfill-v1",
-					enabled: true,
-				}),
-			]);
-		}
-
 		it("should backfill when no history exists", async () => {
 			// Set time to 12:30 so we backfill from 12:25 to 12:29 (5 minutes)
 			vi.setSystemTime(new Date("2024-01-01T12:30:00.000Z"));
@@ -1556,8 +1440,19 @@ describe("stats-calculator", () => {
 		});
 
 		it("should not backfill when history is up to date", async () => {
+			// Create recent history entry
 			const recentMinute = new Date("2024-01-01T12:28:00.000Z");
-			await seedCompleteHistoryWatermark(recentMinute);
+			await db.insert(modelProviderMappingHistory).values({
+				modelId: "gpt-4",
+				providerId: "openai",
+				modelProviderMappingId: "mapping-1",
+				minuteTimestamp: recentMinute,
+				logsCount: 0,
+				errorsCount: 0,
+				cachedCount: 0,
+				totalOutputTokens: 0,
+				totalDuration: 0,
+			});
 
 			await backfillHistoryIfNeeded();
 
@@ -1568,241 +1463,27 @@ describe("stats-calculator", () => {
 			expect(historyRecords).toHaveLength(1);
 		});
 
-		it("should resume interrupted mode history backfill", async () => {
-			const oldMinute = new Date("2024-01-01T10:00:00.000Z");
-			const missingArchiveMinute = new Date("2024-01-01T10:01:00.000Z");
-			const recentMinute = new Date("2024-01-01T12:28:00.000Z");
-			await Promise.all([
-				db.insert(modelProviderMappingHistory).values([
-					{
-						modelId: "gpt-4",
-						providerId: "openai",
-						modelProviderMappingId: "mapping-1",
-						minuteTimestamp: oldMinute,
-						logsCount: 42,
-					},
-					{
-						modelId: "gpt-4",
-						providerId: "openai",
-						modelProviderMappingId: "mapping-1",
-						minuteTimestamp: recentMinute,
-					},
-				]),
-				db.insert(modelHistory).values([
-					{ modelId: "gpt-4", minuteTimestamp: oldMinute, logsCount: 42 },
-					{ modelId: "gpt-4", minuteTimestamp: recentMinute },
-				]),
-				db.insert(modelProviderMappingUsageHistory).values([
-					{
-						modelId: "gpt-4",
-						providerId: "openai",
-						modelProviderMappingId: "mapping-1",
-						usedMode: "credits",
-						minuteTimestamp: oldMinute,
-						logsCount: 99,
-					},
-					{
-						modelId: "gpt-4",
-						providerId: "openai",
-						modelProviderMappingId: "mapping-1",
-						usedMode: "credits",
-						minuteTimestamp: recentMinute,
-					},
-				]),
-				db.insert(modelUsageHistory).values([
-					{
-						modelId: "gpt-4",
-						usedMode: "credits",
-						minuteTimestamp: oldMinute,
-						logsCount: 99,
-					},
-					{
-						modelId: "gpt-4",
-						usedMode: "credits",
-						minuteTimestamp: recentMinute,
-					},
-				]),
-				db.insert(systemSetting).values({
-					id: "catalog-usage-history-backfill-v1",
-					enabled: false,
-					value: missingArchiveMinute.toISOString(),
-				}),
-			]);
-			await Promise.all([
-				db
-					.update(model)
-					.set({ status: "inactive" })
-					.where(eq(model.id, "gpt-4")),
-				db
-					.update(modelProviderMapping)
-					.set({ status: "inactive" })
-					.where(eq(modelProviderMapping.id, "mapping-1")),
-			]);
-
-			await backfillHistoryIfNeeded();
-
-			const usageRecords = await db
-				.select({ minuteTimestamp: modelUsageHistory.minuteTimestamp })
-				.from(modelUsageHistory);
-			const timestamps = new Set(
-				usageRecords.map((row) => row.minuteTimestamp.getTime()),
-			);
-			expect(timestamps.size).toBe(150);
-			expect(Math.min(...timestamps)).toBe(
-				new Date("2024-01-01T10:00:00.000Z").getTime(),
-			);
-			expect(Math.max(...timestamps)).toBe(
-				new Date("2024-01-01T12:29:00.000Z").getTime(),
-			);
-
-			const [retainedMapping] = await db
-				.select()
-				.from(modelProviderMappingHistory)
-				.where(
-					and(
-						eq(modelProviderMappingHistory.modelProviderMappingId, "mapping-1"),
-						eq(modelProviderMappingHistory.minuteTimestamp, oldMinute),
-					),
-				);
-			const [retainedModel] = await db
-				.select()
-				.from(modelHistory)
-				.where(
-					and(
-						eq(modelHistory.modelId, "gpt-4"),
-						eq(modelHistory.minuteTimestamp, oldMinute),
-					),
-				);
-			const [inactiveMappingUsage] = await db
-				.select()
-				.from(modelProviderMappingUsageHistory)
-				.where(
-					and(
-						eq(
-							modelProviderMappingUsageHistory.modelProviderMappingId,
-							"mapping-1",
-						),
-						eq(modelProviderMappingUsageHistory.usedMode, "credits"),
-						eq(
-							modelProviderMappingUsageHistory.minuteTimestamp,
-							missingArchiveMinute,
-						),
-					),
-				);
-			const [warmMinuteUsage] = await db
-				.select()
-				.from(modelUsageHistory)
-				.where(
-					and(
-						eq(modelUsageHistory.modelId, "gpt-4"),
-						eq(modelUsageHistory.usedMode, "credits"),
-						eq(
-							modelUsageHistory.minuteTimestamp,
-							new Date("2024-01-01T12:29:00.000Z"),
-						),
-					),
-				);
-			const [completedCheckpointUsage] = await db
-				.select()
-				.from(modelUsageHistory)
-				.where(
-					and(
-						eq(modelUsageHistory.modelId, "gpt-4"),
-						eq(modelUsageHistory.usedMode, "credits"),
-						eq(modelUsageHistory.minuteTimestamp, oldMinute),
-					),
-				);
-			const [archiveMinuteUsage] = await db
-				.select()
-				.from(modelUsageHistory)
-				.where(
-					and(
-						eq(modelUsageHistory.modelId, "gpt-4"),
-						eq(modelUsageHistory.usedMode, "credits"),
-						eq(modelUsageHistory.minuteTimestamp, missingArchiveMinute),
-					),
-				);
-			const [backfillSetting] = await db
-				.select()
-				.from(systemSetting)
-				.where(eq(systemSetting.id, "catalog-usage-history-backfill-v1"));
-			expect(retainedMapping?.logsCount).toBe(42);
-			expect(retainedModel?.logsCount).toBe(42);
-			expect(inactiveMappingUsage).toBeDefined();
-			expect(completedCheckpointUsage?.logsCount).toBe(99);
-			expect(backfillSetting?.enabled).toBe(true);
-			expect(archiveMinuteUsage?.createdAt.getTime()).toBeGreaterThanOrEqual(
-				warmMinuteUsage?.createdAt.getTime() ?? Number.POSITIVE_INFINITY,
-			);
-		});
-
-		it("should backfill mode history before retained minute history", async () => {
-			const logMinute = new Date("2024-01-01T10:00:00.000Z");
-			const retainedMinute = new Date("2024-01-01T11:00:00.000Z");
-			const recentMinute = new Date("2024-01-01T12:28:00.000Z");
-			await Promise.all([
-				db.insert(modelProviderMappingHistory).values([
-					{
-						modelId: "gpt-4",
-						providerId: "openai",
-						modelProviderMappingId: "mapping-1",
-						minuteTimestamp: retainedMinute,
-					},
-					{
-						modelId: "gpt-4",
-						providerId: "openai",
-						modelProviderMappingId: "mapping-1",
-						minuteTimestamp: recentMinute,
-					},
-				]),
-				db.insert(modelHistory).values([
-					{ modelId: "gpt-4", minuteTimestamp: retainedMinute },
-					{ modelId: "gpt-4", minuteTimestamp: recentMinute },
-				]),
-				db.insert(log).values({
-					id: "older-mode-log",
-					requestId: "older-mode-request",
-					organizationId: "org-1",
-					projectId: "proj-1",
-					apiKeyId: "key-1",
-					duration: 1000,
-					requestedModel: "gpt-4",
-					requestedProvider: "openai",
-					usedModel: "openai/gpt-4",
-					usedProvider: "openai",
-					responseSize: 100,
-					hasError: false,
-					mode: "credits",
-					usedMode: "credits",
-					createdAt: new Date(logMinute.getTime() + 30_000),
-				}),
-			]);
-
-			await backfillHistoryIfNeeded();
-
-			const [olderModeHistory] = await db
-				.select()
-				.from(modelUsageHistory)
-				.where(
-					and(
-						eq(modelUsageHistory.modelId, "gpt-4"),
-						eq(modelUsageHistory.usedMode, "credits"),
-						eq(modelUsageHistory.minuteTimestamp, logMinute),
-					),
-				);
-			expect(olderModeHistory?.logsCount).toBe(1);
-		});
-
 		it("should backfill missing periods", async () => {
 			// Create old history entry from 5 minutes ago
 			const oldMinute = new Date("2024-01-01T12:25:00.000Z");
-			await seedCompleteHistoryWatermark(oldMinute);
-			await db
-				.update(modelProviderMappingHistory)
-				.set({ logsCount: 5, errorsCount: 1, totalOutputTokens: 500 })
-				.where(
-					eq(modelProviderMappingHistory.modelProviderMappingId, "mapping-1"),
-				);
+			await db.insert(modelProviderMappingHistory).values({
+				modelId: "gpt-4",
+				providerId: "openai",
+				modelProviderMappingId: "mapping-1",
+				minuteTimestamp: oldMinute,
+				logsCount: 5,
+				errorsCount: 1,
+				clientErrorsCount: 0,
+				gatewayErrorsCount: 0,
+				upstreamErrorsCount: 0,
+				cachedCount: 0,
+				totalInputTokens: 0,
+				totalOutputTokens: 500,
+				totalTokens: 0,
+				totalReasoningTokens: 0,
+				totalCachedTokens: 0,
+				totalDuration: 2000,
+			});
 
 			await backfillHistoryIfNeeded();
 
@@ -2333,74 +2014,6 @@ describe("stats-calculator", () => {
 			const modelHourly = await db.select().from(modelHistoryHourly);
 			expect(modelHourly).toHaveLength(1);
 			expect(modelHourly[0]?.logsCount).toBe(5);
-		});
-
-		it("should backfill missing usage-mode hourly tables", async () => {
-			const minuteTimestamp = new Date("2024-01-01T11:30:00.000Z");
-			const hourTimestamp = new Date("2024-01-01T11:00:00.000Z");
-			await Promise.all([
-				db.insert(modelHistory).values({
-					modelId: "gpt-4",
-					minuteTimestamp,
-					logsCount: 7,
-				}),
-				db.insert(modelProviderMappingHistory).values({
-					modelId: "gpt-4",
-					providerId: "openai",
-					modelProviderMappingId: "mapping-1",
-					minuteTimestamp,
-					logsCount: 7,
-				}),
-				db.insert(modelUsageHistory).values({
-					modelId: "gpt-4",
-					usedMode: "credits",
-					minuteTimestamp,
-					logsCount: 7,
-				}),
-				db.insert(modelProviderMappingUsageHistory).values({
-					modelId: "gpt-4",
-					providerId: "openai",
-					modelProviderMappingId: "mapping-1",
-					usedMode: "credits",
-					minuteTimestamp,
-					logsCount: 7,
-				}),
-				db.insert(modelHistoryHourly).values({
-					modelId: "gpt-4",
-					hourTimestamp,
-					logsCount: 7,
-				}),
-				db.insert(modelProviderMappingHistoryHourly).values({
-					modelId: "gpt-4",
-					providerId: "openai",
-					modelProviderMappingId: "mapping-1",
-					hourTimestamp,
-					logsCount: 7,
-				}),
-			]);
-
-			await backfillHourlyHistoryIfNeeded();
-
-			const [modelUsageHourly, mappingUsageHourly] = await Promise.all([
-				db.select().from(modelUsageHistoryHourly),
-				db.select().from(modelProviderMappingUsageHistoryHourly),
-			]);
-			expect(modelUsageHourly).toEqual([
-				expect.objectContaining({
-					modelId: "gpt-4",
-					usedMode: "credits",
-					hourTimestamp,
-					logsCount: 7,
-				}),
-			]);
-			expect(mappingUsageHourly).toEqual([
-				expect.objectContaining({
-					modelProviderMappingId: "mapping-1",
-					usedMode: "credits",
-					hourTimestamp,
-					logsCount: 7,
-				}),
-			]);
 		});
 
 		it("should do nothing when no minute history exists", async () => {

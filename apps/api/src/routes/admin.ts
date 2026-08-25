@@ -97,6 +97,10 @@ import {
 	projectHourlySourceStats,
 	globalModelStats,
 	globalSourceStats,
+	modelProviderMappingHistory,
+	modelHistory,
+	modelProviderMappingHistoryHourly,
+	modelHistoryHourly,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { models, providers } from "@llmgateway/models";
@@ -5918,40 +5922,6 @@ const providerSortBySchema = z.enum([
 	"modelCount",
 	"updatedAt",
 ]);
-const catalogUsageModeSchema = z.enum(["total", "credits", "api-keys"]);
-
-function requireCatalogUsageDateRange(
-	query: {
-		mode?: z.infer<typeof catalogUsageModeSchema>;
-		from?: string;
-		to?: string;
-	},
-	ctx: z.RefinementCtx,
-) {
-	if ((query.mode ?? "total") !== "total" && (!query.from || !query.to)) {
-		ctx.addIssue({
-			code: z.ZodIssueCode.custom,
-			message: "from and to are required when filtering by usage mode",
-			path: !query.from ? ["from"] : ["to"],
-		});
-	}
-}
-
-function rejectProjectScopedCatalogUsageMode(
-	query: {
-		projectId?: string;
-		mode?: z.infer<typeof catalogUsageModeSchema>;
-	},
-	ctx: z.RefinementCtx,
-) {
-	if (query.projectId && (query.mode ?? "total") !== "total") {
-		ctx.addIssue({
-			code: z.ZodIssueCode.custom,
-			message: "usage mode is not available for project-scoped history",
-			path: ["mode"],
-		});
-	}
-}
 
 const providerStatsSchema = z.object({
 	id: z.string(),
@@ -5982,15 +5952,12 @@ const getProviderStats = createRoute({
 	method: "get",
 	path: "/providers",
 	request: {
-		query: z
-			.object({
-				sortBy: providerSortBySchema.default("logsCount").optional(),
-				sortOrder: sortOrderSchema.default("desc").optional(),
-				mode: catalogUsageModeSchema.default("total").optional(),
-				from: z.string().optional(),
-				to: z.string().optional(),
-			})
-			.superRefine(requireCatalogUsageDateRange),
+		query: z.object({
+			sortBy: providerSortBySchema.default("logsCount").optional(),
+			sortOrder: sortOrderSchema.default("desc").optional(),
+			from: z.string().optional(),
+			to: z.string().optional(),
+		}),
 	},
 	responses: {
 		200: {
@@ -6008,7 +5975,6 @@ admin.openapi(getProviderStats, async (c) => {
 	const query = c.req.valid("query");
 	const sortBy = query.sortBy ?? "logsCount";
 	const sortOrder = query.sortOrder ?? "desc";
-	const mode = query.mode ?? "total";
 	const { from, to } = query;
 
 	const modelCountSub = db
@@ -6038,7 +6004,6 @@ admin.openapi(getProviderStats, async (c) => {
 		// scan across every provider doesn't read minute rows.
 		const { table: mph, bucket: mphTs } = pickMappingHistoryTable(
 			isHourlyRange(startDate, endDateExclusive),
-			mode,
 		);
 		const providerStatsSub = db
 			.select({
@@ -6076,7 +6041,6 @@ admin.openapi(getProviderStats, async (c) => {
 				and(
 					gte(mphTs, startDate),
 					lt(mphTs, endDateExclusive),
-					mode === "total" ? undefined : eq(mph.usedMode, mode),
 					excludeRegionalMappingRows(mph),
 				),
 			)
@@ -6092,10 +6056,7 @@ admin.openapi(getProviderStats, async (c) => {
 			clientErrorsCount: sql`COALESCE(${providerStatsSub.clientErrorsCount}, 0)`,
 			cachedCount: sql`COALESCE(${providerStatsSub.cachedCount}, 0)`,
 			totalCost: sql`COALESCE(${providerStatsSub.totalCost}, 0)`,
-			avgTimeToFirstToken:
-				mode === "total"
-					? sql`COALESCE(${providerStatsSub.avgTimeToFirstToken}, ${tables.provider.avgTimeToFirstReasoningToken}, ${tables.provider.avgTimeToFirstToken})`
-					: providerStatsSub.avgTimeToFirstToken,
+			avgTimeToFirstToken: sql`COALESCE(${providerStatsSub.avgTimeToFirstToken}, ${tables.provider.avgTimeToFirstReasoningToken}, ${tables.provider.avgTimeToFirstToken})`,
 			modelCount: sql`COALESCE(${modelCountSub.count}, 0)`,
 			updatedAt: tables.provider.updatedAt,
 		} as const;
@@ -6141,11 +6102,11 @@ admin.openapi(getProviderStats, async (c) => {
 						sql<number>`COALESCE(${providerStatsSub.cachedCount}, 0)`.as(
 							"cachedCount",
 						),
-					avgTimeToFirstToken: sql<number | null>`${
-						mode === "total"
-							? sql`COALESCE(${providerStatsSub.avgTimeToFirstToken}, ${tables.provider.avgTimeToFirstReasoningToken}, ${tables.provider.avgTimeToFirstToken})`
-							: providerStatsSub.avgTimeToFirstToken
-					}`.as("avgTimeToFirstToken"),
+					avgTimeToFirstToken: sql<
+						number | null
+					>`COALESCE(${providerStatsSub.avgTimeToFirstToken}, ${tables.provider.avgTimeToFirstReasoningToken}, ${tables.provider.avgTimeToFirstToken})`.as(
+						"avgTimeToFirstToken",
+					),
 					modelCount: sql<number>`COALESCE(${modelCountSub.count}, 0)`.as(
 						"modelCount",
 					),
@@ -6318,19 +6279,16 @@ const getModelStats = createRoute({
 	method: "get",
 	path: "/models",
 	request: {
-		query: z
-			.object({
-				search: z.string().optional(),
-				family: z.string().optional(),
-				sortBy: modelSortBySchema.default("logsCount").optional(),
-				sortOrder: sortOrderSchema.default("desc").optional(),
-				mode: catalogUsageModeSchema.default("total").optional(),
-				limit: z.coerce.number().min(1).max(100).default(50).optional(),
-				offset: z.coerce.number().min(0).default(0).optional(),
-				from: z.string().optional(),
-				to: z.string().optional(),
-			})
-			.superRefine(requireCatalogUsageDateRange),
+		query: z.object({
+			search: z.string().optional(),
+			family: z.string().optional(),
+			sortBy: modelSortBySchema.default("logsCount").optional(),
+			sortOrder: sortOrderSchema.default("desc").optional(),
+			limit: z.coerce.number().min(1).max(100).default(50).optional(),
+			offset: z.coerce.number().min(0).default(0).optional(),
+			from: z.string().optional(),
+			to: z.string().optional(),
+		}),
 	},
 	responses: {
 		200: {
@@ -6350,7 +6308,6 @@ admin.openapi(getModelStats, async (c) => {
 	const family = query.family;
 	const sortBy = query.sortBy ?? "logsCount";
 	const sortOrderVal = query.sortOrder ?? "desc";
-	const mode = query.mode ?? "total";
 	const limit = query.limit ?? 50;
 	const offset = query.offset ?? 0;
 	const { from, to } = query;
@@ -6388,7 +6345,6 @@ admin.openapi(getModelStats, async (c) => {
 		// scan across every model doesn't read minute rows.
 		const { table: mh, bucket: mhTs } = pickModelHistoryTable(
 			isHourlyRange(startDate, endDateExclusive),
-			mode,
 		);
 		const modelAggSub = db
 			.select({
@@ -6414,7 +6370,6 @@ admin.openapi(getModelStats, async (c) => {
 				cachedCount: sql<number>`COALESCE(SUM(${mh.cachedCount}), 0)`.as(
 					"cachedCount",
 				),
-				avgTimeToFirstToken: avgEffectiveTtftSql(mh).as("avgTimeToFirstToken"),
 				totalTokens:
 					sql<number>`COALESCE(SUM(CAST(${mh.totalTokens} AS NUMERIC)), 0)`.as(
 						"totalTokens",
@@ -6426,13 +6381,7 @@ admin.openapi(getModelStats, async (c) => {
 				...tokenBreakdownSums(mh),
 			})
 			.from(mh)
-			.where(
-				and(
-					gte(mhTs, startDate),
-					lt(mhTs, endDateExclusive),
-					mode === "total" ? undefined : eq(mh.usedMode, mode),
-				),
-			)
+			.where(and(gte(mhTs, startDate), lt(mhTs, endDateExclusive)))
 			.groupBy(mh.modelId)
 			.as("model_agg_sub");
 
@@ -6479,10 +6428,7 @@ admin.openapi(getModelStats, async (c) => {
 			gatewayErrorsCount: sql`COALESCE(${modelAggSub.gatewayErrorsCount}, 0)`,
 			upstreamErrorsCount: sql`COALESCE(${modelAggSub.upstreamErrorsCount}, 0)`,
 			cachedCount: sql`COALESCE(${modelAggSub.cachedCount}, 0)`,
-			avgTimeToFirstToken:
-				mode === "total"
-					? sql`COALESCE(${modelAggSub.avgTimeToFirstToken}, ${tables.model.avgTimeToFirstReasoningToken}, ${tables.model.avgTimeToFirstToken})`
-					: modelAggSub.avgTimeToFirstToken,
+			avgTimeToFirstToken: sql`COALESCE(${tables.model.avgTimeToFirstReasoningToken}, ${tables.model.avgTimeToFirstToken})`,
 			providerCount: sql`COALESCE(${providerCountSub.count}, 0)`,
 			updatedAt: tables.model.updatedAt,
 		} as const;
@@ -6539,11 +6485,11 @@ admin.openapi(getModelStats, async (c) => {
 				cachedCount: sql<number>`COALESCE(${modelAggSub.cachedCount}, 0)`.as(
 					"cachedCount",
 				),
-				avgTimeToFirstToken: sql<number | null>`${
-					mode === "total"
-						? sql`COALESCE(${modelAggSub.avgTimeToFirstToken}, ${tables.model.avgTimeToFirstReasoningToken}, ${tables.model.avgTimeToFirstToken})`
-						: modelAggSub.avgTimeToFirstToken
-				}`.as("avgTimeToFirstToken"),
+				avgTimeToFirstToken: sql<
+					number | null
+				>`COALESCE(${tables.model.avgTimeToFirstReasoningToken}, ${tables.model.avgTimeToFirstToken})`.as(
+					"avgTimeToFirstToken",
+				),
 				providerCount: sql<number>`COALESCE(${providerCountSub.count}, 0)`.as(
 					"providerCount",
 				),
@@ -8803,7 +8749,6 @@ const getProviderHistory = createRoute({
 		params: z.object({ providerId: z.string() }),
 		query: z.object({
 			window: historyWindowSchema.default("4h").optional(),
-			mode: catalogUsageModeSchema.default("total").optional(),
 		}),
 	},
 	responses: {
@@ -8820,63 +8765,173 @@ admin.openapi(getProviderHistory, async (c) => {
 	const { providerId } = c.req.valid("param");
 	const query = c.req.valid("query");
 	const window = query.window ?? "4h";
-	const mode = query.mode ?? "total";
 	const startDate = getHistoryStartDate(window);
-	const hourly = isHourlyWindow(window);
-	const { table: mph, bucket: mphTs } = pickMappingHistoryTable(hourly, mode);
-	const rangeStart = hourly ? floorToHourStart(startDate) : startDate;
-	const rows = await db
-		.select({
-			minuteTimestamp: mphTs,
-			logsCount: sql<number>`SUM(${mph.logsCount})`.as("logs_count"),
-			errorsCount: sql<number>`SUM(${mph.errorsCount})`.as("errors_count"),
-			clientErrorsCount: sql<number>`SUM(${mph.clientErrorsCount})`.as(
-				"client_errors_count",
-			),
-			gatewayErrorsCount: sql<number>`SUM(${mph.gatewayErrorsCount})`.as(
-				"gateway_errors_count",
-			),
-			upstreamErrorsCount: sql<number>`SUM(${mph.upstreamErrorsCount})`.as(
-				"upstream_errors_count",
-			),
-			cachedCount: sql<number>`SUM(${mph.cachedCount})`.as("cached_count"),
-			totalDuration: sql<number>`SUM(${mph.totalDuration})`.as(
-				"total_duration",
-			),
-			totalTimeToFirstToken: sql<number>`SUM(${mph.totalTimeToFirstToken})`.as(
-				"total_ttft",
-			),
-			timeToFirstTokenCount: sql<number>`SUM(${mph.timeToFirstTokenCount})`.as(
-				"ttft_count",
-			),
-			totalTimeToFirstReasoningToken:
-				sql<number>`SUM(${mph.totalTimeToFirstReasoningToken})`.as(
-					"total_ttfrt",
-				),
-			timeToFirstReasoningTokenCount:
-				sql<number>`SUM(${mph.timeToFirstReasoningTokenCount})`.as(
-					"ttfrt_count",
-				),
-			totalTokens: sql<number>`SUM(${mph.totalTokens})`.as("total_tokens"),
-			totalCost:
-				sql<number>`SUM(cast(${mph.totalCost} as double precision))`.as(
-					"total_cost",
-				),
-			...tokenBreakdownSums(mph),
-		})
-		.from(mph)
-		.where(
-			and(
-				eq(mph.providerId, providerId),
-				gte(mphTs, rangeStart),
-				mode === "total" ? undefined : eq(mph.usedMode, mode),
-				excludeRegionalMappingRows(mph),
-			),
-		)
-		.groupBy(mphTs)
-		.orderBy(asc(mphTs));
+	const hourStartDate = floorToHourStart(startDate);
 
-	return c.json({ data: mapHistoryRows(rows) });
+	// For windows longer than 24h, return hourly buckets straight from the
+	// hourly rollup (which carries cost + latency), instead of minute rows.
+	if (isHourlyWindow(window)) {
+		const rows = await db
+			.select({
+				minuteTimestamp: modelProviderMappingHistoryHourly.hourTimestamp,
+				logsCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.logsCount})`.as(
+						"logs_count",
+					),
+				errorsCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.errorsCount})`.as(
+						"errors_count",
+					),
+				clientErrorsCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.clientErrorsCount})`.as(
+						"client_errors_count",
+					),
+				gatewayErrorsCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.gatewayErrorsCount})`.as(
+						"gateway_errors_count",
+					),
+				upstreamErrorsCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.upstreamErrorsCount})`.as(
+						"upstream_errors_count",
+					),
+				cachedCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.cachedCount})`.as(
+						"cached_count",
+					),
+				totalDuration:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalDuration})`.as(
+						"total_duration",
+					),
+				totalTimeToFirstToken:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalTimeToFirstToken})`.as(
+						"total_ttft",
+					),
+				timeToFirstTokenCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.timeToFirstTokenCount})`.as(
+						"ttft_count",
+					),
+				totalTimeToFirstReasoningToken:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalTimeToFirstReasoningToken})`.as(
+						"total_ttfrt",
+					),
+				timeToFirstReasoningTokenCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.timeToFirstReasoningTokenCount})`.as(
+						"ttfrt_count",
+					),
+				totalTokens:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalTokens})`.as(
+						"total_tokens",
+					),
+				totalCost:
+					sql<number>`SUM(cast(${modelProviderMappingHistoryHourly.totalCost} as double precision))`.as(
+						"total_cost",
+					),
+				...tokenBreakdownSums(modelProviderMappingHistoryHourly),
+			})
+			.from(modelProviderMappingHistoryHourly)
+			.where(
+				and(
+					eq(modelProviderMappingHistoryHourly.providerId, providerId),
+					gte(modelProviderMappingHistoryHourly.hourTimestamp, hourStartDate),
+					// Provider totals across models: the region-less root row already
+					// carries each mapping's regional traffic.
+					excludeRegionalMappingRows(modelProviderMappingHistoryHourly),
+				),
+			)
+			.groupBy(modelProviderMappingHistoryHourly.hourTimestamp)
+			.orderBy(asc(modelProviderMappingHistoryHourly.hourTimestamp));
+
+		return c.json({ data: mapHistoryRows(rows) });
+	}
+
+	const [rows, costRows] = await Promise.all([
+		db
+			.select({
+				minuteTimestamp: modelProviderMappingHistory.minuteTimestamp,
+				logsCount:
+					sql<number>`SUM(${modelProviderMappingHistory.logsCount})`.as(
+						"logs_count",
+					),
+				errorsCount:
+					sql<number>`SUM(${modelProviderMappingHistory.errorsCount})`.as(
+						"errors_count",
+					),
+				clientErrorsCount:
+					sql<number>`SUM(${modelProviderMappingHistory.clientErrorsCount})`.as(
+						"client_errors_count",
+					),
+				gatewayErrorsCount:
+					sql<number>`SUM(${modelProviderMappingHistory.gatewayErrorsCount})`.as(
+						"gateway_errors_count",
+					),
+				upstreamErrorsCount:
+					sql<number>`SUM(${modelProviderMappingHistory.upstreamErrorsCount})`.as(
+						"upstream_errors_count",
+					),
+				cachedCount:
+					sql<number>`SUM(${modelProviderMappingHistory.cachedCount})`.as(
+						"cached_count",
+					),
+				totalDuration:
+					sql<number>`SUM(${modelProviderMappingHistory.totalDuration})`.as(
+						"total_duration",
+					),
+				totalTimeToFirstToken:
+					sql<number>`SUM(${modelProviderMappingHistory.totalTimeToFirstToken})`.as(
+						"total_ttft",
+					),
+				timeToFirstTokenCount:
+					sql<number>`SUM(${modelProviderMappingHistory.timeToFirstTokenCount})`.as(
+						"ttft_count",
+					),
+				totalTimeToFirstReasoningToken:
+					sql<number>`SUM(${modelProviderMappingHistory.totalTimeToFirstReasoningToken})`.as(
+						"total_ttfrt",
+					),
+				timeToFirstReasoningTokenCount:
+					sql<number>`SUM(${modelProviderMappingHistory.timeToFirstReasoningTokenCount})`.as(
+						"ttfrt_count",
+					),
+				totalTokens:
+					sql<number>`SUM(${modelProviderMappingHistory.totalTokens})`.as(
+						"total_tokens",
+					),
+				...tokenBreakdownSums(modelProviderMappingHistory),
+			})
+			.from(modelProviderMappingHistory)
+			.where(
+				and(
+					eq(modelProviderMappingHistory.providerId, providerId),
+					gte(modelProviderMappingHistory.minuteTimestamp, startDate),
+					excludeRegionalMappingRows(modelProviderMappingHistory),
+				),
+			)
+			.groupBy(modelProviderMappingHistory.minuteTimestamp)
+			.orderBy(asc(modelProviderMappingHistory.minuteTimestamp)),
+		db
+			.select({
+				hourTimestamp: projectHourlyModelStats.hourTimestamp,
+				cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`,
+			})
+			.from(projectHourlyModelStats)
+			.where(
+				and(
+					eq(projectHourlyModelStats.usedProvider, providerId),
+					gte(projectHourlyModelStats.hourTimestamp, hourStartDate),
+				),
+			)
+			.groupBy(projectHourlyModelStats.hourTimestamp),
+	]);
+
+	const costByHour = new Map<string, number>(
+		costRows.map((r) => {
+			const d = new Date(r.hourTimestamp);
+			d.setMinutes(0, 0, 0);
+			return [d.toISOString(), Number(r.cost)];
+		}),
+	);
+
+	return c.json({ data: mapHistoryRows(rows, costByHour) });
 });
 
 // Model history
@@ -8885,13 +8940,10 @@ const getModelHistory = createRoute({
 	path: "/models/{modelId}/history",
 	request: {
 		params: z.object({ modelId: z.string() }),
-		query: z
-			.object({
-				window: historyWindowSchema.default("4h").optional(),
-				projectId: z.string().optional(),
-				mode: catalogUsageModeSchema.default("total").optional(),
-			})
-			.superRefine(rejectProjectScopedCatalogUsageMode),
+		query: z.object({
+			window: historyWindowSchema.default("4h").optional(),
+			projectId: z.string().optional(),
+		}),
 	},
 	responses: {
 		200: {
@@ -8908,7 +8960,6 @@ admin.openapi(getModelHistory, async (c) => {
 	const query = c.req.valid("query");
 	const window = query.window ?? "4h";
 	const projectId = query.projectId;
-	const mode = query.mode ?? "total";
 	const startDate = getHistoryStartDate(window);
 
 	if (projectId) {
@@ -8987,55 +9038,132 @@ admin.openapi(getModelHistory, async (c) => {
 		});
 	}
 
-	const hourly = isHourlyWindow(window);
-	const { table: mh, bucket: mhTs } = pickModelHistoryTable(hourly, mode);
-	const rangeStart = hourly ? floorToHourStart(startDate) : startDate;
+	// For windows longer than 24h, bucket by hour from the hourly rollup.
+	if (isHourlyWindow(window)) {
+		const hourStartDate = floorToHourStart(startDate);
+		const rows = await db
+			.select({
+				minuteTimestamp: modelHistoryHourly.hourTimestamp,
+				logsCount: sql<number>`SUM(${modelHistoryHourly.logsCount})`.as(
+					"logs_count",
+				),
+				errorsCount: sql<number>`SUM(${modelHistoryHourly.errorsCount})`.as(
+					"errors_count",
+				),
+				clientErrorsCount:
+					sql<number>`SUM(${modelHistoryHourly.clientErrorsCount})`.as(
+						"client_errors_count",
+					),
+				gatewayErrorsCount:
+					sql<number>`SUM(${modelHistoryHourly.gatewayErrorsCount})`.as(
+						"gateway_errors_count",
+					),
+				upstreamErrorsCount:
+					sql<number>`SUM(${modelHistoryHourly.upstreamErrorsCount})`.as(
+						"upstream_errors_count",
+					),
+				cachedCount: sql<number>`SUM(${modelHistoryHourly.cachedCount})`.as(
+					"cached_count",
+				),
+				totalDuration: sql<number>`SUM(${modelHistoryHourly.totalDuration})`.as(
+					"total_duration",
+				),
+				totalTimeToFirstToken:
+					sql<number>`SUM(${modelHistoryHourly.totalTimeToFirstToken})`.as(
+						"total_ttft",
+					),
+				timeToFirstTokenCount:
+					sql<number>`SUM(${modelHistoryHourly.timeToFirstTokenCount})`.as(
+						"ttft_count",
+					),
+				totalTimeToFirstReasoningToken:
+					sql<number>`SUM(${modelHistoryHourly.totalTimeToFirstReasoningToken})`.as(
+						"total_ttfrt",
+					),
+				timeToFirstReasoningTokenCount:
+					sql<number>`SUM(${modelHistoryHourly.timeToFirstReasoningTokenCount})`.as(
+						"ttfrt_count",
+					),
+				totalTokens: sql<number>`SUM(${modelHistoryHourly.totalTokens})`.as(
+					"total_tokens",
+				),
+				totalCost:
+					sql<number>`SUM(cast(${modelHistoryHourly.totalCost} as double precision))`.as(
+						"total_cost",
+					),
+				...tokenBreakdownSums(modelHistoryHourly),
+			})
+			.from(modelHistoryHourly)
+			.where(
+				and(
+					eq(modelHistoryHourly.modelId, modelId),
+					gte(modelHistoryHourly.hourTimestamp, hourStartDate),
+				),
+			)
+			.groupBy(modelHistoryHourly.hourTimestamp)
+			.orderBy(asc(modelHistoryHourly.hourTimestamp));
+
+		return c.json({ data: mapHistoryRows(rows) });
+	}
+
 	const rows = await db
 		.select({
-			minuteTimestamp: mhTs,
-			logsCount: sql<number>`SUM(${mh.logsCount})`.as("logs_count"),
-			errorsCount: sql<number>`SUM(${mh.errorsCount})`.as("errors_count"),
-			clientErrorsCount: sql<number>`SUM(${mh.clientErrorsCount})`.as(
+			minuteTimestamp: modelHistory.minuteTimestamp,
+			logsCount: sql<number>`SUM(${modelHistory.logsCount})`.as("logs_count"),
+			errorsCount: sql<number>`SUM(${modelHistory.errorsCount})`.as(
+				"errors_count",
+			),
+			clientErrorsCount: sql<number>`SUM(${modelHistory.clientErrorsCount})`.as(
 				"client_errors_count",
 			),
-			gatewayErrorsCount: sql<number>`SUM(${mh.gatewayErrorsCount})`.as(
-				"gateway_errors_count",
+			gatewayErrorsCount:
+				sql<number>`SUM(${modelHistory.gatewayErrorsCount})`.as(
+					"gateway_errors_count",
+				),
+			upstreamErrorsCount:
+				sql<number>`SUM(${modelHistory.upstreamErrorsCount})`.as(
+					"upstream_errors_count",
+				),
+			cachedCount: sql<number>`SUM(${modelHistory.cachedCount})`.as(
+				"cached_count",
 			),
-			upstreamErrorsCount: sql<number>`SUM(${mh.upstreamErrorsCount})`.as(
-				"upstream_errors_count",
+			totalDuration: sql<number>`SUM(${modelHistory.totalDuration})`.as(
+				"total_duration",
 			),
-			cachedCount: sql<number>`SUM(${mh.cachedCount})`.as("cached_count"),
-			totalDuration: sql<number>`SUM(${mh.totalDuration})`.as("total_duration"),
-			totalTimeToFirstToken: sql<number>`SUM(${mh.totalTimeToFirstToken})`.as(
-				"total_ttft",
-			),
-			timeToFirstTokenCount: sql<number>`SUM(${mh.timeToFirstTokenCount})`.as(
-				"ttft_count",
-			),
+			totalTimeToFirstToken:
+				sql<number>`SUM(${modelHistory.totalTimeToFirstToken})`.as(
+					"total_ttft",
+				),
+			timeToFirstTokenCount:
+				sql<number>`SUM(${modelHistory.timeToFirstTokenCount})`.as(
+					"ttft_count",
+				),
 			totalTimeToFirstReasoningToken:
-				sql<number>`SUM(${mh.totalTimeToFirstReasoningToken})`.as(
+				sql<number>`SUM(${modelHistory.totalTimeToFirstReasoningToken})`.as(
 					"total_ttfrt",
 				),
 			timeToFirstReasoningTokenCount:
-				sql<number>`SUM(${mh.timeToFirstReasoningTokenCount})`.as(
+				sql<number>`SUM(${modelHistory.timeToFirstReasoningTokenCount})`.as(
 					"ttfrt_count",
 				),
-			totalTokens: sql<number>`SUM(${mh.totalTokens})`.as("total_tokens"),
-			totalCost: sql<number>`SUM(cast(${mh.totalCost} as double precision))`.as(
-				"total_cost",
+			totalTokens: sql<number>`SUM(${modelHistory.totalTokens})`.as(
+				"total_tokens",
 			),
-			...tokenBreakdownSums(mh),
+			totalCost:
+				sql<number>`SUM(cast(${modelHistory.totalCost} as double precision))`.as(
+					"total_cost",
+				),
+			...tokenBreakdownSums(modelHistory),
 		})
-		.from(mh)
+		.from(modelHistory)
 		.where(
 			and(
-				eq(mh.modelId, modelId),
-				gte(mhTs, rangeStart),
-				mode === "total" ? undefined : eq(mh.usedMode, mode),
+				eq(modelHistory.modelId, modelId),
+				gte(modelHistory.minuteTimestamp, startDate),
 			),
 		)
-		.groupBy(mhTs)
-		.orderBy(asc(mhTs));
+		.groupBy(modelHistory.minuteTimestamp)
+		.orderBy(asc(modelHistory.minuteTimestamp));
 
 	return c.json({ data: mapHistoryRows(rows) });
 });
@@ -9049,14 +9177,11 @@ const getMappingHistory = createRoute({
 			providerId: z.string(),
 			modelId: z.string(),
 		}),
-		query: z
-			.object({
-				window: historyWindowSchema.default("4h").optional(),
-				projectId: z.string().optional(),
-				region: z.string().optional(),
-				mode: catalogUsageModeSchema.default("total").optional(),
-			})
-			.superRefine(rejectProjectScopedCatalogUsageMode),
+		query: z.object({
+			window: historyWindowSchema.default("4h").optional(),
+			projectId: z.string().optional(),
+			region: z.string().optional(),
+		}),
 	},
 	responses: {
 		200: {
@@ -9074,10 +9199,32 @@ admin.openapi(getMappingHistory, async (c) => {
 	const window = query.window ?? "4h";
 	const projectId = query.projectId;
 	const region = query.region;
-	const mode = query.mode ?? "total";
 	const startDate = getHistoryStartDate(window);
 	const hourStartDate = new Date(startDate);
 	hourStartDate.setMinutes(0, 0, 0);
+
+	// When a region is given, restrict the minute-level mapping history to the
+	// exact regional mapping(s). The hourly project rollups have no region
+	// dimension, so region scoping only applies to the minute-granularity source.
+	// Without a region the rows are summed across the mapping's variants, which
+	// means the regional rows have to be dropped — the region-less root row
+	// already includes their traffic.
+	const regionMappingFilter =
+		region !== undefined
+			? inArray(
+					modelProviderMappingHistory.modelProviderMappingId,
+					db
+						.select({ id: tables.modelProviderMapping.id })
+						.from(tables.modelProviderMapping)
+						.where(
+							and(
+								eq(tables.modelProviderMapping.providerId, providerId),
+								eq(tables.modelProviderMapping.modelId, modelId),
+								eq(tables.modelProviderMapping.region, region),
+							),
+						),
+				)
+			: excludeRegionalMappingRows(modelProviderMappingHistory);
 
 	if (projectId) {
 		const rows = await db
@@ -9154,79 +9301,168 @@ admin.openapi(getMappingHistory, async (c) => {
 		});
 	}
 
-	const hourly = isHourlyWindow(window);
-	const { table: mph, bucket: mphTs } = pickMappingHistoryTable(hourly, mode);
-	const rangeStart = hourly ? floorToHourStart(startDate) : startDate;
-	const regionMappingFilter =
-		region !== undefined
-			? inArray(
-					mph.modelProviderMappingId,
-					db
-						.select({ id: tables.modelProviderMapping.id })
-						.from(tables.modelProviderMapping)
-						.where(
-							and(
-								eq(tables.modelProviderMapping.providerId, providerId),
-								eq(tables.modelProviderMapping.modelId, modelId),
-								eq(tables.modelProviderMapping.region, region),
+	// For windows longer than 24h, bucket by hour straight from the hourly
+	// rollup (counts, latency, tokens and cost all come from one source).
+	if (isHourlyWindow(window)) {
+		const hourlyRegionMappingFilter =
+			region !== undefined
+				? inArray(
+						modelProviderMappingHistoryHourly.modelProviderMappingId,
+						db
+							.select({ id: tables.modelProviderMapping.id })
+							.from(tables.modelProviderMapping)
+							.where(
+								and(
+									eq(tables.modelProviderMapping.providerId, providerId),
+									eq(tables.modelProviderMapping.modelId, modelId),
+									eq(tables.modelProviderMapping.region, region),
+								),
 							),
-						),
-				)
-			: excludeRegionalMappingRows(mph);
+					)
+				: excludeRegionalMappingRows(modelProviderMappingHistoryHourly);
 
-	const rows = await db
+		const rows = await db
+			.select({
+				minuteTimestamp: modelProviderMappingHistoryHourly.hourTimestamp,
+				logsCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.logsCount})`.as(
+						"logs_count",
+					),
+				errorsCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.errorsCount})`.as(
+						"errors_count",
+					),
+				clientErrorsCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.clientErrorsCount})`.as(
+						"client_errors_count",
+					),
+				gatewayErrorsCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.gatewayErrorsCount})`.as(
+						"gateway_errors_count",
+					),
+				upstreamErrorsCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.upstreamErrorsCount})`.as(
+						"upstream_errors_count",
+					),
+				cachedCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.cachedCount})`.as(
+						"cached_count",
+					),
+				totalDuration:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalDuration})`.as(
+						"total_duration",
+					),
+				totalTimeToFirstToken:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalTimeToFirstToken})`.as(
+						"total_ttft",
+					),
+				timeToFirstTokenCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.timeToFirstTokenCount})`.as(
+						"ttft_count",
+					),
+				totalTimeToFirstReasoningToken:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalTimeToFirstReasoningToken})`.as(
+						"total_ttfrt",
+					),
+				timeToFirstReasoningTokenCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.timeToFirstReasoningTokenCount})`.as(
+						"ttfrt_count",
+					),
+				totalTokens:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalTokens})`.as(
+						"total_tokens",
+					),
+				totalCost:
+					sql<number>`SUM(cast(${modelProviderMappingHistoryHourly.totalCost} as double precision))`.as(
+						"total_cost",
+					),
+				...tokenBreakdownSums(modelProviderMappingHistoryHourly),
+			})
+			.from(modelProviderMappingHistoryHourly)
+			.where(
+				and(
+					eq(modelProviderMappingHistoryHourly.providerId, providerId),
+					eq(modelProviderMappingHistoryHourly.modelId, modelId),
+					gte(modelProviderMappingHistoryHourly.hourTimestamp, hourStartDate),
+					hourlyRegionMappingFilter,
+				),
+			)
+			.groupBy(modelProviderMappingHistoryHourly.hourTimestamp)
+			.orderBy(asc(modelProviderMappingHistoryHourly.hourTimestamp));
+
+		return c.json({ data: mapHistoryRows(rows) });
+	}
+
+	// 24h and below: minute granularity.
+	const minuteRows = await db
 		.select({
-			minuteTimestamp: mphTs,
-			logsCount: sql<number>`SUM(${mph.logsCount})`.as("logs_count"),
-			errorsCount: sql<number>`SUM(${mph.errorsCount})`.as("errors_count"),
-			clientErrorsCount: sql<number>`SUM(${mph.clientErrorsCount})`.as(
-				"client_errors_count",
+			minuteTimestamp: modelProviderMappingHistory.minuteTimestamp,
+			logsCount: sql<number>`SUM(${modelProviderMappingHistory.logsCount})`.as(
+				"logs_count",
 			),
-			gatewayErrorsCount: sql<number>`SUM(${mph.gatewayErrorsCount})`.as(
-				"gateway_errors_count",
-			),
-			upstreamErrorsCount: sql<number>`SUM(${mph.upstreamErrorsCount})`.as(
-				"upstream_errors_count",
-			),
-			cachedCount: sql<number>`SUM(${mph.cachedCount})`.as("cached_count"),
-			totalDuration: sql<number>`SUM(${mph.totalDuration})`.as(
-				"total_duration",
-			),
-			totalTimeToFirstToken: sql<number>`SUM(${mph.totalTimeToFirstToken})`.as(
-				"total_ttft",
-			),
-			timeToFirstTokenCount: sql<number>`SUM(${mph.timeToFirstTokenCount})`.as(
-				"ttft_count",
-			),
+			errorsCount:
+				sql<number>`SUM(${modelProviderMappingHistory.errorsCount})`.as(
+					"errors_count",
+				),
+			clientErrorsCount:
+				sql<number>`SUM(${modelProviderMappingHistory.clientErrorsCount})`.as(
+					"client_errors_count",
+				),
+			gatewayErrorsCount:
+				sql<number>`SUM(${modelProviderMappingHistory.gatewayErrorsCount})`.as(
+					"gateway_errors_count",
+				),
+			upstreamErrorsCount:
+				sql<number>`SUM(${modelProviderMappingHistory.upstreamErrorsCount})`.as(
+					"upstream_errors_count",
+				),
+			cachedCount:
+				sql<number>`SUM(${modelProviderMappingHistory.cachedCount})`.as(
+					"cached_count",
+				),
+			totalDuration:
+				sql<number>`SUM(${modelProviderMappingHistory.totalDuration})`.as(
+					"total_duration",
+				),
+			totalTimeToFirstToken:
+				sql<number>`SUM(${modelProviderMappingHistory.totalTimeToFirstToken})`.as(
+					"total_ttft",
+				),
+			timeToFirstTokenCount:
+				sql<number>`SUM(${modelProviderMappingHistory.timeToFirstTokenCount})`.as(
+					"ttft_count",
+				),
 			totalTimeToFirstReasoningToken:
-				sql<number>`SUM(${mph.totalTimeToFirstReasoningToken})`.as(
+				sql<number>`SUM(${modelProviderMappingHistory.totalTimeToFirstReasoningToken})`.as(
 					"total_ttfrt",
 				),
 			timeToFirstReasoningTokenCount:
-				sql<number>`SUM(${mph.timeToFirstReasoningTokenCount})`.as(
+				sql<number>`SUM(${modelProviderMappingHistory.timeToFirstReasoningTokenCount})`.as(
 					"ttfrt_count",
 				),
-			totalTokens: sql<number>`SUM(${mph.totalTokens})`.as("total_tokens"),
+			totalTokens:
+				sql<number>`SUM(${modelProviderMappingHistory.totalTokens})`.as(
+					"total_tokens",
+				),
 			totalCost:
-				sql<number>`SUM(cast(${mph.totalCost} as double precision))`.as(
+				sql<number>`SUM(cast(${modelProviderMappingHistory.totalCost} as double precision))`.as(
 					"total_cost",
 				),
-			...tokenBreakdownSums(mph),
+			...tokenBreakdownSums(modelProviderMappingHistory),
 		})
-		.from(mph)
+		.from(modelProviderMappingHistory)
 		.where(
 			and(
-				eq(mph.providerId, providerId),
-				eq(mph.modelId, modelId),
-				gte(mphTs, rangeStart),
-				mode === "total" ? undefined : eq(mph.usedMode, mode),
+				eq(modelProviderMappingHistory.providerId, providerId),
+				eq(modelProviderMappingHistory.modelId, modelId),
+				gte(modelProviderMappingHistory.minuteTimestamp, startDate),
 				regionMappingFilter,
 			),
 		)
-		.groupBy(mphTs)
-		.orderBy(asc(mphTs));
+		.groupBy(modelProviderMappingHistory.minuteTimestamp)
+		.orderBy(asc(modelProviderMappingHistory.minuteTimestamp));
 
-	return c.json({ data: mapHistoryRows(rows) });
+	return c.json({ data: mapHistoryRows(minuteRows) });
 });
 
 // Provider detail – aggregated stats + per-model breakdown for the window
@@ -11072,31 +11308,28 @@ const getModelProviderMappings = createRoute({
 	method: "get",
 	path: "/model-provider-mappings",
 	request: {
-		query: z
-			.object({
-				search: z.string().optional(),
-				sortBy: z
-					.enum([
-						"modelId",
-						"providerId",
-						"logsCount",
-						"errorsCount",
-						"clientErrorsCount",
-						"gatewayErrorsCount",
-						"upstreamErrorsCount",
-						"cost",
-						"avgTimeToFirstToken",
-						"updatedAt",
-					])
-					.optional(),
-				sortOrder: z.enum(["asc", "desc"]).optional(),
-				limit: z.coerce.number().optional(),
-				offset: z.coerce.number().optional(),
-				mode: catalogUsageModeSchema.default("total").optional(),
-				from: z.string().optional(),
-				to: z.string().optional(),
-			})
-			.superRefine(requireCatalogUsageDateRange),
+		query: z.object({
+			search: z.string().optional(),
+			sortBy: z
+				.enum([
+					"modelId",
+					"providerId",
+					"logsCount",
+					"errorsCount",
+					"clientErrorsCount",
+					"gatewayErrorsCount",
+					"upstreamErrorsCount",
+					"cost",
+					"avgTimeToFirstToken",
+					"updatedAt",
+				])
+				.optional(),
+			sortOrder: z.enum(["asc", "desc"]).optional(),
+			limit: z.coerce.number().optional(),
+			offset: z.coerce.number().optional(),
+			from: z.string().optional(),
+			to: z.string().optional(),
+		}),
 	},
 	responses: {
 		200: {
@@ -11117,7 +11350,6 @@ admin.openapi(getModelProviderMappings, async (c) => {
 	const limit = query.limit ?? 100;
 	const offset = query.offset ?? 0;
 	const search = query.search ?? "";
-	const mode = query.mode ?? "total";
 	const { from, to } = query;
 
 	const concreteRegionalMapping = aliasedTable(
@@ -11176,7 +11408,6 @@ admin.openapi(getModelProviderMappings, async (c) => {
 	const mappingHistory = dateRange
 		? pickMappingHistoryTable(
 				isHourlyRange(dateRange.startDate, dateRange.endDateExclusive),
-				mode,
 			)
 		: null;
 
@@ -11208,9 +11439,6 @@ admin.openapi(getModelProviderMappings, async (c) => {
 						sql<number>`COALESCE(SUM(${mappingHistory.table.cachedCount}), 0)`.as(
 							"cachedCount",
 						),
-					avgTimeToFirstToken: avgEffectiveTtftSql(mappingHistory.table).as(
-						"avgTimeToFirstToken",
-					),
 					cost: sql<number>`COALESCE(SUM(cast(${mappingHistory.table.totalCost} as double precision)), 0)`.as(
 						"cost",
 					),
@@ -11221,9 +11449,6 @@ admin.openapi(getModelProviderMappings, async (c) => {
 					and(
 						gte(mappingHistory.bucket, dateRange!.startDate),
 						lt(mappingHistory.bucket, dateRange!.endDateExclusive),
-						mode === "total"
-							? undefined
-							: eq(mappingHistory.table.usedMode, mode),
 					),
 				)
 				.groupBy(mappingHistory.table.modelProviderMappingId)
@@ -11237,11 +11462,6 @@ admin.openapi(getModelProviderMappings, async (c) => {
 					gatewayErrorsCount: tables.modelProviderMapping.gatewayErrorsCount,
 					upstreamErrorsCount: tables.modelProviderMapping.upstreamErrorsCount,
 					cachedCount: tables.modelProviderMapping.cachedCount,
-					avgTimeToFirstToken: sql<
-						number | null
-					>`COALESCE(${tables.modelProviderMapping.avgTimeToFirstReasoningToken}, ${tables.modelProviderMapping.avgTimeToFirstToken})`.as(
-						"avgTimeToFirstToken",
-					),
 					// Cost and the token breakdown are only tracked in the history
 					// table, so they are only available when a date range is provided
 					// (mirrors the models list).
@@ -11289,9 +11509,6 @@ admin.openapi(getModelProviderMappings, async (c) => {
 						searchClause,
 						gte(mappingHistory.bucket, dateRange!.startDate),
 						lt(mappingHistory.bucket, dateRange!.endDateExclusive),
-						mode === "total"
-							? undefined
-							: eq(mappingHistory.table.usedMode, mode),
 						excludeRegionalMappingRows(mappingHistory.table),
 					),
 				)
@@ -11314,7 +11531,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 		gatewayErrorsCount: sql`COALESCE(${statsJoin.gatewayErrorsCount}, 0)`,
 		upstreamErrorsCount: sql`COALESCE(${statsJoin.upstreamErrorsCount}, 0)`,
 		cost: sql`COALESCE(${statsJoin.cost}, 0)`,
-		avgTimeToFirstToken: statsJoin.avgTimeToFirstToken,
+		avgTimeToFirstToken: sql`COALESCE(${tables.modelProviderMapping.avgTimeToFirstReasoningToken}, ${tables.modelProviderMapping.avgTimeToFirstToken})`,
 		updatedAt: tables.modelProviderMapping.updatedAt,
 	} as const;
 
@@ -11359,7 +11576,9 @@ admin.openapi(getModelProviderMappings, async (c) => {
 				cost: sql<number>`COALESCE(${statsJoin.cost}, 0)`.as("cost"),
 				avgTimeToFirstToken: sql<
 					number | null
-				>`${statsJoin.avgTimeToFirstToken}`.as("avgTimeToFirstToken"),
+				>`COALESCE(${tables.modelProviderMapping.avgTimeToFirstReasoningToken}, ${tables.modelProviderMapping.avgTimeToFirstToken})`.as(
+					"avgTimeToFirstToken",
+				),
 				...tokenBreakdownFromSub(statsJoin),
 				inputPrice: tables.modelProviderMapping.inputPrice,
 				outputPrice: tables.modelProviderMapping.outputPrice,

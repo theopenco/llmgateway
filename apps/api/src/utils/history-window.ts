@@ -3,13 +3,7 @@ import {
 	modelHistoryHourly,
 	modelProviderMappingHistory,
 	modelProviderMappingHistoryHourly,
-	modelProviderMappingUsageHistory,
-	modelProviderMappingUsageHistoryHourly,
-	modelUsageHistory,
-	modelUsageHistoryHourly,
 } from "@llmgateway/db";
-
-type CatalogUsageMode = "total" | "credits" | "api-keys";
 
 // Windows longer than 24h read the hourly rollup tables instead of the minute
 // tables, so a 7d/30d/90d range scans hours rather than millions of minute rows.
@@ -37,59 +31,39 @@ export function isHourlyRange(from: Date, to: Date): boolean {
 // table's type because the metric columns line up exactly at runtime; callers
 // must use the returned `bucket` for any timestamp predicate (never
 // `table.minuteTimestamp`, which does not exist on the hourly table).
-export function pickMappingHistoryTable(
-	hourly: boolean,
-	mode: CatalogUsageMode = "total",
-): {
-	table: typeof modelProviderMappingUsageHistory;
+export function pickMappingHistoryTable(hourly: boolean): {
+	table: typeof modelProviderMappingHistory;
 	bucket:
 		| typeof modelProviderMappingHistory.minuteTimestamp
-		| typeof modelProviderMappingHistoryHourly.hourTimestamp
-		| typeof modelProviderMappingUsageHistory.minuteTimestamp
-		| typeof modelProviderMappingUsageHistoryHourly.hourTimestamp;
+		| typeof modelProviderMappingHistoryHourly.hourTimestamp;
 } {
 	if (hourly) {
-		const table =
-			mode === "total"
-				? modelProviderMappingHistoryHourly
-				: modelProviderMappingUsageHistoryHourly;
 		return {
-			table: table as unknown as typeof modelProviderMappingUsageHistory,
-			bucket: table.hourTimestamp,
+			table:
+				modelProviderMappingHistoryHourly as unknown as typeof modelProviderMappingHistory,
+			bucket: modelProviderMappingHistoryHourly.hourTimestamp,
 		};
 	}
-	const table =
-		mode === "total"
-			? modelProviderMappingHistory
-			: modelProviderMappingUsageHistory;
 	return {
-		table: table as unknown as typeof modelProviderMappingUsageHistory,
-		bucket: table.minuteTimestamp,
+		table: modelProviderMappingHistory,
+		bucket: modelProviderMappingHistory.minuteTimestamp,
 	};
 }
 
-export function pickModelHistoryTable(
-	hourly: boolean,
-	mode: CatalogUsageMode = "total",
-): {
-	table: typeof modelUsageHistory;
+export function pickModelHistoryTable(hourly: boolean): {
+	table: typeof modelHistory;
 	bucket:
 		| typeof modelHistory.minuteTimestamp
-		| typeof modelHistoryHourly.hourTimestamp
-		| typeof modelUsageHistory.minuteTimestamp
-		| typeof modelUsageHistoryHourly.hourTimestamp;
+		| typeof modelHistoryHourly.hourTimestamp;
 } {
 	if (hourly) {
-		const table =
-			mode === "total" ? modelHistoryHourly : modelUsageHistoryHourly;
 		return {
-			table: table as unknown as typeof modelUsageHistory,
-			bucket: table.hourTimestamp,
+			table: modelHistoryHourly as unknown as typeof modelHistory,
+			bucket: modelHistoryHourly.hourTimestamp,
 		};
 	}
-	const table = mode === "total" ? modelHistory : modelUsageHistory;
 	return {
-		table: table as unknown as typeof modelUsageHistory,
-		bucket: table.minuteTimestamp,
+		table: modelHistory,
+		bucket: modelHistory.minuteTimestamp,
 	};
 }

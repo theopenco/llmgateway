@@ -7,16 +7,10 @@ import {
 	modelHistory,
 	modelProviderMappingHistoryHourly,
 	modelHistoryHourly,
-	modelProviderMappingUsageHistory,
-	modelUsageHistory,
-	modelProviderMappingUsageHistoryHourly,
-	modelUsageHistoryHourly,
 	routingElectionHourly,
-	systemSetting,
 	log,
 	sql,
 	asc,
-	desc,
 	eq,
 	gte,
 	lt,
@@ -24,7 +18,6 @@ import {
 	type SQL,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { ROUTING_HISTORY_MAX_WINDOW_MINUTES } from "@llmgateway/shared/routing-config";
 
 import { excludeRecoveredSameProviderRegionRetry } from "./log-filters.js";
 import { calculateRoutingTelemetryForHour } from "./routing-telemetry-aggregator.js";
@@ -40,7 +33,6 @@ const HOURLY_BACKFILL_MAX_ITERATIONS =
 
 const ONE_MINUTE_MS = 60 * 1000;
 const ONE_HOUR_MS = 60 * ONE_MINUTE_MS;
-const CATALOG_USAGE_HISTORY_WINDOW_MINUTES = 90 * 24 * 60;
 const usedModelWithRegionSql = sql<string>`split_part(${log.usedModel}, '/', 2)`;
 const usedBaseModelSql = sql<string>`split_part(${usedModelWithRegionSql}, ':', 1)`;
 const usedRegionSql = sql<
@@ -52,36 +44,11 @@ const usedRegionSql = sql<
 const serviceTierSourceSql = sql<
 	string | null
 >`(${log.routingMetadata}::jsonb ->> 'serviceTierSource')`;
-const HISTORY_USAGE_MODES = ["credits", "api-keys"] as const;
-type HistoryUsageMode = (typeof HISTORY_USAGE_MODES)[number];
-const USAGE_HISTORY_BACKFILL_SETTING_ID = "catalog-usage-history-backfill-v1";
-
-async function writeUsageHistoryBackfillSetting(
-	enabled: boolean,
-	checkpoint: Date,
-) {
-	await db
-		.insert(systemSetting)
-		.values({
-			id: USAGE_HISTORY_BACKFILL_SETTING_ID,
-			enabled,
-			value: checkpoint.toISOString(),
-		})
-		.onConflictDoUpdate({
-			target: systemSetting.id,
-			set: {
-				enabled,
-				value: checkpoint.toISOString(),
-				updatedAt: new Date(),
-			},
-		});
-}
 
 interface MappingMinuteStats {
 	modelId: string | null;
 	providerId: string | null;
 	region: string | null;
-	usedMode: HistoryUsageMode;
 	logsCount: number;
 	errorsCount: number;
 	clientErrorsCount: number;
@@ -117,13 +84,11 @@ interface MappingMinuteStats {
 function createEmptyMappingMinuteStats(
 	modelId: string,
 	providerId: string,
-	usedMode: HistoryUsageMode,
 ): MappingMinuteStats {
 	return {
 		modelId,
 		providerId,
 		region: null,
-		usedMode,
 		logsCount: 0,
 		errorsCount: 0,
 		clientErrorsCount: 0,
@@ -233,27 +198,6 @@ const HISTORY_METRIC_COLUMNS = [
 	"serviceTierUnconfirmedCount",
 ] as const;
 
-type HistoryMetricValues = Record<
-	(typeof HISTORY_METRIC_COLUMNS)[number],
-	number
->;
-
-function createEmptyHistoryMetricValues(): HistoryMetricValues {
-	return Object.fromEntries(
-		HISTORY_METRIC_COLUMNS.map((column) => [column, 0]),
-	) as HistoryMetricValues;
-}
-
-function addHistoryMetricValues(
-	target: HistoryMetricValues,
-	source: Partial<HistoryMetricValues>,
-): HistoryMetricValues {
-	for (const column of HISTORY_METRIC_COLUMNS) {
-		target[column] += source[column] ?? 0;
-	}
-	return target;
-}
-
 // Chunk size for bulk upserts. Postgres caps a statement at 65535 bind
 // parameters; history rows have ~25 columns, so 1000 rows stays well under it.
 const HISTORY_UPSERT_CHUNK_SIZE = 1000;
@@ -278,59 +222,6 @@ function buildHistoryUpsertSet(
 	}
 	set.updatedAt = sql`now()`;
 	return set;
-}
-
-function buildUsageHistoryHourlyRollupSql(options: {
-	minuteTable: string;
-	hourlyTable: string;
-	dimensions: string[];
-	conflictColumns: string[];
-	roundedHour: Date;
-	hourEnd: Date;
-}) {
-	const metricColumns = HISTORY_METRIC_COLUMNS.map(toSnakeCase);
-	const insertColumns = [
-		"id",
-		...options.dimensions,
-		"used_mode",
-		"hour_timestamp",
-		...metricColumns,
-	];
-	const selectColumns = [
-		sql`md5(random()::text || clock_timestamp()::text)`,
-		...options.dimensions.map((column) => sql.identifier(column)),
-		sql.identifier("used_mode"),
-		sql`${options.roundedHour.toISOString()}::timestamp`,
-		...metricColumns.map((column) => sql`sum(${sql.identifier(column)})`),
-	];
-	const updateColumns = metricColumns.map(
-		(column) =>
-			sql`${sql.identifier(column)} = excluded.${sql.identifier(column)}`,
-	);
-
-	return sql`
-		insert into ${sql.identifier(options.hourlyTable)}
-			(${sql.join(
-				insertColumns.map((column) => sql.identifier(column)),
-				sql`, `,
-			)})
-		select ${sql.join(selectColumns, sql`, `)}
-		from ${sql.identifier(options.minuteTable)}
-		where ${sql.identifier("minute_timestamp")} >= ${options.roundedHour.toISOString()}::timestamp
-			and ${sql.identifier("minute_timestamp")} < ${options.hourEnd.toISOString()}::timestamp
-		group by ${sql.join(
-			[...options.dimensions, "used_mode"].map((column) =>
-				sql.identifier(column),
-			),
-			sql`, `,
-		)}
-		on conflict (${sql.join(
-			options.conflictColumns.map((column) => sql.identifier(column)),
-			sql`, `,
-		)}) do update set
-			${sql.join(updateColumns, sql`, `)},
-			${sql.identifier("updated_at")} = now()
-	`;
 }
 
 /**
@@ -392,10 +283,7 @@ function getCurrentHourStart(): Date {
  * Calculate and store 1-minute historical data for models for a specific minute
  * @param targetMinute The specific minute to calculate history for
  */
-async function calculateModelHistoryForMinute(
-	targetMinute: Date,
-	preserveExistingTotalHistory = false,
-) {
+async function calculateModelHistoryForMinute(targetMinute: Date) {
 	const roundedTargetMinute = roundToMinuteStart(targetMinute);
 
 	const minuteEnd = new Date(roundedTargetMinute.getTime() + ONE_MINUTE_MS);
@@ -406,7 +294,6 @@ async function calculateModelHistoryForMinute(
 	const modelStats = await database
 		.select({
 			modelId: usedBaseModelSql.as("modelId"),
-			usedMode: log.usedMode,
 			logsCount: sql<number>`count(*)::int`.as("logsCount"),
 			errorsCount:
 				sql<number>`sum(case when ${log.hasError} = true then 1 else 0 end)::int`.as(
@@ -544,179 +431,128 @@ async function calculateModelHistoryForMinute(
 				excludeRecoveredSameProviderRegionRetry(),
 			),
 		)
-		.groupBy(usedBaseModelSql, log.usedMode);
+		.groupBy(usedBaseModelSql);
 
-	// Upgrade backfills also reconstruct retired catalogue identities. Live
-	// minute writes stay limited to active models.
-	const allModels = preserveExistingTotalHistory
-		? await database.select({ modelId: model.id }).from(model)
-		: await database
-				.select({ modelId: model.id })
-				.from(model)
-				.where(eq(model.status, "active"));
+	// Get all active models to ensure we create entries for inactive ones too
+	const allModels = await database
+		.select({
+			modelId: model.id,
+		})
+		.from(model)
+		.where(eq(model.status, "active"));
 
 	// Create a map of models that had logs
 	const activeModelsMap = new Map<string, (typeof modelStats)[0]>();
-	const activeModelIds = new Set<string>();
 	for (const stat of modelStats) {
 		if (stat.modelId) {
-			activeModelsMap.set(`${stat.modelId}-${stat.usedMode}`, stat);
-			activeModelIds.add(stat.modelId);
+			activeModelsMap.set(stat.modelId, stat);
 		}
 	}
 
 	// Process all models
 	const processedModels = new Set<string>();
-	const modelUsageHistoryValues: (typeof modelUsageHistory.$inferInsert)[] = [];
+	const modelHistoryValues: (typeof modelHistory.$inferInsert)[] = [];
 
 	for (const modelEntry of allModels) {
-		for (const usedMode of HISTORY_USAGE_MODES) {
-			const historyKey = `${modelEntry.modelId}-${usedMode}`;
-			if (processedModels.has(historyKey)) {
-				continue;
-			}
-			processedModels.add(historyKey);
-
-			const stat = activeModelsMap.get(historyKey);
-
-			// Use actual stats if available, otherwise create zero stats
-			const logsCount = stat?.logsCount ?? 0;
-			const errorsCount = stat?.errorsCount ?? 0;
-			const clientErrorsCount = stat?.clientErrorsCount ?? 0;
-			const gatewayErrorsCount = stat?.gatewayErrorsCount ?? 0;
-			const upstreamErrorsCount = stat?.upstreamErrorsCount ?? 0;
-			const completedCount = stat?.completedCount ?? 0;
-			const lengthLimitCount = stat?.lengthLimitCount ?? 0;
-			const contentFilterCount = stat?.contentFilterCount ?? 0;
-			const toolCallsCount = stat?.toolCallsCount ?? 0;
-			const canceledCount = stat?.canceledCount ?? 0;
-			const unknownFinishCount = stat?.unknownFinishCount ?? 0;
-			const cachedCount = stat?.cachedCount ?? 0;
-			const totalInputTokens = stat?.totalInputTokens ?? 0;
-			const totalOutputTokens = stat?.totalOutputTokens ?? 0;
-			const totalTokens = stat?.totalTokens ?? 0;
-			const totalReasoningTokens = stat?.totalReasoningTokens ?? 0;
-			const totalCachedTokens = stat?.totalCachedTokens ?? 0;
-			const totalDuration = stat?.totalDuration ?? 0;
-			const totalTimeToFirstToken = stat?.totalTimeToFirstToken ?? 0;
-			const totalTimeToFirstReasoningToken =
-				stat?.totalTimeToFirstReasoningToken ?? 0;
-			const timeToFirstTokenCount = stat?.timeToFirstTokenCount ?? 0;
-			const timeToFirstReasoningTokenCount =
-				stat?.timeToFirstReasoningTokenCount ?? 0;
-			const totalCost = stat?.totalCost ?? 0;
-			const totalInputCost = stat?.totalInputCost ?? 0;
-			const totalOutputCost = stat?.totalOutputCost ?? 0;
-			const totalCachedInputCost = stat?.totalCachedInputCost ?? 0;
-			const serviceTierExplicitCount = stat?.serviceTierExplicitCount ?? 0;
-			const serviceTierImplicitCount = stat?.serviceTierImplicitCount ?? 0;
-			const serviceTierServedCount = stat?.serviceTierServedCount ?? 0;
-			const serviceTierUnconfirmedCount =
-				stat?.serviceTierUnconfirmedCount ?? 0;
-
-			// Collect the history record for this minute; written in one bulk upsert
-			// below instead of a per-model round-trip.
-			modelUsageHistoryValues.push({
-				modelId: modelEntry.modelId,
-				usedMode,
-				minuteTimestamp: roundedTargetMinute,
-				logsCount,
-				errorsCount,
-				clientErrorsCount,
-				gatewayErrorsCount,
-				upstreamErrorsCount,
-				completedCount,
-				lengthLimitCount,
-				contentFilterCount,
-				toolCallsCount,
-				canceledCount,
-				unknownFinishCount,
-				cachedCount,
-				totalInputTokens,
-				totalOutputTokens,
-				totalTokens,
-				totalReasoningTokens,
-				totalCachedTokens,
-				totalDuration,
-				totalTimeToFirstToken,
-				totalTimeToFirstReasoningToken,
-				timeToFirstTokenCount,
-				timeToFirstReasoningTokenCount,
-				totalCost,
-				totalInputCost,
-				totalOutputCost,
-				totalCachedInputCost,
-				serviceTierExplicitCount,
-				serviceTierImplicitCount,
-				serviceTierServedCount,
-				serviceTierUnconfirmedCount,
-			});
+		if (processedModels.has(modelEntry.modelId)) {
+			continue;
 		}
-	}
+		processedModels.add(modelEntry.modelId);
 
-	const modelUsageHistoryUpsertSet = buildHistoryUpsertSet(modelUsageHistory);
-	for (
-		let i = 0;
-		i < modelUsageHistoryValues.length;
-		i += HISTORY_UPSERT_CHUNK_SIZE
-	) {
-		const chunk = modelUsageHistoryValues.slice(
-			i,
-			i + HISTORY_UPSERT_CHUNK_SIZE,
-		);
-		await database
-			.insert(modelUsageHistory)
-			.values(chunk)
-			.onConflictDoUpdate({
-				target: [
-					modelUsageHistory.modelId,
-					modelUsageHistory.minuteTimestamp,
-					modelUsageHistory.usedMode,
-				],
-				set: modelUsageHistoryUpsertSet,
-			});
-	}
+		const stat = activeModelsMap.get(modelEntry.modelId);
 
-	const totalsByModel = new Map<string, HistoryMetricValues>();
-	for (const row of modelUsageHistoryValues) {
-		const total =
-			totalsByModel.get(row.modelId) ?? createEmptyHistoryMetricValues();
-		addHistoryMetricValues(total, row);
-		totalsByModel.set(row.modelId, total);
-	}
-	const totalModelHistoryValues: (typeof modelHistory.$inferInsert)[] =
-		allModels.map(({ modelId }) => ({
-			modelId,
+		// Use actual stats if available, otherwise create zero stats
+		const logsCount = stat?.logsCount ?? 0;
+		const errorsCount = stat?.errorsCount ?? 0;
+		const clientErrorsCount = stat?.clientErrorsCount ?? 0;
+		const gatewayErrorsCount = stat?.gatewayErrorsCount ?? 0;
+		const upstreamErrorsCount = stat?.upstreamErrorsCount ?? 0;
+		const completedCount = stat?.completedCount ?? 0;
+		const lengthLimitCount = stat?.lengthLimitCount ?? 0;
+		const contentFilterCount = stat?.contentFilterCount ?? 0;
+		const toolCallsCount = stat?.toolCallsCount ?? 0;
+		const canceledCount = stat?.canceledCount ?? 0;
+		const unknownFinishCount = stat?.unknownFinishCount ?? 0;
+		const cachedCount = stat?.cachedCount ?? 0;
+		const totalInputTokens = stat?.totalInputTokens ?? 0;
+		const totalOutputTokens = stat?.totalOutputTokens ?? 0;
+		const totalTokens = stat?.totalTokens ?? 0;
+		const totalReasoningTokens = stat?.totalReasoningTokens ?? 0;
+		const totalCachedTokens = stat?.totalCachedTokens ?? 0;
+		const totalDuration = stat?.totalDuration ?? 0;
+		const totalTimeToFirstToken = stat?.totalTimeToFirstToken ?? 0;
+		const totalTimeToFirstReasoningToken =
+			stat?.totalTimeToFirstReasoningToken ?? 0;
+		const timeToFirstTokenCount = stat?.timeToFirstTokenCount ?? 0;
+		const timeToFirstReasoningTokenCount =
+			stat?.timeToFirstReasoningTokenCount ?? 0;
+		const totalCost = stat?.totalCost ?? 0;
+		const totalInputCost = stat?.totalInputCost ?? 0;
+		const totalOutputCost = stat?.totalOutputCost ?? 0;
+		const totalCachedInputCost = stat?.totalCachedInputCost ?? 0;
+		const serviceTierExplicitCount = stat?.serviceTierExplicitCount ?? 0;
+		const serviceTierImplicitCount = stat?.serviceTierImplicitCount ?? 0;
+		const serviceTierServedCount = stat?.serviceTierServedCount ?? 0;
+		const serviceTierUnconfirmedCount = stat?.serviceTierUnconfirmedCount ?? 0;
+
+		// Collect the history record for this minute; written in one bulk upsert
+		// below instead of a per-model round-trip.
+		modelHistoryValues.push({
+			modelId: modelEntry.modelId,
 			minuteTimestamp: roundedTargetMinute,
-			...(totalsByModel.get(modelId) ?? createEmptyHistoryMetricValues()),
-		}));
+			logsCount,
+			errorsCount,
+			clientErrorsCount,
+			gatewayErrorsCount,
+			upstreamErrorsCount,
+			completedCount,
+			lengthLimitCount,
+			contentFilterCount,
+			toolCallsCount,
+			canceledCount,
+			unknownFinishCount,
+			cachedCount,
+			totalInputTokens,
+			totalOutputTokens,
+			totalTokens,
+			totalReasoningTokens,
+			totalCachedTokens,
+			totalDuration,
+			totalTimeToFirstToken,
+			totalTimeToFirstReasoningToken,
+			timeToFirstTokenCount,
+			timeToFirstReasoningTokenCount,
+			totalCost,
+			totalInputCost,
+			totalOutputCost,
+			totalCachedInputCost,
+			serviceTierExplicitCount,
+			serviceTierImplicitCount,
+			serviceTierServedCount,
+			serviceTierUnconfirmedCount,
+		});
+	}
+
 	const modelHistoryUpsertSet = buildHistoryUpsertSet(modelHistory);
 	for (
 		let i = 0;
-		i < totalModelHistoryValues.length;
+		i < modelHistoryValues.length;
 		i += HISTORY_UPSERT_CHUNK_SIZE
 	) {
-		const chunk = totalModelHistoryValues.slice(
-			i,
-			i + HISTORY_UPSERT_CHUNK_SIZE,
-		);
-		const insert = database.insert(modelHistory).values(chunk);
-		if (preserveExistingTotalHistory) {
-			await insert.onConflictDoNothing({
-				target: [modelHistory.modelId, modelHistory.minuteTimestamp],
-			});
-		} else {
-			await insert.onConflictDoUpdate({
+		const chunk = modelHistoryValues.slice(i, i + HISTORY_UPSERT_CHUNK_SIZE);
+		await database
+			.insert(modelHistory)
+			.values(chunk)
+			.onConflictDoUpdate({
 				target: [modelHistory.modelId, modelHistory.minuteTimestamp],
 				set: modelHistoryUpsertSet,
 			});
-		}
 	}
 
 	return {
 		totalModels: allModels.length,
-		activeModels: activeModelIds.size,
-		inactiveModels: allModels.length - activeModelIds.size,
+		activeModels: modelStats.length,
+		inactiveModels: allModels.length - modelStats.length,
 	};
 }
 
@@ -724,10 +560,7 @@ async function calculateModelHistoryForMinute(
  * Calculate and store 1-minute historical data for model-provider mappings for a specific minute
  * @param targetMinute The specific minute to calculate history for
  */
-async function calculateHistoryForMinute(
-	targetMinute: Date,
-	preserveExistingTotalHistory = false,
-) {
+async function calculateHistoryForMinute(targetMinute: Date) {
 	const roundedTargetMinute = roundToMinuteStart(targetMinute);
 
 	const minuteEnd = new Date(roundedTargetMinute.getTime() + ONE_MINUTE_MS);
@@ -740,7 +573,6 @@ async function calculateHistoryForMinute(
 			modelId: usedBaseModelSql.as("modelId"),
 			providerId: log.usedProvider,
 			region: usedRegionSql.as("region"),
-			usedMode: log.usedMode,
 			logsCount: sql<number>`count(*)::int`.as("logsCount"),
 			errorsCount:
 				sql<number>`sum(case when ${log.hasError} = true then 1 else 0 end)::int`.as(
@@ -878,28 +710,24 @@ async function calculateHistoryForMinute(
 				excludeRecoveredSameProviderRegionRetry(),
 			),
 		)
-		.groupBy(usedBaseModelSql, log.usedProvider, usedRegionSql, log.usedMode);
+		.groupBy(usedBaseModelSql, log.usedProvider, usedRegionSql);
 
-	const mappingSelection = {
-		id: modelProviderMapping.id,
-		modelId: modelProviderMapping.modelId,
-		providerId: modelProviderMapping.providerId,
-		region: modelProviderMapping.region,
-	};
-	// As with models, retired mappings are needed only while reconstructing
-	// retained history during an upgrade.
-	const allMappings = preserveExistingTotalHistory
-		? await database.select(mappingSelection).from(modelProviderMapping)
-		: await database
-				.select(mappingSelection)
-				.from(modelProviderMapping)
-				.where(eq(modelProviderMapping.status, "active"));
+	// Get all active model-provider mappings to ensure we create entries for inactive ones too
+	const allMappings = await database
+		.select({
+			id: modelProviderMapping.id, // The mapping ID
+			modelId: modelProviderMapping.modelId, // LLMGateway model name
+			providerId: modelProviderMapping.providerId,
+			region: modelProviderMapping.region,
+		})
+		.from(modelProviderMapping)
+		.where(eq(modelProviderMapping.status, "active"));
 
 	// Create a map of active mappings that had logs
 	const activeMappingsMap = new Map<string, MappingMinuteStats>();
 	for (const stat of mappingStats) {
 		if (stat.modelId && stat.providerId) {
-			const key = `${stat.modelId}-${stat.providerId}-${stat.region ?? ""}-${stat.usedMode}`;
+			const key = `${stat.modelId}-${stat.providerId}-${stat.region ?? ""}`;
 			activeMappingsMap.set(key, stat);
 		}
 	}
@@ -934,210 +762,148 @@ async function calculateHistoryForMinute(
 			continue;
 		}
 
-		for (const usedMode of HISTORY_USAGE_MODES) {
-			const modeRootKey = `${rootKey}-${usedMode}`;
-			const existingRootStat = activeMappingsMap.get(modeRootKey);
-			let aggregateStat = existingRootStat
-				? { ...existingRootStat, region: null }
-				: createEmptyMappingMinuteStats(
-						mapping.modelId,
-						mapping.providerId,
-						usedMode,
-					);
+		const existingRootStat = activeMappingsMap.get(rootKey);
+		let aggregateStat = existingRootStat
+			? { ...existingRootStat, region: null }
+			: createEmptyMappingMinuteStats(mapping.modelId, mapping.providerId);
 
-			let hasRegionalTraffic = false;
-			for (const regionalMapping of regionalMappings) {
-				const regionalKey = `${regionalMapping.modelId}-${regionalMapping.providerId}-${regionalMapping.region}-${usedMode}`;
-				const regionalStat = activeMappingsMap.get(regionalKey);
-				if (!regionalStat) {
-					continue;
-				}
-
-				aggregateStat = mergeMappingMinuteStats(aggregateStat, regionalStat);
-				hasRegionalTraffic = true;
+		let hasRegionalTraffic = false;
+		for (const regionalMapping of regionalMappings) {
+			const regionalKey = `${regionalMapping.modelId}-${regionalMapping.providerId}-${regionalMapping.region}`;
+			const regionalStat = activeMappingsMap.get(regionalKey);
+			if (!regionalStat) {
+				continue;
 			}
 
-			if (existingRootStat || hasRegionalTraffic) {
-				activeMappingsMap.set(modeRootKey, aggregateStat);
-			}
+			aggregateStat = mergeMappingMinuteStats(aggregateStat, regionalStat);
+			hasRegionalTraffic = true;
+		}
+
+		if (existingRootStat || hasRegionalTraffic) {
+			activeMappingsMap.set(rootKey, aggregateStat);
 		}
 	}
 
 	// Process all model-provider mappings
 	const processedMappings = new Set<string>();
-	const mappingUsageHistoryValues: (typeof modelProviderMappingUsageHistory.$inferInsert)[] =
+	const mappingHistoryValues: (typeof modelProviderMappingHistory.$inferInsert)[] =
 		[];
 
-	const activeMappingIds = new Set<string>();
+	let activeMappingsCount = 0;
 
 	for (const mapping of allMappings) {
-		for (const usedMode of HISTORY_USAGE_MODES) {
-			const historyKey = `${mapping.id}-${usedMode}`;
-			if (processedMappings.has(historyKey)) {
-				continue;
-			}
-			processedMappings.add(historyKey);
-
-			const key = `${mapping.modelId}-${mapping.providerId}-${mapping.region ?? ""}-${usedMode}`;
-			const stat = activeMappingsMap.get(key);
-
-			// Use actual stats if available, otherwise create zero stats
-			const logsCount = stat?.logsCount ?? 0;
-			const errorsCount = stat?.errorsCount ?? 0;
-			const clientErrorsCount = stat?.clientErrorsCount ?? 0;
-			const gatewayErrorsCount = stat?.gatewayErrorsCount ?? 0;
-			const upstreamErrorsCount = stat?.upstreamErrorsCount ?? 0;
-			const completedCount = stat?.completedCount ?? 0;
-			const lengthLimitCount = stat?.lengthLimitCount ?? 0;
-			const contentFilterCount = stat?.contentFilterCount ?? 0;
-			const toolCallsCount = stat?.toolCallsCount ?? 0;
-			const canceledCount = stat?.canceledCount ?? 0;
-			const unknownFinishCount = stat?.unknownFinishCount ?? 0;
-			const cachedCount = stat?.cachedCount ?? 0;
-			const totalInputTokens = stat?.totalInputTokens ?? 0;
-			const totalOutputTokens = stat?.totalOutputTokens ?? 0;
-			const totalTokens = stat?.totalTokens ?? 0;
-			const totalReasoningTokens = stat?.totalReasoningTokens ?? 0;
-			const totalCachedTokens = stat?.totalCachedTokens ?? 0;
-			const totalDuration = stat?.totalDuration ?? 0;
-			const totalTimeToFirstToken = stat?.totalTimeToFirstToken ?? 0;
-			const totalTimeToFirstReasoningToken =
-				stat?.totalTimeToFirstReasoningToken ?? 0;
-			const timeToFirstTokenCount = stat?.timeToFirstTokenCount ?? 0;
-			const timeToFirstReasoningTokenCount =
-				stat?.timeToFirstReasoningTokenCount ?? 0;
-			const totalCost = stat?.totalCost ?? 0;
-			const totalInputCost = stat?.totalInputCost ?? 0;
-			const totalOutputCost = stat?.totalOutputCost ?? 0;
-			const totalCachedInputCost = stat?.totalCachedInputCost ?? 0;
-			const serviceTierExplicitCount = stat?.serviceTierExplicitCount ?? 0;
-			const serviceTierImplicitCount = stat?.serviceTierImplicitCount ?? 0;
-			const serviceTierServedCount = stat?.serviceTierServedCount ?? 0;
-			const serviceTierUnconfirmedCount =
-				stat?.serviceTierUnconfirmedCount ?? 0;
-
-			if (logsCount > 0) {
-				activeMappingIds.add(mapping.id);
-			}
-
-			// Collect the history record for this minute; written in one bulk upsert
-			// below instead of a per-mapping round-trip.
-			mappingUsageHistoryValues.push({
-				modelId: mapping.modelId, // LLMGateway model name
-				providerId: mapping.providerId,
-				modelProviderMappingId: mapping.id, // Exact model_provider_mapping.id
-				usedMode,
-				minuteTimestamp: roundedTargetMinute,
-				logsCount,
-				errorsCount,
-				clientErrorsCount,
-				gatewayErrorsCount,
-				upstreamErrorsCount,
-				completedCount,
-				lengthLimitCount,
-				contentFilterCount,
-				toolCallsCount,
-				canceledCount,
-				unknownFinishCount,
-				cachedCount,
-				totalInputTokens,
-				totalOutputTokens,
-				totalTokens,
-				totalReasoningTokens,
-				totalCachedTokens,
-				totalDuration,
-				totalTimeToFirstToken,
-				totalTimeToFirstReasoningToken,
-				timeToFirstTokenCount,
-				timeToFirstReasoningTokenCount,
-				totalCost,
-				totalInputCost,
-				totalOutputCost,
-				totalCachedInputCost,
-				serviceTierExplicitCount,
-				serviceTierImplicitCount,
-				serviceTierServedCount,
-				serviceTierUnconfirmedCount,
-			});
+		// Use mapping ID to prevent duplicates
+		if (processedMappings.has(mapping.id)) {
+			continue;
 		}
-	}
+		processedMappings.add(mapping.id);
 
-	const mappingUsageHistoryUpsertSet = buildHistoryUpsertSet(
-		modelProviderMappingUsageHistory,
-	);
-	for (
-		let i = 0;
-		i < mappingUsageHistoryValues.length;
-		i += HISTORY_UPSERT_CHUNK_SIZE
-	) {
-		const chunk = mappingUsageHistoryValues.slice(
-			i,
-			i + HISTORY_UPSERT_CHUNK_SIZE,
-		);
-		await database
-			.insert(modelProviderMappingUsageHistory)
-			.values(chunk)
-			.onConflictDoUpdate({
-				target: [
-					modelProviderMappingUsageHistory.modelProviderMappingId,
-					modelProviderMappingUsageHistory.minuteTimestamp,
-					modelProviderMappingUsageHistory.usedMode,
-				],
-				set: mappingUsageHistoryUpsertSet,
-			});
-	}
+		const key = `${mapping.modelId}-${mapping.providerId}-${mapping.region ?? ""}`;
+		const stat = activeMappingsMap.get(key);
 
-	const totalsByMapping = new Map<string, HistoryMetricValues>();
-	for (const row of mappingUsageHistoryValues) {
-		const total =
-			totalsByMapping.get(row.modelProviderMappingId) ??
-			createEmptyHistoryMetricValues();
-		addHistoryMetricValues(total, row);
-		totalsByMapping.set(row.modelProviderMappingId, total);
-	}
-	const totalMappingHistoryValues: (typeof modelProviderMappingHistory.$inferInsert)[] =
-		allMappings.map((mapping) => ({
-			modelId: mapping.modelId,
+		// Use actual stats if available, otherwise create zero stats
+		const logsCount = stat?.logsCount ?? 0;
+		const errorsCount = stat?.errorsCount ?? 0;
+		const clientErrorsCount = stat?.clientErrorsCount ?? 0;
+		const gatewayErrorsCount = stat?.gatewayErrorsCount ?? 0;
+		const upstreamErrorsCount = stat?.upstreamErrorsCount ?? 0;
+		const completedCount = stat?.completedCount ?? 0;
+		const lengthLimitCount = stat?.lengthLimitCount ?? 0;
+		const contentFilterCount = stat?.contentFilterCount ?? 0;
+		const toolCallsCount = stat?.toolCallsCount ?? 0;
+		const canceledCount = stat?.canceledCount ?? 0;
+		const unknownFinishCount = stat?.unknownFinishCount ?? 0;
+		const cachedCount = stat?.cachedCount ?? 0;
+		const totalInputTokens = stat?.totalInputTokens ?? 0;
+		const totalOutputTokens = stat?.totalOutputTokens ?? 0;
+		const totalTokens = stat?.totalTokens ?? 0;
+		const totalReasoningTokens = stat?.totalReasoningTokens ?? 0;
+		const totalCachedTokens = stat?.totalCachedTokens ?? 0;
+		const totalDuration = stat?.totalDuration ?? 0;
+		const totalTimeToFirstToken = stat?.totalTimeToFirstToken ?? 0;
+		const totalTimeToFirstReasoningToken =
+			stat?.totalTimeToFirstReasoningToken ?? 0;
+		const timeToFirstTokenCount = stat?.timeToFirstTokenCount ?? 0;
+		const timeToFirstReasoningTokenCount =
+			stat?.timeToFirstReasoningTokenCount ?? 0;
+		const totalCost = stat?.totalCost ?? 0;
+		const totalInputCost = stat?.totalInputCost ?? 0;
+		const totalOutputCost = stat?.totalOutputCost ?? 0;
+		const totalCachedInputCost = stat?.totalCachedInputCost ?? 0;
+		const serviceTierExplicitCount = stat?.serviceTierExplicitCount ?? 0;
+		const serviceTierImplicitCount = stat?.serviceTierImplicitCount ?? 0;
+		const serviceTierServedCount = stat?.serviceTierServedCount ?? 0;
+		const serviceTierUnconfirmedCount = stat?.serviceTierUnconfirmedCount ?? 0;
+
+		if (logsCount > 0) {
+			activeMappingsCount++;
+		}
+
+		// Collect the history record for this minute; written in one bulk upsert
+		// below instead of a per-mapping round-trip.
+		mappingHistoryValues.push({
+			modelId: mapping.modelId, // LLMGateway model name
 			providerId: mapping.providerId,
-			modelProviderMappingId: mapping.id,
+			modelProviderMappingId: mapping.id, // Exact model_provider_mapping.id
 			minuteTimestamp: roundedTargetMinute,
-			...(totalsByMapping.get(mapping.id) ?? createEmptyHistoryMetricValues()),
-		}));
+			logsCount,
+			errorsCount,
+			clientErrorsCount,
+			gatewayErrorsCount,
+			upstreamErrorsCount,
+			completedCount,
+			lengthLimitCount,
+			contentFilterCount,
+			toolCallsCount,
+			canceledCount,
+			unknownFinishCount,
+			cachedCount,
+			totalInputTokens,
+			totalOutputTokens,
+			totalTokens,
+			totalReasoningTokens,
+			totalCachedTokens,
+			totalDuration,
+			totalTimeToFirstToken,
+			totalTimeToFirstReasoningToken,
+			timeToFirstTokenCount,
+			timeToFirstReasoningTokenCount,
+			totalCost,
+			totalInputCost,
+			totalOutputCost,
+			totalCachedInputCost,
+			serviceTierExplicitCount,
+			serviceTierImplicitCount,
+			serviceTierServedCount,
+			serviceTierUnconfirmedCount,
+		});
+	}
+
 	const mappingHistoryUpsertSet = buildHistoryUpsertSet(
 		modelProviderMappingHistory,
 	);
 	for (
 		let i = 0;
-		i < totalMappingHistoryValues.length;
+		i < mappingHistoryValues.length;
 		i += HISTORY_UPSERT_CHUNK_SIZE
 	) {
-		const chunk = totalMappingHistoryValues.slice(
-			i,
-			i + HISTORY_UPSERT_CHUNK_SIZE,
-		);
-		const insert = database.insert(modelProviderMappingHistory).values(chunk);
-		if (preserveExistingTotalHistory) {
-			await insert.onConflictDoNothing({
-				target: [
-					modelProviderMappingHistory.modelProviderMappingId,
-					modelProviderMappingHistory.minuteTimestamp,
-				],
-			});
-		} else {
-			await insert.onConflictDoUpdate({
+		const chunk = mappingHistoryValues.slice(i, i + HISTORY_UPSERT_CHUNK_SIZE);
+		await database
+			.insert(modelProviderMappingHistory)
+			.values(chunk)
+			.onConflictDoUpdate({
 				target: [
 					modelProviderMappingHistory.modelProviderMappingId,
 					modelProviderMappingHistory.minuteTimestamp,
 				],
 				set: mappingHistoryUpsertSet,
 			});
-		}
 	}
 
 	return {
 		totalMappings: allMappings.length,
-		activeMappings: activeMappingIds.size,
-		inactiveMappings: allMappings.length - activeMappingIds.size,
+		activeMappings: activeMappingsCount,
+		inactiveMappings: allMappings.length - activeMappingsCount,
 	};
 }
 
@@ -1149,191 +915,79 @@ export async function backfillHistoryIfNeeded() {
 
 	try {
 		const database = db;
-		const [usageHistoryBackfillSetting] = await database
-			.select({
-				enabled: systemSetting.enabled,
-				value: systemSetting.value,
-			})
-			.from(systemSetting)
-			.where(eq(systemSetting.id, USAGE_HISTORY_BACKFILL_SETTING_ID))
+
+		// Get the most recent history entry to see if we need to backfill (check both tables)
+		const latestMappingHistory = await database
+			.select({ minuteTimestamp: modelProviderMappingHistory.minuteTimestamp })
+			.from(modelProviderMappingHistory)
+			.orderBy(sql`${modelProviderMappingHistory.minuteTimestamp} DESC`)
 			.limit(1);
-		const usageHistoryIncomplete =
-			usageHistoryBackfillSetting?.enabled !== true;
-		const catalogUsageWindowMs =
-			CATALOG_USAGE_HISTORY_WINDOW_MINUTES * ONE_MINUTE_MS;
-		const catalogUsageWindowStart = new Date(Date.now() - catalogUsageWindowMs);
-		// The legacy aggregates do not contain usedMode, so an incomplete upgrade
-		// uses this bounded log probe to recover the full supported mode window.
-		const usageLogEarliest = usageHistoryIncomplete
-			? await database
-					.select({ minute: log.createdAt })
-					.from(log)
-					.where(gte(log.createdAt, catalogUsageWindowStart))
-					.orderBy(asc(log.createdAt))
-					.limit(1)
-			: [];
 
-		// Use index-backed boundary probes and a durable completion marker. Counting
-		// every retained minute here makes every worker restart scan all history.
-		const [
-			mappingHistoryEarliest,
-			modelHistoryEarliest,
-			mappingHistoryLatest,
-			modelHistoryLatest,
-			mappingUsageHistoryLatest,
-			modelUsageHistoryLatest,
-		] = await Promise.all([
-			database
-				.select({ minute: modelProviderMappingHistory.minuteTimestamp })
-				.from(modelProviderMappingHistory)
-				.orderBy(asc(modelProviderMappingHistory.minuteTimestamp))
-				.limit(1),
-			database
-				.select({ minute: modelHistory.minuteTimestamp })
-				.from(modelHistory)
-				.orderBy(asc(modelHistory.minuteTimestamp))
-				.limit(1),
-			database
-				.select({ minute: modelProviderMappingHistory.minuteTimestamp })
-				.from(modelProviderMappingHistory)
-				.orderBy(desc(modelProviderMappingHistory.minuteTimestamp))
-				.limit(1),
-			database
-				.select({ minute: modelHistory.minuteTimestamp })
-				.from(modelHistory)
-				.orderBy(desc(modelHistory.minuteTimestamp))
-				.limit(1),
-			database
-				.select({ minute: modelProviderMappingUsageHistory.minuteTimestamp })
-				.from(modelProviderMappingUsageHistory)
-				.where(eq(modelProviderMappingUsageHistory.usedMode, "credits"))
-				.orderBy(desc(modelProviderMappingUsageHistory.minuteTimestamp))
-				.limit(1),
-			database
-				.select({ minute: modelUsageHistory.minuteTimestamp })
-				.from(modelUsageHistory)
-				.where(eq(modelUsageHistory.usedMode, "credits"))
-				.orderBy(desc(modelUsageHistory.minuteTimestamp))
-				.limit(1),
-		]);
+		const latestModelHistory = await database
+			.select({ minuteTimestamp: modelHistory.minuteTimestamp })
+			.from(modelHistory)
+			.orderBy(sql`${modelHistory.minuteTimestamp} DESC`)
+			.limit(1);
 
-		const latestMinutes: (Date | null | undefined)[] = [
-			mappingHistoryLatest[0]?.minute,
-			modelHistoryLatest[0]?.minute,
-			mappingUsageHistoryLatest[0]?.minute,
-			modelUsageHistoryLatest[0]?.minute,
-		];
-		const usageBackfillStarts = [
-			usageLogEarliest[0]?.minute,
-			mappingHistoryEarliest[0]?.minute,
-			modelHistoryEarliest[0]?.minute,
-		].filter(
-			(minute): minute is Date => minute !== null && minute !== undefined,
-		);
-		const earliestUsageBackfillStart =
-			usageBackfillStarts.length > 0
-				? new Date(
-						Math.min(...usageBackfillStarts.map((minute) => minute.getTime())),
-					)
-				: null;
-		const storedCheckpointMs = Date.parse(
-			usageHistoryBackfillSetting?.value ?? "",
-		);
-		const usageBackfillStart = earliestUsageBackfillStart
-			? new Date(
-					Math.max(
-						earliestUsageBackfillStart.getTime(),
-						Number.isFinite(storedCheckpointMs)
-							? storedCheckpointMs
-							: Number.NEGATIVE_INFINITY,
-					),
-				)
-			: null;
-		const completeLatestMinutes = latestMinutes.filter(
-			(minute): minute is Date => minute !== null && minute !== undefined,
-		);
-		const lastMinute =
-			completeLatestMinutes.length === latestMinutes.length
-				? new Date(
-						Math.min(
-							...completeLatestMinutes.map((minute) => minute.getTime()),
-						),
-					)
-				: null;
+		// Use the most recent timestamp from either table
+		let lastMinute: Date | null = null;
+		if (latestMappingHistory.length > 0 && latestModelHistory.length > 0) {
+			const mappingTime = latestMappingHistory[0]!.minuteTimestamp.getTime();
+			const modelTime = latestModelHistory[0]!.minuteTimestamp.getTime();
+			lastMinute = new Date(Math.max(mappingTime, modelTime));
+		} else if (latestMappingHistory.length > 0) {
+			lastMinute = latestMappingHistory[0]!.minuteTimestamp;
+		} else if (latestModelHistory.length > 0) {
+			lastMinute = latestModelHistory[0]!.minuteTimestamp;
+		}
 
 		const previousMinute = getPreviousMinuteStart();
 
-		if (!lastMinute || usageHistoryIncomplete) {
-			// New mode tables must cover the full supported catalogue window. The
-			// hourly rollup keeps that data after minute-level retention removes it.
-			const defaultBackfillDurationMs = BACKFILL_DURATION_SECONDS * 1000;
-			const backfillStart =
-				usageHistoryIncomplete && usageBackfillStart
-					? usageBackfillStart
-					: new Date(Date.now() - defaultBackfillDurationMs);
+		if (!lastMinute) {
+			// No history exists, start from configured backfill duration ago
+			const backfillMs = BACKFILL_DURATION_SECONDS * 1000;
+			const backfillStart = new Date(Date.now() - backfillMs);
 			const backfillStartRounded = roundToMinuteStart(backfillStart);
 
 			logger.info(
-				`History tables are empty or incomplete. Starting backfill from ${backfillStartRounded.toISOString()} to ${previousMinute.toISOString()}`,
+				`No existing history found. Starting backfill from ${backfillStartRounded.toISOString()} to ${previousMinute.toISOString()}`,
 			);
 
-			const backfillRange = async (
-				rangeStart: Date,
-				rangeEnd: Date,
-				checkpointArchive = false,
-			) => {
-				let minute = new Date(rangeStart);
-				while (minute <= rangeEnd) {
-					const mappingResult = await calculateHistoryForMinute(
-						minute,
-						usageHistoryIncomplete,
-					);
-					const modelResult = await calculateModelHistoryForMinute(
-						minute,
-						usageHistoryIncomplete,
-					);
-					logger.info(
-						`Backfilled ${mappingResult.totalMappings} mappings and ${modelResult.totalModels} models for ${minute.toISOString()}`,
-					);
-
-					const nextMinute = roundToMinuteStart(
-						new Date(minute.getTime() + ONE_MINUTE_MS),
-					);
-					if (nextMinute.getTime() <= minute.getTime()) {
-						throw new Error(
-							`Backfill time calculation failed at ${minute.toISOString()}`,
-						);
-					}
-					if (checkpointArchive) {
-						await writeUsageHistoryBackfillSetting(false, nextMinute);
-					}
-					minute = nextMinute;
-				}
-			};
-
-			if (usageHistoryIncomplete) {
-				await writeUsageHistoryBackfillSetting(false, backfillStartRounded);
-			}
-
-			const routingWindowOffsetMinutes = ROUTING_HISTORY_MAX_WINDOW_MINUTES - 1;
-			const routingWindowOffsetMs = routingWindowOffsetMinutes * ONE_MINUTE_MS;
-			const routingWindowStart = new Date(
-				previousMinute.getTime() - routingWindowOffsetMs,
+			let minute = new Date(backfillStartRounded);
+			let iterationCount = 0;
+			// Dynamic safety limit based on backfill duration (with max of 1440 for 24 hours)
+			const maxIterations = Math.min(
+				Math.ceil(BACKFILL_DURATION_SECONDS / 60),
+				1440,
 			);
-			const warmStart = new Date(
-				Math.max(backfillStartRounded.getTime(), routingWindowStart.getTime()),
-			);
-			await backfillRange(warmStart, previousMinute);
 
-			if (backfillStartRounded < warmStart) {
-				await backfillRange(
-					backfillStartRounded,
-					new Date(warmStart.getTime() - ONE_MINUTE_MS),
-					usageHistoryIncomplete,
+			while (minute <= previousMinute && iterationCount < maxIterations) {
+				const mappingResult = await calculateHistoryForMinute(minute);
+				const modelResult = await calculateModelHistoryForMinute(minute);
+				logger.info(
+					`Backfilled ${mappingResult.totalMappings} mappings and ${modelResult.totalModels} models for ${minute.toISOString()}`,
 				);
+
+				const nextMinute = roundToMinuteStart(
+					new Date(minute.getTime() + ONE_MINUTE_MS),
+				);
+
+				// Safety check to prevent infinite loops
+				if (nextMinute.getTime() <= minute.getTime()) {
+					logger.error(
+						`Loop safety break: Time calculation error at ${minute.toISOString()}`,
+					);
+					break;
+				}
+
+				minute = nextMinute;
+				iterationCount++;
 			}
-			if (usageHistoryIncomplete) {
-				await writeUsageHistoryBackfillSetting(true, previousMinute);
+
+			if (iterationCount >= maxIterations) {
+				logger.warn(
+					`Backfill stopped at iteration limit ${maxIterations} to prevent infinite loop`,
+				);
 			}
 			return;
 		}
@@ -1502,19 +1156,8 @@ async function calculateModelHistoryForHour(targetHour: Date) {
 				set: { ...stats, updatedAt: new Date() },
 			});
 	}
-	await database.execute(
-		buildUsageHistoryHourlyRollupSql({
-			minuteTable: "model_usage_history",
-			hourlyTable: "model_usage_history_hourly",
-			dimensions: ["model_id"],
-			conflictColumns: ["model_id", "hour_timestamp", "used_mode"],
-			roundedHour,
-			hourEnd,
-		}),
-	);
-	return {
-		totalModels: new Set(hourlyStats.map((row) => row.modelId)).size,
-	};
+
+	return { totalModels: hourlyStats.length };
 }
 
 /**
@@ -1596,24 +1239,8 @@ async function calculateMappingHistoryForHour(targetHour: Date) {
 				set: { ...stats, updatedAt: new Date() },
 			});
 	}
-	await database.execute(
-		buildUsageHistoryHourlyRollupSql({
-			minuteTable: "model_provider_mapping_usage_history",
-			hourlyTable: "model_provider_mapping_usage_history_hourly",
-			dimensions: ["model_provider_mapping_id", "model_id", "provider_id"],
-			conflictColumns: [
-				"model_provider_mapping_id",
-				"hour_timestamp",
-				"used_mode",
-			],
-			roundedHour,
-			hourEnd,
-		}),
-	);
-	return {
-		totalMappings: new Set(hourlyStats.map((row) => row.modelProviderMappingId))
-			.size,
-	};
+
+	return { totalMappings: hourlyStats.length };
 }
 
 /**
@@ -1625,7 +1252,7 @@ async function calculateHistoryForHour(targetHour: Date) {
 	const mappingResult = await calculateMappingHistoryForHour(targetHour);
 	const modelResult = await calculateModelHistoryForHour(targetHour);
 	// Routing telemetry is diagnostic, and it reads `log` rather than the minute
-	// history the four rollups above are built from. A failure in it must not cost
+	// history the two rollups above are built from. A failure in it must not cost
 	// us the hour's usage and cost stats, so it is logged and skipped instead of
 	// propagating. The hour then stays absent from routing_election_hourly, which
 	// is exactly what makes the next backfill pass retry it.
@@ -1668,7 +1295,7 @@ export async function calculateHourlyHistory() {
 /**
  * Backfill missing hourly summary rows by walking every completed hour from the
  * earliest minute-history entry up to the previous complete hour and recomputing
- * only the hours absent from ANY summary table — the four history rollups, plus
+ * only the hours absent from ANY summary table — the two history rollups, plus
  * routing telemetry for hours whose logs still exist. Detecting missing hours
  * (rather than resuming from the latest entry) is what makes this robust: the
  * minutely loop writes the current and previous hour on startup, so the latest
@@ -1700,20 +1327,6 @@ export async function backfillHourlyHistoryIfNeeded() {
 			.select({ minuteTimestamp: modelHistory.minuteTimestamp })
 			.from(modelHistory)
 			.orderBy(asc(modelHistory.minuteTimestamp))
-			.limit(1);
-		const earliestMappingUsageMinute = await database
-			.select({
-				minuteTimestamp: modelProviderMappingUsageHistory.minuteTimestamp,
-			})
-			.from(modelProviderMappingUsageHistory)
-			.where(eq(modelProviderMappingUsageHistory.usedMode, "credits"))
-			.orderBy(asc(modelProviderMappingUsageHistory.minuteTimestamp))
-			.limit(1);
-		const earliestModelUsageMinute = await database
-			.select({ minuteTimestamp: modelUsageHistory.minuteTimestamp })
-			.from(modelUsageHistory)
-			.where(eq(modelUsageHistory.usedMode, "credits"))
-			.orderBy(asc(modelUsageHistory.minuteTimestamp))
 			.limit(1);
 
 		let earliestMinute: Date | null = null;
@@ -1755,24 +1368,10 @@ export async function backfillHourlyHistoryIfNeeded() {
 		const earliestLogHourMs = earliestLog[0]
 			? roundToHourStart(earliestLog[0].createdAt).getTime()
 			: null;
-		const earliestMappingUsageHourMs = earliestMappingUsageMinute[0]
-			? roundToHourStart(
-					earliestMappingUsageMinute[0].minuteTimestamp,
-				).getTime()
-			: null;
-		const earliestModelUsageHourMs = earliestModelUsageMinute[0]
-			? roundToHourStart(earliestModelUsageMinute[0].minuteTimestamp).getTime()
-			: null;
 
 		// Hours already summarized in each table (excluding the in-progress current
 		// hour). An hour is recomputed only when it is missing from any set.
-		const [
-			mappingHours,
-			modelHours,
-			mappingUsageHours,
-			modelUsageHours,
-			routingHours,
-		] = await Promise.all([
+		const [mappingHours, modelHours, routingHours] = await Promise.all([
 			database
 				.select({
 					hourTimestamp: modelProviderMappingHistoryHourly.hourTimestamp,
@@ -1786,23 +1385,6 @@ export async function backfillHourlyHistoryIfNeeded() {
 				.from(modelHistoryHourly)
 				.where(lt(modelHistoryHourly.hourTimestamp, currentHourStart)),
 			database
-				.selectDistinct({
-					hourTimestamp: modelProviderMappingUsageHistoryHourly.hourTimestamp,
-				})
-				.from(modelProviderMappingUsageHistoryHourly)
-				.where(
-					lt(
-						modelProviderMappingUsageHistoryHourly.hourTimestamp,
-						currentHourStart,
-					),
-				),
-			database
-				.selectDistinct({
-					hourTimestamp: modelUsageHistoryHourly.hourTimestamp,
-				})
-				.from(modelUsageHistoryHourly)
-				.where(lt(modelUsageHistoryHourly.hourTimestamp, currentHourStart)),
-			database
 				.selectDistinct({ hourTimestamp: routingElectionHourly.hourTimestamp })
 				.from(routingElectionHourly)
 				.where(lt(routingElectionHourly.hourTimestamp, currentHourStart)),
@@ -1813,12 +1395,6 @@ export async function backfillHourlyHistoryIfNeeded() {
 		);
 		const modelHourSet = new Set(
 			modelHours.map((r) => r.hourTimestamp.getTime()),
-		);
-		const mappingUsageHourSet = new Set(
-			mappingUsageHours.map((r) => r.hourTimestamp.getTime()),
-		);
-		const modelUsageHourSet = new Set(
-			modelUsageHours.map((r) => r.hourTimestamp.getTime()),
 		);
 		const routingHourSet = new Set(
 			routingHours.map((r) => r.hourTimestamp.getTime()),
@@ -1836,29 +1412,15 @@ export async function backfillHourlyHistoryIfNeeded() {
 			scanned < HOURLY_BACKFILL_MAX_ITERATIONS
 		) {
 			const ms = hour.getTime();
-			// Routing telemetry shipped after the legacy history tables, so on the first
-			// pass after deploy every historical hour is present in those tables and
+			// Routing telemetry shipped after the two history tables, so on the first
+			// pass after deploy every historical hour is present in those two and
 			// absent from routing — checking only them would leave routing telemetry
 			// permanently unbackfilled.
 			const routingMissing =
 				earliestLogHourMs !== null &&
 				ms >= earliestLogHourMs &&
 				!routingHourSet.has(ms);
-			const mappingUsageMissing =
-				earliestMappingUsageHourMs !== null &&
-				ms >= earliestMappingUsageHourMs &&
-				!mappingUsageHourSet.has(ms);
-			const modelUsageMissing =
-				earliestModelUsageHourMs !== null &&
-				ms >= earliestModelUsageHourMs &&
-				!modelUsageHourSet.has(ms);
-			if (
-				!mappingHourSet.has(ms) ||
-				!modelHourSet.has(ms) ||
-				mappingUsageMissing ||
-				modelUsageMissing ||
-				routingMissing
-			) {
+			if (!mappingHourSet.has(ms) || !modelHourSet.has(ms) || routingMissing) {
 				const result = await calculateHistoryForHour(hour);
 				logger.info(
 					`Backfilled hourly history for ${hour.toISOString()}: ${result.mappingResult.totalMappings} mappings, ${result.modelResult.totalModels} models, ${result.routingResult?.electionRows ?? 0} routing elections`,
@@ -1878,10 +1440,7 @@ export async function backfillHourlyHistoryIfNeeded() {
 			scanned++;
 		}
 
-		if (
-			hour <= previousHourStart &&
-			scanned >= HOURLY_BACKFILL_MAX_ITERATIONS
-		) {
+		if (scanned >= HOURLY_BACKFILL_MAX_ITERATIONS) {
 			logger.warn(
 				`Hourly backfill stopped at iteration limit ${HOURLY_BACKFILL_MAX_ITERATIONS} to prevent runaway backfill`,
 			);

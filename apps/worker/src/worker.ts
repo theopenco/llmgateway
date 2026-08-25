@@ -912,31 +912,26 @@ export async function cleanupExpiredLogData(): Promise<void> {
 }
 
 // Delete minute-level model/mapping history rows older than the retention
-// window. The four total and usage-mode tables grow every minute; their hourly
-// rollups are kept forever and serve longer windows. Thirty days leaves a
-// comfortable buffer over the largest minute-level reader.
+// window. These tables gain one row per active model (and per mapping) every
+// minute and otherwise grow unbounded. The hourly rollups
+// (model_history_hourly, model_provider_mapping_history_hourly) are kept
+// forever and now serve every window beyond 24h (7d/30d/90d public stats), so
+// the only readers of the minute tables are short windows (<=24h). 30 days
+// leaves a comfortable buffer over the largest minute-level reader.
 const MODEL_HISTORY_RETENTION_DAYS = 30;
 const MODEL_HISTORY_CLEANUP_BATCH_SIZE = 10000;
-const HISTORY_USAGE_MODES = ["credits", "api-keys"] as const;
-type HistoryUsageMode = (typeof HISTORY_USAGE_MODES)[number];
 // Cap the work per run (per table) so a single cleanup reliably finishes well
 // within the lock TTL (LOCK_DURATION_MINUTES), even on a large initial backlog.
 // The loop runs hourly, so any remaining rows are drained over subsequent runs.
-// At steady state (~1280 rows/min across all four tables, i.e. a few batches
+// At steady state (~640 rows/min across both tables, i.e. a handful of batches
 // per hour) this cap is never approached; it only bounds the initial backlog
-// drain. Each table gets its own budget so neither table starves, while both
-// usage modes share their table's budget.
+// drain. Each table gets its own budget so neither starves the other.
 const MODEL_HISTORY_MAX_BATCHES_PER_RUN = 50;
 
 async function cleanupModelHistoryTable(
-	table:
-		| typeof tables.modelHistory
-		| typeof tables.modelProviderMappingHistory
-		| typeof tables.modelUsageHistory
-		| typeof tables.modelProviderMappingUsageHistory,
+	table: typeof tables.modelHistory | typeof tables.modelProviderMappingHistory,
 	cutoffDate: Date,
 	maxBatches: number,
-	usedMode?: HistoryUsageMode,
 ): Promise<{ deleted: number; batches: number }> {
 	let totalDeleted = 0;
 	let batches = 0;
@@ -948,17 +943,10 @@ async function cleanupModelHistoryTable(
 			// resets automatically when the transaction commits.
 			await tx.execute(sql`SET LOCAL random_page_cost = 1.1`);
 
-			const cutoffWhere =
-				usedMode && "usedMode" in table
-					? and(
-							eq(table.usedMode, usedMode),
-							lt(table.minuteTimestamp, cutoffDate),
-						)
-					: lt(table.minuteTimestamp, cutoffDate);
 			const recordsToDelete = await tx
 				.select({ id: table.id })
 				.from(table)
-				.where(cutoffWhere)
+				.where(lt(table.minuteTimestamp, cutoffDate))
 				.limit(MODEL_HISTORY_CLEANUP_BATCH_SIZE)
 				.for("update", { skipLocked: true });
 
@@ -989,32 +977,6 @@ async function cleanupModelHistoryTable(
 	return { deleted: totalDeleted, batches };
 }
 
-async function cleanupUsageHistoryTable(
-	table:
-		| typeof tables.modelUsageHistory
-		| typeof tables.modelProviderMappingUsageHistory,
-	cutoffDate: Date,
-	maxBatches: number,
-): Promise<{ deleted: number; batches: number }> {
-	let deleted = 0;
-	let batches = 0;
-	for (const usedMode of HISTORY_USAGE_MODES) {
-		const remainingBatches = maxBatches - batches;
-		if (remainingBatches <= 0) {
-			break;
-		}
-		const result = await cleanupModelHistoryTable(
-			table,
-			cutoffDate,
-			remainingBatches,
-			usedMode,
-		);
-		deleted += result.deleted;
-		batches += result.batches;
-	}
-	return { deleted, batches };
-}
-
 export async function cleanupExpiredModelHistory(): Promise<void> {
 	if (process.env.ENABLE_DATA_RETENTION_CLEANUP !== "true") {
 		return;
@@ -1042,30 +1004,13 @@ export async function cleanupExpiredModelHistory(): Promise<void> {
 			cutoffDate,
 			MODEL_HISTORY_MAX_BATCHES_PER_RUN,
 		);
-		const mappingUsage = await cleanupUsageHistoryTable(
-			tables.modelProviderMappingUsageHistory,
-			cutoffDate,
-			MODEL_HISTORY_MAX_BATCHES_PER_RUN,
-		);
-		const modelUsage = await cleanupUsageHistoryTable(
-			tables.modelUsageHistory,
-			cutoffDate,
-			MODEL_HISTORY_MAX_BATCHES_PER_RUN,
-		);
 
 		const mappingDeleted = mapping.deleted;
 		const modelDeleted = model.deleted;
-		const mappingUsageDeleted = mappingUsage.deleted;
-		const modelUsageDeleted = modelUsage.deleted;
 
-		if (
-			mappingDeleted > 0 ||
-			modelDeleted > 0 ||
-			mappingUsageDeleted > 0 ||
-			modelUsageDeleted > 0
-		) {
+		if (mappingDeleted > 0 || modelDeleted > 0) {
 			logger.info(
-				`Model history retention cleanup deleted ${mappingDeleted} mapping, ${modelDeleted} model, ${mappingUsageDeleted} mapping-mode, and ${modelUsageDeleted} model-mode rows (older than ${MODEL_HISTORY_RETENTION_DAYS} days)`,
+				`Model history retention cleanup deleted ${mappingDeleted} model_provider_mapping_history and ${modelDeleted} model_history rows (older than ${MODEL_HISTORY_RETENTION_DAYS} days)`,
 			);
 		}
 
@@ -2170,10 +2115,6 @@ let stopFailed = false;
 // kept-forever hourly history. Defaults false so a failed/never-run backfill
 // leaves cleanup disabled rather than risking data loss.
 let hourlyBackfillComplete = false;
-// Live hourly rollups must not race the startup minute backfill. Otherwise an
-// hour can be written from a partially populated minute sidecar and then look
-// complete to the hourly backfill's missing-row check.
-let liveHourlyRollupsReady = false;
 
 // Independent worker loops
 async function runLogQueueLoop(loopIndex = 0) {
@@ -2284,15 +2225,13 @@ async function runMinutelyHistoryLoop() {
 			);
 		}
 
-		if (liveHourlyRollupsReady) {
-			try {
-				await calculateHourlyHistory();
-			} catch (error) {
-				logger.error(
-					"Error in initial hourly history calculation",
-					error instanceof Error ? error : new Error(String(error)),
-				);
-			}
+		try {
+			await calculateHourlyHistory();
+		} catch (error) {
+			logger.error(
+				"Error in initial hourly history calculation",
+				error instanceof Error ? error : new Error(String(error)),
+			);
 		}
 
 		while (!isStopRequested()) {
@@ -2324,15 +2263,13 @@ async function runMinutelyHistoryLoop() {
 				);
 			}
 
-			if (liveHourlyRollupsReady) {
-				try {
-					await calculateHourlyHistory();
-				} catch (error) {
-					logger.error(
-						"Error in hourly history calculation",
-						error instanceof Error ? error : new Error(String(error)),
-					);
-				}
+			try {
+				await calculateHourlyHistory();
+			} catch (error) {
+				logger.error(
+					"Error in hourly history calculation",
+					error instanceof Error ? error : new Error(String(error)),
+				);
 			}
 		}
 	} finally {
@@ -3154,8 +3091,6 @@ export async function startWorker() {
 
 	isWorkerRunning = true;
 	resetShutdown();
-	hourlyBackfillComplete = false;
-	liveHourlyRollupsReady = false;
 	logger.info("Starting worker application...");
 
 	// Initialize providers and models sync - must complete before other stats syncs
@@ -3176,22 +3111,10 @@ export async function startWorker() {
 			// after the minute backfill has had a chance to fill recent gaps.
 			return backfillHourlyHistoryIfNeeded();
 		})
-		.then(async () => {
+		.then(() => {
 			logger.info("Hourly history backfill check completed");
 			// Hourly rollups are now populated, so minute-history pruning is safe.
 			hourlyBackfillComplete = true;
-			// Refresh the live buckets immediately from the now-stable minute source.
-			// Enable the live loop even if this refresh fails so its next tick retries.
-			try {
-				await calculateHourlyHistory();
-			} catch (error) {
-				logger.error(
-					"Error refreshing hourly history after startup backfill",
-					error instanceof Error ? error : new Error(String(error)),
-				);
-			} finally {
-				liveHourlyRollupsReady = true;
-			}
 		})
 		.catch((error) => {
 			logger.error(
