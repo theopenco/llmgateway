@@ -32,6 +32,23 @@ export const zaiModels = [
 				webSearchPrice: "0.01",
 				jsonOutput: true,
 			},
+			{
+				providerId: "baidu",
+				externalId: "glm-5.3",
+				inputPrice: "1.4e-6",
+				cachedInputPrice: "0.26e-6",
+				outputPrice: "4.4e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				// GLM-5.3 always thinks and rejects attempts to disable thinking.
+				reasoningEfforts: ["low", "high", "max"],
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
 		],
 	},
 	{
