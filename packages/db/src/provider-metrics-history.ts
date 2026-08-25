@@ -9,7 +9,7 @@ import {
 
 import { cdb } from "./cdb.js";
 import { metricsKey, type ProviderMetrics } from "./provider-metrics.js";
-import { modelProviderMappingUsageHistory as modelProviderMappingHistory } from "./schema.js";
+import { modelProviderMappingHistory } from "./schema.js";
 import { effectiveTtftTotals } from "./ttft.js";
 
 const historyTableName = getTableName(modelProviderMappingHistory);

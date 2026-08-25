@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "3661f281-9b5f-4d96-a196-414bfa91ce57",
-  "prevId": "e794d54a-ba0a-44bc-b255-e03c556674b7",
+  "id": "8d071a49-6bd7-430a-a5b0-963b610efef6",
+  "prevId": "d220fb46-0575-48bb-99d2-c96f656529ad",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -803,12 +803,38 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": true,
+      "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
       "name": "token",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "token_hash",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "token_masked",
       "entityType": "columns",
       "schema": "public",
       "table": "api_key"
@@ -854,6 +880,22 @@
       "generated": null,
       "identity": null,
       "name": "key_type",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'regular'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "kind",
       "entityType": "columns",
       "schema": "public",
       "table": "api_key"
@@ -4942,12 +4984,25 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": true,
+      "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
       "name": "token",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "end_user_session"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "token_hash",
       "entityType": "columns",
       "schema": "public",
       "table": "end_user_session"
@@ -32514,6 +32569,17 @@
     {
       "nameExplicit": false,
       "columns": [
+        "token_hash"
+      ],
+      "nullsNotDistinct": false,
+      "name": "api_key_token_hash_key",
+      "schema": "public",
+      "table": "api_key",
+      "entityType": "uniques"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "stripe_customer_id"
       ],
       "nullsNotDistinct": false,
@@ -32529,6 +32595,17 @@
       ],
       "nullsNotDistinct": false,
       "name": "end_user_session_token_key",
+      "schema": "public",
+      "table": "end_user_session",
+      "entityType": "uniques"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "token_hash"
+      ],
+      "nullsNotDistinct": false,
+      "name": "end_user_session_token_hash_key",
       "schema": "public",
       "table": "end_user_session",
       "entityType": "uniques"
