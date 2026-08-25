@@ -55,6 +55,27 @@ const HISTORY_USAGE_MODES = ["credits", "api-keys"] as const;
 type HistoryUsageMode = (typeof HISTORY_USAGE_MODES)[number];
 const USAGE_HISTORY_BACKFILL_SETTING_ID = "catalog-usage-history-backfill-v1";
 
+async function writeUsageHistoryBackfillSetting(
+	enabled: boolean,
+	checkpoint: Date,
+) {
+	await db
+		.insert(systemSetting)
+		.values({
+			id: USAGE_HISTORY_BACKFILL_SETTING_ID,
+			enabled,
+			value: checkpoint.toISOString(),
+		})
+		.onConflictDoUpdate({
+			target: systemSetting.id,
+			set: {
+				enabled,
+				value: checkpoint.toISOString(),
+				updatedAt: new Date(),
+			},
+		});
+}
+
 interface MappingMinuteStats {
 	modelId: string | null;
 	providerId: string | null;
@@ -1172,7 +1193,10 @@ export async function backfillHistoryIfNeeded() {
 				.orderBy(desc(modelUsageHistory.minuteTimestamp))
 				.limit(1),
 			database
-				.select({ enabled: systemSetting.enabled })
+				.select({
+					enabled: systemSetting.enabled,
+					value: systemSetting.value,
+				})
 				.from(systemSetting)
 				.where(eq(systemSetting.id, USAGE_HISTORY_BACKFILL_SETTING_ID))
 				.limit(1),
@@ -1192,12 +1216,25 @@ export async function backfillHistoryIfNeeded() {
 		].filter(
 			(minute): minute is Date => minute !== null && minute !== undefined,
 		);
-		const usageBackfillStart =
+		const earliestUsageBackfillStart =
 			usageBackfillStarts.length > 0
 				? new Date(
 						Math.min(...usageBackfillStarts.map((minute) => minute.getTime())),
 					)
 				: null;
+		const storedCheckpointMs = Date.parse(
+			usageHistoryBackfillSetting[0]?.value ?? "",
+		);
+		const usageBackfillStart = earliestUsageBackfillStart
+			? new Date(
+					Math.max(
+						earliestUsageBackfillStart.getTime(),
+						Number.isFinite(storedCheckpointMs)
+							? storedCheckpointMs
+							: Number.NEGATIVE_INFINITY,
+					),
+				)
+			: null;
 		const completeLatestMinutes = latestMinutes.filter(
 			(minute): minute is Date => minute !== null && minute !== undefined,
 		);
@@ -1226,7 +1263,11 @@ export async function backfillHistoryIfNeeded() {
 				`History tables are empty or incomplete. Starting backfill from ${backfillStartRounded.toISOString()} to ${previousMinute.toISOString()}`,
 			);
 
-			const backfillRange = async (rangeStart: Date, rangeEnd: Date) => {
+			const backfillRange = async (
+				rangeStart: Date,
+				rangeEnd: Date,
+				checkpointArchive = false,
+			) => {
 				let minute = new Date(rangeStart);
 				while (minute <= rangeEnd) {
 					const mappingResult = await calculateHistoryForMinute(
@@ -1249,9 +1290,16 @@ export async function backfillHistoryIfNeeded() {
 							`Backfill time calculation failed at ${minute.toISOString()}`,
 						);
 					}
+					if (checkpointArchive) {
+						await writeUsageHistoryBackfillSetting(false, nextMinute);
+					}
 					minute = nextMinute;
 				}
 			};
+
+			if (usageHistoryIncomplete) {
+				await writeUsageHistoryBackfillSetting(false, backfillStartRounded);
+			}
 
 			const routingWindowOffsetMinutes = ROUTING_HISTORY_MAX_WINDOW_MINUTES - 1;
 			const routingWindowOffsetMs = routingWindowOffsetMinutes * ONE_MINUTE_MS;
@@ -1267,24 +1315,11 @@ export async function backfillHistoryIfNeeded() {
 				await backfillRange(
 					backfillStartRounded,
 					new Date(warmStart.getTime() - ONE_MINUTE_MS),
+					usageHistoryIncomplete,
 				);
 			}
 			if (usageHistoryIncomplete) {
-				await database
-					.insert(systemSetting)
-					.values({
-						id: USAGE_HISTORY_BACKFILL_SETTING_ID,
-						enabled: true,
-						value: previousMinute.toISOString(),
-					})
-					.onConflictDoUpdate({
-						target: systemSetting.id,
-						set: {
-							enabled: true,
-							value: previousMinute.toISOString(),
-							updatedAt: new Date(),
-						},
-					});
+				await writeUsageHistoryBackfillSetting(true, previousMinute);
 			}
 			return;
 		}

@@ -1599,6 +1599,7 @@ describe("stats-calculator", () => {
 						modelProviderMappingId: "mapping-1",
 						usedMode: "credits",
 						minuteTimestamp: oldMinute,
+						logsCount: 99,
 					},
 					{
 						modelId: "gpt-4",
@@ -1613,6 +1614,7 @@ describe("stats-calculator", () => {
 						modelId: "gpt-4",
 						usedMode: "credits",
 						minuteTimestamp: oldMinute,
+						logsCount: 99,
 					},
 					{
 						modelId: "gpt-4",
@@ -1620,6 +1622,11 @@ describe("stats-calculator", () => {
 						minuteTimestamp: recentMinute,
 					},
 				]),
+				db.insert(systemSetting).values({
+					id: "catalog-usage-history-backfill-v1",
+					enabled: false,
+					value: missingArchiveMinute.toISOString(),
+				}),
 			]);
 			await Promise.all([
 				db
@@ -1695,6 +1702,16 @@ describe("stats-calculator", () => {
 						),
 					),
 				);
+			const [completedCheckpointUsage] = await db
+				.select()
+				.from(modelUsageHistory)
+				.where(
+					and(
+						eq(modelUsageHistory.modelId, "gpt-4"),
+						eq(modelUsageHistory.usedMode, "credits"),
+						eq(modelUsageHistory.minuteTimestamp, oldMinute),
+					),
+				);
 			const [archiveMinuteUsage] = await db
 				.select()
 				.from(modelUsageHistory)
@@ -1712,6 +1729,7 @@ describe("stats-calculator", () => {
 			expect(retainedMapping?.logsCount).toBe(42);
 			expect(retainedModel?.logsCount).toBe(42);
 			expect(inactiveMappingUsage).toBeDefined();
+			expect(completedCheckpointUsage?.logsCount).toBe(99);
 			expect(backfillSetting?.enabled).toBe(true);
 			expect(archiveMinuteUsage?.createdAt.getTime()).toBeGreaterThanOrEqual(
 				warmMinuteUsage?.createdAt.getTime() ?? Number.POSITIVE_INFINITY,
