@@ -7,6 +7,7 @@ import { HTTPException } from "hono/http-exception";
 import { app } from "@/app.js";
 import {
 	assertApiKeyWithinUsageLimits,
+	assertMemberProjectAccess,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
 import { internalApiOriginHeaders } from "@/lib/api-origin.js";
@@ -127,6 +128,7 @@ async function authenticateRequest(
 	// work below.
 	if (enforceSpendLimits) {
 		try {
+			await assertMemberProjectAccess(apiKey, project.organizationId);
 			await assertMemberWithinBudget(apiKey.createdBy, project.organizationId);
 			assertApiKeyWithinUsageLimits(apiKey);
 		} catch (e) {

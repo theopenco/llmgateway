@@ -460,6 +460,38 @@ export const organization = pgTable(
 	],
 );
 
+// Enterprise developer teams. Team policies are evaluated dynamically so
+// membership changes take effect without copying settings onto each member.
+export const organizationTeam = pgTable(
+	"organization_team",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		name: text().notNull(),
+		maxApiKeys: integer(),
+		usageLimit: decimal(),
+		periodUsageLimit: decimal(),
+		periodUsageDurationValue: integer(),
+		periodUsageDurationUnit: text({
+			enum: ["hour", "day", "week", "month"],
+		}),
+	},
+	(table) => [
+		index("organization_team_organization_id_idx").on(table.organizationId),
+		uniqueIndex("organization_team_org_name_uidx").on(
+			table.organizationId,
+			sql`lower(${table.name})`,
+		),
+	],
+);
+
 export const referral = pgTable(
 	"referral",
 	{
@@ -981,6 +1013,9 @@ export const userOrganization = pgTable(
 		organizationId: text()
 			.notNull()
 			.references(() => organization.id, { onDelete: "cascade" }),
+		teamId: text().references(() => organizationTeam.id, {
+			onDelete: "restrict",
+		}),
 		role: text({
 			enum: ["owner", "admin", "developer"],
 		})
@@ -1004,6 +1039,11 @@ export const userOrganization = pgTable(
 	(table) => [
 		index("user_organization_user_id_idx").on(table.userId),
 		index("user_organization_organization_id_idx").on(table.organizationId),
+		index("user_organization_team_id_idx").on(table.teamId),
+		check(
+			"user_organization_team_developer_check",
+			sql`${table.teamId} IS NULL OR ${table.role} = 'developer'`,
+		),
 		index("user_organization_scim_external_id_idx").on(
 			table.organizationId,
 			table.scimExternalId,
@@ -1153,6 +1193,28 @@ export const project = pgTable(
 		allowedOrigins: json().$type<string[]>(),
 	},
 	(table) => [index("project_organization_id_idx").on(table.organizationId)],
+);
+
+export const organizationTeamProject = pgTable(
+	"organization_team_project",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		teamId: text()
+			.notNull()
+			.references(() => organizationTeam.id, { onDelete: "cascade" }),
+		projectId: text()
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+	},
+	(table) => [
+		uniqueIndex("organization_team_project_team_project_uidx").on(
+			table.teamId,
+			table.projectId,
+		),
+		index("organization_team_project_team_id_idx").on(table.teamId),
+		index("organization_team_project_project_id_idx").on(table.projectId),
+	],
 );
 
 // The developer's own end-users (the "customers" in the embeddable SDK). Scoped
@@ -1597,6 +1659,53 @@ export const userIamRule = pgTable(
 		),
 		index("user_iam_rule_user_organization_id_status_idx").on(
 			table.userOrganizationId,
+			table.status,
+		),
+	],
+);
+
+export const organizationTeamIamRule = pgTable(
+	"organization_team_iam_rule",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		teamId: text()
+			.notNull()
+			.references(() => organizationTeam.id, { onDelete: "cascade" }),
+		ruleType: text({
+			enum: [
+				"allow_models",
+				"deny_models",
+				"allow_pricing",
+				"deny_pricing",
+				"allow_providers",
+				"deny_providers",
+				"allow_ip_cidrs",
+				"deny_ip_cidrs",
+			],
+		}).notNull(),
+		ruleValue: json()
+			.$type<{
+				models?: string[];
+				providers?: string[];
+				pricingType?: "free" | "paid";
+				maxInputPrice?: number;
+				maxOutputPrice?: number;
+				ipCidrs?: string[];
+			}>()
+			.notNull(),
+		status: text({ enum: ["active", "inactive"] })
+			.notNull()
+			.default("active"),
+	},
+	(table) => [
+		index("organization_team_iam_rule_team_id_idx").on(table.teamId),
+		index("organization_team_iam_rule_team_id_status_idx").on(
+			table.teamId,
 			table.status,
 		),
 	],
@@ -3681,6 +3790,16 @@ export const auditLogActions = [
 	"team_member.iam_rule.create",
 	"team_member.iam_rule.update",
 	"team_member.iam_rule.delete",
+	"organization_team.create",
+	"organization_team.update",
+	"organization_team.delete",
+	"organization_team.member_assign",
+	"organization_team.member_unassign",
+	"organization_team.projects_update",
+	"organization_team.budget_update",
+	"organization_team.iam_rule.create",
+	"organization_team.iam_rule.update",
+	"organization_team.iam_rule.delete",
 	// API Key
 	"api_key.create",
 	"api_key.roll",
@@ -3776,6 +3895,7 @@ export const auditLogResourceTypes = [
 	"project",
 	"team_member",
 	"team_invite",
+	"organization_team",
 	"api_key",
 	"master_key",
 	"iam_rule",

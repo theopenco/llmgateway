@@ -90,6 +90,9 @@ import { applyUsageMode } from "@/lib/usage-mode";
 
 import { SSO_TEAM_DEFAULT_DEVELOPER_BUDGET, Time } from "@llmgateway/shared";
 
+import { OrganizationTeamsClient } from "./organization-teams-client";
+import { TeamTabs } from "./team-tabs";
+
 import type { Route } from "next";
 
 function ApiKeyAnalyticsCallout({ href }: { href: Route }) {
@@ -268,6 +271,11 @@ function ManageBudgetDialog({
 	);
 
 	const memberName = member.user.name ?? member.user.email;
+	const periodSpend = member.spend?.currentPeriods.find(
+		(period) =>
+			period.durationValue === budget?.periodUsageDurationValue &&
+			period.durationUnit === budget.periodUsageDurationUnit,
+	)?.usage;
 
 	const handleSave = async () => {
 		const trimmedPeriodLimit = periodUsageLimit.trim();
@@ -316,8 +324,8 @@ function ManageBudgetDialog({
 						</div>
 						<div>
 							<div className="text-foreground font-medium">
-								{typeof member.spend?.currentPeriod === "number"
-									? currencyFormatter.format(member.spend.currentPeriod)
+								{periodSpend !== undefined
+									? currencyFormatter.format(periodSpend)
 									: "—"}
 							</div>
 							Period spend
@@ -793,8 +801,8 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 	);
 
 	const usageColumnCount = 4;
-	// Name, Email, Role, Projects, Limits, Actions
-	const baseColumnCount = 6;
+	// Name, Email, Role, Team, Projects, Limits, Actions
+	const baseColumnCount = 7;
 	const totalColumnCount = showUsage
 		? baseColumnCount + usageColumnCount
 		: baseColumnCount;
@@ -897,6 +905,16 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 			description: "Team member removed successfully",
 		});
 	};
+
+	if (searchParams.get("tab") === "teams" && isAdmin) {
+		return (
+			<OrganizationTeamsClient
+				organizationId={organizationId}
+				teamUrl={buildOrgUrl("org/team")}
+				isEnterprise={isEnterprise}
+			/>
+		);
+	}
 
 	return (
 		<div className="flex flex-col">
@@ -1024,6 +1042,10 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 						</div>
 					</div>
 
+					{isAdmin && (
+						<TeamTabs active="members" teamUrl={buildOrgUrl("org/team")} />
+					)}
+
 					{showUsage && <ApiKeyAnalyticsCallout href={buildUrl("api-keys")} />}
 
 					{!isEnterprise && <MemberUsageUpsell />}
@@ -1106,6 +1128,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 													<RolePermissionsHoverCard />
 												</span>
 											</TableHead>
+											<TableHead>Team</TableHead>
 											<TableHead>Projects</TableHead>
 											<TableHead>Limits</TableHead>
 											{showUsage && (
@@ -1154,6 +1177,15 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 															</Badge>
 														</TableCell>
 														<TableCell>
+															{member.team ? (
+																<Badge variant="outline">
+																	{member.team.name}
+																</Badge>
+															) : (
+																<span className="text-muted-foreground">—</span>
+															)}
+														</TableCell>
+														<TableCell>
 															{member.projects === null ? (
 																<span className="text-muted-foreground text-sm">
 																	All projects
@@ -1178,20 +1210,47 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 														</TableCell>
 														<TableCell>
 															{(() => {
-																const badges = budgetBadges(
+																const memberBadges = budgetBadges(
 																	member.effectiveBudget,
 																);
-																return badges.length ? (
-																	<div className="flex flex-wrap gap-1">
-																		{badges.map((badge) => (
-																			<Badge
-																				key={badge}
-																				variant="secondary"
-																				className="font-normal"
-																			>
-																				{badge}
-																			</Badge>
-																		))}
+																const teamBadges = budgetBadges(
+																	member.teamBudget,
+																);
+																return memberBadges.length ||
+																	teamBadges.length ? (
+																	<div className="space-y-1.5">
+																		{teamBadges.length > 0 && (
+																			<div className="flex flex-wrap items-center gap-1">
+																				<span className="text-muted-foreground text-xs">
+																					Team
+																				</span>
+																				{teamBadges.map((badge) => (
+																					<Badge
+																						key={badge}
+																						variant="outline"
+																						className="font-normal"
+																					>
+																						{badge}
+																					</Badge>
+																				))}
+																			</div>
+																		)}
+																		{memberBadges.length > 0 && (
+																			<div className="flex flex-wrap items-center gap-1">
+																				<span className="text-muted-foreground text-xs">
+																					Personal/default
+																				</span>
+																				{memberBadges.map((badge) => (
+																					<Badge
+																						key={badge}
+																						variant="secondary"
+																						className="font-normal"
+																					>
+																						{badge}
+																					</Badge>
+																				))}
+																			</div>
+																		)}
 																	</div>
 																) : (
 																	<span className="text-muted-foreground">

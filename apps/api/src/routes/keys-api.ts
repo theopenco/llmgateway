@@ -23,7 +23,7 @@ import {
 	eq,
 	getApiKeyCurrentPeriodState,
 	isValidApiKeyPeriodDuration,
-	resolveEffectiveMemberBudget,
+	resolveMemberBudgetPolicies,
 	shortid,
 	tables,
 	validateApiKeyLimitsWithinMemberBudget,
@@ -807,6 +807,13 @@ interface MemberBudgetColumns {
 	periodUsageLimit: string | null;
 	periodUsageDurationValue: number | null;
 	periodUsageDurationUnit: ApiKeyPeriodDurationUnit | null;
+	team?: {
+		maxApiKeys: number | null;
+		usageLimit: string | null;
+		periodUsageLimit: string | null;
+		periodUsageDurationValue: number | null;
+		periodUsageDurationUnit: ApiKeyPeriodDurationUnit | null;
+	} | null;
 }
 
 interface OrgDeveloperDefaultColumns {
@@ -815,6 +822,71 @@ interface OrgDeveloperDefaultColumns {
 	defaultDeveloperPeriodUsageLimit: string | null;
 	defaultDeveloperPeriodUsageDurationValue: number | null;
 	defaultDeveloperPeriodUsageDurationUnit: ApiKeyPeriodDurationUnit | null;
+}
+
+function memberBudgetPolicies(
+	membership: MemberBudgetColumns,
+	organization: OrgDeveloperDefaultColumns,
+) {
+	return resolveMemberBudgetPolicies(
+		membership.role,
+		{
+			maxApiKeys: membership.maxApiKeys,
+			usageLimit: membership.usageLimit,
+			periodUsageLimit: membership.periodUsageLimit,
+			periodUsageDurationValue: membership.periodUsageDurationValue,
+			periodUsageDurationUnit: membership.periodUsageDurationUnit,
+		},
+		{
+			defaultDeveloperMaxApiKeys: organization.defaultDeveloperMaxApiKeys,
+			defaultDeveloperUsageLimit: organization.defaultDeveloperUsageLimit,
+			defaultDeveloperPeriodUsageLimit:
+				organization.defaultDeveloperPeriodUsageLimit,
+			defaultDeveloperPeriodUsageDurationValue:
+				organization.defaultDeveloperPeriodUsageDurationValue,
+			defaultDeveloperPeriodUsageDurationUnit:
+				organization.defaultDeveloperPeriodUsageDurationUnit,
+		},
+		membership.team ?? null,
+	);
+}
+
+const periodHours = { hour: 1, day: 24, week: 168, month: 720 } as const;
+
+function normalizedRecurringSpend(
+	budget: ReturnType<typeof memberBudgetPolicies>[number]["budget"],
+): number {
+	return (
+		Number(budget.periodUsageLimit) /
+		(budget.periodUsageDurationValue! *
+			periodHours[budget.periodUsageDurationUnit!])
+	);
+}
+
+function mostRestrictiveBudget(
+	policies: ReturnType<typeof memberBudgetPolicies>,
+): ApiKeyLimitConfig {
+	const usageLimits = policies
+		.map(({ budget }) => budget.usageLimit)
+		.filter((value): value is string => value !== null);
+	const recurring = policies
+		.map(({ budget }) => budget)
+		.filter(
+			(budget) =>
+				budget.periodUsageLimit !== null &&
+				budget.periodUsageDurationValue !== null &&
+				budget.periodUsageDurationUnit !== null,
+		)
+		.sort((a, b) => normalizedRecurringSpend(a) - normalizedRecurringSpend(b));
+	const strictestPeriod = recurring[0];
+	return {
+		usageLimit: usageLimits.length
+			? String(Math.min(...usageLimits.map(Number)))
+			: null,
+		periodUsageLimit: strictestPeriod?.periodUsageLimit ?? null,
+		periodUsageDurationValue: strictestPeriod?.periodUsageDurationValue ?? null,
+		periodUsageDurationUnit: strictestPeriod?.periodUsageDurationUnit ?? null,
+	};
 }
 
 /**
@@ -835,40 +907,22 @@ function assertApiKeyLimitsWithinMemberBudget(
 		return;
 	}
 
-	const budget = resolveEffectiveMemberBudget(
-		membership.role,
-		{
-			maxApiKeys: membership.maxApiKeys,
-			usageLimit: membership.usageLimit,
-			periodUsageLimit: membership.periodUsageLimit,
-			periodUsageDurationValue: membership.periodUsageDurationValue,
-			periodUsageDurationUnit: membership.periodUsageDurationUnit,
-		},
-		{
-			defaultDeveloperMaxApiKeys: organization.defaultDeveloperMaxApiKeys,
-			defaultDeveloperUsageLimit: organization.defaultDeveloperUsageLimit,
-			defaultDeveloperPeriodUsageLimit:
-				organization.defaultDeveloperPeriodUsageLimit,
-			defaultDeveloperPeriodUsageDurationValue:
-				organization.defaultDeveloperPeriodUsageDurationValue,
-			defaultDeveloperPeriodUsageDurationUnit:
-				organization.defaultDeveloperPeriodUsageDurationUnit,
-		},
-	);
+	const policies = memberBudgetPolicies(membership, organization);
 
-	const error = validateApiKeyLimitsWithinMemberBudget(
-		{
-			usageLimit: keyLimits.usageLimit,
-			periodUsageLimit: keyLimits.periodUsageLimit,
-			periodUsageDurationValue: keyLimits.periodUsageDurationValue,
-			periodUsageDurationUnit: keyLimits.periodUsageDurationUnit,
-		},
-		budget,
-		owner,
-	);
-
-	if (error) {
-		throw new HTTPException(400, { message: error });
+	for (const { budget } of policies) {
+		const error = validateApiKeyLimitsWithinMemberBudget(
+			{
+				usageLimit: keyLimits.usageLimit,
+				periodUsageLimit: keyLimits.periodUsageLimit,
+				periodUsageDurationValue: keyLimits.periodUsageDurationValue,
+				periodUsageDurationUnit: keyLimits.periodUsageDurationUnit,
+			},
+			budget,
+			owner,
+		);
+		if (error) {
+			throw new HTTPException(400, { message: error });
+		}
 	}
 }
 
@@ -926,6 +980,17 @@ async function resolveApiKeyOwnerBudgets(
 			periodUsageDurationValue: true,
 			periodUsageDurationUnit: true,
 		},
+		with: {
+			team: {
+				columns: {
+					maxApiKeys: true,
+					usageLimit: true,
+					periodUsageLimit: true,
+					periodUsageDurationValue: true,
+					periodUsageDurationUnit: true,
+				},
+			},
+		},
 	});
 	const membershipByMember = new Map(
 		memberships.map((membership) => [
@@ -943,24 +1008,10 @@ async function resolveApiKeyOwnerBudgets(
 			continue;
 		}
 
-		const budget = resolveEffectiveMemberBudget(
-			membership.role as "owner" | "admin" | "developer",
-			{
-				maxApiKeys: membership.maxApiKeys,
-				usageLimit: membership.usageLimit,
-				periodUsageLimit: membership.periodUsageLimit,
-				periodUsageDurationValue: membership.periodUsageDurationValue,
-				periodUsageDurationUnit: membership.periodUsageDurationUnit,
-			},
-			organization,
+		budgets.set(
+			key.id,
+			mostRestrictiveBudget(memberBudgetPolicies(membership, organization)),
 		);
-
-		budgets.set(key.id, {
-			usageLimit: budget.usageLimit,
-			periodUsageLimit: budget.periodUsageLimit,
-			periodUsageDurationValue: budget.periodUsageDurationValue,
-			periodUsageDurationUnit: budget.periodUsageDurationUnit,
-		});
 	}
 
 	return budgets;
@@ -1063,6 +1114,17 @@ export async function createApiKeyForProject(
 			periodUsageDurationValue: true,
 			periodUsageDurationUnit: true,
 		},
+		with: {
+			team: {
+				columns: {
+					maxApiKeys: true,
+					usageLimit: true,
+					periodUsageLimit: true,
+					periodUsageDurationValue: true,
+					periodUsageDurationUnit: true,
+				},
+			},
+		},
 	});
 
 	// A key's limits must stay at or below the creator's effective member budget.
@@ -1081,11 +1143,14 @@ export async function createApiKeyForProject(
 		);
 	}
 
-	const effectiveMaxApiKeys =
-		creatorMembership?.maxApiKeys ??
-		(creatorMembership?.role === "developer"
-			? project.organization.defaultDeveloperMaxApiKeys
-			: null);
+	const maxApiKeyPolicies = creatorMembership
+		? memberBudgetPolicies(creatorMembership, project.organization)
+				.map(({ budget }) => budget.maxApiKeys)
+				.filter((value): value is number => value !== null)
+		: [];
+	const effectiveMaxApiKeys = maxApiKeyPolicies.length
+		? Math.min(...maxApiKeyPolicies)
+		: null;
 
 	if (typeof effectiveMaxApiKeys === "number") {
 		const memberActiveKeys = await db.query.apiKey.findMany({
@@ -2104,6 +2169,17 @@ keysApi.openapi(updateUsageLimit, async (c) => {
 			periodUsageLimit: true,
 			periodUsageDurationValue: true,
 			periodUsageDurationUnit: true,
+		},
+		with: {
+			team: {
+				columns: {
+					maxApiKeys: true,
+					usageLimit: true,
+					periodUsageLimit: true,
+					periodUsageDurationValue: true,
+					periodUsageDurationUnit: true,
+				},
+			},
 		},
 	});
 	const ownerOrg = await db.query.organization.findFirst({

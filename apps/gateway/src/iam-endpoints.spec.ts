@@ -1,21 +1,19 @@
 import { describe, expect, test } from "vitest";
 
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 
 import { app } from "./app.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
 
 // Every user-facing gateway endpoint must evaluate IAM rules. Each test seeds
-// a member-level deny rule (the org-admin ceiling from the Team page) and
-// asserts the endpoint rejects the request with the member-scope denial
-// message — proving the full IAM chain (member rules AND key rules) runs for
+// a team-level deny rule and asserts the endpoint rejects the request with the
+// team-scope denial message — proving inherited rules run for
 // that endpoint. /v1/responses, /v1/messages, and /v1/images delegate to
 // /v1/chat/completions internally, so the denial must survive that hop too.
 describe("IAM rule evaluation per endpoint", () => {
 	const harness = createGatewayApiTestHarness();
 
-	const MEMBER_RULE_MESSAGE =
-		"organization member IAM rule set by your org admin";
+	const TEAM_RULE_MESSAGE = "organization team IAM rule";
 
 	async function seedApiKey(token: string) {
 		await db.insert(tables.apiKey).values({
@@ -27,15 +25,33 @@ describe("IAM rule evaluation per endpoint", () => {
 		});
 	}
 
-	async function seedMemberRule(
+	async function seedTeamRule(
 		id: string,
 		ruleType:
 			"allow_models" | "deny_models" | "allow_providers" | "deny_providers",
 		ruleValue: { models?: string[]; providers?: string[] },
 	) {
-		await db.insert(tables.userIamRule).values({
-			id,
+		const teamId = `team-${id}`;
+		await db.insert(tables.organizationTeam).values({
+			id: teamId,
+			organizationId: "org-id",
+			name: `IAM team ${id}`,
+		});
+		await db.insert(tables.organizationTeamProject).values({
+			teamId,
+			projectId: "project-id",
+		});
+		await db.insert(tables.userProject).values({
 			userOrganizationId: "user-org-id",
+			projectId: "project-id",
+		});
+		await db
+			.update(tables.userOrganization)
+			.set({ role: "developer", teamId })
+			.where(eq(tables.userOrganization.id, "user-org-id"));
+		await db.insert(tables.organizationTeamIamRule).values({
+			id,
+			teamId,
 			ruleType,
 			ruleValue,
 			status: "active",
@@ -57,16 +73,16 @@ describe("IAM rule evaluation per endpoint", () => {
 		}
 	}
 
-	async function expectMemberDenial(res: Response) {
+	async function expectTeamDenial(res: Response) {
 		expect(res.status).toBe(403);
 		const body = JSON.stringify(await res.json());
-		expect(body).toContain(MEMBER_RULE_MESSAGE);
+		expect(body).toContain(TEAM_RULE_MESSAGE);
 	}
 
-	test("/v1/chat/completions evaluates member IAM rules", async () => {
+	test("/v1/chat/completions evaluates team IAM rules", async () => {
 		await seedApiKey("iam-chat-token");
 		await seedProviderKeys(["openai"]);
-		await seedMemberRule("iam-chat-rule", "deny_models", {
+		await seedTeamRule("iam-chat-rule", "deny_models", {
 			models: ["gpt-4o-mini"],
 		});
 
@@ -82,13 +98,13 @@ describe("IAM rule evaluation per endpoint", () => {
 			}),
 		});
 
-		await expectMemberDenial(res);
+		await expectTeamDenial(res);
 	});
 
-	test("/v1/embeddings evaluates member IAM rules", async () => {
+	test("/v1/embeddings evaluates team IAM rules", async () => {
 		await seedApiKey("iam-embeddings-token");
 		await seedProviderKeys(["openai"]);
-		await seedMemberRule("iam-embeddings-rule", "deny_models", {
+		await seedTeamRule("iam-embeddings-rule", "deny_models", {
 			models: ["text-embedding-3-small"],
 		});
 
@@ -104,13 +120,13 @@ describe("IAM rule evaluation per endpoint", () => {
 			}),
 		});
 
-		await expectMemberDenial(res);
+		await expectTeamDenial(res);
 	});
 
-	test("/v1/images/generations evaluates member IAM rules (via chat delegation)", async () => {
+	test("/v1/images/generations evaluates team IAM rules (via chat delegation)", async () => {
 		await seedApiKey("iam-images-token");
 		await seedProviderKeys(["google-ai-studio"]);
-		await seedMemberRule("iam-images-rule", "deny_models", {
+		await seedTeamRule("iam-images-rule", "deny_models", {
 			models: ["gemini-2.5-flash-image"],
 		});
 
@@ -126,13 +142,13 @@ describe("IAM rule evaluation per endpoint", () => {
 			}),
 		});
 
-		await expectMemberDenial(res);
+		await expectTeamDenial(res);
 	});
 
-	test("/v1/moderations evaluates member IAM rules", async () => {
+	test("/v1/moderations evaluates team IAM rules", async () => {
 		await seedApiKey("iam-moderations-token");
 		await seedProviderKeys(["openai"]);
-		await seedMemberRule("iam-moderations-rule", "deny_providers", {
+		await seedTeamRule("iam-moderations-rule", "deny_providers", {
 			providers: ["openai"],
 		});
 
@@ -147,7 +163,7 @@ describe("IAM rule evaluation per endpoint", () => {
 			}),
 		});
 
-		await expectMemberDenial(res);
+		await expectTeamDenial(res);
 	});
 
 	test("/v1/moderations evaluates key-level IAM rules", async () => {
@@ -178,12 +194,12 @@ describe("IAM rule evaluation per endpoint", () => {
 	});
 
 	test("/v1/moderations ignores model and pricing allowlists (backward compat)", async () => {
-		// Existing orgs commonly have allow_models rules that predate member IAM.
+		// Existing orgs commonly have allow_models rules that predate team IAM.
 		// The moderation pseudo-model is not in the catalogue and can never be
 		// added to an allowlist, so model/pricing rules must not gate moderation.
 		await seedApiKey("iam-moderations-compat-token");
 		await seedProviderKeys(["openai"]);
-		await seedMemberRule("iam-moderations-compat-member", "allow_models", {
+		await seedTeamRule("iam-moderations-compat-team", "allow_models", {
 			models: ["gpt-4o-mini"],
 		});
 		await db.insert(tables.apiKeyIamRule).values({
@@ -208,10 +224,10 @@ describe("IAM rule evaluation per endpoint", () => {
 		expect(res.status).toBe(200);
 	});
 
-	test("/v1/messages evaluates member IAM rules (via chat delegation)", async () => {
+	test("/v1/messages evaluates team IAM rules (via chat delegation)", async () => {
 		await seedApiKey("iam-messages-token");
 		await seedProviderKeys(["openai"]);
-		await seedMemberRule("iam-messages-rule", "deny_models", {
+		await seedTeamRule("iam-messages-rule", "deny_models", {
 			models: ["gpt-4o-mini"],
 		});
 
@@ -228,13 +244,13 @@ describe("IAM rule evaluation per endpoint", () => {
 			}),
 		});
 
-		await expectMemberDenial(res);
+		await expectTeamDenial(res);
 	});
 
-	test("/v1/responses evaluates member IAM rules (via chat delegation)", async () => {
+	test("/v1/responses evaluates team IAM rules (via chat delegation)", async () => {
 		await seedApiKey("iam-responses-token");
 		await seedProviderKeys(["openai"]);
-		await seedMemberRule("iam-responses-rule", "deny_models", {
+		await seedTeamRule("iam-responses-rule", "deny_models", {
 			models: ["gpt-5.5"],
 		});
 
@@ -250,13 +266,60 @@ describe("IAM rule evaluation per endpoint", () => {
 			}),
 		});
 
-		await expectMemberDenial(res);
+		await expectTeamDenial(res);
 	});
 
-	test("/v1/audio/speech evaluates member IAM rules", async () => {
+	test("/v1/rerank evaluates team IAM rules", async () => {
+		await seedApiKey("iam-rerank-token");
+		await seedProviderKeys(["deepinfra"]);
+		await seedTeamRule("iam-rerank-rule", "deny_models", {
+			models: ["qwen3-reranker-8b"],
+		});
+
+		const res = await app.request("/v1/rerank", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer iam-rerank-token",
+			},
+			body: JSON.stringify({
+				model: "deepinfra/qwen3-reranker-8b",
+				query: "what is a gateway",
+				documents: ["a gateway routes requests", "a cat sleeps"],
+			}),
+		});
+
+		await expectTeamDenial(res);
+	});
+
+	test("/v1/audio/transcriptions evaluates team IAM rules", async () => {
+		await seedApiKey("iam-transcription-token");
+		await seedProviderKeys(["xai"]);
+		await seedTeamRule("iam-transcription-rule", "deny_models", {
+			models: ["grok-stt-1-0"],
+		});
+		const form = new FormData();
+		form.append("model", "grok-stt-1-0");
+		form.append(
+			"file",
+			new File([Buffer.from("MOCK_AUDIO_BYTES")], "audio.mp3", {
+				type: "audio/mpeg",
+			}),
+		);
+
+		const res = await app.request("/v1/audio/transcriptions", {
+			method: "POST",
+			headers: { Authorization: "Bearer iam-transcription-token" },
+			body: form,
+		});
+
+		await expectTeamDenial(res);
+	});
+
+	test("/v1/audio/speech evaluates team IAM rules", async () => {
 		await seedApiKey("iam-speech-token");
 		await seedProviderKeys(["google-ai-studio"]);
-		await seedMemberRule("iam-speech-rule", "deny_models", {
+		await seedTeamRule("iam-speech-rule", "deny_models", {
 			models: ["gemini-2.5-flash-preview-tts"],
 		});
 
@@ -273,13 +336,13 @@ describe("IAM rule evaluation per endpoint", () => {
 			}),
 		});
 
-		await expectMemberDenial(res);
+		await expectTeamDenial(res);
 	});
 
-	test("/v1/videos evaluates member IAM rules", async () => {
+	test("/v1/videos evaluates team IAM rules", async () => {
 		await seedApiKey("iam-videos-token");
 		await seedProviderKeys(["google-vertex"]);
-		await seedMemberRule("iam-videos-rule", "deny_models", {
+		await seedTeamRule("iam-videos-rule", "deny_models", {
 			models: ["veo-3.1-generate-preview"],
 		});
 
@@ -297,13 +360,13 @@ describe("IAM rule evaluation per endpoint", () => {
 			}),
 		});
 
-		await expectMemberDenial(res);
+		await expectTeamDenial(res);
 	});
 
-	test("/v1/ocr evaluates member IAM rules", async () => {
+	test("/v1/ocr evaluates team IAM rules", async () => {
 		await seedApiKey("iam-ocr-token");
 		await seedProviderKeys(["mistral"]);
-		await seedMemberRule("iam-ocr-rule", "deny_models", {
+		await seedTeamRule("iam-ocr-rule", "deny_models", {
 			models: ["mistral-ocr-latest"],
 		});
 
@@ -322,16 +385,16 @@ describe("IAM rule evaluation per endpoint", () => {
 			}),
 		});
 
-		await expectMemberDenial(res);
+		await expectTeamDenial(res);
 	});
 
-	test("a key-level allow rule cannot expand past the member ceiling", async () => {
+	test("a key-level allow rule cannot expand past the team ceiling", async () => {
 		await seedApiKey("iam-ceiling-token");
 		await seedProviderKeys(["openai", "anthropic"]);
-		await seedMemberRule("iam-ceiling-rule", "allow_providers", {
+		await seedTeamRule("iam-ceiling-rule", "allow_providers", {
 			providers: ["anthropic"],
 		});
-		// The key explicitly allows openai — but the member ceiling excludes it,
+		// The key explicitly allows openai — but the team ceiling excludes it,
 		// so requesting an openai-only model must still be denied.
 		await db.insert(tables.apiKeyIamRule).values({
 			id: "iam-ceiling-key-rule",

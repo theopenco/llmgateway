@@ -6483,6 +6483,11 @@ describe("api", () => {
 			mode: "api-keys",
 			cachingEnabled: true,
 		});
+		await db.insert(tables.userOrganization).values({
+			id: "user-org-id-cache-attacker",
+			userId: "user-id",
+			organizationId: "org-id-attacker",
+		});
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-cache-attacker",

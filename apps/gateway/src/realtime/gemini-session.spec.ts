@@ -17,6 +17,7 @@ import type { WebSocket } from "ws";
 
 vi.mock("@/lib/api-key-usage-limits.js", () => ({
 	assertApiKeyWithinUsageLimits: vi.fn(),
+	assertMemberProjectAccess: vi.fn(async () => {}),
 	assertMemberWithinBudget: vi.fn(async () => {}),
 }));
 

@@ -5,6 +5,7 @@ import { runRealtimePreflight } from "./preflight.js";
 
 vi.mock("@/lib/api-key-usage-limits.js", () => ({
 	assertApiKeyWithinUsageLimits: vi.fn(),
+	assertMemberProjectAccess: vi.fn(async () => {}),
 	assertMemberWithinBudget: vi.fn(async () => {}),
 }));
 

@@ -1688,6 +1688,13 @@
       "when": 1787325167119,
       "tag": "1787325167_curved_nighthawk",
       "breakpoints": true
+    },
+    {
+      "idx": 241,
+      "version": "8",
+      "when": 1787662584655,
+      "tag": "1787662584_loose_mother_askani",
+      "breakpoints": true
     }
   ]
 }

@@ -69,6 +69,7 @@ export function CreateApiKeyDialog({
 		selectedProject.organizationId,
 	);
 	const memberBudget = memberBudgetData?.budget ?? null;
+	const teamBudget = memberBudgetData?.teamBudget ?? null;
 
 	const createApiKeyMutation = api.useMutation("post", "/keys/api");
 
@@ -89,10 +90,11 @@ export function CreateApiKeyDialog({
 			return;
 		}
 
-		const budgetError = validateApiKeyLimitPayloadWithinMemberBudget(
-			payload,
-			memberBudget,
-		);
+		const budgetError = [teamBudget, memberBudget]
+			.map((budget) =>
+				validateApiKeyLimitPayloadWithinMemberBudget(payload, budget),
+			)
+			.find((error): error is string => error !== null);
 		if (budgetError) {
 			toast({ title: budgetError, variant: "destructive" });
 			return;
@@ -230,6 +232,17 @@ export function CreateApiKeyDialog({
 								value={limitValue}
 								onChange={setLimitValue}
 								memberBudget={memberBudget}
+								memberBudgetLabel="Your personal or organization default policy"
+								additionalBudgets={
+									teamBudget
+										? [
+												{
+													budget: teamBudget,
+													label: `${memberBudgetData?.team?.name ?? "Your team"} policy`,
+												},
+											]
+										: []
+								}
 							/>
 							<DialogFooter>
 								<Button
