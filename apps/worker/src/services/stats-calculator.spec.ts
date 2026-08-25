@@ -1562,7 +1562,7 @@ describe("stats-calculator", () => {
 			expect(historyRecords).toHaveLength(1);
 		});
 
-		it("should warm incomplete mode history for the routing window", async () => {
+		it("should backfill incomplete mode history from retained history", async () => {
 			const oldMinute = new Date("2024-01-01T10:00:00.000Z");
 			const recentMinute = new Date("2024-01-01T12:28:00.000Z");
 			await Promise.all([
@@ -1572,6 +1572,7 @@ describe("stats-calculator", () => {
 						providerId: "openai",
 						modelProviderMappingId: "mapping-1",
 						minuteTimestamp: oldMinute,
+						logsCount: 42,
 					},
 					{
 						modelId: "gpt-4",
@@ -1581,7 +1582,7 @@ describe("stats-calculator", () => {
 					},
 				]),
 				db.insert(modelHistory).values([
-					{ modelId: "gpt-4", minuteTimestamp: oldMinute },
+					{ modelId: "gpt-4", minuteTimestamp: oldMinute, logsCount: 42 },
 					{ modelId: "gpt-4", minuteTimestamp: recentMinute },
 				]),
 				db.insert(modelProviderMappingUsageHistory).values({
@@ -1606,13 +1607,34 @@ describe("stats-calculator", () => {
 			const timestamps = new Set(
 				usageRecords.map((row) => row.minuteTimestamp.getTime()),
 			);
-			expect(timestamps.size).toBe(120);
+			expect(timestamps.size).toBe(150);
 			expect(Math.min(...timestamps)).toBe(
-				new Date("2024-01-01T10:30:00.000Z").getTime(),
+				new Date("2024-01-01T10:00:00.000Z").getTime(),
 			);
 			expect(Math.max(...timestamps)).toBe(
 				new Date("2024-01-01T12:29:00.000Z").getTime(),
 			);
+
+			const [retainedMapping] = await db
+				.select()
+				.from(modelProviderMappingHistory)
+				.where(
+					and(
+						eq(modelProviderMappingHistory.modelProviderMappingId, "mapping-1"),
+						eq(modelProviderMappingHistory.minuteTimestamp, oldMinute),
+					),
+				);
+			const [retainedModel] = await db
+				.select()
+				.from(modelHistory)
+				.where(
+					and(
+						eq(modelHistory.modelId, "gpt-4"),
+						eq(modelHistory.minuteTimestamp, oldMinute),
+					),
+				);
+			expect(retainedMapping?.logsCount).toBe(42);
+			expect(retainedModel?.logsCount).toBe(42);
 		});
 
 		it("should backfill missing periods", async () => {

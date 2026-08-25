@@ -22,7 +22,6 @@ import {
 	type SQL,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { ROUTING_HISTORY_MAX_WINDOW_MINUTES } from "@llmgateway/shared/routing-config";
 
 import { excludeRecoveredSameProviderRegionRetry } from "./log-filters.js";
 import { calculateRoutingTelemetryForHour } from "./routing-telemetry-aggregator.js";
@@ -367,7 +366,10 @@ function getCurrentHourStart(): Date {
  * Calculate and store 1-minute historical data for models for a specific minute
  * @param targetMinute The specific minute to calculate history for
  */
-async function calculateModelHistoryForMinute(targetMinute: Date) {
+async function calculateModelHistoryForMinute(
+	targetMinute: Date,
+	preserveExistingTotalHistory = false,
+) {
 	const roundedTargetMinute = roundToMinuteStart(targetMinute);
 
 	const minuteEnd = new Date(roundedTargetMinute.getTime() + ONE_MINUTE_MS);
@@ -671,13 +673,17 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 			i,
 			i + HISTORY_UPSERT_CHUNK_SIZE,
 		);
-		await database
-			.insert(modelHistory)
-			.values(chunk)
-			.onConflictDoUpdate({
+		const insert = database.insert(modelHistory).values(chunk);
+		if (preserveExistingTotalHistory) {
+			await insert.onConflictDoNothing({
+				target: [modelHistory.modelId, modelHistory.minuteTimestamp],
+			});
+		} else {
+			await insert.onConflictDoUpdate({
 				target: [modelHistory.modelId, modelHistory.minuteTimestamp],
 				set: modelHistoryUpsertSet,
 			});
+		}
 	}
 
 	return {
@@ -691,7 +697,10 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
  * Calculate and store 1-minute historical data for model-provider mappings for a specific minute
  * @param targetMinute The specific minute to calculate history for
  */
-async function calculateHistoryForMinute(targetMinute: Date) {
+async function calculateHistoryForMinute(
+	targetMinute: Date,
+	preserveExistingTotalHistory = false,
+) {
 	const roundedTargetMinute = roundToMinuteStart(targetMinute);
 
 	const minuteEnd = new Date(roundedTargetMinute.getTime() + ONE_MINUTE_MS);
@@ -1075,16 +1084,23 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 			i,
 			i + HISTORY_UPSERT_CHUNK_SIZE,
 		);
-		await database
-			.insert(modelProviderMappingHistory)
-			.values(chunk)
-			.onConflictDoUpdate({
+		const insert = database.insert(modelProviderMappingHistory).values(chunk);
+		if (preserveExistingTotalHistory) {
+			await insert.onConflictDoNothing({
+				target: [
+					modelProviderMappingHistory.modelProviderMappingId,
+					modelProviderMappingHistory.minuteTimestamp,
+				],
+			});
+		} else {
+			await insert.onConflictDoUpdate({
 				target: [
 					modelProviderMappingHistory.modelProviderMappingId,
 					modelProviderMappingHistory.minuteTimestamp,
 				],
 				set: mappingHistoryUpsertSet,
 			});
+		}
 	}
 
 	return {
@@ -1167,11 +1183,7 @@ export async function backfillHistoryIfNeeded() {
 			mappingUsageHistoryRange[0]?.latest,
 			modelUsageHistoryRange[0]?.latest,
 		];
-		const routingWindowMs = ROUTING_HISTORY_MAX_WINDOW_MINUTES * ONE_MINUTE_MS;
-		const routingWindowStart = roundToMinuteStart(
-			new Date(Date.now() - routingWindowMs),
-		);
-		const usageHistoryIncomplete = [
+		const usageHistoryRanges = [
 			{
 				legacy: mappingHistoryRange[0]?.earliest,
 				usage: mappingUsageHistoryRange[0]?.earliest,
@@ -1180,15 +1192,26 @@ export async function backfillHistoryIfNeeded() {
 				legacy: modelHistoryRange[0]?.earliest,
 				usage: modelUsageHistoryRange[0]?.earliest,
 			},
-		].some(({ legacy, usage }) => {
-			if (!legacy) {
-				return false;
-			}
-			const requiredStart = new Date(
-				Math.max(legacy.getTime(), routingWindowStart.getTime()),
+		];
+		const usageHistoryIncomplete = usageHistoryRanges.some(
+			({ legacy, usage }) => {
+				if (!legacy) {
+					return false;
+				}
+				return !usage || usage > legacy;
+			},
+		);
+		const usageBackfillStarts = usageHistoryRanges
+			.map(({ legacy }) => legacy)
+			.filter(
+				(minute): minute is Date => minute !== null && minute !== undefined,
 			);
-			return !usage || usage > requiredStart;
-		});
+		const usageBackfillStart =
+			usageBackfillStarts.length > 0
+				? new Date(
+						Math.min(...usageBackfillStarts.map((minute) => minute.getTime())),
+					)
+				: null;
 		const completeLatestMinutes = latestMinutes.filter(
 			(minute): minute is Date => minute !== null && minute !== undefined,
 		);
@@ -1204,16 +1227,13 @@ export async function backfillHistoryIfNeeded() {
 		const previousMinute = getPreviousMinuteStart();
 
 		if (!lastMinute || usageHistoryIncomplete) {
-			// When the mode tables are new on an existing installation, populate a
-			// complete routing window before the gateway relies on credits-only data.
-			const backfillDurationSeconds = usageHistoryIncomplete
-				? Math.max(
-						BACKFILL_DURATION_SECONDS,
-						ROUTING_HISTORY_MAX_WINDOW_MINUTES * 60,
-					)
-				: BACKFILL_DURATION_SECONDS;
-			const backfillMs = backfillDurationSeconds * 1000;
-			const backfillStart = new Date(Date.now() - backfillMs);
+			// New mode tables must cover every retained legacy minute. The hourly
+			// rollup keeps that data after minute-level retention removes its source.
+			const defaultBackfillDurationMs = BACKFILL_DURATION_SECONDS * 1000;
+			const backfillStart =
+				usageHistoryIncomplete && usageBackfillStart
+					? usageBackfillStart
+					: new Date(Date.now() - defaultBackfillDurationMs);
 			const backfillStartRounded = roundToMinuteStart(backfillStart);
 
 			logger.info(
@@ -1222,15 +1242,21 @@ export async function backfillHistoryIfNeeded() {
 
 			let minute = new Date(backfillStartRounded);
 			let iterationCount = 0;
-			// Dynamic safety limit based on backfill duration (with max of 1440 for 24 hours)
-			const maxIterations = Math.min(
-				Math.ceil(backfillDurationSeconds / 60),
-				1440,
-			);
+			const maxIterations =
+				Math.floor(
+					(previousMinute.getTime() - backfillStartRounded.getTime()) /
+						ONE_MINUTE_MS,
+				) + 1;
 
 			while (minute <= previousMinute && iterationCount < maxIterations) {
-				const mappingResult = await calculateHistoryForMinute(minute);
-				const modelResult = await calculateModelHistoryForMinute(minute);
+				const mappingResult = await calculateHistoryForMinute(
+					minute,
+					usageHistoryIncomplete,
+				);
+				const modelResult = await calculateModelHistoryForMinute(
+					minute,
+					usageHistoryIncomplete,
+				);
 				logger.info(
 					`Backfilled ${mappingResult.totalMappings} mappings and ${modelResult.totalModels} models for ${minute.toISOString()}`,
 				);

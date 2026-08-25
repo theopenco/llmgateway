@@ -924,7 +924,8 @@ type HistoryUsageMode = (typeof HISTORY_USAGE_MODES)[number];
 // The loop runs hourly, so any remaining rows are drained over subsequent runs.
 // At steady state (~1280 rows/min across all four tables, i.e. a few batches
 // per hour) this cap is never approached; it only bounds the initial backlog
-// drain. Each table gets its own budget so neither starves the other.
+// drain. Each table gets its own budget so neither table starves, while both
+// usage modes share their table's budget.
 const MODEL_HISTORY_MAX_BATCHES_PER_RUN = 50;
 
 async function cleanupModelHistoryTable(
@@ -998,10 +999,14 @@ async function cleanupUsageHistoryTable(
 	let deleted = 0;
 	let batches = 0;
 	for (const usedMode of HISTORY_USAGE_MODES) {
+		const remainingBatches = maxBatches - batches;
+		if (remainingBatches <= 0) {
+			break;
+		}
 		const result = await cleanupModelHistoryTable(
 			table,
 			cutoffDate,
-			maxBatches,
+			remainingBatches,
 			usedMode,
 		);
 		deleted += result.deleted;
