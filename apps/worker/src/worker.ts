@@ -917,6 +917,8 @@ export async function cleanupExpiredLogData(): Promise<void> {
 // comfortable buffer over the largest minute-level reader.
 const MODEL_HISTORY_RETENTION_DAYS = 30;
 const MODEL_HISTORY_CLEANUP_BATCH_SIZE = 10000;
+const HISTORY_USAGE_MODES = ["credits", "api-keys"] as const;
+type HistoryUsageMode = (typeof HISTORY_USAGE_MODES)[number];
 // Cap the work per run (per table) so a single cleanup reliably finishes well
 // within the lock TTL (LOCK_DURATION_MINUTES), even on a large initial backlog.
 // The loop runs hourly, so any remaining rows are drained over subsequent runs.
@@ -933,6 +935,7 @@ async function cleanupModelHistoryTable(
 		| typeof tables.modelProviderMappingUsageHistory,
 	cutoffDate: Date,
 	maxBatches: number,
+	usedMode?: HistoryUsageMode,
 ): Promise<{ deleted: number; batches: number }> {
 	let totalDeleted = 0;
 	let batches = 0;
@@ -944,10 +947,17 @@ async function cleanupModelHistoryTable(
 			// resets automatically when the transaction commits.
 			await tx.execute(sql`SET LOCAL random_page_cost = 1.1`);
 
+			const cutoffWhere =
+				usedMode && "usedMode" in table
+					? and(
+							eq(table.usedMode, usedMode),
+							lt(table.minuteTimestamp, cutoffDate),
+						)
+					: lt(table.minuteTimestamp, cutoffDate);
 			const recordsToDelete = await tx
 				.select({ id: table.id })
 				.from(table)
-				.where(lt(table.minuteTimestamp, cutoffDate))
+				.where(cutoffWhere)
 				.limit(MODEL_HISTORY_CLEANUP_BATCH_SIZE)
 				.for("update", { skipLocked: true });
 
@@ -978,6 +988,28 @@ async function cleanupModelHistoryTable(
 	return { deleted: totalDeleted, batches };
 }
 
+async function cleanupUsageHistoryTable(
+	table:
+		| typeof tables.modelUsageHistory
+		| typeof tables.modelProviderMappingUsageHistory,
+	cutoffDate: Date,
+	maxBatches: number,
+): Promise<{ deleted: number; batches: number }> {
+	let deleted = 0;
+	let batches = 0;
+	for (const usedMode of HISTORY_USAGE_MODES) {
+		const result = await cleanupModelHistoryTable(
+			table,
+			cutoffDate,
+			maxBatches,
+			usedMode,
+		);
+		deleted += result.deleted;
+		batches += result.batches;
+	}
+	return { deleted, batches };
+}
+
 export async function cleanupExpiredModelHistory(): Promise<void> {
 	if (process.env.ENABLE_DATA_RETENTION_CLEANUP !== "true") {
 		return;
@@ -1005,12 +1037,12 @@ export async function cleanupExpiredModelHistory(): Promise<void> {
 			cutoffDate,
 			MODEL_HISTORY_MAX_BATCHES_PER_RUN,
 		);
-		const mappingUsage = await cleanupModelHistoryTable(
+		const mappingUsage = await cleanupUsageHistoryTable(
 			tables.modelProviderMappingUsageHistory,
 			cutoffDate,
 			MODEL_HISTORY_MAX_BATCHES_PER_RUN,
 		);
-		const modelUsage = await cleanupModelHistoryTable(
+		const modelUsage = await cleanupUsageHistoryTable(
 			tables.modelUsageHistory,
 			cutoffDate,
 			MODEL_HISTORY_MAX_BATCHES_PER_RUN,
