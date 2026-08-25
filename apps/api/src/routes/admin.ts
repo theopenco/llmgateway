@@ -9942,9 +9942,60 @@ const costByModelResponseSchema = z.object({
 	models: z.array(costByModelEntrySchema),
 	totalCost: z.number(),
 	totalRequests: z.number(),
+	totalCreditsRequests: z.number(),
+	totalApiKeysRequests: z.number(),
 	totalCreditsCost: z.number(),
 	totalApiKeysCost: z.number(),
 });
+
+const costByModelViewSchema = z.enum(["mapping", "canonical"]);
+const organizationCostGroupBySchema = z.enum([
+	"model",
+	"project",
+	"api-key",
+	"user",
+]);
+
+type CostBreakdownRow = z.infer<typeof costByModelEntrySchema>;
+
+function summarizeCostBreakdown(
+	rows: CostBreakdownRow[],
+	window: z.infer<typeof tokenWindowSchema>,
+) {
+	const sorted = [...rows].sort((a, b) => b.cost - a.cost);
+	return {
+		window,
+		models: sorted.slice(0, 20),
+		totalCost: sorted.reduce((sum, row) => sum + row.cost, 0),
+		totalRequests: sorted.reduce((sum, row) => sum + row.requestCount, 0),
+		totalCreditsRequests: sorted.reduce(
+			(sum, row) => sum + row.creditsRequestCount,
+			0,
+		),
+		totalApiKeysRequests: sorted.reduce(
+			(sum, row) => sum + row.apiKeysRequestCount,
+			0,
+		),
+		totalCreditsCost: sorted.reduce((sum, row) => sum + row.creditsCost, 0),
+		totalApiKeysCost: sorted.reduce((sum, row) => sum + row.apiKeysCost, 0),
+	};
+}
+
+function dimensionLabel(label: string | null, id: string): string {
+	return label && label !== id ? `${label} · ${id.slice(-6)}` : id;
+}
+
+function apiKeyDimensionColumns(groupBy: "api-key" | "user") {
+	return groupBy === "user"
+		? {
+				id: sql<string>`COALESCE(${tables.user.id}, 'deleted-user')`,
+				label: sql<string>`COALESCE(${tables.user.email}, 'Deleted user')`,
+			}
+		: {
+				id: sql<string>`COALESCE(${tables.apiKey.id}, ${tables.apiKeyHourlyStats.apiKeyId})`,
+				label: tables.apiKey.description,
+			};
+}
 
 // Global cost by model
 const getGlobalCostByModel = createRoute({
@@ -10012,40 +10063,23 @@ admin.openapi(getGlobalCostByModel, async (c) => {
 		.groupBy(projectHourlyModelStats.usedModel)
 		.orderBy(
 			desc(sql`SUM(cast(${projectHourlyModelStats.cost} as double precision))`),
-		)
-		.limit(20);
+		);
 
-	const totalCost = rows.reduce((sum, r) => sum + Number(r.cost), 0);
-	const totalRequests = rows.reduce(
-		(sum, r) => sum + Number(r.requestCount),
-		0,
+	return c.json(
+		summarizeCostBreakdown(
+			rows.map((r) => ({
+				model: r.usedModel,
+				cost: Number(r.cost),
+				requestCount: Number(r.requestCount),
+				totalTokens: Number(r.totalTokens),
+				creditsRequestCount: Number(r.creditsRequestCount),
+				apiKeysRequestCount: Number(r.apiKeysRequestCount),
+				creditsCost: Number(r.creditsCost),
+				apiKeysCost: Number(r.apiKeysCost),
+			})),
+			window,
+		),
 	);
-	const totalCreditsCost = rows.reduce(
-		(sum, r) => sum + Number(r.creditsCost),
-		0,
-	);
-	const totalApiKeysCost = rows.reduce(
-		(sum, r) => sum + Number(r.apiKeysCost),
-		0,
-	);
-
-	return c.json({
-		window,
-		models: rows.map((r) => ({
-			model: r.usedModel,
-			cost: Number(r.cost),
-			requestCount: Number(r.requestCount),
-			totalTokens: Number(r.totalTokens),
-			creditsRequestCount: Number(r.creditsRequestCount),
-			apiKeysRequestCount: Number(r.apiKeysRequestCount),
-			creditsCost: Number(r.creditsCost),
-			apiKeysCost: Number(r.apiKeysCost),
-		})),
-		totalCost,
-		totalRequests,
-		totalCreditsCost,
-		totalApiKeysCost,
-	});
 });
 
 // Org cost by model
@@ -10056,6 +10090,8 @@ const getOrgCostByModel = createRoute({
 		params: z.object({ orgId: z.string() }),
 		query: z.object({
 			window: tokenWindowSchema.default("7d").optional(),
+			modelView: costByModelViewSchema.default("mapping").optional(),
+			groupBy: organizationCostGroupBySchema.default("model").optional(),
 		}),
 	},
 	responses: {
@@ -10065,7 +10101,8 @@ const getOrgCostByModel = createRoute({
 					schema: costByModelResponseSchema.openapi({}),
 				},
 			},
-			description: "Organization cost breakdown by model.",
+			description:
+				"Organization cost breakdown by model, project, API key, or user.",
 		},
 		404: {
 			description: "Organization not found.",
@@ -10077,6 +10114,8 @@ admin.openapi(getOrgCostByModel, async (c) => {
 	const { orgId } = c.req.valid("param");
 	const query = c.req.valid("query");
 	const window = query.window ?? "7d";
+	const modelView = query.modelView ?? "mapping";
+	const groupBy = query.groupBy ?? "model";
 	const startDate = getTokenWindowStartDate(window);
 
 	const org = await db.query.organization.findFirst({
@@ -10100,9 +10139,111 @@ admin.openapi(getOrgCostByModel, async (c) => {
 			models: [],
 			totalCost: 0,
 			totalRequests: 0,
+			totalCreditsRequests: 0,
+			totalApiKeysRequests: 0,
 			totalCreditsCost: 0,
 			totalApiKeysCost: 0,
 		});
+	}
+
+	if (groupBy === "project") {
+		const rows = await db
+			.select({
+				id: projectHourlyStats.projectId,
+				label: tables.project.name,
+				cost: sql<number>`SUM(cast(${projectHourlyStats.cost} as double precision))`.as(
+					"cost",
+				),
+				requestCount: sql<number>`SUM(${projectHourlyStats.requestCount})`.as(
+					"request_count",
+				),
+				totalTokens:
+					sql<number>`SUM(CAST(${projectHourlyStats.totalTokens} AS NUMERIC))`.as(
+						"total_tokens",
+					),
+				...modeSplitFields(projectHourlyStats),
+			})
+			.from(projectHourlyStats)
+			.innerJoin(
+				tables.project,
+				eq(tables.project.id, projectHourlyStats.projectId),
+			)
+			.where(
+				and(
+					inArray(projectHourlyStats.projectId, ids),
+					gte(projectHourlyStats.hourTimestamp, startDate),
+				),
+			)
+			.groupBy(projectHourlyStats.projectId, tables.project.name);
+
+		return c.json(
+			summarizeCostBreakdown(
+				rows.map((row) => ({
+					model: dimensionLabel(row.label, row.id),
+					cost: Number(row.cost),
+					requestCount: Number(row.requestCount),
+					totalTokens: Number(row.totalTokens),
+					creditsRequestCount: Number(row.creditsRequestCount),
+					apiKeysRequestCount: Number(row.apiKeysRequestCount),
+					creditsCost: Number(row.creditsCost),
+					apiKeysCost: Number(row.apiKeysCost),
+				})),
+				window,
+			),
+		);
+	}
+
+	if (groupBy === "api-key" || groupBy === "user") {
+		const dimension = apiKeyDimensionColumns(groupBy);
+		const rows = await db
+			.select({
+				id: dimension.id,
+				label: dimension.label,
+				cost: sql<number>`SUM(cast(${tables.apiKeyHourlyStats.cost} as double precision))`.as(
+					"cost",
+				),
+				requestCount:
+					sql<number>`SUM(${tables.apiKeyHourlyStats.requestCount})`.as(
+						"request_count",
+					),
+				totalTokens:
+					sql<number>`SUM(CAST(${tables.apiKeyHourlyStats.totalTokens} AS NUMERIC))`.as(
+						"total_tokens",
+					),
+				...modeSplitFields(tables.apiKeyHourlyStats),
+			})
+			.from(tables.apiKeyHourlyStats)
+			.leftJoin(
+				tables.apiKey,
+				eq(tables.apiKey.id, tables.apiKeyHourlyStats.apiKeyId),
+			)
+			.leftJoin(tables.user, eq(tables.user.id, tables.apiKey.createdBy))
+			.where(
+				and(
+					inArray(tables.apiKeyHourlyStats.projectId, ids),
+					gte(tables.apiKeyHourlyStats.hourTimestamp, startDate),
+				),
+			)
+			.groupBy(dimension.id, dimension.label);
+
+		return c.json(
+			summarizeCostBreakdown(
+				rows.map((row) => ({
+					model:
+						groupBy === "user"
+							? (row.label ?? "Deleted user")
+							: dimensionLabel(row.label, row.id),
+					cost: Number(row.cost),
+					requestCount: Number(row.requestCount),
+					totalTokens: Number(row.totalTokens),
+					creditsRequestCount: Number(row.creditsRequestCount),
+					apiKeysRequestCount: Number(row.apiKeysRequestCount),
+					creditsCost: Number(row.creditsCost),
+					apiKeysCost: Number(row.apiKeysCost),
+				})),
+				window,
+			),
+		);
 	}
 
 	const rows = await db
@@ -10128,50 +10269,47 @@ admin.openapi(getOrgCostByModel, async (c) => {
 				gte(projectHourlyModelStats.hourTimestamp, startDate),
 			),
 		)
-		.groupBy(projectHourlyModelStats.usedModel)
-		.orderBy(
-			desc(sql`SUM(cast(${projectHourlyModelStats.cost} as double precision))`),
-		)
-		.limit(20);
+		.groupBy(projectHourlyModelStats.usedModel);
 
-	const totalCost = rows.reduce((sum, r) => sum + Number(r.cost), 0);
-	const totalRequests = rows.reduce(
-		(sum, r) => sum + Number(r.requestCount),
-		0,
-	);
-	const totalCreditsCost = rows.reduce(
-		(sum, r) => sum + Number(r.creditsCost),
-		0,
-	);
-	const totalApiKeysCost = rows.reduce(
-		(sum, r) => sum + Number(r.apiKeysCost),
-		0,
-	);
+	const byModel = new Map<string, CostBreakdownRow>();
+	for (const row of rows) {
+		const model =
+			modelView === "canonical"
+				? extractCanonicalModelId(row.usedModel)
+				: row.usedModel;
+		const current = byModel.get(model) ?? {
+			model,
+			cost: 0,
+			requestCount: 0,
+			totalTokens: 0,
+			creditsRequestCount: 0,
+			apiKeysRequestCount: 0,
+			creditsCost: 0,
+			apiKeysCost: 0,
+		};
+		current.cost += Number(row.cost);
+		current.requestCount += Number(row.requestCount);
+		current.totalTokens += Number(row.totalTokens);
+		current.creditsRequestCount += Number(row.creditsRequestCount);
+		current.apiKeysRequestCount += Number(row.apiKeysRequestCount);
+		current.creditsCost += Number(row.creditsCost);
+		current.apiKeysCost += Number(row.apiKeysCost);
+		byModel.set(model, current);
+	}
 
-	return c.json({
-		window,
-		models: rows.map((r) => ({
-			model: r.usedModel,
-			cost: Number(r.cost),
-			requestCount: Number(r.requestCount),
-			totalTokens: Number(r.totalTokens),
-			creditsRequestCount: Number(r.creditsRequestCount),
-			apiKeysRequestCount: Number(r.apiKeysRequestCount),
-			creditsCost: Number(r.creditsCost),
-			apiKeysCost: Number(r.apiKeysCost),
-		})),
-		totalCost,
-		totalRequests,
-		totalCreditsCost,
-		totalApiKeysCost,
-	});
+	return c.json(summarizeCostBreakdown([...byModel.values()], window));
 });
 
 // --- Cost by model time-series endpoints ---
 
-const costByModelTimeseriesModelViewSchema = z.enum(["mapping", "canonical"]);
-
 const costTimeseriesGroupBySchema = z.enum(["model", "source"]);
+
+const organizationCostTimeseriesGroupBySchema = z.enum([
+	"model",
+	"project",
+	"api-key",
+	"user",
+]);
 
 const TOP_TIMESERIES_SERIES = 10;
 
@@ -10194,8 +10332,8 @@ const costByModelTimeseriesPointSchema = z.object({
 const costByModelTimeseriesResponseSchema = z.object({
 	window: tokenWindowSchema,
 	bucket: z.enum(["hour", "day"]),
-	modelView: costByModelTimeseriesModelViewSchema,
-	groupBy: costTimeseriesGroupBySchema,
+	modelView: costByModelViewSchema,
+	groupBy: z.enum(["model", "source", "project", "api-key", "user"]),
 	models: z.array(z.string()),
 	data: z.array(costByModelTimeseriesPointSchema),
 });
@@ -10238,8 +10376,9 @@ const getOrgCostByModelTimeseries = createRoute({
 		params: z.object({ orgId: z.string() }),
 		query: z.object({
 			window: tokenWindowSchema.default("7d").optional(),
-			modelView: costByModelTimeseriesModelViewSchema
-				.default("mapping")
+			modelView: costByModelViewSchema.default("mapping").optional(),
+			groupBy: organizationCostTimeseriesGroupBySchema
+				.default("model")
 				.optional(),
 		}),
 	},
@@ -10250,7 +10389,8 @@ const getOrgCostByModelTimeseries = createRoute({
 					schema: costByModelTimeseriesResponseSchema.openapi({}),
 				},
 			},
-			description: "Organization cost breakdown by model over time.",
+			description:
+				"Organization cost breakdown by model, project, API key, or user over time.",
 		},
 		404: {
 			description: "Organization not found.",
@@ -10263,6 +10403,7 @@ admin.openapi(getOrgCostByModelTimeseries, async (c) => {
 	const query = c.req.valid("query");
 	const window = query.window ?? "7d";
 	const modelView = query.modelView ?? "mapping";
+	const groupBy = query.groupBy ?? "model";
 	const startDate = getTokenWindowStartDate(window);
 	const bucketUnit = getBucketUnitForWindow(window);
 
@@ -10286,27 +10427,41 @@ admin.openapi(getOrgCostByModelTimeseries, async (c) => {
 			window,
 			bucket: bucketUnit,
 			modelView,
-			groupBy: "model" as const,
+			groupBy,
 			models: [],
 			data: [],
 		});
 	}
 
-	const result = await buildCostByModelTimeseries({
-		modelView,
-		bucketUnit,
-		startDate,
-		baseFilter: and(
-			inArray(projectHourlyModelStats.projectId, ids),
-			gte(projectHourlyModelStats.hourTimestamp, startDate),
-		),
-	});
+	const result =
+		groupBy === "project"
+			? await buildCostByProjectTimeseries({
+					bucketUnit,
+					startDate,
+					projectIds: ids,
+				})
+			: groupBy === "api-key" || groupBy === "user"
+				? await buildCostByApiKeyDimensionTimeseries({
+						bucketUnit,
+						startDate,
+						projectIds: ids,
+						groupBy,
+					})
+				: await buildCostByModelTimeseries({
+						modelView,
+						bucketUnit,
+						startDate,
+						baseFilter: and(
+							inArray(projectHourlyModelStats.projectId, ids),
+							gte(projectHourlyModelStats.hourTimestamp, startDate),
+						),
+					});
 
 	return c.json({
 		window,
 		bucket: bucketUnit,
 		modelView,
-		groupBy: "model" as const,
+		groupBy,
 		models: result.models,
 		data: result.data,
 	});
@@ -10319,9 +10474,7 @@ const getProjectCostByModelTimeseries = createRoute({
 		params: z.object({ orgId: z.string(), projectId: z.string() }),
 		query: z.object({
 			window: tokenWindowSchema.default("7d").optional(),
-			modelView: costByModelTimeseriesModelViewSchema
-				.default("mapping")
-				.optional(),
+			modelView: costByModelViewSchema.default("mapping").optional(),
 			groupBy: costTimeseriesGroupBySchema.default("model").optional(),
 		}),
 	},
@@ -10390,13 +10543,204 @@ admin.openapi(getProjectCostByModelTimeseries, async (c) => {
 	});
 });
 
+async function buildCostByProjectTimeseries({
+	bucketUnit,
+	startDate,
+	projectIds,
+}: {
+	bucketUnit: "hour" | "day";
+	startDate: Date;
+	projectIds: string[];
+}): Promise<{
+	models: string[];
+	data: z.infer<typeof costByModelTimeseriesPointSchema>[];
+}> {
+	const totals = await db
+		.select({
+			id: projectHourlyStats.projectId,
+			label: tables.project.name,
+			cost: sql<number>`SUM(cast(${projectHourlyStats.cost} as double precision))`.as(
+				"cost",
+			),
+		})
+		.from(projectHourlyStats)
+		.innerJoin(
+			tables.project,
+			eq(tables.project.id, projectHourlyStats.projectId),
+		)
+		.where(
+			and(
+				inArray(projectHourlyStats.projectId, projectIds),
+				gte(projectHourlyStats.hourTimestamp, startDate),
+			),
+		)
+		.groupBy(projectHourlyStats.projectId, tables.project.name);
+
+	const top = [...totals]
+		.sort((a, b) => Number(b.cost) - Number(a.cost))
+		.slice(0, TOP_TIMESERIES_SERIES)
+		.map((row) => ({
+			id: row.id,
+			label: dimensionLabel(row.label, row.id),
+		}));
+	if (top.length === 0) {
+		return { models: [], data: [] };
+	}
+
+	const labels = new Map(top.map((item) => [item.id, item.label]));
+	const topIds = top.map((item) => item.id);
+	const bucketExpr = sql<string>`to_char(date_trunc(${sql.raw(`'${bucketUnit}'`)}, ${projectHourlyStats.hourTimestamp}), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
+	const rows = await db
+		.select({
+			bucket: bucketExpr.as("bucket"),
+			id: projectHourlyStats.projectId,
+			cost: sql<number>`SUM(cast(${projectHourlyStats.cost} as double precision))`.as(
+				"cost",
+			),
+			requestCount: sql<number>`SUM(${projectHourlyStats.requestCount})`.as(
+				"request_count",
+			),
+			totalTokens:
+				sql<number>`SUM(CAST(${projectHourlyStats.totalTokens} AS NUMERIC))`.as(
+					"total_tokens",
+				),
+			...modeSplitFields(projectHourlyStats),
+		})
+		.from(projectHourlyStats)
+		.where(
+			and(
+				inArray(projectHourlyStats.projectId, topIds),
+				gte(projectHourlyStats.hourTimestamp, startDate),
+			),
+		)
+		.groupBy(bucketExpr, projectHourlyStats.projectId)
+		.orderBy(asc(bucketExpr));
+
+	return {
+		models: top.map((item) => item.label),
+		data: assembleCostTimeseriesPoints({
+			allBuckets: generateBucketTimestamps(startDate, new Date(), bucketUnit),
+			rows: rows.map((row) => ({
+				bucket: row.bucket,
+				key: labels.get(row.id) ?? row.id,
+				cost: Number(row.cost),
+				requestCount: Number(row.requestCount),
+				totalTokens: Number(row.totalTokens),
+				creditsRequestCount: Number(row.creditsRequestCount),
+				apiKeysRequestCount: Number(row.apiKeysRequestCount),
+				creditsCost: Number(row.creditsCost),
+				apiKeysCost: Number(row.apiKeysCost),
+			})),
+		}),
+	};
+}
+
+async function buildCostByApiKeyDimensionTimeseries({
+	bucketUnit,
+	startDate,
+	projectIds,
+	groupBy,
+}: {
+	bucketUnit: "hour" | "day";
+	startDate: Date;
+	projectIds: string[];
+	groupBy: "api-key" | "user";
+}): Promise<{
+	models: string[];
+	data: z.infer<typeof costByModelTimeseriesPointSchema>[];
+}> {
+	const dimension = apiKeyDimensionColumns(groupBy);
+	const baseFilter = and(
+		inArray(tables.apiKeyHourlyStats.projectId, projectIds),
+		gte(tables.apiKeyHourlyStats.hourTimestamp, startDate),
+	);
+	const totals = await db
+		.select({
+			id: dimension.id,
+			label: dimension.label,
+			cost: sql<number>`SUM(cast(${tables.apiKeyHourlyStats.cost} as double precision))`.as(
+				"cost",
+			),
+		})
+		.from(tables.apiKeyHourlyStats)
+		.leftJoin(
+			tables.apiKey,
+			eq(tables.apiKey.id, tables.apiKeyHourlyStats.apiKeyId),
+		)
+		.leftJoin(tables.user, eq(tables.user.id, tables.apiKey.createdBy))
+		.where(baseFilter)
+		.groupBy(dimension.id, dimension.label);
+
+	const top = [...totals]
+		.sort((a, b) => Number(b.cost) - Number(a.cost))
+		.slice(0, TOP_TIMESERIES_SERIES)
+		.map((row) => ({
+			id: row.id,
+			label:
+				groupBy === "user"
+					? (row.label ?? "Deleted user")
+					: dimensionLabel(row.label, row.id),
+		}));
+	if (top.length === 0) {
+		return { models: [], data: [] };
+	}
+
+	const labels = new Map(top.map((item) => [item.id, item.label]));
+	const topIds = top.map((item) => item.id);
+	const bucketExpr = sql<string>`to_char(date_trunc(${sql.raw(`'${bucketUnit}'`)}, ${tables.apiKeyHourlyStats.hourTimestamp}), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
+	const rows = await db
+		.select({
+			bucket: bucketExpr.as("bucket"),
+			id: dimension.id,
+			cost: sql<number>`SUM(cast(${tables.apiKeyHourlyStats.cost} as double precision))`.as(
+				"cost",
+			),
+			requestCount:
+				sql<number>`SUM(${tables.apiKeyHourlyStats.requestCount})`.as(
+					"request_count",
+				),
+			totalTokens:
+				sql<number>`SUM(CAST(${tables.apiKeyHourlyStats.totalTokens} AS NUMERIC))`.as(
+					"total_tokens",
+				),
+			...modeSplitFields(tables.apiKeyHourlyStats),
+		})
+		.from(tables.apiKeyHourlyStats)
+		.leftJoin(
+			tables.apiKey,
+			eq(tables.apiKey.id, tables.apiKeyHourlyStats.apiKeyId),
+		)
+		.leftJoin(tables.user, eq(tables.user.id, tables.apiKey.createdBy))
+		.where(and(baseFilter, inArray(dimension.id, topIds)))
+		.groupBy(bucketExpr, dimension.id)
+		.orderBy(asc(bucketExpr));
+
+	return {
+		models: top.map((item) => item.label),
+		data: assembleCostTimeseriesPoints({
+			allBuckets: generateBucketTimestamps(startDate, new Date(), bucketUnit),
+			rows: rows.map((row) => ({
+				bucket: row.bucket,
+				key: labels.get(row.id) ?? row.id,
+				cost: Number(row.cost),
+				requestCount: Number(row.requestCount),
+				totalTokens: Number(row.totalTokens),
+				creditsRequestCount: Number(row.creditsRequestCount),
+				apiKeysRequestCount: Number(row.apiKeysRequestCount),
+				creditsCost: Number(row.creditsCost),
+				apiKeysCost: Number(row.apiKeysCost),
+			})),
+		}),
+	};
+}
+
 async function buildCostByModelTimeseries({
 	modelView,
 	bucketUnit,
 	startDate,
 	baseFilter,
 }: {
-	modelView: z.infer<typeof costByModelTimeseriesModelViewSchema>;
+	modelView: z.infer<typeof costByModelViewSchema>;
 	bucketUnit: "hour" | "day";
 	startDate: Date;
 	baseFilter: ReturnType<typeof and>;
@@ -13509,6 +13853,10 @@ const devpassKpisSchema = z.object({
 		pro: z.number(),
 		max: z.number(),
 	}),
+	totalSubscribers: z.number(),
+	totalSubscribersExcludingRefunded: z.number(),
+	grossSubscriptionRevenue: z.number(),
+	subscriptionRevenueExcludingRefunds: z.number(),
 	totalActive: z.number(),
 	cancelledPending: z.number(),
 	churned: z.number(),
@@ -14616,11 +14964,97 @@ admin.openapi(getDevpassKpis, async (c) => {
 		tables.transaction,
 		"reset_pass_refund_original_tx",
 	);
+	const subscriberStartTx = aliasedTable(
+		tables.transaction,
+		"subscriber_start_tx",
+	);
+	const subscriberRefundTx = aliasedTable(
+		tables.transaction,
+		"subscriber_refund_tx",
+	);
+	const subscriberRefundOriginalTx = aliasedTable(
+		tables.transaction,
+		"subscriber_refund_original_tx",
+	);
+	const subscriberPaymentTypes = [
+		...DEV_PLAN_SUBSCRIPTION_TX_TYPES,
+		"subscription_start",
+	] as const;
+
+	const subscriberStartsSub = db
+		.select({ organizationId: subscriberStartTx.organizationId })
+		.from(subscriberStartTx)
+		.where(
+			and(
+				eq(subscriberStartTx.status, "completed"),
+				inArray(subscriberStartTx.type, [
+					"dev_plan_start",
+					"subscription_start",
+				]),
+			),
+		)
+		.groupBy(subscriberStartTx.organizationId)
+		.as("subscriber_starts");
+	const subscriberPaymentsSub = db
+		.select({
+			organizationId: tables.transaction.organizationId,
+			grossRevenue:
+				sql<string>`SUM(CAST(${tables.transaction.amount} AS NUMERIC))`.as(
+					"gross_subscription_revenue",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				inArray(tables.transaction.type, subscriberPaymentTypes),
+				isNotNull(tables.transaction.amount),
+				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+				firstRowPerInvoiceFilter(subscriberPaymentTypes),
+			),
+		)
+		.groupBy(tables.transaction.organizationId)
+		.as("subscriber_payments");
+	const subscriberRefundsSub = db
+		.select({
+			organizationId: subscriberRefundTx.organizationId,
+			refundedAmount:
+				sql<string>`SUM(CAST(${subscriberRefundTx.amount} AS NUMERIC))`.as(
+					"subscriber_refunded_amount",
+				),
+		})
+		.from(subscriberRefundTx)
+		.innerJoin(
+			subscriberRefundOriginalTx,
+			eq(
+				subscriberRefundTx.relatedTransactionId,
+				subscriberRefundOriginalTx.id,
+			),
+		)
+		.where(
+			and(
+				eq(subscriberRefundTx.type, "credit_refund"),
+				eq(subscriberRefundTx.status, "completed"),
+				isNotNull(subscriberRefundTx.amount),
+				sql`CAST(${subscriberRefundTx.amount} AS NUMERIC) > 0`,
+				eq(
+					subscriberRefundOriginalTx.organizationId,
+					subscriberRefundTx.organizationId,
+				),
+				eq(subscriberRefundOriginalTx.status, "completed"),
+				inArray(subscriberRefundOriginalTx.type, subscriberPaymentTypes),
+				isNotNull(subscriberRefundOriginalTx.amount),
+				sql`CAST(${subscriberRefundOriginalTx.amount} AS NUMERIC) > 0`,
+			),
+		)
+		.groupBy(subscriberRefundTx.organizationId)
+		.as("subscriber_refunds");
 
 	// Every KPI is an independent aggregate over the same universe, so they run
 	// concurrently rather than serially.
 	const [
 		activeRows,
+		[subscriberCountsRow],
 		[churnedRow],
 		[startsRow],
 		[endsRow],
@@ -14648,6 +15082,34 @@ admin.openapi(getDevpassKpis, async (c) => {
 				tables.organization.devPlan,
 				tables.organization.devPlanCancelled,
 			),
+		// Historical subscribers must have both a completed plan start and a
+		// completed, positive plan payment. The secondary count drops anyone with
+		// a completed refund against one of those payments.
+		db
+			.select({
+				total: sql<number>`COUNT(*)`,
+				excludingRefunded: sql<number>`COUNT(*) FILTER (WHERE ${subscriberRefundsSub.organizationId} IS NULL)`,
+				grossRevenue: sql<string>`COALESCE(SUM(CAST(${subscriberPaymentsSub.grossRevenue} AS NUMERIC)), 0)`,
+				revenueExcludingRefunds: sql<string>`GREATEST(
+						COALESCE(SUM(CAST(${subscriberPaymentsSub.grossRevenue} AS NUMERIC)), 0)
+						- COALESCE(SUM(CAST(${subscriberRefundsSub.refundedAmount} AS NUMERIC)), 0),
+						0
+					)`,
+			})
+			.from(tables.organization)
+			.innerJoin(
+				subscriberStartsSub,
+				eq(tables.organization.id, subscriberStartsSub.organizationId),
+			)
+			.innerJoin(
+				subscriberPaymentsSub,
+				eq(tables.organization.id, subscriberPaymentsSub.organizationId),
+			)
+			.leftJoin(
+				subscriberRefundsSub,
+				eq(tables.organization.id, subscriberRefundsSub.organizationId),
+			)
+			.where(eq(tables.organization.kind, "devpass")),
 		db
 			.select({
 				count: sql<number>`COUNT(DISTINCT ${tables.transaction.organizationId})`,
@@ -14857,6 +15319,14 @@ admin.openapi(getDevpassKpis, async (c) => {
 
 	return c.json({
 		activeByTier,
+		totalSubscribers: Number(subscriberCountsRow?.total ?? 0),
+		totalSubscribersExcludingRefunded: Number(
+			subscriberCountsRow?.excludingRefunded ?? 0,
+		),
+		grossSubscriptionRevenue: Number(subscriberCountsRow?.grossRevenue ?? 0),
+		subscriptionRevenueExcludingRefunds: Number(
+			subscriberCountsRow?.revenueExcludingRefunds ?? 0,
+		),
 		totalActive,
 		cancelledPending,
 		churned: Number(churnedRow?.count ?? 0),
