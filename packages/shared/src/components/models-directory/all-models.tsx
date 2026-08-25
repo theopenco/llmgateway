@@ -87,7 +87,6 @@ import { matchesCapability } from "./capability-filters";
 import { formatDeprecationDate, formatPerImagePriceRange } from "./format";
 import { ModelCard } from "./model-card";
 import { applyCategoryFilter } from "./model-category-filters";
-import { ModelStatusBadge } from "./model-status-badge";
 import { isVisibleMapping } from "./status-filters";
 import {
 	applyUseCaseFilter,
@@ -176,9 +175,6 @@ interface FlattenedModelRow {
 	rowKey: string;
 	capabilities: CapabilityIcon[];
 	ProviderIcon: React.ComponentType<{ className?: string }> | null;
-	isAllDeactivated: boolean;
-	isAllScheduled: boolean;
-	isAllDeprecated: boolean;
 }
 
 // Helper to compute capabilities (moved outside component for performance).
@@ -513,13 +509,6 @@ const ModelTableRow = React.memo(
 										</p>
 									</TooltipContent>
 								</Tooltip>
-							)}
-							{row.isAllDeactivated && (
-								<ModelStatusBadge status="deactivated" isPast />
-							)}
-							{row.isAllScheduled && <ModelStatusBadge status="scheduled" />}
-							{row.isAllDeprecated && (
-								<ModelStatusBadge status="deprecated" isPast />
 							)}
 							<button
 								onClick={(e) => {
@@ -1451,27 +1440,6 @@ export function AllModels({
 				: null;
 
 		for (const model of modelsWithProviders) {
-			// Model-level retirement state — all visible mappings share a
-			// status. The filter (any-mapping) decides *whether* a model
-			// appears; this decides *how* its name badge renders.
-			const isAllDeactivated =
-				model.providerDetails.length > 0 &&
-				model.providerDetails.every(
-					({ provider }) => getMappingStatus(provider) === "deactivated",
-				);
-			const isAllScheduled =
-				!isAllDeactivated &&
-				model.providerDetails.length > 0 &&
-				model.providerDetails.every(
-					({ provider }) => getMappingStatus(provider) === "scheduled",
-				);
-			const isAllDeprecated =
-				!isAllDeactivated &&
-				!isAllScheduled &&
-				model.providerDetails.length > 0 &&
-				model.providerDetails.every(
-					({ provider }) => getMappingStatus(provider) === "deprecated",
-				);
 			for (const { provider, providerInfo } of model.providerDetails) {
 				// Single source of truth for which rows belong in the filtered
 				// table: provider, capability, category, and use-case filters
@@ -1513,9 +1481,6 @@ export function AllModels({
 					rowKey: `${provider.providerId}-${model.id}-${provider.region ?? ""}`,
 					capabilities: computeCapabilities(provider, model),
 					ProviderIcon: getProviderIcon(provider.providerId),
-					isAllDeactivated,
-					isAllScheduled,
-					isAllDeprecated,
 				});
 			}
 		}
