@@ -6,6 +6,7 @@ import { Footer } from "@/components/Footer";
 import { GetDevPassButton } from "@/components/GetDevPassButton";
 import { Header } from "@/components/Header";
 import { Button } from "@/components/ui/button";
+import { codingModelCards } from "@/lib/coding-models";
 
 import type { Metadata } from "next";
 
@@ -95,7 +96,7 @@ export default function CodingModelsPage() {
 							We recommend the latest models from open-weight-first labs — the
 							full standard and premium catalogue is one tab away.
 						</p>
-						<CodingModelsShowcase showCTA showTabs />
+						<CodingModelsShowcase models={codingModelCards} showCTA showTabs />
 					</div>
 				</section>
 

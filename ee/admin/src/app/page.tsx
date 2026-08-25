@@ -358,6 +358,16 @@ export default async function Page({
 											},
 										]
 									: []),
+								...(metrics.grossEnterpriseDealsRevenue > 0
+									? [
+											{
+												label: "Enterprise licensing",
+												value: currencyFormatter.format(
+													metrics.grossEnterpriseDealsRevenue,
+												),
+											},
+										]
+									: []),
 							]}
 						/>
 						<MetricCell
@@ -505,6 +515,7 @@ export default async function Page({
 								totals={{
 									credits: timeseries.totals.net,
 									devpass: timeseries.totals.devpassNet,
+									enterprise: timeseries.totals.enterpriseRevenue,
 								}}
 							/>
 						</div>

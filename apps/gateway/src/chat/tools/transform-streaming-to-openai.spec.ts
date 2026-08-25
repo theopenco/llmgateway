@@ -113,6 +113,44 @@ describe("transformStreamingToOpenai", () => {
 		}
 	});
 
+	it("transforms azure-anthropic streaming events like anthropic", () => {
+		const start = transformStreamingToOpenai(
+			"azure-anthropic",
+			"claude-opus-4-8",
+			{
+				type: "message_start",
+				message: {
+					id: "msg_azure_1",
+					model: "claude-opus-4-8",
+					usage: { input_tokens: 8, output_tokens: 1 },
+				},
+			},
+			[],
+		);
+
+		expect(start).toMatchObject({
+			id: "msg_azure_1",
+			object: "chat.completion.chunk",
+			model: "claude-opus-4-8",
+			choices: [{ index: 0, delta: { role: "assistant" } }],
+		});
+
+		const delta = transformStreamingToOpenai(
+			"azure-anthropic",
+			"claude-opus-4-8",
+			{
+				type: "content_block_delta",
+				index: 0,
+				delta: { type: "text_delta", text: "ok" },
+			},
+			[],
+		);
+
+		expect(delta).toMatchObject({
+			choices: [{ index: 0, delta: { content: "ok" } }],
+		});
+	});
+
 	it("maps Anthropic message_start usage with cache creation details", () => {
 		warn.mockClear();
 

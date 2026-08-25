@@ -397,6 +397,9 @@ const adminMetricsSchema = z.object({
 	// Credits paid for outside Stripe (wire, crypto, …) and credited manually by
 	// an administrator. Real revenue, just settled on another channel.
 	grossManualPaymentsRevenue: z.number(),
+	// Negotiated enterprise revenue recorded by an administrator. These rows do
+	// not grant credits and are kept separate from manual credit payments.
+	grossEnterpriseDealsRevenue: z.number(),
 });
 
 const timeseriesRangeSchema = z.enum(["7d", "30d", "90d", "365d", "all"]);
@@ -414,12 +417,15 @@ const timeseriesDataPointSchema = z.object({
 	devpassRevenue: z.number(),
 	devpassRefunds: z.number(),
 	devpassNet: z.number(),
+	// Enterprise deal revenue is recorded gross and has no credit amount attached.
+	enterpriseRevenue: z.number(),
 	// Per-day (non-cumulative) values. The cumulative series above start from a
 	// pre-range baseline, so clients cannot derive day-one deltas themselves.
 	dailySignups: z.number(),
 	dailyPaidCustomers: z.number(),
 	dailyNet: z.number(),
 	dailyDevpassNet: z.number(),
+	dailyEnterpriseRevenue: z.number(),
 });
 
 const adminTimeseriesSchema = z.object({
@@ -435,6 +441,7 @@ const adminTimeseriesSchema = z.object({
 		devpassRevenue: z.number(),
 		devpassRefunds: z.number(),
 		devpassNet: z.number(),
+		enterpriseRevenue: z.number(),
 	}),
 });
 
@@ -543,7 +550,8 @@ const transactionSchema = z.object({
 	currency: z.string(),
 	status: z.string(),
 	description: z.string().nullable(),
-	// Off-Stripe payment channel and its reference, set on manual payments only.
+	// Off-Stripe payment channel and its reference, set on manually recorded
+	// payments only.
 	paymentMethod: z.string().nullable(),
 	externalReference: z.string().nullable(),
 	stripePaymentIntentId: z.string().nullable(),
@@ -1043,10 +1051,8 @@ admin.openapi(getMetrics, async (c) => {
 
 	const payingCustomers = Number(payingRow?.count ?? 0);
 
-	// Total revenue: completed credit-purchase rows — org credit top-ups,
-	// manually credited off-Stripe payments (`credit_manual_payment`) AND
-	// end-user wallet top-ups (`end_user_topup`, reversed on refund) — using
-	// creditAmount to exclude Stripe fees. Excludes gifts, all plan rows
+	// Total credits revenue: completed credit-purchase rows use `creditAmount` to
+	// exclude Stripe fees. Excludes enterprise deals, gifts, all plan rows
 	// (DevPass/legacy subscription/Chat Plan), and the non-revenue end-user rows
 	// (developer margin + funded bonus).
 	const [revenueRow] = await db
@@ -1061,6 +1067,7 @@ admin.openapi(getMetrics, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
+				ne(tables.transaction.type, "enterprise_license_fee"),
 				notPlanFilter,
 				notEndUserNonRevenueFilter,
 				transactionDateFilter,
@@ -1160,8 +1167,9 @@ admin.openapi(getMetrics, async (c) => {
 	const totalApiKeysSpent = Number(spentRow?.apiKeysValue ?? 0);
 	const totalDebitedSpend = Number(spentRow?.debitedValue ?? 0);
 
-	// Total processed (gross payment amounts from completed non-gift, non-plan
-	// transactions — Stripe charges plus off-Stripe manual payments)
+	// Total processed credits (gross payment amounts from completed non-gift,
+	// non-plan transactions — Stripe charges plus off-Stripe manual payments).
+	// Enterprise deals are reported separately.
 	const [processedRow] = await db
 		.select({
 			value:
@@ -1174,6 +1182,7 @@ admin.openapi(getMetrics, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
+				ne(tables.transaction.type, "enterprise_license_fee"),
 				notPlanFilter,
 				notEndUserNonRevenueFilter,
 				transactionDateFilter,
@@ -1447,6 +1456,30 @@ admin.openapi(getMetrics, async (c) => {
 
 	const grossManualPaymentsRevenue = Number(grossManualPaymentsRow?.value ?? 0);
 
+	// Enterprise deals: negotiated contract revenue recorded outside the credits
+	// economy. `creditAmount` is always null, so this split never changes credit
+	// flow or balances.
+	const [grossEnterpriseDealsRow] = await db
+		.select({
+			value:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"value",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.transaction.type, "enterprise_license_fee"),
+				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+				transactionDateFilter,
+			),
+		);
+
+	const grossEnterpriseDealsRevenue = Number(
+		grossEnterpriseDealsRow?.value ?? 0,
+	);
+
 	const grossRevenue =
 		grossCreditsRevenue +
 		grossDevpassRevenue +
@@ -1454,7 +1487,8 @@ admin.openapi(getMetrics, async (c) => {
 		grossResetPassRevenue +
 		grossChatPlansRevenue +
 		grossProSubscriptionsRevenue +
-		grossManualPaymentsRevenue;
+		grossManualPaymentsRevenue +
+		grossEnterpriseDealsRevenue;
 
 	// Balance derivation must use debited spend, not blended cost: BYOK usage
 	// never drains purchased credits, so subtracting it would understate
@@ -1487,6 +1521,7 @@ admin.openapi(getMetrics, async (c) => {
 		grossChatPlansRevenue,
 		grossProSubscriptionsRevenue,
 		grossManualPaymentsRevenue,
+		grossEnterpriseDealsRevenue,
 	});
 });
 
@@ -1562,7 +1597,8 @@ admin.openapi(getTimeseries, async (c) => {
 		.groupBy(sql`DATE(${tables.user.createdAt})`)
 		.orderBy(asc(sql`DATE(${tables.user.createdAt})`));
 
-	// Revenue per day (creditAmount, post-fees; matches /admin/metrics totalRevenue)
+	// Revenue per day (post-fees credit revenue; matches /admin/metrics
+	// totalRevenue). Enterprise deals are a separate series below.
 	const revenuePerDay = await db
 		.select({
 			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
@@ -1576,8 +1612,29 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
+				ne(tables.transaction.type, "enterprise_license_fee"),
 				notPlanFilter,
 				notEndUserNonRevenueFilter,
+				gte(tables.transaction.createdAt, startDate),
+				lte(tables.transaction.createdAt, endDate),
+			),
+		)
+		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
+		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
+
+	const enterpriseRevenuePerDay = await db
+		.select({
+			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
+			total:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.transaction.type, "enterprise_license_fee"),
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
 			),
@@ -1599,6 +1656,7 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
+				ne(tables.transaction.type, "enterprise_license_fee"),
 				notPlanFilter,
 				notEndUserNonRevenueFilter,
 				gte(tables.transaction.createdAt, startDate),
@@ -1716,12 +1774,32 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
+				ne(tables.transaction.type, "enterprise_license_fee"),
 				notPlanFilter,
 				notEndUserNonRevenueFilter,
 				sql`${tables.transaction.createdAt} < ${startDate}`,
 			),
 		);
 	const preRangeRevenue = Number(preRangeRevenueRow?.total ?? 0);
+
+	const [preRangeEnterpriseRevenueRow] = await db
+		.select({
+			total:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.transaction.type, "enterprise_license_fee"),
+				sql`${tables.transaction.createdAt} < ${startDate}`,
+			),
+		);
+	const preRangeEnterpriseRevenue = Number(
+		preRangeEnterpriseRevenueRow?.total ?? 0,
+	);
 
 	const [preRangeProcessedRow] = await db
 		.select({
@@ -1735,6 +1813,7 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
+				ne(tables.transaction.type, "enterprise_license_fee"),
 				notPlanFilter,
 				notEndUserNonRevenueFilter,
 				sql`${tables.transaction.createdAt} < ${startDate}`,
@@ -1904,6 +1983,11 @@ admin.openapi(getTimeseries, async (c) => {
 		devpassRefundsMap.set(row.date, Number(row.total));
 	}
 
+	const enterpriseRevenueMap = new Map<string, number>();
+	for (const row of enterpriseRevenuePerDay) {
+		enterpriseRevenueMap.set(row.date, Number(row.total));
+	}
+
 	const newPaidMap = new Map<string, number>();
 	for (const row of firstTransactionPerOrg) {
 		newPaidMap.set(row.date, Number(row.count));
@@ -1921,10 +2005,12 @@ admin.openapi(getTimeseries, async (c) => {
 		devpassRevenue: number;
 		devpassRefunds: number;
 		devpassNet: number;
+		enterpriseRevenue: number;
 		dailySignups: number;
 		dailyPaidCustomers: number;
 		dailyNet: number;
 		dailyDevpassNet: number;
+		dailyEnterpriseRevenue: number;
 	}> = [];
 	let cumulativePaid = preRangeCount;
 	let totalSignups = 0;
@@ -1933,6 +2019,7 @@ admin.openapi(getTimeseries, async (c) => {
 	let totalRefunds = preRangeRefunds;
 	let totalDevpassRevenue = preRangeDevpassRevenue;
 	let totalDevpassRefunds = preRangeDevpassRefunds;
+	let totalEnterpriseRevenue = preRangeEnterpriseRevenue;
 
 	const totalDays = Math.ceil(
 		(endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000),
@@ -1947,6 +2034,7 @@ admin.openapi(getTimeseries, async (c) => {
 		const dailyRefunds = refundsMap.get(dateStr) ?? 0;
 		const dailyDevpassRevenue = devpassRevenueMap.get(dateStr) ?? 0;
 		const dailyDevpassRefunds = devpassRefundsMap.get(dateStr) ?? 0;
+		const dailyEnterpriseRevenue = enterpriseRevenueMap.get(dateStr) ?? 0;
 		const dailyPaidCustomers = newPaidMap.get(dateStr) ?? 0;
 		cumulativePaid += dailyPaidCustomers;
 
@@ -1956,6 +2044,7 @@ admin.openapi(getTimeseries, async (c) => {
 		totalRefunds += dailyRefunds;
 		totalDevpassRevenue += dailyDevpassRevenue;
 		totalDevpassRefunds += dailyDevpassRefunds;
+		totalEnterpriseRevenue += dailyEnterpriseRevenue;
 
 		data.push({
 			date: dateStr,
@@ -1968,10 +2057,12 @@ admin.openapi(getTimeseries, async (c) => {
 			devpassRevenue: totalDevpassRevenue,
 			devpassRefunds: totalDevpassRefunds,
 			devpassNet: totalDevpassRevenue - totalDevpassRefunds,
+			enterpriseRevenue: totalEnterpriseRevenue,
 			dailySignups,
 			dailyPaidCustomers,
 			dailyNet: dailyRevenue - dailyRefunds,
 			dailyDevpassNet: dailyDevpassRevenue - dailyDevpassRefunds,
+			dailyEnterpriseRevenue,
 		});
 	}
 
@@ -1988,6 +2079,7 @@ admin.openapi(getTimeseries, async (c) => {
 			devpassRevenue: totalDevpassRevenue,
 			devpassRefunds: totalDevpassRefunds,
 			devpassNet: totalDevpassRevenue - totalDevpassRefunds,
+			enterpriseRevenue: totalEnterpriseRevenue,
 		},
 	});
 });
@@ -7327,6 +7419,198 @@ admin.openapi(manualCreditsRoute, async (c) => {
 	});
 });
 
+const enterprisePaymentMethods = ["wire", "crypto", "other"] as const;
+
+const enterpriseTransactionDateSchema = z.string().refine((value) => {
+	const date = new Date(`${value}T00:00:00.000Z`);
+	return (
+		!Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
+	);
+}, "Invalid transaction date");
+
+const enterpriseDealBodySchema = z.object({
+	amount: z.number().min(0.01, "Deal amount must be positive"),
+	paymentMethod: z.enum(enterprisePaymentMethods),
+	transactionDate: enterpriseTransactionDateSchema.optional(),
+	externalReference: z.string().trim().max(255).optional(),
+	comment: z.string().trim().max(2000).optional(),
+});
+
+function parseEnterpriseTransactionDate(transactionDate?: string) {
+	return transactionDate
+		? new Date(`${transactionDate}T00:00:00.000Z`)
+		: undefined;
+}
+
+const createEnterpriseDealRoute = createRoute({
+	method: "post",
+	path: "/organizations/{orgId}/enterprise-deals",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: enterpriseDealBodySchema,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						transactionId: z.string(),
+					}),
+				},
+			},
+			description: "Enterprise deal recorded successfully.",
+		},
+		404: {
+			description: "Organization not found.",
+		},
+	},
+});
+
+admin.openapi(createEnterpriseDealRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+	const { amount, paymentMethod, transactionDate, externalReference, comment } =
+		c.req.valid("json");
+
+	const org = await db.query.organization.findFirst({
+		where: {
+			id: { eq: orgId },
+		},
+	});
+
+	if (!org || org.status === "deleted") {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	const [deal] = await db
+		.insert(tables.transaction)
+		.values({
+			organizationId: orgId,
+			type: "enterprise_license_fee",
+			createdAt: parseEnterpriseTransactionDate(transactionDate),
+			amount: amount.toString(),
+			creditAmount: null,
+			currency: "USD",
+			status: "completed",
+			description: comment || null,
+			paymentMethod,
+			externalReference: externalReference || null,
+		})
+		.returning({ id: tables.transaction.id });
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "enterprise_license_fee.create",
+		resourceType: "transaction",
+		resourceId: deal.id,
+		metadata: {
+			amount,
+			paymentMethod,
+			transactionDate,
+			externalReference,
+			comment,
+		},
+	});
+
+	return c.json({
+		message: "Enterprise deal recorded successfully",
+		transactionId: deal.id,
+	});
+});
+
+const updateEnterpriseDealRoute = createRoute({
+	method: "patch",
+	path: "/organizations/{orgId}/enterprise-deals/{transactionId}",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+			transactionId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: enterpriseDealBodySchema,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "Enterprise deal updated successfully.",
+		},
+		404: {
+			description: "Enterprise deal not found.",
+		},
+	},
+});
+
+admin.openapi(updateEnterpriseDealRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId, transactionId } = c.req.valid("param");
+	const { amount, paymentMethod, transactionDate, externalReference, comment } =
+		c.req.valid("json");
+	const createdAt = parseEnterpriseTransactionDate(transactionDate);
+
+	const [updatedDeal] = await db
+		.update(tables.transaction)
+		.set({
+			...(createdAt ? { createdAt } : {}),
+			amount: amount.toString(),
+			creditAmount: null,
+			description: comment || null,
+			paymentMethod,
+			externalReference: externalReference || null,
+		})
+		.where(
+			and(
+				eq(tables.transaction.id, transactionId),
+				eq(tables.transaction.organizationId, orgId),
+				eq(tables.transaction.type, "enterprise_license_fee"),
+			),
+		)
+		.returning({ id: tables.transaction.id });
+
+	if (!updatedDeal) {
+		throw new HTTPException(404, {
+			message: "Enterprise deal not found",
+		});
+	}
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "enterprise_license_fee.update",
+		resourceType: "transaction",
+		resourceId: updatedDeal.id,
+		metadata: {
+			amount,
+			paymentMethod,
+			transactionDate,
+			externalReference,
+			comment,
+		},
+	});
+
+	return c.json({ message: "Enterprise deal updated successfully" });
+});
+
 // Configure the referral signup bonus for an organization
 const updateReferralBonusRoute = createRoute({
 	method: "patch",
@@ -9654,9 +9938,60 @@ const costByModelResponseSchema = z.object({
 	models: z.array(costByModelEntrySchema),
 	totalCost: z.number(),
 	totalRequests: z.number(),
+	totalCreditsRequests: z.number(),
+	totalApiKeysRequests: z.number(),
 	totalCreditsCost: z.number(),
 	totalApiKeysCost: z.number(),
 });
+
+const costByModelViewSchema = z.enum(["mapping", "canonical"]);
+const organizationCostGroupBySchema = z.enum([
+	"model",
+	"project",
+	"api-key",
+	"user",
+]);
+
+type CostBreakdownRow = z.infer<typeof costByModelEntrySchema>;
+
+function summarizeCostBreakdown(
+	rows: CostBreakdownRow[],
+	window: z.infer<typeof tokenWindowSchema>,
+) {
+	const sorted = [...rows].sort((a, b) => b.cost - a.cost);
+	return {
+		window,
+		models: sorted.slice(0, 20),
+		totalCost: sorted.reduce((sum, row) => sum + row.cost, 0),
+		totalRequests: sorted.reduce((sum, row) => sum + row.requestCount, 0),
+		totalCreditsRequests: sorted.reduce(
+			(sum, row) => sum + row.creditsRequestCount,
+			0,
+		),
+		totalApiKeysRequests: sorted.reduce(
+			(sum, row) => sum + row.apiKeysRequestCount,
+			0,
+		),
+		totalCreditsCost: sorted.reduce((sum, row) => sum + row.creditsCost, 0),
+		totalApiKeysCost: sorted.reduce((sum, row) => sum + row.apiKeysCost, 0),
+	};
+}
+
+function dimensionLabel(label: string | null, id: string): string {
+	return label && label !== id ? `${label} · ${id.slice(-6)}` : id;
+}
+
+function apiKeyDimensionColumns(groupBy: "api-key" | "user") {
+	return groupBy === "user"
+		? {
+				id: sql<string>`COALESCE(${tables.user.id}, 'deleted-user')`,
+				label: sql<string>`COALESCE(${tables.user.email}, 'Deleted user')`,
+			}
+		: {
+				id: sql<string>`COALESCE(${tables.apiKey.id}, ${tables.apiKeyHourlyStats.apiKeyId})`,
+				label: tables.apiKey.description,
+			};
+}
 
 // Global cost by model
 const getGlobalCostByModel = createRoute({
@@ -9724,40 +10059,23 @@ admin.openapi(getGlobalCostByModel, async (c) => {
 		.groupBy(projectHourlyModelStats.usedModel)
 		.orderBy(
 			desc(sql`SUM(cast(${projectHourlyModelStats.cost} as double precision))`),
-		)
-		.limit(20);
+		);
 
-	const totalCost = rows.reduce((sum, r) => sum + Number(r.cost), 0);
-	const totalRequests = rows.reduce(
-		(sum, r) => sum + Number(r.requestCount),
-		0,
+	return c.json(
+		summarizeCostBreakdown(
+			rows.map((r) => ({
+				model: r.usedModel,
+				cost: Number(r.cost),
+				requestCount: Number(r.requestCount),
+				totalTokens: Number(r.totalTokens),
+				creditsRequestCount: Number(r.creditsRequestCount),
+				apiKeysRequestCount: Number(r.apiKeysRequestCount),
+				creditsCost: Number(r.creditsCost),
+				apiKeysCost: Number(r.apiKeysCost),
+			})),
+			window,
+		),
 	);
-	const totalCreditsCost = rows.reduce(
-		(sum, r) => sum + Number(r.creditsCost),
-		0,
-	);
-	const totalApiKeysCost = rows.reduce(
-		(sum, r) => sum + Number(r.apiKeysCost),
-		0,
-	);
-
-	return c.json({
-		window,
-		models: rows.map((r) => ({
-			model: r.usedModel,
-			cost: Number(r.cost),
-			requestCount: Number(r.requestCount),
-			totalTokens: Number(r.totalTokens),
-			creditsRequestCount: Number(r.creditsRequestCount),
-			apiKeysRequestCount: Number(r.apiKeysRequestCount),
-			creditsCost: Number(r.creditsCost),
-			apiKeysCost: Number(r.apiKeysCost),
-		})),
-		totalCost,
-		totalRequests,
-		totalCreditsCost,
-		totalApiKeysCost,
-	});
 });
 
 // Org cost by model
@@ -9768,6 +10086,8 @@ const getOrgCostByModel = createRoute({
 		params: z.object({ orgId: z.string() }),
 		query: z.object({
 			window: tokenWindowSchema.default("7d").optional(),
+			modelView: costByModelViewSchema.default("mapping").optional(),
+			groupBy: organizationCostGroupBySchema.default("model").optional(),
 		}),
 	},
 	responses: {
@@ -9777,7 +10097,8 @@ const getOrgCostByModel = createRoute({
 					schema: costByModelResponseSchema.openapi({}),
 				},
 			},
-			description: "Organization cost breakdown by model.",
+			description:
+				"Organization cost breakdown by model, project, API key, or user.",
 		},
 		404: {
 			description: "Organization not found.",
@@ -9789,6 +10110,8 @@ admin.openapi(getOrgCostByModel, async (c) => {
 	const { orgId } = c.req.valid("param");
 	const query = c.req.valid("query");
 	const window = query.window ?? "7d";
+	const modelView = query.modelView ?? "mapping";
+	const groupBy = query.groupBy ?? "model";
 	const startDate = getTokenWindowStartDate(window);
 
 	const org = await db.query.organization.findFirst({
@@ -9812,9 +10135,111 @@ admin.openapi(getOrgCostByModel, async (c) => {
 			models: [],
 			totalCost: 0,
 			totalRequests: 0,
+			totalCreditsRequests: 0,
+			totalApiKeysRequests: 0,
 			totalCreditsCost: 0,
 			totalApiKeysCost: 0,
 		});
+	}
+
+	if (groupBy === "project") {
+		const rows = await db
+			.select({
+				id: projectHourlyStats.projectId,
+				label: tables.project.name,
+				cost: sql<number>`SUM(cast(${projectHourlyStats.cost} as double precision))`.as(
+					"cost",
+				),
+				requestCount: sql<number>`SUM(${projectHourlyStats.requestCount})`.as(
+					"request_count",
+				),
+				totalTokens:
+					sql<number>`SUM(CAST(${projectHourlyStats.totalTokens} AS NUMERIC))`.as(
+						"total_tokens",
+					),
+				...modeSplitFields(projectHourlyStats),
+			})
+			.from(projectHourlyStats)
+			.innerJoin(
+				tables.project,
+				eq(tables.project.id, projectHourlyStats.projectId),
+			)
+			.where(
+				and(
+					inArray(projectHourlyStats.projectId, ids),
+					gte(projectHourlyStats.hourTimestamp, startDate),
+				),
+			)
+			.groupBy(projectHourlyStats.projectId, tables.project.name);
+
+		return c.json(
+			summarizeCostBreakdown(
+				rows.map((row) => ({
+					model: dimensionLabel(row.label, row.id),
+					cost: Number(row.cost),
+					requestCount: Number(row.requestCount),
+					totalTokens: Number(row.totalTokens),
+					creditsRequestCount: Number(row.creditsRequestCount),
+					apiKeysRequestCount: Number(row.apiKeysRequestCount),
+					creditsCost: Number(row.creditsCost),
+					apiKeysCost: Number(row.apiKeysCost),
+				})),
+				window,
+			),
+		);
+	}
+
+	if (groupBy === "api-key" || groupBy === "user") {
+		const dimension = apiKeyDimensionColumns(groupBy);
+		const rows = await db
+			.select({
+				id: dimension.id,
+				label: dimension.label,
+				cost: sql<number>`SUM(cast(${tables.apiKeyHourlyStats.cost} as double precision))`.as(
+					"cost",
+				),
+				requestCount:
+					sql<number>`SUM(${tables.apiKeyHourlyStats.requestCount})`.as(
+						"request_count",
+					),
+				totalTokens:
+					sql<number>`SUM(CAST(${tables.apiKeyHourlyStats.totalTokens} AS NUMERIC))`.as(
+						"total_tokens",
+					),
+				...modeSplitFields(tables.apiKeyHourlyStats),
+			})
+			.from(tables.apiKeyHourlyStats)
+			.leftJoin(
+				tables.apiKey,
+				eq(tables.apiKey.id, tables.apiKeyHourlyStats.apiKeyId),
+			)
+			.leftJoin(tables.user, eq(tables.user.id, tables.apiKey.createdBy))
+			.where(
+				and(
+					inArray(tables.apiKeyHourlyStats.projectId, ids),
+					gte(tables.apiKeyHourlyStats.hourTimestamp, startDate),
+				),
+			)
+			.groupBy(dimension.id, dimension.label);
+
+		return c.json(
+			summarizeCostBreakdown(
+				rows.map((row) => ({
+					model:
+						groupBy === "user"
+							? (row.label ?? "Deleted user")
+							: dimensionLabel(row.label, row.id),
+					cost: Number(row.cost),
+					requestCount: Number(row.requestCount),
+					totalTokens: Number(row.totalTokens),
+					creditsRequestCount: Number(row.creditsRequestCount),
+					apiKeysRequestCount: Number(row.apiKeysRequestCount),
+					creditsCost: Number(row.creditsCost),
+					apiKeysCost: Number(row.apiKeysCost),
+				})),
+				window,
+			),
+		);
 	}
 
 	const rows = await db
@@ -9840,50 +10265,47 @@ admin.openapi(getOrgCostByModel, async (c) => {
 				gte(projectHourlyModelStats.hourTimestamp, startDate),
 			),
 		)
-		.groupBy(projectHourlyModelStats.usedModel)
-		.orderBy(
-			desc(sql`SUM(cast(${projectHourlyModelStats.cost} as double precision))`),
-		)
-		.limit(20);
+		.groupBy(projectHourlyModelStats.usedModel);
 
-	const totalCost = rows.reduce((sum, r) => sum + Number(r.cost), 0);
-	const totalRequests = rows.reduce(
-		(sum, r) => sum + Number(r.requestCount),
-		0,
-	);
-	const totalCreditsCost = rows.reduce(
-		(sum, r) => sum + Number(r.creditsCost),
-		0,
-	);
-	const totalApiKeysCost = rows.reduce(
-		(sum, r) => sum + Number(r.apiKeysCost),
-		0,
-	);
+	const byModel = new Map<string, CostBreakdownRow>();
+	for (const row of rows) {
+		const model =
+			modelView === "canonical"
+				? extractCanonicalModelId(row.usedModel)
+				: row.usedModel;
+		const current = byModel.get(model) ?? {
+			model,
+			cost: 0,
+			requestCount: 0,
+			totalTokens: 0,
+			creditsRequestCount: 0,
+			apiKeysRequestCount: 0,
+			creditsCost: 0,
+			apiKeysCost: 0,
+		};
+		current.cost += Number(row.cost);
+		current.requestCount += Number(row.requestCount);
+		current.totalTokens += Number(row.totalTokens);
+		current.creditsRequestCount += Number(row.creditsRequestCount);
+		current.apiKeysRequestCount += Number(row.apiKeysRequestCount);
+		current.creditsCost += Number(row.creditsCost);
+		current.apiKeysCost += Number(row.apiKeysCost);
+		byModel.set(model, current);
+	}
 
-	return c.json({
-		window,
-		models: rows.map((r) => ({
-			model: r.usedModel,
-			cost: Number(r.cost),
-			requestCount: Number(r.requestCount),
-			totalTokens: Number(r.totalTokens),
-			creditsRequestCount: Number(r.creditsRequestCount),
-			apiKeysRequestCount: Number(r.apiKeysRequestCount),
-			creditsCost: Number(r.creditsCost),
-			apiKeysCost: Number(r.apiKeysCost),
-		})),
-		totalCost,
-		totalRequests,
-		totalCreditsCost,
-		totalApiKeysCost,
-	});
+	return c.json(summarizeCostBreakdown([...byModel.values()], window));
 });
 
 // --- Cost by model time-series endpoints ---
 
-const costByModelTimeseriesModelViewSchema = z.enum(["mapping", "canonical"]);
-
 const costTimeseriesGroupBySchema = z.enum(["model", "source"]);
+
+const organizationCostTimeseriesGroupBySchema = z.enum([
+	"model",
+	"project",
+	"api-key",
+	"user",
+]);
 
 const TOP_TIMESERIES_SERIES = 10;
 
@@ -9906,8 +10328,8 @@ const costByModelTimeseriesPointSchema = z.object({
 const costByModelTimeseriesResponseSchema = z.object({
 	window: tokenWindowSchema,
 	bucket: z.enum(["hour", "day"]),
-	modelView: costByModelTimeseriesModelViewSchema,
-	groupBy: costTimeseriesGroupBySchema,
+	modelView: costByModelViewSchema,
+	groupBy: z.enum(["model", "source", "project", "api-key", "user"]),
 	models: z.array(z.string()),
 	data: z.array(costByModelTimeseriesPointSchema),
 });
@@ -9950,8 +10372,9 @@ const getOrgCostByModelTimeseries = createRoute({
 		params: z.object({ orgId: z.string() }),
 		query: z.object({
 			window: tokenWindowSchema.default("7d").optional(),
-			modelView: costByModelTimeseriesModelViewSchema
-				.default("mapping")
+			modelView: costByModelViewSchema.default("mapping").optional(),
+			groupBy: organizationCostTimeseriesGroupBySchema
+				.default("model")
 				.optional(),
 		}),
 	},
@@ -9962,7 +10385,8 @@ const getOrgCostByModelTimeseries = createRoute({
 					schema: costByModelTimeseriesResponseSchema.openapi({}),
 				},
 			},
-			description: "Organization cost breakdown by model over time.",
+			description:
+				"Organization cost breakdown by model, project, API key, or user over time.",
 		},
 		404: {
 			description: "Organization not found.",
@@ -9975,6 +10399,7 @@ admin.openapi(getOrgCostByModelTimeseries, async (c) => {
 	const query = c.req.valid("query");
 	const window = query.window ?? "7d";
 	const modelView = query.modelView ?? "mapping";
+	const groupBy = query.groupBy ?? "model";
 	const startDate = getTokenWindowStartDate(window);
 	const bucketUnit = getBucketUnitForWindow(window);
 
@@ -9998,27 +10423,41 @@ admin.openapi(getOrgCostByModelTimeseries, async (c) => {
 			window,
 			bucket: bucketUnit,
 			modelView,
-			groupBy: "model" as const,
+			groupBy,
 			models: [],
 			data: [],
 		});
 	}
 
-	const result = await buildCostByModelTimeseries({
-		modelView,
-		bucketUnit,
-		startDate,
-		baseFilter: and(
-			inArray(projectHourlyModelStats.projectId, ids),
-			gte(projectHourlyModelStats.hourTimestamp, startDate),
-		),
-	});
+	const result =
+		groupBy === "project"
+			? await buildCostByProjectTimeseries({
+					bucketUnit,
+					startDate,
+					projectIds: ids,
+				})
+			: groupBy === "api-key" || groupBy === "user"
+				? await buildCostByApiKeyDimensionTimeseries({
+						bucketUnit,
+						startDate,
+						projectIds: ids,
+						groupBy,
+					})
+				: await buildCostByModelTimeseries({
+						modelView,
+						bucketUnit,
+						startDate,
+						baseFilter: and(
+							inArray(projectHourlyModelStats.projectId, ids),
+							gte(projectHourlyModelStats.hourTimestamp, startDate),
+						),
+					});
 
 	return c.json({
 		window,
 		bucket: bucketUnit,
 		modelView,
-		groupBy: "model" as const,
+		groupBy,
 		models: result.models,
 		data: result.data,
 	});
@@ -10031,9 +10470,7 @@ const getProjectCostByModelTimeseries = createRoute({
 		params: z.object({ orgId: z.string(), projectId: z.string() }),
 		query: z.object({
 			window: tokenWindowSchema.default("7d").optional(),
-			modelView: costByModelTimeseriesModelViewSchema
-				.default("mapping")
-				.optional(),
+			modelView: costByModelViewSchema.default("mapping").optional(),
 			groupBy: costTimeseriesGroupBySchema.default("model").optional(),
 		}),
 	},
@@ -10102,13 +10539,204 @@ admin.openapi(getProjectCostByModelTimeseries, async (c) => {
 	});
 });
 
+async function buildCostByProjectTimeseries({
+	bucketUnit,
+	startDate,
+	projectIds,
+}: {
+	bucketUnit: "hour" | "day";
+	startDate: Date;
+	projectIds: string[];
+}): Promise<{
+	models: string[];
+	data: z.infer<typeof costByModelTimeseriesPointSchema>[];
+}> {
+	const totals = await db
+		.select({
+			id: projectHourlyStats.projectId,
+			label: tables.project.name,
+			cost: sql<number>`SUM(cast(${projectHourlyStats.cost} as double precision))`.as(
+				"cost",
+			),
+		})
+		.from(projectHourlyStats)
+		.innerJoin(
+			tables.project,
+			eq(tables.project.id, projectHourlyStats.projectId),
+		)
+		.where(
+			and(
+				inArray(projectHourlyStats.projectId, projectIds),
+				gte(projectHourlyStats.hourTimestamp, startDate),
+			),
+		)
+		.groupBy(projectHourlyStats.projectId, tables.project.name);
+
+	const top = [...totals]
+		.sort((a, b) => Number(b.cost) - Number(a.cost))
+		.slice(0, TOP_TIMESERIES_SERIES)
+		.map((row) => ({
+			id: row.id,
+			label: dimensionLabel(row.label, row.id),
+		}));
+	if (top.length === 0) {
+		return { models: [], data: [] };
+	}
+
+	const labels = new Map(top.map((item) => [item.id, item.label]));
+	const topIds = top.map((item) => item.id);
+	const bucketExpr = sql<string>`to_char(date_trunc(${sql.raw(`'${bucketUnit}'`)}, ${projectHourlyStats.hourTimestamp}), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
+	const rows = await db
+		.select({
+			bucket: bucketExpr.as("bucket"),
+			id: projectHourlyStats.projectId,
+			cost: sql<number>`SUM(cast(${projectHourlyStats.cost} as double precision))`.as(
+				"cost",
+			),
+			requestCount: sql<number>`SUM(${projectHourlyStats.requestCount})`.as(
+				"request_count",
+			),
+			totalTokens:
+				sql<number>`SUM(CAST(${projectHourlyStats.totalTokens} AS NUMERIC))`.as(
+					"total_tokens",
+				),
+			...modeSplitFields(projectHourlyStats),
+		})
+		.from(projectHourlyStats)
+		.where(
+			and(
+				inArray(projectHourlyStats.projectId, topIds),
+				gte(projectHourlyStats.hourTimestamp, startDate),
+			),
+		)
+		.groupBy(bucketExpr, projectHourlyStats.projectId)
+		.orderBy(asc(bucketExpr));
+
+	return {
+		models: top.map((item) => item.label),
+		data: assembleCostTimeseriesPoints({
+			allBuckets: generateBucketTimestamps(startDate, new Date(), bucketUnit),
+			rows: rows.map((row) => ({
+				bucket: row.bucket,
+				key: labels.get(row.id) ?? row.id,
+				cost: Number(row.cost),
+				requestCount: Number(row.requestCount),
+				totalTokens: Number(row.totalTokens),
+				creditsRequestCount: Number(row.creditsRequestCount),
+				apiKeysRequestCount: Number(row.apiKeysRequestCount),
+				creditsCost: Number(row.creditsCost),
+				apiKeysCost: Number(row.apiKeysCost),
+			})),
+		}),
+	};
+}
+
+async function buildCostByApiKeyDimensionTimeseries({
+	bucketUnit,
+	startDate,
+	projectIds,
+	groupBy,
+}: {
+	bucketUnit: "hour" | "day";
+	startDate: Date;
+	projectIds: string[];
+	groupBy: "api-key" | "user";
+}): Promise<{
+	models: string[];
+	data: z.infer<typeof costByModelTimeseriesPointSchema>[];
+}> {
+	const dimension = apiKeyDimensionColumns(groupBy);
+	const baseFilter = and(
+		inArray(tables.apiKeyHourlyStats.projectId, projectIds),
+		gte(tables.apiKeyHourlyStats.hourTimestamp, startDate),
+	);
+	const totals = await db
+		.select({
+			id: dimension.id,
+			label: dimension.label,
+			cost: sql<number>`SUM(cast(${tables.apiKeyHourlyStats.cost} as double precision))`.as(
+				"cost",
+			),
+		})
+		.from(tables.apiKeyHourlyStats)
+		.leftJoin(
+			tables.apiKey,
+			eq(tables.apiKey.id, tables.apiKeyHourlyStats.apiKeyId),
+		)
+		.leftJoin(tables.user, eq(tables.user.id, tables.apiKey.createdBy))
+		.where(baseFilter)
+		.groupBy(dimension.id, dimension.label);
+
+	const top = [...totals]
+		.sort((a, b) => Number(b.cost) - Number(a.cost))
+		.slice(0, TOP_TIMESERIES_SERIES)
+		.map((row) => ({
+			id: row.id,
+			label:
+				groupBy === "user"
+					? (row.label ?? "Deleted user")
+					: dimensionLabel(row.label, row.id),
+		}));
+	if (top.length === 0) {
+		return { models: [], data: [] };
+	}
+
+	const labels = new Map(top.map((item) => [item.id, item.label]));
+	const topIds = top.map((item) => item.id);
+	const bucketExpr = sql<string>`to_char(date_trunc(${sql.raw(`'${bucketUnit}'`)}, ${tables.apiKeyHourlyStats.hourTimestamp}), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
+	const rows = await db
+		.select({
+			bucket: bucketExpr.as("bucket"),
+			id: dimension.id,
+			cost: sql<number>`SUM(cast(${tables.apiKeyHourlyStats.cost} as double precision))`.as(
+				"cost",
+			),
+			requestCount:
+				sql<number>`SUM(${tables.apiKeyHourlyStats.requestCount})`.as(
+					"request_count",
+				),
+			totalTokens:
+				sql<number>`SUM(CAST(${tables.apiKeyHourlyStats.totalTokens} AS NUMERIC))`.as(
+					"total_tokens",
+				),
+			...modeSplitFields(tables.apiKeyHourlyStats),
+		})
+		.from(tables.apiKeyHourlyStats)
+		.leftJoin(
+			tables.apiKey,
+			eq(tables.apiKey.id, tables.apiKeyHourlyStats.apiKeyId),
+		)
+		.leftJoin(tables.user, eq(tables.user.id, tables.apiKey.createdBy))
+		.where(and(baseFilter, inArray(dimension.id, topIds)))
+		.groupBy(bucketExpr, dimension.id)
+		.orderBy(asc(bucketExpr));
+
+	return {
+		models: top.map((item) => item.label),
+		data: assembleCostTimeseriesPoints({
+			allBuckets: generateBucketTimestamps(startDate, new Date(), bucketUnit),
+			rows: rows.map((row) => ({
+				bucket: row.bucket,
+				key: labels.get(row.id) ?? row.id,
+				cost: Number(row.cost),
+				requestCount: Number(row.requestCount),
+				totalTokens: Number(row.totalTokens),
+				creditsRequestCount: Number(row.creditsRequestCount),
+				apiKeysRequestCount: Number(row.apiKeysRequestCount),
+				creditsCost: Number(row.creditsCost),
+				apiKeysCost: Number(row.apiKeysCost),
+			})),
+		}),
+	};
+}
+
 async function buildCostByModelTimeseries({
 	modelView,
 	bucketUnit,
 	startDate,
 	baseFilter,
 }: {
-	modelView: z.infer<typeof costByModelTimeseriesModelViewSchema>;
+	modelView: z.infer<typeof costByModelViewSchema>;
 	bucketUnit: "hour" | "day";
 	startDate: Date;
 	baseFilter: ReturnType<typeof and>;
@@ -13221,6 +13849,10 @@ const devpassKpisSchema = z.object({
 		pro: z.number(),
 		max: z.number(),
 	}),
+	totalSubscribers: z.number(),
+	totalSubscribersExcludingRefunded: z.number(),
+	grossSubscriptionRevenue: z.number(),
+	subscriptionRevenueExcludingRefunds: z.number(),
 	totalActive: z.number(),
 	cancelledPending: z.number(),
 	churned: z.number(),
@@ -14328,11 +14960,97 @@ admin.openapi(getDevpassKpis, async (c) => {
 		tables.transaction,
 		"reset_pass_refund_original_tx",
 	);
+	const subscriberStartTx = aliasedTable(
+		tables.transaction,
+		"subscriber_start_tx",
+	);
+	const subscriberRefundTx = aliasedTable(
+		tables.transaction,
+		"subscriber_refund_tx",
+	);
+	const subscriberRefundOriginalTx = aliasedTable(
+		tables.transaction,
+		"subscriber_refund_original_tx",
+	);
+	const subscriberPaymentTypes = [
+		...DEV_PLAN_SUBSCRIPTION_TX_TYPES,
+		"subscription_start",
+	] as const;
+
+	const subscriberStartsSub = db
+		.select({ organizationId: subscriberStartTx.organizationId })
+		.from(subscriberStartTx)
+		.where(
+			and(
+				eq(subscriberStartTx.status, "completed"),
+				inArray(subscriberStartTx.type, [
+					"dev_plan_start",
+					"subscription_start",
+				]),
+			),
+		)
+		.groupBy(subscriberStartTx.organizationId)
+		.as("subscriber_starts");
+	const subscriberPaymentsSub = db
+		.select({
+			organizationId: tables.transaction.organizationId,
+			grossRevenue:
+				sql<string>`SUM(CAST(${tables.transaction.amount} AS NUMERIC))`.as(
+					"gross_subscription_revenue",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				inArray(tables.transaction.type, subscriberPaymentTypes),
+				isNotNull(tables.transaction.amount),
+				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+				firstRowPerInvoiceFilter(subscriberPaymentTypes),
+			),
+		)
+		.groupBy(tables.transaction.organizationId)
+		.as("subscriber_payments");
+	const subscriberRefundsSub = db
+		.select({
+			organizationId: subscriberRefundTx.organizationId,
+			refundedAmount:
+				sql<string>`SUM(CAST(${subscriberRefundTx.amount} AS NUMERIC))`.as(
+					"subscriber_refunded_amount",
+				),
+		})
+		.from(subscriberRefundTx)
+		.innerJoin(
+			subscriberRefundOriginalTx,
+			eq(
+				subscriberRefundTx.relatedTransactionId,
+				subscriberRefundOriginalTx.id,
+			),
+		)
+		.where(
+			and(
+				eq(subscriberRefundTx.type, "credit_refund"),
+				eq(subscriberRefundTx.status, "completed"),
+				isNotNull(subscriberRefundTx.amount),
+				sql`CAST(${subscriberRefundTx.amount} AS NUMERIC) > 0`,
+				eq(
+					subscriberRefundOriginalTx.organizationId,
+					subscriberRefundTx.organizationId,
+				),
+				eq(subscriberRefundOriginalTx.status, "completed"),
+				inArray(subscriberRefundOriginalTx.type, subscriberPaymentTypes),
+				isNotNull(subscriberRefundOriginalTx.amount),
+				sql`CAST(${subscriberRefundOriginalTx.amount} AS NUMERIC) > 0`,
+			),
+		)
+		.groupBy(subscriberRefundTx.organizationId)
+		.as("subscriber_refunds");
 
 	// Every KPI is an independent aggregate over the same universe, so they run
 	// concurrently rather than serially.
 	const [
 		activeRows,
+		[subscriberCountsRow],
 		[churnedRow],
 		[startsRow],
 		[endsRow],
@@ -14360,6 +15078,34 @@ admin.openapi(getDevpassKpis, async (c) => {
 				tables.organization.devPlan,
 				tables.organization.devPlanCancelled,
 			),
+		// Historical subscribers must have both a completed plan start and a
+		// completed, positive plan payment. The secondary count drops anyone with
+		// a completed refund against one of those payments.
+		db
+			.select({
+				total: sql<number>`COUNT(*)`,
+				excludingRefunded: sql<number>`COUNT(*) FILTER (WHERE ${subscriberRefundsSub.organizationId} IS NULL)`,
+				grossRevenue: sql<string>`COALESCE(SUM(CAST(${subscriberPaymentsSub.grossRevenue} AS NUMERIC)), 0)`,
+				revenueExcludingRefunds: sql<string>`GREATEST(
+						COALESCE(SUM(CAST(${subscriberPaymentsSub.grossRevenue} AS NUMERIC)), 0)
+						- COALESCE(SUM(CAST(${subscriberRefundsSub.refundedAmount} AS NUMERIC)), 0),
+						0
+					)`,
+			})
+			.from(tables.organization)
+			.innerJoin(
+				subscriberStartsSub,
+				eq(tables.organization.id, subscriberStartsSub.organizationId),
+			)
+			.innerJoin(
+				subscriberPaymentsSub,
+				eq(tables.organization.id, subscriberPaymentsSub.organizationId),
+			)
+			.leftJoin(
+				subscriberRefundsSub,
+				eq(tables.organization.id, subscriberRefundsSub.organizationId),
+			)
+			.where(eq(tables.organization.kind, "devpass")),
 		db
 			.select({
 				count: sql<number>`COUNT(DISTINCT ${tables.transaction.organizationId})`,
@@ -14569,6 +15315,14 @@ admin.openapi(getDevpassKpis, async (c) => {
 
 	return c.json({
 		activeByTier,
+		totalSubscribers: Number(subscriberCountsRow?.total ?? 0),
+		totalSubscribersExcludingRefunded: Number(
+			subscriberCountsRow?.excludingRefunded ?? 0,
+		),
+		grossSubscriptionRevenue: Number(subscriberCountsRow?.grossRevenue ?? 0),
+		subscriptionRevenueExcludingRefunds: Number(
+			subscriberCountsRow?.revenueExcludingRefunds ?? 0,
+		),
 		totalActive,
 		cancelledPending,
 		churned: Number(churnedRow?.count ?? 0),

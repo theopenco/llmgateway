@@ -1,6 +1,6 @@
 "use client";
 
-import { addDays, differenceInCalendarDays, format, parseISO } from "date-fns";
+import { addDays, differenceInCalendarDays, format } from "date-fns";
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import {
@@ -31,8 +31,13 @@ import {
 	SelectValue,
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
-import { getBrowserTimeZone } from "@/lib/timezone";
 import { applyUsageModeToDaily } from "@/lib/usage-mode";
+
+import {
+	formatBucketLabel,
+	formatBucketLabelWithZone,
+	useDisplayTimeZone,
+} from "@llmgateway/shared";
 
 import type { TimeRangeValue } from "@/components/time-range-picker";
 import type { GroupBy } from "@/components/usage/group-by";
@@ -177,6 +182,9 @@ const CustomTooltip = ({
 	hourly = false,
 	groupBy = "model",
 }: CustomTooltipProps) => {
+	// Reads the zone from context rather than a prop: recharts owns this
+	// element, so the parent can't thread anything into it.
+	const { timeZone } = useDisplayTimeZone();
 	if (active && payload && payload.length) {
 		const data = payload[0].payload;
 		const items = pickBreakdown(data, groupBy);
@@ -184,9 +192,10 @@ const CustomTooltip = ({
 			<div className="rounded-lg border bg-popover text-popover-foreground p-2 shadow-sm">
 				<p className="font-medium">
 					{label &&
-						format(
-							parseISO(label),
-							hourly ? "MMM d, yyyy HH:mm" : "MMM d, yyyy",
+						formatBucketLabelWithZone(
+							label,
+							hourly ? "monthDayYearHourMinute" : "monthDayYear",
+							timeZone,
 						)}
 				</p>
 				<p className="text-sm">
@@ -281,13 +290,14 @@ export function ActivityChart({
 	const [showAllModels, setShowAllModels] = useState(false);
 	const { selectedProject } = useDashboardNavigation();
 	const api = useApi();
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 
 	const hourly = isHourlyRange(timeRange);
 
 	// Build query params based on whether we're using timeRange or date range
 	const queryParams = useMemo(() => {
 		const breakdownParam = groupBy === "model" ? {} : { groupBy };
-		const timezone = getBrowserTimeZone();
+		const timezone = displayTimeZone;
 		if (timeRange) {
 			return {
 				timeRange,
@@ -297,7 +307,7 @@ export function ActivityChart({
 				...breakdownParam,
 			};
 		}
-		const { from, to } = getDateRangeFromParams(searchParams);
+		const { from, to } = getDateRangeFromParams(searchParams, displayTimeZone);
 		return {
 			from: format(from, "yyyy-MM-dd"),
 			to: format(to, "yyyy-MM-dd"),
@@ -306,7 +316,14 @@ export function ActivityChart({
 			...(apiKeyId ? { apiKeyId } : {}),
 			...breakdownParam,
 		};
-	}, [timeRange, searchParams, selectedProject?.id, apiKeyId, groupBy]);
+	}, [
+		timeRange,
+		searchParams,
+		selectedProject?.id,
+		apiKeyId,
+		groupBy,
+		displayTimeZone,
+	]);
 
 	const {
 		data: rawData,
@@ -351,10 +368,10 @@ export function ActivityChart({
 			}
 			return `last ${hours / 24} days`;
 		}
-		const { from, to } = getDateRangeFromParams(searchParams);
+		const { from, to } = getDateRangeFromParams(searchParams, displayTimeZone);
 		const days = differenceInCalendarDays(to, from) + 1;
 		return `${days} days`;
-	}, [timeRange, searchParams]);
+	}, [timeRange, searchParams, displayTimeZone]);
 
 	const seriesNoun = DIMENSION_LABELS[groupBy].noun;
 	const cardTitle = DIMENSION_LABELS[groupBy].cardTitle;
@@ -443,7 +460,7 @@ export function ActivityChart({
 	if (timeRange) {
 		slots.push(...data.activity.map((item) => item.date));
 	} else {
-		const { from, to } = getDateRangeFromParams(searchParams);
+		const { from, to } = getDateRangeFromParams(searchParams, displayTimeZone);
 		const totalDays = differenceInCalendarDays(to, from) + 1;
 		for (let i = 0; i < totalDays; i++) {
 			const date = addDays(from, i);
@@ -470,8 +487,8 @@ export function ActivityChart({
 			> = {
 				...dayData,
 				formattedDate: hourly
-					? format(parseISO(slot), "HH:mm")
-					: format(parseISO(slot), "MMM d"),
+					? formatBucketLabel(slot, "hourMinute")
+					: formatBucketLabel(slot, "monthDay"),
 			};
 
 			// Add each series' selected metric as a separate property for stacking
@@ -495,8 +512,8 @@ export function ActivityChart({
 		return {
 			date: slot,
 			formattedDate: hourly
-				? format(parseISO(slot), "HH:mm")
-				: format(parseISO(slot), "MMM d"),
+				? formatBucketLabel(slot, "hourMinute")
+				: formatBucketLabel(slot, "monthDay"),
 			requestCount: 0,
 			inputTokens: 0,
 			outputTokens: 0,
@@ -596,8 +613,8 @@ export function ActivityChart({
 							tickFormatter={(value: string) => {
 								try {
 									return hourly
-										? format(parseISO(value), "HH:mm")
-										: format(parseISO(value), "MMM d");
+										? formatBucketLabel(value, "hourMinute")
+										: formatBucketLabel(value, "monthDay");
 								} catch {
 									return value;
 								}

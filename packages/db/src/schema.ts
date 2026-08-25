@@ -513,6 +513,10 @@ export const transaction = pgTable(
 				// received) and `creditAmount` (credits granted) are set and the row
 				// counts toward revenue. `paymentMethod` records the channel.
 				"credit_manual_payment",
+				// Revenue from a negotiated enterprise contract. This is accounting
+				// only: `amount` records the payment while `creditAmount` stays null,
+				// so the deal never changes the organization's credit balance.
+				"enterprise_license_fee",
 				"dev_plan_start",
 				"dev_plan_upgrade",
 				"dev_plan_downgrade",
@@ -569,15 +573,15 @@ export const transaction = pgTable(
 		description: text(),
 		relatedTransactionId: text(),
 		refundReason: text(),
-		// Off-Stripe payment channel, set only on `credit_manual_payment` rows so
-		// manually credited revenue can be reconciled per channel. Stripe-settled
-		// rows leave this null — the payment method lives in Stripe.
+		// Off-Stripe payment channel, set on `credit_manual_payment` and
+		// `enterprise_license_fee` rows so revenue can be reconciled per channel.
+		// Stripe-settled rows leave this null — the payment method lives in Stripe.
 		paymentMethod: text({
 			enum: ["wire", "crypto", "paypal", "other"],
 		}),
 		// Free-form identifier for the payment on its own channel — a bank wire
 		// reference, an on-chain transaction hash, a PayPal transaction id. Set
-		// only on `credit_manual_payment` rows, so a credit can be traced back to
+		// only on manually recorded payment rows, so revenue can be traced back to
 		// the money that paid for it without digging through the description.
 		externalReference: text(),
 	},
@@ -1650,6 +1654,7 @@ export interface ProviderKeyOptions {
 	azure_deployment_name?: string;
 	azure_ai_foundry_resource?: string;
 	azure_ai_foundry_api_version?: string;
+	azure_anthropic_resource?: string;
 	alibaba_region?: "singapore" | "eu-frankfurt" | "us-virginia" | "cn-beijing";
 	/**
 	 * Model Studio workspace id, required for regions served only by the
@@ -3716,6 +3721,9 @@ export const auditLogActions = [
 	// Credits
 	"credits.gift",
 	"credits.manual_payment",
+	// Enterprise license fees
+	"enterprise_license_fee.create",
+	"enterprise_license_fee.update",
 	// Referral
 	"referral_bonus.update",
 	// Dev Plan
@@ -3776,6 +3784,7 @@ export const auditLogResourceTypes = [
 	"subscription",
 	"payment_method",
 	"payment",
+	"transaction",
 	"dev_plan",
 	"chat_plan",
 	"sso_provider",

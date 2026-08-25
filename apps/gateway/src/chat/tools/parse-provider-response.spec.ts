@@ -967,6 +967,37 @@ describe("parseProviderResponse", () => {
 		});
 	});
 
+	describe("azure-anthropic", () => {
+		it("parses a Microsoft Foundry Anthropic Messages response like anthropic", () => {
+			const json = {
+				content: [
+					{ type: "thinking", thinking: "considering" },
+					{ type: "text", text: "Hello from Foundry" },
+				],
+				stop_reason: "end_turn",
+				usage: {
+					input_tokens: 12,
+					cache_creation_input_tokens: 0,
+					cache_read_input_tokens: 4,
+					output_tokens: 7,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"azure-anthropic",
+				"claude-opus-4-8",
+				json,
+			);
+
+			expect(result.content).toBe("Hello from Foundry");
+			expect(result.reasoningContent).toBe("considering");
+			expect(result.finishReason).toBe("end_turn");
+			expect(result.promptTokens).toBe(16); // 12 + 0 + 4
+			expect(result.completionTokens).toBe(7);
+			expect(result.cachedTokens).toBe(4);
+		});
+	});
+
 	describe("anthropic cachedTokens", () => {
 		it("returns cachedTokens as 0 when cache_read_input_tokens is 0", () => {
 			const json = {

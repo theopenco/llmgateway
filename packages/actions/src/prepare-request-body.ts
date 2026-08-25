@@ -41,7 +41,10 @@ import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
 import { ImageSizeLimitError, processImageUrl } from "./process-image-url.js";
 import { RequestError } from "./request-error.js";
 import { mappingSupportsToolChoice } from "./tool-choice-support.js";
-import { transformAnthropicMessages } from "./transform-anthropic-messages.js";
+import {
+	MAX_ANTHROPIC_CACHE_CONTROL_BLOCKS,
+	transformAnthropicMessages,
+} from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
 
 type OpenAIImageQuality = "low" | "medium" | "high" | "auto";
@@ -1803,6 +1806,7 @@ export async function prepareRequestBody(
 	const providerHandlesCacheControl =
 		usedProvider === "anthropic" ||
 		usedProvider === "vertex-anthropic" ||
+		usedProvider === "azure-anthropic" ||
 		usedProvider === "aws-bedrock" ||
 		usedProvider === "alibaba";
 	const stripAllCacheControl = !allowProviderCacheWrites;
@@ -2849,7 +2853,8 @@ export async function prepareRequestBody(
 			break;
 		}
 		case "anthropic":
-		case "vertex-anthropic": {
+		case "vertex-anthropic":
+		case "azure-anthropic": {
 			// Remove generic tool_choice that was added earlier
 			delete requestBody.tool_choice;
 
@@ -2937,8 +2942,8 @@ export async function prepareRequestBody(
 				autoInjectCacheControl && !callerUses1hTtlInMessages;
 
 			// Build the system field with cache_control for long prompts
-			// Track cache_control usage across system and user messages (max 4 total per Anthropic's limit)
-			const maxCacheControlBlocks = 4;
+			// Track cache_control usage across tools, system and messages
+			const maxCacheControlBlocks = MAX_ANTHROPIC_CACHE_CONTROL_BLOCKS;
 
 			// Anthropic renders `tools` before `system` and `messages`, so a caller
 			// breakpoint on the last tool caches the largest prefix available — and
@@ -3349,9 +3354,9 @@ export async function prepareRequestBody(
 			delete requestBody.tools; // Will be transformed to Bedrock format
 			delete requestBody.tool_choice; // Not supported in Bedrock Converse API
 
-			// Track cache control usage (max 4 blocks per Anthropic/Bedrock limit)
+			// Track cache point usage (Bedrock enforces the same per-request limit)
 			let bedrockCacheControlCount = 0;
-			const bedrockMaxCacheControlBlocks = 4;
+			const bedrockMaxCacheControlBlocks = MAX_ANTHROPIC_CACHE_CONTROL_BLOCKS;
 			interface BedrockCachePoint {
 				cachePoint: { type: "default"; ttl?: "5m" | "1h" };
 			}
@@ -4122,6 +4127,12 @@ export async function prepareRequestBody(
 		}
 		case "inference.net":
 		case "together-ai": {
+			if (stream && usedProvider === "together-ai") {
+				requestBody.stream_options = {
+					include_usage: true,
+				};
+			}
+
 			if (usedExternalId.startsWith(`${usedProvider}/`)) {
 				requestBody.model = usedExternalId.substring(usedProvider.length + 1);
 			}

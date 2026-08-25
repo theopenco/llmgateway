@@ -10,15 +10,21 @@ import { useEffect, useState } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { AppConfigProvider } from "@/lib/config";
 
+import { TimeZoneProvider } from "@llmgateway/shared";
+
 import type { AppConfig } from "@/lib/config-server";
+import type { TimeZonePreference } from "@llmgateway/shared";
 import type { ReactNode } from "react";
 
 interface ProvidersProps {
 	children: ReactNode;
 	config: AppConfig;
+	/** Read from the timezone cookie by the root layout, so the first render
+	 *  already uses the user's chosen zone. */
+	timeZone: TimeZonePreference;
 }
 
-export function Providers({ children, config }: ProvidersProps) {
+export function Providers({ children, config, timeZone }: ProvidersProps) {
 	// useState, not useMemo: React may discard a useMemo cache, which would
 	// silently swap in a fresh QueryClient and drop the whole query cache.
 	const [queryClient] = useState(
@@ -66,21 +72,23 @@ export function Providers({ children, config }: ProvidersProps) {
 	}, [config.posthogKey, config.posthogHost]);
 
 	return (
-		<AppConfigProvider config={config}>
-			<ThemeProvider
-				attribute="class"
-				defaultTheme="system"
-				enableSystem
-				storageKey="theme"
-			>
-				<QueryClientProvider client={queryClient}>
-					<PostHogProvider client={posthog}>{children}</PostHogProvider>
-					{process.env.NODE_ENV === "development" && (
-						<ReactQueryDevtools buttonPosition="top-right" />
-					)}
-				</QueryClientProvider>
-				<Toaster />
-			</ThemeProvider>
-		</AppConfigProvider>
+		<TimeZoneProvider initial={timeZone}>
+			<AppConfigProvider config={config}>
+				<ThemeProvider
+					attribute="class"
+					defaultTheme="system"
+					enableSystem
+					storageKey="theme"
+				>
+					<QueryClientProvider client={queryClient}>
+						<PostHogProvider client={posthog}>{children}</PostHogProvider>
+						{process.env.NODE_ENV === "development" && (
+							<ReactQueryDevtools buttonPosition="top-right" />
+						)}
+					</QueryClientProvider>
+					<Toaster />
+				</ThemeProvider>
+			</AppConfigProvider>
+		</TimeZoneProvider>
 	);
 }

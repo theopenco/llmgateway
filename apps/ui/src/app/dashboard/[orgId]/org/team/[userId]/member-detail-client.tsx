@@ -1,6 +1,5 @@
 "use client";
 
-import { format, subDays } from "date-fns";
 import { ArrowLeftIcon, Boxes, Mail, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -17,6 +16,7 @@ import {
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useTeamMembers } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
+import { useZonedRangeDefaults } from "@/hooks/useZonedRangeDefaults";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
@@ -34,7 +34,6 @@ import {
 	TableRow,
 } from "@/lib/components/table";
 import { useApi } from "@/lib/fetch-client";
-import { getBrowserTimeZone } from "@/lib/timezone";
 import { applyUsageMode, pickCost, pickRequests } from "@/lib/usage-mode";
 
 import { deriveStabilityMetrics } from "@llmgateway/shared";
@@ -53,6 +52,13 @@ export function MemberDetailClient() {
 	const searchParams = useSearchParams();
 	const { buildOrgUrl, selectedOrganization } = useDashboardNavigation();
 	const api = useApi();
+	const {
+		from: defaultFrom,
+		to: defaultTo,
+		timeZone: displayTimeZone,
+		markGenerated,
+		shouldApplyDefaults,
+	} = useZonedRangeDefaults();
 	const { user } = useUser();
 	const usageMode = useUsageMode();
 	const { data: teamData } = useTeamMembers(organizationId);
@@ -73,21 +79,31 @@ export function MemberDetailClient() {
 		if (!showUsage) {
 			return;
 		}
-		if (!searchParams.get("from") || !searchParams.get("to")) {
-			const params2 = new URLSearchParams(searchParams.toString());
-			params2.delete("days");
-			const today = new Date();
-			params2.set("from", format(subDays(today, 6), "yyyy-MM-dd"));
-			params2.set("to", format(today, "yyyy-MM-dd"));
-			router.replace(
-				`${buildOrgUrl(`org/team/${userId}`)}?${params2.toString()}` as Route,
-			);
+		if (!shouldApplyDefaults(searchParams)) {
+			return;
 		}
-	}, [showUsage, searchParams, router, buildOrgUrl, userId]);
+		const params2 = new URLSearchParams(searchParams.toString());
+		params2.delete("days");
+		params2.set("from", defaultFrom);
+		params2.set("to", defaultTo);
+		markGenerated(params2);
+		router.replace(
+			`${buildOrgUrl(`org/team/${userId}`)}?${params2.toString()}` as Route,
+		);
+	}, [
+		showUsage,
+		searchParams,
+		router,
+		buildOrgUrl,
+		userId,
+		defaultFrom,
+		defaultTo,
+		markGenerated,
+		shouldApplyDefaults,
+	]);
 
-	const fromStr =
-		searchParams.get("from") ?? format(subDays(new Date(), 6), "yyyy-MM-dd");
-	const toStr = searchParams.get("to") ?? format(new Date(), "yyyy-MM-dd");
+	const fromStr = searchParams.get("from") ?? defaultFrom;
+	const toStr = searchParams.get("to") ?? defaultTo;
 
 	const { data, isLoading } = api.useQuery(
 		"get",
@@ -99,7 +115,7 @@ export function MemberDetailClient() {
 					organizationId,
 					from: fromStr,
 					to: toStr,
-					timezone: getBrowserTimeZone(),
+					timezone: displayTimeZone,
 				},
 			},
 		},

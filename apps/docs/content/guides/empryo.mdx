@@ -1,0 +1,134 @@
+---
+title: Empryo Integration
+description: Connect Empryo to LLM Gateway with one browser login. Every model on the gateway across terminal, desktop, and headless runs — DevPass billing included.
+icon: Empryo
+---
+
+import { Step, Steps } from "fumadocs-ui/components/steps";
+import { Callout } from "fumadocs-ui/components/callout";
+
+[Empryo](https://empryo.com) is a graph-powered AI coding agent — it parses your codebase into a code-intelligence graph and edits symbols, not strings. It runs as a terminal UI, a desktop app, and a headless CLI on macOS, Linux, and Windows, and LLM Gateway is built in: one browser login (or one pasted key) connects all ~190 text models on the gateway. Every request is tagged with `x-source: empryo`, so usage is attributed correctly in your dashboard and on your DevPass plan.
+
+<Callout type="info">
+	**On a DevPass plan?** Log in with `/login llmgateway-devpass` and use
+	canonical model IDs (`claude-opus-5`, not `anthropic/claude-opus-5`) —
+	provider-pinned routing is not available on coding plans; the gateway picks
+	the provider for you.
+</Callout>
+
+## Install
+
+macOS / Linux:
+
+```bash
+curl -fsSL https://empryo.com/install.sh | bash
+```
+
+Windows (PowerShell):
+
+```powershell
+irm https://empryo.com/install.ps1 | iex
+```
+
+Each script downloads the release's `SHA256SUMS.txt`, checks its RSA-4096 signature against a key pinned in the script, and verifies the binary's checksum before installing it — the one-liner itself is a bootstrapper, so if you'd rather not pipe it into your shell, download it first and read it, or grab a binary and its checksum from the [download page](https://empryo.com/download) and verify by hand.
+
+## Setup
+
+<Steps>
+<Step>
+### Launch Empryo
+
+Start Empryo in any project directory:
+
+```bash
+empryo
+```
+
+</Step>
+
+<Step>
+### Log in with your browser
+
+Type `/login`. Empryo opens [llmgateway.io/connect/cli](https://llmgateway.io/connect/cli) and starts a local loopback server — approve the connection in the browser and the minted API key is delivered straight back to Empryo. Nothing to copy or paste.
+
+On a DevPass coding subscription, run `/login llmgateway-devpass` instead — same flow, billed to your plan.
+
+</Step>
+
+<Step>
+### Pick a model
+
+Open the model picker with `/models`. LLM Gateway's models are grouped by upstream provider, with live pricing, context windows, and output limits pulled from the gateway's own catalog — what you see is what you're billed.
+
+</Step>
+
+<Step>
+### Start coding
+
+You're connected. Every prompt and its cost appears in your [dashboard](https://llmgateway.io/dashboard), attributed to Empryo.
+
+</Step>
+</Steps>
+
+<Callout type="info">
+	Prefer to paste a key? Use `/keys` inside the TUI, run `empryo --set-key
+	llmgateway <key>` from a shell, or set the `LLM_GATEWAY_API_KEY`
+	environment variable. If both a browser login
+	and a pasted key exist, Empryo prefers the login — set `llmgatewayAuth:
+	"key"` in your config to flip that.
+</Callout>
+
+## One connection, three surfaces
+
+The gateway connection is shared by everything Empryo ships:
+
+- **Terminal UI** — `/login`, `/keys`, and `/models` as above.
+- **Desktop app** — the same browser login (from onboarding or the keys drawer) and the same grouped model picker.
+- **Headless CLI** — for scripts and CI:
+
+```bash
+empryo --headless "fix the failing test" --model llmgateway/claude-opus-5
+```
+
+Add `--json` for a structured result or `--events` for a real-time JSONL stream.
+
+## Model routing
+
+Empryo passes model IDs to the gateway verbatim, so both forms work:
+
+- **Canonical** (`claude-opus-5`) — the gateway routes to the best available provider, with automatic failover. Required on DevPass plans.
+- **Provider-pinned** (`anthropic/claude-opus-5`) — pay-as-you-go keys can pin a specific upstream deployment. See the [routing docs](/features/routing#provider-specific-routing) for the full syntax.
+
+Claude models take the gateway's Anthropic-native endpoint (`/v1/messages`) rather than the OpenAI-compatible one, so extended thinking and prompt caching (`cache_control`) survive the hop. Other models ride `/v1/chat/completions`, with reasoning effort injected where the model supports it.
+
+## DevPass meters, natively
+
+With a DevPass key connected, Empryo reads the gateway's `GET /v1/key` endpoint and renders your plan meters in the product: monthly credits and the weekly premium fair-use window show up as a footer badge in the TUI and in the desktop usage drawer, next to Empryo's own usage ledger (`/usage`), which tracks what every session cost locally.
+
+## Why use LLM Gateway with Empryo
+
+- **~190 text models** — Claude, GPT, Gemini, Grok, DeepSeek, and more through one login
+- **Live pricing in the picker** — rates, context, and output caps come from the gateway's catalog, not a stale copy
+- **Native Anthropic wire for Claude** — thinking and prompt caching intact
+- **Attribution built in** — every request carries `x-source: empryo`, so the dashboard shows exactly what the agent spent
+- **DevPass aware** — plan meters render inside Empryo, and billing is handled by the gateway
+
+## Troubleshooting
+
+### "LLM Gateway is set to use the browser login, but you're not connected"
+
+Run `/login`, or switch to a pasted key with `/keys` (and set `llmgatewayAuth: "key"` if you want the key to win permanently).
+
+### "Direct provider routing is not available on coding plans"
+
+Your key belongs to a DevPass plan and you picked a provider-pinned ID. Choose the canonical form of the model instead — `claude-opus-5`, not `anthropic/claude-opus-5`.
+
+### Models show no price
+
+The catalog is fetched live from the gateway at startup. Check your connection and that your key is valid in the [dashboard](https://llmgateway.io/dashboard), then restart Empryo.
+
+<Callout type="info">
+	Empryo's own documentation lives at
+	[empryo.com/docs](https://empryo.com/docs). Need help on the gateway side?
+	Join our [Discord community](https://llmgateway.io/discord).
+</Callout>

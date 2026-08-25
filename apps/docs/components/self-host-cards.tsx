@@ -1,8 +1,6 @@
-"use client";
-
 import { ArrowRight, Cloud, Container, Layers, Ship } from "lucide-react";
-import Link from "next/link";
-import { usePostHog } from "posthog-js/react";
+
+import { TrackedLink } from "@/components/tracked-link";
 
 import type { ReactNode } from "react";
 
@@ -72,8 +70,6 @@ const groups: Group[] = [
 ];
 
 export function SelfHostCards() {
-	const posthog = usePostHog();
-
 	return (
 		<div className="not-prose flex flex-col gap-8">
 			{groups.map((group) => (
@@ -83,15 +79,11 @@ export function SelfHostCards() {
 					</h3>
 					<div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
 						{group.options.map((option) => (
-							<Link
+							<TrackedLink
 								key={option.href}
 								href={option.href}
-								onClick={() => {
-									posthog.capture("docs_self_host_card_click", {
-										option: option.title,
-										href: option.href,
-									});
-								}}
+								event="docs_self_host_card_click"
+								properties={{ option: option.title, href: option.href }}
 								className="group relative flex flex-col gap-3 rounded-xl border border-fd-border bg-fd-card p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md hover:border-fd-primary/40"
 							>
 								<div className="flex items-center justify-between">
@@ -108,7 +100,7 @@ export function SelfHostCards() {
 								<p className="text-[13px] leading-relaxed text-fd-muted-foreground">
 									{option.description}
 								</p>
-							</Link>
+							</TrackedLink>
 						))}
 					</div>
 				</div>
