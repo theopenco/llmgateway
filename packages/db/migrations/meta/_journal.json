@@ -1692,22 +1692,8 @@
     {
       "idx": 241,
       "version": "8",
-      "when": 1787668425275,
-      "tag": "1787668425_crazy_freak",
-      "breakpoints": true
-    },
-    {
-      "idx": 242,
-      "version": "8",
-      "when": 1787676232348,
-      "tag": "1787676232_careful_sheva_callister",
-      "breakpoints": true
-    },
-    {
-      "idx": 243,
-      "version": "8",
-      "when": 1787674090833,
-      "tag": "1787674090_nervous_exiles",
+      "when": 1787606606892,
+      "tag": "1787606606_lying_doctor_spectrum",
       "breakpoints": true
     }
   ]

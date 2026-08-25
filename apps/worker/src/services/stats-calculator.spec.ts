@@ -244,11 +244,14 @@ describe("stats-calculator", () => {
 				.select()
 				.from(modelProviderMappingHistory);
 
-			expect(historyRecords).toHaveLength(2);
+			expect(historyRecords).toHaveLength(4);
 
 			// Check OpenAI GPT-4 record
 			const gptRecord = historyRecords.find(
-				(r) => r.modelId === "gpt-4" && r.providerId === "openai",
+				(r) =>
+					r.modelId === "gpt-4" &&
+					r.providerId === "openai" &&
+					r.usedMode === "api-keys",
 			);
 			expect(gptRecord).toBeTruthy();
 			expect(gptRecord?.logsCount).toBe(2);
@@ -272,7 +275,9 @@ describe("stats-calculator", () => {
 			// Check Anthropic Claude record
 			const claudeRecord = historyRecords.find(
 				(r) =>
-					r.modelId === "claude-3-5-sonnet" && r.providerId === "anthropic",
+					r.modelId === "claude-3-5-sonnet" &&
+					r.providerId === "anthropic" &&
+					r.usedMode === "api-keys",
 			);
 			expect(claudeRecord).toBeTruthy();
 			expect(claudeRecord?.logsCount).toBe(1);
@@ -290,6 +295,64 @@ describe("stats-calculator", () => {
 			expect(claudeRecord?.totalInputCost).toBeCloseTo(0.2);
 			expect(claudeRecord?.totalOutputCost).toBeCloseTo(0.3);
 			expect(claudeRecord?.totalCachedInputCost).toBeCloseTo(0);
+		});
+
+		it("stores Credits and BYOK history separately", async () => {
+			const previousMinuteStart = new Date("2024-01-01T12:29:00.000Z");
+			const base = {
+				organizationId: "org-1",
+				projectId: "proj-1",
+				apiKeyId: "key-1",
+				duration: 1000,
+				requestedModel: "gpt-4",
+				requestedProvider: "openai",
+				usedModel: "openai/gpt-4",
+				usedProvider: "openai",
+				responseSize: 100,
+				hasError: false,
+				cached: false,
+				createdAt: new Date(previousMinuteStart.getTime() + 30000),
+			};
+			await db.insert(log).values([
+				{
+					...base,
+					id: "credits-log",
+					requestId: "credits-request",
+					promptTokens: "30",
+					totalTokens: "30",
+					cost: 0.3,
+					mode: "credits",
+					usedMode: "credits",
+				},
+				{
+					...base,
+					id: "byok-log",
+					requestId: "byok-request",
+					promptTokens: "20",
+					totalTokens: "20",
+					cost: 0.2,
+					mode: "api-keys",
+					usedMode: "api-keys",
+				},
+			]);
+
+			await calculateMinutelyHistory();
+
+			const rows = await db
+				.select()
+				.from(modelHistory)
+				.where(eq(modelHistory.modelId, "gpt-4"));
+			expect(
+				rows.map((row) => ({
+					mode: row.usedMode,
+					requests: row.logsCount,
+					tokens: row.totalTokens,
+					cost: row.totalCost,
+				})),
+			).toEqual([
+				{ mode: "credits", requests: 1, tokens: 30, cost: 0.3 },
+				{ mode: "api-keys", requests: 1, tokens: 20, cost: 0.2 },
+			]);
 		});
 
 		it("should only count requests that recorded a time to first token", async () => {
@@ -341,6 +404,7 @@ describe("stats-calculator", () => {
 					and(
 						eq(modelProviderMappingHistory.modelId, "gpt-4"),
 						eq(modelProviderMappingHistory.providerId, "openai"),
+						eq(modelProviderMappingHistory.usedMode, "api-keys"),
 					),
 				);
 			expect(mappingRecord?.logsCount).toBe(2);
@@ -350,7 +414,12 @@ describe("stats-calculator", () => {
 			const [modelRecord] = await db
 				.select()
 				.from(modelHistory)
-				.where(eq(modelHistory.modelId, "gpt-4"));
+				.where(
+					and(
+						eq(modelHistory.modelId, "gpt-4"),
+						eq(modelHistory.usedMode, "api-keys"),
+					),
+				);
 			expect(modelRecord?.logsCount).toBe(2);
 			expect(modelRecord?.totalTimeToFirstToken).toBe(200);
 			expect(modelRecord?.timeToFirstTokenCount).toBe(1);
@@ -453,7 +522,8 @@ describe("stats-calculator", () => {
 			await calculateMinutelyHistory();
 
 			const deepseekHistory = (await db.select().from(modelHistory)).find(
-				(record) => record.modelId === "deepseek-v3.2",
+				(record) =>
+					record.modelId === "deepseek-v3.2" && record.usedMode === "api-keys",
 			);
 
 			expect(deepseekHistory).toBeTruthy();
@@ -464,13 +534,19 @@ describe("stats-calculator", () => {
 
 			const regionHistory = await db.select().from(modelProviderMappingHistory);
 			const aggregateHistory = regionHistory.find(
-				(record) => record.modelProviderMappingId === "mapping-aggregate",
+				(record) =>
+					record.modelProviderMappingId === "mapping-aggregate" &&
+					record.usedMode === "api-keys",
 			);
 			const singaporeHistory = regionHistory.find(
-				(record) => record.modelProviderMappingId === "mapping-3",
+				(record) =>
+					record.modelProviderMappingId === "mapping-3" &&
+					record.usedMode === "api-keys",
 			);
 			const beijingHistory = regionHistory.find(
-				(record) => record.modelProviderMappingId === "mapping-4",
+				(record) =>
+					record.modelProviderMappingId === "mapping-4" &&
+					record.usedMode === "api-keys",
 			);
 
 			expect(aggregateHistory).toBeTruthy();
@@ -598,10 +674,14 @@ describe("stats-calculator", () => {
 					eq(modelProviderMappingHistory.minuteTimestamp, previousMinuteStart),
 				);
 			const openaiHistory = mappingHistoryRecords.find(
-				(record) => record.modelProviderMappingId === "mapping-1",
+				(record) =>
+					record.modelProviderMappingId === "mapping-1" &&
+					record.usedMode === "api-keys",
 			);
 			const anthropicHistory = mappingHistoryRecords.find(
-				(record) => record.modelProviderMappingId === "mapping-3",
+				(record) =>
+					record.modelProviderMappingId === "mapping-3" &&
+					record.usedMode === "api-keys",
 			);
 
 			expect(openaiHistory?.logsCount).toBe(2);
@@ -612,6 +692,7 @@ describe("stats-calculator", () => {
 			const gpt4ModelHistory = (await db.select().from(modelHistory)).find(
 				(record) =>
 					record.modelId === "gpt-4" &&
+					record.usedMode === "api-keys" &&
 					record.minuteTimestamp.getTime() === previousMinuteStart.getTime(),
 			);
 			expect(gpt4ModelHistory?.logsCount).toBe(3);
@@ -734,14 +815,18 @@ describe("stats-calculator", () => {
 				);
 			const aggregateHistory = mappingHistoryRecords.find(
 				(record) =>
-					record.modelProviderMappingId === "mapping-aggregate-region-retry",
+					record.modelProviderMappingId === "mapping-aggregate-region-retry" &&
+					record.usedMode === "api-keys",
 			);
 			const singaporeHistory = mappingHistoryRecords.find(
 				(record) =>
-					record.modelProviderMappingId === "mapping-region-singapore",
+					record.modelProviderMappingId === "mapping-region-singapore" &&
+					record.usedMode === "api-keys",
 			);
 			const beijingHistory = mappingHistoryRecords.find(
-				(record) => record.modelProviderMappingId === "mapping-region-beijing",
+				(record) =>
+					record.modelProviderMappingId === "mapping-region-beijing" &&
+					record.usedMode === "api-keys",
 			);
 
 			expect(aggregateHistory?.logsCount).toBe(2);
@@ -768,6 +853,7 @@ describe("stats-calculator", () => {
 			const deepseekModelHistory = (await db.select().from(modelHistory)).find(
 				(record) =>
 					record.modelId === "deepseek-v3.2" &&
+					record.usedMode === "api-keys" &&
 					record.minuteTimestamp.getTime() === previousMinuteStart.getTime(),
 			);
 			expect(deepseekModelHistory?.logsCount).toBe(2);
@@ -827,7 +913,9 @@ describe("stats-calculator", () => {
 					eq(modelProviderMappingHistory.minuteTimestamp, previousMinuteStart),
 				);
 			const openaiHistory = mappingHistoryRecords.find(
-				(record) => record.modelProviderMappingId === "mapping-1",
+				(record) =>
+					record.modelProviderMappingId === "mapping-1" &&
+					record.usedMode === "api-keys",
 			);
 
 			expect(openaiHistory?.logsCount).toBe(2);
@@ -836,6 +924,7 @@ describe("stats-calculator", () => {
 			const gpt4ModelHistory = (await db.select().from(modelHistory)).find(
 				(record) =>
 					record.modelId === "gpt-4" &&
+					record.usedMode === "api-keys" &&
 					record.minuteTimestamp.getTime() === previousMinuteStart.getTime(),
 			);
 			expect(gpt4ModelHistory?.logsCount).toBe(2);
@@ -908,7 +997,10 @@ describe("stats-calculator", () => {
 
 			// Should have record for our openai/gpt-4 mapping only
 			const openaiRecord = historyRecords.find(
-				(r) => r.modelId === "gpt-4" && r.providerId === "openai",
+				(r) =>
+					r.modelId === "gpt-4" &&
+					r.providerId === "openai" &&
+					r.usedMode === "api-keys",
 			);
 			expect(openaiRecord).toBeTruthy();
 			const record = openaiRecord!;
@@ -993,6 +1085,7 @@ describe("stats-calculator", () => {
 				providerId: "openai",
 				modelProviderMappingId: "mapping-1",
 				minuteTimestamp: previousMinuteStart,
+				usedMode: "api-keys",
 				logsCount: 1,
 				errorsCount: 0,
 				cachedCount: 0,
@@ -1032,7 +1125,10 @@ describe("stats-calculator", () => {
 
 			// Check the active mapping was updated
 			const gptRecord = historyRecords.find(
-				(r) => r.modelId === "gpt-4" && r.providerId === "openai",
+				(r) =>
+					r.modelId === "gpt-4" &&
+					r.providerId === "openai" &&
+					r.usedMode === "api-keys",
 			);
 			expect(gptRecord).toBeTruthy();
 			expect(gptRecord?.logsCount).toBe(1);
@@ -1052,7 +1148,7 @@ describe("stats-calculator", () => {
 			expect(modelHistoryRecords.length).toBeGreaterThanOrEqual(2); // At least 2 models
 
 			const gptModelRecord = modelHistoryRecords.find(
-				(r) => r.modelId === "gpt-4",
+				(r) => r.modelId === "gpt-4" && r.usedMode === "api-keys",
 			);
 			expect(gptModelRecord).toBeTruthy();
 			expect(gptModelRecord?.logsCount).toBe(1); // Only one log in this test
@@ -1160,7 +1256,7 @@ describe("stats-calculator", () => {
 			// Check model history aggregates across providers
 			const modelHistoryRecords = await db.select().from(modelHistory);
 			const gptModelRecord = modelHistoryRecords.find(
-				(r) => r.modelId === "gpt-4",
+				(r) => r.modelId === "gpt-4" && r.usedMode === "api-keys",
 			);
 
 			expect(gptModelRecord).toBeTruthy();
@@ -1175,10 +1271,16 @@ describe("stats-calculator", () => {
 				.select()
 				.from(modelProviderMappingHistory);
 			const openaiMapping = mappingRecords.find(
-				(r) => r.modelId === "gpt-4" && r.providerId === "openai",
+				(r) =>
+					r.modelId === "gpt-4" &&
+					r.providerId === "openai" &&
+					r.usedMode === "api-keys",
 			);
 			const anthropicMapping = mappingRecords.find(
-				(r) => r.modelId === "gpt-4" && r.providerId === "anthropic",
+				(r) =>
+					r.modelId === "gpt-4" &&
+					r.providerId === "anthropic" &&
+					r.usedMode === "api-keys",
 			);
 
 			expect(openaiMapping?.logsCount).toBe(1);
@@ -1210,6 +1312,7 @@ describe("stats-calculator", () => {
 			await db.insert(modelHistory).values({
 				modelId: "gpt-4",
 				minuteTimestamp: previousMinuteStart,
+				usedMode: "api-keys",
 				logsCount: 1,
 				errorsCount: 0,
 				cachedCount: 0,
@@ -1242,7 +1345,9 @@ describe("stats-calculator", () => {
 			await calculateMinutelyHistory();
 
 			const modelHistoryRecords = await db.select().from(modelHistory);
-			const gptRecord = modelHistoryRecords.find((r) => r.modelId === "gpt-4");
+			const gptRecord = modelHistoryRecords.find(
+				(r) => r.modelId === "gpt-4" && r.usedMode === "api-keys",
+			);
 
 			expect(gptRecord).toBeTruthy();
 			expect(gptRecord?.logsCount).toBe(1); // Should be updated, not added to existing

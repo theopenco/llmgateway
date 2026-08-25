@@ -1263,10 +1263,7 @@ export const endUserSession = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
-		// Legacy plaintext column. New sessions store only tokenHash; backfilled
-		// rows retain plaintext during the staged rollout.
-		token: text().unique(),
-		tokenHash: text().unique(),
+		token: text().notNull().unique(),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		})
@@ -1448,19 +1445,14 @@ export const apiKey = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
-		// Legacy plaintext column. New writes store only tokenHash + tokenMasked;
-		// backfilled rows retain plaintext during the staged rollout.
-		token: text().unique(),
-		tokenHash: text().unique(),
-		tokenMasked: text(),
+		token: text().notNull().unique(),
 		description: text().notNull(),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
 		// Discriminates normal developer keys from embeddable-SDK principals.
-		// `platform_secret` is a long-lived secret on a hidden per-org project.
-		// `platform_publishable` is an intentionally public browser identifier and
-		// remains retrievable. `end_user_customer` is a hidden per-customer aggregate
+		// `platform_secret`/`platform_publishable` are long-lived keys on a hidden
+		// per-org project. `end_user_customer` is a hidden per-customer aggregate
 		// key used as the stable log/api-key stats principal for browser sessions.
 		keyType: text({
 			enum: [
@@ -1472,10 +1464,6 @@ export const apiKey = pgTable(
 		})
 			.notNull()
 			.default("user"),
-		// Separates user-managed keys from automatically managed playground keys.
-		kind: text({ enum: ["regular", "playground"] })
-			.notNull()
-			.default("regular"),
 		// Browser-session wallet binding now lives on end_user_session.wallet_id.
 		endCustomerWalletId: text().references(() => wallet.id, {
 			onDelete: "cascade",
@@ -3235,6 +3223,8 @@ export const modelProviderMappingHistory = pgTable(
 		modelId: text().notNull(), // LLMGateway model name (e.g., "gpt-4")
 		providerId: text().notNull(), // Provider ID (e.g., "openai")
 		modelProviderMappingId: text().notNull(), // Reference to the exact model_provider_mapping.id
+		// Billing mode is part of the history grain so admin usage views can
+		// narrow every metric, not only request counts and spend.
 		usedMode: text({ enum: ["credits", "api-keys", "unknown"] })
 			.notNull()
 			.default("unknown"),
@@ -3294,7 +3284,11 @@ export const modelProviderMappingHistory = pgTable(
 	},
 	(table) => [
 		// Unique constraint ensures one record per mapping-minute combination
-		unique().on(table.modelProviderMappingId, table.minuteTimestamp),
+		unique("mpm_history_mapping_minute_mode_unique").on(
+			table.modelProviderMappingId,
+			table.minuteTimestamp,
+			table.usedMode,
+		),
 		// Index for ORDER BY minuteTimestamp DESC queries
 		index("model_provider_mapping_history_minute_timestamp_idx").on(
 			table.minuteTimestamp,
@@ -3328,8 +3322,9 @@ export const modelProviderMappingHistory = pgTable(
 		// build the replacement CONCURRENTLY before this migration runs — a
 		// rebuild under the same name would lock a table the worker writes to
 		// every minute for the duration of the scan.
-		index("model_provider_mapping_history_provider_stats_v3_idx").on(
+		index("model_provider_mapping_history_provider_stats_v4_idx").on(
 			table.minuteTimestamp,
+			table.usedMode,
 			table.providerId,
 			table.logsCount,
 			table.errorsCount,
@@ -3397,7 +3392,11 @@ export const modelHistory = pgTable(
 	},
 	(table) => [
 		// Unique constraint ensures one record per model-minute combination
-		unique().on(table.modelId, table.minuteTimestamp),
+		unique("model_history_model_minute_mode_unique").on(
+			table.modelId,
+			table.minuteTimestamp,
+			table.usedMode,
+		),
 		// Index for ORDER BY minuteTimestamp DESC queries
 		index("model_history_minute_timestamp_idx").on(table.minuteTimestamp),
 		// Index for admin model history queries (filter by model + time range)
@@ -3467,7 +3466,11 @@ export const modelProviderMappingHistoryHourly = pgTable(
 	},
 	(table) => [
 		// Unique constraint ensures one record per mapping-hour combination
-		unique().on(table.modelProviderMappingId, table.hourTimestamp),
+		unique("mpm_history_mapping_hour_mode_unique").on(
+			table.modelProviderMappingId,
+			table.hourTimestamp,
+			table.usedMode,
+		),
 		// Index for ORDER BY hourTimestamp DESC queries
 		index("mpm_history_hourly_ts_idx").on(table.hourTimestamp),
 		// Composite index for aggregation queries by providerId
@@ -3489,8 +3492,9 @@ export const modelProviderMappingHistoryHourly = pgTable(
 		// (filter by hourTimestamp range, group by providerId, sum metrics).
 		// See model_provider_mapping_history_provider_stats_v3_idx for why this is
 		// a new name rather than a rebuild in place.
-		index("mpm_history_hourly_provider_stats_v3_idx").on(
+		index("mpm_history_hourly_provider_stats_v4_idx").on(
 			table.hourTimestamp,
+			table.usedMode,
 			table.providerId,
 			table.logsCount,
 			table.errorsCount,
@@ -3560,7 +3564,11 @@ export const modelHistoryHourly = pgTable(
 	},
 	(table) => [
 		// Unique constraint ensures one record per model-hour combination
-		unique().on(table.modelId, table.hourTimestamp),
+		unique("model_history_model_hour_mode_unique").on(
+			table.modelId,
+			table.hourTimestamp,
+			table.usedMode,
+		),
 		// Index for ORDER BY hourTimestamp DESC queries
 		index("model_history_hourly_ts_idx").on(table.hourTimestamp),
 		// Index for admin model history queries (filter by model + time range)
