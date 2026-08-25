@@ -12,9 +12,11 @@ import {
 	modelProviderMappingUsageHistoryHourly,
 	modelUsageHistoryHourly,
 	routingElectionHourly,
+	systemSetting,
 	log,
 	sql,
 	asc,
+	desc,
 	eq,
 	gte,
 	lt,
@@ -51,6 +53,7 @@ const serviceTierSourceSql = sql<
 >`(${log.routingMetadata}::jsonb ->> 'serviceTierSource')`;
 const HISTORY_USAGE_MODES = ["credits", "api-keys"] as const;
 type HistoryUsageMode = (typeof HISTORY_USAGE_MODES)[number];
+const USAGE_HISTORY_BACKFILL_SETTING_ID = "catalog-usage-history-backfill-v1";
 
 interface MappingMinuteStats {
 	modelId: string | null;
@@ -275,7 +278,7 @@ function buildUsageHistoryHourlyRollupSql(options: {
 		sql`md5(random()::text || clock_timestamp()::text)`,
 		...options.dimensions.map((column) => sql.identifier(column)),
 		sql.identifier("used_mode"),
-		sql`${options.roundedHour}`,
+		sql`${options.roundedHour.toISOString()}::timestamp`,
 		...metricColumns.map((column) => sql`sum(${sql.identifier(column)})`),
 	];
 	const updateColumns = metricColumns.map(
@@ -291,8 +294,8 @@ function buildUsageHistoryHourlyRollupSql(options: {
 			)})
 		select ${sql.join(selectColumns, sql`, `)}
 		from ${sql.identifier(options.minuteTable)}
-		where ${sql.identifier("minute_timestamp")} >= ${options.roundedHour}
-			and ${sql.identifier("minute_timestamp")} < ${options.hourEnd}
+		where ${sql.identifier("minute_timestamp")} >= ${options.roundedHour.toISOString()}::timestamp
+			and ${sql.identifier("minute_timestamp")} < ${options.hourEnd.toISOString()}::timestamp
 		group by ${sql.join(
 			[...options.dimensions, "used_mode"].map((column) =>
 				sql.identifier(column),
@@ -1125,101 +1128,70 @@ export async function backfillHistoryIfNeeded() {
 	try {
 		const database = db;
 
-		// The shared watermark is the oldest latest row across every table this
-		// pass writes. A newly added or partially written table must not be hidden
-		// by a current legacy-table watermark. Both usage modes are written together,
-		// so credits is also an index-friendly coverage marker for those tables.
+		// Use index-backed boundary probes and a durable completion marker. Counting
+		// every retained minute here makes every worker restart scan all history.
 		const [
-			mappingHistoryRange,
-			modelHistoryRange,
-			mappingUsageHistoryRange,
-			modelUsageHistoryRange,
+			mappingHistoryEarliest,
+			modelHistoryEarliest,
+			mappingHistoryLatest,
+			modelHistoryLatest,
+			mappingUsageHistoryLatest,
+			modelUsageHistoryLatest,
+			usageHistoryBackfillSetting,
 		] = await Promise.all([
 			database
-				.select({
-					minutes: sql<number>`count(distinct ${modelProviderMappingHistory.minuteTimestamp})::int`,
-					earliest:
-						sql`min(${modelProviderMappingHistory.minuteTimestamp})`.mapWith(
-							modelProviderMappingHistory.minuteTimestamp,
-						),
-					latest:
-						sql`max(${modelProviderMappingHistory.minuteTimestamp})`.mapWith(
-							modelProviderMappingHistory.minuteTimestamp,
-						),
-				})
-				.from(modelProviderMappingHistory),
+				.select({ minute: modelProviderMappingHistory.minuteTimestamp })
+				.from(modelProviderMappingHistory)
+				.orderBy(asc(modelProviderMappingHistory.minuteTimestamp))
+				.limit(1),
 			database
-				.select({
-					minutes: sql<number>`count(distinct ${modelHistory.minuteTimestamp})::int`,
-					earliest: sql`min(${modelHistory.minuteTimestamp})`.mapWith(
-						modelHistory.minuteTimestamp,
-					),
-					latest: sql`max(${modelHistory.minuteTimestamp})`.mapWith(
-						modelHistory.minuteTimestamp,
-					),
-				})
-				.from(modelHistory),
+				.select({ minute: modelHistory.minuteTimestamp })
+				.from(modelHistory)
+				.orderBy(asc(modelHistory.minuteTimestamp))
+				.limit(1),
 			database
-				.select({
-					minutes: sql<number>`count(distinct ${modelProviderMappingUsageHistory.minuteTimestamp})::int`,
-					earliest:
-						sql`min(${modelProviderMappingUsageHistory.minuteTimestamp})`.mapWith(
-							modelProviderMappingUsageHistory.minuteTimestamp,
-						),
-					latest:
-						sql`max(${modelProviderMappingUsageHistory.minuteTimestamp})`.mapWith(
-							modelProviderMappingUsageHistory.minuteTimestamp,
-						),
-				})
+				.select({ minute: modelProviderMappingHistory.minuteTimestamp })
+				.from(modelProviderMappingHistory)
+				.orderBy(desc(modelProviderMappingHistory.minuteTimestamp))
+				.limit(1),
+			database
+				.select({ minute: modelHistory.minuteTimestamp })
+				.from(modelHistory)
+				.orderBy(desc(modelHistory.minuteTimestamp))
+				.limit(1),
+			database
+				.select({ minute: modelProviderMappingUsageHistory.minuteTimestamp })
 				.from(modelProviderMappingUsageHistory)
-				.where(eq(modelProviderMappingUsageHistory.usedMode, "credits")),
+				.where(eq(modelProviderMappingUsageHistory.usedMode, "credits"))
+				.orderBy(desc(modelProviderMappingUsageHistory.minuteTimestamp))
+				.limit(1),
 			database
-				.select({
-					minutes: sql<number>`count(distinct ${modelUsageHistory.minuteTimestamp})::int`,
-					earliest: sql`min(${modelUsageHistory.minuteTimestamp})`.mapWith(
-						modelUsageHistory.minuteTimestamp,
-					),
-					latest: sql`max(${modelUsageHistory.minuteTimestamp})`.mapWith(
-						modelUsageHistory.minuteTimestamp,
-					),
-				})
+				.select({ minute: modelUsageHistory.minuteTimestamp })
 				.from(modelUsageHistory)
-				.where(eq(modelUsageHistory.usedMode, "credits")),
+				.where(eq(modelUsageHistory.usedMode, "credits"))
+				.orderBy(desc(modelUsageHistory.minuteTimestamp))
+				.limit(1),
+			database
+				.select({ enabled: systemSetting.enabled })
+				.from(systemSetting)
+				.where(eq(systemSetting.id, USAGE_HISTORY_BACKFILL_SETTING_ID))
+				.limit(1),
 		]);
 
 		const latestMinutes: (Date | null | undefined)[] = [
-			mappingHistoryRange[0]?.latest,
-			modelHistoryRange[0]?.latest,
-			mappingUsageHistoryRange[0]?.latest,
-			modelUsageHistoryRange[0]?.latest,
+			mappingHistoryLatest[0]?.minute,
+			modelHistoryLatest[0]?.minute,
+			mappingUsageHistoryLatest[0]?.minute,
+			modelUsageHistoryLatest[0]?.minute,
 		];
-		const usageHistoryRanges = [
-			{
-				legacy: mappingHistoryRange[0],
-				usage: mappingUsageHistoryRange[0],
-			},
-			{
-				legacy: modelHistoryRange[0],
-				usage: modelUsageHistoryRange[0],
-			},
-		];
-		const usageHistoryIncomplete = usageHistoryRanges.some(
-			({ legacy, usage }) => {
-				if (!legacy?.earliest) {
-					return false;
-				}
-				return (
-					!usage?.earliest ||
-					usage.earliest > legacy.earliest ||
-					usage.minutes < legacy.minutes
-				);
-			},
+		const usageHistoryIncomplete =
+			usageHistoryBackfillSetting[0]?.enabled !== true;
+		const usageBackfillStarts = [
+			mappingHistoryEarliest[0]?.minute,
+			modelHistoryEarliest[0]?.minute,
+		].filter(
+			(minute): minute is Date => minute !== null && minute !== undefined,
 		);
-		const usageBackfillStarts = usageHistoryRanges
-			.map(({ legacy }) => legacy?.earliest)
-			.filter(
-				(minute): minute is Date => minute !== null && minute !== undefined,
-			);
 		const usageBackfillStart =
 			usageBackfillStarts.length > 0
 				? new Date(
@@ -1296,6 +1268,23 @@ export async function backfillHistoryIfNeeded() {
 					backfillStartRounded,
 					new Date(warmStart.getTime() - ONE_MINUTE_MS),
 				);
+			}
+			if (usageHistoryIncomplete) {
+				await database
+					.insert(systemSetting)
+					.values({
+						id: USAGE_HISTORY_BACKFILL_SETTING_ID,
+						enabled: true,
+						value: previousMinute.toISOString(),
+					})
+					.onConflictDoUpdate({
+						target: systemSetting.id,
+						set: {
+							enabled: true,
+							value: previousMinute.toISOString(),
+							updatedAt: new Date(),
+						},
+					});
 			}
 			return;
 		}

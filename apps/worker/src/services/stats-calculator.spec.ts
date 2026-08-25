@@ -17,6 +17,7 @@ import {
 	organization,
 	project,
 	apiKey,
+	systemSetting,
 	eq,
 	and,
 	user,
@@ -48,6 +49,7 @@ describe("stats-calculator", () => {
 		await db.delete(modelHistoryHourly);
 		await db.delete(modelProviderMappingHistory);
 		await db.delete(modelHistory);
+		await db.delete(systemSetting);
 		await db.delete(modelProviderMapping);
 		await db.delete(model);
 		await db.delete(provider);
@@ -1516,6 +1518,10 @@ describe("stats-calculator", () => {
 					usedMode: "credits",
 					minuteTimestamp,
 				}),
+				db.insert(systemSetting).values({
+					id: "catalog-usage-history-backfill-v1",
+					enabled: true,
+				}),
 			]);
 		}
 
@@ -1562,8 +1568,9 @@ describe("stats-calculator", () => {
 			expect(historyRecords).toHaveLength(1);
 		});
 
-		it("should backfill incomplete mode history from retained history", async () => {
+		it("should resume interrupted mode history backfill", async () => {
 			const oldMinute = new Date("2024-01-01T10:00:00.000Z");
+			const missingArchiveMinute = new Date("2024-01-01T10:01:00.000Z");
 			const recentMinute = new Date("2024-01-01T12:28:00.000Z");
 			await Promise.all([
 				db.insert(modelProviderMappingHistory).values([
@@ -1585,18 +1592,34 @@ describe("stats-calculator", () => {
 					{ modelId: "gpt-4", minuteTimestamp: oldMinute, logsCount: 42 },
 					{ modelId: "gpt-4", minuteTimestamp: recentMinute },
 				]),
-				db.insert(modelProviderMappingUsageHistory).values({
-					modelId: "gpt-4",
-					providerId: "openai",
-					modelProviderMappingId: "mapping-1",
-					usedMode: "credits",
-					minuteTimestamp: recentMinute,
-				}),
-				db.insert(modelUsageHistory).values({
-					modelId: "gpt-4",
-					usedMode: "credits",
-					minuteTimestamp: recentMinute,
-				}),
+				db.insert(modelProviderMappingUsageHistory).values([
+					{
+						modelId: "gpt-4",
+						providerId: "openai",
+						modelProviderMappingId: "mapping-1",
+						usedMode: "credits",
+						minuteTimestamp: oldMinute,
+					},
+					{
+						modelId: "gpt-4",
+						providerId: "openai",
+						modelProviderMappingId: "mapping-1",
+						usedMode: "credits",
+						minuteTimestamp: recentMinute,
+					},
+				]),
+				db.insert(modelUsageHistory).values([
+					{
+						modelId: "gpt-4",
+						usedMode: "credits",
+						minuteTimestamp: oldMinute,
+					},
+					{
+						modelId: "gpt-4",
+						usedMode: "credits",
+						minuteTimestamp: recentMinute,
+					},
+				]),
 			]);
 			await Promise.all([
 				db
@@ -1653,7 +1676,10 @@ describe("stats-calculator", () => {
 							"mapping-1",
 						),
 						eq(modelProviderMappingUsageHistory.usedMode, "credits"),
-						eq(modelProviderMappingUsageHistory.minuteTimestamp, oldMinute),
+						eq(
+							modelProviderMappingUsageHistory.minuteTimestamp,
+							missingArchiveMinute,
+						),
 					),
 				);
 			const [warmMinuteUsage] = await db
@@ -1676,12 +1702,17 @@ describe("stats-calculator", () => {
 					and(
 						eq(modelUsageHistory.modelId, "gpt-4"),
 						eq(modelUsageHistory.usedMode, "credits"),
-						eq(modelUsageHistory.minuteTimestamp, oldMinute),
+						eq(modelUsageHistory.minuteTimestamp, missingArchiveMinute),
 					),
 				);
+			const [backfillSetting] = await db
+				.select()
+				.from(systemSetting)
+				.where(eq(systemSetting.id, "catalog-usage-history-backfill-v1"));
 			expect(retainedMapping?.logsCount).toBe(42);
 			expect(retainedModel?.logsCount).toBe(42);
 			expect(inactiveMappingUsage).toBeDefined();
+			expect(backfillSetting?.enabled).toBe(true);
 			expect(archiveMinuteUsage?.createdAt.getTime()).toBeGreaterThanOrEqual(
 				warmMinuteUsage?.createdAt.getTime() ?? Number.POSITIVE_INFINITY,
 			);
