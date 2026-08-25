@@ -546,6 +546,7 @@ export const moonshotModels = [
 			{
 				providerId: "nebius",
 				externalId: "moonshotai/Kimi-K2.6",
+				deactivatedAt: new Date("2026-08-31"),
 				// Streaming tool calls are unreliable on this deployment: required
 				// choices can end without a tool call, while named choices can leak raw
 				// control tokens into argument deltas (verified 2026-07-22).
@@ -660,6 +661,7 @@ export const moonshotModels = [
 			{
 				providerId: "nebius",
 				externalId: "moonshotai/Kimi-K2.7-Code",
+				deactivatedAt: new Date("2026-08-31"),
 				inputPrice: "0.95e-6",
 				outputPrice: "4.0e-6",
 				requestPrice: "0",
@@ -804,6 +806,7 @@ export const moonshotModels = [
 			{
 				providerId: "nebius",
 				externalId: "moonshotai/Kimi-K3",
+				deactivatedAt: new Date("2026-08-31"),
 				// Named tool choice is rejected with a 400 ("Named tool choice is not
 				// supported for Kimi K3"), and "required" is silently broken: the
 				// upstream emits the call as text in `reasoning_content` and returns
