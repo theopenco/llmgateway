@@ -5872,6 +5872,39 @@ const providerSortBySchema = z.enum([
 ]);
 const catalogUsageModeSchema = z.enum(["total", "credits", "api-keys"]);
 
+function requireCatalogUsageDateRange(
+	query: {
+		mode?: z.infer<typeof catalogUsageModeSchema>;
+		from?: string;
+		to?: string;
+	},
+	ctx: z.RefinementCtx,
+) {
+	if ((query.mode ?? "total") !== "total" && (!query.from || !query.to)) {
+		ctx.addIssue({
+			code: z.ZodIssueCode.custom,
+			message: "from and to are required when filtering by usage mode",
+			path: !query.from ? ["from"] : ["to"],
+		});
+	}
+}
+
+function rejectProjectScopedCatalogUsageMode(
+	query: {
+		projectId?: string;
+		mode?: z.infer<typeof catalogUsageModeSchema>;
+	},
+	ctx: z.RefinementCtx,
+) {
+	if (query.projectId && (query.mode ?? "total") !== "total") {
+		ctx.addIssue({
+			code: z.ZodIssueCode.custom,
+			message: "usage mode is not available for project-scoped history",
+			path: ["mode"],
+		});
+	}
+}
+
 const providerStatsSchema = z.object({
 	id: z.string(),
 	name: z.string(),
@@ -5901,13 +5934,15 @@ const getProviderStats = createRoute({
 	method: "get",
 	path: "/providers",
 	request: {
-		query: z.object({
-			sortBy: providerSortBySchema.default("logsCount").optional(),
-			sortOrder: sortOrderSchema.default("desc").optional(),
-			mode: catalogUsageModeSchema.default("total").optional(),
-			from: z.string().optional(),
-			to: z.string().optional(),
-		}),
+		query: z
+			.object({
+				sortBy: providerSortBySchema.default("logsCount").optional(),
+				sortOrder: sortOrderSchema.default("desc").optional(),
+				mode: catalogUsageModeSchema.default("total").optional(),
+				from: z.string().optional(),
+				to: z.string().optional(),
+			})
+			.superRefine(requireCatalogUsageDateRange),
 	},
 	responses: {
 		200: {
@@ -6008,7 +6043,10 @@ admin.openapi(getProviderStats, async (c) => {
 			clientErrorsCount: sql`COALESCE(${providerStatsSub.clientErrorsCount}, 0)`,
 			cachedCount: sql`COALESCE(${providerStatsSub.cachedCount}, 0)`,
 			totalCost: sql`COALESCE(${providerStatsSub.totalCost}, 0)`,
-			avgTimeToFirstToken: sql`COALESCE(${providerStatsSub.avgTimeToFirstToken}, ${tables.provider.avgTimeToFirstReasoningToken}, ${tables.provider.avgTimeToFirstToken})`,
+			avgTimeToFirstToken:
+				mode === "total"
+					? sql`COALESCE(${providerStatsSub.avgTimeToFirstToken}, ${tables.provider.avgTimeToFirstReasoningToken}, ${tables.provider.avgTimeToFirstToken})`
+					: providerStatsSub.avgTimeToFirstToken,
 			modelCount: sql`COALESCE(${modelCountSub.count}, 0)`,
 			updatedAt: tables.provider.updatedAt,
 		} as const;
@@ -6054,11 +6092,11 @@ admin.openapi(getProviderStats, async (c) => {
 						sql<number>`COALESCE(${providerStatsSub.cachedCount}, 0)`.as(
 							"cachedCount",
 						),
-					avgTimeToFirstToken: sql<
-						number | null
-					>`COALESCE(${providerStatsSub.avgTimeToFirstToken}, ${tables.provider.avgTimeToFirstReasoningToken}, ${tables.provider.avgTimeToFirstToken})`.as(
-						"avgTimeToFirstToken",
-					),
+					avgTimeToFirstToken: sql<number | null>`${
+						mode === "total"
+							? sql`COALESCE(${providerStatsSub.avgTimeToFirstToken}, ${tables.provider.avgTimeToFirstReasoningToken}, ${tables.provider.avgTimeToFirstToken})`
+							: providerStatsSub.avgTimeToFirstToken
+					}`.as("avgTimeToFirstToken"),
 					modelCount: sql<number>`COALESCE(${modelCountSub.count}, 0)`.as(
 						"modelCount",
 					),
@@ -6231,17 +6269,19 @@ const getModelStats = createRoute({
 	method: "get",
 	path: "/models",
 	request: {
-		query: z.object({
-			search: z.string().optional(),
-			family: z.string().optional(),
-			sortBy: modelSortBySchema.default("logsCount").optional(),
-			sortOrder: sortOrderSchema.default("desc").optional(),
-			mode: catalogUsageModeSchema.default("total").optional(),
-			limit: z.coerce.number().min(1).max(100).default(50).optional(),
-			offset: z.coerce.number().min(0).default(0).optional(),
-			from: z.string().optional(),
-			to: z.string().optional(),
-		}),
+		query: z
+			.object({
+				search: z.string().optional(),
+				family: z.string().optional(),
+				sortBy: modelSortBySchema.default("logsCount").optional(),
+				sortOrder: sortOrderSchema.default("desc").optional(),
+				mode: catalogUsageModeSchema.default("total").optional(),
+				limit: z.coerce.number().min(1).max(100).default(50).optional(),
+				offset: z.coerce.number().min(0).default(0).optional(),
+				from: z.string().optional(),
+				to: z.string().optional(),
+			})
+			.superRefine(requireCatalogUsageDateRange),
 	},
 	responses: {
 		200: {
@@ -6324,6 +6364,7 @@ admin.openapi(getModelStats, async (c) => {
 				cachedCount: sql<number>`COALESCE(SUM(${mh.cachedCount}), 0)`.as(
 					"cachedCount",
 				),
+				avgTimeToFirstToken: avgEffectiveTtftSql(mh).as("avgTimeToFirstToken"),
 				totalTokens:
 					sql<number>`COALESCE(SUM(CAST(${mh.totalTokens} AS NUMERIC)), 0)`.as(
 						"totalTokens",
@@ -6388,7 +6429,10 @@ admin.openapi(getModelStats, async (c) => {
 			gatewayErrorsCount: sql`COALESCE(${modelAggSub.gatewayErrorsCount}, 0)`,
 			upstreamErrorsCount: sql`COALESCE(${modelAggSub.upstreamErrorsCount}, 0)`,
 			cachedCount: sql`COALESCE(${modelAggSub.cachedCount}, 0)`,
-			avgTimeToFirstToken: sql`COALESCE(${tables.model.avgTimeToFirstReasoningToken}, ${tables.model.avgTimeToFirstToken})`,
+			avgTimeToFirstToken:
+				mode === "total"
+					? sql`COALESCE(${modelAggSub.avgTimeToFirstToken}, ${tables.model.avgTimeToFirstReasoningToken}, ${tables.model.avgTimeToFirstToken})`
+					: modelAggSub.avgTimeToFirstToken,
 			providerCount: sql`COALESCE(${providerCountSub.count}, 0)`,
 			updatedAt: tables.model.updatedAt,
 		} as const;
@@ -6445,11 +6489,11 @@ admin.openapi(getModelStats, async (c) => {
 				cachedCount: sql<number>`COALESCE(${modelAggSub.cachedCount}, 0)`.as(
 					"cachedCount",
 				),
-				avgTimeToFirstToken: sql<
-					number | null
-				>`COALESCE(${tables.model.avgTimeToFirstReasoningToken}, ${tables.model.avgTimeToFirstToken})`.as(
-					"avgTimeToFirstToken",
-				),
+				avgTimeToFirstToken: sql<number | null>`${
+					mode === "total"
+						? sql`COALESCE(${modelAggSub.avgTimeToFirstToken}, ${tables.model.avgTimeToFirstReasoningToken}, ${tables.model.avgTimeToFirstToken})`
+						: modelAggSub.avgTimeToFirstToken
+				}`.as("avgTimeToFirstToken"),
 				providerCount: sql<number>`COALESCE(${providerCountSub.count}, 0)`.as(
 					"providerCount",
 				),
@@ -8888,11 +8932,13 @@ const getModelHistory = createRoute({
 	path: "/models/{modelId}/history",
 	request: {
 		params: z.object({ modelId: z.string() }),
-		query: z.object({
-			window: historyWindowSchema.default("4h").optional(),
-			projectId: z.string().optional(),
-			mode: catalogUsageModeSchema.default("total").optional(),
-		}),
+		query: z
+			.object({
+				window: historyWindowSchema.default("4h").optional(),
+				projectId: z.string().optional(),
+				mode: catalogUsageModeSchema.default("total").optional(),
+			})
+			.superRefine(rejectProjectScopedCatalogUsageMode),
 	},
 	responses: {
 		200: {
@@ -9129,12 +9175,14 @@ const getMappingHistory = createRoute({
 			providerId: z.string(),
 			modelId: z.string(),
 		}),
-		query: z.object({
-			window: historyWindowSchema.default("4h").optional(),
-			projectId: z.string().optional(),
-			region: z.string().optional(),
-			mode: catalogUsageModeSchema.default("total").optional(),
-		}),
+		query: z
+			.object({
+				window: historyWindowSchema.default("4h").optional(),
+				projectId: z.string().optional(),
+				region: z.string().optional(),
+				mode: catalogUsageModeSchema.default("total").optional(),
+			})
+			.superRefine(rejectProjectScopedCatalogUsageMode),
 	},
 	responses: {
 		200: {
@@ -10924,29 +10972,31 @@ const getModelProviderMappings = createRoute({
 	method: "get",
 	path: "/model-provider-mappings",
 	request: {
-		query: z.object({
-			search: z.string().optional(),
-			sortBy: z
-				.enum([
-					"modelId",
-					"providerId",
-					"logsCount",
-					"errorsCount",
-					"clientErrorsCount",
-					"gatewayErrorsCount",
-					"upstreamErrorsCount",
-					"cost",
-					"avgTimeToFirstToken",
-					"updatedAt",
-				])
-				.optional(),
-			sortOrder: z.enum(["asc", "desc"]).optional(),
-			limit: z.coerce.number().optional(),
-			offset: z.coerce.number().optional(),
-			mode: catalogUsageModeSchema.default("total").optional(),
-			from: z.string().optional(),
-			to: z.string().optional(),
-		}),
+		query: z
+			.object({
+				search: z.string().optional(),
+				sortBy: z
+					.enum([
+						"modelId",
+						"providerId",
+						"logsCount",
+						"errorsCount",
+						"clientErrorsCount",
+						"gatewayErrorsCount",
+						"upstreamErrorsCount",
+						"cost",
+						"avgTimeToFirstToken",
+						"updatedAt",
+					])
+					.optional(),
+				sortOrder: z.enum(["asc", "desc"]).optional(),
+				limit: z.coerce.number().optional(),
+				offset: z.coerce.number().optional(),
+				mode: catalogUsageModeSchema.default("total").optional(),
+				from: z.string().optional(),
+				to: z.string().optional(),
+			})
+			.superRefine(requireCatalogUsageDateRange),
 	},
 	responses: {
 		200: {
@@ -11057,6 +11107,9 @@ admin.openapi(getModelProviderMappings, async (c) => {
 						sql<number>`COALESCE(SUM(${mappingHistory.table.cachedCount}), 0)`.as(
 							"cachedCount",
 						),
+					avgTimeToFirstToken: avgEffectiveTtftSql(mappingHistory.table).as(
+						"avgTimeToFirstToken",
+					),
 					cost: sql<number>`COALESCE(SUM(cast(${mappingHistory.table.totalCost} as double precision)), 0)`.as(
 						"cost",
 					),
@@ -11083,6 +11136,11 @@ admin.openapi(getModelProviderMappings, async (c) => {
 					gatewayErrorsCount: tables.modelProviderMapping.gatewayErrorsCount,
 					upstreamErrorsCount: tables.modelProviderMapping.upstreamErrorsCount,
 					cachedCount: tables.modelProviderMapping.cachedCount,
+					avgTimeToFirstToken: sql<
+						number | null
+					>`COALESCE(${tables.modelProviderMapping.avgTimeToFirstReasoningToken}, ${tables.modelProviderMapping.avgTimeToFirstToken})`.as(
+						"avgTimeToFirstToken",
+					),
 					// Cost and the token breakdown are only tracked in the history
 					// table, so they are only available when a date range is provided
 					// (mirrors the models list).
@@ -11151,7 +11209,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 		gatewayErrorsCount: sql`COALESCE(${statsJoin.gatewayErrorsCount}, 0)`,
 		upstreamErrorsCount: sql`COALESCE(${statsJoin.upstreamErrorsCount}, 0)`,
 		cost: sql`COALESCE(${statsJoin.cost}, 0)`,
-		avgTimeToFirstToken: sql`COALESCE(${tables.modelProviderMapping.avgTimeToFirstReasoningToken}, ${tables.modelProviderMapping.avgTimeToFirstToken})`,
+		avgTimeToFirstToken: statsJoin.avgTimeToFirstToken,
 		updatedAt: tables.modelProviderMapping.updatedAt,
 	} as const;
 
@@ -11196,9 +11254,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 				cost: sql<number>`COALESCE(${statsJoin.cost}, 0)`.as("cost"),
 				avgTimeToFirstToken: sql<
 					number | null
-				>`COALESCE(${tables.modelProviderMapping.avgTimeToFirstReasoningToken}, ${tables.modelProviderMapping.avgTimeToFirstToken})`.as(
-					"avgTimeToFirstToken",
-				),
+				>`${statsJoin.avgTimeToFirstToken}`.as("avgTimeToFirstToken"),
 				...tokenBreakdownFromSub(statsJoin),
 				inputPrice: tables.modelProviderMapping.inputPrice,
 				outputPrice: tables.modelProviderMapping.outputPrice,

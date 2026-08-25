@@ -15,6 +15,7 @@ import {
 	gte,
 	lt,
 	and,
+	inArray,
 	type SQL,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -1209,6 +1210,29 @@ async function calculateModelHistoryForHour(targetHour: Date) {
 				set: { ...stats, updatedAt: new Date() },
 			});
 	}
+	const legacyModelIds = new Set(
+		hourlyStats
+			.filter((row) => row.usedMode === "unknown")
+			.map((row) => row.modelId),
+	);
+	const replacedModelIds = [
+		...new Set(
+			hourlyStats
+				.filter((row) => row.usedMode !== "unknown")
+				.map((row) => row.modelId),
+		),
+	].filter((modelId) => !legacyModelIds.has(modelId));
+	if (replacedModelIds.length > 0) {
+		await database
+			.delete(modelHistoryHourly)
+			.where(
+				and(
+					eq(modelHistoryHourly.hourTimestamp, roundedHour),
+					eq(modelHistoryHourly.usedMode, "unknown"),
+					inArray(modelHistoryHourly.modelId, replacedModelIds),
+				),
+			);
+	}
 	return {
 		totalModels: new Set(hourlyStats.map((row) => row.modelId)).size,
 	};
@@ -1297,6 +1321,32 @@ async function calculateMappingHistoryForHour(targetHour: Date) {
 				],
 				set: { ...stats, updatedAt: new Date() },
 			});
+	}
+	const legacyMappingIds = new Set(
+		hourlyStats
+			.filter((row) => row.usedMode === "unknown")
+			.map((row) => row.modelProviderMappingId),
+	);
+	const replacedMappingIds = [
+		...new Set(
+			hourlyStats
+				.filter((row) => row.usedMode !== "unknown")
+				.map((row) => row.modelProviderMappingId),
+		),
+	].filter((mappingId) => !legacyMappingIds.has(mappingId));
+	if (replacedMappingIds.length > 0) {
+		await database
+			.delete(modelProviderMappingHistoryHourly)
+			.where(
+				and(
+					eq(modelProviderMappingHistoryHourly.hourTimestamp, roundedHour),
+					eq(modelProviderMappingHistoryHourly.usedMode, "unknown"),
+					inArray(
+						modelProviderMappingHistoryHourly.modelProviderMappingId,
+						replacedMappingIds,
+					),
+				),
+			);
 	}
 	return {
 		totalMappings: new Set(hourlyStats.map((row) => row.modelProviderMappingId))

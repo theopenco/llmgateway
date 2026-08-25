@@ -20,6 +20,7 @@ interface CatalogResponse {
 	requests: number;
 	tokens: number;
 	cost: number;
+	avgTimeToFirstToken: number | null;
 }
 
 async function clearFixtures() {
@@ -48,23 +49,44 @@ describe("admin catalog usage mode", () => {
 			id: PROVIDER_ID,
 			name: "Catalog Mode Provider",
 			description: "Test provider",
+			avgTimeToFirstToken: 999,
 		});
 		await db.insert(tables.model).values({
 			id: MODEL_ID,
 			name: "Catalog Mode Model",
 			family: "test",
+			avgTimeToFirstToken: 999,
 		});
 		await db.insert(tables.modelProviderMapping).values({
 			id: MAPPING_ID,
 			modelId: MODEL_ID,
 			providerId: PROVIDER_ID,
 			externalId: MODEL_ID,
+			avgTimeToFirstToken: 999,
 		});
 
 		const buckets = [
-			{ usedMode: "credits" as const, requests: 3, tokens: 30, cost: 0.3 },
-			{ usedMode: "api-keys" as const, requests: 2, tokens: 20, cost: 0.2 },
-			{ usedMode: "unknown" as const, requests: 1, tokens: 10, cost: 0.1 },
+			{
+				usedMode: "credits" as const,
+				requests: 3,
+				tokens: 30,
+				cost: 0.3,
+				totalTimeToFirstToken: 300,
+			},
+			{
+				usedMode: "api-keys" as const,
+				requests: 2,
+				tokens: 20,
+				cost: 0.2,
+				totalTimeToFirstToken: 400,
+			},
+			{
+				usedMode: "unknown" as const,
+				requests: 1,
+				tokens: 10,
+				cost: 0.1,
+				totalTimeToFirstToken: 300,
+			},
 		];
 		await db.insert(tables.modelHistory).values(
 			buckets.map((bucket) => ({
@@ -76,6 +98,8 @@ describe("admin catalog usage mode", () => {
 				totalInputTokens: bucket.tokens,
 				totalCost: bucket.cost,
 				totalInputCost: bucket.cost,
+				totalTimeToFirstToken: bucket.totalTimeToFirstToken,
+				timeToFirstTokenCount: bucket.requests,
 			})),
 		);
 		await db.insert(tables.modelProviderMappingHistory).values(
@@ -90,6 +114,8 @@ describe("admin catalog usage mode", () => {
 				totalInputTokens: bucket.tokens,
 				totalCost: bucket.cost,
 				totalInputCost: bucket.cost,
+				totalTimeToFirstToken: bucket.totalTimeToFirstToken,
+				timeToFirstTokenCount: bucket.requests,
 			})),
 		);
 	});
@@ -109,13 +135,24 @@ describe("admin catalog usage mode", () => {
 		});
 		expect(response.status).toBe(200);
 		const body = (await response.json()) as {
-			models?: { logsCount: number; totalTokens: number; totalCost: number }[];
+			models?: {
+				logsCount: number;
+				totalTokens: number;
+				totalCost: number;
+				avgTimeToFirstToken: number | null;
+			}[];
 			providers?: {
 				logsCount: number;
 				totalTokens: number;
 				totalCost: number;
+				avgTimeToFirstToken: number | null;
 			}[];
-			mappings?: { logsCount: number; inputTokens: number; cost: number }[];
+			mappings?: {
+				logsCount: number;
+				inputTokens: number;
+				cost: number;
+				avgTimeToFirstToken: number | null;
+			}[];
 		};
 		const row =
 			body.models?.find((item) => item.totalTokens > 0) ??
@@ -126,6 +163,7 @@ describe("admin catalog usage mode", () => {
 			requests: row!.logsCount,
 			tokens: "totalTokens" in row! ? row!.totalTokens : row!.inputTokens,
 			cost: "cost" in row! ? row!.cost : row!.totalCost,
+			avgTimeToFirstToken: row!.avgTimeToFirstToken,
 		};
 	}
 
@@ -139,19 +177,93 @@ describe("admin catalog usage mode", () => {
 				requests: 3,
 				tokens: 30,
 				cost: expect.closeTo(0.3),
+				avgTimeToFirstToken: 100,
 			});
 			await expect(fetchCatalog(path, "api-keys")).resolves.toEqual({
 				requests: 2,
 				tokens: 20,
 				cost: expect.closeTo(0.2),
+				avgTimeToFirstToken: 200,
 			});
 			await expect(fetchCatalog(path)).resolves.toEqual({
 				requests: 6,
 				tokens: 60,
 				cost: expect.closeTo(0.6),
+				avgTimeToFirstToken: expect.closeTo(1000 / 6),
 			});
 		});
 	}
+
+	it("keeps filtered latency null without a mode sample", async () => {
+		await Promise.all([
+			db
+				.update(tables.modelHistory)
+				.set({ timeToFirstTokenCount: 0 })
+				.where(
+					and(
+						eq(tables.modelHistory.modelId, MODEL_ID),
+						eq(tables.modelHistory.usedMode, "api-keys"),
+					),
+				),
+			db
+				.update(tables.modelProviderMappingHistory)
+				.set({ timeToFirstTokenCount: 0 })
+				.where(
+					and(
+						eq(
+							tables.modelProviderMappingHistory.modelProviderMappingId,
+							MAPPING_ID,
+						),
+						eq(tables.modelProviderMappingHistory.usedMode, "api-keys"),
+					),
+				),
+		]);
+
+		for (const path of [
+			"models",
+			"providers",
+			"model-provider-mappings",
+		] as const) {
+			await expect(fetchCatalog(path, "api-keys")).resolves.toMatchObject({
+				requests: 2,
+				avgTimeToFirstToken: null,
+			});
+		}
+	});
+
+	it("requires a complete range for narrowed modes", async () => {
+		for (const path of [
+			"models",
+			"providers",
+			"model-provider-mappings",
+		] as const) {
+			for (const query of [
+				"mode=credits",
+				`mode=credits&from=${encodeURIComponent(BUCKET.toISOString())}`,
+				`mode=credits&to=${encodeURIComponent(BUCKET.toISOString())}`,
+			]) {
+				const response = await app.request(`/admin/${path}?${query}`, {
+					headers: { Cookie: cookie },
+				});
+				expect(response.status).toBe(400);
+			}
+		}
+	});
+
+	it("rejects narrowed project-scoped history", async () => {
+		for (const path of [
+			`models/${MODEL_ID}/history`,
+			`providers/${PROVIDER_ID}/models/${MODEL_ID}/history`,
+		]) {
+			for (const mode of ["credits", "api-keys"]) {
+				const response = await app.request(
+					`/admin/${path}?projectId=test-project&mode=${mode}`,
+					{ headers: { Cookie: cookie } },
+				);
+				expect(response.status).toBe(400);
+			}
+		}
+	});
 
 	it("filters expanded history charts by usage mode", async () => {
 		for (const path of [

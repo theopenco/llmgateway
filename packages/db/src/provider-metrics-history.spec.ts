@@ -7,7 +7,7 @@ import { DEFAULT_ROUTING_HISTORY } from "@llmgateway/shared/routing-config";
 import { db } from "./db.js";
 import { getProviderMetricsFromHistory } from "./provider-metrics-history.js";
 import { metricsKey } from "./provider-metrics.js";
-import { modelProviderMappingUsageHistory as modelProviderMappingHistory } from "./schema.js";
+import { modelProviderMappingHistory } from "./schema.js";
 
 let modelId: string | undefined;
 

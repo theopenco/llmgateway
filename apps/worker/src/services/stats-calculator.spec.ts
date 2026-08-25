@@ -341,7 +341,8 @@ describe("stats-calculator", () => {
 			const rows = await db
 				.select()
 				.from(modelHistory)
-				.where(eq(modelHistory.modelId, "gpt-4"));
+				.where(eq(modelHistory.modelId, "gpt-4"))
+				.orderBy(modelHistory.usedMode);
 			expect(
 				rows.map((row) => ({
 					mode: row.usedMode,
@@ -350,8 +351,8 @@ describe("stats-calculator", () => {
 					cost: row.totalCost,
 				})),
 			).toEqual([
-				{ mode: "credits", requests: 1, tokens: 30, cost: 0.3 },
 				{ mode: "api-keys", requests: 1, tokens: 20, cost: 0.2 },
+				{ mode: "credits", requests: 1, tokens: 30, cost: 0.3 },
 			]);
 		});
 
@@ -1747,6 +1748,61 @@ describe("stats-calculator", () => {
 			// Recomputed from minute data, not added to the stale 999
 			expect(gptCurrent?.logsCount).toBe(4);
 			expect(gptCurrent?.errorsCount).toBe(1);
+		});
+
+		it("removes stale blended rows after per-mode rollup", async () => {
+			await db.insert(modelHistoryHourly).values({
+				modelId: "gpt-4",
+				hourTimestamp: currentHour,
+				logsCount: 999,
+			});
+			await db.insert(modelProviderMappingHistoryHourly).values({
+				modelId: "gpt-4",
+				providerId: "openai",
+				modelProviderMappingId: "mapping-1",
+				hourTimestamp: currentHour,
+				logsCount: 999,
+			});
+			await db.insert(modelHistory).values({
+				modelId: "gpt-4",
+				usedMode: "credits",
+				minuteTimestamp: new Date("2024-01-01T12:05:00.000Z"),
+				logsCount: 4,
+			});
+			await db.insert(modelProviderMappingHistory).values({
+				modelId: "gpt-4",
+				providerId: "openai",
+				modelProviderMappingId: "mapping-1",
+				usedMode: "credits",
+				minuteTimestamp: new Date("2024-01-01T12:05:00.000Z"),
+				logsCount: 4,
+			});
+
+			await calculateHourlyHistory();
+
+			const modelRows = await db
+				.select()
+				.from(modelHistoryHourly)
+				.where(eq(modelHistoryHourly.hourTimestamp, currentHour));
+			expect(
+				modelRows.map((row) => ({
+					mode: row.usedMode,
+					requests: row.logsCount,
+				})),
+			).toEqual([{ mode: "credits", requests: 4 }]);
+
+			const mappingRows = await db
+				.select()
+				.from(modelProviderMappingHistoryHourly)
+				.where(
+					eq(modelProviderMappingHistoryHourly.hourTimestamp, currentHour),
+				);
+			expect(
+				mappingRows.map((row) => ({
+					mode: row.usedMode,
+					requests: row.logsCount,
+				})),
+			).toEqual([{ mode: "credits", requests: 4 }]);
 		});
 
 		it("should roll up token totals exceeding the 32-bit integer range", async () => {
