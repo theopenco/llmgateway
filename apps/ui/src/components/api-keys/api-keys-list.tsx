@@ -2,7 +2,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
 	BarChart3Icon,
 	EditIcon,
-	InfoIcon,
 	KeyIcon,
 	MoreHorizontal,
 	PencilIcon,
@@ -92,20 +91,94 @@ type StatusFilter = "all" | "active" | "inactive";
 type CreatorFilter = "mine" | "all";
 type LimitFilter = "all" | "approaching" | "reached";
 
-const PLAYGROUND_KEY_DESCRIPTION = "Auto-generated playground key";
-
-function PlaygroundKeyNote() {
+function ManagedPlaygroundTableRow({
+	apiKey,
+	statisticsUrl,
+}: {
+	apiKey: ApiKey;
+	statisticsUrl: Route;
+}) {
 	return (
-		<>
-			<DropdownMenuSeparator />
-			<div className="text-muted-foreground flex max-w-52 items-start gap-2 px-2 py-1.5 text-xs">
-				<InfoIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-				<span>
-					The auto-generated Lounge key is managed by LLM Gateway and can't be
-					edited.
-				</span>
+		<TableRow className="hover:bg-muted/30 transition-colors">
+			<TableCell>
+				<div className="flex items-center gap-2">
+					<span className="font-medium">Playground</span>
+					<Badge variant="outline">Managed</Badge>
+				</div>
+			</TableCell>
+			<TableCell className="min-w-40 max-w-40">
+				<span className="font-mono text-xs truncate">{apiKey.maskedToken}</span>
+			</TableCell>
+			<TableCell>
+				<StatusBadge status={apiKey.status} variant="detailed" />
+			</TableCell>
+			<TableCell>
+				<Time date={apiKey.createdAt} format="monthDayYear" />
+			</TableCell>
+			<TableCell className="text-muted-foreground">
+				{apiKey.creator?.name ?? apiKey.creator?.email ?? "Unknown"}
+			</TableCell>
+			<TableCell>{formatCurrencyAmount(apiKey.usage)}</TableCell>
+			<TableCell className="text-muted-foreground">
+				{formatCurrentPeriodUsageSummary(apiKey).summary}
+			</TableCell>
+			<TableCell className="text-muted-foreground">Not applicable</TableCell>
+			<TableCell className="text-muted-foreground">Not applicable</TableCell>
+			<TableCell className="sticky right-0 bg-card text-center">
+				<Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+					<Link href={statisticsUrl} prefetch={true}>
+						<BarChart3Icon className="h-4 w-4" />
+						<span className="sr-only">View Statistics</span>
+					</Link>
+				</Button>
+			</TableCell>
+		</TableRow>
+	);
+}
+
+function ManagedPlaygroundCard({
+	apiKey,
+	statisticsUrl,
+}: {
+	apiKey: ApiKey;
+	statisticsUrl: Route;
+}) {
+	return (
+		<div className="border rounded-lg p-3 space-y-3">
+			<div className="flex items-start justify-between gap-3">
+				<div className="flex items-center gap-2">
+					<h3 className="font-medium text-sm">Playground</h3>
+					<Badge variant="outline">Managed</Badge>
+					<StatusBadge status={apiKey.status} />
+				</div>
+				<Button variant="ghost" size="sm" asChild>
+					<Link href={statisticsUrl} prefetch={true}>
+						<BarChart3Icon className="mr-2 h-4 w-4" />
+						Statistics
+					</Link>
+				</Button>
 			</div>
-		</>
+			<div className="pt-2 border-t grid grid-cols-2 gap-3">
+				<div>
+					<div className="text-xs text-muted-foreground mb-1">API Key</div>
+					<div className="font-mono text-xs break-all">
+						{apiKey.maskedToken}
+					</div>
+				</div>
+				<div>
+					<div className="text-xs text-muted-foreground mb-1">Usage</div>
+					<div className="font-mono text-xs">
+						{formatCurrencyAmount(apiKey.usage)}
+					</div>
+				</div>
+			</div>
+			<div className="pt-2 border-t">
+				<div className="text-xs text-muted-foreground mb-1">Created By</div>
+				<div className="text-sm">
+					{apiKey.creator?.name ?? apiKey.creator?.email ?? "Unknown"}
+				</div>
+			</div>
+		</div>
 	);
 }
 
@@ -779,8 +852,16 @@ export function ApiKeysList({
 					</TableHeader>
 					<TableBody>
 						{filteredKeys.map((key) => {
-							const isPlaygroundKey =
-								key.description === PLAYGROUND_KEY_DESCRIPTION;
+							if (key.kind === "playground") {
+								return (
+									<ManagedPlaygroundTableRow
+										key={key.id}
+										apiKey={key}
+										statisticsUrl={getStatisticsUrl(key.id)}
+									/>
+								);
+							}
+
 							return (
 								<TableRow
 									key={key.id}
@@ -788,9 +869,7 @@ export function ApiKeysList({
 								>
 									<TableCell className="font-medium">
 										<span className="text-sm font-medium">
-											{isPlaygroundKey
-												? "Auto-generated Lounge key"
-												: key.description}
+											{key.description}
 										</span>
 									</TableCell>
 									<TableCell className="min-w-40 max-w-40">
@@ -916,71 +995,52 @@ export function ApiKeysList({
 													</Link>
 												</DropdownMenuItem>
 												<DropdownMenuSeparator />
-												<DropdownMenuItem
-													disabled={isPlaygroundKey}
-													onClick={() => setRenameKey(key)}
-												>
+												<DropdownMenuItem onClick={() => setRenameKey(key)}>
 													<PencilIcon className="mr-2 h-4 w-4" />
 													Rename Key
 												</DropdownMenuItem>
-												<DropdownMenuItem
-													disabled={isPlaygroundKey}
-													onClick={() => toggleStatus(key)}
-												>
+												<DropdownMenuItem onClick={() => toggleStatus(key)}>
 													<PowerIcon className="mr-2 h-4 w-4" />
 													{key.status === "active"
 														? "Deactivate"
 														: "Activate"}{" "}
 													Key
 												</DropdownMenuItem>
-												<DropdownMenuItem
-													disabled={isPlaygroundKey}
-													onClick={() => setRollKey(key)}
-												>
+												<DropdownMenuItem onClick={() => setRollKey(key)}>
 													<RefreshCwIcon className="mr-2 h-4 w-4" />
 													Roll Key
 												</DropdownMenuItem>
 												<DropdownMenuSeparator />
-												{isPlaygroundKey ? (
-													<DropdownMenuItem
-														disabled
-														className="text-destructive focus:text-destructive"
-													>
-														Delete
-													</DropdownMenuItem>
-												) : (
-													<AlertDialog>
-														<AlertDialogTrigger asChild>
-															<DropdownMenuItem
-																onSelect={(e) => e.preventDefault()}
-																className="text-destructive focus:text-destructive"
+												<AlertDialog>
+													<AlertDialogTrigger asChild>
+														<DropdownMenuItem
+															onSelect={(e) => e.preventDefault()}
+															className="text-destructive focus:text-destructive"
+														>
+															Delete
+														</DropdownMenuItem>
+													</AlertDialogTrigger>
+													<AlertDialogContent>
+														<AlertDialogHeader>
+															<AlertDialogTitle>
+																Are you absolutely sure?
+															</AlertDialogTitle>
+															<AlertDialogDescription>
+																This action cannot be undone. This will
+																permanently delete the API key and it will no
+																longer be able to access your account.
+															</AlertDialogDescription>
+														</AlertDialogHeader>
+														<AlertDialogFooter>
+															<AlertDialogCancel>Cancel</AlertDialogCancel>
+															<AlertDialogAction
+																onClick={() => deleteKey(key.id)}
 															>
 																Delete
-															</DropdownMenuItem>
-														</AlertDialogTrigger>
-														<AlertDialogContent>
-															<AlertDialogHeader>
-																<AlertDialogTitle>
-																	Are you absolutely sure?
-																</AlertDialogTitle>
-																<AlertDialogDescription>
-																	This action cannot be undone. This will
-																	permanently delete the API key and it will no
-																	longer be able to access your account.
-																</AlertDialogDescription>
-															</AlertDialogHeader>
-															<AlertDialogFooter>
-																<AlertDialogCancel>Cancel</AlertDialogCancel>
-																<AlertDialogAction
-																	onClick={() => deleteKey(key.id)}
-																>
-																	Delete
-																</AlertDialogAction>
-															</AlertDialogFooter>
-														</AlertDialogContent>
-													</AlertDialog>
-												)}
-												{isPlaygroundKey && <PlaygroundKeyNote />}
+															</AlertDialogAction>
+														</AlertDialogFooter>
+													</AlertDialogContent>
+												</AlertDialog>
 											</DropdownMenuContent>
 										</DropdownMenu>
 									</TableCell>
@@ -994,18 +1054,22 @@ export function ApiKeysList({
 			{/* Mobile Cards */}
 			<div className="md:hidden space-y-3">
 				{filteredKeys.map((key) => {
-					const isPlaygroundKey =
-						key.description === PLAYGROUND_KEY_DESCRIPTION;
+					if (key.kind === "playground") {
+						return (
+							<ManagedPlaygroundCard
+								key={key.id}
+								apiKey={key}
+								statisticsUrl={getStatisticsUrl(key.id)}
+							/>
+						);
+					}
+
 					return (
 						<div key={key.id} className="border rounded-lg p-3 space-y-3">
 							<div className="flex items-start justify-between">
 								<div className="flex-1 min-w-0">
 									<div className="flex items-center gap-2">
-										<h3 className="font-medium text-sm">
-											{isPlaygroundKey
-												? "Auto-generated Lounge key"
-												: key.description}
-										</h3>
+										<h3 className="font-medium text-sm">{key.description}</h3>
 										<StatusBadge status={key.status} />
 										<ApiKeyLimitBadge
 											apiKey={key}
@@ -1044,61 +1108,43 @@ export function ApiKeysList({
 											</Link>
 										</DropdownMenuItem>
 										<DropdownMenuSeparator />
-										<DropdownMenuItem
-											disabled={isPlaygroundKey}
-											onClick={() => toggleStatus(key)}
-										>
+										<DropdownMenuItem onClick={() => toggleStatus(key)}>
 											<PowerIcon className="mr-2 h-4 w-4" />
 											{key.status === "active" ? "Deactivate" : "Activate"} Key
 										</DropdownMenuItem>
-										<DropdownMenuItem
-											disabled={isPlaygroundKey}
-											onClick={() => setRollKey(key)}
-										>
+										<DropdownMenuItem onClick={() => setRollKey(key)}>
 											<RefreshCwIcon className="mr-2 h-4 w-4" />
 											Roll Key
 										</DropdownMenuItem>
 										<DropdownMenuSeparator />
-										{isPlaygroundKey ? (
-											<DropdownMenuItem
-												disabled
-												className="text-destructive focus:text-destructive"
-											>
-												Delete
-											</DropdownMenuItem>
-										) : (
-											<AlertDialog>
-												<AlertDialogTrigger asChild>
-													<DropdownMenuItem
-														onSelect={(e) => e.preventDefault()}
-														className="text-destructive focus:text-destructive"
-													>
+										<AlertDialog>
+											<AlertDialogTrigger asChild>
+												<DropdownMenuItem
+													onSelect={(e) => e.preventDefault()}
+													className="text-destructive focus:text-destructive"
+												>
+													Delete
+												</DropdownMenuItem>
+											</AlertDialogTrigger>
+											<AlertDialogContent>
+												<AlertDialogHeader>
+													<AlertDialogTitle>
+														Are you absolutely sure?
+													</AlertDialogTitle>
+													<AlertDialogDescription>
+														This action cannot be undone. This will permanently
+														delete the API key and it will no longer be able to
+														access your account.
+													</AlertDialogDescription>
+												</AlertDialogHeader>
+												<AlertDialogFooter>
+													<AlertDialogCancel>Cancel</AlertDialogCancel>
+													<AlertDialogAction onClick={() => deleteKey(key.id)}>
 														Delete
-													</DropdownMenuItem>
-												</AlertDialogTrigger>
-												<AlertDialogContent>
-													<AlertDialogHeader>
-														<AlertDialogTitle>
-															Are you absolutely sure?
-														</AlertDialogTitle>
-														<AlertDialogDescription>
-															This action cannot be undone. This will
-															permanently delete the API key and it will no
-															longer be able to access your account.
-														</AlertDialogDescription>
-													</AlertDialogHeader>
-													<AlertDialogFooter>
-														<AlertDialogCancel>Cancel</AlertDialogCancel>
-														<AlertDialogAction
-															onClick={() => deleteKey(key.id)}
-														>
-															Delete
-														</AlertDialogAction>
-													</AlertDialogFooter>
-												</AlertDialogContent>
-											</AlertDialog>
-										)}
-										{isPlaygroundKey && <PlaygroundKeyNote />}
+													</AlertDialogAction>
+												</AlertDialogFooter>
+											</AlertDialogContent>
+										</AlertDialog>
 									</DropdownMenuContent>
 								</DropdownMenu>
 							</div>

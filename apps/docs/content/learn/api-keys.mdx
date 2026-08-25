@@ -24,7 +24,10 @@ Use this page to:
 
 <Callout type="warning">
 	API keys are shown in full only once, immediately after creation. Copy and
-	store them securely before closing the dialog.
+	store them securely before closing the dialog. New and rolled secrets are
+	stored only as keyed HMAC-SHA-256 fingerprints; authentication fingerprints
+	the presented secret and compares the result. Existing keys keep working, and
+	rolling an older key moves it to hash-only storage.
 </Callout>
 
 ## Creating an API Key
@@ -124,9 +127,10 @@ The actions menu on each key offers:
 - **Delete**: Permanently remove the key
 
 <Callout type="info">
-	The auto-generated playground key is managed for you: it cannot be renamed,
-	rolled, deactivated, or deleted. Members with the developer role can only
-	modify keys they created themselves.
+	The Playground key appears with a **Managed** badge and only exposes its
+	statistics. It cannot be renamed, rolled, deactivated, limited, assigned IAM
+	rules, or deleted. Members with the developer role can only modify keys they
+	created themselves.
 </Callout>
 
 ## Rolling a Key

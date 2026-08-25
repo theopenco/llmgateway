@@ -6,6 +6,10 @@ import { platformSecretAuth } from "@/lib/platform-secret-auth.js";
 
 import { db, eq, shortid, sql, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import {
+	hashApiKeyForStorage,
+	hashTokenForStorage,
+} from "@llmgateway/shared/api-key-hash";
 
 import type { AuthenticatedPlatformKey } from "@/lib/platform-secret-auth.js";
 import type { ServerTypes } from "@/vars.js";
@@ -205,7 +209,7 @@ async function ensureEndUserCustomerApiKey(
 	await db
 		.insert(tables.apiKey)
 		.values({
-			token: END_USER_CUSTOMER_KEY_PREFIX + shortid(40),
+			...hashApiKeyForStorage(END_USER_CUSTOMER_KEY_PREFIX + shortid(40)),
 			projectId: platformKey.projectId,
 			description: `Embedded end-user: ${endCustomer.externalId}`,
 			keyType: "end_user_customer",
@@ -268,7 +272,7 @@ platformSessions.openapi(createSession, async (c) => {
 			: null;
 
 	await db.insert(tables.endUserSession).values({
-		token,
+		...hashTokenForStorage(token),
 		projectId: platformKey.projectId,
 		organizationId: platformKey.organizationId,
 		endCustomerId: endCustomer.id,
@@ -279,8 +283,8 @@ platformSessions.openapi(createSession, async (c) => {
 		usageLimit: scope?.maxSpend ? String(scope.maxSpend) : undefined,
 	});
 
-	// The publishable key is a sibling platform_publishable key on the project,
-	// used by the browser to load Stripe for top-ups (Phase 2). May not exist yet.
+	// This is an intentionally public browser identifier, unlike the hash-only
+	// platform secret and ephemeral session credentials. It may not exist yet.
 	const publishable = await db.query.apiKey.findFirst({
 		where: {
 			projectId: { eq: platformKey.projectId },

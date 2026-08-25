@@ -1,6 +1,7 @@
 import { HTTPException } from "hono/http-exception";
 
 import { db } from "@llmgateway/db";
+import { getApiKeyFingerprints } from "@llmgateway/shared/api-key-hash";
 
 import type { Context, Next } from "hono";
 
@@ -46,7 +47,10 @@ export async function endUserSessionAuth(c: Context, next: Next) {
 
 	const session = await db.query.endUserSession.findFirst({
 		where: {
-			token: { eq: token },
+			OR: [
+				{ token: { eq: token } },
+				{ tokenHash: { in: getApiKeyFingerprints(token) } },
+			],
 			status: { eq: "active" },
 		},
 		with: { wallet: { with: { endCustomer: true, project: true } } },

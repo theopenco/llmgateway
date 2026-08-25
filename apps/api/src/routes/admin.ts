@@ -3410,7 +3410,8 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 	const apiKeys = await db
 		.select({
 			id: tables.apiKey.id,
-			token: tables.apiKey.token,
+			legacyToken: tables.apiKey.token,
+			tokenMasked: tables.apiKey.tokenMasked,
 			description: tables.apiKey.description,
 			status: tables.apiKey.status,
 			usage: tables.apiKey.usage,
@@ -3450,6 +3451,9 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 	return c.json({
 		apiKeys: apiKeys.map((k) => ({
 			...k,
+			token: k.tokenMasked ?? maskToken(k.legacyToken ?? ""),
+			legacyToken: undefined,
+			tokenMasked: undefined,
 			usage: String(k.usage),
 			usageLimit: k.usageLimit ? String(k.usageLimit) : null,
 			createdAt: k.createdAt.toISOString(),

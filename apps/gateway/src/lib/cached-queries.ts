@@ -49,7 +49,10 @@ import {
 } from "@llmgateway/db";
 import { getRegionScopedDefaultRegion } from "@llmgateway/models";
 
-import { getApiKeyFingerprint } from "./api-key-fingerprint.js";
+import {
+	getApiKeyFingerprint,
+	getApiKeyFingerprints,
+} from "./api-key-fingerprint.js";
 import {
 	calculateUptimePenalty,
 	getTrackedKeyMetrics,
@@ -186,8 +189,9 @@ export type GatewayApiKey = ApiKey & {
 export async function findApiKeyByToken(
 	token: string,
 ): Promise<GatewayApiKey | undefined> {
+	const tokenHashes = getApiKeyFingerprints(token);
 	const key = await swrWrap(
-		`apiKey:token:${getApiKeyFingerprint(token)}`,
+		`apiKey:token:${tokenHashes.join(":")}`,
 		[apiKeyTableName],
 		async () => {
 			const results = await db
@@ -195,7 +199,10 @@ export async function findApiKeyByToken(
 				.from(apiKeyTable)
 				.where(
 					and(
-						eq(apiKeyTable.token, token),
+						or(
+							eq(apiKeyTable.token, token),
+							inArray(apiKeyTable.tokenHash, tokenHashes),
+						),
 						ne(apiKeyTable.keyType, "end_user_customer"),
 						ne(apiKeyTable.keyType, "platform_secret"),
 					),
@@ -253,7 +260,12 @@ export async function findApiKeyByToken(
 						eq(apiKeyTable.status, "active"),
 					),
 				)
-				.where(eq(endUserSessionTable.token, token))
+				.where(
+					or(
+						eq(endUserSessionTable.token, token),
+						inArray(endUserSessionTable.tokenHash, tokenHashes),
+					),
+				)
 				.limit(1);
 			const row = rows[0];
 			if (!row || row.session.status !== "active") {
