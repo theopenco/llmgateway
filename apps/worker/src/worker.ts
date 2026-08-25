@@ -2170,6 +2170,10 @@ let stopFailed = false;
 // kept-forever hourly history. Defaults false so a failed/never-run backfill
 // leaves cleanup disabled rather than risking data loss.
 let hourlyBackfillComplete = false;
+// Live hourly rollups must not race the startup minute backfill. Otherwise an
+// hour can be written from a partially populated minute sidecar and then look
+// complete to the hourly backfill's missing-row check.
+let liveHourlyRollupsReady = false;
 
 // Independent worker loops
 async function runLogQueueLoop(loopIndex = 0) {
@@ -2280,13 +2284,15 @@ async function runMinutelyHistoryLoop() {
 			);
 		}
 
-		try {
-			await calculateHourlyHistory();
-		} catch (error) {
-			logger.error(
-				"Error in initial hourly history calculation",
-				error instanceof Error ? error : new Error(String(error)),
-			);
+		if (liveHourlyRollupsReady) {
+			try {
+				await calculateHourlyHistory();
+			} catch (error) {
+				logger.error(
+					"Error in initial hourly history calculation",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+			}
 		}
 
 		while (!isStopRequested()) {
@@ -2318,13 +2324,15 @@ async function runMinutelyHistoryLoop() {
 				);
 			}
 
-			try {
-				await calculateHourlyHistory();
-			} catch (error) {
-				logger.error(
-					"Error in hourly history calculation",
-					error instanceof Error ? error : new Error(String(error)),
-				);
+			if (liveHourlyRollupsReady) {
+				try {
+					await calculateHourlyHistory();
+				} catch (error) {
+					logger.error(
+						"Error in hourly history calculation",
+						error instanceof Error ? error : new Error(String(error)),
+					);
+				}
 			}
 		}
 	} finally {
@@ -3146,6 +3154,8 @@ export async function startWorker() {
 
 	isWorkerRunning = true;
 	resetShutdown();
+	hourlyBackfillComplete = false;
+	liveHourlyRollupsReady = false;
 	logger.info("Starting worker application...");
 
 	// Initialize providers and models sync - must complete before other stats syncs
@@ -3176,6 +3186,21 @@ export async function startWorker() {
 				"Error during history backfill",
 				error instanceof Error ? error : new Error(String(error)),
 			);
+		})
+		.finally(async () => {
+			// Refresh the live buckets immediately from the now-stable minute source.
+			// Even if startup backfill failed, resume live rollups instead of leaving
+			// them disabled for the lifetime of this worker process.
+			try {
+				await calculateHourlyHistory();
+			} catch (error) {
+				logger.error(
+					"Error refreshing hourly history after startup backfill",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+			} finally {
+				liveHourlyRollupsReady = true;
+			}
 		});
 
 	// Start all worker loops (all sequential — each waits for completion before scheduling next run)
