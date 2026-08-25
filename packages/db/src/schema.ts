@@ -3235,6 +3235,9 @@ export const modelProviderMappingHistory = pgTable(
 		modelId: text().notNull(), // LLMGateway model name (e.g., "gpt-4")
 		providerId: text().notNull(), // Provider ID (e.g., "openai")
 		modelProviderMappingId: text().notNull(), // Reference to the exact model_provider_mapping.id
+		usedMode: text({ enum: ["credits", "api-keys", "unknown"] })
+			.notNull()
+			.default("unknown"),
 		// Unique timestamp key for one-minute intervals (rounded down to the minute)
 		minuteTimestamp: timestamp().notNull(),
 		logsCount: integer().notNull().default(0),
@@ -3350,6 +3353,9 @@ export const modelHistory = pgTable(
 			.defaultNow()
 			.$onUpdate(() => new Date()),
 		modelId: text().notNull(),
+		usedMode: text({ enum: ["credits", "api-keys", "unknown"] })
+			.notNull()
+			.default("unknown"),
 		// Unique timestamp key for one-minute intervals (rounded down to the minute)
 		minuteTimestamp: timestamp().notNull(),
 		logsCount: integer().notNull().default(0),
@@ -3417,6 +3423,9 @@ export const modelProviderMappingHistoryHourly = pgTable(
 		modelId: text().notNull(), // LLMGateway model name (e.g., "gpt-4")
 		providerId: text().notNull(), // Provider ID (e.g., "openai")
 		modelProviderMappingId: text().notNull(), // Reference to the exact model_provider_mapping.id
+		usedMode: text({ enum: ["credits", "api-keys", "unknown"] })
+			.notNull()
+			.default("unknown"),
 		// Unique timestamp key for one-hour intervals (rounded down to the hour)
 		hourTimestamp: timestamp().notNull(),
 		logsCount: integer().notNull().default(0),
@@ -3507,6 +3516,9 @@ export const modelHistoryHourly = pgTable(
 			.defaultNow()
 			.$onUpdate(() => new Date()),
 		modelId: text().notNull(),
+		usedMode: text({ enum: ["credits", "api-keys", "unknown"] })
+			.notNull()
+			.default("unknown"),
 		// Unique timestamp key for one-hour intervals (rounded down to the hour)
 		hourTimestamp: timestamp().notNull(),
 		logsCount: integer().notNull().default(0),
