@@ -31,14 +31,18 @@ export async function createServerApiClient() {
 // The dashboard layout and pages request this independently in the same
 // render pass; cache() collapses the duplicate round-trips into one.
 export const getUserMe = cache(async (): Promise<UserMe | null> => {
-	try {
-		const client = await createServerApiClient();
-		const response = await client.GET("/user/me");
-		if (response.error) {
+	const client = await createServerApiClient();
+	const { data, response } = await client.GET("/user/me");
+	if (!response.ok) {
+		// Only an actual auth failure means "anonymous". Anything else (backend
+		// down, 5xx) must surface as an error rather than bouncing a signed-in
+		// user to /login.
+		if (response.status === 401) {
 			return null;
 		}
-		return response.data ?? null;
-	} catch {
-		return null;
+		throw new Error(
+			`Failed to load the current user (status ${response.status})`,
+		);
 	}
+	return data ?? null;
 });

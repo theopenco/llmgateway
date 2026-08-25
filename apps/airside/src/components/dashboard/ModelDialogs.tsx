@@ -126,7 +126,7 @@ export function RegisterModelDialog({
 						createModel.mutate({
 							body: {
 								providerCompanyId,
-								providerId,
+								providerId: effectiveProviderId,
 								modelName,
 								displayName: displayName || undefined,
 								contextSize: Number(contextSize) || undefined,

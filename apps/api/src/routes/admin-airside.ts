@@ -4,7 +4,9 @@ import { z } from "zod";
 
 import { adminMiddleware } from "@/middleware/admin.js";
 
-import { and, cdb, db, eq, isNull, tables } from "@llmgateway/db";
+import { and, cdb, db, eq, inArray, isNull, ne, tables } from "@llmgateway/db";
+
+import { AIRSIDE_MULTIPLIER_REASON } from "./airside.js";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -614,12 +616,48 @@ adminAirside.openapi(revokeClaim, async (c) => {
 				and(
 					eq(tables.routingScoreMultiplier.provider, claim.providerId),
 					isNull(tables.routingScoreMultiplier.model),
-					eq(tables.routingScoreMultiplier.reason, "airside routing settings"),
+					eq(tables.routingScoreMultiplier.reason, AIRSIDE_MULTIPLIER_REASON),
 				),
 			);
 		await tx
 			.delete(tables.providerRoutingSettings)
 			.where(eq(tables.providerRoutingSettings.providerId, claim.providerId));
+		// Revocation ends portal control entirely: the company's listings for
+		// this provider stop routing and stop accepting edits or filings.
+		const companyModels = await tx
+			.select({ id: tables.providerDraftModel.id })
+			.from(tables.providerDraftModel)
+			.where(
+				and(
+					eq(
+						tables.providerDraftModel.providerCompanyId,
+						claim.providerCompanyId,
+					),
+					eq(tables.providerDraftModel.providerId, claim.providerId),
+					ne(tables.providerDraftModel.status, "delisted"),
+				),
+			);
+		if (companyModels.length > 0) {
+			const modelIds = companyModels.map((m) => m.id);
+			await tx
+				.update(tables.providerPriceFiling)
+				.set({
+					status: "rejected",
+					reviewedBy: user?.id ?? null,
+					reviewNote: "Carrier claim revoked",
+					reviewedAt: new Date(),
+				})
+				.where(
+					and(
+						inArray(tables.providerPriceFiling.draftModelId, modelIds),
+						eq(tables.providerPriceFiling.status, "pending"),
+					),
+				);
+			await tx
+				.update(tables.providerDraftModel)
+				.set({ status: "delisted", delistedAt: new Date() })
+				.where(inArray(tables.providerDraftModel.id, modelIds));
+		}
 	});
 	const updated = await db.query.providerClaim.findFirst({
 		where: { id: { eq: id } },

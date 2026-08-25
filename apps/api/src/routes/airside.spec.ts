@@ -558,12 +558,29 @@ describe("airside provider portal", () => {
 			}),
 		).toBeTruthy();
 
+		// A live listing exists at revocation time.
+		const listed = await createModel(cookie, company.id);
+		expect(listed.status).toBe(201);
+		const listedModel = (await listed.json()).model;
+
 		const revoked = await app.request(
 			`/admin/airside/claims/${claim.id}/revoke`,
 			json(cookie, { reviewNote: "Ownership dispute" }),
 		);
 		expect(revoked.status).toBe(200);
 		expect((await revoked.json()).claim.status).toBe("revoked");
+
+		// Revocation ends portal control: the listing is delisted and its
+		// pending filing rejected.
+		const deadModel = await db.query.providerDraftModel.findFirst({
+			where: { id: { eq: listedModel.id } },
+		});
+		expect(deadModel!.status).toBe("delisted");
+		const deadFiling = await db.query.providerPriceFiling.findFirst({
+			where: { draftModelId: { eq: listedModel.id } },
+		});
+		expect(deadFiling!.status).toBe("rejected");
+		expect(deadFiling!.reviewNote).toBe("Carrier claim revoked");
 
 		// Boost and settings are gone; the provider is claimable again.
 		expect(

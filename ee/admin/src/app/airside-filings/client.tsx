@@ -464,7 +464,7 @@ export function AirsideFilingsClient() {
 							{rejecting?.kind === "claim"
 								? "The provider becomes claimable again; the note is shown to the company."
 								: rejecting?.kind === "revoke"
-									? "The company loses portal control of this provider and its routing boost is removed."
+									? "The company loses portal control of this provider: its listings are delisted and its routing boost is removed."
 									: "The note is shown to the provider in their filing history."}
 						</DialogDescription>
 					</DialogHeader>
@@ -477,7 +477,9 @@ export function AirsideFilingsClient() {
 						<Button
 							variant="destructive"
 							disabled={
-								rejectMutation.isPending || rejectClaimMutation.isPending
+								rejectMutation.isPending ||
+								rejectClaimMutation.isPending ||
+								revokeClaimMutation.isPending
 							}
 							onClick={() => {
 								if (!rejecting) {

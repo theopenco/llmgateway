@@ -52,6 +52,14 @@ function DeleteModelButton({ model }: { model: AirsideModel }) {
 					},
 				}).queryKey,
 			});
+			// Deleting a draft also removes its pending filing server-side.
+			await queryClient.invalidateQueries({
+				queryKey: api.queryOptions("get", "/airside/filings", {
+					params: {
+						query: { providerCompanyId: model.providerCompanyId },
+					},
+				}).queryKey,
+			});
 			toast.success(
 				data.status === "deleted"
 					? "Draft removed from the register."

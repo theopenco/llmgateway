@@ -10,6 +10,7 @@ services:
       - "3003:3003" # Playground
       - "3005:3005" # Docs
       - "3006:3006" # Admin
+      - "3007:3007" # Airside
       - "4001:4001" # Gateway
       - "4002:4002" # API
       - "5432:5432" # PostgreSQL

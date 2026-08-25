@@ -22,15 +22,18 @@ export function EmailVerificationBanner() {
 			return;
 		}
 		setIsSending(true);
-		const res = await sendVerificationEmail({
-			email: user.email,
-			callbackURL: `${window.location.origin}/onboarding?emailVerified=true`,
-		});
-		setIsSending(false);
-		if (res.error) {
-			toast.error(res.error.message ?? "Failed to send verification email");
-		} else {
-			toast.success("Verification email sent — check your inbox.");
+		try {
+			const res = await sendVerificationEmail({
+				email: user.email,
+				callbackURL: `${window.location.origin}/onboarding?emailVerified=true`,
+			});
+			if (res.error) {
+				toast.error(res.error.message ?? "Failed to send verification email");
+			} else {
+				toast.success("Verification email sent — check your inbox.");
+			}
+		} finally {
+			setIsSending(false);
 		}
 	}
 

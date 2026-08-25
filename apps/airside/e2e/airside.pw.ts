@@ -103,11 +103,17 @@ test("fares page tunes discount and margin sliders", async ({ page }) => {
 	const card = page.getByTestId("fare-card-mistral");
 	await expect(card).toBeVisible({ timeout: 20_000 });
 
-	// Radix slider thumbs are keyboard-adjustable.
+	// Radix slider thumbs are keyboard-adjustable. Nudge away from the nearer
+	// bound so repeated runs against the same seed can't ratchet the value to
+	// the cap and turn the keypresses into no-ops.
 	const discountThumb = card.getByTestId("discount-slider").getByRole("slider");
 	await discountThumb.focus();
-	await page.keyboard.press("ArrowRight");
-	await page.keyboard.press("ArrowRight");
+	const current = Number(
+		(await discountThumb.getAttribute("aria-valuenow")) ?? "0",
+	);
+	const key = current >= 48 ? "ArrowLeft" : "ArrowRight";
+	await page.keyboard.press(key);
+	await page.keyboard.press(key);
 
 	const saveButton = card.getByTestId("save-fares-mistral");
 	await expect(saveButton).toBeEnabled();

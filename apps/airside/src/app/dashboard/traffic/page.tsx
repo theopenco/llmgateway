@@ -2,7 +2,7 @@
 
 import { Loader2 } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { useCompany } from "@/components/dashboard/company-context";
 import { TrafficChart } from "@/components/dashboard/TrafficChart";
@@ -33,6 +33,13 @@ export default function TrafficPage() {
 	const { company, isLoading: companyLoading } = useCompany();
 	const [days, setDays] = useState<(typeof WINDOWS)[number]>(30);
 	const [providerId, setProviderId] = useState<string | undefined>(undefined);
+
+	const companyId = company?.id;
+	useEffect(() => {
+		// The provider filter belongs to one company's claims; switching
+		// companies in the shell must not carry it over.
+		setProviderId(undefined);
+	}, [companyId]);
 
 	const statsQuery = api.useQuery(
 		"get",

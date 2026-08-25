@@ -2,7 +2,10 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { claimableProvidersForEmail } from "@/lib/airside-domains.js";
+import {
+	claimableProvidersForEmail,
+	emailRegistrableDomain,
+} from "@/lib/airside-domains.js";
 
 import {
 	and,
@@ -37,7 +40,7 @@ export const AIRSIDE_BASELINE_MARGIN = 0.2;
 export const AIRSIDE_MARGIN_MIN = 0.05;
 export const AIRSIDE_MARGIN_MAX = 0.5;
 export const AIRSIDE_DISCOUNT_MAX = 0.5;
-const AIRSIDE_MULTIPLIER_REASON = "airside routing settings";
+export const AIRSIDE_MULTIPLIER_REASON = "airside routing settings";
 
 // Plain decimal or scientific notation only — Number("") and Number("0x1F")
 // would otherwise slip through as 0 / 31.
@@ -501,7 +504,9 @@ airside.openapi(listClaimable, async (c) => {
 	const myCompanyIds = new Set(memberships.map((m) => m.providerCompanyId));
 	const claimByProvider = new Map(claims.map((cl) => [cl.providerId, cl]));
 	return c.json({
-		emailDomain: matches[0]?.matchedDomain ?? null,
+		// Always report the domain we matched against, so the onboarding view
+		// can explain a miss ("no provider matches @example.com").
+		emailDomain: emailRegistrableDomain(user.email) ?? null,
 		emailVerified: user.emailVerified,
 		providers: matches.map((m) => {
 			const existing = claimByProvider.get(m.providerId);
@@ -1328,6 +1333,9 @@ airside.openapi(updateRoutingSettings, async (c) => {
 		where: { providerId: { eq: providerId } },
 	});
 	const values = {
+		// Keep ownership current: the row is unique per provider and can
+		// predate a change of hands.
+		providerCompanyId: body.providerCompanyId,
 		discountPercent: String(body.discountPercent),
 		marginPercent: String(body.marginPercent),
 	};
@@ -1339,11 +1347,7 @@ airside.openapi(updateRoutingSettings, async (c) => {
 				.returning()
 		: await db
 				.insert(tables.providerRoutingSettings)
-				.values({
-					providerCompanyId: body.providerCompanyId,
-					providerId,
-					...values,
-				})
+				.values({ providerId, ...values })
 				.returning();
 
 	const sync = await syncRoutingScoreMultiplier(

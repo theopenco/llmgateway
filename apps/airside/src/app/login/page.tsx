@@ -60,17 +60,20 @@ function LoginForm() {
 
 	async function onSubmit(values: z.infer<typeof formSchema>) {
 		setIsLoading(true);
-		const res = await signIn.email({
-			email: values.email,
-			password: values.password,
-		});
-		setIsLoading(false);
-		if (res.error) {
-			toast.error(res.error.message ?? "Failed to sign in");
-			return;
+		try {
+			const res = await signIn.email({
+				email: values.email,
+				password: values.password,
+			});
+			if (res.error) {
+				toast.error(res.error.message ?? "Failed to sign in");
+				return;
+			}
+			queryClient.clear();
+			router.push(returnUrl);
+		} finally {
+			setIsLoading(false);
 		}
-		queryClient.clear();
-		router.push(returnUrl);
 	}
 
 	return (

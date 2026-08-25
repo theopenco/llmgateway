@@ -34,6 +34,9 @@ export function TrafficChart({ daily }: { daily: DailyPoint[] }) {
 		label: new Date(point.day).toLocaleDateString("en-US", {
 			month: "short",
 			day: "numeric",
+			// Buckets are UTC days; a viewer west of UTC would otherwise see
+			// every label shifted a day back.
+			timeZone: "UTC",
 		}),
 	}));
 

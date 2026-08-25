@@ -48,21 +48,24 @@ function SignupForm() {
 
 	async function onSubmit(values: z.infer<typeof formSchema>) {
 		setIsLoading(true);
-		const res = await signUp.email({
-			name: values.name,
-			email: values.email,
-			password: values.password,
-		});
-		setIsLoading(false);
-		if (res.error) {
-			toast.error(res.error.message ?? "Failed to create your account");
-			return;
+		try {
+			const res = await signUp.email({
+				name: values.name,
+				email: values.email,
+				password: values.password,
+			});
+			if (res.error) {
+				toast.error(res.error.message ?? "Failed to create your account");
+				return;
+			}
+			queryClient.clear();
+			toast.success(
+				"Welcome aboard. Check your inbox to verify your email — claiming a carrier requires it.",
+			);
+			router.push("/onboarding");
+		} finally {
+			setIsLoading(false);
 		}
-		queryClient.clear();
-		toast.success(
-			"Welcome aboard. Check your inbox to verify your email — claiming a carrier requires it.",
-		);
-		router.push("/onboarding");
 	}
 
 	return (
