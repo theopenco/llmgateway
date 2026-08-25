@@ -562,22 +562,9 @@ export const deepseekModels = [
 			{
 				providerId: "baidu",
 				externalId: "deepseek-v4-pro-0813",
-				inputPrice: "0.396e-6",
-				cachedInputPrice: "0.0396e-6",
-				outputPrice: "1.188e-6",
-				peakPricing: {
-					peak: {
-						inputPrice: "0.792e-6",
-						cachedInputPrice: "0.0792e-6",
-						outputPrice: "2.376e-6",
-					},
-					offPeak: {
-						inputPrice: "0.396e-6",
-						cachedInputPrice: "0.0396e-6",
-						outputPrice: "1.188e-6",
-					},
-					hoursUtc: [[0, 14]],
-				},
+				inputPrice: "1.32e-6",
+				cachedInputPrice: "0.132e-6",
+				outputPrice: "3.96e-6",
 				requestPrice: "0",
 				contextSize: 1048576,
 				// /v1/models reports 393216 while Qianfan's model page caps output at
@@ -962,22 +949,9 @@ export const deepseekModels = [
 			{
 				providerId: "baidu",
 				externalId: "deepseek-v4-flash-0731",
-				inputPrice: "0.132e-6",
-				cachedInputPrice: "0.0132e-6",
-				outputPrice: "0.396e-6",
-				peakPricing: {
-					peak: {
-						inputPrice: "0.264e-6",
-						cachedInputPrice: "0.0264e-6",
-						outputPrice: "0.792e-6",
-					},
-					offPeak: {
-						inputPrice: "0.132e-6",
-						cachedInputPrice: "0.0132e-6",
-						outputPrice: "0.396e-6",
-					},
-					hoursUtc: [[0, 14]],
-				},
+				inputPrice: "0.44e-6",
+				cachedInputPrice: "0.044e-6",
+				outputPrice: "1.32e-6",
 				requestPrice: "0",
 				contextSize: 1048576,
 				maxOutput: 131072,

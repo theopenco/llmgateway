@@ -2461,10 +2461,17 @@ describe("peak / off-peak time-of-day pricing", () => {
 		);
 		expect(flash.inputCost).toBeCloseTo(0.44);
 	});
+});
 
-	it("bills Baidu GLM-5.2 at peak rates", async () => {
-		setTime("2026-08-25T13:59:00Z");
+describe("Baidu exact pricing", () => {
+	beforeEach(() => {
+		vi.mocked(mockGetEffectiveDiscount).mockImplementation(async () => ({
+			discount: "0",
+			source: "none",
+		}));
+	});
 
+	it("bills Baidu GLM-5.2 at its exact price", async () => {
 		const costs = await calculateCosts(
 			"glm-5.2",
 			"baidu",
@@ -2473,30 +2480,12 @@ describe("peak / off-peak time-of-day pricing", () => {
 			1_000_000,
 			1_000_000,
 		);
-		expect(costs.inputCost).toBeCloseTo(0.7);
-		expect(costs.outputCost).toBeCloseTo(2.2);
-		expect(costs.cachedInputCost).toBeCloseTo(0.13);
+		expect(costs.inputCost).toBeCloseTo(1.4);
+		expect(costs.outputCost).toBeCloseTo(4.4);
+		expect(costs.cachedInputCost).toBeCloseTo(0.26);
 	});
 
-	it("bills Baidu GLM-5.2 at off-peak rates", async () => {
-		setTime("2026-08-25T14:00:00Z");
-
-		const costs = await calculateCosts(
-			"glm-5.2",
-			"baidu",
-			null,
-			2_000_000,
-			1_000_000,
-			1_000_000,
-		);
-		expect(costs.inputCost).toBeCloseTo(0.56);
-		expect(costs.outputCost).toBeCloseTo(1.76);
-		expect(costs.cachedInputCost).toBeCloseTo(0.104);
-	});
-
-	it("bills Baidu GLM-5.3 at its list price", async () => {
-		setTime("2026-08-25T13:59:00Z");
-
+	it("bills Baidu GLM-5.3 at its exact price", async () => {
 		const costs = await calculateCosts(
 			"glm-5.3",
 			"baidu",
@@ -2510,9 +2499,7 @@ describe("peak / off-peak time-of-day pricing", () => {
 		expect(costs.cachedInputCost).toBeCloseTo(0.26);
 	});
 
-	it("bills Baidu DeepSeek V4 Pro at peak rates", async () => {
-		setTime("2026-08-25T13:59:00Z");
-
+	it("bills Baidu DeepSeek V4 Pro at its exact price", async () => {
 		const costs = await calculateCosts(
 			"deepseek-v4-pro",
 			"baidu",
@@ -2521,30 +2508,12 @@ describe("peak / off-peak time-of-day pricing", () => {
 			1_000_000,
 			1_000_000,
 		);
-		expect(costs.inputCost).toBeCloseTo(0.792);
-		expect(costs.outputCost).toBeCloseTo(2.376);
-		expect(costs.cachedInputCost).toBeCloseTo(0.0792);
+		expect(costs.inputCost).toBeCloseTo(1.32);
+		expect(costs.outputCost).toBeCloseTo(3.96);
+		expect(costs.cachedInputCost).toBeCloseTo(0.132);
 	});
 
-	it("bills Baidu DeepSeek V4 Pro at off-peak rates", async () => {
-		setTime("2026-08-25T14:00:00Z");
-
-		const costs = await calculateCosts(
-			"deepseek-v4-pro",
-			"baidu",
-			null,
-			2_000_000,
-			1_000_000,
-			1_000_000,
-		);
-		expect(costs.inputCost).toBeCloseTo(0.396);
-		expect(costs.outputCost).toBeCloseTo(1.188);
-		expect(costs.cachedInputCost).toBeCloseTo(0.0396);
-	});
-
-	it("bills Baidu DeepSeek V4 Flash at peak rates", async () => {
-		setTime("2026-08-25T13:59:00Z");
-
+	it("bills Baidu DeepSeek V4 Flash at its exact price", async () => {
 		const costs = await calculateCosts(
 			"deepseek-v4-flash",
 			"baidu",
@@ -2553,24 +2522,8 @@ describe("peak / off-peak time-of-day pricing", () => {
 			1_000_000,
 			1_000_000,
 		);
-		expect(costs.inputCost).toBeCloseTo(0.264);
-		expect(costs.outputCost).toBeCloseTo(0.792);
-		expect(costs.cachedInputCost).toBeCloseTo(0.0264);
-	});
-
-	it("bills Baidu DeepSeek V4 Flash at off-peak rates", async () => {
-		setTime("2026-08-25T14:00:00Z");
-
-		const costs = await calculateCosts(
-			"deepseek-v4-flash",
-			"baidu",
-			null,
-			2_000_000,
-			1_000_000,
-			1_000_000,
-		);
-		expect(costs.inputCost).toBeCloseTo(0.132);
-		expect(costs.outputCost).toBeCloseTo(0.396);
-		expect(costs.cachedInputCost).toBeCloseTo(0.0132);
+		expect(costs.inputCost).toBeCloseTo(0.44);
+		expect(costs.outputCost).toBeCloseTo(1.32);
+		expect(costs.cachedInputCost).toBeCloseTo(0.044);
 	});
 });

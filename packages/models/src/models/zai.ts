@@ -286,22 +286,9 @@ export const zaiModels = [
 			{
 				providerId: "baidu",
 				externalId: "glm-5.2",
-				inputPrice: "0.56e-6",
-				cachedInputPrice: "0.104e-6",
-				outputPrice: "1.76e-6",
-				peakPricing: {
-					peak: {
-						inputPrice: "0.7e-6",
-						cachedInputPrice: "0.13e-6",
-						outputPrice: "2.2e-6",
-					},
-					offPeak: {
-						inputPrice: "0.56e-6",
-						cachedInputPrice: "0.104e-6",
-						outputPrice: "1.76e-6",
-					},
-					hoursUtc: [[0, 14]],
-				},
+				inputPrice: "1.4e-6",
+				cachedInputPrice: "0.26e-6",
+				outputPrice: "4.4e-6",
 				requestPrice: "0",
 				contextSize: 1048576,
 				maxOutput: 131072,
