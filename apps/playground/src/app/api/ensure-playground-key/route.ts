@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 
 import { getConfig } from "@/lib/config-server";
 import {
+	getPlaygroundKeyForRequest,
 	PLAYGROUND_KEY_COOKIE_MAX_AGE,
 	PLAYGROUND_KEY_COOKIE_NAME,
 } from "@/lib/constants";
@@ -31,12 +32,10 @@ export async function POST(req: NextRequest) {
 		: sessionCookie
 			? `${key}=${sessionCookie.value}`
 			: "";
-	const playgroundCookie = cookieStore.get(PLAYGROUND_KEY_COOKIE_NAME);
+	const playgroundKey = getPlaygroundKeyForRequest(cookieStore);
 	const cookieHeader = [
 		authCookie,
-		playgroundCookie
-			? `${PLAYGROUND_KEY_COOKIE_NAME}=${playgroundCookie.value}`
-			: "",
+		playgroundKey ? `${PLAYGROUND_KEY_COOKIE_NAME}=${playgroundKey}` : "",
 	]
 		.filter(Boolean)
 		.join("; ");
