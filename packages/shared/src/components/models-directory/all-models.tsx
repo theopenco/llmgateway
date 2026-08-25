@@ -504,7 +504,7 @@ const ModelTableRow = React.memo(
 									</TooltipTrigger>
 									<TooltipContent>
 										<p className="text-xs">
-											Premium tier — $5+/M input or $15+/M output. Subject to
+											Premium tier / $5+/M input or $15+/M output. Subject to
 											the weekly fair-use allowance on DevPass plans.
 										</p>
 									</TooltipContent>
@@ -1879,7 +1879,7 @@ export function AllModels({
 
 						{showPricingTierFilter ? (
 							<>
-								{/* Pricing tier — stacked under Use Case (or standing in
+								{/* Pricing tier / stacked under Use Case (or standing in
 								    for it when that select is hidden) to keep the filter
 								    grid on a single row */}
 								<div className="font-medium text-sm">
@@ -2163,7 +2163,7 @@ export function AllModels({
 								</TooltipTrigger>
 								<TooltipContent>
 									<p className="text-xs">
-										Dead — requests return errors and no longer route
+										Dead / requests return errors and no longer route
 									</p>
 								</TooltipContent>
 							</Tooltip>
@@ -2184,7 +2184,7 @@ export function AllModels({
 								</TooltipTrigger>
 								<TooltipContent>
 									<p className="text-xs">
-										Still works — deactivation scheduled within 90 days, plan to
+										Still works / deactivation scheduled within 90 days, plan to
 										migrate
 									</p>
 								</TooltipContent>
@@ -2206,7 +2206,7 @@ export function AllModels({
 								</TooltipTrigger>
 								<TooltipContent>
 									<p className="text-xs">
-										Still works — provider announced sunset, migrate soon
+										Still works / provider announced sunset, migrate soon
 									</p>
 								</TooltipContent>
 							</Tooltip>
@@ -2226,7 +2226,7 @@ export function AllModels({
 									</Toggle>
 								</TooltipTrigger>
 								<TooltipContent>
-									<p className="text-xs">Healthy — no retirement notices</p>
+									<p className="text-xs">Healthy / no retirement notices</p>
 								</TooltipContent>
 							</Tooltip>
 							{hasBlockedMappings && (
