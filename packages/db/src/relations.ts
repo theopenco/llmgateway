@@ -653,4 +653,68 @@ export const relations = defineRelations(schema, (r) => ({
 			to: r.user.id,
 		}),
 	},
+	providerCompany: {
+		members: r.many.providerCompanyMember({
+			from: r.providerCompany.id,
+			to: r.providerCompanyMember.providerCompanyId,
+		}),
+		claims: r.many.providerClaim({
+			from: r.providerCompany.id,
+			to: r.providerClaim.providerCompanyId,
+		}),
+		draftModels: r.many.providerDraftModel({
+			from: r.providerCompany.id,
+			to: r.providerDraftModel.providerCompanyId,
+		}),
+		priceFilings: r.many.providerPriceFiling({
+			from: r.providerCompany.id,
+			to: r.providerPriceFiling.providerCompanyId,
+		}),
+		routingSettings: r.many.providerRoutingSettings({
+			from: r.providerCompany.id,
+			to: r.providerRoutingSettings.providerCompanyId,
+		}),
+	},
+	providerCompanyMember: {
+		providerCompany: r.one.providerCompany({
+			from: r.providerCompanyMember.providerCompanyId,
+			to: r.providerCompany.id,
+		}),
+		user: r.one.user({
+			from: r.providerCompanyMember.userId,
+			to: r.user.id,
+		}),
+	},
+	providerClaim: {
+		providerCompany: r.one.providerCompany({
+			from: r.providerClaim.providerCompanyId,
+			to: r.providerCompany.id,
+		}),
+	},
+	providerDraftModel: {
+		providerCompany: r.one.providerCompany({
+			from: r.providerDraftModel.providerCompanyId,
+			to: r.providerCompany.id,
+		}),
+		priceFilings: r.many.providerPriceFiling({
+			from: r.providerDraftModel.id,
+			to: r.providerPriceFiling.draftModelId,
+		}),
+	},
+	providerPriceFiling: {
+		draftModel: r.one.providerDraftModel({
+			from: r.providerPriceFiling.draftModelId,
+			to: r.providerDraftModel.id,
+		}),
+		providerCompany: r.one.providerCompany({
+			from: r.providerPriceFiling.providerCompanyId,
+			to: r.providerCompany.id,
+		}),
+	},
+	providerRoutingSettings: {
+		providerCompany: r.one.providerCompany({
+			from: r.providerRoutingSettings.providerCompanyId,
+			to: r.providerCompany.id,
+		}),
+	},
 }));

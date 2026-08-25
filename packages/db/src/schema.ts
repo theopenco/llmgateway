@@ -4297,6 +4297,203 @@ export const ignoredErrorMatcher = pgTable(
 	],
 );
 
+// ===== Airside (self-serve provider portal) =====
+
+// A company operating one or more catalogue providers ("carriers"). Kept
+// separate from `organization`: provider companies are gateway suppliers, not
+// gateway customers, and must never gain billing/plan semantics.
+export const providerCompany = pgTable("provider_company", {
+	id: text().primaryKey().notNull().$defaultFn(shortid),
+	createdAt: timestamp().notNull().defaultNow(),
+	updatedAt: timestamp()
+		.notNull()
+		.defaultNow()
+		.$onUpdate(() => new Date()),
+	name: text().notNull(),
+	website: text(),
+});
+
+export const providerCompanyMember = pgTable(
+	"provider_company_member",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerCompanyId: text()
+			.notNull()
+			.references(() => providerCompany.id, { onDelete: "cascade" }),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		role: text({ enum: ["owner", "member"] })
+			.notNull()
+			.default("owner"),
+	},
+	(table) => [
+		uniqueIndex("provider_company_member_company_user_uidx").on(
+			table.providerCompanyId,
+			table.userId,
+		),
+		index("provider_company_member_user_idx").on(table.userId),
+	],
+);
+
+// A verified claim of a catalogue provider id by a provider company. Claims
+// are granted only when the claimer's verified email domain matches the
+// provider's API endpoint (or website) registrable domain, so `providerId`
+// deliberately has no FK — the catalogue is code-defined in packages/models.
+export const providerClaim = pgTable(
+	"provider_claim",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerCompanyId: text()
+			.notNull()
+			.references(() => providerCompany.id, { onDelete: "cascade" }),
+		providerId: text().notNull(),
+		// The registrable email domain that satisfied the match, lowercase.
+		matchedDomain: text().notNull(),
+		claimedBy: text().references(() => user.id, { onDelete: "set null" }),
+		status: text({ enum: ["active", "revoked"] })
+			.notNull()
+			.default("active"),
+		revokedAt: timestamp(),
+	},
+	(table) => [
+		// Only one live claim per catalogue provider; revoking frees it up.
+		uniqueIndex("provider_claim_active_provider_uidx")
+			.on(table.providerId)
+			.where(sql`status = 'active'`),
+		index("provider_claim_company_idx").on(table.providerCompanyId),
+	],
+);
+
+// A model listed by a provider company for one of its claimed providers.
+// Non-pricing fields are provider-editable in place; pricing lives in
+// `provider_price_filing` rows and only ever changes through an approved
+// filing. A newly added model stays `draft` until its initial filing is
+// approved. Prices are text to preserve exponent notation (see customModel).
+export const providerDraftModel = pgTable(
+	"provider_draft_model",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerCompanyId: text()
+			.notNull()
+			.references(() => providerCompany.id, { onDelete: "cascade" }),
+		providerId: text().notNull(),
+		// The model id at the provider (external id, e.g. "glm-5.2-air").
+		modelName: text().notNull(),
+		displayName: text(),
+		description: text(),
+		family: text(),
+		contextSize: integer(),
+		maxOutput: integer(),
+		streaming: boolean().notNull().default(true),
+		vision: boolean().notNull().default(false),
+		tools: boolean().notNull().default(false),
+		jsonOutput: boolean().notNull().default(false),
+		reasoning: boolean().notNull().default(false),
+		status: text({ enum: ["draft", "active", "rejected", "delisted"] })
+			.notNull()
+			.default("draft"),
+		createdBy: text().references(() => user.id, { onDelete: "set null" }),
+		delistedAt: timestamp(),
+	},
+	(table) => [
+		// Uniqueness applies only to live rows so a delisted model name can be
+		// re-listed later.
+		uniqueIndex("provider_draft_model_provider_name_uidx")
+			.on(table.providerId, table.modelName)
+			.where(sql`status <> 'delisted'`),
+		index("provider_draft_model_company_idx").on(table.providerCompanyId),
+		index("provider_draft_model_status_idx").on(table.status),
+	],
+);
+
+// A pricing proposal ("tariff filing") for a provider-listed model. Admins
+// approve or reject filings in the admin dashboard; the model's effective
+// pricing is its most recently approved filing. `kind: "initial"` filings
+// activate the model itself on approval.
+export const providerPriceFiling = pgTable(
+	"provider_price_filing",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		draftModelId: text()
+			.notNull()
+			.references(() => providerDraftModel.id, { onDelete: "cascade" }),
+		// Denormalized for company-scoped listings without a join through the model.
+		providerCompanyId: text()
+			.notNull()
+			.references(() => providerCompany.id, { onDelete: "cascade" }),
+		kind: text({ enum: ["initial", "update"] })
+			.notNull()
+			.default("update"),
+		inputPrice: text().notNull(),
+		outputPrice: text().notNull(),
+		cachedInputPrice: text(),
+		requestPrice: text(),
+		status: text({ enum: ["pending", "approved", "rejected"] })
+			.notNull()
+			.default("pending"),
+		requestedBy: text().references(() => user.id, { onDelete: "set null" }),
+		note: text(),
+		reviewedBy: text(),
+		reviewNote: text(),
+		reviewedAt: timestamp(),
+	},
+	(table) => [
+		// One filing can be in flight per model at a time.
+		uniqueIndex("provider_price_filing_pending_model_uidx")
+			.on(table.draftModelId)
+			.where(sql`status = 'pending'`),
+		index("provider_price_filing_company_idx").on(table.providerCompanyId),
+		index("provider_price_filing_status_idx").on(table.status),
+	],
+);
+
+// Per-claimed-provider routing knobs a carrier controls: a traffic discount
+// and the gateway margin they accept. Writes are mirrored into
+// `routing_score_multiplier` so the existing routing election picks them up.
+// Both values are fractions (0.1 = 10%), like `discount.discountPercent`.
+export const providerRoutingSettings = pgTable(
+	"provider_routing_settings",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerCompanyId: text()
+			.notNull()
+			.references(() => providerCompany.id, { onDelete: "cascade" }),
+		providerId: text().notNull(),
+		discountPercent: decimal().notNull().default("0"),
+		marginPercent: decimal().notNull().default("0.2"),
+	},
+	(table) => [
+		uniqueIndex("provider_routing_settings_provider_uidx").on(table.providerId),
+		index("provider_routing_settings_company_idx").on(table.providerCompanyId),
+	],
+);
+
 // Project hourly statistics aggregation - used for fast dashboard queries
 export const projectHourlyStats = pgTable(
 	"project_hourly_stats",
