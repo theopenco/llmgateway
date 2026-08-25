@@ -6,7 +6,7 @@ title: "Runware Launch: 30% Off Open-Source Models"
 summary: "We partnered with Runware.ai to serve six open-source flagships — gpt-oss-120b, Gemma 4, DeepSeek V4 Pro and Flash, Kimi K2.6, and GLM 5.2 — at 30% off. The discount applies automatically to everything routed through Runware until September 9."
 image:
   src: "/changelog/runware-launch-discount.png"
-  alt: "LLM Gateway and Runware logos beside a large 30% and a one-month calendar, announcing the launch discount"
+  alt: "LLM Gateway and Runware logos beside a large 30% and a calendar, announcing the launch discount"
   width: 1536
   height: 1024
 ---
