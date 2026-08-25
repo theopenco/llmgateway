@@ -3176,21 +3176,12 @@ export async function startWorker() {
 			// after the minute backfill has had a chance to fill recent gaps.
 			return backfillHourlyHistoryIfNeeded();
 		})
-		.then(() => {
+		.then(async () => {
 			logger.info("Hourly history backfill check completed");
 			// Hourly rollups are now populated, so minute-history pruning is safe.
 			hourlyBackfillComplete = true;
-		})
-		.catch((error) => {
-			logger.error(
-				"Error during history backfill",
-				error instanceof Error ? error : new Error(String(error)),
-			);
-		})
-		.finally(async () => {
 			// Refresh the live buckets immediately from the now-stable minute source.
-			// Even if startup backfill failed, resume live rollups instead of leaving
-			// them disabled for the lifetime of this worker process.
+			// Enable the live loop even if this refresh fails so its next tick retries.
 			try {
 				await calculateHourlyHistory();
 			} catch (error) {
@@ -3201,6 +3192,12 @@ export async function startWorker() {
 			} finally {
 				liveHourlyRollupsReady = true;
 			}
+		})
+		.catch((error) => {
+			logger.error(
+				"Error during history backfill",
+				error instanceof Error ? error : new Error(String(error)),
+			);
 		});
 
 	// Start all worker loops (all sequential — each waits for completion before scheduling next run)
