@@ -4,6 +4,8 @@ import {
 	getMappingStatus,
 	isDeactivationScheduledSoon,
 	isMappingDeactivated,
+	isModelMappingStatus,
+	MODEL_MAPPING_STATUSES,
 	shouldShowDeactivationNotice,
 } from "./deactivation";
 
@@ -99,6 +101,20 @@ describe("shouldShowDeactivationNotice", () => {
 	});
 });
 
+describe("isModelMappingStatus", () => {
+	test("accepts the four statuses", () => {
+		for (const status of MODEL_MAPPING_STATUSES) {
+			expect(isModelMappingStatus(status)).toBe(true);
+		}
+	});
+
+	test("rejects unknown values", () => {
+		expect(isModelMappingStatus("")).toBe(false);
+		expect(isModelMappingStatus("dead")).toBe(false);
+		expect(isModelMappingStatus("ACTIVE")).toBe(false);
+	});
+});
+
 describe("getMappingStatus", () => {
 	test("is active without any dates", () => {
 		expect(getMappingStatus({}, now)).toBe("active");
@@ -127,7 +143,8 @@ describe("getMappingStatus", () => {
 	});
 
 	test("is scheduled at exactly 90 days and active one millisecond past it", () => {
-		const at90Days = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+		const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
+		const at90Days = new Date(now.getTime() + NINETY_DAYS_MS);
 		expect(getMappingStatus({ deactivatedAt: at90Days }, now)).toBe(
 			"scheduled",
 		);

@@ -75,7 +75,9 @@ import {
 } from "@/components/ui/tooltip";
 import {
 	isMappingDeactivated,
+	isModelMappingStatus,
 	shouldShowDeactivationNotice,
+	type ModelMappingStatus,
 } from "@/deactivation";
 import { discountFraction } from "@/lib/discount";
 import { cn } from "@/lib/utils";
@@ -846,6 +848,20 @@ export function AllModels({
 				: "asc",
 	);
 	const urlCategory = searchParams.get("category");
+
+	// The status chips are single-select: `?status=` holds at most one value.
+	// Legacy `?deactivated=true` links map onto the Deactivated chip so old
+	// URLs keep working. No param means the default view (no status filter).
+	function getStatusFilterFromUrl(
+		searchParams: URLSearchParams,
+	): ModelMappingStatus | null {
+		const status = searchParams.get("status");
+		if (status && isModelMappingStatus(status)) {
+			return status;
+		}
+		return searchParams.get("deactivated") === "true" ? "deactivated" : null;
+	}
+
 	const [filters, setFilters] = useState({
 		// With the selector hidden there is no way to see or change the
 		// category, so ignore any URL override and pin the default. When the
@@ -876,6 +892,7 @@ export function AllModels({
 			discounted: searchParams.get("discounted") === "true",
 		},
 		selectedProvider: searchParams.get("provider") ?? "all",
+		status: getStatusFilterFromUrl(searchParams),
 		showDeactivated: searchParams.get("deactivated") === "true",
 		source: searchParams.get("source") ?? "all",
 		eligibleOnly: searchParams.get("eligibility") === "eligible",
@@ -1541,6 +1558,7 @@ export function AllModels({
 		(filters.tier && filters.tier !== "all") ||
 		Object.values(filters.capabilities).some(Boolean) ||
 		(filters.selectedProvider && filters.selectedProvider !== "all") ||
+		filters.status !== null ||
 		filters.showDeactivated ||
 		(filters.source && filters.source !== "all") ||
 		filters.eligibleOnly ||
@@ -1721,6 +1739,7 @@ export function AllModels({
 				discounted: false,
 			},
 			selectedProvider: "all",
+			status: null,
 			showDeactivated: false,
 			source: "all",
 			eligibleOnly: false,
@@ -1750,6 +1769,7 @@ export function AllModels({
 			free: undefined,
 			discounted: undefined,
 			provider: undefined,
+			status: undefined,
 			deactivated: undefined,
 			source: undefined,
 			eligibility: undefined,

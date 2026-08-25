@@ -67,6 +67,19 @@ export function shouldShowDeactivationNotice(
 export type ModelMappingStatus =
 	"active" | "scheduled" | "deprecated" | "deactivated";
 
+export const MODEL_MAPPING_STATUSES = [
+	"active",
+	"scheduled",
+	"deprecated",
+	"deactivated",
+] as const;
+
+export function isModelMappingStatus(
+	value: string,
+): value is ModelMappingStatus {
+	return (MODEL_MAPPING_STATUSES as readonly string[]).includes(value);
+}
+
 export function getMappingStatus(
 	mapping: {
 		deactivatedAt?: Date | string | null;
