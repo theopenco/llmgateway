@@ -140,6 +140,16 @@ describe("assertMemberProjectAccess", () => {
 		).rejects.toMatchObject({ status: 403 });
 	});
 
+	it("fails open when the access read is unavailable", async () => {
+		vi.mocked(
+			mockCachedQueries.memberHasEffectiveProjectAccess,
+		).mockRejectedValue(new Error("database unavailable"));
+
+		await expect(
+			assertMemberProjectAccess(baseApiKey, "org-1"),
+		).resolves.toBeUndefined();
+	});
+
 	it("retains platform and end-user key exemptions", async () => {
 		await assertMemberProjectAccess(
 			{ ...baseApiKey, keyType: "platform_publishable" },

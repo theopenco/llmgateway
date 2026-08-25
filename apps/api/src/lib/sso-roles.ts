@@ -1,4 +1,4 @@
-import { db, eq, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 
 export type OrgRole = "owner" | "admin" | "developer";
 
@@ -72,7 +72,7 @@ export async function recomputeUserRole(
 		return null;
 	}
 	if (membership.role !== mappedRole) {
-		await db
+		await cdb
 			.update(tables.userOrganization)
 			.set({
 				role: mappedRole,

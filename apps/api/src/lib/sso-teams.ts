@@ -1,4 +1,4 @@
-import { db, eq, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 
 export interface TeamAssignmentChange {
 	old: string | null;
@@ -35,7 +35,7 @@ export async function recomputeUserTeam(
 		) {
 			return null;
 		}
-		await db
+		await cdb
 			.update(tables.userOrganization)
 			.set({ teamId: null, teamAssignmentSource: "manual" })
 			.where(eq(tables.userOrganization.id, membership.id));
@@ -90,7 +90,7 @@ export async function recomputeUserTeam(
 		return null;
 	}
 
-	await db
+	await cdb
 		.update(tables.userOrganization)
 		.set({
 			teamId,

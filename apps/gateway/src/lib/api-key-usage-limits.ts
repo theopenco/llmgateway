@@ -57,7 +57,11 @@ export function assertApiKeyWithinUsageLimits(
 	}
 }
 
-/** Fail closed when a normal user key's creator no longer has project access. */
+/**
+ * Fail closed when a normal user key's creator no longer has project access.
+ * Like the budget check below, a failed read (cold cache during a DB outage)
+ * fails OPEN — only a confirmed missing grant rejects.
+ */
 export async function assertMemberProjectAccess(
 	apiKey: ApiKey,
 	organizationId: string,
@@ -65,11 +69,25 @@ export async function assertMemberProjectAccess(
 	if (apiKey.keyType !== "user") {
 		return;
 	}
-	const allowed = await memberHasEffectiveProjectAccess(
-		apiKey.createdBy,
-		organizationId,
-		apiKey.projectId,
-	);
+	let allowed: boolean;
+	try {
+		allowed = await memberHasEffectiveProjectAccess(
+			apiKey.createdBy,
+			organizationId,
+			apiKey.projectId,
+		);
+	} catch (e) {
+		logger.error(
+			"member project access check unavailable, allowing request",
+			toError(e),
+			{
+				userId: apiKey.createdBy,
+				organizationId,
+				projectId: apiKey.projectId,
+			},
+		);
+		return;
+	}
 	if (!allowed) {
 		throw new HTTPException(403, {
 			message:
