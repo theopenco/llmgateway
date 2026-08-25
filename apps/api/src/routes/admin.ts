@@ -10170,7 +10170,7 @@ admin.openapi(getOrgCostByModel, async (c) => {
 		where: { id: { eq: orgId } },
 	});
 
-	if (!org || org.status === "deleted") {
+	if (!org) {
 		throw new HTTPException(404, { message: "Organization not found" });
 	}
 
@@ -10459,7 +10459,7 @@ admin.openapi(getOrgCostByModelTimeseries, async (c) => {
 		where: { id: { eq: orgId } },
 	});
 
-	if (!org || org.status === "deleted") {
+	if (!org) {
 		throw new HTTPException(404, { message: "Organization not found" });
 	}
 

@@ -54,6 +54,7 @@ export const nvidiaModels = [
 			{
 				providerId: "nebius",
 				externalId: "nvidia/nemotron-3-super-120b-a12b",
+				deactivatedAt: new Date("2026-08-31"),
 				// The deployment rejects tool_choice="required" with a 400, but
 				// named function choices work (verified 2026-07-22).
 				supportedToolChoices: ["auto", "none", "function"],

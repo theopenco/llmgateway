@@ -6,7 +6,10 @@ CREATE TABLE "provider_claim" (
 	"provider_id" text NOT NULL,
 	"matched_domain" text NOT NULL,
 	"claimed_by" text,
-	"status" text DEFAULT 'active' NOT NULL,
+	"status" text DEFAULT 'pending' NOT NULL,
+	"reviewed_by" text,
+	"review_note" text,
+	"reviewed_at" timestamp,
 	"revoked_at" timestamp
 );
 --> statement-breakpoint
@@ -78,8 +81,9 @@ CREATE TABLE "provider_routing_settings" (
 	"margin_percent" numeric DEFAULT '0.2' NOT NULL
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX "provider_claim_active_provider_uidx" ON "provider_claim" ("provider_id") WHERE status = 'active';--> statement-breakpoint
+CREATE UNIQUE INDEX "provider_claim_active_provider_uidx" ON "provider_claim" ("provider_id") WHERE status IN ('pending', 'active');--> statement-breakpoint
 CREATE INDEX "provider_claim_company_idx" ON "provider_claim" ("provider_company_id");--> statement-breakpoint
+CREATE INDEX "provider_claim_status_idx" ON "provider_claim" ("status");--> statement-breakpoint
 CREATE UNIQUE INDEX "provider_company_member_company_user_uidx" ON "provider_company_member" ("provider_company_id","user_id");--> statement-breakpoint
 CREATE INDEX "provider_company_member_user_idx" ON "provider_company_member" ("user_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "provider_draft_model_provider_name_uidx" ON "provider_draft_model" ("provider_id","model_name") WHERE status <> 'delisted';--> statement-breakpoint

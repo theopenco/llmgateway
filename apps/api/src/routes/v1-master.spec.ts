@@ -181,6 +181,60 @@ describe("v1/master cache invalidation", () => {
 		expect(remove.status).toBe(403);
 	});
 
+	test("managed playground keys reject master-key IAM mutations", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "playground-key",
+			token: "playground-token",
+			projectId: "test-project-id",
+			description: "Playground",
+			kind: "playground",
+			createdBy: "test-user-id",
+		});
+		const [rule] = await db
+			.insert(tables.apiKeyIamRule)
+			.values({
+				apiKeyId: "playground-key",
+				ruleType: "allow_models",
+				ruleValue: { models: ["openai/gpt-4o-mini"] },
+			})
+			.returning();
+
+		const create = await app.request("/v1/master/keys/playground-key/iam", {
+			method: "POST",
+			headers: authHeaders({ "Content-Type": "application/json" }),
+			body: JSON.stringify({
+				ruleType: "deny_models",
+				ruleValue: { models: ["openai/gpt-4o-mini"] },
+			}),
+		});
+		expect(create.status).toBe(403);
+
+		const update = await app.request(
+			`/v1/master/keys/playground-key/iam/${rule.id}`,
+			{
+				method: "PATCH",
+				headers: authHeaders({ "Content-Type": "application/json" }),
+				body: JSON.stringify({ status: "inactive" }),
+			},
+		);
+		expect(update.status).toBe(403);
+
+		const remove = await app.request(
+			`/v1/master/keys/playground-key/iam/${rule.id}`,
+			{
+				method: "DELETE",
+				headers: authHeaders(),
+			},
+		);
+		expect(remove.status).toBe(403);
+
+		const rules = await db.query.apiKeyIamRule.findMany({
+			where: { apiKeyId: { eq: "playground-key" } },
+		});
+		expect(rules).toHaveLength(1);
+		expect(rules[0]?.status).toBe("active");
+	});
+
 	test("PATCH /keys allows the playground description on a regular key", async () => {
 		const res = await app.request("/v1/master/keys/test-api-key-id", {
 			method: "PATCH",

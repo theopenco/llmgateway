@@ -766,6 +766,7 @@ export const openaiModels = [
 			{
 				providerId: "nebius",
 				externalId: "openai/gpt-oss-120b",
+				deactivatedAt: new Date("2026-08-31"),
 				// Streaming tool calls arrive malformed from nebius (vLLM emits a
 				// bogus tool_call index on the final argument fragment)
 				stability: "unstable",

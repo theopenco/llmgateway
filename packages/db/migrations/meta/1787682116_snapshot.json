@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "0385f1ff-17bc-4d06-b14b-ab8f128833fe",
-  "prevId": "a3294493-8581-4af9-86ac-9daedae96152",
+  "id": "0c087c7f-bd04-478c-aa15-b8267e22b3fb",
+  "prevId": "d220fb46-0575-48bb-99d2-c96f656529ad",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -9738,6 +9738,22 @@
       "table": "model_history"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'unknown'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "used_mode",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_history"
+    },
+    {
       "type": "timestamp",
       "typeSchema": null,
       "notNull": true,
@@ -10284,6 +10300,22 @@
       "generated": null,
       "identity": null,
       "name": "model_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_history_hourly"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'unknown'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "used_mode",
       "entityType": "columns",
       "schema": "public",
       "table": "model_history_hourly"
@@ -11444,6 +11476,22 @@
       "table": "model_provider_mapping_history"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'unknown'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "used_mode",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping_history"
+    },
+    {
       "type": "timestamp",
       "typeSchema": null,
       "notNull": true,
@@ -12016,6 +12064,22 @@
       "generated": null,
       "identity": null,
       "name": "model_provider_mapping_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping_history_hourly"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'unknown'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "used_mode",
       "entityType": "columns",
       "schema": "public",
       "table": "model_provider_mapping_history_hourly"
@@ -18239,12 +18303,51 @@
       "notNull": true,
       "dimensions": 0,
       "default": {
-        "value": "'active'",
+        "value": "'pending'",
         "type": "unknown"
       },
       "generated": null,
       "identity": null,
       "name": "status",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_claim"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "reviewed_by",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_claim"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "review_note",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_claim"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "reviewed_at",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_claim"
@@ -28260,7 +28363,7 @@
         }
       ],
       "isUnique": true,
-      "where": "status = 'active'",
+      "where": "status IN ('pending', 'active')",
       "with": "",
       "method": "btree",
       "concurrently": false,
@@ -28286,6 +28389,27 @@
       "method": "btree",
       "concurrently": false,
       "name": "provider_claim_company_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "provider_claim"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "status",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "provider_claim_status_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "provider_claim"
