@@ -2146,54 +2146,89 @@ export function AllModels({
 
 						<div className="font-medium text-sm">Status</div>
 						<div className="flex flex-col items-start gap-1.5">
-							<Toggle
-								variant="outline"
-								size="sm"
-								pressed={filters.status === "deactivated"}
-								onPressedChange={(pressed) => {
-									setStatusFilter(pressed ? "deactivated" : null);
-								}}
-								className="gap-1.5 w-fit"
-							>
-								<AlertCircle className="h-3.5 w-3.5 text-red-500" />
-								<span className="text-xs">Deactivated</span>
-							</Toggle>
-							<Toggle
-								variant="outline"
-								size="sm"
-								pressed={filters.status === "scheduled"}
-								onPressedChange={(pressed) => {
-									setStatusFilter(pressed ? "scheduled" : null);
-								}}
-								className="gap-1.5 w-fit"
-							>
-								<Clock className="h-3.5 w-3.5 text-amber-500" />
-								<span className="text-xs">Scheduled</span>
-							</Toggle>
-							<Toggle
-								variant="outline"
-								size="sm"
-								pressed={filters.status === "deprecated"}
-								onPressedChange={(pressed) => {
-									setStatusFilter(pressed ? "deprecated" : null);
-								}}
-								className="gap-1.5 w-fit"
-							>
-								<AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
-								<span className="text-xs">Deprecated</span>
-							</Toggle>
-							<Toggle
-								variant="outline"
-								size="sm"
-								pressed={filters.status === "active"}
-								onPressedChange={(pressed) => {
-									setStatusFilter(pressed ? "active" : null);
-								}}
-								className="gap-1.5 w-fit"
-							>
-								<Check className="h-3.5 w-3.5 text-green-500" />
-								<span className="text-xs">Active</span>
-							</Toggle>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<Toggle
+										variant="outline"
+										size="sm"
+										pressed={filters.status === "deactivated"}
+										onPressedChange={(pressed) => {
+											setStatusFilter(pressed ? "deactivated" : null);
+										}}
+										className="gap-1.5 w-fit"
+									>
+										<AlertCircle className="h-3.5 w-3.5 text-red-500" />
+										<span className="text-xs">Deactivated</span>
+									</Toggle>
+								</TooltipTrigger>
+								<TooltipContent>
+									<p className="text-xs">
+										Dead — requests return errors and no longer route
+									</p>
+								</TooltipContent>
+							</Tooltip>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<Toggle
+										variant="outline"
+										size="sm"
+										pressed={filters.status === "scheduled"}
+										onPressedChange={(pressed) => {
+											setStatusFilter(pressed ? "scheduled" : null);
+										}}
+										className="gap-1.5 w-fit"
+									>
+										<Clock className="h-3.5 w-3.5 text-amber-500" />
+										<span className="text-xs">Scheduled</span>
+									</Toggle>
+								</TooltipTrigger>
+								<TooltipContent>
+									<p className="text-xs">
+										Still works — deactivation scheduled within 90 days, plan to
+										migrate
+									</p>
+								</TooltipContent>
+							</Tooltip>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<Toggle
+										variant="outline"
+										size="sm"
+										pressed={filters.status === "deprecated"}
+										onPressedChange={(pressed) => {
+											setStatusFilter(pressed ? "deprecated" : null);
+										}}
+										className="gap-1.5 w-fit"
+									>
+										<AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+										<span className="text-xs">Deprecated</span>
+									</Toggle>
+								</TooltipTrigger>
+								<TooltipContent>
+									<p className="text-xs">
+										Still works — provider announced sunset, migrate soon
+									</p>
+								</TooltipContent>
+							</Tooltip>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<Toggle
+										variant="outline"
+										size="sm"
+										pressed={filters.status === "active"}
+										onPressedChange={(pressed) => {
+											setStatusFilter(pressed ? "active" : null);
+										}}
+										className="gap-1.5 w-fit"
+									>
+										<Check className="h-3.5 w-3.5 text-green-500" />
+										<span className="text-xs">Active</span>
+									</Toggle>
+								</TooltipTrigger>
+								<TooltipContent>
+									<p className="text-xs">Healthy — no retirement notices</p>
+								</TooltipContent>
+							</Tooltip>
 							{hasBlockedMappings && (
 								<Toggle
 									variant="outline"
