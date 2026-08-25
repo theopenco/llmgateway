@@ -161,14 +161,3 @@ CREATE TABLE "model_usage_history_hourly" (
 	"service_tier_unconfirmed_count" integer DEFAULT 0 NOT NULL,
 	CONSTRAINT "model_usage_history_model_hour_mode_unique" UNIQUE("model_id","hour_timestamp","used_mode")
 );
---> statement-breakpoint
-CREATE INDEX "mpm_usage_history_mode_ts_model_idx" ON "model_provider_mapping_usage_history" ("used_mode","minute_timestamp","model_id");--> statement-breakpoint
-CREATE INDEX "mpm_usage_history_mapping_mode_ts_idx" ON "model_provider_mapping_usage_history" ("model_provider_mapping_id","used_mode","minute_timestamp");--> statement-breakpoint
-CREATE INDEX "mpm_usage_history_provider_stats_idx" ON "model_provider_mapping_usage_history" ("used_mode","minute_timestamp","provider_id","logs_count","errors_count","client_errors_count","cached_count","total_time_to_first_token","time_to_first_token_count","total_output_tokens","total_duration");--> statement-breakpoint
-CREATE INDEX "mpm_usage_history_hourly_mode_ts_model_idx" ON "model_provider_mapping_usage_history_hourly" ("used_mode","hour_timestamp","model_id");--> statement-breakpoint
-CREATE INDEX "mpm_usage_history_hourly_mapping_mode_ts_idx" ON "model_provider_mapping_usage_history_hourly" ("model_provider_mapping_id","used_mode","hour_timestamp");--> statement-breakpoint
-CREATE INDEX "mpm_usage_history_hourly_provider_stats_idx" ON "model_provider_mapping_usage_history_hourly" ("used_mode","hour_timestamp","provider_id","logs_count","errors_count","client_errors_count","cached_count","total_time_to_first_token","time_to_first_token_count","total_output_tokens","total_duration");--> statement-breakpoint
-CREATE INDEX "model_usage_history_mode_ts_model_idx" ON "model_usage_history" ("used_mode","minute_timestamp","model_id");--> statement-breakpoint
-CREATE INDEX "model_usage_history_model_mode_ts_idx" ON "model_usage_history" ("model_id","used_mode","minute_timestamp");--> statement-breakpoint
-CREATE INDEX "model_usage_history_hourly_mode_ts_model_idx" ON "model_usage_history_hourly" ("used_mode","hour_timestamp","model_id");--> statement-breakpoint
-CREATE INDEX "model_usage_history_hourly_model_mode_ts_idx" ON "model_usage_history_hourly" ("model_id","used_mode","hour_timestamp");
