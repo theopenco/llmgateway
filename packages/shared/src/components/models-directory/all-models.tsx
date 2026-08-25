@@ -864,7 +864,7 @@ export function AllModels({
 		searchParams: URLSearchParams,
 	): ModelMappingStatus | null {
 		const status = searchParams.get("status");
-		if (status && isModelMappingStatus(status)) {
+		if (status && isModelMappingStatus(status) && status !== "active") {
 			return status;
 		}
 		return searchParams.get("deactivated") === "true" ? "deactivated" : null;
@@ -2214,27 +2214,6 @@ export function AllModels({
 									<p className="text-xs">
 										Still works / provider announced sunset, migrate soon
 									</p>
-								</TooltipContent>
-							</Tooltip>
-							<Tooltip>
-								<TooltipTrigger asChild>
-									<span>
-										<Toggle
-											variant="outline"
-											size="sm"
-											pressed={filters.status === "active"}
-											onPressedChange={(pressed) => {
-												setStatusFilter(pressed ? "active" : null);
-											}}
-											className="gap-1.5 w-fit"
-										>
-											<Check className="h-3.5 w-3.5 text-green-500" />
-											<span className="text-xs">Active</span>
-										</Toggle>
-									</span>
-								</TooltipTrigger>
-								<TooltipContent>
-									<p className="text-xs">Healthy / no retirement notices</p>
 								</TooltipContent>
 							</Tooltip>
 							{hasBlockedMappings && (
