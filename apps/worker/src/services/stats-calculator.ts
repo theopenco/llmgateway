@@ -40,6 +40,7 @@ const HOURLY_BACKFILL_MAX_ITERATIONS =
 
 const ONE_MINUTE_MS = 60 * 1000;
 const ONE_HOUR_MS = 60 * ONE_MINUTE_MS;
+const CATALOG_USAGE_HISTORY_WINDOW_MINUTES = 90 * 24 * 60;
 const usedModelWithRegionSql = sql<string>`split_part(${log.usedModel}, '/', 2)`;
 const usedBaseModelSql = sql<string>`split_part(${usedModelWithRegionSql}, ':', 1)`;
 const usedRegionSql = sql<
@@ -1148,6 +1149,29 @@ export async function backfillHistoryIfNeeded() {
 
 	try {
 		const database = db;
+		const [usageHistoryBackfillSetting] = await database
+			.select({
+				enabled: systemSetting.enabled,
+				value: systemSetting.value,
+			})
+			.from(systemSetting)
+			.where(eq(systemSetting.id, USAGE_HISTORY_BACKFILL_SETTING_ID))
+			.limit(1);
+		const usageHistoryIncomplete =
+			usageHistoryBackfillSetting?.enabled !== true;
+		const catalogUsageWindowMs =
+			CATALOG_USAGE_HISTORY_WINDOW_MINUTES * ONE_MINUTE_MS;
+		const catalogUsageWindowStart = new Date(Date.now() - catalogUsageWindowMs);
+		// The legacy aggregates do not contain usedMode, so an incomplete upgrade
+		// uses this bounded log probe to recover the full supported mode window.
+		const usageLogEarliest = usageHistoryIncomplete
+			? await database
+					.select({ minute: log.createdAt })
+					.from(log)
+					.where(gte(log.createdAt, catalogUsageWindowStart))
+					.orderBy(asc(log.createdAt))
+					.limit(1)
+			: [];
 
 		// Use index-backed boundary probes and a durable completion marker. Counting
 		// every retained minute here makes every worker restart scan all history.
@@ -1158,7 +1182,6 @@ export async function backfillHistoryIfNeeded() {
 			modelHistoryLatest,
 			mappingUsageHistoryLatest,
 			modelUsageHistoryLatest,
-			usageHistoryBackfillSetting,
 		] = await Promise.all([
 			database
 				.select({ minute: modelProviderMappingHistory.minuteTimestamp })
@@ -1192,14 +1215,6 @@ export async function backfillHistoryIfNeeded() {
 				.where(eq(modelUsageHistory.usedMode, "credits"))
 				.orderBy(desc(modelUsageHistory.minuteTimestamp))
 				.limit(1),
-			database
-				.select({
-					enabled: systemSetting.enabled,
-					value: systemSetting.value,
-				})
-				.from(systemSetting)
-				.where(eq(systemSetting.id, USAGE_HISTORY_BACKFILL_SETTING_ID))
-				.limit(1),
 		]);
 
 		const latestMinutes: (Date | null | undefined)[] = [
@@ -1208,9 +1223,8 @@ export async function backfillHistoryIfNeeded() {
 			mappingUsageHistoryLatest[0]?.minute,
 			modelUsageHistoryLatest[0]?.minute,
 		];
-		const usageHistoryIncomplete =
-			usageHistoryBackfillSetting[0]?.enabled !== true;
 		const usageBackfillStarts = [
+			usageLogEarliest[0]?.minute,
 			mappingHistoryEarliest[0]?.minute,
 			modelHistoryEarliest[0]?.minute,
 		].filter(
@@ -1223,7 +1237,7 @@ export async function backfillHistoryIfNeeded() {
 					)
 				: null;
 		const storedCheckpointMs = Date.parse(
-			usageHistoryBackfillSetting[0]?.value ?? "",
+			usageHistoryBackfillSetting?.value ?? "",
 		);
 		const usageBackfillStart = earliestUsageBackfillStart
 			? new Date(
@@ -1250,8 +1264,8 @@ export async function backfillHistoryIfNeeded() {
 		const previousMinute = getPreviousMinuteStart();
 
 		if (!lastMinute || usageHistoryIncomplete) {
-			// New mode tables must cover every retained legacy minute. The hourly
-			// rollup keeps that data after minute-level retention removes its source.
+			// New mode tables must cover the full supported catalogue window. The
+			// hourly rollup keeps that data after minute-level retention removes it.
 			const defaultBackfillDurationMs = BACKFILL_DURATION_SECONDS * 1000;
 			const backfillStart =
 				usageHistoryIncomplete && usageBackfillStart

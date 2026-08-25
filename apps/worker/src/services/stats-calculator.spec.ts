@@ -1736,6 +1736,63 @@ describe("stats-calculator", () => {
 			);
 		});
 
+		it("should backfill mode history before retained minute history", async () => {
+			const logMinute = new Date("2024-01-01T10:00:00.000Z");
+			const retainedMinute = new Date("2024-01-01T11:00:00.000Z");
+			const recentMinute = new Date("2024-01-01T12:28:00.000Z");
+			await Promise.all([
+				db.insert(modelProviderMappingHistory).values([
+					{
+						modelId: "gpt-4",
+						providerId: "openai",
+						modelProviderMappingId: "mapping-1",
+						minuteTimestamp: retainedMinute,
+					},
+					{
+						modelId: "gpt-4",
+						providerId: "openai",
+						modelProviderMappingId: "mapping-1",
+						minuteTimestamp: recentMinute,
+					},
+				]),
+				db.insert(modelHistory).values([
+					{ modelId: "gpt-4", minuteTimestamp: retainedMinute },
+					{ modelId: "gpt-4", minuteTimestamp: recentMinute },
+				]),
+				db.insert(log).values({
+					id: "older-mode-log",
+					requestId: "older-mode-request",
+					organizationId: "org-1",
+					projectId: "proj-1",
+					apiKeyId: "key-1",
+					duration: 1000,
+					requestedModel: "gpt-4",
+					requestedProvider: "openai",
+					usedModel: "openai/gpt-4",
+					usedProvider: "openai",
+					responseSize: 100,
+					hasError: false,
+					mode: "credits",
+					usedMode: "credits",
+					createdAt: new Date(logMinute.getTime() + 30_000),
+				}),
+			]);
+
+			await backfillHistoryIfNeeded();
+
+			const [olderModeHistory] = await db
+				.select()
+				.from(modelUsageHistory)
+				.where(
+					and(
+						eq(modelUsageHistory.modelId, "gpt-4"),
+						eq(modelUsageHistory.usedMode, "credits"),
+						eq(modelUsageHistory.minuteTimestamp, logMinute),
+					),
+				);
+			expect(olderModeHistory?.logsCount).toBe(1);
+		});
+
 		it("should backfill missing periods", async () => {
 			// Create old history entry from 5 minutes ago
 			const oldMinute = new Date("2024-01-01T12:25:00.000Z");
