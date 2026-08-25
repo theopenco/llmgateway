@@ -23,7 +23,7 @@ import {
 	getTableName,
 	isNotNull,
 	isNull,
-	ne,
+	notInArray,
 	tables,
 } from "@llmgateway/db";
 import {
@@ -41,7 +41,7 @@ import {
 const legacyApiKeyFilter = and(
 	isNotNull(tables.apiKey.token),
 	isNull(tables.apiKey.tokenHash),
-	ne(tables.apiKey.keyType, RETRIEVABLE_API_KEY_TYPES[0]),
+	notInArray(tables.apiKey.keyType, RETRIEVABLE_API_KEY_TYPES),
 );
 
 const legacyEndUserSessionFilter = and(

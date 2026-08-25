@@ -95,6 +95,9 @@ describe("API key type policy", () => {
 			keyTypes.filter((keyType) => !isRetrievableApiKeyType(keyType)),
 		).toEqual(["user", "platform_secret", "end_user_customer"]);
 		expect(RETRIEVABLE_API_KEY_TYPES).toEqual(["platform_publishable"]);
+		expect(
+			RETRIEVABLE_API_KEY_TYPES.every(isRetrievableApiKeyType),
+		).toBe(true);
 	});
 });
 
