@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
 	describeDatabaseTarget,
+	isRetrievableApiKeyType,
 	parseKeyStorageBackfillOptions,
+	RETRIEVABLE_API_KEY_TYPES,
 	requireExplicitHashSecret,
 } from "./key-storage-backfill.js";
 
@@ -77,6 +79,22 @@ describe("requireExplicitHashSecret", () => {
 		setEnv("GATEWAY_API_KEY_HASH_SECRET", "current-secret,old-secret");
 
 		expect(() => requireExplicitHashSecret()).not.toThrow();
+	});
+});
+
+describe("API key type policy", () => {
+	it("backfills every secret-bearing API key kind", () => {
+		const keyTypes = [
+			"user",
+			"platform_secret",
+			"platform_publishable",
+			"end_user_customer",
+		] as const;
+
+		expect(
+			keyTypes.filter((keyType) => !isRetrievableApiKeyType(keyType)),
+		).toEqual(["user", "platform_secret", "end_user_customer"]);
+		expect(RETRIEVABLE_API_KEY_TYPES).toEqual(["platform_publishable"]);
 	});
 });
 

@@ -8,13 +8,19 @@ import {
 	apiKey,
 	apiKeyIamRule,
 	customModel,
+	endCustomer,
+	endUserSession,
 	organization,
 	project,
 	providerKey,
 	user,
 	userOrganization,
+	wallet,
 } from "@llmgateway/db";
-import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
+import {
+	hashApiKeyForStorage,
+	hashTokenForStorage,
+} from "@llmgateway/shared/api-key-hash";
 
 import {
 	reportTrackedKeyError,
@@ -170,6 +176,44 @@ describe("Cached Queries - Gateway Database Access", () => {
 	});
 
 	describe("findApiKeyByToken", () => {
+		async function insertEndUserSession(
+			tokenValues:
+				| { token: string; tokenHash?: never }
+				| { token: null; tokenHash: string },
+		) {
+			await db.insert(endCustomer).values({
+				id: "test-end-customer-cached-queries",
+				organizationId: testOrgId,
+				projectId: testProjectId,
+				externalId: "external-user",
+			});
+			await db.insert(wallet).values({
+				id: "test-wallet-cached-queries",
+				endCustomerId: "test-end-customer-cached-queries",
+				organizationId: testOrgId,
+				projectId: testProjectId,
+			});
+			await db.insert(apiKey).values({
+				id: "test-end-user-key-cached-queries",
+				...hashApiKeyForStorage("euck_internal-principal"),
+				projectId: testProjectId,
+				description: "Embedded end user",
+				keyType: "end_user_customer",
+				endCustomerWalletId: "test-wallet-cached-queries",
+				createdBy: testUserId,
+			});
+			await db.insert(endUserSession).values({
+				id: "test-end-user-session-cached-queries",
+				...tokenValues,
+				organizationId: testOrgId,
+				projectId: testProjectId,
+				endCustomerId: "test-end-customer-cached-queries",
+				walletId: "test-wallet-cached-queries",
+				createdBy: testUserId,
+				expiresAt: new Date(Date.now() + 60_000),
+			});
+		}
+
 		it("should find API key by token", async () => {
 			const result = await findApiKeyByToken(testApiKeyToken);
 
@@ -217,6 +261,30 @@ describe("Cached Queries - Gateway Database Access", () => {
 			const result = await findApiKeyByToken(platformSecretToken);
 
 			expect(result).toBeUndefined();
+		});
+
+		it("finds a hash-only embeddable session token", async () => {
+			const token = "es_hash-only-cached-queries";
+			await insertEndUserSession(hashTokenForStorage(token));
+
+			const result = await findApiKeyByToken(token);
+
+			expect(result?.id).toBe("test-end-user-key-cached-queries");
+			expect(result?.endUserSession?.id).toBe(
+				"test-end-user-session-cached-queries",
+			);
+		});
+
+		it("keeps legacy plaintext embeddable sessions valid", async () => {
+			const token = "es_legacy-cached-queries";
+			await insertEndUserSession({ token });
+
+			const result = await findApiKeyByToken(token);
+
+			expect(result?.id).toBe("test-end-user-key-cached-queries");
+			expect(result?.endUserSession?.id).toBe(
+				"test-end-user-session-cached-queries",
+			);
 		});
 	});
 

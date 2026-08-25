@@ -4,6 +4,15 @@ const HASH_SECRET_ENV = "GATEWAY_API_KEY_HASH_SECRET";
 const DEFAULT_BATCH_SIZE = 100;
 const MAX_BATCH_SIZE = 1000;
 
+/** Public identifiers must remain retrievable; every other API-key kind is hashed. */
+export const RETRIEVABLE_API_KEY_TYPES = ["platform_publishable"] as const;
+
+export function isRetrievableApiKeyType(keyType: string): boolean {
+	return RETRIEVABLE_API_KEY_TYPES.some(
+		(retrievableType) => retrievableType === keyType,
+	);
+}
+
 export interface KeyStorageBackfillOptions {
 	batchSize: number;
 	commit: boolean;

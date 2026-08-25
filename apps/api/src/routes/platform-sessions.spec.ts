@@ -3,8 +3,11 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db, tables } from "@llmgateway/db";
-import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
+import { db, eq, tables } from "@llmgateway/db";
+import {
+	getApiKeyFingerprint,
+	hashApiKeyForStorage,
+} from "@llmgateway/shared/api-key-hash";
 
 const PLATFORM_SECRET = "sk_test_platform";
 
@@ -94,6 +97,86 @@ describe("platform sessions", () => {
 			},
 		});
 		expect(sessions).toHaveLength(2);
+		for (const session of sessions) {
+			expect(session.token).toBeNull();
+			expect(session.tokenHash).toMatch(/^[0-9a-f]{64}$/);
+		}
+	});
+
+	test("stores session tokens hash-only and authenticates the returned token", async () => {
+		const session = await mintSession("customer-a");
+		const stored = await db.query.endUserSession.findFirst({
+			where: { walletId: { eq: session.walletId } },
+		});
+
+		expect(stored?.token).toBeNull();
+		expect(stored?.tokenHash).toBe(getApiKeyFingerprint(session.sessionToken));
+
+		const balance = await app.request("/v1/wallet/balance", {
+			headers: { Authorization: `Bearer ${session.sessionToken}` },
+		});
+		expect(balance.status).toBe(200);
+	});
+
+	test("refreshes to another hash-only token and rejects the old token", async () => {
+		const session = await mintSession("customer-a");
+		const refresh = await app.request("/v1/sessions/refresh", {
+			method: "POST",
+			headers: { Authorization: `Bearer ${session.sessionToken}` },
+		});
+		expect(refresh.status).toBe(200);
+		const refreshed = (await refresh.json()) as {
+			sessionToken: string;
+			walletId: string;
+			expiresAt: string;
+		};
+
+		const sessions = await db.query.endUserSession.findMany({
+			where: { walletId: { eq: session.walletId } },
+		});
+		expect(sessions).toHaveLength(2);
+		expect(
+			sessions.find(
+				(row) => row.tokenHash === getApiKeyFingerprint(refreshed.sessionToken),
+			),
+		).toMatchObject({ token: null, status: "active" });
+
+		const oldToken = await app.request("/v1/wallet/balance", {
+			headers: { Authorization: `Bearer ${session.sessionToken}` },
+		});
+		expect(oldToken.status).toBe(401);
+
+		const newToken = await app.request("/v1/wallet/balance", {
+			headers: { Authorization: `Bearer ${refreshed.sessionToken}` },
+		});
+		expect(newToken.status).toBe(200);
+	});
+
+	test("keeps legacy plaintext sessions valid during backfill", async () => {
+		const session = await mintSession("customer-a");
+		await db
+			.update(tables.endUserSession)
+			.set({ token: session.sessionToken, tokenHash: null })
+			.where(eq(tables.endUserSession.walletId, session.walletId));
+
+		const balance = await app.request("/v1/wallet/balance", {
+			headers: { Authorization: `Bearer ${session.sessionToken}` },
+		});
+		expect(balance.status).toBe(200);
+	});
+
+	test("returns the intentionally public publishable key", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "test-platform-publishable-key-id",
+			token: "pk_test_public",
+			projectId: "test-project-id",
+			description: "Platform publishable",
+			keyType: "platform_publishable",
+			createdBy: "test-user-id",
+		});
+
+		const session = await mintSession("customer-a");
+		expect(session.publishableKey).toBe("pk_test_public");
 	});
 
 	test("creates distinct hidden aggregate API keys for different end customers", async () => {

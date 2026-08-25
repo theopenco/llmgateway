@@ -1263,7 +1263,9 @@ export const endUserSession = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
-		token: text().notNull().unique(),
+		// Legacy plaintext column. New sessions store only tokenHash.
+		token: text().unique(),
+		tokenHash: text().unique(),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		})
@@ -1297,6 +1299,10 @@ export const endUserSession = pgTable(
 		currentPeriodStartedAt: timestamp(),
 	},
 	(table) => [
+		check(
+			"end_user_session_token_xor",
+			sql`(${table.token} IS NULL) <> (${table.tokenHash} IS NULL)`,
+		),
 		index("end_user_session_project_id_idx").on(table.projectId),
 		index("end_user_session_wallet_id_idx").on(table.walletId),
 		index("end_user_session_status_expires_at_idx").on(
@@ -1455,8 +1461,9 @@ export const apiKey = pgTable(
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
 		// Discriminates normal developer keys from embeddable-SDK principals.
-		// `platform_secret`/`platform_publishable` are long-lived keys on a hidden
-		// per-org project. `end_user_customer` is a hidden per-customer aggregate
+		// `platform_secret` is a long-lived secret on a hidden per-org project.
+		// `platform_publishable` is an intentionally public browser identifier and
+		// remains retrievable. `end_user_customer` is a hidden per-customer aggregate
 		// key used as the stable log/api-key stats principal for browser sessions.
 		keyType: text({
 			enum: [

@@ -87,11 +87,18 @@ export function getApiKeyFingerprints(token: string): string[] {
 	);
 }
 
-/** Values persisted for a gateway API key. The plaintext is returned separately. */
-export function hashApiKeyForStorage(token: string) {
+/** Hash-only values persisted for a bearer token. */
+export function hashTokenForStorage(token: string) {
 	return {
 		token: null,
 		tokenHash: getApiKeyFingerprint(token),
+	} as const;
+}
+
+/** Values persisted for a gateway API key. The plaintext is returned separately. */
+export function hashApiKeyForStorage(token: string) {
+	return {
+		...hashTokenForStorage(token),
 		tokenMasked: maskToken(token),
 	} as const;
 }

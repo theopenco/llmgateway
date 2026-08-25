@@ -1,7 +1,8 @@
 /* eslint-disable no-console */
 /**
- * Replace legacy plaintext gateway API keys with their hash-only storage form.
- * Existing mixed deployments remain compatible while this script runs.
+ * Replace legacy plaintext gateway API keys and embeddable session tokens with
+ * their hash-only storage form. Existing mixed deployments remain compatible
+ * while this script runs.
  *
  * Usage:
  *   pnpm --filter @llmgateway/scripts backfill-api-key-hashes
@@ -25,18 +26,27 @@ import {
 	ne,
 	tables,
 } from "@llmgateway/db";
-import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
+import {
+	hashApiKeyForStorage,
+	hashTokenForStorage,
+} from "@llmgateway/shared/api-key-hash";
 
 import {
 	parseKeyStorageBackfillOptions,
 	printKeyStorageBackfillHeader,
+	RETRIEVABLE_API_KEY_TYPES,
 	requireExplicitHashSecret,
 } from "./key-storage-backfill.js";
 
 const legacyApiKeyFilter = and(
 	isNotNull(tables.apiKey.token),
 	isNull(tables.apiKey.tokenHash),
-	ne(tables.apiKey.keyType, "platform_publishable"),
+	ne(tables.apiKey.keyType, RETRIEVABLE_API_KEY_TYPES[0]),
+);
+
+const legacyEndUserSessionFilter = and(
+	isNotNull(tables.endUserSession.token),
+	isNull(tables.endUserSession.tokenHash),
 );
 
 async function main(): Promise<void> {
@@ -44,13 +54,18 @@ async function main(): Promise<void> {
 	printKeyStorageBackfillHeader(options);
 
 	const pendingCount = await db.$count(tables.apiKey, legacyApiKeyFilter);
+	const pendingSessionCount = await db.$count(
+		tables.endUserSession,
+		legacyEndUserSessionFilter,
+	);
 	console.log(`Legacy plaintext API keys: ${pendingCount}`);
+	console.log(`Legacy plaintext embeddable sessions: ${pendingSessionCount}`);
 
 	if (!options.commit) {
 		console.log("Dry run only. Re-run with --commit to migrate these rows.");
 		return;
 	}
-	if (pendingCount === 0) {
+	if (pendingCount === 0 && pendingSessionCount === 0) {
 		console.log("Nothing to backfill.");
 		return;
 	}
@@ -103,6 +118,57 @@ async function main(): Promise<void> {
 		});
 	}
 	console.log(`Backfill complete. Migrated ${migrated} API keys.`);
+
+	let migratedSessions = 0;
+	while (true) {
+		const rows = await db
+			.select({
+				id: tables.endUserSession.id,
+				token: tables.endUserSession.token,
+				updatedAt: tables.endUserSession.updatedAt,
+			})
+			.from(tables.endUserSession)
+			.where(legacyEndUserSessionFilter)
+			.limit(options.batchSize);
+
+		if (rows.length === 0) {
+			break;
+		}
+
+		for (const row of rows) {
+			if (row.token === null) {
+				continue;
+			}
+			const updated = await db
+				.update(tables.endUserSession)
+				.set({
+					...hashTokenForStorage(row.token),
+					updatedAt: row.updatedAt,
+				})
+				.where(
+					and(
+						eq(tables.endUserSession.id, row.id),
+						eq(tables.endUserSession.token, row.token),
+						isNull(tables.endUserSession.tokenHash),
+					),
+				)
+				.returning({ id: tables.endUserSession.id });
+			migratedSessions += updated.length;
+		}
+
+		console.log(
+			`Migrated ${migratedSessions}/${pendingSessionCount} embeddable sessions`,
+		);
+	}
+
+	if (migratedSessions > 0) {
+		await drizzleCache.onMutate({
+			tables: getTableName(tables.endUserSession),
+		});
+	}
+	console.log(
+		`Backfill complete. Migrated ${migratedSessions} embeddable sessions.`,
+	);
 }
 
 async function run(): Promise<void> {

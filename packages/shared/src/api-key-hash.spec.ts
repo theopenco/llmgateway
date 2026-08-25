@@ -7,6 +7,7 @@ import {
 	getApiKeyHashSecrets,
 	getSecretKeyId,
 	hashApiKeyForStorage,
+	hashTokenForStorage,
 } from "./api-key-hash.js";
 
 const ENV_VAR = "GATEWAY_API_KEY_HASH_SECRET";
@@ -89,6 +90,14 @@ describe("getApiKeyHashSecret / getApiKeyFingerprint", () => {
 			token: null,
 			tokenHash: getApiKeyFingerprint("llmgtwy_secret-value"),
 			tokenMasked: "llmgtwy_secr•••••",
+		});
+	});
+
+	it("builds hash-only values without API-key display metadata", () => {
+		setSecret("secret-new");
+		expect(hashTokenForStorage("es_session-secret")).toEqual({
+			token: null,
+			tokenHash: getApiKeyFingerprint("es_session-secret"),
 		});
 	});
 });

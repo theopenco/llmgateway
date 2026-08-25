@@ -246,7 +246,12 @@ export async function findApiKeyByToken(
 						eq(apiKeyTable.status, "active"),
 					),
 				)
-				.where(eq(endUserSessionTable.token, token))
+				.where(
+					or(
+						eq(endUserSessionTable.token, token),
+						inArray(endUserSessionTable.tokenHash, tokenHashes),
+					),
+				)
 				.limit(1);
 			const row = rows[0];
 			if (!row || row.session.status !== "active") {
