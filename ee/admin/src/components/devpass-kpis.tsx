@@ -98,6 +98,19 @@ export function DevpassKpis({ from, to }: { from?: string; to?: string }) {
 		? kpis.grossMrr - kpis.refundedAmountThisMonth
 		: 0;
 
+	// Lifetime value per subscriber, gross and net of refunds. Both use the same
+	// denominator so the pair is directly comparable and the gap is purely the
+	// refund effect — totalSubscribersExcludingRefunded drops an org for any
+	// refund, even a partial one whose remaining revenue still counts.
+	const ltv =
+		kpis && kpis.totalSubscribers > 0
+			? kpis.grossSubscriptionRevenue / kpis.totalSubscribers
+			: 0;
+	const ltvAfterRefunds =
+		kpis && kpis.totalSubscribers > 0
+			? kpis.subscriptionRevenueExcludingRefunds / kpis.totalSubscribers
+			: 0;
+
 	return (
 		<section className="space-y-3">
 			<div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -137,6 +150,35 @@ export function DevpassKpis({ from, to }: { from?: string; to?: string }) {
 							</div>
 							<div className="mt-1 text-xs text-muted-foreground">
 								{kpis.totalSubscribersExcludingRefunded} excluding refunded
+							</div>
+							<div className="mt-1 text-xs text-muted-foreground">
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<span className="cursor-help underline decoration-dotted underline-offset-2">
+											LTV
+										</span>
+									</TooltipTrigger>
+									<TooltipContent className="max-w-xs">
+										All-time plan revenue per subscriber. Both figures divide by
+										total subscribers, so the difference is purely the refund
+										effect.
+									</TooltipContent>
+								</Tooltip>{" "}
+								<span className="font-medium tabular-nums text-foreground">
+									{currencyFormatter.format(ltv)}
+								</span>{" "}
+								·{" "}
+								<span
+									className={cn(
+										"font-medium tabular-nums",
+										ltvAfterRefunds < ltv
+											? "text-rose-600 dark:text-rose-400"
+											: "",
+									)}
+								>
+									{currencyFormatter.format(ltvAfterRefunds)}
+								</span>{" "}
+								post-refund
 							</div>
 						</KpiCard>
 						<KpiCard
