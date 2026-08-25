@@ -41,6 +41,7 @@ urls:
   gateway: ""
   playground: ""
   code: ""
+  airside: ""
   docs: ""
   admin: ""
 
@@ -266,6 +267,30 @@ code:
   tolerations: []
 
 # =============================================================================
+# Airside App (Next.js)
+# =============================================================================
+airside:
+  enabled: true
+  replicas: 1
+  image:
+    registry: ""
+    repository: theopenco/llmgateway-airside
+    tag: ""
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  extraEnv: []
+  nodeSelector: {}
+  tolerations: []
+
+# =============================================================================
 # Documentation (Next.js)
 # =============================================================================
 docs:
@@ -459,6 +484,7 @@ ingress:
     gateway: ""
     playground: ""
     code: ""
+    airside: ""
     docs: ""
     admin: ""
   # -- TLS configuration

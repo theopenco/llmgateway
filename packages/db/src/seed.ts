@@ -3054,6 +3054,50 @@ async function seedAirside() {
 		createdBy: "airside-user-mistral",
 	});
 
+	// 30 days of hourly rollups for the claimed provider so the traffic pages
+	// have data (the generic stats generators only cover the first few MODELS
+	// entries, which don't include mistral).
+	const airsideStats: (typeof tables.projectHourlyModelStats.$inferInsert)[] =
+		[];
+	const airsideModels = [
+		{ model: "mistral-medium-4", inputPrice: 4e-7, outputPrice: 2e-6 },
+		{ model: "codestral-3", inputPrice: 9e-7, outputPrice: 3e-6 },
+	];
+	let airsideStatId = 0;
+	for (let day = 0; day < 30; day++) {
+		for (const hour of [3, 9, 15, 21]) {
+			for (const entry of airsideModels) {
+				const bucket = daysAgo(day);
+				bucket.setHours(hour, 0, 0, 0);
+				const requestCount = randomInt(40, 400);
+				const inputTokens = requestCount * randomInt(800, 2000);
+				const outputTokens = requestCount * randomInt(300, 900);
+				const inputCost = inputTokens * entry.inputPrice;
+				const outputCost = outputTokens * entry.outputPrice;
+				const cost = inputCost + outputCost;
+				airsideStats.push({
+					id: `airside-phms-${airsideStatId++}`,
+					projectId: "test-project-id",
+					hourTimestamp: bucket,
+					usedModel: entry.model,
+					usedProvider: "mistral",
+					requestCount,
+					errorCount: randomInt(0, Math.ceil(requestCount / 50)),
+					cacheCount: randomInt(0, Math.ceil(requestCount / 10)),
+					streamedCount: requestCount,
+					completedCount: requestCount,
+					inputTokens: String(inputTokens),
+					outputTokens: String(outputTokens),
+					totalTokens: String(inputTokens + outputTokens),
+					cost,
+					inputCost,
+					outputCost,
+				});
+			}
+		}
+	}
+	await bulkInsert(tables.projectHourlyModelStats, airsideStats);
+
 	await upsert(tables.providerPriceFiling, {
 		id: "airside-filing-large-initial",
 		draftModelId: "airside-model-large",

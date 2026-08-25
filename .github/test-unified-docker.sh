@@ -25,6 +25,7 @@ APP_ENDPOINTS["playground"]="http://localhost:3003"
 APP_ENDPOINTS["code"]="http://localhost:3004"
 APP_ENDPOINTS["docs"]="http://localhost:3005"
 APP_ENDPOINTS["admin"]="http://localhost:3006"
+APP_ENDPOINTS["airside"]="http://localhost:3007"
 
 # Health check routes for each app (optional)
 declare -A HEALTH_ROUTES

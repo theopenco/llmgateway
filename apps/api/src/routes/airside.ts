@@ -233,7 +233,9 @@ const providerNamesById = new Map(
 );
 
 function clampAdjustment(value: number): number {
-	return Math.min(0.9, Math.max(-0.9, value));
+	const clamped = Math.min(0.9, Math.max(-0.9, value));
+	// Round away float artifacts (0.15 - 0.2 - 0.05 !== -0.1 in IEEE754).
+	return Math.round(clamped * 10000) / 10000;
 }
 
 /**
