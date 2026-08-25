@@ -1,4 +1,4 @@
-import type { ComponentType, CSSProperties, SVGProps } from "react";
+import type { ComponentType, SVGProps } from "react";
 
 type IconComponent = ComponentType<SVGProps<SVGSVGElement>>;
 
@@ -152,21 +152,23 @@ export const customIcons: Record<string, IconComponent> = {
 			/>
 		</svg>
 	),
-	Empryo: ({ className, style }) => (
-		// Raster mark hosted at /integrations/empryo.png in the docs public dir.
-		<img
-			src="/integrations/empryo.png"
-			alt="Empryo"
-			width={24}
-			height={24}
-			className={className as string | undefined}
-			style={
-				{
-					objectFit: "contain",
-					...(style as CSSProperties | undefined),
-				} as CSSProperties
-			}
-		/>
+	Empryo: (props) => (
+		// Raster mark hosted at /integrations/empryo.png in the docs public dir,
+		// wrapped in an <svg> shell so the sidebar's svg sizing rules apply to it
+		// exactly as they do to every sibling icon.
+		<svg
+			style={{ flex: "none", lineHeight: "1" }}
+			xmlns="http://www.w3.org/2000/svg"
+			viewBox="0 0 24 24"
+			{...props}
+		>
+			<image
+				href="/integrations/empryo.png"
+				width="24"
+				height="24"
+				preserveAspectRatio="xMidYMid meet"
+			/>
+		</svg>
 	),
 	OpenClaw: (props) => (
 		<svg
