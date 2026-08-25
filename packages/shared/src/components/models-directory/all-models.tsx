@@ -41,6 +41,7 @@ import {
 	Volume2,
 	Mic,
 	ListOrdered,
+	Clock,
 } from "lucide-react";
 import Link from "next/link.js";
 import { usePathname, useRouter, useSearchParams } from "next/navigation.js";
@@ -893,7 +894,6 @@ export function AllModels({
 		},
 		selectedProvider: searchParams.get("provider") ?? "all",
 		status: getStatusFilterFromUrl(searchParams),
-		showDeactivated: searchParams.get("deactivated") === "true",
 		source: searchParams.get("source") ?? "all",
 		eligibleOnly: searchParams.get("eligibility") === "eligible",
 		inputPrice: {
@@ -939,6 +939,18 @@ export function AllModels({
 		[router, searchParams],
 	);
 
+	const setStatusFilter = useCallback(
+		(status: ModelMappingStatus | null) => {
+			setFilters((prev) => ({ ...prev, status }));
+			updateUrlWithFilters({
+				status: status ?? undefined,
+				deactivated: undefined,
+				page: undefined,
+			});
+		},
+		[updateUrlWithFilters],
+	);
+
 	// Calculate total counts (excluding deprecated and deactivated models)
 	const { totalModelCount, totalProviderCount } = useMemo(() => {
 		const now = new Date();
@@ -950,7 +962,7 @@ export function AllModels({
 					mapping,
 					{
 						status: filters.status,
-						showDeactivated: filters.showDeactivated,
+						showDeactivated: false,
 						eligibleOnly: filters.eligibleOnly,
 					},
 					now,
@@ -962,13 +974,7 @@ export function AllModels({
 			totalModelCount: visibleModelCount,
 			totalProviderCount: providers.length,
 		};
-	}, [
-		models,
-		providers,
-		filters.status,
-		filters.showDeactivated,
-		filters.eligibleOnly,
-	]);
+	}, [models, providers, filters.status, filters.eligibleOnly]);
 
 	const modelsWithProviders: ModelWithProviders[] = useMemo(() => {
 		const now = new Date();
@@ -992,7 +998,7 @@ export function AllModels({
 						mapping,
 						{
 							status: filters.status,
-							showDeactivated: filters.showDeactivated,
+							showDeactivated: false,
 							eligibleOnly: filters.eligibleOnly,
 						},
 						now,
@@ -1570,7 +1576,6 @@ export function AllModels({
 		Object.values(filters.capabilities).some(Boolean) ||
 		(filters.selectedProvider && filters.selectedProvider !== "all") ||
 		filters.status !== null ||
-		filters.showDeactivated ||
 		(filters.source && filters.source !== "all") ||
 		filters.eligibleOnly ||
 		filters.inputPrice.min ||
@@ -1751,7 +1756,6 @@ export function AllModels({
 			},
 			selectedProvider: "all",
 			status: null,
-			showDeactivated: false,
 			source: "all",
 			eligibleOnly: false,
 			inputPrice: { min: "", max: "" },
@@ -2138,18 +2142,50 @@ export function AllModels({
 							<Toggle
 								variant="outline"
 								size="sm"
-								pressed={filters.showDeactivated}
+								pressed={filters.status === "deactivated"}
 								onPressedChange={(pressed) => {
-									setFilters((prev) => ({ ...prev, showDeactivated: pressed }));
-									updateUrlWithFilters({
-										deactivated: pressed ? "true" : undefined,
-										page: undefined,
-									});
+									setStatusFilter(pressed ? "deactivated" : null);
 								}}
 								className="gap-1.5"
 							>
 								<AlertCircle className="h-3.5 w-3.5 text-red-500" />
-								<span className="text-xs">Show deactivated</span>
+								<span className="text-xs">Deactivated</span>
+							</Toggle>
+							<Toggle
+								variant="outline"
+								size="sm"
+								pressed={filters.status === "scheduled"}
+								onPressedChange={(pressed) => {
+									setStatusFilter(pressed ? "scheduled" : null);
+								}}
+								className="gap-1.5"
+							>
+								<Clock className="h-3.5 w-3.5 text-amber-500" />
+								<span className="text-xs">Scheduled</span>
+							</Toggle>
+							<Toggle
+								variant="outline"
+								size="sm"
+								pressed={filters.status === "deprecated"}
+								onPressedChange={(pressed) => {
+									setStatusFilter(pressed ? "deprecated" : null);
+								}}
+								className="gap-1.5"
+							>
+								<AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+								<span className="text-xs">Deprecated</span>
+							</Toggle>
+							<Toggle
+								variant="outline"
+								size="sm"
+								pressed={filters.status === "active"}
+								onPressedChange={(pressed) => {
+									setStatusFilter(pressed ? "active" : null);
+								}}
+								className="gap-1.5"
+							>
+								<Check className="h-3.5 w-3.5 text-green-500" />
+								<span className="text-xs">Active</span>
 							</Toggle>
 							{hasBlockedMappings && (
 								<Toggle
@@ -2518,7 +2554,7 @@ export function AllModels({
 														: 0,
 													Object.values(filters.capabilities).filter(Boolean)
 														.length,
-													filters.showDeactivated ? 1 : 0,
+													filters.status ? 1 : 0,
 													filters.source && filters.source !== "all" ? 1 : 0,
 													filters.eligibleOnly ? 1 : 0,
 													[
