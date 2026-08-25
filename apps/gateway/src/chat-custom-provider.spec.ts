@@ -148,10 +148,10 @@ mockServer.post("/ssrf-internal/v1/chat/completions", async (c) => {
 
 async function cleanupDb() {
 	await db
-		.delete(tables.modelProviderMappingHistory)
+		.delete(tables.modelProviderMappingUsageHistory)
 		.where(
 			eq(
-				tables.modelProviderMappingHistory.modelProviderMappingId,
+				tables.modelProviderMappingUsageHistory.modelProviderMappingId,
 				ROUTING_METRIC_MAPPING_ID,
 			),
 		);
@@ -327,10 +327,11 @@ describe("Custom Provider", () => {
 			});
 
 			const minuteTimestamp = new Date(Math.floor(Date.now() / 60000) * 60000);
-			await db.insert(tables.modelProviderMappingHistory).values({
+			await db.insert(tables.modelProviderMappingUsageHistory).values({
 				modelId: "gpt-4o-mini",
 				providerId: "openai",
 				modelProviderMappingId: ROUTING_METRIC_MAPPING_ID,
+				usedMode: "credits",
 				minuteTimestamp,
 				logsCount: 100,
 				errorsCount: 0,
