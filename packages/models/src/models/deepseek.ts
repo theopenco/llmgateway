@@ -480,6 +480,7 @@ export const deepseekModels = [
 			{
 				providerId: "nebius",
 				externalId: "deepseek-ai/DeepSeek-V4-Pro",
+				deactivatedAt: new Date("2026-08-31"),
 				inputPrice: "1.75e-6",
 				outputPrice: "3.5e-6",
 				requestPrice: "0",
