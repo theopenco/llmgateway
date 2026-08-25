@@ -271,6 +271,36 @@ describe("dev plan tier changes", () => {
 		expect(body.apiKey?.id).toBe("test-dev-plan-api-key");
 	});
 
+	it("provisions an active key when only an inactive DevPass key exists", async () => {
+		await db.insert(tables.project).values({
+			id: "test-dev-plan-project",
+			name: "Default Project",
+			organizationId: ORG_ID,
+		});
+		await db.insert(tables.apiKey).values({
+			id: "test-inactive-dev-plan-api-key",
+			token: "test-inactive-dev-plan-token",
+			projectId: "test-dev-plan-project",
+			description: "Dev Plan API Key",
+			status: "inactive",
+			createdBy: "test-user-id",
+		});
+
+		const statusResponse = await app.request("/dev-plans/status", {
+			headers: { Cookie: token },
+		});
+		expect(statusResponse.status).toBe(200);
+		const statusBody = await statusResponse.json();
+		expect(statusBody.apiKey?.id).not.toBe("test-inactive-dev-plan-api-key");
+
+		const rotateResponse = await app.request("/dev-plans/rotate-api-key", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({ apiKeyId: statusBody.apiKey?.id }),
+		});
+		expect(rotateResponse.status).toBe(200);
+	});
+
 	it("rejects an upgrade if the full price exceeds the confirmed amount", async () => {
 		stripeMock.subscriptions.retrieve.mockResolvedValue(
 			retrievedSubscription(),

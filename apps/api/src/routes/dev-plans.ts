@@ -170,8 +170,11 @@ async function getOrCreatePersonalOrgApiKey(
 				eq: "Dev Plan API Key",
 			},
 			status: {
-				ne: "deleted",
+				eq: "active",
 			},
+		},
+		orderBy: {
+			createdAt: "desc",
 		},
 	});
 
