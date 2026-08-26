@@ -5,7 +5,6 @@ import {
 	AlertCircle,
 	Ban,
 	CalendarClock,
-	Clock,
 	Copy,
 	Check,
 	ChevronDown,
@@ -34,12 +33,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-	isDeactivationScheduledSoon,
-	isMappingDeactivated,
-	MODEL_DEACTIVATION_NOTICE_DAYS,
-	shouldShowDeactivationNotice,
-} from "@/deactivation";
+import { shouldShowDeactivationNotice } from "@/deactivation";
 import { cn } from "@/lib/utils";
 
 import { formatContextSize, formatDeprecationDate } from "./format";
@@ -197,12 +191,6 @@ export function ModelCard({
 		allHaveDeactivatedAt &&
 		model.providerDetails.every(
 			({ provider }) => new Date(provider.deactivatedAt!) <= now,
-		);
-	const isAllScheduled =
-		allHaveDeactivatedAt &&
-		!deactivationAllPast &&
-		model.providerDetails.every(({ provider }) =>
-			shouldShowDeactivationNotice(provider, now),
 		);
 	const deprecationAllPast =
 		allHaveDeprecatedAt &&
@@ -388,10 +376,12 @@ export function ModelCard({
 									</TooltipContent>
 								</Tooltip>
 							)}
-							{deactivationAllPast && (
-								<ModelStatusBadge status="deactivated" isPast />
+							{showModelDeactivationStatus && (
+								<ModelStatusBadge
+									status="deactivated"
+									isPast={deactivationAllPast}
+								/>
 							)}
-							{isAllScheduled && <ModelStatusBadge status="scheduled" />}
 							{allHaveDeprecatedAt && (
 								<ModelStatusBadge
 									status="deprecated"
@@ -630,15 +620,7 @@ export function ProviderSection({
 	const [selectedServiceTierId, setSelectedServiceTierId] =
 		useState("standard");
 	const activeMapping = mappings[activeRegionIdx] ?? mappings[0];
-	const isDeactivated = isMappingDeactivated(activeMapping);
-	const isScheduled =
-		!isDeactivated &&
-		isDeactivationScheduledSoon(
-			activeMapping,
-			undefined,
-			MODEL_DEACTIVATION_NOTICE_DAYS,
-		);
-	const showDeactivationNotice = isDeactivated || isScheduled;
+	const showDeactivationNotice = shouldShowDeactivationNotice(activeMapping);
 	const hasMappingDetails =
 		(activeMapping.reasoningEfforts?.length ?? 0) > 0 ||
 		(activeMapping.supportedParameters?.length ?? 0) > 0;
@@ -856,24 +838,12 @@ export function ProviderSection({
 								)}
 							</Badge>
 						)}
-						{isDeactivated && (
+						{showDeactivationNotice && (
 							<Badge
 								variant="outline"
 								className="text-[10px] px-2 py-0.5 gap-1 bg-red-500/5 text-red-600 dark:text-red-400 border-red-500/20"
 							>
 								<AlertCircle className="h-2.5 w-2.5" />
-								{formatDeprecationDate(
-									activeMapping.deactivatedAt!,
-									"deactivated",
-								)}
-							</Badge>
-						)}
-						{isScheduled && (
-							<Badge
-								variant="outline"
-								className="text-[10px] px-2 py-0.5 gap-1 bg-amber-500/5 text-amber-600 dark:text-amber-400 border-amber-500/20"
-							>
-								<Clock className="h-2.5 w-2.5" />
 								{formatDeprecationDate(
 									activeMapping.deactivatedAt!,
 									"deactivated",

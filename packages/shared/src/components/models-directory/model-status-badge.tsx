@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, AlertTriangle, Clock } from "lucide-react";
+import { AlertCircle, AlertTriangle } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -11,33 +11,28 @@ import {
 } from "@/components/ui/tooltip";
 
 interface ModelStatusBadgeProps {
-	status: "deactivated" | "deprecated" | "scheduled";
-	isPast?: boolean;
+	status: "deactivated" | "deprecated";
+	isPast: boolean;
 }
 
 export function ModelStatusBadge({ status, isPast }: ModelStatusBadgeProps) {
-	const isScheduled = status === "scheduled";
 	const isDeactivated = status === "deactivated";
 
-	const title = isScheduled
-		? "Scheduled for Deactivation"
-		: isPast
-			? isDeactivated
-				? "Model Deactivated"
-				: "Model Deprecated"
-			: isDeactivated
-				? "Scheduled for Deactivation"
-				: "Scheduled for Deprecation";
+	const title = isPast
+		? isDeactivated
+			? "Model Deactivated"
+			: "Model Deprecated"
+		: isDeactivated
+			? "Scheduled for Deactivation"
+			: "Scheduled for Deprecation";
 
-	const description = isScheduled
-		? "All providers for this model are scheduled to be deactivated. Plan to migrate to an alternative model."
-		: isPast
-			? isDeactivated
-				? "All providers for this model have been deactivated. Requests will return errors."
-				: "All providers for this model have been deprecated. The model still works but may be removed in the future."
-			: isDeactivated
-				? "All providers for this model are scheduled to be deactivated. Plan to migrate to an alternative model."
-				: "All providers for this model are scheduled for deprecation. Consider migrating to an alternative model.";
+	const description = isPast
+		? isDeactivated
+			? "All providers for this model have been deactivated. Requests will return errors."
+			: "All providers for this model have been deprecated. The model still works but may be removed in the future."
+		: isDeactivated
+			? "All providers for this model are scheduled to be deactivated. Plan to migrate to an alternative model."
+			: "All providers for this model are scheduled for deprecation. Consider migrating to an alternative model.";
 
 	return (
 		<TooltipProvider delayDuration={300}>
@@ -48,15 +43,11 @@ export function ModelStatusBadge({ status, isPast }: ModelStatusBadgeProps) {
 						className={`text-xs md:text-sm px-2 md:px-3 py-1 gap-1.5 cursor-help ${
 							isDeactivated
 								? "bg-red-50 dark:bg-red-500/5 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/20"
-								: isScheduled
-									? "bg-amber-50 dark:bg-amber-500/5 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/20"
-									: "bg-amber-50 dark:bg-amber-500/5 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/20"
+								: "bg-amber-50 dark:bg-amber-500/5 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/20"
 						}`}
 					>
 						{isDeactivated ? (
 							<AlertCircle className="h-3 w-3" />
-						) : isScheduled ? (
-							<Clock className="h-3 w-3" />
 						) : (
 							<AlertTriangle className="h-3 w-3" />
 						)}

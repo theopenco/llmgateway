@@ -29,10 +29,7 @@ export function ModelStatusBadgeAuto({ providers }: ModelStatusBadgeAutoProps) {
 
 	if (showDeactivationStatus) {
 		const allPast = providers.every((p) => new Date(p.deactivatedAt!) <= now);
-		if (allPast) {
-			return <ModelStatusBadge status="deactivated" isPast />;
-		}
-		return <ModelStatusBadge status="scheduled" />;
+		return <ModelStatusBadge status="deactivated" isPast={allPast} />;
 	}
 
 	if (allHaveDeprecatedAt) {
