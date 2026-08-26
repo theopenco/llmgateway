@@ -105,9 +105,13 @@ Probe the deployment. The same model differs between providers, and an
   on a 400.
 - `serviceTiers` — declaring one narrows routing pre-flight.
 - `stability: "unstable"` / `test: "skip"` for flaky, paid-per-call or
-  region-locked mappings; comment why.
+  region-locked mappings.
 - `releasedAt`, plus an `output` entry per capability flag — both enforced by
   `model-metadata.spec.ts`.
+
+Follow the catalogue comment rule in `AGENTS.md`: do not annotate pricing
+choices, probe results, or restrictions already expressed by metadata. Put that
+evidence in the PR body.
 
 A new provider also needs a `providers.ts` entry, endpoint wiring in
 `get-provider-endpoint.ts`, and possibly a `completionIncludesReasoning` entry.
@@ -137,7 +141,7 @@ only on mappings where it works.
 ## 6. Image, video, and other endpoints
 
 Probe the size/quality/duration grid; rate cards list tiers deployments refuse.
-Leave rejected values off the mapping with a comment.
+Leave rejected values off the mapping and record the accepted grid in the PR.
 
 **Video** — `supportedVideoSizes`, `supportedVideoDurationsSeconds`,
 `supportedVideoDurationsSecondsImageToVideo`, `supportsVideoAudio`,
