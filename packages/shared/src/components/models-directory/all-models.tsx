@@ -2017,54 +2017,75 @@ export function AllModels({
 									icon: Percent,
 									color: "text-red-500",
 								},
-							].map(({ key, label, icon: Icon, color }) => (
-								<Toggle
-									key={`${key}-${label}`}
-									variant="outline"
-									size="sm"
-									pressed={
-										filters.capabilities[
-											key as keyof typeof filters.capabilities
-										]
-									}
-									onPressedChange={(pressed) => {
-										setFilters((prev) => ({
-											...prev,
-											capabilities: {
-												...prev.capabilities,
-												[key]: pressed,
-											},
-										}));
-										if (key === "discounted") {
-											if (pressed) {
-												setSortField("discount");
-												setSortDirection("desc");
-												updateUrlWithFilters({
-													[key]: "true",
-													sortField: "discount",
-													sortDir: "desc",
-												});
+							].map(({ key, label, icon: Icon, color }) => {
+								const isImplied =
+									!hideUseCaseFilter &&
+									((filters.category === "reasoning" && key === "reasoning") ||
+										(filters.category === "multimodal" && key === "vision") ||
+										(filters.category === "image" &&
+											key === "imageGeneration"));
+								const toggle = (
+									<Toggle
+										key={`${key}-${label}`}
+										variant="outline"
+										size="sm"
+										disabled={isImplied}
+										pressed={
+											filters.capabilities[
+												key as keyof typeof filters.capabilities
+											]
+										}
+										onPressedChange={(pressed) => {
+											setFilters((prev) => ({
+												...prev,
+												capabilities: {
+													...prev.capabilities,
+													[key]: pressed,
+												},
+											}));
+											if (key === "discounted") {
+												if (pressed) {
+													setSortField("discount");
+													setSortDirection("desc");
+													updateUrlWithFilters({
+														[key]: "true",
+														sortField: "discount",
+														sortDir: "desc",
+													});
+												} else {
+													setSortField(null);
+													setSortDirection("desc");
+													updateUrlWithFilters({
+														[key]: undefined,
+														sortField: undefined,
+														sortDir: undefined,
+													});
+												}
 											} else {
-												setSortField(null);
-												setSortDirection("desc");
 												updateUrlWithFilters({
-													[key]: undefined,
-													sortField: undefined,
-													sortDir: undefined,
+													[key]: pressed ? "true" : undefined,
 												});
 											}
-										} else {
-											updateUrlWithFilters({
-												[key]: pressed ? "true" : undefined,
-											});
-										}
-									}}
-									className="gap-1.5"
-								>
-									<Icon className={`h-3.5 w-3.5 ${color}`} />
-									<span className="text-xs">{label}</span>
-								</Toggle>
-							))}
+										}}
+										className="gap-1.5"
+									>
+										<Icon className={`h-3.5 w-3.5 ${color}`} />
+										<span className="text-xs">{label}</span>
+									</Toggle>
+								);
+								return isImplied ? (
+									<Tooltip>
+										<TooltipTrigger asChild>
+											<span>{toggle}</span>
+										</TooltipTrigger>
+										<TooltipContent>
+											<p className="text-xs">Already included in Use Case</p>
+										</TooltipContent>
+									</Tooltip>
+								) : (
+									toggle
+								);
+							})}
 						</div>
 					</div>
 
