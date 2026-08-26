@@ -6,6 +6,7 @@ import { getPaymentIntentFromInvoicePayments } from "@/stripe.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { and, db, eq, inArray, tables } from "@llmgateway/db";
+import { buildRefundDescription } from "@llmgateway/shared";
 
 type OrganizationRow = typeof tables.organization.$inferSelect;
 type TransactionRow = typeof tables.transaction.$inferSelect;
@@ -128,6 +129,89 @@ export async function sumRefundsByTransaction(
 	}
 
 	return totals;
+}
+
+interface RefundOriginal {
+	amount: string | null;
+	description: string | null;
+}
+
+/**
+ * The purchases that `credit_refund` rows point at, keyed by transaction id, so
+ * a refund row can be described by what it refunded. Only the originals missing
+ * from `transactions` are fetched — the history queries already carry most of
+ * them.
+ */
+export async function loadRefundOriginals(
+	transactions: Array<{
+		id: string;
+		type: string;
+		amount: string | null;
+		description: string | null;
+		relatedTransactionId: string | null;
+	}>,
+): Promise<Map<string, RefundOriginal>> {
+	const known = new Map<string, RefundOriginal>(
+		transactions.map((t) => [
+			t.id,
+			{ amount: t.amount, description: t.description },
+		]),
+	);
+	const missing = [
+		...new Set(
+			transactions
+				.filter(
+					(t) =>
+						t.type === "credit_refund" &&
+						t.relatedTransactionId &&
+						!known.has(t.relatedTransactionId),
+				)
+				.map((t) => t.relatedTransactionId as string),
+		),
+	];
+	if (missing.length === 0) {
+		return known;
+	}
+
+	const rows = await db
+		.select({
+			id: tables.transaction.id,
+			amount: tables.transaction.amount,
+			description: tables.transaction.description,
+		})
+		.from(tables.transaction)
+		.where(inArray(tables.transaction.id, missing));
+
+	for (const row of rows) {
+		known.set(row.id, { amount: row.amount, description: row.description });
+	}
+	return known;
+}
+
+/**
+ * Description to display for a transaction. Refund rows are named after the
+ * purchase they reverse — rows stored before `buildRefundDescription` existed
+ * carry the generic "Credit refund: …" wording whatever was refunded, so the
+ * text is rebuilt here instead of being trusted.
+ */
+export function describeTransaction(
+	transaction: {
+		type: string;
+		amount: string | null;
+		description: string | null;
+		relatedTransactionId: string | null;
+	},
+	refundOriginals: Map<string, RefundOriginal>,
+): string | null {
+	if (transaction.type !== "credit_refund") {
+		return transaction.description ?? null;
+	}
+	return buildRefundDescription(
+		Number.parseFloat(transaction.amount ?? "0"),
+		transaction.relatedTransactionId
+			? refundOriginals.get(transaction.relatedTransactionId)
+			: null,
+	);
 }
 
 export const ADMIN_REFUND_REASONS = [

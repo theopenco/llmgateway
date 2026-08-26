@@ -13,7 +13,9 @@ import { approveHighRiskUser } from "@/lib/account-risk.js";
 import {
 	ADMIN_REFUND_REASONS,
 	computeAdminRefundability,
+	describeTransaction,
 	executeAdminRefund,
+	loadRefundOriginals,
 	sumRefundsByTransaction,
 } from "@/lib/admin-refund.js";
 import {
@@ -16135,6 +16137,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		orgId,
 		transactions.map((t) => t.id),
 	);
+	const refundOriginalsById = await loadRefundOriginals(transactions);
 
 	const paymentFailures = await db
 		.select({
@@ -16178,7 +16181,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 				creditAmount: t.creditAmount ?? null,
 				currency: t.currency,
 				status: t.status,
-				description: t.description ?? null,
+				description: describeTransaction(t, refundOriginalsById),
 				relatedTransactionId: t.relatedTransactionId ?? null,
 				refundable: refundability.refundable,
 				refundIneligibleReason: refundability.reason,
@@ -17896,6 +17899,7 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 			currency: tables.transaction.currency,
 			status: tables.transaction.status,
 			description: tables.transaction.description,
+			relatedTransactionId: tables.transaction.relatedTransactionId,
 		})
 		.from(tables.transaction)
 		.where(
@@ -17909,11 +17913,16 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 					"chat_plan_resume",
 					"chat_plan_end",
 					"chat_plan_renewal",
+					// Money going back out. Without `credit_refund` a refunded plan
+					// payment reads as a charge that was never reversed.
+					"credit_refund",
 				]),
 			),
 		)
 		.orderBy(desc(tables.transaction.createdAt))
 		.limit(100);
+
+	const refundOriginalsById = await loadRefundOriginals(transactions);
 
 	const paymentFailures = await db
 		.select({
@@ -17940,7 +17949,7 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 			creditAmount: t.creditAmount ?? null,
 			currency: t.currency,
 			status: t.status,
-			description: t.description ?? null,
+			description: describeTransaction(t, refundOriginalsById),
 		})),
 		paymentFailures: paymentFailures.map((p) => ({
 			id: p.id,

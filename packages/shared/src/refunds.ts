@@ -86,6 +86,28 @@ export function refundCommentsRequired(reason: RefundReason): boolean {
 	return reason === "other";
 }
 
+/**
+ * Description for a refund transaction row, naming the refunded purchase —
+ * "Refund: DevPass Reset Pass (LITE)", not the generic "Credit refund" (that
+ * wording reads as a refund of usage credits regardless of what was bought).
+ * Partial refunds carry the returned fraction; full refunds omit it. Used both
+ * when the charge.refunded webhook stores the row and by the display endpoints
+ * to rebuild the text for rows stored before this wording existed.
+ */
+export function buildRefundDescription(
+	refundAmountDollars: number,
+	original:
+		{ amount: string | null; description: string | null } | null | undefined,
+): string {
+	const label = original?.description ?? "original purchase";
+	const originalAmount = Number.parseFloat(original?.amount ?? "0");
+	const ratio = originalAmount > 0 ? refundAmountDollars / originalAmount : 1;
+	if (ratio >= 0.9995) {
+		return `Refund: ${label}`;
+	}
+	return `Partial refund (${(ratio * 100).toFixed(1)}%): ${label}`;
+}
+
 // One rule for "is this answer usable?", shared by the dialogs (to gate the
 // confirm button) and the endpoints (to reject the request).
 export function isRefundFeedbackComplete(

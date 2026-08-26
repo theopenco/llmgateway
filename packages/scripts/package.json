@@ -11,6 +11,7 @@
 		"backfill-api-key-hashes": "tsx src/backfill-api-key-hashes.ts",
 		"backfill-provider-key-encryption": "tsx src/backfill-provider-key-encryption.ts",
 		"benchmark-model": "tsx --env-file=../../.env src/benchmark-model.ts",
+		"backfill-refund-descriptions": "tsx src/backfill-refund-descriptions.ts",
 		"backfill-stripe-refunds": "tsx src/backfill-stripe-refunds.ts",
 		"export-models-dev": "tsx src/export-models-dev.ts",
 		"generate-test-logs": "tsx src/generate-test-logs.ts",
