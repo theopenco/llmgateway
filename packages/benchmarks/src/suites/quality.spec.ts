@@ -51,6 +51,11 @@ describe("quality suite", () => {
 		expect(normalizeAnswer(" `Hello World` ")).toBe("helloworld");
 	});
 
+	it("normalizes long runs of wrapping quotes", () => {
+		const quotes = "'\"`".repeat(100_000);
+		expect(normalizeAnswer(`${quotes} Value ${quotes}`)).toBe("value");
+	});
+
 	it("uses the independently computed constrained-string answer", () => {
 		const benchmarkCase = qualityCases.find(
 			(candidate) => candidate.id === "constrained_strings",

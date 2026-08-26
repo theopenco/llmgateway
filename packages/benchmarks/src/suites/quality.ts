@@ -8,14 +8,18 @@ const FINAL_SYSTEM_PROMPT =
 	"Solve independently and carefully. End with exactly one line in the form FINAL: <answer>. Do not put prose after that line.";
 
 export function normalizeAnswer(value: string): string {
-	return (
-		value
-			.trim()
-			// lgtm[js/polynomial-redos]
-			.replace(/^['"`]+|['"`]+$/g, "")
-			.replace(/\s+/g, "")
-			.toLowerCase()
-	);
+	const trimmed = value.trim();
+	let start = 0;
+	let end = trimmed.length;
+	const isQuote = (character: string): boolean =>
+		character === "'" || character === '"' || character === "`";
+	while (start < end && isQuote(trimmed[start])) {
+		start++;
+	}
+	while (end > start && isQuote(trimmed[end - 1])) {
+		end--;
+	}
+	return trimmed.slice(start, end).replace(/\s+/g, "").toLowerCase();
 }
 
 export function extractFinalAnswer(content: string): string {
