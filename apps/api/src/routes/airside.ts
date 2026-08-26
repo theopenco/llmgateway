@@ -1004,15 +1004,23 @@ airside.openapi(updateClaimBranding, async (c) => {
 			message: "Only pending or active claims can change their branding.",
 		});
 	}
+	const brandingUpdates = {
+		...(body.logoUrl !== undefined ? { logoUrl: body.logoUrl } : {}),
+		...(body.iconUrl !== undefined ? { iconUrl: body.iconUrl } : {}),
+	};
+	// An empty diff is a no-op, not a drizzle "No values to set" 500.
+	if (Object.keys(brandingUpdates).length === 0) {
+		return c.json({ claim: serializeClaim(claim, providerNamesById) });
+	}
 	// cdb: claim rows feed the gateway's custom-carrier resolution cache.
 	const [updated] = await cdb
 		.update(tables.providerClaim)
-		.set({
-			...(body.logoUrl !== undefined ? { logoUrl: body.logoUrl } : {}),
-			...(body.iconUrl !== undefined ? { iconUrl: body.iconUrl } : {}),
-		})
+		.set(brandingUpdates)
 		.where(eq(tables.providerClaim.id, id))
 		.returning();
+	if (!updated) {
+		throw new HTTPException(404, { message: "Claim not found" });
+	}
 	return c.json({ claim: serializeClaim(updated, providerNamesById) });
 });
 
@@ -1386,34 +1394,47 @@ airside.openapi(updateModel, async (c) => {
 			message: "Delisted models cannot be edited.",
 		});
 	}
+	const updates = {
+		...(body.displayName !== undefined
+			? { displayName: body.displayName }
+			: {}),
+		...(body.description !== undefined
+			? { description: body.description }
+			: {}),
+		...(body.family !== undefined ? { family: body.family } : {}),
+		...(body.contextSize !== undefined
+			? { contextSize: body.contextSize }
+			: {}),
+		...(body.maxOutput !== undefined ? { maxOutput: body.maxOutput } : {}),
+		...(body.streaming !== undefined ? { streaming: body.streaming } : {}),
+		...(body.vision !== undefined ? { vision: body.vision } : {}),
+		...(body.audio !== undefined ? { audio: body.audio } : {}),
+		...(body.tools !== undefined ? { tools: body.tools } : {}),
+		...(body.jsonOutput !== undefined ? { jsonOutput: body.jsonOutput } : {}),
+		...(body.reasoning !== undefined ? { reasoning: body.reasoning } : {}),
+		...(body.reasoningEfforts !== undefined
+			? { reasoningEfforts: body.reasoningEfforts }
+			: {}),
+		...(body.maxRpm !== undefined ? { maxRpm: body.maxRpm } : {}),
+		...(body.maxRpd !== undefined ? { maxRpd: body.maxRpd } : {}),
+	};
+	// An empty diff is a no-op, not a drizzle "No values to set" 500.
+	if (Object.keys(updates).length === 0) {
+		const unchangedFilings = await db.query.providerPriceFiling.findMany({
+			where: { draftModelId: { eq: id } },
+		});
+		return c.json({
+			model: serializeModel({ ...model, priceFilings: unchangedFilings }),
+		});
+	}
 	const [updated] = await cdb
 		.update(tables.providerDraftModel)
-		.set({
-			...(body.displayName !== undefined
-				? { displayName: body.displayName }
-				: {}),
-			...(body.description !== undefined
-				? { description: body.description }
-				: {}),
-			...(body.family !== undefined ? { family: body.family } : {}),
-			...(body.contextSize !== undefined
-				? { contextSize: body.contextSize }
-				: {}),
-			...(body.maxOutput !== undefined ? { maxOutput: body.maxOutput } : {}),
-			...(body.streaming !== undefined ? { streaming: body.streaming } : {}),
-			...(body.vision !== undefined ? { vision: body.vision } : {}),
-			...(body.audio !== undefined ? { audio: body.audio } : {}),
-			...(body.tools !== undefined ? { tools: body.tools } : {}),
-			...(body.jsonOutput !== undefined ? { jsonOutput: body.jsonOutput } : {}),
-			...(body.reasoning !== undefined ? { reasoning: body.reasoning } : {}),
-			...(body.reasoningEfforts !== undefined
-				? { reasoningEfforts: body.reasoningEfforts }
-				: {}),
-			...(body.maxRpm !== undefined ? { maxRpm: body.maxRpm } : {}),
-			...(body.maxRpd !== undefined ? { maxRpd: body.maxRpd } : {}),
-		})
+		.set(updates)
 		.where(eq(tables.providerDraftModel.id, id))
 		.returning();
+	if (!updated) {
+		throw new HTTPException(404, { message: "Model not found" });
+	}
 	// Active listings mirror non-pricing edits straight into the catalogue.
 	await syncAirsideModelMetadata(updated);
 	const filings = await db.query.providerPriceFiling.findMany({
