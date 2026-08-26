@@ -519,7 +519,17 @@ describe("airside provider portal", () => {
 	it("stores claim branding and serves it on internal providers", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
-		const logoUrl = `data:image/png;base64,${"A".repeat(64)}`;
+		// Branding uploads are SVG-only; other image formats are rejected.
+		const pngRes = await app.request(
+			"/airside/claims",
+			json(cookie, {
+				providerCompanyId: company.id,
+				providerId: "mistral",
+				logoUrl: `data:image/png;base64,${"A".repeat(64)}`,
+			}),
+		);
+		expect(pngRes.status).toBe(400);
+		const logoUrl = `data:image/svg+xml;base64,${"A".repeat(64)}`;
 		const res = await app.request(
 			"/airside/claims",
 			json(cookie, {

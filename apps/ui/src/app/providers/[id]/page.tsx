@@ -63,33 +63,20 @@ async function renderDynamicProviderPage(id: string) {
 				.map((mapping) => ({ provider: mapping, providerInfo: apiProvider })),
 		}));
 	const uploadedLogo = apiProvider.airsideLogoUrl ?? undefined;
+	const description =
+		apiProvider.description && apiProvider.description !== "(empty)"
+			? apiProvider.description
+			: null;
 
 	return (
 		<div className="min-h-screen bg-white text-black dark:bg-black dark:text-white">
 			<main>
 				<Navbar />
-				<section className="py-16">
-					<div className="container mx-auto px-4">
-						<div className="flex items-center gap-5">
-							{uploadedLogo ? (
-								<img
-									src={uploadedLogo}
-									alt={`${apiProvider.name} logo`}
-									className="h-14 max-w-40 object-contain"
-								/>
-							) : null}
-							<div>
-								<h1 className="text-4xl font-bold">{apiProvider.name}</h1>
-								{apiProvider.description &&
-								apiProvider.description !== "(empty)" ? (
-									<p className="text-muted-foreground mt-2 max-w-2xl">
-										{apiProvider.description}
-									</p>
-								) : null}
-							</div>
-						</div>
-					</div>
-				</section>
+				<Hero
+					providerId={id as (typeof providerDefinitions)[number]["id"]}
+					uploadedLogo={uploadedLogo}
+					dynamicProvider={{ name: apiProvider.name ?? id, description }}
+				/>
 				<ProviderStatsRow providerId={id} />
 				<section className="py-12 bg-background">
 					<div className="container mx-auto px-4">

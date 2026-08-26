@@ -29,6 +29,13 @@ interface HeroProps {
 	/** Carrier-uploaded logo (Airside claim); wins over the built-in mark. */
 	uploadedLogo?: string;
 	providerId: ProviderId;
+	/** DB-only providers (custom Airside carriers): the static catalogue has
+	 *  no entry, so the page supplies the display fields itself. */
+	dynamicProvider?: {
+		name: string;
+		description: string | null;
+		website?: string | null;
+	};
 }
 
 function DataPolicyBadge({
@@ -67,9 +74,23 @@ function DataPolicyBadge({
 	);
 }
 
-export function Hero({ providerId, uploadedLogo }: HeroProps) {
+export function Hero({ providerId, uploadedLogo, dynamicProvider }: HeroProps) {
 	const config = getConfig();
-	const provider = providerDefinitions.find((p) => p.id === providerId)!;
+	const staticProvider = providerDefinitions.find((p) => p.id === providerId);
+	const provider = staticProvider ?? {
+		id: providerId,
+		name: dynamicProvider?.name ?? providerId,
+		description: dynamicProvider?.description ?? "",
+		website: dynamicProvider?.website ?? null,
+		announcement: null,
+		statusPageUrl: null,
+		termsUrl: null,
+		privacyPolicyUrl: null,
+		headquarters: undefined,
+		forwardsSafetyIdentifier: false,
+		dataPolicy: undefined,
+		additionalLinks: undefined,
+	};
 	const referenceLinks = [
 		provider.statusPageUrl
 			? { label: "Status Page", href: provider.statusPageUrl }
@@ -141,14 +162,16 @@ export function Hero({ providerId, uploadedLogo }: HeroProps) {
 								Try in Lounge
 							</a>
 						</Button>
-						<Button variant="ghost" asChild>
-							<a
-								href={`${provider.website}?utm_source=llmgateway-models`}
-								target="_blank"
-							>
-								Visit company
-							</a>
-						</Button>
+						{provider.website ? (
+							<Button variant="ghost" asChild>
+								<a
+									href={`${provider.website}?utm_source=llmgateway-models`}
+									target="_blank"
+								>
+									Visit company
+								</a>
+							</Button>
+						) : null}
 					</div>
 
 					<div className="mt-8 rounded-lg border bg-card p-4">

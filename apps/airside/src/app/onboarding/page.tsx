@@ -39,8 +39,8 @@ const ICON_MAX_BYTES = 64 * 1024;
 
 function readImageAsDataUrl(file: File, maxBytes: number): Promise<string> {
 	return new Promise((resolve, reject) => {
-		if (!/^image\/(png|jpeg|webp|svg\+xml)$/.test(file.type)) {
-			reject(new Error("Use a PNG, JPEG, WebP or SVG image."));
+		if (file.type !== "image/svg+xml") {
+			reject(new Error("Use an SVG image."));
 			return;
 		}
 		if (file.size > maxBytes) {
@@ -108,22 +108,22 @@ function ClaimDialog({
 				</DialogHeader>
 				<div className="space-y-4">
 					<div className="space-y-2">
-						<Label htmlFor="claim-logo">Logo (max 200KB)</Label>
+						<Label htmlFor="claim-logo">Logo (SVG, max 200KB)</Label>
 						<Input
 							id="claim-logo"
 							type="file"
-							accept="image/png,image/jpeg,image/webp,image/svg+xml"
+							accept="image/svg+xml"
 							onChange={(e) =>
 								void handleFile(e.target.files?.[0], LOGO_MAX_BYTES, setLogoUrl)
 							}
 						/>
 					</div>
 					<div className="space-y-2">
-						<Label htmlFor="claim-icon">Square icon (max 64KB)</Label>
+						<Label htmlFor="claim-icon">Square icon (SVG, max 64KB)</Label>
 						<Input
 							id="claim-icon"
 							type="file"
-							accept="image/png,image/jpeg,image/webp,image/svg+xml"
+							accept="image/svg+xml"
 							onChange={(e) =>
 								void handleFile(e.target.files?.[0], ICON_MAX_BYTES, setIconUrl)
 							}
@@ -288,11 +288,11 @@ function RegisterCarrierDialog({
 					</div>
 					<div className="grid gap-4 sm:grid-cols-2">
 						<div className="space-y-2">
-							<Label htmlFor="carrier-logo">Logo (max 200KB)</Label>
+							<Label htmlFor="carrier-logo">Logo (SVG, max 200KB)</Label>
 							<Input
 								id="carrier-logo"
 								type="file"
-								accept="image/png,image/jpeg,image/webp,image/svg+xml"
+								accept="image/svg+xml"
 								onChange={(e) =>
 									void handleFile(
 										e.target.files?.[0],
@@ -303,11 +303,11 @@ function RegisterCarrierDialog({
 							/>
 						</div>
 						<div className="space-y-2">
-							<Label htmlFor="carrier-icon">Square icon (max 64KB)</Label>
+							<Label htmlFor="carrier-icon">Square icon (SVG, max 64KB)</Label>
 							<Input
 								id="carrier-icon"
 								type="file"
-								accept="image/png,image/jpeg,image/webp,image/svg+xml"
+								accept="image/svg+xml"
 								onChange={(e) =>
 									void handleFile(
 										e.target.files?.[0],
