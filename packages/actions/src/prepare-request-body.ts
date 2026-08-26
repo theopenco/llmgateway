@@ -2346,7 +2346,11 @@ export async function prepareRequestBody(
 				// Add web search tool for Responses API
 				if (webSearchTool) {
 					responsesBody.tools ??= [];
-					const webSearch: any = { type: "web_search" };
+					const webSearch: {
+						type: "web_search";
+						user_location?: unknown;
+						search_context_size?: string;
+					} = { type: "web_search" };
 					if (webSearchTool.user_location) {
 						webSearch.user_location = webSearchTool.user_location;
 					}
@@ -2361,6 +2365,34 @@ export async function prepareRequestBody(
 					if (webSearchTool.forced) {
 						responsesBody.tool_choice = { type: "web_search" };
 					}
+				}
+
+				if (usedProvider === "meta" && usedInternalModel === "muse-image-1.0") {
+					const supportedSizes = [
+						"1024x1024",
+						"1024x1536",
+						"1536x1024",
+					] as const;
+					const requestedSize = image_config?.image_size;
+					if (
+						requestedSize !== undefined &&
+						!supportedSizes.includes(
+							requestedSize as (typeof supportedSizes)[number],
+						)
+					) {
+						throw new RequestError(
+							`Invalid image_size for Muse Image: "${requestedSize}". Allowed values: ${supportedSizes.join(
+								", ",
+							)}`,
+						);
+					}
+					responsesBody.tools ??= [];
+					responsesBody.tools.push({
+						type: "image_generation",
+						...(requestedSize && {
+							size: requestedSize as (typeof supportedSizes)[number],
+						}),
+					});
 				}
 				if (resolvedToolChoice) {
 					responsesBody.tool_choice = toResponsesToolChoice(resolvedToolChoice);

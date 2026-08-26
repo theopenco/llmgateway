@@ -1565,6 +1565,27 @@ describe("calculateCosts", () => {
 		);
 	});
 
+	it("bills Muse at its flat per-image price", async () => {
+		const result = await calculateCosts(
+			"muse-image-1.0",
+			"meta",
+			null,
+			9520,
+			443,
+			7936,
+			undefined,
+			160,
+			1,
+			"1024x1024",
+			0,
+		);
+
+		expect(result.inputCost).toBe(0);
+		expect(result.imageOutputCost).toBeCloseTo(0.01);
+		expect(result.outputCost).toBeCloseTo(0.01);
+		expect(result.totalCost).toBeCloseTo(0.01);
+	});
+
 	it("bills perImagePrice even when prompt usage is absent or zero", async () => {
 		// An upstream response that omits prompt usage must still charge for the
 		// generated images instead of bailing out of cost calculation entirely.

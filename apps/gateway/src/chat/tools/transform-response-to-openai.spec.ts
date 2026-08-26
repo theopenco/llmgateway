@@ -27,6 +27,43 @@ vi.mock("@llmgateway/logger", () => ({
 }));
 
 describe("transformResponseToOpenai", () => {
+	test("includes Responses API images in Meta chat output", () => {
+		const images = [
+			{
+				type: "image_url" as const,
+				image_url: { url: "data:image/webp;base64,UklGRmFrZQ==" },
+			},
+		];
+		const response = transformResponseToOpenai(
+			"meta",
+			"muse-image-1.0",
+			{
+				id: "resp_muse",
+				created_at: 1,
+				output: [{ type: "image_generation_call" }],
+			},
+			"Image generated",
+			"Planning the image",
+			"stop",
+			10,
+			5,
+			15,
+			2,
+			3,
+			null,
+			images,
+			"meta/muse-image-1.0",
+			"meta",
+			"muse-image-1.0",
+		);
+
+		expect(response.choices[0].message).toMatchObject({
+			content: "Image generated",
+			reasoning: "Planning the image",
+			images,
+		});
+	});
+
 	test("includes request_id in response metadata", () => {
 		const response = transformResponseToOpenai(
 			"openai",

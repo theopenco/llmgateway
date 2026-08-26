@@ -638,6 +638,36 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 	is not available on other Google image models.
 </Callout>
 
+### Meta Models
+
+Muse Image uses Meta's Responses API for generation and editing. It reasons
+before rendering and can use reference images across refinement turns.
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "meta/muse-image-1.0",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Create a product photo on a warm studio background"
+      }
+    ],
+    "image_config": {
+      "image_size": "1024x1536"
+    }
+  }'
+```
+
+| Parameter    | Type   | Description                                                                |
+| ------------ | ------ | -------------------------------------------------------------------------- |
+| `image_size` | string | One of `"1024x1024"`, `"1024x1536"`, or `"1536x1024"`. Defaults to square. |
+
+Muse Image does not expose a quality setting. Use `image_size` to choose square,
+portrait, or landscape output.
+
 ### Alibaba Models
 
 ```bash
