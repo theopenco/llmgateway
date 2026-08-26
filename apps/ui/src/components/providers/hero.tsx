@@ -21,6 +21,7 @@ import {
 	type ProviderId,
 } from "@llmgateway/models";
 import {
+	CarrierMark,
 	providerLogoUrls,
 	RunwareWordmarkIcon,
 } from "@llmgateway/shared/components";
@@ -105,8 +106,13 @@ export function Hero({ providerId, uploadedLogo, dynamicProvider }: HeroProps) {
 
 	const getProviderIcon = (providerId: ProviderId) => {
 		if (uploadedLogo) {
+			// Wide wordmarks keep their aspect ratio; monochrome marks follow
+			// currentColor so they work in both themes.
 			return (
-				<img src={uploadedLogo} alt="" className="h-24 w-24 object-contain" />
+				<CarrierMark
+					src={uploadedLogo}
+					className="h-24 w-full object-contain"
+				/>
 			);
 		}
 		// Runware's brand asset is a wide wordmark, so give it the full slot
@@ -323,7 +329,9 @@ export function Hero({ providerId, uploadedLogo, dynamicProvider }: HeroProps) {
 					<div
 						className={cn(
 							"relative top-10",
-							providerId === "runware"
+							// Wide wordmarks (Runware's asset, carrier uploads) get the
+							// full slot width instead of the square icon treatment.
+							providerId === "runware" || uploadedLogo
 								? "flex h-24 w-56 items-center sm:w-64"
 								: "h-24 w-24",
 						)}

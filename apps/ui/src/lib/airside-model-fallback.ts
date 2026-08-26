@@ -29,9 +29,12 @@ export const findDynamicModelDefinition = cache(
 				maxOutput: m.maxOutput ?? undefined,
 				streaming: m.streaming,
 				vision: m.vision ?? undefined,
+				audio: (m as { audio?: boolean | null }).audio ?? undefined,
 				tools: m.tools ?? undefined,
 				jsonOutput: m.jsonOutput ?? undefined,
 				reasoning: m.reasoning ?? undefined,
+				reasoningEfforts: (m.reasoningEfforts ??
+					undefined) as ProviderModelMapping["reasoningEfforts"],
 			}));
 		if (mappings.length === 0) {
 			return null;

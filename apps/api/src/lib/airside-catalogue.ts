@@ -138,6 +138,55 @@ export async function materializeAirsideModel(
 	});
 }
 
+/**
+ * Non-pricing edits to an ACTIVE listing apply to the materialized catalogue
+ * rows immediately — capabilities, context, reasoning efforts and display
+ * metadata are carrier-editable, only pricing waits for an approved filing.
+ */
+export async function syncAirsideModelMetadata(
+	model: DraftModelRow,
+): Promise<void> {
+	if (
+		model.status !== "active" ||
+		staticCatalogueHasMapping(model.providerId, model.modelName)
+	) {
+		return;
+	}
+	await cdb.transaction(async (tx) => {
+		await tx
+			.update(tables.model)
+			.set({
+				name: model.displayName ?? model.modelName,
+				description: model.description ?? "",
+			})
+			.where(
+				and(
+					eq(tables.model.id, model.modelName),
+					eq(tables.model.family, "airside"),
+				),
+			);
+		await tx
+			.update(tables.modelProviderMapping)
+			.set({
+				contextSize: model.contextSize,
+				maxOutput: model.maxOutput,
+				streaming: model.streaming,
+				vision: model.vision,
+				tools: model.tools,
+				jsonOutput: model.jsonOutput,
+				reasoning: model.reasoning,
+				reasoningEfforts: model.reasoningEfforts,
+			})
+			.where(
+				and(
+					eq(tables.modelProviderMapping.modelId, model.modelName),
+					eq(tables.modelProviderMapping.providerId, model.providerId),
+					isNull(tables.modelProviderMapping.region),
+				),
+			);
+	});
+}
+
 /** Apply an approved price-update filing to the materialized mapping. */
 export async function updateAirsideMappingPrices(
 	model: DraftModelRow,

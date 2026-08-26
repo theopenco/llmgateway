@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { CarrierMark } from "@/components/carrier-mark";
 import { getProviderIcon } from "@/components/provider-icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -677,7 +678,16 @@ export function ProviderSection({
 			<div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-border/30">
 				<div className="flex items-center gap-2 min-w-0">
 					<div className="w-5 h-5 rounded flex items-center justify-center shrink-0">
-						{ProviderIcon ? (
+						{providerInfo?.airsideIconUrl || providerInfo?.airsideLogoUrl ? (
+							// Carrier-uploaded branding (Airside) wins over built-in
+							// marks; monochrome marks follow currentColor.
+							<CarrierMark
+								src={
+									(providerInfo.airsideIconUrl ?? providerInfo.airsideLogoUrl)!
+								}
+								className="h-4 w-4 object-contain"
+							/>
+						) : ProviderIcon ? (
 							<ProviderIcon className="h-4 w-4" />
 						) : (
 							<span className="text-[10px] font-bold text-muted-foreground">

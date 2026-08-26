@@ -372,9 +372,7 @@ export function RegisterModelDialog({
 								/>
 							</div>
 							<div className="space-y-2">
-								<Label htmlFor="model-cached-price">
-									Cached input $/token (optional)
-								</Label>
+								<Label htmlFor="model-cached-price">Cached input $/token</Label>
 								<Input
 									id="model-cached-price"
 									data-testid="cached-input-price"
@@ -384,9 +382,7 @@ export function RegisterModelDialog({
 								/>
 							</div>
 							<div className="space-y-2">
-								<Label htmlFor="model-request-price">
-									Per-request $ (optional)
-								</Label>
+								<Label htmlFor="model-request-price">Per-request $</Label>
 								<Input
 									id="model-request-price"
 									data-testid="request-price"
@@ -802,9 +798,7 @@ export function FileFareDialog({
 							/>
 						</div>
 						<div className="space-y-2">
-							<Label htmlFor="fare-cached">
-								Cached input $/token (optional)
-							</Label>
+							<Label htmlFor="fare-cached">Cached input $/token</Label>
 							<Input
 								id="fare-cached"
 								data-testid="fare-cached-input-price"
@@ -814,7 +808,7 @@ export function FileFareDialog({
 							/>
 						</div>
 						<div className="space-y-2">
-							<Label htmlFor="fare-request">Per-request $ (optional)</Label>
+							<Label htmlFor="fare-request">Per-request $</Label>
 							<Input
 								id="fare-request"
 								data-testid="fare-request-price"

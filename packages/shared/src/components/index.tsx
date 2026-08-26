@@ -1,4 +1,5 @@
 export * from "../deactivation";
+export * from "./carrier-mark";
 export * from "./credential-source-badge";
 export * from "./integration-guides-grid";
 export * from "./integration-icons";

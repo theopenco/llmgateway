@@ -43,7 +43,7 @@ import {
 	getEffectiveProviderDiscount,
 	perMillion,
 } from "@/lib/discount";
-import { fetchModelDiscounts } from "@/lib/fetch-models";
+import { fetchModelDiscounts, fetchProviders } from "@/lib/fetch-models";
 import { buildFaqSchema, buildModelFaqs } from "@/lib/model-faq";
 import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
 import { fetchServerData } from "@/lib/server-api";
@@ -114,19 +114,32 @@ export default async function ModelPage({ params }: PageProps) {
 			params: { query: { modelId: decodedName } },
 		}),
 	]);
+	// Carrier-uploaded branding (Airside claims) overlays the static provider
+	// info, and is the only provider info a DB-only carrier has.
+	const apiProviders = await fetchProviders().catch(() => []);
 	const expandedProviders = expandAllProviderRegions(modelDef.providers);
 	const modelProviders = expandedProviders.map((provider) => {
 		const providerInfo = providerDefinitions.find(
 			(p) => p.id === provider.providerId,
 		);
+		const apiProvider = apiProviders.find((p) => p.id === provider.providerId);
 		const globalDiscount = getEffectiveProviderDiscount(
 			allDiscounts,
 			provider.providerId,
 			decodedName,
 		);
+		const baseInfo = providerInfo ?? apiProvider;
 		return {
 			...provider,
-			providerInfo,
+			// Downstream consumers only read display fields, so the merged
+			// object stays typed as the static definition.
+			providerInfo: baseInfo
+				? ({
+						...baseInfo,
+						airsideLogoUrl: apiProvider?.airsideLogoUrl ?? null,
+						airsideIconUrl: apiProvider?.airsideIconUrl ?? null,
+					} as unknown as NonNullable<typeof providerInfo>)
+				: undefined,
 			discount: globalDiscount,
 		};
 	});

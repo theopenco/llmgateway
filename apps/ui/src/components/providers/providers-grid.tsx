@@ -47,7 +47,7 @@ import {
 	type ProviderCompliancePolicy,
 	type ProviderId,
 } from "@llmgateway/models";
-import { providerLogoUrls } from "@llmgateway/shared/components";
+import { CarrierMark, providerLogoUrls } from "@llmgateway/shared/components";
 
 type SortKey = "fastest" | "slowest" | "popular" | "name" | "uptime";
 
@@ -56,11 +56,7 @@ const getProviderLogo = (providerId: ProviderId, uploadedLogo?: string) => {
 	if (uploadedLogo) {
 		return (
 			<div className="flex size-12 shrink-0 items-center justify-center overflow-hidden">
-				<img
-					src={uploadedLogo}
-					alt=""
-					className="max-h-12 max-w-12 object-contain"
-				/>
+				<CarrierMark src={uploadedLogo} className="size-12 object-contain" />
 			</div>
 		);
 	}

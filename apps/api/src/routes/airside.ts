@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
 	dematerializeAirsideModel,
 	staticCatalogueHasActiveMapping,
+	syncAirsideModelMetadata,
 } from "@/lib/airside-catalogue.js";
 import {
 	claimableProvidersForEmail,
@@ -1349,6 +1350,8 @@ airside.openapi(updateModel, async (c) => {
 		})
 		.where(eq(tables.providerDraftModel.id, id))
 		.returning();
+	// Active listings mirror non-pricing edits straight into the catalogue.
+	await syncAirsideModelMetadata(updated);
 	const filings = await db.query.providerPriceFiling.findMany({
 		where: { draftModelId: { eq: id } },
 	});
