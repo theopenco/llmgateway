@@ -210,14 +210,51 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 				.map((p) => p.id),
 		);
 
-		// Approved Airside listings join the catalogue dynamically.
+		// Approved Airside listings join the catalogue dynamically, merged by
+		// model id so a listing never duplicates a static entry. An ACTIVE
+		// static mapping for the same provider wins (mirroring the routing
+		// rule); with only deactivated static mappings, the Airside mapping is
+		// appended to the existing model — the catalogue → DB migration case.
 		const airsideDefinitions = (await listAirsideModels()).map(
 			(listed) => airsideListingToModelDefinition(listed).modelInfo,
 		);
-		const allCatalogueModels: ModelDefinition[] = [
-			...modelsList,
-			...airsideDefinitions,
-		];
+		const allCatalogueModels: ModelDefinition[] = [...modelsList];
+		const modelIndexById = new Map<string, number>();
+		allCatalogueModels.forEach((model, index) => {
+			modelIndexById.set(model.id, index);
+			if ("aliases" in model) {
+				for (const alias of (model.aliases as readonly string[] | undefined) ??
+					[]) {
+					modelIndexById.set(alias, index);
+				}
+			}
+		});
+		for (const airsideModel of airsideDefinitions) {
+			const existingIndex = modelIndexById.get(airsideModel.id);
+			if (existingIndex === undefined) {
+				modelIndexById.set(airsideModel.id, allCatalogueModels.length);
+				allCatalogueModels.push(airsideModel);
+				continue;
+			}
+			const existing = allCatalogueModels[existingIndex];
+			const airsideMapping = airsideModel.providers[0];
+			const staticHasActive = existing.providers.some((provider) => {
+				if (provider.providerId !== airsideMapping.providerId) {
+					return false;
+				}
+				const deactivatedAt =
+					"deactivatedAt" in provider
+						? (provider.deactivatedAt as Date | string | undefined)
+						: undefined;
+				return !(deactivatedAt && new Date(deactivatedAt) <= currentDate);
+			});
+			if (!staticHasActive) {
+				allCatalogueModels[existingIndex] = {
+					...existing,
+					providers: [...existing.providers, airsideMapping],
+				} as ModelDefinition;
+			}
+		}
 
 		// Filter models based on deactivation and deprecation status of their provider mappings
 		const deactivationFilteredModels = allCatalogueModels.filter(

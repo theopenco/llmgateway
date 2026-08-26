@@ -14,6 +14,7 @@ import {
 	eq,
 	inArray,
 	isNull,
+	ne,
 	sql,
 	tables,
 } from "@llmgateway/db";
@@ -418,6 +419,16 @@ stripeRoutes.openapi(webhookHandler, async (c) => {
 			case "checkout.session.completed":
 				await handleCheckoutSessionCompleted(event);
 				break;
+			case "checkout.session.async_payment_succeeded": {
+				// Delayed payment methods settle after `completed` fired with
+				// payment_status "unpaid". Only the airside listing fee opts into
+				// this event; other checkout flows settle synchronously.
+				const settledSession = event.data.object as Stripe.Checkout.Session;
+				if (settledSession.metadata?.type === "airside_listing_fee") {
+					await handleAirsideListingCheckout(settledSession);
+				}
+				break;
+			}
 			case "invoice.payment_succeeded":
 				await handleInvoicePaymentSucceeded(event);
 				break;
@@ -1987,14 +1998,28 @@ async function handleAirsideListingCheckout(session: Stripe.Checkout.Session) {
 		logger.error("Airside listing checkout session missing providerCompanyId");
 		return;
 	}
-	await db
+	const updated = await db
 		.update(tables.providerCompany)
 		.set({
 			paymentStatus: "paid",
 			stripeCheckoutSessionId: session.id,
 			paidAt: new Date(),
 		})
-		.where(eq(tables.providerCompany.id, providerCompanyId));
+		.where(
+			and(
+				eq(tables.providerCompany.id, providerCompanyId),
+				ne(tables.providerCompany.paymentStatus, "paid"),
+			),
+		)
+		.returning({ id: tables.providerCompany.id });
+	if (updated.length === 0) {
+		// Already paid via another session: a duplicate successful charge that
+		// needs a manual refund.
+		logger.error(
+			`Airside listing fee paid twice for provider company ${providerCompanyId}; refund checkout session ${session.id}`,
+		);
+		return;
+	}
 	logger.info(`Marked airside provider company ${providerCompanyId} as paid`);
 }
 

@@ -566,13 +566,33 @@ airside.openapi(createListingCheckout, async (c) => {
 			message: "The listing fee is not configured on this deployment.",
 		});
 	}
-	const airsideUrl = process.env.AIRSIDE_URL ?? "http://localhost:3007";
+	// A deployment that charges the fee must also say where Stripe should send
+	// the customer back — a localhost fallback would strand a paid customer.
+	const airsideUrl = process.env.AIRSIDE_URL;
+	if (!airsideUrl && process.env.NODE_ENV === "production") {
+		throw new HTTPException(500, {
+			message: "AIRSIDE_URL must be configured to charge the listing fee.",
+		});
+	}
+	const returnBase = airsideUrl ?? "http://localhost:3007";
+
+	// Reuse a still-open session so repeat clicks (or two tabs) cannot buy the
+	// one-time fee twice; expired/consumed sessions fall through to a new one.
+	if (company.stripeCheckoutSessionId) {
+		const existing = await getStripe()
+			.checkout.sessions.retrieve(company.stripeCheckoutSessionId)
+			.catch(() => null);
+		if (existing?.status === "open" && existing.url) {
+			return c.json({ checkoutUrl: existing.url });
+		}
+	}
+
 	const session = await getStripe().checkout.sessions.create({
 		mode: "payment",
 		line_items: [{ price: priceId, quantity: 1 }],
 		customer_email: user.email,
-		success_url: `${airsideUrl}/onboarding?payment=success`,
-		cancel_url: `${airsideUrl}/onboarding?payment=canceled`,
+		success_url: `${returnBase}/onboarding?payment=success`,
+		cancel_url: `${returnBase}/onboarding?payment=canceled`,
 		metadata: {
 			type: "airside_listing_fee",
 			providerCompanyId: company.id,
@@ -589,6 +609,16 @@ airside.openapi(createListingCheckout, async (c) => {
 			message: "Stripe did not return a checkout URL.",
 		});
 	}
+	// Remember the open session for the reuse guard above.
+	await db
+		.update(tables.providerCompany)
+		.set({ stripeCheckoutSessionId: session.id })
+		.where(
+			and(
+				eq(tables.providerCompany.id, company.id),
+				eq(tables.providerCompany.paymentStatus, "unpaid"),
+			),
+		);
 	return c.json({ checkoutUrl: session.url });
 });
 

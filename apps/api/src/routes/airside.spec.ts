@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { db, eq, inArray, tables } from "@llmgateway/db";
 
 const originalAdminEmails = process.env.ADMIN_EMAILS;
 const originalListingPriceId = process.env.AIRSIDE_LISTING_PRICE_ID;
@@ -99,9 +99,23 @@ describe("airside provider portal", () => {
 		} else {
 			process.env.AIRSIDE_LISTING_PRICE_ID = originalListingPriceId;
 		}
-		await db.delete(tables.modelProviderMapping);
-		await db.delete(tables.model);
-		await db.delete(tables.provider);
+		// Only remove catalogue rows this spec materialized (family "airside"
+		// models, plus the provider rows its lifecycles create) — a blanket
+		// delete could race another spec sharing the database.
+		const airsideModels = await db.query.model.findMany({
+			where: { family: { eq: "airside" } },
+			columns: { id: true },
+		});
+		if (airsideModels.length > 0) {
+			const ids = airsideModels.map((m) => m.id);
+			await db
+				.delete(tables.modelProviderMapping)
+				.where(inArray(tables.modelProviderMapping.modelId, ids));
+			await db.delete(tables.model).where(inArray(tables.model.id, ids));
+		}
+		await db
+			.delete(tables.provider)
+			.where(inArray(tables.provider.id, ["mistral", "acme-sky"]));
 		await deleteAll();
 	});
 

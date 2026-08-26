@@ -414,6 +414,73 @@ describe("airside-listed models", () => {
 		expect(Number(log!.outputCost)).toBeCloseTo(0.002, 6);
 	});
 
+	test("merges listings with static models in /v1/models", async () => {
+		captured = [];
+		await clearCache();
+		await db.insert(tables.providerCompany).values({
+			id: "merge-company",
+			name: "Merge Co",
+		});
+		// An imported listing shadowed by an ACTIVE static mapping must not
+		// duplicate the model entry; a listing for a retired static mapping
+		// (nebius) joins the existing entry as an extra provider.
+		await db.insert(tables.providerDraftModel).values([
+			{
+				id: "merge-static-model",
+				providerCompanyId: "merge-company",
+				providerId: "mistral",
+				modelName: "mistral-large-latest",
+				streaming: true,
+				status: "active",
+			},
+			{
+				id: "merge-takeover-model",
+				providerCompanyId: "merge-company",
+				providerId: "nebius",
+				modelName: "llama-3.1-8b-instruct",
+				streaming: true,
+				status: "active",
+			},
+		]);
+		await db.insert(tables.providerPriceFiling).values([
+			{
+				id: "merge-static-filing",
+				draftModelId: "merge-static-model",
+				providerCompanyId: "merge-company",
+				kind: "initial",
+				inputPrice: "2e-6",
+				outputPrice: "6e-6",
+				status: "approved",
+			},
+			{
+				id: "merge-takeover-filing",
+				draftModelId: "merge-takeover-model",
+				providerCompanyId: "merge-company",
+				kind: "initial",
+				inputPrice: "1e-6",
+				outputPrice: "4e-6",
+				status: "approved",
+			},
+		]);
+
+		const res = await app.request("/v1/models?include_deactivated=true");
+		expect(res.status).toBe(200);
+		const { data } = (await res.json()) as {
+			data: { id: string }[];
+		};
+		expect(data.filter((m) => m.id === "mistral-large-latest")).toHaveLength(1);
+		expect(data.filter((m) => m.id === "llama-3.1-8b-instruct")).toHaveLength(
+			1,
+		);
+
+		// The takeover mapping is exposed on the merged entry.
+		const mappedRes = await app.request("/v1/models?mapped=true");
+		const mapped = (await mappedRes.json()) as { data: { id: string }[] };
+		expect(
+			mapped.data.some((m) => m.id === "nebius/llama-3.1-8b-instruct"),
+		).toBe(true);
+	});
+
 	test("does not route an unregistered provider prefix", async () => {
 		await setupCustomCarrier("airside-unknown-token");
 		const res = await app.request("/v1/chat/completions", {
