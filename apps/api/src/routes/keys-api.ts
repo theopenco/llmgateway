@@ -45,7 +45,7 @@ export function isPlaygroundApiKey(apiKey: {
 	return apiKey.kind === "playground";
 }
 
-function assertApiKeyIsUserManaged(apiKey: {
+export function assertApiKeyIsUserManaged(apiKey: {
 	kind: "regular" | "playground";
 }): void {
 	if (isPlaygroundApiKey(apiKey)) {

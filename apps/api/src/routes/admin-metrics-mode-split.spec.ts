@@ -287,6 +287,41 @@ describe("admin — credits vs BYOK mode split", () => {
 		expect(gpt4!.apiKeysRequestCount).toBe(1);
 	});
 
+	test("organization cost charts retain soft-deleted usage", async () => {
+		await db
+			.update(tables.organization)
+			.set({ status: "deleted" })
+			.where(eq(tables.organization.id, ORG_ID));
+
+		const breakdownRes = await app.request(
+			`/admin/organizations/${ORG_ID}/cost-by-model?window=1d`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect(breakdownRes.status).toBe(200);
+		const breakdown = (await breakdownRes.json()) as {
+			models: { model: string; cost: number }[];
+			totalCost: number;
+		};
+		expect(breakdown.models).toHaveLength(1);
+		expect(breakdown.totalCost).toBeCloseTo(50, 3);
+
+		const timeseriesRes = await app.request(
+			`/admin/organizations/${ORG_ID}/cost-by-model-timeseries?window=1d`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect(timeseriesRes.status).toBe(200);
+		const timeseries = (await timeseriesRes.json()) as {
+			models: string[];
+			data: { entries: { cost: number }[] }[];
+		};
+		expect(timeseries.models).toHaveLength(1);
+		expect(
+			timeseries.data
+				.flatMap((point) => point.entries)
+				.reduce((sum, entry) => sum + entry.cost, 0),
+		).toBeCloseTo(50, 3);
+	});
+
 	test("cost breakdown totals include rows beyond the top 20", async () => {
 		const hourTimestamp = new Date();
 		hourTimestamp.setUTCMinutes(0, 0, 0);
