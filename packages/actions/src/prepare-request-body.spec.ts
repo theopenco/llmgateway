@@ -12,6 +12,7 @@ import {
 import type {
 	AnthropicRequestBody,
 	OpenAIRequestBody,
+	OpenAIResponsesRequestBody,
 	ProviderCacheControlMode,
 	ProviderModelMapping,
 } from "@llmgateway/models";
@@ -64,6 +65,40 @@ async function prepareOpenAIImageRequest(imageConfig: {
 		undefined,
 		true,
 	);
+}
+
+async function prepareMetaImageRequest(imageConfig: {
+	image_size?: string;
+	image_quality?: string;
+}) {
+	return (await prepareRequestBody(
+		"meta",
+		"muse-image-1.0",
+		null,
+		"muse-image-1.0",
+		[{ role: "user", content: "Generate a cinematic landscape" }],
+		false,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		true,
+		false,
+		20,
+		null,
+		undefined,
+		imageConfig,
+		undefined,
+		true,
+		undefined,
+		undefined,
+		true,
+	)) as OpenAIResponsesRequestBody;
 }
 
 async function prepareOpenAITextRequest(options: {
@@ -1492,6 +1527,29 @@ describe("prepareRequestBody - OpenAI image generation", () => {
 
 		expect(requestBody.size).toBe("1024x1024");
 		expect(requestBody.quality).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - Meta image generation", () => {
+	test.each(["1024x1024", "1024x1536", "1536x1024"])(
+		"adds the Muse image tool with size %s",
+		async (size) => {
+			const requestBody = await prepareMetaImageRequest({
+				image_size: size,
+				image_quality: "high",
+			});
+
+			expect(requestBody).toMatchObject({
+				model: "muse-image-1.0",
+				tools: [{ type: "image_generation", size }],
+			});
+		},
+	);
+
+	test("rejects a size Muse does not support", async () => {
+		await expect(
+			prepareMetaImageRequest({ image_size: "2048x2048" }),
+		).rejects.toBeInstanceOf(RequestError);
 	});
 });
 

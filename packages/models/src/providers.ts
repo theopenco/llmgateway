@@ -1671,7 +1671,7 @@ export const providers: ProviderDefinition[] = [
 		name: "Meta",
 		forwardsSafetyIdentifier: false,
 		description:
-			"Meta's Model API serving the Muse Spark multimodal reasoning models via an OpenAI-compatible API",
+			"Meta's Model API serving Muse reasoning and image models via an OpenAI-compatible API",
 		env: {
 			required: {
 				apiKey: "LLM_META_API_KEY",
