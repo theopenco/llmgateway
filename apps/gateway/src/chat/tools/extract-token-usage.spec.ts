@@ -429,6 +429,60 @@ describe("extractTokenUsage", () => {
 	});
 
 	describe("alibaba", () => {
+		it("extracts Kimi K3 reasoning included in completion tokens", () => {
+			const data = {
+				usage: {
+					prompt_tokens: 105,
+					completion_tokens: 230,
+					total_tokens: 335,
+					completion_tokens_details: {
+						reasoning_tokens: 211,
+						text_tokens: 19,
+					},
+				},
+			};
+
+			const result = extractTokenUsage(
+				data,
+				"alibaba",
+				undefined,
+				undefined,
+				"kimi-k3",
+				null,
+			);
+
+			expect(result.reasoningTokens).toBe(211);
+			expect(result.completionTokens).toBe(230);
+			expect(result.totalTokens).toBe(335);
+		});
+
+		it("extracts verified Qwen reasoning included in completion tokens", () => {
+			const data = {
+				usage: {
+					prompt_tokens: 65,
+					completion_tokens: 800,
+					total_tokens: 865,
+					completion_tokens_details: {
+						reasoning_tokens: 512,
+						text_tokens: 800,
+					},
+				},
+			};
+
+			const result = extractTokenUsage(
+				data,
+				"alibaba",
+				undefined,
+				undefined,
+				"qwen3.8-max",
+				"singapore",
+			);
+
+			expect(result.reasoningTokens).toBe(512);
+			expect(result.completionTokens).toBe(800);
+			expect(result.totalTokens).toBe(865);
+		});
+
 		it("extracts prompt_tokens_details.cache_creation_input_tokens into 5m cache write fields", () => {
 			const data = {
 				usage: {

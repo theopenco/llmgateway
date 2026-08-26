@@ -1,3 +1,5 @@
+import { verifiedAlibabaCompletionIncludesReasoning } from "@/lib/alibaba-reasoning-usage.js";
+
 import { estimateTokens } from "./estimate-tokens.js";
 
 import type { Provider } from "@llmgateway/models";
@@ -64,6 +66,8 @@ export function extractTokenUsage(
 	provider: Provider,
 	fullContent?: string,
 	imageByteSize?: number,
+	model?: string,
+	region?: string | null,
 ) {
 	let promptTokens = null;
 	let completionTokens = null;
@@ -225,7 +229,12 @@ export function extractTokenUsage(
 				promptTokens = data.usage.prompt_tokens ?? null;
 				completionTokens = data.usage.completion_tokens ?? null;
 				totalTokens = data.usage.total_tokens ?? null;
-				reasoningTokens = data.usage.reasoning_tokens ?? null;
+				reasoningTokens =
+					data.usage.reasoning_tokens ??
+					(verifiedAlibabaCompletionIncludesReasoning(provider, model, region)
+						? data.usage.completion_tokens_details?.reasoning_tokens
+						: undefined) ??
+					null;
 				cachedTokens = data.usage.prompt_tokens_details?.cached_tokens ?? null;
 				const cacheCreation =
 					data.usage.prompt_tokens_details?.cache_creation_input_tokens ?? 0;

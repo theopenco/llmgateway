@@ -1,3 +1,5 @@
+import { verifiedAlibabaCompletionIncludesReasoning } from "@/lib/alibaba-reasoning-usage.js";
+
 import { isToolSearchBlock } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { shortid } from "@llmgateway/db";
@@ -39,6 +41,7 @@ export function parseProviderResponse(
 	 * request actually searches, so an unforced one must count zero.
 	 */
 	webSearchForced = false,
+	usedRegion: string | null = null,
 ) {
 	let content = null;
 	let reasoningContent = null;
@@ -677,12 +680,29 @@ export function parseProviderResponse(
 				finishReason = json.choices?.[0]?.finish_reason ?? null;
 				promptTokens = json.usage?.prompt_tokens ?? null;
 				completionTokens = json.usage?.completion_tokens ?? null;
-				reasoningTokens = json.usage?.reasoning_tokens ?? null;
+				reasoningTokens =
+					json.usage?.reasoning_tokens ??
+					(verifiedAlibabaCompletionIncludesReasoning(
+						usedProvider,
+						usedModel,
+						usedRegion,
+					)
+						? json.usage?.completion_tokens_details?.reasoning_tokens
+						: undefined) ??
+					null;
 				cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens ?? null;
 				totalTokens =
 					json.usage?.total_tokens ??
 					(promptTokens !== null && completionTokens !== null
-						? promptTokens + completionTokens + (reasoningTokens ?? 0)
+						? promptTokens +
+							completionTokens +
+							(verifiedAlibabaCompletionIncludesReasoning(
+								usedProvider,
+								usedModel,
+								usedRegion,
+							)
+								? 0
+								: (reasoningTokens ?? 0))
 						: null);
 				// Alibaba uses Anthropic-style `cache_control: {type: "ephemeral"}` on
 				// the request, but reports usage in OpenAI shape with

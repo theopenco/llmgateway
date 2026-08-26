@@ -17,6 +17,8 @@ import {
 	resolveTimeBasedPricing,
 } from "@llmgateway/models";
 
+import { verifiedAlibabaCompletionIncludesReasoning } from "./alibaba-reasoning-usage.js";
+
 /**
  * Resolve the price multiplier for a served processing tier (Flex / Priority).
  * The tier is what the provider actually served — Vertex reports it via
@@ -763,6 +765,7 @@ export async function calculateCosts(
 		provider === "meta" ||
 		provider === "ranoai" ||
 		provider === "baidu" ||
+		verifiedAlibabaCompletionIncludesReasoning(provider, model, region) ||
 		provider === "permafrost" ||
 		provider === "gonka24" ||
 		provider === "aws-mantle";

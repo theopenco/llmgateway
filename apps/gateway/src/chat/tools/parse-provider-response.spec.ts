@@ -1167,6 +1167,86 @@ describe("parseProviderResponse", () => {
 	});
 
 	describe("alibaba cache creation tokens", () => {
+		it("extracts Kimi K3 reasoning included in completion tokens", () => {
+			const json = {
+				choices: [
+					{
+						message: { content: "Hello", role: "assistant" },
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 105,
+					completion_tokens: 236,
+					completion_tokens_details: {
+						reasoning_tokens: 217,
+						text_tokens: 19,
+					},
+				},
+			};
+
+			const result = parseProviderResponse("alibaba", "kimi-k3", json);
+
+			expect(result.reasoningTokens).toBe(217);
+			expect(result.completionTokens).toBe(236);
+			expect(result.totalTokens).toBe(341);
+		});
+
+		it("extracts verified Qwen reasoning included in completion tokens", () => {
+			const json = {
+				choices: [
+					{
+						message: { content: "Hello", role: "assistant" },
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 65,
+					completion_tokens: 528,
+					completion_tokens_details: {
+						reasoning_tokens: 512,
+						text_tokens: 528,
+					},
+				},
+			};
+
+			const result = parseProviderResponse(
+				"alibaba",
+				"qwen3.8-max",
+				json,
+				[],
+				true,
+				false,
+				false,
+				false,
+				"singapore",
+			);
+
+			expect(result.reasoningTokens).toBe(512);
+			expect(result.completionTokens).toBe(528);
+			expect(result.totalTokens).toBe(593);
+		});
+
+		it("keeps separate reasoning in other Alibaba fallback totals", () => {
+			const json = {
+				choices: [
+					{
+						message: { content: "Hello", role: "assistant" },
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 100,
+					completion_tokens: 50,
+					reasoning_tokens: 30,
+				},
+			};
+
+			const result = parseProviderResponse("alibaba", "qwen-plus", json);
+
+			expect(result.totalTokens).toBe(180);
+		});
+
 		it("extracts prompt_tokens_details.cache_creation_input_tokens into 5m cache write fields", () => {
 			const json = {
 				choices: [

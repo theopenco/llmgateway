@@ -752,6 +752,42 @@ export const moonshotModels = [
 				],
 			},
 			{
+				providerId: "alibaba",
+				externalId: "kimi-k3",
+				// Named function choice returns a tool call with finish_reason "stop"
+				// with reasoning both on and off. Required returns "tool_calls" in
+				// both states, so there are no thinking-disabled-only modes.
+				supportedToolChoices: ["auto", "none", "required"],
+				inputPrice: "3.0e-6",
+				cachedInputPrice: "0.3e-6",
+				outputPrice: "15.0e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 1048576,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				streaming: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
+			},
+			{
 				providerId: "permafrost",
 				externalId: "kimi-k3",
 				inputPrice: "3.0e-6",

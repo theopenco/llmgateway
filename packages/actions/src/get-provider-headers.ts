@@ -138,6 +138,14 @@ export function getProviderHeaders(
 				// gateway's production upstream dispatcher is installed.
 				"Accept-Encoding": "identity",
 			};
+		case "alibaba":
+			return {
+				...requestIdHeader,
+				Authorization: `Bearer ${token}`,
+				// DashScope serves gzip responses that Node leaves compressed when the
+				// gateway's production upstream dispatcher is installed.
+				"Accept-Encoding": "identity",
+			};
 		case "openai":
 		case "inference.net":
 		case "xai":
@@ -147,7 +155,6 @@ export function getProviderHeaders(
 		case "novita":
 		case "moonshot":
 		case "meta":
-		case "alibaba":
 		case "nebius":
 		case "fireworks":
 		case "zai":

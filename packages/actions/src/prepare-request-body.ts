@@ -2717,6 +2717,7 @@ export async function prepareRequestBody(
 			break;
 		}
 		case "alibaba": {
+			const isKimiK3 = usedInternalModel === "kimi-k3";
 			if (stream) {
 				requestBody.stream_options = {
 					include_usage: true,
@@ -2746,9 +2747,15 @@ export async function prepareRequestBody(
 			if (presence_penalty !== undefined) {
 				requestBody.presence_penalty = presence_penalty;
 			}
-			// DashScope doesn't recognize `reasoning_effort`; thinking is
-			// controlled via `enable_thinking` (boolean) and `thinking_budget`
-			// (max thinking tokens), and thinking models think by default.
+			// Kimi K3 accepts the native reasoning_effort enum. Other DashScope
+			// thinking models use enable_thinking and thinking_budget instead.
+			if (supportsReasoning && isKimiK3 && reasoning_effort !== undefined) {
+				requestBody.reasoning_effort = reasoning_effort;
+			}
+
+			// For budget-controlled models, thinking is controlled via
+			// `enable_thinking` (boolean) and `thinking_budget` (max thinking
+			// tokens), and thinking models think by default.
 			// Mappings whose thinking is budget-controlled declare
 			// `reasoningMaxTokens`, so translate the unified reasoning parameters
 			// only for them: `none` becomes an explicit disable, every other tier
@@ -2759,6 +2766,7 @@ export async function prepareRequestBody(
 			// default.
 			if (
 				supportsReasoning &&
+				!isKimiK3 &&
 				providerMappingForOptions?.reasoningMaxTokens === true &&
 				(reasoning_effort !== undefined || reasoning_max_tokens !== undefined)
 			) {
