@@ -204,10 +204,6 @@ describe("user accounts and email editability", () => {
 			expiresAt: null,
 			graceEndsAt: null,
 		});
-		expect(json.user.createdAt).toEqual(expect.any(String));
-		expect(new Date(json.user.createdAt).toISOString()).toBe(
-			json.user.createdAt,
-		);
 	});
 
 	it("GET /user/me should return isSsoUser false for a non-SSO user", async () => {

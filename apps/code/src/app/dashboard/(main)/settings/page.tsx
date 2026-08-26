@@ -4,7 +4,6 @@ import dynamic from "next/dynamic";
 
 import { useDevPlanStatus } from "@/app/dashboard/useDevPlanStatus";
 import { useUser } from "@/hooks/useUser";
-import { canConfigureDevPlanServiceTier } from "@/lib/dev-plan-service-tier";
 
 import { TimeZoneSetting } from "@llmgateway/shared";
 
@@ -58,9 +57,6 @@ export default function SettingsPage() {
 			    endpoint rejects updates once the subscription has ended. */}
 			{devPlanStatus.devPlan !== "none" && (
 				<DevPlanSettings
-					canConfigureServiceTier={
-						user !== null && canConfigureDevPlanServiceTier(user.createdAt)
-					}
 					devPlanServiceTier={devPlanStatus.devPlanServiceTier ?? "default"}
 					defaultRoutingStrategy={
 						devPlanStatus.defaultRoutingStrategy ?? "auto"
