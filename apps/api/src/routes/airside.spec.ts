@@ -891,6 +891,21 @@ describe("airside provider portal", () => {
 		expect(dupe.status).toBe(409);
 	});
 
+	it("rejects freemail accounts and flags them on the claimable list", async () => {
+		await setUserEmail("someone@hotmail.com");
+		const company = await createCompany(cookie, "Personal Co");
+		const res = await registerCarrier(cookie, company.id, {
+			baseUrl: "https://api.hotmail.com",
+		});
+		expect(res.status).toBe(403);
+
+		const claimableRes = await app.request("/airside/claimable", {
+			headers: { Cookie: cookie },
+		});
+		const claimableBody = await claimableRes.json();
+		expect(claimableBody.emailDomainIsFreemail).toBe(true);
+	});
+
 	it("rejects a registration off the verified email domain", async () => {
 		await setUserEmail("ops@acme-sky.ai");
 		const company = await createCompany(cookie, "Acme Sky");

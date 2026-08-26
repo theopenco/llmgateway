@@ -448,10 +448,22 @@ function OnboardingContent() {
 
 	const companies = companiesQuery.data?.companies ?? [];
 	const claimable = claimableQuery.data?.providers ?? [];
+	const isFreemail = claimableQuery.data?.emailDomainIsFreemail ?? false;
 	const company = companies[0];
 	const hasClaim = companies.some((c) => c.claims.length > 0);
 	const paymentDue =
 		!!company && company.paymentRequired && company.paymentStatus === "unpaid";
+	// Why "Register a new carrier" is unavailable, if it is — shown next to
+	// the disabled button instead of leaving it silently dead.
+	const registerBlockedReason = isFreemail
+		? "You signed up with a personal email address — carrier registration needs an address on your company's domain."
+		: !company
+			? "Register your company first."
+			: !user?.emailVerified
+				? "Verify your email first."
+				: paymentDue
+					? "Pay the listing fee first."
+					: null;
 
 	if (isLoading || !user) {
 		return (
@@ -603,20 +615,39 @@ function OnboardingContent() {
 										: "2 · Claim your carrier"}
 								</h2>
 								<p className="text-muted-foreground text-sm">
-									Claim catalogue providers whose endpoint domain matches{" "}
-									<span className="font-mono">@{user.email.split("@")[1]}</span>
-									, or register a new carrier hosted on that domain. Both are
-									reviewed by our team before going live.
+									{isFreemail
+										? "Carriers are matched by email domain, so this needs your company address."
+										: "Claim catalogue providers whose endpoint domain matches "}
+									{!isFreemail ? (
+										<>
+											<span className="font-mono">
+												@{user.email.split("@")[1]}
+											</span>
+											, or register a new carrier hosted on that domain. Both
+											are reviewed by our team before going live.
+										</>
+									) : null}
 								</p>
 							</div>
 						</div>
 						{claimable.length === 0 ? (
-							<p className="text-muted-foreground text-sm">
-								No catalogue provider matches your email domain. If your
-								provider is not on LLM Gateway yet, register it as a new carrier
-								below — all you need is an OpenAI-compatible API on{" "}
-								<span className="font-mono">@{user.email.split("@")[1]}</span>.
-							</p>
+							isFreemail ? (
+								<p className="text-muted-foreground text-sm">
+									<span className="font-mono">@{user.email.split("@")[1]}</span>{" "}
+									is a personal email provider, so it can&apos;t claim or host a
+									carrier API. Create an account with your company email (e.g.{" "}
+									<span className="font-mono">ops@yourprovider.ai</span>) to
+									claim or register a carrier.
+								</p>
+							) : (
+								<p className="text-muted-foreground text-sm">
+									No catalogue provider matches your email domain. If your
+									provider is not on LLM Gateway yet, register it as a new
+									carrier below — all you need is an OpenAI-compatible API on{" "}
+									<span className="font-mono">@{user.email.split("@")[1]}</span>
+									.
+								</p>
+							)
 						) : (
 							<ul className="space-y-3">
 								{claimable.map((p) => {
@@ -720,30 +751,29 @@ function OnboardingContent() {
 									)}
 								</div>
 							))}
-						<div className="mt-4 flex items-center justify-between gap-3">
-							<p className="text-muted-foreground text-xs">
-								Not in the catalogue? Register your own carrier — an
-								OpenAI-compatible API on your email domain is all it takes.
-							</p>
-							<RegisterCarrierDialog
-								emailDomain={user.email.split("@")[1] ?? ""}
-								disabled={
-									!company ||
-									!user.emailVerified ||
-									paymentDue ||
-									registerCarrier.isPending
-								}
-								pending={registerCarrier.isPending}
-								onRegister={(values) => {
-									if (!company) {
-										return;
+						{!isFreemail ? (
+							<div className="mt-4 flex items-center justify-between gap-3">
+								<p className="text-muted-foreground text-xs">
+									{registerBlockedReason ??
+										"Not in the catalogue? Register your own carrier — an OpenAI-compatible API on your email domain is all it takes."}
+								</p>
+								<RegisterCarrierDialog
+									emailDomain={user.email.split("@")[1] ?? ""}
+									disabled={
+										registerBlockedReason !== null || registerCarrier.isPending
 									}
-									registerCarrier.mutate({
-										body: { providerCompanyId: company.id, ...values },
-									});
-								}}
-							/>
-						</div>
+									pending={registerCarrier.isPending}
+									onRegister={(values) => {
+										if (!company) {
+											return;
+										}
+										registerCarrier.mutate({
+											body: { providerCompanyId: company.id, ...values },
+										});
+									}}
+								/>
+							</div>
+						) : null}
 					</section>
 
 					<SlackCard />

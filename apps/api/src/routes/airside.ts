@@ -9,6 +9,7 @@ import {
 import {
 	claimableProvidersForEmail,
 	emailRegistrableDomain,
+	isFreemailDomain,
 	registrableDomain,
 } from "@/lib/airside-domains.js";
 
@@ -581,6 +582,9 @@ const listClaimable = createRoute({
 				"application/json": {
 					schema: z.object({
 						emailDomain: z.string().nullable(),
+						// Personal email provider (gmail, hotmail, …): the account can
+						// neither claim nor register a carrier.
+						emailDomainIsFreemail: z.boolean(),
 						emailVerified: z.boolean(),
 						providers: z.array(
 							z.object({
@@ -622,10 +626,12 @@ airside.openapi(listClaimable, async (c) => {
 	});
 	const myCompanyIds = new Set(memberships.map((m) => m.providerCompanyId));
 	const claimByProvider = new Map(claims.map((cl) => [cl.providerId, cl]));
+	const emailDomain = emailRegistrableDomain(user.email) ?? null;
 	return c.json({
 		// Always report the domain we matched against, so the onboarding view
 		// can explain a miss ("no provider matches @example.com").
-		emailDomain: emailRegistrableDomain(user.email) ?? null,
+		emailDomain,
+		emailDomainIsFreemail: isFreemailDomain(emailDomain ?? undefined),
 		emailVerified: user.emailVerified,
 		providers: matches.map((m) => {
 			const existing = claimByProvider.get(m.providerId);
@@ -817,6 +823,12 @@ airside.openapi(registerCarrier, async (c) => {
 	// the stored URL a safe outbound fetch target (https, public host).
 	await assertSafeProviderUrl(body.baseUrl);
 	const emailDomain = emailRegistrableDomain(user.email);
+	if (isFreemailDomain(emailDomain)) {
+		throw new HTTPException(403, {
+			message:
+				"Personal email domains can't host a carrier API. Sign up with an address on your company's domain to register a carrier.",
+		});
+	}
 	const endpointDomain = registrableDomain(new URL(body.baseUrl).hostname);
 	if (!emailDomain || endpointDomain !== emailDomain) {
 		throw new HTTPException(403, {

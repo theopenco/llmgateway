@@ -79,6 +79,45 @@ export function emailRegistrableDomain(email: string): string | undefined {
 	return registrableDomain(email.slice(at + 1));
 }
 
+// Personal email providers. Nobody hosts a provider API on these domains, so
+// an address here can neither claim nor register a carrier — the portal tells
+// the user to come back with a company address instead of dead-ending.
+const FREEMAIL_DOMAINS = new Set([
+	"aol.com",
+	"daum.net",
+	"fastmail.com",
+	"gmail.com",
+	"gmx.de",
+	"gmx.net",
+	"googlemail.com",
+	"hey.com",
+	"hotmail.com",
+	"icloud.com",
+	"live.com",
+	"mail.com",
+	"mail.ru",
+	"me.com",
+	"msn.com",
+	"naver.com",
+	"outlook.com",
+	"proton.me",
+	"protonmail.com",
+	"qq.com",
+	"t-online.de",
+	"web.de",
+	"yahoo.com",
+	"yandex.com",
+	"yandex.ru",
+	"ymail.com",
+	"zoho.com",
+	"126.com",
+	"163.com",
+]);
+
+export function isFreemailDomain(domain: string | undefined): boolean {
+	return domain !== undefined && FREEMAIL_DOMAINS.has(domain.toLowerCase());
+}
+
 export interface ClaimableProvider {
 	providerId: string;
 	name: string;
