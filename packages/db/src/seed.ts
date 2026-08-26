@@ -2927,6 +2927,8 @@ async function seedAirside() {
 		id: "airside-company-mistral",
 		name: "Mistral AI",
 		website: "https://mistral.ai",
+		paymentStatus: "paid",
+		paidAt: daysAgo(21),
 	});
 
 	await upsert(tables.providerCompanyMember, {
@@ -2968,6 +2970,8 @@ async function seedAirside() {
 		id: "airside-company-moonshot",
 		name: "Moonshot AI",
 		website: "https://moonshot.ai",
+		paymentStatus: "paid",
+		paidAt: daysAgo(2),
 	});
 
 	await upsert(tables.providerCompanyMember, {

@@ -17,6 +17,9 @@ export interface ApiProvider {
 		multiplier: number;
 		description?: string;
 	}> | null;
+	/** Branding uploaded by the Airside carrier that claimed this provider. */
+	airsideLogoUrl?: string | null;
+	airsideIconUrl?: string | null;
 	status: "active" | "inactive";
 }
 

@@ -1,6 +1,8 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
+import { airsideListingToModelDefinition } from "@/chat/tools/resolve-airside-model.js";
+import { listAirsideModels } from "@/lib/cached-queries.js";
 import { publicErrorResponses } from "@/lib/error-schemas.js";
 
 import { logger, toError } from "@llmgateway/logger";
@@ -208,8 +210,17 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 				.map((p) => p.id),
 		);
 
+		// Approved Airside listings join the catalogue dynamically.
+		const airsideDefinitions = (await listAirsideModels()).map(
+			(listed) => airsideListingToModelDefinition(listed).modelInfo,
+		);
+		const allCatalogueModels: ModelDefinition[] = [
+			...modelsList,
+			...airsideDefinitions,
+		];
+
 		// Filter models based on deactivation and deprecation status of their provider mappings
-		const deactivationFilteredModels = modelsList.filter(
+		const deactivationFilteredModels = allCatalogueModels.filter(
 			(model: ModelDefinition) => {
 				// Check if all provider mappings are deactivated
 				const allDeactivated = model.providers.every(

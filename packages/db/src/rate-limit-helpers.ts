@@ -3,7 +3,10 @@ import { and, eq, getTableName, isNull, or } from "drizzle-orm";
 import { swrWrap } from "@llmgateway/cache";
 
 import { cdb } from "./cdb.js";
-import { rateLimit as rateLimitTable } from "./schema.js";
+import {
+	providerDraftModel as providerDraftModelTable,
+	rateLimit as rateLimitTable,
+} from "./schema.js";
 
 export type RateLimitSource =
 	| "org_provider_model"
@@ -12,6 +15,9 @@ export type RateLimitSource =
 	| "global_provider_model"
 	| "global_provider"
 	| "global_model"
+	// Carrier-set caps on an Airside listing; lowest precedence — any admin
+	// rate_limit row for the window wins over these.
+	| "carrier_provider_model"
 	| "none";
 
 interface RateLimitMatch {
@@ -179,7 +185,7 @@ export async function getEffectiveRateLimit(
 	// same key would deadlock the coalescer.
 	return await swrWrap(
 		`rateLimit:${organizationId ?? "global"}:${provider}:${model}`,
-		[getTableName(rateLimitTable)],
+		[getTableName(rateLimitTable), getTableName(providerDraftModelTable)],
 		() => queryEffectiveRateLimit(organizationId, provider, model),
 	);
 }
@@ -230,6 +236,37 @@ async function queryEffectiveRateLimit(
 		model,
 		(rateLimit) => rateLimit.maxRpd,
 	);
+
+	// Carrier-managed caps on Airside listings fill only the windows no admin
+	// row constrains — admin limits always take precedence. Per-org counters
+	// (shared stays false).
+	if (rpm.source === "none" || rpd.source === "none") {
+		const carrierRows = await cdb
+			.select({
+				maxRpm: providerDraftModelTable.maxRpm,
+				maxRpd: providerDraftModelTable.maxRpd,
+			})
+			.from(providerDraftModelTable)
+			.where(
+				and(
+					eq(providerDraftModelTable.status, "active"),
+					eq(providerDraftModelTable.providerId, provider),
+					eq(providerDraftModelTable.modelName, model),
+				),
+			)
+			.limit(1);
+		const carrier = carrierRows[0];
+		if (carrier) {
+			if (rpm.source === "none" && carrier.maxRpm !== null) {
+				rpm.limit = carrier.maxRpm;
+				rpm.source = "carrier_provider_model";
+			}
+			if (rpd.source === "none" && carrier.maxRpd !== null) {
+				rpd.limit = carrier.maxRpd;
+				rpd.source = "carrier_provider_model";
+			}
+		}
+	}
 
 	return {
 		maxRpm: rpm.limit,

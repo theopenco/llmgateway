@@ -2,6 +2,11 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import {
+	dematerializeAirsideModel,
+	materializeAirsideModel,
+	updateAirsideMappingPrices,
+} from "@/lib/airside-catalogue.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 
 import { and, cdb, db, eq, inArray, isNull, ne, tables } from "@llmgateway/db";
@@ -216,6 +221,13 @@ adminAirside.openapi(approveFiling, async (c) => {
 				.where(eq(tables.providerDraftModel.id, filing.draftModelId));
 		}
 	});
+	// Approved listings join the DB catalogue: /internal/models (models
+	// directory, playground selector) and /v1/models pick them up from there.
+	if (filing.kind === "initial") {
+		await materializeAirsideModel(filing.draftModel, filing);
+	} else {
+		await updateAirsideMappingPrices(filing.draftModel, filing);
+	}
 	const updated = await db.query.providerPriceFiling.findFirst({
 		where: { id: { eq: id } },
 		with: {
@@ -586,6 +598,7 @@ adminAirside.openapi(revokeClaim, async (c) => {
 		});
 	}
 	// cdb so the gateway's cached multiplier reads are invalidated.
+	let revokedModelNames: string[] = [];
 	await cdb.transaction(async (tx) => {
 		const updated = await tx
 			.update(tables.providerClaim)
@@ -625,7 +638,10 @@ adminAirside.openapi(revokeClaim, async (c) => {
 		// Revocation ends portal control entirely: the company's listings for
 		// this provider stop routing and stop accepting edits or filings.
 		const companyModels = await tx
-			.select({ id: tables.providerDraftModel.id })
+			.select({
+				id: tables.providerDraftModel.id,
+				modelName: tables.providerDraftModel.modelName,
+			})
 			.from(tables.providerDraftModel)
 			.where(
 				and(
@@ -657,8 +673,12 @@ adminAirside.openapi(revokeClaim, async (c) => {
 				.update(tables.providerDraftModel)
 				.set({ status: "delisted", delistedAt: new Date() })
 				.where(inArray(tables.providerDraftModel.id, modelIds));
+			revokedModelNames = companyModels.map((m) => m.modelName);
 		}
 	});
+	for (const modelName of revokedModelNames) {
+		await dematerializeAirsideModel(claim.providerId, modelName);
+	}
 	const updated = await db.query.providerClaim.findFirst({
 		where: { id: { eq: id } },
 		with: { providerCompany: true },

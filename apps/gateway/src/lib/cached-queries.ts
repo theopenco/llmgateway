@@ -559,6 +559,43 @@ export async function findAirsideModel(
 	return results[0];
 }
 
+/** Every active Airside listing with its latest approved filing, for the
+ *  /v1/models catalogue. Deduped to one row per listing. */
+export async function listAirsideModels(): Promise<AirsideListedModel[]> {
+	const rows = await swrWrap(
+		"airsideModels:all",
+		[providerDraftModelTableName, providerPriceFilingTableName],
+		async () =>
+			await db
+				.select({
+					model: providerDraftModelTable,
+					pricing: providerPriceFilingTable,
+				})
+				.from(providerDraftModelTable)
+				.innerJoin(
+					providerPriceFilingTable,
+					and(
+						eq(
+							providerPriceFilingTable.draftModelId,
+							providerDraftModelTable.id,
+						),
+						eq(providerPriceFilingTable.status, "approved"),
+					),
+				)
+				.where(eq(providerDraftModelTable.status, "active"))
+				.orderBy(desc(providerPriceFilingTable.createdAt)),
+	);
+	const seen = new Set<string>();
+	const deduped: AirsideListedModel[] = [];
+	for (const row of rows) {
+		if (!seen.has(row.model.id)) {
+			seen.add(row.model.id);
+			deduped.push(row);
+		}
+	}
+	return deduped;
+}
+
 /** Find every active custom model catalog entry for an organization. */
 export async function findActiveCustomModels(
 	organizationId: string,

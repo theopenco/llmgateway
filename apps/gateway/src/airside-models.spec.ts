@@ -172,6 +172,18 @@ describe("airside-listed models", () => {
 		expect(Number(log!.cost)).toBeCloseTo(0.007, 6);
 	});
 
+	test("lists the approved listing in /v1/models", async () => {
+		await setup("airside-v1models-token");
+		const res = await app.request("/v1/models");
+		expect(res.status).toBe(200);
+		const { data } = (await res.json()) as { data: { id: string }[] };
+		expect(data.some((m) => m.id === "gpt-5.6-luna")).toBe(true);
+
+		const mappedRes = await app.request("/v1/models?mapped=true");
+		const mapped = (await mappedRes.json()) as { data: { id: string }[] };
+		expect(mapped.data.some((m) => m.id === "mistral/gpt-5.6-luna")).toBe(true);
+	});
+
 	test("does not route a listing that is still drafted", async () => {
 		await setup("airside-draft-token", {
 			modelStatus: "draft",

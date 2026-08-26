@@ -3,6 +3,10 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import {
+	dematerializeAirsideModel,
+	staticCatalogueHasMapping,
+} from "@/lib/airside-catalogue.js";
+import {
 	claimableProvidersForEmail,
 	emailRegistrableDomain,
 } from "@/lib/airside-domains.js";
@@ -20,6 +24,8 @@ import {
 	tables,
 } from "@llmgateway/db";
 import { providers as catalogueProviders } from "@llmgateway/models";
+
+import { getStripe } from "./payments.js";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -40,6 +46,27 @@ export const AIRSIDE_BASELINE_MARGIN = 0.2;
 export const AIRSIDE_MARGIN_MIN = 0.05;
 export const AIRSIDE_MARGIN_MAX = 0.5;
 export const AIRSIDE_DISCOUNT_MAX = 0.5;
+// Listing-fee gate: only enforced when the Stripe price is configured, so
+// self-hosted installs without billing keep a working portal.
+export function airsideListingFeeRequired(): boolean {
+	return Boolean(process.env.AIRSIDE_LISTING_PRICE_ID);
+}
+
+// Uploaded branding is stored inline as data URLs; keep them small.
+const LOGO_MAX_BYTES = 200 * 1024;
+const ICON_MAX_BYTES = 64 * 1024;
+const DATA_URL_PATTERN =
+	/^data:image\/(png|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/;
+
+function imageDataUrl(maxBytes: number) {
+	return z
+		.string()
+		.regex(DATA_URL_PATTERN, "Must be a base64 image data URL")
+		.refine((v) => v.length <= Math.ceil(maxBytes * 1.4), {
+			message: `Image must be smaller than ${Math.round(maxBytes / 1024)}KB`,
+		});
+}
+
 export const AIRSIDE_MULTIPLIER_REASON = "airside routing settings";
 
 // Plain decimal or scientific notation only — Number("") and Number("0x1F")
@@ -68,6 +95,8 @@ const claimSchema = z.object({
 	status: z.enum(["pending", "active", "rejected", "revoked"]),
 	// Set when we rejected the claim — shown to the company.
 	reviewNote: z.string().nullable(),
+	logoUrl: z.string().nullable(),
+	iconUrl: z.string().nullable(),
 	createdAt: z.string(),
 });
 
@@ -76,6 +105,9 @@ const companySchema = z.object({
 	name: z.string(),
 	website: z.string().nullable(),
 	role: z.enum(["owner", "member"]),
+	paymentStatus: z.enum(["unpaid", "paid"]),
+	// Whether this deployment enforces the listing fee at all.
+	paymentRequired: z.boolean(),
 	createdAt: z.string(),
 	claims: z.array(claimSchema),
 });
@@ -111,6 +143,9 @@ const modelSchema = z.object({
 	tools: z.boolean(),
 	jsonOutput: z.boolean(),
 	reasoning: z.boolean(),
+	// Carrier-managed request caps; admin rate limits take precedence.
+	maxRpm: z.number().nullable(),
+	maxRpd: z.number().nullable(),
 	status: z.enum(["draft", "active", "rejected", "delisted"]),
 	createdAt: z.string(),
 	updatedAt: z.string(),
@@ -148,6 +183,8 @@ function serializeClaim(
 		matchedDomain: row.matchedDomain,
 		status: row.status,
 		reviewNote: row.reviewNote,
+		logoUrl: row.logoUrl,
+		iconUrl: row.iconUrl,
 		createdAt: row.createdAt.toISOString(),
 	};
 }
@@ -193,6 +230,8 @@ function serializeModel(
 		tools: row.tools,
 		jsonOutput: row.jsonOutput,
 		reasoning: row.reasoning,
+		maxRpm: row.maxRpm,
+		maxRpd: row.maxRpd,
 		status: row.status,
 		createdAt: row.createdAt.toISOString(),
 		updatedAt: row.updatedAt.toISOString(),
@@ -380,6 +419,8 @@ airside.openapi(listCompanies, async (c) => {
 					name: company.name,
 					website: company.website,
 					role: m.role,
+					paymentStatus: company.paymentStatus,
+					paymentRequired: airsideListingFeeRequired(),
 					createdAt: company.createdAt.toISOString(),
 					claims: company.claims
 						// Rejected claims stay visible so the carrier sees the
@@ -441,12 +482,80 @@ airside.openapi(createCompany, async (c) => {
 				name: company.name,
 				website: company.website,
 				role: "owner" as const,
+				paymentStatus: company.paymentStatus,
+				paymentRequired: airsideListingFeeRequired(),
 				createdAt: company.createdAt.toISOString(),
 				claims: [],
 			},
 		},
 		201,
 	);
+});
+
+const createListingCheckout = createRoute({
+	method: "post",
+	path: "/companies/{id}/listing-checkout",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ checkoutUrl: z.string() }),
+				},
+			},
+			description:
+				"Stripe hosted-checkout URL for the one-time carrier listing fee.",
+		},
+	},
+});
+
+airside.openapi(createListingCheckout, async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	await requireCompanyMembership(user.id, id);
+	const company = await db.query.providerCompany.findFirst({
+		where: { id: { eq: id } },
+	});
+	if (!company) {
+		throw new HTTPException(404, { message: "Provider company not found" });
+	}
+	if (company.paymentStatus === "paid") {
+		throw new HTTPException(409, {
+			message: "The listing fee has already been paid.",
+		});
+	}
+	const priceId = process.env.AIRSIDE_LISTING_PRICE_ID;
+	if (!priceId) {
+		throw new HTTPException(400, {
+			message: "The listing fee is not configured on this deployment.",
+		});
+	}
+	const airsideUrl = process.env.AIRSIDE_URL ?? "http://localhost:3007";
+	const session = await getStripe().checkout.sessions.create({
+		mode: "payment",
+		line_items: [{ price: priceId, quantity: 1 }],
+		customer_email: user.email,
+		success_url: `${airsideUrl}/onboarding?payment=success`,
+		cancel_url: `${airsideUrl}/onboarding?payment=canceled`,
+		metadata: {
+			type: "airside_listing_fee",
+			providerCompanyId: company.id,
+		},
+		payment_intent_data: {
+			metadata: {
+				type: "airside_listing_fee",
+				providerCompanyId: company.id,
+			},
+		},
+	});
+	if (!session.url) {
+		throw new HTTPException(500, {
+			message: "Stripe did not return a checkout URL.",
+		});
+	}
+	return c.json({ checkoutUrl: session.url });
 });
 
 // ---------------------------------------------------------------------------
@@ -535,6 +644,8 @@ const createClaim = createRoute({
 					schema: z.object({
 						providerCompanyId: z.string(),
 						providerId: z.string(),
+						logoUrl: imageDataUrl(LOGO_MAX_BYTES).optional(),
+						iconUrl: imageDataUrl(ICON_MAX_BYTES).optional(),
 					}),
 				},
 			},
@@ -554,8 +665,20 @@ const createClaim = createRoute({
 
 airside.openapi(createClaim, async (c) => {
 	const user = requireVerifiedUser(c.get("user"));
-	const { providerCompanyId, providerId } = c.req.valid("json");
+	const { providerCompanyId, providerId, logoUrl, iconUrl } =
+		c.req.valid("json");
 	await requireCompanyMembership(user.id, providerCompanyId);
+
+	if (airsideListingFeeRequired()) {
+		const company = await db.query.providerCompany.findFirst({
+			where: { id: { eq: providerCompanyId } },
+		});
+		if (company?.paymentStatus !== "paid") {
+			throw new HTTPException(402, {
+				message: "Pay the listing fee before claiming a carrier.",
+			});
+		}
+	}
 
 	const match = claimableProvidersForEmail(user.email).find(
 		(m) => m.providerId === providerId,
@@ -590,6 +713,8 @@ airside.openapi(createClaim, async (c) => {
 			providerCompanyId,
 			providerId,
 			matchedDomain: match.matchedDomain,
+			logoUrl: logoUrl ?? null,
+			iconUrl: iconUrl ?? null,
 			claimedBy: user.id,
 		})
 		.returning();
@@ -654,6 +779,8 @@ const createModel = createRoute({
 						tools: z.boolean().optional(),
 						jsonOutput: z.boolean().optional(),
 						reasoning: z.boolean().optional(),
+						maxRpm: z.number().int().positive().optional(),
+						maxRpd: z.number().int().positive().optional(),
 						pricing: pricingSchema,
 						note: z.string().max(1000).optional(),
 					}),
@@ -698,6 +825,13 @@ airside.openapi(createModel, async (c) => {
 		});
 	}
 
+	if (staticCatalogueHasMapping(body.providerId, body.modelName)) {
+		throw new HTTPException(409, {
+			message:
+				"This model is already in the LLM Gateway catalogue for the provider.",
+		});
+	}
+
 	const duplicate = await db.query.providerDraftModel.findFirst({
 		where: {
 			providerId: { eq: body.providerId },
@@ -729,6 +863,8 @@ airside.openapi(createModel, async (c) => {
 				tools: body.tools ?? false,
 				jsonOutput: body.jsonOutput ?? false,
 				reasoning: body.reasoning ?? false,
+				maxRpm: body.maxRpm ?? null,
+				maxRpd: body.maxRpd ?? null,
 				createdBy: user.id,
 			})
 			.returning();
@@ -771,6 +907,8 @@ const updateModel = createRoute({
 						tools: z.boolean().optional(),
 						jsonOutput: z.boolean().optional(),
 						reasoning: z.boolean().optional(),
+						maxRpm: z.number().int().positive().nullish(),
+						maxRpd: z.number().int().positive().nullish(),
 					}),
 				},
 			},
@@ -824,6 +962,8 @@ airside.openapi(updateModel, async (c) => {
 			...(body.tools !== undefined ? { tools: body.tools } : {}),
 			...(body.jsonOutput !== undefined ? { jsonOutput: body.jsonOutput } : {}),
 			...(body.reasoning !== undefined ? { reasoning: body.reasoning } : {}),
+			...(body.maxRpm !== undefined ? { maxRpm: body.maxRpm } : {}),
+			...(body.maxRpd !== undefined ? { maxRpd: body.maxRpd } : {}),
 		})
 		.where(eq(tables.providerDraftModel.id, id))
 		.returning();
@@ -876,6 +1016,7 @@ airside.openapi(deleteModel, async (c) => {
 		.update(tables.providerDraftModel)
 		.set({ status: "delisted", delistedAt: new Date() })
 		.where(eq(tables.providerDraftModel.id, id));
+	await dematerializeAirsideModel(model.providerId, model.modelName);
 	return c.json({ status: "delisted" as const });
 });
 

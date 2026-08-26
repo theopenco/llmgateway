@@ -51,7 +51,19 @@ import { providerLogoUrls } from "@llmgateway/shared/components";
 
 type SortKey = "fastest" | "slowest" | "popular" | "name" | "uptime";
 
-const getProviderLogo = (providerId: ProviderId) => {
+const getProviderLogo = (providerId: ProviderId, uploadedLogo?: string) => {
+	// A carrier-uploaded logo (Airside claim) wins over the built-in mark.
+	if (uploadedLogo) {
+		return (
+			<div className="flex size-12 shrink-0 items-center justify-center overflow-hidden">
+				<img
+					src={uploadedLogo}
+					alt=""
+					className="max-h-12 max-w-12 object-contain"
+				/>
+			</div>
+		);
+	}
 	const LogoComponent = providerLogoUrls[providerId];
 	if (LogoComponent) {
 		return (
@@ -104,12 +116,15 @@ interface ProvidersGridProps {
 	heading?: string;
 	/** Overrides the default page subheading. */
 	subheading?: string;
+	/** providerId → uploaded logo data URL (Airside carrier branding). */
+	uploadedLogos?: Record<string, string>;
 }
 
 export function ProvidersGrid({
 	countryCode,
 	heading,
 	subheading,
+	uploadedLogos,
 }: ProvidersGridProps = {}) {
 	const router = useRouter();
 	const api = useApi();
@@ -390,7 +405,10 @@ export function ProvidersGrid({
 								/>
 								<CardHeader className="flex flex-1 flex-col gap-4">
 									<div className="flex items-start justify-between gap-3">
-										{getProviderLogo(provider.id as ProviderId)}
+										{getProviderLogo(
+											provider.id as ProviderId,
+											uploadedLogos?.[provider.id],
+										)}
 										<span className="inline-flex shrink-0 items-center gap-1 text-sm text-muted-foreground transition-colors group-hover:text-primary">
 											View models
 											<ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-0.5" />

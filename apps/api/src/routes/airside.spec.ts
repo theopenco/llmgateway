@@ -6,6 +6,7 @@ import { createTestUser, deleteAll } from "@/testing.js";
 import { db, eq, tables } from "@llmgateway/db";
 
 const originalAdminEmails = process.env.ADMIN_EMAILS;
+const originalListingPriceId = process.env.AIRSIDE_LISTING_PRICE_ID;
 
 async function setUserEmail(email: string) {
 	await db
@@ -93,6 +94,14 @@ describe("airside provider portal", () => {
 		} else {
 			process.env.ADMIN_EMAILS = originalAdminEmails;
 		}
+		if (originalListingPriceId === undefined) {
+			delete process.env.AIRSIDE_LISTING_PRICE_ID;
+		} else {
+			process.env.AIRSIDE_LISTING_PRICE_ID = originalListingPriceId;
+		}
+		await db.delete(tables.modelProviderMapping);
+		await db.delete(tables.model);
+		await db.delete(tables.provider);
 		await deleteAll();
 	});
 
@@ -473,6 +482,165 @@ describe("airside provider portal", () => {
 			}),
 		]);
 		expect(body.daily).toHaveLength(1);
+	});
+
+	it("gates claims on the listing fee when configured", async () => {
+		process.env.AIRSIDE_LISTING_PRICE_ID = "price_test_airside";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+
+		const gated = await app.request(
+			"/airside/claims",
+			json(cookie, { providerCompanyId: company.id, providerId: "mistral" }),
+		);
+		expect(gated.status).toBe(402);
+
+		// The webhook marks the company paid; simulate its write.
+		await db
+			.update(tables.providerCompany)
+			.set({ paymentStatus: "paid", paidAt: new Date() })
+			.where(eq(tables.providerCompany.id, company.id));
+		const claimed = await app.request(
+			"/airside/claims",
+			json(cookie, { providerCompanyId: company.id, providerId: "mistral" }),
+		);
+		expect(claimed.status).toBe(201);
+
+		// Companies expose the payment state to the portal.
+		const companies = await app.request("/airside/companies", {
+			headers: { Cookie: cookie },
+		});
+		expect((await companies.json()).companies[0]).toMatchObject({
+			paymentStatus: "paid",
+			paymentRequired: true,
+		});
+	});
+
+	it("stores claim branding and serves it on internal providers", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		const logoUrl = `data:image/png;base64,${"A".repeat(64)}`;
+		const res = await app.request(
+			"/airside/claims",
+			json(cookie, {
+				providerCompanyId: company.id,
+				providerId: "mistral",
+				logoUrl,
+			}),
+		);
+		expect(res.status).toBe(201);
+		expect((await res.json()).claim.logoUrl).toBe(logoUrl);
+		await activateClaim();
+
+		await db
+			.insert(tables.provider)
+			.values({ id: "mistral", name: "Mistral", description: "" })
+			.onConflictDoNothing();
+		const providersRes = await app.request("/internal/providers");
+		const { providers } = await providersRes.json();
+		const mistral = providers.find((p: { id: string }) => p.id === "mistral");
+		expect(mistral.airsideLogoUrl).toBe(logoUrl);
+	});
+
+	it("round-trips carrier rate limits on models", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const created = await createModel(cookie, company.id, {
+			maxRpm: 60,
+			maxRpd: 20000,
+		});
+		expect(created.status).toBe(201);
+		const { model } = await created.json();
+		expect(model).toMatchObject({ maxRpm: 60, maxRpd: 20000 });
+
+		const patched = await app.request(
+			`/airside/models/${model.id}`,
+			json(cookie, { maxRpm: 30, maxRpd: null }, "PATCH"),
+		);
+		expect(patched.status).toBe(200);
+		expect((await patched.json()).model).toMatchObject({
+			maxRpm: 30,
+			maxRpd: null,
+		});
+	});
+
+	it("materializes approved listings into the DB catalogue", async () => {
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const created = await createModel(cookie, company.id);
+		const { model } = await created.json();
+
+		// Drafts are not in the catalogue yet.
+		expect(
+			await db.query.modelProviderMapping.findFirst({
+				where: { modelId: { eq: "mistral-large-3" } },
+			}),
+		).toBeFalsy();
+
+		await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+		const mapping = await db.query.modelProviderMapping.findFirst({
+			where: { modelId: { eq: "mistral-large-3" } },
+		});
+		expect(mapping).toMatchObject({
+			providerId: "mistral",
+			externalId: "mistral-large-3",
+			status: "active",
+		});
+		expect(Number(mapping!.inputPrice)).toBeCloseTo(2e-6);
+		const catalogueModel = await db.query.model.findFirst({
+			where: { id: { eq: "mistral-large-3" } },
+		});
+		expect(catalogueModel).toMatchObject({ family: "airside" });
+
+		// A price-update approval rewrites the mapping's prices.
+		const update = await app.request(
+			`/airside/models/${model.id}/price-filings`,
+			json(cookie, { inputPrice: "4e-6", outputPrice: "9e-6" }),
+		);
+		const updateFiling = (await update.json()).filing;
+		await app.request(
+			`/admin/airside/filings/${updateFiling.id}/approve`,
+			json(cookie),
+		);
+		const repriced = await db.query.modelProviderMapping.findFirst({
+			where: { modelId: { eq: "mistral-large-3" } },
+		});
+		expect(Number(repriced!.inputPrice)).toBeCloseTo(4e-6);
+
+		// Delisting removes the materialized rows again.
+		await app.request(`/airside/models/${model.id}`, {
+			method: "DELETE",
+			headers: { Cookie: cookie },
+		});
+		expect(
+			await db.query.modelProviderMapping.findFirst({
+				where: { modelId: { eq: "mistral-large-3" } },
+			}),
+		).toBeFalsy();
+		expect(
+			await db.query.model.findFirst({
+				where: { id: { eq: "mistral-large-3" } },
+			}),
+		).toBeFalsy();
+	});
+
+	it("refuses listings that shadow the static catalogue", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const res = await createModel(cookie, company.id, {
+			modelName: "mistral-large-latest",
+		});
+		expect(res.status).toBe(409);
 	});
 
 	it("rejects malformed price strings", async () => {

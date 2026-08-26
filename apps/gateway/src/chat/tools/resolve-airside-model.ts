@@ -65,28 +65,7 @@ export async function resolveAirsideModel(
 		return null;
 	}
 
-	const mapping: ProviderModelMapping = {
-		providerId: providerCandidate as Provider,
-		externalId: listed.model.modelName,
-		inputPrice: listed.pricing.inputPrice,
-		outputPrice: listed.pricing.outputPrice,
-		cachedInputPrice: listed.pricing.cachedInputPrice ?? undefined,
-		requestPrice: listed.pricing.requestPrice ?? undefined,
-		contextSize: listed.model.contextSize ?? undefined,
-		maxOutput: listed.model.maxOutput ?? undefined,
-		streaming: listed.model.streaming,
-		vision: listed.model.vision,
-		tools: listed.model.tools,
-		jsonOutput: listed.model.jsonOutput,
-		reasoning: listed.model.reasoning,
-	};
-
-	const modelInfo: ModelDefinition = {
-		id: listed.model.modelName as Model,
-		name: listed.model.displayName ?? listed.model.modelName,
-		family: "airside",
-		providers: [mapping],
-	};
+	const { mapping, modelInfo } = airsideListingToModelDefinition(listed);
 
 	return {
 		parseResult: {
@@ -103,4 +82,50 @@ export async function resolveAirsideModel(
 		},
 		pricingMapping: mapping,
 	};
+}
+
+/** Build the synthetic catalogue entry a listing represents — shared by the
+ *  chat resolver and the /v1/models catalogue. */
+export function airsideListingToModelDefinition(listed: {
+	model: {
+		providerId: string;
+		modelName: string;
+		displayName: string | null;
+		contextSize: number | null;
+		maxOutput: number | null;
+		streaming: boolean;
+		vision: boolean;
+		tools: boolean;
+		jsonOutput: boolean;
+		reasoning: boolean;
+	};
+	pricing: {
+		inputPrice: string;
+		outputPrice: string;
+		cachedInputPrice: string | null;
+		requestPrice: string | null;
+	};
+}): { mapping: ProviderModelMapping; modelInfo: ModelDefinition } {
+	const mapping: ProviderModelMapping = {
+		providerId: listed.model.providerId as Provider,
+		externalId: listed.model.modelName,
+		inputPrice: listed.pricing.inputPrice,
+		outputPrice: listed.pricing.outputPrice,
+		cachedInputPrice: listed.pricing.cachedInputPrice ?? undefined,
+		requestPrice: listed.pricing.requestPrice ?? undefined,
+		contextSize: listed.model.contextSize ?? undefined,
+		maxOutput: listed.model.maxOutput ?? undefined,
+		streaming: listed.model.streaming,
+		vision: listed.model.vision,
+		tools: listed.model.tools,
+		jsonOutput: listed.model.jsonOutput,
+		reasoning: listed.model.reasoning,
+	};
+	const modelInfo: ModelDefinition = {
+		id: listed.model.modelName as Model,
+		name: listed.model.displayName ?? listed.model.modelName,
+		family: "airside",
+		providers: [mapping],
+	};
+	return { mapping, modelInfo };
 }

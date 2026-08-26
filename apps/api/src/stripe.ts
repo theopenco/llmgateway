@@ -1259,6 +1259,11 @@ async function handleCheckoutSessionCompleted(
 		return;
 	}
 
+	if (!subscription && metadata?.type === "airside_listing_fee") {
+		await handleAirsideListingCheckout(session);
+		return;
+	}
+
 	if (!subscription) {
 		logger.info("Not a subscription checkout session, skipping");
 		return;
@@ -1968,6 +1973,29 @@ async function recordCreditTopUp({
 			organization: organizationId,
 		},
 	});
+}
+
+async function handleAirsideListingCheckout(session: Stripe.Checkout.Session) {
+	if (session.payment_status !== "paid") {
+		logger.info(
+			`Airside listing checkout session payment not yet settled (status: ${session.payment_status}), skipping`,
+		);
+		return;
+	}
+	const providerCompanyId = session.metadata?.providerCompanyId;
+	if (!providerCompanyId) {
+		logger.error("Airside listing checkout session missing providerCompanyId");
+		return;
+	}
+	await db
+		.update(tables.providerCompany)
+		.set({
+			paymentStatus: "paid",
+			stripeCheckoutSessionId: session.id,
+			paidAt: new Date(),
+		})
+		.where(eq(tables.providerCompany.id, providerCompanyId));
+	logger.info(`Marked airside provider company ${providerCompanyId} as paid`);
 }
 
 async function handleProviderListingCheckout(session: Stripe.Checkout.Session) {

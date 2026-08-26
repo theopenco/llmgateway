@@ -4323,6 +4323,13 @@ export const providerCompany = pgTable("provider_company", {
 		.$onUpdate(() => new Date()),
 	name: text().notNull(),
 	website: text(),
+	// One-time listing fee. Claims are gated on "paid" whenever the Stripe
+	// price id is configured; self-hosted installs without it skip the gate.
+	paymentStatus: text({ enum: ["unpaid", "paid"] })
+		.notNull()
+		.default("unpaid"),
+	stripeCheckoutSessionId: text(),
+	paidAt: timestamp(),
 });
 
 export const providerCompanyMember = pgTable(
@@ -4373,6 +4380,10 @@ export const providerClaim = pgTable(
 		providerId: text().notNull(),
 		// The registrable email domain that satisfied the match, lowercase.
 		matchedDomain: text().notNull(),
+		// Carrier branding, uploaded at claim time as size-capped data URLs and
+		// surfaced on the public catalogue pages.
+		logoUrl: text(),
+		iconUrl: text(),
 		claimedBy: text().references(() => user.id, { onDelete: "set null" }),
 		status: text({ enum: ["pending", "active", "rejected", "revoked"] })
 			.notNull()
@@ -4423,6 +4434,10 @@ export const providerDraftModel = pgTable(
 		tools: boolean().notNull().default(false),
 		jsonOutput: boolean().notNull().default(false),
 		reasoning: boolean().notNull().default(false),
+		// Carrier-managed request caps. Admin `rate_limit` rows for the same
+		// provider/model always take precedence over these.
+		maxRpm: integer(),
+		maxRpd: integer(),
 		status: text({ enum: ["draft", "active", "rejected", "delisted"] })
 			.notNull()
 			.default("draft"),

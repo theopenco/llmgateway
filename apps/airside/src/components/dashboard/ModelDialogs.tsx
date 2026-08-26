@@ -68,6 +68,8 @@ export function RegisterModelDialog({
 	const [inputPrice, setInputPrice] = useState("");
 	const [outputPrice, setOutputPrice] = useState("");
 	const [note, setNote] = useState("");
+	const [maxRpm, setMaxRpm] = useState("");
+	const [maxRpd, setMaxRpd] = useState("");
 	const [capabilities, setCapabilities] = useState<
 		Record<CapabilityKey, boolean>
 	>({
@@ -131,6 +133,8 @@ export function RegisterModelDialog({
 								displayName: displayName || undefined,
 								contextSize: Number(contextSize) || undefined,
 								...capabilities,
+								maxRpm: Number(maxRpm) || undefined,
+								maxRpd: Number(maxRpd) || undefined,
 								pricing: { inputPrice, outputPrice },
 								note: note || undefined,
 							},
@@ -210,6 +214,35 @@ export function RegisterModelDialog({
 								</label>
 							))}
 						</div>
+					</div>
+
+					<div className="grid gap-4 sm:grid-cols-2">
+						<div className="space-y-2">
+							<Label htmlFor="model-rpm">Rate limit (req/min, optional)</Label>
+							<Input
+								id="model-rpm"
+								type="number"
+								min={1}
+								value={maxRpm}
+								onChange={(e) => setMaxRpm(e.target.value)}
+								placeholder="e.g. 60"
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor="model-rpd">Rate limit (req/day, optional)</Label>
+							<Input
+								id="model-rpd"
+								type="number"
+								min={1}
+								value={maxRpd}
+								onChange={(e) => setMaxRpd(e.target.value)}
+								placeholder="e.g. 20000"
+							/>
+						</div>
+						<p className="text-muted-foreground text-xs sm:col-span-2">
+							Caps how hard the gateway drives your deployment. Platform-set
+							limits always take precedence over these.
+						</p>
 					</div>
 
 					<div className="border-primary/40 bg-primary/5 space-y-4 rounded-lg border border-dashed p-4">
@@ -292,6 +325,12 @@ export function EditModelDialog({
 		jsonOutput: model.jsonOutput,
 		reasoning: model.reasoning,
 	});
+	const [maxRpm, setMaxRpm] = useState(
+		model.maxRpm ? String(model.maxRpm) : "",
+	);
+	const [maxRpd, setMaxRpd] = useState(
+		model.maxRpd ? String(model.maxRpd) : "",
+	);
 
 	function resetFromModel() {
 		setDisplayName(model.displayName ?? "");
@@ -304,6 +343,8 @@ export function EditModelDialog({
 			jsonOutput: model.jsonOutput,
 			reasoning: model.reasoning,
 		});
+		setMaxRpm(model.maxRpm ? String(model.maxRpm) : "");
+		setMaxRpd(model.maxRpd ? String(model.maxRpd) : "");
 	}
 
 	const updateModel = api.useMutation("patch", "/airside/models/{id}", {
@@ -353,6 +394,8 @@ export function EditModelDialog({
 								description: description || null,
 								contextSize: contextSize ? Number(contextSize) : null,
 								...capabilities,
+								maxRpm: maxRpm ? Number(maxRpm) : null,
+								maxRpd: maxRpd ? Number(maxRpd) : null,
 							},
 						});
 					}}
@@ -408,6 +451,34 @@ export function EditModelDialog({
 								</label>
 							))}
 						</div>
+					</div>
+					<div className="grid gap-4 sm:grid-cols-2">
+						<div className="space-y-2">
+							<Label htmlFor="edit-rpm">Rate limit (req/min)</Label>
+							<Input
+								id="edit-rpm"
+								data-testid="edit-max-rpm"
+								type="number"
+								min={1}
+								value={maxRpm}
+								onChange={(e) => setMaxRpm(e.target.value)}
+								placeholder="unlimited"
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor="edit-rpd">Rate limit (req/day)</Label>
+							<Input
+								id="edit-rpd"
+								type="number"
+								min={1}
+								value={maxRpd}
+								onChange={(e) => setMaxRpd(e.target.value)}
+								placeholder="unlimited"
+							/>
+						</div>
+						<p className="text-muted-foreground text-xs sm:col-span-2">
+							Platform-set limits always take precedence over these.
+						</p>
 					</div>
 					<DialogFooter>
 						<Button

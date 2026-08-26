@@ -26,6 +26,8 @@ import {
 } from "@llmgateway/shared/components";
 
 interface HeroProps {
+	/** Carrier-uploaded logo (Airside claim); wins over the built-in mark. */
+	uploadedLogo?: string;
 	providerId: ProviderId;
 }
 
@@ -65,7 +67,7 @@ function DataPolicyBadge({
 	);
 }
 
-export function Hero({ providerId }: HeroProps) {
+export function Hero({ providerId, uploadedLogo }: HeroProps) {
 	const config = getConfig();
 	const provider = providerDefinitions.find((p) => p.id === providerId)!;
 	const referenceLinks = [
@@ -81,6 +83,11 @@ export function Hero({ providerId }: HeroProps) {
 	].filter((link): link is { label: string; href: string } => link !== null);
 
 	const getProviderIcon = (providerId: ProviderId) => {
+		if (uploadedLogo) {
+			return (
+				<img src={uploadedLogo} alt="" className="h-24 w-24 object-contain" />
+			);
+		}
 		// Runware's brand asset is a wide wordmark, so give it the full slot
 		// width instead of the square icon treatment.
 		if (providerId === "runware") {

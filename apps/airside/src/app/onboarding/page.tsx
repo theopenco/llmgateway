@@ -4,12 +4,14 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
 	BadgeCheck,
 	Building2,
+	CreditCard,
 	Hourglass,
 	Loader2,
 	PlaneTakeoff,
 } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { EmailVerificationBanner } from "@/components/EmailVerificationBanner";
@@ -17,12 +19,143 @@ import { Logo } from "@/components/Logo";
 import { SlackCard } from "@/components/SlackCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+	DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useUser } from "@/hooks/useUser";
 import { useApi } from "@/lib/fetch-client";
 
-export default function OnboardingPage() {
+const LOGO_MAX_BYTES = 200 * 1024;
+const ICON_MAX_BYTES = 64 * 1024;
+
+function readImageAsDataUrl(file: File, maxBytes: number): Promise<string> {
+	return new Promise((resolve, reject) => {
+		if (!/^image\/(png|jpeg|webp|svg\+xml)$/.test(file.type)) {
+			reject(new Error("Use a PNG, JPEG, WebP or SVG image."));
+			return;
+		}
+		if (file.size > maxBytes) {
+			reject(
+				new Error(
+					`Image must be smaller than ${Math.round(maxBytes / 1024)}KB.`,
+				),
+			);
+			return;
+		}
+		const reader = new FileReader();
+		reader.onload = () => resolve(String(reader.result));
+		reader.onerror = () => reject(new Error("Failed to read the image."));
+		reader.readAsDataURL(file);
+	});
+}
+
+function ClaimDialog({
+	providerName,
+	disabled,
+	pending,
+	onClaim,
+}: {
+	providerName: string;
+	disabled: boolean;
+	pending: boolean;
+	onClaim: (branding: { logoUrl?: string; iconUrl?: string }) => void;
+}) {
+	const [open, setOpen] = useState(false);
+	const [logoUrl, setLogoUrl] = useState<string | undefined>(undefined);
+	const [iconUrl, setIconUrl] = useState<string | undefined>(undefined);
+
+	async function handleFile(
+		file: File | undefined,
+		maxBytes: number,
+		set: (v: string | undefined) => void,
+	) {
+		if (!file) {
+			set(undefined);
+			return;
+		}
+		try {
+			set(await readImageAsDataUrl(file, maxBytes));
+		} catch (error) {
+			toast.error((error as Error).message);
+		}
+	}
+
+	return (
+		<Dialog open={open} onOpenChange={setOpen}>
+			<DialogTrigger asChild>
+				<Button size="sm" disabled={disabled} data-testid="open-claim-dialog">
+					Claim
+				</Button>
+			</DialogTrigger>
+			<DialogContent className="sm:max-w-md">
+				<DialogHeader>
+					<DialogTitle className="font-display">
+						Claim {providerName}
+					</DialogTitle>
+					<DialogDescription>
+						Optionally upload your carrier branding — it appears on the public
+						providers and models pages once your claim is approved.
+					</DialogDescription>
+				</DialogHeader>
+				<div className="space-y-4">
+					<div className="space-y-2">
+						<Label htmlFor="claim-logo">Logo (max 200KB)</Label>
+						<Input
+							id="claim-logo"
+							type="file"
+							accept="image/png,image/jpeg,image/webp,image/svg+xml"
+							onChange={(e) =>
+								void handleFile(e.target.files?.[0], LOGO_MAX_BYTES, setLogoUrl)
+							}
+						/>
+					</div>
+					<div className="space-y-2">
+						<Label htmlFor="claim-icon">Square icon (max 64KB)</Label>
+						<Input
+							id="claim-icon"
+							type="file"
+							accept="image/png,image/jpeg,image/webp,image/svg+xml"
+							onChange={(e) =>
+								void handleFile(e.target.files?.[0], ICON_MAX_BYTES, setIconUrl)
+							}
+						/>
+					</div>
+					{logoUrl ? (
+						<div className="border-border flex items-center gap-3 rounded-md border p-3">
+							<img src={logoUrl} alt="Logo preview" className="max-h-10" />
+							<span className="text-muted-foreground text-xs">
+								Logo preview
+							</span>
+						</div>
+					) : null}
+				</div>
+				<DialogFooter>
+					<Button
+						className="font-semibold"
+						disabled={pending}
+						data-testid="confirm-claim"
+						onClick={() => {
+							onClaim({ logoUrl, iconUrl });
+							setOpen(false);
+						}}
+					>
+						{pending ? "Filing…" : "File the claim"}
+					</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+function OnboardingContent() {
 	const { user, isLoading } = useUser({
 		redirectTo: "/login?returnUrl=/onboarding",
 		redirectWhen: "unauthenticated",
@@ -72,10 +205,57 @@ export default function OnboardingPage() {
 		},
 	});
 
+	const startCheckout = api.useMutation(
+		"post",
+		"/airside/companies/{id}/listing-checkout",
+		{
+			onSuccess: (data) => {
+				window.location.href = data.checkoutUrl;
+			},
+			onError: (error) => {
+				toast.error(
+					(error as { message?: string })?.message ??
+						"Failed to start the checkout",
+				);
+			},
+		},
+	);
+
+	// Returning from Stripe: the webhook can lag the redirect by a moment, so
+	// poll the companies query briefly until the paid flag lands.
+	const searchParams = useSearchParams();
+	const paymentParam = searchParams.get("payment");
+	const paymentToastShown = useRef(false);
+	useEffect(() => {
+		if (paymentParam === "canceled" && !paymentToastShown.current) {
+			paymentToastShown.current = true;
+			toast.info("Checkout canceled — you can pay the listing fee anytime.");
+			return;
+		}
+		if (paymentParam !== "success" || paymentToastShown.current) {
+			return;
+		}
+		paymentToastShown.current = true;
+		toast.success("Payment received — welcome aboard.");
+		let attempts = 0;
+		const timer = setInterval(() => {
+			attempts += 1;
+			void queryClient.invalidateQueries({
+				queryKey: api.queryOptions("get", "/airside/companies", {}).queryKey,
+			});
+			if (attempts >= 5) {
+				clearInterval(timer);
+			}
+		}, 1500);
+		return () => clearInterval(timer);
+	}, [paymentParam, queryClient, api]);
+
 	const companies = companiesQuery.data?.companies ?? [];
 	const claimable = claimableQuery.data?.providers ?? [];
 	const company = companies[0];
 	const hasClaim = companies.some((c) => c.claims.length > 0);
+	const paymentDue =
+		!!company && company.paymentRequired && company.paymentStatus === "unpaid";
 
 	if (isLoading || !user) {
 		return (
@@ -179,13 +359,52 @@ export default function OnboardingPage() {
 						)}
 					</section>
 
-					{/* Step 2 — claim */}
+					{/* Step 2 — listing fee */}
+					{company && company.paymentRequired ? (
+						<section className="border-border bg-card rounded-xl border p-6">
+							<div className="mb-4 flex items-center gap-3">
+								<CreditCard className="text-primary size-5" />
+								<div>
+									<h2 className="font-display font-bold">
+										2 · Pay the listing fee
+									</h2>
+									<p className="text-muted-foreground text-sm">
+										A one-time fee unlocks carrier claims for your company.
+									</p>
+								</div>
+							</div>
+							{company.paymentStatus === "paid" ? (
+								<Badge variant="success" data-testid="payment-paid-badge">
+									<BadgeCheck className="size-3" /> Paid
+								</Badge>
+							) : (
+								<Button
+									className="font-semibold"
+									disabled={startCheckout.isPending}
+									data-testid="pay-listing-fee"
+									onClick={() =>
+										startCheckout.mutate({
+											params: { path: { id: company.id } },
+										})
+									}
+								>
+									{startCheckout.isPending
+										? "Opening checkout…"
+										: "Pay the listing fee"}
+								</Button>
+							)}
+						</section>
+					) : null}
+
+					{/* Step 3 — claim */}
 					<section className="border-border bg-card rounded-xl border p-6">
 						<div className="mb-4 flex items-center gap-3">
 							<PlaneTakeoff className="text-primary size-5" />
 							<div>
 								<h2 className="font-display font-bold">
-									2 · Claim your carrier
+									{company?.paymentRequired
+										? "3 · Claim your carrier"
+										: "2 · Claim your carrier"}
 								</h2>
 								<p className="text-muted-foreground text-sm">
 									Providers whose endpoint domain matches{" "}
@@ -243,14 +462,16 @@ export default function OnboardingPage() {
 													Claimed by another team
 												</Badge>
 											) : (
-												<Button
-													size="sm"
+												<ClaimDialog
+													providerName={p.name}
 													disabled={
 														!company ||
 														!user.emailVerified ||
+														paymentDue ||
 														createClaim.isPending
 													}
-													onClick={() => {
+													pending={createClaim.isPending}
+													onClaim={(branding) => {
 														if (!company) {
 															return;
 														}
@@ -258,12 +479,11 @@ export default function OnboardingPage() {
 															body: {
 																providerCompanyId: company.id,
 																providerId: p.providerId,
+																...branding,
 															},
 														});
 													}}
-												>
-													Claim
-												</Button>
+												/>
 											)}
 										</li>
 									);
@@ -289,5 +509,13 @@ export default function OnboardingPage() {
 				</div>
 			</div>
 		</div>
+	);
+}
+
+export default function OnboardingPage() {
+	return (
+		<Suspense>
+			<OnboardingContent />
+		</Suspense>
 	);
 }

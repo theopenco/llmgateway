@@ -7,7 +7,7 @@ import { Hero } from "@/components/providers/hero";
 import { ProviderModelsGrid } from "@/components/providers/provider-models-grid";
 import { ProviderStatsRow } from "@/components/providers/provider-stats-row";
 import { JsonLd } from "@/components/seo/json-ld";
-import { fetchModels } from "@/lib/fetch-models";
+import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 
 import {
 	models as modelDefinitions,
@@ -44,6 +44,10 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 	if (!provider || provider.name === "LLM Gateway") {
 		notFound();
 	}
+
+	const apiProviders = await fetchProviders().catch(() => []);
+	const uploadedLogo =
+		apiProviders.find((p) => p.id === id)?.airsideLogoUrl ?? undefined;
 
 	const apiModels = await fetchModels();
 	const discountByModelId = new Map<string, string>();
@@ -190,7 +194,7 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 			<JsonLd data={[organizationSchema, itemListSchema, breadcrumbSchema]} />
 			<main>
 				<Navbar />
-				<Hero providerId={provider.id} />
+				<Hero providerId={provider.id} uploadedLogo={uploadedLogo} />
 
 				<ProviderStatsRow providerId={provider.id} />
 
