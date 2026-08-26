@@ -37,6 +37,7 @@ import {
 	providerKeyAllowsModel,
 	organization as organizationTable,
 	project as projectTable,
+	providerClaim as providerClaimTable,
 	providerDraftModel as providerDraftModelTable,
 	providerPriceFiling as providerPriceFilingTable,
 	providerKey as providerKeyTable,
@@ -103,6 +104,7 @@ const organizationTableName = getTableName(organizationTable);
 const projectTableName = getTableName(projectTable);
 const providerKeyTableName = getTableName(providerKeyTable);
 const customModelTableName = getTableName(customModelTable);
+const providerClaimTableName = getTableName(providerClaimTable);
 const providerDraftModelTableName = getTableName(providerDraftModelTable);
 const providerPriceFilingTableName = getTableName(providerPriceFilingTable);
 const routingScoreMultiplierTableName = getTableName(
@@ -557,6 +559,51 @@ export async function findAirsideModel(
 				.limit(1),
 	);
 	return results[0];
+}
+
+export interface AirsideCustomCarrier {
+	providerId: string;
+	name: string;
+	baseUrl: string;
+}
+
+/**
+ * The active custom-carrier registration behind a non-catalogue provider
+ * prefix, if any. Custom carriers exist only in the DB: their listings route
+ * to the OpenAI-compatible endpoint registered on the approved claim.
+ */
+export async function findAirsideCustomProvider(
+	providerId: string,
+): Promise<AirsideCustomCarrier | undefined> {
+	const rows = await swrWrap(
+		`airsideCustomProvider:${providerId}`,
+		[providerClaimTableName],
+		async () =>
+			await db
+				.select({
+					providerId: providerClaimTable.providerId,
+					customName: providerClaimTable.customName,
+					customBaseUrl: providerClaimTable.customBaseUrl,
+				})
+				.from(providerClaimTable)
+				.where(
+					and(
+						eq(providerClaimTable.providerId, providerId),
+						eq(providerClaimTable.kind, "custom"),
+						eq(providerClaimTable.status, "active"),
+					),
+				)
+				.limit(1),
+	);
+	const row = rows[0];
+	if (!row?.customBaseUrl) {
+		return undefined;
+	}
+	return {
+		providerId: row.providerId,
+		name: row.customName ?? row.providerId,
+		baseUrl: row.customBaseUrl,
+	};
 }
 
 /** Every active Airside listing with its latest approved filing, for the

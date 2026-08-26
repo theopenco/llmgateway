@@ -235,6 +235,16 @@ export function AirsideFilingsClient() {
 										</TableCell>
 										<TableCell className="font-mono text-sm">
 											{claim.providerId}
+											{claim.kind === "custom" ? (
+												<>
+													<Badge variant="outline" className="ml-2">
+														new carrier
+													</Badge>
+													<div className="text-muted-foreground mt-0.5 text-xs">
+														{claim.customName} · {claim.customBaseUrl}
+													</div>
+												</>
+											) : null}
 										</TableCell>
 										<TableCell className="font-mono text-xs">
 											{claim.matchedDomain}

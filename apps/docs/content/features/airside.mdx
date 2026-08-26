@@ -16,6 +16,10 @@ Sign up at [airside.llmgateway.io](https://airside.llmgateway.io) with your **co
 
 Every claim is reviewed by the LLM Gateway team before the carrier goes live; a rejected claim shows the review note so you can follow up. One company can operate several carriers — regional deployments or separate brands all live under one console.
 
+## Registering a new carrier
+
+Not in the [provider catalogue](https://llmgateway.io/providers) yet? Register your provider as a **new carrier** from the onboarding page: pick a carrier id, display name, and the base URL of your **OpenAI-compatible API** (the gateway calls `<base URL>/v1/chat/completions`). The endpoint must live on your verified email's domain — the same anti-squatting rule as claiming — and registrations go through the same review. Once approved, your carrier appears on the public providers and models pages and its listings route like any other provider's.
+
 ## Listing your fleet
 
 Once your claim is active, register models under **Fleet**: model name, display name, description, context size, max output, and capability flags (streaming, vision, tools, JSON output, reasoning). A new listing is created as a draft together with an **initial price filing**; when the LLM Gateway team approves that filing, the model goes active. Everything except pricing stays freely editable afterward.

@@ -320,6 +320,9 @@ adminAirside.openapi(rejectFiling, async (c) => {
 const adminClaimSchema = z.object({
 	id: z.string(),
 	providerId: z.string(),
+	kind: z.enum(["catalogue", "custom"]),
+	customName: z.string().nullable(),
+	customBaseUrl: z.string().nullable(),
 	matchedDomain: z.string(),
 	status: z.enum(["pending", "active", "rejected", "revoked"]),
 	claimedByEmail: z.string().nullable(),
@@ -347,6 +350,9 @@ async function serializeAdminClaim(row: ClaimWithRelations) {
 	return {
 		id: row.id,
 		providerId: row.providerId,
+		kind: row.kind,
+		customName: row.customName,
+		customBaseUrl: row.customBaseUrl,
 		matchedDomain: row.matchedDomain,
 		status: row.status,
 		claimedByEmail: claimer?.email ?? null,
@@ -442,7 +448,9 @@ adminAirside.openapi(approveClaim, async (c) => {
 	const user = c.get("user");
 	const { id } = c.req.valid("param");
 	const claim = await getPendingClaim(id);
-	await db.transaction(async (tx) => {
+	// cdb: the gateway resolves custom carriers from active claim rows, so the
+	// status flip must invalidate its cache.
+	await cdb.transaction(async (tx) => {
 		const updated = await tx
 			.update(tables.providerClaim)
 			.set({
@@ -462,7 +470,20 @@ adminAirside.openapi(approveClaim, async (c) => {
 				message: "This claim has already been reviewed.",
 			});
 		}
-		const settings = await tx.query.providerRoutingSettings.findFirst({
+		if (claim.kind === "custom") {
+			// A custom carrier only exists in the DB catalogue: create its
+			// provider row so /providers and /internal/providers list it.
+			await tx
+				.insert(tables.provider)
+				.values({
+					id: claim.providerId,
+					name: claim.customName ?? claim.providerId,
+					description: claim.customDescription ?? "",
+				})
+				.onConflictDoNothing();
+		}
+		// Read via db: cdb reads inside a transaction can serve stale cache.
+		const settings = await db.query.providerRoutingSettings.findFirst({
 			where: { providerId: { eq: claim.providerId } },
 		});
 		if (!settings) {
@@ -678,6 +699,19 @@ adminAirside.openapi(revokeClaim, async (c) => {
 	});
 	for (const modelName of revokedModelNames) {
 		await dematerializeAirsideModel(claim.providerId, modelName);
+	}
+	if (claim.kind === "custom") {
+		// The provider row only existed for this registration; drop it once no
+		// catalogue mapping references it any more.
+		const remaining = await db.query.modelProviderMapping.findFirst({
+			where: { providerId: { eq: claim.providerId } },
+			columns: { id: true },
+		});
+		if (!remaining) {
+			await cdb
+				.delete(tables.provider)
+				.where(eq(tables.provider.id, claim.providerId));
+		}
 	}
 	const updated = await db.query.providerClaim.findFirst({
 		where: { id: { eq: id } },

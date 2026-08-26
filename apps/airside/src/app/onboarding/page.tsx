@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { useUser } from "@/hooks/useUser";
 import { useApi } from "@/lib/fetch-client";
 
@@ -155,6 +156,184 @@ function ClaimDialog({
 	);
 }
 
+function RegisterCarrierDialog({
+	emailDomain,
+	disabled,
+	pending,
+	onRegister,
+}: {
+	emailDomain: string;
+	disabled: boolean;
+	pending: boolean;
+	onRegister: (values: {
+		providerId: string;
+		name: string;
+		baseUrl: string;
+		description?: string;
+		logoUrl?: string;
+		iconUrl?: string;
+	}) => void;
+}) {
+	const [open, setOpen] = useState(false);
+	const [providerId, setProviderId] = useState("");
+	const [name, setName] = useState("");
+	const [baseUrl, setBaseUrl] = useState("");
+	const [description, setDescription] = useState("");
+	const [logoUrl, setLogoUrl] = useState<string | undefined>(undefined);
+	const [iconUrl, setIconUrl] = useState<string | undefined>(undefined);
+
+	async function handleFile(
+		file: File | undefined,
+		maxBytes: number,
+		set: (v: string | undefined) => void,
+	) {
+		if (!file) {
+			set(undefined);
+			return;
+		}
+		try {
+			set(await readImageAsDataUrl(file, maxBytes));
+		} catch (error) {
+			toast.error((error as Error).message);
+		}
+	}
+
+	return (
+		<Dialog open={open} onOpenChange={setOpen}>
+			<DialogTrigger asChild>
+				<Button
+					size="sm"
+					variant="outline"
+					disabled={disabled}
+					data-testid="open-register-carrier"
+				>
+					Register a new carrier
+				</Button>
+			</DialogTrigger>
+			<DialogContent className="sm:max-w-md">
+				<DialogHeader>
+					<DialogTitle className="font-display">
+						Register a new carrier
+					</DialogTitle>
+					<DialogDescription>
+						List a provider that is not in the catalogue yet. Your API must be
+						OpenAI-compatible (we call{" "}
+						<span className="font-mono">/v1/chat/completions</span> under the
+						base URL) and hosted on{" "}
+						<span className="font-mono">{emailDomain}</span>, the domain of your
+						verified email. Registrations are reviewed by our team.
+					</DialogDescription>
+				</DialogHeader>
+				<form
+					className="space-y-4"
+					onSubmit={(e) => {
+						e.preventDefault();
+						onRegister({
+							providerId,
+							name,
+							baseUrl,
+							description: description || undefined,
+							logoUrl,
+							iconUrl,
+						});
+						setOpen(false);
+					}}
+				>
+					<div className="grid gap-4 sm:grid-cols-2">
+						<div className="space-y-2">
+							<Label htmlFor="carrier-id">Carrier id</Label>
+							<Input
+								id="carrier-id"
+								data-testid="carrier-id-input"
+								value={providerId}
+								onChange={(e) => setProviderId(e.target.value)}
+								placeholder="acme-ai"
+								pattern="[a-z][a-z0-9-]{2,31}"
+								title="3-32 chars: lowercase letters, digits and hyphens, starting with a letter"
+								required
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor="carrier-name">Display name</Label>
+							<Input
+								id="carrier-name"
+								data-testid="carrier-name-input"
+								value={name}
+								onChange={(e) => setName(e.target.value)}
+								placeholder="Acme AI"
+								required
+							/>
+						</div>
+					</div>
+					<div className="space-y-2">
+						<Label htmlFor="carrier-base-url">API base URL</Label>
+						<Input
+							id="carrier-base-url"
+							data-testid="carrier-base-url-input"
+							value={baseUrl}
+							onChange={(e) => setBaseUrl(e.target.value)}
+							placeholder={`https://api.${emailDomain}`}
+							required
+						/>
+					</div>
+					<div className="space-y-2">
+						<Label htmlFor="carrier-description">Description</Label>
+						<Textarea
+							id="carrier-description"
+							value={description}
+							onChange={(e) => setDescription(e.target.value)}
+							placeholder="What do you fly?"
+							rows={2}
+						/>
+					</div>
+					<div className="grid gap-4 sm:grid-cols-2">
+						<div className="space-y-2">
+							<Label htmlFor="carrier-logo">Logo (max 200KB)</Label>
+							<Input
+								id="carrier-logo"
+								type="file"
+								accept="image/png,image/jpeg,image/webp,image/svg+xml"
+								onChange={(e) =>
+									void handleFile(
+										e.target.files?.[0],
+										LOGO_MAX_BYTES,
+										setLogoUrl,
+									)
+								}
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor="carrier-icon">Square icon (max 64KB)</Label>
+							<Input
+								id="carrier-icon"
+								type="file"
+								accept="image/png,image/jpeg,image/webp,image/svg+xml"
+								onChange={(e) =>
+									void handleFile(
+										e.target.files?.[0],
+										ICON_MAX_BYTES,
+										setIconUrl,
+									)
+								}
+							/>
+						</div>
+					</div>
+					<DialogFooter>
+						<Button
+							type="submit"
+							className="font-semibold"
+							disabled={pending}
+							data-testid="confirm-register-carrier"
+						>
+							{pending ? "Filing…" : "File the registration"}
+						</Button>
+					</DialogFooter>
+				</form>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
 function OnboardingContent() {
 	const { user, isLoading } = useUser({
 		redirectTo: "/login?returnUrl=/onboarding",
@@ -201,6 +380,23 @@ function OnboardingContent() {
 		onError: (error) => {
 			toast.error(
 				(error as { message?: string })?.message ?? "Failed to claim carrier",
+			);
+		},
+	});
+
+	const registerCarrier = api.useMutation("post", "/airside/carriers", {
+		onSuccess: async () => {
+			await queryClient.invalidateQueries({
+				queryKey: api.queryOptions("get", "/airside/companies", {}).queryKey,
+			});
+			toast.success(
+				"Registration filed — we review every new carrier before it goes live.",
+			);
+		},
+		onError: (error) => {
+			toast.error(
+				(error as { message?: string })?.message ??
+					"Failed to register the carrier",
 			);
 		},
 	});
@@ -407,18 +603,19 @@ function OnboardingContent() {
 										: "2 · Claim your carrier"}
 								</h2>
 								<p className="text-muted-foreground text-sm">
-									Providers whose endpoint domain matches{" "}
+									Claim catalogue providers whose endpoint domain matches{" "}
 									<span className="font-mono">@{user.email.split("@")[1]}</span>
-									. Claims are reviewed by our team before going live.
+									, or register a new carrier hosted on that domain. Both are
+									reviewed by our team before going live.
 								</p>
 							</div>
 						</div>
 						{claimable.length === 0 ? (
 							<p className="text-muted-foreground text-sm">
-								No catalogue provider matches your email domain. Sign up with an
-								address on your provider&apos;s API domain (e.g.{" "}
-								<span className="font-mono">ops@yourprovider.ai</span>), or
-								contact us to get your provider listed first.
+								No catalogue provider matches your email domain. If your
+								provider is not on LLM Gateway yet, register it as a new carrier
+								below — all you need is an OpenAI-compatible API on{" "}
+								<span className="font-mono">@{user.email.split("@")[1]}</span>.
 							</p>
 						) : (
 							<ul className="space-y-3">
@@ -490,6 +687,63 @@ function OnboardingContent() {
 								})}
 							</ul>
 						)}
+						{(company?.claims ?? [])
+							.filter((claim) => claim.kind === "custom")
+							.map((claim) => (
+								<div
+									key={claim.id}
+									className="border-border mt-3 flex items-center justify-between rounded-lg border px-4 py-3"
+								>
+									<div>
+										<div className="font-medium">{claim.providerName}</div>
+										<div className="text-muted-foreground font-mono text-xs">
+											{claim.providerId} · {claim.customBaseUrl}
+										</div>
+										{claim.status === "rejected" ? (
+											<div className="text-destructive mt-1 text-xs">
+												Registration rejected
+												{claim.reviewNote ? `: ${claim.reviewNote}` : ""}
+												{" — you can file again."}
+											</div>
+										) : null}
+									</div>
+									{claim.status === "active" ? (
+										<Badge variant="success">
+											<BadgeCheck className="size-3" /> Registered
+										</Badge>
+									) : claim.status === "pending" ? (
+										<Badge variant="pending">
+											<Hourglass className="size-3" /> Under review
+										</Badge>
+									) : (
+										<Badge variant="secondary">{claim.status}</Badge>
+									)}
+								</div>
+							))}
+						<div className="mt-4 flex items-center justify-between gap-3">
+							<p className="text-muted-foreground text-xs">
+								Not in the catalogue? Register your own carrier — an
+								OpenAI-compatible API on your email domain is all it takes.
+							</p>
+							<RegisterCarrierDialog
+								emailDomain={user.email.split("@")[1] ?? ""}
+								disabled={
+									!company ||
+									!user.emailVerified ||
+									paymentDue ||
+									registerCarrier.isPending
+								}
+								pending={registerCarrier.isPending}
+								onRegister={(values) => {
+									if (!company) {
+										return;
+									}
+									registerCarrier.mutate({
+										body: { providerCompanyId: company.id, ...values },
+									});
+								}}
+							/>
+						</div>
 					</section>
 
 					<SlackCard />

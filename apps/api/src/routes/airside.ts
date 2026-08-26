@@ -9,6 +9,7 @@ import {
 import {
 	claimableProvidersForEmail,
 	emailRegistrableDomain,
+	registrableDomain,
 } from "@/lib/airside-domains.js";
 
 import {
@@ -24,6 +25,7 @@ import {
 	tables,
 } from "@llmgateway/db";
 import { providers as catalogueProviders } from "@llmgateway/models";
+import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import { getStripe } from "./payments.js";
 
@@ -91,7 +93,10 @@ const claimSchema = z.object({
 	providerCompanyId: z.string(),
 	providerId: z.string(),
 	providerName: z.string(),
+	kind: z.enum(["catalogue", "custom"]),
 	matchedDomain: z.string(),
+	// Custom carriers only: the registered OpenAI-compatible endpoint.
+	customBaseUrl: z.string().nullable(),
 	status: z.enum(["pending", "active", "rejected", "revoked"]),
 	// Set when we rejected the claim — shown to the company.
 	reviewNote: z.string().nullable(),
@@ -179,8 +184,13 @@ function serializeClaim(
 		id: row.id,
 		providerCompanyId: row.providerCompanyId,
 		providerId: row.providerId,
-		providerName: providerNames.get(row.providerId) ?? row.providerId,
+		providerName:
+			row.kind === "custom"
+				? (row.customName ?? row.providerId)
+				: (providerNames.get(row.providerId) ?? row.providerId),
+		kind: row.kind,
 		matchedDomain: row.matchedDomain,
+		customBaseUrl: row.customBaseUrl,
 		status: row.status,
 		reviewNote: row.reviewNote,
 		logoUrl: row.logoUrl,
@@ -720,6 +730,131 @@ airside.openapi(createClaim, async (c) => {
 		.returning();
 	const providerNames = providerNamesById;
 	return c.json({ claim: serializeClaim(claim, providerNames) }, 201);
+});
+
+// ---------------------------------------------------------------------------
+// Custom carrier registration
+// ---------------------------------------------------------------------------
+
+// Carrier ids share a namespace with catalogue provider ids and the gateway's
+// model-string prefixes, so reserve the prefixes the parser treats specially.
+const RESERVED_CARRIER_IDS = new Set(["custom", "auto", "llmgateway"]);
+const CARRIER_ID_PATTERN = /^[a-z][a-z0-9-]{2,31}$/;
+
+const registerCarrier = createRoute({
+	method: "post",
+	path: "/carriers",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						providerCompanyId: z.string(),
+						providerId: z
+							.string()
+							.regex(
+								CARRIER_ID_PATTERN,
+								"Carrier id must be 3-32 chars: lowercase letters, digits and hyphens, starting with a letter.",
+							),
+						name: z.string().min(2).max(100),
+						baseUrl: z.string().url().max(500),
+						description: z.string().max(2000).optional(),
+						logoUrl: imageDataUrl(LOGO_MAX_BYTES).optional(),
+						iconUrl: imageDataUrl(ICON_MAX_BYTES).optional(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: z.object({ claim: claimSchema }),
+				},
+			},
+			description: "The registration, filed as a pending custom-carrier claim.",
+		},
+	},
+});
+
+airside.openapi(registerCarrier, async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const body = c.req.valid("json");
+	await requireCompanyMembership(user.id, body.providerCompanyId);
+
+	if (airsideListingFeeRequired()) {
+		const company = await db.query.providerCompany.findFirst({
+			where: { id: { eq: body.providerCompanyId } },
+		});
+		if (company?.paymentStatus !== "paid") {
+			throw new HTTPException(402, {
+				message: "Pay the listing fee before registering a carrier.",
+			});
+		}
+	}
+
+	const providerId = body.providerId;
+	if (
+		RESERVED_CARRIER_IDS.has(providerId) ||
+		catalogueProviders.some((p) => p.id === providerId)
+	) {
+		throw new HTTPException(409, {
+			message:
+				"This carrier id is taken by an existing catalogue provider. Claim it instead if it is yours.",
+		});
+	}
+	const providerRow = await db.query.provider.findFirst({
+		where: { id: { eq: providerId } },
+		columns: { id: true },
+	});
+	if (providerRow) {
+		throw new HTTPException(409, { message: "This carrier id is taken." });
+	}
+
+	// The same anti-squatting rule as claiming: the registered endpoint must
+	// live on the verified email's registrable domain. The SSRF guard keeps
+	// the stored URL a safe outbound fetch target (https, public host).
+	await assertSafeProviderUrl(body.baseUrl);
+	const emailDomain = emailRegistrableDomain(user.email);
+	const endpointDomain = registrableDomain(new URL(body.baseUrl).hostname);
+	if (!emailDomain || endpointDomain !== emailDomain) {
+		throw new HTTPException(403, {
+			message: `The API endpoint must be on your verified email domain (@${emailDomain ?? "?"}).`,
+		});
+	}
+
+	const existing = await db.query.providerClaim.findFirst({
+		where: {
+			providerId: { eq: providerId },
+			status: { in: ["pending", "active"] },
+		},
+	});
+	if (existing) {
+		throw new HTTPException(409, {
+			message:
+				existing.status === "pending"
+					? "A registration for this carrier id is already under review."
+					: "This carrier id is taken.",
+		});
+	}
+
+	const [claim] = await db
+		.insert(tables.providerClaim)
+		.values({
+			providerCompanyId: body.providerCompanyId,
+			providerId,
+			kind: "custom",
+			matchedDomain: emailDomain,
+			customName: body.name,
+			customBaseUrl: body.baseUrl,
+			customDescription: body.description ?? null,
+			logoUrl: body.logoUrl ?? null,
+			iconUrl: body.iconUrl ?? null,
+			claimedBy: user.id,
+		})
+		.returning();
+	return c.json({ claim: serializeClaim(claim, providerNamesById) }, 201);
 });
 
 // ---------------------------------------------------------------------------

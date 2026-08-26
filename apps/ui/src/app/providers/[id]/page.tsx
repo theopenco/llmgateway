@@ -36,12 +36,83 @@ interface ProviderPageProps {
 	params: Promise<{ id: string }>;
 }
 
+/**
+ * Fallback for providers that exist only in the DB catalogue (custom Airside
+ * carriers): the static definitions know nothing about them, so the page is
+ * built from the API's provider + model data instead of 404ing.
+ */
+async function renderDynamicProviderPage(id: string) {
+	const [apiProviders, apiModels] = await Promise.all([
+		fetchProviders().catch(() => []),
+		fetchModels().catch(() => []),
+	]);
+	const apiProvider = apiProviders.find((p) => p.id === id);
+	if (!apiProvider) {
+		return null;
+	}
+	const providerModels: ModelWithProviders[] = apiModels
+		.filter((model) =>
+			model.mappings.some(
+				(mapping) => mapping.providerId === id && mapping.status === "active",
+			),
+		)
+		.map((model) => ({
+			...model,
+			providerDetails: model.mappings
+				.filter((mapping) => mapping.providerId === id)
+				.map((mapping) => ({ provider: mapping, providerInfo: apiProvider })),
+		}));
+	const uploadedLogo = apiProvider.airsideLogoUrl ?? undefined;
+
+	return (
+		<div className="min-h-screen bg-white text-black dark:bg-black dark:text-white">
+			<main>
+				<Navbar />
+				<section className="py-16">
+					<div className="container mx-auto px-4">
+						<div className="flex items-center gap-5">
+							{uploadedLogo ? (
+								<img
+									src={uploadedLogo}
+									alt={`${apiProvider.name} logo`}
+									className="h-14 max-w-40 object-contain"
+								/>
+							) : null}
+							<div>
+								<h1 className="text-4xl font-bold">{apiProvider.name}</h1>
+								{apiProvider.description &&
+								apiProvider.description !== "(empty)" ? (
+									<p className="text-muted-foreground mt-2 max-w-2xl">
+										{apiProvider.description}
+									</p>
+								) : null}
+							</div>
+						</div>
+					</div>
+				</section>
+				<ProviderStatsRow providerId={id} />
+				<section className="py-12 bg-background">
+					<div className="container mx-auto px-4">
+						<h2 className="text-3xl font-bold mb-8">Available Models</h2>
+						<ProviderModelsGrid models={providerModels} />
+					</div>
+				</section>
+			</main>
+			<Footer />
+		</div>
+	);
+}
+
 export default async function ProviderPage({ params }: ProviderPageProps) {
 	const { id } = await params;
 
 	const provider = providerDefinitions.find((p) => p.id === id);
 
 	if (!provider || provider.name === "LLM Gateway") {
+		const dynamicPage = await renderDynamicProviderPage(id);
+		if (dynamicPage) {
+			return dynamicPage;
+		}
 		notFound();
 	}
 
@@ -226,7 +297,16 @@ export async function generateMetadata({
 	const provider = providerDefinitions.find((p) => p.id === id);
 
 	if (!provider || provider.name === "LLM Gateway") {
-		return {};
+		const apiProvider = (await fetchProviders().catch(() => [])).find(
+			(p) => p.id === id,
+		);
+		if (!apiProvider) {
+			return {};
+		}
+		return {
+			title: `${apiProvider.name} API — Models & Pricing`,
+			alternates: { canonical: `/providers/${id}` },
+		};
 	}
 
 	const modelCount = (modelDefinitions as readonly ModelDefinition[]).filter(

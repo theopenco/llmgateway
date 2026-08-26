@@ -854,4 +854,129 @@ describe("airside provider portal", () => {
 		);
 		expect(outOfBounds.status).toBe(400);
 	});
+
+	async function registerCarrier(
+		testCookie: string,
+		providerCompanyId: string,
+		overrides: Record<string, unknown> = {},
+	) {
+		return await app.request(
+			"/airside/carriers",
+			json(testCookie, {
+				providerCompanyId,
+				providerId: "acme-sky",
+				name: "Acme Sky",
+				baseUrl: "https://api.acme-sky.ai",
+				...overrides,
+			}),
+		);
+	}
+
+	it("registers a new carrier as a pending custom claim", async () => {
+		await setUserEmail("ops@acme-sky.ai");
+		const company = await createCompany(cookie, "Acme Sky");
+		const res = await registerCarrier(cookie, company.id, {
+			description: "Regional AI carrier",
+		});
+		expect(res.status).toBe(201);
+		const { claim } = await res.json();
+		expect(claim.kind).toBe("custom");
+		expect(claim.status).toBe("pending");
+		expect(claim.providerId).toBe("acme-sky");
+		expect(claim.providerName).toBe("Acme Sky");
+		expect(claim.customBaseUrl).toBe("https://api.acme-sky.ai");
+
+		// Pending registration blocks the id for everyone.
+		const dupe = await registerCarrier(cookie, company.id);
+		expect(dupe.status).toBe(409);
+	});
+
+	it("rejects a registration off the verified email domain", async () => {
+		await setUserEmail("ops@acme-sky.ai");
+		const company = await createCompany(cookie, "Acme Sky");
+		const res = await registerCarrier(cookie, company.id, {
+			baseUrl: "https://api.somebody-else.ai",
+		});
+		expect(res.status).toBe(403);
+	});
+
+	it("rejects catalogue and reserved carrier ids", async () => {
+		await setUserEmail("ops@acme-sky.ai");
+		const company = await createCompany(cookie, "Acme Sky");
+		expect(
+			(await registerCarrier(cookie, company.id, { providerId: "mistral" }))
+				.status,
+		).toBe(409);
+		expect(
+			(await registerCarrier(cookie, company.id, { providerId: "custom" }))
+				.status,
+		).toBe(409);
+		expect(
+			(await registerCarrier(cookie, company.id, { providerId: "Bad_Slug" }))
+				.status,
+		).toBe(400);
+	});
+
+	it("runs the custom carrier lifecycle: approve, credential, revoke", async () => {
+		process.env.ADMIN_EMAILS = "ops@acme-sky.ai";
+		await setUserEmail("ops@acme-sky.ai");
+		const company = await createCompany(cookie, "Acme Sky");
+		const res = await registerCarrier(cookie, company.id);
+		expect(res.status).toBe(201);
+		const { claim } = await res.json();
+
+		// Approval creates the DB catalogue provider row.
+		const approve = await app.request(
+			`/admin/airside/claims/${claim.id}/approve`,
+			json(cookie),
+		);
+		expect(approve.status).toBe(200);
+		const providerRow = await db.query.provider.findFirst({
+			where: { id: { eq: "acme-sky" } },
+		});
+		expect(providerRow?.name).toBe("Acme Sky");
+
+		// The managed-credentials catalog now offers the carrier…
+		const catalog = await app.request("/admin/provider-credentials/catalog", {
+			headers: { Cookie: cookie },
+		});
+		expect(catalog.status).toBe(200);
+		const catalogBody = await catalog.json();
+		const entry = catalogBody.providers.find(
+			(p: { id: string }) => p.id === "acme-sky",
+		);
+		expect(entry).toBeTruthy();
+		expect(entry.configKeys).toEqual([]);
+
+		// …and accepts a credential with no settings, but none with settings.
+		const withConfig = await app.request(
+			"/admin/provider-credentials",
+			json(cookie, {
+				provider: "acme-sky",
+				token: "sk-acme-test",
+				config: { baseUrl: "https://elsewhere.acme-sky.ai" },
+			}),
+		);
+		expect(withConfig.status).toBe(400);
+		const create = await app.request(
+			"/admin/provider-credentials",
+			json(cookie, {
+				provider: "acme-sky",
+				token: "sk-acme-test",
+				config: {},
+			}),
+		);
+		expect(create.status).toBe(201);
+
+		// Revoking the claim removes the provider row again.
+		const revoke = await app.request(
+			`/admin/airside/claims/${claim.id}/revoke`,
+			json(cookie, {}),
+		);
+		expect(revoke.status).toBe(200);
+		const goneRow = await db.query.provider.findFirst({
+			where: { id: { eq: "acme-sky" } },
+		});
+		expect(goneRow).toBeFalsy();
+	});
 });

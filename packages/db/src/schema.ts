@@ -4398,8 +4398,19 @@ export const providerClaim = pgTable(
 			.notNull()
 			.references(() => providerCompany.id, { onDelete: "cascade" }),
 		providerId: text().notNull(),
+		// "catalogue" claims an existing catalogue provider; "custom" registers
+		// a brand-new provider whose OpenAI-compatible endpoint lives on the
+		// registrant's email domain. Custom carriers only exist in the DB.
+		kind: text({ enum: ["catalogue", "custom"] })
+			.notNull()
+			.default("catalogue"),
 		// The registrable email domain that satisfied the match, lowercase.
 		matchedDomain: text().notNull(),
+		// Custom carriers only: submitted display name, OpenAI-compatible API
+		// base URL (SSRF-checked, domain-matched against the email) and blurb.
+		customName: text(),
+		customBaseUrl: text(),
+		customDescription: text(),
 		// Carrier branding, uploaded at claim time as size-capped data URLs and
 		// surfaced on the public catalogue pages.
 		logoUrl: text(),

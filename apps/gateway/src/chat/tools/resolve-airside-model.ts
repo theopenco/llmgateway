@@ -1,4 +1,7 @@
-import { findAirsideModel } from "@/lib/cached-queries.js";
+import {
+	findAirsideCustomProvider,
+	findAirsideModel,
+} from "@/lib/cached-queries.js";
 
 import { models, providers } from "@llmgateway/models";
 
@@ -17,6 +20,11 @@ export interface AirsideResolution {
 	/** The synthesized mapping carrying the approved filing's prices — thread
 	 *  it into calculateCosts so the request is billed at the filed rates. */
 	pricingMapping: ProviderModelMapping;
+	/** Set for custom carriers (providers that exist only as an approved
+	 *  Airside registration): the OpenAI-compatible endpoint to route to.
+	 *  Undefined for listings on catalogue providers, which use the
+	 *  provider's normal endpoint machinery. */
+	customBaseUrl?: string;
 }
 
 /**
@@ -45,19 +53,30 @@ export async function resolveAirsideModel(
 		// Region suffixes only exist for catalogue mappings.
 		return null;
 	}
-	if (!providers.some((p) => p.id === providerCandidate)) {
-		return null;
-	}
-	// A catalogue model of this provider always wins over a listing.
-	const inCatalogue = models.some(
-		(m) =>
-			(m.id === modelName ||
-				("aliases" in m &&
-					(m.aliases as readonly string[] | undefined)?.includes(modelName))) &&
-			m.providers.some((p) => p.providerId === providerCandidate),
-	);
-	if (inCatalogue) {
-		return null;
+	const isCatalogueProvider = providers.some((p) => p.id === providerCandidate);
+	let customBaseUrl: string | undefined;
+	if (!isCatalogueProvider) {
+		// Not a catalogue provider: only routable when the prefix is an
+		// approved custom-carrier registration.
+		const carrier = await findAirsideCustomProvider(providerCandidate);
+		if (!carrier) {
+			return null;
+		}
+		customBaseUrl = carrier.baseUrl;
+	} else {
+		// A catalogue model of this provider always wins over a listing.
+		const inCatalogue = models.some(
+			(m) =>
+				(m.id === modelName ||
+					("aliases" in m &&
+						(m.aliases as readonly string[] | undefined)?.includes(
+							modelName,
+						))) &&
+				m.providers.some((p) => p.providerId === providerCandidate),
+		);
+		if (inCatalogue) {
+			return null;
+		}
 	}
 
 	const listed = await findAirsideModel(providerCandidate, modelName);
@@ -81,6 +100,7 @@ export async function resolveAirsideModel(
 			requestedProvider: providerCandidate as Provider,
 		},
 		pricingMapping: mapping,
+		customBaseUrl,
 	};
 }
 

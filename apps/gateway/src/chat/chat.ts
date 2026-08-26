@@ -6314,9 +6314,12 @@ chat.openapi(completions, async (c) => {
 			});
 		}
 
+		// A custom Airside carrier has no catalogue endpoint definition: route
+		// it like a BYOK custom provider, to the OpenAI-compatible base URL
+		// registered on its approved claim.
 		url = getProviderEndpoint(
-			usedProvider,
-			credentialBaseUrl,
+			airsideResolution?.customBaseUrl ? "custom" : usedProvider,
+			airsideResolution?.customBaseUrl ?? credentialBaseUrl,
 			upstreamModelName,
 			usesGoogleQueryToken(usedProvider) ? usedToken : undefined,
 			stream,
