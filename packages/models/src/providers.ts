@@ -1991,6 +1991,35 @@ export const providers: ProviderDefinition[] = [
 			retentionPeriod: "0 days",
 		},
 	},
+	{
+		id: "llmtech",
+		name: "LLM Tech",
+		forwardsSafetyIdentifier: false,
+		description:
+			"EU inference provider serving open-weight models on Blackwell hardware with an OpenAI-compatible API, prompt caching and zero data retention.",
+		env: {
+			required: {
+				apiKey: "LLM_LLMTECH_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#0F766E",
+		website: "https://llmtech.eu",
+		statusPageUrl: "https://llmtech.eu/status",
+		announcement: null,
+		termsUrl: "https://llmtech.eu/terms.html",
+		privacyPolicyUrl: "https://llmtech.eu/privacy.html",
+		headquarters: "PL",
+		dataPolicy: {
+			apiTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: null,
+			iso27001: false,
+			gdpr: true,
+		},
+	},
 ] as const satisfies ProviderDefinition[];
 
 export type ProviderId = (typeof providers)[number]["id"];
@@ -2387,6 +2416,7 @@ export const PROVIDER_COUNTRY_NAMES: Record<string, string> = {
 	JP: "Japan",
 	AU: "Australia",
 	GB: "United Kingdom",
+	PL: "Poland",
 };
 
 /** Convert an ISO 3166-1 alpha-2 country code to its Unicode flag emoji. */

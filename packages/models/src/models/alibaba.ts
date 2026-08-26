@@ -3662,6 +3662,46 @@ export const alibabaModels = [
 		],
 	},
 	{
+		id: "qwen3.8-27b",
+		name: "Qwen3.8 27B",
+		description:
+			"Open-weight dense vision-language model from Alibaba for coding, agentic workflows and long-context tasks, with thinking that can be toggled per request.",
+		family: "alibaba",
+		releasedAt: new Date("2026-08-14"),
+		providers: [
+			{
+				providerId: "llmtech",
+				externalId: "unsloth/Qwen3.8-27B-NVFP4",
+				inputPrice: "0.25e-6",
+				cachedInputPrice: "0.04e-6",
+				outputPrice: "2.09e-6",
+				requestPrice: "0",
+				contextSize: 262144,
+				maxOutput: 32768,
+				quantization: "fp4",
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["low", "medium", "xhigh"],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				// Qwen thinking models reject tool_choice "required" or object
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+					"reasoning_effort",
+				],
+			},
+		],
+	},
+	{
 		id: "qwen3.6-35b-a3b",
 		name: "Qwen3.6 35B A3B",
 		description:

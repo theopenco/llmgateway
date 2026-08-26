@@ -218,6 +218,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	nebius: "https://api.tokenfactory.nebius.com",
 	zai: "https://api.z.ai",
 	nanogpt: "https://nano-gpt.com/api",
+	llmtech: "https://api.llmtech.eu",
 	bytedance: "https://ark.ap-southeast.bytepluses.com/api/v3",
 	minimax: "https://api.minimax.io",
 	sakana: "https://api.sakana.ai",
