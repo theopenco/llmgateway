@@ -976,17 +976,12 @@ export const deepseekModels = [
 			{
 				providerId: "consensusprotocol",
 				externalId: "DeepSeek-V4-Flash",
-				// Contracted rates. The provider also publishes prices in its
-				// /v1/models metadata, but those are advisory and sit above these --
-				// do not "correct" these to match that endpoint.
 				inputPrice: "0.13e-6",
 				outputPrice: "0.27e-6",
 				cachedInputPrice: "0.02e-6",
 				requestPrice: "0",
 				contextSize: 524288,
 				maxOutput: 393216,
-				// The endpoint advertises this deployment as "q8", which is int8 in
-				// the catalogue's terms.
 				quantization: "int8",
 				streaming: true,
 				reasoning: true,
