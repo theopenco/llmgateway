@@ -4,6 +4,7 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
+import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 import type * as PaymentsModule from "@/routes/payments.js";
 
@@ -152,6 +153,152 @@ describe("dev plan tier changes", () => {
 			billingPeriodEnd: new Date((nowSeconds + 500) * 1000).toISOString(),
 		});
 		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
+	});
+
+	it("serializes concurrent API key rotations", async () => {
+		await db.insert(tables.project).values({
+			id: "test-dev-plan-project",
+			name: "Default Project",
+			organizationId: ORG_ID,
+		});
+		await db.insert(tables.apiKey).values({
+			id: "test-dev-plan-api-key",
+			token: "test-dev-plan-token",
+			projectId: "test-dev-plan-project",
+			description: "Dev Plan API Key",
+			createdBy: "test-user-id",
+		});
+
+		const responses = await Promise.all([
+			app.request("/dev-plans/rotate-api-key", {
+				method: "POST",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({ apiKeyId: "test-dev-plan-api-key" }),
+			}),
+			app.request("/dev-plans/rotate-api-key", {
+				method: "POST",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({ apiKeyId: "test-dev-plan-api-key" }),
+			}),
+		]);
+
+		expect(responses.map((response) => response.status).sort()).toEqual([
+			200, 409,
+		]);
+		const successfulResponse = responses.find(
+			(response) => response.status === 200,
+		);
+		expect(successfulResponse).toBeDefined();
+		const body = await successfulResponse!.json();
+		const activeKeys = await db.query.apiKey.findMany({
+			where: {
+				projectId: { eq: "test-dev-plan-project" },
+				status: { eq: "active" },
+			},
+		});
+		expect(activeKeys).toHaveLength(1);
+		expect(activeKeys[0]?.id).toBe(body.apiKeyId);
+		expect(activeKeys[0]?.tokenHash).toBe(getApiKeyFingerprint(body.apiKey));
+	});
+
+	it("preserves playground sessions when rotating the DevPass key", async () => {
+		await db.insert(tables.project).values({
+			id: "test-dev-plan-project",
+			name: "Default Project",
+			organizationId: ORG_ID,
+		});
+		await db.insert(tables.apiKey).values([
+			{
+				id: "test-dev-plan-api-key",
+				token: "test-dev-plan-token",
+				projectId: "test-dev-plan-project",
+				description: "Dev Plan API Key",
+				createdBy: "test-user-id",
+			},
+			{
+				id: "test-playground-session-key",
+				token: "test-playground-session-token",
+				projectId: "test-dev-plan-project",
+				description: "Session key",
+				kind: "playground",
+				createdBy: "test-user-id",
+			},
+		]);
+
+		const response = await app.request("/dev-plans/rotate-api-key", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({ apiKeyId: "test-dev-plan-api-key" }),
+		});
+
+		expect(response.status).toBe(200);
+		const playgroundKey = await db.query.apiKey.findFirst({
+			where: { id: { eq: "test-playground-session-key" } },
+		});
+		expect(playgroundKey?.status).toBe("active");
+	});
+
+	it("returns the DevPass key when playground sessions share its project", async () => {
+		await db.insert(tables.project).values({
+			id: "test-dev-plan-project",
+			name: "Default Project",
+			organizationId: ORG_ID,
+		});
+		await db.insert(tables.apiKey).values([
+			{
+				id: "test-playground-session-key",
+				token: "test-playground-session-token",
+				projectId: "test-dev-plan-project",
+				description: "Session key",
+				kind: "playground",
+				createdBy: "test-user-id",
+			},
+			{
+				id: "test-dev-plan-api-key",
+				token: "test-dev-plan-token",
+				projectId: "test-dev-plan-project",
+				description: "Dev Plan API Key",
+				createdBy: "test-user-id",
+			},
+		]);
+
+		const response = await app.request("/dev-plans/status", {
+			headers: { Cookie: token },
+		});
+
+		expect(response.status).toBe(200);
+		const body = await response.json();
+		expect(body.apiKey?.id).toBe("test-dev-plan-api-key");
+	});
+
+	it("provisions an active key when only an inactive DevPass key exists", async () => {
+		await db.insert(tables.project).values({
+			id: "test-dev-plan-project",
+			name: "Default Project",
+			organizationId: ORG_ID,
+		});
+		await db.insert(tables.apiKey).values({
+			id: "test-inactive-dev-plan-api-key",
+			token: "test-inactive-dev-plan-token",
+			projectId: "test-dev-plan-project",
+			description: "Dev Plan API Key",
+			status: "inactive",
+			createdBy: "test-user-id",
+		});
+
+		const statusResponse = await app.request("/dev-plans/status", {
+			headers: { Cookie: token },
+		});
+		expect(statusResponse.status).toBe(200);
+		const statusBody = await statusResponse.json();
+		expect(statusBody.apiKey?.id).not.toBe("test-inactive-dev-plan-api-key");
+
+		const rotateResponse = await app.request("/dev-plans/rotate-api-key", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({ apiKeyId: statusBody.apiKey?.id }),
+		});
+		expect(rotateResponse.status).toBe(200);
 	});
 
 	it("rejects an upgrade if the full price exceeds the confirmed amount", async () => {

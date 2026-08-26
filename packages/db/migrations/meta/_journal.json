@@ -1688,6 +1688,20 @@
       "when": 1787325167119,
       "tag": "1787325167_curved_nighthawk",
       "breakpoints": true
+    },
+    {
+      "idx": 241,
+      "version": "8",
+      "when": 1787668425275,
+      "tag": "1787668425_crazy_freak",
+      "breakpoints": true
+    },
+    {
+      "idx": 242,
+      "version": "8",
+      "when": 1787676232348,
+      "tag": "1787676232_careful_sheva_callister",
+      "breakpoints": true
     }
   ]
 }

@@ -41,7 +41,9 @@ Platform secret keys are **server-side** keys used to mint end-user sessions. Ke
 
 <Callout type="warn">
 	A secret key is shown **only once** at creation time. Copy it immediately — it
-	won't be displayed again. If you lose a key, revoke it and create a new one.
+	won't be displayed again. Platform secrets and ephemeral session tokens are
+	stored only as keyed fingerprints. If you lose a key, revoke it and create a
+	new one.
 </Callout>
 
 Each key in the list shows its description, a **test** badge when applicable, its status, and a masked token. Use **Revoke** to permanently disable a key.

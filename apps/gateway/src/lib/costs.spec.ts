@@ -742,7 +742,7 @@ describe("calculateCosts", () => {
 		// as completion_tokens === reasoning_tokens, so adding it again would
 		// double the billed output.
 		const result = await calculateCosts(
-			"deepseek-v4-pro",
+			"glm-5.3",
 			"baidu",
 			null,
 			1000,
@@ -752,9 +752,9 @@ describe("calculateCosts", () => {
 			400,
 		);
 
-		// inputPrice 1.69e-6, outputPrice 3.38e-6.
-		expect(result.inputCost).toBeCloseTo(0.00169, 10);
-		expect(result.outputCost).toBeCloseTo(0.001352, 10); // 400 * 3.38e-6, not 800
+		// inputPrice 1.4e-6, outputPrice 4.4e-6.
+		expect(result.inputCost).toBeCloseTo(0.0014, 10);
+		expect(result.outputCost).toBeCloseTo(0.00176, 10); // 400 * 4.4e-6, not 800
 		expect(result.completionTokens).toBe(400);
 	});
 
@@ -2333,7 +2333,7 @@ describe("shouldBillCancelledRequests", () => {
 	});
 });
 
-describe("peak / off-peak time-of-day pricing (DeepSeek)", () => {
+describe("peak / off-peak time-of-day pricing", () => {
 	beforeEach(() => {
 		vi.mocked(mockGetEffectiveDiscount).mockImplementation(async () => ({
 			discount: "0",
@@ -2460,5 +2460,70 @@ describe("peak / off-peak time-of-day pricing (DeepSeek)", () => {
 			null,
 		);
 		expect(flash.inputCost).toBeCloseTo(0.44);
+	});
+});
+
+describe("Baidu exact pricing", () => {
+	beforeEach(() => {
+		vi.mocked(mockGetEffectiveDiscount).mockImplementation(async () => ({
+			discount: "0",
+			source: "none",
+		}));
+	});
+
+	it("bills Baidu GLM-5.2 at its exact price", async () => {
+		const costs = await calculateCosts(
+			"glm-5.2",
+			"baidu",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		expect(costs.inputCost).toBeCloseTo(1.4);
+		expect(costs.outputCost).toBeCloseTo(4.4);
+		expect(costs.cachedInputCost).toBeCloseTo(0.26);
+	});
+
+	it("bills Baidu GLM-5.3 at its exact price", async () => {
+		const costs = await calculateCosts(
+			"glm-5.3",
+			"baidu",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		expect(costs.inputCost).toBeCloseTo(1.4);
+		expect(costs.outputCost).toBeCloseTo(4.4);
+		expect(costs.cachedInputCost).toBeCloseTo(0.26);
+	});
+
+	it("bills Baidu DeepSeek V4 Pro at its exact price", async () => {
+		const costs = await calculateCosts(
+			"deepseek-v4-pro",
+			"baidu",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		expect(costs.inputCost).toBeCloseTo(1.32);
+		expect(costs.outputCost).toBeCloseTo(3.96);
+		expect(costs.cachedInputCost).toBeCloseTo(0.132);
+	});
+
+	it("bills Baidu DeepSeek V4 Flash at its exact price", async () => {
+		const costs = await calculateCosts(
+			"deepseek-v4-flash",
+			"baidu",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		expect(costs.inputCost).toBeCloseTo(0.44);
+		expect(costs.outputCost).toBeCloseTo(1.32);
+		expect(costs.cachedInputCost).toBeCloseTo(0.044);
 	});
 });

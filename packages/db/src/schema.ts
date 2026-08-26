@@ -1263,7 +1263,10 @@ export const endUserSession = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
-		token: text().notNull().unique(),
+		// Legacy plaintext column. New sessions store only tokenHash; backfilled
+		// rows retain plaintext during the staged rollout.
+		token: text().unique(),
+		tokenHash: text().unique(),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		})
@@ -1445,14 +1448,19 @@ export const apiKey = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
-		token: text().notNull().unique(),
+		// Legacy plaintext column. New writes store only tokenHash + tokenMasked;
+		// backfilled rows retain plaintext during the staged rollout.
+		token: text().unique(),
+		tokenHash: text().unique(),
+		tokenMasked: text(),
 		description: text().notNull(),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
 		// Discriminates normal developer keys from embeddable-SDK principals.
-		// `platform_secret`/`platform_publishable` are long-lived keys on a hidden
-		// per-org project. `end_user_customer` is a hidden per-customer aggregate
+		// `platform_secret` is a long-lived secret on a hidden per-org project.
+		// `platform_publishable` is an intentionally public browser identifier and
+		// remains retrievable. `end_user_customer` is a hidden per-customer aggregate
 		// key used as the stable log/api-key stats principal for browser sessions.
 		keyType: text({
 			enum: [
@@ -1464,6 +1472,10 @@ export const apiKey = pgTable(
 		})
 			.notNull()
 			.default("user"),
+		// Separates user-managed keys from automatically managed playground keys.
+		kind: text({ enum: ["regular", "playground"] })
+			.notNull()
+			.default("regular"),
 		// Browser-session wallet binding now lives on end_user_session.wallet_id.
 		endCustomerWalletId: text().references(() => wallet.id, {
 			onDelete: "cascade",
@@ -3223,6 +3235,9 @@ export const modelProviderMappingHistory = pgTable(
 		modelId: text().notNull(), // LLMGateway model name (e.g., "gpt-4")
 		providerId: text().notNull(), // Provider ID (e.g., "openai")
 		modelProviderMappingId: text().notNull(), // Reference to the exact model_provider_mapping.id
+		usedMode: text({ enum: ["credits", "api-keys", "unknown"] })
+			.notNull()
+			.default("unknown"),
 		// Unique timestamp key for one-minute intervals (rounded down to the minute)
 		minuteTimestamp: timestamp().notNull(),
 		logsCount: integer().notNull().default(0),
@@ -3338,6 +3353,9 @@ export const modelHistory = pgTable(
 			.defaultNow()
 			.$onUpdate(() => new Date()),
 		modelId: text().notNull(),
+		usedMode: text({ enum: ["credits", "api-keys", "unknown"] })
+			.notNull()
+			.default("unknown"),
 		// Unique timestamp key for one-minute intervals (rounded down to the minute)
 		minuteTimestamp: timestamp().notNull(),
 		logsCount: integer().notNull().default(0),
@@ -3405,6 +3423,9 @@ export const modelProviderMappingHistoryHourly = pgTable(
 		modelId: text().notNull(), // LLMGateway model name (e.g., "gpt-4")
 		providerId: text().notNull(), // Provider ID (e.g., "openai")
 		modelProviderMappingId: text().notNull(), // Reference to the exact model_provider_mapping.id
+		usedMode: text({ enum: ["credits", "api-keys", "unknown"] })
+			.notNull()
+			.default("unknown"),
 		// Unique timestamp key for one-hour intervals (rounded down to the hour)
 		hourTimestamp: timestamp().notNull(),
 		logsCount: integer().notNull().default(0),
@@ -3495,6 +3516,9 @@ export const modelHistoryHourly = pgTable(
 			.defaultNow()
 			.$onUpdate(() => new Date()),
 		modelId: text().notNull(),
+		usedMode: text({ enum: ["credits", "api-keys", "unknown"] })
+			.notNull()
+			.default("unknown"),
 		// Unique timestamp key for one-hour intervals (rounded down to the hour)
 		hourTimestamp: timestamp().notNull(),
 		logsCount: integer().notNull().default(0),

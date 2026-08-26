@@ -79,6 +79,8 @@ import {
 	type DevPlanCycle,
 	type DevPlanTier,
 } from "@llmgateway/shared";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
+import { maskToken } from "@llmgateway/shared/mask-token";
 
 import { getStripe, isInternationalPaymentMethod } from "./payments.js";
 
@@ -157,21 +159,31 @@ async function getOrCreatePersonalOrgApiKey(
 	orgId: string,
 	projectId: string,
 	userId: string,
-): Promise<string> {
+): Promise<{ id: string; maskedToken: string }> {
 	// Check for existing API key
 	const existingKey = await db.query.apiKey.findFirst({
 		where: {
 			projectId: {
 				eq: projectId,
 			},
-			status: {
-				ne: "deleted",
+			description: {
+				eq: "Dev Plan API Key",
 			},
+			status: {
+				eq: "active",
+			},
+		},
+		orderBy: {
+			createdAt: "desc",
 		},
 	});
 
 	if (existingKey) {
-		return existingKey.token;
+		return {
+			id: existingKey.id,
+			maskedToken:
+				existingKey.tokenMasked ?? maskToken(existingKey.token ?? ""),
+		};
 	}
 
 	// Create new API key
@@ -179,14 +191,17 @@ async function getOrCreatePersonalOrgApiKey(
 		process.env.NODE_ENV === "development" ? `llmgdev_` : "llmgtwy_";
 	const token = prefix + shortid(40);
 
-	await db.insert(tables.apiKey).values({
-		token,
-		projectId,
-		description: "Dev Plan API Key",
-		createdBy: userId,
-	});
+	const [apiKey] = await cdb
+		.insert(tables.apiKey)
+		.values({
+			...hashApiKeyForStorage(token),
+			projectId,
+			description: "Dev Plan API Key",
+			createdBy: userId,
+		})
+		.returning();
 
-	return token;
+	return { id: apiKey.id, maskedToken: apiKey.tokenMasked! };
 }
 
 // Find the user's personal org without creating one. Used by the billing
@@ -1779,7 +1794,12 @@ const getStatus = createRoute({
 						autoTopUpAmount: z.string().nullable(),
 						organizationId: z.string().nullable(),
 						projectId: z.string().nullable(),
-						apiKey: z.string().nullable(),
+						apiKey: z
+							.object({
+								id: z.string(),
+								maskedToken: z.string(),
+							})
+							.nullable(),
 						devPlanServiceTier: z.enum(["default", "flex"]),
 						defaultRoutingStrategy: z.enum([
 							"auto",
@@ -1893,7 +1913,7 @@ devPlans.openapi(getStatus, async (c) => {
 			: null;
 
 	// Get API key and project if user has an active dev plan
-	let apiKey: string | null = null;
+	let apiKey: { id: string; maskedToken: string } | null = null;
 	let projectId: string | null = null;
 	let defaultRoutingStrategy: "auto" | "price" | "throughput" | "latency" =
 		"auto";
@@ -2745,13 +2765,22 @@ devPlans.openapi(downloadInvoice, async (c) => {
 const rotateApiKey = createRoute({
 	method: "post",
 	path: "/rotate-api-key",
-	request: {},
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ apiKeyId: z.string() }),
+				},
+			},
+		},
+	},
 	responses: {
 		200: {
 			content: {
 				"application/json": {
 					schema: z.object({
 						apiKey: z.string(),
+						apiKeyId: z.string(),
 					}),
 				},
 			},
@@ -2768,6 +2797,7 @@ devPlans.openapi(rotateApiKey, async (c) => {
 			message: "Unauthorized",
 		});
 	}
+	const { apiKeyId } = c.req.valid("json");
 
 	const userOrgs = await db.query.userOrganization.findMany({
 		where: {
@@ -2815,18 +2845,48 @@ devPlans.openapi(rotateApiKey, async (c) => {
 		(process.env.NODE_ENV === "development" ? "llmgdev_" : "llmgtwy_") +
 		shortid(40);
 
-	await db.transaction(async (tx) => {
+	const newApiKeyId = await cdb.transaction(async (tx) => {
+		await tx.execute(
+			sql`SELECT ${tables.project.id} FROM ${tables.project} WHERE ${tables.project.id} = ${project.id} FOR UPDATE`,
+		);
+		const activeKeyRows = await tx.execute<{ id: string }>(sql`
+			SELECT ${tables.apiKey.id} AS id
+			FROM ${tables.apiKey}
+			WHERE ${tables.apiKey.projectId} = ${project.id}
+				AND ${tables.apiKey.description} = 'Dev Plan API Key'
+				AND ${tables.apiKey.status} = 'active'
+			ORDER BY ${tables.apiKey.createdAt} DESC
+			LIMIT 1
+		`);
+		const activeApiKeyId = activeKeyRows.rows[0]?.id ?? null;
+		if (activeApiKeyId !== apiKeyId) {
+			throw new HTTPException(409, {
+				message: "The API key was already rotated. Try again.",
+			});
+		}
+
 		await tx
 			.update(tables.apiKey)
 			.set({ status: "deleted" })
-			.where(eq(tables.apiKey.projectId, project.id));
+			.where(
+				and(
+					eq(tables.apiKey.projectId, project.id),
+					eq(tables.apiKey.description, "Dev Plan API Key"),
+					eq(tables.apiKey.status, "active"),
+				),
+			);
 
-		await tx.insert(tables.apiKey).values({
-			token: newToken,
-			projectId: project.id,
-			description: "Dev Plan API Key",
-			createdBy: user.id,
-		});
+		const [newApiKey] = await tx
+			.insert(tables.apiKey)
+			.values({
+				...hashApiKeyForStorage(newToken),
+				projectId: project.id,
+				description: "Dev Plan API Key",
+				createdBy: user.id,
+			})
+			.returning({ id: tables.apiKey.id });
+
+		return newApiKey.id;
 	});
 
 	await logAuditEvent({
@@ -2839,6 +2899,7 @@ devPlans.openapi(rotateApiKey, async (c) => {
 
 	return c.json({
 		apiKey: newToken,
+		apiKeyId: newApiKeyId,
 	});
 });
 

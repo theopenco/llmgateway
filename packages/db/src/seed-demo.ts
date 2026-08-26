@@ -564,6 +564,8 @@ async function seedDemo() {
 		const { note: _note, ...row } = k;
 		await upsertById(tables.apiKey, {
 			...row,
+			tokenHash: null,
+			tokenMasked: null,
 			status: "active",
 			keyType: "user",
 		});

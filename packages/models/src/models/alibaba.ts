@@ -571,6 +571,7 @@ export const alibabaModels = [
 				providerId: "nebius",
 				stability: "unstable",
 				externalId: "Qwen/Qwen3-235B-A22B-Instruct-2507",
+				deactivatedAt: new Date("2026-08-31"),
 				inputPrice: "0.2e-6",
 				outputPrice: "0.6e-6",
 				requestPrice: "0",
@@ -1120,6 +1121,7 @@ export const alibabaModels = [
 			{
 				providerId: "nebius",
 				externalId: "Qwen/Qwen3-30B-A3B-Instruct-2507",
+				deactivatedAt: new Date("2026-08-31"),
 				inputPrice: "0.1e-6",
 				outputPrice: "0.3e-6",
 				requestPrice: "0",
@@ -3945,6 +3947,7 @@ export const alibabaModels = [
 			{
 				providerId: "nebius",
 				externalId: "Qwen/Qwen3-Embedding-8B",
+				deactivatedAt: new Date("2026-08-31"),
 				inputPrice: "0.01e-6",
 				outputPrice: "0",
 				requestPrice: "0",
