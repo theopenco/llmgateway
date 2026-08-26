@@ -1001,6 +1001,7 @@ export function transformResponseToOpenai(
 							message: {
 								role: "assistant",
 								content: content,
+								...(images && images.length > 0 && { images }),
 								...(reasoningContent !== null && {
 									reasoning: reasoningContent,
 								}),

@@ -51,6 +51,45 @@ describe("parseProviderResponse", () => {
 	});
 
 	describe("openai responses format reasoning", () => {
+		it("extracts Muse images and usage from Responses output", () => {
+			const result = parseProviderResponse("meta", "muse-image-1.0", {
+				id: "resp_muse",
+				status: "completed",
+				output: [
+					{
+						type: "reasoning",
+						summary: [{ type: "summary_text", text: "Planning the image" }],
+					},
+					{
+						type: "image_generation_call",
+						result: "UklGRmFrZQ==",
+					},
+				],
+				usage: {
+					input_tokens: 9520,
+					output_tokens: 443,
+					total_tokens: 9963,
+					input_tokens_details: { cached_tokens: 7936 },
+					output_tokens_details: { reasoning_tokens: 160 },
+				},
+			});
+
+			expect(result.content).toBe("Image generated");
+			expect(result.images).toEqual([
+				{
+					type: "image_url",
+					image_url: {
+						url: "data:image/webp;base64,UklGRmFrZQ==",
+					},
+				},
+			]);
+			expect(result.reasoningContent).toBe("Planning the image");
+			expect(result.promptTokens).toBe(9520);
+			expect(result.completionTokens).toBe(443);
+			expect(result.cachedTokens).toBe(7936);
+			expect(result.reasoningTokens).toBe(160);
+		});
+
 		it("extracts encrypted reasoning payloads into reasoningDetails", () => {
 			const json = {
 				id: "resp_123",

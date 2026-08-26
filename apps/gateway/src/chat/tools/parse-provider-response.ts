@@ -834,6 +834,27 @@ export function parseProviderResponse(
 				const messageOutput = json.output.find(
 					(item: any) => item.type === "message",
 				);
+				const imageOutputs = json.output.filter(
+					(
+						item: Record<string, unknown>,
+					): item is Record<string, unknown> & { result: string } =>
+						item.type === "image_generation_call" &&
+						typeof item.result === "string" &&
+						item.result.length > 0,
+				);
+				if (imageOutputs.length > 0) {
+					images = imageOutputs.map(
+						(
+							item: Record<string, unknown> & { result: string },
+						): ImageObject => ({
+							type: "image_url",
+							image_url: {
+								url: `data:image/webp;base64,${item.result}`,
+							},
+						}),
+					);
+					content = imageLabel;
+				}
 				// A response can carry several reasoning items (e.g. one before
 				// each tool call), so collect them all once — both the summary text
 				// and the encrypted payloads below are derived from every item.
@@ -880,10 +901,11 @@ export function parseProviderResponse(
 				// Extract message content. With multiple phased messages, join
 				// them so nothing is dropped from the chat-completions surface.
 				if (allMessageOutputs.length > 1) {
-					content = allMessageOutputs
-						.map((m: { text: string }) => m.text)
-						.filter(Boolean)
-						.join("\n\n");
+					content =
+						allMessageOutputs
+							.map((m: { text: string }) => m.text)
+							.filter(Boolean)
+							.join("\n\n") || content;
 				} else if (messageOutput?.content?.[0]?.text) {
 					content = messageOutput.content[0].text;
 				}
