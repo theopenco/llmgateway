@@ -305,7 +305,6 @@ describe("fallback and error status code handling", () => {
 				modelId,
 				providerId,
 				modelProviderMappingId: mappingId,
-				usedMode: "credits",
 				minuteTimestamp,
 				logsCount: totalRequests,
 				errorsCount,
@@ -324,7 +323,6 @@ describe("fallback and error status code handling", () => {
 				target: [
 					tables.modelProviderMappingHistory.modelProviderMappingId,
 					tables.modelProviderMappingHistory.minuteTimestamp,
-					tables.modelProviderMappingHistory.usedMode,
 				],
 				set: {
 					logsCount: totalRequests,

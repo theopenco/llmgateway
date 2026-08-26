@@ -24,7 +24,6 @@ import { deriveStabilityMetrics, getProviderIcon } from "@llmgateway/shared";
 import type { HistoryWindow } from "@/components/history-chart";
 import type { PageWindow } from "@/lib/page-window";
 import type { ModelProviderMappingEntry } from "@/lib/types";
-import type { UsageMode } from "@/lib/usage-mode";
 
 function toHistoryWindow(pageWindow: PageWindow): HistoryWindow {
 	const map: Record<PageWindow, HistoryWindow> = {
@@ -67,7 +66,6 @@ function SortableHeader({
 	currentSortOrder,
 	search,
 	pageWindow,
-	usageMode,
 }: {
 	label: string;
 	sortKey: MappingSortBy;
@@ -75,14 +73,12 @@ function SortableHeader({
 	currentSortOrder: SortOrder;
 	search: string;
 	pageWindow?: PageWindow;
-	usageMode: UsageMode;
 }) {
 	const isActive = currentSortBy === sortKey;
 	const nextOrder = isActive && currentSortOrder === "desc" ? "asc" : "desc";
 	const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
 	const windowParam = pageWindow ? `&window=${pageWindow}` : "";
-	const modeParam = usageMode === "total" ? "" : `&mode=${usageMode}`;
-	const href = `/model-provider-mappings?sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${windowParam}${modeParam}`;
+	const href = `/model-provider-mappings?sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${windowParam}`;
 
 	return (
 		<Link
@@ -131,11 +127,9 @@ function formatPrice(price: string | null) {
 function MappingRow({
 	mapping,
 	externalWindow,
-	usageMode,
 }: {
 	mapping: ModelProviderMappingEntry;
 	externalWindow?: HistoryWindow;
-	usageMode: UsageMode;
 }) {
 	const [expanded, setExpanded] = useState(false);
 	const ProviderIcon = getProviderIcon(mapping.providerId);
@@ -152,12 +146,9 @@ function MappingRow({
 				mapping.providerId,
 				mapping.modelId,
 				window,
-				undefined,
-				undefined,
-				usageMode,
 			);
 		},
-		[mapping.providerId, mapping.modelId, usageMode],
+		[mapping.providerId, mapping.modelId],
 	);
 
 	return (
@@ -295,14 +286,12 @@ export function MappingsTable({
 	sortOrder = "desc",
 	search = "",
 	pageWindow,
-	usageMode = "total",
 }: {
 	mappings: ModelProviderMappingEntry[];
 	sortBy?: MappingSortBy;
 	sortOrder?: SortOrder;
 	search?: string;
 	pageWindow?: PageWindow;
-	usageMode?: UsageMode;
 }) {
 	const externalWindow = pageWindow ? toHistoryWindow(pageWindow) : undefined;
 
@@ -315,7 +304,6 @@ export function MappingsTable({
 				currentSortOrder={sortOrder}
 				search={search}
 				pageWindow={pageWindow}
-				usageMode={usageMode}
 			/>
 		</TableHead>
 	);
@@ -359,7 +347,6 @@ export function MappingsTable({
 							key={m.id}
 							mapping={m}
 							externalWindow={externalWindow}
-							usageMode={usageMode}
 						/>
 					))
 				)}

@@ -331,7 +331,6 @@ describe("Custom Provider", () => {
 				modelId: "gpt-4o-mini",
 				providerId: "openai",
 				modelProviderMappingId: ROUTING_METRIC_MAPPING_ID,
-				usedMode: "credits",
 				minuteTimestamp,
 				logsCount: 100,
 				errorsCount: 0,

@@ -24,7 +24,6 @@ import { deriveStabilityMetrics } from "@llmgateway/shared";
 import type { HistoryWindow } from "@/components/history-chart";
 import type { PageWindow } from "@/lib/page-window";
 import type { ModelStats } from "@/lib/types";
-import type { UsageMode } from "@/lib/usage-mode";
 
 function toHistoryWindow(pageWindow: PageWindow): HistoryWindow {
 	const map: Record<PageWindow, HistoryWindow> = {
@@ -71,7 +70,6 @@ function SortableHeader({
 	currentSortOrder,
 	search,
 	pageWindow,
-	usageMode,
 }: {
 	label: string;
 	sortKey: ModelSortBy;
@@ -79,15 +77,13 @@ function SortableHeader({
 	currentSortOrder: SortOrder;
 	search: string;
 	pageWindow?: PageWindow;
-	usageMode: UsageMode;
 }) {
 	const isActive = currentSortBy === sortKey;
 	const nextOrder = isActive && currentSortOrder === "desc" ? "asc" : "desc";
 
 	const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
 	const windowParam = pageWindow ? `&window=${pageWindow}` : "";
-	const modeParam = usageMode === "total" ? "" : `&mode=${usageMode}`;
-	const href = `/models?page=1&sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${windowParam}${modeParam}`;
+	const href = `/models?page=1&sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${windowParam}`;
 
 	return (
 		<Link
@@ -142,11 +138,9 @@ function formatPrice(price: string | null) {
 function ModelRow({
 	model,
 	externalWindow,
-	usageMode,
 }: {
 	model: ModelStats;
 	externalWindow?: HistoryWindow;
-	usageMode: UsageMode;
 }) {
 	const [expanded, setExpanded] = useState(false);
 	const stability = deriveStabilityMetrics(
@@ -158,9 +152,9 @@ function ModelRow({
 
 	const fetchData = useCallback(
 		async (window: HistoryWindow) => {
-			return await getModelHistory(model.id, window, usageMode);
+			return await getModelHistory(model.id, window);
 		},
-		[model.id, usageMode],
+		[model.id],
 	);
 
 	const hasTokenPricing = model.inputPrice && parseFloat(model.inputPrice) > 0;
@@ -292,14 +286,12 @@ export function ModelsTable({
 	sortOrder = "desc",
 	search = "",
 	pageWindow,
-	usageMode = "total",
 }: {
 	models: ModelStats[];
 	sortBy?: ModelSortBy;
 	sortOrder?: SortOrder;
 	search?: string;
 	pageWindow?: PageWindow;
-	usageMode?: UsageMode;
 }) {
 	const externalWindow = pageWindow ? toHistoryWindow(pageWindow) : undefined;
 
@@ -312,7 +304,6 @@ export function ModelsTable({
 				currentSortOrder={sortOrder}
 				search={search}
 				pageWindow={pageWindow}
-				usageMode={usageMode}
 			/>
 		</TableHead>
 	);
@@ -351,12 +342,7 @@ export function ModelsTable({
 					</TableRow>
 				) : (
 					models.map((m) => (
-						<ModelRow
-							key={m.id}
-							model={m}
-							externalWindow={externalWindow}
-							usageMode={usageMode}
-						/>
+						<ModelRow key={m.id} model={m} externalWindow={externalWindow} />
 					))
 				)}
 			</TableBody>

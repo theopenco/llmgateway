@@ -24,6 +24,13 @@ export function isHourlyRange(from: Date, to: Date): boolean {
 	);
 }
 
+// The minute and hourly history tables share identical metric column names and
+// differ only in their timestamp column. These pickers return the right source
+// for a window plus its bucket column, so aggregate/timeseries queries can serve
+// both without duplicating every SUM(). The hourly table is cast to the minute
+// table's type because the metric columns line up exactly at runtime; callers
+// must use the returned `bucket` for any timestamp predicate (never
+// `table.minuteTimestamp`, which does not exist on the hourly table).
 export function pickMappingHistoryTable(hourly: boolean): {
 	table: typeof modelProviderMappingHistory;
 	bucket:
