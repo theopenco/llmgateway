@@ -1709,27 +1709,6 @@
       "when": 1787676795029,
       "tag": "1787676795_fixed_roxanne_simpson",
       "breakpoints": true
-    },
-    {
-      "idx": 244,
-      "version": "8",
-      "when": 1787760935208,
-      "tag": "1787760935_dashing_smasher",
-      "breakpoints": true
-    },
-    {
-      "idx": 245,
-      "version": "8",
-      "when": 1787762536795,
-      "tag": "1787762536_sleepy_doctor_strange",
-      "breakpoints": true
-    },
-    {
-      "idx": 246,
-      "version": "8",
-      "when": 1787767378409,
-      "tag": "1787767378_giant_iron_monger",
-      "breakpoints": true
     }
   ]
 }
