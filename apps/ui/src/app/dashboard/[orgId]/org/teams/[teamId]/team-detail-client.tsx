@@ -121,6 +121,26 @@ export function OrganizationTeamDetailClient() {
 		(project) => ({ id: project.id, name: project.name }),
 	);
 
+	// When SCIM group mappings exist, the IdP drives team assignment; warn where
+	// admins would otherwise manage members by hand.
+	const { data: scimStatus } = api.useQuery(
+		"get",
+		"/sso/scim",
+		{ params: { query: { organizationId } } },
+		{ enabled: !!organizationId && isEnterprise },
+	);
+	const scimEnabled = scimStatus?.configured === true;
+	const { data: teamMappingsData } = api.useQuery(
+		"get",
+		"/sso/team-mappings",
+		{ params: { query: { organizationId } } },
+		{ enabled: !!organizationId && isEnterprise && scimEnabled },
+	);
+	const teamMappings = teamMappingsData?.mappings ?? [];
+	const mappedGroups = teamMappings
+		.filter((mapping) => mapping.teamId === teamId)
+		.map((mapping) => mapping.groupName);
+
 	const team = data?.team;
 	const [name, setName] = useState("");
 	const [selectedProjects, setSelectedProjects] = useState<string[]>([]);
@@ -538,6 +558,20 @@ export function OrganizationTeamDetailClient() {
 					</CardDescription>
 				</CardHeader>
 				<CardContent className="space-y-4">
+					{scimEnabled && teamMappings.length > 0 && (
+						<Alert>
+							<ShieldAlert className="h-4 w-4" />
+							<AlertTitle>Managed by directory sync</AlertTitle>
+							<AlertDescription>
+								{mappedGroups.length > 0
+									? `IdP group${mappedGroups.length === 1 ? "" : "s"} ${mappedGroups.join(", ")} map${mappedGroups.length === 1 ? "s" : ""} to this team. `
+									: "SCIM group-to-team mappings are configured for this organization. "}
+								Developers in mapped groups are assigned automatically;
+								unassigning them here only lasts until the next sync. Manual
+								assignments to a team are kept.
+							</AlertDescription>
+						</Alert>
+					)}
 					{isEnterprise && eligibleMembers.length > 0 && (
 						<div className="flex flex-col gap-2 sm:flex-row">
 							<Label htmlFor="team-member-assignment" className="sr-only">
