@@ -40,11 +40,8 @@ export async function getOrCreatePlaygroundApiKey(
 	existingToken?: string,
 ): Promise<PlaygroundApiKeyResult> {
 	return await cdb.transaction(async (tx) => {
-		// Serialize concurrent first-use requests for this (project, user) pair
-		// only, so one member provisioning a key never blocks or rotates another
-		// member's key on the same project.
 		await tx.execute(
-			sql`SELECT pg_advisory_xact_lock(hashtext(${projectId}), hashtext(${userId}))`,
+			sql`SELECT ${tables.project.id} FROM ${tables.project} WHERE ${tables.project.id} = ${projectId} FOR UPDATE`,
 		);
 
 		const [key] = await tx

@@ -157,7 +157,7 @@ describe("resolvePlaygroundToken", () => {
 		).toBe(1);
 	});
 
-	test("provisions concurrent members without contending", async () => {
+	test("gives concurrent members one key each", async () => {
 		const project = await db.query.project.findFirst();
 		if (!project) {
 			throw new Error("Test project was not created");
