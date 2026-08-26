@@ -2370,18 +2370,34 @@ export function AllModels({
 
 	// Capability filter keys that are active, used to pin the matching icon to
 	// the front of the features column in the table view.
-	const pinnedCapabilityKeys = useMemo(
-		() =>
-			(
-				Object.entries(filters.capabilities) as Array<
-					[keyof typeof filters.capabilities, boolean]
-				>
-			)
-				.filter(([, pressed]) => pressed)
-				.map(([key]) => key)
-				.filter((key) => CAPABILITY_LABEL_BY_FILTER_KEY[key]),
-		[filters.capabilities],
-	);
+	const pinnedCapabilityKeys = useMemo(() => {
+		const keys = (
+			Object.entries(filters.capabilities) as Array<
+				[keyof typeof filters.capabilities, boolean]
+			>
+		)
+			.filter(([, pressed]) => pressed)
+			.map(([key]) => key)
+			.filter((key) => CAPABILITY_LABEL_BY_FILTER_KEY[key]);
+
+		if (!hideUseCaseFilter) {
+			if (filters.category === "reasoning") {
+				keys.push("reasoning");
+			} else if (filters.category === "multimodal") {
+				keys.push("vision");
+			} else if (filters.category === "image") {
+				keys.push("imageGeneration");
+			} else if (filters.category === "code") {
+				keys.push("tools", "streaming");
+			} else if (filters.category === "chat") {
+				keys.push("streaming");
+			} else if (filters.category === "creative") {
+				keys.push("streaming");
+			}
+		}
+
+		return Array.from(new Set(keys));
+	}, [filters.capabilities, filters.category, hideUseCaseFilter]);
 
 	const renderTableView = () => {
 		return (
