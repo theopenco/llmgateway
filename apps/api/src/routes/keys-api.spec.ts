@@ -10,6 +10,7 @@ import {
 	waitForSwrMirrorWrites,
 } from "@llmgateway/cache";
 import { and, cdb, db, eq, getTableName, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 const ONE_MINUTE_MS = 60 * 1000;
@@ -41,7 +42,7 @@ async function seedOtherMemberKey(budget: {
 	});
 	await db.insert(tables.apiKey).values({
 		id: "other-api-key-id",
-		token: "other-api-key-token",
+		...hashApiKeyForStorage("other-api-key-token"),
 		projectId: "test-project-id",
 		description: "Other Developer Key",
 		createdBy: "other-user-id",
@@ -83,7 +84,7 @@ describe("keys route", () => {
 		// Create test API key
 		await db.insert(tables.apiKey).values({
 			id: "test-api-key-id",
-			token: "test-token",
+			...hashApiKeyForStorage("test-token"),
 			projectId: "test-project-id",
 			description: "Test API Key",
 			createdBy: "test-user-id",
@@ -162,7 +163,7 @@ describe("keys route", () => {
 	test("GET /keys/api returns the managed playground row", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "playground-key",
-			token: "playground-token",
+			...hashApiKeyForStorage("playground-token"),
 			projectId: "test-project-id",
 			description: "Playground",
 			kind: "playground",
@@ -194,7 +195,7 @@ describe("keys route", () => {
 	test("managed playground keys reject all mutation routes", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "playground-key",
-			token: "playground-token",
+			...hashApiKeyForStorage("playground-token"),
 			projectId: "test-project-id",
 			description: "Playground",
 			kind: "playground",
@@ -284,7 +285,6 @@ describe("keys route", () => {
 			},
 		});
 		expect(platformKey?.keyType).toBe("platform_secret");
-		expect(platformKey?.token).toBeNull();
 		expect(platformKey?.tokenHash).toBe(
 			getApiKeyFingerprint(json.platformKey.token),
 		);
@@ -341,7 +341,7 @@ describe("keys route", () => {
 	test("GET /keys/platform lists masked SDK platform secrets", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "test-platform-key-id",
-			token: "sk_test_platform_secret",
+			...hashApiKeyForStorage("sk_test_platform_secret"),
 			projectId: "test-project-id",
 			description: "Platform Secret",
 			keyType: "platform_secret",
@@ -365,7 +365,7 @@ describe("keys route", () => {
 	test("DELETE /keys/platform/{id} revokes a platform secret", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "test-platform-key-id",
-			token: "sk_test_platform_secret",
+			...hashApiKeyForStorage("sk_test_platform_secret"),
 			projectId: "test-project-id",
 			description: "Platform Secret",
 			keyType: "platform_secret",
@@ -393,7 +393,7 @@ describe("keys route", () => {
 	test("GET/POST/DELETE /keys/platform rejects organization developers", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "test-developer-platform-key-id",
-			token: "sk_test_developer_platform_secret",
+			...hashApiKeyForStorage("sk_test_developer_platform_secret"),
 			projectId: "test-project-id",
 			description: "Developer Platform Secret",
 			keyType: "platform_secret",
@@ -511,7 +511,6 @@ describe("keys route", () => {
 				},
 			},
 		});
-		expect(apiKey?.token).toBeNull();
 		expect(apiKey?.tokenHash).toBe(getApiKeyFingerprint(json.apiKey.token));
 		expect(apiKey?.tokenMasked).not.toContain(json.apiKey.token);
 		expect(apiKey?.description).toBe("Keep Me");
@@ -566,7 +565,7 @@ describe("keys route", () => {
 		const apiKeyId = `cache-test-api-key-${crypto.randomUUID()}`;
 		await db.insert(tables.apiKey).values({
 			id: apiKeyId,
-			token: `${apiKeyId}-token`,
+			...hashApiKeyForStorage(`${apiKeyId}-token`),
 			projectId: "test-project-id",
 			description: "IAM Cache Test Key",
 			createdBy: "test-user-id",
@@ -643,7 +642,7 @@ describe("keys route", () => {
 			});
 			await db.insert(tables.apiKey).values({
 				id: "victim-api-key-id",
-				token: "victim-api-key-token",
+				...hashApiKeyForStorage("victim-api-key-token"),
 				projectId: "victim-project-id",
 				description: "Victim Key",
 				createdBy: "victim-user-id",
@@ -809,7 +808,6 @@ describe("keys route", () => {
 		expect(apiKey?.periodUsageLimit).toBe("5");
 		expect(apiKey?.periodUsageDurationValue).toBe(2);
 		expect(apiKey?.periodUsageDurationUnit).toBe("day");
-		expect(apiKey?.token).toBeNull();
 		expect(apiKey?.tokenHash).toBe(getApiKeyFingerprint(json.apiKey.token));
 	});
 
@@ -1279,7 +1277,7 @@ describe("keys route", () => {
 		for (let i = 2; i <= 5; i++) {
 			await db.insert(tables.apiKey).values({
 				id: `test-api-key-id-${i}`,
-				token: `test-token-${i}`,
+				...hashApiKeyForStorage(`test-token-${i}`),
 				projectId: "test-project-id",
 				description: `Test API Key ${i}`,
 				status: "active",
@@ -1318,7 +1316,7 @@ describe("keys route", () => {
 		// beforeEach created 1 active key; add 1 more to reach the override of 2.
 		await db.insert(tables.apiKey).values({
 			id: "test-api-key-id-2",
-			token: "test-token-2",
+			...hashApiKeyForStorage("test-token-2"),
 			projectId: "test-project-id",
 			description: "Test API Key 2",
 			status: "active",

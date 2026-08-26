@@ -128,7 +128,6 @@ import {
 	isPremiumServiceTier,
 	resolveServedServiceTier,
 	googleProviderSupportsAudioFormat,
-	hasProviderKey,
 	InvalidFileContentError,
 	managedCredentialOptions,
 	parseGoogleUpstreamDocumentError,
@@ -5922,7 +5921,7 @@ chat.openapi(completions, async (c) => {
 	// Check email verification and rate limits for free models (only when using credits/environment tokens)
 	if (
 		isModelTrulyFree((finalModelInfo ?? modelInfo) as ModelDefinition) &&
-		!hasProviderKey(providerKey)
+		!providerKey
 	) {
 		await validateFreeModelUsage(
 			c,

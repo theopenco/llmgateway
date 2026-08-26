@@ -80,7 +80,6 @@ import {
 	type DevPlanTier,
 } from "@llmgateway/shared";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
-import { maskToken } from "@llmgateway/shared/mask-token";
 
 import { getStripe, isInternationalPaymentMethod } from "./payments.js";
 
@@ -181,8 +180,7 @@ async function getOrCreatePersonalOrgApiKey(
 	if (existingKey) {
 		return {
 			id: existingKey.id,
-			maskedToken:
-				existingKey.tokenMasked ?? maskToken(existingKey.token ?? ""),
+			maskedToken: existingKey.tokenMasked,
 		};
 	}
 

@@ -184,7 +184,7 @@ type CredentialRow = typeof tables.providerKey.$inferSelect;
 /**
  * Serializes a credential for the admin dashboard. Deliberately an explicit
  * allowlist rather than a spread: `row` is a full `provider_key` record
- * carrying `token`/`tokenCiphertext`, and neither may ever leave this process.
+ * carrying `tokenCiphertext`, which must never leave this process.
  * Once stored, a token is write-only — an operator identifies a credential by
  * its mask, its note, and `tokenHash`, which matches `log.usedApiKeyHash` on
  * the requests it served.
@@ -202,7 +202,7 @@ function toCredential(row: CredentialRow) {
 		config: row.config ?? {},
 		usageLimit: row.usageLimit,
 		usage: row.usage,
-		maskedToken: row.tokenMasked ?? maskToken(row.token ?? ""),
+		maskedToken: row.tokenMasked,
 		tokenHash: row.tokenHash,
 		allowedModels: row.allowedModels,
 	};
@@ -896,7 +896,7 @@ adminProviderCredentials.openapi(getSpendOverview, async (c) => {
 					variant: key.variant,
 					region: key.region,
 					comment: key.comment,
-					maskedToken: key.tokenMasked ?? maskToken(key.token ?? ""),
+					maskedToken: key.tokenMasked,
 					status: key.status,
 					usage: key.usage,
 					usageLimit: key.usageLimit,
@@ -977,7 +977,6 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 			managed: true,
 			organizationId: null,
 			provider: body.provider,
-			token: null,
 			tokenCiphertext: encryptProviderKey(
 				body.token,
 				id,
@@ -1111,7 +1110,6 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 	}
 
 	if (body.token !== undefined) {
-		updates.token = null;
 		updates.tokenCiphertext = encryptProviderKey(
 			body.token,
 			existing.id,

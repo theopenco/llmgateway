@@ -303,7 +303,7 @@ platformSessions.openapi(createSession, async (c) => {
 	return c.json(
 		{
 			sessionToken: token,
-			publishableKey: publishable?.token ?? null,
+			publishableKey: publishable?.tokenMasked ?? null,
 			walletId: wallet.id,
 			endCustomerId: endCustomer.id,
 			expiresAt: expiresAt.toISOString(),

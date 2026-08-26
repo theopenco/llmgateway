@@ -185,10 +185,7 @@ export async function findApiKeyByToken(
 				.from(apiKeyTable)
 				.where(
 					and(
-						or(
-							eq(apiKeyTable.token, token),
-							inArray(apiKeyTable.tokenHash, tokenHashes),
-						),
+						inArray(apiKeyTable.tokenHash, tokenHashes),
 						ne(apiKeyTable.keyType, "end_user_customer"),
 						ne(apiKeyTable.keyType, "platform_secret"),
 					),
@@ -246,12 +243,7 @@ export async function findApiKeyByToken(
 						eq(apiKeyTable.status, "active"),
 					),
 				)
-				.where(
-					or(
-						eq(endUserSessionTable.token, token),
-						inArray(endUserSessionTable.tokenHash, tokenHashes),
-					),
-				)
+				.where(inArray(endUserSessionTable.tokenHash, tokenHashes))
 				.limit(1);
 			const row = rows[0];
 			if (!row || row.session.status !== "active") {

@@ -219,8 +219,8 @@ function serializeApiKey<T extends ApiKeyResponseRecord>(apiKey: T) {
 	};
 }
 
-function getMaskedApiKey(apiKey: Pick<ApiKeyRecord, "token" | "tokenMasked">) {
-	return apiKey.tokenMasked ?? maskToken(apiKey.token ?? "");
+function getMaskedApiKey(apiKey: Pick<ApiKeyRecord, "tokenMasked">) {
+	return apiKey.tokenMasked;
 }
 
 export function hasPeriodConfigChanged(
@@ -1380,7 +1380,6 @@ keysApi.openapi(list, async (c) => {
 		apiKeys: apiKeys.map((key) => ({
 			...serializeApiKey(key),
 			maskedToken: getMaskedApiKey(key),
-			token: undefined,
 			ownerBudget: isPlaygroundApiKey(key)
 				? null
 				: (ownerBudgets.get(key.id) ?? null),
@@ -1778,7 +1777,6 @@ keysApi.openapi(updateStatus, async (c) => {
 		apiKey: {
 			...serializeApiKey(updatedApiKey),
 			maskedToken: getMaskedApiKey(updatedApiKey),
-			token: undefined,
 		},
 	});
 });
@@ -2156,7 +2154,6 @@ keysApi.openapi(updateUsageLimit, async (c) => {
 		apiKey: {
 			...serializeApiKey(updatedApiKey),
 			maskedToken: getMaskedApiKey(updatedApiKey),
-			token: undefined,
 		},
 	});
 });

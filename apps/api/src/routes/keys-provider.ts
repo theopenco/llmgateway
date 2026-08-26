@@ -191,7 +191,7 @@ export function toPublicProviderKey(row: ProviderKeyRow) {
 		organizationId: row.organizationId,
 		usageLimit: row.usageLimit,
 		usage: row.usage,
-		maskedToken: row.tokenMasked ?? maskToken(row.token ?? ""),
+		maskedToken: row.tokenMasked,
 		allowedModels: row.allowedModels,
 	};
 }
@@ -658,7 +658,6 @@ keysProvider.openapi(create, async (c) => {
 		.insert(tables.providerKey)
 		.values({
 			id: providerKeyId,
-			token: null,
 			tokenCiphertext,
 			tokenMasked,
 			tokenHash: getApiKeyFingerprint(userToken),
