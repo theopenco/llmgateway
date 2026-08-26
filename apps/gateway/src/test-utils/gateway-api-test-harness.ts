@@ -245,6 +245,7 @@ export function createGatewayApiTestHarness() {
 					providerId,
 					modelProviderMappingId: `${modelId}::${providerId}`,
 					minuteTimestamp,
+					usedMode: "credits",
 					logsCount: totalRequests,
 					errorsCount,
 					clientErrorsCount: 0,
@@ -262,6 +263,7 @@ export function createGatewayApiTestHarness() {
 					target: [
 						tables.modelProviderMappingHistory.modelProviderMappingId,
 						tables.modelProviderMappingHistory.minuteTimestamp,
+						tables.modelProviderMappingHistory.usedMode,
 					],
 					set: {
 						logsCount: totalRequests,
