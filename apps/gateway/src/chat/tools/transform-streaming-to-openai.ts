@@ -1538,6 +1538,7 @@ export function transformStreamingToOpenai(
 		case "gonka24":
 		case "ranoai":
 		case "baidu":
+		case "consensusprotocol":
 		case "granite":
 		case "tundra":
 		case "permafrost":

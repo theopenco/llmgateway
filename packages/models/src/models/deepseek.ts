@@ -973,6 +973,31 @@ export const deepseekModels = [
 				tools: true,
 				jsonOutput: true,
 			},
+			{
+				providerId: "consensusprotocol",
+				externalId: "DeepSeek-V4-Flash",
+				inputPrice: "0.13e-6",
+				outputPrice: "0.27e-6",
+				cachedInputPrice: "0.02e-6",
+				requestPrice: "0",
+				contextSize: 524288,
+				maxOutput: 393216,
+				quantization: "int8",
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "high", "max"],
+				vision: false,
+				tools: true,
+				// tool_choice "none" leaks a raw <|DSML|tool_calls> template as
+				// assistant content instead of suppressing tools, so it downgrades to
+				// "auto" instead.
+				supportedToolChoices: ["auto", "required", "function"],
+				// An assistant prefill turn comes back with a stray "</think>"
+				// prefixed to the content, so the prefill is rewritten away instead.
+				supportsAssistantPrefill: false,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
 		],
 	},
 ] as const satisfies ModelDefinition[];

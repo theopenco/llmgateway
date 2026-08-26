@@ -1610,6 +1610,12 @@ importers:
         specifier: 10.5.0
         version: 10.5.0
 
+  packages/benchmarks:
+    dependencies:
+      '@llmgateway/models':
+        specifier: workspace:*
+        version: link:../models
+
   packages/cache:
     dependencies:
       '@llmgateway/logger':

@@ -7,6 +7,7 @@
 		"packages/*"
 	],
 	"scripts": {
+		"benchmark": "pnpm --filter @llmgateway/benchmarks benchmark",
 		"build": "TURBO_TOKEN=turbotokenoss turbo run build 2>&1",
 		"build:ci": "TURBO_TOKEN=turbotokenoss turbo run build --concurrency=1 2>&1",
 		"build:core": "TURBO_TOKEN=turbotokenoss turbo run build --filter=!ui --filter=!docs --filter=!playground --filter=!admin --filter=!code --filter=!airside",
