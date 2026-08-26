@@ -155,10 +155,22 @@ function qualitySummary(trials: BenchmarkTrial[]): BenchmarkQualitySummary {
 	const passed = evaluable.filter(
 		(trial) => trial.evaluation?.passed === true,
 	).length;
+	const instructionTotals = evaluable.reduce(
+		(totals, trial) => ({
+			passed:
+				totals.passed + (trial.evaluation?.metrics?.instructionsPassed ?? 0),
+			total: totals.total + (trial.evaluation?.metrics?.instructionsTotal ?? 0),
+		}),
+		{ passed: 0, total: 0 },
+	);
 	return {
 		attempted: evaluable.length,
 		passed,
 		score: evaluable.length === 0 ? null : passed / evaluable.length,
+		instructionScore:
+			instructionTotals.total === 0
+				? null
+				: instructionTotals.passed / instructionTotals.total,
 		firstPassScore:
 			firstRuns.length === 0
 				? null

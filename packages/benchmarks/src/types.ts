@@ -240,6 +240,7 @@ export interface BenchmarkQualitySummary {
 	attempted: number;
 	passed: number;
 	score: number | null;
+	instructionScore: number | null;
 	firstPassScore: number | null;
 	uniqueAnswers: number;
 	answerEntropy: number | null;

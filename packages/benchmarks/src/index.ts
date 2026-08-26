@@ -1,4 +1,5 @@
 export * from "./adapters.js";
+export * from "./external/ifeval.js";
 export * from "./reporters.js";
 export * from "./runner.js";
 export * from "./statistics.js";

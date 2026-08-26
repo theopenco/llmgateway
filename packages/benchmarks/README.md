@@ -60,6 +60,48 @@ Performance includes header, first-event, first-reasoning, first-content, genera
 
 ## External suites and coding
 
-External datasets stay optional. Implement `BenchmarkSuiteAdapter` and load it with `loadExternalSuite()` to integrate suites such as LiveBench, IFEval, BFCL, or LongBench without adding them to the package dependency graph.
+External datasets stay optional. Implement `BenchmarkSuiteAdapter` and load it with `loadExternalSuite()` to integrate suites such as LiveBench, BFCL, or LongBench without adding them to the package dependency graph.
+
+### IFEval example
+
+The included `ifevalAdapter` loads the official [IFEval](https://github.com/google-research/google-research/tree/master/instruction_following_eval) JSONL dataset from a local path or URL. It reports strict prompt-level accuracy in `quality.score` and instruction-level accuracy in `quality.instructionScore`. `--external-mode loose` applies IFEval's relaxed response transformations.
+
+This example pins the dataset revision so repeated runs use the same prompts:
+
+```bash
+pnpm benchmark -- \
+  --model <model-id> \
+  --external ifeval \
+  --external-data https://raw.githubusercontent.com/google-research/google-research/807d4a2f41202059bac2446259d135a89ed3630a/instruction_following_eval/data/input_data.jsonl \
+  --external-limit 25 \
+  --no-budget \
+  --format markdown \
+  --output ifeval.md
+```
+
+The adapter implements the deterministic constraints that do not need IFEval's Python language detector or NLTK tokenizers. The pinned revision above provides 334 supported prompts out of 541. Prompts containing unsupported constraints are skipped as whole prompts so prompt-level scores remain meaningful. Use `--external-unsupported error` to audit dataset coverage instead. The Apache-2.0 IFEval source and dataset are not bundled.
+
+Programmatic use follows the same adapter contract:
+
+```ts
+import {
+  ifevalAdapter,
+  loadExternalSuite,
+  runBenchmark,
+} from "@llmgateway/benchmarks";
+
+const cases = await loadExternalSuite(ifevalAdapter, {
+  source: datasetPath,
+  limit: 25,
+  mode: "strict",
+});
+
+const result = await runBenchmark({
+  client: { url, apiKey },
+  targets,
+  cases,
+  budgetMs: null,
+});
+```
 
 Generated code is never executed in-process. `createSandboxedCodingCase()` accepts a caller-provided sandbox that compiles the TypeScript and runs hidden tests with its own isolation and timeout policy.

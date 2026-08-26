@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -60,5 +60,48 @@ describe("runBenchmarkCli", () => {
 
 		expect(exitCode).toBe(0);
 		expect(await readFile(output, "utf8")).toContain(expected);
+	});
+
+	it("runs the IFEval external adapter from JSONL", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "benchmarks-"));
+		temporaryDirectories.push(directory);
+		const dataset = join(directory, "ifeval.jsonl");
+		const output = join(directory, "report.json");
+		await writeFile(
+			dataset,
+			`${JSON.stringify({
+				key: 1,
+				prompt: "Do not use a comma.",
+				instruction_id_list: ["punctuation:no_comma"],
+				kwargs: [{}],
+			})}\n`,
+		);
+		vi.stubEnv("BENCHMARK_TEST_KEY", "key");
+		vi.stubGlobal("fetch", async () => streamResponse());
+
+		const exitCode = await runBenchmarkCli([
+			"--model",
+			"deepseek-v4-flash",
+			"--mapping",
+			"deepseek",
+			"--external",
+			"ifeval",
+			"--external-data",
+			dataset,
+			"--no-budget",
+			"--api-key-env",
+			"BENCHMARK_TEST_KEY",
+			"--output",
+			output,
+			"--quiet",
+		]);
+		const result = JSON.parse(await readFile(output, "utf8")) as {
+			summary: { targets: Array<{ quality: { instructionScore: number } }> };
+			trials: Array<{ caseId: string }>;
+		};
+
+		expect(exitCode).toBe(0);
+		expect(result.trials).toMatchObject([{ caseId: "ifeval-1" }]);
+		expect(result.summary.targets[0].quality.instructionScore).toBe(1);
 	});
 });

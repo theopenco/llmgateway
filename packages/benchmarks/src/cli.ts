@@ -5,6 +5,8 @@ import { writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
+import { loadExternalSuite } from "./adapters.js";
+import { ifevalAdapter } from "./external/ifeval.js";
 import { renderBenchmarkResult } from "./reporters.js";
 import { runBenchmark } from "./runner.js";
 import { getBuiltInProfile, getBuiltInSuite } from "./suites/index.js";
@@ -21,20 +23,26 @@ Options:
   --mapping <provider[:region]> Mapping selector; repeatable, comma-separated
   --profile <smoke|standard|load> Benchmark profile (default: smoke)
   --suite <core|capability|quality|performance|load> Legacy suite selector
+  --external <ifeval>          External benchmark adapter
+  --external-data <path|url>   External dataset JSONL file or URL
+  --external-limit <count>     Maximum external cases after filtering
+  --external-offset <count>    Skip supported external cases
+  --external-mode <strict|loose> IFEval evaluation mode (default: strict)
+  --external-unsupported <mode> Skip or error on unsupported cases (default: skip)
   --case <id>                  Run selected case; repeatable, comma-separated
   --runs <count>               Override measured runs for every case
   --warmup <count>             Override warm-up runs for every case
   --concurrency <count>        Concurrent target/case groups (default: 1)
-	--budget <milliseconds>      Wall-clock budget per target (default: 60000)
-	--no-budget                  Run every configured trial without a time budget
-	--seed <integer>             Reproducible generated-case seed (default: 1)
+  --budget <milliseconds>      Wall-clock budget per target (default: 60000)
+  --no-budget                  Run every configured trial without a time budget
+  --seed <integer>             Reproducible generated-case seed (default: 1)
   --reference <target|mapping> Reference target for answer agreement
   --url <chat-completions-url> Gateway endpoint
   --api-key-env <name>         API key environment variable
   --reasoning-effort <effort>  Override every case
   --max-tokens <count>         Override every case
   --temperature <number>       Override every case
-	--timeout <milliseconds>     Per-request timeout (default: 60000)
+  --timeout <milliseconds>     Per-request timeout (default: 60000)
   --format <json|markdown|html> Output format (default: JSON)
   --output <path>              Save output; .md/.html infer format
   --no-responses               Omit response and reasoning text from results
@@ -110,6 +118,12 @@ export async function runBenchmarkCli(args: string[]): Promise<number> {
 			budget: { type: "string" },
 			case: { type: "string", multiple: true },
 			concurrency: { type: "string" },
+			external: { type: "string" },
+			"external-data": { type: "string" },
+			"external-limit": { type: "string" },
+			"external-mode": { type: "string" },
+			"external-offset": { type: "string" },
+			"external-unsupported": { type: "string" },
 			format: { type: "string" },
 			help: { type: "boolean", short: "h" },
 			"include-deactivated": { type: "boolean" },
@@ -150,16 +164,42 @@ export async function runBenchmarkCli(args: string[]): Promise<number> {
 		mappings: csv(mappingValues),
 		includeDeactivated: values["include-deactivated"],
 	});
-	if (values.profile && values.suite) {
-		throw new Error("Use either --profile or --suite, not both");
+	const suiteSelectors = [values.profile, values.suite, values.external].filter(
+		Boolean,
+	);
+	if (suiteSelectors.length > 1) {
+		throw new Error("Use only one of --profile, --suite, or --external");
+	}
+	if (values.external && values.external !== "ifeval") {
+		throw new Error(`Unknown external benchmark: ${values.external}`);
+	}
+	if (values.external && !values["external-data"]) {
+		throw new Error("--external-data is required with --external");
+	}
+	const externalMode = values["external-mode"] ?? "strict";
+	if (!new Set(["loose", "strict"]).has(externalMode)) {
+		throw new Error("--external-mode must be strict or loose");
+	}
+	const externalUnsupported = values["external-unsupported"] ?? "skip";
+	if (!new Set(["error", "skip"]).has(externalUnsupported)) {
+		throw new Error("--external-unsupported must be skip or error");
 	}
 	const selectedCaseIds = csv(values.case);
-	const profile = values.suite
-		? null
-		: getBuiltInProfile(values.profile ?? "smoke");
-	const suite = values.suite
-		? getBuiltInSuite(values.suite)
-		: (profile?.cases ?? []);
+	const profile =
+		values.suite || values.external
+			? null
+			: getBuiltInProfile(values.profile ?? "smoke");
+	const suite = values.external
+		? await loadExternalSuite(ifevalAdapter, {
+				source: values["external-data"] as string,
+				limit: integer(values["external-limit"], "external-limit"),
+				offset: integer(values["external-offset"], "external-offset"),
+				mode: externalMode as "loose" | "strict",
+				unsupported: externalUnsupported as "error" | "skip",
+			})
+		: values.suite
+			? getBuiltInSuite(values.suite)
+			: (profile?.cases ?? []);
 	const cases = selectedCaseIds
 		? suite.filter((benchmarkCase) =>
 				selectedCaseIds.includes(benchmarkCase.id),
