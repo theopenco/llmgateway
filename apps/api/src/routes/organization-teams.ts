@@ -181,7 +181,11 @@ async function loadTeam(organizationId: string, teamId: string) {
 	const team = await db.query.organizationTeam.findFirst({
 		where: { id: { eq: teamId }, organizationId: { eq: organizationId } },
 		with: {
-			projects: { with: { project: { columns: { id: true, name: true } } } },
+			projects: {
+				with: {
+					project: { columns: { id: true, name: true, status: true } },
+				},
+			},
 			members: {
 				with: { user: { columns: { id: true, name: true, email: true } } },
 			},
@@ -198,8 +202,8 @@ async function loadTeam(organizationId: string, teamId: string) {
 		updatedAt: team.updatedAt,
 		budget: budgetFromTeam(team),
 		projects: team.projects
-			.filter((entry) => entry.project)
-			.map((entry) => entry.project!),
+			.filter((entry) => entry.project && entry.project.status !== "deleted")
+			.map((entry) => ({ id: entry.project!.id, name: entry.project!.name })),
 		members: team.members.map((member) => ({
 			id: member.id,
 			userId: member.userId,

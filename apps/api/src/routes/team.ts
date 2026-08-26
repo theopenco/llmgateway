@@ -210,13 +210,17 @@ async function getMemberTeamPolicy(teamId: string | null) {
 	}
 	const team = await db.query.organizationTeam.findFirst({
 		where: { id: { eq: teamId } },
-		with: { projects: true },
+		with: { projects: { with: { project: { columns: { status: true } } } } },
 	});
 	return team
 		? {
 				identity: { id: team.id, name: team.name },
 				budget: budgetFromRow(team),
-				projectIds: new Set(team.projects.map((project) => project.projectId)),
+				projectIds: new Set(
+					team.projects
+						.filter((grant) => grant.project?.status !== "deleted")
+						.map((grant) => grant.projectId),
+				),
 			}
 		: null;
 }
@@ -445,18 +449,20 @@ async function syncMemberProjects(
 	userOrganizationId: string,
 	projectIds: string[],
 ): Promise<void> {
-	await cdb
-		.delete(tables.userProject)
-		.where(eq(tables.userProject.userOrganizationId, userOrganizationId));
+	await cdb.transaction(async (tx) => {
+		await tx
+			.delete(tables.userProject)
+			.where(eq(tables.userProject.userOrganizationId, userOrganizationId));
 
-	if (projectIds.length) {
-		await cdb.insert(tables.userProject).values(
-			projectIds.map((projectId) => ({
-				userOrganizationId,
-				projectId,
-			})),
-		);
-	}
+		if (projectIds.length) {
+			await tx.insert(tables.userProject).values(
+				projectIds.map((projectId) => ({
+					userOrganizationId,
+					projectId,
+				})),
+			);
+		}
+	});
 }
 
 const getMembers = createRoute({
@@ -532,7 +538,7 @@ team.openapi(getMembers, async (c) => {
 			userProjects: {
 				with: {
 					project: {
-						columns: { id: true, name: true },
+						columns: { id: true, name: true, status: true },
 					},
 				},
 			},
@@ -540,7 +546,7 @@ team.openapi(getMembers, async (c) => {
 				with: {
 					projects: {
 						with: {
-							project: { columns: { id: true, name: true } },
+							project: { columns: { id: true, name: true, status: true } },
 						},
 					},
 				},
@@ -588,13 +594,15 @@ team.openapi(getMembers, async (c) => {
 			const personalProjects =
 				m.role === "developer"
 					? m.userProjects
-							.filter((up) => up.project)
+							.filter((up) => up.project && up.project.status !== "deleted")
 							.map((up) => ({ id: up.project!.id, name: up.project!.name }))
 					: null;
 			const teamProjectIds = m.team
 				? new Set(
 						m.team.projects
-							.filter((entry) => entry.project)
+							.filter(
+								(entry) => entry.project && entry.project.status !== "deleted",
+							)
 							.map((entry) => entry.project!.id),
 					)
 				: null;

@@ -1216,6 +1216,34 @@ describe("validateRequestModelAccess — member + key composition", () => {
 		expect(result.reason).toContain("organization team IAM rule");
 	});
 
+	it("pricing caps only consider providers surviving earlier scopes", async () => {
+		vi.mocked(mockCachedQueries.findActiveTeamIamRules).mockResolvedValue([
+			makeTeamRule({
+				ruleType: "allow_providers",
+				ruleValue: { providers: ["openai"] },
+			}),
+		]);
+		// The 0.5-priced vertex/studio providers exceed the cap but were already
+		// excluded by the team ceiling, so they must not fail the request.
+		vi.mocked(mockCachedQueries.findActiveUserIamRules).mockResolvedValue([
+			makeMemberRule({
+				ruleType: "allow_pricing",
+				ruleValue: { maxInputPrice: 0.4 },
+			}),
+		]);
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([]);
+
+		const result = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			requestedModel: threeProviderModel.id,
+			activeModelInfo: threeProviderModel,
+		});
+
+		expect(result.allowed).toBe(true);
+		expect(result.allowedProviders).toEqual(["openai"]);
+	});
+
 	it("member ceiling wins: key allowing a different provider yields no providers", async () => {
 		vi.mocked(mockCachedQueries.findActiveUserIamRules).mockResolvedValue([
 			makeMemberRule({

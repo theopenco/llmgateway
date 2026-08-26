@@ -522,13 +522,18 @@ async function evaluateRule(
 				}
 			}
 
-			// Check max price limits
+			// Check max price limits, but only against providers that survived the
+			// earlier scopes/rules — a provider already excluded (e.g. by a team
+			// allow_providers ceiling) must not fail the whole request on price.
 			if (
 				ruleValue.maxInputPrice !== undefined ||
 				ruleValue.maxOutputPrice !== undefined
 			) {
 				for (const provider of modelDef.providers) {
 					if (requestedProvider && provider.providerId !== requestedProvider) {
+						continue;
+					}
+					if (!currentAllowedProviders.has(provider.providerId)) {
 						continue;
 					}
 
