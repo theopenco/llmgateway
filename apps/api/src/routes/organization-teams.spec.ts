@@ -255,6 +255,20 @@ describe("organization teams", () => {
 		expect(membership).toMatchObject({ role: "admin", teamId: null });
 	});
 
+	test("rejects team management in a deleted organization", async () => {
+		const team = await createTeam();
+		await db
+			.update(tables.organization)
+			.set({ status: "deleted" })
+			.where(eq(tables.organization.id, ORGANIZATION_ID));
+
+		expect((await request(`/team/${ORGANIZATION_ID}/teams`)).status).toBe(403);
+		expect(
+			(await request(`/team/${ORGANIZATION_ID}/teams/${team.id}`, "DELETE"))
+				.status,
+		).toBe(403);
+	});
+
 	test("after Enterprise lapses policy stays visible but only cleanup is allowed", async () => {
 		const team = await createTeam();
 		await request(

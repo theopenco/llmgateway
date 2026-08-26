@@ -5,6 +5,7 @@ import {
 	assertMemberProjectAccess,
 	assertMemberWithinBudget,
 } from "./api-key-usage-limits.js";
+import * as mockCachedQueries from "./cached-queries.js";
 
 vi.mock("./cached-queries.js", () => ({
 	findOrganizationById: vi.fn(),
@@ -13,8 +14,6 @@ vi.mock("./cached-queries.js", () => ({
 	getMemberPeriodSpend: vi.fn(),
 	memberHasEffectiveProjectAccess: vi.fn(),
 }));
-
-const mockCachedQueries = await import("./cached-queries.js");
 
 const baseApiKey = {
 	id: "key-1",

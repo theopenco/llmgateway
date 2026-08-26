@@ -1244,6 +1244,37 @@ describe("validateRequestModelAccess — member + key composition", () => {
 		expect(result.allowedProviders).toEqual(["openai"]);
 	});
 
+	it("pricing caps run after provider allowlists within the same scope", async () => {
+		// The pricing rule is listed FIRST: rule fetch order must not matter.
+		// Within one scope, allow_providers narrows to openai (0.3) before the
+		// pricing cap runs, so the 0.5-priced vertex/studio providers the same
+		// scope excludes cannot fail the request.
+		vi.mocked(mockCachedQueries.findActiveTeamIamRules).mockResolvedValue([
+			makeTeamRule({
+				id: "team-pricing",
+				ruleType: "allow_pricing",
+				ruleValue: { maxInputPrice: 0.4 },
+			}),
+			makeTeamRule({
+				id: "team-providers",
+				ruleType: "allow_providers",
+				ruleValue: { providers: ["openai"] },
+			}),
+		]);
+		vi.mocked(mockCachedQueries.findActiveUserIamRules).mockResolvedValue([]);
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([]);
+
+		const result = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			requestedModel: threeProviderModel.id,
+			activeModelInfo: threeProviderModel,
+		});
+
+		expect(result.allowed).toBe(true);
+		expect(result.allowedProviders).toEqual(["openai"]);
+	});
+
 	it("member ceiling wins: key allowing a different provider yields no providers", async () => {
 		vi.mocked(mockCachedQueries.findActiveUserIamRules).mockResolvedValue([
 			makeMemberRule({

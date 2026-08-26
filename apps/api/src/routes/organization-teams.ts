@@ -71,6 +71,7 @@ interface OrganizationAdminContext {
 			id: string;
 			plan: "free" | "pro" | "enterprise";
 			kind: "default" | "chat" | "devpass";
+			status: "active" | "inactive" | "deleted" | null;
 		} | null;
 	};
 }
@@ -81,9 +82,13 @@ async function requireOrganizationAdmin(
 ): Promise<OrganizationAdminContext> {
 	const membership = await db.query.userOrganization.findFirst({
 		where: { userId: { eq: userId }, organizationId: { eq: organizationId } },
-		with: { organization: { columns: { id: true, plan: true, kind: true } } },
+		with: {
+			organization: {
+				columns: { id: true, plan: true, kind: true, status: true },
+			},
+		},
 	});
-	if (!membership) {
+	if (!membership || membership.organization?.status === "deleted") {
 		throw new HTTPException(403, {
 			message: "You do not have access to this organization",
 		});

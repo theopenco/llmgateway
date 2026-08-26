@@ -134,7 +134,20 @@ async function evaluateIamRuleSet(
 		}
 	}
 
-	for (const group of allowGroups.values()) {
+	// Evaluate allow groups in a fixed order: pricing caps read the provider set
+	// surviving earlier rules, so provider-narrowing groups must run first. Map
+	// insertion order follows DB fetch order, which is not deterministic.
+	const allowGroupOrder: IamRule["ruleType"][] = [
+		"allow_providers",
+		"allow_models",
+		"allow_pricing",
+		"allow_ip_cidrs",
+	];
+	for (const groupType of allowGroupOrder) {
+		const group = allowGroups.get(groupType);
+		if (!group) {
+			continue;
+		}
 		let groupAllowed = false;
 		let firstDenial: RuleEvaluationResult | undefined;
 		let unionedProviders: Set<ProviderId> | undefined;
