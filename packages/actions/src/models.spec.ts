@@ -1636,6 +1636,136 @@ describe("getCheapestFromAvailableProviders", () => {
 		});
 	});
 
+	describe("pricing tiers in provider selection", () => {
+		// Mirrors xAI's grok-4 mapping: base rates up to 128K tokens, doubled
+		// long-context rates above, with their own cached price.
+		const tieredMapping = {
+			inputPrice: "3.0e-6",
+			outputPrice: "15.0e-6",
+			cachedInputPrice: "0.75e-6",
+			pricingTiers: [
+				{
+					name: "Up to 128K",
+					upToTokens: 128000,
+					inputPrice: "3.0e-6",
+					outputPrice: "15.0e-6",
+					cachedInputPrice: "0.75e-6",
+				},
+				{
+					name: "Over 128K",
+					upToTokens: Infinity,
+					inputPrice: "6.0e-6",
+					outputPrice: "30.0e-6",
+					cachedInputPrice: "0",
+				},
+			],
+		};
+
+		it("uses base-tier rates at or below the boundary", () => {
+			expect(
+				getProviderSelectionPrice(
+					tieredMapping,
+					undefined,
+					undefined,
+					undefined,
+					10_000,
+				).toNumber(),
+			).toBe((3.0e-6 + 15.0e-6) / 2);
+		});
+
+		it("uses the long-context tier above the boundary", () => {
+			expect(
+				getProviderSelectionPrice(
+					tieredMapping,
+					undefined,
+					undefined,
+					undefined,
+					200_000,
+				).toNumber(),
+			).toBe((6.0e-6 + 30.0e-6) / 2);
+		});
+
+		it("keeps base rates when promptTokens is unknown", () => {
+			expect(getProviderSelectionPrice(tieredMapping).toNumber()).toBe(
+				(3.0e-6 + 15.0e-6) / 2,
+			);
+		});
+
+		it("blends the active tier's cached price", () => {
+			expect(
+				getProviderSelectionPrice(
+					tieredMapping,
+					undefined,
+					undefined,
+					{ hitRate: 0.5, outputRatio: 0 },
+					200_000,
+				).toNumber(),
+				// Tier cached price is 0: (0*0.5 + 6.0*0.5) / 2
+			).toBe(1.5e-6);
+		});
+
+		it("re-ranks long-context requests through full provider selection", async () => {
+			const tieredModel = {
+				id: "tiered-model",
+				name: "Tiered Model",
+				family: "xai" as const,
+				providers: [
+					{
+						providerId: "xai" as const,
+						externalId: "tiered",
+						inputPrice: "3.0e-6",
+						outputPrice: "15.0e-6",
+						pricingTiers: [
+							{
+								name: "Up to 128K",
+								upToTokens: 128000,
+								inputPrice: "3.0e-6",
+								outputPrice: "15.0e-6",
+							},
+							{
+								name: "Over 128K",
+								upToTokens: Infinity,
+								inputPrice: "8.0e-6",
+								outputPrice: "40.0e-6",
+							},
+						],
+						streaming: true as const,
+					},
+					{
+						providerId: "openai" as const,
+						externalId: "tiered",
+						inputPrice: "5.0e-6",
+						outputPrice: "25.0e-6",
+						streaming: true as const,
+					},
+				],
+			};
+
+			// Zero out cache-aware pricing so only tier resolution differs.
+			const tiersOnly = resolveRoutingConfig(
+				{
+					thresholds: { cacheHitRate: 0, cacheOutputRatio: 1 },
+					providerPriorities: { xai: 1, openai: 1 },
+				},
+				buildProviderPriorityDefaults(),
+			);
+
+			const short = await getCheapestFromAvailableProviders(
+				tieredModel.providers,
+				tieredModel,
+				{ promptTokens: 10_000, routingConfig: tiersOnly },
+			);
+			expect(short?.provider.providerId).toBe("xai");
+
+			const long = await getCheapestFromAvailableProviders(
+				tieredModel.providers,
+				tieredModel,
+				{ promptTokens: 200_000, routingConfig: tiersOnly },
+			);
+			expect(long?.provider.providerId).toBe("openai");
+		});
+	});
+
 	describe("cache support weighting", () => {
 		const cacheTestModel = {
 			id: "cache-test-model",

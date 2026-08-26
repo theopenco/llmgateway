@@ -357,11 +357,17 @@ export function getProviderSelectionPrice(
 				| "perImagePrice"
 				| "requestPrice"
 		  > &
-				Partial<Pick<ProviderModelMapping, "peakPricing" | "cachedInputPrice">>)
+				Partial<
+					Pick<
+						ProviderModelMapping,
+						"peakPricing" | "cachedInputPrice" | "pricingTiers"
+					>
+				>)
 		| undefined,
 	videoPricing?: VideoPricingContext,
 	now: Date = new Date(),
 	cachePricing?: CachePricingContext,
+	promptTokens?: number,
 ): Decimal {
 	const requestPrice = providerInfo?.requestPrice;
 	// Resolve peak/off-peak time-of-day pricing (DeepSeek first-party): token
@@ -370,16 +376,34 @@ export function getProviderSelectionPrice(
 	const timeBasedPricing = providerInfo
 		? resolveTimeBasedPricing(providerInfo, now)
 		: undefined;
-	const inputPrice = timeBasedPricing?.inputPrice ?? providerInfo?.inputPrice;
+	// Context-length pricing tiers override the base/time-based token rates by
+	// prompt size, mirroring billing's getPricingForTokenCount: without this a
+	// long-context request would rank a tiered mapping (e.g. xAI over 128K) at
+	// its cheaper base rates and select a provider billing then charges more
+	// for.
+	const pricingTier =
+		promptTokens !== undefined && providerInfo?.pricingTiers?.length
+			? (providerInfo.pricingTiers.find(
+					(tier) => promptTokens <= tier.upToTokens,
+				) ?? providerInfo.pricingTiers[providerInfo.pricingTiers.length - 1])
+			: undefined;
+	const inputPrice =
+		pricingTier?.inputPrice ??
+		timeBasedPricing?.inputPrice ??
+		providerInfo?.inputPrice;
 	const outputPrice =
-		timeBasedPricing?.outputPrice ?? providerInfo?.outputPrice;
+		pricingTier?.outputPrice ??
+		timeBasedPricing?.outputPrice ??
+		providerInfo?.outputPrice;
 	// For cache-relevant requests, rank on the input price a cached workload
 	// actually pays: cachedInputPrice weighted by the assumed hit rate. Billing
 	// falls back to inputPrice when a mapping declares no cache price, so the
 	// same fallback here keeps such mappings ranked exactly as today.
 	const cacheHitRate = cachePricing?.hitRate ?? 0;
 	const cachedInputPrice =
-		timeBasedPricing?.cachedInputPrice ?? providerInfo?.cachedInputPrice;
+		pricingTier?.cachedInputPrice ??
+		timeBasedPricing?.cachedInputPrice ??
+		providerInfo?.cachedInputPrice;
 	const effectiveInputPrice =
 		cacheHitRate > 0 &&
 		inputPrice !== undefined &&
@@ -449,14 +473,19 @@ type ProviderSelectionPriceInfo = AvailableModelProvider &
 		| "perImagePrice"
 		| "requestPrice"
 	> &
-	Partial<Pick<ProviderModelMapping, "peakPricing" | "cachedInputPrice">>;
+	Partial<
+		Pick<
+			ProviderModelMapping,
+			"peakPricing" | "cachedInputPrice" | "pricingTiers"
+		>
+	>;
 
 export async function getDiscountedProviderSelectionPrice(
 	providerInfo: ProviderSelectionPriceInfo | undefined,
 	modelId: string,
 	options?: Pick<
 		ProviderSelectionOptions,
-		"organizationId" | "providerDiscountResolver"
+		"organizationId" | "providerDiscountResolver" | "promptTokens"
 	> & {
 		videoPricing?: VideoPricingContext;
 		cachePricing?: CachePricingContext;
@@ -467,6 +496,7 @@ export async function getDiscountedProviderSelectionPrice(
 		options?.videoPricing,
 		undefined,
 		options?.cachePricing,
+		options?.promptTokens,
 	);
 	const discount = providerInfo
 		? await getProviderSelectionDiscount(providerInfo, modelId, options)
