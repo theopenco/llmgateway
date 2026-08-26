@@ -44,9 +44,22 @@ const CAPABILITIES = [
 	{ key: "streaming", label: "Streaming" },
 	{ key: "tools", label: "Tool calls" },
 	{ key: "vision", label: "Vision" },
+	{ key: "audio", label: "Audio input" },
 	{ key: "jsonOutput", label: "JSON output" },
 	{ key: "reasoning", label: "Reasoning" },
 ] as const;
+
+// Unified reasoning_effort tiers a deployment can accept, in ascending order.
+const REASONING_EFFORTS = [
+	"none",
+	"minimal",
+	"low",
+	"medium",
+	"high",
+	"xhigh",
+	"max",
+] as const;
+type ReasoningEffortOption = (typeof REASONING_EFFORTS)[number];
 
 type CapabilityKey = (typeof CAPABILITIES)[number]["key"];
 
@@ -76,9 +89,13 @@ export function RegisterModelDialog({
 		streaming: true,
 		tools: false,
 		vision: false,
+		audio: false,
 		jsonOutput: false,
 		reasoning: false,
 	});
+	const [reasoningEfforts, setReasoningEfforts] = useState<
+		ReasoningEffortOption[]
+	>([]);
 	const sortedProviderIds = [...providerIds].sort();
 	const [providerId, setProviderId] = useState(sortedProviderIds[0] ?? "");
 	const effectiveProviderId = sortedProviderIds.includes(providerId)
@@ -133,6 +150,10 @@ export function RegisterModelDialog({
 								displayName: displayName || undefined,
 								contextSize: Number(contextSize) || undefined,
 								...capabilities,
+								reasoningEfforts:
+									capabilities.reasoning && reasoningEfforts.length > 0
+										? reasoningEfforts
+										: undefined,
 								maxRpm: Number(maxRpm) || undefined,
 								maxRpd: Number(maxRpd) || undefined,
 								pricing: { inputPrice, outputPrice },
@@ -214,6 +235,40 @@ export function RegisterModelDialog({
 								</label>
 							))}
 						</div>
+						{capabilities.reasoning ? (
+							<div className="space-y-1 pt-1">
+								<Label className="text-muted-foreground text-xs">
+									Supported reasoning efforts
+								</Label>
+								<div className="flex flex-wrap gap-1.5">
+									{REASONING_EFFORTS.map((effort) => {
+										const active = reasoningEfforts.includes(effort);
+										return (
+											<button
+												key={effort}
+												type="button"
+												aria-pressed={active}
+												data-testid={`effort-${effort}`}
+												onClick={() =>
+													setReasoningEfforts((prev) =>
+														prev.includes(effort)
+															? prev.filter((e) => e !== effort)
+															: [...prev, effort],
+													)
+												}
+												className={
+													active
+														? "bg-primary/15 text-primary border-primary/40 rounded-full border px-2.5 py-1 font-mono text-xs"
+														: "border-border text-muted-foreground hover:text-foreground rounded-full border px-2.5 py-1 font-mono text-xs"
+												}
+											>
+												{effort}
+											</button>
+										);
+									})}
+								</div>
+							</div>
+						) : null}
 					</div>
 
 					<div className="grid gap-4 sm:grid-cols-2">
@@ -322,9 +377,13 @@ export function EditModelDialog({
 		streaming: model.streaming,
 		tools: model.tools,
 		vision: model.vision,
+		audio: model.audio,
 		jsonOutput: model.jsonOutput,
 		reasoning: model.reasoning,
 	});
+	const [reasoningEfforts, setReasoningEfforts] = useState<
+		ReasoningEffortOption[]
+	>((model.reasoningEfforts ?? []) as ReasoningEffortOption[]);
 	const [maxRpm, setMaxRpm] = useState(
 		model.maxRpm ? String(model.maxRpm) : "",
 	);
@@ -340,9 +399,13 @@ export function EditModelDialog({
 			streaming: model.streaming,
 			tools: model.tools,
 			vision: model.vision,
+			audio: model.audio,
 			jsonOutput: model.jsonOutput,
 			reasoning: model.reasoning,
 		});
+		setReasoningEfforts(
+			(model.reasoningEfforts ?? []) as ReasoningEffortOption[],
+		);
 		setMaxRpm(model.maxRpm ? String(model.maxRpm) : "");
 		setMaxRpd(model.maxRpd ? String(model.maxRpd) : "");
 	}
@@ -394,6 +457,10 @@ export function EditModelDialog({
 								description: description || null,
 								contextSize: contextSize ? Number(contextSize) : null,
 								...capabilities,
+								reasoningEfforts:
+									capabilities.reasoning && reasoningEfforts.length > 0
+										? reasoningEfforts
+										: null,
 								maxRpm: maxRpm ? Number(maxRpm) : null,
 								maxRpd: maxRpd ? Number(maxRpd) : null,
 							},
@@ -451,6 +518,40 @@ export function EditModelDialog({
 								</label>
 							))}
 						</div>
+						{capabilities.reasoning ? (
+							<div className="space-y-1 pt-1">
+								<Label className="text-muted-foreground text-xs">
+									Supported reasoning efforts
+								</Label>
+								<div className="flex flex-wrap gap-1.5">
+									{REASONING_EFFORTS.map((effort) => {
+										const active = reasoningEfforts.includes(effort);
+										return (
+											<button
+												key={effort}
+												type="button"
+												aria-pressed={active}
+												data-testid={`effort-${effort}`}
+												onClick={() =>
+													setReasoningEfforts((prev) =>
+														prev.includes(effort)
+															? prev.filter((e) => e !== effort)
+															: [...prev, effort],
+													)
+												}
+												className={
+													active
+														? "bg-primary/15 text-primary border-primary/40 rounded-full border px-2.5 py-1 font-mono text-xs"
+														: "border-border text-muted-foreground hover:text-foreground rounded-full border px-2.5 py-1 font-mono text-xs"
+												}
+											>
+												{effort}
+											</button>
+										);
+									})}
+								</div>
+							</div>
+						) : null}
 					</div>
 					<div className="grid gap-4 sm:grid-cols-2">
 						<div className="space-y-2">

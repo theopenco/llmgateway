@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import {
 	dematerializeAirsideModel,
-	staticCatalogueHasMapping,
+	staticCatalogueHasActiveMapping,
 } from "@/lib/airside-catalogue.js";
 import {
 	claimableProvidersForEmail,
@@ -25,12 +25,16 @@ import {
 	sql,
 	tables,
 } from "@llmgateway/db";
-import { providers as catalogueProviders } from "@llmgateway/models";
+import {
+	models as catalogueModels,
+	providers as catalogueProviders,
+} from "@llmgateway/models";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import { getStripe } from "./payments.js";
 
 import type { ServerTypes } from "@/vars.js";
+import type { ProviderModelMapping } from "@llmgateway/models";
 
 /**
  * Airside — the self-serve provider portal. Provider companies ("carriers")
@@ -82,6 +86,17 @@ const priceValue = z
 	.refine((v) => PRICE_PATTERN.test(v) && Number.isFinite(Number(v)), {
 		message: "Price must be a non-negative decimal number string",
 	});
+
+const REASONING_EFFORT_VALUES = [
+	"none",
+	"minimal",
+	"low",
+	"medium",
+	"high",
+	"xhigh",
+	"max",
+] as const;
+const reasoningEffortsValue = z.array(z.enum(REASONING_EFFORT_VALUES)).max(7);
 
 const pricingSchema = z.object({
 	inputPrice: priceValue,
@@ -147,9 +162,12 @@ const modelSchema = z.object({
 	maxOutput: z.number().nullable(),
 	streaming: z.boolean(),
 	vision: z.boolean(),
+	audio: z.boolean(),
 	tools: z.boolean(),
 	jsonOutput: z.boolean(),
 	reasoning: z.boolean(),
+	// Supported unified reasoning_effort tiers; null = unsupported.
+	reasoningEfforts: z.array(z.enum(REASONING_EFFORT_VALUES)).nullable(),
 	// Carrier-managed request caps; admin rate limits take precedence.
 	maxRpm: z.number().nullable(),
 	maxRpd: z.number().nullable(),
@@ -239,9 +257,12 @@ function serializeModel(
 		maxOutput: row.maxOutput,
 		streaming: row.streaming,
 		vision: row.vision,
+		audio: row.audio,
 		tools: row.tools,
 		jsonOutput: row.jsonOutput,
 		reasoning: row.reasoning,
+		reasoningEfforts: (row.reasoningEfforts ?? null) as
+			(typeof REASONING_EFFORT_VALUES)[number][] | null,
 		maxRpm: row.maxRpm,
 		maxRpd: row.maxRpd,
 		status: row.status,
@@ -924,9 +945,11 @@ const createModel = createRoute({
 						maxOutput: z.number().int().positive().optional(),
 						streaming: z.boolean().optional(),
 						vision: z.boolean().optional(),
+						audio: z.boolean().optional(),
 						tools: z.boolean().optional(),
 						jsonOutput: z.boolean().optional(),
 						reasoning: z.boolean().optional(),
+						reasoningEfforts: reasoningEffortsValue.nullish(),
 						maxRpm: z.number().int().positive().optional(),
 						maxRpd: z.number().int().positive().optional(),
 						pricing: pricingSchema,
@@ -973,10 +996,10 @@ airside.openapi(createModel, async (c) => {
 		});
 	}
 
-	if (staticCatalogueHasMapping(body.providerId, body.modelName)) {
+	if (staticCatalogueHasActiveMapping(body.providerId, body.modelName)) {
 		throw new HTTPException(409, {
 			message:
-				"This model is already in the LLM Gateway catalogue for the provider.",
+				"This model is already in the LLM Gateway catalogue for the provider — import your catalogue models instead of re-listing them.",
 		});
 	}
 
@@ -1008,9 +1031,11 @@ airside.openapi(createModel, async (c) => {
 				maxOutput: body.maxOutput ?? null,
 				streaming: body.streaming ?? true,
 				vision: body.vision ?? false,
+				audio: body.audio ?? false,
 				tools: body.tools ?? false,
 				jsonOutput: body.jsonOutput ?? false,
 				reasoning: body.reasoning ?? false,
+				reasoningEfforts: body.reasoningEfforts ?? null,
 				maxRpm: body.maxRpm ?? null,
 				maxRpd: body.maxRpd ?? null,
 				createdBy: user.id,
@@ -1036,6 +1061,149 @@ airside.openapi(createModel, async (c) => {
 	return c.json({ model: serializeModel(created) }, 201);
 });
 
+// ---------------------------------------------------------------------------
+// Catalogue → DB migration: a claimed carrier imports its static-catalogue
+// models as Airside listings (active, with the current prices as an approved
+// filing). Routing still prefers the static mapping; once we deactivate it in
+// packages/models, the imported listing takes over — that is the migration.
+// ---------------------------------------------------------------------------
+
+const importCatalogueModels = createRoute({
+	method: "post",
+	path: "/models/import",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						providerCompanyId: z.string(),
+						providerId: z.string(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						// Canonical model ids now managed in Airside.
+						imported: z.array(z.string()),
+						// Already listed, or unpriceable (tiered/priceless mappings).
+						skipped: z.array(z.string()),
+					}),
+				},
+			},
+			description:
+				"Imports the carrier's active catalogue models as managed listings.",
+		},
+	},
+});
+
+airside.openapi(importCatalogueModels, async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const body = c.req.valid("json");
+	await requireCompanyMembership(user.id, body.providerCompanyId);
+	const claim = await db.query.providerClaim.findFirst({
+		where: {
+			providerCompanyId: { eq: body.providerCompanyId },
+			providerId: { eq: body.providerId },
+			status: { eq: "active" },
+		},
+	});
+	if (!claim) {
+		throw new HTTPException(403, {
+			message: "Only an active carrier can import its catalogue models.",
+		});
+	}
+	if (claim.kind !== "catalogue") {
+		throw new HTTPException(400, {
+			message: "Custom carriers have no catalogue models to import.",
+		});
+	}
+
+	const now = new Date();
+	const existing = await db.query.providerDraftModel.findMany({
+		where: {
+			providerId: { eq: body.providerId },
+			status: { ne: "delisted" },
+		},
+		columns: { modelName: true },
+	});
+	const listed = new Set(existing.map((m) => m.modelName));
+	const imported: string[] = [];
+	const skipped: string[] = [];
+
+	for (const model of catalogueModels) {
+		const found = model.providers.find((p) => {
+			if (p.providerId !== body.providerId) {
+				return false;
+			}
+			const deactivatedAt =
+				"deactivatedAt" in p
+					? (p.deactivatedAt as Date | string | undefined)
+					: undefined;
+			return !(deactivatedAt && new Date(deactivatedAt) <= now);
+		});
+		if (!found) {
+			continue;
+		}
+		// The literal-typed catalogue entries narrow away optional fields;
+		// the interface view restores them.
+		const mapping = found as ProviderModelMapping;
+		if (listed.has(model.id) || !mapping.inputPrice || !mapping.outputPrice) {
+			skipped.push(model.id);
+			continue;
+		}
+		// cdb: the gateway caches these tables for listing resolution.
+		await cdb.transaction(async (tx) => {
+			const [row] = await tx
+				.insert(tables.providerDraftModel)
+				.values({
+					providerCompanyId: body.providerCompanyId,
+					providerId: body.providerId,
+					modelName: model.id,
+					displayName: model.name ?? null,
+					family: model.family,
+					contextSize: mapping.contextSize ?? null,
+					maxOutput: mapping.maxOutput ?? null,
+					// "only" means streaming-only upstream; either way it streams.
+					streaming: mapping.streaming !== false,
+					vision: mapping.vision ?? false,
+					audio: Boolean(mapping.audio),
+					tools: mapping.tools ?? false,
+					jsonOutput: mapping.jsonOutput ?? false,
+					reasoning: mapping.reasoning ?? false,
+					reasoningEfforts: mapping.reasoningEfforts ?? null,
+					status: "active",
+					createdBy: user.id,
+				})
+				.returning();
+			await tx.insert(tables.providerPriceFiling).values({
+				draftModelId: row.id,
+				providerCompanyId: body.providerCompanyId,
+				kind: "initial",
+				inputPrice: String(mapping.inputPrice),
+				outputPrice: String(mapping.outputPrice),
+				cachedInputPrice: mapping.cachedInputPrice
+					? String(mapping.cachedInputPrice)
+					: null,
+				requestPrice: mapping.requestPrice
+					? String(mapping.requestPrice)
+					: null,
+				requestedBy: user.id,
+				status: "approved",
+				reviewNote: "Imported from the catalogue",
+				reviewedAt: new Date(),
+			});
+		});
+		imported.push(model.id);
+	}
+
+	return c.json({ imported, skipped });
+});
+
 const updateModel = createRoute({
 	method: "patch",
 	path: "/models/{id}",
@@ -1052,9 +1220,11 @@ const updateModel = createRoute({
 						maxOutput: z.number().int().positive().nullish(),
 						streaming: z.boolean().optional(),
 						vision: z.boolean().optional(),
+						audio: z.boolean().optional(),
 						tools: z.boolean().optional(),
 						jsonOutput: z.boolean().optional(),
 						reasoning: z.boolean().optional(),
+						reasoningEfforts: reasoningEffortsValue.nullish(),
 						maxRpm: z.number().int().positive().nullish(),
 						maxRpd: z.number().int().positive().nullish(),
 					}),
@@ -1107,9 +1277,13 @@ airside.openapi(updateModel, async (c) => {
 			...(body.maxOutput !== undefined ? { maxOutput: body.maxOutput } : {}),
 			...(body.streaming !== undefined ? { streaming: body.streaming } : {}),
 			...(body.vision !== undefined ? { vision: body.vision } : {}),
+			...(body.audio !== undefined ? { audio: body.audio } : {}),
 			...(body.tools !== undefined ? { tools: body.tools } : {}),
 			...(body.jsonOutput !== undefined ? { jsonOutput: body.jsonOutput } : {}),
 			...(body.reasoning !== undefined ? { reasoning: body.reasoning } : {}),
+			...(body.reasoningEfforts !== undefined
+				? { reasoningEfforts: body.reasoningEfforts }
+				: {}),
 			...(body.maxRpm !== undefined ? { maxRpm: body.maxRpm } : {}),
 			...(body.maxRpd !== undefined ? { maxRpd: body.maxRpd } : {}),
 		})

@@ -1,7 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2, Pencil, Plus, Stamp, Trash2 } from "lucide-react";
+import { Download, Loader2, Pencil, Plus, Stamp, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -116,6 +116,23 @@ export default function FleetPage() {
 		{ enabled: !!company },
 	);
 
+	const importModels = api.useMutation("post", "/airside/models/import", {
+		onSuccess: async (data) => {
+			await modelsQuery.refetch();
+			toast.success(
+				data.imported.length > 0
+					? `Imported ${data.imported.length} catalogue model${data.imported.length === 1 ? "" : "s"}.`
+					: "Nothing new to import — your catalogue models are already managed here.",
+			);
+		},
+		onError: (error) => {
+			toast.error(
+				(error as { message?: string })?.message ??
+					"Failed to import catalogue models",
+			);
+		},
+	});
+
 	if (companyLoading || (company && modelsQuery.isLoading)) {
 		return (
 			<div className="flex h-64 items-center justify-center">
@@ -140,6 +157,11 @@ export default function FleetPage() {
 	const providerIds = company.claims
 		.filter((claim) => claim.status === "active")
 		.map((claim) => claim.providerId);
+	// Catalogue carriers can pull their static-catalogue models into Airside
+	// management — the first step of moving a provider's models to the DB.
+	const catalogueProviderIds = company.claims
+		.filter((claim) => claim.status === "active" && claim.kind === "catalogue")
+		.map((claim) => claim.providerId);
 	const hasPendingClaim = company.claims.some(
 		(claim) => claim.status === "pending",
 	);
@@ -155,18 +177,40 @@ export default function FleetPage() {
 						Your aircraft
 					</h1>
 				</div>
-				<RegisterModelDialog
-					providerCompanyId={company.id}
-					providerIds={providerIds}
-				>
-					<Button
-						className="font-semibold"
-						disabled={providerIds.length === 0}
-						data-testid="register-model-button"
+				<div className="flex items-center gap-2">
+					{catalogueProviderIds.length > 0 ? (
+						<Button
+							variant="outline"
+							className="font-semibold"
+							disabled={importModels.isPending}
+							data-testid="import-catalogue-models"
+							onClick={() => {
+								for (const id of catalogueProviderIds) {
+									importModels.mutate({
+										body: { providerCompanyId: company.id, providerId: id },
+									});
+								}
+							}}
+						>
+							<Download className="size-4" />
+							{importModels.isPending
+								? "Importing…"
+								: "Import catalogue models"}
+						</Button>
+					) : null}
+					<RegisterModelDialog
+						providerCompanyId={company.id}
+						providerIds={providerIds}
 					>
-						<Plus className="size-4" /> Register aircraft
-					</Button>
-				</RegisterModelDialog>
+						<Button
+							className="font-semibold"
+							disabled={providerIds.length === 0}
+							data-testid="register-model-button"
+						>
+							<Plus className="size-4" /> Register aircraft
+						</Button>
+					</RegisterModelDialog>
+				</div>
 			</div>
 
 			{providerIds.length === 0 ? (

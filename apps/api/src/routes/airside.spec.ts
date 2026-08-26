@@ -865,6 +865,82 @@ describe("airside provider portal", () => {
 		expect(outOfBounds.status).toBe(400);
 	});
 
+	it("stores reasoning efforts and audio on a listing", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const res = await createModel(cookie, company.id, {
+			modelName: "mistral-reasoner-x",
+			reasoning: true,
+			audio: true,
+			reasoningEfforts: ["low", "medium", "high"],
+		});
+		expect(res.status).toBe(201);
+		const { model } = await res.json();
+		expect(model.audio).toBe(true);
+		expect(model.reasoningEfforts).toEqual(["low", "medium", "high"]);
+
+		// Materialization carries the efforts onto the catalogue mapping.
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		const filings = await app.request(
+			`/airside/filings?providerCompanyId=${company.id}`,
+			{ headers: { Cookie: cookie } },
+		);
+		const filing = (await filings.json()).filings.find(
+			(f: { status: string }) => f.status === "pending",
+		);
+		const approve = await app.request(
+			`/admin/airside/filings/${filing.id}/approve`,
+			json(cookie),
+		);
+		expect(approve.status).toBe(200);
+		const mapping = await db.query.modelProviderMapping.findFirst({
+			where: { modelId: { eq: "mistral-reasoner-x" } },
+		});
+		expect(mapping?.reasoningEfforts).toEqual(["low", "medium", "high"]);
+	});
+
+	it("imports catalogue models as managed listings", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+
+		const res = await app.request(
+			"/airside/models/import",
+			json(cookie, { providerCompanyId: company.id, providerId: "mistral" }),
+		);
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body.imported.length).toBeGreaterThan(0);
+		expect(body.imported).toContain("mistral-large-latest");
+
+		// Imported listings are active with the current price as an approved
+		// filing — manageable in Airside, still routed via the static catalogue.
+		const row = await db.query.providerDraftModel.findFirst({
+			where: {
+				providerId: { eq: "mistral" },
+				modelName: { eq: "mistral-large-latest" },
+			},
+			with: { priceFilings: true },
+		});
+		expect(row?.status).toBe("active");
+		const approved = row?.priceFilings?.find(
+			(f: { status: string }) => f.status === "approved",
+		);
+		expect(approved?.reviewNote).toBe("Imported from the catalogue");
+
+		// Re-importing skips everything already listed.
+		const again = await app.request(
+			"/airside/models/import",
+			json(cookie, { providerCompanyId: company.id, providerId: "mistral" }),
+		);
+		const secondBody = await again.json();
+		expect(secondBody.imported).toEqual([]);
+		expect(secondBody.skipped).toContain("mistral-large-latest");
+	});
+
 	async function registerCarrier(
 		testCookie: string,
 		providerCompanyId: string,

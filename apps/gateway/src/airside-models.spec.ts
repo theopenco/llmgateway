@@ -346,6 +346,74 @@ describe("airside-listed models", () => {
 		expect(captured).toHaveLength(0);
 	});
 
+	test("a listing takes over a deactivated static-catalogue mapping", async () => {
+		// nebius/llama-3.1-8b-instruct is a retired catalogue mapping
+		// (deactivated, never deleted). Deactivation hands routing over to an
+		// Airside listing — the catalogue -> DB migration switch.
+		const token = "airside-takeover-token";
+		captured = [];
+		await clearCache();
+		await db.insert(tables.apiKey).values({
+			id: `${token}-id`,
+			token,
+			projectId: "project-id",
+			description: "Airside takeover test key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.providerKey).values({
+			id: `${token}-nebius-key`,
+			token: "mock-nebius-key",
+			provider: "nebius",
+			organizationId: "org-id",
+			baseUrl: upstreamUrl,
+		});
+		await db.insert(tables.providerCompany).values({
+			id: `${token}-company`,
+			name: "Nebius Ops",
+		});
+		await db.insert(tables.providerDraftModel).values({
+			id: `${token}-model`,
+			providerCompanyId: `${token}-company`,
+			providerId: "nebius",
+			modelName: "llama-3.1-8b-instruct",
+			streaming: true,
+			status: "active",
+		});
+		await db.insert(tables.providerPriceFiling).values({
+			id: `${token}-filing`,
+			draftModelId: `${token}-model`,
+			providerCompanyId: `${token}-company`,
+			kind: "initial",
+			inputPrice: "1e-6",
+			outputPrice: "4e-6",
+			status: "approved",
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer airside-takeover-token",
+				"x-no-fallback": "true",
+				"x-request-id": "airside-takeover-req-1",
+			},
+			body: JSON.stringify({
+				model: "nebius/llama-3.1-8b-instruct",
+				messages: [{ role: "user", content: "Say hi" }],
+			}),
+		});
+		expect(res.status).toBe(200);
+		expect(captured).toHaveLength(1);
+		expect(captured[0].body.model).toBe("llama-3.1-8b-instruct");
+
+		const log = await waitForLogByRequestId("airside-takeover-req-1");
+		expect(log).toBeTruthy();
+		expect(log!.usedProvider).toBe("nebius");
+		// Billed at the filing, not the retired static mapping's prices.
+		expect(Number(log!.inputCost)).toBeCloseTo(0.001, 6);
+		expect(Number(log!.outputCost)).toBeCloseTo(0.002, 6);
+	});
+
 	test("does not route an unregistered provider prefix", async () => {
 		await setupCustomCarrier("airside-unknown-token");
 		const res = await app.request("/v1/chat/completions", {

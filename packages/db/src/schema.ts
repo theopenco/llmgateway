@@ -3183,6 +3183,9 @@ export const modelProviderMapping = pgTable(
 		reasoning: boolean(),
 		reasoningMaxTokens: boolean().notNull().default(false),
 		reasoningOutput: text(),
+		// Populated for Airside-materialized mappings; static-catalogue rows
+		// keep null and are served from the shared mapping definition instead.
+		reasoningEfforts: json().$type<string[]>(),
 		tools: boolean(),
 		jsonOutput: boolean().default(false).notNull(),
 		jsonOutputSchema: boolean().default(false).notNull(),
@@ -4462,9 +4465,13 @@ export const providerDraftModel = pgTable(
 		maxOutput: integer(),
 		streaming: boolean().notNull().default(true),
 		vision: boolean().notNull().default(false),
+		audio: boolean().notNull().default(false),
 		tools: boolean().notNull().default(false),
 		jsonOutput: boolean().notNull().default(false),
 		reasoning: boolean().notNull().default(false),
+		// Which unified reasoning_effort tiers the deployment accepts
+		// (subset of ReasoningEffort); null = parameter unsupported.
+		reasoningEfforts: jsonb().$type<string[]>(),
 		// Carrier-managed request caps. Admin `rate_limit` rows for the same
 		// provider/model always take precedence over these.
 		maxRpm: integer(),

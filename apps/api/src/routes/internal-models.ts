@@ -280,7 +280,13 @@ internalModels.openapi(getModelsRoute, async (c) => {
 				...mapping,
 				discount: getGlobalDiscount(mapping.providerId, model.id),
 				quantization: sharedMapping?.quantization ?? null,
-				reasoningEfforts: sharedMapping?.reasoningEfforts ?? null,
+				// Airside-materialized mappings carry their own efforts in the DB
+				// row; static rows are served from the shared definition.
+				reasoningEfforts:
+					sharedMapping?.reasoningEfforts ??
+					(mapping.reasoningEfforts as
+						NonNullable<typeof sharedMapping>["reasoningEfforts"] | null) ??
+					null,
 				reasoningMaxTokens: sharedMapping?.reasoningMaxTokens ?? null,
 				rerank: sharedMapping?.rerank ?? null,
 				audio: sharedMapping?.audio ?? null,

@@ -22,7 +22,8 @@ interface FilingPrices {
 
 /** True when the static catalogue already maps this model for the provider —
  *  a listing must never shadow (or be overwritten by the worker sync for)
- *  a real catalogue mapping. */
+ *  a real catalogue mapping. Deactivated mappings still count here: the sync
+ *  keeps owning their DB rows. */
 export function staticCatalogueHasMapping(
 	providerId: string,
 	modelName: string,
@@ -33,6 +34,32 @@ export function staticCatalogueHasMapping(
 				("aliases" in m &&
 					(m.aliases as readonly string[] | undefined)?.includes(modelName))) &&
 			m.providers.some((p) => p.providerId === providerId),
+	);
+}
+
+/** Like staticCatalogueHasMapping, but ignoring deactivated mappings. This is
+ *  the listing/routing rule: deactivating a static mapping hands the model
+ *  over to the carrier's Airside listing — the catalogue → DB migration. */
+export function staticCatalogueHasActiveMapping(
+	providerId: string,
+	modelName: string,
+): boolean {
+	const now = new Date();
+	return staticModels.some(
+		(m) =>
+			(m.id === modelName ||
+				("aliases" in m &&
+					(m.aliases as readonly string[] | undefined)?.includes(modelName))) &&
+			m.providers.some((p) => {
+				if (p.providerId !== providerId) {
+					return false;
+				}
+				const deactivatedAt =
+					"deactivatedAt" in p
+						? (p.deactivatedAt as Date | string | undefined)
+						: undefined;
+				return !(deactivatedAt && new Date(deactivatedAt) <= now);
+			}),
 	);
 }
 
@@ -81,6 +108,7 @@ export async function materializeAirsideModel(
 			tools: model.tools,
 			jsonOutput: model.jsonOutput,
 			reasoning: model.reasoning,
+			reasoningEfforts: model.reasoningEfforts,
 			status: "active" as const,
 			deactivatedAt: null,
 		};

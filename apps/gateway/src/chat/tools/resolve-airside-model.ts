@@ -64,7 +64,11 @@ export async function resolveAirsideModel(
 		}
 		customBaseUrl = carrier.baseUrl;
 	} else {
-		// A catalogue model of this provider always wins over a listing.
+		// An ACTIVE catalogue mapping of this provider always wins over a
+		// listing. A deactivated one does not: deactivating the static mapping
+		// hands the model over to the carrier's Airside listing — the
+		// catalogue -> DB migration switch.
+		const now = new Date();
 		const inCatalogue = models.some(
 			(m) =>
 				(m.id === modelName ||
@@ -72,7 +76,16 @@ export async function resolveAirsideModel(
 						(m.aliases as readonly string[] | undefined)?.includes(
 							modelName,
 						))) &&
-				m.providers.some((p) => p.providerId === providerCandidate),
+				m.providers.some((p) => {
+					if (p.providerId !== providerCandidate) {
+						return false;
+					}
+					const deactivatedAt =
+						"deactivatedAt" in p
+							? (p.deactivatedAt as Date | string | undefined)
+							: undefined;
+					return !(deactivatedAt && new Date(deactivatedAt) <= now);
+				}),
 		);
 		if (inCatalogue) {
 			return null;
@@ -115,9 +128,11 @@ export function airsideListingToModelDefinition(listed: {
 		maxOutput: number | null;
 		streaming: boolean;
 		vision: boolean;
+		audio: boolean;
 		tools: boolean;
 		jsonOutput: boolean;
 		reasoning: boolean;
+		reasoningEfforts: string[] | null;
 	};
 	pricing: {
 		inputPrice: string;
@@ -137,9 +152,12 @@ export function airsideListingToModelDefinition(listed: {
 		maxOutput: listed.model.maxOutput ?? undefined,
 		streaming: listed.model.streaming,
 		vision: listed.model.vision,
+		audio: listed.model.audio,
 		tools: listed.model.tools,
 		jsonOutput: listed.model.jsonOutput,
 		reasoning: listed.model.reasoning,
+		reasoningEfforts: (listed.model.reasoningEfforts ??
+			undefined) as ProviderModelMapping["reasoningEfforts"],
 	};
 	const modelInfo: ModelDefinition = {
 		id: listed.model.modelName as Model,
