@@ -1991,6 +1991,38 @@ export const providers: ProviderDefinition[] = [
 			retentionPeriod: "0 days",
 		},
 	},
+	{
+		id: "consensusprotocol",
+		name: "Consensus Protocol",
+		forwardsSafetyIdentifier: false,
+		description:
+			"Consensus Protocol serves open-weight large language models on dedicated GPU hardware it operates, via an OpenAI-compatible inference API.",
+		env: {
+			required: {
+				apiKey: "LLM_CONSENSUSPROTOCOL_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#dc2626",
+		website: "https://consensusprotocol.org",
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: "https://consensusprotocol.org/terms",
+		privacyPolicyUrl: "https://consensusprotocol.org/privacy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+		},
+		additionalLinks: [
+			{
+				desc: "Inference data handling",
+				link: "https://consensusprotocol.org/data-policy",
+			},
+		],
+	},
 ] as const satisfies ProviderDefinition[];
 
 export type ProviderId = (typeof providers)[number]["id"];
