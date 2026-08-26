@@ -47,3 +47,8 @@ scripts/*.jpg
 scripts/*.png
 .soulforge
 .empryo
+
+# Local demo recordings and PR screenshots (PR images live on assets/* orphan branches)
+/demo-videos/
+/pr-shots/
+/pg-*.png
