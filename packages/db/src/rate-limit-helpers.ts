@@ -178,6 +178,16 @@ export async function getEffectiveRateLimit(
 	organizationId: string | null,
 	provider: string,
 	model: string,
+	options: {
+		/**
+		 * Whether carrier-set caps on an Airside listing may fill unconstrained
+		 * windows. The gateway passes false while the static catalogue still
+		 * actively maps the pair (e.g. imported listings), so a carrier cap
+		 * can never throttle traffic the listing does not serve. Must be a
+		 * pure function of (provider, model) — it shares their cache key.
+		 */
+		includeCarrierCaps?: boolean;
+	} = {},
 ): Promise<EffectiveRateLimit> {
 	// SWR mirror on top of the Drizzle cache, carried by the helper itself
 	// (like getEffectiveDiscount) so every caller gets the outage fallback and
@@ -186,7 +196,13 @@ export async function getEffectiveRateLimit(
 	return await swrWrap(
 		`rateLimit:${organizationId ?? "global"}:${provider}:${model}`,
 		[getTableName(rateLimitTable), getTableName(providerDraftModelTable)],
-		() => queryEffectiveRateLimit(organizationId, provider, model),
+		() =>
+			queryEffectiveRateLimit(
+				organizationId,
+				provider,
+				model,
+				options.includeCarrierCaps ?? true,
+			),
 	);
 }
 
@@ -194,6 +210,7 @@ async function queryEffectiveRateLimit(
 	organizationId: string | null,
 	provider: string,
 	model: string,
+	includeCarrierCaps: boolean,
 ): Promise<EffectiveRateLimit> {
 	const rateLimits = await cdb
 		.select({
@@ -240,7 +257,7 @@ async function queryEffectiveRateLimit(
 	// Carrier-managed caps on Airside listings fill only the windows no admin
 	// row constrains — admin limits always take precedence. Per-org counters
 	// (shared stays false).
-	if (rpm.source === "none" || rpd.source === "none") {
+	if (includeCarrierCaps && (rpm.source === "none" || rpd.source === "none")) {
 		const carrierRows = await cdb
 			.select({
 				maxRpm: providerDraftModelTable.maxRpm,

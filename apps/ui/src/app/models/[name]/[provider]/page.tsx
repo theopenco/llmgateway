@@ -509,7 +509,11 @@ export async function generateMetadata({
 	const title = `${model.name ?? model.id} on ${providerName}`;
 	const description = `Pricing, latency, and capabilities for ${model.name ?? model.id} via ${providerName} on LLM Gateway.`;
 	const canonical = `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`;
-	const ogImageUrl = `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(decodedProvider)}/opengraph-image`;
+	// The OG card route only prerenders static-catalogue pairs
+	// (dynamicParams=false); DB-only pages advertise the site card instead.
+	const ogImageUrl = modelDefinitions.some((m) => m.id === decodedName)
+		? `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(decodedProvider)}/opengraph-image`
+		: "/opengraph.png";
 
 	return {
 		title,

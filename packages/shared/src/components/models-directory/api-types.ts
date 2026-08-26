@@ -138,28 +138,42 @@ export interface ApiModel {
 
 type NextFetchInit = RequestInit & { next?: { revalidate?: number } };
 
+// Deliberate module-level cache (per server process, keyed by backend URL):
+// the models payload exceeds Next's 2MB fetch-cache entry limit, so `next:
+// { revalidate }` can never refresh it — a stale disk entry would be served
+// forever. This memo restores the 60s reuse and keeps serving the last good
+// catalogue through an API blip instead of rendering an empty directory.
+const MODELS_MEMO_TTL_MS = 60_000;
+const modelsMemo = new Map<string, { data: ApiModel[]; fetchedAt: number }>();
+
 export async function fetchModelsFromApi(
 	apiBackendUrl: string,
 ): Promise<ApiModel[]> {
+	const memo = modelsMemo.get(apiBackendUrl);
+	if (memo && Date.now() - memo.fetchedAt < MODELS_MEMO_TTL_MS) {
+		return memo.data;
+	}
 	try {
-		// The models payload exceeds Next's 2MB fetch-cache entry limit, so a
-		// revalidate cache can never refresh — a stale disk entry would be
-		// served forever. Fetch fresh; callers dedupe with React cache().
 		const init: NextFetchInit = { cache: "no-store" };
 		const response = await fetch(`${apiBackendUrl}/internal/models`, init);
 		if (!response.ok) {
 			console.error("Failed to fetch models:", response.statusText);
-			return [];
+			return memo?.data ?? [];
 		}
 		const data = await response.json();
 		const models: Omit<ApiModel, "premium">[] = data.models ?? [];
-		return models.map((model) => ({
+		const withPremium = models.map((model) => ({
 			...model,
 			premium: isPremiumModel(model.id),
 		}));
+		modelsMemo.set(apiBackendUrl, {
+			data: withPremium,
+			fetchedAt: Date.now(),
+		});
+		return withPremium;
 	} catch (error) {
 		console.error("Error fetching models:", error);
-		return [];
+		return memo?.data ?? [];
 	}
 }
 

@@ -293,6 +293,9 @@ export async function generateMetadata({
 		return {
 			title: `${apiProvider.name} API — Models & Pricing`,
 			alternates: { canonical: `/providers/${id}` },
+			// The segment's OG card only prerenders static providers
+			// (dynamicParams=false); advertise the site card instead of a 404.
+			openGraph: { images: ["/opengraph.png"] },
 		};
 	}
 

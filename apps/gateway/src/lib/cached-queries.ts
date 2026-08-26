@@ -47,7 +47,10 @@ import {
 	userOrganization as userOrganizationTable,
 	wallet as walletTable,
 } from "@llmgateway/db";
-import { getRegionScopedDefaultRegion } from "@llmgateway/models";
+import {
+	getRegionScopedDefaultRegion,
+	staticCatalogueMapsModel,
+} from "@llmgateway/models";
 
 import {
 	getApiKeyFingerprint,
@@ -606,6 +609,52 @@ export async function findAirsideCustomProvider(
 	};
 }
 
+/**
+ * Active Airside listings for a bare model name across all carriers, newest
+ * filing first per listing. /v1/models advertises listings under their bare
+ * id, so a prefix-less request must resolve when it is unambiguous.
+ */
+export async function findAirsideModelsByBareName(
+	modelName: string,
+): Promise<AirsideListedModel[]> {
+	const rows = await swrWrap(
+		`airsideModelByName:${modelName}`,
+		[providerDraftModelTableName, providerPriceFilingTableName],
+		async () =>
+			await db
+				.select({
+					model: providerDraftModelTable,
+					pricing: providerPriceFilingTable,
+				})
+				.from(providerDraftModelTable)
+				.innerJoin(
+					providerPriceFilingTable,
+					and(
+						eq(
+							providerPriceFilingTable.draftModelId,
+							providerDraftModelTable.id,
+						),
+						eq(providerPriceFilingTable.status, "approved"),
+					),
+				)
+				.where(
+					and(
+						eq(providerDraftModelTable.status, "active"),
+						eq(providerDraftModelTable.modelName, modelName),
+					),
+				)
+				.orderBy(desc(providerPriceFilingTable.createdAt)),
+	);
+	// One row per listing: the newest approved filing wins.
+	const byListing = new Map<string, AirsideListedModel>();
+	for (const row of rows) {
+		if (!byListing.has(row.model.id)) {
+			byListing.set(row.model.id, row);
+		}
+	}
+	return Array.from(byListing.values());
+}
+
 /** Every active Airside listing with its latest approved filing, for the
  *  /v1/models catalogue. Deduped to one row per listing. */
 export async function listAirsideModels(): Promise<AirsideListedModel[]> {
@@ -1139,7 +1188,13 @@ export async function findEffectiveRateLimit(
 	provider: string,
 	model: string,
 ): Promise<EffectiveRateLimit> {
-	return await getEffectiveRateLimit(organizationId, provider, model);
+	return await getEffectiveRateLimit(organizationId, provider, model, {
+		// Carrier caps only apply when the Airside listing actually serves the
+		// pair — an actively-mapped static model must stay unthrottled by them.
+		includeCarrierCaps: !staticCatalogueMapsModel(provider, model, {
+			activeOnly: true,
+		}),
+	});
 }
 
 /**

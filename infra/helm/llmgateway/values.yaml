@@ -535,6 +535,8 @@ stripe:
   devPlanLitePriceId: ""
   devPlanProPriceId: ""
   devPlanMaxPriceId: ""
+  # Airside carrier listing fee (unset disables the paid gate).
+  airsideListingPriceId: ""
 
 billing:
   # Bill cancelled/aborted streaming requests for the inference already consumed.

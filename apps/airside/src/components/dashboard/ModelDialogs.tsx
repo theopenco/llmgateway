@@ -668,7 +668,8 @@ export function EditModelDialog({
 							/>
 						</div>
 						<p className="text-muted-foreground text-xs sm:col-span-2">
-							Platform-set limits always take precedence over these.
+							Caps apply per organization; platform-set limits always take
+							precedence.
 						</p>
 					</div>
 					<DialogFooter>

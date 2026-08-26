@@ -1,9 +1,14 @@
 import {
 	findAirsideCustomProvider,
 	findAirsideModel,
+	findAirsideModelsByBareName,
 } from "@/lib/cached-queries.js";
 
-import { models, providers } from "@llmgateway/models";
+import {
+	models,
+	providers,
+	staticCatalogueMapsModel,
+} from "@llmgateway/models";
 
 import type { ParseModelInputResult } from "./parse-model-input.js";
 import type { ResolveModelInfoResult } from "./resolve-model-info.js";
@@ -45,12 +50,40 @@ export async function resolveAirsideModel(
 ): Promise<AirsideResolution | null> {
 	const slash = modelInput.indexOf("/");
 	if (slash <= 0) {
-		return null;
+		// /v1/models advertises listings under their bare id, so a prefix-less
+		// request resolves when no static model claims the name and exactly
+		// one carrier lists it; ambiguity falls back to the (throwing) parse.
+		if (modelInput.includes(":")) {
+			return null;
+		}
+		const staticModelExists = models.some(
+			(m) =>
+				m.id === modelInput ||
+				("aliases" in m &&
+					(m.aliases as readonly string[] | undefined)?.includes(modelInput)),
+		);
+		if (staticModelExists) {
+			return null;
+		}
+		const listings = await findAirsideModelsByBareName(modelInput);
+		if (listings.length !== 1) {
+			return null;
+		}
+		return await buildResolution(listings[0]);
 	}
 	const providerCandidate = modelInput.slice(0, slash);
 	const modelName = modelInput.slice(slash + 1);
 	if (!modelName || modelName.includes(":")) {
 		// Region suffixes only exist for catalogue mappings.
+		return null;
+	}
+	// Prefixes the parser treats specially can never be carriers — guard here
+	// too, independent of the registration-time reserved-id check.
+	if (
+		providerCandidate === "dynamic" ||
+		providerCandidate === "custom" ||
+		providerCandidate === "auto"
+	) {
 		return null;
 	}
 	const isCatalogueProvider = providers.some((p) => p.id === providerCandidate);
@@ -68,26 +101,11 @@ export async function resolveAirsideModel(
 		// listing. A deactivated one does not: deactivating the static mapping
 		// hands the model over to the carrier's Airside listing — the
 		// catalogue -> DB migration switch.
-		const now = new Date();
-		const inCatalogue = models.some(
-			(m) =>
-				(m.id === modelName ||
-					("aliases" in m &&
-						(m.aliases as readonly string[] | undefined)?.includes(
-							modelName,
-						))) &&
-				m.providers.some((p) => {
-					if (p.providerId !== providerCandidate) {
-						return false;
-					}
-					const deactivatedAt =
-						"deactivatedAt" in p
-							? (p.deactivatedAt as Date | string | undefined)
-							: undefined;
-					return !(deactivatedAt && new Date(deactivatedAt) <= now);
-				}),
-		);
-		if (inCatalogue) {
+		if (
+			staticCatalogueMapsModel(providerCandidate, modelName, {
+				activeOnly: true,
+			})
+		) {
 			return null;
 		}
 	}
@@ -96,13 +114,31 @@ export async function resolveAirsideModel(
 	if (!listed) {
 		return null;
 	}
+	return await buildResolution(listed, customBaseUrl);
+}
 
+/** The synthesized parse/model-info results for one resolved listing. */
+async function buildResolution(
+	listed: Parameters<typeof airsideListingToModelDefinition>[0] & {
+		model: { providerId: string };
+	},
+	knownCustomBaseUrl?: string,
+): Promise<AirsideResolution> {
+	const providerId = listed.model.providerId;
+	let customBaseUrl = knownCustomBaseUrl;
+	if (
+		customBaseUrl === undefined &&
+		!providers.some((p) => p.id === providerId)
+	) {
+		const carrier = await findAirsideCustomProvider(providerId);
+		customBaseUrl = carrier?.baseUrl;
+	}
 	const { mapping, modelInfo } = airsideListingToModelDefinition(listed);
 
 	return {
 		parseResult: {
 			requestedModel: listed.model.modelName as Model,
-			requestedProvider: providerCandidate as Provider,
+			requestedProvider: providerId as Provider,
 			customProviderName: undefined,
 			requestedRegion: undefined,
 		},
@@ -110,7 +146,7 @@ export async function resolveAirsideModel(
 			modelInfo,
 			activeProviders: [mapping],
 			allModelProviders: [mapping],
-			requestedProvider: providerCandidate as Provider,
+			requestedProvider: providerId as Provider,
 		},
 		pricingMapping: mapping,
 		customBaseUrl,

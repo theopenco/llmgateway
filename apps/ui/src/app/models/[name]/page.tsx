@@ -763,7 +763,12 @@ export async function generateMetadata({
 			: (model.description ?? pitch);
 
 	const primaryProvider = model.providers[0]?.providerId || "default";
-	const ogImageUrl = `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(primaryProvider)}/opengraph-image`;
+	// Per-model OG cards are prerendered from the static catalogue only
+	// (dynamicParams=false keeps satori out of request time), so DB-only
+	// models advertise the site card instead of a 404ing image URL.
+	const ogImageUrl = modelDefinitions.some((m) => m.id === decodedName)
+		? `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(primaryProvider)}/opengraph-image`
+		: "/opengraph.png";
 	const canonical = `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`;
 
 	return {

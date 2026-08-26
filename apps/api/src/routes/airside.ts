@@ -380,7 +380,20 @@ async function syncRoutingScoreMultiplier(
 		);
 	const adminRow = rows.find((row) => row.reason !== AIRSIDE_MULTIPLIER_REASON);
 	if (adminRow) {
-		// An admin-set multiplier always wins; report what actually applies.
+		// An admin-set multiplier always wins — and any stale airside row must
+		// go with it, or it would shadow the admin value in the gateway's
+		// unordered lookup and silently resurrect once the admin row is removed.
+		if (rows.some((row) => row.reason === AIRSIDE_MULTIPLIER_REASON)) {
+			await cdb
+				.delete(tables.routingScoreMultiplier)
+				.where(
+					and(
+						eq(tables.routingScoreMultiplier.provider, providerId),
+						isNull(tables.routingScoreMultiplier.model),
+						eq(tables.routingScoreMultiplier.reason, AIRSIDE_MULTIPLIER_REASON),
+					),
+				);
+		}
 		return {
 			routingAdjustment: Number(adminRow.scoreMultiplier),
 			adjustmentSource: "admin",
@@ -797,7 +810,13 @@ airside.openapi(createClaim, async (c) => {
 
 // Carrier ids share a namespace with catalogue provider ids and the gateway's
 // model-string prefixes, so reserve the prefixes the parser treats specially.
-const RESERVED_CARRIER_IDS = new Set(["custom", "auto", "llmgateway"]);
+const RESERVED_CARRIER_IDS = new Set([
+	"custom",
+	"auto",
+	"llmgateway",
+	// "dynamic/<name>" invokes named dynamic routes in the gateway parser.
+	"dynamic",
+]);
 const CARRIER_ID_PATTERN = /^[a-z][a-z0-9-]{2,31}$/;
 
 const registerCarrier = createRoute({
@@ -868,6 +887,21 @@ airside.openapi(registerCarrier, async (c) => {
 		columns: { id: true },
 	});
 	if (providerRow) {
+		throw new HTTPException(409, { message: "This carrier id is taken." });
+	}
+	// Carrier ids share the request-prefix namespace with organizations' BYOK
+	// custom providers. A collision would let the carrier silently capture
+	// another tenant's "name/model" requests, so the namespaces stay disjoint
+	// (the BYOK key routes enforce the mirror check).
+	const byokCollision = await db.query.providerKey.findFirst({
+		where: {
+			provider: { eq: "custom" },
+			name: { eq: providerId },
+			status: { eq: "active" },
+		},
+		columns: { id: true },
+	});
+	if (byokCollision) {
 		throw new HTTPException(409, { message: "This carrier id is taken." });
 	}
 
@@ -1431,6 +1465,21 @@ airside.openapi(deleteModel, async (c) => {
 		.update(tables.providerDraftModel)
 		.set({ status: "delisted", delistedAt: new Date() })
 		.where(eq(tables.providerDraftModel.id, id));
+	// A delisted model's pending filing would otherwise linger in the admin
+	// queue and approve as a silent no-op.
+	await db
+		.update(tables.providerPriceFiling)
+		.set({
+			status: "rejected",
+			reviewNote: "Model delisted",
+			reviewedAt: new Date(),
+		})
+		.where(
+			and(
+				eq(tables.providerPriceFiling.draftModelId, id),
+				eq(tables.providerPriceFiling.status, "pending"),
+			),
+		);
 	await dematerializeAirsideModel(model.providerId, model.modelName);
 	return c.json({ status: "delisted" as const });
 });

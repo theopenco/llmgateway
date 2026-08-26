@@ -6172,6 +6172,14 @@ describe("api", () => {
 	});
 
 	test("Error when requesting provider-specific model name without prefix", async () => {
+		// Auth now runs before model validation, so the request needs a key.
+		await db.insert(tables.apiKey).values({
+			id: "prefix-test-token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
 		// Create a fake model name that would be a provider-specific model name
 		const res = await app.request("/v1/chat/completions", {
 			method: "POST",
@@ -6201,11 +6209,19 @@ describe("api", () => {
 
 	// invalid model test
 	test("/v1/chat/completions invalid model", async () => {
+		// Auth now runs before model validation, so the request needs a key.
+		await db.insert(tables.apiKey).values({
+			id: "invalid-model-token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
 		const res = await app.request("/v1/chat/completions", {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
-				Authorization: `Bearer fake`,
+				Authorization: `Bearer real-token`,
 			},
 			body: JSON.stringify({
 				model: "invalid",

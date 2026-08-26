@@ -322,6 +322,21 @@ describe("airside-listed models", () => {
 		// 1000 tokens at $3/M in + 500 tokens at $9/M out.
 		expect(Number(log!.inputCost)).toBeCloseTo(0.003, 6);
 		expect(Number(log!.outputCost)).toBeCloseTo(0.0045, 6);
+
+		// The bare id /v1/models advertises resolves too (unique listing).
+		const bare = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer airside-custom-token",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "sky-large",
+				messages: [{ role: "user", content: "Say hi again" }],
+			}),
+		});
+		expect(bare.status).toBe(200);
 	});
 
 	test("custom carrier without a managed credential fails with a clear error", async () => {

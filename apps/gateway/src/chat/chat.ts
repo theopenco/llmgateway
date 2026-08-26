@@ -2012,9 +2012,51 @@ chat.openapi(completions, async (c) => {
 	// Store the original llmgateway model ID for logging purposes
 	const initialRequestedModel = modelInput;
 
+	// === Early API key and organization validation for coding model restriction ===
+	// We need to fetch these early to check coding model restrictions before capability checks
+	const auth = c.req.header("Authorization");
+	const xApiKey = c.req.header("x-api-key");
+
+	let token: string | undefined;
+
+	if (auth) {
+		const split = auth.split("Bearer ");
+		if (split.length === 2 && split[1]) {
+			token = split[1];
+		}
+	}
+
+	if (!token && xApiKey) {
+		token = xApiKey;
+	}
+
+	if (!token) {
+		throw new HTTPException(401, {
+			message:
+				"Unauthorized: No API key provided. Expected 'Authorization: Bearer your-api-token' header or 'x-api-key: your-api-token' header",
+		});
+	}
+
+	const apiKey = await findApiKeyByToken(token);
+
+	if (!apiKey) {
+		throw new HTTPException(401, {
+			message:
+				"Unauthorized: Invalid LLMGateway API token. The token could not be found. Go to the LLMGateway 'API Keys' page to generate a new token.",
+		});
+	}
+
+	if (apiKey.status !== "active") {
+		throw new HTTPException(401, {
+			message:
+				"Unauthorized: This LLMGateway API token is not active (it may be disabled or deleted). Go to the LLMGateway 'API Keys' page to generate a new token.",
+		});
+	}
+
 	// Airside carrier listings: a "provider/model" id that misses the static
 	// catalogue may be an approved Airside listing — resolve it from the DB
-	// before the (throwing) static parse.
+	// before the (throwing) static parse. Runs after authentication so
+	// unauthenticated traffic cannot drive these lookups.
 	const airsideResolution = await resolveAirsideModel(modelInput);
 
 	// Parse model input to resolve model, provider, and custom provider name
@@ -2111,47 +2153,6 @@ chat.openapi(completions, async (c) => {
 	) {
 		throw new HTTPException(400, {
 			message: `Model ${requestedModel} requires at least one image input. Please include an image in your request.`,
-		});
-	}
-
-	// === Early API key and organization validation for coding model restriction ===
-	// We need to fetch these early to check coding model restrictions before capability checks
-	const auth = c.req.header("Authorization");
-	const xApiKey = c.req.header("x-api-key");
-
-	let token: string | undefined;
-
-	if (auth) {
-		const split = auth.split("Bearer ");
-		if (split.length === 2 && split[1]) {
-			token = split[1];
-		}
-	}
-
-	if (!token && xApiKey) {
-		token = xApiKey;
-	}
-
-	if (!token) {
-		throw new HTTPException(401, {
-			message:
-				"Unauthorized: No API key provided. Expected 'Authorization: Bearer your-api-token' header or 'x-api-key: your-api-token' header",
-		});
-	}
-
-	const apiKey = await findApiKeyByToken(token);
-
-	if (!apiKey) {
-		throw new HTTPException(401, {
-			message:
-				"Unauthorized: Invalid LLMGateway API token. The token could not be found. Go to the LLMGateway 'API Keys' page to generate a new token.",
-		});
-	}
-
-	if (apiKey.status !== "active") {
-		throw new HTTPException(401, {
-			message:
-				"Unauthorized: This LLMGateway API token is not active (it may be disabled or deleted). Go to the LLMGateway 'API Keys' page to generate a new token.",
 		});
 	}
 
@@ -7428,6 +7429,7 @@ chat.openapi(completions, async (c) => {
 				// credential, so the waiver has to travel with the retry or the
 				// sponsored call 402s the moment the first provider misbehaves.
 				sponsoredOnboarding,
+				airsideCustomBaseUrl: airsideResolution?.customBaseUrl,
 				stream: streamValue,
 				effectiveStream,
 				messages: messages as BaseMessage[],

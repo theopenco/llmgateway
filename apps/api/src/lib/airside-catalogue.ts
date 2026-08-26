@@ -1,5 +1,5 @@
 import { and, cdb, eq, isNull, tables } from "@llmgateway/db";
-import { models as staticModels } from "@llmgateway/models";
+import { staticCatalogueMapsModel } from "@llmgateway/models";
 
 type DraftModelRow = typeof tables.providerDraftModel.$inferSelect;
 
@@ -28,13 +28,7 @@ export function staticCatalogueHasMapping(
 	providerId: string,
 	modelName: string,
 ): boolean {
-	return staticModels.some(
-		(m) =>
-			(m.id === modelName ||
-				("aliases" in m &&
-					(m.aliases as readonly string[] | undefined)?.includes(modelName))) &&
-			m.providers.some((p) => p.providerId === providerId),
-	);
+	return staticCatalogueMapsModel(providerId, modelName);
 }
 
 /** Like staticCatalogueHasMapping, but ignoring deactivated mappings. This is
@@ -44,23 +38,7 @@ export function staticCatalogueHasActiveMapping(
 	providerId: string,
 	modelName: string,
 ): boolean {
-	const now = new Date();
-	return staticModels.some(
-		(m) =>
-			(m.id === modelName ||
-				("aliases" in m &&
-					(m.aliases as readonly string[] | undefined)?.includes(modelName))) &&
-			m.providers.some((p) => {
-				if (p.providerId !== providerId) {
-					return false;
-				}
-				const deactivatedAt =
-					"deactivatedAt" in p
-						? (p.deactivatedAt as Date | string | undefined)
-						: undefined;
-				return !(deactivatedAt && new Date(deactivatedAt) <= now);
-			}),
-	);
+	return staticCatalogueMapsModel(providerId, modelName, { activeOnly: true });
 }
 
 export async function materializeAirsideModel(

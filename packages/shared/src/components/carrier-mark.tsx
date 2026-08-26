@@ -35,6 +35,11 @@ export function isMonochromeSvgDataUrl(dataUrl: string): boolean {
 	} catch {
 		return false;
 	}
+	// Raster-wrapping SVGs (<image href=...>) have no paint attributes and
+	// would mask into a flat silhouette — treat them as colorful.
+	if (/<image[\s>]/i.test(svg)) {
+		return false;
+	}
 	let match: RegExpExecArray | null;
 	COLOR_ATTR_PATTERN.lastIndex = 0;
 	while ((match = COLOR_ATTR_PATTERN.exec(svg)) !== null) {
