@@ -1,16 +1,26 @@
 import type {
 	BenchmarkClientOptions,
 	BenchmarkError,
+	BenchmarkMessageToolCall,
 	BenchmarkRequest,
 	BenchmarkResponse,
+	BenchmarkStreamChunk,
 	BenchmarkTiming,
 	BenchmarkUsage,
 } from "./types.js";
+
+interface StreamToolCallDelta {
+	index?: number;
+	id?: string;
+	type?: "function";
+	function?: { name?: string; arguments?: string };
+}
 
 interface StreamDelta {
 	content?: string;
 	reasoning?: string;
 	reasoning_content?: string;
+	tool_calls?: StreamToolCallDelta[];
 }
 
 interface StreamChoice {
@@ -73,23 +83,58 @@ function createTiming(
 	started: number,
 	values: Partial<BenchmarkTiming>,
 	usage: BenchmarkUsage,
+	streamChunks: BenchmarkStreamChunk[],
 ): BenchmarkTiming {
 	const totalMs = performance.now() - started;
+	const contentChunks = streamChunks.filter(
+		(chunk) => chunk.kind === "content",
+	);
 	const firstContentMs = values.firstContentMs ?? null;
+	const lastContentMs = contentChunks.at(-1)?.atMs ?? null;
 	const generationMs =
 		firstContentMs === null ? null : Math.max(0, totalMs - firstContentMs);
 	const visibleTokensPerSecond =
 		generationMs && usage.visibleCompletionTokens !== null
 			? Math.max(0, usage.visibleCompletionTokens - 1) / (generationMs / 1000)
 			: null;
+	const gaps = contentChunks.slice(1).map((chunk, index) => {
+		const previous = contentChunks[index];
+		return chunk.atMs - previous.atMs;
+	});
+	const totalCharacters = contentChunks.reduce(
+		(sum, chunk) => sum + chunk.characters,
+		0,
+	);
+	const finalWindowStart = totalMs * 0.9;
+	const finalCharacters = contentChunks
+		.filter((chunk) => chunk.atMs >= finalWindowStart)
+		.reduce((sum, chunk) => sum + chunk.characters, 0);
+	const finalContentBurstRatio =
+		totalCharacters === 0 ? null : finalCharacters / totalCharacters;
+	const buffered =
+		contentChunks.length === 0
+			? null
+			: contentChunks.length === 1 ||
+				(firstContentMs !== null &&
+					firstContentMs >= totalMs * 0.8 &&
+					(finalContentBurstRatio ?? 0) >= 0.8);
 	return {
 		headersMs: values.headersMs ?? null,
 		firstEventMs: values.firstEventMs ?? null,
 		firstReasoningMs: values.firstReasoningMs ?? null,
 		firstContentMs,
+		lastContentMs,
 		generationMs,
 		totalMs,
 		visibleTokensPerSecond,
+		contentChunkCount: contentChunks.length,
+		averageContentChunkCharacters:
+			contentChunks.length === 0
+				? null
+				: totalCharacters / contentChunks.length,
+		maxContentStallMs: gaps.length === 0 ? null : Math.max(...gaps),
+		finalContentBurstRatio,
+		buffered,
 	};
 }
 
@@ -99,20 +144,44 @@ function errorResponse(
 	timing: Partial<BenchmarkTiming> = {},
 ): BenchmarkResponse {
 	const usage = createUsage(null);
+	const streamChunks: BenchmarkStreamChunk[] = [];
 	return {
 		content: "",
 		reasoning: "",
+		toolCalls: [],
 		finishReason: null,
 		responseModel: null,
 		requestId: null,
 		usage,
-		timing: createTiming(started, timing, usage),
+		timing: createTiming(started, timing, usage, streamChunks),
+		streamChunks,
 		error,
 	};
 }
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
+}
+
+function appendToolCall(
+	toolCalls: Map<number, BenchmarkMessageToolCall>,
+	delta: StreamToolCallDelta,
+): void {
+	const index = delta.index ?? 0;
+	const existing = toolCalls.get(index) ?? {
+		id: "",
+		type: "function" as const,
+		function: { name: "", arguments: "" },
+	};
+	toolCalls.set(index, {
+		id: existing.id + (delta.id ?? ""),
+		type: "function",
+		function: {
+			name: existing.function.name + (delta.function?.name ?? ""),
+			arguments:
+				existing.function.arguments + (delta.function?.arguments ?? ""),
+		},
+	});
 }
 
 export async function executeStreamingRequest({
@@ -139,9 +208,19 @@ export async function executeStreamingRequest({
 			body: JSON.stringify({
 				...request.parameters,
 				model,
-				messages: request.messages,
+				messages: request.messages.map((message) => ({
+					role: message.role,
+					content: message.content,
+					...(message.name ? { name: message.name } : {}),
+					...(message.toolCallId ? { tool_call_id: message.toolCallId } : {}),
+					...(message.toolCalls ? { tool_calls: message.toolCalls } : {}),
+				})),
 				stream: true,
 				stream_options: { include_usage: true },
+				...(request.tools ? { tools: request.tools } : {}),
+				...(request.toolChoice === undefined
+					? {}
+					: { tool_choice: request.toolChoice }),
 				...(request.maxTokens === undefined
 					? {}
 					: { max_tokens: request.maxTokens }),
@@ -184,6 +263,8 @@ export async function executeStreamingRequest({
 	let responseModel: string | null = null;
 	let usageRaw: Record<string, unknown> | null = null;
 	let streamError: BenchmarkError | null = null;
+	const toolCallParts = new Map<number, BenchmarkMessageToolCall>();
+	const streamChunks: BenchmarkStreamChunk[] = [];
 	const reader = response.body.getReader();
 	const decoder = new TextDecoder();
 	let buffer = "";
@@ -196,7 +277,8 @@ export async function executeStreamingRequest({
 		if (!data || data === "[DONE]") {
 			return;
 		}
-		firstEventMs ??= performance.now() - started;
+		const atMs = performance.now() - started;
+		firstEventMs ??= atMs;
 		let chunk: StreamChunk;
 		try {
 			chunk = JSON.parse(data) as StreamChunk;
@@ -221,16 +303,29 @@ export async function executeStreamingRequest({
 			return;
 		}
 		finishReason = choice.finish_reason ?? finishReason;
+		for (const toolCall of choice.delta?.tool_calls ?? []) {
+			appendToolCall(toolCallParts, toolCall);
+		}
 		const reasoningDelta =
 			choice.delta?.reasoning_content ?? choice.delta?.reasoning ?? "";
 		const contentDelta = choice.delta?.content ?? "";
 		if (reasoningDelta) {
-			firstReasoningMs ??= performance.now() - started;
+			firstReasoningMs ??= atMs;
 			reasoning += reasoningDelta;
+			streamChunks.push({
+				atMs,
+				characters: reasoningDelta.length,
+				kind: "reasoning",
+			});
 		}
 		if (contentDelta) {
-			firstContentMs ??= performance.now() - started;
+			firstContentMs ??= atMs;
 			content += contentDelta;
+			streamChunks.push({
+				atMs,
+				characters: contentDelta.length,
+				kind: "content",
+			});
 		}
 	};
 
@@ -256,30 +351,27 @@ export async function executeStreamingRequest({
 			consumeLine(line);
 		}
 	} catch (error) {
-		streamError = {
-			code: "stream_read_error",
-			message: errorMessage(error),
-		};
+		streamError = { code: "stream_read_error", message: errorMessage(error) };
 	}
 
 	const usage = createUsage(usageRaw);
 	return {
 		content,
 		reasoning,
+		toolCalls: [...toolCallParts.entries()]
+			.sort(([left], [right]) => left - right)
+			.map(([, toolCall]) => toolCall),
 		finishReason,
 		responseModel,
 		requestId: response.headers.get("x-request-id"),
 		usage,
 		timing: createTiming(
 			started,
-			{
-				headersMs,
-				firstEventMs,
-				firstReasoningMs,
-				firstContentMs,
-			},
+			{ headersMs, firstEventMs, firstReasoningMs, firstContentMs },
 			usage,
+			streamChunks,
 		),
+		streamChunks,
 		error: streamError,
 	};
 }

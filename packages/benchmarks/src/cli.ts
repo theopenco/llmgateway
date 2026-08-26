@@ -7,7 +7,7 @@ import { parseArgs } from "node:util";
 
 import { renderBenchmarkResult } from "./reporters.js";
 import { runBenchmark } from "./runner.js";
-import { getBuiltInSuite } from "./suites/index.js";
+import { getBuiltInProfile, getBuiltInSuite } from "./suites/index.js";
 import { resolveBenchmarkTargets } from "./targets.js";
 
 import type { BenchmarkOutputFormat } from "./types.js";
@@ -19,18 +19,22 @@ const HELP = `Usage:
 Options:
   --model <id>                 Model to benchmark; repeatable
   --mapping <provider[:region]> Mapping selector; repeatable, comma-separated
-  --suite <core|quality|performance>
+  --profile <smoke|standard|load> Benchmark profile (default: smoke)
+  --suite <core|capability|quality|performance|load> Legacy suite selector
   --case <id>                  Run selected case; repeatable, comma-separated
   --runs <count>               Override measured runs for every case
   --warmup <count>             Override warm-up runs for every case
   --concurrency <count>        Concurrent target/case groups (default: 1)
+	--budget <milliseconds>      Wall-clock budget per target (default: 60000)
+	--no-budget                  Run every configured trial without a time budget
+	--seed <integer>             Reproducible generated-case seed (default: 1)
   --reference <target|mapping> Reference target for answer agreement
   --url <chat-completions-url> Gateway endpoint
   --api-key-env <name>         API key environment variable
   --reasoning-effort <effort>  Override every case
   --max-tokens <count>         Override every case
   --temperature <number>       Override every case
-  --timeout <milliseconds>     Per-request timeout (default: 60000)
+	--timeout <milliseconds>     Per-request timeout (default: 60000)
   --format <json|markdown|html> Output format (default: JSON)
   --output <path>              Save output; .md/.html infer format
   --no-responses               Omit response and reasoning text from results
@@ -103,6 +107,7 @@ export async function runBenchmarkCli(args: string[]): Promise<number> {
 			"allow-cache": { type: "boolean" },
 			"allow-fallback": { type: "boolean" },
 			"api-key-env": { type: "string" },
+			budget: { type: "string" },
 			case: { type: "string", multiple: true },
 			concurrency: { type: "string" },
 			format: { type: "string" },
@@ -111,13 +116,16 @@ export async function runBenchmarkCli(args: string[]): Promise<number> {
 			mapping: { type: "string", multiple: true },
 			"max-tokens": { type: "string" },
 			model: { type: "string", multiple: true },
+			"no-budget": { type: "boolean" },
 			"no-responses": { type: "boolean" },
 			output: { type: "string", short: "o" },
+			profile: { type: "string" },
 			quiet: { type: "boolean" },
 			reasoning: { type: "string" },
 			"reasoning-effort": { type: "string" },
 			reference: { type: "string" },
 			runs: { type: "string" },
+			seed: { type: "string" },
 			suite: { type: "string" },
 			temperature: { type: "string" },
 			timeout: { type: "string" },
@@ -142,8 +150,16 @@ export async function runBenchmarkCli(args: string[]): Promise<number> {
 		mappings: csv(mappingValues),
 		includeDeactivated: values["include-deactivated"],
 	});
+	if (values.profile && values.suite) {
+		throw new Error("Use either --profile or --suite, not both");
+	}
 	const selectedCaseIds = csv(values.case);
-	const suite = getBuiltInSuite(values.suite ?? "core");
+	const profile = values.suite
+		? null
+		: getBuiltInProfile(values.profile ?? "smoke");
+	const suite = values.suite
+		? getBuiltInSuite(values.suite)
+		: (profile?.cases ?? []);
 	const cases = selectedCaseIds
 		? suite.filter((benchmarkCase) =>
 				selectedCaseIds.includes(benchmarkCase.id),
@@ -175,6 +191,8 @@ export async function runBenchmarkCli(args: string[]): Promise<number> {
 	const warmupRuns = integer(values.warmup, "warmup");
 	const concurrency = integer(values.concurrency, "concurrency");
 	const timeoutMs = integer(values.timeout, "timeout");
+	const budgetMs = integer(values.budget, "budget");
+	const seed = integer(values.seed, "seed");
 	const maxTokens = integer(values["max-tokens"], "max-tokens");
 	const temperature = finiteNumber(values.temperature, "temperature");
 	const quiet = values.quiet ?? false;
@@ -192,8 +210,12 @@ export async function runBenchmarkCli(args: string[]): Promise<number> {
 		cases,
 		runs,
 		warmupRuns,
-		concurrency,
+		concurrency: concurrency ?? profile?.defaults.concurrency,
 		timeoutMs,
+		budgetMs: values["no-budget"]
+			? null
+			: (budgetMs ?? profile?.defaults.budgetMs),
+		seed,
 		includeResponses: !values["no-responses"],
 		referenceTargetId,
 		request: {

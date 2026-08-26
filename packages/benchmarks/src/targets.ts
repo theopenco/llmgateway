@@ -86,6 +86,11 @@ export function resolveBenchmarkTargets({
 					externalId: mapping.externalId,
 					quantization: mapping.quantization ?? null,
 					stability: mapping.stability ?? null,
+					inputPrice: mapping.inputPrice ?? null,
+					outputPrice: mapping.outputPrice ?? null,
+					requestPrice: mapping.requestPrice ?? "0",
+					contextSize: mapping.contextSize ?? null,
+					maxOutput: mapping.maxOutput ?? null,
 				},
 			});
 		}

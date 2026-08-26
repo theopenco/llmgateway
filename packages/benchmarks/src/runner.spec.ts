@@ -75,8 +75,11 @@ describe("runBenchmark", () => {
 		});
 
 		expect(JSON.parse(JSON.stringify(result))).toEqual(result);
+		expect(result.schemaVersion).toBe(2);
 		expect(result.trials).toHaveLength(2);
 		expect(result.config.timeoutMs).toBe(60_000);
+		expect(result.config.budgetMs).toBe(60_000);
+		expect(result.trials[0]).toMatchObject({ seed: expect.any(Number) });
 		expect(result.trials[0].response.usage).toMatchObject({
 			completionTokens: 5,
 			reasoningTokens: 2,
@@ -97,6 +100,112 @@ describe("runBenchmark", () => {
 		expect(renderMarkdown(result)).toContain("| &lt;unsafe&gt;");
 		expect(renderHtml(result)).toContain("&lt;unsafe&gt;");
 		expect(renderHtml(result)).not.toContain("<unsafe>");
+	});
+
+	it("enforces per-target budgets between runs", async () => {
+		const fetchMock: typeof fetch = async () => {
+			await new Promise((resolve) => setTimeout(resolve, 5));
+			return streamResponse("42");
+		};
+		const result = await runBenchmark({
+			client: { url: "https://example.com" },
+			targets: [{ id: "target", model: "target" }],
+			cases: [
+				{
+					id: "budgeted",
+					name: "budgeted",
+					kind: "quality",
+					defaultRuns: 3,
+					request: { messages: [{ role: "user", content: "answer" }] },
+					evaluate: () => ({ passed: true, answer: "42" }),
+				},
+			],
+			budgetMs: 1,
+			fetch: fetchMock,
+		});
+
+		expect(result.trials).toHaveLength(1);
+	});
+
+	it("runs repeated trials at the case concurrency", async () => {
+		let active = 0;
+		let maxActive = 0;
+		const fetchMock: typeof fetch = async () => {
+			active++;
+			maxActive = Math.max(maxActive, active);
+			await new Promise((resolve) => setTimeout(resolve, 5));
+			active--;
+			return streamResponse("42");
+		};
+		const result = await runBenchmark({
+			client: { url: "https://example.com" },
+			targets: [{ id: "target", model: "target" }],
+			cases: [
+				{
+					id: "load",
+					name: "load",
+					kind: "performance",
+					defaultRuns: 3,
+					defaultConcurrency: 3,
+					request: { messages: [{ role: "user", content: "answer" }] },
+					parameters: () => ({ concurrency: 3 }),
+				},
+			],
+			budgetMs: null,
+			fetch: fetchMock,
+		});
+
+		expect(maxActive).toBe(3);
+		expect(result.summary.load[0]).toMatchObject({
+			points: [{ concurrency: 3, attempted: 3 }],
+		});
+	});
+
+	it("finishes concurrent warmups before measured requests", async () => {
+		let activeWarmups = 0;
+		let measuredOverlappedWarmup = false;
+		const fetchMock: typeof fetch = async (_, init) => {
+			const body = JSON.parse(String(init?.body)) as {
+				messages: Array<{ content: string }>;
+			};
+			const warmup = body.messages[0]?.content === "warmup";
+			if (warmup) {
+				activeWarmups++;
+			} else if (activeWarmups > 0) {
+				measuredOverlappedWarmup = true;
+			}
+			await new Promise((resolve) => setTimeout(resolve, 5));
+			if (warmup) {
+				activeWarmups--;
+			}
+			return streamResponse("42");
+		};
+		await runBenchmark({
+			client: { url: "https://example.com" },
+			targets: [{ id: "target", model: "target" }],
+			cases: [
+				{
+					id: "warmup-order",
+					name: "warmup order",
+					kind: "performance",
+					defaultRuns: 2,
+					defaultWarmupRuns: 2,
+					defaultConcurrency: 2,
+					request: (context) => ({
+						messages: [
+							{
+								role: "user",
+								content: context.warmup ? "warmup" : "measured",
+							},
+						],
+					}),
+				},
+			],
+			budgetMs: null,
+			fetch: fetchMock,
+		});
+
+		expect(measuredOverlappedWarmup).toBe(false);
 	});
 
 	it("records in-stream provider errors", async () => {

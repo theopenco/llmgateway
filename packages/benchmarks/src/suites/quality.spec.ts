@@ -12,6 +12,7 @@ function response(content: string): BenchmarkResponse {
 	return {
 		content,
 		reasoning: "",
+		toolCalls: [],
 		finishReason: "stop",
 		responseModel: null,
 		requestId: null,
@@ -27,10 +28,17 @@ function response(content: string): BenchmarkResponse {
 			firstEventMs: null,
 			firstReasoningMs: null,
 			firstContentMs: null,
+			lastContentMs: null,
 			generationMs: null,
 			totalMs: 0,
 			visibleTokensPerSecond: null,
+			contentChunkCount: 0,
+			averageContentChunkCharacters: null,
+			maxContentStallMs: null,
+			finalContentBurstRatio: null,
+			buffered: null,
 		},
+		streamChunks: [],
 		error: null,
 	};
 }
@@ -52,6 +60,7 @@ describe("quality suite", () => {
 			benchmarkCase?.evaluate?.(response("FINAL: 229433"), {
 				caseId: "constrained_strings",
 				run: 1,
+				seed: 1,
 				target: { id: "target", model: "target" },
 				warmup: false,
 			}),
@@ -60,6 +69,7 @@ describe("quality suite", () => {
 			benchmarkCase?.evaluate?.(response("FINAL: 144144"), {
 				caseId: "constrained_strings",
 				run: 1,
+				seed: 1,
 				target: { id: "target", model: "target" },
 				warmup: false,
 			}),
