@@ -29,6 +29,8 @@ interface BenchmarkGroup {
 	targetIndex: number;
 }
 
+export const DEFAULT_BENCHMARK_TIMEOUT_MS = 60_000;
+
 function positiveInteger(value: number | undefined, fallback: number): number {
 	if (value === undefined) {
 		return fallback;
@@ -227,7 +229,10 @@ export async function runBenchmark(
 	if (concurrency === 0) {
 		throw new Error("Concurrency must be at least 1");
 	}
-	const timeoutMs = positiveInteger(options.timeoutMs, 360_000);
+	const timeoutMs = positiveInteger(
+		options.timeoutMs,
+		DEFAULT_BENCHMARK_TIMEOUT_MS,
+	);
 	const includeResponses = options.includeResponses ?? true;
 	const fetchImplementation = options.fetch ?? globalThis.fetch;
 	const referenceTargetId = options.referenceTargetId ?? options.targets[0].id;

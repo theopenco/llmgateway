@@ -76,6 +76,7 @@ describe("runBenchmark", () => {
 
 		expect(JSON.parse(JSON.stringify(result))).toEqual(result);
 		expect(result.trials).toHaveLength(2);
+		expect(result.config.timeoutMs).toBe(60_000);
 		expect(result.trials[0].response.usage).toMatchObject({
 			completionTokens: 5,
 			reasoningTokens: 2,

@@ -30,7 +30,7 @@ Options:
   --reasoning-effort <effort>  Override every case
   --max-tokens <count>         Override every case
   --temperature <number>       Override every case
-  --timeout <milliseconds>     Per-request timeout
+  --timeout <milliseconds>     Per-request timeout (default: 60000)
   --format <json|markdown|html> Output format (default: JSON)
   --output <path>              Save output; .md/.html infer format
   --no-responses               Omit response and reasoning text from results

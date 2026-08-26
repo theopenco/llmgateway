@@ -37,4 +37,6 @@ pnpm benchmark -- --model <model-id> --format html --output benchmark.html
 
 JSON is written to stdout by default. Progress goes to stderr, so the output can be piped into another program. Use `--quiet` for no progress output and `--no-responses` when a background job should omit generated text.
 
+Each request has a 60-second timeout by default. Override it programmatically with `timeoutMs` or from the CLI with `--timeout <milliseconds>`.
+
 Run `pnpm benchmark -- --help` for all options. Mapping selectors accept a provider, an exact `provider:region`, `provider:*` for every concrete region, or `*` for every active mapping.
