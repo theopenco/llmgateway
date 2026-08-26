@@ -363,6 +363,9 @@ async function computeMemberSpend(
 					-period.durationValue,
 					period.durationUnit,
 				);
+				// Match the gateway's getMemberPeriodSpend window: exactly the
+				// period's worth of hourly buckets ending at the current hour.
+				windowStart.setHours(windowStart.getHours() + 1);
 				const rows = await db
 					// cost is float4; SUM(real) accumulates in float4 too, so cast first.
 					.select({

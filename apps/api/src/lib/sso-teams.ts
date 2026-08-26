@@ -29,10 +29,7 @@ export async function recomputeUserTeam(
 	}
 
 	if (membership.role !== "developer") {
-		if (
-			membership.teamId === null ||
-			membership.teamAssignmentSource === "manual"
-		) {
+		if (membership.teamId === null) {
 			return null;
 		}
 		await cdb

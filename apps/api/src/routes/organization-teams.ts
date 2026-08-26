@@ -117,17 +117,16 @@ function requireEnterprise(
 }
 
 function normalizeLimit(value: string | null): string | null {
-	if (value === null) {
+	if (value === null || value.trim() === "") {
 		return null;
 	}
 	const normalized = value.trim();
-	if (
-		!normalized ||
-		!Number.isFinite(Number(normalized)) ||
-		Number(normalized) < 0
-	) {
+	// Validate as a non-negative decimal string WITHOUT coercing through Number:
+	// the column is a Postgres numeric, and Number() accepts forms ("0x10",
+	// "1e3") the column rejects, turning a bad request into a 500.
+	if (!/^\d+(\.\d+)?$/.test(normalized)) {
 		throw new HTTPException(400, {
-			message: "Budget limits must be non-negative",
+			message: "Budget limits must be non-negative numbers",
 		});
 	}
 	return normalized;
