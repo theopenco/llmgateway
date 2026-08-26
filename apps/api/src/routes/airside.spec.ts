@@ -881,6 +881,21 @@ describe("airside provider portal", () => {
 		expect(model.audio).toBe(true);
 		expect(model.reasoningEfforts).toEqual(["low", "medium", "high"]);
 
+		// Edits to the efforts persist.
+		const patch = await app.request(
+			`/airside/models/${model.id}`,
+			json(cookie, { reasoningEfforts: ["medium", "max"] }, "PATCH"),
+		);
+		expect(patch.status).toBe(200);
+		expect((await patch.json()).model.reasoningEfforts).toEqual([
+			"medium",
+			"max",
+		]);
+		const stored = await db.query.providerDraftModel.findFirst({
+			where: { id: { eq: model.id } },
+		});
+		expect(stored?.reasoningEfforts).toEqual(["medium", "max"]);
+
 		// Materialization carries the efforts onto the catalogue mapping.
 		process.env.ADMIN_EMAILS = "ops@mistral.ai";
 		const filings = await app.request(
@@ -898,7 +913,68 @@ describe("airside provider portal", () => {
 		const mapping = await db.query.modelProviderMapping.findFirst({
 			where: { modelId: { eq: "mistral-reasoner-x" } },
 		});
-		expect(mapping?.reasoningEfforts).toEqual(["low", "medium", "high"]);
+		// The patched efforts (not the original ones) are what materialize.
+		expect(mapping?.reasoningEfforts).toEqual(["medium", "max"]);
+	});
+
+	it("edits claim branding but never claim identity", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		const claim = await claimProvider(cookie, company.id);
+		await activateClaim();
+
+		const svg = `data:image/svg+xml;base64,${"B".repeat(64)}`;
+		const res = await app.request(
+			`/airside/claims/${claim.id}`,
+			json(
+				cookie,
+				{ logoUrl: svg, customBaseUrl: "https://evil.example" },
+				"PATCH",
+			),
+		);
+		expect(res.status).toBe(200);
+		const updated = (await res.json()).claim;
+		expect(updated.logoUrl).toBe(svg);
+		// Identity fields are not editable; unknown keys are stripped.
+		expect(updated.customBaseUrl).toBeNull();
+
+		// Non-SVG branding is rejected; null clears the logo.
+		const png = await app.request(
+			`/airside/claims/${claim.id}`,
+			json(
+				cookie,
+				{ logoUrl: `data:image/png;base64,${"B".repeat(64)}` },
+				"PATCH",
+			),
+		);
+		expect(png.status).toBe(400);
+		const cleared = await app.request(
+			`/airside/claims/${claim.id}`,
+			json(cookie, { logoUrl: null }, "PATCH"),
+		);
+		expect((await cleared.json()).claim.logoUrl).toBeNull();
+	});
+
+	it("carries cache and per-request pricing through filings", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const res = await createModel(cookie, company.id, {
+			modelName: "mistral-cached-x",
+			pricing: {
+				inputPrice: "2e-6",
+				outputPrice: "6e-6",
+				cachedInputPrice: "5e-7",
+				requestPrice: "0.002",
+			},
+		});
+		expect(res.status).toBe(201);
+		const { model } = await res.json();
+		expect(model.pendingFiling).toMatchObject({
+			cachedInputPrice: "5e-7",
+			requestPrice: "0.002",
+		});
 	});
 
 	it("imports catalogue models as managed listings", async () => {

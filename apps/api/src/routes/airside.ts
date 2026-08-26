@@ -891,6 +891,66 @@ airside.openapi(registerCarrier, async (c) => {
 	return c.json({ claim: serializeClaim(claim, providerNamesById) }, 201);
 });
 
+// Branding is the only carrier-editable part of a claim after filing: the
+// identity fields (provider id, display name, website, API endpoint) are what
+// the review approved, so changing them takes a new registration.
+const updateClaimBranding = createRoute({
+	method: "patch",
+	path: "/claims/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						// null clears the image; omitted keeps the current one.
+						logoUrl: imageDataUrl(LOGO_MAX_BYTES).nullish(),
+						iconUrl: imageDataUrl(ICON_MAX_BYTES).nullish(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ claim: claimSchema }),
+				},
+			},
+			description: "The claim with its updated branding.",
+		},
+	},
+});
+
+airside.openapi(updateClaimBranding, async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	const body = c.req.valid("json");
+	const claim = await db.query.providerClaim.findFirst({
+		where: { id: { eq: id } },
+	});
+	if (!claim) {
+		throw new HTTPException(404, { message: "Claim not found" });
+	}
+	await requireCompanyMembership(user.id, claim.providerCompanyId);
+	if (claim.status !== "pending" && claim.status !== "active") {
+		throw new HTTPException(409, {
+			message: "Only pending or active claims can change their branding.",
+		});
+	}
+	// cdb: claim rows feed the gateway's custom-carrier resolution cache.
+	const [updated] = await cdb
+		.update(tables.providerClaim)
+		.set({
+			...(body.logoUrl !== undefined ? { logoUrl: body.logoUrl } : {}),
+			...(body.iconUrl !== undefined ? { iconUrl: body.iconUrl } : {}),
+		})
+		.where(eq(tables.providerClaim.id, id))
+		.returning();
+	return c.json({ claim: serializeClaim(updated, providerNamesById) });
+});
+
 // ---------------------------------------------------------------------------
 // Models (fleet)
 // ---------------------------------------------------------------------------

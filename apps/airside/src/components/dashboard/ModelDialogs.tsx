@@ -78,8 +78,13 @@ export function RegisterModelDialog({
 	const [modelName, setModelName] = useState("");
 	const [displayName, setDisplayName] = useState("");
 	const [contextSize, setContextSize] = useState("128000");
+	const [description, setDescription] = useState("");
+	const [family, setFamily] = useState("");
+	const [maxOutput, setMaxOutput] = useState("");
 	const [inputPrice, setInputPrice] = useState("");
 	const [outputPrice, setOutputPrice] = useState("");
+	const [cachedInputPrice, setCachedInputPrice] = useState("");
+	const [requestPrice, setRequestPrice] = useState("");
 	const [note, setNote] = useState("");
 	const [maxRpm, setMaxRpm] = useState("");
 	const [maxRpd, setMaxRpd] = useState("");
@@ -148,7 +153,10 @@ export function RegisterModelDialog({
 								providerId: effectiveProviderId,
 								modelName,
 								displayName: displayName || undefined,
+								description: description || undefined,
+								family: family || undefined,
 								contextSize: Number(contextSize) || undefined,
+								maxOutput: Number(maxOutput) || undefined,
 								...capabilities,
 								reasoningEfforts:
 									capabilities.reasoning && reasoningEfforts.length > 0
@@ -156,7 +164,12 @@ export function RegisterModelDialog({
 										: undefined,
 								maxRpm: Number(maxRpm) || undefined,
 								maxRpd: Number(maxRpd) || undefined,
-								pricing: { inputPrice, outputPrice },
+								pricing: {
+									inputPrice,
+									outputPrice,
+									cachedInputPrice: cachedInputPrice || undefined,
+									requestPrice: requestPrice || undefined,
+								},
 								note: note || undefined,
 							},
 						});
@@ -212,6 +225,37 @@ export function RegisterModelDialog({
 								min={1}
 							/>
 						</div>
+						<div className="space-y-2">
+							<Label htmlFor="model-max-output">Max output tokens</Label>
+							<Input
+								id="model-max-output"
+								value={maxOutput}
+								onChange={(e) => setMaxOutput(e.target.value)}
+								type="number"
+								min={1}
+								placeholder="optional"
+							/>
+						</div>
+						<div className="space-y-2 sm:col-span-2">
+							<Label htmlFor="model-family">Family</Label>
+							<Input
+								id="model-family"
+								value={family}
+								onChange={(e) => setFamily(e.target.value)}
+								placeholder="e.g. acme (groups related models)"
+							/>
+						</div>
+					</div>
+
+					<div className="space-y-2">
+						<Label htmlFor="model-description">Description</Label>
+						<Textarea
+							id="model-description"
+							value={description}
+							onChange={(e) => setDescription(e.target.value)}
+							placeholder="What is this model good at?"
+							rows={2}
+						/>
 					</div>
 
 					<div className="space-y-2">
@@ -327,6 +371,30 @@ export function RegisterModelDialog({
 									required
 								/>
 							</div>
+							<div className="space-y-2">
+								<Label htmlFor="model-cached-price">
+									Cached input $/token (optional)
+								</Label>
+								<Input
+									id="model-cached-price"
+									data-testid="cached-input-price"
+									value={cachedInputPrice}
+									onChange={(e) => setCachedInputPrice(e.target.value)}
+									placeholder="5e-7"
+								/>
+							</div>
+							<div className="space-y-2">
+								<Label htmlFor="model-request-price">
+									Per-request $ (optional)
+								</Label>
+								<Input
+									id="model-request-price"
+									data-testid="request-price"
+									value={requestPrice}
+									onChange={(e) => setRequestPrice(e.target.value)}
+									placeholder="0.002"
+								/>
+							</div>
 						</div>
 						<div className="space-y-2">
 							<Label htmlFor="model-note">Note to the regulator</Label>
@@ -371,6 +439,10 @@ export function EditModelDialog({
 	const [contextSize, setContextSize] = useState(
 		model.contextSize ? String(model.contextSize) : "",
 	);
+	const [family, setFamily] = useState(model.family ?? "");
+	const [maxOutput, setMaxOutput] = useState(
+		model.maxOutput ? String(model.maxOutput) : "",
+	);
 	const [capabilities, setCapabilities] = useState<
 		Record<CapabilityKey, boolean>
 	>({
@@ -395,6 +467,8 @@ export function EditModelDialog({
 		setDisplayName(model.displayName ?? "");
 		setDescription(model.description ?? "");
 		setContextSize(model.contextSize ? String(model.contextSize) : "");
+		setFamily(model.family ?? "");
+		setMaxOutput(model.maxOutput ? String(model.maxOutput) : "");
 		setCapabilities({
 			streaming: model.streaming,
 			tools: model.tools,
@@ -455,7 +529,9 @@ export function EditModelDialog({
 							body: {
 								displayName: displayName || null,
 								description: description || null,
+								family: family || null,
 								contextSize: contextSize ? Number(contextSize) : null,
+								maxOutput: maxOutput ? Number(maxOutput) : null,
 								...capabilities,
 								reasoningEfforts:
 									capabilities.reasoning && reasoningEfforts.length > 0
@@ -485,6 +561,24 @@ export function EditModelDialog({
 								onChange={(e) => setContextSize(e.target.value)}
 								type="number"
 								min={1}
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor="edit-max-output">Max output tokens</Label>
+							<Input
+								id="edit-max-output"
+								value={maxOutput}
+								onChange={(e) => setMaxOutput(e.target.value)}
+								type="number"
+								min={1}
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor="edit-family">Family</Label>
+							<Input
+								id="edit-family"
+								value={family}
+								onChange={(e) => setFamily(e.target.value)}
 							/>
 						</div>
 					</div>
@@ -613,11 +707,19 @@ export function FileFareDialog({
 	const [outputPrice, setOutputPrice] = useState(
 		model.currentPricing?.outputPrice ?? "",
 	);
+	const [cachedInputPrice, setCachedInputPrice] = useState(
+		model.currentPricing?.cachedInputPrice ?? "",
+	);
+	const [requestPrice, setRequestPrice] = useState(
+		model.currentPricing?.requestPrice ?? "",
+	);
 	const [note, setNote] = useState("");
 
 	function resetFromModel() {
 		setInputPrice(model.currentPricing?.inputPrice ?? "");
 		setOutputPrice(model.currentPricing?.outputPrice ?? "");
+		setCachedInputPrice(model.currentPricing?.cachedInputPrice ?? "");
+		setRequestPrice(model.currentPricing?.requestPrice ?? "");
 		setNote("");
 	}
 
@@ -666,7 +768,13 @@ export function FileFareDialog({
 						e.preventDefault();
 						fileFare.mutate({
 							params: { path: { id: model.id } },
-							body: { inputPrice, outputPrice, note: note || undefined },
+							body: {
+								inputPrice,
+								outputPrice,
+								cachedInputPrice: cachedInputPrice || undefined,
+								requestPrice: requestPrice || undefined,
+								note: note || undefined,
+							},
 						});
 					}}
 				>
@@ -691,6 +799,28 @@ export function FileFareDialog({
 								onChange={(e) => setOutputPrice(e.target.value)}
 								placeholder="6e-6"
 								required
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor="fare-cached">
+								Cached input $/token (optional)
+							</Label>
+							<Input
+								id="fare-cached"
+								data-testid="fare-cached-input-price"
+								value={cachedInputPrice}
+								onChange={(e) => setCachedInputPrice(e.target.value)}
+								placeholder="5e-7"
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor="fare-request">Per-request $ (optional)</Label>
+							<Input
+								id="fare-request"
+								data-testid="fare-request-price"
+								value={requestPrice}
+								onChange={(e) => setRequestPrice(e.target.value)}
+								placeholder="0.002"
 							/>
 						</div>
 					</div>
