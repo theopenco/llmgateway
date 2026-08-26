@@ -41,6 +41,7 @@ import {
 	Volume2,
 	Mic,
 	ListOrdered,
+	Clock,
 } from "lucide-react";
 import Link from "next/link.js";
 import { usePathname, useRouter, useSearchParams } from "next/navigation.js";
@@ -74,8 +75,10 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
-	isMappingDeactivated,
+	getMappingStatus,
+	isModelMappingStatus,
 	shouldShowDeactivationNotice,
+	type ModelMappingStatus,
 } from "@/deactivation";
 import { discountFraction } from "@/lib/discount";
 import { cn } from "@/lib/utils";
@@ -84,6 +87,7 @@ import { matchesCapability } from "./capability-filters";
 import { formatDeprecationDate, formatPerImagePriceRange } from "./format";
 import { ModelCard } from "./model-card";
 import { applyCategoryFilter } from "./model-category-filters";
+import { isVisibleMapping } from "./status-filters";
 import {
 	applyUseCaseFilter,
 	isUseCaseCategory,
@@ -328,6 +332,8 @@ const ModelTableRow = React.memo(
 		const blockedReasons = row.provider.blockedReasons ?? [];
 		const isBlocked = blockedReasons.length > 0;
 		const showDeactivationNotice = shouldShowDeactivationNotice(row.provider);
+		const mappingStatus = getMappingStatus(row.provider);
+		const isScheduled = mappingStatus === "scheduled";
 
 		return (
 			<>
@@ -433,7 +439,11 @@ const ModelTableRow = React.memo(
 								<Tooltip>
 									<TooltipTrigger asChild>
 										<span className="shrink-0 cursor-help">
-											<AlertCircle className="h-3.5 w-3.5 text-red-500" />
+											{isScheduled ? (
+												<Clock className="h-3.5 w-3.5 text-amber-500" />
+											) : (
+												<AlertCircle className="h-3.5 w-3.5 text-red-500" />
+											)}
 										</span>
 									</TooltipTrigger>
 									<TooltipContent>
@@ -494,7 +504,7 @@ const ModelTableRow = React.memo(
 									</TooltipTrigger>
 									<TooltipContent>
 										<p className="text-xs">
-											Premium tier — $5+/M input or $15+/M output. Subject to
+											Premium tier / $5+/M input or $15+/M output. Subject to
 											the weekly fair-use allowance on DevPass plans.
 										</p>
 									</TooltipContent>
@@ -846,6 +856,20 @@ export function AllModels({
 				: "asc",
 	);
 	const urlCategory = searchParams.get("category");
+
+	// The status chips are single-select: `?status=` holds at most one value.
+	// Legacy `?deactivated=true` links map onto the Deactivated chip so old
+	// URLs keep working. No param means the default view (no status filter).
+	function getStatusFilterFromUrl(
+		searchParams: URLSearchParams,
+	): ModelMappingStatus | null {
+		const status = searchParams.get("status");
+		if (status && isModelMappingStatus(status) && status !== "active") {
+			return status;
+		}
+		return searchParams.get("deactivated") === "true" ? "deactivated" : null;
+	}
+
 	const [filters, setFilters] = useState({
 		// With the selector hidden there is no way to see or change the
 		// category, so ignore any URL override and pin the default. When the
@@ -876,7 +900,7 @@ export function AllModels({
 			discounted: searchParams.get("discounted") === "true",
 		},
 		selectedProvider: searchParams.get("provider") ?? "all",
-		showDeactivated: searchParams.get("deactivated") === "true",
+		status: getStatusFilterFromUrl(searchParams),
 		source: searchParams.get("source") ?? "all",
 		eligibleOnly: searchParams.get("eligibility") === "eligible",
 		inputPrice: {
@@ -922,25 +946,42 @@ export function AllModels({
 		[router, searchParams],
 	);
 
+	const setStatusFilter = useCallback(
+		(status: ModelMappingStatus | null) => {
+			setFilters((prev) => ({ ...prev, status }));
+			updateUrlWithFilters({
+				status: status ?? undefined,
+				deactivated: undefined,
+				page: undefined,
+			});
+		},
+		[updateUrlWithFilters],
+	);
+
 	// Calculate total counts (excluding deprecated and deactivated models)
 	const { totalModelCount, totalProviderCount } = useMemo(() => {
 		const now = new Date();
 
 		// Count models that have at least one visible mapping
 		const visibleModelCount = models.filter((model) =>
-			model.mappings.some((mapping) => {
-				if (mapping.deprecatedAt && new Date(mapping.deprecatedAt) <= now) {
-					return false;
-				}
-				return filters.showDeactivated || !isMappingDeactivated(mapping, now);
-			}),
+			model.mappings.some((mapping) =>
+				isVisibleMapping(
+					mapping,
+					{
+						status: filters.status,
+						showDeactivated: false,
+						eligibleOnly: filters.eligibleOnly,
+					},
+					now,
+				),
+			),
 		).length;
 
 		return {
 			totalModelCount: visibleModelCount,
 			totalProviderCount: providers.length,
 		};
-	}, [models, providers, filters.showDeactivated]);
+	}, [models, providers, filters.status, filters.eligibleOnly]);
 
 	const modelsWithProviders: ModelWithProviders[] = useMemo(() => {
 		const now = new Date();
@@ -957,19 +998,19 @@ export function AllModels({
 			})
 			.map((model) => {
 				// Filter out deprecated provider mappings, plus deactivated ones
-				// unless the visitor opted into seeing them
-				const visibleMappings = model.mappings.filter((mapping) => {
-					if (mapping.deprecatedAt && new Date(mapping.deprecatedAt) <= now) {
-						return false;
-					}
-					if (!filters.showDeactivated && isMappingDeactivated(mapping, now)) {
-						return false;
-					}
-					if (filters.eligibleOnly && mapping.blockedReasons?.length) {
-						return false;
-					}
-					return true;
-				});
+				// unless the visitor opted into seeing them; with a status chip
+				// active only mappings of exactly that status remain
+				const visibleMappings = model.mappings.filter((mapping) =>
+					isVisibleMapping(
+						mapping,
+						{
+							status: filters.status,
+							showDeactivated: false,
+							eligibleOnly: filters.eligibleOnly,
+						},
+						now,
+					),
+				);
 
 				return {
 					...model,
@@ -1541,7 +1582,7 @@ export function AllModels({
 		(filters.tier && filters.tier !== "all") ||
 		Object.values(filters.capabilities).some(Boolean) ||
 		(filters.selectedProvider && filters.selectedProvider !== "all") ||
-		filters.showDeactivated ||
+		filters.status !== null ||
 		(filters.source && filters.source !== "all") ||
 		filters.eligibleOnly ||
 		filters.inputPrice.min ||
@@ -1721,7 +1762,7 @@ export function AllModels({
 				discounted: false,
 			},
 			selectedProvider: "all",
-			showDeactivated: false,
+			status: null,
 			source: "all",
 			eligibleOnly: false,
 			inputPrice: { min: "", max: "" },
@@ -1750,6 +1791,7 @@ export function AllModels({
 			free: undefined,
 			discounted: undefined,
 			provider: undefined,
+			status: undefined,
 			deactivated: undefined,
 			source: undefined,
 			eligibility: undefined,
@@ -1837,7 +1879,7 @@ export function AllModels({
 
 						{showPricingTierFilter ? (
 							<>
-								{/* Pricing tier — stacked under Use Case (or standing in
+								{/* Pricing tier / stacked under Use Case (or standing in
 								    for it when that select is hidden) to keep the filter
 								    grid on a single row */}
 								<div className="font-medium text-sm">
@@ -2103,23 +2145,77 @@ export function AllModels({
 						)}
 
 						<div className="font-medium text-sm">Status</div>
-						<div className="flex flex-wrap gap-2">
-							<Toggle
-								variant="outline"
-								size="sm"
-								pressed={filters.showDeactivated}
-								onPressedChange={(pressed) => {
-									setFilters((prev) => ({ ...prev, showDeactivated: pressed }));
-									updateUrlWithFilters({
-										deactivated: pressed ? "true" : undefined,
-										page: undefined,
-									});
-								}}
-								className="gap-1.5"
-							>
-								<AlertCircle className="h-3.5 w-3.5 text-red-500" />
-								<span className="text-xs">Show deactivated</span>
-							</Toggle>
+						<div className="flex flex-col items-start gap-1.5">
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span>
+										<Toggle
+											variant="outline"
+											size="sm"
+											pressed={filters.status === "deactivated"}
+											onPressedChange={(pressed) => {
+												setStatusFilter(pressed ? "deactivated" : null);
+											}}
+											className="gap-1.5 w-fit"
+										>
+											<AlertCircle className="h-3.5 w-3.5 text-red-500" />
+											<span className="text-xs">Deactivated</span>
+										</Toggle>
+									</span>
+								</TooltipTrigger>
+								<TooltipContent>
+									<p className="text-xs">
+										Dead / requests return errors and no longer route
+									</p>
+								</TooltipContent>
+							</Tooltip>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span>
+										<Toggle
+											variant="outline"
+											size="sm"
+											pressed={filters.status === "scheduled"}
+											onPressedChange={(pressed) => {
+												setStatusFilter(pressed ? "scheduled" : null);
+											}}
+											className="gap-1.5 w-fit"
+										>
+											<Clock className="h-3.5 w-3.5 text-amber-500" />
+											<span className="text-xs">Scheduled</span>
+										</Toggle>
+									</span>
+								</TooltipTrigger>
+								<TooltipContent>
+									<p className="text-xs">
+										Still works / deactivation scheduled within 90 days, plan to
+										migrate
+									</p>
+								</TooltipContent>
+							</Tooltip>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span>
+										<Toggle
+											variant="outline"
+											size="sm"
+											pressed={filters.status === "deprecated"}
+											onPressedChange={(pressed) => {
+												setStatusFilter(pressed ? "deprecated" : null);
+											}}
+											className="gap-1.5 w-fit"
+										>
+											<AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+											<span className="text-xs">Deprecated</span>
+										</Toggle>
+									</span>
+								</TooltipTrigger>
+								<TooltipContent>
+									<p className="text-xs">
+										Still works / provider announced sunset, migrate soon
+									</p>
+								</TooltipContent>
+							</Tooltip>
 							{hasBlockedMappings && (
 								<Toggle
 									variant="outline"
@@ -2487,7 +2583,7 @@ export function AllModels({
 														: 0,
 													Object.values(filters.capabilities).filter(Boolean)
 														.length,
-													filters.showDeactivated ? 1 : 0,
+													filters.status ? 1 : 0,
 													filters.source && filters.source !== "all" ? 1 : 0,
 													filters.eligibleOnly ? 1 : 0,
 													[
