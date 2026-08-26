@@ -2020,7 +2020,11 @@ export function AllModels({
 							].map(({ key, label, icon: Icon, color }) => {
 								const isImplied =
 									!hideUseCaseFilter &&
-									((filters.category === "reasoning" && key === "reasoning") ||
+									((filters.category === "code" &&
+										(key === "streaming" || key === "tools")) ||
+										(filters.category === "chat" && key === "streaming") ||
+										(filters.category === "reasoning" && key === "reasoning") ||
+										(filters.category === "creative" && key === "streaming") ||
 										(filters.category === "multimodal" && key === "vision") ||
 										(filters.category === "image" &&
 											key === "imageGeneration"));
@@ -2074,7 +2078,7 @@ export function AllModels({
 									</Toggle>
 								);
 								return isImplied ? (
-									<Tooltip>
+									<Tooltip key={`${key}-${label}`}>
 										<TooltipTrigger asChild>
 											<span>{toggle}</span>
 										</TooltipTrigger>
