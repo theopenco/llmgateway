@@ -66,7 +66,7 @@ describe("resolvePlaygroundToken", () => {
 		await deleteAll();
 	});
 
-	test("rotates one stable key and invalidates another browser", async () => {
+	test("rotates the caller's own key when the cookie is missing", async () => {
 		const firstResponse = await resolver.request("/");
 		const firstBody = await firstResponse.json();
 		const firstCookie = firstResponse.headers.get("set-cookie");
@@ -155,6 +155,40 @@ describe("resolvePlaygroundToken", () => {
 				),
 			),
 		).toBe(1);
+	});
+
+	test("gives concurrent members one key each", async () => {
+		const project = await db.query.project.findFirst();
+		if (!project) {
+			throw new Error("Test project was not created");
+		}
+		await db.insert(tables.user).values({
+			id: "other-playground-user",
+			name: "Other Playground User",
+			email: "other-playground@example.com",
+			emailVerified: true,
+		});
+
+		const [mine, theirs] = await Promise.all([
+			getOrCreatePlaygroundApiKey(project.id, "test-user-id"),
+			getOrCreatePlaygroundApiKey(project.id, "other-playground-user"),
+		]);
+
+		const keys = await db.query.apiKey.findMany({
+			where: {
+				projectId: { eq: project.id },
+				kind: { eq: "playground" },
+				status: { eq: "active" },
+			},
+		});
+		expect(keys).toHaveLength(2);
+		for (const [userId, result] of [
+			["test-user-id", mine],
+			["other-playground-user", theirs],
+		] as const) {
+			const key = keys.find((candidate) => candidate.createdBy === userId);
+			expect(getApiKeyFingerprints(result.token)).toContain(key?.tokenHash);
+		}
 	});
 
 	test("migrates a matching plaintext key without changing its token", async () => {
@@ -318,7 +352,7 @@ describe("resolvePlaygroundToken", () => {
 		).toBe(1);
 	});
 
-	test("preserves the original creator when another user rolls the row", async () => {
+	test("gives another member its own key instead of rotating", async () => {
 		const firstResponse = await resolver.request("/");
 		const firstBody = await firstResponse.json();
 		const key = await db.query.apiKey.findFirst({
@@ -337,13 +371,34 @@ describe("resolvePlaygroundToken", () => {
 		const result = await getOrCreatePlaygroundApiKey(
 			key.projectId,
 			"other-playground-user",
-			`${firstBody.token}-stale`,
+			firstBody.token,
 		);
-		const rolled = await db.query.apiKey.findFirst({
-			where: { id: { eq: key.id } },
-		});
 
 		expect(result.issued).toBe(true);
-		expect(rolled?.createdBy).toBe(key.createdBy);
+		expect(result.token).not.toBe(firstBody.token);
+
+		const untouched = await db.query.apiKey.findFirst({
+			where: { id: { eq: key.id } },
+		});
+		expect(untouched?.createdBy).toBe(key.createdBy);
+		expect(getApiKeyFingerprints(firstBody.token)).toContain(
+			untouched?.tokenHash,
+		);
+
+		const otherKey = await db.query.apiKey.findFirst({
+			where: { createdBy: { eq: "other-playground-user" } },
+		});
+		expect(otherKey?.id).not.toBe(key.id);
+		expect(getApiKeyFingerprints(result.token)).toContain(otherKey?.tokenHash);
+		expect(
+			await db.$count(
+				tables.apiKey,
+				and(
+					eq(tables.apiKey.projectId, key.projectId),
+					eq(tables.apiKey.kind, "playground"),
+					eq(tables.apiKey.status, "active"),
+				),
+			),
+		).toBe(2);
 	});
 });

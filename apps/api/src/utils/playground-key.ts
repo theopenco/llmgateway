@@ -28,6 +28,12 @@ interface PlaygroundApiKeyResult {
 	cookieMaxAge: number;
 }
 
+// Playground keys are per (project, user): the row is provisioned lazily the
+// first time that member uses the playground, and is only ever rotated for the
+// member who owns it. Scoping by creator is what keeps two teammates on a
+// shared project from revoking each other's key on every visit; the token
+// itself is only stored hashed, so a caller without the secret still gets a
+// fresh one rather than the stored token.
 export async function getOrCreatePlaygroundApiKey(
 	projectId: string,
 	userId: string,
@@ -47,6 +53,7 @@ export async function getOrCreatePlaygroundApiKey(
 					eq(tables.apiKey.status, "active"),
 					eq(tables.apiKey.keyType, "user"),
 					eq(tables.apiKey.kind, "playground"),
+					eq(tables.apiKey.createdBy, userId),
 				),
 			)
 			.orderBy(asc(tables.apiKey.createdAt))
