@@ -72,6 +72,29 @@ export const xiaomiModels = [
 				// returns empty content unless thinking is explicitly disabled.
 				jsonOutput: false,
 			},
+			{
+				providerId: "tencent",
+				externalId: "mimo-v2.5-pro",
+				inputPrice: "0.435e-6",
+				cachedInputPrice: "0.0036e-6",
+				outputPrice: "0.87e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				// Same tiers the direct Xiaomi deployment accepts: minimal, xhigh
+				// and max 400 here too.
+				reasoningEfforts: ["none", "low", "medium", "high"],
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+				// json_object is reliable, but json_schema is not: the response
+				// comes back truncated or with thinking leaking into the JSON
+				// body ('{"is_user', '{The user wants'), so it fails to parse on
+				// most attempts.
+				jsonOutputSchema: false,
+			},
 		],
 	},
 	{

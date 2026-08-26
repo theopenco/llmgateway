@@ -50,6 +50,7 @@ export const providerLogoUrls: Partial<
 	runware: ProviderIcons.runware,
 	ranoai: ProviderIcons.ranoai,
 	baidu: ProviderIcons.baidu,
+	tencent: ProviderIcons.tencent,
 };
 
 export const getProviderLogoDarkModeClasses = () => {

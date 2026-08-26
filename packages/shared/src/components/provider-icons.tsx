@@ -1357,6 +1357,23 @@ export const RanoAIIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 	</svg>
 );
 
+// The Tencent Cloud mark, used for both the `tencent` provider and the
+// `tencent` model family. Extracted from the cloud glyph
+// of Tencent Cloud's own wordmark, whose viewBox is 162x24; the box below is
+// squared up around the glyph's 33x24 bounds so it centres in a square slot.
+export const TencentCloudIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
+	props,
+) => (
+	<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -5 33 33" {...props}>
+		<path
+			fillRule="evenodd"
+			clipRule="evenodd"
+			fill="#0052D9"
+			d="M16.4996 0C20.9635 0 24.7584 2.85304 26.168 6.83391C26.1995 6.92244 26.1616 6.97757 26.0645 6.97026C25.0657 6.89652 24.032 7.03426 23.1695 7.2713C23.1379 7.28 23.1075 7.26713 23.0897 7.228C21.9428 4.74991 19.3993 3.00139 16.4996 3.00139C13.0188 3.00139 10.0909 5.46261 9.39738 8.77391C10.4139 9.02313 11.3529 9.48904 12.2243 10.1412C13.0624 10.7654 14.4551 12.0077 15.4372 12.8957C15.4681 12.9235 15.4732 12.9633 15.4492 12.9958L15.4388 13.0077L13.3963 15.0005C13.3619 15.0287 13.3264 15.0264 13.2969 14.9998L13.0564 14.7842C12.4758 14.2661 11.5458 13.4504 10.9833 12.9753L10.8043 12.8254C9.55964 11.7936 8.45772 11.5577 7.64607 11.5609C6.35094 11.5727 5.17251 12.1017 4.33059 12.9558C2.52868 14.7974 2.57164 17.7398 4.40259 19.5523C4.9899 20.1337 6.03807 20.7941 7.75859 20.8525L7.97688 20.8592C8.52835 20.8746 9.11429 20.8801 9.5372 20.8817L18.4887 12.1957C19.289 11.4186 19.9247 10.8277 20.5308 10.3337C21.9217 9.20122 23.5146 8.56313 25.3649 8.56365C27.5052 8.56365 29.4306 9.4513 30.812 10.86C33.7713 13.8845 33.7255 18.7172 30.6939 21.6948C29.3285 23.0355 27.6393 23.691 25.8515 23.8219C25.2666 23.8646 24.7122 23.8757 24.001 23.8786L8.7459 23.8765C8.04602 23.8722 7.26641 23.8491 6.67328 23.774L6.57059 23.7602C4.99825 23.5405 3.52329 22.8901 2.30607 21.6948C-0.72558 18.7172 -0.771319 13.8845 2.18799 10.86C3.29216 9.73391 4.74416 8.94278 6.37494 8.66957H6.36816C7.13668 3.76522 11.3798 0 16.4996 0ZM25.3539 11.5609C24.5271 11.5532 23.3582 11.7883 22.0595 12.9577L21.8855 13.1155C21.4169 13.543 20.9193 14.0163 20.6133 14.3111L13.8469 20.8824L23.4492 20.8817C23.9294 20.8798 24.6255 20.8733 25.2414 20.8525C26.9621 20.7941 28.0101 20.1337 28.5974 19.5523C30.4283 17.7398 30.4713 14.7974 28.6694 12.9558C27.8276 12.1017 26.6495 11.5727 25.3539 11.5609Z"
+		/>
+	</svg>
+);
+
 export const DeepInfraIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	props,
 ) => (
@@ -1616,6 +1633,7 @@ export const ProviderIcons = {
 	runware: RunwareIcon,
 	ranoai: RanoAIIcon,
 	baidu: BaiduIcon,
+	tencent: TencentCloudIcon,
 } as const;
 
 // Type for provider icon keys
@@ -1670,6 +1688,7 @@ export const providerLogoUrls: Partial<
 	runware: ProviderIcons.runware,
 	ranoai: ProviderIcons.ranoai,
 	baidu: ProviderIcons.baidu,
+	tencent: ProviderIcons.tencent,
 };
 
 export const getProviderLogoDarkModeClasses = () => {
@@ -1717,6 +1736,7 @@ export const ModelFamilyIcons: Record<
 	perplexity: PerplexityIcon,
 	reve: ReveIcon,
 	sakana: SakanaIcon,
+	tencent: TencentCloudIcon,
 	xai: XAIIcon,
 	xiaomi: XiaomiIcon,
 	zai: ZaiIcon,

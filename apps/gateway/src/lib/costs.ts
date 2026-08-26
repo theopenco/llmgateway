@@ -765,6 +765,7 @@ export async function calculateCosts(
 		provider === "baidu" ||
 		provider === "permafrost" ||
 		provider === "gonka24" ||
+		provider === "tencent" ||
 		provider === "aws-mantle";
 	const totalOutputTokens = completionIncludesReasoning
 		? calculatedCompletionTokens

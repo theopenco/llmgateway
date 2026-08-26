@@ -588,6 +588,36 @@ export const deepseekModels = [
 				tools: true,
 				jsonOutput: true,
 			},
+			{
+				providerId: "tencent",
+				// The dated id is TokenHub's "Vendor Direct" deployment, priced at
+				// DeepSeek's own rate. The undated `deepseek-v4-pro` id is
+				// Tencent's own hosting at 1.74/3.48 — 4x the input and output
+				// price for the same model — so it is deliberately not mapped.
+				externalId: "deepseek-v4-pro-202606",
+				inputPrice: "0.435e-6",
+				cachedInputPrice: "0.00363e-6",
+				outputPrice: "0.87e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: false,
+				tools: true,
+				supportedToolChoices: ["auto", "none"],
+				jsonOutput: true,
+				jsonOutputSchema: false,
+			},
 		],
 	},
 	{
@@ -972,6 +1002,43 @@ export const deepseekModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+			},
+			{
+				providerId: "tencent",
+				// TokenHub serves two DeepSeek V4 Flash deployments: this dated id
+				// is the "Vendor Direct" one routed to DeepSeek itself, which is
+				// why it matches DeepSeek's own cache rate. The undated
+				// `deepseek-v4-flash` id is Tencent's own hosting at a 10x cache
+				// price (0.028 vs 0.0028) and is deliberately not mapped.
+				externalId: "deepseek-v4-flash-202605",
+				inputPrice: "0.14e-6",
+				cachedInputPrice: "0.0028e-6",
+				outputPrice: "0.28e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: false,
+				tools: true,
+				// Same upstream constraint as the direct DeepSeek mapping: forced
+				// tool_choice 400s with "Thinking mode does not support this
+				// tool_choice".
+				supportedToolChoices: ["auto", "none"],
+				// json_object works (DeepSeek still requires the word "json" in the
+				// prompt); json_schema 400s with "This response_format type is
+				// unavailable now" on this deployment.
+				jsonOutput: true,
+				jsonOutputSchema: false,
 			},
 		],
 	},
