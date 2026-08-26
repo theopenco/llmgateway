@@ -142,7 +142,10 @@ export async function fetchModelsFromApi(
 	apiBackendUrl: string,
 ): Promise<ApiModel[]> {
 	try {
-		const init: NextFetchInit = { next: { revalidate: 60 } };
+		// The models payload exceeds Next's 2MB fetch-cache entry limit, so a
+		// revalidate cache can never refresh — a stale disk entry would be
+		// served forever. Fetch fresh; callers dedupe with React cache().
+		const init: NextFetchInit = { cache: "no-store" };
 		const response = await fetch(`${apiBackendUrl}/internal/models`, init);
 		if (!response.ok) {
 			console.error("Failed to fetch models:", response.statusText);
