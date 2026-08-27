@@ -3,7 +3,7 @@
 import { motion, useReducedMotion } from "framer-motion";
 import { AlertCircle, ArrowUpDown, Zap } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ModelCtaButton } from "@/components/models/model-cta-button";
 import { Button } from "@/lib/components/button";
@@ -114,7 +114,11 @@ export function DetailProviderCards({ model }: { model: ModelWithProviders }) {
 	const [copiedModel, setCopiedModel] = useState<string | null>(null);
 	const [showDeactivated, setShowDeactivated] = useState(false);
 	const [sort, setSort] = useState<SortKey>("featured");
-	const { data: benchmarks } = useModelBenchmarks(model.id);
+	const {
+		data: benchmarks,
+		isFetched: benchmarksFetched,
+		isError: benchmarksErrored,
+	} = useModelBenchmarks(model.id);
 	const isImageGen = Array.isArray(model.output)
 		? model.output.includes("image")
 		: false;
@@ -129,19 +133,22 @@ export function DetailProviderCards({ model }: { model: ModelWithProviders }) {
 		}
 	}, []);
 
-	const changeSort = (key: SortKey) => {
-		setSort(key);
-		const params = new URLSearchParams(window.location.search);
-		if (key === "featured") {
-			params.delete("sort");
-		} else {
-			params.set("sort", key);
-		}
-		const query = params.toString();
-		router.replace(query ? `${pathname}?${query}` : pathname, {
-			scroll: false,
-		});
-	};
+	const changeSort = useCallback(
+		(key: SortKey) => {
+			setSort(key);
+			const params = new URLSearchParams(window.location.search);
+			if (key === "featured") {
+				params.delete("sort");
+			} else {
+				params.set("sort", key);
+			}
+			const query = params.toString();
+			router.replace(query ? `${pathname}?${query}` : pathname, {
+				scroll: false,
+			});
+		},
+		[pathname, router],
+	);
 
 	const copyToClipboard = (text: string) => {
 		void navigator.clipboard.writeText(text);
@@ -262,6 +269,27 @@ export function DetailProviderCards({ model }: { model: ModelWithProviders }) {
 	);
 
 	const activeSort = availableSortKeys.includes(sort) ? sort : "featured";
+
+	// A requested sort with nothing to sort on (e.g. a shared ?sort=throughput
+	// link for a model without benchmark data) falls back to featured; sync the
+	// state and URL so the link names the order actually shown. Throughput
+	// availability is only known once the benchmarks query settles, so leave
+	// the URL untouched until then.
+	useEffect(() => {
+		if (sort === "featured" || availableSortKeys.includes(sort)) {
+			return;
+		}
+		if (sort === "throughput" && !benchmarksFetched && !benchmarksErrored) {
+			return;
+		}
+		changeSort("featured");
+	}, [
+		sort,
+		availableSortKeys,
+		benchmarksFetched,
+		benchmarksErrored,
+		changeSort,
+	]);
 
 	const sortedGroups = useMemo(() => {
 		if (activeSort === "featured") {
