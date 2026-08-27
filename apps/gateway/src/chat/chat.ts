@@ -2018,6 +2018,7 @@ chat.openapi(completions, async (c) => {
 
 	// Count input images from messages for cost calculation
 	const inputImageCount =
+		requestedModel === "gemini-3-pro-image" ||
 		requestedModel === "gemini-3-pro-image-preview" ||
 		requestedModel === "gemini-3.1-flash-image-preview" ||
 		requestedModel === "gemini-3.1-flash-lite-image"
