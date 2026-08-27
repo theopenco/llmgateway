@@ -111,6 +111,14 @@ export function PlanManagement() {
 	const planExpiresAt = selectedOrganization.planExpiresAt
 		? new Date(selectedOrganization.planExpiresAt)
 		: null;
+	const paymentPastDue =
+		subscriptionStatus?.subscriptionPaymentStatus === "past_due";
+	const renewalProcessing =
+		isLegacyPro &&
+		!paymentPastDue &&
+		!subscriptionStatus?.subscriptionCancelled &&
+		planExpiresAt !== null &&
+		planExpiresAt <= new Date();
 
 	if (selectedOrganization.plan === "enterprise") {
 		const resolved = getOrganizationTerm({
@@ -174,6 +182,13 @@ export function PlanManagement() {
 				<CardDescription>Manage your billing preferences</CardDescription>
 			</CardHeader>
 			<CardContent className="space-y-6">
+				{paymentPastDue && (
+					<div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+						We could not collect the renewal payment. Update the subscription
+						payment method below; the next renewal date appears after payment
+						succeeds.
+					</div>
+				)}
 				<div className="flex items-center justify-between">
 					<div>
 						<div className="flex items-center gap-2">
@@ -181,15 +196,25 @@ export function PlanManagement() {
 							<Badge variant="default">
 								{isLegacyPro ? "Pro (Legacy)" : "Free"}
 							</Badge>
+							{paymentPastDue && (
+								<Badge variant="destructive">Payment failed</Badge>
+							)}
+							{renewalProcessing && (
+								<Badge variant="secondary">Renewal processing</Badge>
+							)}
 						</div>
 						<p className="text-sm text-muted-foreground mt-1">
 							All features included
 						</p>
 						{isLegacyPro && planExpiresAt && (
 							<p className="text-sm text-muted-foreground mt-1">
-								{subscriptionStatus?.subscriptionCancelled
-									? `Expires on ${planExpiresAt.toDateString()}`
-									: `Renews on ${planExpiresAt.toDateString()}`}
+								{paymentPastDue
+									? `Payment due ${planExpiresAt.toDateString()}`
+									: renewalProcessing
+										? `Renewal payment processing since ${planExpiresAt.toDateString()}`
+										: subscriptionStatus?.subscriptionCancelled
+											? `Expires on ${planExpiresAt.toDateString()}`
+											: `Renews on ${planExpiresAt.toDateString()}`}
 							</p>
 						)}
 					</div>

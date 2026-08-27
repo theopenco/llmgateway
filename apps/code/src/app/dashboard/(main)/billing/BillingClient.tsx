@@ -2,7 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNowStrict } from "date-fns";
-import { Info, Loader2 } from "lucide-react";
+import { AlertCircle, Info, Loader2 } from "lucide-react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePostHog } from "posthog-js/react";
@@ -317,6 +317,7 @@ export default function BillingClient({
 		(pendingPlanData?.price ?? 0) > (currentPlanData?.price ?? 0);
 	const billingCycleStart = devPlanStatus.devPlanBillingCycleStart ?? null;
 	const currentPeriodEnd = devPlanStatus.devPlanExpiresAt ?? null;
+	const paymentPastDue = devPlanStatus.subscriptionPaymentStatus === "past_due";
 
 	// Prefer Stripe's real `current_period_end`; only fall back to projecting a
 	// cycle from `billingCycleStart` for legacy rows missing the recorded end.
@@ -338,12 +339,18 @@ export default function BillingClient({
 	const renewWhen = renewAt
 		? formatDateTime(renewAt, displayTimeZone, "monthDayYear")
 		: null;
+	const renewalProcessing =
+		!cancelled && !paymentPastDue && renewAt !== null && renewAt <= new Date();
 
-	const renewalHint = !renewAt
-		? "—"
-		: cancelled
-			? `Ends ${renewWhen}`
-			: `Renews ${renewWhen} (in ${formatDistanceToNowStrict(renewAt)})`;
+	const renewalHint = paymentPastDue
+		? "Renewal payment failed"
+		: renewalProcessing
+			? "Renewal payment processing"
+			: !renewAt
+				? "—"
+				: cancelled
+					? `Ends ${renewWhen}`
+					: `Renews ${renewWhen} (in ${formatDistanceToNowStrict(renewAt)})`;
 
 	// A scheduled tier change keeps the current tier active until renewal, then
 	// switches. Surface both the pending tier and the date it applies.
@@ -372,6 +379,16 @@ export default function BillingClient({
 							{cancelled && (
 								<span className="rounded-md bg-destructive/10 px-1.5 py-0.5 text-xs font-medium text-destructive">
 									Cancelling
+								</span>
+							)}
+							{paymentPastDue && (
+								<span className="rounded-md bg-destructive/10 px-1.5 py-0.5 text-xs font-medium text-destructive">
+									Payment failed
+								</span>
+							)}
+							{renewalProcessing && (
+								<span className="rounded-md bg-amber-500/10 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+									Renewal processing
 								</span>
 							)}
 							{showPendingChange && pendingPlanData && (
@@ -455,6 +472,17 @@ export default function BillingClient({
 						</AlertDialog>
 					)}
 				</div>
+
+				{paymentPastDue && (
+					<div className="mt-5 flex gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3.5">
+						<AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+						<p className="text-xs leading-relaxed text-destructive">
+							We could not collect your renewal payment. Update your payment
+							method below. The next renewal date appears only after Stripe
+							confirms the payment.
+						</p>
+					</div>
+				)}
 
 				{/* Clarify DevPass vs pay-as-you-go billing */}
 				<div className="mt-5 flex gap-3 rounded-lg border border-border/60 bg-muted/40 p-3.5">

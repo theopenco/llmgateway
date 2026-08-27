@@ -260,7 +260,11 @@ export default async function ChatPlansDetailPage({
 						{currencyFormatter.format(sub.mrr)}
 					</div>
 					<div className="mt-1 text-xs text-muted-foreground">
-						Renews {formatDate(sub.expiresAt)}
+						{sub.hasPaymentIssue
+							? `Payment failed (due ${formatDate(sub.expiresAt)})`
+							: sub.expiresAt && new Date(sub.expiresAt) <= new Date()
+								? `Renewal processing (due ${formatDate(sub.expiresAt)})`
+								: `Renews ${formatDate(sub.expiresAt)}`}
 					</div>
 				</div>
 				<div className="rounded-lg border border-border/60 bg-card p-4">

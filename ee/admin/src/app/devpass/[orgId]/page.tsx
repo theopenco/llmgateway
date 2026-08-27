@@ -377,7 +377,11 @@ export default async function DevpassDetailPage({
 						{currencyFormatter.format(sub.mrr)}
 					</div>
 					<div className="mt-1 text-xs text-muted-foreground">
-						Renews {formatDate(sub.expiresAt)}
+						{sub.hasPaymentIssue
+							? `Payment failed (due ${formatDate(sub.expiresAt)})`
+							: sub.expiresAt && new Date(sub.expiresAt) <= new Date()
+								? `Renewal processing (due ${formatDate(sub.expiresAt)})`
+								: `Renews ${formatDate(sub.expiresAt)}`}
 					</div>
 					{sub.pendingTier && (
 						<div className="mt-1 text-xs text-amber-600">

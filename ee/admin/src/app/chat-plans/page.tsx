@@ -132,10 +132,12 @@ function getStatusBadgeVariant(
 ): "default" | "secondary" | "outline" | "destructive" {
 	switch (status) {
 		case "active":
+		case "renewal processing":
 			return "secondary";
 		case "cancelled_pending":
 			return "outline";
 		case "expired":
+		case "past due":
 			return "destructive";
 		case "churned":
 			return "outline";
@@ -144,7 +146,17 @@ function getStatusBadgeVariant(
 	}
 }
 
-function formatStatus(status: string) {
+function formatStatus(
+	status: string,
+	hasPaymentIssue: boolean,
+	cancelled: boolean,
+) {
+	if (hasPaymentIssue) {
+		return "past due";
+	}
+	if (status === "expired" && !cancelled) {
+		return "renewal processing";
+	}
 	if (status === "cancelled_pending") {
 		return "cancel pending";
 	}
@@ -940,8 +952,20 @@ export default async function ChatPlansPage({
 										</Badge>
 									</TableCell>
 									<TableCell>
-										<Badge variant={getStatusBadgeVariant(sub.status)}>
-											{formatStatus(sub.status)}
+										<Badge
+											variant={getStatusBadgeVariant(
+												formatStatus(
+													sub.status,
+													sub.hasPaymentIssue,
+													sub.cancelled,
+												),
+											)}
+										>
+											{formatStatus(
+												sub.status,
+												sub.hasPaymentIssue,
+												sub.cancelled,
+											)}
 										</Badge>
 									</TableCell>
 									<TableCell>
@@ -955,7 +979,28 @@ export default async function ChatPlansPage({
 										{sub.cycleDaysIn !== null ? `Day ${sub.cycleDaysIn}` : "—"}
 									</TableCell>
 									<TableCell className="text-muted-foreground text-xs">
-										{sub.expiresAt ? formatDate(sub.expiresAt) : "—"}
+										{sub.hasPaymentIssue ? (
+											<>
+												<span className="font-medium text-destructive">
+													Payment failed
+												</span>
+												{sub.expiresAt && (
+													<p>Due {formatDate(sub.expiresAt)}</p>
+												)}
+											</>
+										) : sub.expiresAt &&
+										  new Date(sub.expiresAt) <= new Date() ? (
+											<>
+												<span className="font-medium text-amber-600 dark:text-amber-400">
+													Processing
+												</span>
+												<p>Due {formatDate(sub.expiresAt)}</p>
+											</>
+										) : sub.expiresAt ? (
+											formatDate(sub.expiresAt)
+										) : (
+											"—"
+										)}
 									</TableCell>
 									<TableCell className="tabular-nums">
 										{currencyFormatter.format(sub.mrr)}

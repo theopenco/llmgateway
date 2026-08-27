@@ -43,6 +43,9 @@ export default function UsagePage() {
 				billingCycleStart={devPlanStatus.devPlanBillingCycleStart ?? null}
 				currentPeriodEnd={devPlanStatus.devPlanExpiresAt ?? null}
 				cancelledAtPeriodEnd={devPlanStatus.devPlanCancelled ?? false}
+				subscriptionPaymentStatus={
+					devPlanStatus.subscriptionPaymentStatus ?? "current"
+				}
 				cycle={devPlanStatus.devPlanCycle ?? "monthly"}
 				paygEnabled={devPlanStatus.devPlanPaygEnabled ?? false}
 				regularCredits={parseFloat(devPlanStatus.regularCredits ?? "0")}

@@ -63,6 +63,7 @@ function makeUpdatedEvent(overrides: {
 	status?: Stripe.Subscription.Status;
 	metadata?: Record<string, string>;
 	subscriptionId?: string;
+	currentPeriodEnd?: number;
 }): Stripe.CustomerSubscriptionUpdatedEvent {
 	return {
 		id: "evt_test_updated",
@@ -82,6 +83,7 @@ function makeUpdatedEvent(overrides: {
 					data: [
 						{
 							current_period_end:
+								overrides.currentPeriodEnd ??
 								Math.floor(Date.now() / 1000) + SECONDS_IN_TWO_WEEKS,
 						},
 					],
@@ -108,6 +110,7 @@ describe("handleSubscriptionUpdated — dev plan cancellation feedback email", (
 	beforeEach(async () => {
 		await deleteAll();
 		sendEmailMock.mockClear();
+		stripeMock.subscriptions.retrieve.mockReset();
 	});
 
 	afterEach(async () => {
@@ -624,6 +627,14 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 
 	test("records the new period end as the renewal date on a cycle renewal", async () => {
 		await seedUsedDevPlanOrg();
+		await db
+			.update(tables.organization)
+			.set({
+				devPlanCreditsFrozen: true,
+				devPlanCreditsLimitBeforeFreeze: "237",
+				subscriptionPaymentStatus: "past_due",
+			})
+			.where(eq(tables.organization.id, ORG_ID));
 
 		const periodEnd = Math.floor(Date.now() / 1000) + SECONDS_IN_TWO_WEEKS;
 		await handleInvoicePaymentSucceeded(
@@ -639,6 +650,8 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 			where: { id: { eq: ORG_ID } },
 		});
 		expect(org?.devPlanExpiresAt?.getTime()).toBe(periodEnd * 1000);
+		expect(org?.subscriptionPaymentStatus).toBe("current");
+		expect(org?.devPlanCreditsFrozen).toBe(false);
 	});
 
 	test("resets to a fresh new-tier cycle on a tier-change invoice (webhook fallback)", async () => {
@@ -945,6 +958,39 @@ describe("handleInvoicePaymentSucceeded — chat plan upgrade invoice", () => {
 		});
 		expect(txns).toHaveLength(1);
 	});
+
+	test("advances the chat renewal date only after payment", async () => {
+		await seedChatPlanOrg({
+			chatPlan: "starter",
+			creditsLimit: "10",
+			creditsUsed: "10",
+		});
+		await db
+			.update(tables.organization)
+			.set({
+				chatPlanExpiresAt: new Date(Date.now() - 60_000),
+				subscriptionPaymentStatus: "past_due",
+			})
+			.where(eq(tables.organization.id, ORG_ID));
+
+		const periodEnd = Math.floor(Date.now() / 1000) + SECONDS_IN_TWO_WEEKS;
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_cycle",
+				amountPaid: 900,
+				invoiceId: "in_chat_renewal_paid",
+				periodEnd,
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.chatPlanExpiresAt?.getTime()).toBe(periodEnd * 1000);
+		expect(org?.subscriptionPaymentStatus).toBe("current");
+		expect(org?.chatPlanCreditsUsed).toBe("0");
+		expect(org?.chatPlanCreditsLimit).toBe("18");
+	});
 });
 
 describe("handleInvoicePaymentSucceeded — initial chat plan invoice", () => {
@@ -1039,6 +1085,7 @@ describe("handleSubscriptionUpdated — dev plan credit freeze/restore", () => {
 	beforeEach(async () => {
 		await deleteAll();
 		sendEmailMock.mockClear();
+		stripeMock.subscriptions.retrieve.mockReset();
 	});
 
 	afterEach(async () => {
@@ -1073,7 +1120,7 @@ describe("handleSubscriptionUpdated — dev plan credit freeze/restore", () => {
 		expect(org?.devPlanCreditsFrozen).toBe(false);
 	});
 
-	test("restores the exact pre-freeze limit when a frozen subscription recovers", async () => {
+	test("keeps a frozen limit until a renewal invoice is paid", async () => {
 		await db.insert(tables.organization).values({
 			id: ORG_ID,
 			name: "Acme Co",
@@ -1094,12 +1141,13 @@ describe("handleSubscriptionUpdated — dev plan credit freeze/restore", () => {
 		const org = await db.query.organization.findFirst({
 			where: { id: { eq: ORG_ID } },
 		});
-		expect(org?.devPlanCreditsLimit).toBe("312");
-		expect(org?.devPlanCreditsFrozen).toBe(false);
-		expect(org?.devPlanCreditsLimitBeforeFreeze).toBeNull();
+		expect(org?.devPlanCreditsLimit).toBe("150");
+		expect(org?.devPlanCreditsFrozen).toBe(true);
+		expect(org?.devPlanCreditsLimitBeforeFreeze).toBe("312");
 	});
 
 	test("freezes credits and preserves the pre-freeze limit on a past_due update", async () => {
+		stripeMock.subscriptions.retrieve.mockResolvedValue({ status: "past_due" });
 		await db.insert(tables.organization).values({
 			id: ORG_ID,
 			name: "Acme Co",
@@ -1122,6 +1170,61 @@ describe("handleSubscriptionUpdated — dev plan credit freeze/restore", () => {
 		expect(org?.devPlanCreditsLimit).toBe("90");
 		expect(org?.devPlanCreditsFrozen).toBe(true);
 		expect(org?.devPlanCreditsLimitBeforeFreeze).toBe("312");
+		expect(org?.subscriptionPaymentStatus).toBe("past_due");
+	});
+
+	test("does not advance the renewal date before payment succeeds", async () => {
+		const paidThrough = new Date(Date.now() - 60_000);
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			devPlan: "pro",
+			devPlanCreditsLimit: "237",
+			devPlanCreditsUsed: "50",
+			devPlanExpiresAt: paidThrough,
+			devPlanStripeSubscriptionId: SUB_ID,
+			devPlanCancelled: false,
+		});
+
+		await handleSubscriptionUpdated(
+			makeUpdatedEvent({
+				cancelAtPeriodEnd: false,
+				status: "active",
+				currentPeriodEnd: Math.floor(Date.now() / 1000) + SECONDS_IN_TWO_WEEKS,
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlanExpiresAt?.getTime()).toBe(paidThrough.getTime());
+		expect(org?.subscriptionPaymentStatus).toBe("current");
+	});
+
+	test("ignores a delayed past_due update after payment recovered", async () => {
+		stripeMock.subscriptions.retrieve.mockResolvedValue({ status: "active" });
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			devPlan: "pro",
+			devPlanCreditsLimit: "237",
+			devPlanCreditsUsed: "50",
+			devPlanStripeSubscriptionId: SUB_ID,
+			devPlanCancelled: false,
+			subscriptionPaymentStatus: "current",
+		});
+
+		await handleSubscriptionUpdated(
+			makeUpdatedEvent({ cancelAtPeriodEnd: false, status: "past_due" }),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.subscriptionPaymentStatus).toBe("current");
+		expect(org?.devPlanCreditsFrozen).toBe(false);
 	});
 
 	test("does NOT freeze when a superseded (stale) subscription expires", async () => {

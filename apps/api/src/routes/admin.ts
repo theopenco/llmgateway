@@ -14601,8 +14601,8 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			cycleStart: tables.organization.devPlanBillingCycleStart,
 			expiresAt: tables.organization.devPlanExpiresAt,
 			cancelled: tables.organization.devPlanCancelled,
+			paymentStatus: tables.organization.subscriptionPaymentStatus,
 			createdAt: tables.organization.createdAt,
-			paymentFailureCount: tables.organization.paymentFailureCount,
 			utilizationPct: utilizationExpr,
 			mrr: tierPriceExpr,
 			realCost: realCostExpr,
@@ -14715,7 +14715,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		const lastPaymentFailureAt = row.lastPaymentFailureAt
 			? new Date(row.lastPaymentFailureAt).toISOString()
 			: null;
-		const hasPaymentIssue = (row.paymentFailureCount ?? 0) > 0;
+		const hasPaymentIssue = row.paymentStatus === "past_due";
 
 		const mrrNum = Number(row.mrr ?? 0);
 		const marginNum = Number(row.margin ?? 0);
@@ -16023,7 +16023,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		.from(tables.paymentFailure)
 		.where(eq(tables.paymentFailure.organizationId, orgId));
 
-	const hasPaymentIssue = (org.paymentFailureCount ?? 0) > 0;
+	const hasPaymentIssue = org.subscriptionPaymentStatus === "past_due";
 
 	const marginPct = mrr > 0 ? (margin / mrr) * 100 : null;
 
@@ -16970,8 +16970,8 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 			cycleStart: tables.organization.chatPlanBillingCycleStart,
 			expiresAt: tables.organization.chatPlanExpiresAt,
 			cancelled: tables.organization.chatPlanCancelled,
+			paymentStatus: tables.organization.subscriptionPaymentStatus,
 			createdAt: tables.organization.createdAt,
-			paymentFailureCount: tables.organization.paymentFailureCount,
 			utilizationPct: utilizationExpr,
 			mrr: tierPriceExpr,
 			realCost: realCostExpr,
@@ -17237,7 +17237,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 		const lastPaymentFailureAt = row.lastPaymentFailureAt
 			? new Date(row.lastPaymentFailureAt).toISOString()
 			: null;
-		const hasPaymentIssue = (row.paymentFailureCount ?? 0) > 0;
+		const hasPaymentIssue = row.paymentStatus === "past_due";
 
 		const mrrNum = Number(row.mrr ?? 0);
 		const marginNum = Number(row.margin ?? 0);
@@ -17844,7 +17844,7 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 		.from(tables.paymentFailure)
 		.where(eq(tables.paymentFailure.organizationId, orgId));
 
-	const hasPaymentIssue = (org.paymentFailureCount ?? 0) > 0;
+	const hasPaymentIssue = org.subscriptionPaymentStatus === "past_due";
 
 	const marginPct = mrr > 0 ? (margin / mrr) * 100 : null;
 

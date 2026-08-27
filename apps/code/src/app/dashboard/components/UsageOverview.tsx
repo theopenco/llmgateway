@@ -53,6 +53,7 @@ interface UsageOverviewProps {
 	billingCycleStart: string | null;
 	currentPeriodEnd: string | null;
 	cancelledAtPeriodEnd: boolean;
+	subscriptionPaymentStatus: "current" | "past_due";
 	cycle?: DevPlanCycle;
 	paygEnabled: boolean;
 	regularCredits: number;
@@ -202,6 +203,7 @@ export default function UsageOverview({
 	billingCycleStart,
 	currentPeriodEnd,
 	cancelledAtPeriodEnd,
+	subscriptionPaymentStatus,
 	cycle = "monthly",
 	paygEnabled,
 	regularCredits,
@@ -329,13 +331,20 @@ export default function UsageOverview({
 				})()
 			: null;
 
-	const cycleEndsHint = cancelledAtPeriodEnd
-		? renewAt
-			? `Cancels ${formatDateTime(renewAt, displayTimeZone, "monthDayYear")}`
-			: "Cancels at period end"
-		: renewAt
-			? `Renews in ${formatDistanceToNowStrict(renewAt)}`
-			: "—";
+	const renewalProcessing =
+		!cancelledAtPeriodEnd && renewAt !== null && renewAt <= new Date();
+	const cycleEndsHint =
+		subscriptionPaymentStatus === "past_due"
+			? "Renewal payment failed — update it in Billing"
+			: renewalProcessing
+				? "Renewal payment processing"
+				: cancelledAtPeriodEnd
+					? renewAt
+						? `Cancels ${formatDateTime(renewAt, displayTimeZone, "monthDayYear")}`
+						: "Cancels at period end"
+					: renewAt
+						? `Renews in ${formatDistanceToNowStrict(renewAt)}`
+						: "—";
 
 	return (
 		<div className="space-y-5">

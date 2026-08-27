@@ -496,6 +496,7 @@ const getSubscriptionStatus = createRoute({
 						subscriptionId: z.string().nullable(),
 						planExpiresAt: z.string().nullable(),
 						subscriptionCancelled: z.boolean(),
+						subscriptionPaymentStatus: z.enum(["current", "past_due"]),
 						billingCycle: z.enum(["monthly", "yearly"]).nullable(),
 					}),
 				},
@@ -559,6 +560,7 @@ subscriptions.openapi(getSubscriptionStatus, async (c) => {
 		subscriptionId: organization.stripeSubscriptionId,
 		planExpiresAt: organization.planExpiresAt?.toISOString() ?? null,
 		subscriptionCancelled: organization.subscriptionCancelled || false,
+		subscriptionPaymentStatus: organization.subscriptionPaymentStatus,
 		billingCycle,
 	});
 });

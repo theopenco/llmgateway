@@ -544,13 +544,20 @@ export type FinalizeDevPlanResult =
 	| { status: "no_payment_method" }
 	| { status: "invalid_session"; reason: string };
 
-// The current billing period end is the authoritative renewal date. It lives on
-// the subscription item (not the subscription) in current Stripe API versions.
-// Returns null when the subscription has no items yet (e.g. mid-creation).
+// The current billing period end lives on the subscription item in current
+// Stripe API versions. Only persist it after payment is confirmed.
 function getSubscriptionPeriodEnd(
 	subscription: Stripe.Subscription,
 ): Date | null {
 	const periodEnd = subscription.items.data[0]?.current_period_end;
+	return periodEnd ? new Date(periodEnd * 1000) : null;
+}
+
+function getInvoicePeriodEnd(invoice: Stripe.Invoice): Date | null {
+	const periodEnd = invoice.lines.data.reduce(
+		(max, line) => Math.max(max, line.period?.end ?? 0),
+		0,
+	);
 	return periodEnd ? new Date(periodEnd * 1000) : null;
 }
 
@@ -1078,6 +1085,7 @@ export async function finalizeDevPlanSetupSession(
 			devPlanCancelled: false,
 			devPlanCycle,
 			devPlanCardFingerprint: fingerprint,
+			subscriptionPaymentStatus: "current",
 		})
 		.where(
 			and(
@@ -1351,6 +1359,7 @@ async function handleCheckoutSessionCompleted(
 					chatPlanCancelled: false,
 					chatPlanCycle,
 					chatPlanCardFingerprint: fingerprint,
+					subscriptionPaymentStatus: "current",
 				})
 				.where(eq(tables.organization.id, organizationId));
 
@@ -1473,6 +1482,7 @@ async function handleCheckoutSessionCompleted(
 					devPlanCancelled: false,
 					devPlanCycle,
 					devPlanCardFingerprint: fingerprint,
+					subscriptionPaymentStatus: "current",
 				})
 				.where(eq(tables.organization.id, organizationId));
 
@@ -1592,6 +1602,7 @@ async function handleCheckoutSessionCompleted(
 					plan: "pro",
 					stripeSubscriptionId: subscriptionId,
 					subscriptionCancelled: false,
+					subscriptionPaymentStatus: "current",
 				})
 				.where(eq(tables.organization.id, organizationId))
 				.returning();
@@ -3835,6 +3846,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 				devPlanCancelled: false,
 				devPlanCycle: initialDevPlanCycle,
 				devPlanCardFingerprint: fingerprint,
+				subscriptionPaymentStatus: "current",
 			})
 			.where(
 				and(
@@ -3983,9 +3995,12 @@ export async function handleInvoicePaymentSucceeded(event: {
 		await db
 			.update(tables.organization)
 			.set({
+				chatPlanCreditsLimit: creditsLimit.toString(),
 				chatPlanCreditsUsed: "0",
 				chatPlanBillingCycleStart: new Date(),
+				chatPlanExpiresAt: getInvoicePeriodEnd(invoice) ?? undefined,
 				chatPlanCancelled: false,
+				subscriptionPaymentStatus: "current",
 			})
 			.where(eq(tables.organization.id, organizationId));
 
@@ -4171,6 +4186,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 					? new Date(renewedPeriodEnd * 1000)
 					: undefined,
 				devPlanCancelled: false,
+				subscriptionPaymentStatus: "current",
 			})
 			.where(eq(tables.organization.id, organizationId));
 
@@ -4282,6 +4298,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 							? new Date(newPeriodEnd * 1000)
 							: undefined,
 						devPlanPendingTier: null,
+						subscriptionPaymentStatus: "current",
 					})
 					.where(eq(tables.organization.id, organizationId));
 			}
@@ -4377,6 +4394,8 @@ export async function handleInvoicePaymentSucceeded(event: {
 						chatPlanCreditsLimit: creditsLimit.toString(),
 						chatPlanCreditsUsed: "0",
 						chatPlanBillingCycleStart: new Date(),
+						chatPlanExpiresAt: getInvoicePeriodEnd(invoice) ?? undefined,
+						subscriptionPaymentStatus: "current",
 					})
 					.where(eq(tables.organization.id, organizationId));
 			}
@@ -4465,7 +4484,9 @@ export async function handleInvoicePaymentSucceeded(event: {
 				.update(tables.organization)
 				.set({
 					plan: "pro",
+					planExpiresAt: getInvoicePeriodEnd(invoice) ?? undefined,
 					subscriptionCancelled: false,
+					subscriptionPaymentStatus: "current",
 				})
 				.where(eq(tables.organization.id, organizationId))
 				.returning();
@@ -4564,43 +4585,6 @@ async function freezeDevPlanCredits(
 	);
 }
 
-async function restoreDevPlanCredits(
-	organizationId: string,
-	organization: {
-		devPlan: DevPlanTier | "none" | null;
-		devPlanCreditsFrozen: boolean | null;
-		devPlanCreditsLimitBeforeFreeze: string | null;
-	},
-	reason: string,
-) {
-	// Counterpart to freezeDevPlanCredits: when the subscription returns to a
-	// healthy state, restore the exact pre-freeze limit. Only acts on an
-	// actually-frozen org — otherwise a routine `subscription.updated` (e.g.
-	// the one Stripe emits for a mid-cycle tier change) would clobber an
-	// intentional prorated limit with the tier's full cap and reopen the
-	// credit-refresh loophole.
-	if (!organization.devPlanCreditsFrozen) {
-		return;
-	}
-	const restoredLimit =
-		organization.devPlanCreditsLimitBeforeFreeze ??
-		(organization.devPlan && organization.devPlan !== "none"
-			? getDevPlanCreditsLimit(organization.devPlan).toString()
-			: "0");
-	await db
-		.update(tables.organization)
-		.set({
-			devPlanCreditsLimit: restoredLimit,
-			devPlanCreditsFrozen: false,
-			devPlanCreditsLimitBeforeFreeze: null,
-		})
-		.where(eq(tables.organization.id, organizationId));
-
-	logger.info(
-		`Restored dev plan credits for organization ${organizationId} (reason: ${reason}); credits limit set to ${restoredLimit}`,
-	);
-}
-
 async function freezeChatPlanCredits(
 	organizationId: string,
 	organization: { chatPlanCreditsUsed: string | null },
@@ -4619,34 +4603,6 @@ async function freezeChatPlanCredits(
 
 	logger.warn(
 		`Froze chat plan credits for organization ${organizationId} (reason: ${reason}); credits limit set to ${used}`,
-	);
-}
-
-async function restoreChatPlanCredits(
-	organizationId: string,
-	organization: {
-		chatPlan: ChatPlanTier | "none" | null;
-		chatPlanCreditsLimit: string | null;
-	},
-	reason: string,
-) {
-	if (!organization.chatPlan || organization.chatPlan === "none") {
-		return;
-	}
-	const expectedLimit = getChatPlanCreditsLimit(organization.chatPlan);
-	const currentLimit = parseFloat(organization.chatPlanCreditsLimit ?? "0");
-	if (currentLimit >= expectedLimit) {
-		return;
-	}
-	await db
-		.update(tables.organization)
-		.set({
-			chatPlanCreditsLimit: expectedLimit.toString(),
-		})
-		.where(eq(tables.organization.id, organizationId));
-
-	logger.info(
-		`Restored chat plan credits for organization ${organizationId} (reason: ${reason}); credits limit raised from ${currentLimit} to ${expectedLimit}`,
 	);
 }
 
@@ -4709,10 +4665,9 @@ async function handleInvoicePaymentFailed(
 	const isDevPlan =
 		organization.devPlanStripeSubscriptionId === subscriptionId &&
 		organization.devPlan !== "none";
+	const isProPlan = organization.stripeSubscriptionId === subscriptionId;
 
-	if (!isDevPlan && !isChatPlan) {
-		// Pro subscription failures are tracked via payment_intent.payment_failed
-		// (with email throttling). Nothing extra to do here.
+	if (!isDevPlan && !isChatPlan && !isProPlan) {
 		return;
 	}
 
@@ -4745,13 +4700,18 @@ async function handleInvoicePaymentFailed(
 		return;
 	}
 
+	await db
+		.update(tables.organization)
+		.set({ subscriptionPaymentStatus: "past_due" })
+		.where(eq(tables.organization.id, organizationId));
+
 	if (isChatPlan) {
 		await freezeChatPlanCredits(
 			organizationId,
 			organization,
 			`invoice.payment_failed (invoice ${invoice.id}, status ${liveSubscription.status})`,
 		);
-	} else {
+	} else if (isDevPlan) {
 		await freezeDevPlanCredits(
 			organizationId,
 			organization,
@@ -4833,6 +4793,31 @@ export async function handleSubscriptionUpdated(
 
 	// Check if subscription is active and organization was previously cancelled
 	const isSubscriptionActive = !cancelAtPeriodEnd;
+	const paymentFailedStatuses: Stripe.Subscription.Status[] = [
+		"past_due",
+		"unpaid",
+		"incomplete",
+		"incomplete_expired",
+	];
+	let confirmedPaymentFailure = false;
+	if (paymentFailedStatuses.includes(subscription.status)) {
+		try {
+			const liveSubscription = await getStripe().subscriptions.retrieve(
+				subscription.id,
+			);
+			confirmedPaymentFailure = paymentFailedStatuses.includes(
+				liveSubscription.status,
+			);
+		} catch (error) {
+			logger.error(
+				`Failed to verify payment status for subscription ${subscription.id}`,
+				error instanceof Error ? error : new Error(String(error)),
+			);
+		}
+	}
+	const paymentStatusUpdate = confirmedPaymentFailure
+		? ("past_due" as const)
+		: undefined;
 
 	if (isChatPlan) {
 		const wasChatPlanCancelled = organization.chatPlanCancelled;
@@ -4864,28 +4849,14 @@ export async function handleSubscriptionUpdated(
 		await db
 			.update(tables.organization)
 			.set({
-				chatPlanExpiresAt: expiresAt,
+				chatPlanExpiresAt: organization.chatPlanExpiresAt ?? expiresAt,
 				chatPlanCancelled: !isSubscriptionActive,
+				subscriptionPaymentStatus: paymentStatusUpdate,
 			})
 			.where(eq(tables.organization.id, organizationId));
 
-		const nonActiveStatuses: Stripe.Subscription.Status[] = [
-			"past_due",
-			"unpaid",
-			"incomplete",
-			"incomplete_expired",
-		];
-		if (nonActiveStatuses.includes(subscription.status)) {
+		if (confirmedPaymentFailure) {
 			await freezeChatPlanCredits(
-				organizationId,
-				organization,
-				`subscription.updated status=${subscription.status}`,
-			);
-		} else if (
-			subscription.status === "active" ||
-			subscription.status === "trialing"
-		) {
-			await restoreChatPlanCredits(
 				organizationId,
 				organization,
 				`subscription.updated status=${subscription.status}`,
@@ -4983,8 +4954,9 @@ export async function handleSubscriptionUpdated(
 		await db
 			.update(tables.organization)
 			.set({
-				devPlanExpiresAt: expiresAt,
+				devPlanExpiresAt: organization.devPlanExpiresAt ?? expiresAt,
 				devPlanCancelled: !isSubscriptionActive,
+				subscriptionPaymentStatus: paymentStatusUpdate,
 			})
 			.where(eq(tables.organization.id, organizationId));
 
@@ -4992,25 +4964,8 @@ export async function handleSubscriptionUpdated(
 		// incomplete, freeze further dev-plan spend. Without this, customers
 		// keep burning credits during dunning (or after a failed mid-cycle
 		// upgrade) while we never collect the invoice.
-		const nonActiveStatuses: Stripe.Subscription.Status[] = [
-			"past_due",
-			"unpaid",
-			"incomplete",
-			"incomplete_expired",
-		];
-		if (nonActiveStatuses.includes(subscription.status)) {
+		if (confirmedPaymentFailure) {
 			await freezeDevPlanCredits(
-				organizationId,
-				organization,
-				`subscription.updated status=${subscription.status}`,
-			);
-		} else if (
-			subscription.status === "active" ||
-			subscription.status === "trialing"
-		) {
-			// Recover from a previous freeze (e.g. dunning resolved). No-op when
-			// the limit is already at or above the tier's expected cap.
-			await restoreDevPlanCredits(
 				organizationId,
 				organization,
 				`subscription.updated status=${subscription.status}`,
@@ -5082,8 +5037,9 @@ export async function handleSubscriptionUpdated(
 		await db
 			.update(tables.organization)
 			.set({
-				planExpiresAt: expiresAt,
+				planExpiresAt: organization.planExpiresAt ?? expiresAt,
 				subscriptionCancelled: !isSubscriptionActive,
+				subscriptionPaymentStatus: paymentStatusUpdate,
 			})
 			.where(eq(tables.organization.id, organizationId));
 
@@ -5208,6 +5164,7 @@ export async function handleSubscriptionDeleted(
 				chatPlanExpiresAt: null,
 				chatPlanCancelled: false,
 				chatPlanBillingCycleStart: null,
+				subscriptionPaymentStatus: "current",
 				// Release the card so the dedupe query no longer matches this
 				// ended org and the same card can claim a new chat plan.
 				chatPlanCardFingerprint: null,
@@ -5274,6 +5231,7 @@ export async function handleSubscriptionDeleted(
 				devPlanExpiresAt: null,
 				devPlanCancelled: false,
 				devPlanBillingCycleStart: null,
+				subscriptionPaymentStatus: "current",
 			})
 			.where(eq(tables.organization.id, organizationId));
 
@@ -5325,6 +5283,7 @@ export async function handleSubscriptionDeleted(
 				stripeSubscriptionId: null,
 				planExpiresAt: null,
 				subscriptionCancelled: false,
+				subscriptionPaymentStatus: "current",
 			})
 			.where(eq(tables.organization.id, organizationId));
 
@@ -5416,6 +5375,7 @@ async function handleSubscriptionCreated(
 				plan: "pro",
 				stripeSubscriptionId: subscription.id,
 				subscriptionCancelled: false,
+				subscriptionPaymentStatus: "current",
 			})
 			.where(eq(tables.organization.id, organizationId))
 			.returning();

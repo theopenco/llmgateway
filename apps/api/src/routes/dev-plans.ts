@@ -308,6 +308,7 @@ const getPersonalOrg = createRoute({
 						devPlanBillingCycleStart: z.string().nullable(),
 						devPlanCancelled: z.boolean(),
 						devPlanExpiresAt: z.string().nullable(),
+						subscriptionPaymentStatus: z.enum(["current", "past_due"]),
 						credits: z.string(),
 					}),
 				},
@@ -339,6 +340,7 @@ devPlans.openapi(getPersonalOrg, async (c) => {
 			org.devPlanBillingCycleStart?.toISOString() ?? null,
 		devPlanCancelled: org.devPlanCancelled,
 		devPlanExpiresAt: org.devPlanExpiresAt?.toISOString() ?? null,
+		subscriptionPaymentStatus: org.subscriptionPaymentStatus,
 		credits: org.credits,
 	});
 });
@@ -1436,6 +1438,7 @@ devPlans.openapi(changeTier, async (c) => {
 							devPlanBillingCycleStart: new Date(),
 							devPlanExpiresAt: newExpiresAt,
 							devPlanPendingTier: null,
+							subscriptionPaymentStatus: "current",
 						})
 						.where(eq(tables.organization.id, personalOrg.id));
 				}
@@ -1783,6 +1786,7 @@ const getStatus = createRoute({
 						devPlanBillingCycleStart: z.string().nullable(),
 						devPlanCancelled: z.boolean(),
 						devPlanExpiresAt: z.string().nullable(),
+						subscriptionPaymentStatus: z.enum(["current", "past_due"]),
 						regularCredits: z.string(),
 						// Opt-in pay-as-you-go overflow: bill the org's regular
 						// credits once the monthly allowance is exhausted.
@@ -1858,6 +1862,7 @@ devPlans.openapi(getStatus, async (c) => {
 			devPlanBillingCycleStart: null,
 			devPlanCancelled: false,
 			devPlanExpiresAt: null,
+			subscriptionPaymentStatus: "current" as const,
 			regularCredits: "0",
 			devPlanPaygEnabled: false,
 			autoTopUpEnabled: false,
@@ -1980,6 +1985,7 @@ devPlans.openapi(getStatus, async (c) => {
 			personalOrg.devPlanBillingCycleStart?.toISOString() ?? null,
 		devPlanCancelled: personalOrg.devPlanCancelled,
 		devPlanExpiresAt: personalOrg.devPlanExpiresAt?.toISOString() ?? null,
+		subscriptionPaymentStatus: personalOrg.subscriptionPaymentStatus,
 		regularCredits: personalOrg.credits,
 		devPlanPaygEnabled: personalOrg.devPlanPaygEnabled,
 		autoTopUpEnabled: personalOrg.autoTopUpEnabled,

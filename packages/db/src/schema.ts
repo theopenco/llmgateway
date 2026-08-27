@@ -314,6 +314,14 @@ export const organization = pgTable(
 		paymentFailureCount: integer().notNull().default(0),
 		lastPaymentFailureAt: timestamp(),
 		paymentFailureStartedAt: timestamp(),
+		// Payment state of this org's subscription-backed plan. Renewal dates only
+		// advance after a paid invoice; this separately records dunning so an unpaid
+		// renewal is visible without pretending the next cycle has started.
+		subscriptionPaymentStatus: text({
+			enum: ["current", "past_due"],
+		})
+			.notNull()
+			.default("current"),
 		// Admin-set trust-tier pin (0-4). When set it takes precedence over the
 		// computed age/spend tier everywhere (RPM multiplier, spend caps, top-up
 		// allowance) — both to hold an abusive org down and to lift a vetted org

@@ -193,6 +193,7 @@ export type SerializedOrganization = Omit<
 	| "paymentFailureCount"
 	| "lastPaymentFailureAt"
 	| "paymentFailureStartedAt"
+	| "subscriptionPaymentStatus"
 	// Admin-only trust-tier pin; the dashboard reads the resolved tier from
 	// GET /orgs/{id}/limits instead.
 	| "trustTierOverride"
