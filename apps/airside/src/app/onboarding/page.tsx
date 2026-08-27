@@ -16,6 +16,7 @@ import { toast } from "sonner";
 
 import { EmailVerificationBanner } from "@/components/EmailVerificationBanner";
 import { Logo } from "@/components/Logo";
+import { ProviderBrandingFields } from "@/components/ProviderBrandingFields";
 import { SlackCard } from "@/components/SlackCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,30 +35,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { useUser } from "@/hooks/useUser";
 import { useApi } from "@/lib/fetch-client";
 
-const LOGO_MAX_BYTES = 200 * 1024;
-const ICON_MAX_BYTES = 64 * 1024;
-
-function readImageAsDataUrl(file: File, maxBytes: number): Promise<string> {
-	return new Promise((resolve, reject) => {
-		if (file.type !== "image/svg+xml") {
-			reject(new Error("Use an SVG image."));
-			return;
-		}
-		if (file.size > maxBytes) {
-			reject(
-				new Error(
-					`Image must be smaller than ${Math.round(maxBytes / 1024)}KB.`,
-				),
-			);
-			return;
-		}
-		const reader = new FileReader();
-		reader.onload = () => resolve(String(reader.result));
-		reader.onerror = () => reject(new Error("Failed to read the image."));
-		reader.readAsDataURL(file);
-	});
-}
-
 function ClaimDialog({
 	providerName,
 	disabled,
@@ -73,22 +50,6 @@ function ClaimDialog({
 	const [logoUrl, setLogoUrl] = useState<string | undefined>(undefined);
 	const [iconUrl, setIconUrl] = useState<string | undefined>(undefined);
 
-	async function handleFile(
-		file: File | undefined,
-		maxBytes: number,
-		set: (v: string | undefined) => void,
-	) {
-		if (!file) {
-			set(undefined);
-			return;
-		}
-		try {
-			set(await readImageAsDataUrl(file, maxBytes));
-		} catch (error) {
-			toast.error((error as Error).message);
-		}
-	}
-
 	return (
 		<Dialog open={open} onOpenChange={setOpen}>
 			<DialogTrigger asChild>
@@ -96,7 +57,7 @@ function ClaimDialog({
 					Claim
 				</Button>
 			</DialogTrigger>
-			<DialogContent className="sm:max-w-md">
+			<DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-2xl">
 				<DialogHeader>
 					<DialogTitle className="font-display">
 						Claim {providerName}
@@ -106,38 +67,15 @@ function ClaimDialog({
 						providers and models pages once your claim is approved.
 					</DialogDescription>
 				</DialogHeader>
-				<div className="space-y-4">
-					<div className="space-y-2">
-						<Label htmlFor="claim-logo">Logo (SVG, max 200KB)</Label>
-						<Input
-							id="claim-logo"
-							type="file"
-							accept="image/svg+xml"
-							onChange={(e) =>
-								void handleFile(e.target.files?.[0], LOGO_MAX_BYTES, setLogoUrl)
-							}
-						/>
-					</div>
-					<div className="space-y-2">
-						<Label htmlFor="claim-icon">Square icon (SVG, max 64KB)</Label>
-						<Input
-							id="claim-icon"
-							type="file"
-							accept="image/svg+xml"
-							onChange={(e) =>
-								void handleFile(e.target.files?.[0], ICON_MAX_BYTES, setIconUrl)
-							}
-						/>
-					</div>
-					{logoUrl ? (
-						<div className="border-border flex items-center gap-3 rounded-md border p-3">
-							<img src={logoUrl} alt="Logo preview" className="max-h-10" />
-							<span className="text-muted-foreground text-xs">
-								Logo preview
-							</span>
-						</div>
-					) : null}
-				</div>
+				<ProviderBrandingFields
+					logoInputId="claim-logo"
+					iconInputId="claim-icon"
+					providerName={providerName}
+					logoUrl={logoUrl}
+					iconUrl={iconUrl}
+					onLogoChange={(value) => setLogoUrl(value ?? undefined)}
+					onIconChange={(value) => setIconUrl(value ?? undefined)}
+				/>
 				<DialogFooter>
 					<Button
 						className="font-semibold"
@@ -182,22 +120,6 @@ function RegisterCarrierDialog({
 	const [logoUrl, setLogoUrl] = useState<string | undefined>(undefined);
 	const [iconUrl, setIconUrl] = useState<string | undefined>(undefined);
 
-	async function handleFile(
-		file: File | undefined,
-		maxBytes: number,
-		set: (v: string | undefined) => void,
-	) {
-		if (!file) {
-			set(undefined);
-			return;
-		}
-		try {
-			set(await readImageAsDataUrl(file, maxBytes));
-		} catch (error) {
-			toast.error((error as Error).message);
-		}
-	}
-
 	return (
 		<Dialog open={open} onOpenChange={setOpen}>
 			<DialogTrigger asChild>
@@ -210,7 +132,7 @@ function RegisterCarrierDialog({
 					Register a new carrier
 				</Button>
 			</DialogTrigger>
-			<DialogContent className="sm:max-w-md">
+			<DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-2xl">
 				<DialogHeader>
 					<DialogTitle className="font-display">
 						Register a new carrier
@@ -286,38 +208,15 @@ function RegisterCarrierDialog({
 							rows={2}
 						/>
 					</div>
-					<div className="grid gap-4 sm:grid-cols-2">
-						<div className="space-y-2">
-							<Label htmlFor="carrier-logo">Logo (SVG, max 200KB)</Label>
-							<Input
-								id="carrier-logo"
-								type="file"
-								accept="image/svg+xml"
-								onChange={(e) =>
-									void handleFile(
-										e.target.files?.[0],
-										LOGO_MAX_BYTES,
-										setLogoUrl,
-									)
-								}
-							/>
-						</div>
-						<div className="space-y-2">
-							<Label htmlFor="carrier-icon">Square icon (SVG, max 64KB)</Label>
-							<Input
-								id="carrier-icon"
-								type="file"
-								accept="image/svg+xml"
-								onChange={(e) =>
-									void handleFile(
-										e.target.files?.[0],
-										ICON_MAX_BYTES,
-										setIconUrl,
-									)
-								}
-							/>
-						</div>
-					</div>
+					<ProviderBrandingFields
+						logoInputId="carrier-logo"
+						iconInputId="carrier-icon"
+						providerName={name}
+						logoUrl={logoUrl}
+						iconUrl={iconUrl}
+						onLogoChange={(value) => setLogoUrl(value ?? undefined)}
+						onIconChange={(value) => setIconUrl(value ?? undefined)}
+					/>
 					<DialogFooter>
 						<Button
 							type="submit"

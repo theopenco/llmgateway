@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { useCompany } from "@/components/dashboard/company-context";
+import { ProviderBrandingFields } from "@/components/ProviderBrandingFields";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,8 +26,6 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { useApi } from "@/lib/fetch-client";
 import { formatPercent } from "@/lib/format";
@@ -49,30 +48,6 @@ const DISPATCH_FACTORS = [
 type CompanyClaim = NonNullable<
 	ReturnType<typeof useCompany>["company"]
 >["claims"][number];
-
-const LOGO_MAX_BYTES = 200 * 1024;
-const ICON_MAX_BYTES = 64 * 1024;
-
-function readSvgAsDataUrl(file: File, maxBytes: number): Promise<string> {
-	return new Promise((resolve, reject) => {
-		if (file.type !== "image/svg+xml") {
-			reject(new Error("Use an SVG image."));
-			return;
-		}
-		if (file.size > maxBytes) {
-			reject(
-				new Error(
-					`Image must be smaller than ${Math.round(maxBytes / 1024)}KB.`,
-				),
-			);
-			return;
-		}
-		const reader = new FileReader();
-		reader.onload = () => resolve(String(reader.result));
-		reader.onerror = () => reject(new Error("Failed to read the image."));
-		reader.readAsDataURL(file);
-	});
-}
 
 /** Carrier branding stays editable after review; the identity fields (name,
  *  website, API endpoint) are what we approved and are locked. */
@@ -98,22 +73,8 @@ function EditBrandingDialog({ claim }: { claim: CompanyClaim }) {
 		},
 	});
 
-	async function handleFile(
-		file: File | undefined,
-		maxBytes: number,
-		set: (v: string | null | undefined) => void,
-	) {
-		if (!file) {
-			return;
-		}
-		try {
-			set(await readSvgAsDataUrl(file, maxBytes));
-		} catch (error) {
-			toast.error((error as Error).message);
-		}
-	}
-
 	const previewLogo = logoUrl === undefined ? claim.logoUrl : logoUrl;
+	const previewIcon = iconUrl === undefined ? claim.iconUrl : iconUrl;
 
 	return (
 		<Dialog
@@ -135,7 +96,7 @@ function EditBrandingDialog({ claim }: { claim: CompanyClaim }) {
 					Edit branding
 				</Button>
 			</DialogTrigger>
-			<DialogContent className="sm:max-w-md">
+			<DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-2xl">
 				<DialogHeader>
 					<DialogTitle className="font-display">
 						Branding for {claim.providerName}
@@ -146,56 +107,15 @@ function EditBrandingDialog({ claim }: { claim: CompanyClaim }) {
 						they cannot be changed here.
 					</DialogDescription>
 				</DialogHeader>
-				<div className="space-y-4">
-					<div className="space-y-2">
-						<Label htmlFor={`branding-logo-${claim.id}`}>
-							Logo (SVG, max 200KB)
-						</Label>
-						<Input
-							id={`branding-logo-${claim.id}`}
-							type="file"
-							accept="image/svg+xml"
-							onChange={(e) =>
-								void handleFile(e.target.files?.[0], LOGO_MAX_BYTES, setLogoUrl)
-							}
-						/>
-					</div>
-					<div className="space-y-2">
-						<Label htmlFor={`branding-icon-${claim.id}`}>
-							Square icon (SVG, max 64KB)
-						</Label>
-						<Input
-							id={`branding-icon-${claim.id}`}
-							type="file"
-							accept="image/svg+xml"
-							onChange={(e) =>
-								void handleFile(e.target.files?.[0], ICON_MAX_BYTES, setIconUrl)
-							}
-						/>
-					</div>
-					{previewLogo ? (
-						<div className="border-border flex items-center justify-between gap-3 rounded-md border p-3">
-							<div className="flex items-center gap-3">
-								<img
-									src={previewLogo}
-									alt="Logo preview"
-									className="max-h-10"
-								/>
-								<span className="text-muted-foreground text-xs">
-									Logo preview
-								</span>
-							</div>
-							<Button
-								type="button"
-								size="sm"
-								variant="ghost"
-								onClick={() => setLogoUrl(null)}
-							>
-								Remove
-							</Button>
-						</div>
-					) : null}
-				</div>
+				<ProviderBrandingFields
+					logoInputId={`branding-logo-${claim.id}`}
+					iconInputId={`branding-icon-${claim.id}`}
+					providerName={claim.providerName}
+					logoUrl={previewLogo}
+					iconUrl={previewIcon}
+					onLogoChange={setLogoUrl}
+					onIconChange={setIconUrl}
+				/>
 				<DialogFooter>
 					<Button
 						className="font-semibold"
