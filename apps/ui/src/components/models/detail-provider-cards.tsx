@@ -123,16 +123,6 @@ export function DetailProviderCards({ model }: { model: ModelWithProviders }) {
 		? model.output.includes("image")
 		: false;
 
-	// The page is statically generated, so the query string is only known on the
-	// client: adopt the shared sort once after hydration instead of calling
-	// useSearchParams, which would drop the provider cards from the static HTML.
-	useEffect(() => {
-		const param = new URLSearchParams(window.location.search).get("sort");
-		if (isSortKey(param)) {
-			setSort(param);
-		}
-	}, []);
-
 	const changeSort = useCallback(
 		(key: SortKey) => {
 			setSort(key);
@@ -149,6 +139,20 @@ export function DetailProviderCards({ model }: { model: ModelWithProviders }) {
 		},
 		[pathname, router],
 	);
+
+	// The page is statically generated, so the query string is only known on the
+	// client: adopt the shared sort once after hydration instead of calling
+	// useSearchParams, which would drop the provider cards from the static HTML.
+	// An unsupported value is dropped from the URL right away, since the page
+	// shows the featured order.
+	useEffect(() => {
+		const param = new URLSearchParams(window.location.search).get("sort");
+		if (isSortKey(param)) {
+			setSort(param);
+		} else if (param !== null) {
+			changeSort("featured");
+		}
+	}, [changeSort]);
 
 	const copyToClipboard = (text: string) => {
 		void navigator.clipboard.writeText(text);
