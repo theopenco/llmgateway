@@ -12,6 +12,7 @@ import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
 	Dialog,
 	DialogContent,
@@ -35,6 +36,7 @@ export interface AdminPaymentMethod {
 	type: string;
 	createdAt: string;
 	isDefault: boolean;
+	canReleaseDevPlanCardFingerprint: boolean;
 	card: {
 		brand: string;
 		last4: string;
@@ -50,6 +52,7 @@ interface DeletePaymentMethodDialogProps {
 	onDelete: (
 		paymentMethodId: string,
 		replacementPaymentMethodId?: string,
+		releaseDevPlanCardFingerprint?: boolean,
 	) => Promise<{ success: boolean; error?: string }>;
 }
 
@@ -83,6 +86,8 @@ function DeletePaymentMethodDialog({
 	const [replacementPaymentMethodId, setReplacementPaymentMethodId] = useState(
 		replacementOptions[0]?.id ?? "",
 	);
+	const [releaseDevPlanCardFingerprint, setReleaseDevPlanCardFingerprint] =
+		useState(false);
 	const label = paymentMethodLabel(paymentMethod);
 	const requiresReplacement =
 		paymentMethod.isDefault && replacementOptions.length > 0;
@@ -95,6 +100,7 @@ function DeletePaymentMethodDialog({
 			const result = await onDelete(
 				paymentMethod.id,
 				requiresReplacement ? replacementPaymentMethodId : undefined,
+				releaseDevPlanCardFingerprint,
 			);
 			if (!result.success) {
 				setError(result.error ?? "Failed to delete payment method");
@@ -125,6 +131,7 @@ function DeletePaymentMethodDialog({
 				if (nextOpen) {
 					setError(null);
 					setReplacementPaymentMethodId(replacementOptions[0]?.id ?? "");
+					setReleaseDevPlanCardFingerprint(false);
 				}
 				if (!nextOpen) {
 					setError(null);
@@ -205,6 +212,31 @@ function DeletePaymentMethodDialog({
 					</div>
 				) : null}
 
+				{paymentMethod.canReleaseDevPlanCardFingerprint ? (
+					<div className="flex items-start gap-3 rounded-md border px-3 py-3">
+						<Checkbox
+							id={`release-devpass-fingerprint-${paymentMethod.id}`}
+							checked={releaseDevPlanCardFingerprint}
+							onCheckedChange={(checked) =>
+								setReleaseDevPlanCardFingerprint(checked === true)
+							}
+							disabled={loading}
+						/>
+						<div className="space-y-1">
+							<Label
+								htmlFor={`release-devpass-fingerprint-${paymentMethod.id}`}
+							>
+								Release DevPass card fingerprint
+							</Label>
+							<p className="text-xs text-muted-foreground">
+								Allow this card to be used on another DevPass account. Use only
+								for a verified account transfer; this bypasses the
+								one-card-per-account safeguard.
+							</p>
+						</div>
+					</div>
+				) : null}
+
 				{error ? (
 					<p className="text-sm text-destructive" role="alert">
 						{error}
@@ -227,7 +259,9 @@ function DeletePaymentMethodDialog({
 						}
 					>
 						{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-						Delete payment method
+						{releaseDevPlanCardFingerprint
+							? "Delete and release card"
+							: "Delete payment method"}
 					</Button>
 				</DialogFooter>
 			</DialogContent>
@@ -247,6 +281,7 @@ export function PaymentMethodsList({
 	onDelete: (
 		paymentMethodId: string,
 		replacementPaymentMethodId?: string,
+		releaseDevPlanCardFingerprint?: boolean,
 	) => Promise<{ success: boolean; error?: string }>;
 }) {
 	const router = useRouter();

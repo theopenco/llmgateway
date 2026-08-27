@@ -231,13 +231,17 @@ export async function deleteOrganizationPaymentMethod(
 	orgId: string,
 	paymentMethodId: string,
 	replacementPaymentMethodId?: string,
+	releaseDevPlanCardFingerprint?: boolean,
 ): Promise<{ success: boolean; error?: string }> {
 	const $api = await createServerApiClient();
 	const { data, error } = await $api.DELETE(
 		"/admin/organizations/{orgId}/payment-methods/{paymentMethodId}",
 		{
 			params: { path: { orgId, paymentMethodId } },
-			body: { replacementPaymentMethodId },
+			body: {
+				replacementPaymentMethodId,
+				releaseDevPlanCardFingerprint,
+			},
 		},
 	);
 
