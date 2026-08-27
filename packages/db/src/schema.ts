@@ -1263,7 +1263,10 @@ export const endUserSession = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
-		tokenHash: text().notNull().unique(),
+		// Legacy plaintext column. New sessions store only tokenHash; backfilled
+		// rows retain plaintext during the staged rollout.
+		token: text().unique(),
+		tokenHash: text().unique(),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		})
@@ -1445,8 +1448,11 @@ export const apiKey = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
+		// Legacy plaintext column. New writes store only tokenHash + tokenMasked;
+		// backfilled rows retain plaintext during the staged rollout.
+		token: text().unique(),
 		tokenHash: text().unique(),
-		tokenMasked: text().notNull(),
+		tokenMasked: text(),
 		description: text().notNull(),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
@@ -1502,10 +1508,6 @@ export const apiKey = pgTable(
 			.where(
 				sql`${table.keyType} = 'end_user_customer' AND ${table.status} = 'active'`,
 			),
-		check(
-			"api_key_token_hash_required",
-			sql`${table.keyType} = 'platform_publishable' OR ${table.tokenHash} IS NOT NULL`,
-		),
 	],
 );
 
@@ -1721,14 +1723,20 @@ export const providerKey = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
-		tokenCiphertext: text().notNull(),
-		tokenMasked: text().notNull(),
+		// Legacy plaintext column. New writes set this to NULL and populate
+		// tokenCiphertext + tokenMasked instead. Existing rows from before
+		// BYOK encryption was added still carry plaintext here and are read
+		// through the legacy branch of readProviderKey().
+		token: text(),
+		tokenCiphertext: text(),
+		tokenMasked: text(),
 		// HMAC-SHA256 fingerprint of the plaintext token, computed at write time
 		// with the same helper the gateway uses for `log.usedApiKeyHash`. Lets an
 		// operator tie a credential to the requests it served without the
 		// plaintext ever being readable back: the admin dashboard shows this and
-		// the mask, and never decrypts.
-		tokenHash: text().notNull(),
+		// the mask, and never decrypts. NULL for rows written before this column
+		// existed; it is filled on the next token write.
+		tokenHash: text(),
 		provider: text().notNull(),
 		name: text(), // Optional name for custom providers (lowercase a-z with single hyphens)
 		// Organization-owned label shown alongside this key in routing and log
@@ -1813,6 +1821,13 @@ export const providerKey = pgTable(
 		index("provider_key_managed_provider_idx").on(
 			table.managed,
 			table.provider,
+		),
+		// Exactly one storage form per row: a legacy plaintext token XOR an
+		// encrypted one. Also rejects rows with neither, which readProviderKey
+		// could never resolve into a credential.
+		check(
+			"provider_key_token_xor",
+			sql`(${table.token} IS NULL) <> (${table.tokenCiphertext} IS NULL)`,
 		),
 		// Managed credentials are platform-owned and never belong to an org;
 		// every other row must be org-scoped.
