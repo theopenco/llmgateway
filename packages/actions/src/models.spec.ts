@@ -1501,6 +1501,271 @@ describe("getCheapestFromAvailableProviders", () => {
 		});
 	});
 
+	describe("cache-aware pricing for cache-relevant requests", () => {
+		it("blends cachedInputPrice and scales output by the assumed ratio", () => {
+			expect(
+				getProviderSelectionPrice(
+					{
+						inputPrice: "1.0e-6",
+						outputPrice: "2.0e-6",
+						cachedInputPrice: "0.1e-6",
+					},
+					undefined,
+					undefined,
+					{ hitRate: 0.5, outputRatio: 0.2 },
+				).toNumber(),
+				// ((0.1*0.5 + 1.0*0.5) + 2.0*0.2) / 2
+			).toBe(0.475e-6);
+		});
+
+		it("falls back to inputPrice when no cachedInputPrice is declared", () => {
+			expect(
+				getProviderSelectionPrice(
+					{ inputPrice: "1.0e-6", outputPrice: "2.0e-6" },
+					undefined,
+					undefined,
+					{ hitRate: 0.5, outputRatio: 0.2 },
+				).toNumber(),
+				// (1.0 + 2.0*0.2) / 2
+			).toBe(0.7e-6);
+		});
+
+		it("keeps today's ranking price without a cache-pricing context", () => {
+			expect(
+				getProviderSelectionPrice({
+					inputPrice: "1.0e-6",
+					outputPrice: "2.0e-6",
+					cachedInputPrice: "0.1e-6",
+				}).toNumber(),
+			).toBe(1.5e-6);
+		});
+
+		it("uses the time-resolved cached price under peak pricing", () => {
+			expect(
+				getProviderSelectionPrice(
+					{
+						inputPrice: "0.435e-6",
+						outputPrice: "0.87e-6",
+						cachedInputPrice: "0.003625e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "1.0e-6",
+								outputPrice: "2.0e-6",
+								cachedInputPrice: "0.1e-6",
+							},
+							offPeak: {
+								inputPrice: "0.5e-6",
+								outputPrice: "1.0e-6",
+								cachedInputPrice: "0.05e-6",
+							},
+							hoursUtc: [[0, 24]] as [number, number][],
+						},
+					},
+					undefined,
+					new Date("2026-08-17T12:00:00Z"),
+					{ hitRate: 1, outputRatio: 0 },
+				).toNumber(),
+				// Fully cached, no output: peak cachedInputPrice / 2
+			).toBe(0.05e-6);
+		});
+
+		// Mirrors the live kimi-k2.5 mappings: embercloud is cheapest on list
+		// prices but charges 55.6% of input for a cache read where deepinfra
+		// charges 15.6%, so a cache-heavy workload is cheaper on deepinfra.
+		const kimiLikeModel = {
+			id: "kimi-like-model",
+			name: "Kimi Like Model",
+			family: "moonshot" as const,
+			providers: [
+				{
+					providerId: "embercloud" as const,
+					externalId: "kimi-like",
+					inputPrice: "0.405e-6",
+					outputPrice: "1.98e-6",
+					cachedInputPrice: "0.225e-6",
+					streaming: true as const,
+				},
+				{
+					providerId: "deepinfra" as const,
+					externalId: "kimi-like",
+					inputPrice: "0.45e-6",
+					outputPrice: "2.25e-6",
+					cachedInputPrice: "0.07e-6",
+					streaming: true as const,
+				},
+			],
+		};
+
+		const equalPriority = resolveRoutingConfig(
+			{ providerPriorities: { embercloud: 1, deepinfra: 1 } },
+			buildProviderPriorityDefaults(),
+		);
+
+		it("routes small prompts to the cheapest list price", async () => {
+			const result = await getCheapestFromAvailableProviders(
+				kimiLikeModel.providers,
+				kimiLikeModel,
+				{ promptTokens: 1000, routingConfig: equalPriority },
+			);
+			expect(result?.provider.providerId).toBe("embercloud");
+		});
+
+		it("routes large prompts to the cheapest cached-workload price", async () => {
+			const result = await getCheapestFromAvailableProviders(
+				kimiLikeModel.providers,
+				kimiLikeModel,
+				{ promptTokens: 20_000, routingConfig: equalPriority },
+			);
+			expect(result?.provider.providerId).toBe("deepinfra");
+		});
+
+		it("ranks large prompts on list prices when cacheHitRate is 0", async () => {
+			const listPriceOnly = resolveRoutingConfig(
+				{
+					thresholds: { cacheHitRate: 0, cacheOutputRatio: 1 },
+					providerPriorities: { embercloud: 1, deepinfra: 1 },
+				},
+				buildProviderPriorityDefaults(),
+			);
+			const result = await getCheapestFromAvailableProviders(
+				kimiLikeModel.providers,
+				kimiLikeModel,
+				{ promptTokens: 20_000, routingConfig: listPriceOnly },
+			);
+			expect(result?.provider.providerId).toBe("embercloud");
+		});
+	});
+
+	describe("pricing tiers in provider selection", () => {
+		// Mirrors xAI's grok-4 mapping: base rates up to 128K tokens, doubled
+		// long-context rates above, with their own cached price.
+		const tieredMapping = {
+			inputPrice: "3.0e-6",
+			outputPrice: "15.0e-6",
+			cachedInputPrice: "0.75e-6",
+			pricingTiers: [
+				{
+					name: "Up to 128K",
+					upToTokens: 128000,
+					inputPrice: "3.0e-6",
+					outputPrice: "15.0e-6",
+					cachedInputPrice: "0.75e-6",
+				},
+				{
+					name: "Over 128K",
+					upToTokens: Infinity,
+					inputPrice: "6.0e-6",
+					outputPrice: "30.0e-6",
+					cachedInputPrice: "0",
+				},
+			],
+		};
+
+		it("uses base-tier rates at or below the boundary", () => {
+			expect(
+				getProviderSelectionPrice(
+					tieredMapping,
+					undefined,
+					undefined,
+					undefined,
+					10_000,
+				).toNumber(),
+			).toBe((3.0e-6 + 15.0e-6) / 2);
+		});
+
+		it("uses the long-context tier above the boundary", () => {
+			expect(
+				getProviderSelectionPrice(
+					tieredMapping,
+					undefined,
+					undefined,
+					undefined,
+					200_000,
+				).toNumber(),
+			).toBe((6.0e-6 + 30.0e-6) / 2);
+		});
+
+		it("keeps base rates when promptTokens is unknown", () => {
+			expect(getProviderSelectionPrice(tieredMapping).toNumber()).toBe(
+				(3.0e-6 + 15.0e-6) / 2,
+			);
+		});
+
+		it("blends the active tier's cached price", () => {
+			expect(
+				getProviderSelectionPrice(
+					tieredMapping,
+					undefined,
+					undefined,
+					{ hitRate: 0.5, outputRatio: 0 },
+					200_000,
+				).toNumber(),
+				// Tier cached price is 0: (0*0.5 + 6.0*0.5) / 2
+			).toBe(1.5e-6);
+		});
+
+		it("re-ranks long-context requests through full provider selection", async () => {
+			const tieredModel = {
+				id: "tiered-model",
+				name: "Tiered Model",
+				family: "xai" as const,
+				providers: [
+					{
+						providerId: "xai" as const,
+						externalId: "tiered",
+						inputPrice: "3.0e-6",
+						outputPrice: "15.0e-6",
+						pricingTiers: [
+							{
+								name: "Up to 128K",
+								upToTokens: 128000,
+								inputPrice: "3.0e-6",
+								outputPrice: "15.0e-6",
+							},
+							{
+								name: "Over 128K",
+								upToTokens: Infinity,
+								inputPrice: "8.0e-6",
+								outputPrice: "40.0e-6",
+							},
+						],
+						streaming: true as const,
+					},
+					{
+						providerId: "openai" as const,
+						externalId: "tiered",
+						inputPrice: "5.0e-6",
+						outputPrice: "25.0e-6",
+						streaming: true as const,
+					},
+				],
+			};
+
+			// Zero out cache-aware pricing so only tier resolution differs.
+			const tiersOnly = resolveRoutingConfig(
+				{
+					thresholds: { cacheHitRate: 0, cacheOutputRatio: 1 },
+					providerPriorities: { xai: 1, openai: 1 },
+				},
+				buildProviderPriorityDefaults(),
+			);
+
+			const short = await getCheapestFromAvailableProviders(
+				tieredModel.providers,
+				tieredModel,
+				{ promptTokens: 10_000, routingConfig: tiersOnly },
+			);
+			expect(short?.provider.providerId).toBe("xai");
+
+			const long = await getCheapestFromAvailableProviders(
+				tieredModel.providers,
+				tieredModel,
+				{ promptTokens: 200_000, routingConfig: tiersOnly },
+			);
+			expect(long?.provider.providerId).toBe("openai");
+		});
+	});
+
 	describe("cache support weighting", () => {
 		const cacheTestModel = {
 			id: "cache-test-model",
