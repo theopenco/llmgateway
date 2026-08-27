@@ -684,9 +684,9 @@ export const moonshotModels = [
 				// Reasoning model: forced tool_choice is rejected while thinking is
 				// on, so only "auto"/"none" are accepted.
 				supportedToolChoices: ["auto", "none"],
-				inputPrice: "0.8e-6",
-				cachedInputPrice: "0.16e-6",
-				outputPrice: "3.34e-6",
+				inputPrice: "0.89e-6",
+				cachedInputPrice: "0.18e-6",
+				outputPrice: "3.71e-6",
 				requestPrice: "0",
 				contextSize: 262144,
 				maxOutput: 262144,
