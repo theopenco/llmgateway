@@ -4,6 +4,13 @@ import { CompanyProvider } from "@/components/dashboard/company-context";
 import { DashboardShell } from "@/components/dashboard/DashboardShell";
 import { getUserMe } from "@/lib/server-api";
 
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+	title: "Operations",
+	robots: { index: false, follow: false },
+};
+
 export default async function DashboardLayout({
 	children,
 }: {

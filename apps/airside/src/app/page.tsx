@@ -15,6 +15,14 @@ import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import { Button } from "@/components/ui/button";
 
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+	alternates: { canonical: "/" },
+};
+
+const SITE_URL = "https://airside.llmgateway.io";
+
 const LEGEND = [
 	{ term: "Passengers", meaning: "developers" },
 	{ term: "Carriers", meaning: "model providers" },
@@ -84,9 +92,61 @@ const FAQ = [
 	},
 ];
 
+// Emitted as separate top-level blocks rather than one @graph: validators and
+// AI parsers routinely read only the root @type of each script.
+const JSON_LD = [
+	{
+		"@context": "https://schema.org",
+		"@type": "WebSite",
+		"@id": `${SITE_URL}#website`,
+		name: "Airside by LLM Gateway",
+		url: SITE_URL,
+		description:
+			"The self-serve console for LLM providers. Claim your carrier, register your fleet, file your fares, and win traffic on LLM Gateway.",
+		inLanguage: "en",
+		publisher: { "@id": "https://llmgateway.io#organization" },
+	},
+	{
+		"@context": "https://schema.org",
+		"@type": "Organization",
+		"@id": "https://llmgateway.io#organization",
+		name: "LLM Gateway",
+		legalName: "Polar Lights LLC",
+		url: "https://llmgateway.io",
+		email: "contact@llmgateway.io",
+		address: {
+			"@type": "PostalAddress",
+			streetAddress: "16192 Coastal Highway",
+			addressLocality: "Lewes",
+			addressRegion: "DE",
+			postalCode: "19958",
+			addressCountry: "US",
+		},
+		sameAs: ["https://github.com/theopenco/llmgateway"],
+	},
+	{
+		"@context": "https://schema.org",
+		"@type": "FAQPage",
+		"@id": `${SITE_URL}#faq`,
+		mainEntity: FAQ.map((item) => ({
+			"@type": "Question",
+			name: item.q,
+			acceptedAnswer: { "@type": "Answer", text: item.a },
+		})),
+	},
+];
+
 export default function LandingPage() {
 	return (
 		<div className="flex min-h-screen flex-col">
+			{JSON_LD.map((schema) => (
+				<script
+					key={schema["@id"]}
+					type="application/ld+json"
+					// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
+					dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
+				/>
+			))}
 			<Header />
 
 			<main className="flex-1">

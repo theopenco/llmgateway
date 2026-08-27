@@ -34,12 +34,21 @@ export const metadata: Metadata = {
 	},
 	description:
 		"The self-serve console for LLM providers. Claim your carrier, register your fleet, file your fares, and watch dispatch route traffic to your models.",
+	applicationName: "Airside",
 	openGraph: {
 		title: "Airside by LLM Gateway",
 		description:
 			"The self-serve console for LLM providers. Claim your carrier, register your fleet, file your fares, and win traffic.",
 		siteName: "Airside by LLM Gateway",
+		url: "https://airside.llmgateway.io",
+		locale: "en_US",
 		type: "website",
+	},
+	twitter: {
+		card: "summary_large_image",
+		title: "Airside by LLM Gateway",
+		description:
+			"The self-serve console for LLM providers. Claim your carrier, register your fleet, file your fares, and win traffic.",
 	},
 };
 
