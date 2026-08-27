@@ -33,6 +33,12 @@ export function Footer() {
 					<a href={config.discordUrl} className="hover:text-foreground">
 						Discord
 					</a>
+					<Link href="/legal/terms" className="hover:text-foreground">
+						Terms
+					</Link>
+					<Link href="/legal/privacy" className="hover:text-foreground">
+						Privacy
+					</Link>
 					<Link href="/login" className="hover:text-foreground">
 						Sign in
 					</Link>
