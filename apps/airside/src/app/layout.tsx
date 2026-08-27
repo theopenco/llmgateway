@@ -1,4 +1,4 @@
-import { Archivo, B612, B612_Mono } from "next/font/google";
+import { Archivo, Geist_Mono, Inter } from "next/font/google";
 
 import { Providers } from "@/components/providers";
 import { getConfig } from "@/lib/config-server";
@@ -12,16 +12,16 @@ const archivo = Archivo({
 	variable: "--font-archivo",
 });
 
-const b612 = B612({
+const inter = Inter({
 	subsets: ["latin"],
-	weight: ["400", "700"],
-	variable: "--font-b612",
+	variable: "--font-inter",
+	display: "swap",
 });
 
-const b612Mono = B612_Mono({
+const geistMono = Geist_Mono({
 	subsets: ["latin"],
-	weight: ["400", "700"],
-	variable: "--font-b612-mono",
+	variable: "--font-geist-mono",
+	display: "swap",
 });
 
 export const dynamic = "force-dynamic";
@@ -58,7 +58,7 @@ export default function RootLayout({
 	return (
 		<html
 			lang="en"
-			className={`${archivo.variable} ${b612.variable} ${b612Mono.variable}`}
+			className={`${archivo.variable} ${inter.variable} ${geistMono.variable}`}
 			suppressHydrationWarning
 		>
 			<body className="font-sans antialiased">
