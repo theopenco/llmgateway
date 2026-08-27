@@ -488,6 +488,52 @@ describe("transformResponseToOpenai", () => {
 		expect(response.choices[1].message.content).toBe("variant 2");
 	});
 
+	test("writes normalized xAI token counts to the response", () => {
+		const response = transformResponseToOpenai(
+			"xai",
+			"grok-4-6",
+			{
+				id: "chatcmpl-test",
+				object: "chat.completion",
+				created: 1,
+				model: "grok-4-6",
+				choices: [
+					{
+						index: 0,
+						message: { role: "assistant", content: "42" },
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 213,
+					completion_tokens: 4,
+					total_tokens: 527,
+					completion_tokens_details: { reasoning_tokens: 310 },
+				},
+			},
+			"42",
+			null,
+			"stop",
+			213,
+			314,
+			527,
+			310,
+			128,
+			null,
+			[],
+			"xai/grok-4-6",
+			"xai",
+			"grok-4-6",
+		);
+
+		expect(response.usage).toMatchObject({
+			prompt_tokens: 213,
+			completion_tokens: 314,
+			total_tokens: 527,
+			completion_tokens_details: { reasoning_tokens: 310 },
+		});
+	});
+
 	// The OpenAI-compatible provider branches route through the same
 	// choice-aggregating parser default as the "openai" branch above, so the
 	// per-choice guard has to hold for them too.

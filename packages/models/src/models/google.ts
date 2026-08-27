@@ -2521,8 +2521,7 @@ export const googleModels = [
 				// arrives as `reasoning_content` (streamed as deltas) only when
 				// `reasoning_effort` is passed explicitly — a request without it
 				// returns no reasoning at all, and "none" suppresses it.
-				// `reasoning_tokens` is reported inside completion_tokens, so
-				// costs.ts lists this provider in completionIncludesReasoning.
+				// `reasoning_tokens` is reported inside completion_tokens.
 				//
 				// All four tool_choice modes are honoured, so none are declared
 				// here. Prompt caching is automatic prefix caching — the first
