@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { readApiKeyMask } from "@/lib/api-key-mask.js";
 import {
 	assertEnterpriseForIpCidrRule,
 	createIamRuleSchema,
@@ -64,7 +65,8 @@ export type ApiKeyLimitConfig = Pick<
 	| "periodUsageDurationUnit"
 >;
 export type PartialApiKeyLimitConfig = Partial<ApiKeyLimitConfig>;
-type ApiKeyResponseRecord = ApiKeyRecord & {
+type ApiKeyResponseRecord = Omit<ApiKeyRecord, "token"> & {
+	token?: string | null;
 	creator?: {
 		id: string;
 		name: string | null;
@@ -208,7 +210,7 @@ function validateApiKeyPeriodConfig(
 }
 
 function serializeApiKey<T extends ApiKeyResponseRecord>(apiKey: T) {
-	const { tokenHash: _tokenHash, ...publicApiKey } = apiKey;
+	const { token: _token, tokenHash: _tokenHash, ...publicApiKey } = apiKey;
 	const currentPeriod = getApiKeyCurrentPeriodState(apiKey);
 
 	return {
@@ -217,10 +219,6 @@ function serializeApiKey<T extends ApiKeyResponseRecord>(apiKey: T) {
 		currentPeriodStartedAt: currentPeriod.startedAt,
 		currentPeriodResetAt: currentPeriod.resetAt,
 	};
-}
-
-function getMaskedApiKey(apiKey: Pick<ApiKeyRecord, "tokenMasked">) {
-	return apiKey.tokenMasked;
 }
 
 export function hasPeriodConfigChanged(
@@ -577,8 +575,8 @@ keysApi.openapi(listPlatformKeys, async (c) => {
 			status: platformKey.status,
 			projectId: platformKey.projectId,
 			createdBy: platformKey.createdBy,
-			maskedToken: getMaskedApiKey(platformKey),
-			mode: platformKeyMode(getMaskedApiKey(platformKey)),
+			maskedToken: readApiKeyMask(platformKey),
+			mode: platformKeyMode(readApiKeyMask(platformKey)),
 		})),
 	});
 });
@@ -1183,10 +1181,10 @@ keysApi.openapi(create, async (c) => {
 	);
 
 	return c.json({
-		apiKey: serializeApiKey({
-			...apiKey,
+		apiKey: {
+			...serializeApiKey(apiKey),
 			token,
-		}),
+		},
 	});
 });
 
@@ -1379,7 +1377,7 @@ keysApi.openapi(list, async (c) => {
 	return c.json({
 		apiKeys: apiKeys.map((key) => ({
 			...serializeApiKey(key),
-			maskedToken: getMaskedApiKey(key),
+			maskedToken: readApiKeyMask(key),
 			ownerBudget: isPlaygroundApiKey(key)
 				? null
 				: (ownerBudgets.get(key.id) ?? null),
@@ -1776,7 +1774,7 @@ keysApi.openapi(updateStatus, async (c) => {
 				: "API key updated",
 		apiKey: {
 			...serializeApiKey(updatedApiKey),
-			maskedToken: getMaskedApiKey(updatedApiKey),
+			maskedToken: readApiKeyMask(updatedApiKey),
 		},
 	});
 });
@@ -1939,10 +1937,10 @@ keysApi.openapi(roll, async (c) => {
 
 	return c.json({
 		message: "API key secret regenerated successfully.",
-		apiKey: serializeApiKey({
-			...updatedApiKey,
+		apiKey: {
+			...serializeApiKey(updatedApiKey),
 			token,
-		}),
+		},
 	});
 });
 
@@ -2153,7 +2151,7 @@ keysApi.openapi(updateUsageLimit, async (c) => {
 		message: "API key limits updated successfully.",
 		apiKey: {
 			...serializeApiKey(updatedApiKey),
-			maskedToken: getMaskedApiKey(updatedApiKey),
+			maskedToken: readApiKeyMask(updatedApiKey),
 		},
 	});
 });

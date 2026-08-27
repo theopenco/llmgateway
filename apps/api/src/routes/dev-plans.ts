@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { assertOrganizationNotHighRisk } from "@/lib/account-risk.js";
+import { readApiKeyMask } from "@/lib/api-key-mask.js";
 import { assertCreditPurchaseAllowed } from "@/lib/credit-purchase-guard.js";
 import { voidPendingCycleRenewalInvoices } from "@/lib/pending-renewal.js";
 import {
@@ -180,7 +181,7 @@ async function getOrCreatePersonalOrgApiKey(
 	if (existingKey) {
 		return {
 			id: existingKey.id,
-			maskedToken: existingKey.tokenMasked,
+			maskedToken: readApiKeyMask(existingKey),
 		};
 	}
 
@@ -199,7 +200,7 @@ async function getOrCreatePersonalOrgApiKey(
 		})
 		.returning();
 
-	return { id: apiKey.id, maskedToken: apiKey.tokenMasked! };
+	return { id: apiKey.id, maskedToken: readApiKeyMask(apiKey) };
 }
 
 // Find the user's personal org without creating one. Used by the billing

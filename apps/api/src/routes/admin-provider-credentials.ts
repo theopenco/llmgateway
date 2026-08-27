@@ -30,6 +30,7 @@ import {
 	providerKeyEncryptionScope,
 	readProviderEnvInventory,
 	readProviderKey,
+	readProviderKeyMask,
 	redactToken,
 	validateProviderKey,
 } from "@llmgateway/actions";
@@ -202,7 +203,7 @@ function toCredential(row: CredentialRow) {
 		config: row.config ?? {},
 		usageLimit: row.usageLimit,
 		usage: row.usage,
-		maskedToken: row.tokenMasked,
+		maskedToken: readProviderKeyMask(row),
 		tokenHash: row.tokenHash,
 		allowedModels: row.allowedModels,
 	};
@@ -896,7 +897,7 @@ adminProviderCredentials.openapi(getSpendOverview, async (c) => {
 					variant: key.variant,
 					region: key.region,
 					comment: key.comment,
-					maskedToken: key.tokenMasked,
+					maskedToken: readProviderKeyMask(key),
 					status: key.status,
 					usage: key.usage,
 					usageLimit: key.usageLimit,

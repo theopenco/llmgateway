@@ -3,7 +3,11 @@ import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { encryptProviderKey } from "./crypto.js";
-import { providerKeyLabel, readProviderKey } from "./read.js";
+import {
+	providerKeyLabel,
+	readProviderKey,
+	readProviderKeyMask,
+} from "./read.js";
 
 const ENV_VAR = "GATEWAY_API_KEY_HASH_SECRET";
 const ORIGINAL_KEY = process.env[ENV_VAR];
@@ -56,6 +60,30 @@ describe("readProviderKey", () => {
 			tokenCiphertext: "llmgw:v3:aaa:bbb:ccc",
 		};
 		expect(() => readProviderKey(row)).toThrow(/unknown ciphertext version/);
+	});
+
+	it("throws when ciphertext is missing", () => {
+		expect(() =>
+			readProviderKey({
+				id: ROW_ID,
+				organizationId: ORG_ID,
+				tokenCiphertext: null,
+			}),
+		).toThrow("Provider key ciphertext is missing");
+	});
+});
+
+describe("readProviderKeyMask", () => {
+	it("returns the encrypted key's mask", () => {
+		expect(readProviderKeyMask({ tokenMasked: "sk-live-1234•••••" })).toBe(
+			"sk-live-1234•••••",
+		);
+	});
+
+	it("throws when the mask is missing", () => {
+		expect(() => readProviderKeyMask({ tokenMasked: null })).toThrow(
+			"Provider key mask is missing",
+		);
 	});
 });
 

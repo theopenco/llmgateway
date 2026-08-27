@@ -5,6 +5,7 @@ export {
 } from "./crypto.js";
 export {
 	readProviderKey,
+	readProviderKeyMask,
 	encryptProviderKeyForStorage,
 	providerKeyEncryptionScope,
 	providerKeyLabel,

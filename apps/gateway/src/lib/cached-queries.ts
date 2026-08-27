@@ -55,12 +55,12 @@ import {
 	isTrackedKeyHealthy,
 } from "./api-key-health.js";
 
+import type { ApiKey } from "@llmgateway/db";
 import type { ApiKeyPeriodDurationUnit } from "@llmgateway/db";
 import type { EffectiveRateLimit } from "@llmgateway/db";
 import type { EffectiveDiscount } from "@llmgateway/db";
 import type { InferSelectModel } from "@llmgateway/db";
 import type {
-	apiKey,
 	apiKeyIamRule,
 	customModel,
 	endUserSession,
@@ -75,7 +75,6 @@ import type {
 import type { EnvVarVariant } from "@llmgateway/models";
 
 // Type aliases for cleaner function signatures
-type ApiKey = InferSelectModel<typeof apiKey>;
 type EndUserSession = InferSelectModel<typeof endUserSession>;
 type ApiKeyIamRule = InferSelectModel<typeof apiKeyIamRule>;
 type UserIamRule = InferSelectModel<typeof userIamRule>;

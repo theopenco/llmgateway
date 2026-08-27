@@ -10,7 +10,7 @@ import { decryptProviderKey, encryptProviderKey } from "./crypto.js";
 export interface ProviderKeyRowLike {
 	id: string;
 	organizationId: string | null;
-	tokenCiphertext: string;
+	tokenCiphertext: string | null;
 }
 
 /**
@@ -31,11 +31,25 @@ export function providerKeyEncryptionScope(
  * Resolves the plaintext provider-key token for a row.
  */
 export function readProviderKey(row: ProviderKeyRowLike): string {
+	if (!row.tokenCiphertext) {
+		throw new Error("Provider key ciphertext is missing");
+	}
+
 	return decryptProviderKey(
 		row.tokenCiphertext,
 		row.id,
 		providerKeyEncryptionScope(row.organizationId),
 	);
+}
+
+export function readProviderKeyMask(row: {
+	tokenMasked: string | null;
+}): string {
+	if (!row.tokenMasked) {
+		throw new Error("Provider key mask is missing");
+	}
+
+	return row.tokenMasked;
 }
 
 /** Complete encrypted-at-rest values for a provider-key insert or rotation. */

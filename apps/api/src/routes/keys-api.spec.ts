@@ -157,6 +157,7 @@ describe("keys route", () => {
 		expect(json).toHaveProperty("apiKeys");
 		expect(json.apiKeys.length).toBe(1);
 		expect(json.apiKeys[0].description).toBe("Test API Key");
+		expect(json.apiKeys[0].token).toBeUndefined();
 		expect(json.apiKeys[0].tokenHash).toBeUndefined();
 	});
 

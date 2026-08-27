@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { readApiKeyMask } from "@/lib/api-key-mask.js";
 import {
 	MAX_ORG_ACTIVITY_RANGE_DAYS,
 	rangeDaysInclusive,
@@ -186,7 +187,7 @@ interface SerializableApiKey {
 	status: "active" | "inactive" | "deleted" | null;
 	projectId: string;
 	createdBy: string;
-	tokenMasked: string;
+	tokenMasked: string | null;
 	usageLimit: string | null;
 	usage: string;
 	periodUsageLimit: string | null;
@@ -221,7 +222,7 @@ function serializeApiKeyForMaster(apiKey: SerializableApiKey) {
 		projectName: apiKey.project.name,
 		createdBy: apiKey.createdBy,
 		createdByEmail: apiKey.creator?.email ?? null,
-		maskedToken: apiKey.tokenMasked,
+		maskedToken: readApiKeyMask(apiKey),
 		usageLimit: apiKey.usageLimit,
 		usage: apiKey.usage,
 		periodUsageLimit: apiKey.periodUsageLimit,
