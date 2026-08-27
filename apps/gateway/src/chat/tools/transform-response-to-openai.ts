@@ -360,8 +360,7 @@ function buildUsageObject(
 		prompt_tokens: Math.max(1, promptTokens ?? 1),
 		completion_tokens: completionTokens ?? 0,
 		total_tokens: (() => {
-			const fallbackTotal =
-				(promptTokens ?? 0) + (completionTokens ?? 0) + (reasoningTokens ?? 0);
+			const fallbackTotal = (promptTokens ?? 0) + (completionTokens ?? 0);
 			return Math.max(1, totalTokens ?? fallbackTotal);
 		})(),
 		...(reasoningTokens !== null && {
@@ -1532,6 +1531,21 @@ export function transformResponseToOpenai(
 		typeof transformedResponse === "object"
 	) {
 		transformedResponse.service_tier = serviceTier;
+	}
+
+	if (
+		transformedResponse?.usage &&
+		typeof transformedResponse.usage === "object"
+	) {
+		if (promptTokens !== null) {
+			transformedResponse.usage.prompt_tokens = promptTokens;
+		}
+		if (completionTokens !== null) {
+			transformedResponse.usage.completion_tokens = completionTokens;
+		}
+		if (totalTokens !== null) {
+			transformedResponse.usage.total_tokens = totalTokens;
+		}
 	}
 
 	return transformedResponse;

@@ -7,6 +7,7 @@ import { estimateTokens } from "./estimate-tokens.js";
 import {
 	adjustGoogleCandidateTokens,
 	extractBedrockCacheCreationDetails,
+	normalizeCompletionTokens,
 } from "./extract-token-usage.js";
 import { dedupeGoogleCandidateParts } from "./google-candidates.js";
 import {
@@ -110,12 +111,15 @@ export function parseProviderResponse(
 				finishReason = allChoices[0]?.finish_reason ?? null;
 				promptTokens = json.usage?.prompt_tokens ?? null;
 				completionTokens = json.usage?.completion_tokens ?? null;
-				reasoningTokens = json.usage?.reasoning_tokens ?? null;
+				reasoningTokens =
+					json.usage?.reasoning_tokens ??
+					json.usage?.completion_tokens_details?.reasoning_tokens ??
+					null;
 				cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens ?? null;
 				totalTokens =
 					json.usage?.total_tokens ??
 					(promptTokens !== null && completionTokens !== null
-						? promptTokens + completionTokens + (reasoningTokens ?? 0)
+						? promptTokens + completionTokens
 						: null);
 				break;
 			}
@@ -585,7 +589,10 @@ export function parseProviderResponse(
 			finishReason = json.choices?.[0]?.finish_reason ?? null;
 			promptTokens = json.usage?.prompt_tokens ?? null;
 			completionTokens = json.usage?.completion_tokens ?? null;
-			reasoningTokens = json.usage?.reasoning_tokens ?? null;
+			reasoningTokens =
+				json.usage?.reasoning_tokens ??
+				json.usage?.completion_tokens_details?.reasoning_tokens ??
+				null;
 			cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens ?? null;
 			totalTokens = json.usage?.total_tokens ?? null;
 
@@ -677,12 +684,15 @@ export function parseProviderResponse(
 				finishReason = json.choices?.[0]?.finish_reason ?? null;
 				promptTokens = json.usage?.prompt_tokens ?? null;
 				completionTokens = json.usage?.completion_tokens ?? null;
-				reasoningTokens = json.usage?.reasoning_tokens ?? null;
+				reasoningTokens =
+					json.usage?.reasoning_tokens ??
+					json.usage?.completion_tokens_details?.reasoning_tokens ??
+					null;
 				cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens ?? null;
 				totalTokens =
 					json.usage?.total_tokens ??
 					(promptTokens !== null && completionTokens !== null
-						? promptTokens + completionTokens + (reasoningTokens ?? 0)
+						? promptTokens + completionTokens
 						: null);
 				// Alibaba uses Anthropic-style `cache_control: {type: "ephemeral"}` on
 				// the request, but reports usage in OpenAI shape with
@@ -1186,21 +1196,15 @@ export function parseProviderResponse(
 				// Standard OpenAI-style token parsing
 				promptTokens = json.usage?.prompt_tokens ?? null;
 				completionTokens = json.usage?.completion_tokens ?? null;
-				// xAI and Vertex's xAI endpoint report reasoning outside
-				// `completion_tokens` and only expose the count in the nested details.
-				// Reading it here is what makes reasoning billable at all. Providers
-				// that fold reasoning into `completion_tokens` must keep reading the
-				// top-level field only, or the same tokens would be billed twice.
 				reasoningTokens =
 					json.usage?.reasoning_tokens ??
-					(usedProvider === "xai" || usedProvider === "vertex-openai"
-						? (json.usage?.completion_tokens_details?.reasoning_tokens ?? null)
-						: null);
+					json.usage?.completion_tokens_details?.reasoning_tokens ??
+					null;
 				cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens ?? null;
 				totalTokens =
 					json.usage?.total_tokens ??
 					(promptTokens !== null && completionTokens !== null
-						? promptTokens + completionTokens + (reasoningTokens ?? 0)
+						? promptTokens + completionTokens
 						: null);
 				// GPT-5.6+ bills prompt-cache writes at 1.25x and reports them in
 				// `cache_write_tokens` (a subset of prompt_tokens, like cached_tokens).
@@ -1291,6 +1295,13 @@ export function parseProviderResponse(
 		content = reasoningContent;
 		reasoningContent = null;
 	}
+
+	completionTokens = normalizeCompletionTokens(
+		promptTokens,
+		completionTokens,
+		reasoningTokens,
+		totalTokens,
+	);
 
 	return {
 		content,
