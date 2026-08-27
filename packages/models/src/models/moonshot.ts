@@ -681,6 +681,9 @@ export const moonshotModels = [
 			{
 				providerId: "scx-ai-gp",
 				externalId: "Kimi-K2.7-Code",
+				// Reasoning model: forced tool_choice is rejected while thinking is
+				// on, so only "auto"/"none" are accepted.
+				supportedToolChoices: ["auto", "none"],
 				inputPrice: "0.8e-6",
 				cachedInputPrice: "0.16e-6",
 				outputPrice: "3.34e-6",
@@ -690,9 +693,16 @@ export const moonshotModels = [
 				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				vision: true,
 				tools: true,
 				jsonOutput: false,
+				supportedParameters: [
+					"max_tokens",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
 			},
 		],
 	},
@@ -909,6 +919,10 @@ export const moonshotModels = [
 			{
 				providerId: "scx-ai-gp",
 				externalId: "Kimi-K3",
+				// SCX resells the Alibaba Model Studio deployment, whose named
+				// function choice returns finish_reason "stop" instead of
+				// "tool_calls", so only auto/none/required are offered.
+				supportedToolChoices: ["auto", "none", "required"],
 				inputPrice: "2.83e-6",
 				cachedInputPrice: "0.28e-6",
 				outputPrice: "14.13e-6",
@@ -918,9 +932,26 @@ export const moonshotModels = [
 				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
 			},
 		],
 	},
