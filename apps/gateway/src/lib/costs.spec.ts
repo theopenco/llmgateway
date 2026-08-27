@@ -695,6 +695,24 @@ describe("calculateCosts", () => {
 		expect(result.estimatedCost).toBe(false);
 	});
 
+	it("uses separately reported reasoning when completion is unavailable", async () => {
+		const result = await calculateCosts(
+			"gemini-2.5-pro",
+			"google-ai-studio",
+			null,
+			1000,
+			null,
+			null,
+			undefined,
+			200,
+		);
+
+		expect(result.outputCost).toBeCloseTo(0.002);
+		expect(result.totalCost).toBeCloseTo(0.00325);
+		expect(result.completionTokens).toBe(200);
+		expect(result.estimatedCost).toBe(false);
+	});
+
 	it("should bill RanoAI cached tokens at the cache-read rate", async () => {
 		// RanoAI does automatic prefix caching and charges input_cache_read
 		// (0.05/M), half the input rate. Without cachedInputPrice the engine

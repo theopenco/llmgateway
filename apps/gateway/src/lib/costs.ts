@@ -247,7 +247,7 @@ export async function calculateCosts(
 		completion?: string;
 		toolResults?: ToolCall[];
 	},
-	_reasoningTokens: number | null = null,
+	reasoningTokens: number | null = null,
 	outputImageCount = 0,
 	imageSize?: string,
 	inputImageCount = 0,
@@ -412,6 +412,11 @@ export async function calculateCosts(
 				completionTokensEstimated = true;
 			}
 		}
+	}
+
+	if (completionTokens === null && reasoningTokens !== null) {
+		calculatedCompletionTokens =
+			(calculatedCompletionTokens ?? 0) + reasoningTokens;
 	}
 
 	// Derived from what was actually estimated, not from merely entering the
