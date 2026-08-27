@@ -1,12 +1,22 @@
-import { describe, expect, test, vi } from "vitest";
+import { beforeAll, describe, expect, test, vi } from "vitest";
 
 import { app } from "@/app.js";
 
+import { cdb, tables } from "@llmgateway/db";
 import { models as modelsList, providers } from "@llmgateway/models";
 
 import type { ProviderModelMapping } from "@llmgateway/models";
 
 describe("Models API", () => {
+	beforeAll(async () => {
+		// These tests derive expectations from the static catalogue alone, so
+		// Airside listings leaked by an interrupted spec would skew them.
+		// cdb: the gateway reads listings through the Redis query cache, so the
+		// cleanup must invalidate it too.
+		await cdb.delete(tables.providerPriceFiling);
+		await cdb.delete(tables.providerDraftModel);
+	});
+
 	test("GET /v1/models should return a list of models", async () => {
 		const res = await app.request("/v1/models");
 
@@ -488,7 +498,10 @@ describe("Models API", () => {
 		// (otherwise a mapping whose deactivatedAt lies between the request
 		// and the assertion could flake).
 		const frozenNow = new Date("2026-08-11T00:00:00Z");
-		vi.useFakeTimers();
+		// Fake only Date: the handler now reads Airside listings from the DB,
+		// and faking setTimeout would strand that network IO (and leak frozen
+		// timers into every later test when this one times out).
+		vi.useFakeTimers({ toFake: ["Date"] });
 		vi.setSystemTime(frozenNow);
 		try {
 			const res = await app.request("/v1/models");
