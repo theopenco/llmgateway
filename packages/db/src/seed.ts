@@ -2372,6 +2372,62 @@ async function seed() {
 		description: "Test credit top-up for referral eligibility",
 	});
 
+	await upsert(tables.transaction, {
+		id: "seed-manual-payment-wire-id",
+		organizationId: "test-org-id",
+		createdAt: daysAgo(21),
+		type: "credit_manual_payment",
+		amount: "500",
+		creditAmount: "500",
+		currency: "USD",
+		status: "completed",
+		paymentMethod: "wire",
+		externalReference: "seed-wire-payment",
+		description: "Seeded external credit payment by wire",
+	});
+
+	await upsert(tables.transaction, {
+		id: "seed-manual-payment-crypto-id",
+		organizationId: "test-org-id",
+		createdAt: daysAgo(14),
+		type: "credit_manual_payment",
+		amount: "300",
+		creditAmount: "300",
+		currency: "USD",
+		status: "completed",
+		paymentMethod: "crypto",
+		externalReference: "seed-crypto-payment",
+		description: "Seeded external credit payment by crypto",
+	});
+
+	await upsert(tables.transaction, {
+		id: "seed-manual-payment-paypal-id",
+		organizationId: "test-org-id",
+		createdAt: daysAgo(7),
+		type: "credit_manual_payment",
+		amount: "200",
+		creditAmount: "200",
+		currency: "USD",
+		status: "completed",
+		paymentMethod: "paypal",
+		externalReference: "seed-paypal-payment",
+		description: "Seeded external credit payment by PayPal",
+	});
+
+	await upsert(tables.transaction, {
+		id: "seed-enterprise-license-fee-id",
+		organizationId: "enterprise-org-id",
+		createdAt: daysAgo(10),
+		type: "enterprise_license_fee",
+		amount: "5000",
+		creditAmount: null,
+		currency: "USD",
+		status: "completed",
+		paymentMethod: "wire",
+		externalReference: "seed-enterprise-license",
+		description: "Seeded enterprise license fee",
+	});
+
 	const devpassStartCreatedAt = daysAgo(36);
 	await upsert(tables.transaction, {
 		id: "test-devpass-start-transaction-id",
