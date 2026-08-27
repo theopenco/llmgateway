@@ -555,7 +555,7 @@ const ModelTableRow = React.memo(
 											const prices = row.provider.perSecondPrice;
 											const values = Object.values(prices)
 												.map(Number)
-												.filter(Number.isFinite);
+												.filter((v) => Number.isFinite(v) && v > 0);
 											if (values.length === 0) {
 												return "—";
 											}
@@ -643,7 +643,7 @@ const ModelTableRow = React.memo(
 											const prices = row.provider.perSecondPrice;
 											const values = Object.values(prices)
 												.map(Number)
-												.filter(Number.isFinite);
+												.filter((v) => Number.isFinite(v) && v > 0);
 											if (values.length === 0) {
 												return "—";
 											}

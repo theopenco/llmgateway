@@ -86,8 +86,9 @@ export function getMinPerImagePrice(
 	const discount = mapping.discount ? parseFloat(mapping.discount) : 0;
 	const values = Object.values(mapping.perImagePrice)
 		.map(Number)
-		.filter(Number.isFinite)
-		.map((v) => (discount > 0 ? v * (1 - discount) : v));
+		.filter((v) => Number.isFinite(v) && v > 0)
+		.map((v) => (discount > 0 ? v * (1 - discount) : v))
+		.filter((v) => v > 0);
 	return values.length > 0 ? Math.min(...values) : null;
 }
 
@@ -103,8 +104,9 @@ export function getMinPerSecondPrice(
 	const discount = mapping.discount ? parseFloat(mapping.discount) : 0;
 	const values = Object.values(mapping.perSecondPrice)
 		.map(Number)
-		.filter(Number.isFinite)
-		.map((v) => (discount > 0 ? v * (1 - discount) : v));
+		.filter((v) => Number.isFinite(v) && v > 0)
+		.map((v) => (discount > 0 ? v * (1 - discount) : v))
+		.filter((v) => v > 0);
 	return values.length > 0 ? Math.min(...values) : null;
 }
 
