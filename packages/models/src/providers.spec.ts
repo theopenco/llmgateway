@@ -148,7 +148,13 @@ describe("model service tier support", () => {
 			getSupportedServiceTiers("gemini-3-pro-image", "google-vertex").map(
 				(tier) => tier.id,
 			),
-		).toEqual(["flex", "priority"]);
+		).toEqual(["flex"]);
+		expect(
+			getSupportedServiceTiers(
+				"gemini-3-pro-image-preview",
+				"google-vertex",
+			).map((tier) => tier.id),
+		).toEqual(["flex"]);
 	});
 
 	it("returns the Fireworks Priority tier for Kimi K3 only", () => {
@@ -187,6 +193,12 @@ describe("model service tier support", () => {
 			getSupportedServiceTiers("gemini-3-pro-image", "google-ai-studio").map(
 				(tier) => tier.id,
 			),
+		).toEqual(["flex", "priority"]);
+		expect(
+			getSupportedServiceTiers(
+				"gemini-3-pro-image-preview",
+				"google-ai-studio",
+			).map((tier) => tier.id),
 		).toEqual(["flex", "priority"]);
 	});
 
