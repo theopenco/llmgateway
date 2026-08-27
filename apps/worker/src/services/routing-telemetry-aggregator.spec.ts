@@ -101,7 +101,8 @@ describe("routing telemetry aggregator", () => {
 		await db.insert(apiKey).values({
 			id: "rt-key",
 			description: "RT key",
-			token: "rt-token",
+			tokenHash: "rt-token",
+			tokenMasked: "rt-token",
 			projectId: "rt-proj",
 			createdBy: testUser.id,
 		});

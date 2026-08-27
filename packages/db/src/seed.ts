@@ -11,6 +11,7 @@ import {
 	providers as allProviders,
 } from "@llmgateway/models";
 import { DEV_PLAN_PRICES, getDevPlanCreditsLimit } from "@llmgateway/shared";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { closeDatabase, db, tables } from "./index.js";
 import { logs } from "./logs.js";
@@ -1505,9 +1506,7 @@ async function seed() {
 
 	await upsert(tables.apiKey, {
 		id: "test-api-key-id",
-		token: "test-token",
-		tokenHash: null,
-		tokenMasked: null,
+		...hashApiKeyForStorage("test-token"),
 		projectId: "test-project-id",
 		description: "Test API Key",
 		createdBy: "test-user-id",
@@ -1541,9 +1540,7 @@ async function seed() {
 
 	await upsert(tables.apiKey, {
 		id: "test-no-retention-api-key-id",
-		token: "test-token-no-retention",
-		tokenHash: null,
-		tokenMasked: null,
+		...hashApiKeyForStorage("test-token-no-retention"),
 		projectId: "test-no-retention-project-id",
 		description: "Test API Key (no data retention)",
 		createdBy: "test-user-id",
@@ -1583,9 +1580,7 @@ async function seed() {
 	// sessions/wallets are live and eligible for the developer-funded bonus.
 	await upsert(tables.apiKey, {
 		id: "sdk-poc-platform-secret-id",
-		token: "sk_pocbonus_live_secret",
-		tokenHash: null,
-		tokenMasked: null,
+		...hashApiKeyForStorage("sk_pocbonus_live_secret"),
 		projectId: "sdk-poc-project-id",
 		description: "Payments SDK POC platform secret",
 		keyType: "platform_secret",
@@ -1624,9 +1619,7 @@ async function seed() {
 
 	await upsert(tables.apiKey, {
 		id: "test-devpass-api-key-id",
-		token: "llmgdev_devpass_test_token",
-		tokenHash: null,
-		tokenMasked: null,
+		...hashApiKeyForStorage("llmgdev_devpass_test_token"),
 		projectId: "test-personal-project-id",
 		description: "Dev Plan API Key",
 		createdBy: "test-user-id",
@@ -2255,9 +2248,7 @@ async function seed() {
 
 	await upsert(tables.apiKey, {
 		id: "enterprise-api-key-id",
-		token: "test-enterprise",
-		tokenHash: null,
-		tokenMasked: null,
+		...hashApiKeyForStorage("test-enterprise"),
 		projectId: "enterprise-project-id",
 		description: "Enterprise API Key",
 		createdBy: "enterprise-user-id",
@@ -2306,9 +2297,7 @@ async function seed() {
 	// A key the developer created, so their own-usage view has something to show.
 	await upsert(tables.apiKey, {
 		id: "enterprise-dev-api-key-id",
-		token: "test-enterprise-dev",
-		tokenHash: null,
-		tokenMasked: null,
+		...hashApiKeyForStorage("test-enterprise-dev"),
 		projectId: "enterprise-project-id",
 		description: "Enterprise Developer API Key",
 		createdBy: "enterprise-dev-user-id",
@@ -2791,9 +2780,7 @@ async function seed() {
 	for (const key of apiKeys) {
 		await upsert(tables.apiKey, {
 			id: key.id,
-			token: key.token,
-			tokenHash: null,
-			tokenMasked: null,
+			...hashApiKeyForStorage(key.token),
 			projectId: key.projectId,
 			description: key.description,
 			createdBy: key.createdBy,

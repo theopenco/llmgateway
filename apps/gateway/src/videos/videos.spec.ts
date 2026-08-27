@@ -9,8 +9,10 @@ import {
 	setMockVideoStatusResponse,
 } from "@/test-utils/mock-openai-server.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { cdb, db, eq, tables } from "@llmgateway/db";
 import { buildGatewayVideoLogContentUrl } from "@llmgateway/shared";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 describe("videos", () => {
 	const harness = createGatewayApiTestHarness();
@@ -67,7 +69,7 @@ describe("videos", () => {
 	test("/v1/videos explains avalanche constraint failures clearly", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -75,7 +77,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "avalanche",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -108,14 +114,18 @@ describe("videos", () => {
 			"SecretVendor SensitiveContentDetected at https://api.secretvendor.com";
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
 		});
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-avalanche-key",
+			...encryptProviderKeyForStorage(
+				"sk-avalanche-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "avalanche",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -184,7 +194,7 @@ describe("videos", () => {
 	test("/v1/videos rejects dev-plan personal orgs with 403", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -227,7 +237,7 @@ describe("videos", () => {
 	test("/v1/videos explains avalanche reference-image constraints clearly", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -235,7 +245,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "avalanche",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -270,7 +284,7 @@ describe("videos", () => {
 	test("/v1/videos rejects non-https reference videos", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -299,7 +313,7 @@ describe("videos", () => {
 	test("/v1/videos rejects combining frames with reference videos", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -329,7 +343,7 @@ describe("videos", () => {
 	test("/v1/videos rejects reference videos on non-bytedance models", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -337,7 +351,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "avalanche",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -368,7 +386,7 @@ describe("videos", () => {
 	test("/v1/videos logs oversized reference image client errors", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-video-oversized-image",
-			token: "real-token-video-oversized-image",
+			...hashApiKeyForStorage("real-token-video-oversized-image"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -376,7 +394,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-video-oversized-image",
-			token: "sk-bytedance-key",
+			...encryptProviderKeyForStorage(
+				"sk-bytedance-key",
+				"provider-key-video-oversized-image",
+				"org-id",
+			),
 			provider: "bytedance",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -428,7 +450,7 @@ describe("videos", () => {
 	test("/v1/videos rejects non-https reference audios", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -457,7 +479,7 @@ describe("videos", () => {
 	test("/v1/videos rejects reference audio on non-bytedance models", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -465,7 +487,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "avalanche",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -496,7 +522,7 @@ describe("videos", () => {
 	test("/v1/videos forwards AtlasCloud text-to-video requests", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -504,7 +530,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-atlascloud",
-			token: "atlascloud-test-token",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud",
+				"org-id",
+			),
 			provider: "atlascloud",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -547,7 +577,7 @@ describe("videos", () => {
 	test("/v1/videos uploads AtlasCloud image-to-video frame inputs", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -555,7 +585,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-atlascloud",
-			token: "atlascloud-test-token",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud",
+				"org-id",
+			),
 			provider: "atlascloud",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -599,7 +633,7 @@ describe("videos", () => {
 	test("/v1/videos routes AtlasCloud 4K requests to the 4K upstream model", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -607,7 +641,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-atlascloud",
-			token: "atlascloud-test-token",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud",
+				"org-id",
+			),
 			provider: "atlascloud",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -642,7 +680,7 @@ describe("videos", () => {
 	test("/v1/videos rejects AtlasCloud Turbo 4K requests", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -650,7 +688,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-atlascloud",
-			token: "atlascloud-test-token",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud",
+				"org-id",
+			),
 			provider: "atlascloud",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -681,7 +723,7 @@ describe("videos", () => {
 	test("/v1/videos rejects AtlasCloud Turbo silent requests", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -689,7 +731,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-atlascloud",
-			token: "atlascloud-test-token",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud",
+				"org-id",
+			),
 			provider: "atlascloud",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -721,7 +767,7 @@ describe("videos", () => {
 	test("/v1/videos rejects AtlasCloud reference inputs", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -729,7 +775,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-atlascloud",
-			token: "atlascloud-test-token",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud",
+				"org-id",
+			),
 			provider: "atlascloud",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -767,7 +817,7 @@ describe("videos", () => {
 	test("/v1/videos rejects AtlasCloud reference audio", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -775,7 +825,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-atlascloud",
-			token: "atlascloud-test-token",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud",
+				"org-id",
+			),
 			provider: "atlascloud",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -809,7 +863,7 @@ describe("videos", () => {
 	test("/v1/videos bills AtlasCloud 4K audio and silent output at the same rate", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -817,7 +871,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-atlascloud",
-			token: "atlascloud-test-token",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud",
+				"org-id",
+			),
 			provider: "atlascloud",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -878,7 +936,7 @@ describe("videos", () => {
 	test("/v1/videos restricts reference inputs to Seedance 2.x models", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -907,7 +965,7 @@ describe("videos", () => {
 	test("/v1/videos forwards up to nine reference images to Seedance 2.0 Fast", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -915,7 +973,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-bytedance-key",
+			...encryptProviderKeyForStorage(
+				"sk-bytedance-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "bytedance",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -955,7 +1017,7 @@ describe("videos", () => {
 	test("/v1/videos routes Seedance 2.5 with its own resolution and duration range", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -963,7 +1025,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-bytedance-key",
+			...encryptProviderKeyForStorage(
+				"sk-bytedance-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "bytedance",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -1006,7 +1072,7 @@ describe("videos", () => {
 	test("/v1/videos rejects 4K and over-30s durations on Seedance 2.5", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1014,7 +1080,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-bytedance-key",
+			...encryptProviderKeyForStorage(
+				"sk-bytedance-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "bytedance",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -1054,7 +1124,7 @@ describe("videos", () => {
 	test("/v1/videos rejects more than nine reference images on Seedance 2.0 Fast", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1085,7 +1155,7 @@ describe("videos", () => {
 	test("/v1/videos rejects more than three reference images on veo", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1093,7 +1163,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-google-vertex-key",
+			...encryptProviderKeyForStorage(
+				"sk-google-vertex-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "google-vertex",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -1137,7 +1211,7 @@ describe("videos", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -1146,14 +1220,22 @@ describe("videos", () => {
 			await db.insert(tables.providerKey).values([
 				{
 					id: "provider-key-avalanche",
-					token: "sk-avalanche-key",
+					...encryptProviderKeyForStorage(
+						"sk-avalanche-key",
+						"provider-key-avalanche",
+						"org-id",
+					),
 					provider: "avalanche",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
 				},
 				{
 					id: "provider-key-vertex",
-					token: "vertex-test-token",
+					...encryptProviderKeyForStorage(
+						"vertex-test-token",
+						"provider-key-vertex",
+						"org-id",
+					),
 					provider: "google-vertex",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
@@ -1237,7 +1319,7 @@ describe("videos", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -1247,7 +1329,11 @@ describe("videos", () => {
 			await cdb.insert(tables.providerKey).values({
 				id: "managed-vertex-video",
 				provider: "google-vertex",
-				token: "vertex-test-token",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"managed-vertex-video",
+					null,
+				),
 				managed: true,
 				organizationId: null,
 				config: {
@@ -1334,7 +1420,7 @@ describe("videos", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -1344,7 +1430,11 @@ describe("videos", () => {
 			await cdb.insert(tables.providerKey).values({
 				id: "managed-vertex-video-projectless",
 				provider: "google-vertex",
-				token: "vertex-test-token",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"managed-vertex-video-projectless",
+					null,
+				),
 				managed: true,
 				organizationId: null,
 				config: {
@@ -1398,7 +1488,7 @@ describe("videos", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -1407,14 +1497,22 @@ describe("videos", () => {
 			await db.insert(tables.providerKey).values([
 				{
 					id: "provider-key-avalanche",
-					token: "sk-avalanche-key",
+					...encryptProviderKeyForStorage(
+						"sk-avalanche-key",
+						"provider-key-avalanche",
+						"org-id",
+					),
 					provider: "avalanche",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
 				},
 				{
 					id: "provider-key-vertex",
-					token: "vertex-test-token",
+					...encryptProviderKeyForStorage(
+						"vertex-test-token",
+						"provider-key-vertex",
+						"org-id",
+					),
 					provider: "google-vertex",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
@@ -1516,7 +1614,7 @@ describe("videos", () => {
 	test("/v1/videos supports completed 4k avalanche jobs", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1524,7 +1622,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "avalanche",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -1596,7 +1698,7 @@ describe("videos", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1604,7 +1706,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "avalanche",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -1662,7 +1768,7 @@ describe("videos", () => {
 	test("/v1/videos bills xAI 480p video and image input separately", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1670,7 +1776,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "xai-test-token",
+			...encryptProviderKeyForStorage(
+				"xai-test-token",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "xai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -1713,7 +1823,7 @@ describe("videos", () => {
 	test("/v1/videos bills xAI 720p at the 720p rate", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1721,7 +1831,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "xai-test-token",
+			...encryptProviderKeyForStorage(
+				"xai-test-token",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "xai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -1764,7 +1878,7 @@ describe("videos", () => {
 	test("/v1/videos caps logged xAI polling error response contents", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1772,7 +1886,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "xai-test-token",
+			...encryptProviderKeyForStorage(
+				"xai-test-token",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "xai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -1838,7 +1956,7 @@ describe("videos", () => {
 	test("/v1/videos maps xAI poll moderation to content_filter", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1846,7 +1964,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "xai-test-token",
+			...encryptProviderKeyForStorage(
+				"xai-test-token",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "xai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -1916,7 +2038,7 @@ describe("videos", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -1924,7 +2046,11 @@ describe("videos", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "vertex-test-token",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -2042,7 +2168,7 @@ describe("videos", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -2050,7 +2176,11 @@ describe("videos", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "vertex-test-token",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -2113,7 +2243,7 @@ describe("videos", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -2121,7 +2251,11 @@ describe("videos", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "vertex-test-token",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -2186,7 +2320,7 @@ describe("videos", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -2194,7 +2328,11 @@ describe("videos", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "sk-avalanche-key",
+				...encryptProviderKeyForStorage(
+					"sk-avalanche-key",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "avalanche",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -2249,7 +2387,7 @@ describe("videos", () => {
 	test("/v1/videos forwards frame inputs to bytedance Seedance 2.0", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -2257,7 +2395,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-bytedance-key",
+			...encryptProviderKeyForStorage(
+				"sk-bytedance-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "bytedance",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -2306,7 +2448,7 @@ describe("videos", () => {
 	test("/v1/videos forwards portrait size as ratio 9:16 to bytedance", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -2314,7 +2456,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-bytedance-key",
+			...encryptProviderKeyForStorage(
+				"sk-bytedance-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "bytedance",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -2351,7 +2497,7 @@ describe("videos", () => {
 	test("/v1/videos rejects frame inputs on non-Seedance-2.0 bytedance models", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -2359,7 +2505,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-bytedance-key",
+			...encryptProviderKeyForStorage(
+				"sk-bytedance-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "bytedance",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -2398,7 +2548,7 @@ describe("videos", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -2406,7 +2556,11 @@ describe("videos", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "vertex-test-token",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -2478,7 +2632,7 @@ describe("videos", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -2486,7 +2640,11 @@ describe("videos", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "sk-avalanche-key",
+				...encryptProviderKeyForStorage(
+					"sk-avalanche-key",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "avalanche",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -2550,7 +2708,7 @@ describe("videos", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -2558,7 +2716,11 @@ describe("videos", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "vertex-test-token",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -2620,7 +2782,7 @@ describe("videos", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -2629,14 +2791,22 @@ describe("videos", () => {
 			await db.insert(tables.providerKey).values([
 				{
 					id: "provider-key-vertex",
-					token: "vertex-test-token",
+					...encryptProviderKeyForStorage(
+						"vertex-test-token",
+						"provider-key-vertex",
+						"org-id",
+					),
 					provider: "google-vertex",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
 				},
 				{
 					id: "provider-key-avalanche",
-					token: "avalanche-test-token",
+					...encryptProviderKeyForStorage(
+						"avalanche-test-token",
+						"provider-key-avalanche",
+						"org-id",
+					),
 					provider: "avalanche",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
@@ -2685,7 +2855,7 @@ describe("videos", () => {
 	test("/v1/videos rejects silent provider-specific mappings that only support audio", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -2693,7 +2863,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-avalanche",
-			token: "avalanche-test-token",
+			...encryptProviderKeyForStorage(
+				"avalanche-test-token",
+				"provider-key-avalanche",
+				"org-id",
+			),
 			provider: "avalanche",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -2733,7 +2907,7 @@ describe("videos", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -2741,7 +2915,11 @@ describe("videos", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "vertex-test-token",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -2812,7 +2990,7 @@ describe("videos", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -2820,7 +2998,11 @@ describe("videos", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "vertex-test-token",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -2934,7 +3116,7 @@ describe("videos", () => {
 
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -2942,7 +3124,11 @@ describe("videos", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "vertex-test-token",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -2989,7 +3175,7 @@ describe("videos", () => {
 	test("/v1/videos rejects non-positive duration values", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -3016,7 +3202,7 @@ describe("videos", () => {
 	test("/v1/videos rejects durations above the model maximum", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -3044,7 +3230,7 @@ describe("videos", () => {
 	test("/v1/videos requires seconds", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -3070,7 +3256,7 @@ describe("videos", () => {
 	test("/v1/videos rejects unsupported size values", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",

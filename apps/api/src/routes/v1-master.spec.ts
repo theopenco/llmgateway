@@ -10,6 +10,7 @@ import {
 	waitForSwrMirrorWrites,
 } from "@llmgateway/cache";
 import { and, cdb, db, eq, getTableName, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 const ORIGINAL_HASH_SECRET = process.env.GATEWAY_API_KEY_HASH_SECRET;
@@ -89,7 +90,7 @@ describe("v1/master cache invalidation", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "test-api-key-id",
-			token: "test-master-token",
+			...hashApiKeyForStorage("test-master-token"),
 			projectId: "test-project-id",
 			description: "Test API Key",
 			createdBy: "test-user-id",
@@ -141,7 +142,7 @@ describe("v1/master cache invalidation", () => {
 	test("GET /keys hides playground session keys", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "playground-session-key",
-			token: "playground-session-token",
+			...hashApiKeyForStorage("playground-session-token"),
 			projectId: "test-project-id",
 			description: "Session key",
 			kind: "playground",
@@ -160,7 +161,7 @@ describe("v1/master cache invalidation", () => {
 	test("managed playground keys reject master-key mutations", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "playground-key",
-			token: "playground-token",
+			...hashApiKeyForStorage("playground-token"),
 			projectId: "test-project-id",
 			description: "Playground",
 			kind: "playground",
@@ -184,7 +185,7 @@ describe("v1/master cache invalidation", () => {
 	test("managed playground keys reject master-key IAM mutations", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "playground-key",
-			token: "playground-token",
+			...hashApiKeyForStorage("playground-token"),
 			projectId: "test-project-id",
 			description: "Playground",
 			kind: "playground",
@@ -261,7 +262,7 @@ describe("v1/master cache invalidation", () => {
 		});
 		await db.insert(tables.apiKey).values({
 			id: "member-api-key-id",
-			token: "member-api-key-token",
+			...hashApiKeyForStorage("member-api-key-token"),
 			projectId: "test-project-id",
 			description: "Member API Key",
 			createdBy: "member-user-id",
@@ -299,7 +300,7 @@ describe("v1/master cache invalidation", () => {
 		const apiKeyToken = `${apiKeyId}-token`;
 		await db.insert(tables.apiKey).values({
 			id: apiKeyId,
-			token: apiKeyToken,
+			...hashApiKeyForStorage(apiKeyToken),
 			projectId: "test-project-id",
 			description: "Cache Test Key",
 			createdBy: "test-user-id",
@@ -332,7 +333,7 @@ describe("v1/master cache invalidation", () => {
 		const apiKeyToken = `${apiKeyId}-token`;
 		await db.insert(tables.apiKey).values({
 			id: apiKeyId,
-			token: apiKeyToken,
+			...hashApiKeyForStorage(apiKeyToken),
 			projectId: "test-project-id",
 			description: "Cache Test Key",
 			createdBy: "test-user-id",
@@ -423,7 +424,7 @@ describe("v1/master cache invalidation", () => {
 		const apiKeyId = `cache-test-api-key-${crypto.randomUUID()}`;
 		await db.insert(tables.apiKey).values({
 			id: apiKeyId,
-			token: `${apiKeyId}-token`,
+			...hashApiKeyForStorage(`${apiKeyId}-token`),
 			projectId: "test-project-id",
 			description: "IAM Cache Test Key",
 			createdBy: "test-user-id",
@@ -464,7 +465,7 @@ describe("v1/master cache invalidation", () => {
 		const apiKeyId = `cache-test-api-key-${crypto.randomUUID()}`;
 		await db.insert(tables.apiKey).values({
 			id: apiKeyId,
-			token: `${apiKeyId}-token`,
+			...hashApiKeyForStorage(`${apiKeyId}-token`),
 			projectId: "test-project-id",
 			description: "IAM Cache Test Key",
 			createdBy: "test-user-id",
@@ -522,7 +523,7 @@ describe("v1/master cache invalidation", () => {
 		const apiKeyId = `cache-test-api-key-${crypto.randomUUID()}`;
 		await db.insert(tables.apiKey).values({
 			id: apiKeyId,
-			token: `${apiKeyId}-token`,
+			...hashApiKeyForStorage(`${apiKeyId}-token`),
 			projectId: "test-project-id",
 			description: "IAM Cache Test Key",
 			createdBy: "test-user-id",

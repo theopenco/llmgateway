@@ -4,6 +4,7 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 import type * as PaymentsModule from "@/routes/payments.js";
@@ -163,7 +164,7 @@ describe("dev plan tier changes", () => {
 		});
 		await db.insert(tables.apiKey).values({
 			id: "test-dev-plan-api-key",
-			token: "test-dev-plan-token",
+			...hashApiKeyForStorage("test-dev-plan-token"),
 			projectId: "test-dev-plan-project",
 			description: "Dev Plan API Key",
 			createdBy: "test-user-id",
@@ -210,14 +211,14 @@ describe("dev plan tier changes", () => {
 		await db.insert(tables.apiKey).values([
 			{
 				id: "test-dev-plan-api-key",
-				token: "test-dev-plan-token",
+				...hashApiKeyForStorage("test-dev-plan-token"),
 				projectId: "test-dev-plan-project",
 				description: "Dev Plan API Key",
 				createdBy: "test-user-id",
 			},
 			{
 				id: "test-playground-session-key",
-				token: "test-playground-session-token",
+				...hashApiKeyForStorage("test-playground-session-token"),
 				projectId: "test-dev-plan-project",
 				description: "Session key",
 				kind: "playground",
@@ -247,7 +248,7 @@ describe("dev plan tier changes", () => {
 		await db.insert(tables.apiKey).values([
 			{
 				id: "test-playground-session-key",
-				token: "test-playground-session-token",
+				...hashApiKeyForStorage("test-playground-session-token"),
 				projectId: "test-dev-plan-project",
 				description: "Session key",
 				kind: "playground",
@@ -255,7 +256,7 @@ describe("dev plan tier changes", () => {
 			},
 			{
 				id: "test-dev-plan-api-key",
-				token: "test-dev-plan-token",
+				...hashApiKeyForStorage("test-dev-plan-token"),
 				projectId: "test-dev-plan-project",
 				description: "Dev Plan API Key",
 				createdBy: "test-user-id",
@@ -279,7 +280,7 @@ describe("dev plan tier changes", () => {
 		});
 		await db.insert(tables.apiKey).values({
 			id: "test-inactive-dev-plan-api-key",
-			token: "test-inactive-dev-plan-token",
+			...hashApiKeyForStorage("test-inactive-dev-plan-token"),
 			projectId: "test-dev-plan-project",
 			description: "Dev Plan API Key",
 			status: "inactive",
