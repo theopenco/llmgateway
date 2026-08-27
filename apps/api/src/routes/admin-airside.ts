@@ -9,9 +9,7 @@ import {
 } from "@/lib/airside-catalogue.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 
-import { and, cdb, db, eq, inArray, isNull, ne, tables } from "@llmgateway/db";
-
-import { AIRSIDE_MULTIPLIER_REASON } from "./airside.js";
+import { and, cdb, db, eq, inArray, ne, tables } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -642,17 +640,10 @@ adminAirside.openapi(revokeClaim, async (c) => {
 				message: "Only active claims can be revoked.",
 			});
 		}
-		// Tear down what the carrier controlled: their routing boost and the
-		// settings row (a future owner starts from defaults).
-		await tx
-			.delete(tables.routingScoreMultiplier)
-			.where(
-				and(
-					eq(tables.routingScoreMultiplier.provider, claim.providerId),
-					isNull(tables.routingScoreMultiplier.model),
-					eq(tables.routingScoreMultiplier.reason, AIRSIDE_MULTIPLIER_REASON),
-				),
-			);
+		// Tear down what the carrier controlled: the settings row that prices
+		// the routing election (a future owner starts from defaults). Admin
+		// provider prioritization (routing_score_multiplier) is a separate
+		// internal knob and is left alone.
 		await tx
 			.delete(tables.providerRoutingSettings)
 			.where(eq(tables.providerRoutingSettings.providerId, claim.providerId));

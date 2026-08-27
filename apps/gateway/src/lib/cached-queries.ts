@@ -37,8 +37,10 @@ import {
 	providerKeyAllowsModel,
 	organization as organizationTable,
 	project as projectTable,
+	computeAirsideAdjustment,
 	providerClaim as providerClaimTable,
 	providerDraftModel as providerDraftModelTable,
+	providerRoutingSettings as providerRoutingSettingsTable,
 	providerPriceFiling as providerPriceFilingTable,
 	providerKey as providerKeyTable,
 	routingScoreMultiplier as routingScoreMultiplierTable,
@@ -108,6 +110,9 @@ const projectTableName = getTableName(projectTable);
 const providerKeyTableName = getTableName(providerKeyTable);
 const customModelTableName = getTableName(customModelTable);
 const providerClaimTableName = getTableName(providerClaimTable);
+const providerRoutingSettingsTableName = getTableName(
+	providerRoutingSettingsTable,
+);
 const providerDraftModelTableName = getTableName(providerDraftModelTable);
 const providerPriceFilingTableName = getTableName(providerPriceFilingTable);
 const routingScoreMultiplierTableName = getTableName(
@@ -1224,6 +1229,38 @@ export interface EffectiveRoutingScoreMultiplier {
  * Get the internal routing score adjustment for a provider/model combination.
  * The stable SQL shape is cached by Drizzle and the result is mirrored in SWR.
  */
+/**
+ * The routing-price adjustment produced by a carrier's own Airside settings
+ * (accepted gateway margin + traffic discount). Deliberately separate from
+ * routing_score_multiplier, which stays an admin-only prioritization knob —
+ * the two combine additively at the scoring seam.
+ */
+export async function findAirsideRoutingAdjustment(
+	provider: string,
+): Promise<number> {
+	const rows = await swrWrap(
+		`airsideRouting:${provider}`,
+		[providerRoutingSettingsTableName],
+		async () =>
+			await db
+				.select({
+					discountPercent: providerRoutingSettingsTable.discountPercent,
+					marginPercent: providerRoutingSettingsTable.marginPercent,
+				})
+				.from(providerRoutingSettingsTable)
+				.where(eq(providerRoutingSettingsTable.providerId, provider))
+				.limit(1),
+	);
+	const row = rows[0];
+	if (!row) {
+		return 0;
+	}
+	return computeAirsideAdjustment(
+		Number(row.discountPercent),
+		Number(row.marginPercent),
+	);
+}
+
 export async function findEffectiveRoutingScoreMultiplier(
 	provider: string,
 	model: string,

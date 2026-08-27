@@ -3000,14 +3000,6 @@ async function seedAirside() {
 		marginPercent: "0.3",
 	});
 
-	await upsert(tables.routingScoreMultiplier, {
-		id: "airside-rsm-mistral",
-		provider: "mistral",
-		model: null,
-		scoreMultiplier: "-0.15",
-		reason: "airside routing settings",
-	});
-
 	await upsert(tables.providerDraftModel, {
 		id: "airside-model-medium",
 		providerCompanyId: "airside-company-mistral",

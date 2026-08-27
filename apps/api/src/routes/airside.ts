@@ -15,14 +15,18 @@ import {
 } from "@/lib/airside-domains.js";
 
 import {
+	AIRSIDE_BASELINE_MARGIN,
+	AIRSIDE_DISCOUNT_MAX,
+	AIRSIDE_MARGIN_MAX,
+	AIRSIDE_MARGIN_MIN,
 	and,
 	cdb,
+	computeAirsideAdjustment,
 	db,
 	desc,
 	eq,
 	gte,
 	inArray,
-	isNull,
 	sql,
 	tables,
 } from "@llmgateway/db";
@@ -47,13 +51,6 @@ import type { ProviderModelMapping } from "@llmgateway/models";
 
 export const airside = new OpenAPIHono<ServerTypes>();
 
-// The gateway's standard margin. A carrier that accepts a larger gateway
-// margin or offers a discount is boosted in routing (and vice versa) — see
-// syncRoutingScoreMultiplier below.
-export const AIRSIDE_BASELINE_MARGIN = 0.2;
-export const AIRSIDE_MARGIN_MIN = 0.05;
-export const AIRSIDE_MARGIN_MAX = 0.5;
-export const AIRSIDE_DISCOUNT_MAX = 0.5;
 // Listing-fee gate: only enforced when the Stripe price is configured, so
 // self-hosted installs without billing keep a working portal.
 export function airsideListingFeeRequired(): boolean {
@@ -75,8 +72,6 @@ function imageDataUrl(maxBytes: number) {
 			message: `Image must be smaller than ${Math.round(maxBytes / 1024)}KB`,
 		});
 }
-
-export const AIRSIDE_MULTIPLIER_REASON = "airside routing settings";
 
 // Plain decimal or scientific notation only — Number("") and Number("0x1F")
 // would otherwise slip through as 0 / 31.
@@ -184,12 +179,10 @@ const routingSettingsSchema = z.object({
 	providerCompanyId: z.string(),
 	discountPercent: z.number(),
 	marginPercent: z.number(),
-	// The signed routing-price adjustment currently applied for this provider
-	// (negative = boosted, i.e. routed as if cheaper).
+	// The signed routing-price adjustment the carrier's settings produce
+	// (negative = boosted, i.e. routed as if cheaper). The gateway applies it
+	// directly; admin provider prioritization is a separate internal knob.
 	routingAdjustment: z.number(),
-	// Where the applied adjustment comes from: the carrier's own settings, an
-	// admin-set multiplier that shadows them, or nothing (neutral).
-	adjustmentSource: z.enum(["airside", "admin", "none"]),
 	updatedAt: z.string().nullable(),
 });
 
@@ -328,104 +321,6 @@ async function getActiveClaimedProviderIds(
 const providerNamesById = new Map(
 	catalogueProviders.map((p) => [p.id, p.name]),
 );
-
-function clampAdjustment(value: number): number {
-	const clamped = Math.min(0.9, Math.max(-0.9, value));
-	// Round away float artifacts (0.15 - 0.2 - 0.05 !== -0.1 in IEEE754).
-	return Math.round(clamped * 10000) / 10000;
-}
-
-/**
- * Mirror a carrier's routing settings into `routing_score_multiplier` so the
- * routing election prices the provider up or down. Airside only ever touches
- * provider-wide rows it created itself (matched on `reason`); an admin-set
- * multiplier for the same provider always wins and is left alone.
- */
-interface RoutingSyncResult {
-	// The signed routing-price adjustment now in effect for the provider
-	// (negative = boosted). When an admin-owned multiplier shadows the
-	// carrier's settings, this reports the admin value actually applied.
-	routingAdjustment: number;
-	adjustmentSource: "airside" | "admin" | "none";
-}
-
-function computeAirsideAdjustment(
-	discountPercent: number,
-	marginPercent: number,
-): number {
-	// Accepting a larger gateway margin or offering a discount lowers the
-	// routing price (boost); paying less than the standard margin prices the
-	// carrier up.
-	return clampAdjustment(
-		AIRSIDE_BASELINE_MARGIN - marginPercent - discountPercent,
-	);
-}
-
-async function syncRoutingScoreMultiplier(
-	providerId: string,
-	discountPercent: number,
-	marginPercent: number,
-): Promise<RoutingSyncResult> {
-	const adjustment = computeAirsideAdjustment(discountPercent, marginPercent);
-	// Read uncached (plain db): this is a read-modify-write and a cached row
-	// here would resurrect deleted state.
-	const rows = await db
-		.select()
-		.from(tables.routingScoreMultiplier)
-		.where(
-			and(
-				eq(tables.routingScoreMultiplier.provider, providerId),
-				isNull(tables.routingScoreMultiplier.model),
-			),
-		);
-	const adminRow = rows.find((row) => row.reason !== AIRSIDE_MULTIPLIER_REASON);
-	if (adminRow) {
-		// An admin-set multiplier always wins — and any stale airside row must
-		// go with it, or it would shadow the admin value in the gateway's
-		// unordered lookup and silently resurrect once the admin row is removed.
-		if (rows.some((row) => row.reason === AIRSIDE_MULTIPLIER_REASON)) {
-			await cdb
-				.delete(tables.routingScoreMultiplier)
-				.where(
-					and(
-						eq(tables.routingScoreMultiplier.provider, providerId),
-						isNull(tables.routingScoreMultiplier.model),
-						eq(tables.routingScoreMultiplier.reason, AIRSIDE_MULTIPLIER_REASON),
-					),
-				);
-		}
-		return {
-			routingAdjustment: Number(adminRow.scoreMultiplier),
-			adjustmentSource: "admin",
-		};
-	}
-	// Writes go through cdb so the gateway's Redis query cache is
-	// invalidated. Delete-then-insert in one transaction is idempotent and
-	// self-heals duplicate provider-wide rows (the table has no unique
-	// constraint for model IS NULL).
-	await cdb.transaction(async (tx) => {
-		await tx
-			.delete(tables.routingScoreMultiplier)
-			.where(
-				and(
-					eq(tables.routingScoreMultiplier.provider, providerId),
-					isNull(tables.routingScoreMultiplier.model),
-					eq(tables.routingScoreMultiplier.reason, AIRSIDE_MULTIPLIER_REASON),
-				),
-			);
-		if (adjustment !== 0) {
-			await tx.insert(tables.routingScoreMultiplier).values({
-				provider: providerId,
-				model: null,
-				scoreMultiplier: String(adjustment),
-				reason: AIRSIDE_MULTIPLIER_REASON,
-			});
-		}
-	});
-	return adjustment === 0
-		? { routingAdjustment: 0, adjustmentSource: "none" }
-		: { routingAdjustment: adjustment, adjustmentSource: "airside" };
-}
 
 // ---------------------------------------------------------------------------
 // Companies
@@ -1860,19 +1755,6 @@ airside.openapi(listRoutingSettings, async (c) => {
 			})
 		: [];
 	const rowByProvider = new Map(rows.map((row) => [row.providerId, row]));
-	// Read what is actually applied: an admin-set provider-wide multiplier
-	// shadows the carrier's own settings.
-	const multiplierRows = providerIds.length
-		? await db
-				.select()
-				.from(tables.routingScoreMultiplier)
-				.where(
-					and(
-						inArray(tables.routingScoreMultiplier.provider, providerIds),
-						isNull(tables.routingScoreMultiplier.model),
-					),
-				)
-		: [];
 	return c.json({
 		baselineMargin: AIRSIDE_BASELINE_MARGIN,
 		settings: providerIds.map((providerId) => {
@@ -1881,23 +1763,15 @@ airside.openapi(listRoutingSettings, async (c) => {
 			const marginPercent = row
 				? Number(row.marginPercent)
 				: AIRSIDE_BASELINE_MARGIN;
-			const adminRow = multiplierRows.find(
-				(m) =>
-					m.provider === providerId && m.reason !== AIRSIDE_MULTIPLIER_REASON,
-			);
 			return {
 				providerId,
 				providerCompanyId,
 				discountPercent,
 				marginPercent,
-				routingAdjustment: adminRow
-					? Number(adminRow.scoreMultiplier)
-					: computeAirsideAdjustment(discountPercent, marginPercent),
-				adjustmentSource: adminRow
-					? ("admin" as const)
-					: computeAirsideAdjustment(discountPercent, marginPercent) === 0
-						? ("none" as const)
-						: ("airside" as const),
+				routingAdjustment: computeAirsideAdjustment(
+					discountPercent,
+					marginPercent,
+				),
 				updatedAt: row ? row.updatedAt.toISOString() : null,
 			};
 		}),
@@ -1965,22 +1839,17 @@ airside.openapi(updateRoutingSettings, async (c) => {
 		discountPercent: String(body.discountPercent),
 		marginPercent: String(body.marginPercent),
 	};
+	// cdb: the gateway prices the routing election from this table directly.
 	const [row] = existing
-		? await db
+		? await cdb
 				.update(tables.providerRoutingSettings)
 				.set(values)
 				.where(eq(tables.providerRoutingSettings.id, existing.id))
 				.returning()
-		: await db
+		: await cdb
 				.insert(tables.providerRoutingSettings)
 				.values({ providerId, ...values })
 				.returning();
-
-	const sync = await syncRoutingScoreMultiplier(
-		providerId,
-		body.discountPercent,
-		body.marginPercent,
-	);
 
 	return c.json({
 		settings: {
@@ -1988,8 +1857,10 @@ airside.openapi(updateRoutingSettings, async (c) => {
 			providerCompanyId: body.providerCompanyId,
 			discountPercent: Number(row.discountPercent),
 			marginPercent: Number(row.marginPercent),
-			routingAdjustment: sync.routingAdjustment,
-			adjustmentSource: sync.adjustmentSource,
+			routingAdjustment: computeAirsideAdjustment(
+				Number(row.discountPercent),
+				Number(row.marginPercent),
+			),
 			updatedAt: row.updatedAt.toISOString(),
 		},
 	});

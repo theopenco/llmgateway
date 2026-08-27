@@ -680,11 +680,13 @@ describe("airside provider portal", () => {
 		}
 	});
 
-	it("reports an admin-owned multiplier instead of pretending to apply", async () => {
+	it("keeps carrier settings independent of admin prioritization", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		await claimProvider(cookie, company.id);
 		await activateClaim();
+		// Admin provider prioritization is a separate internal knob — carrier
+		// settings neither read nor touch it.
 		await db.insert(tables.routingScoreMultiplier).values({
 			provider: "mistral",
 			model: null,
@@ -706,17 +708,15 @@ describe("airside provider portal", () => {
 		);
 		expect(updated.status).toBe(200);
 		const { settings } = await updated.json();
-		// The admin row shadows the carrier's settings and is reported as-is.
-		expect(settings.adjustmentSource).toBe("admin");
-		expect(settings.routingAdjustment).toBeCloseTo(0.5);
+		// 0.2 (baseline) - 0.3 (margin) - 0.2 (discount) = -0.3
+		expect(settings.routingAdjustment).toBeCloseTo(-0.3);
 
-		const listed = await app.request(
-			`/airside/routing-settings?providerCompanyId=${company.id}`,
-			{ headers: { Cookie: cookie } },
-		);
-		expect((await listed.json()).settings[0]).toMatchObject({
-			adjustmentSource: "admin",
+		// The admin row is untouched, and no airside row was mirrored in.
+		const multipliers = await db.query.routingScoreMultiplier.findMany({
+			where: { provider: { eq: "mistral" } },
 		});
+		expect(multipliers).toHaveLength(1);
+		expect(multipliers[0].reason).toBe("manual penalty");
 		await db.delete(tables.routingScoreMultiplier);
 	});
 
@@ -744,11 +744,12 @@ describe("airside provider portal", () => {
 				"PUT",
 			),
 		);
+		// Carrier settings never touch routing_score_multiplier.
 		expect(
 			await db.query.routingScoreMultiplier.findFirst({
 				where: { provider: { eq: "mistral" } },
 			}),
-		).toBeTruthy();
+		).toBeFalsy();
 
 		// A live listing exists at revocation time.
 		const listed = await createModel(cookie, company.id);
@@ -774,12 +775,7 @@ describe("airside provider portal", () => {
 		expect(deadFiling!.status).toBe("rejected");
 		expect(deadFiling!.reviewNote).toBe("Carrier claim revoked");
 
-		// Boost and settings are gone; the provider is claimable again.
-		expect(
-			await db.query.routingScoreMultiplier.findFirst({
-				where: { provider: { eq: "mistral" } },
-			}),
-		).toBeFalsy();
+		// Settings are gone; the provider is claimable again.
 		expect(
 			await db.query.providerRoutingSettings.findFirst({
 				where: { providerId: { eq: "mistral" } },
@@ -799,7 +795,7 @@ describe("airside provider portal", () => {
 		expect(again.status).toBe(409);
 	});
 
-	it("updates routing settings and mirrors them into routing multipliers", async () => {
+	it("updates routing settings without touching multipliers", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		await claimProvider(cookie, company.id);
@@ -816,7 +812,6 @@ describe("airside provider portal", () => {
 			marginPercent: 0.2,
 			discountPercent: 0,
 			routingAdjustment: 0,
-			adjustmentSource: "none",
 		});
 
 		// Accepting a larger gateway margin + a discount → negative adjustment
@@ -836,15 +831,21 @@ describe("airside provider portal", () => {
 		expect(updated.status).toBe(200);
 		const { settings } = await updated.json();
 		expect(settings.routingAdjustment).toBeCloseTo(-0.2);
-		expect(settings.adjustmentSource).toBe("airside");
 
-		const multiplier = await db.query.routingScoreMultiplier.findFirst({
-			where: { provider: { eq: "mistral" } },
+		// The adjustment lives only in provider_routing_settings — no
+		// routing_score_multiplier row is mirrored in.
+		expect(
+			await db.query.routingScoreMultiplier.findFirst({
+				where: { provider: { eq: "mistral" } },
+			}),
+		).toBeFalsy();
+
+		const stored = await db.query.providerRoutingSettings.findFirst({
+			where: { providerId: { eq: "mistral" } },
 		});
-		expect(multiplier).toBeTruthy();
-		expect(Number(multiplier!.scoreMultiplier)).toBeCloseTo(-0.2);
+		expect(Number(stored!.marginPercent)).toBeCloseTo(0.3);
+		expect(Number(stored!.discountPercent)).toBeCloseTo(0.1);
 
-		// Returning to neutral removes the mirror row again.
 		const neutral = await app.request(
 			"/airside/routing-settings/mistral",
 			json(
@@ -858,10 +859,7 @@ describe("airside provider portal", () => {
 			),
 		);
 		expect(neutral.status).toBe(200);
-		const gone = await db.query.routingScoreMultiplier.findFirst({
-			where: { provider: { eq: "mistral" } },
-		});
-		expect(gone).toBeFalsy();
+		expect((await neutral.json()).settings.routingAdjustment).toBe(0);
 
 		// Out-of-bounds margins are rejected.
 		const outOfBounds = await app.request(

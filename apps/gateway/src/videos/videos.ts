@@ -20,6 +20,7 @@ import {
 import {
 	findApiKeyByToken,
 	findEffectiveDiscount,
+	findAirsideRoutingAdjustment,
 	findEffectiveRoutingScoreMultiplier,
 	findManagedProviderKey,
 	findOrganizationById,
@@ -124,12 +125,18 @@ function createProviderDiscountResolver(organizationId: string) {
 }
 
 function createProviderRoutingScoreMultiplierResolver() {
+	// Two independent signals: the admin prioritization multiplier and the
+	// carrier's own Airside margin/discount adjustment, applied additively.
 	return async (
 		provider: Pick<ProviderModelMapping, "providerId">,
 		modelId: string,
-	) =>
-		(await findEffectiveRoutingScoreMultiplier(provider.providerId, modelId))
-			.scoreMultiplier;
+	) => {
+		const [multiplier, airsideAdjustment] = await Promise.all([
+			findEffectiveRoutingScoreMultiplier(provider.providerId, modelId),
+			findAirsideRoutingAdjustment(provider.providerId),
+		]);
+		return String(Number(multiplier.scoreMultiplier) + airsideAdjustment);
+	};
 }
 
 const TERMINAL_VIDEO_STATUSES = new Set([

@@ -270,11 +270,7 @@ function FareCard({
 		},
 	);
 
-	const adjustment =
-		setting.adjustmentSource === "admin"
-			? setting.routingAdjustment
-			: baselineMargin - margin - discount;
-	const managedByAdmin = setting.adjustmentSource === "admin";
+	const adjustment = baselineMargin - margin - discount;
 	const dirty =
 		discount !== setting.discountPercent || margin !== setting.marginPercent;
 
@@ -290,13 +286,11 @@ function FareCard({
 				<div className="flex items-center gap-2">
 					{claim ? <EditBrandingDialog claim={claim} /> : null}
 					<Badge variant={adjustment < 0 ? "success" : "secondary"}>
-						{managedByAdmin
-							? `Managed by gateway team (${adjustment >= 0 ? "+" : ""}${Math.round(adjustment * 100)}%)`
-							: adjustment < 0
-								? `Routing boost ${formatPercent(-adjustment)}`
-								: adjustment > 0
-									? `Routing penalty ${formatPercent(adjustment)}`
-									: "Neutral"}
+						{adjustment < 0
+							? `Routing boost ${formatPercent(-adjustment)}`
+							: adjustment > 0
+								? `Routing penalty ${formatPercent(adjustment)}`
+								: "Neutral"}
 					</Badge>
 				</div>
 			</CardHeader>
