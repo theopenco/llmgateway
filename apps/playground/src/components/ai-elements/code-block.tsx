@@ -12,7 +12,6 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { createHighlighter } from "shiki";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -128,8 +127,32 @@ const highlighterCache = new Map<
 	Promise<HighlighterGeneric<BundledLanguage, BundledTheme>>
 >();
 
-// Token cache
+// Token cache, bounded: a long chat renders many code blocks (and streaming
+// produces one entry per intermediate snapshot), so evict the least recently
+// used entries instead of retaining every token array for the tab's lifetime.
+const TOKENS_CACHE_MAX_ENTRIES = 200;
 const tokensCache = new Map<string, TokenizedCode>();
+
+function setCachedTokens(key: string, tokens: TokenizedCode) {
+	tokensCache.set(key, tokens);
+	while (tokensCache.size > TOKENS_CACHE_MAX_ENTRIES) {
+		const oldest = tokensCache.keys().next().value;
+		if (oldest === undefined) {
+			break;
+		}
+		tokensCache.delete(oldest);
+	}
+}
+
+function getCachedTokens(key: string): TokenizedCode | undefined {
+	const cached = tokensCache.get(key);
+	if (cached) {
+		// Re-insert so recently used entries sit at the back of the eviction order.
+		tokensCache.delete(key);
+		tokensCache.set(key, cached);
+	}
+	return cached;
+}
 
 // Subscribers for async token updates
 const subscribers = new Map<string, Set<(result: TokenizedCode) => void>>();
@@ -148,10 +171,24 @@ const getHighlighter = (
 		return cached;
 	}
 
-	const highlighterPromise = createHighlighter({
-		langs: [language],
-		themes: ["github-light", "github-dark"],
-	});
+	// Import shiki lazily so its engine and grammar registry stay out of the
+	// chunk until a code block actually renders.
+	const highlighterPromise = import("shiki")
+		.then(({ createHighlighter }) =>
+			createHighlighter({
+				langs: [language],
+				themes: ["github-light", "github-dark"],
+			}),
+		)
+		.catch((error: unknown) => {
+			// Dropping the rejected promise keeps a one-off chunk-load failure
+			// (e.g. a deploy rotating hashes under an open tab) from permanently
+			// downgrading every later code block to unhighlighted plain text.
+			if (highlighterCache.get(language) === highlighterPromise) {
+				highlighterCache.delete(language);
+			}
+			throw error;
+		});
 
 	highlighterCache.set(language, highlighterPromise);
 	return highlighterPromise;
@@ -183,7 +220,7 @@ export const highlightCode = (
 	const tokensCacheKey = getTokensCacheKey(code, language);
 
 	// Return cached result if available
-	const cached = tokensCache.get(tokensCacheKey);
+	const cached = getCachedTokens(tokensCacheKey);
 	if (cached) {
 		return cached;
 	}
@@ -218,7 +255,7 @@ export const highlightCode = (
 			};
 
 			// Cache the result
-			tokensCache.set(tokensCacheKey, tokenized);
+			setCachedTokens(tokensCacheKey, tokenized);
 
 			// Notify all subscribers
 			const subs = subscribers.get(tokensCacheKey);

@@ -14,12 +14,9 @@ import {
 import {
 	type ComponentProps,
 	createContext,
-	type ReactNode,
 	type SyntheticEvent,
 	use,
 	useEffect,
-	useEffectEvent,
-	useMemo,
 	useRef,
 	useState,
 } from "react";
@@ -119,6 +116,17 @@ export function AISearchInputActions() {
 }
 
 const StorageKeyInput = "__ai_search_input";
+// localStorage writes are synchronous main-thread I/O, so debounce the
+// per-keystroke draft persistence instead of writing on every input event.
+let persistTimer: ReturnType<typeof setTimeout> | undefined;
+
+function persistInput(value: string) {
+	clearTimeout(persistTimer);
+	persistTimer = setTimeout(() => {
+		localStorage.setItem(StorageKeyInput, value);
+	}, 300);
+}
+
 export function AISearchInput(props: ComponentProps<"form">) {
 	const { status, sendMessage, stop } = useChatContext();
 	const [input, setInput] = useState(
@@ -148,6 +156,7 @@ export function AISearchInput(props: ComponentProps<"form">) {
 			],
 		});
 		setInput("");
+		clearTimeout(persistTimer);
 		localStorage.removeItem(StorageKeyInput);
 	};
 
@@ -171,7 +180,7 @@ export function AISearchInput(props: ComponentProps<"form">) {
 				disabled={status === "streaming" || status === "submitted"}
 				onChange={(e) => {
 					setInput(e.target.value);
-					localStorage.setItem(StorageKeyInput, e.target.value);
+					persistInput(e.target.value);
 				}}
 				onKeyDown={(event) => {
 					if (!event.shiftKey && event.key === "Enter") {
@@ -349,8 +358,16 @@ function Message({
 	);
 }
 
-export function AISearch({ children }: { children: ReactNode }) {
-	const [open, setOpen] = useState(false);
+// Default export so ask-ai.tsx can lazily import this module: it drags in the
+// AI SDK, its transport and the remark/shiki markdown pipeline, none of which a
+// reader who never opens Ask AI should have to download.
+export default function AISearchPanel({
+	open,
+	setOpen,
+}: {
+	open: boolean;
+	setOpen: (open: boolean) => void;
+}) {
 	const chat = useChat<ChatUIMessage>({
 		id: "search",
 		transport: new DefaultChatTransport({
@@ -359,43 +376,7 @@ export function AISearch({ children }: { children: ReactNode }) {
 	});
 
 	return (
-		<Context value={useMemo(() => ({ chat, open, setOpen }), [chat, open])}>
-			{children}
-		</Context>
-	);
-}
-
-export function AISearchTrigger({
-	position = "default",
-	className,
-	...props
-}: ComponentProps<"button"> & { position?: "default" | "float" }) {
-	const { open, setOpen } = useAISearchContext();
-
-	return (
-		<button
-			data-state={open ? "open" : "closed"}
-			className={cn(
-				position === "float" && [
-					"fixed bottom-4 gap-3 w-24 inset-e-[calc(--spacing(4)+var(--removed-body-scroll-bar-size,0px))] shadow-lg z-20 transition-[translate,opacity]",
-					open && "translate-y-10 opacity-0",
-				],
-				className,
-			)}
-			onClick={() => setOpen(!open)}
-			{...props}
-		>
-			{props.children}
-		</button>
-	);
-}
-
-export function AISearchPanel() {
-	const { open, setOpen } = useAISearchContext();
-	useHotKey();
-
-	return (
-		<>
+		<Context value={{ chat, open, setOpen }}>
 			<style>
 				{`
         @keyframes ask-ai-open {
@@ -447,7 +428,7 @@ export function AISearchPanel() {
 					</div>
 				</div>
 			</Presence>
-		</>
+		</Context>
 	);
 }
 
@@ -491,27 +472,6 @@ export function AISearchPanelList({
 			)}
 		</List>
 	);
-}
-
-export function useHotKey() {
-	const { open, setOpen } = useAISearchContext();
-
-	const onKeyPress = useEffectEvent((e: KeyboardEvent) => {
-		if (e.key === "Escape" && open) {
-			setOpen(false);
-			e.preventDefault();
-		}
-
-		if (e.key === "/" && (e.metaKey || e.ctrlKey) && !open) {
-			setOpen(true);
-			e.preventDefault();
-		}
-	});
-
-	useEffect(() => {
-		window.addEventListener("keydown", onKeyPress);
-		return () => window.removeEventListener("keydown", onKeyPress);
-	}, []);
 }
 
 export function useAISearchContext() {

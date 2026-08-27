@@ -24,6 +24,14 @@ import {
 } from "@/lib/admin-rate-limits";
 import { createServerApiClient } from "@/lib/server-api";
 
+const LIMIT_HIT_TYPE_LABELS: Record<string, string> = {
+	rpm: "Endpoint RPM",
+	concurrency: "Concurrency",
+	spend_cap_daily: "Daily spend cap",
+	spend_cap_monthly: "Monthly spend cap",
+	topup_velocity: "Top-up velocity",
+};
+
 function formatDate(dateString: string) {
 	return new Date(dateString).toLocaleDateString("en-US", {
 		year: "numeric",
@@ -60,14 +68,20 @@ export default async function OrganizationRateLimitsPage({
 	const { orgId } = await params;
 
 	const $api = await createServerApiClient();
-	const [rateLimitsData, options, metricsRes] = await Promise.all([
-		getOrganizationRateLimits(orgId),
-		getRateLimitOptions(),
-		$api.GET("/admin/organizations/{orgId}", {
-			params: { path: { orgId } },
-		}),
-	]);
+	const [rateLimitsData, options, metricsRes, limitHitsRes] = await Promise.all(
+		[
+			getOrganizationRateLimits(orgId),
+			getRateLimitOptions(),
+			$api.GET("/admin/organizations/{orgId}", {
+				params: { path: { orgId } },
+			}),
+			$api.GET("/admin/organizations/{orgId}/limit-hits", {
+				params: { path: { orgId } },
+			}),
+		],
+	);
 	const metrics = metricsRes.data;
+	const limitHits = limitHitsRes.data?.hits ?? [];
 
 	if (rateLimitsData === null) {
 		return <SignInPrompt />;
@@ -229,6 +243,73 @@ export default async function OrganizationRateLimitsPage({
 					</TableBody>
 				</Table>
 			</div>
+
+			<section className="space-y-3">
+				<div>
+					<h2 className="text-lg font-semibold tracking-tight">
+						Anti-abuse limit hits (last 30 days)
+					</h2>
+					<p className="text-sm text-muted-foreground">
+						Rejections recorded by the tiered endpoint RPM limits, concurrency
+						limits, spend caps, and top-up velocity caps. Tracking only —
+						nothing is blocked from here.
+					</p>
+				</div>
+				<div className="overflow-x-auto rounded-lg border border-border/60 bg-card">
+					<Table>
+						<TableHeader>
+							<TableRow>
+								<TableHead>Day (UTC)</TableHead>
+								<TableHead>Limit</TableHead>
+								<TableHead>Endpoint</TableHead>
+								<TableHead className="text-right">Hits</TableHead>
+								<TableHead className="text-right">Blocked top-up $</TableHead>
+							</TableRow>
+						</TableHeader>
+						<TableBody>
+							{limitHits.length === 0 ? (
+								<TableRow>
+									<TableCell
+										colSpan={5}
+										className="h-16 text-center text-muted-foreground"
+									>
+										No anti-abuse limit hits in the last 30 days
+									</TableCell>
+								</TableRow>
+							) : (
+								limitHits.map((hit) => (
+									<TableRow
+										key={`${hit.day}-${hit.limitType}-${hit.endpointKey}`}
+									>
+										<TableCell className="whitespace-nowrap">
+											{formatDate(hit.day)}
+										</TableCell>
+										<TableCell>
+											<Badge variant="outline">
+												{LIMIT_HIT_TYPE_LABELS[hit.limitType] ?? hit.limitType}
+											</Badge>
+										</TableCell>
+										<TableCell className="text-muted-foreground font-mono text-xs">
+											{hit.endpointKey || "—"}
+										</TableCell>
+										<TableCell className="text-right font-medium tabular-nums">
+											{hit.hitCount.toLocaleString()}
+										</TableCell>
+										<TableCell className="text-right tabular-nums">
+											{hit.blockedUsd > 0
+												? hit.blockedUsd.toLocaleString("en-US", {
+														style: "currency",
+														currency: "USD",
+													})
+												: "—"}
+										</TableCell>
+									</TableRow>
+								))
+							)}
+						</TableBody>
+					</Table>
+				</div>
+			</section>
 
 			<div className="rounded-lg border border-border/60 bg-muted/30 p-4">
 				<h3 className="text-sm font-medium">How rate limits work</h3>

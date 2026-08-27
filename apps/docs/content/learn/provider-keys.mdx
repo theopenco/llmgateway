@@ -34,6 +34,13 @@ Each configured key shows:
 | **Base URL**    | Custom endpoint if configured                      |
 | **Token**       | Masked key with only the last 4 characters visible |
 
+<Callout type="info">
+	Provider credentials are encrypted at rest because LLM Gateway must decrypt
+	them to call the upstream provider. Gateway API keys work differently: new and
+	rolled secrets are retained only as keyed HMAC-SHA-256 fingerprints, and
+	authentication compares fingerprints instead of recovering the secret.
+</Callout>
+
 ## Actions
 
 For each provider key:

@@ -1,4 +1,28 @@
+import { UNREPLAYABLE_ITEM_TYPES } from "@/responses/schemas.js";
+
+import { flattenToolName } from "./tool-registry.js";
+
 import type { ResponsesRequest } from "@/responses/schemas.js";
+
+// Unreplayable items, plus tool declarations already lifted into `tools`. They
+// have no chat completions equivalent, so they are skipped rather than turned
+// into stray messages.
+const SKIPPED_ITEM_TYPES = new Set<string>([
+	...UNREPLAYABLE_ITEM_TYPES,
+	"additional_tools",
+]);
+
+function isToolCallItem(item: unknown): item is {
+	type: "function_call" | "custom_tool_call";
+	call_id: string;
+	name: string;
+	namespace?: string;
+	arguments?: string;
+	input?: string;
+} {
+	const type = (item as { type?: unknown } | null)?.type;
+	return type === "function_call" || type === "custom_tool_call";
+}
 
 interface ChatMessage {
 	role: "system" | "user" | "assistant" | "tool";
@@ -103,6 +127,7 @@ export function convertResponsesInputToMessages(
 	// and attach to the next assistant message so the provider layer can replay
 	// the reasoning (encrypted payloads and/or text) on this turn.
 	const pendingReasoning: PendingReasoning = { texts: [], details: [] };
+	const pendingGeneratedImages: Array<Record<string, unknown>> = [];
 
 	let i = 0;
 	while (i < input.length) {
@@ -117,20 +142,26 @@ export function convertResponsesInputToMessages(
 		// result, which strict providers (deepseek family, bytedance, etc.)
 		// reject with "assistant message with tool_calls must be followed by
 		// tool messages".
-		if ("type" in item && item.type === "function_call") {
+		if (isToolCallItem(item)) {
 			const toolCalls: ChatMessage["tool_calls"] = [];
 
 			while (i < input.length) {
 				const current = input[i]!;
-				if (!("type" in current) || current.type !== "function_call") {
+				if (!isToolCallItem(current)) {
 					break;
 				}
 				toolCalls.push({
 					id: current.call_id,
 					type: "function",
 					function: {
-						name: current.name,
-						arguments: current.arguments,
+						name: flattenToolName(current.name, current.namespace),
+						// A freeform call carries its raw payload in `input`; the
+						// provider was offered the tool as a function taking that
+						// payload as a single string argument.
+						arguments:
+							current.type === "custom_tool_call"
+								? JSON.stringify({ input: current.input ?? "" })
+								: (current.arguments ?? ""),
 					},
 				});
 				i++;
@@ -182,13 +213,38 @@ export function convertResponsesInputToMessages(
 			continue;
 		}
 
-		// function_call_output items -> tool messages
-		if ("type" in item && item.type === "function_call_output") {
+		// function_call_output / custom_tool_call_output items -> tool messages
+		if (
+			"type" in item &&
+			(item.type === "function_call_output" ||
+				item.type === "custom_tool_call_output")
+		) {
 			messages.push({
 				role: "tool",
 				content: serializeFunctionCallOutput(item.output),
 				tool_call_id: item.call_id,
 			});
+			i++;
+			continue;
+		}
+
+		if (
+			"type" in item &&
+			item.type === "image_generation_call" &&
+			typeof item.result === "string" &&
+			item.result.length > 0
+		) {
+			pendingGeneratedImages.push({
+				type: "image_url",
+				image_url: {
+					url: `data:image/webp;base64,${item.result}`,
+				},
+			});
+			i++;
+			continue;
+		}
+
+		if ("type" in item && SKIPPED_ITEM_TYPES.has(item.type as string)) {
 			i++;
 			continue;
 		}
@@ -230,9 +286,19 @@ export function convertResponsesInputToMessages(
 			}
 		}
 
+		const convertedContent = convertContent(msg.content);
+		const content =
+			role === "user" && pendingGeneratedImages.length > 0
+				? [
+						...pendingGeneratedImages.splice(0),
+						...(typeof convertedContent === "string"
+							? [{ type: "text", text: convertedContent }]
+							: (convertedContent ?? [])),
+					]
+				: convertedContent;
 		const chatMsg: ChatMessage = {
 			role,
-			content: convertContent(msg.content),
+			content,
 			...(role === "assistant" ? takePendingReasoning(pendingReasoning) : {}),
 			...(role === "assistant" && msg.phase ? { phase: msg.phase } : {}),
 		};
@@ -251,6 +317,10 @@ export function convertResponsesInputToMessages(
 
 		messages.push(chatMsg);
 		i++;
+	}
+
+	if (pendingGeneratedImages.length > 0) {
+		messages.push({ role: "user", content: pendingGeneratedImages });
 	}
 
 	return messages;

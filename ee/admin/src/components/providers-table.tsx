@@ -19,11 +19,12 @@ import {
 import { getProviderHistory } from "@/lib/admin-history";
 import { cn } from "@/lib/utils";
 
-import { getProviderIcon } from "@llmgateway/shared";
+import { deriveStabilityMetrics, getProviderIcon } from "@llmgateway/shared";
 
 import type { HistoryWindow } from "@/components/history-chart";
 import type { PageWindow } from "@/lib/page-window";
 import type { ProviderStats } from "@/lib/types";
+import type { UsageMode } from "@/lib/usage-mode";
 
 function toHistoryWindow(pageWindow: PageWindow): HistoryWindow {
 	const map: Record<PageWindow, HistoryWindow> = {
@@ -50,6 +51,7 @@ type ProviderSortBy =
 	| "status"
 	| "logsCount"
 	| "errorsCount"
+	| "clientErrorsCount"
 	| "cachedCount"
 	| "totalCost"
 	| "avgTimeToFirstToken"
@@ -64,18 +66,21 @@ function SortableHeader({
 	currentSortBy,
 	currentSortOrder,
 	pageWindow,
+	usageMode,
 }: {
 	label: string;
 	sortKey: ProviderSortBy;
 	currentSortBy: ProviderSortBy;
 	currentSortOrder: SortOrder;
 	pageWindow?: PageWindow;
+	usageMode: UsageMode;
 }) {
 	const isActive = currentSortBy === sortKey;
 	const nextOrder = isActive && currentSortOrder === "desc" ? "asc" : "desc";
 
 	const windowParam = pageWindow ? `&window=${pageWindow}` : "";
-	const href = `/providers?sortBy=${sortKey}&sortOrder=${nextOrder}${windowParam}`;
+	const modeParam = usageMode === "total" ? "" : `&mode=${usageMode}`;
+	const href = `/providers?sortBy=${sortKey}&sortOrder=${nextOrder}${windowParam}${modeParam}`;
 
 	return (
 		<Link
@@ -122,23 +127,27 @@ function formatDate(dateString: string) {
 function ProviderRow({
 	provider,
 	externalWindow,
+	usageMode,
 }: {
 	provider: ProviderStats;
 	externalWindow?: HistoryWindow;
+	usageMode: UsageMode;
 }) {
 	const [expanded, setExpanded] = useState(false);
-	const errorRate =
-		provider.logsCount > 0
-			? ((provider.errorsCount / provider.logsCount) * 100).toFixed(1)
-			: "0.0";
+	const stability = deriveStabilityMetrics(
+		provider.logsCount,
+		provider.errorsCount + provider.clientErrorsCount,
+		provider.clientErrorsCount,
+	);
+	const errorRate = (stability.errorRate ?? 0).toFixed(1);
 
 	const ProviderIcon = getProviderIcon(provider.id);
 
 	const fetchData = useCallback(
 		async (window: HistoryWindow) => {
-			return await getProviderHistory(provider.id, window);
+			return await getProviderHistory(provider.id, window, usageMode);
 		},
-		[provider.id],
+		[provider.id, usageMode],
 	);
 
 	return (
@@ -174,7 +183,10 @@ function ProviderRow({
 					{formatNumber(provider.logsCount)}
 				</TableCell>
 				<TableCell className="tabular-nums">
-					{formatNumber(provider.errorsCount)}
+					{formatNumber(stability.errorsCount)}
+				</TableCell>
+				<TableCell className="tabular-nums">
+					{formatNumber(provider.clientErrorsCount)}
 				</TableCell>
 				<TableCell className="tabular-nums">{errorRate}%</TableCell>
 				<TableCell className="tabular-nums">
@@ -229,11 +241,13 @@ export function ProvidersTable({
 	sortBy = "logsCount",
 	sortOrder = "desc",
 	pageWindow,
+	usageMode = "total",
 }: {
 	providers: ProviderStats[];
 	sortBy?: ProviderSortBy;
 	sortOrder?: SortOrder;
 	pageWindow?: PageWindow;
+	usageMode?: UsageMode;
 }) {
 	const externalWindow = pageWindow ? toHistoryWindow(pageWindow) : undefined;
 
@@ -245,6 +259,7 @@ export function ProvidersTable({
 				currentSortBy={sortBy}
 				currentSortOrder={sortOrder}
 				pageWindow={pageWindow}
+				usageMode={usageMode}
 			/>
 		</TableHead>
 	);
@@ -258,6 +273,7 @@ export function ProvidersTable({
 					{sh("Models", "modelCount")}
 					{sh("Requests", "logsCount")}
 					{sh("Errors", "errorsCount")}
+					{sh("Client", "clientErrorsCount")}
 					<TableHead>Error Rate</TableHead>
 					{sh("Cached", "cachedCount")}
 					{sh("Cost", "totalCost")}
@@ -271,7 +287,7 @@ export function ProvidersTable({
 				{providers.length === 0 ? (
 					<TableRow>
 						<TableCell
-							colSpan={12}
+							colSpan={13}
 							className="h-24 text-center text-muted-foreground"
 						>
 							No providers found
@@ -283,6 +299,7 @@ export function ProvidersTable({
 							key={p.id}
 							provider={p}
 							externalWindow={externalWindow}
+							usageMode={usageMode}
 						/>
 					))
 				)}

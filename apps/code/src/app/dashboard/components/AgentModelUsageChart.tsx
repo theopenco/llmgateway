@@ -1,6 +1,5 @@
 "use client";
 
-import { format, parseISO } from "date-fns";
 import { Loader2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
@@ -22,6 +21,12 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { useApi } from "@/lib/fetch-client";
+
+import {
+	formatBucketLabel,
+	formatBucketLabelWithZone,
+	useDisplayTimeZone,
+} from "@llmgateway/shared";
 
 import type { paths } from "@/lib/api/v1";
 import type { TooltipProps } from "recharts";
@@ -75,6 +80,14 @@ interface ChartRow {
 	totalRequests: number;
 	totalCost: number;
 	totalTokens: number;
+	inputTokens: number;
+	cachedTokens: number;
+	cacheWriteTokens: number;
+	outputTokens: number;
+	inputCost: number;
+	cachedInputCost: number;
+	cacheWriteInputCost: number;
+	outputCost: number;
 	[key: string]: string | number;
 }
 
@@ -92,9 +105,11 @@ function ChartTooltipContent({
 	label,
 	metric,
 	hourly,
+	timeZone,
 }: TooltipProps<number, string> & {
 	metric: Metric;
 	hourly: boolean;
+	timeZone: string;
 }) {
 	if (!active || !payload || payload.length === 0) {
 		return null;
@@ -105,10 +120,39 @@ function ChartTooltipContent({
 		return null;
 	}
 	const dateLabel = label
-		? format(parseISO(label), hourly ? "MMM d, HH:mm" : "MMM d, yyyy")
+		? formatBucketLabelWithZone(
+				label,
+				hourly ? "monthDayHourMinute" : "monthDayYear",
+				timeZone,
+			)
 		: "";
+	// Token classes bill at very different rates (cached input is often 10x
+	// cheaper than fresh input, output 6x more expensive), so a flat token
+	// total makes cost look uncorrelated with usage. Break both down per class.
+	const tokenBreakdown = [
+		{
+			label: "Input",
+			tokens: first.inputTokens,
+			cost: first.inputCost,
+		},
+		{
+			label: "Cached input",
+			tokens: first.cachedTokens,
+			cost: first.cachedInputCost,
+		},
+		{
+			label: "Cache writes",
+			tokens: first.cacheWriteTokens,
+			cost: first.cacheWriteInputCost,
+		},
+		{
+			label: "Output",
+			tokens: first.outputTokens,
+			cost: first.outputCost,
+		},
+	].filter((row) => row.tokens > 0 || row.cost > 0);
 	return (
-		<div className="rounded-lg border border-border/60 bg-popover p-2.5 text-xs text-popover-foreground shadow-md">
+		<div className="min-w-[210px] rounded-lg border border-border/60 bg-popover p-2.5 text-xs text-popover-foreground shadow-md">
 			<div className="font-medium">{dateLabel}</div>
 			<div className="mt-1 space-y-0.5 text-[11px] text-muted-foreground">
 				<div>
@@ -130,6 +174,24 @@ function ChartTooltipContent({
 					cost
 				</div>
 			</div>
+			{tokenBreakdown.length > 0 ? (
+				<div className="mt-2 space-y-0.5 border-t border-border/40 pt-2">
+					{tokenBreakdown.map((row) => (
+						<div
+							key={row.label}
+							className="flex items-center gap-3 text-[11px]"
+						>
+							<span className="text-muted-foreground">{row.label}</span>
+							<span className="ml-auto tabular-nums text-muted-foreground">
+								{formatTokens(row.tokens)}
+							</span>
+							<span className="w-16 text-right tabular-nums text-foreground">
+								${row.cost.toFixed(4)}
+							</span>
+						</div>
+					))}
+				</div>
+			) : null}
 			<div className="mt-2 space-y-0.5 border-t border-border/40 pt-2">
 				{typed
 					.filter((p) => typeof p.value === "number" && (p.value as number) > 0)
@@ -161,6 +223,7 @@ export function AgentModelUsageChart({ projectId }: AgentModelUsageChartProps) {
 	const [range, setRange] = useState<AgentChartTimeRange>("24h");
 	const [metric, setMetric] = useState<Metric>("cost");
 	const api = useApi();
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 
 	const { data, isLoading, isFetching } = api.useQuery(
 		"get",
@@ -169,6 +232,7 @@ export function AgentModelUsageChart({ projectId }: AgentModelUsageChartProps) {
 			params: {
 				query: {
 					timeRange: range,
+					timezone: displayTimeZone,
 					projectId,
 				},
 			},
@@ -208,6 +272,20 @@ export function AgentModelUsageChart({ projectId }: AgentModelUsageChartProps) {
 				totalRequests: row.requestCount,
 				totalCost: row.cost,
 				totalTokens: row.totalTokens,
+				// The rollup's inputTokens is the full prompt count including cache
+				// reads/writes; subtract them so "Input" is only what was billed at
+				// the full input rate.
+				inputTokens: Math.max(
+					0,
+					row.inputTokens - row.cachedTokens - row.cacheWriteTokens,
+				),
+				cachedTokens: row.cachedTokens,
+				cacheWriteTokens: row.cacheWriteTokens,
+				outputTokens: row.outputTokens,
+				inputCost: row.inputCost,
+				cachedInputCost: row.cachedInputCost,
+				cacheWriteInputCost: row.cacheWriteInputCost,
+				outputCost: row.outputCost,
 				models: perModel,
 			};
 		});
@@ -223,11 +301,19 @@ export function AgentModelUsageChart({ projectId }: AgentModelUsageChartProps) {
 				const base: ChartRow = {
 					slot: row.slot,
 					formattedDate: hourly
-						? format(parseISO(row.slot), "HH:mm")
-						: format(parseISO(row.slot), "MMM d"),
+						? formatBucketLabel(row.slot, "hourMinute")
+						: formatBucketLabel(row.slot, "monthDay"),
 					totalRequests: row.totalRequests,
 					totalCost: row.totalCost,
 					totalTokens: row.totalTokens,
+					inputTokens: row.inputTokens,
+					cachedTokens: row.cachedTokens,
+					cacheWriteTokens: row.cacheWriteTokens,
+					outputTokens: row.outputTokens,
+					inputCost: row.inputCost,
+					cachedInputCost: row.cachedInputCost,
+					cacheWriteInputCost: row.cacheWriteInputCost,
+					outputCost: row.outputCost,
 				};
 				for (const modelId of models) {
 					const m = row.models[modelId];
@@ -364,13 +450,9 @@ export function AgentModelUsageChart({ projectId }: AgentModelUsageChartProps) {
 								<XAxis
 									dataKey="slot"
 									tickFormatter={(value: string) => {
-										try {
-											return hourly
-												? format(parseISO(value), "HH:mm")
-												: format(parseISO(value), "MMM d");
-										} catch {
-											return value;
-										}
+										return hourly
+											? formatBucketLabel(value, "hourMinute")
+											: formatBucketLabel(value, "monthDay");
 									}}
 									stroke="currentColor"
 									className="text-muted-foreground"
@@ -400,7 +482,11 @@ export function AgentModelUsageChart({ projectId }: AgentModelUsageChartProps) {
 										fill: "color-mix(in srgb, currentColor 8%, transparent)",
 									}}
 									content={
-										<ChartTooltipContent metric={metric} hourly={hourly} />
+										<ChartTooltipContent
+											metric={metric}
+											hourly={hourly}
+											timeZone={displayTimeZone}
+										/>
 									}
 								/>
 								{models.map((modelId, i) => (

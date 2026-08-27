@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { encryptProviderKey } from "./crypto.js";
-import { hasProviderKey, readProviderKey } from "./read.js";
+import { hasProviderKey, providerKeyLabel, readProviderKey } from "./read.js";
 
 import type { ProviderKeyRowLike } from "./read.js";
 
@@ -138,5 +138,77 @@ describe("hasProviderKey", () => {
 	it("returns false when both fields are absent (empty stale row)", () => {
 		const empty = { id: ROW_ID, organizationId: ORG_ID } as ProviderKeyRowLike;
 		expect(hasProviderKey(empty)).toBe(false);
+	});
+});
+
+describe("providerKeyLabel", () => {
+	it("prefers the key's description", () => {
+		expect(
+			providerKeyLabel({
+				organizationId: ORG_ID,
+				managed: false,
+				description: "Production workloads",
+				name: "prod-openai",
+				tokenMasked: "sk-live-1234•••••",
+			}),
+		).toBe("Production workloads");
+	});
+
+	it("prefers the key's name", () => {
+		expect(
+			providerKeyLabel({
+				organizationId: ORG_ID,
+				managed: false,
+				name: "prod-openai",
+				tokenMasked: "sk-live-1234•••••",
+			}),
+		).toBe("prod-openai");
+	});
+
+	it("falls back to the masked token when the key is unnamed", () => {
+		expect(
+			providerKeyLabel({
+				organizationId: ORG_ID,
+				managed: false,
+				name: null,
+				tokenMasked: "sk-live-1234•••••",
+			}),
+		).toBe("sk-live-1234•••••");
+	});
+
+	it("returns undefined for a legacy row with neither", () => {
+		expect(
+			providerKeyLabel({ organizationId: ORG_ID, managed: false }),
+		).toBeUndefined();
+	});
+
+	// The whole point of this helper: a platform-managed credential is LLM
+	// Gateway's own key. Its name and mask are operator-only and must never be
+	// described to a tenant, however the row reaches this function.
+	it("never describes a platform-managed credential", () => {
+		expect(
+			providerKeyLabel({
+				organizationId: null,
+				managed: true,
+				description: "Internal account description",
+				name: "shared-openai-pool-3",
+				tokenMasked: "sk-platform-99•••••",
+			}),
+		).toBeUndefined();
+	});
+
+	it("never describes an org-less row even if it is not flagged managed", () => {
+		expect(
+			providerKeyLabel({
+				organizationId: null,
+				managed: false,
+				name: "shared-openai-pool-3",
+			}),
+		).toBeUndefined();
+	});
+
+	it("returns undefined for a missing row", () => {
+		expect(providerKeyLabel(null)).toBeUndefined();
+		expect(providerKeyLabel(undefined)).toBeUndefined();
 	});
 });

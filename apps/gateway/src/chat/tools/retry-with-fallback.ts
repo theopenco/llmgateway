@@ -2,6 +2,8 @@ import { hasInvalidProviderCredentialError } from "@/lib/provider-auth-errors.js
 
 import { DEFAULT_ROUTING_RETRY } from "@llmgateway/shared/routing-config";
 
+import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
+
 export const MAX_RETRIES = DEFAULT_ROUTING_RETRY.maxRetries;
 
 /**
@@ -36,6 +38,22 @@ export interface RoutingAttempt {
 	error_type: string;
 	succeeded: boolean;
 	apiKeyHash?: string;
+	/**
+	 * Whose credential this attempt was sent with — the organization's own
+	 * provider key (`byok`) or an LLM Gateway platform credential (`platform`).
+	 * Recorded per attempt because a hybrid-mode request that fails on a BYOK key
+	 * retries on the platform credential, and the fingerprints alone do not say
+	 * which of the two keys is the caller's own.
+	 */
+	credentialSource?: RoutingCredentialSource;
+	/**
+	 * The organization's own provider key that served this attempt, named the
+	 * way its owner sees it on the provider-keys page. Only ever set for `byok`
+	 * attempts — see providerKeyLabel(), which refuses to describe a
+	 * platform-managed credential.
+	 */
+	providerKeyId?: string;
+	providerKeyLabel?: string;
 	logId?: string;
 }
 
@@ -210,7 +228,7 @@ export function shouldRetryRequest(opts: {
 	if (opts.remainingProviders <= 0) {
 		return false;
 	}
-	if (opts.usedProvider === "custom" || opts.usedProvider === "llmgateway") {
+	if (opts.usedProvider === "llmgateway") {
 		return false;
 	}
 	return true;

@@ -10,7 +10,7 @@ import {
 	models as allModels,
 	providers as allProviders,
 } from "@llmgateway/models";
-import { getDevPlanCreditsLimit } from "@llmgateway/shared";
+import { DEV_PLAN_PRICES, getDevPlanCreditsLimit } from "@llmgateway/shared";
 
 import { closeDatabase, db, tables } from "./index.js";
 import { logs } from "./logs.js";
@@ -700,6 +700,13 @@ const TRANSACTION_TYPES = [
 	"dev_plan_renewal",
 ] as const;
 
+// DevPass subscription history is seeded deterministically below so its
+// subscriber and revenue KPIs stay internally consistent across seed runs.
+const DEV_PASS_RANDOM_TRANSACTION_TYPES = [
+	"credit_topup",
+	"credit_refund",
+] as const;
+
 function generateTransactions() {
 	const transactions = [];
 	let txIdx = 0;
@@ -711,7 +718,11 @@ function generateTransactions() {
 					? randomInt(4, 8)
 					: randomInt(1, 3);
 		for (let i = 0; i < numTx; i++) {
-			const type = randomChoice([...TRANSACTION_TYPES]);
+			const type = randomChoice([
+				...(org.kind === "devpass"
+					? DEV_PASS_RANDOM_TRANSACTION_TYPES
+					: TRANSACTION_TYPES),
+			]);
 			const isCredit = type === "credit_topup";
 			const isRefund = type === "credit_refund";
 			const isSub =
@@ -1495,6 +1506,8 @@ async function seed() {
 	await upsert(tables.apiKey, {
 		id: "test-api-key-id",
 		token: "test-token",
+		tokenHash: null,
+		tokenMasked: null,
 		projectId: "test-project-id",
 		description: "Test API Key",
 		createdBy: "test-user-id",
@@ -1529,6 +1542,8 @@ async function seed() {
 	await upsert(tables.apiKey, {
 		id: "test-no-retention-api-key-id",
 		token: "test-token-no-retention",
+		tokenHash: null,
+		tokenMasked: null,
 		projectId: "test-no-retention-project-id",
 		description: "Test API Key (no data retention)",
 		createdBy: "test-user-id",
@@ -1569,6 +1584,8 @@ async function seed() {
 	await upsert(tables.apiKey, {
 		id: "sdk-poc-platform-secret-id",
 		token: "sk_pocbonus_live_secret",
+		tokenHash: null,
+		tokenMasked: null,
 		projectId: "sdk-poc-project-id",
 		description: "Payments SDK POC platform secret",
 		keyType: "platform_secret",
@@ -1608,6 +1625,8 @@ async function seed() {
 	await upsert(tables.apiKey, {
 		id: "test-devpass-api-key-id",
 		token: "llmgdev_devpass_test_token",
+		tokenHash: null,
+		tokenMasked: null,
 		projectId: "test-personal-project-id",
 		description: "Dev Plan API Key",
 		createdBy: "test-user-id",
@@ -1911,8 +1930,17 @@ async function seed() {
 		const streamedCount = Math.floor(baseRequests * randomFloat(0.6, 0.95));
 		const inputTokens = baseRequests * randomInt(900, 6000);
 		const outputTokens = baseRequests * randomInt(200, 2200);
-		const costPerReq = randomFloat(0.02, 0.18);
-		const totalCost = baseRequests * costPerReq;
+		// Vary the cache-hit share widely so the usage chart's token/cost
+		// breakdown shows hours where a big token total is cheap (mostly cached)
+		// next to hours where a smaller total is expensive (fresh input + output).
+		const hourCachedTokens = Math.floor(inputTokens * randomFloat(0.05, 0.85));
+		// Derive costs from the token mix at plausible per-token rates so the
+		// per-class costs and the total reconcile ($3/M fresh input, $0.30/M
+		// cached input, $15/M output).
+		const hourInputCost = (inputTokens - hourCachedTokens) * 3e-6;
+		const hourCachedInputCost = hourCachedTokens * 0.3e-6;
+		const hourOutputCost = outputTokens * 15e-6;
+		const totalCost = hourInputCost + hourCachedInputCost + hourOutputCost;
 		devpassHourlyStats.push({
 			id: `devpass-phs-${h}`,
 			projectId: "test-personal-project-id",
@@ -1935,16 +1963,16 @@ async function seed() {
 			outputTokens: String(outputTokens),
 			totalTokens: String(inputTokens + outputTokens),
 			reasoningTokens: "0",
-			cachedTokens: String(Math.floor(inputTokens * 0.15)),
+			cachedTokens: String(hourCachedTokens),
 			cost: Number(totalCost.toFixed(4)),
-			inputCost: Number((totalCost * 0.55).toFixed(4)),
-			outputCost: Number((totalCost * 0.4).toFixed(4)),
-			requestCost: Number((totalCost * 0.05).toFixed(4)),
+			inputCost: Number(hourInputCost.toFixed(4)),
+			outputCost: Number(hourOutputCost.toFixed(4)),
+			requestCost: 0,
 			dataStorageCost: 0,
 			discountSavings: 0,
 			imageInputCost: 0,
 			imageOutputCost: 0,
-			cachedInputCost: 0,
+			cachedInputCost: Number(hourCachedInputCost.toFixed(4)),
 			creditsRequestCount: baseRequests,
 			apiKeysRequestCount: 0,
 			creditsCost: Number(totalCost.toFixed(4)),
@@ -2111,6 +2139,61 @@ async function seed() {
 		devPlanBillingCycleStart: daysAgo(12),
 	});
 
+	// An account the AbuseIPDB check flagged at sign-up, so the admin dashboard's
+	// "Flagged Accounts" page has something to review locally. The IP is from the
+	// TEST-NET-3 documentation range.
+	await upsert(tables.user, {
+		id: "flagged-user-id",
+		name: "Flagged Signup",
+		// Login: flagged@example.com / flagged@example.com (password == email)
+		email: "flagged@example.com",
+		emailVerified: true,
+		riskStatus: "flagged",
+		riskFlaggedAt: daysAgo(1),
+		riskFlagSource: "signup",
+		riskFlagIp: "203.0.113.24",
+		riskFlagDetails: {
+			ipAddress: "203.0.113.24",
+			abuseConfidenceScore: 100,
+			totalReports: 47,
+			countryCode: "NL",
+			usageType: "Data Center/Web Hosting/Transit",
+			isp: "Example Hosting B.V.",
+			isTor: false,
+		},
+	});
+
+	await upsert(tables.account, {
+		id: "flagged-account-id",
+		providerId: "credential",
+		accountId: "flagged-account-id",
+		password: await hashPassword("flagged@example.com"),
+		userId: "flagged-user-id",
+	});
+
+	await upsert(tables.organization, {
+		id: "flagged-org-id",
+		name: "Flagged Organization",
+		billingEmail: "flagged@example.com",
+		credits: 5,
+		retentionLevel: "none",
+		riskFlagged: true,
+	});
+
+	await upsert(tables.userOrganization, {
+		id: "flagged-user-org-id",
+		userId: "flagged-user-id",
+		organizationId: "flagged-org-id",
+		role: "owner",
+	});
+
+	await upsert(tables.project, {
+		id: "flagged-project-id",
+		name: "Default Project",
+		organizationId: "flagged-org-id",
+		mode: "credits",
+	});
+
 	await upsert(tables.user, {
 		id: "enterprise-user-id",
 		name: "Enterprise User",
@@ -2173,6 +2256,8 @@ async function seed() {
 	await upsert(tables.apiKey, {
 		id: "enterprise-api-key-id",
 		token: "test-enterprise",
+		tokenHash: null,
+		tokenMasked: null,
 		projectId: "enterprise-project-id",
 		description: "Enterprise API Key",
 		createdBy: "enterprise-user-id",
@@ -2222,9 +2307,56 @@ async function seed() {
 	await upsert(tables.apiKey, {
 		id: "enterprise-dev-api-key-id",
 		token: "test-enterprise-dev",
+		tokenHash: null,
+		tokenMasked: null,
 		projectId: "enterprise-project-id",
 		description: "Enterprise Developer API Key",
 		createdBy: "enterprise-dev-user-id",
+	});
+
+	// Guardrails: an org-level config that the Enterprise Project inherits, plus
+	// a project-level override on the Restricted Project so both states of the
+	// organization/project relationship are visible locally.
+	await upsert(tables.guardrailConfig, {
+		id: "enterprise-guardrail-config-id",
+		organizationId: "enterprise-org-id",
+		enabled: true,
+		maxFileSizeMb: 8,
+	});
+
+	await upsert(tables.guardrailRule, {
+		id: "enterprise-guardrail-rule-id",
+		organizationId: "enterprise-org-id",
+		name: "Unreleased project codenames",
+		type: "blocked_terms",
+		config: {
+			type: "blocked_terms",
+			terms: ["project-atlas", "unannounced-product"],
+			matchType: "contains",
+			caseSensitive: false,
+		},
+		priority: 10,
+		action: "block",
+	});
+
+	await upsert(tables.guardrailConfig, {
+		id: "enterprise-project-guardrail-config-id",
+		organizationId: "enterprise-org-id",
+		projectId: "enterprise-project-secondary-id",
+		inheritOrganization: false,
+		enabled: true,
+		maxFileSizeMb: 2,
+	});
+
+	await upsert(tables.guardrailRule, {
+		id: "enterprise-project-guardrail-rule-id",
+		organizationId: "enterprise-org-id",
+		projectId: "enterprise-project-secondary-id",
+		name: "Customer account identifiers",
+		type: "custom_regex",
+		config: { type: "custom_regex", pattern: "\\bACC-\\d{9}\\b" },
+		priority: 20,
+		action: "redact",
 	});
 
 	await Promise.all(logs.map((log) => upsert(tables.log, log)));
@@ -2238,6 +2370,78 @@ async function seed() {
 		currency: "USD",
 		status: "completed",
 		description: "Test credit top-up for referral eligibility",
+	});
+
+	await upsert(tables.transaction, {
+		id: "seed-manual-payment-wire-id",
+		organizationId: "test-org-id",
+		createdAt: daysAgo(21),
+		type: "credit_manual_payment",
+		amount: "500",
+		creditAmount: "500",
+		currency: "USD",
+		status: "completed",
+		paymentMethod: "wire",
+		externalReference: "seed-wire-payment",
+		description: "Seeded external credit payment by wire",
+	});
+
+	await upsert(tables.transaction, {
+		id: "seed-manual-payment-crypto-id",
+		organizationId: "test-org-id",
+		createdAt: daysAgo(14),
+		type: "credit_manual_payment",
+		amount: "300",
+		creditAmount: "300",
+		currency: "USD",
+		status: "completed",
+		paymentMethod: "crypto",
+		externalReference: "seed-crypto-payment",
+		description: "Seeded external credit payment by crypto",
+	});
+
+	await upsert(tables.transaction, {
+		id: "seed-manual-payment-paypal-id",
+		organizationId: "test-org-id",
+		createdAt: daysAgo(7),
+		type: "credit_manual_payment",
+		amount: "200",
+		creditAmount: "200",
+		currency: "USD",
+		status: "completed",
+		paymentMethod: "paypal",
+		externalReference: "seed-paypal-payment",
+		description: "Seeded external credit payment by PayPal",
+	});
+
+	await upsert(tables.transaction, {
+		id: "seed-enterprise-license-fee-id",
+		organizationId: "enterprise-org-id",
+		createdAt: daysAgo(10),
+		type: "enterprise_license_fee",
+		amount: "5000",
+		creditAmount: null,
+		currency: "USD",
+		status: "completed",
+		paymentMethod: "wire",
+		externalReference: "seed-enterprise-license",
+		description: "Seeded enterprise license fee",
+	});
+
+	const devpassStartCreatedAt = daysAgo(36);
+	await upsert(tables.transaction, {
+		id: "test-devpass-start-transaction-id",
+		organizationId: "test-personal-org-id",
+		createdAt: devpassStartCreatedAt,
+		updatedAt: devpassStartCreatedAt,
+		type: "dev_plan_start",
+		amount: String(DEV_PLAN_PRICES.pro),
+		creditAmount: String(getDevPlanCreditsLimit("pro")),
+		currency: "USD",
+		status: "completed",
+		stripePaymentIntentId: "pi_seed_devpass_start",
+		stripeInvoiceId: "in_seed_devpass_start",
+		description: "Seeded DevPass Pro start for admin dashboard",
 	});
 
 	const devpassRenewalCreatedAt = daysAgo(6);
@@ -2588,6 +2792,8 @@ async function seed() {
 		await upsert(tables.apiKey, {
 			id: key.id,
 			token: key.token,
+			tokenHash: null,
+			tokenMasked: null,
 			projectId: key.projectId,
 			description: key.description,
 			createdBy: key.createdBy,
@@ -2600,6 +2806,29 @@ async function seed() {
 
 	const transactions = generateTransactions();
 	await bulkInsert(tables.transaction, transactions);
+
+	const devpassSubscriptionStarts = EXTRA_ORGS.flatMap((org) => {
+		if (org.kind !== "devpass" || org.devPlan === "none") {
+			return [];
+		}
+		return [
+			{
+				id: `seed-devpass-start-${org.id}`,
+				organizationId: org.id,
+				createdAt: org.createdAt,
+				updatedAt: org.createdAt,
+				type: "dev_plan_start" as const,
+				amount: String(DEV_PLAN_PRICES[org.devPlan]),
+				creditAmount: String(getDevPlanCreditsLimit(org.devPlan)),
+				currency: "USD",
+				status: "completed" as const,
+				stripePaymentIntentId: `pi_seed_devpass_start_${org.id}`,
+				stripeInvoiceId: `in_seed_devpass_start_${org.id}`,
+				description: `Seeded DevPass ${org.devPlan.toUpperCase()} start for admin dashboard`,
+			},
+		];
+	});
+	await bulkInsert(tables.transaction, devpassSubscriptionStarts);
 
 	const discounts = generateDiscounts();
 	await bulkInsert(tables.discount, discounts);

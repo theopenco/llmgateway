@@ -62,6 +62,22 @@ function periodWindowHours(
 	return value * PERIOD_UNIT_HOURS[unit];
 }
 
+/** Whose budget the key is being checked against — the caller's, or another member's. */
+export type MemberBudgetOwner = "self" | "other";
+
+/** How to name the enforced budget, and how to say where it can be raised. */
+function budgetOwnerCopy(owner: MemberBudgetOwner): {
+	hint: string;
+	label: string;
+} {
+	return owner === "other"
+		? {
+				label: "the key owner's limit",
+				hint: " Raise their limit on the Team page first.",
+			}
+		: { label: "your organization limit", hint: "" };
+}
+
 /**
  * Validate that a proposed API-key limit stays at or below the member's
  * effective budget (their own caps, or the org-wide default developer caps that
@@ -72,17 +88,24 @@ function periodWindowHours(
  * set a matching-or-lower cap. Recurring caps are compared by normalized hourly
  * spend rate, so a key with a shorter window can't out-spend a longer member
  * window. Pass the member's *effective* budget (post org-default resolution).
+ *
+ * `owner` only changes the wording: an owner/admin editing someone else's key is
+ * blocked by that member's budget, not their own, so the message has to name it
+ * and point at the Team page where it can be raised.
  */
 export function validateApiKeyLimitsWithinMemberBudget(
 	keyLimits: ApiKeyLimitConstraints,
 	memberBudget: ApiKeyLimitConstraints,
+	owner: MemberBudgetOwner = "self",
 ): string | null {
+	const { label, hint } = budgetOwnerCopy(owner);
+
 	if (memberBudget.usageLimit !== null) {
 		if (keyLimits.usageLimit === null) {
-			return `Set an all-time usage limit at or below your organization limit of ${formatBudgetUsd(memberBudget.usageLimit)}.`;
+			return `Set an all-time usage limit at or below ${label} of ${formatBudgetUsd(memberBudget.usageLimit)}.${hint}`;
 		}
 		if (Number(keyLimits.usageLimit) > Number(memberBudget.usageLimit)) {
-			return `All-time usage limit must be at or below your organization limit of ${formatBudgetUsd(memberBudget.usageLimit)}.`;
+			return `All-time usage limit must be at or below ${label} of ${formatBudgetUsd(memberBudget.usageLimit)}.${hint}`;
 		}
 	}
 
@@ -100,7 +123,7 @@ export function validateApiKeyLimitsWithinMemberBudget(
 			keyLimits.periodUsageDurationValue === null ||
 			keyLimits.periodUsageDurationUnit === null
 		) {
-			return `Set a recurring usage limit at or below your organization limit of ${formatBudgetUsd(memberBudget.periodUsageLimit)} per ${memberWindow}.`;
+			return `Set a recurring usage limit at or below ${label} of ${formatBudgetUsd(memberBudget.periodUsageLimit)} per ${memberWindow}.${hint}`;
 		}
 		const memberWindowHours = periodWindowHours(
 			memberBudget.periodUsageDurationValue,
@@ -121,7 +144,7 @@ export function validateApiKeyLimitsWithinMemberBudget(
 			keyWindowHours,
 		);
 		if (keyScaled.greaterThan(memberScaled)) {
-			return `Recurring usage limit can't exceed your organization limit of ${formatBudgetUsd(memberBudget.periodUsageLimit)} per ${memberWindow}.`;
+			return `Recurring usage limit can't exceed ${label} of ${formatBudgetUsd(memberBudget.periodUsageLimit)} per ${memberWindow}.${hint}`;
 		}
 	}
 

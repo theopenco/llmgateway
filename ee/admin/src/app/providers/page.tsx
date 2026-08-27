@@ -5,12 +5,15 @@ import { ProvidersTable } from "@/components/providers-table";
 import { TimeWindowSelector } from "@/components/time-window-selector";
 import { TokenBreakdown } from "@/components/token-breakdown";
 import { Button } from "@/components/ui/button";
+import { UsageModeSelector } from "@/components/usage-mode-selector";
 import {
+	CATALOG_PAGE_WINDOW_DEFAULT,
 	pageWindowOptionsWithMinutes,
 	parsePageWindow,
 	windowToFromTo,
 } from "@/lib/page-window";
 import { createServerApiClient } from "@/lib/server-api";
+import { parseUsageMode } from "@/lib/usage-mode";
 
 import type { paths } from "@/lib/api/v1";
 
@@ -65,17 +68,22 @@ export default async function ProvidersPage({
 		sortBy?: string;
 		sortOrder?: string;
 		window?: string;
+		mode?: string;
 	}>;
 }) {
 	const params = await searchParams;
 	const sortBy = (params?.sortBy as ProviderSortBy) ?? "logsCount";
 	const sortOrder = (params?.sortOrder as SortOrder) || "desc";
-	const pageWindow = parsePageWindow(params?.window);
+	const pageWindow = parsePageWindow(
+		params?.window,
+		CATALOG_PAGE_WINDOW_DEFAULT,
+	);
+	const usageMode = parseUsageMode(params?.mode);
 	const { from, to } = windowToFromTo(pageWindow);
 
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/admin/providers", {
-		params: { query: { sortBy, sortOrder, from, to } },
+		params: { query: { sortBy, sortOrder, from, to, mode: usageMode } },
 	});
 
 	if (!data) {
@@ -118,10 +126,13 @@ export default async function ProvidersPage({
 					</div>
 				</div>
 				<Suspense>
-					<TimeWindowSelector
-						current={pageWindow}
-						options={pageWindowOptionsWithMinutes}
-					/>
+					<div className="flex flex-wrap items-center gap-2">
+						<UsageModeSelector compact />
+						<TimeWindowSelector
+							current={pageWindow}
+							options={pageWindowOptionsWithMinutes}
+						/>
+					</div>
 				</Suspense>
 			</div>
 
@@ -131,6 +142,7 @@ export default async function ProvidersPage({
 					sortBy={sortBy}
 					sortOrder={sortOrder}
 					pageWindow={pageWindow}
+					usageMode={usageMode}
 				/>
 			</div>
 		</div>

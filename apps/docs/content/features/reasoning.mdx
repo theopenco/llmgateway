@@ -173,7 +173,7 @@ The `reasoning.max_tokens` parameter is supported by:
 - **Anthropic Claude**: Claude 3.7 Sonnet, Claude Sonnet 4, Claude Opus 4, Claude Opus 4.5
 - **Google Gemini**: Gemini 2.5 Pro, Gemini 2.5 Flash, Gemini 3 Pro Preview
 
-When using auto-routing or root models with `reasoning.max_tokens`, only providers that support this feature will be considered.
+When using auto-routing or canonical models with `reasoning.max_tokens`, only providers that support this feature will be considered.
 
 ### Provider-Specific Constraints
 
@@ -284,6 +284,147 @@ data: {
 	]
 }
 ```
+
+## Preserving Reasoning Across Calls
+
+Agents work over many turns: the model reasons, calls a tool, and the tool result arrives in the next request. Reasoning models are trained to continue from the reasoning they produced on earlier turns, so dropping it mid-task degrades tool-calling and multi-turn performance.
+
+LLMGateway preserves reasoning the same way OpenAI's Responses API does. The model returns an opaque **encrypted reasoning** payload, and you send it back unchanged along with the rest of the conversation on the next call. The payload is issued and verified by the provider — the gateway passes it through without inspecting or rewriting it.
+
+<Callout type="info">
+	Encrypted reasoning is produced by models served over OpenAI's Responses API
+	(OpenAI and Azure OpenAI reasoning models). Other reasoning models return
+	summary text only, and there is nothing to replay — asking for encrypted
+	reasoning is ignored rather than rejected, so the same client code works
+	against every model. Gemini thought signatures are handled automatically: the
+	gateway re-attaches them to replayed tool calls.
+</Callout>
+
+### Responses API
+
+Ask for the payloads with `include: ["reasoning.encrypted_content"]`, and send `store: false` if you want the turn to stay stateless:
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/responses" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-5.4-nano",
+    "input": [{ "role": "user", "content": "What is the weather in Paris? Use the tool." }],
+    "tools": [
+      {
+        "type": "function",
+        "name": "get_weather",
+        "parameters": {
+          "type": "object",
+          "properties": { "city": { "type": "string" } },
+          "required": ["city"]
+        }
+      }
+    ],
+    "store": false,
+    "include": ["reasoning.encrypted_content"],
+    "reasoning": { "effort": "high" }
+  }'
+```
+
+Reasoning items in `output` then carry `encrypted_content`:
+
+```json
+{
+	"type": "reasoning",
+	"id": "rs_057d93d1ba22357e01...",
+	"summary": [],
+	"encrypted_content": "gAAAAABqfkEO3uEFtXeGSNE9..."
+}
+```
+
+On the next turn, replay the previous `output` items unchanged — reasoning items included — followed by your tool results:
+
+```json
+{
+	"model": "gpt-5.4-nano",
+	"input": [
+		{
+			"role": "user",
+			"content": "What is the weather in Paris? Use the tool."
+		},
+		{
+			"type": "reasoning",
+			"id": "rs_057d93d1ba22357e01...",
+			"summary": [],
+			"encrypted_content": "gAAAAABqfkEO3uEFtXeGSNE9..."
+		},
+		{
+			"type": "function_call",
+			"call_id": "call_923JIrDbCvIHnGqfvDbPeaLh",
+			"name": "get_weather",
+			"arguments": "{\"city\":\"Paris\"}"
+		},
+		{
+			"type": "function_call_output",
+			"call_id": "call_923JIrDbCvIHnGqfvDbPeaLh",
+			"output": "18C sunny"
+		}
+	],
+	"store": false,
+	"include": ["reasoning.encrypted_content"],
+	"reasoning": { "effort": "high" }
+}
+```
+
+Without the `include` value, reasoning items come back without `encrypted_content` and there is nothing to replay. When streaming, the payload arrives on the reasoning item's `response.output_item.done` event.
+
+#### Stateful Alternative
+
+If you would rather not carry the payloads yourself, leave `store` at its default (`true`) and chain turns with `previous_response_id`. The gateway keeps the stored response — encrypted reasoning included — for [30 days](/features/data-retention#retention-periods) and replays the reasoning for you, so `include` is not needed on that path.
+
+### Chat Completions
+
+The Chat Completions format has no reasoning items, so the gateway carries the same payloads on the assistant message as `reasoning_details`:
+
+```json
+{
+	"role": "assistant",
+	"content": null,
+	"tool_calls": [
+		{
+			"id": "call_923JIrDbCvIHnGqfvDbPeaLh",
+			"type": "function",
+			"function": { "name": "get_weather", "arguments": "{\"city\":\"Paris\"}" }
+		}
+	],
+	"reasoning_details": [
+		{
+			"type": "reasoning.encrypted",
+			"data": "gAAAAABqfkEO3uEFtXeGSNE9...",
+			"id": "rs_057d93d1ba22357e01...",
+			"format": "openai-responses-v1",
+			"index": 0
+		}
+	]
+}
+```
+
+To preserve the reasoning, append the assistant message back into `messages` exactly as you received it (with `reasoning_details` intact) before the matching `tool` result. No opt-in parameter is required — the field is always present when the model produced one. When streaming, the entries arrive as a `delta.reasoning_details` chunk.
+
+Replaying is safe across models: entries a provider cannot consume are stripped before the upstream request, so the same conversation history can be sent to any model.
+
+### Error Handling
+
+Payloads are verified by the provider that issued them. A modified, truncated, or foreign payload is rejected upstream and the error is forwarded unchanged:
+
+```json
+{
+	"error": {
+		"message": "The encrypted content for item rs_057d93d1ba22357e01... could not be verified. Reason: Encrypted content could not be decrypted or parsed.",
+		"type": "invalid_request_error",
+		"code": "invalid_encrypted_content"
+	}
+}
+```
+
+Only replay payloads against the model and provider that produced them.
 
 ## Usage Tracking
 

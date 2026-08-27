@@ -71,15 +71,22 @@ export function mapFinishReasonToOpenai(
 				case "IMAGE_SAFETY":
 				case "IMAGE_PROHIBITED_CONTENT":
 				case "IMAGE_RECITATION":
-				case "IMAGE_OTHER":
-				case "NO_IMAGE":
-				case "OTHER":
 					return "content_filter";
+				// NO_IMAGE means generation finished without emitting an image, and
+				// OTHER/IMAGE_OTHER are Google's unspecified/forward-compatibility
+				// buckets — none of them is a policy block, so reporting them as
+				// content_filter blamed our filter for ordinary upstream outcomes.
+				// The raw reason is still retained on the log row.
+				case "NO_IMAGE":
+				case "IMAGE_OTHER":
+				case "OTHER":
+					return "stop";
 				default:
 					return "stop";
 			}
 		case "anthropic":
 		case "vertex-anthropic":
+		case "azure-anthropic":
 			if (!finishReason) {
 				return hasToolCalls ? "tool_calls" : "stop";
 			}

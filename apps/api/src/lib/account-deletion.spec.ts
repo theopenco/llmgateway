@@ -772,6 +772,8 @@ describe("tearDownSoleMemberOrganizations", () => {
 			billingEmail: "admin@example.com",
 			plan: "pro",
 			stripeSubscriptionId: "sub_second",
+			// Explicitly younger than the seeded org so teardown reaches it second.
+			createdAt: new Date(Date.now() + 60_000),
 		});
 		await db.insert(tables.userOrganization).values({
 			userId: USER_ID,

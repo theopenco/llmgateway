@@ -1,5 +1,9 @@
 import { shortid } from "@llmgateway/db";
 
+import { toResponsesToolCallItem } from "./tool-registry.js";
+
+import type { ToolRegistry } from "./tool-registry.js";
+
 interface ChatCompletionsResponse {
 	id?: string;
 	object?: string;
@@ -10,6 +14,11 @@ interface ChatCompletionsResponse {
 		message?: {
 			role?: string;
 			content?: string | null;
+			images?: Array<{
+				type?: string;
+				image_url?: { url?: string };
+				url?: string;
+			}>;
 			tool_calls?: Array<{
 				id: string;
 				type: string;
@@ -297,6 +306,7 @@ export function convertChatResponseToResponses(
 	requestedModel: string,
 	responseId?: string,
 	request?: ResponsesEchoRequest,
+	toolRegistry?: ToolRegistry,
 ): ResponsesApiResponse {
 	const choice = chatResponse.choices?.[0];
 	const message = choice?.message;
@@ -420,16 +430,34 @@ export function convertChatResponseToResponses(
 
 	toolCalls.forEach((toolCall, callIndex) => {
 		emitMessagesUpTo(callIndex);
-		output.push({
-			type: "function_call",
-			id: `fc_${shortid(24)}`,
-			call_id: toolCall.id,
-			name: toolCall.function.name,
-			arguments: toolCall.function.arguments,
-			status: "completed",
-		});
+		output.push(
+			toResponsesToolCallItem(toolRegistry, {
+				id: `fc_${shortid(24)}`,
+				callId: toolCall.id,
+				name: toolCall.function.name,
+				arguments: toolCall.function.arguments,
+				status: "completed",
+			}) as ResponsesApiOutput,
+		);
 	});
 	emitMessagesUpTo(Number.MAX_SAFE_INTEGER);
+
+	for (const image of message?.images ?? []) {
+		const url = image.image_url?.url ?? image.url;
+		if (typeof url !== "string") {
+			continue;
+		}
+		const match = url.match(/^data:image\/[\w+.-]+;base64,(.+)$/s);
+		if (!match) {
+			continue;
+		}
+		output.push({
+			type: "image_generation_call",
+			id: `ig_${shortid(24)}`,
+			status: "completed",
+			result: match[1],
+		});
+	}
 
 	// Map finish_reason to status. Providers served via the OpenAI Responses
 	// API surface truncation as finish_reason "incomplete" (from the upstream

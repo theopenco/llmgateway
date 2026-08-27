@@ -2,6 +2,13 @@
 // the API validation, the database enum and the three dashboard dialogs
 // (credits, DevPass, chat) stay in sync.
 
+// Self-refund policy numbers. Enforced in apps/api/src/lib/self-refund.ts and
+// quoted verbatim by the marketing copy, so the advertised guarantee cannot
+// drift from what the endpoint actually allows.
+export const SELF_REFUND_WINDOW_DAYS = 14;
+export const RESET_PASS_SELF_REFUND_WINDOW_DAYS = 7;
+export const SELF_REFUND_USAGE_PERCENT = 20;
+
 export const REFUND_REASONS = [
 	"not_working",
 	"missing_features",

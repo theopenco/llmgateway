@@ -3,9 +3,11 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeEach, describe, expect, test } from "vitest";
 
 import {
+	cdb,
 	eq,
 	isNull,
 	db,
+	organizationCacheTag,
 	tables,
 	log,
 	organization,
@@ -189,6 +191,51 @@ describe("Log Processing", () => {
 			expect(Number(updatedOrg!.credits)).toBe(initialCredits - 0.01);
 		});
 
+		test("evicts the debited org's tagged cache entry after settling", async () => {
+			// Same tagged read the gateway's findOrganizationCachedById uses.
+			const readCached = async () =>
+				(
+					await cdb
+						.select()
+						.from(organization)
+						.where(eq(organization.id, testOrg.id))
+						.limit(1)
+						.$withCache({
+							tag: organizationCacheTag(testOrg.id),
+							autoInvalidate: true,
+						})
+				)[0];
+
+			// Prime the cache entry with the pre-debit balance.
+			const before = await readCached();
+			expect(Number(before.credits)).toBe(100);
+
+			await db.insert(log).values({
+				requestId: "test-request-cache-evict",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.01,
+				cached: false,
+				usedMode: "credits",
+				duration: 2000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 150,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			// The debit goes through the uncached client, so without the
+			// worker's eviction this read would serve the stale 100.00 for the
+			// full cache TTL.
+			const after = await readCached();
+			expect(Number(after.credits)).toBe(99.99);
+		});
+
 		test("should accrue premium weekly usage for provider-prefixed premium models on dev plans", async () => {
 			await db
 				.update(organization)
@@ -274,6 +321,154 @@ describe("Log Processing", () => {
 			// The exhausted pool is untouched; the overflow hit the balance.
 			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBe(237);
 			expect(Number(updatedOrg!.credits)).toBe(initialCredits - 0.25);
+		});
+
+		test("should route premium spend past the weekly allowance to regular credits when PAYG is enabled", async () => {
+			// The pro weekly premium allowance is 15% of the monthly pool
+			// (237 * 0.15 = 35.55). With the counter already at the cap, an
+			// over-cap premium request admitted via PAYG overflow must bill the
+			// org's balance — draining the monthly pool here would make the
+			// weekly cap meaningless.
+			await db
+				.update(organization)
+				.set({
+					kind: "devpass",
+					devPlan: "pro",
+					devPlanCreditsLimit: "237",
+					devPlanCreditsUsed: "50",
+					devPlanPremiumCreditsUsed: "35.55",
+					devPlanPremiumWeekStart: new Date(),
+					devPlanPaygEnabled: true,
+				})
+				.where(eq(organization.id, testOrg.id));
+			const initialCredits = Number(testOrg.credits);
+
+			await db.insert(log).values({
+				requestId: "test-request-premium-weekly-overflow",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.5,
+				cached: false,
+				usedMode: "credits",
+				duration: 2000,
+				requestedModel: "anthropic/claude-fable-5",
+				requestedProvider: "anthropic",
+				usedModel: "anthropic/claude-fable-5",
+				usedProvider: "anthropic",
+				responseSize: 150,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			// Plan pool and premium counter untouched; the balance paid.
+			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBe(50);
+			expect(Number(updatedOrg!.devPlanPremiumCreditsUsed)).toBe(35.55);
+			expect(Number(updatedOrg!.credits)).toBe(initialCredits - 0.5);
+		});
+
+		test("should split premium spend across the weekly allowance boundary when PAYG is enabled", async () => {
+			// 0.30 of weekly premium allowance left (35.55 - 35.25): a 0.50
+			// premium charge takes 0.30 from the plan pool and overflows the
+			// remaining 0.20 to the balance.
+			await db
+				.update(organization)
+				.set({
+					kind: "devpass",
+					devPlan: "pro",
+					devPlanCreditsLimit: "237",
+					devPlanCreditsUsed: "50",
+					devPlanPremiumCreditsUsed: "35.25",
+					devPlanPremiumWeekStart: new Date(),
+					devPlanPaygEnabled: true,
+				})
+				.where(eq(organization.id, testOrg.id));
+			const initialCredits = Number(testOrg.credits);
+
+			await db.insert(log).values({
+				requestId: "test-request-premium-weekly-split",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.5,
+				cached: false,
+				usedMode: "credits",
+				duration: 2000,
+				requestedModel: "anthropic/claude-fable-5",
+				requestedProvider: "anthropic",
+				usedModel: "anthropic/claude-fable-5",
+				usedProvider: "anthropic",
+				responseSize: 150,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBeCloseTo(50.3, 6);
+			expect(Number(updatedOrg!.devPlanPremiumCreditsUsed)).toBeCloseTo(
+				35.55,
+				6,
+			);
+			expect(Number(updatedOrg!.credits)).toBeCloseTo(initialCredits - 0.2, 6);
+		});
+
+		test("should keep over-cap premium spend on the plan pool when PAYG is disabled", async () => {
+			// Without the opt-in the gateway never admits over-cap premium
+			// requests, but requests already in flight when the cap was crossed
+			// can land here. The balance is unspendable without the opt-in, so
+			// the spend stays on the plan pool exactly as before.
+			await db
+				.update(organization)
+				.set({
+					kind: "devpass",
+					devPlan: "pro",
+					devPlanCreditsLimit: "237",
+					devPlanCreditsUsed: "50",
+					devPlanPremiumCreditsUsed: "35.55",
+					devPlanPremiumWeekStart: new Date(),
+					devPlanPaygEnabled: false,
+				})
+				.where(eq(organization.id, testOrg.id));
+			const initialCredits = Number(testOrg.credits);
+
+			await db.insert(log).values({
+				requestId: "test-request-premium-weekly-payg-off",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.5,
+				cached: false,
+				usedMode: "credits",
+				duration: 2000,
+				requestedModel: "anthropic/claude-fable-5",
+				requestedProvider: "anthropic",
+				usedModel: "anthropic/claude-fable-5",
+				usedProvider: "anthropic",
+				responseSize: 150,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBeCloseTo(50.5, 6);
+			expect(Number(updatedOrg!.devPlanPremiumCreditsUsed)).toBeCloseTo(
+				36.05,
+				6,
+			);
+			expect(Number(updatedOrg!.credits)).toBe(initialCredits);
 		});
 
 		test("should keep overflow on the plan pool when PAYG is disabled", async () => {

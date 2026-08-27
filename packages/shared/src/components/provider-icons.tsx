@@ -1284,17 +1284,14 @@ export const EmberCloudIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 );
 
 export const Gonka24Icon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
-	<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 576" {...props}>
+	<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1080" {...props}>
 		<g
-			transform="translate(0,576) scale(0.1,-0.1)"
+			transform="translate(0,1080) scale(0.1,-0.1)"
 			fill="currentColor"
 			stroke="none"
 		>
-			<path d="M2835 3763 c-136 -19 -312 -84 -441 -164 -100 -61 -176 -135 -886 -859 -234 -239 -432 -441 -439 -447 -10 -11 29 -13 197 -13 l209 0 200 208 c110 114 301 313 425 442 417 435 447 460 615 523 134 50 120 50 962 48 l793 -3 137 136 138 136 -940 -2 c-517 0 -953 -3 -970 -5z" />
-			<path d="M5305 3755 c-110 -31 -195 -84 -295 -184 -52 -53 -124 -134 -159 -180 l-64 -84 44 27 c66 41 180 93 253 115 156 48 187 50 832 51 335 0 615 1 622 0 6 0 12 -10 12 -23 0 -27 -193 -223 -250 -253 -33 -18 -72 -19 -610 -25 -553 -5 -578 -6 -647 -27 -215 -65 -263 -101 -691 -529 l-362 -363 209 0 209 0 224 227 c123 125 246 249 273 275 50 48 148 105 216 127 26 8 206 13 590 16 305 2 568 6 584 10 128 29 217 86 366 232 108 106 132 136 159 195 78 169 14 329 -155 389 -52 18 -86 19 -682 18 -496 -1 -638 -4 -678 -14z" />
-			<path d="M7880 3759 c-80 -15 -181 -74 -271 -156 -201 -185 -909 -865 -936 -900 -66 -83 -80 -144 -42 -179 20 -18 44 -19 406 -22 l385 -3 -113 -109 -114 -109 205 -1 205 0 110 110 110 110 255 0 255 1 128 117 127 117 -256 3 c-140 1 -254 6 -252 10 2 4 101 102 220 217 l217 210 -122 3 c-173 4 -269 -18 -356 -82 -19 -14 -110 -100 -202 -191 l-166 -165 -278 0 c-152 0 -275 4 -273 8 2 4 53 55 113 112 61 57 151 142 200 189 50 48 180 172 290 276 375 357 416 395 465 428 23 16 18 17 -120 16 -80 -1 -165 -5 -190 -10z" />
-			<path d="M2810 3189 c-76 -11 -156 -42 -226 -88 -36 -23 -207 -188 -441 -426 -211 -213 -383 -389 -383 -391 0 -3 354 -3 788 -2 l787 3 74 28 c87 31 168 75 231 124 25 19 203 195 396 391 l352 357 -207 6 c-304 9 -1307 8 -1371 -2z m600 -259 l315 0 -140 -140 c-233 -234 -219 -230 -749 -230 l-401 0 154 154 c92 93 174 166 204 182 54 29 162 46 252 38 28 -2 192 -4 365 -4z" />
-			<path d="M4823 2419 l-141 -140 656 3 657 3 68 29 c92 39 168 90 257 174 l75 71 -715 0 -715 1 -142 -141z" />
+			<path d="M9445 7634 c-533 -7 -1382 -17 -1885 -23 -1839 -22 -2309 -31 -2410 -47 -439 -69 -1044 -330 -1383 -596 -216 -170 -813 -771 -2022 -2033 -700 -730 -1216 -1267 -1384 -1439 -152 -154 -155 -159 -131 -169 35 -14 486 -21 844 -12 l301 7 395 419 c217 231 449 477 515 547 66 71 262 279 436 463 173 184 378 402 454 484 240 259 676 713 851 885 331 325 465 418 796 554 251 102 372 128 687 146 265 15 1343 28 2939 36 l1393 7 382 384 c210 211 384 388 385 394 2 5 -36 8 -95 8 -54 -1 -534 -8 -1068 -15z" />
+			<path d="M7000 5983 c-490 -4 -1549 -24 -1705 -33 -234 -12 -380 -49 -580 -145 -131 -63 -217 -118 -305 -193 -176 -152 -987 -976 -2153 -2188 -43 -45 -74 -85 -68 -88 10 -6 678 0 3101 30 l1355 16 190 75 c218 86 406 180 556 278 92 61 154 119 560 524 450 450 1659 1697 1659 1711 0 16 -1431 23 -2610 13z m531 -972 c-313 -324 -547 -551 -634 -615 -149 -110 -337 -180 -547 -205 -200 -24 -467 -32 -1330 -40 -503 -5 -917 -8 -919 -6 -7 7 604 627 741 753 210 192 262 226 413 270 90 27 180 43 280 51 44 3 558 7 1142 7 l1063 1 -209 -216z" />
 		</g>
 	</svg>
 );
@@ -1327,6 +1324,39 @@ export const FireworksIconStatic: React.FC<React.SVGProps<SVGSVGElement>> = (
 				d="M53.9877 0 43.7701 24.485 33.5428 0h-6.5609l11.2097 26.7662c.9297 2.2333 3.1103 3.6759 5.5401 3.6759s4.6056-1.4426 5.5402-3.6663L60.5487 0zm4.366 37.305 18.6908-18.8969-2.5496-6.0146-20.4161 20.6797c-1.7062 1.7301-2.195 4.2797-1.2509 6.513.9394 2.2141 3.1104 3.6471 5.5306 3.6471l.0096.0096 29.1816-.0719-2.5496-6.0146-26.6416.1486zM10.5052 18.3937l2.5496-6.0146 20.4161 20.6797c1.7062 1.7253 2.1998 4.2845 1.2509 6.513-.9393 2.219-3.1199 3.6471-5.5306 3.6471L.00958503 43.1518 0 43.1614l2.54962-6.0146 26.64158.1486z"
 			/>
 		</g>
+	</svg>
+);
+
+export const ConsensusProtocolIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
+	props,
+) => (
+	<svg
+		xmlns="http://www.w3.org/2000/svg"
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		strokeLinecap="round"
+		{...props}
+	>
+		<path d="M20.6 5.98A10.5 10.5 0 1 0 20.6 18.02" strokeWidth="1.4" />
+		<path d="M15.17 5.2A7.5 7.5 0 1 1 8.83 5.2" strokeWidth="1.4" />
+		<path d="M15.22 9.3A4.2 4.2 0 1 0 15.22 14.7" strokeWidth="2.8" />
+		<circle cx="3.96" cy="18.75" r="1.1" fill="currentColor" stroke="none" />
+	</svg>
+);
+
+export const BaiduIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+	<svg
+		xmlns="http://www.w3.org/2000/svg"
+		viewBox="0 0 24 24"
+		fill="currentColor"
+		{...props}
+	>
+		<ellipse cx="5.32" cy="7.51" rx="2.6" ry="3.16" />
+		<ellipse cx="11.44" cy="5.62" rx="2.86" ry="3.42" />
+		<ellipse cx="18.02" cy="7.98" rx="2.79" ry="2.98" />
+		<ellipse cx="21.03" cy="14.15" rx="2.19" ry="2.62" />
+		<path d="M15.4 14.72c-1.2-1.5-2.2-2.87-3.9-2.87s-2.79 1.42-3.72 2.87c-1.02 1.6-3.06 2.4-3.6 3.9-.53 1.5.2 3.05 1.7 3.5 1.5.44 3.2-.3 5.6-.3s4.2.9 5.7.3c1.5-.6 2.1-2.2 1.6-3.7-.5-1.5-2.2-2.2-3.38-3.7z" />
 	</svg>
 );
 
@@ -1588,6 +1618,7 @@ export const ProviderIcons = {
 	"aws-mantle": AWSBedrockIcon,
 	azure: AzureIcon,
 	"azure-ai-foundry": AzureIcon,
+	"azure-anthropic": AzureIcon,
 	canopywave: CanopyWaveIcon,
 	cerebras: CerebrasIcon,
 	minimax: MinimaxIcon,
@@ -1602,6 +1633,8 @@ export const ProviderIcons = {
 	fireworks: FireworksIcon,
 	runware: RunwareIcon,
 	ranoai: RanoAIIcon,
+	baidu: BaiduIcon,
+	consensusprotocol: ConsensusProtocolIcon,
 } as const;
 
 // Type for provider icon keys
@@ -1640,6 +1673,7 @@ export const providerLogoUrls: Partial<
 	"aws-mantle": ProviderIcons["aws-bedrock"],
 	azure: ProviderIcons.azure,
 	"azure-ai-foundry": ProviderIcons["azure-ai-foundry"],
+	"azure-anthropic": ProviderIcons["azure-anthropic"],
 	canopywave: ProviderIcons.canopywave,
 	cerebras: ProviderIcons.cerebras,
 	minimax: ProviderIcons.minimax,
@@ -1654,6 +1688,8 @@ export const providerLogoUrls: Partial<
 	fireworks: ProviderIcons.fireworks,
 	runware: ProviderIcons.runware,
 	ranoai: ProviderIcons.ranoai,
+	baidu: ProviderIcons.baidu,
+	consensusprotocol: ProviderIcons.consensusprotocol,
 };
 
 export const getProviderLogoDarkModeClasses = () => {

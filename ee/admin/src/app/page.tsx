@@ -313,8 +313,14 @@ export default async function Page({
 							style={revealAt(2)}
 							rows={[
 								{
-									label: "Credits",
+									label: "Credits Stripe",
 									value: currencyFormatter.format(metrics.grossCreditsRevenue),
+								},
+								{
+									label: "Credits external",
+									value: currencyFormatter.format(
+										metrics.grossManualPaymentsRevenue,
+									),
 								},
 								{
 									label: "DevPass",
@@ -348,6 +354,16 @@ export default async function Page({
 											},
 										]
 									: []),
+								...(metrics.grossEnterpriseDealsRevenue > 0
+									? [
+											{
+												label: "Enterprise licensing",
+												value: currencyFormatter.format(
+													metrics.grossEnterpriseDealsRevenue,
+												),
+											},
+										]
+									: []),
 							]}
 						/>
 						<MetricCell
@@ -375,9 +391,9 @@ export default async function Page({
 						/>
 						<MetricCell
 							label="Credits revenue"
-							value={metrics.totalRevenue - metrics.totalRefunds}
+							value={metrics.totalRevenue - metrics.totalRefundedCredits}
 							format="currency"
-							sublabel="Net credits — excl. Stripe fees & refunds"
+							sublabel="Net credits — excl. platform fee & refunds"
 							icon={<CircleDollarSign className="h-4 w-4" strokeWidth={1.75} />}
 							accent="green"
 							style={revealAt(4)}
@@ -393,8 +409,12 @@ export default async function Page({
 									),
 								},
 								{
-									label: "Refunds",
+									label: "Refunds (gross)",
 									value: currencyFormatter.format(metrics.totalRefunds),
+								},
+								{
+									label: "Refunds (credits)",
+									value: currencyFormatter.format(metrics.totalRefundedCredits),
 								},
 							]}
 						/>
@@ -495,6 +515,7 @@ export default async function Page({
 								totals={{
 									credits: timeseries.totals.net,
 									devpass: timeseries.totals.devpassNet,
+									enterprise: timeseries.totals.enterpriseRevenue,
 								}}
 							/>
 						</div>

@@ -31,6 +31,7 @@
 		"*.tsx",
 		"src/**/*.ts",
 		"src/**/*.tsx",
+		"e2e/**/*.ts",
 		"./.content-collections/generated/index.d.ts",
 		".next/types/**/*.ts"
 	],

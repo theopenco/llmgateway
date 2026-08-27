@@ -59,7 +59,7 @@ A new **team chat list** view surfaces chats shared inside your organization —
 
 ### Canvas Wrap-Up
 
-[Canvas](https://chat.llmgateway.io) graduated from preview. The JSON editor and live preview now ship with six chart types (bar, line, area, pie, radar, radial bar), streaming AI spec generation, PNG and PDF export, and reusable Card and Chart primitives. Canvas now has its own entry in the sidebar across mobile and desktop.
+[Canvas](https://lounge.llmgateway.io) graduated from preview. The JSON editor and live preview now ship with six chart types (bar, line, area, pie, radar, radial bar), streaming AI spec generation, PNG and PDF export, and reusable Card and Chart primitives. Canvas now has its own entry in the sidebar across mobile and desktop.
 
 ### Smarter Model Selector
 
@@ -100,4 +100,4 @@ A dedicated **vertex-anthropic** provider is live for routing Claude models thro
 
 ---
 
-**[Try Chat →](https://chat.llmgateway.io)** | **[Generate a video →](https://docs.llmgateway.io/features/video-generation)** | **[Browse all models →](https://llmgateway.io/models)**
+**[Try Chat →](https://lounge.llmgateway.io)** | **[Generate a video →](https://docs.llmgateway.io/features/video-generation)** | **[Browse all models →](https://llmgateway.io/models)**

@@ -58,4 +58,4 @@ curl -X POST https://api.llmgateway.io/v1/chat/completions \
 
 ---
 
-**[Try it now in the new Chat Playground](https://chat.llmgateway.io/?model=anthropic/claude-sonnet-4-5)** 🚀
+**[Try it now in the new Chat Playground](https://lounge.llmgateway.io/?model=anthropic/claude-sonnet-4-5)** 🚀

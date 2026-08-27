@@ -32,7 +32,7 @@ function allPricesZero(value: unknown, underPriceKey = false): boolean {
 
 describe("free model catalog invariant", () => {
 	// A `free: true` model must carry only zero-priced provider mappings. If a
-	// model has both a free and a paid provider, split it into two root models
+	// model has both a free and a paid provider, split it into two canonical models
 	// (a free one and a paid one) instead of flagging the mixed model free.
 	// Sandbox/test-mode end-user wallets rely on this: they may spend only on
 	// free models, and a paid mapping under a free model would let test credits

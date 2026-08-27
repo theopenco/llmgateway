@@ -1,3 +1,5 @@
+import { cache } from "react";
+
 import { getConfig } from "@/lib/config-server";
 
 import type { ProfileData } from "@/components/profile/ProfileView";
@@ -5,9 +7,10 @@ import type { ProfileData } from "@/components/profile/ProfileView";
 /**
  * Fetch a public DevPass profile by username from the API. Returns null when
  * the profile does not exist or is private. Used by the public profile page
- * and its dynamic OG image.
+ * and its dynamic OG image. cache() dedupes the generateMetadata + page
+ * calls within a single request.
  */
-export async function fetchPublicProfile(
+export const fetchPublicProfile = cache(async function fetchPublicProfile(
 	username: string,
 ): Promise<ProfileData | null> {
 	const config = getConfig();
@@ -24,4 +27,4 @@ export async function fetchPublicProfile(
 	} catch {
 		return null;
 	}
-}
+});

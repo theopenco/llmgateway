@@ -59,6 +59,7 @@ export async function deleteAll() {
 			await db.delete(tables.verification);
 			await db.delete(tables.organization);
 			await db.delete(tables.user);
+			await db.delete(tables.systemSetting);
 			return;
 		} catch (error) {
 			if (attempt >= 3 || !isDeadlockError(error)) {
@@ -150,56 +151,61 @@ function getCommonAggregationFields() {
 			sql<string>`coalesce(sum(cast(${tables.log.cacheWriteTokens} as numeric)), 0)`.as(
 				"cacheWriteTokens",
 			),
-		cost: sql<number>`coalesce(sum(${tables.log.cost}), 0)`.as("cost"),
-		inputCost: sql<number>`coalesce(sum(${tables.log.inputCost}), 0)`.as(
-			"inputCost",
+		cost: sql<number>`coalesce(sum(cast(${tables.log.cost} as double precision)), 0)`.as(
+			"cost",
 		),
-		outputCost: sql<number>`coalesce(sum(${tables.log.outputCost}), 0)`.as(
-			"outputCost",
-		),
-		requestCost: sql<number>`coalesce(sum(${tables.log.requestCost}), 0)`.as(
-			"requestCost",
-		),
+		inputCost:
+			sql<number>`coalesce(sum(cast(${tables.log.inputCost} as double precision)), 0)`.as(
+				"inputCost",
+			),
+		outputCost:
+			sql<number>`coalesce(sum(cast(${tables.log.outputCost} as double precision)), 0)`.as(
+				"outputCost",
+			),
+		requestCost:
+			sql<number>`coalesce(sum(cast(${tables.log.requestCost} as double precision)), 0)`.as(
+				"requestCost",
+			),
 		dataStorageCost:
-			sql<number>`coalesce(sum(cast(${tables.log.dataStorageCost} as real)), 0)`.as(
+			sql<number>`coalesce(sum(cast(${tables.log.dataStorageCost} as double precision)), 0)`.as(
 				"dataStorageCost",
 			),
 		discountSavings: sql<number>`coalesce(
 			sum(
 				case
 					when ${tables.log.discount} > 0 and ${tables.log.discount} < 1
-					then ${tables.log.cost} * ${tables.log.discount} / (1 - ${tables.log.discount})
+					then cast(${tables.log.cost} as double precision) * ${tables.log.discount} / (1 - ${tables.log.discount})
 					else 0
 				end
 			),
 			0
 		)`.as("discountSavings"),
 		imageInputCost:
-			sql<number>`coalesce(sum(${tables.log.imageInputCost}), 0)`.as(
+			sql<number>`coalesce(sum(cast(${tables.log.imageInputCost} as double precision)), 0)`.as(
 				"imageInputCost",
 			),
 		imageOutputCost:
-			sql<number>`coalesce(sum(${tables.log.imageOutputCost}), 0)`.as(
+			sql<number>`coalesce(sum(cast(${tables.log.imageOutputCost} as double precision)), 0)`.as(
 				"imageOutputCost",
 			),
 		audioInputCost:
-			sql<number>`coalesce(sum(${tables.log.audioInputCost}), 0)`.as(
+			sql<number>`coalesce(sum(cast(${tables.log.audioInputCost} as double precision)), 0)`.as(
 				"audioInputCost",
 			),
 		audioOutputCost:
-			sql<number>`coalesce(sum(${tables.log.audioOutputCost}), 0)`.as(
+			sql<number>`coalesce(sum(cast(${tables.log.audioOutputCost} as double precision)), 0)`.as(
 				"audioOutputCost",
 			),
 		videoOutputCost:
-			sql<number>`coalesce(sum(${tables.log.videoOutputCost}), 0)`.as(
+			sql<number>`coalesce(sum(cast(${tables.log.videoOutputCost} as double precision)), 0)`.as(
 				"videoOutputCost",
 			),
 		cachedInputCost:
-			sql<number>`coalesce(sum(${tables.log.cachedInputCost}), 0)`.as(
+			sql<number>`coalesce(sum(cast(${tables.log.cachedInputCost} as double precision)), 0)`.as(
 				"cachedInputCost",
 			),
 		cacheWriteInputCost:
-			sql<number>`coalesce(sum(${tables.log.cacheWriteInputCost}), 0)`.as(
+			sql<number>`coalesce(sum(cast(${tables.log.cacheWriteInputCost} as double precision)), 0)`.as(
 				"cacheWriteInputCost",
 			),
 		// Per-mode breakdowns
@@ -212,19 +218,19 @@ function getCommonAggregationFields() {
 				"apiKeysRequestCount",
 			),
 		creditsCost:
-			sql<number>`coalesce(sum(case when ${tables.log.usedMode} = 'credits' then ${tables.log.cost} else 0 end), 0)`.as(
+			sql<number>`coalesce(sum(case when ${tables.log.usedMode} = 'credits' then cast(${tables.log.cost} as double precision) else 0 end), 0)`.as(
 				"creditsCost",
 			),
 		apiKeysCost:
-			sql<number>`coalesce(sum(case when ${tables.log.usedMode} = 'api-keys' then ${tables.log.cost} else 0 end), 0)`.as(
+			sql<number>`coalesce(sum(case when ${tables.log.usedMode} = 'api-keys' then cast(${tables.log.cost} as double precision) else 0 end), 0)`.as(
 				"apiKeysCost",
 			),
 		creditsDataStorageCost:
-			sql<number>`coalesce(sum(case when ${tables.log.usedMode} = 'credits' then cast(${tables.log.dataStorageCost} as real) else 0 end), 0)`.as(
+			sql<number>`coalesce(sum(case when ${tables.log.usedMode} = 'credits' then cast(${tables.log.dataStorageCost} as double precision) else 0 end), 0)`.as(
 				"creditsDataStorageCost",
 			),
 		apiKeysDataStorageCost:
-			sql<number>`coalesce(sum(case when ${tables.log.usedMode} = 'api-keys' then cast(${tables.log.dataStorageCost} as real) else 0 end), 0)`.as(
+			sql<number>`coalesce(sum(case when ${tables.log.usedMode} = 'api-keys' then cast(${tables.log.dataStorageCost} as double precision) else 0 end), 0)`.as(
 				"apiKeysDataStorageCost",
 			),
 	};
@@ -462,7 +468,9 @@ export async function aggregateLogsForTesting() {
 				sql<string>`coalesce(sum(cast(${tables.log.totalTokens} as numeric)), 0)`.as(
 					"totalTokens",
 				),
-			cost: sql<number>`coalesce(sum(${tables.log.cost}), 0)`.as("cost"),
+			cost: sql<number>`coalesce(sum(cast(${tables.log.cost} as double precision)), 0)`.as(
+				"cost",
+			),
 		})
 		.from(tables.log)
 		.where(isNotNull(tables.log.providerKeyId))

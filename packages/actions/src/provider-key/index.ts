@@ -7,10 +7,13 @@ export {
 	readProviderKey,
 	hasProviderKey,
 	providerKeyEncryptionScope,
+	providerKeyLabel,
 	MANAGED_PROVIDER_KEY_ORG_SCOPE,
 } from "./read.js";
-export type { ProviderKeyRowLike } from "./read.js";
+export type { ProviderKeyLabelRowLike, ProviderKeyRowLike } from "./read.js";
 export { redactToken } from "./redact.js";
+export { describeNetworkFailure } from "./network-error.js";
+export type { NetworkFailure } from "./network-error.js";
 export {
 	managedCredentialOptions,
 	managedCredentialValidationOptions,

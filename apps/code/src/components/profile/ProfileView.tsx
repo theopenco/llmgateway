@@ -1,6 +1,7 @@
 "use client";
 
 import { Calendar, Coins, Flame, Github, Hash, Zap } from "lucide-react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 
 import {
@@ -14,7 +15,6 @@ import {
 	ProfileShareActions,
 	XIcon,
 } from "@/components/profile/ProfileShareActions";
-import { ProfileTokensChart } from "@/components/profile/ProfileTokensChart";
 import { ProfileViewerCta } from "@/components/profile/ProfileViewerCta";
 import { ProfileWrapped } from "@/components/profile/ProfileWrapped";
 import { useAppConfig } from "@/lib/config";
@@ -26,6 +26,16 @@ import type { paths } from "@/lib/api/v1";
 
 export type ProfileData =
 	paths["/user/profile"]["get"]["responses"][200]["content"]["application/json"]["profile"];
+
+// The tokens chart pulls in recharts and renders below the fold, so keep it
+// out of the profile page's initial bundle.
+const ProfileTokensChart = dynamic(
+	() =>
+		import("@/components/profile/ProfileTokensChart").then(
+			(mod) => mod.ProfileTokensChart,
+		),
+	{ ssr: false, loading: () => <div className="h-52 w-full" /> },
+);
 
 const AGENT_BY_SOURCE = new Map<string, AgentDefinition>();
 for (const agent of AGENTS) {

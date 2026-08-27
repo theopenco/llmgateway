@@ -6,6 +6,11 @@ import Stripe from "stripe";
 import { z } from "zod";
 
 import {
+	checkAndReserveTopUp,
+	flushLimitHits,
+	releaseTopUpReservation,
+} from "@llmgateway/actions";
+import {
 	closeRedisClient,
 	closeStorageRedisClient,
 	consumeFromQueue,
@@ -22,6 +27,7 @@ import {
 	enqueueWebhookDeliveries,
 	eq,
 	inArray,
+	invalidateOrganizationsCache,
 	isNotNull,
 	isApiKeyPeriodLimitConfigured,
 	log,
@@ -38,7 +44,9 @@ import { hasErrorCode } from "@llmgateway/models";
 import {
 	assertSafeWebhookUrl,
 	calculateFees,
+	getRemainingPremiumWeeklyAllowance,
 	isCreditTopUpAmountInRange,
+	isLoungeSource,
 	isPremiumUsedModel,
 	isPremiumWeekExpired,
 	isPrivateOrReservedIp,
@@ -77,6 +85,8 @@ import {
 	resetShutdown,
 } from "./shutdown.js";
 
+import type { DevPlanTier } from "@llmgateway/shared";
+
 // Configuration for current minute history calculation interval (defaults to 5 seconds)
 const CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS =
 	Number(process.env.CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS) || 5;
@@ -103,6 +113,8 @@ const DATA_RETENTION_LOCK_KEY = "data_retention_cleanup";
 const MODEL_HISTORY_RETENTION_LOCK_KEY = "model_history_retention_cleanup";
 const END_USER_SESSION_CLEANUP_LOCK_KEY = "end_user_session_cleanup";
 const API_KEY_EXPIRATION_LOCK_KEY = "api_key_expiration";
+const LIMIT_HIT_FLUSH_LOCK_KEY = "limit_hit_flush";
+const STALE_TOPUP_PI_LOCK_KEY = "stale_topup_pi_cancel";
 const WEBHOOK_DELIVERY_LOCK_KEY = "platform_webhook_delivery";
 const MARGIN_PAYOUT_LOCK_KEY = "margin_payout";
 const LOCK_DURATION_MINUTES = 5;
@@ -125,8 +137,11 @@ const LOG_QUEUE_CONCURRENCY = Math.max(
 	Number(process.env.LOG_QUEUE_CONCURRENCY) || 4,
 );
 const CREDIT_BATCH_SIZE = Number(process.env.CREDIT_BATCH_SIZE) || 100;
+// 1s: this interval is the floor of the spend-to-balance settlement gap the
+// credit gates operate on, so it directly bounds how far a burst can
+// overshoot a balance. Idle cost is one lock round-trip per tick.
 const BATCH_PROCESSING_INTERVAL_SECONDS =
-	Number(process.env.CREDIT_BATCH_INTERVAL) || 5;
+	Number(process.env.CREDIT_BATCH_INTERVAL) || 1;
 const VIDEO_JOB_POLL_INTERVAL_SECONDS =
 	Number(process.env.VIDEO_JOB_POLL_INTERVAL_SECONDS) || 5;
 const VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS =
@@ -367,6 +382,11 @@ export async function processAutoTopUp(): Promise<void> {
 
 		// Filter organizations that need top-up based on credits vs threshold
 		const filteredOrgs = orgsNeedingTopUp.filter((org) => {
+			// An organization flagged as high risk cannot buy credits manually, so
+			// it must not keep charging a card automatically either.
+			if (org.riskFlagged) {
+				return false;
+			}
 			// DevPass orgs can only spend credits with the pay-as-you-go
 			// overflow opt-in; without it auto-reload would buy credits the
 			// org cannot use.
@@ -619,20 +639,51 @@ export async function processAutoTopUp(): Promise<void> {
 					continue;
 				}
 
+				// Tier-based top-up velocity cap. Reserving covers the gap between
+				// this check and the pending insert below: a concurrent manual
+				// top-up in that window would otherwise see neither a reservation
+				// nor the pending row and both could pass. On a cap hit just skip
+				// (the blocked attempt released its own reservation) — the next
+				// cycle re-checks once the window rolls, so auto-reload resumes by
+				// itself.
+				const velocity = await checkAndReserveTopUp({
+					org: freshOrg,
+					amountUsd: feeBreakdown.totalAmount,
+				});
+				if (!velocity.allowed) {
+					logger.info(
+						`Skipping auto top-up for organization ${org.id}: top-up velocity cap reached`,
+						{
+							capUsd: velocity.capUsd,
+							usedUsd: velocity.usedUsd,
+							attemptedUsd: feeBreakdown.totalAmount,
+						},
+					);
+					continue;
+				}
+
 				// Insert pending transaction before creating payment intent
-				const pendingTransaction = await db
-					.insert(tables.transaction)
-					.values({
-						organizationId: org.id,
-						type: "credit_topup",
-						creditAmount: feeBreakdown.baseAmount.toString(),
-						amount: feeBreakdown.totalAmount.toString(),
-						currency: "USD",
-						status: "pending",
-						description: `Auto top-up for ${topUpAmount} USD (total: ${feeBreakdown.totalAmount} including fees)`,
-					})
-					.returning()
-					.then((rows) => rows[0]);
+				let pendingTransaction;
+				try {
+					pendingTransaction = await db
+						.insert(tables.transaction)
+						.values({
+							organizationId: org.id,
+							type: "credit_topup",
+							creditAmount: feeBreakdown.baseAmount.toString(),
+							amount: feeBreakdown.totalAmount.toString(),
+							currency: "USD",
+							status: "pending",
+							description: `Auto top-up for ${topUpAmount} USD (total: ${feeBreakdown.totalAmount} including fees)`,
+						})
+						.returning()
+						.then((rows) => rows[0]);
+				} finally {
+					// The pending row now counts in the gate's DB window sum, so the
+					// bridging reservation must go either way (kept on success it
+					// would double-count; kept on failure it would leak headroom).
+					await releaseTopUpReservation(org.id, feeBreakdown.totalAmount);
+				}
 
 				logger.info(
 					`Created pending transaction ${pendingTransaction.id} for organization ${org.id}`,
@@ -982,6 +1033,10 @@ export async function batchProcessLogs(): Promise<number> {
 
 	let processedCount = 0;
 	const deductedOrgIds: string[] = [];
+	// Every org whose row was debited this batch (plan pools or regular
+	// credits). Their tagged cache entries are evicted after commit so the
+	// gateway's credit gates see the new balance immediately.
+	const settledOrgIds: string[] = [];
 	// Provider keys (BYOK or managed) whose accumulated usage crossed their
 	// spend limit this batch — deactivated after the transaction commits.
 	let overLimitProviderKeyIds: string[] = [];
@@ -1060,8 +1115,8 @@ export async function batchProcessLogs(): Promise<number> {
 			// Group logs by organization and api key to calculate total costs.
 			// We split per-org costs into a chat bucket and a default bucket so
 			// the deduction step below can prefer chat-plan credits for requests
-			// originating from chat.llmgateway.io (matching how users mentally
-			// account for their plans), and dev-plan credits everywhere else.
+			// originating from Lounge (matching how users mentally account for
+			// their plans), and dev-plan credits everywhere else.
 			// Use Decimal.js to avoid floating point rounding errors.
 			interface OrgCostBuckets {
 				chat: Decimal;
@@ -1085,8 +1140,10 @@ export async function batchProcessLogs(): Promise<number> {
 			// adjustments on what the org pays us.
 			const providerKeyCosts = new Map<string, Decimal>();
 
-			const isChatSource = (source: string | null | undefined) =>
-				source === "chat.llmgateway.io";
+			// Accepts both the current and the pre-move Lounge host: logs written
+			// before the domain move are still queued here, and rewriting them is
+			// not an option.
+			const isChatSource = isLoungeSource;
 
 			for (const raw of unprocessedLogs.rows) {
 				const row = schema.parse(raw);
@@ -1237,7 +1294,7 @@ export async function batchProcessLogs(): Promise<number> {
 			// Also calculate referral earnings (1% of spent credits).
 			//
 			// Deduction order is source-aware:
-			//   • chat.llmgateway.io requests → chat plan → dev plan → regular
+			//   • Lounge requests → chat plan → dev plan → regular
 			//   • everything else → dev plan → chat plan → regular
 			// The non-preferred plan acts as a fallback if the preferred plan's
 			// cycle credits are exhausted, so a single org with both plans gets
@@ -1329,6 +1386,8 @@ export async function batchProcessLogs(): Promise<number> {
 					continue;
 				}
 
+				settledOrgIds.push(orgId);
+
 				const org = await tx.query.organization.findFirst({
 					where: { id: { eq: orgId } },
 				});
@@ -1365,6 +1424,37 @@ export async function batchProcessLogs(): Promise<number> {
 				): Promise<{ remaining: Decimal; remainingPremium: Decimal }> => {
 					let remaining = bucketCost;
 					let remainingPremium = premiumCost;
+					// With PAYG overflow enabled, premium spend past the weekly
+					// fair-use allowance must not consume the plan pools: the gateway
+					// admits those requests on the strength of the credits balance, so
+					// the excess is held out of the pool drain here and falls through
+					// to the regular-credits remainder below. Without this the cap
+					// would stop limiting anything — over-cap premium would just keep
+					// draining the monthly pool.
+					// Scoped to buckets whose spend is the dev pool's to pay (its own
+					// bucket, or any bucket when there is no chat pool) — a dual-plan
+					// org's chat-sourced premium keeps draining the chat pool as before.
+					let premiumOverflow = new Decimal(0);
+					if (
+						org?.devPlanPaygEnabled &&
+						devPool &&
+						(preferred === devPool || !chatPool) &&
+						remainingPremium.greaterThan(0)
+					) {
+						const allowanceLeft = new Decimal(
+							getRemainingPremiumWeeklyAllowance(
+								org.devPlan as DevPlanTier,
+								devPool.premiumCreditsUsed?.toNumber() ?? 0,
+								devPool.premiumWeekStart,
+							),
+						);
+						premiumOverflow = Decimal.max(
+							0,
+							remainingPremium.minus(allowanceLeft),
+						);
+						remaining = remaining.minus(premiumOverflow);
+						remainingPremium = remainingPremium.minus(premiumOverflow);
+					}
 					for (const pool of [preferred, fallback]) {
 						if (!pool || remaining.lessThanOrEqualTo(0)) {
 							continue;
@@ -1381,7 +1471,10 @@ export async function batchProcessLogs(): Promise<number> {
 						remaining = remaining.minus(take);
 						remainingPremium = remainingPremium.minus(premiumTake);
 					}
-					return { remaining, remainingPremium };
+					return {
+						remaining: remaining.plus(premiumOverflow),
+						remainingPremium,
+					};
 				};
 
 				const fromChat = buckets.chat.greaterThan(0)
@@ -1689,6 +1782,12 @@ export async function batchProcessLogs(): Promise<number> {
 
 			return unprocessedLogs.rows.length;
 		});
+
+		// Evict the debited orgs' tagged cache entries so the gateway's next
+		// org read (and thus its credit gate) sees the new balance now rather
+		// than after the cache TTL — the debits above went through the plain
+		// client, which never fires cache invalidation. Best-effort.
+		await invalidateOrganizationsCache(settledOrgIds);
 
 		// Auto-deactivate provider keys that hit their spend limit. Goes through
 		// cdb so the gateway's provider_key read cache and SWR mirrors are
@@ -2030,8 +2129,10 @@ async function runLogQueueLoop(loopIndex = 0) {
 				// straight into the next batch instead of sleeping. Tying this to
 				// LOG_QUEUE_BATCH_SIZE was wrong: when the batch size is raised
 				// above the steady-state queue depth the sleep fired every cycle.
+				// 250ms keeps queue latency out of the billing settlement gap at
+				// the cost of four cheap LPOPs per idle second.
 				if (drained === 0) {
-					await interruptibleSleep(1000);
+					await interruptibleSleep(250);
 				}
 			} catch (error) {
 				logger.error(
@@ -2543,6 +2644,143 @@ async function runApiKeyExpirationLoop() {
 	}
 }
 
+async function flushLimitHitCounters(): Promise<void> {
+	const lockAcquired = await acquireLock(LIMIT_HIT_FLUSH_LOCK_KEY);
+	if (!lockAcquired) {
+		return;
+	}
+
+	try {
+		// Single flusher (the lock) is what makes the RENAME-based drain in
+		// flushLimitHits safe.
+		const flushed = await flushLimitHits();
+		if (flushed > 0) {
+			logger.info(`Flushed ${flushed} limit-hit bucket(s) to Postgres`);
+		}
+	} finally {
+		await releaseLock(LIMIT_HIT_FLUSH_LOCK_KEY);
+	}
+}
+
+async function runLimitHitFlushLoop() {
+	activeLoops++;
+	const interval =
+		parseInt(process.env.LIMIT_HIT_FLUSH_INTERVAL_SECONDS || "60", 10) * 1000;
+	logger.info(
+		`Starting limit-hit flush loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				await flushLimitHitCounters();
+
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in limit-hit flush loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Limit-hit flush loop stopped");
+	}
+}
+
+// Client-confirmation credit top-ups (create-payment-intent hands the browser
+// a client secret to confirm later) can be abandoned. Their velocity
+// reservation self-expires with its TTL, but the client secret stays
+// confirmable — so stockpiled secrets could later all be confirmed at once,
+// blowing through the top-up cap with no reservation counting them. Cancel
+// PIs still unconfirmed well past the reservation TTL; a genuinely active
+// checkout finishes in minutes, and a canceled PI just means starting over.
+const STALE_TOPUP_PI_MAX_AGE_SECONDS = 35 * 60;
+const STALE_TOPUP_PI_CANCELABLE_STATUSES = [
+	"requires_payment_method",
+	"requires_confirmation",
+	"requires_action",
+] as const;
+
+async function cancelStaleTopUpPaymentIntents(): Promise<number> {
+	const nowSeconds = Math.floor(Date.now() / 1000);
+	const cutoff = nowSeconds - STALE_TOPUP_PI_MAX_AGE_SECONDS;
+	let canceled = 0;
+	for (const status of STALE_TOPUP_PI_CANCELABLE_STATUSES) {
+		// Search is eventually consistent (~1 min lag) — irrelevant at a
+		// 35-minute horizon. One page per status per run bounds Stripe traffic;
+		// leftovers are picked up next run.
+		const page = await getStripe().paymentIntents.search({
+			query: `status:"${status}" AND metadata["flow"]:"client_confirmation" AND created<${cutoff}`,
+			limit: 100,
+		});
+		for (const pi of page.data) {
+			try {
+				await getStripe().paymentIntents.cancel(pi.id, {
+					cancellation_reason: "abandoned",
+				});
+				canceled++;
+			} catch (error) {
+				// Lost a race with a just-started confirmation (or another
+				// canceller) — the PI is no longer cancelable; skip it.
+				logger.warn("Could not cancel stale top-up PaymentIntent", {
+					paymentIntentId: pi.id,
+					status,
+					error: error instanceof Error ? error.message : String(error),
+				});
+			}
+		}
+	}
+	return canceled;
+}
+
+async function runStaleTopUpPiCancelLoop() {
+	if (!process.env.STRIPE_SECRET_KEY) {
+		logger.info(
+			"Stale top-up PaymentIntent cancel loop disabled (no STRIPE_SECRET_KEY)",
+		);
+		return;
+	}
+	activeLoops++;
+	const interval =
+		parseInt(process.env.STALE_TOPUP_PI_CANCEL_INTERVAL_SECONDS || "600", 10) *
+		1000;
+	logger.info(
+		`Starting stale top-up PaymentIntent cancel loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				const lockAcquired = await acquireLock(STALE_TOPUP_PI_LOCK_KEY);
+				if (lockAcquired) {
+					try {
+						const canceled = await cancelStaleTopUpPaymentIntents();
+						if (canceled > 0) {
+							logger.info(`Canceled ${canceled} stale top-up PaymentIntent(s)`);
+						}
+					} finally {
+						await releaseLock(STALE_TOPUP_PI_LOCK_KEY);
+					}
+				}
+
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in stale top-up PaymentIntent cancel loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Stale top-up PaymentIntent cancel loop stopped");
+	}
+}
+
 const MAX_WEBHOOK_ATTEMPTS = 5;
 const WEBHOOK_DELIVERY_BATCH_SIZE = 50;
 
@@ -2938,6 +3176,8 @@ export async function startWorker() {
 	void runModelHistoryRetentionLoop();
 	void runEndUserSessionCleanupLoop();
 	void runApiKeyExpirationLoop();
+	void runLimitHitFlushLoop();
+	void runStaleTopUpPiCancelLoop();
 	void runWebhookDeliveryLoop();
 	void runMarginPayoutLoop();
 	void runFollowUpEmailsLoop({

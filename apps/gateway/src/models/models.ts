@@ -1,6 +1,8 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
+import { publicErrorResponses } from "@/lib/error-schemas.js";
+
 import { logger, toError } from "@llmgateway/logger";
 import {
 	models as modelsList,
@@ -186,10 +188,11 @@ const listModels = createRoute({
 			},
 			description: "List of available models",
 		},
+		...publicErrorResponses(),
 	},
 });
 
-modelsApi.openapi(listModels, async (c) => {
+modelsApi.openapi(listModels, async (c): Promise<any> => {
 	try {
 		const query = c.req.valid("query");
 		const includeDeactivated = query.include_deactivated || false;
@@ -417,15 +420,17 @@ modelsApi.openapi(listModels, async (c) => {
 				per_request_limits: getPerRequestLimits(model),
 				// Get supported parameters from model definitions with fallback to defaults
 				supported_parameters: getSupportedParametersFromModel(model),
-				// Add model-level capabilities
-				json_output:
-					model.providers.some(
-						(p) => (p as ProviderModelMapping).jsonOutput === true,
-					) || false,
-				structured_outputs:
-					model.providers.some(
-						(p) => (p as ProviderModelMapping).jsonOutputSchema === true,
-					) || false,
+				// A deactivated mapping can no longer serve requests, so the
+				// JSON capabilities advertised at the model level must come
+				// from mappings that can actually be routed to — the same
+				// deactivation filter used for pricing and max_output.
+				// Deprecated mappings remain routable and keep contributing.
+				json_output: (model.providers as ProviderModelMapping[])
+					.filter((p) => !(p.deactivatedAt && currentDate > p.deactivatedAt))
+					.some((p) => p.jsonOutput === true),
+				structured_outputs: (model.providers as ProviderModelMapping[])
+					.filter((p) => !(p.deactivatedAt && currentDate > p.deactivatedAt))
+					.some((p) => p.jsonOutputSchema === true),
 				free: model.free ?? false,
 				// A model is only deprecated/deactivated once EVERY provider mapping
 				// is — the same `.every()` semantics used for filtering above. Report

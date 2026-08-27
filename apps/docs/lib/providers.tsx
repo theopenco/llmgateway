@@ -30,11 +30,14 @@ export function PostHogProvider({ children }: { children: ReactNode }) {
 				},
 			});
 		};
+		// Captures fired before init() are dropped by posthog-js, so the idle
+		// deferral must be bounded — a busy main thread can starve
+		// requestIdleCallback long enough for a reader to rate a page.
 		if (typeof requestIdleCallback !== "undefined") {
-			const id = requestIdleCallback(init);
+			const id = requestIdleCallback(init, { timeout: 800 });
 			return () => cancelIdleCallback(id);
 		}
-		const timer = setTimeout(init, 1000);
+		const timer = setTimeout(init, 300);
 		return () => clearTimeout(timer);
 	}, [config.isLoaded, config.posthogKey, config.posthogHost, config.hasError]);
 

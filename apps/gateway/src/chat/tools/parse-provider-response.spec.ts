@@ -51,6 +51,45 @@ describe("parseProviderResponse", () => {
 	});
 
 	describe("openai responses format reasoning", () => {
+		it("extracts Muse images and usage from Responses output", () => {
+			const result = parseProviderResponse("meta", "muse-image-1.0", {
+				id: "resp_muse",
+				status: "completed",
+				output: [
+					{
+						type: "reasoning",
+						summary: [{ type: "summary_text", text: "Planning the image" }],
+					},
+					{
+						type: "image_generation_call",
+						result: "UklGRmFrZQ==",
+					},
+				],
+				usage: {
+					input_tokens: 9520,
+					output_tokens: 443,
+					total_tokens: 9963,
+					input_tokens_details: { cached_tokens: 7936 },
+					output_tokens_details: { reasoning_tokens: 160 },
+				},
+			});
+
+			expect(result.content).toBe("Image generated");
+			expect(result.images).toEqual([
+				{
+					type: "image_url",
+					image_url: {
+						url: "data:image/webp;base64,UklGRmFrZQ==",
+					},
+				},
+			]);
+			expect(result.reasoningContent).toBe("Planning the image");
+			expect(result.promptTokens).toBe(9520);
+			expect(result.completionTokens).toBe(443);
+			expect(result.cachedTokens).toBe(7936);
+			expect(result.reasoningTokens).toBe(160);
+		});
+
 		it("extracts encrypted reasoning payloads into reasoningDetails", () => {
 			const json = {
 				id: "resp_123",
@@ -351,6 +390,42 @@ describe("parseProviderResponse", () => {
 			expect(result.reasoningTokens).toBe(44);
 			expect(result.completionTokens).toBe(45);
 			expect(result.finishReason).toBe("STOP");
+		});
+	});
+
+	describe("google blocked responses", () => {
+		it("retains the original block reason when candidates are missing", () => {
+			const result = parseProviderResponse(
+				"google-ai-studio",
+				"gemini-3-pro-image-preview",
+				{ promptFeedback: { blockReason: "PROHIBITED_CONTENT" } },
+			);
+
+			expect(result.finishReason).toBe("PROHIBITED_CONTENT");
+		});
+
+		it("reports no finish reason when google gives none at all", () => {
+			const result = parseProviderResponse(
+				"google-ai-studio",
+				"gemini-3-pro-image-preview",
+				{ candidates: [] },
+			);
+
+			expect(result.finishReason).toBeNull();
+		});
+
+		it("retains NO_IMAGE rather than reporting it as a content filter", () => {
+			const result = parseProviderResponse(
+				"google-ai-studio",
+				"gemini-3-pro-image-preview",
+				{
+					candidates: [
+						{ content: { role: "model", parts: [] }, finishReason: "NO_IMAGE" },
+					],
+				},
+			);
+
+			expect(result.finishReason).toBe("NO_IMAGE");
 		});
 	});
 
@@ -824,6 +899,68 @@ describe("parseProviderResponse", () => {
 
 			expect(result.finishReason).toBe("upstream_error");
 		});
+
+		it("maps 'end_turn' finish reason to 'stop' for groq", () => {
+			const json = {
+				choices: [
+					{
+						message: { content: "Hello", role: "assistant" },
+						finish_reason: "end_turn",
+					},
+				],
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"groq",
+				"llama-3.3-70b-versatile",
+				json,
+			);
+
+			expect(result.finishReason).toBe("stop");
+		});
+
+		it("maps 'tool_use' finish reason to 'tool_calls' for together-ai", () => {
+			const json = {
+				choices: [
+					{
+						message: {
+							role: "assistant",
+							content: null,
+							tool_calls: [
+								{
+									id: "call_1",
+									type: "function",
+									function: {
+										name: "get_weather",
+										arguments: '{"city":"San Francisco"}',
+									},
+								},
+							],
+						},
+						finish_reason: "tool_use",
+					},
+				],
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"together-ai",
+				"deepseek-ai/DeepSeek-V3",
+				json,
+			);
+
+			expect(result.finishReason).toBe("tool_calls");
+			expect(result.toolResults).toHaveLength(1);
+		});
 	});
 
 	describe("refusal finish reason", () => {
@@ -866,6 +1003,37 @@ describe("parseProviderResponse", () => {
 			);
 
 			expect(result.finishReason).toBe("refusal");
+		});
+	});
+
+	describe("azure-anthropic", () => {
+		it("parses a Microsoft Foundry Anthropic Messages response like anthropic", () => {
+			const json = {
+				content: [
+					{ type: "thinking", thinking: "considering" },
+					{ type: "text", text: "Hello from Foundry" },
+				],
+				stop_reason: "end_turn",
+				usage: {
+					input_tokens: 12,
+					cache_creation_input_tokens: 0,
+					cache_read_input_tokens: 4,
+					output_tokens: 7,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"azure-anthropic",
+				"claude-opus-4-8",
+				json,
+			);
+
+			expect(result.content).toBe("Hello from Foundry");
+			expect(result.reasoningContent).toBe("considering");
+			expect(result.finishReason).toBe("end_turn");
+			expect(result.promptTokens).toBe(16); // 12 + 0 + 4
+			expect(result.completionTokens).toBe(7);
+			expect(result.cachedTokens).toBe(4);
 		});
 	});
 
@@ -1108,6 +1276,56 @@ describe("parseProviderResponse", () => {
 		});
 	});
 
+	describe("DashScope web search billing", () => {
+		// DashScope returns no search metadata whatsoever, so the count is
+		// inferred from the request. Only a forced request actually searches.
+		const json = {
+			choices: [
+				{
+					message: { content: "Hello", role: "assistant" },
+					finish_reason: "stop",
+				},
+			],
+			usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+		};
+
+		it.each(["alibaba", "scx-ai-gp"] as const)(
+			"%s counts one search when forced",
+			(provider) => {
+				const result = parseProviderResponse(
+					provider,
+					"qwen3.8-max",
+					json,
+					[],
+					true,
+					false,
+					true,
+					true,
+				);
+
+				expect(result.webSearchCount).toBe(1);
+			},
+		);
+
+		it.each(["alibaba", "scx-ai-gp"] as const)(
+			"%s bills nothing for an unforced request",
+			(provider) => {
+				const result = parseProviderResponse(
+					provider,
+					"qwen3.8-max",
+					json,
+					[],
+					true,
+					false,
+					true,
+					false,
+				);
+
+				expect(result.webSearchCount).toBeNull();
+			},
+		);
+	});
+
 	describe("minimax reasoning extraction", () => {
 		it("extracts reasoning from reasoning_details", () => {
 			const json = {
@@ -1202,6 +1420,59 @@ describe("parseProviderResponse", () => {
 
 			expect(result.content).toBe("Final answer");
 			expect(result.reasoningContent).toBe("structured reasoning");
+		});
+	});
+
+	describe("xai reasoning tokens", () => {
+		// Real grok-4.6 usage payload: reasoning is reported only in the nested
+		// details object and is NOT part of completion_tokens (note total_tokens =
+		// 213 + 4 + 310), so it has to be read here to be billed at all.
+		const xaiJson = {
+			choices: [
+				{
+					message: { role: "assistant", content: "Hello there friend." },
+					finish_reason: "stop",
+				},
+			],
+			usage: {
+				prompt_tokens: 213,
+				completion_tokens: 4,
+				total_tokens: 527,
+				prompt_tokens_details: { cached_tokens: 128 },
+				completion_tokens_details: { reasoning_tokens: 310 },
+			},
+		};
+
+		it.each(["xai", "vertex-openai"] as const)(
+			"reads reasoning tokens from completion_tokens_details for %s",
+			(provider) => {
+				const result = parseProviderResponse(
+					provider,
+					"grok-4-6",
+					xaiJson,
+					[],
+					true,
+				);
+
+				expect(result.promptTokens).toBe(213);
+				expect(result.completionTokens).toBe(4);
+				expect(result.reasoningTokens).toBe(310);
+				expect(result.cachedTokens).toBe(128);
+			},
+		);
+
+		it("ignores the nested count for other OpenAI-compatible providers", () => {
+			// Everyone else folds reasoning into completion_tokens already, so
+			// reading the nested field would bill the same tokens twice.
+			const result = parseProviderResponse(
+				"openai",
+				"gpt-5.5",
+				xaiJson,
+				[],
+				true,
+			);
+
+			expect(result.reasoningTokens).toBeNull();
 		});
 	});
 });

@@ -110,6 +110,8 @@ const llmgateway = createOpenAI({
 });
 ```
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## Step 3: Enable Streaming
 
 Pass `stream: true` to any request and the gateway will proxy the event stream unchanged:
@@ -147,9 +149,11 @@ Same API, same code. Just a different model string.
 
 ## What's Next
 
-- **[Try models in the Playground](https://chat.llmgateway.io)** — test any model with a chat interface before integrating
+- **[Try models in the Playground](https://lounge.llmgateway.io)** — test any model with a chat interface before integrating
 - **[Browse all models](/models)** — compare pricing, context windows, and capabilities
 - **[Read the full docs](https://docs.llmgateway.io)** — streaming, tool calling, structured output, and more
 - **[Join our Discord](https://llmgateway.io/discord)** — get help and share what you're building
 
 **[Get started now](/signup)**
+
+<BlogCta variant="gateway" location="bottom" />

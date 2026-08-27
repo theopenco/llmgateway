@@ -124,13 +124,18 @@ const nextConfig: NextConfig = {
 				permanent: true,
 			},
 			{
+				source: "/lounge",
+				destination: "https://lounge.llmgateway.io",
+				permanent: true,
+			},
+			{
 				source: "/chat",
-				destination: "https://chat.llmgateway.io",
+				destination: "https://lounge.llmgateway.io",
 				permanent: true,
 			},
 			{
 				source: "/playground",
-				destination: "https://chat.llmgateway.io",
+				destination: "https://lounge.llmgateway.io",
 				permanent: true,
 			},
 			{
@@ -181,6 +186,16 @@ const nextConfig: NextConfig = {
 			{
 				source: "/privacy",
 				destination: "/legal/privacy",
+				permanent: true,
+			},
+			{
+				source: "/sub-processors",
+				destination: "/legal/sub-processors",
+				permanent: true,
+			},
+			{
+				source: "/subprocessors",
+				destination: "/legal/sub-processors",
 				permanent: true,
 			},
 			{
@@ -431,6 +446,17 @@ const nextConfig: NextConfig = {
 			{
 				source: "/docs-health",
 				destination: "https://docs.llmgateway.io/health",
+			},
+			// OAuth discovery metadata (RFC 8414 / RFC 9728) lives on the
+			// gateway, where the MCP server and OAuth endpoints are; mirror it
+			// here so agents probing the primary domain find it.
+			{
+				source: "/.well-known/oauth-authorization-server",
+				destination: `${process.env.GATEWAY_URL ?? "https://api.llmgateway.io"}/.well-known/oauth-authorization-server`,
+			},
+			{
+				source: "/.well-known/oauth-protected-resource",
+				destination: `${process.env.GATEWAY_URL ?? "https://api.llmgateway.io"}/.well-known/oauth-protected-resource`,
 			},
 			// First-party PostHog ingestion proxy — ad blockers block
 			// *.posthog.com directly, silently dropping client events. The

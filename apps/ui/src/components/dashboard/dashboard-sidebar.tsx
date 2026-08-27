@@ -179,6 +179,12 @@ const PROJECT_SETTINGS = [
 	{
 		href: "settings/dynamic-routes",
 		label: "Dynamic Routes",
+		enterpriseOnly: true,
+	},
+	{
+		href: "settings/guardrails",
+		label: "Guardrails",
+		enterpriseOnly: true,
 	},
 ] as const;
 
@@ -265,6 +271,10 @@ const ORGANIZATION_SETTINGS = [
 	{
 		href: "org/referrals",
 		label: "Referrals",
+	},
+	{
+		href: "org/limits",
+		label: "Limits",
 	},
 	{
 		href: "org/policies",
@@ -536,10 +546,12 @@ function ProjectSettingsSection({
 	isActive,
 	isMobile,
 	toggleSidebar,
+	showEnterpriseBadge,
 }: {
 	isActive: (path: string) => boolean;
 	isMobile: boolean;
 	toggleSidebar: () => void;
+	showEnterpriseBadge: boolean;
 }) {
 	const { buildUrl } = useDashboardNavigation();
 	const [isHovered, setIsHovered] = useState(false);
@@ -581,6 +593,9 @@ function ProjectSettingsSection({
 								prefetch={true}
 							>
 								<span>{item.label}</span>
+								{"enterpriseOnly" in item &&
+									item.enterpriseOnly &&
+									showEnterpriseBadge && <EnterpriseIndicator />}
 							</Link>
 						</SidebarMenuSubButton>
 					</SidebarMenuSubItem>
@@ -696,6 +711,7 @@ function OrganizationSection({
 								isActive("org/billing") ||
 								isActive("org/transactions") ||
 								isActive("org/referrals") ||
+								isActive("org/limits") ||
 								isActive("org/policies") ||
 								isActive("org/preferences") ||
 								isActive("org/audit-logs")
@@ -1224,7 +1240,7 @@ export function DashboardSidebar({
 				href:
 					process.env.NODE_ENV === "development"
 						? "http://localhost:3003"
-						: "https://chat.llmgateway.io",
+						: "https://lounge.llmgateway.io",
 				label: "Lounge",
 				icon: AnimatedBotMessageSquare,
 				internal: false,
@@ -1272,6 +1288,7 @@ export function DashboardSidebar({
 				href: buildUrl(item.href),
 				label: item.label,
 				section: "Project Settings",
+				enterpriseGated: "enterpriseOnly" in item && item.enterpriseOnly,
 			})),
 			...ORGANIZATION_NAVIGATION.map((item) => ({
 				href: buildOrgUrl(item.href),
@@ -1443,7 +1460,9 @@ export function DashboardSidebar({
 					<SidebarSearchResults
 						matches={searchMatches}
 						onNavigate={handleSearchNavigate}
-						showEnterpriseBadge={selectedOrganization?.plan !== "enterprise"}
+						showEnterpriseBadge={
+							selectedOrganization?.enterpriseAccess !== true
+						}
 					/>
 				) : selectedOrganization?.role === "developer" ? (
 					// Project-scoped "developer" members get a minimal, personal nav:
@@ -1471,7 +1490,7 @@ export function DashboardSidebar({
 							isActive={isActive}
 							isMobile={isMobile}
 							toggleSidebar={toggleSidebar}
-							isEnterprise={selectedOrganization?.plan === "enterprise"}
+							isEnterprise={selectedOrganization?.enterpriseAccess === true}
 						/>
 					</>
 				) : (
@@ -1494,6 +1513,9 @@ export function DashboardSidebar({
 										isActive={isActive}
 										isMobile={isMobile}
 										toggleSidebar={toggleSidebar}
+										showEnterpriseBadge={
+											selectedOrganization?.enterpriseAccess !== true
+										}
 									/>
 								</SidebarMenu>
 							</SidebarGroupContent>
@@ -1504,7 +1526,7 @@ export function DashboardSidebar({
 							isMobile={isMobile}
 							toggleSidebar={toggleSidebar}
 							searchParams={searchParams}
-							isEnterprise={selectedOrganization?.plan === "enterprise"}
+							isEnterprise={selectedOrganization?.enterpriseAccess === true}
 						/>
 
 						<ToolsResourcesSection

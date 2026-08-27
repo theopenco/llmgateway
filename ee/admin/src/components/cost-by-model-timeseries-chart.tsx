@@ -1,9 +1,11 @@
 "use client";
 
 import { format } from "date-fns";
+import { Cpu, FolderOpen, KeyRound, Layers, User } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
+import { Button } from "@/components/ui/button";
 import {
 	Card,
 	CardContent,
@@ -43,10 +45,16 @@ const modelViewTabs: { key: ModelView; label: string }[] = [
 	{ key: "canonical", label: "Canonical" },
 ];
 
-const groupByTabs: { key: CostTimeseriesGroupBy; label: string }[] = [
-	{ key: "model", label: "By model" },
-	{ key: "source", label: "By source" },
-];
+const groupByConfig: Record<
+	CostTimeseriesGroupBy,
+	{ label: string; icon: typeof Cpu }
+> = {
+	model: { label: "Model", icon: Cpu },
+	source: { label: "Source", icon: Layers },
+	project: { label: "Project", icon: FolderOpen },
+	"api-key": { label: "API key", icon: KeyRound },
+	user: { label: "User", icon: User },
+};
 
 const seriesColors = [
 	"hsl(221 83% 53%)",
@@ -67,10 +75,6 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
 	maximumFractionDigits: 4,
 });
 
-function sanitizeKey(model: string): string {
-	return model.replace(/[^a-zA-Z0-9]/g, "_");
-}
-
 export function CostByModelTimeseriesChart({
 	title,
 	description,
@@ -78,6 +82,9 @@ export function CostByModelTimeseriesChart({
 	externalWindow,
 	groupBy,
 	onGroupByChange,
+	groupByOptions = ["model", "source"],
+	modelView: controlledModelView,
+	onModelViewChange,
 }: {
 	title: string;
 	description?: string;
@@ -89,11 +96,17 @@ export function CostByModelTimeseriesChart({
 	externalWindow: TokenWindow;
 	groupBy?: CostTimeseriesGroupBy;
 	onGroupByChange?: (groupBy: CostTimeseriesGroupBy) => void;
+	groupByOptions?: CostTimeseriesGroupBy[];
+	modelView?: ModelView;
+	onModelViewChange?: (modelView: ModelView) => void;
 }) {
 	const [data, setData] = useState<CostByModelTimeseriesResponse | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [activeMetric, setActiveMetric] = useState<ActiveMetric>("cost");
-	const [modelView, setModelView] = useState<ModelView>("mapping");
+	const [internalModelView, setInternalModelView] =
+		useState<ModelView>("mapping");
+	const modelView = controlledModelView ?? internalModelView;
+	const setModelView = onModelViewChange ?? setInternalModelView;
 	const latestRequestRef = useRef(0);
 	const activeGroupBy = groupBy ?? "model";
 
@@ -125,19 +138,22 @@ export function CostByModelTimeseriesChart({
 
 	const usageMode = useUsageMode();
 
-	const { chartData, config, keyToModel } = useMemo(() => {
+	const { chartData, config, keyToModel, modelToKey } = useMemo(() => {
 		if (!data) {
 			return {
 				chartData: [],
 				config: {} as ChartConfig,
 				keyToModel: new Map<string, string>(),
+				modelToKey: new Map<string, string>(),
 			};
 		}
 		const keyToModelLocal = new Map<string, string>();
+		const modelToKeyLocal = new Map<string, string>();
 		const cfg: ChartConfig = {};
 		data.models.forEach((model, index) => {
-			const key = sanitizeKey(model);
+			const key = `series_${index}`;
 			keyToModelLocal.set(key, model);
+			modelToKeyLocal.set(model, key);
 			cfg[key] = {
 				label: model,
 				color: seriesColors[index % seriesColors.length],
@@ -160,15 +176,25 @@ export function CostByModelTimeseriesChart({
 				timestamp: point.timestamp,
 			};
 			for (const model of data.models) {
-				row[sanitizeKey(model)] = 0;
+				const key = modelToKeyLocal.get(model);
+				if (key) {
+					row[key] = 0;
+				}
 			}
 			for (const entry of point.entries) {
-				const key = sanitizeKey(entry.model);
-				row[key] = Number(entry[metricKey] ?? 0);
+				const key = modelToKeyLocal.get(entry.model);
+				if (key) {
+					row[key] = Number(entry[metricKey] ?? 0);
+				}
 			}
 			return row;
 		});
-		return { chartData: rows, config: cfg, keyToModel: keyToModelLocal };
+		return {
+			chartData: rows,
+			config: cfg,
+			keyToModel: keyToModelLocal,
+			modelToKey: modelToKeyLocal,
+		};
 	}, [data, activeMetric, usageMode]);
 
 	const bucket = data?.bucket ?? "day";
@@ -194,10 +220,16 @@ export function CostByModelTimeseriesChart({
 					</div>
 				</div>
 				<div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2">
-					<div className="flex items-center gap-1">
+					<div
+						className="flex items-center gap-1"
+						role="group"
+						aria-label="Metric"
+					>
 						{metricTabs.map((tab) => (
 							<button
 								key={tab.key}
+								type="button"
+								aria-pressed={activeMetric === tab.key}
 								className={cn(
 									"rounded-md px-3 py-1 text-xs font-medium transition-colors",
 									activeMetric === tab.key
@@ -213,28 +245,40 @@ export function CostByModelTimeseriesChart({
 					<div className="flex flex-wrap items-center gap-2">
 						<UsageModeSelector />
 						{onGroupByChange && (
-							<div className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-0.5">
-								{groupByTabs.map((tab) => (
-									<button
-										key={tab.key}
-										className={cn(
-											"rounded-sm px-2.5 py-1 text-xs font-medium transition-colors",
-											activeGroupBy === tab.key
-												? "bg-primary text-primary-foreground"
-												: "text-muted-foreground hover:text-foreground",
-										)}
-										onClick={() => onGroupByChange(tab.key)}
-									>
-										{tab.label}
-									</button>
-								))}
+							<div
+								className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-0.5"
+								role="group"
+								aria-label="Break down by"
+							>
+								{groupByOptions.map((option) => {
+									const { label, icon: Icon } = groupByConfig[option];
+									return (
+										<Button
+											key={option}
+											aria-pressed={activeGroupBy === option}
+											variant={activeGroupBy === option ? "default" : "ghost"}
+											size="sm"
+											className="h-7 gap-1.5 px-3 text-xs"
+											onClick={() => onGroupByChange(option)}
+										>
+											<Icon className="h-3.5 w-3.5" />
+											{label}
+										</Button>
+									);
+								})}
 							</div>
 						)}
 						{activeGroupBy === "model" && (
-							<div className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-0.5">
+							<div
+								className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-0.5"
+								role="group"
+								aria-label="Model view"
+							>
 								{modelViewTabs.map((tab) => (
 									<button
 										key={tab.key}
+										type="button"
+										aria-pressed={modelView === tab.key}
 										className={cn(
 											"rounded-sm px-2.5 py-1 text-xs font-medium transition-colors",
 											modelView === tab.key
@@ -266,8 +310,9 @@ export function CostByModelTimeseriesChart({
 							config={config}
 							className="aspect-auto h-[300px] w-full"
 						>
-							<AreaChart
+							<BarChart
 								data={chartData}
+								accessibilityLayer
 								margin={{ left: 0, right: 8, top: 4, bottom: 0 }}
 							>
 								<CartesianGrid vertical={false} strokeDasharray="3 3" />
@@ -331,21 +376,20 @@ export function CostByModelTimeseriesChart({
 									}}
 								/>
 								{data.models.map((model) => {
-									const key = sanitizeKey(model);
+									const key = modelToKey.get(model);
+									if (!key) {
+										return null;
+									}
 									return (
-										<Area
+										<Bar
 											key={key}
 											dataKey={key}
-											type="monotone"
-											stackId="1"
-											stroke={`var(--color-${key})`}
+											stackId="breakdown"
 											fill={`var(--color-${key})`}
-											fillOpacity={0.5}
-											strokeWidth={1}
 										/>
 									);
 								})}
-							</AreaChart>
+							</BarChart>
 						</ChartContainer>
 						<div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs">
 							{data.models.map((model, i) => (

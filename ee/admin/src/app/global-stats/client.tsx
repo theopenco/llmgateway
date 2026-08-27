@@ -259,22 +259,13 @@ export function GlobalStatsClient() {
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
 
-	const { from, to } = resolveGlobalStatsRange(searchParams);
+	const { allTime, from, to } = resolveGlobalStatsRange(searchParams);
 	const usageMode = useUsageMode();
 	const orgKind = useOrgKind();
 	const groupBy = parseGroupBy(searchParams.get("groupBy"));
 	const chartMetric = parseMetric(searchParams.get("metric"));
 	const modelView = parseModelView(searchParams.get("modelView"));
 	const showTimeseriesBreakdown = parseBreakdown(searchParams.get("breakdown"));
-
-	const rangeLabel = useMemo(() => {
-		const fromDate = parseISO(from);
-		const toDate = parseISO(to);
-		if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
-			return "selected range";
-		}
-		return `${format(fromDate, "MMM d, yyyy")} – ${format(toDate, "MMM d, yyyy")}`;
-	}, [from, to]);
 
 	const updateParam = useCallback(
 		(key: string, value: string) => {
@@ -290,7 +281,7 @@ export function GlobalStatsClient() {
 	// The range picker and the mode/kind selectors write to the URL directly, so
 	// reset pagination during render when any of them changes (each also
 	// re-sorts the breakdown).
-	const viewKey = `${from}|${to}|${usageMode}|${orgKind}`;
+	const viewKey = `${allTime ? "all" : `${from}|${to}`}|${usageMode}|${orgKind}`;
 	const [lastViewKey, setLastViewKey] = useState(viewKey);
 	if (viewKey !== lastViewKey) {
 		setLastViewKey(viewKey);
@@ -326,15 +317,37 @@ export function GlobalStatsClient() {
 	// mode/kind are applied server-side (both are part of the aggregation key),
 	// so every metric below is already narrowed to the selected slice and the
 	// filters take part in the query key.
+	// All time carries no bounds: the API derives the span from the first and
+	// last recorded day, so it is requested as `range=all` instead of from/to.
 	const { data, isLoading, isError } = $api.useQuery(
 		"get",
 		"/admin/global-stats",
 		{
 			params: {
-				query: { from, to, groupBy, modelView, mode: usageMode, kind: orgKind },
+				query: {
+					...(allTime ? { range: "all" as const } : { from, to }),
+					groupBy,
+					modelView,
+					mode: usageMode,
+					kind: orgKind,
+				},
 			},
 		},
 	);
+
+	const rangeLabel = useMemo(() => {
+		const start = from ?? data?.start;
+		const end = to ?? data?.end;
+		if (!start || !end) {
+			return "all time";
+		}
+		const startDate = parseISO(start);
+		const endDate = parseISO(end);
+		if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+			return allTime ? "all time" : "selected range";
+		}
+		return `${format(startDate, "MMM d, yyyy")} – ${format(endDate, "MMM d, yyyy")}`;
+	}, [allTime, from, to, data?.start, data?.end]);
 
 	const totals = data?.totals;
 	const timeseries = useMemo(() => data?.timeseries ?? [], [data?.timeseries]);
@@ -959,8 +972,22 @@ export function GlobalStatsClient() {
 												<td className="px-3 py-2 font-mono text-xs">
 													{b.label}
 												</td>
-												<td className="px-3 py-2 text-right tabular-nums">
-													{metricFormatter(chartMetric)(b[chartMetric])}
+												<td
+													className="px-3 py-2 text-right tabular-nums"
+													title={
+														chartMetric === "totalTokens"
+															? numberFormatter.format(b.totalTokens)
+															: undefined
+													}
+												>
+													{chartMetric === "totalTokens"
+														? compactNumberFormatter.format(b.totalTokens)
+														: metricFormatter(chartMetric)(b[chartMetric])}
+													{chartMetric === "totalTokens" ? (
+														<span className="block whitespace-nowrap text-xs font-normal text-muted-foreground">
+															{`(in ${compactNumberFormatter.format(b.inputTokens)} · cached ${compactNumberFormatter.format(b.cachedTokens)} · out ${compactNumberFormatter.format(b.outputTokens)})`}
+														</span>
+													) : null}
 												</td>
 											</tr>
 										))

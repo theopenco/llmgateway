@@ -1,45 +1,22 @@
-import {
-	AlertCircle,
-	ArrowDown,
-	ArrowUp,
-	ArrowUpDown,
-	ChevronLeft,
-	ChevronRight,
-	Info,
-	RotateCcw,
-	Search,
-	Ticket,
-	TrendingDown,
-	TrendingUp,
-	Users,
-	Wallet,
-} from "lucide-react";
+import { Search } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import { DateRangePicker } from "@/components/date-range-picker";
+import { DevpassKpis } from "@/components/devpass-kpis";
+import {
+	DevpassResultCount,
+	DevpassSubscribersTable,
+} from "@/components/devpass-subscribers-table";
 import { DevpassTimeseriesChart } from "@/components/devpass-timeseries-chart";
 import { DevpassUsage } from "@/components/devpass-usage";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from "@/components/ui/table";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { resolveDateRange } from "@/lib/date-range";
 import { requireSession } from "@/lib/require-session";
-import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
+
+import type { DevpassListQuery } from "@/components/devpass-subscribers-table";
 
 const SORT_BY_VALUES = [
 	"name",
@@ -90,137 +67,6 @@ function pickEnum<T extends readonly string[]>(
 	return (allowed as readonly string[]).includes(raw)
 		? (raw as T[number])
 		: fallback;
-}
-
-const currencyFormatter = new Intl.NumberFormat("en-US", {
-	style: "currency",
-	currency: "USD",
-	maximumFractionDigits: 2,
-});
-
-const currencyFormatterPrecise = new Intl.NumberFormat("en-US", {
-	style: "currency",
-	currency: "USD",
-	maximumFractionDigits: 4,
-});
-
-function formatDate(dateString: string | null) {
-	if (!dateString) {
-		return "—";
-	}
-	return new Date(dateString).toLocaleDateString("en-US", {
-		year: "numeric",
-		month: "short",
-		day: "numeric",
-	});
-}
-
-function getTierBadgeVariant(
-	tier: string,
-): "default" | "secondary" | "outline" {
-	switch (tier) {
-		case "max":
-			return "default";
-		case "pro":
-			return "secondary";
-		case "lite":
-			return "outline";
-		default:
-			return "outline";
-	}
-}
-
-function getStatusBadgeVariant(
-	status: string,
-): "default" | "secondary" | "outline" | "destructive" {
-	switch (status) {
-		case "active":
-			return "secondary";
-		case "cancelled_pending":
-			return "outline";
-		case "expired":
-			return "destructive";
-		case "churned":
-			return "outline";
-		default:
-			return "outline";
-	}
-}
-
-function formatStatus(status: string) {
-	if (status === "cancelled_pending") {
-		return "cancel pending";
-	}
-	return status;
-}
-
-function SortableHeader({
-	label,
-	sortKey,
-	currentSortBy,
-	currentSortOrder,
-	queryString,
-}: {
-	label: string;
-	sortKey: SortBy;
-	currentSortBy: SortBy;
-	currentSortOrder: SortOrder;
-	queryString: string;
-}) {
-	const isActive = currentSortBy === sortKey;
-	const nextOrder = isActive && currentSortOrder === "asc" ? "desc" : "asc";
-
-	const baseParams = new URLSearchParams(queryString);
-	baseParams.set("sortBy", sortKey);
-	baseParams.set("sortOrder", nextOrder);
-	baseParams.set("page", "1");
-	const href = `/devpass?${baseParams.toString()}`;
-
-	return (
-		<Link
-			href={href}
-			className={cn(
-				"flex items-center gap-1 hover:text-foreground transition-colors",
-				isActive ? "text-foreground" : "text-muted-foreground",
-			)}
-		>
-			{label}
-			{isActive ? (
-				currentSortOrder === "asc" ? (
-					<ArrowUp className="h-3.5 w-3.5" />
-				) : (
-					<ArrowDown className="h-3.5 w-3.5" />
-				)
-			) : (
-				<ArrowUpDown className="h-3.5 w-3.5 opacity-50" />
-			)}
-		</Link>
-	);
-}
-
-function UtilBar({ pct }: { pct: number | null }) {
-	if (pct === null) {
-		return <span className="text-muted-foreground">—</span>;
-	}
-	const clamped = Math.min(100, Math.max(0, pct));
-	const tone =
-		pct < 20
-			? "bg-amber-500"
-			: pct > 100
-				? "bg-rose-500"
-				: pct > 80
-					? "bg-orange-500"
-					: "bg-emerald-500";
-	return (
-		<div className="flex items-center gap-2">
-			<div className="h-1.5 w-20 overflow-hidden rounded-full bg-muted">
-				<div className={cn("h-full", tone)} style={{ width: `${clamped}%` }} />
-			</div>
-			<span className="tabular-nums text-xs text-muted-foreground">
-				{pct.toFixed(0)}%
-			</span>
-		</div>
-	);
 }
 
 function FilterPill({
@@ -292,26 +138,9 @@ function ToggleLink({
 	);
 }
 
-function SignInPrompt() {
-	return (
-		<div className="flex min-h-screen items-center justify-center px-4">
-			<div className="w-full max-w-md text-center">
-				<div className="mb-8">
-					<h1 className="text-3xl font-semibold tracking-tight">
-						Admin Dashboard
-					</h1>
-					<p className="mt-2 text-sm text-muted-foreground">
-						Sign in to access the admin dashboard
-					</p>
-				</div>
-				<Button asChild size="lg" className="w-full">
-					<Link href="/login">Sign In</Link>
-				</Button>
-			</div>
-		</div>
-	);
-}
-
+// Nothing is fetched server-side: the KPI strip, the chart, the usage cards and
+// the subscriber table each load independently on the client, so the shell
+// (header, filters) paints immediately instead of waiting on the slowest query.
 export default async function DevpassPage({
 	searchParams,
 }: {
@@ -360,35 +189,21 @@ export default async function DevpassPage({
 	const limit = 25;
 	const offset = (page - 1) * limit;
 
-	const $api = await createServerApiClient();
-	const { data } = await $api.GET("/admin/devpass", {
-		params: {
-			query: {
-				limit,
-				offset,
-				search: search || undefined,
-				tier: tier || undefined,
-				status: status || undefined,
-				utilization: utilization || undefined,
-				marginNegative: marginNegative || undefined,
-				showChurned,
-				sortBy,
-				sortOrder,
-			},
-		},
-	});
-
-	if (!data) {
-		return <SignInPrompt />;
-	}
-
-	// Dedicated PAYG top-up revenue query — independent of the subscriber
-	// list, range-aware via the shared date picker.
-	const { data: paygStats } = await $api.GET("/admin/devpass/payg", {
-		params: { query: { from, to } },
-	});
-
-	const totalPages = Math.ceil(data.total / limit);
+	const listQuery: DevpassListQuery = {
+		limit,
+		offset,
+		search: search || undefined,
+		tier: tier || undefined,
+		status: status || undefined,
+		utilization: utilization || undefined,
+		marginNegative: marginNegative || undefined,
+		// Omitted rather than sent as `false`: the query string carries the
+		// literal "false", and the route's `z.coerce.boolean()` reads any
+		// non-empty string as true. Absent falls through to its `false` default.
+		showChurned: showChurned || undefined,
+		sortBy,
+		sortOrder,
+	};
 
 	const queryParams = new URLSearchParams();
 	if (search) {
@@ -471,9 +286,6 @@ export default async function DevpassPage({
 		redirect(`/devpass?${sp.toString()}`);
 	}
 
-	const kpis = data.kpis;
-	const grossMrrAfterRefunds = kpis.grossMrr - kpis.refundedAmountThisMonth;
-
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
 			<header className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
@@ -489,249 +301,7 @@ export default async function DevpassPage({
 				</Suspense>
 			</header>
 
-			<section className="space-y-3">
-				<div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-					<div className="rounded-lg border border-border/60 bg-card p-4">
-						<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
-							<Users className="h-3.5 w-3.5" />
-							Active subscribers
-						</div>
-						<div className="mt-2 text-2xl font-semibold tabular-nums">
-							{kpis.totalActive}
-						</div>
-						<div className="mt-1 text-xs text-muted-foreground">
-							Lite {kpis.activeByTier.lite} · Pro {kpis.activeByTier.pro} · Max{" "}
-							{kpis.activeByTier.max}
-							{kpis.cancelledPending > 0 ? (
-								<>
-									{" "}
-									·{" "}
-									<span className="text-amber-600 dark:text-amber-400">
-										{kpis.cancelledPending} cancelling
-									</span>
-								</>
-							) : null}
-						</div>
-					</div>
-					<div className="rounded-lg border border-border/60 bg-card p-4">
-						<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
-							<Wallet className="h-3.5 w-3.5" />
-							Gross MRR
-						</div>
-						<div className="mt-2 flex items-baseline gap-2">
-							<span className="text-2xl font-semibold tabular-nums">
-								{currencyFormatter.format(kpis.grossMrr)}
-							</span>
-							<Tooltip>
-								<TooltipTrigger asChild>
-									<span
-										className={cn(
-											"inline-flex cursor-help items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs font-semibold tabular-nums",
-											kpis.committedMrr !== kpis.grossMrr
-												? "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
-												: "border-border/60 bg-muted/40 text-muted-foreground",
-										)}
-									>
-										<Info className="h-3 w-3" />
-										{currencyFormatter.format(kpis.committedMrr)} committed
-									</span>
-								</TooltipTrigger>
-								<TooltipContent className="max-w-xs">
-									Forward-looking MRR after pending churn. Excludes subs flagged
-									to cancel at period end (still billed by Stripe this cycle,
-									but gone next cycle).
-								</TooltipContent>
-							</Tooltip>
-						</div>
-						<div className="mt-1 text-xs text-muted-foreground">
-							Net after refunds this month:{" "}
-							<span
-								className={cn(
-									"font-medium tabular-nums",
-									grossMrrAfterRefunds < kpis.grossMrr
-										? "text-rose-600 dark:text-rose-400"
-										: "",
-								)}
-							>
-								{currencyFormatter.format(grossMrrAfterRefunds)}
-							</span>
-							{kpis.refundedAmountThisMonth > 0 ? (
-								<>
-									{" "}
-									after {currencyFormatter.format(
-										kpis.refundedAmountThisMonth,
-									)}{" "}
-									refunded
-								</>
-							) : null}
-						</div>
-						<div className="mt-1 text-xs text-muted-foreground">
-							Net new this month:{" "}
-							<span
-								className={cn(
-									"font-medium",
-									kpis.netNewThisMonth > 0
-										? "text-emerald-600 dark:text-emerald-400"
-										: kpis.netNewThisMonth < 0
-											? "text-rose-600 dark:text-rose-400"
-											: "",
-								)}
-							>
-								{kpis.netNewThisMonth > 0 ? "+" : ""}
-								{kpis.netNewThisMonth}
-							</span>{" "}
-							({kpis.startsThisMonth} starts / {kpis.endsThisMonth} ends)
-						</div>
-					</div>
-
-					<div className="rounded-lg border border-border/60 bg-card p-4">
-						<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
-							{kpis.totalMargin >= 0 ? (
-								<TrendingUp className="h-3.5 w-3.5" />
-							) : (
-								<TrendingDown className="h-3.5 w-3.5" />
-							)}
-							Cycle margin
-						</div>
-						<div className="mt-2 flex items-baseline gap-2">
-							<span
-								className={cn(
-									"text-2xl font-semibold tabular-nums",
-									kpis.totalMargin < 0
-										? "text-rose-600 dark:text-rose-400"
-										: "",
-								)}
-							>
-								{currencyFormatter.format(kpis.totalMargin)}
-							</span>
-							{kpis.marginPct !== null && kpis.marginPct !== undefined ? (
-								<span
-									className={cn(
-										"rounded-md border px-1.5 py-0.5 text-xs font-semibold tabular-nums",
-										kpis.marginPct < 0
-											? "border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400"
-											: "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-									)}
-									title="Profit margin: cycle margin / gross MRR"
-								>
-									{kpis.marginPct.toFixed(1)}% profit
-								</span>
-							) : null}
-						</div>
-						<div className="mt-1 text-xs text-muted-foreground">
-							{currencyFormatter.format(kpis.totalRealCostCycle)} provider cost
-							this cycle
-							{kpis.totalOverflowCostCycle > 0 ? (
-								<>
-									{" "}
-									(incl. {currencyFormatter.format(
-										kpis.totalOverflowCostCycle,
-									)}{" "}
-									PAYG overflow, excluded from margin)
-								</>
-							) : null}
-						</div>
-					</div>
-				</div>
-				<div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-					<div className="rounded-lg border border-border/60 bg-card p-4">
-						<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
-							<RotateCcw className="h-3.5 w-3.5" />
-							Refunds this month
-						</div>
-						<div
-							className={cn(
-								"mt-2 text-2xl font-semibold tabular-nums",
-								kpis.refundedAmountThisMonth > 0
-									? "text-rose-600 dark:text-rose-400"
-									: "",
-							)}
-						>
-							{currencyFormatter.format(kpis.refundedAmountThisMonth)}
-						</div>
-						<div className="mt-1 text-xs text-muted-foreground">
-							{kpis.refundsThisMonth} refund
-							{kpis.refundsThisMonth === 1 ? "" : "s"} processed
-						</div>
-					</div>
-					<div className="rounded-lg border border-border/60 bg-card p-4">
-						<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
-							<Ticket className="h-3.5 w-3.5" />
-							Reset passes sold
-						</div>
-						<div className="mt-2 text-2xl font-semibold tabular-nums">
-							{kpis.resetPassesSold}
-						</div>
-						<div className="mt-1 text-xs text-muted-foreground">
-							{currencyFormatter.format(kpis.resetPassRevenue)} all-time revenue
-						</div>
-					</div>
-					<div className="rounded-lg border border-border/60 bg-card p-4">
-						<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
-							<TrendingUp className="h-3.5 w-3.5" />
-							Avg utilization
-						</div>
-						<div className="mt-2 text-2xl font-semibold tabular-nums">
-							{kpis.weightedAvgUtilization.toFixed(1)}%
-						</div>
-						<div className="mt-1 text-xs text-muted-foreground">
-							Weighted across active subs
-						</div>
-					</div>
-					<div className="rounded-lg border border-border/60 bg-card p-4">
-						<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
-							<Wallet className="h-3.5 w-3.5" />
-							PAYG overflow
-						</div>
-						<div className="mt-2 flex items-baseline gap-2">
-							<span className="text-2xl font-semibold tabular-nums">
-								{kpis.paygOptedIn}
-							</span>
-							<span className="text-xs text-muted-foreground">opted in</span>
-						</div>
-						<div className="mt-1 text-xs text-muted-foreground">
-							{currencyFormatter.format(kpis.paygBalanceHeld)} balance held by
-							active subs
-						</div>
-					</div>
-					<div className="rounded-lg border border-border/60 bg-card p-4">
-						<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
-							<TrendingUp className="h-3.5 w-3.5" />
-							DevPass top-up revenue
-						</div>
-						<div className="mt-2 flex items-baseline gap-2">
-							<span className="text-2xl font-semibold tabular-nums">
-								{currencyFormatter.format(paygStats?.topups.allTime.net ?? 0)}
-							</span>
-							<span className="text-xs text-muted-foreground">
-								net, all-time
-							</span>
-						</div>
-						<div className="mt-1 text-xs text-muted-foreground">
-							{currencyFormatter.format(paygStats?.topups.thisMonth.net ?? 0)}{" "}
-							this month
-							{(paygStats?.topups.allTime.refunds ?? 0) > 0 ? (
-								<>
-									{" "}
-									·{" "}
-									<span className="text-rose-600 dark:text-rose-400">
-										{currencyFormatter.format(
-											paygStats?.topups.allTime.refunds ?? 0,
-										)}{" "}
-										refunded
-									</span>
-								</>
-							) : null}
-						</div>
-						{paygStats?.topups.range ? (
-							<div className="mt-1 text-xs text-muted-foreground">
-								{currencyFormatter.format(paygStats.topups.range.net)} in
-								selected range
-							</div>
-						) : null}
-					</div>
-				</div>
-			</section>
+			<DevpassKpis from={from} to={to} />
 
 			<DevpassTimeseriesChart from={from} to={to} />
 
@@ -883,347 +453,15 @@ export default async function DevpassPage({
 						paramName="showChurned"
 					/>
 				</div>
-				<p className="text-xs text-muted-foreground">
-					{data.total} subscriber{data.total === 1 ? "" : "s"} match current
-					filters
-				</p>
+				<DevpassResultCount query={listQuery} />
 			</form>
 
-			<div className="overflow-x-auto rounded-lg border border-border/60 bg-card">
-				<Table>
-					<TableHeader>
-						<TableRow>
-							<TableHead>
-								<SortableHeader
-									label="Subscriber"
-									sortKey="name"
-									currentSortBy={sortBy}
-									currentSortOrder={sortOrder}
-									queryString={queryString}
-								/>
-							</TableHead>
-							<TableHead>
-								<SortableHeader
-									label="Tier"
-									sortKey="tier"
-									currentSortBy={sortBy}
-									currentSortOrder={sortOrder}
-									queryString={queryString}
-								/>
-							</TableHead>
-							<TableHead>Status</TableHead>
-							<TableHead>
-								<SortableHeader
-									label="Utilization"
-									sortKey="utilizationPct"
-									currentSortBy={sortBy}
-									currentSortOrder={sortOrder}
-									queryString={queryString}
-								/>
-							</TableHead>
-							<TableHead>
-								<SortableHeader
-									label="Cycle"
-									sortKey="cycleStart"
-									currentSortBy={sortBy}
-									currentSortOrder={sortOrder}
-									queryString={queryString}
-								/>
-							</TableHead>
-							<TableHead>
-								<SortableHeader
-									label="Renews"
-									sortKey="expiresAt"
-									currentSortBy={sortBy}
-									currentSortOrder={sortOrder}
-									queryString={queryString}
-								/>
-							</TableHead>
-							<TableHead>
-								<SortableHeader
-									label="MRR"
-									sortKey="mrr"
-									currentSortBy={sortBy}
-									currentSortOrder={sortOrder}
-									queryString={queryString}
-								/>
-							</TableHead>
-							<TableHead>
-								<SortableHeader
-									label="Real cost"
-									sortKey="realCost"
-									currentSortBy={sortBy}
-									currentSortOrder={sortOrder}
-									queryString={queryString}
-								/>
-							</TableHead>
-							<TableHead>
-								<SortableHeader
-									label="Margin"
-									sortKey="margin"
-									currentSortBy={sortBy}
-									currentSortOrder={sortOrder}
-									queryString={queryString}
-								/>
-							</TableHead>
-							<TableHead>
-								<SortableHeader
-									label="PAYG"
-									sortKey="paygBalance"
-									currentSortBy={sortBy}
-									currentSortOrder={sortOrder}
-									queryString={queryString}
-								/>
-							</TableHead>
-							<TableHead>Premium (week)</TableHead>
-							<TableHead>
-								<SortableHeader
-									label="Cost (all-time)"
-									sortKey="allTimeCost"
-									currentSortBy={sortBy}
-									currentSortOrder={sortOrder}
-									queryString={queryString}
-								/>
-							</TableHead>
-							<TableHead>
-								<SortableHeader
-									label="Margin (all-time)"
-									sortKey="allTimeMargin"
-									currentSortBy={sortBy}
-									currentSortOrder={sortOrder}
-									queryString={queryString}
-								/>
-							</TableHead>
-							<TableHead>
-								<SortableHeader
-									label="Since"
-									sortKey="subscribedSince"
-									currentSortBy={sortBy}
-									currentSortOrder={sortOrder}
-									queryString={queryString}
-								/>
-							</TableHead>
-							<TableHead>Δ tier</TableHead>
-							<TableHead>Payments</TableHead>
-						</TableRow>
-					</TableHeader>
-					<TableBody>
-						{data.subscribers.length === 0 ? (
-							<TableRow>
-								<TableCell
-									colSpan={16}
-									className="h-24 text-center text-muted-foreground"
-								>
-									No subscribers match
-								</TableCell>
-							</TableRow>
-						) : (
-							data.subscribers.map((sub) => (
-								<TableRow key={sub.id}>
-									<TableCell>
-										<Link
-											href={`/devpass/${sub.id}`}
-											className="font-medium text-foreground hover:underline"
-										>
-											{sub.name}
-										</Link>
-										<p className="text-xs text-muted-foreground">
-											{sub.ownerEmail ?? sub.billingEmail}
-										</p>
-										{sub.ownerUsername && (
-											<p className="text-xs text-muted-foreground">
-												@{sub.ownerUsername}
-											</p>
-										)}
-									</TableCell>
-									<TableCell>
-										<Badge variant={getTierBadgeVariant(sub.tier)}>
-											{sub.tier}
-										</Badge>
-										{sub.pendingTier && (
-											<p className="mt-1 text-xs text-amber-600">
-												→ {sub.pendingTier} next cycle
-											</p>
-										)}
-									</TableCell>
-									<TableCell>
-										<Badge variant={getStatusBadgeVariant(sub.status)}>
-											{formatStatus(sub.status)}
-										</Badge>
-									</TableCell>
-									<TableCell>
-										<UtilBar pct={sub.utilizationPct} />
-										<p className="mt-1 text-xs tabular-nums text-muted-foreground">
-											{currencyFormatter.format(parseFloat(sub.creditsUsed))} /{" "}
-											{currencyFormatter.format(parseFloat(sub.creditsLimit))}
-										</p>
-									</TableCell>
-									<TableCell className="text-muted-foreground text-xs">
-										{sub.cycleDaysIn !== null ? `Day ${sub.cycleDaysIn}` : "—"}
-									</TableCell>
-									<TableCell className="text-muted-foreground text-xs">
-										{sub.expiresAt ? formatDate(sub.expiresAt) : "—"}
-									</TableCell>
-									<TableCell className="tabular-nums">
-										{currencyFormatter.format(sub.mrr)}
-									</TableCell>
-									<TableCell className="tabular-nums text-muted-foreground">
-										{currencyFormatterPrecise.format(sub.realCost)}
-									</TableCell>
-									<TableCell
-										className={cn(
-											"tabular-nums",
-											sub.margin < 0
-												? "text-rose-600 dark:text-rose-400"
-												: "text-emerald-600 dark:text-emerald-400",
-										)}
-									>
-										{currencyFormatter.format(sub.margin)}
-										{sub.cycleOverflowCost > 0 && (
-											<p
-												className="mt-0.5 text-xs font-normal text-muted-foreground"
-												title="Cycle cost paid from the org's own PAYG credits — excluded from plan margin"
-											>
-												+
-												{currencyFormatterPrecise.format(sub.cycleOverflowCost)}{" "}
-												overflow
-											</p>
-										)}
-									</TableCell>
-									<TableCell className="tabular-nums text-xs">
-										{sub.paygEnabled ? (
-											<>
-												<span className="font-medium">
-													{currencyFormatter.format(
-														parseFloat(sub.paygBalance),
-													)}
-												</span>
-												{sub.autoTopUpEnabled && (
-													<Badge variant="outline" className="ml-1.5">
-														auto
-													</Badge>
-												)}
-												{sub.allTimeTopUps > 0 && (
-													<p className="mt-0.5 text-muted-foreground">
-														{currencyFormatter.format(sub.allTimeTopUps)} topped
-														up
-													</p>
-												)}
-											</>
-										) : (
-											<span className="text-muted-foreground">—</span>
-										)}
-									</TableCell>
-									<TableCell className="tabular-nums text-xs">
-										{(() => {
-											const premUsed = parseFloat(sub.premiumCreditsUsed);
-											const premLimit = parseFloat(sub.premiumCreditsLimit);
-											if (premLimit <= 0) {
-												return <span className="text-muted-foreground">—</span>;
-											}
-											const pct = Math.min(
-												100,
-												Math.max(0, (premUsed / premLimit) * 100),
-											);
-											const tone =
-												pct >= 100
-													? "text-rose-600 dark:text-rose-400"
-													: pct >= 80
-														? "text-orange-600 dark:text-orange-400"
-														: "text-muted-foreground";
-											return (
-												<span className={tone}>
-													{currencyFormatter.format(premUsed)} /{" "}
-													{currencyFormatter.format(premLimit)}
-												</span>
-											);
-										})()}
-									</TableCell>
-									<TableCell className="tabular-nums text-muted-foreground">
-										{currencyFormatterPrecise.format(sub.allTimeCost)}
-									</TableCell>
-									<TableCell
-										className={cn(
-											"tabular-nums",
-											sub.allTimeMargin < 0
-												? "text-rose-600 dark:text-rose-400"
-												: "text-emerald-600 dark:text-emerald-400",
-										)}
-										title={`Revenue ${currencyFormatter.format(
-											sub.allTimeRevenue,
-										)} − cost ${currencyFormatterPrecise.format(sub.allTimeCost)}`}
-									>
-										{currencyFormatter.format(sub.allTimeMargin)}
-									</TableCell>
-									<TableCell className="text-muted-foreground text-xs">
-										{formatDate(sub.subscribedSince)}
-									</TableCell>
-									<TableCell className="tabular-nums text-muted-foreground text-xs">
-										{sub.tierChanges}
-									</TableCell>
-									<TableCell>
-										{sub.hasPaymentIssue ? (
-											<Badge variant="destructive" className="gap-1">
-												<AlertCircle className="h-3 w-3" />
-												failed
-											</Badge>
-										) : (
-											<span className="text-xs text-muted-foreground">ok</span>
-										)}
-									</TableCell>
-								</TableRow>
-							))
-						)}
-					</TableBody>
-				</Table>
-			</div>
-
-			{totalPages > 1 && (
-				<div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
-					<p className="text-sm text-muted-foreground">
-						Showing {offset + 1} to {Math.min(offset + limit, data.total)} of{" "}
-						{data.total}
-					</p>
-					<div className="flex items-center gap-2">
-						<Button variant="outline" size="sm" asChild disabled={page <= 1}>
-							<Link
-								href={`/devpass?${(() => {
-									const sp = new URLSearchParams(queryString);
-									sp.set("page", String(page - 1));
-									return sp.toString();
-								})()}`}
-								className={page <= 1 ? "pointer-events-none opacity-50" : ""}
-							>
-								<ChevronLeft className="h-4 w-4" />
-								Previous
-							</Link>
-						</Button>
-						<span className="text-sm text-muted-foreground">
-							Page {page} of {totalPages}
-						</span>
-						<Button
-							variant="outline"
-							size="sm"
-							asChild
-							disabled={page >= totalPages}
-						>
-							<Link
-								href={`/devpass?${(() => {
-									const sp = new URLSearchParams(queryString);
-									sp.set("page", String(page + 1));
-									return sp.toString();
-								})()}`}
-								className={
-									page >= totalPages ? "pointer-events-none opacity-50" : ""
-								}
-							>
-								Next
-								<ChevronRight className="h-4 w-4" />
-							</Link>
-						</Button>
-					</div>
-				</div>
-			)}
+			<DevpassSubscribersTable
+				query={listQuery}
+				queryString={queryString}
+				page={page}
+				limit={limit}
+			/>
 		</div>
 	);
 }

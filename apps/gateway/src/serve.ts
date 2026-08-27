@@ -1,4 +1,4 @@
-import { serve } from "@hono/node-server";
+import { createAdaptorServer, serve } from "@hono/node-server";
 
 import { startProviderEnvInventoryPublisher } from "@llmgateway/actions";
 import { redisClient, storageRedisClient } from "@llmgateway/cache";
@@ -8,8 +8,10 @@ import {
 	shutdownInstrumentation,
 } from "@llmgateway/instrumentation";
 import { logger, toError } from "@llmgateway/logger";
+import { getEnterpriseLicenseStatus } from "@llmgateway/shared/enterprise-license";
 
 import { app } from "./app.js";
+import { drainPendingWork, pendingWorkCount } from "./lib/pending-work.js";
 import {
 	closeUpstreamDispatcher,
 	installUpstreamDispatcher,
@@ -73,12 +75,44 @@ async function startServer() {
 		fetch: metricsApp.fetch,
 	});
 
-	logger.info("Server starting", { port });
-
-	const server = serve({
-		port,
-		fetch: app.fetch,
+	const enterpriseLicense = getEnterpriseLicenseStatus();
+	logger.info("Enterprise license status", {
+		status: enterpriseLicense.status,
+		licenseId: enterpriseLicense.licenseId,
+		keyId: enterpriseLicense.keyId,
+		expiresAt: enterpriseLicense.expiresAt,
+		maxSeats: enterpriseLicense.maxSeats,
 	});
+
+	// Node's default accept backlog (511) overflows under connection bursts, which
+	// the GKE L7 LB surfaces as "connection timeout". Raise it so bursts queue
+	// instead of being dropped. The kernel caps the effective value at
+	// net.core.somaxconn (4096 on modern COS nodes), so 1024 is honored.
+	const listenBacklog = Number(process.env.LISTEN_BACKLOG) || 1024;
+
+	logger.info("Server starting", { port, backlog: listenBacklog });
+
+	const server = createAdaptorServer({ fetch: app.fetch });
+
+	// Wait for the bind to succeed (or fail) before resolving, so a bind error
+	// (e.g. EADDRINUSE) rejects startup → process.exit(1) instead of being
+	// swallowed by the log-and-continue uncaughtException handler, which would
+	// otherwise leave the process alive without accepting traffic.
+	await new Promise<void>((resolve, reject) => {
+		const onError = (error: Error) => {
+			server.off("listening", onListening);
+			reject(error);
+		};
+		const onListening = () => {
+			server.off("error", onError);
+			resolve();
+		};
+		server.once("error", onError);
+		server.once("listening", onListening);
+		server.listen({ port, backlog: listenBacklog });
+	});
+
+	logger.info("Server listening", { port, backlog: listenBacklog });
 
 	if (realtimeInline) {
 		realtime = attachRealtimeServer(server as Server);
@@ -113,6 +147,13 @@ const shutdownGracePeriodMs =
 const realtimeShutdownGracePeriodMs =
 	Number(process.env.REALTIME_SHUTDOWN_GRACE_PERIOD_MS) ||
 	((Number(process.env.REALTIME_MAX_SESSION_SECONDS) || 3600) + 60) * 1000;
+
+// Warn when handler tails (billing, log insertion) outlive their HTTP
+// connection longer than expected. Shutdown continues waiting after this
+// threshold because closing shared dependencies underneath live handlers is
+// guaranteed to make them fail; the orchestrator owns the hard deadline.
+const pendingWorkTimeoutMs =
+	Number(process.env.SHUTDOWN_PENDING_WORK_TIMEOUT_MS) || 20000;
 
 const closeServer = (server: ServerType): Promise<void> => {
 	return new Promise((resolve, reject) => {
@@ -203,6 +244,23 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 			logger.info("Metrics server closed");
 		}
 
+		// Handlers whose client disconnected (or hung up right after [DONE])
+		// outlive their connection, so the server is closed while their billing
+		// and logging tail still runs. Wait for that work — before the upstream
+		// dispatcher, database pool, and Redis close underneath it.
+		const pendingAtClose = pendingWorkCount();
+		if (pendingAtClose > 0) {
+			logger.info("Waiting for pending request work", {
+				pending: pendingAtClose,
+			});
+			await drainPendingWork(pendingWorkTimeoutMs, (remaining) => {
+				logger.warn("Pending request work is still draining", {
+					remaining,
+					warningThresholdMs: pendingWorkTimeoutMs,
+				});
+			});
+		}
+
 		logger.info("Closing upstream dispatcher");
 		await closeUpstreamDispatcher();
 
@@ -249,17 +307,19 @@ startServer()
 		process.on("SIGTERM", () => gracefulShutdown("SIGTERM", server));
 		process.on("SIGINT", () => gracefulShutdown("SIGINT", server));
 
-		// Handle uncaught errors gracefully - allow in-flight requests to complete
-		// before exiting. This prevents 502s for all concurrent requests when
-		// a single request causes an unhandled error.
+		// Log and continue on process-level errors instead of shutting down. In an
+		// async proxy these are common and usually benign (aborted streams, stray
+		// upstream socket errors); self-terminating on them causes restart-cycling
+		// under load, which surfaces as more 503s. We accept that an
+		// uncaughtException leaves Node in an officially-undefined state in
+		// exchange for not restart-cycling a proxy under load. SIGTERM/SIGINT still
+		// trigger graceful shutdown so k8s rollouts/draining work normally.
 		process.on("uncaughtException", (error) => {
-			logger.fatal("Uncaught exception, initiating graceful shutdown", error);
-			void gracefulShutdown("uncaughtException", server);
+			logger.error("Uncaught exception (continuing)", toError(error));
 		});
 
 		process.on("unhandledRejection", (reason) => {
-			logger.fatal("Unhandled rejection, initiating graceful shutdown", reason);
-			void gracefulShutdown("unhandledRejection", server);
+			logger.error("Unhandled rejection (continuing)", toError(reason));
 		});
 	})
 	.catch((error) => {

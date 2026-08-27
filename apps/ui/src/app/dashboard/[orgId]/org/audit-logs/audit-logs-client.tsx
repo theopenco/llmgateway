@@ -1,6 +1,5 @@
 "use client";
 
-import { format } from "date-fns";
 import { Check, Copy } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect, useCallback } from "react";
@@ -26,6 +25,8 @@ import {
 	SelectValue,
 } from "@/lib/components/select";
 import { useFetchClient } from "@/lib/fetch-client";
+
+import { Time } from "@llmgateway/shared";
 
 import { ContactSalesCard } from "./contact-sales-card";
 
@@ -148,7 +149,7 @@ export function AuditLogsClient() {
 
 	// Check if user can view audit logs (enterprise plan + owner/admin)
 	const canViewAuditLogs =
-		selectedOrganization?.plan === "enterprise" &&
+		selectedOrganization?.enterpriseAccess === true &&
 		(currentUserRole === "owner" || currentUserRole === "admin");
 
 	// Fetch filter options
@@ -243,7 +244,7 @@ export function AuditLogsClient() {
 	}, [canViewAuditLogs, fetchAuditLogs]);
 
 	// If not enterprise plan, show contact sales
-	if (selectedOrganization?.plan !== "enterprise") {
+	if (selectedOrganization?.enterpriseAccess !== true) {
 		return <ContactSalesCard />;
 	}
 
@@ -366,7 +367,10 @@ export function AuditLogsClient() {
 															{formatAction(log.action)}
 														</Badge>
 														<span className="text-xs text-muted-foreground">
-															{format(new Date(log.createdAt), "PPp")}
+															<Time
+																date={log.createdAt}
+																format="monthDayYearHourMinuteZone"
+															/>
 														</span>
 													</div>
 													<div className="text-sm">
@@ -454,7 +458,10 @@ export function AuditLogsClient() {
 													className="hover:bg-muted/25 transition-colors"
 												>
 													<td className="p-4 align-middle text-sm whitespace-nowrap">
-														{format(new Date(log.createdAt), "PPp")}
+														<Time
+															date={log.createdAt}
+															format="monthDayYearHourMinuteZone"
+														/>
 													</td>
 													<td className="p-4 align-middle">
 														<div className="flex flex-col">

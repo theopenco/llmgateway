@@ -23,6 +23,7 @@ import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { and, db, desc, eq, isNull, tables } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
 import { replyToEmail } from "@llmgateway/shared/email";
+import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -67,7 +68,7 @@ const MAX_CONTEXT_MESSAGES = 30;
 
 const DOCS_BASE_URL = "https://docs.llmgateway.io";
 
-const BASE_SYSTEM_PROMPT = `You are the LLM Gateway support assistant. You ONLY answer questions related to LLM Gateway — the unified API gateway for multiple LLM providers — and its products (the dashboard at llmgateway.io, DevPass at devpass.llmgateway.io, the docs at docs.llmgateway.io, and Lounge, the AI chat app at chat.llmgateway.io).
+const BASE_SYSTEM_PROMPT = `You are the LLM Gateway support assistant. You ONLY answer questions related to LLM Gateway — the unified API gateway for multiple LLM providers — and its products (the dashboard at llmgateway.io, DevPass at devpass.llmgateway.io, the docs at docs.llmgateway.io, and Lounge, the AI chat app at lounge.llmgateway.io).
 
 Your knowledge covers:
 - Getting started, quick start, and setup
@@ -115,7 +116,7 @@ ${overviewSections}`;
 		const urlList = urls.map((u) => `- ${u}`).join("\n");
 		prompt += `
 
-Available pages (sourced from the live sitemaps and llms.txt files of llmgateway.io, devpass.llmgateway.io, docs.llmgateway.io and chat.llmgateway.io). Use these for accurate links and as targets for the \`fetchPage\` tool:
+Available pages (sourced from the live sitemaps and llms.txt files of llmgateway.io, devpass.llmgateway.io, docs.llmgateway.io and lounge.llmgateway.io). Use these for accurate links and as targets for the \`fetchPage\` tool:
 ${urlList}`;
 	}
 
@@ -417,7 +418,9 @@ async function persistMessage(
 // front and reject anything malformed instead of crashing deeper in the flow.
 const chatSupportMessageSchema = z.object({
 	id: z.string().optional(),
-	role: z.string(),
+	role: z.enum(["system", "developer", "user", "assistant"], {
+		errorMap: () => ({ message: "Invalid message role" }),
+	}),
 	parts: z.array(z.object({ type: z.string() }).passthrough()),
 	metadata: z.unknown().optional(),
 });
@@ -444,13 +447,23 @@ publicChatSupport.post("/", async (c) => {
 		await c.req.json().catch(() => null),
 	);
 	if (!parsed.success) {
+		logger.warn("Invalid chat support request", {
+			issues: parsed.error.issues,
+			path: c.req.path,
+			method: c.req.method,
+		});
 		return c.json(
 			{ error: parsed.error.issues[0]?.message ?? "Invalid request body" },
 			400,
 		);
 	}
 	const { name, email, clientId } = parsed.data;
-	const messages = parsed.data.messages as unknown as UIMessage[];
+	const messages = parsed.data.messages.map((message) => ({
+		...message,
+		// AI SDK UI messages have no developer role. It has the same instruction
+		// precedence as system here, so normalize it before conversion.
+		role: message.role === "developer" ? "system" : message.role,
+	})) as unknown as UIMessage[];
 
 	// Checked only after validation so malformed requests can't consume the
 	// per-identifier buckets — or worse, trip the global breaker for free.
@@ -511,8 +524,6 @@ publicChatSupport.post("/", async (c) => {
 		);
 	}
 
-	const gatewayUrl = process.env.GATEWAY_URL ?? "https://api.llmgateway.io/v1";
-
 	const supportApiKey = process.env.SUPPORT_CHAT_API_KEY;
 	if (!supportApiKey) {
 		logger.error("SUPPORT_CHAT_API_KEY not configured");
@@ -521,7 +532,7 @@ publicChatSupport.post("/", async (c) => {
 
 	const llmgateway = createLLMGateway({
 		apiKey: supportApiKey,
-		baseURL: gatewayUrl,
+		baseURL: getGatewayApiBaseUrl(),
 		headers: {
 			"x-source": "support-chat",
 		},
@@ -538,7 +549,7 @@ publicChatSupport.post("/", async (c) => {
 		tools: {
 			fetchPage: tool({
 				description:
-					"Fetch the readable text content of an LLM Gateway page (llmgateway.io, devpass/docs/chat.llmgateway.io) to ground your answer in accurate, up-to-date information. Pass a full https URL from the available pages list.",
+					"Fetch the readable text content of an LLM Gateway page (llmgateway.io, devpass/docs/lounge.llmgateway.io) to ground your answer in accurate, up-to-date information. Pass a full https URL from the available pages list.",
 				inputSchema: z.object({
 					url: z
 						.string()
@@ -895,6 +906,7 @@ publicChatSupport.post("/escalate", async (c) => {
 			name,
 			email,
 			conversationId,
+			adminConversationUrl,
 			ipAddress,
 			lastMessage: lastUserMessage,
 		}),

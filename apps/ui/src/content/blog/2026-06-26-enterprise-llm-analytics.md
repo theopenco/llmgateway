@@ -5,6 +5,15 @@ date: "2026-06-26"
 title: "Enterprise LLM Analytics: See Where Every Dollar Goes"
 summary: "Most dashboards show what you spent, not where it went. LLM Gateway's enterprise LLM analytics break cost, requests, and tokens down by model, project, API key, and team member — no data warehouse to build. Member and organization-wide analytics are available on the Enterprise plan."
 categories: ["Announcements", "Product"]
+faqs:
+  - question: "What is enterprise LLM analytics?"
+    answer: "Enterprise LLM analytics is the cost-and-usage reporting layer for AI traffic running through a gateway — breaking spend, requests, and tokens down by model, project, API key, and team member so an organization can attribute and govern its LLM costs. In LLM Gateway it's built in, with member and organization-wide views on the Enterprise plan."
+  - question: "How do I attribute LLM costs to teams or people?"
+    answer: "Group your projects by team and use **Organization → Analytics** with the **Project** breakdown for per-team chargeback, or the **Members** view for per-person attribution. Member spend is attributed to whoever created each API key."
+  - question: "Do I need a data warehouse to analyze LLM usage?"
+    answer: "No. LLM Gateway computes analytics from pre-aggregated hourly rollups, so cost, request, and token breakdowns are available in the dashboard without an export pipeline, a warehouse, or a separate BI tool."
+  - question: "Which analytics require the Enterprise plan?"
+    answer: "Per-project cost-by-model analytics and per-API-key statistics are available on every plan. Organization-wide analytics and member analytics are Enterprise-only and limited to organization owners and admins."
 image:
   src: "/blog/enterprise-llm-analytics.png"
   alt: "Enterprise LLM analytics on LLM Gateway: cost, requests, and tokens broken down by model, project, API key, and team member"
@@ -34,6 +43,8 @@ This view is available on every plan. It's usually the first place a cost spike 
 Spend rarely maps cleanly to people. It maps to services, jobs, and integrations — and those run on API keys. So every key has its own statistics page: summary cards for **cost, tokens, requests, and error rate**, plus the same cost-by-model charts scoped to that single key. Open it from **View Statistics** in the API-keys list.
 
 Now "the bill jumped" becomes "the nightly batch job on key `prod-etl` doubled its token usage on the 22nd" — a sentence you can act on.
+
+<BlogCta variant="enterprise" location="mid_article" />
 
 ## Organization-wide analytics, across every project
 
@@ -102,26 +113,10 @@ Enterprise-only pages are flagged directly in the sidebar, so members can see wh
 
 For teams with compliance requirements, the same platform is [SOC 2 Type II](/blog/soc2-type-ii), so cost data and request metadata stay inside controls your security team can sign off on.
 
-## Frequently Asked Questions
-
-### What is enterprise LLM analytics?
-
-Enterprise LLM analytics is the cost-and-usage reporting layer for AI traffic running through a gateway — breaking spend, requests, and tokens down by model, project, API key, and team member so an organization can attribute and govern its LLM costs. In LLM Gateway it's built in, with member and organization-wide views on the Enterprise plan.
-
-### How do I attribute LLM costs to teams or people?
-
-Group your projects by team and use **Organization → Analytics** with the **Project** breakdown for per-team chargeback, or the **Members** view for per-person attribution. Member spend is attributed to whoever created each API key.
-
-### Do I need a data warehouse to analyze LLM usage?
-
-No. LLM Gateway computes analytics from pre-aggregated hourly rollups, so cost, request, and token breakdowns are available in the dashboard without an export pipeline, a warehouse, or a separate BI tool.
-
-### Which analytics require the Enterprise plan?
-
-Per-project cost-by-model analytics and per-API-key statistics are available on every plan. Organization-wide analytics and member analytics are Enterprise-only and limited to organization owners and admins.
-
 ## Start measuring where your spend goes
 
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** — route your traffic and watch the cost-by-model charts populate.
 - **[Talk to us about Enterprise](https://llmgateway.io/enterprise)** — turn on member and organization-wide analytics for your team.
 - **[Read how we handle SOC 2 Type II](/blog/soc2-type-ii)** — the compliance story behind the data.
+
+<BlogCta variant="enterprise" location="bottom" />

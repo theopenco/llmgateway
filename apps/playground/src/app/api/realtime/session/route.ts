@@ -1,10 +1,15 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
-import { PLAYGROUND_KEY_COOKIE_NAME } from "@/lib/constants";
+import { getPlaygroundKeyForRequest } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
 
 import { models as modelDefinitions } from "@llmgateway/models";
+import {
+	getGatewayApiBaseUrl,
+	getGatewayPublicBaseUrl,
+} from "@llmgateway/shared/gateway-url";
+import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 
 import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
 
@@ -107,13 +112,7 @@ function resolveRealtimeWsUrl(): string {
 	if (override) {
 		return override;
 	}
-	const gatewayUrl = process.env.GATEWAY_URL?.replace(/\/v1$/, "");
-	if (gatewayUrl) {
-		return `${gatewayUrl.replace(/^http/, "ws")}/v1/realtime`;
-	}
-	return process.env.NODE_ENV === "development"
-		? "ws://localhost:4001/v1/realtime"
-		: "wss://api.llmgateway.io/v1/realtime";
+	return `${getGatewayPublicBaseUrl().replace(/^http/, "ws")}/v1/realtime`;
 }
 
 export async function POST(req: Request) {
@@ -123,9 +122,7 @@ export async function POST(req: Request) {
 	}
 
 	const cookieStore = await cookies();
-	const apiKey =
-		cookieStore.get(PLAYGROUND_KEY_COOKIE_NAME)?.value ??
-		cookieStore.get(`__Host-${PLAYGROUND_KEY_COOKIE_NAME}`)?.value;
+	const apiKey = getPlaygroundKeyForRequest(cookieStore);
 
 	if (!apiKey) {
 		return NextResponse.json({ error: "Missing API key" }, { status: 400 });
@@ -177,12 +174,6 @@ export async function POST(req: Request) {
 		);
 	}
 
-	const gatewayBaseUrl =
-		process.env.GATEWAY_URL?.replace(/\/v1$/, "") ??
-		(process.env.NODE_ENV === "development"
-			? "http://localhost:4001"
-			: "https://api.llmgateway.io");
-
 	// Forward the trusted ingress-derived originating IP so mint-time IAM
 	// checks see the browser's IP; the WebSocket upgrade preflight still
 	// rechecks the direct connection's IP.
@@ -193,37 +184,40 @@ export async function POST(req: Request) {
 
 	let response: Response;
 	try {
-		response = await fetch(`${gatewayBaseUrl}/v1/realtime/client_secrets`, {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: `Bearer ${apiKey}`,
-				"x-source": "chat.llmgateway.io",
-				...(forwardedFor ? { "x-forwarded-for": forwardedFor } : {}),
-			},
-			body: JSON.stringify({
-				expires_after: {
-					anchor: "created_at",
-					seconds: 60,
+		response = await fetch(
+			`${getGatewayApiBaseUrl()}/realtime/client_secrets`,
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${apiKey}`,
+					"x-source": LOUNGE_SOURCE,
+					...(forwardedFor ? { "x-forwarded-for": forwardedFor } : {}),
 				},
-				session: {
-					type: "realtime",
-					model,
-					...(transcriptionModel
-						? {
-								audio: {
-									input: {
-										transcription: {
-											model: transcriptionModel,
+				body: JSON.stringify({
+					expires_after: {
+						anchor: "created_at",
+						seconds: 60,
+					},
+					session: {
+						type: "realtime",
+						model,
+						...(transcriptionModel
+							? {
+									audio: {
+										input: {
+											transcription: {
+												model: transcriptionModel,
+											},
 										},
 									},
-								},
-							}
-						: {}),
-				},
-			}),
-			signal: controller.signal,
-		});
+								}
+							: {}),
+					},
+				}),
+				signal: controller.signal,
+			},
+		);
 	} catch (error) {
 		if (error instanceof DOMException && error.name === "AbortError") {
 			return NextResponse.json(

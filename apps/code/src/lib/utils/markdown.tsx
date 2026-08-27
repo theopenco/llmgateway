@@ -1,4 +1,10 @@
-import { SyntaxHighlightedPre } from "./markdown-code-block";
+import dynamic from "next/dynamic";
+
+// Defer the prism-based highlighter chunk until a markdown document actually
+// renders a fenced code block.
+const SyntaxHighlightedPre = dynamic(() =>
+	import("./markdown-code-block").then((mod) => mod.SyntaxHighlightedPre),
+);
 
 // Get markdown component options with custom styling
 export function getMarkdownOptions() {

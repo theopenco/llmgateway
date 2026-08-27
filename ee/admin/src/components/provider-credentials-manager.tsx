@@ -2,6 +2,7 @@
 
 import {
 	CheckCircle2,
+	ClipboardPaste,
 	Loader2,
 	MinusCircle,
 	Pencil,
@@ -27,6 +28,7 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
+	DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -47,7 +49,9 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { thrownErrorMessage } from "@/lib/api-error";
 import { formatUsd, isInRotation } from "@/lib/provider-key-spend";
+import { parseProviderModelList } from "@/lib/provider-model-list";
 import { cn } from "@/lib/utils";
 
 import { getProviderIcon } from "@llmgateway/shared";
@@ -1051,6 +1055,158 @@ const nonNegativeDecimalPattern = /^\d+(?:\.\d+)?$/;
 type ModelVerificationEntry =
 	ProviderCredentialModelVerification["results"][number];
 
+interface SelfTestOutcome {
+	result?: ProviderCredentialSelfTestResult;
+	error?: string;
+}
+
+function PasteAllowedModelsDialog({
+	availableIds,
+	providerName,
+	value,
+	onChange,
+}: {
+	availableIds: readonly string[];
+	providerName: string;
+	value: string[];
+	onChange: (ids: string[]) => void;
+}) {
+	const [open, setOpen] = useState(false);
+	const [text, setText] = useState("");
+	const parsed = useMemo(
+		() => parseProviderModelList(text, availableIds),
+		[text, availableIds],
+	);
+	const newModelIds = useMemo(() => {
+		const selected = new Set(value);
+		return parsed.modelIds.filter((modelId) => !selected.has(modelId));
+	}, [parsed.modelIds, value]);
+
+	const handleOpenChange = (next: boolean) => {
+		setOpen(next);
+		if (next) {
+			setText("");
+		}
+	};
+
+	const handleAdd = (event: React.FormEvent) => {
+		event.preventDefault();
+		if (parsed.unknownIds.length > 0 || newModelIds.length === 0) {
+			return;
+		}
+
+		onChange([...value, ...newModelIds]);
+		setOpen(false);
+		setText("");
+	};
+
+	return (
+		<Dialog open={open} onOpenChange={handleOpenChange}>
+			<DialogTrigger asChild>
+				<Button type="button" variant="outline" size="sm">
+					<ClipboardPaste />
+					Paste model IDs
+				</Button>
+			</DialogTrigger>
+			<DialogContent className="sm:max-w-lg">
+				<form className="flex flex-col gap-4" onSubmit={handleAdd}>
+					<DialogHeader>
+						<DialogTitle>Paste model IDs</DialogTitle>
+						<DialogDescription>
+							Add a complete list at once. Existing selections stay selected,
+							and duplicate IDs are ignored.
+						</DialogDescription>
+					</DialogHeader>
+
+					<div className="flex flex-col gap-2">
+						<Label htmlFor="allowed-model-list">Model IDs</Label>
+						<Textarea
+							id="allowed-model-list"
+							value={text}
+							onChange={(event) => setText(event.target.value)}
+							placeholder={"model-id-one\nmodel-id-two\nmodel-id-three"}
+							rows={9}
+							className="min-h-48 resize-y font-mono text-xs"
+							aria-describedby="allowed-model-list-hint"
+							aria-invalid={parsed.unknownIds.length > 0}
+							autoFocus
+						/>
+						<p
+							id="allowed-model-list-hint"
+							className="text-xs text-muted-foreground"
+						>
+							Separate IDs with new lines, commas, spaces, or semicolons.
+							Provider-prefixed IDs are accepted too.
+						</p>
+					</div>
+
+					{parsed.unknownIds.length > 0 ? (
+						<div
+							className="flex flex-col gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive"
+							role="alert"
+						>
+							<p>
+								{parsed.unknownIds.length === 1
+									? `This model ID is not available for ${providerName}:`
+									: `These ${parsed.unknownIds.length} model IDs are not available for ${providerName}:`}
+							</p>
+							<ul className="max-h-28 space-y-1 overflow-y-auto">
+								{parsed.unknownIds.map((modelId) => (
+									<li key={modelId} className="break-all font-mono text-xs">
+										{modelId}
+									</li>
+								))}
+							</ul>
+							<p className="text-xs">Remove or correct them to continue.</p>
+						</div>
+					) : parsed.modelIds.length > 0 ? (
+						<p className="text-sm text-muted-foreground" aria-live="polite">
+							{newModelIds.length > 0
+								? `${newModelIds.length} new model${newModelIds.length === 1 ? "" : "s"} ready to add.`
+								: "Every model in this list is already selected."}
+						</p>
+					) : null}
+
+					<DialogFooter>
+						<Button
+							type="button"
+							variant="outline"
+							onClick={() => setOpen(false)}
+						>
+							Cancel
+						</Button>
+						<Button
+							type="submit"
+							disabled={
+								parsed.unknownIds.length > 0 || newModelIds.length === 0
+							}
+						>
+							{newModelIds.length === 0
+								? "Add models"
+								: `Add ${newModelIds.length} model${newModelIds.length === 1 ? "" : "s"}`}
+						</Button>
+					</DialogFooter>
+				</form>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+/**
+ * Why the self-test failed, in the order the reason is most specific: the
+ * gateway could not run the probe at all, the provider explained itself, or it
+ * only answered with a status. The generic sentence is the last resort — it is
+ * all the admin gets, so nothing more specific may be dropped on the way here.
+ */
+function selfTestFailureReason(outcome: SelfTestOutcome): string {
+	const statusCode = outcome.result?.statusCode;
+	const suffix = statusCode ? ` (HTTP ${statusCode})` : "";
+	const reason = outcome.error ?? outcome.result?.error;
+	return reason
+		? `${reason}${suffix}`
+		: `the provider rejected the request${suffix}`;
+}
+
 function CredentialDialog({
 	catalog,
 	credential,
@@ -1103,7 +1259,7 @@ function CredentialDialog({
 	// cleared whenever an input that changes what the probe would send changes.
 	const [selfTestLoading, setSelfTestLoading] = useState(false);
 	const [selfTestOutcome, setSelfTestOutcome] = useState<
-		{ result?: ProviderCredentialSelfTestResult; error?: string } | undefined
+		SelfTestOutcome | undefined
 	>();
 	const [verifyLoading, setVerifyLoading] = useState(false);
 	const [verifyOutcome, setVerifyOutcome] = useState<
@@ -1140,8 +1296,10 @@ function CredentialDialog({
 					? { result: outcome.result }
 					: { error: outcome.error ?? "Failed to test credential" },
 			);
-		} catch {
-			setSelfTestOutcome({ error: "Failed to test credential" });
+		} catch (cause) {
+			setSelfTestOutcome({
+				error: thrownErrorMessage(cause, "Failed to test credential"),
+			});
 		} finally {
 			setSelfTestLoading(false);
 		}
@@ -1160,8 +1318,10 @@ function CredentialDialog({
 					? { result: outcome.result }
 					: { error: outcome.error ?? "Failed to verify models" },
 			);
-		} catch {
-			setVerifyOutcome({ error: "Failed to verify models" });
+		} catch (cause) {
+			setVerifyOutcome({
+				error: thrownErrorMessage(cause, "Failed to verify models"),
+			});
 		} finally {
 			setVerifyLoading(false);
 		}
@@ -1551,47 +1711,15 @@ function CredentialDialog({
 					<div className="flex flex-col gap-3 rounded-md border border-border/60 p-3">
 						<div className="flex items-center justify-between gap-2">
 							<p className="text-sm font-medium">Allowed models</p>
-							<div className="flex gap-2">
-								<Button
-									type="button"
-									variant="outline"
-									size="sm"
-									onClick={handleSelfTest}
-									disabled={
-										selfTestLoading ||
-										verifyLoading ||
-										!provider ||
-										(!isEdit && !token)
-									}
-									title="Sends one minimal request through the key using the provider's default validation model, without saving anything."
-									aria-busy={selfTestLoading}
-								>
-									{selfTestLoading ? (
-										<Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-									) : null}
-									Self-test key
-								</Button>
-								<Button
-									type="button"
-									variant="outline"
-									size="sm"
-									onClick={handleVerifyModels}
-									disabled={
-										selfTestLoading ||
-										verifyLoading ||
-										allowedModels.length === 0 ||
-										!provider ||
-										(!isEdit && !token)
-									}
-									title="Probes every listed model through the key and reports which ones the account can actually serve."
-									aria-busy={verifyLoading}
-								>
-									{verifyLoading ? (
-										<Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-									) : null}
-									Verify models
-								</Button>
-							</div>
+							<PasteAllowedModelsDialog
+								availableIds={selectedEntry?.models ?? []}
+								providerName={selectedEntry?.name ?? "this provider"}
+								value={allowedModels}
+								onChange={(next) => {
+									setAllowedModels(next);
+									setVerifyOutcome(undefined);
+								}}
+							/>
 						</div>
 						<MultiModelIdSelector
 							availableIds={selectedEntry?.models ?? []}
@@ -1605,9 +1733,50 @@ function CredentialDialog({
 						/>
 						<p className="text-xs text-muted-foreground">
 							{allowedModels.length === 0
-								? "Empty means the key serves every model of the provider. Restrict it when the upstream account only has some models enabled, so routing never picks this key for a model it cannot serve. Paste a comma-separated list to fill it quickly."
+								? "Empty means the key serves every model of the provider. Restrict it when the upstream account only has some models enabled, so routing never picks this key for a model it cannot serve."
 								: `Routing will only use this credential for the ${allowedModels.length === 1 ? "listed model" : `${allowedModels.length} listed models`}.`}
 						</p>
+						<div className="flex flex-wrap gap-2">
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								onClick={handleSelfTest}
+								disabled={
+									selfTestLoading ||
+									verifyLoading ||
+									!provider ||
+									(!isEdit && !token)
+								}
+								title="Sends one minimal request through the key using the provider's default validation model, without saving anything."
+								aria-busy={selfTestLoading}
+							>
+								{selfTestLoading ? (
+									<Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+								) : null}
+								Self-test key
+							</Button>
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								onClick={handleVerifyModels}
+								disabled={
+									selfTestLoading ||
+									verifyLoading ||
+									allowedModels.length === 0 ||
+									!provider ||
+									(!isEdit && !token)
+								}
+								title="Probes every listed model through the key and reports which ones the account can actually serve."
+								aria-busy={verifyLoading}
+							>
+								{verifyLoading ? (
+									<Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+								) : null}
+								Verify models
+							</Button>
+						</div>
 						{/* Live region so the async probe results are announced to
 						    assistive technology when they arrive. empty:hidden keeps the
 						    parent's gap from rendering around it before any result. */}
@@ -1622,10 +1791,7 @@ function CredentialDialog({
 										{selfTestOutcome.result?.model
 											? ` (probed ${selfTestOutcome.result.model})`
 											: ""}
-										:{" "}
-										{selfTestOutcome.error ??
-											selfTestOutcome.result?.error ??
-											"the provider rejected the request"}
+										: {selfTestFailureReason(selfTestOutcome)}
 									</p>
 								) : (
 									<p className="flex items-center gap-1 text-sm text-green-600">

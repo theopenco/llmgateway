@@ -24,10 +24,15 @@ export const CODING_AGENTS: CodingAgentDefinition[] = [
 		id: "codex",
 		label: "Codex CLI",
 		xSourceValues: ["codex"],
+		// The IDE extension identifies as "codex_vscode/<version> (<os>) …", which
+		// none of the CLI-shaped patterns match.
 		userAgentPatterns: [
 			/^codex[-_]cli/i,
 			/^codex_cli_rs\//i,
 			/^codex[-_]tui\//i,
+			/^codex[-_]vscode\//i,
+			// Headless `codex exec` runs identify as "codex_exec/<version> …".
+			/^codex[-_]exec/i,
 			/^codex\//i,
 		],
 	},
@@ -83,7 +88,8 @@ export const CODING_AGENTS: CodingAgentDefinition[] = [
 		id: "n8n",
 		label: "n8n",
 		xSourceValues: ["n8n"],
-		userAgentPatterns: [/^n8n\//i, /\bn8n-workflow\b/i],
+		// n8n's OpenAI node sends a bare "n8n" with no version suffix.
+		userAgentPatterns: [/^n8n$/i, /^n8n\//i, /\bn8n-workflow\b/i],
 	},
 	{
 		id: "openclaw",
@@ -133,8 +139,13 @@ export const CODING_AGENTS: CodingAgentDefinition[] = [
 	{
 		id: "pi-agent",
 		label: "Pi Agent",
-		xSourceValues: ["pi-agent"],
-		userAgentPatterns: [/^pi-agent\//i, /\bpi[-_]agent\b/i],
+		xSourceValues: ["pi-agent", "pi-coding-agent"],
+		// The CLI sends a bare "pi-coding-agent" with no version suffix.
+		userAgentPatterns: [
+			/^pi-agent\//i,
+			/\bpi[-_]agent\b/i,
+			/\bpi[-_]coding[-_]agent\b/i,
+		],
 	},
 	{
 		id: "hermes-agent",
@@ -149,10 +160,68 @@ export const CODING_AGENTS: CodingAgentDefinition[] = [
 		refererPatterns: [/hermes-agent\.nousresearch\.com/i],
 	},
 	{
+		id: "crush",
+		label: "Crush",
+		xSourceValues: ["crush", "charm-crush"],
+		userAgentPatterns: [
+			/^charm[-_]crush\//i,
+			/^crush\//i,
+			/charm\.land\/crush/i,
+		],
+	},
+	{
+		id: "kimi-code",
+		label: "Kimi Code",
+		xSourceValues: ["kimi-code", "kimi-cli"],
+		userAgentPatterns: [/^kimi[-_]code/i, /^kimi[-_]cli\//i],
+	},
+	{
+		id: "qwen-code",
+		label: "Qwen Code",
+		xSourceValues: ["qwen-code", "qwencode"],
+		userAgentPatterns: [/^qwencode\//i, /\bqwen[-_]code\b/i],
+	},
+	{
+		id: "factory-droid",
+		label: "Factory Droid",
+		xSourceValues: ["factory-droid", "factory", "droid"],
+		userAgentPatterns: [
+			/^factory[-_]cli\//i,
+			/^droid\//i,
+			/\bfactory[-_]droid\b/i,
+		],
+	},
+	{
+		id: "mimo-code",
+		label: "MiMo Code",
+		xSourceValues: ["mimo-code", "mimocode"],
+		// The CLI sends a bare "mimocode" product token with no separator.
+		userAgentPatterns: [/^mimo[-_]?code/i, /\bmimo[-_]code\b/i],
+	},
+	{
+		id: "traycer",
+		label: "Traycer",
+		xSourceValues: ["traycer", "traycer-agents"],
+		userAgentPatterns: [/^traycer[-_]agents\b/i, /^traycer\//i, /\btraycer\b/i],
+	},
+	{
+		id: "foundry-toolkit",
+		label: "Foundry Toolkit",
+		// Microsoft's VS Code extension, formerly "AI Toolkit"/"Windows AI Studio";
+		// the marketplace id (and its User-Agent) still says windows-ai-studio.
+		xSourceValues: ["foundry-toolkit", "ai-toolkit", "windows-ai-studio"],
+		userAgentPatterns: [/^windows[-_]ai[-_]studio/i, /^foundry[-_]toolkit/i],
+	},
+	{
 		id: "openai-sdk",
 		label: "OpenAI SDK",
 		xSourceValues: ["openai-sdk"],
-		userAgentPatterns: [/^OpenAI\/Python/i, /^Is\/JS/i],
+		// Explicit x-source only. The SDK's own User-Agent ("OpenAI/Python 2.x",
+		// "AsyncOpenAI/Python 2.x", "OpenAI/JS 6.x") says nothing about what is
+		// driving it, so matching on it would attribute every plain API script as
+		// a coding agent — and did so asymmetrically, since the sync Python client
+		// matched while the async one and the JS client did not.
+		userAgentPatterns: [],
 	},
 ];
 

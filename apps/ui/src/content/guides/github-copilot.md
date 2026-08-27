@@ -12,13 +12,13 @@ Add LLM Gateway as that provider and every session can use Claude, Gemini, GPT, 
 
 One provider entry. No config files. Works on any Copilot plan, or with no Copilot plan at all.
 
-> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
+> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use canonical model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
 
 ## Quick Start
 
 **1. Install the GitHub Copilot app** from [github.com/features/ai/github-app](https://github.com/features/ai/github-app) (macOS, Windows, or Linux) and sign in with your GitHub account.
 
-**2. Get your LLM Gateway API key** — [sign up free](https://llmgateway.io/signup) and copy your key (starts with `llmgtwy_`) from the dashboard.
+**2. Get your LLM Gateway API key** — [sign up free](https://llmgateway.io/signup), create a key in the dashboard, and copy it when shown (it starts with `llmgtwy_`).
 
 **3. Add LLM Gateway as a model provider** in the app:
 
@@ -80,7 +80,7 @@ BYOK in the Copilot app shipped in June 2026 — update to the latest app versio
 ## Get Started
 
 1. [Sign up free](https://llmgateway.io/signup) — no credit card required
-2. Copy your API key from the dashboard
+2. Create or roll an API key in the dashboard and copy the newly shown secret
 3. Install the [GitHub Copilot app](https://github.com/features/ai/github-app) and sign in
 4. Add LLM Gateway under **Settings** → **Model Providers** with the base URL above
 5. Start an agent session with any model

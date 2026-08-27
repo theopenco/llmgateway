@@ -1,3 +1,13 @@
+/**
+ * Placeholder inside a `regionConfig.endpointMap` entry for a region whose
+ * host is not a fixed domain but is derived from a per-credential workspace
+ * identifier. Alibaba's Frankfurt region is only reachable through the
+ * workspace-dedicated `{WorkspaceId}.eu-central-1.maas.aliyuncs.com` host —
+ * it has no shared DashScope domain — so the endpoint can only be completed
+ * once the credential's workspace id is known.
+ */
+export const REGION_WORKSPACE_ID_PLACEHOLDER = "{workspaceId}";
+
 export interface ProviderEnvConfig {
 	required: {
 		apiKey?: string;
@@ -33,6 +43,14 @@ export interface ProviderRegionConfig {
 	regions: { id: string; label: string }[];
 	/** Maps region id to its base URL */
 	endpointMap: Record<string, string>;
+	/**
+	 * Base URL to use for a workspace-scoped region when no workspace id is
+	 * configured. Alibaba's Frankfurt region has such a shared entry point, so
+	 * the region stays usable from an API key alone; the workspace-dedicated
+	 * host remains the better path because the shared one is documented as
+	 * trial-only (1000 RPM, no SLA, "not recommended for production").
+	 */
+	endpointFallbackMap?: Record<string, string>;
 	/**
 	 * Maps region id to a model-id prefix for providers where the upstream model
 	 * identifier varies per region (e.g. AWS Bedrock cross-region inference
@@ -83,7 +101,6 @@ export interface ServiceTier {
 
 export interface ProviderDataPolicy {
 	apiTraining: boolean | null;
-	consumerTraining: boolean | null;
 	promptLogging: boolean | null;
 	retentionPeriod?: string | null;
 	/**
@@ -234,6 +251,11 @@ export interface ProviderDefinition {
 	id: string;
 	name: string;
 	description: string;
+	/**
+	 * Whether LLM Gateway forwards its opaque per-organization safety identifier
+	 * to this provider. Informational only; request preparation does not use it.
+	 */
+	forwardsSafetyIdentifier: boolean;
 	// Environment variable configuration
 	env: ProviderEnvConfig;
 	// Whether the provider supports streaming
@@ -288,6 +310,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "llmgateway",
 		name: "LLM Gateway",
+		forwardsSafetyIdentifier: false,
 		description:
 			"LLMGateway is a framework for building and deploying large language models.",
 		env: {
@@ -306,7 +329,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: null,
@@ -317,6 +339,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "openai",
 		name: "OpenAI",
+		forwardsSafetyIdentifier: true,
 		description:
 			"OpenAI is an AI research and deployment company. Our mission is to ensure that artificial general intelligence benefits all of humanity.",
 		env: {
@@ -338,7 +361,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: true,
 			promptLogging: true,
 			retentionPeriod: null,
 			soc2: 2,
@@ -365,11 +387,15 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "anthropic",
 		name: "Anthropic",
+		forwardsSafetyIdentifier: true,
 		description:
 			"Anthropic is a research and deployment company focused on building safe and useful AI.",
 		env: {
 			required: {
 				apiKey: "LLM_ANTHROPIC_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_ANTHROPIC_BASE_URL",
 			},
 		},
 		streaming: true,
@@ -385,7 +411,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: true,
 			promptLogging: true,
 			retentionPeriod: "30 days",
 			soc2: 2,
@@ -396,6 +421,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "google-ai-studio",
 		name: "Google AI Studio",
+		forwardsSafetyIdentifier: false,
 		description:
 			"Google AI Studio is a platform for accessing Google's Gemini models.",
 		env: {
@@ -434,7 +460,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: true,
 			promptLogging: true,
 			retentionPeriod: "55 days",
 			soc2: 2,
@@ -445,6 +470,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "glacier",
 		name: "Glacier",
+		forwardsSafetyIdentifier: false,
 		description:
 			"Glacier is a stealth provider with Google AI Studio-compatible Gemini endpoints.",
 		env: {
@@ -468,6 +494,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "iceberg",
 		name: "Iceberg",
+		forwardsSafetyIdentifier: false,
 		description:
 			"Iceberg is a stealth provider with Google AI Studio-compatible Gemini endpoints.",
 		env: {
@@ -491,6 +518,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "granite",
 		name: "Granite",
+		forwardsSafetyIdentifier: false,
 		description:
 			"Granite is a stealth provider with OpenAI-compatible chat completions endpoints.",
 		env: {
@@ -514,15 +542,16 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "google-vertex",
 		name: "Google Vertex AI",
+		forwardsSafetyIdentifier: false,
 		description:
 			"Google Vertex AI is a platform for accessing Google's Gemini models via Vertex AI.",
 		env: {
 			required: {
 				apiKey: "LLM_GOOGLE_VERTEX_API_KEY",
-				project: "LLM_GOOGLE_CLOUD_PROJECT",
 			},
 			optional: {
 				baseUrl: "LLM_GOOGLE_VERTEX_BASE_URL",
+				project: "LLM_GOOGLE_CLOUD_PROJECT",
 				region: "LLM_GOOGLE_VERTEX_REGION",
 				tokenType: "LLM_GOOGLE_VERTEX_TOKEN_TYPE",
 			},
@@ -554,7 +583,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
@@ -565,6 +593,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "vertex-openai",
 		name: "Vertex AI (OpenAI-compatible)",
+		forwardsSafetyIdentifier: false,
 		description:
 			"Access partner models (e.g. xAI Grok) via Google Cloud Vertex AI's OpenAI-compatible Chat Completions endpoint.",
 		env: {
@@ -597,7 +626,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
@@ -608,11 +636,18 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "vertex-anthropic",
 		name: "Vertex AI (Anthropic)",
+		forwardsSafetyIdentifier: true,
 		description:
 			"Access Claude models via Google Cloud Vertex AI with the Anthropic Messages API.",
 		env: {
 			required: {
 				apiKey: "LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON",
+				// The GCP project the models are called under; it becomes part of the
+				// request path. An env-var deployment can leave it unset — the gateway
+				// derives it from the service-account JSON on startup — but a managed
+				// credential's JSON is only ever decrypted to mint an access token, so
+				// the credential has to carry the project itself.
+				project: "LLM_VERTEX_ANTHROPIC_PROJECT",
 			},
 			optional: {
 				baseUrl: "LLM_VERTEX_ANTHROPIC_BASE_URL",
@@ -633,7 +668,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
@@ -644,6 +678,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "quartz",
 		name: "Quartz",
+		forwardsSafetyIdentifier: false,
 		description:
 			"Quartz is a Vertex-compatible provider for accessing Gemini and other Vertex-routed models.",
 		env: {
@@ -671,6 +706,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "avalanche",
 		name: "Avalanche",
+		forwardsSafetyIdentifier: false,
 		description: "Avalanche - video generation provider.",
 		env: {
 			required: {
@@ -695,6 +731,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "groq",
 		name: "Groq",
+		forwardsSafetyIdentifier: false,
 		description: "Groq's ultra-fast LPU inference with various models",
 		env: {
 			required: {
@@ -712,7 +749,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
@@ -722,6 +758,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "cerebras",
 		name: "Cerebras",
+		forwardsSafetyIdentifier: false,
 		description:
 			"Cerebras high-performance inference with ultra-fast throughput",
 		env: {
@@ -740,7 +777,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
@@ -750,6 +786,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "xai",
 		name: "xAI",
+		forwardsSafetyIdentifier: false,
 		description: "xAI's Grok large language models",
 		env: {
 			required: {
@@ -767,7 +804,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: true,
 			retentionPeriod: "30 days",
 			soc2: 2,
@@ -777,6 +813,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "deepseek",
 		name: "DeepSeek",
+		forwardsSafetyIdentifier: false,
 		description:
 			"DeepSeek's high-performance language models with OpenAI-compatible API",
 		env: {
@@ -797,7 +834,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "CN",
 		dataPolicy: {
 			apiTraining: true,
-			consumerTraining: true,
 			promptLogging: true,
 			retentionPeriod: null,
 		},
@@ -806,6 +842,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "alibaba",
 		name: "Alibaba Cloud",
+		forwardsSafetyIdentifier: false,
 		description:
 			"Alibaba Cloud's Qwen large language models with OpenAI-compatible API",
 		env: {
@@ -813,7 +850,11 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_ALIBABA_API_KEY",
 			},
 			optional: {
-				region: "LLM_ALIBABA_REGION",
+				// No `region` key: the region comes from the model's `:region`
+				// suffix or the credential's own region binding, never from a
+				// provider-wide setting, so declaring one would only render a dead
+				// field on the credential form.
+				workspaceId: "LLM_ALIBABA_WORKSPACE_ID",
 			},
 		},
 		streaming: true,
@@ -827,13 +868,27 @@ export const providers: ProviderDefinition[] = [
 			defaultRegion: "singapore",
 			regions: [
 				{ id: "singapore", label: "Singapore (default)" },
+				{ id: "eu-frankfurt", label: "EU (Frankfurt)" },
 				{ id: "us-virginia", label: "US (Virginia)" },
 				{ id: "cn-beijing", label: "China (Beijing)" },
 			],
 			endpointMap: {
 				singapore: "https://dashscope-intl.aliyuncs.com",
+				// Frankfurt is the one Model Studio region with no shared DashScope
+				// domain: `dashscope-eu`/`dashscope-de` do not exist and aliasing
+				// another region's host would silently execute EU-designated traffic
+				// elsewhere. It is served only by the workspace-dedicated host, whose
+				// workspace id comes from the credential (see the placeholder docs).
+				"eu-frankfurt": `https://${REGION_WORKSPACE_ID_PLACEHOLDER}.eu-central-1.maas.aliyuncs.com`,
 				"us-virginia": "https://dashscope-us.aliyuncs.com",
 				"cn-beijing": "https://dashscope.aliyuncs.com",
+			},
+			endpointFallbackMap: {
+				// Resolves the workspace from the API key, so Frankfurt still works
+				// without one being configured. Alibaba caps it at 1000 RPM with no
+				// SLA and advises against production use, so a credential that
+				// supplies a workspace id gets the dedicated host instead.
+				"eu-frankfurt": "https://trial.eu-central-1.maas.aliyuncs.com",
 			},
 		},
 		termsUrl:
@@ -843,7 +898,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "CN",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: null,
 			promptLogging: true,
 			retentionPeriod: null,
 			iso27001: true,
@@ -852,6 +906,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "novita",
 		name: "NovitaAI",
+		forwardsSafetyIdentifier: false,
 		description: "NovitaAI's OpenAI-compatible large language models",
 		env: {
 			required: {
@@ -869,7 +924,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
@@ -877,6 +931,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "atlascloud",
 		name: "AtlasCloud",
+		forwardsSafetyIdentifier: false,
 		description:
 			"AtlasCloud provides unified APIs for video, image, audio, and language generation models.",
 		env: {
@@ -898,7 +953,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: null,
 		dataPolicy: {
 			apiTraining: null,
-			consumerTraining: null,
 			promptLogging: null,
 			retentionPeriod: "varies by service; Enterprise ZDR available",
 			soc2: 2,
@@ -918,6 +972,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "aws-bedrock",
 		name: "AWS Bedrock",
+		forwardsSafetyIdentifier: false,
 		description: "Amazon Bedrock - fully managed service for foundation models",
 		env: {
 			required: {
@@ -1012,7 +1067,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
@@ -1023,6 +1077,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "aws-mantle",
 		name: "AWS Mantle",
+		forwardsSafetyIdentifier: false,
 		description:
 			"Amazon Bedrock Mantle - OpenAI frontier models served on AWS via the Responses API",
 		env: {
@@ -1071,7 +1126,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
@@ -1082,6 +1136,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "azure",
 		name: "Azure",
+		forwardsSafetyIdentifier: true,
 		description: "Microsoft Azure - enterprise-grade OpenAI models",
 		env: {
 			required: {
@@ -1124,7 +1179,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
@@ -1135,6 +1189,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "azure-ai-foundry",
 		name: "Azure AI Foundry",
+		forwardsSafetyIdentifier: false,
 		description:
 			"Microsoft Azure AI Foundry - third-party models (Grok, Llama, Mistral, ...) via the Azure Models inference endpoint",
 		env: {
@@ -1161,7 +1216,40 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: 2,
+			iso27001: true,
+			gdpr: true,
+		},
+	},
+	{
+		id: "azure-anthropic",
+		name: "Azure Anthropic",
+		forwardsSafetyIdentifier: true,
+		description:
+			"Anthropic Claude models on Microsoft Foundry via the Anthropic Messages API",
+		env: {
+			required: {
+				apiKey: "LLM_AZURE_ANTHROPIC_API_KEY",
+				resource: "LLM_AZURE_ANTHROPIC_RESOURCE",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#0078D4",
+		website:
+			"https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/claude-models",
+		statusPageUrl: "https://status.ai.azure.com",
+		announcement: null,
+		apiKeyInstructions:
+			"The resource name can be found in your Microsoft Foundry base URL: https://<resource-name>.services.ai.azure.com",
+		learnMore: "https://docs.llmgateway.io/integrations/azure",
+		termsUrl: "https://www.microsoft.com/licensing/terms",
+		privacyPolicyUrl: "https://privacy.microsoft.com/privacystatement",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
@@ -1172,6 +1260,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "zai",
 		name: "Z AI",
+		forwardsSafetyIdentifier: false,
 		description: "Z AI's OpenAI-compatible large language models",
 		env: {
 			required: {
@@ -1192,7 +1281,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "CN",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
@@ -1201,6 +1289,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "moonshot",
 		name: "Moonshot AI",
+		forwardsSafetyIdentifier: false,
 		description: "Moonshot AI's OpenAI-compatible large language models",
 		env: {
 			required: {
@@ -1219,15 +1308,70 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "CN",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: null,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
 		priority: 1.2,
 	},
 	{
+		id: "baidu",
+		name: "Baidu",
+		forwardsSafetyIdentifier: false,
+		description:
+			"Baidu's Qianfan platform serving DeepSeek, GLM, Kimi, MiMo, and Hy3 models",
+		env: {
+			required: {
+				apiKey: "LLM_BAIDU_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#2932E1",
+		website: "https://intl.cloud.baidu.com/product/qianfan.html",
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl:
+			"https://intl.cloud.baidu.com/en/doc/Agreements/s/bmesahnjh-intl-en",
+		privacyPolicyUrl:
+			"https://intl.cloud.baidu.com/en/doc/Agreements/s/Plr0fi68q-intl-en",
+		headquarters: "CN",
+		// Qianfan publishes no API training / prompt logging commitment we can
+		// point at, so every attribute stays unknown and fails closed under a
+		// compliance policy rather than claiming a guarantee Baidu never made.
+		dataPolicy: {
+			apiTraining: null,
+			promptLogging: null,
+			retentionPeriod: null,
+		},
+	},
+	{
+		id: "permafrost",
+		name: "Permafrost",
+		forwardsSafetyIdentifier: false,
+		description:
+			"Permafrost is a stealth provider with an OpenAI-compatible API.",
+		env: {
+			required: {
+				apiKey: "LLM_PERMAFROST_API_KEY",
+				baseUrl: "LLM_PERMAFROST_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#5f7e83",
+		website: null,
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: null,
+		privacyPolicyUrl: null,
+		headquarters: null,
+		dataPolicy: null,
+		priority: 1.1,
+	},
+	{
 		id: "perplexity",
 		name: "Perplexity",
+		forwardsSafetyIdentifier: false,
 		description:
 			"Perplexity's AI models for search and conversation with real-time web access",
 		env: {
@@ -1246,7 +1390,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
@@ -1256,6 +1399,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "nebius",
 		name: "Nebius AI",
+		forwardsSafetyIdentifier: false,
 		description:
 			"Nebius AI Studio - OpenAI-compatible API for large language models",
 		env: {
@@ -1274,7 +1418,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "NL",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
@@ -1284,6 +1427,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "mistral",
 		name: "Mistral AI",
+		forwardsSafetyIdentifier: false,
 		description: "Mistral AI's large language models",
 		env: {
 			required: {
@@ -1301,7 +1445,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "FR",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: true,
 			retentionPeriod: "30 days",
 			soc2: 2,
@@ -1312,6 +1455,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "canopywave",
 		name: "CanopyWave",
+		forwardsSafetyIdentifier: false,
 		description:
 			"CanopyWave is a platform for running large language models with OpenAI-compatible API",
 		env: {
@@ -1330,7 +1474,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
@@ -1341,6 +1484,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "inference.net",
 		name: "Inference.net",
+		forwardsSafetyIdentifier: false,
 		description:
 			"Inference.net is a platform for running large language models in the cloud.",
 		env: {
@@ -1359,7 +1503,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: null,
-			consumerTraining: null,
 			promptLogging: null,
 			retentionPeriod: null,
 			soc2: 2,
@@ -1368,6 +1511,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "together-ai",
 		name: "Together AI",
+		forwardsSafetyIdentifier: false,
 		description:
 			"Together AI is a platform for running large language models in the cloud with fast inference.",
 		env: {
@@ -1386,7 +1530,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
@@ -1395,6 +1538,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "scx-ai",
 		name: "SCX.ai (Turbo)",
+		forwardsSafetyIdentifier: false,
 		description:
 			"SCX.ai is an Australian sovereign AI platform providing OpenAI-compatible Turbo inference endpoints — up to 4x faster than comparable providers — for a range of open models and SCX's own models, hosted on renewable-powered infrastructure.",
 		env: {
@@ -1414,7 +1558,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "AU",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 1,
@@ -1424,6 +1567,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "scx-ai-gp",
 		name: "SCX.ai",
+		forwardsSafetyIdentifier: false,
 		description:
 			"SCX.ai is an Australian sovereign AI platform providing OpenAI-compatible general-purpose inference endpoints for a range of open models and SCX's own models, hosted on renewable-powered infrastructure.",
 		env: {
@@ -1437,12 +1581,19 @@ export const providers: ProviderDefinition[] = [
 		website: "https://scx.ai",
 		statusPageUrl: null,
 		announcement: null,
+		regionConfig: {
+			optionsKey: "scx_ai_gp_region",
+			defaultRegion: "au",
+			regions: [{ id: "au", label: "Australia (default)" }],
+			endpointMap: {
+				au: "https://api.scx.ai",
+			},
+		},
 		termsUrl: "https://scx.ai/terms",
 		privacyPolicyUrl: "https://scx.ai/privacy",
 		headquarters: "AU",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 1,
@@ -1452,6 +1603,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "custom",
 		name: "Custom",
+		forwardsSafetyIdentifier: false,
 		description: "Custom OpenAI-compatible provider with configurable base URL",
 		env: {
 			required: {},
@@ -1470,6 +1622,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "nanogpt",
 		name: "NanoGPT",
+		forwardsSafetyIdentifier: false,
 		description: "NanoGPT offers a large selection of models",
 		env: {
 			required: {
@@ -1487,7 +1640,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: null,
 			retentionPeriod: null,
 		},
@@ -1495,6 +1647,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "bytedance",
 		name: "ByteDance",
+		forwardsSafetyIdentifier: false,
 		description:
 			"ByteDance's ModelArk platform with OpenAI-compatible API for large language models",
 		env: {
@@ -1514,7 +1667,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "CN",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: null,
 			promptLogging: false,
 			retentionPeriod: "24 hours",
 			soc2: 2,
@@ -1529,6 +1681,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "minimax",
 		name: "MiniMax",
+		forwardsSafetyIdentifier: false,
 		description:
 			"MiniMax's large language models with advanced reasoning and coding capabilities",
 		env: {
@@ -1547,7 +1700,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "CN",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: null,
 			promptLogging: true,
 			retentionPeriod: null,
 		},
@@ -1556,6 +1708,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "embercloud",
 		name: "EmberCloud",
+		forwardsSafetyIdentifier: false,
 		description:
 			"EmberCloud provides access to a variety of large language models via an OpenAI-compatible API",
 		env: {
@@ -1574,7 +1727,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: true,
 			retentionPeriod: null,
 		},
@@ -1582,8 +1734,9 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "meta",
 		name: "Meta",
+		forwardsSafetyIdentifier: false,
 		description:
-			"Meta's Model API serving the Muse Spark multimodal reasoning models via an OpenAI-compatible API",
+			"Meta's Model API serving Muse reasoning and image models via an OpenAI-compatible API",
 		env: {
 			required: {
 				apiKey: "LLM_META_API_KEY",
@@ -1605,7 +1758,6 @@ export const providers: ProviderDefinition[] = [
 			// Paid (pay-as-you-go) services are never trained on; only the free
 			// unpaid tier may be used for training per the Data Commitments page.
 			apiTraining: false,
-			consumerTraining: true,
 			promptLogging: true,
 			retentionPeriod: null,
 			soc2: null,
@@ -1626,6 +1778,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "sakana",
 		name: "Sakana AI",
+		forwardsSafetyIdentifier: false,
 		description:
 			"Sakana AI's Fugu multi-agent orchestration models, served through a single OpenAI-compatible API.",
 		env: {
@@ -1647,6 +1800,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "tundra",
 		name: "Tundra",
+		forwardsSafetyIdentifier: false,
 		description: "Tundra is a stealth provider with an OpenAI-compatible API.",
 		env: {
 			required: {
@@ -1669,6 +1823,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "xiaomi",
 		name: "Xiaomi",
+		forwardsSafetyIdentifier: false,
 		description:
 			"Xiaomi MiMo API Open Platform provides access to the MiMo series of large language models.",
 		env: {
@@ -1691,7 +1846,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "CN",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: null,
 			promptLogging: true,
 			retentionPeriod: "30 days",
 		},
@@ -1699,6 +1853,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "deepinfra",
 		name: "DeepInfra",
+		forwardsSafetyIdentifier: false,
 		description:
 			"DeepInfra inference platform with OpenAI-compatible API for hosting open-source models.",
 		env: {
@@ -1720,7 +1875,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
@@ -1731,6 +1885,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "reve",
 		name: "Reve",
+		forwardsSafetyIdentifier: false,
 		description:
 			"Reve's image generation models with native 4K resolution and code-based controllable image creation.",
 		env: {
@@ -1754,6 +1909,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "elevenlabs",
 		name: "ElevenLabs",
+		forwardsSafetyIdentifier: false,
 		description:
 			"ElevenLabs provides lifelike, low-latency text-to-speech models in 70+ languages.",
 		env: {
@@ -1775,7 +1931,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: true,
 			retentionPeriod: null,
 			soc2: 2,
@@ -1786,6 +1941,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "runware",
 		name: "Runware",
+		forwardsSafetyIdentifier: false,
 		description:
 			"Runware provides fast, cost-efficient inference for open and frontier LLMs through an OpenAI-compatible API.",
 		env: {
@@ -1801,13 +1957,12 @@ export const providers: ProviderDefinition[] = [
 		color: "#a8f399",
 		website: "https://runware.ai",
 		statusPageUrl: "https://status.runware.ai/",
-		announcement: "Launch offer: 30% off all Runware models until August 26",
+		announcement: "Launch offer: 30% off all Runware models until September 9",
 		termsUrl: "https://runware.ai/terms",
 		privacyPolicyUrl: "https://runware.ai/privacy",
 		headquarters: "GB",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: true,
 			retentionPeriod: "30 days",
 		},
@@ -1815,6 +1970,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "gonka24",
 		name: "Gonka24",
+		forwardsSafetyIdentifier: false,
 		description:
 			"Gonka24 serves open-weight large language models via an OpenAI-compatible inference gateway.",
 		env: {
@@ -1836,6 +1992,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "fireworks",
 		name: "Fireworks AI",
+		forwardsSafetyIdentifier: false,
 		description:
 			"Fireworks AI serves open-weight models on a fast, OpenAI-compatible inference platform.",
 		env: {
@@ -1866,7 +2023,6 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
@@ -1877,6 +2033,7 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "ranoai",
 		name: "RanoAI",
+		forwardsSafetyIdentifier: false,
 		description:
 			"RanoAI serves open-weight large language models on Furiosa RNGD NPU hardware via an OpenAI-compatible inference API.",
 		env: {
@@ -1895,10 +2052,41 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
+	},
+	{
+		id: "consensusprotocol",
+		name: "Consensus Protocol",
+		forwardsSafetyIdentifier: false,
+		description:
+			"Consensus Protocol serves open-weight large language models on dedicated GPU hardware it operates, via an OpenAI-compatible inference API.",
+		env: {
+			required: {
+				apiKey: "LLM_CONSENSUSPROTOCOL_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#dc2626",
+		website: "https://consensusprotocol.org",
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: "https://consensusprotocol.org/terms",
+		privacyPolicyUrl: "https://consensusprotocol.org/privacy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+		},
+		additionalLinks: [
+			{
+				desc: "Inference data handling",
+				link: "https://consensusprotocol.org/data-policy",
+			},
+		],
 	},
 ] as const satisfies ProviderDefinition[];
 
@@ -1908,6 +2096,58 @@ export function getProviderDefinition(
 	providerId: ProviderId | string,
 ): ProviderDefinition | undefined {
 	return providers.find((p) => p.id === providerId);
+}
+
+/**
+ * The region a credential must be pinned to in order to serve a request that
+ * resolved no region — but only for providers whose credentials are
+ * region-scoped, i.e. those with no global region, where every credential is
+ * necessarily bound to one region (Alibaba).
+ *
+ * Undefined for providers not scoped by region at all, and deliberately
+ * undefined for providers with a credential shared across regions (AWS
+ * Bedrock, whose `global` is a real region): there a region-pinned credential
+ * is a deliberate scoping by the operator and must never be substituted for a
+ * region the request actually asked for — the request fails instead.
+ */
+export function getRegionScopedDefaultRegion(
+	providerId: ProviderId | string,
+): string | undefined {
+	const regionConfig = getProviderDefinition(providerId)?.regionConfig;
+	if (!regionConfig || regionConfig.sharedCredentialAcrossRegions) {
+		return undefined;
+	}
+	return regionConfig.defaultRegion;
+}
+
+/**
+ * Whether a region's preferred endpoint is completed with a per-credential
+ * workspace id. The workspace id is worth collecting for such a region even
+ * when a shared fallback exists, so the UI asks for it here.
+ */
+export function regionEndpointUsesWorkspaceId(
+	providerId: ProviderId | string,
+	region: string,
+): boolean {
+	const endpoint =
+		getProviderDefinition(providerId)?.regionConfig?.endpointMap[region];
+	return Boolean(endpoint?.includes(REGION_WORKSPACE_ID_PLACEHOLDER));
+}
+
+/**
+ * Whether a region is unreachable without a workspace id — true only when its
+ * endpoint is workspace-scoped and no shared fallback host exists. Routing
+ * consults this so a region it cannot build a URL for is never selected.
+ */
+export function regionEndpointRequiresWorkspaceId(
+	providerId: ProviderId | string,
+	region: string,
+): boolean {
+	if (!regionEndpointUsesWorkspaceId(providerId, region)) {
+		return false;
+	}
+	const regionConfig = getProviderDefinition(providerId)?.regionConfig;
+	return !regionConfig?.endpointFallbackMap?.[region];
 }
 
 /**
@@ -1928,7 +2168,6 @@ export interface ProviderComplianceAttestation {
 	iso27001?: boolean | null;
 	gdpr?: boolean | null;
 	apiTraining?: boolean | null;
-	consumerTraining?: boolean | null;
 	promptLogging?: boolean | null;
 	retentionPeriod?: string | null;
 	/** ISO 3166-1 alpha-2 country the deployment is operated from. */
@@ -2209,7 +2448,6 @@ export function getAttestationComplianceFailures(
 	return getDataPolicyComplianceFailures(
 		{
 			apiTraining: attestation.apiTraining ?? null,
-			consumerTraining: attestation.consumerTraining ?? null,
 			promptLogging: attestation.promptLogging ?? null,
 			retentionPeriod: attestation.retentionPeriod ?? null,
 			soc2: attestation.soc2 ?? null,

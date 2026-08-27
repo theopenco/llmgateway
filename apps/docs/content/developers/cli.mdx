@@ -12,10 +12,10 @@ The **LLM Gateway CLI** (`@llmgateway/cli`) is a command-line utility for launch
 
 <Callout type="info">
 	**Using DevPass?** This integration also works with a
-	[DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without
-	a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) —
-	provider-pinned routing is not available on coding plans; the gateway picks
-	the provider for you.
+	[DevPass](https://devpass.llmgateway.io) plan key. Use canonical model IDs
+	without a provider prefix (`claude-sonnet-4-5`, not
+	`anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on
+	coding plans; the gateway picks the provider for you.
 </Callout>
 
 ## Installation
@@ -160,7 +160,7 @@ npx @llmgateway/cli configure claude --project
 npx @llmgateway/cli configure opencode --dry-run
 ```
 
-- **OpenCode** — merges `provider/model` entries (e.g. `anthropic/claude-sonnet-5`, `aws-bedrock/claude-sonnet-5`) into `provider.llmgateway.models` in `~/.config/opencode/opencode.json`, with display names, context limits, and per-provider pricing. They show up in the picker as `llmgateway/<provider>/<model>` and pin that upstream provider via the gateway's [provider-routing syntax](/features/routing#provider-specific-routing). Root model IDs (auto-routed) are already built into OpenCode. Existing custom entries and the rest of the file are preserved, and a hand-written `opencode.jsonc` keeps working alongside it.
+- **OpenCode** — merges `provider/model` entries (e.g. `anthropic/claude-sonnet-5`, `aws-bedrock/claude-sonnet-5`) into `provider.llmgateway.models` in `~/.config/opencode/opencode.json`, with display names, context limits, and per-provider pricing. They show up in the picker as `llmgateway/<provider>/<model>` and pin that upstream provider via the gateway's [provider-routing syntax](/features/routing#provider-specific-routing). OpenCode now ships both catalogs natively too — canonical IDs under **DevPass (LLM Gateway)** (`llmgateway`) and pinned `provider/model` IDs under **LLM Gateway** (`llmgateway-providers`) — so `configure` mainly covers models the built-in catalog has not picked up yet. Existing custom entries and the rest of the file are preserved, and a hand-written `opencode.jsonc` keeps working alongside it.
 - **Claude Code** — sets `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1` in `~/.claude/settings.json` (requires Claude Code v2.1.129+). Claude Code then loads the gateway's `/v1/models` catalog into its `/model` picker (shown as "From gateway"). Claude Code only lists IDs starting with `claude`/`anthropic`; any other gateway model still works via `claude --model <id>`.
 
 `llmgateway launch opencode` and `llmgateway launch claude` apply the same setup automatically on every launch, keeping the catalog fresh as new models ship.

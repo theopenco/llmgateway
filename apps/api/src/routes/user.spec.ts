@@ -197,6 +197,13 @@ describe("user accounts and email editability", () => {
 		expect(json.user.accounts).toBeDefined();
 		expect(Array.isArray(json.user.accounts)).toBe(true);
 		expect(json.user.accounts).toContainEqual({ providerId: "credential" });
+		expect(json.enterpriseLicense).toEqual({
+			status: "development",
+			enterpriseEnabled: true,
+			whiteLabelEnabled: true,
+			expiresAt: null,
+			graceEndsAt: null,
+		});
 	});
 
 	it("GET /user/me should return isSsoUser false for a non-SSO user", async () => {
@@ -352,5 +359,112 @@ describe("user accounts and email editability", () => {
 		expect(res.status).toBe(200);
 		const json = await res.json();
 		expect(json.user.accounts).toHaveLength(2);
+	});
+
+	it("PATCH /user/me should reset emailVerified when the email changes", async () => {
+		const res = await app.request("/user/me", {
+			method: "PATCH",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({ email: "changed@example.com" }),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.user.email).toBe("changed@example.com");
+		expect(json.user.emailVerified).toBe(false);
+		expect(json.user.isAdmin).toBe(false);
+
+		const stored = await db.query.user.findFirst({
+			where: { id: { eq: "test-user-id" } },
+		});
+		expect(stored!.emailVerified).toBe(false);
+	});
+
+	it("PATCH /user/me should keep emailVerified when the email is unchanged", async () => {
+		const res = await app.request("/user/me", {
+			method: "PATCH",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({ email: "admin@example.com", name: "Same Email" }),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.user.emailVerified).toBe(true);
+	});
+
+	it("PATCH /user/me should store a changed email lowercased", async () => {
+		const res = await app.request("/user/me", {
+			method: "PATCH",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({ email: "Mixed.Case@Example.COM" }),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.user.email).toBe("mixed.case@example.com");
+		expect(json.user.emailVerified).toBe(false);
+	});
+
+	it("PATCH /user/me should reject a case variant of another account's email", async () => {
+		await db.insert(tables.user).values({
+			id: "taken-user-id",
+			name: "Taken",
+			email: "taken@example.com",
+			emailVerified: true,
+		});
+
+		const res = await app.request("/user/me", {
+			method: "PATCH",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({ email: "TAKEN@example.com" }),
+		});
+
+		expect(res.status).toBe(400);
+
+		const stored = await db.query.user.findFirst({
+			where: { id: { eq: "test-user-id" } },
+		});
+		expect(stored!.email).toBe("admin@example.com");
+
+		await db.delete(tables.user).where(eq(tables.user.id, "taken-user-id"));
+	});
+
+	it("PATCH /user/me should reject an email already used by another account", async () => {
+		await db.insert(tables.user).values({
+			id: "taken-user-id",
+			name: "Taken",
+			email: "taken@example.com",
+			emailVerified: true,
+		});
+
+		const res = await app.request("/user/me", {
+			method: "PATCH",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({ email: "taken@example.com" }),
+		});
+
+		expect(res.status).toBe(400);
+
+		const stored = await db.query.user.findFirst({
+			where: { id: { eq: "test-user-id" } },
+		});
+		expect(stored!.email).toBe("admin@example.com");
+
+		await db.delete(tables.user).where(eq(tables.user.id, "taken-user-id"));
 	});
 });

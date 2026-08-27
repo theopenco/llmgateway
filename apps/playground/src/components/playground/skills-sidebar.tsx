@@ -98,7 +98,7 @@ export function SkillsSidebar({
 					router.push(
 						process.env.NODE_ENV === "development"
 							? "http://localhost:3003/login"
-							: "https://chat.llmgateway.io/login",
+							: "https://lounge.llmgateway.io/login",
 					);
 				},
 			},

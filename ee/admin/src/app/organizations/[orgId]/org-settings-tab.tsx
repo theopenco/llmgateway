@@ -31,6 +31,11 @@ import {
 import { failureLabel } from "@llmgateway/shared";
 import { providerLogoUrls } from "@llmgateway/shared/components";
 
+import {
+	PaymentMethodsList,
+	type AdminPaymentMethod,
+} from "./payment-methods-list";
+
 import type { paths } from "@/lib/api/v1";
 import type { ReactElement, ReactNode } from "react";
 
@@ -110,6 +115,53 @@ function PlanTerm({
 				<PlanTermBadge planExpiresAt={endsAt} planStartedAt={startsAt} />
 			)}
 		</span>
+	);
+}
+
+const currencyFormatter = new Intl.NumberFormat("en-US", {
+	style: "currency",
+	currency: "USD",
+});
+
+function formatCurrency(value: string | null) {
+	if (value === null) {
+		return null;
+	}
+	const parsed = Number(value);
+	return Number.isFinite(parsed) ? currencyFormatter.format(parsed) : value;
+}
+
+/** Renders an optional value, falling back to a dash so empty fields stay legible. */
+function OptionalValue({
+	value,
+	mono = false,
+}: {
+	value: string | null | undefined;
+	mono?: boolean;
+}) {
+	if (!value) {
+		return <span className="text-muted-foreground">—</span>;
+	}
+	return <span className={cn(mono && "font-mono text-xs")}>{value}</span>;
+}
+
+/** Free-text billing fields that are too long for a right-aligned setting row. */
+function BillingTextBlock({
+	label,
+	value,
+}: {
+	label: string;
+	value: string | null | undefined;
+}) {
+	return (
+		<div className="space-y-1">
+			<p className="text-sm text-muted-foreground">{label}</p>
+			{value ? (
+				<p className="whitespace-pre-line text-sm">{value}</p>
+			) : (
+				<p className="text-sm text-muted-foreground">—</p>
+			)}
+		</div>
 	);
 }
 
@@ -209,7 +261,21 @@ function RefBadgeList({ refs }: { refs: string[] | undefined }) {
 	);
 }
 
-export function OrgSettingsTab({ settings }: { settings: SettingsResponse }) {
+export function OrgSettingsTab({
+	settings,
+	paymentMethods,
+	paymentMethodsLoadError,
+	onDeletePaymentMethod,
+}: {
+	settings: SettingsResponse;
+	paymentMethods: AdminPaymentMethod[] | null;
+	paymentMethodsLoadError: boolean;
+	onDeletePaymentMethod: (
+		paymentMethodId: string,
+		replacementPaymentMethodId?: string,
+		releaseDevPlanCardFingerprint?: boolean,
+	) => Promise<{ success: boolean; error?: string }>;
+}) {
 	const { organization: org, customProviders } = settings;
 	const policy =
 		org.providerCompliancePolicy as ProviderCompliancePolicy | null;
@@ -301,8 +367,8 @@ export function OrgSettingsTab({ settings }: { settings: SettingsResponse }) {
 						<SettingRow label="API key limit">
 							{org.apiKeyLimit ?? "plan default"}
 						</SettingRow>
-						<SettingRow label="Subscription cancelled">
-							{org.subscriptionCancelled ? "Yes" : "No"}
+						<SettingRow label="Project limit">
+							{org.projectLimit ?? "plan default"}
 						</SettingRow>
 						<SettingRow label="Trial">
 							{org.isTrialActive ? (
@@ -320,14 +386,16 @@ export function OrgSettingsTab({ settings }: { settings: SettingsResponse }) {
 								<span className="text-muted-foreground">No</span>
 							)}
 						</SettingRow>
-						<SettingRow label="Auto top-up">
-							{org.autoTopUpEnabled ? "Enabled" : "Disabled"}
-						</SettingRow>
 						<SettingRow label="Referral bonus">
 							{org.referralBonusEnabled ? "Enabled" : "Disabled"}
 						</SettingRow>
 						<SettingRow label="SSO auto-join domain">
 							{org.ssoAutoJoinDomain ?? "—"}
+						</SettingRow>
+						{/* Quoted by provider abuse reports; also searchable in the
+						    organizations list. */}
+						<SettingRow label="Safety identifier">
+							<span className="font-mono text-xs">{org.safetyIdentifier}</span>
 						</SettingRow>
 					</CardContent>
 				</Card>
@@ -416,6 +484,91 @@ export function OrgSettingsTab({ settings }: { settings: SettingsResponse }) {
 					</CardContent>
 				</Card>
 			</div>
+
+			<Card>
+				<CardHeader>
+					<CardTitle>Billing</CardTitle>
+					<CardDescription>
+						Invoicing details, credit balance and Stripe linkage for this
+						organization.
+					</CardDescription>
+				</CardHeader>
+				<CardContent className="grid gap-6 md:grid-cols-2">
+					<div className="space-y-4">
+						<div>
+							<SettingRow label="Billing email">
+								<OptionalValue value={org.billingEmail} />
+							</SettingRow>
+							<SettingRow label="Company">
+								<OptionalValue value={org.billingCompany} />
+							</SettingRow>
+							<SettingRow label="Tax ID">
+								<OptionalValue value={org.billingTaxId} mono />
+							</SettingRow>
+						</div>
+						<BillingTextBlock label="Address" value={org.billingAddress} />
+						<BillingTextBlock label="Notes" value={org.billingNotes} />
+					</div>
+
+					<div>
+						<SettingRow label="Credits">
+							<span className="tabular-nums">
+								{formatCurrency(org.credits) ?? "—"}
+							</span>
+						</SettingRow>
+						<SettingRow label="Last top-up">
+							<span className="tabular-nums">
+								{formatCurrency(org.lastTopUpAmount ?? null) ?? "—"}
+							</span>
+						</SettingRow>
+						<SettingRow label="Auto top-up">
+							{org.autoTopUpEnabled ? (
+								<span className="tabular-nums">
+									{formatCurrency(org.autoTopUpAmount ?? null) ?? "—"} below{" "}
+									{formatCurrency(org.autoTopUpThreshold ?? null) ?? "—"}
+								</span>
+							) : (
+								<span className="text-muted-foreground">Disabled</span>
+							)}
+						</SettingRow>
+						<SettingRow label="Stripe customer">
+							<OptionalValue value={org.stripeCustomerId} mono />
+						</SettingRow>
+						<SettingRow label="Stripe subscription">
+							<OptionalValue value={org.stripeSubscriptionId} mono />
+						</SettingRow>
+						<SettingRow label="Subscription cancelled">
+							{org.subscriptionCancelled ? "Yes" : "No"}
+						</SettingRow>
+						<SettingRow label="Payment failures">
+							{org.paymentFailureCount > 0 ? (
+								<span className="text-red-700 dark:text-red-400">
+									{org.paymentFailureCount} since{" "}
+									{org.paymentFailureStartedAt
+										? formatDate(org.paymentFailureStartedAt)
+										: "—"}
+								</span>
+							) : (
+								<span className="text-muted-foreground">None</span>
+							)}
+						</SettingRow>
+						<SettingRow label="Last payment failure">
+							{org.lastPaymentFailureAt ? (
+								formatDate(org.lastPaymentFailureAt)
+							) : (
+								<span className="text-muted-foreground">—</span>
+							)}
+						</SettingRow>
+					</div>
+
+					<PaymentMethodsList
+						paymentMethods={paymentMethods}
+						loadError={paymentMethodsLoadError}
+						autoTopUpEnabled={org.autoTopUpEnabled}
+						onDelete={onDeletePaymentMethod}
+					/>
+				</CardContent>
+			</Card>
 
 			<Card>
 				<CardHeader>

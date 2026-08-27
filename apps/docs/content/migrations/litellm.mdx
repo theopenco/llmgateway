@@ -6,10 +6,13 @@ icon: ArrowRightLeft
 
 import { Step, Steps } from "fumadocs-ui/components/steps";
 import { Callout } from "fumadocs-ui/components/callout";
+import { CopyMigrationPrompt } from "@/components/copy-migration-prompt";
 
 <section>
 
 Running your own LiteLLM proxy works—until it doesn't. Scaling, monitoring, and keeping it running becomes another job. LLM Gateway gives you the same unified API with built-in analytics, caching, and a dashboard—without the infrastructure overhead.
+
+<CopyMigrationPrompt slug="litellm" provider="LiteLLM" />
 
 ## Quick Migration
 
@@ -63,7 +66,7 @@ Sign up at [llmgateway.io/signup](https://llmgateway.io/signup) and create an AP
 
 LLM Gateway supports two model ID formats:
 
-**Root Model IDs** (without provider prefix) - Uses smart routing to automatically select the best provider based on uptime, throughput, price, and latency:
+**Canonical Model IDs** (without provider prefix) - Uses smart routing to automatically select the best provider based on uptime, throughput, price, and latency:
 
 ```
 gpt-5.2

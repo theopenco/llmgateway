@@ -51,6 +51,7 @@ export interface ApiModelProviderMapping {
 		("none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max")[] | null;
 	reasoningOutput: string | null;
 	reasoningMaxTokens: boolean | null;
+	rerank: boolean | null;
 	tools: boolean | null;
 	jsonOutput: boolean | null;
 	jsonOutputSchema: boolean | null;
@@ -72,6 +73,24 @@ export interface ApiModelProviderMapping {
 		cacheWriteInputPrice: string | null;
 		cacheWriteInputPrice1h: string | null;
 	}> | null;
+	peakPricing?: {
+		peak: {
+			inputPrice: string;
+			outputPrice: string;
+			cachedInputPrice: string | null;
+		};
+		offPeak: {
+			inputPrice: string;
+			outputPrice: string;
+			cachedInputPrice: string | null;
+		};
+		hoursUtc: Array<[number, number]>;
+		offPeakDays: {
+			daysOfWeek: number[];
+			utcOffsetMinutes: number;
+			timeZoneLabel: string;
+		} | null;
+	} | null;
 	serviceTiers?: string[] | null;
 	discount: string | null;
 	stability: "stable" | "beta" | "unstable" | "experimental" | null;

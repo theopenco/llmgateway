@@ -5,6 +5,17 @@ date: "2026-07-05"
 title: "Projects: A Knowledge Base for Your AI Chats"
 summary: "LLM Gateway Chat now has Projects: group related chats, upload files — PDFs and spreadsheets included — as a knowledge base, and get answers grounded in your own documents via RAG, with source citations, on any of 280+ models. Projects also remember durable facts across chats. Available to every Chat user."
 categories: ["Announcements", "Product"]
+faqs:
+  - question: "How is a project knowledge base different from attaching a file to a chat?"
+    answer: "An attachment lives and dies with one conversation, and large files eat your context window on every message. A knowledge base is indexed once and shared by every chat in the project — only the passages relevant to each question are sent to the model, so a 500 KB handbook doesn't cost you 500 KB of context per message."
+  - question: "Which models work with project knowledge bases?"
+    answer: "All of them. Retrieval happens before the model is called, so the grounded context works the same whether the chat runs GPT-5, Claude, Gemini, or any other model on the gateway — and you can switch models mid-project."
+  - question: "What file types can I upload?"
+    answer: "PDF and Excel (.xlsx/.xls) files, plus any text-based format: plain text, markdown, source code, CSV, JSON, YAML, XML, HTML, and logs. PDF text is extracted on upload; spreadsheets are converted sheet-by-sheet to CSV. Scanned image-only PDFs aren't supported yet."
+  - question: "How does project memory work?"
+    answer: 'After each assistant reply in a project chat, a small model extracts durable facts from the exchange — up to three per reply, deduplicated, capped at 50 per project — and saves them with an "Auto" badge on the project page. Every chat in the project sees them from then on. You can edit or delete any memory, or add your own manually; extraction runs after the reply streams, so it never slows a response down.'
+  - question: "Does RAG cost extra?"
+    answer: "No. Embeddings and memory extraction are billed to the same credits as your chats at standard gateway rates — for `text-embedding-3-small`, indexing a file works out to fractions of a cent."
 image:
   src: "/blog/chat-projects-knowledge-base.png"
   alt: "A glossy 3D circuit board with a glowing folder holding documents at its center, representing a project knowledge base feeding AI chats"
@@ -14,7 +25,7 @@ image:
 
 Every new chat starts from zero. You paste the same product spec for the third time this week, re-upload the same README, and re-explain the same context the model forgot the moment you closed the tab. The model is smart; your setup is amnesiac.
 
-Today we're adding **Projects** to [LLM Gateway Chat](https://chat.llmgateway.io) — a knowledge base and workspace for your chats. Create a project, drop in your files once — PDFs, spreadsheets, docs, code — and every chat inside it answers from those documents, with the source file cited in the reply. It's retrieval-augmented generation (RAG) without standing up a vector database, and it works with any of the 280+ models in the picker.
+Today we're adding **Projects** to [LLM Gateway Chat](https://lounge.llmgateway.io) — a knowledge base and workspace for your chats. Create a project, drop in your files once — PDFs, spreadsheets, docs, code — and every chat inside it answers from those documents, with the source file cited in the reply. It's retrieval-augmented generation (RAG) without standing up a vector database, and it works with any of the 280+ models in the picker.
 
 Projects also have memory. Mention once that you're hiring for the Stockholm team, and a brand-new chat in the same project next week still knows — without you repeating it and without the fact living in any uploaded file.
 
@@ -47,6 +58,8 @@ Under the hood:
 
 Retrieval runs on every message, so follow-up questions pull fresh passages instead of reusing whatever the first question happened to surface.
 
+<BlogCta variant="gateway" location="mid_article" />
+
 ## Memory that carries across chats
 
 Knowledge bases hold what your files say. Memory holds what your conversations establish.
@@ -63,36 +76,16 @@ Current limits: 20 files per project, up to 500 KB of extracted text per file (b
 
 ## Get started in three steps
 
-1. Open [chat.llmgateway.io/projects](https://chat.llmgateway.io/projects) and create a project.
+1. Open [lounge.llmgateway.io/projects](https://lounge.llmgateway.io/projects) and create a project.
 2. Add files to its knowledge base — a PDF is fine as-is — and optionally write instructions.
 3. Hit **New chat** and ask a question your documents can answer.
-
-## Frequently Asked Questions
-
-### How is a project knowledge base different from attaching a file to a chat?
-
-An attachment lives and dies with one conversation, and large files eat your context window on every message. A knowledge base is indexed once and shared by every chat in the project — only the passages relevant to each question are sent to the model, so a 500 KB handbook doesn't cost you 500 KB of context per message.
-
-### Which models work with project knowledge bases?
-
-All of them. Retrieval happens before the model is called, so the grounded context works the same whether the chat runs GPT-5, Claude, Gemini, or any other model on the gateway — and you can switch models mid-project.
-
-### What file types can I upload?
-
-PDF and Excel (.xlsx/.xls) files, plus any text-based format: plain text, markdown, source code, CSV, JSON, YAML, XML, HTML, and logs. PDF text is extracted on upload; spreadsheets are converted sheet-by-sheet to CSV. Scanned image-only PDFs aren't supported yet.
-
-### How does project memory work?
-
-After each assistant reply in a project chat, a small model extracts durable facts from the exchange — up to three per reply, deduplicated, capped at 50 per project — and saves them with an "Auto" badge on the project page. Every chat in the project sees them from then on. You can edit or delete any memory, or add your own manually; extraction runs after the reply streams, so it never slows a response down.
-
-### Does RAG cost extra?
-
-No. Embeddings and memory extraction are billed to the same credits as your chats at standard gateway rates — for `text-embedding-3-small`, indexing a file works out to fractions of a cent.
 
 ---
 
 **Try it now:**
 
-- **[Open LLM Gateway Chat](https://chat.llmgateway.io/projects)** — create your first project free
-- **[Chat plans](https://chat.llmgateway.io/pricing)** — more credits for heavy use, from $9/mo
+- **[Open LLM Gateway Chat](https://lounge.llmgateway.io/projects)** — create your first project free
+- **[Chat plans](https://lounge.llmgateway.io/pricing)** — more credits for heavy use, from $9/mo
 - **[DevPass Code](/blog/devpass-code)** — our terminal coding agent, if your knowledge base is a codebase
+
+<BlogCta variant="gateway" location="bottom" />

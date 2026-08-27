@@ -2,7 +2,7 @@ import { ImageResponse } from "next/og";
 
 import { getIconForGuide } from "@/app/guides/og-icons";
 
-import type { Guide } from "content-collections";
+import { allGuides } from "content-collections";
 
 export const size = {
 	width: 1200,
@@ -10,15 +10,24 @@ export const size = {
 };
 export const contentType = "image/png";
 
+// Prerendered at build time: rendering these cards on demand runs satori inside
+// the request, which the production pods do not have the headroom for and which
+// took the whole route down with a 503. dynamicParams keeps unknown slugs from
+// reaching the renderer at runtime at all.
+export const dynamicParams = false;
+
+export function generateStaticParams() {
+	return allGuides.map((guide) => ({ slug: guide.slug }));
+}
+
 export default async function GuideOgImage({
 	params,
 }: {
 	params: Promise<{ slug: string }>;
 }) {
-	const { allGuides } = await import("content-collections");
 	const { slug } = await params;
 
-	const guide = allGuides.find((guide: Guide) => guide.slug === slug);
+	const guide = allGuides.find((guide) => guide.slug === slug);
 
 	if (!guide) {
 		return new ImageResponse(

@@ -30,7 +30,10 @@ export function BlogCta({
 
 	if (variant === "enterprise") {
 		return (
-			<div className="not-prose my-10 rounded-xl border bg-muted/30 p-6 sm:p-8">
+			<div
+				data-inline-cta
+				className="not-prose my-10 rounded-xl border bg-muted/30 p-6 sm:p-8"
+			>
 				<div className="font-mono text-[10px] uppercase tracking-[0.35em] text-muted-foreground">
 					LLM Gateway · Enterprise
 				</div>
@@ -69,7 +72,10 @@ export function BlogCta({
 
 	if (variant === "gateway") {
 		return (
-			<div className="not-prose my-10 rounded-xl border bg-muted/30 p-6 sm:p-8">
+			<div
+				data-inline-cta
+				className="not-prose my-10 rounded-xl border bg-muted/30 p-6 sm:p-8"
+			>
 				<div className="font-mono text-[10px] uppercase tracking-[0.35em] text-muted-foreground">
 					LLM Gateway
 				</div>
@@ -107,7 +113,10 @@ export function BlogCta({
 	}
 
 	return (
-		<div className="not-prose relative my-10 overflow-hidden rounded-xl border border-dashed border-stone-400/70 bg-stone-50/70 dark:border-stone-600/70 dark:bg-stone-900/30">
+		<div
+			data-inline-cta
+			className="not-prose relative my-10 overflow-hidden rounded-xl border border-dashed border-stone-400/70 bg-stone-50/70 dark:border-stone-600/70 dark:bg-stone-900/30"
+		>
 			<div className="p-6 sm:p-8">
 				<div className="flex flex-wrap items-baseline justify-between gap-2">
 					<div className="font-mono text-[10px] uppercase tracking-[0.35em] text-stone-500 dark:text-stone-400">

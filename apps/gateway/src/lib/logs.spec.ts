@@ -121,10 +121,10 @@ describe("getUnifiedFinishReason", () => {
 			UnifiedFinishReason.CONTENT_FILTER,
 		);
 		expect(getUnifiedFinishReason("IMAGE_OTHER", "google-ai-studio")).toBe(
-			UnifiedFinishReason.CONTENT_FILTER,
+			UnifiedFinishReason.UNKNOWN,
 		);
 		expect(getUnifiedFinishReason("NO_IMAGE", "google-ai-studio")).toBe(
-			UnifiedFinishReason.CONTENT_FILTER,
+			UnifiedFinishReason.UNKNOWN,
 		);
 		expect(getUnifiedFinishReason("OTHER", "google-ai-studio")).toBe(
 			UnifiedFinishReason.UNKNOWN,
@@ -175,7 +175,7 @@ describe("getUnifiedFinishReason", () => {
 			UnifiedFinishReason.CONTENT_FILTER,
 		);
 		expect(getUnifiedFinishReason("NO_IMAGE", "glacier")).toBe(
-			UnifiedFinishReason.CONTENT_FILTER,
+			UnifiedFinishReason.UNKNOWN,
 		);
 	});
 
@@ -375,7 +375,12 @@ describe("calculateDataStorageCost", () => {
 		// promptTokens is the canonical input count in gateway logs.
 		// cachedTokens is tracked separately for pricing and diagnostics, but should
 		// not increase storage accounting a second time.
-		const cost = calculateDataStorageCost(500000, 250000, 250000, 250000);
+		const cost = calculateDataStorageCost(500000, 250000, 500000, 0);
+		expect(cost).toBe("0.01"); // 1M tokens * $0.01 per 1M = $0.01
+	});
+
+	it("does not double-count reasoning tokens included in completion tokens", () => {
+		const cost = calculateDataStorageCost(500000, 0, 500000, 250000);
 		expect(cost).toBe("0.01"); // 1M tokens * $0.01 per 1M = $0.01
 	});
 

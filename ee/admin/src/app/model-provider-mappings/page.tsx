@@ -7,13 +7,16 @@ import { MappingsTable } from "@/components/mappings-table";
 import { TimeWindowSelector } from "@/components/time-window-selector";
 import { TokenBreakdown } from "@/components/token-breakdown";
 import { Button } from "@/components/ui/button";
+import { UsageModeSelector } from "@/components/usage-mode-selector";
 import {
+	CATALOG_PAGE_WINDOW_DEFAULT,
 	pageWindowOptionsWithMinutes,
 	parsePageWindow,
 	windowToFromTo,
 } from "@/lib/page-window";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
+import { parseUsageMode } from "@/lib/usage-mode";
 
 type MappingSortBy =
 	| "providerId"
@@ -56,6 +59,7 @@ export default async function ModelProviderMappingsPage({
 		sortBy?: string;
 		sortOrder?: string;
 		window?: string;
+		mode?: string;
 	}>;
 }) {
 	await requireSession();
@@ -64,7 +68,11 @@ export default async function ModelProviderMappingsPage({
 	const search = params?.search ?? "";
 	const sortBy = (params?.sortBy as MappingSortBy) ?? "logsCount";
 	const sortOrder = (params?.sortOrder as SortOrder) ?? "desc";
-	const pageWindow = parsePageWindow(params?.window);
+	const pageWindow = parsePageWindow(
+		params?.window,
+		CATALOG_PAGE_WINDOW_DEFAULT,
+	);
+	const usageMode = parseUsageMode(params?.mode);
 	const { from, to } = windowToFromTo(pageWindow);
 
 	const $api = await createServerApiClient();
@@ -78,6 +86,7 @@ export default async function ModelProviderMappingsPage({
 				offset: 0,
 				from,
 				to,
+				mode: usageMode,
 			},
 		},
 	});
@@ -108,12 +117,14 @@ export default async function ModelProviderMappingsPage({
 		"use server";
 		const searchValue = formData.get("search") as string;
 		const windowValue = formData.get("window") as string;
+		const modeValue = formData.get("mode") as string;
 		const searchParam = searchValue
 			? `&search=${encodeURIComponent(searchValue)}`
 			: "";
 		const windowParam = windowValue ? `&window=${windowValue}` : "";
+		const modeParam = modeValue === "total" ? "" : `&mode=${modeValue}`;
 		redirect(
-			`/model-provider-mappings?sortBy=${sortBy}&sortOrder=${sortOrder}${searchParam}${windowParam}`,
+			`/model-provider-mappings?sortBy=${sortBy}&sortOrder=${sortOrder}${searchParam}${windowParam}${modeParam}`,
 		);
 	}
 
@@ -135,6 +146,7 @@ export default async function ModelProviderMappingsPage({
 					<input type="hidden" name="sortBy" value={sortBy} />
 					<input type="hidden" name="sortOrder" value={sortOrder} />
 					<input type="hidden" name="window" value={pageWindow} />
+					<input type="hidden" name="mode" value={usageMode} />
 					<div className="relative flex-1 sm:flex-initial">
 						<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
 						<input
@@ -174,10 +186,13 @@ export default async function ModelProviderMappingsPage({
 					</div>
 				</div>
 				<Suspense>
-					<TimeWindowSelector
-						current={pageWindow}
-						options={pageWindowOptionsWithMinutes}
-					/>
+					<div className="flex flex-wrap items-center gap-2">
+						<UsageModeSelector compact />
+						<TimeWindowSelector
+							current={pageWindow}
+							options={pageWindowOptionsWithMinutes}
+						/>
+					</div>
 				</Suspense>
 			</div>
 
@@ -188,6 +203,7 @@ export default async function ModelProviderMappingsPage({
 					sortOrder={sortOrder}
 					search={search}
 					pageWindow={pageWindow}
+					usageMode={usageMode}
 				/>
 			</div>
 		</div>

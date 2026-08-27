@@ -5,14 +5,73 @@
  * address is also rejected. Kept in a separate entrypoint because it imports
  * `node:dns` and must not leak into the browser barrel.
  */
+import { lookup as lookupCallback } from "node:dns";
 import { lookup } from "node:dns/promises";
+
+import { Agent, fetch as undiciFetch } from "undici";
 
 import {
 	assertSafeContentUrl,
 	assertSafeProviderBaseUrl,
+	assertSafeUserUrl,
 	isPrivateOrReservedIp,
 	isProviderUrlGuardEnabled,
 } from "./url-safety.js";
+
+import type { LookupAllOptions } from "node:dns";
+import type { LookupFunction } from "node:net";
+
+const safeUserUrlLookup: LookupFunction = (hostname, options, callback) => {
+	const lookupOptions: LookupAllOptions = {
+		...options,
+		all: true,
+	};
+
+	lookupCallback(hostname, lookupOptions, (error, addresses) => {
+		if (error) {
+			callback(error, []);
+			return;
+		}
+
+		const blockedAddress = addresses.find(({ address }) =>
+			isPrivateOrReservedIp(address),
+		);
+		if (blockedAddress) {
+			const lookupError = new Error(
+				`User-provided URL host ${hostname} resolves to a disallowed address (${blockedAddress.address})`,
+			) as NodeJS.ErrnoException;
+			lookupError.code = "EACCES";
+			callback(lookupError, []);
+			return;
+		}
+
+		if (options.all) {
+			callback(null, addresses);
+			return;
+		}
+
+		const [address] = addresses;
+		if (!address) {
+			const lookupError = new Error(
+				`User-provided URL host ${hostname} did not resolve`,
+			) as NodeJS.ErrnoException;
+			lookupError.code = "ENOTFOUND";
+			callback(lookupError, []);
+			return;
+		}
+
+		callback(null, address.address, address.family);
+	});
+};
+
+let safeUserUrlAgent: Agent | undefined;
+
+function getSafeUserUrlAgent(): Agent {
+	safeUserUrlAgent ??= new Agent({
+		connect: { lookup: safeUserUrlLookup },
+	});
+	return safeUserUrlAgent;
+}
 
 /**
  * Resolve a hostname and throw if any returned address is private/reserved
@@ -51,6 +110,31 @@ export async function assertSafeProviderUrl(rawUrl: string): Promise<void> {
 	const url = assertSafeProviderBaseUrl(rawUrl);
 
 	await assertResolvedHostSafe(url.hostname, "Provider base URL");
+}
+
+/** Validate a user-controlled outbound URL, including all current DNS results. */
+export async function assertSafeResolvedUserUrl(rawUrl: string): Promise<URL> {
+	const url = assertSafeUserUrl(rawUrl);
+	await assertResolvedHostSafe(url.hostname, "User-provided URL");
+	return url;
+}
+
+/**
+ * Fetch a user-controlled URL without redirects. The custom DNS lookup rejects
+ * unsafe addresses as part of socket creation, avoiding a validation/fetch DNS
+ * race while preserving the original hostname for TLS verification.
+ */
+export async function fetchSafeUserUrl(
+	input: string | URL,
+	init?: RequestInit,
+): Promise<Response> {
+	const url = assertSafeUserUrl(input.toString());
+	const requestInit = { ...init, redirect: "error" as const };
+
+	return (await undiciFetch(url, {
+		...requestInit,
+		dispatcher: getSafeUserUrlAgent(),
+	} as Parameters<typeof undiciFetch>[1])) as unknown as Response;
 }
 
 /**

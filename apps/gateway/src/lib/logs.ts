@@ -7,6 +7,7 @@ import {
 import { recordChatCompletionMetrics } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 
+import { recordSpend } from "./spend-limit.js";
 import {
 	redactErrorDetails,
 	shouldRedactProviderError,
@@ -25,15 +26,18 @@ export function isExpectedUnknownFinishReason(
 	if (!finishReason) {
 		return false;
 	}
-	// Google's "OTHER" and "MALFORMED_RESPONSE" finish reasons are expected and
-	// map to UNKNOWN
+	// Google's "OTHER", "IMAGE_OTHER", "NO_IMAGE" and "MALFORMED_RESPONSE" finish
+	// reasons are expected and map to UNKNOWN
 	if (
 		(provider === "google-ai-studio" ||
 			provider === "glacier" ||
 			provider === "iceberg" ||
 			provider === "google-vertex" ||
 			provider === "quartz") &&
-		(finishReason === "OTHER" || finishReason === "MALFORMED_RESPONSE")
+		(finishReason === "OTHER" ||
+			finishReason === "IMAGE_OTHER" ||
+			finishReason === "NO_IMAGE" ||
+			finishReason === "MALFORMED_RESPONSE")
 	) {
 		return true;
 	}
@@ -95,6 +99,7 @@ export function getUnifiedFinishReason(
 	switch (provider) {
 		case "anthropic":
 		case "vertex-anthropic":
+		case "azure-anthropic":
 			if (finishReason === "stop_sequence") {
 				return UnifiedFinishReason.COMPLETED;
 			}
@@ -140,13 +145,18 @@ export function getUnifiedFinishReason(
 				finishReason === "IMAGE_SAFETY" ||
 				finishReason === "IMAGE_PROHIBITED_CONTENT" ||
 				finishReason === "IMAGE_RECITATION" ||
-				finishReason === "IMAGE_OTHER" ||
-				finishReason === "NO_IMAGE" ||
 				finishReason === "content_filter" // OpenAI format sometimes returned by Google
 			) {
 				return UnifiedFinishReason.CONTENT_FILTER;
 			}
-			if (finishReason === "OTHER" || finishReason === "MALFORMED_RESPONSE") {
+			// NO_IMAGE and IMAGE_OTHER are not policy blocks, so they belong with
+			// OTHER rather than inflating the content_filter counts.
+			if (
+				finishReason === "OTHER" ||
+				finishReason === "IMAGE_OTHER" ||
+				finishReason === "NO_IMAGE" ||
+				finishReason === "MALFORMED_RESPONSE"
+			) {
 				return UnifiedFinishReason.UNKNOWN;
 			}
 			break;
@@ -256,9 +266,10 @@ function getErrorTypeFromUnifiedFinishReason(
 
 /**
  * Calculate data storage cost based on token usage
- * $0.01 per 1M tokens (total tokens = input + output + reasoning)
+ * $0.01 per 1M tokens (total tokens = input + output)
  * promptTokens is the canonical total input count and already includes cached
- * input tokens for providers that report them separately.
+ * input tokens for providers that report them separately. completionTokens is
+ * the canonical total output count and already includes reasoning tokens.
  * Returns "0" if retention level is "none" since no data is stored
  */
 export function calculateDataStorageCost(
@@ -275,9 +286,8 @@ export function calculateDataStorageCost(
 
 	const prompt = Number(promptTokens) || 0;
 	const completion = Number(completionTokens) || 0;
-	const reasoning = Number(reasoningTokens) || 0;
 
-	const totalTokens = prompt + completion + reasoning;
+	const totalTokens = prompt + completion;
 
 	// $0.01 per 1M tokens
 	const cost = (totalTokens / 1_000_000) * 0.01;
@@ -290,6 +300,37 @@ export function calculateDataStorageCost(
  */
 
 export type LogData = InferInsertModel<typeof log>;
+
+/**
+ * The portion of a log's cost that actually drains `organization.credits`, which
+ * is what the per-org spend caps are meant to bound. Mirrors the worker's debit
+ * rules in `batchProcessLogs` exactly — blended `log.cost` would overstate it:
+ *
+ * - end-user wallet rows debit `wallet.balance` for inference, so only their
+ *   data-storage cost hits the org;
+ * - BYOK (`usedMode: "api-keys"`) rows pay the provider directly, so again only
+ *   data storage hits the org;
+ * - cached rows are not charged for inference;
+ * - credits rows are charged `billingCost ?? cost`, plus data storage.
+ *
+ * Keeping this aligned with the worker is what stops BYOK or wallet traffic from
+ * filling a cap it can never be blocked by.
+ */
+export function organizationBilledCost(logData: LogInsertData): number {
+	const storage = Number(logData.dataStorageCost ?? 0) || 0;
+
+	const chargesOrgForInference =
+		!logData.endCustomerWalletId &&
+		logData.usedMode === "credits" &&
+		!logData.cached;
+
+	if (!chargesOrgForInference) {
+		return storage;
+	}
+
+	const inference = Number(logData.billingCost ?? logData.cost ?? 0) || 0;
+	return inference + storage;
+}
 
 export async function insertLog(
 	logData: LogInsertData,
@@ -372,6 +413,11 @@ export async function insertLog(
 			: undefined,
 		errorType,
 	});
+
+	// Maintain per-org daily/monthly spend-cap counters. Single DRY chokepoint
+	// for every request path; swallows its own Redis errors so logging is never
+	// blocked.
+	await recordSpend(logData.organizationId, organizationBilledCost(logData));
 
 	await publishToQueue(LOG_QUEUE, logData);
 	return 1; // Return 1 to match test expectations

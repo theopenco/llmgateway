@@ -4,7 +4,9 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { CopyPromptButton } from "@/app/migration/[slug]/copy-prompt-button";
 import { HeroRSC } from "@/components/landing/hero-rsc";
+import { getMigrationPrompt } from "@/lib/migration-prompts";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 
 import { allMigrations } from "content-collections";
@@ -96,6 +98,27 @@ export default async function MigrationPage({ params }: MigrationPageProps) {
 							<p className="text-sm text-muted-foreground">
 								Published <time dateTime={migration.date}>{formattedDate}</time>
 							</p>
+							<div className="not-prose mt-6 rounded-xl border border-border bg-muted/50 p-5">
+								<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+									<div>
+										<p className="font-semibold">
+											Let your AI agent do the migration
+										</p>
+										<p className="mt-1 text-sm text-muted-foreground">
+											Copy this prompt into Claude Code, Cursor, or any coding
+											agent — it reads our docs and handles the migration from{" "}
+											{migration.fromProvider} for you.
+										</p>
+									</div>
+									<CopyPromptButton
+										prompt={getMigrationPrompt(
+											migration.slug,
+											migration.fromProvider,
+										)}
+										slug={migration.slug}
+									/>
+								</div>
+							</div>
 						</header>
 
 						<section

@@ -26,7 +26,7 @@ interface SummaryCard {
 
 const providersLink = (
 	<Link
-		href="/providers"
+		href="/legal/providers"
 		className="text-primary hover:text-primary/80 underline underline-offset-4"
 	>
 		Providers page
@@ -72,9 +72,9 @@ const privacyCards: SummaryCard[] = [
 		title: "We never sell your data",
 		body: (
 			<>
-				Your personal information is never sold. Data is shared only with a
-				small set of vetted sub-processors — listed in full on our{" "}
-				{subProcessorsLink} — and the AI provider you choose to route to.
+				Your personal information is never sold. Data is shared only with the
+				sub-processors listed on our {subProcessorsLink} and the AI provider you
+				choose to route to.
 			</>
 		),
 	},

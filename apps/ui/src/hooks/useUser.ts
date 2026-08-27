@@ -69,21 +69,26 @@ export function useUser(options?: UseUserOptions) {
 		},
 	);
 
-	if (data) {
-		posthog.identify(data.user.id, {
-			email: data.user.email,
-			name: data.user.name,
-			onboarding_completed: data.user.onboardingCompleted,
-		});
-	}
+	useEffect(() => {
+		if (data) {
+			posthog.identify(data.user.id, {
+				email: data.user.email,
+				name: data.user.name,
+				onboarding_completed: data.user.onboardingCompleted,
+			});
+		}
+	}, [data, posthog]);
+
+	const redirectTo = options?.redirectTo;
+	const redirectWhen = options?.redirectWhen;
+	const checkOnboarding = options?.checkOnboarding;
 
 	// Handle existing redirect logic
 	useEffect(() => {
-		if (!options?.redirectTo || !options?.redirectWhen) {
+		if (!redirectTo || !redirectWhen) {
 			return;
 		}
 
-		const { redirectTo, redirectWhen, checkOnboarding } = options;
 		const hasUser = !!data?.user;
 
 		if (redirectWhen === "authenticated" && hasUser && !isLoading && !error) {
@@ -104,10 +109,9 @@ export function useUser(options?: UseUserOptions) {
 		isLoading,
 		error,
 		router,
-		options?.redirectTo,
-		options?.redirectWhen,
-		options?.checkOnboarding,
-		options,
+		redirectTo,
+		redirectWhen,
+		checkOnboarding,
 	]);
 
 	return {
@@ -121,10 +125,11 @@ export function useUser(options?: UseUserOptions) {
 export function useUpdateUser() {
 	const queryClient = useQueryClient();
 	const api = useApi();
+	const userQueryKey = api.queryOptions("get", "/user/me", {}).queryKey;
 
 	return api.useMutation("patch", "/user/me", {
 		onSuccess: () => {
-			void queryClient.invalidateQueries({ queryKey: ["user"] });
+			void queryClient.invalidateQueries({ queryKey: userQueryKey });
 			void queryClient.invalidateQueries({ queryKey: ["session"] });
 		},
 	});

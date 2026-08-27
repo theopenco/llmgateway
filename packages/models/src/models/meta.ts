@@ -2,6 +2,35 @@ import type { ModelDefinition } from "@/models.js";
 
 export const metaModels = [
 	{
+		id: "muse-image-1.0",
+		name: "Muse Image 1.0",
+		description:
+			"Meta's agentic image model for generation, editing, multi-reference composition, and iterative refinement.",
+		family: "meta",
+		output: ["image"],
+		releasedAt: new Date("2026-07-07"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "meta",
+				externalId: "muse-image-1.0",
+				inputPrice: "0",
+				outputPrice: "0",
+				perImagePrice: {
+					default: "0.01",
+				},
+				requestPrice: "0",
+				streaming: false,
+				reasoning: true,
+				supportsResponsesApi: true,
+				vision: true,
+				tools: false,
+				jsonOutput: false,
+				imageGenerations: true,
+			},
+		],
+	},
+	{
 		id: "muse-spark-1.2",
 		name: "Muse Spark 1.2",
 		description:
@@ -235,6 +264,7 @@ export const metaModels = [
 			{
 				providerId: "nebius",
 				externalId: "nvidia/Llama-3_1-Nemotron-Ultra-253B-v1",
+				deactivatedAt: new Date("2026-08-31"),
 				inputPrice: "0.6e-6",
 				outputPrice: "1.8e-6",
 				requestPrice: "0",
@@ -282,6 +312,7 @@ export const metaModels = [
 			{
 				providerId: "nebius",
 				externalId: "meta-llama/Llama-3.3-70B-Instruct",
+				deactivatedAt: new Date("2026-08-31"),
 				inputPrice: "0.13e-6",
 				outputPrice: "0.4e-6",
 				requestPrice: "0",

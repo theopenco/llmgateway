@@ -1,7 +1,7 @@
 ---
 id: "2"
 slug: "privacy"
-date: "2026-08-08"
+date: "2026-08-27"
 title: "Privacy Policy"
 description: "Read LLM Gateway’s Privacy Policy to understand how we collect, use, share, and protect your data, our roles as controller and processor, AI provider routing, your GDPR and CCPA rights, data retention, and international transfers."
 ---
@@ -9,7 +9,7 @@ description: "Read LLM Gateway’s Privacy Policy to understand how we collect, 
 # Privacy Policy
 
 **Effective Date:** October 21, 2025  
-**Last Updated:** August 8, 2026
+**Last Updated:** August 27, 2026
 
 LLM Gateway (“we”, “our”, or “us”) provides a unified AI gateway platform that enables users to connect, manage, and analyze AI models across multiple providers. This Privacy Policy explains how we collect, use, share, and protect personal information when you use our website, APIs, SDKs, dashboards, and related services (collectively, the “Service”).
 
@@ -92,21 +92,13 @@ We do **not** sell your personal information, and we do **not** use Customer Dat
 We do **not sell** your personal information. We share limited data only as needed with:
 
 - **Service Providers / Sub-processors:** for hosting, analytics, payments, and email (see below).
-- **AI Providers:** when routing your API requests to the model you select (e.g., OpenAI, Anthropic, Google, Mistral, and others). Once your request reaches a provider, that provider processes it under **its own terms, privacy policy, and data-training practices**, which vary by provider and which we do not control. You can review each provider's terms, privacy policy, headquarters, certifications, and AI-training and data-retention practices on our [Providers page](https://llmgateway.io/providers) before selecting a model.
+- **AI Providers:** when routing your API requests to the model you select (e.g., OpenAI, Anthropic, Google, Mistral, and others). Once your request reaches a provider, that provider processes it under **its own terms, privacy policy, and data-training practices**, which vary by provider and which we do not control. You can review each provider's terms, privacy policy, headquarters, certifications, and AI-training and data-retention practices on our [Provider Information page](https://llmgateway.io/legal/providers) before selecting a model.
 - **Legal Authorities:** only where required by law or to protect our rights, users, or the public.
 - **Business transfers:** in connection with a merger, acquisition, financing, or sale of assets, subject to this Policy.
 
 ### Sub-processors
 
-We rely on a small set of vetted sub-processors. We require each to be bound by contractual data-protection obligations, and we are completing that coverage — see the [Sub-processor page](https://llmgateway.io/legal/sub-processors) for the current position rather than assuming every agreement is already in force:
-
-- **Stripe** — payment and subscription processing. Stripe acts as a separate processor and retains its own payment records to meet its legal and tax obligations, under their [Privacy Policy](https://stripe.com/privacy).
-- **Google Cloud** — application hosting, database and object storage
-- **Resend** — transactional and product email delivery
-- **PostHog** — product analytics and feature flags, under their [Privacy Policy](https://posthog.com/privacy)
-- **AI Providers** — as listed on our [Providers page](https://llmgateway.io/providers), when routing your requests
-
-The complete, versioned list — including what each sub-processor processes, where it processes it, and how we notify you before the list changes — is published on our [Sub-processor page](https://llmgateway.io/legal/sub-processors). We give **30 days' notice before adding a new operational sub-processor**; see that page for how to subscribe to change notices and how to object.
+We rely on a small set of vetted sub-processors for hosting, payments, email, analytics, and AI request processing. The complete, versioned list — including each sub-processor's purpose, the data it processes, its primary processing locations, and how we notify you before the list changes — is maintained on our [Sub-processor page](https://llmgateway.io/legal/sub-processors). That page is the authoritative disclosure; we do not duplicate the list here because it is updated independently of this Policy.
 
 ---
 
@@ -143,6 +135,9 @@ Where we retain billing records after account deletion, we restrict processing o
 We implement industry-standard technical and organizational measures to protect personal data, including:
 
 - HTTPS and encryption in transit
+- Encryption at rest for stored provider credentials, and keyed one-way hashes
+  for new and rotated gateway API key secrets; authentication compares hashes
+  instead of recovering those secrets
 - Access controls and authentication for sensitive data
 - Regular security reviews and monitoring
 
@@ -184,13 +179,13 @@ We will honor erasure requests except where we are legally obliged to retain dat
 
 When you route a request, the **content of that request is sent to the AI provider you select** so it can generate a response. Each provider handles data under its own policies, which differ in retention, sub-processing, geographic location, certifications (e.g., SOC 2, ISO 27001), and whether they use inputs for model training. We do not control those practices.
 
-Before selecting a model, we encourage you to review the provider's policies on our [Providers page](https://llmgateway.io/providers), which links to each provider's terms, privacy policy, and data-training and compliance information. You are responsible for ensuring your selected provider is appropriate for the sensitivity of the data you submit.
+Before selecting a model, we encourage you to review the provider's policies on our [Provider Information page](https://llmgateway.io/legal/providers), which links to each provider's terms, privacy policy, and data-training and compliance information. You are responsible for ensuring your selected provider is appropriate for the sensitivity of the data you submit.
 
 ### Stealth and Undisclosed Providers
 
 To improve availability, performance, and pricing, we may route some requests through **stealth providers** whose identity is not publicly disclosed (for example, providers offering preview or unreleased models under confidentiality). For these providers we **endeavor to obtain the same terms, privacy, and data-handling guarantees** described in this Policy, but because their identity and underlying practices are not disclosed to us or to you, **we cannot guarantee that they meet those standards**.
 
-If you do not want your requests routed through stealth or undisclosed providers, you can **pin your requests to specific providers** that publicly declare their terms, privacy policy, and compliance posture on our [Providers page](https://llmgateway.io/providers). You are responsible for selecting providers appropriate for the sensitivity of the data you submit.
+If you do not want your requests routed through stealth or undisclosed providers, you can **pin your requests to specific providers** that publicly declare their terms, privacy policy, and compliance posture on our [Provider Information page](https://llmgateway.io/legal/providers). You are responsible for selecting providers appropriate for the sensitivity of the data you submit.
 
 ---
 
@@ -200,7 +195,7 @@ Data may be processed and stored on servers located in the **European Union or t
 
 **The safeguard depends on the recipient.** For the sub-processors we engage to run the Service (hosting, payments, email, analytics), the applicable agreements incorporate the **Standard Contractual Clauses (SCCs)** or an equivalent Article 46 mechanism, alongside technical measures including encryption in transit.
 
-For the **AI providers you route to, this is provider-specific and in several cases unresolved.** Several are headquartered in countries with no EU adequacy decision, and we do not have SCCs executed with them. We are not representing that an Article 46 safeguard is in place for every provider you can select, because it is not. Each provider's headquarters and GDPR posture is shown on our [Providers page](https://llmgateway.io/providers), and the current position is described on our [Sub-processor page](https://llmgateway.io/legal/sub-processors).
+For the **AI providers you route to, this is provider-specific and in several cases unresolved.** Several are headquartered in countries with no EU adequacy decision, and we do not have SCCs executed with them. We are not representing that an Article 46 safeguard is in place for every provider you can select, because it is not. Each provider's headquarters and GDPR posture is shown on our [Provider Information page](https://llmgateway.io/legal/providers), and the current position is described on our [Sub-processor page](https://llmgateway.io/legal/sub-processors).
 
 You can restrict where your requests are allowed to go under **Compliance** in your organization dashboard: require GDPR-compliant providers, block providers that train on or log prompts, block undisclosed providers, and limit routing to chosen provider headquarters. Requests that no compliant provider can serve are rejected rather than routed elsewhere. **These controls are available on every plan**, and they are off until you enable them. **If you submit personal data of EU/UK data subjects, send it only to providers whose documented safeguard you have reviewed and accepted — set a compliance policy so that is enforced rather than left to convention.**
 

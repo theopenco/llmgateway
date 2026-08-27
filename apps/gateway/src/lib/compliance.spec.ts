@@ -47,7 +47,6 @@ describe("isProviderIdCompliant with custom providers", () => {
 			iso27001: true,
 			gdpr: true,
 			apiTraining: false,
-			consumerTraining: false,
 			promptLogging: false,
 			headquarters: "US",
 		};
@@ -233,6 +232,7 @@ describe("getActiveCompliancePolicy plan tiers", () => {
 		for (const plan of ["free", "pro", "enterprise"]) {
 			expect(
 				getActiveCompliancePolicy({
+					id: "org-test",
 					plan,
 					providerCompliancePolicy: { ...FULL_POLICY, enabled: false },
 				}),
@@ -241,9 +241,12 @@ describe("getActiveCompliancePolicy plan tiers", () => {
 	});
 
 	it("returns nothing when no policy is configured", () => {
-		expect(getActiveCompliancePolicy({ plan: "enterprise" })).toBeUndefined();
+		expect(
+			getActiveCompliancePolicy({ id: "org-test", plan: "enterprise" }),
+		).toBeUndefined();
 		expect(
 			getActiveCompliancePolicy({
+				id: "org-test",
 				plan: "pro",
 				providerCompliancePolicy: null,
 			}),
@@ -253,6 +256,7 @@ describe("getActiveCompliancePolicy plan tiers", () => {
 	it("gives enterprise orgs the policy unchanged", () => {
 		expect(
 			getActiveCompliancePolicy({
+				id: "org-test",
 				plan: "enterprise",
 				providerCompliancePolicy: FULL_POLICY,
 			}),
@@ -263,6 +267,7 @@ describe("getActiveCompliancePolicy plan tiers", () => {
 		for (const plan of ["free", "pro"]) {
 			expect(
 				getActiveCompliancePolicy({
+					id: "org-test",
 					plan,
 					providerCompliancePolicy: FULL_POLICY,
 				}),
@@ -279,6 +284,7 @@ describe("getActiveCompliancePolicy plan tiers", () => {
 
 	it("drops the enterprise-only controls rather than enforcing them", () => {
 		const narrowed = getActiveCompliancePolicy({
+			id: "org-test",
 			plan: "pro",
 			providerCompliancePolicy: FULL_POLICY,
 		});
@@ -295,6 +301,7 @@ describe("getActiveCompliancePolicy plan tiers", () => {
 		// that can never reject anything, instead of taking the no-policy path.
 		expect(
 			getActiveCompliancePolicy({
+				id: "org-test",
 				plan: "pro",
 				providerCompliancePolicy: {
 					enabled: true,
@@ -309,6 +316,7 @@ describe("getActiveCompliancePolicy plan tiers", () => {
 		// The point of the whole split: a free-plan customer can stop personal
 		// data reaching a provider with no GDPR posture.
 		const policy = getActiveCompliancePolicy({
+			id: "org-test",
 			plan: "free",
 			providerCompliancePolicy: { enabled: true, requireGdpr: true },
 		});

@@ -92,6 +92,10 @@ export const openaiModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				// Azure OpenAI supports structured outputs for gpt-4o-mini.
+				// Mapping is deprecated 2026-01-09 / deactivated 2026-03-31 —
+				// flag kept for data truthfulness (never served post-deactivation).
+				jsonOutputSchema: true,
 				deprecatedAt: new Date("2026-01-09"),
 				deactivatedAt: new Date("2026-03-31"),
 			},
@@ -120,6 +124,7 @@ export const openaiModels = [
 				tools: false, // Search models don't support additional tools
 				jsonOutput: false,
 				supportedParameters: ["max_tokens", "response_format"],
+				deactivatedAt: new Date("2026-08-22"),
 			},
 		],
 	},
@@ -146,6 +151,7 @@ export const openaiModels = [
 				tools: false, // Search models don't support additional tools
 				jsonOutput: false,
 				supportedParameters: ["max_tokens", "response_format"],
+				deactivatedAt: new Date("2026-08-22"),
 			},
 		],
 	},
@@ -728,6 +734,7 @@ export const openaiModels = [
 			},
 			{
 				test: "skip",
+				deactivatedAt: new Date("2026-08-20"),
 				providerId: "nanogpt",
 				externalId: "openai/gpt-oss-120b",
 				inputPrice: "0.05e-6",
@@ -759,6 +766,7 @@ export const openaiModels = [
 			{
 				providerId: "nebius",
 				externalId: "openai/gpt-oss-120b",
+				deactivatedAt: new Date("2026-08-31"),
 				// Streaming tool calls arrive malformed from nebius (vLLM emits a
 				// bogus tool_call index on the final argument fragment)
 				stability: "unstable",
@@ -868,6 +876,7 @@ export const openaiModels = [
 			},
 			{
 				test: "skip",
+				deactivatedAt: new Date("2026-08-20"),
 				providerId: "nanogpt",
 				externalId: "openai/gpt-oss-20b",
 				inputPrice: "0.04e-6",

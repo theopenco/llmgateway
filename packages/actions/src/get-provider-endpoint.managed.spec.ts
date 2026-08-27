@@ -14,6 +14,7 @@ const ENV_VARS = [
 	"LLM_AZURE_DEPLOYMENT_TYPE",
 	"LLM_VERTEX_ANTHROPIC_REGION",
 	"LLM_VERTEX_ANTHROPIC_BASE_URL",
+	"LLM_VERTEX_ANTHROPIC_PROJECT",
 ] as const;
 
 const originals = new Map(ENV_VARS.map((name) => [name, process.env[name]]));
@@ -100,6 +101,30 @@ describe("managed credential config in getProviderEndpoint", () => {
 
 		expect(url).toContain("/projects/managed-project/locations/us-central1/");
 		expect(url).toContain("key=vertex-token");
+	});
+
+	it("supports a managed Vertex API key without a project", () => {
+		process.env.LLM_GOOGLE_CLOUD_PROJECT = "unrelated-env-project";
+		process.env.LLM_GOOGLE_VERTEX_REGION = "us-central1";
+
+		const url = getProviderEndpoint(
+			"google-vertex",
+			undefined,
+			"gemini-2.5-flash",
+			"vertex-token",
+			false,
+			false,
+			false,
+			managed({ baseUrl: "https://vertex.managed.example" }),
+			0,
+			false,
+			undefined,
+			true,
+		);
+
+		expect(url).toBe(
+			"https://vertex.managed.example/v1/publishers/google/models/gemini-2.5-flash:generateContent?key=vertex-token",
+		);
 	});
 
 	it("suppresses the API-key query param when the token type is oauth", () => {
@@ -243,6 +268,33 @@ describe("managed credential config in getProviderEndpoint", () => {
 			false,
 			false,
 			managed({ region: "us-east5" }),
+			0,
+			false,
+			undefined,
+			true,
+		);
+
+		expect(url).toBe(
+			"https://us-east5-aiplatform.googleapis.com/v1/projects/managed-project/locations/us-east5/publishers/anthropic/models/claude-sonnet-4-6:rawPredict",
+		);
+	});
+
+	it("takes the Vertex Anthropic project from the credential, not the env", () => {
+		process.env.LLM_VERTEX_ANTHROPIC_PROJECT = "env-project";
+		delete process.env.LLM_VERTEX_ANTHROPIC_REGION;
+		delete process.env.LLM_VERTEX_ANTHROPIC_BASE_URL;
+
+		const url = getProviderEndpoint(
+			"vertex-anthropic",
+			undefined,
+			"claude-sonnet-4-6",
+			// The credential's service-account JSON is already an access token by
+			// the time the request is built, so nothing is derivable from it.
+			undefined,
+			false,
+			false,
+			false,
+			managed({ project: "managed-project", region: "us-east5" }),
 			0,
 			false,
 			undefined,

@@ -28,6 +28,8 @@ import { useApi } from "@/lib/fetch-client";
 import {
 	providers,
 	isStealthProvider,
+	regionEndpointRequiresWorkspaceId,
+	regionEndpointUsesWorkspaceId,
 	type ProviderDefinition,
 } from "@llmgateway/models";
 import { getProviderModelIds } from "@llmgateway/shared";
@@ -56,6 +58,7 @@ export function CreateProviderKeyDialog({
 	const [baseUrl, setBaseUrl] = useState("");
 	const [customName, setCustomName] = useState("");
 	const [token, setToken] = useState("");
+	const [description, setDescription] = useState("");
 	const [azureResource, setAzureResource] = useState("");
 	const [azureApiVersion, setAzureApiVersion] = useState("2024-10-21");
 	const [azureDeploymentType, setAzureDeploymentType] = useState<
@@ -64,9 +67,11 @@ export function CreateProviderKeyDialog({
 	const [azureValidationModel, setAzureValidationModel] =
 		useState("gpt-4o-mini");
 	const [azureAiFoundryResource, setAzureAiFoundryResource] = useState("");
+	const [azureAnthropicResource, setAzureAnthropicResource] = useState("");
 	const [azureAiFoundryApiVersion, setAzureAiFoundryApiVersion] =
 		useState("2024-05-01-preview");
 	const [selectedRegion, setSelectedRegion] = useState("");
+	const [alibabaWorkspaceId, setAlibabaWorkspaceId] = useState("");
 	const [googleVertexProjectId, setGoogleVertexProjectId] = useState("");
 	const [vertexTokenType, setVertexTokenType] = useState<"api-key" | "oauth">(
 		"api-key",
@@ -108,6 +113,22 @@ export function CreateProviderKeyDialog({
 				? ANY_REGION
 				: selectedProviderDef?.regionConfig?.defaultRegion)) ??
 		"";
+
+	// Regions with a workspace-dedicated host (Alibaba Frankfurt) offer the
+	// field so a credential can use its own endpoint instead of the shared,
+	// trial-grade one. It is only mandatory where no shared host exists.
+	const workspaceIdRegion =
+		selectedProvider && effectiveRegion && effectiveRegion !== ANY_REGION
+			? effectiveRegion
+			: undefined;
+	const usesWorkspaceId = Boolean(
+		workspaceIdRegion &&
+		regionEndpointUsesWorkspaceId(selectedProvider, workspaceIdRegion),
+	);
+	const requiresWorkspaceId = Boolean(
+		workspaceIdRegion &&
+		regionEndpointRequiresWorkspaceId(selectedProvider, workspaceIdRegion),
+	);
 
 	// Exclude the gateway itself and stealth providers (no default base URL):
 	// users can't configure a stealth provider key because the platform behind
@@ -187,6 +208,7 @@ export function CreateProviderKeyDialog({
 			provider: string;
 			token: string;
 			name?: string;
+			description?: string;
 			baseUrl?: string;
 			options?: Record<string, string | undefined>;
 			organizationId: string;
@@ -197,6 +219,9 @@ export function CreateProviderKeyDialog({
 			token: trimmedToken,
 			organizationId: selectedOrganization.id,
 		};
+		if (description.trim()) {
+			payload.description = description.trim();
+		}
 		if (baseUrl) {
 			payload.baseUrl = baseUrl;
 		}
@@ -224,6 +249,35 @@ export function CreateProviderKeyDialog({
 				...payload.options,
 				[selectedProviderDef.regionConfig.optionsKey]: effectiveRegion,
 			};
+		}
+
+		if (usesWorkspaceId) {
+			if (!alibabaWorkspaceId && requiresWorkspaceId) {
+				toast({
+					title: "Error",
+					description: "Workspace ID is required for this region",
+					variant: "destructive",
+				});
+				return;
+			}
+			if (
+				alibabaWorkspaceId &&
+				!/^[a-zA-Z0-9-]{1,64}$/.test(alibabaWorkspaceId)
+			) {
+				toast({
+					title: "Error",
+					description:
+						"Workspace ID must be 1-64 characters of letters, numbers, and hyphens",
+					variant: "destructive",
+				});
+				return;
+			}
+			if (alibabaWorkspaceId) {
+				payload.options = {
+					...payload.options,
+					alibaba_workspace_id: alibabaWorkspaceId,
+				};
+			}
 		}
 
 		if (selectedProvider === "azure") {
@@ -267,6 +321,30 @@ export function CreateProviderKeyDialog({
 				...(azureAiFoundryApiVersion
 					? { azure_ai_foundry_api_version: azureAiFoundryApiVersion }
 					: {}),
+			};
+		}
+
+		if (selectedProvider === "azure-anthropic") {
+			if (!azureAnthropicResource) {
+				toast({
+					title: "Error",
+					description: "Azure Anthropic resource name is required",
+					variant: "destructive",
+				});
+				return;
+			}
+			if (!/^[a-zA-Z0-9-]{1,64}$/.test(azureAnthropicResource)) {
+				toast({
+					title: "Error",
+					description:
+						"Resource name must be 1-64 characters and contain only letters, numbers, and hyphens",
+					variant: "destructive",
+				});
+				return;
+			}
+			payload.options = {
+				...payload.options,
+				azure_anthropic_resource: azureAnthropicResource,
 			};
 		}
 
@@ -340,6 +418,7 @@ export function CreateProviderKeyDialog({
 			setBaseUrl("");
 			setCustomName("");
 			setToken("");
+			setDescription("");
 			setAzureResource("");
 			setAzureApiVersion("2024-10-21");
 			setAzureDeploymentType("ai-foundry");
@@ -347,6 +426,7 @@ export function CreateProviderKeyDialog({
 			setAzureAiFoundryResource("");
 			setAzureAiFoundryApiVersion("2024-05-01-preview");
 			setSelectedRegion("");
+			setAlibabaWorkspaceId("");
 			setGoogleVertexProjectId("");
 			setVertexTokenType("api-key");
 			setUsageLimit("");
@@ -430,6 +510,23 @@ export function CreateProviderKeyDialog({
 								</p>
 							);
 						})()}
+					</div>
+
+					<div className="space-y-2">
+						<Label htmlFor="provider-key-description">
+							Description (optional)
+						</Label>
+						<Input
+							id="provider-key-description"
+							placeholder="Production workloads"
+							value={description}
+							onChange={(event) => setDescription(event.target.value)}
+							maxLength={200}
+						/>
+						<p className="text-sm text-muted-foreground">
+							Shown in request logs and routing details so you can identify
+							which key was used.
+						</p>
 					</div>
 
 					{selectedProvider === "llmgateway" && (
@@ -551,6 +648,24 @@ export function CreateProviderKeyDialog({
 						</>
 					)}
 
+					{selectedProvider === "azure-anthropic" && (
+						<div className="space-y-2">
+							<Label htmlFor="azure-anthropic-resource">Resource Name</Label>
+							<Input
+								id="azure-anthropic-resource"
+								type="text"
+								placeholder="my-resource"
+								value={azureAnthropicResource}
+								onChange={(e) => setAzureAnthropicResource(e.target.value)}
+								required
+							/>
+							<p className="text-sm text-muted-foreground">
+								Your Microsoft Foundry resource name from the base URL:
+								https://&lt;resource-name&gt;.services.ai.azure.com
+							</p>
+						</div>
+					)}
+
 					{selectedProvider === "google-vertex" && (
 						<div className="space-y-2">
 							<Label htmlFor="google-vertex-project-id">
@@ -564,8 +679,8 @@ export function CreateProviderKeyDialog({
 								onChange={(e) => setGoogleVertexProjectId(e.target.value)}
 							/>
 							<p className="text-sm text-muted-foreground">
-								Your Google Cloud project ID, found in the Google Cloud Console.
-								Required for non-lite Vertex AI models.
+								Optional for API-key chat, embedding, and speech requests.
+								Required for OAuth and video generation.
 							</p>
 						</div>
 					)}
@@ -620,6 +735,27 @@ export function CreateProviderKeyDialog({
 								{regionOptional
 									? "One key works across every region. Leave this on “Any region” to let the gateway route across all of them; pick one to keep requests in a single region."
 									: "API keys are region-specific. Make sure your key matches the selected region."}
+							</p>
+						</div>
+					)}
+
+					{usesWorkspaceId && (
+						<div className="space-y-2">
+							<Label htmlFor="provider-workspace-id">
+								Workspace ID{requiresWorkspaceId ? "" : " (optional)"}
+							</Label>
+							<Input
+								id="provider-workspace-id"
+								type="text"
+								placeholder="ws-xxxxxxxxxxxxxxxx"
+								value={alibabaWorkspaceId}
+								onChange={(e) => setAlibabaWorkspaceId(e.target.value.trim())}
+								required={requiresWorkspaceId}
+							/>
+							<p className="text-sm text-muted-foreground">
+								{requiresWorkspaceId
+									? "This region is served only by your workspace's own endpoint. Copy the workspace ID from the API Host shown on the Model Studio workspace management page."
+									: "Without it, requests use the provider's shared endpoint, which is rate-limited and carries no SLA. Copy the workspace ID from the API Host shown on the Model Studio workspace management page to use your own."}
 							</p>
 						</div>
 					)}

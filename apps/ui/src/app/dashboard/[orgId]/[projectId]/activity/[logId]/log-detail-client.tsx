@@ -1,6 +1,6 @@
 "use client";
 
-import { format, formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow } from "date-fns";
 import {
 	AlertCircle,
 	ArrowLeft,
@@ -40,8 +40,16 @@ import {
 	formatServiceTierMultiplier,
 	getServiceTier,
 } from "@llmgateway/models";
-import { regionFromUsedModel } from "@llmgateway/shared";
-import { API_ORIGIN_LABELS } from "@llmgateway/shared/components";
+import {
+	Time,
+	formatDateTime,
+	regionFromUsedModel,
+	useDisplayTimeZone,
+} from "@llmgateway/shared";
+import {
+	API_ORIGIN_LABELS,
+	CredentialSourceBadge,
+} from "@llmgateway/shared/components";
 
 import type { LogDetailData } from "@/types/activity";
 import type { Log } from "@llmgateway/db";
@@ -424,6 +432,7 @@ export function LogDetailClient({
 	projectId,
 	logId,
 }: LogDetailClientProps) {
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 	const api = useApi();
 
 	const { data } = api.useQuery(
@@ -515,7 +524,10 @@ export function LogDetailClient({
 							</div>
 							<div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
 								<span>
-									{format(log.createdAt, "MMM d, yyyy 'at' HH:mm:ss")}
+									<Time
+										date={log.createdAt}
+										format="monthDayYearHourMinuteZone"
+									/>
 								</span>
 								<span>
 									({formatDistanceToNow(log.createdAt, { addSuffix: true })})
@@ -679,12 +691,28 @@ export function LogDetailClient({
 									{log.routingMetadata.usedApiKeyHash && (
 										<Field
 											label="Key"
-											value={formatApiKeyHash(
-												log.routingMetadata.usedApiKeyHash,
-											)}
+											value={
+												<span className="inline-flex items-center gap-1.5">
+													{formatApiKeyHash(log.routingMetadata.usedApiKeyHash)}
+													<CredentialSourceBadge
+														source={log.routingMetadata.usedCredentialSource}
+														keyLabel={log.routingMetadata.usedProviderKeyLabel}
+													/>
+												</span>
+											}
 											mono
 										/>
 									)}
+									{log.routingMetadata.eligibleProviderKeys &&
+										log.routingMetadata.eligibleProviderKeys.length > 0 && (
+											<Field
+												label="Your keys"
+												value={log.routingMetadata.eligibleProviderKeys
+													.map((key) => key.label ?? key.id)
+													.join(", ")}
+												mono
+											/>
+										)}
 									{log.routingMetadata.availableProviders &&
 										log.routingMetadata.availableProviders.length > 0 && (
 											<Field
@@ -806,6 +834,10 @@ export function LogDetailClient({
 																		key {formatApiKeyHash(attempt.apiKeyHash)}
 																	</span>
 																)}
+																<CredentialSourceBadge
+																	source={attempt.credentialSource}
+																	keyLabel={attempt.providerKeyLabel}
+																/>
 																{attempt.logId && (
 																	<Link
 																		href={`/dashboard/${orgId}/${projectId}/activity/${attempt.logId}`}
@@ -1238,7 +1270,11 @@ export function LogDetailClient({
 								<Field label="Used Mode" value={log.usedMode || "?"} />
 								<Field
 									label="Date"
-									value={format(log.createdAt, "dd.MM.yyyy HH:mm:ss")}
+									value={formatDateTime(
+										log.createdAt,
+										displayTimeZone,
+										"dayMonthYearTimeZone",
+									)}
 									mono
 								/>
 							</div>

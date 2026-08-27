@@ -12,6 +12,8 @@ export const tencentModels = [
 			{
 				providerId: "deepinfra",
 				externalId: "tencent/Hy3",
+				// DeepInfra's deployment is currently unreliable
+				stability: "unstable",
 				inputPrice: "0.14e-6",
 				cachedInputPrice: "0.035e-6",
 				outputPrice: "0.58e-6",
@@ -41,6 +43,8 @@ export const tencentModels = [
 				reasoningEfforts: ["none", "low", "high"],
 				vision: false,
 				tools: true,
+				// novita 400s on a named function choice for this deployment
+				supportedToolChoices: ["auto", "none", "required"],
 				jsonOutputSchema: true,
 			},
 		],

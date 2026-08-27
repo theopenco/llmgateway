@@ -115,8 +115,21 @@ export async function resolvePlatformCredential(
 	}
 
 	if (await hasManagedProviderCredential(provider)) {
+		// The scope is what makes this actionable: the fleet is never empty here,
+		// so the operator needs to know which axis excluded every credential.
+		const scope = [
+			`region: ${options.region ?? "default"}`,
+			`variant: ${options.variant ?? "default"}`,
+			...(restrictedToModel !== undefined
+				? [`model: ${restrictedToModel}`]
+				: []),
+			...(options.requiresServiceTier ? ["service tier: required"] : []),
+			...(options.excludedProviderKeyIds?.size
+				? [`excluded: ${options.excludedProviderKeyIds.size}`]
+				: []),
+		].join(", ");
 		throw new HTTPException(500, {
-			message: `No managed credential available for provider: ${provider}`,
+			message: `No managed credential available for provider: ${provider} (${scope})`,
 		});
 	}
 

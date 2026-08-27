@@ -34,6 +34,7 @@ import { publicChatSupport } from "./routes/public-chat-support.js";
 import { publicConfig } from "./routes/public-config.js";
 import { publicContact } from "./routes/public-contact.js";
 import { publicDiscounts } from "./routes/public-discounts.js";
+import { publicEscape } from "./routes/public-escape.js";
 import { publicLeaderboard } from "./routes/public-leaderboard.js";
 import { publicLoungeLeaderboard } from "./routes/public-lounge-leaderboard.js";
 import { publicModelRatings } from "./routes/public-model-ratings.js";
@@ -53,13 +54,18 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 export const config = {
 	servers: [
 		{
+			url: "https://internal.llmgateway.io",
+		},
+		{
 			url: "http://localhost:4002",
 		},
 	],
 	openapi: "3.0.0",
 	info: {
 		version: "1.0.0",
-		title: "My API",
+		title: "LLM Gateway Platform API",
+		description:
+			"Internal platform API for the LLM Gateway dashboard (user, organization, billing and analytics management). The public LLM inference API is documented at https://api.llmgateway.io/openapi.json.",
 	},
 };
 
@@ -314,6 +320,7 @@ app.route("/public/chats/share", publicChatShares);
 app.route("/public/apps", publicApps);
 app.route("/public/profile", publicProfile);
 app.route("/public/leaderboard", publicLeaderboard);
+app.route("/public/escape", publicEscape);
 app.route("/public/lounge-leaderboard", publicLoungeLeaderboard);
 app.route("/public/providers/stats", publicProvidersStats);
 app.route("/public/models/stats", publicModelStats);

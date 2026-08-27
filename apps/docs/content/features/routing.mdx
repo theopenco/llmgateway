@@ -71,6 +71,8 @@ This makes routing react quickly to a provider that just started failing or slow
 
 When the estimated prompt is at least 5,000 tokens, the **cache weight** (default `0.2`) is factored into the score based on whether each provider supports prompt caching (advertised via a cached input price). Providers that support caching score better than ones that do not, since caching can substantially reduce the cost of large or repeated prompts. Below the 5,000-token threshold, this weight is dropped entirely — caching has little impact on small prompts, so cache support is ignored. The selected provider's cache support is exposed as `cacheSupported` on the routing metadata.
 
+For these cache-relevant requests, the price each provider is ranked on also reflects what a cached workload actually pays: the input price is blended with the provider's cached input price at an assumed cache-hit rate (`thresholds.cacheHitRate`, default `0.7`), and output is weighted at an assumed output:input ratio (`thresholds.cacheOutputRatio`, default `0.2`) instead of parity, since large-prompt traffic is dominated by input tokens. Providers that do not publish a cached input price are ranked at their full input price, matching how they bill. Setting `cacheHitRate` to `0` and `cacheOutputRatio` to `1` restores pure list-price ranking.
+
 **Exponential Uptime Penalty**:
 
 Providers with uptime below 95% receive an additional exponential penalty that increases rapidly as uptime drops:
@@ -230,6 +232,8 @@ On a session's **first** request the provider is chosen by the normal weighted s
 
 Because the pinned provider is replayed directly, sticky requests **skip the epsilon-greedy exploration** — a session is never randomly bounced to a different provider mid-conversation.
 
+Request compatibility takes precedence over the saved pin. The gateway first filters mappings for requirements such as input modalities, service tiers, regions, and a non-`auto` `tool_choice`, then looks for the pinned provider in that eligible set. If the pinned mapping cannot honor the request but another mapping can, the session moves to the capable mapping and the pin is updated. For a fixed model or dynamic route where **no** mapping can honor `tool_choice`, the gateway preserves availability instead: it keeps the mappings, downgrades `tool_choice` to `auto`, and sticky routing may retain the existing pin. Automatic model selection does not use that fallback because it can choose a capable model instead.
+
 #### Falling back when a provider is down
 
 An established pin yields only when its provider can no longer serve the session well. A session is re-scored and re-pinned to the current weighted-best provider when its provider:
@@ -325,6 +329,14 @@ Routing metadata reflects this:
 	explicit provider-key region restricts the request to that region.
 </Callout>
 
+A few regions are served by an endpoint that belongs to your own account rather
+than a shared one — Alibaba Cloud's EU (Frankfurt) region has no shared
+DashScope domain and is served by your Model Studio workspace's dedicated host.
+Such a region still works from an API key alone, via the provider's shared entry
+point, but that endpoint is rate-limited and carries no SLA. Set the workspace
+ID on the provider key (copy it from the API Host shown when you create the key)
+to route through your own endpoint instead.
+
 #### Low-Uptime Protection
 
 When you specify a provider explicitly, LLMGateway checks the provider's recent uptime (from the time-decayed metrics window described above). If the uptime falls below 90%, the system automatically routes your request to the best available alternative provider to ensure reliability. This protects your application from providers experiencing temporary issues. The fallback threshold (default `90%`) is configurable.
@@ -404,7 +416,7 @@ configured and the current key fails with a retryable error.
 
 ### Routing Transparency
 
-Every provider attempt — both failed and successful — is recorded in the `routing` array in the response metadata and activity logs:
+Every provider attempt — both failed and successful — is recorded in the `routing` array in the response metadata (streaming and non-streaming alike) and activity logs:
 
 ```json
 {
@@ -415,19 +427,49 @@ Every provider attempt — both failed and successful — is recorded in the `ro
 				"model": "gpt-4o",
 				"status_code": 500,
 				"error_type": "server_error",
-				"succeeded": false
+				"succeeded": false,
+				"credentialSource": "byok",
+				"apiKeyHash": "f029ee9",
+				"providerKeyId": "pk_2f9a...",
+				"providerKeyLabel": "billing-team-key"
 			},
 			{
 				"provider": "azure",
 				"model": "gpt-4o",
 				"status_code": 200,
 				"error_type": "none",
-				"succeeded": true
+				"succeeded": true,
+				"credentialSource": "platform",
+				"apiKeyHash": "ecb88d5"
 			}
 		]
 	}
 }
 ```
+
+#### Whose key served each attempt
+
+`credentialSource` says who owns the provider credential an attempt was sent with:
+
+| Value      | Meaning                                                                                                   |
+| ---------- | --------------------------------------------------------------------------------------------------------- |
+| `byok`     | Your own provider key. The provider bills you directly and the attempt is not deducted from your credits. |
+| `platform` | An LLM Gateway credential. The attempt runs on credits and is deducted from your balance.                 |
+
+This matters most in **hybrid** mode, where a request that fails on your own key falls back to LLM Gateway's credential: both attempts appear in the same `routing` array, and only `credentialSource` tells them apart — `apiKeyHash` is an opaque fingerprint that says two attempts used different keys, not which key was yours. The same value is stored on the log as `routingMetadata.usedCredentialSource` for the credential that ultimately served the request, and is shown as a **your key** / **LLM Gateway key** badge in the dashboard's routing view.
+
+#### Which of your keys ran
+
+A `byok` attempt also carries the key itself: `providerKeyId`, and `providerKeyLabel` — the key as it is named on your [provider keys](https://llmgateway.io/dashboard) page (its name, or its masked token when it has none). So when several of your keys are configured for a provider and the gateway rotates between them, each attempt says which one it used instead of leaving you to decode a fingerprint.
+
+Chat requests additionally record `routingMetadata.eligibleProviderKeys` on the log: your keys that were candidates for the provider that served the request, in selection order. It is omitted for credits-mode projects, which route on LLM Gateway credentials, and for custom providers, whose keys are scoped by their own catalogue.
+
+<Callout type="info">
+	These fields describe **your** keys only. LLM Gateway's own credentials — the
+	ones that serve credits-mode traffic — are never named: a `platform` attempt
+	still reports `credentialSource` and `apiKeyHash`, but never `providerKeyId`
+	or `providerKeyLabel`.
+</Callout>
 
 ### Retried Log Tracking
 
@@ -461,15 +503,15 @@ Overrides are merged on top of the defaults, so you only set the values you want
 
 The following groups can be customized per project:
 
-| Group                   | What it controls                                                                                                                                                                     | Defaults                                                                                                                                 |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| **Weights**             | Relative importance of each scoring factor                                                                                                                                           | `price 0.6`, `imagePrice 1.0`, `uptime 0.5`, `throughput 0.05`, `latency 0.025`, `cache 0.2`                                             |
-| **Thresholds**          | Cache prompt-size threshold, uptime-penalty threshold, exploration rate, and the assumed defaults used when no metrics exist                                                         | `cachePromptTokens 5000`, `uptimePenalty 95`, `defaultUptime 100`, `defaultLatency 1000`, `defaultThroughput 50`, `explorationRate 0.01` |
-| **Retry**               | Max cross-provider fallback attempts and the low-uptime reroute threshold                                                                                                            | `maxRetries 2`, `lowUptimeFallbackThreshold 90`                                                                                          |
-| **Timeouts**            | Per-request time limits (end-to-end, streaming, non-streaming) — see [Request Timeouts](/features/timeouts). Capped at the infrastructure defaults — an override can only lower them | `gatewayMs 1,500,000`, `streamingMs 1,200,000`, `plainMs 600,000`                                                                        |
-| **History**             | The metrics window and the time-decay tier boundaries and weights                                                                                                                    | `windowMinutes 60` (max 120), `tier1Minutes 1`, `tier2Minutes 5`, `tier1Weight 10`, `tier2Weight 3`, `tier3Weight 1`                     |
-| **Sticky**              | Stable-provider preference: on/off, TTL, hard-switch uptime floor, soft-switch score margin                                                                                          | `enabled true`, `ttlSeconds 3600`, `uptimeThreshold 85`, `scoreMargin 0.15`                                                              |
-| **Provider priorities** | Per-provider priority multipliers; set a provider to `0` to disable it for that project                                                                                              | `1` for every provider                                                                                                                   |
+| Group                   | What it controls                                                                                                                                                                     | Defaults                                                                                                                                                                             |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Weights**             | Relative importance of each scoring factor                                                                                                                                           | `price 0.6`, `imagePrice 1.0`, `uptime 0.5`, `throughput 0.05`, `latency 0.025`, `cache 0.2`                                                                                         |
+| **Thresholds**          | Cache prompt-size threshold, uptime-penalty threshold, exploration rate, and the assumed defaults used when no metrics exist                                                         | `cachePromptTokens 5000`, `cacheHitRate 0.7`, `cacheOutputRatio 0.2`, `uptimePenalty 95`, `defaultUptime 100`, `defaultLatency 1000`, `defaultThroughput 50`, `explorationRate 0.01` |
+| **Retry**               | Max cross-provider fallback attempts and the low-uptime reroute threshold                                                                                                            | `maxRetries 2`, `lowUptimeFallbackThreshold 90`                                                                                                                                      |
+| **Timeouts**            | Per-request time limits (end-to-end, streaming, non-streaming) — see [Request Timeouts](/features/timeouts). Capped at the infrastructure defaults — an override can only lower them | `gatewayMs 1,500,000`, `streamingMs 1,200,000`, `plainMs 600,000`                                                                                                                    |
+| **History**             | The metrics window and the time-decay tier boundaries and weights                                                                                                                    | `windowMinutes 60` (max 120), `tier1Minutes 1`, `tier2Minutes 5`, `tier1Weight 10`, `tier2Weight 3`, `tier3Weight 1`                                                                 |
+| **Sticky**              | Stable-provider preference: on/off, TTL, hard-switch uptime floor, soft-switch score margin                                                                                          | `enabled true`, `ttlSeconds 3600`, `uptimeThreshold 85`, `scoreMargin 0.15`                                                                                                          |
+| **Provider priorities** | Per-provider priority multipliers; set a provider to `0` to disable it for that project                                                                                              | `1` for every provider                                                                                                                                                               |
 
 <Callout type="info">
 	Per-project routing configuration requires the Enterprise plan. If you'd like

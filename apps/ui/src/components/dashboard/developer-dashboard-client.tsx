@@ -1,6 +1,6 @@
 "use client";
 
-import { format, parseISO, subDays } from "date-fns";
+import { format } from "date-fns";
 import { Coins, Hash, KeyRound, Zap } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
@@ -24,6 +24,7 @@ import {
 } from "@/components/shared/usage-mode-selector";
 import { MemberLimitsCard } from "@/components/team/member-limits-card";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
+import { useZonedRangeDefaults } from "@/hooks/useZonedRangeDefaults";
 import {
 	Card,
 	CardContent,
@@ -32,8 +33,14 @@ import {
 	CardTitle,
 } from "@/lib/components/card";
 import { useApi } from "@/lib/fetch-client";
-import { getBrowserTimeZone } from "@/lib/timezone";
 import { applyUsageMode, pickCost, pickRequests } from "@/lib/usage-mode";
+
+import {
+	formatBucketLabel,
+	formatBucketLabelWithZone,
+} from "@llmgateway/shared";
+
+import type { MyMemberBudgetData } from "@/hooks/useTeam";
 
 function SummaryStat({
 	label,
@@ -63,7 +70,11 @@ function SummaryStat({
 	);
 }
 
-export function DeveloperDashboardClient() {
+export function DeveloperDashboardClient({
+	initialMemberBudget,
+}: {
+	initialMemberBudget?: MyMemberBudgetData;
+}) {
 	const params = useParams();
 	const organizationId = params.orgId as string;
 	const projectId = params.projectId as string;
@@ -71,19 +82,35 @@ export function DeveloperDashboardClient() {
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const api = useApi();
+	const {
+		from: defaultFrom,
+		to: defaultTo,
+		timeZone: displayTimeZone,
+		markGenerated,
+		shouldApplyDefaults,
+	} = useZonedRangeDefaults();
 
 	useEffect(() => {
-		if (!searchParams.get("from") || !searchParams.get("to")) {
-			const next = new URLSearchParams(searchParams.toString());
-			next.delete("days");
-			const today = new Date();
-			next.set("from", format(subDays(today, 6), "yyyy-MM-dd"));
-			next.set("to", format(today, "yyyy-MM-dd"));
-			router.replace(`${buildUrl("me")}?${next.toString()}`);
+		if (!shouldApplyDefaults(searchParams)) {
+			return;
 		}
-	}, [searchParams, router, buildUrl]);
+		const next = new URLSearchParams(searchParams.toString());
+		next.delete("days");
+		next.set("from", defaultFrom);
+		next.set("to", defaultTo);
+		markGenerated(next);
+		router.replace(`${buildUrl("me")}?${next.toString()}`);
+	}, [
+		searchParams,
+		router,
+		buildUrl,
+		defaultFrom,
+		defaultTo,
+		markGenerated,
+		shouldApplyDefaults,
+	]);
 
-	const { from, to } = getDateRangeFromParams(searchParams);
+	const { from, to } = getDateRangeFromParams(searchParams, displayTimeZone);
 	const fromStr = format(from, "yyyy-MM-dd");
 	const toStr = format(to, "yyyy-MM-dd");
 
@@ -97,7 +124,7 @@ export function DeveloperDashboardClient() {
 					projectId,
 					from: fromStr,
 					to: toStr,
-					timezone: getBrowserTimeZone(),
+					timezone: displayTimeZone,
 				},
 			},
 		},
@@ -151,7 +178,10 @@ export function DeveloperDashboardClient() {
 					</div>
 				</div>
 
-				<MemberLimitsCard organizationId={organizationId} />
+				<MemberLimitsCard
+					organizationId={organizationId}
+					initialData={initialMemberBudget}
+				/>
 
 				<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 					{stats.map((stat) => (
@@ -185,7 +215,9 @@ export function DeveloperDashboardClient() {
 								</defs>
 								<XAxis
 									dataKey="date"
-									tickFormatter={(d: string) => format(parseISO(d), "MMM d")}
+									tickFormatter={(d: string) =>
+										formatBucketLabel(d, "monthDay")
+									}
 									tickLine={false}
 									axisLine={false}
 									className="text-xs"
@@ -201,7 +233,11 @@ export function DeveloperDashboardClient() {
 								<Tooltip
 									formatter={(v: number) => currencyFormatter.format(v)}
 									labelFormatter={(d: string) =>
-										format(parseISO(d), "MMM d, yyyy")
+										formatBucketLabelWithZone(
+											d,
+											"monthDayYear",
+											displayTimeZone,
+										)
 									}
 								/>
 								<Area

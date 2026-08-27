@@ -274,7 +274,7 @@ export function ComplianceClient() {
 		selectedOrganization?.providerCompliancePolicy,
 	]);
 
-	const isEnterprise = selectedOrganization?.plan === "enterprise";
+	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 	const canManage = currentUserRole === "owner" || currentUserRole === "admin";
 
 	// What the gateway will actually enforce for this org. On a non-enterprise

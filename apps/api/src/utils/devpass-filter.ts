@@ -77,6 +77,13 @@ export const CHAT_PLAN_TX_TYPES = [
 	"chat_plan_renewal",
 ] as const;
 
+// `credit_refund` rows are a reversal, not a purchase: `amount` is the gross
+// refunded back to the customer and `creditAmount` is the negative clawback of
+// the granted credits. Purchase-side sums (credits granted, dollars charged)
+// must exclude them, otherwise a refund both inflates "processed" and deflates
+// "revenue" — and is then double-counted by the explicit refund subtraction.
+export const notRefundFilter = sql`${tables.transaction.type} <> 'credit_refund'`;
+
 // Matches `credit_refund` rows that reverse a top-up the gross top-up sums
 // actually counted: a completed, positive-`amount` `credit_topup` booked on the
 // same organization as the refund. Every gross top-up figure filters on exactly
@@ -124,12 +131,15 @@ export function firstRowPerInvoiceFilter(dedupTypes: readonly string[]) {
 }
 
 // Transaction types that represent an actual customer payment: org credit
-// purchases, dev/chat plan charges (start/upgrade/renewal — cancel, end and
+// purchases (Stripe or manually credited off-Stripe payments), enterprise
+// deals, dev/chat plan charges (start/upgrade/renewal — cancel, end and
 // downgrade rows are bookkeeping, not payments), legacy subscriptions, and
 // end-user wallet top-ups. Used to count "paid customers", so gifts, refunds
 // and margin bookkeeping never qualify an org as paying.
 export const paidTransactionTypes = [
 	"credit_topup",
+	"credit_manual_payment",
+	"enterprise_license_fee",
 	"subscription_start",
 	"dev_plan_start",
 	"dev_plan_upgrade",

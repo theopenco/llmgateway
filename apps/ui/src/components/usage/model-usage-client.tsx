@@ -67,7 +67,7 @@ export function ModelUsageClient({ projectId }: ModelUsageClientProps) {
 	// The per-member breakdown exposes every member's spend, so it carries the
 	// same entitlement as the organization-wide member analytics. This only hides
 	// the option — the API enforces it independently.
-	const isEnterprise = selectedOrganization?.plan === "enterprise";
+	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 	const { data: teamData } = useTeamMembers(orgId, undefined, {
 		enabled: isEnterprise,
 	});

@@ -4,6 +4,7 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
+import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 import type * as PaymentsModule from "@/routes/payments.js";
 
@@ -152,6 +153,152 @@ describe("dev plan tier changes", () => {
 			billingPeriodEnd: new Date((nowSeconds + 500) * 1000).toISOString(),
 		});
 		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
+	});
+
+	it("serializes concurrent API key rotations", async () => {
+		await db.insert(tables.project).values({
+			id: "test-dev-plan-project",
+			name: "Default Project",
+			organizationId: ORG_ID,
+		});
+		await db.insert(tables.apiKey).values({
+			id: "test-dev-plan-api-key",
+			token: "test-dev-plan-token",
+			projectId: "test-dev-plan-project",
+			description: "Dev Plan API Key",
+			createdBy: "test-user-id",
+		});
+
+		const responses = await Promise.all([
+			app.request("/dev-plans/rotate-api-key", {
+				method: "POST",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({ apiKeyId: "test-dev-plan-api-key" }),
+			}),
+			app.request("/dev-plans/rotate-api-key", {
+				method: "POST",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({ apiKeyId: "test-dev-plan-api-key" }),
+			}),
+		]);
+
+		expect(responses.map((response) => response.status).sort()).toEqual([
+			200, 409,
+		]);
+		const successfulResponse = responses.find(
+			(response) => response.status === 200,
+		);
+		expect(successfulResponse).toBeDefined();
+		const body = await successfulResponse!.json();
+		const activeKeys = await db.query.apiKey.findMany({
+			where: {
+				projectId: { eq: "test-dev-plan-project" },
+				status: { eq: "active" },
+			},
+		});
+		expect(activeKeys).toHaveLength(1);
+		expect(activeKeys[0]?.id).toBe(body.apiKeyId);
+		expect(activeKeys[0]?.tokenHash).toBe(getApiKeyFingerprint(body.apiKey));
+	});
+
+	it("preserves playground sessions when rotating the DevPass key", async () => {
+		await db.insert(tables.project).values({
+			id: "test-dev-plan-project",
+			name: "Default Project",
+			organizationId: ORG_ID,
+		});
+		await db.insert(tables.apiKey).values([
+			{
+				id: "test-dev-plan-api-key",
+				token: "test-dev-plan-token",
+				projectId: "test-dev-plan-project",
+				description: "Dev Plan API Key",
+				createdBy: "test-user-id",
+			},
+			{
+				id: "test-playground-session-key",
+				token: "test-playground-session-token",
+				projectId: "test-dev-plan-project",
+				description: "Session key",
+				kind: "playground",
+				createdBy: "test-user-id",
+			},
+		]);
+
+		const response = await app.request("/dev-plans/rotate-api-key", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({ apiKeyId: "test-dev-plan-api-key" }),
+		});
+
+		expect(response.status).toBe(200);
+		const playgroundKey = await db.query.apiKey.findFirst({
+			where: { id: { eq: "test-playground-session-key" } },
+		});
+		expect(playgroundKey?.status).toBe("active");
+	});
+
+	it("returns the DevPass key when playground sessions share its project", async () => {
+		await db.insert(tables.project).values({
+			id: "test-dev-plan-project",
+			name: "Default Project",
+			organizationId: ORG_ID,
+		});
+		await db.insert(tables.apiKey).values([
+			{
+				id: "test-playground-session-key",
+				token: "test-playground-session-token",
+				projectId: "test-dev-plan-project",
+				description: "Session key",
+				kind: "playground",
+				createdBy: "test-user-id",
+			},
+			{
+				id: "test-dev-plan-api-key",
+				token: "test-dev-plan-token",
+				projectId: "test-dev-plan-project",
+				description: "Dev Plan API Key",
+				createdBy: "test-user-id",
+			},
+		]);
+
+		const response = await app.request("/dev-plans/status", {
+			headers: { Cookie: token },
+		});
+
+		expect(response.status).toBe(200);
+		const body = await response.json();
+		expect(body.apiKey?.id).toBe("test-dev-plan-api-key");
+	});
+
+	it("provisions an active key when only an inactive DevPass key exists", async () => {
+		await db.insert(tables.project).values({
+			id: "test-dev-plan-project",
+			name: "Default Project",
+			organizationId: ORG_ID,
+		});
+		await db.insert(tables.apiKey).values({
+			id: "test-inactive-dev-plan-api-key",
+			token: "test-inactive-dev-plan-token",
+			projectId: "test-dev-plan-project",
+			description: "Dev Plan API Key",
+			status: "inactive",
+			createdBy: "test-user-id",
+		});
+
+		const statusResponse = await app.request("/dev-plans/status", {
+			headers: { Cookie: token },
+		});
+		expect(statusResponse.status).toBe(200);
+		const statusBody = await statusResponse.json();
+		expect(statusBody.apiKey?.id).not.toBe("test-inactive-dev-plan-api-key");
+
+		const rotateResponse = await app.request("/dev-plans/rotate-api-key", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({ apiKeyId: statusBody.apiKey?.id }),
+		});
+		expect(rotateResponse.status).toBe(200);
 	});
 
 	it("rejects an upgrade if the full price exceeds the confirmed amount", async () => {
@@ -1217,5 +1364,124 @@ describe("dev plan status billing history", () => {
 		});
 
 		expect(await getStatus()).toMatchObject({ hasBillingHistory: true });
+	});
+});
+
+describe("dev plan billing history list", () => {
+	let token: string;
+
+	beforeEach(async () => {
+		vi.clearAllMocks();
+		token = await createTestUser();
+
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Personal Org",
+			billingEmail: "admin@example.com",
+			kind: "devpass",
+			devPlan: "none",
+		});
+		await db.insert(tables.userOrganization).values({
+			userId: "test-user-id",
+			organizationId: ORG_ID,
+			role: "owner",
+		});
+	});
+
+	afterEach(async () => {
+		await db.delete(tables.transaction);
+		await deleteAll();
+	});
+
+	async function getInvoices() {
+		const res = await app.request("/dev-plans/invoices", {
+			headers: { Cookie: token },
+		});
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as {
+			invoices: {
+				id: string;
+				type: string;
+				amount: string | null;
+				creditAmount: string | null;
+			}[];
+		};
+		return body.invoices;
+	}
+
+	it("lists refunds and plan lifecycle rows alongside the charges", async () => {
+		await db.insert(tables.transaction).values([
+			{
+				id: "tx-start",
+				organizationId: ORG_ID,
+				type: "dev_plan_start",
+				amount: "29",
+				creditAmount: "87",
+				status: "completed",
+				createdAt: new Date("2026-07-15T00:00:00Z"),
+			},
+			{
+				id: "tx-cancel",
+				organizationId: ORG_ID,
+				type: "dev_plan_cancel",
+				status: "completed",
+				createdAt: new Date("2026-07-31T00:00:00Z"),
+			},
+			{
+				id: "tx-refund",
+				organizationId: ORG_ID,
+				type: "credit_refund",
+				amount: "29",
+				creditAmount: "0",
+				status: "completed",
+				relatedTransactionId: "tx-start",
+				createdAt: new Date("2026-08-12T00:00:00Z"),
+			},
+			{
+				id: "tx-end",
+				organizationId: ORG_ID,
+				type: "dev_plan_end",
+				status: "completed",
+				createdAt: new Date("2026-08-12T00:01:00Z"),
+			},
+		]);
+
+		const invoices = await getInvoices();
+
+		expect(invoices.map((i) => i.id)).toEqual([
+			"tx-end",
+			"tx-refund",
+			"tx-cancel",
+			"tx-start",
+		]);
+		expect(invoices[1]).toMatchObject({
+			type: "credit_refund",
+			amount: "29",
+		});
+	});
+
+	it("still hides negative top-up reversal rows", async () => {
+		await db.insert(tables.transaction).values([
+			{
+				id: "tx-topup",
+				organizationId: ORG_ID,
+				type: "credit_topup",
+				amount: "26.25",
+				creditAmount: "25",
+				status: "completed",
+				createdAt: new Date("2026-08-02T00:00:00Z"),
+			},
+			{
+				id: "tx-topup-reversal",
+				organizationId: ORG_ID,
+				type: "credit_topup",
+				amount: "-26.25",
+				creditAmount: "-25",
+				status: "completed",
+				createdAt: new Date("2026-08-03T00:00:00Z"),
+			},
+		]);
+
+		expect((await getInvoices()).map((i) => i.id)).toEqual(["tx-topup"]);
 	});
 });

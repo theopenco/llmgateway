@@ -22,7 +22,7 @@ import { z } from "zod";
 import { SocialAuthButtons } from "@/components/social-auth-buttons";
 import { useSessionStatus, useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
-import { getAuthErrorMessage } from "@/lib/auth-errors";
+import { useAuthErrorToast } from "@/lib/auth-errors";
 import { Button } from "@/lib/components/button";
 import {
 	Form,
@@ -81,19 +81,9 @@ export default function Login() {
 		posthog.capture("page_viewed_login");
 	}, [posthog]);
 
-	useEffect(() => {
-		const params = new URLSearchParams(window.location.search);
-		const error = params.get("error");
-		if (error) {
-			toast({
-				title: getAuthErrorMessage(error),
-				variant: "destructive",
-			});
-			params.delete("error");
-			const query = params.toString();
-			router.replace(window.location.pathname + (query ? `?${query}` : ""));
-		}
-	}, [router]);
+	// `signup_disabled` is handled by SocialAuthButtons, which turns it into a
+	// "you need to sign up" dialog instead of an error toast.
+	useAuthErrorToast(["signup_disabled"]);
 
 	const form = useForm<z.infer<typeof formSchema>>({
 		resolver: zodResolver(formSchema),
@@ -376,6 +366,7 @@ export default function Login() {
 					setIsLoading={setIsLoading}
 					callbackPath={redirectTarget}
 					errorCallbackPath="/login"
+					newUserCallbackPath={redirectTarget}
 				/>
 
 				<Button

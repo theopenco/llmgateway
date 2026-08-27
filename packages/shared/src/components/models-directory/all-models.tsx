@@ -41,12 +41,12 @@ import {
 	Volume2,
 	Mic,
 	ListOrdered,
+	Clock,
 } from "lucide-react";
 import Link from "next/link.js";
 import { usePathname, useRouter, useSearchParams } from "next/navigation.js";
 import React, { useMemo, useState, useCallback, useEffect } from "react";
 
-import { isCodingModel } from "@/coding-models.js";
 import { getProviderIcon } from "@/components/provider-icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -74,12 +74,25 @@ import {
 	TooltipProvider,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+	getMappingStatus,
+	isModelMappingStatus,
+	shouldShowDeactivationNotice,
+	type ModelMappingStatus,
+} from "@/deactivation";
+import { discountFraction } from "@/lib/discount";
 import { cn } from "@/lib/utils";
 
-import { isMappingDeactivated } from "./deactivation";
+import { matchesCapability } from "./capability-filters";
 import { formatDeprecationDate, formatPerImagePriceRange } from "./format";
 import { ModelCard } from "./model-card";
 import { applyCategoryFilter } from "./model-category-filters";
+import { isVisibleMapping } from "./status-filters";
+import {
+	applyUseCaseFilter,
+	isUseCaseCategory,
+	providerRowPassesFilters,
+} from "./use-case-filters";
 import { useIsMobile } from "./use-mobile";
 
 import type {
@@ -138,7 +151,12 @@ interface AllModelsProps {
 }
 
 type SortField =
-	"provider" | "name" | "inputPrice" | "outputPrice" | "cachedInputPrice";
+	| "provider"
+	| "name"
+	| "inputPrice"
+	| "outputPrice"
+	| "cachedInputPrice"
+	| "discount";
 type SortDirection = "asc" | "desc";
 
 // Capability icon type
@@ -247,6 +265,13 @@ function computeCapabilities(
 			color: "text-indigo-500",
 		});
 	}
+	if (model?.output?.includes("rerank")) {
+		capabilities.push({
+			icon: ListOrdered,
+			label: "Rerank",
+			color: "text-amber-500",
+		});
+	}
 	if (provider.webSearch) {
 		capabilities.push({
 			icon: Globe,
@@ -256,6 +281,25 @@ function computeCapabilities(
 	}
 	return capabilities;
 }
+
+// Maps capability filter toggle keys to the capability label they pin to the
+// front of the features column, so the icon the user is filtering by is always
+// visible.
+const CAPABILITY_LABEL_BY_FILTER_KEY: Record<string, string> = {
+	streaming: "Streaming",
+	vision: "Vision",
+	tools: "Tools",
+	reasoning: "Reasoning",
+	reasoningBudget: "Reasoning Budget",
+	jsonOutput: "JSON Output",
+	jsonOutputSchema: "Structured JSON",
+	imageGeneration: "Image Generation",
+	videoGeneration: "Video Generation",
+	audioGeneration: "Speech Generation",
+	embedding: "Embeddings",
+	rerank: "Rerank",
+	webSearch: "Web Search",
+};
 
 // Memoized table row component for performance
 const ModelTableRow = React.memo(
@@ -268,6 +312,7 @@ const ModelTableRow = React.memo(
 		onNavigate,
 		formatPrice,
 		modelHref,
+		pinnedCapabilityKeys,
 	}: {
 		row: FlattenedModelRow;
 		isExpanded: boolean;
@@ -280,11 +325,15 @@ const ModelTableRow = React.memo(
 			discount?: string | null,
 		) => React.ReactNode;
 		modelHref: (path: string) => string;
+		pinnedCapabilityKeys: string[];
 	}) => {
 		const { ProviderIcon } = row;
 		const isCustom = row.model.source === "custom";
 		const blockedReasons = row.provider.blockedReasons ?? [];
 		const isBlocked = blockedReasons.length > 0;
+		const showDeactivationNotice = shouldShowDeactivationNotice(row.provider);
+		const mappingStatus = getMappingStatus(row.provider);
+		const isScheduled = mappingStatus === "scheduled";
 
 		return (
 			<>
@@ -386,24 +435,28 @@ const ModelTableRow = React.memo(
 									</TooltipContent>
 								</Tooltip>
 							)}
-							{row.provider.deactivatedAt && (
+							{showDeactivationNotice && (
 								<Tooltip>
 									<TooltipTrigger asChild>
 										<span className="shrink-0 cursor-help">
-											<AlertCircle className="h-3.5 w-3.5 text-red-500" />
+											{isScheduled ? (
+												<Clock className="h-3.5 w-3.5 text-amber-500" />
+											) : (
+												<AlertCircle className="h-3.5 w-3.5 text-red-500" />
+											)}
 										</span>
 									</TooltipTrigger>
 									<TooltipContent>
 										<p className="text-xs">
 											{formatDeprecationDate(
-												row.provider.deactivatedAt,
+												row.provider.deactivatedAt!,
 												"deactivated",
 											)}
 										</p>
 									</TooltipContent>
 								</Tooltip>
 							)}
-							{!row.provider.deactivatedAt && row.provider.deprecatedAt && (
+							{!showDeactivationNotice && row.provider.deprecatedAt && (
 								<Tooltip>
 									<TooltipTrigger asChild>
 										<span className="shrink-0 cursor-help">
@@ -451,7 +504,7 @@ const ModelTableRow = React.memo(
 									</TooltipTrigger>
 									<TooltipContent>
 										<p className="text-xs">
-											Premium tier — $5+/M input or $15+/M output. Subject to
+											Premium tier / $5+/M input or $15+/M output. Subject to
 											the weekly fair-use allowance on DevPass plans.
 										</p>
 									</TooltipContent>
@@ -610,15 +663,55 @@ const ModelTableRow = React.memo(
 
 					{/* Features Column */}
 					<TableCell className="text-center">
-						<div className="flex justify-center gap-1">
-							{row.capabilities
-								.slice(0, 4)
-								.map(({ icon: Icon, label, color }) => (
-									<div key={label} className="p-0.5" title={label}>
-										<Icon className={`h-4 w-4 ${color}`} />
-									</div>
-								))}
-						</div>
+						{(() => {
+							const pinnedLabels = pinnedCapabilityKeys
+								.map((key) => CAPABILITY_LABEL_BY_FILTER_KEY[key])
+								.filter((label): label is string => Boolean(label));
+							const ordered = [
+								...row.capabilities.filter((c) =>
+									pinnedLabels.includes(c.label),
+								),
+								...row.capabilities.filter(
+									(c) => !pinnedLabels.includes(c.label),
+								),
+							];
+							const visible = ordered.slice(0, 4);
+							const overflow = ordered.slice(4);
+							return (
+								<div className="flex justify-center gap-1">
+									{visible.map(({ icon: Icon, label, color }) => (
+										<div key={label} className="p-0.5" title={label}>
+											<Icon className={`h-4 w-4 ${color}`} />
+										</div>
+									))}
+									{overflow.length > 0 && (
+										<Tooltip>
+											<TooltipTrigger asChild>
+												<button
+													className="p-0.5 text-xs font-medium text-muted-foreground"
+													onClick={(e) => e.stopPropagation()}
+												>
+													+{overflow.length}
+												</button>
+											</TooltipTrigger>
+											<TooltipContent>
+												<div className="flex flex-col gap-1 text-xs">
+													{overflow.map(({ icon: Icon, label }) => (
+														<span
+															className="flex items-center gap-1.5"
+															key={label}
+														>
+															<Icon className="h-4 w-4 text-background" />
+															{label}
+														</span>
+													))}
+												</div>
+											</TooltipContent>
+										</Tooltip>
+									)}
+								</div>
+							);
+						})()}
 					</TableCell>
 				</TableRow>
 
@@ -748,18 +841,46 @@ export function AllModels({
 	);
 
 	// Sorting states
+	const sortFieldParam = searchParams.get("sortField") as SortField | null;
+	const sortDirParam = searchParams.get("sortDir");
+	const discountedDefault =
+		categoryFilter === "discounted" && !sortFieldParam && !sortDirParam;
 	const [sortField, setSortField] = useState<SortField | null>(
-		(searchParams.get("sortField") as SortField) || null,
+		sortFieldParam || (discountedDefault ? "discount" : null),
 	);
 	const [sortDirection, setSortDirection] = useState<SortDirection>(
-		(searchParams.get("sortDir") as SortDirection) === "desc" ? "desc" : "asc",
+		sortDirParam === "desc" || sortDirParam === "asc"
+			? sortDirParam
+			: discountedDefault
+				? "desc"
+				: "asc",
 	);
+	const urlCategory = searchParams.get("category");
+
+	// The status chips are single-select: `?status=` holds at most one value.
+	// Legacy `?deactivated=true` links map onto the Deactivated chip so old
+	// URLs keep working. No param means the default view (no status filter).
+	function getStatusFilterFromUrl(
+		searchParams: URLSearchParams,
+	): ModelMappingStatus | null {
+		const status = searchParams.get("status");
+		if (status && isModelMappingStatus(status) && status !== "active") {
+			return status;
+		}
+		return searchParams.get("deactivated") === "true" ? "deactivated" : null;
+	}
+
 	const [filters, setFilters] = useState({
 		// With the selector hidden there is no way to see or change the
-		// category, so ignore any URL override and pin the default.
+		// category, so ignore any URL override and pin the default. When the
+		// selector is shown, only accept a known category from the URL so an
+		// unsupported value falls back to the default instead of silently
+		// matching every row.
 		category: hideUseCaseFilter
 			? defaultCategory
-			: (searchParams.get("category") ?? defaultCategory),
+			: isUseCaseCategory(urlCategory)
+				? urlCategory
+				: defaultCategory,
 		tier: searchParams.get("tier") ?? "all",
 		capabilities: {
 			streaming: searchParams.get("streaming") === "true",
@@ -779,7 +900,7 @@ export function AllModels({
 			discounted: searchParams.get("discounted") === "true",
 		},
 		selectedProvider: searchParams.get("provider") ?? "all",
-		showDeactivated: searchParams.get("deactivated") === "true",
+		status: getStatusFilterFromUrl(searchParams),
 		source: searchParams.get("source") ?? "all",
 		eligibleOnly: searchParams.get("eligibility") === "eligible",
 		inputPrice: {
@@ -825,25 +946,42 @@ export function AllModels({
 		[router, searchParams],
 	);
 
+	const setStatusFilter = useCallback(
+		(status: ModelMappingStatus | null) => {
+			setFilters((prev) => ({ ...prev, status }));
+			updateUrlWithFilters({
+				status: status ?? undefined,
+				deactivated: undefined,
+				page: undefined,
+			});
+		},
+		[updateUrlWithFilters],
+	);
+
 	// Calculate total counts (excluding deprecated and deactivated models)
 	const { totalModelCount, totalProviderCount } = useMemo(() => {
 		const now = new Date();
 
 		// Count models that have at least one visible mapping
 		const visibleModelCount = models.filter((model) =>
-			model.mappings.some((mapping) => {
-				if (mapping.deprecatedAt && new Date(mapping.deprecatedAt) <= now) {
-					return false;
-				}
-				return filters.showDeactivated || !isMappingDeactivated(mapping, now);
-			}),
+			model.mappings.some((mapping) =>
+				isVisibleMapping(
+					mapping,
+					{
+						status: filters.status,
+						showDeactivated: false,
+						eligibleOnly: filters.eligibleOnly,
+					},
+					now,
+				),
+			),
 		).length;
 
 		return {
 			totalModelCount: visibleModelCount,
 			totalProviderCount: providers.length,
 		};
-	}, [models, providers, filters.showDeactivated]);
+	}, [models, providers, filters.status, filters.eligibleOnly]);
 
 	const modelsWithProviders: ModelWithProviders[] = useMemo(() => {
 		const now = new Date();
@@ -860,19 +998,19 @@ export function AllModels({
 			})
 			.map((model) => {
 				// Filter out deprecated provider mappings, plus deactivated ones
-				// unless the visitor opted into seeing them
-				const visibleMappings = model.mappings.filter((mapping) => {
-					if (mapping.deprecatedAt && new Date(mapping.deprecatedAt) <= now) {
-						return false;
-					}
-					if (!filters.showDeactivated && isMappingDeactivated(mapping, now)) {
-						return false;
-					}
-					if (filters.eligibleOnly && mapping.blockedReasons?.length) {
-						return false;
-					}
-					return true;
-				});
+				// unless the visitor opted into seeing them; with a status chip
+				// active only mappings of exactly that status remain
+				const visibleMappings = model.mappings.filter((mapping) =>
+					isVisibleMapping(
+						mapping,
+						{
+							status: filters.status,
+							showDeactivated: false,
+							eligibleOnly: filters.eligibleOnly,
+						},
+						now,
+					),
+				);
 
 				return {
 					...model,
@@ -939,75 +1077,18 @@ export function AllModels({
 				}
 			}
 
-			// Category filter
-			if (filters.category && filters.category !== "all") {
-				switch (filters.category) {
-					case "code": {
-						// Exactly the predicate the gateway enforces for DevPass coding
-						// plans, so this list can never claim less than the plan serves.
-						if (
-							!isCodingModel({
-								free: model.free,
-								stability: model.stability,
-								providers: model.providerDetails.map((p) => p.provider),
-							})
-						) {
-							return false;
-						}
-						break;
-					}
-					case "chat": {
-						// Chat & Assistants: general chat models with streaming and cached input pricing
-						const hasStreaming = model.providerDetails.some(
-							(p) =>
-								p.provider.streaming && p.provider.cachedInputPrice !== null,
-						);
-						if (!hasStreaming) {
-							return false;
-						}
-						break;
-					}
-					case "reasoning": {
-						// Reasoning & Analysis: models with reasoning capability
-						const hasReasoning = model.providerDetails.some(
-							(p) => p.provider.reasoning,
-						);
-						if (!hasReasoning) {
-							return false;
-						}
-						break;
-					}
-					case "creative": {
-						// Creative & Writing: exclude image generation models
-						if (model.output?.includes("image")) {
-							return false;
-						}
-						const hasCreativeStreaming = model.providerDetails.some(
-							(p) => p.provider.streaming,
-						);
-						if (!hasCreativeStreaming) {
-							return false;
-						}
-						break;
-					}
-					case "image": {
-						// Image Generation
-						if (!model.output?.includes("image")) {
-							return false;
-						}
-						break;
-					}
-					case "multimodal": {
-						// Multimodal: vision capability
-						const hasVision = model.providerDetails.some(
-							(p) => p.provider.vision,
-						);
-						if (!hasVision) {
-							return false;
-						}
-						break;
-					}
-				}
+			// Use Case filter (chat/reasoning/creative/image/multimodal/code) —
+			// a model qualifies via any one of its mappings.
+			if (
+				filters.category &&
+				filters.category !== "all" &&
+				!applyUseCaseFilter(
+					filters.category,
+					model,
+					model.providerDetails.map((p) => p.provider),
+				)
+			) {
+				return false;
 			}
 
 			// Pricing tier filter: premium is the fair-use category enforced by
@@ -1022,43 +1103,57 @@ export function AllModels({
 			// Capability filters
 			if (
 				filters.capabilities.streaming &&
-				!model.providerDetails.some((p) => p.provider.streaming)
+				!model.providerDetails.some((p) =>
+					matchesCapability("streaming", p.provider),
+				)
 			) {
 				return false;
 			}
 			if (
 				filters.capabilities.vision &&
-				!model.providerDetails.some((p) => p.provider.vision)
+				!model.providerDetails.some((p) =>
+					matchesCapability("vision", p.provider),
+				)
 			) {
 				return false;
 			}
 			if (
 				filters.capabilities.tools &&
-				!model.providerDetails.some((p) => p.provider.tools)
+				!model.providerDetails.some((p) =>
+					matchesCapability("tools", p.provider),
+				)
 			) {
 				return false;
 			}
 			if (
 				filters.capabilities.reasoning &&
-				!model.providerDetails.some((p) => p.provider.reasoning)
+				!model.providerDetails.some((p) =>
+					matchesCapability("reasoning", p.provider),
+				)
 			) {
 				return false;
 			}
 			if (
 				filters.capabilities.reasoningBudget &&
-				!model.providerDetails.some((p) => p.provider.reasoningMaxTokens)
+				!model.providerDetails.some((p) =>
+					matchesCapability("reasoningMaxTokens", p.provider),
+				)
 			) {
 				return false;
 			}
 			if (
 				filters.capabilities.jsonOutput &&
-				!model.providerDetails.some((p) => p.provider.jsonOutput)
+				!model.providerDetails.some((p) =>
+					matchesCapability("jsonOutput", p.provider),
+				)
 			) {
 				return false;
 			}
 			if (
 				filters.capabilities.jsonOutputSchema &&
-				!model.providerDetails.some((p) => p.provider.jsonOutputSchema)
+				!model.providerDetails.some((p) =>
+					matchesCapability("jsonOutputSchema", p.provider),
+				)
 			) {
 				return false;
 			}
@@ -1091,7 +1186,9 @@ export function AllModels({
 			}
 			if (
 				filters.capabilities.webSearch &&
-				!model.providerDetails.some((p) => p.provider.webSearch)
+				!model.providerDetails.some((p) =>
+					matchesCapability("webSearch", p.provider),
+				)
 			) {
 				return false;
 			}
@@ -1114,8 +1211,8 @@ export function AllModels({
 			}
 			if (
 				filters.capabilities.discounted &&
-				!model.providerDetails.some(
-					(p) => p.provider.discount && parseFloat(p.provider.discount) > 0,
+				!model.providerDetails.some((p) =>
+					matchesCapability("discounted", p.provider),
 				)
 			) {
 				return false;
@@ -1289,6 +1386,18 @@ export function AllModels({
 							: Infinity;
 					break;
 				}
+				case "discount": {
+					// Highest discount across all providers for this model
+					const aDiscounts = a.providerDetails.map((m) =>
+						discountFraction(m.provider.discount),
+					);
+					const bDiscounts = b.providerDetails.map((m) =>
+						discountFraction(m.provider.discount),
+					);
+					aValue = aDiscounts.length > 0 ? Math.max(...aDiscounts) : 0;
+					bValue = bDiscounts.length > 0 ? Math.max(...bDiscounts) : 0;
+					break;
+				}
 				default:
 					return 0;
 			}
@@ -1332,7 +1441,19 @@ export function AllModels({
 
 		for (const model of modelsWithProviders) {
 			for (const { provider, providerInfo } of model.providerDetails) {
-				if (providerFilter && provider.providerId !== providerFilter) {
+				// Single source of truth for which rows belong in the filtered
+				// table: provider, capability, category, and use-case filters
+				// are all re-checked per row here (the same code the tests
+				// exercise), so a mapping that qualifies a model at the model
+				// level but fails an active filter is kept out of the table.
+				if (
+					!providerRowPassesFilters(model, provider, {
+						providerFilter,
+						capabilities: filters.capabilities,
+						categoryFilter,
+						category: filters.category,
+					})
+				) {
 					continue;
 				}
 
@@ -1436,6 +1557,10 @@ export function AllModels({
 							: Infinity;
 					break;
 				}
+				case "discount":
+					aValue = discountFraction(a.provider.discount);
+					bValue = discountFraction(b.provider.discount);
+					break;
 				default:
 					return 0;
 			}
@@ -1451,12 +1576,13 @@ export function AllModels({
 	}, [modelsWithProviders, sortField, sortDirection, filters.selectedProvider]);
 
 	const hasActiveFilters =
+		categoryFilter ||
 		searchQuery ||
 		(filters.category && filters.category !== defaultCategory) ||
 		(filters.tier && filters.tier !== "all") ||
 		Object.values(filters.capabilities).some(Boolean) ||
 		(filters.selectedProvider && filters.selectedProvider !== "all") ||
-		filters.showDeactivated ||
+		filters.status !== null ||
 		(filters.source && filters.source !== "all") ||
 		filters.eligibleOnly ||
 		filters.inputPrice.min ||
@@ -1636,7 +1762,7 @@ export function AllModels({
 				discounted: false,
 			},
 			selectedProvider: "all",
-			showDeactivated: false,
+			status: null,
 			source: "all",
 			eligibleOnly: false,
 			inputPrice: { min: "", max: "" },
@@ -1665,6 +1791,7 @@ export function AllModels({
 			free: undefined,
 			discounted: undefined,
 			provider: undefined,
+			status: undefined,
 			deactivated: undefined,
 			source: undefined,
 			eligibility: undefined,
@@ -1752,7 +1879,7 @@ export function AllModels({
 
 						{showPricingTierFilter ? (
 							<>
-								{/* Pricing tier — stacked under Use Case (or standing in
+								{/* Pricing tier / stacked under Use Case (or standing in
 								    for it when that select is hidden) to keep the filter
 								    grid on a single row */}
 								<div className="font-medium text-sm">
@@ -1908,9 +2035,29 @@ export function AllModels({
 												[key]: pressed,
 											},
 										}));
-										updateUrlWithFilters({
-											[key]: pressed ? "true" : undefined,
-										});
+										if (key === "discounted") {
+											if (pressed) {
+												setSortField("discount");
+												setSortDirection("desc");
+												updateUrlWithFilters({
+													[key]: "true",
+													sortField: "discount",
+													sortDir: "desc",
+												});
+											} else {
+												setSortField(null);
+												setSortDirection("desc");
+												updateUrlWithFilters({
+													[key]: undefined,
+													sortField: undefined,
+													sortDir: undefined,
+												});
+											}
+										} else {
+											updateUrlWithFilters({
+												[key]: pressed ? "true" : undefined,
+											});
+										}
 									}}
 									className="gap-1.5"
 								>
@@ -1998,23 +2145,77 @@ export function AllModels({
 						)}
 
 						<div className="font-medium text-sm">Status</div>
-						<div className="flex flex-wrap gap-2">
-							<Toggle
-								variant="outline"
-								size="sm"
-								pressed={filters.showDeactivated}
-								onPressedChange={(pressed) => {
-									setFilters((prev) => ({ ...prev, showDeactivated: pressed }));
-									updateUrlWithFilters({
-										deactivated: pressed ? "true" : undefined,
-										page: undefined,
-									});
-								}}
-								className="gap-1.5"
-							>
-								<AlertCircle className="h-3.5 w-3.5 text-red-500" />
-								<span className="text-xs">Show deactivated</span>
-							</Toggle>
+						<div className="flex flex-col items-start gap-1.5">
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span>
+										<Toggle
+											variant="outline"
+											size="sm"
+											pressed={filters.status === "deactivated"}
+											onPressedChange={(pressed) => {
+												setStatusFilter(pressed ? "deactivated" : null);
+											}}
+											className="gap-1.5 w-fit"
+										>
+											<AlertCircle className="h-3.5 w-3.5 text-red-500" />
+											<span className="text-xs">Deactivated</span>
+										</Toggle>
+									</span>
+								</TooltipTrigger>
+								<TooltipContent>
+									<p className="text-xs">
+										Dead / requests return errors and no longer route
+									</p>
+								</TooltipContent>
+							</Tooltip>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span>
+										<Toggle
+											variant="outline"
+											size="sm"
+											pressed={filters.status === "scheduled"}
+											onPressedChange={(pressed) => {
+												setStatusFilter(pressed ? "scheduled" : null);
+											}}
+											className="gap-1.5 w-fit"
+										>
+											<Clock className="h-3.5 w-3.5 text-amber-500" />
+											<span className="text-xs">Scheduled</span>
+										</Toggle>
+									</span>
+								</TooltipTrigger>
+								<TooltipContent>
+									<p className="text-xs">
+										Still works / deactivation scheduled within 90 days, plan to
+										migrate
+									</p>
+								</TooltipContent>
+							</Tooltip>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span>
+										<Toggle
+											variant="outline"
+											size="sm"
+											pressed={filters.status === "deprecated"}
+											onPressedChange={(pressed) => {
+												setStatusFilter(pressed ? "deprecated" : null);
+											}}
+											className="gap-1.5 w-fit"
+										>
+											<AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+											<span className="text-xs">Deprecated</span>
+										</Toggle>
+									</span>
+								</TooltipTrigger>
+								<TooltipContent>
+									<p className="text-xs">
+										Still works / provider announced sunset, migrate soon
+									</p>
+								</TooltipContent>
+							</Tooltip>
 							{hasBlockedMappings && (
 								<Toggle
 									variant="outline"
@@ -2142,99 +2343,117 @@ export function AllModels({
 		</Card>
 	);
 
-	const renderTableView = () => (
-		<div className="rounded-md border">
-			<div className="relative w-full overflow-x-auto">
-				<Table>
-					<TableHeader className="top-0 z-10 bg-background/95 backdrop-blur">
-						<TableRow>
-							<TableHead className="w-[180px] bg-background/95 backdrop-blur-sm border-b">
-								<Button
-									variant="ghost"
-									onClick={() => handleSort("provider")}
-									className="h-auto p-0 font-semibold hover:bg-transparent justify-start uppercase text-xs tracking-wider"
-								>
-									Provider
-									{getSortIcon("provider")}
-								</Button>
-							</TableHead>
-							<TableHead className="w-[280px] bg-background/95 backdrop-blur-sm border-b">
-								<Button
-									variant="ghost"
-									onClick={() => handleSort("name")}
-									className="h-auto p-0 font-semibold hover:bg-transparent justify-start uppercase text-xs tracking-wider"
-								>
-									Model ID
-									{getSortIcon("name")}
-								</Button>
-							</TableHead>
-							<TableHead className="text-right bg-background/95 backdrop-blur-sm border-b">
-								<Button
-									variant="ghost"
-									onClick={() => handleSort("inputPrice")}
-									className="h-auto p-0 font-semibold hover:bg-transparent uppercase text-xs tracking-wider"
-								>
-									Input $/M
-									{getSortIcon("inputPrice")}
-								</Button>
-							</TableHead>
-							<TableHead className="text-right bg-background/95 backdrop-blur-sm border-b">
-								<Button
-									variant="ghost"
-									onClick={() => handleSort("outputPrice")}
-									className="h-auto p-0 font-semibold hover:bg-transparent uppercase text-xs tracking-wider"
-								>
-									Output $/M
-									{getSortIcon("outputPrice")}
-								</Button>
-							</TableHead>
-							<TableHead className="text-right bg-background/95 backdrop-blur-sm border-b">
-								<Button
-									variant="ghost"
-									onClick={() => handleSort("cachedInputPrice")}
-									className="h-auto p-0 font-semibold hover:bg-transparent uppercase text-xs tracking-wider"
-								>
-									Cache Read $/M
-									{getSortIcon("cachedInputPrice")}
-								</Button>
-							</TableHead>
-							<TableHead className="text-center bg-background/95 backdrop-blur-sm border-b uppercase text-xs tracking-wider font-semibold">
-								Features
-							</TableHead>
-						</TableRow>
-					</TableHeader>
-					<TableBody>
-						{paginatedFlattenedRows.map((row) => (
-							<ModelTableRow
-								key={row.rowKey}
-								row={row}
-								isExpanded={expandedRows.has(row.rowKey)}
-								copiedModel={copiedModel}
-								onToggleExpand={() => toggleRowExpanded(row.rowKey)}
-								onCopy={copyToClipboard}
-								onNavigate={() => {
-									// Custom models have no public model page to navigate to.
-									if (row.model.source === "custom") {
-										return;
-									}
-									const url = modelHref(
-										`/models/${encodeURIComponent(row.model.id)}/${row.provider.providerId}`,
-									);
-									if (modelHrefBase) {
-										window.open(url, "_blank");
-									} else {
-										router.push(url);
-									}
-								}}
-								formatPrice={formatPrice}
-								modelHref={modelHref}
-							/>
-						))}
-					</TableBody>
-				</Table>
-			</div>
-		</div>
+	// Capability filter keys that are active, used to pin the matching icon to
+	// the front of the features column in the table view.
+	const pinnedCapabilityKeys = useMemo(
+		() =>
+			(
+				Object.entries(filters.capabilities) as Array<
+					[keyof typeof filters.capabilities, boolean]
+				>
+			)
+				.filter(([, pressed]) => pressed)
+				.map(([key]) => key)
+				.filter((key) => CAPABILITY_LABEL_BY_FILTER_KEY[key]),
+		[filters.capabilities],
 	);
+
+	const renderTableView = () => {
+		return (
+			<div className="rounded-md border">
+				<div className="relative w-full overflow-x-auto">
+					<Table>
+						<TableHeader className="top-0 z-10 bg-background/95 backdrop-blur">
+							<TableRow>
+								<TableHead className="w-[180px] bg-background/95 backdrop-blur-sm border-b">
+									<Button
+										variant="ghost"
+										onClick={() => handleSort("provider")}
+										className="h-auto p-0 font-semibold hover:bg-transparent justify-start uppercase text-xs tracking-wider"
+									>
+										Provider
+										{getSortIcon("provider")}
+									</Button>
+								</TableHead>
+								<TableHead className="w-[280px] bg-background/95 backdrop-blur-sm border-b">
+									<Button
+										variant="ghost"
+										onClick={() => handleSort("name")}
+										className="h-auto p-0 font-semibold hover:bg-transparent justify-start uppercase text-xs tracking-wider"
+									>
+										Model ID
+										{getSortIcon("name")}
+									</Button>
+								</TableHead>
+								<TableHead className="text-right bg-background/95 backdrop-blur-sm border-b">
+									<Button
+										variant="ghost"
+										onClick={() => handleSort("inputPrice")}
+										className="h-auto p-0 font-semibold hover:bg-transparent uppercase text-xs tracking-wider"
+									>
+										Input $/M
+										{getSortIcon("inputPrice")}
+									</Button>
+								</TableHead>
+								<TableHead className="text-right bg-background/95 backdrop-blur-sm border-b">
+									<Button
+										variant="ghost"
+										onClick={() => handleSort("outputPrice")}
+										className="h-auto p-0 font-semibold hover:bg-transparent uppercase text-xs tracking-wider"
+									>
+										Output $/M
+										{getSortIcon("outputPrice")}
+									</Button>
+								</TableHead>
+								<TableHead className="text-right bg-background/95 backdrop-blur-sm border-b">
+									<Button
+										variant="ghost"
+										onClick={() => handleSort("cachedInputPrice")}
+										className="h-auto p-0 font-semibold hover:bg-transparent uppercase text-xs tracking-wider"
+									>
+										Cache Read $/M
+										{getSortIcon("cachedInputPrice")}
+									</Button>
+								</TableHead>
+								<TableHead className="text-center bg-background/95 backdrop-blur-sm border-b uppercase text-xs tracking-wider font-semibold">
+									Features
+								</TableHead>
+							</TableRow>
+						</TableHeader>
+						<TableBody>
+							{paginatedFlattenedRows.map((row) => (
+								<ModelTableRow
+									key={row.rowKey}
+									row={row}
+									isExpanded={expandedRows.has(row.rowKey)}
+									copiedModel={copiedModel}
+									onToggleExpand={() => toggleRowExpanded(row.rowKey)}
+									onCopy={copyToClipboard}
+									onNavigate={() => {
+										// Custom models have no public model page to navigate to.
+										if (row.model.source === "custom") {
+											return;
+										}
+										const url = modelHref(
+											`/models/${encodeURIComponent(row.model.id)}/${row.provider.providerId}`,
+										);
+										if (modelHrefBase) {
+											window.open(url, "_blank");
+										} else {
+											router.push(url);
+										}
+									}}
+									formatPrice={formatPrice}
+									modelHref={modelHref}
+									pinnedCapabilityKeys={pinnedCapabilityKeys}
+								/>
+							))}
+						</TableBody>
+					</Table>
+				</div>
+			</div>
+		);
+	};
 
 	const renderGridView = () => (
 		<div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -2351,6 +2570,7 @@ export function AllModels({
 												className="ml-2 px-1 py-0 text-xs"
 											>
 												{[
+													categoryFilter ? 1 : 0,
 													searchQuery ? 1 : 0,
 													filters.category &&
 													filters.category !== defaultCategory
@@ -2363,7 +2583,7 @@ export function AllModels({
 														: 0,
 													Object.values(filters.capabilities).filter(Boolean)
 														.length,
-													filters.showDeactivated ? 1 : 0,
+													filters.status ? 1 : 0,
 													filters.source && filters.source !== "all" ? 1 : 0,
 													filters.eligibleOnly ? 1 : 0,
 													[

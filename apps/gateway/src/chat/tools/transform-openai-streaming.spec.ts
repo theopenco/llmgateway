@@ -389,4 +389,96 @@ describe("transformOpenaiStreaming", () => {
 			"cache_creation_tokens",
 		);
 	});
+
+	test("adds empty choices to usage-only chunks", () => {
+		const input = {
+			service_tier: "default",
+			id: "chatcmpl-abc123",
+			object: "chat.completion.chunk",
+			created: 1786945815,
+			model: "deepseek-ai/DeepSeek-V4-Flash",
+			usage: {
+				prompt_tokens: 10,
+				completion_tokens: 2,
+				total_tokens: 12,
+			},
+		};
+
+		const result = transformOpenaiStreaming(input, "deepseek-v4-flash");
+
+		expect(result.choices).toEqual([]);
+		expect(result.usage).toEqual({
+			prompt_tokens: 10,
+			completion_tokens: 2,
+			total_tokens: 12,
+		});
+	});
+
+	test("adds an empty function to partial tool call deltas", () => {
+		const input = {
+			id: "chatcmpl-abc123",
+			object: "chat.completion.chunk",
+			created: 1786945815,
+			model: "deepseek-ai/DeepSeek-V4-Flash",
+			choices: [
+				{
+					index: 0,
+					delta: {
+						role: "assistant",
+						tool_calls: [{ index: 0, id: "call_1", type: "function" }],
+					},
+					finish_reason: null,
+				},
+			],
+		};
+
+		const result = transformOpenaiStreaming(input, "deepseek-v4-flash");
+
+		expect(result.choices[0].delta.tool_calls).toEqual([
+			{
+				index: 0,
+				id: "call_1",
+				type: "function",
+				function: {},
+			},
+		]);
+	});
+
+	test("normalizes null tool call types in partial deltas", () => {
+		const input = {
+			service_tier: "default",
+			id: "chatcmpl-abc123",
+			object: "chat.completion.chunk",
+			created: 1787205218,
+			model: "deepseek-ai/DeepSeek-V4-Flash-0731",
+			choices: [
+				{
+					index: 0,
+					delta: {
+						role: "assistant",
+						content: "",
+						reasoning_content: null,
+						tool_calls: [
+							{
+								index: 0,
+								id: null,
+								function: {
+									arguments: "",
+									name: null,
+								},
+								type: null,
+							},
+						],
+					},
+					logprobs: null,
+					finish_reason: null,
+				},
+			],
+			usage: null,
+		};
+
+		const result = transformOpenaiStreaming(input, "deepseek-v4-flash");
+
+		expect(result.choices[0].delta.tool_calls[0].type).toBe("function");
+	});
 });

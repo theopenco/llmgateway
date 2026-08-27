@@ -3,6 +3,7 @@ import {
 	type ProviderEnvConfig,
 	type ProviderEnvExclusiveGroup,
 	getProviderDefinition,
+	regionEndpointRequiresWorkspaceId,
 } from "./providers.js";
 
 import type { Provider } from "./index.js";
@@ -203,6 +204,25 @@ export function hasProviderEnvironmentToken(
 	return envVar ? Boolean(process.env[envVar]) : false;
 }
 
+/**
+ * Environment variable carrying a provider's setting for one logical env key
+ * (`apiKey`, `baseUrl`, `region`, `workspaceId`, …), or undefined when the
+ * provider does not declare that setting.
+ */
+export function getProviderEnvVarNameFor(
+	provider: Provider,
+	key: string,
+): string | undefined {
+	const config = getProviderEnvConfig(provider);
+	if (!config) {
+		return undefined;
+	}
+	if (key in config.required) {
+		return config.required[key as keyof typeof config.required];
+	}
+	return config.optional?.[key];
+}
+
 export function getProviderEnvValue(
 	provider: Provider,
 	key: string,
@@ -210,19 +230,11 @@ export function getProviderEnvValue(
 	defaultValue?: string,
 	variant?: EnvVarVariant,
 ): string | undefined {
-	const config = getProviderEnvConfig(provider);
-	if (!config) {
+	if (!getProviderEnvConfig(provider)) {
 		return undefined;
 	}
 
-	let envVarName: string | undefined;
-
-	// Check required vars first, then optional
-	if (key in config.required) {
-		envVarName = config.required[key as keyof typeof config.required];
-	} else if (config.optional && key in config.optional) {
-		envVarName = config.optional[key];
-	}
+	const envVarName = getProviderEnvVarNameFor(provider, key);
 
 	if (!envVarName) {
 		return defaultValue;
@@ -232,8 +244,24 @@ export function getProviderEnvValue(
 	// its comma-separated list); an unset one falls back to the base var.
 	const effectiveEnvVarName =
 		getVariantEnvVarNameFor(envVarName, variant) ?? envVarName;
-	const envValue = process.env[effectiveEnvVarName];
+	return selectEnvListValue(
+		process.env[effectiveEnvVarName],
+		configIndex,
+		defaultValue,
+	);
+}
 
+/**
+ * Pick one entry out of a comma-separated env var. A deployment can rotate or
+ * shard a setting by listing several values; `configIndex` selects the one
+ * belonging to the credential in play, clamping to the last entry so a short
+ * list never leaves a credential without a value.
+ */
+function selectEnvListValue(
+	envValue: string | undefined,
+	configIndex?: number,
+	defaultValue?: string,
+): string | undefined {
 	if (!envValue) {
 		return defaultValue;
 	}
@@ -352,6 +380,39 @@ export function getRegionSpecificEnvValue(
 }
 
 /**
+ * Region-scoped read of any provider setting, not just the API key: checks
+ * `{ENV_VAR}__{VARIANT}__{REGION}` and `{ENV_VAR}__{REGION}` before falling
+ * back to the plain lookup. Settings that differ per region without being
+ * credentials — Alibaba's per-region Model Studio workspace id, for instance —
+ * are resolved through this so they follow the same naming, variant precedence
+ * and comma-separated list selection as the regional keys they accompany.
+ */
+export function getRegionScopedProviderEnvValue(
+	provider: Provider,
+	key: string,
+	region: string | undefined,
+	configIndex?: number,
+	variant?: EnvVarVariant,
+): string | undefined {
+	const envVarName = getProviderEnvVarNameFor(provider, key);
+	if (region && envVarName) {
+		const regionSuffix = getRegionEnvVarSuffix(region);
+		const candidates = variant
+			? [
+					`${envVarName}${ENV_VAR_VARIANT_SUFFIXES[variant]}__${regionSuffix}`,
+					`${envVarName}__${regionSuffix}`,
+				]
+			: [`${envVarName}__${regionSuffix}`];
+		for (const candidate of candidates) {
+			if (process.env[candidate]) {
+				return selectEnvListValue(process.env[candidate], configIndex);
+			}
+		}
+	}
+	return getProviderEnvValue(provider, key, configIndex, undefined, variant);
+}
+
+/**
  * Get the region-specific env var name only when that var is actually set.
  * Returns `{BASE_ENV_VAR}__{REGION}` when the regional override exists, else
  * undefined. Use this when you need to attribute health to the regional
@@ -385,6 +446,10 @@ export function getRegionSpecificEnvVarName(
  * Check whether an env var exists for a specific region.
  * Returns true if a region-specific env var (`{BASE_ENV_VAR}__{REGION}`) exists,
  * OR if the base env var exists and the queried region is the provider's default region.
+ *
+ * A region whose endpoint is workspace-scoped additionally needs its workspace
+ * id configured: the key alone cannot address the region, so treating it as
+ * available would route traffic to an endpoint that cannot be built.
  */
 export function hasRegionSpecificEnvKey(
 	provider: Provider,
@@ -392,6 +457,12 @@ export function hasRegionSpecificEnvKey(
 ): boolean {
 	const baseEnvVar = getProviderEnvVar(provider);
 	if (!baseEnvVar) {
+		return false;
+	}
+	if (
+		regionEndpointRequiresWorkspaceId(provider, region) &&
+		!getRegionScopedProviderEnvValue(provider, "workspaceId", region)
+	) {
 		return false;
 	}
 	const regionSuffix = getRegionEnvVarSuffix(region);

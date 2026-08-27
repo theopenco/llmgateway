@@ -4,6 +4,8 @@ import {
 	AlertTriangle,
 	AlertCircle,
 	Ban,
+	CalendarClock,
+	Clock,
 	Copy,
 	Check,
 	ChevronDown,
@@ -32,11 +34,18 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+	isDeactivationScheduledSoon,
+	isMappingDeactivated,
+	MODEL_DEACTIVATION_NOTICE_DAYS,
+	shouldShowDeactivationNotice,
+} from "@/deactivation";
 import { cn } from "@/lib/utils";
 
 import { formatContextSize, formatDeprecationDate } from "./format";
 import { ModelCodeExampleDialog } from "./model-code-example-dialog";
 import { ModelStatusBadge } from "./model-status-badge";
+import { formatPeakPricingSchedule } from "./pricing-schedule";
 import { XIcon } from "./x-icon";
 
 import type {
@@ -175,14 +184,25 @@ export function ModelCard({
 	const allHaveDeactivatedAt =
 		model.providerDetails.length > 0 &&
 		model.providerDetails.every(({ provider }) => provider.deactivatedAt);
+	const showModelDeactivationStatus =
+		allHaveDeactivatedAt &&
+		model.providerDetails.every(({ provider }) =>
+			shouldShowDeactivationNotice(provider, now),
+		);
 	const allHaveDeprecatedAt =
-		!allHaveDeactivatedAt &&
+		!showModelDeactivationStatus &&
 		model.providerDetails.length > 0 &&
 		model.providerDetails.every(({ provider }) => provider.deprecatedAt);
 	const deactivationAllPast =
 		allHaveDeactivatedAt &&
 		model.providerDetails.every(
 			({ provider }) => new Date(provider.deactivatedAt!) <= now,
+		);
+	const isAllScheduled =
+		allHaveDeactivatedAt &&
+		!deactivationAllPast &&
+		model.providerDetails.every(({ provider }) =>
+			shouldShowDeactivationNotice(provider, now),
 		);
 	const deprecationAllPast =
 		allHaveDeprecatedAt &&
@@ -368,12 +388,10 @@ export function ModelCard({
 									</TooltipContent>
 								</Tooltip>
 							)}
-							{allHaveDeactivatedAt && (
-								<ModelStatusBadge
-									status="deactivated"
-									isPast={deactivationAllPast}
-								/>
+							{deactivationAllPast && (
+								<ModelStatusBadge status="deactivated" isPast />
 							)}
+							{isAllScheduled && <ModelStatusBadge status="scheduled" />}
 							{allHaveDeprecatedAt && (
 								<ModelStatusBadge
 									status="deprecated"
@@ -606,9 +624,21 @@ export function ProviderSection({
 	const [activeRegionIdx, setActiveRegionIdx] = useState(0);
 	const [showTokenPricing, setShowTokenPricing] = useState(false);
 	const [showMappingDetails, setShowMappingDetails] = useState(false);
+	const [timeBasedPricingMode, setTimeBasedPricingMode] = useState<
+		"peak" | "offPeak"
+	>("peak");
 	const [selectedServiceTierId, setSelectedServiceTierId] =
 		useState("standard");
 	const activeMapping = mappings[activeRegionIdx] ?? mappings[0];
+	const isDeactivated = isMappingDeactivated(activeMapping);
+	const isScheduled =
+		!isDeactivated &&
+		isDeactivationScheduledSoon(
+			activeMapping,
+			undefined,
+			MODEL_DEACTIVATION_NOTICE_DAYS,
+		);
+	const showDeactivationNotice = isDeactivated || isScheduled;
 	const hasMappingDetails =
 		(activeMapping.reasoningEfforts?.length ?? 0) > 0 ||
 		(activeMapping.supportedParameters?.length ?? 0) > 0;
@@ -630,6 +660,16 @@ export function ProviderSection({
 	const hasImageCostEstimate = hasEstimatedImageCost(activeMapping);
 	const shouldShowTokenPricing =
 		!isImageGen || showTokenPricing || !hasImageCostEstimate;
+	const timeBasedPrices = activeMapping.peakPricing?.[timeBasedPricingMode];
+	const displayedInputPrice =
+		timeBasedPrices?.inputPrice ?? activeMapping.inputPrice;
+	const displayedCachedInputPrice =
+		timeBasedPrices?.cachedInputPrice ?? activeMapping.cachedInputPrice;
+	const displayedOutputPrice =
+		timeBasedPrices?.outputPrice ?? activeMapping.outputPrice;
+	const pricingSchedule = activeMapping.peakPricing
+		? formatPeakPricingSchedule(activeMapping.peakPricing)
+		: null;
 
 	return (
 		<div className="flex flex-1 flex-col rounded-lg border border-border/50 bg-muted/20 overflow-hidden">
@@ -802,7 +842,7 @@ export function ProviderSection({
 				</div>
 
 				{/* Deprecation/deactivation warnings */}
-				{(activeMapping.deprecatedAt ?? activeMapping.deactivatedAt) && (
+				{(activeMapping.deprecatedAt || showDeactivationNotice) && (
 					<div className="flex flex-wrap gap-1.5">
 						{activeMapping.deprecatedAt && (
 							<Badge
@@ -816,14 +856,26 @@ export function ProviderSection({
 								)}
 							</Badge>
 						)}
-						{activeMapping.deactivatedAt && (
+						{isDeactivated && (
 							<Badge
 								variant="outline"
 								className="text-[10px] px-2 py-0.5 gap-1 bg-red-500/5 text-red-600 dark:text-red-400 border-red-500/20"
 							>
 								<AlertCircle className="h-2.5 w-2.5" />
 								{formatDeprecationDate(
-									activeMapping.deactivatedAt,
+									activeMapping.deactivatedAt!,
+									"deactivated",
+								)}
+							</Badge>
+						)}
+						{isScheduled && (
+							<Badge
+								variant="outline"
+								className="text-[10px] px-2 py-0.5 gap-1 bg-amber-500/5 text-amber-600 dark:text-amber-400 border-amber-500/20"
+							>
+								<Clock className="h-2.5 w-2.5" />
+								{formatDeprecationDate(
+									activeMapping.deactivatedAt!,
 									"deactivated",
 								)}
 							</Badge>
@@ -1061,11 +1113,48 @@ export function ProviderSection({
 					})()
 				) : (
 					<div className="space-y-2">
+						{activeMapping.peakPricing && (
+							<div className="flex items-center justify-between gap-3">
+								<span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+									Time-based pricing
+								</span>
+								<div
+									className="flex h-7 items-center rounded-md border border-border/50 bg-background p-0.5"
+									role="group"
+									aria-label="Pricing rate"
+								>
+									{(
+										[
+											["peak", "Peak"],
+											["offPeak", "Off-peak"],
+										] as const
+									).map(([mode, label]) => {
+										const isSelected = timeBasedPricingMode === mode;
+										return (
+											<button
+												key={mode}
+												type="button"
+												onClick={() => setTimeBasedPricingMode(mode)}
+												className={cn(
+													"h-6 rounded px-2 text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+													isSelected
+														? "bg-muted text-foreground shadow-sm"
+														: "text-muted-foreground hover:text-foreground",
+												)}
+												aria-pressed={isSelected}
+											>
+												{label}
+											</button>
+										);
+									})}
+								</div>
+							</div>
+						)}
 						<div className="grid grid-cols-3 gap-px rounded-md bg-border/30 border border-border/30 overflow-hidden">
 							<div className="bg-background p-2">
 								<PriceCell
 									label="Input"
-									price={activeMapping.inputPrice}
+									price={displayedInputPrice}
 									discount={activeMapping.discount}
 									unit="/M tokens"
 									formatPrice={formatPrice}
@@ -1075,7 +1164,7 @@ export function ProviderSection({
 							<div className="bg-background p-2">
 								<PriceCell
 									label={detailed ? "Cache Read" : "Cached"}
-									price={activeMapping.cachedInputPrice}
+									price={displayedCachedInputPrice}
 									discount={activeMapping.discount}
 									unit="/M tokens"
 									formatPrice={formatPrice}
@@ -1085,7 +1174,7 @@ export function ProviderSection({
 							<div className="bg-background p-2">
 								<PriceCell
 									label="Output"
-									price={activeMapping.outputPrice}
+									price={displayedOutputPrice}
 									discount={activeMapping.discount}
 									unit="/M tokens"
 									formatPrice={formatPrice}
@@ -1093,6 +1182,28 @@ export function ProviderSection({
 								/>
 							</div>
 						</div>
+						{pricingSchedule && (
+							<div className="flex items-start gap-2 px-0.5 pt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+								<CalendarClock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-foreground/65" />
+								<div>
+									<p>
+										<span className="font-medium text-foreground">Peak:</span>{" "}
+										{pricingSchedule.peakDays}, {pricingSchedule.peakHours}{" "}
+										{pricingSchedule.timeZoneLabel}.
+									</p>
+									<p>
+										<span className="font-medium text-foreground">
+											Off-peak:
+										</span>{" "}
+										{pricingSchedule.peakDays} outside those hours
+										{pricingSchedule.offPeakDays
+											? `, plus all day ${pricingSchedule.offPeakDays}`
+											: ""}
+										.
+									</p>
+								</div>
+							</div>
+						)}
 						{activeMapping.ocrPagePrice !== null &&
 							activeMapping.ocrPagePrice !== undefined &&
 							Number(activeMapping.ocrPagePrice) > 0 && (

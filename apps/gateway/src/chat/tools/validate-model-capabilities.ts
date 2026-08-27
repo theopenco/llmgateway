@@ -260,9 +260,15 @@ export function validateModelCapabilities(
 				)
 			: modelInfo.providers;
 
+		// A mapping that thinks through a binary chat-template flag
+		// (`chatTemplateThinkingKey`) also accepts a budget: the budget is dropped
+		// and only the on/off state is conveyed, so it is not "unsupported" the way
+		// it is on a provider with no thinking control at all.
 		const reasoningMaxTokens = providersToCheck.some(
 			(provider) =>
-				(provider as ProviderModelMapping).reasoningMaxTokens === true,
+				(provider as ProviderModelMapping).reasoningMaxTokens === true ||
+				(provider as ProviderModelMapping).chatTemplateThinkingKey !==
+					undefined,
 		);
 
 		if (!reasoningMaxTokens) {

@@ -3,6 +3,10 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import {
+	EnterpriseSeatLimitError,
+	withEnterpriseSeatForOrganization,
+} from "@/lib/enterprise-seats.js";
+import {
 	assertEnterpriseForIpCidrRule,
 	createIamRuleSchema,
 	iamRuleStatusEnum,
@@ -26,10 +30,11 @@ import {
 	inArray,
 	isValidApiKeyPeriodDuration,
 	resolveEffectiveMemberBudget,
-	sum,
+	sql,
 	tables,
 	type OrgDefaultDeveloperBudget,
 } from "@llmgateway/db";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -268,6 +273,7 @@ async function computeMemberSpend(
 					usage: true,
 					status: true,
 					keyType: true,
+					kind: true,
 				},
 			})
 		: [];
@@ -284,7 +290,11 @@ async function computeMemberSpend(
 		};
 		entry.keyIds.push(key.id);
 		entry.lifetime += Number(key.usage ?? 0);
-		if (key.status === "active" && key.keyType === "user") {
+		if (
+			key.status === "active" &&
+			key.keyType === "user" &&
+			key.kind !== "playground"
+		) {
 			entry.activeApiKeys += 1;
 		}
 		keysByUser.set(key.createdBy, entry);
@@ -309,7 +319,10 @@ async function computeMemberSpend(
 				member.periodUsageDurationUnit,
 			);
 			const rows = await db
-				.select({ total: sum(tables.apiKeyHourlyStats.cost) })
+				// cost is float4; SUM(real) accumulates in float4 too, so cast first.
+				.select({
+					total: sql<string>`coalesce(sum(cast(${tables.apiKeyHourlyStats.cost} as double precision)), 0)`,
+				})
 				.from(tables.apiKeyHourlyStats)
 				.where(
 					and(
@@ -498,7 +511,7 @@ team.openapi(getMembers, async (c) => {
 		},
 	});
 	const orgDefaults = orgDefaultsFrom(isPrivileged ? org : null);
-	const seatLimit = resolveSeatLimit(org?.plan, org?.seats);
+	const seatLimit = resolveSeatLimit(organizationId, org?.plan, org?.seats);
 
 	const pendingInvites = await listActivePendingInvites(organizationId);
 	const invites = await invitesWithProjects(organizationId, pendingInvites);
@@ -691,7 +704,10 @@ team.openapi(addMember, async (c) => {
 	// Project-scoped "developer" access is an Enterprise feature.
 	if (
 		role === "developer" &&
-		userOrganization.organization?.plan !== "enterprise"
+		!hasOrganizationEnterpriseAccess(
+			userOrganization.organization?.id,
+			userOrganization.organization?.plan,
+		)
 	) {
 		throw new HTTPException(403, {
 			message: "Project-scoped developer access requires the Enterprise plan.",
@@ -717,6 +733,7 @@ team.openapi(addMember, async (c) => {
 	const pendingInvites = await listActivePendingInvites(organizationId);
 
 	const memberLimit = resolveSeatLimit(
+		organizationId,
 		userOrganization.organization?.plan,
 		userOrganization.organization?.seats,
 	);
@@ -841,14 +858,27 @@ This invitation expires in ${INVITE_EXPIRY_DAYS} days. If you weren't expecting 
 		});
 	}
 
-	const [newMember] = await db
-		.insert(tables.userOrganization)
-		.values({
-			userId: targetUser.id,
+	let newMember: typeof tables.userOrganization.$inferSelect;
+	try {
+		[newMember] = await withEnterpriseSeatForOrganization(
 			organizationId,
-			role,
-		})
-		.returning();
+			targetUser.id,
+			async (tx) =>
+				await tx
+					.insert(tables.userOrganization)
+					.values({
+						userId: targetUser.id,
+						organizationId,
+						role,
+					})
+					.returning(),
+		);
+	} catch (error) {
+		if (error instanceof EnterpriseSeatLimitError) {
+			throw new HTTPException(403, { message: error.message });
+		}
+		throw error;
+	}
 
 	if (role === "developer") {
 		await syncMemberProjects(
@@ -1076,7 +1106,10 @@ team.openapi(updateMember, async (c) => {
 	// Project-scoped "developer" access is an Enterprise feature.
 	if (
 		role === "developer" &&
-		userOrganization.organization?.plan !== "enterprise"
+		!hasOrganizationEnterpriseAccess(
+			userOrganization.organization?.id,
+			userOrganization.organization?.plan,
+		)
 	) {
 		throw new HTTPException(403, {
 			message: "Project-scoped developer access requires the Enterprise plan.",
@@ -1934,6 +1967,7 @@ team.openapi(createMemberIamRule, async (c) => {
 	validateIamRuleInput(ruleData);
 	assertEnterpriseForIpCidrRule(
 		ruleData.ruleType,
+		organizationId,
 		userOrganization.organization?.plan,
 	);
 
@@ -2092,6 +2126,7 @@ team.openapi(updateMemberIamRule, async (c) => {
 
 	assertEnterpriseForIpCidrRule(
 		updateData.ruleType ?? existingRule.ruleType,
+		organizationId,
 		userOrganization.organization?.plan,
 	);
 

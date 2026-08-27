@@ -95,7 +95,7 @@ import {
 	sampleSuggestions,
 	type HeroSuggestionGroup,
 } from "@/lib/hero-suggestions";
-import { GPT_IMAGE_SIZES } from "@/lib/image-gen";
+import { getModelImageConfig, GPT_IMAGE_SIZES } from "@/lib/image-gen";
 import { parseImagePartToDataUrl } from "@/lib/image-utils";
 import {
 	parsePlaygroundMessageMetadata,
@@ -1062,42 +1062,16 @@ export const ChatUI = ({
 	onSelectSkill,
 	onRemoveSkill,
 }: ChatUIProps) => {
-	// OpenAI gpt-image-2 uses pixel dimensions and supports a quality dropdown
-	const isGptImage =
-		selectedModel.toLowerCase().includes("gpt-image") ||
-		selectedModel.toLowerCase().includes("openai/gpt-image");
-
-	// Check if the model uses WIDTHxHEIGHT format (Alibaba, ZAI, or OpenAI gpt-image)
-	const usesPixelDimensions =
-		isGptImage ||
-		selectedModel.toLowerCase().includes("alibaba") ||
-		selectedModel.toLowerCase().includes("qwen-image") ||
-		selectedModel.toLowerCase().includes("zai") ||
-		selectedModel.toLowerCase().includes("cogview");
-
-	// Seedream/ByteDance models only support 2K and 4K
-	const isSeedream =
-		selectedModel.toLowerCase().includes("seedream") ||
-		selectedModel.toLowerCase().includes("bytedance/seedream");
-
-	// Gemini 3.1 Flash Image supports 0.5K, 1K (default), 2K, 4K
-	const isGemini31FlashImage = selectedModel
-		.toLowerCase()
-		.includes("gemini-3.1-flash-image");
-
-	const isGemini31FlashLiteImage = selectedModel
-		.toLowerCase()
-		.includes("gemini-3.1-flash-lite-image");
-
-	const availableSizes = isSeedream
-		? (["2K", "4K"] as const)
-		: isGemini31FlashLiteImage
-			? (["1K"] as const)
-			: isGemini31FlashImage
-				? (["0.5K", "1K", "2K", "4K"] as const)
-				: (["1K", "2K", "4K"] as const);
-
-	const qualityOptions = ["auto", "low", "medium", "high"] as const;
+	// Which size/quality controls a model exposes lives in getModelImageConfig,
+	// shared with the image playground so both surfaces offer the same options.
+	const {
+		isGptImage,
+		isMuseImage,
+		usesPixelDimensions,
+		availableSizes,
+		supportsQuality,
+		availableQualities: qualityOptions,
+	} = getModelImageConfig(selectedModel);
 
 	const [activeGroup, setActiveGroup] = useState<HeroSuggestionGroup>("Create");
 	const [randomizedHeroSuggestionGroups, setRandomizedHeroSuggestionGroups] =
@@ -1965,6 +1939,23 @@ export const ChatUI = ({
 											))}
 										</SelectContent>
 									</Select>
+									{supportsQuality && (
+										<Select
+											value={imageQuality}
+											onValueChange={setImageQuality}
+										>
+											<SelectTrigger size="sm" className="min-w-[100px]">
+												<SelectValue placeholder="Quality" />
+											</SelectTrigger>
+											<SelectContent>
+												{qualityOptions.map((q) => (
+													<SelectItem key={q} value={q}>
+														{q.charAt(0).toUpperCase() + q.slice(1)}
+													</SelectItem>
+												))}
+											</SelectContent>
+										</Select>
+									)}
 								</>
 							)}
 							{supportsImageGen && usesPixelDimensions && isGptImage && (
@@ -2007,13 +1998,22 @@ export const ChatUI = ({
 										<SelectValue placeholder="Image Size" />
 									</SelectTrigger>
 									<SelectContent>
-										<SelectItem value="1024x1024">1024x1024</SelectItem>
-										<SelectItem value="720x1280">720x1280</SelectItem>
-										<SelectItem value="1280x720">1280x720</SelectItem>
-										<SelectItem value="1024x1536">1024x1536</SelectItem>
-										<SelectItem value="1536x1024">1536x1024</SelectItem>
-										<SelectItem value="2048x1024">2048x1024</SelectItem>
-										<SelectItem value="1024x2048">1024x2048</SelectItem>
+										{(isMuseImage
+											? availableSizes
+											: [
+													"1024x1024",
+													"720x1280",
+													"1280x720",
+													"1024x1536",
+													"1536x1024",
+													"2048x1024",
+													"1024x2048",
+												]
+										).map((size) => (
+											<SelectItem key={size} value={size}>
+												{size}
+											</SelectItem>
+										))}
 									</SelectContent>
 								</Select>
 							)}

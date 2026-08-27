@@ -1,3 +1,5 @@
+import { LegalSummary } from "@/components/LegalSummary";
+
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -14,8 +16,9 @@ export default function PrivacyPage() {
 			<p>
 				<strong>Effective Date:</strong> April 26, 2026
 				<br />
-				<strong>Last Updated:</strong> August 2, 2026
+				<strong>Last Updated:</strong> August 20, 2026
 			</p>
+			<LegalSummary variant="privacy" />
 			<p>
 				This Supplemental Privacy Policy describes how{" "}
 				<strong>LLM Gateway</strong> (&ldquo;we&rdquo;, &ldquo;our&rdquo;, or
@@ -53,6 +56,12 @@ export default function PrivacyPage() {
 				<strong>email address</strong>, and authentication credentials. For paid
 				plans, we also collect billing details (company name, country, payment
 				method) processed securely through <strong>Stripe</strong>.
+			</p>
+			<p>
+				Your DevPass API key secret is shown only when it is created or rolled.
+				We retain a keyed one-way hash and masked preview; authentication hashes
+				the secret you present and compares the result. Previously issued keys
+				remain valid and move to hash-only storage when rolled.
 			</p>
 			<h3>b. Usage and Request Data</h3>
 			<p>
@@ -139,33 +148,15 @@ export default function PrivacyPage() {
 			<hr />
 			<h2>4. Sub-processors</h2>
 			<p>
-				DevPass uses the same sub-processors as the rest of the platform:{" "}
-				<strong>Stripe</strong> (billing), <strong>Google Cloud</strong>{" "}
-				(hosting, database and object storage), <strong>Resend</strong>{" "}
-				(transactional email) and <strong>PostHog</strong> (product analytics),
-				plus the AI providers serving the models in the DevPass catalog.
-			</p>
-			<p>
-				The complete, versioned list — what each one processes, where, and the
-				current status of its data-processing agreement — is published on the{" "}
+				DevPass uses the same sub-processors as the rest of the LLM Gateway
+				platform. The complete, versioned list — including what each one
+				processes, its primary processing locations, and how changes are
+				notified — is maintained on the{" "}
 				<a href="https://llmgateway.io/legal/sub-processors">
 					LLM Gateway Sub-processor page
 				</a>
-				. We require each sub-processor to be bound by contractual
-				data-protection obligations and are completing that coverage; see that
-				page rather than assuming every agreement is already in force.
-			</p>
-			<p>
-				We give{" "}
-				<strong>
-					30 days&rsquo; notice before adding a new operational sub-processor
-				</strong>{" "}
-				— one engaged to run the Service, such as hosting, billing, email or
-				analytics. That notice period does <strong>not</strong> apply to AI
-				providers: those are added continuously, and none receives your data
-				unless you select a model it serves or leave automatic routing enabled.
-				Use provider pinning or a compliance policy if you need provider
-				selection to be an explicit allowlist under your control.
+				. That page is the authoritative disclosure and is updated independently
+				of this supplemental policy.
 			</p>
 			<hr />
 			<h2>5. Data Retention</h2>

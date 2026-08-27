@@ -2,7 +2,8 @@
 id: kimi-code
 slug: kimi-code
 title: Kimi Code Integration
-description: Use GPT-5, Claude, Gemini, or any model with Kimi Code CLI. Custom provider configuration, full cost tracking.
+seoTitle: "Kimi Code CLI: Install, Run 200+ Models"
+description: Install Kimi Code CLI on macOS, Linux, or Windows, then point it at GPT-5, Claude, Kimi K3, or 200+ models through LLM Gateway. Provider setup in six steps.
 date: 2026-06-08
 ---
 
@@ -10,7 +11,7 @@ date: 2026-06-08
 
 Kimi Code features first-class support for the **models.dev** registry, a community-maintained model catalog. This allows Kimi Code to query and configure LLM Gateway dynamically — fetching all compatible models, capabilities (such as thinking or vision), and pricing without requiring manual TOML editing.
 
-> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
+> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use canonical model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
 
 ## Prerequisites
 

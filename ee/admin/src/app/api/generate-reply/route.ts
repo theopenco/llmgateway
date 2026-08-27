@@ -3,11 +3,14 @@ import { cookies } from "next/headers";
 import { z } from "zod";
 
 import { getConfig } from "@/lib/config-server";
-import { getUser } from "@/lib/getUser";
+import { getAdminUser } from "@/lib/getUser";
+import { getSessionCookieHeader } from "@/lib/session-cookie";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 
 const COOKIE_NAME = "llmgateway_admin_key";
+const COOKIE_MAX_AGE = 60 * 60 * 24 * 90;
 
 const emailSchema = z.object({
 	subject: z.string().describe("A concise, professional email subject line"),
@@ -36,20 +39,8 @@ async function getApiKey(): Promise<{
 		return { token: existing };
 	}
 
-	const user = await getUser();
-	if (!user) {
-		return null;
-	}
-
 	const config = getConfig();
-	const key = "better-auth.session_token";
-	const sessionCookie = cookieStore.get(`${key}`);
-	const secureSessionCookie = cookieStore.get(`__Secure-${key}`);
-	const cookieHeader = secureSessionCookie
-		? `__Secure-${key}=${secureSessionCookie.value}`
-		: sessionCookie
-			? `${key}=${sessionCookie.value}`
-			: "";
+	const cookieHeader = await getSessionCookieHeader();
 
 	// Get user's first org
 	const orgsRes = await fetch(`${config.apiBackendUrl}/orgs`, {
@@ -109,6 +100,10 @@ async function getApiKey(): Promise<{
 }
 
 export async function POST(req: Request) {
+	if (!(await getAdminUser())) {
+		return Response.json({ error: "Forbidden" }, { status: 403 });
+	}
+
 	let data: GenerateReplyRequest;
 	try {
 		data = await req.json();
@@ -134,15 +129,9 @@ export async function POST(req: Request) {
 		);
 	}
 
-	const gatewayUrl =
-		process.env.GATEWAY_URL ??
-		(process.env.NODE_ENV === "development"
-			? "http://localhost:4001/v1"
-			: "https://api.llmgateway.io/v1");
-
 	const llmgateway = createLLMGateway({
 		apiKey: keyResult.token,
-		baseURL: gatewayUrl,
+		baseURL: getGatewayApiBaseUrl(),
 	});
 
 	try {
@@ -214,7 +203,7 @@ ${leadResearch.text}`,
 		if (keyResult.setCookie) {
 			response.headers.append(
 				"Set-Cookie",
-				`${keyResult.setCookie.name}=${keyResult.setCookie.value}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${60 * 60 * 24 * 30}${process.env.NODE_ENV === "production" ? "; Secure" : ""}`,
+				`${keyResult.setCookie.name}=${keyResult.setCookie.value}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${COOKIE_MAX_AGE}${process.env.NODE_ENV === "production" ? "; Secure" : ""}`,
 			);
 		}
 

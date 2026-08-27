@@ -23,6 +23,7 @@ const PROXIED_API_ORIGINS: readonly ApiOrigin[] = [
 	"messages",
 	"responses",
 	"images",
+	"ai-sdk",
 ];
 
 /**
@@ -33,6 +34,24 @@ export function internalApiOriginHeaders(
 	origin: ApiOrigin,
 ): Record<string, string> {
 	return { [API_ORIGIN_HEADER]: `${INTERNAL_ORIGIN_TOKEN}:${origin}` };
+}
+
+/**
+ * Whether a request is a trusted internal `app.request()` re-dispatch from this
+ * process (vs. an external caller). True only when the origin header carries
+ * this process's internal token, so a spoofed header from an external caller
+ * returns false. Used to skip re-applying the org rate limiter to the internal
+ * chat-completions hop that messages/responses/images already counted.
+ */
+export function isInternalApiOrigin(c: Pick<Context, "req">): boolean {
+	const header = c.req.header(API_ORIGIN_HEADER)?.trim();
+	if (!header) {
+		return false;
+	}
+	const separator = header.indexOf(":");
+	return (
+		separator !== -1 && header.slice(0, separator) === INTERNAL_ORIGIN_TOKEN
+	);
 }
 
 /**

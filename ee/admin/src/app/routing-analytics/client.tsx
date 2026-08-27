@@ -46,6 +46,7 @@ import {
 	ModelMappingSelector,
 	parseMappingValue,
 } from "@llmgateway/shared/components";
+import { isDeactivationScheduledSoon } from "@llmgateway/shared/deactivation";
 import {
 	ROUTING_EXCLUSION_REASON_LABELS,
 	ROUTING_SELECTION_KIND_LABELS,
@@ -196,6 +197,19 @@ function formatSelectionPrice(price: number, isImageModel: boolean): string {
 		return `$${price.toFixed(4)}/image`;
 	}
 	return `$${(price * 1e6).toFixed(2)}/M`;
+}
+
+function formatDeactivationDate(value: string | null): string {
+	if (!value) {
+		return "";
+	}
+	// Catalogue deactivation dates are UTC-midnight calendar dates, not instants:
+	// rendering them in the viewer's zone shows the previous day west of UTC.
+	return new Date(value).toLocaleDateString("en-US", {
+		month: "short",
+		day: "numeric",
+		timeZone: "UTC",
+	});
 }
 
 function formatContribution(value: number): string {
@@ -478,6 +492,24 @@ export function RoutingAnalyticsClient() {
 		[data],
 	);
 
+	// The election counts come from routing telemetry, a separate hourly rollup
+	// read from `log`, while every other count on this page comes from the
+	// mapping rollup. The two totals are therefore close but not identical — an
+	// hour whose telemetry never aggregated is simply missing from it — so the
+	// gap is stated rather than left for the reader to spot.
+	const telemetryCoverageHint = useMemo(() => {
+		if (!data || totalRequests <= 0) {
+			return undefined;
+		}
+		const missing = totalRequests - data.elections.requestCount;
+		if (missing === 0) {
+			return "routing telemetry on every request";
+		}
+		return missing > 0
+			? `${numberFormatter.format(missing)} requests without routing telemetry`
+			: `${numberFormatter.format(-missing)} decisions beyond the served requests`;
+	}, [data, totalRequests]);
+
 	const untieredRequests = data
 		? Math.max(
 				data.serviceTier.requestCount -
@@ -554,6 +586,7 @@ export function RoutingAnalyticsClient() {
 						<StatCard
 							label="Requests"
 							value={numberFormatter.format(totalRequests)}
+							hint="served, from the mapping rollup"
 						/>
 						<StatCard
 							label="Elected mapping"
@@ -566,6 +599,7 @@ export function RoutingAnalyticsClient() {
 									"—"
 								)
 							}
+							hint="lowest score, not the busiest"
 						/>
 						<StatCard
 							label="Routable mappings"
@@ -602,6 +636,7 @@ export function RoutingAnalyticsClient() {
 									</span>
 								</span>
 							}
+							hint={telemetryCoverageHint}
 						/>
 						<StatCard
 							label="Avg. candidates"
@@ -644,6 +679,7 @@ export function RoutingAnalyticsClient() {
 									<span className="text-muted-foreground">none</span>
 								)
 							}
+							hint="mapping drops, not requests"
 						/>
 					</section>
 
@@ -841,9 +877,23 @@ export function RoutingAnalyticsClient() {
 													</TableCell>
 													<TableCell>
 														{mapping.routable ? (
-															<Badge variant="outline" className="text-xs">
-																{mapping.stability}
-															</Badge>
+															<div className="flex flex-wrap gap-1">
+																<Badge variant="outline" className="text-xs">
+																	{mapping.stability}
+																</Badge>
+																{isDeactivationScheduledSoon(mapping) ? (
+																	<Badge
+																		variant="outline"
+																		className="text-xs border-amber-500 text-amber-600 dark:text-amber-400"
+																		title="Scheduled deactivation. The mapping still routes normally until this date."
+																	>
+																		deactivates{" "}
+																		{formatDeactivationDate(
+																			mapping.deactivatedAt,
+																		)}
+																	</Badge>
+																) : null}
+															</div>
 														) : (
 															<div className="flex flex-wrap gap-1">
 																{mapping.excludedReasons.map((reason) => (

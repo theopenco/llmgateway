@@ -12,6 +12,10 @@ import { cn } from "@/lib/utils";
  * short and the "everything" view has one canonical URL.
  *
  * `compact` renders the dense bordered variant used by the dashboard headers.
+ *
+ * `extraParams` are applied alongside the selection — a `null` value drops the
+ * param. Use it to pin params the selection implies (the tab a filter lives in)
+ * and to reset ones it invalidates (a page number of a now-shorter list).
  */
 export function SegmentedUrlSelector<T extends string>({
 	param,
@@ -20,6 +24,7 @@ export function SegmentedUrlSelector<T extends string>({
 	options,
 	className,
 	compact = false,
+	extraParams,
 }: {
 	param: string;
 	value: T;
@@ -27,6 +32,7 @@ export function SegmentedUrlSelector<T extends string>({
 	options: { value: T; label: string }[];
 	className?: string;
 	compact?: boolean;
+	extraParams?: Record<string, string | null>;
 }) {
 	const searchParams = useSearchParams();
 	const router = useRouter();
@@ -40,6 +46,13 @@ export function SegmentedUrlSelector<T extends string>({
 			} else {
 				params.set(param, next);
 			}
+			for (const [key, paramValue] of Object.entries(extraParams ?? {})) {
+				if (paramValue === null) {
+					params.delete(key);
+				} else {
+					params.set(key, paramValue);
+				}
+			}
 			const query = params.toString();
 			// replace + scroll:false to match the other filters on these pages:
 			// push would make Back walk every toggle instead of leaving the page,
@@ -49,7 +62,7 @@ export function SegmentedUrlSelector<T extends string>({
 				scroll: false,
 			});
 		},
-		[searchParams, router, pathname, param, defaultValue],
+		[searchParams, router, pathname, param, defaultValue, extraParams],
 	);
 
 	return (

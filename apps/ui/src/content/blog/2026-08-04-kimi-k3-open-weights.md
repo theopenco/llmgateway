@@ -5,6 +5,16 @@ date: "2026-08-04"
 title: "Kimi K3 Open Weights Are Out: What You Can Actually Do"
 summary: "Moonshot released the Kimi K3 open weights on July 26, 2026 — 2.8T parameters, the largest open-weight model ever shipped. What's in the release, what it takes to run Kimi K3 locally, the license caveat, and the hosted routes that don't need a GPU cluster."
 categories: ["Guides"]
+model: kimi-k3
+faqs:
+  - question: "Are the Kimi K3 weights really open?"
+    answer: 'The full 2.8T-parameter weights are downloadable from Hugging Face, so it''s an open-weight release in the practical sense. The license is a custom "Kimi K3 License", not MIT or Apache — read the LICENSE file in the repository before any commercial self-hosting decision.'
+  - question: "Can I run Kimi K3 on my own hardware?"
+    answer: "Only at cluster scale. At MXFP4 the weights alone are roughly 1.4 TB, so plan for a multi-node GPU deployment on vLLM or SGLang. For everyone else, the hosted route through an API is the realistic option."
+  - question: "What does Kimi K3 cost through an API?"
+    answer: "Through LLM Gateway, Kimi K3 runs at $3 per million input tokens, $0.30 per million cached input tokens, and $15 per million output tokens — the same rates Moonshot publishes. On DevPass it's a premium-tier model covered by the weekly premium allowance."
+  - question: "Why release the weights at all?"
+    answer: "Open weights widen the hosting market, make the model auditable, and give large customers the escape hatch they increasingly demand. Moonshot follows a pattern that GLM, DeepSeek, and MiniMax established: hosted-first economics, open-weight trust."
 image:
   src: "/blog/kimi-k3-open-weights.png"
   alt: "Kimi K3 open weights release — a massive glowing model chip being unlocked on a circuit board"
@@ -70,23 +80,5 @@ On [DevPass](https://devpass.llmgateway.io), Kimi K3 is a premium-tier model —
 ## What the release changes
 
 The precedent matters more than the download count. K3 at 2.8T proves frontier-scale MoE models can ship as open weights with quantization-aware 4-bit deployment as the intended path — and it resets expectations for [the open-weight wave](/blog/best-open-source-llms) behind it. For most teams, the practical consequence isn't self-hosting; it's leverage. Hosted pricing for open-weight models faces competition that closed models never do.
-
-## Frequently Asked Questions
-
-### Are the Kimi K3 weights really open?
-
-The full 2.8T-parameter weights are downloadable from Hugging Face, so it's an open-weight release in the practical sense. The license is a custom "Kimi K3 License", not MIT or Apache — read the LICENSE file in the repository before any commercial self-hosting decision.
-
-### Can I run Kimi K3 on my own hardware?
-
-Only at cluster scale. At MXFP4 the weights alone are roughly 1.4 TB, so plan for a multi-node GPU deployment on vLLM or SGLang. For everyone else, the hosted route through an API is the realistic option.
-
-### What does Kimi K3 cost through an API?
-
-Through LLM Gateway, Kimi K3 runs at $3 per million input tokens, $0.30 per million cached input tokens, and $15 per million output tokens — the same rates Moonshot publishes. On DevPass it's a premium-tier model covered by the weekly premium allowance.
-
-### Why release the weights at all?
-
-Open weights widen the hosting market, make the model auditable, and give large customers the escape hatch they increasingly demand. Moonshot follows a pattern that GLM, DeepSeek, and MiniMax established: hosted-first economics, open-weight trust.
 
 <BlogCta variant="gateway" location="bottom" />

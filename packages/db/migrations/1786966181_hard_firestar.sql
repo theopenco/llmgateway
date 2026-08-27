@@ -1,0 +1,1 @@
+ALTER TABLE "system_setting" ADD COLUMN "value" text;

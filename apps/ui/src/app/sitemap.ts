@@ -90,6 +90,18 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			priority: 0.9,
 		},
 		{
+			url: `${baseUrl}/about`,
+			lastModified: buildDate,
+			changeFrequency: "monthly",
+			priority: 0.6,
+		},
+		{
+			url: `${baseUrl}/contact`,
+			lastModified: buildDate,
+			changeFrequency: "monthly",
+			priority: 0.6,
+		},
+		{
 			url: `${baseUrl}/blog`,
 			lastModified: buildDate,
 			changeFrequency: "daily",
@@ -117,6 +129,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			url: `${baseUrl}/rankings`,
 			lastModified: buildDate,
 			changeFrequency: "daily",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/partners`,
+			lastModified: buildDate,
+			changeFrequency: "monthly",
 			priority: 0.8,
 		},
 		{
@@ -363,6 +381,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			url: `${baseUrl}/apps`,
 			lastModified: buildDate,
 			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/compare`,
+			lastModified: buildDate,
+			changeFrequency: "monthly",
 			priority: 0.8,
 		},
 		{

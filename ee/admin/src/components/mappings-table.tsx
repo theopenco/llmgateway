@@ -19,11 +19,12 @@ import {
 import { getMappingHistory } from "@/lib/admin-history";
 import { cn } from "@/lib/utils";
 
-import { getProviderIcon } from "@llmgateway/shared";
+import { deriveStabilityMetrics, getProviderIcon } from "@llmgateway/shared";
 
 import type { HistoryWindow } from "@/components/history-chart";
 import type { PageWindow } from "@/lib/page-window";
 import type { ModelProviderMappingEntry } from "@/lib/types";
+import type { UsageMode } from "@/lib/usage-mode";
 
 function toHistoryWindow(pageWindow: PageWindow): HistoryWindow {
 	const map: Record<PageWindow, HistoryWindow> = {
@@ -66,6 +67,7 @@ function SortableHeader({
 	currentSortOrder,
 	search,
 	pageWindow,
+	usageMode,
 }: {
 	label: string;
 	sortKey: MappingSortBy;
@@ -73,12 +75,14 @@ function SortableHeader({
 	currentSortOrder: SortOrder;
 	search: string;
 	pageWindow?: PageWindow;
+	usageMode: UsageMode;
 }) {
 	const isActive = currentSortBy === sortKey;
 	const nextOrder = isActive && currentSortOrder === "desc" ? "asc" : "desc";
 	const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
 	const windowParam = pageWindow ? `&window=${pageWindow}` : "";
-	const href = `/model-provider-mappings?sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${windowParam}`;
+	const modeParam = usageMode === "total" ? "" : `&mode=${usageMode}`;
+	const href = `/model-provider-mappings?sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${windowParam}${modeParam}`;
 
 	return (
 		<Link
@@ -127,16 +131,20 @@ function formatPrice(price: string | null) {
 function MappingRow({
 	mapping,
 	externalWindow,
+	usageMode,
 }: {
 	mapping: ModelProviderMappingEntry;
 	externalWindow?: HistoryWindow;
+	usageMode: UsageMode;
 }) {
 	const [expanded, setExpanded] = useState(false);
 	const ProviderIcon = getProviderIcon(mapping.providerId);
-	const errorRate =
-		mapping.logsCount > 0
-			? ((mapping.errorsCount / mapping.logsCount) * 100).toFixed(1)
-			: "0.0";
+	const stability = deriveStabilityMetrics(
+		mapping.logsCount,
+		mapping.errorsCount + mapping.clientErrorsCount,
+		mapping.clientErrorsCount,
+	);
+	const errorRate = (stability.errorRate ?? 0).toFixed(1);
 
 	const fetchData = useCallback(
 		async (window: HistoryWindow) => {
@@ -144,9 +152,12 @@ function MappingRow({
 				mapping.providerId,
 				mapping.modelId,
 				window,
+				undefined,
+				undefined,
+				usageMode,
 			);
 		},
-		[mapping.providerId, mapping.modelId],
+		[mapping.providerId, mapping.modelId, usageMode],
 	);
 
 	return (
@@ -214,7 +225,7 @@ function MappingRow({
 					<TokenBreakdownCell breakdown={mapping} />
 				</TableCell>
 				<TableCell className="tabular-nums">
-					{formatNumber(mapping.errorsCount)}
+					{formatNumber(stability.errorsCount)}
 				</TableCell>
 				<TableCell className="tabular-nums">
 					{formatNumber(mapping.clientErrorsCount)}
@@ -284,12 +295,14 @@ export function MappingsTable({
 	sortOrder = "desc",
 	search = "",
 	pageWindow,
+	usageMode = "total",
 }: {
 	mappings: ModelProviderMappingEntry[];
 	sortBy?: MappingSortBy;
 	sortOrder?: SortOrder;
 	search?: string;
 	pageWindow?: PageWindow;
+	usageMode?: UsageMode;
 }) {
 	const externalWindow = pageWindow ? toHistoryWindow(pageWindow) : undefined;
 
@@ -302,6 +315,7 @@ export function MappingsTable({
 				currentSortOrder={sortOrder}
 				search={search}
 				pageWindow={pageWindow}
+				usageMode={usageMode}
 			/>
 		</TableHead>
 	);
@@ -345,6 +359,7 @@ export function MappingsTable({
 							key={m.id}
 							mapping={m}
 							externalWindow={externalWindow}
+							usageMode={usageMode}
 						/>
 					))
 				)}

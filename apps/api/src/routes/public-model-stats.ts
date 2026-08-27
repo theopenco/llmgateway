@@ -1,13 +1,19 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
-import {
-	floorToHourStart,
-	pickMappingHistoryTable,
-	pickModelHistoryTable,
-} from "@/utils/history-window.js";
+import { floorToHourStart } from "@/utils/history-window.js";
 
-import { and, cdb, gte, inArray, lt, sql } from "@llmgateway/db";
+import {
+	and,
+	cdb,
+	excludeRegionalMappingRows,
+	gte,
+	inArray,
+	lt,
+	modelHistoryHourly,
+	modelProviderMappingHistoryHourly,
+	sql,
+} from "@llmgateway/db";
 import {
 	models as modelDefinitions,
 	providers as providerDefinitions,
@@ -102,15 +108,15 @@ function windowToStartDate(window: string, now: Date): Date {
 publicModelStats.openapi(listRoute, async (c) => {
 	const { window = "7d" } = c.req.valid("query");
 
-	// Windows longer than 24h aggregate the hourly rollup tables instead of
-	// scanning millions of minute rows; see public-providers-stats for details.
-	const hourly = window !== "24h";
+	// Public rankings only need hourly resolution. The hourly tables are refreshed
+	// every minute, including the current hour, and avoid scanning the much larger
+	// minute tables for the 24h window.
 	const now = new Date();
-	const { table: mh, bucket: mhTs } = pickModelHistoryTable(hourly);
-	const { table: mph, bucket: mphTs } = pickMappingHistoryTable(hourly);
-	const startDate = hourly
-		? floorToHourStart(windowToStartDate(window, now))
-		: windowToStartDate(window, now);
+	const mh = modelHistoryHourly;
+	const mhTs = mh.hourTimestamp;
+	const mph = modelProviderMappingHistoryHourly;
+	const mphTs = mph.hourTimestamp;
+	const startDate = floorToHourStart(windowToStartDate(window, now));
 	// The previous window of equal length, used for the trend comparison.
 	const windowMs = now.getTime() - startDate.getTime();
 	const prevStartDate = new Date(startDate.getTime() - windowMs);
@@ -154,10 +160,12 @@ publicModelStats.openapi(listRoute, async (c) => {
 			totalRequests: sql<string>`COALESCE(SUM(${mph.logsCount}), 0)`,
 		})
 		.from(mph)
-		.where(and(gte(mphTs, startDate)))
+		// The region-less root row already carries a mapping's regional traffic,
+		// so summing every row per provider would count it twice.
+		.where(and(gte(mphTs, startDate), excludeRegionalMappingRows(mph)))
 		.groupBy(mph.providerId)
 		.$withCache({
-			tag: `publicModelStats:providers:v1:${window}`,
+			tag: `publicModelStats:providers:v2:${window}`,
 			autoInvalidate: false,
 			config: { ex: STATS_CACHE_TTL_SECONDS },
 		});
@@ -213,8 +221,8 @@ publicModelStats.openapi(listRoute, async (c) => {
 		totalRequests: models.reduce((sum, m) => sum + m.totalRequests, 0),
 	};
 
-	// Chart series for the top models only, bucketed by hour for the 24h
-	// window and by day otherwise.
+	// Chart series for the top models only, bucketed by hour for the 24h and
+	// 7d windows (24 / 168 dense chart bars) and by day for 30d.
 	const topModelIds = models
 		.slice(0, SERIES_MODEL_LIMIT)
 		.map((row) => row.modelId);
@@ -225,10 +233,10 @@ publicModelStats.openapi(listRoute, async (c) => {
 	}> = [];
 
 	if (topModelIds.length > 0) {
-		const seriesBucket = hourly
-			? sql<Date>`date_trunc('day', ${mhTs})`
-			: sql<Date>`date_trunc('hour', ${mhTs})`;
-
+		const seriesBucket =
+			window === "30d"
+				? sql<Date>`date_trunc('day', ${mhTs})`
+				: sql<Date>`date_trunc('hour', ${mhTs})`;
 		const seriesRows = await cdb
 			.select({
 				modelId: mh.modelId,
@@ -244,7 +252,7 @@ publicModelStats.openapi(listRoute, async (c) => {
 			// self-heals when the TTL lapses and is invisible in practice because
 			// the ranked list above it comes from the same cached snapshot.
 			.$withCache({
-				tag: `publicModelStats:series:v1:${window}`,
+				tag: `publicModelStats:series:v2:${window}`,
 				autoInvalidate: false,
 				config: { ex: STATS_CACHE_TTL_SECONDS },
 			});

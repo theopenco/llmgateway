@@ -3,6 +3,7 @@
 import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 
+import { EnterpriseDemoVideo } from "@/components/enterprise/demo-video";
 import { Button } from "@/lib/components/button";
 import { NumberTicker } from "@/lib/components/number-ticker";
 
@@ -101,28 +102,30 @@ export function HeroEnterprise({
 						Every enterprise plan starts with the 30-Day Production Pilot — live
 						traffic in week one, a decision gate at day 30.
 					</p>
+				</div>
 
-					<div className="mt-16 grid grid-cols-2 gap-4 sm:grid-cols-4 lg:gap-6">
-						<StatCard
-							value={tokensStat.value}
-							suffix={tokensStat.suffix}
-							label="Total Tokens Processed"
-						/>
-						<StatCard
-							value={requestsStat.value}
-							suffix={requestsStat.suffix}
-							label="Total Requests"
-							delay={0.1}
-						/>
-						<StatCard value={200} suffix="M" label="Daily Tokens" delay={0.2} />
-						<StatCard
-							value={80}
-							suffix="K"
-							prefix="$"
-							label="Customer Savings"
-							delay={0.3}
-						/>
-					</div>
+				<EnterpriseDemoVideo />
+
+				<div className="mx-auto mt-16 grid max-w-5xl grid-cols-2 gap-4 sm:grid-cols-4 lg:gap-6">
+					<StatCard
+						value={tokensStat.value}
+						suffix={tokensStat.suffix}
+						label="Total Tokens Processed"
+					/>
+					<StatCard
+						value={requestsStat.value}
+						suffix={requestsStat.suffix}
+						label="Total Requests"
+						delay={0.1}
+					/>
+					<StatCard value={200} suffix="M" label="Daily Tokens" delay={0.2} />
+					<StatCard
+						value={80}
+						suffix="K"
+						prefix="$"
+						label="Customer Savings"
+						delay={0.3}
+					/>
 				</div>
 			</div>
 		</section>

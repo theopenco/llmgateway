@@ -98,6 +98,16 @@ const THRESHOLD_FIELDS: { key: string; label: string; help: string }[] = [
 		help: "Minimum prompt size to factor in prompt caching",
 	},
 	{
+		key: "cacheHitRate",
+		label: "Cache Hit Rate",
+		help: "Assumed cache-hit rate (0-1) used to price cached input into ranking",
+	},
+	{
+		key: "cacheOutputRatio",
+		label: "Cache Output Ratio",
+		help: "Assumed output:input token ratio for large-prompt requests (1 = parity)",
+	},
+	{
 		key: "uptimePenalty",
 		label: "Uptime Penalty Threshold (%)",
 		help: "Below this uptime, exponential penalty applies",
@@ -311,7 +321,7 @@ export function RoutingConfigClient({
 
 	const role = teamData?.members.find((m) => m.userId === user?.id)?.role;
 	const canManage =
-		selectedOrganization?.plan === "enterprise" &&
+		selectedOrganization?.enterpriseAccess === true &&
 		(role === "owner" || role === "admin");
 
 	const [state, setState] = useState<RoutingConfigState>(emptyState());

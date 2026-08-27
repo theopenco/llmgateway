@@ -115,7 +115,7 @@ describe("getEffectiveRateLimit", () => {
 		});
 	});
 
-	it("ignores rows whose model is a provider-specific alias rather than the root model id", async () => {
+	it("ignores rows whose model is a provider-specific alias rather than the canonical model id", async () => {
 		createQueryMock([
 			{
 				id: "rl-rpd",

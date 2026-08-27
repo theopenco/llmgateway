@@ -13,7 +13,7 @@ import {
 import { cookies } from "next/headers";
 import { z } from "zod";
 
-import { PLAYGROUND_KEY_COOKIE_NAME } from "@/lib/constants";
+import { getPlaygroundKeyForRequest } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
 import {
 	describeImageGenerationError,
@@ -28,6 +28,12 @@ import {
 import { fetchServerData } from "@/lib/server-api";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
+import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
+import {
+	assertSafeResolvedUserUrl,
+	fetchSafeUserUrl,
+} from "@llmgateway/shared/url-safety-node";
 
 export const maxDuration = 300; // 5 minutes
 
@@ -349,156 +355,6 @@ interface McpToolDefinition {
 	execute: (...args: unknown[]) => Promise<unknown> | unknown;
 }
 
-/**
- * SSRF Protection: Validate MCP server URLs to prevent Server-Side Request Forgery
- * Blocks private/local addresses and validates against allowlist if configured
- */
-function validateMcpServerUrl(urlString: string): {
-	valid: boolean;
-	error?: string;
-	url?: URL;
-} {
-	let url: URL;
-	try {
-		url = new URL(urlString);
-	} catch {
-		return { valid: false, error: "Invalid URL format" };
-	}
-
-	// Only allow HTTP(S) protocols
-	if (!["http:", "https:"].includes(url.protocol)) {
-		return {
-			valid: false,
-			error: `Invalid protocol: ${url.protocol}. Only HTTP(S) allowed.`,
-		};
-	}
-
-	const hostname = url.hostname.toLowerCase();
-
-	// Allow localhost in development mode
-	const isDevelopment = process.env.NODE_ENV === "development";
-
-	// Block localhost and common local hostnames (except in development)
-	const blockedHostnames = [
-		"localhost",
-		"127.0.0.1",
-		"0.0.0.0",
-		"[::1]",
-		"::1",
-		"local",
-		"internal",
-		"intranet",
-		"corp",
-		"private",
-	];
-
-	if (!isDevelopment) {
-		if (
-			blockedHostnames.includes(hostname) ||
-			hostname.endsWith(".local") ||
-			hostname.endsWith(".localhost") ||
-			hostname.endsWith(".internal")
-		) {
-			return {
-				valid: false,
-				error: `Blocked hostname: ${hostname}. Local/internal addresses not allowed.`,
-			};
-		}
-	}
-
-	// Check if hostname is an IP address and validate against private ranges (except in development)
-	if (!isDevelopment) {
-		const ipValidation = validateIpAddress(hostname);
-		if (ipValidation.isIp && !ipValidation.isPublic) {
-			return {
-				valid: false,
-				error: `Blocked IP address: ${hostname}. Private/reserved IP ranges not allowed.`,
-			};
-		}
-	}
-
-	// Optional: Check against allowlist if configured
-	const allowedHosts = process.env.MCP_ALLOWED_HOSTS?.split(",").map((h) =>
-		h.trim().toLowerCase(),
-	);
-	if (allowedHosts && allowedHosts.length > 0) {
-		const isAllowed = allowedHosts.some(
-			(allowed) => hostname === allowed || hostname.endsWith(`.${allowed}`),
-		);
-		if (!isAllowed) {
-			return {
-				valid: false,
-				error: `Hostname ${hostname} not in allowlist`,
-			};
-		}
-	}
-
-	return { valid: true, url };
-}
-
-/**
- * Validate if a string is an IP address and check if it's in private/reserved ranges
- */
-function validateIpAddress(hostname: string): {
-	isIp: boolean;
-	isPublic: boolean;
-} {
-	// IPv4 pattern
-	const ipv4Pattern = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
-	const ipv4Match = hostname.match(ipv4Pattern);
-
-	if (ipv4Match) {
-		const octets = ipv4Match.slice(1, 5).map(Number);
-
-		// Validate octet ranges
-		if (octets.some((o) => o > 255)) {
-			return { isIp: true, isPublic: false };
-		}
-
-		const [a, b, c] = octets;
-
-		// Check private/reserved IPv4 ranges
-		const isPrivate =
-			a === 0 || // 0.0.0.0/8 - Current network
-			a === 10 || // 10.0.0.0/8 - Private
-			(a === 100 && b >= 64 && b <= 127) || // 100.64.0.0/10 - Carrier-grade NAT
-			a === 127 || // 127.0.0.0/8 - Loopback
-			(a === 169 && b === 254) || // 169.254.0.0/16 - Link-local
-			(a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12 - Private
-			(a === 192 && b === 0 && c === 0) || // 192.0.0.0/24 - IETF Protocol
-			(a === 192 && b === 0 && c === 2) || // 192.0.2.0/24 - TEST-NET-1
-			(a === 192 && b === 88 && c === 99) || // 192.88.99.0/24 - 6to4 relay
-			(a === 192 && b === 168) || // 192.168.0.0/16 - Private
-			(a === 198 && b >= 18 && b <= 19) || // 198.18.0.0/15 - Benchmark
-			(a === 198 && b === 51 && c === 100) || // 198.51.100.0/24 - TEST-NET-2
-			(a === 203 && b === 0 && c === 113) || // 203.0.113.0/24 - TEST-NET-3
-			a >= 224; // 224.0.0.0+ - Multicast and reserved
-
-		return { isIp: true, isPublic: !isPrivate };
-	}
-
-	// IPv6 pattern (simplified - handles bracketed and non-bracketed)
-	const ipv6Hostname = hostname.replace(/^\[|\]$/g, "");
-	if (ipv6Hostname.includes(":")) {
-		// Check common private/reserved IPv6 patterns
-		const lowerIpv6 = ipv6Hostname.toLowerCase();
-		const isPrivate =
-			lowerIpv6 === "::1" || // Loopback
-			lowerIpv6 === "::" || // Unspecified
-			lowerIpv6.startsWith("fc") || // fc00::/7 - Unique local
-			lowerIpv6.startsWith("fd") || // fc00::/7 - Unique local
-			lowerIpv6.startsWith("fe80") || // fe80::/10 - Link-local
-			lowerIpv6.startsWith("::ffff:127.") || // IPv4-mapped loopback
-			lowerIpv6.startsWith("::ffff:10.") || // IPv4-mapped private
-			lowerIpv6.startsWith("::ffff:192.168.") || // IPv4-mapped private
-			lowerIpv6.startsWith("::ffff:172."); // IPv4-mapped private (partial check)
-
-		return { isIp: true, isPublic: !isPrivate };
-	}
-
-	return { isIp: false, isPublic: true };
-}
-
 interface McpServerConfig {
 	id: string;
 	name: string;
@@ -711,21 +567,13 @@ export async function POST(req: Request) {
 	const noFallbackHeader = req.headers.get("x-no-fallback") ?? undefined;
 
 	const cookieStore = await cookies();
-	const cookieApiKey =
-		cookieStore.get(PLAYGROUND_KEY_COOKIE_NAME)?.value ??
-		cookieStore.get(`__Host-${PLAYGROUND_KEY_COOKIE_NAME}`)?.value;
+	const cookieApiKey = getPlaygroundKeyForRequest(cookieStore);
 	const finalApiKey = apiKey ?? headerApiKey ?? cookieApiKey;
 	if (!finalApiKey) {
 		return new Response(JSON.stringify({ error: "Missing API key" }), {
 			status: 400,
 		});
 	}
-
-	const gatewayUrl =
-		process.env.GATEWAY_URL ??
-		(process.env.NODE_ENV === "development"
-			? "http://localhost:4001/v1"
-			: "https://api.llmgateway.io/v1");
 
 	let latestGatewayResponseMetadata: GatewayResponseMetadata | undefined;
 	const captureGatewayMetadata = (metadata: GatewayResponseMetadata) => {
@@ -783,10 +631,10 @@ export async function POST(req: Request) {
 
 	const llmgateway = createLLMGateway({
 		apiKey: finalApiKey,
-		baseURL: gatewayUrl,
+		baseURL: getGatewayApiBaseUrl(),
 		fetch: gatewayFetch,
 		headers: {
-			"x-source": "chat.llmgateway.io",
+			"x-source": LOUNGE_SOURCE,
 			...(noFallbackHeader ? { "x-no-fallback": noFallbackHeader } : {}),
 		},
 		extraBody: {
@@ -796,7 +644,7 @@ export async function POST(req: Request) {
 		},
 	}) as any;
 
-	// Respect root model IDs passed from the client without adding a provider prefix.
+	// Respect canonical model IDs passed from the client without adding a provider prefix.
 	// Only apply provider-based prefixing when the client did NOT explicitly specify a model
 	// (i.e. we're using a header/default model value).
 	let selectedModel = (model ?? headerModel ?? "auto") as string;
@@ -1003,42 +851,81 @@ export async function POST(req: Request) {
 		mcp_servers?.filter((server) => server.enabled) ?? [];
 
 	try {
-		// Create MCP clients for each enabled server (with timeout)
-		for (const server of enabledMcpServers) {
-			try {
-				// SSRF Protection: Validate URL before creating transport
-				const urlValidation = validateMcpServerUrl(server.url);
-				if (!urlValidation.valid) {
-					continue; // Skip this server
-				}
+		// Create MCP clients for all enabled servers in parallel (each with its
+		// own timeout) — the connections are independent, so connecting serially
+		// would stack the per-server latency ahead of the first token.
+		const connectionResults = await Promise.all(
+			enabledMcpServers.map(
+				async (server): Promise<McpClientWrapper | null> => {
+					try {
+						// SSRF Protection: Validate URL before creating transport
+						const serverUrl = await assertSafeResolvedUserUrl(server.url);
+						const allowedHosts = process.env.MCP_ALLOWED_HOSTS?.split(",").map(
+							(host) => host.trim().toLowerCase(),
+						);
+						if (
+							allowedHosts?.length &&
+							!allowedHosts.some(
+								(host) =>
+									serverUrl.hostname === host ||
+									serverUrl.hostname.endsWith(`.${host}`),
+							)
+						) {
+							return null;
+						}
 
-				// Use the official MCP SDK transport for better compatibility
-				const transport = new StreamableHTTPClientTransport(
-					urlValidation.url!,
-					{
-						requestInit: {
-							headers: server.apiKey
-								? { Authorization: `Bearer ${server.apiKey}` }
-								: undefined,
-						},
-					},
-				);
+						// Use the official MCP SDK transport for better compatibility
+						const transport = new StreamableHTTPClientTransport(serverUrl, {
+							fetch: fetchSafeUserUrl,
+							requestInit: {
+								headers: server.apiKey
+									? { Authorization: `Bearer ${server.apiKey}` }
+									: undefined,
+							},
+						});
 
-				const clientPromise = createMCPClient({ transport });
+						const clientPromise = createMCPClient({ transport });
 
-				// Add 10 second timeout to prevent hanging
-				const timeoutPromise = new Promise<never>((_, reject) => {
-					setTimeout(
-						() =>
-							reject(new Error(`MCP connection timeout for ${server.name}`)),
-						10000,
-					);
-				});
+						// Add 10 second timeout to prevent hanging
+						let timeoutId: ReturnType<typeof setTimeout> | undefined;
+						const timeoutPromise = new Promise<never>((_, reject) => {
+							timeoutId = setTimeout(
+								() =>
+									reject(
+										new Error(`MCP connection timeout for ${server.name}`),
+									),
+								10000,
+							);
+						});
 
-				const client = await Promise.race([clientPromise, timeoutPromise]);
-				mcpClients.push({ client, name: server.name });
-			} catch {
-				// Continue with other servers
+						try {
+							const client = await Promise.race([
+								clientPromise,
+								timeoutPromise,
+							]);
+							return { client, name: server.name };
+						} catch {
+							// Timeout or connection failure: losing the race does not
+							// cancel the connection attempt, so tear down the transport
+							// and close a client that may still resolve later.
+							void transport.close().catch(() => {});
+							void clientPromise
+								.then((client) => client.close())
+								.catch(() => {});
+							return null;
+						} finally {
+							clearTimeout(timeoutId);
+						}
+					} catch {
+						// Continue with other servers
+						return null;
+					}
+				},
+			),
+		);
+		for (const wrapper of connectionResults) {
+			if (wrapper) {
+				mcpClients.push(wrapper);
 			}
 		}
 

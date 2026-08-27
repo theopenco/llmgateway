@@ -10,6 +10,7 @@ import {
 	type AvailableModelProvider,
 	type ModelWithPricing,
 	type ProviderModelMapping,
+	resolveTimeBasedPricing,
 } from "@llmgateway/models";
 import { randomFloat, randomInt } from "@llmgateway/shared/random";
 import {
@@ -22,12 +23,16 @@ import {
 	getEffectiveScoringWeights,
 } from "./compute-provider-scores.js";
 
-import type { RoutingExclusionReason } from "@llmgateway/shared/routing-telemetry";
+import type {
+	RoutingCredentialSource,
+	RoutingExclusionReason,
+} from "@llmgateway/shared/routing-telemetry";
 
 interface ProviderScore<T extends AvailableModelProvider> {
 	provider: T;
 	score: Decimal;
 	price: Decimal;
+	routingPrice: Decimal;
 	uptime?: number;
 	latency?: number;
 	throughput?: number;
@@ -81,6 +86,20 @@ export interface RoutingMetadata {
 	selectedProvider: string;
 	selectionReason: string;
 	usedApiKeyHash?: string;
+	// Whose credential the served attempt was sent with: the organization's own
+	// provider key (`byok`) or an LLM Gateway platform credential (`platform`).
+	// Without it, `usedApiKeyHash` is an opaque fingerprint that gives no hint
+	// whether the request was billed to the provider or to credits.
+	usedCredentialSource?: RoutingCredentialSource;
+	// The organization's own key that served the request, named as its owner
+	// sees it. Only set when usedCredentialSource is "byok" — a platform
+	// credential is never described to a tenant.
+	usedProviderKeyId?: string;
+	usedProviderKeyLabel?: string;
+	// The organization's own keys that were candidates for the used provider,
+	// in selection order, so an operator can see which of their keys the
+	// gateway had to choose from. BYOK rows only; never platform credentials.
+	eligibleProviderKeys?: Array<{ id: string; label?: string }>;
 	providerScores: Array<{
 		providerId: string;
 		region?: string;
@@ -130,6 +149,12 @@ export interface RoutingMetadata {
 		error_type: string;
 		succeeded: boolean;
 		apiKeyHash?: string;
+		// Per attempt, because a single request can switch credential owners
+		// mid-flight: in hybrid mode a failing BYOK key falls back to the
+		// platform credential, and both attempts land in this array.
+		credentialSource?: RoutingCredentialSource;
+		providerKeyId?: string;
+		providerKeyLabel?: string;
 		logId?: string;
 	}>;
 	// Provider mappings that were filtered out because they don't support requested params/features
@@ -201,6 +226,10 @@ export interface ProviderSelectionOptions {
 		provider: AvailableModelProvider,
 		modelId: string,
 	) => Promise<string | null | undefined> | string | null | undefined;
+	providerRoutingScoreMultiplierResolver?: (
+		provider: AvailableModelProvider,
+		modelId: string,
+	) => Promise<string | null | undefined> | string | null | undefined;
 }
 
 function findProviderMapping<P extends ModelWithPricing["providers"][number]>(
@@ -249,6 +278,16 @@ export function providerSupportsCaching(
 		return true;
 	}
 	return false;
+}
+
+/**
+ * Assumptions applied when ranking cache-relevant (large-prompt) requests:
+ * `hitRate` blends cachedInputPrice into the input axis, `outputRatio` scales
+ * output down from parity to a realistic share of a prompt-heavy request.
+ */
+export interface CachePricingContext {
+	hitRate: number;
+	outputRatio: number;
 }
 
 export interface VideoPricingContext {
@@ -310,20 +349,73 @@ function getPerSecondBillingKeys(
 
 export function getProviderSelectionPrice(
 	providerInfo:
-		| Pick<
+		| (Pick<
 				ProviderModelMapping,
 				| "inputPrice"
 				| "outputPrice"
 				| "perSecondPrice"
 				| "perImagePrice"
 				| "requestPrice"
-		  >
+		  > &
+				Partial<
+					Pick<
+						ProviderModelMapping,
+						"peakPricing" | "cachedInputPrice" | "pricingTiers"
+					>
+				>)
 		| undefined,
 	videoPricing?: VideoPricingContext,
+	now: Date = new Date(),
+	cachePricing?: CachePricingContext,
+	promptTokens?: number,
 ): Decimal {
-	const inputPrice = providerInfo?.inputPrice;
-	const outputPrice = providerInfo?.outputPrice;
 	const requestPrice = providerInfo?.requestPrice;
+	// Resolve peak/off-peak time-of-day pricing (DeepSeek first-party): token
+	// rates vary by UTC hour once the mapping's peakPricing is effective, so
+	// routing must rank with the same rates billing uses.
+	const timeBasedPricing = providerInfo
+		? resolveTimeBasedPricing(providerInfo, now)
+		: undefined;
+	// Context-length pricing tiers override the base/time-based token rates by
+	// prompt size, mirroring billing's getPricingForTokenCount: without this a
+	// long-context request would rank a tiered mapping (e.g. xAI over 128K) at
+	// its cheaper base rates and select a provider billing then charges more
+	// for.
+	const pricingTier =
+		promptTokens !== undefined && providerInfo?.pricingTiers?.length
+			? (providerInfo.pricingTiers.find(
+					(tier) => promptTokens <= tier.upToTokens,
+				) ?? providerInfo.pricingTiers[providerInfo.pricingTiers.length - 1])
+			: undefined;
+	const inputPrice =
+		pricingTier?.inputPrice ??
+		timeBasedPricing?.inputPrice ??
+		providerInfo?.inputPrice;
+	const outputPrice =
+		pricingTier?.outputPrice ??
+		timeBasedPricing?.outputPrice ??
+		providerInfo?.outputPrice;
+	// For cache-relevant requests, rank on the input price a cached workload
+	// actually pays: cachedInputPrice weighted by the assumed hit rate. Billing
+	// falls back to inputPrice when a mapping declares no cache price, so the
+	// same fallback here keeps such mappings ranked exactly as today.
+	const cacheHitRate = cachePricing?.hitRate ?? 0;
+	const cachedInputPrice =
+		pricingTier?.cachedInputPrice ??
+		timeBasedPricing?.cachedInputPrice ??
+		providerInfo?.cachedInputPrice;
+	const effectiveInputPrice =
+		cacheHitRate > 0 &&
+		inputPrice !== undefined &&
+		cachedInputPrice !== undefined
+			? new Decimal(cachedInputPrice)
+					.times(cacheHitRate)
+					.plus(new Decimal(inputPrice).times(1 - cacheHitRate))
+			: new Decimal(inputPrice ?? "0");
+	// Cache-relevant requests are large-prompt requests, where output is far
+	// below parity with input; weighing output at the assumed ratio keeps the
+	// cached-input difference from being buried by output list prices.
+	const outputRatio = cachePricing?.outputRatio ?? 1;
 	const hasAnyTokenPrice =
 		inputPrice !== undefined || outputPrice !== undefined;
 	const hasPositiveTokenPrice =
@@ -340,7 +432,9 @@ export function getProviderSelectionPrice(
 	}
 
 	if (hasPositiveTokenPrice) {
-		return new Decimal(inputPrice ?? "0").plus(outputPrice ?? "0").div(2);
+		return effectiveInputPrice
+			.plus(new Decimal(outputPrice ?? "0").times(outputRatio))
+			.div(2);
 	}
 
 	if (providerInfo?.perImagePrice) {
@@ -362,7 +456,9 @@ export function getProviderSelectionPrice(
 	}
 
 	if (hasAnyTokenPrice) {
-		return new Decimal(inputPrice ?? "0").plus(outputPrice ?? "0").div(2);
+		return effectiveInputPrice
+			.plus(new Decimal(outputPrice ?? "0").times(outputRatio))
+			.div(2);
 	}
 
 	return new Decimal(0);
@@ -376,6 +472,12 @@ type ProviderSelectionPriceInfo = AvailableModelProvider &
 		| "perSecondPrice"
 		| "perImagePrice"
 		| "requestPrice"
+	> &
+	Partial<
+		Pick<
+			ProviderModelMapping,
+			"peakPricing" | "cachedInputPrice" | "pricingTiers"
+		>
 	>;
 
 export async function getDiscountedProviderSelectionPrice(
@@ -383,14 +485,18 @@ export async function getDiscountedProviderSelectionPrice(
 	modelId: string,
 	options?: Pick<
 		ProviderSelectionOptions,
-		"organizationId" | "providerDiscountResolver"
+		"organizationId" | "providerDiscountResolver" | "promptTokens"
 	> & {
 		videoPricing?: VideoPricingContext;
+		cachePricing?: CachePricingContext;
 	},
 ): Promise<{ price: Decimal; discount: Decimal }> {
 	const basePrice = getProviderSelectionPrice(
 		providerInfo,
 		options?.videoPricing,
+		undefined,
+		options?.cachePricing,
+		options?.promptTokens,
 	);
 	const discount = providerInfo
 		? await getProviderSelectionDiscount(providerInfo, modelId, options)
@@ -437,7 +543,10 @@ async function getProviderSelectionPrices<T extends AvailableModelProvider>(
 	modelWithPricing: ModelWithPricing & { id: string },
 	videoPricing: VideoPricingContext | undefined,
 	options?: ProviderSelectionOptions,
-): Promise<Map<string, { price: Decimal; discount: Decimal }>> {
+	cachePricing?: CachePricingContext,
+): Promise<
+	Map<string, { price: Decimal; routingPrice: Decimal; discount: Decimal }>
+> {
 	const providerPrices = await Promise.all(
 		providers.map(async (provider) => {
 			const providerInfo = findProviderMapping(
@@ -450,10 +559,34 @@ async function getProviderSelectionPrices<T extends AvailableModelProvider>(
 				{
 					...options,
 					videoPricing,
+					cachePricing,
 				},
 			);
+			let routingMultiplier = new Decimal(1);
+			if (options?.providerRoutingScoreMultiplierResolver !== undefined) {
+				const rawAdjustment =
+					await options.providerRoutingScoreMultiplierResolver(
+						provider,
+						modelWithPricing.id,
+					);
+				try {
+					const scoreAdjustment = new Decimal(rawAdjustment ?? "0");
+					if (scoreAdjustment.isFinite() && scoreAdjustment.gte(-1)) {
+						routingMultiplier = scoreAdjustment.plus(1);
+					}
+				} catch {
+					// Invalid internal configuration is neutral instead of blocking traffic.
+				}
+			}
 
-			return [providerSelectionKey(provider), { price, discount }] as const;
+			return [
+				providerSelectionKey(provider),
+				{
+					price,
+					routingPrice: price.times(routingMultiplier),
+					discount,
+				},
+			] as const;
 		}),
 	);
 
@@ -543,6 +676,14 @@ export async function getCheapestFromAvailableProviders<
 	const isImageModel = modelWithPricing.output?.includes("image") ?? false;
 	const cacheSupportRelevant =
 		promptTokens !== undefined && promptTokens >= thresholds.cachePromptTokens;
+	// Rank cache-relevant requests on the price a cached workload pays. Below
+	// the prompt-size threshold ranking is unchanged.
+	const cachePricing: CachePricingContext | undefined = cacheSupportRelevant
+		? {
+				hitRate: Math.min(1, Math.max(0, thresholds.cacheHitRate)),
+				outputRatio: Math.max(0, thresholds.cacheOutputRatio),
+			}
+		: undefined;
 	const scoringFlags = {
 		isStreaming,
 		isImageModel,
@@ -583,6 +724,7 @@ export async function getCheapestFromAvailableProviders<
 		modelWithPricing,
 		videoPricing,
 		options,
+		cachePricing,
 	);
 
 	// Sticky routing: when a session store is provided (and session stickiness
@@ -706,6 +848,7 @@ export async function getCheapestFromAvailableProviders<
 		const price =
 			resolvedPrice?.price ??
 			getProviderSelectionPrice(providerInfo, videoPricing);
+		const routingPrice = resolvedPrice?.routingPrice ?? price;
 
 		const mKey = metricsKey(
 			modelWithPricing.id,
@@ -718,6 +861,7 @@ export async function getCheapestFromAvailableProviders<
 			provider,
 			score: new Decimal(0), // Will be calculated below
 			price,
+			routingPrice,
 			discount: resolvedPrice?.discount,
 			uptime: metrics?.uptime,
 			latency: metrics?.averageLatency,
@@ -734,7 +878,7 @@ export async function getCheapestFromAvailableProviders<
 	// selection earlier in this function).
 	const breakdowns = computeWeightedProviderScores(
 		providerScores.map((p) => ({
-			price: p.price,
+			price: p.routingPrice,
 			uptime: p.uptime,
 			latency: p.latency,
 			throughput: p.throughput,
@@ -803,7 +947,10 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 	modelWithPricing: ModelWithPricing & { id: string; output?: string[] },
 	videoPricing: VideoPricingContext | undefined,
 	cfg: ResolvedRoutingConfig,
-	providerSelectionPrices: Map<string, { price: Decimal; discount: Decimal }>,
+	providerSelectionPrices: Map<
+		string,
+		{ price: Decimal; routingPrice: Decimal; discount: Decimal }
+	>,
 ): ProviderSelectionResult<T> {
 	let cheapestProvider = stableProviders[0];
 	let lowestEffectivePrice: Decimal | null = null;
@@ -828,10 +975,12 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 		const totalPrice =
 			resolvedPrice?.price ??
 			getProviderSelectionPrice(providerInfo, videoPricing);
+		const routingPrice = resolvedPrice?.routingPrice ?? totalPrice;
 
 		// Apply provider priority: lower priority = effectively higher price
 		const priority = getEffectivePriority(provider.providerId, cfg);
-		const effectivePrice = priority > 0 ? totalPrice.div(priority) : totalPrice;
+		const effectivePrice =
+			priority > 0 ? routingPrice.div(priority) : routingPrice;
 
 		providerPrices.push({
 			providerId: provider.providerId,

@@ -139,6 +139,77 @@ describe("findManagedProviderKey", () => {
 		).toBeUndefined();
 	});
 
+	/**
+	 * Alibaba has no global region, so every credential is necessarily pinned to
+	 * one. A request that resolved no region is sent to the provider's default
+	 * region, so the credential pinned there is the one that serves it —
+	 * otherwise a fully credentialed fleet fails every region-less request.
+	 */
+	it("serves a region-less request from the default-region credential", async () => {
+		await insertManaged({
+			id: "alibaba-singapore",
+			provider: "alibaba",
+			region: "singapore",
+		});
+		await insertManaged({
+			id: "alibaba-frankfurt",
+			provider: "alibaba",
+			region: "eu-frankfurt",
+		});
+
+		expect((await findManagedProviderKey("alibaba"))?.id).toBe(
+			"alibaba-singapore",
+		);
+		expect(
+			(await findManagedProviderKey("alibaba", { region: "eu-frankfurt" }))?.id,
+		).toBe("alibaba-frankfurt");
+
+		const availability = await findManagedProviderAvailability();
+		expect(availability.defaultRegionUsable).toContain("alibaba");
+		// Still not region-agnostic: it covers the default region, nothing else.
+		expect(availability.usable).not.toContain("alibaba");
+	});
+
+	it("does not serve a region-less request from a non-default region", async () => {
+		await insertManaged({
+			id: "alibaba-beijing",
+			provider: "alibaba",
+			region: "cn-beijing",
+		});
+
+		expect(await findManagedProviderKey("alibaba")).toBeUndefined();
+		expect(
+			(await findManagedProviderAvailability()).defaultRegionUsable,
+		).not.toContain("alibaba");
+	});
+
+	/**
+	 * A provider whose credential works in every region (AWS Bedrock's IAM-global
+	 * keys) is the opposite case: a region on the credential is the operator
+	 * deliberately scoping it, so it is never substituted for a request that
+	 * asked for another region — or for none — even when that region is the
+	 * provider's own default.
+	 */
+	it("keeps a provider with a cross-region credential region-strict", async () => {
+		await insertManaged({
+			id: "bedrock-global-pinned",
+			provider: "aws-bedrock",
+			region: "global",
+		});
+
+		expect(await findManagedProviderKey("aws-bedrock")).toBeUndefined();
+		expect(
+			await findManagedProviderKey("aws-bedrock", { region: "eu-central-1" }),
+		).toBeUndefined();
+		expect(
+			(await findManagedProviderKey("aws-bedrock", { region: "global" }))?.id,
+		).toBe("bedrock-global-pinned");
+
+		const availability = await findManagedProviderAvailability();
+		expect(availability.usable).not.toContain("aws-bedrock");
+		expect(availability.defaultRegionUsable).not.toContain("aws-bedrock");
+	});
+
 	it("excludes credentials that already failed this request", async () => {
 		await insertManaged({ id: "first-key" });
 		await insertManaged({ id: "second-key" });

@@ -53,6 +53,23 @@ export function getOrganizationSubscriptionIds(
 }
 
 /**
+ * Whether a Stripe error means the subscription is already in the terminal
+ * state a cancel was aiming for — gone, or cancelled earlier. Callers treat
+ * this as success rather than failing an otherwise-complete teardown.
+ */
+export function isTerminalSubscriptionError(
+	error: unknown,
+): error is Stripe.errors.StripeInvalidRequestError {
+	return (
+		error instanceof Stripe.errors.StripeInvalidRequestError &&
+		(error.code === "resource_missing" ||
+			error.statusCode === 404 ||
+			error.message.includes("already been canceled") ||
+			error.message.includes("already canceled"))
+	);
+}
+
+/**
  * Cancels every Stripe subscription an organization holds, immediately and
  * without a final proration invoice.
  *
@@ -74,13 +91,7 @@ export async function cancelOrganizationSubscriptions(
 			});
 			cancelled.push(subscriptionId);
 		} catch (error) {
-			if (
-				error instanceof Stripe.errors.StripeInvalidRequestError &&
-				(error.code === "resource_missing" ||
-					error.statusCode === 404 ||
-					error.message.includes("already been canceled") ||
-					error.message.includes("already canceled"))
-			) {
+			if (isTerminalSubscriptionError(error)) {
 				logger.info(
 					`Stripe subscription ${subscriptionId} already terminal, skipping cancel: ${error.message}`,
 				);
@@ -191,6 +202,30 @@ export async function anonymizeBillingRecordsForEmail(
 	return anonymized.length;
 }
 
+/**
+ * Clears every subscription-backed entitlement after all Stripe subscriptions
+ * have been cancelled. Historical transactions remain intact for accounting.
+ */
+export function getCancelledOrganizationPlanState(now = new Date()) {
+	return {
+		plan: "free" as const,
+		stripeSubscriptionId: null,
+		subscriptionCancelled: true,
+		planExpiresAt: now,
+		isTrialActive: false,
+		autoTopUpEnabled: false,
+		devPlan: "none" as const,
+		devPlanStripeSubscriptionId: null,
+		devPlanCancelled: true,
+		devPlanExpiresAt: now,
+		devPlanPendingTier: null,
+		chatPlan: "none" as const,
+		chatPlanStripeSubscriptionId: null,
+		chatPlanCancelled: true,
+		chatPlanExpiresAt: now,
+	};
+}
+
 export interface SoleMemberOrganization {
 	id: string;
 	name: string;
@@ -247,8 +282,13 @@ export async function findSoleMemberOrganizations(
 		return [];
 	}
 
+	// Teardown cancels subscriptions org by org and stops at the first Stripe
+	// failure, so the order has to be reproducible: without it, which orgs were
+	// already cancelled before an outage depends on the row order Postgres
+	// happens to return.
 	const organizations = await db.query.organization.findMany({
 		where: { id: { in: soleOrgIds } },
+		orderBy: { createdAt: "asc", id: "asc" },
 	});
 
 	return organizations
@@ -344,21 +384,7 @@ export async function tearDownSoleMemberOrganizations(
 				billingEmail: DELETED_ORGANIZATION_BILLING_EMAIL,
 				logo: null,
 				stripeCustomerId: null,
-				plan: "free",
-				stripeSubscriptionId: null,
-				subscriptionCancelled: true,
-				planExpiresAt: now,
-				isTrialActive: false,
-				autoTopUpEnabled: false,
-				devPlan: "none",
-				devPlanStripeSubscriptionId: null,
-				devPlanCancelled: true,
-				devPlanExpiresAt: now,
-				devPlanPendingTier: null,
-				chatPlan: "none",
-				chatPlanStripeSubscriptionId: null,
-				chatPlanCancelled: true,
-				chatPlanExpiresAt: now,
+				...getCancelledOrganizationPlanState(now),
 			})
 			.where(eq(tables.organization.id, org.id));
 	}

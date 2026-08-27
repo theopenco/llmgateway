@@ -29,7 +29,7 @@ export function CalendlyInline({
 	const containerRef = useRef<HTMLDivElement>(null);
 	const initializedRef = useRef(false);
 	const [scriptLoaded, setScriptLoaded] = useState(
-		typeof window !== "undefined" && Boolean(window.Calendly),
+		() => typeof window !== "undefined" && Boolean(window.Calendly),
 	);
 
 	useEffect(() => {

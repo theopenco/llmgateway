@@ -1,12 +1,7 @@
 import { ProjectModeSettings } from "@/components/settings/project-mode-settings";
-import { fetchServerData } from "@/lib/server-api";
+import { getProject } from "@/lib/server-api";
 
-import type { Project } from "@/lib/types";
 import type { ProjectModeSettingsData } from "@/types/settings";
-
-interface ProjectData {
-	project: Project;
-}
 
 export const ProjectModeSettingsRsc = async ({
 	orgId,
@@ -15,17 +10,7 @@ export const ProjectModeSettingsRsc = async ({
 	orgId: string;
 	projectId: string;
 }) => {
-	const projectData = await fetchServerData<ProjectData>(
-		"GET",
-		"/projects/{id}",
-		{
-			params: {
-				path: {
-					id: projectId,
-				},
-			},
-		},
-	);
+	const projectData = await getProject(projectId);
 
 	// Handle null data cases
 	if (!projectData) {

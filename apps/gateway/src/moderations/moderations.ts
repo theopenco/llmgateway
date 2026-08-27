@@ -30,18 +30,23 @@ import {
 	applyEndUserSession,
 	assertTestWalletModelAllowed,
 } from "@/lib/end-user-session.js";
+import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { buildOpenAIErrorBody } from "@/lib/error-response.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
+import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
 import { getProviderHeaders, readProviderKey } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
-import { getOrganizationEnvVariant, models } from "@llmgateway/models";
+import { models } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
 import type { InferSelectModel, tables } from "@llmgateway/db";
+import type { Context } from "hono";
 
 /**
  * Flat per-request price for `/v1/moderations`, in USD. OpenAI serves the
@@ -50,6 +55,12 @@ import type { InferSelectModel, tables } from "@llmgateway/db";
  * this fixed rate regardless of input size or moderation model.
  */
 export const MODERATION_REQUEST_PRICE = 0.00001;
+const MODERATION_MODEL_ID = "openai-moderation";
+const DEFAULT_UPSTREAM_MODERATION_MODEL = "omni-moderation-latest";
+const CANONICAL_MODERATION_MODEL = formatUsedModelForDisplay(
+	"openai",
+	MODERATION_MODEL_ID,
+);
 
 const moderationInputTextSchema = z.string().openapi({
 	description: "Plain text input to classify.",
@@ -140,7 +151,7 @@ const moderationResponseSchema = z
 		}),
 		model: z.string().optional().openapi({
 			description: "Moderation model used for the request.",
-			example: "omni-moderation-latest",
+			example: CANONICAL_MODERATION_MODEL,
 		}),
 		results: z.array(moderationResultSchema).optional().openapi({
 			description: "Moderation results for the submitted input.",
@@ -162,10 +173,15 @@ const moderationErrorSchema = z.object({
 
 const moderationRequestSchema = z.object({
 	input: moderationInputSchema,
-	model: z.string().optional().default("omni-moderation-latest").openapi({
-		description: "OpenAI moderation model. Defaults to omni-moderation-latest.",
-		example: "omni-moderation-latest",
-	}),
+	model: z
+		.string()
+		.optional()
+		.default(DEFAULT_UPSTREAM_MODERATION_MODEL)
+		.openapi({
+			description:
+				"OpenAI moderation model. Defaults to omni-moderation-latest.",
+			example: "omni-moderation-latest",
+		}),
 });
 
 function normalizeModerationInputToMessages(input: unknown) {
@@ -221,11 +237,15 @@ function getAvailableCredits(
  * other paid endpoints; there is no free-model escape hatch here because the
  * moderation pseudo-model is always billed.
  */
-function assertCreditsAvailableForModeration(
+async function assertCreditsAvailableForModeration(
+	c: Context,
 	organization: InferSelectModel<typeof tables.organization>,
 	insufficientCreditsMessage: string,
 	devPlanCreditLimitMessage: (renewalDate: string) => string,
 ) {
+	// Moderation is always billed, so it is never free-model exempt.
+	await assertSpendLimit(c, organization, false);
+
 	const {
 		devPlanCreditsRemaining,
 		chatPlanCreditsRemaining,
@@ -415,7 +435,12 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		);
 	}
 
-	const { input, model: upstreamModel } = validationResult.data;
+	const { input, model: requestedModel } = validationResult.data;
+	const upstreamModel =
+		requestedModel === CANONICAL_MODERATION_MODEL ||
+		requestedModel === MODERATION_MODEL_ID
+			? DEFAULT_UPSTREAM_MODERATION_MODEL
+			: requestedModel;
 	const startedAt = Date.now();
 	const source = validateSource(
 		c.req.header("x-source"),
@@ -474,11 +499,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		});
 	}
 
-	if (baseOrganization.status === "deleted") {
-		throw new HTTPException(410, {
-			message: "Organization has been disabled and is no longer accessible",
-		});
-	}
+	assertOrganizationUsable(baseOrganization);
 
 	// LLM SDK: ephemeral end-user sessions bill the bound wallet instead
 	// of the developer's org credits. No-op for normal keys.
@@ -549,7 +570,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 
 	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
 	// this org's env-credential reads. Undefined = base vars only.
-	const envVariant = getOrganizationEnvVariant(organization);
+	const envVariant = getLicensedOrganizationEnvVariant(organization);
 
 	let providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
 	let managedKey: InferSelectModel<typeof tables.providerKey> | undefined;
@@ -571,7 +592,8 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		}
 		usedToken = readProviderKey(providerKey);
 	} else if (project.mode === "credits") {
-		assertCreditsAvailableForModeration(
+		await assertCreditsAvailableForModeration(
+			c,
 			organization,
 			`Organization ${organization.id} has insufficient credits`,
 			(renewalDate) =>
@@ -597,7 +619,8 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		if (providerKey) {
 			usedToken = readProviderKey(providerKey);
 		} else {
-			assertCreditsAvailableForModeration(
+			await assertCreditsAvailableForModeration(
+				c,
 				organization,
 				"No API key set for provider and organization has insufficient credits",
 				(renewalDate) =>
@@ -1020,7 +1043,10 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 				{ retentionLevel },
 			);
 
-			return c.json(upstreamJson as any);
+			return c.json({
+				...(upstreamJson as Record<string, unknown>),
+				model: CANONICAL_MODERATION_MODEL,
+			});
 		}
 	} finally {
 		c.req.raw.signal.removeEventListener("abort", onAbort);

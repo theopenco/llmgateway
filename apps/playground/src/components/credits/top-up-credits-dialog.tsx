@@ -73,7 +73,9 @@ export function TopUpCreditsDialog({
 	>(null);
 	const api = useApi();
 	const queryClient = useQueryClient();
-	const { stripe, isLoading: stripeLoading } = useStripe();
+	// Stripe.js is only needed once the dialog is open; don't load it on the
+	// pages that merely mount this dialog closed.
+	const { stripe, isLoading: stripeLoading } = useStripe(open);
 
 	const { data: paymentMethodsData, isLoading: paymentMethodsLoading } =
 		api.useQuery(
@@ -294,9 +296,10 @@ function AmountStep({
 		} catch (error: unknown) {
 			toast.error("Checkout Failed", {
 				description:
-					error instanceof Error
+					(error instanceof Error
 						? error.message
-						: "Failed to create checkout session.",
+						: (error as { message?: string } | undefined)?.message) ??
+					"Failed to create checkout session.",
 			});
 			setCheckoutLoading(false);
 		}

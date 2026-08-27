@@ -2,7 +2,8 @@
 id: claude-code
 slug: claude-code
 title: Claude Code Integration
-description: Use GPT-5, Gemini, or any model with Claude Code. Three environment variables, full cost tracking.
+seoTitle: "Run Kimi K3 or 200+ Models in Claude Code"
+description: Point Claude Code at Kimi K3, GPT-5, Gemini, or 200+ models with three environment variables. Works with a DevPass plan key or pay-as-you-go credits.
 date: 2026-01-02
 ---
 
@@ -10,7 +11,7 @@ Claude Code is locked to Anthropic's API by default. With LLM Gateway, you can p
 
 Three environment variables. No code changes. Full cost tracking in your dashboard.
 
-> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
+> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use canonical model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
 
 ## Video Tutorial
 
@@ -217,7 +218,7 @@ The endpoint returns responses in Anthropic's message format:
 ## Get Started
 
 1. [Sign up free](https://llmgateway.io/signup) — no credit card required
-2. Copy your API key from the dashboard
+2. Create or roll an API key in the dashboard and copy the newly shown secret
 3. Set the environment variables above, or drop them into `~/.claude/settings.json`
 4. Run `claude` and start coding — switch models any time with `/model`
 

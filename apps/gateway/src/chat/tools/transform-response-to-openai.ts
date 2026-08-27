@@ -1,3 +1,7 @@
+import { redisClient } from "@llmgateway/cache";
+import { shortid } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
+
 import { dedupeGoogleCandidateParts } from "./google-candidates.js";
 import { mapFinishReasonToOpenai } from "./map-finish-reason-to-openai.js";
 import { formatUsedModelForDisplay } from "./resolve-provider-context.js";
@@ -450,16 +454,55 @@ export function transformResponseToOpenai(
 							const candidateIndex = candidate.index ?? position;
 							const candidateToolCalls = candidateParts
 								.filter((part: any) => part.functionCall)
-								.map((part: any, fcIndex: number) => ({
-									// Same id scheme as parse-provider-response so choice 0's
-									// ids line up with the cached thought signatures.
-									id: `${part.functionCall.name}_${candidateIndex}_${fcIndex}`,
-									type: "function",
-									function: {
-										name: part.functionCall.name,
-										arguments: JSON.stringify(part.functionCall.args ?? {}),
-									},
-								}));
+								.map((part: any, fcIndex: number) => {
+									// parseProviderResponse only processes candidate 0, and it
+									// caches the thought signature under the id it emits
+									// (`${name}_${shortid(24)}`, as `thought_signature:<id>` in
+									// Redis). Reuse those exact tool calls so the id the client
+									// echoes back on the next turn is the one the signature is
+									// cached under. Regenerating a name+index id here (the scheme
+									// parse abandoned in #1448) made the Redis lookup miss and
+									// Gemini reject the replay with "Corrupted thought signature".
+									// Candidates parse did not process (1+) get the same
+									// treatment inline: unique id, inline signature, and the
+									// Redis entry under the emitted id.
+									if (
+										position === 0 &&
+										Array.isArray(toolResults) &&
+										toolResults[fcIndex]
+									) {
+										return toolResults[fcIndex];
+									}
+									const toolCall: any = {
+										id: `${part.functionCall.name}_${shortid(24)}`,
+										type: "function",
+										function: {
+											name: part.functionCall.name,
+											arguments: JSON.stringify(part.functionCall.args ?? {}),
+										},
+									};
+									if (part.thoughtSignature) {
+										toolCall.extra_content = {
+											google: {
+												thought_signature: part.thoughtSignature,
+											},
+										};
+										// Same cache as parse-provider-response: the id is the
+										// `thought_signature:<id>` key read back on the next turn.
+										redisClient
+											.setex(
+												`thought_signature:${toolCall.id}`,
+												86400,
+												part.thoughtSignature,
+											)
+											.catch((err) => {
+												logger.error("Failed to cache thought_signature", {
+													err,
+												});
+											});
+									}
+									return toolCall;
+								});
 							return {
 								index: candidateIndex,
 								message: {
@@ -546,7 +589,8 @@ export function transformResponseToOpenai(
 			break;
 		}
 		case "anthropic":
-		case "vertex-anthropic": {
+		case "vertex-anthropic":
+		case "azure-anthropic": {
 			transformedResponse = {
 				id: `chatcmpl-${Date.now()}`,
 				object: "chat.completion",
@@ -662,13 +706,14 @@ export function transformResponseToOpenai(
 				// Also update content and finish_reason with parsed values
 				if (transformedResponse.choices?.[0]?.message) {
 					const message = transformedResponse.choices[0].message;
-					// Update content with parsed content (handles JSON unwrapping for Mistral/Novita)
-					if (content !== null) {
+					// content/reasoning aggregate all choices when n > 1, so only
+					// write them into choice 0 for single-choice responses.
+					const isSingleChoice = transformedResponse.choices.length === 1;
+					if (content !== null && isSingleChoice) {
 						message.content = content;
 					}
-					if (reasoningContent !== null) {
+					if (reasoningContent !== null && isSingleChoice) {
 						message.reasoning = reasoningContent;
-						// Remove the old reasoning_content field if it exists
 						delete message.reasoning_content;
 					}
 				}
@@ -956,6 +1001,7 @@ export function transformResponseToOpenai(
 							message: {
 								role: "assistant",
 								content: content,
+								...(images && images.length > 0 && { images }),
 								...(reasoningContent !== null && {
 									reasoning: reasoningContent,
 								}),
@@ -1107,10 +1153,13 @@ export function transformResponseToOpenai(
 				if (transformedResponse && typeof transformedResponse === "object") {
 					if (transformedResponse.choices?.[0]?.message) {
 						const message = transformedResponse.choices[0].message;
-						if (content !== null) {
+						// content/reasoning aggregate all choices when n > 1, so only
+						// write them into choice 0 for single-choice responses.
+						const isSingleChoice = transformedResponse.choices.length === 1;
+						if (content !== null && isSingleChoice) {
 							message.content = content;
 						}
-						if (reasoningContent !== null) {
+						if (reasoningContent !== null && isSingleChoice) {
 							message.reasoning = reasoningContent;
 							delete message.reasoning_content;
 						}
@@ -1206,10 +1255,13 @@ export function transformResponseToOpenai(
 				if (transformedResponse && typeof transformedResponse === "object") {
 					if (transformedResponse.choices?.[0]?.message) {
 						const message = transformedResponse.choices[0].message;
-						if (content !== null) {
+						// content/reasoning aggregate all choices when n > 1, so only
+						// write them into choice 0 for single-choice responses.
+						const isSingleChoice = transformedResponse.choices.length === 1;
+						if (content !== null && isSingleChoice) {
 							message.content = content;
 						}
-						if (reasoningContent !== null) {
+						if (reasoningContent !== null && isSingleChoice) {
 							message.reasoning = reasoningContent;
 							delete message.reasoning_content;
 						}
@@ -1306,10 +1358,13 @@ export function transformResponseToOpenai(
 				if (transformedResponse && typeof transformedResponse === "object") {
 					if (transformedResponse.choices?.[0]?.message) {
 						const message = transformedResponse.choices[0].message;
-						if (content !== null) {
+						// content/reasoning aggregate all choices when n > 1, so only
+						// write them into choice 0 for single-choice responses.
+						const isSingleChoice = transformedResponse.choices.length === 1;
+						if (content !== null && isSingleChoice) {
 							message.content = content;
 						}
-						if (reasoningContent !== null) {
+						if (reasoningContent !== null && isSingleChoice) {
 							message.reasoning = reasoningContent;
 							delete message.reasoning_content;
 						}
@@ -1414,19 +1469,27 @@ export function transformResponseToOpenai(
 				// Ensure content and reasoning fields are present with parsed/healed values
 				if (transformedResponse.choices?.[0]?.message) {
 					const message = transformedResponse.choices[0].message;
-					// Update content with parsed content (includes healed JSON for response healing)
-					if (content !== null) {
+					// content/reasoning aggregate all choices when n > 1, so only
+					// write them into choice 0 for single-choice responses.
+					const isSingleChoice = transformedResponse.choices.length === 1;
+					if (content !== null && isSingleChoice) {
 						message.content = content;
 					}
-					if (reasoningContent !== null) {
+					if (reasoningContent !== null && isSingleChoice) {
 						message.reasoning = reasoningContent;
-						// Remove the old reasoning_content field if it exists
 						delete message.reasoning_content;
 					}
 					// Add annotations if present
 					if (annotations && annotations.length > 0) {
 						message.annotations = annotations;
 					}
+				}
+				// Update finish_reason with the mapped value so canonicalizations
+				// applied by parseProviderResponse (e.g. "abort" -> "upstream_error",
+				// "tool_use" -> "tool_calls") reach the client instead of the raw
+				// upstream value, matching the provider-specific cases above.
+				if (transformedResponse.choices?.[0] && finishReason !== null) {
+					transformedResponse.choices[0].finish_reason = finishReason;
 				}
 				transformedResponse.model = formatUsedModelForDisplay(
 					usedProvider,

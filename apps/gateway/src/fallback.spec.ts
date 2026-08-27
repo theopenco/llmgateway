@@ -11,6 +11,7 @@ import {
 
 import { db, eq, tables, type Log } from "@llmgateway/db";
 import { getProviderDefinition } from "@llmgateway/models";
+import { maskToken } from "@llmgateway/shared/mask-token";
 
 import { app } from "./app.js";
 import { SAME_KEY_RETRY_DELAY_MS } from "./chat/tools/retry-with-fallback.js";
@@ -304,6 +305,7 @@ describe("fallback and error status code handling", () => {
 				modelId,
 				providerId,
 				modelProviderMappingId: mappingId,
+				usedMode: "credits",
 				minuteTimestamp,
 				logsCount: totalRequests,
 				errorsCount,
@@ -322,6 +324,7 @@ describe("fallback and error status code handling", () => {
 				target: [
 					tables.modelProviderMappingHistory.modelProviderMappingId,
 					tables.modelProviderMappingHistory.minuteTimestamp,
+					tables.modelProviderMappingHistory.usedMode,
 				],
 				set: {
 					logsCount: totalRequests,
@@ -388,6 +391,220 @@ describe("fallback and error status code handling", () => {
 			})),
 		);
 	}
+
+	async function setupCustomAutoRouting() {
+		await db
+			.update(tables.organization)
+			.set({ plan: "enterprise" })
+			.where(eq(tables.organization.id, "org-id"));
+		await db.insert(tables.apiKey).values({
+			id: "auto-custom-token-id",
+			token: "auto-custom-token",
+			projectId: "project-id",
+			description: "Custom auto-routing key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.providerKey).values([
+			{
+				id: "auto-custom-provider-key",
+				token: "sk-custom-auto",
+				provider: "custom",
+				name: "my-custom",
+				baseUrl: mockServerUrl,
+				organizationId: "org-id",
+				customModelsOnly: true,
+			},
+			{
+				id: "auto-anthropic-provider-key",
+				token: "sk-anthropic-auto",
+				provider: "anthropic",
+				baseUrl: mockServerUrl,
+				organizationId: "org-id",
+			},
+		]);
+		await db.insert(tables.customModel).values({
+			id: "auto-custom-model",
+			providerKeyId: "auto-custom-provider-key",
+			organizationId: "org-id",
+			modelName: "claude-haiku-4-5",
+			inputPrice: "0.1e-6",
+			outputPrice: "0.2e-6",
+			contextSize: 200_000,
+			jsonOutput: true,
+			streaming: "true",
+		});
+	}
+
+	describe("custom provider auto routing", () => {
+		test("streams a catalog-backed custom model", async () => {
+			await setupCustomAutoRouting();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer auto-custom-token",
+				},
+				body: JSON.stringify({
+					model: "my-custom/claude-haiku-4-5",
+					messages: [{ role: "user", content: "Hello custom stream!" }],
+					stream: true,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const streamResult = await readAll(res.body);
+			expect(streamResult.hasError).toBe(false);
+			expect(streamResult.eventCount).toBeGreaterThan(0);
+
+			const logs = await waitForLogs(1);
+			expect(logs[0].usedProvider).toBe("custom");
+			expect(logs[0].streamed).toBe(true);
+		});
+
+		test("routes a canonical model id to a cheaper matching custom model", async () => {
+			await setupCustomAutoRouting();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer auto-custom-token",
+				},
+				body: JSON.stringify({
+					model: "claude-haiku-4-5",
+					routing: "price",
+					messages: [{ role: "user", content: "Hello custom route!" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const logs = await waitForLogs(1);
+			expect(logs).toHaveLength(1);
+			expect(logs[0].requestedModel).toBe("claude-haiku-4-5");
+			expect(logs[0].usedProvider).toBe("custom");
+			expect(logs[0].usedModel).toBe("my-custom/claude-haiku-4-5");
+			expect(Number(logs[0].cost)).toBeGreaterThan(0);
+		});
+
+		test("honors scoring weights with a matching custom model", async () => {
+			await setupCustomAutoRouting();
+			await db.insert(tables.routingConfig).values({
+				projectId: "project-id",
+				enabled: true,
+				weights: {
+					price: 0,
+					imagePrice: 0,
+					uptime: 0,
+					throughput: 1,
+					latency: 0,
+					cache: 0,
+				},
+				sticky: { enabled: false },
+				providerPriorities: { anthropic: 1, custom: 1 },
+			});
+			await setRoutingMetrics("claude-haiku-4-5", "anthropic", 100, {
+				routingThroughput: 100,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer auto-custom-token",
+				},
+				body: JSON.stringify({
+					model: "claude-haiku-4-5",
+					messages: [{ role: "user", content: "Honor routing weights" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const logs = await waitForLogs(1);
+			expect(logs[0].usedProvider).toBe("anthropic");
+			expect(logs[0].routingMetadata?.selectionReason).toBe("weighted-score");
+		});
+
+		test("routes to a priced custom model with a matching catalog id", async () => {
+			await setupCustomAutoRouting();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer auto-custom-token",
+				},
+				body: JSON.stringify({
+					model: "auto",
+					messages: [{ role: "user", content: "Hello custom auto!" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const logs = await waitForLogs(1);
+			expect(logs).toHaveLength(1);
+			expect(logs[0].usedProvider).toBe("custom");
+			expect(logs[0].usedModel).toBe("my-custom/claude-haiku-4-5");
+			expect(Number(logs[0].cost)).toBeGreaterThan(0);
+		});
+
+		test("routes JSON schema requests to capable custom models", async () => {
+			await setupCustomAutoRouting();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer auto-custom-token",
+				},
+				body: JSON.stringify({
+					model: "auto",
+					messages: [{ role: "user", content: "Return JSON" }],
+					response_format: {
+						type: "json_schema",
+						json_schema: {
+							name: "response",
+							schema: { type: "object" },
+						},
+					},
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const logs = await waitForLogs(1);
+			expect(logs).toHaveLength(1);
+			expect(logs[0].usedProvider).toBe("custom");
+			expect(logs[0].usedModel).toBe("my-custom/claude-haiku-4-5");
+		});
+
+		test("falls back after an auto-selected custom provider fails", async () => {
+			await setupCustomAutoRouting();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer auto-custom-token",
+				},
+				body: JSON.stringify({
+					model: "auto",
+					messages: [
+						{ role: "user", content: "TRIGGER_FAIL_ONCE custom auto" },
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const logs = await waitForLogs(2);
+			const failedLog = logs.find((log: Log) => log.hasError);
+			const successLog = logs.find((log: Log) => !log.hasError);
+			expect(failedLog?.usedProvider).toBe("custom");
+			expect(failedLog?.retried).toBe(true);
+			expect(successLog?.usedProvider).toBe("anthropic");
+			expect(successLog?.usedModel).toBe("anthropic/claude-haiku-4-5");
+			expect(failedLog?.retriedByLogId).toBe(successLog?.id);
+		});
+	});
 
 	describe("error status code classification", () => {
 		test("500 upstream error is classified as upstream_error with correct metadata in response and DB log", async () => {
@@ -1856,13 +2073,14 @@ describe("fallback and error status code handling", () => {
 					contentFilterRerouted: true,
 					contentFilterExcludedProviders: ["together-ai"],
 				});
-				expect(log.routingMetadata?.providerScores).toContainEqual(
-					expect.objectContaining({
-						providerId: "together-ai",
-						contentFilterProvider: true,
-						excludedByContentFilter: true,
-					}),
+				expect(log.routingMetadata?.providerScores).not.toContainEqual(
+					expect.objectContaining({ providerId: "together-ai" }),
 				);
+				expect(log.routingMetadata?.filteredProviders).toContainEqual({
+					providerId: "together-ai",
+					reasons: ["excluded by content-filter routing"],
+					codes: ["content_filter"],
+				});
 			} finally {
 				if (originalContentFilterFlag === undefined) {
 					delete togetherProvider.contentFilter;
@@ -2638,6 +2856,349 @@ describe("fallback and error status code handling", () => {
 					process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL = originalBaseUrl;
 				} else {
 					delete process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
+				}
+			}
+		});
+
+		test("non-streaming: labels the BYOK attempt and the credits fallback that follows it", async () => {
+			const originalApiKey = process.env.LLM_OPENAI_API_KEY;
+			const originalBaseUrl = process.env.LLM_OPENAI_BASE_URL;
+			process.env.LLM_OPENAI_API_KEY = "openai-env-platform-key";
+			process.env.LLM_OPENAI_BASE_URL = mockServerUrl;
+			try {
+				await ensureBaseFixtures();
+				await ensureProviders(["openai"]);
+				// Hybrid: the organization's own key is preferred, and when it fails
+				// the retry falls back to the platform credential — the two attempts
+				// this test exists to tell apart.
+				await db
+					.update(tables.project)
+					.set({ mode: "hybrid" })
+					.where(eq(tables.project.id, "project-id"));
+				await db.insert(tables.apiKey).values({
+					id: "token-id",
+					token: "real-token",
+					projectId: "project-id",
+					description: "Test API Key",
+					createdBy: "user-id",
+				});
+				await db.insert(tables.providerKey).values({
+					id: "openai-byok-key",
+					token: "openai-byok-token",
+					provider: "openai",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				});
+
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify({
+						model: "openai/gpt-4o-mini",
+						messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE hello" }],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				const json = await res.json();
+				expect(json.metadata.routing).toHaveLength(2);
+				expect(json.metadata.routing[0]).toMatchObject({
+					provider: "openai",
+					succeeded: false,
+					credentialSource: "byok",
+					apiKeyHash: getApiKeyFingerprint("openai-byok-token"),
+				});
+				expect(json.metadata.routing[1]).toMatchObject({
+					provider: "openai",
+					succeeded: true,
+					credentialSource: "platform",
+					apiKeyHash: getApiKeyFingerprint("openai-env-platform-key"),
+				});
+
+				const logs = await waitForLogs(2);
+				const failedLog = logs.find((log: Log) => log.hasError);
+				const successLog = logs.find((log: Log) => !log.hasError);
+				// The credential label always agrees with how the attempt was billed.
+				expect(failedLog?.usedMode).toBe("api-keys");
+				expect(successLog?.usedMode).toBe("credits");
+				expect(successLog?.routingMetadata?.usedCredentialSource).toBe(
+					"platform",
+				);
+				expect(
+					successLog?.routingMetadata?.routing?.map(
+						(attempt) => attempt.credentialSource,
+					),
+				).toEqual(["byok", "platform"]);
+			} finally {
+				if (originalApiKey !== undefined) {
+					process.env.LLM_OPENAI_API_KEY = originalApiKey;
+				} else {
+					delete process.env.LLM_OPENAI_API_KEY;
+				}
+				if (originalBaseUrl !== undefined) {
+					process.env.LLM_OPENAI_BASE_URL = originalBaseUrl;
+				} else {
+					delete process.env.LLM_OPENAI_BASE_URL;
+				}
+			}
+		});
+
+		test("non-streaming: names both of the org's own keys, never the platform one", async () => {
+			const originalApiKey = process.env.LLM_OPENAI_API_KEY;
+			const originalBaseUrl = process.env.LLM_OPENAI_BASE_URL;
+			process.env.LLM_OPENAI_API_KEY = "openai-env-platform-key";
+			process.env.LLM_OPENAI_BASE_URL = mockServerUrl;
+			try {
+				await ensureBaseFixtures();
+				await ensureProviders(["openai"]);
+				await db
+					.update(tables.project)
+					.set({ mode: "hybrid" })
+					.where(eq(tables.project.id, "project-id"));
+				await db.insert(tables.apiKey).values({
+					id: "token-id",
+					token: "real-token",
+					projectId: "project-id",
+					description: "Test API Key",
+					createdBy: "user-id",
+				});
+				// Two of the organization's own keys, both pointed at a closed port
+				// so each fails and rotates to the next credential: primary key →
+				// secondary key → LLM Gateway's own credential (the env one, which
+				// does reach the mock server).
+				await db.insert(tables.providerKey).values([
+					{
+						id: "openai-byok-primary",
+						token: "openai-byok-primary-token",
+						tokenMasked: maskToken("openai-byok-primary-token"),
+						provider: "openai",
+						organizationId: "org-id",
+						baseUrl: "http://127.0.0.1:9",
+						sortOrder: 0,
+					},
+					{
+						id: "openai-byok-secondary",
+						token: "openai-byok-secondary-token",
+						tokenMasked: maskToken("openai-byok-secondary-token"),
+						// A named key, which is how its owner recognizes it.
+						name: "billing-team-key",
+						provider: "openai",
+						organizationId: "org-id",
+						baseUrl: "http://127.0.0.1:9",
+						sortOrder: 1,
+					},
+				]);
+
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify({
+						model: "openai/gpt-4o-mini",
+						messages: [{ role: "user", content: "Hello!" }],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				const json = await res.json();
+				expect(json.metadata.routing).toHaveLength(3);
+
+				// Each of the caller's own attempts names the key it used, the way
+				// the provider-keys page names it.
+				expect(json.metadata.routing[0]).toMatchObject({
+					succeeded: false,
+					credentialSource: "byok",
+					providerKeyId: "openai-byok-primary",
+					providerKeyLabel: maskToken("openai-byok-primary-token"),
+				});
+				expect(json.metadata.routing[1]).toMatchObject({
+					succeeded: false,
+					credentialSource: "byok",
+					providerKeyId: "openai-byok-secondary",
+					providerKeyLabel: "billing-team-key",
+				});
+
+				// The platform attempt is labelled as LLM Gateway's, and carries no
+				// identity at all: naming the credential that serves credits traffic
+				// would leak platform infrastructure to every tenant that falls back
+				// onto it.
+				expect(json.metadata.routing[2]).toMatchObject({
+					succeeded: true,
+					credentialSource: "platform",
+				});
+				expect(json.metadata.routing[2].providerKeyId).toBeUndefined();
+				expect(json.metadata.routing[2].providerKeyLabel).toBeUndefined();
+
+				const logs = await waitForLogs(3);
+				const successLog = logs.find((log: Log) => !log.hasError);
+				expect(successLog?.routingMetadata?.usedCredentialSource).toBe(
+					"platform",
+				);
+				expect(successLog?.routingMetadata?.usedProviderKeyId).toBeUndefined();
+				expect(
+					successLog?.routingMetadata?.usedProviderKeyLabel,
+				).toBeUndefined();
+
+				// Both of the organization's keys were candidates, in selection
+				// order; the platform credential is not one of "your keys".
+				expect(successLog?.routingMetadata?.eligibleProviderKeys).toEqual([
+					{
+						id: "openai-byok-primary",
+						label: maskToken("openai-byok-primary-token"),
+					},
+					{ id: "openai-byok-secondary", label: "billing-team-key" },
+				]);
+			} finally {
+				if (originalApiKey !== undefined) {
+					process.env.LLM_OPENAI_API_KEY = originalApiKey;
+				} else {
+					delete process.env.LLM_OPENAI_API_KEY;
+				}
+				if (originalBaseUrl !== undefined) {
+					process.env.LLM_OPENAI_BASE_URL = originalBaseUrl;
+				} else {
+					delete process.env.LLM_OPENAI_BASE_URL;
+				}
+			}
+		});
+
+		test("non-streaming: your-keys list skips a key the model is not allowed on", async () => {
+			await ensureBaseFixtures();
+			await ensureProviders(["openai"]);
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			// The second key is restricted to a different model, so it could never
+			// have served this request. It must not show up as one of the keys the
+			// gateway had to choose from — on the very first attempt, not only
+			// after a retry re-resolved the candidate set.
+			await db.insert(tables.providerKey).values([
+				{
+					id: "openai-key-general",
+					token: "openai-general-token",
+					tokenMasked: maskToken("openai-general-token"),
+					provider: "openai",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+					sortOrder: 0,
+				},
+				{
+					id: "openai-key-restricted",
+					token: "openai-restricted-token",
+					tokenMasked: maskToken("openai-restricted-token"),
+					name: "embeddings-only-key",
+					provider: "openai",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+					allowedModels: ["text-embedding-3-small"],
+					sortOrder: 1,
+				},
+			]);
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "openai/gpt-4o-mini",
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const logs = await waitForLogs(1);
+			expect(logs[0]?.routingMetadata?.eligibleProviderKeys).toEqual([
+				{
+					id: "openai-key-general",
+					label: maskToken("openai-general-token"),
+				},
+			]);
+		});
+
+		test("streaming: labels the BYOK attempt and the credits fallback that follows it", async () => {
+			const originalApiKey = process.env.LLM_OPENAI_API_KEY;
+			const originalBaseUrl = process.env.LLM_OPENAI_BASE_URL;
+			process.env.LLM_OPENAI_API_KEY = "openai-env-platform-key";
+			process.env.LLM_OPENAI_BASE_URL = mockServerUrl;
+			try {
+				await ensureBaseFixtures();
+				await ensureProviders(["openai"]);
+				await db
+					.update(tables.project)
+					.set({ mode: "hybrid" })
+					.where(eq(tables.project.id, "project-id"));
+				await db.insert(tables.apiKey).values({
+					id: "token-id",
+					token: "real-token",
+					projectId: "project-id",
+					description: "Test API Key",
+					createdBy: "user-id",
+				});
+				await db.insert(tables.providerKey).values({
+					id: "openai-byok-key",
+					token: "openai-byok-token",
+					provider: "openai",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				});
+
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify({
+						model: "openai/gpt-4o-mini",
+						messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE hello" }],
+						stream: true,
+						stream_options: { include_usage: true },
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				const streamResult = await readAll(res.body);
+				expect(streamResult.hasError).toBe(false);
+
+				// Streaming carries the routing array on the final usage chunk.
+				const routingChunk = streamResult.chunks.find(
+					(chunk) => chunk?.metadata?.routing !== undefined,
+				);
+				expect(routingChunk).toBeDefined();
+				expect(
+					routingChunk.metadata.routing.map(
+						(attempt: { credentialSource?: string }) =>
+							attempt.credentialSource,
+					),
+				).toEqual(["byok", "platform"]);
+
+				const logs = await waitForLogs(2);
+				const successLog = logs.find((log: Log) => !log.hasError);
+				expect(successLog?.routingMetadata?.usedCredentialSource).toBe(
+					"platform",
+				);
+			} finally {
+				if (originalApiKey !== undefined) {
+					process.env.LLM_OPENAI_API_KEY = originalApiKey;
+				} else {
+					delete process.env.LLM_OPENAI_API_KEY;
+				}
+				if (originalBaseUrl !== undefined) {
+					process.env.LLM_OPENAI_BASE_URL = originalBaseUrl;
+				} else {
+					delete process.env.LLM_OPENAI_BASE_URL;
 				}
 			}
 		});

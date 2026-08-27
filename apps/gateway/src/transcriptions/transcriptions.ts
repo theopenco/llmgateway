@@ -38,25 +38,32 @@ import {
 	applyEndUserSession,
 	assertTestWalletModelAllowed,
 } from "@/lib/end-user-session.js";
+import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
+import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
-import { getProviderHeaders, readProviderKey } from "@llmgateway/actions";
+import {
+	getProviderHeaders,
+	providerKeyLabel,
+	readProviderKey,
+} from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import {
-	getOrganizationEnvVariant,
-	models as modelDefinitions,
-} from "@llmgateway/models";
+import { models as modelDefinitions } from "@llmgateway/models";
 
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
 import type { ServerTypes } from "@/vars.js";
 import type { RoutingMetadata } from "@llmgateway/actions";
 import type { InferSelectModel, tables } from "@llmgateway/db";
 import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
+import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
+import type { Context } from "hono";
 
 // The request arrives as multipart/form-data (OpenAI-compatible surface). The
 // schema documents the accepted fields; parsing happens via parseBody so file
@@ -201,12 +208,15 @@ function getAvailableCredits(
 	};
 }
 
-function assertCreditsAvailableForTranscription(
+async function assertCreditsAvailableForTranscription(
+	c: Context,
 	organization: InferSelectModel<typeof tables.organization>,
 	modelDef: ModelDefinition,
 	insufficientCreditsMessage: string,
 	devPlanCreditLimitMessage: (renewalDate: string) => string,
 ) {
+	await assertSpendLimit(c, organization, modelDef.free === true);
+
 	const {
 		devPlanCreditsRemaining,
 		chatPlanCreditsRemaining,
@@ -426,6 +436,12 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 	const { mapping, modelDef, modelDefId, explicitProvider } = match;
 	const upstreamModel = mapping.externalId;
 	const providerId = mapping.providerId;
+	const responseModel = formatUsedModelForDisplay(
+		providerId,
+		modelDefId,
+		undefined,
+		mapping.region,
+	);
 
 	const startedAt = Date.now();
 	const source = validateSource(
@@ -500,11 +516,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 		});
 	}
 
-	if (baseOrganization.status === "deleted") {
-		throw new HTTPException(410, {
-			message: "Organization has been disabled and is no longer accessible",
-		});
-	}
+	assertOrganizationUsable(baseOrganization);
 
 	// LLM SDK: ephemeral end-user sessions bill the bound wallet instead of the
 	// developer's org credits. For normal keys this is a no-op.
@@ -559,11 +571,20 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 	const routingAttempts: RoutingAttempt[] = [];
 	const buildTranscriptionRoutingMetadata = (
 		usedApiKeyHash: string | undefined,
+		usedCredentialSource: RoutingCredentialSource,
+		usedProviderKey: { id?: string; label?: string },
 	): RoutingMetadata => ({
 		availableProviders: [providerId],
 		selectedProvider: providerId,
 		selectionReason,
-		...(usedApiKeyHash ? { usedApiKeyHash } : {}),
+		...(usedApiKeyHash
+			? {
+					usedApiKeyHash,
+					usedCredentialSource,
+					usedProviderKeyId: usedProviderKey.id,
+					usedProviderKeyLabel: usedProviderKey.label,
+				}
+			: {}),
 		providerScores: [],
 		...(routingAttempts.length > 0 ? { routing: routingAttempts } : {}),
 	});
@@ -576,7 +597,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 
 	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
 	// this org's env-credential reads. Undefined = base vars only.
-	const envVariant = getOrganizationEnvVariant(retryOrganization);
+	const envVariant = getLicensedOrganizationEnvVariant(retryOrganization);
 
 	// Option fields must precede the file in the multipart body — the upstream
 	// xAI /v1/stt endpoint ignores fields sent after `file` on streamed uploads.
@@ -643,7 +664,8 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 			}
 			usedToken = readProviderKey(providerKey);
 		} else if (retryProject.mode === "credits") {
-			assertCreditsAvailableForTranscription(
+			await assertCreditsAvailableForTranscription(
+				c,
 				retryOrganization,
 				modelDef,
 				`Organization ${retryOrganization.id} has insufficient credits`,
@@ -673,7 +695,8 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 			if (providerKey) {
 				usedToken = readProviderKey(providerKey);
 			} else {
-				assertCreditsAvailableForTranscription(
+				await assertCreditsAvailableForTranscription(
+					c,
 					retryOrganization,
 					modelDef,
 					"No API key set for provider and organization has insufficient credits",
@@ -770,6 +793,16 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 		while (true) {
 			const attemptLogId = shortid();
 			const usedApiKeyHash = getApiKeyFingerprint(attempt.usedToken);
+			// BYOK only when the organization's own key served the attempt; a
+			// platform-managed credential is LLM Gateway's key and bills as credits.
+			const credentialSource: RoutingCredentialSource = attempt.providerKey
+				? "byok"
+				: "platform";
+			// Named only for the organization's own key; providerKeyLabel()
+			// refuses to describe a platform-managed credential.
+			const providerKeyId = attempt.providerKey?.id;
+			const keyLabel = providerKeyLabel(attempt.providerKey);
+			const usedProviderKey = { id: providerKeyId, label: keyLabel };
 			const baseLogEntry = createLogEntry({
 				requestId,
 				project,
@@ -869,6 +902,9 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 							false,
 							{
 								apiKeyHash: usedApiKeyHash,
+								credentialSource,
+								providerKeyId,
+								providerKeyLabel: keyLabel,
 								logId: willRetry ? attemptLogId : finalLogId,
 							},
 						),
@@ -878,7 +914,11 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 				await insertLog({
 					...baseLogEntry,
 					id: willRetry ? attemptLogId : finalLogId,
-					routingMetadata: buildTranscriptionRoutingMetadata(usedApiKeyHash),
+					routingMetadata: buildTranscriptionRoutingMetadata(
+						usedApiKeyHash,
+						credentialSource,
+						usedProviderKey,
+					),
 					duration,
 					timeToFirstToken: null,
 					timeToFirstReasoningToken: null,
@@ -1015,6 +1055,9 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 						false,
 						{
 							apiKeyHash: usedApiKeyHash,
+							credentialSource,
+							providerKeyId,
+							providerKeyLabel: keyLabel,
 							logId: willRetry ? attemptLogId : finalLogId,
 						},
 					),
@@ -1023,7 +1066,11 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 				await insertLog({
 					...baseLogEntry,
 					id: willRetry ? attemptLogId : finalLogId,
-					routingMetadata: buildTranscriptionRoutingMetadata(usedApiKeyHash),
+					routingMetadata: buildTranscriptionRoutingMetadata(
+						usedApiKeyHash,
+						credentialSource,
+						usedProviderKey,
+					),
 					duration,
 					timeToFirstToken: null,
 					timeToFirstReasoningToken: null,
@@ -1148,6 +1195,9 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 					true,
 					{
 						apiKeyHash: usedApiKeyHash,
+						credentialSource,
+						providerKeyId,
+						providerKeyLabel: keyLabel,
 						logId: finalLogId,
 					},
 				),
@@ -1156,7 +1206,11 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 			await insertLog({
 				...baseLogEntry,
 				id: finalLogId,
-				routingMetadata: buildTranscriptionRoutingMetadata(usedApiKeyHash),
+				routingMetadata: buildTranscriptionRoutingMetadata(
+					usedApiKeyHash,
+					credentialSource,
+					usedProviderKey,
+				),
 				duration,
 				timeToFirstToken: null,
 				timeToFirstReasoningToken: null,
@@ -1201,7 +1255,9 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 			});
 
 			return c.json(
-				upstreamJson as z.infer<typeof transcriptionResponseSchema>,
+				(responseObject && typeof responseObject.model === "string"
+					? { ...responseObject, model: responseModel }
+					: upstreamJson) as z.infer<typeof transcriptionResponseSchema>,
 			);
 		}
 	} finally {

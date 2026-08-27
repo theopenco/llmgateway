@@ -1,6 +1,6 @@
 "use client";
 
-import { format, formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow } from "date-fns";
 import {
 	AlertCircle,
 	AudioWaveform,
@@ -29,6 +29,8 @@ import {
 import prettyBytes from "pretty-bytes";
 import { useState } from "react";
 
+import { CredentialSourceBadge } from "@/components/credential-source-badge";
+import { Time } from "@/components/time";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -57,6 +59,9 @@ import {
 interface RoutingMetadata {
 	selectionReason?: string;
 	usedApiKeyHash?: string;
+	usedCredentialSource?: string;
+	usedProviderKeyLabel?: string;
+	eligibleProviderKeys?: Array<{ id: string; label?: string }>;
 	availableProviders?: string[];
 	xNoFallbackHeaderSet?: boolean;
 	noFallback?: boolean;
@@ -88,6 +93,8 @@ interface RoutingMetadata {
 		status_code?: number;
 		error_type?: string;
 		apiKeyHash?: string;
+		credentialSource?: string;
+		providerKeyLabel?: string;
 		logId?: string;
 	}>;
 	filteredProviders?: Array<{
@@ -678,11 +685,28 @@ export function LogCard({
 										{routingMetadata.usedApiKeyHash && (
 											<div className="flex justify-between">
 												<span className="text-muted-foreground">Key</span>
-												<span className="font-mono">
+												<span className="font-mono flex items-center gap-1.5">
 													{formatApiKeyHash(routingMetadata.usedApiKeyHash)}
+													<CredentialSourceBadge
+														source={routingMetadata.usedCredentialSource}
+														keyLabel={routingMetadata.usedProviderKeyLabel}
+													/>
 												</span>
 											</div>
 										)}
+										{routingMetadata.eligibleProviderKeys &&
+											routingMetadata.eligibleProviderKeys.length > 0 && (
+												<div className="flex justify-between gap-2">
+													<span className="text-muted-foreground">
+														Your keys
+													</span>
+													<span className="font-mono text-right">
+														{routingMetadata.eligibleProviderKeys
+															.map((key) => key.label ?? key.id)
+															.join(", ")}
+													</span>
+												</div>
+											)}
 										{routingMetadata.xNoFallbackHeaderSet !== undefined && (
 											<div className="flex justify-between">
 												<span className="text-muted-foreground">
@@ -841,6 +865,10 @@ export function LogCard({
 																			key {formatApiKeyHash(attempt.apiKeyHash)}
 																		</span>
 																	)}
+																	<CredentialSourceBadge
+																		source={attempt.credentialSource}
+																		keyLabel={attempt.providerKeyLabel}
+																	/>
 																	{attempt.logId &&
 																		(getDetailUrl ? (
 																			<LinkComponent
@@ -1166,7 +1194,7 @@ export function LogCard({
 							<div className="grid grid-cols-2 gap-2 rounded-md border p-3 text-sm">
 								<div className="text-muted-foreground">Date</div>
 								<div className="font-mono text-xs">
-									{format(new Date(log.createdAt), "dd.MM.yyyy HH:mm:ss")}
+									<Time date={log.createdAt} format="dayMonthYearTimeZone" />
 								</div>
 								<div className="text-muted-foreground">Request ID</div>
 								<div className="flex items-center gap-1 font-mono text-xs break-all">

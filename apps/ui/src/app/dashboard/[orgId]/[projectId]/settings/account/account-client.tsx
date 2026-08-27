@@ -38,6 +38,8 @@ import { Label } from "@/lib/components/label";
 import { toast } from "@/lib/components/use-toast";
 import { useFetchClient } from "@/lib/fetch-client";
 
+import { TimeZoneSetting } from "@llmgateway/shared";
+
 interface DeletionPreviewOrganization {
 	id: string;
 	name: string;
@@ -309,6 +311,18 @@ export function AccountClient() {
 						</CardFooter>
 					</Card>
 					<DownloadDataCard />
+					<Card>
+						<CardHeader>
+							<CardTitle>Time display</CardTitle>
+							<CardDescription>
+								Choose whether dates and times are shown in your local timezone
+								or in UTC. Applies to you, on this device.
+							</CardDescription>
+						</CardHeader>
+						<CardContent>
+							<TimeZoneSetting />
+						</CardContent>
+					</Card>
 					<Card>
 						<CardHeader>
 							<CardTitle>Delete Account</CardTitle>

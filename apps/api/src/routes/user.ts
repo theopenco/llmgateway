@@ -20,8 +20,9 @@ import {
 import { notifyUserAccountDeleted } from "@/utils/discord.js";
 import { computeProfileData, profileSchema } from "@/utils/profile.js";
 
-import { and, db, eq, tables } from "@llmgateway/db";
+import { and, db, eq, ne, sql, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { getEnterpriseLicenseStatus } from "@llmgateway/shared/enterprise-license";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -49,6 +50,22 @@ const publicUserSchema = z.object({
 	),
 	hasPasskeys: z.boolean(),
 	isSsoUser: z.boolean(),
+});
+
+const enterpriseLicenseSchema = z.object({
+	status: z.enum([
+		"missing",
+		"invalid",
+		"not_yet_valid",
+		"active",
+		"grace",
+		"expired",
+		"development",
+	]),
+	enterpriseEnabled: z.boolean(),
+	whiteLabelEnabled: z.boolean(),
+	expiresAt: z.string().nullable(),
+	graceEndsAt: z.string().nullable(),
 });
 
 async function getUserAuthInfo(userId: string) {
@@ -108,18 +125,28 @@ function toPublicUser(
 	};
 }
 
-function isAdminEmail(email: string | null | undefined): boolean {
+// Admin authority is keyed on the email address, so an unverified one must
+// never count — otherwise changing your email to an unregistered ADMIN_EMAILS
+// address would grant admin. Mirrors adminAuthMiddleware.
+function isAdminUser(userRecord: {
+	email: string | null | undefined;
+	emailVerified: boolean;
+}): boolean {
+	if (!userRecord.emailVerified) {
+		return false;
+	}
+
 	const adminEmailsEnv = process.env.ADMIN_EMAILS ?? "";
 	const adminEmails = adminEmailsEnv
 		.split(",")
 		.map((value) => value.trim().toLowerCase())
 		.filter(Boolean);
 
-	if (!email || adminEmails.length === 0) {
+	if (!userRecord.email || adminEmails.length === 0) {
 		return false;
 	}
 
-	return adminEmails.includes(email.toLowerCase());
+	return adminEmails.includes(userRecord.email.toLowerCase());
 }
 
 const get = createRoute({
@@ -132,6 +159,7 @@ const get = createRoute({
 				"application/json": {
 					schema: z.object({
 						user: publicUserSchema.openapi({}),
+						enterpriseLicense: enterpriseLicenseSchema.openapi({}),
 					}),
 				},
 			},
@@ -161,16 +189,31 @@ user.openapi(get, async (c) => {
 	}
 
 	const authInfo = await getUserAuthInfo(authUser.id);
-	const isAdmin = isAdminEmail(user.email);
+	const isAdmin = isAdminUser(user);
+	const license = getEnterpriseLicenseStatus();
 
 	return c.json({
 		user: toPublicUser(user, authInfo, isAdmin),
+		enterpriseLicense: {
+			status: license.status,
+			enterpriseEnabled: license.enterpriseEnabled,
+			whiteLabelEnabled:
+				license.enterpriseEnabled && license.kind === "white_label",
+			expiresAt: license.expiresAt,
+			graceEndsAt: license.graceEndsAt,
+		},
 	});
 });
 
 const updateUserSchema = z.object({
 	name: z.string().optional(),
-	email: z.string().email("Invalid email address").optional(),
+	// Lowercased to match better-auth, which stores emails lowercase and looks
+	// them up lowercased on sign-in — a mixed-case stored email is unloginable.
+	email: z
+		.string()
+		.transform((v) => v.trim().toLowerCase())
+		.pipe(z.string().email("Invalid email address"))
+		.optional(),
 	username: z
 		.string()
 		.transform((v) => v.trim().toLowerCase())
@@ -332,6 +375,35 @@ user.openapi(updateUser, async (c) => {
 		});
 	}
 
+	const emailChanged =
+		updateData.email !== undefined &&
+		updateData.email !== userRecord.email.toLowerCase();
+
+	// A new address is unproven until the owner clicks the verification link, so
+	// reject it if another account already holds it (clean 400 instead of a DB
+	// constraint 500) and drop `emailVerified` below. Skipping this let an
+	// attacker point their account at an invited/admin address and inherit its
+	// authority, since invite auto-accept and admin checks key on email.
+	// Compared via lower() to also catch legacy mixed-case rows the DB's
+	// case-sensitive unique constraint would treat as distinct.
+	if (emailChanged) {
+		const [existing] = await db
+			.select({ id: tables.user.id })
+			.from(tables.user)
+			.where(
+				and(
+					sql`lower(${tables.user.email}) = ${updateData.email}`,
+					ne(tables.user.id, authUser.id),
+				),
+			)
+			.limit(1);
+		if (existing) {
+			throw new HTTPException(400, {
+				message: "That email address is already in use",
+			});
+		}
+	}
+
 	// Resolve the final state. `username` is only present in updateData when the
 	// client explicitly sends it (including null to clear it); otherwise the
 	// existing value is kept.
@@ -367,6 +439,10 @@ user.openapi(updateUser, async (c) => {
 		.update(tables.user)
 		.set({
 			...updateData,
+			// A changed address must be re-proven before it grants any authority.
+			// On self-hosted deployments the next sign-in re-verifies it (see
+			// auth/config.ts); on hosted the verification banner prompts the user.
+			...(emailChanged ? { emailVerified: false } : {}),
 		})
 		.where(eq(tables.user.id, authUser.id))
 		.returning();
@@ -376,7 +452,7 @@ user.openapi(updateUser, async (c) => {
 		await updateResendContact(updatedUser.email, { name: updateData.name });
 	}
 
-	const isAdmin = isAdminEmail(updatedUser.email);
+	const isAdmin = isAdminUser(updatedUser);
 
 	return c.json({
 		user: toPublicUser(updatedUser, authInfo, isAdmin),
@@ -799,7 +875,7 @@ user.openapi(completeOnboarding, async (c) => {
 		});
 	}
 
-	const isAdmin = isAdminEmail(updatedUser.email);
+	const isAdmin = isAdminUser(updatedUser);
 
 	return c.json({
 		user: toPublicUser(updatedUser, authInfo, isAdmin),

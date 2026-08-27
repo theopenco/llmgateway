@@ -6,6 +6,7 @@
 		"index",
 		"docker",
 		"docker-compose",
+		"enterprise-license",
 		"kubernetes",
 		"aws",
 		"gcp",

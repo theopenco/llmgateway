@@ -26,6 +26,44 @@ export const size = {
 };
 export const contentType = "image/png";
 export const revalidate = 60;
+export const dynamicParams = false;
+
+const getOgProviderIcon = (providerId: string) => {
+	if (providerId === "aws-bedrock" || providerId === "aws-mantle") {
+		return AWSBedrockIconStatic;
+	}
+	if (providerId === "minimax") {
+		return MinimaxIconStatic;
+	}
+	if (providerId === "google-ai-studio") {
+		return GoogleStudioAIIconStatic;
+	}
+	if (providerId === "xai") {
+		return XAIIconStatic;
+	}
+	if (providerId === "fireworks") {
+		return FireworksIconStatic;
+	}
+	return getProviderIcon(providerId);
+};
+
+export function generateStaticParams() {
+	const params: { name: string; provider: string }[] = [];
+
+	for (const model of modelDefinitions) {
+		const uniqueProviders = Array.from(
+			new Set(model.providers.map((mapping) => mapping.providerId)),
+		);
+		for (const providerId of uniqueProviders) {
+			params.push({
+				name: encodeURIComponent(model.id),
+				provider: encodeURIComponent(providerId),
+			});
+		}
+	}
+
+	return params;
+}
 
 interface ImageProps {
 	params: Promise<{ name: string; provider: string }>;
@@ -103,17 +141,7 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 			(p) => p.id === selectedMapping?.providerId,
 		);
 		const ProviderIcon = selectedMapping
-			? selectedMapping.providerId === "minimax"
-				? MinimaxIconStatic
-				: selectedMapping.providerId === "aws-bedrock"
-					? AWSBedrockIconStatic
-					: selectedMapping.providerId === "google-ai-studio"
-						? GoogleStudioAIIconStatic
-						: selectedMapping.providerId === "xai"
-							? XAIIconStatic
-							: selectedMapping.providerId === "fireworks"
-								? FireworksIconStatic
-								: getProviderIcon(selectedMapping.providerId)
+			? getOgProviderIcon(selectedMapping.providerId)
 			: null;
 		const discounts = await fetchModelDiscounts(decodedName);
 		const effectiveDiscount = selectedMapping
@@ -197,18 +225,7 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 		);
 		const supportingProviders = uniqueProviderIds
 			.map((providerId) => {
-				const icon =
-					providerId === "aws-bedrock"
-						? AWSBedrockIconStatic
-						: providerId === "minimax"
-							? MinimaxIconStatic
-							: providerId === "google-ai-studio"
-								? GoogleStudioAIIconStatic
-								: providerId === "xai"
-									? XAIIconStatic
-									: providerId === "fireworks"
-										? FireworksIconStatic
-										: getProviderIcon(providerId);
+				const icon = getOgProviderIcon(providerId);
 				const info = providerDefinitions.find((p) => p.id === providerId);
 				return {
 					id: providerId,

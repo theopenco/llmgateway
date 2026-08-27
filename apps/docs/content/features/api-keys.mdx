@@ -49,7 +49,10 @@ each with its own page:
 
 <Callout type="warning">
 	API keys are shown in full only once during creation. Make sure to copy and
-	store them securely.
+	store them securely. New and rolled secrets are stored only as keyed
+	HMAC-SHA-256 fingerprints, and authentication compares the fingerprint of the
+	presented secret. Existing keys remain valid; rolling an older key migrates it
+	to hash-only storage.
 </Callout>
 
 ### Programmatically
@@ -89,6 +92,9 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 ```
+
+To show DevPass allowance meters in an integration, see the [DevPass Usage
+API](/developers/devpass-usage).
 
 ## Renaming API Keys
 

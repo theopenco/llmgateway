@@ -35,6 +35,7 @@ export {
 	calculateFees,
 	CREDIT_TOP_UP_MAX_AMOUNT,
 	CREDIT_TOP_UP_MIN_AMOUNT,
+	getMaxCreditTopUpAmount,
 	INTERNATIONAL_CARD_FEE_PERCENTAGE,
 	isCreditTopUpAmountInRange,
 	type FeeBreakdown,
@@ -66,6 +67,9 @@ export {
 	REFUND_REASON_HEADING,
 	REFUND_REASON_OPTIONS,
 	REFUND_REASONS,
+	RESET_PASS_SELF_REFUND_WINDOW_DAYS,
+	SELF_REFUND_USAGE_PERCENT,
+	SELF_REFUND_WINDOW_DAYS,
 	isRefundFeedbackComplete,
 	refundCommentsRequired,
 	type RefundReason,
@@ -105,6 +109,7 @@ export {
 
 export {
 	buildGatewayVideoLogContentUrl,
+	getGatewayApiBaseUrl,
 	getGatewayPublicBaseUrl,
 } from "./gateway-url.js";
 
@@ -123,8 +128,38 @@ export {
 export {
 	ModelSelector,
 	ProviderIcons,
+	Time,
+	TimeZoneProvider,
+	TimeZoneSetting,
 	getProviderIcon,
+	useDisplayTimeZone,
 } from "./components/index.js";
+
+export {
+	type DateFormat,
+	dateFormats,
+	formatBucketLabel,
+	formatBucketLabelWithZone,
+	formatDateTime,
+	formatDayKey,
+	formatZoneName,
+	isDayString,
+	isNaiveDateTimeString,
+	shiftDayKey,
+} from "./lib/format-date.js";
+
+export {
+	DEFAULT_TIME_ZONE_PREFERENCE,
+	TIMEZONE_COOKIE_MAX_AGE_DAYS,
+	TIMEZONE_COOKIE_NAME,
+	type TimeZoneMode,
+	type TimeZonePreference,
+	UTC_TIME_ZONE,
+	getBrowserTimeZone,
+	isValidTimeZone,
+	parseTimeZoneCookie,
+	serializeTimeZonePreference,
+} from "./lib/timezone.js";
 
 export { useIsMobile } from "./hooks/use-mobile.js";
 
@@ -171,7 +206,26 @@ export {
 	type PlanTermThresholds,
 } from "./plan-term.js";
 
+export {
+	isLoungeSource,
+	LEGACY_LOUNGE_SOURCE,
+	LOUNGE_SOURCE,
+} from "./lounge-source.js";
+
 export { MARKETING_STATS, RUNWARE_PROMO } from "./marketing.js";
+
+export {
+	deriveStabilityMetrics,
+	type StabilityMetrics,
+} from "./stability-metrics.js";
+
+export {
+	ONBOARDING_MODEL,
+	ONBOARDING_MAX_TOKENS,
+	ONBOARDING_MAX_PROMPT_CHARS,
+	ONBOARDING_SPONSOR_HEADER,
+	getOnboardingSponsorSecret,
+} from "./onboarding.js";
 
 export { isContentFilterErrorText } from "./content-filter.js";
 
@@ -194,6 +248,7 @@ export {
 	SSO_TEAM_DEFAULT_DEVELOPER_BUDGET,
 	type ApiKeyLimitConstraints,
 	type ApiKeyPeriodDurationUnitValue,
+	type MemberBudgetOwner,
 	type MemberBudgetShape,
 } from "./member-budget-limits.js";
 
@@ -230,8 +285,11 @@ export {
 } from "./routing-config.js";
 
 export {
+	isRoutingCredentialSource,
 	isRoutingExclusionReason,
 	isRoutingSelectionReason,
+	ROUTING_CREDENTIAL_SOURCE_DESCRIPTIONS,
+	ROUTING_CREDENTIAL_SOURCE_LABELS,
 	ROUTING_EXCLUSION_REASON_LABELS,
 	ROUTING_EXCLUSION_REASON_MESSAGES,
 	ROUTING_EXCLUSION_REASONS,
@@ -241,10 +299,12 @@ export {
 	ROUTING_SELECTION_REASONS,
 	routingExclusionReasonMessage,
 	routingSelectionKind,
+	type RoutingCredentialSource,
 	type RoutingExclusionReason,
 	type RoutingSelectionKind,
 	type RoutingSelectionReason,
 	type ServiceTierMode,
+	toRoutingCredentialSource,
 	toRoutingExclusionReason,
 	toRoutingSelectionReason,
 } from "./routing-telemetry.js";
@@ -252,6 +312,7 @@ export {
 export {
 	assertSafeContentUrl,
 	assertSafeProviderBaseUrl,
+	assertSafeUserUrl,
 	assertSafeWebhookUrl,
 	isPrivateOrReservedIp,
 	isProviderUrlGuardEnabled,
@@ -259,4 +320,48 @@ export {
 
 export { parseUsedModel, regionFromUsedModel } from "./used-model.js";
 
+export {
+	PLAYGROUND_KEY_COOKIE_MAX_AGE,
+	PLAYGROUND_KEY_COOKIE_NAME,
+} from "./playground-key-cookie.js";
+
+export {
+	baseLimitEnvVar,
+	getBaseLimit,
+	getNextSpendTier,
+	getOrgInflightLimit,
+	getOrgInflightStaleSeconds,
+	getOrgSpendTier,
+	getPlanClass,
+	getRateLimitEnvNumber,
+	INFLIGHT_LIMITED_KEYS,
+	isCappedOrg,
+	isOrgRateLimitEnabled,
+	isSpendCapEnabled,
+	isTopUpVelocityEnabled,
+	isTopUpVelocityGatedOrg,
+	limitHitsKey,
+	orgInflightKey,
+	PATH_RATE_LIMITS,
+	resolvePathRateLimit,
+	resolveTrustTierOverride,
+	SPEND_TIER_DEFAULTS,
+	spendDailyKey,
+	spendMonthlyKey,
+	spendUtcDateKey,
+	spendUtcMonthKey,
+	TOPUP_VELOCITY_RESERVATION_TTL_SECONDS,
+	TOPUP_VELOCITY_WINDOW_MS,
+	topUpVelocityKey,
+	type NextSpendTierInfo,
+	type OrgLimitType,
+	type PathRateLimitConfig,
+	type PlanClass,
+	type ResolvedSpendTier,
+	type SpendCapOrg,
+	type SpendTierOrg,
+	type SpendTierDefaults,
+} from "./spend-tier.js";
+
 export * from "./components/ui/index.js";
+export { discountFraction, isValidDiscount } from "./lib/discount.js";
