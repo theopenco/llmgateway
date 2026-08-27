@@ -19,7 +19,9 @@ import {
 	waitForLogByRequestId,
 } from "@/test-utils/test-helpers.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, eq, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 const mockServer = new Hono();
 let server: ReturnType<typeof serve> | null = null;
@@ -196,7 +198,7 @@ async function setupTestData(opts: {
 
 	await db.insert(tables.apiKey).values({
 		id: "custom-token",
-		token: TEST_TOKEN,
+		...hashApiKeyForStorage(TEST_TOKEN),
 		projectId: "custom-project",
 		description: "Test API Key",
 		createdBy: "custom-user",
@@ -205,7 +207,11 @@ async function setupTestData(opts: {
 	if (opts.includeProviderKey) {
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-custom",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-custom",
+				"custom-org",
+			),
 			provider: "custom",
 			name: "my-custom",
 			organizationId: "custom-org",
@@ -217,7 +223,11 @@ async function setupTestData(opts: {
 	if (opts.includeCatalogProviderKey) {
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-openai",
-			token: "sk-openai-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-openai-test-key",
+				"provider-key-openai",
+				"custom-org",
+			),
 			provider: "openai",
 			organizationId: "custom-org",
 			baseUrl: `http://localhost:${MOCK_PORT}`,
@@ -579,7 +589,11 @@ describe("Custom Provider", () => {
 			await setupTestData({ mode: "api-keys" });
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-redirect",
-				token: "sk-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-redirect",
+					"custom-org",
+				),
 				provider: "custom",
 				name: "rdr",
 				organizationId: "custom-org",

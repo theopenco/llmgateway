@@ -3,6 +3,7 @@
 import {
 	AlertTriangle,
 	AlertCircle,
+	ArrowUpRight,
 	Ban,
 	CalendarClock,
 	Clock,
@@ -16,6 +17,7 @@ import {
 	Share2,
 	Zap,
 } from "lucide-react";
+import Link from "next/link.js";
 import { useMemo, useState } from "react";
 
 import { getProviderIcon } from "@/components/provider-icons";
@@ -602,6 +604,8 @@ export function ProviderSection({
 	copiedModel,
 	isImageGen = false,
 	detailed = false,
+	providerHref,
+	headerExtra,
 }: {
 	modelId: string;
 	providerInfo: ApiProvider;
@@ -620,6 +624,9 @@ export function ProviderSection({
 	copiedModel: string | null;
 	isImageGen?: boolean;
 	detailed?: boolean;
+	/** Links the provider name to the provider's page when set. */
+	providerHref?: string;
+	headerExtra?: React.ReactNode;
 }) {
 	const [activeRegionIdx, setActiveRegionIdx] = useState(0);
 	const [showTokenPricing, setShowTokenPricing] = useState(false);
@@ -676,18 +683,43 @@ export function ProviderSection({
 			{/* Provider header */}
 			<div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-border/30">
 				<div className="flex items-center gap-2 min-w-0">
-					<div className="w-5 h-5 rounded flex items-center justify-center shrink-0">
-						{ProviderIcon ? (
-							<ProviderIcon className="h-4 w-4" />
-						) : (
-							<span className="text-[10px] font-bold text-muted-foreground">
-								{(providerInfo?.name ?? providerId).charAt(0).toUpperCase()}
+					{providerHref ? (
+						<Link
+							href={providerHref}
+							onClick={(e) => e.stopPropagation()}
+							className="group/provider flex items-center gap-2 min-w-0"
+							title={`About ${providerInfo?.name ?? providerId}`}
+						>
+							<div className="w-5 h-5 rounded flex items-center justify-center shrink-0">
+								{ProviderIcon ? (
+									<ProviderIcon className="h-4 w-4" />
+								) : (
+									<span className="text-[10px] font-bold text-muted-foreground">
+										{(providerInfo?.name ?? providerId).charAt(0).toUpperCase()}
+									</span>
+								)}
+							</div>
+							<span className="text-sm font-semibold text-foreground truncate underline-offset-4 decoration-border group-hover/provider:underline">
+								{providerInfo?.name ?? providerId}
 							</span>
-						)}
-					</div>
-					<span className="text-sm font-semibold text-foreground truncate">
-						{providerInfo?.name ?? providerId}
-					</span>
+							<ArrowUpRight className="h-3 w-3 shrink-0 text-muted-foreground/50 transition-[transform,color] duration-150 ease-out group-hover/provider:text-foreground group-hover/provider:translate-x-px group-hover/provider:-translate-y-px" />
+						</Link>
+					) : (
+						<>
+							<div className="w-5 h-5 rounded flex items-center justify-center shrink-0">
+								{ProviderIcon ? (
+									<ProviderIcon className="h-4 w-4" />
+								) : (
+									<span className="text-[10px] font-bold text-muted-foreground">
+										{(providerInfo?.name ?? providerId).charAt(0).toUpperCase()}
+									</span>
+								)}
+							</div>
+							<span className="text-sm font-semibold text-foreground truncate">
+								{providerInfo?.name ?? providerId}
+							</span>
+						</>
+					)}
 					<StabilityDot stability={activeMapping.stability} />
 					{hasProviderStabilityWarning(activeMapping) && (
 						<AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
@@ -698,6 +730,7 @@ export function ProviderSection({
 							{providerInfo.modelCardBadge}
 						</Badge>
 					)}
+					{headerExtra}
 				</div>
 				<div className="flex items-center gap-1 shrink-0">
 					{serviceTiers.length > 0 && (

@@ -4,7 +4,9 @@ import { app } from "@/app.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 import { waitForLogs } from "@/test-utils/test-helpers.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { cdb, db, eq, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 describe("speech", () => {
 	const harness = createGatewayApiTestHarness();
@@ -21,7 +23,7 @@ describe("speech", () => {
 	) {
 		await db.insert(tables.apiKey).values({
 			id: apiKeyId,
-			token,
+			...hashApiKeyForStorage(token),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -36,7 +38,11 @@ describe("speech", () => {
 						: "google-test-key";
 		await db.insert(tables.providerKey).values({
 			id: `provider-key-${provider}-${apiKeyId}`,
-			token: providerToken,
+			...encryptProviderKeyForStorage(
+				providerToken,
+				`provider-key-${provider}-${apiKeyId}`,
+				"org-id",
+			),
 			provider,
 			organizationId: "org-id",
 			baseUrl: harness.mockServerUrl,
@@ -241,7 +247,7 @@ describe("speech", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-speech-no-credits",
-			token: "real-token-speech-no-credits",
+			...hashApiKeyForStorage("real-token-speech-no-credits"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -284,7 +290,7 @@ describe("speech", () => {
 
 			await db.insert(tables.apiKey).values({
 				id: "token-id-speech-chat-plan",
-				token: "real-token-speech-chat-plan",
+				...hashApiKeyForStorage("real-token-speech-chat-plan"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -326,7 +332,7 @@ describe("speech", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id-speech-vertex",
-				token: "real-token-speech-vertex",
+				...hashApiKeyForStorage("real-token-speech-vertex"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -334,7 +340,11 @@ describe("speech", () => {
 			await harness.setProjectMode("credits");
 			await cdb.insert(tables.providerKey).values({
 				id: "managed-key-speech-vertex",
-				token: "google-test-key",
+				...encryptProviderKeyForStorage(
+					"google-test-key",
+					"managed-key-speech-vertex",
+					null,
+				),
 				provider: "google-vertex",
 				managed: true,
 				organizationId: null,

@@ -273,6 +273,7 @@ export function OrgSettingsTab({
 	onDeletePaymentMethod: (
 		paymentMethodId: string,
 		replacementPaymentMethodId?: string,
+		releaseDevPlanCardFingerprint?: boolean,
 	) => Promise<{ success: boolean; error?: string }>;
 }) {
 	const { organization: org, customProviders } = settings;

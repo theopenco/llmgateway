@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, eq, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
@@ -18,7 +20,7 @@ describe("IAM rule evaluation per endpoint", () => {
 	async function seedApiKey(token: string) {
 		await db.insert(tables.apiKey).values({
 			id: `key-${token}`,
-			token,
+			...hashApiKeyForStorage(token),
 			projectId: "project-id",
 			description: "IAM endpoint test key",
 			createdBy: "user-id",
@@ -62,7 +64,11 @@ describe("IAM rule evaluation per endpoint", () => {
 		for (const provider of providers) {
 			await db.insert(tables.providerKey).values({
 				id: `provider-key-${provider}`,
-				token: `${provider}-test-key`,
+				...encryptProviderKeyForStorage(
+					`${provider}-test-key`,
+					`provider-key-${provider}`,
+					"org-id",
+				),
 				provider,
 				organizationId: "org-id",
 				baseUrl: harness.mockServerUrl,

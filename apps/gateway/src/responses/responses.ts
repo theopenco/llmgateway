@@ -319,6 +319,9 @@ responses.post("/", async (c) => {
 			return null;
 		})
 		.filter((t): t is NonNullable<typeof t> => t !== null);
+	const imageGenerationTool = req.tools?.find(
+		(tool: Record<string, unknown>) => tool.type === "image_generation",
+	) as Record<string, unknown> | undefined;
 
 	// Convert text.format to response_format
 	let response_format: Record<string, unknown> | undefined;
@@ -356,6 +359,11 @@ responses.post("/", async (c) => {
 	}
 	if (tools && tools.length > 0) {
 		chatRequest.tools = tools;
+	}
+	if (typeof imageGenerationTool?.size === "string") {
+		chatRequest.image_config = {
+			image_size: imageGenerationTool.size,
+		};
 	}
 	if (req.tool_choice) {
 		// The chat handler speaks Chat Completions, so a Responses-shaped named

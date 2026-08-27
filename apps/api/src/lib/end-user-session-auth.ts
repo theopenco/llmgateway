@@ -47,10 +47,7 @@ export async function endUserSessionAuth(c: Context, next: Next) {
 
 	const session = await db.query.endUserSession.findFirst({
 		where: {
-			OR: [
-				{ token: { eq: token } },
-				{ tokenHash: { in: getApiKeyFingerprints(token) } },
-			],
+			tokenHash: { in: getApiKeyFingerprints(token) },
 			status: { eq: "active" },
 		},
 		with: { wallet: { with: { endCustomer: true, project: true } } },

@@ -842,8 +842,7 @@ export const deepseekModels = [
 				// Reasoning arrives as `reasoning_content` (streamed as deltas) only
 				// when `reasoning_effort` is passed explicitly — a request without it
 				// returns no reasoning at all, and "none" suppresses it.
-				// `reasoning_tokens` is reported inside completion_tokens, so costs.ts
-				// lists this provider in completionIncludesReasoning.
+				// `reasoning_tokens` is reported inside completion_tokens.
 				//
 				// All four tool_choice modes are honoured, so none are declared here.
 				// The endpoint silently ignores n > 1 and returns one choice, so this
@@ -972,6 +971,92 @@ export const deepseekModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+			},
+			{
+				providerId: "consensusprotocol",
+				externalId: "DeepSeek-V4-Flash",
+				inputPrice: "0.13e-6",
+				outputPrice: "0.27e-6",
+				cachedInputPrice: "0.02e-6",
+				requestPrice: "0",
+				contextSize: 524288,
+				maxOutput: 393216,
+				quantization: "int8",
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "high", "max"],
+				vision: false,
+				tools: true,
+				// tool_choice "none" leaks a raw <|DSML|tool_calls> template as
+				// assistant content instead of suppressing tools, so it downgrades to
+				// "auto" instead.
+				supportedToolChoices: ["auto", "required", "function"],
+				// An assistant prefill turn comes back with a stray "</think>"
+				// prefixed to the content, so the prefill is rewritten away instead.
+				supportsAssistantPrefill: false,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+		],
+	},
+	{
+		id: "deepseek-v4-flash-vision-exp",
+		name: "DeepSeek V4 Flash Vision Exp",
+		description:
+			"Experimental multimodal DeepSeek V4 Flash model with vision, extended context, and reasoning.",
+		family: "deepseek",
+		stability: "experimental",
+		releasedAt: new Date("2026-08-21"),
+		providers: [
+			{
+				providerId: "deepseek",
+				externalId: "deepseek-v4-flash-vision-exp",
+				inputPrice: "0.14e-6",
+				outputPrice: "0.28e-6",
+				cachedInputPrice: "0.0028e-6",
+				peakPricing: {
+					peak: {
+						inputPrice: "0.44e-6",
+						outputPrice: "1.32e-6",
+						cachedInputPrice: "0.014e-6",
+					},
+					offPeak: {
+						inputPrice: "0.22e-6",
+						outputPrice: "0.66e-6",
+						cachedInputPrice: "0.007e-6",
+					},
+					hoursUtc: [
+						[1, 4],
+						[6, 10],
+					],
+					offPeakDays: {
+						daysOfWeek: [0, 6],
+						utcOffsetMinutes: 480,
+						timeZoneLabel: "Beijing time",
+					},
+				},
+				requestPrice: "0",
+				contextSize: 1050000,
+				maxOutput: 393216,
+				jsonOutput: true,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "high", "max"],
+				vision: true,
+				tools: true,
+				supportsDeveloperRole: false,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+					"reasoning_effort",
+				],
 			},
 		],
 	},

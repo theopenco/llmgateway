@@ -2,6 +2,35 @@ import type { ModelDefinition } from "@/models.js";
 
 export const zaiModels = [
 	{
+		id: "glm-5.3-flash",
+		name: "GLM-5.3 Flash",
+		description:
+			"Lightweight GLM-5.3 variant for efficient coding and long-horizon agent tasks with a 1M context window.",
+		family: "zai",
+		releasedAt: new Date("2026-08-26"),
+		providers: [
+			{
+				providerId: "zai",
+				externalId: "glm-5.3-flash",
+				inputPrice: "0.15e-6",
+				cachedInputPrice: "0.03e-6",
+				outputPrice: "0.5e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["low", "high", "max"],
+				vision: false,
+				tools: true,
+				supportedToolChoices: ["auto", "required", "function"],
+				jsonOutput: true,
+				supportsDeveloperRole: false,
+			},
+		],
+	},
+	{
 		id: "glm-5.3",
 		name: "GLM-5.3",
 		description:

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { db, tables } from "@llmgateway/db";
 import {
 	getApiKeyFingerprint,
 	hashApiKeyForStorage,
@@ -87,7 +87,6 @@ describe("platform sessions", () => {
 		expect(aggregateKeys).toHaveLength(1);
 		expect(aggregateKeys[0].description).toBe("Embedded end-user: customer-a");
 		expect(aggregateKeys[0].endCustomerWalletId).toBe(firstSession.walletId);
-		expect(aggregateKeys[0].token).toBeNull();
 		expect(aggregateKeys[0].tokenHash).toMatch(/^[0-9a-f]{64}$/);
 		expect(aggregateKeys[0].tokenMasked).toMatch(/^euck_/);
 
@@ -98,7 +97,6 @@ describe("platform sessions", () => {
 		});
 		expect(sessions).toHaveLength(2);
 		for (const session of sessions) {
-			expect(session.token).toBeNull();
 			expect(session.tokenHash).toMatch(/^[0-9a-f]{64}$/);
 		}
 	});
@@ -109,7 +107,6 @@ describe("platform sessions", () => {
 			where: { walletId: { eq: session.walletId } },
 		});
 
-		expect(stored?.token).toBeNull();
 		expect(stored?.tokenHash).toBe(getApiKeyFingerprint(session.sessionToken));
 
 		const balance = await app.request("/v1/wallet/balance", {
@@ -139,7 +136,7 @@ describe("platform sessions", () => {
 			sessions.find(
 				(row) => row.tokenHash === getApiKeyFingerprint(refreshed.sessionToken),
 			),
-		).toMatchObject({ token: null, status: "active" });
+		).toMatchObject({ status: "active" });
 
 		const oldToken = await app.request("/v1/wallet/balance", {
 			headers: { Authorization: `Bearer ${session.sessionToken}` },
@@ -152,23 +149,11 @@ describe("platform sessions", () => {
 		expect(newToken.status).toBe(200);
 	});
 
-	test("keeps legacy plaintext sessions valid during backfill", async () => {
-		const session = await mintSession("customer-a");
-		await db
-			.update(tables.endUserSession)
-			.set({ token: session.sessionToken, tokenHash: null })
-			.where(eq(tables.endUserSession.walletId, session.walletId));
-
-		const balance = await app.request("/v1/wallet/balance", {
-			headers: { Authorization: `Bearer ${session.sessionToken}` },
-		});
-		expect(balance.status).toBe(200);
-	});
-
 	test("returns the intentionally public publishable key", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "test-platform-publishable-key-id",
-			token: "pk_test_public",
+			tokenHash: null,
+			tokenMasked: "pk_test_public",
 			projectId: "test-project-id",
 			description: "Platform publishable",
 			keyType: "platform_publishable",
@@ -222,7 +207,7 @@ describe("platform sessions", () => {
 	test("live and test keys give the same externalId independent wallets", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "test-live-platform-key-id",
-			token: "sk_live_platform",
+			...hashApiKeyForStorage("sk_live_platform"),
 			projectId: "test-project-id",
 			description: "Live platform secret",
 			keyType: "platform_secret",
@@ -255,7 +240,7 @@ describe("platform sessions", () => {
 	async function createLiveKey() {
 		await db.insert(tables.apiKey).values({
 			id: "test-live-platform-key-id",
-			token: "sk_live_platform",
+			...hashApiKeyForStorage("sk_live_platform"),
 			projectId: "test-project-id",
 			description: "Live platform secret",
 			keyType: "platform_secret",

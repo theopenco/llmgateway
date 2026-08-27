@@ -1671,7 +1671,7 @@ export const providers: ProviderDefinition[] = [
 		name: "Meta",
 		forwardsSafetyIdentifier: false,
 		description:
-			"Meta's Model API serving the Muse Spark multimodal reasoning models via an OpenAI-compatible API",
+			"Meta's Model API serving Muse reasoning and image models via an OpenAI-compatible API",
 		env: {
 			required: {
 				apiKey: "LLM_META_API_KEY",
@@ -1990,6 +1990,38 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
+	},
+	{
+		id: "consensusprotocol",
+		name: "Consensus Protocol",
+		forwardsSafetyIdentifier: false,
+		description:
+			"Consensus Protocol serves open-weight large language models on dedicated GPU hardware it operates, via an OpenAI-compatible inference API.",
+		env: {
+			required: {
+				apiKey: "LLM_CONSENSUSPROTOCOL_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#dc2626",
+		website: "https://consensusprotocol.org",
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: "https://consensusprotocol.org/terms",
+		privacyPolicyUrl: "https://consensusprotocol.org/privacy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+		},
+		additionalLinks: [
+			{
+				desc: "Inference data handling",
+				link: "https://consensusprotocol.org/data-policy",
+			},
+		],
 	},
 ] as const satisfies ProviderDefinition[];
 

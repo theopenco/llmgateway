@@ -1066,6 +1066,7 @@ export const ChatUI = ({
 	// shared with the image playground so both surfaces offer the same options.
 	const {
 		isGptImage,
+		isMuseImage,
 		usesPixelDimensions,
 		availableSizes,
 		supportsQuality,
@@ -1997,13 +1998,22 @@ export const ChatUI = ({
 										<SelectValue placeholder="Image Size" />
 									</SelectTrigger>
 									<SelectContent>
-										<SelectItem value="1024x1024">1024x1024</SelectItem>
-										<SelectItem value="720x1280">720x1280</SelectItem>
-										<SelectItem value="1280x720">1280x720</SelectItem>
-										<SelectItem value="1024x1536">1024x1536</SelectItem>
-										<SelectItem value="1536x1024">1536x1024</SelectItem>
-										<SelectItem value="2048x1024">2048x1024</SelectItem>
-										<SelectItem value="1024x2048">1024x2048</SelectItem>
+										{(isMuseImage
+											? availableSizes
+											: [
+													"1024x1024",
+													"720x1280",
+													"1280x720",
+													"1024x1536",
+													"1536x1024",
+													"2048x1024",
+													"1024x2048",
+												]
+										).map((size) => (
+											<SelectItem key={size} value={size}>
+												{size}
+											</SelectItem>
+										))}
 									</SelectContent>
 								</Select>
 							)}

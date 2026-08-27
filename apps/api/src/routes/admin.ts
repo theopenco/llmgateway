@@ -118,7 +118,6 @@ import {
 	fromEmail,
 	replyToEmail,
 } from "@llmgateway/shared/email";
-import { maskToken } from "@llmgateway/shared/mask-token";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -3406,7 +3405,6 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 	const apiKeys = await db
 		.select({
 			id: tables.apiKey.id,
-			legacyToken: tables.apiKey.token,
 			tokenMasked: tables.apiKey.tokenMasked,
 			description: tables.apiKey.description,
 			status: tables.apiKey.status,
@@ -3447,8 +3445,7 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 	return c.json({
 		apiKeys: apiKeys.map((k) => ({
 			...k,
-			token: k.tokenMasked ?? maskToken(k.legacyToken ?? ""),
-			legacyToken: undefined,
+			token: k.tokenMasked,
 			tokenMasked: undefined,
 			usage: String(k.usage),
 			usageLimit: k.usageLimit ? String(k.usageLimit) : null,
@@ -3501,9 +3498,6 @@ admin.openapi(getOrganizationProviderKeys, async (c) => {
 	const providerKeys = await db
 		.select({
 			id: tables.providerKey.id,
-			// Legacy pre-encryption rows still carry plaintext here; it is selected
-			// only to compute the mask below and must never reach the response.
-			legacyToken: tables.providerKey.token,
 			tokenMasked: tables.providerKey.tokenMasked,
 			tokenHash: tables.providerKey.tokenHash,
 			provider: tables.providerKey.provider,
@@ -3531,7 +3525,7 @@ admin.openapi(getOrganizationProviderKeys, async (c) => {
 		// its `tokenHash` (which matches `log.usedApiKeyHash`).
 		providerKeys: providerKeys.map((k) => ({
 			id: k.id,
-			token: k.tokenMasked ?? maskToken(k.legacyToken ?? "", 6),
+			token: k.tokenMasked,
 			tokenHash: k.tokenHash,
 			provider: k.provider,
 			name: k.name,
@@ -11667,10 +11661,6 @@ admin.openapi(getUnstableMappings, async (c) => {
 						comment: tables.providerKey.comment,
 						description: tables.providerKey.description,
 						tokenMasked: tables.providerKey.tokenMasked,
-						// Legacy pre-encryption rows still carry plaintext here; it is
-						// selected only to compute the mask below and must never reach
-						// the response.
-						legacyToken: tables.providerKey.token,
 						managed: tables.providerKey.managed,
 					})
 					.from(tables.providerKey)
@@ -11696,13 +11686,10 @@ admin.openapi(getUnstableMappings, async (c) => {
 				providerKeyId: r.provider_key_id,
 				providerKeyLabel: keyRow
 					? keyRow.managed
-						? keyRow.comment?.trim() ||
-							(keyRow.tokenMasked ?? maskToken(keyRow.legacyToken ?? "", 6))
+						? keyRow.comment?.trim() || keyRow.tokenMasked
 						: keyRow.description?.trim() || "Bring your own key"
 					: null,
-				providerKeyMaskedToken: keyRow
-					? (keyRow.tokenMasked ?? maskToken(keyRow.legacyToken ?? "", 6))
-					: null,
+				providerKeyMaskedToken: keyRow ? keyRow.tokenMasked : null,
 				providerKeyManaged: keyRow ? keyRow.managed : null,
 				logsCount: Number(r.logs_count),
 				errorsCount: Number(r.errors_count),

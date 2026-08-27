@@ -709,12 +709,12 @@ describe("extractTokenUsage", () => {
 
 	describe("xai-style reasoning usage", () => {
 		it.each(["xai", "vertex-openai"] as const)(
-			"reads reasoning tokens from completion_tokens_details for %s",
+			"normalizes separately reported reasoning for %s",
 			(provider) => {
 				// Real grok-4.6 usage payload. xAI reports reasoning only in the nested
 				// details object and leaves it OUT of completion_tokens — note
-				// total_tokens = 213 + 4 + 310 — so it has to be picked up here or the
-				// cost engine bills the 4 visible output tokens and nothing else.
+				// total_tokens = 213 + 4 + 310. Extraction makes the output count
+				// inclusive before it reaches billing.
 				const data = {
 					usage: {
 						prompt_tokens: 213,
@@ -728,11 +728,29 @@ describe("extractTokenUsage", () => {
 				const result = extractTokenUsage(data, provider);
 
 				expect(result.promptTokens).toBe(213);
-				expect(result.completionTokens).toBe(4);
+				expect(result.completionTokens).toBe(314);
 				expect(result.reasoningTokens).toBe(310);
+				expect(result.totalTokens).toBe(527);
 				expect(result.cachedTokens).toBe(128);
 			},
 		);
+
+		it("keeps an inclusive completion count unchanged", () => {
+			const result = extractTokenUsage(
+				{
+					usage: {
+						prompt_tokens: 213,
+						completion_tokens: 314,
+						total_tokens: 527,
+						completion_tokens_details: { reasoning_tokens: 310 },
+					},
+				},
+				"openai",
+			);
+
+			expect(result.completionTokens).toBe(314);
+			expect(result.reasoningTokens).toBe(310);
+		});
 
 		it("returns null reasoning tokens for a non-reasoning response", () => {
 			const data = {

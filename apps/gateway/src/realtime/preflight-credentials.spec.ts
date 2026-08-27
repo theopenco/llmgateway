@@ -2,7 +2,9 @@ import { describe, expect, test } from "vitest";
 
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { cdb, db, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { runRealtimePreflight } from "./preflight.js";
 
@@ -16,7 +18,7 @@ describe("realtime preflight with managed credentials", () => {
 	async function seedApiKey() {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -31,7 +33,11 @@ describe("realtime preflight with managed credentials", () => {
 		await cdb.insert(tables.providerKey).values({
 			id: "managed-openai",
 			provider: "openai",
-			token: "sk-managed-upstream",
+			...encryptProviderKeyForStorage(
+				"sk-managed-upstream",
+				"managed-openai",
+				null,
+			),
 			managed: true,
 			organizationId: null,
 		});

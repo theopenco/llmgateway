@@ -90,7 +90,6 @@ export function getApiKeyFingerprints(token: string): string[] {
 /** Hash-only values persisted for a bearer token. */
 export function hashTokenForStorage(token: string) {
 	return {
-		token: null,
 		tokenHash: getApiKeyFingerprint(token),
 	} as const;
 }

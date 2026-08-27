@@ -18,6 +18,7 @@ import {
 } from "@/chat-helpers.e2e.js";
 
 import { db, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
 
@@ -168,7 +169,7 @@ async function imageBeforeAllHook() {
 		.insert(tables.apiKey)
 		.values({
 			id: IMAGE_API_KEY_ID,
-			token: IMAGE_API_KEY_TOKEN,
+			...hashApiKeyForStorage(IMAGE_API_KEY_TOKEN),
 			projectId: IMAGE_PROJECT_ID,
 			description: "Image E2E API Key",
 			createdBy: "user-id",
