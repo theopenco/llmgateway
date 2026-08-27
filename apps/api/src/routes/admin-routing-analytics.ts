@@ -229,6 +229,8 @@ const routingAnalyticsResponseSchema = z
 				thresholds: z
 					.object({
 						cachePromptTokens: z.number(),
+						cacheHitRate: z.number(),
+						cacheOutputRatio: z.number(),
 						uptimePenalty: z.number(),
 						defaultUptime: z.number(),
 						defaultLatency: z.number(),
