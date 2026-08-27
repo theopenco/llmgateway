@@ -87,6 +87,11 @@ import { matchesCapability } from "./capability-filters";
 import { formatDeprecationDate, formatPerImagePriceRange } from "./format";
 import { ModelCard } from "./model-card";
 import { applyCategoryFilter } from "./model-category-filters";
+import {
+	getMinInputCharacterPrice,
+	getMinPerImagePrice,
+	getMinPerSecondPrice,
+} from "./pricing-schedule";
 import { isVisibleMapping } from "./status-filters";
 import {
 	applyUseCaseFilter,
@@ -158,7 +163,10 @@ type SortField =
 	| "inputPrice"
 	| "outputPrice"
 	| "cachedInputPrice"
-	| "discount";
+	| "discount"
+	| "perImagePrice"
+	| "perSecondPrice"
+	| "inputCharacterPrice";
 type SortDirection = "asc" | "desc";
 
 // Capability icon type
@@ -537,7 +545,9 @@ const ModelTableRow = React.memo(
 
 					{/* Input Price Column */}
 					<TableCell className="text-right font-mono text-sm">
-						{row.provider.perSecondPrice && !row.provider.inputPrice ? (
+						{row.provider.perSecondPrice &&
+						(!row.provider.inputPrice ||
+							parseFloat(row.provider.inputPrice) === 0) ? (
 							<Tooltip>
 								<TooltipTrigger asChild>
 									<span className="text-violet-500 cursor-help">
@@ -623,7 +633,9 @@ const ModelTableRow = React.memo(
 
 					{/* Output Price Column */}
 					<TableCell className="text-right font-mono text-sm">
-						{row.provider.perSecondPrice && !row.provider.outputPrice ? (
+						{row.provider.perSecondPrice &&
+						(!row.provider.outputPrice ||
+							parseFloat(row.provider.outputPrice) === 0) ? (
 							<Tooltip>
 								<TooltipTrigger asChild>
 									<span className="text-violet-500 cursor-help">
@@ -1311,6 +1323,37 @@ export function AllModels({
 				return false;
 			}
 
+			// Alternative-unit price filters: Image / Video / Speech buttons
+			// act as price-presence filters (not just sorts) so only models
+			// with that billing unit remain.
+			if (sortField === "perImagePrice") {
+				if (
+					!model.providerDetails.some(
+						(p) => getMinPerImagePrice(p.provider) !== null,
+					)
+				) {
+					return false;
+				}
+			}
+			if (sortField === "perSecondPrice") {
+				if (
+					!model.providerDetails.some(
+						(p) => getMinPerSecondPrice(p.provider) !== null,
+					)
+				) {
+					return false;
+				}
+			}
+			if (sortField === "inputCharacterPrice") {
+				if (
+					!model.providerDetails.some(
+						(p) => getMinInputCharacterPrice(p.provider) !== null,
+					)
+				) {
+					return false;
+				}
+			}
+
 			return true;
 		});
 
@@ -1404,6 +1447,39 @@ export function AllModels({
 							: Infinity;
 					break;
 				}
+				case "perImagePrice": {
+					const aVals = a.providerDetails
+						.map((p) => getMinPerImagePrice(p.provider))
+						.filter((v): v is number => v !== null);
+					const bVals = b.providerDetails
+						.map((p) => getMinPerImagePrice(p.provider))
+						.filter((v): v is number => v !== null);
+					aValue = aVals.length > 0 ? Math.min(...aVals) : Infinity;
+					bValue = bVals.length > 0 ? Math.min(...bVals) : Infinity;
+					break;
+				}
+				case "perSecondPrice": {
+					const aVals = a.providerDetails
+						.map((p) => getMinPerSecondPrice(p.provider))
+						.filter((v): v is number => v !== null);
+					const bVals = b.providerDetails
+						.map((p) => getMinPerSecondPrice(p.provider))
+						.filter((v): v is number => v !== null);
+					aValue = aVals.length > 0 ? Math.min(...aVals) : Infinity;
+					bValue = bVals.length > 0 ? Math.min(...bVals) : Infinity;
+					break;
+				}
+				case "inputCharacterPrice": {
+					const aVals = a.providerDetails
+						.map((p) => getMinInputCharacterPrice(p.provider))
+						.filter((v): v is number => v !== null);
+					const bVals = b.providerDetails
+						.map((p) => getMinInputCharacterPrice(p.provider))
+						.filter((v): v is number => v !== null);
+					aValue = aVals.length > 0 ? Math.min(...aVals) : Infinity;
+					bValue = bVals.length > 0 ? Math.min(...bVals) : Infinity;
+					break;
+				}
 				case "discount": {
 					// Highest discount across all providers for this model
 					const aDiscounts = a.providerDetails.map((m) =>
@@ -1471,6 +1547,26 @@ export function AllModels({
 						categoryFilter,
 						category: filters.category,
 					})
+				) {
+					continue;
+				}
+
+				// Alt-unit price filter at row level: keep only rows with that billing unit
+				if (
+					sortField === "perImagePrice" &&
+					getMinPerImagePrice(provider) === null
+				) {
+					continue;
+				}
+				if (
+					sortField === "perSecondPrice" &&
+					getMinPerSecondPrice(provider) === null
+				) {
+					continue;
+				}
+				if (
+					sortField === "inputCharacterPrice" &&
+					getMinInputCharacterPrice(provider) === null
 				) {
 					continue;
 				}
@@ -1575,6 +1671,27 @@ export function AllModels({
 							: Infinity;
 					break;
 				}
+				case "perImagePrice": {
+					const aVal = getMinPerImagePrice(a.provider);
+					const bVal = getMinPerImagePrice(b.provider);
+					aValue = aVal !== null ? aVal : Infinity;
+					bValue = bVal !== null ? bVal : Infinity;
+					break;
+				}
+				case "perSecondPrice": {
+					const aVal = getMinPerSecondPrice(a.provider);
+					const bVal = getMinPerSecondPrice(b.provider);
+					aValue = aVal !== null ? aVal : Infinity;
+					bValue = bVal !== null ? bVal : Infinity;
+					break;
+				}
+				case "inputCharacterPrice": {
+					const aVal = getMinInputCharacterPrice(a.provider);
+					const bVal = getMinInputCharacterPrice(b.provider);
+					aValue = aVal !== null ? aVal : Infinity;
+					bValue = bVal !== null ? bVal : Infinity;
+					break;
+				}
 				case "discount":
 					aValue = discountFraction(a.provider.discount);
 					bValue = discountFraction(b.provider.discount);
@@ -1608,7 +1725,11 @@ export function AllModels({
 		filters.outputPrice.min ||
 		filters.outputPrice.max ||
 		filters.contextSize.min ||
-		filters.contextSize.max;
+		filters.contextSize.max ||
+		(sortField !== null &&
+			["perImagePrice", "perSecondPrice", "inputCharacterPrice"].includes(
+				sortField,
+			));
 
 	// Pagination
 	const currentPage = Math.max(
@@ -2340,6 +2461,97 @@ export function AllModels({
 								}}
 								className="h-8"
 							/>
+						</div>
+						<div className="pt-3 space-y-2">
+							<div className="font-medium text-xs text-muted-foreground">
+								Price per unit
+							</div>
+							<div className="flex flex-col items-start gap-1.5">
+								<Toggle
+									variant="outline"
+									size="sm"
+									pressed={sortField === "perImagePrice"}
+									onPressedChange={(pressed) => {
+										if (pressed) {
+											setSortField("perImagePrice");
+											setSortDirection("asc");
+											updateUrlWithFilters({
+												sortField: "perImagePrice",
+												sortDir: "asc",
+												page: undefined,
+											});
+										} else {
+											setSortField(null);
+											setSortDirection("asc");
+											updateUrlWithFilters({
+												sortField: undefined,
+												sortDir: undefined,
+												page: undefined,
+											});
+										}
+									}}
+									className="gap-1.5 w-fit"
+								>
+									<ImagePlus className="h-3.5 w-3.5 text-pink-500" />
+									<span className="text-xs">Image $/image</span>
+								</Toggle>
+								<Toggle
+									variant="outline"
+									size="sm"
+									pressed={sortField === "perSecondPrice"}
+									onPressedChange={(pressed) => {
+										if (pressed) {
+											setSortField("perSecondPrice");
+											setSortDirection("asc");
+											updateUrlWithFilters({
+												sortField: "perSecondPrice",
+												sortDir: "asc",
+												page: undefined,
+											});
+										} else {
+											setSortField(null);
+											setSortDirection("asc");
+											updateUrlWithFilters({
+												sortField: undefined,
+												sortDir: undefined,
+												page: undefined,
+											});
+										}
+									}}
+									className="gap-1.5 w-fit"
+								>
+									<Video className="h-3.5 w-3.5 text-violet-500" />
+									<span className="text-xs">Video $/sec</span>
+								</Toggle>
+								<Toggle
+									variant="outline"
+									size="sm"
+									pressed={sortField === "inputCharacterPrice"}
+									onPressedChange={(pressed) => {
+										if (pressed) {
+											setSortField("inputCharacterPrice");
+											setSortDirection("asc");
+											updateUrlWithFilters({
+												sortField: "inputCharacterPrice",
+												sortDir: "asc",
+												page: undefined,
+											});
+										} else {
+											setSortField(null);
+											setSortDirection("asc");
+											updateUrlWithFilters({
+												sortField: undefined,
+												sortDir: undefined,
+												page: undefined,
+											});
+										}
+									}}
+									className="gap-1.5 w-fit"
+								>
+									<Volume2 className="h-3.5 w-3.5 text-rose-500" />
+									<span className="text-xs">Speech $/1K chars</span>
+								</Toggle>
+							</div>
 						</div>
 					</div>
 

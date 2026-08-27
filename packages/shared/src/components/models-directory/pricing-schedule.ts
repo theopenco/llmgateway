@@ -73,3 +73,50 @@ export function formatPeakPricingSchedule(peakPricing: PeakPricing): {
 		timeZoneLabel: offPeakDays?.timeZoneLabel ?? "UTC",
 	};
 }
+
+export function getMinPerImagePrice(
+	mapping: ApiModelProviderMapping,
+): number | null {
+	if (
+		!mapping.perImagePrice ||
+		Object.keys(mapping.perImagePrice).length === 0
+	) {
+		return null;
+	}
+	const discount = mapping.discount ? parseFloat(mapping.discount) : 0;
+	const values = Object.values(mapping.perImagePrice)
+		.map(Number)
+		.filter(Number.isFinite)
+		.map((v) => (discount > 0 ? v * (1 - discount) : v));
+	return values.length > 0 ? Math.min(...values) : null;
+}
+
+export function getMinPerSecondPrice(
+	mapping: ApiModelProviderMapping,
+): number | null {
+	if (
+		!mapping.perSecondPrice ||
+		Object.keys(mapping.perSecondPrice).length === 0
+	) {
+		return null;
+	}
+	const discount = mapping.discount ? parseFloat(mapping.discount) : 0;
+	const values = Object.values(mapping.perSecondPrice)
+		.map(Number)
+		.filter(Number.isFinite)
+		.map((v) => (discount > 0 ? v * (1 - discount) : v));
+	return values.length > 0 ? Math.min(...values) : null;
+}
+
+export function getMinInputCharacterPrice(
+	mapping: ApiModelProviderMapping,
+): number | null {
+	if (
+		!mapping.inputCharacterPrice ||
+		parseFloat(mapping.inputCharacterPrice) === 0
+	) {
+		return null;
+	}
+	const price = parseFloat(mapping.inputCharacterPrice);
+	return Number.isFinite(price) ? price : null;
+}

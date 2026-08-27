@@ -5,11 +5,12 @@ import type { ApiModelProviderMapping } from "./api-types";
 function makeMapping(
 	overrides: Partial<ApiModelProviderMapping> & { providerId: string },
 ): ApiModelProviderMapping {
+	const { providerId, ...rest } = overrides;
 	return {
-		id: `mapping-${overrides.providerId}`,
+		id: `mapping-${providerId}`,
 		createdAt: "2026-01-01T00:00:00.000Z",
 		modelId: "mock-model",
-		providerId: overrides.providerId,
+		providerId,
 		externalId: "mock-model",
 		region: null,
 		inputPrice: "1e-6",
@@ -40,7 +41,6 @@ function makeMapping(
 		quantization: null,
 		supportedVideoSizes: null,
 		supportedVideoDurationsSeconds: null,
-		supportedVideoDurationsSecondsImageToVideo: null,
 		supportsVideoAudio: null,
 		supportsVideoWithoutAudio: null,
 		perSecondPrice: null,
@@ -52,7 +52,7 @@ function makeMapping(
 		deprecatedAt: null,
 		deactivatedAt: null,
 		status: "active",
-		...overrides,
+		...rest,
 	};
 }
 
