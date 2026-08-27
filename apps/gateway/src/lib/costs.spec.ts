@@ -736,6 +736,22 @@ describe("calculateCosts", () => {
 		expect(result.completionTokens).toBe(330);
 	});
 
+	it("should not double-bill DeepSeek reasoning tokens", async () => {
+		const result = await calculateCosts(
+			"deepseek-v4-flash-vision-exp",
+			"deepseek",
+			null,
+			1000,
+			330,
+			null,
+			undefined,
+			267,
+		);
+
+		expect([0.0002178, 0.0004356]).toContain(result.outputCost);
+		expect(result.completionTokens).toBe(330);
+	});
+
 	it("should not double-bill Baidu reasoning tokens", async () => {
 		// Qianfan reports reasoning in completion_tokens_details while already
 		// counting it inside completion_tokens: a thinking-only reply comes back
