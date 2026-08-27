@@ -745,7 +745,8 @@ export async function calculateCosts(
 	// reports reasoning in `completion_tokens_details` (which the streaming
 	// transform hoists to a top-level `reasoning_tokens`) while already counting
 	// it inside `completion_tokens`, so adding it again would roughly double the
-	// billed output on reasoning requests. Baidu's Qianfan reports the same way
+	// billed output on reasoning requests. DeepSeek and Baidu's Qianfan report
+	// the same way
 	// (a thinking-only reply returns completion_tokens === reasoning_tokens).
 	// Gonka24 is the same shape without reporting any reasoning count of its own:
 	// its `completion_tokens` covers the `reasoning` text too, and with thinking
@@ -761,6 +762,7 @@ export async function calculateCosts(
 		provider === "azure" ||
 		provider === "sakana" ||
 		provider === "meta" ||
+		provider === "deepseek" ||
 		provider === "ranoai" ||
 		provider === "baidu" ||
 		provider === "permafrost" ||
