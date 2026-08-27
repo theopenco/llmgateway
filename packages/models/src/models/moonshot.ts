@@ -678,6 +678,21 @@ export const moonshotModels = [
 				// content on this deployment (verified 2026-07-22).
 				jsonOutput: false,
 			},
+			{
+				providerId: "scx-ai-gp",
+				externalId: "Kimi-K2.7-Code",
+				inputPrice: "0.8e-6",
+				cachedInputPrice: "0.16e-6",
+				outputPrice: "3.34e-6",
+				requestPrice: "0",
+				contextSize: 262144,
+				maxOutput: 32768,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				vision: true,
+				jsonOutput: false,
+			},
 		],
 	},
 	{
@@ -887,6 +902,28 @@ export const moonshotModels = [
 					"max",
 				],
 				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
+				providerId: "scx-ai-gp",
+				externalId: "Kimi-K3",
+				inputPrice: "2.83e-6",
+				cachedInputPrice: "0.28e-6",
+				outputPrice: "14.13e-6",
+				requestPrice: "0",
+				// SCX's models endpoint reports 1M context / 1M output, but its
+				// model page advertises 256k context and 128k output; keep the
+				// smaller published limits until the deployment is probed live.
+				contextSize: 262144,
+				maxOutput: 131072,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				// SCX's model page lists text-only input while its models endpoint
+				// reports image input; keep vision off until an image request is
+				// verified live.
+				vision: false,
 				tools: true,
 				jsonOutput: true,
 			},
