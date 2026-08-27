@@ -1,3 +1,5 @@
+import { getDomain } from "tldts";
+
 import { getProviderDefaultBaseUrl } from "@llmgateway/actions";
 import { providers } from "@llmgateway/models";
 
@@ -10,35 +12,13 @@ import type { ProviderId } from "@llmgateway/models";
  * providers without a static endpoint, its website).
  */
 
-// Minimal set of two-label public suffixes seen in provider/company domains.
-// Not a full PSL — enough for "api.foo.co.uk" -> "foo.co.uk" style hosts.
-const SECOND_LEVEL_TLDS = new Set([
-	"co.uk",
-	"co.jp",
-	"co.kr",
-	"co.in",
-	"co.id",
-	"co.za",
-	"com.au",
-	"com.br",
-	"com.cn",
-	"com.hk",
-	"com.mx",
-	"com.sg",
-	"com.tr",
-	"com.tw",
-]);
-
 export function registrableDomain(hostname: string): string {
-	const labels = hostname.toLowerCase().replace(/\.$/, "").split(".");
-	if (labels.length <= 2) {
-		return labels.join(".");
-	}
-	const lastTwo = labels.slice(-2).join(".");
-	if (SECOND_LEVEL_TLDS.has(lastTwo)) {
-		return labels.slice(-3).join(".");
-	}
-	return lastTwo;
+	const normalized = hostname.toLowerCase().replace(/\.$/, "");
+	// Full ICANN public-suffix list, so "api.foo.co.nz" collapses to
+	// "foo.co.nz" and never to the bare suffix (which any .co.nz email would
+	// match). Private PSL entries (github.io, …) stay ordinary domains, like
+	// before. Hosts without a known suffix (localhost, IPs) pass through.
+	return getDomain(normalized) ?? normalized;
 }
 
 function hostOf(url: string): string | undefined {

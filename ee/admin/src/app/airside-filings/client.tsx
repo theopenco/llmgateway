@@ -378,6 +378,25 @@ export function AirsideFilingsClient() {
 										</TableCell>
 										<TableCell className="font-mono text-sm">
 											{filing.model.modelName}
+											{filing.kind === "initial" ? (
+												filing.model.sharesCatalogueModelName ? (
+													<Badge
+														variant="secondary"
+														className="ml-2 align-middle font-sans"
+														title="This name matches an existing catalogue model — approving attaches the carrier to that model's public entry."
+													>
+														existing model name
+													</Badge>
+												) : (
+													<Badge
+														variant="secondary"
+														className="ml-2 align-middle font-sans"
+														title="No catalogue model claims this name — once approved, requests for the bare id (without a provider prefix) resolve to this carrier."
+													>
+														claims bare id
+													</Badge>
+												)
+											) : null}
 										</TableCell>
 										<TableCell>
 											<Badge variant="outline">

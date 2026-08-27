@@ -183,25 +183,28 @@ export async function getEffectiveRateLimit(
 		 * Whether carrier-set caps on an Airside listing may fill unconstrained
 		 * windows. The gateway passes false while the static catalogue still
 		 * actively maps the pair (e.g. imported listings), so a carrier cap
-		 * can never throttle traffic the listing does not serve. Must be a
-		 * pure function of (provider, model) — it shares their cache key.
+		 * can never throttle traffic the listing does not serve.
 		 */
 		includeCarrierCaps?: boolean;
 	} = {},
 ): Promise<EffectiveRateLimit> {
+	const includeCarrierCaps = options.includeCarrierCaps ?? true;
 	// SWR mirror on top of the Drizzle cache, carried by the helper itself
 	// (like getEffectiveDiscount) so every caller gets the outage fallback and
 	// in-flight coalescing. Do NOT re-wrap call sites in swrWrap: nesting the
-	// same key would deadlock the coalescer.
+	// same key would deadlock the coalescer. The carrier-caps flag is part of
+	// the key so callers passing different flags can never poison each other.
 	return await swrWrap(
-		`rateLimit:${organizationId ?? "global"}:${provider}:${model}`,
+		`rateLimit:${organizationId ?? "global"}:${provider}:${model}:${
+			includeCarrierCaps ? "cc" : "nocc"
+		}`,
 		[getTableName(rateLimitTable), getTableName(providerDraftModelTable)],
 		() =>
 			queryEffectiveRateLimit(
 				organizationId,
 				provider,
 				model,
-				options.includeCarrierCaps ?? true,
+				includeCarrierCaps,
 			),
 	);
 }

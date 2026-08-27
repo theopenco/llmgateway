@@ -10,6 +10,7 @@ import {
 import { adminMiddleware } from "@/middleware/admin.js";
 
 import { and, cdb, db, eq, inArray, ne, tables } from "@llmgateway/db";
+import { models as catalogueModels } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -42,6 +43,12 @@ const adminFilingSchema = z.object({
 		modelName: z.string(),
 		displayName: z.string().nullable(),
 		status: z.enum(["draft", "active", "rejected", "delisted"]),
+		// The name matches an existing catalogue model (id or alias): approving
+		// attaches the carrier to that model's public entry.
+		sharesCatalogueModelName: z.boolean(),
+		// No catalogue model claims the name: once approved, the bare id (no
+		// provider prefix) resolves to this carrier's listing.
+		resolvesBareName: z.boolean(),
 	}),
 	company: z.object({
 		id: z.string(),
@@ -64,10 +71,23 @@ type FilingWithRelations = typeof tables.providerPriceFiling.$inferSelect & {
 	providerCompany: typeof tables.providerCompany.$inferSelect;
 };
 
+/** Whether any static catalogue model claims this name as its id or alias. */
+function staticModelNameExists(modelName: string): boolean {
+	return catalogueModels.some(
+		(model) =>
+			model.id === modelName ||
+			("aliases" in model &&
+				(model.aliases as readonly string[] | undefined)?.includes(modelName)),
+	);
+}
+
 function serializeAdminFiling(row: FilingWithRelations) {
 	const approved = [...(row.draftModel.priceFilings ?? [])]
 		.filter((f) => f.status === "approved")
 		.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+	const sharesCatalogueModelName = staticModelNameExists(
+		row.draftModel.modelName,
+	);
 	return {
 		id: row.id,
 		kind: row.kind,
@@ -86,6 +106,8 @@ function serializeAdminFiling(row: FilingWithRelations) {
 			modelName: row.draftModel.modelName,
 			displayName: row.draftModel.displayName,
 			status: row.draftModel.status,
+			sharesCatalogueModelName,
+			resolvesBareName: !sharesCatalogueModelName,
 		},
 		company: {
 			id: row.providerCompany.id,

@@ -290,6 +290,14 @@ function requireVerifiedUser(user: SessionUserLike | null): SessionUserLike {
 	return resolved;
 }
 
+/** Postgres unique-constraint violation (used to detect insert races). */
+function isUniqueViolation(err: unknown): boolean {
+	const code =
+		(err as { code?: string; cause?: { code?: string } })?.code ??
+		(err as { cause?: { code?: string } })?.cause?.code;
+	return code === "23505";
+}
+
 async function requireCompanyMembership(
 	userId: string,
 	providerCompanyId: string,
@@ -683,18 +691,29 @@ airside.openapi(createClaim, async (c) => {
 	}
 
 	// Claims land as pending: a carrier only becomes operational once an
-	// admin approves the claim in the review queue.
-	const [claim] = await db
-		.insert(tables.providerClaim)
-		.values({
-			providerCompanyId,
-			providerId,
-			matchedDomain: match.matchedDomain,
-			logoUrl: logoUrl ?? null,
-			iconUrl: iconUrl ?? null,
-			claimedBy: user.id,
-		})
-		.returning();
+	// admin approves the claim in the review queue. The partial unique index
+	// on live claims backstops the pre-check against concurrent claimers.
+	let claim: ProviderClaimRow;
+	try {
+		[claim] = await db
+			.insert(tables.providerClaim)
+			.values({
+				providerCompanyId,
+				providerId,
+				matchedDomain: match.matchedDomain,
+				logoUrl: logoUrl ?? null,
+				iconUrl: iconUrl ?? null,
+				claimedBy: user.id,
+			})
+			.returning();
+	} catch (err) {
+		if (isUniqueViolation(err)) {
+			throw new HTTPException(409, {
+				message: "A claim for this provider is already under review.",
+			});
+		}
+		throw err;
+	}
 	const providerNames = providerNamesById;
 	return c.json({ claim: serializeClaim(claim, providerNames) }, 201);
 });
@@ -833,21 +852,29 @@ airside.openapi(registerCarrier, async (c) => {
 		});
 	}
 
-	const [claim] = await db
-		.insert(tables.providerClaim)
-		.values({
-			providerCompanyId: body.providerCompanyId,
-			providerId,
-			kind: "custom",
-			matchedDomain: emailDomain,
-			customName: body.name,
-			customBaseUrl: body.baseUrl,
-			customDescription: body.description ?? null,
-			logoUrl: body.logoUrl ?? null,
-			iconUrl: body.iconUrl ?? null,
-			claimedBy: user.id,
-		})
-		.returning();
+	let claim: ProviderClaimRow;
+	try {
+		[claim] = await db
+			.insert(tables.providerClaim)
+			.values({
+				providerCompanyId: body.providerCompanyId,
+				providerId,
+				kind: "custom",
+				matchedDomain: emailDomain,
+				customName: body.name,
+				customBaseUrl: body.baseUrl,
+				customDescription: body.description ?? null,
+				logoUrl: body.logoUrl ?? null,
+				iconUrl: body.iconUrl ?? null,
+				claimedBy: user.id,
+			})
+			.returning();
+	} catch (err) {
+		if (isUniqueViolation(err)) {
+			throw new HTTPException(409, { message: "This carrier id is taken." });
+		}
+		throw err;
+	}
 	return c.json({ claim: serializeClaim(claim, providerNamesById) }, 201);
 });
 
@@ -1045,46 +1072,57 @@ airside.openapi(createModel, async (c) => {
 	}
 
 	// cdb: the gateway caches airside model lookups; writes must invalidate.
-	const created = await cdb.transaction(async (tx) => {
-		const [model] = await tx
-			.insert(tables.providerDraftModel)
-			.values({
-				providerCompanyId: body.providerCompanyId,
-				providerId: body.providerId,
-				modelName: body.modelName,
-				displayName: body.displayName ?? null,
-				description: body.description ?? null,
-				family: body.family ?? null,
-				contextSize: body.contextSize ?? null,
-				maxOutput: body.maxOutput ?? null,
-				streaming: body.streaming ?? true,
-				vision: body.vision ?? false,
-				audio: body.audio ?? false,
-				tools: body.tools ?? false,
-				jsonOutput: body.jsonOutput ?? false,
-				reasoning: body.reasoning ?? false,
-				reasoningEfforts: body.reasoningEfforts ?? null,
-				maxRpm: body.maxRpm ?? null,
-				maxRpd: body.maxRpd ?? null,
-				createdBy: user.id,
-			})
-			.returning();
-		const [filing] = await tx
-			.insert(tables.providerPriceFiling)
-			.values({
-				draftModelId: model.id,
-				providerCompanyId: body.providerCompanyId,
-				kind: "initial",
-				inputPrice: body.pricing.inputPrice,
-				outputPrice: body.pricing.outputPrice,
-				cachedInputPrice: body.pricing.cachedInputPrice ?? null,
-				requestPrice: body.pricing.requestPrice ?? null,
-				requestedBy: user.id,
-				note: body.note ?? null,
-			})
-			.returning();
-		return { ...model, priceFilings: [filing] };
-	});
+	const created = await cdb
+		.transaction(async (tx) => {
+			const [model] = await tx
+				.insert(tables.providerDraftModel)
+				.values({
+					providerCompanyId: body.providerCompanyId,
+					providerId: body.providerId,
+					modelName: body.modelName,
+					displayName: body.displayName ?? null,
+					description: body.description ?? null,
+					family: body.family ?? null,
+					contextSize: body.contextSize ?? null,
+					maxOutput: body.maxOutput ?? null,
+					streaming: body.streaming ?? true,
+					vision: body.vision ?? false,
+					audio: body.audio ?? false,
+					tools: body.tools ?? false,
+					jsonOutput: body.jsonOutput ?? false,
+					reasoning: body.reasoning ?? false,
+					reasoningEfforts: body.reasoningEfforts ?? null,
+					maxRpm: body.maxRpm ?? null,
+					maxRpd: body.maxRpd ?? null,
+					createdBy: user.id,
+				})
+				.returning();
+			const [filing] = await tx
+				.insert(tables.providerPriceFiling)
+				.values({
+					draftModelId: model.id,
+					providerCompanyId: body.providerCompanyId,
+					kind: "initial",
+					inputPrice: body.pricing.inputPrice,
+					outputPrice: body.pricing.outputPrice,
+					cachedInputPrice: body.pricing.cachedInputPrice ?? null,
+					requestPrice: body.pricing.requestPrice ?? null,
+					requestedBy: user.id,
+					note: body.note ?? null,
+				})
+				.returning();
+			return { ...model, priceFilings: [filing] };
+		})
+		.catch((err: unknown) => {
+			// The partial unique index on live (provider, model) rows backstops
+			// the pre-check against a concurrent create.
+			if (isUniqueViolation(err)) {
+				throw new HTTPException(409, {
+					message: "A model with this name is already listed for the provider.",
+				});
+			}
+			throw err;
+		});
 
 	return c.json({ model: serializeModel(created) }, 201);
 });
@@ -1662,6 +1700,7 @@ airside.openapi(statsRoute, async (c) => {
 			inputTokens: sql<number>`SUM(${mph.inputTokens})::float8`,
 			outputTokens: sql<number>`SUM(${mph.outputTokens})::float8`,
 			cost: sql<number>`SUM(${mph.cost})::float8`,
+			creditsCost: sql<number>`SUM(${mph.creditsCost})::float8`,
 		})
 		.from(mph)
 		.where(whereClause)
@@ -1682,10 +1721,15 @@ airside.openapi(statsRoute, async (c) => {
 		.groupBy(dayExpr)
 		.orderBy(dayExpr);
 
+	// Payout only exists for platform-billed (credits) traffic — requests
+	// served through customers' own BYOK provider keys are settled by the
+	// customer with the provider directly, so they carry no payout. The
+	// carrier's CURRENT margin is applied to the whole window: an estimate,
+	// not a settlement figure.
 	const estimatedPayout = byModelRows.reduce((sum, row) => {
 		const margin =
 			marginByProvider.get(row.providerId) ?? AIRSIDE_BASELINE_MARGIN;
-		const payout = row.cost * (1 - margin);
+		const payout = row.creditsCost * (1 - margin);
 		return sum + payout;
 	}, 0);
 
@@ -1706,7 +1750,7 @@ airside.openapi(statsRoute, async (c) => {
 			: emptyTotals,
 		// The gateway logs used_model as "provider/model"; seeded rollups use
 		// bare names. Normalize for display.
-		byModel: byModelRows.map((row) => ({
+		byModel: byModelRows.map(({ creditsCost: _creditsCost, ...row }) => ({
 			...row,
 			model: row.model.startsWith(`${row.providerId}/`)
 				? row.model.slice(row.providerId.length + 1)

@@ -166,7 +166,7 @@ export default function OperationsPage() {
 				<StatCard
 					label="Est. payout"
 					value={stats ? formatUsd(stats.totals.estimatedPayout) : "—"}
-					hint="at current landing fee"
+					hint="platform-billed traffic, at current landing fee"
 				/>
 			</div>
 

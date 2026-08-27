@@ -1,4 +1,7 @@
+import { getPublicSuffix } from "tldts";
 import { describe, expect, it } from "vitest";
+
+import { providers } from "@llmgateway/models";
 
 import {
 	claimableProvidersForEmail,
@@ -19,6 +22,11 @@ describe("registrableDomain", () => {
 	it("keeps three labels for two-label public suffixes", () => {
 		expect(registrableDomain("api.foo.co.uk")).toBe("foo.co.uk");
 		expect(registrableDomain("foo.com.cn")).toBe("foo.com.cn");
+		// Suffixes beyond the old hardcoded list — must never collapse to the
+		// bare suffix, which any email under it would "match".
+		expect(registrableDomain("api.foo.co.nz")).toBe("foo.co.nz");
+		expect(registrableDomain("api.foo.com.ar")).toBe("foo.com.ar");
+		expect(registrableDomain("api.foo.ne.jp")).toBe("foo.ne.jp");
 	});
 
 	it("normalizes case and trailing dots", () => {
@@ -54,6 +62,20 @@ describe("providerClaimDomains", () => {
 
 	it("is empty for unknown providers", () => {
 		expect(providerClaimDomains("not-a-provider").size).toBe(0);
+	});
+
+	it("never yields a bare public suffix for any catalogue provider", () => {
+		// A claim domain equal to its own public suffix would let any email
+		// under that suffix "verify" — catch it the moment a provider with such
+		// an endpoint/website enters the catalogue.
+		for (const provider of providers) {
+			for (const domain of providerClaimDomains(provider.id)) {
+				expect(
+					getPublicSuffix(domain),
+					`provider ${provider.id} claim domain ${domain}`,
+				).not.toBe(domain);
+			}
+		}
 	});
 });
 
