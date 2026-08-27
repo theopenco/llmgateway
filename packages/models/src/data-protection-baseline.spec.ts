@@ -33,6 +33,7 @@ const NO_DATA_POLICY_BASELINE = new Set([
 	"quartz",
 	"avalanche",
 	"tundra",
+	"permafrost",
 	"sakana",
 	"reve",
 	"gonka24",
@@ -76,6 +77,7 @@ const NO_PRIVACY_POLICY_URL_BASELINE = new Set([
 	"quartz",
 	"avalanche",
 	"tundra",
+	"permafrost",
 	"gonka24",
 ]);
 
@@ -87,6 +89,7 @@ const NO_HEADQUARTERS_BASELINE = new Set([
 	"quartz",
 	"avalanche",
 	"tundra",
+	"permafrost",
 	"atlascloud",
 	"gonka24",
 ]);

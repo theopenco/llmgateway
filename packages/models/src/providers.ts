@@ -1342,6 +1342,7 @@ export const providers: ProviderDefinition[] = [
 			apiTraining: null,
 			promptLogging: null,
 			retentionPeriod: null,
+			gdpr: null,
 		},
 	},
 	{
@@ -2080,6 +2081,7 @@ export const providers: ProviderDefinition[] = [
 			apiTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
+			gdpr: null,
 		},
 		additionalLinks: [
 			{
