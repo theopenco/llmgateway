@@ -895,12 +895,14 @@ export default async function OrganizationPage({
 							onDeletePaymentMethod={async (
 								paymentMethodId,
 								replacementPaymentMethodId,
+								releaseDevPlanCardFingerprint,
 							) => {
 								"use server";
 								return await deleteOrganizationPaymentMethod(
 									orgId,
 									paymentMethodId,
 									replacementPaymentMethodId,
+									releaseDevPlanCardFingerprint,
 								);
 							}}
 						/>
