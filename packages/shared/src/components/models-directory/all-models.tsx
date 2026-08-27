@@ -90,6 +90,7 @@ import { applyCategoryFilter } from "./model-category-filters";
 import { isVisibleMapping } from "./status-filters";
 import {
 	applyUseCaseFilter,
+	getExcludedCapabilityKeys,
 	getImpliedCapabilityKeys,
 	isUseCaseCategory,
 	providerRowPassesFilters,
@@ -669,9 +670,7 @@ const ModelTableRow = React.memo(
 								.map((key) => CAPABILITY_LABEL_BY_FILTER_KEY[key])
 								.filter((label): label is string => Boolean(label));
 							const ordered = [
-								...pinnedCapabilityKeys
-									.map((key) => CAPABILITY_LABEL_BY_FILTER_KEY[key])
-									.filter((label): label is string => Boolean(label))
+								...pinnedLabels
 									.map((label) =>
 										row.capabilities.find((c) => c.label === label),
 									)
@@ -877,19 +876,18 @@ export function AllModels({
 		return searchParams.get("deactivated") === "true" ? "deactivated" : null;
 	}
 
-	const [filters, setFilters] = useState({
+	const [filters, setFilters] = useState(() => {
 		// With the selector hidden there is no way to see or change the
 		// category, so ignore any URL override and pin the default. When the
 		// selector is shown, only accept a known category from the URL so an
 		// unsupported value falls back to the default instead of silently
 		// matching every row.
-		category: hideUseCaseFilter
+		const category = hideUseCaseFilter
 			? defaultCategory
 			: isUseCaseCategory(urlCategory)
 				? urlCategory
-				: defaultCategory,
-		tier: searchParams.get("tier") ?? "all",
-		capabilities: {
+				: defaultCategory;
+		const capabilities = {
 			streaming: searchParams.get("streaming") === "true",
 			vision: searchParams.get("vision") === "true",
 			tools: searchParams.get("tools") === "true",
@@ -905,23 +903,36 @@ export function AllModels({
 			webSearch: searchParams.get("webSearch") === "true",
 			free: searchParams.get("free") === "true",
 			discounted: searchParams.get("discounted") === "true",
-		},
-		selectedProvider: searchParams.get("provider") ?? "all",
-		status: getStatusFilterFromUrl(searchParams),
-		source: searchParams.get("source") ?? "all",
-		eligibleOnly: searchParams.get("eligibility") === "eligible",
-		inputPrice: {
-			min: searchParams.get("inputPriceMin") ?? "",
-			max: searchParams.get("inputPriceMax") ?? "",
-		},
-		outputPrice: {
-			min: searchParams.get("outputPriceMin") ?? "",
-			max: searchParams.get("outputPriceMax") ?? "",
-		},
-		contextSize: {
-			min: searchParams.get("contextSizeMin") ?? "",
-			max: searchParams.get("contextSizeMax") ?? "",
-		},
+		};
+		// A deep link can pair the category with a capability it excludes; the
+		// toggle renders disabled, so drop the filter rather than emptying the
+		// directory through a control that cannot be cleared.
+		for (const key of getExcludedCapabilityKeys(category)) {
+			if (key in capabilities) {
+				capabilities[key as keyof typeof capabilities] = false;
+			}
+		}
+		return {
+			category,
+			tier: searchParams.get("tier") ?? "all",
+			capabilities,
+			selectedProvider: searchParams.get("provider") ?? "all",
+			status: getStatusFilterFromUrl(searchParams),
+			source: searchParams.get("source") ?? "all",
+			eligibleOnly: searchParams.get("eligibility") === "eligible",
+			inputPrice: {
+				min: searchParams.get("inputPriceMin") ?? "",
+				max: searchParams.get("inputPriceMax") ?? "",
+			},
+			outputPrice: {
+				min: searchParams.get("outputPriceMin") ?? "",
+				max: searchParams.get("outputPriceMax") ?? "",
+			},
+			contextSize: {
+				min: searchParams.get("contextSizeMin") ?? "",
+				max: searchParams.get("contextSizeMax") ?? "",
+			},
+		};
 	});
 
 	// Org-directory extensions: the Source and Eligibility filters only appear
@@ -1794,9 +1805,11 @@ export function AllModels({
 			videoGeneration: undefined,
 			audioGeneration: undefined,
 			embedding: undefined,
+			rerank: undefined,
 			webSearch: undefined,
 			free: undefined,
 			discounted: undefined,
+			page: undefined,
 			provider: undefined,
 			status: undefined,
 			deactivated: undefined,
@@ -1827,10 +1840,36 @@ export function AllModels({
 								<Select
 									value={filters.category}
 									onValueChange={(value) => {
-										setFilters((prev) => ({ ...prev, category: value }));
-										updateUrlWithFilters({
-											category: value !== defaultCategory ? value : undefined,
+										// Clear capability filters the outgoing or incoming
+										// category implies or excludes: implied ones are
+										// absorbed by the category, and leaving any of them
+										// pressed would silently re-apply after the next
+										// category switch, with no enabled toggle to clear it.
+										const staleKeys = Array.from(
+											new Set([
+												...getImpliedCapabilityKeys(filters.category),
+												...getExcludedCapabilityKeys(filters.category),
+												...getImpliedCapabilityKeys(value),
+												...getExcludedCapabilityKeys(value),
+											]),
+										);
+										setFilters((prev) => {
+											const capabilities = { ...prev.capabilities };
+											for (const key of staleKeys) {
+												if (key in capabilities) {
+													capabilities[key as keyof typeof capabilities] =
+														false;
+												}
+											}
+											return { ...prev, category: value, capabilities };
 										});
+										const urlUpdates: Record<string, string | undefined> = {
+											category: value !== defaultCategory ? value : undefined,
+										};
+										for (const key of staleKeys) {
+											urlUpdates[key] = undefined;
+										}
+										updateUrlWithFilters(urlUpdates);
 									}}
 								>
 									<SelectTrigger className="w-full">
@@ -2025,20 +2064,20 @@ export function AllModels({
 									color: "text-red-500",
 								},
 							].map(({ key, label, icon: Icon, color }) => {
-								const isImplied = getImpliedCapabilityKeys(
-									filters.category,
-									hideUseCaseFilter,
-								).includes(key);
+								const isImplied = impliedCapabilityKeys.includes(key);
+								const isExcluded = excludedCapabilityKeys.includes(key);
 								const toggle = (
 									<Toggle
 										key={`${key}-${label}`}
 										variant="outline"
 										size="sm"
-										disabled={isImplied}
+										disabled={isImplied || isExcluded}
 										pressed={
-											filters.capabilities[
-												key as keyof typeof filters.capabilities
-											]
+											!isExcluded &&
+											(isImplied ||
+												filters.capabilities[
+													key as keyof typeof filters.capabilities
+												])
 										}
 										onPressedChange={(pressed) => {
 											setFilters((prev) => ({
@@ -2078,13 +2117,20 @@ export function AllModels({
 										<span className="text-xs">{label}</span>
 									</Toggle>
 								);
-								return isImplied ? (
+								return isImplied || isExcluded ? (
 									<Tooltip key={`${key}-${label}`}>
 										<TooltipTrigger asChild>
-											<span>{toggle}</span>
+											{/* The disabled toggle is unfocusable, so the wrapper
+											    takes the tab stop to keep the tooltip reachable
+											    by keyboard and assistive tech. */}
+											<span tabIndex={0}>{toggle}</span>
 										</TooltipTrigger>
 										<TooltipContent>
-											<p className="text-xs">Already included in Use Case</p>
+											<p className="text-xs">
+												{isImplied
+													? "Already included in the selected category"
+													: "No models in the selected category can match this"}
+											</p>
 										</TooltipContent>
 									</Tooltip>
 								) : (
@@ -2369,8 +2415,20 @@ export function AllModels({
 		</Card>
 	);
 
-	// Capability filter keys that are active, used to pin the matching icon to
-	// the front of the features column in the table view.
+	// Capability toggles the active category disables: implied ones are
+	// satisfied by every matching model, excluded ones can never match.
+	const impliedCapabilityKeys = useMemo(
+		() => getImpliedCapabilityKeys(filters.category, categoryFilter),
+		[filters.category, categoryFilter],
+	);
+	const excludedCapabilityKeys = useMemo(
+		() => getExcludedCapabilityKeys(filters.category),
+		[filters.category],
+	);
+
+	// Capability keys pinned to the front of the features column in the table
+	// view: explicitly pressed filters first, then keys the active category
+	// implies (which every row necessarily has).
 	const pinnedCapabilityKeys = useMemo(() => {
 		const explicitKeys = (
 			Object.entries(filters.capabilities) as Array<
@@ -2381,13 +2439,8 @@ export function AllModels({
 			.map(([key]) => key)
 			.filter((key) => CAPABILITY_LABEL_BY_FILTER_KEY[key]);
 
-		const impliedKeys = getImpliedCapabilityKeys(
-			filters.category,
-			hideUseCaseFilter,
-		);
-
-		return Array.from(new Set([...impliedKeys, ...explicitKeys]));
-	}, [filters.capabilities, filters.category, hideUseCaseFilter]);
+		return Array.from(new Set([...explicitKeys, ...impliedCapabilityKeys]));
+	}, [filters.capabilities, impliedCapabilityKeys]);
 
 	const renderTableView = () => {
 		return (
