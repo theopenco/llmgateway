@@ -173,6 +173,41 @@ describe("sso team mappings", () => {
 		});
 	});
 
+	test("mapping wins over the default team, which backfills on removal", async () => {
+		await db
+			.update(tables.organizationTeam)
+			.set({ isDefault: true })
+			.where(eq(tables.organizationTeam.id, SECOND_TEAM_ID));
+
+		const created = await saveMapping(FIRST_TEAM_ID);
+		expect(created.status).toBe(201);
+		const { mapping } = (await created.json()) as { mapping: { id: string } };
+		expect(
+			await db.query.userOrganization.findFirst({
+				where: { id: { eq: DEVELOPER_MEMBERSHIP_ID } },
+				columns: { teamId: true, teamAssignmentSource: true },
+			}),
+		).toEqual({ teamId: FIRST_TEAM_ID, teamAssignmentSource: "sso" });
+
+		expect(
+			(
+				await request(
+					`/sso/team-mappings/${mapping.id}?organizationId=${ORGANIZATION_ID}`,
+					"DELETE",
+				)
+			).status,
+		).toBe(200);
+		expect(
+			await db.query.userOrganization.findFirst({
+				where: { id: { eq: DEVELOPER_MEMBERSHIP_ID } },
+				columns: { teamId: true, teamAssignmentSource: true },
+			}),
+		).toEqual({
+			teamId: SECOND_TEAM_ID,
+			teamAssignmentSource: "default",
+		});
+	});
+
 	test("manual team assignments survive mapping changes", async () => {
 		await db
 			.update(tables.userOrganization)

@@ -16,6 +16,7 @@ import {
 } from "@/lib/iam-rules.js";
 import { revokeMemberApiKeys } from "@/lib/revoke-member-api-keys.js";
 import { resolveSeatLimit } from "@/lib/seat-limit.js";
+import { recomputeUserTeam } from "@/lib/sso-teams.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
@@ -989,6 +990,7 @@ This invitation expires in ${INVITE_EXPIRY_DAYS} days. If you weren't expecting 
 			newMember.id,
 			grantedProjects.map((p) => p.id),
 		);
+		await recomputeUserTeam(targetUser.id, organizationId);
 	}
 
 	await logAuditEvent({
@@ -1308,6 +1310,19 @@ team.openapi(updateMember, async (c) => {
 		role === "developer" ? grantedProjects.map((p) => p.id) : [],
 	);
 
+	// A demoted member starts team-less; pick up the SCIM-mapped or default
+	// team like any other newly joining developer.
+	let effectiveTeamId = updatedMember.teamId;
+	if (role === "developer" && targetMember.role !== "developer") {
+		const teamChange = await recomputeUserTeam(
+			targetMember.userId,
+			organizationId,
+		);
+		if (teamChange) {
+			effectiveTeamId = teamChange.new;
+		}
+	}
+
 	if (targetMember.role !== role) {
 		await logAuditEvent({
 			organizationId,
@@ -1325,7 +1340,7 @@ team.openapi(updateMember, async (c) => {
 		});
 	}
 
-	const teamPolicy = await getMemberTeamPolicy(updatedMember.teamId);
+	const teamPolicy = await getMemberTeamPolicy(effectiveTeamId);
 	const effectiveMemberBudget = effectiveBudgetFrom(
 		updatedMember,
 		orgDefaultsFrom(userOrganization.organization),

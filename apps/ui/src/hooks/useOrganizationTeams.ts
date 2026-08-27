@@ -97,6 +97,20 @@ export function useUpdateOrganizationTeamBudget(
 	);
 }
 
+export function useSetOrganizationTeamDefault(
+	_organizationId: string,
+	_teamId: string,
+) {
+	const api = useApi();
+	return api.useMutation(
+		"put",
+		"/team/{organizationId}/teams/{teamId}/default",
+		{
+			onSuccess: useInvalidateTeamQueries(),
+		},
+	);
+}
+
 export function useAssignOrganizationTeam(_organizationId: string) {
 	const api = useApi();
 	return api.useMutation(

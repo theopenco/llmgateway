@@ -17,6 +17,7 @@ import {
 	useDeleteOrganizationTeam,
 	useDeleteOrganizationTeamIamRule,
 	useOrganizationTeam,
+	useSetOrganizationTeamDefault,
 	useUpdateOrganizationTeam,
 	useUpdateOrganizationTeamBudget,
 	useUpdateOrganizationTeamProjects,
@@ -42,6 +43,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
+import { Checkbox } from "@/lib/components/checkbox";
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
 import {
@@ -51,6 +53,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/lib/components/select";
+import { Switch } from "@/lib/components/switch";
 import {
 	Table,
 	TableBody,
@@ -77,6 +80,7 @@ type Confirmation =
 			currentTeamName: string | null;
 			nextTeamId: string | null;
 	  }
+	| { type: "default"; next: boolean }
 	| { type: "delete" };
 
 export function OrganizationTeamDetailClient() {
@@ -101,6 +105,7 @@ export function OrganizationTeamDetailClient() {
 		teamId,
 	);
 	const updateBudget = useUpdateOrganizationTeamBudget(organizationId, teamId);
+	const setDefault = useSetOrganizationTeamDefault(organizationId, teamId);
 	const assignMember = useAssignOrganizationTeam(organizationId);
 	const createIamRule = useCreateOrganizationTeamIamRule(
 		organizationId,
@@ -151,6 +156,7 @@ export function OrganizationTeamDetailClient() {
 	const [periodUnit, setPeriodUnit] =
 		useState<(typeof periodUnits)[number]>("month");
 	const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
+	const [assignUnassigned, setAssignUnassigned] = useState(false);
 
 	useEffect(() => {
 		if (!team) {
@@ -192,6 +198,10 @@ export function OrganizationTeamDetailClient() {
 	const eligibleMembers =
 		memberData?.members.filter(
 			(member) => member.role === "developer" && member.team?.id !== teamId,
+		) ?? [];
+	const unassignedDevelopers =
+		memberData?.members.filter(
+			(member) => member.role === "developer" && !member.team,
 		) ?? [];
 
 	const saveName = async () => {
@@ -297,6 +307,24 @@ export function OrganizationTeamDetailClient() {
 		router.push(backUrl);
 	};
 
+	const applyDefault = async (next: boolean) => {
+		const result = await setDefault.mutateAsync({
+			params: { path: { organizationId, teamId } },
+			body: {
+				isDefault: next,
+				assignUnassignedDevelopers: next && assignUnassigned,
+			},
+		});
+		toast({
+			title: next ? `${team.name} is now the default team` : "Default removed",
+			description: next
+				? result.assignedDevelopers
+					? `${result.assignedDevelopers} developer${result.assignedDevelopers === 1 ? "" : "s"} assigned. New developers join this team automatically.`
+					: "New developers join this team automatically."
+				: "New developers are no longer assigned to a team automatically.",
+		});
+	};
+
 	const confirmPendingAction = async () => {
 		if (!confirmation) {
 			return;
@@ -305,6 +333,8 @@ export function OrganizationTeamDetailClient() {
 			await applyProjects();
 		} else if (confirmation.type === "membership") {
 			await applyMembership(confirmation.memberId, confirmation.nextTeamId);
+		} else if (confirmation.type === "default") {
+			await applyDefault(confirmation.next);
 		} else {
 			await applyDelete();
 		}
@@ -326,10 +356,24 @@ export function OrganizationTeamDetailClient() {
 		if (confirmation.type === "delete") {
 			return {
 				title: `Delete ${team.name}?`,
-				description:
-					"This permanently removes the team and its project, budget, and IAM policy.",
+				description: `This permanently removes the team and its project, budget, and IAM policy.${team.isDefault ? " New developers will no longer be assigned to a team automatically." : ""}`,
 				action: "Delete team",
 			};
+		}
+		if (confirmation.type === "default") {
+			return confirmation.next
+				? {
+						title: `Make ${team.name} the default team?`,
+						description:
+							"Developers who join without a SCIM-mapped team are assigned here automatically. Developers already in a team are not moved.",
+						action: "Set as default",
+					}
+				: {
+						title: `Remove default status from ${team.name}?`,
+						description:
+							"New developers will no longer be assigned to a team automatically. Current members keep this team and its policy.",
+						action: "Remove default",
+					};
 		}
 		if (confirmation.nextTeamId === null) {
 			return {
@@ -364,7 +408,10 @@ export function OrganizationTeamDetailClient() {
 				</Link>
 				<div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
 					<div>
-						<h1 className="text-3xl font-bold tracking-tight">{team.name}</h1>
+						<div className="flex items-center gap-3">
+							<h1 className="text-3xl font-bold tracking-tight">{team.name}</h1>
+							{team.isDefault && <Badge>Default team</Badge>}
+						</div>
 						<p className="text-muted-foreground mt-1">
 							Shared ceilings for {team.members.length} developer
 							{team.members.length === 1 ? "" : "s"}.
@@ -407,23 +454,43 @@ export function OrganizationTeamDetailClient() {
 							Names are unique within this organization.
 						</CardDescription>
 					</CardHeader>
-					<CardContent className="flex gap-2">
-						<Label htmlFor="team-identity-name" className="sr-only">
-							Team name
-						</Label>
-						<Input
-							id="team-identity-name"
-							value={name}
-							onChange={(event) => setName(event.target.value)}
-							maxLength={100}
-							disabled={!isEnterprise}
-						/>
-						<Button
-							onClick={saveName}
-							disabled={!isEnterprise || !name.trim() || updateTeam.isPending}
-						>
-							Save
-						</Button>
+					<CardContent className="space-y-4">
+						<div className="flex gap-2">
+							<Label htmlFor="team-identity-name" className="sr-only">
+								Team name
+							</Label>
+							<Input
+								id="team-identity-name"
+								value={name}
+								onChange={(event) => setName(event.target.value)}
+								maxLength={100}
+								disabled={!isEnterprise}
+							/>
+							<Button
+								onClick={saveName}
+								disabled={!isEnterprise || !name.trim() || updateTeam.isPending}
+							>
+								Save
+							</Button>
+						</div>
+						<div className="flex items-start justify-between gap-4">
+							<div>
+								<Label htmlFor="team-default-toggle">Default team</Label>
+								<p className="text-muted-foreground text-sm">
+									Developers who join without a SCIM-mapped team are assigned
+									here automatically.
+								</p>
+							</div>
+							<Switch
+								id="team-default-toggle"
+								checked={team.isDefault}
+								onCheckedChange={(next) => {
+									setAssignUnassigned(false);
+									setConfirmation({ type: "default", next });
+								}}
+								disabled={!isEnterprise || setDefault.isPending}
+							/>
+						</div>
 					</CardContent>
 				</Card>
 
@@ -737,7 +804,12 @@ export function OrganizationTeamDetailClient() {
 			<AlertDialog
 				open={confirmation !== null}
 				onOpenChange={(open) => {
-					if (!open && !assignMember.isPending && !updateProjects.isPending) {
+					if (
+						!open &&
+						!assignMember.isPending &&
+						!updateProjects.isPending &&
+						!setDefault.isPending
+					) {
 						setConfirmation(null);
 					}
 				}}
@@ -749,6 +821,27 @@ export function OrganizationTeamDetailClient() {
 							{confirmationCopy?.description}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
+					{confirmation?.type === "default" &&
+						confirmation.next &&
+						unassignedDevelopers.length > 0 && (
+							<div className="flex items-start gap-2">
+								<Checkbox
+									id="assign-unassigned-developers"
+									checked={assignUnassigned}
+									onCheckedChange={(checked) =>
+										setAssignUnassigned(checked === true)
+									}
+								/>
+								<Label
+									htmlFor="assign-unassigned-developers"
+									className="text-sm font-normal"
+								>
+									Also assign the {unassignedDevelopers.length} developer
+									{unassignedDevelopers.length === 1 ? "" : "s"} currently
+									without a team
+								</Label>
+							</div>
+						)}
 					<AlertDialogFooter>
 						<AlertDialogCancel>Cancel</AlertDialogCancel>
 						<AlertDialogAction

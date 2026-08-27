@@ -5,9 +5,11 @@ export interface TeamAssignmentChange {
 	new: string | null;
 }
 
-// Recompute a developer's team from SCIM group mappings. Manual assignments
-// win, and the first mapped group name wins when several groups target
-// different teams.
+// Recompute a developer's team from SCIM group mappings, falling back to the
+// org's default team when no mapping applies. Manual assignments win, and the
+// first mapped group name wins when several groups target different teams.
+// Also called when a developer joins (invite, direct add, SSO domain join) so
+// the default team applies from the first request.
 export async function recomputeUserTeam(
 	userId: string,
 	organizationId: string,
@@ -54,6 +56,7 @@ export async function recomputeUserTeam(
 	});
 	const groupIds = groupMemberships.map((entry) => entry.scimGroupId);
 	let teamId: string | null = null;
+	let source: "sso" | "default" = "sso";
 
 	if (groupIds.length > 0) {
 		const groups = await db.query.scimGroup.findMany({
@@ -83,6 +86,20 @@ export async function recomputeUserTeam(
 		}
 	}
 
+	if (teamId === null) {
+		const defaultTeam = await db.query.organizationTeam.findFirst({
+			where: {
+				organizationId: { eq: organizationId },
+				isDefault: { eq: true },
+			},
+			columns: { id: true },
+		});
+		if (defaultTeam) {
+			teamId = defaultTeam.id;
+			source = "default";
+		}
+	}
+
 	if (membership.teamId === teamId) {
 		return null;
 	}
@@ -91,7 +108,7 @@ export async function recomputeUserTeam(
 		.update(tables.userOrganization)
 		.set({
 			teamId,
-			teamAssignmentSource: teamId === null ? "manual" : "sso",
+			teamAssignmentSource: teamId === null ? "manual" : source,
 		})
 		.where(eq(tables.userOrganization.id, membership.id));
 	return { old: membership.teamId, new: teamId };

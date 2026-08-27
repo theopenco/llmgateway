@@ -60,13 +60,17 @@ Click **Create team**, give it a unique name, then click **Open** to configure i
 
 | Control                           | Behavior                                                                                                                                     |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Team identity**                 | Names the team. Names are unique within the organization.                                                                                    |
+| **Team identity**                 | Names the team and can mark it as the organization's **default team**. Names are unique within the organization.                             |
 | **Project ceiling**               | Effective access is the intersection of the team list and each developer's personal grants. With no projects selected, user keys return 403. |
 | **Per-developer budget ceilings** | Caps each developer's active keys, lifetime spend, and recurring spend. Personal and API-key limits may be stricter.                         |
 | **Developers**                    | Assigns, moves, or unassigns Developers. A move replaces the previous team's policy immediately.                                             |
 | **IAM policy**                    | Adds shared model, provider, pricing, or IP rules. Member and API-key rules run afterward and can only narrow access.                        |
 
 Unassigning a developer restores their personal project, IAM, and budget settings. Unassign every developer before deleting a team.
+
+### Default team
+
+One team per organization can be marked as the default. Developers who join — by invite, direct add, SSO domain auto-join, or SCIM provisioning — are assigned to it automatically unless a SCIM group mapping places them elsewhere; explicit manual assignments always win. When enabling the default you can optionally assign every developer currently without a team in one step. Moving or removing the flag only changes future joins: current members keep their team.
 
 ## Sync groups from Microsoft Entra ID
 

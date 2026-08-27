@@ -255,6 +255,103 @@ describe("organization teams", () => {
 		expect(membership).toMatchObject({ role: "admin", teamId: null });
 	});
 
+	test("default team is exclusive and bulk-assigns unassigned developers", async () => {
+		const standard = await createTeam("Standard");
+		const experimentation = await createTeam("Experimentation");
+
+		await db.insert(tables.user).values({
+			id: "organization-team-assigned-developer",
+			name: "Assigned Developer",
+			email: "assigned-developer@example.com",
+			emailVerified: true,
+		});
+		await db.insert(tables.userOrganization).values({
+			id: "organization-team-assigned-membership",
+			userId: "organization-team-assigned-developer",
+			organizationId: ORGANIZATION_ID,
+			role: "developer",
+			teamId: experimentation.id,
+			teamAssignmentSource: "manual",
+		});
+
+		const enable = await request(
+			`/team/${ORGANIZATION_ID}/teams/${standard.id}/default`,
+			"PUT",
+			{ isDefault: true, assignUnassignedDevelopers: true },
+		);
+		expect(enable.status).toBe(200);
+		const enableBody = await enable.json();
+		expect(enableBody.team.isDefault).toBe(true);
+		// Only the unassigned developer: not the owner, not the manual assignee.
+		expect(enableBody.assignedDevelopers).toBe(1);
+		expect(
+			await db.query.userOrganization.findFirst({
+				where: { id: { eq: DEVELOPER_MEMBERSHIP_ID } },
+				columns: { teamId: true, teamAssignmentSource: true },
+			}),
+		).toEqual({ teamId: standard.id, teamAssignmentSource: "default" });
+		expect(
+			await db.query.userOrganization.findFirst({
+				where: { id: { eq: "organization-team-assigned-membership" } },
+				columns: { teamId: true, teamAssignmentSource: true },
+			}),
+		).toEqual({
+			teamId: experimentation.id,
+			teamAssignmentSource: "manual",
+		});
+
+		// Moving the flag clears the previous default without moving its members.
+		const move = await request(
+			`/team/${ORGANIZATION_ID}/teams/${experimentation.id}/default`,
+			"PUT",
+			{ isDefault: true },
+		);
+		expect(move.status).toBe(200);
+		expect(
+			(
+				await db.query.organizationTeam.findFirst({
+					where: { id: { eq: standard.id } },
+					columns: { isDefault: true },
+				})
+			)?.isDefault,
+		).toBe(false);
+		expect(
+			(
+				await db.query.userOrganization.findFirst({
+					where: { id: { eq: DEVELOPER_MEMBERSHIP_ID } },
+					columns: { teamId: true },
+				})
+			)?.teamId,
+		).toBe(standard.id);
+	});
+
+	test("default toggle validates input and requires Enterprise", async () => {
+		const team = await createTeam();
+		expect(
+			(
+				await request(
+					`/team/${ORGANIZATION_ID}/teams/${team.id}/default`,
+					"PUT",
+					{ isDefault: false, assignUnassignedDevelopers: true },
+				)
+			).status,
+		).toBe(400);
+
+		await db
+			.update(tables.organization)
+			.set({ plan: "pro" })
+			.where(eq(tables.organization.id, ORGANIZATION_ID));
+		expect(
+			(
+				await request(
+					`/team/${ORGANIZATION_ID}/teams/${team.id}/default`,
+					"PUT",
+					{ isDefault: true },
+				)
+			).status,
+		).toBe(403);
+	});
+
 	test("rejects team management in a deleted organization", async () => {
 		const team = await createTeam();
 		await db

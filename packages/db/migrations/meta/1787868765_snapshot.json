@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "b3afb18d-b7f7-4294-9eb1-89024607d7df",
+  "id": "3170e9bb-0c10-420f-aa9a-31a1fa8e1b8f",
   "prevId": "8d071a49-6bd7-430a-a5b0-963b610efef6",
   "ddl": [
     {
@@ -14515,6 +14515,22 @@
       "table": "organization_team"
     },
     {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "false",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "is_default",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization_team"
+    },
+    {
       "type": "integer",
       "typeSchema": null,
       "notNull": false,
@@ -27395,6 +27411,27 @@
       "method": "btree",
       "concurrently": false,
       "name": "organization_team_org_name_uidx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "organization_team"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "organization_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": "\"is_default\"",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "organization_team_org_default_uidx",
       "entityType": "indexes",
       "schema": "public",
       "table": "organization_team"

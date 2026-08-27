@@ -185,7 +185,14 @@ export function OrganizationTeamsClient({
 								<TableBody>
 									{data.teams.map((team) => (
 										<TableRow key={team.id}>
-											<TableCell className="font-medium">{team.name}</TableCell>
+											<TableCell className="font-medium">
+												<span className="flex items-center gap-2">
+													{team.name}
+													{team.isDefault && (
+														<Badge variant="secondary">Default</Badge>
+													)}
+												</span>
+											</TableCell>
 											<TableCell>{team.members.length}</TableCell>
 											<TableCell>
 												{team.projects.length ? (

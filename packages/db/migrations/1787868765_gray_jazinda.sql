@@ -4,6 +4,7 @@ CREATE TABLE "organization_team" (
 	"updated_at" timestamp DEFAULT now() NOT NULL,
 	"organization_id" text NOT NULL,
 	"name" text NOT NULL,
+	"is_default" boolean DEFAULT false NOT NULL,
 	"max_api_keys" integer,
 	"usage_limit" numeric,
 	"period_usage_limit" numeric,
@@ -41,6 +42,7 @@ ALTER TABLE "user_organization" ADD COLUMN "team_id" text;--> statement-breakpoi
 ALTER TABLE "user_organization" ADD COLUMN "team_assignment_source" text DEFAULT 'manual' NOT NULL;--> statement-breakpoint
 CREATE INDEX "organization_team_organization_id_idx" ON "organization_team" ("organization_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "organization_team_org_name_uidx" ON "organization_team" ("organization_id",lower("name"));--> statement-breakpoint
+CREATE UNIQUE INDEX "organization_team_org_default_uidx" ON "organization_team" ("organization_id") WHERE "is_default";--> statement-breakpoint
 CREATE INDEX "organization_team_iam_rule_team_id_idx" ON "organization_team_iam_rule" ("team_id");--> statement-breakpoint
 CREATE INDEX "organization_team_iam_rule_team_id_status_idx" ON "organization_team_iam_rule" ("team_id","status");--> statement-breakpoint
 CREATE UNIQUE INDEX "organization_team_project_team_project_uidx" ON "organization_team_project" ("team_id","project_id");--> statement-breakpoint

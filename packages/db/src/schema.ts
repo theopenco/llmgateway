@@ -475,6 +475,9 @@ export const organizationTeam = pgTable(
 			.notNull()
 			.references(() => organization.id, { onDelete: "cascade" }),
 		name: text().notNull(),
+		// The org's fallback team: developers joining without an explicit or
+		// SCIM-mapped team are assigned here (see lib/sso-teams.ts).
+		isDefault: boolean().notNull().default(false),
 		maxApiKeys: integer(),
 		usageLimit: decimal(),
 		periodUsageLimit: decimal(),
@@ -489,6 +492,9 @@ export const organizationTeam = pgTable(
 			table.organizationId,
 			sql`lower(${table.name})`,
 		),
+		uniqueIndex("organization_team_org_default_uidx")
+			.on(table.organizationId)
+			.where(sql`${table.isDefault}`),
 	],
 );
 
@@ -1016,8 +1022,10 @@ export const userOrganization = pgTable(
 		teamId: text().references(() => organizationTeam.id, {
 			onDelete: "restrict",
 		}),
+		// "default" marks an assignment inherited from the org's default team;
+		// like "sso" it is recomputed on sync, while "manual" assignments stick.
 		teamAssignmentSource: text({
-			enum: ["manual", "sso"],
+			enum: ["manual", "sso", "default"],
 		})
 			.notNull()
 			.default("manual"),

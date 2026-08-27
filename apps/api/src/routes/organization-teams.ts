@@ -17,6 +17,7 @@ import {
 	cdb,
 	db,
 	eq,
+	isNull,
 	isValidApiKeyPeriodDuration,
 	sql,
 	tables,
@@ -54,6 +55,7 @@ const iamRuleSchema = z.object({
 const teamSchema = z.object({
 	id: z.string(),
 	name: z.string(),
+	isDefault: z.boolean(),
 	createdAt: z.date(),
 	updatedAt: z.date(),
 	budget: budgetSchema,
@@ -203,6 +205,7 @@ async function loadTeam(organizationId: string, teamId: string) {
 	return {
 		id: team.id,
 		name: team.name,
+		isDefault: team.isDefault,
 		createdAt: team.createdAt,
 		updatedAt: team.updatedAt,
 		budget: budgetFromTeam(team),
@@ -563,6 +566,106 @@ organizationTeams.openapi(updateBudget, async (c) => {
 		metadata: { changes: { budget: { old: current.budget, new: budget } } },
 	});
 	return c.json({ team: await loadTeam(organizationId, teamId) });
+});
+
+const setDefault = createRoute({
+	method: "put",
+	path: "/{organizationId}/teams/{teamId}/default",
+	request: {
+		params: z.object({ organizationId: z.string(), teamId: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						isDefault: z.boolean(),
+						// One-time catch-up when enabling: also assign every developer
+						// currently without a team.
+						assignUnassignedDevelopers: z.boolean().optional(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						team: teamSchema,
+						assignedDevelopers: z.number(),
+					}),
+				},
+			},
+			description: "Team default status updated",
+		},
+	},
+});
+organizationTeams.openapi(setDefault, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+	const { organizationId, teamId } = c.req.param();
+	const { membership } = await requireOrganizationAdmin(
+		user.id,
+		organizationId,
+	);
+	requireEnterprise(organizationId, membership.organization);
+	const current = await loadTeam(organizationId, teamId);
+	const { isDefault, assignUnassignedDevelopers } = c.req.valid("json");
+	if (assignUnassignedDevelopers && !isDefault) {
+		throw new HTTPException(400, {
+			message: "Developers can only be bulk-assigned to the default team",
+		});
+	}
+	let assignedDevelopers = 0;
+	await cdb.transaction(async (tx) => {
+		if (isDefault) {
+			// Clear before set: the partial unique index allows one default per org.
+			await tx
+				.update(tables.organizationTeam)
+				.set({ isDefault: false })
+				.where(
+					and(
+						eq(tables.organizationTeam.organizationId, organizationId),
+						eq(tables.organizationTeam.isDefault, true),
+					),
+				);
+		}
+		await tx
+			.update(tables.organizationTeam)
+			.set({ isDefault })
+			.where(eq(tables.organizationTeam.id, teamId));
+		if (isDefault && assignUnassignedDevelopers) {
+			const assigned = await tx
+				.update(tables.userOrganization)
+				.set({ teamId, teamAssignmentSource: "default" })
+				.where(
+					and(
+						eq(tables.userOrganization.organizationId, organizationId),
+						eq(tables.userOrganization.role, "developer"),
+						isNull(tables.userOrganization.teamId),
+					),
+				)
+				.returning({ id: tables.userOrganization.id });
+			assignedDevelopers = assigned.length;
+		}
+	});
+	await logAuditEvent({
+		organizationId,
+		userId: user.id,
+		action: "organization_team.update",
+		resourceType: "organization_team",
+		resourceId: teamId,
+		metadata: {
+			changes: { isDefault: { old: current.isDefault, new: isDefault } },
+			...(assignedDevelopers ? { assignedDevelopers } : {}),
+		},
+	});
+	return c.json({
+		team: await loadTeam(organizationId, teamId),
+		assignedDevelopers,
+	});
 });
 
 const assignMember = createRoute({
