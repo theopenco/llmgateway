@@ -686,11 +686,12 @@ export const moonshotModels = [
 				outputPrice: "3.34e-6",
 				requestPrice: "0",
 				contextSize: 262144,
-				maxOutput: 32768,
+				maxOutput: 262144,
 				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
 				vision: true,
+				tools: true,
 				jsonOutput: false,
 			},
 		],
@@ -912,18 +913,12 @@ export const moonshotModels = [
 				cachedInputPrice: "0.28e-6",
 				outputPrice: "14.13e-6",
 				requestPrice: "0",
-				// SCX's models endpoint reports 1M context / 1M output, but its
-				// model page advertises 256k context and 128k output; keep the
-				// smaller published limits until the deployment is probed live.
-				contextSize: 262144,
-				maxOutput: 131072,
+				contextSize: 1048576,
+				maxOutput: 1048576,
 				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
-				// SCX's model page lists text-only input while its models endpoint
-				// reports image input; keep vision off until an image request is
-				// verified live.
-				vision: false,
+				vision: true,
 				tools: true,
 				jsonOutput: true,
 			},
