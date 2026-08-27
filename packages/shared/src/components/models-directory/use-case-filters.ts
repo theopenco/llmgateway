@@ -27,6 +27,34 @@ export function isUseCaseCategory(
 	);
 }
 
+export function getImpliedCapabilityKeys(
+	category: string | null,
+	hideUseCaseFilter?: boolean,
+): string[] {
+	if (hideUseCaseFilter) {
+		return [];
+	}
+	if (category === "reasoning") {
+		return ["reasoning"];
+	}
+	if (category === "multimodal") {
+		return ["vision"];
+	}
+	if (category === "image") {
+		return ["imageGeneration"];
+	}
+	if (category === "code") {
+		return ["tools", "streaming"];
+	}
+	if (category === "chat") {
+		return ["streaming"];
+	}
+	if (category === "creative") {
+		return ["streaming"];
+	}
+	return [];
+}
+
 export function applyUseCaseFilter(
 	category: string,
 	model: ApiModel,

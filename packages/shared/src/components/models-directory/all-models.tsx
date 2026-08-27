@@ -90,6 +90,7 @@ import { applyCategoryFilter } from "./model-category-filters";
 import { isVisibleMapping } from "./status-filters";
 import {
 	applyUseCaseFilter,
+	getImpliedCapabilityKeys,
 	isUseCaseCategory,
 	providerRowPassesFilters,
 } from "./use-case-filters";
@@ -668,9 +669,15 @@ const ModelTableRow = React.memo(
 								.map((key) => CAPABILITY_LABEL_BY_FILTER_KEY[key])
 								.filter((label): label is string => Boolean(label));
 							const ordered = [
-								...row.capabilities.filter((c) =>
-									pinnedLabels.includes(c.label),
-								),
+								...pinnedCapabilityKeys
+									.map((key) => CAPABILITY_LABEL_BY_FILTER_KEY[key])
+									.filter((label): label is string => Boolean(label))
+									.map((label) =>
+										row.capabilities.find((c) => c.label === label),
+									)
+									.filter((c): c is (typeof row.capabilities)[number] =>
+										Boolean(c),
+									),
 								...row.capabilities.filter(
 									(c) => !pinnedLabels.includes(c.label),
 								),
@@ -2018,16 +2025,10 @@ export function AllModels({
 									color: "text-red-500",
 								},
 							].map(({ key, label, icon: Icon, color }) => {
-								const isImplied =
-									!hideUseCaseFilter &&
-									((filters.category === "code" &&
-										(key === "streaming" || key === "tools")) ||
-										(filters.category === "chat" && key === "streaming") ||
-										(filters.category === "reasoning" && key === "reasoning") ||
-										(filters.category === "creative" && key === "streaming") ||
-										(filters.category === "multimodal" && key === "vision") ||
-										(filters.category === "image" &&
-											key === "imageGeneration"));
+								const isImplied = getImpliedCapabilityKeys(
+									filters.category,
+									hideUseCaseFilter,
+								).includes(key);
 								const toggle = (
 									<Toggle
 										key={`${key}-${label}`}
@@ -2371,7 +2372,7 @@ export function AllModels({
 	// Capability filter keys that are active, used to pin the matching icon to
 	// the front of the features column in the table view.
 	const pinnedCapabilityKeys = useMemo(() => {
-		const keys = (
+		const explicitKeys = (
 			Object.entries(filters.capabilities) as Array<
 				[keyof typeof filters.capabilities, boolean]
 			>
@@ -2380,23 +2381,12 @@ export function AllModels({
 			.map(([key]) => key)
 			.filter((key) => CAPABILITY_LABEL_BY_FILTER_KEY[key]);
 
-		if (!hideUseCaseFilter) {
-			if (filters.category === "reasoning") {
-				keys.push("reasoning");
-			} else if (filters.category === "multimodal") {
-				keys.push("vision");
-			} else if (filters.category === "image") {
-				keys.push("imageGeneration");
-			} else if (filters.category === "code") {
-				keys.push("tools", "streaming");
-			} else if (filters.category === "chat") {
-				keys.push("streaming");
-			} else if (filters.category === "creative") {
-				keys.push("streaming");
-			}
-		}
+		const impliedKeys = getImpliedCapabilityKeys(
+			filters.category,
+			hideUseCaseFilter,
+		);
 
-		return Array.from(new Set(keys));
+		return Array.from(new Set([...impliedKeys, ...explicitKeys]));
 	}, [filters.capabilities, filters.category, hideUseCaseFilter]);
 
 	const renderTableView = () => {
