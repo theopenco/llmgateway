@@ -2377,6 +2377,7 @@ export const googleModels = [
 			{
 				providerId: "nebius",
 				externalId: "google/gemma-3-27b-it",
+				deactivatedAt: new Date("2026-08-31"),
 				inputPrice: "0.1e-6",
 				outputPrice: "0.3e-6",
 				requestPrice: "0",

@@ -2,6 +2,35 @@ import type { ModelDefinition } from "@/models.js";
 
 export const metaModels = [
 	{
+		id: "muse-image-1.0",
+		name: "Muse Image 1.0",
+		description:
+			"Meta's agentic image model for generation, editing, multi-reference composition, and iterative refinement.",
+		family: "meta",
+		output: ["image"],
+		releasedAt: new Date("2026-07-07"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "meta",
+				externalId: "muse-image-1.0",
+				inputPrice: "0",
+				outputPrice: "0",
+				perImagePrice: {
+					default: "0.01",
+				},
+				requestPrice: "0",
+				streaming: false,
+				reasoning: true,
+				supportsResponsesApi: true,
+				vision: true,
+				tools: false,
+				jsonOutput: false,
+				imageGenerations: true,
+			},
+		],
+	},
+	{
 		id: "muse-spark-1.2",
 		name: "Muse Spark 1.2",
 		description:

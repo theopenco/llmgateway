@@ -480,6 +480,7 @@ export const deepseekModels = [
 			{
 				providerId: "nebius",
 				externalId: "deepseek-ai/DeepSeek-V4-Pro",
+				deactivatedAt: new Date("2026-08-31"),
 				inputPrice: "1.75e-6",
 				outputPrice: "3.5e-6",
 				requestPrice: "0",
@@ -561,16 +562,10 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "baidu",
-				externalId: "deepseek-v4-pro",
-				// Unlike Flash (which Qianfan lists separately as
-				// deepseek-v4-flash-0731), Qianfan has no dated/GA slug for Pro:
-				// this listing's hugging_face_id is still deepseek-ai/DeepSeek-V4-Pro
-				// (the pre-0813 preview repo) and its description never mentions an
-				// official/GA release (verified 2026-08-18). Pricing is correct for
-				// what's actually served — the preview build, not 0813 GA.
-				inputPrice: "1.69e-6",
-				cachedInputPrice: "0.14e-6",
-				outputPrice: "3.38e-6",
+				externalId: "deepseek-v4-pro-0813",
+				inputPrice: "1.32e-6",
+				cachedInputPrice: "0.132e-6",
+				outputPrice: "3.96e-6",
 				requestPrice: "0",
 				contextSize: 1048576,
 				// /v1/models reports 393216 while Qianfan's model page caps output at
@@ -920,9 +915,9 @@ export const deepseekModels = [
 			{
 				providerId: "gonka24",
 				externalId: "deepseek-v4-flash-0731",
-				inputPrice: "0.075e-6",
-				cachedInputPrice: "0.0155e-6",
-				outputPrice: "0.175e-6",
+				inputPrice: "0.051e-6",
+				cachedInputPrice: "0.0097e-6",
+				outputPrice: "0.104e-6",
 				requestPrice: "0",
 				// The deployment shares one 390000-token window between prompt and
 				// completion, and stops generating at 16384 tokens with
@@ -953,10 +948,10 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "baidu",
-				externalId: "deepseek-v4-flash",
-				inputPrice: "0.14e-6",
-				cachedInputPrice: "0.028e-6",
-				outputPrice: "0.28e-6",
+				externalId: "deepseek-v4-flash-0731",
+				inputPrice: "0.44e-6",
+				cachedInputPrice: "0.044e-6",
+				outputPrice: "1.32e-6",
 				requestPrice: "0",
 				contextSize: 1048576,
 				maxOutput: 131072,
@@ -976,6 +971,92 @@ export const deepseekModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+			},
+			{
+				providerId: "consensusprotocol",
+				externalId: "DeepSeek-V4-Flash",
+				inputPrice: "0.13e-6",
+				outputPrice: "0.27e-6",
+				cachedInputPrice: "0.02e-6",
+				requestPrice: "0",
+				contextSize: 524288,
+				maxOutput: 393216,
+				quantization: "int8",
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "high", "max"],
+				vision: false,
+				tools: true,
+				// tool_choice "none" leaks a raw <|DSML|tool_calls> template as
+				// assistant content instead of suppressing tools, so it downgrades to
+				// "auto" instead.
+				supportedToolChoices: ["auto", "required", "function"],
+				// An assistant prefill turn comes back with a stray "</think>"
+				// prefixed to the content, so the prefill is rewritten away instead.
+				supportsAssistantPrefill: false,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+		],
+	},
+	{
+		id: "deepseek-v4-flash-vision-exp",
+		name: "DeepSeek V4 Flash Vision Exp",
+		description:
+			"Experimental multimodal DeepSeek V4 Flash model with vision, extended context, and reasoning.",
+		family: "deepseek",
+		stability: "experimental",
+		releasedAt: new Date("2026-08-21"),
+		providers: [
+			{
+				providerId: "deepseek",
+				externalId: "deepseek-v4-flash-vision-exp",
+				inputPrice: "0.14e-6",
+				outputPrice: "0.28e-6",
+				cachedInputPrice: "0.0028e-6",
+				peakPricing: {
+					peak: {
+						inputPrice: "0.44e-6",
+						outputPrice: "1.32e-6",
+						cachedInputPrice: "0.014e-6",
+					},
+					offPeak: {
+						inputPrice: "0.22e-6",
+						outputPrice: "0.66e-6",
+						cachedInputPrice: "0.007e-6",
+					},
+					hoursUtc: [
+						[1, 4],
+						[6, 10],
+					],
+					offPeakDays: {
+						daysOfWeek: [0, 6],
+						utcOffsetMinutes: 480,
+						timeZoneLabel: "Beijing time",
+					},
+				},
+				requestPrice: "0",
+				contextSize: 1050000,
+				maxOutput: 393216,
+				jsonOutput: true,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "high", "max"],
+				vision: true,
+				tools: true,
+				supportsDeveloperRole: false,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+					"reasoning_effort",
+				],
 			},
 		],
 	},

@@ -4,7 +4,8 @@ import dynamic from "next/dynamic";
 
 import { useDevPlanStatus } from "@/app/dashboard/useDevPlanStatus";
 import { useUser } from "@/hooks/useUser";
-import { canConfigureDevPlanServiceTier } from "@/lib/dev-plan-service-tier";
+
+import { TimeZoneSetting } from "@llmgateway/shared";
 
 const DevPlanSettings = dynamic(
 	() => import("@/app/dashboard/components/DevPlanSettings"),
@@ -44,13 +45,18 @@ export default function SettingsPage() {
 				</div>
 			</div>
 
+			{/* Display */}
+			<div>
+				<h2 className="mb-4 font-semibold">Display</h2>
+				<div className="rounded-xl border p-5">
+					<TimeZoneSetting />
+				</div>
+			</div>
+
 			{/* Routing and service-tier settings apply to the live plan only — the
 			    endpoint rejects updates once the subscription has ended. */}
 			{devPlanStatus.devPlan !== "none" && (
 				<DevPlanSettings
-					canConfigureServiceTier={
-						user !== null && canConfigureDevPlanServiceTier(user.createdAt)
-					}
 					devPlanServiceTier={devPlanStatus.devPlanServiceTier ?? "default"}
 					defaultRoutingStrategy={
 						devPlanStatus.defaultRoutingStrategy ?? "auto"

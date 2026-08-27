@@ -12,6 +12,7 @@ import {
 import type {
 	AnthropicRequestBody,
 	OpenAIRequestBody,
+	OpenAIResponsesRequestBody,
 	ProviderCacheControlMode,
 	ProviderModelMapping,
 } from "@llmgateway/models";
@@ -64,6 +65,40 @@ async function prepareOpenAIImageRequest(imageConfig: {
 		undefined,
 		true,
 	);
+}
+
+async function prepareMetaImageRequest(imageConfig: {
+	image_size?: string;
+	image_quality?: string;
+}) {
+	return (await prepareRequestBody(
+		"meta",
+		"muse-image-1.0",
+		null,
+		"muse-image-1.0",
+		[{ role: "user", content: "Generate a cinematic landscape" }],
+		false,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		true,
+		false,
+		20,
+		null,
+		undefined,
+		imageConfig,
+		undefined,
+		true,
+		undefined,
+		undefined,
+		true,
+	)) as OpenAIResponsesRequestBody;
 }
 
 async function prepareOpenAITextRequest(options: {
@@ -1394,6 +1429,60 @@ describe("prepareRequestBody - Anthropic", () => {
 			type: "ephemeral",
 		});
 	});
+
+	test("drops the auto system marker when caller markers already fill the limit", async () => {
+		// Long enough to clear the model's minCacheableTokens threshold so the
+		// system heuristic would fire.
+		const longSystemPrompt = "A".repeat(30000);
+		const marker = { type: "ephemeral" as const };
+		const requestBody = (await prepareRequestBody(
+			"vertex-anthropic",
+			"claude-opus-4-6",
+			null,
+			"claude-opus-4-6",
+			[
+				{ role: "system", content: longSystemPrompt },
+				{
+					role: "user",
+					content: [{ type: "text", text: "one", cache_control: marker }],
+				},
+				{ role: "assistant", content: "ok" },
+				{
+					role: "user",
+					content: [{ type: "text", text: "two", cache_control: marker }],
+				},
+				{ role: "assistant", content: "ok" },
+				{
+					role: "user",
+					content: [{ type: "text", text: "three", cache_control: marker }],
+				},
+				{ role: "assistant", content: "ok" },
+				{
+					role: "user",
+					content: [{ type: "text", text: "four", cache_control: marker }],
+				},
+			] as any,
+			true,
+			undefined,
+			1024,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+		)) as AnthropicRequestBody;
+
+		// System and messages draw from one budget, so the auto-injected system
+		// marker plus the caller's four cannot add up to the five Vertex rejects.
+		const systemMarkers = (requestBody.system as unknown[]).filter((block) =>
+			getCacheControl(block),
+		).length;
+		const messageMarkers = requestBody.messages.flatMap((msg) =>
+			Array.isArray(msg.content)
+				? msg.content.filter((block) => getCacheControl(block))
+				: [],
+		).length;
+		expect(systemMarkers + messageMarkers).toBe(4);
+	});
 });
 
 describe("prepareRequestBody - OpenAI image generation", () => {
@@ -1438,6 +1527,29 @@ describe("prepareRequestBody - OpenAI image generation", () => {
 
 		expect(requestBody.size).toBe("1024x1024");
 		expect(requestBody.quality).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - Meta image generation", () => {
+	test.each(["1024x1024", "1024x1536", "1536x1024"])(
+		"adds the Muse image tool with size %s",
+		async (size) => {
+			const requestBody = await prepareMetaImageRequest({
+				image_size: size,
+				image_quality: "high",
+			});
+
+			expect(requestBody).toMatchObject({
+				model: "muse-image-1.0",
+				tools: [{ type: "image_generation", size }],
+			});
+		},
+	);
+
+	test("rejects a size Muse does not support", async () => {
+		await expect(
+			prepareMetaImageRequest({ image_size: "2048x2048" }),
+		).rejects.toBeInstanceOf(RequestError);
 	});
 });
 
@@ -4908,6 +5020,65 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 		},
 	);
 
+	test("caps cachePoint blocks at 4 — Bedrock enforces Anthropic's limit too", async () => {
+		const marker = { type: "ephemeral" as const };
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-opus-4-6",
+			null,
+			"anthropic.claude-opus-4-6-v1",
+			[
+				{
+					role: "system",
+					content: [
+						{ type: "text", text: "A".repeat(30000), cache_control: marker },
+					],
+				},
+				{
+					role: "user",
+					content: [{ type: "text", text: "one", cache_control: marker }],
+				},
+				{ role: "assistant", content: "ok" },
+				{
+					role: "user",
+					content: [{ type: "text", text: "two", cache_control: marker }],
+				},
+				{ role: "assistant", content: "ok" },
+				{
+					role: "user",
+					content: [{ type: "text", text: "three", cache_control: marker }],
+				},
+				{ role: "assistant", content: "ok" },
+				{
+					role: "user",
+					content: [{ type: "text", text: "four", cache_control: marker }],
+				},
+				{ role: "assistant", content: "ok" },
+				{
+					role: "user",
+					content: [{ type: "text", text: "five", cache_control: marker }],
+				},
+			] as any,
+			false,
+			undefined,
+			1024,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+		)) as any;
+
+		let cachePoints = (requestBody.system as unknown[]).filter(
+			(block) => (block as { cachePoint?: unknown }).cachePoint,
+		).length;
+		for (const msg of requestBody.messages) {
+			cachePoints += (msg.content as unknown[]).filter(
+				(block) => (block as { cachePoint?: unknown }).cachePoint,
+			).length;
+		}
+		expect(cachePoints).toBe(4);
+	});
+
 	test("forwards base64 image blocks as Bedrock image content", async () => {
 		const pngBase64 =
 			"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
@@ -6745,6 +6916,30 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 	});
 
 	describe("together-ai", () => {
+		test("requests usage details for streams", async () => {
+			const requestBody = (await prepareRequestBody(
+				"together-ai",
+				"kimi-k3",
+				null,
+				"moonshotai/Kimi-K3",
+				[{ role: "user", content: "Hello!" }],
+				true,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				true,
+				false,
+			)) as { stream_options?: { include_usage: boolean } };
+
+			expect(requestBody.stream_options).toEqual({ include_usage: true });
+		});
+
 		test("forwards caller-supplied max_tokens verbatim", async () => {
 			const requestBody = (await prepareRequestBody(
 				"together-ai",

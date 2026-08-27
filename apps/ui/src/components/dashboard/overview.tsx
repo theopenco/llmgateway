@@ -14,6 +14,8 @@ import {
 
 import { getDateRangeFromParams } from "@/components/date-range-picker";
 
+import { useDisplayTimeZone } from "@llmgateway/shared";
+
 import type { DailyActivity } from "@/types/activity";
 
 interface OverviewProps {
@@ -76,7 +78,8 @@ export function Overview({
 	metric = "costs",
 }: OverviewProps) {
 	const searchParams = useSearchParams();
-	const { from, to } = getDateRangeFromParams(searchParams);
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
+	const { from, to } = getDateRangeFromParams(searchParams, displayTimeZone);
 
 	if (isLoading) {
 		return (

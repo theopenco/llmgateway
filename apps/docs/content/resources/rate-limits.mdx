@@ -20,24 +20,24 @@ Every API endpoint is rate limited per organization using a rolling 60-second wi
 
 The default limits (requests per minute, per organization) are:
 
-| Endpoint             | Path                       | Requests / min |
-| -------------------- | -------------------------- | -------------- |
-| Chat completions     | `/v1/chat/completions`     | 600            |
-| Messages (Anthropic) | `/v1/messages`             | 600            |
-| Responses            | `/v1/responses`            | 600            |
-| Embeddings           | `/v1/embeddings`           | 1200           |
-| Moderations          | `/v1/moderations`          | 1200           |
-| Rerank               | `/v1/rerank`               | 1200           |
-| Models               | `/v1/models`               | 1200           |
-| OCR                  | `/v1/ocr`                  | 300            |
-| Images               | `/v1/images`               | 300            |
-| Speech               | `/v1/audio/speech`         | 300            |
-| Transcriptions       | `/v1/audio/transcriptions` | 300            |
-| Videos               | `/v1/videos`               | 120            |
-| Realtime (mint)      | `/v1/realtime`             | 120            |
-| Key info             | `/v1/key`                  | 1200           |
-| Credits              | `/v1/credits`              | 300            |
-| AI SDK protocol      | `/v*/ai`                   | 600            |
+| Endpoint                                           | Path                       | Requests / min |
+| -------------------------------------------------- | -------------------------- | -------------- |
+| Chat completions                                   | `/v1/chat/completions`     | 600            |
+| Messages (Anthropic)                               | `/v1/messages`             | 600            |
+| Responses                                          | `/v1/responses`            | 600            |
+| Embeddings                                         | `/v1/embeddings`           | 1200           |
+| Moderations                                        | `/v1/moderations`          | 1200           |
+| Rerank                                             | `/v1/rerank`               | 1200           |
+| Models                                             | `/v1/models`               | 1200           |
+| OCR                                                | `/v1/ocr`                  | 300            |
+| Images                                             | `/v1/images`               | 300            |
+| Speech                                             | `/v1/audio/speech`         | 300            |
+| Transcriptions                                     | `/v1/audio/transcriptions` | 300            |
+| Videos                                             | `/v1/videos`               | 120            |
+| Realtime (mint)                                    | `/v1/realtime`             | 120            |
+| [Key and DevPass usage](/developers/devpass-usage) | `/v1/key`                  | 1200           |
+| Credits                                            | `/v1/credits`              | 300            |
+| AI SDK protocol                                    | `/v*/ai`                   | 600            |
 
 <Callout type="info">
 	**[Enterprise](https://llmgateway.io/enterprise) organizations are exempt**

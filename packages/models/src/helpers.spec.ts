@@ -94,6 +94,49 @@ describe("resolveTimeBasedPricing", () => {
 		});
 	});
 
+	// The mapping above cannot show whether `utcOffsetMinutes` is honoured: both
+	// peak windows sit before 16:00Z, and a UTC date and a Beijing date only
+	// disagree from 16:00Z onward. Set `utcOffsetMilliseconds` to 0 in the
+	// implementation and every assertion in this file still passes. These four
+	// instants use a window that reaches past 16:00Z, which is the only shape
+	// that separates the two calendars.
+	const lateWindowMapping = {
+		...peakPricedMapping,
+		peakPricing: { ...peakPricedMapping.peakPricing, hoursUtc: [[15, 20]] },
+	} satisfies Pick<
+		ProviderModelMapping,
+		"inputPrice" | "outputPrice" | "cachedInputPrice" | "peakPricing"
+	>;
+
+	const peakRates = {
+		inputPrice: "0.44e-6",
+		outputPrice: "1.32e-6",
+		cachedInputPrice: "0.014e-6",
+	};
+	const offPeakRates = {
+		inputPrice: "0.22e-6",
+		outputPrice: "0.66e-6",
+		cachedInputPrice: "0.007e-6",
+	};
+
+	it.each([
+		// Friday 23:00 Beijing — still a weekday on both clocks.
+		["Friday 23:00 Beijing", "2026-08-28T15:00:00Z", peakRates],
+		// Friday in UTC, Saturday in Beijing: off-peak only if the offset is applied.
+		["Saturday 00:00 Beijing", "2026-08-28T16:00:00Z", offPeakRates],
+		// Sunday on both clocks.
+		["Sunday 23:00 Beijing", "2026-08-30T15:00:00Z", offPeakRates],
+		// Sunday in UTC, Monday in Beijing: peak only if the offset is applied.
+		["Monday 00:00 Beijing", "2026-08-30T16:00:00Z", peakRates],
+	])(
+		"counts the off-peak day on the vendor clock, not in UTC (%s)",
+		(_label, iso, expected) => {
+			expect(resolveTimeBasedPricing(lateWindowMapping, at(iso))).toEqual(
+				expected,
+			);
+		},
+	);
+
 	it("keeps peak rates on weekdays", () => {
 		expect(
 			resolveTimeBasedPricing(peakPricedMapping, at("2026-08-24T02:00:00Z")),

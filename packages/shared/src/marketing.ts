@@ -14,13 +14,13 @@ export const MARKETING_STATS = {
 	githubStars: "20K+",
 } as const;
 
-// Runware launch partnership: 30% off all Runware-served OSS models for 30
-// days from the 2026-07-27 launch. The promo banners in apps/ui and apps/code
-// hide themselves automatically once `endsAt` passes; the banner code can be
-// removed entirely after that date.
+// Runware launch partnership: 30% off all Runware-served OSS models from the
+// 2026-07-27 launch, extended by two weeks on 2026-08-25. The promo banners in
+// apps/ui and apps/code hide themselves automatically once `endsAt` passes;
+// the banner code can be removed entirely after that date.
 export const RUNWARE_PROMO = {
 	discountPercent: 30,
-	endsAt: "2026-08-26T23:59:59Z",
+	endsAt: "2026-09-09T23:59:59Z",
 	providerPath: "/providers/runware",
 	providerUrl: "https://llmgateway.io/providers/runware",
 } as const;

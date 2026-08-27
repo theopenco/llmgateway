@@ -588,7 +588,8 @@ export function transformResponseToOpenai(
 			break;
 		}
 		case "anthropic":
-		case "vertex-anthropic": {
+		case "vertex-anthropic":
+		case "azure-anthropic": {
 			transformedResponse = {
 				id: `chatcmpl-${Date.now()}`,
 				object: "chat.completion",
@@ -999,6 +1000,7 @@ export function transformResponseToOpenai(
 							message: {
 								role: "assistant",
 								content: content,
+								...(images && images.length > 0 && { images }),
 								...(reasoningContent !== null && {
 									reasoning: reasoningContent,
 								}),

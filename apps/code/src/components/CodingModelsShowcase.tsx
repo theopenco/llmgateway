@@ -15,70 +15,19 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 
-import { models, type ModelDefinition } from "@llmgateway/models";
-import { isCodingModel, isPremiumModel } from "@llmgateway/shared";
-import {
-	getModelFamilyIcon,
-	OPEN_WEIGHT_LAB_FAMILIES,
-} from "@llmgateway/shared/components";
+import { getModelFamilyIcon } from "@llmgateway/shared/components";
+
+import type { CodingModelCard } from "@/lib/coding-models";
 
 export type CodingModelsView = "recommended" | "standard" | "premium" | "all";
 
 interface CodingModelsShowcaseProps {
+	models: CodingModelCard[];
 	showCTA?: boolean;
 	className?: string;
 	showTabs?: boolean;
 	defaultView?: CodingModelsView;
 }
-
-type ModelProvider = ModelDefinition["providers"][number];
-
-function isActiveMapping(provider: ModelProvider): boolean {
-	const now = new Date();
-	return (
-		(!provider.deprecatedAt || provider.deprecatedAt > now) &&
-		(!provider.deactivatedAt || provider.deactivatedAt > now)
-	);
-}
-
-// The gateway's DevPass gate, minus mappings that have already been retired.
-function isShowcaseCodingModel(model: ModelDefinition): boolean {
-	return isCodingModel({
-		...model,
-		providers: model.providers.filter(isActiveMapping),
-	});
-}
-
-// Newest release first; models without a release date sink to the end.
-function byNewestRelease(a: ModelDefinition, b: ModelDefinition): number {
-	const aTime = a.releasedAt?.getTime() ?? 0;
-	const bTime = b.releasedAt?.getTime() ?? 0;
-	return bTime - aTime;
-}
-
-const codingModels = (models as ModelDefinition[])
-	.filter(isShowcaseCodingModel)
-	.sort(byNewestRelease);
-
-// Recommended = the latest coding model from each open-weight lab, derived
-// from release dates so new catalogue entries surface without curation.
-const recommendedIds: ReadonlySet<string> = (() => {
-	const latestPerFamily = new Map<string, ModelDefinition>();
-	for (const model of codingModels) {
-		if (!OPEN_WEIGHT_LAB_FAMILIES.has(model.family) || !model.releasedAt) {
-			continue;
-		}
-		const current = latestPerFamily.get(model.family);
-		if (!current || model.releasedAt > current.releasedAt!) {
-			latestPerFamily.set(model.family, model);
-		}
-	}
-	return new Set(Array.from(latestPerFamily.values()).map((model) => model.id));
-})();
-
-const premiumIds: ReadonlySet<string> = new Set(
-	codingModels.filter((m) => isPremiumModel(m.id)).map((m) => m.id),
-);
 
 function formatContextSize(size: number): string {
 	if (size >= 1000000) {
@@ -88,29 +37,6 @@ function formatContextSize(size: number): string {
 		return `${(size / 1000).toFixed(0)}K`;
 	}
 	return size.toString();
-}
-
-// Pick the provider with the lowest combined input + output price so the card
-// advertises the best ("starting from") rate available for the model. Providers
-// without pricing are ranked last so we still fall back to a usable mapping.
-function getCheapestProvider(
-	providers: readonly ModelProvider[],
-): ModelProvider | undefined {
-	const cost = (p: ModelProvider): number => {
-		const input = p.inputPrice !== undefined ? Number(p.inputPrice) : undefined;
-		const output =
-			p.outputPrice !== undefined ? Number(p.outputPrice) : undefined;
-		if (input === undefined && output === undefined) {
-			return Number.POSITIVE_INFINITY;
-		}
-		return (input ?? 0) + (output ?? 0);
-	};
-	return providers.reduce<ModelProvider | undefined>((cheapest, p) => {
-		if (!cheapest) {
-			return p;
-		}
-		return cost(p) < cost(cheapest) ? p : cheapest;
-	}, undefined);
 }
 
 function formatPrice(price: number): string {
@@ -159,6 +85,7 @@ const TAB_DEFINITIONS: {
 ];
 
 export function CodingModelsShowcase({
+	models,
 	showCTA,
 	className,
 	showTabs = false,
@@ -167,15 +94,15 @@ export function CodingModelsShowcase({
 	const [copiedModel, setCopiedModel] = useState<string | null>(null);
 	const [view, setView] = useState<CodingModelsView>(defaultView);
 
-	const visibleModels = codingModels.filter((model) => {
+	const visibleModels = models.filter((model) => {
 		if (view === "recommended") {
-			return recommendedIds.has(model.id);
+			return model.recommended;
 		}
 		if (view === "standard") {
-			return !premiumIds.has(model.id);
+			return !model.premium;
 		}
 		if (view === "premium") {
-			return premiumIds.has(model.id);
+			return model.premium;
 		}
 		return true;
 	});
@@ -234,9 +161,6 @@ export function CodingModelsShowcase({
 			</p>
 			<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 				{visibleModels.map((model) => {
-					const provider = getCheapestProvider(
-						model.providers.filter(isActiveMapping),
-					);
 					const FamilyIcon = getModelFamilyIcon(model.family);
 
 					return (
@@ -244,7 +168,7 @@ export function CodingModelsShowcase({
 							key={model.id}
 							className="group relative flex flex-col gap-2 rounded-lg border p-4 transition-all hover:border-primary/50 hover:shadow-sm"
 						>
-							{premiumIds.has(model.id) ? (
+							{model.premium ? (
 								<span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
 									<Gem className="h-2.5 w-2.5" />
 									Premium
@@ -257,7 +181,7 @@ export function CodingModelsShowcase({
 											<FamilyIcon className="h-4 w-4" />
 										</div>
 										<span className="font-medium text-sm truncate">
-											{model.name ?? model.id}
+											{model.name}
 										</span>
 									</div>
 								</div>
@@ -292,35 +216,37 @@ export function CodingModelsShowcase({
 								</button>
 							</div>
 
-							{provider && (
+							{(model.contextSize !== null ||
+								model.inputPrice !== null ||
+								model.outputPrice !== null) && (
 								<div className="text-xs text-muted-foreground space-y-1 mt-1">
-									{provider.contextSize && (
+									{model.contextSize !== null && (
 										<p>
 											Context:{" "}
 											<span className="font-mono font-medium text-foreground">
-												{formatContextSize(provider.contextSize)}
+												{formatContextSize(model.contextSize)}
 											</span>
 										</p>
 									)}
-									{(provider.inputPrice !== undefined ||
-										provider.outputPrice !== undefined) && (
+									{(model.inputPrice !== null ||
+										model.outputPrice !== null) && (
 										<p>
 											<span className="text-muted-foreground mr-1">
 												starting from
 											</span>
-											{provider.inputPrice !== undefined && (
+											{model.inputPrice !== null && (
 												<>
 													<span className="font-mono font-medium text-foreground">
-														${formatPrice(Number(provider.inputPrice))}
+														${formatPrice(model.inputPrice)}
 													</span>
 													<span className="text-muted-foreground"> in</span>
 												</>
 											)}
-											{provider.outputPrice !== undefined && (
+											{model.outputPrice !== null && (
 												<>
 													<span className="text-muted-foreground mx-1">/</span>
 													<span className="font-mono font-medium text-foreground">
-														${formatPrice(Number(provider.outputPrice))}
+														${formatPrice(model.outputPrice)}
 													</span>
 													<span className="text-muted-foreground"> out</span>
 												</>

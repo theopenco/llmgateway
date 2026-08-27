@@ -55,8 +55,8 @@ interface ChatMessage {
 /**
  * True when a provider's terminal reason is a safety-classifier "refusal".
  *
- * Anthropic-family models (the direct Anthropic API, Anthropic on Vertex, and
- * Anthropic on AWS Bedrock) emit `stop_reason: "refusal"` when a streaming
+ * Anthropic-family models (the direct Anthropic API, Anthropic on Vertex,
+ * Anthropic on Microsoft Foundry, and Anthropic on AWS Bedrock) emit `stop_reason: "refusal"` when a streaming
  * classifier intervenes on a potential policy violation. Per Anthropic's
  * documented billing policy, a refusal that arrives before any output is
  * generated is not billed (the usage counts in that response are informational
@@ -73,6 +73,7 @@ export function isRefusalFinishReason(
 	return (
 		provider === "anthropic" ||
 		provider === "vertex-anthropic" ||
+		provider === "azure-anthropic" ||
 		provider === "aws-bedrock"
 	);
 }

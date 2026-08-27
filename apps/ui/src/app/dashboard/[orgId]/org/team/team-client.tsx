@@ -1,6 +1,5 @@
 "use client";
 
-import { format, subDays } from "date-fns";
 import {
 	BarChart3Icon,
 	Info,
@@ -35,6 +34,7 @@ import {
 	type TeamMembersData,
 } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
+import { useZonedRangeDefaults } from "@/hooks/useZonedRangeDefaults";
 import { Alert, AlertDescription } from "@/lib/components/alert";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
@@ -86,10 +86,9 @@ import {
 } from "@/lib/components/table";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
-import { getBrowserTimeZone } from "@/lib/timezone";
 import { applyUsageMode } from "@/lib/usage-mode";
 
-import { SSO_TEAM_DEFAULT_DEVELOPER_BUDGET } from "@llmgateway/shared";
+import { SSO_TEAM_DEFAULT_DEVELOPER_BUDGET, Time } from "@llmgateway/shared";
 
 import type { Route } from "next";
 
@@ -699,6 +698,13 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 	const { buildUrl, buildOrgUrl, selectedOrganization } =
 		useDashboardNavigation();
 	const api = useApi();
+	const {
+		from: defaultFrom,
+		to: defaultTo,
+		timeZone: displayTimeZone,
+		markGenerated,
+		shouldApplyDefaults,
+	} = useZonedRangeDefaults();
 	const { user } = useUser();
 	const usageMode = useUsageMode();
 
@@ -740,21 +746,28 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 		if (!showUsage) {
 			return;
 		}
-		if (!searchParams.get("from") || !searchParams.get("to")) {
-			const params2 = new URLSearchParams(searchParams.toString());
-			params2.delete("days");
-			const today = new Date();
-			params2.set("from", format(subDays(today, 6), "yyyy-MM-dd"));
-			params2.set("to", format(today, "yyyy-MM-dd"));
-			router.replace(
-				`${buildOrgUrl("org/team")}?${params2.toString()}` as Route,
-			);
+		if (!shouldApplyDefaults(searchParams)) {
+			return;
 		}
-	}, [showUsage, searchParams, router, buildOrgUrl]);
+		const params2 = new URLSearchParams(searchParams.toString());
+		params2.delete("days");
+		params2.set("from", defaultFrom);
+		params2.set("to", defaultTo);
+		markGenerated(params2);
+		router.replace(`${buildOrgUrl("org/team")}?${params2.toString()}` as Route);
+	}, [
+		showUsage,
+		searchParams,
+		router,
+		buildOrgUrl,
+		defaultFrom,
+		defaultTo,
+		markGenerated,
+		shouldApplyDefaults,
+	]);
 
-	const fromStr =
-		searchParams.get("from") ?? format(subDays(new Date(), 6), "yyyy-MM-dd");
-	const toStr = searchParams.get("to") ?? format(new Date(), "yyyy-MM-dd");
+	const fromStr = searchParams.get("from") ?? defaultFrom;
+	const toStr = searchParams.get("to") ?? defaultTo;
 
 	const { data: usageData } = api.useQuery(
 		"get",
@@ -765,7 +778,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 					organizationId,
 					from: fromStr,
 					to: toStr,
-					timezone: getBrowserTimeZone(),
+					timezone: displayTimeZone,
 				},
 			},
 		},
@@ -1339,10 +1352,10 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 													)}
 												</TableCell>
 												<TableCell>
-													{format(new Date(invite.createdAt), "MMM d, yyyy")}
+													<Time date={invite.createdAt} format="monthDayYear" />
 												</TableCell>
 												<TableCell>
-													{format(new Date(invite.expiresAt), "MMM d, yyyy")}
+													<Time date={invite.expiresAt} format="monthDayYear" />
 												</TableCell>
 												{isAdmin && (
 													<TableCell className="text-right">

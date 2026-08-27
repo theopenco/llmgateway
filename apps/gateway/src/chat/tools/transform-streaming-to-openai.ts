@@ -104,7 +104,8 @@ export function transformStreamingToOpenai(
 
 	switch (usedProvider) {
 		case "anthropic":
-		case "vertex-anthropic": {
+		case "vertex-anthropic":
+		case "azure-anthropic": {
 			const usage = data.message?.usage ?? data.usage;
 			if (data.type === "message_start") {
 				transformedData = {
@@ -1537,6 +1538,7 @@ export function transformStreamingToOpenai(
 		case "gonka24":
 		case "ranoai":
 		case "baidu":
+		case "consensusprotocol":
 		case "granite":
 		case "tundra":
 		case "permafrost":

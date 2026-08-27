@@ -1327,6 +1327,24 @@ export const FireworksIconStatic: React.FC<React.SVGProps<SVGSVGElement>> = (
 	</svg>
 );
 
+export const ConsensusProtocolIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
+	props,
+) => (
+	<svg
+		xmlns="http://www.w3.org/2000/svg"
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		strokeLinecap="round"
+		{...props}
+	>
+		<path d="M20.6 5.98A10.5 10.5 0 1 0 20.6 18.02" strokeWidth="1.4" />
+		<path d="M15.17 5.2A7.5 7.5 0 1 1 8.83 5.2" strokeWidth="1.4" />
+		<path d="M15.22 9.3A4.2 4.2 0 1 0 15.22 14.7" strokeWidth="2.8" />
+		<circle cx="3.96" cy="18.75" r="1.1" fill="currentColor" stroke="none" />
+	</svg>
+);
+
 export const BaiduIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 	<svg
 		xmlns="http://www.w3.org/2000/svg"
@@ -1600,6 +1618,7 @@ export const ProviderIcons = {
 	"aws-mantle": AWSBedrockIcon,
 	azure: AzureIcon,
 	"azure-ai-foundry": AzureIcon,
+	"azure-anthropic": AzureIcon,
 	canopywave: CanopyWaveIcon,
 	cerebras: CerebrasIcon,
 	minimax: MinimaxIcon,
@@ -1615,6 +1634,7 @@ export const ProviderIcons = {
 	runware: RunwareIcon,
 	ranoai: RanoAIIcon,
 	baidu: BaiduIcon,
+	consensusprotocol: ConsensusProtocolIcon,
 } as const;
 
 // Type for provider icon keys
@@ -1653,6 +1673,7 @@ export const providerLogoUrls: Partial<
 	"aws-mantle": ProviderIcons["aws-bedrock"],
 	azure: ProviderIcons.azure,
 	"azure-ai-foundry": ProviderIcons["azure-ai-foundry"],
+	"azure-anthropic": ProviderIcons["azure-anthropic"],
 	canopywave: ProviderIcons.canopywave,
 	cerebras: ProviderIcons.cerebras,
 	minimax: ProviderIcons.minimax,
@@ -1668,6 +1689,7 @@ export const providerLogoUrls: Partial<
 	runware: ProviderIcons.runware,
 	ranoai: ProviderIcons.ranoai,
 	baidu: ProviderIcons.baidu,
+	consensusprotocol: ProviderIcons.consensusprotocol,
 };
 
 export const getProviderLogoDarkModeClasses = () => {

@@ -11,6 +11,8 @@
 - [Pricing (machine-readable)](https://llmgateway.io/pricing.md): Plain-markdown pricing summary for AI agents.
 - [Providers](https://llmgateway.io/providers): Every supported provider and the models each offers.
 - [Docs](https://docs.llmgateway.io): API reference and integration guides.
+- [About](https://llmgateway.io/about): Who builds LLM Gateway and why.
+- [Contact](https://llmgateway.io/contact): Email, Discord, GitHub, and enterprise sales channels.
 - [Compare](https://llmgateway.io/compare/open-router): How LLM Gateway compares to OpenRouter, LiteLLM, Portkey, the Vercel AI Gateway, and GitHub Copilot.
 - [GitHub Copilot cost calculator](https://llmgateway.io/copilot-cost-calculator): Estimate a team's monthly Copilot AI Credits bill under the June 2026 usage-based billing and compare the same workload at pass-through token prices with prompt caching.
 - [Migrate from GitHub Copilot](https://llmgateway.io/migration/github-copilot): Map Copilot chat, agent mode, and code review to gateway-backed tools with hard budget caps.
@@ -27,7 +29,18 @@
 - [Cheapest models](https://llmgateway.io/models/cheapest): Models at or under $0.20 per million input tokens.
 - [Open source models](https://llmgateway.io/models/open-source): Open-weight LLMs (Llama, DeepSeek, Qwen, GLM, Kimi, GPT-OSS) served via API.
 
+## Developer resources
+
+- [OpenAPI specification](https://llmgateway.io/openapi.json): Machine-readable spec for the LLM Gateway API (also at https://api.llmgateway.io/openapi.json). Every operation has an operationId, typed schemas, and typed 4xx/5xx error responses.
+- [API base URL](https://api.llmgateway.io/v1): OpenAI-compatible; authenticate with `Authorization: Bearer <api-key>`.
+- [API docs](https://docs.llmgateway.io): Reference and integration guides; full docs as markdown at https://llmgateway.io/llms-full.txt.
+- [Quick start](https://docs.llmgateway.io/quick-start): First request in minutes with any OpenAI SDK.
+- [MCP server](https://api.llmgateway.io/mcp): Model Context Protocol server (Streamable HTTP). OAuth scopes and metadata: https://api.llmgateway.io/.well-known/oauth-protected-resource and /.well-known/oauth-authorization-server.
+- Versioning: the API is path-versioned (`/v1`); breaking changes only ship under a new version. Deprecations are announced in the [changelog](https://llmgateway.io/changelog).
+- Rate limits: 429 responses include `Retry-After` and `RateLimit-*` headers; back off until `Retry-After` elapses.
+
 ## Notes
 
 - New models are typically available within 48 hours of their provider release.
 - The API is OpenAI-compatible; point your existing SDK at the gateway base URL.
+- Pages with a markdown representation honor `Accept: text/markdown` (currently / and /pricing).

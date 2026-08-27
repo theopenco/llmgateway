@@ -288,8 +288,10 @@ export async function checkOrgRateLimit(
 		};
 	} catch (error) {
 		logger.error("Error checking org rate limit:", error as Error);
-		// Fail open so Redis issues never block users.
-		return { allowed: true, remaining: 0, limit: baseLimit };
+		// Fail open so Redis issues never block users. `limit: 0` marks the
+		// result as unenforced, so the middleware does not advertise a
+		// zero-remaining budget for a limit that was never actually checked.
+		return { allowed: true, remaining: 0, limit: 0 };
 	}
 }
 

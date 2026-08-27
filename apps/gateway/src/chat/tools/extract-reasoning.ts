@@ -32,7 +32,8 @@ export function extractReasoning(
 ): string {
 	switch (provider) {
 		case "anthropic":
-		case "vertex-anthropic": {
+		case "vertex-anthropic":
+		case "azure-anthropic": {
 			const chunk = data as AnthropicStreamChunk;
 			if (
 				chunk.type === "content_block_delta" &&

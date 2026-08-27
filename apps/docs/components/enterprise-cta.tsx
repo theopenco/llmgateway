@@ -1,22 +1,15 @@
-"use client";
-
 import { ArrowRight, Shield } from "lucide-react";
-import Link from "next/link";
-import { usePostHog } from "posthog-js/react";
+
+import { TrackedLink } from "@/components/tracked-link";
 
 export function EnterpriseCTA() {
-	const posthog = usePostHog();
-
 	return (
-		<Link
+		<TrackedLink
+			event="docs_enterprise_cta_click"
+			properties={{ location: "toc" }}
 			href="https://llmgateway.io/enterprise"
 			target="_blank"
 			rel="noopener noreferrer"
-			onClick={() => {
-				posthog.capture("docs_enterprise_cta_click", {
-					location: "toc",
-				});
-			}}
 			className="group relative flex flex-col gap-3 rounded-xl border border-fd-border bg-fd-card p-4 transition-all duration-200 hover:border-fd-primary/40 hover:shadow-md"
 		>
 			<div className="flex items-center gap-2.5">
@@ -35,6 +28,6 @@ export function EnterpriseCTA() {
 				Explore Enterprise
 				<ArrowRight className="size-3" />
 			</span>
-		</Link>
+		</TrackedLink>
 	);
 }

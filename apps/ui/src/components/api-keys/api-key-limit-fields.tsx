@@ -204,6 +204,13 @@ export function formatPeriodLimitSummary(
 	return `${formatCurrencyAmount(apiKey.periodUsageLimit)} / ${formatPeriodWindowLabel(apiKey.periodUsageDurationValue, apiKey.periodUsageDurationUnit)}`;
 }
 
+const periodResetFormat = new Intl.DateTimeFormat(undefined, {
+	month: "short",
+	day: "numeric",
+	hour: "2-digit",
+	minute: "2-digit",
+});
+
 export function formatApiKeyPeriodResetLabel(
 	resetAt: string | Date | null | undefined,
 ): string | null {
@@ -216,12 +223,7 @@ export function formatApiKeyPeriodResetLabel(
 		return null;
 	}
 
-	return Intl.DateTimeFormat(undefined, {
-		month: "short",
-		day: "numeric",
-		hour: "2-digit",
-		minute: "2-digit",
-	}).format(date);
+	return periodResetFormat.format(date);
 }
 
 export function formatCurrentPeriodUsageSummary(

@@ -1,6 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
-import { streamSSE } from "hono/streaming";
 
 import { detectCodingAgentFromUserAgent } from "@/chat/tools/detect-coding-agent.js";
 import { extractFirstSseEventData } from "@/chat/tools/extract-first-sse-event-data.js";
@@ -69,6 +68,7 @@ import {
 	getLicensedOrganizationPlan,
 	hasOrganizationEnterpriseAccess,
 } from "@/lib/enterprise.js";
+import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import {
 	getGcpAccessToken,
@@ -84,6 +84,7 @@ import {
 } from "@/lib/logs.js";
 import { isSponsoredOnboardingRequest } from "@/lib/onboarding-sponsorship.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { streamSSE } from "@/lib/pending-work.js";
 import {
 	createSessionProviderStore,
 	getPreferredProvider,
@@ -915,6 +916,19 @@ function isVertexCompatibleProvider(provider: string): boolean {
 }
 
 /**
+ * Providers that speak Anthropic's Messages API wire format (request body,
+ * streaming events and response shape), whether first-party or fronted by a
+ * cloud vendor.
+ */
+function isAnthropicMessagesProvider(provider: string): boolean {
+	return (
+		provider === "anthropic" ||
+		provider === "vertex-anthropic" ||
+		provider === "azure-anthropic"
+	);
+}
+
+/**
  * Dev-only verification log confirming a requested processing tier reached the
  * provider. AI Studio reports the served tier in the `x-gemini-service-tier`
  * response header; Vertex reports it in `usageMetadata.trafficType` (logged
@@ -1526,24 +1540,7 @@ const completions = createRoute({
 			},
 			description: "User response object or streaming response.",
 		},
-		500: {
-			content: {
-				"application/json": {
-					schema: z.object({
-						error: z.object({
-							message: z.string(),
-							type: z.string(),
-							param: z.string().nullable(),
-							code: z.string(),
-						}),
-					}),
-				},
-				"text/event-stream": {
-					schema: z.any(),
-				},
-			},
-			description: "Error response object.",
-		},
+		...standardErrorResponses(),
 	},
 });
 
@@ -5992,9 +5989,11 @@ chat.openapi(completions, async (c) => {
 				const retryAfter = providerRateLimitResult.retryAfter;
 				if (retryAfter) {
 					c.header("Retry-After", retryAfter.toString());
+					c.header("RateLimit-Reset", retryAfter.toString());
 					const resetTime = Math.floor(Date.now() / 1000) + retryAfter;
 					c.header("X-RateLimit-Reset", resetTime.toString());
 				}
+				c.header("RateLimit-Remaining", "0");
 
 				const blockedLimits = providerRateLimitResult.blockedBy
 					.map(
@@ -7117,7 +7116,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Anthropic does not allow temperature and top_p to be set simultaneously
-	if (usedProvider === "anthropic" || usedProvider === "vertex-anthropic") {
+	if (isAnthropicMessagesProvider(usedProvider)) {
 		if (temperature !== undefined && top_p !== undefined) {
 			top_p = undefined;
 		}
@@ -9575,8 +9574,7 @@ chat.openapi(completions, async (c) => {
 					!healingDisabledByN &&
 					streamingIsJsonResponseFormat &&
 					(streamingResponseHealingEnabled === true ||
-						((usedProvider === "anthropic" ||
-							usedProvider === "vertex-anthropic") &&
+						(isAnthropicMessagesProvider(usedProvider) &&
 							response_format?.type === "json_object") ||
 						(usesAwsBedrockConverse() &&
 							response_format?.type === "json_object") ||
@@ -10447,8 +10445,7 @@ chat.openapi(completions, async (c) => {
 
 								// For Anthropic, if we have partial usage data, complete it
 								if (
-									(usedProvider === "anthropic" ||
-										usedProvider === "vertex-anthropic") &&
+									isAnthropicMessagesProvider(usedProvider) &&
 									transformedData.usage
 								) {
 									const usage = transformedData.usage;
@@ -10549,10 +10546,7 @@ chat.openapi(completions, async (c) => {
 
 								// For Anthropic streaming tool calls, enrich delta chunks with id/type/name
 								// from the initial content_block_start event. This ensures OpenAI SDK compatibility.
-								if (
-									usedProvider === "anthropic" ||
-									usedProvider === "vertex-anthropic"
-								) {
+								if (isAnthropicMessagesProvider(usedProvider)) {
 									const toolCalls =
 										transformedData.choices?.[0]?.delta?.tool_calls;
 									if (toolCalls && toolCalls.length > 0) {
@@ -10682,10 +10676,7 @@ chat.openapi(completions, async (c) => {
 											// stop_reason (e.g. "refusal") from message_delta. Don't
 											// let the transformed message_stop chunk (mapped to
 											// "stop") clobber a refusal captured moments earlier.
-											if (
-												streamFormatProvider !== "anthropic" &&
-												streamFormatProvider !== "vertex-anthropic"
-											) {
+											if (!isAnthropicMessagesProvider(streamFormatProvider)) {
 												finishReason = choice.finish_reason;
 											}
 											sawProviderTerminalEvent = true;
@@ -10699,8 +10690,7 @@ chat.openapi(completions, async (c) => {
 								// use raw data. For others (like aws-bedrock), use transformed OpenAI format.
 								const contentChunk = extractContent(
 									isGoogleCompatibleProvider(usedProvider) ||
-										usedProvider === "anthropic" ||
-										usedProvider === "vertex-anthropic"
+										isAnthropicMessagesProvider(usedProvider)
 										? data
 										: transformedData,
 									usedProvider,
@@ -10731,10 +10721,7 @@ chat.openapi(completions, async (c) => {
 
 								// Track web search calls for cost calculation
 								// Check for web search results based on provider-specific data
-								if (
-									usedProvider === "anthropic" ||
-									usedProvider === "vertex-anthropic"
-								) {
+								if (isAnthropicMessagesProvider(usedProvider)) {
 									// For Anthropic, count web_search_tool_result blocks
 									if (
 										data.type === "content_block_start" &&
@@ -10775,8 +10762,7 @@ chat.openapi(completions, async (c) => {
 								// use raw data. For others, use transformed OpenAI format.
 								const reasoningContentChunk = extractReasoning(
 									isGoogleCompatibleProvider(usedProvider) ||
-										usedProvider === "anthropic" ||
-										usedProvider === "vertex-anthropic"
+										isAnthropicMessagesProvider(usedProvider)
 										? data
 										: transformedData,
 									usedProvider,
@@ -10804,8 +10790,7 @@ chat.openapi(completions, async (c) => {
 
 										// For Anthropic content_block_delta events, match by content block index
 										if (
-											(usedProvider === "anthropic" ||
-												usedProvider === "vertex-anthropic") &&
+											isAnthropicMessagesProvider(usedProvider) &&
 											newCall._contentBlockIndex !== undefined
 										) {
 											existingCall =
@@ -10852,6 +10837,7 @@ chat.openapi(completions, async (c) => {
 										break;
 									case "anthropic":
 									case "vertex-anthropic":
+									case "azure-anthropic":
 										if (
 											data.type === "message_delta" &&
 											data.delta?.stop_reason
@@ -14082,7 +14068,7 @@ chat.openapi(completions, async (c) => {
 	const shouldHealNonStreaming =
 		isJsonResponseFormat &&
 		(responseHealingEnabled === true ||
-			((usedProvider === "anthropic" || usedProvider === "vertex-anthropic") &&
+			(isAnthropicMessagesProvider(usedProvider) &&
 				response_format?.type === "json_object") ||
 			(usesAwsBedrockConverse() && response_format?.type === "json_object") ||
 			usedProvider === "novita" ||

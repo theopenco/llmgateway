@@ -102,6 +102,11 @@ const nextConfig: NextConfig = {
 				permanent: true,
 			},
 			{
+				source: "/v1/key",
+				destination: "/v1_key_retrieve",
+				permanent: true,
+			},
+			{
 				source: "/v1/videos",
 				destination: "/v1_videos_create",
 				permanent: true,

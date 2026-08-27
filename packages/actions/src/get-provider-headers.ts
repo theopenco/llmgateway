@@ -117,6 +117,14 @@ export function getProviderHeaders(
 				...requestIdHeader,
 				"api-key": token,
 			};
+		case "azure-anthropic":
+			// Microsoft Foundry fronts the Anthropic Messages API, so it expects
+			// Anthropic's own auth header rather than Azure's `api-key`.
+			return {
+				...requestIdHeader,
+				"x-api-key": token,
+				"anthropic-version": "2023-06-01",
+			};
 		case "elevenlabs":
 			return {
 				...requestIdHeader,
@@ -145,6 +153,7 @@ export function getProviderHeaders(
 		case "zai":
 		case "canopywave":
 		case "embercloud":
+		case "consensusprotocol":
 		case "deepinfra":
 		case "custom":
 		case "runware":

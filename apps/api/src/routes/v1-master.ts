@@ -33,6 +33,7 @@ import {
 	updateCustomModelSchema,
 } from "@/routes/custom-models.js";
 import {
+	assertApiKeyIsUserManaged,
 	buildApiKeyLimitAuditChanges,
 	createApiKeyForProject,
 	hasPeriodConfigChanged,
@@ -71,7 +72,10 @@ import {
 	shortid,
 	tables,
 } from "@llmgateway/db";
-import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
+import {
+	getApiKeyFingerprint,
+	getApiKeyFingerprints,
+} from "@llmgateway/shared/api-key-hash";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import { maskToken } from "@llmgateway/shared/mask-token";
 
@@ -104,10 +108,11 @@ v1Master.use("*", async (c, next) => {
 		throw new HTTPException(401, { message: "Missing bearer token" });
 	}
 
-	const tokenHash = getApiKeyFingerprint(token);
-
 	const row = await db.query.masterKey.findFirst({
-		where: { tokenHash: { eq: tokenHash }, status: { eq: "active" } },
+		where: {
+			tokenHash: { in: getApiKeyFingerprints(token) },
+			status: { eq: "active" },
+		},
 		with: { organization: true },
 	});
 
@@ -177,10 +182,12 @@ interface SerializableApiKey {
 	createdAt: Date;
 	updatedAt: Date;
 	description: string;
+	kind: "regular" | "playground";
 	status: "active" | "inactive" | "deleted" | null;
 	projectId: string;
 	createdBy: string;
-	token: string;
+	token: string | null;
+	tokenMasked: string | null;
 	usageLimit: string | null;
 	usage: string;
 	periodUsageLimit: string | null;
@@ -209,12 +216,13 @@ function serializeApiKeyForMaster(apiKey: SerializableApiKey) {
 		createdAt: apiKey.createdAt,
 		updatedAt: apiKey.updatedAt,
 		description: apiKey.description,
+		kind: apiKey.kind,
 		status: apiKey.status,
 		projectId: apiKey.projectId,
 		projectName: apiKey.project.name,
 		createdBy: apiKey.createdBy,
 		createdByEmail: apiKey.creator?.email ?? null,
-		maskedToken: maskToken(apiKey.token),
+		maskedToken: apiKey.tokenMasked ?? maskToken(apiKey.token ?? ""),
 		usageLimit: apiKey.usageLimit,
 		usage: apiKey.usage,
 		periodUsageLimit: apiKey.periodUsageLimit,
@@ -607,6 +615,7 @@ const apiKeyDetailSchema = z.object({
 	createdAt: z.date(),
 	updatedAt: z.date(),
 	description: z.string(),
+	kind: z.enum(["regular", "playground"]),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	projectId: z.string(),
 	projectName: z.string(),
@@ -677,23 +686,7 @@ v1Master.openapi(updateApiKey, async (c) => {
 
 	const existing = await loadApiKeyForOrg(id, masterKey.organizationId);
 
-	if (isPlaygroundApiKey(existing)) {
-		if (
-			updates.description !== undefined &&
-			updates.description !== existing.description
-		) {
-			throw new HTTPException(403, {
-				message:
-					"Cannot rename the playground API key. This key is required for the playground to function.",
-			});
-		}
-		if (updates.status === "inactive") {
-			throw new HTTPException(403, {
-				message:
-					"Cannot deactivate the playground API key. This key is required for the playground to function.",
-			});
-		}
-	}
+	assertApiKeyIsUserManaged(existing);
 
 	const limitUpdate: PartialApiKeyLimitConfig = {};
 	if ("usageLimit" in updates) {
@@ -856,6 +849,7 @@ v1Master.openapi(listApiKeys, async (c) => {
 			projectId: { in: projectId ? [projectId] : projectIds },
 			// Only developer-created keys; hide platform and LLM SDK aggregate keys.
 			keyType: { eq: "user" },
+			kind: { ne: "playground" },
 			status: { ne: "deleted" },
 		},
 		orderBy: { createdAt: "desc" },
@@ -1002,6 +996,8 @@ v1Master.openapi(createIamRule, async (c) => {
 
 	const apiKey = await loadApiKeyForOrg(id, masterKey.organizationId);
 
+	assertApiKeyIsUserManaged(apiKey);
+
 	const [rule] = await cdb
 		.insert(tables.apiKeyIamRule)
 		.values({
@@ -1101,6 +1097,8 @@ v1Master.openapi(updateIamRule, async (c) => {
 
 	const apiKey = await loadApiKeyForOrg(id, masterKey.organizationId);
 
+	assertApiKeyIsUserManaged(apiKey);
+
 	const existingRule = await db.query.apiKeyIamRule.findFirst({
 		where: { id: { eq: ruleId }, apiKeyId: { eq: apiKey.id } },
 	});
@@ -1173,6 +1171,8 @@ v1Master.openapi(deleteIamRule, async (c) => {
 	const { id, ruleId } = c.req.param();
 
 	const apiKey = await loadApiKeyForOrg(id, masterKey.organizationId);
+
+	assertApiKeyIsUserManaged(apiKey);
 
 	const existingRule = await db.query.apiKeyIamRule.findFirst({
 		where: { id: { eq: ruleId }, apiKeyId: { eq: apiKey.id } },

@@ -9,6 +9,7 @@ import { getProjectCostByModelTimeseries } from "@/lib/admin-history";
 import type {
 	CostTimeseriesGroupBy,
 	ModelView,
+	ProjectCostTimeseriesGroupBy,
 	TokenWindow,
 } from "@/lib/types";
 
@@ -30,7 +31,7 @@ function parseWindow(value: string | null): TokenWindow {
 	return "1d";
 }
 
-function parseGroupBy(value: string | null): CostTimeseriesGroupBy {
+function parseGroupBy(value: string | null): ProjectCostTimeseriesGroupBy {
 	return value === "source" ? "source" : "model";
 }
 
@@ -55,14 +56,14 @@ export function ProjectCostByModelTimeseries({
 				projectId,
 				w,
 				modelView,
-				g,
+				g === "source" ? "source" : "model",
 			);
 		},
 		[orgId, projectId],
 	);
 
 	const handleGroupByChange = useCallback(
-		(next: CostTimeseriesGroupBy) => {
+		(next: ProjectCostTimeseriesGroupBy) => {
 			const params = new URLSearchParams(searchParams.toString());
 			if (next === "model") {
 				params.delete("breakdown");
@@ -90,7 +91,10 @@ export function ProjectCostByModelTimeseries({
 			fetchData={fetchData}
 			externalWindow={window}
 			groupBy={groupBy}
-			onGroupByChange={handleGroupByChange}
+			onGroupByChange={(value) =>
+				handleGroupByChange(value === "source" ? "source" : "model")
+			}
+			groupByOptions={["model", "source"]}
 		/>
 	);
 }

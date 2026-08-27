@@ -736,13 +736,29 @@ describe("calculateCosts", () => {
 		expect(result.completionTokens).toBe(330);
 	});
 
+	it("should not double-bill DeepSeek reasoning tokens", async () => {
+		const result = await calculateCosts(
+			"deepseek-v4-flash-vision-exp",
+			"deepseek",
+			null,
+			1000,
+			330,
+			null,
+			undefined,
+			267,
+		);
+
+		expect([0.0002178, 0.0004356]).toContain(result.outputCost);
+		expect(result.completionTokens).toBe(330);
+	});
+
 	it("should not double-bill Baidu reasoning tokens", async () => {
 		// Qianfan reports reasoning in completion_tokens_details while already
 		// counting it inside completion_tokens: a thinking-only reply comes back
 		// as completion_tokens === reasoning_tokens, so adding it again would
 		// double the billed output.
 		const result = await calculateCosts(
-			"deepseek-v4-pro",
+			"glm-5.3",
 			"baidu",
 			null,
 			1000,
@@ -752,9 +768,9 @@ describe("calculateCosts", () => {
 			400,
 		);
 
-		// inputPrice 1.69e-6, outputPrice 3.38e-6.
-		expect(result.inputCost).toBeCloseTo(0.00169, 10);
-		expect(result.outputCost).toBeCloseTo(0.001352, 10); // 400 * 3.38e-6, not 800
+		// inputPrice 1.4e-6, outputPrice 4.4e-6.
+		expect(result.inputCost).toBeCloseTo(0.0014, 10);
+		expect(result.outputCost).toBeCloseTo(0.00176, 10); // 400 * 4.4e-6, not 800
 		expect(result.completionTokens).toBe(400);
 	});
 
@@ -1565,6 +1581,27 @@ describe("calculateCosts", () => {
 		);
 	});
 
+	it("bills Muse at its flat per-image price", async () => {
+		const result = await calculateCosts(
+			"muse-image-1.0",
+			"meta",
+			null,
+			9520,
+			443,
+			7936,
+			undefined,
+			160,
+			1,
+			"1024x1024",
+			0,
+		);
+
+		expect(result.inputCost).toBe(0);
+		expect(result.imageOutputCost).toBeCloseTo(0.01);
+		expect(result.outputCost).toBeCloseTo(0.01);
+		expect(result.totalCost).toBeCloseTo(0.01);
+	});
+
 	it("bills perImagePrice even when prompt usage is absent or zero", async () => {
 		// An upstream response that omits prompt usage must still charge for the
 		// generated images instead of bailing out of cost calculation entirely.
@@ -2332,7 +2369,7 @@ describe("shouldBillCancelledRequests", () => {
 	});
 });
 
-describe("peak / off-peak time-of-day pricing (DeepSeek)", () => {
+describe("peak / off-peak time-of-day pricing", () => {
 	beforeEach(() => {
 		vi.mocked(mockGetEffectiveDiscount).mockImplementation(async () => ({
 			discount: "0",
@@ -2459,5 +2496,70 @@ describe("peak / off-peak time-of-day pricing (DeepSeek)", () => {
 			null,
 		);
 		expect(flash.inputCost).toBeCloseTo(0.44);
+	});
+});
+
+describe("Baidu exact pricing", () => {
+	beforeEach(() => {
+		vi.mocked(mockGetEffectiveDiscount).mockImplementation(async () => ({
+			discount: "0",
+			source: "none",
+		}));
+	});
+
+	it("bills Baidu GLM-5.2 at its exact price", async () => {
+		const costs = await calculateCosts(
+			"glm-5.2",
+			"baidu",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		expect(costs.inputCost).toBeCloseTo(1.4);
+		expect(costs.outputCost).toBeCloseTo(4.4);
+		expect(costs.cachedInputCost).toBeCloseTo(0.26);
+	});
+
+	it("bills Baidu GLM-5.3 at its exact price", async () => {
+		const costs = await calculateCosts(
+			"glm-5.3",
+			"baidu",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		expect(costs.inputCost).toBeCloseTo(1.4);
+		expect(costs.outputCost).toBeCloseTo(4.4);
+		expect(costs.cachedInputCost).toBeCloseTo(0.26);
+	});
+
+	it("bills Baidu DeepSeek V4 Pro at its exact price", async () => {
+		const costs = await calculateCosts(
+			"deepseek-v4-pro",
+			"baidu",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		expect(costs.inputCost).toBeCloseTo(1.32);
+		expect(costs.outputCost).toBeCloseTo(3.96);
+		expect(costs.cachedInputCost).toBeCloseTo(0.132);
+	});
+
+	it("bills Baidu DeepSeek V4 Flash at its exact price", async () => {
+		const costs = await calculateCosts(
+			"deepseek-v4-flash",
+			"baidu",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		expect(costs.inputCost).toBeCloseTo(0.44);
+		expect(costs.outputCost).toBeCloseTo(1.32);
+		expect(costs.cachedInputCost).toBeCloseTo(0.044);
 	});
 });

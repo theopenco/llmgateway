@@ -3,17 +3,19 @@ id: "71"
 slug: "runware-launch-discount"
 date: "2026-07-27"
 title: "Runware Launch: 30% Off Open-Source Models"
-summary: "We partnered with Runware.ai to serve six open-source flagships — gpt-oss-120b, Gemma 4, DeepSeek V4 Pro and Flash, Kimi K2.6, and GLM 5.2 — at 30% off for 30 days. The discount applies automatically to everything routed through Runware until August 26."
+summary: "We partnered with Runware.ai to serve six open-source flagships — gpt-oss-120b, Gemma 4, DeepSeek V4 Pro and Flash, Kimi K2.6, and GLM 5.2 — at 30% off. The discount applies automatically to everything routed through Runware until September 9."
 image:
   src: "/changelog/runware-launch-discount.png"
-  alt: "LLM Gateway and Runware logos beside a large 30% and a one-month calendar, announcing the launch discount"
+  alt: "LLM Gateway and Runware logos beside a large 30% and a calendar, announcing the launch discount"
   width: 1536
   height: 1024
 ---
 
-Open-source flagships now carry serious production workloads, which makes the per-token price of serving them the number that matters. We partnered with **[Runware.ai](https://llmgateway.io/providers/runware)** to bring their fast, OpenAI-compatible inference for open models to the gateway — and to launch it, **every Runware model is 30% off for 30 days**.
+> **Update (August 25):** the promo has been extended by two weeks — the discount now runs until **September 9, 2026**.
 
-## Six Models, 30% Off Until August 26
+Open-source flagships now carry serious production workloads, which makes the per-token price of serving them the number that matters. We partnered with **[Runware.ai](https://llmgateway.io/providers/runware)** to bring their fast, OpenAI-compatible inference for open models to the gateway — and to launch it, **every Runware model is 30% off**.
+
+## Six Models, 30% Off Until September 9
 
 | Model                                                                       | Context | Input $/M | Output $/M |
 | --------------------------------------------------------------------------- | ------- | --------- | ---------- |
@@ -41,7 +43,7 @@ curl https://api.llmgateway.io/v1/chat/completions \
 
 - Discounted pricing shows directly on the model pages while the promo runs.
 - Automatic fallback keeps working as usual — only requests actually served by Runware get the discount.
-- The promo ends **August 26, 2026**; list prices apply after that.
+- The promo ends **September 9, 2026**; list prices apply after that.
 
 Runware serves these models through the same unified API as every other provider, with streaming support and no training on your API traffic.
 
