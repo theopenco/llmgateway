@@ -4063,6 +4063,8 @@ export interface RoutingWeightsConfig {
 
 export interface RoutingThresholdsConfig {
 	cachePromptTokens?: number;
+	cacheHitRate?: number;
+	cacheOutputRatio?: number;
 	uptimePenalty?: number;
 	defaultUptime?: number;
 	defaultLatency?: number;

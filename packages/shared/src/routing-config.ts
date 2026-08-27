@@ -11,6 +11,19 @@ export interface RoutingWeightsConfig {
 
 export interface RoutingThresholdsConfig {
 	cachePromptTokens?: number;
+	/**
+	 * Assumed prompt-cache hit rate ([0,1]) used to blend cachedInputPrice into
+	 * the routing price once a request reaches cachePromptTokens. 0 ranks on
+	 * list prices only.
+	 */
+	cacheHitRate?: number;
+	/**
+	 * Assumed output:input token ratio for cache-relevant (large-prompt)
+	 * requests. The default ranking weighs output at parity with input, which
+	 * buries cachedInputPrice differences for prompt-heavy traffic; 1 keeps
+	 * parity.
+	 */
+	cacheOutputRatio?: number;
 	uptimePenalty?: number;
 	defaultUptime?: number;
 	defaultLatency?: number;
@@ -112,6 +125,8 @@ export const DEFAULT_ROUTING_WEIGHTS: Required<RoutingWeightsConfig> = {
 
 export const DEFAULT_ROUTING_THRESHOLDS: Required<RoutingThresholdsConfig> = {
 	cachePromptTokens: 5000,
+	cacheHitRate: 0.7,
+	cacheOutputRatio: 0.2,
 	uptimePenalty: 95,
 	defaultUptime: 100,
 	defaultLatency: 1000,
