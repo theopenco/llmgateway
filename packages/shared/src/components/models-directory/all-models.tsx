@@ -90,6 +90,8 @@ import { applyCategoryFilter } from "./model-category-filters";
 import { isVisibleMapping } from "./status-filters";
 import {
 	applyUseCaseFilter,
+	getExcludedCapabilityKeys,
+	getImpliedCapabilityKeys,
 	isUseCaseCategory,
 	providerRowPassesFilters,
 } from "./use-case-filters";
@@ -668,9 +670,13 @@ const ModelTableRow = React.memo(
 								.map((key) => CAPABILITY_LABEL_BY_FILTER_KEY[key])
 								.filter((label): label is string => Boolean(label));
 							const ordered = [
-								...row.capabilities.filter((c) =>
-									pinnedLabels.includes(c.label),
-								),
+								...pinnedLabels
+									.map((label) =>
+										row.capabilities.find((c) => c.label === label),
+									)
+									.filter((c): c is (typeof row.capabilities)[number] =>
+										Boolean(c),
+									),
 								...row.capabilities.filter(
 									(c) => !pinnedLabels.includes(c.label),
 								),
@@ -870,19 +876,18 @@ export function AllModels({
 		return searchParams.get("deactivated") === "true" ? "deactivated" : null;
 	}
 
-	const [filters, setFilters] = useState({
+	const [filters, setFilters] = useState(() => {
 		// With the selector hidden there is no way to see or change the
 		// category, so ignore any URL override and pin the default. When the
 		// selector is shown, only accept a known category from the URL so an
 		// unsupported value falls back to the default instead of silently
 		// matching every row.
-		category: hideUseCaseFilter
+		const category = hideUseCaseFilter
 			? defaultCategory
 			: isUseCaseCategory(urlCategory)
 				? urlCategory
-				: defaultCategory,
-		tier: searchParams.get("tier") ?? "all",
-		capabilities: {
+				: defaultCategory;
+		const capabilities = {
 			streaming: searchParams.get("streaming") === "true",
 			vision: searchParams.get("vision") === "true",
 			tools: searchParams.get("tools") === "true",
@@ -898,23 +903,36 @@ export function AllModels({
 			webSearch: searchParams.get("webSearch") === "true",
 			free: searchParams.get("free") === "true",
 			discounted: searchParams.get("discounted") === "true",
-		},
-		selectedProvider: searchParams.get("provider") ?? "all",
-		status: getStatusFilterFromUrl(searchParams),
-		source: searchParams.get("source") ?? "all",
-		eligibleOnly: searchParams.get("eligibility") === "eligible",
-		inputPrice: {
-			min: searchParams.get("inputPriceMin") ?? "",
-			max: searchParams.get("inputPriceMax") ?? "",
-		},
-		outputPrice: {
-			min: searchParams.get("outputPriceMin") ?? "",
-			max: searchParams.get("outputPriceMax") ?? "",
-		},
-		contextSize: {
-			min: searchParams.get("contextSizeMin") ?? "",
-			max: searchParams.get("contextSizeMax") ?? "",
-		},
+		};
+		// A deep link can pair the category with a capability it excludes; the
+		// toggle renders disabled, so drop the filter rather than emptying the
+		// directory through a control that cannot be cleared.
+		for (const key of getExcludedCapabilityKeys(category)) {
+			if (key in capabilities) {
+				capabilities[key as keyof typeof capabilities] = false;
+			}
+		}
+		return {
+			category,
+			tier: searchParams.get("tier") ?? "all",
+			capabilities,
+			selectedProvider: searchParams.get("provider") ?? "all",
+			status: getStatusFilterFromUrl(searchParams),
+			source: searchParams.get("source") ?? "all",
+			eligibleOnly: searchParams.get("eligibility") === "eligible",
+			inputPrice: {
+				min: searchParams.get("inputPriceMin") ?? "",
+				max: searchParams.get("inputPriceMax") ?? "",
+			},
+			outputPrice: {
+				min: searchParams.get("outputPriceMin") ?? "",
+				max: searchParams.get("outputPriceMax") ?? "",
+			},
+			contextSize: {
+				min: searchParams.get("contextSizeMin") ?? "",
+				max: searchParams.get("contextSizeMax") ?? "",
+			},
+		};
 	});
 
 	// Org-directory extensions: the Source and Eligibility filters only appear
@@ -1787,9 +1805,11 @@ export function AllModels({
 			videoGeneration: undefined,
 			audioGeneration: undefined,
 			embedding: undefined,
+			rerank: undefined,
 			webSearch: undefined,
 			free: undefined,
 			discounted: undefined,
+			page: undefined,
 			provider: undefined,
 			status: undefined,
 			deactivated: undefined,
@@ -1820,10 +1840,36 @@ export function AllModels({
 								<Select
 									value={filters.category}
 									onValueChange={(value) => {
-										setFilters((prev) => ({ ...prev, category: value }));
-										updateUrlWithFilters({
-											category: value !== defaultCategory ? value : undefined,
+										// Clear capability filters the outgoing or incoming
+										// category implies or excludes: implied ones are
+										// absorbed by the category, and leaving any of them
+										// pressed would silently re-apply after the next
+										// category switch, with no enabled toggle to clear it.
+										const staleKeys = Array.from(
+											new Set([
+												...getImpliedCapabilityKeys(filters.category),
+												...getExcludedCapabilityKeys(filters.category),
+												...getImpliedCapabilityKeys(value),
+												...getExcludedCapabilityKeys(value),
+											]),
+										);
+										setFilters((prev) => {
+											const capabilities = { ...prev.capabilities };
+											for (const key of staleKeys) {
+												if (key in capabilities) {
+													capabilities[key as keyof typeof capabilities] =
+														false;
+												}
+											}
+											return { ...prev, category: value, capabilities };
 										});
+										const urlUpdates: Record<string, string | undefined> = {
+											category: value !== defaultCategory ? value : undefined,
+										};
+										for (const key of staleKeys) {
+											urlUpdates[key] = undefined;
+										}
+										updateUrlWithFilters(urlUpdates);
 									}}
 								>
 									<SelectTrigger className="w-full">
@@ -2017,54 +2063,80 @@ export function AllModels({
 									icon: Percent,
 									color: "text-red-500",
 								},
-							].map(({ key, label, icon: Icon, color }) => (
-								<Toggle
-									key={`${key}-${label}`}
-									variant="outline"
-									size="sm"
-									pressed={
-										filters.capabilities[
-											key as keyof typeof filters.capabilities
-										]
-									}
-									onPressedChange={(pressed) => {
-										setFilters((prev) => ({
-											...prev,
-											capabilities: {
-												...prev.capabilities,
-												[key]: pressed,
-											},
-										}));
-										if (key === "discounted") {
-											if (pressed) {
-												setSortField("discount");
-												setSortDirection("desc");
-												updateUrlWithFilters({
-													[key]: "true",
-													sortField: "discount",
-													sortDir: "desc",
-												});
+							].map(({ key, label, icon: Icon, color }) => {
+								const isImplied = impliedCapabilityKeys.includes(key);
+								const isExcluded = excludedCapabilityKeys.includes(key);
+								const toggle = (
+									<Toggle
+										key={`${key}-${label}`}
+										variant="outline"
+										size="sm"
+										disabled={isImplied || isExcluded}
+										pressed={
+											!isExcluded &&
+											(isImplied ||
+												filters.capabilities[
+													key as keyof typeof filters.capabilities
+												])
+										}
+										onPressedChange={(pressed) => {
+											setFilters((prev) => ({
+												...prev,
+												capabilities: {
+													...prev.capabilities,
+													[key]: pressed,
+												},
+											}));
+											if (key === "discounted") {
+												if (pressed) {
+													setSortField("discount");
+													setSortDirection("desc");
+													updateUrlWithFilters({
+														[key]: "true",
+														sortField: "discount",
+														sortDir: "desc",
+													});
+												} else {
+													setSortField(null);
+													setSortDirection("desc");
+													updateUrlWithFilters({
+														[key]: undefined,
+														sortField: undefined,
+														sortDir: undefined,
+													});
+												}
 											} else {
-												setSortField(null);
-												setSortDirection("desc");
 												updateUrlWithFilters({
-													[key]: undefined,
-													sortField: undefined,
-													sortDir: undefined,
+													[key]: pressed ? "true" : undefined,
 												});
 											}
-										} else {
-											updateUrlWithFilters({
-												[key]: pressed ? "true" : undefined,
-											});
-										}
-									}}
-									className="gap-1.5"
-								>
-									<Icon className={`h-3.5 w-3.5 ${color}`} />
-									<span className="text-xs">{label}</span>
-								</Toggle>
-							))}
+										}}
+										className="gap-1.5"
+									>
+										<Icon className={`h-3.5 w-3.5 ${color}`} />
+										<span className="text-xs">{label}</span>
+									</Toggle>
+								);
+								return isImplied || isExcluded ? (
+									<Tooltip key={`${key}-${label}`}>
+										<TooltipTrigger asChild>
+											{/* The disabled toggle is unfocusable, so the wrapper
+											    takes the tab stop to keep the tooltip reachable
+											    by keyboard and assistive tech. */}
+											<span tabIndex={0}>{toggle}</span>
+										</TooltipTrigger>
+										<TooltipContent>
+											<p className="text-xs">
+												{isImplied
+													? "Already included in the selected category"
+													: "No models in the selected category can match this"}
+											</p>
+										</TooltipContent>
+									</Tooltip>
+								) : (
+									toggle
+								);
+							})}
 						</div>
 					</div>
 
@@ -2343,20 +2415,32 @@ export function AllModels({
 		</Card>
 	);
 
-	// Capability filter keys that are active, used to pin the matching icon to
-	// the front of the features column in the table view.
-	const pinnedCapabilityKeys = useMemo(
-		() =>
-			(
-				Object.entries(filters.capabilities) as Array<
-					[keyof typeof filters.capabilities, boolean]
-				>
-			)
-				.filter(([, pressed]) => pressed)
-				.map(([key]) => key)
-				.filter((key) => CAPABILITY_LABEL_BY_FILTER_KEY[key]),
-		[filters.capabilities],
+	// Capability toggles the active category disables: implied ones are
+	// satisfied by every matching model, excluded ones can never match.
+	const impliedCapabilityKeys = useMemo(
+		() => getImpliedCapabilityKeys(filters.category, categoryFilter),
+		[filters.category, categoryFilter],
 	);
+	const excludedCapabilityKeys = useMemo(
+		() => getExcludedCapabilityKeys(filters.category),
+		[filters.category],
+	);
+
+	// Capability keys pinned to the front of the features column in the table
+	// view: explicitly pressed filters first, then keys the active category
+	// implies (which every row necessarily has).
+	const pinnedCapabilityKeys = useMemo(() => {
+		const explicitKeys = (
+			Object.entries(filters.capabilities) as Array<
+				[keyof typeof filters.capabilities, boolean]
+			>
+		)
+			.filter(([, pressed]) => pressed)
+			.map(([key]) => key)
+			.filter((key) => CAPABILITY_LABEL_BY_FILTER_KEY[key]);
+
+		return Array.from(new Set([...explicitKeys, ...impliedCapabilityKeys]));
+	}, [filters.capabilities, impliedCapabilityKeys]);
 
 	const renderTableView = () => {
 		return (
