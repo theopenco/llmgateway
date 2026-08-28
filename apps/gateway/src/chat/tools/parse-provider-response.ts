@@ -682,6 +682,17 @@ export function parseProviderResponse(
 					) ??
 					null;
 				finishReason = json.choices?.[0]?.finish_reason ?? null;
+				// DashScope returns finish_reason "stop" when the caller forced a
+				// named function via tool_choice, even though the message carries the
+				// tool call; normalize to "tool_calls" so downstream consumers see the
+				// OpenAI-standard value.
+				if (
+					finishReason === "stop" &&
+					Array.isArray(toolResults) &&
+					toolResults.length > 0
+				) {
+					finishReason = "tool_calls";
+				}
 				promptTokens = json.usage?.prompt_tokens ?? null;
 				completionTokens = json.usage?.completion_tokens ?? null;
 				reasoningTokens =
