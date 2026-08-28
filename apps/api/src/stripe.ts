@@ -37,6 +37,10 @@ import {
 } from "./lib/three-d-secure.js";
 import { posthog } from "./posthog.js";
 import { getStripe, type StripeMode } from "./routes/payments.js";
+import {
+	claimDevPlanCardFingerprint,
+	rememberDevPlanCardFingerprint,
+} from "./utils/dev-plan-card-fingerprints.js";
 import { getDevPlanTierFromInvoice } from "./utils/dev-plan-prices.js";
 import {
 	notifyChatPlanCancelled,
@@ -912,12 +916,10 @@ export async function finalizeDevPlanSetupSession(
 			: null;
 
 	if (fingerprint && isDevPlanCardDedupeEnforced()) {
-		const conflictingOrg = await db.query.organization.findFirst({
-			where: {
-				devPlanCardFingerprint: { eq: fingerprint },
-				id: { ne: organizationId },
-			},
-		});
+		const conflictingOrg = await claimDevPlanCardFingerprint(
+			organizationId,
+			fingerprint,
+		);
 		if (conflictingOrg) {
 			try {
 				await getStripe().paymentMethods.detach(paymentMethod.id);
@@ -1093,6 +1095,7 @@ export async function finalizeDevPlanSetupSession(
 		);
 		return { status: "already_processed", subscriptionId: subscription.id };
 	}
+	await rememberDevPlanCardFingerprint(organizationId, fingerprint);
 
 	logger.info(
 		`Successfully activated dev plan ${devPlanTier} for organization ${organizationId} with ${creditsLimit} credits via setup-mode checkout`,
@@ -1475,6 +1478,7 @@ async function handleCheckoutSessionCompleted(
 					devPlanCardFingerprint: fingerprint,
 				})
 				.where(eq(tables.organization.id, organizationId));
+			await rememberDevPlanCardFingerprint(organizationId, fingerprint);
 
 			logger.info(
 				`Successfully activated dev plan ${devPlanTier} for organization ${organizationId} with ${creditsLimit} credits`,
@@ -3850,6 +3854,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 			);
 			return;
 		}
+		await rememberDevPlanCardFingerprint(organizationId, fingerprint);
 
 		const [transaction] = await db
 			.insert(tables.transaction)

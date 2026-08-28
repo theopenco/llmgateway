@@ -11,13 +11,16 @@ import { Callout } from "fumadocs-ui/components/callout";
 Provider compliance policies let you guarantee that requests are only ever routed to providers that meet your organization's regulatory requirements. When a request would be routed to a provider that doesn't meet the policy, the gateway blocks it **before any data leaves the gateway**.
 
 <Callout type="info">
-	Provider compliance policies are available on the [**Enterprise
-	plan**](https://llmgateway.io/enterprise) for organization owners and admins.
+	The complete provider compliance policy is available on
+	[**Enterprise**](https://llmgateway.io/enterprise). DevPass offers only **No
+	AI training**.
 </Callout>
 
 ## Requirements
 
 Enable a policy under **Settings → Compliance** in the dashboard and toggle the requirements you need:
+
+In DevPass, enable **No AI training** directly under **Settings**. It uses the same fail-closed provider policy described below, but the other requirements are not available on DevPass.
 
 | Requirement                   | A provider is allowed when…                        |
 | ----------------------------- | -------------------------------------------------- |
@@ -132,4 +135,4 @@ Project-scoped **developer** members cannot see the policy itself, but they can 
 
 ## Get Started
 
-Provider compliance policies are an Enterprise feature. [Contact us](https://llmgateway.io/enterprise) to enable Enterprise for your organization.
+DevPass subscribers can configure **No AI training** under **Settings**. [Contact us](https://llmgateway.io/enterprise) for the complete provider compliance policy.

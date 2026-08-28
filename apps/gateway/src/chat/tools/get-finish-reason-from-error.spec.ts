@@ -51,6 +51,15 @@ describe("getFinishReasonFromError", () => {
 		);
 	});
 
+	it("returns gateway_error for Fireworks monthly spending limit", () => {
+		expect(
+			getFinishReasonFromError(
+				400,
+				'{"error":{"message":"Request rejected because the account is reaching the monthly spending limit."}}',
+			),
+		).toBe("gateway_error");
+	});
+
 	it("returns gateway_error for 405 method not allowed", () => {
 		expect(getFinishReasonFromError(405)).toBe("gateway_error");
 		expect(getFinishReasonFromError(405, "Method Not Allowed")).toBe(

@@ -7,6 +7,7 @@ import { HTTPException } from "hono/http-exception";
 import { app } from "@/app.js";
 import {
 	assertApiKeyWithinUsageLimits,
+	assertMemberProjectAccess,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
 import { internalApiOriginHeaders } from "@/lib/api-origin.js";
@@ -125,16 +126,19 @@ async function authenticateRequest(
 	// others. User-level member budget takes priority over the per-key limits.
 	// Both use the SWR-cached queries and fail fast before the retention/context
 	// work below.
-	if (enforceSpendLimits) {
-		try {
+	// Project access gates every authenticated path, including retrieval of
+	// stored responses; spend limits only apply where new usage is generated.
+	try {
+		await assertMemberProjectAccess(apiKey, project.organizationId);
+		if (enforceSpendLimits) {
 			await assertMemberWithinBudget(apiKey.createdBy, project.organizationId);
 			assertApiKeyWithinUsageLimits(apiKey);
-		} catch (e) {
-			if (e instanceof HTTPException) {
-				return { error: e.message, status: e.status };
-			}
-			throw e;
 		}
+	} catch (e) {
+		if (e instanceof HTTPException) {
+			return { error: e.message, status: e.status };
+		}
+		throw e;
 	}
 
 	return { apiKey, project, organization };

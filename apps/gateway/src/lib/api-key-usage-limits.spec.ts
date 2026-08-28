@@ -1,6 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { assertApiKeyWithinUsageLimits } from "./api-key-usage-limits.js";
+import {
+	assertApiKeyWithinUsageLimits,
+	assertMemberProjectAccess,
+	assertMemberWithinBudget,
+} from "./api-key-usage-limits.js";
+import * as mockCachedQueries from "./cached-queries.js";
+
+vi.mock("./cached-queries.js", () => ({
+	findOrganizationById: vi.fn(),
+	findUserOrganizationBudget: vi.fn(),
+	getMemberKeyUsage: vi.fn(),
+	getMemberPeriodSpend: vi.fn(),
+	memberHasEffectiveProjectAccess: vi.fn(),
+}));
 
 const baseApiKey = {
 	id: "key-1",
@@ -24,6 +37,10 @@ const baseApiKey = {
 	projectId: "project-1",
 	createdBy: "user-1",
 };
+
+beforeEach(() => {
+	vi.clearAllMocks();
+});
 
 describe("assertApiKeyWithinUsageLimits", () => {
 	it("allows keys without any configured limits", () => {
@@ -107,5 +124,115 @@ describe("assertApiKeyWithinUsageLimits", () => {
 				new Date("2026-03-29T10:00:00.000Z"),
 			),
 		).not.toThrow();
+	});
+});
+
+describe("assertMemberProjectAccess", () => {
+	it("rejects a user key outside effective project access", async () => {
+		vi.mocked(
+			mockCachedQueries.memberHasEffectiveProjectAccess,
+		).mockResolvedValue(false);
+
+		await expect(
+			assertMemberProjectAccess(baseApiKey, "org-1"),
+		).rejects.toMatchObject({ status: 403 });
+	});
+
+	it("fails open when the access read is unavailable", async () => {
+		vi.mocked(
+			mockCachedQueries.memberHasEffectiveProjectAccess,
+		).mockRejectedValue(new Error("database unavailable"));
+
+		await expect(
+			assertMemberProjectAccess(baseApiKey, "org-1"),
+		).resolves.toBeUndefined();
+	});
+
+	it("retains platform and end-user key exemptions", async () => {
+		await assertMemberProjectAccess(
+			{ ...baseApiKey, keyType: "platform_publishable" },
+			"org-1",
+		);
+		await assertMemberProjectAccess(
+			{ ...baseApiKey, keyType: "end_user_customer" },
+			"org-1",
+		);
+
+		expect(
+			mockCachedQueries.memberHasEffectiveProjectAccess,
+		).not.toHaveBeenCalled();
+	});
+});
+
+describe("assertMemberWithinBudget", () => {
+	const noDefaults = {
+		defaultDeveloperMaxApiKeys: null,
+		defaultDeveloperUsageLimit: null,
+		defaultDeveloperPeriodUsageLimit: null,
+		defaultDeveloperPeriodUsageDurationValue: null,
+		defaultDeveloperPeriodUsageDurationUnit: null,
+	};
+	const member = {
+		role: "developer" as const,
+		maxApiKeys: null,
+		usageLimit: "10",
+		periodUsageLimit: "20",
+		periodUsageDurationValue: 1,
+		periodUsageDurationUnit: "week" as const,
+		teamBudget: {
+			maxApiKeys: null,
+			usageLimit: "5",
+			periodUsageLimit: "3",
+			periodUsageDurationValue: 1,
+			periodUsageDurationUnit: "day" as const,
+		},
+	};
+
+	beforeEach(() => {
+		vi.mocked(mockCachedQueries.findUserOrganizationBudget).mockResolvedValue(
+			member,
+		);
+		vi.mocked(mockCachedQueries.findOrganizationById).mockResolvedValue(
+			noDefaults as Awaited<
+				ReturnType<typeof mockCachedQueries.findOrganizationById>
+			>,
+		);
+		vi.mocked(mockCachedQueries.getMemberKeyUsage).mockResolvedValue({
+			keyIds: ["key-1"],
+			lifetimeUsage: 0,
+		});
+	});
+
+	it("enforces the team lifetime ceiling independently", async () => {
+		vi.mocked(mockCachedQueries.getMemberKeyUsage).mockResolvedValue({
+			keyIds: ["key-1"],
+			lifetimeUsage: 5,
+		});
+
+		await expect(assertMemberWithinBudget("user-1", "org-1")).rejects.toThrow(
+			/team total spend budget/,
+		);
+	});
+
+	it("checks different team and member rolling windows separately", async () => {
+		vi.mocked(mockCachedQueries.getMemberPeriodSpend).mockImplementation(
+			async (_organizationId, _userId, _keyIds, unit) =>
+				unit === "day" ? 2 : 20,
+		);
+
+		await expect(assertMemberWithinBudget("user-1", "org-1")).rejects.toThrow(
+			/member period spend budget/,
+		);
+		expect(mockCachedQueries.getMemberPeriodSpend).toHaveBeenCalledTimes(2);
+	});
+
+	it("fails open when budget data is unavailable", async () => {
+		vi.mocked(mockCachedQueries.findUserOrganizationBudget).mockRejectedValue(
+			new Error("database unavailable"),
+		);
+
+		await expect(
+			assertMemberWithinBudget("user-1", "org-1"),
+		).resolves.toBeUndefined();
 	});
 });

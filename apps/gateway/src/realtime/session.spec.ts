@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { Decimal } from "decimal.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { assertMemberProjectAccess } from "@/lib/api-key-usage-limits.js";
 import { findApiKeyByToken } from "@/lib/cached-queries.js";
 import { validateRequestModelAccess } from "@/lib/iam.js";
 
@@ -19,6 +20,7 @@ import type { WebSocket } from "ws";
 
 vi.mock("@/lib/api-key-usage-limits.js", () => ({
 	assertApiKeyWithinUsageLimits: vi.fn(),
+	assertMemberProjectAccess: vi.fn(async () => {}),
 	assertMemberWithinBudget: vi.fn(async () => {}),
 }));
 
@@ -414,6 +416,28 @@ describe("RealtimeProxySession authorization", () => {
 			"rts_1",
 			"closed",
 			"model_access_denied",
+			expect.anything(),
+		);
+	});
+
+	it("closes the session when team project access is revoked", async () => {
+		const { client, upstream, clientSends } =
+			await openSession(createSession());
+
+		vi.mocked(assertMemberProjectAccess).mockRejectedValueOnce(
+			new Error("Project access has been revoked."),
+		);
+		clientSends({ type: "response.create" });
+		await flush();
+
+		expect(client.sent.some((m) => m.includes("project_access_revoked"))).toBe(
+			true,
+		);
+		expect(upstream.sent).toHaveLength(0);
+		expect(closeRealtimeSessionRecord).toHaveBeenCalledWith(
+			"rts_1",
+			"closed",
+			"project_access_revoked",
 			expect.anything(),
 		);
 	});

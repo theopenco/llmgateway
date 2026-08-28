@@ -121,7 +121,8 @@ export interface ProviderAdditionalLink {
  * Organization-level compliance policy. When enabled, the gateway only routes
  * to providers whose {@link ProviderDataPolicy} explicitly satisfies every
  * active requirement (fail-closed: unknown/`null` attributes never satisfy a
- * requirement). Configurable on enterprise plans only.
+ * requirement). The full policy is configurable on enterprise plans; DevPass
+ * organizations may enable only {@link ProviderCompliancePolicy.blockApiTraining}.
  */
 export interface ProviderCompliancePolicy {
 	enabled: boolean;
@@ -180,6 +181,15 @@ export interface ProviderCompliancePolicy {
 	 * requested. Empty/omitted applies no allow-list restriction.
 	 */
 	allowedModels?: string[];
+}
+
+/** DevPass exposes only the no-API-training requirement. */
+export function narrowPolicyToDevPass(
+	policy: ProviderCompliancePolicy,
+): ProviderCompliancePolicy | undefined {
+	return policy.enabled && policy.blockApiTraining
+		? { enabled: true, blockApiTraining: true }
+		: undefined;
 }
 
 export interface ProviderDefinition {

@@ -2,6 +2,7 @@ import { Decimal } from "decimal.js";
 
 import {
 	assertApiKeyWithinUsageLimits,
+	assertMemberProjectAccess,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
 import {
@@ -154,6 +155,20 @@ export async function authorizeAccount(
 				error instanceof Error
 					? error.message
 					: "This provider is blocked by the organization's compliance policy.",
+			severity: "close",
+		};
+	}
+
+	try {
+		await assertMemberProjectAccess(freshKey, preflight.project.organizationId);
+	} catch (error) {
+		return {
+			ok: false,
+			code: "project_access_revoked",
+			message:
+				error instanceof Error
+					? error.message
+					: "Project access has been revoked.",
 			severity: "close",
 		};
 	}

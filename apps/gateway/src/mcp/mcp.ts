@@ -10,6 +10,7 @@ import { z } from "zod";
 
 import {
 	assertApiKeyWithinUsageLimits,
+	assertMemberProjectAccess,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
 import { findApiKeyByToken, findProjectById } from "@/lib/cached-queries.js";
@@ -1170,6 +1171,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 		// is within limits. Resolve the project so the org is known for the lookup.
 		const mcpProject = await findProjectById(apiKeyRecord.projectId);
 		if (mcpProject) {
+			await assertMemberProjectAccess(apiKeyRecord, mcpProject.organizationId);
 			await assertMemberWithinBudget(
 				apiKeyRecord.createdBy,
 				mcpProject.organizationId,

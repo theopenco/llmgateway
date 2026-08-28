@@ -1611,6 +1611,147 @@ describe("api", () => {
 		expect(res.status).toBe(200);
 	});
 
+	test("/v1/chat/completions enforces no-training routing for DevPass", async () => {
+		await harness.setDevPlan({ devPlan: "pro" });
+		await harness.setProjectMode("credits");
+		await db
+			.update(tables.organization)
+			.set({
+				providerCompliancePolicy: {
+					enabled: true,
+					blockApiTraining: true,
+				},
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-devpass-no-training",
+			...hashApiKeyForStorage("real-token-devpass-no-training"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.apiKeyIamRule).values({
+			id: "iam-allow-deepseek-devpass-no-training",
+			apiKeyId: "token-id-devpass-no-training",
+			ruleType: "allow_providers",
+			ruleValue: { providers: ["deepseek"] },
+			status: "active",
+		});
+
+		const previousPlansKey = process.env.LLM_DEEPSEEK_API_KEY__PLANS;
+		process.env.LLM_DEEPSEEK_API_KEY__PLANS = "sk-test-key";
+		try {
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-devpass-no-training",
+				},
+				body: JSON.stringify({
+					model: "deepseek-v4-flash",
+					messages: [{ role: "user", content: "Hello compliance!" }],
+				}),
+			});
+
+			expect(res.status).toBe(403);
+			const json = await res.json();
+			expect(json.error.message).toContain("provider compliance policy");
+		} finally {
+			if (previousPlansKey === undefined) {
+				delete process.env.LLM_DEEPSEEK_API_KEY__PLANS;
+			} else {
+				process.env.LLM_DEEPSEEK_API_KEY__PLANS = previousPlansKey;
+			}
+		}
+	});
+
+	test("/v1/chat/completions routes DevPass through a no-training provider", async () => {
+		await harness.setDevPlan({ devPlan: "pro" });
+		await harness.setProjectMode("credits");
+		await db
+			.update(tables.organization)
+			.set({
+				providerCompliancePolicy: {
+					enabled: true,
+					blockApiTraining: true,
+				},
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-devpass-no-training-route",
+			...hashApiKeyForStorage("real-token-devpass-no-training-route"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.apiKeyIamRule).values({
+			id: "iam-devpass-no-training-route",
+			apiKeyId: "token-id-devpass-no-training-route",
+			ruleType: "allow_providers",
+			ruleValue: { providers: ["deepseek", "novita"] },
+			status: "active",
+		});
+
+		const previousDeepSeekKey = process.env.LLM_DEEPSEEK_API_KEY__PLANS;
+		const previousNovitaKey = process.env.LLM_NOVITA_AI_API_KEY__PLANS;
+		process.env.LLM_DEEPSEEK_API_KEY__PLANS = "sk-deepseek-test-key";
+		process.env.LLM_NOVITA_AI_API_KEY__PLANS = "sk-novita-test-key";
+		const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					id: "chatcmpl-devpass-no-training",
+					object: "chat.completion",
+					created: 1,
+					model: "deepseek/deepseek-v4-flash-0731",
+					choices: [
+						{
+							index: 0,
+							message: { role: "assistant", content: "Hello!" },
+							finish_reason: "stop",
+						},
+					],
+					usage: {
+						prompt_tokens: 1,
+						completion_tokens: 1,
+						total_tokens: 2,
+					},
+				}),
+				{ status: 200, headers: { "Content-Type": "application/json" } },
+			),
+		);
+
+		try {
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-devpass-no-training-route",
+				},
+				body: JSON.stringify({
+					model: "deepseek-v4-flash",
+					messages: [{ role: "user", content: "Use no-training routing" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect((await res.json()).metadata.used_provider).toBe("novita");
+		} finally {
+			fetchSpy.mockRestore();
+			if (previousDeepSeekKey === undefined) {
+				delete process.env.LLM_DEEPSEEK_API_KEY__PLANS;
+			} else {
+				process.env.LLM_DEEPSEEK_API_KEY__PLANS = previousDeepSeekKey;
+			}
+			if (previousNovitaKey === undefined) {
+				delete process.env.LLM_NOVITA_AI_API_KEY__PLANS;
+			} else {
+				process.env.LLM_NOVITA_AI_API_KEY__PLANS = previousNovitaKey;
+			}
+		}
+	});
+
 	test("/v1/embeddings is blocked by the compliance policy too", async () => {
 		// Compliance enforcement also covers non-chat endpoints. text-embedding-3-small
 		// resolves to OpenAI, whose dataPolicy has promptLogging: true.
@@ -6804,6 +6945,11 @@ describe("api", () => {
 			organizationId: "org-id-attacker",
 			mode: "api-keys",
 			cachingEnabled: true,
+		});
+		await db.insert(tables.userOrganization).values({
+			id: "user-org-id-cache-attacker",
+			userId: "user-id",
+			organizationId: "org-id-attacker",
 		});
 
 		await db.insert(tables.apiKey).values({

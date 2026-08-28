@@ -46,6 +46,7 @@ export async function getUserProjectIds(userId: string): Promise<string[]> {
 				},
 			},
 			userProjects: true,
+			team: { with: { projects: true } },
 		},
 	});
 
@@ -58,8 +59,14 @@ export async function getUserProjectIds(userId: string): Promise<string[]> {
 			const granted = new Set(
 				membership.userProjects.map((grant) => grant.projectId),
 			);
+			const teamGranted = membership.team
+				? new Set(membership.team.projects.map((grant) => grant.projectId))
+				: null;
 			for (const project of projects) {
-				if (granted.has(project.id)) {
+				if (
+					granted.has(project.id) &&
+					(!teamGranted || teamGranted.has(project.id))
+				) {
 					projectIds.add(project.id);
 				}
 			}

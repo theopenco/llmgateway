@@ -636,6 +636,14 @@ export function parseProviderResponse(
 
 			// Extract tool calls from Mistral/Novita format (same as OpenAI)
 			toolResults = json.choices?.[0]?.message?.tool_calls ?? null;
+			if (
+				usedProvider === "novita" &&
+				finishReason === "stop" &&
+				Array.isArray(toolResults) &&
+				toolResults.length > 0
+			) {
+				finishReason = "tool_calls";
+			}
 			break;
 		}
 		case "alibaba": {
