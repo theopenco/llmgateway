@@ -782,6 +782,7 @@ export const googleModels = [
 				test: "skip",
 				providerId: "iceberg",
 				externalId: "gemini-3.1-pro-preview",
+				deactivatedAt: new Date("2026-08-28"),
 				inputPrice: "2e-6",
 				outputPrice: "12e-6",
 				cachedInputPrice: "0.2e-6",
@@ -1239,6 +1240,7 @@ export const googleModels = [
 			{
 				providerId: "iceberg",
 				externalId: "gemini-3.6-flash",
+				deactivatedAt: new Date("2026-08-28"),
 				// Introductory pricing through 2026-12-31; reverts to 1.5/7.5/0.15 on 2027-01-01.
 				inputPrice: "0.75e-6",
 				outputPrice: "3.75e-6",
@@ -1323,6 +1325,7 @@ export const googleModels = [
 			{
 				providerId: "iceberg",
 				externalId: "gemini-3.7-flash",
+				deactivatedAt: new Date("2026-08-28"),
 				// introductory pricing until 2026-12-31; $1.50/$7.50 from 2027-01-01
 				inputPrice: "0.75e-6",
 				outputPrice: "3.75e-6",
@@ -1665,6 +1668,7 @@ export const googleModels = [
 			{
 				providerId: "iceberg",
 				externalId: "gemini-3-flash-preview",
+				deactivatedAt: new Date("2026-08-28"),
 				inputPrice: "0.5e-6",
 				outputPrice: "3e-6",
 				cachedInputPrice: "0.05e-6",
