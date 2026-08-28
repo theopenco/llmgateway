@@ -349,6 +349,10 @@ describe("admin organization payment methods", () => {
 			.update(tables.organization)
 			.set({ devPlanCardFingerprint: "retained_fingerprint" })
 			.where(eq(tables.organization.id, ORG_ID));
+		await db.insert(tables.devPlanCardFingerprintHistory).values({
+			organizationId: ORG_ID,
+			fingerprint: "retained_fingerprint",
+		});
 		stripeMock.paymentMethods.retrieve.mockResolvedValue({
 			id: STRIPE_PAYMENT_METHOD_ID,
 			customer: STRIPE_CUSTOMER_ID,
@@ -372,6 +376,14 @@ describe("admin organization payment methods", () => {
 				where: { id: { eq: ORG_ID } },
 			}),
 		).toMatchObject({ devPlanCardFingerprint: null });
+		expect(
+			await db.query.devPlanCardFingerprintHistory.findFirst({
+				where: {
+					organizationId: ORG_ID,
+					fingerprint: "retained_fingerprint",
+				},
+			}),
+		).toBeUndefined();
 
 		const auditLog = await db.query.auditLog.findFirst({
 			where: {
@@ -638,6 +650,14 @@ describe("admin organization payment methods", () => {
 				where: { id: { eq: ORG_ID } },
 			}),
 		).toMatchObject({ devPlanCardFingerprint: "replacement_fingerprint" });
+		expect(
+			await db.query.devPlanCardFingerprintHistory.findFirst({
+				where: {
+					organizationId: ORG_ID,
+					fingerprint: "replacement_fingerprint",
+				},
+			}),
+		).toBeDefined();
 	});
 
 	it("updates plan fingerprints inherited from the customer default", async () => {

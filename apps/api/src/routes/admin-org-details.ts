@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { adminMiddleware } from "@/middleware/admin.js";
 import { getStripe } from "@/routes/payments.js";
+import { findDevPlanCardFingerprintOwner } from "@/utils/dev-plan-card-fingerprints.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -784,12 +785,10 @@ adminOrgDetails.openapi(deleteOrganizationPaymentMethod, async (c) => {
 	}
 
 	if (replacementFingerprint && updateDevPlanFingerprint) {
-		const conflictingOrganization = await db.query.organization.findFirst({
-			where: {
-				devPlanCardFingerprint: { eq: replacementFingerprint },
-				id: { ne: orgId },
-			},
-		});
+		const conflictingOrganization = await findDevPlanCardFingerprintOwner(
+			replacementFingerprint,
+			orgId,
+		);
 		if (conflictingOrganization) {
 			throw new HTTPException(409, {
 				message: "Replacement card is already used by another organization.",
@@ -842,6 +841,30 @@ adminOrgDetails.openapi(deleteOrganizationPaymentMethod, async (c) => {
 			state.customerDefaultId === replacementId);
 
 	await db.transaction(async (tx) => {
+		if (releaseDevPlanCardFingerprint && paymentMethodFingerprint) {
+			await tx
+				.delete(tables.devPlanCardFingerprintHistory)
+				.where(
+					and(
+						eq(tables.devPlanCardFingerprintHistory.organizationId, orgId),
+						eq(
+							tables.devPlanCardFingerprintHistory.fingerprint,
+							paymentMethodFingerprint,
+						),
+					),
+				);
+		}
+
+		if (updateDevPlanFingerprint && replacementFingerprint) {
+			await tx
+				.insert(tables.devPlanCardFingerprintHistory)
+				.values({
+					organizationId: orgId,
+					fingerprint: replacementFingerprint,
+				})
+				.onConflictDoNothing();
+		}
+
 		if (shouldReconcileLocalDefault) {
 			await tx
 				.update(tables.paymentMethod)

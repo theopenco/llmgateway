@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
+import { findDevPlanCardFingerprintOwner } from "@/utils/dev-plan-card-fingerprints.js";
 
 import { db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
@@ -16,6 +17,14 @@ const stripeMock = vi.hoisted(() => ({
 	subscriptions: {
 		retrieve: vi.fn(),
 		update: vi.fn(),
+	},
+	customers: {
+		update: vi.fn(),
+	},
+	paymentMethods: {
+		retrieve: vi.fn(),
+		list: vi.fn(),
+		detach: vi.fn(),
 	},
 	invoices: {
 		list: vi.fn(),
@@ -35,6 +44,111 @@ vi.mock("@/routes/payments.js", async (importOriginal) => {
 const ORG_ID = "test-dev-plan-org";
 const SUBSCRIPTION_ID = "sub_dev_plan_upgrade";
 const originalProPriceId = process.env.STRIPE_DEV_PLAN_PRO_PRICE_ID;
+
+describe("dev plan payment methods", () => {
+	let token: string;
+
+	beforeEach(async () => {
+		vi.clearAllMocks();
+		token = await createTestUser();
+
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Personal Org",
+			billingEmail: "admin@example.com",
+			stripeCustomerId: "cus_dev_plan",
+			kind: "devpass",
+			devPlan: "lite",
+			devPlanStripeSubscriptionId: SUBSCRIPTION_ID,
+			devPlanCardFingerprint: "fp_current",
+			autoTopUpEnabled: true,
+		});
+		await db.insert(tables.userOrganization).values({
+			userId: "test-user-id",
+			organizationId: ORG_ID,
+			role: "owner",
+		});
+	});
+
+	afterEach(async () => {
+		await deleteAll();
+	});
+
+	it("removes every attached card while retaining fingerprint history", async () => {
+		const currentCard = {
+			id: "pm_current",
+			type: "card",
+			customer: "cus_dev_plan",
+			card: { fingerprint: "fp_current" },
+		};
+		const oldCard = {
+			id: "pm_old",
+			type: "card",
+			customer: "cus_dev_plan",
+			card: { fingerprint: "fp_old" },
+		};
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			default_payment_method: currentCard,
+		});
+		stripeMock.paymentMethods.list.mockResolvedValue({
+			data: [currentCard, oldCard],
+			has_more: false,
+		});
+
+		const response = await app.request("/dev-plans/payment-method", {
+			method: "DELETE",
+			headers: { Cookie: token },
+		});
+
+		expect(response.status).toBe(200);
+		expect(stripeMock.subscriptions.update).toHaveBeenCalledWith(
+			SUBSCRIPTION_ID,
+			{ default_payment_method: "" },
+		);
+		expect(stripeMock.customers.update).toHaveBeenCalledWith("cus_dev_plan", {
+			invoice_settings: { default_payment_method: "" },
+		});
+		expect(stripeMock.paymentMethods.detach).toHaveBeenCalledTimes(2);
+
+		const fingerprints = await db.query.devPlanCardFingerprintHistory.findMany({
+			where: { organizationId: ORG_ID },
+			orderBy: { fingerprint: "asc" },
+		});
+		expect(fingerprints.map((row) => row.fingerprint)).toEqual([
+			"fp_current",
+			"fp_old",
+		]);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: ORG_ID },
+		});
+		expect(org).toMatchObject({
+			devPlan: "lite",
+			devPlanCardFingerprint: "fp_current",
+			autoTopUpEnabled: false,
+		});
+	});
+
+	it("finds a card previously used by another DevPass account", async () => {
+		await db.insert(tables.organization).values({
+			id: "other-devpass-org",
+			name: "Other DevPass Org",
+			billingEmail: "other@example.com",
+			kind: "devpass",
+		});
+		await db.insert(tables.devPlanCardFingerprintHistory).values({
+			organizationId: "other-devpass-org",
+			fingerprint: "fp_historic",
+		});
+		expect(
+			await findDevPlanCardFingerprintOwner("fp_historic", ORG_ID),
+		).toEqual({
+			id: "other-devpass-org",
+		});
+	});
+});
 
 // A fresh 30-day period the mocked subscription update anchors to (billing cycle
 // resets to now on an upgrade).

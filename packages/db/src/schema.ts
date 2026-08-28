@@ -460,6 +460,30 @@ export const organization = pgTable(
 	],
 );
 
+// Every card ever associated with a DevPass organization. Keeping history
+// prevents a removed or replaced card from claiming another account's plan
+// allowance later.
+export const devPlanCardFingerprintHistory = pgTable(
+	"dev_plan_card_fingerprint_history",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		fingerprint: text().notNull(),
+	},
+	(table) => [
+		unique("dev_plan_card_fingerprint_history_org_fingerprint_unique").on(
+			table.organizationId,
+			table.fingerprint,
+		),
+		index("dev_plan_card_fingerprint_history_fingerprint_idx").on(
+			table.fingerprint,
+		),
+	],
+);
+
 export const referral = pgTable(
 	"referral",
 	{
@@ -3780,6 +3804,7 @@ export const auditLogActions = [
 	"dev_plan.update_billing_details",
 	"dev_plan.rotate_api_key",
 	"dev_plan.update_payment_method",
+	"dev_plan.remove_payment_method",
 	"dev_plan.reset_pass_purchase",
 	"dev_plan.reset_pass_redeem",
 	// Free Reset Pass granted for a quarterly model-survey response.
