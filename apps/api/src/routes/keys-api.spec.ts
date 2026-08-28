@@ -865,6 +865,89 @@ describe("keys route", () => {
 		expect(json.apiKey.usageLimit).toBe("10");
 	});
 
+	test("POST /keys/api enforces team and personal budgets independently", async () => {
+		await db.insert(tables.organizationTeam).values({
+			id: "key-budget-team",
+			organizationId: "test-org-id",
+			name: "Key Budget Team",
+			periodUsageLimit: "5",
+			periodUsageDurationValue: 1,
+			periodUsageDurationUnit: "day",
+		});
+		await db.insert(tables.organizationTeamProject).values({
+			teamId: "key-budget-team",
+			projectId: "test-project-id",
+		});
+		await db
+			.update(tables.userOrganization)
+			.set({
+				role: "developer",
+				teamId: "key-budget-team",
+				periodUsageLimit: "50",
+				periodUsageDurationValue: 1,
+				periodUsageDurationUnit: "week",
+			})
+			.where(eq(tables.userOrganization.id, "test-user-org-id"));
+		await db.insert(tables.userProject).values({
+			userOrganizationId: "test-user-org-id",
+			projectId: "test-project-id",
+		});
+
+		const res = await app.request("/keys/api", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				description: "Over team period budget",
+				projectId: "test-project-id",
+				periodUsageLimit: "10",
+				periodUsageDurationValue: 1,
+				periodUsageDurationUnit: "day",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		expect((await res.json()).message).toMatch(/organization limit/);
+	});
+
+	test("POST /keys/api uses the stricter team key count ceiling", async () => {
+		await db.insert(tables.organizationTeam).values({
+			id: "key-count-team",
+			organizationId: "test-org-id",
+			name: "Key Count Team",
+			maxApiKeys: 1,
+		});
+		await db.insert(tables.organizationTeamProject).values({
+			teamId: "key-count-team",
+			projectId: "test-project-id",
+		});
+		await db
+			.update(tables.userOrganization)
+			.set({ role: "developer", teamId: "key-count-team", maxApiKeys: 4 })
+			.where(eq(tables.userOrganization.id, "test-user-org-id"));
+		await db.insert(tables.userProject).values({
+			userOrganizationId: "test-user-org-id",
+			projectId: "test-project-id",
+		});
+
+		const res = await app.request("/keys/api", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				description: "Second team key",
+				projectId: "test-project-id",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		expect((await res.json()).message).toMatch(/active API key/);
+	});
+
 	test("PATCH /keys/api/limit/{id} rejects a limit above the member budget", async () => {
 		await db
 			.update(tables.userOrganization)

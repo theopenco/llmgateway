@@ -193,6 +193,22 @@ Provisioned users are created in LLM Gateway and added to the organization (defa
 
 On the app's **Push Groups** tab, push the Okta groups whose membership should matter. Then on the LLM Gateway **SSO** page, add mappings such as `Acme Admins → admin`. When Okta pushes group membership, each member gets the **highest** mapped role among their groups (default `developer`). Owners are never auto-demoted, so you can't accidentally lock yourself out of the owner role.
 
+## Group → team mapping (optional)
+
+Push each relevant group from the app's **Push Groups** tab, then use the **Group team mapping** card on the LLM Gateway **SSO** page to map its exact name to an organization team. Developer members inherit that team's project, IAM, API-key, and budget policy.
+
+- Assignments are recomputed on provisioning and reactivation, group membership pushes, renames and deletions, and immediately when a mapping is saved or deleted.
+- Explicit team assignments made by an admin are preserved. Removing only a synced assignment is temporary; the next SCIM event restores the mapping.
+- A developer can belong to one team. If several mapped groups apply, the alphabetically first exact group name wins. Owners and admins cannot belong to teams, so a privileged role mapping takes precedence.
+- Team project access intersects with the member's personal/default project grants; both must allow a project.
+
+<Callout type="warn">
+	If the mapped group is also the user's only assignment to the Okta app,
+	removing them can deprovision the user and revoke their API keys. Assign users
+	through a broader group or directly when group leave should only change team
+	policy.
+</Callout>
+
 ## Default project access (optional)
 
 Provisioned members join as **developers**, who only see the projects they're granted (owners/admins always see every project). Use the **Default project access** card on the **SSO** page to choose which projects newly provisioned SSO/SCIM developers get by default. If you leave it unconfigured, new members get your organization's first (default) project so they can see something out of the box; select an empty set to instead grant nothing and manage project access manually per member.

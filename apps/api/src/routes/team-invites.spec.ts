@@ -253,6 +253,42 @@ describe("team invites", () => {
 		expect(grants[0]?.projectId).toBe("invite-test-project");
 	});
 
+	test("accepted developer invite joins the default team", async () => {
+		await db.insert(tables.organizationTeam).values({
+			id: "invite-default-team",
+			organizationId: ORG_ID,
+			name: "Standard",
+			isDefault: true,
+		});
+		await db.insert(tables.project).values({
+			id: "invite-default-project",
+			name: "Invite Default Project",
+			organizationId: ORG_ID,
+		});
+
+		await addMember({
+			email: INVITED_EMAIL,
+			role: "developer",
+			projectIds: ["invite-default-project"],
+		});
+		await createAccountFor("invited-user-id", INVITED_EMAIL);
+		const signIn = await signInAs(INVITED_EMAIL);
+		expect(signIn.status).toBe(200);
+
+		const membership = await db.query.userOrganization.findFirst({
+			where: {
+				userId: { eq: "invited-user-id" },
+				organizationId: { eq: ORG_ID },
+			},
+			columns: { role: true, teamId: true, teamAssignmentSource: true },
+		});
+		expect(membership).toEqual({
+			role: "developer",
+			teamId: "invite-default-team",
+			teamAssignmentSource: "default",
+		});
+	});
+
 	test("revoked invite is not accepted on sign-in", async () => {
 		const created = await addMember({ email: INVITED_EMAIL, role: "admin" });
 		const { invite } = await created.json();
