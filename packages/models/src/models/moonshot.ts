@@ -515,36 +515,6 @@ export const moonshotModels = [
 				jsonOutput: true,
 			},
 			{
-				providerId: "tundra",
-				externalId: "kimi-k2.6",
-				deactivatedAt: new Date("2026-08-28"),
-				// Tundra rejects tool_choice="required" with a 400; named/forced
-				// function choice works, so allow everything except "required".
-				supportedToolChoices: ["auto", "none", "function"],
-				inputPrice: "0.4e-6",
-				cachedInputPrice: "0.08e-6",
-				outputPrice: "2.2e-6",
-				requestPrice: "0",
-				contextSize: 262144,
-				maxOutput: 262144,
-				streaming: true,
-				reasoning: true,
-				// The Tundra endpoint is asymmetric: streaming responses
-				// emit thinking in a separate reasoning_content field, but
-				// non-streaming responses inline it into content with no
-				// reasoning_content. Mark reasoning output as omitted so the gateway
-				// keeps streaming content clean (reasoning_content -> reasoning) yet
-				// does not require structured reasoning to be returned.
-				reasoningOutput: "omit",
-				// Tundra's kimi-k2.6 deployment rejects image inputs with a 400
-				// ("image_url content is not supported for this model") even though
-				// the model is vision-capable on other providers (verified
-				// 2026-07-19), so route image requests elsewhere.
-				vision: false,
-				tools: true,
-				jsonOutput: true,
-			},
-			{
 				providerId: "nebius",
 				externalId: "moonshotai/Kimi-K2.6",
 				deactivatedAt: new Date("2026-08-31"),
@@ -776,22 +746,6 @@ export const moonshotModels = [
 					"tool_choice",
 					"reasoning_effort",
 				],
-			},
-			{
-				providerId: "permafrost",
-				externalId: "kimi-k3",
-				deactivatedAt: new Date("2026-08-28"),
-				inputPrice: "3.0e-6",
-				cachedInputPrice: "0.6e-6",
-				outputPrice: "15.0e-6",
-				requestPrice: "0",
-				contextSize: 1048576,
-				maxOutput: 1048576,
-				streaming: true,
-				reasoning: true,
-				vision: true,
-				tools: true,
-				jsonOutput: true,
 			},
 			{
 				providerId: "novita",

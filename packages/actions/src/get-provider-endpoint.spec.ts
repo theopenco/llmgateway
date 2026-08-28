@@ -4,7 +4,6 @@ import { getProviderEndpoint } from "./get-provider-endpoint.js";
 
 const originalAiStudioBaseUrl = process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
 const originalGlacierBaseUrl = process.env.LLM_GLACIER_BASE_URL;
-const originalPermafrostBaseUrl = process.env.LLM_PERMAFROST_BASE_URL;
 const originalVertexBaseUrl = process.env.LLM_GOOGLE_VERTEX_BASE_URL;
 const originalVertexProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 const originalVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
@@ -32,12 +31,6 @@ afterEach(() => {
 		delete process.env.LLM_GLACIER_BASE_URL;
 	} else {
 		process.env.LLM_GLACIER_BASE_URL = originalGlacierBaseUrl;
-	}
-
-	if (originalPermafrostBaseUrl === undefined) {
-		delete process.env.LLM_PERMAFROST_BASE_URL;
-	} else {
-		process.env.LLM_PERMAFROST_BASE_URL = originalPermafrostBaseUrl;
 	}
 
 	if (originalVertexBaseUrl === undefined) {
@@ -130,22 +123,6 @@ describe("getProviderEndpoint", () => {
 
 		expect(() => getProviderEndpoint("glacier")).toThrow(
 			"Glacier provider requires LLM_GLACIER_BASE_URL environment variable",
-		);
-	});
-
-	it("builds Permafrost endpoints from env base URL", () => {
-		process.env.LLM_PERMAFROST_BASE_URL = "https://permafrost.example.com";
-
-		expect(getProviderEndpoint("permafrost", undefined, "kimi-k3")).toBe(
-			"https://permafrost.example.com/v1/chat/completions",
-		);
-	});
-
-	it("requires Permafrost base URL when no override is provided", () => {
-		delete process.env.LLM_PERMAFROST_BASE_URL;
-
-		expect(() => getProviderEndpoint("permafrost")).toThrow(
-			"Permafrost provider requires LLM_PERMAFROST_BASE_URL environment variable",
 		);
 	});
 
