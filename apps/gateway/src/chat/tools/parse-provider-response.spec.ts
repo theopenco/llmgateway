@@ -789,6 +789,62 @@ describe("parseProviderResponse", () => {
 		});
 	});
 
+	describe("alibaba finish reason mapping", () => {
+		it("normalizes 'stop' to 'tool_calls' when the message has tool calls", () => {
+			const json = {
+				choices: [
+					{
+						message: {
+							role: "assistant",
+							content: "",
+							tool_calls: [
+								{
+									id: "call_1",
+									type: "function",
+									function: {
+										name: "get_weather",
+										arguments: '{"city":"San Francisco"}',
+									},
+								},
+							],
+						},
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = parseProviderResponse("alibaba", "qwen3.8-flash", json);
+
+			expect(result.finishReason).toBe("tool_calls");
+			expect(result.toolResults).toHaveLength(1);
+		});
+
+		it("leaves 'stop' unchanged when there are no tool calls", () => {
+			const json = {
+				choices: [
+					{
+						message: { role: "assistant", content: "Hello" },
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = parseProviderResponse("alibaba", "qwen3.8-flash", json);
+
+			expect(result.finishReason).toBe("stop");
+		});
+	});
+
 	describe("scx-ai finish reason mapping", () => {
 		it("normalizes 'stop' to 'tool_calls' when the message has tool calls", () => {
 			const json = {

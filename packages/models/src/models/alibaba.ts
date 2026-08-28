@@ -2121,6 +2121,71 @@ export const alibabaModels = [
 		],
 	},
 	{
+		id: "qwen3.8-flash",
+		name: "Qwen3.8 Flash",
+		description:
+			"Fast, cost-effective Qwen3.8 model with hybrid reasoning, visual understanding and a 1M context for high-volume tasks.",
+		family: "alibaba",
+		releasedAt: new Date("2026-08-26"),
+		providers: [
+			{
+				providerId: "alibaba",
+				externalId: "qwen3.8-flash",
+				inputPrice: "0.15e-6",
+				outputPrice: "0.47e-6",
+				// Alibaba publishes off-ratio cache rates for this model: both implicit
+				// and explicit hits are 0.107x of input and creation is 1.33x, not the
+				// usual 0.20x/0.10x/1.25x. Do not "correct" these to the ratio.
+				cachedInputPrice: "0.016e-6",
+				cacheReadInputPrice: "0.016e-6",
+				cacheWriteInputPrice: "0.2e-6",
+				regions: [{ id: "singapore" }],
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 131072,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				reasoningMaxTokens: true,
+				reasoningOutput: "omit",
+				streaming: true,
+				vision: true,
+				tools: true,
+				// The deployment 400s on "required" and named-function tool_choice with
+				// "The tool_choice parameter does not support being set to required or
+				// object in thinking mode", but honours both once thinking is off.
+				supportedToolChoices: ["auto", "none"],
+				supportedToolChoicesWithThinkingDisabled: ["required", "function"],
+				webSearch: true,
+				webSearchForcedOnly: true,
+				webSearchPrice: "0.01",
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				supportsDeveloperRole: false,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"tools",
+					"tool_choice",
+					"response_format",
+					"reasoning_effort",
+				],
+			},
+		],
+	},
+	{
 		id: "qwen3-coder-next",
 		name: "Qwen3 Coder Next",
 		description:
