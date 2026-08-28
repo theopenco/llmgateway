@@ -55,12 +55,12 @@ import {
 	isTrackedKeyHealthy,
 } from "./api-key-health.js";
 
+import type { ApiKey } from "@llmgateway/db";
 import type { ApiKeyPeriodDurationUnit } from "@llmgateway/db";
 import type { EffectiveRateLimit } from "@llmgateway/db";
 import type { EffectiveDiscount } from "@llmgateway/db";
 import type { InferSelectModel } from "@llmgateway/db";
 import type {
-	apiKey,
 	apiKeyIamRule,
 	customModel,
 	endUserSession,
@@ -75,7 +75,6 @@ import type {
 import type { EnvVarVariant } from "@llmgateway/models";
 
 // Type aliases for cleaner function signatures
-type ApiKey = InferSelectModel<typeof apiKey>;
 type EndUserSession = InferSelectModel<typeof endUserSession>;
 type ApiKeyIamRule = InferSelectModel<typeof apiKeyIamRule>;
 type UserIamRule = InferSelectModel<typeof userIamRule>;
@@ -185,10 +184,7 @@ export async function findApiKeyByToken(
 				.from(apiKeyTable)
 				.where(
 					and(
-						or(
-							eq(apiKeyTable.token, token),
-							inArray(apiKeyTable.tokenHash, tokenHashes),
-						),
+						inArray(apiKeyTable.tokenHash, tokenHashes),
 						ne(apiKeyTable.keyType, "end_user_customer"),
 						ne(apiKeyTable.keyType, "platform_secret"),
 					),
@@ -246,12 +242,7 @@ export async function findApiKeyByToken(
 						eq(apiKeyTable.status, "active"),
 					),
 				)
-				.where(
-					or(
-						eq(endUserSessionTable.token, token),
-						inArray(endUserSessionTable.tokenHash, tokenHashes),
-					),
-				)
+				.where(inArray(endUserSessionTable.tokenHash, tokenHashes))
 				.limit(1);
 			const row = rows[0];
 			if (!row || row.session.status !== "active") {

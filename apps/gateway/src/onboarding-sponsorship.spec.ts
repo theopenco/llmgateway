@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { db, tables } from "@llmgateway/db";
 import { ONBOARDING_SPONSOR_HEADER } from "@llmgateway/shared";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
@@ -47,7 +48,7 @@ describe("sponsored onboarding call", () => {
 		await harness.setOrganizationCredits("0");
 		await db.insert(tables.apiKey).values({
 			id: `${token}-id`,
-			token,
+			...hashApiKeyForStorage(token),
 			projectId: "project-id",
 			description: "Onboarding test key",
 			createdBy: "user-id",

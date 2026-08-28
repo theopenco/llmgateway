@@ -18,7 +18,9 @@ import {
 	readAll,
 } from "@/test-utils/test-helpers.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 // Create a mock server that returns configurable JSON responses
 const mockServer = new Hono();
@@ -222,7 +224,7 @@ describe("Response Healing E2E", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "healing-token-id",
-			token: TEST_TOKEN,
+			...hashApiKeyForStorage(TEST_TOKEN),
 			projectId: "healing-project",
 			description: "Test API Key",
 			createdBy: "healing-user",
@@ -231,7 +233,11 @@ describe("Response Healing E2E", () => {
 		// Create provider key with mock server URL as baseUrl
 		await db.insert(tables.providerKey).values({
 			id: "healing-provider-key",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"healing-provider-key",
+				"healing-org",
+			),
 			provider: "llmgateway",
 			organizationId: "healing-org",
 			baseUrl: `http://localhost:${MOCK_PORT}`,

@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { readApiKeyMask } from "@/lib/api-key-mask.js";
 import {
 	MAX_ORG_ACTIVITY_RANGE_DAYS,
 	rangeDaysInclusive,
@@ -186,7 +187,6 @@ interface SerializableApiKey {
 	status: "active" | "inactive" | "deleted" | null;
 	projectId: string;
 	createdBy: string;
-	token: string | null;
 	tokenMasked: string | null;
 	usageLimit: string | null;
 	usage: string;
@@ -222,7 +222,7 @@ function serializeApiKeyForMaster(apiKey: SerializableApiKey) {
 		projectName: apiKey.project.name,
 		createdBy: apiKey.createdBy,
 		createdByEmail: apiKey.creator?.email ?? null,
-		maskedToken: apiKey.tokenMasked ?? maskToken(apiKey.token ?? ""),
+		maskedToken: readApiKeyMask(apiKey),
 		usageLimit: apiKey.usageLimit,
 		usage: apiKey.usage,
 		periodUsageLimit: apiKey.periodUsageLimit,
@@ -1633,7 +1633,6 @@ v1Master.openapi(createCustomProvider, async (c) => {
 			provider: "custom",
 			name,
 			baseUrl,
-			token: null,
 			tokenCiphertext: encryptProviderKey(
 				token,
 				providerKeyId,
@@ -1783,7 +1782,6 @@ v1Master.openapi(updateCustomProvider, async (c) => {
 		updates.baseUrl = baseUrl;
 	}
 	if (token !== undefined) {
-		updates.token = null;
 		updates.tokenCiphertext = encryptProviderKey(
 			token,
 			existing.id,
@@ -1816,9 +1814,8 @@ v1Master.openapi(updateCustomProvider, async (c) => {
 		changes.baseUrl = { old: existing.baseUrl, new: baseUrl };
 	}
 	// The token itself is never written to the audit log, only the fact it
-	// rotated. Compare via readProviderKey: the plaintext column is NULL for
-	// encrypted rows, so a raw column comparison would log every no-op
-	// resubmission of the same token as a rotation.
+	// rotated. Decrypt for comparison so a no-op resubmission is not logged as a
+	// rotation.
 	if (token !== undefined && readProviderKey(existing) !== token) {
 		changes.token = { old: "<redacted>", new: "<rotated>" };
 	}

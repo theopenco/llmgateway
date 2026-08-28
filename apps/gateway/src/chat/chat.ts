@@ -128,7 +128,6 @@ import {
 	isPremiumServiceTier,
 	resolveServedServiceTier,
 	googleProviderSupportsAudioFormat,
-	hasProviderKey,
 	InvalidFileContentError,
 	managedCredentialOptions,
 	parseGoogleUpstreamDocumentError,
@@ -2019,6 +2018,7 @@ chat.openapi(completions, async (c) => {
 
 	// Count input images from messages for cost calculation
 	const inputImageCount =
+		requestedModel === "gemini-3-pro-image" ||
 		requestedModel === "gemini-3-pro-image-preview" ||
 		requestedModel === "gemini-3.1-flash-image-preview" ||
 		requestedModel === "gemini-3.1-flash-lite-image"
@@ -5922,7 +5922,7 @@ chat.openapi(completions, async (c) => {
 	// Check email verification and rate limits for free models (only when using credits/environment tokens)
 	if (
 		isModelTrulyFree((finalModelInfo ?? modelInfo) as ModelDefinition) &&
-		!hasProviderKey(providerKey)
+		!providerKey
 	) {
 		await validateFreeModelUsage(
 			c,
@@ -6597,8 +6597,7 @@ chat.openapi(completions, async (c) => {
 					totalTokens: costs.imageInputTokens
 						? (
 								(costs.promptTokens ?? promptTokens ?? 0) +
-								(completionTokens ?? 0) +
-								(reasoningTokens ?? 0)
+								(completionTokens ?? 0)
 							).toString()
 						: (totalTokens?.toString() ?? null),
 					reasoningTokens: reasoningTokens?.toString() ?? null,
@@ -9950,9 +9949,7 @@ chat.openapi(completions, async (c) => {
 
 								if (finalTotalTokens === null) {
 									finalTotalTokens =
-										(finalPromptTokens ?? 0) +
-										(finalCompletionTokens ?? 0) +
-										(reasoningTokens ?? 0);
+										(finalPromptTokens ?? 0) + (finalCompletionTokens ?? 0);
 								}
 
 								// Send final usage chunk before [DONE] if we have any usage data
@@ -10008,7 +10005,7 @@ chat.openapi(completions, async (c) => {
 
 									// Approximate reasoning tokens when the provider streamed
 									// reasoning content but no count (e.g. AWS Bedrock).
-									// Display only — totals/costs keep the raw reasoningTokens.
+									// Display only — totals and costs use completionTokens.
 									const calculatedReasoningTokens = resolveReasoningTokens(
 										reasoningTokens,
 										fullReasoningContent,
@@ -10028,8 +10025,7 @@ chat.openapi(completions, async (c) => {
 											(streamingCosts.promptTokens ?? finalPromptTokens ?? 0) +
 												(streamingCosts.completionTokens ??
 													finalCompletionTokens ??
-													0) +
-												(reasoningTokens ?? 0),
+													0),
 										),
 										...(calculatedReasoningTokens !== null &&
 											calculatedReasoningTokens > 0 && {
@@ -14147,7 +14143,7 @@ chat.openapi(completions, async (c) => {
 
 	// Approximate reasoning tokens when the provider returned reasoning content
 	// but no count (e.g. AWS Bedrock). Display/logging only — never fed into
-	// calculateCosts below, which keeps the raw reasoningTokens.
+	// calculateCosts below, which uses the inclusive completion token count.
 	const calculatedReasoningTokens = resolveReasoningTokens(
 		reasoningTokens,
 		reasoningContent,
@@ -14263,9 +14259,7 @@ chat.openapi(completions, async (c) => {
 		if (promptDelta > 0) {
 			calculatedPromptTokens = costs.promptTokens;
 			totalTokens = (
-				(calculatedPromptTokens ?? 0) +
-				(calculatedCompletionTokens ?? 0) +
-				(calculatedReasoningTokens ?? 0)
+				(calculatedPromptTokens ?? 0) + (calculatedCompletionTokens ?? 0)
 			).toString();
 		}
 	}
@@ -14292,8 +14286,7 @@ chat.openapi(completions, async (c) => {
 		costs.promptTokens ?? calculatedPromptTokens,
 		costs.completionTokens ?? calculatedCompletionTokens,
 		(costs.promptTokens ?? calculatedPromptTokens ?? 0) +
-			(costs.completionTokens ?? calculatedCompletionTokens ?? 0) +
-			(reasoningTokens ?? 0),
+			(costs.completionTokens ?? calculatedCompletionTokens ?? 0),
 		calculatedReasoningTokens,
 		cachedTokens,
 		toolResults,

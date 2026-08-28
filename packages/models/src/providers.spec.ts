@@ -145,6 +145,11 @@ describe("model service tier support", () => {
 			),
 		).toEqual(["flex", "priority"]);
 		expect(
+			getSupportedServiceTiers("gemini-3-pro-image", "google-vertex").map(
+				(tier) => tier.id,
+			),
+		).toEqual(["flex"]);
+		expect(
 			getSupportedServiceTiers(
 				"gemini-3-pro-image-preview",
 				"google-vertex",
@@ -185,11 +190,16 @@ describe("model service tier support", () => {
 			),
 		).toEqual(["flex", "priority"]);
 		expect(
+			getSupportedServiceTiers("gemini-3-pro-image", "google-ai-studio").map(
+				(tier) => tier.id,
+			),
+		).toEqual(["flex", "priority"]);
+		expect(
 			getSupportedServiceTiers(
 				"gemini-3-pro-image-preview",
 				"google-ai-studio",
 			).map((tier) => tier.id),
-		).toEqual(["flex"]);
+		).toEqual(["flex", "priority"]);
 	});
 
 	it("limits Google Vertex service tiers to the global endpoint", () => {

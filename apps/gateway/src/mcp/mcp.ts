@@ -556,7 +556,7 @@ function createMcpServer(apiKey: string): McpServer {
 	// Register the generate-nano-banana tool
 	server.tool(
 		"generate-nano-banana",
-		`Generate an image using Gemini 3 Pro Image Preview (Nano Banana). Tailored for AI coding agents - always returns an inline image preview.${process.env.UPLOAD_DIR ? " Also saves images to disk and returns file paths." : " Set UPLOAD_DIR to enable saving images to disk."}`,
+		`Generate an image using Gemini 3 Pro Image (Nano Banana Pro). Tailored for AI coding agents - always returns an inline image preview.${process.env.UPLOAD_DIR ? " Also saves images to disk and returns file paths." : " Set UPLOAD_DIR to enable saving images to disk."}`,
 		generateNanoBananaInputSchema.shape,
 		async (input: GenerateNanoBananaInput) => {
 			try {
@@ -567,7 +567,7 @@ function createMcpServer(apiKey: string): McpServer {
 						: "http://localhost:4001");
 
 				const body: Record<string, unknown> = {
-					model: "gemini-3-pro-image-preview",
+					model: "gemini-3-pro-image",
 					messages: [
 						{
 							role: "user",

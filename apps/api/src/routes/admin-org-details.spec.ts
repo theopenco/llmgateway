@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, tables } from "@llmgateway/db";
 
 const originalAdminEmails = process.env.ADMIN_EMAILS;
@@ -124,7 +125,7 @@ describe("admin organization details endpoints", () => {
 				organizationId: ORG_ID,
 				provider: "custom",
 				name: "myllm",
-				token: "sk-custom",
+				...encryptProviderKeyForStorage("sk-custom", "custom-key-1", ORG_ID),
 				complianceAttestation: { soc2: 2, gdpr: true, headquarters: "US" },
 			},
 			{
@@ -132,14 +133,18 @@ describe("admin organization details endpoints", () => {
 				organizationId: ORG_ID,
 				provider: "custom",
 				name: "gone",
-				token: "sk-gone",
+				...encryptProviderKeyForStorage(
+					"sk-gone",
+					"custom-key-deleted",
+					ORG_ID,
+				),
 				status: "deleted",
 			},
 			{
 				id: "regular-key",
 				organizationId: ORG_ID,
 				provider: "openai",
-				token: "sk-openai",
+				...encryptProviderKeyForStorage("sk-openai", "regular-key", ORG_ID),
 			},
 		]);
 

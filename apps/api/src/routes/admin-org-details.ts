@@ -367,6 +367,7 @@ const adminPaymentMethodSchema = z.object({
 	type: z.string(),
 	createdAt: z.string(),
 	isDefault: z.boolean(),
+	canReleaseDevPlanCardFingerprint: z.boolean(),
 	card: z
 		.object({
 			brand: z.string(),
@@ -383,6 +384,7 @@ type PaymentMethodOrganization = Pick<
 	| "stripeCustomerId"
 	| "stripeSubscriptionId"
 	| "devPlanStripeSubscriptionId"
+	| "devPlanCardFingerprint"
 	| "chatPlanStripeSubscriptionId"
 >;
 
@@ -576,6 +578,11 @@ adminOrgDetails.openapi(getOrganizationPaymentMethods, async (c) => {
 			type: paymentMethod.type,
 			createdAt: new Date(paymentMethod.created * 1000).toISOString(),
 			isDefault: state.defaultPaymentMethodIds.has(paymentMethod.id),
+			canReleaseDevPlanCardFingerprint: Boolean(
+				!org.devPlanStripeSubscriptionId &&
+				paymentMethod.card?.fingerprint &&
+				paymentMethod.card.fingerprint === org.devPlanCardFingerprint,
+			),
 			card: paymentMethod.card
 				? {
 						brand: paymentMethod.card.brand,
@@ -601,6 +608,7 @@ const deleteOrganizationPaymentMethod = createRoute({
 				"application/json": {
 					schema: z.object({
 						replacementPaymentMethodId: z.string().optional(),
+						releaseDevPlanCardFingerprint: z.boolean().optional(),
 					}),
 				},
 			},
@@ -629,7 +637,8 @@ const deleteOrganizationPaymentMethod = createRoute({
 
 adminOrgDetails.openapi(deleteOrganizationPaymentMethod, async (c) => {
 	const { orgId, paymentMethodId } = c.req.valid("param");
-	const { replacementPaymentMethodId } = c.req.valid("json");
+	const { replacementPaymentMethodId, releaseDevPlanCardFingerprint } =
+		c.req.valid("json");
 	const org = await requireOrganization(orgId);
 	const user = c.get("user");
 
@@ -666,6 +675,19 @@ adminOrgDetails.openapi(deleteOrganizationPaymentMethod, async (c) => {
 		stripeCustomerId === null && Boolean(localPaymentMethod);
 	if (!attachedToOrganization && !hasDetachedLocalMethod) {
 		throw new HTTPException(404, { message: "Payment method not found" });
+	}
+
+	const paymentMethodFingerprint = paymentMethod?.card?.fingerprint ?? null;
+	const canReleaseDevPlanCardFingerprint = Boolean(
+		!org.devPlanStripeSubscriptionId &&
+		paymentMethodFingerprint &&
+		paymentMethodFingerprint === org.devPlanCardFingerprint,
+	);
+	if (releaseDevPlanCardFingerprint && !canReleaseDevPlanCardFingerprint) {
+		throw new HTTPException(400, {
+			message:
+				"This payment method cannot release the retained DevPass card fingerprint.",
+		});
 	}
 
 	const state = await getOrganizationPaymentMethodState(org);
@@ -844,15 +866,18 @@ adminOrgDetails.openapi(deleteOrganizationPaymentMethod, async (c) => {
 		if (
 			disableAutoTopUp ||
 			updateDevPlanFingerprint ||
-			updateChatPlanFingerprint
+			updateChatPlanFingerprint ||
+			releaseDevPlanCardFingerprint
 		) {
 			await tx
 				.update(tables.organization)
 				.set({
 					...(disableAutoTopUp ? { autoTopUpEnabled: false } : {}),
-					...(updateDevPlanFingerprint
-						? { devPlanCardFingerprint: replacementFingerprint }
-						: {}),
+					...(releaseDevPlanCardFingerprint
+						? { devPlanCardFingerprint: null }
+						: updateDevPlanFingerprint
+							? { devPlanCardFingerprint: replacementFingerprint }
+							: {}),
 					...(updateChatPlanFingerprint
 						? { chatPlanCardFingerprint: replacementFingerprint }
 						: {}),
@@ -880,6 +905,7 @@ adminOrgDetails.openapi(deleteOrganizationPaymentMethod, async (c) => {
 			cardLast4: paymentMethod?.card?.last4,
 			replacementPaymentMethodId: replacementId,
 			autoTopUpDisabled: disableAutoTopUp && org.autoTopUpEnabled,
+			devPlanCardFingerprintReleased: releaseDevPlanCardFingerprint === true,
 		},
 	});
 

@@ -300,7 +300,6 @@ export const zaiModels = [
 				inputPrice: "0.55e-6",
 				cachedInputPrice: "0.111e-6",
 				outputPrice: "1.784e-6",
-				regions: [{ id: "au" }],
 				requestPrice: "0",
 				contextSize: 1000000,
 				// SCX rejects max_tokens above 131072 ("expected a value <= 131072"),

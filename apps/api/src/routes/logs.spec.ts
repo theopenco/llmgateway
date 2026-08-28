@@ -3,7 +3,9 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, eq, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 describe("logs route", () => {
 	let token: string;
@@ -61,14 +63,14 @@ describe("logs route", () => {
 		await db.insert(tables.apiKey).values([
 			{
 				id: "test-api-key-id",
-				token: "test-token",
+				...hashApiKeyForStorage("test-token"),
 				projectId: "test-project-id",
 				description: "Test API Key",
 				createdBy: "test-user-id",
 			},
 			{
 				id: "test-api-key-id-2",
-				token: "test-token-2",
+				...hashApiKeyForStorage("test-token-2"),
 				projectId: "test-project-id-2",
 				description: "Test API Key 2",
 				createdBy: "test-user-id",
@@ -79,13 +81,21 @@ describe("logs route", () => {
 		await db.insert(tables.providerKey).values([
 			{
 				id: "test-provider-key-id",
-				token: "test-provider-token",
+				...encryptProviderKeyForStorage(
+					"test-provider-token",
+					"test-provider-key-id",
+					"test-org-id",
+				),
 				provider: "openai",
 				organizationId: "test-org-id",
 			},
 			{
 				id: "test-provider-key-id-2",
-				token: "test-provider-token-2",
+				...encryptProviderKeyForStorage(
+					"test-provider-token-2",
+					"test-provider-key-id-2",
+					"test-org-id-2",
+				),
 				provider: "anthropic",
 				organizationId: "test-org-id-2",
 			},
@@ -842,7 +852,7 @@ describe("logs route", () => {
 
 			await db.insert(tables.apiKey).values({
 				id: "teammate-key",
-				token: "teammate-token",
+				...hashApiKeyForStorage("teammate-token"),
 				projectId: "test-project-id",
 				description: "Teammate Key",
 				createdBy: "teammate-id",

@@ -4,6 +4,7 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 const SCIM_TOKEN = "scim_test_token_abcdef0123456789";
@@ -190,7 +191,7 @@ describe("scim audit logging", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "scim-test-key",
-			token: "scim-test-key-token",
+			...hashApiKeyForStorage("scim-test-key-token"),
 			description: "erin key",
 			projectId: "scim-test-project",
 			createdBy: id,
@@ -230,7 +231,7 @@ describe("scim audit logging", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "scim-test-key-2",
-			token: "scim-test-key-token-2",
+			...hashApiKeyForStorage("scim-test-key-token-2"),
 			description: "frank key",
 			projectId: "scim-test-project-2",
 			createdBy: id,

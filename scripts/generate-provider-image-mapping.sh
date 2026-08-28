@@ -36,7 +36,7 @@ Options:
 Examples:
   scripts/generate-provider-image-mapping.sh --local
   scripts/generate-provider-image-mapping.sh \
-    --mapping quartz/gemini-3-pro-image-preview
+    --mapping quartz/gemini-3-pro-image
   scripts/generate-provider-image-mapping.sh \
     --from first.png \
     --from second.png \
@@ -59,12 +59,12 @@ supported_sizes() {
 		gemini-3.1-flash-image-preview)
 			printf '%s\n' "0.5K" "1K" "2K" "4K"
 			;;
-		gemini-3-pro-image-preview)
+		gemini-3-pro-image | gemini-3-pro-image-preview)
 			printf '%s\n' "1K" "2K" "4K"
 			;;
 		*)
 			echo "Unsupported image model: $1" >&2
-			echo "Expected gemini-3.1-flash-image-preview or gemini-3-pro-image-preview" >&2
+			echo "Expected gemini-3.1-flash-image-preview or gemini-3-pro-image" >&2
 			exit 1
 			;;
 	esac

@@ -75,20 +75,18 @@ export default [
 			"@eslint-react/naming-convention/use-state": "off",
 			"@eslint-react/prefer-use-state-lazy-initialization": "off",
 			"no-console": "error",
-			// provider_key stores its secret encrypted in `tokenCiphertext`; the
-			// `token` column is the legacy plaintext one and is NULL for every row
-			// written since. Reading it directly yields null and sends an empty
-			// credential upstream — a bug that has recurred in the chat, embeddings,
-			// speech, transcriptions, OCR, moderations, video and realtime paths.
-			// Use readProviderKey(row) from @llmgateway/actions, or hasProviderKey(row)
-			// for an existence check that must not decrypt.
+			// provider_key stores its secret encrypted in `tokenCiphertext`. Reading
+			// it directly skips authenticated decryption — a bug that has recurred in
+			// the chat, embeddings, speech, transcriptions, OCR, moderations, video and
+			// realtime paths.
+			// Use readProviderKey(row) from @llmgateway/actions.
 			"no-restricted-syntax": [
 				"error",
 				{
 					selector:
 						"MemberExpression[property.name='token'][object.name=/^(providerKey|managedKey|credential|existing|keyRow|providerKeyRow)$/]",
 					message:
-						"provider_key.token is the legacy plaintext column and is NULL for encrypted rows. Use readProviderKey(row) from @llmgateway/actions (or hasProviderKey(row) to test existence without decrypting).",
+						"Use readProviderKey(row) from @llmgateway/actions.",
 				},
 			],
 			"no-restricted-properties": [

@@ -4,6 +4,7 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 const ORG_ID = "invite-test-org";
 const INVITED_EMAIL = "invited@example.com";
@@ -165,14 +166,14 @@ describe("team invites", () => {
 		await db.insert(tables.apiKey).values([
 			{
 				id: "developer-key",
-				token: "developer-token",
+				...hashApiKeyForStorage("developer-token"),
 				projectId: "invite-test-project",
 				description: "Developer key",
 				createdBy: "test-user-id",
 			},
 			{
 				id: "playground-session-key",
-				token: "playground-session-token",
+				...hashApiKeyForStorage("playground-session-token"),
 				projectId: "invite-test-project",
 				description: "Session key",
 				kind: "playground",

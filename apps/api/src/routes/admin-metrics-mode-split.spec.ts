@@ -8,6 +8,7 @@ import {
 } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 const ORG_ID = "mode-split-org";
 const PROJECT_ID = "mode-split-project";
@@ -109,14 +110,14 @@ describe("admin — credits vs BYOK mode split", () => {
 		await db.insert(tables.apiKey).values([
 			{
 				id: API_KEY_ID,
-				token: "mode-split-token",
+				...hashApiKeyForStorage("mode-split-token"),
 				projectId: PROJECT_ID,
 				description: "Mode Split Key",
 				createdBy: "test-user-id",
 			},
 			{
 				id: DEVPASS_KEY_ID,
-				token: "mode-split-devpass-token",
+				...hashApiKeyForStorage("mode-split-devpass-token"),
 				projectId: DEVPASS_PROJECT_ID,
 				description: "Mode Split DevPass Key",
 				createdBy: "test-user-id",

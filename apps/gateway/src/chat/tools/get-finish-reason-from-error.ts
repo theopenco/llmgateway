@@ -82,7 +82,9 @@ export function getFinishReasonFromError(
 	// provider.
 	if (
 		errorText &&
-		/credit balance is too low|insufficient balance/i.test(errorText)
+		/credit balance is too low|insufficient balance|reaching the monthly spending limit/i.test(
+			errorText,
+		)
 	) {
 		return "gateway_error";
 	}
