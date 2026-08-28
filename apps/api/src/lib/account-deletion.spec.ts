@@ -7,7 +7,10 @@ import { createTestUser, deleteAll } from "@/testing.js";
 import { db, tables } from "@llmgateway/db";
 
 import {
+	anonymizeBillingRecordsForEmail,
 	cancelOrganizationSubscriptions,
+	DELETED_ORGANIZATION_BILLING_EMAIL,
+	DELETED_ORGANIZATION_NAME,
 	findSoleMemberOrganizations,
 	getOrganizationSubscriptionIds,
 	tearDownSoleMemberOrganizations,
@@ -17,6 +20,7 @@ import type * as PaymentsModule from "@/routes/payments.js";
 
 const stripeMock = vi.hoisted(() => ({
 	subscriptions: { cancel: vi.fn() },
+	customers: { del: vi.fn() },
 }));
 
 vi.mock("@/routes/payments.js", async (importOriginal) => {
@@ -79,6 +83,8 @@ describe("account deletion cancels subscriptions", () => {
 		token = await createTestUser();
 		stripeMock.subscriptions.cancel.mockReset();
 		stripeMock.subscriptions.cancel.mockResolvedValue({ status: "canceled" });
+		stripeMock.customers.del.mockReset();
+		stripeMock.customers.del.mockResolvedValue({ deleted: true });
 	});
 
 	afterEach(async () => {
@@ -209,6 +215,155 @@ describe("account deletion cancels subscriptions", () => {
 		const org = await getOrg();
 		expect(org?.status).toBe("active");
 		expect(org?.devPlanStripeSubscriptionId).toBe("sub_devpass");
+	});
+
+	test("deletes the Stripe customer and clears the stored id", async () => {
+		await seedOrg({ stripeCustomerId: "cus_personal" });
+
+		const res = await deleteAccount(token);
+		expect(res.status).toBe(200);
+
+		expect(stripeMock.customers.del).toHaveBeenCalledWith("cus_personal");
+
+		const org = await getOrg();
+		expect(org?.stripeCustomerId).toBeNull();
+	});
+
+	test("cancels subscriptions before deleting the Stripe customer", async () => {
+		const calls: string[] = [];
+		stripeMock.subscriptions.cancel.mockImplementation(async () => {
+			calls.push("cancel");
+			return { status: "canceled" };
+		});
+		stripeMock.customers.del.mockImplementation(async () => {
+			calls.push("del");
+			return { deleted: true };
+		});
+
+		await seedOrg({
+			devPlan: "pro",
+			devPlanStripeSubscriptionId: "sub_devpass",
+			stripeCustomerId: "cus_personal",
+		});
+
+		const res = await deleteAccount(token);
+		expect(res.status).toBe(200);
+		expect(calls).toEqual(["cancel", "del"]);
+	});
+
+	test("treats an already-deleted Stripe customer as success", async () => {
+		await seedOrg({ stripeCustomerId: "cus_gone" });
+
+		stripeMock.customers.del.mockRejectedValue(
+			new Stripe.errors.StripeInvalidRequestError({
+				type: "invalid_request_error",
+				code: "resource_missing",
+				message: "No such customer: cus_gone",
+			}),
+		);
+
+		const res = await deleteAccount(token);
+		expect(res.status).toBe(200);
+
+		const deletedUser = await db.query.user.findFirst({
+			where: { id: { eq: USER_ID } },
+		});
+		expect(deletedUser).toBeUndefined();
+	});
+
+	test("keeps the account when the Stripe customer delete fails", async () => {
+		await seedOrg({ stripeCustomerId: "cus_personal" });
+
+		stripeMock.customers.del.mockRejectedValue(
+			new Stripe.errors.StripeAPIError({
+				type: "api_error",
+				message: "Stripe is down",
+			}),
+		);
+
+		const res = await deleteAccount(token);
+		expect(res.status).not.toBe(200);
+
+		const user = await db.query.user.findFirst({
+			where: { id: { eq: USER_ID } },
+		});
+		expect(user).toBeDefined();
+
+		const org = await getOrg();
+		expect(org?.stripeCustomerId).toBe("cus_personal");
+	});
+
+	test("overwrites the organization name, billing email and logo", async () => {
+		await seedOrg({
+			kind: "default",
+			name: "Jane Doe",
+			billingEmail: "jane@example.com",
+			logo: "data:image/png;base64,AAAA",
+		});
+
+		const res = await deleteAccount(token);
+		expect(res.status).toBe(200);
+
+		const org = await getOrg();
+		expect(org?.name).toBe(DELETED_ORGANIZATION_NAME);
+		expect(org?.billingEmail).toBe(DELETED_ORGANIZATION_BILLING_EMAIL);
+		expect(org?.logo).toBeNull();
+	});
+
+	test("keeps the statutory bill-to identity on the accounting record", async () => {
+		await seedOrg({
+			kind: "default",
+			billingCompany: "Doe Ltd",
+			billingAddress: "1 Example Street\n10115 Berlin",
+			billingTaxId: "DE123456789",
+		});
+
+		const res = await deleteAccount(token);
+		expect(res.status).toBe(200);
+
+		const org = await getOrg();
+		expect(org?.billingCompany).toBe("Doe Ltd");
+		expect(org?.billingAddress).toBe("1 Example Street\n10115 Berlin");
+		expect(org?.billingTaxId).toBe("DE123456789");
+	});
+
+	test("leaves the identifiers of an organization with other members alone", async () => {
+		await seedOrg({
+			kind: "default",
+			name: "Shared Team",
+			billingEmail: "team@example.com",
+		});
+		await addSecondMember();
+
+		const res = await deleteAccount(token);
+		expect(res.status).toBe(200);
+
+		const org = await getOrg();
+		expect(org?.name).toBe("Shared Team");
+		expect(org?.billingEmail).toBe("team@example.com");
+	});
+
+	test("nulls the deleted user's email on retained payment failures", async () => {
+		await seedOrg({ kind: "default" });
+		await db.insert(tables.paymentFailure).values({
+			organizationId: ORG_ID,
+			userEmail: "admin@example.com",
+			amount: "10.00",
+			declineCode: "insufficient_funds",
+			source: "auto_topup",
+		});
+
+		const res = await deleteAccount(token);
+		expect(res.status).toBe(200);
+
+		const failures = await db.query.paymentFailure.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(failures).toHaveLength(1);
+		expect(failures[0].userEmail).toBeNull();
+		// The accounting facts survive — only the contact address is removed.
+		expect(failures[0].amount).toBe("10.00");
+		expect(failures[0].declineCode).toBe("insufficient_funds");
 	});
 
 	test("deletion preview reports what will be cancelled", async () => {
@@ -641,5 +796,60 @@ describe("tearDownSoleMemberOrganizations", () => {
 			(call) => call[0],
 		);
 		expect(cancelledIds).not.toContain("sub_second");
+	});
+});
+
+describe("anonymizeBillingRecordsForEmail", () => {
+	beforeEach(async () => {
+		await deleteAll();
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Shared Team",
+			billingEmail: "team@example.com",
+		});
+	});
+
+	afterEach(async () => {
+		await deleteAll();
+	});
+
+	test("clears the email on rows of an organization that survives the deletion", async () => {
+		await db.insert(tables.paymentFailure).values([
+			{ organizationId: ORG_ID, userEmail: "leaver@example.com" },
+			{ organizationId: ORG_ID, userEmail: "stays@example.com" },
+		]);
+
+		expect(await anonymizeBillingRecordsForEmail("leaver@example.com")).toBe(1);
+
+		const failures = await db.query.paymentFailure.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(failures.map((failure) => failure.userEmail)).toEqual(
+			expect.arrayContaining([null, "stays@example.com"]),
+		);
+		expect(failures).toHaveLength(2);
+	});
+
+	test("is a no-op when the user never triggered a payment failure", async () => {
+		expect(await anonymizeBillingRecordsForEmail("nobody@example.com")).toBe(0);
+	});
+
+	test("clears rows on a closing organization whatever address they carry", async () => {
+		// `payment_failure` stores the email as it was at the time, so a user who
+		// changed address leaves rows the current-email match cannot find. Sweeping
+		// the organizations being closed is what catches them.
+		await db.insert(tables.paymentFailure).values([
+			{ organizationId: ORG_ID, userEmail: "old-address@example.com" },
+			{ organizationId: ORG_ID, userEmail: "current@example.com" },
+		]);
+
+		expect(
+			await anonymizeBillingRecordsForEmail("current@example.com", [ORG_ID]),
+		).toBe(2);
+
+		const failures = await db.query.paymentFailure.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(failures.every((failure) => failure.userEmail === null)).toBe(true);
 	});
 });

@@ -50,9 +50,12 @@ import {
 import { cn } from "@/lib/utils";
 
 import {
+	ApiTrainingIcon,
+	ApiTrainingWarning,
 	formatPerImagePriceRange,
 	getProviderIcon,
 	providerLogoUrls,
+	trainsOnApiInputs,
 } from "@llmgateway/shared/components";
 
 import type {
@@ -817,6 +820,7 @@ function ModelEntryRowComponent({
 								{(isUnstable || isDeprecated) && (
 									<AlertTriangle className="h-3.5 w-3.5 shrink-0 text-yellow-600 dark:text-yellow-500" />
 								)}
+								{trainsOnApiInputs(provider) && <ApiTrainingIcon />}
 							</div>
 							<span className="text-xs text-muted-foreground truncate">
 								{disabledReason ?? provider?.name}
@@ -2071,6 +2075,10 @@ export function ModelSelector({
 											</>
 										) : (
 											<>
+												<ApiTrainingWarning
+													provider={previewEntry.provider ?? null}
+												/>
+
 												{previewEntry.provider?.description && (
 													<p className="text-xs text-muted-foreground leading-relaxed">
 														{previewEntry.provider.description}
@@ -2724,6 +2732,10 @@ export function ModelSelector({
 									</div>
 								) : (
 									<>
+										<ApiTrainingWarning
+											provider={selectedDetails.provider ?? null}
+										/>
+
 										{selectedDetails.provider?.description && (
 											<>
 												<p className="text-sm text-muted-foreground leading-relaxed">

@@ -41,6 +41,10 @@ const providerSchema = z.object({
 	website: z.string().nullable(),
 	announcement: z.string().nullable(),
 	modelCardBadge: z.string().nullable(),
+	// Whether the provider trains on prompts sent through its API. `true` is
+	// what model pickers warn on; `null` means the provider has not published a
+	// data policy, which is not the same as "does not train".
+	apiTraining: z.boolean().nullable(),
 	status: z.enum(["active", "inactive"]),
 });
 
@@ -460,14 +464,17 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 		},
 	});
 
-	// modelCardBadge only exists in the catalogue, not the provider table
+	// modelCardBadge and the data policy only exist in the catalogue, not the
+	// provider table
 	return c.json({
-		providers: providers.map((provider) => ({
-			...provider,
-			modelCardBadge:
-				providerDefinitions.find((p) => p.id === provider.id)?.modelCardBadge ??
-				null,
-		})),
+		providers: providers.map((provider) => {
+			const definition = providerDefinitions.find((p) => p.id === provider.id);
+			return {
+				...provider,
+				modelCardBadge: definition?.modelCardBadge ?? null,
+				apiTraining: definition?.dataPolicy?.apiTraining ?? null,
+			};
+		}),
 	});
 });
 

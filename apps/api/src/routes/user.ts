@@ -9,13 +9,19 @@ import {
 	updateResendContact,
 } from "@/auth/config.js";
 import {
+	anonymizeBillingRecordsForEmail,
 	findSoleMemberOrganizations,
 	tearDownSoleMemberOrganizations,
 } from "@/lib/account-deletion.js";
+import {
+	buildUserDataExport,
+	userDataExportSchema,
+} from "@/lib/data-export.js";
 import { notifyUserAccountDeleted } from "@/utils/discord.js";
 import { computeProfileData, profileSchema } from "@/utils/profile.js";
 
 import { and, db, eq, ne, sql, tables } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 import { getEnterpriseLicenseStatus } from "@llmgateway/shared/enterprise-license";
 
 import type { ServerTypes } from "@/vars.js";
@@ -606,6 +612,56 @@ user.openapi(getDeletionPreview, async (c) => {
 	);
 });
 
+const exportUserData = createRoute({
+	method: "get",
+	path: "/me/export",
+	summary: "Export my personal data",
+	description:
+		"Returns everything LLM Gateway holds about the authenticated user as a JSON document, satisfying the GDPR right of access (Art. 15) and right to data portability (Art. 20). Credentials, organization-owned request logs and security audit records are excluded; the payload documents each exclusion and why.",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: userDataExportSchema,
+				},
+			},
+			description: "The user's personal data as a JSON download.",
+		},
+	},
+});
+
+// Only the 200 is declared: the 401/404 paths throw `HTTPException` and are
+// rendered by the global error handler, matching the other download routes here.
+user.openapi(exportUserData, async (c) => {
+	const authUser = c.get("user");
+
+	if (!authUser) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const data = await buildUserDataExport(authUser.id);
+
+	if (!data) {
+		throw new HTTPException(404, {
+			message: "User not found",
+		});
+	}
+
+	// Content-Disposition makes the browser write the file to disk under a
+	// sensible name instead of rendering a wall of JSON.
+	c.header(
+		"Content-Disposition",
+		`attachment; filename="llmgateway-data-export-${authUser.id}.json"`,
+	);
+	// Personal data — never let a shared cache hold a copy.
+	c.header("Cache-Control", "no-store");
+
+	return c.json(data, 200);
+});
+
 const deleteUser = createRoute({
 	method: "delete",
 	path: "/me",
@@ -688,6 +744,21 @@ user.openapi(deleteUser, async (c) => {
 			new Decimal(0),
 		)
 		.toString();
+
+	// Strip the account email out of the billing tables that outlive the user
+	// row. `payment_failure` cascades from `organization`, and organizations are
+	// kept (marked deleted) for the 10-year accounting period, so the address
+	// would otherwise survive the erasure indefinitely.
+	const anonymizedBillingRecords = await anonymizeBillingRecordsForEmail(
+		userRecord.email,
+		closedOrganizations.map((org) => org.id),
+	);
+
+	if (anonymizedBillingRecords > 0) {
+		logger.info(
+			`Anonymized ${anonymizedBillingRecords} payment failure record(s) on account deletion of user ${authUser.id}`,
+		);
+	}
 
 	// Sign out before deleting the user: the delete cascades the session rows
 	// away, after which better-auth can no longer resolve the session to revoke

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	filterCompliantProviders,
+	getActiveCompliancePolicy,
 	isModelIdCompliant,
 	isProviderIdCompliant,
 } from "./compliance.js";
@@ -209,5 +210,119 @@ describe("isModelIdCompliant", () => {
 		expect(
 			isModelIdCompliant("my-model", policy, { customProviderName: "acme" }),
 		).toBe(false);
+	});
+});
+
+describe("getActiveCompliancePolicy plan tiers", () => {
+	const FULL_POLICY: ProviderCompliancePolicy = {
+		enabled: true,
+		requireGdpr: true,
+		blockApiTraining: true,
+		blockPromptLogging: true,
+		blockStealthProviders: true,
+		allowedCountries: ["DE"],
+		requireSoc2: true,
+		requireSoc2Type2: true,
+		requireIso27001: true,
+		blockedProviders: ["deepseek"],
+		allowedModels: ["gpt-5.2"],
+	};
+
+	it("returns nothing when the policy is disabled, on any plan", () => {
+		for (const plan of ["free", "pro", "enterprise"]) {
+			expect(
+				getActiveCompliancePolicy({
+					id: "org-test",
+					plan,
+					providerCompliancePolicy: { ...FULL_POLICY, enabled: false },
+				}),
+			).toBeUndefined();
+		}
+	});
+
+	it("returns nothing when no policy is configured", () => {
+		expect(
+			getActiveCompliancePolicy({ id: "org-test", plan: "enterprise" }),
+		).toBeUndefined();
+		expect(
+			getActiveCompliancePolicy({
+				id: "org-test",
+				plan: "pro",
+				providerCompliancePolicy: null,
+			}),
+		).toBeUndefined();
+	});
+
+	it("gives enterprise orgs the policy unchanged", () => {
+		expect(
+			getActiveCompliancePolicy({
+				id: "org-test",
+				plan: "enterprise",
+				providerCompliancePolicy: FULL_POLICY,
+			}),
+		).toEqual(FULL_POLICY);
+	});
+
+	it("honours the data-protection controls on non-enterprise plans", () => {
+		for (const plan of ["free", "pro"]) {
+			expect(
+				getActiveCompliancePolicy({
+					id: "org-test",
+					plan,
+					providerCompliancePolicy: FULL_POLICY,
+				}),
+			).toEqual({
+				enabled: true,
+				requireGdpr: true,
+				blockApiTraining: true,
+				blockPromptLogging: true,
+				blockStealthProviders: true,
+				allowedCountries: ["DE"],
+			});
+		}
+	});
+
+	it("drops the enterprise-only controls rather than enforcing them", () => {
+		const narrowed = getActiveCompliancePolicy({
+			id: "org-test",
+			plan: "pro",
+			providerCompliancePolicy: FULL_POLICY,
+		});
+
+		expect(narrowed?.requireSoc2).toBeUndefined();
+		expect(narrowed?.requireSoc2Type2).toBeUndefined();
+		expect(narrowed?.requireIso27001).toBeUndefined();
+		expect(narrowed?.blockedProviders).toBeUndefined();
+		expect(narrowed?.allowedModels).toBeUndefined();
+	});
+
+	it("returns nothing when only enterprise-only controls are set", () => {
+		// Without this the gateway would filter every provider against a policy
+		// that can never reject anything, instead of taking the no-policy path.
+		expect(
+			getActiveCompliancePolicy({
+				id: "org-test",
+				plan: "pro",
+				providerCompliancePolicy: {
+					enabled: true,
+					requireSoc2: true,
+					blockedProviders: ["deepseek"],
+				},
+			}),
+		).toBeUndefined();
+	});
+
+	it("actually blocks a non-adequacy provider for a free-plan org", () => {
+		// The point of the whole split: a free-plan customer can stop personal
+		// data reaching a provider with no GDPR posture.
+		const policy = getActiveCompliancePolicy({
+			id: "org-test",
+			plan: "free",
+			providerCompliancePolicy: { enabled: true, requireGdpr: true },
+		});
+
+		expect(policy).toBeDefined();
+		expect(isProviderIdCompliant("deepseek", policy!)).toBe(false);
+		expect(isProviderIdCompliant("openai", policy!)).toBe(true);
 	});
 });

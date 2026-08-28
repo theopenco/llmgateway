@@ -1,7 +1,7 @@
 ---
 id: "2"
 slug: "privacy"
-date: "2026-08-20"
+date: "2026-08-27"
 title: "Privacy Policy"
 description: "Read LLM Gateway’s Privacy Policy to understand how we collect, use, share, and protect your data, our roles as controller and processor, AI provider routing, your GDPR and CCPA rights, data retention, and international transfers."
 ---
@@ -9,7 +9,7 @@ description: "Read LLM Gateway’s Privacy Policy to understand how we collect, 
 # Privacy Policy
 
 **Effective Date:** October 21, 2025  
-**Last Updated:** August 20, 2026
+**Last Updated:** August 27, 2026
 
 LLM Gateway (“we”, “our”, or “us”) provides a unified AI gateway platform that enables users to connect, manage, and analyze AI models across multiple providers. This Privacy Policy explains how we collect, use, share, and protect personal information when you use our website, APIs, SDKs, dashboards, and related services (collectively, the “Service”).
 
@@ -121,7 +121,12 @@ We keep personal data only as long as necessary for the purposes it was collecte
 - **AI request content and metadata:** request and response content is governed by your organization's retention setting (Retain All Data vs Metadata Only); aggregated usage and cost metadata is retained for analytics and billing accuracy.
 - **Billing and accounting records** (purchases of credits, payments, invoices, and the transaction history of credits bought and spent): retained for **10 years** to comply with applicable tax and accounting law, even after account deletion, after which they are deleted or anonymized.
 
-Where we retain billing records after account deletion, we restrict processing of that data to what the law requires and anonymize personal identifiers not needed for the accounting record.
+Where we retain billing records after account deletion, we restrict processing of that data to what the law requires and anonymize personal identifiers not needed for the accounting record. Concretely, when you delete your account:
+
+- Your user record, sessions, API keys, passkeys and chats are **hard-deleted**.
+- Any organization you were the last member of is **closed**: its subscriptions are cancelled, its Stripe customer record — including the name, email and billing address Stripe held — is **deleted at Stripe**, and its display name, billing contact email and logo are **overwritten with placeholders**.
+- Your email address is **removed** from retained billing records such as failed-payment entries.
+- What remains is the accounting record itself, kept for the statutory period described above: the amounts, dates and currencies of the transactions, and the "bill to" identity that appears on the invoices we issued — the billing company name, billing address and tax identifier you supplied. Invoice law requires the recipient's identity on the document, so these are retained rather than anonymized.
 
 ---
 
@@ -149,7 +154,12 @@ Depending on your location, you may have the right to:
 - Withdraw consent for specific processing activities
 - Object to or restrict certain processing activities
 
-You can exercise these rights by emailing **[contact@llmgateway.io](mailto:contact@llmgateway.io)**. We will respond within the timeframe required by applicable law and may need to verify your identity first. You will not be discriminated against for exercising your rights.
+Two of these are self-serve and take effect immediately, without waiting on us:
+
+- **Download your data.** Go to **Settings → Account → Download Your Data** for a machine-readable JSON copy of your profile, organization memberships, API key details, chats, playground history and preferences. For your own safety the file never contains credentials, and it lists everything that was withheld and why.
+- **Delete your account.** Go to **Settings → Account → Delete Account**. See [Data Retention](#7-data-retention) for exactly what is deleted and what we are legally required to keep.
+
+For anything else, email **[contact@llmgateway.io](mailto:contact@llmgateway.io)**. We will respond within the timeframe required by applicable law and may need to verify your identity first. You will not be discriminated against for exercising your rights.
 
 ### EU/UK (GDPR)
 
@@ -181,7 +191,13 @@ If you do not want your requests routed through stealth or undisclosed providers
 
 ## 11. International Transfers
 
-Data may be processed and stored on servers located in the **European Union or the United States**, and may be transferred to AI providers and sub-processors in other countries. Where we transfer personal data internationally, we use appropriate safeguards required by applicable law, such as the **Standard Contractual Clauses (SCCs)** or equivalent mechanisms, to protect your data.
+Data may be processed and stored on servers located in the **European Union or the United States**, and may be transferred to AI providers and sub-processors in other countries.
+
+**The safeguard depends on the recipient.** For the sub-processors we engage to run the Service (hosting, payments, email, analytics), the applicable agreements incorporate the **Standard Contractual Clauses (SCCs)** or an equivalent Article 46 mechanism, alongside technical measures including encryption in transit.
+
+For the **AI providers you route to, this is provider-specific and in several cases unresolved.** Several are headquartered in countries with no EU adequacy decision, and we do not have SCCs executed with them. We are not representing that an Article 46 safeguard is in place for every provider you can select, because it is not. Each provider's headquarters and GDPR posture is shown on our [Provider Information page](https://llmgateway.io/legal/providers), and the current position is described on our [Sub-processor page](https://llmgateway.io/legal/sub-processors).
+
+You can restrict where your requests are allowed to go under **Compliance** in your organization dashboard: require GDPR-compliant providers, block providers that train on or log prompts, block undisclosed providers, and limit routing to chosen provider headquarters. Requests that no compliant provider can serve are rejected rather than routed elsewhere. **These controls are available on every plan**, and they are off until you enable them. **If you submit personal data of EU/UK data subjects, send it only to providers whose documented safeguard you have reviewed and accepted — set a compliance policy so that is enforced rather than left to convention.**
 
 ---
 

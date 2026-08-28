@@ -204,6 +204,16 @@ const nextConfig: NextConfig = {
 				permanent: true,
 			},
 			{
+				source: "/sub-processors",
+				destination: "/legal/sub-processors",
+				permanent: true,
+			},
+			{
+				source: "/subprocessors",
+				destination: "/legal/sub-processors",
+				permanent: true,
+			},
+			{
 				source: "/models/grok-4.3",
 				destination: "/models/grok-4-3",
 				permanent: true,

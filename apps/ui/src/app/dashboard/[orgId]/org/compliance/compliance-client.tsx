@@ -10,6 +10,7 @@ import { useCustomProviderSelection } from "@/hooks/useCustomProviders";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useTeamMembers } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
+import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
@@ -32,12 +33,14 @@ import { cn } from "@/lib/utils";
 
 import {
 	customProviderRef,
+	DATA_PROTECTION_POLICY_KEYS,
 	getAttestationComplianceFailures,
 	getProviderComplianceFailures,
 	getProviderCountries,
 	getProviderRefPolicyListFailures,
 	getProviderRequirementFailures,
 	models,
+	projectPolicyToDataProtection,
 	providers,
 	type ProviderCompliancePolicy,
 	type ProviderDefinition,
@@ -51,7 +54,7 @@ import {
 	type SelectableProviderOption,
 } from "@llmgateway/shared/components";
 
-import { ContactSalesCard } from "./contact-sales-card";
+import { ContactSalesLink } from "./contact-sales-card";
 
 import type { ReactElement } from "react";
 
@@ -212,6 +215,10 @@ const REQUIREMENTS: {
 	},
 ];
 
+function isDataProtectionRequirement(key: RequirementKey): boolean {
+	return (DATA_PROTECTION_POLICY_KEYS as readonly string[]).includes(key);
+}
+
 const DEFAULT_POLICY: ProviderCompliancePolicy = { enabled: false };
 
 const PROVIDER_COUNTRIES = getProviderCountries();
@@ -267,6 +274,19 @@ export function ComplianceClient() {
 		selectedOrganization?.providerCompliancePolicy,
 	]);
 
+	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
+	const canManage = currentUserRole === "owner" || currentUserRole === "admin";
+
+	// What the gateway will actually enforce for this org. On a non-enterprise
+	// plan it narrows the policy to the data-protection controls, so everything
+	// that previews or persists the policy has to project the same way —
+	// otherwise the impact preview below promises filtering (by SOC 2, by a
+	// blocked-provider list) that will never happen at request time.
+	const effectivePolicy = useMemo(
+		() => (isEnterprise ? policy : projectPolicyToDataProtection(policy)),
+		[isEnterprise, policy],
+	);
+
 	const { allowed, blocked } = useMemo(() => {
 		const allowedList: ProviderDefinition[] = [];
 		const blockedList: { provider: ProviderDefinition; reasons: string[] }[] =
@@ -275,7 +295,7 @@ export function ComplianceClient() {
 			if (HIDDEN_PROVIDER_IDS.has(provider.id)) {
 				continue;
 			}
-			const failures = getProviderComplianceFailures(provider, policy);
+			const failures = getProviderComplianceFailures(provider, effectivePolicy);
 			if (failures.length === 0) {
 				allowedList.push(provider);
 			} else {
@@ -288,7 +308,7 @@ export function ComplianceClient() {
 			}
 		}
 		return { allowed: allowedList, blocked: blockedList };
-	}, [policy]);
+	}, [effectivePolicy]);
 	const totalProviders = allowed.length + blocked.length;
 
 	// The org's own custom providers, evaluated against their self-attested
@@ -308,7 +328,10 @@ export function ComplianceClient() {
 					customProviderRef(key.name ?? key.id),
 					policy,
 				),
-				...getAttestationComplianceFailures(key.complianceAttestation, policy),
+				...getAttestationComplianceFailures(
+					key.complianceAttestation,
+					effectivePolicy,
+				),
 			];
 			return {
 				id: key.id,
@@ -320,7 +343,7 @@ export function ComplianceClient() {
 				),
 			};
 		});
-	}, [providerKeysData, selectedOrganization?.id, policy]);
+	}, [providerKeysData, selectedOrganization?.id, effectivePolicy]);
 	const compliantCustomCount = customProviders.filter(
 		(provider) => provider.compliant,
 	).length;
@@ -334,7 +357,10 @@ export function ComplianceClient() {
 		useCustomProviderSelection();
 	const selectableProviders = useMemo<SelectableProviderOption[]>(() => {
 		const catalogueOptions = SELECTABLE_PROVIDERS.map((provider) => {
-			const failures = getProviderRequirementFailures(provider, policy);
+			const failures = getProviderRequirementFailures(
+				provider,
+				effectivePolicy,
+			);
 			return {
 				id: provider.id,
 				name: provider.name,
@@ -353,7 +379,10 @@ export function ComplianceClient() {
 		);
 		const customOptions = customProviderOptions.map((option) => {
 			const attestation = attestationByKeyId.get(option.providerKeyId);
-			const failures = getAttestationComplianceFailures(attestation, policy);
+			const failures = getAttestationComplianceFailures(
+				attestation,
+				effectivePolicy,
+			);
 			return {
 				...option,
 				meetsPolicy: failures.length === 0,
@@ -363,7 +392,7 @@ export function ComplianceClient() {
 			};
 		});
 		return [...catalogueOptions, ...customOptions];
-	}, [customProviderOptions, providerKeysData, policy]);
+	}, [customProviderOptions, providerKeysData, effectivePolicy]);
 	const selectableModels = useMemo(
 		() => [...models, ...customModelOptions],
 		[customModelOptions],
@@ -375,10 +404,6 @@ export function ComplianceClient() {
 			[key]: values.length > 0 ? values : undefined,
 		}));
 	};
-
-	const canManage =
-		selectedOrganization?.enterpriseAccess === true &&
-		(currentUserRole === "owner" || currentUserRole === "admin");
 
 	const toggleCountry = (code: string) => {
 		setPolicy((p) => {
@@ -392,10 +417,20 @@ export function ComplianceClient() {
 
 	const handleSave = async () => {
 		try {
+			// An org that downgraded from enterprise can still hold stored
+			// certification requirements and restriction lists. The switches for
+			// those are locked above, but they are still in `policy`, and the API
+			// rejects them on a non-enterprise plan — so drop them here rather than
+			// surfacing a 403 the user cannot act on.
+			const body = effectivePolicy;
+
 			await updateOrganization.mutateAsync({
 				params: { path: { id: organizationId } },
-				body: { providerCompliancePolicy: policy },
+				body: { providerCompliancePolicy: body },
 			});
+			// Adopt what was actually persisted, so the form and the impact
+			// preview stop showing enterprise-only fields the server discarded.
+			setPolicy(body);
 			toast({
 				title: "Settings saved",
 				description: "Your provider compliance policy has been updated.",
@@ -408,10 +443,6 @@ export function ComplianceClient() {
 			});
 		}
 	};
-
-	if (selectedOrganization?.enterpriseAccess !== true) {
-		return <ContactSalesCard />;
-	}
 
 	if (isLoadingTeam) {
 		return (
@@ -447,6 +478,24 @@ export function ComplianceClient() {
 						Compliance
 					</h2>
 				</div>
+
+				{!isEnterprise && (
+					<Card className="border-primary/30 bg-primary/5">
+						<CardHeader>
+							<CardTitle className="text-base">
+								Data-protection controls are available on your plan
+							</CardTitle>
+							<CardDescription>
+								You can restrict routing by GDPR compliance, prompt training,
+								prompt logging, stealth providers and provider headquarters on
+								every plan — these decide where your data is allowed to go, and
+								you are the controller for it. Certification requirements
+								(SOC&nbsp;2, ISO&nbsp;27001) and the per-provider and per-model
+								allow/block lists are part of Enterprise. <ContactSalesLink />
+							</CardDescription>
+						</CardHeader>
+					</Card>
+				)}
 
 				<Card>
 					<CardHeader>
@@ -486,28 +535,47 @@ export function ComplianceClient() {
 								: "space-y-4 opacity-60 pointer-events-none select-none"
 						}
 					>
-						{REQUIREMENTS.map((requirement) => (
-							<div
-								key={requirement.key}
-								className="flex items-center justify-between p-4 border rounded-lg"
-							>
-								<div className="flex items-center gap-4">
-									<Switch
-										checked={policy[requirement.key] ?? false}
-										disabled={!policy.enabled}
-										onCheckedChange={(value) =>
-											setPolicy((p) => ({ ...p, [requirement.key]: value }))
-										}
-									/>
-									<div>
-										<div className="font-medium">{requirement.name}</div>
-										<div className="text-sm text-muted-foreground">
-											{requirement.description}
+						{REQUIREMENTS.map((requirement) => {
+							// Certification requirements are enterprise governance tooling.
+							// The data-protection controls are not gated — they are how a
+							// customer constrains where their personal data is transferred,
+							// and they are the controller for it.
+							const enterpriseOnly = !isDataProtectionRequirement(
+								requirement.key,
+							);
+							const locked = enterpriseOnly && !isEnterprise;
+							return (
+								<div
+									key={requirement.key}
+									className="flex items-center justify-between p-4 border rounded-lg"
+								>
+									<div className="flex items-center gap-4">
+										<Switch
+											checked={
+												locked ? false : (policy[requirement.key] ?? false)
+											}
+											disabled={!policy.enabled || locked}
+											onCheckedChange={(value) =>
+												setPolicy((p) => ({ ...p, [requirement.key]: value }))
+											}
+										/>
+										<div>
+											<div className="font-medium flex items-center gap-2">
+												{requirement.name}
+												{locked && (
+													<Badge variant="secondary" className="text-xs">
+														Enterprise
+													</Badge>
+												)}
+											</div>
+											<div className="text-sm text-muted-foreground">
+												{requirement.description}
+											</div>
 										</div>
 									</div>
 								</div>
-							</div>
-						))}
+							);
+						})}
 					</CardContent>
 				</Card>
 
@@ -560,7 +628,14 @@ export function ComplianceClient() {
 
 				<Card>
 					<CardHeader>
-						<CardTitle>Provider &amp; Model Restrictions</CardTitle>
+						<CardTitle className="flex items-center gap-2">
+							Provider &amp; Model Restrictions
+							{!isEnterprise && (
+								<Badge variant="secondary" className="text-xs">
+									Enterprise
+								</Badge>
+							)}
+						</CardTitle>
 						<CardDescription>
 							Block or allow individual providers and models — including your
 							own custom providers. These organization-wide lists are enforced
@@ -573,7 +648,7 @@ export function ComplianceClient() {
 					</CardHeader>
 					<CardContent
 						className={
-							policy.enabled
+							policy.enabled && isEnterprise
 								? undefined
 								: "opacity-60 pointer-events-none select-none"
 						}

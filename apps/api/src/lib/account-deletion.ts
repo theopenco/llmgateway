@@ -3,7 +3,7 @@ import Stripe from "stripe";
 
 import { getStripe } from "@/routes/payments.js";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { db, eq, inArray, or, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 /**
@@ -12,6 +12,23 @@ import { logger } from "@llmgateway/logger";
  * dialog.
  */
 export const CREDIT_FORFEIT_WARNING_THRESHOLD = new Decimal("1");
+
+/**
+ * Placeholders written over the personal identifiers on an organization that is
+ * closed as part of an account deletion.
+ *
+ * The organization row itself survives the deletion — it is marked
+ * `status: "deleted"` rather than removed, because the `transaction` rows that
+ * make up the accounting record reference it and have to be kept for 10 years
+ * (HGB §257 / AO §147, GDPR Art. 17(3)(b)). Only the fields that the accounting
+ * record does not need are overwritten: the display name (user-settable, often
+ * the person's real name), the billing contact email (the account email), and
+ * the logo (frequently a profile photo). `billingCompany` / `billingAddress` /
+ * `billingTaxId` are deliberately kept — they are the statutory "bill to"
+ * identity on the invoices we already issued.
+ */
+export const DELETED_ORGANIZATION_NAME = "Deleted Organization";
+export const DELETED_ORGANIZATION_BILLING_EMAIL = "deleted@deleted.invalid";
 
 /**
  * Every Stripe subscription an organization can hold: the dashboard
@@ -89,6 +106,103 @@ export async function cancelOrganizationSubscriptions(
 }
 
 /**
+ * Returns true when a Stripe error means the object we wanted gone is already
+ * gone. Deleting something that does not exist is the outcome we were after, so
+ * these are success, not failure.
+ */
+function isStripeResourceMissing(error: unknown): boolean {
+	return (
+		error instanceof Stripe.errors.StripeInvalidRequestError &&
+		(error.code === "resource_missing" || error.statusCode === 404)
+	);
+}
+
+/**
+ * Deletes the Stripe customer backing an organization, as part of erasing the
+ * account that owned it.
+ *
+ * Stripe holds a copy of the name, email and billing address on the customer
+ * object, so an erasure that only clears our own database leaves that copy
+ * behind at a sub-processor. Deleting the customer is Stripe's documented
+ * erasure path: the customer object is marked deleted and its saved payment
+ * methods are detached, while the charges and invoices stay attached to it so
+ * Stripe can keep meeting its own accounting obligations.
+ *
+ * Returns true when the customer was deleted (or was already gone). Every other
+ * Stripe error is re-thrown so the caller aborts the deletion with the account
+ * still intact and retryable, rather than erasing locally while Stripe keeps
+ * the personal data.
+ */
+export async function deleteOrganizationStripeCustomer(
+	stripeCustomerId: string | null,
+): Promise<boolean> {
+	if (!stripeCustomerId) {
+		return false;
+	}
+
+	try {
+		await getStripe().customers.del(stripeCustomerId);
+		return true;
+	} catch (error) {
+		if (isStripeResourceMissing(error)) {
+			logger.info(
+				`Stripe customer ${stripeCustomerId} already deleted, skipping: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			);
+			return true;
+		}
+		throw error;
+	}
+}
+
+/**
+ * Strips the deleted user's email out of the billing tables that outlive the
+ * account.
+ *
+ * `payment_failure` cascades from `organization`, not from `user`, and the
+ * organization row is kept for the 10-year accounting period — so without this
+ * the raw account email survives erasure indefinitely. The email is a
+ * notification address, not part of the accounting record (the amount, decline
+ * code and Stripe payment-intent id are), so it is nulled rather than retained.
+ *
+ * Scoped by email rather than by organization on purpose: a user can trigger a
+ * payment in a shared organization that keeps existing because other members
+ * remain, and their address has to come out of that row too.
+ */
+export async function anonymizeBillingRecordsForEmail(
+	email: string,
+	closedOrganizationIds: string[] = [],
+): Promise<number> {
+	// `payment_failure` records the email as it was at the time of the failure
+	// and has no user foreign key, so matching on the current address alone
+	// misses rows written before an email change. Sweeping the organizations
+	// being closed alongside it catches those: they are personal or
+	// last-member-only orgs, so every address on them belongs to this user.
+	// A shared organization that survives is still matched by email — the only
+	// residue is a stale address on a *shared* org from before an email change,
+	// which needs a stable user reference on the table to fix properly
+	// (tracked in legal/DATA_RETENTION_POLICY.md).
+	const anonymized = await db
+		.update(tables.paymentFailure)
+		.set({ userEmail: null })
+		.where(
+			closedOrganizationIds.length > 0
+				? or(
+						eq(tables.paymentFailure.userEmail, email),
+						inArray(
+							tables.paymentFailure.organizationId,
+							closedOrganizationIds,
+						),
+					)
+				: eq(tables.paymentFailure.userEmail, email),
+		)
+		.returning({ id: tables.paymentFailure.id });
+
+	return anonymized.length;
+}
+
+/**
  * Clears every subscription-backed entitlement after all Stripe subscriptions
  * have been cancelled. Historical transactions remain intact for accounting.
  */
@@ -124,6 +238,8 @@ export interface SoleMemberOrganization {
 	hasForfeitableCredits: boolean;
 	subscriptions: OrganizationSubscriptionRefs;
 	subscriptionIds: string[];
+	/** Stripe customer holding the org's name, email and billing address. */
+	stripeCustomerId: string | null;
 }
 
 /**
@@ -197,6 +313,7 @@ export async function findSoleMemberOrganizations(
 				),
 				subscriptions,
 				subscriptionIds: getOrganizationSubscriptionIds(subscriptions),
+				stripeCustomerId: org.stripeCustomerId,
 			};
 		});
 }
@@ -204,11 +321,18 @@ export async function findSoleMemberOrganizations(
 /**
  * Tears down the organizations a user is the last member of, as part of
  * deleting their account: cancels every Stripe subscription those orgs hold,
- * then marks them deleted with all plan state cleared.
+ * deletes their Stripe customer, then marks them deleted with all plan state
+ * cleared and the personal identifiers overwritten.
  *
  * Stripe is called before any local write so a Stripe failure aborts the whole
  * account deletion — leaving the account intact and retryable is strictly
- * better than deleting it while a subscription keeps charging the card.
+ * better than deleting it while a subscription keeps charging the card, or
+ * while personal data stays behind at Stripe.
+ *
+ * Subscriptions are cancelled before the customer is deleted. Deleting a
+ * customer cancels its subscriptions too, but it does so without our
+ * `prorate: false` / `invoice_now: false` terms, so an explicit cancel first
+ * keeps the "no final proration invoice" guarantee.
  *
  * The subscription id columns are nulled once cancelled, which also makes the
  * trailing `customer.subscription.deleted` webhook a no-op (every handler gates
@@ -224,6 +348,11 @@ export async function tearDownSoleMemberOrganizations(
 
 	const now = new Date();
 
+	// Phase 1: every Stripe call, for every organization, before a single local
+	// write. Interleaving them per-organization would mean a Stripe failure on
+	// the second org left the first already anonymized and marked deleted while
+	// the account survived — a partial state no retry can clean up, since the
+	// anonymized org no longer carries the identifiers the retry would need.
 	for (const org of organizations) {
 		const cancelled = await cancelOrganizationSubscriptions(org.subscriptions);
 
@@ -233,10 +362,28 @@ export async function tearDownSoleMemberOrganizations(
 			);
 		}
 
+		const customerDeleted = await deleteOrganizationStripeCustomer(
+			org.stripeCustomerId,
+		);
+
+		if (customerDeleted) {
+			logger.info(
+				`Deleted Stripe customer ${org.stripeCustomerId} for organization ${org.id} on account deletion of user ${userId}`,
+			);
+		}
+	}
+
+	// Phase 2: local writes only. Nothing here calls out, so once the first
+	// update lands the rest follow.
+	for (const org of organizations) {
 		await db
 			.update(tables.organization)
 			.set({
 				status: "deleted",
+				name: DELETED_ORGANIZATION_NAME,
+				billingEmail: DELETED_ORGANIZATION_BILLING_EMAIL,
+				logo: null,
+				stripeCustomerId: null,
 				...getCancelledOrganizationPlanState(now),
 			})
 			.where(eq(tables.organization.id, org.id));

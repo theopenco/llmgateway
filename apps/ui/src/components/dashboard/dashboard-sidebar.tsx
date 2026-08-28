@@ -229,10 +229,14 @@ const ORGANIZATION_NAVIGATION: readonly {
 		enterpriseGated: true,
 	},
 	{
+		// Not enterprise-gated: the data-protection controls on this page (GDPR,
+		// prompt training, prompt logging, stealth providers, headquarters) are
+		// available on every plan. Only the certification requirements and the
+		// allow/block lists inside it are Enterprise, and the page badges those
+		// individually.
 		href: "org/compliance",
 		label: "Compliance",
 		icon: AnimatedBadgeCheck,
-		enterpriseGated: true,
 	},
 	{
 		href: "org/security-events",

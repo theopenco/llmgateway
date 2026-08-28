@@ -1,15 +1,15 @@
 ---
 id: "3"
 slug: "sub-processors"
-date: "2026-08-19"
+date: "2026-08-27"
 title: "Sub-processors"
 description: "The complete, versioned list of sub-processors LLM Gateway uses to provide the Service, what each one processes, where it is located, and how we notify customers before the list changes."
 ---
 
 # Sub-processor List
 
-**Version:** 2026-08-19  
-**Last Updated:** August 19, 2026
+**Version:** 2026-08-27  
+**Last Updated:** August 27, 2026
 
 This page is the authoritative list of the sub-processors LLM Gateway engages to provide the Service. It is referenced by our [Privacy Policy](/legal/privacy) and by the Data Processing Addendum (DPA) we enter into with Enterprise customers.
 
@@ -47,7 +47,9 @@ Because the provider catalogue changes continuously as models are added, depreca
 **You choose which of these sub-processors process your data.** No AI provider receives your request unless you select a model it serves, or enable automatic routing. Two controls let you constrain this:
 
 - **Provider pinning** — address a model as `provider/model` to send it to exactly one provider, and send the `x-no-fallback: true` header to prevent failover to any other.
-- **Compliance policies** — Enterprise customers can restrict routing by the provider's published compliance and data-handling posture. Requests that cannot be served by a compliant provider are rejected rather than silently routed elsewhere. Configure this under **Compliance** in your organization dashboard.
+- **Compliance policies** — restrict routing by whether the provider is GDPR compliant, whether it trains on or logs prompts, whether its identity is undisclosed, and where it is headquartered. Requests that cannot be served by a compliant provider are rejected rather than silently routed elsewhere. Configure this under **Compliance** in your organization dashboard.
+
+  **These controls are available on every plan**, including the free one. They decide where your data may be sent, and you are the controller for it, so they are not a paid feature. Requiring specific certifications (SOC 2, ISO 27001) and maintaining per-provider or per-model allow and block lists are part of Enterprise.
 
 ### Undisclosed ("stealth") providers
 
