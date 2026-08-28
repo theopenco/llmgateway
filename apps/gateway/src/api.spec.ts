@@ -1626,7 +1626,7 @@ describe("api", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-devpass-no-training",
-			token: "real-token-devpass-no-training",
+			...hashApiKeyForStorage("real-token-devpass-no-training"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1681,7 +1681,7 @@ describe("api", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-devpass-no-training-route",
-			token: "real-token-devpass-no-training-route",
+			...hashApiKeyForStorage("real-token-devpass-no-training-route"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
