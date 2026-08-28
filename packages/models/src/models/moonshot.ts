@@ -517,6 +517,7 @@ export const moonshotModels = [
 			{
 				providerId: "tundra",
 				externalId: "kimi-k2.6",
+				deactivatedAt: new Date("2026-08-28"),
 				// Tundra rejects tool_choice="required" with a 400; named/forced
 				// function choice works, so allow everything except "required".
 				supportedToolChoices: ["auto", "none", "function"],
@@ -779,6 +780,7 @@ export const moonshotModels = [
 			{
 				providerId: "permafrost",
 				externalId: "kimi-k3",
+				deactivatedAt: new Date("2026-08-28"),
 				inputPrice: "3.0e-6",
 				cachedInputPrice: "0.6e-6",
 				outputPrice: "15.0e-6",

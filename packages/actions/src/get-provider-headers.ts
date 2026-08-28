@@ -99,11 +99,6 @@ export function getProviderHeaders(
 				...requestIdHeader,
 				Authorization: `Bearer ${token}`,
 			};
-		case "avalanche":
-			return {
-				...requestIdHeader,
-				Authorization: `Bearer ${token}`,
-			};
 		case "aws-bedrock":
 		case "aws-mantle":
 			return {

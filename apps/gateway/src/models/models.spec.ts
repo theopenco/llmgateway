@@ -645,9 +645,6 @@ describe("Models API", () => {
 			expect(videoModel.per_request_limits).toEqual({
 				max_video_duration_seconds: "10",
 			});
-			const avalancheProvider = videoModel.providers.find(
-				(provider: any) => provider.providerId === "avalanche",
-			);
 			const googleVertexProvider = videoModel.providers.find(
 				(provider: any) => provider.providerId === "google-vertex",
 			);
@@ -662,15 +659,6 @@ describe("Models API", () => {
 			]);
 			expect(googleVertexProvider?.supportsVideoAudio).toBe(true);
 			expect(googleVertexProvider?.supportsVideoWithoutAudio).toBe(true);
-			expect(avalancheProvider?.pricing.per_second).toBeDefined();
-			expect(avalancheProvider?.supportedVideoSizes).toEqual([
-				"1920x1080",
-				"1080x1920",
-				"3840x2160",
-				"2160x3840",
-			]);
-			expect(avalancheProvider?.supportsVideoAudio).toBe(true);
-			expect(avalancheProvider?.supportsVideoWithoutAudio).toBe(false);
 		}
 	});
 

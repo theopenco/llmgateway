@@ -1420,6 +1420,7 @@ export const googleModels = [
 			{
 				providerId: "avalanche",
 				externalId: "veo3",
+				deactivatedAt: new Date("2026-08-28"),
 				inputPrice: undefined,
 				outputPrice: undefined,
 				requestPrice: undefined,
@@ -1493,6 +1494,7 @@ export const googleModels = [
 			{
 				providerId: "avalanche",
 				externalId: "veo3_fast",
+				deactivatedAt: new Date("2026-08-28"),
 				inputPrice: undefined,
 				outputPrice: undefined,
 				requestPrice: undefined,
