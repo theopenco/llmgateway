@@ -27,6 +27,11 @@ import {
 	isDevPlanCardDedupeEnforced,
 } from "@/stripe.js";
 import { findDefaultOrganization } from "@/utils/default-org.js";
+import {
+	findDevPlanCardFingerprintOwner,
+	rememberDevPlanCardFingerprint,
+	rememberDevPlanCardFingerprints,
+} from "@/utils/dev-plan-card-fingerprints.js";
 import { getDevPlanPriceId } from "@/utils/dev-plan-prices.js";
 import { LEGACY_DEV_PLAN_TX_TYPES } from "@/utils/devpass-filter.js";
 import {
@@ -55,6 +60,7 @@ import {
 	lt,
 	gte,
 	isNull,
+	inArray,
 	shortid,
 	sql,
 } from "@llmgateway/db";
@@ -2902,7 +2908,92 @@ devPlans.openapi(rotateApiKey, async (c) => {
 	});
 });
 
-// Get the card currently backing the DevPass subscription
+const removableDevPlanSubscriptionStatuses =
+	new Set<Stripe.Subscription.Status>([
+		"canceled",
+		"incomplete",
+		"incomplete_expired",
+		"paused",
+		"unpaid",
+	]);
+
+function canRemoveDevPlanPaymentMethod(
+	subscription: Stripe.Subscription | null,
+): boolean {
+	return (
+		!subscription ||
+		subscription.cancel_at_period_end ||
+		removableDevPlanSubscriptionStatuses.has(subscription.status)
+	);
+}
+
+async function listDevPlanCards(
+	stripe: Stripe,
+	stripeCustomerId: string,
+): Promise<Stripe.PaymentMethod[]> {
+	const paymentMethods: Stripe.PaymentMethod[] = [];
+	let startingAfter: string | undefined;
+
+	while (true) {
+		const page = await stripe.paymentMethods.list({
+			customer: stripeCustomerId,
+			type: "card",
+			limit: 100,
+			...(startingAfter ? { starting_after: startingAfter } : {}),
+		});
+		paymentMethods.push(...page.data);
+
+		if (!page.has_more || page.data.length === 0) {
+			return paymentMethods;
+		}
+		startingAfter = page.data[page.data.length - 1]?.id;
+	}
+}
+
+async function getDevPlanCardState(personalOrg: {
+	stripeCustomerId: string | null;
+	devPlanStripeSubscriptionId: string | null;
+}) {
+	const stripe = getStripe();
+	const subscription = personalOrg.devPlanStripeSubscriptionId
+		? await stripe.subscriptions.retrieve(
+				personalOrg.devPlanStripeSubscriptionId,
+				{ expand: ["default_payment_method"] },
+			)
+		: null;
+	const stripeCustomerId =
+		personalOrg.stripeCustomerId ?? getStripeId(subscription?.customer);
+	const paymentMethods = new Map<string, Stripe.PaymentMethod>();
+	const subscriptionPaymentMethod = subscription?.default_payment_method;
+
+	if (typeof subscriptionPaymentMethod === "string") {
+		const paymentMethod = await stripe.paymentMethods.retrieve(
+			subscriptionPaymentMethod,
+		);
+		paymentMethods.set(paymentMethod.id, paymentMethod);
+	} else if (subscriptionPaymentMethod) {
+		paymentMethods.set(subscriptionPaymentMethod.id, subscriptionPaymentMethod);
+	}
+
+	if (stripeCustomerId) {
+		for (const paymentMethod of await listDevPlanCards(
+			stripe,
+			stripeCustomerId,
+		)) {
+			paymentMethods.set(paymentMethod.id, paymentMethod);
+		}
+	}
+
+	return {
+		stripe,
+		subscription,
+		stripeCustomerId,
+		paymentMethods: [...paymentMethods.values()],
+	};
+}
+
+// Get the card currently backing the DevPass subscription or retained on its
+// Stripe customer after an inactive setup.
 const getPaymentMethod = createRoute({
 	method: "get",
 	path: "/payment-method",
@@ -2920,6 +3011,7 @@ const getPaymentMethod = createRoute({
 								expiryYear: z.number(),
 							})
 							.nullable(),
+						canRemove: z.boolean(),
 					}),
 				},
 			},
@@ -2939,27 +3031,21 @@ devPlans.openapi(getPaymentMethod, async (c) => {
 
 	const personalOrg = await findPersonalOrg(user.id);
 
-	if (!personalOrg?.devPlanStripeSubscriptionId) {
-		return c.json({ card: null });
+	if (!personalOrg) {
+		return c.json({ card: null, canRemove: false });
 	}
 
-	const subscription = await getStripe().subscriptions.retrieve(
-		personalOrg.devPlanStripeSubscriptionId,
-		{ expand: ["default_payment_method"] },
+	const state = await getDevPlanCardState(personalOrg);
+	const defaultPaymentMethodId = getStripeId(
+		state.subscription?.default_payment_method,
 	);
-
-	const defaultPaymentMethod = subscription.default_payment_method;
-	if (!defaultPaymentMethod) {
-		return c.json({ card: null });
-	}
-
 	const paymentMethod =
-		typeof defaultPaymentMethod === "string"
-			? await getStripe().paymentMethods.retrieve(defaultPaymentMethod)
-			: defaultPaymentMethod;
+		state.paymentMethods.find(
+			(candidate) => candidate.id === defaultPaymentMethodId,
+		) ?? state.paymentMethods[0];
 
-	if (paymentMethod.type !== "card" || !paymentMethod.card) {
-		return c.json({ card: null });
+	if (!paymentMethod?.card) {
+		return c.json({ card: null, canRemove: false });
 	}
 
 	return c.json({
@@ -2969,7 +3055,111 @@ devPlans.openapi(getPaymentMethod, async (c) => {
 			expiryMonth: paymentMethod.card.exp_month,
 			expiryYear: paymentMethod.card.exp_year,
 		},
+		canRemove: canRemoveDevPlanPaymentMethod(state.subscription),
 	});
+});
+
+const removePaymentMethod = createRoute({
+	method: "delete",
+	path: "/payment-method",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }),
+				},
+			},
+			description: "DevPass payment method removed successfully",
+		},
+		409: {
+			description: "The active subscription must be cancelled first",
+		},
+	},
+});
+
+devPlans.openapi(removePaymentMethod, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const personalOrg = await findPersonalOrg(user.id);
+	if (!personalOrg) {
+		throw new HTTPException(404, {
+			message: "Personal organization not found",
+		});
+	}
+
+	const state = await getDevPlanCardState(personalOrg);
+	if (!canRemoveDevPlanPaymentMethod(state.subscription)) {
+		throw new HTTPException(409, {
+			message: "Cancel your subscription before removing its payment method.",
+		});
+	}
+
+	await rememberDevPlanCardFingerprints(personalOrg.id, [
+		personalOrg.devPlanCardFingerprint,
+		...state.paymentMethods.map(
+			(paymentMethod) => paymentMethod.card?.fingerprint,
+		),
+	]);
+
+	if (state.subscription) {
+		await state.stripe.subscriptions.update(state.subscription.id, {
+			default_payment_method: "",
+		});
+	}
+	if (state.stripeCustomerId) {
+		await state.stripe.customers.update(state.stripeCustomerId, {
+			invoice_settings: { default_payment_method: "" },
+		});
+	}
+	for (const paymentMethod of state.paymentMethods) {
+		if (
+			!state.stripeCustomerId ||
+			getStripeId(paymentMethod.customer) === state.stripeCustomerId
+		) {
+			await state.stripe.paymentMethods.detach(paymentMethod.id);
+		}
+	}
+
+	const removedPaymentMethodIds = state.paymentMethods.map(
+		(paymentMethod) => paymentMethod.id,
+	);
+	await db.transaction(async (tx) => {
+		await tx
+			.update(tables.organization)
+			.set({ autoTopUpEnabled: false })
+			.where(eq(tables.organization.id, personalOrg.id));
+		if (removedPaymentMethodIds.length > 0) {
+			await tx
+				.delete(tables.paymentMethod)
+				.where(
+					and(
+						eq(tables.paymentMethod.organizationId, personalOrg.id),
+						inArray(
+							tables.paymentMethod.stripePaymentMethodId,
+							removedPaymentMethodIds,
+						),
+					),
+				);
+		}
+	});
+
+	await logAuditEvent({
+		organizationId: personalOrg.id,
+		userId: user.id,
+		action: "dev_plan.remove_payment_method",
+		resourceType: "dev_plan",
+		resourceId: personalOrg.devPlanStripeSubscriptionId ?? undefined,
+		metadata: {
+			removedPaymentMethodCount: state.paymentMethods.length,
+			autoTopUpDisabled: personalOrg.autoTopUpEnabled,
+		},
+	});
+
+	return c.json({ success: true });
 });
 
 // Create a SetupIntent to collect a new card for the DevPass subscription. The
@@ -3144,12 +3334,10 @@ devPlans.openapi(updatePaymentMethod, async (c) => {
 	// different org and detach it so it isn't silently left on this customer.
 	// Skipped in local development so the same Stripe test card can be reused.
 	if (isDevPlanCardDedupeEnforced()) {
-		const conflictingOrg = await db.query.organization.findFirst({
-			where: {
-				devPlanCardFingerprint: { eq: fingerprint },
-				id: { ne: personalOrg.id },
-			},
-		});
+		const conflictingOrg = await findDevPlanCardFingerprintOwner(
+			fingerprint,
+			personalOrg.id,
+		);
 		if (conflictingOrg) {
 			try {
 				await getStripe().paymentMethods.detach(paymentMethodId);
@@ -3198,6 +3386,7 @@ devPlans.openapi(updatePaymentMethod, async (c) => {
 		.update(tables.organization)
 		.set({ devPlanCardFingerprint: fingerprint })
 		.where(eq(tables.organization.id, personalOrg.id));
+	await rememberDevPlanCardFingerprint(personalOrg.id, fingerprint);
 
 	await logAuditEvent({
 		organizationId: personalOrg.id,

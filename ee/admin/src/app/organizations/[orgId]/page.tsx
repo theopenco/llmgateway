@@ -40,6 +40,7 @@ import {
 	deleteOrganizationPaymentMethod,
 	giftCreditsToOrganization,
 	manageOrganization,
+	releaseDevPlanCardFingerprint,
 	updateEnterpriseDeal,
 	updateReferralBonus,
 } from "@/lib/admin-organizations";
@@ -891,6 +892,9 @@ export default async function OrganizationPage({
 						<OrgSettingsTab
 							settings={settingsData}
 							paymentMethods={paymentMethodsData?.paymentMethods ?? null}
+							devPlanCardFingerprints={
+								paymentMethodsData?.devPlanCardFingerprints ?? []
+							}
 							paymentMethodsLoadError={!paymentMethodsData}
 							onDeletePaymentMethod={async (
 								paymentMethodId,
@@ -903,6 +907,13 @@ export default async function OrganizationPage({
 									paymentMethodId,
 									replacementPaymentMethodId,
 									releaseDevPlanCardFingerprint,
+								);
+							}}
+							onReleaseDevPlanCardFingerprint={async (fingerprintId) => {
+								"use server";
+								return await releaseDevPlanCardFingerprint(
+									orgId,
+									fingerprintId,
 								);
 							}}
 						/>

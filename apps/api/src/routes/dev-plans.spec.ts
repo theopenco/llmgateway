@@ -10,6 +10,14 @@ import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 import type * as PaymentsModule from "@/routes/payments.js";
 
 const stripeMock = vi.hoisted(() => ({
+	customers: {
+		update: vi.fn(),
+	},
+	paymentMethods: {
+		list: vi.fn(),
+		retrieve: vi.fn(),
+		detach: vi.fn(),
+	},
 	prices: {
 		retrieve: vi.fn(),
 	},
@@ -1484,5 +1492,175 @@ describe("dev plan billing history list", () => {
 		]);
 
 		expect((await getInvoices()).map((i) => i.id)).toEqual(["tx-topup"]);
+	});
+});
+
+describe("dev plan payment method removal", () => {
+	let token: string;
+
+	beforeEach(async () => {
+		vi.clearAllMocks();
+		token = await createTestUser();
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Personal Org",
+			billingEmail: "admin@example.com",
+			stripeCustomerId: "cus_dev_plan",
+			kind: "devpass",
+			devPlan: "lite",
+			devPlanStripeSubscriptionId: SUBSCRIPTION_ID,
+			devPlanCardFingerprint: "fp_current",
+			autoTopUpEnabled: true,
+		});
+		await db.insert(tables.userOrganization).values({
+			userId: "test-user-id",
+			organizationId: ORG_ID,
+			role: "owner",
+		});
+
+		stripeMock.customers.update.mockResolvedValue({ id: "cus_dev_plan" });
+		stripeMock.paymentMethods.detach.mockResolvedValue({ id: "pm_current" });
+		stripeMock.paymentMethods.retrieve.mockResolvedValue({
+			id: "pm_current",
+			type: "card",
+			customer: "cus_dev_plan",
+			card: {
+				brand: "visa",
+				last4: "4242",
+				exp_month: 12,
+				exp_year: 2030,
+				fingerprint: "fp_current",
+			},
+		});
+		stripeMock.paymentMethods.list.mockResolvedValue({
+			data: [
+				{
+					id: "pm_current",
+					type: "card",
+					customer: "cus_dev_plan",
+					card: {
+						brand: "visa",
+						last4: "4242",
+						exp_month: 12,
+						exp_year: 2030,
+						fingerprint: "fp_current",
+					},
+				},
+			],
+			has_more: false,
+		});
+	});
+
+	afterEach(async () => {
+		await deleteAll();
+	});
+
+	it("rejects removal while the subscription can still renew", async () => {
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "active",
+			cancel_at_period_end: false,
+			default_payment_method: "pm_current",
+		});
+
+		const response = await app.request("/dev-plans/payment-method", {
+			method: "DELETE",
+			headers: { Cookie: token },
+		});
+
+		expect(response.status).toBe(409);
+		expect(stripeMock.paymentMethods.detach).not.toHaveBeenCalled();
+		expect(
+			await db.query.devPlanCardFingerprintHistory.findMany(),
+		).toHaveLength(0);
+	});
+
+	it("detaches cards after cancellation and retains every fingerprint", async () => {
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "active",
+			cancel_at_period_end: true,
+			default_payment_method: "pm_current",
+		});
+		stripeMock.paymentMethods.list.mockResolvedValue({
+			data: [
+				{
+					id: "pm_current",
+					type: "card",
+					customer: "cus_dev_plan",
+					card: { fingerprint: "fp_current" },
+				},
+				{
+					id: "pm_previous",
+					type: "card",
+					customer: "cus_dev_plan",
+					card: { fingerprint: "fp_previous" },
+				},
+			],
+			has_more: false,
+		});
+		await db.insert(tables.paymentMethod).values({
+			organizationId: ORG_ID,
+			stripePaymentMethodId: "pm_current",
+			type: "card",
+			isDefault: true,
+		});
+
+		const response = await app.request("/dev-plans/payment-method", {
+			method: "DELETE",
+			headers: { Cookie: token },
+		});
+
+		expect(response.status).toBe(200);
+		expect(stripeMock.paymentMethods.detach).toHaveBeenCalledTimes(2);
+		expect(stripeMock.subscriptions.update).toHaveBeenCalledWith(
+			SUBSCRIPTION_ID,
+			{ default_payment_method: "" },
+		);
+		expect(stripeMock.customers.update).toHaveBeenCalledWith("cus_dev_plan", {
+			invoice_settings: { default_payment_method: "" },
+		});
+		const fingerprints = await db.query.devPlanCardFingerprintHistory.findMany({
+			orderBy: { fingerprint: "asc" },
+		});
+		expect(fingerprints.map((entry) => entry.fingerprint)).toEqual([
+			"fp_current",
+			"fp_previous",
+		]);
+		const org = await db.query.organization.findFirst({
+			where: { id: ORG_ID },
+		});
+		expect(org).toMatchObject({
+			autoTopUpEnabled: false,
+			devPlanCardFingerprint: "fp_current",
+		});
+		expect(await db.query.paymentMethod.findMany()).toHaveLength(0);
+	});
+
+	it("allows a card from a subscription that never became active", async () => {
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "incomplete",
+			cancel_at_period_end: false,
+			default_payment_method: "pm_current",
+		});
+
+		const getResponse = await app.request("/dev-plans/payment-method", {
+			headers: { Cookie: token },
+		});
+		expect(getResponse.status).toBe(200);
+		expect(await getResponse.json()).toMatchObject({
+			canRemove: true,
+			card: { brand: "visa", last4: "4242" },
+		});
+
+		const deleteResponse = await app.request("/dev-plans/payment-method", {
+			method: "DELETE",
+			headers: { Cookie: token },
+		});
+		expect(deleteResponse.status).toBe(200);
 	});
 });
