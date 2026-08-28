@@ -460,6 +460,26 @@ export const organization = pgTable(
 	],
 );
 
+// Stable Stripe card identifiers retained after the card itself is detached.
+// This preserves the one-card-per-DevPass-account rule without storing card
+// details locally.
+export const devPlanCardFingerprintHistory = pgTable(
+	"dev_plan_card_fingerprint_history",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		fingerprint: text().notNull().unique(),
+	},
+	(table) => [
+		index("dev_plan_card_fingerprint_history_organization_id_idx").on(
+			table.organizationId,
+		),
+	],
+);
+
 // Enterprise developer teams. Team policies are evaluated dynamically so
 // membership changes take effect without copying settings onto each member.
 export const organizationTeam = pgTable(
@@ -3941,6 +3961,8 @@ export const auditLogActions = [
 	"dev_plan.update_billing_details",
 	"dev_plan.rotate_api_key",
 	"dev_plan.update_payment_method",
+	"dev_plan.remove_payment_method",
+	"dev_plan.release_card_fingerprint",
 	"dev_plan.reset_pass_purchase",
 	"dev_plan.reset_pass_redeem",
 	// Free Reset Pass granted for a quarterly model-survey response.

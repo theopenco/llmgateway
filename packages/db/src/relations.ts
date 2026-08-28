@@ -60,6 +60,7 @@ export const relations = defineRelations(schema, (r) => ({
 	},
 	organization: {
 		userOrganizations: r.many.userOrganization(),
+		devPlanCardFingerprintHistory: r.many.devPlanCardFingerprintHistory(),
 		teams: r.many.organizationTeam(),
 		ssoTeamMappings: r.many.ssoTeamMapping(),
 		projects: r.many.project(),
@@ -126,6 +127,12 @@ export const relations = defineRelations(schema, (r) => ({
 		modelSurveyResponses: r.many.modelSurveyResponse({
 			from: r.organization.id,
 			to: r.modelSurveyResponse.organizationId,
+		}),
+	},
+	devPlanCardFingerprintHistory: {
+		organization: r.one.organization({
+			from: r.devPlanCardFingerprintHistory.organizationId,
+			to: r.organization.id,
 		}),
 	},
 	referral: {
