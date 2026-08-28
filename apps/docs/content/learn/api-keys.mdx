@@ -112,6 +112,21 @@ Each key in the list shows:
 | **Limits**         | All-time and recurring limit summary                          |
 | **IAM Rules**      | Whether model/provider/pricing access controls are configured |
 
+Every configured limit renders as a gauge, so a key's headroom is visible without
+opening it. A key is flagged **approaching** once usage reaches 80% of a limit and
+**reached** once usage meets it — the all-time limit stays blocked until it is
+raised or removed, while a recurring limit clears itself on its reset date.
+
+Three filters sit above the list:
+
+- **Status** — active (default), inactive, or all
+- **Creator** — keys you created, or everyone's (hidden for developers, who only
+  ever see their own)
+- **Limits** — narrow to just the keys approaching or at a limit
+
+A filter that would leave the list empty resets itself, so you never land on a
+blank table.
+
 ## Actions
 
 The actions menu on each key offers:
