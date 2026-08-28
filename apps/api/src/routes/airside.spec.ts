@@ -479,9 +479,6 @@ describe("airside provider portal", () => {
 				outputTokens: "500",
 				totalTokens: "1500",
 				cost: 2,
-				// 1.5 platform-billed, 0.5 BYOK — only the former pays out.
-				creditsCost: 1.5,
-				apiKeysCost: 0.5,
 			},
 			{
 				projectId: "test-project-id",
@@ -508,9 +505,6 @@ describe("airside provider portal", () => {
 			errorCount: 1,
 			cost: 2,
 		});
-		// Default margin 20% → payout is 80% of the platform-billed (credits)
-		// cost only; the BYOK share carries no payout.
-		expect(body.totals.estimatedPayout).toBeCloseTo(1.2);
 		expect(body.byModel).toEqual([
 			expect.objectContaining({
 				providerId: "mistral",

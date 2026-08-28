@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
 	title: "Terms of Use — Airside",
 	description:
-		"Supplemental Airside Terms of Use for AI model providers. Covers carrier claims and domain verification, the listing fee, tariff filings, dispatch routing, payout estimates, and delisting.",
+		"Supplemental Airside Terms of Use for AI model providers. Covers carrier claims and domain verification, the listing fee, tariff filings, dispatch routing, usage reporting, and delisting.",
 	alternates: { canonical: "/legal/terms" },
 	openGraph: {
 		title: "Airside Supplemental Terms of Use",
@@ -89,10 +89,7 @@ export default function TermsPage() {
 					Set a routing discount and the gateway margin you accept, which feed
 					our routing selection
 				</li>
-				<li>
-					View aggregated usage of your listed models and an estimate of the
-					resulting payout
-				</li>
+				<li>View aggregated usage of your listed models</li>
 			</ul>
 			<p>
 				Airside is an operational console, not a marketplace listing agreement,
@@ -230,7 +227,7 @@ export default function TermsPage() {
 			</p>
 			<hr />
 
-			<h2>6. Usage Reporting and Payout Estimates</h2>
+			<h2>6. Usage Reporting</h2>
 			<p>
 				The console reports usage of your claimed providers — requests, errors,
 				tokens, and billed traffic — aggregated across all gateway tenants who
@@ -240,18 +237,14 @@ export default function TermsPage() {
 			</p>
 			<p>
 				<strong>
-					The &ldquo;estimated payout&rdquo; figure is an estimate, not an
-					invoice, statement of account, or promise to pay.
+					The console reports traffic, not amounts owed, and is neither a
+					statement of account nor a promise to pay.
 				</strong>{" "}
-				It is computed from aggregated hourly usage rollups net of the margin
-				you accepted, and it may differ from any amount actually owed because of
-				refunds, chargebacks, credits, fraud reversals, cancelled or failed
-				requests, rounding, retention limits, and reconciliation. Actual
-				settlement — whether any amount is payable, on what schedule, in what
-				currency, subject to what minimum, and against what documentation — is
-				governed solely by a separate written agreement between you and us. In
-				the absence of such an agreement, no payment obligation arises from
-				these Airside Terms or from any figure shown in the console.
+				Whether any amount is payable, on what schedule, in what currency,
+				subject to what minimum, and against what documentation is governed
+				solely by a separate written agreement between you and us. In the
+				absence of such an agreement, no payment obligation arises from these
+				Airside Terms or from any figure shown in the console.
 			</p>
 			<p>
 				Usage figures are derived from our own metering and rollups and may lag

@@ -88,7 +88,7 @@ const FAQ = [
 	},
 	{
 		q: "What do we see about our traffic?",
-		a: "Requests, tokens, billed traffic and estimated payout across every gateway tenant that flies with you — aggregated per model and per day, the same rollups our own operations dashboard reads.",
+		a: "Requests, errors, tokens and billed traffic across every gateway tenant that flies with you — aggregated per model and per day, the same rollups our own operations dashboard reads.",
 	},
 ];
 
@@ -318,7 +318,7 @@ export default function LandingPage() {
 								{
 									icon: Gauge,
 									title: "You watch it fly",
-									body: "Requests, tokens, billed traffic and estimated payout, per model and per day.",
+									body: "Requests, errors, tokens and billed traffic, per model and per day.",
 								},
 							].map((card) => (
 								<div

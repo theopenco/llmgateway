@@ -117,8 +117,7 @@ export default function PrivacyPage() {
 			<h2>2. Traffic Data You See Is Aggregated</h2>
 			<p>
 				The console reports usage of your claimed providers: requests, errors,
-				tokens, billed traffic, and an estimated payout, broken down by model
-				and by day.
+				tokens, and billed traffic, broken down by model and by day.
 			</p>
 			<p>
 				<strong>

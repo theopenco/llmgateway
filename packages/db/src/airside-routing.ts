@@ -4,7 +4,7 @@
  * `routing_score_multiplier`: that table is the admin-only prioritization
  * knob, while `provider_routing_settings` carries the carrier's accepted
  * gateway margin and traffic discount — clean percentages that also drive
- * spend/payout reporting.
+ * spend reporting.
  */
 
 // The gateway's standard margin. A carrier that accepts a larger margin or

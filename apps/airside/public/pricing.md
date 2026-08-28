@@ -19,10 +19,10 @@ Last updated: 2026-08-27
 
 ## What you keep
 
-- Estimated payout = billed traffic x (1 - the gateway margin you accept).
+- You keep your billed traffic less the gateway margin you accept.
 - The margin is a control in your console, not a fixed rate: raising the margin you accept improves your routing score, lowering it keeps more revenue per request.
 - An optional routing discount lowers your effective price for scoring purposes, trading revenue per request for more traffic.
-- The payout figure in the console is an estimate, not an invoice. Actual settlement — schedule, currency, minimums — is governed by a separate written agreement.
+- The console reports traffic, not amounts owed. Settlement — schedule, currency, minimums — is governed by a separate written agreement.
 
 ## How traffic is allocated
 

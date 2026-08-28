@@ -9,14 +9,14 @@
 - Register your fleet: list models with context size, max output, capabilities (streaming, vision, audio, tools, JSON output, reasoning efforts) and per-model rate limits. Non-pricing attributes are editable in place; new listings are reviewed before they enter service.
 - File your fares: pricing never changes silently — every price change is a tariff filing that takes effect only after approval. Input, output, cached-input and per-request prices are all supported. One filing can be pending per model at a time.
 - Win traffic: routing scores carriers on price (after your discount and the gateway margin you accept), availability, throughput and latency. Lower scores win the request.
-- Watch your traffic: requests, errors, tokens, billed traffic and an estimated payout, aggregated per model and per day across every gateway tenant. Aggregates never expose tenant identities, and prompts and responses are never shown to carriers.
+- Watch your traffic: requests, errors, tokens and billed traffic, aggregated per model and per day across every gateway tenant. Aggregates never expose tenant identities, and prompts and responses are never shown to carriers.
 
 ## Economics
 
 - Claiming is free where no listing fee is configured; where one is, it is a one-time, non-refundable fee per provider company, charged via Stripe before a claim is approved.
 - There is no recurring platform fee and no minimum volume. You share margin only on traffic you actually win.
 - You set the gateway margin you accept and an optional routing discount; both take effect immediately and change how your models are scored.
-- Estimated payout = billed traffic x (1 - your margin). It is an estimate, not an invoice; actual settlement is governed by a separate written agreement.
+- You keep your billed traffic less the gateway margin you accept. The console reports traffic, not amounts owed; settlement is governed by a separate written agreement.
 - Machine-readable summary: https://airside.llmgateway.io/pricing.md
 
 ## The airport metaphor

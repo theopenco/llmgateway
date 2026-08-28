@@ -146,7 +146,7 @@ export default function TrafficPage() {
 					<CardTitle className="font-display">Daily requests</CardTitle>
 					<CardDescription>
 						{stats
-							? `${formatCompact(stats.totals.requestCount)} requests · ${formatUsd(stats.totals.cost)} billed · est. payout ${formatUsd(stats.totals.estimatedPayout)}`
+							? `${formatCompact(stats.totals.requestCount)} requests · ${formatCompact(stats.totals.errorCount)} errors · ${formatUsd(stats.totals.cost)} billed`
 							: "Loading…"}
 					</CardDescription>
 				</CardHeader>

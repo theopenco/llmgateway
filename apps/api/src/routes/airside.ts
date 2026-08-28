@@ -1901,7 +1901,6 @@ const statsRoute = createRoute({
 							outputTokens: z.number(),
 							totalTokens: z.number(),
 							cost: z.number(),
-							estimatedPayout: z.number(),
 						}),
 						byModel: z.array(
 							z.object({
@@ -1950,7 +1949,6 @@ airside.openapi(statsRoute, async (c) => {
 		outputTokens: 0,
 		totalTokens: 0,
 		cost: 0,
-		estimatedPayout: 0,
 	};
 	if (providerIds.length === 0) {
 		return c.json({
@@ -1984,13 +1982,6 @@ airside.openapi(statsRoute, async (c) => {
 		.from(mph)
 		.where(whereClause);
 
-	const settingsRows = await db.query.providerRoutingSettings.findMany({
-		where: { providerId: { in: providerIds } },
-	});
-	const marginByProvider = new Map(
-		settingsRows.map((s) => [s.providerId, Number(s.marginPercent)]),
-	);
-
 	const byModelRows = await db
 		.select({
 			providerId: mph.usedProvider,
@@ -2000,7 +1991,6 @@ airside.openapi(statsRoute, async (c) => {
 			inputTokens: sql<number>`SUM(${mph.inputTokens})::float8`,
 			outputTokens: sql<number>`SUM(${mph.outputTokens})::float8`,
 			cost: sql<number>`SUM(${mph.cost})::float8`,
-			creditsCost: sql<number>`SUM(${mph.creditsCost})::float8`,
 		})
 		.from(mph)
 		.where(whereClause)
@@ -2021,18 +2011,6 @@ airside.openapi(statsRoute, async (c) => {
 		.groupBy(dayExpr)
 		.orderBy(dayExpr);
 
-	// Payout only exists for platform-billed (credits) traffic — requests
-	// served through customers' own BYOK provider keys are settled by the
-	// customer with the provider directly, so they carry no payout. The
-	// carrier's CURRENT margin is applied to the whole window: an estimate,
-	// not a settlement figure.
-	const estimatedPayout = byModelRows.reduce((sum, row) => {
-		const margin =
-			marginByProvider.get(row.providerId) ?? AIRSIDE_BASELINE_MARGIN;
-		const payout = row.creditsCost * (1 - margin);
-		return sum + payout;
-	}, 0);
-
 	return c.json({
 		days,
 		providerIds,
@@ -2045,12 +2023,11 @@ airside.openapi(statsRoute, async (c) => {
 					outputTokens: totalsRow.outputTokens,
 					totalTokens: totalsRow.totalTokens,
 					cost: totalsRow.cost,
-					estimatedPayout,
 				}
 			: emptyTotals,
 		// The gateway logs used_model as "provider/model"; seeded rollups use
 		// bare names. Normalize for display.
-		byModel: byModelRows.map(({ creditsCost: _creditsCost, ...row }) => ({
+		byModel: byModelRows.map((row) => ({
 			...row,
 			model: row.model.startsWith(`${row.providerId}/`)
 				? row.model.slice(row.providerId.length + 1)

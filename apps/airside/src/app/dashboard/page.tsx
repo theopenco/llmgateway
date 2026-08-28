@@ -144,7 +144,7 @@ export default function OperationsPage() {
 				</div>
 			) : null}
 
-			<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+			<div className="grid gap-4 sm:grid-cols-3">
 				<StatCard
 					label="Requests"
 					value={stats ? formatCompact(stats.totals.requestCount) : "—"}
@@ -164,11 +164,6 @@ export default function OperationsPage() {
 				<StatCard
 					label="Billed traffic"
 					value={stats ? formatUsd(stats.totals.cost) : "—"}
-				/>
-				<StatCard
-					label="Est. payout"
-					value={stats ? formatUsd(stats.totals.estimatedPayout) : "—"}
-					hint="platform-billed traffic, at current landing fee"
 				/>
 			</div>
 
