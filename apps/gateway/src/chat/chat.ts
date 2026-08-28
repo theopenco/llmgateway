@@ -9526,6 +9526,7 @@ chat.openapi(completions, async (c) => {
 				// Accumulates Anthropic tool search calls until their result block
 				// arrives, so the pair can be forwarded to native clients intact.
 				const toolSearchState: AnthropicToolSearchState = new Map();
+				const toolCallChoiceIndices = new Set<number>();
 				let sawUpstreamDoneSentinel = false;
 				let sawProviderTerminalEvent = false;
 				let sawOpenAiResponsesDoneEvent = false;
@@ -10385,6 +10386,7 @@ chat.openapi(completions, async (c) => {
 									serverToolUseIndices,
 									supportsReasoning,
 									toolSearchState,
+									toolCallChoiceIndices,
 								);
 
 								// Skip null events (some providers have non-data events)

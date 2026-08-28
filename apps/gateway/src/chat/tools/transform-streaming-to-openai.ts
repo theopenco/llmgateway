@@ -78,6 +78,7 @@ export function transformStreamingToOpenai(
 	serverToolUseIndices?: Set<number>,
 	supportsReasoning = true,
 	toolSearchState?: AnthropicToolSearchState,
+	toolCallChoiceIndices?: Set<number>,
 ): any {
 	let transformedData = data;
 
@@ -1567,6 +1568,30 @@ export function transformStreamingToOpenai(
 				usedModel,
 				supportsReasoning,
 			);
+
+			if (
+				usedProvider === "novita" &&
+				Array.isArray(transformedData?.choices)
+			) {
+				for (const [position, choice] of transformedData.choices.entries()) {
+					const choiceIndex =
+						typeof choice?.index === "number" ? choice.index : position;
+					const hasToolCallDelta =
+						Array.isArray(choice?.delta?.tool_calls) &&
+						choice.delta.tool_calls.length > 0;
+
+					if (hasToolCallDelta) {
+						toolCallChoiceIndices?.add(choiceIndex);
+					}
+
+					if (
+						choice?.finish_reason === "stop" &&
+						(hasToolCallDelta || toolCallChoiceIndices?.has(choiceIndex))
+					) {
+						choice.finish_reason = "tool_calls";
+					}
+				}
+			}
 
 			// Map non-standard finish reasons to OpenAI-compatible values
 			if (transformedData?.choices?.[0]?.finish_reason === "end_turn") {

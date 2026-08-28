@@ -76,6 +76,60 @@ describe("transformStreamingToOpenai", () => {
 		expect(warn).not.toHaveBeenCalled();
 	});
 
+	it("normalizes Novita tool-call finishes across streaming chunks", () => {
+		const toolCallChoiceIndices = new Set<number>();
+
+		transformStreamingToOpenai(
+			"novita",
+			"novita/glm-5.3",
+			{
+				id: "chatcmpl-123",
+				choices: [
+					{
+						index: 1,
+						delta: {
+							tool_calls: [
+								{
+									index: 0,
+									id: "call_123",
+									function: { name: "get_weather", arguments: "" },
+								},
+							],
+						},
+						finish_reason: null,
+					},
+				],
+			},
+			[],
+			undefined,
+			true,
+			undefined,
+			toolCallChoiceIndices,
+		);
+
+		const result = transformStreamingToOpenai(
+			"novita",
+			"novita/glm-5.3",
+			{
+				id: "chatcmpl-123",
+				choices: [
+					{ index: 0, delta: {}, finish_reason: "stop" },
+					{ index: 1, delta: {}, finish_reason: "stop" },
+				],
+			},
+			[],
+			undefined,
+			true,
+			undefined,
+			toolCallChoiceIndices,
+		);
+
+		expect(result.choices).toMatchObject([
+			{ index: 0, finish_reason: "stop" },
+			{ index: 1, finish_reason: "tool_calls" },
+		]);
+	});
+
 	it("generates a unique id per streamed google tool call", () => {
 		// The id is the `thought_signature:<id>` Redis key. A name+timestamp id
 		// collided whenever two callers invoked the same tool within the same
