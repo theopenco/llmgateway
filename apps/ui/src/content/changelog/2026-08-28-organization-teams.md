@@ -28,7 +28,7 @@ A developer belongs to at most one team, and owners and admins never inherit tea
 
 ## Default Team
 
-Mark one team as the organization's default and anyone joining as a developer lands in it — through an invite, a direct add, SSO domain auto-join, SCIM provisioning, or a demotion from admin. When you enable the flag you can also assign every currently unassigned developer in one step. Moving or clearing it later only changes future joins; current members keep their team. The point is that nobody lands in the organization outside a policy while somebody remembers to assign them.
+Mark one team as the organization's default and anyone joining as a developer lands in it — through an invite, a direct add, SSO domain auto-join, SCIM provisioning, or a demotion from admin. When you enable the flag you can also assign every currently unassigned developer in one step. Moving or clearing it later changes where future joins land. Existing members keep their team until a SCIM membership or group-mapping sync recomputes them, at which point anyone the default placed follows the new default. The point is that nobody lands in the organization outside a policy while somebody remembers to assign them.
 
 ## Entra Groups over SCIM
 

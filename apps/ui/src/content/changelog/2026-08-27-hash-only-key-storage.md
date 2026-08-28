@@ -3,7 +3,7 @@ id: "83"
 slug: "hash-only-key-storage"
 date: "2026-08-27"
 title: "Hash-Only API Key Storage"
-summary: "Gateway API keys are now stored only as keyed HMAC-SHA-256 fingerprints and provider credentials only as AES-256-GCM ciphertext. Every plaintext read path is gone, so a key's secret is visible exactly once — at creation."
+summary: "Gateway API keys are now stored only as keyed HMAC-SHA-256 fingerprints and provider credentials only as AES-256-GCM ciphertext. Every plaintext read path is gone, so a key's secret is visible exactly once per issuance — at creation or roll."
 image:
   src: "/changelog/hash-only-key-storage.png"
   alt: "Hash-only key storage: a glowing key dissolving into a fingerprint pattern on a circuit board"
