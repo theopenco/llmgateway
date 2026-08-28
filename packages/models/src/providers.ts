@@ -648,9 +648,6 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_AVALANCHE_API_KEY",
 				baseUrl: "LLM_AVALANCHE_BASE_URL",
 			},
-			optional: {
-				fileUploadBaseUrl: "LLM_AVALANCHE_FILE_UPLOAD_BASE_URL",
-			},
 		},
 		streaming: false,
 		cancellation: false,

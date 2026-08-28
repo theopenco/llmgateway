@@ -31,12 +31,10 @@ async function readSseText(
 	return text;
 }
 
-// Any active stealth provider with an OpenAI-compatible chat endpoint works
-// here; the leaky mock below speaks that shape. Routing skips deactivated
-// mappings, so if this one is ever retired swap in another active stealth
-// mapping instead of dropping the coverage.
-const STEALTH_PROVIDER = "tundra";
-const STEALTH_MODEL_ID = "kimi-k2.6";
+// Routing skips deactivated mappings, so if this one is ever retired swap in
+// another active stealth mapping instead of dropping the coverage.
+const STEALTH_PROVIDER = "quartz";
+const STEALTH_MODEL_ID = "gemini-3.1-pro-preview";
 const STEALTH_MODEL = `${STEALTH_PROVIDER}/${STEALTH_MODEL_ID}`;
 
 // The secret markers a stealth provider's raw error could leak: the vendor
@@ -66,7 +64,10 @@ describe("stealth provider error redaction (routes)", () => {
 			let body = "";
 			req.on("data", (chunk) => (body += chunk));
 			req.on("end", () => {
-				const isStream = body.includes('"stream":true');
+				const isStream =
+					body.includes('"stream":true') ||
+					req.url?.includes("alt=sse") ||
+					req.url?.includes("streamGenerateContent");
 				// "http500" prompts force a plain HTTP error even for streams;
 				// "midstream" prompts get a valid delta chunk before the error;
 				// "readfault" prompts kill the socket after a half-written event so
@@ -119,26 +120,24 @@ describe("stealth provider error redaction (routes)", () => {
 		leakyServerUrl = `http://127.0.0.1:${address.port}`;
 
 		for (const key of [
-			"LLM_TUNDRA_API_KEY",
-			"LLM_TUNDRA_BASE_URL",
+			"LLM_QUARTZ_API_KEY",
+			"LLM_QUARTZ_BASE_URL",
+			"LLM_QUARTZ_PROJECT",
 			"LLM_GLACIER_API_KEY",
 			"LLM_GLACIER_BASE_URL",
 			"LLM_OPENAI_API_KEY",
 			"LLM_OPENAI_BASE_URL",
-			"LLM_AVALANCHE_API_KEY",
-			"LLM_AVALANCHE_BASE_URL",
 		]) {
 			savedEnv[key] = process.env[key];
 		}
-		process.env.LLM_TUNDRA_API_KEY = "tundra-env-key";
-		process.env.LLM_TUNDRA_BASE_URL = leakyServerUrl;
+		process.env.LLM_QUARTZ_API_KEY = "quartz-env-key";
+		process.env.LLM_QUARTZ_BASE_URL = leakyServerUrl;
+		process.env.LLM_QUARTZ_PROJECT = "test-project";
 		process.env.LLM_GLACIER_API_KEY = "glacier-env-key";
 		process.env.LLM_GLACIER_BASE_URL = leakyServerUrl;
 		// openai is the non-stealth control: same leaky mock, no redaction.
 		process.env.LLM_OPENAI_API_KEY = "openai-env-key";
 		process.env.LLM_OPENAI_BASE_URL = leakyServerUrl;
-		process.env.LLM_AVALANCHE_API_KEY = "avalanche-env-key";
-		process.env.LLM_AVALANCHE_BASE_URL = leakyServerUrl;
 	});
 
 	afterAll(async () => {
@@ -194,31 +193,6 @@ describe("stealth provider error redaction (routes)", () => {
 		expect(JSON.stringify(log.internalErrorDetails)).toContain(SECRET_VENDOR);
 		return log;
 	}
-
-	test("/v1/videos hides the raw upstream error for a stealth provider", async () => {
-		await setupCreditsApiKey("stealth-video-token");
-		const res = await app.request("/v1/videos", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer stealth-video-token",
-				"x-no-fallback": "true",
-			},
-			body: JSON.stringify({
-				model: "avalanche/veo-3.1-generate-preview",
-				prompt: "A mountain range at sunrise",
-				size: "1920x1080",
-				seconds: 8,
-			}),
-		});
-
-		expect(res.status).toBe(500);
-		const text = await res.text();
-		expectNoLeak(text);
-		expect(JSON.parse(text).error.message).toBe(
-			"Upstream provider error (500 Internal Server Error)",
-		);
-	});
 
 	test("/v1/chat/completions non-streaming hides the raw upstream error", async () => {
 		await setupCreditsApiKey("stealth-token-nonstream");
@@ -478,8 +452,8 @@ describe("stealth provider error redaction (routes)", () => {
 	test("network errors do not leak the stealth base URL host", async () => {
 		await setupCreditsApiKey("stealth-token-network");
 
-		const originalBaseUrl = process.env.LLM_TUNDRA_BASE_URL;
-		process.env.LLM_TUNDRA_BASE_URL = "http://secret-stealth-host.invalid:9999";
+		const originalBaseUrl = process.env.LLM_QUARTZ_BASE_URL;
+		process.env.LLM_QUARTZ_BASE_URL = "http://secret-stealth-host.invalid:9999";
 		try {
 			const requestId = "stealth-network-request";
 			const res = await app.request("/v1/chat/completions", {
@@ -502,7 +476,7 @@ describe("stealth provider error redaction (routes)", () => {
 			const json = JSON.parse(text);
 			expect(json.error.message).toBe("Failed to connect to provider");
 		} finally {
-			process.env.LLM_TUNDRA_BASE_URL = originalBaseUrl;
+			process.env.LLM_QUARTZ_BASE_URL = originalBaseUrl;
 		}
 	});
 });

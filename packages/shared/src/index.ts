@@ -114,12 +114,6 @@ export {
 } from "./gateway-url.js";
 
 export {
-	getAvalancheApiBaseUrl,
-	getAvalancheJobsApiBaseUrl,
-	getAvalancheFileUploadBaseUrl,
-} from "./avalanche.js";
-
-export {
 	createHttpClient,
 	type HttpClientOptions,
 	type HttpClientConfig,

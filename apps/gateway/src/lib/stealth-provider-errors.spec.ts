@@ -123,7 +123,7 @@ describe("clientFacingUpstreamErrorMessage", () => {
 	it("redacts an HTTP error body for stealth providers", () => {
 		expect(
 			clientFacingUpstreamErrorMessage(
-				"avalanche",
+				"glacier",
 				500,
 				"quota exceeded at https://plataforma-secreta.example.com",
 			),
