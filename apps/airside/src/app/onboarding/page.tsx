@@ -14,10 +14,10 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { CrewChannelCard } from "@/components/CrewChannelCard";
 import { EmailVerificationBanner } from "@/components/EmailVerificationBanner";
 import { Logo } from "@/components/Logo";
 import { ProviderBrandingFields } from "@/components/ProviderBrandingFields";
-import { SlackCard } from "@/components/SlackCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,6 +32,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { WebsiteVerificationCard } from "@/components/WebsiteVerificationCard";
 import { useUser } from "@/hooks/useUser";
 import { useApi } from "@/lib/fetch-client";
 
@@ -94,13 +95,40 @@ function ClaimDialog({
 	);
 }
 
+/**
+ * Whether the URL's host sits on one of the domains the registrant proved.
+ * A suffix test, not the server's public-suffix parse — close enough to tell
+ * someone they typed the wrong domain before they submit, while the server
+ * stays the authority on what is actually accepted.
+ */
+function endpointDomainState(
+	baseUrl: string,
+	domains: string[],
+): "empty" | "invalid-url" | "wrong-domain" | "ok" {
+	const trimmed = baseUrl.trim();
+	if (!trimmed) {
+		return "empty";
+	}
+	let host: string;
+	try {
+		host = new URL(trimmed).hostname.toLowerCase();
+	} catch {
+		return "invalid-url";
+	}
+	return domains.some(
+		(domain) => host === domain || host.endsWith(`.${domain}`),
+	)
+		? "ok"
+		: "wrong-domain";
+}
+
 function RegisterCarrierDialog({
-	emailDomain,
+	claimDomains,
 	disabled,
 	pending,
 	onRegister,
 }: {
-	emailDomain: string;
+	claimDomains: string[];
 	disabled: boolean;
 	pending: boolean;
 	onRegister: (values: {
@@ -119,6 +147,7 @@ function RegisterCarrierDialog({
 	const [description, setDescription] = useState("");
 	const [logoUrl, setLogoUrl] = useState<string | undefined>(undefined);
 	const [iconUrl, setIconUrl] = useState<string | undefined>(undefined);
+	const domainState = endpointDomainState(baseUrl, claimDomains);
 
 	return (
 		<Dialog open={open} onOpenChange={setOpen}>
@@ -142,8 +171,16 @@ function RegisterCarrierDialog({
 						OpenAI-compatible (we call{" "}
 						<span className="font-mono">/v1/chat/completions</span> under the
 						base URL) and hosted on{" "}
-						<span className="font-mono">{emailDomain}</span>, the domain of your
-						verified email. Registrations are reviewed by our team.
+						{claimDomains.map((domain, i) => (
+							<span key={domain}>
+								{i > 0 ? " or " : ""}
+								<span className="font-mono">{domain}</span>
+							</span>
+						))}
+						{claimDomains.length > 1
+							? " — the domains you verified."
+							: ", the domain of your verified email."}{" "}
+						Registrations are reviewed by our team.
 					</DialogDescription>
 				</DialogHeader>
 				<form
@@ -194,9 +231,34 @@ function RegisterCarrierDialog({
 							data-testid="carrier-base-url-input"
 							value={baseUrl}
 							onChange={(e) => setBaseUrl(e.target.value)}
-							placeholder={`https://api.${emailDomain}`}
+							placeholder={`https://api.${claimDomains[0] ?? "example.com"}`}
+							aria-invalid={domainState === "wrong-domain" || undefined}
+							aria-describedby="carrier-base-url-hint"
 							required
 						/>
+						<p
+							id="carrier-base-url-hint"
+							data-testid="carrier-base-url-hint"
+							className={
+								domainState === "wrong-domain"
+									? "text-destructive text-xs"
+									: "text-muted-foreground text-xs"
+							}
+						>
+							{domainState === "wrong-domain" ? (
+								<>
+									Must be on{" "}
+									<span className="font-mono">{claimDomains.join(" or ")}</span>{" "}
+									— we only list an endpoint on a domain you proved.
+								</>
+							) : (
+								<>
+									Must be on{" "}
+									<span className="font-mono">{claimDomains.join(" or ")}</span>
+									.
+								</>
+							)}
+						</p>
 					</div>
 					<div className="space-y-2">
 						<Label htmlFor="carrier-description">Description</Label>
@@ -221,7 +283,7 @@ function RegisterCarrierDialog({
 						<Button
 							type="submit"
 							className="font-semibold"
-							disabled={pending}
+							disabled={pending || domainState !== "ok"}
 							data-testid="confirm-register-carrier"
 						>
 							{pending ? "Filing…" : "File the registration"}
@@ -352,17 +414,29 @@ function OnboardingContent() {
 	const hasClaim = companies.some((c) => c.claims.length > 0);
 	const paymentDue =
 		!!company && company.paymentRequired && company.paymentStatus === "unpaid";
+	const emailDomain = user?.email.split("@")[1] ?? "";
+	// Every domain this account may claim on: the verified email's, plus a
+	// company domain proved over DNS.
+	const claimDomains = Array.from(
+		new Set(
+			[
+				isFreemail ? null : emailDomain,
+				company?.websiteVerifiedDomain ?? null,
+			].filter((d): d is string => !!d),
+		),
+	);
 	// Why "Register a new carrier" is unavailable, if it is — shown next to
 	// the disabled button instead of leaving it silently dead.
-	const registerBlockedReason = isFreemail
-		? "You signed up with a personal email address — carrier registration needs an address on your company's domain."
-		: !company
-			? "Register your company first."
-			: !user?.emailVerified
-				? "Verify your email first."
-				: paymentDue
-					? "Pay the listing fee first."
-					: null;
+	const registerBlockedReason =
+		claimDomains.length === 0
+			? "You signed up with a personal email address — carrier registration needs an address on your company's domain, or a company domain verified over DNS."
+			: !company
+				? "Register your company first."
+				: !user?.emailVerified
+					? "Verify your email first."
+					: paymentDue
+						? "Pay the listing fee first."
+						: null;
 
 	if (isLoading || !user) {
 		return (
@@ -399,19 +473,22 @@ function OnboardingContent() {
 							</div>
 						</div>
 						{company ? (
-							<div className="flex items-center justify-between">
-								<div>
-									<div className="font-medium">{company.name}</div>
-									{company.website ? (
-										<div className="text-muted-foreground text-sm">
-											{company.website}
-										</div>
-									) : null}
+							<>
+								<div className="flex items-center justify-between">
+									<div>
+										<div className="font-medium">{company.name}</div>
+										{company.website ? (
+											<div className="text-muted-foreground text-sm">
+												{company.website}
+											</div>
+										) : null}
+									</div>
+									<Badge variant="success">
+										<BadgeCheck className="size-3" /> Registered
+									</Badge>
 								</div>
-								<Badge variant="success">
-									<BadgeCheck className="size-3" /> Registered
-								</Badge>
-							</div>
+								<WebsiteVerificationCard companyId={company.id} />
+							</>
 						) : (
 							<form
 								className="grid gap-4 sm:grid-cols-2"
@@ -445,6 +522,32 @@ function OnboardingContent() {
 										onChange={(e) => setCompanyWebsite(e.target.value)}
 										placeholder="https://acme.ai"
 									/>
+									<p className="text-muted-foreground text-xs">
+										You can verify this domain over DNS after registering.
+									</p>
+								</div>
+								<div
+									className="border-border text-muted-foreground rounded-lg border border-dashed p-3 text-xs sm:col-span-2"
+									data-testid="domain-rule-notice"
+								>
+									{isFreemail ? (
+										<>
+											You signed up with{" "}
+											<span className="font-mono">@{emailDomain}</span>, a
+											personal email domain. Carriers are matched by domain, so
+											you will need an address on your company&apos;s domain —
+											or a company website verified over DNS — to claim or
+											register one.
+										</>
+									) : (
+										<>
+											Carriers are matched by domain: you can claim a catalogue
+											provider, or register a new one, whose API runs on{" "}
+											<span className="font-mono">@{emailDomain}</span> — the
+											domain of your verified email. Adding a website you verify
+											over DNS lets you use that domain too.
+										</>
+									)}
 								</div>
 								<div className="sm:col-span-2">
 									<Button
@@ -514,37 +617,43 @@ function OnboardingContent() {
 										: "2 · Claim your carrier"}
 								</h2>
 								<p className="text-muted-foreground text-sm">
-									{isFreemail
-										? "Carriers are matched by email domain, so this needs your company address."
-										: "Claim catalogue providers whose endpoint domain matches "}
-									{!isFreemail ? (
+									{claimDomains.length === 0 ? (
+										"Carriers are matched by domain, so this needs your company address or a DNS-verified company domain."
+									) : (
 										<>
-											<span className="font-mono">
-												@{user.email.split("@")[1]}
-											</span>
-											, or register a new carrier hosted on that domain. Both
-											are reviewed by our team before going live.
+											Claim catalogue providers whose endpoint domain matches{" "}
+											{claimDomains.map((domain, i) => (
+												<span key={domain}>
+													{i > 0 ? " or " : ""}
+													<span className="font-mono">@{domain}</span>
+												</span>
+											))}
+											, or register a new carrier hosted there. Both are
+											reviewed by our team before going live.
 										</>
-									) : null}
+									)}
 								</p>
 							</div>
 						</div>
 						{claimable.length === 0 ? (
-							isFreemail ? (
+							claimDomains.length === 0 ? (
 								<p className="text-muted-foreground text-sm">
-									<span className="font-mono">@{user.email.split("@")[1]}</span>{" "}
-									is a personal email provider, so it can&apos;t claim or host a
-									carrier API. Create an account with your company email (e.g.{" "}
-									<span className="font-mono">ops@yourprovider.ai</span>) to
+									<span className="font-mono">@{emailDomain}</span> is a
+									personal email provider, so it can&apos;t claim or host a
+									carrier API. Sign in with your company email (e.g.{" "}
+									<span className="font-mono">ops@yourprovider.ai</span>), or
+									verify your company website&apos;s domain over DNS above, to
 									claim or register a carrier.
 								</p>
 							) : (
 								<p className="text-muted-foreground text-sm">
-									No catalogue provider matches your email domain. If your
-									provider is not on LLM Gateway yet, register it as a new
-									carrier below — all you need is an OpenAI-compatible API on{" "}
-									<span className="font-mono">@{user.email.split("@")[1]}</span>
-									.
+									No catalogue provider matches{" "}
+									<span className="font-mono">
+										{claimDomains.map((d) => `@${d}`).join(" or ")}
+									</span>
+									. If your provider is not on LLM Gateway yet, register it as a
+									new carrier below — all you need is an OpenAI-compatible API
+									on that domain.
 								</p>
 							)
 						) : (
@@ -650,14 +759,16 @@ function OnboardingContent() {
 									)}
 								</div>
 							))}
-						{!isFreemail ? (
+						{claimDomains.length > 0 ? (
 							<div className="mt-4 flex items-center justify-between gap-3">
 								<p className="text-muted-foreground text-xs">
 									{registerBlockedReason ??
-										"Not in the catalogue? Register your own carrier — an OpenAI-compatible API on your email domain is all it takes."}
+										`Not in the catalogue? Register your own carrier — an OpenAI-compatible API on ${claimDomains
+											.map((d) => `@${d}`)
+											.join(" or ")} is all it takes.`}
 								</p>
 								<RegisterCarrierDialog
-									emailDomain={user.email.split("@")[1] ?? ""}
+									claimDomains={claimDomains}
 									disabled={
 										registerBlockedReason !== null || registerCarrier.isPending
 									}
@@ -675,7 +786,7 @@ function OnboardingContent() {
 						) : null}
 					</section>
 
-					<SlackCard />
+					<CrewChannelCard companyId={company?.id} email={user.email} />
 
 					<div className="flex justify-end">
 						<Button

@@ -1,7 +1,16 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { Download, Loader2, Pencil, Plus, Stamp, Trash2 } from "lucide-react";
+import {
+	Download,
+	KeyRound,
+	Loader2,
+	Pencil,
+	Plus,
+	Stamp,
+	TriangleAlert,
+	Trash2,
+} from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -165,6 +174,16 @@ export default function FleetPage() {
 	const hasPendingClaim = company.claims.some(
 		(claim) => claim.status === "pending",
 	);
+	// A catalogue carrier's existing models are not listed here until it
+	// imports them — the register only ever shows Airside-managed listings.
+	const pendingCatalogueClaims = company.claims.filter(
+		(claim) => claim.status === "pending" && claim.kind === "catalogue",
+	);
+	// An approved carrier we hold no key for cannot serve a request, however
+	// healthy its listings look.
+	const uncredentialedCarriers = company.claims.filter(
+		(claim) => claim.status === "active" && !claim.hasManagedCredential,
+	);
 
 	return (
 		<div className="space-y-6" data-testid="fleet-page">
@@ -213,6 +232,41 @@ export default function FleetPage() {
 				</div>
 			</div>
 
+			{uncredentialedCarriers.length > 0 ? (
+				<div
+					className="border-primary/40 bg-primary/5 flex items-start gap-3 rounded-lg border p-4"
+					data-testid="missing-credential-warning"
+				>
+					<KeyRound className="text-primary mt-0.5 size-4 shrink-0" />
+					<p className="text-sm">
+						We do not hold an API key for{" "}
+						<span className="font-mono">
+							{uncredentialedCarriers.map((c) => c.providerId).join(", ")}
+						</span>{" "}
+						yet, so approved listings will not receive traffic. Send us one from
+						the crew channel and we will install it.
+					</p>
+				</div>
+			) : null}
+
+			{pendingCatalogueClaims.length > 0 ? (
+				<div
+					className="border-border text-muted-foreground flex items-start gap-3 rounded-lg border border-dashed p-4 text-sm"
+					data-testid="catalogue-models-notice"
+				>
+					<TriangleAlert className="mt-0.5 size-4 shrink-0" />
+					<p>
+						Models we already list for{" "}
+						<span className="font-mono">
+							{pendingCatalogueClaims.map((c) => c.providerId).join(", ")}
+						</span>{" "}
+						are not shown here — they run off our built-in catalogue. Once the
+						claim is approved you can import them and manage their prices and
+						limits from this register.
+					</p>
+				</div>
+			) : null}
+
 			{providerIds.length === 0 ? (
 				<p className="text-muted-foreground text-sm">
 					{hasPendingClaim ? (
@@ -232,9 +286,21 @@ export default function FleetPage() {
 			{models.length === 0 ? (
 				<div className="border-border rounded-xl border border-dashed p-12 text-center">
 					<p className="font-display text-lg font-bold">The hangar is empty</p>
-					<p className="text-muted-foreground mt-1 text-sm">
-						Register your first model — it goes live as soon as we approve its
-						initial fare.
+					<p className="text-muted-foreground mx-auto mt-1 max-w-xl text-sm">
+						{catalogueProviderIds.length > 0 ? (
+							<>
+								Models we already list for{" "}
+								<span className="font-mono">
+									{catalogueProviderIds.join(", ")}
+								</span>{" "}
+								still run off our built-in catalogue and are not shown here.
+								Import them to manage their prices and limits yourself — an
+								imported listing then serves that model in place of the
+								catalogue entry.
+							</>
+						) : (
+							"Register your first model — it goes live as soon as we approve its initial fare."
+						)}
 					</p>
 				</div>
 			) : (

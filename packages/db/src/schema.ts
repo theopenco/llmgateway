@@ -4346,6 +4346,16 @@ export const providerCompany = pgTable("provider_company", {
 		.$onUpdate(() => new Date()),
 	name: text().notNull(),
 	website: text(),
+	// DNS ownership proof for `website`. The company publishes the token as a
+	// TXT record on the site's registrable domain; once resolved, that domain
+	// counts alongside the verified email domain when matching carrier claims,
+	// so a company whose staff mail is on a different domain can still claim.
+	websiteVerificationToken: text(),
+	// The registrable domain the TXT record was found on, lowercase. Stored
+	// separately from `website` so editing the URL cannot silently carry an
+	// old proof over to a new domain.
+	websiteVerifiedDomain: text(),
+	websiteVerifiedAt: timestamp(),
 	// One-time listing fee. Claims are gated on "paid" whenever the Stripe
 	// price id is configured; self-hosted installs without it skip the gate.
 	paymentStatus: text({ enum: ["unpaid", "paid"] })
@@ -4476,6 +4486,13 @@ export const providerDraftModel = pgTable(
 		// provider/model always take precedence over these.
 		maxRpm: integer(),
 		maxRpd: integer(),
+		// How the carrier's own caps are bucketed. "global" is a single counter
+		// across every organization — what a carrier means by "my deployment
+		// takes 60 rpm" — and is the default. "per_org" gives each organization
+		// its own counter, so total upstream load scales with tenant count.
+		rateLimitScope: text({ enum: ["global", "per_org"] })
+			.notNull()
+			.default("global"),
 		status: text({ enum: ["draft", "active", "rejected", "delisted"] })
 			.notNull()
 			.default("draft"),

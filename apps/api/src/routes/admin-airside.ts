@@ -7,6 +7,7 @@ import {
 	materializeAirsideModel,
 	updateAirsideMappingPrices,
 } from "@/lib/airside-catalogue.js";
+import { verifiedWebsiteDomain } from "@/lib/airside-domains.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 
 import { and, cdb, db, eq, inArray, ne, tables } from "@llmgateway/db";
@@ -353,6 +354,10 @@ const adminClaimSchema = z.object({
 		id: z.string(),
 		name: z.string(),
 		website: z.string().nullable(),
+		// The registrable domain the company proved over DNS, if the proof
+		// still covers the current website. A reviewer weighs a claim very
+		// differently when the company demonstrably controls the domain.
+		websiteVerifiedDomain: z.string().nullable(),
 	}),
 });
 
@@ -383,6 +388,7 @@ async function serializeAdminClaim(row: ClaimWithRelations) {
 			id: row.providerCompany.id,
 			name: row.providerCompany.name,
 			website: row.providerCompany.website,
+			websiteVerifiedDomain: verifiedWebsiteDomain(row.providerCompany) ?? null,
 		},
 	};
 }

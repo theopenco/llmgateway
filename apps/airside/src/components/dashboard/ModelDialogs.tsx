@@ -16,9 +16,17 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useApi } from "@/lib/fetch-client";
+import { perMillionToPerToken, perTokenToPerMillion } from "@/lib/format";
 
 import type { AirsideModel } from "@/app/dashboard/fleet/page";
 import type { ReactNode } from "react";
@@ -63,6 +71,51 @@ type ReasoningEffortOption = (typeof REASONING_EFFORTS)[number];
 
 type CapabilityKey = (typeof CAPABILITIES)[number]["key"];
 
+type RateLimitScope = "global" | "per_org";
+
+/**
+ * How a carrier's own caps are counted. Most carriers mean "my deployment
+ * takes N req/min" — one counter for everyone — so that is the default; the
+ * per-organization bucketing is there for carriers who sell per-tenant quota.
+ */
+function RateLimitScopeField({
+	id,
+	value,
+	onChange,
+}: {
+	id: string;
+	value: RateLimitScope;
+	onChange: (value: RateLimitScope) => void;
+}) {
+	return (
+		<div className="space-y-2 sm:col-span-2">
+			<Label htmlFor={id}>Cap applies</Label>
+			<Select
+				value={value}
+				onValueChange={(next) => onChange(next as RateLimitScope)}
+			>
+				<SelectTrigger id={id} data-testid={id}>
+					<SelectValue />
+				</SelectTrigger>
+				<SelectContent>
+					<SelectItem value="global">
+						Across all organizations (one shared counter)
+					</SelectItem>
+					<SelectItem value="per_org">
+						Per organization (each gets its own counter)
+					</SelectItem>
+				</SelectContent>
+			</Select>
+			<p className="text-muted-foreground text-xs">
+				{value === "global"
+					? "Total traffic we send your deployment stays under the cap."
+					: "Every organization may reach the cap, so total upstream load grows with the number of customers."}{" "}
+				Platform-set limits always take precedence.
+			</p>
+		</div>
+	);
+}
+
 export function RegisterModelDialog({
 	providerCompanyId,
 	providerIds,
@@ -88,6 +141,8 @@ export function RegisterModelDialog({
 	const [note, setNote] = useState("");
 	const [maxRpm, setMaxRpm] = useState("");
 	const [maxRpd, setMaxRpd] = useState("");
+	const [rateLimitScope, setRateLimitScope] =
+		useState<RateLimitScope>("global");
 	const [capabilities, setCapabilities] = useState<
 		Record<CapabilityKey, boolean>
 	>({
@@ -138,9 +193,8 @@ export function RegisterModelDialog({
 					<DialogDescription>
 						List a model on{" "}
 						<span className="font-mono">{effectiveProviderId}</span>. The
-						listing is drafted until we approve its initial fare — prices per
-						token, exponent notation welcome (e.g.{" "}
-						<span className="font-mono">2e-6</span> = $2/M).
+						listing is drafted until we approve its initial fare. Token prices
+						are in dollars per million tokens.
 					</DialogDescription>
 				</DialogHeader>
 				<form
@@ -164,10 +218,13 @@ export function RegisterModelDialog({
 										: undefined,
 								maxRpm: Number(maxRpm) || undefined,
 								maxRpd: Number(maxRpd) || undefined,
+								rateLimitScope,
 								pricing: {
-									inputPrice,
-									outputPrice,
-									cachedInputPrice: cachedInputPrice || undefined,
+									inputPrice: perMillionToPerToken(inputPrice),
+									outputPrice: perMillionToPerToken(outputPrice),
+									cachedInputPrice: cachedInputPrice
+										? perMillionToPerToken(cachedInputPrice)
+										: undefined,
 									requestPrice: requestPrice || undefined,
 								},
 								note: note || undefined,
@@ -338,10 +395,11 @@ export function RegisterModelDialog({
 								placeholder="e.g. 20000"
 							/>
 						</div>
-						<p className="text-muted-foreground text-xs sm:col-span-2">
-							Caps how hard the gateway drives your deployment. Platform-set
-							limits always take precedence over these.
-						</p>
+						<RateLimitScopeField
+							id="model-rate-limit-scope"
+							value={rateLimitScope}
+							onChange={setRateLimitScope}
+						/>
 					</div>
 
 					<div className="border-primary/40 bg-primary/5 space-y-4 rounded-lg border border-dashed p-4">
@@ -350,35 +408,37 @@ export function RegisterModelDialog({
 						</div>
 						<div className="grid gap-4 sm:grid-cols-2">
 							<div className="space-y-2">
-								<Label htmlFor="model-input-price">Input $/token</Label>
+								<Label htmlFor="model-input-price">Input $/1M tokens</Label>
 								<Input
 									id="model-input-price"
 									data-testid="input-price"
 									value={inputPrice}
 									onChange={(e) => setInputPrice(e.target.value)}
-									placeholder="2e-6"
+									placeholder="2"
 									required
 								/>
 							</div>
 							<div className="space-y-2">
-								<Label htmlFor="model-output-price">Output $/token</Label>
+								<Label htmlFor="model-output-price">Output $/1M tokens</Label>
 								<Input
 									id="model-output-price"
 									data-testid="output-price"
 									value={outputPrice}
 									onChange={(e) => setOutputPrice(e.target.value)}
-									placeholder="6e-6"
+									placeholder="6"
 									required
 								/>
 							</div>
 							<div className="space-y-2">
-								<Label htmlFor="model-cached-price">Cached input $/token</Label>
+								<Label htmlFor="model-cached-price">
+									Cached input $/1M tokens
+								</Label>
 								<Input
 									id="model-cached-price"
 									data-testid="cached-input-price"
 									value={cachedInputPrice}
 									onChange={(e) => setCachedInputPrice(e.target.value)}
-									placeholder="5e-7"
+									placeholder="0.5"
 								/>
 							</div>
 							<div className="space-y-2">
@@ -458,6 +518,9 @@ export function EditModelDialog({
 	const [maxRpd, setMaxRpd] = useState(
 		model.maxRpd ? String(model.maxRpd) : "",
 	);
+	const [rateLimitScope, setRateLimitScope] = useState<RateLimitScope>(
+		model.rateLimitScope,
+	);
 
 	function resetFromModel() {
 		setDisplayName(model.displayName ?? "");
@@ -478,6 +541,7 @@ export function EditModelDialog({
 		);
 		setMaxRpm(model.maxRpm ? String(model.maxRpm) : "");
 		setMaxRpd(model.maxRpd ? String(model.maxRpd) : "");
+		setRateLimitScope(model.rateLimitScope);
 	}
 
 	const updateModel = api.useMutation("patch", "/airside/models/{id}", {
@@ -535,6 +599,7 @@ export function EditModelDialog({
 										: null,
 								maxRpm: maxRpm ? Number(maxRpm) : null,
 								maxRpd: maxRpd ? Number(maxRpd) : null,
+								rateLimitScope,
 							},
 						});
 					}}
@@ -667,10 +732,11 @@ export function EditModelDialog({
 								placeholder="unlimited"
 							/>
 						</div>
-						<p className="text-muted-foreground text-xs sm:col-span-2">
-							Caps apply per organization; platform-set limits always take
-							precedence.
-						</p>
+						<RateLimitScopeField
+							id="edit-rate-limit-scope"
+							value={rateLimitScope}
+							onChange={setRateLimitScope}
+						/>
 					</div>
 					<DialogFooter>
 						<Button
@@ -699,13 +765,13 @@ export function FileFareDialog({
 	const invalidate = useInvalidateModels(model.providerCompanyId);
 	const [open, setOpen] = useState(false);
 	const [inputPrice, setInputPrice] = useState(
-		model.currentPricing?.inputPrice ?? "",
+		perTokenToPerMillion(model.currentPricing?.inputPrice),
 	);
 	const [outputPrice, setOutputPrice] = useState(
-		model.currentPricing?.outputPrice ?? "",
+		perTokenToPerMillion(model.currentPricing?.outputPrice),
 	);
 	const [cachedInputPrice, setCachedInputPrice] = useState(
-		model.currentPricing?.cachedInputPrice ?? "",
+		perTokenToPerMillion(model.currentPricing?.cachedInputPrice),
 	);
 	const [requestPrice, setRequestPrice] = useState(
 		model.currentPricing?.requestPrice ?? "",
@@ -713,9 +779,11 @@ export function FileFareDialog({
 	const [note, setNote] = useState("");
 
 	function resetFromModel() {
-		setInputPrice(model.currentPricing?.inputPrice ?? "");
-		setOutputPrice(model.currentPricing?.outputPrice ?? "");
-		setCachedInputPrice(model.currentPricing?.cachedInputPrice ?? "");
+		setInputPrice(perTokenToPerMillion(model.currentPricing?.inputPrice));
+		setOutputPrice(perTokenToPerMillion(model.currentPricing?.outputPrice));
+		setCachedInputPrice(
+			perTokenToPerMillion(model.currentPricing?.cachedInputPrice),
+		);
 		setRequestPrice(model.currentPricing?.requestPrice ?? "");
 		setNote("");
 	}
@@ -766,9 +834,11 @@ export function FileFareDialog({
 						fileFare.mutate({
 							params: { path: { id: model.id } },
 							body: {
-								inputPrice,
-								outputPrice,
-								cachedInputPrice: cachedInputPrice || undefined,
+								inputPrice: perMillionToPerToken(inputPrice),
+								outputPrice: perMillionToPerToken(outputPrice),
+								cachedInputPrice: cachedInputPrice
+									? perMillionToPerToken(cachedInputPrice)
+									: undefined,
 								requestPrice: requestPrice || undefined,
 								note: note || undefined,
 							},
@@ -777,35 +847,35 @@ export function FileFareDialog({
 				>
 					<div className="grid gap-4 sm:grid-cols-2">
 						<div className="space-y-2">
-							<Label htmlFor="fare-input">Input $/token</Label>
+							<Label htmlFor="fare-input">Input $/1M tokens</Label>
 							<Input
 								id="fare-input"
 								data-testid="fare-input-price"
 								value={inputPrice}
 								onChange={(e) => setInputPrice(e.target.value)}
-								placeholder="2e-6"
+								placeholder="2"
 								required
 							/>
 						</div>
 						<div className="space-y-2">
-							<Label htmlFor="fare-output">Output $/token</Label>
+							<Label htmlFor="fare-output">Output $/1M tokens</Label>
 							<Input
 								id="fare-output"
 								data-testid="fare-output-price"
 								value={outputPrice}
 								onChange={(e) => setOutputPrice(e.target.value)}
-								placeholder="6e-6"
+								placeholder="6"
 								required
 							/>
 						</div>
 						<div className="space-y-2">
-							<Label htmlFor="fare-cached">Cached input $/token</Label>
+							<Label htmlFor="fare-cached">Cached input $/1M tokens</Label>
 							<Input
 								id="fare-cached"
 								data-testid="fare-cached-input-price"
 								value={cachedInputPrice}
 								onChange={(e) => setCachedInputPrice(e.target.value)}
-								placeholder="5e-7"
+								placeholder="0.5"
 							/>
 						</div>
 						<div className="space-y-2">

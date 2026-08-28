@@ -1,9 +1,28 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, eq, inArray, tables } from "@llmgateway/db";
+
+// Website verification resolves a real TXT record; the zone under test is
+// this map. An unlisted name behaves like NXDOMAIN, which is what an
+// unpublished record looks like to the resolver.
+const txtRecords = new Map<string, string[][]>();
+
+vi.mock("node:dns/promises", () => ({
+	Resolver: class {
+		async resolveTxt(name: string) {
+			const found = txtRecords.get(name);
+			if (!found) {
+				throw Object.assign(new Error("queryTxt ENOTFOUND"), {
+					code: "ENOTFOUND",
+				});
+			}
+			return found;
+		}
+	},
+}));
 
 const originalAdminEmails = process.env.ADMIN_EMAILS;
 const originalListingPriceId = process.env.AIRSIDE_LISTING_PRICE_ID;
@@ -1009,7 +1028,8 @@ describe("airside provider portal", () => {
 		expect(body.imported).toContain("mistral-large-latest");
 
 		// Imported listings are active with the current price as an approved
-		// filing — manageable in Airside, still routed via the static catalogue.
+		// filing, and from then on serve the pair in place of the static
+		// catalogue mapping.
 		const row = await db.query.providerDraftModel.findFirst({
 			where: {
 				providerId: { eq: "mistral" },
@@ -1033,6 +1053,47 @@ describe("airside provider portal", () => {
 		expect(secondBody.skipped).toContain("mistral-large-latest");
 	});
 
+	it("skips catalogue mappings a flat listing cannot represent", async () => {
+		// A listing carries one price pair. Importing a mapping with
+		// context-length bands or per-region rates would bill everything
+		// outside the base band at the wrong rate, so those stay behind.
+		await setUserEmail("ops@alibabacloud.com");
+		const company = await createCompany(cookie, "Alibaba Cloud");
+		await claimProvider(cookie, company.id, "alibaba");
+		await activateClaim("alibaba");
+
+		const res = await app.request(
+			"/airside/models/import",
+			json(cookie, { providerCompanyId: company.id, providerId: "alibaba" }),
+		);
+		expect(res.status).toBe(200);
+		const { imported, skipped } = await res.json();
+		// qwen-max is banded by input length; qwen-image-plus is a flat mapping.
+		expect(skipped).toContain("qwen-max");
+		expect(imported).not.toContain("qwen-max");
+		expect(imported).toContain("qwen-image-plus");
+	});
+
+	it("round-trips the carrier rate limit scope", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+
+		// Defaults to one shared counter — what a carrier means by "my
+		// deployment takes 60 rpm".
+		const created = await createModel(cookie, company.id, { maxRpm: 60 });
+		const { model } = await created.json();
+		expect(model.rateLimitScope).toBe("global");
+
+		const patched = await app.request(
+			`/airside/models/${model.id}`,
+			json(cookie, { rateLimitScope: "per_org" }, "PATCH"),
+		);
+		expect(patched.status).toBe(200);
+		expect((await patched.json()).model.rateLimitScope).toBe("per_org");
+	});
+
 	async function registerCarrier(
 		testCookie: string,
 		providerCompanyId: string,
@@ -1049,6 +1110,91 @@ describe("airside provider portal", () => {
 			}),
 		);
 	}
+
+	it("verifies a company website over DNS and accepts it as a claim domain", async () => {
+		// A freemail account proves nothing on its own, so this account can
+		// only register a carrier once it proves the company's domain.
+		await setUserEmail("founder@gmail.com");
+		const create = await app.request(
+			"/airside/companies",
+			json(cookie, { name: "Acme Sky", website: "https://acme-sky.ai" }),
+		);
+		const company = (await create.json()).company as { id: string };
+
+		const blocked = await registerCarrier(cookie, company.id);
+		expect(blocked.status).toBe(403);
+
+		const challenge = await app.request(
+			`/airside/companies/${company.id}/website-verification`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect(challenge.status).toBe(200);
+		const record = await challenge.json();
+		expect(record.domain).toBe("acme-sky.ai");
+		expect(record.recordName).toBe("_llmgateway-airside");
+		expect(record.recordValue).toMatch(
+			/^llmgateway-airside-verification=[0-9a-f]{32}$/,
+		);
+		expect(record.verifiedDomain).toBeNull();
+
+		// Nothing published yet.
+		txtRecords.clear();
+		const tooEarly = await app.request(
+			`/airside/companies/${company.id}/website-verification`,
+			json(cookie),
+		);
+		expect(tooEarly.status).toBe(400);
+
+		txtRecords.set("_llmgateway-airside.acme-sky.ai", [
+			[record.recordValue as string],
+		]);
+		const verified = await app.request(
+			`/airside/companies/${company.id}/website-verification`,
+			json(cookie),
+		);
+		expect(verified.status).toBe(200);
+		expect((await verified.json()).verifiedDomain).toBe("acme-sky.ai");
+
+		// The proven domain now carries a registration the email domain could not.
+		const allowed = await registerCarrier(cookie, company.id);
+		expect(allowed.status).toBe(201);
+		expect((await allowed.json()).claim.matchedDomain).toBe("acme-sky.ai");
+	});
+
+	it("drops the DNS proof when the website moves to another domain", async () => {
+		await setUserEmail("ops@acme-sky.ai");
+		const company = await createCompany(cookie, "Acme Sky");
+		await db
+			.update(tables.providerCompany)
+			.set({ website: "https://acme-sky.ai" })
+			.where(eq(tables.providerCompany.id, company.id));
+
+		const record = await (
+			await app.request(
+				`/airside/companies/${company.id}/website-verification`,
+				{ headers: { Cookie: cookie } },
+			)
+		).json();
+		txtRecords.set("_llmgateway-airside.acme-sky.ai", [
+			[record.recordValue as string],
+		]);
+		await app.request(
+			`/airside/companies/${company.id}/website-verification`,
+			json(cookie),
+		);
+
+		// Editing the website to a domain the token was never published on must
+		// not carry the old proof over.
+		await db
+			.update(tables.providerCompany)
+			.set({ website: "https://somewhere-else.ai" })
+			.where(eq(tables.providerCompany.id, company.id));
+		const after = await app.request("/airside/companies", {
+			headers: { Cookie: cookie },
+		});
+		const [listed] = (await after.json()).companies;
+		expect(listed.websiteVerifiedDomain).toBeNull();
+	});
 
 	it("registers a new carrier as a pending custom claim", async () => {
 		await setUserEmail("ops@acme-sky.ai");

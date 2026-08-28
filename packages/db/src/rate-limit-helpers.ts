@@ -34,8 +34,9 @@ interface RateLimitMatch {
  * Result of rate limit lookup with precedence information.
  *
  * `rpmShared`/`rpdShared` are true when the matched limit is a global row
- * (organizationId = null) configured for shared enforcement, meaning the
- * counter is shared across all orgs rather than bucketed per-org.
+ * (organizationId = null) configured for shared enforcement, or a carrier cap
+ * whose listing chose "global" scope, meaning the counter is shared across all
+ * orgs rather than bucketed per-org.
  *
  * For shared limits, `rpmProvider`/`rpmModel` (and the rpd equivalents) carry
  * the matched row's target so callers can key the shared counter by what the
@@ -258,13 +259,15 @@ async function queryEffectiveRateLimit(
 	);
 
 	// Carrier-managed caps on Airside listings fill only the windows no admin
-	// row constrains — admin limits always take precedence. Per-org counters
-	// (shared stays false).
+	// row constrains — admin limits always take precedence. The carrier picks
+	// how its cap is bucketed: "global" is one counter across every org (what
+	// "my deployment takes 60 rpm" means), "per_org" gives each org its own.
 	if (includeCarrierCaps && (rpm.source === "none" || rpd.source === "none")) {
 		const carrierRows = await cdb
 			.select({
 				maxRpm: providerDraftModelTable.maxRpm,
 				maxRpd: providerDraftModelTable.maxRpd,
+				rateLimitScope: providerDraftModelTable.rateLimitScope,
 			})
 			.from(providerDraftModelTable)
 			.where(
@@ -277,13 +280,20 @@ async function queryEffectiveRateLimit(
 			.limit(1);
 		const carrier = carrierRows[0];
 		if (carrier) {
+			const shared = carrier.rateLimitScope === "global";
 			if (rpm.source === "none" && carrier.maxRpm !== null) {
 				rpm.limit = carrier.maxRpm;
 				rpm.source = "carrier_provider_model";
+				rpm.shared = shared;
+				rpm.provider = provider;
+				rpm.model = model;
 			}
 			if (rpd.source === "none" && carrier.maxRpd !== null) {
 				rpd.limit = carrier.maxRpd;
 				rpd.source = "carrier_provider_model";
+				rpd.shared = shared;
+				rpd.provider = provider;
+				rpd.model = model;
 			}
 		}
 	}

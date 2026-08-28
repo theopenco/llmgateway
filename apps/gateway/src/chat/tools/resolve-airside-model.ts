@@ -4,11 +4,7 @@ import {
 	findAirsideModelsByBareName,
 } from "@/lib/cached-queries.js";
 
-import {
-	models,
-	providers,
-	staticCatalogueMapsModel,
-} from "@llmgateway/models";
+import { models, providers } from "@llmgateway/models";
 
 import type { ParseModelInputResult } from "./parse-model-input.js";
 import type { ResolveModelInfoResult } from "./resolve-model-info.js";
@@ -96,19 +92,14 @@ export async function resolveAirsideModel(
 			return null;
 		}
 		customBaseUrl = carrier.baseUrl;
-	} else {
-		// An ACTIVE catalogue mapping of this provider always wins over a
-		// listing. A deactivated one does not: deactivating the static mapping
-		// hands the model over to the carrier's Airside listing — the
-		// catalogue -> DB migration switch.
-		if (
-			staticCatalogueMapsModel(providerCandidate, modelName, {
-				activeOnly: true,
-			})
-		) {
-			return null;
-		}
 	}
+	// An active listing wins over the static catalogue mapping of the same
+	// pair. That is the catalogue -> DB migration switch: a carrier imports
+	// its catalogue models (which copies the catalogue's own prices into an
+	// approved filing), serves from the listing, and the hardcoded mapping can
+	// then be retired without a routing gap. Price changes from there still go
+	// through admin-approved filings, so the handover cannot reprice traffic
+	// on its own.
 
 	const listed = await findAirsideModel(providerCandidate, modelName);
 	if (!listed) {

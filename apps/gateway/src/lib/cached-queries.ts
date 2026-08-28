@@ -49,10 +49,7 @@ import {
 	userOrganization as userOrganizationTable,
 	wallet as walletTable,
 } from "@llmgateway/db";
-import {
-	getRegionScopedDefaultRegion,
-	staticCatalogueMapsModel,
-} from "@llmgateway/models";
+import { getRegionScopedDefaultRegion } from "@llmgateway/models";
 
 import {
 	getApiKeyFingerprint,
@@ -1193,13 +1190,11 @@ export async function findEffectiveRateLimit(
 	provider: string,
 	model: string,
 ): Promise<EffectiveRateLimit> {
-	return await getEffectiveRateLimit(organizationId, provider, model, {
-		// Carrier caps only apply when the Airside listing actually serves the
-		// pair — an actively-mapped static model must stay unthrottled by them.
-		includeCarrierCaps: !staticCatalogueMapsModel(provider, model, {
-			activeOnly: true,
-		}),
-	});
+	// An active listing now serves its pair even when the static catalogue
+	// still maps it (see resolveAirsideModel), so the carrier's own caps apply
+	// wherever a listing exists. getEffectiveRateLimit only reads them from
+	// active listings, and admin rate_limit rows still outrank them.
+	return await getEffectiveRateLimit(organizationId, provider, model);
 }
 
 /**

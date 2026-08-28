@@ -9,9 +9,9 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+import { CrewChannelCard } from "@/components/CrewChannelCard";
 import { useCompany } from "@/components/dashboard/company-context";
 import { TrafficChart } from "@/components/dashboard/TrafficChart";
-import { SlackCard } from "@/components/SlackCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,6 +21,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/ui/card";
+import { useUser } from "@/hooks/useUser";
 import { useApi } from "@/lib/fetch-client";
 import { formatCompact, formatUsd } from "@/lib/format";
 
@@ -54,6 +55,7 @@ function StatCard({
 
 export default function OperationsPage() {
 	const api = useApi();
+	const { user } = useUser();
 	const { company, isLoading: companyLoading } = useCompany();
 
 	const statsQuery = api.useQuery(
@@ -257,7 +259,7 @@ export default function OperationsPage() {
 				</Card>
 			</div>
 
-			<SlackCard />
+			<CrewChannelCard companyId={company?.id} email={user?.email ?? ""} />
 		</div>
 	);
 }

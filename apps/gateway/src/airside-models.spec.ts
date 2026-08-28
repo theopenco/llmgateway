@@ -221,6 +221,46 @@ describe("airside-listed models", () => {
 		expect(captured).toHaveLength(0);
 	});
 
+	test("an active listing overrides the static catalogue mapping", async () => {
+		// The catalogue-to-DB migration switch: a carrier imports its catalogue
+		// models, and from then on its listing — not the hardcoded mapping —
+		// serves and prices the pair, so the mapping can be retired later
+		// without a routing gap.
+		const token = "airside-override-token";
+		await setup(token);
+		await db
+			.update(tables.providerDraftModel)
+			.set({ modelName: "mistral-small-2506" })
+			.where(eq(tables.providerDraftModel.id, `${token}-model`));
+		await clearCache();
+
+		const requestId = "airside-override-req-1";
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${token}`,
+				"x-no-fallback": "true",
+				"x-request-id": requestId,
+			},
+			body: JSON.stringify({
+				model: "mistral/mistral-small-2506",
+				messages: [{ role: "user", content: "Say hi" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(captured).toHaveLength(1);
+		expect(captured[0].body.model).toBe("mistral-small-2506");
+
+		// Billed at the filing ($2/M in, $10/M out), not the catalogue mapping's
+		// $0.1/M and $0.3/M.
+		const log = await waitForLogByRequestId(requestId);
+		expect(log).toBeTruthy();
+		expect(Number(log!.inputCost)).toBeCloseTo(0.002, 6);
+		expect(Number(log!.outputCost)).toBeCloseTo(0.005, 6);
+	});
+
 	async function setupCustomCarrier(
 		token: string,
 		options: { managedCredential?: boolean } = {},

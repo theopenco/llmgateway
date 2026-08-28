@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -7,12 +9,18 @@ import {
 	staticCatalogueHasActiveMapping,
 	syncAirsideModelMetadata,
 } from "@/lib/airside-catalogue.js";
+import { domainPublishesToken } from "@/lib/airside-dns.js";
 import {
-	claimableProvidersForEmail,
+	acceptedClaimDomains,
+	claimableProvidersForDomains,
 	emailRegistrableDomain,
 	isFreemailDomain,
 	registrableDomain,
+	verifiedWebsiteDomain,
+	WEBSITE_VERIFICATION_TXT_NAME,
+	websiteVerificationRecord,
 } from "@/lib/airside-domains.js";
+import { notifyAirsideCrewInvite } from "@/utils/discord.js";
 
 import {
 	AIRSIDE_BASELINE_MARGIN,
@@ -115,6 +123,10 @@ const claimSchema = z.object({
 	reviewNote: z.string().nullable(),
 	logoUrl: z.string().nullable(),
 	iconUrl: z.string().nullable(),
+	// Whether we hold a platform credential for this carrier. Without one the
+	// gateway has nothing to authenticate with, so an approved listing still
+	// serves no traffic — the portal says so instead of looking healthy.
+	hasManagedCredential: z.boolean(),
 	createdAt: z.string(),
 });
 
@@ -122,6 +134,10 @@ const companySchema = z.object({
 	id: z.string(),
 	name: z.string(),
 	website: z.string().nullable(),
+	// DNS proof of the website's domain. `websiteVerifiedDomain` is non-null
+	// only while the proof still covers the current `website`.
+	websiteVerifiedDomain: z.string().nullable(),
+	websiteVerifiedAt: z.string().nullable(),
 	role: z.enum(["owner", "member"]),
 	paymentStatus: z.enum(["unpaid", "paid"]),
 	// Whether this deployment enforces the listing fee at all.
@@ -167,6 +183,8 @@ const modelSchema = z.object({
 	// Carrier-managed request caps; admin rate limits take precedence.
 	maxRpm: z.number().nullable(),
 	maxRpd: z.number().nullable(),
+	// "global" = one counter across all organizations, "per_org" = one each.
+	rateLimitScope: z.enum(["global", "per_org"]),
 	status: z.enum(["draft", "active", "rejected", "delisted"]),
 	createdAt: z.string(),
 	updatedAt: z.string(),
@@ -193,6 +211,7 @@ type DraftModelRow = typeof tables.providerDraftModel.$inferSelect;
 function serializeClaim(
 	row: ProviderClaimRow,
 	providerNames: Map<string, string>,
+	credentialedProviders?: Set<string>,
 ) {
 	return {
 		id: row.id,
@@ -209,8 +228,39 @@ function serializeClaim(
 		reviewNote: row.reviewNote,
 		logoUrl: row.logoUrl,
 		iconUrl: row.iconUrl,
+		// Unknown on the single-claim responses (nothing renders the warning
+		// off those); the companies listing the portal polls resolves it.
+		hasManagedCredential: credentialedProviders?.has(row.providerId) ?? true,
 		createdAt: row.createdAt.toISOString(),
 	};
+}
+
+/**
+ * Providers we hold a live platform credential for, out of the given ids.
+ * Catalogue providers may also be keyed from the environment, which no DB row
+ * records — so those count as credentialed and never raise the warning.
+ */
+async function credentialedProviderIds(
+	providerIds: string[],
+): Promise<Set<string>> {
+	if (providerIds.length === 0) {
+		return new Set();
+	}
+	const keys = await db.query.providerKey.findMany({
+		where: {
+			managed: { eq: true },
+			status: { ne: "deleted" },
+			provider: { in: providerIds },
+		},
+		columns: { provider: true },
+	});
+	const withKey = new Set(keys.map((key) => key.provider));
+	for (const id of providerIds) {
+		if (catalogueProviders.some((p) => p.id === id)) {
+			withKey.add(id);
+		}
+	}
+	return withKey;
 }
 
 function serializeFiling(row: PriceFilingRow) {
@@ -259,6 +309,7 @@ function serializeModel(
 			(typeof REASONING_EFFORT_VALUES)[number][] | null,
 		maxRpm: row.maxRpm,
 		maxRpd: row.maxRpd,
+		rateLimitScope: row.rateLimitScope,
 		status: row.status,
 		createdAt: row.createdAt.toISOString(),
 		updatedAt: row.updatedAt.toISOString(),
@@ -314,6 +365,32 @@ async function requireCompanyMembership(
 	return membership;
 }
 
+/**
+ * Every registrable domain this user may claim on: their verified email
+ * domain plus any domain one of their companies proved over DNS.
+ */
+async function userClaimDomains(user: {
+	id: string;
+	email: string;
+}): Promise<Set<string>> {
+	const memberships = await db.query.providerCompanyMember.findMany({
+		where: { userId: { eq: user.id } },
+		with: { providerCompany: true },
+	});
+	const domains = acceptedClaimDomains(user.email, null);
+	for (const membership of memberships) {
+		const company = membership.providerCompany;
+		if (!company) {
+			continue;
+		}
+		const verified = verifiedWebsiteDomain(company);
+		if (verified) {
+			domains.add(verified);
+		}
+	}
+	return domains;
+}
+
 async function getActiveClaimedProviderIds(
 	providerCompanyId: string,
 ): Promise<string[]> {
@@ -357,17 +434,29 @@ airside.openapi(listCompanies, async (c) => {
 		orderBy: { createdAt: "asc" },
 	});
 	const providerNames = providerNamesById;
+	const credentialed = await credentialedProviderIds([
+		...new Set(
+			memberships.flatMap(
+				(m) => m.providerCompany?.claims.map((claim) => claim.providerId) ?? [],
+			),
+		),
+	]);
 	return c.json({
 		companies: memberships.flatMap((m) => {
 			const company = m.providerCompany;
 			if (!company) {
 				return [];
 			}
+			const verifiedDomain = verifiedWebsiteDomain(company) ?? null;
 			return [
 				{
 					id: company.id,
 					name: company.name,
 					website: company.website,
+					websiteVerifiedDomain: verifiedDomain,
+					websiteVerifiedAt: verifiedDomain
+						? (company.websiteVerifiedAt?.toISOString() ?? null)
+						: null,
 					role: m.role,
 					paymentStatus: company.paymentStatus,
 					paymentRequired: airsideListingFeeRequired(),
@@ -376,7 +465,7 @@ airside.openapi(listCompanies, async (c) => {
 						// Rejected claims stay visible so the carrier sees the
 						// review note; only revoked ones disappear.
 						.filter((claim) => claim.status !== "revoked")
-						.map((claim) => serializeClaim(claim, providerNames)),
+						.map((claim) => serializeClaim(claim, providerNames, credentialed)),
 				},
 			];
 		}),
@@ -431,6 +520,8 @@ airside.openapi(createCompany, async (c) => {
 				id: company.id,
 				name: company.name,
 				website: company.website,
+				websiteVerifiedDomain: null,
+				websiteVerifiedAt: null,
 				role: "owner" as const,
 				paymentStatus: company.paymentStatus,
 				paymentRequired: airsideListingFeeRequired(),
@@ -440,6 +531,191 @@ airside.openapi(createCompany, async (c) => {
 		},
 		201,
 	);
+});
+
+// ---------------------------------------------------------------------------
+// Website domain verification (DNS TXT)
+// ---------------------------------------------------------------------------
+
+const websiteVerificationSchema = z.object({
+	// The domain the token must be published on, derived from `website`.
+	domain: z.string().nullable(),
+	recordName: z.string(),
+	recordValue: z.string().nullable(),
+	verifiedDomain: z.string().nullable(),
+	verifiedAt: z.string().nullable(),
+});
+
+const getWebsiteVerification = createRoute({
+	method: "get",
+	path: "/companies/{id}/website-verification",
+	request: { params: z.object({ id: z.string() }) },
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: websiteVerificationSchema },
+			},
+			description: "The DNS record that proves the company's website domain.",
+		},
+	},
+});
+
+/**
+ * Issues the company's verification token on first read and keeps it stable
+ * afterwards, so the record a carrier already published stays valid.
+ */
+async function ensureVerificationToken(company: {
+	id: string;
+	websiteVerificationToken: string | null;
+}): Promise<string> {
+	if (company.websiteVerificationToken) {
+		return company.websiteVerificationToken;
+	}
+	const token = randomBytes(16).toString("hex");
+	await db
+		.update(tables.providerCompany)
+		.set({ websiteVerificationToken: token })
+		.where(eq(tables.providerCompany.id, company.id));
+	return token;
+}
+
+function websiteDomainOf(website: string | null): string | null {
+	if (!website) {
+		return null;
+	}
+	try {
+		return registrableDomain(new URL(website).hostname);
+	} catch {
+		return null;
+	}
+}
+
+airside.openapi(getWebsiteVerification, async (c) => {
+	const user = requireUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	await requireCompanyMembership(user.id, id);
+	const company = await db.query.providerCompany.findFirst({
+		where: { id: { eq: id } },
+	});
+	if (!company) {
+		throw new HTTPException(404, { message: "Provider company not found" });
+	}
+	const domain = websiteDomainOf(company.website);
+	const verified = verifiedWebsiteDomain(company) ?? null;
+	return c.json({
+		domain,
+		recordName: WEBSITE_VERIFICATION_TXT_NAME,
+		recordValue: domain
+			? websiteVerificationRecord(await ensureVerificationToken(company))
+			: null,
+		verifiedDomain: verified,
+		verifiedAt: verified
+			? (company.websiteVerifiedAt?.toISOString() ?? null)
+			: null,
+	});
+});
+
+const checkWebsiteVerification = createRoute({
+	method: "post",
+	path: "/companies/{id}/website-verification",
+	request: { params: z.object({ id: z.string() }) },
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: websiteVerificationSchema },
+			},
+			description: "Re-resolves the TXT record and records the result.",
+		},
+	},
+});
+
+airside.openapi(checkWebsiteVerification, async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	await requireCompanyMembership(user.id, id);
+	const company = await db.query.providerCompany.findFirst({
+		where: { id: { eq: id } },
+	});
+	if (!company) {
+		throw new HTTPException(404, { message: "Provider company not found" });
+	}
+	const domain = websiteDomainOf(company.website);
+	if (!domain) {
+		throw new HTTPException(400, {
+			message: "Add your company website before verifying its domain.",
+		});
+	}
+	const token = await ensureVerificationToken(company);
+	const found = await domainPublishesToken(
+		WEBSITE_VERIFICATION_TXT_NAME,
+		domain,
+		token,
+	);
+	if (!found) {
+		throw new HTTPException(400, {
+			message: `No matching TXT record on ${WEBSITE_VERIFICATION_TXT_NAME}.${domain} yet. DNS changes can take a few minutes to propagate.`,
+		});
+	}
+	const [updated] = await db
+		.update(tables.providerCompany)
+		.set({ websiteVerifiedDomain: domain, websiteVerifiedAt: new Date() })
+		.where(eq(tables.providerCompany.id, id))
+		.returning();
+	return c.json({
+		domain,
+		recordName: WEBSITE_VERIFICATION_TXT_NAME,
+		recordValue: websiteVerificationRecord(token),
+		verifiedDomain: updated.websiteVerifiedDomain,
+		verifiedAt: updated.websiteVerifiedAt?.toISOString() ?? null,
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Crew channel invite
+// ---------------------------------------------------------------------------
+
+const requestCrewInvite = createRoute({
+	method: "post",
+	path: "/companies/{id}/crew-invite",
+	request: { params: z.object({ id: z.string() }) },
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ email: z.string() }),
+				},
+			},
+			description:
+				"Notifies our crew to invite the caller to the carrier channel.",
+		},
+	},
+});
+
+/**
+ * Carriers get a shared channel with our team. There is no self-serve invite
+ * API on our side yet, so the request lands in the same Discord channel as
+ * provider listing requests and we invite the address by hand.
+ */
+airside.openapi(requestCrewInvite, async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	await requireCompanyMembership(user.id, id);
+	const company = await db.query.providerCompany.findFirst({
+		where: { id: { eq: id } },
+		with: { claims: true },
+	});
+	if (!company) {
+		throw new HTTPException(404, { message: "Provider company not found" });
+	}
+	await notifyAirsideCrewInvite({
+		companyName: company.name,
+		email: user.email,
+		website: company.website,
+		carriers: company.claims
+			.filter((claim) => claim.status !== "revoked")
+			.map((claim) => `${claim.providerId} (${claim.kind}, ${claim.status})`),
+	});
+	return c.json({ email: user.email });
 });
 
 const createListingCheckout = createRoute({
@@ -581,7 +857,8 @@ airside.openapi(listClaimable, async (c) => {
 	if (!user) {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
-	const matches = claimableProvidersForEmail(user.email);
+	const claimDomains = await userClaimDomains(user);
+	const matches = claimableProvidersForDomains(claimDomains);
 	const claims = matches.length
 		? await db.query.providerClaim.findMany({
 				where: {
@@ -665,13 +942,14 @@ airside.openapi(createClaim, async (c) => {
 		}
 	}
 
-	const match = claimableProvidersForEmail(user.email).find(
+	const claimDomains = await userClaimDomains(user);
+	const match = claimableProvidersForDomains(claimDomains).find(
 		(m) => m.providerId === providerId,
 	);
 	if (!match) {
 		throw new HTTPException(403, {
 			message:
-				"Your email domain does not match this provider's API endpoint domain.",
+				"Neither your email domain nor a DNS-verified company domain matches this provider's API endpoint domain.",
 		});
 	}
 
@@ -820,22 +1098,28 @@ airside.openapi(registerCarrier, async (c) => {
 	}
 
 	// The same anti-squatting rule as claiming: the registered endpoint must
-	// live on the verified email's registrable domain. The SSRF guard keeps
+	// live on a domain the registrant proved — their verified email's domain,
+	// or one their company published our TXT token on. The SSRF guard keeps
 	// the stored URL a safe outbound fetch target (https, public host).
 	await assertSafeProviderUrl(body.baseUrl);
 	const emailDomain = emailRegistrableDomain(user.email);
-	if (isFreemailDomain(emailDomain)) {
+	const claimDomains = await userClaimDomains(user);
+	if (claimDomains.size === 0) {
 		throw new HTTPException(403, {
-			message:
-				"Personal email domains can't host a carrier API. Sign up with an address on your company's domain to register a carrier.",
+			message: isFreemailDomain(emailDomain)
+				? "Personal email domains can't host a carrier API. Sign up with an address on your company's domain, or verify your company's domain over DNS, to register a carrier."
+				: "Verify your email, or verify your company's domain over DNS, before registering a carrier.",
 		});
 	}
 	const endpointDomain = registrableDomain(new URL(body.baseUrl).hostname);
-	if (!emailDomain || endpointDomain !== emailDomain) {
+	if (!claimDomains.has(endpointDomain)) {
 		throw new HTTPException(403, {
-			message: `The API endpoint must be on your verified email domain (@${emailDomain ?? "?"}).`,
+			message: `The API endpoint must be on ${[...claimDomains]
+				.map((d) => `@${d}`)
+				.join(" or ")} — the domain you verified.`,
 		});
 	}
+	const matchedDomain = endpointDomain;
 
 	const existing = await db.query.providerClaim.findFirst({
 		where: {
@@ -860,7 +1144,7 @@ airside.openapi(registerCarrier, async (c) => {
 				providerCompanyId: body.providerCompanyId,
 				providerId,
 				kind: "custom",
-				matchedDomain: emailDomain,
+				matchedDomain,
 				customName: body.name,
 				customBaseUrl: body.baseUrl,
 				customDescription: body.description ?? null,
@@ -1007,6 +1291,7 @@ const createModel = createRoute({
 						reasoningEfforts: reasoningEffortsValue.nullish(),
 						maxRpm: z.number().int().positive().optional(),
 						maxRpd: z.number().int().positive().optional(),
+						rateLimitScope: z.enum(["global", "per_org"]).optional(),
 						pricing: pricingSchema,
 						note: z.string().max(1000).optional(),
 					}),
@@ -1094,6 +1379,7 @@ airside.openapi(createModel, async (c) => {
 					reasoningEfforts: body.reasoningEfforts ?? null,
 					maxRpm: body.maxRpm ?? null,
 					maxRpd: body.maxRpd ?? null,
+					rateLimitScope: body.rateLimitScope ?? "global",
 					createdBy: user.id,
 				})
 				.returning();
@@ -1218,7 +1504,17 @@ airside.openapi(importCatalogueModels, async (c) => {
 		// The literal-typed catalogue entries narrow away optional fields;
 		// the interface view restores them.
 		const mapping = found as ProviderModelMapping;
-		if (listed.has(model.id) || !mapping.inputPrice || !mapping.outputPrice) {
+		// A listing carries one flat price pair. A catalogue mapping with
+		// context-length bands or per-region rates cannot be represented by
+		// one, and importing it anyway would bill every request outside the
+		// base band at the wrong rate — so those stay on the catalogue.
+		if (
+			listed.has(model.id) ||
+			!mapping.inputPrice ||
+			!mapping.outputPrice ||
+			(mapping.pricingTiers?.length ?? 0) > 0 ||
+			(mapping.regions?.length ?? 0) > 0
+		) {
 			skipped.push(model.id);
 			continue;
 		}
@@ -1293,6 +1589,7 @@ const updateModel = createRoute({
 						reasoningEfforts: reasoningEffortsValue.nullish(),
 						maxRpm: z.number().int().positive().nullish(),
 						maxRpd: z.number().int().positive().nullish(),
+						rateLimitScope: z.enum(["global", "per_org"]).optional(),
 					}),
 				},
 			},
@@ -1350,6 +1647,9 @@ airside.openapi(updateModel, async (c) => {
 			: {}),
 		...(body.maxRpm !== undefined ? { maxRpm: body.maxRpm } : {}),
 		...(body.maxRpd !== undefined ? { maxRpd: body.maxRpd } : {}),
+		...(body.rateLimitScope !== undefined
+			? { rateLimitScope: body.rateLimitScope }
+			: {}),
 	};
 	// An empty diff is a no-op, not a drizzle "No values to set" 500.
 	if (Object.keys(updates).length === 0) {

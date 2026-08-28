@@ -73,8 +73,9 @@ test("registering a model drafts it with an initial fare filing", async ({
 	const modelName = `pw-test-${Date.now()}`;
 	await page.getByTestId("register-model-button").click();
 	await page.getByTestId("model-name-input").fill(modelName);
-	await page.getByTestId("input-price").fill("1e-6");
-	await page.getByTestId("output-price").fill("3e-6");
+	// Prices are entered as dollars per million tokens.
+	await page.getByTestId("input-price").fill("1");
+	await page.getByTestId("output-price").fill("3");
 	await page.getByTestId("register-model-submit").click();
 
 	const strip = page.getByTestId(`model-strip-${modelName}`);
@@ -136,6 +137,11 @@ test("new provider signs up and claims by email domain", async ({ page }) => {
 	await page.click('button[type="submit"]');
 	await page.waitForURL("**/onboarding**", { timeout: 45_000 });
 
+	// The domain rule is stated up front, before anything is submitted.
+	await expect(page.getByTestId("domain-rule-notice")).toContainText(
+		"deepseek.com",
+	);
+
 	// Self-hosted dev auto-verifies email, so company creation is unlocked.
 	await page.fill("#company-name", "Deepseek Test Co");
 	await page.getByRole("button", { name: "Register company" }).click();
@@ -147,9 +153,11 @@ test("new provider signs up and claims by email domain", async ({ page }) => {
 	// claimable; on re-runs a previous run's company already holds a
 	// pending claim on it.
 	await expect(page.getByText("deepseek · matched deepseek.com")).toBeVisible();
-	const claimButton = page.getByRole("button", { name: "Claim", exact: true });
+	const claimButton = page.getByTestId("open-claim-dialog");
 	if (await claimButton.isVisible()) {
 		await claimButton.click();
+		// Claiming opens the branding dialog; the claim is filed from there.
+		await page.getByTestId("confirm-claim").click();
 		// Claims are reviewed by the team before the carrier goes live.
 		await expect(page.getByText("Under review")).toBeVisible({
 			timeout: 15_000,
@@ -158,9 +166,28 @@ test("new provider signs up and claims by email domain", async ({ page }) => {
 		await expect(page.getByText("Claimed by another team")).toBeVisible();
 	}
 
-	// Every new carrier is invited to the shared cross-team Slack channel.
-	await expect(page.getByTestId("slack-card")).toBeVisible();
-	await expect(
-		page.getByRole("link", { name: "Join our Slack" }),
-	).toHaveAttribute("href", /llmgatewayworkspace\.slack\.com/);
+	// Registering a brand-new carrier checks the endpoint domain as you type,
+	// inline, instead of failing with a toast after submitting.
+	await page.getByTestId("open-register-carrier").click();
+	await page.getByTestId("carrier-id-input").fill(`pw-carrier-${Date.now()}`);
+	await page.getByTestId("carrier-name-input").fill("Deepseek Test Carrier");
+	await page.getByTestId("carrier-base-url-input").fill("https://api.wrong.io");
+	await expect(page.getByTestId("carrier-base-url-hint")).toContainText(
+		"Must be on deepseek.com",
+	);
+	await expect(page.getByTestId("confirm-register-carrier")).toBeDisabled();
+	await page
+		.getByTestId("carrier-base-url-input")
+		.fill("https://api.deepseek.com");
+	await expect(page.getByTestId("confirm-register-carrier")).toBeEnabled();
+	await page.keyboard.press("Escape");
+
+	// Every new carrier can ask for its shared channel with our crew; the
+	// request pings us on Discord and we invite the verified address.
+	await expect(page.getByTestId("crew-channel-card")).toBeVisible();
+	await page.getByTestId("request-crew-invite").click();
+	await expect(page.getByText("Invite requested")).toBeVisible({
+		timeout: 15_000,
+	});
+	await expect(page.getByTestId("crew-channel-card")).toContainText(email);
 });

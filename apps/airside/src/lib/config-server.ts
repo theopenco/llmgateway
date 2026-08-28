@@ -6,7 +6,6 @@ export interface AppConfig {
 	docsUrl: string;
 	githubUrl: string;
 	discordUrl: string;
-	slackUrl: string;
 	githubAuth: boolean;
 	googleAuth: boolean;
 }
@@ -22,8 +21,6 @@ export function getConfig(): AppConfig {
 		githubUrl:
 			process.env.GITHUB_URL ?? "https://github.com/theopenco/llmgateway",
 		discordUrl: process.env.DISCORD_URL ?? "https://llmgateway.io/discord",
-		slackUrl:
-			process.env.AIRSIDE_SLACK_URL ?? "https://llmgatewayworkspace.slack.com",
 		githubAuth: !!process.env.GITHUB_CLIENT_ID,
 		googleAuth: !!process.env.GOOGLE_CLIENT_ID,
 	};
