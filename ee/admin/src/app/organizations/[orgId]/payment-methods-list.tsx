@@ -480,7 +480,12 @@ export function PaymentMethodsList({
 									</div>
 									<p className="mt-1 text-xs text-muted-foreground">
 										Retained{" "}
-										{new Date(fingerprint.createdAt).toLocaleDateString()}
+										{new Date(fingerprint.createdAt).toLocaleDateString(
+											"en-US",
+											{
+												timeZone: "UTC",
+											},
+										)}
 										{fingerprint.canRelease
 											? ""
 											: " · End the DevPass subscription before release"}

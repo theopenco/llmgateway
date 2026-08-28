@@ -1008,6 +1008,27 @@ describe("dev plan tier changes", () => {
 		expect(org?.devPlanStripeSubscriptionId).toBeNull();
 	});
 
+	it("requires a payment method before resuming", async () => {
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription({
+				cancel_at_period_end: true,
+				default_payment_method: null,
+			}),
+		);
+
+		const res = await app.request("/dev-plans/resume", {
+			method: "POST",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({}),
+		});
+
+		expect(res.status).toBe(409);
+		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
+	});
+
 	it("schedules a downgrade for renewal instead of applying it immediately", async () => {
 		// Start on pro so switching to lite is a downgrade. The lower tier must not
 		// take effect until renewal: devPlan stays pro, the current cycle's credits
@@ -1662,5 +1683,36 @@ describe("dev plan payment method removal", () => {
 			headers: { Cookie: token },
 		});
 		expect(deleteResponse.status).toBe(200);
+	});
+
+	it("continues cleanup when detaching a card fails", async () => {
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "active",
+			cancel_at_period_end: true,
+			default_payment_method: "pm_current",
+		});
+		stripeMock.paymentMethods.detach.mockRejectedValueOnce(
+			new Error("resource_missing"),
+		);
+		await db.insert(tables.paymentMethod).values({
+			organizationId: ORG_ID,
+			stripePaymentMethodId: "pm_current",
+			type: "card",
+			isDefault: true,
+		});
+
+		const response = await app.request("/dev-plans/payment-method", {
+			method: "DELETE",
+			headers: { Cookie: token },
+		});
+
+		expect(response.status).toBe(200);
+		expect(await db.query.paymentMethod.findMany()).toHaveLength(0);
+		const org = await db.query.organization.findFirst({
+			where: { id: ORG_ID },
+		});
+		expect(org?.autoTopUpEnabled).toBe(false);
 	});
 });

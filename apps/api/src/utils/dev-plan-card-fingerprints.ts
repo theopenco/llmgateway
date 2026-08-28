@@ -26,6 +26,33 @@ export async function findDevPlanCardFingerprintOwner(
 	);
 }
 
+export async function claimDevPlanCardFingerprint(
+	organizationId: string,
+	fingerprint: string,
+): Promise<{ id: string } | null> {
+	const existingOwner = await findDevPlanCardFingerprintOwner(
+		fingerprint,
+		organizationId,
+	);
+	if (existingOwner) {
+		return existingOwner;
+	}
+
+	const claimed = await db
+		.insert(tables.devPlanCardFingerprintHistory)
+		.values({ organizationId, fingerprint })
+		.onConflictDoNothing()
+		.returning({
+			organizationId: tables.devPlanCardFingerprintHistory.organizationId,
+		});
+
+	if (claimed.length > 0) {
+		return null;
+	}
+
+	return await findDevPlanCardFingerprintOwner(fingerprint, organizationId);
+}
+
 export async function rememberDevPlanCardFingerprint(
 	organizationId: string,
 	fingerprint: string | null | undefined,

@@ -38,7 +38,7 @@ import {
 import { posthog } from "./posthog.js";
 import { getStripe, type StripeMode } from "./routes/payments.js";
 import {
-	findDevPlanCardFingerprintOwner,
+	claimDevPlanCardFingerprint,
 	rememberDevPlanCardFingerprint,
 } from "./utils/dev-plan-card-fingerprints.js";
 import { getDevPlanTierFromInvoice } from "./utils/dev-plan-prices.js";
@@ -916,9 +916,9 @@ export async function finalizeDevPlanSetupSession(
 			: null;
 
 	if (fingerprint && isDevPlanCardDedupeEnforced()) {
-		const conflictingOrg = await findDevPlanCardFingerprintOwner(
-			fingerprint,
+		const conflictingOrg = await claimDevPlanCardFingerprint(
 			organizationId,
+			fingerprint,
 		);
 		if (conflictingOrg) {
 			try {

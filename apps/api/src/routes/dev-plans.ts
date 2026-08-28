@@ -28,7 +28,7 @@ import {
 } from "@/stripe.js";
 import { findDefaultOrganization } from "@/utils/default-org.js";
 import {
-	findDevPlanCardFingerprintOwner,
+	claimDevPlanCardFingerprint,
 	rememberDevPlanCardFingerprint,
 	rememberDevPlanCardFingerprints,
 } from "@/utils/dev-plan-card-fingerprints.js";
@@ -786,6 +786,9 @@ const resume = createRoute({
 			},
 			description: "Dev plan subscription resumed successfully",
 		},
+		409: {
+			description: "A payment method is required before resuming",
+		},
 	},
 });
 
@@ -849,6 +852,12 @@ devPlans.openapi(resume, async (c) => {
 		if (!subscription.cancel_at_period_end) {
 			throw new HTTPException(400, {
 				message: "Subscription is not cancelled",
+			});
+		}
+
+		if (!getStripeId(subscription.default_payment_method)) {
+			throw new HTTPException(409, {
+				message: "Add a payment method before resuming your subscription.",
 			});
 		}
 
@@ -3120,7 +3129,13 @@ devPlans.openapi(removePaymentMethod, async (c) => {
 			!state.stripeCustomerId ||
 			getStripeId(paymentMethod.customer) === state.stripeCustomerId
 		) {
-			await state.stripe.paymentMethods.detach(paymentMethod.id);
+			try {
+				await state.stripe.paymentMethods.detach(paymentMethod.id);
+			} catch (err) {
+				logger.warn(`Failed to detach dev plan card ${paymentMethod.id}`, {
+					error: err instanceof Error ? err.message : String(err),
+				});
+			}
 		}
 	}
 
@@ -3334,9 +3349,9 @@ devPlans.openapi(updatePaymentMethod, async (c) => {
 	// different org and detach it so it isn't silently left on this customer.
 	// Skipped in local development so the same Stripe test card can be reused.
 	if (isDevPlanCardDedupeEnforced()) {
-		const conflictingOrg = await findDevPlanCardFingerprintOwner(
-			fingerprint,
+		const conflictingOrg = await claimDevPlanCardFingerprint(
 			personalOrg.id,
+			fingerprint,
 		);
 		if (conflictingOrg) {
 			try {
