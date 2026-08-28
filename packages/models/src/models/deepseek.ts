@@ -1005,7 +1005,7 @@ export const deepseekModels = [
 		description:
 			"Experimental multimodal DeepSeek V4 Flash model with vision, extended context, and reasoning.",
 		family: "deepseek",
-		stability: "experimental",
+		stability: "beta",
 		releasedAt: new Date("2026-08-21"),
 		providers: [
 			{
