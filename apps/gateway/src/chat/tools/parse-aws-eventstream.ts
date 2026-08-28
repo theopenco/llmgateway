@@ -16,6 +16,13 @@ interface EventStreamMessage {
 	payload: Uint8Array;
 }
 
+/**
+ * Fixed per-message overhead: 8-byte prelude (total length + headers length) +
+ * 4-byte prelude CRC + 4-byte message CRC. A message with zero headers and an
+ * empty payload is exactly this many bytes, so no valid total length is smaller.
+ */
+const MIN_MESSAGE_LENGTH = 16;
+
 export function parseAwsEventStream(buffer: Uint8Array): EventStreamMessage[] {
 	const messages: EventStreamMessage[] = [];
 	let offset = 0;
@@ -37,6 +44,20 @@ export function parseAwsEventStream(buffer: Uint8Array): EventStreamMessage[] {
 			buffer.byteOffset + offset + 4,
 			4,
 		).getUint32(0, false);
+
+		// Reject a corrupt or truncated prelude before trusting its length.
+		// A total length below the fixed overhead cannot describe a real frame,
+		// and totalLength === 0 would advance offset by 0 below and loop
+		// forever, pushing empty messages until the process runs out of memory.
+		if (totalLength < MIN_MESSAGE_LENGTH) {
+			break;
+		}
+
+		// Headers must fit within the message alongside the fixed overhead;
+		// an oversized headers length is corrupt and would read past the frame.
+		if (headersLength > totalLength - MIN_MESSAGE_LENGTH) {
+			break;
+		}
 
 		// Check if we have the full message
 		if (offset + totalLength > buffer.length) {
