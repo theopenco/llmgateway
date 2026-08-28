@@ -68,6 +68,11 @@ export function MemberDetailClient() {
 	);
 	const budget = teamMember?.budget ?? null;
 	const spend = teamMember?.spend ?? null;
+	const periodSpend = spend?.currentPeriods.find(
+		(period) =>
+			period.durationValue === budget?.periodUsageDurationValue &&
+			period.durationUnit === budget.periodUsageDurationUnit,
+	)?.usage;
 	const currentUserRole = teamData?.members.find(
 		(member) => member.userId === user?.id,
 	)?.role;
@@ -270,8 +275,8 @@ export function MemberDetailClient() {
 										Period spend
 									</div>
 									<div className="text-lg font-semibold">
-										{spend.currentPeriod !== null
-											? currencyFormatter.format(spend.currentPeriod)
+										{periodSpend !== undefined
+											? currencyFormatter.format(periodSpend)
 											: "—"}
 										{budget.periodUsageLimit !== null && (
 											<span className="text-muted-foreground text-sm font-normal">

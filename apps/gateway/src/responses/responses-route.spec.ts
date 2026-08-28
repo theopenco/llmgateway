@@ -12,6 +12,7 @@ vi.mock("@/app.js", () => ({
 
 vi.mock("@/lib/api-key-usage-limits.js", () => ({
 	assertApiKeyWithinUsageLimits: vi.fn(),
+	assertMemberProjectAccess: vi.fn(),
 	assertMemberWithinBudget: vi.fn(),
 }));
 

@@ -35,15 +35,24 @@ export function MemberLimitsCard({
 	const { data } = useMyMemberBudget(organizationId, initialData);
 
 	const budget = data?.budget ?? null;
+	const teamBudget = data?.teamBudget ?? null;
 	const spend = data?.spend ?? null;
 
-	const hasLimits =
-		!!budget &&
-		(budget.maxApiKeys !== null ||
-			budget.usageLimit !== null ||
-			budget.periodUsageLimit !== null);
+	const policies = [
+		...(teamBudget
+			? [{ label: `${data?.team?.name ?? "Team"} policy`, budget: teamBudget }]
+			: []),
+		...(budget
+			? [{ label: "Personal or organization default policy", budget }]
+			: []),
+	].filter(
+		({ budget: policy }) =>
+			policy.maxApiKeys !== null ||
+			policy.usageLimit !== null ||
+			policy.periodUsageLimit !== null,
+	);
 
-	if (!budget || !spend || !hasLimits) {
+	if (!spend || policies.length === 0) {
 		return null;
 	}
 
@@ -52,69 +61,88 @@ export function MemberLimitsCard({
 			<CardHeader>
 				<CardTitle className="text-base">Your usage limits</CardTitle>
 				<CardDescription>
-					An organization admin has set the following limits on your account.
-					They are enforced on the gateway at request time.
+					Each policy is enforced independently. API keys must stay within both
+					team and member ceilings.
 				</CardDescription>
 			</CardHeader>
-			<CardContent>
-				<div className="grid gap-6 sm:grid-cols-3">
-					{budget.usageLimit !== null && (
-						<div>
-							<div className="text-muted-foreground text-xs">Total spend</div>
-							<div className="text-lg font-semibold">
-								{currencyFormatter.format(spend.lifetime)}
-								<span className="text-muted-foreground text-sm font-normal">
-									{" / "}
-									{currencyFormatter.format(Number(budget.usageLimit))}
-								</span>
-							</div>
-							<div className="text-muted-foreground text-xs">
-								of total limit
+			<CardContent className="space-y-6">
+				{policies.map(({ label, budget: policy }) => {
+					const periodSpend = spend.currentPeriods.find(
+						(period) =>
+							period.durationValue === policy.periodUsageDurationValue &&
+							period.durationUnit === policy.periodUsageDurationUnit,
+					)?.usage;
+
+					return (
+						<div key={label} className="space-y-3">
+							<div className="text-sm font-medium">{label}</div>
+							<div className="grid gap-6 sm:grid-cols-3">
+								{policy.usageLimit !== null && (
+									<div>
+										<div className="text-muted-foreground text-xs">
+											Total spend
+										</div>
+										<div className="text-lg font-semibold">
+											{currencyFormatter.format(spend.lifetime)}
+											<span className="text-muted-foreground text-sm font-normal">
+												{" / "}
+												{currencyFormatter.format(Number(policy.usageLimit))}
+											</span>
+										</div>
+										<div className="text-muted-foreground text-xs">
+											of total limit
+										</div>
+									</div>
+								)}
+
+								{policy.periodUsageLimit !== null &&
+									policy.periodUsageDurationValue !== null &&
+									policy.periodUsageDurationUnit !== null && (
+										<div>
+											<div className="text-muted-foreground text-xs">
+												Period spend
+											</div>
+											<div className="text-lg font-semibold">
+												{periodSpend !== undefined
+													? currencyFormatter.format(periodSpend)
+													: "—"}
+												<span className="text-muted-foreground text-sm font-normal">
+													{" / "}
+													{currencyFormatter.format(
+														Number(policy.periodUsageLimit),
+													)}
+												</span>
+											</div>
+											<div className="text-muted-foreground text-xs">
+												{`per ${periodLabel(
+													policy.periodUsageDurationValue,
+													policy.periodUsageDurationUnit,
+												)}`}
+											</div>
+										</div>
+									)}
+
+								{policy.maxApiKeys !== null && (
+									<div>
+										<div className="text-muted-foreground text-xs">
+											Active API keys
+										</div>
+										<div className="text-lg font-semibold">
+											{spend.activeApiKeys}
+											<span className="text-muted-foreground text-sm font-normal">
+												{" / "}
+												{policy.maxApiKeys}
+											</span>
+										</div>
+										<div className="text-muted-foreground text-xs">
+											of key limit
+										</div>
+									</div>
+								)}
 							</div>
 						</div>
-					)}
-
-					{budget.periodUsageLimit !== null &&
-						budget.periodUsageDurationValue !== null &&
-						budget.periodUsageDurationUnit !== null && (
-							<div>
-								<div className="text-muted-foreground text-xs">
-									Period spend
-								</div>
-								<div className="text-lg font-semibold">
-									{spend.currentPeriod !== null
-										? currencyFormatter.format(spend.currentPeriod)
-										: "—"}
-									<span className="text-muted-foreground text-sm font-normal">
-										{" / "}
-										{currencyFormatter.format(Number(budget.periodUsageLimit))}
-									</span>
-								</div>
-								<div className="text-muted-foreground text-xs">
-									{`per ${periodLabel(
-										budget.periodUsageDurationValue,
-										budget.periodUsageDurationUnit,
-									)}`}
-								</div>
-							</div>
-						)}
-
-					{budget.maxApiKeys !== null && (
-						<div>
-							<div className="text-muted-foreground text-xs">
-								Active API keys
-							</div>
-							<div className="text-lg font-semibold">
-								{spend.activeApiKeys}
-								<span className="text-muted-foreground text-sm font-normal">
-									{" / "}
-									{budget.maxApiKeys}
-								</span>
-							</div>
-							<div className="text-muted-foreground text-xs">of key limit</div>
-						</div>
-					)}
-				</div>
+					);
+				})}
 			</CardContent>
 		</Card>
 	);
