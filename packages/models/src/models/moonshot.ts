@@ -681,8 +681,6 @@ export const moonshotModels = [
 			{
 				providerId: "scx-ai-gp",
 				externalId: "Kimi-K2.7-Code",
-				// Reasoning model: forced tool_choice is rejected while thinking is
-				// on, so only "auto"/"none" are accepted.
 				supportedToolChoices: ["auto", "none"],
 				inputPrice: "0.89e-6",
 				cachedInputPrice: "0.18e-6",
@@ -693,12 +691,13 @@ export const moonshotModels = [
 				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
-				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+				reasoningEfforts: ["none", "minimal", "low", "medium", "high", "xhigh"],
 				vision: true,
 				tools: true,
-				jsonOutput: false,
+				jsonOutput: true,
 				supportedParameters: [
 					"max_tokens",
+					"response_format",
 					"tools",
 					"tool_choice",
 					"reasoning_effort",
