@@ -6,6 +6,7 @@ import { handleChargeRefunded, handleEndUserTopUpSucceeded } from "@/stripe.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 // Real Stripe test-mode round trip: create + confirm a PaymentIntent and issue a
 // refund through Stripe, driving the actual webhook handlers and the admin
@@ -70,7 +71,7 @@ describe.skipIf(!hasStripeTestKey)(
 
 			await db.insert(tables.apiKey).values({
 				id: "sdk-poc-platform-secret-id",
-				token: PLATFORM_SECRET,
+				...hashApiKeyForStorage(PLATFORM_SECRET),
 				projectId: PROJECT_ID,
 				description: "Payments SDK POC platform secret",
 				keyType: "platform_secret",

@@ -128,7 +128,6 @@ import {
 	isPremiumServiceTier,
 	resolveServedServiceTier,
 	googleProviderSupportsAudioFormat,
-	hasProviderKey,
 	InvalidFileContentError,
 	managedCredentialOptions,
 	parseGoogleUpstreamDocumentError,
@@ -2019,6 +2018,7 @@ chat.openapi(completions, async (c) => {
 
 	// Count input images from messages for cost calculation
 	const inputImageCount =
+		requestedModel === "gemini-3-pro-image" ||
 		requestedModel === "gemini-3-pro-image-preview" ||
 		requestedModel === "gemini-3.1-flash-image-preview" ||
 		requestedModel === "gemini-3.1-flash-lite-image"
@@ -5922,7 +5922,7 @@ chat.openapi(completions, async (c) => {
 	// Check email verification and rate limits for free models (only when using credits/environment tokens)
 	if (
 		isModelTrulyFree((finalModelInfo ?? modelInfo) as ModelDefinition) &&
-		!hasProviderKey(providerKey)
+		!providerKey
 	) {
 		await validateFreeModelUsage(
 			c,

@@ -8,6 +8,7 @@ import {
 } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { randomInt } from "@llmgateway/shared/random";
 
 describe("organization route", () => {
@@ -256,7 +257,7 @@ describe("organization route", () => {
 		});
 		await db.insert(tables.apiKey).values({
 			id: "runway-api-key-id",
-			token: "runway-token",
+			...hashApiKeyForStorage("runway-token"),
 			projectId: "runway-project-id",
 			description: "Runway Key",
 			createdBy: "test-user-id",

@@ -7,6 +7,7 @@
  * enterprise "DataFlow AI" organization so every new page renders rich data.
  * Safe to re-run (idempotent via ON CONFLICT).
  */
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { randomFloat, randomFloatBetween } from "@llmgateway/shared/random";
 
 import { closeDatabase, db, tables } from "./index.js";
@@ -143,7 +144,7 @@ async function main(): Promise<void> {
 					.insert(tables.apiKey)
 					.values({
 						id: key.id,
-						token: `sk-demo-${key.id}`,
+						...hashApiKeyForStorage(`sk-demo-${key.id}`),
 						projectId: key.projectId,
 						description: key.description,
 						createdBy: owner.userId,

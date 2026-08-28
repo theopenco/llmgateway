@@ -4,6 +4,7 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { apiKeyHourlyModelStats, db, eq, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 interface UsageRow {
@@ -128,28 +129,28 @@ describe("GET /v1/master/usage", () => {
 		await db.insert(tables.apiKey).values([
 			{
 				id: "key-a",
-				token: "key-a-token",
+				...hashApiKeyForStorage("key-a-token"),
 				projectId: "project-1-id",
 				description: "Key A",
 				createdBy: "test-user-id",
 			},
 			{
 				id: "key-b",
-				token: "key-b-token",
+				...hashApiKeyForStorage("key-b-token"),
 				projectId: "project-1-id",
 				description: "Key B",
 				createdBy: "user-b-id",
 			},
 			{
 				id: "key-c",
-				token: "key-c-token",
+				...hashApiKeyForStorage("key-c-token"),
 				projectId: "project-2-id",
 				description: "Key C",
 				createdBy: "test-user-id",
 			},
 			{
 				id: "other-key",
-				token: "other-key-token",
+				...hashApiKeyForStorage("other-key-token"),
 				projectId: "other-project-id",
 				description: "Other Key",
 				createdBy: "user-b-id",
@@ -415,7 +416,7 @@ describe("GET /v1/master/usage", () => {
 	test("reports playground usage under its stable api key id", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "playground-key",
-			token: "playground-token",
+			...hashApiKeyForStorage("playground-token"),
 			projectId: "project-1-id",
 			description: "Playground",
 			kind: "playground",

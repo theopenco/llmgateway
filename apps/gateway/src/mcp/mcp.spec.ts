@@ -7,6 +7,7 @@ import { clearCache } from "@/test-utils/test-helpers.js";
 
 import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 describe("MCP endpoint", () => {
 	async function seedActiveKey() {
@@ -46,7 +47,7 @@ describe("MCP endpoint", () => {
 			.insert(tables.apiKey)
 			.values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -124,7 +125,12 @@ describe("MCP endpoint", () => {
 		await db
 			.update(tables.apiKey)
 			.set({ status: "inactive" })
-			.where(eq(tables.apiKey.token, "real-token"));
+			.where(
+				eq(
+					tables.apiKey.tokenHash,
+					hashApiKeyForStorage("real-token").tokenHash,
+				),
+			);
 
 		const res = await app.request("/mcp", {
 			method: "POST",

@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { db, tables } from "@llmgateway/db";
 import { models } from "@llmgateway/models";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
@@ -158,7 +159,7 @@ describe("stealth provider error redaction (routes)", () => {
 		await harness.setOrganizationCredits("100");
 		await db.insert(tables.apiKey).values({
 			id: `${token}-id`,
-			token,
+			...hashApiKeyForStorage(token),
 			projectId: "project-id",
 			description: "Stealth redaction test key",
 			createdBy: "user-id",

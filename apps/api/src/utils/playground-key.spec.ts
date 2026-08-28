@@ -191,48 +191,6 @@ describe("resolvePlaygroundToken", () => {
 		}
 	});
 
-	test("migrates a matching plaintext key without changing its token", async () => {
-		const firstResponse = await resolver.request("/");
-		const firstBody = await firstResponse.json();
-		const [tokenHash] = getApiKeyFingerprints(firstBody.token);
-		const key = await db.query.apiKey.findFirst({
-			where: { tokenHash: { eq: tokenHash } },
-		});
-		if (!key) {
-			throw new Error("Playground key was not created");
-		}
-
-		await db
-			.update(tables.apiKey)
-			.set({
-				token: firstBody.token,
-				tokenHash: null,
-				tokenMasked: null,
-				description: "Auto-generated playground key",
-				expiresAt: null,
-			})
-			.where(eq(tables.apiKey.id, key.id));
-
-		const response = await resolver.request("/", {
-			headers: {
-				Cookie: `${PLAYGROUND_KEY_COOKIE_NAME}=${firstBody.token}`,
-			},
-		});
-		expect(await response.json()).toEqual({ token: firstBody.token });
-		expect(response.headers.get("set-cookie")).toContain(
-			`${PLAYGROUND_KEY_COOKIE_NAME}=${firstBody.token}`,
-		);
-
-		const migrated = await db.query.apiKey.findFirst({
-			where: { id: { eq: key.id } },
-		});
-		expect(migrated?.token).toBeNull();
-		expect(migrated?.tokenHash).toBe(tokenHash);
-		expect(migrated?.tokenMasked).not.toBeNull();
-		expect(migrated?.description).toBe("Playground");
-		expect(migrated?.expiresAt?.getTime()).toBeGreaterThan(Date.now());
-	});
-
 	test("rotates an expired key without changing its id", async () => {
 		const firstResponse = await resolver.request("/");
 		const firstBody = await firstResponse.json();

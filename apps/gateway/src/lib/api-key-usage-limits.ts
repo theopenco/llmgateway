@@ -4,7 +4,7 @@ import {
 	getApiKeyCurrentPeriodState,
 	isApiKeyPeriodLimitConfigured,
 	resolveEffectiveMemberBudget,
-	type InferSelectModel,
+	type ApiKey,
 } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
 
@@ -14,10 +14,6 @@ import {
 	getMemberKeyUsage,
 	getMemberPeriodSpend,
 } from "./cached-queries.js";
-
-import type { tables } from "@llmgateway/db";
-
-type ApiKey = InferSelectModel<typeof tables.apiKey>;
 
 export function assertApiKeyWithinUsageLimits(
 	apiKey: ApiKey,

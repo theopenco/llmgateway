@@ -7,7 +7,9 @@ import {
 	deleteAll,
 } from "@/testing.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, eq, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 const OWNER_ID = "test-user-id";
 const MEMBER_ID = "member-2-id";
@@ -73,7 +75,7 @@ function insertLog(o: LogOverrides) {
 async function insertPlaygroundUsage() {
 	await db.insert(tables.apiKey).values({
 		id: "playground-key",
-		token: "playground-token",
+		...hashApiKeyForStorage("playground-token"),
 		projectId: PROJECT_ID,
 		description: "Playground",
 		kind: "playground",
@@ -147,7 +149,11 @@ describe("analytics endpoints", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "test-provider-key-id",
-			token: "test-provider-token",
+			...encryptProviderKeyForStorage(
+				"test-provider-token",
+				"test-provider-key-id",
+				ORG_ID,
+			),
 			provider: "openai",
 			organizationId: ORG_ID,
 		});
@@ -155,14 +161,14 @@ describe("analytics endpoints", () => {
 		await db.insert(tables.apiKey).values([
 			{
 				id: "key-owner",
-				token: "token-owner",
+				...hashApiKeyForStorage("token-owner"),
 				projectId: PROJECT_ID,
 				description: "Owner Key",
 				createdBy: OWNER_ID,
 			},
 			{
 				id: "key-member",
-				token: "token-member",
+				...hashApiKeyForStorage("token-member"),
 				projectId: PROJECT_ID,
 				description: "Member Key",
 				createdBy: MEMBER_ID,
