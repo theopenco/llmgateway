@@ -113,12 +113,12 @@ export function getMinPerSecondPrice(
 export function getMinInputCharacterPrice(
 	mapping: ApiModelProviderMapping,
 ): number | null {
-	if (
-		!mapping.inputCharacterPrice ||
-		parseFloat(mapping.inputCharacterPrice) === 0
-	) {
+	if (!mapping.inputCharacterPrice) {
 		return null;
 	}
 	const price = parseFloat(mapping.inputCharacterPrice);
-	return Number.isFinite(price) ? price : null;
+	if (!Number.isFinite(price) || price <= 0) {
+		return null;
+	}
+	return price;
 }

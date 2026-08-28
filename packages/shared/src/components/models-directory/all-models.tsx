@@ -546,6 +546,9 @@ const ModelTableRow = React.memo(
 					{/* Input Price Column */}
 					<TableCell className="text-right font-mono text-sm">
 						{row.provider.perSecondPrice &&
+						Object.values(row.provider.perSecondPrice).some(
+							(v) => Number.isFinite(Number(v)) && Number(v) > 0,
+						) &&
 						(!row.provider.inputPrice ||
 							parseFloat(row.provider.inputPrice) === 0) ? (
 							<Tooltip>
@@ -553,9 +556,14 @@ const ModelTableRow = React.memo(
 									<span className="text-violet-500 cursor-help">
 										{(() => {
 											const prices = row.provider.perSecondPrice;
+											const discount = row.provider.discount
+												? parseFloat(row.provider.discount)
+												: 0;
 											const values = Object.values(prices)
 												.map(Number)
-												.filter((v) => Number.isFinite(v) && v > 0);
+												.filter((v) => Number.isFinite(v) && v > 0)
+												.map((v) => (discount > 0 ? v * (1 - discount) : v))
+												.filter((v) => v > 0);
 											if (values.length === 0) {
 												return "—";
 											}
@@ -634,6 +642,9 @@ const ModelTableRow = React.memo(
 					{/* Output Price Column */}
 					<TableCell className="text-right font-mono text-sm">
 						{row.provider.perSecondPrice &&
+						Object.values(row.provider.perSecondPrice).some(
+							(v) => Number.isFinite(Number(v)) && Number(v) > 0,
+						) &&
 						(!row.provider.outputPrice ||
 							parseFloat(row.provider.outputPrice) === 0) ? (
 							<Tooltip>
@@ -641,9 +652,14 @@ const ModelTableRow = React.memo(
 									<span className="text-violet-500 cursor-help">
 										{(() => {
 											const prices = row.provider.perSecondPrice;
+											const discount = row.provider.discount
+												? parseFloat(row.provider.discount)
+												: 0;
 											const values = Object.values(prices)
 												.map(Number)
-												.filter((v) => Number.isFinite(v) && v > 0);
+												.filter((v) => Number.isFinite(v) && v > 0)
+												.map((v) => (discount > 0 ? v * (1 - discount) : v))
+												.filter((v) => v > 0);
 											if (values.length === 0) {
 												return "—";
 											}
