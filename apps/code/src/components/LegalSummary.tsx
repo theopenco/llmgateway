@@ -129,8 +129,9 @@ const privacyCards: SummaryCard[] = [
 		body: (
 			<>
 				Prompts are forwarded to the AI provider behind the model you chose —
-				each applies its own retention policy. We pass through provider-side
-				&ldquo;no training&rdquo; flags where they exist.
+				each applies its own retention and training policy. Enable No AI
+				training in Settings to use only providers that explicitly opt API
+				inputs out of model training.
 			</>
 		),
 	},

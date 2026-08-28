@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	filterCompliantProviders,
+	getActiveCompliancePolicy,
 	isModelIdCompliant,
 	isProviderIdCompliant,
 } from "./compliance.js";
@@ -66,6 +67,70 @@ describe("isProviderIdCompliant with custom providers", () => {
 
 	it("treats everything as compliant when the policy is disabled", () => {
 		expect(isProviderIdCompliant("custom", { enabled: false })).toBe(true);
+	});
+});
+
+describe("getActiveCompliancePolicy for DevPass", () => {
+	it("uses standard routing when the policy is disabled", () => {
+		expect(
+			getActiveCompliancePolicy({
+				id: "org-test",
+				kind: "devpass",
+				plan: "free",
+				providerCompliancePolicy: {
+					enabled: false,
+					blockApiTraining: true,
+				},
+			}),
+		).toBeUndefined();
+	});
+
+	it("narrows enabled policies to no API training", () => {
+		expect(
+			getActiveCompliancePolicy({
+				id: "org-test",
+				kind: "devpass",
+				plan: "free",
+				providerCompliancePolicy: {
+					enabled: true,
+					blockApiTraining: true,
+					requireGdpr: true,
+					blockPromptLogging: true,
+				},
+			}),
+		).toEqual({ enabled: true, blockApiTraining: true });
+	});
+
+	it("ignores unrelated policy fields", () => {
+		expect(
+			getActiveCompliancePolicy({
+				id: "org-test",
+				kind: "devpass",
+				plan: "free",
+				providerCompliancePolicy: {
+					enabled: true,
+					requireGdpr: true,
+					blockPromptLogging: true,
+				},
+			}),
+		).toBeUndefined();
+	});
+
+	it("fails closed on unknown training policies", () => {
+		const policy = getActiveCompliancePolicy({
+			id: "org-test",
+			kind: "devpass",
+			plan: "free",
+			providerCompliancePolicy: {
+				enabled: true,
+				blockApiTraining: true,
+			},
+		});
+
+		expect(policy).toBeDefined();
+		expect(isProviderIdCompliant("openai", policy!)).toBe(true);
+		expect(isProviderIdCompliant("deepseek", policy!)).toBe(false);
+		expect(isProviderIdCompliant("glacier", policy!)).toBe(false);
 	});
 });
 
