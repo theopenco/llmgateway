@@ -91,7 +91,10 @@ import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { getStripe, isInternationalPaymentMethod } from "./payments.js";
 
 import type { ServerTypes } from "@/vars.js";
-import type { ProviderCacheControlMode } from "@llmgateway/models";
+import type {
+	ProviderCacheControlMode,
+	ProviderCompliancePolicy,
+} from "@llmgateway/models";
 import type Stripe from "stripe";
 
 export const devPlans = new OpenAPIHono<ServerTypes>();
@@ -1822,6 +1825,7 @@ const getStatus = createRoute({
 							"latency",
 						]),
 						providerCacheControlMode: providerCacheControlModeSchema,
+						blockApiTraining: z.boolean(),
 					}),
 				},
 			},
@@ -1883,6 +1887,7 @@ devPlans.openapi(getStatus, async (c) => {
 			devPlanServiceTier: "default" as const,
 			defaultRoutingStrategy: "auto" as const,
 			providerCacheControlMode: "auto" as const,
+			blockApiTraining: false,
 		});
 	}
 
@@ -2005,6 +2010,9 @@ devPlans.openapi(getStatus, async (c) => {
 		devPlanServiceTier: personalOrg.devPlanServiceTier,
 		defaultRoutingStrategy,
 		providerCacheControlMode,
+		blockApiTraining:
+			personalOrg.providerCompliancePolicy?.enabled === true &&
+			personalOrg.providerCompliancePolicy.blockApiTraining === true,
 	});
 });
 
@@ -2027,6 +2035,7 @@ const updateSettings = createRoute({
 						// Control upstream prompt-cache writes for coding clients that
 						// send cache markers automatically.
 						providerCacheControlMode: providerCacheControlModeSchema.optional(),
+						blockApiTraining: z.boolean().optional(),
 						/** @deprecated use providerCacheControlMode. */
 						providerCacheControlEnabled: z.boolean().optional(),
 						// Opt-in pay-as-you-go overflow past the monthly allowance.
@@ -2059,6 +2068,7 @@ const updateSettings = createRoute({
 							"latency",
 						]),
 						providerCacheControlMode: providerCacheControlModeSchema,
+						blockApiTraining: z.boolean(),
 						devPlanPaygEnabled: z.boolean(),
 						autoTopUpEnabled: z.boolean(),
 						autoTopUpThreshold: z.string().nullable(),
@@ -2076,6 +2086,7 @@ devPlans.openapi(updateSettings, async (c) => {
 	const {
 		devPlanServiceTier,
 		defaultRoutingStrategy,
+		blockApiTraining,
 		devPlanPaygEnabled,
 		autoTopUpEnabled,
 		autoTopUpThreshold,
@@ -2119,6 +2130,7 @@ devPlans.openapi(updateSettings, async (c) => {
 
 	const updateData: {
 		devPlanServiceTier?: "default" | "flex";
+		providerCompliancePolicy?: ProviderCompliancePolicy | null;
 		devPlanPaygEnabled?: boolean;
 		autoTopUpEnabled?: boolean;
 		autoTopUpThreshold?: string;
@@ -2127,6 +2139,12 @@ devPlans.openapi(updateSettings, async (c) => {
 
 	if (devPlanServiceTier !== undefined) {
 		updateData.devPlanServiceTier = devPlanServiceTier;
+	}
+
+	if (blockApiTraining !== undefined) {
+		updateData.providerCompliancePolicy = blockApiTraining
+			? { enabled: true, blockApiTraining: true }
+			: null;
 	}
 
 	if (devPlanPaygEnabled !== undefined) {
@@ -2153,9 +2171,7 @@ devPlans.openapi(updateSettings, async (c) => {
 	const changes: Record<string, { old: unknown; new: unknown }> = {};
 
 	if (Object.keys(updateData).length > 0) {
-		// Cached client so the gateway's org cache invalidates: the PAYG
-		// opt-in is a billing gate, and "enable, then retry the request"
-		// must work without waiting out a cache TTL.
+		// Cached client so gateway billing and compliance gates update immediately.
 		await cdb
 			.update(tables.organization)
 			.set(updateData)
@@ -2168,6 +2184,19 @@ devPlans.openapi(updateSettings, async (c) => {
 			changes.devPlanServiceTier = {
 				old: personalOrg.devPlanServiceTier,
 				new: devPlanServiceTier,
+			};
+		}
+
+		const previousBlockApiTraining =
+			personalOrg.providerCompliancePolicy?.enabled === true &&
+			personalOrg.providerCompliancePolicy.blockApiTraining === true;
+		if (
+			blockApiTraining !== undefined &&
+			blockApiTraining !== previousBlockApiTraining
+		) {
+			changes.blockApiTraining = {
+				old: previousBlockApiTraining,
+				new: blockApiTraining,
 			};
 		}
 
@@ -2289,6 +2318,10 @@ devPlans.openapi(updateSettings, async (c) => {
 		devPlanServiceTier: devPlanServiceTier ?? personalOrg.devPlanServiceTier,
 		defaultRoutingStrategy: effectiveRoutingStrategy,
 		providerCacheControlMode: effectiveProviderCacheControlMode,
+		blockApiTraining:
+			blockApiTraining ??
+			(personalOrg.providerCompliancePolicy?.enabled === true &&
+				personalOrg.providerCompliancePolicy.blockApiTraining === true),
 		devPlanPaygEnabled: devPlanPaygEnabled ?? personalOrg.devPlanPaygEnabled,
 		autoTopUpEnabled:
 			updateData.autoTopUpEnabled ?? personalOrg.autoTopUpEnabled,

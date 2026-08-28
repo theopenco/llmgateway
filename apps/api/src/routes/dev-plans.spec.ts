@@ -3,9 +3,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db, eq, tables } from "@llmgateway/db";
-import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
-import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
+import {
+	redisClient,
+	swrWrap,
+	waitForSwrMirrorWrites,
+} from "@llmgateway/cache";
+import {
+	cdb,
+	db,
+	eq,
+	getTableName,
+	organizationCacheTag,
+	tables,
+} from "@llmgateway/db";
+import {
+	getApiKeyFingerprint,
+	hashApiKeyForStorage,
+} from "@llmgateway/shared/api-key-hash";
 
 import type * as PaymentsModule from "@/routes/payments.js";
 
@@ -1275,6 +1289,159 @@ describe("dev plan tier changes", () => {
 		});
 		expect(res.status).toBe(400);
 		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
+	});
+});
+
+describe("DevPass no-training settings", () => {
+	let token: string;
+
+	beforeEach(async () => {
+		vi.clearAllMocks();
+		token = await createTestUser();
+
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Personal Org",
+			billingEmail: "admin@example.com",
+			kind: "devpass",
+			devPlan: "pro",
+		});
+		await db.insert(tables.userOrganization).values({
+			userId: "test-user-id",
+			organizationId: ORG_ID,
+			role: "owner",
+		});
+	});
+
+	afterEach(async () => {
+		await deleteAll();
+	});
+
+	it("defaults status to standard routing", async () => {
+		const response = await app.request("/dev-plans/status", {
+			headers: { Cookie: token },
+		});
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({ blockApiTraining: false });
+	});
+
+	it("enables no-training routing with a canonical policy", async () => {
+		const response = await app.request("/dev-plans/settings", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ blockApiTraining: true }),
+		});
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({ blockApiTraining: true });
+		expect(
+			(
+				await db.query.organization.findFirst({
+					where: { id: { eq: ORG_ID } },
+				})
+			)?.providerCompliancePolicy,
+		).toEqual({ enabled: true, blockApiTraining: true });
+
+		const auditLog = await db.query.auditLog.findFirst({
+			where: {
+				organizationId: { eq: ORG_ID },
+				action: { eq: "dev_plan.update_settings" },
+			},
+		});
+		expect(auditLog?.metadata).toMatchObject({
+			changes: {
+				blockApiTraining: { old: false, new: true },
+			},
+		});
+	});
+
+	it("invalidates the gateway organization cache", async () => {
+		await redisClient.flushdb();
+		const organizationTableName = getTableName(tables.organization);
+		const readGatewayPolicy = async () =>
+			await swrWrap(`org:${ORG_ID}`, [organizationTableName], async () => {
+				const organizations = await cdb
+					.select()
+					.from(tables.organization)
+					.where(eq(tables.organization.id, ORG_ID))
+					.limit(1)
+					.$withCache({
+						tag: organizationCacheTag(ORG_ID),
+						autoInvalidate: true,
+					});
+				return organizations[0]?.providerCompliancePolicy;
+			});
+
+		expect(await readGatewayPolicy()).toBeNull();
+		await waitForSwrMirrorWrites();
+
+		const response = await app.request("/dev-plans/settings", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ blockApiTraining: true }),
+		});
+		expect(response.status).toBe(200);
+		expect(await readGatewayPolicy()).toEqual({
+			enabled: true,
+			blockApiTraining: true,
+		});
+	});
+
+	it("returns to standard routing by clearing the policy", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				providerCompliancePolicy: {
+					enabled: true,
+					blockApiTraining: true,
+					requireGdpr: true,
+				},
+			})
+			.where(eq(tables.organization.id, ORG_ID));
+
+		const response = await app.request("/dev-plans/settings", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ blockApiTraining: false }),
+		});
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({ blockApiTraining: false });
+		expect(
+			(
+				await db.query.organization.findFirst({
+					where: { id: { eq: ORG_ID } },
+				})
+			)?.providerCompliancePolicy,
+		).toBeNull();
+	});
+
+	it("rejects updates without an active DevPass subscription", async () => {
+		await db
+			.update(tables.organization)
+			.set({ devPlan: "none" })
+			.where(eq(tables.organization.id, ORG_ID));
+
+		const response = await app.request("/dev-plans/settings", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ blockApiTraining: true }),
+		});
+
+		expect(response.status).toBe(400);
 	});
 });
 
