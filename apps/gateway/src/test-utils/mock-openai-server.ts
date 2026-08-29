@@ -230,29 +230,6 @@ function buildAwsEventStream(
 	return combined;
 }
 
-function extractApplicationCodeTrigger(
-	content: string,
-): { code: number; response: object } | null {
-	const match = content.match(/TRIGGER_BODY_CODE_(\d{3})/);
-	if (!match) {
-		return null;
-	}
-
-	const code = parseInt(match[1], 10);
-
-	return {
-		code,
-		response: {
-			code,
-			msg:
-				code === 402
-					? "Credits insufficient : Your current balance isn’t enough to run this request. Please top up to continue."
-					: `Triggered application error ${code}`,
-			data: null,
-		},
-	};
-}
-
 function extractMockVideoImage(value: unknown):
 	| {
 			bytesBase64Encoded: string;
@@ -410,6 +387,10 @@ interface MockWebhookDelivery {
 }
 
 const videoJobs = new Map<string, MockVideoJobState>();
+const videoStatusResponses = new Map<
+	string,
+	{ status: number; body: Record<string, unknown> }
+>();
 const webhookDeliveries: MockWebhookDelivery[] = [];
 const webhookStatuses = new Map<string, number>();
 
@@ -513,26 +494,6 @@ function getMockVertexVideoSizeMetadata(
 		: getMockVideoSizeMetadata("1280x720");
 }
 
-function getMockAvalancheSoraVideoSizeMetadata(
-	aspectRatio: unknown,
-	sizeTier: unknown,
-): {
-	size: string;
-	resolution: string;
-	width: number;
-	height: number;
-} {
-	if (sizeTier === "high") {
-		return aspectRatio === "portrait"
-			? getMockVideoSizeMetadata("1024x1792")
-			: getMockVideoSizeMetadata("1792x1024");
-	}
-
-	return aspectRatio === "portrait"
-		? getMockVideoSizeMetadata("720x1280")
-		: getMockVideoSizeMetadata("1280x720");
-}
-
 export function resetFailOnceCounter() {
 	failOnceCounter = 0;
 }
@@ -540,6 +501,7 @@ export function resetFailOnceCounter() {
 export function resetMockVideoState() {
 	videoCounter = 0;
 	videoJobs.clear();
+	videoStatusResponses.clear();
 	webhookDeliveries.length = 0;
 	webhookStatuses.clear();
 }
@@ -586,6 +548,14 @@ export function setMockVideoStatus(
 
 export function getMockVideo(videoId: string): MockVideoJobState | undefined {
 	return videoJobs.get(videoId);
+}
+
+export function setMockVideoStatusResponse(
+	videoId: string,
+	status: number,
+	body: Record<string, unknown>,
+) {
+	videoStatusResponses.set(videoId, { status, body });
 }
 
 export function setMockWebhookStatus(name: string, status: number) {
@@ -805,6 +775,28 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 	};
 
 	return c.json(response);
+});
+
+mockOpenAIServer.post("/v1/messages", async (c) => {
+	const body = await c.req.json();
+	return c.json({
+		id: "msg-123",
+		type: "message",
+		role: "assistant",
+		model: body.model ?? "claude-haiku-4-5",
+		content: [
+			{
+				type: "text",
+				text: "Hello! I'm a mock response from the test server.",
+			},
+		],
+		stop_reason: "end_turn",
+		stop_sequence: null,
+		usage: {
+			input_tokens: 10,
+			output_tokens: 20,
+		},
+	});
 });
 
 // Handle chat completions endpoint
@@ -1902,7 +1894,6 @@ mockOpenAIServer.post("/v1beta/models/:rest{.+}", async (c) => {
 
 mockOpenAIServer.post("/v1/videos", async (c) => {
 	const contentType = c.req.header("content-type") ?? "";
-	const authorization = c.req.header("authorization") ?? "";
 	const isMultipart = contentType.includes("multipart/form-data");
 	const body = isMultipart
 		? await c.req.parseBody({ all: true })
@@ -1934,12 +1925,7 @@ mockOpenAIServer.post("/v1/videos", async (c) => {
 		id,
 		object: "video",
 		model: body.model ?? "veo-3.1",
-		status:
-			authorization.includes("avalanche") &&
-			typeof body.model === "string" &&
-			body.model.startsWith("sora-2")
-				? "submitted"
-				: "queued",
+		status: "queued",
 		progress: 0,
 		firstFrame,
 		lastFrame,
@@ -2001,140 +1987,6 @@ mockOpenAIServer.post("/v1/videos/generations", async (c) => {
 	videoJobs.set(id, job);
 
 	return c.json(job);
-});
-
-mockOpenAIServer.post("/api/v1/veo/generate", async (c) => {
-	const body = await c.req.json();
-	const prompt = typeof body.prompt === "string" ? body.prompt : "";
-	if (
-		prompt.includes("TRIGGER_STATUS_500_AVALANCHE_ONLY") ||
-		prompt.includes("TRIGGER_AVALANCHE_ONLY_500")
-	) {
-		c.status(500);
-		return c.json(sample500ErrorResponse);
-	}
-	const statusTrigger = extractStatusCodeTrigger(prompt);
-	if (statusTrigger) {
-		c.status(statusTrigger.statusCode as any);
-		return c.json(statusTrigger.errorResponse);
-	}
-	videoCounter++;
-	const id = `avalanche_task_${videoCounter}`;
-	const videoSize =
-		body.aspect_ratio === "9:16"
-			? {
-					size: "1080x1920",
-					resolution: "720p",
-					width: 1080,
-					height: 1920,
-				}
-			: {
-					size: "1920x1080",
-					resolution: "720p",
-					width: 1920,
-					height: 1080,
-				};
-
-	const job: MockVideoJobState = {
-		id,
-		object: "video",
-		model: body.model ?? "veo3",
-		status: "queued",
-		progress: 0,
-		imageUrls: Array.isArray(body.imageUrls)
-			? body.imageUrls.filter(
-					(value: unknown): value is string => typeof value === "string",
-				)
-			: undefined,
-		generationType:
-			typeof body.generationType === "string" ? body.generationType : undefined,
-		size: videoSize.size,
-		duration: 8,
-		resolution: videoSize.resolution,
-		width: videoSize.width,
-		height: videoSize.height,
-		created_at: Math.floor(Date.now() / 1000),
-		completed_at: null,
-		expires_at: null,
-		error: null,
-	};
-
-	videoJobs.set(id, job);
-
-	return c.json({
-		code: 200,
-		msg: "success",
-		data: {
-			taskId: id,
-		},
-	});
-});
-
-mockOpenAIServer.post("/api/v1/jobs/createTask", async (c) => {
-	const body = await c.req.json();
-	const prompt =
-		body.input &&
-		typeof body.input === "object" &&
-		typeof (body.input as Record<string, unknown>).prompt === "string"
-			? ((body.input as Record<string, unknown>).prompt as string)
-			: "";
-	const statusTrigger = extractStatusCodeTrigger(prompt);
-	if (statusTrigger) {
-		c.status(statusTrigger.statusCode as any);
-		return c.json(statusTrigger.errorResponse);
-	}
-	const applicationTrigger = extractApplicationCodeTrigger(prompt);
-	if (applicationTrigger) {
-		return c.json(applicationTrigger.response);
-	}
-
-	videoCounter++;
-	const id = `avalanche_task_${videoCounter}`;
-	const input =
-		body.input && typeof body.input === "object"
-			? (body.input as Record<string, unknown>)
-			: {};
-	const videoSize = getMockAvalancheSoraVideoSizeMetadata(
-		input.aspect_ratio,
-		input.size,
-	);
-	const nFrames =
-		typeof input.n_frames === "string"
-			? Number(input.n_frames)
-			: typeof input.n_frames === "number"
-				? input.n_frames
-				: 10;
-	const job: MockVideoJobState = {
-		id,
-		object: "video",
-		model: typeof body.model === "string" ? body.model : "sora-2-text-to-video",
-		status: "queued",
-		progress: 0,
-		imageUrls: Array.isArray(input.image_urls)
-			? input.image_urls.filter(
-					(value: unknown): value is string => typeof value === "string",
-				)
-			: undefined,
-		size: videoSize.size,
-		duration: Number.isFinite(nFrames) ? nFrames : 10,
-		resolution: videoSize.resolution,
-		width: videoSize.width,
-		height: videoSize.height,
-		created_at: Math.floor(Date.now() / 1000),
-		completed_at: null,
-		expires_at: null,
-		error: null,
-	};
-
-	videoJobs.set(id, job);
-
-	return c.json({
-		code: 200,
-		msg: "success",
-		data: {
-			taskId: id,
-		},
-	});
 });
 
 mockOpenAIServer.post("/contents/generations/tasks", async (c) => {
@@ -2363,39 +2215,6 @@ mockOpenAIServer.post("/api/v1/model/generateVideo", async (c) => {
 		data: {
 			id,
 			status: "created",
-		},
-	});
-});
-
-mockOpenAIServer.post("/api/file-base64-upload", async (c) => {
-	const authHeader = c.req.header("Authorization");
-	if (!authHeader?.startsWith("Bearer ")) {
-		c.status(401);
-		return c.json({
-			code: 401,
-			msg: "Unauthorized",
-		});
-	}
-
-	const body = await c.req.json();
-	const base64Data =
-		typeof body.base64Data === "string" ? body.base64Data : undefined;
-	if (!base64Data?.startsWith("data:image/")) {
-		c.status(400);
-		return c.json({
-			code: 400,
-			msg: "Invalid base64 data",
-		});
-	}
-
-	videoCounter++;
-	return c.json({
-		success: true,
-		code: 200,
-		msg: "success",
-		data: {
-			fileUrl: `${currentMockServerUrl}/uploads/avalanche-image-${videoCounter}.png`,
-			downloadUrl: `${currentMockServerUrl}/uploads/avalanche-image-${videoCounter}.png`,
 		},
 	});
 });
@@ -2796,6 +2615,11 @@ mockOpenAIServer.post("/mock-google-oauth/token", async (c) =>
 
 mockOpenAIServer.get("/v1/videos/:id", async (c) => {
 	const id = c.req.param("id");
+	const statusResponse = videoStatusResponses.get(id);
+	if (statusResponse) {
+		c.status(statusResponse.status as Parameters<typeof c.status>[0]);
+		return c.json(statusResponse.body);
+	}
 	const job = videoJobs.get(id);
 
 	if (!job) {
@@ -2853,106 +2677,6 @@ mockOpenAIServer.get("/mock-gcs/:bucket/*", async (c) => {
 	});
 });
 
-mockOpenAIServer.get("/api/v1/veo/record-info", async (c) => {
-	const taskId = c.req.query("taskId");
-	if (!taskId) {
-		c.status(400);
-		return c.json({
-			code: 400,
-			msg: "taskId is required",
-		});
-	}
-
-	const job = videoJobs.get(taskId);
-	if (!job) {
-		c.status(404);
-		return c.json({
-			code: 404,
-			msg: "task not found",
-		});
-	}
-
-	const successFlag =
-		job.status === "completed" ? 1 : job.status === "failed" ? -1 : 0;
-
-	return c.json({
-		code: 200,
-		msg:
-			job.status === "failed"
-				? (job.error?.message ?? "Mock video generation failed")
-				: "success",
-		data: {
-			taskId,
-			successFlag,
-			createTime: job.created_at,
-			completeTime: job.completed_at,
-			response: {
-				resultUrls:
-					job.status === "completed"
-						? [`${currentMockServerUrl}/mock-assets/${taskId}`]
-						: [],
-				resolution: job.resolution ?? "720p",
-			},
-		},
-	});
-});
-
-mockOpenAIServer.get("/api/v1/jobs/recordInfo", async (c) => {
-	const taskId = c.req.query("taskId");
-	if (!taskId) {
-		c.status(400);
-		return c.json({
-			code: 400,
-			msg: "taskId is required",
-		});
-	}
-
-	const job = videoJobs.get(taskId);
-	if (!job) {
-		c.status(404);
-		return c.json({
-			code: 404,
-			msg: "task not found",
-		});
-	}
-
-	const state =
-		job.status === "completed"
-			? "success"
-			: job.status === "failed"
-				? "fail"
-				: job.status === "in_progress"
-					? "generating"
-					: "waiting";
-
-	return c.json({
-		code: 200,
-		msg: "success",
-		data: {
-			taskId,
-			model: job.model,
-			state,
-			progress:
-				job.status === "completed"
-					? 100
-					: job.status === "in_progress"
-						? 50
-						: 0,
-			resultJson:
-				job.status === "completed"
-					? JSON.stringify({
-							resultUrls: [`${currentMockServerUrl}/mock-assets/${taskId}`],
-						})
-					: "",
-			failCode: job.status === "failed" ? "501" : "",
-			failMsg: job.status === "failed" ? "Mock video generation failed" : "",
-			completeTime: job.completed_at ? job.completed_at * 1000 : null,
-			createTime: job.created_at * 1000,
-			updateTime: (job.completed_at ?? job.created_at) * 1000,
-		},
-	});
-});
-
 mockOpenAIServer.get("/api/v1/model/prediction/:id", async (c) => {
 	const id = c.req.param("id");
 	const job = videoJobs.get(id);
@@ -2979,82 +2703,6 @@ mockOpenAIServer.get("/api/v1/model/prediction/:id", async (c) => {
 					? [`${currentMockServerUrl}/mock-assets/${id}`]
 					: [],
 			error: job.status === "failed" ? job.error?.message : null,
-		},
-	});
-});
-
-mockOpenAIServer.get("/api/v1/veo/get-1080p-video", async (c) => {
-	const taskId = c.req.query("taskId");
-	if (!taskId) {
-		c.status(400);
-		return c.json({
-			code: 400,
-			msg: "taskId is required",
-		});
-	}
-
-	const job = videoJobs.get(taskId);
-	if (!job) {
-		c.status(404);
-		return c.json({
-			code: 404,
-			msg: "task not found",
-		});
-	}
-
-	if (job.status !== "completed") {
-		c.status(422);
-		return c.json({
-			code: 422,
-			msg: "video is still processing",
-		});
-	}
-
-	return c.json({
-		code: 200,
-		msg: "success",
-		data: {
-			taskId,
-			resultUrl: `${currentMockServerUrl}/mock-assets/${taskId}-1080p`,
-		},
-	});
-});
-
-mockOpenAIServer.post("/api/v1/veo/get-4k-video", async (c) => {
-	const body = await c.req.json();
-	const taskId = body.taskId;
-
-	if (typeof taskId !== "string" || taskId.length === 0) {
-		c.status(400);
-		return c.json({
-			code: 400,
-			msg: "taskId is required",
-		});
-	}
-
-	const job = videoJobs.get(taskId);
-	if (!job) {
-		c.status(404);
-		return c.json({
-			code: 404,
-			msg: "task not found",
-		});
-	}
-
-	if (job.status !== "completed") {
-		c.status(422);
-		return c.json({
-			code: 422,
-			msg: "video is still processing",
-		});
-	}
-
-	return c.json({
-		code: 200,
-		msg: "success",
-		data: {
-			taskId: `${taskId}_4k`,
-			resultUrls: [`${currentMockServerUrl}/mock-assets/${taskId}-4k`],
 		},
 	});
 });

@@ -377,7 +377,7 @@ export function ComplianceClient() {
 	};
 
 	const canManage =
-		selectedOrganization?.plan === "enterprise" &&
+		selectedOrganization?.enterpriseAccess === true &&
 		(currentUserRole === "owner" || currentUserRole === "admin");
 
 	const toggleCountry = (code: string) => {
@@ -409,7 +409,7 @@ export function ComplianceClient() {
 		}
 	};
 
-	if (selectedOrganization?.plan !== "enterprise") {
+	if (selectedOrganization?.enterpriseAccess !== true) {
 		return <ContactSalesCard />;
 	}
 

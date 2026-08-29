@@ -1,5 +1,7 @@
 import { HTTPException } from "hono/http-exception";
 
+import { hasOrganizationEnterpriseAccess } from "@/lib/enterprise.js";
+
 import { logViolation } from "@llmgateway/guardrails";
 import { logger, toError } from "@llmgateway/logger";
 import {
@@ -10,26 +12,35 @@ import {
 	isModelAllowedByPolicy,
 	isProviderCompliant,
 	isProviderRefAllowedByPolicy,
+	narrowPolicyToDevPass,
 	type ProviderComplianceAttestation,
 	type ProviderCompliancePolicy,
 } from "@llmgateway/models";
 
 interface OrganizationLike {
+	id: string;
 	plan: string;
+	kind?: string | null;
 	providerCompliancePolicy?: ProviderCompliancePolicy | null;
 }
 
 /**
  * The active provider compliance policy for an organization, or `undefined`
- * when none should be enforced. Compliance is an enterprise feature, so the
- * policy only applies to enterprise orgs that have explicitly enabled it.
+ * when none should be enforced. Enterprise organizations get their complete
+ * policy, while DevPass organizations get only the no-training requirement.
  */
 export function getActiveCompliancePolicy(
 	organization: OrganizationLike,
 ): ProviderCompliancePolicy | undefined {
-	return organization.plan === "enterprise" &&
-		organization.providerCompliancePolicy?.enabled
-		? organization.providerCompliancePolicy
+	const policy = organization.providerCompliancePolicy;
+	if (!policy?.enabled) {
+		return undefined;
+	}
+	if (organization.kind === "devpass") {
+		return narrowPolicyToDevPass(policy);
+	}
+	return hasOrganizationEnterpriseAccess(organization.id, organization.plan)
+		? policy
 		: undefined;
 }
 

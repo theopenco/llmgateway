@@ -75,9 +75,11 @@ export function getModelImageConfig(model: string) {
 
 	const isGptImage = lower.includes("gpt-image");
 	const isReve = lower.includes("reve");
+	const isMuseImage = lower.includes("muse-image");
 
 	const usesPixelDimensions =
 		isGptImage ||
+		isMuseImage ||
 		lower.includes("alibaba") ||
 		lower.includes("qwen-image") ||
 		lower.includes("zai") ||
@@ -101,25 +103,29 @@ export function getModelImageConfig(model: string) {
 
 	const availableSizes = isGptImage
 		? GPT_IMAGE_SIZES
-		: isReve
-			? (["2K"] as const)
-			: isSeedreamPro || isGrokImagine20
-				? (["1K", "2K"] as const)
-				: isSeedream
-					? (["2K", "4K"] as const)
-					: isGemini31FlashLiteImage
-						? (["1K"] as const)
-						: isGemini31FlashImage
-							? (["0.5K", "1K", "2K", "4K"] as const)
-							: (["1K", "2K", "4K"] as const);
+		: isMuseImage
+			? (["1024x1024", "1024x1536", "1536x1024"] as const)
+			: isReve
+				? (["2K"] as const)
+				: isSeedreamPro || isGrokImagine20
+					? (["1K", "2K"] as const)
+					: isSeedream
+						? (["2K", "4K"] as const)
+						: isGemini31FlashLiteImage
+							? (["1K"] as const)
+							: isGemini31FlashImage
+								? (["0.5K", "1K", "2K", "4K"] as const)
+								: (["1K", "2K", "4K"] as const);
 
 	const defaultSize = isGptImage
 		? "1024x1024"
-		: isReve
-			? "2K"
-			: isSeedream
+		: isMuseImage
+			? "1024x1024"
+			: isReve
 				? "2K"
-				: "1K";
+				: isSeedream
+					? "2K"
+					: "1K";
 
 	const supportsQuality = isGptImage || isGrokImagine20;
 	const availableQualities = isGptImage
@@ -146,6 +152,7 @@ export function getModelImageConfig(model: string) {
 		isSeedream,
 		isGemini31FlashImage,
 		isGptImage,
+		isMuseImage,
 		isReve,
 		availableSizes,
 		defaultSize,

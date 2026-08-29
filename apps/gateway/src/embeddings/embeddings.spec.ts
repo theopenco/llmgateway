@@ -7,7 +7,9 @@ import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harne
 import { resetFailOnceCounter } from "@/test-utils/mock-openai-server.js";
 import { waitForLogs } from "@/test-utils/test-helpers.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, eq, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 describe("embeddings", () => {
 	const harness = createGatewayApiTestHarness();
@@ -15,7 +17,7 @@ describe("embeddings", () => {
 	test("/v1/embeddings rejects dev-plan personal orgs with 403", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -47,7 +49,7 @@ describe("embeddings", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-embeddings-retry",
-			token: "real-token-embeddings-retry",
+			...hashApiKeyForStorage("real-token-embeddings-retry"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -56,14 +58,22 @@ describe("embeddings", () => {
 		await db.insert(tables.providerKey).values([
 			{
 				id: "provider-key-openai-primary",
-				token: "openai-primary-token",
+				...encryptProviderKeyForStorage(
+					"openai-primary-token",
+					"provider-key-openai-primary",
+					"org-id",
+				),
 				provider: "openai",
 				organizationId: "org-id",
 				baseUrl: harness.mockServerUrl,
 			},
 			{
 				id: "provider-key-openai-secondary",
-				token: "openai-secondary-token",
+				...encryptProviderKeyForStorage(
+					"openai-secondary-token",
+					"provider-key-openai-secondary",
+					"org-id",
+				),
 				provider: "openai",
 				organizationId: "org-id",
 				baseUrl: harness.mockServerUrl,
@@ -85,6 +95,7 @@ describe("embeddings", () => {
 		expect(res.status).toBe(200);
 		const json = await res.json();
 		expect(json).toHaveProperty("object", "list");
+		expect(json).toHaveProperty("model", "openai/text-embedding-3-small");
 		expect(Array.isArray(json.data)).toBe(true);
 
 		const logs = await waitForLogs(2);
@@ -139,7 +150,7 @@ describe("embeddings", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-embeddings-retention-none",
-			token: "real-token-embeddings-retention-none",
+			...hashApiKeyForStorage("real-token-embeddings-retention-none"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -147,7 +158,11 @@ describe("embeddings", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-embeddings-retention-none",
-			token: "openai-token",
+			...encryptProviderKeyForStorage(
+				"openai-token",
+				"provider-key-embeddings-retention-none",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: harness.mockServerUrl,
@@ -185,7 +200,7 @@ describe("embeddings", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-embeddings-no-retry",
-			token: "real-token-embeddings-no-retry",
+			...hashApiKeyForStorage("real-token-embeddings-no-retry"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -193,7 +208,11 @@ describe("embeddings", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-openai-only",
-			token: "openai-only-token",
+			...encryptProviderKeyForStorage(
+				"openai-only-token",
+				"provider-key-openai-only",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: harness.mockServerUrl,
@@ -228,7 +247,7 @@ describe("embeddings", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-embeddings-health",
-			token: "real-token-embeddings-health",
+			...hashApiKeyForStorage("real-token-embeddings-health"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -242,14 +261,22 @@ describe("embeddings", () => {
 		await db.insert(tables.providerKey).values([
 			{
 				id: "provider-key-openai-health-a-unhealthy",
-				token: unhealthyToken,
+				...encryptProviderKeyForStorage(
+					unhealthyToken,
+					"provider-key-openai-health-a-unhealthy",
+					"org-id",
+				),
 				provider: "openai",
 				organizationId: "org-id",
 				baseUrl: harness.mockServerUrl,
 			},
 			{
 				id: "provider-key-openai-health-b-healthy",
-				token: healthyToken,
+				...encryptProviderKeyForStorage(
+					healthyToken,
+					"provider-key-openai-health-b-healthy",
+					"org-id",
+				),
 				provider: "openai",
 				organizationId: "org-id",
 				baseUrl: harness.mockServerUrl,

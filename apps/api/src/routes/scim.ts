@@ -1,9 +1,14 @@
 import { Hono } from "hono";
 
 import { getApiBaseUrl } from "@/lib/api-url.js";
+import {
+	EnterpriseSeatLimitError,
+	withEnterpriseSeatForOrganization,
+} from "@/lib/enterprise-seats.js";
 import { revokeMemberApiKeys } from "@/lib/revoke-member-api-keys.js";
 import { resolveDefaultProjectIds } from "@/lib/sso-default-projects.js";
 import { recomputeUserRole as applyUserRole } from "@/lib/sso-roles.js";
+import { recomputeUserTeam as applyUserTeam } from "@/lib/sso-teams.js";
 import { acceptPendingInvitesForUser } from "@/lib/team-invites.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
@@ -18,7 +23,8 @@ import {
 	type AuditLogResourceType,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
+import { getApiKeyFingerprints } from "@llmgateway/shared/api-key-hash";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
 import type { Context } from "hono";
 
@@ -97,9 +103,14 @@ async function logScimAudit(
 	});
 }
 
-function scimError(status: number, detail: string) {
+function scimError(status: number, detail: string, scimType?: string) {
 	return Response.json(
-		{ schemas: [SCHEMA_ERROR], status: String(status), detail },
+		{
+			schemas: [SCHEMA_ERROR],
+			status: String(status),
+			detail,
+			...(scimType ? { scimType } : {}),
+		},
 		{ status, headers: { "Content-Type": SCIM_CONTENT_TYPE } },
 	);
 }
@@ -123,7 +134,7 @@ scim.use("/*", async (c, next) => {
 
 	const row = await db.query.scimToken.findFirst({
 		where: {
-			tokenHash: { eq: getApiKeyFingerprint(token) },
+			tokenHash: { in: getApiKeyFingerprints(token) },
 			status: { eq: "active" },
 		},
 		columns: {
@@ -135,6 +146,18 @@ scim.use("/*", async (c, next) => {
 
 	if (!row) {
 		return scimError(401, "Invalid SCIM token");
+	}
+
+	const organization = await db.query.organization.findFirst({
+		where: { id: { eq: row.organizationId } },
+		columns: { plan: true, status: true },
+	});
+	if (
+		!organization ||
+		organization.status === "deleted" ||
+		!hasOrganizationEnterpriseAccess(row.organizationId, organization.plan)
+	) {
+		return scimError(403, "A valid Enterprise license is required");
 	}
 
 	c.set("scimOrgId", row.organizationId);
@@ -486,15 +509,28 @@ scim.post("/Users", async (c) => {
 	const active =
 		payload.active === undefined ? true : parseScimBoolean(payload.active);
 	if (active) {
-		const [membership] = await db
-			.insert(tables.userOrganization)
-			.values({
-				userId: user.id,
-				organizationId: orgId,
-				role: "developer",
-				scimExternalId: payload.externalId ?? null,
-			})
-			.returning({ id: tables.userOrganization.id });
+		let membership: { id: string };
+		try {
+			[membership] = await withEnterpriseSeatForOrganization(
+				orgId,
+				user.id,
+				async (tx) =>
+					await tx
+						.insert(tables.userOrganization)
+						.values({
+							userId: user.id,
+							organizationId: orgId,
+							role: "developer",
+							scimExternalId: payload.externalId ?? null,
+						})
+						.returning({ id: tables.userOrganization.id }),
+			);
+		} catch (error) {
+			if (error instanceof EnterpriseSeatLimitError) {
+				return scimError(409, error.message, "tooMany");
+			}
+			throw error;
+		}
 
 		await grantDefaultProjects(membership.id, orgId);
 
@@ -507,7 +543,7 @@ scim.post("/Users", async (c) => {
 		});
 
 		// Apply any role mapping in case the user is already referenced by a group.
-		await recomputeUserRole(c, user.id, orgId);
+		await recomputeUserAccess(c, user.id, orgId);
 	}
 
 	// A SCIM-created user may never go through a signup flow, so honor any
@@ -595,15 +631,20 @@ async function ensureMembership(
 ): Promise<boolean> {
 	const existing = await getMembership(userId, organizationId);
 	if (!existing) {
-		const [membership] = await db
-			.insert(tables.userOrganization)
-			.values({
-				userId,
-				organizationId,
-				role: "developer",
-				scimExternalId: externalId ?? null,
-			})
-			.returning({ id: tables.userOrganization.id });
+		const [membership] = await withEnterpriseSeatForOrganization(
+			organizationId,
+			userId,
+			async (tx) =>
+				await tx
+					.insert(tables.userOrganization)
+					.values({
+						userId,
+						organizationId,
+						role: "developer",
+						scimExternalId: externalId ?? null,
+					})
+					.returning({ id: tables.userOrganization.id }),
+		);
 		await grantDefaultProjects(membership.id, organizationId);
 		return true;
 	}
@@ -616,16 +657,31 @@ async function ensureMembership(
 	return false;
 }
 
-// Recompute an org member's role from their SCIM group→role mappings (shared
-// with the SSO management routes) and, when it actually changes the role, log
-// the transition against the SCIM request context.
-async function recomputeUserRole(
+// Recompute role and team together so group changes cannot leave a privileged
+// member in a team. Log each effective transition against the SCIM request.
+async function recomputeUserAccess(
 	c: Context<ScimVars>,
 	userId: string,
 	organizationId: string,
 ) {
-	const change = await applyUserRole(userId, organizationId);
-	if (!change) {
+	const before = await db.query.userOrganization.findFirst({
+		where: {
+			userId: { eq: userId },
+			organizationId: { eq: organizationId },
+		},
+		columns: { teamId: true },
+	});
+	const roleChange = await applyUserRole(userId, organizationId);
+	await applyUserTeam(userId, organizationId);
+	const after = await db.query.userOrganization.findFirst({
+		where: {
+			userId: { eq: userId },
+			organizationId: { eq: organizationId },
+		},
+		columns: { teamId: true },
+	});
+	const teamChanged = before?.teamId !== after?.teamId;
+	if (!roleChange && !teamChanged) {
 		return;
 	}
 
@@ -633,15 +689,30 @@ async function recomputeUserRole(
 		where: { id: { eq: userId } },
 		columns: { id: true, email: true },
 	});
-	await logScimAudit(c, {
-		action: "scim.user.role_change",
-		resourceType: "scim_user",
-		resourceId: userId,
-		targetUser: target ?? { id: userId },
-		metadata: {
-			changes: { role: { old: change.old, new: change.new } },
-		},
-	});
+	if (roleChange) {
+		await logScimAudit(c, {
+			action: "scim.user.role_change",
+			resourceType: "scim_user",
+			resourceId: userId,
+			targetUser: target ?? { id: userId },
+			metadata: {
+				changes: { role: { old: roleChange.old, new: roleChange.new } },
+			},
+		});
+	}
+	if (teamChanged) {
+		await logScimAudit(c, {
+			action: "scim.user.team_change",
+			resourceType: "scim_user",
+			resourceId: userId,
+			targetUser: target ?? { id: userId },
+			metadata: {
+				changes: {
+					teamId: { old: before?.teamId ?? null, new: after?.teamId ?? null },
+				},
+			},
+		});
+	}
 }
 
 scim.put("/Users/:id", async (c) => {
@@ -686,7 +757,20 @@ scim.put("/Users/:id", async (c) => {
 	// Activation provisions (or keeps) membership in this org — only then is it
 	// safe to mutate the shared user row, so a foreign token can't rename users
 	// in other orgs.
-	if (await ensureMembership(user.id, orgId, payload.externalId)) {
+	let membershipCreated: boolean;
+	try {
+		membershipCreated = await ensureMembership(
+			user.id,
+			orgId,
+			payload.externalId,
+		);
+	} catch (error) {
+		if (error instanceof EnterpriseSeatLimitError) {
+			return scimError(409, error.message, "tooMany");
+		}
+		throw error;
+	}
+	if (membershipCreated) {
 		await logScimAudit(c, {
 			action: "scim.user.activate",
 			resourceType: "scim_user",
@@ -715,7 +799,7 @@ scim.put("/Users/:id", async (c) => {
 
 	// Reactivation via ensureMembership creates a fresh `developer` membership;
 	// re-apply group mappings so a user in an admin/owner group isn't downgraded.
-	await recomputeUserRole(c, user.id, orgId);
+	await recomputeUserAccess(c, user.id, orgId);
 
 	const membership = await getMembership(user.id, orgId);
 	return scimJson(toScimUser(user, true, membership?.scimExternalId));
@@ -780,7 +864,16 @@ scim.patch("/Users/:id", async (c) => {
 	}
 
 	if (active) {
-		if (await ensureMembership(user.id, orgId)) {
+		let membershipCreated: boolean;
+		try {
+			membershipCreated = await ensureMembership(user.id, orgId);
+		} catch (error) {
+			if (error instanceof EnterpriseSeatLimitError) {
+				return scimError(409, error.message, "tooMany");
+			}
+			throw error;
+		}
+		if (membershipCreated) {
 			await logScimAudit(c, {
 				action: "scim.user.activate",
 				resourceType: "scim_user",
@@ -790,7 +883,7 @@ scim.patch("/Users/:id", async (c) => {
 			});
 		}
 		// New/reactivated membership defaults to `developer`; re-apply mappings.
-		await recomputeUserRole(c, user.id, orgId);
+		await recomputeUserAccess(c, user.id, orgId);
 	} else if (wasMember) {
 		if (await removeMembership(user.id, orgId)) {
 			await logScimAudit(c, {
@@ -835,8 +928,8 @@ scim.delete("/Users/:id", async (c) => {
 });
 
 // --- Groups ----------------------------------------------------------------
-// The IdP pushes groups + membership here. Membership drives each user's org role
-// through the admin-defined `ssoRoleMapping` (see recomputeUserRole).
+// The IdP pushes groups + membership here. Membership drives each user's role
+// and team through the mappings configured by organization admins.
 
 interface ScimGroupRow {
 	id: string;
@@ -900,7 +993,7 @@ async function addGroupMembers(
 				.insert(tables.scimGroupMember)
 				.values({ scimGroupId: groupId, userId });
 		}
-		await recomputeUserRole(c, userId, orgId);
+		await recomputeUserAccess(c, userId, orgId);
 	}
 }
 
@@ -912,7 +1005,7 @@ async function recomputeGroupMembers(
 	orgId: string,
 ) {
 	for (const userId of await groupMemberUserIds(groupId)) {
-		await recomputeUserRole(c, userId, orgId);
+		await recomputeUserAccess(c, userId, orgId);
 	}
 }
 
@@ -949,7 +1042,7 @@ async function removeGroupMembers(
 					eq(tables.scimGroupMember.userId, userId),
 				),
 			);
-		await recomputeUserRole(c, userId, orgId);
+		await recomputeUserAccess(c, userId, orgId);
 	}
 }
 
@@ -1267,7 +1360,7 @@ scim.delete("/Groups/:id", async (c) => {
 
 	// Cascade removed the membership rows; recompute the former members' roles.
 	for (const userId of formerMembers) {
-		await recomputeUserRole(c, userId, orgId);
+		await recomputeUserAccess(c, userId, orgId);
 	}
 
 	return new Response(null, { status: 204 });

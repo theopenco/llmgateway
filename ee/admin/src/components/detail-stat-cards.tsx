@@ -2,6 +2,8 @@
 
 import { TokenBreakdownCards } from "@/components/token-breakdown";
 
+import { deriveStabilityMetrics } from "@llmgateway/shared";
+
 import type { TokenBreakdownData } from "@/components/token-breakdown";
 
 function formatNumber(n: number) {
@@ -31,10 +33,12 @@ export function DetailStatCards({
 	stats: DetailStats;
 	loading?: boolean;
 }) {
-	const errorRate =
-		stats.logsCount > 0
-			? ((stats.errorsCount / stats.logsCount) * 100).toFixed(1)
-			: "0.0";
+	const stability = deriveStabilityMetrics(
+		stats.logsCount,
+		stats.errorsCount,
+		stats.clientErrorsCount,
+	);
+	const errorRate = (stability.errorRate ?? 0).toFixed(1);
 
 	return (
 		<>
@@ -48,7 +52,7 @@ export function DetailStatCards({
 					label="Errors"
 					value={
 						<>
-							{formatNumber(stats.errorsCount)}{" "}
+							{formatNumber(stability.errorsCount)}{" "}
 							<span className="text-sm text-muted-foreground">
 								({errorRate}%)
 							</span>

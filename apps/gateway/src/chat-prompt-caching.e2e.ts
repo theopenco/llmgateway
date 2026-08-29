@@ -19,6 +19,7 @@ import {
 import { models } from "@llmgateway/models";
 
 import { app } from "./app.js";
+import { readAll } from "./test-utils/test-helpers.js";
 
 import type { ProviderModelMapping } from "@llmgateway/models";
 
@@ -126,6 +127,7 @@ describe("e2e prompt caching", getConcurrentTestOptions(), () => {
 					headers: {
 						"Content-Type": "application/json",
 						"x-request-id": firstRequestId,
+						"x-no-fallback": "true",
 						Authorization: `Bearer real-token`,
 					},
 					body: JSON.stringify({
@@ -178,6 +180,7 @@ describe("e2e prompt caching", getConcurrentTestOptions(), () => {
 						headers: {
 							"Content-Type": "application/json",
 							"x-request-id": secondRequestId,
+							"x-no-fallback": "true",
 							Authorization: `Bearer real-token`,
 						},
 						body: JSON.stringify({
@@ -273,6 +276,71 @@ describe("e2e prompt caching", getConcurrentTestOptions(), () => {
 					expect(Number(providerMapping.cachedInputPrice)).toBeLessThan(
 						Number(providerMapping.inputPrice),
 					);
+				}
+
+				if (provider.streaming) {
+					const sendStreamingCacheRequest = async () => {
+						const requestId = generateTestRequestId();
+						const res = await app.request("/v1/chat/completions", {
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								"x-request-id": requestId,
+								"x-no-fallback": "true",
+								Authorization: `Bearer real-token`,
+							},
+							body: JSON.stringify({
+								model,
+								messages: [
+									{
+										role: "system",
+										content: longSystemPrompt,
+									},
+									{
+										role: "user",
+										content:
+											"Just reply with 'OK' to confirm you received the context.",
+									},
+								],
+								stream: true,
+							}),
+						});
+						const streamResult = await readAll(res.body);
+						const usage = streamResult.chunks
+							.filter((chunk) => chunk.usage)
+							.at(-1)?.usage;
+						return { res, requestId, streamResult, usage };
+					};
+
+					let streamAttempt = 0;
+					let streamResult: Awaited<
+						ReturnType<typeof sendStreamingCacheRequest>
+					>;
+					do {
+						streamAttempt++;
+						streamResult = await sendStreamingCacheRequest();
+						const cached =
+							streamResult.usage?.prompt_tokens_details?.cached_tokens ?? 0;
+						if (streamResult.res.status !== 200 || cached > 0) {
+							break;
+						}
+						if (streamAttempt < maxAttempts) {
+							await new Promise((r) => setTimeout(r, 750 * streamAttempt));
+						}
+					} while (streamAttempt < maxAttempts);
+
+					expect(streamResult.res.status).toBe(200);
+					expect(streamResult.streamResult.hasValidSSE).toBe(true);
+					expect(
+						streamResult.usage?.prompt_tokens_details?.cached_tokens,
+					).toBeGreaterThan(0);
+
+					const streamingLog = await validateLogByRequestId(
+						streamResult.requestId,
+					);
+					expect(streamingLog.streamed).toBe(true);
+					expect(Number(streamingLog.cachedTokens)).toBeGreaterThan(0);
+					expect(Number(streamingLog.cachedInputCost)).toBeGreaterThan(0);
 				}
 			},
 		);

@@ -1,9 +1,13 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
+import Stripe from "stripe";
 import { z } from "zod";
 
 import { adminMiddleware } from "@/middleware/admin.js";
+import { getStripe } from "@/routes/payments.js";
+import { findDevPlanCardFingerprintOwner } from "@/utils/dev-plan-card-fingerprints.js";
 
+import { logAuditEvent } from "@llmgateway/audit";
 import {
 	and,
 	auditLogActions,
@@ -355,6 +359,671 @@ adminOrgDetails.openapi(getOrganizationSettings, async (c) => {
 			createdAt: key.createdAt.toISOString(),
 		})),
 	});
+});
+
+// ==================== Payment Methods ====================
+
+const adminPaymentMethodSchema = z.object({
+	id: z.string(),
+	type: z.string(),
+	createdAt: z.string(),
+	isDefault: z.boolean(),
+	canReleaseDevPlanCardFingerprint: z.boolean(),
+	card: z
+		.object({
+			brand: z.string(),
+			last4: z.string(),
+			expiryMonth: z.number(),
+			expiryYear: z.number(),
+		})
+		.nullable(),
+});
+
+const adminDevPlanCardFingerprintSchema = z.object({
+	id: z.string(),
+	createdAt: z.string(),
+	fingerprint: z.string(),
+	isCurrent: z.boolean(),
+	canRelease: z.boolean(),
+});
+
+type PaymentMethodOrganization = Pick<
+	typeof tables.organization.$inferSelect,
+	| "id"
+	| "stripeCustomerId"
+	| "stripeSubscriptionId"
+	| "devPlanStripeSubscriptionId"
+	| "devPlanCardFingerprint"
+	| "chatPlanStripeSubscriptionId"
+>;
+
+interface OrganizationSubscription {
+	id: string;
+	kind: "default" | "devPlan" | "chatPlan";
+	subscription: Stripe.Subscription | null;
+}
+
+function getStripeId(
+	value: string | { id: string } | null | undefined,
+): string | null {
+	return typeof value === "string" ? value : (value?.id ?? null);
+}
+
+function isStripeMissingResourceError(
+	error: unknown,
+): error is Stripe.errors.StripeInvalidRequestError {
+	return (
+		error instanceof Stripe.errors.StripeInvalidRequestError &&
+		(error.code === "resource_missing" || error.statusCode === 404)
+	);
+}
+
+async function listCustomerPaymentMethods(
+	stripe: Stripe,
+	stripeCustomerId: string,
+) {
+	const paymentMethods: Stripe.PaymentMethod[] = [];
+	let startingAfter: string | undefined;
+
+	while (true) {
+		const page = await stripe.paymentMethods.list({
+			customer: stripeCustomerId,
+			limit: 100,
+			...(startingAfter ? { starting_after: startingAfter } : {}),
+		});
+		paymentMethods.push(...page.data);
+
+		if (!page.has_more || page.data.length === 0) {
+			return paymentMethods;
+		}
+		startingAfter = page.data[page.data.length - 1]?.id;
+	}
+}
+
+async function retrieveOrganizationSubscription(
+	stripe: Stripe,
+	id: string,
+	kind: OrganizationSubscription["kind"],
+): Promise<OrganizationSubscription> {
+	try {
+		return {
+			id,
+			kind,
+			subscription: await stripe.subscriptions.retrieve(id),
+		};
+	} catch (error) {
+		if (isStripeMissingResourceError(error)) {
+			return { id, kind, subscription: null };
+		}
+		throw error;
+	}
+}
+
+async function getOrganizationPaymentMethodState(
+	org: PaymentMethodOrganization,
+) {
+	if (!org.stripeCustomerId) {
+		return null;
+	}
+
+	const stripe = getStripe();
+	const subscriptionRequests: Promise<OrganizationSubscription>[] = [];
+	if (org.stripeSubscriptionId) {
+		subscriptionRequests.push(
+			retrieveOrganizationSubscription(
+				stripe,
+				org.stripeSubscriptionId,
+				"default",
+			),
+		);
+	}
+	if (org.devPlanStripeSubscriptionId) {
+		subscriptionRequests.push(
+			retrieveOrganizationSubscription(
+				stripe,
+				org.devPlanStripeSubscriptionId,
+				"devPlan",
+			),
+		);
+	}
+	if (org.chatPlanStripeSubscriptionId) {
+		subscriptionRequests.push(
+			retrieveOrganizationSubscription(
+				stripe,
+				org.chatPlanStripeSubscriptionId,
+				"chatPlan",
+			),
+		);
+	}
+
+	const [paymentMethods, customer, localPaymentMethods, subscriptions] =
+		await Promise.all([
+			listCustomerPaymentMethods(stripe, org.stripeCustomerId),
+			stripe.customers.retrieve(org.stripeCustomerId),
+			db.query.paymentMethod.findMany({
+				where: { organizationId: org.id },
+			}),
+			Promise.all(subscriptionRequests),
+		]);
+
+	if (customer.deleted) {
+		throw new HTTPException(404, { message: "Stripe customer not found" });
+	}
+
+	const defaultPaymentMethodIds = new Set<string>();
+	const customerDefaultId = getStripeId(
+		customer.invoice_settings?.default_payment_method,
+	);
+	if (customerDefaultId) {
+		defaultPaymentMethodIds.add(customerDefaultId);
+	}
+	for (const { subscription } of subscriptions) {
+		if (!subscription) {
+			continue;
+		}
+		const subscriptionDefaultId = getStripeId(
+			subscription.default_payment_method,
+		);
+		if (subscriptionDefaultId) {
+			defaultPaymentMethodIds.add(subscriptionDefaultId);
+		}
+	}
+	for (const paymentMethod of localPaymentMethods) {
+		if (paymentMethod.isDefault) {
+			defaultPaymentMethodIds.add(paymentMethod.stripePaymentMethodId);
+		}
+	}
+
+	return {
+		paymentMethods,
+		customerDefaultId,
+		localPaymentMethods,
+		subscriptions,
+		defaultPaymentMethodIds,
+	};
+}
+
+const getOrganizationPaymentMethods = createRoute({
+	method: "get",
+	path: "/organizations/{orgId}/payment-methods",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						paymentMethods: z.array(adminPaymentMethodSchema),
+						devPlanCardFingerprints: z.array(adminDevPlanCardFingerprintSchema),
+					}),
+				},
+			},
+			description: "Payment methods attached to the Stripe customer.",
+		},
+		404: {
+			description: "Organization not found.",
+		},
+	},
+});
+
+adminOrgDetails.openapi(getOrganizationPaymentMethods, async (c) => {
+	const { orgId } = c.req.valid("param");
+	const org = await requireOrganization(orgId);
+	const fingerprints = await db.query.devPlanCardFingerprintHistory.findMany({
+		where: { organizationId: { eq: orgId } },
+		orderBy: { createdAt: "desc" },
+	});
+	const devPlanCardFingerprints = fingerprints.map((entry) => ({
+		id: entry.id,
+		createdAt: entry.createdAt.toISOString(),
+		fingerprint: entry.fingerprint,
+		isCurrent: entry.fingerprint === org.devPlanCardFingerprint,
+		canRelease: !org.devPlanStripeSubscriptionId,
+	}));
+
+	if (!org.stripeCustomerId) {
+		return c.json({ paymentMethods: [], devPlanCardFingerprints });
+	}
+
+	const state = await getOrganizationPaymentMethodState(org);
+	if (!state) {
+		return c.json({ paymentMethods: [], devPlanCardFingerprints });
+	}
+
+	return c.json({
+		paymentMethods: state.paymentMethods.map((paymentMethod) => ({
+			id: paymentMethod.id,
+			type: paymentMethod.type,
+			createdAt: new Date(paymentMethod.created * 1000).toISOString(),
+			isDefault: state.defaultPaymentMethodIds.has(paymentMethod.id),
+			canReleaseDevPlanCardFingerprint: Boolean(
+				!org.devPlanStripeSubscriptionId &&
+				paymentMethod.card?.fingerprint &&
+				paymentMethod.card.fingerprint === org.devPlanCardFingerprint,
+			),
+			card: paymentMethod.card
+				? {
+						brand: paymentMethod.card.brand,
+						last4: paymentMethod.card.last4,
+						expiryMonth: paymentMethod.card.exp_month,
+						expiryYear: paymentMethod.card.exp_year,
+					}
+				: null,
+		})),
+		devPlanCardFingerprints,
+	});
+});
+
+const releaseDevPlanCardFingerprint = createRoute({
+	method: "delete",
+	path: "/organizations/{orgId}/dev-plan-card-fingerprints/{fingerprintId}",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+			fingerprintId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }),
+				},
+			},
+			description: "DevPass card fingerprint released.",
+		},
+		404: { description: "Organization or fingerprint not found." },
+		409: { description: "An active DevPass subscription still uses the card." },
+	},
+});
+
+adminOrgDetails.openapi(releaseDevPlanCardFingerprint, async (c) => {
+	const { orgId, fingerprintId } = c.req.valid("param");
+	const org = await requireOrganization(orgId);
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(404, { message: "Fingerprint not found" });
+	}
+	if (org.devPlanStripeSubscriptionId) {
+		throw new HTTPException(409, {
+			message:
+				"End the DevPass subscription before releasing its card fingerprint.",
+		});
+	}
+
+	const fingerprint = await db.query.devPlanCardFingerprintHistory.findFirst({
+		where: {
+			id: { eq: fingerprintId },
+			organizationId: { eq: orgId },
+		},
+	});
+	if (!fingerprint) {
+		throw new HTTPException(404, { message: "Fingerprint not found" });
+	}
+
+	await db.transaction(async (tx) => {
+		await tx
+			.delete(tables.devPlanCardFingerprintHistory)
+			.where(eq(tables.devPlanCardFingerprintHistory.id, fingerprintId));
+		if (org.devPlanCardFingerprint === fingerprint.fingerprint) {
+			await tx
+				.update(tables.organization)
+				.set({ devPlanCardFingerprint: null })
+				.where(eq(tables.organization.id, orgId));
+		}
+	});
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user.id,
+		action: "dev_plan.release_card_fingerprint",
+		resourceType: "dev_plan",
+		resourceId: fingerprintId,
+	});
+
+	return c.json({ success: true });
+});
+
+const deleteOrganizationPaymentMethod = createRoute({
+	method: "delete",
+	path: "/organizations/{orgId}/payment-methods/{paymentMethodId}",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+			paymentMethodId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						replacementPaymentMethodId: z.string().optional(),
+						releaseDevPlanCardFingerprint: z.boolean().optional(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }),
+				},
+			},
+			description: "Payment method detached from Stripe and removed locally.",
+		},
+		404: {
+			description: "Organization or payment method not found.",
+		},
+		400: {
+			description: "A valid replacement is required for a default method.",
+		},
+		409: {
+			description: "The replacement card is already used elsewhere.",
+		},
+	},
+});
+
+adminOrgDetails.openapi(deleteOrganizationPaymentMethod, async (c) => {
+	const { orgId, paymentMethodId } = c.req.valid("param");
+	const { replacementPaymentMethodId, releaseDevPlanCardFingerprint } =
+		c.req.valid("json");
+	const org = await requireOrganization(orgId);
+	const user = c.get("user");
+
+	if (!org.stripeCustomerId || !user) {
+		throw new HTTPException(404, { message: "Payment method not found" });
+	}
+
+	const stripe = getStripe();
+	const localPaymentMethod = await db.query.paymentMethod.findFirst({
+		where: {
+			organizationId: { eq: orgId },
+			stripePaymentMethodId: { eq: paymentMethodId },
+		},
+	});
+	let paymentMethod: Stripe.PaymentMethod | null = null;
+	try {
+		paymentMethod = await stripe.paymentMethods.retrieve(paymentMethodId);
+	} catch (error) {
+		if (!isStripeMissingResourceError(error)) {
+			throw error;
+		}
+		if (!localPaymentMethod) {
+			throw new HTTPException(404, {
+				message: "Payment method not found",
+			});
+		}
+	}
+
+	const stripeCustomerId = paymentMethod
+		? getStripeId(paymentMethod.customer)
+		: null;
+	const attachedToOrganization = stripeCustomerId === org.stripeCustomerId;
+	const hasDetachedLocalMethod =
+		stripeCustomerId === null && Boolean(localPaymentMethod);
+	if (!attachedToOrganization && !hasDetachedLocalMethod) {
+		throw new HTTPException(404, { message: "Payment method not found" });
+	}
+
+	const paymentMethodFingerprint = paymentMethod?.card?.fingerprint ?? null;
+	const canReleaseDevPlanCardFingerprint = Boolean(
+		!org.devPlanStripeSubscriptionId &&
+		paymentMethodFingerprint &&
+		paymentMethodFingerprint === org.devPlanCardFingerprint,
+	);
+	if (releaseDevPlanCardFingerprint && !canReleaseDevPlanCardFingerprint) {
+		throw new HTTPException(400, {
+			message:
+				"This payment method cannot release the retained DevPass card fingerprint.",
+		});
+	}
+
+	const state = await getOrganizationPaymentMethodState(org);
+	if (!state) {
+		throw new HTTPException(404, { message: "Payment method not found" });
+	}
+
+	const remainingPaymentMethods = state.paymentMethods.filter(
+		(candidate) => candidate.id !== paymentMethodId,
+	);
+	const isDefault = state.defaultPaymentMethodIds.has(paymentMethodId);
+	const replacementPaymentMethod = replacementPaymentMethodId
+		? remainingPaymentMethods.find(
+				(candidate) => candidate.id === replacementPaymentMethodId,
+			)
+		: undefined;
+
+	if (isDefault && remainingPaymentMethods.length > 0) {
+		if (!replacementPaymentMethod) {
+			throw new HTTPException(400, {
+				message:
+					"Select another attached payment method before deleting the default method.",
+			});
+		}
+	} else if (replacementPaymentMethodId && !replacementPaymentMethod) {
+		throw new HTTPException(400, {
+			message: "Replacement payment method is not attached to this customer.",
+		});
+	}
+
+	const replacementId = replacementPaymentMethod?.id ?? null;
+	const clearAllDefaults = remainingPaymentMethods.length === 0;
+	const shouldUpdateCustomerDefault =
+		clearAllDefaults || state.customerDefaultId === paymentMethodId;
+	const subscriptionsToUpdate = state.subscriptions.filter(
+		(
+			entry,
+		): entry is OrganizationSubscription & {
+			subscription: Stripe.Subscription;
+		} => {
+			if (!entry.subscription) {
+				return false;
+			}
+			return (
+				clearAllDefaults ||
+				getStripeId(entry.subscription.default_payment_method) ===
+					paymentMethodId
+			);
+		},
+	);
+	const subscriptionInheritsChangedCustomerDefault = (
+		kind: OrganizationSubscription["kind"],
+	) =>
+		shouldUpdateCustomerDefault &&
+		state.subscriptions.some(
+			(entry) =>
+				entry.kind === kind &&
+				entry.subscription &&
+				!getStripeId(entry.subscription.default_payment_method),
+		);
+	const subscriptionUsesRetryReplacement = (
+		kind: OrganizationSubscription["kind"],
+	) =>
+		hasDetachedLocalMethod &&
+		Boolean(replacementId) &&
+		state.subscriptions.some(
+			(entry) =>
+				entry.kind === kind &&
+				entry.subscription &&
+				getStripeId(entry.subscription.default_payment_method) ===
+					replacementId,
+		);
+	const updateDevPlanFingerprint = clearAllDefaults
+		? Boolean(org.devPlanStripeSubscriptionId)
+		: subscriptionsToUpdate.some((entry) => entry.kind === "devPlan") ||
+			subscriptionInheritsChangedCustomerDefault("devPlan") ||
+			subscriptionUsesRetryReplacement("devPlan");
+	const updateChatPlanFingerprint = clearAllDefaults
+		? Boolean(org.chatPlanStripeSubscriptionId)
+		: subscriptionsToUpdate.some((entry) => entry.kind === "chatPlan") ||
+			subscriptionInheritsChangedCustomerDefault("chatPlan") ||
+			subscriptionUsesRetryReplacement("chatPlan");
+	const replacementFingerprint =
+		replacementPaymentMethod?.card?.fingerprint ?? null;
+
+	if (
+		replacementId &&
+		(updateDevPlanFingerprint || updateChatPlanFingerprint) &&
+		!replacementFingerprint
+	) {
+		throw new HTTPException(400, {
+			message: "DevPass and Chat subscriptions require a replacement card.",
+		});
+	}
+
+	if (replacementFingerprint && updateDevPlanFingerprint) {
+		const conflictingOrganization = await findDevPlanCardFingerprintOwner(
+			replacementFingerprint,
+			orgId,
+		);
+		if (conflictingOrganization) {
+			throw new HTTPException(409, {
+				message: "Replacement card is already used by another organization.",
+			});
+		}
+	}
+	if (replacementFingerprint && updateChatPlanFingerprint) {
+		const conflictingOrganization = await db.query.organization.findFirst({
+			where: {
+				chatPlanCardFingerprint: { eq: replacementFingerprint },
+				id: { ne: orgId },
+			},
+		});
+		if (conflictingOrganization) {
+			throw new HTTPException(409, {
+				message: "Replacement card is already used by another organization.",
+			});
+		}
+	}
+
+	if (shouldUpdateCustomerDefault) {
+		await stripe.customers.update(org.stripeCustomerId, {
+			invoice_settings: {
+				default_payment_method: replacementId ?? "",
+			},
+		});
+	}
+	for (const { id } of subscriptionsToUpdate) {
+		await stripe.subscriptions.update(id, {
+			default_payment_method: replacementId ?? "",
+		});
+	}
+
+	if (attachedToOrganization) {
+		await stripe.paymentMethods.detach(paymentMethodId);
+	}
+
+	const localReplacement = replacementId
+		? state.localPaymentMethods.find(
+				(candidate) => candidate.stripePaymentMethodId === replacementId,
+			)
+		: undefined;
+	const disableAutoTopUp = clearAllDefaults;
+	const shouldReconcileLocalDefault =
+		clearAllDefaults ||
+		shouldUpdateCustomerDefault ||
+		Boolean(localPaymentMethod?.isDefault) ||
+		(hasDetachedLocalMethod &&
+			Boolean(replacementId) &&
+			state.customerDefaultId === replacementId);
+
+	await db.transaction(async (tx) => {
+		if (releaseDevPlanCardFingerprint && paymentMethodFingerprint) {
+			await tx
+				.delete(tables.devPlanCardFingerprintHistory)
+				.where(
+					and(
+						eq(tables.devPlanCardFingerprintHistory.organizationId, orgId),
+						eq(
+							tables.devPlanCardFingerprintHistory.fingerprint,
+							paymentMethodFingerprint,
+						),
+					),
+				);
+		}
+
+		if (updateDevPlanFingerprint && replacementFingerprint) {
+			await tx
+				.insert(tables.devPlanCardFingerprintHistory)
+				.values({
+					organizationId: orgId,
+					fingerprint: replacementFingerprint,
+				})
+				.onConflictDoNothing();
+		}
+
+		if (shouldReconcileLocalDefault) {
+			await tx
+				.update(tables.paymentMethod)
+				.set({ isDefault: false })
+				.where(eq(tables.paymentMethod.organizationId, orgId));
+
+			if (localReplacement) {
+				await tx
+					.update(tables.paymentMethod)
+					.set({ isDefault: true })
+					.where(eq(tables.paymentMethod.id, localReplacement.id));
+			} else if (replacementPaymentMethod) {
+				await tx.insert(tables.paymentMethod).values({
+					organizationId: orgId,
+					stripePaymentMethodId: replacementPaymentMethod.id,
+					type: replacementPaymentMethod.type,
+					isDefault: true,
+				});
+			}
+		}
+
+		if (
+			disableAutoTopUp ||
+			updateDevPlanFingerprint ||
+			updateChatPlanFingerprint ||
+			releaseDevPlanCardFingerprint
+		) {
+			await tx
+				.update(tables.organization)
+				.set({
+					...(disableAutoTopUp ? { autoTopUpEnabled: false } : {}),
+					...(releaseDevPlanCardFingerprint
+						? { devPlanCardFingerprint: null }
+						: updateDevPlanFingerprint
+							? { devPlanCardFingerprint: replacementFingerprint }
+							: {}),
+					...(updateChatPlanFingerprint
+						? { chatPlanCardFingerprint: replacementFingerprint }
+						: {}),
+				})
+				.where(eq(tables.organization.id, orgId));
+		}
+
+		await tx
+			.delete(tables.paymentMethod)
+			.where(
+				and(
+					eq(tables.paymentMethod.organizationId, orgId),
+					eq(tables.paymentMethod.stripePaymentMethodId, paymentMethodId),
+				),
+			);
+	});
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user.id,
+		action: "payment.method.delete",
+		resourceType: "payment_method",
+		resourceId: paymentMethodId,
+		metadata: {
+			cardLast4: paymentMethod?.card?.last4,
+			replacementPaymentMethodId: replacementId,
+			autoTopUpDisabled: disableAutoTopUp && org.autoTopUpEnabled,
+			devPlanCardFingerprintReleased: releaseDevPlanCardFingerprint === true,
+		},
+	});
+
+	return c.json({ success: true });
 });
 
 // ==================== Guardrails ====================

@@ -7,7 +7,8 @@ import {
 	deleteAll,
 } from "@/testing.js";
 
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 const ORG_ID = "mode-split-org";
 const PROJECT_ID = "mode-split-project";
@@ -109,14 +110,14 @@ describe("admin — credits vs BYOK mode split", () => {
 		await db.insert(tables.apiKey).values([
 			{
 				id: API_KEY_ID,
-				token: "mode-split-token",
+				...hashApiKeyForStorage("mode-split-token"),
 				projectId: PROJECT_ID,
 				description: "Mode Split Key",
 				createdBy: "test-user-id",
 			},
 			{
 				id: DEVPASS_KEY_ID,
-				token: "mode-split-devpass-token",
+				...hashApiKeyForStorage("mode-split-devpass-token"),
 				projectId: DEVPASS_PROJECT_ID,
 				description: "Mode Split DevPass Key",
 				createdBy: "test-user-id",
@@ -267,11 +268,15 @@ describe("admin — credits vs BYOK mode split", () => {
 				apiKeysRequestCount: number;
 			}[];
 			totalCost: number;
+			totalCreditsRequests: number;
+			totalApiKeysRequests: number;
 			totalCreditsCost: number;
 			totalApiKeysCost: number;
 		};
 
 		expect(body.totalCost).toBeCloseTo(50, 3);
+		expect(body.totalCreditsRequests).toBe(1);
+		expect(body.totalApiKeysRequests).toBe(1);
 		expect(body.totalCreditsCost).toBeCloseTo(10, 3);
 		expect(body.totalApiKeysCost).toBeCloseTo(40, 3);
 
@@ -282,6 +287,162 @@ describe("admin — credits vs BYOK mode split", () => {
 		expect(gpt4!.creditsRequestCount).toBe(1);
 		expect(gpt4!.apiKeysRequestCount).toBe(1);
 	});
+
+	test("organization cost charts retain soft-deleted usage", async () => {
+		await db
+			.update(tables.organization)
+			.set({ status: "deleted" })
+			.where(eq(tables.organization.id, ORG_ID));
+
+		const breakdownRes = await app.request(
+			`/admin/organizations/${ORG_ID}/cost-by-model?window=1d`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect(breakdownRes.status).toBe(200);
+		const breakdown = (await breakdownRes.json()) as {
+			models: { model: string; cost: number }[];
+			totalCost: number;
+		};
+		expect(breakdown.models).toHaveLength(1);
+		expect(breakdown.totalCost).toBeCloseTo(50, 3);
+
+		const timeseriesRes = await app.request(
+			`/admin/organizations/${ORG_ID}/cost-by-model-timeseries?window=1d`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect(timeseriesRes.status).toBe(200);
+		const timeseries = (await timeseriesRes.json()) as {
+			models: string[];
+			data: { entries: { cost: number }[] }[];
+		};
+		expect(timeseries.models).toHaveLength(1);
+		expect(
+			timeseries.data
+				.flatMap((point) => point.entries)
+				.reduce((sum, entry) => sum + entry.cost, 0),
+		).toBeCloseTo(50, 3);
+	});
+
+	test("cost breakdown totals include rows beyond the top 20", async () => {
+		const hourTimestamp = new Date();
+		hourTimestamp.setUTCMinutes(0, 0, 0);
+		await db.insert(tables.projectHourlyModelStats).values(
+			Array.from({ length: 20 }, (_, index) => ({
+				projectId: PROJECT_ID,
+				hourTimestamp,
+				usedModel: `extra-model-${index}`,
+				usedProvider: "test-provider",
+				requestCount: 1,
+				totalTokens: "1",
+				cost: 1,
+				creditsRequestCount: 1,
+				creditsCost: 1,
+			})),
+		);
+
+		const res = await app.request(
+			`/admin/organizations/${ORG_ID}/cost-by-model?window=1d`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as {
+			models: { creditsRequestCount: number }[];
+			totalCreditsRequests: number;
+			totalApiKeysRequests: number;
+		};
+
+		expect(body.models).toHaveLength(20);
+		expect(
+			body.models.reduce((sum, model) => sum + model.creditsRequestCount, 0),
+		).toBe(20);
+		expect(body.totalCreditsRequests).toBe(21);
+		expect(body.totalApiKeysRequests).toBe(1);
+	});
+
+	test.each([
+		["project", "Mode Split Project"],
+		["api-key", "Mode Split Key"],
+		["user", "admin@example.com"],
+	] as const)(
+		"GET organization cost breakdown groups by %s",
+		async (groupBy, expectedLabel) => {
+			const res = await app.request(
+				`/admin/organizations/${ORG_ID}/cost-by-model?window=1d&groupBy=${groupBy}`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(res.status).toBe(200);
+			const body = (await res.json()) as {
+				models: { model: string; cost: number }[];
+			};
+
+			expect(body.models).toHaveLength(1);
+			expect(body.models[0]?.model).toContain(expectedLabel);
+			expect(body.models[0]?.cost).toBeCloseTo(50, 3);
+		},
+	);
+
+	test.each([
+		["api-key", API_KEY_ID],
+		["user", "Deleted user"],
+	] as const)(
+		"organization %s breakdown retains deleted-key usage",
+		async (groupBy, expectedLabel) => {
+			await db.delete(tables.apiKey).where(eq(tables.apiKey.id, API_KEY_ID));
+
+			const breakdownRes = await app.request(
+				`/admin/organizations/${ORG_ID}/cost-by-model?window=1d&groupBy=${groupBy}`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(breakdownRes.status).toBe(200);
+			const breakdown = (await breakdownRes.json()) as {
+				models: { model: string; cost: number }[];
+			};
+			expect(breakdown.models).toHaveLength(1);
+			expect(breakdown.models[0]?.model).toContain(expectedLabel);
+			expect(breakdown.models[0]?.cost).toBeCloseTo(50, 3);
+
+			const timeseriesRes = await app.request(
+				`/admin/organizations/${ORG_ID}/cost-by-model-timeseries?window=1d&groupBy=${groupBy}`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(timeseriesRes.status).toBe(200);
+			const timeseries = (await timeseriesRes.json()) as {
+				models: string[];
+				data: { entries: { cost: number }[] }[];
+			};
+			expect(timeseries.models).toHaveLength(1);
+			expect(timeseries.models[0]).toContain(expectedLabel);
+			expect(
+				timeseries.data
+					.flatMap((point) => point.entries)
+					.reduce((sum, entry) => sum + entry.cost, 0),
+			).toBeCloseTo(50, 3);
+		},
+	);
+
+	test.each(["project", "api-key", "user"] as const)(
+		"GET organization cost timeseries groups by %s",
+		async (groupBy) => {
+			const res = await app.request(
+				`/admin/organizations/${ORG_ID}/cost-by-model-timeseries?window=1d&groupBy=${groupBy}`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(res.status).toBe(200);
+			const body = (await res.json()) as {
+				groupBy: string;
+				models: string[];
+				data: { entries: { cost: number }[] }[];
+			};
+
+			expect(body.groupBy).toBe(groupBy);
+			expect(body.models).toHaveLength(1);
+			expect(
+				body.data
+					.flatMap((point) => point.entries)
+					.reduce((sum, entry) => sum + entry.cost, 0),
+			).toBeCloseTo(50, 3);
+		},
+	);
 
 	test("DevPass real provider cost excludes BYOK usage", async () => {
 		const res = await app.request(`/admin/devpass/${DEVPASS_ORG_ID}`, {

@@ -1,10 +1,7 @@
 import { redirect } from "next/navigation";
 
 import DashboardShell from "@/app/dashboard/DashboardShell";
-import { fetchServerData } from "@/lib/server-api";
-
-import type { DevPlanStatus } from "@/app/dashboard/useDevPlanStatus";
-import type { UserMe } from "@/hooks/useUser";
+import { getDevPlanStatus, getUserMe } from "@/lib/server-api";
 
 export default async function DashboardLayout({
 	children,
@@ -12,8 +9,8 @@ export default async function DashboardLayout({
 	children: React.ReactNode;
 }) {
 	const [userData, devPlanStatus] = await Promise.all([
-		fetchServerData<UserMe>("GET", "/user/me"),
-		fetchServerData<DevPlanStatus>("GET", "/dev-plans/status"),
+		getUserMe(),
+		getDevPlanStatus(),
 	]);
 
 	if (!userData?.user) {

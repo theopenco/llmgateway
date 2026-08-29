@@ -24,6 +24,7 @@ const limitTypeSchema = z.enum([
 	"spend_cap_daily",
 	"spend_cap_monthly",
 	"topup_velocity",
+	"concurrency",
 ]);
 
 const t = tables.orgLimitHitDaily;
@@ -54,6 +55,7 @@ const orgLimitHitsSummarySchema = z.object({
 	organizationCreatedAt: z.string(),
 	totalHits: z.number(),
 	rpmHits: z.number(),
+	concurrencyHits: z.number(),
 	spendCapHits: z.number(),
 	topUpHits: z.number(),
 	topUpBlockedUsd: z.number(),
@@ -114,6 +116,7 @@ adminLimitHits.openapi(listLimitHits, async (c) => {
 			organizationCreatedAt: tables.organization.createdAt,
 			totalHits: totalHitsExpr,
 			rpmHits: sql<number>`SUM(CASE WHEN ${t.limitType} = 'rpm' THEN ${t.hitCount} ELSE 0 END)::int`,
+			concurrencyHits: sql<number>`SUM(CASE WHEN ${t.limitType} = 'concurrency' THEN ${t.hitCount} ELSE 0 END)::int`,
 			spendCapHits: sql<number>`SUM(CASE WHEN ${t.limitType} IN ('spend_cap_daily', 'spend_cap_monthly') THEN ${t.hitCount} ELSE 0 END)::int`,
 			topUpHits: sql<number>`SUM(CASE WHEN ${t.limitType} = 'topup_velocity' THEN ${t.hitCount} ELSE 0 END)::int`,
 			topUpBlockedUsd: sql<string>`COALESCE(SUM(CASE WHEN ${t.limitType} = 'topup_velocity' THEN CAST(${t.blockedUsd} AS NUMERIC) ELSE 0 END), 0)`,

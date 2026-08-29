@@ -5,6 +5,13 @@ import { useMemo } from "react";
 
 import { useApi } from "@/lib/fetch-client";
 
+import {
+	formatDateTime,
+	formatDayKey,
+	UTC_TIME_ZONE,
+	useDisplayTimeZone,
+} from "@llmgateway/shared";
+
 interface ActivityHeatmapProps {
 	projectId: string | null;
 }
@@ -56,19 +63,15 @@ function dateKey(d: Date): string {
 	return `${yyyy}-${mm}-${dd}`;
 }
 
-function formatDateLong(iso: string): string {
-	const d = new Date(iso + "T00:00:00Z");
-	return d.toLocaleDateString(undefined, {
-		weekday: "short",
-		month: "short",
-		day: "numeric",
-		year: "numeric",
-		timeZone: "UTC",
-	});
+function formatDateLong(day: string): string {
+	// Already a calendar day in the display zone — render it literally rather
+	// than re-projecting it and landing on the neighbouring day.
+	return formatDateTime(day, UTC_TIME_ZONE, "weekdayMonthDayYear");
 }
 
 export default function ActivityHeatmap({ projectId }: ActivityHeatmapProps) {
 	const api = useApi();
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 
 	const { data, isLoading } = api.useQuery(
 		"get",
@@ -76,8 +79,12 @@ export default function ActivityHeatmap({ projectId }: ActivityHeatmapProps) {
 		{
 			params: {
 				query: projectId
-					? { projectId, timeRange: "365d" as const }
-					: { timeRange: "365d" as const },
+					? {
+							projectId,
+							timeRange: "365d" as const,
+							timezone: displayTimeZone,
+						}
+					: { timeRange: "365d" as const, timezone: displayTimeZone },
 			},
 		},
 		{
@@ -89,8 +96,12 @@ export default function ActivityHeatmap({ projectId }: ActivityHeatmapProps) {
 
 	const { weeks, totalRequests, activeDays, currentStreak, max, monthMarks } =
 		useMemo(() => {
-			const today = new Date();
-			today.setUTCHours(0, 0, 0, 0);
+			// Anchor on "today" in the display zone, then walk the calendar in
+			// UTC. The API buckets into the same zone, so the day keys line up;
+			// anchoring on the UTC day would offset the whole grid by one.
+			const today = new Date(
+				`${formatDayKey(new Date(), displayTimeZone)}T00:00:00Z`,
+			);
 
 			const start = new Date(today);
 			start.setUTCDate(start.getUTCDate() - 364);
@@ -177,7 +188,7 @@ export default function ActivityHeatmap({ projectId }: ActivityHeatmapProps) {
 				max: maxCount,
 				monthMarks: marks,
 			};
-		}, [data]);
+		}, [data, displayTimeZone]);
 
 	if (!projectId) {
 		return null;

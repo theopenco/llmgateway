@@ -23,6 +23,7 @@ import {
 	providers as providerDefinitions,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
+import { deriveStabilityMetrics } from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -53,6 +54,25 @@ const pricingTierSchema = z.object({
 	cacheReadInputPrice: z.string().nullable(),
 	cacheWriteInputPrice: z.string().nullable(),
 	cacheWriteInputPrice1h: z.string().nullable(),
+});
+
+const timeBasedTokenPricesSchema = z.object({
+	inputPrice: z.string(),
+	outputPrice: z.string(),
+	cachedInputPrice: z.string().nullable(),
+});
+
+const peakPricingSchema = z.object({
+	peak: timeBasedTokenPricesSchema,
+	offPeak: timeBasedTokenPricesSchema,
+	hoursUtc: z.array(z.tuple([z.number(), z.number()])),
+	offPeakDays: z
+		.object({
+			daysOfWeek: z.array(z.number()),
+			utcOffsetMinutes: z.number(),
+			timeZoneLabel: z.string(),
+		})
+		.nullable(),
 });
 
 // Model provider mapping schema
@@ -92,6 +112,8 @@ const modelProviderMappingSchema = z.object({
 		.array(z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"]))
 		.nullable(),
 	reasoningOutput: z.string().nullable(),
+	reasoningMaxTokens: z.boolean().nullable(),
+	rerank: z.boolean().nullable(),
 	tools: z.boolean().nullable(),
 	jsonOutput: z.boolean().nullable(),
 	jsonOutputSchema: z.boolean().nullable(),
@@ -110,6 +132,7 @@ const modelProviderMappingSchema = z.object({
 	perSecondPrice: z.record(z.string()).nullable(),
 	perImagePrice: z.record(z.string()).nullable(),
 	pricingTiers: z.array(pricingTierSchema).nullable(),
+	peakPricing: peakPricingSchema.nullable(),
 	serviceTiers: z.array(z.string()).nullable(),
 	deprecatedAt: z.coerce.date().nullable(),
 	deactivatedAt: z.coerce.date().nullable(),
@@ -202,7 +225,7 @@ internalModels.openapi(getModelsRoute, async (c) => {
 	}
 
 	// Find the best global discount for a given provider+model. Discounts are
-	// always keyed by the root model ID.
+	// always keyed by the canonical model ID.
 	const getGlobalDiscount = (
 		providerId: string,
 		modelId: string,
@@ -255,6 +278,8 @@ internalModels.openapi(getModelsRoute, async (c) => {
 				discount: getGlobalDiscount(mapping.providerId, model.id),
 				quantization: sharedMapping?.quantization ?? null,
 				reasoningEfforts: sharedMapping?.reasoningEfforts ?? null,
+				reasoningMaxTokens: sharedMapping?.reasoningMaxTokens ?? null,
+				rerank: sharedMapping?.rerank ?? null,
 				audio: sharedMapping?.audio ?? null,
 				document: sharedMapping?.document ?? null,
 				realtime: sharedMapping?.realtime ?? null,
@@ -341,6 +366,45 @@ internalModels.openapi(getModelsRoute, async (c) => {
 								: null,
 					}));
 				})(),
+				peakPricing: sharedMapping?.peakPricing
+					? {
+							peak: {
+								inputPrice: String(sharedMapping.peakPricing.peak.inputPrice),
+								outputPrice: String(sharedMapping.peakPricing.peak.outputPrice),
+								cachedInputPrice:
+									sharedMapping.peakPricing.peak.cachedInputPrice !== undefined
+										? String(sharedMapping.peakPricing.peak.cachedInputPrice)
+										: null,
+							},
+							offPeak: {
+								inputPrice: String(
+									sharedMapping.peakPricing.offPeak.inputPrice,
+								),
+								outputPrice: String(
+									sharedMapping.peakPricing.offPeak.outputPrice,
+								),
+								cachedInputPrice:
+									sharedMapping.peakPricing.offPeak.cachedInputPrice !==
+									undefined
+										? String(sharedMapping.peakPricing.offPeak.cachedInputPrice)
+										: null,
+							},
+							hoursUtc: sharedMapping.peakPricing.hoursUtc.map(
+								([start, end]) => [start, end] as [number, number],
+							),
+							offPeakDays: sharedMapping.peakPricing.offPeakDays
+								? {
+										daysOfWeek: [
+											...sharedMapping.peakPricing.offPeakDays.daysOfWeek,
+										],
+										utcOffsetMinutes:
+											sharedMapping.peakPricing.offPeakDays.utcOffsetMinutes,
+										timeZoneLabel:
+											sharedMapping.peakPricing.offPeakDays.timeZoneLabel,
+									}
+								: null,
+						}
+					: null,
 				serviceTiers: (() => {
 					const tiers = sharedMapping?.serviceTiers ?? null;
 					if (!tiers || tiers.length === 0) {
@@ -481,6 +545,10 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.errorsCount}), 0)`.as(
 					"errorsCount",
 				),
+			clientErrorsCount:
+				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.clientErrorsCount}), 0)`.as(
+					"clientErrorsCount",
+				),
 			upstreamErrorsCount:
 				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.upstreamErrorsCount}), 0)`.as(
 					"upstreamErrorsCount",
@@ -524,18 +592,14 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 
 	const providers = windowed.map((m) => {
 		const logsCount = Number(m.logsCount);
-		const errorsCount = Number(m.errorsCount);
-		const upstreamErrorsCount = Number(m.upstreamErrorsCount);
+		const { errorsCount, errorRate, uptime } = deriveStabilityMetrics(
+			logsCount,
+			Number(m.errorsCount),
+			Number(m.clientErrorsCount),
+		);
 		const cachedCount = Number(m.cachedCount);
 		const totalDuration = Number(m.totalDuration);
 		const totalOutputTokens = Number(m.totalOutputTokens);
-		// Uptime only counts upstream/provider-side failures against the provider —
-		// client errors (4xx from user) or gateway errors aren't the provider's fault.
-		const uptime =
-			logsCount > 0
-				? Math.round(((logsCount - upstreamErrorsCount) / logsCount) * 1000) /
-					10
-				: null;
 		// Throughput = generated (output) tokens per second of request time.
 		// Prompt tokens must not be counted — they inflate the number by the
 		// prompt/output ratio, which is 30-60x for coding-agent traffic.
@@ -552,9 +616,8 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 			avgTimeToFirstToken:
 				m.avgTimeToFirstToken !== null ? Number(m.avgTimeToFirstToken) : null,
 			tokensPerSecond,
-			errorRate:
-				logsCount > 0 ? Math.round((errorsCount / logsCount) * 1000) / 10 : 0,
-			uptime,
+			errorRate: errorRate !== null ? Math.round(errorRate * 10) / 10 : 0,
+			uptime: uptime !== null ? Math.round(uptime * 10) / 10 : null,
 			windowHours: WINDOW_HOURS,
 		};
 	});
@@ -607,6 +670,7 @@ const uptimeProviderSchema = z.object({
 	providerName: z.string(),
 	logsCount: z.number(),
 	errorsCount: z.number(),
+	clientErrorsCount: z.number(),
 	upstreamErrorsCount: z.number(),
 	uptime: z.number().nullable(),
 	avgTtft: z.number().nullable(),
@@ -816,6 +880,7 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 	const providers = Array.from(byProvider.values()).map((p) => {
 		let totalLogs = 0;
 		let totalErrors = 0;
+		let totalClientErrors = 0;
 		let totalUpstreamErrors = 0;
 		let totalDuration = 0;
 		let totalTtft = 0;
@@ -827,6 +892,7 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 		const points = p.points.map((pt) => {
 			totalLogs += pt.logsCount;
 			totalErrors += pt.errorsCount;
+			totalClientErrors += pt.clientErrorsCount;
 			totalUpstreamErrors += pt.upstreamErrorsCount;
 			totalDuration += pt.totalDuration;
 			totalTtft += pt.totalTimeToFirstToken;
@@ -840,10 +906,15 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			// (much later) first content token.
 			const { total: pointTtft, count: pointTtftCount } =
 				effectiveTtftTotals(pt);
+			const pointMetrics = deriveStabilityMetrics(
+				pt.logsCount,
+				pt.errorsCount,
+				pt.clientErrorsCount,
+			);
 			return {
 				timestamp: pt.timestamp,
 				logsCount: pt.logsCount,
-				errorsCount: pt.errorsCount,
+				errorsCount: pointMetrics.errorsCount,
 				clientErrorsCount: pt.clientErrorsCount,
 				gatewayErrorsCount: pt.gatewayErrorsCount,
 				upstreamErrorsCount: pt.upstreamErrorsCount,
@@ -856,11 +927,13 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			};
 		});
 
+		const stability = deriveStabilityMetrics(
+			totalLogs,
+			totalErrors,
+			totalClientErrors,
+		);
 		const uptime =
-			totalLogs > 0
-				? Math.round(((totalLogs - totalUpstreamErrors) / totalLogs) * 1000) /
-					10
-				: null;
+			stability.uptime !== null ? Math.round(stability.uptime * 10) / 10 : null;
 		// Output tokens only — including prompt tokens would inflate throughput
 		// by the prompt/output ratio (see the benchmarks endpoint above).
 		const tokensPerSecond =
@@ -879,7 +952,8 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			providerId: p.providerId,
 			providerName: p.providerName,
 			logsCount: totalLogs,
-			errorsCount: totalErrors,
+			errorsCount: stability.errorsCount,
+			clientErrorsCount: totalClientErrors,
 			upstreamErrorsCount: totalUpstreamErrors,
 			uptime,
 			avgTtft:

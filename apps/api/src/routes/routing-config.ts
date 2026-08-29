@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { cdb, db, eq, tables } from "@llmgateway/db";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import {
 	buildProviderPriorityDefaults,
 	DEFAULT_ROUTING_HISTORY,
@@ -66,7 +67,12 @@ export async function checkProjectEnterpriseAccess(
 		});
 	}
 
-	if (userOrg.organization?.plan !== "enterprise") {
+	if (
+		!hasOrganizationEnterpriseAccess(
+			userOrg.organization?.id,
+			userOrg.organization?.plan,
+		)
+	) {
 		throw new HTTPException(403, {
 			message: "Routing configuration requires an enterprise plan",
 		});
@@ -91,6 +97,8 @@ const weightsSchema = z
 const thresholdsSchema = z
 	.object({
 		cachePromptTokens: z.number().int().min(0).optional(),
+		cacheHitRate: z.number().min(0).max(1).optional(),
+		cacheOutputRatio: z.number().min(0).max(10).optional(),
 		uptimePenalty: z.number().min(0).max(100).optional(),
 		defaultUptime: z.number().min(0).max(100).optional(),
 		defaultLatency: z.number().min(0).optional(),
@@ -206,6 +214,8 @@ const resolvedConfigSchema = z.object({
 	}),
 	thresholds: z.object({
 		cachePromptTokens: z.number(),
+		cacheHitRate: z.number(),
+		cacheOutputRatio: z.number(),
 		uptimePenalty: z.number(),
 		defaultUptime: z.number(),
 		defaultLatency: z.number(),
@@ -470,6 +480,8 @@ const getDefaults = createRoute({
 						}),
 						thresholds: z.object({
 							cachePromptTokens: z.number(),
+							cacheHitRate: z.number(),
+							cacheOutputRatio: z.number(),
 							uptimePenalty: z.number(),
 							defaultUptime: z.number(),
 							defaultLatency: z.number(),

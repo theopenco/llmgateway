@@ -1,6 +1,5 @@
 "use client";
 
-import { format, subDays } from "date-fns";
 import {
 	BarChart3Icon,
 	Info,
@@ -35,6 +34,7 @@ import {
 	type TeamMembersData,
 } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
+import { useZonedRangeDefaults } from "@/hooks/useZonedRangeDefaults";
 import { Alert, AlertDescription } from "@/lib/components/alert";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
@@ -86,10 +86,12 @@ import {
 } from "@/lib/components/table";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
-import { getBrowserTimeZone } from "@/lib/timezone";
 import { applyUsageMode } from "@/lib/usage-mode";
 
-import { SSO_TEAM_DEFAULT_DEVELOPER_BUDGET } from "@llmgateway/shared";
+import { SSO_TEAM_DEFAULT_DEVELOPER_BUDGET, Time } from "@llmgateway/shared";
+
+import { OrganizationTeamsClient } from "./organization-teams-client";
+import { TeamTabs } from "./team-tabs";
 
 import type { Route } from "next";
 
@@ -269,6 +271,11 @@ function ManageBudgetDialog({
 	);
 
 	const memberName = member.user.name ?? member.user.email;
+	const periodSpend = member.spend?.currentPeriods.find(
+		(period) =>
+			period.durationValue === budget?.periodUsageDurationValue &&
+			period.durationUnit === budget.periodUsageDurationUnit,
+	)?.usage;
 
 	const handleSave = async () => {
 		const trimmedPeriodLimit = periodUsageLimit.trim();
@@ -317,8 +324,8 @@ function ManageBudgetDialog({
 						</div>
 						<div>
 							<div className="text-foreground font-medium">
-								{typeof member.spend?.currentPeriod === "number"
-									? currencyFormatter.format(member.spend.currentPeriod)
+								{periodSpend !== undefined
+									? currencyFormatter.format(periodSpend)
 									: "—"}
 							</div>
 							Period spend
@@ -699,6 +706,13 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 	const { buildUrl, buildOrgUrl, selectedOrganization } =
 		useDashboardNavigation();
 	const api = useApi();
+	const {
+		from: defaultFrom,
+		to: defaultTo,
+		timeZone: displayTimeZone,
+		markGenerated,
+		shouldApplyDefaults,
+	} = useZonedRangeDefaults();
 	const { user } = useUser();
 	const usageMode = useUsageMode();
 
@@ -711,7 +725,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 		(member) => member.userId === user?.id,
 	)?.role;
 	const isAdmin = currentUserRole === "owner" || currentUserRole === "admin";
-	const isEnterprise = selectedOrganization?.plan === "enterprise";
+	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 	const showUsage = isEnterprise && isAdmin;
 
 	const [email, setEmail] = useState("");
@@ -736,25 +750,42 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 		(p) => ({ id: p.id, name: p.name }),
 	);
 
+	// Directory sync makes the IdP authoritative for membership, so warn on the
+	// page where admins would otherwise edit members by hand.
+	const { data: scimStatus } = api.useQuery(
+		"get",
+		"/sso/scim",
+		{ params: { query: { organizationId } } },
+		{ enabled: !!organizationId && isAdmin && isEnterprise },
+	);
+	const scimEnabled = scimStatus?.configured === true;
+
 	useEffect(() => {
 		if (!showUsage) {
 			return;
 		}
-		if (!searchParams.get("from") || !searchParams.get("to")) {
-			const params2 = new URLSearchParams(searchParams.toString());
-			params2.delete("days");
-			const today = new Date();
-			params2.set("from", format(subDays(today, 6), "yyyy-MM-dd"));
-			params2.set("to", format(today, "yyyy-MM-dd"));
-			router.replace(
-				`${buildOrgUrl("org/team")}?${params2.toString()}` as Route,
-			);
+		if (!shouldApplyDefaults(searchParams)) {
+			return;
 		}
-	}, [showUsage, searchParams, router, buildOrgUrl]);
+		const params2 = new URLSearchParams(searchParams.toString());
+		params2.delete("days");
+		params2.set("from", defaultFrom);
+		params2.set("to", defaultTo);
+		markGenerated(params2);
+		router.replace(`${buildOrgUrl("org/team")}?${params2.toString()}` as Route);
+	}, [
+		showUsage,
+		searchParams,
+		router,
+		buildOrgUrl,
+		defaultFrom,
+		defaultTo,
+		markGenerated,
+		shouldApplyDefaults,
+	]);
 
-	const fromStr =
-		searchParams.get("from") ?? format(subDays(new Date(), 6), "yyyy-MM-dd");
-	const toStr = searchParams.get("to") ?? format(new Date(), "yyyy-MM-dd");
+	const fromStr = searchParams.get("from") ?? defaultFrom;
+	const toStr = searchParams.get("to") ?? defaultTo;
 
 	const { data: usageData } = api.useQuery(
 		"get",
@@ -765,7 +796,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 					organizationId,
 					from: fromStr,
 					to: toStr,
-					timezone: getBrowserTimeZone(),
+					timezone: displayTimeZone,
 				},
 			},
 		},
@@ -780,8 +811,8 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 	);
 
 	const usageColumnCount = 4;
-	// Name, Email, Role, Projects, Limits, Actions
-	const baseColumnCount = 6;
+	// Name, Email, Role, Team, Projects, Limits, Actions
+	const baseColumnCount = 7;
 	const totalColumnCount = showUsage
 		? baseColumnCount + usageColumnCount
 		: baseColumnCount;
@@ -884,6 +915,16 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 			description: "Team member removed successfully",
 		});
 	};
+
+	if (searchParams.get("tab") === "teams" && isAdmin) {
+		return (
+			<OrganizationTeamsClient
+				organizationId={organizationId}
+				teamUrl={buildOrgUrl("org/team")}
+				isEnterprise={isEnterprise}
+			/>
+		);
+	}
 
 	return (
 		<div className="flex flex-col">
@@ -1011,6 +1052,10 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 						</div>
 					</div>
 
+					{isAdmin && (
+						<TeamTabs active="members" teamUrl={buildOrgUrl("org/team")} />
+					)}
+
 					{showUsage && <ApiKeyAnalyticsCallout href={buildUrl("api-keys")} />}
 
 					{!isEnterprise && <MemberUsageUpsell />}
@@ -1079,6 +1124,18 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 							</CardDescription>
 						</CardHeader>
 						<CardContent>
+							{scimEnabled && (
+								<Alert className="mb-4">
+									<AlertDescription>
+										Directory sync (SCIM) is enabled. Members, roles, and team
+										assignments follow your identity provider, so manual changes
+										here can be overridden on the next sync.{" "}
+										{scimStatus?.lastUsedAt
+											? `Last synced ${new Date(scimStatus.lastUsedAt).toLocaleString()}.`
+											: "Your identity provider has not synced yet."}
+									</AlertDescription>
+								</Alert>
+							)}
 							{isLoading ? (
 								<div>Loading...</div>
 							) : (
@@ -1093,6 +1150,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 													<RolePermissionsHoverCard />
 												</span>
 											</TableHead>
+											<TableHead>Team</TableHead>
 											<TableHead>Projects</TableHead>
 											<TableHead>Limits</TableHead>
 											{showUsage && (
@@ -1141,6 +1199,15 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 															</Badge>
 														</TableCell>
 														<TableCell>
+															{member.team ? (
+																<Badge variant="outline">
+																	{member.team.name}
+																</Badge>
+															) : (
+																<span className="text-muted-foreground">—</span>
+															)}
+														</TableCell>
+														<TableCell>
 															{member.projects === null ? (
 																<span className="text-muted-foreground text-sm">
 																	All projects
@@ -1165,20 +1232,47 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 														</TableCell>
 														<TableCell>
 															{(() => {
-																const badges = budgetBadges(
+																const memberBadges = budgetBadges(
 																	member.effectiveBudget,
 																);
-																return badges.length ? (
-																	<div className="flex flex-wrap gap-1">
-																		{badges.map((badge) => (
-																			<Badge
-																				key={badge}
-																				variant="secondary"
-																				className="font-normal"
-																			>
-																				{badge}
-																			</Badge>
-																		))}
+																const teamBadges = budgetBadges(
+																	member.teamBudget,
+																);
+																return memberBadges.length ||
+																	teamBadges.length ? (
+																	<div className="space-y-1.5">
+																		{teamBadges.length > 0 && (
+																			<div className="flex flex-wrap items-center gap-1">
+																				<span className="text-muted-foreground text-xs">
+																					Team
+																				</span>
+																				{teamBadges.map((badge) => (
+																					<Badge
+																						key={badge}
+																						variant="outline"
+																						className="font-normal"
+																					>
+																						{badge}
+																					</Badge>
+																				))}
+																			</div>
+																		)}
+																		{memberBadges.length > 0 && (
+																			<div className="flex flex-wrap items-center gap-1">
+																				<span className="text-muted-foreground text-xs">
+																					Personal/default
+																				</span>
+																				{memberBadges.map((badge) => (
+																					<Badge
+																						key={badge}
+																						variant="secondary"
+																						className="font-normal"
+																					>
+																						{badge}
+																					</Badge>
+																				))}
+																			</div>
+																		)}
 																	</div>
 																) : (
 																	<span className="text-muted-foreground">
@@ -1339,10 +1433,10 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 													)}
 												</TableCell>
 												<TableCell>
-													{format(new Date(invite.createdAt), "MMM d, yyyy")}
+													<Time date={invite.createdAt} format="monthDayYear" />
 												</TableCell>
 												<TableCell>
-													{format(new Date(invite.expiresAt), "MMM d, yyyy")}
+													<Time date={invite.expiresAt} format="monthDayYear" />
 												</TableCell>
 												{isAdmin && (
 													<TableCell className="text-right">

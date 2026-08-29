@@ -38,9 +38,10 @@ Build affected apps through Turbo filters, including their workspace
 dependencies. Run the full `pnpm build` before handoff when required by
 `AGENTS.md`.
 
-Launch the configured stack with `pnpm dev`. Use exported service URLs where
-the repository defines them; otherwise construct the local origin from the
-matching app port in `AGENTS.md`.
+Turbo's strict environment mode may not pass the worktree isolation variables
+declared in `.envrc`. Launch an isolated stack with
+`pnpm exec turbo run dev --env-mode=loose`, then confirm the startup logs show
+the selected ports rather than the defaults.
 
 ## Drive and capture
 

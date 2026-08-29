@@ -1660,6 +1660,69 @@
       "when": 1787073015985,
       "tag": "1787073015_sweet_wolfpack",
       "breakpoints": true
+    },
+    {
+      "idx": 237,
+      "version": "8",
+      "when": 1787148647545,
+      "tag": "1787148647_round_absorbing_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 238,
+      "version": "8",
+      "when": 1787234670541,
+      "tag": "1787234670_clear_puppet_master",
+      "breakpoints": true
+    },
+    {
+      "idx": 239,
+      "version": "8",
+      "when": 1787314721805,
+      "tag": "1787314721_daffy_venom",
+      "breakpoints": true
+    },
+    {
+      "idx": 240,
+      "version": "8",
+      "when": 1787325167119,
+      "tag": "1787325167_curved_nighthawk",
+      "breakpoints": true
+    },
+    {
+      "idx": 241,
+      "version": "8",
+      "when": 1787668425275,
+      "tag": "1787668425_crazy_freak",
+      "breakpoints": true
+    },
+    {
+      "idx": 242,
+      "version": "8",
+      "when": 1787676232348,
+      "tag": "1787676232_careful_sheva_callister",
+      "breakpoints": true
+    },
+    {
+      "idx": 243,
+      "version": "8",
+      "when": 1787676795029,
+      "tag": "1787676795_fixed_roxanne_simpson",
+      "breakpoints": true
+    },
+    {
+      "idx": 244,
+      "version": "8",
+      "when": 1787868765523,
+      "tag": "1787868765_gray_jazinda",
+      "breakpoints": true
+    },
+    {
+      "idx": 245,
+      "version": "8",
+      "when": 1787935543651,
+      "tag": "1787935543_melted_nicolaos",
+      "breakpoints": true
     }
   ]
 }

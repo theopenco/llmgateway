@@ -396,7 +396,7 @@ function ModelRowCard({
 						value={row.selectorValue}
 						onValueChange={(val) => onUpdate(row.id, { selectorValue: val })}
 						placeholder="Select model..."
-						rootOnly
+						canonicalOnly
 						id={`model-${row.id}`}
 					/>
 				</div>

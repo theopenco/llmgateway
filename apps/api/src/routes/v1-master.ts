@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { readApiKeyMask } from "@/lib/api-key-mask.js";
 import {
 	MAX_ORG_ACTIVITY_RANGE_DAYS,
 	rangeDaysInclusive,
@@ -33,6 +34,7 @@ import {
 	updateCustomModelSchema,
 } from "@/routes/custom-models.js";
 import {
+	assertApiKeyIsUserManaged,
 	buildApiKeyLimitAuditChanges,
 	createApiKeyForProject,
 	hasPeriodConfigChanged,
@@ -54,6 +56,11 @@ import {
 } from "@/routes/keys-provider.js";
 import { createProjectForOrg } from "@/routes/projects.js";
 import { memberIamRuleSchema } from "@/routes/team.js";
+import {
+	providerCacheControlModeSchema,
+	resolveProviderCacheControlMode,
+	withLegacyProviderCacheControl,
+} from "@/utils/provider-cache-control.js";
 import { timezoneQueryField } from "@/utils/timezone.js";
 
 import { encryptProviderKey, readProviderKey } from "@llmgateway/actions";
@@ -66,7 +73,11 @@ import {
 	shortid,
 	tables,
 } from "@llmgateway/db";
-import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
+import {
+	getApiKeyFingerprint,
+	getApiKeyFingerprints,
+} from "@llmgateway/shared/api-key-hash";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import { maskToken } from "@llmgateway/shared/mask-token";
 
 import type { ServerTypes } from "@/vars.js";
@@ -98,10 +109,11 @@ v1Master.use("*", async (c, next) => {
 		throw new HTTPException(401, { message: "Missing bearer token" });
 	}
 
-	const tokenHash = getApiKeyFingerprint(token);
-
 	const row = await db.query.masterKey.findFirst({
-		where: { tokenHash: { eq: tokenHash }, status: { eq: "active" } },
+		where: {
+			tokenHash: { in: getApiKeyFingerprints(token) },
+			status: { eq: "active" },
+		},
 		with: { organization: true },
 	});
 
@@ -113,7 +125,12 @@ v1Master.use("*", async (c, next) => {
 		throw new HTTPException(403, { message: "Organization is not active" });
 	}
 
-	if (row.organization?.plan !== "enterprise") {
+	if (
+		!hasOrganizationEnterpriseAccess(
+			row.organization?.id,
+			row.organization?.plan,
+		)
+	) {
 		throw new HTTPException(403, {
 			message: "Master keys require an enterprise plan",
 		});
@@ -139,7 +156,10 @@ v1Master.use("*", async (c, next) => {
 async function loadApiKeyForOrg(apiKeyId: string, organizationId: string) {
 	const apiKey = await db.query.apiKey.findFirst({
 		where: { id: { eq: apiKeyId } },
-		with: { project: true },
+		with: {
+			project: true,
+			creator: { columns: { email: true } },
+		},
 	});
 
 	if (
@@ -163,10 +183,11 @@ interface SerializableApiKey {
 	createdAt: Date;
 	updatedAt: Date;
 	description: string;
+	kind: "regular" | "playground";
 	status: "active" | "inactive" | "deleted" | null;
 	projectId: string;
 	createdBy: string;
-	token: string;
+	tokenMasked: string | null;
 	usageLimit: string | null;
 	usage: string;
 	periodUsageLimit: string | null;
@@ -174,6 +195,8 @@ interface SerializableApiKey {
 	periodUsageDurationUnit: "hour" | "day" | "week" | "month" | null;
 	currentPeriodUsage: string;
 	currentPeriodStartedAt: Date | null;
+	creator?: { email: string } | null;
+	project: { name: string } | null;
 }
 
 /**
@@ -182,6 +205,10 @@ interface SerializableApiKey {
  * the time the current period resets. Never leaks the plain token.
  */
 function serializeApiKeyForMaster(apiKey: SerializableApiKey) {
+	if (!apiKey.project) {
+		throw new HTTPException(500, { message: "API key project not found" });
+	}
+
 	const currentPeriod = getApiKeyCurrentPeriodState(apiKey);
 
 	return {
@@ -189,10 +216,13 @@ function serializeApiKeyForMaster(apiKey: SerializableApiKey) {
 		createdAt: apiKey.createdAt,
 		updatedAt: apiKey.updatedAt,
 		description: apiKey.description,
+		kind: apiKey.kind,
 		status: apiKey.status,
 		projectId: apiKey.projectId,
+		projectName: apiKey.project.name,
 		createdBy: apiKey.createdBy,
-		maskedToken: maskToken(apiKey.token),
+		createdByEmail: apiKey.creator?.email ?? null,
+		maskedToken: readApiKeyMask(apiKey),
 		usageLimit: apiKey.usageLimit,
 		usage: apiKey.usage,
 		periodUsageLimit: apiKey.periodUsageLimit,
@@ -214,6 +244,8 @@ const projectSchema = z.object({
 	organizationId: z.string(),
 	cachingEnabled: z.boolean(),
 	cacheDurationSeconds: z.number(),
+	providerCacheControlMode: providerCacheControlModeSchema,
+	/** @deprecated use providerCacheControlMode; false maps to "off". */
 	providerCacheControlEnabled: z.boolean(),
 	mode: projectModeEnum,
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
@@ -223,6 +255,7 @@ const createProjectBody = z.object({
 	name: z.string().min(1).max(255),
 	cachingEnabled: z.boolean().optional(),
 	cacheDurationSeconds: z.number().min(10).max(31536000).optional(),
+	providerCacheControlMode: providerCacheControlModeSchema.optional(),
 	providerCacheControlEnabled: z.boolean().optional(),
 	mode: projectModeEnum.optional(),
 });
@@ -282,7 +315,7 @@ v1Master.openapi(listProjects, async (c) => {
 		},
 	});
 
-	return c.json({ projects });
+	return c.json({ projects: projects.map(withLegacyProviderCacheControl) });
 });
 
 v1Master.openapi(createProject, async (c) => {
@@ -300,7 +333,7 @@ v1Master.openapi(createProject, async (c) => {
 		{ skipAccessCheck: true },
 	);
 
-	return c.json({ project }, 201);
+	return c.json({ project: withLegacyProviderCacheControl(project) }, 201);
 });
 
 const apiKeyPeriodUnit = z.enum(["hour", "day", "week", "month"]);
@@ -407,6 +440,7 @@ const updateProjectBody = z
 		name: z.string().min(1).max(255).optional(),
 		cachingEnabled: z.boolean().optional(),
 		cacheDurationSeconds: z.number().min(10).max(31536000).optional(),
+		providerCacheControlMode: providerCacheControlModeSchema.optional(),
 		providerCacheControlEnabled: z.boolean().optional(),
 		mode: projectModeEnum.optional(),
 		status: z.enum(["active", "inactive"]).optional(),
@@ -449,7 +483,18 @@ v1Master.openapi(updateProject, async (c) => {
 	}
 
 	const { id } = c.req.param();
-	const updates = c.req.valid("json");
+	// The legacy boolean is not a column any more; fold it into the mode so
+	// `.set(updates)` and the audit diff below only ever see real columns.
+	const { providerCacheControlEnabled: _legacy, ...rest } = c.req.valid("json");
+	const providerCacheControlMode = resolveProviderCacheControlMode(
+		c.req.valid("json"),
+	);
+	const updates = {
+		...rest,
+		...(providerCacheControlMode !== undefined
+			? { providerCacheControlMode }
+			: {}),
+	};
 
 	const existing = await db.query.project.findFirst({
 		where: { id: { eq: id } },
@@ -489,7 +534,7 @@ v1Master.openapi(updateProject, async (c) => {
 		});
 	}
 
-	return c.json({ project: updated });
+	return c.json({ project: withLegacyProviderCacheControl(updated) });
 });
 
 const deleteProject = createRoute({
@@ -570,9 +615,12 @@ const apiKeyDetailSchema = z.object({
 	createdAt: z.date(),
 	updatedAt: z.date(),
 	description: z.string(),
+	kind: z.enum(["regular", "playground"]),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	projectId: z.string(),
+	projectName: z.string(),
 	createdBy: z.string(),
+	createdByEmail: z.string().nullable(),
 	maskedToken: z.string(),
 	usageLimit: z.string().nullable(),
 	// Total spend accrued against `usageLimit` over the key's lifetime.
@@ -638,23 +686,7 @@ v1Master.openapi(updateApiKey, async (c) => {
 
 	const existing = await loadApiKeyForOrg(id, masterKey.organizationId);
 
-	if (isPlaygroundApiKey(existing)) {
-		if (
-			updates.description !== undefined &&
-			updates.description !== existing.description
-		) {
-			throw new HTTPException(403, {
-				message:
-					"Cannot rename the playground API key. This key is required for the playground to function.",
-			});
-		}
-		if (updates.status === "inactive") {
-			throw new HTTPException(403, {
-				message:
-					"Cannot deactivate the playground API key. This key is required for the playground to function.",
-			});
-		}
-	}
+	assertApiKeyIsUserManaged(existing);
 
 	const limitUpdate: PartialApiKeyLimitConfig = {};
 	if ("usageLimit" in updates) {
@@ -751,7 +783,13 @@ v1Master.openapi(updateApiKey, async (c) => {
 		});
 	}
 
-	return c.json({ apiKey: serializeApiKeyForMaster(updated) });
+	return c.json({
+		apiKey: serializeApiKeyForMaster({
+			...updated,
+			creator: existing.creator,
+			project: existing.project,
+		}),
+	});
 });
 
 const listApiKeysQuery = z.object({
@@ -811,9 +849,14 @@ v1Master.openapi(listApiKeys, async (c) => {
 			projectId: { in: projectId ? [projectId] : projectIds },
 			// Only developer-created keys; hide platform and LLM SDK aggregate keys.
 			keyType: { eq: "user" },
+			kind: { ne: "playground" },
 			status: { ne: "deleted" },
 		},
 		orderBy: { createdAt: "desc" },
+		with: {
+			creator: { columns: { email: true } },
+			project: { columns: { name: true } },
+		},
 	});
 
 	return c.json({ apiKeys: apiKeys.map(serializeApiKeyForMaster) });
@@ -953,6 +996,8 @@ v1Master.openapi(createIamRule, async (c) => {
 
 	const apiKey = await loadApiKeyForOrg(id, masterKey.organizationId);
 
+	assertApiKeyIsUserManaged(apiKey);
+
 	const [rule] = await cdb
 		.insert(tables.apiKeyIamRule)
 		.values({
@@ -1052,6 +1097,8 @@ v1Master.openapi(updateIamRule, async (c) => {
 
 	const apiKey = await loadApiKeyForOrg(id, masterKey.organizationId);
 
+	assertApiKeyIsUserManaged(apiKey);
+
 	const existingRule = await db.query.apiKeyIamRule.findFirst({
 		where: { id: { eq: ruleId }, apiKeyId: { eq: apiKey.id } },
 	});
@@ -1124,6 +1171,8 @@ v1Master.openapi(deleteIamRule, async (c) => {
 	const { id, ruleId } = c.req.param();
 
 	const apiKey = await loadApiKeyForOrg(id, masterKey.organizationId);
+
+	assertApiKeyIsUserManaged(apiKey);
 
 	const existingRule = await db.query.apiKeyIamRule.findFirst({
 		where: { id: { eq: ruleId }, apiKeyId: { eq: apiKey.id } },
@@ -1584,7 +1633,6 @@ v1Master.openapi(createCustomProvider, async (c) => {
 			provider: "custom",
 			name,
 			baseUrl,
-			token: null,
 			tokenCiphertext: encryptProviderKey(
 				token,
 				providerKeyId,
@@ -1734,7 +1782,6 @@ v1Master.openapi(updateCustomProvider, async (c) => {
 		updates.baseUrl = baseUrl;
 	}
 	if (token !== undefined) {
-		updates.token = null;
 		updates.tokenCiphertext = encryptProviderKey(
 			token,
 			existing.id,
@@ -1767,9 +1814,8 @@ v1Master.openapi(updateCustomProvider, async (c) => {
 		changes.baseUrl = { old: existing.baseUrl, new: baseUrl };
 	}
 	// The token itself is never written to the audit log, only the fact it
-	// rotated. Compare via readProviderKey: the plaintext column is NULL for
-	// encrypted rows, so a raw column comparison would log every no-op
-	// resubmission of the same token as a rotation.
+	// rotated. Decrypt for comparison so a no-op resubmission is not logged as a
+	// rotation.
 	if (token !== undefined && readProviderKey(existing) !== token) {
 		changes.token = { old: "<redacted>", new: "<rotated>" };
 	}

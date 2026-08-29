@@ -18,6 +18,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { BlockOrgButton } from "@/components/block-org-button";
+import { EnterpriseDealDialog } from "@/components/enterprise-deal-dialog";
 import { GiftCreditsDialog } from "@/components/gift-credits-dialog";
 import { ManualCreditsDialog } from "@/components/manual-credits-dialog";
 import { PlanTermBadge } from "@/components/plan-term-badge";
@@ -31,12 +32,16 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+	addEnterpriseDealToOrganization,
 	addManualCreditsToOrganization,
 	blockOrganization,
+	deleteOrganizationPaymentMethod,
 	giftCreditsToOrganization,
 	manageOrganization,
+	releaseDevPlanCardFingerprint,
+	updateEnterpriseDeal,
 	updateReferralBonus,
 } from "@/lib/admin-organizations";
 import { KEY_STATUS_DEFAULT, parseKeyStatus } from "@/lib/key-status";
@@ -53,6 +58,7 @@ import { OrgCostByModel } from "./org-cost-by-model";
 import { OrgCostByModelTimeseries } from "./org-cost-by-model-timeseries";
 import { OrgMetricsSection } from "./org-metrics";
 import { OrgSettingsTab } from "./org-settings-tab";
+import { OrganizationTabs } from "./organization-tabs";
 import { ProviderKeysTable } from "./provider-keys-table";
 import { ReferralBonusDialog } from "./referral-bonus-dialog";
 import { SendEmailDialog } from "./send-email-dialog";
@@ -135,7 +141,8 @@ function getTransactionTypeBadgeVariant(type: string) {
 		type.includes("start") ||
 		type.includes("topup") ||
 		type.includes("gift") ||
-		type.includes("manual_payment")
+		type.includes("manual_payment") ||
+		type === "enterprise_license_fee"
 	) {
 		return "default";
 	}
@@ -210,6 +217,12 @@ export default async function OrganizationPage({
 	const alOffset = (alPage - 1) * alLimit;
 
 	const $api = await createServerApiClient();
+	const paymentMethodsRequest =
+		activeTab === "settings"
+			? $api.GET("/admin/organizations/{orgId}/payment-methods", {
+					params: { path: { orgId } },
+				})
+			: Promise.resolve(null);
 	const [
 		transactionsRes,
 		projectsRes,
@@ -219,6 +232,7 @@ export default async function OrganizationPage({
 		auditLogsRes,
 		orgMetricsRes,
 		settingsRes,
+		paymentMethodsRes,
 		guardrailsRes,
 		ssoRes,
 	] = await Promise.all([
@@ -260,6 +274,7 @@ export default async function OrganizationPage({
 		$api.GET("/admin/organizations/{orgId}/settings", {
 			params: { path: { orgId } },
 		}),
+		paymentMethodsRequest,
 		$api.GET("/admin/organizations/{orgId}/guardrails", {
 			params: { path: { orgId } },
 		}),
@@ -275,6 +290,7 @@ export default async function OrganizationPage({
 	const membersData = membersRes.data;
 	const auditLogsData = auditLogsRes.data;
 	const settingsData = settingsRes.data;
+	const paymentMethodsData = paymentMethodsRes?.data;
 	const guardrailsData = guardrailsRes.data;
 	const ssoData = ssoRes.data;
 
@@ -443,6 +459,13 @@ export default async function OrganizationPage({
 							return await addManualCreditsToOrganization(orgId, data);
 						}}
 					/>
+					<EnterpriseDealDialog
+						orgName={org.name}
+						onSave={async (data) => {
+							"use server";
+							return await addEnterpriseDealToOrganization(orgId, data);
+						}}
+					/>
 					<ReferralBonusDialog
 						orgName={org.name}
 						enabled={org.referralBonusEnabled ?? false}
@@ -528,7 +551,7 @@ export default async function OrganizationPage({
 				</section>
 			)}
 
-			<Tabs defaultValue={activeTab}>
+			<OrganizationTabs defaultValue={activeTab}>
 				<TabsList className="w-full justify-start overflow-x-auto sm:w-auto">
 					<TabsTrigger value="transactions">
 						<Receipt className="mr-1.5 h-4 w-4" />
@@ -581,13 +604,14 @@ export default async function OrganizationPage({
 										<TableHead>Reference</TableHead>
 										<TableHead>Description</TableHead>
 										<TableHead>Stripe</TableHead>
+										<TableHead className="text-right">Actions</TableHead>
 									</TableRow>
 								</TableHeader>
 								<TableBody>
 									{transactions.length === 0 ? (
 										<TableRow>
 											<TableCell
-												colSpan={8}
+												colSpan={9}
 												className="h-24 text-center text-muted-foreground"
 											>
 												No transactions found
@@ -657,6 +681,22 @@ export default async function OrganizationPage({
 														) : (
 															<span className="text-muted-foreground">—</span>
 														)}
+													</TableCell>
+													<TableCell className="text-right">
+														{transaction.type === "enterprise_license_fee" ? (
+															<EnterpriseDealDialog
+																orgName={org.name}
+																deal={transaction}
+																onSave={async (data) => {
+																	"use server";
+																	return await updateEnterpriseDeal(
+																		orgId,
+																		transaction.id,
+																		data,
+																	);
+																}}
+															/>
+														) : null}
 													</TableCell>
 												</TableRow>
 											);
@@ -849,7 +889,34 @@ export default async function OrganizationPage({
 
 				<TabsContent value="settings">
 					{settingsData ? (
-						<OrgSettingsTab settings={settingsData} />
+						<OrgSettingsTab
+							settings={settingsData}
+							paymentMethods={paymentMethodsData?.paymentMethods ?? null}
+							devPlanCardFingerprints={
+								paymentMethodsData?.devPlanCardFingerprints ?? []
+							}
+							paymentMethodsLoadError={!paymentMethodsData}
+							onDeletePaymentMethod={async (
+								paymentMethodId,
+								replacementPaymentMethodId,
+								releaseDevPlanCardFingerprint,
+							) => {
+								"use server";
+								return await deleteOrganizationPaymentMethod(
+									orgId,
+									paymentMethodId,
+									replacementPaymentMethodId,
+									releaseDevPlanCardFingerprint,
+								);
+							}}
+							onReleaseDevPlanCardFingerprint={async (fingerprintId) => {
+								"use server";
+								return await releaseDevPlanCardFingerprint(
+									orgId,
+									fingerprintId,
+								);
+							}}
+						/>
 					) : (
 						<p className="py-8 text-center text-sm text-muted-foreground">
 							Failed to load organization settings
@@ -876,7 +943,7 @@ export default async function OrganizationPage({
 						</p>
 					)}
 				</TabsContent>
-			</Tabs>
+			</OrganizationTabs>
 		</div>
 	);
 }

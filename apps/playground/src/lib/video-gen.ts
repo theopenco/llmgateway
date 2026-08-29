@@ -123,86 +123,79 @@ export function getVideoDurations(): VideoDuration[] {
 }
 
 export function supportsVideoFrameInput(modelId: string): boolean {
-	const [providerId, rootModelId] = modelId.includes("/")
+	const [providerId, canonicalModelId] = modelId.includes("/")
 		? modelId.split("/", 2)
 		: [undefined, modelId];
 
-	if (isSeedance2ReferenceModel(rootModelId)) {
+	if (isSeedance2ReferenceModel(canonicalModelId)) {
 		return providerId === undefined || providerId === "bytedance";
 	}
 
-	if (rootModelId === "minimax-hailuo-2-3") {
+	if (canonicalModelId === "minimax-hailuo-2-3") {
 		return providerId === undefined || providerId === "minimax";
 	}
 
-	if (isGrokImagineVideoModel(rootModelId)) {
+	if (isGrokImagineVideoModel(canonicalModelId)) {
 		return providerId === undefined || providerId === "xai";
 	}
 
-	if (isAtlasCloudKlingVideoModel(rootModelId)) {
+	if (isAtlasCloudKlingVideoModel(canonicalModelId)) {
 		return providerId === undefined || providerId === "atlascloud";
 	}
 
 	if (
-		rootModelId !== "veo-3.1-generate-preview" &&
-		rootModelId !== "veo-3.1-fast-generate-preview"
+		canonicalModelId !== "veo-3.1-generate-preview" &&
+		canonicalModelId !== "veo-3.1-fast-generate-preview"
 	) {
 		return false;
 	}
 
+	return providerId === undefined || providerId === "google-vertex";
+}
+
+function isSeedance2ReferenceModel(canonicalModelId: string): boolean {
 	return (
-		providerId === undefined ||
-		providerId === "google-vertex" ||
-		providerId === "avalanche"
+		canonicalModelId === "seedance-2-0" ||
+		canonicalModelId === "seedance-2-0-fast" ||
+		canonicalModelId === "seedance-2-5"
 	);
 }
 
-function isSeedance2ReferenceModel(rootModelId: string): boolean {
+function isGrokImagineVideoModel(canonicalModelId: string): boolean {
 	return (
-		rootModelId === "seedance-2-0" ||
-		rootModelId === "seedance-2-0-fast" ||
-		rootModelId === "seedance-2-5"
+		canonicalModelId === "grok-imagine-video-1-5" ||
+		canonicalModelId === "grok-imagine-video-1-5-preview" ||
+		canonicalModelId === "grok-imagine-video-1.5-preview"
 	);
 }
 
-function isGrokImagineVideoModel(rootModelId: string): boolean {
+function isAtlasCloudKlingVideoModel(canonicalModelId: string): boolean {
 	return (
-		rootModelId === "grok-imagine-video-1-5" ||
-		rootModelId === "grok-imagine-video-1-5-preview" ||
-		rootModelId === "grok-imagine-video-1.5-preview"
+		canonicalModelId === "kling-v3-0" || canonicalModelId === "kling-v3-0-turbo"
 	);
-}
-
-function isAtlasCloudKlingVideoModel(rootModelId: string): boolean {
-	return rootModelId === "kling-v3-0" || rootModelId === "kling-v3-0-turbo";
 }
 
 export function supportsVideoReferenceInput(modelId: string): boolean {
-	const [providerId, rootModelId] = modelId.includes("/")
+	const [providerId, canonicalModelId] = modelId.includes("/")
 		? modelId.split("/", 2)
 		: [undefined, modelId];
 
 	if (providerId === "bytedance") {
-		return isSeedance2ReferenceModel(rootModelId);
+		return isSeedance2ReferenceModel(canonicalModelId);
 	}
 
 	if (providerId === "google-vertex") {
-		return rootModelId === "veo-3.1-generate-preview";
-	}
-
-	if (providerId === "avalanche") {
-		return rootModelId === "veo-3.1-fast-generate-preview";
+		return canonicalModelId === "veo-3.1-generate-preview";
 	}
 
 	return (
-		rootModelId === "veo-3.1-generate-preview" ||
-		rootModelId === "veo-3.1-fast-generate-preview" ||
-		isSeedance2ReferenceModel(rootModelId)
+		canonicalModelId === "veo-3.1-generate-preview" ||
+		isSeedance2ReferenceModel(canonicalModelId)
 	);
 }
 
 export function supportsVideoReferenceVideoInput(modelId: string): boolean {
-	const [providerId, rootModelId] = modelId.includes("/")
+	const [providerId, canonicalModelId] = modelId.includes("/")
 		? modelId.split("/", 2)
 		: [undefined, modelId];
 
@@ -210,11 +203,11 @@ export function supportsVideoReferenceVideoInput(modelId: string): boolean {
 		return false;
 	}
 
-	return isSeedance2ReferenceModel(rootModelId);
+	return isSeedance2ReferenceModel(canonicalModelId);
 }
 
 export function supportsVideoReferenceAudioInput(modelId: string): boolean {
-	const [providerId, rootModelId] = modelId.includes("/")
+	const [providerId, canonicalModelId] = modelId.includes("/")
 		? modelId.split("/", 2)
 		: [undefined, modelId];
 
@@ -222,17 +215,17 @@ export function supportsVideoReferenceAudioInput(modelId: string): boolean {
 		return false;
 	}
 
-	return isSeedance2ReferenceModel(rootModelId);
+	return isSeedance2ReferenceModel(canonicalModelId);
 }
 
 function getSelectedVideoMappings(
 	models: ApiModel[],
 	modelId: string,
 ): ApiModelProviderMapping[] {
-	const [providerId, rootModelId] = modelId.includes("/")
+	const [providerId, canonicalModelId] = modelId.includes("/")
 		? modelId.split("/", 2)
 		: [undefined, modelId];
-	const model = models.find((candidate) => candidate.id === rootModelId);
+	const model = models.find((candidate) => candidate.id === canonicalModelId);
 	if (!model) {
 		return [];
 	}
@@ -273,14 +266,13 @@ function mappingSupportsVideoRequest(
 	}
 
 	if (inputMode === "frames") {
-		// Match by canonical root model id — never by the upstream externalId.
+		// Match by canonical model id — never by the upstream externalId.
 		if (mapping.providerId === "bytedance") {
 			return isSeedance2ReferenceModel(mapping.modelId);
 		}
 
 		if (
 			mapping.providerId !== "google-vertex" &&
-			mapping.providerId !== "avalanche" &&
 			mapping.providerId !== "minimax" &&
 			mapping.providerId !== "xai" &&
 			mapping.providerId !== "atlascloud"
@@ -290,7 +282,7 @@ function mappingSupportsVideoRequest(
 	}
 
 	if (inputMode === "reference") {
-		// Match by canonical root model id — never by the upstream externalId.
+		// Match by canonical model id — never by the upstream externalId.
 		if (mapping.providerId === "bytedance") {
 			return isSeedance2ReferenceModel(mapping.modelId);
 		}
@@ -299,10 +291,7 @@ function mappingSupportsVideoRequest(
 		if (mapping.modelId !== "veo-3.1-generate-preview") {
 			return false;
 		}
-		if (
-			mapping.providerId !== "google-vertex" &&
-			mapping.providerId !== "avalanche"
-		) {
+		if (mapping.providerId !== "google-vertex") {
 			return false;
 		}
 

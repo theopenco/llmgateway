@@ -61,7 +61,10 @@ export function useMyMemberBudget(
 
 // The authenticated user's OWN member-level IAM rules (self-service, no admin
 // gate) — the ceiling their API-key rules can only narrow.
-export function useMyIamRules(organizationId: string) {
+export function useMyIamRules(
+	organizationId: string,
+	options?: { enabled?: boolean },
+) {
 	const api = useApi();
 
 	return api.useQuery(
@@ -75,12 +78,16 @@ export function useMyIamRules(organizationId: string) {
 			},
 		},
 		{
-			enabled: !!organizationId,
+			enabled: (options?.enabled ?? true) && !!organizationId,
 		},
 	);
 }
 
-export function useMemberIamRules(organizationId: string, memberId: string) {
+export function useMemberIamRules(
+	organizationId: string,
+	memberId: string,
+	options?: { enabled?: boolean },
+) {
 	const api = useApi();
 
 	return api.useQuery(
@@ -95,7 +102,7 @@ export function useMemberIamRules(organizationId: string, memberId: string) {
 			},
 		},
 		{
-			enabled: !!organizationId && !!memberId,
+			enabled: (options?.enabled ?? true) && !!organizationId && !!memberId,
 		},
 	);
 }

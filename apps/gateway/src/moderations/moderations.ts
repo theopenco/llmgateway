@@ -16,6 +16,7 @@ import {
 } from "@/lib/api-key-health.js";
 import {
 	assertApiKeyWithinUsageLimits,
+	assertMemberProjectAccess,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
 import {
@@ -30,17 +31,19 @@ import {
 	applyEndUserSession,
 	assertTestWalletModelAllowed,
 } from "@/lib/end-user-session.js";
+import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { buildOpenAIErrorBody } from "@/lib/error-response.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
 import { getProviderHeaders, readProviderKey } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
-import { getOrganizationEnvVariant, models } from "@llmgateway/models";
+import { models } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
 import type { InferSelectModel, tables } from "@llmgateway/db";
@@ -53,6 +56,12 @@ import type { Context } from "hono";
  * this fixed rate regardless of input size or moderation model.
  */
 export const MODERATION_REQUEST_PRICE = 0.00001;
+const MODERATION_MODEL_ID = "openai-moderation";
+const DEFAULT_UPSTREAM_MODERATION_MODEL = "omni-moderation-latest";
+const CANONICAL_MODERATION_MODEL = formatUsedModelForDisplay(
+	"openai",
+	MODERATION_MODEL_ID,
+);
 
 const moderationInputTextSchema = z.string().openapi({
 	description: "Plain text input to classify.",
@@ -143,7 +152,7 @@ const moderationResponseSchema = z
 		}),
 		model: z.string().optional().openapi({
 			description: "Moderation model used for the request.",
-			example: "omni-moderation-latest",
+			example: CANONICAL_MODERATION_MODEL,
 		}),
 		results: z.array(moderationResultSchema).optional().openapi({
 			description: "Moderation results for the submitted input.",
@@ -165,10 +174,15 @@ const moderationErrorSchema = z.object({
 
 const moderationRequestSchema = z.object({
 	input: moderationInputSchema,
-	model: z.string().optional().default("omni-moderation-latest").openapi({
-		description: "OpenAI moderation model. Defaults to omni-moderation-latest.",
-		example: "omni-moderation-latest",
-	}),
+	model: z
+		.string()
+		.optional()
+		.default(DEFAULT_UPSTREAM_MODERATION_MODEL)
+		.openapi({
+			description:
+				"OpenAI moderation model. Defaults to omni-moderation-latest.",
+			example: "omni-moderation-latest",
+		}),
 });
 
 function normalizeModerationInputToMessages(input: unknown) {
@@ -422,7 +436,12 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		);
 	}
 
-	const { input, model: upstreamModel } = validationResult.data;
+	const { input, model: requestedModel } = validationResult.data;
+	const upstreamModel =
+		requestedModel === CANONICAL_MODERATION_MODEL ||
+		requestedModel === MODERATION_MODEL_ID
+			? DEFAULT_UPSTREAM_MODERATION_MODEL
+			: requestedModel;
 	const startedAt = Date.now();
 	const source = validateSource(
 		c.req.header("x-source"),
@@ -469,6 +488,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 	// User-level limits take priority: enforce the per-member budget (set on the
 	// Teams page; fails open on read errors) before the per-key usage limits, so a
 	// member who is over budget is denied even if the key itself is within limits.
+	await assertMemberProjectAccess(apiKey, baseProject.organizationId);
 	await assertMemberWithinBudget(apiKey.createdBy, baseProject.organizationId);
 	assertApiKeyWithinUsageLimits(apiKey);
 
@@ -552,7 +572,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 
 	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
 	// this org's env-credential reads. Undefined = base vars only.
-	const envVariant = getOrganizationEnvVariant(organization);
+	const envVariant = getLicensedOrganizationEnvVariant(organization);
 
 	let providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
 	let managedKey: InferSelectModel<typeof tables.providerKey> | undefined;
@@ -1025,7 +1045,10 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 				{ retentionLevel },
 			);
 
-			return c.json(upstreamJson as any);
+			return c.json({
+				...(upstreamJson as Record<string, unknown>),
+				model: CANONICAL_MODERATION_MODEL,
+			});
 		}
 	} finally {
 		c.req.raw.signal.removeEventListener("abort", onAbort);

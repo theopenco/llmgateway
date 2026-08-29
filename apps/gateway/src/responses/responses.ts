@@ -3,11 +3,11 @@ import { zstdDecompress } from "node:zlib";
 
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { streamSSE } from "hono/streaming";
 
 import { app } from "@/app.js";
 import {
 	assertApiKeyWithinUsageLimits,
+	assertMemberProjectAccess,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
 import { internalApiOriginHeaders } from "@/lib/api-origin.js";
@@ -16,7 +16,9 @@ import {
 	findProjectById,
 	findOrganizationById,
 } from "@/lib/cached-queries.js";
+import { logGatewayClientError } from "@/lib/client-error-log.js";
 import { getOrganizationBlockReason } from "@/lib/organization-access.js";
+import { streamSSE } from "@/lib/pending-work.js";
 import {
 	setResponsesContext,
 	deleteResponsesContext,
@@ -124,16 +126,19 @@ async function authenticateRequest(
 	// others. User-level member budget takes priority over the per-key limits.
 	// Both use the SWR-cached queries and fail fast before the retention/context
 	// work below.
-	if (enforceSpendLimits) {
-		try {
+	// Project access gates every authenticated path, including retrieval of
+	// stored responses; spend limits only apply where new usage is generated.
+	try {
+		await assertMemberProjectAccess(apiKey, project.organizationId);
+		if (enforceSpendLimits) {
 			await assertMemberWithinBudget(apiKey.createdBy, project.organizationId);
 			assertApiKeyWithinUsageLimits(apiKey);
-		} catch (e) {
-			if (e instanceof HTTPException) {
-				return { error: e.message, status: e.status };
-			}
-			throw e;
 		}
+	} catch (e) {
+		if (e instanceof HTTPException) {
+			return { error: e.message, status: e.status };
+		}
+		throw e;
 	}
 
 	return { apiKey, project, organization };
@@ -158,10 +163,21 @@ responses.post("/", async (c) => {
 			rawBody = await c.req.json();
 		}
 	} catch {
+		const message = "Invalid JSON in request body";
+		logger.warn("Invalid Responses API JSON", {
+			path: c.req.path,
+			method: c.req.method,
+		});
+		await logGatewayClientError(c, {
+			apiOrigin: "responses",
+			rawBody: null,
+			message,
+			cause: "invalid_json",
+		});
 		return c.json(
 			{
 				error: {
-					message: "Invalid JSON in request body",
+					message,
 					type: "invalid_request_error",
 					code: "invalid_json",
 				},
@@ -172,10 +188,22 @@ responses.post("/", async (c) => {
 
 	const validation = responsesRequestSchema.safeParse(rawBody);
 	if (!validation.success) {
+		const message = `Invalid request: ${formatValidationError(validation.error)}`;
+		logger.warn("Invalid Responses API request", {
+			issues: validation.error.issues,
+			path: c.req.path,
+			method: c.req.method,
+		});
+		await logGatewayClientError(c, {
+			apiOrigin: "responses",
+			rawBody,
+			message,
+			cause: "invalid_request",
+		});
 		return c.json(
 			{
 				error: {
-					message: `Invalid request: ${formatValidationError(validation.error)}`,
+					message,
 					type: "invalid_request_error",
 					code: "invalid_request",
 				},
@@ -291,6 +319,9 @@ responses.post("/", async (c) => {
 			return null;
 		})
 		.filter((t): t is NonNullable<typeof t> => t !== null);
+	const imageGenerationTool = req.tools?.find(
+		(tool: Record<string, unknown>) => tool.type === "image_generation",
+	) as Record<string, unknown> | undefined;
 
 	// Convert text.format to response_format
 	let response_format: Record<string, unknown> | undefined;
@@ -328,6 +359,11 @@ responses.post("/", async (c) => {
 	}
 	if (tools && tools.length > 0) {
 		chatRequest.tools = tools;
+	}
+	if (typeof imageGenerationTool?.size === "string") {
+		chatRequest.image_config = {
+			image_size: imageGenerationTool.size,
+		};
 	}
 	if (req.tool_choice) {
 		// The chat handler speaks Chat Completions, so a Responses-shaped named
@@ -453,6 +489,21 @@ responses.post("/", async (c) => {
 			const reader = streamBody.getReader();
 			const decoder = new TextDecoder();
 			let buffer = "";
+			let createdSent = false;
+			const sendCreated = async (chunk?: Record<string, unknown>) => {
+				if (createdSent) {
+					return;
+				}
+				if (typeof chunk?.model === "string" && chunk.model) {
+					state.model = chunk.model;
+				}
+				const createdEvent = createResponseCreatedEvent(state);
+				await stream.writeSSE({
+					event: createdEvent.event,
+					data: createdEvent.data,
+				});
+				createdSent = true;
+			};
 
 			// SSE keepalive to prevent proxy/load balancer and client idle
 			// timeouts from closing the connection during quiet gaps (slow
@@ -469,13 +520,6 @@ responses.post("/", async (c) => {
 				});
 			}, KEEPALIVE_INTERVAL_MS);
 
-			// Send response.created
-			const createdEvent = createResponseCreatedEvent(state);
-			await stream.writeSSE({
-				event: createdEvent.event,
-				data: createdEvent.data,
-			});
-
 			const processLine = async (line: string) => {
 				if (!line.startsWith("data: ")) {
 					return false;
@@ -483,6 +527,7 @@ responses.post("/", async (c) => {
 				const data = line.slice(6).trim();
 
 				if (data === "[DONE]") {
+					await sendCreated();
 					// Send completion events
 					const completionEvents = createCompletionEvents(
 						state,
@@ -510,7 +555,7 @@ responses.post("/", async (c) => {
 								input: inputItems,
 								output: buildFinalOutputItems(state),
 								instructions: req.instructions,
-								model: req.model,
+								model: state.model,
 								status: completedResponse?.status ?? "completed",
 								incomplete_details:
 									completedResponse?.incomplete_details ?? null,
@@ -535,6 +580,7 @@ responses.post("/", async (c) => {
 					return false;
 				}
 
+				await sendCreated(chunk);
 				const events = processStreamChunk(chunk, state);
 				for (const event of events) {
 					await stream.writeSSE({
@@ -583,6 +629,7 @@ responses.post("/", async (c) => {
 						error,
 					});
 					try {
+						await sendCreated();
 						const failedEvent = createFailedEvent(state);
 						await stream.writeSSE({
 							event: failedEvent.event,
@@ -622,7 +669,7 @@ responses.post("/", async (c) => {
 				input: inputItems,
 				output: responsesResponse.output,
 				instructions: req.instructions,
-				model: req.model,
+				model: responsesResponse.model,
 				status: responsesResponse.status as
 					"completed" | "incomplete" | "failed",
 				incomplete_details: responsesResponse.incomplete_details,
@@ -663,10 +710,21 @@ responses.post("/compact", async (c) => {
 			rawBody = await c.req.json();
 		}
 	} catch {
+		const message = "Invalid JSON in request body";
+		logger.warn("Invalid Responses compact JSON", {
+			path: c.req.path,
+			method: c.req.method,
+		});
+		await logGatewayClientError(c, {
+			apiOrigin: "responses",
+			rawBody: null,
+			message,
+			cause: "invalid_json",
+		});
 		return c.json(
 			{
 				error: {
-					message: "Invalid JSON in request body",
+					message,
 					type: "invalid_request_error",
 					code: "invalid_json",
 				},
@@ -677,10 +735,22 @@ responses.post("/compact", async (c) => {
 
 	const validation = compactRequestSchema.safeParse(rawBody);
 	if (!validation.success) {
+		const message = `Invalid request: ${formatValidationError(validation.error)}`;
+		logger.warn("Invalid Responses compact request", {
+			issues: validation.error.issues,
+			path: c.req.path,
+			method: c.req.method,
+		});
+		await logGatewayClientError(c, {
+			apiOrigin: "responses",
+			rawBody,
+			message,
+			cause: "invalid_request",
+		});
 		return c.json(
 			{
 				error: {
-					message: `Invalid request: ${formatValidationError(validation.error)}`,
+					message,
 					type: "invalid_request_error",
 					code: "invalid_request",
 				},
@@ -845,6 +915,14 @@ responses.post("/compact", async (c) => {
 		compactionId,
 		createdAt,
 	);
+	const responseModel =
+		chatJson &&
+		typeof chatJson === "object" &&
+		"model" in chatJson &&
+		typeof chatJson.model === "string" &&
+		chatJson.model.trim().length > 0
+			? chatJson.model
+			: req.model;
 
 	await storeResponse(
 		compactionId,
@@ -853,7 +931,7 @@ responses.post("/compact", async (c) => {
 			input: inputItems,
 			output: compactionResponse.output,
 			instructions: req.instructions,
-			model: req.model,
+			model: responseModel,
 			status: "completed",
 			usage: compactionResponse.usage as unknown as Record<string, unknown>,
 			created_at: createdAt,

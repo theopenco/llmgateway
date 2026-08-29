@@ -3,6 +3,7 @@ import { expect, test, beforeEach, describe, afterEach, vi } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { decryptProviderKey, validateProviderKey } from "@llmgateway/actions";
 import {
 	redisClient,
@@ -59,7 +60,11 @@ describe("provider keys route", () => {
 		// Create test provider key
 		await db.insert(tables.providerKey).values({
 			id: "test-provider-key-id",
-			token: "test-provider-token",
+			...encryptProviderKeyForStorage(
+				"test-provider-token",
+				"test-provider-key-id",
+				"test-org-id",
+			),
 			provider: "openai",
 			organizationId: "test-org-id",
 		});
@@ -127,12 +132,14 @@ describe("provider keys route", () => {
 				provider: "inference.net",
 				token: "inference-test-token",
 				organizationId: "test-org-id",
+				description: "Production inference",
 			}),
 		});
 		expect(res.status).toBe(200);
 		const json = await res.json();
 		expect(json).toHaveProperty("providerKey");
 		expect(json.providerKey.provider).toBe("inference.net");
+		expect(json.providerKey.description).toBe("Production inference");
 		expect(json.providerKey.maskedToken).toBeDefined();
 		expect(json.providerKey.maskedToken).toContain("•");
 		expect(json.providerKey.token).toBeUndefined();
@@ -151,10 +158,7 @@ describe("provider keys route", () => {
 		});
 		expect(providerKey).not.toBeNull();
 		expect(providerKey?.provider).toBe("inference.net");
-		// Asserting the legacy plaintext column stays NULL is the whole point of
-		// this test, so it is one of the few places allowed to read it directly.
-		// eslint-disable-next-line no-restricted-syntax
-		expect(providerKey?.token).toBeNull();
+		// A DB dump must not reveal the submitted key.
 		expect(providerKey?.tokenCiphertext).toMatch(/^llmgw:v2:/);
 		expect(providerKey?.tokenMasked).toBeTruthy();
 		expect(providerKey?.tokenMasked).not.toBe("inference-test-token");
@@ -198,29 +202,6 @@ describe("provider keys route", () => {
 		expect(() =>
 			decryptProviderKey(row!.tokenCiphertext!, row!.id, "different-org"),
 		).toThrow();
-	});
-
-	test("provider_key CHECK constraint rejects rows with both token and tokenCiphertext", async () => {
-		await expect(
-			db.insert(tables.providerKey).values({
-				id: "test-bad-shape",
-				token: "plaintext-here",
-				tokenCiphertext: "llmgw:v1:should-not-coexist:::",
-				provider: "openai",
-				organizationId: "test-org-id",
-			}),
-		).rejects.toThrow();
-	});
-
-	test("provider_key CHECK constraint rejects rows with neither token form", async () => {
-		// A row readProviderKey could never resolve must not be storable.
-		await expect(
-			db.insert(tables.providerKey).values({
-				id: "test-tokenless-shape",
-				provider: "openai",
-				organizationId: "test-org-id",
-			}),
-		).rejects.toThrow();
 	});
 
 	test("POST /keys/provider rejects token with non-ASCII characters", async () => {
@@ -452,7 +433,11 @@ describe("provider keys route", () => {
 	test("POST /keys/provider rejects duplicate custom provider names", async () => {
 		await db.insert(tables.providerKey).values({
 			id: "test-custom-provider-key-id",
-			token: "test-custom-provider-token",
+			...encryptProviderKeyForStorage(
+				"test-custom-provider-token",
+				"test-custom-provider-key-id",
+				"test-org-id",
+			),
 			provider: "custom",
 			name: "mycustomprovider",
 			baseUrl: "https://example.com",
@@ -503,6 +488,26 @@ describe("provider keys route", () => {
 		});
 		expect(providerKey).not.toBeNull();
 		expect(providerKey?.status).toBe("inactive");
+	});
+
+	test("PATCH /keys/provider/{id} updates its description", async () => {
+		const res = await app.request("/keys/provider/test-provider-key-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ description: "Batch jobs" }),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.providerKey.description).toBe("Batch jobs");
+
+		const providerKey = await db.query.providerKey.findFirst({
+			where: { id: { eq: "test-provider-key-id" } },
+		});
+		expect(providerKey?.description).toBe("Batch jobs");
 	});
 
 	describe("spend limits", () => {
@@ -742,7 +747,11 @@ describe("provider keys route", () => {
 				.where(eq(tables.organization.id, "test-org-id"));
 			await db.insert(tables.providerKey).values({
 				id: "test-custom-key-id",
-				token: "test-custom-token",
+				...encryptProviderKeyForStorage(
+					"test-custom-token",
+					"test-custom-key-id",
+					"test-org-id",
+				),
 				provider: "custom",
 				name: "mycustom",
 				baseUrl: "https://example.com",
@@ -880,7 +889,7 @@ describe("provider keys route", () => {
 		async function seedCustomKey(id = "test-custom-key-id", name = "mycustom") {
 			await db.insert(tables.providerKey).values({
 				id,
-				token: "test-custom-token",
+				...encryptProviderKeyForStorage("test-custom-token", id, "test-org-id"),
 				provider: "custom",
 				name,
 				baseUrl: "https://example.com",
@@ -947,7 +956,11 @@ describe("provider keys route", () => {
 			await seedCustomKey();
 			await db.insert(tables.providerKey).values({
 				id: "test-custom-key-deleted",
-				token: "test-custom-token-two",
+				...encryptProviderKeyForStorage(
+					"test-custom-token-two",
+					"test-custom-key-deleted",
+					"test-org-id",
+				),
 				provider: "custom",
 				name: "freedname",
 				baseUrl: "https://example.com",
@@ -1087,7 +1100,11 @@ describe("provider keys route", () => {
 		const orgId = await createCacheTestOrg();
 		await db.insert(tables.providerKey).values({
 			id: `${orgId}-provider-key`,
-			token: "cache-test-provider-token",
+			...encryptProviderKeyForStorage(
+				"cache-test-provider-token",
+				`${orgId}-provider-key`,
+				orgId,
+			),
 			provider: "openai",
 			organizationId: orgId,
 		});
@@ -1135,7 +1152,7 @@ describe("provider keys route", () => {
 			for (const id of ids) {
 				await db.insert(tables.providerKey).values({
 					id,
-					token: `token-${id}`,
+					...encryptProviderKeyForStorage(`token-${id}`, id, orgId),
 					provider: "openai",
 					organizationId: orgId,
 					status: "active",
@@ -1283,7 +1300,11 @@ describe("provider keys route", () => {
 			});
 			await db.insert(tables.providerKey).values({
 				id: "other-org-key",
-				token: "token-other",
+				...encryptProviderKeyForStorage(
+					"token-other",
+					"other-org-key",
+					"other-org-id",
+				),
 				provider: "openai",
 				organizationId: "other-org-id",
 				status: "active",
@@ -1320,7 +1341,11 @@ describe("provider keys route", () => {
 			});
 			await db.insert(tables.providerKey).values({
 				id: "unrelated-key",
-				token: "token-unrelated",
+				...encryptProviderKeyForStorage(
+					"token-unrelated",
+					"unrelated-key",
+					"unrelated-org-id",
+				),
 				provider: "openai",
 				organizationId: "unrelated-org-id",
 				status: "active",
@@ -1338,7 +1363,11 @@ describe("provider keys route", () => {
 			await seedKeys("test-org-id", ["key-a", "key-b"]);
 			await db.insert(tables.providerKey).values({
 				id: "key-gone",
-				token: "token-gone",
+				...encryptProviderKeyForStorage(
+					"token-gone",
+					"key-gone",
+					"test-org-id",
+				),
 				provider: "openai",
 				organizationId: "test-org-id",
 				status: "deleted",

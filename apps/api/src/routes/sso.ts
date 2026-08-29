@@ -8,11 +8,13 @@ import { getApiBaseUrl } from "@/lib/api-url.js";
 import { getOrgProjectsOldestFirst } from "@/lib/sso-default-projects.js";
 import { normalizeSsoDomains } from "@/lib/sso-domains.js";
 import { recomputeRoleForGroupName } from "@/lib/sso-roles.js";
+import { recomputeTeamForGroupName } from "@/lib/sso-teams.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { and, db, eq, isNull, shortid, tables } from "@llmgateway/db";
 import { SSO_TEAM_DEFAULT_DEVELOPER_BUDGET } from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import { maskToken } from "@llmgateway/shared/mask-token";
 
 import type { ServerTypes } from "@/vars.js";
@@ -46,7 +48,12 @@ async function assertEnterpriseOrgAccess(
 		});
 	}
 
-	if (userOrg.organization?.plan !== "enterprise") {
+	if (
+		!hasOrganizationEnterpriseAccess(
+			userOrg.organization?.id,
+			userOrg.organization?.plan,
+		)
+	) {
 		throw new HTTPException(403, {
 			message: "SSO requires an enterprise plan",
 		});
@@ -794,6 +801,7 @@ sso.openapi(createRoleMapping, async (c) => {
 	// order), apply the new mapping to them now instead of waiting for a later
 	// SCIM membership event.
 	await recomputeRoleForGroupName(organizationId, groupName);
+	await recomputeTeamForGroupName(organizationId, groupName);
 
 	await logAuditEvent({
 		organizationId,
@@ -853,6 +861,7 @@ sso.openapi(removeRoleMapping, async (c) => {
 	// Members elevated by this mapping keep the role until a later SCIM event
 	// otherwise; recompute them now so removing the mapping revokes the access.
 	await recomputeRoleForGroupName(organizationId, existing.groupName);
+	await recomputeTeamForGroupName(organizationId, existing.groupName);
 
 	await logAuditEvent({
 		organizationId,
@@ -864,6 +873,212 @@ sso.openapi(removeRoleMapping, async (c) => {
 	});
 
 	return c.json({ message: "Role mapping deleted successfully" });
+});
+
+const teamMappingSchema = z.object({
+	id: z.string(),
+	groupName: z.string(),
+	teamId: z.string(),
+	teamName: z.string(),
+});
+const teamMappingOptionSchema = z.object({ id: z.string(), name: z.string() });
+
+const listTeamMappings = createRoute({
+	method: "get",
+	path: "/team-mappings",
+	request: { query: listQuerySchema },
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						mappings: z.array(teamMappingSchema),
+						teams: z.array(teamMappingOptionSchema),
+					}),
+				},
+			},
+			description: "Group-to-team mappings and available teams.",
+		},
+	},
+});
+
+sso.openapi(listTeamMappings, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { organizationId } = c.req.valid("query");
+	await assertEnterpriseOrgAccess(user.id, organizationId);
+
+	const [mappings, teams] = await Promise.all([
+		db.query.ssoTeamMapping.findMany({
+			where: { organizationId: { eq: organizationId } },
+			columns: { id: true, groupName: true, teamId: true },
+			with: { team: { columns: { name: true } } },
+			orderBy: { groupName: "asc" },
+		}),
+		db.query.organizationTeam.findMany({
+			where: { organizationId: { eq: organizationId } },
+			columns: { id: true, name: true },
+			orderBy: { name: "asc" },
+		}),
+	]);
+
+	return c.json({
+		mappings: mappings.map((mapping) => ({
+			id: mapping.id,
+			groupName: mapping.groupName,
+			teamId: mapping.teamId,
+			teamName: mapping.team!.name,
+		})),
+		teams,
+	});
+});
+
+const saveTeamMapping = createRoute({
+	method: "post",
+	path: "/team-mappings",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						organizationId: z.string().trim().min(1),
+						groupName: z.string().trim().min(1).max(255),
+						teamId: z.string().trim().min(1),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: z.object({ mapping: teamMappingSchema }),
+				},
+			},
+			description: "Group-to-team mapping saved.",
+		},
+	},
+});
+
+sso.openapi(saveTeamMapping, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { organizationId, groupName, teamId } = c.req.valid("json");
+	await assertEnterpriseOrgAccess(user.id, organizationId);
+
+	const team = await db.query.organizationTeam.findFirst({
+		where: { id: { eq: teamId }, organizationId: { eq: organizationId } },
+		columns: { id: true, name: true },
+	});
+	if (!team) {
+		throw new HTTPException(400, {
+			message: "Team does not belong to this organization",
+		});
+	}
+
+	const existing = await db.query.ssoTeamMapping.findFirst({
+		where: {
+			organizationId: { eq: organizationId },
+			groupName: { eq: groupName },
+		},
+		columns: { id: true, teamId: true },
+	});
+	const [mapping] = existing
+		? await db
+				.update(tables.ssoTeamMapping)
+				.set({ teamId })
+				.where(eq(tables.ssoTeamMapping.id, existing.id))
+				.returning({
+					id: tables.ssoTeamMapping.id,
+					groupName: tables.ssoTeamMapping.groupName,
+					teamId: tables.ssoTeamMapping.teamId,
+				})
+		: await db
+				.insert(tables.ssoTeamMapping)
+				.values({ organizationId, groupName, teamId })
+				.returning({
+					id: tables.ssoTeamMapping.id,
+					groupName: tables.ssoTeamMapping.groupName,
+					teamId: tables.ssoTeamMapping.teamId,
+				});
+
+	await recomputeTeamForGroupName(organizationId, groupName);
+	await logAuditEvent({
+		organizationId,
+		userId: user.id,
+		action: existing ? "sso_team_mapping.update" : "sso_team_mapping.create",
+		resourceType: "sso_team_mapping",
+		resourceId: mapping.id,
+		metadata: {
+			resourceName: `${groupName} -> ${team.name}`,
+			...(existing
+				? { changes: { teamId: { old: existing.teamId, new: teamId } } }
+				: {}),
+		},
+	});
+
+	return c.json({ mapping: { ...mapping, teamName: team.name } }, 201);
+});
+
+const removeTeamMapping = createRoute({
+	method: "delete",
+	path: "/team-mappings/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+		query: listQuerySchema,
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: z.object({ message: z.string() }) },
+			},
+			description: "Group-to-team mapping deleted.",
+		},
+	},
+});
+
+sso.openapi(removeTeamMapping, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.valid("param");
+	const { organizationId } = c.req.valid("query");
+	await assertEnterpriseOrgAccess(user.id, organizationId);
+
+	const existing = await db.query.ssoTeamMapping.findFirst({
+		where: {
+			id: { eq: id },
+			organizationId: { eq: organizationId },
+		},
+		columns: { id: true, groupName: true, teamId: true },
+	});
+	if (!existing) {
+		throw new HTTPException(404, { message: "Team mapping not found" });
+	}
+
+	await db
+		.delete(tables.ssoTeamMapping)
+		.where(eq(tables.ssoTeamMapping.id, existing.id));
+	await recomputeTeamForGroupName(organizationId, existing.groupName);
+	await logAuditEvent({
+		organizationId,
+		userId: user.id,
+		action: "sso_team_mapping.delete",
+		resourceType: "sso_team_mapping",
+		resourceId: existing.id,
+		metadata: { resourceName: existing.groupName },
+	});
+
+	return c.json({ message: "Team mapping deleted successfully" });
 });
 
 const orgProjectSchema = z.object({ id: z.string(), name: z.string() });

@@ -30,10 +30,8 @@ import { isUpstreamTermination } from "./chat/tools/normalize-streaming-error.js
 import { embeddingsRoute } from "./embeddings/route.js";
 import { imagesRoute } from "./images/route.js";
 import { keyRoute } from "./key/route.js";
-import {
-	buildAnthropicErrorBody,
-	buildOpenAIErrorBody,
-} from "./lib/error-response.js";
+import { backpressureMiddleware } from "./lib/backpressure.js";
+import { renderGatewayError } from "./lib/error-response.js";
 import { mcpHandler, registerMcpOAuthRoutes } from "./mcp/mcp.js";
 import { corsMiddleware } from "./middleware/cors.js";
 import { orgRateLimitMiddleware } from "./middleware/org-rate-limit.js";
@@ -49,8 +47,6 @@ import { transcriptionsRoute } from "./transcriptions/route.js";
 import { videosRoute } from "./videos/route.js";
 
 import type { ServerTypes } from "./vars.js";
-import type { Context } from "hono";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
 
 export const config = {
 	servers: [
@@ -65,6 +61,17 @@ export const config = {
 	info: {
 		version: "1.0.0",
 		title: "LLMGateway API",
+		description: `OpenAI-compatible LLM gateway: chat completions, embeddings, images, audio, video, moderation, OCR and rerank across 40+ providers with one API key.
+
+**Authentication**: create an API key at https://llmgateway.io/dashboard and send it as \`Authorization: Bearer <key>\` (or \`x-api-key\`).
+
+**Versioning**: the API is versioned in the URL path (\`/v1/...\`). Backwards-incompatible changes only ship under a new path version. Model and provider deprecations are announced in the changelog (https://llmgateway.io/changelog) and deprecated entries remain listed in \`/v1/models\` with their deactivation date.
+
+**Rate limits**: requests are limited per organization and per endpoint. 429 responses carry \`Retry-After\`, \`RateLimit-Limit\`, \`RateLimit-Remaining\` and \`RateLimit-Reset\` headers (plus legacy \`X-RateLimit-*\`); back off until \`Retry-After\` elapses. Successful authenticated responses on limited endpoints also carry \`RateLimit-Limit\` and \`RateLimit-Remaining\` so clients can self-throttle.
+
+**MCP**: a Model Context Protocol server (Streamable HTTP) is served at \`/mcp\`; OAuth metadata and scopes are published at \`/.well-known/oauth-authorization-server\` and \`/.well-known/oauth-protected-resource\`.
+
+This document: https://api.llmgateway.io/openapi.json (mirrored at https://llmgateway.io/openapi.json).`,
 	},
 	externalDocs: {
 		url: "https://docs.llmgateway.io",
@@ -95,13 +102,22 @@ app.use("*", requestLifecycleMiddleware);
 app.use("*", honoRequestLogger);
 app.use("*", corsMiddleware);
 
-// Per-organization, per-path rate limiting. Registered before the other
-// request gates (content-type validation) and ahead of every downstream
-// DB check and rate limiter in the route handlers (credit checks, free-model
-// and provider rate limits), so an over-limit org is rejected as early as
-// possible. Enterprise orgs are exempt and limits scale with the
-// organization's lifetime spend tier. Only configured `/v1/*` paths are
-// throttled; everything else passes through.
+// Shed excess inference load early so each pod fast-fails with a retryable
+// 529 instead of piling up unbounded connections. Only inference endpoints
+// are counted — everything else completes near-instantly and keeps working
+// under overload. Registered after CORS so shed responses still carry the
+// Access-Control-* headers browser clients need to surface the 529, and
+// before the org limiter so pod protection costs no Redis/DB lookups.
+app.use("*", backpressureMiddleware);
+
+// Per-organization, per-path rate limiting plus the per-org in-flight
+// concurrency cap. Registered before the other request gates (content-type
+// validation) and ahead of every downstream DB check and rate limiter in the
+// route handlers (credit checks, free-model and provider rate limits), so an
+// over-limit org is rejected as early as possible. Enterprise orgs skip the
+// RPM limits but get an elevated concurrency ceiling; regular org RPM limits
+// scale with the organization's lifetime spend tier. Only configured `/v1/*`
+// paths are throttled; everything else passes through.
 app.use("*", orgRateLimitMiddleware);
 
 // Middleware to check for application/json content type on POST requests
@@ -127,22 +143,6 @@ app.use("*", async (c, next) => {
 	}
 	return await next();
 });
-
-// Renders a gateway-level error in a provider-compatible shape. The Anthropic
-// `/v1/messages` endpoint expects Anthropic's `{ type: "error", error: {...} }`
-// envelope; every other (OpenAI-compatible) endpoint expects OpenAI's
-// `{ error: { message, type, param, code } }` envelope.
-function renderGatewayError(
-	c: Context<ServerTypes>,
-	status: number,
-	message: string,
-) {
-	const jsonStatus = status as ContentfulStatusCode;
-	if (c.req.path.startsWith("/v1/messages")) {
-		return c.json(buildAnthropicErrorBody({ message, status }), jsonStatus);
-	}
-	return c.json(buildOpenAIErrorBody({ message, status }), jsonStatus);
-}
 
 app.onError((error, c) => {
 	if (error instanceof UnsupportedAudioFormatError) {
@@ -383,7 +383,18 @@ app.all("/mcp", mcpHandler);
 // This adds OAuth endpoints at /.well-known/oauth-authorization-server and /oauth/*
 registerMcpOAuthRoutes(app);
 
+// `app.doc` does not merge `config.components`, so register the security
+// scheme on the registry too — otherwise the served spec lacks it (the
+// generate-openapi script patches the written file, but /json is live).
+app.openAPIRegistry.registerComponent("securitySchemes", "bearerAuth", {
+	type: "http",
+	scheme: "bearer",
+	description: "Bearer token authentication using API keys",
+});
+
 app.doc("/json", config);
+// Standard, predictable location agents probe for.
+app.doc("/openapi.json", config);
 
 app.get("/docs", swaggerUI({ url: "/json" }));
 

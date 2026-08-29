@@ -1,16 +1,13 @@
 import { redirect } from "next/navigation";
 
 import { getLastUsedProjectId } from "@/lib/last-used-project-server";
-import { fetchServerData } from "@/lib/server-api";
-
-import type { User } from "@/lib/types";
+import { getOrganizations, getOrgProjects, getUserMe } from "@/lib/server-api";
 
 export default async function DashboardPage() {
-	// Fetch user and organization data server-side in parallel
-	const initialUserDataPromise = fetchServerData<
-		{ user: User } | undefined | null
-	>("GET", "/user/me");
-	const initialOrganizationsDataPromise = fetchServerData("GET", "/orgs");
+	// Fetch user and organization data server-side in parallel, through the
+	// request-deduped helpers shared with the dashboard layouts.
+	const initialUserDataPromise = getUserMe();
+	const initialOrganizationsDataPromise = getOrganizations();
 
 	const initialUserData = await initialUserDataPromise;
 
@@ -29,52 +26,34 @@ export default async function DashboardPage() {
 
 	// Determine default organization and project for redirect
 	if (
-		initialOrganizationsData &&
-		typeof initialOrganizationsData === "object"
+		initialOrganizationsData.organizations &&
+		initialOrganizationsData.organizations.length > 0
 	) {
-		const data = initialOrganizationsData as {
-			organizations?: Array<{ id: string; name: string }>;
-		};
+		const defaultOrgId = initialOrganizationsData.organizations[0].id;
 
-		if (data.organizations && data.organizations.length > 0) {
-			const defaultOrgId = data.organizations[0].id;
+		// Fetch projects for the default organization
+		const projectsData = await getOrgProjects(defaultOrgId);
 
-			// Fetch projects for the default organization
-			const projectsData = await fetchServerData("GET", "/orgs/{id}/projects", {
-				params: {
-					path: {
-						id: defaultOrgId,
-					},
-				},
-			});
-
-			// Check if projects data is null (API error)
-			if (!projectsData) {
-				redirect(`/dashboard/${defaultOrgId}`);
-			}
-
-			if (projectsData && typeof projectsData === "object") {
-				const projects = projectsData as {
-					projects?: Array<{ id: string; name: string }>;
-				};
-
-				if (projects.projects && projects.projects.length > 0) {
-					// Check for last used project first, fallback to first project
-					const lastUsedProjectId = await getLastUsedProjectId(defaultOrgId);
-					const defaultProjectId =
-						lastUsedProjectId &&
-						projects.projects.some((p) => p.id === lastUsedProjectId)
-							? lastUsedProjectId
-							: projects.projects[0].id;
-
-					// Redirect to the proper route structure
-					redirect(`/dashboard/${defaultOrgId}/${defaultProjectId}`);
-				}
-			}
-
-			// If no projects found, redirect to organization level
+		// Check if projects data is null (API error)
+		if (!projectsData) {
 			redirect(`/dashboard/${defaultOrgId}`);
 		}
+
+		if (projectsData.projects && projectsData.projects.length > 0) {
+			// Check for last used project first, fallback to first project
+			const lastUsedProjectId = await getLastUsedProjectId(defaultOrgId);
+			const defaultProjectId =
+				lastUsedProjectId &&
+				projectsData.projects.some((p) => p.id === lastUsedProjectId)
+					? lastUsedProjectId
+					: projectsData.projects[0].id;
+
+			// Redirect to the proper route structure
+			redirect(`/dashboard/${defaultOrgId}/${defaultProjectId}`);
+		}
+
+		// If no projects found, redirect to organization level
+		redirect(`/dashboard/${defaultOrgId}`);
 	}
 
 	// If no organizations found, redirect to onboarding

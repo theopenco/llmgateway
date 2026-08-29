@@ -46,7 +46,6 @@ export async function generateMetadata({
 			description: entry.description,
 			type: "article",
 			url: `${BASE_URL}/use-cases/${entry.slug}`,
-			images: ["/opengraph.png"],
 		},
 		twitter: {
 			card: "summary_large_image",

@@ -1,0 +1,127 @@
+---
+title: Enterprise Licensing
+description: Install and verify an Enterprise or white-label license on a self-hosted LLM Gateway deployment.
+icon: KeyRound
+---
+
+LLM Gateway runs without a license: core gateway and management functionality
+remain available. A signed license unlocks Enterprise features in production.
+Licenses are verified offline using public keys included in the official images;
+the token is never sent to LLM Gateway.
+
+To obtain or renew a license, [contact sales](https://llmgateway.io/enterprise).
+
+## Choose a license
+
+| License         | Organization access                   | Admin dashboard |
+| --------------- | ------------------------------------- | --------------- |
+| **Enterprise**  | One organization bound to the license | No              |
+| **White-label** | Multiple Enterprise organizations     | Yes             |
+
+Both license types include a maximum number of distinct users across unlocked
+Enterprise organizations. Existing memberships are not removed if usage exceeds
+a renewed license's lower limit, but new licensed users are blocked until usage
+is below the limit.
+
+For a standard Enterprise license, sales will ask for the organization ID to
+bind. It is the first ID after `/dashboard/` in that organization's dashboard
+URL.
+
+Installing a license does not change an organization's recorded plan. The bound
+organization must also be provisioned on the Enterprise plan; confirm that step
+with sales when the license is issued. White-label operators can assign the
+Enterprise plan from the multi-organization admin dashboard.
+
+## Docker Compose
+
+Add the signed token supplied with your agreement to the `.env` file beside your
+Compose file:
+
+```bash
+LLMGATEWAY_ENTERPRISE_LICENSE=your-signed-license
+```
+
+Keep `.env` out of version control. The provided split and unified Compose files
+pass this value to the processes that verify entitlements.
+
+Recreate the affected containers so they receive the new environment value:
+
+```bash
+# Split deployment
+docker compose -f infra/docker-compose.split.yml up -d --force-recreate api gateway
+
+# Unified deployment
+docker compose -f docker-compose.unified.yml up -d --force-recreate llmgateway
+```
+
+A plain `docker compose restart` does not reload changed environment variables.
+
+## Docker
+
+Add this option to the complete `docker run` command in the
+[Docker guide](/self-host/docker):
+
+```bash
+-e LLMGATEWAY_ENTERPRISE_LICENSE="your-signed-license"
+```
+
+When replacing a license, recreate the container with the new value.
+
+## Kubernetes and Helm
+
+Store the token under the `LLMGATEWAY_ENTERPRISE_LICENSE` key in the Kubernetes
+Secret referenced by the chart's `existingSecret` value:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: llmgateway-secrets
+type: Opaque
+stringData:
+  LLMGATEWAY_ENTERPRISE_LICENSE: "your-signed-license"
+  # Include the chart's other required secrets here.
+```
+
+```yaml
+existingSecret: llmgateway-secrets
+```
+
+The existing Secret must also contain the other values required by the chart.
+Restart the API and gateway workloads after rotating the Secret. For a temporary
+or non-production installation, the chart can create the Secret from
+`enterprise.license`, but do not commit a token to a values file.
+
+## Verify the license
+
+Sign in as a deployment administrator and request `GET /admin/license` from the
+internal API. The response includes the license state, kind, expiration, seat
+limit, distinct seats used, and remaining seats. It never returns the token or
+customer identifier.
+
+The possible states are:
+
+| State                                               | Enterprise access                                        |
+| --------------------------------------------------- | -------------------------------------------------------- |
+| `active`                                            | Enabled                                                  |
+| `grace`                                             | Enabled with an expiry warning                           |
+| `missing`, `invalid`, `not_yet_valid`, or `expired` | Locked; core functionality remains available             |
+| `development`                                       | Enabled only when running from source outside production |
+
+The seven-day grace period begins exactly when the license expires. Enterprise
+features lock at the end of grace, but health checks and core gateway traffic
+continue working.
+
+## Rotate licenses and verification keys
+
+Replacing a token with another token signed by an already-supported key only
+requires updating the deployment secret and recreating or restarting the API and
+gateway processes.
+
+When a token uses a new key ID, first upgrade the API and gateway images to a
+version containing its public verification key. Then install the new token. Old
+public keys remain in images during the rotation window, so replicas can be
+upgraded before the license changes.
+
+Treat the signed token like a password: store it in your secret manager, do not
+commit it, and do not include it in logs or support messages.

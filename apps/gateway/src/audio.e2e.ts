@@ -8,19 +8,15 @@ import { beforeAll, beforeEach, describe, expect, test } from "vitest";
 import {
 	beforeAllHook,
 	beforeEachHook,
-	filteredModels,
 	getTestOptions,
-	hasOnlyModels,
 	logMode,
-	matchesTestModel,
-	specifiedModels,
+	providerModels,
 } from "@/chat-helpers.e2e.js";
 
 import { db, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
-
-import type { ProviderModelMapping } from "@llmgateway/models";
 
 const AUDIO_PROJECT_ID = "audio-test-project-id";
 const AUDIO_API_KEY_ID = "audio-test-api-key-id";
@@ -38,51 +34,12 @@ function readFixtureAudioBase64(): string {
 	return bytes.toString("base64");
 }
 
-const audioTestCases = filteredModels
-	.filter((model) => {
-		if (hasOnlyModels) {
-			return model.providers.some(
-				(provider: ProviderModelMapping) => provider.test === "only",
-			);
-		}
-		return true;
-	})
-	.flatMap((model) => {
-		const cases: { model: string; provider: ProviderModelMapping }[] = [];
-
-		for (const provider of model.providers as ProviderModelMapping[]) {
-			if (provider.inputAudioPrice === undefined) {
-				continue;
-			}
-			if (provider.deactivatedAt && new Date() > provider.deactivatedAt) {
-				continue;
-			}
-			if (provider.deprecatedAt && new Date() > provider.deprecatedAt) {
-				continue;
-			}
-
-			if (specifiedModels) {
-				if (!matchesTestModel(provider.providerId, model.id, provider.region)) {
-					continue;
-				}
-			} else {
-				if (provider.test === "skip") {
-					continue;
-				}
-			}
-
-			if (hasOnlyModels && provider.test !== "only") {
-				continue;
-			}
-
-			cases.push({
-				model: `${provider.providerId}/${model.id}${provider.region ? `:${provider.region}` : ""}`,
-				provider,
-			});
-		}
-
-		return cases;
-	});
+// Derived from providerModels so audio inherits the same filtering as every
+// other suite — most importantly skipping providers whose required env vars are
+// unset, which otherwise produces 500s for providers we have no credentials for.
+const audioTestCases = providerModels.filter(
+	({ provider }) => provider.inputAudioPrice !== undefined,
+);
 
 async function audioBeforeAllHook() {
 	await beforeAllHook();
@@ -102,7 +59,7 @@ async function audioBeforeAllHook() {
 		.insert(tables.apiKey)
 		.values({
 			id: AUDIO_API_KEY_ID,
-			token: AUDIO_API_KEY_TOKEN,
+			...hashApiKeyForStorage(AUDIO_API_KEY_TOKEN),
 			projectId: AUDIO_PROJECT_ID,
 			description: "Audio E2E API Key",
 			createdBy: "user-id",

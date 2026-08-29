@@ -12,8 +12,6 @@ const DAY_MS = 86_400_000;
 
 export type PlanClass = "regular" | "dev" | "chat";
 
-const DEVPASS_RATE_LIMIT_MULTIPLIER = 2;
-
 export interface PathRateLimitConfig {
 	/** Stable identifier used in the Redis key and env var names. */
 	key: string;
@@ -21,6 +19,8 @@ export interface PathRateLimitConfig {
 	prefix: string;
 	/** Default requests per minute for regular (pay-as-you-go) orgs. */
 	defaultRpm: number;
+	/** Default requests per minute for dev ("devpass") plan orgs. */
+	devDefaultRpm: number;
 	/** Default requests per minute for chat plan orgs. */
 	chatDefaultRpm: number;
 }
@@ -35,72 +35,84 @@ export const PATH_RATE_LIMITS: readonly PathRateLimitConfig[] = [
 		key: "chat_completions",
 		prefix: "/v1/chat/completions",
 		defaultRpm: 600,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 60,
 	},
 	{
 		key: "messages",
 		prefix: "/v1/messages",
 		defaultRpm: 600,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 60,
 	},
 	{
 		key: "responses",
 		prefix: "/v1/responses",
 		defaultRpm: 600,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 60,
 	},
 	{
 		key: "embeddings",
 		prefix: "/v1/embeddings",
 		defaultRpm: 1200,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 120,
 	},
 	{
 		key: "moderations",
 		prefix: "/v1/moderations",
 		defaultRpm: 1200,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 120,
 	},
 	{
 		key: "rerank",
 		prefix: "/v1/rerank",
 		defaultRpm: 1200,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 120,
 	},
 	{
 		key: "models",
 		prefix: "/v1/models",
 		defaultRpm: 1200,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 120,
 	},
 	{
 		key: "ocr",
 		prefix: "/v1/ocr",
 		defaultRpm: 300,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 30,
 	},
 	{
 		key: "images",
 		prefix: "/v1/images",
 		defaultRpm: 300,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 30,
 	},
 	{
 		key: "audio_speech",
 		prefix: "/v1/audio/speech",
 		defaultRpm: 300,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 30,
 	},
 	{
 		key: "audio_transcriptions",
 		prefix: "/v1/audio/transcriptions",
 		defaultRpm: 300,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 30,
 	},
 	{
 		key: "videos",
 		prefix: "/v1/videos",
 		defaultRpm: 120,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 12,
 	},
 	// Realtime session-secret minting (`POST /v1/realtime/client_secrets`).
@@ -111,18 +123,21 @@ export const PATH_RATE_LIMITS: readonly PathRateLimitConfig[] = [
 		key: "realtime",
 		prefix: "/v1/realtime",
 		defaultRpm: 120,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 12,
 	},
 	{
 		key: "key",
 		prefix: "/v1/key",
 		defaultRpm: 1200,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 120,
 	},
 	{
 		key: "credits",
 		prefix: "/v1/credits",
 		defaultRpm: 300,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 30,
 	},
 	// AI SDK Gateway protocol surface. All four spec-version prefixes forward
@@ -133,24 +148,28 @@ export const PATH_RATE_LIMITS: readonly PathRateLimitConfig[] = [
 		key: "ai_sdk",
 		prefix: "/v1/ai",
 		defaultRpm: 600,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 60,
 	},
 	{
 		key: "ai_sdk",
 		prefix: "/v2/ai",
 		defaultRpm: 600,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 60,
 	},
 	{
 		key: "ai_sdk",
 		prefix: "/v3/ai",
 		defaultRpm: 600,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 60,
 	},
 	{
 		key: "ai_sdk",
 		prefix: "/v4/ai",
 		defaultRpm: 600,
+		devDefaultRpm: 120,
 		chatDefaultRpm: 60,
 	},
 ];
@@ -174,6 +193,8 @@ export interface SpendTierDefaults {
 	minAgeDays: number;
 	/** RPM multiplier applied to the per-path base limit. */
 	rpmMultiplier: number;
+	/** Max concurrent in-flight inference requests (fleet-wide, per org). */
+	inflightLimit: number;
 	/** Daily USD spend cap. */
 	dailyCapUsd: number;
 	/** Monthly USD spend cap. */
@@ -189,6 +210,7 @@ export const SPEND_TIER_DEFAULTS: readonly SpendTierDefaults[] = [
 		spendUsd: 0,
 		minAgeDays: 0,
 		rpmMultiplier: 1,
+		inflightLimit: 100,
 		// High enough that a typical first top-up ($10-$50) is usable on day
 		// one; the min-age floors still stop day-0 burn from buying tiers.
 		dailyCapUsd: 25,
@@ -201,6 +223,7 @@ export const SPEND_TIER_DEFAULTS: readonly SpendTierDefaults[] = [
 		spendUsd: 10,
 		minAgeDays: 1,
 		rpmMultiplier: 2,
+		inflightLimit: 200,
 		dailyCapUsd: 100,
 		monthlyCapUsd: 1_000,
 		topUpDailyCapUsd: 500,
@@ -211,6 +234,7 @@ export const SPEND_TIER_DEFAULTS: readonly SpendTierDefaults[] = [
 		spendUsd: 100,
 		minAgeDays: 3,
 		rpmMultiplier: 4,
+		inflightLimit: 400,
 		dailyCapUsd: 500,
 		monthlyCapUsd: 5_000,
 		topUpDailyCapUsd: 2_500,
@@ -221,6 +245,7 @@ export const SPEND_TIER_DEFAULTS: readonly SpendTierDefaults[] = [
 		spendUsd: 1_000,
 		minAgeDays: 7,
 		rpmMultiplier: 10,
+		inflightLimit: 1_000,
 		dailyCapUsd: 5_000,
 		monthlyCapUsd: 50_000,
 		topUpDailyCapUsd: 10_000,
@@ -231,6 +256,7 @@ export const SPEND_TIER_DEFAULTS: readonly SpendTierDefaults[] = [
 		spendUsd: 5_000,
 		minAgeDays: 14,
 		rpmMultiplier: 20,
+		inflightLimit: 2_000,
 		dailyCapUsd: 15_000,
 		monthlyCapUsd: 200_000,
 		topUpDailyCapUsd: 20_000,
@@ -240,6 +266,7 @@ export const SPEND_TIER_DEFAULTS: readonly SpendTierDefaults[] = [
 export interface ResolvedSpendTier {
 	tier: number;
 	rpmMultiplier: number;
+	inflightLimit: number;
 	dailyCapUsd: number;
 	monthlyCapUsd: number;
 	topUpDailyCapUsd: number;
@@ -282,6 +309,10 @@ function resolveTier(d: SpendTierDefaults): ResolvedSpendTier {
 		rpmMultiplier: getRateLimitEnvNumber(
 			`GATEWAY_SPEND_TIER_${d.tier}_RPM_MULTIPLIER`,
 			d.rpmMultiplier,
+		),
+		inflightLimit: getRateLimitEnvNumber(
+			`GATEWAY_SPEND_TIER_${d.tier}_INFLIGHT_LIMIT`,
+			d.inflightLimit,
 		),
 		dailyCapUsd: getRateLimitEnvNumber(
 			`GATEWAY_SPEND_TIER_${d.tier}_DAILY_CAP_USD`,
@@ -473,7 +504,7 @@ export function getBaseLimit(
 ): number {
 	const fallback =
 		planClass === "dev"
-			? config.defaultRpm * DEVPASS_RATE_LIMIT_MULTIPLIER
+			? config.devDefaultRpm
 			: planClass === "chat"
 				? config.chatDefaultRpm
 				: config.defaultRpm;
@@ -527,7 +558,79 @@ export function topUpVelocityKey(organizationId: string): string {
 
 /** Limit families tracked in `org_limit_hit_daily` for the admin dashboard. */
 export type OrgLimitType =
-	"rpm" | "spend_cap_daily" | "spend_cap_monthly" | "topup_velocity";
+	| "rpm"
+	| "spend_cap_daily"
+	| "spend_cap_monthly"
+	| "topup_velocity"
+	| "concurrency";
+
+/**
+ * `PATH_RATE_LIMITS` keys whose requests are inference work: they can hold a
+ * connection open for the duration of a model call (minutes for streaming),
+ * so they are the only paths counted against in-flight concurrency budgets
+ * (the per-org limit and the pod-wide backpressure cap). Cheap metadata reads
+ * (models, key, credits) and the realtime secret mint are excluded — realtime
+ * WebSocket sessions bypass Hono middleware entirely and are bounded by their
+ * own session caps.
+ */
+export const INFLIGHT_LIMITED_KEYS: ReadonlySet<string> = new Set([
+	"chat_completions",
+	"messages",
+	"responses",
+	"embeddings",
+	"moderations",
+	"rerank",
+	"ocr",
+	"images",
+	"audio_speech",
+	"audio_transcriptions",
+	"videos",
+	"ai_sdk",
+]);
+
+/** Redis sorted set holding an org's in-flight inference request slots. */
+export function orgInflightKey(organizationId: string): string {
+	return `rate_limit:org_inflight:${organizationId}`;
+}
+
+/**
+ * How long an in-flight slot may live before it is considered leaked and
+ * reaped (a pod that crashed mid-stream never releases its slots). Must stay
+ * above the longest legitimate request — streams get a 20-minute grace
+ * (`SHUTDOWN_GRACE_PERIOD_MS`/`AI_STREAMING_TIMEOUT_MS`) — so a legit
+ * long-runner at worst frees its slot early, which only errs permissive.
+ */
+export function getOrgInflightStaleSeconds(): number {
+	return getRateLimitEnvNumber("GATEWAY_ORG_INFLIGHT_STALE_SECONDS", 1800);
+}
+
+/**
+ * Base fleet-wide cap on an organization's concurrent in-flight inference
+ * requests, by plan class. Unlike the per-path RPM limits, enterprise orgs
+ * are not exempt — they get an elevated ceiling instead, since unbounded
+ * concurrency from a single tenant can still exhaust shared gateway capacity.
+ * For regular (PAYG) orgs this is tier 0's `inflightLimit`; higher trust
+ * tiers raise it, resolved lazily by the gateway only once an org reaches
+ * this base (mirroring the RPM multiplier). Dev/chat plans stay flat. A
+ * value of 0 disables the check for that class (matching `getBaseLimit`
+ * semantics).
+ */
+export function getOrgInflightLimit(
+	planClass: PlanClass,
+	isEnterprise: boolean,
+): number {
+	if (isEnterprise) {
+		return getRateLimitEnvNumber("GATEWAY_ORG_INFLIGHT_LIMIT_ENTERPRISE", 2000);
+	}
+	switch (planClass) {
+		case "dev":
+			return getRateLimitEnvNumber("GATEWAY_ORG_INFLIGHT_LIMIT_DEV", 50);
+		case "chat":
+			return getRateLimitEnvNumber("GATEWAY_ORG_INFLIGHT_LIMIT_CHATPLAN", 10);
+		default:
+			return resolveTier(SPEND_TIER_DEFAULTS[0]).inflightLimit;
+	}
+}
 
 /**
  * Redis hash buffering one UTC day of per-org limit-hit counters until the

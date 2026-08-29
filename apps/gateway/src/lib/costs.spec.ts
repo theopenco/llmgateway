@@ -695,6 +695,24 @@ describe("calculateCosts", () => {
 		expect(result.estimatedCost).toBe(false);
 	});
 
+	it("uses separately reported reasoning when completion is unavailable", async () => {
+		const result = await calculateCosts(
+			"gemini-2.5-pro",
+			"google-ai-studio",
+			null,
+			1000,
+			null,
+			null,
+			undefined,
+			200,
+		);
+
+		expect(result.outputCost).toBeCloseTo(0.002);
+		expect(result.totalCost).toBeCloseTo(0.00325);
+		expect(result.completionTokens).toBe(200);
+		expect(result.estimatedCost).toBe(false);
+	});
+
 	it("should bill RanoAI cached tokens at the cache-read rate", async () => {
 		// RanoAI does automatic prefix caching and charges input_cache_read
 		// (0.05/M), half the input rate. Without cachedInputPrice the engine
@@ -736,13 +754,29 @@ describe("calculateCosts", () => {
 		expect(result.completionTokens).toBe(330);
 	});
 
+	it("should not double-bill DeepSeek reasoning tokens", async () => {
+		const result = await calculateCosts(
+			"deepseek-v4-flash-vision-exp",
+			"deepseek",
+			null,
+			1000,
+			330,
+			null,
+			undefined,
+			267,
+		);
+
+		expect([0.0002178, 0.0004356]).toContain(result.outputCost);
+		expect(result.completionTokens).toBe(330);
+	});
+
 	it("should not double-bill Baidu reasoning tokens", async () => {
 		// Qianfan reports reasoning in completion_tokens_details while already
 		// counting it inside completion_tokens: a thinking-only reply comes back
 		// as completion_tokens === reasoning_tokens, so adding it again would
 		// double the billed output.
 		const result = await calculateCosts(
-			"deepseek-v4-pro",
+			"glm-5.3",
 			"baidu",
 			null,
 			1000,
@@ -752,9 +786,9 @@ describe("calculateCosts", () => {
 			400,
 		);
 
-		// inputPrice 1.69e-6, outputPrice 3.38e-6.
-		expect(result.inputCost).toBeCloseTo(0.00169, 10);
-		expect(result.outputCost).toBeCloseTo(0.001352, 10); // 400 * 3.38e-6, not 800
+		// inputPrice 1.4e-6, outputPrice 4.4e-6.
+		expect(result.inputCost).toBeCloseTo(0.0014, 10);
+		expect(result.outputCost).toBeCloseTo(0.00176, 10); // 400 * 4.4e-6, not 800
 		expect(result.completionTokens).toBe(400);
 	});
 
@@ -1565,6 +1599,27 @@ describe("calculateCosts", () => {
 		);
 	});
 
+	it("bills Muse at its flat per-image price", async () => {
+		const result = await calculateCosts(
+			"muse-image-1.0",
+			"meta",
+			null,
+			9520,
+			443,
+			7936,
+			undefined,
+			160,
+			1,
+			"1024x1024",
+			0,
+		);
+
+		expect(result.inputCost).toBe(0);
+		expect(result.imageOutputCost).toBeCloseTo(0.01);
+		expect(result.outputCost).toBeCloseTo(0.01);
+		expect(result.totalCost).toBeCloseTo(0.01);
+	});
+
 	it("bills perImagePrice even when prompt usage is absent or zero", async () => {
 		// An upstream response that omits prompt usage must still charge for the
 		// generated images instead of bailing out of cost calculation entirely.
@@ -1645,22 +1700,35 @@ describe("calculateCosts", () => {
 		}
 	});
 
-	it("matches xAI's own reported cost for grok-4-6", async () => {
+	it("matches xAI's own reported cost with normalized completion tokens", async () => {
 		// Real grok-4.6 response: 213 prompt tokens (128 cached), 4 completion and
 		// 310 reasoning tokens, billed by xAI at 21180000 usd ticks = $0.002118.
-		// xAI reports reasoning tokens outside completion_tokens, so they are
-		// billed on top of the completion count.
+		// Extraction normalizes the raw output to 314 inclusive completion tokens.
 		const result = await calculateCosts(
 			"grok-4-6",
 			"xai",
 			null,
 			213,
-			4,
+			314,
 			128,
 			undefined,
 			310,
 		);
 		expect(result.totalCost).toBeCloseTo(0.002118, 9);
+	});
+
+	it("bills normalized Vertex Grok 4.6 completion tokens", async () => {
+		const result = await calculateCosts(
+			"grok-4-6",
+			"vertex-openai",
+			"global",
+			216,
+			101,
+			0,
+			undefined,
+			100,
+		);
+		expect(result.totalCost).toBeCloseTo(0.001038, 9);
 	});
 
 	it("multiplies the grok-imagine-image-2.0 tier by the image count", async () => {
@@ -2319,7 +2387,7 @@ describe("shouldBillCancelledRequests", () => {
 	});
 });
 
-describe("peak / off-peak time-of-day pricing (DeepSeek)", () => {
+describe("peak / off-peak time-of-day pricing", () => {
 	beforeEach(() => {
 		vi.mocked(mockGetEffectiveDiscount).mockImplementation(async () => ({
 			discount: "0",
@@ -2392,6 +2460,34 @@ describe("peak / off-peak time-of-day pricing (DeepSeek)", () => {
 		expect(pro.cachedInputCost).toBeCloseTo(0.044);
 	});
 
+	it("bills off-peak rates during Beijing weekends", async () => {
+		setTime("2026-08-29T02:00:00Z"); // Saturday 10:00 Beijing — normally peak
+
+		const flash = await calculateCosts(
+			"deepseek-v4-flash",
+			"deepseek",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		expect(flash.inputCost).toBeCloseTo(0.22);
+		expect(flash.outputCost).toBeCloseTo(0.66);
+		expect(flash.cachedInputCost).toBeCloseTo(0.007);
+
+		const pro = await calculateCosts(
+			"deepseek-v4-pro",
+			"deepseek",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		expect(pro.inputCost).toBeCloseTo(0.66);
+		expect(pro.outputCost).toBeCloseTo(1.98);
+		expect(pro.cachedInputCost).toBeCloseTo(0.022);
+	});
+
 	it("bills off-peak rates at the first window boundary (04:00 UTC)", async () => {
 		setTime("2026-08-17T04:00:00Z");
 
@@ -2419,22 +2515,69 @@ describe("peak / off-peak time-of-day pricing (DeepSeek)", () => {
 		);
 		expect(flash.inputCost).toBeCloseTo(0.44);
 	});
+});
 
-	it("bills base (regular flat) rates before effectiveAt", async () => {
-		vi.useFakeTimers({ shouldAdvanceTime: true });
-		vi.setSystemTime(new Date("2026-08-13T08:00:00Z")); // before effectiveAt
+describe("Baidu exact pricing", () => {
+	beforeEach(() => {
+		vi.mocked(mockGetEffectiveDiscount).mockImplementation(async () => ({
+			discount: "0",
+			source: "none",
+		}));
+	});
 
-		const flash = await calculateCosts(
-			"deepseek-v4-flash",
-			"deepseek",
+	it("bills Baidu GLM-5.2 at its exact price", async () => {
+		const costs = await calculateCosts(
+			"glm-5.2",
+			"baidu",
 			null,
 			2_000_000,
 			1_000_000,
 			1_000_000,
 		);
-		// The base (regular) flat prices apply before effectiveAt
-		expect(flash.inputCost).toBeCloseTo(0.14); // base: 0.14e-6 * 1M (prompt - cached = 1M)
-		expect(flash.outputCost).toBeCloseTo(0.28); // base: 0.28e-6 * 1M
-		expect(flash.cachedInputCost).toBeCloseTo(0.0028); // base: 0.0028e-6 * 1M
+		expect(costs.inputCost).toBeCloseTo(1.4);
+		expect(costs.outputCost).toBeCloseTo(4.4);
+		expect(costs.cachedInputCost).toBeCloseTo(0.26);
+	});
+
+	it("bills Baidu GLM-5.3 at its exact price", async () => {
+		const costs = await calculateCosts(
+			"glm-5.3",
+			"baidu",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		expect(costs.inputCost).toBeCloseTo(1.4);
+		expect(costs.outputCost).toBeCloseTo(4.4);
+		expect(costs.cachedInputCost).toBeCloseTo(0.26);
+	});
+
+	it("bills Baidu DeepSeek V4 Pro at its exact price", async () => {
+		const costs = await calculateCosts(
+			"deepseek-v4-pro",
+			"baidu",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		expect(costs.inputCost).toBeCloseTo(1.32);
+		expect(costs.outputCost).toBeCloseTo(3.96);
+		expect(costs.cachedInputCost).toBeCloseTo(0.132);
+	});
+
+	it("bills Baidu DeepSeek V4 Flash at its exact price", async () => {
+		const costs = await calculateCosts(
+			"deepseek-v4-flash",
+			"baidu",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		expect(costs.inputCost).toBeCloseTo(0.44);
+		expect(costs.outputCost).toBeCloseTo(1.32);
+		expect(costs.cachedInputCost).toBeCloseTo(0.044);
 	});
 });

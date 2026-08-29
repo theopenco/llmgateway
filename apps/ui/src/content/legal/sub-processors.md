@@ -47,7 +47,7 @@ Because the provider catalogue changes continuously as models are added, depreca
 **You choose which of these sub-processors process your data.** No AI provider receives your request unless you select a model it serves, or enable automatic routing. Two controls let you constrain this:
 
 - **Provider pinning** — address a model as `provider/model` to send it to exactly one provider, and send the `x-no-fallback: true` header to prevent failover to any other.
-- **Compliance policies** — Enterprise customers can restrict routing by the provider's published compliance and data-handling posture. Requests that cannot be served by a compliant provider are rejected rather than silently routed elsewhere. Configure this under **Compliance** in your organization dashboard.
+- **Compliance policies** — Enterprise customers can restrict routing by the provider's published compliance and data-handling posture. DevPass customers can enable **No AI training**, which requires an explicit provider policy that API inputs are not used for training. Requests that cannot be served by an eligible provider are rejected rather than silently routed elsewhere.
 
 ### Undisclosed ("stealth") providers
 

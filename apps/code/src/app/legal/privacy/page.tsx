@@ -16,7 +16,7 @@ export default function PrivacyPage() {
 			<p>
 				<strong>Effective Date:</strong> April 26, 2026
 				<br />
-				<strong>Last Updated:</strong> August 2, 2026
+				<strong>Last Updated:</strong> August 20, 2026
 			</p>
 			<LegalSummary variant="privacy" />
 			<p>
@@ -56,6 +56,12 @@ export default function PrivacyPage() {
 				<strong>email address</strong>, and authentication credentials. For paid
 				plans, we also collect billing details (company name, country, payment
 				method) processed securely through <strong>Stripe</strong>.
+			</p>
+			<p>
+				Your DevPass API key secret is shown only when it is created or rolled.
+				We retain a keyed one-way hash and masked preview; authentication hashes
+				the secret you present and compares the result. Previously issued keys
+				remain valid and move to hash-only storage when rolled.
 			</p>
 			<h3>b. Usage and Request Data</h3>
 			<p>
@@ -131,13 +137,13 @@ export default function PrivacyPage() {
 			<h2>3. Sharing With AI Providers</h2>
 			<p>
 				When you make a request, your prompt is forwarded to the AI provider you
-				selected (e.g., Anthropic, OpenAI, Google, Mistral, DeepSeek). Each
-				provider applies its own privacy and data-retention policy to that
-				traffic. We pass through provider-side opt-outs where supported (for
-				example, &ldquo;no training&rdquo; flags). You are responsible for
-				reviewing the privacy policies of any provider you use. The Base
-				Policy&rsquo;s sections on AI Providers and on stealth/undisclosed
-				providers also apply to DevPass.
+				selected. Each provider applies its own privacy and data-retention
+				policy to that traffic. You can enable <strong>No AI training</strong>{" "}
+				in DevPass Settings to restrict routing to providers that explicitly
+				state API inputs are not used to train models. Providers with an unknown
+				training policy are excluded while this setting is enabled, so some
+				models may be unavailable. The Base Policy&rsquo;s sections on AI
+				Providers and on stealth/undisclosed providers also apply to DevPass.
 			</p>
 			<hr />
 			<h2>4. Sub-processors</h2>

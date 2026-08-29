@@ -165,7 +165,7 @@ export function SsoClient() {
 	const queryClient = useQueryClient();
 	const { apiUrl } = useAppConfig();
 
-	const isEnterprise = selectedOrganization?.plan === "enterprise";
+	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 
 	const [providerType, setProviderType] = useState<
 		"" | "okta" | "entra" | "generic" | "google"
@@ -194,6 +194,8 @@ export function SsoClient() {
 	const [role, setRole] = useState<"owner" | "admin" | "developer">(
 		"developer",
 	);
+	const [teamMappingGroup, setTeamMappingGroup] = useState("");
+	const [teamMappingTeamId, setTeamMappingTeamId] = useState("");
 	// Local edit buffer for the default-projects checklist. `null` = untouched, so
 	// the displayed selection derives from the server value (or the fallback
 	// project). Reset to `null` after a successful save to re-sync with the server.
@@ -246,6 +248,13 @@ export function SsoClient() {
 		{ enabled: !!organizationId && isEnterprise },
 	);
 
+	const teamMappingsQuery = api.useQuery(
+		"get",
+		"/sso/team-mappings",
+		{ params: { query: { organizationId } } },
+		{ enabled: !!organizationId && isEnterprise },
+	);
+
 	const defaultProjectsQuery = api.useQuery(
 		"get",
 		"/sso/default-projects",
@@ -266,6 +275,11 @@ export function SsoClient() {
 	const revokeScim = api.useMutation("delete", "/sso/scim");
 	const createMapping = api.useMutation("post", "/sso/role-mappings");
 	const deleteMapping = api.useMutation("delete", "/sso/role-mappings/{id}");
+	const saveTeamMapping = api.useMutation("post", "/sso/team-mappings");
+	const deleteTeamMapping = api.useMutation(
+		"delete",
+		"/sso/team-mappings/{id}",
+	);
 	const saveDefaultProjects = api.useMutation("put", "/sso/default-projects");
 	const updateOrganization = api.useMutation("patch", "/orgs/{id}", {
 		onSuccess: () => {
@@ -296,6 +310,14 @@ export function SsoClient() {
 	function invalidateMappings() {
 		void queryClient.invalidateQueries({
 			queryKey: api.queryOptions("get", "/sso/role-mappings", {
+				params: { query: { organizationId } },
+			}).queryKey,
+		});
+	}
+
+	function invalidateTeamMappings() {
+		void queryClient.invalidateQueries({
+			queryKey: api.queryOptions("get", "/sso/team-mappings", {
 				params: { query: { organizationId } },
 			}).queryKey,
 		});
@@ -412,6 +434,43 @@ export function SsoClient() {
 			invalidateMappings();
 		} catch {
 			toast({ title: "Failed to delete mapping", variant: "destructive" });
+		}
+	}
+
+	async function handleSaveTeamMapping(e: React.FormEvent) {
+		e.preventDefault();
+		try {
+			await saveTeamMapping.mutateAsync({
+				body: {
+					organizationId,
+					groupName: teamMappingGroup.trim(),
+					teamId: teamMappingTeamId,
+				},
+			});
+			toast({ title: "Team mapping saved" });
+			setTeamMappingGroup("");
+			setTeamMappingTeamId("");
+			invalidateTeamMappings();
+		} catch (error) {
+			toast({
+				title: getApiErrorMessage(error, "Failed to save team mapping"),
+				variant: "destructive",
+			});
+		}
+	}
+
+	async function handleDeleteTeamMapping(id: string) {
+		try {
+			await deleteTeamMapping.mutateAsync({
+				params: { path: { id }, query: { organizationId } },
+			});
+			toast({ title: "Team mapping deleted" });
+			invalidateTeamMappings();
+		} catch (error) {
+			toast({
+				title: getApiErrorMessage(error, "Failed to delete team mapping"),
+				variant: "destructive",
+			});
 		}
 	}
 
@@ -558,6 +617,8 @@ export function SsoClient() {
 	const providers = providersQuery.data?.providers ?? [];
 	const scim = scimQuery.data;
 	const mappings = mappingsQuery.data?.mappings ?? [];
+	const teamMappings = teamMappingsQuery.data?.mappings ?? [];
+	const organizationTeams = teamMappingsQuery.data?.teams ?? [];
 
 	// Google Workspace auto-join is stored on the organization, not as a SAML
 	// connection. It rides on the "Sign in with Google" button, so a SAML
@@ -572,8 +633,8 @@ export function SsoClient() {
 	);
 	const googleDomainBlocked =
 		!!googleDomain && enforcedSamlDomains.has(googleDomain.toLowerCase());
-	// Google Workspace can't SCIM-provision custom apps, and group role mapping
-	// rides on SCIM-pushed groups — with a Google-only setup both are inert, so
+	// Google Workspace can't SCIM-provision custom apps, and group mappings ride
+	// on SCIM-pushed groups — with a Google-only setup they are inert, so
 	// their cards render disabled with an explanation instead of dead controls.
 	const googleOnly = !!googleDomain && providers.length === 0;
 	// One connection per organization for now — SAML or Google Workspace.
@@ -1107,6 +1168,94 @@ export function SsoClient() {
 								Add mapping
 							</Button>
 						</form>
+					</CardContent>
+				)}
+			</Card>
+
+			<Card className={googleOnly ? "opacity-60" : undefined}>
+				<CardHeader>
+					<CardTitle>Group team mapping</CardTitle>
+					<CardDescription>
+						{googleOnly
+							? "Not available for the Google Workspace connection — team mappings rely on groups pushed via SCIM. Assign auto-joined members to teams on the Members page."
+							: "Map an IdP group (pushed via SCIM) to an organization team. Developers inherit that team's project, IAM, API-key, and budget policy. Directory sync assigns and removes synced teams automatically; manual team assignments are kept. If several mappings apply, the first group name alphabetically wins. Owners and admins never belong to teams."}
+					</CardDescription>
+				</CardHeader>
+				{!googleOnly && (
+					<CardContent className="space-y-6">
+						{teamMappings.length > 0 && (
+							<div className="divide-y rounded-lg border">
+								{teamMappings.map((mapping) => (
+									<div
+										key={mapping.id}
+										className="flex items-center justify-between gap-4 p-3"
+									>
+										<div className="flex flex-wrap items-center gap-2 text-sm">
+											<span className="font-medium">{mapping.groupName}</span>
+											<span className="text-muted-foreground">→</span>
+											<Badge variant="secondary">{mapping.teamName}</Badge>
+										</div>
+										<Button
+											variant="outline"
+											size="icon"
+											onClick={() => handleDeleteTeamMapping(mapping.id)}
+											disabled={deleteTeamMapping.isPending}
+										>
+											<Trash2 className="h-4 w-4" />
+											<span className="sr-only">Delete team mapping</span>
+										</Button>
+									</div>
+								))}
+							</div>
+						)}
+
+						{organizationTeams.length === 0 ? (
+							<p className="text-sm text-muted-foreground">
+								Create an organization team before mapping an IdP group.
+							</p>
+						) : (
+							<form
+								onSubmit={handleSaveTeamMapping}
+								className="flex flex-col gap-4 border-t pt-6 sm:flex-row sm:items-end"
+							>
+								<div className="flex-1 space-y-2">
+									<Label htmlFor="team-mapping-group">IdP group name</Label>
+									<Input
+										id="team-mapping-group"
+										placeholder="Data Science"
+										value={teamMappingGroup}
+										onChange={(event) =>
+											setTeamMappingGroup(event.target.value)
+										}
+										required
+									/>
+								</div>
+								<div className="flex-1 space-y-2">
+									<Label htmlFor="team-mapping-team">Team</Label>
+									<Select
+										value={teamMappingTeamId}
+										onValueChange={setTeamMappingTeamId}
+									>
+										<SelectTrigger id="team-mapping-team">
+											<SelectValue placeholder="Select a team" />
+										</SelectTrigger>
+										<SelectContent>
+											{organizationTeams.map((team) => (
+												<SelectItem key={team.id} value={team.id}>
+													{team.name}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+								</div>
+								<Button
+									type="submit"
+									disabled={saveTeamMapping.isPending || !teamMappingTeamId}
+								>
+									{saveTeamMapping.isPending ? "Saving..." : "Save mapping"}
+								</Button>
+							</form>
+						)}
 					</CardContent>
 				)}
 			</Card>

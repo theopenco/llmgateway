@@ -3,6 +3,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { apiAuth as auth } from "@/auth/config.js";
 
 import { activity } from "./activity.js";
+import { adminLicense } from "./admin-license.js";
 import { adminLimitHits } from "./admin-limit-hits.js";
 import { adminOrgDetails } from "./admin-org-details.js";
 import adminProviderCredentials from "./admin-provider-credentials.js";
@@ -27,6 +28,7 @@ import { lounge } from "./lounge.js";
 import masterKeys from "./master-keys.js";
 import { modelRatings } from "./model-ratings.js";
 import { modelSurvey } from "./model-survey.js";
+import { organizationTeams } from "./organization-teams.js";
 import organization from "./organization.js";
 import { payments } from "./payments.js";
 import playground from "./playground.js";
@@ -63,6 +65,7 @@ routes.route("/logs", logs);
 
 routes.route("/activity", activity);
 
+routes.route("/admin", adminLicense);
 routes.route("/admin", admin);
 routes.route("/admin", adminProviderCredentials);
 routes.route("/admin", adminOrgDetails);
@@ -79,6 +82,7 @@ routes.route("/playground", playground);
 
 routes.route("/orgs", organization);
 routes.route("/team", team);
+routes.route("/team", organizationTeams);
 routes.route("/payments", payments);
 routes.route("/chat", chat);
 routes.route("/chats", chats);

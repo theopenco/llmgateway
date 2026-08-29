@@ -1,14 +1,21 @@
 "use client";
 
-import { format, formatDistanceToNowStrict } from "date-fns";
+import { formatDistanceToNowStrict } from "date-fns";
 import { Activity, Coins, Cpu, Gem, TrendingUp } from "lucide-react";
+import dynamic from "next/dynamic";
 import { usePostHog } from "posthog-js/react";
 import { useEffect } from "react";
 
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
-import { AgentModelUsageChart } from "./AgentModelUsageChart";
+import {
+	formatBucketLabel,
+	formatDateTime,
+	formatDayKey,
+	useDisplayTimeZone,
+} from "@llmgateway/shared";
+
 import AllowanceExhaustedCard from "./AllowanceExhaustedCard";
 import PayAsYouGoCard from "./PayAsYouGoCard";
 import ResetPassCard from "./ResetPassCard";
@@ -16,6 +23,14 @@ import { UsageBar } from "./UsageBar";
 
 import type { paths } from "@/lib/api/v1";
 import type { DevPlanCycle } from "@llmgateway/shared";
+
+// The model usage chart pulls in recharts and renders below the fold, so
+// keep it out of the usage page's initial bundle.
+const AgentModelUsageChart = dynamic(
+	() =>
+		import("./AgentModelUsageChart").then((mod) => mod.AgentModelUsageChart),
+	{ ssr: false, loading: () => <div className="h-[280px]" /> },
+);
 
 type ActivityResponse =
 	paths["/activity"]["get"]["responses"][200]["content"]["application/json"];
@@ -95,6 +110,7 @@ function WeeklyAllowanceMeter({
 	// not read as an error.
 	overflowCovering: boolean;
 }) {
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 	const percentage = limit > 0 ? (used / limit) * 100 : 0;
 	const clamped = Math.min(100, percentage);
 	const isLow = percentage > 80;
@@ -111,7 +127,7 @@ function WeeklyAllowanceMeter({
 					</div>
 					<div className="mt-0.5 text-xs text-muted-foreground">
 						{resetsAt
-							? `Resets ${format(new Date(resetsAt), "MMM d")}`
+							? `Resets ${formatDateTime(resetsAt, displayTimeZone, "monthDay")}`
 							: "Window starts with your first premium request"}
 					</div>
 				</div>
@@ -195,6 +211,7 @@ export default function UsageOverview({
 }: UsageOverviewProps) {
 	const api = useApi();
 	const posthog = usePostHog();
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 	const { posthogKey } = useAppConfig();
 
 	const tierKey = planName.toLowerCase();
@@ -235,8 +252,12 @@ export default function UsageOverview({
 		{
 			params: {
 				query: projectId
-					? { projectId, timeRange: "30d" as const }
-					: { timeRange: "30d" as const },
+					? {
+							projectId,
+							timeRange: "30d" as const,
+							timezone: displayTimeZone,
+						}
+					: { timeRange: "30d" as const, timezone: displayTimeZone },
 			},
 		},
 		{
@@ -250,17 +271,14 @@ export default function UsageOverview({
 
 	// Cycle-scoped subset for the metric cards so they line up with the usage bar.
 	// /activity covers a fixed 30d window; the cycle may be shorter (e.g. 12 days in).
-	// Activity `date` is a day-only string ("YYYY-MM-DD") parsed as UTC midnight, so
-	// truncate the cycle start to the start of its UTC day for an apples-to-apples
-	// comparison — otherwise the cycle's first day gets filtered out.
-	const cycleStartMs = billingCycleStart
-		? (() => {
-				const d = new Date(billingCycleStart);
-				return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
-			})()
-		: 0;
-	const cycleItems = cycleStartMs
-		? items.filter((d) => new Date(d.date).getTime() >= cycleStartMs)
+	// Activity `date` is a day key in the display zone, so reduce the cycle start
+	// to its day in the same zone and compare keys — otherwise the cycle's first
+	// day gets filtered out. YYYY-MM-DD sorts chronologically as a string.
+	const cycleStartDay = billingCycleStart
+		? formatDayKey(new Date(billingCycleStart), displayTimeZone)
+		: null;
+	const cycleItems = cycleStartDay
+		? items.filter((d) => d.date.slice(0, 10) >= cycleStartDay)
 		: items;
 
 	const totalRequests = cycleItems.reduce(
@@ -286,7 +304,7 @@ export default function UsageOverview({
 	const cycleLengthLabel = billingCycleStart ? "this cycle" : "30d";
 
 	const cycleLabel = billingCycleStart
-		? `Since ${format(new Date(billingCycleStart), "MMM d, yyyy")}`
+		? `Since ${formatDateTime(billingCycleStart, displayTimeZone, "monthDayYear")}`
 		: "Active";
 
 	// The renewal/period-end date must come from Stripe's actual
@@ -313,7 +331,7 @@ export default function UsageOverview({
 
 	const cycleEndsHint = cancelledAtPeriodEnd
 		? renewAt
-			? `Cancels ${format(renewAt, "MMM d, yyyy")}`
+			? `Cancels ${formatDateTime(renewAt, displayTimeZone, "monthDayYear")}`
 			: "Cancels at period end"
 		: renewAt
 			? `Renews in ${formatDistanceToNowStrict(renewAt)}`
@@ -449,7 +467,7 @@ export default function UsageOverview({
 					}
 					hint={
 						peakDay && (peakDay.cost ?? 0) > 0
-							? format(new Date(peakDay.date), "MMM d")
+							? formatBucketLabel(peakDay.date, "monthDay")
 							: undefined
 					}
 					icon={TrendingUp}

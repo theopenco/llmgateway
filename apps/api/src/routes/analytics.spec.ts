@@ -7,7 +7,9 @@ import {
 	deleteAll,
 } from "@/testing.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, eq, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 const OWNER_ID = "test-user-id";
 const MEMBER_ID = "member-2-id";
@@ -38,6 +40,7 @@ interface LogOverrides {
 	completionTokens: string;
 	totalTokens: string;
 	hasError?: boolean;
+	unifiedFinishReason?: "client_error" | "gateway_error" | "upstream_error";
 	cached?: boolean;
 }
 
@@ -61,11 +64,45 @@ function insertLog(o: LogOverrides) {
 		totalTokens: o.totalTokens,
 		cost: o.cost,
 		hasError: o.hasError ?? false,
+		unifiedFinishReason: o.unifiedFinishReason,
 		cached: o.cached ?? false,
 		messages: JSON.stringify([{ role: "user", content: "Test" }]),
 		mode: "api-keys",
 		usedMode: "api-keys",
 	});
+}
+
+async function insertPlaygroundUsage() {
+	await db.insert(tables.apiKey).values({
+		id: "playground-key",
+		...hashApiKeyForStorage("playground-token"),
+		projectId: PROJECT_ID,
+		description: "Playground",
+		kind: "playground",
+		createdBy: OWNER_ID,
+	});
+
+	await insertLog({
+		id: "playground-log-1",
+		apiKeyId: "playground-key",
+		usedModel: "gpt-4",
+		usedProvider: "openai",
+		cost: 0.2,
+		promptTokens: "10",
+		completionTokens: "20",
+		totalTokens: "30",
+	});
+	await insertLog({
+		id: "playground-log-2",
+		apiKeyId: "playground-key",
+		usedModel: "gpt-4",
+		usedProvider: "openai",
+		cost: 0.3,
+		promptTokens: "15",
+		completionTokens: "25",
+		totalTokens: "40",
+	});
+	await aggregateLogsForTesting();
 }
 
 describe("analytics endpoints", () => {
@@ -112,7 +149,11 @@ describe("analytics endpoints", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "test-provider-key-id",
-			token: "test-provider-token",
+			...encryptProviderKeyForStorage(
+				"test-provider-token",
+				"test-provider-key-id",
+				ORG_ID,
+			),
 			provider: "openai",
 			organizationId: ORG_ID,
 		});
@@ -120,14 +161,14 @@ describe("analytics endpoints", () => {
 		await db.insert(tables.apiKey).values([
 			{
 				id: "key-owner",
-				token: "token-owner",
+				...hashApiKeyForStorage("token-owner"),
 				projectId: PROJECT_ID,
 				description: "Owner Key",
 				createdBy: OWNER_ID,
 			},
 			{
 				id: "key-member",
-				token: "token-member",
+				...hashApiKeyForStorage("token-member"),
 				projectId: PROJECT_ID,
 				description: "Member Key",
 				createdBy: MEMBER_ID,
@@ -145,6 +186,7 @@ describe("analytics endpoints", () => {
 			completionTokens: "20",
 			totalTokens: "30",
 			hasError: true,
+			unifiedFinishReason: "upstream_error",
 		});
 		await insertLog({
 			id: "log-owner-2",
@@ -310,6 +352,36 @@ describe("analytics endpoints", () => {
 		});
 	});
 
+	test("counts the stable playground key once", async () => {
+		await insertPlaygroundUsage();
+
+		const membersRes = await app.request(
+			`/analytics/members?organizationId=${ORG_ID}`,
+			{ headers: { Cookie: token } },
+		);
+		expect(membersRes.status).toBe(200);
+		const membersData = await membersRes.json();
+		expect(
+			membersData.members.find(
+				(member: { userId: string }) => member.userId === OWNER_ID,
+			).apiKeyCount,
+		).toBe(2);
+
+		const memberRes = await app.request(
+			`/analytics/members/${OWNER_ID}?organizationId=${ORG_ID}`,
+			{ headers: { Cookie: token } },
+		);
+		expect(memberRes.status).toBe(200);
+		expect((await memberRes.json()).summary.apiKeyCount).toBe(2);
+
+		const selfRes = await app.request(
+			`/analytics/me?organizationId=${ORG_ID}&projectId=${PROJECT_ID}`,
+			{ headers: { Cookie: token } },
+		);
+		expect(selfRes.status).toBe(200);
+		expect((await selfRes.json()).summary.apiKeyCount).toBe(2);
+	});
+
 	describe("GET /analytics/members/{userId}", () => {
 		test("returns detailed usage for a member", async () => {
 			const res = await app.request(
@@ -325,6 +397,7 @@ describe("analytics endpoints", () => {
 			expect(data.summary.cost).toBeCloseTo(0.3, 5);
 			expect(data.summary.requestCount).toBe(2);
 			expect(data.summary.errorCount).toBe(1);
+			expect(data.summary.clientErrorCount).toBe(0);
 			expect(data.summary.cacheCount).toBe(1);
 			expect(data.summary.totalTokens).toBe(70);
 			expect(data.summary.apiKeyCount).toBe(1);
@@ -340,6 +413,32 @@ describe("analytics endpoints", () => {
 			expect(active[0].date).toBe(localDay(logTime, "UTC"));
 			expect(active[0].modelBreakdown[0].id).toBe("gpt-4");
 			expect(active[0].modelBreakdown[0].provider).toBe("openai");
+		});
+
+		test("keeps client errors out of the stability error total", async () => {
+			await insertLog({
+				id: "log-owner-client-error",
+				apiKeyId: "key-owner",
+				usedModel: "gpt-4",
+				usedProvider: "openai",
+				cost: 0,
+				promptTokens: "0",
+				completionTokens: "0",
+				totalTokens: "0",
+				hasError: true,
+				unifiedFinishReason: "client_error",
+			});
+			await aggregateLogsForTesting();
+
+			const res = await app.request(
+				`/analytics/members/${OWNER_ID}?organizationId=${ORG_ID}`,
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(200);
+			const data = await res.json();
+			expect(data.summary.requestCount).toBe(3);
+			expect(data.summary.errorCount).toBe(1);
+			expect(data.summary.clientErrorCount).toBe(1);
 		});
 
 		test("pads a window that has no usage with empty days", async () => {
@@ -485,6 +584,28 @@ describe("analytics endpoints", () => {
 			expect((byKey.get("key-member") as { label: string }).label).toBe(
 				"Member Key",
 			);
+		});
+
+		test("reports playground usage under its stable apiKey id", async () => {
+			await insertPlaygroundUsage();
+
+			const res = await app.request(
+				`/analytics/activity?organizationId=${ORG_ID}&groupBy=apiKey`,
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(200);
+			const data = await res.json();
+			const playgroundEntries = activeRows(data.activity).flatMap((row) =>
+				row.breakdown.filter((entry) => entry.key === "playground-key"),
+			);
+
+			expect(playgroundEntries).toHaveLength(1);
+			expect(playgroundEntries[0]).toMatchObject({
+				key: "playground-key",
+				label: "Playground",
+				requestCount: 2,
+			});
+			expect(playgroundEntries[0].cost).toBeCloseTo(0.5, 5);
 		});
 
 		test("returns a zeroed padded series when the org has no projects", async () => {

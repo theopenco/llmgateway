@@ -7,6 +7,7 @@ import {
 	DYNAMIC_ROUTE_NAME_MESSAGE,
 	DYNAMIC_ROUTE_NAME_REGEX,
 	dynamicRouteGraphSchema,
+	parseCustomDynamicRouteModelRef,
 } from "@llmgateway/shared/dynamic-route";
 
 import { checkProjectEnterpriseAccess } from "./routing-config.js";
@@ -91,6 +92,51 @@ async function routeDetail(routeId: string) {
 	};
 }
 
+async function assertCustomModelsAvailable(
+	organizationId: string,
+	graph: DynamicRouteGraph,
+) {
+	const references = graph.nodes.flatMap((node) => {
+		if (node.type !== "model") {
+			return [];
+		}
+		const reference = parseCustomDynamicRouteModelRef(node.model);
+		return reference ? [reference] : [];
+	});
+	if (references.length === 0) {
+		return;
+	}
+
+	const customProviders = await db.query.providerKey.findMany({
+		where: {
+			organizationId: { eq: organizationId },
+			provider: { eq: "custom" },
+			status: { eq: "active" },
+		},
+		with: {
+			customModels: { where: { status: { eq: "active" } } },
+		},
+	});
+	const available = new Set(
+		customProviders.flatMap((provider) =>
+			provider.name
+				? provider.customModels.map(
+						(model) => `${provider.name}/${model.modelName}`,
+					)
+				: [],
+		),
+	);
+	const missing = references.find(
+		(reference) =>
+			!available.has(`${reference.providerName}/${reference.modelName}`),
+	);
+	if (missing) {
+		throw new HTTPException(400, {
+			message: `Custom model "${missing.providerName}/${missing.modelName}" is not available in this organization`,
+		});
+	}
+}
+
 const listRoutes = createRoute({
 	method: "get",
 	path: "/{projectId}",
@@ -172,8 +218,11 @@ dynamicRoutes.openapi(createRouteEndpoint, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 	const { projectId } = c.req.param();
-	await checkProjectEnterpriseAccess(user.id, projectId);
+	const { project } = await checkProjectEnterpriseAccess(user.id, projectId);
 	const body = c.req.valid("json");
+	if (body.graph) {
+		await assertCustomModelsAvailable(project.organizationId, body.graph);
+	}
 
 	// The insert itself is the authoritative duplicate check: concurrent
 	// creates race past any pre-read, so let the unique (projectId, name)
@@ -336,9 +385,10 @@ dynamicRoutes.openapi(updateDraft, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 	const { projectId, name } = c.req.param();
-	await checkProjectEnterpriseAccess(user.id, projectId);
+	const { project } = await checkProjectEnterpriseAccess(user.id, projectId);
 	const route = await findRouteOrThrow(projectId, name);
 	const body = c.req.valid("json");
+	await assertCustomModelsAvailable(project.organizationId, body.graph);
 
 	await cdb
 		.update(tables.dynamicRoute)
@@ -368,7 +418,7 @@ dynamicRoutes.openapi(publishRoute, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 	const { projectId, name } = c.req.param();
-	await checkProjectEnterpriseAccess(user.id, projectId);
+	const { project } = await checkProjectEnterpriseAccess(user.id, projectId);
 	const route = await findRouteOrThrow(projectId, name);
 
 	if (!route.draftGraph) {
@@ -384,6 +434,7 @@ dynamicRoutes.openapi(publishRoute, async (c) => {
 			message: `Draft graph is no longer valid: ${parsed.error.issues[0]?.message}`,
 		});
 	}
+	await assertCustomModelsAvailable(project.organizationId, parsed.data);
 
 	// Version insert and pointer re-point must land together (no orphan
 	// version rows), and the next version number is derived inside the
@@ -443,7 +494,7 @@ dynamicRoutes.openapi(rollbackRoute, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 	const { projectId, name } = c.req.param();
-	await checkProjectEnterpriseAccess(user.id, projectId);
+	const { project } = await checkProjectEnterpriseAccess(user.id, projectId);
 	const route = await findRouteOrThrow(projectId, name);
 	const body = c.req.valid("json");
 
@@ -465,6 +516,7 @@ dynamicRoutes.openapi(rollbackRoute, async (c) => {
 			message: `Version ${version.version} is no longer valid: ${parsed.error.issues[0]?.message}`,
 		});
 	}
+	await assertCustomModelsAvailable(project.organizationId, parsed.data);
 
 	await cdb
 		.update(tables.dynamicRoute)

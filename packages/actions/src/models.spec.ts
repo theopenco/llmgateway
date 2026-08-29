@@ -919,48 +919,6 @@ describe("getCheapestFromAvailableProviders", () => {
 		});
 	});
 
-	it("should use per-second pricing for video providers", async () => {
-		const videoModel = models.find(
-			(model) => model.id === "veo-3.1-generate-preview",
-		);
-
-		expect(videoModel).toBeDefined();
-
-		const availableProviders =
-			videoModel?.providers.filter(
-				(provider) =>
-					provider.providerId === "google-vertex" ||
-					provider.providerId === "avalanche",
-			) ?? [];
-
-		const cheapestProvider = await getCheapestFromAvailableProviders(
-			availableProviders,
-			videoModel!,
-			{
-				videoPricing: {
-					durationSeconds: 8,
-					includeAudio: true,
-					resolution: "default",
-				},
-			},
-		);
-
-		// google-vertex and avalanche have identical per-second pricing, so this
-		// is a price tie; the price-only path deterministically selects the
-		// first-listed provider (google-vertex).
-		expect(cheapestProvider?.provider.providerId).toBe("google-vertex");
-
-		const vertexScore = cheapestProvider?.metadata.providerScores.find(
-			(provider) => provider.providerId === "google-vertex",
-		);
-		const avalancheScore = cheapestProvider?.metadata.providerScores.find(
-			(provider) => provider.providerId === "avalanche",
-		);
-
-		expect(vertexScore?.price).toBeCloseTo(3.2);
-		expect(avalancheScore?.price).toBeCloseTo(3.2);
-	});
-
 	it("should apply effective discounts before comparing provider prices", async () => {
 		const discountRoutingModel = {
 			id: "discount-routing-test",
@@ -1064,197 +1022,6 @@ describe("getCheapestFromAvailableProviders", () => {
 				(score) => score.providerId === "anthropic",
 			)?.price,
 		).toBe(1);
-	});
-
-	it("should disable random exploration for vitest processes", async () => {
-		const videoModel = models.find(
-			(model) => model.id === "veo-3.1-generate-preview",
-		);
-
-		expect(videoModel).toBeDefined();
-
-		const avalancheProvider = videoModel?.providers.find(
-			(provider) => provider.providerId === "avalanche",
-		);
-		const vertexProvider = videoModel?.providers.find(
-			(provider) => provider.providerId === "google-vertex",
-		);
-
-		expect(avalancheProvider).toBeDefined();
-		expect(vertexProvider).toBeDefined();
-		if (!videoModel || !avalancheProvider || !vertexProvider) {
-			throw new Error("Missing Veo provider test fixtures");
-		}
-
-		// An exploration rate of 1 always trips the epsilon-greedy branch, so the
-		// test does not depend on the value the secure RNG happens to produce.
-		const originalExplorationRate = process.env.EXPLORATION_RATE;
-		const originalArgv = process.argv;
-		const originalNodeEnv = process.env.NODE_ENV;
-		const originalVitest = process.env.VITEST;
-		process.env.EXPLORATION_RATE = "1";
-		delete process.env.NODE_ENV;
-		delete process.env.VITEST;
-		process.argv = ["node", "/tmp/vitest.mjs"];
-
-		try {
-			const result = await getCheapestFromAvailableProviders(
-				[avalancheProvider, vertexProvider],
-				videoModel,
-				{
-					metricsMap: new Map([
-						[
-							metricsKey("veo-3.1-generate-preview", "avalanche", undefined),
-							{
-								modelId: "veo-3.1-generate-preview",
-								providerId: "avalanche",
-								uptime: 70,
-								averageLatency: 300,
-								throughput: 50,
-								totalRequests: 100,
-							},
-						],
-						[
-							metricsKey(
-								"veo-3.1-generate-preview",
-								"google-vertex",
-								undefined,
-							),
-							{
-								modelId: "veo-3.1-generate-preview",
-								providerId: "google-vertex",
-								uptime: 99.5,
-								averageLatency: 100,
-								throughput: 150,
-								totalRequests: 100,
-							},
-						],
-					]),
-					videoPricing: {
-						durationSeconds: 8,
-						includeAudio: true,
-						resolution: "default",
-					},
-				},
-			);
-
-			expect(result?.provider.providerId).toBe("google-vertex");
-			expect(result?.metadata.selectionReason).toBe("weighted-score");
-		} finally {
-			if (originalExplorationRate !== undefined) {
-				process.env.EXPLORATION_RATE = originalExplorationRate;
-			} else {
-				delete process.env.EXPLORATION_RATE;
-			}
-			process.argv = originalArgv;
-			if (originalNodeEnv !== undefined) {
-				process.env.NODE_ENV = originalNodeEnv;
-			} else {
-				delete process.env.NODE_ENV;
-			}
-			if (originalVitest !== undefined) {
-				process.env.VITEST = originalVitest;
-			} else {
-				delete process.env.VITEST;
-			}
-		}
-	});
-
-	it("should include provider scores during random exploration", async () => {
-		const videoModel = models.find(
-			(model) => model.id === "veo-3.1-generate-preview",
-		);
-
-		expect(videoModel).toBeDefined();
-
-		const avalancheProvider = videoModel?.providers.find(
-			(provider) => provider.providerId === "avalanche",
-		);
-		const vertexProvider = videoModel?.providers.find(
-			(provider) => provider.providerId === "google-vertex",
-		);
-
-		expect(avalancheProvider).toBeDefined();
-		expect(vertexProvider).toBeDefined();
-		if (!videoModel || !avalancheProvider || !vertexProvider) {
-			throw new Error("Missing Veo provider test fixtures");
-		}
-
-		// An exploration rate of 1 always trips the epsilon-greedy branch, so the
-		// test does not depend on the value the secure RNG happens to produce.
-		const originalExplorationRate = process.env.EXPLORATION_RATE;
-		const originalArgv = process.argv;
-		const originalNodeEnv = process.env.NODE_ENV;
-		const originalVitest = process.env.VITEST;
-		process.env.EXPLORATION_RATE = "1";
-		delete process.env.NODE_ENV;
-		delete process.env.VITEST;
-		process.argv = ["node", "/tmp/not-a-test-run.mjs"];
-
-		try {
-			const result = await getCheapestFromAvailableProviders(
-				[avalancheProvider, vertexProvider],
-				videoModel,
-				{
-					metricsMap: new Map([
-						[
-							metricsKey("veo-3.1-generate-preview", "avalanche", undefined),
-							{
-								modelId: "veo-3.1-generate-preview",
-								providerId: "avalanche",
-								uptime: 99,
-								averageLatency: 300,
-								throughput: 50,
-								totalRequests: 100,
-							},
-						],
-						[
-							metricsKey(
-								"veo-3.1-generate-preview",
-								"google-vertex",
-								undefined,
-							),
-							{
-								modelId: "veo-3.1-generate-preview",
-								providerId: "google-vertex",
-								uptime: 99.5,
-								averageLatency: 100,
-								throughput: 150,
-								totalRequests: 100,
-							},
-						],
-					]),
-					videoPricing: {
-						durationSeconds: 8,
-						includeAudio: true,
-						resolution: "default",
-					},
-				},
-			);
-
-			expect(result?.metadata.selectionReason).toBe("random-exploration");
-			expect(result?.metadata.providerScores).toHaveLength(2);
-			expect(result?.metadata.providerScores.map((p) => p.providerId)).toEqual(
-				expect.arrayContaining(["avalanche", "google-vertex"]),
-			);
-		} finally {
-			if (originalExplorationRate !== undefined) {
-				process.env.EXPLORATION_RATE = originalExplorationRate;
-			} else {
-				delete process.env.EXPLORATION_RATE;
-			}
-			process.argv = originalArgv;
-			if (originalNodeEnv !== undefined) {
-				process.env.NODE_ENV = originalNodeEnv;
-			} else {
-				delete process.env.NODE_ENV;
-			}
-			if (originalVitest !== undefined) {
-				process.env.VITEST = originalVitest;
-			} else {
-				delete process.env.VITEST;
-			}
-		}
 	});
 
 	it("should return null for empty provider list", async () => {
@@ -1375,14 +1142,12 @@ describe("getCheapestFromAvailableProviders", () => {
 
 	describe("time-of-day pricing in provider selection", () => {
 		// Mirrors the DeepSeek V4 Pro first-party mapping: peak 01:00-04:00 and
-		// 06:00-10:00 UTC at double the off-peak rates, base (regular) flat
-		// rates before effectiveAt.
+		// 06:00-10:00 UTC at double the off-peak rates.
 		const deepseekLikeMapping = {
 			inputPrice: "0.435e-6",
 			outputPrice: "0.87e-6",
 			cachedInputPrice: "0.003625e-6",
 			peakPricing: {
-				effectiveAt: "2026-08-16T16:00:00Z",
 				peak: {
 					inputPrice: "1.32e-6",
 					outputPrice: "3.96e-6",
@@ -1397,6 +1162,11 @@ describe("getCheapestFromAvailableProviders", () => {
 					[1, 4],
 					[6, 10],
 				] as [number, number][],
+				offPeakDays: {
+					daysOfWeek: [0, 6] as const,
+					utcOffsetMinutes: 480,
+					timeZoneLabel: "Beijing time",
+				},
 			},
 		};
 
@@ -1420,14 +1190,14 @@ describe("getCheapestFromAvailableProviders", () => {
 			).toBe((0.66e-6 + 1.98e-6) / 2);
 		});
 
-		it("returns the base average before effectiveAt", () => {
+		it("returns the off-peak average during Beijing weekends", () => {
 			expect(
 				getProviderSelectionPrice(
 					deepseekLikeMapping,
 					undefined,
-					new Date("2026-08-15T12:00:00Z"),
+					new Date("2026-08-29T02:00:00Z"),
 				).toNumber(),
-			).toBe((0.435e-6 + 0.87e-6) / 2);
+			).toBe((0.66e-6 + 1.98e-6) / 2);
 		});
 
 		it("returns the plain average for a mapping without peakPricing", () => {
@@ -1440,9 +1210,9 @@ describe("getCheapestFromAvailableProviders", () => {
 		});
 
 		it("ranks with peak rates through full provider selection", async () => {
-			// The deepseek mapping's peak window covers every hour and
-			// effectiveAt is in the past, so the selection price is the peak
-			// rate regardless of wall clock. At the raw base rates deepseek's
+			// The deepseek mapping's peak window covers every hour, so the
+			// selection price is the peak rate regardless of wall clock. At the
+			// raw base rates, DeepSeek's
 			// average (0.375e-6) beats openai's (0.75e-6); with peak rates
 			// applied deepseek's average rises to 1.125e-6 and openai wins —
 			// so selecting openai proves time-of-day pricing was applied.
@@ -1464,7 +1234,6 @@ describe("getCheapestFromAvailableProviders", () => {
 						inputPrice: "0.25e-6",
 						outputPrice: "0.5e-6",
 						peakPricing: {
-							effectiveAt: "2020-01-01T00:00:00Z",
 							peak: {
 								inputPrice: "0.75e-6",
 								outputPrice: "1.5e-6",
@@ -1496,6 +1265,271 @@ describe("getCheapestFromAvailableProviders", () => {
 				(s) => s.providerId === "deepseek",
 			);
 			expect(deepseekScore?.price).toBe((0.75e-6 + 1.5e-6) / 2);
+		});
+	});
+
+	describe("cache-aware pricing for cache-relevant requests", () => {
+		it("blends cachedInputPrice and scales output by the assumed ratio", () => {
+			expect(
+				getProviderSelectionPrice(
+					{
+						inputPrice: "1.0e-6",
+						outputPrice: "2.0e-6",
+						cachedInputPrice: "0.1e-6",
+					},
+					undefined,
+					undefined,
+					{ hitRate: 0.5, outputRatio: 0.2 },
+				).toNumber(),
+				// ((0.1*0.5 + 1.0*0.5) + 2.0*0.2) / 2
+			).toBe(0.475e-6);
+		});
+
+		it("falls back to inputPrice when no cachedInputPrice is declared", () => {
+			expect(
+				getProviderSelectionPrice(
+					{ inputPrice: "1.0e-6", outputPrice: "2.0e-6" },
+					undefined,
+					undefined,
+					{ hitRate: 0.5, outputRatio: 0.2 },
+				).toNumber(),
+				// (1.0 + 2.0*0.2) / 2
+			).toBe(0.7e-6);
+		});
+
+		it("keeps today's ranking price without a cache-pricing context", () => {
+			expect(
+				getProviderSelectionPrice({
+					inputPrice: "1.0e-6",
+					outputPrice: "2.0e-6",
+					cachedInputPrice: "0.1e-6",
+				}).toNumber(),
+			).toBe(1.5e-6);
+		});
+
+		it("uses the time-resolved cached price under peak pricing", () => {
+			expect(
+				getProviderSelectionPrice(
+					{
+						inputPrice: "0.435e-6",
+						outputPrice: "0.87e-6",
+						cachedInputPrice: "0.003625e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "1.0e-6",
+								outputPrice: "2.0e-6",
+								cachedInputPrice: "0.1e-6",
+							},
+							offPeak: {
+								inputPrice: "0.5e-6",
+								outputPrice: "1.0e-6",
+								cachedInputPrice: "0.05e-6",
+							},
+							hoursUtc: [[0, 24]] as [number, number][],
+						},
+					},
+					undefined,
+					new Date("2026-08-17T12:00:00Z"),
+					{ hitRate: 1, outputRatio: 0 },
+				).toNumber(),
+				// Fully cached, no output: peak cachedInputPrice / 2
+			).toBe(0.05e-6);
+		});
+
+		// Mirrors the live kimi-k2.5 mappings: embercloud is cheapest on list
+		// prices but charges 55.6% of input for a cache read where deepinfra
+		// charges 15.6%, so a cache-heavy workload is cheaper on deepinfra.
+		const kimiLikeModel = {
+			id: "kimi-like-model",
+			name: "Kimi Like Model",
+			family: "moonshot" as const,
+			providers: [
+				{
+					providerId: "embercloud" as const,
+					externalId: "kimi-like",
+					inputPrice: "0.405e-6",
+					outputPrice: "1.98e-6",
+					cachedInputPrice: "0.225e-6",
+					streaming: true as const,
+				},
+				{
+					providerId: "deepinfra" as const,
+					externalId: "kimi-like",
+					inputPrice: "0.45e-6",
+					outputPrice: "2.25e-6",
+					cachedInputPrice: "0.07e-6",
+					streaming: true as const,
+				},
+			],
+		};
+
+		const equalPriority = resolveRoutingConfig(
+			{ providerPriorities: { embercloud: 1, deepinfra: 1 } },
+			buildProviderPriorityDefaults(),
+		);
+
+		it("routes small prompts to the cheapest list price", async () => {
+			const result = await getCheapestFromAvailableProviders(
+				kimiLikeModel.providers,
+				kimiLikeModel,
+				{ promptTokens: 1000, routingConfig: equalPriority },
+			);
+			expect(result?.provider.providerId).toBe("embercloud");
+		});
+
+		it("routes large prompts to the cheapest cached-workload price", async () => {
+			const result = await getCheapestFromAvailableProviders(
+				kimiLikeModel.providers,
+				kimiLikeModel,
+				{ promptTokens: 20_000, routingConfig: equalPriority },
+			);
+			expect(result?.provider.providerId).toBe("deepinfra");
+		});
+
+		it("ranks large prompts on list prices when cacheHitRate is 0", async () => {
+			const listPriceOnly = resolveRoutingConfig(
+				{
+					thresholds: { cacheHitRate: 0, cacheOutputRatio: 1 },
+					providerPriorities: { embercloud: 1, deepinfra: 1 },
+				},
+				buildProviderPriorityDefaults(),
+			);
+			const result = await getCheapestFromAvailableProviders(
+				kimiLikeModel.providers,
+				kimiLikeModel,
+				{ promptTokens: 20_000, routingConfig: listPriceOnly },
+			);
+			expect(result?.provider.providerId).toBe("embercloud");
+		});
+	});
+
+	describe("pricing tiers in provider selection", () => {
+		// Mirrors xAI's grok-4 mapping: base rates up to 128K tokens, doubled
+		// long-context rates above, with their own cached price.
+		const tieredMapping = {
+			inputPrice: "3.0e-6",
+			outputPrice: "15.0e-6",
+			cachedInputPrice: "0.75e-6",
+			pricingTiers: [
+				{
+					name: "Up to 128K",
+					upToTokens: 128000,
+					inputPrice: "3.0e-6",
+					outputPrice: "15.0e-6",
+					cachedInputPrice: "0.75e-6",
+				},
+				{
+					name: "Over 128K",
+					upToTokens: Infinity,
+					inputPrice: "6.0e-6",
+					outputPrice: "30.0e-6",
+					cachedInputPrice: "0",
+				},
+			],
+		};
+
+		it("uses base-tier rates at or below the boundary", () => {
+			expect(
+				getProviderSelectionPrice(
+					tieredMapping,
+					undefined,
+					undefined,
+					undefined,
+					10_000,
+				).toNumber(),
+			).toBe((3.0e-6 + 15.0e-6) / 2);
+		});
+
+		it("uses the long-context tier above the boundary", () => {
+			expect(
+				getProviderSelectionPrice(
+					tieredMapping,
+					undefined,
+					undefined,
+					undefined,
+					200_000,
+				).toNumber(),
+			).toBe((6.0e-6 + 30.0e-6) / 2);
+		});
+
+		it("keeps base rates when promptTokens is unknown", () => {
+			expect(getProviderSelectionPrice(tieredMapping).toNumber()).toBe(
+				(3.0e-6 + 15.0e-6) / 2,
+			);
+		});
+
+		it("blends the active tier's cached price", () => {
+			expect(
+				getProviderSelectionPrice(
+					tieredMapping,
+					undefined,
+					undefined,
+					{ hitRate: 0.5, outputRatio: 0 },
+					200_000,
+				).toNumber(),
+				// Tier cached price is 0: (0*0.5 + 6.0*0.5) / 2
+			).toBe(1.5e-6);
+		});
+
+		it("re-ranks long-context requests through full provider selection", async () => {
+			const tieredModel = {
+				id: "tiered-model",
+				name: "Tiered Model",
+				family: "xai" as const,
+				providers: [
+					{
+						providerId: "xai" as const,
+						externalId: "tiered",
+						inputPrice: "3.0e-6",
+						outputPrice: "15.0e-6",
+						pricingTiers: [
+							{
+								name: "Up to 128K",
+								upToTokens: 128000,
+								inputPrice: "3.0e-6",
+								outputPrice: "15.0e-6",
+							},
+							{
+								name: "Over 128K",
+								upToTokens: Infinity,
+								inputPrice: "8.0e-6",
+								outputPrice: "40.0e-6",
+							},
+						],
+						streaming: true as const,
+					},
+					{
+						providerId: "openai" as const,
+						externalId: "tiered",
+						inputPrice: "5.0e-6",
+						outputPrice: "25.0e-6",
+						streaming: true as const,
+					},
+				],
+			};
+
+			// Zero out cache-aware pricing so only tier resolution differs.
+			const tiersOnly = resolveRoutingConfig(
+				{
+					thresholds: { cacheHitRate: 0, cacheOutputRatio: 1 },
+					providerPriorities: { xai: 1, openai: 1 },
+				},
+				buildProviderPriorityDefaults(),
+			);
+
+			const short = await getCheapestFromAvailableProviders(
+				tieredModel.providers,
+				tieredModel,
+				{ promptTokens: 10_000, routingConfig: tiersOnly },
+			);
+			expect(short?.provider.providerId).toBe("xai");
+
+			const long = await getCheapestFromAvailableProviders(
+				tieredModel.providers,
+				tieredModel,
+				{ promptTokens: 200_000, routingConfig: tiersOnly },
+			);
+			expect(long?.provider.providerId).toBe("openai");
 		});
 	});
 

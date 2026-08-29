@@ -65,6 +65,22 @@ vi.mock("@llmgateway/logger", () => ({
 }));
 
 describe("responsesRequestSchema", () => {
+	it("accepts only Responses API message roles", () => {
+		for (const role of ["developer", "system", "user", "assistant"]) {
+			const result = responsesRequestSchema.safeParse({
+				model: "gpt-5",
+				input: [{ role, content: "hi" }],
+			});
+			expect(result.success).toBe(true);
+		}
+
+		const invalid = responsesRequestSchema.safeParse({
+			model: "gpt-5",
+			input: [{ role: "invalid", content: "hi" }],
+		});
+		expect(invalid.success).toBe(false);
+	});
+
 	it("accepts reasoning items with function call outputs", () => {
 		const result = responsesRequestSchema.safeParse({
 			model: "gpt-5.3-codex",
@@ -238,6 +254,24 @@ describe("responsesRequestSchema", () => {
 
 		expect(result.success).toBe(true);
 	});
+
+	it("accepts Muse image tools and completed image output", () => {
+		const result = responsesRequestSchema.safeParse({
+			model: "meta/muse-image-1.0",
+			input: [
+				{
+					type: "image_generation_call",
+					id: "ig_123",
+					status: "completed",
+					result: "UklGRmFrZQ==",
+				},
+				{ role: "user", content: "Make the background blue" },
+			],
+			tools: [{ type: "image_generation", size: "1024x1536" }],
+		});
+
+		expect(result.success).toBe(true);
+	});
 });
 
 describe("convertResponsesInputToMessages", () => {
@@ -269,6 +303,33 @@ describe("convertResponsesInputToMessages", () => {
 		expect(result[0]!.content).toBe("Hello");
 		expect(result[1]!.role).toBe("assistant");
 		expect(result[1]!.content).toBe("Hi there");
+	});
+
+	it("replays a generated image as a reference on the next user turn", () => {
+		const input = [
+			{
+				type: "image_generation_call",
+				id: "ig_123",
+				status: "completed",
+				result: "UklGRmFrZQ==",
+			},
+			{ role: "user", content: "Make the background blue" },
+		] as Parameters<typeof convertResponsesInputToMessages>[0];
+
+		expect(convertResponsesInputToMessages(input)).toEqual([
+			{
+				role: "user",
+				content: [
+					{
+						type: "image_url",
+						image_url: {
+							url: "data:image/webp;base64,UklGRmFrZQ==",
+						},
+					},
+					{ type: "text", text: "Make the background blue" },
+				],
+			},
+		]);
 	});
 
 	it("keeps an explicit prompt cache breakpoint on a replayed output_text part", () => {
@@ -621,6 +682,42 @@ describe("convertChatResponseToResponses", () => {
 		expect(messageOutput).toBeDefined();
 		expect((messageOutput as any).content[0].type).toBe("output_text");
 		expect((messageOutput as any).content[0].text).toBe("Hello!");
+	});
+
+	it("converts generated images to Responses output items", () => {
+		const result = convertChatResponseToResponses(
+			{
+				choices: [
+					{
+						message: {
+							role: "assistant",
+							content: "Image generated",
+							images: [
+								{
+									type: "image_url",
+									image_url: {
+										url: "data:image/webp;base64,UklGRmFrZQ==",
+									},
+								},
+							],
+						},
+						finish_reason: "stop",
+					},
+				],
+				usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+			},
+			"meta/muse-image-1.0",
+		);
+
+		expect(result.output).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					type: "image_generation_call",
+					status: "completed",
+					result: "UklGRmFrZQ==",
+				}),
+			]),
+		);
 	});
 
 	it("echoes the served service tier from the chat response", () => {
@@ -1287,6 +1384,21 @@ describe("streaming conversion", () => {
 		expect(data.type).toBe("response.created");
 		expect(data.response.id).toMatch(/^resp_/);
 		expect(data.response.status).toBe("in_progress");
+	});
+
+	it("uses the canonical model from streaming chat chunks", () => {
+		const state = createStreamingState("deepseek-v4-flash");
+		processStreamChunk(
+			{
+				model: "deepinfra/deepseek-v4-flash",
+				choices: [{ delta: { content: "Hello" } }],
+			},
+			state,
+		);
+
+		const completed = createCompletionEvents(state);
+		const data = JSON.parse(completed[completed.length - 1]!.data);
+		expect(data.response.model).toBe("deepinfra/deepseek-v4-flash");
 	});
 
 	it("processes content delta", () => {

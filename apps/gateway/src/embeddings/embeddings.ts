@@ -24,6 +24,7 @@ import {
 } from "@/lib/api-key-health.js";
 import {
 	assertApiKeyWithinUsageLimits,
+	assertMemberProjectAccess,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
 import {
@@ -39,10 +40,12 @@ import {
 	applyEndUserSession,
 	assertTestWalletModelAllowed,
 } from "@/lib/end-user-session.js";
+import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import {
@@ -63,7 +66,6 @@ import {
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
-	getOrganizationEnvVariant,
 	models as modelDefinitions,
 	resolveVertexTokenType,
 	type VertexTokenType,
@@ -524,6 +526,12 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 	const { mapping, modelDef, modelDefId, explicitProvider } = match;
 	const upstreamModel = mapping.externalId;
 	const providerId = mapping.providerId;
+	const responseModel = formatUsedModelForDisplay(
+		providerId,
+		modelDefId,
+		undefined,
+		mapping.region,
+	);
 
 	const isTokenIdInput = (() => {
 		if (!Array.isArray(input)) {
@@ -599,6 +607,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 	// User-level limits take priority: enforce the per-member budget (set on the
 	// Teams page; fails open on read errors) before the per-key usage limits, so a
 	// member who is over budget is denied even if the key itself is within limits.
+	await assertMemberProjectAccess(apiKey, baseProject.organizationId);
 	await assertMemberWithinBudget(apiKey.createdBy, baseProject.organizationId);
 	assertApiKeyWithinUsageLimits(apiKey);
 
@@ -698,7 +707,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 
 	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
 	// this org's env-credential reads. Undefined = base vars only.
-	const envVariant = getOrganizationEnvVariant(retryOrganization);
+	const envVariant = getLicensedOrganizationEnvVariant(retryOrganization);
 
 	const isGoogleAiStudio = providerId === "google-ai-studio";
 	const isGoogleVertex = providerId === "google-vertex";
@@ -1511,7 +1520,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				normalizedResponse = {
 					object: "list",
 					data,
-					model: requestedModel,
+					model: responseModel,
 					usage: {
 						prompt_tokens: promptTokens,
 						total_tokens: totalTokens,
@@ -1568,7 +1577,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				normalizedResponse = {
 					object: "list",
 					data,
-					model: requestedModel,
+					model: responseModel,
 					usage: {
 						prompt_tokens: promptTokens,
 						total_tokens: totalTokens,
@@ -1596,6 +1605,8 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 					});
 				}
 			}
+
+			normalizedResponse.model = responseModel;
 
 			const inputPrice = Number(mapping.inputPrice ?? "0");
 			const inputCost = promptTokens !== null ? promptTokens * inputPrice : 0;

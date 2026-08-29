@@ -1,6 +1,5 @@
 "use client";
 
-import { format, subDays } from "date-fns";
 import { Coins, Mail, Zap, Hash } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
@@ -19,6 +18,7 @@ import {
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useTeamMembers } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
+import { useZonedRangeDefaults } from "@/hooks/useZonedRangeDefaults";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
@@ -35,7 +35,6 @@ import {
 	SelectValue,
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
-import { getBrowserTimeZone } from "@/lib/timezone";
 import { applyUsageMode } from "@/lib/usage-mode";
 
 import type { DimensionRow } from "@/components/analytics/chart-helpers";
@@ -144,10 +143,17 @@ export function OrgAnalyticsClient() {
 	const searchParams = useSearchParams();
 	const { buildOrgUrl, selectedOrganization } = useDashboardNavigation();
 	const api = useApi();
+	const {
+		from: defaultFrom,
+		to: defaultTo,
+		timeZone: displayTimeZone,
+		markGenerated,
+		shouldApplyDefaults,
+	} = useZonedRangeDefaults();
 	const { user } = useUser();
 	const { data: teamData } = useTeamMembers(organizationId);
 
-	const isEnterprise = selectedOrganization?.plan === "enterprise";
+	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 	const currentUserRole = teamData?.members.find(
 		(member) => member.userId === user?.id,
 	)?.role;
@@ -167,17 +173,27 @@ export function OrgAnalyticsClient() {
 		if (!isEnterprise) {
 			return;
 		}
-		if (!searchParams.get("from") || !searchParams.get("to")) {
-			const next = new URLSearchParams(searchParams.toString());
-			next.delete("days");
-			const today = new Date();
-			next.set("from", format(subDays(today, 6), "yyyy-MM-dd"));
-			next.set("to", format(today, "yyyy-MM-dd"));
-			router.replace(
-				`${buildOrgUrl("org/analytics")}?${next.toString()}` as Route,
-			);
+		if (!shouldApplyDefaults(searchParams)) {
+			return;
 		}
-	}, [searchParams, router, buildOrgUrl, isEnterprise]);
+		const next = new URLSearchParams(searchParams.toString());
+		next.delete("days");
+		next.set("from", defaultFrom);
+		next.set("to", defaultTo);
+		markGenerated(next);
+		router.replace(
+			`${buildOrgUrl("org/analytics")}?${next.toString()}` as Route,
+		);
+	}, [
+		searchParams,
+		router,
+		buildOrgUrl,
+		isEnterprise,
+		defaultFrom,
+		defaultTo,
+		markGenerated,
+		shouldApplyDefaults,
+	]);
 
 	const updateGroupBy = (next: GroupBy) => {
 		const nextParams = new URLSearchParams(searchParams.toString());
@@ -195,6 +211,7 @@ export function OrgAnalyticsClient() {
 		isEnterprise,
 		searchParams.get("from"),
 		searchParams.get("to"),
+		displayTimeZone,
 	);
 
 	const { data, isLoading } = api.useQuery(
@@ -207,7 +224,7 @@ export function OrgAnalyticsClient() {
 					from: fromStr,
 					to: toStr,
 					groupBy,
-					timezone: getBrowserTimeZone(),
+					timezone: displayTimeZone,
 				},
 			},
 		},

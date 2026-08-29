@@ -1,6 +1,8 @@
 import { beforeAll, describe, expect, test } from "vitest";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, eq, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
@@ -29,26 +31,32 @@ describe("dynamic routes request path", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: `token-dyn-${suffix}`,
-			token: `real-token-dyn-${suffix}`,
+			...hashApiKeyForStorage(`real-token-dyn-${suffix}`),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
 		});
 
-		await db.insert(tables.providerKey).values(
-			providers.map((provider) => ({
-				id: `pk-dyn-${provider}-${suffix}`,
-				token: `sk-${provider}-test-key`,
-				provider,
-				organizationId: "org-id",
-				baseUrl: mockServerUrl,
-				// Azure requests must stay on the mock server's /openai/v1/*
-				// aliases regardless of local LLM_AZURE_DEPLOYMENT_TYPE values.
-				...(provider === "azure"
-					? { options: { azure_deployment_type: "ai-foundry" as const } }
-					: {}),
-			})),
-		);
+		if (providers.length > 0) {
+			await db.insert(tables.providerKey).values(
+				providers.map((provider) => ({
+					id: `pk-dyn-${provider}-${suffix}`,
+					...encryptProviderKeyForStorage(
+						`sk-${provider}-test-key`,
+						`pk-dyn-${provider}-${suffix}`,
+						"org-id",
+					),
+					provider,
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+					// Azure requests must stay on the mock server's /openai/v1/*
+					// aliases regardless of local LLM_AZURE_DEPLOYMENT_TYPE values.
+					...(provider === "azure"
+						? { options: { azure_deployment_type: "ai-foundry" as const } }
+						: {}),
+				})),
+			);
+		}
 
 		return `real-token-dyn-${suffix}`;
 	}
@@ -276,6 +284,56 @@ describe("dynamic routes request path", () => {
 		});
 		expect(pinned.status).toBe(200);
 		expect((await pinned.json()).metadata.used_provider).toBe("openai");
+	});
+
+	test("routes to a custom-provider catalog model", async () => {
+		const token = await seedBase("custom", []);
+		await db.insert(tables.providerKey).values({
+			id: "pk-dyn-custom",
+			...encryptProviderKeyForStorage(
+				"sk-custom-test-key",
+				"pk-dyn-custom",
+				"org-id",
+			),
+			provider: "custom",
+			name: "private-provider",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+		await db.insert(tables.customModel).values({
+			id: "cm-dyn-custom",
+			providerKeyId: "pk-dyn-custom",
+			organizationId: "org-id",
+			modelName: "private-model:revision",
+			inputPrice: "1e-6",
+			outputPrice: "2e-6",
+		});
+		const routeName = await seedRoute("custom", {
+			entry: "m",
+			nodes: [modelNode("m", "private-provider/private-model:revision")],
+		} as DynamicRouteGraph);
+
+		const response = await chatCompletion(token, {
+			model: `dynamic/${routeName}`,
+			messages: [{ role: "user", content: "hi custom dynamic route" }],
+		});
+		expect(response.status).toBe(200);
+		const body = await response.json();
+		expect(body.metadata).toMatchObject({
+			requested_model: `dynamic/${routeName}`,
+			used_model: "private-model:revision",
+			used_provider: "custom",
+		});
+
+		await waitForLogs(1);
+		const log = await db.query.log.findFirst({});
+		expect(
+			(
+				log?.routingMetadata as {
+					dynamicRoute?: { name: string; path: string[] };
+				} | null
+			)?.dynamicRoute,
+		).toMatchObject({ name: routeName, path: ["m"] });
 	});
 
 	test("percentage splits stay sticky per session", async () => {

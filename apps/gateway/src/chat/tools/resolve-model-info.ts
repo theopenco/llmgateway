@@ -46,8 +46,8 @@ export function resolveModelInfo(
 					// (vision, jsonOutput, ...). Leave them unset rather than
 					// guessing — capability validation is skipped for custom
 					// providers and the upstream provider enforces its own limits.
-					// `streaming` is required by the type but is never read for
-					// custom providers (streaming support comes from the catalog).
+					// Unknown custom models stay permissive; catalog-backed requests
+					// replace this with their configured streaming capability.
 					streaming: true,
 				},
 			],

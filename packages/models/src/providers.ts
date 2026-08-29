@@ -121,7 +121,8 @@ export interface ProviderAdditionalLink {
  * Organization-level compliance policy. When enabled, the gateway only routes
  * to providers whose {@link ProviderDataPolicy} explicitly satisfies every
  * active requirement (fail-closed: unknown/`null` attributes never satisfy a
- * requirement). Configurable on enterprise plans only.
+ * requirement). The full policy is configurable on enterprise plans; DevPass
+ * organizations may enable only {@link ProviderCompliancePolicy.blockApiTraining}.
  */
 export interface ProviderCompliancePolicy {
 	enabled: boolean;
@@ -180,6 +181,15 @@ export interface ProviderCompliancePolicy {
 	 * requested. Empty/omitted applies no allow-list restriction.
 	 */
 	allowedModels?: string[];
+}
+
+/** DevPass exposes only the no-API-training requirement. */
+export function narrowPolicyToDevPass(
+	policy: ProviderCompliancePolicy,
+): ProviderCompliancePolicy | undefined {
+	return policy.enabled && policy.blockApiTraining
+		? { enabled: true, blockApiTraining: true }
+		: undefined;
 }
 
 export interface ProviderDefinition {
@@ -657,32 +667,6 @@ export const providers: ProviderDefinition[] = [
 		statusPageUrl: null,
 		announcement: null,
 		priority: 0.9,
-		termsUrl: null,
-		privacyPolicyUrl: null,
-		legalEntity: null,
-		headquarters: null,
-		dataPolicy: null,
-	},
-	{
-		id: "avalanche",
-		name: "Avalanche",
-		forwardsSafetyIdentifier: false,
-		description: "Avalanche - video generation provider.",
-		env: {
-			required: {
-				apiKey: "LLM_AVALANCHE_API_KEY",
-				baseUrl: "LLM_AVALANCHE_BASE_URL",
-			},
-			optional: {
-				fileUploadBaseUrl: "LLM_AVALANCHE_FILE_UPLOAD_BASE_URL",
-			},
-		},
-		streaming: false,
-		cancellation: false,
-		color: "#0f766e",
-		website: null,
-		statusPageUrl: null,
-		announcement: null,
 		termsUrl: null,
 		privacyPolicyUrl: null,
 		legalEntity: null,
@@ -1209,6 +1193,42 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
+		id: "azure-anthropic",
+		name: "Azure Anthropic",
+		forwardsSafetyIdentifier: true,
+		description:
+			"Anthropic Claude models on Microsoft Foundry via the Anthropic Messages API",
+		env: {
+			required: {
+				apiKey: "LLM_AZURE_ANTHROPIC_API_KEY",
+				resource: "LLM_AZURE_ANTHROPIC_RESOURCE",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#0078D4",
+		website:
+			"https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/claude-models",
+		statusPageUrl: "https://status.ai.azure.com",
+		announcement: null,
+		apiKeyInstructions:
+			"The resource name can be found in your Microsoft Foundry base URL: https://<resource-name>.services.ai.azure.com",
+		learnMore: "https://docs.llmgateway.io/integrations/azure",
+		termsUrl: "https://www.microsoft.com/licensing/terms",
+		privacyPolicyUrl: "https://privacy.microsoft.com/privacystatement",
+		usagePolicyUrl: "https://www.microsoft.com/en-us/legal/terms-of-use",
+		legalEntity: "Microsoft Corporation",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: 2,
+			iso27001: true,
+			gdpr: true,
+		},
+	},
+	{
 		id: "zai",
 		name: "Z AI",
 		forwardsSafetyIdentifier: false,
@@ -1301,31 +1321,6 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: null,
 			retentionPeriod: null,
 		},
-	},
-	{
-		id: "permafrost",
-		name: "Permafrost",
-		forwardsSafetyIdentifier: false,
-		description:
-			"Permafrost is a stealth provider with an OpenAI-compatible API.",
-		env: {
-			required: {
-				apiKey: "LLM_PERMAFROST_API_KEY",
-				baseUrl: "LLM_PERMAFROST_BASE_URL",
-			},
-		},
-		streaming: true,
-		cancellation: true,
-		color: "#5f7e83",
-		website: null,
-		statusPageUrl: null,
-		announcement: null,
-		termsUrl: null,
-		privacyPolicyUrl: null,
-		legalEntity: null,
-		headquarters: null,
-		dataPolicy: null,
-		priority: 1.1,
 	},
 	{
 		id: "perplexity",
@@ -1713,7 +1708,7 @@ export const providers: ProviderDefinition[] = [
 		name: "Meta",
 		forwardsSafetyIdentifier: false,
 		description:
-			"Meta's Model API serving the Muse Spark multimodal reasoning models via an OpenAI-compatible API",
+			"Meta's Model API serving Muse reasoning and image models via an OpenAI-compatible API",
 		env: {
 			required: {
 				apiKey: "LLM_META_API_KEY",
@@ -1777,30 +1772,6 @@ export const providers: ProviderDefinition[] = [
 		legalEntity: "Sakana AI Co., Ltd.",
 		headquarters: "JP",
 		dataPolicy: null,
-	},
-	{
-		id: "tundra",
-		name: "Tundra",
-		forwardsSafetyIdentifier: false,
-		description: "Tundra is a stealth provider with an OpenAI-compatible API.",
-		env: {
-			required: {
-				apiKey: "LLM_TUNDRA_API_KEY",
-				baseUrl: "LLM_TUNDRA_BASE_URL",
-			},
-		},
-		streaming: true,
-		cancellation: true,
-		color: "#5b8db8",
-		website: null,
-		statusPageUrl: null,
-		announcement: null,
-		termsUrl: null,
-		privacyPolicyUrl: null,
-		legalEntity: null,
-		headquarters: null,
-		dataPolicy: null,
-		priority: 1.1,
 	},
 	{
 		id: "xiaomi",
@@ -1949,7 +1920,7 @@ export const providers: ProviderDefinition[] = [
 		color: "#a8f399",
 		website: "https://runware.ai",
 		statusPageUrl: "https://status.runware.ai/",
-		announcement: "Launch offer: 30% off all Runware models until August 26",
+		announcement: "Launch offer: 30% off all Runware models until September 9",
 		termsUrl: "https://runware.ai/terms",
 		privacyPolicyUrl: "https://runware.ai/privacy",
 		usagePolicyUrl: "https://runware.ai/terms",
@@ -2056,6 +2027,40 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
+	},
+	{
+		id: "consensusprotocol",
+		name: "Consensus Protocol",
+		forwardsSafetyIdentifier: false,
+		description:
+			"Consensus Protocol serves open-weight large language models on dedicated GPU hardware it operates, via an OpenAI-compatible inference API.",
+		env: {
+			required: {
+				apiKey: "LLM_CONSENSUSPROTOCOL_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#dc2626",
+		website: "https://consensusprotocol.org",
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: "https://consensusprotocol.org/terms",
+		privacyPolicyUrl: "https://consensusprotocol.org/privacy",
+		usagePolicyUrl: "https://consensusprotocol.org/terms",
+		legalEntity: "Consensus Protocol LLC",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+		},
+		additionalLinks: [
+			{
+				desc: "Inference data handling",
+				link: "https://consensusprotocol.org/data-policy",
+			},
+		],
 	},
 ] as const satisfies ProviderDefinition[];
 

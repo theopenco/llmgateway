@@ -101,7 +101,8 @@ describe("routing telemetry aggregator", () => {
 		await db.insert(apiKey).values({
 			id: "rt-key",
 			description: "RT key",
-			token: "rt-token",
+			tokenHash: "rt-token",
+			tokenMasked: "rt-token",
 			projectId: "rt-proj",
 			createdBy: testUser.id,
 		});
@@ -364,6 +365,13 @@ describe("routing telemetry aggregator", () => {
 			withMetadata({
 				selectionReason: "weighted-score",
 				availableProviders: ["openai"],
+				filteredProviders: [
+					{
+						providerId: "azure",
+						reasons: ["excluded by content-filter routing"],
+						codes: ["content_filter"],
+					},
+				],
 				contentFilterExcludedProviders: ["azure"],
 				providerScores: [
 					{ providerId: "aws-mantle", score: 0, price: 1, rate_limited: true },

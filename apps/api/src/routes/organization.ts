@@ -20,6 +20,7 @@ import {
 	isInvoiceableTransaction,
 	isRefundTransaction,
 } from "@/utils/invoice.js";
+import { providerCacheControlModeSchema } from "@/utils/provider-cache-control.js";
 import { isConfigurableDomain, normalizeDomain } from "@/utils/sso-domain.js";
 
 import {
@@ -58,6 +59,7 @@ import {
 	spendDailyKey,
 	spendMonthlyKey,
 } from "@llmgateway/shared";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -200,6 +202,7 @@ const organizationSchema = z.object({
 	// dashboard can gate org-level UI (e.g. hide org nav from project-scoped
 	// "developer" members). Omitted by single-org endpoints.
 	role: z.enum(["owner", "admin", "developer"]).optional(),
+	enterpriseAccess: z.boolean().optional(),
 });
 
 const projectSchema = z.object({
@@ -210,7 +213,7 @@ const projectSchema = z.object({
 	organizationId: z.string(),
 	cachingEnabled: z.boolean(),
 	cacheDurationSeconds: z.number(),
-	providerCacheControlEnabled: z.boolean(),
+	providerCacheControlMode: providerCacheControlModeSchema,
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
 	defaultRoutingStrategy: z.enum(["auto", "price", "throughput", "latency"]),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
@@ -300,6 +303,7 @@ const transactionSchema = z.object({
 		"credit_refund",
 		"credit_gift",
 		"credit_manual_payment",
+		"enterprise_license_fee",
 		"dev_plan_start",
 		"dev_plan_upgrade",
 		"dev_plan_downgrade",
@@ -385,7 +389,14 @@ organization.openapi(getOrganizations, async (c) => {
 	const { includePersonal, includeChat } = c.req.valid("query");
 
 	let organizations = userOrganizations
-		.map((uo) => ({ ...uo.organization!, role: uo.role }))
+		.map((uo) => ({
+			...uo.organization!,
+			role: uo.role,
+			enterpriseAccess: hasOrganizationEnterpriseAccess(
+				uo.organization?.id,
+				uo.organization?.plan,
+			),
+		}))
 		.filter((org) => org.status !== "deleted")
 		// Personal and chat orgs are hidden from the regular dashboard. The
 		// devpass/playground surfaces opt in via ?includePersonal=true /
@@ -403,7 +414,16 @@ organization.openapi(getOrganizations, async (c) => {
 			defaultOrganization.status !== "deleted" &&
 			defaultOrganization.kind !== "devpass"
 		) {
-			organizations = [{ ...defaultOrganization, role: "owner" as const }];
+			organizations = [
+				{
+					...defaultOrganization,
+					role: "owner" as const,
+					enterpriseAccess: hasOrganizationEnterpriseAccess(
+						defaultOrganization.id,
+						defaultOrganization.plan,
+					),
+				},
+			];
 		}
 	}
 
@@ -697,14 +717,9 @@ organization.openapi(updateOrganization, async (c) => {
 		});
 	}
 
-	// Provider compliance policies are an enterprise feature managed by owners
-	// and admins (matching the Guardrails settings page).
+	// DevPass accepts only the no-API-training requirement. Other organizations
+	// retain the existing enterprise policy gate.
 	if (providerCompliancePolicy !== undefined) {
-		if (userOrganization.organization?.plan !== "enterprise") {
-			throw new HTTPException(403, {
-				message: "Provider compliance policies require an enterprise plan",
-			});
-		}
 		if (
 			userOrganization.role !== "owner" &&
 			userOrganization.role !== "admin"
@@ -713,13 +728,46 @@ organization.openapi(updateOrganization, async (c) => {
 				message: "Only owners and admins can manage compliance policies",
 			});
 		}
+		if (
+			userOrganization.organization?.kind === "devpass" &&
+			providerCompliancePolicy !== null
+		) {
+			const unsupportedKeys = Object.entries(providerCompliancePolicy)
+				.filter(([key, value]) => {
+					if (key === "enabled" || key === "blockApiTraining") {
+						return false;
+					}
+					return Array.isArray(value) ? value.length > 0 : Boolean(value);
+				})
+				.map(([key]) => key);
+
+			if (unsupportedKeys.length > 0) {
+				throw new HTTPException(403, {
+					message: `DevPass compliance settings only support blockApiTraining; unsupported settings: ${unsupportedKeys.join(", ")}`,
+				});
+			}
+		} else if (
+			!hasOrganizationEnterpriseAccess(
+				userOrganization.organization?.id,
+				userOrganization.organization?.plan,
+			)
+		) {
+			throw new HTTPException(403, {
+				message: "Provider compliance policies require an enterprise plan",
+			});
+		}
 	}
 
 	// Google SSO domain auto-join is an enterprise feature managed by owners and
 	// admins. The value is normalized and validated before storage.
 	let normalizedSsoDomain: string | null | undefined;
 	if (ssoAutoJoinDomain !== undefined) {
-		if (userOrganization.organization?.plan !== "enterprise") {
+		if (
+			!hasOrganizationEnterpriseAccess(
+				userOrganization.organization?.id,
+				userOrganization.organization?.plan,
+			)
+		) {
 			throw new HTTPException(403, {
 				message: "SSO auto-join requires an enterprise plan",
 			});

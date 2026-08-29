@@ -2,7 +2,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
 	BarChart3Icon,
 	EditIcon,
-	InfoIcon,
 	KeyIcon,
 	MoreHorizontal,
 	PencilIcon,
@@ -56,6 +55,9 @@ import {
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 import { extractOrgAndProjectFromPath } from "@/lib/navigation-utils";
+import { cn } from "@/lib/utils";
+
+import { Time } from "@llmgateway/shared";
 
 import {
 	formatCurrentPeriodUsageSummary,
@@ -63,6 +65,12 @@ import {
 	formatPeriodLimitSummary,
 	type ApiKeyLimitPayload,
 } from "./api-key-limit-fields";
+import {
+	ApiKeyLimitBadge,
+	ApiKeyLimitMeter,
+	apiKeyLimitTextTone,
+} from "./api-key-limit-indicators";
+import { getApiKeyLimitStatus } from "./api-key-limit-status";
 import { ApiKeyLimitsDialog } from "./api-key-limits-dialog";
 import { formatApiKeyExpiry } from "./api-key-ttl-fields";
 import { CreateApiKeyDialog } from "./create-api-key-dialog";
@@ -70,6 +78,7 @@ import { ReactivateApiKeyDialog } from "./reactivate-api-key-dialog";
 import { RenameApiKeyDialog } from "./rename-api-key-dialog";
 import { RollApiKeyDialog } from "./roll-api-key-dialog";
 
+import type { ApiKeyLimitStatus } from "./api-key-limit-status";
 import type { ApiKey, Project } from "@/lib/types";
 import type { Route } from "next";
 
@@ -80,21 +89,96 @@ interface ApiKeysListProps {
 
 type StatusFilter = "all" | "active" | "inactive";
 type CreatorFilter = "mine" | "all";
+type LimitFilter = "all" | "approaching" | "reached";
 
-const PLAYGROUND_KEY_DESCRIPTION = "Auto-generated playground key";
-
-function PlaygroundKeyNote() {
+function ManagedPlaygroundTableRow({
+	apiKey,
+	statisticsUrl,
+}: {
+	apiKey: ApiKey;
+	statisticsUrl: Route;
+}) {
 	return (
-		<>
-			<DropdownMenuSeparator />
-			<div className="text-muted-foreground flex max-w-52 items-start gap-2 px-2 py-1.5 text-xs">
-				<InfoIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-				<span>
-					The auto-generated Lounge key is managed by LLM Gateway and can't be
-					edited.
-				</span>
+		<TableRow className="hover:bg-muted/30 transition-colors">
+			<TableCell>
+				<div className="flex items-center gap-2">
+					<span className="font-medium">Playground</span>
+					<Badge variant="outline">Managed</Badge>
+				</div>
+			</TableCell>
+			<TableCell className="min-w-40 max-w-40">
+				<span className="font-mono text-xs truncate">{apiKey.maskedToken}</span>
+			</TableCell>
+			<TableCell>
+				<StatusBadge status={apiKey.status} variant="detailed" />
+			</TableCell>
+			<TableCell>
+				<Time date={apiKey.createdAt} format="monthDayYear" />
+			</TableCell>
+			<TableCell className="text-muted-foreground">
+				{apiKey.creator?.name ?? apiKey.creator?.email ?? "Unknown"}
+			</TableCell>
+			<TableCell>{formatCurrencyAmount(apiKey.usage)}</TableCell>
+			<TableCell className="text-muted-foreground">
+				{formatCurrentPeriodUsageSummary(apiKey).summary}
+			</TableCell>
+			<TableCell className="text-muted-foreground">Not applicable</TableCell>
+			<TableCell className="text-muted-foreground">Not applicable</TableCell>
+			<TableCell className="sticky right-0 bg-card text-center">
+				<Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+					<Link href={statisticsUrl} prefetch={true}>
+						<BarChart3Icon className="h-4 w-4" />
+						<span className="sr-only">View Statistics</span>
+					</Link>
+				</Button>
+			</TableCell>
+		</TableRow>
+	);
+}
+
+function ManagedPlaygroundCard({
+	apiKey,
+	statisticsUrl,
+}: {
+	apiKey: ApiKey;
+	statisticsUrl: Route;
+}) {
+	return (
+		<div className="border rounded-lg p-3 space-y-3">
+			<div className="flex items-start justify-between gap-3">
+				<div className="flex items-center gap-2">
+					<h3 className="font-medium text-sm">Playground</h3>
+					<Badge variant="outline">Managed</Badge>
+					<StatusBadge status={apiKey.status} />
+				</div>
+				<Button variant="ghost" size="sm" asChild>
+					<Link href={statisticsUrl} prefetch={true}>
+						<BarChart3Icon className="mr-2 h-4 w-4" />
+						Statistics
+					</Link>
+				</Button>
 			</div>
-		</>
+			<div className="pt-2 border-t grid grid-cols-2 gap-3">
+				<div>
+					<div className="text-xs text-muted-foreground mb-1">API Key</div>
+					<div className="font-mono text-xs break-all">
+						{apiKey.maskedToken}
+					</div>
+				</div>
+				<div>
+					<div className="text-xs text-muted-foreground mb-1">Usage</div>
+					<div className="font-mono text-xs">
+						{formatCurrencyAmount(apiKey.usage)}
+					</div>
+				</div>
+			</div>
+			<div className="pt-2 border-t">
+				<div className="text-xs text-muted-foreground mb-1">Created By</div>
+				<div className="text-sm">
+					{apiKey.creator?.name ?? apiKey.creator?.email ?? "Unknown"}
+				</div>
+			</div>
+		</div>
 	);
 }
 
@@ -114,6 +198,7 @@ export function ApiKeysList({
 	);
 	const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
 	const [creatorFilter, setCreatorFilter] = useState<CreatorFilter>("all");
+	const [limitFilter, setLimitFilter] = useState<LimitFilter>("all");
 	const [reactivateKey, setReactivateKey] = useState<ApiKey | null>(null);
 	const [rollKey, setRollKey] = useState<ApiKey | null>(null);
 	const [renameKey, setRenameKey] = useState<ApiKey | null>(null);
@@ -182,7 +267,13 @@ export function ApiKeysList({
 	const inactiveKeys = allKeys.filter((key) => key.status === "inactive");
 	const planLimits = data?.planLimits;
 
-	const filteredKeys = (() => {
+	const limitStatuses = new Map<string, ApiKeyLimitStatus>(
+		allKeys.map((key) => [key.id, getApiKeyLimitStatus(key)]),
+	);
+	const limitStatusOf = (key: ApiKey): ApiKeyLimitStatus =>
+		limitStatuses.get(key.id) ?? { period: null, state: null, total: null };
+
+	const statusFilteredKeys = (() => {
 		switch (statusFilter) {
 			case "active":
 				return activeKeys;
@@ -194,9 +285,28 @@ export function ApiKeysList({
 		}
 	})();
 
+	const approachingKeys = statusFilteredKeys.filter(
+		(key) => limitStatusOf(key).state === "approaching",
+	);
+	const reachedKeys = statusFilteredKeys.filter(
+		(key) => limitStatusOf(key).state === "reached",
+	);
+
+	const filteredKeys = (() => {
+		switch (limitFilter) {
+			case "approaching":
+				return approachingKeys;
+			case "reached":
+				return reachedKeys;
+			case "all":
+			default:
+				return statusFilteredKeys;
+		}
+	})();
+
 	// Auto-switch to a tab with content if current tab becomes empty
 	useEffect(() => {
-		if (filteredKeys.length === 0 && allKeys.length > 0) {
+		if (statusFilteredKeys.length === 0 && allKeys.length > 0) {
 			if (statusFilter === "active" && inactiveKeys.length > 0) {
 				setStatusFilter("inactive");
 			} else if (statusFilter === "inactive" && activeKeys.length > 0) {
@@ -206,12 +316,21 @@ export function ApiKeysList({
 			}
 		}
 	}, [
-		filteredKeys.length,
+		statusFilteredKeys.length,
 		allKeys.length,
 		activeKeys.length,
 		inactiveKeys.length,
 		statusFilter,
 	]);
+
+	// Drop a usage filter once no key in the current status tab matches it.
+	useEffect(() => {
+		if (limitFilter === "approaching" && approachingKeys.length === 0) {
+			setLimitFilter("all");
+		} else if (limitFilter === "reached" && reachedKeys.length === 0) {
+			setLimitFilter("all");
+		}
+	}, [limitFilter, approachingKeys.length, reachedKeys.length]);
 
 	// Show message if no project is selected
 	if (!selectedProject) {
@@ -453,28 +572,58 @@ export function ApiKeysList({
 		}
 	};
 
-	const renderCurrentPeriodUsage = (key: ApiKey) => {
-		const summary = formatCurrentPeriodUsageSummary(key);
+	const renderUsage = (key: ApiKey) => {
+		const total = limitStatusOf(key).total;
 
 		return (
 			<div className="space-y-1">
 				<div
-					className={
+					className={cn(
+						"font-mono text-xs",
+						total && apiKeyLimitTextTone[total.state],
+					)}
+				>
+					{formatCurrencyAmount(key.usage)}
+					{total ? ` / ${formatCurrencyAmount(total.limit)}` : ""}
+				</div>
+				{total && <ApiKeyLimitMeter gauge={total} />}
+			</div>
+		);
+	};
+
+	const renderCurrentPeriodUsage = (key: ApiKey) => {
+		const summary = formatCurrentPeriodUsageSummary(key);
+		const period = limitStatusOf(key).period;
+		const reached = period?.state === "reached";
+
+		return (
+			<div className="space-y-1">
+				<div
+					className={cn(
 						summary.windowLabel
 							? "font-mono text-xs"
-							: "text-muted-foreground text-xs"
-					}
+							: "text-muted-foreground text-xs",
+						period && apiKeyLimitTextTone[period.state],
+					)}
 				>
 					{summary.summary}
 				</div>
+				{period && <ApiKeyLimitMeter gauge={period} />}
 				{summary.windowLabel && (
 					<div className="text-muted-foreground text-xs">
 						Every {summary.windowLabel}
 					</div>
 				)}
 				{summary.resetLabel && (
-					<div className="text-muted-foreground text-xs">
-						Resets {summary.resetLabel}
+					<div
+						className={cn(
+							"text-xs",
+							reached
+								? "text-destructive font-medium"
+								: "text-muted-foreground",
+						)}
+					>
+						{reached ? "Unblocks" : "Resets"} {summary.resetLabel}
 					</div>
 				)}
 			</div>
@@ -496,18 +645,34 @@ export function ApiKeysList({
 		);
 	};
 
-	const renderLimitSummary = (key: ApiKey) => (
-		<div className="text-left">
-			<div className="font-mono text-xs">
-				{key.usageLimit
-					? formatCurrencyAmount(key.usageLimit)
-					: "No all-time limit"}
+	const renderLimitSummary = (key: ApiKey) => {
+		const { period, total } = limitStatusOf(key);
+
+		return (
+			<div className="text-left">
+				<div
+					className={cn(
+						"font-mono text-xs",
+						total && apiKeyLimitTextTone[total.state],
+					)}
+				>
+					{key.usageLimit
+						? formatCurrencyAmount(key.usageLimit)
+						: "No all-time limit"}
+				</div>
+				<div
+					className={cn(
+						"text-xs",
+						period && period.state !== "ok"
+							? apiKeyLimitTextTone[period.state]
+							: "text-muted-foreground",
+					)}
+				>
+					{formatPeriodLimitSummary(key)}
+				</div>
 			</div>
-			<div className="text-muted-foreground text-xs">
-				{formatPeriodLimitSummary(key)}
-			</div>
-		</div>
-	);
+		);
+	};
 
 	if (allKeys.length === 0) {
 		return (
@@ -559,45 +724,87 @@ export function ApiKeysList({
 					</Tabs>
 				)}
 
-				{/* Status Filter Tabs */}
-				<Tabs
-					value={statusFilter}
-					onValueChange={(value) => setStatusFilter(value as StatusFilter)}
-				>
-					<TabsList className="flex space-x-2 w-full md:w-fit">
-						<TabsTrigger value="all">
-							All{" "}
-							<Badge
-								variant={statusFilter === "all" ? "default" : "outline"}
-								className="text-xs"
-							>
-								{allKeys.length}
-							</Badge>
-						</TabsTrigger>
-						{activeKeys.length > 0 && (
-							<TabsTrigger value="active">
-								Active{" "}
+				<div className="flex flex-col gap-4 md:flex-row md:items-center">
+					{/* Status Filter Tabs */}
+					<Tabs
+						value={statusFilter}
+						onValueChange={(value) => setStatusFilter(value as StatusFilter)}
+					>
+						<TabsList className="flex space-x-2 w-full md:w-fit">
+							<TabsTrigger value="all">
+								All{" "}
 								<Badge
-									variant={statusFilter === "active" ? "default" : "outline"}
+									variant={statusFilter === "all" ? "default" : "outline"}
 									className="text-xs"
 								>
-									{activeKeys.length}
+									{allKeys.length}
 								</Badge>
 							</TabsTrigger>
-						)}
-						{inactiveKeys.length > 0 && (
-							<TabsTrigger value="inactive">
-								Inactive{" "}
-								<Badge
-									variant={statusFilter === "inactive" ? "default" : "outline"}
-									className="text-xs"
-								>
-									{inactiveKeys.length}
-								</Badge>
-							</TabsTrigger>
-						)}
-					</TabsList>
-				</Tabs>
+							{activeKeys.length > 0 && (
+								<TabsTrigger value="active">
+									Active{" "}
+									<Badge
+										variant={statusFilter === "active" ? "default" : "outline"}
+										className="text-xs"
+									>
+										{activeKeys.length}
+									</Badge>
+								</TabsTrigger>
+							)}
+							{inactiveKeys.length > 0 && (
+								<TabsTrigger value="inactive">
+									Inactive{" "}
+									<Badge
+										variant={
+											statusFilter === "inactive" ? "default" : "outline"
+										}
+										className="text-xs"
+									>
+										{inactiveKeys.length}
+									</Badge>
+								</TabsTrigger>
+							)}
+						</TabsList>
+					</Tabs>
+
+					{/* Usage Limit Filter Tabs */}
+					{(approachingKeys.length > 0 || reachedKeys.length > 0) && (
+						<Tabs
+							value={limitFilter}
+							onValueChange={(value) => setLimitFilter(value as LimitFilter)}
+						>
+							<TabsList className="flex space-x-2 w-full md:w-fit">
+								<TabsTrigger value="all">Any usage</TabsTrigger>
+								{approachingKeys.length > 0 && (
+									<TabsTrigger value="approaching">
+										Near limit{" "}
+										<Badge
+											variant={
+												limitFilter === "approaching" ? "default" : "outline"
+											}
+											className="text-xs"
+										>
+											{approachingKeys.length}
+										</Badge>
+									</TabsTrigger>
+								)}
+								{reachedKeys.length > 0 && (
+									<TabsTrigger value="reached">
+										Limit reached{" "}
+										<Badge
+											variant={
+												limitFilter === "reached" ? "default" : "outline"
+											}
+											className="text-xs"
+										>
+											{reachedKeys.length}
+										</Badge>
+									</TabsTrigger>
+								)}
+							</TabsList>
+						</Tabs>
+					)}
+				</div>
 			</div>
 
 			{/* Plan Limits Display */}
@@ -620,6 +827,12 @@ export function ApiKeysList({
 				</div>
 			)}
 
+			{filteredKeys.length === 0 && (
+				<div className="text-muted-foreground py-10 text-center text-sm">
+					No API keys match the selected filters.
+				</div>
+			)}
+
 			{/* Desktop Table */}
 			<div className="hidden md:block overflow-x-auto">
 				<Table>
@@ -639,8 +852,16 @@ export function ApiKeysList({
 					</TableHeader>
 					<TableBody>
 						{filteredKeys.map((key) => {
-							const isPlaygroundKey =
-								key.description === PLAYGROUND_KEY_DESCRIPTION;
+							if (key.kind === "playground") {
+								return (
+									<ManagedPlaygroundTableRow
+										key={key.id}
+										apiKey={key}
+										statisticsUrl={getStatisticsUrl(key.id)}
+									/>
+								);
+							}
+
 							return (
 								<TableRow
 									key={key.id}
@@ -648,9 +869,7 @@ export function ApiKeysList({
 								>
 									<TableCell className="font-medium">
 										<span className="text-sm font-medium">
-											{isPlaygroundKey
-												? "Auto-generated Lounge key"
-												: key.description}
+											{key.description}
 										</span>
 									</TableCell>
 									<TableCell className="min-w-40 max-w-40">
@@ -663,6 +882,10 @@ export function ApiKeysList({
 									<TableCell>
 										<div className="space-y-1">
 											<StatusBadge status={key.status} variant="detailed" />
+											<ApiKeyLimitBadge
+												apiKey={key}
+												status={limitStatusOf(key)}
+											/>
 											{renderExpiry(key)}
 										</div>
 									</TableCell>
@@ -670,22 +893,15 @@ export function ApiKeysList({
 										<Tooltip>
 											<TooltipTrigger asChild>
 												<span className="text-muted-foreground cursor-help border-b border-dotted border-muted-foreground/50 hover:border-muted-foreground">
-													{Intl.DateTimeFormat(undefined, {
-														month: "short",
-														day: "numeric",
-														year: "numeric",
-													}).format(new Date(key.createdAt))}
+													<Time date={key.createdAt} format="monthDayYear" />
 												</span>
 											</TooltipTrigger>
 											<TooltipContent>
 												<p className="max-w-xs text-xs whitespace-nowrap">
-													{Intl.DateTimeFormat(undefined, {
-														month: "short",
-														day: "numeric",
-														year: "numeric",
-														hour: "2-digit",
-														minute: "2-digit",
-													}).format(new Date(key.createdAt))}
+													<Time
+														date={key.createdAt}
+														format="monthDayYearHourMinuteZone"
+													/>
 												</p>
 											</TooltipContent>
 										</Tooltip>
@@ -704,7 +920,7 @@ export function ApiKeysList({
 											</TooltipContent>
 										</Tooltip>
 									</TableCell>
-									<TableCell>{formatCurrencyAmount(key.usage)}</TableCell>
+									<TableCell>{renderUsage(key)}</TableCell>
 									<TableCell>{renderCurrentPeriodUsage(key)}</TableCell>
 									<TableCell>
 										<ApiKeyLimitsDialog
@@ -779,71 +995,52 @@ export function ApiKeysList({
 													</Link>
 												</DropdownMenuItem>
 												<DropdownMenuSeparator />
-												<DropdownMenuItem
-													disabled={isPlaygroundKey}
-													onClick={() => setRenameKey(key)}
-												>
+												<DropdownMenuItem onClick={() => setRenameKey(key)}>
 													<PencilIcon className="mr-2 h-4 w-4" />
 													Rename Key
 												</DropdownMenuItem>
-												<DropdownMenuItem
-													disabled={isPlaygroundKey}
-													onClick={() => toggleStatus(key)}
-												>
+												<DropdownMenuItem onClick={() => toggleStatus(key)}>
 													<PowerIcon className="mr-2 h-4 w-4" />
 													{key.status === "active"
 														? "Deactivate"
 														: "Activate"}{" "}
 													Key
 												</DropdownMenuItem>
-												<DropdownMenuItem
-													disabled={isPlaygroundKey}
-													onClick={() => setRollKey(key)}
-												>
+												<DropdownMenuItem onClick={() => setRollKey(key)}>
 													<RefreshCwIcon className="mr-2 h-4 w-4" />
 													Roll Key
 												</DropdownMenuItem>
 												<DropdownMenuSeparator />
-												{isPlaygroundKey ? (
-													<DropdownMenuItem
-														disabled
-														className="text-destructive focus:text-destructive"
-													>
-														Delete
-													</DropdownMenuItem>
-												) : (
-													<AlertDialog>
-														<AlertDialogTrigger asChild>
-															<DropdownMenuItem
-																onSelect={(e) => e.preventDefault()}
-																className="text-destructive focus:text-destructive"
+												<AlertDialog>
+													<AlertDialogTrigger asChild>
+														<DropdownMenuItem
+															onSelect={(e) => e.preventDefault()}
+															className="text-destructive focus:text-destructive"
+														>
+															Delete
+														</DropdownMenuItem>
+													</AlertDialogTrigger>
+													<AlertDialogContent>
+														<AlertDialogHeader>
+															<AlertDialogTitle>
+																Are you absolutely sure?
+															</AlertDialogTitle>
+															<AlertDialogDescription>
+																This action cannot be undone. This will
+																permanently delete the API key and it will no
+																longer be able to access your account.
+															</AlertDialogDescription>
+														</AlertDialogHeader>
+														<AlertDialogFooter>
+															<AlertDialogCancel>Cancel</AlertDialogCancel>
+															<AlertDialogAction
+																onClick={() => deleteKey(key.id)}
 															>
 																Delete
-															</DropdownMenuItem>
-														</AlertDialogTrigger>
-														<AlertDialogContent>
-															<AlertDialogHeader>
-																<AlertDialogTitle>
-																	Are you absolutely sure?
-																</AlertDialogTitle>
-																<AlertDialogDescription>
-																	This action cannot be undone. This will
-																	permanently delete the API key and it will no
-																	longer be able to access your account.
-																</AlertDialogDescription>
-															</AlertDialogHeader>
-															<AlertDialogFooter>
-																<AlertDialogCancel>Cancel</AlertDialogCancel>
-																<AlertDialogAction
-																	onClick={() => deleteKey(key.id)}
-																>
-																	Delete
-																</AlertDialogAction>
-															</AlertDialogFooter>
-														</AlertDialogContent>
-													</AlertDialog>
-												)}
-												{isPlaygroundKey && <PlaygroundKeyNote />}
+															</AlertDialogAction>
+														</AlertDialogFooter>
+													</AlertDialogContent>
+												</AlertDialog>
 											</DropdownMenuContent>
 										</DropdownMenu>
 									</TableCell>
@@ -857,30 +1054,35 @@ export function ApiKeysList({
 			{/* Mobile Cards */}
 			<div className="md:hidden space-y-3">
 				{filteredKeys.map((key) => {
-					const isPlaygroundKey =
-						key.description === PLAYGROUND_KEY_DESCRIPTION;
+					if (key.kind === "playground") {
+						return (
+							<ManagedPlaygroundCard
+								key={key.id}
+								apiKey={key}
+								statisticsUrl={getStatisticsUrl(key.id)}
+							/>
+						);
+					}
+
 					return (
 						<div key={key.id} className="border rounded-lg p-3 space-y-3">
 							<div className="flex items-start justify-between">
 								<div className="flex-1 min-w-0">
 									<div className="flex items-center gap-2">
-										<h3 className="font-medium text-sm">
-											{isPlaygroundKey
-												? "Auto-generated Lounge key"
-												: key.description}
-										</h3>
+										<h3 className="font-medium text-sm">{key.description}</h3>
 										<StatusBadge status={key.status} />
+										<ApiKeyLimitBadge
+											apiKey={key}
+											status={limitStatusOf(key)}
+										/>
 									</div>
 									{renderExpiry(key)}
 									<div className="flex items-center gap-2 mt-1">
 										<span className="text-xs text-muted-foreground">
-											{Intl.DateTimeFormat(undefined, {
-												month: "short",
-												day: "numeric",
-												year: "numeric",
-												hour: "2-digit",
-												minute: "2-digit",
-											}).format(new Date(key.createdAt))}
+											<Time
+												date={key.createdAt}
+												format="monthDayYearHourMinuteZone"
+											/>
 										</span>
 									</div>
 								</div>
@@ -906,61 +1108,43 @@ export function ApiKeysList({
 											</Link>
 										</DropdownMenuItem>
 										<DropdownMenuSeparator />
-										<DropdownMenuItem
-											disabled={isPlaygroundKey}
-											onClick={() => toggleStatus(key)}
-										>
+										<DropdownMenuItem onClick={() => toggleStatus(key)}>
 											<PowerIcon className="mr-2 h-4 w-4" />
 											{key.status === "active" ? "Deactivate" : "Activate"} Key
 										</DropdownMenuItem>
-										<DropdownMenuItem
-											disabled={isPlaygroundKey}
-											onClick={() => setRollKey(key)}
-										>
+										<DropdownMenuItem onClick={() => setRollKey(key)}>
 											<RefreshCwIcon className="mr-2 h-4 w-4" />
 											Roll Key
 										</DropdownMenuItem>
 										<DropdownMenuSeparator />
-										{isPlaygroundKey ? (
-											<DropdownMenuItem
-												disabled
-												className="text-destructive focus:text-destructive"
-											>
-												Delete
-											</DropdownMenuItem>
-										) : (
-											<AlertDialog>
-												<AlertDialogTrigger asChild>
-													<DropdownMenuItem
-														onSelect={(e) => e.preventDefault()}
-														className="text-destructive focus:text-destructive"
-													>
+										<AlertDialog>
+											<AlertDialogTrigger asChild>
+												<DropdownMenuItem
+													onSelect={(e) => e.preventDefault()}
+													className="text-destructive focus:text-destructive"
+												>
+													Delete
+												</DropdownMenuItem>
+											</AlertDialogTrigger>
+											<AlertDialogContent>
+												<AlertDialogHeader>
+													<AlertDialogTitle>
+														Are you absolutely sure?
+													</AlertDialogTitle>
+													<AlertDialogDescription>
+														This action cannot be undone. This will permanently
+														delete the API key and it will no longer be able to
+														access your account.
+													</AlertDialogDescription>
+												</AlertDialogHeader>
+												<AlertDialogFooter>
+													<AlertDialogCancel>Cancel</AlertDialogCancel>
+													<AlertDialogAction onClick={() => deleteKey(key.id)}>
 														Delete
-													</DropdownMenuItem>
-												</AlertDialogTrigger>
-												<AlertDialogContent>
-													<AlertDialogHeader>
-														<AlertDialogTitle>
-															Are you absolutely sure?
-														</AlertDialogTitle>
-														<AlertDialogDescription>
-															This action cannot be undone. This will
-															permanently delete the API key and it will no
-															longer be able to access your account.
-														</AlertDialogDescription>
-													</AlertDialogHeader>
-													<AlertDialogFooter>
-														<AlertDialogCancel>Cancel</AlertDialogCancel>
-														<AlertDialogAction
-															onClick={() => deleteKey(key.id)}
-														>
-															Delete
-														</AlertDialogAction>
-													</AlertDialogFooter>
-												</AlertDialogContent>
-											</AlertDialog>
-										)}
-										{isPlaygroundKey && <PlaygroundKeyNote />}
+													</AlertDialogAction>
+												</AlertDialogFooter>
+											</AlertDialogContent>
+										</AlertDialog>
 									</DropdownMenuContent>
 								</DropdownMenu>
 							</div>
@@ -977,9 +1161,7 @@ export function ApiKeysList({
 									<div className="text-xs text-muted-foreground mb-1">
 										Usage
 									</div>
-									<div className="font-mono text-xs break-all">
-										{formatCurrencyAmount(key.usage)}
-									</div>
+									{renderUsage(key)}
 								</div>
 								<div className="py-1">
 									<div className="text-xs text-muted-foreground mb-1">

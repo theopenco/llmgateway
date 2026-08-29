@@ -1,7 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { format, formatDistanceToNowStrict } from "date-fns";
+import { formatDistanceToNowStrict } from "date-fns";
 import { Info, Loader2 } from "lucide-react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -28,6 +28,8 @@ import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 import { useStripe } from "@/lib/stripe";
 import { cn } from "@/lib/utils";
+
+import { formatDateTime, useDisplayTimeZone } from "@llmgateway/shared";
 
 import type { TierChangeTiming } from "@/app/dashboard/components/ActivePlanChangeTier";
 import type { PlanTier } from "@/app/dashboard/types";
@@ -68,6 +70,7 @@ export default function BillingClient({
 	const api = useApi();
 	const queryClient = useQueryClient();
 	const { stripe } = useStripe();
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 
 	const { data: devPlanStatus } = useDevPlanStatus(initialDevPlanStatus);
 
@@ -291,6 +294,11 @@ export default function BillingClient({
 					</div>
 				</div>
 
+				<DevPassPaymentMethod
+					initialData={initialPaymentMethod}
+					allowAdd={false}
+				/>
+
 				{/* Past invoices */}
 				<DevPassInvoices />
 
@@ -332,7 +340,9 @@ export default function BillingClient({
 					return d;
 				})()
 			: null;
-	const renewWhen = renewAt ? format(renewAt, "MMM d, yyyy") : null;
+	const renewWhen = renewAt
+		? formatDateTime(renewAt, displayTimeZone, "monthDayYear")
+		: null;
 
 	const renewalHint = !renewAt
 		? "—"

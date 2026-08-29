@@ -10,7 +10,18 @@ import {
 	waitForSwrMirrorWrites,
 } from "@llmgateway/cache";
 import { and, cdb, db, eq, getTableName, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
+
+const ORIGINAL_HASH_SECRET = process.env.GATEWAY_API_KEY_HASH_SECRET;
+
+function setHashSecret(value: string | undefined) {
+	if (value === undefined) {
+		delete process.env.GATEWAY_API_KEY_HASH_SECRET;
+	} else {
+		process.env.GATEWAY_API_KEY_HASH_SECRET = value;
+	}
+}
 
 // Issue #2674: management mutations on gateway-cached tables must go through the
 // cached client (cdb) so RedisCache.onMutate invalidates the gateway's SWR
@@ -79,7 +90,7 @@ describe("v1/master cache invalidation", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "test-api-key-id",
-			token: "test-master-token",
+			...hashApiKeyForStorage("test-master-token"),
 			projectId: "test-project-id",
 			description: "Test API Key",
 			createdBy: "test-user-id",
@@ -100,6 +111,7 @@ describe("v1/master cache invalidation", () => {
 	});
 
 	afterEach(async () => {
+		setHashSecret(ORIGINAL_HASH_SECRET);
 		// deleteAll does not target masterKey, but deleting the organization
 		// cascades it (masterKey.organizationId ON DELETE cascade).
 		await deleteAll();
@@ -112,6 +124,174 @@ describe("v1/master cache invalidation", () => {
 		};
 	}
 
+	test("authenticates master keys hashed with a retained secret", async () => {
+		setHashSecret("retained-secret");
+		const retainedHash = getApiKeyFingerprint(masterToken);
+		setHashSecret("current-secret,retained-secret");
+		await db
+			.update(tables.masterKey)
+			.set({ tokenHash: retainedHash })
+			.where(eq(tables.masterKey.id, "test-master-key-id"));
+
+		const res = await app.request("/v1/master/keys", {
+			headers: authHeaders(),
+		});
+		expect(res.status).toBe(200);
+	});
+
+	test("GET /keys hides playground session keys", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "playground-session-key",
+			...hashApiKeyForStorage("playground-session-token"),
+			projectId: "test-project-id",
+			description: "Session key",
+			kind: "playground",
+			createdBy: "test-user-id",
+		});
+
+		const res = await app.request("/v1/master/keys", {
+			headers: authHeaders(),
+		});
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body.apiKeys).toHaveLength(1);
+		expect(body.apiKeys[0]?.id).toBe("test-api-key-id");
+	});
+
+	test("managed playground keys reject master-key mutations", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "playground-key",
+			...hashApiKeyForStorage("playground-token"),
+			projectId: "test-project-id",
+			description: "Playground",
+			kind: "playground",
+			createdBy: "test-user-id",
+		});
+
+		const update = await app.request("/v1/master/keys/playground-key", {
+			method: "PATCH",
+			headers: authHeaders({ "Content-Type": "application/json" }),
+			body: JSON.stringify({ usageLimit: "10" }),
+		});
+		expect(update.status).toBe(403);
+
+		const remove = await app.request("/v1/master/keys/playground-key", {
+			method: "DELETE",
+			headers: authHeaders(),
+		});
+		expect(remove.status).toBe(403);
+	});
+
+	test("managed playground keys reject master-key IAM mutations", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "playground-key",
+			...hashApiKeyForStorage("playground-token"),
+			projectId: "test-project-id",
+			description: "Playground",
+			kind: "playground",
+			createdBy: "test-user-id",
+		});
+		const [rule] = await db
+			.insert(tables.apiKeyIamRule)
+			.values({
+				apiKeyId: "playground-key",
+				ruleType: "allow_models",
+				ruleValue: { models: ["openai/gpt-4o-mini"] },
+			})
+			.returning();
+
+		const create = await app.request("/v1/master/keys/playground-key/iam", {
+			method: "POST",
+			headers: authHeaders({ "Content-Type": "application/json" }),
+			body: JSON.stringify({
+				ruleType: "deny_models",
+				ruleValue: { models: ["openai/gpt-4o-mini"] },
+			}),
+		});
+		expect(create.status).toBe(403);
+
+		const update = await app.request(
+			`/v1/master/keys/playground-key/iam/${rule.id}`,
+			{
+				method: "PATCH",
+				headers: authHeaders({ "Content-Type": "application/json" }),
+				body: JSON.stringify({ status: "inactive" }),
+			},
+		);
+		expect(update.status).toBe(403);
+
+		const remove = await app.request(
+			`/v1/master/keys/playground-key/iam/${rule.id}`,
+			{
+				method: "DELETE",
+				headers: authHeaders(),
+			},
+		);
+		expect(remove.status).toBe(403);
+
+		const rules = await db.query.apiKeyIamRule.findMany({
+			where: { apiKeyId: { eq: "playground-key" } },
+		});
+		expect(rules).toHaveLength(1);
+		expect(rules[0]?.status).toBe("active");
+	});
+
+	test("PATCH /keys allows the playground description on a regular key", async () => {
+		const res = await app.request("/v1/master/keys/test-api-key-id", {
+			method: "PATCH",
+			headers: authHeaders({ "Content-Type": "application/json" }),
+			body: JSON.stringify({
+				description: "Auto-generated playground key",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const key = await db.query.apiKey.findFirst({
+			where: { id: { eq: "test-api-key-id" } },
+		});
+		expect(key?.description).toBe("Auto-generated playground key");
+		expect(key?.kind).toBe("regular");
+	});
+
+	test("GET /keys maps each creator to their email", async () => {
+		await db.insert(tables.user).values({
+			id: "member-user-id",
+			name: "Member User",
+			email: "member@example.com",
+			emailVerified: true,
+		});
+		await db.insert(tables.apiKey).values({
+			id: "member-api-key-id",
+			...hashApiKeyForStorage("member-api-key-token"),
+			projectId: "test-project-id",
+			description: "Member API Key",
+			createdBy: "member-user-id",
+		});
+
+		const listRes = await app.request("/v1/master/keys", {
+			headers: authHeaders(),
+		});
+		expect(listRes.status).toBe(200);
+		const list = await listRes.json();
+		expect(
+			list.apiKeys.find(
+				(apiKey: { id: string }) => apiKey.id === "member-api-key-id",
+			),
+		).toMatchObject({
+			projectName: "Test Project",
+			createdBy: "member-user-id",
+			createdByEmail: "member@example.com",
+		});
+
+		const detailRes = await app.request("/v1/master/keys/member-api-key-id", {
+			headers: authHeaders(),
+		});
+		expect(detailRes.status).toBe(200);
+		const detail = await detailRes.json();
+		expect(detail.apiKey.projectName).toBe("Test Project");
+		expect(detail.apiKey.createdByEmail).toBe("member@example.com");
+	});
+
 	test("PATCH /keys/{id} invalidates the gateway api_key cache", async () => {
 		// A per-run-unique key keeps the SWR key from colliding with entries left
 		// in Redis by earlier runs, which outlive deleteAll (it does not flush
@@ -120,7 +300,7 @@ describe("v1/master cache invalidation", () => {
 		const apiKeyToken = `${apiKeyId}-token`;
 		await db.insert(tables.apiKey).values({
 			id: apiKeyId,
-			token: apiKeyToken,
+			...hashApiKeyForStorage(apiKeyToken),
 			projectId: "test-project-id",
 			description: "Cache Test Key",
 			createdBy: "test-user-id",
@@ -153,7 +333,7 @@ describe("v1/master cache invalidation", () => {
 		const apiKeyToken = `${apiKeyId}-token`;
 		await db.insert(tables.apiKey).values({
 			id: apiKeyId,
-			token: apiKeyToken,
+			...hashApiKeyForStorage(apiKeyToken),
 			projectId: "test-project-id",
 			description: "Cache Test Key",
 			createdBy: "test-user-id",
@@ -244,7 +424,7 @@ describe("v1/master cache invalidation", () => {
 		const apiKeyId = `cache-test-api-key-${crypto.randomUUID()}`;
 		await db.insert(tables.apiKey).values({
 			id: apiKeyId,
-			token: `${apiKeyId}-token`,
+			...hashApiKeyForStorage(`${apiKeyId}-token`),
 			projectId: "test-project-id",
 			description: "IAM Cache Test Key",
 			createdBy: "test-user-id",
@@ -285,7 +465,7 @@ describe("v1/master cache invalidation", () => {
 		const apiKeyId = `cache-test-api-key-${crypto.randomUUID()}`;
 		await db.insert(tables.apiKey).values({
 			id: apiKeyId,
-			token: `${apiKeyId}-token`,
+			...hashApiKeyForStorage(`${apiKeyId}-token`),
 			projectId: "test-project-id",
 			description: "IAM Cache Test Key",
 			createdBy: "test-user-id",
@@ -343,7 +523,7 @@ describe("v1/master cache invalidation", () => {
 		const apiKeyId = `cache-test-api-key-${crypto.randomUUID()}`;
 		await db.insert(tables.apiKey).values({
 			id: apiKeyId,
-			token: `${apiKeyId}-token`,
+			...hashApiKeyForStorage(`${apiKeyId}-token`),
 			projectId: "test-project-id",
 			description: "IAM Cache Test Key",
 			createdBy: "test-user-id",

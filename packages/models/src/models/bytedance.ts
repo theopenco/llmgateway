@@ -114,6 +114,7 @@ export const bytedanceModels = [
 		releasedAt: new Date("2026-08-10"),
 		providers: [
 			{
+				deactivatedAt: new Date("2026-08-20"),
 				providerId: "nanogpt",
 				externalId: "bytedance-seed/seed-2-1-turbo",
 				inputPrice: "0.5e-6",

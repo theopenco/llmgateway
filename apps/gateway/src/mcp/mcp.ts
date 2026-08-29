@@ -4,11 +4,13 @@ import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpError } from "@modelcontextprotocol/sdk/types.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import {
 	assertApiKeyWithinUsageLimits,
+	assertMemberProjectAccess,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
 import { findApiKeyByToken, findProjectById } from "@/lib/cached-queries.js";
@@ -555,7 +557,7 @@ function createMcpServer(apiKey: string): McpServer {
 	// Register the generate-nano-banana tool
 	server.tool(
 		"generate-nano-banana",
-		`Generate an image using Gemini 3 Pro Image Preview (Nano Banana). Tailored for AI coding agents - always returns an inline image preview.${process.env.UPLOAD_DIR ? " Also saves images to disk and returns file paths." : " Set UPLOAD_DIR to enable saving images to disk."}`,
+		`Generate an image using Gemini 3 Pro Image (Nano Banana Pro). Tailored for AI coding agents - always returns an inline image preview.${process.env.UPLOAD_DIR ? " Also saves images to disk and returns file paths." : " Set UPLOAD_DIR to enable saving images to disk."}`,
 		generateNanoBananaInputSchema.shape,
 		async (input: GenerateNanoBananaInput) => {
 			try {
@@ -566,7 +568,7 @@ function createMcpServer(apiKey: string): McpServer {
 						: "http://localhost:4001");
 
 				const body: Record<string, unknown> = {
-					model: "gemini-3-pro-image-preview",
+					model: "gemini-3-pro-image",
 					messages: [
 						{
 							role: "user",
@@ -1065,6 +1067,23 @@ async function processMcpRequest(
 					},
 				};
 		}
+	} catch (error) {
+		if (error instanceof McpError && error.code === -32001) {
+			logger.warn("MCP request timeout", {
+				message: error.message,
+				data: error.data,
+			});
+			return {
+				jsonrpc: "2.0",
+				id: request.id ?? null,
+				error: {
+					code: error.code,
+					message: "Request timed out",
+					data: error.data,
+				},
+			};
+		}
+		throw error;
 	} finally {
 		await client.close();
 	}
@@ -1152,6 +1171,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 		// is within limits. Resolve the project so the org is known for the lookup.
 		const mcpProject = await findProjectById(apiKeyRecord.projectId);
 		if (mcpProject) {
+			await assertMemberProjectAccess(apiKeyRecord, mcpProject.organizationId);
 			await assertMemberWithinBudget(
 				apiKeyRecord.createdBy,
 				mcpProject.organizationId,
@@ -1219,9 +1239,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 		}
 
 		// Build absolute URL for the endpoint event
-		const requestUrl = new URL(c.req.url);
-		const baseUrl = `${requestUrl.protocol}//${requestUrl.host}`;
-		const mcpEndpointUrl = `${baseUrl}/mcp`;
+		const mcpEndpointUrl = `${resolveRequestBaseUrl(c)}/mcp`;
 
 		// SSE endpoint for server-to-client messages
 		const stream = new ReadableStream({
@@ -1898,12 +1916,49 @@ async function oauthRegisterHandler(c: Context): Promise<Response> {
 }
 
 /**
+ * Base URL of this deployment as the client sees it. TLS terminates at the
+ * load balancer, so `c.req.url` reports `http:` in production — trust
+ * `x-forwarded-proto` when present or the published metadata advertises
+ * plain-http endpoints.
+ */
+function resolveRequestBaseUrl(c: Context): string {
+	const url = new URL(c.req.url);
+	// x-forwarded-proto may be a comma-separated chain when multiple proxies
+	// are involved; only the first (client-facing) value is meaningful, and
+	// anything but http/https would produce an invalid URL.
+	const forwarded = (c.req.header("x-forwarded-proto") ?? "")
+		.split(",")[0]!
+		.trim()
+		.toLowerCase();
+	const proto =
+		forwarded === "http" || forwarded === "https"
+			? forwarded
+			: url.protocol.slice(0, -1);
+	return `${proto}://${url.host}`;
+}
+
+/**
  * OAuth metadata endpoint handler
  */
 function oauthMetadataHandler(c: Context): Response {
-	const url = new URL(c.req.url);
-	const baseUrl = `${url.protocol}//${url.host}`;
-	return c.json(getOAuthMetadata(baseUrl));
+	return c.json(getOAuthMetadata(resolveRequestBaseUrl(c)));
+}
+
+/**
+ * OAuth 2.0 Protected Resource Metadata (RFC 9728) for the MCP endpoint, so
+ * agents can discover the authorization server and supported scopes
+ * machine-readably.
+ */
+function protectedResourceMetadataHandler(c: Context): Response {
+	const baseUrl = resolveRequestBaseUrl(c);
+	return c.json({
+		resource: `${baseUrl}/mcp`,
+		authorization_servers: [baseUrl],
+		scopes_supported: ["mcp:tools", "mcp:resources", "mcp:prompts"],
+		bearer_methods_supported: ["header"],
+		resource_name: "LLM Gateway MCP server",
+		resource_documentation: "https://llmgateway.io/mcp",
+	});
 }
 
 /**
@@ -1916,6 +1971,17 @@ export function registerMcpOAuthRoutes(app: OpenAPIHono<ServerTypes>): void {
 
 	// Also serve at the MCP-relative path
 	app.get("/.well-known/oauth-authorization-server/mcp", oauthMetadataHandler);
+
+	// OAuth 2.0 Protected Resource Metadata (RFC 9728), plus the
+	// path-suffixed variant RFC 9728 defines for resources under a path
+	app.get(
+		"/.well-known/oauth-protected-resource",
+		protectedResourceMetadataHandler,
+	);
+	app.get(
+		"/.well-known/oauth-protected-resource/mcp",
+		protectedResourceMetadataHandler,
+	);
 
 	// OAuth endpoints
 	app.get("/oauth/authorize", oauthAuthorizeHandler);

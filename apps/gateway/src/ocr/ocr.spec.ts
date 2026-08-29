@@ -4,7 +4,9 @@ import { app } from "@/app.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 import { waitForLogs } from "@/test-utils/test-helpers.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, eq, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 const IMAGE_DOCUMENT = {
 	type: "image_url" as const,
@@ -22,7 +24,7 @@ describe("ocr", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-ocr-retention-none",
-			token: "real-token-ocr-retention-none",
+			...hashApiKeyForStorage("real-token-ocr-retention-none"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -30,7 +32,11 @@ describe("ocr", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-ocr-retention-none",
-			token: "mistral-token",
+			...encryptProviderKeyForStorage(
+				"mistral-token",
+				"provider-key-ocr-retention-none",
+				"org-id",
+			),
 			provider: "mistral",
 			organizationId: "org-id",
 			baseUrl: harness.mockServerUrl,
@@ -69,7 +75,7 @@ describe("ocr", () => {
 	test("/v1/ocr returns the OCR result and bills per page", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-ocr",
-			token: "real-token-ocr",
+			...hashApiKeyForStorage("real-token-ocr"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -77,7 +83,11 @@ describe("ocr", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-mistral",
-			token: "mistral-token",
+			...encryptProviderKeyForStorage(
+				"mistral-token",
+				"provider-key-mistral",
+				"org-id",
+			),
 			provider: "mistral",
 			organizationId: "org-id",
 			baseUrl: harness.mockServerUrl,
@@ -100,6 +110,7 @@ describe("ocr", () => {
 
 		expect(res.status).toBe(200);
 		const json = await res.json();
+		expect(json.model).toBe("mistral/mistral-ocr-latest");
 		expect(Array.isArray(json.pages)).toBe(true);
 		expect(json.pages).toHaveLength(3);
 		expect(json.usage_info.pages_processed).toBe(3);
@@ -119,7 +130,7 @@ describe("ocr", () => {
 	test("/v1/ocr rejects dev-plan personal orgs with 403", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-ocr-devplan",
-			token: "real-token-ocr-devplan",
+			...hashApiKeyForStorage("real-token-ocr-devplan"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -149,7 +160,7 @@ describe("ocr", () => {
 	test("/v1/ocr surfaces upstream errors", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-ocr-error",
-			token: "real-token-ocr-error",
+			...hashApiKeyForStorage("real-token-ocr-error"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -157,7 +168,11 @@ describe("ocr", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-mistral-error",
-			token: "mistral-token",
+			...encryptProviderKeyForStorage(
+				"mistral-token",
+				"provider-key-mistral-error",
+				"org-id",
+			),
 			provider: "mistral",
 			organizationId: "org-id",
 			baseUrl: harness.mockServerUrl,
@@ -184,7 +199,7 @@ describe("ocr", () => {
 	test("/v1/ocr rejects a non-OCR model with 400", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-ocr-nonocr",
-			token: "real-token-ocr-nonocr",
+			...hashApiKeyForStorage("real-token-ocr-nonocr"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -211,7 +226,7 @@ describe("ocr", () => {
 	test("/v1/chat/completions rejects an OCR model with 400", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-ocr-chat",
-			token: "real-token-ocr-chat",
+			...hashApiKeyForStorage("real-token-ocr-chat"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",

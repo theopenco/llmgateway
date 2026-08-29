@@ -182,7 +182,7 @@ export interface ProviderModelMapping {
 	providerId: (typeof providers)[number]["id"];
 	/**
 	 * Provider-specific upstream model id used when calling the upstream
-	 * provider. Distinct from the root `ModelDefinition.id` and from any
+	 * provider. Distinct from the canonical `ModelDefinition.id` and from any
 	 * human-readable display name.
 	 */
 	externalId: string;
@@ -318,23 +318,14 @@ export interface ProviderModelMapping {
 	 */
 	pricingTiers?: PricingTier[];
 	/**
-	 * Peak/off-peak time-of-day pricing. The mapping's base
-	 * inputPrice/outputPrice/cachedInputPrice are the regular flat prices,
-	 * billed before `effectiveAt` (and always when `peakPricing` is absent).
-	 * On/after `effectiveAt`, `peak` applies while the current UTC hour falls
-	 * inside `hoursUtc` and `offPeak` applies otherwise. Only DeepSeek's
-	 * first-party API uses this today — peak 01:00-04:00 and 06:00-10:00 UTC
-	 * at double the off-peak rates, effective 2026-08-16.
+	 * Peak/off-peak time-of-day pricing. When present, `peak` applies while the
+	 * current UTC hour falls inside `hoursUtc` and `offPeak` applies otherwise.
+	 * `offPeakDays` can override those windows for provider-defined local
+	 * calendar days. Only DeepSeek's first-party API uses this today.
 	 */
 	peakPricing?: {
 		/**
-		 * ISO-8601 instant when peak/off-peak pricing takes effect. Before
-		 * this date the mapping's base inputPrice/outputPrice/cachedInputPrice
-		 * (the regular flat rates) apply.
-		 */
-		effectiveAt: string;
-		/**
-		 * Prices charged during peak hours (on/after effectiveAt).
+		 * Prices charged during peak hours.
 		 */
 		peak: {
 			/**
@@ -353,7 +344,7 @@ export interface ProviderModelMapping {
 			cachedInputPrice?: Price;
 		};
 		/**
-		 * Prices charged during off-peak hours (on/after effectiveAt).
+		 * Prices charged during off-peak hours.
 		 */
 		offPeak: {
 			/**
@@ -376,6 +367,17 @@ export interface ProviderModelMapping {
 		 * hours outside these ranges are off-peak.
 		 */
 		hoursUtc: readonly [start: number, end: number][];
+		/**
+		 * Local calendar days that are always billed off-peak. Days use
+		 * JavaScript's numbering (Sunday = 0, Saturday = 6), shifted from UTC by
+		 * `utcOffsetMinutes`.
+		 */
+		offPeakDays?: {
+			daysOfWeek: readonly number[];
+			utcOffsetMinutes: number;
+			/** Human-readable time zone used in pricing disclosures. */
+			timeZoneLabel: string;
+		};
 	};
 	/**
 	 * Maximum context window size in tokens
@@ -630,6 +632,14 @@ export interface ProviderModelMapping {
 	 * Modes: "auto", "none", "required", "function" (a named function choice).
 	 */
 	supportedToolChoices?: ToolChoiceMode[];
+	/**
+	 * Additional `tool_choice` modes the upstream only accepts while thinking is
+	 * turned off, i.e. for requests sending `reasoning_effort: "none"` to a
+	 * mapping that publishes `none` in `reasoningEfforts`. These modes are added
+	 * to `supportedToolChoices` for such requests and ignored for every other
+	 * one. Only meaningful alongside a non-empty `supportedToolChoices`.
+	 */
+	supportedToolChoicesWithThinkingDisabled?: ToolChoiceMode[];
 	/**
 	 * Whether this mapping's upstream accepts the OpenAI-only `developer` message
 	 * role. Defaults to `true` (assumed supported). When set to `false`, the

@@ -1,6 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
-import { streamSSE } from "hono/streaming";
 
 import { detectCodingAgentFromUserAgent } from "@/chat/tools/detect-coding-agent.js";
 import { extractFirstSseEventData } from "@/chat/tools/extract-first-sse-event-data.js";
@@ -15,6 +14,7 @@ import {
 } from "@/lib/api-key-health.js";
 import {
 	assertApiKeyWithinUsageLimits,
+	assertMemberProjectAccess,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
 import { resolveChatApiOrigin } from "@/lib/api-origin.js";
@@ -25,6 +25,7 @@ import {
 	findOrganizationById,
 	findCustomProviderKey,
 	findCustomModel,
+	findActiveCustomModels,
 	findEffectiveDiscount,
 	findEffectiveRoutingScoreMultiplier,
 	findProviderKey,
@@ -34,6 +35,7 @@ import {
 	type ManagedProviderAvailability,
 } from "@/lib/cached-queries.js";
 import { raceClientAbort } from "@/lib/client-abort.js";
+import { logGatewayClientError } from "@/lib/client-error-log.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import {
 	isCodingModel,
@@ -41,7 +43,6 @@ import {
 } from "@/lib/coding-models.js";
 import {
 	complianceBlockMessage,
-	filterCompliantProviders,
 	getActiveCompliancePolicy,
 	isModelIdCompliant,
 	isProviderIdCompliant,
@@ -63,6 +64,12 @@ import {
 	withCreditsMode,
 	withWalletCredits,
 } from "@/lib/end-user-session.js";
+import {
+	getLicensedOrganizationEnvVariant,
+	getLicensedOrganizationPlan,
+	hasOrganizationEnterpriseAccess,
+} from "@/lib/enterprise.js";
+import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import {
 	getGcpAccessToken,
@@ -78,6 +85,7 @@ import {
 } from "@/lib/logs.js";
 import { isSponsoredOnboardingRequest } from "@/lib/onboarding-sponsorship.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { streamSSE } from "@/lib/pending-work.js";
 import {
 	createSessionProviderStore,
 	getPreferredProvider,
@@ -121,7 +129,6 @@ import {
 	isPremiumServiceTier,
 	resolveServedServiceTier,
 	googleProviderSupportsAudioFormat,
-	hasProviderKey,
 	InvalidFileContentError,
 	managedCredentialOptions,
 	parseGoogleUpstreamDocumentError,
@@ -165,6 +172,7 @@ import {
 	hasMaxTokens,
 	hasRegionSpecificEnvKey,
 	type ModelDefinition,
+	type Model,
 	models,
 	type Provider,
 	type ProviderDefinition,
@@ -172,10 +180,10 @@ import {
 	type ProviderRequestBody,
 	providers,
 	resolveVertexTokenType,
+	type ToolChoiceType,
 	type VertexTokenType,
 	type WebSearchTool,
 	expandAllProviderRegions,
-	getOrganizationEnvVariant,
 	getProviderDefinition,
 	getRegionScopedDefaultRegion,
 	getRegionSpecificEnvVarName,
@@ -188,6 +196,7 @@ import {
 	isRecognizedCodingAgent,
 	normalizeSourceToAgentId,
 } from "@llmgateway/shared";
+import { parseCustomDynamicRouteModelRef } from "@llmgateway/shared/dynamic-route";
 import {
 	applyRoutingPreference,
 	type ResolvedRoutingConfig,
@@ -211,6 +220,7 @@ import { createLogEntry } from "./tools/create-log-entry.js";
 import { estimateTokensFromContent } from "./tools/estimate-tokens-from-content.js";
 import { estimateTokens } from "./tools/estimate-tokens.js";
 import {
+	DynamicRouteEvaluationError,
 	type DynamicRouteEvaluation,
 	evaluateDynamicRoute,
 } from "./tools/evaluate-dynamic-route.js";
@@ -262,6 +272,7 @@ import {
 	exclusionReason,
 	getProviderFilterReasons,
 	mergeFilteredProvider,
+	preferToolChoiceCapableProviders,
 	recordFilteredProvider,
 } from "./tools/provider-filter-reasons.js";
 import {
@@ -408,10 +419,64 @@ function customModelToProviderMapping(cm: CustomModel): ProviderModelMapping {
 		tools: cm.tools ?? undefined,
 		reasoning: cm.reasoning ?? undefined,
 		jsonOutput: cm.jsonOutput ?? undefined,
+		jsonOutputSchema: cm.jsonOutput ?? undefined,
 		audio: cm.audio ?? undefined,
 		supportedParameters: cm.supportedParameters ?? undefined,
 		streaming,
 	};
+}
+
+type CustomAutoRoutingMapping = ProviderModelMapping & {
+	customProviderKeyId: string;
+	customProviderName: string;
+};
+
+function customModelHasRoutingPrice(customModel: CustomModel): boolean {
+	return (
+		(customModel.inputPrice !== null && customModel.outputPrice !== null) ||
+		customModel.requestPrice !== null
+	);
+}
+
+function isCustomAutoRoutingMapping(
+	mapping: ProviderModelMapping,
+): mapping is CustomAutoRoutingMapping {
+	return (
+		mapping.providerId === "custom" &&
+		"customProviderKeyId" in mapping &&
+		"customProviderName" in mapping
+	);
+}
+
+async function keepCheapestCustomRoutingMapping(
+	providers: ProviderModelMapping[],
+	modelId: string,
+	organizationId: string,
+	providerDiscountResolver: ReturnType<typeof createProviderDiscountResolver>,
+): Promise<ProviderModelMapping[]> {
+	let cheapestCustomProvider: ProviderModelMapping | undefined;
+	let cheapestCustomPrice = Number.MAX_VALUE;
+	for (const provider of providers) {
+		if (!isCustomAutoRoutingMapping(provider)) {
+			continue;
+		}
+		const { price } = await getDiscountedProviderSelectionPrice(
+			provider,
+			modelId,
+			{
+				organizationId,
+				providerDiscountResolver,
+			},
+		);
+		if (price.toNumber() < cheapestCustomPrice) {
+			cheapestCustomPrice = price.toNumber();
+			cheapestCustomProvider = provider;
+		}
+	}
+	return [
+		...providers.filter((provider) => !isCustomAutoRoutingMapping(provider)),
+		...(cheapestCustomProvider ? [cheapestCustomProvider] : []),
+	];
 }
 
 function filterRegionsByAvailableKeys(
@@ -631,14 +696,15 @@ function filterEligibleModelProviders(
 		audioFormats?: string[];
 		hasDocuments: boolean;
 		hasAssistantPrefill?: boolean;
+		toolChoice?: ToolChoiceType;
 		maxTokens?: number;
 		reasoningEffort?: string;
 		n?: number;
 		stream?: boolean;
 	},
-	filteredOut?: Array<{ providerId: string; reasons: string[] }>,
+	filteredOut?: FilteredProvider[],
 ): ProviderModelMapping[] {
-	return availableModelProviders.filter((provider) => {
+	const eligible = availableModelProviders.filter((provider) => {
 		if (
 			options.availableProviders &&
 			!options.availableProviders.includes(provider.providerId)
@@ -692,6 +758,12 @@ function filterEligibleModelProviders(
 
 		return true;
 	});
+
+	// The model is pinned here, so an unsupported tool_choice only narrows the
+	// candidates when another mapping of the same model can honour it — dropping
+	// the last candidate would fail a request that works today (downgraded to
+	// "auto" by prepareRequestBody).
+	return preferToolChoiceCapableProviders(eligible, options, filteredOut);
 }
 
 interface ContentFilterRoutingDecision {
@@ -747,15 +819,11 @@ function getContentFilterRoutingDecision(
 	};
 }
 
-async function addContentFilterRoutingMetadata(
+function addContentFilterRoutingMetadata(
 	routingMetadata: RoutingMetadata,
 	contentFilterMatched: boolean,
 	excludedProviders: ProviderModelMapping[],
-	modelId: string | undefined,
-	metricsMap: Map<string, ProviderMetrics>,
-	organizationId: string,
-	providerDiscountResolver: ReturnType<typeof createProviderDiscountResolver>,
-): Promise<RoutingMetadata> {
+): RoutingMetadata {
 	if (!contentFilterMatched) {
 		return routingMetadata;
 	}
@@ -763,39 +831,15 @@ async function addContentFilterRoutingMetadata(
 	const contentFilterExcludedProviders = [
 		...new Set(excludedProviders.map((provider) => provider.providerId)),
 	];
-
-	const providerScores =
-		excludedProviders.length === 0 || !modelId
-			? routingMetadata.providerScores
-			: [
-					...(await Promise.all(
-						excludedProviders.map(async (provider) => {
-							const metrics = metricsMap.get(
-								metricsKey(modelId, provider.providerId, provider.region),
-							);
-							const { price, discount } =
-								await getDiscountedProviderSelectionPrice(provider, modelId, {
-									organizationId,
-									providerDiscountResolver,
-								});
-
-							return {
-								providerId: provider.providerId,
-								region: provider.region,
-								score: -1,
-								uptime: metrics?.uptime ?? 0,
-								latency: metrics?.averageLatency ?? 0,
-								throughput: metrics?.throughput ?? 0,
-								price: price.toNumber(),
-								discount: discount.toNumber(),
-								cacheSupported: providerSupportsCaching(provider),
-								contentFilterProvider: true,
-								excludedByContentFilter: true,
-							};
-						}),
-					)),
-					...routingMetadata.providerScores,
-				];
+	const filteredProviders: FilteredProvider[] = [];
+	for (const filtered of routingMetadata.filteredProviders ?? []) {
+		mergeFilteredProvider(filteredProviders, filtered);
+	}
+	for (const providerId of contentFilterExcludedProviders) {
+		recordFilteredProvider(filteredProviders, providerId, [
+			exclusionReason("content_filter"),
+		]);
+	}
 
 	return {
 		...routingMetadata,
@@ -805,7 +849,8 @@ async function addContentFilterRoutingMetadata(
 			contentFilterExcludedProviders.length > 0
 				? contentFilterExcludedProviders
 				: undefined,
-		providerScores,
+		filteredProviders:
+			filteredProviders.length > 0 ? filteredProviders : undefined,
 	};
 }
 
@@ -868,6 +913,19 @@ function isGoogleCompatibleProvider(provider: string): boolean {
 
 function isVertexCompatibleProvider(provider: string): boolean {
 	return provider === "google-vertex" || provider === "quartz";
+}
+
+/**
+ * Providers that speak Anthropic's Messages API wire format (request body,
+ * streaming events and response shape), whether first-party or fronted by a
+ * cloud vendor.
+ */
+function isAnthropicMessagesProvider(provider: string): boolean {
+	return (
+		provider === "anthropic" ||
+		provider === "vertex-anthropic" ||
+		provider === "azure-anthropic"
+	);
 }
 
 /**
@@ -1271,7 +1329,49 @@ export async function inspectImmediateStreamingProviderError(
 	};
 }
 
-export const chat = new OpenAPIHono<ServerTypes>();
+export const chat = new OpenAPIHono<ServerTypes>({
+	defaultHook: async (result, c) => {
+		if (result.success) {
+			return;
+		}
+
+		let rawBody: unknown = null;
+		let invalidJson = false;
+		try {
+			rawBody = await c.req.json();
+		} catch {
+			invalidJson = true;
+		}
+
+		const message = invalidJson
+			? "Invalid JSON in request body"
+			: "Invalid request parameters";
+		const cause = invalidJson ? "invalid_json" : "invalid_parameters";
+		logger.warn("Invalid chat completions request", {
+			issues: result.error.issues,
+			path: c.req.path,
+			method: c.req.method,
+		});
+		await logGatewayClientError(c, {
+			apiOrigin: "chat-completions",
+			rawBody,
+			message,
+			cause,
+		});
+
+		return c.json(
+			{
+				error: {
+					message,
+					type: "invalid_request_error",
+					param: null,
+					code: cause,
+				},
+			},
+			400,
+		);
+	},
+});
 
 const completions = createRoute({
 	operationId: "v1_chat_completions",
@@ -1440,24 +1540,7 @@ const completions = createRoute({
 			},
 			description: "User response object or streaming response.",
 		},
-		500: {
-			content: {
-				"application/json": {
-					schema: z.object({
-						error: z.object({
-							message: z.string(),
-							type: z.string(),
-							param: z.string().nullable(),
-							code: z.string(),
-						}),
-					}),
-				},
-				"text/event-stream": {
-					schema: z.any(),
-				},
-			},
-			description: "Error response object.",
-		},
+		...standardErrorResponses(),
 	},
 });
 
@@ -1488,10 +1571,21 @@ chat.openapi(completions, async (c) => {
 	try {
 		rawBody = await c.req.json();
 	} catch {
+		const message = "Invalid JSON in request body";
+		logger.warn("Invalid chat completions JSON", {
+			path: c.req.path,
+			method: c.req.method,
+		});
+		await logGatewayClientError(c, {
+			apiOrigin: "chat-completions",
+			rawBody: null,
+			message,
+			cause: "invalid_json",
+		});
 		return c.json(
 			{
 				error: {
-					message: "Invalid JSON in request body",
+					message,
 					type: "invalid_request_error",
 					param: null,
 					code: "invalid_json",
@@ -1504,10 +1598,22 @@ chat.openapi(completions, async (c) => {
 	// Validate against schema
 	const validationResult = completionsRequestSchema.safeParse(rawBody);
 	if (!validationResult.success) {
+		const message = "Invalid request parameters";
+		logger.warn("Invalid chat completions request", {
+			issues: validationResult.error.issues,
+			path: c.req.path,
+			method: c.req.method,
+		});
+		await logGatewayClientError(c, {
+			apiOrigin: "chat-completions",
+			rawBody,
+			message,
+			cause: "invalid_parameters",
+		});
 		return c.json(
 			{
 				error: {
-					message: "Invalid request parameters",
+					message,
 					type: "invalid_request_error",
 					param: null,
 					code: "invalid_parameters",
@@ -1907,12 +2013,13 @@ chat.openapi(completions, async (c) => {
 
 	// Parse model input to resolve model, provider, and custom provider name
 	const parseResult = parseModelInput(modelInput);
-	const requestedModel = parseResult.requestedModel;
-	const customProviderName = parseResult.customProviderName;
-	const requestedRegion = parseResult.requestedRegion;
+	let requestedModel = parseResult.requestedModel;
+	let customProviderName = parseResult.customProviderName;
+	let requestedRegion = parseResult.requestedRegion;
 
 	// Count input images from messages for cost calculation
 	const inputImageCount =
+		requestedModel === "gemini-3-pro-image" ||
 		requestedModel === "gemini-3-pro-image-preview" ||
 		requestedModel === "gemini-3.1-flash-image-preview" ||
 		requestedModel === "gemini-3.1-flash-lite-image"
@@ -2081,6 +2188,7 @@ chat.openapi(completions, async (c) => {
 	// User-level limits take priority: enforce the per-member budget (set on the
 	// Teams page; fails open on read errors) before the per-key usage limits, so a
 	// member who is over budget is denied even if the key itself is within limits.
+	await assertMemberProjectAccess(apiKey, project.organizationId);
 	await assertMemberWithinBudget(apiKey.createdBy, project.organizationId);
 	assertApiKeyWithinUsageLimits(apiKey);
 
@@ -2257,7 +2365,7 @@ chat.openapi(completions, async (c) => {
 
 	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
 	// this org's env-credential reads. Undefined = base vars only.
-	const envVariant = getOrganizationEnvVariant(organization);
+	const envVariant = getLicensedOrganizationEnvVariant(organization);
 
 	// Dev-plan (DevPass) orgs can default routing to cheaper flex processing via
 	// their dashboard settings to save on plan credits. Applied softly, and only
@@ -2499,6 +2607,7 @@ chat.openapi(completions, async (c) => {
 
 	let routingCfg = await getResolvedRoutingConfig(
 		project.id,
+		organization.id,
 		organization.plan,
 	);
 	// Routing strategies only affect multi-provider selection. When the request
@@ -2570,7 +2679,7 @@ chat.openapi(completions, async (c) => {
 
 	// Run guardrails check for enterprise organizations
 	let guardrailResult: Awaited<ReturnType<typeof checkGuardrails>> | undefined;
-	if (organization.plan === "enterprise") {
+	if (hasOrganizationEnterpriseAccess(organization.id, organization.plan)) {
 		guardrailResult = await checkGuardrails({
 			organizationId: project.organizationId,
 			projectId: project.id,
@@ -2749,7 +2858,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Provider-targeting model strings (`provider/model`, `custom/model`) are
-	// never allowed on dev plans — only canonical root model ids. Direct and
+	// never allowed on dev plans — only canonical model ids. Direct and
 	// custom provider routing is never unlocked on coding plans.
 	if (isDevPlan) {
 		if (
@@ -2758,13 +2867,13 @@ chat.openapi(completions, async (c) => {
 			requestedProvider !== "custom"
 		) {
 			throw new HTTPException(403, {
-				message: `Direct provider routing is not available on coding plans. Use the root model id (e.g. \`${modelInfo.id}\`) without a provider prefix and let the gateway handle routing.`,
+				message: `Direct provider routing is not available on coding plans. Use the canonical model id (e.g. \`${modelInfo.id}\`) without a provider prefix and let the gateway handle routing.`,
 			});
 		}
 
 		if (requestedProvider === "custom") {
 			throw new HTTPException(403, {
-				message: `Custom provider routing is not available on coding plans. Use the root model id (e.g. \`${modelInfo.id}\`) without a provider prefix and let the gateway handle routing.`,
+				message: `Custom provider routing is not available on coding plans. Use the canonical model id (e.g. \`${modelInfo.id}\`) without a provider prefix and let the gateway handle routing.`,
 			});
 		}
 	}
@@ -2952,7 +3061,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	let usedProvider = requestedProvider;
-	// Canonical LLM Gateway model id (root id). Used for every internal
+	// Canonical LLM Gateway model id. Used for every internal
 	// lookup: pricing, discount, rate-limit, IAM, key selection. Initially
 	// the user's requested model; reset to `modelInfo.id` once the model is
 	// resolved, and re-set on auto-route when the resolved model changes.
@@ -2963,6 +3072,94 @@ chat.openapi(completions, async (c) => {
 	let usedExternalId: string = requestedModel;
 	let usedRegion: string | undefined = requestedRegion;
 	let routingMetadata: RoutingMetadata | undefined;
+
+	// Resolve a named dynamic route ("dynamic/<name>") to its target model and
+	// optional provider restriction. Official models continue through the auto
+	// candidate path below. A custom target is parsed here so the ordinary custom
+	// provider validation, catalog pricing, IAM and compliance paths can handle it.
+	let dynamicRouteSelection:
+		| {
+				name: string;
+				version: number;
+				model: string;
+				providers?: string[];
+				path: string[];
+		  }
+		| undefined;
+	if (parseResult.dynamicRouteName) {
+		const dynamicRouteName = parseResult.dynamicRouteName;
+		if (!hasOrganizationEnterpriseAccess(organization.id, organization.plan)) {
+			throw new HTTPException(403, {
+				message:
+					"Dynamic routes are only available on the enterprise plan. Contact us at contact@llmgateway.io to upgrade.",
+			});
+		}
+		const publishedRoute = await getPublishedDynamicRoute(
+			project.id,
+			dynamicRouteName,
+		);
+		if (!publishedRoute) {
+			throw new HTTPException(404, {
+				message: `Dynamic route "${dynamicRouteName}" not found, disabled, or has no published version`,
+			});
+		}
+		let evaluation: DynamicRouteEvaluation;
+		try {
+			evaluation = evaluateDynamicRoute(publishedRoute.graph, {
+				getHeader: (name) => c.req.header(name),
+				body: rawBody as Record<string, unknown>,
+				metadata: {
+					orgId: project.organizationId,
+					projectId: project.id,
+					apiKeyId: apiKey.id,
+					plan: organization.plan,
+				},
+				splitKey: sessionId ?? requestId,
+			});
+		} catch (error) {
+			if (!(error instanceof DynamicRouteEvaluationError)) {
+				throw error;
+			}
+			throw new HTTPException(400, {
+				message: `Dynamic route "${dynamicRouteName}" evaluation failed: ${toError(error).message}`,
+			});
+		}
+		if (evaluation.status === "end") {
+			throw new HTTPException(400, {
+				message: `Dynamic route "${dynamicRouteName}" ended without resolving to a model`,
+			});
+		}
+		dynamicRouteSelection = {
+			name: publishedRoute.name,
+			version: publishedRoute.version,
+			model: evaluation.model,
+			providers: evaluation.providers,
+			path: evaluation.path,
+		};
+
+		const customTarget = parseCustomDynamicRouteModelRef(evaluation.model);
+		if (customTarget) {
+			if (effectiveFreeModelsOnly) {
+				throw new HTTPException(400, {
+					message: `Dynamic route "${publishedRoute.name}" resolved to model "${evaluation.model}" which is not available with free_models_only`,
+				});
+			}
+			requestedModel = customTarget.modelName as Model;
+			customProviderName = customTarget.providerName;
+			requestedRegion = undefined;
+			const targetModelInfo = resolveModelInfo(requestedModel, "custom");
+			routingExpandedModelProviders = expandAllProviderRegions(
+				targetModelInfo.modelInfo.providers,
+			);
+			modelInfo = targetModelInfo.modelInfo;
+			allModelProviders = targetModelInfo.allModelProviders;
+			requestedProvider = targetModelInfo.requestedProvider;
+			usedProvider = requestedProvider;
+			usedInternalModel = requestedModel;
+			usedExternalId = requestedModel;
+			usedRegion = requestedRegion;
+		}
+	}
 
 	// Get image size limits from environment variables or use defaults
 	const freeLimitMB = imageSizeLimitMB(
@@ -2978,7 +3175,10 @@ chat.openapi(completions, async (c) => {
 	// Determine max image size based on plan. Enterprise is never capped below
 	// Pro — bucketing it with free rejected enterprise uploads at the free limit
 	// and then told them to contact us about raising their Enterprise limits.
-	const userPlan = organization?.plan ?? "free";
+	const userPlan = getLicensedOrganizationPlan(
+		organization?.id,
+		organization?.plan,
+	);
 	const maxImageSizeMB =
 		userPlan === "enterprise"
 			? enterpriseLimitMB
@@ -3001,24 +3201,102 @@ chat.openapi(completions, async (c) => {
 		activeModelInfo: modelInfo,
 		clientIp,
 	});
-	if (!iamValidation.allowed) {
+	const routingCustomProviderKeysById = new Map<
+		string,
+		InferSelectModel<typeof tables.providerKey>
+	>();
+	const routingCustomModelsByName = new Map<string, CustomModel[]>();
+	if (
+		requestedProvider === undefined &&
+		organization.plan === "enterprise" &&
+		project.mode !== "credits" &&
+		!isDevPlan
+	) {
+		const [providerKeys, customModels] = await Promise.all([
+			findActiveProviderKeys(project.organizationId),
+			findActiveCustomModels(project.organizationId),
+		]);
+		for (const key of providerKeys) {
+			if (key.provider === "custom" && key.name !== null) {
+				routingCustomProviderKeysById.set(key.id, key);
+			}
+		}
+		for (const customModel of customModels) {
+			const matchingModels =
+				routingCustomModelsByName.get(customModel.modelName) ?? [];
+			matchingModels.push(customModel);
+			routingCustomModelsByName.set(customModel.modelName, matchingModels);
+		}
+	}
+	const customRoutingMappings = (
+		await Promise.all(
+			(routingCustomModelsByName.get(modelInfo.id) ?? [])
+				.filter(customModelHasRoutingPrice)
+				.map(async (customModel) => {
+					const providerKey = routingCustomProviderKeysById.get(
+						customModel.providerKeyId,
+					);
+					if (!providerKey?.name) {
+						return undefined;
+					}
+					const mapping: CustomAutoRoutingMapping = {
+						...customModelToProviderMapping(customModel),
+						customProviderKeyId: providerKey.id,
+						customProviderName: providerKey.name,
+					};
+					const customIam = await validateRequestModelAccess({
+						apiKey,
+						organizationId: project.organizationId,
+						requestedModel: modelInfo.id,
+						requestedProvider: "custom",
+						customProviderName: providerKey.name,
+						activeModelInfo: { ...modelInfo, providers: [mapping] },
+						clientIp,
+						autoRouting: true,
+					});
+					return customIam.allowed ? mapping : undefined;
+				}),
+		)
+	).filter(
+		(mapping): mapping is CustomAutoRoutingMapping => mapping !== undefined,
+	);
+	if (!iamValidation.allowed && customRoutingMappings.length === 0) {
 		throwIamException(iamValidation.reason ?? "Model access denied");
+	}
+	if (customRoutingMappings.length > 0) {
+		modelInfo = {
+			...modelInfo,
+			providers: [...modelInfo.providers, ...customRoutingMappings],
+		};
+		routingExpandedModelProviders = [
+			...routingExpandedModelProviders,
+			...customRoutingMappings,
+		];
+		allModelProviders = [...allModelProviders, ...customRoutingMappings];
 	}
 	// IAM allowed providers - used to filter available providers during routing
 	const iamAllowedProviders = iamValidation.allowedProviders;
 
 	// IAM-filtered model providers for routing and retry fallback paths.
 	// Recomputed after auto-routing because that block replaces modelInfo.
-	let iamFilteredModelProviders = iamAllowedProviders
-		? modelInfo.providers.filter((p) =>
-				iamAllowedProviders.includes(p.providerId),
-			)
-		: modelInfo.providers;
-	let expandedIamFilteredModelProviders = iamAllowedProviders
-		? routingExpandedModelProviders.filter((p) =>
-				iamAllowedProviders.includes(p.providerId),
-			)
-		: routingExpandedModelProviders;
+	let iamFilteredModelProviders = iamValidation.allowed
+		? iamAllowedProviders
+			? modelInfo.providers.filter(
+					(p) =>
+						isCustomAutoRoutingMapping(p) ||
+						iamAllowedProviders.includes(p.providerId),
+				)
+			: modelInfo.providers
+		: customRoutingMappings;
+	let expandedIamFilteredModelProviders = iamValidation.allowed
+		? iamAllowedProviders
+			? routingExpandedModelProviders.filter(
+					(p) =>
+						isCustomAutoRoutingMapping(p) ||
+						iamAllowedProviders.includes(p.providerId),
+				)
+			: routingExpandedModelProviders
+		: customRoutingMappings;
 
 	// Resolved before the compliance gate: a custom provider key's self-attested
 	// posture is what the policy is evaluated against, and the auto-routing
@@ -3026,7 +3304,7 @@ chat.openapi(completions, async (c) => {
 	// Do not move the compliance gate above this block. Relies on
 	// unique(organizationId, name) on provider_key: this row is the same one the
 	// request-execution path resolves later.
-	const customProviderKey =
+	let customProviderKey =
 		requestedProvider === "custom" && customProviderName
 			? await findCustomProviderKey(project.organizationId, customProviderName)
 			: undefined;
@@ -3039,7 +3317,7 @@ chat.openapi(completions, async (c) => {
 			message: `Provider '${customProviderName}' not found.`,
 		});
 	}
-	const complianceContext: ComplianceCheckContext = {
+	let complianceContext: ComplianceCheckContext = {
 		customAttestation: customProviderKey?.complianceAttestation ?? null,
 		customProviderName,
 	};
@@ -3049,11 +3327,28 @@ chat.openapi(completions, async (c) => {
 	// none remain. Applied after every (re)computation of the IAM-filtered arrays.
 	const compliancePolicy = getActiveCompliancePolicy(organization);
 
-	const applyCompliancePolicy = <T extends { providerId: string }>(
+	const applyCompliancePolicy = <T extends ProviderModelMapping>(
 		list: T[],
 	): T[] =>
 		compliancePolicy
-			? filterCompliantProviders(list, compliancePolicy, complianceContext)
+			? list.filter((provider) => {
+					const context = isCustomAutoRoutingMapping(provider)
+						? {
+								customAttestation:
+									routingCustomProviderKeysById.get(
+										provider.customProviderKeyId,
+									)?.complianceAttestation ?? null,
+								customProviderName: provider.customProviderName,
+							}
+						: complianceContext;
+					return (
+						isProviderIdCompliant(
+							provider.providerId,
+							compliancePolicy,
+							context,
+						) && isModelIdCompliant(modelInfo.id, compliancePolicy, context)
+					);
+				})
 			: list;
 
 	const enforceCompliancePolicy = async () => {
@@ -3079,19 +3374,7 @@ chat.openapi(completions, async (c) => {
 			usedProvider !== "llmgateway" &&
 			usedProvider !== "custom" &&
 			!isProviderIdCompliant(usedProvider, compliancePolicy, complianceContext);
-		// The policy's model lists block the model outright, regardless of which
-		// provider would serve it (custom-provider requests also answer to their
-		// `<customProvider>/<model>` ref).
-		const modelBlocked = !isModelIdCompliant(
-			modelInfo.id,
-			compliancePolicy,
-			complianceContext,
-		);
-		if (
-			iamFilteredModelProviders.length === 0 ||
-			pinnedBlocked ||
-			modelBlocked
-		) {
+		if (iamFilteredModelProviders.length === 0 || pinnedBlocked) {
 			await logComplianceBlock(project.organizationId, {
 				apiKeyId: apiKey.id,
 				model: requestedModel,
@@ -3195,6 +3478,21 @@ chat.openapi(completions, async (c) => {
 	// so the request is billed at the catalog rates; undefined otherwise (those
 	// requests stay unbilled, as before).
 	let customPricingMapping: ProviderModelMapping | undefined;
+	const applySelectedCustomProvider = (provider: ProviderModelMapping) => {
+		if (!isCustomAutoRoutingMapping(provider)) {
+			return;
+		}
+		const providerKey = routingCustomProviderKeysById.get(
+			provider.customProviderKeyId,
+		);
+		customProviderName = provider.customProviderName;
+		customProviderKey = providerKey;
+		customPricingMapping = provider;
+		complianceContext = {
+			customAttestation: providerKey?.complianceAttestation ?? null,
+			customProviderName: provider.customProviderName,
+		};
+	};
 
 	// Validate the custom provider against the database if one was requested
 	if (customProviderKey) {
@@ -3245,11 +3543,7 @@ chat.openapi(completions, async (c) => {
 					message: `Model '${requestedModel}' is not configured to support tool calls. Remove the tools/tool_choice parameter or enable tools for this custom model.`,
 				});
 			}
-			// Custom models are soft-JSON-only by data model: org-model records
-			// carry jsonOutput but no jsonOutputSchema, so both json_object and
-			// json_schema are gated on jsonOutput (a custom model can still reach
-			// an upstream that enforces schema via a catalog mapping; extending
-			// custom models with jsonOutputSchema is a follow-up).
+			// Custom model records use jsonOutput for both JSON modes.
 			if (
 				customModelEntry.jsonOutput === false &&
 				(response_format?.type === "json_object" ||
@@ -3316,75 +3610,6 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	// Resolve a named dynamic route ("dynamic/<name>") to its target model and
-	// optional provider restriction. The route was tagged in parseModelInput and
-	// piggybacks the "auto" placeholder model until here, where project/org
-	// context needed by conditional and percentage nodes is available. The
-	// resolved target then flows through the auto-routing block below, which
-	// narrows candidates to the route's model/providers instead of the auto
-	// allowlist.
-	let dynamicRouteSelection:
-		| {
-				name: string;
-				version: number;
-				model: string;
-				providers?: string[];
-				path: string[];
-		  }
-		| undefined;
-	if (parseResult.dynamicRouteName) {
-		const dynamicRouteName = parseResult.dynamicRouteName;
-		if (organization.plan !== "enterprise") {
-			throw new HTTPException(403, {
-				message:
-					"Dynamic routes are only available on the enterprise plan. Contact us at contact@llmgateway.io to upgrade.",
-			});
-		}
-		const publishedRoute = await getPublishedDynamicRoute(
-			project.id,
-			dynamicRouteName,
-		);
-		if (!publishedRoute) {
-			throw new HTTPException(404, {
-				message: `Dynamic route "${dynamicRouteName}" not found, disabled, or has no published version`,
-			});
-		}
-		let evaluation: DynamicRouteEvaluation;
-		try {
-			evaluation = evaluateDynamicRoute(publishedRoute.graph, {
-				getHeader: (name) => c.req.header(name),
-				// The RAW request body, not validationResult.data: the completions
-				// schema strips unknown keys, which would make body conditions on
-				// caller-defined fields (e.g. "metadata.segment") silently never
-				// match.
-				body: rawBody as Record<string, unknown>,
-				metadata: {
-					orgId: project.organizationId,
-					projectId: project.id,
-					apiKeyId: apiKey.id,
-					plan: organization.plan,
-				},
-				splitKey: sessionId ?? requestId,
-			});
-		} catch (error) {
-			throw new HTTPException(400, {
-				message: `Dynamic route "${dynamicRouteName}" evaluation failed: ${toError(error).message}`,
-			});
-		}
-		if (evaluation.status === "end") {
-			throw new HTTPException(400, {
-				message: `Dynamic route "${dynamicRouteName}" ended without resolving to a model`,
-			});
-		}
-		dynamicRouteSelection = {
-			name: publishedRoute.name,
-			version: publishedRoute.version,
-			model: evaluation.model,
-			providers: evaluation.providers,
-			path: evaluation.path,
-		};
-	}
-
 	// Apply routing logic after apiKey and project are available
 	if (
 		(usedProvider === "llmgateway" && usedInternalModel === "auto") ||
@@ -3430,6 +3655,22 @@ chat.openapi(completions, async (c) => {
 		// configured region (e.g. aws_bedrock_region: "eu") instead of being
 		// collapsed to the pinned default by applyPinnedDefaultRegions.
 		const autoProviderLockedRegions = buildProviderLockedRegions(providerKeys);
+		const customProviderKeysById = new Map(
+			providerKeys
+				.filter((key) => key.provider === "custom" && key.name !== null)
+				.map((key) => [key.id, key]),
+		);
+		const activeCustomModels =
+			project.mode !== "credits" && !isDevPlan
+				? await findActiveCustomModels(project.organizationId)
+				: [];
+		const activeCustomModelsByName = new Map<string, CustomModel[]>();
+		for (const customModel of activeCustomModels) {
+			const matchingModels =
+				activeCustomModelsByName.get(customModel.modelName) ?? [];
+			matchingModels.push(customModel);
+			activeCustomModelsByName.set(customModel.modelName, matchingModels);
+		}
 
 		// Find the cheapest model that meets our context size requirements
 		// Only consider hardcoded models for auto selection
@@ -3460,6 +3701,11 @@ chat.openapi(completions, async (c) => {
 			// array; an empty tools list must not require function-tool support.
 			hasTools:
 				(tools !== undefined && tools.length > 0) || forcesFunctionTools,
+			// Auto routing can pick another model entirely, so a mapping that would
+			// have to downgrade the requested tool_choice is dropped outright rather
+			// than merely deprioritized.
+			toolChoice: tool_choice,
+			strictToolChoice: !dynamicRouteSelection,
 			reasoningEffort: reasoning_effort,
 			reasoningMaxTokens: reasoning_max_tokens,
 			noReasoning: no_reasoning,
@@ -3542,9 +3788,6 @@ chat.openapi(completions, async (c) => {
 				clientIp,
 				autoRouting: true,
 			});
-			if (!candidateIam.allowed) {
-				continue;
-			}
 			const candidateAllowedProviders = candidateIam.allowedProviders;
 
 			const { availableProviders, providersWithKeys } =
@@ -3576,13 +3819,73 @@ chat.openapi(completions, async (c) => {
 				),
 			);
 			// Check if any of the model's providers are available
-			const availableModelProviders = candidateProviders.filter(
-				(provider) =>
-					availableProviders.includes(provider.providerId) &&
-					(!candidateAllowedProviders ||
-						candidateAllowedProviders.includes(provider.providerId)) &&
-					(!dynamicRouteSelection?.providers ||
-						dynamicRouteSelection.providers.includes(provider.providerId)),
+			const availableModelProviders = candidateIam.allowed
+				? candidateProviders.filter(
+						(provider) =>
+							availableProviders.includes(provider.providerId) &&
+							(!candidateAllowedProviders ||
+								candidateAllowedProviders.includes(provider.providerId)) &&
+							(!dynamicRouteSelection?.providers ||
+								dynamicRouteSelection.providers.includes(provider.providerId)),
+					)
+				: [];
+			const customAvailableProviders = (
+				await Promise.all(
+					(activeCustomModelsByName.get(modelDef.id) ?? [])
+						.filter(customModelHasRoutingPrice)
+						.map(async (customModel) => {
+							const providerKey = customProviderKeysById.get(
+								customModel.providerKeyId,
+							);
+							if (!providerKey?.name) {
+								return undefined;
+							}
+							if (
+								effectiveFreeModelsOnly &&
+								[
+									customModel.inputPrice,
+									customModel.outputPrice,
+									customModel.requestPrice,
+								]
+									.filter((price): price is string => price !== null)
+									.some((price) => Number(price) !== 0)
+							) {
+								return undefined;
+							}
+							if (
+								dynamicRouteSelection?.providers &&
+								!dynamicRouteSelection.providers.some((provider) =>
+									[
+										"custom",
+										providerKey.name,
+										`custom:${providerKey.name}`,
+									].includes(provider),
+								)
+							) {
+								return undefined;
+							}
+
+							const mapping: CustomAutoRoutingMapping = {
+								...customModelToProviderMapping(customModel),
+								customProviderKeyId: providerKey.id,
+								customProviderName: providerKey.name,
+							};
+							const customIam = await validateRequestModelAccess({
+								apiKey,
+								organizationId: project.organizationId,
+								requestedModel: modelDef.id,
+								requestedProvider: "custom",
+								customProviderName: providerKey.name,
+								activeModelInfo: { ...modelDef, providers: [mapping] },
+								clientIp,
+								autoRouting: true,
+							});
+							return customIam.allowed ? mapping : undefined;
+						}),
+				)
+			).filter(
+				(provider): provider is CustomAutoRoutingMapping =>
+					provider !== undefined,
 			);
 			const cachedFilteredProviders = isDevPlan
 				? availableModelProviders.filter(providerSupportsCachedInput)
@@ -3591,11 +3894,34 @@ chat.openapi(completions, async (c) => {
 			// Drop providers that don't meet the org's compliance policy so auto
 			// routing picks a compliant provider instead of being blocked later. A
 			// model excluded by the policy's model lists loses all its providers.
-			const complianceFilteredProviders =
+			const catalogueComplianceFilteredProviders =
 				compliancePolicy && !isModelIdCompliant(modelDef.id, compliancePolicy)
 					? []
 					: applyCompliancePolicy(cachedFilteredProviders);
-			if (cachedFilteredProviders.length > 0) {
+			const customComplianceFilteredProviders = compliancePolicy
+				? customAvailableProviders.filter((provider) => {
+						const providerKey = customProviderKeysById.get(
+							provider.customProviderKeyId,
+						);
+						const context: ComplianceCheckContext = {
+							customAttestation: providerKey?.complianceAttestation ?? null,
+							customProviderName: provider.customProviderName,
+						};
+						return (
+							isModelIdCompliant(modelDef.id, compliancePolicy, context) &&
+							isProviderIdCompliant("custom", compliancePolicy, context)
+						);
+					})
+				: customAvailableProviders;
+			const preComplianceProviders = [
+				...cachedFilteredProviders,
+				...customAvailableProviders,
+			];
+			const complianceFilteredProviders = [
+				...catalogueComplianceFilteredProviders,
+				...customComplianceFilteredProviders,
+			];
+			if (preComplianceProviders.length > 0) {
 				anyPreComplianceCandidate = true;
 				if (complianceFilteredProviders.length > 0) {
 					anyPostComplianceCandidate = true;
@@ -3603,11 +3929,9 @@ chat.openapi(completions, async (c) => {
 			}
 			// Filter by context size requirement, reasoning capability, and deprecation status
 			const filteredOutForModel: FilteredProvider[] = [];
-			const compliantProviderIds = new Set(
-				complianceFilteredProviders.map((provider) => provider.providerId),
-			);
-			for (const provider of cachedFilteredProviders) {
-				if (!compliantProviderIds.has(provider.providerId)) {
+			const compliantProviders = new Set(complianceFilteredProviders);
+			for (const provider of preComplianceProviders) {
+				if (!compliantProviders.has(provider)) {
 					recordFilteredProvider(filteredOutForModel, provider.providerId, [
 						exclusionReason("compliance"),
 					]);
@@ -3645,9 +3969,26 @@ chat.openapi(completions, async (c) => {
 					return true;
 				},
 			);
+			// A dynamic route has already fixed the model, so treat its providers like
+			// pinned-model candidates: prefer mappings that honour tool_choice, but keep
+			// the downgrade-to-auto fallback when none do.
+			const toolChoiceSuitableProviders = dynamicRouteSelection
+				? preferToolChoiceCapableProviders(
+						suitableProviders,
+						autoFilterOpts,
+						filteredOutForModel,
+					)
+				: suitableProviders;
+			const deduplicatedSuitableProviders =
+				await keepCheapestCustomRoutingMapping(
+					toolChoiceSuitableProviders,
+					modelDef.id,
+					project.organizationId,
+					providerDiscountResolver,
+				);
 			const preferredSuitableProviders = preferProvidersWithKeys(
 				project.mode,
-				suitableProviders,
+				deduplicatedSuitableProviders,
 				providersWithKeys,
 			);
 
@@ -3666,7 +4007,10 @@ chat.openapi(completions, async (c) => {
 
 					if (totalPrice < lowestPrice) {
 						lowestPrice = totalPrice;
-						selectedModel = modelDef;
+						selectedModel = {
+							...modelDef,
+							providers: preferredSuitableProviders,
+						};
 						selectedProviders = preferredSuitableProviders;
 						selectedFilteredProviders = filteredOutForModel;
 					}
@@ -3675,6 +4019,21 @@ chat.openapi(completions, async (c) => {
 		}
 
 		let providerAgnosticSelectedProviders = selectedProviders;
+		const applySelectedCustomProvider = (provider: ProviderModelMapping) => {
+			if (!isCustomAutoRoutingMapping(provider)) {
+				return;
+			}
+			const providerKey = customProviderKeysById.get(
+				provider.customProviderKeyId,
+			);
+			customProviderName = provider.customProviderName;
+			customProviderKey = providerKey;
+			customPricingMapping = provider;
+			complianceContext = {
+				customAttestation: providerKey?.complianceAttestation ?? null,
+				customProviderName: provider.customProviderName,
+			};
+		};
 
 		// If we found a suitable model, use the cheapest provider from it
 		if (selectedModel && selectedProviders.length > 0) {
@@ -3721,6 +4080,7 @@ chat.openapi(completions, async (c) => {
 				usedInternalModel = selectedModel.id;
 				usedExternalId = cheapestResult.provider.externalId;
 				usedRegion = cheapestResult.provider.region;
+				applySelectedCustomProvider(cheapestResult.provider);
 				routingMetadata = {
 					...cheapestResult.metadata,
 					...getNoFallbackRoutingMetadata(noFallback, xNoFallbackHeaderSet),
@@ -3731,6 +4091,22 @@ chat.openapi(completions, async (c) => {
 				usedProvider = selectedProviders[0].providerId;
 				usedInternalModel = selectedModel.id;
 				usedExternalId = selectedProviders[0].externalId;
+				applySelectedCustomProvider(selectedProviders[0]);
+			}
+
+			if (usedProvider === "custom") {
+				providerAgnosticSelectedProviders =
+					providerAgnosticSelectedProviders.filter(
+						(provider) =>
+							provider.providerId !== "custom" ||
+							(isCustomAutoRoutingMapping(provider) &&
+								provider.customProviderName === customProviderName),
+					);
+			} else {
+				providerAgnosticSelectedProviders =
+					providerAgnosticSelectedProviders.filter(
+						(provider) => provider.providerId !== "custom",
+					);
 			}
 		} else {
 			// Compliance removed every otherwise-available candidate: fail closed
@@ -3776,13 +4152,6 @@ chat.openapi(completions, async (c) => {
 			usedExternalId = "claude-haiku-4-5";
 			usedProvider = "anthropic";
 		}
-		if (dynamicRouteSelection && routingMetadata) {
-			routingMetadata.dynamicRoute = {
-				name: dynamicRouteSelection.name,
-				version: dynamicRouteSelection.version,
-				path: dynamicRouteSelection.path,
-			};
-		}
 		// Update modelInfo to the selected model so retry/fallback logic can find
 		// alternative providers. Without this, modelInfo still points to the "auto"
 		// model definition which only has "llmgateway" as a provider, preventing retries.
@@ -3813,6 +4182,9 @@ chat.openapi(completions, async (c) => {
 			apiKey,
 			organizationId: project.organizationId,
 			requestedModel: modelInfo.id,
+			requestedProvider: usedProvider === "custom" ? "custom" : undefined,
+			customProviderName:
+				usedProvider === "custom" ? customProviderName : undefined,
 			activeModelInfo: modelInfo,
 			clientIp,
 			autoRouting: true,
@@ -3954,6 +4326,7 @@ chat.openapi(completions, async (c) => {
 					audioFormats,
 					hasDocuments,
 					hasAssistantPrefill,
+					toolChoice: tool_choice,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 					n,
@@ -4215,31 +4588,12 @@ chat.openapi(completions, async (c) => {
 							},
 						);
 
-						const originalProviderInfo = modelInfo.providers.find(
-							(p) => p.providerId === requestedProvider,
-						);
-						const {
-							price: originalProviderPrice,
-							discount: originalProviderDiscount,
-						} = await getDiscountedProviderSelectionPrice(
-							originalProviderInfo,
-							modelWithPricing.id,
-							{
-								organizationId: project.organizationId,
-								providerDiscountResolver,
-							},
-						);
-
-						const originalProviderScore = {
-							providerId: requestedProvider,
-							score: -1,
-							price: originalProviderPrice.toNumber(),
-							discount: originalProviderDiscount.toNumber(),
-							cacheSupported: providerSupportsCaching(originalProviderInfo),
-							rate_limited: true as const,
-						};
-
 						if (cheapestResult) {
+							recordFilteredProvider(
+								preRoutingFilteredProviders,
+								requestedProvider,
+								[exclusionReason("rate_limited")],
+							);
 							usedProvider = cheapestResult.provider.providerId;
 							usedInternalModel = modelInfo.id;
 							usedExternalId = cheapestResult.provider.externalId;
@@ -4249,10 +4603,6 @@ chat.openapi(completions, async (c) => {
 								selectionReason: "rate-limit-fallback",
 								originalProvider: requestedProvider,
 								originalProviderRateLimited: true,
-								providerScores: [
-									originalProviderScore,
-									...cheapestResult.metadata.providerScores,
-								],
 								...getNoFallbackRoutingMetadata(
 									noFallback,
 									xNoFallbackHeaderSet,
@@ -4360,6 +4710,7 @@ chat.openapi(completions, async (c) => {
 						audioFormats,
 						hasDocuments,
 						hasAssistantPrefill,
+						toolChoice: tool_choice,
 						maxTokens: max_tokens,
 						reasoningEffort: reasoning_effort,
 						n,
@@ -4552,6 +4903,7 @@ chat.openapi(completions, async (c) => {
 			usedInternalModel = modelInfo.id;
 			usedExternalId = iamFilteredModelProviders[0].externalId;
 			usedRegion = iamFilteredModelProviders[0].region;
+			applySelectedCustomProvider(iamFilteredModelProviders[0]);
 			// This shortcut bypasses provider selection (and with it the sticky
 			// pinning inside getCheapestFromAvailableProviders), but the session is
 			// now genuinely served by this provider — e.g. a service_tier request
@@ -4603,14 +4955,21 @@ chat.openapi(completions, async (c) => {
 				audioFormats,
 				hasDocuments,
 				hasAssistantPrefill,
+				toolChoice: tool_choice,
 				maxTokens: max_tokens,
 				reasoningEffort: reasoning_effort,
 			};
 			const filteredOutProvidersDirect: FilteredProvider[] = [];
-			const availableModelProviders = filterEligibleModelProviders(
+			const eligibleModelProviders = filterEligibleModelProviders(
 				preparedModelProviders,
 				{ ...eligibilityOptions, n, stream },
 				filteredOutProvidersDirect,
+			);
+			const availableModelProviders = await keepCheapestCustomRoutingMapping(
+				eligibleModelProviders,
+				modelInfo.id,
+				project.organizationId,
+				providerDiscountResolver,
 			);
 
 			if (availableModelProviders.length === 0) {
@@ -4704,6 +5063,16 @@ chat.openapi(completions, async (c) => {
 				rateLimitedProviderIds,
 				providersWithKeys,
 			);
+			const routingCandidateProviderIds = new Set(
+				routingCandidates.map((candidate) => candidate.providerId),
+			);
+			for (const providerId of rateLimitedProviderIds) {
+				if (!routingCandidateProviderIds.has(providerId)) {
+					recordFilteredProvider(filteredOutProvidersDirect, providerId, [
+						exclusionReason("rate_limited"),
+					]);
+				}
+			}
 
 			const rawModelWithPricing = models.find(
 				(m) => m.id === usedInternalModel,
@@ -4711,18 +5080,18 @@ chat.openapi(completions, async (c) => {
 			const modelWithPricing = rawModelWithPricing
 				? {
 						...rawModelWithPricing,
-						providers: expandAllProviderRegions(
-							rawModelWithPricing.providers as ProviderModelMapping[],
-						),
+						providers: [
+							...expandAllProviderRegions(
+								rawModelWithPricing.providers as ProviderModelMapping[],
+							),
+							...availableModelProviders.filter(isCustomAutoRoutingMapping),
+						],
 					}
 				: undefined;
 
 			if (modelWithPricing) {
 				// Fetch uptime/latency metrics from last 5 minutes for provider selection
-				const metricsCombinations = [
-					...routingCandidates,
-					...contentFilterRoutingExcludedProviders,
-				].map((provider) => ({
+				const metricsCombinations = routingCandidates.map((provider) => ({
 					modelId: modelWithPricing.id,
 					providerId: provider.providerId,
 					region: provider.region,
@@ -4812,7 +5181,26 @@ chat.openapi(completions, async (c) => {
 					usedInternalModel = modelWithPricing.id;
 					usedExternalId = selectedProvider.externalId;
 					usedRegion = selectedProvider.region;
-					routingMetadata = await addContentFilterRoutingMetadata(
+					applySelectedCustomProvider(selectedProvider);
+					if (usedProvider === "custom") {
+						modelInfo = {
+							...modelInfo,
+							providers: modelInfo.providers.filter(
+								(provider) =>
+									provider.providerId !== "custom" ||
+									(isCustomAutoRoutingMapping(provider) &&
+										provider.customProviderName === customProviderName),
+							),
+						};
+					} else {
+						modelInfo = {
+							...modelInfo,
+							providers: modelInfo.providers.filter(
+								(provider) => provider.providerId !== "custom",
+							),
+						};
+					}
+					routingMetadata = addContentFilterRoutingMetadata(
 						{
 							...cheapestResult.metadata,
 							selectedProvider: usedProvider,
@@ -4822,51 +5210,20 @@ chat.openapi(completions, async (c) => {
 						},
 						contentFilterMatched,
 						contentFilterRoutingExcludedProviders,
-						modelWithPricing.id,
-						metricsMap,
-						project.organizationId,
-						providerDiscountResolver,
 					);
-					// Annotate rate-limited providers in routing metadata
-					if (rateLimitedProviderIds.size > 0) {
-						// Add filtered-out rate-limited providers as score entries
-						for (const rlProviderId of rateLimitedProviderIds) {
-							const existing = routingMetadata.providerScores.find(
-								(s) => s.providerId === rlProviderId,
-							);
-							if (existing) {
-								existing.rate_limited = true;
-							} else {
-								const providerInfo = modelInfo.providers.find(
-									(p) => p.providerId === rlProviderId,
-								);
-								const { price, discount } =
-									await getDiscountedProviderSelectionPrice(
-										providerInfo,
-										modelWithPricing.id,
-										{
-											organizationId: project.organizationId,
-											providerDiscountResolver,
-										},
-									);
-								routingMetadata.providerScores.push({
-									providerId: rlProviderId,
-									score: -1,
-									price: price.toNumber(),
-									discount: discount.toNumber(),
-									cacheSupported: providerSupportsCaching(providerInfo),
-									rate_limited: true,
-								});
-							}
+					// When every candidate is capped, routing fails open. Those providers
+					// were scored and remain candidates, so annotate their existing entries.
+					for (const score of routingMetadata.providerScores) {
+						if (rateLimitedProviderIds.has(score.providerId)) {
+							score.rate_limited = true;
 						}
 					}
 					{
-						const routingCandidateSet = new Set(routingCandidates);
 						await appendHybridDemotedProviderScores(
 							routingMetadata,
 							contentFilterPreferredProviders.filter(
 								(candidate) =>
-									!routingCandidateSet.has(candidate) &&
+									!routingCandidateProviderIds.has(candidate.providerId) &&
 									!rateLimitedProviderIds.has(candidate.providerId),
 							),
 							modelWithPricing.id,
@@ -4877,12 +5234,14 @@ chat.openapi(completions, async (c) => {
 					usedInternalModel = modelInfo.id;
 					usedExternalId = routingCandidates[0].externalId;
 					usedRegion = routingCandidates[0].region;
+					applySelectedCustomProvider(routingCandidates[0]);
 				}
 			} else {
 				usedProvider = contentFilterPreferredProviders[0].providerId;
 				usedInternalModel = modelInfo.id;
 				usedExternalId = contentFilterPreferredProviders[0].externalId;
 				usedRegion = contentFilterPreferredProviders[0].region;
+				applySelectedCustomProvider(contentFilterPreferredProviders[0]);
 			}
 		}
 	}
@@ -4963,6 +5322,7 @@ chat.openapi(completions, async (c) => {
 					audioFormats,
 					hasDocuments,
 					hasAssistantPrefill,
+					toolChoice: tool_choice,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 					n,
@@ -4992,10 +5352,7 @@ chat.openapi(completions, async (c) => {
 		let metricsMap: Map<string, ProviderMetrics> = new Map();
 
 		if (baseModelId && usedProvider !== "custom") {
-			const metricsCombinations = [
-				...routingMetadataProviders,
-				...contentFilterRoutingExcludedProviders,
-			].map((provider) => ({
+			const metricsCombinations = routingMetadataProviders.map((provider) => ({
 				modelId: baseModelId,
 				providerId: provider.providerId,
 				region: provider.region,
@@ -5062,7 +5419,7 @@ chat.openapi(completions, async (c) => {
 				}),
 			));
 
-		routingMetadata = await addContentFilterRoutingMetadata(
+		routingMetadata = addContentFilterRoutingMetadata(
 			{
 				availableProviders: routingMetadataProviders.map((p) => p.providerId),
 				selectedProvider: usedProvider,
@@ -5073,11 +5430,15 @@ chat.openapi(completions, async (c) => {
 			},
 			contentFilterMatched,
 			contentFilterRoutingExcludedProviders,
-			baseModelId,
-			metricsMap,
-			project.organizationId,
-			providerDiscountResolver,
 		);
+	}
+
+	if (dynamicRouteSelection && routingMetadata) {
+		routingMetadata.dynamicRoute = {
+			name: dynamicRouteSelection.name,
+			version: dynamicRouteSelection.version,
+			path: dynamicRouteSelection.path,
+		};
 	}
 
 	// Record where the processing tier came from. A dev-plan (DevPass) org's
@@ -5563,7 +5924,7 @@ chat.openapi(completions, async (c) => {
 	// Check email verification and rate limits for free models (only when using credits/environment tokens)
 	if (
 		isModelTrulyFree((finalModelInfo ?? modelInfo) as ModelDefinition) &&
-		!hasProviderKey(providerKey)
+		!providerKey
 	) {
 		await validateFreeModelUsage(
 			c,
@@ -5630,9 +5991,11 @@ chat.openapi(completions, async (c) => {
 				const retryAfter = providerRateLimitResult.retryAfter;
 				if (retryAfter) {
 					c.header("Retry-After", retryAfter.toString());
+					c.header("RateLimit-Reset", retryAfter.toString());
 					const resetTime = Math.floor(Date.now() / 1000) + retryAfter;
 					c.header("X-RateLimit-Reset", resetTime.toString());
 				}
+				c.header("RateLimit-Remaining", "0");
 
 				const blockedLimits = providerRateLimitResult.blockedBy
 					.map(
@@ -6009,7 +6372,7 @@ chat.openapi(completions, async (c) => {
 	const {
 		enabled: projectCachingEnabled,
 		duration: cacheDuration,
-		providerCacheControlEnabled,
+		providerCacheControlMode,
 	} = await isCachingEnabled(project.id);
 	// Per-request opt-out, mirroring X-No-Fallback. Agent workloads that retry a
 	// byte-identical request expect a fresh sample rather than a replay, so let
@@ -6033,6 +6396,9 @@ chat.openapi(completions, async (c) => {
 			frequency_penalty,
 			presence_penalty,
 			response_format,
+			tools: tools?.length ? tools : undefined,
+			tool_choice,
+			webSearchTool,
 			reasoning_effort,
 			reasoning_max_tokens,
 			prompt_cache_key,
@@ -6043,7 +6409,7 @@ chat.openapi(completions, async (c) => {
 		};
 
 		if (stream) {
-			streamingCacheKey = generateStreamingCacheKey(cachePayload);
+			streamingCacheKey = generateStreamingCacheKey(project.id, cachePayload);
 			const cachedStreamingResponse =
 				await getStreamingCache(streamingCacheKey);
 			if (cachedStreamingResponse?.metadata.completed) {
@@ -6233,8 +6599,7 @@ chat.openapi(completions, async (c) => {
 					totalTokens: costs.imageInputTokens
 						? (
 								(costs.promptTokens ?? promptTokens ?? 0) +
-								(completionTokens ?? 0) +
-								(reasoningTokens ?? 0)
+								(completionTokens ?? 0)
 							).toString()
 						: (totalTokens?.toString() ?? null),
 					reasoningTokens: reasoningTokens?.toString() ?? null,
@@ -6399,7 +6764,7 @@ chat.openapi(completions, async (c) => {
 				);
 			}
 		} else {
-			cacheKey = generateCacheKey(cachePayload);
+			cacheKey = generateCacheKey(project.id, cachePayload);
 			const cachedResponse = cacheKey ? await getCache(cacheKey) : null;
 			if (cachedResponse) {
 				// Log the cached request
@@ -6629,11 +6994,9 @@ chat.openapi(completions, async (c) => {
 	// Check if streaming is requested and if the model/provider combination supports it
 	// For image generation models, we'll fake streaming by converting the response
 	const fakeStreamingForImageGen = stream && isImageGeneration;
-	const streamingSupport = getModelStreamingSupport(
-		usedInternalModel,
-		usedProvider,
-		usedRegion,
-	);
+	const streamingSupport =
+		getUsedProviderMapping()?.streaming ??
+		getModelStreamingSupport(usedInternalModel, usedProvider, usedRegion);
 	// When the provider only supports streaming, force it even if the client didn't request it.
 	// The upstream request uses effectiveStream; the client response uses stream.
 	const forceStream = streamingSupport === "only" && !stream;
@@ -6755,7 +7118,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Anthropic does not allow temperature and top_p to be set simultaneously
-	if (usedProvider === "anthropic" || usedProvider === "vertex-anthropic") {
+	if (isAnthropicMessagesProvider(usedProvider)) {
 		if (temperature !== undefined && top_p !== undefined) {
 			top_p = undefined;
 		}
@@ -6867,7 +7230,7 @@ chat.openapi(completions, async (c) => {
 			useResponsesApi,
 			prompt_cache_key,
 			prompt_cache_retention,
-			providerCacheControlEnabled,
+			providerCacheControlMode,
 			n,
 			initialForwardedServiceTier,
 			verbosity,
@@ -7076,7 +7439,6 @@ chat.openapi(completions, async (c) => {
 				userPlan,
 				hasExistingToolCalls,
 				customProviderName,
-				webSearchEnabled: !!webSearchTool,
 				excludedEnvKeyIndices: failedKeys.envKeyIndicesFor(
 					providerMapping.providerId,
 					providerMapping.region,
@@ -7086,7 +7448,7 @@ chat.openapi(completions, async (c) => {
 					providerMapping.region,
 				),
 				n,
-				providerCacheControlEnabled,
+				providerCacheControlMode,
 				service_tier,
 				clientRequestedServiceTier: clientRequestedServiceTier(),
 				verbosity,
@@ -7098,6 +7460,11 @@ chat.openapi(completions, async (c) => {
 		ctx: Awaited<ReturnType<typeof resolveProviderContext>>,
 	): void {
 		usedProvider = ctx.usedProvider;
+		if (usedProvider !== "custom") {
+			customProviderName = undefined;
+			customProviderKey = undefined;
+			customPricingMapping = undefined;
+		}
 		usedInternalModel = ctx.usedInternalModel;
 		usedExternalId = ctx.usedExternalId;
 		usedModelFormatted = ctx.usedModelFormatted;
@@ -7728,7 +8095,6 @@ chat.openapi(completions, async (c) => {
 						servedServiceTier = null;
 						const headers = getProviderHeaders(usedProvider, usedToken, {
 							requestId,
-							webSearchEnabled: !!webSearchTool,
 							// Same resolved token type as the endpoint so header auth and
 							// the `?key=` query param never disagree.
 							tokenType: resolveActiveVertexTokenType(),
@@ -9162,6 +9528,7 @@ chat.openapi(completions, async (c) => {
 				// Accumulates Anthropic tool search calls until their result block
 				// arrives, so the pair can be forwarded to native clients intact.
 				const toolSearchState: AnthropicToolSearchState = new Map();
+				const toolCallChoiceIndices = new Set<number>();
 				let sawUpstreamDoneSentinel = false;
 				let sawProviderTerminalEvent = false;
 				let sawOpenAiResponsesDoneEvent = false;
@@ -9210,8 +9577,7 @@ chat.openapi(completions, async (c) => {
 					!healingDisabledByN &&
 					streamingIsJsonResponseFormat &&
 					(streamingResponseHealingEnabled === true ||
-						((usedProvider === "anthropic" ||
-							usedProvider === "vertex-anthropic") &&
+						(isAnthropicMessagesProvider(usedProvider) &&
 							response_format?.type === "json_object") ||
 						(usesAwsBedrockConverse() &&
 							response_format?.type === "json_object") ||
@@ -9586,9 +9952,7 @@ chat.openapi(completions, async (c) => {
 
 								if (finalTotalTokens === null) {
 									finalTotalTokens =
-										(finalPromptTokens ?? 0) +
-										(finalCompletionTokens ?? 0) +
-										(reasoningTokens ?? 0);
+										(finalPromptTokens ?? 0) + (finalCompletionTokens ?? 0);
 								}
 
 								// Send final usage chunk before [DONE] if we have any usage data
@@ -9644,7 +10008,7 @@ chat.openapi(completions, async (c) => {
 
 									// Approximate reasoning tokens when the provider streamed
 									// reasoning content but no count (e.g. AWS Bedrock).
-									// Display only — totals/costs keep the raw reasoningTokens.
+									// Display only — totals and costs use completionTokens.
 									const calculatedReasoningTokens = resolveReasoningTokens(
 										reasoningTokens,
 										fullReasoningContent,
@@ -9664,8 +10028,7 @@ chat.openapi(completions, async (c) => {
 											(streamingCosts.promptTokens ?? finalPromptTokens ?? 0) +
 												(streamingCosts.completionTokens ??
 													finalCompletionTokens ??
-													0) +
-												(reasoningTokens ?? 0),
+													0),
 										),
 										...(calculatedReasoningTokens !== null &&
 											calculatedReasoningTokens > 0 && {
@@ -9725,7 +10088,7 @@ chat.openapi(completions, async (c) => {
 										id: `chatcmpl-${Date.now()}`,
 										object: "chat.completion.chunk",
 										created: Math.floor(Date.now() / 1000),
-										model: usedInternalModel,
+										model: usedModelFormatted,
 										choices: [
 											{
 												index: 0,
@@ -9759,7 +10122,7 @@ chat.openapi(completions, async (c) => {
 													id: `chatcmpl-${Date.now()}`,
 													object: "chat.completion.chunk",
 													created: Math.floor(Date.now() / 1000),
-													model: usedInternalModel,
+													model: usedModelFormatted,
 													choices: [
 														{
 															index: 0,
@@ -9914,7 +10277,7 @@ chat.openapi(completions, async (c) => {
 											billingModel: usedInternalModel,
 											billingProvider: usedProvider,
 											billingRegion: usedRegion ?? null,
-											responseModel: data.model ?? usedInternalModel,
+											responseModel: usedModelFormatted,
 										});
 										handledTerminalProviderEvent = true;
 									} else {
@@ -10019,12 +10382,13 @@ chat.openapi(completions, async (c) => {
 								// Transform streaming responses to OpenAI format for all providers
 								const transformedData = transformStreamingToOpenai(
 									streamFormatProvider,
-									usedInternalModel,
+									usedModelFormatted,
 									data,
 									messages,
 									serverToolUseIndices,
 									supportsReasoning,
 									toolSearchState,
+									toolCallChoiceIndices,
 								);
 
 								// Skip null events (some providers have non-data events)
@@ -10085,8 +10449,7 @@ chat.openapi(completions, async (c) => {
 
 								// For Anthropic, if we have partial usage data, complete it
 								if (
-									(usedProvider === "anthropic" ||
-										usedProvider === "vertex-anthropic") &&
+									isAnthropicMessagesProvider(usedProvider) &&
 									transformedData.usage
 								) {
 									const usage = transformedData.usage;
@@ -10187,10 +10550,7 @@ chat.openapi(completions, async (c) => {
 
 								// For Anthropic streaming tool calls, enrich delta chunks with id/type/name
 								// from the initial content_block_start event. This ensures OpenAI SDK compatibility.
-								if (
-									usedProvider === "anthropic" ||
-									usedProvider === "vertex-anthropic"
-								) {
+								if (isAnthropicMessagesProvider(usedProvider)) {
 									const toolCalls =
 										transformedData.choices?.[0]?.delta?.tool_calls;
 									if (toolCalls && toolCalls.length > 0) {
@@ -10320,10 +10680,7 @@ chat.openapi(completions, async (c) => {
 											// stop_reason (e.g. "refusal") from message_delta. Don't
 											// let the transformed message_stop chunk (mapped to
 											// "stop") clobber a refusal captured moments earlier.
-											if (
-												streamFormatProvider !== "anthropic" &&
-												streamFormatProvider !== "vertex-anthropic"
-											) {
+											if (!isAnthropicMessagesProvider(streamFormatProvider)) {
 												finishReason = choice.finish_reason;
 											}
 											sawProviderTerminalEvent = true;
@@ -10337,8 +10694,7 @@ chat.openapi(completions, async (c) => {
 								// use raw data. For others (like aws-bedrock), use transformed OpenAI format.
 								const contentChunk = extractContent(
 									isGoogleCompatibleProvider(usedProvider) ||
-										usedProvider === "anthropic" ||
-										usedProvider === "vertex-anthropic"
+										isAnthropicMessagesProvider(usedProvider)
 										? data
 										: transformedData,
 									usedProvider,
@@ -10369,10 +10725,7 @@ chat.openapi(completions, async (c) => {
 
 								// Track web search calls for cost calculation
 								// Check for web search results based on provider-specific data
-								if (
-									usedProvider === "anthropic" ||
-									usedProvider === "vertex-anthropic"
-								) {
+								if (isAnthropicMessagesProvider(usedProvider)) {
 									// For Anthropic, count web_search_tool_result blocks
 									if (
 										data.type === "content_block_start" &&
@@ -10413,8 +10766,7 @@ chat.openapi(completions, async (c) => {
 								// use raw data. For others, use transformed OpenAI format.
 								const reasoningContentChunk = extractReasoning(
 									isGoogleCompatibleProvider(usedProvider) ||
-										usedProvider === "anthropic" ||
-										usedProvider === "vertex-anthropic"
+										isAnthropicMessagesProvider(usedProvider)
 										? data
 										: transformedData,
 									usedProvider,
@@ -10442,8 +10794,7 @@ chat.openapi(completions, async (c) => {
 
 										// For Anthropic content_block_delta events, match by content block index
 										if (
-											(usedProvider === "anthropic" ||
-												usedProvider === "vertex-anthropic") &&
+											isAnthropicMessagesProvider(usedProvider) &&
 											newCall._contentBlockIndex !== undefined
 										) {
 											existingCall =
@@ -10490,6 +10841,7 @@ chat.openapi(completions, async (c) => {
 										break;
 									case "anthropic":
 									case "vertex-anthropic":
+									case "azure-anthropic":
 										if (
 											data.type === "message_delta" &&
 											data.delta?.stop_reason
@@ -11087,7 +11439,7 @@ chat.openapi(completions, async (c) => {
 									id: `chatcmpl-${Date.now()}`,
 									object: "chat.completion.chunk",
 									created: Math.floor(Date.now() / 1000),
-									model: usedInternalModel,
+									model: usedModelFormatted,
 									choices: [
 										{
 											index: 0,
@@ -11211,7 +11563,7 @@ chat.openapi(completions, async (c) => {
 								id: `chatcmpl-${Date.now()}`,
 								object: "chat.completion.chunk",
 								created: Math.floor(Date.now() / 1000),
-								model: usedInternalModel,
+								model: usedModelFormatted,
 								choices: [
 									{
 										index: 0,
@@ -11345,7 +11697,7 @@ chat.openapi(completions, async (c) => {
 									id: lastChunkId ?? `chatcmpl-${Date.now()}`,
 									object: "chat.completion.chunk",
 									created: lastChunkCreated ?? Math.floor(Date.now() / 1000),
-									model: lastChunkModel ?? usedInternalModel,
+									model: lastChunkModel ?? usedModelFormatted,
 									choices: [
 										{
 											index: 0,
@@ -11367,7 +11719,7 @@ chat.openapi(completions, async (c) => {
 									id: lastChunkId ?? `chatcmpl-${Date.now()}`,
 									object: "chat.completion.chunk",
 									created: lastChunkCreated ?? Math.floor(Date.now() / 1000),
-									model: lastChunkModel ?? usedInternalModel,
+									model: lastChunkModel ?? usedModelFormatted,
 									choices: [
 										{
 											index: 0,
@@ -12144,7 +12496,6 @@ chat.openapi(completions, async (c) => {
 		try {
 			const headers = getProviderHeaders(usedProvider, usedToken, {
 				requestId,
-				webSearchEnabled: !!webSearchTool,
 				// Same resolved token type as the endpoint so header auth and the
 				// `?key=` query param never disagree.
 				tokenType: resolveActiveVertexTokenType(),
@@ -13721,7 +14072,7 @@ chat.openapi(completions, async (c) => {
 	const shouldHealNonStreaming =
 		isJsonResponseFormat &&
 		(responseHealingEnabled === true ||
-			((usedProvider === "anthropic" || usedProvider === "vertex-anthropic") &&
+			(isAnthropicMessagesProvider(usedProvider) &&
 				response_format?.type === "json_object") ||
 			(usesAwsBedrockConverse() && response_format?.type === "json_object") ||
 			usedProvider === "novita" ||
@@ -13796,7 +14147,7 @@ chat.openapi(completions, async (c) => {
 
 	// Approximate reasoning tokens when the provider returned reasoning content
 	// but no count (e.g. AWS Bedrock). Display/logging only — never fed into
-	// calculateCosts below, which keeps the raw reasoningTokens.
+	// calculateCosts below, which uses the inclusive completion token count.
 	const calculatedReasoningTokens = resolveReasoningTokens(
 		reasoningTokens,
 		reasoningContent,
@@ -13912,9 +14263,7 @@ chat.openapi(completions, async (c) => {
 		if (promptDelta > 0) {
 			calculatedPromptTokens = costs.promptTokens;
 			totalTokens = (
-				(calculatedPromptTokens ?? 0) +
-				(calculatedCompletionTokens ?? 0) +
-				(calculatedReasoningTokens ?? 0)
+				(calculatedPromptTokens ?? 0) + (calculatedCompletionTokens ?? 0)
 			).toString();
 		}
 	}
@@ -13941,8 +14290,7 @@ chat.openapi(completions, async (c) => {
 		costs.promptTokens ?? calculatedPromptTokens,
 		costs.completionTokens ?? calculatedCompletionTokens,
 		(costs.promptTokens ?? calculatedPromptTokens ?? 0) +
-			(costs.completionTokens ?? calculatedCompletionTokens ?? 0) +
-			(reasoningTokens ?? 0),
+			(costs.completionTokens ?? calculatedCompletionTokens ?? 0),
 		calculatedReasoningTokens,
 		cachedTokens,
 		toolResults,

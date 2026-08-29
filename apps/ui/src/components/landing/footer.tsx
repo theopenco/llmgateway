@@ -6,14 +6,10 @@ import Link from "next/link";
 import Newsletter from "@/components/landing/newsletter";
 import { useAppConfig } from "@/lib/config";
 import { XIcon } from "@/lib/icons/XIcon";
-
-import { providers as providerDefinitions } from "@llmgateway/models";
+import { listedProviders } from "@/lib/providers-catalog";
 
 export default function Footer() {
 	const config = useAppConfig();
-	const filteredProviders = providerDefinitions.filter(
-		(p) => p.name !== "LLM Gateway",
-	);
 
 	return (
 		<footer className="relative py-12 bg-background">
@@ -379,14 +375,20 @@ export default function Footer() {
 									</a>
 								</li>
 								<li>
-									<a
-										href="mailto:contact@llmgateway.io"
-										target="_blank"
-										rel="noreferrer noopener"
+									<Link
+										href="/about"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+									>
+										About
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/contact"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 									>
 										Contact Us
-									</a>
+									</Link>
 								</li>
 							</ul>
 						</div>
@@ -739,7 +741,7 @@ export default function Footer() {
 								Providers
 							</h3>
 							<ul className="space-y-2">
-								{filteredProviders.map((provider) => (
+								{listedProviders.map((provider) => (
 									<li key={provider.id}>
 										<Link
 											href={`/providers/${provider.id}`}

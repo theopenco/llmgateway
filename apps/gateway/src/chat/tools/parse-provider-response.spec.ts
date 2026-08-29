@@ -51,6 +51,45 @@ describe("parseProviderResponse", () => {
 	});
 
 	describe("openai responses format reasoning", () => {
+		it("extracts Muse images and usage from Responses output", () => {
+			const result = parseProviderResponse("meta", "muse-image-1.0", {
+				id: "resp_muse",
+				status: "completed",
+				output: [
+					{
+						type: "reasoning",
+						summary: [{ type: "summary_text", text: "Planning the image" }],
+					},
+					{
+						type: "image_generation_call",
+						result: "UklGRmFrZQ==",
+					},
+				],
+				usage: {
+					input_tokens: 9520,
+					output_tokens: 443,
+					total_tokens: 9963,
+					input_tokens_details: { cached_tokens: 7936 },
+					output_tokens_details: { reasoning_tokens: 160 },
+				},
+			});
+
+			expect(result.content).toBe("Image generated");
+			expect(result.images).toEqual([
+				{
+					type: "image_url",
+					image_url: {
+						url: "data:image/webp;base64,UklGRmFrZQ==",
+					},
+				},
+			]);
+			expect(result.reasoningContent).toBe("Planning the image");
+			expect(result.promptTokens).toBe(9520);
+			expect(result.completionTokens).toBe(443);
+			expect(result.cachedTokens).toBe(7936);
+			expect(result.reasoningTokens).toBe(160);
+		});
+
 		it("extracts encrypted reasoning payloads into reasoningDetails", () => {
 			const json = {
 				id: "resp_123",
@@ -748,6 +787,95 @@ describe("parseProviderResponse", () => {
 
 			expect(result.finishReason).toBe("stop");
 		});
+
+		it("normalizes 'stop' when the message has tool calls", () => {
+			const json = {
+				choices: [
+					{
+						message: {
+							role: "assistant",
+							content: "",
+							tool_calls: [
+								{
+									id: "call_1",
+									type: "function",
+									function: {
+										name: "get_weather",
+										arguments: '{"city":"Berlin"}',
+									},
+								},
+							],
+						},
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = parseProviderResponse("novita", "qwen3.8-27b", json);
+
+			expect(result.finishReason).toBe("tool_calls");
+		});
+	});
+
+	describe("alibaba finish reason mapping", () => {
+		it("normalizes 'stop' to 'tool_calls' when the message has tool calls", () => {
+			const json = {
+				choices: [
+					{
+						message: {
+							role: "assistant",
+							content: "",
+							tool_calls: [
+								{
+									id: "call_1",
+									type: "function",
+									function: {
+										name: "get_weather",
+										arguments: '{"city":"San Francisco"}',
+									},
+								},
+							],
+						},
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = parseProviderResponse("alibaba", "qwen3.8-flash", json);
+
+			expect(result.finishReason).toBe("tool_calls");
+			expect(result.toolResults).toHaveLength(1);
+		});
+
+		it("leaves 'stop' unchanged when there are no tool calls", () => {
+			const json = {
+				choices: [
+					{
+						message: { role: "assistant", content: "Hello" },
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = parseProviderResponse("alibaba", "qwen3.8-flash", json);
+
+			expect(result.finishReason).toBe("stop");
+		});
 	});
 
 	describe("scx-ai finish reason mapping", () => {
@@ -964,6 +1092,37 @@ describe("parseProviderResponse", () => {
 			);
 
 			expect(result.finishReason).toBe("refusal");
+		});
+	});
+
+	describe("azure-anthropic", () => {
+		it("parses a Microsoft Foundry Anthropic Messages response like anthropic", () => {
+			const json = {
+				content: [
+					{ type: "thinking", thinking: "considering" },
+					{ type: "text", text: "Hello from Foundry" },
+				],
+				stop_reason: "end_turn",
+				usage: {
+					input_tokens: 12,
+					cache_creation_input_tokens: 0,
+					cache_read_input_tokens: 4,
+					output_tokens: 7,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"azure-anthropic",
+				"claude-opus-4-8",
+				json,
+			);
+
+			expect(result.content).toBe("Hello from Foundry");
+			expect(result.reasoningContent).toBe("considering");
+			expect(result.finishReason).toBe("end_turn");
+			expect(result.promptTokens).toBe(16); // 12 + 0 + 4
+			expect(result.completionTokens).toBe(7);
+			expect(result.cachedTokens).toBe(4);
 		});
 	});
 
@@ -1356,7 +1515,7 @@ describe("parseProviderResponse", () => {
 	describe("xai reasoning tokens", () => {
 		// Real grok-4.6 usage payload: reasoning is reported only in the nested
 		// details object and is NOT part of completion_tokens (note total_tokens =
-		// 213 + 4 + 310), so it has to be read here to be billed at all.
+		// 213 + 4 + 310). Parsing normalizes completion to the inclusive count.
 		const xaiJson = {
 			choices: [
 				{
@@ -1373,33 +1532,42 @@ describe("parseProviderResponse", () => {
 			},
 		};
 
-		it("reads reasoning tokens from completion_tokens_details", () => {
-			const result = parseProviderResponse(
-				"xai",
-				"grok-4-6",
-				xaiJson,
-				[],
-				true,
-			);
+		it.each(["xai", "vertex-openai"] as const)(
+			"reads reasoning tokens from completion_tokens_details for %s",
+			(provider) => {
+				const result = parseProviderResponse(
+					provider,
+					"grok-4-6",
+					xaiJson,
+					[],
+					true,
+				);
 
-			expect(result.promptTokens).toBe(213);
-			expect(result.completionTokens).toBe(4);
-			expect(result.reasoningTokens).toBe(310);
-			expect(result.cachedTokens).toBe(128);
-		});
+				expect(result.promptTokens).toBe(213);
+				expect(result.completionTokens).toBe(314);
+				expect(result.reasoningTokens).toBe(310);
+				expect(result.cachedTokens).toBe(128);
+			},
+		);
 
-		it("ignores the nested count for other OpenAI-compatible providers", () => {
-			// Everyone else folds reasoning into completion_tokens already, so
-			// reading the nested field would bill the same tokens twice.
+		it("keeps inclusive OpenAI-compatible completion tokens unchanged", () => {
+			const inclusiveJson = {
+				...xaiJson,
+				usage: {
+					...xaiJson.usage,
+					completion_tokens: 314,
+				},
+			};
 			const result = parseProviderResponse(
 				"openai",
 				"gpt-5.5",
-				xaiJson,
+				inclusiveJson,
 				[],
 				true,
 			);
 
-			expect(result.reasoningTokens).toBeNull();
+			expect(result.completionTokens).toBe(314);
+			expect(result.reasoningTokens).toBe(310);
 		});
 	});
 });

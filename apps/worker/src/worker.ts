@@ -27,6 +27,7 @@ import {
 	enqueueWebhookDeliveries,
 	eq,
 	inArray,
+	invalidateOrganizationsCache,
 	isNotNull,
 	isApiKeyPeriodLimitConfigured,
 	log,
@@ -136,8 +137,11 @@ const LOG_QUEUE_CONCURRENCY = Math.max(
 	Number(process.env.LOG_QUEUE_CONCURRENCY) || 4,
 );
 const CREDIT_BATCH_SIZE = Number(process.env.CREDIT_BATCH_SIZE) || 100;
+// 1s: this interval is the floor of the spend-to-balance settlement gap the
+// credit gates operate on, so it directly bounds how far a burst can
+// overshoot a balance. Idle cost is one lock round-trip per tick.
 const BATCH_PROCESSING_INTERVAL_SECONDS =
-	Number(process.env.CREDIT_BATCH_INTERVAL) || 5;
+	Number(process.env.CREDIT_BATCH_INTERVAL) || 1;
 const VIDEO_JOB_POLL_INTERVAL_SECONDS =
 	Number(process.env.VIDEO_JOB_POLL_INTERVAL_SECONDS) || 5;
 const VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS =
@@ -1029,6 +1033,10 @@ export async function batchProcessLogs(): Promise<number> {
 
 	let processedCount = 0;
 	const deductedOrgIds: string[] = [];
+	// Every org whose row was debited this batch (plan pools or regular
+	// credits). Their tagged cache entries are evicted after commit so the
+	// gateway's credit gates see the new balance immediately.
+	const settledOrgIds: string[] = [];
 	// Provider keys (BYOK or managed) whose accumulated usage crossed their
 	// spend limit this batch — deactivated after the transaction commits.
 	let overLimitProviderKeyIds: string[] = [];
@@ -1377,6 +1385,8 @@ export async function batchProcessLogs(): Promise<number> {
 				if (totalCost.lessThanOrEqualTo(0)) {
 					continue;
 				}
+
+				settledOrgIds.push(orgId);
 
 				const org = await tx.query.organization.findFirst({
 					where: { id: { eq: orgId } },
@@ -1773,6 +1783,12 @@ export async function batchProcessLogs(): Promise<number> {
 			return unprocessedLogs.rows.length;
 		});
 
+		// Evict the debited orgs' tagged cache entries so the gateway's next
+		// org read (and thus its credit gate) sees the new balance now rather
+		// than after the cache TTL — the debits above went through the plain
+		// client, which never fires cache invalidation. Best-effort.
+		await invalidateOrganizationsCache(settledOrgIds);
+
 		// Auto-deactivate provider keys that hit their spend limit. Goes through
 		// cdb so the gateway's provider_key read cache and SWR mirrors are
 		// invalidated and the key drops out of rotation promptly — and only runs
@@ -2113,8 +2129,10 @@ async function runLogQueueLoop(loopIndex = 0) {
 				// straight into the next batch instead of sleeping. Tying this to
 				// LOG_QUEUE_BATCH_SIZE was wrong: when the batch size is raised
 				// above the steady-state queue depth the sleep fired every cycle.
+				// 250ms keeps queue latency out of the billing settlement gap at
+				// the cost of four cheap LPOPs per idle second.
 				if (drained === 0) {
-					await interruptibleSleep(1000);
+					await interruptibleSleep(250);
 				}
 			} catch (error) {
 				logger.error(

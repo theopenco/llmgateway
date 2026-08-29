@@ -8,7 +8,7 @@ date: 2026-03-19
 
 Autohand Code is an autonomous AI coding agent that works in your terminal, IDE, and Slack. With LLM Gateway, you can route all Autohand Code requests through a single gateway—use any of 200+ models from 40+ providers, with full cost tracking and smart routing.
 
-> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
+> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use canonical model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
 
 ## Quick Start
 
@@ -92,7 +92,7 @@ Once configured, all Autohand Code requests appear in your LLM Gateway dashboard
 ## Get Started
 
 1. [Sign up free](https://llmgateway.io/signup) — no credit card required
-2. Copy your API key from the dashboard
+2. Create or roll an API key in the dashboard and copy the newly shown secret
 3. Set the environment variables above
 4. Run `autohand` and start coding
 

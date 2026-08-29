@@ -156,7 +156,7 @@ function pickRateLimitByPrecedence(
  * The WHERE clause is time-independent, so the cache key stays stable. Admin
  * changes propagate within the cache TTL (default 60s).
  *
- * Rate limits are always keyed by the root model ID — provider-specific model
+ * Rate limits are always keyed by the canonical model ID — provider-specific model
  * names are reserved for upstream requests and are never persisted as a
  * rate-limit target.
  *

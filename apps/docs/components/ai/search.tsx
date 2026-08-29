@@ -17,7 +17,6 @@ import {
 	type SyntheticEvent,
 	use,
 	useEffect,
-	useMemo,
 	useRef,
 	useState,
 } from "react";
@@ -117,6 +116,17 @@ export function AISearchInputActions() {
 }
 
 const StorageKeyInput = "__ai_search_input";
+// localStorage writes are synchronous main-thread I/O, so debounce the
+// per-keystroke draft persistence instead of writing on every input event.
+let persistTimer: ReturnType<typeof setTimeout> | undefined;
+
+function persistInput(value: string) {
+	clearTimeout(persistTimer);
+	persistTimer = setTimeout(() => {
+		localStorage.setItem(StorageKeyInput, value);
+	}, 300);
+}
+
 export function AISearchInput(props: ComponentProps<"form">) {
 	const { status, sendMessage, stop } = useChatContext();
 	const [input, setInput] = useState(
@@ -146,6 +156,7 @@ export function AISearchInput(props: ComponentProps<"form">) {
 			],
 		});
 		setInput("");
+		clearTimeout(persistTimer);
 		localStorage.removeItem(StorageKeyInput);
 	};
 
@@ -169,7 +180,7 @@ export function AISearchInput(props: ComponentProps<"form">) {
 				disabled={status === "streaming" || status === "submitted"}
 				onChange={(e) => {
 					setInput(e.target.value);
-					localStorage.setItem(StorageKeyInput, e.target.value);
+					persistInput(e.target.value);
 				}}
 				onKeyDown={(event) => {
 					if (!event.shiftKey && event.key === "Enter") {
@@ -365,9 +376,7 @@ export default function AISearchPanel({
 	});
 
 	return (
-		<Context
-			value={useMemo(() => ({ chat, open, setOpen }), [chat, open, setOpen])}
-		>
+		<Context value={{ chat, open, setOpen }}>
 			<style>
 				{`
         @keyframes ask-ai-open {

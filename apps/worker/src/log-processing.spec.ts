@@ -3,9 +3,11 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeEach, describe, expect, test } from "vitest";
 
 import {
+	cdb,
 	eq,
 	isNull,
 	db,
+	organizationCacheTag,
 	tables,
 	log,
 	organization,
@@ -105,7 +107,8 @@ describe("Log Processing", () => {
 			.values({
 				id: currentTestIds.apiKeyId,
 				projectId: testProject.id,
-				token: currentTestIds.token,
+				tokenHash: currentTestIds.token,
+				tokenMasked: currentTestIds.token,
 				description: "Test Key",
 				usage: "0.00",
 				createdBy: testUser.id,
@@ -187,6 +190,51 @@ describe("Log Processing", () => {
 			});
 
 			expect(Number(updatedOrg!.credits)).toBe(initialCredits - 0.01);
+		});
+
+		test("evicts the debited org's tagged cache entry after settling", async () => {
+			// Same tagged read the gateway's findOrganizationCachedById uses.
+			const readCached = async () =>
+				(
+					await cdb
+						.select()
+						.from(organization)
+						.where(eq(organization.id, testOrg.id))
+						.limit(1)
+						.$withCache({
+							tag: organizationCacheTag(testOrg.id),
+							autoInvalidate: true,
+						})
+				)[0];
+
+			// Prime the cache entry with the pre-debit balance.
+			const before = await readCached();
+			expect(Number(before.credits)).toBe(100);
+
+			await db.insert(log).values({
+				requestId: "test-request-cache-evict",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.01,
+				cached: false,
+				usedMode: "credits",
+				duration: 2000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 150,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			// The debit goes through the uncached client, so without the
+			// worker's eviction this read would serve the stale 100.00 for the
+			// full cache TTL.
+			const after = await readCached();
+			expect(Number(after.credits)).toBe(99.99);
 		});
 
 		test("should accrue premium weekly usage for provider-prefixed premium models on dev plans", async () => {
@@ -982,11 +1030,14 @@ describe("Log Processing", () => {
 			usage?: string;
 			status?: "active" | "inactive";
 		}) => {
+			const tokenId = randomUUID();
 			const [key] = await db
 				.insert(tables.providerKey)
 				.values({
 					id: `pk-spend-${randomUUID()}`,
-					token: `sk-test-${randomUUID()}`,
+					tokenCiphertext: `encrypted-${tokenId}`,
+					tokenHash: `hash-${tokenId}`,
+					tokenMasked: `sk-test-${tokenId}`,
 					provider: "openai",
 					organizationId: testOrg.id,
 					usageLimit: overrides?.usageLimit ?? null,
@@ -1078,11 +1129,14 @@ describe("Log Processing", () => {
 		});
 
 		test("accumulates and deactivates managed credentials (no organization)", async () => {
+			const tokenId = randomUUID();
 			const [managedKey] = await db
 				.insert(tables.providerKey)
 				.values({
 					id: `pk-spend-managed-${randomUUID()}`,
-					token: `sk-managed-${randomUUID()}`,
+					tokenCiphertext: `encrypted-${tokenId}`,
+					tokenHash: `hash-${tokenId}`,
+					tokenMasked: `sk-managed-${tokenId}`,
 					provider: "openai",
 					managed: true,
 					organizationId: null,

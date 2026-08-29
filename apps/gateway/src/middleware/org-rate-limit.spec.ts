@@ -19,6 +19,9 @@ vi.mock("@/lib/org-rate-limit.js", () => ({
 	getOrganizationLifetimeSpend: vi.fn(),
 	getOrgSpendTier: vi.fn(),
 	checkOrgRateLimit: vi.fn(),
+	acquireOrgInflightSlot: vi.fn(),
+	getOrgInflightLimit: vi.fn(),
+	INFLIGHT_LIMITED_KEYS: new Set(["chat_completions"]),
 }));
 
 const { orgRateLimitMiddleware } = await import("./org-rate-limit.js");
@@ -32,16 +35,20 @@ const chatConfig: PathRateLimitConfig = {
 	key: "chat_completions",
 	prefix: "/v1/chat/completions",
 	defaultRpm: 600,
+	devDefaultRpm: 120,
 	chatDefaultRpm: 60,
 };
 
 function makeContext(
 	path = "/v1/chat/completions",
 	headers: Record<string, string> = {},
+	method = "POST",
 ) {
 	return {
-		req: { path, header: (name: string) => headers[name] },
+		req: { path, method, header: (name: string) => headers[name] },
 		json: vi.fn(),
+		header: vi.fn(),
+		env: {},
 	} as unknown as Context;
 }
 
@@ -67,6 +74,7 @@ describe("orgRateLimitMiddleware", () => {
 		vi.mocked(lib.getOrgSpendTier).mockReturnValue({
 			tier: 0,
 			rpmMultiplier: 1,
+			inflightLimit: 100,
 			dailyCapUsd: 25,
 			monthlyCapUsd: 250,
 			topUpDailyCapUsd: 100,
@@ -76,9 +84,14 @@ describe("orgRateLimitMiddleware", () => {
 			remaining: 5,
 			limit: 600,
 		});
+		vi.mocked(lib.getOrgInflightLimit).mockReturnValue(500);
+		vi.mocked(lib.acquireOrgInflightSlot).mockResolvedValue({
+			allowed: true,
+			limit: 500,
+		});
 	});
 
-	it("exempts enterprise orgs: no rate limit check, request passes through", async () => {
+	it("exempts enterprise orgs from RPM but still applies the elevated concurrency check", async () => {
 		vi.mocked(findOrganizationCachedById).mockResolvedValue(
 			orgWith("enterprise"),
 		);
@@ -88,10 +101,12 @@ describe("orgRateLimitMiddleware", () => {
 		await orgRateLimitMiddleware(c, next);
 
 		expect(lib.checkOrgRateLimit).not.toHaveBeenCalled();
+		expect(lib.getOrgInflightLimit).toHaveBeenCalledWith("regular", true);
+		expect(lib.acquireOrgInflightSlot).toHaveBeenCalledOnce();
 		expect(next).toHaveBeenCalledOnce();
 	});
 
-	it("exempts enterprise orgs even when they also hold a dev/chat plan", async () => {
+	it("exempts enterprise orgs from RPM even when they also hold a dev/chat plan", async () => {
 		vi.mocked(findOrganizationCachedById).mockResolvedValue(
 			orgWith("enterprise", { devPlan: "max", chatPlan: "pro" }),
 		);
@@ -112,6 +127,33 @@ describe("orgRateLimitMiddleware", () => {
 		await orgRateLimitMiddleware(c, next);
 
 		expect(lib.checkOrgRateLimit).toHaveBeenCalledOnce();
+		expect(next).toHaveBeenCalledOnce();
+	});
+
+	it("surfaces the remaining budget on allowed responses", async () => {
+		vi.mocked(findOrganizationCachedById).mockResolvedValue(orgWith("pro"));
+		const c = makeContext();
+		const next = vi.fn(async () => undefined) as unknown as Next;
+
+		await orgRateLimitMiddleware(c, next);
+
+		expect(c.header).toHaveBeenCalledWith("RateLimit-Limit", "600");
+		expect(c.header).toHaveBeenCalledWith("RateLimit-Remaining", "5");
+	});
+
+	it("sets no budget headers when the limiter is bypassed (limit 0)", async () => {
+		vi.mocked(findOrganizationCachedById).mockResolvedValue(orgWith("pro"));
+		vi.mocked(lib.checkOrgRateLimit).mockResolvedValue({
+			allowed: true,
+			remaining: 0,
+			limit: 0,
+		});
+		const c = makeContext();
+		const next = vi.fn(async () => undefined) as unknown as Next;
+
+		await orgRateLimitMiddleware(c, next);
+
+		expect(c.header).not.toHaveBeenCalled();
 		expect(next).toHaveBeenCalledOnce();
 	});
 
@@ -138,6 +180,9 @@ describe("orgRateLimitMiddleware", () => {
 		expect(status).toBe(429);
 		expect(headers).toMatchObject({
 			"Retry-After": "12",
+			"RateLimit-Limit": "600",
+			"RateLimit-Remaining": "0",
+			"RateLimit-Reset": "12",
 			"X-RateLimit-Limit": "600",
 			"X-RateLimit-Remaining": "0",
 		});
@@ -179,5 +224,122 @@ describe("orgRateLimitMiddleware", () => {
 		await orgRateLimitMiddleware(c, next);
 
 		expect(lib.checkOrgRateLimit).toHaveBeenCalledOnce();
+	});
+
+	it("blocks with a retryable 429 when the org is at its concurrency limit", async () => {
+		vi.mocked(findOrganizationCachedById).mockResolvedValue(orgWith("pro"));
+		vi.mocked(lib.acquireOrgInflightSlot).mockResolvedValue({
+			allowed: false,
+			limit: 500,
+		});
+		const c = makeContext();
+		const next = vi.fn(async () => undefined) as unknown as Next;
+
+		await orgRateLimitMiddleware(c, next);
+
+		expect(next).not.toHaveBeenCalled();
+		expect(c.json).toHaveBeenCalledOnce();
+		const [, status, headers] = vi.mocked(c.json).mock.calls[0] as unknown as [
+			unknown,
+			number,
+			Record<string, string>,
+		];
+		expect(status).toBe(429);
+		expect(headers).toMatchObject({
+			"Retry-After": "1",
+			"RateLimit-Limit": "500",
+			"RateLimit-Remaining": "0",
+			"RateLimit-Reset": "1",
+			"X-RateLimit-Limit": "500",
+			"X-RateLimit-Remaining": "0",
+		});
+	});
+
+	it("releases the held slot once the response settles", async () => {
+		vi.mocked(findOrganizationCachedById).mockResolvedValue(orgWith("pro"));
+		const release = vi.fn();
+		vi.mocked(lib.acquireOrgInflightSlot).mockResolvedValue({
+			allowed: true,
+			limit: 500,
+			release,
+		});
+		const c = makeContext();
+		const next = vi.fn(async () => undefined) as unknown as Next;
+
+		await orgRateLimitMiddleware(c, next);
+
+		expect(next).toHaveBeenCalledOnce();
+		expect(release).toHaveBeenCalledOnce();
+	});
+
+	it("regular orgs get a lazy tier resolver for the concurrency ceiling", async () => {
+		vi.mocked(findOrganizationCachedById).mockResolvedValue(orgWith("pro"));
+		vi.mocked(lib.getOrgInflightLimit).mockReturnValue(100);
+		vi.mocked(lib.getOrgSpendTier).mockReturnValue({
+			tier: 2,
+			rpmMultiplier: 4,
+			inflightLimit: 400,
+			dailyCapUsd: 500,
+			monthlyCapUsd: 5000,
+			topUpDailyCapUsd: 2500,
+		});
+		const c = makeContext();
+		const next = vi.fn(async () => undefined) as unknown as Next;
+
+		await orgRateLimitMiddleware(c, next);
+
+		const [, baseLimit, getMaxLimit] = vi.mocked(lib.acquireOrgInflightSlot)
+			.mock.calls[0];
+		expect(baseLimit).toBe(100);
+		// The resolver is only invoked by the acquire once the base is reached;
+		// invoking it here must resolve the spend tier's ceiling.
+		await expect(getMaxLimit()).resolves.toBe(400);
+		expect(lib.getOrganizationLifetimeSpend).toHaveBeenCalledOnce();
+	});
+
+	it("enterprise orgs' resolver returns the elevated base without a tier lookup", async () => {
+		vi.mocked(findOrganizationCachedById).mockResolvedValue(
+			orgWith("enterprise"),
+		);
+		vi.mocked(lib.getOrgInflightLimit).mockReturnValue(2000);
+		const c = makeContext();
+		const next = vi.fn(async () => undefined) as unknown as Next;
+
+		await orgRateLimitMiddleware(c, next);
+
+		const [, baseLimit, getMaxLimit] = vi.mocked(lib.acquireOrgInflightSlot)
+			.mock.calls[0];
+		expect(baseLimit).toBe(2000);
+		await expect(getMaxLimit()).resolves.toBe(2000);
+		expect(lib.getOrganizationLifetimeSpend).not.toHaveBeenCalled();
+	});
+
+	it("skips the concurrency check for non-inference paths", async () => {
+		vi.mocked(findOrganizationCachedById).mockResolvedValue(orgWith("pro"));
+		vi.mocked(lib.resolvePathRateLimit).mockReturnValue({
+			key: "models",
+			prefix: "/v1/models",
+			defaultRpm: 1200,
+			devDefaultRpm: 120,
+			chatDefaultRpm: 120,
+		});
+		const c = makeContext("/v1/models", {}, "GET");
+		const next = vi.fn(async () => undefined) as unknown as Next;
+
+		await orgRateLimitMiddleware(c, next);
+
+		expect(lib.acquireOrgInflightSlot).not.toHaveBeenCalled();
+		expect(next).toHaveBeenCalledOnce();
+	});
+
+	it("skips the concurrency check for non-POST requests on inference prefixes", async () => {
+		vi.mocked(findOrganizationCachedById).mockResolvedValue(orgWith("pro"));
+		const c = makeContext("/v1/chat/completions", {}, "GET");
+		const next = vi.fn(async () => undefined) as unknown as Next;
+
+		await orgRateLimitMiddleware(c, next);
+
+		expect(lib.acquireOrgInflightSlot).not.toHaveBeenCalled();
+		expect(next).toHaveBeenCalledOnce();
 	});
 });

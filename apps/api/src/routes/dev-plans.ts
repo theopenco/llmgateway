@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { assertOrganizationNotHighRisk } from "@/lib/account-risk.js";
+import { readApiKeyMask } from "@/lib/api-key-mask.js";
 import { assertCreditPurchaseAllowed } from "@/lib/credit-purchase-guard.js";
 import { voidPendingCycleRenewalInvoices } from "@/lib/pending-renewal.js";
 import {
@@ -26,6 +27,11 @@ import {
 	isDevPlanCardDedupeEnforced,
 } from "@/stripe.js";
 import { findDefaultOrganization } from "@/utils/default-org.js";
+import {
+	claimDevPlanCardFingerprint,
+	rememberDevPlanCardFingerprint,
+	rememberDevPlanCardFingerprints,
+} from "@/utils/dev-plan-card-fingerprints.js";
 import { getDevPlanPriceId } from "@/utils/dev-plan-prices.js";
 import { LEGACY_DEV_PLAN_TX_TYPES } from "@/utils/devpass-filter.js";
 import {
@@ -37,6 +43,10 @@ import {
 } from "@/utils/invoice.js";
 import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
 import { resolveDevPassBillingDetails } from "@/utils/plan-billing.js";
+import {
+	providerCacheControlModeSchema,
+	resolveProviderCacheControlMode,
+} from "@/utils/provider-cache-control.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { redisClient } from "@llmgateway/cache";
@@ -50,6 +60,7 @@ import {
 	lt,
 	gte,
 	isNull,
+	inArray,
 	shortid,
 	sql,
 } from "@llmgateway/db";
@@ -75,10 +86,15 @@ import {
 	type DevPlanCycle,
 	type DevPlanTier,
 } from "@llmgateway/shared";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { getStripe, isInternationalPaymentMethod } from "./payments.js";
 
 import type { ServerTypes } from "@/vars.js";
+import type {
+	ProviderCacheControlMode,
+	ProviderCompliancePolicy,
+} from "@llmgateway/models";
 import type Stripe from "stripe";
 
 export const devPlans = new OpenAPIHono<ServerTypes>();
@@ -152,21 +168,30 @@ async function getOrCreatePersonalOrgApiKey(
 	orgId: string,
 	projectId: string,
 	userId: string,
-): Promise<string> {
+): Promise<{ id: string; maskedToken: string }> {
 	// Check for existing API key
 	const existingKey = await db.query.apiKey.findFirst({
 		where: {
 			projectId: {
 				eq: projectId,
 			},
-			status: {
-				ne: "deleted",
+			description: {
+				eq: "Dev Plan API Key",
 			},
+			status: {
+				eq: "active",
+			},
+		},
+		orderBy: {
+			createdAt: "desc",
 		},
 	});
 
 	if (existingKey) {
-		return existingKey.token;
+		return {
+			id: existingKey.id,
+			maskedToken: readApiKeyMask(existingKey),
+		};
 	}
 
 	// Create new API key
@@ -174,14 +199,17 @@ async function getOrCreatePersonalOrgApiKey(
 		process.env.NODE_ENV === "development" ? `llmgdev_` : "llmgtwy_";
 	const token = prefix + shortid(40);
 
-	await db.insert(tables.apiKey).values({
-		token,
-		projectId,
-		description: "Dev Plan API Key",
-		createdBy: userId,
-	});
+	const [apiKey] = await cdb
+		.insert(tables.apiKey)
+		.values({
+			...hashApiKeyForStorage(token),
+			projectId,
+			description: "Dev Plan API Key",
+			createdBy: userId,
+		})
+		.returning();
 
-	return token;
+	return { id: apiKey.id, maskedToken: readApiKeyMask(apiKey) };
 }
 
 // Find the user's personal org without creating one. Used by the billing
@@ -761,6 +789,9 @@ const resume = createRoute({
 			},
 			description: "Dev plan subscription resumed successfully",
 		},
+		409: {
+			description: "A payment method is required before resuming",
+		},
 	},
 });
 
@@ -824,6 +855,12 @@ devPlans.openapi(resume, async (c) => {
 		if (!subscription.cancel_at_period_end) {
 			throw new HTTPException(400, {
 				message: "Subscription is not cancelled",
+			});
+		}
+
+		if (!getStripeId(subscription.default_payment_method)) {
+			throw new HTTPException(409, {
+				message: "Add a payment method before resuming your subscription.",
 			});
 		}
 
@@ -1774,7 +1811,12 @@ const getStatus = createRoute({
 						autoTopUpAmount: z.string().nullable(),
 						organizationId: z.string().nullable(),
 						projectId: z.string().nullable(),
-						apiKey: z.string().nullable(),
+						apiKey: z
+							.object({
+								id: z.string(),
+								maskedToken: z.string(),
+							})
+							.nullable(),
 						devPlanServiceTier: z.enum(["default", "flex"]),
 						defaultRoutingStrategy: z.enum([
 							"auto",
@@ -1782,6 +1824,8 @@ const getStatus = createRoute({
 							"throughput",
 							"latency",
 						]),
+						providerCacheControlMode: providerCacheControlModeSchema,
+						blockApiTraining: z.boolean(),
 					}),
 				},
 			},
@@ -1842,6 +1886,8 @@ devPlans.openapi(getStatus, async (c) => {
 			apiKey: null,
 			devPlanServiceTier: "default" as const,
 			defaultRoutingStrategy: "auto" as const,
+			providerCacheControlMode: "auto" as const,
+			blockApiTraining: false,
 		});
 	}
 
@@ -1886,10 +1932,11 @@ devPlans.openapi(getStatus, async (c) => {
 			: null;
 
 	// Get API key and project if user has an active dev plan
-	let apiKey: string | null = null;
+	let apiKey: { id: string; maskedToken: string } | null = null;
 	let projectId: string | null = null;
 	let defaultRoutingStrategy: "auto" | "price" | "throughput" | "latency" =
 		"auto";
+	let providerCacheControlMode: ProviderCacheControlMode = "auto";
 	if (personalOrg.devPlan !== "none") {
 		// Find the default project for this org. Order by createdAt asc so we
 		// always return the original "Default Project" rather than whichever
@@ -1908,6 +1955,7 @@ devPlans.openapi(getStatus, async (c) => {
 		if (project) {
 			projectId = project.id;
 			defaultRoutingStrategy = project.defaultRoutingStrategy;
+			providerCacheControlMode = project.providerCacheControlMode;
 			apiKey = await getOrCreatePersonalOrgApiKey(
 				personalOrg.id,
 				project.id,
@@ -1961,6 +2009,10 @@ devPlans.openapi(getStatus, async (c) => {
 		apiKey,
 		devPlanServiceTier: personalOrg.devPlanServiceTier,
 		defaultRoutingStrategy,
+		providerCacheControlMode,
+		blockApiTraining:
+			personalOrg.providerCompliancePolicy?.enabled === true &&
+			personalOrg.providerCompliancePolicy.blockApiTraining === true,
 	});
 });
 
@@ -1980,6 +2032,12 @@ const updateSettings = createRoute({
 						// Coding plans optimize for prompt caching, so only the
 						// default weighted routing or the price strategy are allowed.
 						defaultRoutingStrategy: z.enum(["auto", "price"]).optional(),
+						// Control upstream prompt-cache writes for coding clients that
+						// send cache markers automatically.
+						providerCacheControlMode: providerCacheControlModeSchema.optional(),
+						blockApiTraining: z.boolean().optional(),
+						/** @deprecated use providerCacheControlMode. */
+						providerCacheControlEnabled: z.boolean().optional(),
 						// Opt-in pay-as-you-go overflow past the monthly allowance.
 						devPlanPaygEnabled: z.boolean().optional(),
 						// Auto-reload: automatically top up when the credits balance
@@ -2009,6 +2067,8 @@ const updateSettings = createRoute({
 							"throughput",
 							"latency",
 						]),
+						providerCacheControlMode: providerCacheControlModeSchema,
+						blockApiTraining: z.boolean(),
 						devPlanPaygEnabled: z.boolean(),
 						autoTopUpEnabled: z.boolean(),
 						autoTopUpThreshold: z.string().nullable(),
@@ -2026,11 +2086,15 @@ devPlans.openapi(updateSettings, async (c) => {
 	const {
 		devPlanServiceTier,
 		defaultRoutingStrategy,
+		blockApiTraining,
 		devPlanPaygEnabled,
 		autoTopUpEnabled,
 		autoTopUpThreshold,
 		autoTopUpAmount,
 	} = c.req.valid("json");
+	const providerCacheControlMode = resolveProviderCacheControlMode(
+		c.req.valid("json"),
+	);
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -2066,6 +2130,7 @@ devPlans.openapi(updateSettings, async (c) => {
 
 	const updateData: {
 		devPlanServiceTier?: "default" | "flex";
+		providerCompliancePolicy?: ProviderCompliancePolicy | null;
 		devPlanPaygEnabled?: boolean;
 		autoTopUpEnabled?: boolean;
 		autoTopUpThreshold?: string;
@@ -2074,6 +2139,12 @@ devPlans.openapi(updateSettings, async (c) => {
 
 	if (devPlanServiceTier !== undefined) {
 		updateData.devPlanServiceTier = devPlanServiceTier;
+	}
+
+	if (blockApiTraining !== undefined) {
+		updateData.providerCompliancePolicy = blockApiTraining
+			? { enabled: true, blockApiTraining: true }
+			: null;
 	}
 
 	if (devPlanPaygEnabled !== undefined) {
@@ -2100,9 +2171,7 @@ devPlans.openapi(updateSettings, async (c) => {
 	const changes: Record<string, { old: unknown; new: unknown }> = {};
 
 	if (Object.keys(updateData).length > 0) {
-		// Cached client so the gateway's org cache invalidates: the PAYG
-		// opt-in is a billing gate, and "enable, then retry the request"
-		// must work without waiting out a cache TTL.
+		// Cached client so gateway billing and compliance gates update immediately.
 		await cdb
 			.update(tables.organization)
 			.set(updateData)
@@ -2115,6 +2184,19 @@ devPlans.openapi(updateSettings, async (c) => {
 			changes.devPlanServiceTier = {
 				old: personalOrg.devPlanServiceTier,
 				new: devPlanServiceTier,
+			};
+		}
+
+		const previousBlockApiTraining =
+			personalOrg.providerCompliancePolicy?.enabled === true &&
+			personalOrg.providerCompliancePolicy.blockApiTraining === true;
+		if (
+			blockApiTraining !== undefined &&
+			blockApiTraining !== previousBlockApiTraining
+		) {
+			changes.blockApiTraining = {
+				old: previousBlockApiTraining,
+				new: blockApiTraining,
 			};
 		}
 
@@ -2159,10 +2241,10 @@ devPlans.openapi(updateSettings, async (c) => {
 		}
 	}
 
-	// The default routing strategy lives on the project, not the org. Apply it to
-	// the org's default project (the same one surfaced by the status endpoint).
+	// Project-scoped settings apply to the default project surfaced by status.
 	let effectiveRoutingStrategy: "auto" | "price" | "throughput" | "latency" =
 		"auto";
+	let effectiveProviderCacheControlMode: ProviderCacheControlMode = "auto";
 	const defaultProject = await db.query.project.findFirst({
 		where: {
 			organizationId: {
@@ -2175,22 +2257,50 @@ devPlans.openapi(updateSettings, async (c) => {
 	});
 	if (defaultProject) {
 		effectiveRoutingStrategy = defaultProject.defaultRoutingStrategy;
+		effectiveProviderCacheControlMode = defaultProject.providerCacheControlMode;
+		const projectUpdateData: Partial<typeof tables.project.$inferInsert> = {};
 		if (
 			defaultRoutingStrategy !== undefined &&
 			defaultRoutingStrategy !== defaultProject.defaultRoutingStrategy
 		) {
+			projectUpdateData.defaultRoutingStrategy = defaultRoutingStrategy;
+		}
+		if (
+			providerCacheControlMode !== undefined &&
+			providerCacheControlMode !== defaultProject.providerCacheControlMode
+		) {
+			projectUpdateData.providerCacheControlMode = providerCacheControlMode;
+		}
+		if (Object.keys(projectUpdateData).length > 0) {
 			// Cached client so the gateway's project-cache invalidates and the new
-			// default routing strategy takes effect immediately (see projects.ts).
+			// settings take effect immediately (see projects.ts).
 			await cdb
 				.update(tables.project)
-				.set({ defaultRoutingStrategy })
+				.set(projectUpdateData)
 				.where(eq(tables.project.id, defaultProject.id));
+		}
+		if (
+			defaultRoutingStrategy !== undefined &&
+			defaultRoutingStrategy !== defaultProject.defaultRoutingStrategy
+		) {
 			changes.defaultRoutingStrategy = {
 				old: defaultProject.defaultRoutingStrategy,
 				new: defaultRoutingStrategy,
 			};
-			effectiveRoutingStrategy = defaultRoutingStrategy;
 		}
+		if (
+			providerCacheControlMode !== undefined &&
+			providerCacheControlMode !== defaultProject.providerCacheControlMode
+		) {
+			changes.providerCacheControlMode = {
+				old: defaultProject.providerCacheControlMode,
+				new: providerCacheControlMode,
+			};
+		}
+		effectiveRoutingStrategy =
+			defaultRoutingStrategy ?? effectiveRoutingStrategy;
+		effectiveProviderCacheControlMode =
+			providerCacheControlMode ?? effectiveProviderCacheControlMode;
 	}
 
 	if (Object.keys(changes).length > 0) {
@@ -2207,6 +2317,11 @@ devPlans.openapi(updateSettings, async (c) => {
 		success: true,
 		devPlanServiceTier: devPlanServiceTier ?? personalOrg.devPlanServiceTier,
 		defaultRoutingStrategy: effectiveRoutingStrategy,
+		providerCacheControlMode: effectiveProviderCacheControlMode,
+		blockApiTraining:
+			blockApiTraining ??
+			(personalOrg.providerCompliancePolicy?.enabled === true &&
+				personalOrg.providerCompliancePolicy.blockApiTraining === true),
 		devPlanPaygEnabled: devPlanPaygEnabled ?? personalOrg.devPlanPaygEnabled,
 		autoTopUpEnabled:
 			updateData.autoTopUpEnabled ?? personalOrg.autoTopUpEnabled,
@@ -2697,13 +2812,22 @@ devPlans.openapi(downloadInvoice, async (c) => {
 const rotateApiKey = createRoute({
 	method: "post",
 	path: "/rotate-api-key",
-	request: {},
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ apiKeyId: z.string() }),
+				},
+			},
+		},
+	},
 	responses: {
 		200: {
 			content: {
 				"application/json": {
 					schema: z.object({
 						apiKey: z.string(),
+						apiKeyId: z.string(),
 					}),
 				},
 			},
@@ -2720,6 +2844,7 @@ devPlans.openapi(rotateApiKey, async (c) => {
 			message: "Unauthorized",
 		});
 	}
+	const { apiKeyId } = c.req.valid("json");
 
 	const userOrgs = await db.query.userOrganization.findMany({
 		where: {
@@ -2767,18 +2892,48 @@ devPlans.openapi(rotateApiKey, async (c) => {
 		(process.env.NODE_ENV === "development" ? "llmgdev_" : "llmgtwy_") +
 		shortid(40);
 
-	await db.transaction(async (tx) => {
+	const newApiKeyId = await cdb.transaction(async (tx) => {
+		await tx.execute(
+			sql`SELECT ${tables.project.id} FROM ${tables.project} WHERE ${tables.project.id} = ${project.id} FOR UPDATE`,
+		);
+		const activeKeyRows = await tx.execute<{ id: string }>(sql`
+			SELECT ${tables.apiKey.id} AS id
+			FROM ${tables.apiKey}
+			WHERE ${tables.apiKey.projectId} = ${project.id}
+				AND ${tables.apiKey.description} = 'Dev Plan API Key'
+				AND ${tables.apiKey.status} = 'active'
+			ORDER BY ${tables.apiKey.createdAt} DESC
+			LIMIT 1
+		`);
+		const activeApiKeyId = activeKeyRows.rows[0]?.id ?? null;
+		if (activeApiKeyId !== apiKeyId) {
+			throw new HTTPException(409, {
+				message: "The API key was already rotated. Try again.",
+			});
+		}
+
 		await tx
 			.update(tables.apiKey)
 			.set({ status: "deleted" })
-			.where(eq(tables.apiKey.projectId, project.id));
+			.where(
+				and(
+					eq(tables.apiKey.projectId, project.id),
+					eq(tables.apiKey.description, "Dev Plan API Key"),
+					eq(tables.apiKey.status, "active"),
+				),
+			);
 
-		await tx.insert(tables.apiKey).values({
-			token: newToken,
-			projectId: project.id,
-			description: "Dev Plan API Key",
-			createdBy: user.id,
-		});
+		const [newApiKey] = await tx
+			.insert(tables.apiKey)
+			.values({
+				...hashApiKeyForStorage(newToken),
+				projectId: project.id,
+				description: "Dev Plan API Key",
+				createdBy: user.id,
+			})
+			.returning({ id: tables.apiKey.id });
+
+		return newApiKey.id;
 	});
 
 	await logAuditEvent({
@@ -2791,10 +2946,96 @@ devPlans.openapi(rotateApiKey, async (c) => {
 
 	return c.json({
 		apiKey: newToken,
+		apiKeyId: newApiKeyId,
 	});
 });
 
-// Get the card currently backing the DevPass subscription
+const removableDevPlanSubscriptionStatuses =
+	new Set<Stripe.Subscription.Status>([
+		"canceled",
+		"incomplete",
+		"incomplete_expired",
+		"paused",
+		"unpaid",
+	]);
+
+function canRemoveDevPlanPaymentMethod(
+	subscription: Stripe.Subscription | null,
+): boolean {
+	return (
+		!subscription ||
+		subscription.cancel_at_period_end ||
+		removableDevPlanSubscriptionStatuses.has(subscription.status)
+	);
+}
+
+async function listDevPlanCards(
+	stripe: Stripe,
+	stripeCustomerId: string,
+): Promise<Stripe.PaymentMethod[]> {
+	const paymentMethods: Stripe.PaymentMethod[] = [];
+	let startingAfter: string | undefined;
+
+	while (true) {
+		const page = await stripe.paymentMethods.list({
+			customer: stripeCustomerId,
+			type: "card",
+			limit: 100,
+			...(startingAfter ? { starting_after: startingAfter } : {}),
+		});
+		paymentMethods.push(...page.data);
+
+		if (!page.has_more || page.data.length === 0) {
+			return paymentMethods;
+		}
+		startingAfter = page.data[page.data.length - 1]?.id;
+	}
+}
+
+async function getDevPlanCardState(personalOrg: {
+	stripeCustomerId: string | null;
+	devPlanStripeSubscriptionId: string | null;
+}) {
+	const stripe = getStripe();
+	const subscription = personalOrg.devPlanStripeSubscriptionId
+		? await stripe.subscriptions.retrieve(
+				personalOrg.devPlanStripeSubscriptionId,
+				{ expand: ["default_payment_method"] },
+			)
+		: null;
+	const stripeCustomerId =
+		personalOrg.stripeCustomerId ?? getStripeId(subscription?.customer);
+	const paymentMethods = new Map<string, Stripe.PaymentMethod>();
+	const subscriptionPaymentMethod = subscription?.default_payment_method;
+
+	if (typeof subscriptionPaymentMethod === "string") {
+		const paymentMethod = await stripe.paymentMethods.retrieve(
+			subscriptionPaymentMethod,
+		);
+		paymentMethods.set(paymentMethod.id, paymentMethod);
+	} else if (subscriptionPaymentMethod) {
+		paymentMethods.set(subscriptionPaymentMethod.id, subscriptionPaymentMethod);
+	}
+
+	if (stripeCustomerId) {
+		for (const paymentMethod of await listDevPlanCards(
+			stripe,
+			stripeCustomerId,
+		)) {
+			paymentMethods.set(paymentMethod.id, paymentMethod);
+		}
+	}
+
+	return {
+		stripe,
+		subscription,
+		stripeCustomerId,
+		paymentMethods: [...paymentMethods.values()],
+	};
+}
+
+// Get the card currently backing the DevPass subscription or retained on its
+// Stripe customer after an inactive setup.
 const getPaymentMethod = createRoute({
 	method: "get",
 	path: "/payment-method",
@@ -2812,6 +3053,7 @@ const getPaymentMethod = createRoute({
 								expiryYear: z.number(),
 							})
 							.nullable(),
+						canRemove: z.boolean(),
 					}),
 				},
 			},
@@ -2831,27 +3073,21 @@ devPlans.openapi(getPaymentMethod, async (c) => {
 
 	const personalOrg = await findPersonalOrg(user.id);
 
-	if (!personalOrg?.devPlanStripeSubscriptionId) {
-		return c.json({ card: null });
+	if (!personalOrg) {
+		return c.json({ card: null, canRemove: false });
 	}
 
-	const subscription = await getStripe().subscriptions.retrieve(
-		personalOrg.devPlanStripeSubscriptionId,
-		{ expand: ["default_payment_method"] },
+	const state = await getDevPlanCardState(personalOrg);
+	const defaultPaymentMethodId = getStripeId(
+		state.subscription?.default_payment_method,
 	);
-
-	const defaultPaymentMethod = subscription.default_payment_method;
-	if (!defaultPaymentMethod) {
-		return c.json({ card: null });
-	}
-
 	const paymentMethod =
-		typeof defaultPaymentMethod === "string"
-			? await getStripe().paymentMethods.retrieve(defaultPaymentMethod)
-			: defaultPaymentMethod;
+		state.paymentMethods.find(
+			(candidate) => candidate.id === defaultPaymentMethodId,
+		) ?? state.paymentMethods[0];
 
-	if (paymentMethod.type !== "card" || !paymentMethod.card) {
-		return c.json({ card: null });
+	if (!paymentMethod?.card) {
+		return c.json({ card: null, canRemove: false });
 	}
 
 	return c.json({
@@ -2861,7 +3097,117 @@ devPlans.openapi(getPaymentMethod, async (c) => {
 			expiryMonth: paymentMethod.card.exp_month,
 			expiryYear: paymentMethod.card.exp_year,
 		},
+		canRemove: canRemoveDevPlanPaymentMethod(state.subscription),
 	});
+});
+
+const removePaymentMethod = createRoute({
+	method: "delete",
+	path: "/payment-method",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }),
+				},
+			},
+			description: "DevPass payment method removed successfully",
+		},
+		409: {
+			description: "The active subscription must be cancelled first",
+		},
+	},
+});
+
+devPlans.openapi(removePaymentMethod, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const personalOrg = await findPersonalOrg(user.id);
+	if (!personalOrg) {
+		throw new HTTPException(404, {
+			message: "Personal organization not found",
+		});
+	}
+
+	const state = await getDevPlanCardState(personalOrg);
+	if (!canRemoveDevPlanPaymentMethod(state.subscription)) {
+		throw new HTTPException(409, {
+			message: "Cancel your subscription before removing its payment method.",
+		});
+	}
+
+	await rememberDevPlanCardFingerprints(personalOrg.id, [
+		personalOrg.devPlanCardFingerprint,
+		...state.paymentMethods.map(
+			(paymentMethod) => paymentMethod.card?.fingerprint,
+		),
+	]);
+
+	if (state.subscription) {
+		await state.stripe.subscriptions.update(state.subscription.id, {
+			default_payment_method: "",
+		});
+	}
+	if (state.stripeCustomerId) {
+		await state.stripe.customers.update(state.stripeCustomerId, {
+			invoice_settings: { default_payment_method: "" },
+		});
+	}
+	for (const paymentMethod of state.paymentMethods) {
+		if (
+			!state.stripeCustomerId ||
+			getStripeId(paymentMethod.customer) === state.stripeCustomerId
+		) {
+			try {
+				await state.stripe.paymentMethods.detach(paymentMethod.id);
+			} catch (err) {
+				logger.warn(`Failed to detach dev plan card ${paymentMethod.id}`, {
+					error: err instanceof Error ? err.message : String(err),
+				});
+			}
+		}
+	}
+
+	const removedPaymentMethodIds = state.paymentMethods.map(
+		(paymentMethod) => paymentMethod.id,
+	);
+	await db.transaction(async (tx) => {
+		await tx
+			.update(tables.organization)
+			.set({ autoTopUpEnabled: false })
+			.where(eq(tables.organization.id, personalOrg.id));
+		if (removedPaymentMethodIds.length > 0) {
+			await tx
+				.delete(tables.paymentMethod)
+				.where(
+					and(
+						eq(tables.paymentMethod.organizationId, personalOrg.id),
+						inArray(
+							tables.paymentMethod.stripePaymentMethodId,
+							removedPaymentMethodIds,
+						),
+					),
+				);
+		}
+	});
+
+	await logAuditEvent({
+		organizationId: personalOrg.id,
+		userId: user.id,
+		action: "dev_plan.remove_payment_method",
+		resourceType: "dev_plan",
+		resourceId: personalOrg.devPlanStripeSubscriptionId ?? undefined,
+		metadata: {
+			removedPaymentMethodCount: state.paymentMethods.length,
+			autoTopUpDisabled: personalOrg.autoTopUpEnabled,
+		},
+	});
+
+	return c.json({ success: true });
 });
 
 // Create a SetupIntent to collect a new card for the DevPass subscription. The
@@ -3036,12 +3382,10 @@ devPlans.openapi(updatePaymentMethod, async (c) => {
 	// different org and detach it so it isn't silently left on this customer.
 	// Skipped in local development so the same Stripe test card can be reused.
 	if (isDevPlanCardDedupeEnforced()) {
-		const conflictingOrg = await db.query.organization.findFirst({
-			where: {
-				devPlanCardFingerprint: { eq: fingerprint },
-				id: { ne: personalOrg.id },
-			},
-		});
+		const conflictingOrg = await claimDevPlanCardFingerprint(
+			personalOrg.id,
+			fingerprint,
+		);
 		if (conflictingOrg) {
 			try {
 				await getStripe().paymentMethods.detach(paymentMethodId);
@@ -3090,6 +3434,7 @@ devPlans.openapi(updatePaymentMethod, async (c) => {
 		.update(tables.organization)
 		.set({ devPlanCardFingerprint: fingerprint })
 		.where(eq(tables.organization.id, personalOrg.id));
+	await rememberDevPlanCardFingerprint(personalOrg.id, fingerprint);
 
 	await logAuditEvent({
 		organizationId: personalOrg.id,

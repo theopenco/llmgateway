@@ -21,6 +21,15 @@ At the top of the page, you can toggle the date range for all dashboard metrics:
 - **30 days** — Last 30 days of data
 - **Custom** — Pick a custom start and end date
 
+### Display time zone
+
+Timestamps and chart buckets follow the display time zone set under **Settings →
+Account**: either your local zone or UTC. The preference drives both how a
+datetime renders and the bucketing the analytics endpoints do, so a chart's bars
+and its axis labels always agree. It is stored in a browser cookie rather than
+your profile, so the server renders the correct zone on first paint, and the
+DevPass dashboard reads the same preference from its own **Settings** page.
+
 ## Stat Cards
 
 The dashboard displays eight metric cards in two rows:

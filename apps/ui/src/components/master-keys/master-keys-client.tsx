@@ -17,7 +17,7 @@ export function MasterKeysClient() {
 	const { selectedOrganization } = useDashboardNavigation();
 	const api = useApi();
 
-	const isEnterprise = selectedOrganization?.plan === "enterprise";
+	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 
 	const { data } = api.useQuery(
 		"get",

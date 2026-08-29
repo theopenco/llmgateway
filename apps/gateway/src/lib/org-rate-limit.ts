@@ -16,10 +16,14 @@ import { logger } from "@llmgateway/logger";
 import {
 	baseLimitEnvVar,
 	getBaseLimit,
+	getOrgInflightLimit,
+	getOrgInflightStaleSeconds,
 	getOrgSpendTier,
 	getPlanClass,
 	getRateLimitEnvNumber,
+	INFLIGHT_LIMITED_KEYS,
 	isOrgRateLimitEnabled,
+	orgInflightKey,
 	PATH_RATE_LIMITS,
 	resolvePathRateLimit,
 	type PathRateLimitConfig,
@@ -44,8 +48,10 @@ import { findApiKeyByToken, findProjectById } from "./cached-queries.js";
 export {
 	baseLimitEnvVar,
 	getBaseLimit,
+	getOrgInflightLimit,
 	getOrgSpendTier,
 	getPlanClass,
+	INFLIGHT_LIMITED_KEYS,
 	PATH_RATE_LIMITS,
 	resolvePathRateLimit,
 };
@@ -198,11 +204,10 @@ export interface RateLimitResult {
  * using a Redis sliding window. Mirrors the free-model limiter: on any Redis
  * error the request is allowed so that limiter outages never block traffic.
  *
- * The base limit depends on the org's `planClass` (DevPass gets twice the
- * regular base; chat plans use a tighter base). `getMultiplier` is resolved
- * lazily: the spend tier only matters once the org is already at or above its
- * base limit, so the (cached but still extra) spend lookup is skipped entirely
- * for the common under-limit case.
+ * The base limit depends on the org's `planClass` (dev/chat plans are much
+ * tighter). `getMultiplier` is resolved lazily: the spend tier only matters
+ * once the org is already at or above its base limit, so the (cached but still
+ * extra) spend lookup is skipped entirely for the common under-limit case.
  * Higher tiers can only raise the limit, so a request under the base limit is
  * always allowed regardless of tier.
  */
@@ -283,7 +288,128 @@ export async function checkOrgRateLimit(
 		};
 	} catch (error) {
 		logger.error("Error checking org rate limit:", error as Error);
+		// Fail open so Redis issues never block users. `limit: 0` marks the
+		// result as unenforced, so the middleware does not advertise a
+		// zero-remaining budget for a limit that was never actually checked.
+		return { allowed: true, remaining: 0, limit: 0 };
+	}
+}
+
+export interface InflightAcquisition {
+	allowed: boolean;
+	limit: number;
+	/** Releases the held slot; present only when a slot was actually taken. */
+	release?: () => void;
+}
+
+/**
+ * Acquire one slot in the organization's fleet-wide in-flight inference
+ * budget, backed by a Redis sorted set of active request slots. Unlike the
+ * sliding-window RPM counter, entries are removed when the response settles
+ * (via the returned `release`), so the count tracks live concurrency rather
+ * than request rate.
+ *
+ * Slots whose score is older than the stale window are reaped on every
+ * acquisition: a pod that crashed mid-stream never calls `release`, and
+ * without reaping its phantom slots would throttle the org forever. The
+ * window sits above the longest legitimate request, so a legit long-runner
+ * at worst frees its slot early — erring permissive, never restrictive.
+ *
+ * `getMaxLimit` is resolved lazily, mirroring `checkOrgRateLimit`'s spend-tier
+ * multiplier: under `baseLimit` the request is admitted without it, so the
+ * (cached but still extra) tier lookup only runs once an org is actually at
+ * its base. Tiers can only raise the limit, so under-base admits are always
+ * correct.
+ *
+ * Mirrors `checkOrgRateLimit`'s failure policy: any Redis error fails open so
+ * limiter outages never block traffic.
+ */
+export async function acquireOrgInflightSlot(
+	organizationId: string,
+	baseLimit: number,
+	getMaxLimit: () => Promise<number>,
+	endpointKey: string,
+): Promise<InflightAcquisition> {
+	// A non-positive limit means concurrency is unlimited for this org class
+	// (e.g. an operator set the override to 0). Skip enforcement.
+	if (baseLimit <= 0) {
+		return { allowed: true, limit: 0 };
+	}
+
+	const key = orgInflightKey(organizationId);
+	const staleSeconds = getOrgInflightStaleSeconds();
+
+	// Explicit pipelines, NOT bare awaited commands: the release below runs in
+	// the response-close/finally context, where a bare command can wedge
+	// ioredis's auto-pipelining (the queued command's flush is never scheduled,
+	// silently hanging every later command on the shared client). pipeline()
+	// bypasses auto-pipelining and also halves the acquire round trips.
+	try {
+		const now = Date.now();
+		// eslint-disable-next-line no-mixed-operators
+		const staleBefore = now - staleSeconds * 1000;
+
+		const checkResults = await redisClient
+			.pipeline()
+			.zremrangebyscore(key, "-inf", staleBefore)
+			.zcard(key)
+			.exec();
+		const zcardResult = checkResults?.[1];
+		if (!zcardResult || zcardResult[0]) {
+			throw zcardResult?.[0] ?? new Error("org inflight pipeline failed");
+		}
+		const currentCount = Number(zcardResult[1]);
+
+		// Only resolve the tier-elevated ceiling (an extra cached lookup) once
+		// the base limit is reached; below it the request is admitted without it.
+		let limit = baseLimit;
+		if (currentCount >= baseLimit) {
+			limit = Math.max(baseLimit, await getMaxLimit());
+		}
+
+		if (currentCount >= limit) {
+			logger.info("Org inflight limit exceeded", {
+				organizationId,
+				endpointKey,
+				currentCount,
+				limit,
+			});
+
+			await recordLimitHit({
+				organizationId,
+				limitType: "concurrency",
+				endpointKey,
+			});
+
+			return { allowed: false, limit };
+		}
+
+		const member = `${now}:${randomUUID()}`;
+		// The expire is a safety net: if every holder crashes, the whole key
+		// expires once no acquisition refreshes it, instead of lingering until
+		// the next reap.
+		await redisClient
+			.pipeline()
+			.zadd(key, now, member)
+			.expire(key, staleSeconds)
+			.exec();
+
+		return {
+			allowed: true,
+			limit,
+			release: () => {
+				redisClient
+					.pipeline()
+					.zrem(key, member)
+					.exec()
+					.catch((error: unknown) => {
+						logger.error("Error releasing org inflight slot:", error as Error);
+					});
+			},
+		};
+	} catch (error) {
+		logger.error("Error acquiring org inflight slot:", error as Error);
 		// Fail open so Redis issues never block users.
-		return { allowed: true, remaining: 0, limit: baseLimit };
+		return { allowed: true, limit: baseLimit };
 	}
 }

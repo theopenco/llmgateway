@@ -6,6 +6,7 @@ import { resolvePlatformCredential } from "@/chat/tools/resolve-platform-credent
 import { getApiKeyFingerprint } from "@/lib/api-key-fingerprint.js";
 import {
 	assertApiKeyWithinUsageLimits,
+	assertMemberProjectAccess,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
 import {
@@ -16,15 +17,11 @@ import {
 	type GatewayApiKey,
 } from "@/lib/cached-queries.js";
 import { assertProviderCompliant } from "@/lib/compliance.js";
+import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { getOrganizationBlockReason } from "@/lib/organization-access.js";
 
 import { readProviderKey } from "@llmgateway/actions";
-import {
-	getOrganizationEnvVariant,
-	type EnvVarVariant,
-	type Provider,
-} from "@llmgateway/models";
 
 import {
 	findRealtimeMapping,
@@ -34,6 +31,7 @@ import {
 import { RealtimeConnectError } from "./errors.js";
 
 import type { InferSelectModel, tables } from "@llmgateway/db";
+import type { EnvVarVariant, Provider } from "@llmgateway/models";
 
 type Organization = InferSelectModel<typeof tables.organization>;
 type Project = InferSelectModel<typeof tables.project>;
@@ -234,6 +232,7 @@ async function runRealtimePreflightInner(
 		);
 	}
 
+	await assertMemberProjectAccess(apiKey, project.organizationId);
 	await assertMemberWithinBudget(apiKey.createdBy, project.organizationId);
 	assertApiKeyWithinUsageLimits(apiKey);
 
@@ -322,7 +321,7 @@ async function runRealtimePreflightInner(
 	let upstreamToken: string | undefined;
 	let configIndex = 0;
 	let envVarName: string | undefined;
-	const envVariant = getOrganizationEnvVariant(organization);
+	const envVariant = getLicensedOrganizationEnvVariant(organization);
 
 	const resolveCredits = async () => {
 		const platformCredential = await resolvePlatformCredential(

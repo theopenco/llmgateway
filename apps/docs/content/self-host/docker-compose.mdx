@@ -72,6 +72,31 @@ LLM_OPENAI_API_KEY=sk-...
 LLM_ANTHROPIC_API_KEY=sk-ant-...
 ```
 
+## Enterprise license
+
+Add the signed license supplied with your Enterprise agreement to `.env`:
+
+```bash
+LLMGATEWAY_ENTERPRISE_LICENSE=your-signed-license
+```
+
+Restart the API and gateway containers after changing it. Every replica may use
+the same license. The token is verified offline against a public key included in
+the images; it is never sent to LLM Gateway. Core features continue working when
+the key is missing or invalid. A standard Enterprise license is bound to one
+organization. A white-label license permits multiple Enterprise organizations
+and unlocks the multi-organization admin dashboard. Expired licenses receive a
+seven-day grace period.
+
+After restart, a signed-in administrator can check `GET /admin/license` for the
+state, expiry, scope, seat cap, and current distinct-seat usage. For signing-key
+rotation, upgrade the API and gateway images so they contain the new public key
+before installing a token with the new key ID. Old public keys remain in the
+image during the rotation window.
+
+See [Enterprise licensing](/self-host/enterprise-license) for license types,
+installation, verification, expiry behavior, and key rotation.
+
 ## Management commands
 
 ```bash
@@ -119,12 +144,19 @@ Video generation pins the credential that created a job onto the job itself, so
 polling and content retrieval hours later go back through the same credential
 rather than re-selecting one.
 
-Credential tokens are encrypted at rest with AES-256-GCM. The key is derived
-from `GATEWAY_API_KEY_HASH_SECRET`, so there is no extra variable to set — but
-that secret now protects stored provider credentials as well as API-key hashes.
-Give it a strong random value on every service (`openssl rand -base64 32`).
-Rotating it makes existing credentials undecryptable, so re-enter each
-credential after a rotation.
+Provider credential tokens are encrypted at rest with AES-256-GCM because the
+gateway must recover them for upstream requests. New and rolled gateway API
+keys are stored only as keyed HMAC-SHA-256 fingerprints; incoming secrets are
+fingerprinted and compared during authentication. Both protections derive from
+`GATEWAY_API_KEY_HASH_SECRET`, so there is no extra variable to set. Give it a
+strong random value (`openssl rand -base64 32`) and configure that same value
+on every service.
+
+For rotation, prepend the same new secret to the comma-separated keyring on
+every service and retain the old entries while credentials and hashes still use
+them. Authentication checks every retained entry, while new hashes use the
+first entry. Removing an old entry makes its provider credentials undecryptable
+and its remaining hashes unusable.
 
 ## Multiple API keys and load balancing
 

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
 	assertSafeContentUrl,
 	assertSafeProviderBaseUrl,
+	assertSafeUserUrl,
 	isPrivateOrReservedIp,
 	isProviderUrlGuardEnabled,
 } from "./url-safety.js";
@@ -34,6 +35,35 @@ describe("isPrivateOrReservedIp", () => {
 		expect(isPrivateOrReservedIp("::ffff:a9fe:a9fe")).toBe(true); // 169.254.169.254
 		expect(isPrivateOrReservedIp("::ffff:0a00:0001")).toBe(true); // 10.0.0.1
 		expect(isPrivateOrReservedIp("::ffff:0808:0808")).toBe(false); // 8.8.8.8
+	});
+
+	it("flags IPv6 transition addresses embedding internal IPv4 targets", () => {
+		expect(isPrivateOrReservedIp("64:ff9b::a9fe:a9fe")).toBe(true); // NAT64 → 169.254.169.254
+		expect(isPrivateOrReservedIp("64:ff9b::169.254.169.254")).toBe(true); // NAT64 dotted form
+		expect(isPrivateOrReservedIp("64:ff9b::7f00:1")).toBe(true); // NAT64 → 127.0.0.1
+		expect(isPrivateOrReservedIp("64:ff9b::808:808")).toBe(false); // NAT64 → 8.8.8.8 (public)
+		expect(isPrivateOrReservedIp("64:ff9b:1::1")).toBe(true); // NAT64 local-use /48
+		expect(isPrivateOrReservedIp("2002:a9fe:a9fe::1")).toBe(true); // 6to4 → 169.254.169.254
+		expect(isPrivateOrReservedIp("2002:7f00:1::1")).toBe(true); // 6to4 → 127.0.0.1
+		expect(isPrivateOrReservedIp("2001::1")).toBe(true); // Teredo 2001::/32
+		expect(isPrivateOrReservedIp("2001:0:5ef5:79fb::1")).toBe(true); // Teredo
+	});
+
+	it("flags multicast, discard, documentation and non-canonical IPv6 forms", () => {
+		expect(isPrivateOrReservedIp("ff02::1")).toBe(true); // multicast
+		expect(isPrivateOrReservedIp("100::1")).toBe(true); // discard-only 100::/64
+		expect(isPrivateOrReservedIp("2001:db8::1")).toBe(true); // documentation
+		expect(isPrivateOrReservedIp("3fff::1")).toBe(true); // documentation 3fff::/20
+		expect(isPrivateOrReservedIp("0:0:0:0:0:0:0:1")).toBe(true); // uncompressed ::1
+		expect(isPrivateOrReservedIp("::7f00:1")).toBe(true); // IPv4-compatible → 127.0.0.1
+		expect(isPrivateOrReservedIp("fe80::1%eth0")).toBe(true); // zone index
+		expect(isPrivateOrReservedIp("beef::cafe::1")).toBe(true); // malformed → fail closed
+	});
+
+	it("allows public IPv6", () => {
+		expect(isPrivateOrReservedIp("2606:4700::6810:84e5")).toBe(false);
+		expect(isPrivateOrReservedIp("2a00:1450:4001:829::200e")).toBe(false);
+		expect(isPrivateOrReservedIp("2600:1f18:222:e900::1")).toBe(false);
 	});
 
 	it("flags IANA special-use IPv4 ranges", () => {
@@ -149,6 +179,23 @@ describe("assertSafeContentUrl", () => {
 		expect(() => assertSafeContentUrl("gopher://127.0.0.1")).toThrow();
 		expect(() => assertSafeContentUrl("not a url")).toThrow(
 			"Invalid content URL",
+		);
+	});
+});
+
+describe("assertSafeUserUrl", () => {
+	it("accepts only public https targets", () => {
+		expect(() =>
+			assertSafeUserUrl("https://mcp.example.com/rpc"),
+		).not.toThrow();
+		expect(() => assertSafeUserUrl("http://mcp.example.com/rpc")).toThrow(
+			"must use https",
+		);
+		expect(() => assertSafeUserUrl("https://127.0.0.1/rpc")).toThrow(
+			"private or reserved",
+		);
+		expect(() => assertSafeUserUrl("https://service.internal/rpc")).toThrow(
+			"disallowed internal host",
 		);
 	});
 });

@@ -32,9 +32,10 @@ export interface TransactionalEmailOptions {
 		contentType?: string;
 	}>;
 	/**
-	 * When true, the function rejects on misconfiguration and delivery
-	 * failures instead of silently logging. Use for flows where the caller
-	 * must know whether the email was actually queued (e.g. password reset).
+	 * When true, the function rejects on unexpected misconfiguration and
+	 * delivery failures instead of silently logging. Intentional policy skips
+	 * still resolve. Use for flows where the caller must know whether the email
+	 * was actually queued (e.g. password reset).
 	 */
 	strict?: boolean;
 	/**
@@ -54,6 +55,28 @@ export interface TransactionalEmailOptions {
 	organizationId?: string;
 }
 
+function isReservedEmailAddress(email: string): boolean {
+	const separatorIndex = email.lastIndexOf("@");
+	if (separatorIndex === -1) {
+		return false;
+	}
+
+	const domain = email.slice(separatorIndex + 1).toLowerCase();
+	const reservedDomains = [
+		"example",
+		"invalid",
+		"localhost",
+		"test",
+		"example.com",
+		"example.net",
+		"example.org",
+	];
+
+	return reservedDomains.some(
+		(reserved) => domain === reserved || domain.endsWith(`.${reserved}`),
+	);
+}
+
 export async function sendTransactionalEmail({
 	to,
 	subject,
@@ -64,6 +87,14 @@ export async function sendTransactionalEmail({
 	logSafe = false,
 	organizationId,
 }: TransactionalEmailOptions): Promise<void> {
+	if (process.env.NODE_ENV === "production" && isReservedEmailAddress(to)) {
+		logger.info("Skipping transactional email to reserved domain", {
+			to,
+			subject,
+		});
+		return;
+	}
+
 	// Policy gate: never send org-scoped transactional emails to an
 	// organization whose owner has not verified their email.
 	if (organizationId && !(await isOrgOwnerEmailVerified(organizationId))) {

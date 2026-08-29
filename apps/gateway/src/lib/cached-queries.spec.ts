@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import {
 	cdb,
@@ -7,12 +8,20 @@ import {
 	eq,
 	apiKey,
 	apiKeyIamRule,
+	customModel,
+	endCustomer,
+	endUserSession,
 	organization,
 	project,
 	providerKey,
 	user,
 	userOrganization,
+	wallet,
 } from "@llmgateway/db";
+import {
+	hashApiKeyForStorage,
+	hashTokenForStorage,
+} from "@llmgateway/shared/api-key-hash";
 
 import {
 	reportTrackedKeyError,
@@ -24,6 +33,7 @@ import {
 	findProjectById,
 	findOrganizationById,
 	findCustomProviderKey,
+	findActiveCustomModels,
 	findProviderKey,
 	findActiveProviderKeys,
 	findProviderKeysByProviders,
@@ -93,7 +103,7 @@ describe("Cached Queries - Gateway Database Access", () => {
 
 		await db.insert(apiKey).values({
 			id: testApiKeyId,
-			token: testApiKeyToken,
+			...hashApiKeyForStorage(testApiKeyToken),
 			projectId: testProjectId,
 			description: "Test API Key for cached queries testing",
 			status: "active",
@@ -102,7 +112,11 @@ describe("Cached Queries - Gateway Database Access", () => {
 
 		await db.insert(providerKey).values({
 			id: testProviderKeyId,
-			token: "test-provider-token",
+			...encryptProviderKeyForStorage(
+				"test-provider-token",
+				testProviderKeyId,
+				testOrgId,
+			),
 			provider: "openai",
 			organizationId: testOrgId,
 			status: "active",
@@ -110,7 +124,11 @@ describe("Cached Queries - Gateway Database Access", () => {
 
 		await db.insert(providerKey).values({
 			id: "test-provider-key-cached-queries-2",
-			token: "test-provider-token-2",
+			...encryptProviderKeyForStorage(
+				"test-provider-token-2",
+				"test-provider-key-cached-queries-2",
+				testOrgId,
+			),
 			provider: "openai",
 			organizationId: testOrgId,
 			status: "active",
@@ -118,13 +136,35 @@ describe("Cached Queries - Gateway Database Access", () => {
 
 		await db.insert(providerKey).values({
 			id: "test-custom-provider-key",
-			token: "test-custom-token",
+			...encryptProviderKeyForStorage(
+				"test-custom-token",
+				"test-custom-provider-key",
+				testOrgId,
+			),
 			provider: "custom",
 			name: "my-custom-provider",
 			baseUrl: "https://api.custom.example.com",
 			organizationId: testOrgId,
 			status: "active",
 		});
+
+		await db.insert(customModel).values([
+			{
+				id: "test-active-custom-model",
+				providerKeyId: "test-custom-provider-key",
+				organizationId: testOrgId,
+				modelName: "claude-haiku-4-5",
+				inputPrice: "1e-6",
+				outputPrice: "2e-6",
+			},
+			{
+				id: "test-inactive-custom-model",
+				providerKeyId: "test-custom-provider-key",
+				organizationId: testOrgId,
+				modelName: "inactive-model",
+				status: "inactive",
+			},
+		]);
 
 		await db.insert(apiKeyIamRule).values({
 			id: testIamRuleId,
@@ -149,12 +189,48 @@ describe("Cached Queries - Gateway Database Access", () => {
 	});
 
 	describe("findApiKeyByToken", () => {
+		async function insertEndUserSession(tokenValues: { tokenHash: string }) {
+			await db.insert(endCustomer).values({
+				id: "test-end-customer-cached-queries",
+				organizationId: testOrgId,
+				projectId: testProjectId,
+				externalId: "external-user",
+			});
+			await db.insert(wallet).values({
+				id: "test-wallet-cached-queries",
+				endCustomerId: "test-end-customer-cached-queries",
+				organizationId: testOrgId,
+				projectId: testProjectId,
+			});
+			await db.insert(apiKey).values({
+				id: "test-end-user-key-cached-queries",
+				...hashApiKeyForStorage("euck_internal-principal"),
+				projectId: testProjectId,
+				description: "Embedded end user",
+				keyType: "end_user_customer",
+				endCustomerWalletId: "test-wallet-cached-queries",
+				createdBy: testUserId,
+			});
+			await db.insert(endUserSession).values({
+				id: "test-end-user-session-cached-queries",
+				...tokenValues,
+				organizationId: testOrgId,
+				projectId: testProjectId,
+				endCustomerId: "test-end-customer-cached-queries",
+				walletId: "test-wallet-cached-queries",
+				createdBy: testUserId,
+				expiresAt: new Date(Date.now() + 60_000),
+			});
+		}
+
 		it("should find API key by token", async () => {
 			const result = await findApiKeyByToken(testApiKeyToken);
 
 			expect(result).toBeDefined();
 			expect(result?.id).toBe(testApiKeyId);
-			expect(result?.token).toBe(testApiKeyToken);
+			expect(result?.tokenHash).toBe(
+				hashApiKeyForStorage(testApiKeyToken).tokenHash,
+			);
 			expect(result?.status).toBe("active");
 		});
 
@@ -164,11 +240,30 @@ describe("Cached Queries - Gateway Database Access", () => {
 			expect(result).toBeUndefined();
 		});
 
+		it("should find a hash-only API key by token", async () => {
+			const hashedToken = "sk-test-hashed-cached-queries-token";
+			await db.insert(apiKey).values({
+				id: "test-hashed-api-key-cached-queries",
+				...hashApiKeyForStorage(hashedToken),
+				projectId: testProjectId,
+				description: "Hashed API Key",
+				status: "active",
+				createdBy: testUserId,
+			});
+
+			const result = await findApiKeyByToken(hashedToken);
+
+			expect(result?.id).toBe("test-hashed-api-key-cached-queries");
+			expect(result?.tokenHash).toBe(
+				hashApiKeyForStorage(hashedToken).tokenHash,
+			);
+		});
+
 		it("should return undefined for platform secret tokens", async () => {
 			const platformSecretToken = "sk-test-platform-secret-cached-queries";
 			await db.insert(apiKey).values({
 				id: "test-platform-secret-cached-queries",
-				token: platformSecretToken,
+				...hashApiKeyForStorage(platformSecretToken),
 				projectId: testProjectId,
 				description: "Test Platform Secret",
 				status: "active",
@@ -179,6 +274,18 @@ describe("Cached Queries - Gateway Database Access", () => {
 			const result = await findApiKeyByToken(platformSecretToken);
 
 			expect(result).toBeUndefined();
+		});
+
+		it("finds a hash-only embeddable session token", async () => {
+			const token = "es_hash-only-cached-queries";
+			await insertEndUserSession(hashTokenForStorage(token));
+
+			const result = await findApiKeyByToken(token);
+
+			expect(result?.id).toBe("test-end-user-key-cached-queries");
+			expect(result?.endUserSession?.id).toBe(
+				"test-end-user-session-cached-queries",
+			);
 		});
 	});
 
@@ -233,6 +340,20 @@ describe("Cached Queries - Gateway Database Access", () => {
 			const result = await findCustomProviderKey(testOrgId, "nonexistent");
 
 			expect(result).toBeUndefined();
+		});
+	});
+
+	describe("findActiveCustomModels", () => {
+		it("finds active custom models for an organization", async () => {
+			const result = await findActiveCustomModels(testOrgId);
+
+			expect(result.map((model) => model.id)).toEqual([
+				"test-active-custom-model",
+			]);
+		});
+
+		it("returns an empty array for another organization", async () => {
+			expect(await findActiveCustomModels("nonexistent-org")).toEqual([]);
 		});
 	});
 
@@ -374,7 +495,11 @@ describe("Cached Queries - Gateway Database Access", () => {
 			// tie this key with position 0 and slot it second instead of last.
 			await db.insert(providerKey).values({
 				id: "test-provider-key-cached-queries-3",
-				token: "test-provider-token-3",
+				...encryptProviderKeyForStorage(
+					"test-provider-token-3",
+					"test-provider-key-cached-queries-3",
+					testOrgId,
+				),
 				provider: "openai",
 				organizationId: testOrgId,
 				status: "active",

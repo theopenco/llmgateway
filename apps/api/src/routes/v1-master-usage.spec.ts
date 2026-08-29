@@ -4,6 +4,7 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { apiKeyHourlyModelStats, db, eq, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 interface UsageRow {
@@ -128,28 +129,28 @@ describe("GET /v1/master/usage", () => {
 		await db.insert(tables.apiKey).values([
 			{
 				id: "key-a",
-				token: "key-a-token",
+				...hashApiKeyForStorage("key-a-token"),
 				projectId: "project-1-id",
 				description: "Key A",
 				createdBy: "test-user-id",
 			},
 			{
 				id: "key-b",
-				token: "key-b-token",
+				...hashApiKeyForStorage("key-b-token"),
 				projectId: "project-1-id",
 				description: "Key B",
 				createdBy: "user-b-id",
 			},
 			{
 				id: "key-c",
-				token: "key-c-token",
+				...hashApiKeyForStorage("key-c-token"),
 				projectId: "project-2-id",
 				description: "Key C",
 				createdBy: "test-user-id",
 			},
 			{
 				id: "other-key",
-				token: "other-key-token",
+				...hashApiKeyForStorage("other-key-token"),
 				projectId: "other-project-id",
 				description: "Other Key",
 				createdBy: "user-b-id",
@@ -409,6 +410,54 @@ describe("GET /v1/master/usage", () => {
 			apiKeyId: "key-c",
 			apiKeyName: "Key C",
 			cost: 16,
+		});
+	});
+
+	test("reports playground usage under its stable api key id", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "playground-key",
+			...hashApiKeyForStorage("playground-token"),
+			projectId: "project-1-id",
+			description: "Playground",
+			kind: "playground",
+			createdBy: "test-user-id",
+		});
+		await db.insert(apiKeyHourlyModelStats).values(
+			statsRow({
+				id: "stat-playground",
+				apiKeyId: "playground-key",
+				projectId: "project-1-id",
+				hour: "2026-03-01T10:00:00.000Z",
+				usedModel: "gpt-5.6",
+				usedProvider: "openai",
+				requestCount: 6,
+				cost: 8,
+				totalTokens: 80,
+			}),
+		);
+
+		const body = await fetchJson("granularity=total&groupBy=apiKey");
+		const playgroundRows = body.rows.filter(
+			(row) => row.apiKeyId === "playground-key",
+		);
+
+		expect(playgroundRows).toHaveLength(1);
+		expect(playgroundRows[0]).toMatchObject({
+			apiKeyId: "playground-key",
+			apiKeyName: "Playground",
+			requestCount: 6,
+			cost: 8,
+		});
+
+		const filtered = await fetchJson(
+			"granularity=total&groupBy=apiKey&apiKeyId=playground-key",
+		);
+		expect(filtered.rows).toHaveLength(1);
+		expect(filtered.rows[0]).toMatchObject({
+			apiKeyId: "playground-key",
+			apiKeyName: "Playground",
+			requestCount: 6,
+			cost: 8,
 		});
 	});
 

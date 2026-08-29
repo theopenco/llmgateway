@@ -124,6 +124,7 @@ export const openaiModels = [
 				tools: false, // Search models don't support additional tools
 				jsonOutput: false,
 				supportedParameters: ["max_tokens", "response_format"],
+				deactivatedAt: new Date("2026-08-22"),
 			},
 		],
 	},
@@ -150,6 +151,7 @@ export const openaiModels = [
 				tools: false, // Search models don't support additional tools
 				jsonOutput: false,
 				supportedParameters: ["max_tokens", "response_format"],
+				deactivatedAt: new Date("2026-08-22"),
 			},
 		],
 	},
@@ -732,6 +734,7 @@ export const openaiModels = [
 			},
 			{
 				test: "skip",
+				deactivatedAt: new Date("2026-08-20"),
 				providerId: "nanogpt",
 				externalId: "openai/gpt-oss-120b",
 				inputPrice: "0.05e-6",
@@ -763,6 +766,7 @@ export const openaiModels = [
 			{
 				providerId: "nebius",
 				externalId: "openai/gpt-oss-120b",
+				deactivatedAt: new Date("2026-08-31"),
 				// Streaming tool calls arrive malformed from nebius (vLLM emits a
 				// bogus tool_call index on the final argument fragment)
 				stability: "unstable",
@@ -872,6 +876,7 @@ export const openaiModels = [
 			},
 			{
 				test: "skip",
+				deactivatedAt: new Date("2026-08-20"),
 				providerId: "nanogpt",
 				externalId: "openai/gpt-oss-20b",
 				inputPrice: "0.04e-6",
@@ -2563,28 +2568,6 @@ export const openaiModels = [
 				supportsVideoAudio: true,
 				supportsVideoWithoutAudio: false,
 			},
-			{
-				providerId: "avalanche",
-				externalId: "sora-2",
-				deactivatedAt: new Date("2026-03-24"),
-				inputPrice: undefined,
-				outputPrice: undefined,
-				requestPrice: undefined,
-				perSecondPrice: {
-					"720p": "0.08",
-				},
-				supportedVideoSizes: ["1280x720", "720x1280"],
-				supportedVideoDurationsSeconds: [10],
-				contextSize: 32768,
-				maxOutput: 1,
-				streaming: false,
-				tools: false,
-				jsonOutput: false,
-				jsonOutputSchema: false,
-				videoGenerations: true,
-				supportsVideoAudio: true,
-				supportsVideoWithoutAudio: false,
-			},
 		],
 	},
 	{
@@ -2619,29 +2602,6 @@ export const openaiModels = [
 					"1080x1920",
 				],
 				supportedVideoDurationsSeconds: [4, 8, 12],
-				contextSize: 32768,
-				maxOutput: 1,
-				streaming: false,
-				tools: false,
-				jsonOutput: false,
-				jsonOutputSchema: false,
-				videoGenerations: true,
-				supportsVideoAudio: true,
-				supportsVideoWithoutAudio: false,
-			},
-			{
-				providerId: "avalanche",
-				externalId: "sora-2-pro",
-				deactivatedAt: new Date("2026-03-24"),
-				inputPrice: undefined,
-				outputPrice: undefined,
-				requestPrice: undefined,
-				perSecondPrice: {
-					"720p": "0.24",
-					hd: "0.4",
-				},
-				supportedVideoSizes: ["1280x720", "720x1280", "1792x1024", "1024x1792"],
-				supportedVideoDurationsSeconds: [10],
 				contextSize: 32768,
 				maxOutput: 1,
 				streaming: false,

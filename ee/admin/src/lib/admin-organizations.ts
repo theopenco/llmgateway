@@ -97,6 +97,55 @@ export async function addManualCreditsToOrganization(
 	return { success: true };
 }
 
+export interface EnterpriseDealInput {
+	amount: number;
+	paymentMethod: "wire" | "crypto" | "other";
+	transactionDate?: string;
+	externalReference?: string;
+	comment?: string;
+}
+
+export async function addEnterpriseDealToOrganization(
+	orgId: string,
+	body: EnterpriseDealInput,
+): Promise<{ success: boolean; error?: string }> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.POST(
+		"/admin/organizations/{orgId}/enterprise-deals",
+		{
+			params: { path: { orgId } },
+			body,
+		},
+	);
+
+	if (error || !data) {
+		return { success: false, error: "Failed to add enterprise deal" };
+	}
+
+	return { success: true };
+}
+
+export async function updateEnterpriseDeal(
+	orgId: string,
+	transactionId: string,
+	body: EnterpriseDealInput,
+): Promise<{ success: boolean; error?: string }> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.PATCH(
+		"/admin/organizations/{orgId}/enterprise-deals/{transactionId}",
+		{
+			params: { path: { orgId, transactionId } },
+			body,
+		},
+	);
+
+	if (error || !data) {
+		return { success: false, error: "Failed to update enterprise deal" };
+	}
+
+	return { success: true };
+}
+
 export async function updateReferralBonus(
 	orgId: string,
 	body: { enabled: boolean; percent: number },
@@ -172,6 +221,56 @@ export async function setOrganizationStatus(
 		const message =
 			(error as { message?: string } | undefined)?.message ??
 			"Failed to update organization status";
+		return { success: false, error: message };
+	}
+
+	return { success: true };
+}
+
+export async function deleteOrganizationPaymentMethod(
+	orgId: string,
+	paymentMethodId: string,
+	replacementPaymentMethodId?: string,
+	releaseDevPlanCardFingerprint?: boolean,
+): Promise<{ success: boolean; error?: string }> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.DELETE(
+		"/admin/organizations/{orgId}/payment-methods/{paymentMethodId}",
+		{
+			params: { path: { orgId, paymentMethodId } },
+			body: {
+				replacementPaymentMethodId,
+				releaseDevPlanCardFingerprint,
+			},
+		},
+	);
+
+	if (error || !data) {
+		const message =
+			(error as { message?: string } | undefined)?.message ??
+			"Failed to delete payment method";
+		return { success: false, error: message };
+	}
+
+	return { success: true };
+}
+
+export async function releaseDevPlanCardFingerprint(
+	orgId: string,
+	fingerprintId: string,
+): Promise<{ success: boolean; error?: string }> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.DELETE(
+		"/admin/organizations/{orgId}/dev-plan-card-fingerprints/{fingerprintId}",
+		{
+			params: { path: { orgId, fingerprintId } },
+		},
+	);
+
+	if (error || !data) {
+		const message =
+			(error as { message?: string } | undefined)?.message ??
+			"Failed to release card fingerprint";
 		return { success: false, error: message };
 	}
 

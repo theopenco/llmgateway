@@ -1,7 +1,7 @@
 ---
 id: "2"
 slug: "privacy"
-date: "2026-06-11"
+date: "2026-08-20"
 title: "Privacy Policy"
 description: "Read LLM Gateway’s Privacy Policy to understand how we collect, use, share, and protect your data, our roles as controller and processor, AI provider routing, your GDPR and CCPA rights, data retention, and international transfers."
 ---
@@ -9,7 +9,7 @@ description: "Read LLM Gateway’s Privacy Policy to understand how we collect, 
 # Privacy Policy
 
 **Effective Date:** October 21, 2025  
-**Last Updated:** June 11, 2026
+**Last Updated:** August 20, 2026
 
 LLM Gateway (“we”, “our”, or “us”) provides a unified AI gateway platform that enables users to connect, manage, and analyze AI models across multiple providers. This Privacy Policy explains how we collect, use, share, and protect personal information when you use our website, APIs, SDKs, dashboards, and related services (collectively, the “Service”).
 
@@ -130,6 +130,9 @@ Where we retain billing records after account deletion, we restrict processing o
 We implement industry-standard technical and organizational measures to protect personal data, including:
 
 - HTTPS and encryption in transit
+- Encryption at rest for stored provider credentials, and keyed one-way hashes
+  for new and rotated gateway API key secrets; authentication compares hashes
+  instead of recovering those secrets
 - Access controls and authentication for sensitive data
 - Regular security reviews and monitoring
 
@@ -167,6 +170,8 @@ We will honor erasure requests except where we are legally obliged to retain dat
 When you route a request, the **content of that request is sent to the AI provider you select** so it can generate a response. Each provider handles data under its own policies, which differ in retention, sub-processing, geographic location, certifications (e.g., SOC 2, ISO 27001), and whether they use inputs for model training. We do not control those practices.
 
 Before selecting a model, we encourage you to review the provider's policies on our [Provider Information page](https://llmgateway.io/legal/providers), which links to each provider's terms, privacy policy, and data-training and compliance information. You are responsible for ensuring your selected provider is appropriate for the sensitivity of the data you submit.
+
+Enterprise organizations can restrict routing using the complete provider compliance policy. DevPass organizations can instead enable **No AI training**, which excludes providers unless their published policy explicitly states that API inputs are not used for training. Requests are rejected when no eligible provider remains.
 
 ### Stealth and Undisclosed Providers
 

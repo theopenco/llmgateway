@@ -9,8 +9,10 @@ import {
 	vi,
 } from "vitest";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, eq, tables, type Log } from "@llmgateway/db";
 import { getProviderDefinition } from "@llmgateway/models";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { maskToken } from "@llmgateway/shared/mask-token";
 
 import { app } from "./app.js";
@@ -141,7 +143,7 @@ describe("fallback and error status code handling", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -149,7 +151,11 @@ describe("fallback and error status code handling", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider,
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -162,7 +168,7 @@ describe("fallback and error status code handling", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -170,7 +176,11 @@ describe("fallback and error status code handling", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "llmgateway",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -182,7 +192,7 @@ describe("fallback and error status code handling", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -191,14 +201,22 @@ describe("fallback and error status code handling", () => {
 		await db.insert(tables.providerKey).values([
 			{
 				id: "provider-key-together",
-				token: "sk-together-key",
+				...encryptProviderKeyForStorage(
+					"sk-together-key",
+					"provider-key-together",
+					"org-id",
+				),
 				provider: "together-ai",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
 			},
 			{
 				id: "provider-key-cerebras",
-				token: "sk-cerebras-key",
+				...encryptProviderKeyForStorage(
+					"sk-cerebras-key",
+					"provider-key-cerebras",
+					"org-id",
+				),
 				provider: "cerebras",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -211,7 +229,7 @@ describe("fallback and error status code handling", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -220,14 +238,22 @@ describe("fallback and error status code handling", () => {
 		await db.insert(tables.providerKey).values([
 			{
 				id: `${provider}-key-primary`,
-				token: `${provider}-primary-token`,
+				...encryptProviderKeyForStorage(
+					`${provider}-primary-token`,
+					`${provider}-key-primary`,
+					"org-id",
+				),
 				provider,
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
 			},
 			{
 				id: `${provider}-key-secondary`,
-				token: `${provider}-secondary-token`,
+				...encryptProviderKeyForStorage(
+					`${provider}-secondary-token`,
+					`${provider}-key-secondary`,
+					"org-id",
+				),
 				provider,
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -240,7 +266,7 @@ describe("fallback and error status code handling", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -249,7 +275,11 @@ describe("fallback and error status code handling", () => {
 		await db.insert(tables.providerKey).values([
 			{
 				id: `${provider}-key-singapore`,
-				token: `${provider}-singapore-token`,
+				...encryptProviderKeyForStorage(
+					`${provider}-singapore-token`,
+					`${provider}-key-singapore`,
+					"org-id",
+				),
 				provider,
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -259,7 +289,11 @@ describe("fallback and error status code handling", () => {
 			},
 			{
 				id: `${provider}-key-beijing`,
-				token: `${provider}-beijing-token`,
+				...encryptProviderKeyForStorage(
+					`${provider}-beijing-token`,
+					`${provider}-key-beijing`,
+					"org-id",
+				),
 				provider,
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -305,6 +339,7 @@ describe("fallback and error status code handling", () => {
 				modelId,
 				providerId,
 				modelProviderMappingId: mappingId,
+				usedMode: "credits",
 				minuteTimestamp,
 				logsCount: totalRequests,
 				errorsCount,
@@ -323,6 +358,7 @@ describe("fallback and error status code handling", () => {
 				target: [
 					tables.modelProviderMappingHistory.modelProviderMappingId,
 					tables.modelProviderMappingHistory.minuteTimestamp,
+					tables.modelProviderMappingHistory.usedMode,
 				],
 				set: {
 					logsCount: totalRequests,
@@ -389,6 +425,228 @@ describe("fallback and error status code handling", () => {
 			})),
 		);
 	}
+
+	async function setupCustomAutoRouting() {
+		await db
+			.update(tables.organization)
+			.set({ plan: "enterprise" })
+			.where(eq(tables.organization.id, "org-id"));
+		await db.insert(tables.apiKey).values({
+			id: "auto-custom-token-id",
+			...hashApiKeyForStorage("auto-custom-token"),
+			projectId: "project-id",
+			description: "Custom auto-routing key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.providerKey).values([
+			{
+				id: "auto-custom-provider-key",
+				...encryptProviderKeyForStorage(
+					"sk-custom-auto",
+					"auto-custom-provider-key",
+					"org-id",
+				),
+				provider: "custom",
+				name: "my-custom",
+				baseUrl: mockServerUrl,
+				organizationId: "org-id",
+				customModelsOnly: true,
+			},
+			{
+				id: "auto-anthropic-provider-key",
+				...encryptProviderKeyForStorage(
+					"sk-anthropic-auto",
+					"auto-anthropic-provider-key",
+					"org-id",
+				),
+				provider: "anthropic",
+				baseUrl: mockServerUrl,
+				organizationId: "org-id",
+			},
+		]);
+		await db.insert(tables.customModel).values({
+			id: "auto-custom-model",
+			providerKeyId: "auto-custom-provider-key",
+			organizationId: "org-id",
+			modelName: "claude-haiku-4-5",
+			inputPrice: "0.1e-6",
+			outputPrice: "0.2e-6",
+			contextSize: 200_000,
+			jsonOutput: true,
+			streaming: "true",
+		});
+	}
+
+	describe("custom provider auto routing", () => {
+		test("streams a catalog-backed custom model", async () => {
+			await setupCustomAutoRouting();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer auto-custom-token",
+				},
+				body: JSON.stringify({
+					model: "my-custom/claude-haiku-4-5",
+					messages: [{ role: "user", content: "Hello custom stream!" }],
+					stream: true,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const streamResult = await readAll(res.body);
+			expect(streamResult.hasError).toBe(false);
+			expect(streamResult.eventCount).toBeGreaterThan(0);
+
+			const logs = await waitForLogs(1);
+			expect(logs[0].usedProvider).toBe("custom");
+			expect(logs[0].streamed).toBe(true);
+		});
+
+		test("routes a canonical model id to a cheaper matching custom model", async () => {
+			await setupCustomAutoRouting();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer auto-custom-token",
+				},
+				body: JSON.stringify({
+					model: "claude-haiku-4-5",
+					routing: "price",
+					messages: [{ role: "user", content: "Hello custom route!" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const logs = await waitForLogs(1);
+			expect(logs).toHaveLength(1);
+			expect(logs[0].requestedModel).toBe("claude-haiku-4-5");
+			expect(logs[0].usedProvider).toBe("custom");
+			expect(logs[0].usedModel).toBe("my-custom/claude-haiku-4-5");
+			expect(Number(logs[0].cost)).toBeGreaterThan(0);
+		});
+
+		test("honors scoring weights with a matching custom model", async () => {
+			await setupCustomAutoRouting();
+			await db.insert(tables.routingConfig).values({
+				projectId: "project-id",
+				enabled: true,
+				weights: {
+					price: 0,
+					imagePrice: 0,
+					uptime: 0,
+					throughput: 1,
+					latency: 0,
+					cache: 0,
+				},
+				sticky: { enabled: false },
+				providerPriorities: { anthropic: 1, custom: 1 },
+			});
+			await setRoutingMetrics("claude-haiku-4-5", "anthropic", 100, {
+				routingThroughput: 100,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer auto-custom-token",
+				},
+				body: JSON.stringify({
+					model: "claude-haiku-4-5",
+					messages: [{ role: "user", content: "Honor routing weights" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const logs = await waitForLogs(1);
+			expect(logs[0].usedProvider).toBe("anthropic");
+			expect(logs[0].routingMetadata?.selectionReason).toBe("weighted-score");
+		});
+
+		test("routes to a priced custom model with a matching catalog id", async () => {
+			await setupCustomAutoRouting();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer auto-custom-token",
+				},
+				body: JSON.stringify({
+					model: "auto",
+					messages: [{ role: "user", content: "Hello custom auto!" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const logs = await waitForLogs(1);
+			expect(logs).toHaveLength(1);
+			expect(logs[0].usedProvider).toBe("custom");
+			expect(logs[0].usedModel).toBe("my-custom/claude-haiku-4-5");
+			expect(Number(logs[0].cost)).toBeGreaterThan(0);
+		});
+
+		test("routes JSON schema requests to capable custom models", async () => {
+			await setupCustomAutoRouting();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer auto-custom-token",
+				},
+				body: JSON.stringify({
+					model: "auto",
+					messages: [{ role: "user", content: "Return JSON" }],
+					response_format: {
+						type: "json_schema",
+						json_schema: {
+							name: "response",
+							schema: { type: "object" },
+						},
+					},
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const logs = await waitForLogs(1);
+			expect(logs).toHaveLength(1);
+			expect(logs[0].usedProvider).toBe("custom");
+			expect(logs[0].usedModel).toBe("my-custom/claude-haiku-4-5");
+		});
+
+		test("falls back after an auto-selected custom provider fails", async () => {
+			await setupCustomAutoRouting();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer auto-custom-token",
+				},
+				body: JSON.stringify({
+					model: "auto",
+					messages: [
+						{ role: "user", content: "TRIGGER_FAIL_ONCE custom auto" },
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const logs = await waitForLogs(2);
+			const failedLog = logs.find((log: Log) => log.hasError);
+			const successLog = logs.find((log: Log) => !log.hasError);
+			expect(failedLog?.usedProvider).toBe("custom");
+			expect(failedLog?.retried).toBe(true);
+			expect(successLog?.usedProvider).toBe("anthropic");
+			expect(successLog?.usedModel).toBe("anthropic/claude-haiku-4-5");
+			expect(failedLog?.retriedByLogId).toBe(successLog?.id);
+		});
+	});
 
 	describe("error status code classification", () => {
 		test("500 upstream error is classified as upstream_error with correct metadata in response and DB log", async () => {
@@ -943,7 +1201,7 @@ describe("fallback and error status code handling", () => {
 			try {
 				await db.insert(tables.apiKey).values({
 					id: "token-id",
-					token: "real-token",
+					...hashApiKeyForStorage("real-token"),
 					projectId: "project-id",
 					description: "Test API Key",
 					createdBy: "user-id",
@@ -952,7 +1210,11 @@ describe("fallback and error status code handling", () => {
 				// Create provider key for google-vertex (active at 2026-01-20) with mock server URL
 				await db.insert(tables.providerKey).values({
 					id: "provider-key-google",
-					token: "google-test-key",
+					...encryptProviderKeyForStorage(
+						"google-test-key",
+						"provider-key-google",
+						"org-id",
+					),
 					provider: "google-vertex",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
@@ -1123,21 +1385,33 @@ describe("fallback and error status code handling", () => {
 			await db.insert(tables.providerKey).values([
 				{
 					id: "provider-key-zai",
-					token: "sk-zai-key",
+					...encryptProviderKeyForStorage(
+						"sk-zai-key",
+						"provider-key-zai",
+						"org-id",
+					),
 					provider: "zai",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
 				},
 				{
 					id: "provider-key-alibaba",
-					token: "sk-alibaba-key",
+					...encryptProviderKeyForStorage(
+						"sk-alibaba-key",
+						"provider-key-alibaba",
+						"org-id",
+					),
 					provider: "alibaba",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
 				},
 				{
 					id: "provider-key-novita",
-					token: "sk-novita-key",
+					...encryptProviderKeyForStorage(
+						"sk-novita-key",
+						"provider-key-novita",
+						"org-id",
+					),
 					provider: "novita",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
@@ -1262,21 +1536,33 @@ describe("fallback and error status code handling", () => {
 			await db.insert(tables.providerKey).values([
 				{
 					id: "provider-key-zai",
-					token: "sk-zai-key",
+					...encryptProviderKeyForStorage(
+						"sk-zai-key",
+						"provider-key-zai",
+						"org-id",
+					),
 					provider: "zai",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
 				},
 				{
 					id: "provider-key-alibaba",
-					token: "sk-alibaba-key",
+					...encryptProviderKeyForStorage(
+						"sk-alibaba-key",
+						"provider-key-alibaba",
+						"org-id",
+					),
 					provider: "alibaba",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
 				},
 				{
 					id: "provider-key-novita",
-					token: "sk-novita-key",
+					...encryptProviderKeyForStorage(
+						"sk-novita-key",
+						"provider-key-novita",
+						"org-id",
+					),
 					provider: "novita",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
@@ -1385,21 +1671,33 @@ describe("fallback and error status code handling", () => {
 			await db.insert(tables.providerKey).values([
 				{
 					id: "provider-key-zai",
-					token: "sk-zai-key",
+					...encryptProviderKeyForStorage(
+						"sk-zai-key",
+						"provider-key-zai",
+						"org-id",
+					),
 					provider: "zai",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
 				},
 				{
 					id: "provider-key-alibaba",
-					token: "sk-alibaba-key",
+					...encryptProviderKeyForStorage(
+						"sk-alibaba-key",
+						"provider-key-alibaba",
+						"org-id",
+					),
 					provider: "alibaba",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
 				},
 				{
 					id: "provider-key-novita",
-					token: "sk-novita-key",
+					...encryptProviderKeyForStorage(
+						"sk-novita-key",
+						"provider-key-novita",
+						"org-id",
+					),
 					provider: "novita",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
@@ -1857,13 +2155,14 @@ describe("fallback and error status code handling", () => {
 					contentFilterRerouted: true,
 					contentFilterExcludedProviders: ["together-ai"],
 				});
-				expect(log.routingMetadata?.providerScores).toContainEqual(
-					expect.objectContaining({
-						providerId: "together-ai",
-						contentFilterProvider: true,
-						excludedByContentFilter: true,
-					}),
+				expect(log.routingMetadata?.providerScores).not.toContainEqual(
+					expect.objectContaining({ providerId: "together-ai" }),
 				);
+				expect(log.routingMetadata?.filteredProviders).toContainEqual({
+					providerId: "together-ai",
+					reasons: ["excluded by content-filter routing"],
+					codes: ["content_filter"],
+				});
 			} finally {
 				if (originalContentFilterFlag === undefined) {
 					delete togetherProvider.contentFilter;
@@ -2581,7 +2880,7 @@ describe("fallback and error status code handling", () => {
 					.where(eq(tables.project.id, "project-id"));
 				await db.insert(tables.apiKey).values({
 					id: "token-id",
-					token: "real-token",
+					...hashApiKeyForStorage("real-token"),
 					projectId: "project-id",
 					description: "Test API Key",
 					createdBy: "user-id",
@@ -2660,14 +2959,18 @@ describe("fallback and error status code handling", () => {
 					.where(eq(tables.project.id, "project-id"));
 				await db.insert(tables.apiKey).values({
 					id: "token-id",
-					token: "real-token",
+					...hashApiKeyForStorage("real-token"),
 					projectId: "project-id",
 					description: "Test API Key",
 					createdBy: "user-id",
 				});
 				await db.insert(tables.providerKey).values({
 					id: "openai-byok-key",
-					token: "openai-byok-token",
+					...encryptProviderKeyForStorage(
+						"openai-byok-token",
+						"openai-byok-key",
+						"org-id",
+					),
 					provider: "openai",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
@@ -2743,7 +3046,7 @@ describe("fallback and error status code handling", () => {
 					.where(eq(tables.project.id, "project-id"));
 				await db.insert(tables.apiKey).values({
 					id: "token-id",
-					token: "real-token",
+					...hashApiKeyForStorage("real-token"),
 					projectId: "project-id",
 					description: "Test API Key",
 					createdBy: "user-id",
@@ -2755,7 +3058,11 @@ describe("fallback and error status code handling", () => {
 				await db.insert(tables.providerKey).values([
 					{
 						id: "openai-byok-primary",
-						token: "openai-byok-primary-token",
+						...encryptProviderKeyForStorage(
+							"openai-byok-primary-token",
+							"openai-byok-primary",
+							"org-id",
+						),
 						tokenMasked: maskToken("openai-byok-primary-token"),
 						provider: "openai",
 						organizationId: "org-id",
@@ -2764,7 +3071,11 @@ describe("fallback and error status code handling", () => {
 					},
 					{
 						id: "openai-byok-secondary",
-						token: "openai-byok-secondary-token",
+						...encryptProviderKeyForStorage(
+							"openai-byok-secondary-token",
+							"openai-byok-secondary",
+							"org-id",
+						),
 						tokenMasked: maskToken("openai-byok-secondary-token"),
 						// A named key, which is how its owner recognizes it.
 						name: "billing-team-key",
@@ -2855,7 +3166,7 @@ describe("fallback and error status code handling", () => {
 			await ensureProviders(["openai"]);
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -2867,7 +3178,11 @@ describe("fallback and error status code handling", () => {
 			await db.insert(tables.providerKey).values([
 				{
 					id: "openai-key-general",
-					token: "openai-general-token",
+					...encryptProviderKeyForStorage(
+						"openai-general-token",
+						"openai-key-general",
+						"org-id",
+					),
 					tokenMasked: maskToken("openai-general-token"),
 					provider: "openai",
 					organizationId: "org-id",
@@ -2876,7 +3191,11 @@ describe("fallback and error status code handling", () => {
 				},
 				{
 					id: "openai-key-restricted",
-					token: "openai-restricted-token",
+					...encryptProviderKeyForStorage(
+						"openai-restricted-token",
+						"openai-key-restricted",
+						"org-id",
+					),
 					tokenMasked: maskToken("openai-restricted-token"),
 					name: "embeddings-only-key",
 					provider: "openai",
@@ -2924,14 +3243,18 @@ describe("fallback and error status code handling", () => {
 					.where(eq(tables.project.id, "project-id"));
 				await db.insert(tables.apiKey).values({
 					id: "token-id",
-					token: "real-token",
+					...hashApiKeyForStorage("real-token"),
 					projectId: "project-id",
 					description: "Test API Key",
 					createdBy: "user-id",
 				});
 				await db.insert(tables.providerKey).values({
 					id: "openai-byok-key",
-					token: "openai-byok-token",
+					...encryptProviderKeyForStorage(
+						"openai-byok-token",
+						"openai-byok-key",
+						"org-id",
+					),
 					provider: "openai",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
@@ -3000,7 +3323,7 @@ describe("fallback and error status code handling", () => {
 					.where(eq(tables.project.id, "project-id"));
 				await db.insert(tables.apiKey).values({
 					id: "token-id",
-					token: "real-token",
+					...hashApiKeyForStorage("real-token"),
 					projectId: "project-id",
 					description: "Test API Key",
 					createdBy: "user-id",

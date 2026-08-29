@@ -3,7 +3,9 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 interface MappingEntry {
 	usedModel: string;
@@ -18,6 +20,7 @@ interface MappingEntry {
 interface ListBody {
 	mappings: MappingEntry[];
 	splitByKey: boolean;
+	includeByok: boolean;
 }
 
 interface ErrorsBody {
@@ -45,7 +48,7 @@ describe("admin unstable mappings", () => {
 		});
 		await db.insert(tables.apiKey).values({
 			id: "um-api-key",
-			token: "um-api-key-token",
+			...hashApiKeyForStorage("um-api-key-token"),
 			projectId: "um-project",
 			description: "UM Key",
 			createdBy: "test-user-id",
@@ -53,7 +56,7 @@ describe("admin unstable mappings", () => {
 		await db.insert(tables.providerKey).values([
 			{
 				id: "um-key-a",
-				token: "sk-um-key-a",
+				...encryptProviderKeyForStorage("sk-um-key-a", "um-key-a", null),
 				provider: "openai",
 				managed: true,
 				organizationId: null,
@@ -61,10 +64,15 @@ describe("admin unstable mappings", () => {
 			},
 			{
 				id: "um-key-b",
-				token: "sk-um-key-bbbb1234",
+				...encryptProviderKeyForStorage(
+					"sk-um-key-bbbb1234",
+					"um-key-b",
+					"um-org",
+				),
 				provider: "openai",
 				managed: false,
 				organizationId: "um-org",
+				description: "Customer production",
 			},
 		]);
 	});
@@ -79,10 +87,12 @@ describe("admin unstable mappings", () => {
 		providerKeyId = null,
 		hasError = false,
 		statusCode = 500,
+		classification,
 	}: {
 		providerKeyId?: string | null;
 		hasError?: boolean;
 		statusCode?: number;
+		classification?: "client_error" | "gateway_error" | "upstream_error";
 	}) {
 		logIndex++;
 		await db.insert(tables.log).values({
@@ -93,6 +103,7 @@ describe("admin unstable mappings", () => {
 			apiKeyId: "um-api-key",
 			providerKeyId,
 			hasError,
+			unifiedFinishReason: classification,
 			errorDetails: hasError
 				? {
 						statusCode,
@@ -101,7 +112,7 @@ describe("admin unstable mappings", () => {
 					}
 				: null,
 			duration: 100,
-			usedMode: "credits",
+			usedMode: providerKeyId === "um-key-b" ? "api-keys" : "credits",
 			requestedModel: "openai/gpt-4o-mini",
 			requestedProvider: "openai",
 			usedModel: "gpt-4o-mini",
@@ -140,24 +151,46 @@ describe("admin unstable mappings", () => {
 		expect(res.status).toBe(401);
 	});
 
-	test("aggregates the whole mapping when the split is off", async () => {
+	test("excludes BYOK traffic by default", async () => {
 		await seedMixedTraffic();
 
 		const body = await getMappings();
 		expect(body.splitByKey).toBe(false);
+		expect(body.includeByok).toBe(false);
 		expect(body.mappings).toHaveLength(1);
 		const [mapping] = body.mappings;
-		expect(mapping.logsCount).toBe(4);
-		expect(mapping.errorsCount).toBe(3);
+		expect(mapping.logsCount).toBe(3);
+		expect(mapping.errorsCount).toBe(2);
 		expect(mapping.providerKeyId).toBeNull();
 		expect(mapping.providerKeyLabel).toBeNull();
 		expect(mapping.providerKeyManaged).toBeNull();
 	});
 
+	test("includes BYOK traffic when requested", async () => {
+		await seedMixedTraffic();
+
+		const body = await getMappings("?includeByok=true");
+		expect(body.includeByok).toBe(true);
+		expect(body.mappings[0].logsCount).toBe(4);
+		expect(body.mappings[0].errorsCount).toBe(3);
+	});
+
+	test("excludes client errors from stability rankings", async () => {
+		await seedLog({
+			hasError: true,
+			statusCode: 400,
+			classification: "client_error",
+		});
+		await seedLog({ hasError: false });
+
+		const body = await getMappings();
+		expect(body.mappings).toHaveLength(0);
+	});
+
 	test("splits the mapping per provider key with labels", async () => {
 		await seedMixedTraffic();
 
-		const body = await getMappings("?splitByKey=true");
+		const body = await getMappings("?splitByKey=true&includeByok=true");
 		expect(body.splitByKey).toBe(true);
 		expect(body.mappings).toHaveLength(3);
 
@@ -171,10 +204,10 @@ describe("admin unstable mappings", () => {
 		expect(keyA?.providerKeyLabel).toBe("Primary account");
 		expect(keyA?.providerKeyManaged).toBe(true);
 
-		// No note: the label falls back to the masked token, never the raw one.
+		// BYOK descriptions identify the customer's key without exposing it.
 		const keyB = byKey.get("um-key-b");
 		expect(keyB?.errorsCount).toBe(1);
-		expect(keyB?.providerKeyLabel).toBeTruthy();
+		expect(keyB?.providerKeyLabel).toBe("Customer production");
 		expect(keyB?.providerKeyLabel).not.toBe("sk-um-key-bbbb1234");
 		expect(keyB?.providerKeyManaged).toBe(false);
 
@@ -196,7 +229,10 @@ describe("admin unstable mappings", () => {
 			return (await res.json()) as ErrorsBody;
 		}
 
-		const all = await getErrors();
+		const platformOnly = await getErrors();
+		expect(platformOnly.sampledErrors).toBe(2);
+
+		const all = await getErrors("&includeByok=true");
 		expect(all.sampledErrors).toBe(3);
 
 		const keyA = await getErrors("&providerKeyId=um-key-a");

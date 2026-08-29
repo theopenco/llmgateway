@@ -19,7 +19,17 @@ import {
 import type { ProviderKeyOptions } from "@llmgateway/db";
 
 function appendPath(url: string, path: string): string {
-	return `${url.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
+	let urlEnd = url.length;
+	while (urlEnd > 0 && url[urlEnd - 1] === "/") {
+		urlEnd--;
+	}
+
+	let pathStart = 0;
+	while (pathStart < path.length && path[pathStart] === "/") {
+		pathStart++;
+	}
+
+	return `${url.slice(0, urlEnd)}/${path.slice(pathStart)}`;
 }
 
 function getBedrockMantleBaseUrl(url: string, region?: string): string {
@@ -220,6 +230,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	fireworks: "https://api.fireworks.ai/inference",
 	ranoai: "https://api.ranoai.com",
 	baidu: "https://api.baiduqianfan.ai",
+	consensusprotocol: "https://api.consensusprotocol.org",
 };
 
 export function getProviderDefaultBaseUrl(
@@ -238,7 +249,7 @@ export function getProviderDefaultBaseUrl(
  *   pass it directly.
  * @param modelId - Canonical gateway model id, used to look up
  *   capability info (e.g. supportsResponsesApi). When omitted, falls back to
- *   `model` — but pass the root id explicitly whenever you have it.
+ *   `model` — but pass the canonical model id explicitly whenever you have it.
  */
 export function getProviderEndpoint(
 	provider: ProviderId,
@@ -440,42 +451,6 @@ export function getProviderEndpoint(
 					);
 				}
 				break;
-			case "tundra":
-				url =
-					credentialConfig?.baseUrl ??
-					(skipEnvVars
-						? undefined
-						: getProviderEnvValue(
-								"tundra",
-								"baseUrl",
-								configIndex,
-								undefined,
-								variant,
-							));
-				if (!url) {
-					throw new Error(
-						"Tundra provider requires LLM_TUNDRA_BASE_URL environment variable",
-					);
-				}
-				break;
-			case "permafrost":
-				url =
-					credentialConfig?.baseUrl ??
-					(skipEnvVars
-						? undefined
-						: getProviderEnvValue(
-								"permafrost",
-								"baseUrl",
-								configIndex,
-								undefined,
-								variant,
-							));
-				if (!url) {
-					throw new Error(
-						"Permafrost provider requires LLM_PERMAFROST_BASE_URL environment variable",
-					);
-				}
-				break;
 			case "alibaba": {
 				const alibabaBaseUrl = resolveWorkspaceScopedEndpoint(
 					"alibaba",
@@ -619,6 +594,35 @@ export function getProviderEndpoint(
 					const azureFoundryEnv = getProviderEnvConfig("azure-ai-foundry");
 					throw new Error(
 						`Azure AI Foundry resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or ${azureFoundryEnv?.required.resource ?? "LLM_AZURE_AI_FOUNDRY_RESOURCE"} env var)`,
+					);
+				}
+				url = `https://${resource}.services.ai.azure.com`;
+				break;
+			}
+			case "azure-anthropic": {
+				const resource =
+					credentialConfig?.resource ??
+					providerKeyOptions?.azure_anthropic_resource ??
+					(skipEnvVars
+						? undefined
+						: getProviderEnvValue(
+								"azure-anthropic",
+								"resource",
+								configIndex,
+								undefined,
+								variant,
+							));
+
+				if (!resource) {
+					const azureAnthropicEnv = getProviderEnvConfig("azure-anthropic");
+					throw new Error(
+						`Azure Anthropic resource is required - set via provider options or ${azureAnthropicEnv?.required.resource ?? "LLM_AZURE_ANTHROPIC_RESOURCE"} env var`,
+					);
+				}
+				if (!/^[a-zA-Z0-9-]{1,64}$/.test(resource)) {
+					const azureAnthropicEnv = getProviderEnvConfig("azure-anthropic");
+					throw new Error(
+						`Azure Anthropic resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or ${azureAnthropicEnv?.required.resource ?? "LLM_AZURE_ANTHROPIC_RESOURCE"} env var)`,
 					);
 				}
 				url = `https://${resource}.services.ai.azure.com`;
@@ -919,6 +923,10 @@ export function getProviderEndpoint(
 				"2024-05-01-preview";
 			return `${url}/models/chat/completions?api-version=${apiVersion}`;
 		}
+		case "azure-anthropic":
+			// Claude models on Microsoft Foundry are only served through the
+			// Anthropic Messages API; there is no OpenAI-compatible surface.
+			return `${url}/anthropic/v1/messages`;
 		case "openai": {
 			if (imageGenerations) {
 				return `${url}/v1/images/generations`;
@@ -1012,11 +1020,10 @@ export function getProviderEndpoint(
 		case "minimax":
 		case "xiaomi":
 		case "embercloud":
-		case "tundra":
-		case "permafrost":
 		case "scx-ai":
 		case "scx-ai-gp":
 		case "ranoai":
+		case "consensusprotocol":
 		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;

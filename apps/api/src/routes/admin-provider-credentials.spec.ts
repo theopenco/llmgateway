@@ -7,6 +7,7 @@ import {
 	deleteAll,
 } from "@/testing.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import {
 	decryptProviderKey,
 	deleteProviderEnvInventory,
@@ -23,6 +24,7 @@ import {
 	getProviderDefinition,
 	getRegionEnvVarSuffix,
 } from "@llmgateway/models";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 import type * as LlmGatewayActions from "@llmgateway/actions";
@@ -128,7 +130,7 @@ describe("admin provider credentials", () => {
 		});
 		expect(row?.managed).toBe(true);
 		expect(row?.organizationId).toBeNull();
-		expect(row?.token).toBeNull();
+		expect(row?.tokenCiphertext).toMatch(/^llmgw:v2:/);
 	});
 
 	test("never returns the plaintext token", async () => {
@@ -405,7 +407,7 @@ describe("admin provider credentials", () => {
 		});
 		await db.insert(tables.providerKey).values({
 			id: "byok-key",
-			token: "sk-byok",
+			...encryptProviderKeyForStorage("sk-byok", "byok-key", "byok-org"),
 			provider: "openai",
 			organizationId: "byok-org",
 		});
@@ -845,7 +847,7 @@ describe("managed credential ordering", () => {
 	async function seed(id: string, provider = "openai") {
 		await db.insert(tables.providerKey).values({
 			id,
-			token: `token-${id}`,
+			...encryptProviderKeyForStorage(`token-${id}`, id, null),
 			provider,
 			managed: true,
 			organizationId: null,
@@ -905,7 +907,7 @@ describe("managed credential ordering", () => {
 		});
 		await db.insert(tables.providerKey).values({
 			id: "byok-key",
-			token: "sk-byok",
+			...encryptProviderKeyForStorage("sk-byok", "byok-key", "byok-org"),
 			provider: "openai",
 			organizationId: "byok-org",
 		});
@@ -1010,7 +1012,7 @@ describe("managed credential reorder cache invalidation", () => {
 		for (const id of ["cache-cred-a", "cache-cred-b"]) {
 			await db.insert(tables.providerKey).values({
 				id,
-				token: `token-${id}`,
+				...encryptProviderKeyForStorage(`token-${id}`, id, null),
 				provider,
 				managed: true,
 				organizationId: null,
@@ -1064,14 +1066,14 @@ describe("managed credential reorder cache invalidation", () => {
 			});
 			await db.insert(tables.apiKey).values({
 				id: apiKeyId,
-				token: "spend-api-key-token",
+				...hashApiKeyForStorage("spend-api-key-token"),
 				projectId,
 				description: "Spend Key",
 				createdBy: "test-user-id",
 			});
 			await db.insert(tables.providerKey).values({
 				id: providerKeyId,
-				token: "sk-spend-cred",
+				...encryptProviderKeyForStorage("sk-spend-cred", providerKeyId, null),
 				provider: "openai",
 				managed: true,
 				organizationId: null,
@@ -1128,7 +1130,7 @@ describe("managed credential reorder cache invalidation", () => {
 			// spend outlives the key itself.
 			await db.insert(tables.providerKey).values({
 				id: "retired-cred",
-				token: "sk-retired",
+				...encryptProviderKeyForStorage("sk-retired", "retired-cred", null),
 				provider: "openai",
 				managed: true,
 				organizationId: null,
@@ -1192,7 +1194,7 @@ describe("managed credential reorder cache invalidation", () => {
 		test("reports zeroes for a key with no attributed traffic", async () => {
 			await db.insert(tables.providerKey).values({
 				id: "quiet-cred",
-				token: "sk-quiet",
+				...encryptProviderKeyForStorage("sk-quiet", "quiet-cred", null),
 				provider: "openai",
 				managed: true,
 				organizationId: null,
@@ -1282,7 +1284,7 @@ describe("managed credential reorder cache invalidation", () => {
 			});
 			await db.insert(tables.apiKey).values({
 				id: apiKeyId,
-				token: "overview-api-key-token",
+				...hashApiKeyForStorage("overview-api-key-token"),
 				projectId,
 				description: "Overview Key",
 				createdBy: "test-user-id",
@@ -1332,14 +1334,22 @@ describe("managed credential reorder cache invalidation", () => {
 			await db.insert(tables.providerKey).values([
 				{
 					id: "overview-cred-a",
-					token: "sk-overview-a",
+					...encryptProviderKeyForStorage(
+						"sk-overview-a",
+						"overview-cred-a",
+						null,
+					),
 					provider: "openai",
 					managed: true,
 					organizationId: null,
 				},
 				{
 					id: "overview-cred-b",
-					token: "sk-overview-b",
+					...encryptProviderKeyForStorage(
+						"sk-overview-b",
+						"overview-cred-b",
+						null,
+					),
 					provider: "anthropic",
 					managed: true,
 					organizationId: null,
@@ -1373,7 +1383,11 @@ describe("managed credential reorder cache invalidation", () => {
 		test("returns a bucket grid covering the whole window", async () => {
 			await db.insert(tables.providerKey).values({
 				id: "overview-grid",
-				token: "sk-overview-grid",
+				...encryptProviderKeyForStorage(
+					"sk-overview-grid",
+					"overview-grid",
+					null,
+				),
 				provider: "openai",
 				managed: true,
 				organizationId: null,
@@ -1400,7 +1414,11 @@ describe("managed credential reorder cache invalidation", () => {
 			});
 			await db.insert(tables.providerKey).values({
 				id: "overview-byok",
-				token: "sk-overview-byok",
+				...encryptProviderKeyForStorage(
+					"sk-overview-byok",
+					"overview-byok",
+					"byok-org",
+				),
 				provider: "openai",
 				managed: false,
 				organizationId: "byok-org",
@@ -1416,14 +1434,22 @@ describe("managed credential reorder cache invalidation", () => {
 			await db.insert(tables.providerKey).values([
 				{
 					id: "overview-quiet",
-					token: "sk-overview-quiet",
+					...encryptProviderKeyForStorage(
+						"sk-overview-quiet",
+						"overview-quiet",
+						null,
+					),
 					provider: "openai",
 					managed: true,
 					organizationId: null,
 				},
 				{
 					id: "overview-retired",
-					token: "sk-overview-retired",
+					...encryptProviderKeyForStorage(
+						"sk-overview-retired",
+						"overview-retired",
+						null,
+					),
 					provider: "openai",
 					managed: true,
 					organizationId: null,
@@ -1431,7 +1457,11 @@ describe("managed credential reorder cache invalidation", () => {
 				},
 				{
 					id: "overview-retired-spending",
-					token: "sk-overview-retired-spending",
+					...encryptProviderKeyForStorage(
+						"sk-overview-retired-spending",
+						"overview-retired-spending",
+						null,
+					),
 					provider: "openai",
 					managed: true,
 					organizationId: null,
@@ -1701,5 +1731,28 @@ describe("managed credential allowed models", () => {
 		});
 		expect(res.status).toBe(200);
 		expect(((await res.json()) as { allValid: boolean }).allValid).toBe(true);
+	});
+
+	test("verify-models passes managed Azure Anthropic settings", async () => {
+		vi.stubEnv("E2E_TEST", "true");
+		validateProviderKeyMock.mockResolvedValueOnce({ valid: true });
+		const [model] = await catalogModels("azure-anthropic");
+
+		const res = await post("/admin/provider-credentials/verify-models", {
+			provider: "azure-anthropic",
+			token: "azure-anthropic-key",
+			config: { resource: "managed-resource" },
+			models: [model],
+		});
+
+		expect(res.status).toBe(200);
+		expect(validateProviderKeyMock).toHaveBeenCalledWith(
+			"azure-anthropic",
+			"azure-anthropic-key",
+			undefined,
+			false,
+			{ env_config: { resource: "managed-resource" } },
+			model,
+		);
 	});
 });

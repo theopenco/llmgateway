@@ -24,6 +24,11 @@ export const TOOL_SEARCH_TOOL_TYPE_PREFIX = "tool_search_tool";
  * `vertex-anthropic` qualifies because it posts an Anthropic Messages body to
  * `:rawPredict`, and Anthropic lists tool search as available on Google Cloud.
  *
+ * `azure-anthropic` qualifies because Microsoft Foundry fronts the Messages API
+ * directly. Its published capability table omits server-side tool search, but a
+ * live Foundry deployment accepts `defer_loading` and returns the same
+ * `server_tool_use` / `tool_search_tool_regex` blocks as the direct API.
+ *
  * AWS Bedrock is excluded for a transport reason, not a capability one:
  * Anthropic offers tool search there only through InvokeModel, and this gateway
  * drives Bedrock through the Converse API (see get-provider-endpoint). Moving
@@ -36,7 +41,11 @@ export const TOOL_SEARCH_TOOL_TYPE_PREFIX = "tool_search_tool";
  * way unsupported reasoning efforts are handled.
  */
 export function usesAnthropicMessagesApi(provider: ProviderId): boolean {
-	return provider === "anthropic" || provider === "vertex-anthropic";
+	return (
+		provider === "anthropic" ||
+		provider === "vertex-anthropic" ||
+		provider === "azure-anthropic"
+	);
 }
 
 export function isToolSearchTool(
@@ -74,8 +83,8 @@ export function toAnthropicToolSearchTool(
 
 /**
  * Removes the Anthropic-only tool extensions for upstreams that would reject
- * them (`defer_loading` is an unknown property, and the tool search tool has no
- * counterpart at all).
+ * them (`defer_loading` and `cache_control` are unknown properties, and the
+ * tool search tool has no counterpart at all).
  */
 export function stripAnthropicToolExtensions(
 	tools: OpenAIToolInput[] | undefined,
@@ -86,10 +95,17 @@ export function stripAnthropicToolExtensions(
 	return tools
 		.filter((tool) => !isToolSearchTool(tool))
 		.map((tool) => {
-			if (tool.type !== "function" || tool.defer_loading === undefined) {
+			if (
+				tool.type !== "function" ||
+				(tool.defer_loading === undefined && tool.cache_control === undefined)
+			) {
 				return tool;
 			}
-			const { defer_loading: _deferLoading, ...rest } = tool;
+			const {
+				defer_loading: _deferLoading,
+				cache_control: _cacheControl,
+				...rest
+			} = tool;
 			return rest;
 		});
 }

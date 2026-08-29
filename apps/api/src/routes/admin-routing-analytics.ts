@@ -30,6 +30,7 @@ import {
 	models,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
+import { deriveStabilityMetrics } from "@llmgateway/shared";
 import { isMappingDeactivated } from "@llmgateway/shared/deactivation";
 import { getDefaultRoutingConfig } from "@llmgateway/shared/routing-config";
 import { routingSelectionKind } from "@llmgateway/shared/routing-telemetry";
@@ -228,6 +229,8 @@ const routingAnalyticsResponseSchema = z
 				thresholds: z
 					.object({
 						cachePromptTokens: z.number(),
+						cacheHitRate: z.number(),
+						cacheOutputRatio: z.number(),
 						uptimePenalty: z.number(),
 						defaultUptime: z.number(),
 						defaultLatency: z.number(),
@@ -328,13 +331,10 @@ function deriveMetrics(totals: HourlyTotals): DerivedMetrics {
 	if (totals.requestCount <= 0) {
 		return { uptime: null, latency: null, throughput: null };
 	}
-	const routingErrors = Math.max(
-		totals.errorCount - totals.clientErrorCount,
-		0,
-	);
-	const uptime = Math.max(
-		0,
-		((totals.requestCount - routingErrors) / totals.requestCount) * 100,
+	const { uptime } = deriveStabilityMetrics(
+		totals.requestCount,
+		totals.errorCount,
+		totals.clientErrorCount,
 	);
 	const { total: effectiveTtft, count: effectiveTtftCount } =
 		effectiveTtftTotals(totals);

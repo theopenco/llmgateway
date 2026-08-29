@@ -19,9 +19,12 @@ import {
 import { getModelHistory } from "@/lib/admin-history";
 import { cn } from "@/lib/utils";
 
+import { deriveStabilityMetrics } from "@llmgateway/shared";
+
 import type { HistoryWindow } from "@/components/history-chart";
 import type { PageWindow } from "@/lib/page-window";
 import type { ModelStats } from "@/lib/types";
+import type { UsageMode } from "@/lib/usage-mode";
 
 function toHistoryWindow(pageWindow: PageWindow): HistoryWindow {
 	const map: Record<PageWindow, HistoryWindow> = {
@@ -68,6 +71,7 @@ function SortableHeader({
 	currentSortOrder,
 	search,
 	pageWindow,
+	usageMode,
 }: {
 	label: string;
 	sortKey: ModelSortBy;
@@ -75,13 +79,15 @@ function SortableHeader({
 	currentSortOrder: SortOrder;
 	search: string;
 	pageWindow?: PageWindow;
+	usageMode: UsageMode;
 }) {
 	const isActive = currentSortBy === sortKey;
 	const nextOrder = isActive && currentSortOrder === "desc" ? "asc" : "desc";
 
 	const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
 	const windowParam = pageWindow ? `&window=${pageWindow}` : "";
-	const href = `/models?page=1&sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${windowParam}`;
+	const modeParam = usageMode === "total" ? "" : `&mode=${usageMode}`;
+	const href = `/models?page=1&sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${windowParam}${modeParam}`;
 
 	return (
 		<Link
@@ -136,21 +142,25 @@ function formatPrice(price: string | null) {
 function ModelRow({
 	model,
 	externalWindow,
+	usageMode,
 }: {
 	model: ModelStats;
 	externalWindow?: HistoryWindow;
+	usageMode: UsageMode;
 }) {
 	const [expanded, setExpanded] = useState(false);
-	const errorRate =
-		model.logsCount > 0
-			? ((model.errorsCount / model.logsCount) * 100).toFixed(1)
-			: "0.0";
+	const stability = deriveStabilityMetrics(
+		model.logsCount,
+		model.errorsCount + model.clientErrorsCount,
+		model.clientErrorsCount,
+	);
+	const errorRate = (stability.errorRate ?? 0).toFixed(1);
 
 	const fetchData = useCallback(
 		async (window: HistoryWindow) => {
-			return await getModelHistory(model.id, window);
+			return await getModelHistory(model.id, window, usageMode);
 		},
-		[model.id],
+		[model.id, usageMode],
 	);
 
 	const hasTokenPricing = model.inputPrice && parseFloat(model.inputPrice) > 0;
@@ -214,7 +224,10 @@ function ModelRow({
 					)}
 				</TableCell>
 				<TableCell className="tabular-nums">
-					{formatNumber(model.errorsCount)}
+					{formatNumber(stability.errorsCount)}
+				</TableCell>
+				<TableCell className="tabular-nums">
+					{formatNumber(model.clientErrorsCount)}
 				</TableCell>
 				<TableCell className="tabular-nums">{errorRate}%</TableCell>
 				<TableCell className="tabular-nums">
@@ -279,12 +292,14 @@ export function ModelsTable({
 	sortOrder = "desc",
 	search = "",
 	pageWindow,
+	usageMode = "total",
 }: {
 	models: ModelStats[];
 	sortBy?: ModelSortBy;
 	sortOrder?: SortOrder;
 	search?: string;
 	pageWindow?: PageWindow;
+	usageMode?: UsageMode;
 }) {
 	const externalWindow = pageWindow ? toHistoryWindow(pageWindow) : undefined;
 
@@ -297,6 +312,7 @@ export function ModelsTable({
 				currentSortOrder={sortOrder}
 				search={search}
 				pageWindow={pageWindow}
+				usageMode={usageMode}
 			/>
 		</TableHead>
 	);
@@ -315,6 +331,7 @@ export function ModelsTable({
 					<TableHead>Tokens</TableHead>
 					<TableHead>Pricing</TableHead>
 					{sh("Errors", "errorsCount")}
+					{sh("Client", "clientErrorsCount")}
 					<TableHead>Error Rate</TableHead>
 					{sh("Cached", "cachedCount")}
 					{sh("Avg TTFT", "avgTimeToFirstToken")}
@@ -326,7 +343,7 @@ export function ModelsTable({
 				{models.length === 0 ? (
 					<TableRow>
 						<TableCell
-							colSpan={16}
+							colSpan={17}
 							className="h-24 text-center text-muted-foreground"
 						>
 							No models found
@@ -334,7 +351,12 @@ export function ModelsTable({
 					</TableRow>
 				) : (
 					models.map((m) => (
-						<ModelRow key={m.id} model={m} externalWindow={externalWindow} />
+						<ModelRow
+							key={m.id}
+							model={m}
+							externalWindow={externalWindow}
+							usageMode={usageMode}
+						/>
 					))
 				)}
 			</TableBody>

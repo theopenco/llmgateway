@@ -360,8 +360,7 @@ function buildUsageObject(
 		prompt_tokens: Math.max(1, promptTokens ?? 1),
 		completion_tokens: completionTokens ?? 0,
 		total_tokens: (() => {
-			const fallbackTotal =
-				(promptTokens ?? 0) + (completionTokens ?? 0) + (reasoningTokens ?? 0);
+			const fallbackTotal = (promptTokens ?? 0) + (completionTokens ?? 0);
 			return Math.max(1, totalTokens ?? fallbackTotal);
 		})(),
 		...(reasoningTokens !== null && {
@@ -589,7 +588,8 @@ export function transformResponseToOpenai(
 			break;
 		}
 		case "anthropic":
-		case "vertex-anthropic": {
+		case "vertex-anthropic":
+		case "azure-anthropic": {
 			transformedResponse = {
 				id: `chatcmpl-${Date.now()}`,
 				object: "chat.completion",
@@ -705,13 +705,14 @@ export function transformResponseToOpenai(
 				// Also update content and finish_reason with parsed values
 				if (transformedResponse.choices?.[0]?.message) {
 					const message = transformedResponse.choices[0].message;
-					// Update content with parsed content (handles JSON unwrapping for Mistral/Novita)
-					if (content !== null) {
+					// content/reasoning aggregate all choices when n > 1, so only
+					// write them into choice 0 for single-choice responses.
+					const isSingleChoice = transformedResponse.choices.length === 1;
+					if (content !== null && isSingleChoice) {
 						message.content = content;
 					}
-					if (reasoningContent !== null) {
+					if (reasoningContent !== null && isSingleChoice) {
 						message.reasoning = reasoningContent;
-						// Remove the old reasoning_content field if it exists
 						delete message.reasoning_content;
 					}
 				}
@@ -999,6 +1000,7 @@ export function transformResponseToOpenai(
 							message: {
 								role: "assistant",
 								content: content,
+								...(images && images.length > 0 && { images }),
 								...(reasoningContent !== null && {
 									reasoning: reasoningContent,
 								}),
@@ -1150,10 +1152,13 @@ export function transformResponseToOpenai(
 				if (transformedResponse && typeof transformedResponse === "object") {
 					if (transformedResponse.choices?.[0]?.message) {
 						const message = transformedResponse.choices[0].message;
-						if (content !== null) {
+						// content/reasoning aggregate all choices when n > 1, so only
+						// write them into choice 0 for single-choice responses.
+						const isSingleChoice = transformedResponse.choices.length === 1;
+						if (content !== null && isSingleChoice) {
 							message.content = content;
 						}
-						if (reasoningContent !== null) {
+						if (reasoningContent !== null && isSingleChoice) {
 							message.reasoning = reasoningContent;
 							delete message.reasoning_content;
 						}
@@ -1249,10 +1254,13 @@ export function transformResponseToOpenai(
 				if (transformedResponse && typeof transformedResponse === "object") {
 					if (transformedResponse.choices?.[0]?.message) {
 						const message = transformedResponse.choices[0].message;
-						if (content !== null) {
+						// content/reasoning aggregate all choices when n > 1, so only
+						// write them into choice 0 for single-choice responses.
+						const isSingleChoice = transformedResponse.choices.length === 1;
+						if (content !== null && isSingleChoice) {
 							message.content = content;
 						}
-						if (reasoningContent !== null) {
+						if (reasoningContent !== null && isSingleChoice) {
 							message.reasoning = reasoningContent;
 							delete message.reasoning_content;
 						}
@@ -1349,10 +1357,13 @@ export function transformResponseToOpenai(
 				if (transformedResponse && typeof transformedResponse === "object") {
 					if (transformedResponse.choices?.[0]?.message) {
 						const message = transformedResponse.choices[0].message;
-						if (content !== null) {
+						// content/reasoning aggregate all choices when n > 1, so only
+						// write them into choice 0 for single-choice responses.
+						const isSingleChoice = transformedResponse.choices.length === 1;
+						if (content !== null && isSingleChoice) {
 							message.content = content;
 						}
-						if (reasoningContent !== null) {
+						if (reasoningContent !== null && isSingleChoice) {
 							message.reasoning = reasoningContent;
 							delete message.reasoning_content;
 						}
@@ -1457,13 +1468,14 @@ export function transformResponseToOpenai(
 				// Ensure content and reasoning fields are present with parsed/healed values
 				if (transformedResponse.choices?.[0]?.message) {
 					const message = transformedResponse.choices[0].message;
-					// Update content with parsed content (includes healed JSON for response healing)
-					if (content !== null) {
+					// content/reasoning aggregate all choices when n > 1, so only
+					// write them into choice 0 for single-choice responses.
+					const isSingleChoice = transformedResponse.choices.length === 1;
+					if (content !== null && isSingleChoice) {
 						message.content = content;
 					}
-					if (reasoningContent !== null) {
+					if (reasoningContent !== null && isSingleChoice) {
 						message.reasoning = reasoningContent;
-						// Remove the old reasoning_content field if it exists
 						delete message.reasoning_content;
 					}
 					// Add annotations if present
@@ -1519,6 +1531,21 @@ export function transformResponseToOpenai(
 		typeof transformedResponse === "object"
 	) {
 		transformedResponse.service_tier = serviceTier;
+	}
+
+	if (
+		transformedResponse?.usage &&
+		typeof transformedResponse.usage === "object"
+	) {
+		if (promptTokens !== null) {
+			transformedResponse.usage.prompt_tokens = promptTokens;
+		}
+		if (completionTokens !== null) {
+			transformedResponse.usage.completion_tokens = completionTokens;
+		}
+		if (totalTokens !== null) {
+			transformedResponse.usage.total_tokens = totalTokens;
+		}
 	}
 
 	return transformedResponse;

@@ -10,6 +10,7 @@ import {
 	useCreateMemberIamRule,
 	useDeleteMemberIamRule,
 	useMemberIamRules,
+	useMyIamRules,
 	useTeamMembers,
 } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
@@ -23,7 +24,7 @@ export function MemberIamClient() {
 	const organizationId = params.orgId as string;
 	const userId = params.userId as string;
 	const { buildOrgUrl, selectedOrganization } = useDashboardNavigation();
-	const isEnterprise = selectedOrganization?.plan === "enterprise";
+	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 	const { user } = useUser();
 
 	const { data: teamData, isLoading: isTeamLoading } =
@@ -36,11 +37,16 @@ export function MemberIamClient() {
 		(member) => member.userId === user?.id,
 	)?.role;
 	const isAdmin = currentUserRole === "owner" || currentUserRole === "admin";
+	const isSelf = userId === user?.id;
 
-	const { data: rulesData, isLoading: isRulesLoading } = useMemberIamRules(
+	const { data: managedRulesData, isLoading: isManagedRulesLoading } =
+		useMemberIamRules(organizationId, memberId, { enabled: isAdmin });
+	const { data: ownRulesData, isLoading: isOwnRulesLoading } = useMyIamRules(
 		organizationId,
-		memberId,
+		{ enabled: !isAdmin && isSelf },
 	);
+	const rulesData = isAdmin ? managedRulesData : ownRulesData;
+	const isRulesLoading = isAdmin ? isManagedRulesLoading : isOwnRulesLoading;
 	const { mutate: createRule, isPending: isCreating } = useCreateMemberIamRule(
 		organizationId,
 		memberId,
@@ -130,22 +136,42 @@ export function MemberIamClient() {
 						<div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
 							Member not found.
 						</div>
-					) : !isAdmin ? (
+					) : !isAdmin && !isSelf ? (
 						<div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
-							Only owners and admins can manage member IAM rules.
+							You can only view your own inherited IAM rules.
 						</div>
 					) : (
-						<IamRulesEditor
-							rules={rulesData?.rules}
-							isLoading={isRulesLoading}
-							isEnterprise={isEnterprise}
-							onCreateRule={handleCreateRule}
-							isCreating={isCreating}
-							onDeleteRule={handleDeleteRule}
-							createDescription="Restrict which models, providers, pricing tiers, or IP ranges this member can use across the organization."
-							listDescription="Manage the organization-level access control rules for this member."
-							emptyMessage="No restrictions apply. Create a rule above to limit this member's access."
-						/>
+						<div className="space-y-6">
+							{teamMember.team && (
+								<IamRulesEditor
+									rules={rulesData?.teamRules}
+									isLoading={isRulesLoading}
+									isEnterprise={isEnterprise}
+									readOnly
+									onCreateRule={() => undefined}
+									isCreating={false}
+									onDeleteRule={() => undefined}
+									listDescription={`Inherited from ${teamMember.team.name}. These rules are evaluated before personal and API-key rules.`}
+									emptyMessage="This team has no IAM restrictions."
+								/>
+							)}
+							<IamRulesEditor
+								rules={rulesData?.rules}
+								isLoading={isRulesLoading}
+								isEnterprise={isEnterprise}
+								readOnly={!isAdmin}
+								onCreateRule={handleCreateRule}
+								isCreating={isCreating}
+								onDeleteRule={handleDeleteRule}
+								createDescription="Restrict which models, providers, pricing tiers, or IP ranges this member can use across the organization."
+								listDescription={
+									isAdmin
+										? "Manage this member's personal access ceiling."
+										: "Your personal rules apply after inherited team rules."
+								}
+								emptyMessage="No personal IAM restrictions apply."
+							/>
+						</div>
 					)}
 				</div>
 			</div>

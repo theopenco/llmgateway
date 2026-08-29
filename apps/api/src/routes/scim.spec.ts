@@ -3,11 +3,21 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 const SCIM_TOKEN = "scim_test_token_abcdef0123456789";
 const ORG_ID = "scim-test-org";
+const ORIGINAL_HASH_SECRET = process.env.GATEWAY_API_KEY_HASH_SECRET;
+
+function setHashSecret(value: string | undefined) {
+	if (value === undefined) {
+		delete process.env.GATEWAY_API_KEY_HASH_SECRET;
+	} else {
+		process.env.GATEWAY_API_KEY_HASH_SECRET = value;
+	}
+}
 
 function scimHeaders(extra: Record<string, string> = {}) {
 	return {
@@ -27,6 +37,7 @@ describe("scim audit logging", () => {
 			id: ORG_ID,
 			name: "SCIM Org",
 			billingEmail: "scim@example.com",
+			plan: "enterprise",
 			autoTopUpEnabled: false,
 			autoTopUpThreshold: "10",
 			autoTopUpAmount: "10",
@@ -47,7 +58,72 @@ describe("scim audit logging", () => {
 	});
 
 	afterEach(async () => {
+		setHashSecret(ORIGINAL_HASH_SECRET);
 		await deleteAll();
+	});
+
+	async function provisionUser(email: string): Promise<string> {
+		const response = await app.request("/scim/v2/Users", {
+			method: "POST",
+			headers: scimHeaders(),
+			body: JSON.stringify({
+				userName: email,
+				emails: [{ value: email, primary: true }],
+				active: true,
+			}),
+		});
+		expect(response.status).toBe(201);
+		return ((await response.json()) as { id: string }).id;
+	}
+
+	async function createTeamMapping(
+		groupName: string,
+		teamId: string,
+		teamName = teamId,
+	): Promise<void> {
+		await db.insert(tables.organizationTeam).values({
+			id: teamId,
+			organizationId: ORG_ID,
+			name: teamName,
+		});
+		await db.insert(tables.ssoTeamMapping).values({
+			organizationId: ORG_ID,
+			groupName,
+			teamId,
+		});
+	}
+
+	async function getMembership(userId: string) {
+		return await db.query.userOrganization.findFirst({
+			where: { userId: { eq: userId }, organizationId: { eq: ORG_ID } },
+			columns: {
+				id: true,
+				role: true,
+				teamId: true,
+				teamAssignmentSource: true,
+			},
+		});
+	}
+
+	test("authenticates tokens hashed with a retained secret", async () => {
+		setHashSecret("retained-secret");
+		const retainedHash = getApiKeyFingerprint(SCIM_TOKEN);
+		setHashSecret("current-secret,retained-secret");
+		const token = await db.query.scimToken.findFirst({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		if (!token) {
+			throw new Error("SCIM token was not created");
+		}
+		await db
+			.update(tables.scimToken)
+			.set({ tokenHash: retainedHash })
+			.where(eq(tables.scimToken.id, token.id));
+
+		const response = await app.request("/scim/v2/Users", {
+			headers: scimHeaders(),
+		});
+		expect(response.status).toBe(200);
 	});
 
 	test("POST /Users logs scim.user.provision", async () => {
@@ -158,7 +234,7 @@ describe("scim audit logging", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "scim-test-key",
-			token: "scim-test-key-token",
+			...hashApiKeyForStorage("scim-test-key-token"),
 			description: "erin key",
 			projectId: "scim-test-project",
 			createdBy: id,
@@ -198,7 +274,7 @@ describe("scim audit logging", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "scim-test-key-2",
-			token: "scim-test-key-token-2",
+			...hashApiKeyForStorage("scim-test-key-token-2"),
 			description: "frank key",
 			projectId: "scim-test-project-2",
 			createdBy: id,
@@ -327,6 +403,149 @@ describe("scim audit logging", () => {
 			columns: { role: true },
 		});
 		expect(membership?.role).toBe("admin");
+	});
+
+	test("group team mapping follows membership and logs changes", async () => {
+		await createTeamMapping("Engineering", "engineering-team");
+		const userId = await provisionUser("engineer@example.com");
+
+		const created = await app.request("/scim/v2/Groups", {
+			method: "POST",
+			headers: scimHeaders(),
+			body: JSON.stringify({
+				displayName: "Engineering",
+				members: [{ value: userId }],
+			}),
+		});
+		expect(created.status).toBe(201);
+		const { id: groupId } = (await created.json()) as { id: string };
+		expect(await getMembership(userId)).toMatchObject({
+			teamId: "engineering-team",
+			teamAssignmentSource: "sso",
+		});
+
+		const removed = await app.request(`/scim/v2/Groups/${groupId}`, {
+			method: "DELETE",
+			headers: scimHeaders(),
+		});
+		expect(removed.status).toBe(204);
+		expect(await getMembership(userId)).toMatchObject({
+			teamId: null,
+			teamAssignmentSource: "manual",
+		});
+
+		const logs = await db.query.auditLog.findMany({
+			where: {
+				organizationId: { eq: ORG_ID },
+				action: { eq: "scim.user.team_change" },
+			},
+		});
+		expect(logs).toHaveLength(2);
+		expect(logs.map((log) => log.metadata?.changes)).toEqual(
+			expect.arrayContaining([
+				{ teamId: { old: null, new: "engineering-team" } },
+				{ teamId: { old: "engineering-team", new: null } },
+			]),
+		);
+	});
+
+	test("manual team assignments survive SCIM group changes", async () => {
+		await createTeamMapping("Engineering", "mapped-team", "Mapped");
+		await db.insert(tables.organizationTeam).values({
+			id: "manual-team",
+			organizationId: ORG_ID,
+			name: "Manual",
+		});
+		const userId = await provisionUser("manual-team@example.com");
+		const membership = await getMembership(userId);
+		await db
+			.update(tables.userOrganization)
+			.set({ teamId: "manual-team", teamAssignmentSource: "manual" })
+			.where(eq(tables.userOrganization.id, membership!.id));
+
+		const response = await app.request("/scim/v2/Groups", {
+			method: "POST",
+			headers: scimHeaders(),
+			body: JSON.stringify({
+				displayName: "Engineering",
+				members: [{ value: userId }],
+			}),
+		});
+		expect(response.status).toBe(201);
+		expect(await getMembership(userId)).toMatchObject({
+			teamId: "manual-team",
+			teamAssignmentSource: "manual",
+		});
+	});
+
+	test("privileged role mappings take precedence over team mappings", async () => {
+		await createTeamMapping("Engineering", "admin-mapped-team");
+		await db.insert(tables.ssoRoleMapping).values({
+			organizationId: ORG_ID,
+			groupName: "Admins",
+			role: "admin",
+		});
+		const userId = await provisionUser("mapped-admin@example.com");
+
+		for (const displayName of ["Engineering", "Admins"]) {
+			const response = await app.request("/scim/v2/Groups", {
+				method: "POST",
+				headers: scimHeaders(),
+				body: JSON.stringify({
+					displayName,
+					members: [{ value: userId }],
+				}),
+			});
+			expect(response.status).toBe(201);
+		}
+		expect(await getMembership(userId)).toMatchObject({
+			role: "admin",
+			teamId: null,
+		});
+	});
+
+	test("the first mapped group name wins and reactivation restores it", async () => {
+		await createTeamMapping("Zulu", "zulu-team");
+		await createTeamMapping("Alpha", "alpha-team");
+		const userId = await provisionUser("multi-group@example.com");
+
+		for (const displayName of ["Zulu", "Alpha"]) {
+			const response = await app.request("/scim/v2/Groups", {
+				method: "POST",
+				headers: scimHeaders(),
+				body: JSON.stringify({
+					displayName,
+					members: [{ value: userId }],
+				}),
+			});
+			expect(response.status).toBe(201);
+		}
+		expect((await getMembership(userId))?.teamId).toBe("alpha-team");
+
+		const deactivate = await app.request(`/scim/v2/Users/${userId}`, {
+			method: "PATCH",
+			headers: scimHeaders(),
+			body: JSON.stringify({
+				schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+				Operations: [{ op: "replace", path: "active", value: false }],
+			}),
+		});
+		expect(deactivate.status).toBe(200);
+		expect(await getMembership(userId)).toBeUndefined();
+
+		const reactivate = await app.request(`/scim/v2/Users/${userId}`, {
+			method: "PATCH",
+			headers: scimHeaders(),
+			body: JSON.stringify({
+				schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+				Operations: [{ op: "replace", path: "active", value: true }],
+			}),
+		});
+		expect(reactivate.status).toBe(200);
+		expect(await getMembership(userId)).toMatchObject({
+			teamId: "alpha-team",
+			teamAssignmentSource: "sso",
+		});
 	});
 
 	test("POST /Users auto-accepts pending team invites for the new user", async () => {

@@ -25,16 +25,15 @@ vi.mock("@llmgateway/logger", () => ({
 }));
 
 describe("transformStreamingToOpenai", () => {
-	it("does not warn for Permafrost OpenAI streaming chunks", () => {
-		warn.mockClear();
-
+	it("replaces upstream model ids with the canonical mapping", () => {
 		const result = transformStreamingToOpenai(
-			"permafrost",
-			"kimi-k3",
+			"deepinfra",
+			"deepinfra/deepseek-v4-flash",
 			{
-				id: "chatcmpl_123",
+				id: "chatcmpl-123",
 				object: "chat.completion.chunk",
-				model: "kimi-k3",
+				created: 1234567890,
+				model: "deepseek-ai/DeepSeek-V4-Flash-0731",
 				choices: [
 					{
 						index: 0,
@@ -46,11 +45,61 @@ describe("transformStreamingToOpenai", () => {
 			[],
 		);
 
-		expect(result).toMatchObject({
-			id: "chatcmpl_123",
-			choices: [{ delta: { content: "Hello" } }],
-		});
-		expect(warn).not.toHaveBeenCalled();
+		expect(result.model).toBe("deepinfra/deepseek-v4-flash");
+	});
+
+	it("normalizes Novita tool-call finishes across streaming chunks", () => {
+		const toolCallChoiceIndices = new Set<number>();
+
+		transformStreamingToOpenai(
+			"novita",
+			"novita/glm-5.3",
+			{
+				id: "chatcmpl-123",
+				choices: [
+					{
+						index: 1,
+						delta: {
+							tool_calls: [
+								{
+									index: 0,
+									id: "call_123",
+									function: { name: "get_weather", arguments: "" },
+								},
+							],
+						},
+						finish_reason: null,
+					},
+				],
+			},
+			[],
+			undefined,
+			true,
+			undefined,
+			toolCallChoiceIndices,
+		);
+
+		const result = transformStreamingToOpenai(
+			"novita",
+			"novita/glm-5.3",
+			{
+				id: "chatcmpl-123",
+				choices: [
+					{ index: 0, delta: {}, finish_reason: "stop" },
+					{ index: 1, delta: {}, finish_reason: "stop" },
+				],
+			},
+			[],
+			undefined,
+			true,
+			undefined,
+			toolCallChoiceIndices,
+		);
+
+		expect(result.choices).toMatchObject([
+			{ index: 0, finish_reason: "stop" },
+			{ index: 1, finish_reason: "tool_calls" },
+		]);
 	});
 
 	it("generates a unique id per streamed google tool call", () => {
@@ -88,6 +137,44 @@ describe("transformStreamingToOpenai", () => {
 		for (const id of ids) {
 			expect(id.startsWith("read_file_")).toBe(true);
 		}
+	});
+
+	it("transforms azure-anthropic streaming events like anthropic", () => {
+		const start = transformStreamingToOpenai(
+			"azure-anthropic",
+			"claude-opus-4-8",
+			{
+				type: "message_start",
+				message: {
+					id: "msg_azure_1",
+					model: "claude-opus-4-8",
+					usage: { input_tokens: 8, output_tokens: 1 },
+				},
+			},
+			[],
+		);
+
+		expect(start).toMatchObject({
+			id: "msg_azure_1",
+			object: "chat.completion.chunk",
+			model: "claude-opus-4-8",
+			choices: [{ index: 0, delta: { role: "assistant" } }],
+		});
+
+		const delta = transformStreamingToOpenai(
+			"azure-anthropic",
+			"claude-opus-4-8",
+			{
+				type: "content_block_delta",
+				index: 0,
+				delta: { type: "text_delta", text: "ok" },
+			},
+			[],
+		);
+
+		expect(delta).toMatchObject({
+			choices: [{ index: 0, delta: { content: "ok" } }],
+		});
 	});
 
 	it("maps Anthropic message_start usage with cache creation details", () => {

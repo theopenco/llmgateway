@@ -3,7 +3,7 @@ import type { ModelDefinition } from "@/models.js";
 export const inclusionaiModels = [
 	{
 		id: "ling-3.0-flash",
-		name: "InclusionAI Ling 3.0 Flash",
+		name: "Ling 3.0 Flash",
 		description:
 			"InclusionAI's native hybrid-reasoning MoE model (124B total, 5.1B active) with strong agentic and coding performance.",
 		family: "inclusionai",

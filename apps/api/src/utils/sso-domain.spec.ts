@@ -75,6 +75,7 @@ describe("autoJoinSsoProviderOrganization", () => {
 			id: ORG_ID,
 			name: "SSO Org",
 			billingEmail: "owner@sso-jit-join.example.com",
+			plan: "enterprise",
 		});
 		await db.insert(tables.project).values({
 			id: `${ORG_ID}-project`,

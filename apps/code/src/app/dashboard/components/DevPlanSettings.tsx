@@ -11,7 +11,10 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { useApi } from "@/lib/fetch-client";
+
+import type { ProviderCacheControlMode } from "@llmgateway/models";
 
 type RoutingStrategy = "auto" | "price" | "throughput" | "latency";
 
@@ -35,14 +38,36 @@ const SERVICE_TIER_OPTIONS: Array<{ value: ServiceTier; label: string }> = [
 	{ value: "flex", label: "Flex" },
 ];
 
+const PROVIDER_CACHE_OPTIONS: Array<{
+	value: ProviderCacheControlMode;
+	label: string;
+	toast: string;
+}> = [
+	{
+		value: "auto",
+		label: "Automatic",
+		toast: "DevPass adds cache markers on long prompts",
+	},
+	{
+		value: "passthrough",
+		label: "Client-managed",
+		toast: "Only your client's own cache markers are used",
+	},
+	{ value: "off", label: "Disabled", toast: "Provider cache writes disabled" },
+];
+
 interface DevPlanSettingsProps {
 	devPlanServiceTier: ServiceTier;
+	blockApiTraining: boolean;
 	defaultRoutingStrategy: RoutingStrategy;
+	providerCacheControlMode: ProviderCacheControlMode;
 }
 
 export default function DevPlanSettings({
 	devPlanServiceTier: initialServiceTier,
+	blockApiTraining: initialBlockApiTraining,
 	defaultRoutingStrategy: initialRoutingStrategy,
+	providerCacheControlMode: initialProviderCacheControlMode,
 }: DevPlanSettingsProps) {
 	const api = useApi();
 
@@ -54,6 +79,14 @@ export default function DevPlanSettings({
 	const [serviceTier, setServiceTier] =
 		useState<ServiceTier>(initialServiceTier);
 	const [isUpdatingServiceTier, setIsUpdatingServiceTier] = useState(false);
+	const [blockApiTraining, setBlockApiTraining] = useState(
+		initialBlockApiTraining,
+	);
+	const [isUpdatingBlockApiTraining, setIsUpdatingBlockApiTraining] =
+		useState(false);
+	const [providerCacheControlMode, setProviderCacheControlMode] =
+		useState<ProviderCacheControlMode>(initialProviderCacheControlMode);
+	const [isUpdatingProviderCache, setIsUpdatingProviderCache] = useState(false);
 
 	const updateSettingsMutation = api.useMutation(
 		"patch",
@@ -78,6 +111,25 @@ export default function DevPlanSettings({
 			toast.error("Failed to update routing strategy");
 		} finally {
 			setIsUpdatingRouting(false);
+		}
+	};
+
+	const handleBlockApiTrainingChange = async (enabled: boolean) => {
+		const previous = blockApiTraining;
+		setBlockApiTraining(enabled);
+		setIsUpdatingBlockApiTraining(true);
+		try {
+			await updateSettingsMutation.mutateAsync({
+				body: { blockApiTraining: enabled },
+			});
+			toast.success(
+				enabled ? "No-training routing enabled" : "Standard routing enabled",
+			);
+		} catch {
+			setBlockApiTraining(previous);
+			toast.error("Failed to update AI training preference");
+		} finally {
+			setIsUpdatingBlockApiTraining(false);
 		}
 	};
 
@@ -106,10 +158,60 @@ export default function DevPlanSettings({
 		}
 	};
 
+	const handleProviderCacheChange = async (value: string) => {
+		const option = PROVIDER_CACHE_OPTIONS.find((o) => o.value === value);
+		if (!option) {
+			return;
+		}
+		const previous = providerCacheControlMode;
+		setProviderCacheControlMode(option.value);
+		setIsUpdatingProviderCache(true);
+		try {
+			await updateSettingsMutation.mutateAsync({
+				body: { providerCacheControlMode: option.value },
+			});
+			toast.success(option.toast);
+		} catch {
+			setProviderCacheControlMode(previous);
+			toast.error("Failed to update provider cache writes");
+		} finally {
+			setIsUpdatingProviderCache(false);
+		}
+	};
+
 	return (
 		<div>
 			<h2 className="mb-4 font-semibold">Settings</h2>
 			<div className="space-y-4">
+				<div className="rounded-xl border p-5">
+					<div className="flex items-start justify-between gap-4">
+						<div className="space-y-0.5">
+							<Label
+								htmlFor="block-api-training"
+								className="text-sm font-medium"
+							>
+								No AI training
+							</Label>
+							<p
+								id="block-api-training-description"
+								className="text-xs text-muted-foreground"
+							>
+								Only route through providers that explicitly state API inputs
+								aren&apos;t used to train models. Providers with unknown
+								policies are excluded, so some models may be unavailable.
+								DevPass remains metadata-only either way.
+							</p>
+						</div>
+						<Switch
+							id="block-api-training"
+							aria-describedby="block-api-training-description"
+							checked={blockApiTraining}
+							onCheckedChange={handleBlockApiTrainingChange}
+							disabled={isUpdatingBlockApiTraining}
+						/>
+					</div>
+				</div>
+
 				<div className="rounded-xl border p-5 space-y-4">
 					<div className="flex items-center justify-between gap-4">
 						<div className="space-y-0.5">
@@ -150,6 +252,48 @@ export default function DevPlanSettings({
 										value={option.value}
 										disabled={!option.allowed}
 									>
+										{option.label}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+					</div>
+				</div>
+
+				<div className="rounded-xl border p-5">
+					<div className="flex items-start justify-between gap-4">
+						<div className="space-y-0.5">
+							<Label
+								htmlFor="provider-cache-writes"
+								className="text-sm font-medium"
+							>
+								Provider cache writes
+							</Label>
+							<p className="text-xs text-muted-foreground">
+								Automatic adds cache markers to reusable prompt prefixes and
+								forwards the ones your client sends. Client-managed only
+								forwards your client&apos;s markers, so tools that manage their
+								own caching (Claude Code, Cursor, Cline) keep working while
+								requests without markers never pay for a write. Disabled strips
+								every marker. Cache writes cost 1.25× for 5 minutes or 2× for 1
+								hour, while cache reads cost 0.1×.
+							</p>
+						</div>
+						<Select
+							value={providerCacheControlMode}
+							onValueChange={handleProviderCacheChange}
+							disabled={isUpdatingProviderCache}
+						>
+							<SelectTrigger
+								id="provider-cache-writes"
+								size="sm"
+								className="w-[180px]"
+							>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								{PROVIDER_CACHE_OPTIONS.map((option) => (
+									<SelectItem key={option.value} value={option.value}>
 										{option.label}
 									</SelectItem>
 								))}

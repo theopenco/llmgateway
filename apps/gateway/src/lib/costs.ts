@@ -55,8 +55,8 @@ interface ChatMessage {
 /**
  * True when a provider's terminal reason is a safety-classifier "refusal".
  *
- * Anthropic-family models (the direct Anthropic API, Anthropic on Vertex, and
- * Anthropic on AWS Bedrock) emit `stop_reason: "refusal"` when a streaming
+ * Anthropic-family models (the direct Anthropic API, Anthropic on Vertex,
+ * Anthropic on Microsoft Foundry, and Anthropic on AWS Bedrock) emit `stop_reason: "refusal"` when a streaming
  * classifier intervenes on a potential policy violation. Per Anthropic's
  * documented billing policy, a refusal that arrives before any output is
  * generated is not billed (the usage counts in that response are informational
@@ -73,6 +73,7 @@ export function isRefusalFinishReason(
 	return (
 		provider === "anthropic" ||
 		provider === "vertex-anthropic" ||
+		provider === "azure-anthropic" ||
 		provider === "aws-bedrock"
 	);
 }
@@ -222,10 +223,10 @@ function getPricingForTokenCount(
  * If promptTokens or completionTokens are not available, it will try to
  * calculate them from the fullOutput parameter if provided.
  *
- * @param model - Root model id from `ModelDefinition.id`. Callers MUST pass
- *   the canonical root id, never the provider-specific upstream id
+ * @param model - Canonical model id from `ModelDefinition.id`. Callers MUST pass
+ *   the canonical model id, never the provider-specific upstream id
  *   (`externalId`). The upstream id is only ever for sending to the provider
- *   API; pricing/discount/rate-limit lookups all key on the root id.
+ *   API; pricing/discount/rate-limit lookups all key on the canonical model id.
  * @param provider - Provider id (e.g. "openai", "anthropic"). Required for
  *   per-provider pricing resolution.
  * @param region - Region id when the provider mapping defines per-region
@@ -310,7 +311,7 @@ export async function calculateCosts(
 	const customPricing = options?.customPricing;
 	const allowOutputEstimate = options?.allowOutputEstimate ?? true;
 
-	// Look up the model definition by the canonical root id only.
+	// Look up the model definition by the canonical model id only.
 	// externalId-based lookups are intentionally not supported here — the
 	// upstream provider id must never leak into pricing/discount lookups.
 	// For custom-provider requests with a catalog override, use a synthetic
@@ -413,6 +414,11 @@ export async function calculateCosts(
 		}
 	}
 
+	if (completionTokens === null && reasoningTokens !== null) {
+		calculatedCompletionTokens =
+			(calculatedCompletionTokens ?? 0) + reasoningTokens;
+	}
+
 	// Derived from what was actually estimated, not from merely entering the
 	// block above: a request whose prompt tokens the provider reported and whose
 	// output estimation was declined has invented nothing, so it must not be
@@ -420,7 +426,7 @@ export async function calculateCosts(
 	isEstimated = promptTokensEstimated || completionTokensEstimated;
 
 	// Find the provider-specific pricing, keyed by providerId + region.
-	// Region matters when a single root model id has multiple per-region
+	// Region matters when a single canonical model id has multiple per-region
 	// entries with different prices (see `regions:` on ProviderModelMapping);
 	// expandAllProviderRegions flattens those into one mapping per region.
 	//
@@ -576,7 +582,7 @@ export async function calculateCosts(
 			: cacheWriteInputPrice;
 	const requestPrice = new Decimal(providerInfo.requestPrice ?? "0");
 
-	// Discounts are keyed by the root model ID only.
+	// Discounts are keyed by the canonical model ID only.
 	const effectiveDiscountResult = await getEffectiveDiscount(
 		organizationId,
 		provider,
@@ -737,37 +743,7 @@ export async function calculateCosts(
 		.plus(imageInputCost ?? 0)
 		.plus(audioInputCost ?? 0);
 
-	// For Google models, completionTokens already includes reasoning tokens
-	// (merged during extraction). The same holds for OpenAI-style Responses API
-	// providers (OpenAI, Azure, Sakana, Meta), whose `output_tokens` counts
-	// reasoning — their `reasoning_tokens` detail is informational only. RanoAI
-	// reports reasoning in `completion_tokens_details` (which the streaming
-	// transform hoists to a top-level `reasoning_tokens`) while already counting
-	// it inside `completion_tokens`, so adding it again would roughly double the
-	// billed output on reasoning requests. Baidu's Qianfan reports the same way
-	// (a thinking-only reply returns completion_tokens === reasoning_tokens).
-	// Gonka24 is the same shape without reporting any reasoning count of its own:
-	// its `completion_tokens` covers the `reasoning` text too, and with thinking
-	// on the chars-per-token ratio only matches the non-reasoning baseline once
-	// that text is counted. For remaining providers, add reasoning separately.
-	const completionIncludesReasoning =
-		provider === "google-ai-studio" ||
-		provider === "glacier" ||
-		provider === "iceberg" ||
-		provider === "google-vertex" ||
-		provider === "quartz" ||
-		provider === "openai" ||
-		provider === "azure" ||
-		provider === "sakana" ||
-		provider === "meta" ||
-		provider === "ranoai" ||
-		provider === "baidu" ||
-		provider === "permafrost" ||
-		provider === "gonka24" ||
-		provider === "aws-mantle";
-	const totalOutputTokens = completionIncludesReasoning
-		? calculatedCompletionTokens
-		: calculatedCompletionTokens + (reasoningTokens ?? 0);
+	const totalOutputTokens = calculatedCompletionTokens;
 
 	// Calculate output cost, handling separate image output pricing if applicable.
 	// Models with token-based image pricing use imageOutputTokensByResolution

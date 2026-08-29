@@ -1,8 +1,14 @@
+import {
+	EnterpriseSeatLimitError,
+	withEnterpriseSeatForOrganization,
+} from "@/lib/enterprise-seats.js";
 import { resolveDefaultProjectIds } from "@/lib/sso-default-projects.js";
+import { recomputeUserTeam } from "@/lib/sso-teams.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
 import { generateAutoJoinEmailHtml, sendTransactionalEmail } from "./email.js";
 
@@ -86,14 +92,19 @@ async function joinOrganizationAsDeveloper(
 		return null;
 	}
 
-	const [membership] = await db
-		.insert(tables.userOrganization)
-		.values({
-			userId,
-			organizationId: organization.id,
-			role: "developer",
-		})
-		.returning();
+	const [membership] = await withEnterpriseSeatForOrganization(
+		organization.id,
+		userId,
+		async (tx) =>
+			await tx
+				.insert(tables.userOrganization)
+				.values({
+					userId,
+					organizationId: organization.id,
+					role: "developer",
+				})
+				.returning(),
+	);
 
 	// Same default project grants as SSO/SCIM provisioning: the org's configured
 	// selection, or the oldest project when unconfigured. Only on membership
@@ -110,6 +121,8 @@ async function joinOrganizationAsDeveloper(
 			)
 			.onConflictDoNothing();
 	}
+
+	await recomputeUserTeam(userId, organization.id);
 
 	await logAuditEvent({
 		organizationId: organization.id,
@@ -160,13 +173,30 @@ export async function autoJoinByEmailDomain(
 		},
 	});
 
-	if (!organization) {
+	if (
+		!organization ||
+		!hasOrganizationEnterpriseAccess(organization.id, organization.plan)
+	) {
 		return null;
 	}
 
-	const joinedOrgId = await joinOrganizationAsDeveloper(organization, params, {
-		domain,
-	});
+	let joinedOrgId: string | null;
+	try {
+		joinedOrgId = await joinOrganizationAsDeveloper(organization, params, {
+			domain,
+		});
+	} catch (error) {
+		if (error instanceof EnterpriseSeatLimitError) {
+			logger.warn("Skipped SSO domain auto-join at Enterprise seat limit", {
+				userId: params.userId,
+				organizationId: organization.id,
+				maxSeats: error.maxSeats,
+				seatsUsed: error.seatsUsed,
+			});
+			return null;
+		}
+		throw error;
+	}
 
 	if (joinedOrgId) {
 		logger.info("Auto-joined user to organization via SSO domain match", {
@@ -207,13 +237,30 @@ export async function autoJoinSsoProviderOrganization({
 		},
 	});
 
-	if (!organization) {
+	if (
+		!organization ||
+		!hasOrganizationEnterpriseAccess(organization.id, organization.plan)
+	) {
 		return null;
 	}
 
-	const joinedOrgId = await joinOrganizationAsDeveloper(organization, params, {
-		ssoProviderId,
-	});
+	let joinedOrgId: string | null;
+	try {
+		joinedOrgId = await joinOrganizationAsDeveloper(organization, params, {
+			ssoProviderId,
+		});
+	} catch (error) {
+		if (error instanceof EnterpriseSeatLimitError) {
+			logger.warn("Skipped SSO auto-join at Enterprise seat limit", {
+				userId: params.userId,
+				organizationId: organization.id,
+				maxSeats: error.maxSeats,
+				seatsUsed: error.seatsUsed,
+			});
+			return null;
+		}
+		throw error;
+	}
 
 	if (joinedOrgId) {
 		logger.info("Auto-joined user to organization via SSO sign-in", {

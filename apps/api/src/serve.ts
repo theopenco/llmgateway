@@ -6,6 +6,7 @@ import {
 	shutdownInstrumentation,
 } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
+import { getEnterpriseLicenseStatus } from "@llmgateway/shared/enterprise-license";
 
 import { redisClient } from "./auth/config.js";
 import { app } from "./index.js";
@@ -63,6 +64,15 @@ async function startServer() {
 
 	// Start daily beacon schedule to track active installations
 	startDailyBeacon();
+
+	const enterpriseLicense = getEnterpriseLicenseStatus();
+	logger.info("Enterprise license status", {
+		status: enterpriseLicense.status,
+		licenseId: enterpriseLicense.licenseId,
+		keyId: enterpriseLicense.keyId,
+		expiresAt: enterpriseLicense.expiresAt,
+		maxSeats: enterpriseLicense.maxSeats,
+	});
 
 	logger.info("Server listening", { port });
 

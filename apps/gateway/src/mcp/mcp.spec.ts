@@ -1,11 +1,15 @@
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { app } from "@/app.js";
 import { clearCache } from "@/test-utils/test-helpers.js";
 
 import { db, eq, tables } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
-describe("MCP endpoint authentication", () => {
+describe("MCP endpoint", () => {
 	async function seedActiveKey() {
 		await db
 			.insert(tables.user)
@@ -43,7 +47,7 @@ describe("MCP endpoint authentication", () => {
 			.insert(tables.apiKey)
 			.values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -121,7 +125,12 @@ describe("MCP endpoint authentication", () => {
 		await db
 			.update(tables.apiKey)
 			.set({ status: "inactive" })
-			.where(eq(tables.apiKey.token, "real-token"));
+			.where(
+				eq(
+					tables.apiKey.tokenHash,
+					hashApiKeyForStorage("real-token").tokenHash,
+				),
+			);
 
 		const res = await app.request("/mcp", {
 			method: "POST",
@@ -135,5 +144,90 @@ describe("MCP endpoint authentication", () => {
 		expect(res.status).toBe(401);
 		const json = await res.json();
 		expect(json.error.code).toBe(-32001);
+	});
+
+	test("returns correlated timeouts without logging a server error", async () => {
+		await seedActiveKey();
+
+		const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
+		const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+		const callToolSpy = vi
+			.spyOn(Client.prototype, "callTool")
+			.mockRejectedValue(
+				new McpError(ErrorCode.RequestTimeout, "Request timed out", {
+					timeout: 60_000,
+				}),
+			);
+
+		try {
+			const makeRequest = (id: string | number) => ({
+				jsonrpc: "2.0",
+				id,
+				method: "tools/call",
+				params: {
+					name: "chat",
+					arguments: {
+						model: "gpt-4o-mini",
+						messages: [{ role: "user", content: "hello" }],
+					},
+				},
+			});
+			const request = (body: unknown) =>
+				app.request("/mcp", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify(body),
+				});
+
+			const response = await request(makeRequest(1));
+			const json = await response.json();
+
+			expect(response.status).toBe(200);
+			expect(json).toMatchObject({
+				id: 1,
+				error: {
+					code: -32001,
+					message: "Request timed out",
+					data: { timeout: 60_000 },
+				},
+			});
+
+			const batchResponse = await request([
+				makeRequest(2),
+				makeRequest("three"),
+			]);
+			const batchJson = await batchResponse.json();
+
+			expect(batchResponse.status).toBe(200);
+			expect(batchJson).toMatchObject([
+				{
+					id: 2,
+					error: {
+						code: -32001,
+						message: "Request timed out",
+					},
+				},
+				{
+					id: "three",
+					error: {
+						code: -32001,
+						message: "Request timed out",
+					},
+				},
+			]);
+			expect(warnSpy).toHaveBeenCalledTimes(3);
+			expect(warnSpy).toHaveBeenCalledWith("MCP request timeout", {
+				message: "MCP error -32001: Request timed out",
+				data: { timeout: 60_000 },
+			});
+			expect(errorSpy).not.toHaveBeenCalled();
+		} finally {
+			callToolSpy.mockRestore();
+			warnSpy.mockRestore();
+			errorSpy.mockRestore();
+		}
 	});
 });

@@ -57,6 +57,34 @@ export function extractBedrockCacheCreationDetails(usage: any): {
 }
 
 /**
+ * Normalize completion tokens to the inclusive billable output count.
+ *
+ * Most providers already include reasoning in completion tokens. A few return
+ * visible completion and reasoning separately, which is unambiguous when the
+ * reported total equals prompt + completion + reasoning.
+ */
+export function normalizeCompletionTokens(
+	promptTokens: number | null,
+	completionTokens: number | null,
+	reasoningTokens: number | null,
+	totalTokens: number | null,
+): number | null {
+	if (
+		promptTokens === null ||
+		completionTokens === null ||
+		reasoningTokens === null ||
+		reasoningTokens <= 0 ||
+		totalTokens === null
+	) {
+		return completionTokens;
+	}
+
+	return totalTokens === promptTokens + completionTokens + reasoningTokens
+		? completionTokens + reasoningTokens
+		: completionTokens;
+}
+
+/**
  * Extracts token usage information from streaming data based on provider format
  */
 export function extractTokenUsage(
@@ -168,6 +196,7 @@ export function extractTokenUsage(
 			break;
 		case "anthropic":
 		case "vertex-anthropic":
+		case "azure-anthropic":
 			{
 				const usage = data.message?.usage ?? data.usage;
 				if (!usage) {
@@ -224,7 +253,10 @@ export function extractTokenUsage(
 				promptTokens = data.usage.prompt_tokens ?? null;
 				completionTokens = data.usage.completion_tokens ?? null;
 				totalTokens = data.usage.total_tokens ?? null;
-				reasoningTokens = data.usage.reasoning_tokens ?? null;
+				reasoningTokens =
+					data.usage.reasoning_tokens ??
+					data.usage.completion_tokens_details?.reasoning_tokens ??
+					null;
 				cachedTokens = data.usage.prompt_tokens_details?.cached_tokens ?? null;
 				const cacheCreation =
 					data.usage.prompt_tokens_details?.cache_creation_input_tokens ?? 0;
@@ -232,26 +264,6 @@ export function extractTokenUsage(
 					cacheCreationTokens = cacheCreation;
 					cacheCreation5mTokens = cacheCreation;
 				}
-			}
-			break;
-		case "xai":
-			// xAI is one of the few providers whose `completion_tokens` EXCLUDES
-			// reasoning (total_tokens = prompt + completion + reasoning), so the
-			// reasoning count has to reach the cost engine to be billed at all.
-			// It only ever appears nested under `completion_tokens_details`, which
-			// the default OpenAI branch below does not read — it looks for a
-			// top-level `usage.reasoning_tokens` — so without this case every
-			// reasoning request is billed for its handful of visible output tokens
-			// and nothing else.
-			if (data.usage) {
-				promptTokens = data.usage.prompt_tokens ?? null;
-				completionTokens = data.usage.completion_tokens ?? null;
-				totalTokens = data.usage.total_tokens ?? null;
-				reasoningTokens =
-					data.usage.completion_tokens_details?.reasoning_tokens ??
-					data.usage.reasoning_tokens ??
-					null;
-				cachedTokens = data.usage.prompt_tokens_details?.cached_tokens ?? null;
 			}
 			break;
 		case "sakana":
@@ -299,7 +311,10 @@ export function extractTokenUsage(
 				promptTokens = data.usage.prompt_tokens ?? null;
 				completionTokens = data.usage.completion_tokens ?? null;
 				totalTokens = data.usage.total_tokens ?? null;
-				reasoningTokens = data.usage.reasoning_tokens ?? null;
+				reasoningTokens =
+					data.usage.reasoning_tokens ??
+					data.usage.completion_tokens_details?.reasoning_tokens ??
+					null;
 				cachedTokens = data.usage.prompt_tokens_details?.cached_tokens ?? null;
 				// GPT-5.6+ bills prompt-cache writes at 1.25x and reports them in
 				// `cache_write_tokens` (a subset of prompt_tokens, like cached_tokens).
@@ -311,6 +326,13 @@ export function extractTokenUsage(
 			}
 			break;
 	}
+
+	completionTokens = normalizeCompletionTokens(
+		promptTokens,
+		completionTokens,
+		reasoningTokens,
+		totalTokens,
+	);
 
 	return {
 		promptTokens,

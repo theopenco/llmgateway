@@ -5,7 +5,7 @@ import { createTestUser, deleteAll } from "@/testing.js";
 import { getAbuseIpCacheKey } from "@/utils/abuse-ip.js";
 
 import { redisClient } from "@llmgateway/cache";
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 
 import {
 	approveHighRiskUser,
@@ -275,6 +275,8 @@ describe("admin flagged accounts routes", () => {
 		expect(res.status).toBe(200);
 		const body = await res.json();
 		expect(body.flaggedCount).toBe(1);
+		expect(body.approvedCount).toBe(0);
+		expect(body.archivedCount).toBe(0);
 		expect(body.accounts).toHaveLength(1);
 		expect(body.accounts[0]).toMatchObject({
 			userId: "flagged-user",
@@ -288,6 +290,67 @@ describe("admin flagged accounts routes", () => {
 		expect(body.accounts[0].organizations).toEqual([
 			expect.objectContaining({ id: "flagged-org", riskFlagged: true }),
 		]);
+	});
+
+	test("archives accounts without changing their risk status", async () => {
+		const archive = await app.request(
+			"/admin/flagged-accounts/flagged-user/archive",
+			{
+				method: "PATCH",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({ archived: true }),
+			},
+		);
+
+		expect(archive.status).toBe(200);
+
+		const user = await db.query.user.findFirst({
+			where: { id: { eq: "flagged-user" } },
+		});
+		expect(user?.riskStatus).toBe("flagged");
+		expect(user?.riskArchivedAt).not.toBe(null);
+
+		const active = await app.request("/admin/flagged-accounts", {
+			headers: { Cookie: cookie },
+		});
+		const activeBody = await active.json();
+		expect(activeBody.accounts).toEqual([]);
+		expect(activeBody.flaggedCount).toBe(0);
+		expect(activeBody.archivedCount).toBe(1);
+
+		const archived = await app.request(
+			"/admin/flagged-accounts?archived=true&status=all",
+			{ headers: { Cookie: cookie } },
+		);
+		const archivedBody = await archived.json();
+		expect(archivedBody.accounts).toHaveLength(1);
+		expect(archivedBody.accounts[0]).toMatchObject({
+			userId: "flagged-user",
+			riskStatus: "flagged",
+		});
+		expect(archivedBody.accounts[0].archivedAt).not.toBe(null);
+	});
+
+	test("restores archived accounts to the active queue", async () => {
+		await db
+			.update(tables.user)
+			.set({ riskArchivedAt: new Date() })
+			.where(eq(tables.user.id, "flagged-user"));
+
+		const res = await app.request(
+			"/admin/flagged-accounts/flagged-user/archive",
+			{
+				method: "PATCH",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({ archived: false }),
+			},
+		);
+
+		expect(res.status).toBe(200);
+		const user = await db.query.user.findFirst({
+			where: { id: { eq: "flagged-user" } },
+		});
+		expect(user?.riskArchivedAt).toBe(null);
 	});
 
 	test("filters by search term", async () => {

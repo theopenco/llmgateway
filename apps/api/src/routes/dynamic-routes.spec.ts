@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db, tables } from "@llmgateway/db";
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
+import { db, eq, tables } from "@llmgateway/db";
 
 import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
 
@@ -169,6 +170,80 @@ describe("dynamic routes API", () => {
 
 		const badName = await createRoute("Bad_Name");
 		expect(badName.status).toBe(400);
+	});
+
+	test("creates and publishes routes with organization custom models", async () => {
+		await db.insert(tables.providerKey).values({
+			id: "custom-provider-key",
+			...encryptProviderKeyForStorage(
+				"custom-provider-token",
+				"custom-provider-key",
+				"test-org-id",
+			),
+			provider: "custom",
+			name: "private-provider",
+			baseUrl: "https://example.com/v1",
+			organizationId: "test-org-id",
+		});
+		await db.insert(tables.customModel).values({
+			id: "custom-model-id",
+			providerKeyId: "custom-provider-key",
+			organizationId: "test-org-id",
+			modelName: "private-model",
+		});
+
+		const graph = {
+			entry: "m",
+			nodes: [
+				{
+					id: "m",
+					type: "model",
+					model: "private-provider/private-model",
+				},
+			],
+		};
+		const created = await createRoute("custom-route", graph);
+		expect(created.status).toBe(201);
+
+		const published = await authed(
+			"/dynamic-routes/test-project-id/custom-route/publish",
+			{ method: "POST" },
+		);
+		expect(published.status).toBe(200);
+		expect((await published.json()).publishedVersion.graph).toEqual(graph);
+
+		const missing = await createRoute("missing-custom", {
+			entry: "m",
+			nodes: [
+				{
+					id: "m",
+					type: "model",
+					model: "private-provider/missing-model",
+				},
+			],
+		});
+		expect(missing.status).toBe(400);
+
+		await db
+			.update(tables.customModel)
+			.set({ status: "inactive" })
+			.where(eq(tables.customModel.id, "custom-model-id"));
+		const inactiveModel = await createRoute("inactive-custom-model", graph);
+		expect(inactiveModel.status).toBe(400);
+
+		await db
+			.update(tables.customModel)
+			.set({ status: "active" })
+			.where(eq(tables.customModel.id, "custom-model-id"));
+		await db
+			.update(tables.providerKey)
+			.set({ status: "inactive" })
+			.where(eq(tables.providerKey.id, "custom-provider-key"));
+		const inactiveProvider = await createRoute(
+			"inactive-custom-provider",
+			graph,
+		);
+		expect(inactiveProvider.status).toBe(400);
 	});
 
 	test("duplicate names conflict with 409", async () => {

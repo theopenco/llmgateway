@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { describe, expect, it } from "vitest";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, tables, type ProviderKeyOptions } from "@llmgateway/db";
 import {
 	type ModelDefinition,
@@ -15,6 +16,7 @@ import {
 	getTestOptions,
 	expandAllProviderRegions,
 } from "@llmgateway/models";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { uniqueId } from "@llmgateway/shared/random";
 
 import {
@@ -336,7 +338,7 @@ export const testModels = filteredModels
 		const testCases = [];
 
 		if (process.env.TEST_ALL_VARIATIONS) {
-			// test root model without a specific provider
+			// test canonical model without a specific provider
 			testCases.push({
 				model: model.id,
 				providers: expandAllProviderRegions(
@@ -967,6 +969,16 @@ export const reasoningModels = testModels.filter((m) =>
 	m.providers.some((p: ProviderModelMapping) => p.reasoning === true),
 );
 
+export const thinkingDisabledForcedToolChoiceModels = testModels.filter((m) =>
+	m.providers.some(
+		(p: ProviderModelMapping) =>
+			p.reasoningEfforts?.includes("none") &&
+			(["required", "function"] as const).every((mode) =>
+				p.supportedToolChoicesWithThinkingDisabled?.includes(mode),
+			),
+	),
+);
+
 // Efforts are forwarded to providers as-is and rejected when unsupported, so
 // tests must send an effort the mapping declares. Prefers "medium" and falls
 // back to the strongest declared tier.
@@ -1131,7 +1143,7 @@ export async function createProviderKey(
 		.insert(tables.providerKey)
 		.values({
 			id: keyId,
-			token,
+			...encryptProviderKeyForStorage(token, keyId, "org-id"),
 			provider: provider.replace("env-", ""), // Remove env- prefix for the provider field
 			organizationId: "org-id",
 			baseUrl,
@@ -1140,7 +1152,7 @@ export async function createProviderKey(
 		.onConflictDoUpdate({
 			target: tables.providerKey.id,
 			set: {
-				token,
+				...encryptProviderKeyForStorage(token, keyId, "org-id"),
 				baseUrl,
 				options,
 			},
@@ -1228,7 +1240,7 @@ export async function beforeAllHook() {
 		.insert(tables.apiKey)
 		.values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1294,6 +1306,14 @@ function providerEnvOptionsForTests(
 			opts.azure_ai_foundry_api_version = apiVersion;
 		}
 		return Object.keys(opts).length > 0 ? opts : undefined;
+	}
+	if (
+		providerId === "azure-anthropic" &&
+		process.env.LLM_AZURE_ANTHROPIC_RESOURCE
+	) {
+		return {
+			azure_anthropic_resource: process.env.LLM_AZURE_ANTHROPIC_RESOURCE,
+		};
 	}
 	return undefined;
 }

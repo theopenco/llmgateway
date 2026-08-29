@@ -82,8 +82,8 @@ describe("normalizeStreamingError", () => {
 
 		const normalized = normalizeStreamingError({
 			error,
-			provider: "tundra",
-			model: "kimi-k2.6",
+			provider: "quartz",
+			model: "gemini-3.1-pro-preview",
 			bufferSnapshot,
 			phase: "upstream_read",
 			redact: true,
@@ -184,8 +184,8 @@ describe("normalizeStreamingError", () => {
 
 		const normalized = normalizeStreamingError({
 			error,
-			provider: "tundra",
-			model: "kimi-k2.6",
+			provider: "quartz",
+			model: "gemini-3.1-pro-preview",
 			bufferSnapshot,
 			phase: "upstream_read",
 			redact: true,
@@ -237,8 +237,8 @@ describe("normalizeStreamingError", () => {
 
 		const normalized = normalizeStreamingError({
 			error,
-			provider: "tundra",
-			model: "kimi-k2.6",
+			provider: "quartz",
+			model: "gemini-3.1-pro-preview",
 			bufferSnapshot,
 			phase: "upstream_read",
 			redact: true,

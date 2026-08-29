@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { getSupportedServiceTiers, supportsServiceTier } from "./helpers.js";
 import { anthropicModels } from "./models/anthropic.js";
+import { xaiModels } from "./models/xai.js";
 import { models } from "./models.js";
 import {
 	formatServiceTierMultiplier,
@@ -161,6 +162,11 @@ describe("model service tier support", () => {
 			),
 		).toEqual(["flex", "priority"]);
 		expect(
+			getSupportedServiceTiers("gemini-3-pro-image", "google-vertex").map(
+				(tier) => tier.id,
+			),
+		).toEqual(["flex"]);
+		expect(
 			getSupportedServiceTiers(
 				"gemini-3-pro-image-preview",
 				"google-vertex",
@@ -201,11 +207,16 @@ describe("model service tier support", () => {
 			),
 		).toEqual(["flex", "priority"]);
 		expect(
+			getSupportedServiceTiers("gemini-3-pro-image", "google-ai-studio").map(
+				(tier) => tier.id,
+			),
+		).toEqual(["flex", "priority"]);
+		expect(
 			getSupportedServiceTiers(
 				"gemini-3-pro-image-preview",
 				"google-ai-studio",
 			).map((tier) => tier.id),
-		).toEqual(["flex"]);
+		).toEqual(["flex", "priority"]);
 	});
 
 	it("limits Google Vertex service tiers to the global endpoint", () => {
@@ -252,15 +263,7 @@ describe("model service tier support", () => {
 
 describe("isStealthProvider", () => {
 	it("flags providers that require a baseUrl env var (no default endpoint)", () => {
-		for (const id of [
-			"glacier",
-			"iceberg",
-			"granite",
-			"quartz",
-			"avalanche",
-			"tundra",
-			"permafrost",
-		]) {
+		for (const id of ["glacier", "iceberg", "granite", "quartz"]) {
 			expect(isStealthProvider(id)).toBe(true);
 		}
 	});
@@ -430,6 +433,26 @@ describe("AWS Bedrock Anthropic regions", () => {
 		).toMatchObject({
 			inputPrice: "5.5e-6",
 			outputPrice: "27.5e-6",
+		});
+	});
+
+	it("exposes Grok 4.6 in us-west-2 at in-region prices", () => {
+		const grok46 = xaiModels.find((candidate) => candidate.id === "grok-4-6");
+		const bedrockMapping = grok46?.providers.find(
+			(provider) => provider.providerId === "aws-bedrock",
+		);
+		const expandedMappings = expandAllProviderRegions(
+			bedrockMapping ? [bedrockMapping] : [],
+		);
+
+		expect(getRegionIds(bedrockMapping)).toEqual(["us-west-2"]);
+		expect(
+			expandedMappings.find((provider) => provider.region === "us-west-2"),
+		).toMatchObject({
+			externalId: "xai.grok-4.6",
+			inputPrice: "2.2e-6",
+			outputPrice: "6.6e-6",
+			cachedInputPrice: "0.55e-6",
 		});
 	});
 });

@@ -7,7 +7,9 @@ import {
 	aggregateLogsForTesting,
 } from "@/testing.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, eq, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 describe("activity endpoint", () => {
 	let token: string;
@@ -42,14 +44,14 @@ describe("activity endpoint", () => {
 		await db.insert(tables.apiKey).values([
 			{
 				id: "test-api-key-id",
-				token: "test-token",
+				...hashApiKeyForStorage("test-token"),
 				projectId: "test-project-id",
 				description: "Test API Key",
 				createdBy: "test-user-id",
 			},
 			{
 				id: "test-api-key-id-2",
-				token: "test-token-2",
+				...hashApiKeyForStorage("test-token-2"),
 				projectId: "test-project-id-2",
 				description: "Test API Key 2",
 				createdBy: "test-user-id",
@@ -58,7 +60,11 @@ describe("activity endpoint", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "test-provider-key-id",
-			token: "test-provider-token",
+			...encryptProviderKeyForStorage(
+				"test-provider-token",
+				"test-provider-key-id",
+				"test-org-id",
+			),
 			provider: "openai",
 			organizationId: "test-org-id",
 		});
@@ -312,7 +318,7 @@ describe("activity endpoint", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "test-end-user-customer-key-id",
-			token: "euck_test-token",
+			...hashApiKeyForStorage("euck_test-token"),
 			projectId: "test-project-id",
 			description: "Embedded end-user: customer-a",
 			keyType: "end_user_customer",
@@ -368,6 +374,95 @@ describe("activity endpoint", () => {
 				}),
 			]),
 		);
+	});
+
+	test("GET /activity reports the stable playground key", async () => {
+		const today = new Date();
+
+		await db.insert(tables.apiKey).values({
+			id: "playground-key",
+			...hashApiKeyForStorage("playground-token"),
+			projectId: "test-project-id",
+			description: "Playground",
+			kind: "playground",
+			createdBy: "test-user-id",
+		});
+
+		await db.insert(tables.log).values(
+			[0, 1].map((index) => ({
+				id: `playground-log-${index + 1}`,
+				requestId: `playground-log-${index + 1}`,
+				createdAt: today,
+				updatedAt: today,
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "playground-key",
+				duration: 100,
+				requestedModel: "gpt-4",
+				requestedProvider: "openai",
+				usedModel: "gpt-4",
+				usedProvider: "openai",
+				responseSize: 1000,
+				promptTokens: "10",
+				completionTokens: "20",
+				totalTokens: "30",
+				cost: index === 0 ? 0.2 : 0.3,
+				messages: JSON.stringify([{ role: "user", content: "Hello" }]),
+				mode: "credits" as const,
+				usedMode: "credits" as const,
+			})),
+		);
+
+		await aggregateLogsForTesting();
+
+		const res = await app.request(
+			"/activity?days=7&projectId=test-project-id&groupBy=apiKey",
+			{ headers: { Cookie: token } },
+		);
+		expect(res.status).toBe(200);
+		const data = await res.json();
+		const playgroundEntries = data.activity
+			.flatMap(
+				(row: {
+					apiKeyBreakdown: Array<{
+						id: string;
+						description: string;
+						requestCount: number;
+						cost: number;
+					}>;
+				}) => row.apiKeyBreakdown,
+			)
+			.filter((entry: { id: string }) => entry.id === "playground-key");
+
+		expect(playgroundEntries).toHaveLength(1);
+		expect(playgroundEntries[0]).toMatchObject({
+			id: "playground-key",
+			description: "Playground",
+			requestCount: 2,
+		});
+		expect(playgroundEntries[0].cost).toBeCloseTo(0.5, 5);
+
+		const filteredResponse = await app.request(
+			"/activity?days=7&projectId=test-project-id&groupBy=apiKey&apiKeyId=playground-key",
+			{ headers: { Cookie: token } },
+		);
+		expect(filteredResponse.status).toBe(200);
+		const filteredData = await filteredResponse.json();
+		const filteredEntries = filteredData.activity.flatMap(
+			(row: {
+				apiKeyBreakdown: Array<{
+					id: string;
+					requestCount: number;
+					cost: number;
+				}>;
+			}) => row.apiKeyBreakdown,
+		);
+		expect(filteredEntries).toHaveLength(1);
+		expect(filteredEntries[0]).toMatchObject({
+			id: "playground-key",
+			requestCount: 2,
+		});
+		expect(filteredEntries[0].cost).toBeCloseTo(0.5, 5);
 	});
 
 	test("GET /activity should require authentication", async () => {
@@ -647,6 +742,7 @@ describe("activity endpoint", () => {
 				completionTokens: "20",
 				totalTokens: "30",
 				hasError: true,
+				unifiedFinishReason: "upstream_error",
 				messages: JSON.stringify([{ role: "user", content: "Test" }]),
 				mode: "api-keys",
 				usedMode: "api-keys",
@@ -669,6 +765,7 @@ describe("activity endpoint", () => {
 				completionTokens: "20",
 				totalTokens: "30",
 				hasError: true,
+				unifiedFinishReason: "client_error",
 				messages: JSON.stringify([{ role: "user", content: "Test" }]),
 				mode: "api-keys",
 				usedMode: "api-keys",
@@ -756,9 +853,10 @@ describe("activity endpoint", () => {
 		const todayData = data.activity[0];
 
 		expect(todayData.requestCount).toBe(5);
-		expect(todayData.errorCount).toBe(2);
-		// Error rate = (2/5) * 100 = 40%
-		expect(todayData.errorRate).toBeCloseTo(40, 2);
+		expect(todayData.errorCount).toBe(1);
+		expect(todayData.clientErrorCount).toBe(1);
+		// Client errors are excluded from both sides: 1/4 = 25%.
+		expect(todayData.errorRate).toBeCloseTo(25, 2);
 	});
 
 	test("GET /activity should correctly calculate cache rate", async () => {
@@ -1774,7 +1872,7 @@ describe("activity endpoint", () => {
 
 			await db.insert(tables.apiKey).values({
 				id: OTHER_KEY,
-				token: "teammate-token",
+				...hashApiKeyForStorage("teammate-token"),
 				projectId: "test-project-id",
 				description: "Teammate Key",
 				createdBy: "teammate-id",
@@ -1929,14 +2027,14 @@ describe("activity endpoint", () => {
 			await db.insert(tables.apiKey).values([
 				{
 					id: "owner-key-2",
-					token: "owner-token-2",
+					...hashApiKeyForStorage("owner-token-2"),
 					projectId: "test-project-id",
 					description: "Owner Key 2",
 					createdBy: "test-user-id",
 				},
 				{
 					id: "member-key",
-					token: "member-token",
+					...hashApiKeyForStorage("member-token"),
 					projectId: "test-project-id",
 					description: "Member Key",
 					createdBy: MEMBER_ID,
@@ -2079,7 +2177,7 @@ describe("activity endpoint", () => {
 
 			await db.insert(tables.apiKey).values({
 				id: "user-breakdown-euc-key",
-				token: "euck_user-breakdown-token",
+				...hashApiKeyForStorage("euck_user-breakdown-token"),
 				projectId: "test-project-id",
 				description: "Embedded end-user: customer-b",
 				keyType: "end_user_customer",

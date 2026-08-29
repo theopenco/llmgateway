@@ -3,9 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getNextSpendTier } from "@llmgateway/shared";
 
 import {
+	acquireOrgInflightSlot,
 	baseLimitEnvVar,
 	checkOrgRateLimit,
 	getBaseLimit,
+	getOrgInflightLimit,
 	getOrgSpendTier,
 	getPlanClass,
 	isOrgRateLimitEnabled,
@@ -23,6 +25,7 @@ vi.mock("@llmgateway/cache", () => ({
 		expire: vi.fn(),
 		get: vi.fn(),
 		set: vi.fn(),
+		pipeline: vi.fn(),
 	},
 	swrWrap: vi.fn(
 		async <T>(_key: string, _tables: string[], fetcher: () => Promise<T>) =>
@@ -68,6 +71,12 @@ const ENV_KEYS = [
 	"GATEWAY_SPEND_TIER_1_MIN_AGE_DAYS",
 	"GATEWAY_SPEND_TIER_2_MIN_AGE_DAYS",
 	"GATEWAY_RATE_LIMIT_WINDOW_SECONDS",
+	"GATEWAY_ORG_INFLIGHT_LIMIT_DEV",
+	"GATEWAY_ORG_INFLIGHT_LIMIT_CHATPLAN",
+	"GATEWAY_ORG_INFLIGHT_LIMIT_ENTERPRISE",
+	"GATEWAY_ORG_INFLIGHT_STALE_SECONDS",
+	"GATEWAY_SPEND_TIER_0_INFLIGHT_LIMIT",
+	"GATEWAY_SPEND_TIER_2_INFLIGHT_LIMIT",
 ];
 
 beforeEach(() => {
@@ -319,15 +328,16 @@ describe("getBaseLimit", () => {
 		expect(getBaseLimit(chatConfig, "regular")).toBe(chatConfig.defaultRpm);
 	});
 
-	it("doubles every regular endpoint default for DevPass", () => {
-		for (const config of PATH_RATE_LIMITS) {
-			expect(getBaseLimit(config, "dev")).toBe(config.defaultRpm * 2);
-		}
-	});
-
-	it("uses the tighter per-plan default for chat plans", () => {
+	it("uses the tighter per-plan defaults for dev and chat plans", () => {
+		expect(getBaseLimit(chatConfig, "dev")).toBe(chatConfig.devDefaultRpm);
 		expect(getBaseLimit(chatConfig, "chat")).toBe(chatConfig.chatDefaultRpm);
+		expect(chatConfig.devDefaultRpm).toBeLessThan(chatConfig.defaultRpm);
 		expect(chatConfig.chatDefaultRpm).toBeLessThan(chatConfig.defaultRpm);
+		// Dev (devpass) is relaxed relative to the chat plan: it's an anti-abuse
+		// backstop, not a product cap.
+		expect(chatConfig.devDefaultRpm).toBeGreaterThanOrEqual(
+			chatConfig.chatDefaultRpm,
+		);
 	});
 
 	it("honors a per-plan-class env override", () => {
@@ -365,6 +375,24 @@ describe("checkOrgRateLimit", () => {
 		expect(getMultiplier).not.toHaveBeenCalled();
 	});
 
+	it("fails open as unenforced (limit 0) on a Redis error", async () => {
+		process.env.GATEWAY_RATE_LIMIT_CHAT_COMPLETIONS_RPM = "10";
+		vi.mocked(redis.zremrangebyscore).mockRejectedValueOnce(
+			new Error("redis down"),
+		);
+
+		const result = await checkOrgRateLimit(
+			orgId,
+			chatConfig,
+			"regular",
+			multiplierOf(1),
+		);
+
+		// limit 0 marks the result as unenforced so the middleware emits no
+		// budget headers for a limit that was never actually checked.
+		expect(result).toEqual({ allowed: true, remaining: 0, limit: 0 });
+	});
+
 	it("blocks requests at the limit with a retryAfter", async () => {
 		process.env.GATEWAY_RATE_LIMIT_CHAT_COMPLETIONS_RPM = "5";
 		vi.mocked(redis.zcard).mockResolvedValue(5);
@@ -385,9 +413,10 @@ describe("checkOrgRateLimit", () => {
 		expect(redis.zadd).not.toHaveBeenCalled();
 	});
 
-	it("applies the doubled base limit for DevPass plans", async () => {
-		const devLimit = getBaseLimit(chatConfig, "dev");
-		vi.mocked(redis.zcard).mockResolvedValue(devLimit);
+	it("applies the tighter base limit for dev (devpass) plans", async () => {
+		// No env override: dev plan falls back to its default, which is below the
+		// regular default.
+		vi.mocked(redis.zcard).mockResolvedValue(chatConfig.devDefaultRpm);
 		const future = Date.now() + 30_000;
 		vi.mocked(redis.zrange).mockResolvedValue(["m", future.toString()]);
 
@@ -400,7 +429,7 @@ describe("checkOrgRateLimit", () => {
 		);
 
 		expect(result.allowed).toBe(false);
-		expect(result.limit).toBe(devLimit);
+		expect(result.limit).toBe(chatConfig.devDefaultRpm);
 	});
 
 	it("resolves the spend-tier multiplier only once the base limit is hit", async () => {
@@ -452,5 +481,204 @@ describe("checkOrgRateLimit", () => {
 		);
 
 		expect(result.allowed).toBe(true);
+	});
+});
+
+describe("getOrgInflightLimit", () => {
+	it("uses the per-plan-class defaults (regular = tier-0 base)", () => {
+		expect(getOrgInflightLimit("regular", false)).toBe(100);
+		expect(getOrgInflightLimit("dev", false)).toBe(50);
+		expect(getOrgInflightLimit("chat", false)).toBe(10);
+	});
+
+	it("elevates enterprise orgs regardless of plan class", () => {
+		expect(getOrgInflightLimit("regular", true)).toBe(2000);
+		expect(getOrgInflightLimit("dev", true)).toBe(2000);
+	});
+
+	it("honors env overrides per class", () => {
+		process.env.GATEWAY_SPEND_TIER_0_INFLIGHT_LIMIT = "7";
+		process.env.GATEWAY_ORG_INFLIGHT_LIMIT_DEV = "3";
+		process.env.GATEWAY_ORG_INFLIGHT_LIMIT_CHATPLAN = "2";
+		process.env.GATEWAY_ORG_INFLIGHT_LIMIT_ENTERPRISE = "9000";
+		expect(getOrgInflightLimit("regular", false)).toBe(7);
+		expect(getOrgInflightLimit("dev", false)).toBe(3);
+		expect(getOrgInflightLimit("chat", false)).toBe(2);
+		expect(getOrgInflightLimit("chat", true)).toBe(9000);
+	});
+});
+
+describe("spend tier inflight limits", () => {
+	it("scales the concurrency ceiling with the tier ladder", () => {
+		const org = { createdAt: new Date(0) }; // ancient account → top tier by age
+		expect(getOrgSpendTier(org, 0).inflightLimit).toBe(2000);
+		const fresh = { createdAt: new Date() };
+		expect(getOrgSpendTier(fresh, 0).inflightLimit).toBe(100);
+	});
+
+	it("honors the per-tier env override", () => {
+		process.env.GATEWAY_SPEND_TIER_2_INFLIGHT_LIMIT = "555";
+		const org = { createdAt: new Date(), trustTierOverride: 2 };
+		expect(getOrgSpendTier(org, 0).inflightLimit).toBe(555);
+	});
+});
+
+describe("acquireOrgInflightSlot", () => {
+	const orgId = "org-1";
+	const maxOf = (value: number) => vi.fn().mockResolvedValue(value);
+
+	// The slot ops use explicit pipeline() calls (never bare auto-pipelined
+	// commands — see acquireOrgInflightSlot); the chainable stub records every
+	// queued command and resolves exec() with the given [error, result] pairs.
+	function stubPipeline(execResults: Array<[unknown, unknown]> | null) {
+		const pipeline: Record<string, ReturnType<typeof vi.fn>> = {};
+		for (const method of [
+			"zremrangebyscore",
+			"zcard",
+			"zadd",
+			"expire",
+			"zrem",
+			"hincrby",
+			"hincrbyfloat",
+		]) {
+			pipeline[method] = vi.fn(() => pipeline);
+		}
+		pipeline.exec = vi.fn().mockResolvedValue(execResults);
+		vi.mocked(redis.pipeline).mockReturnValue(pipeline as never);
+		return pipeline;
+	}
+
+	it("acquires a slot under the base limit and releases it via zrem", async () => {
+		const pipeline = stubPipeline([
+			[null, 0],
+			[null, 3],
+		]);
+
+		const getMax = maxOf(100);
+		const acquisition = await acquireOrgInflightSlot(
+			orgId,
+			5,
+			getMax,
+			"messages",
+		);
+
+		expect(acquisition.allowed).toBe(true);
+		expect(acquisition.release).toBeDefined();
+		expect(pipeline.zadd).toHaveBeenCalledOnce();
+		expect(pipeline.expire).toHaveBeenCalled();
+		// Under the base limit the tier ceiling must not be resolved.
+		expect(getMax).not.toHaveBeenCalled();
+
+		const member = pipeline.zadd.mock.calls[0][2];
+		acquisition.release!();
+		expect(pipeline.zrem).toHaveBeenCalledWith(
+			`rate_limit:org_inflight:${orgId}`,
+			member,
+		);
+	});
+
+	it("reaps stale slots from crashed holders before counting", async () => {
+		vi.stubEnv("GATEWAY_ORG_INFLIGHT_STALE_SECONDS", "600");
+		const pipeline = stubPipeline([
+			[null, 0],
+			[null, 0],
+		]);
+
+		const before = Date.now();
+		await acquireOrgInflightSlot(orgId, 5, maxOf(5), "chat_completions");
+
+		const [, , staleBefore] = pipeline.zremrangebyscore.mock.calls[0];
+		expect(Number(staleBefore)).toBeGreaterThanOrEqual(before - 600_000 - 50);
+		expect(Number(staleBefore)).toBeLessThanOrEqual(Date.now() - 600_000 + 50);
+	});
+
+	it("resolves the tier ceiling only at the base and admits when it raises the limit", async () => {
+		const pipeline = stubPipeline([
+			[null, 0],
+			[null, 7],
+		]);
+
+		const getMax = maxOf(20);
+		const acquisition = await acquireOrgInflightSlot(
+			orgId,
+			5,
+			getMax,
+			"chat_completions",
+		);
+
+		expect(getMax).toHaveBeenCalledOnce();
+		expect(acquisition.allowed).toBe(true);
+		expect(acquisition.limit).toBe(20);
+		expect(pipeline.zadd).toHaveBeenCalledOnce();
+	});
+
+	it("denies at the tier ceiling without taking a slot", async () => {
+		const pipeline = stubPipeline([
+			[null, 0],
+			[null, 20],
+		]);
+
+		const acquisition = await acquireOrgInflightSlot(
+			orgId,
+			5,
+			maxOf(20),
+			"videos",
+		);
+
+		expect(acquisition.allowed).toBe(false);
+		expect(acquisition.limit).toBe(20);
+		expect(acquisition.release).toBeUndefined();
+		expect(pipeline.zadd).not.toHaveBeenCalled();
+	});
+
+	it("never lets the resolved ceiling drop below the base", async () => {
+		stubPipeline([
+			[null, 0],
+			[null, 5],
+		]);
+
+		// A flat-plan resolver returns the base itself; a buggy lower value must
+		// not tighten the limit mid-flight.
+		const acquisition = await acquireOrgInflightSlot(orgId, 5, maxOf(1), "ocr");
+
+		expect(acquisition.allowed).toBe(false);
+		expect(acquisition.limit).toBe(5);
+	});
+
+	it("treats a zero base limit as unlimited without touching Redis", async () => {
+		stubPipeline(null);
+
+		const acquisition = await acquireOrgInflightSlot(
+			orgId,
+			0,
+			maxOf(0),
+			"images",
+		);
+
+		expect(acquisition.allowed).toBe(true);
+		expect(acquisition.release).toBeUndefined();
+		expect(redis.pipeline).not.toHaveBeenCalled();
+	});
+
+	it("fails open on Redis errors", async () => {
+		const pipeline = stubPipeline(null);
+		pipeline.exec.mockRejectedValue(new Error("Redis down"));
+
+		const acquisition = await acquireOrgInflightSlot(orgId, 5, maxOf(5), "ocr");
+
+		expect(acquisition.allowed).toBe(true);
+		expect(acquisition.release).toBeUndefined();
+	});
+
+	it("fails open when the pipeline reports a command error", async () => {
+		stubPipeline([
+			[null, 0],
+			[new Error("zcard failed"), null],
+		]);
+
+		const acquisition = await acquireOrgInflightSlot(orgId, 5, maxOf(5), "ocr");
+
+		expect(acquisition.allowed).toBe(true);
+		expect(acquisition.release).toBeUndefined();
 	});
 });
