@@ -20,18 +20,18 @@ import type { ReactNode } from "react";
 export const metadata: Metadata = {
 	title: "AI Provider Legal Information",
 	description:
-		"Review contracting entities, legal, privacy, data retention, location, and compliance information for every AI provider available through LLM Gateway.",
+		"Review contracting entities, legal, privacy, acceptable use, data retention, location, and compliance information for every publicly listed AI provider available through LLM Gateway.",
 	alternates: { canonical: "/legal/providers" },
 	openGraph: {
 		title: "AI Provider Legal Information | LLM Gateway",
 		description:
-			"Review contracting entities, legal, privacy, data retention, location, and compliance information for every AI provider available through LLM Gateway.",
+			"Review contracting entities, legal, privacy, acceptable use, data retention, location, and compliance information for every publicly listed AI provider available through LLM Gateway.",
 		url: "https://llmgateway.io/legal/providers",
 		type: "website",
 	},
 };
 
-const DISCLOSURE_UPDATED_AT = "August 19, 2026";
+const DISCLOSURE_UPDATED_AT = "August 29, 2026";
 
 function ExternalPolicyLink({
 	href,
@@ -154,6 +154,7 @@ function ProviderLinks({ provider }: { provider: ProviderDefinition }) {
 		{ label: "Website", href: provider.website },
 		{ label: "Terms", href: provider.termsUrl },
 		{ label: "Privacy", href: provider.privacyPolicyUrl },
+		{ label: "Usage policy", href: provider.usagePolicyUrl },
 		{ label: "Status", href: provider.statusPageUrl },
 	].filter((item): item is { label: string; href: string } =>
 		Boolean(item.href),
@@ -217,9 +218,9 @@ function Compliance({
 }
 
 export default function ProviderLegalInformationPage() {
-	const providers = [...listedProviders].sort((a, b) =>
-		a.name.localeCompare(b.name),
-	);
+	const providers = listedProviders
+		.filter((provider) => Boolean(provider.website))
+		.sort((a, b) => a.name.localeCompare(b.name));
 
 	return (
 		<div className="min-h-screen bg-white text-black dark:bg-black dark:text-white">
@@ -238,8 +239,8 @@ export default function ProviderLegalInformationPage() {
 						</h1>
 						<p className="mt-5 max-w-3xl text-lg leading-8 text-muted-foreground">
 							Contracting entities, legal links, location details, data handling
-							practices, and compliance information for every provider currently
-							available through LLM Gateway.
+							practices, and compliance information for every publicly listed
+							provider currently available through LLM Gateway.
 						</p>
 					</header>
 

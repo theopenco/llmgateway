@@ -28,6 +28,23 @@ const getRegionIds = (provider: unknown) =>
 		? (provider.regions?.map((region) => region.id) ?? [])
 		: [];
 
+describe("provider legal metadata", () => {
+	it("is complete for providers with websites", () => {
+		const incompleteProviders = providers
+			.filter((provider) => provider.website)
+			.filter(
+				(provider) =>
+					!provider.legalEntity ||
+					!provider.termsUrl ||
+					!provider.privacyPolicyUrl ||
+					!provider.usagePolicyUrl,
+			)
+			.map((provider) => provider.name);
+
+		expect(incompleteProviders).toEqual([]);
+	});
+});
+
 describe("getServiceTier", () => {
 	it("returns the configured Vertex Flex / Priority tiers", () => {
 		expect(getServiceTier("google-vertex", "flex")?.multiplier).toBe(0.5);
