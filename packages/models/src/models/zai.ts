@@ -22,7 +22,7 @@ export const zaiModels = [
 				streaming: true,
 				reasoning: true,
 				reasoningEfforts: ["low", "high", "max"],
-				vision: false,
+				vision: true,
 				tools: true,
 				supportedToolChoices: ["auto", "required", "function"],
 				jsonOutput: true,
