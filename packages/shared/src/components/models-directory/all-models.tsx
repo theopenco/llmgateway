@@ -1676,11 +1676,7 @@ export function AllModels({
 		filters.outputPrice.min ||
 		filters.outputPrice.max ||
 		filters.contextSize.min ||
-		filters.contextSize.max ||
-		(sortField !== null &&
-			["perImagePrice", "perSecondPrice", "inputCharacterPrice"].includes(
-				sortField,
-			));
+		filters.contextSize.max;
 
 	// Pagination
 	const currentPage = Math.max(
