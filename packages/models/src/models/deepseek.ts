@@ -792,14 +792,11 @@ export const deepseekModels = [
 				// The undated `deepseek-v4-flash` alias still resolves to the launch
 				// snapshot; `-0731` is the current deployment.
 				externalId: "accounts/fireworks/models/deepseek-v4-flash-0731",
-				inputPrice: "0.14e-6",
-				cachedInputPrice: "0.028e-6",
-				outputPrice: "0.28e-6",
+				inputPrice: "0.22e-6",
+				cachedInputPrice: "0.007e-6",
+				outputPrice: "0.66e-6",
 				requestPrice: "0",
-				// Fireworks prices DeepSeek's Priority tier at 1.5x standard rather
-				// than the 1.25x that applies to the rest of its catalogue.
 				serviceTiers: ["priority"],
-				serviceTierMultipliers: { priority: 1.5 },
 				contextSize: 1048576,
 				maxOutput: 393216,
 				streaming: true,
@@ -842,8 +839,7 @@ export const deepseekModels = [
 				// Reasoning arrives as `reasoning_content` (streamed as deltas) only
 				// when `reasoning_effort` is passed explicitly — a request without it
 				// returns no reasoning at all, and "none" suppresses it.
-				// `reasoning_tokens` is reported inside completion_tokens, so costs.ts
-				// lists this provider in completionIncludesReasoning.
+				// `reasoning_tokens` is reported inside completion_tokens.
 				//
 				// All four tool_choice modes are honoured, so none are declared here.
 				// The endpoint silently ignores n > 1 and returns one choice, so this
@@ -997,6 +993,67 @@ export const deepseekModels = [
 				supportsAssistantPrefill: false,
 				jsonOutput: true,
 				jsonOutputSchema: true,
+			},
+		],
+	},
+	{
+		id: "deepseek-v4-flash-vision-exp",
+		name: "DeepSeek V4 Flash Vision Exp",
+		description:
+			"Experimental multimodal DeepSeek V4 Flash model with vision, extended context, and reasoning.",
+		family: "deepseek",
+		stability: "beta",
+		releasedAt: new Date("2026-08-21"),
+		providers: [
+			{
+				providerId: "deepseek",
+				externalId: "deepseek-v4-flash-vision-exp",
+				inputPrice: "0.14e-6",
+				outputPrice: "0.28e-6",
+				cachedInputPrice: "0.0028e-6",
+				peakPricing: {
+					peak: {
+						inputPrice: "0.44e-6",
+						outputPrice: "1.32e-6",
+						cachedInputPrice: "0.014e-6",
+					},
+					offPeak: {
+						inputPrice: "0.22e-6",
+						outputPrice: "0.66e-6",
+						cachedInputPrice: "0.007e-6",
+					},
+					hoursUtc: [
+						[1, 4],
+						[6, 10],
+					],
+					offPeakDays: {
+						daysOfWeek: [0, 6],
+						utcOffsetMinutes: 480,
+						timeZoneLabel: "Beijing time",
+					},
+				},
+				requestPrice: "0",
+				contextSize: 1050000,
+				maxOutput: 393216,
+				jsonOutput: true,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "high", "max"],
+				vision: true,
+				tools: true,
+				supportsDeveloperRole: false,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+					"reasoning_effort",
+				],
 			},
 		],
 	},

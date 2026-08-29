@@ -9,24 +9,20 @@ import {
 	setMockVideoStatusResponse,
 } from "@/test-utils/mock-openai-server.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { cdb, db, eq, tables } from "@llmgateway/db";
 import { buildGatewayVideoLogContentUrl } from "@llmgateway/shared";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 describe("videos", () => {
 	const harness = createGatewayApiTestHarness();
 	let mockServerUrl: string;
 	let originalGoogleVertexBaseUrl: string | undefined;
-	let originalAvalancheApiKey: string | undefined;
-	let originalAvalancheBaseUrl: string | undefined;
 
 	beforeAll(() => {
 		mockServerUrl = harness.mockServerUrl;
 		originalGoogleVertexBaseUrl = process.env.LLM_GOOGLE_VERTEX_BASE_URL;
-		originalAvalancheApiKey = process.env.LLM_AVALANCHE_API_KEY;
-		originalAvalancheBaseUrl = process.env.LLM_AVALANCHE_BASE_URL;
 		process.env.LLM_GOOGLE_VERTEX_BASE_URL = mockServerUrl;
-		process.env.LLM_AVALANCHE_API_KEY = "avalanche-env-key";
-		process.env.LLM_AVALANCHE_BASE_URL = mockServerUrl;
 	});
 
 	afterAll(() => {
@@ -35,156 +31,16 @@ describe("videos", () => {
 		} else {
 			delete process.env.LLM_GOOGLE_VERTEX_BASE_URL;
 		}
-		if (originalAvalancheApiKey !== undefined) {
-			process.env.LLM_AVALANCHE_API_KEY = originalAvalancheApiKey;
-		} else {
-			delete process.env.LLM_AVALANCHE_API_KEY;
-		}
-		if (originalAvalancheBaseUrl !== undefined) {
-			process.env.LLM_AVALANCHE_BASE_URL = originalAvalancheBaseUrl;
-		} else {
-			delete process.env.LLM_AVALANCHE_BASE_URL;
-		}
 	});
-
-	async function setRoutingMetrics(
-		modelId: string,
-		providerId: string,
-		metrics: {
-			uptime: number;
-			latency?: number;
-			throughput?: number;
-			totalRequests?: number;
-		},
-	) {
-		await harness.setRoutingMetrics(modelId, providerId, metrics);
-	}
 
 	function expectSignedVideoLogContentUrl(url: string, logId: string) {
 		return harness.expectSignedVideoLogContentUrl(url, logId);
 	}
 
-	test("/v1/videos explains avalanche constraint failures clearly", async () => {
-		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			token: "real-token",
-			projectId: "project-id",
-			description: "Test API Key",
-			createdBy: "user-id",
-		});
-
-		await db.insert(tables.providerKey).values({
-			id: "provider-key-id",
-			token: "sk-test-key",
-			provider: "avalanche",
-			organizationId: "org-id",
-			baseUrl: mockServerUrl,
-		});
-
-		const res = await app.request("/v1/videos", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer real-token",
-			},
-			body: JSON.stringify({
-				model: "avalanche/veo-3.1-fast-generate-preview",
-				prompt: "A race car on a mountain road",
-				size: "1280x720",
-				seconds: 6,
-			}),
-		});
-
-		expect(res.status).toBe(400);
-		const json = await res.json();
-		expect(JSON.stringify(json)).toContain("size 1280x720");
-		expect(JSON.stringify(json)).toContain("duration 6s");
-		expect(JSON.stringify(json)).toContain("aspect_ratio");
-		expect(JSON.stringify(json)).toContain("fixed 8s clips");
-	});
-
-	test("/v1/videos redacts stealth-provider errors persisted by the worker", async () => {
-		const secret =
-			"SecretVendor SensitiveContentDetected at https://api.secretvendor.com";
-		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			token: "real-token",
-			projectId: "project-id",
-			description: "Test API Key",
-			createdBy: "user-id",
-		});
-		await db.insert(tables.providerKey).values({
-			id: "provider-key-id",
-			token: "sk-avalanche-key",
-			provider: "avalanche",
-			organizationId: "org-id",
-			baseUrl: mockServerUrl,
-		});
-
-		const createRes = await app.request("/v1/videos", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer real-token",
-			},
-			body: JSON.stringify({
-				model: "avalanche/veo-3.1-generate-preview",
-				prompt: "A mountain range at sunrise",
-				size: "1920x1080",
-				seconds: 8,
-			}),
-		});
-		expect(createRes.status).toBe(200);
-		const created = await createRes.json();
-		const job = await db.query.videoJob.findFirst({
-			where: { id: { eq: created.id } },
-		});
-		expect(job).toBeTruthy();
-		setMockVideoStatus(job!.upstreamId, "failed", {
-			error: { message: secret },
-		});
-
-		await processPendingVideoJobs();
-
-		const persistedJob = await db.query.videoJob.findFirst({
-			where: { id: { eq: created.id } },
-		});
-		const log = await db.query.log.findFirst({
-			where: { requestId: { eq: job!.requestId } },
-		});
-		expect(persistedJob).toBeTruthy();
-		expect(log).toBeTruthy();
-		expect(JSON.stringify(persistedJob!.upstreamStatusResponse)).toContain(
-			secret,
-		);
-		expect(log!.finishReason).toBe("content_filter");
-		expect(log!.upstreamResponse).toBeNull();
-		expect(log!.internalErrorDetails).toMatchObject({ responseText: secret });
-		expect(log!.errorDetails).toEqual({
-			statusCode: 502,
-			statusText: "Bad Gateway",
-			responseText: "Upstream provider error (502 Bad Gateway)",
-		});
-		const { internalErrorDetails: _internalErrorDetails, ...publicLog } = log!;
-		expect(JSON.stringify(publicLog)).not.toContain("SecretVendor");
-		expect(JSON.stringify(publicLog)).not.toContain("secretvendor.com");
-
-		const statusRes = await app.request(`/v1/videos/${created.id}`, {
-			headers: { Authorization: "Bearer real-token" },
-		});
-		expect(statusRes.status).toBe(200);
-		const responseText = await statusRes.text();
-		expect(responseText).not.toContain("SecretVendor");
-		expect(responseText).not.toContain("secretvendor.com");
-		expect(JSON.parse(responseText).error).toEqual({
-			message: "Upstream provider error (502 Bad Gateway)",
-		});
-	});
-
 	test("/v1/videos rejects dev-plan personal orgs with 403", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -224,53 +80,10 @@ describe("videos", () => {
 		expect(statusRes.status).toBe(404);
 	});
 
-	test("/v1/videos explains avalanche reference-image constraints clearly", async () => {
-		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			token: "real-token",
-			projectId: "project-id",
-			description: "Test API Key",
-			createdBy: "user-id",
-		});
-
-		await db.insert(tables.providerKey).values({
-			id: "provider-key-id",
-			token: "sk-test-key",
-			provider: "avalanche",
-			organizationId: "org-id",
-			baseUrl: mockServerUrl,
-		});
-
-		const res = await app.request("/v1/videos", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer real-token",
-			},
-			body: JSON.stringify({
-				model: "avalanche/veo-3.1-generate-preview",
-				prompt: "Turn these materials into a short ad clip",
-				size: "1920x1080",
-				seconds: 8,
-				reference_images: [
-					{
-						image_url: "data:image/png;base64,aGVsbG8=",
-					},
-				],
-			}),
-		});
-
-		expect(res.status).toBe(400);
-		const json = await res.json();
-		expect(JSON.stringify(json)).toContain(
-			"avalanche/veo-3.1-fast-generate-preview",
-		);
-	});
-
 	test("/v1/videos rejects non-https reference videos", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -299,7 +112,7 @@ describe("videos", () => {
 	test("/v1/videos rejects combining frames with reference videos", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -326,49 +139,10 @@ describe("videos", () => {
 		expect(JSON.stringify(json)).toContain("Frame inputs");
 	});
 
-	test("/v1/videos rejects reference videos on non-bytedance models", async () => {
-		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			token: "real-token",
-			projectId: "project-id",
-			description: "Test API Key",
-			createdBy: "user-id",
-		});
-
-		await db.insert(tables.providerKey).values({
-			id: "provider-key-id",
-			token: "sk-test-key",
-			provider: "avalanche",
-			organizationId: "org-id",
-			baseUrl: mockServerUrl,
-		});
-
-		const res = await app.request("/v1/videos", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer real-token",
-			},
-			body: JSON.stringify({
-				model: "avalanche/veo-3.1-fast-generate-preview",
-				prompt: "Reproduce this motion",
-				size: "1920x1080",
-				seconds: 8,
-				reference_videos: ["https://example.com/reference-motion.mp4"],
-			}),
-		});
-
-		expect(res.status).toBe(400);
-		const json = await res.json();
-		expect(JSON.stringify(json)).toContain(
-			"reference videos are currently only supported on bytedance",
-		);
-	});
-
 	test("/v1/videos logs oversized reference image client errors", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-video-oversized-image",
-			token: "real-token-video-oversized-image",
+			...hashApiKeyForStorage("real-token-video-oversized-image"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -376,7 +150,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-video-oversized-image",
-			token: "sk-bytedance-key",
+			...encryptProviderKeyForStorage(
+				"sk-bytedance-key",
+				"provider-key-video-oversized-image",
+				"org-id",
+			),
 			provider: "bytedance",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -428,7 +206,7 @@ describe("videos", () => {
 	test("/v1/videos rejects non-https reference audios", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -454,49 +232,10 @@ describe("videos", () => {
 		expect(JSON.stringify(json)).toContain("reference_audios");
 	});
 
-	test("/v1/videos rejects reference audio on non-bytedance models", async () => {
-		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			token: "real-token",
-			projectId: "project-id",
-			description: "Test API Key",
-			createdBy: "user-id",
-		});
-
-		await db.insert(tables.providerKey).values({
-			id: "provider-key-id",
-			token: "sk-test-key",
-			provider: "avalanche",
-			organizationId: "org-id",
-			baseUrl: mockServerUrl,
-		});
-
-		const res = await app.request("/v1/videos", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer real-token",
-			},
-			body: JSON.stringify({
-				model: "avalanche/veo-3.1-fast-generate-preview",
-				prompt: "Align this motion",
-				size: "1920x1080",
-				seconds: 8,
-				reference_audios: ["https://example.com/reference-track.mp3"],
-			}),
-		});
-
-		expect(res.status).toBe(400);
-		const json = await res.json();
-		expect(JSON.stringify(json)).toContain(
-			"reference audio is currently only supported on bytedance",
-		);
-	});
-
 	test("/v1/videos forwards AtlasCloud text-to-video requests", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -504,7 +243,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-atlascloud",
-			token: "atlascloud-test-token",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud",
+				"org-id",
+			),
 			provider: "atlascloud",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -547,7 +290,7 @@ describe("videos", () => {
 	test("/v1/videos uploads AtlasCloud image-to-video frame inputs", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -555,7 +298,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-atlascloud",
-			token: "atlascloud-test-token",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud",
+				"org-id",
+			),
 			provider: "atlascloud",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -599,7 +346,7 @@ describe("videos", () => {
 	test("/v1/videos routes AtlasCloud 4K requests to the 4K upstream model", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -607,7 +354,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-atlascloud",
-			token: "atlascloud-test-token",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud",
+				"org-id",
+			),
 			provider: "atlascloud",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -642,7 +393,7 @@ describe("videos", () => {
 	test("/v1/videos rejects AtlasCloud Turbo 4K requests", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -650,7 +401,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-atlascloud",
-			token: "atlascloud-test-token",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud",
+				"org-id",
+			),
 			provider: "atlascloud",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -681,7 +436,7 @@ describe("videos", () => {
 	test("/v1/videos rejects AtlasCloud Turbo silent requests", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -689,7 +444,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-atlascloud",
-			token: "atlascloud-test-token",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud",
+				"org-id",
+			),
 			provider: "atlascloud",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -721,7 +480,7 @@ describe("videos", () => {
 	test("/v1/videos rejects AtlasCloud reference inputs", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -729,7 +488,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-atlascloud",
-			token: "atlascloud-test-token",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud",
+				"org-id",
+			),
 			provider: "atlascloud",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -767,7 +530,7 @@ describe("videos", () => {
 	test("/v1/videos rejects AtlasCloud reference audio", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -775,7 +538,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-atlascloud",
-			token: "atlascloud-test-token",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud",
+				"org-id",
+			),
 			provider: "atlascloud",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -809,7 +576,7 @@ describe("videos", () => {
 	test("/v1/videos bills AtlasCloud 4K audio and silent output at the same rate", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -817,7 +584,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-atlascloud",
-			token: "atlascloud-test-token",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud",
+				"org-id",
+			),
 			provider: "atlascloud",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -878,7 +649,7 @@ describe("videos", () => {
 	test("/v1/videos restricts reference inputs to Seedance 2.x models", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -907,7 +678,7 @@ describe("videos", () => {
 	test("/v1/videos forwards up to nine reference images to Seedance 2.0 Fast", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -915,7 +686,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-bytedance-key",
+			...encryptProviderKeyForStorage(
+				"sk-bytedance-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "bytedance",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -955,7 +730,7 @@ describe("videos", () => {
 	test("/v1/videos routes Seedance 2.5 with its own resolution and duration range", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -963,7 +738,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-bytedance-key",
+			...encryptProviderKeyForStorage(
+				"sk-bytedance-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "bytedance",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -1006,7 +785,7 @@ describe("videos", () => {
 	test("/v1/videos rejects 4K and over-30s durations on Seedance 2.5", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1014,7 +793,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-bytedance-key",
+			...encryptProviderKeyForStorage(
+				"sk-bytedance-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "bytedance",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -1054,7 +837,7 @@ describe("videos", () => {
 	test("/v1/videos rejects more than nine reference images on Seedance 2.0 Fast", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1085,7 +868,7 @@ describe("videos", () => {
 	test("/v1/videos rejects more than three reference images on veo", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1093,7 +876,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-google-vertex-key",
+			...encryptProviderKeyForStorage(
+				"sk-google-vertex-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "google-vertex",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -1123,105 +910,6 @@ describe("videos", () => {
 		expect(JSON.stringify(json)).toContain("at most 3 reference images");
 	});
 
-	test("/v1/videos uses routing metrics to pick the best eligible provider", async () => {
-		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
-		const originalRuntimeGoogleCloudProject = process.env.GOOGLE_CLOUD_PROJECT;
-		const originalGoogleVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
-		const originalGoogleVertexVideoOutputBucket =
-			process.env.LLM_GOOGLE_VERTEX_VIDEO_OUTPUT_BUCKET;
-		process.env.LLM_GOOGLE_CLOUD_PROJECT = "provider-project";
-		process.env.GOOGLE_CLOUD_PROJECT = "runtime-project";
-		process.env.LLM_GOOGLE_VERTEX_REGION = "us-central1";
-		process.env.LLM_GOOGLE_VERTEX_VIDEO_OUTPUT_BUCKET = "vertex-test-bucket";
-
-		try {
-			await db.insert(tables.apiKey).values({
-				id: "token-id",
-				token: "real-token",
-				projectId: "project-id",
-				description: "Test API Key",
-				createdBy: "user-id",
-			});
-
-			await db.insert(tables.providerKey).values([
-				{
-					id: "provider-key-avalanche",
-					token: "sk-avalanche-key",
-					provider: "avalanche",
-					organizationId: "org-id",
-					baseUrl: mockServerUrl,
-				},
-				{
-					id: "provider-key-vertex",
-					token: "vertex-test-token",
-					provider: "google-vertex",
-					organizationId: "org-id",
-					baseUrl: mockServerUrl,
-				},
-			]);
-
-			await setRoutingMetrics("veo-3.1-generate-preview", "avalanche", {
-				uptime: 70,
-				latency: 300,
-				throughput: 50,
-			});
-			await setRoutingMetrics("veo-3.1-generate-preview", "google-vertex", {
-				uptime: 99.5,
-				latency: 100,
-				throughput: 150,
-			});
-
-			const res = await app.request("/v1/videos", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
-				},
-				body: JSON.stringify({
-					model: "veo-3.1-generate-preview",
-					prompt: "A futuristic train arriving at a neon station",
-					size: "1920x1080",
-					seconds: 8,
-				}),
-			});
-
-			expect(res.status).toBe(200);
-
-			const json = await res.json();
-			const videoJob = await db.query.videoJob.findFirst({
-				where: { id: { eq: json.id } },
-			});
-			expect(videoJob?.usedProvider).toBe("google-vertex");
-			expect(videoJob?.routingMetadata).toMatchObject({
-				selectedProvider: "google-vertex",
-				selectionReason: "weighted-score",
-				availableProviders: ["google-vertex", "avalanche"],
-			});
-		} finally {
-			if (originalGoogleCloudProject !== undefined) {
-				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
-			} else {
-				delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
-			}
-			if (originalRuntimeGoogleCloudProject !== undefined) {
-				process.env.GOOGLE_CLOUD_PROJECT = originalRuntimeGoogleCloudProject;
-			} else {
-				delete process.env.GOOGLE_CLOUD_PROJECT;
-			}
-			if (originalGoogleVertexRegion !== undefined) {
-				process.env.LLM_GOOGLE_VERTEX_REGION = originalGoogleVertexRegion;
-			} else {
-				delete process.env.LLM_GOOGLE_VERTEX_REGION;
-			}
-			if (originalGoogleVertexVideoOutputBucket !== undefined) {
-				process.env.LLM_GOOGLE_VERTEX_VIDEO_OUTPUT_BUCKET =
-					originalGoogleVertexVideoOutputBucket;
-			} else {
-				delete process.env.LLM_GOOGLE_VERTEX_VIDEO_OUTPUT_BUCKET;
-			}
-		}
-	});
-
 	test("/v1/videos serves credits mode from a managed credential and pins it to the job", async () => {
 		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 		const originalRuntimeGoogleCloudProject = process.env.GOOGLE_CLOUD_PROJECT;
@@ -1237,7 +925,7 @@ describe("videos", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -1247,7 +935,11 @@ describe("videos", () => {
 			await cdb.insert(tables.providerKey).values({
 				id: "managed-vertex-video",
 				provider: "google-vertex",
-				token: "vertex-test-token",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"managed-vertex-video",
+					null,
+				),
 				managed: true,
 				organizationId: null,
 				config: {
@@ -1334,7 +1026,7 @@ describe("videos", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -1344,7 +1036,11 @@ describe("videos", () => {
 			await cdb.insert(tables.providerKey).values({
 				id: "managed-vertex-video-projectless",
 				provider: "google-vertex",
-				token: "vertex-test-token",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"managed-vertex-video-projectless",
+					null,
+				),
 				managed: true,
 				organizationId: null,
 				config: {
@@ -1389,280 +1085,10 @@ describe("videos", () => {
 		}
 	});
 
-	test("/v1/videos falls back to the next provider and persists routing metadata", async () => {
-		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
-		const originalGoogleVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
-		process.env.LLM_GOOGLE_CLOUD_PROJECT = "test-project";
-		process.env.LLM_GOOGLE_VERTEX_REGION = "us-central1";
-
-		try {
-			await db.insert(tables.apiKey).values({
-				id: "token-id",
-				token: "real-token",
-				projectId: "project-id",
-				description: "Test API Key",
-				createdBy: "user-id",
-			});
-
-			await db.insert(tables.providerKey).values([
-				{
-					id: "provider-key-avalanche",
-					token: "sk-avalanche-key",
-					provider: "avalanche",
-					organizationId: "org-id",
-					baseUrl: mockServerUrl,
-				},
-				{
-					id: "provider-key-vertex",
-					token: "vertex-test-token",
-					provider: "google-vertex",
-					organizationId: "org-id",
-					baseUrl: mockServerUrl,
-				},
-			]);
-
-			await setRoutingMetrics("veo-3.1-generate-preview", "avalanche", {
-				uptime: 70,
-				latency: 300,
-				throughput: 50,
-			});
-			await setRoutingMetrics("veo-3.1-generate-preview", "google-vertex", {
-				uptime: 99.9,
-				latency: 80,
-				throughput: 180,
-			});
-
-			const res = await app.request("/v1/videos", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
-				},
-				body: JSON.stringify({
-					model: "veo-3.1-generate-preview",
-					prompt: "TRIGGER_VERTEX_ONLY_500 A cinematic city skyline at dusk",
-					size: "1920x1080",
-					seconds: 8,
-				}),
-			});
-
-			expect(res.status).toBe(200);
-
-			const json = await res.json();
-			const videoJob = await db.query.videoJob.findFirst({
-				where: { id: { eq: json.id } },
-			});
-			expect(videoJob?.usedProvider).toBe("avalanche");
-			expect(videoJob?.routingMetadata).toMatchObject({
-				selectedProvider: "avalanche",
-			});
-			expect(
-				videoJob?.routingMetadata?.routing?.map((attempt) => ({
-					provider: attempt.provider,
-					model: attempt.model,
-					succeeded: attempt.succeeded,
-					status_code: attempt.status_code,
-				})),
-			).toEqual([
-				{
-					provider: "google-vertex",
-					model: "veo-3.1-generate-preview",
-					succeeded: false,
-					status_code: 500,
-				},
-				{
-					provider: "avalanche",
-					model: "veo-3.1-generate-preview",
-					succeeded: true,
-					status_code: 200,
-				},
-			]);
-
-			setMockVideoStatus(videoJob!.upstreamId, "completed");
-			await processPendingVideoJobs();
-
-			const logs = await db.query.log.findMany({
-				where: { usedModel: { eq: "avalanche/veo-3.1-generate-preview" } },
-			});
-			expect(logs).toHaveLength(1);
-			expect(logs[0].routingMetadata).toMatchObject({
-				selectedProvider: "avalanche",
-			});
-			expect(logs[0].routingMetadata?.routing).toHaveLength(2);
-			expect(logs[0].routingMetadata?.providerScores).toEqual(
-				expect.arrayContaining([
-					expect.objectContaining({
-						providerId: "google-vertex",
-						failed: true,
-						status_code: 500,
-						error_type: "upstream_error",
-					}),
-				]),
-			);
-		} finally {
-			if (originalGoogleCloudProject !== undefined) {
-				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
-			} else {
-				delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
-			}
-			if (originalGoogleVertexRegion !== undefined) {
-				process.env.LLM_GOOGLE_VERTEX_REGION = originalGoogleVertexRegion;
-			} else {
-				delete process.env.LLM_GOOGLE_VERTEX_REGION;
-			}
-		}
-	});
-
-	test("/v1/videos supports completed 4k avalanche jobs", async () => {
-		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			token: "real-token",
-			projectId: "project-id",
-			description: "Test API Key",
-			createdBy: "user-id",
-		});
-
-		await db.insert(tables.providerKey).values({
-			id: "provider-key-id",
-			token: "sk-test-key",
-			provider: "avalanche",
-			organizationId: "org-id",
-			baseUrl: mockServerUrl,
-		});
-
-		const createRes = await app.request("/v1/videos", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer real-token",
-			},
-			body: JSON.stringify({
-				model: "avalanche/veo-3.1-fast-generate-preview",
-				prompt: "A storm above a mountain range",
-				size: "3840x2160",
-				seconds: 8,
-			}),
-		});
-
-		expect(createRes.status).toBe(200);
-		const created = await createRes.json();
-
-		const videoJob = await db.query.videoJob.findFirst({
-			where: { id: { eq: created.id } },
-		});
-		expect(videoJob).toBeTruthy();
-		expect(videoJob?.usedProvider).toBe("avalanche");
-
-		setMockVideoStatus(videoJob!.upstreamId, "completed");
-		await processPendingVideoJobs();
-
-		const getRes = await app.request(`/v1/videos/${created.id}`, {
-			headers: {
-				Authorization: "Bearer real-token",
-			},
-		});
-		expect(getRes.status).toBe(200);
-		const jobJson = await getRes.json();
-		expect(jobJson.status).toBe("completed");
-		const logs = await db.query.log.findMany({
-			where: { usedModel: { eq: "avalanche/veo-3.1-fast-generate-preview" } },
-		});
-		expect(logs).toHaveLength(1);
-		expectSignedVideoLogContentUrl(jobJson.content[0].url, logs[0].id);
-
-		const contentRes = await app.request(`/v1/videos/${created.id}/content`, {
-			headers: {
-				Authorization: "Bearer real-token",
-			},
-		});
-		expect(contentRes.status).toBe(200);
-		expect(contentRes.headers.get("content-type")).toContain("video/mp4");
-		expect(await contentRes.text()).toBe(
-			`mock-video-${videoJob!.upstreamId}-4k`,
-		);
-
-		expect(logs[0].usedModelMapping).toBe("veo3_fast");
-		expect(logs[0].content).toBe(buildGatewayVideoLogContentUrl(logs[0].id));
-		expect(logs[0].requestCost).toBe(0);
-		expect(logs[0].videoOutputCost).toBe(2.8);
-		expect(logs[0].cost).toBe(2.8);
-	});
-
-	test("/v1/videos does not persist payload when retention is disabled", async () => {
-		await db
-			.update(tables.organization)
-			.set({ retentionLevel: "none" })
-			.where(eq(tables.organization.id, "org-id"));
-
-		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			token: "real-token",
-			projectId: "project-id",
-			description: "Test API Key",
-			createdBy: "user-id",
-		});
-
-		await db.insert(tables.providerKey).values({
-			id: "provider-key-id",
-			token: "sk-test-key",
-			provider: "avalanche",
-			organizationId: "org-id",
-			baseUrl: mockServerUrl,
-		});
-
-		const createRes = await app.request("/v1/videos", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer real-token",
-			},
-			body: JSON.stringify({
-				model: "avalanche/veo-3.1-fast-generate-preview",
-				prompt: "A storm above a mountain range",
-				size: "3840x2160",
-				seconds: 8,
-			}),
-		});
-
-		expect(createRes.status).toBe(200);
-		const created = await createRes.json();
-
-		const videoJob = await db.query.videoJob.findFirst({
-			where: { id: { eq: created.id } },
-		});
-		expect(videoJob).toBeTruthy();
-
-		setMockVideoStatus(videoJob!.upstreamId, "completed");
-		await processPendingVideoJobs();
-
-		const logs = await db.query.log.findMany({
-			where: { usedModel: { eq: "avalanche/veo-3.1-fast-generate-preview" } },
-		});
-		expect(logs).toHaveLength(1);
-		expect(logs[0].hasError).toBe(false);
-		// Cost/metering is still recorded...
-		expect(logs[0].videoOutputCost).toBe(2.8);
-		// ...but no request/response payload is persisted for a non-retaining org.
-		expect(logs[0].messages).toBeNull();
-		expect(logs[0].content).toBeNull();
-
-		// Video content is served from the video job, not the (now-stripped) log
-		// content column, so playback still works for a non-retaining org.
-		const contentRes = await app.request(`/v1/videos/${created.id}/content`, {
-			headers: {
-				Authorization: "Bearer real-token",
-			},
-		});
-		expect(contentRes.status).toBe(200);
-		expect(await contentRes.text()).toBe(
-			`mock-video-${videoJob!.upstreamId}-4k`,
-		);
-	});
-
 	test("/v1/videos bills xAI 480p video and image input separately", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1670,7 +1096,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "xai-test-token",
+			...encryptProviderKeyForStorage(
+				"xai-test-token",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "xai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -1713,7 +1143,7 @@ describe("videos", () => {
 	test("/v1/videos bills xAI 720p at the 720p rate", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1721,7 +1151,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "xai-test-token",
+			...encryptProviderKeyForStorage(
+				"xai-test-token",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "xai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -1764,7 +1198,7 @@ describe("videos", () => {
 	test("/v1/videos caps logged xAI polling error response contents", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1772,7 +1206,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "xai-test-token",
+			...encryptProviderKeyForStorage(
+				"xai-test-token",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "xai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -1838,7 +1276,7 @@ describe("videos", () => {
 	test("/v1/videos maps xAI poll moderation to content_filter", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1846,7 +1284,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "xai-test-token",
+			...encryptProviderKeyForStorage(
+				"xai-test-token",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "xai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -1916,7 +1358,7 @@ describe("videos", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -1924,7 +1366,11 @@ describe("videos", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "vertex-test-token",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -2042,7 +1488,7 @@ describe("videos", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -2050,7 +1496,11 @@ describe("videos", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "vertex-test-token",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -2113,7 +1563,7 @@ describe("videos", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -2121,7 +1571,11 @@ describe("videos", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "vertex-test-token",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -2178,78 +1632,10 @@ describe("videos", () => {
 		}
 	});
 
-	test("/v1/videos forwards frame inputs to avalanche", async () => {
-		const originalAvalancheFileUploadBaseUrl =
-			process.env.LLM_AVALANCHE_FILE_UPLOAD_BASE_URL;
-		process.env.LLM_AVALANCHE_FILE_UPLOAD_BASE_URL = mockServerUrl;
-
-		try {
-			await db.insert(tables.apiKey).values({
-				id: "token-id",
-				token: "real-token",
-				projectId: "project-id",
-				description: "Test API Key",
-				createdBy: "user-id",
-			});
-
-			await db.insert(tables.providerKey).values({
-				id: "provider-key-id",
-				token: "sk-avalanche-key",
-				provider: "avalanche",
-				organizationId: "org-id",
-				baseUrl: mockServerUrl,
-			});
-
-			const createRes = await app.request("/v1/videos", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
-				},
-				body: JSON.stringify({
-					model: "avalanche/veo-3.1-generate-preview",
-					prompt: "Animate this product shot into a slow reveal",
-					size: "1920x1080",
-					seconds: 8,
-					image: {
-						image_url: "data:image/png;base64,aGVsbG8=",
-					},
-					last_frame: {
-						image_url: "data:image/png;base64,d29ybGQ=",
-					},
-				}),
-			});
-
-			expect(createRes.status).toBe(200);
-			const created = await createRes.json();
-
-			const videoJob = await db.query.videoJob.findFirst({
-				where: { id: { eq: created.id } },
-			});
-			expect(videoJob?.usedProvider).toBe("avalanche");
-
-			const mockVideo = getMockVideo(videoJob!.upstreamId);
-			expect(mockVideo?.generationType).toBe("FIRST_AND_LAST_FRAMES_2_VIDEO");
-			expect(mockVideo?.imageUrls).toHaveLength(2);
-			expect(
-				mockVideo?.imageUrls?.every((url) =>
-					url.startsWith(`${mockServerUrl}/uploads/avalanche-image-`),
-				),
-			).toBe(true);
-		} finally {
-			if (originalAvalancheFileUploadBaseUrl !== undefined) {
-				process.env.LLM_AVALANCHE_FILE_UPLOAD_BASE_URL =
-					originalAvalancheFileUploadBaseUrl;
-			} else {
-				delete process.env.LLM_AVALANCHE_FILE_UPLOAD_BASE_URL;
-			}
-		}
-	});
-
 	test("/v1/videos forwards frame inputs to bytedance Seedance 2.0", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -2257,7 +1643,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-bytedance-key",
+			...encryptProviderKeyForStorage(
+				"sk-bytedance-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "bytedance",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -2306,7 +1696,7 @@ describe("videos", () => {
 	test("/v1/videos forwards portrait size as ratio 9:16 to bytedance", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -2314,7 +1704,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-bytedance-key",
+			...encryptProviderKeyForStorage(
+				"sk-bytedance-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "bytedance",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -2351,7 +1745,7 @@ describe("videos", () => {
 	test("/v1/videos rejects frame inputs on non-Seedance-2.0 bytedance models", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -2359,7 +1753,11 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-bytedance-key",
+			...encryptProviderKeyForStorage(
+				"sk-bytedance-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "bytedance",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -2398,7 +1796,7 @@ describe("videos", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -2406,7 +1804,11 @@ describe("videos", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "vertex-test-token",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -2470,77 +1872,6 @@ describe("videos", () => {
 		}
 	});
 
-	test("/v1/videos forwards reference images to avalanche fast", async () => {
-		const originalAvalancheFileUploadBaseUrl =
-			process.env.LLM_AVALANCHE_FILE_UPLOAD_BASE_URL;
-		process.env.LLM_AVALANCHE_FILE_UPLOAD_BASE_URL = mockServerUrl;
-
-		try {
-			await db.insert(tables.apiKey).values({
-				id: "token-id",
-				token: "real-token",
-				projectId: "project-id",
-				description: "Test API Key",
-				createdBy: "user-id",
-			});
-
-			await db.insert(tables.providerKey).values({
-				id: "provider-key-id",
-				token: "sk-avalanche-key",
-				provider: "avalanche",
-				organizationId: "org-id",
-				baseUrl: mockServerUrl,
-			});
-
-			const createRes = await app.request("/v1/videos", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
-				},
-				body: JSON.stringify({
-					model: "avalanche/veo-3.1-fast-generate-preview",
-					prompt: "Use these materials to create a punchy product clip",
-					size: "1920x1080",
-					seconds: 8,
-					reference_images: [
-						{
-							image_url: "data:image/png;base64,aGVsbG8=",
-						},
-						{
-							image_url: "data:image/png;base64,d29ybGQ=",
-						},
-					],
-				}),
-			});
-
-			expect(createRes.status).toBe(200);
-			const created = await createRes.json();
-
-			const videoJob = await db.query.videoJob.findFirst({
-				where: { id: { eq: created.id } },
-			});
-			expect(videoJob?.usedProvider).toBe("avalanche");
-			expect(videoJob?.usedModel).toBe("veo3_fast");
-
-			const mockVideo = getMockVideo(videoJob!.upstreamId);
-			expect(mockVideo?.generationType).toBe("REFERENCE_2_VIDEO");
-			expect(mockVideo?.imageUrls).toHaveLength(2);
-			expect(
-				mockVideo?.imageUrls?.every((url) =>
-					url.startsWith(`${mockServerUrl}/uploads/avalanche-image-`),
-				),
-			).toBe(true);
-		} finally {
-			if (originalAvalancheFileUploadBaseUrl !== undefined) {
-				process.env.LLM_AVALANCHE_FILE_UPLOAD_BASE_URL =
-					originalAvalancheFileUploadBaseUrl;
-			} else {
-				delete process.env.LLM_AVALANCHE_FILE_UPLOAD_BASE_URL;
-			}
-		}
-	});
-
 	test("/v1/videos bills google-vertex fast using audio pricing", async () => {
 		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 		const originalGoogleVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
@@ -2550,7 +1881,7 @@ describe("videos", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -2558,7 +1889,11 @@ describe("videos", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "vertex-test-token",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -2611,119 +1946,6 @@ describe("videos", () => {
 		}
 	});
 
-	test("/v1/videos routes silent root veo requests to google-vertex", async () => {
-		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
-		const originalGoogleVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
-		process.env.LLM_GOOGLE_CLOUD_PROJECT = "test-project";
-		process.env.LLM_GOOGLE_VERTEX_REGION = "us-central1";
-
-		try {
-			await db.insert(tables.apiKey).values({
-				id: "token-id",
-				token: "real-token",
-				projectId: "project-id",
-				description: "Test API Key",
-				createdBy: "user-id",
-			});
-
-			await db.insert(tables.providerKey).values([
-				{
-					id: "provider-key-vertex",
-					token: "vertex-test-token",
-					provider: "google-vertex",
-					organizationId: "org-id",
-					baseUrl: mockServerUrl,
-				},
-				{
-					id: "provider-key-avalanche",
-					token: "avalanche-test-token",
-					provider: "avalanche",
-					organizationId: "org-id",
-					baseUrl: mockServerUrl,
-				},
-			]);
-
-			const createRes = await app.request("/v1/videos", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
-				},
-				body: JSON.stringify({
-					model: "veo-3.1-fast-generate-preview",
-					prompt: "A calm fog rolling over a mountain ridge",
-					size: "1920x1080",
-					seconds: 8,
-					audio: false,
-				}),
-			});
-
-			expect(createRes.status).toBe(200);
-			const created = await createRes.json();
-
-			const videoJob = await db.query.videoJob.findFirst({
-				where: { id: { eq: created.id } },
-			});
-			expect(videoJob?.usedProvider).toBe("google-vertex");
-
-			const mockVideo = getMockVideo(videoJob!.upstreamId);
-			expect(mockVideo?.generateAudio).toBe(false);
-		} finally {
-			if (originalGoogleCloudProject !== undefined) {
-				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
-			} else {
-				delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
-			}
-			if (originalGoogleVertexRegion !== undefined) {
-				process.env.LLM_GOOGLE_VERTEX_REGION = originalGoogleVertexRegion;
-			} else {
-				delete process.env.LLM_GOOGLE_VERTEX_REGION;
-			}
-		}
-	});
-
-	test("/v1/videos rejects silent provider-specific mappings that only support audio", async () => {
-		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			token: "real-token",
-			projectId: "project-id",
-			description: "Test API Key",
-			createdBy: "user-id",
-		});
-
-		await db.insert(tables.providerKey).values({
-			id: "provider-key-avalanche",
-			token: "avalanche-test-token",
-			provider: "avalanche",
-			organizationId: "org-id",
-			baseUrl: mockServerUrl,
-		});
-
-		const res = await app.request("/v1/videos", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer real-token",
-			},
-			body: JSON.stringify({
-				model: "avalanche/veo-3.1-fast-generate-preview",
-				prompt: "A bright comet streaking across a moonlit sky",
-				size: "1920x1080",
-				seconds: 8,
-				audio: false,
-			}),
-		});
-
-		expect(res.status).toBe(400);
-		await expect(res.json()).resolves.toMatchObject({
-			error: {
-				message: expect.stringContaining(
-					"audio=false is unsupported because this provider mapping only supports audio-enabled output",
-				),
-			},
-		});
-	});
-
 	test("/v1/videos bills google-vertex fast silent output using silent pricing", async () => {
 		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 		const originalGoogleVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
@@ -2733,7 +1955,7 @@ describe("videos", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -2741,7 +1963,11 @@ describe("videos", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "vertex-test-token",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -2812,7 +2038,7 @@ describe("videos", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -2820,7 +2046,11 @@ describe("videos", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "vertex-test-token",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -2934,7 +2164,7 @@ describe("videos", () => {
 
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -2942,7 +2172,11 @@ describe("videos", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "vertex-test-token",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -2989,7 +2223,7 @@ describe("videos", () => {
 	test("/v1/videos rejects non-positive duration values", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -3016,7 +2250,7 @@ describe("videos", () => {
 	test("/v1/videos rejects durations above the model maximum", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -3044,7 +2278,7 @@ describe("videos", () => {
 	test("/v1/videos requires seconds", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -3070,7 +2304,7 @@ describe("videos", () => {
 	test("/v1/videos rejects unsupported size values", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",

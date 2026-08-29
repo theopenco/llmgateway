@@ -12,6 +12,7 @@ import {
 	isModelAllowedByPolicy,
 	isProviderCompliant,
 	isProviderRefAllowedByPolicy,
+	narrowPolicyToDevPass,
 	type ProviderComplianceAttestation,
 	type ProviderCompliancePolicy,
 } from "@llmgateway/models";
@@ -19,20 +20,27 @@ import {
 interface OrganizationLike {
 	id: string;
 	plan: string;
+	kind?: string | null;
 	providerCompliancePolicy?: ProviderCompliancePolicy | null;
 }
 
 /**
  * The active provider compliance policy for an organization, or `undefined`
- * when none should be enforced. Compliance is an enterprise feature, so the
- * policy only applies to enterprise orgs that have explicitly enabled it.
+ * when none should be enforced. Enterprise organizations get their complete
+ * policy, while DevPass organizations get only the no-training requirement.
  */
 export function getActiveCompliancePolicy(
 	organization: OrganizationLike,
 ): ProviderCompliancePolicy | undefined {
-	return hasOrganizationEnterpriseAccess(organization.id, organization.plan) &&
-		organization.providerCompliancePolicy?.enabled
-		? organization.providerCompliancePolicy
+	const policy = organization.providerCompliancePolicy;
+	if (!policy?.enabled) {
+		return undefined;
+	}
+	if (organization.kind === "devpass") {
+		return narrowPolicyToDevPass(policy);
+	}
+	return hasOrganizationEnterpriseAccess(organization.id, organization.plan)
+		? policy
 		: undefined;
 }
 

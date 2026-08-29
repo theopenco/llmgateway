@@ -271,16 +271,23 @@ interface ApiKeyLimitFieldsProps {
 	memberBudget?: MemberBudgetConstraint | null;
 	budgetOwner?: MemberBudgetOwner;
 	ownerName?: string | null;
+	memberBudgetLabel?: string;
+	additionalBudgets?: Array<{
+		budget: MemberBudgetConstraint;
+		label: string;
+	}>;
 }
 
 function MemberBudgetNotice({
 	budget,
 	budgetOwner,
 	ownerName,
+	label,
 }: {
 	budget: MemberBudgetConstraint;
 	budgetOwner: MemberBudgetOwner;
 	ownerName?: string | null;
+	label?: string;
 }) {
 	const parts: string[] = [];
 	if (budget.usageLimit !== null) {
@@ -316,7 +323,7 @@ function MemberBudgetNotice({
 
 	return (
 		<div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-			Your organization limits you to{" "}
+			{label ?? "Your organization policy"} limits you to{" "}
 			<span className="font-medium">{parts.join(" and ")}</span>. This
 			key&apos;s limits must be at or below that.
 		</div>
@@ -330,6 +337,8 @@ export function ApiKeyLimitFields({
 	memberBudget,
 	budgetOwner = "self",
 	ownerName,
+	memberBudgetLabel,
+	additionalBudgets = [],
 }: ApiKeyLimitFieldsProps) {
 	const updateValue = <K extends keyof ApiKeyLimitFormValue>(
 		key: K,
@@ -348,7 +357,19 @@ export function ApiKeyLimitFields({
 					budget={memberBudget}
 					budgetOwner={budgetOwner}
 					ownerName={ownerName}
+					label={memberBudgetLabel}
 				/>
+			)}
+			{additionalBudgets.map(({ budget, label }) =>
+				hasMemberBudgetCaps(budget) ? (
+					<MemberBudgetNotice
+						key={label}
+						budget={budget}
+						budgetOwner={budgetOwner}
+						ownerName={ownerName}
+						label={label}
+					/>
+				) : null,
 			)}
 			<div className="rounded-md border p-4 space-y-3">
 				<div className="flex items-center gap-2">

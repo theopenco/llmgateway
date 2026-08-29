@@ -25,6 +25,34 @@ const REQUIRED_OUTPUT_BY_FLAG: {
 ];
 
 describe("model metadata", () => {
+	it("keeps the Gemini 3 Pro Image preview ID as a stable-model alias", () => {
+		const stableModel = models.find(
+			(model) => model.id === "gemini-3-pro-image",
+		);
+		const previewModel = models.find(
+			(model) => model.id === "gemini-3-pro-image-preview",
+		);
+
+		expect(stableModel).toBeDefined();
+		expect(previewModel).toBeDefined();
+		const expectedMappings = [
+			["google-ai-studio", "gemini-3-pro-image"],
+			["glacier", "gemini-3-pro-image-preview"],
+			["iceberg", "gemini-3-pro-image-preview"],
+			["google-vertex", "gemini-3-pro-image"],
+			["quartz", "gemini-3-pro-image"],
+		];
+
+		for (const model of [stableModel, previewModel]) {
+			expect(
+				model?.providers.map((provider) => [
+					provider.providerId,
+					provider.externalId,
+				]),
+			).toEqual(expectedMappings);
+		}
+	});
+
 	it("uses Azure Foundry limits for Grok 4.3", () => {
 		const grok43 = models.find((model) => model.id === "grok-4-3");
 		const azure = grok43?.providers.find(

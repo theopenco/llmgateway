@@ -3,6 +3,7 @@ import {
 	withEnterpriseSeatForOrganization,
 } from "@/lib/enterprise-seats.js";
 import { resolveSeatLimit } from "@/lib/seat-limit.js";
+import { recomputeUserTeam } from "@/lib/sso-teams.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, tables } from "@llmgateway/db";
@@ -123,6 +124,10 @@ export async function acceptPendingInvitesForUser(user: {
 							)
 							.onConflictDoNothing();
 					}
+				}
+
+				if (invite.role === "developer") {
+					await recomputeUserTeam(user.id, invite.organizationId);
 				}
 			}
 

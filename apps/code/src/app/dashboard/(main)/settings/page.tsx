@@ -58,6 +58,7 @@ export default function SettingsPage() {
 			{devPlanStatus.devPlan !== "none" && (
 				<DevPlanSettings
 					devPlanServiceTier={devPlanStatus.devPlanServiceTier ?? "default"}
+					blockApiTraining={devPlanStatus.blockApiTraining ?? false}
 					defaultRoutingStrategy={
 						devPlanStatus.defaultRoutingStrategy ?? "auto"
 					}

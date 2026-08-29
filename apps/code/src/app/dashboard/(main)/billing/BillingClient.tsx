@@ -294,6 +294,11 @@ export default function BillingClient({
 					</div>
 				</div>
 
+				<DevPassPaymentMethod
+					initialData={initialPaymentMethod}
+					allowAdd={false}
+				/>
+
 				{/* Past invoices */}
 				<DevPassInvoices />
 

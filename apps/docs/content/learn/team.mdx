@@ -1,60 +1,88 @@
 ---
 title: Team
-description: Manage team members and their roles within your organization
+description: Manage organization members and shared developer policy
 icon: UsersRound
 ---
 
+import { Callout } from "fumadocs-ui/components/callout";
 import { ThemedImage } from "@/components/themed-image";
 
-The Team page lets you invite team members, assign roles, and control access to your organization.
+The Team page has two views: **Members** for organization membership and personal controls, and **Teams** for policy shared by groups of developers.
 
-<ThemedImage alt="Team" basePath="/learn/team" />
+<ThemedImage alt="Organization members" basePath="/learn/team" />
 
-## Adding Members
+## Members
 
-Click **Add Member** to invite someone by email. You'll need to:
+The Members view shows each person's role, assigned organization team, projects, and limits. Enterprise owners and admins can also compare cost, tokens, requests, and API-key counts for the selected period.
 
-1. Enter their email address
-2. Select a role (Developer, Admin, or Owner)
+Each row has actions to:
 
-Your plan includes up to **5 team seats**. The current count is displayed, and the Add button is disabled when all seats are used. Contact sales for additional seats.
+- Open the member's details and usage
+- Change their role and project access
+- Set a personal API-key or spending budget
+- Add personal IAM rules
+- Remove them from the organization
 
-## Team Members List
+Personal IAM rules apply to every key created by that member. A key can narrow those rules, but cannot expand access beyond them. See [Member-level IAM rules](/features/api-keys#member-level-iam-rules) for rule behavior and [Member IAM rules](/features/master-keys#member-iam-rules) for the management API.
 
-Each member shows:
+### Roles
 
-| Field     | Description                                      |
-| --------- | ------------------------------------------------ |
-| **Name**  | The member's display name                        |
-| **Email** | Their email address                              |
-| **Role**  | Their current role (can be changed via dropdown) |
+| Role          | Permissions                                                                                               |
+| ------------- | --------------------------------------------------------------------------------------------------------- |
+| **Owner**     | Full access, including team management, billing, and organization settings                                |
+| **Admin**     | Can manage members, projects, and API keys, but cannot access billing or modify owners                    |
+| **Developer** | Can view and use assigned projects and API keys, but cannot manage the organization or other team members |
 
-## Actions
+### Invite a member
 
-Each member row has an actions menu:
+Click **Add Member**, enter an email address, and choose a role. A Developer requires Enterprise access and at least one project grant. The invitation remains under **Pending Invitations** until it is accepted or revoked.
 
-- **Details** — Open the member's detail page with their budget and usage
-- **Manage access** — Change the member's role (owners and admins only)
-- **Manage budget** — Set per-member spending limits (owners and admins only)
-- **Manage IAM rules** — Restrict which models, providers, pricing tiers, or IP ranges the member can use (owners and admins only)
-- **Remove** — Remove a member from the organization (requires confirmation)
+Pending invitations reserve a seat. The Members card shows the current seat count and plan limit, and **Add Member** is disabled when the limit is reached.
 
-## Member IAM Rules
+## Organization teams
 
-Owners and admins can set IAM rules on a member — the same allow/deny rules for models, providers, pricing, and IP ranges that exist on individual API keys, applied organization-wide to that member. As with roles and budgets, admins cannot modify an owner's rules.
+Open **Teams** to group developers under a shared project, IAM, and budget policy. One developer can belong to one organization team; owners and admins cannot be assigned.
 
-Member-level rules are a **ceiling**: they apply to every API key the member creates, and the member's own key rules can only narrow access further, never expand it. For example, if you restrict a member to a single approved [provider](https://llmgateway.io/providers), they can still create a key limited to one of that provider's models, but no key of theirs can reach any other provider.
+<Callout type="info">
+	Creating teams and changing team policy requires the [**Enterprise
+	plan**](https://llmgateway.io/enterprise). If Enterprise access ends, existing
+	policy remains enforced and can still be reviewed. Developers can be
+	unassigned, and empty teams can be deleted.
+</Callout>
 
-Members can view (but not edit) their own rules — the per-key IAM page shows a notice when organization-level restrictions apply, and denied requests state that the restriction was set by the org admin.
+<ThemedImage alt="Organization teams" basePath="/learn/team-teams" />
 
-For the full rule semantics, see [Member-Level IAM Rules](/features/api-keys#member-level-iam-rules). Rules can also be managed programmatically via the [master key API](/features/master-keys#member-iam-rules).
+Click **Create team**, give it a unique name, then click **Open** to configure it. The list shows the number of developers, project ceiling, and IAM rule count for every team.
 
-## Role Permissions
+## Configure team policy
 
-| Role          | Permissions                                                                                           |
-| ------------- | ----------------------------------------------------------------------------------------------------- |
-| **Owner**     | Full access to all settings, billing, team management, and all projects                               |
-| **Admin**     | Can manage team members, projects, and API keys, but cannot access billing or delete the organization |
-| **Developer** | View and use resources only. Cannot modify settings or manage team                                    |
+<ThemedImage alt="Shared team policy" basePath="/learn/team-policy" />
 
-Developers can also be given **restricted access** at the API key level, limiting which keys they can view and use.
+| Control                           | Behavior                                                                                                                                     |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Team identity**                 | Names the team and can mark it as the organization's **default team**. Names are unique within the organization.                             |
+| **Project ceiling**               | Effective access is the intersection of the team list and each developer's personal grants. With no projects selected, user keys return 403. |
+| **Per-developer budget ceilings** | Caps each developer's active keys, lifetime spend, and recurring spend. Personal and API-key limits may be stricter.                         |
+| **Developers**                    | Assigns, moves, or unassigns Developers. A move replaces the previous team's policy immediately.                                             |
+| **IAM policy**                    | Adds shared model, provider, pricing, or IP rules. Member and API-key rules run afterward and can only narrow access.                        |
+
+Unassigning a developer restores their personal project, IAM, and budget settings. Unassign every developer before deleting a team.
+
+### Default team
+
+One team per organization can be marked as the default. Developers who join — by invite, direct add, SSO domain auto-join, or SCIM provisioning — are assigned to it automatically unless a SCIM group mapping places them elsewhere; explicit manual assignments always win. When enabling the default you can optionally assign every developer currently without a team in one step. Moving or removing the flag only changes future joins: current members keep their team.
+
+## Sync groups from Microsoft Entra ID
+
+Microsoft Entra groups reach LLM Gateway through SCIM group provisioning:
+
+1. Create or choose a security group in Entra and assign its users.
+2. In the LLM Gateway enterprise application, configure SCIM provisioning and include that group in the provisioning scope.
+3. In LLM Gateway, open **SSO**, then map the exact Entra group name to an existing organization team.
+4. When Entra sends the group and membership update, matching Developers are assigned to that team. Removing a user from the Entra group removes the synced assignment.
+
+The team detail page identifies assignments managed by directory sync. Manually unassigning a synced developer lasts only until the next SCIM update; an explicit manual assignment to another team is preserved. If several mapped groups apply, the first group name alphabetically wins. Owners and admins never inherit team policy.
+
+Follow [Configure Microsoft Entra ID](/features/sso/entra) for the complete Entra application and SCIM setup. For other identity providers, see [Single Sign-On](/features/sso).
+
+Team, member, IAM, budget, and directory-sync changes are recorded in [Audit Logs](/learn/audit-logs).

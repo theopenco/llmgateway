@@ -7,6 +7,7 @@ import { HTTPException } from "hono/http-exception";
 import { app } from "@/app.js";
 import {
 	assertApiKeyWithinUsageLimits,
+	assertMemberProjectAccess,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
 import { internalApiOriginHeaders } from "@/lib/api-origin.js";
@@ -125,16 +126,19 @@ async function authenticateRequest(
 	// others. User-level member budget takes priority over the per-key limits.
 	// Both use the SWR-cached queries and fail fast before the retention/context
 	// work below.
-	if (enforceSpendLimits) {
-		try {
+	// Project access gates every authenticated path, including retrieval of
+	// stored responses; spend limits only apply where new usage is generated.
+	try {
+		await assertMemberProjectAccess(apiKey, project.organizationId);
+		if (enforceSpendLimits) {
 			await assertMemberWithinBudget(apiKey.createdBy, project.organizationId);
 			assertApiKeyWithinUsageLimits(apiKey);
-		} catch (e) {
-			if (e instanceof HTTPException) {
-				return { error: e.message, status: e.status };
-			}
-			throw e;
 		}
+	} catch (e) {
+		if (e instanceof HTTPException) {
+			return { error: e.message, status: e.status };
+		}
+		throw e;
 	}
 
 	return { apiKey, project, organization };
@@ -315,6 +319,9 @@ responses.post("/", async (c) => {
 			return null;
 		})
 		.filter((t): t is NonNullable<typeof t> => t !== null);
+	const imageGenerationTool = req.tools?.find(
+		(tool: Record<string, unknown>) => tool.type === "image_generation",
+	) as Record<string, unknown> | undefined;
 
 	// Convert text.format to response_format
 	let response_format: Record<string, unknown> | undefined;
@@ -352,6 +359,11 @@ responses.post("/", async (c) => {
 	}
 	if (tools && tools.length > 0) {
 		chatRequest.tools = tools;
+	}
+	if (typeof imageGenerationTool?.size === "string") {
+		chatRequest.image_config = {
+			image_size: imageGenerationTool.size,
+		};
 	}
 	if (req.tool_choice) {
 		// The chat handler speaks Chat Completions, so a Responses-shaped named

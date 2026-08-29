@@ -3,6 +3,7 @@ import {
 	withEnterpriseSeatForOrganization,
 } from "@/lib/enterprise-seats.js";
 import { resolveDefaultProjectIds } from "@/lib/sso-default-projects.js";
+import { recomputeUserTeam } from "@/lib/sso-teams.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, tables } from "@llmgateway/db";
@@ -120,6 +121,8 @@ async function joinOrganizationAsDeveloper(
 			)
 			.onConflictDoNothing();
 	}
+
+	await recomputeUserTeam(userId, organization.id);
 
 	await logAuditEvent({
 		organizationId: organization.id,

@@ -22,7 +22,7 @@ const llmgateway = createLLMGateway({
 });
 
 const result = await generateImage({
-	model: llmgateway.image("gemini-3-pro-image-preview"),
+	model: llmgateway.image("gemini-3-pro-image"),
 	prompt:
 		"A cozy cabin in a snowy mountain landscape at night with aurora borealis",
 	size: "1024x1024",
@@ -52,7 +52,7 @@ result.images.forEach((image, i) => {
 
 ## Chat-based image models
 
-Multimodal models like `gemini-3-pro-image-preview` can return images inside a chat conversation. Use `llmgateway.chat()` with `streamText` in a route handler:
+Multimodal models like `gemini-3-pro-image` can return images inside a chat conversation. Use `llmgateway.chat()` with `streamText` in a route handler:
 
 ```typescript
 // app/api/chat/route.ts
@@ -67,7 +67,7 @@ export async function POST(req: Request) {
 	const { messages } = await req.json();
 
 	const result = streamText({
-		model: llmgateway.chat("gemini-3-pro-image-preview"),
+		model: llmgateway.chat("gemini-3-pro-image"),
 		messages: convertToModelMessages(messages),
 	});
 

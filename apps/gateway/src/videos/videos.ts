@@ -15,6 +15,7 @@ import {
 } from "@/chat/tools/retry-with-fallback.js";
 import {
 	assertApiKeyWithinUsageLimits,
+	assertMemberProjectAccess,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
 import {
@@ -92,9 +93,6 @@ import {
 	type VertexTokenType,
 } from "@llmgateway/models";
 import {
-	getAvalancheApiBaseUrl,
-	getAvalancheFileUploadBaseUrl,
-	getAvalancheJobsApiBaseUrl,
 	getVideoProxyRedisKey,
 	VIDEO_PROXY_REDIS_TTL_SECONDS,
 } from "@llmgateway/shared";
@@ -332,7 +330,7 @@ const createVideoRequestSchema = z
 	.object({
 		model: z.string().default("veo-3.1-generate-preview").openapi({
 			description:
-				"The video generation model to use. Supports current Veo and Sora video models, including provider-prefixed variants like openai/sora-2 or avalanche/veo-3.1-generate-preview.",
+				"The video generation model to use. Supports current Veo and Sora video models, including provider-prefixed variants like openai/sora-2 or google-vertex/veo-3.1-generate-preview.",
 			example: "veo-3.1-generate-preview",
 		}),
 		prompt: z.string().min(1).openapi({
@@ -672,7 +670,6 @@ interface ProviderContext {
 	vertexProjectId?: string;
 	vertexRegion?: string;
 	vertexTokenType?: VertexTokenType;
-	uploadBaseUrl?: string;
 }
 
 /**
@@ -894,6 +891,7 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 	// User-level limits take priority: enforce the per-member budget (set on the
 	// Teams page; fails open on read errors) before the per-key usage limits, so a
 	// member who is over budget is denied even if the key itself is within limits.
+	await assertMemberProjectAccess(apiKey, baseProject.organizationId);
 	await assertMemberWithinBudget(apiKey.createdBy, baseProject.organizationId);
 	assertApiKeyWithinUsageLimits(apiKey);
 
@@ -1009,7 +1007,7 @@ function getVideoModel(model: string): {
 
 	throw new HTTPException(400, {
 		message:
-			"Unsupported video model. Use a video-capable model from /v1/models, optionally prefixed with a configured provider like openai/, avalanche/, or google-vertex/.",
+			"Unsupported video model. Use a video-capable model from /v1/models, optionally prefixed with a configured provider like openai/ or google-vertex/.",
 	});
 }
 
@@ -1072,18 +1070,9 @@ function getVideoProviderConstraintReasons(
 		provider.supportedVideoSizes?.length &&
 		!provider.supportedVideoSizes.includes(videoSize.size)
 	) {
-		if (
-			provider.providerId === "avalanche" &&
-			!isSoraVideoModelName(provider.externalId)
-		) {
-			reasons.push(
-				`size ${videoSize.size} is unsupported because Avalanche uses aspect_ratio and this integration only supports ${provider.supportedVideoSizes.join(", ")}`,
-			);
-		} else {
-			reasons.push(
-				`size ${videoSize.size} is unsupported (supported sizes: ${provider.supportedVideoSizes.join(", ")})`,
-			);
-		}
+		reasons.push(
+			`size ${videoSize.size} is unsupported (supported sizes: ${provider.supportedVideoSizes.join(", ")})`,
+		);
 	}
 
 	if (
@@ -1093,19 +1082,9 @@ function getVideoProviderConstraintReasons(
 		const supportedDurations = provider.supportedVideoDurationsSeconds
 			.map((duration) => `${duration}s`)
 			.join(", ");
-		if (
-			provider.providerId === "avalanche" &&
-			provider.supportedVideoDurationsSeconds.length === 1 &&
-			provider.supportedVideoDurationsSeconds[0] === 8
-		) {
-			reasons.push(
-				`duration ${videoDurationSeconds}s is unsupported because Avalanche Veo 3.1 generates fixed 8s clips`,
-			);
-		} else {
-			reasons.push(
-				`duration ${videoDurationSeconds}s is unsupported (supported durations: ${supportedDurations})`,
-			);
-		}
+		reasons.push(
+			`duration ${videoDurationSeconds}s is unsupported (supported durations: ${supportedDurations})`,
+		);
 	}
 
 	if (isSoraVideoModelName(provider.externalId) && inputMode === "frames") {
@@ -1134,12 +1113,11 @@ function getVideoProviderConstraintReasons(
 			}
 		} else if (
 			!isGoogleVertexVideoProvider(provider.providerId) &&
-			provider.providerId !== "avalanche" &&
 			provider.providerId !== "minimax" &&
 			provider.providerId !== "xai"
 		) {
 			reasons.push(
-				"frame inputs are currently only supported through google-vertex, avalanche, minimax, xai, or bytedance",
+				"frame inputs are currently only supported through google-vertex, minimax, xai, or bytedance",
 			);
 		}
 	}
@@ -1211,15 +1189,9 @@ function getVideoProviderConstraintReasons(
 					`reference images are currently only supported on ${provider.providerId}/veo-3.1-generate-preview`,
 				);
 			}
-		} else if (provider.providerId === "avalanche") {
-			if (provider.externalId !== "veo3_fast") {
-				reasons.push(
-					"reference images are currently only supported on avalanche/veo-3.1-fast-generate-preview",
-				);
-			}
 		} else {
 			reasons.push(
-				"reference images are currently only supported through google-vertex or avalanche",
+				"reference images are currently only supported through google-vertex",
 			);
 		}
 
@@ -1331,17 +1303,6 @@ function getEligibleVideoProviderMappings(
 	return matchingProviders;
 }
 
-function getAvalancheVideoModelName(baseModelName: string): string {
-	return baseModelName;
-}
-
-function getAvalancheSoraTaskModelName(
-	baseModelName: string,
-	inputMode: VideoInputMode,
-): string {
-	return `${baseModelName}-${inputMode === "reference" ? "image" : "text"}-to-video`;
-}
-
 function getAtlasCloudTaskName(inputMode: VideoInputMode): string {
 	if (inputMode === "frames") {
 		return "image-to-video";
@@ -1374,35 +1335,12 @@ function getVideoUpstreamModelName(
 	switch (providerId) {
 		case "atlascloud":
 			return getAtlasCloudVideoModelName(baseModelName, videoSize, inputMode);
-		case "avalanche":
-			return getAvalancheVideoModelName(baseModelName);
 		case "bytedance":
 		case "google-vertex":
 		case "minimax":
 		default:
 			return baseModelName;
 	}
-}
-
-function getAvalancheAspectRatio(videoSize: VideoSizeConfig): "16:9" | "9:16" {
-	return videoSize.orientation === "portrait" ? "9:16" : "16:9";
-}
-
-function getAvalancheSoraAspectRatio(
-	videoSize: VideoSizeConfig,
-): "landscape" | "portrait" {
-	return videoSize.orientation === "portrait" ? "portrait" : "landscape";
-}
-
-function getAvalancheSoraSizeTier(
-	baseModelName: string,
-	videoSize: VideoSizeConfig,
-): "standard" | "high" | null {
-	if (baseModelName !== "sora-2-pro") {
-		return null;
-	}
-
-	return videoSize.resolution === "hd" ? "high" : "standard";
 }
 
 function getVertexAspectRatio(videoSize: VideoSizeConfig): "16:9" | "9:16" {
@@ -1663,10 +1601,6 @@ async function resolveProviderContext(
 				providerKey,
 				null,
 			),
-			uploadBaseUrl:
-				providerId === "avalanche"
-					? getProviderEnvValue(providerId, "fileUploadBaseUrl")
-					: undefined,
 		};
 
 		return providerContext;
@@ -1722,10 +1656,6 @@ async function resolveProviderContext(
 				providerKey,
 				null,
 			),
-			uploadBaseUrl:
-				providerId === "avalanche"
-					? getProviderEnvValue(providerId, "fileUploadBaseUrl")
-					: undefined,
 		};
 
 		return providerContext;
@@ -1820,8 +1750,6 @@ async function resolvePlatformVideoProviderContext(
 			envVariant,
 			managedKey,
 		),
-		uploadBaseUrl:
-			providerId === "avalanche" ? readSetting("fileUploadBaseUrl") : undefined,
 	};
 }
 
@@ -3274,185 +3202,6 @@ async function createOpenAIVideoJob(
 	return { upstreamId, upstreamRequest, upstreamResponse };
 }
 
-async function createAvalancheVeoVideoJob(
-	providerContext: ProviderContext,
-	providerMapping: ProviderModelMapping,
-	videoSize: VideoSizeConfig,
-	prompt: string,
-	firstFrameInput: VideoImageInput | undefined,
-	lastFrameInput: VideoImageInput | undefined,
-	referenceImageInputs: VideoImageInput[],
-): Promise<{
-	upstreamId: string;
-	upstreamRequest: Record<string, unknown>;
-	upstreamResponse: Record<string, unknown>;
-}> {
-	const upstreamUrl = joinUrl(
-		getAvalancheApiBaseUrl(providerContext.baseUrl),
-		"/generate",
-	);
-	const upstreamModelName = getVideoUpstreamModelName(
-		"avalanche",
-		providerMapping.externalId,
-		videoSize,
-		referenceImageInputs.length > 0
-			? "reference"
-			: firstFrameInput || lastFrameInput
-				? "frames"
-				: "none",
-	);
-	const generationType =
-		referenceImageInputs.length > 0
-			? "REFERENCE_2_VIDEO"
-			: firstFrameInput || lastFrameInput
-				? "FIRST_AND_LAST_FRAMES_2_VIDEO"
-				: "TEXT_2_VIDEO";
-	const imageUrls =
-		generationType === "REFERENCE_2_VIDEO"
-			? await Promise.all(
-					referenceImageInputs.map((imageInput) =>
-						getAvalancheImageUrl(providerContext, imageInput),
-					),
-				)
-			: generationType === "FIRST_AND_LAST_FRAMES_2_VIDEO"
-				? (
-						await Promise.all([
-							firstFrameInput
-								? getAvalancheImageUrl(providerContext, firstFrameInput)
-								: Promise.resolve(null),
-							lastFrameInput
-								? getAvalancheImageUrl(providerContext, lastFrameInput)
-								: Promise.resolve(null),
-						])
-					).filter((imageUrl): imageUrl is string => imageUrl !== null)
-				: [];
-	const upstreamRequest = {
-		prompt,
-		model: upstreamModelName,
-		aspect_ratio: getAvalancheAspectRatio(videoSize),
-		generationType,
-		enableFallback: false,
-		...(imageUrls.length > 0 ? { imageUrls } : {}),
-	};
-	const rawResponse = await fetchUpstreamJson(
-		upstreamUrl,
-		{
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				...getProviderHeaders("avalanche", providerContext.token, {
-					requestId: providerContext.requestId,
-				}),
-			},
-			body: JSON.stringify(upstreamRequest),
-		},
-		providerContext.providerId,
-	);
-	const upstreamResponse = addRequestedVideoMetadata(
-		{
-			...rawResponse,
-			status: "queued",
-			duration: 8,
-			aspect_ratio: upstreamRequest.aspect_ratio,
-			generationType,
-		},
-		videoSize,
-	);
-	const upstreamId = extractUpstreamVideoId(upstreamResponse);
-	if (!upstreamId) {
-		throw new HTTPException(502, {
-			message: "Avalanche video response did not include a task id",
-		});
-	}
-
-	return { upstreamId, upstreamRequest, upstreamResponse };
-}
-
-async function createAvalancheSoraVideoJob(
-	providerContext: ProviderContext,
-	providerMapping: ProviderModelMapping,
-	videoSize: VideoSizeConfig,
-	prompt: string,
-	durationSeconds: number,
-	inputMode: VideoInputMode,
-	referenceImages: ProcessedVideoImageInput[],
-): Promise<{
-	upstreamId: string;
-	upstreamRequest: Record<string, unknown>;
-	upstreamResponse: Record<string, unknown>;
-}> {
-	const upstreamUrl = joinUrl(
-		getAvalancheJobsApiBaseUrl(providerContext.baseUrl),
-		"/createTask",
-	);
-	const upstreamModelName = getAvalancheSoraTaskModelName(
-		providerMapping.externalId,
-		inputMode,
-	);
-	const imageUrls =
-		inputMode === "reference"
-			? await Promise.all(
-					referenceImages.map((image) =>
-						uploadAvalancheBase64Image(providerContext, image),
-					),
-				)
-			: [];
-	const sizeTier = getAvalancheSoraSizeTier(
-		providerMapping.externalId,
-		videoSize,
-	);
-	const input = {
-		prompt,
-		aspect_ratio: getAvalancheSoraAspectRatio(videoSize),
-		n_frames: String(durationSeconds),
-		remove_watermark: true,
-		upload_method: "s3",
-		...(imageUrls.length > 0 ? { image_urls: imageUrls } : {}),
-		...(sizeTier ? { size: sizeTier } : {}),
-	};
-	const upstreamRequest = {
-		model: upstreamModelName,
-		input,
-	};
-	const rawResponse = await fetchUpstreamJson(
-		upstreamUrl,
-		{
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				...getProviderHeaders("avalanche", providerContext.token, {
-					requestId: providerContext.requestId,
-				}),
-			},
-			body: JSON.stringify(upstreamRequest),
-		},
-		providerContext.providerId,
-	);
-	const upstreamResponse = addRequestedVideoMetadata(
-		{
-			...rawResponse,
-			model: providerMapping.externalId,
-			status: "queued",
-			aspect_ratio: input.aspect_ratio,
-			seconds:
-				typeof rawResponse.seconds === "string"
-					? rawResponse.seconds
-					: String(durationSeconds),
-			avalanche_task_model: upstreamModelName,
-			avalanche_task_input: input,
-		},
-		videoSize,
-	);
-	const upstreamId = extractUpstreamVideoId(upstreamResponse);
-	if (!upstreamId) {
-		throw new HTTPException(502, {
-			message: "Avalanche Sora response did not include an id",
-		});
-	}
-
-	return { upstreamId, upstreamRequest, upstreamResponse };
-}
-
 async function createGoogleVertexVideoJob(
 	providerContext: ProviderContext,
 	providerMapping: ProviderModelMapping,
@@ -4236,26 +3985,6 @@ async function createUpstreamVideoJob(
 				durationSeconds,
 				processedReferenceImages,
 			);
-		case "avalanche":
-			return isSoraVideoModelName(providerMapping.externalId)
-				? await createAvalancheSoraVideoJob(
-						providerContext,
-						providerMapping,
-						videoSize,
-						prompt,
-						durationSeconds,
-						inputMode,
-						processedReferenceImages,
-					)
-				: await createAvalancheVeoVideoJob(
-						providerContext,
-						providerMapping,
-						videoSize,
-						prompt,
-						firstFrameInput,
-						lastFrameInput,
-						referenceImageInputs,
-					);
 		case "bytedance":
 			return await createBytedanceVideoJob(
 				providerContext,
@@ -4636,71 +4365,6 @@ async function insertVideoClientErrorLog(options: {
 		upstreamResponse: null,
 		dataStorageCost: "0",
 	});
-}
-
-async function uploadAvalancheBase64Image(
-	providerContext: ProviderContext,
-	image: ProcessedVideoImageInput,
-): Promise<string> {
-	const uploadUrl = joinUrl(
-		getAvalancheFileUploadBaseUrl(
-			providerContext.baseUrl,
-			providerContext.uploadBaseUrl,
-		),
-		"/api/file-base64-upload",
-	);
-	const response = await fetchUpstreamJson(
-		uploadUrl,
-		{
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				...getProviderHeaders("avalanche", providerContext.token, {
-					requestId: providerContext.requestId,
-				}),
-			},
-			body: JSON.stringify({
-				base64Data: `data:${image.mimeType};base64,${image.bytesBase64Encoded}`,
-				uploadPath: "videos/input-images",
-			}),
-		},
-		providerContext.providerId,
-	);
-	const data =
-		response.data && typeof response.data === "object"
-			? (response.data as Record<string, unknown>)
-			: null;
-	const fileUrl =
-		typeof data?.fileUrl === "string" && data.fileUrl.length > 0
-			? data.fileUrl
-			: null;
-	const downloadUrl =
-		typeof data?.downloadUrl === "string" && data.downloadUrl.length > 0
-			? data.downloadUrl
-			: null;
-	const uploadedUrl = fileUrl ?? downloadUrl;
-
-	if (!uploadedUrl) {
-		throw new HTTPException(502, {
-			message: "Avalanche file upload did not return a usable file URL",
-		});
-	}
-
-	return uploadedUrl;
-}
-
-async function getAvalancheImageUrl(
-	providerContext: ProviderContext,
-	videoImage: VideoImageInput,
-): Promise<string> {
-	const processedImage = await processVideoImageInput(videoImage);
-	if (!processedImage) {
-		throw new HTTPException(400, {
-			message: "image must include a non-empty image URL",
-		});
-	}
-
-	return await uploadAvalancheBase64Image(providerContext, processedImage);
 }
 
 videos.openapi(createVideo, async (c): Promise<any> => {

@@ -3,6 +3,7 @@
 import {
 	AlertTriangle,
 	CreditCard,
+	Fingerprint,
 	Loader2,
 	RefreshCw,
 	Trash2,
@@ -12,6 +13,7 @@ import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
 	Dialog,
 	DialogContent,
@@ -35,12 +37,21 @@ export interface AdminPaymentMethod {
 	type: string;
 	createdAt: string;
 	isDefault: boolean;
+	canReleaseDevPlanCardFingerprint: boolean;
 	card: {
 		brand: string;
 		last4: string;
 		expiryMonth: number;
 		expiryYear: number;
 	} | null;
+}
+
+export interface AdminDevPlanCardFingerprint {
+	id: string;
+	createdAt: string;
+	fingerprint: string;
+	isCurrent: boolean;
+	canRelease: boolean;
 }
 
 interface DeletePaymentMethodDialogProps {
@@ -50,6 +61,7 @@ interface DeletePaymentMethodDialogProps {
 	onDelete: (
 		paymentMethodId: string,
 		replacementPaymentMethodId?: string,
+		releaseDevPlanCardFingerprint?: boolean,
 	) => Promise<{ success: boolean; error?: string }>;
 }
 
@@ -83,6 +95,8 @@ function DeletePaymentMethodDialog({
 	const [replacementPaymentMethodId, setReplacementPaymentMethodId] = useState(
 		replacementOptions[0]?.id ?? "",
 	);
+	const [releaseDevPlanCardFingerprint, setReleaseDevPlanCardFingerprint] =
+		useState(false);
 	const label = paymentMethodLabel(paymentMethod);
 	const requiresReplacement =
 		paymentMethod.isDefault && replacementOptions.length > 0;
@@ -95,6 +109,7 @@ function DeletePaymentMethodDialog({
 			const result = await onDelete(
 				paymentMethod.id,
 				requiresReplacement ? replacementPaymentMethodId : undefined,
+				releaseDevPlanCardFingerprint,
 			);
 			if (!result.success) {
 				setError(result.error ?? "Failed to delete payment method");
@@ -125,6 +140,7 @@ function DeletePaymentMethodDialog({
 				if (nextOpen) {
 					setError(null);
 					setReplacementPaymentMethodId(replacementOptions[0]?.id ?? "");
+					setReleaseDevPlanCardFingerprint(false);
 				}
 				if (!nextOpen) {
 					setError(null);
@@ -205,6 +221,31 @@ function DeletePaymentMethodDialog({
 					</div>
 				) : null}
 
+				{paymentMethod.canReleaseDevPlanCardFingerprint ? (
+					<div className="flex items-start gap-3 rounded-md border px-3 py-3">
+						<Checkbox
+							id={`release-devpass-fingerprint-${paymentMethod.id}`}
+							checked={releaseDevPlanCardFingerprint}
+							onCheckedChange={(checked) =>
+								setReleaseDevPlanCardFingerprint(checked === true)
+							}
+							disabled={loading}
+						/>
+						<div className="space-y-1">
+							<Label
+								htmlFor={`release-devpass-fingerprint-${paymentMethod.id}`}
+							>
+								Release DevPass card fingerprint
+							</Label>
+							<p className="text-xs text-muted-foreground">
+								Allow this card to be used on another DevPass account. Use only
+								for a verified account transfer; this bypasses the
+								one-card-per-account safeguard.
+							</p>
+						</div>
+					</div>
+				) : null}
+
 				{error ? (
 					<p className="text-sm text-destructive" role="alert">
 						{error}
@@ -227,7 +268,101 @@ function DeletePaymentMethodDialog({
 						}
 					>
 						{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-						Delete payment method
+						{releaseDevPlanCardFingerprint
+							? "Delete and release card"
+							: "Delete payment method"}
+					</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+function ReleaseFingerprintDialog({
+	fingerprint,
+	onRelease,
+}: {
+	fingerprint: AdminDevPlanCardFingerprint;
+	onRelease: (
+		fingerprintId: string,
+	) => Promise<{ success: boolean; error?: string }>;
+}) {
+	const router = useRouter();
+	const [open, setOpen] = useState(false);
+	const [loading, setLoading] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	const handleRelease = async () => {
+		setLoading(true);
+		setError(null);
+		try {
+			const result = await onRelease(fingerprint.id);
+			if (!result.success) {
+				setError(result.error ?? "Failed to release card fingerprint");
+				return;
+			}
+			setOpen(false);
+			router.refresh();
+		} catch (releaseError) {
+			setError(
+				releaseError instanceof Error
+					? releaseError.message
+					: "Failed to release card fingerprint",
+			);
+		} finally {
+			setLoading(false);
+		}
+	};
+
+	return (
+		<Dialog
+			open={open}
+			onOpenChange={(nextOpen) => {
+				if (!loading) {
+					setOpen(nextOpen);
+					setError(null);
+				}
+			}}
+		>
+			<DialogTrigger asChild>
+				<Button
+					variant="ghost"
+					size="sm"
+					className="text-destructive hover:text-destructive"
+					disabled={!fingerprint.canRelease}
+				>
+					<Trash2 className="h-4 w-4" />
+					Release
+				</Button>
+			</DialogTrigger>
+			<DialogContent>
+				<DialogHeader>
+					<DialogTitle>Release this card fingerprint?</DialogTitle>
+					<DialogDescription>
+						The card can then be used to claim DevPass on another account. Only
+						continue after verifying the account transfer.
+					</DialogDescription>
+				</DialogHeader>
+				{error ? (
+					<p className="text-sm text-destructive" role="alert">
+						{error}
+					</p>
+				) : null}
+				<DialogFooter>
+					<Button
+						variant="outline"
+						onClick={() => setOpen(false)}
+						disabled={loading}
+					>
+						Cancel
+					</Button>
+					<Button
+						variant="destructive"
+						onClick={handleRelease}
+						disabled={loading}
+					>
+						{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+						Release fingerprint
 					</Button>
 				</DialogFooter>
 			</DialogContent>
@@ -237,16 +372,23 @@ function DeletePaymentMethodDialog({
 
 export function PaymentMethodsList({
 	paymentMethods,
+	devPlanCardFingerprints,
 	loadError,
 	autoTopUpEnabled,
 	onDelete,
+	onReleaseFingerprint,
 }: {
 	paymentMethods: AdminPaymentMethod[] | null;
+	devPlanCardFingerprints: AdminDevPlanCardFingerprint[];
 	loadError: boolean;
 	autoTopUpEnabled: boolean;
 	onDelete: (
 		paymentMethodId: string,
 		replacementPaymentMethodId?: string,
+		releaseDevPlanCardFingerprint?: boolean,
+	) => Promise<{ success: boolean; error?: string }>;
+	onReleaseFingerprint: (
+		fingerprintId: string,
 	) => Promise<{ success: boolean; error?: string }>;
 }) {
 	const router = useRouter();
@@ -310,6 +452,58 @@ export function PaymentMethodsList({
 					No payment methods are attached to this Stripe customer.
 				</p>
 			)}
+
+			<div className="space-y-3 pt-3">
+				<div>
+					<h4 className="text-sm font-medium">DevPass card fingerprints</h4>
+					<p className="mt-1 text-sm text-muted-foreground">
+						Retained identifiers block a card from claiming DevPass on another
+						account after its Stripe details are removed.
+					</p>
+				</div>
+				{devPlanCardFingerprints.length > 0 ? (
+					<div className="divide-y border-y">
+						{devPlanCardFingerprints.map((fingerprint) => (
+							<div
+								key={fingerprint.id}
+								className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center"
+							>
+								<Fingerprint className="h-5 w-5 shrink-0 text-muted-foreground" />
+								<div className="min-w-0 flex-1">
+									<div className="flex flex-wrap items-center gap-2">
+										<p className="break-all font-mono text-xs">
+											{fingerprint.fingerprint}
+										</p>
+										{fingerprint.isCurrent ? (
+											<Badge variant="secondary">Current</Badge>
+										) : null}
+									</div>
+									<p className="mt-1 text-xs text-muted-foreground">
+										Retained{" "}
+										{new Date(fingerprint.createdAt).toLocaleDateString(
+											"en-US",
+											{
+												timeZone: "UTC",
+											},
+										)}
+										{fingerprint.canRelease
+											? ""
+											: " · End the DevPass subscription before release"}
+									</p>
+								</div>
+								<ReleaseFingerprintDialog
+									fingerprint={fingerprint}
+									onRelease={onReleaseFingerprint}
+								/>
+							</div>
+						))}
+					</div>
+				) : (
+					<p className="py-3 text-sm text-muted-foreground">
+						No DevPass card fingerprints are retained.
+					</p>
+				)}
+			</div>
 		</section>
 	);
 }

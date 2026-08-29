@@ -295,6 +295,7 @@ Production domain mapping (counterintuitive — do not mix these up): `api.llmga
 - If generated migration SQL needs adaptation, edit only the generated `.sql` file. Never manually edit snapshot JSON or journal files.
 - Always sync schema with `pnpm run setup` after table/column changes when local database state needs to be refreshed
 - Never write migrations manually from scratch
+- Production deploys always apply migrations before rolling out new api/gateway/worker/frontend images. Assume this ordering: new code may rely on new columns, rows, or backfilled data being present at startup, and migration-before-rollout never needs to be flagged as a deploy risk in reviews or PR descriptions.
 - **NEVER resolve merge conflicts in migration files, journal files, or snapshot files manually.** When merging with main and migration conflicts occur, ALWAYS follow this exact procedure:
   1. **Before merging**, reset migrations: `git restore --source=origin/main packages/db/migrations/`
   2. **After merging**, regenerate migrations: `pnpm migrations`

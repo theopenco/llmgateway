@@ -2,7 +2,9 @@ import { createServer, type Server } from "node:http";
 
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
@@ -107,14 +109,18 @@ describe("azure-anthropic", () => {
 		captured = [];
 		await db.insert(tables.apiKey).values({
 			id: `${token}-id`,
-			token,
+			...hashApiKeyForStorage(token),
 			projectId: "project-id",
 			description: "Azure Anthropic test key",
 			createdBy: "user-id",
 		});
 		await db.insert(tables.providerKey).values({
 			id: "azure-anthropic-key-id",
-			token: "foundry-api-key",
+			...encryptProviderKeyForStorage(
+				"foundry-api-key",
+				"azure-anthropic-key-id",
+				"org-id",
+			),
 			provider: "azure-anthropic",
 			organizationId: "org-id",
 			baseUrl: foundryUrl,

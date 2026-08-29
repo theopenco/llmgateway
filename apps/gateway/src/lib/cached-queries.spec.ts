@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import {
 	cdb,
@@ -102,7 +103,7 @@ describe("Cached Queries - Gateway Database Access", () => {
 
 		await db.insert(apiKey).values({
 			id: testApiKeyId,
-			token: testApiKeyToken,
+			...hashApiKeyForStorage(testApiKeyToken),
 			projectId: testProjectId,
 			description: "Test API Key for cached queries testing",
 			status: "active",
@@ -111,7 +112,11 @@ describe("Cached Queries - Gateway Database Access", () => {
 
 		await db.insert(providerKey).values({
 			id: testProviderKeyId,
-			token: "test-provider-token",
+			...encryptProviderKeyForStorage(
+				"test-provider-token",
+				testProviderKeyId,
+				testOrgId,
+			),
 			provider: "openai",
 			organizationId: testOrgId,
 			status: "active",
@@ -119,7 +124,11 @@ describe("Cached Queries - Gateway Database Access", () => {
 
 		await db.insert(providerKey).values({
 			id: "test-provider-key-cached-queries-2",
-			token: "test-provider-token-2",
+			...encryptProviderKeyForStorage(
+				"test-provider-token-2",
+				"test-provider-key-cached-queries-2",
+				testOrgId,
+			),
 			provider: "openai",
 			organizationId: testOrgId,
 			status: "active",
@@ -127,7 +136,11 @@ describe("Cached Queries - Gateway Database Access", () => {
 
 		await db.insert(providerKey).values({
 			id: "test-custom-provider-key",
-			token: "test-custom-token",
+			...encryptProviderKeyForStorage(
+				"test-custom-token",
+				"test-custom-provider-key",
+				testOrgId,
+			),
 			provider: "custom",
 			name: "my-custom-provider",
 			baseUrl: "https://api.custom.example.com",
@@ -176,11 +189,7 @@ describe("Cached Queries - Gateway Database Access", () => {
 	});
 
 	describe("findApiKeyByToken", () => {
-		async function insertEndUserSession(
-			tokenValues:
-				| { token: string; tokenHash?: never }
-				| { token: null; tokenHash: string },
-		) {
+		async function insertEndUserSession(tokenValues: { tokenHash: string }) {
 			await db.insert(endCustomer).values({
 				id: "test-end-customer-cached-queries",
 				organizationId: testOrgId,
@@ -219,7 +228,9 @@ describe("Cached Queries - Gateway Database Access", () => {
 
 			expect(result).toBeDefined();
 			expect(result?.id).toBe(testApiKeyId);
-			expect(result?.token).toBe(testApiKeyToken);
+			expect(result?.tokenHash).toBe(
+				hashApiKeyForStorage(testApiKeyToken).tokenHash,
+			);
 			expect(result?.status).toBe("active");
 		});
 
@@ -243,14 +254,16 @@ describe("Cached Queries - Gateway Database Access", () => {
 			const result = await findApiKeyByToken(hashedToken);
 
 			expect(result?.id).toBe("test-hashed-api-key-cached-queries");
-			expect(result?.token).toBeNull();
+			expect(result?.tokenHash).toBe(
+				hashApiKeyForStorage(hashedToken).tokenHash,
+			);
 		});
 
 		it("should return undefined for platform secret tokens", async () => {
 			const platformSecretToken = "sk-test-platform-secret-cached-queries";
 			await db.insert(apiKey).values({
 				id: "test-platform-secret-cached-queries",
-				token: platformSecretToken,
+				...hashApiKeyForStorage(platformSecretToken),
 				projectId: testProjectId,
 				description: "Test Platform Secret",
 				status: "active",
@@ -266,18 +279,6 @@ describe("Cached Queries - Gateway Database Access", () => {
 		it("finds a hash-only embeddable session token", async () => {
 			const token = "es_hash-only-cached-queries";
 			await insertEndUserSession(hashTokenForStorage(token));
-
-			const result = await findApiKeyByToken(token);
-
-			expect(result?.id).toBe("test-end-user-key-cached-queries");
-			expect(result?.endUserSession?.id).toBe(
-				"test-end-user-session-cached-queries",
-			);
-		});
-
-		it("keeps legacy plaintext embeddable sessions valid", async () => {
-			const token = "es_legacy-cached-queries";
-			await insertEndUserSession({ token });
 
 			const result = await findApiKeyByToken(token);
 
@@ -494,7 +495,11 @@ describe("Cached Queries - Gateway Database Access", () => {
 			// tie this key with position 0 and slot it second instead of last.
 			await db.insert(providerKey).values({
 				id: "test-provider-key-cached-queries-3",
-				token: "test-provider-token-3",
+				...encryptProviderKeyForStorage(
+					"test-provider-token-3",
+					"test-provider-key-cached-queries-3",
+					testOrgId,
+				),
 				provider: "openai",
 				organizationId: testOrgId,
 				status: "active",

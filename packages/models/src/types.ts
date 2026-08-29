@@ -462,12 +462,23 @@ export interface OpenAIResponsesRequestBody {
 	 * preserve reasoning without stored responses.
 	 */
 	include?: string[];
-	tools?: Array<{
-		type: "function";
-		name: string;
-		description?: string;
-		parameters: FunctionParameter;
-	}>;
+	tools?: Array<
+		| {
+				type: "function";
+				name: string;
+				description?: string;
+				parameters: FunctionParameter;
+		  }
+		| {
+				type: "web_search";
+				user_location?: unknown;
+				search_context_size?: string;
+		  }
+		| {
+				type: "image_generation";
+				size?: "1024x1024" | "1024x1536" | "1536x1024";
+		  }
+	>;
 	tool_choice?: ResponsesToolChoice;
 	stream?: boolean;
 	temperature?: number;

@@ -24,6 +24,8 @@ import {
 
 import { eq, inArray } from "drizzle-orm";
 
+import { maskToken } from "@llmgateway/shared/mask-token";
+
 import { closeDatabase, db, tables } from "./index.js";
 
 import type { PgTable } from "drizzle-orm/pg-core";
@@ -561,11 +563,11 @@ async function seedDemo() {
 
 	// ── API keys ─────────────────────────────────────────────────────────────
 	for (const k of API_KEYS) {
-		const { note: _note, ...row } = k;
+		const { note: _note, token, ...row } = k;
 		await upsertById(tables.apiKey, {
 			...row,
-			tokenHash: null,
-			tokenMasked: null,
+			tokenHash: apiKeyFingerprint(token),
+			tokenMasked: maskToken(token),
 			status: "active",
 			keyType: "user",
 		});

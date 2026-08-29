@@ -18,6 +18,7 @@ import {
 
 import {
 	encryptProviderKey,
+	readProviderKeyMask,
 	redactToken,
 	validateProviderKey,
 } from "@llmgateway/actions";
@@ -191,7 +192,7 @@ export function toPublicProviderKey(row: ProviderKeyRow) {
 		organizationId: row.organizationId,
 		usageLimit: row.usageLimit,
 		usage: row.usage,
-		maskedToken: row.tokenMasked ?? maskToken(row.token ?? ""),
+		maskedToken: readProviderKeyMask(row),
 		allowedModels: row.allowedModels,
 	};
 }
@@ -675,7 +676,6 @@ keysProvider.openapi(create, async (c) => {
 		.insert(tables.providerKey)
 		.values({
 			id: providerKeyId,
-			token: null,
 			tokenCiphertext,
 			tokenMasked,
 			tokenHash: getApiKeyFingerprint(userToken),

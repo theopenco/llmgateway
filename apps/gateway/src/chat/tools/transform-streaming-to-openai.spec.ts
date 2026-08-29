@@ -48,32 +48,58 @@ describe("transformStreamingToOpenai", () => {
 		expect(result.model).toBe("deepinfra/deepseek-v4-flash");
 	});
 
-	it("does not warn for Permafrost OpenAI streaming chunks", () => {
-		warn.mockClear();
+	it("normalizes Novita tool-call finishes across streaming chunks", () => {
+		const toolCallChoiceIndices = new Set<number>();
 
-		const result = transformStreamingToOpenai(
-			"permafrost",
-			"kimi-k3",
+		transformStreamingToOpenai(
+			"novita",
+			"novita/glm-5.3",
 			{
-				id: "chatcmpl_123",
-				object: "chat.completion.chunk",
-				model: "kimi-k3",
+				id: "chatcmpl-123",
 				choices: [
 					{
-						index: 0,
-						delta: { content: "Hello" },
+						index: 1,
+						delta: {
+							tool_calls: [
+								{
+									index: 0,
+									id: "call_123",
+									function: { name: "get_weather", arguments: "" },
+								},
+							],
+						},
 						finish_reason: null,
 					},
 				],
 			},
 			[],
+			undefined,
+			true,
+			undefined,
+			toolCallChoiceIndices,
 		);
 
-		expect(result).toMatchObject({
-			id: "chatcmpl_123",
-			choices: [{ delta: { content: "Hello" } }],
-		});
-		expect(warn).not.toHaveBeenCalled();
+		const result = transformStreamingToOpenai(
+			"novita",
+			"novita/glm-5.3",
+			{
+				id: "chatcmpl-123",
+				choices: [
+					{ index: 0, delta: {}, finish_reason: "stop" },
+					{ index: 1, delta: {}, finish_reason: "stop" },
+				],
+			},
+			[],
+			undefined,
+			true,
+			undefined,
+			toolCallChoiceIndices,
+		);
+
+		expect(result.choices).toMatchObject([
+			{ index: 0, finish_reason: "stop" },
+			{ index: 1, finish_reason: "tool_calls" },
+		]);
 	});
 
 	it("generates a unique id per streamed google tool call", () => {

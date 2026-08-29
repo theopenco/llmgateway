@@ -79,7 +79,8 @@ describe("stats-calculator", () => {
 			{
 				id: "key-1",
 				description: "Test API Key",
-				token: "test-key",
+				tokenHash: "test-key",
+				tokenMasked: "test-key",
 				projectId: "proj-1",
 				createdBy: testUser.id,
 			},

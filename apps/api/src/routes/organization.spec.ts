@@ -8,6 +8,7 @@ import {
 } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { randomInt } from "@llmgateway/shared/random";
 
 describe("organization route", () => {
@@ -182,6 +183,63 @@ describe("organization route", () => {
 		expect(body.organization.name).toBe("Test Organization");
 	});
 
+	test("DevPass organizations can require no API training", async () => {
+		await db
+			.update(tables.organization)
+			.set({ kind: "devpass" })
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		const response = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				providerCompliancePolicy: {
+					enabled: true,
+					blockApiTraining: true,
+				},
+			}),
+		});
+
+		expect(response.status).toBe(200);
+		expect(
+			(
+				await db.query.organization.findFirst({
+					where: { id: { eq: "test-org-id" } },
+				})
+			)?.providerCompliancePolicy,
+		).toEqual({ enabled: true, blockApiTraining: true });
+	});
+
+	test("DevPass organizations reject other compliance settings", async () => {
+		await db
+			.update(tables.organization)
+			.set({ kind: "devpass" })
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		const response = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				providerCompliancePolicy: {
+					enabled: true,
+					requireGdpr: true,
+				},
+			}),
+		});
+
+		expect(response.status).toBe(403);
+		expect(await response.json()).toMatchObject({
+			error: true,
+			message: expect.stringContaining("requireGdpr"),
+		});
+	});
+
 	test("PATCH /orgs/{id} logs top-up setting changes separately from organization updates", async () => {
 		const response = await app.request("/orgs/test-org-id", {
 			method: "PATCH",
@@ -256,7 +314,7 @@ describe("organization route", () => {
 		});
 		await db.insert(tables.apiKey).values({
 			id: "runway-api-key-id",
-			token: "runway-token",
+			...hashApiKeyForStorage("runway-token"),
 			projectId: "runway-project-id",
 			description: "Runway Key",
 			createdBy: "test-user-id",

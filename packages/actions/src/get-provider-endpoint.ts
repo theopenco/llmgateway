@@ -451,42 +451,6 @@ export function getProviderEndpoint(
 					);
 				}
 				break;
-			case "tundra":
-				url =
-					credentialConfig?.baseUrl ??
-					(skipEnvVars
-						? undefined
-						: getProviderEnvValue(
-								"tundra",
-								"baseUrl",
-								configIndex,
-								undefined,
-								variant,
-							));
-				if (!url) {
-					throw new Error(
-						"Tundra provider requires LLM_TUNDRA_BASE_URL environment variable",
-					);
-				}
-				break;
-			case "permafrost":
-				url =
-					credentialConfig?.baseUrl ??
-					(skipEnvVars
-						? undefined
-						: getProviderEnvValue(
-								"permafrost",
-								"baseUrl",
-								configIndex,
-								undefined,
-								variant,
-							));
-				if (!url) {
-					throw new Error(
-						"Permafrost provider requires LLM_PERMAFROST_BASE_URL environment variable",
-					);
-				}
-				break;
 			case "alibaba": {
 				const alibabaBaseUrl = resolveWorkspaceScopedEndpoint(
 					"alibaba",
@@ -1056,8 +1020,6 @@ export function getProviderEndpoint(
 		case "minimax":
 		case "xiaomi":
 		case "embercloud":
-		case "tundra":
-		case "permafrost":
 		case "scx-ai":
 		case "scx-ai-gp":
 		case "ranoai":

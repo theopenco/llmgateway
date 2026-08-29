@@ -121,7 +121,8 @@ export interface ProviderAdditionalLink {
  * Organization-level compliance policy. When enabled, the gateway only routes
  * to providers whose {@link ProviderDataPolicy} explicitly satisfies every
  * active requirement (fail-closed: unknown/`null` attributes never satisfy a
- * requirement). Configurable on enterprise plans only.
+ * requirement). The full policy is configurable on enterprise plans; DevPass
+ * organizations may enable only {@link ProviderCompliancePolicy.blockApiTraining}.
  */
 export interface ProviderCompliancePolicy {
 	enabled: boolean;
@@ -180,6 +181,15 @@ export interface ProviderCompliancePolicy {
 	 * requested. Empty/omitted applies no allow-list restriction.
 	 */
 	allowedModels?: string[];
+}
+
+/** DevPass exposes only the no-API-training requirement. */
+export function narrowPolicyToDevPass(
+	policy: ProviderCompliancePolicy,
+): ProviderCompliancePolicy | undefined {
+	return policy.enabled && policy.blockApiTraining
+		? { enabled: true, blockApiTraining: true }
+		: undefined;
 }
 
 export interface ProviderDefinition {
@@ -633,31 +643,6 @@ export const providers: ProviderDefinition[] = [
 		statusPageUrl: null,
 		announcement: null,
 		priority: 0.9,
-		termsUrl: null,
-		privacyPolicyUrl: null,
-		headquarters: null,
-		dataPolicy: null,
-	},
-	{
-		id: "avalanche",
-		name: "Avalanche",
-		forwardsSafetyIdentifier: false,
-		description: "Avalanche - video generation provider.",
-		env: {
-			required: {
-				apiKey: "LLM_AVALANCHE_API_KEY",
-				baseUrl: "LLM_AVALANCHE_BASE_URL",
-			},
-			optional: {
-				fileUploadBaseUrl: "LLM_AVALANCHE_FILE_UPLOAD_BASE_URL",
-			},
-		},
-		streaming: false,
-		cancellation: false,
-		color: "#0f766e",
-		website: null,
-		statusPageUrl: null,
-		announcement: null,
 		termsUrl: null,
 		privacyPolicyUrl: null,
 		headquarters: null,
@@ -1280,30 +1265,6 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
-		id: "permafrost",
-		name: "Permafrost",
-		forwardsSafetyIdentifier: false,
-		description:
-			"Permafrost is a stealth provider with an OpenAI-compatible API.",
-		env: {
-			required: {
-				apiKey: "LLM_PERMAFROST_API_KEY",
-				baseUrl: "LLM_PERMAFROST_BASE_URL",
-			},
-		},
-		streaming: true,
-		cancellation: true,
-		color: "#5f7e83",
-		website: null,
-		statusPageUrl: null,
-		announcement: null,
-		termsUrl: null,
-		privacyPolicyUrl: null,
-		headquarters: null,
-		dataPolicy: null,
-		priority: 1.1,
-	},
-	{
 		id: "perplexity",
 		name: "Perplexity",
 		forwardsSafetyIdentifier: false,
@@ -1516,14 +1477,6 @@ export const providers: ProviderDefinition[] = [
 		website: "https://scx.ai",
 		statusPageUrl: null,
 		announcement: null,
-		regionConfig: {
-			optionsKey: "scx_ai_gp_region",
-			defaultRegion: "au",
-			regions: [{ id: "au", label: "Australia (default)" }],
-			endpointMap: {
-				au: "https://api.scx.ai",
-			},
-		},
 		termsUrl: "https://scx.ai/terms",
 		privacyPolicyUrl: "https://scx.ai/privacy",
 		headquarters: "AU",
@@ -1671,7 +1624,7 @@ export const providers: ProviderDefinition[] = [
 		name: "Meta",
 		forwardsSafetyIdentifier: false,
 		description:
-			"Meta's Model API serving the Muse Spark multimodal reasoning models via an OpenAI-compatible API",
+			"Meta's Model API serving Muse reasoning and image models via an OpenAI-compatible API",
 		env: {
 			required: {
 				apiKey: "LLM_META_API_KEY",
@@ -1731,29 +1684,6 @@ export const providers: ProviderDefinition[] = [
 		privacyPolicyUrl: "https://console.sakana.ai/privacy-policy",
 		headquarters: "JP",
 		dataPolicy: null,
-	},
-	{
-		id: "tundra",
-		name: "Tundra",
-		forwardsSafetyIdentifier: false,
-		description: "Tundra is a stealth provider with an OpenAI-compatible API.",
-		env: {
-			required: {
-				apiKey: "LLM_TUNDRA_API_KEY",
-				baseUrl: "LLM_TUNDRA_BASE_URL",
-			},
-		},
-		streaming: true,
-		cancellation: true,
-		color: "#5b8db8",
-		website: null,
-		statusPageUrl: null,
-		announcement: null,
-		termsUrl: null,
-		privacyPolicyUrl: null,
-		headquarters: null,
-		dataPolicy: null,
-		priority: 1.1,
 	},
 	{
 		id: "xiaomi",

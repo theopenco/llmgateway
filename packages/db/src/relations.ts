@@ -60,6 +60,9 @@ export const relations = defineRelations(schema, (r) => ({
 	},
 	organization: {
 		userOrganizations: r.many.userOrganization(),
+		devPlanCardFingerprintHistory: r.many.devPlanCardFingerprintHistory(),
+		teams: r.many.organizationTeam(),
+		ssoTeamMappings: r.many.ssoTeamMapping(),
 		projects: r.many.project(),
 		providerKeys: r.many.providerKey(),
 		masterKeys: r.many.masterKey({
@@ -126,6 +129,12 @@ export const relations = defineRelations(schema, (r) => ({
 			to: r.modelSurveyResponse.organizationId,
 		}),
 	},
+	devPlanCardFingerprintHistory: {
+		organization: r.one.organization({
+			from: r.devPlanCardFingerprintHistory.organizationId,
+			to: r.organization.id,
+		}),
+	},
 	referral: {
 		referrerOrganization: r.one.organization({
 			from: r.referral.referrerOrganizationId,
@@ -145,6 +154,10 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.userOrganization.organizationId,
 			to: r.organization.id,
 		}),
+		team: r.one.organizationTeam({
+			from: r.userOrganization.teamId,
+			to: r.organizationTeam.id,
+		}),
 		userProjects: r.many.userProject({
 			from: r.userOrganization.id,
 			to: r.userProject.userOrganizationId,
@@ -152,6 +165,54 @@ export const relations = defineRelations(schema, (r) => ({
 		iamRules: r.many.userIamRule({
 			from: r.userOrganization.id,
 			to: r.userIamRule.userOrganizationId,
+		}),
+	},
+	organizationTeam: {
+		organization: r.one.organization({
+			from: r.organizationTeam.organizationId,
+			to: r.organization.id,
+		}),
+		members: r.many.userOrganization({
+			from: r.organizationTeam.id,
+			to: r.userOrganization.teamId,
+		}),
+		projects: r.many.organizationTeamProject({
+			from: r.organizationTeam.id,
+			to: r.organizationTeamProject.teamId,
+		}),
+		iamRules: r.many.organizationTeamIamRule({
+			from: r.organizationTeam.id,
+			to: r.organizationTeamIamRule.teamId,
+		}),
+		ssoMappings: r.many.ssoTeamMapping({
+			from: r.organizationTeam.id,
+			to: r.ssoTeamMapping.teamId,
+		}),
+	},
+	ssoTeamMapping: {
+		organization: r.one.organization({
+			from: r.ssoTeamMapping.organizationId,
+			to: r.organization.id,
+		}),
+		team: r.one.organizationTeam({
+			from: r.ssoTeamMapping.teamId,
+			to: r.organizationTeam.id,
+		}),
+	},
+	organizationTeamIamRule: {
+		team: r.one.organizationTeam({
+			from: r.organizationTeamIamRule.teamId,
+			to: r.organizationTeam.id,
+		}),
+	},
+	organizationTeamProject: {
+		team: r.one.organizationTeam({
+			from: r.organizationTeamProject.teamId,
+			to: r.organizationTeam.id,
+		}),
+		project: r.one.project({
+			from: r.organizationTeamProject.projectId,
+			to: r.project.id,
 		}),
 	},
 	userIamRule: {
@@ -198,6 +259,10 @@ export const relations = defineRelations(schema, (r) => ({
 		userProjects: r.many.userProject({
 			from: r.project.id,
 			to: r.userProject.projectId,
+		}),
+		organizationTeams: r.many.organizationTeamProject({
+			from: r.project.id,
+			to: r.organizationTeamProject.projectId,
 		}),
 		apiKeys: r.many.apiKey(),
 		logs: r.many.log(),

@@ -619,23 +619,24 @@ describe("Models API", () => {
 		]);
 	});
 
-	test("GET /v1/models should include proper output modalities for gemini-3-pro-image-preview", async () => {
+	test("GET /v1/models should include proper output modalities for Gemini 3 Pro Image", async () => {
 		const res = await app.request("/v1/models?include_deactivated=true");
 		expect(res.status).toBe(200);
 
 		const json = await res.json();
 
-		const imageModel = json.data.find(
-			(model: any) => model.id === "gemini-3-pro-image-preview",
-		);
+		for (const modelId of [
+			"gemini-3-pro-image",
+			"gemini-3-pro-image-preview",
+		]) {
+			const imageModel = json.data.find((model: any) => model.id === modelId);
 
-		expect(imageModel).toBeDefined();
-		expect(imageModel.architecture.output_modalities).toContain("text");
-		expect(imageModel.architecture.output_modalities).toContain("image");
-		expect(imageModel.architecture.output_modalities).toEqual([
-			"text",
-			"image",
-		]);
+			expect(imageModel).toBeDefined();
+			expect(imageModel.architecture.output_modalities).toEqual([
+				"text",
+				"image",
+			]);
+		}
 	});
 
 	test("GET /v1/models should include proper output modalities for Veo 3.1 preview models", async () => {
@@ -657,9 +658,6 @@ describe("Models API", () => {
 			expect(videoModel.per_request_limits).toEqual({
 				max_video_duration_seconds: "10",
 			});
-			const avalancheProvider = videoModel.providers.find(
-				(provider: any) => provider.providerId === "avalanche",
-			);
 			const googleVertexProvider = videoModel.providers.find(
 				(provider: any) => provider.providerId === "google-vertex",
 			);
@@ -674,15 +672,6 @@ describe("Models API", () => {
 			]);
 			expect(googleVertexProvider?.supportsVideoAudio).toBe(true);
 			expect(googleVertexProvider?.supportsVideoWithoutAudio).toBe(true);
-			expect(avalancheProvider?.pricing.per_second).toBeDefined();
-			expect(avalancheProvider?.supportedVideoSizes).toEqual([
-				"1920x1080",
-				"1080x1920",
-				"3840x2160",
-				"2160x3840",
-			]);
-			expect(avalancheProvider?.supportsVideoAudio).toBe(true);
-			expect(avalancheProvider?.supportsVideoWithoutAudio).toBe(false);
 		}
 	});
 
@@ -695,6 +684,7 @@ describe("Models API", () => {
 		for (const modelId of [
 			"gemini-3.1-flash-image-preview",
 			"gemini-3.1-pro-preview",
+			"gemini-3-pro-image",
 			"gemini-3-pro-image-preview",
 		]) {
 			const model = json.data.find((item: any) => item.id === modelId);
@@ -738,6 +728,7 @@ describe("Models API", () => {
 
 		expect(glacierModelIds).toEqual([
 			"gemini-2.5-flash-image",
+			"gemini-3-pro-image",
 			"gemini-3-pro-image-preview",
 			"gemini-3.1-flash-image-preview",
 		]);

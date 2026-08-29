@@ -33,6 +33,7 @@ import { providerLogoUrls } from "@llmgateway/shared/components";
 
 import {
 	PaymentMethodsList,
+	type AdminDevPlanCardFingerprint,
 	type AdminPaymentMethod,
 } from "./payment-methods-list";
 
@@ -264,15 +265,22 @@ function RefBadgeList({ refs }: { refs: string[] | undefined }) {
 export function OrgSettingsTab({
 	settings,
 	paymentMethods,
+	devPlanCardFingerprints,
 	paymentMethodsLoadError,
 	onDeletePaymentMethod,
+	onReleaseDevPlanCardFingerprint,
 }: {
 	settings: SettingsResponse;
 	paymentMethods: AdminPaymentMethod[] | null;
+	devPlanCardFingerprints: AdminDevPlanCardFingerprint[];
 	paymentMethodsLoadError: boolean;
 	onDeletePaymentMethod: (
 		paymentMethodId: string,
 		replacementPaymentMethodId?: string,
+		releaseDevPlanCardFingerprint?: boolean,
+	) => Promise<{ success: boolean; error?: string }>;
+	onReleaseDevPlanCardFingerprint: (
+		fingerprintId: string,
 	) => Promise<{ success: boolean; error?: string }>;
 }) {
 	const { organization: org, customProviders } = settings;
@@ -562,9 +570,11 @@ export function OrgSettingsTab({
 
 					<PaymentMethodsList
 						paymentMethods={paymentMethods}
+						devPlanCardFingerprints={devPlanCardFingerprints}
 						loadError={paymentMethodsLoadError}
 						autoTopUpEnabled={org.autoTopUpEnabled}
 						onDelete={onDeletePaymentMethod}
+						onReleaseFingerprint={onReleaseDevPlanCardFingerprint}
 					/>
 				</CardContent>
 			</Card>

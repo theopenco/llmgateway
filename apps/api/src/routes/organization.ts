@@ -717,10 +717,36 @@ organization.openapi(updateOrganization, async (c) => {
 		});
 	}
 
-	// Provider compliance policies are an enterprise feature managed by owners
-	// and admins (matching the Guardrails settings page).
+	// DevPass accepts only the no-API-training requirement. Other organizations
+	// retain the existing enterprise policy gate.
 	if (providerCompliancePolicy !== undefined) {
 		if (
+			userOrganization.role !== "owner" &&
+			userOrganization.role !== "admin"
+		) {
+			throw new HTTPException(403, {
+				message: "Only owners and admins can manage compliance policies",
+			});
+		}
+		if (
+			userOrganization.organization?.kind === "devpass" &&
+			providerCompliancePolicy !== null
+		) {
+			const unsupportedKeys = Object.entries(providerCompliancePolicy)
+				.filter(([key, value]) => {
+					if (key === "enabled" || key === "blockApiTraining") {
+						return false;
+					}
+					return Array.isArray(value) ? value.length > 0 : Boolean(value);
+				})
+				.map(([key]) => key);
+
+			if (unsupportedKeys.length > 0) {
+				throw new HTTPException(403, {
+					message: `DevPass compliance settings only support blockApiTraining; unsupported settings: ${unsupportedKeys.join(", ")}`,
+				});
+			}
+		} else if (
 			!hasOrganizationEnterpriseAccess(
 				userOrganization.organization?.id,
 				userOrganization.organization?.plan,
@@ -728,14 +754,6 @@ organization.openapi(updateOrganization, async (c) => {
 		) {
 			throw new HTTPException(403, {
 				message: "Provider compliance policies require an enterprise plan",
-			});
-		}
-		if (
-			userOrganization.role !== "owner" &&
-			userOrganization.role !== "admin"
-		) {
-			throw new HTTPException(403, {
-				message: "Only owners and admins can manage compliance policies",
 			});
 		}
 	}
