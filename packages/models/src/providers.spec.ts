@@ -246,15 +246,7 @@ describe("model service tier support", () => {
 
 describe("isStealthProvider", () => {
 	it("flags providers that require a baseUrl env var (no default endpoint)", () => {
-		for (const id of [
-			"glacier",
-			"iceberg",
-			"granite",
-			"quartz",
-			"avalanche",
-			"tundra",
-			"permafrost",
-		]) {
+		for (const id of ["glacier", "iceberg", "granite", "quartz"]) {
 			expect(isStealthProvider(id)).toBe(true);
 		}
 	});

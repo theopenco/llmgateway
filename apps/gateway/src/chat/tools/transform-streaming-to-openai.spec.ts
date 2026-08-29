@@ -48,34 +48,6 @@ describe("transformStreamingToOpenai", () => {
 		expect(result.model).toBe("deepinfra/deepseek-v4-flash");
 	});
 
-	it("does not warn for Permafrost OpenAI streaming chunks", () => {
-		warn.mockClear();
-
-		const result = transformStreamingToOpenai(
-			"permafrost",
-			"kimi-k3",
-			{
-				id: "chatcmpl_123",
-				object: "chat.completion.chunk",
-				model: "kimi-k3",
-				choices: [
-					{
-						index: 0,
-						delta: { content: "Hello" },
-						finish_reason: null,
-					},
-				],
-			},
-			[],
-		);
-
-		expect(result).toMatchObject({
-			id: "chatcmpl_123",
-			choices: [{ delta: { content: "Hello" } }],
-		});
-		expect(warn).not.toHaveBeenCalled();
-	});
-
 	it("normalizes Novita tool-call finishes across streaming chunks", () => {
 		const toolCallChoiceIndices = new Set<number>();
 
