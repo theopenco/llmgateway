@@ -1611,7 +1611,7 @@ export function AllModels({
 						a.provider.discount,
 					);
 					bValue = effectiveTokenPrice(
-						a.provider.cachedInputPrice,
+						b.provider.cachedInputPrice,
 						b.provider.discount,
 					);
 					break;
