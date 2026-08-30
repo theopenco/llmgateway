@@ -4,15 +4,32 @@ import type { ApiModelProviderMapping } from "./api-types";
 
 type PeakPricing = NonNullable<ApiModelProviderMapping["peakPricing"]>;
 
+export function parseStrictPrice(
+	value: string | number | null | undefined,
+): number | null {
+	if (value === null || value === undefined) {
+		return null;
+	}
+	const str = String(value).trim();
+	if (str === "") {
+		return null;
+	}
+	if (!/^-?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(str)) {
+		return null;
+	}
+	const n = Number(str);
+	if (!Number.isFinite(n) || n < 0) {
+		return null;
+	}
+	return n;
+}
+
 export function effectiveTokenPrice(
 	price: string | null | undefined,
 	discount?: string | null,
 ): number | null {
-	if (price === null || price === undefined || price === "") {
-		return null;
-	}
-	const raw = parseFloat(price);
-	if (!Number.isFinite(raw) || raw < 0) {
+	const raw = parseStrictPrice(price);
+	if (raw === null) {
 		return null;
 	}
 	if (raw === 0) {
@@ -75,10 +92,10 @@ function discountedRecordValues(
 ): number[] {
 	const d = discountFraction(discount);
 	return Object.values(record)
-		.map((v) => Number(v))
-		.filter((v) => Number.isFinite(v) && v >= 0)
+		.map((v) => parseStrictPrice(v))
+		.filter((v): v is number => v !== null)
 		.map((v) => (d > 0 ? v * (1 - d) : v))
-		.filter((v) => Number.isFinite(v) && v >= 0);
+		.filter((v): v is number => Number.isFinite(v) && v >= 0);
 }
 
 export function getMinPerImagePrice(
@@ -110,11 +127,8 @@ export function getMinPerSecondPrice(
 export function getMinInputCharacterPrice(
 	mapping: ApiModelProviderMapping,
 ): number | null {
-	if (!mapping.inputCharacterPrice) {
-		return null;
-	}
-	const raw = parseFloat(mapping.inputCharacterPrice);
-	if (!Number.isFinite(raw) || raw < 0) {
+	const raw = parseStrictPrice(mapping.inputCharacterPrice);
+	if (raw === null) {
 		return null;
 	}
 	if (raw === 0) {

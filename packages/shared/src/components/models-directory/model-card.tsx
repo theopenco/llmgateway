@@ -45,6 +45,8 @@ import {
 import { discountFraction } from "@/lib/discount";
 import { cn } from "@/lib/utils";
 
+import { parseStrictPrice } from "./pricing-schedule";
+
 import { formatContextSize, formatDeprecationDate } from "./format";
 import { ModelCodeExampleDialog } from "./model-code-example-dialog";
 import { ModelStatusBadge } from "./model-status-badge";
@@ -1062,23 +1064,31 @@ export function ProviderSection({
 								const prices = activeMapping.perSecondPrice!;
 								const d = discountFraction(activeMapping.discount);
 								const fmt = (v: string) => {
-									const n = Number(v);
+									const n = parseStrictPrice(v);
+									if (n === null) {
+										return null;
+									}
 									const eff =
 										d > 0
 											? n * (1 - d) * serviceTierMultiplier
 											: n * serviceTierMultiplier;
+									if (!Number.isFinite(eff) || eff < 0) {
+										return null;
+									}
 									return parseFloat(eff.toFixed(4)).toString();
 								};
 								const defaultVideo = prices["default_video"];
 								const defaultAudio = prices["default_audio"];
-								if (defaultVideo && defaultAudio) {
+								const fv = defaultVideo ? fmt(defaultVideo) : null;
+								const fa = defaultAudio ? fmt(defaultAudio) : null;
+								if (fv && fa) {
 									return (
 										<div className="flex justify-between text-sm">
 											<span className="text-muted-foreground">
 												Video / Audio
 											</span>
 											<span className="font-semibold tabular-nums">
-												${fmt(defaultVideo)} – ${fmt(defaultAudio)}
+												${fv} – ${fa}
 												<span className="text-muted-foreground text-xs ml-0.5">
 													/sec
 												</span>
@@ -1087,12 +1097,13 @@ export function ProviderSection({
 									);
 								}
 								const defaultPrice = prices["default"];
-								if (defaultPrice) {
+								const fp = defaultPrice ? fmt(defaultPrice) : null;
+								if (fp) {
 									return (
 										<div className="flex justify-between text-sm">
 											<span className="text-muted-foreground">Default</span>
 											<span className="font-semibold tabular-nums">
-												${fmt(defaultPrice)}
+												${fp}
 												<span className="text-muted-foreground text-xs ml-0.5">
 													/sec
 												</span>
@@ -1100,14 +1111,22 @@ export function ProviderSection({
 										</div>
 									);
 								}
-								return Object.entries(prices).map(([key, value]) => (
-									<div key={key} className="flex justify-between text-xs">
-										<span className="text-muted-foreground">{key}</span>
-										<span className="font-mono tabular-nums">
-											${fmt(value)}/sec
-										</span>
-									</div>
-								));
+								return Object.entries(prices)
+									.map(([key, value]) => {
+										const f = fmt(value);
+										return f ? (
+											<div
+												key={key}
+												className="flex justify-between text-xs"
+											>
+												<span className="text-muted-foreground">{key}</span>
+												<span className="font-mono tabular-nums">
+													${f}/sec
+												</span>
+											</div>
+										) : null;
+									})
+									.filter(Boolean);
 							})()}
 						</div>
 					</div>

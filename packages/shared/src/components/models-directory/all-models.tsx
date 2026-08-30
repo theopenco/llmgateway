@@ -93,6 +93,7 @@ import {
 	getMinInputCharacterPrice,
 	getMinPerImagePrice,
 	getMinPerSecondPrice,
+	parseStrictPrice,
 } from "./pricing-schedule";
 import { isVisibleMapping } from "./status-filters";
 import {
@@ -667,10 +668,13 @@ const ModelTableRow = React.memo(
 					{/* Output Price Column */}
 					<TableCell className="text-right font-mono text-sm">
 						{getMinPerSecondPrice(row.provider) !== null &&
-						effectiveTokenPrice(
-							row.provider.outputPrice,
-							row.provider.discount,
-						) === null ? (
+						(() => {
+							const eff = effectiveTokenPrice(
+								row.provider.outputPrice,
+								row.provider.discount,
+							);
+							return eff === null || eff === 0;
+						})() ? (
 							<Tooltip>
 								<TooltipTrigger asChild>
 									<span className="text-violet-500 cursor-help">
@@ -1878,11 +1882,8 @@ export function AllModels({
 		price: string | null | undefined,
 		discount?: string | null,
 	) => {
-		if (price === null || price === undefined || price === "") {
-			return "—";
-		}
-		const priceNum = parseFloat(price);
-		if (!Number.isFinite(priceNum)) {
+		const priceNum = parseStrictPrice(price);
+		if (priceNum === null) {
 			return "—";
 		}
 		const discountNum = discountFraction(discount);

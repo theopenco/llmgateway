@@ -1,5 +1,7 @@
 import { discountFraction } from "@/lib/discount";
 
+import { parseStrictPrice } from "./pricing-schedule";
+
 /**
  * Formats a context size number into a human-readable string with k/M suffixes
  * @param contextSize - The context size in tokens
@@ -61,8 +63,8 @@ export function formatPerImagePriceRange(
 ): string | null {
 	const d = discountFraction(discount);
 	const values = Object.values(perImagePrice)
-		.map(Number)
-		.filter(Number.isFinite)
+		.map((v) => parseStrictPrice(v))
+		.filter((v): v is number => v !== null)
 		.map((v) => (d > 0 ? v * (1 - d) : v));
 	if (values.length === 0) {
 		return null;
