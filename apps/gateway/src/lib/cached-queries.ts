@@ -1340,9 +1340,9 @@ export interface EffectiveRoutingScoreMultiplier {
  * routing_score_multiplier, which stays an admin-only prioritization knob —
  * the two combine additively at the scoring seam.
  */
-export async function findAirsideRoutingAdjustment(
+export async function findAirsideRoutingSettings(
 	provider: string,
-): Promise<number> {
+): Promise<{ discountPercent: number; marginPercent: number } | null> {
 	const rows = await swrWrap(
 		`airsideRouting:${provider}`,
 		[providerRoutingSettingsTableName],
@@ -1358,11 +1358,24 @@ export async function findAirsideRoutingAdjustment(
 	);
 	const row = rows[0];
 	if (!row) {
+		return null;
+	}
+	return {
+		discountPercent: Number(row.discountPercent),
+		marginPercent: Number(row.marginPercent),
+	};
+}
+
+export async function findAirsideRoutingAdjustment(
+	provider: string,
+): Promise<number> {
+	const settings = await findAirsideRoutingSettings(provider);
+	if (!settings) {
 		return 0;
 	}
 	return computeAirsideAdjustment(
-		Number(row.discountPercent),
-		Number(row.marginPercent),
+		settings.discountPercent,
+		settings.marginPercent,
 	);
 }
 

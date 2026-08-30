@@ -3140,14 +3140,20 @@ async function seedAirside() {
 	// entries, which don't include mistral).
 	const airsideStats: (typeof tables.projectHourlyModelStats.$inferInsert)[] =
 		[];
+	const airsideGlobalStats: (typeof tables.globalModelStats.$inferInsert)[] =
+		[];
 	const airsideModels = [
 		{ model: "mistral-medium-4", inputPrice: 4e-7, outputPrice: 2e-6 },
 		{ model: "codestral-3", inputPrice: 9e-7, outputPrice: 3e-6 },
 	];
+	// Matches the seeded mistral provider_routing_settings marginPercent.
+	const airsideMarginPercent = 0.3;
 	let airsideStatId = 0;
 	for (let day = 0; day < 30; day++) {
-		for (const hour of [3, 9, 15, 21]) {
-			for (const entry of airsideModels) {
+		for (const entry of airsideModels) {
+			let dayRequestCount = 0;
+			let dayCost = 0;
+			for (const hour of [3, 9, 15, 21]) {
 				const bucket = daysAgo(day);
 				bucket.setHours(hour, 0, 0, 0);
 				const requestCount = randomInt(40, 400);
@@ -3156,6 +3162,8 @@ async function seedAirside() {
 				const inputCost = inputTokens * entry.inputPrice;
 				const outputCost = outputTokens * entry.outputPrice;
 				const cost = inputCost + outputCost;
+				dayRequestCount += requestCount;
+				dayCost += cost;
 				airsideStats.push({
 					id: `airside-phms-${airsideStatId++}`,
 					projectId: "test-project-id",
@@ -3173,11 +3181,29 @@ async function seedAirside() {
 					cost,
 					inputCost,
 					outputCost,
+					providerMarginAmount: cost * airsideMarginPercent,
 				});
 			}
+			// Daily cross-tenant rollup so the admin carriers page has accrued
+			// margin figures locally.
+			const dayBucket = daysAgo(day);
+			dayBucket.setHours(0, 0, 0, 0);
+			airsideGlobalStats.push({
+				id: `airside-gms-${day}-${entry.model}`,
+				dayTimestamp: dayBucket,
+				usedModel: entry.model,
+				usedProvider: "mistral",
+				usedMode: "credits",
+				orgKind: "default",
+				requestCount: dayRequestCount,
+				completedCount: dayRequestCount,
+				cost: dayCost,
+				providerMarginAmount: dayCost * airsideMarginPercent,
+			});
 		}
 	}
 	await bulkInsert(tables.projectHourlyModelStats, airsideStats);
+	await bulkInsert(tables.globalModelStats, airsideGlobalStats);
 
 	await upsert(tables.providerPriceFiling, {
 		id: "airside-filing-large-initial",

@@ -2155,6 +2155,14 @@ export const log = pgTable(
 		lastVideoDownloadedAt: timestamp(),
 		estimatedCost: boolean().default(false),
 		discount: real(),
+		// Snapshot of the used provider's Airside routing settings
+		// (`provider_routing_settings`) at request time, as fractions. Null when
+		// the provider has no settings row. Stamped so margin revenue can be
+		// reconstructed historically even after the carrier changes its settings;
+		// the hourly aggregators roll `cost * providerMarginPercent` into
+		// `providerMarginAmount`.
+		providerMarginPercent: real(),
+		providerDiscountPercent: real(),
 		pricingTier: text(),
 		// The processing tier the gateway requested upstream (e.g. "flex" /
 		// "priority"), which is also the tier that narrows routing to tier-capable
@@ -4892,6 +4900,10 @@ export const projectHourlyModelStats = pgTable(
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
+		// Gateway margin earned on Airside-carrier traffic:
+		// SUM(log.cost * log.providerMarginPercent). 0 for providers without
+		// routing settings.
+		providerMarginAmount: real().notNull().default(0),
 		// Per-mode breakdowns
 		creditsRequestCount: integer().notNull().default(0),
 		apiKeysRequestCount: integer().notNull().default(0),
@@ -5330,6 +5342,10 @@ export const globalModelStats = pgTable(
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
+		// Gateway margin earned on Airside-carrier traffic:
+		// SUM(log.cost * log.providerMarginPercent). 0 for providers without
+		// routing settings.
+		providerMarginAmount: real().notNull().default(0),
 	},
 	(table) => [
 		// usedMode/orgKind are part of the key: every metric is therefore

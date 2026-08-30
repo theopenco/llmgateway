@@ -44,6 +44,7 @@ describe("global stats aggregation", () => {
 		cost: number;
 		totalTokens?: string;
 		createdAt?: Date;
+		providerMarginPercent?: number;
 	}) =>
 		db.insert(log).values({
 			requestId: `global-stats-request-${randomUUID()}`,
@@ -53,6 +54,7 @@ describe("global stats aggregation", () => {
 			apiKeyId: `global-stats-api-key-${suffix}`,
 			source: ids.source,
 			cost: values.cost,
+			providerMarginPercent: values.providerMarginPercent,
 			promptTokens: "10",
 			completionTokens: "20",
 			totalTokens: values.totalTokens ?? "30",
@@ -276,6 +278,40 @@ describe("global stats aggregation", () => {
 		expect(rows).toHaveLength(1);
 		expect(rows[0].requestCount).toBe(2);
 		expect(Number(rows[0].cost)).toBeCloseTo(0.03, 6);
+	});
+
+	test("rolls the snapshotted provider margin into providerMarginAmount", async () => {
+		await insertLog({
+			organizationId: ids.paygOrgId,
+			projectId: ids.paygProjectId,
+			usedMode: "credits",
+			cost: 0.1,
+			providerMarginPercent: 0.3,
+		});
+		await insertLog({
+			organizationId: ids.paygOrgId,
+			projectId: ids.paygProjectId,
+			usedMode: "credits",
+			cost: 0.2,
+			providerMarginPercent: 0.25,
+		});
+		// No snapshot (provider without routing settings) → contributes nothing.
+		await insertLog({
+			organizationId: ids.paygOrgId,
+			projectId: ids.paygProjectId,
+			usedMode: "credits",
+			cost: 0.5,
+		});
+
+		await aggregate();
+
+		const rows = await readModelStats();
+		expect(rows).toHaveLength(1);
+		expect(Number(rows[0].cost)).toBeCloseTo(0.8, 6);
+		expect(Number(rows[0].providerMarginAmount)).toBeCloseTo(
+			0.1 * 0.3 + 0.2 * 0.25, // eslint-disable-line no-mixed-operators
+			6,
+		);
 	});
 
 	test("applies the same dimensions to source stats", async () => {

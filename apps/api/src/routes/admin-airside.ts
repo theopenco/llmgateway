@@ -10,7 +10,17 @@ import {
 import { verifiedWebsiteDomain } from "@/lib/airside-domains.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 
-import { and, cdb, db, eq, inArray, ne, tables } from "@llmgateway/db";
+import {
+	and,
+	cdb,
+	computeAirsideAdjustment,
+	db,
+	eq,
+	inArray,
+	ne,
+	sql,
+	tables,
+} from "@llmgateway/db";
 import { models as catalogueModels } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
@@ -809,5 +819,108 @@ adminAirside.openapi(listCompanies, async (c) => {
 			})),
 			modelCount: company.draftModels.length,
 		})),
+	});
+});
+
+const listRoutingSettings = createRoute({
+	method: "get",
+	path: "/airside/routing-settings",
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						providers: z.array(
+							z.object({
+								providerId: z.string(),
+								company: z.object({ id: z.string(), name: z.string() }),
+								discountPercent: z.number(),
+								marginPercent: z.number(),
+								// Signed routing-price adjustment (negative = boosted).
+								routingAdjustment: z.number(),
+								// Gateway margin earned on this carrier's traffic, from
+								// global_model_stats.provider_margin_amount.
+								marginAmount30d: z.number(),
+								marginAmountTotal: z.number(),
+								updatedAt: z.string(),
+							}),
+						),
+					}),
+				},
+			},
+			description:
+				"Every Airside carrier's routing settings plus accrued gateway margin.",
+		},
+	},
+});
+
+adminAirside.openapi(listRoutingSettings, async (c) => {
+	const rows = await db
+		.select({
+			providerId: tables.providerRoutingSettings.providerId,
+			discountPercent: tables.providerRoutingSettings.discountPercent,
+			marginPercent: tables.providerRoutingSettings.marginPercent,
+			updatedAt: tables.providerRoutingSettings.updatedAt,
+			companyId: tables.providerCompany.id,
+			companyName: tables.providerCompany.name,
+		})
+		.from(tables.providerRoutingSettings)
+		.innerJoin(
+			tables.providerCompany,
+			eq(
+				tables.providerRoutingSettings.providerCompanyId,
+				tables.providerCompany.id,
+			),
+		)
+		.orderBy(tables.providerCompany.name);
+
+	const providerIds = rows.map((row) => row.providerId);
+	// UTC string cutoff: dayTimestamp is `timestamp without time zone`, so
+	// comparing against now() would go through the server timezone.
+	const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+	const cutoff = new Date(Date.now() - thirtyDaysMs)
+		.toISOString()
+		.slice(0, 19)
+		.replace("T", " ");
+	const totals = providerIds.length
+		? await db
+				.select({
+					usedProvider: tables.globalModelStats.usedProvider,
+					total:
+						sql<number>`coalesce(sum(cast(${tables.globalModelStats.providerMarginAmount} as double precision)), 0)`.as(
+							"total",
+						),
+					last30d:
+						sql<number>`coalesce(sum(cast(${tables.globalModelStats.providerMarginAmount} as double precision)) filter (where ${tables.globalModelStats.dayTimestamp} >= ${cutoff}::timestamp), 0)`.as(
+							"last30d",
+						),
+				})
+				.from(tables.globalModelStats)
+				.where(inArray(tables.globalModelStats.usedProvider, providerIds))
+				.groupBy(tables.globalModelStats.usedProvider)
+		: [];
+	const totalsByProvider = new Map(
+		totals.map((row) => [row.usedProvider, row]),
+	);
+
+	return c.json({
+		providers: rows.map((row) => {
+			const discountPercent = Number(row.discountPercent);
+			const marginPercent = Number(row.marginPercent);
+			const accrued = totalsByProvider.get(row.providerId);
+			return {
+				providerId: row.providerId,
+				company: { id: row.companyId, name: row.companyName },
+				discountPercent,
+				marginPercent,
+				routingAdjustment: computeAirsideAdjustment(
+					discountPercent,
+					marginPercent,
+				),
+				marginAmount30d: Number(accrued?.last30d ?? 0),
+				marginAmountTotal: Number(accrued?.total ?? 0),
+				updatedAt: row.updatedAt.toISOString(),
+			};
+		}),
 	});
 });

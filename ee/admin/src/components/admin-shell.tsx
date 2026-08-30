@@ -17,6 +17,7 @@ import {
 	MessageCircle,
 	MessageSquare,
 	Percent,
+	PlaneLanding,
 	PlaneTakeoff,
 	Route,
 	Server,
@@ -134,6 +135,12 @@ const navItems: NavItem[] = [
 		href: "/airside-filings",
 		label: "Airside Filings",
 		icon: PlaneTakeoff,
+		match: "prefix",
+	},
+	{
+		href: "/airside-carriers",
+		label: "Airside Carriers",
+		icon: PlaneLanding,
 		match: "prefix",
 	},
 	{

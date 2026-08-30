@@ -894,6 +894,76 @@ describe("airside provider portal", () => {
 		expect(outOfBounds.status).toBe(400);
 	});
 
+	it("lists every carrier's settings and accrued margin for admins", async () => {
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		await app.request(
+			"/airside/routing-settings/mistral",
+			json(
+				cookie,
+				{
+					providerCompanyId: company.id,
+					discountPercent: 0.1,
+					marginPercent: 0.3,
+				},
+				"PUT",
+			),
+		);
+
+		// Accrued margin comes from the daily global rollups: one day inside the
+		// 30-day window, one outside.
+		const now = Date.now();
+		const dayMs = 24 * 60 * 60 * 1000;
+		await db.insert(tables.globalModelStats).values([
+			{
+				dayTimestamp: new Date(now - 2 * dayMs), // eslint-disable-line no-mixed-operators
+				usedModel: "mistral-medium-4",
+				usedProvider: "mistral",
+				usedMode: "credits",
+				orgKind: "default",
+				requestCount: 10,
+				cost: 20,
+				providerMarginAmount: 5,
+			},
+			{
+				dayTimestamp: new Date(now - 60 * dayMs), // eslint-disable-line no-mixed-operators
+				usedModel: "mistral-medium-4",
+				usedProvider: "mistral",
+				usedMode: "credits",
+				orgKind: "default",
+				requestCount: 10,
+				cost: 30,
+				providerMarginAmount: 7,
+			},
+		]);
+
+		try {
+			const res = await app.request("/admin/airside/routing-settings", {
+				headers: { Cookie: cookie },
+			});
+			expect(res.status).toBe(200);
+			const body = await res.json();
+			expect(body.providers).toHaveLength(1);
+			expect(body.providers[0]).toMatchObject({
+				providerId: "mistral",
+				company: expect.objectContaining({ name: "Mistral Ops" }),
+			});
+			expect(body.providers[0].discountPercent).toBeCloseTo(0.1);
+			expect(body.providers[0].marginPercent).toBeCloseTo(0.3);
+			expect(body.providers[0].routingAdjustment).toBeCloseTo(-0.2);
+			expect(body.providers[0].marginAmount30d).toBeCloseTo(5);
+			expect(body.providers[0].marginAmountTotal).toBeCloseTo(12);
+		} finally {
+			// deleteAll() does not cover the global stats tables.
+			await db
+				.delete(tables.globalModelStats)
+				.where(eq(tables.globalModelStats.usedProvider, "mistral"));
+		}
+	});
+
 	it("stores reasoning efforts and audio on a listing", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
