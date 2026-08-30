@@ -87,7 +87,13 @@ import { matchesCapability } from "./capability-filters";
 import { formatDeprecationDate, formatPerImagePriceRange } from "./format";
 import { ModelCard } from "./model-card";
 import { applyCategoryFilter } from "./model-category-filters";
-import { compareSortValues, effectiveTokenPrice } from "./pricing-schedule";
+import {
+	compareSortValues,
+	effectiveTokenPrice,
+	getMinInputCharacterPrice,
+	getMinPerImagePrice,
+	getMinPerSecondPrice,
+} from "./pricing-schedule";
 import { isVisibleMapping } from "./status-filters";
 import {
 	applyUseCaseFilter,
@@ -159,8 +165,36 @@ type SortField =
 	| "inputPrice"
 	| "outputPrice"
 	| "cachedInputPrice"
-	| "discount";
+	| "discount"
+	| "perImagePrice"
+	| "perSecondPrice"
+	| "inputCharacterPrice";
+type PriceUnitField = "perImagePrice" | "perSecondPrice" | "inputCharacterPrice";
 type SortDirection = "asc" | "desc";
+
+const ALT_PRICE_FIELDS = [
+	{
+		field: "perImagePrice" as const,
+		getMin: getMinPerImagePrice,
+		Icon: ImagePlus,
+		iconClass: "text-pink-500",
+		label: "Image $/image",
+	},
+	{
+		field: "perSecondPrice" as const,
+		getMin: getMinPerSecondPrice,
+		Icon: Video,
+		iconClass: "text-violet-500",
+		label: "Video $/sec",
+	},
+	{
+		field: "inputCharacterPrice" as const,
+		getMin: getMinInputCharacterPrice,
+		Icon: Volume2,
+		iconClass: "text-rose-500",
+		label: "Speech $/1K chars",
+	},
+] as const;
 
 // Capability icon type
 interface CapabilityIcon {
@@ -538,20 +572,23 @@ const ModelTableRow = React.memo(
 
 					{/* Input Price Column */}
 					<TableCell className="text-right font-mono text-sm">
-						{row.provider.perSecondPrice && !row.provider.inputPrice ? (
+						{getMinPerSecondPrice(row.provider) !== null &&
+						(effectiveTokenPrice(
+							row.provider.inputPrice,
+							row.provider.discount,
+						) === null ||
+							effectiveTokenPrice(
+								row.provider.inputPrice,
+								row.provider.discount,
+							) === 0) ? (
 							<Tooltip>
 								<TooltipTrigger asChild>
 									<span className="text-violet-500 cursor-help">
 										{(() => {
-											const prices = row.provider.perSecondPrice;
-											const values = Object.values(prices)
-												.map(Number)
-												.filter(Number.isFinite);
-											if (values.length === 0) {
-												return "—";
-											}
-											const min = Math.min(...values);
-											return `$${min}/sec`;
+											const v = getMinPerSecondPrice(row.provider);
+											return v !== null
+												? `$${parseFloat(v.toFixed(4))}/sec`
+												: "—";
 										})()}
 									</span>
 								</TooltipTrigger>
@@ -559,20 +596,24 @@ const ModelTableRow = React.memo(
 									<p className="text-xs">Video per-second pricing</p>
 								</TooltipContent>
 							</Tooltip>
-						) : (!row.provider.inputPrice ||
-								parseFloat(row.provider.inputPrice) === 0) &&
-						  row.provider.inputCharacterPrice &&
-						  parseFloat(row.provider.inputCharacterPrice) > 0 ? (
+						) : getMinInputCharacterPrice(row.provider) !== null &&
+						  (effectiveTokenPrice(
+								row.provider.inputPrice,
+								row.provider.discount,
+							) === null ||
+								effectiveTokenPrice(
+									row.provider.inputPrice,
+									row.provider.discount,
+								) === 0) ? (
 							<Tooltip>
 								<TooltipTrigger asChild>
 									<span className="text-sky-500 cursor-help">
-										$
-										{parseFloat(
-											(
-												parseFloat(row.provider.inputCharacterPrice) * 1000
-											).toFixed(4),
-										)}
-										/1K chars
+										{(() => {
+											const v = getMinInputCharacterPrice(row.provider);
+											return v !== null
+												? `$${parseFloat((v * 1000).toFixed(4))}/1K chars`
+												: "—";
+										})()}
 									</span>
 								</TooltipTrigger>
 								<TooltipContent>
@@ -624,20 +665,19 @@ const ModelTableRow = React.memo(
 
 					{/* Output Price Column */}
 					<TableCell className="text-right font-mono text-sm">
-						{row.provider.perSecondPrice && !row.provider.outputPrice ? (
+						{getMinPerSecondPrice(row.provider) !== null &&
+						effectiveTokenPrice(
+							row.provider.outputPrice,
+							row.provider.discount,
+						) === null ? (
 							<Tooltip>
 								<TooltipTrigger asChild>
 									<span className="text-violet-500 cursor-help">
 										{(() => {
-											const prices = row.provider.perSecondPrice;
-											const values = Object.values(prices)
-												.map(Number)
-												.filter(Number.isFinite);
-											if (values.length === 0) {
-												return "—";
-											}
-											const max = Math.max(...values);
-											return `$${max}/sec`;
+											const v = getMinPerSecondPrice(row.provider);
+											return v !== null
+												? `$${parseFloat(v.toFixed(4))}/sec`
+												: "—";
 										})()}
 									</span>
 								</TooltipTrigger>
@@ -753,8 +793,7 @@ const ModelTableRow = React.memo(
 												{parseFloat(row.provider.requestPrice).toFixed(3)}
 											</Badge>
 										)}
-									{row.provider.perSecondPrice &&
-										Object.keys(row.provider.perSecondPrice).length > 0 && (
+									{getMinPerSecondPrice(row.provider) !== null && (
 											<Badge
 												variant="outline"
 												className="text-sm px-3 py-1.5 bg-background"
@@ -762,18 +801,10 @@ const ModelTableRow = React.memo(
 												<Video className="h-4 w-4 mr-2 text-violet-500" />
 												Video{" "}
 												{(() => {
-													const prices = row.provider.perSecondPrice!;
-													const defaultVideo = prices["default_video"];
-													const defaultAudio = prices["default_audio"];
-													const defaultPrice = prices["default"];
-													if (defaultVideo && defaultAudio) {
-														return `$${defaultVideo} – $${defaultAudio}/sec`;
-													}
-													if (defaultPrice) {
-														return `$${defaultPrice}/sec`;
-													}
-													const firstValue = Object.values(prices)[0];
-													return firstValue ? `$${firstValue}/sec` : "";
+													const v = getMinPerSecondPrice(row.provider);
+													return v !== null
+														? `$${parseFloat(v.toFixed(4))}/sec`
+														: "";
 												})()}
 											</Badge>
 										)}
@@ -933,6 +964,14 @@ export function AllModels({
 				min: searchParams.get("contextSizeMin") ?? "",
 				max: searchParams.get("contextSizeMax") ?? "",
 			},
+			priceUnit: (() => {
+				const v = searchParams.get("priceUnit");
+				return v === "perImagePrice" ||
+					v === "perSecondPrice" ||
+					v === "inputCharacterPrice"
+					? (v as PriceUnitField)
+					: null;
+			})(),
 		};
 	});
 
@@ -1311,6 +1350,20 @@ export function AllModels({
 			) {
 				return false;
 			}
+			if (filters.priceUnit) {
+				const hasPriceUnit = model.providerDetails.some((p) => {
+					if (filters.priceUnit === "perImagePrice") {
+						return getMinPerImagePrice(p.provider) !== null;
+					}
+					if (filters.priceUnit === "perSecondPrice") {
+						return getMinPerSecondPrice(p.provider) !== null;
+					}
+					return getMinInputCharacterPrice(p.provider) !== null;
+				});
+				if (!hasPriceUnit) {
+					return false;
+				}
+			}
 
 			return true;
 		});
@@ -1414,6 +1467,39 @@ export function AllModels({
 					bValue = bDiscounts.length > 0 ? Math.max(...bDiscounts) : 0;
 					break;
 				}
+				case "perImagePrice": {
+					const aVals = a.providerDetails
+						.map((p) => getMinPerImagePrice(p.provider))
+						.filter((v): v is number => v !== null);
+					const bVals = b.providerDetails
+						.map((p) => getMinPerImagePrice(p.provider))
+						.filter((v): v is number => v !== null);
+					aValue = aVals.length > 0 ? Math.min(...aVals) : null;
+					bValue = bVals.length > 0 ? Math.min(...bVals) : null;
+					break;
+				}
+				case "perSecondPrice": {
+					const aVals = a.providerDetails
+						.map((p) => getMinPerSecondPrice(p.provider))
+						.filter((v): v is number => v !== null);
+					const bVals = b.providerDetails
+						.map((p) => getMinPerSecondPrice(p.provider))
+						.filter((v): v is number => v !== null);
+					aValue = aVals.length > 0 ? Math.min(...aVals) : null;
+					bValue = bVals.length > 0 ? Math.min(...bVals) : null;
+					break;
+				}
+				case "inputCharacterPrice": {
+					const aVals = a.providerDetails
+						.map((p) => getMinInputCharacterPrice(p.provider))
+						.filter((v): v is number => v !== null);
+					const bVals = b.providerDetails
+						.map((p) => getMinInputCharacterPrice(p.provider))
+						.filter((v): v is number => v !== null);
+					aValue = aVals.length > 0 ? Math.min(...aVals) : null;
+					bValue = bVals.length > 0 ? Math.min(...bVals) : null;
+					break;
+				}
 				default:
 					return 0;
 			}
@@ -1466,22 +1552,27 @@ export function AllModels({
 				) {
 					continue;
 				}
+				if (filters.priceUnit === "perImagePrice") {
+					if (getMinPerImagePrice(provider) === null) {
+						continue;
+					}
+				} else if (filters.priceUnit === "perSecondPrice") {
+					if (getMinPerSecondPrice(provider) === null) {
+						continue;
+					}
+				} else if (filters.priceUnit === "inputCharacterPrice") {
+					if (getMinInputCharacterPrice(provider) === null) {
+						continue;
+					}
+				}
 
 				const hasAdditionalPricing =
 					provider.webSearch === true ||
 					(provider.requestPrice !== null &&
 						provider.requestPrice !== undefined &&
 						parseFloat(provider.requestPrice) > 0) ||
-					(provider.perSecondPrice !== null &&
-						provider.perSecondPrice !== undefined &&
-						Object.values(provider.perSecondPrice).some(
-							(price) => parseFloat(price) > 0,
-						)) ||
-					(provider.perImagePrice !== null &&
-						provider.perImagePrice !== undefined &&
-						Object.values(provider.perImagePrice).some(
-							(price) => parseFloat(price) > 0,
-						));
+					getMinPerSecondPrice(provider) !== null ||
+					getMinPerImagePrice(provider) !== null;
 
 				rows.push({
 					model,
@@ -1562,6 +1653,18 @@ export function AllModels({
 					aValue = discountFraction(a.provider.discount);
 					bValue = discountFraction(b.provider.discount);
 					break;
+				case "perImagePrice":
+					aValue = getMinPerImagePrice(a.provider);
+					bValue = getMinPerImagePrice(b.provider);
+					break;
+				case "perSecondPrice":
+					aValue = getMinPerSecondPrice(a.provider);
+					bValue = getMinPerSecondPrice(b.provider);
+					break;
+				case "inputCharacterPrice":
+					aValue = getMinInputCharacterPrice(a.provider);
+					bValue = getMinInputCharacterPrice(b.provider);
+					break;
 				default:
 					return 0;
 			}
@@ -1585,7 +1688,8 @@ export function AllModels({
 		filters.outputPrice.min ||
 		filters.outputPrice.max ||
 		filters.contextSize.min ||
-		filters.contextSize.max;
+		filters.contextSize.max ||
+		filters.priceUnit !== null;
 
 	// Pagination
 	const currentPage = Math.max(
@@ -1766,6 +1870,7 @@ export function AllModels({
 			inputPrice: { min: "", max: "" },
 			outputPrice: { min: "", max: "" },
 			contextSize: { min: "", max: "" },
+			priceUnit: null,
 		});
 		setSortField(null);
 		setSortDirection("asc");
@@ -1801,6 +1906,7 @@ export function AllModels({
 			outputPriceMax: undefined,
 			contextSizeMin: undefined,
 			contextSizeMax: undefined,
+			priceUnit: undefined,
 			sortField: undefined,
 			sortDir: undefined,
 		});
@@ -2390,6 +2496,33 @@ export function AllModels({
 							/>
 						</div>
 					</div>
+
+					<div className="space-y-3">
+						<div className="font-medium text-sm">Price per unit</div>
+						<div className="flex flex-col gap-2">
+							{ALT_PRICE_FIELDS.map(
+								({ field, Icon, iconClass, label }) => (
+									<Toggle
+										key={field}
+										size="sm"
+										pressed={filters.priceUnit === field}
+										onPressedChange={(pressed) => {
+											const next = pressed ? field : null;
+											setFilters((prev) => ({ ...prev, priceUnit: next }));
+											updateUrlWithFilters({
+												priceUnit: next ?? undefined,
+												page: undefined,
+											});
+										}}
+										className="justify-start gap-1.5"
+									>
+										<Icon className={`h-3.5 w-3.5 ${iconClass}`} />
+										<span className="text-xs">{label}</span>
+									</Toggle>
+								),
+							)}
+						</div>
+					</div>
 				</div>
 			</CardContent>
 		</Card>
@@ -2662,6 +2795,7 @@ export function AllModels({
 														filters.contextSize.min,
 														filters.contextSize.max,
 													].filter(Boolean).length,
+													filters.priceUnit ? 1 : 0,
 												].reduce((a, b) => a + b, 0)}
 											</Badge>
 										)}
