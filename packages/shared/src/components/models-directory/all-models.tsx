@@ -1463,12 +1463,18 @@ export function AllModels({
 					} else {
 						const aVals = a.providerDetails
 							.map((p) =>
-								effectiveTokenPrice(p.provider.outputPrice, p.provider.discount),
+								effectiveTokenPrice(
+									p.provider.outputPrice,
+									p.provider.discount,
+								),
 							)
 							.filter((v): v is number => v !== null);
 						const bVals = b.providerDetails
 							.map((p) =>
-								effectiveTokenPrice(p.provider.outputPrice, p.provider.discount),
+								effectiveTokenPrice(
+									p.provider.outputPrice,
+									p.provider.discount,
+								),
 							)
 							.filter((v): v is number => v !== null);
 						aValue = aVals.length > 0 ? Math.min(...aVals) : null;
