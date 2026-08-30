@@ -43,7 +43,8 @@ export function effectiveTokenPrice(
 	if (eff === 0) {
 		return 0;
 	}
-	return eff * 1e6;
+	const scaled = eff * 1e6;
+	return Number.isFinite(scaled) ? scaled : null;
 }
 
 export function compareNullBottom(
