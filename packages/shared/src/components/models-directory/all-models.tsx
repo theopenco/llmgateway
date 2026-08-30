@@ -1407,33 +1407,73 @@ export function AllModels({
 					bValue = (b.name ?? b.id).toLowerCase();
 					break;
 				case "inputPrice": {
-					const aVals = a.providerDetails
-						.map((p) =>
-							effectiveTokenPrice(p.provider.inputPrice, p.provider.discount),
-						)
-						.filter((v): v is number => v !== null);
-					const bVals = b.providerDetails
-						.map((p) =>
-							effectiveTokenPrice(p.provider.inputPrice, p.provider.discount),
-						)
-						.filter((v): v is number => v !== null);
-					aValue = aVals.length > 0 ? Math.min(...aVals) : null;
-					bValue = bVals.length > 0 ? Math.min(...bVals) : null;
+					if (filters.priceUnit === "perImagePrice") {
+						const aVals = a.providerDetails
+							.map((p) => getMinPerImagePrice(p.provider))
+							.filter((v): v is number => v !== null);
+						const bVals = b.providerDetails
+							.map((p) => getMinPerImagePrice(p.provider))
+							.filter((v): v is number => v !== null);
+						aValue = aVals.length > 0 ? Math.min(...aVals) : null;
+						bValue = bVals.length > 0 ? Math.min(...bVals) : null;
+					} else if (filters.priceUnit === "perSecondPrice") {
+						const aVals = a.providerDetails
+							.map((p) => getMinPerSecondPrice(p.provider))
+							.filter((v): v is number => v !== null);
+						const bVals = b.providerDetails
+							.map((p) => getMinPerSecondPrice(p.provider))
+							.filter((v): v is number => v !== null);
+						aValue = aVals.length > 0 ? Math.min(...aVals) : null;
+						bValue = bVals.length > 0 ? Math.min(...bVals) : null;
+					} else if (filters.priceUnit === "inputCharacterPrice") {
+						const aVals = a.providerDetails
+							.map((p) => getMinInputCharacterPrice(p.provider))
+							.filter((v): v is number => v !== null);
+						const bVals = b.providerDetails
+							.map((p) => getMinInputCharacterPrice(p.provider))
+							.filter((v): v is number => v !== null);
+						aValue = aVals.length > 0 ? Math.min(...aVals) : null;
+						bValue = bVals.length > 0 ? Math.min(...bVals) : null;
+					} else {
+						const aVals = a.providerDetails
+							.map((p) =>
+								effectiveTokenPrice(p.provider.inputPrice, p.provider.discount),
+							)
+							.filter((v): v is number => v !== null);
+						const bVals = b.providerDetails
+							.map((p) =>
+								effectiveTokenPrice(p.provider.inputPrice, p.provider.discount),
+							)
+							.filter((v): v is number => v !== null);
+						aValue = aVals.length > 0 ? Math.min(...aVals) : null;
+						bValue = bVals.length > 0 ? Math.min(...bVals) : null;
+					}
 					break;
 				}
 				case "outputPrice": {
-					const aVals = a.providerDetails
-						.map((p) =>
-							effectiveTokenPrice(p.provider.outputPrice, p.provider.discount),
-						)
-						.filter((v): v is number => v !== null);
-					const bVals = b.providerDetails
-						.map((p) =>
-							effectiveTokenPrice(p.provider.outputPrice, p.provider.discount),
-						)
-						.filter((v): v is number => v !== null);
-					aValue = aVals.length > 0 ? Math.min(...aVals) : null;
-					bValue = bVals.length > 0 ? Math.min(...bVals) : null;
+					if (filters.priceUnit === "perSecondPrice") {
+						const aVals = a.providerDetails
+							.map((p) => getMinPerSecondPrice(p.provider))
+							.filter((v): v is number => v !== null);
+						const bVals = b.providerDetails
+							.map((p) => getMinPerSecondPrice(p.provider))
+							.filter((v): v is number => v !== null);
+						aValue = aVals.length > 0 ? Math.min(...aVals) : null;
+						bValue = bVals.length > 0 ? Math.min(...bVals) : null;
+					} else {
+						const aVals = a.providerDetails
+							.map((p) =>
+								effectiveTokenPrice(p.provider.outputPrice, p.provider.discount),
+							)
+							.filter((v): v is number => v !== null);
+						const bVals = b.providerDetails
+							.map((p) =>
+								effectiveTokenPrice(p.provider.outputPrice, p.provider.discount),
+							)
+							.filter((v): v is number => v !== null);
+						aValue = aVals.length > 0 ? Math.min(...aVals) : null;
+						bValue = bVals.length > 0 ? Math.min(...bVals) : null;
+					}
 					break;
 				}
 				case "cachedInputPrice": {
@@ -1621,24 +1661,40 @@ export function AllModels({
 					bValue = (b.model.name ?? b.model.id).toLowerCase();
 					break;
 				case "inputPrice":
-					aValue = effectiveTokenPrice(
-						a.provider.inputPrice,
-						a.provider.discount,
-					);
-					bValue = effectiveTokenPrice(
-						b.provider.inputPrice,
-						b.provider.discount,
-					);
+					if (filters.priceUnit === "perImagePrice") {
+						aValue = getMinPerImagePrice(a.provider);
+						bValue = getMinPerImagePrice(b.provider);
+					} else if (filters.priceUnit === "perSecondPrice") {
+						aValue = getMinPerSecondPrice(a.provider);
+						bValue = getMinPerSecondPrice(b.provider);
+					} else if (filters.priceUnit === "inputCharacterPrice") {
+						aValue = getMinInputCharacterPrice(a.provider);
+						bValue = getMinInputCharacterPrice(b.provider);
+					} else {
+						aValue = effectiveTokenPrice(
+							a.provider.inputPrice,
+							a.provider.discount,
+						);
+						bValue = effectiveTokenPrice(
+							b.provider.inputPrice,
+							b.provider.discount,
+						);
+					}
 					break;
 				case "outputPrice":
-					aValue = effectiveTokenPrice(
-						a.provider.outputPrice,
-						a.provider.discount,
-					);
-					bValue = effectiveTokenPrice(
-						b.provider.outputPrice,
-						b.provider.discount,
-					);
+					if (filters.priceUnit === "perSecondPrice") {
+						aValue = getMinPerSecondPrice(a.provider);
+						bValue = getMinPerSecondPrice(b.provider);
+					} else {
+						aValue = effectiveTokenPrice(
+							a.provider.outputPrice,
+							a.provider.discount,
+						);
+						bValue = effectiveTokenPrice(
+							b.provider.outputPrice,
+							b.provider.discount,
+						);
+					}
 					break;
 				case "cachedInputPrice":
 					aValue = effectiveTokenPrice(
@@ -1672,7 +1728,13 @@ export function AllModels({
 
 			return compareSortValues(aValue, bValue, sortDirection);
 		});
-	}, [modelsWithProviders, sortField, sortDirection, filters.selectedProvider]);
+	}, [
+		modelsWithProviders,
+		sortField,
+		sortDirection,
+		filters.selectedProvider,
+		filters.priceUnit,
+	]);
 
 	const hasActiveFilters =
 		categoryFilter ||
@@ -2431,74 +2493,26 @@ export function AllModels({
 						<div className="space-y-2">
 							<div className="font-medium text-sm">Price per unit</div>
 							<div className="flex w-fit flex-col gap-1.5">
-								{ALT_PRICE_FIELDS.map(({ field, Icon, iconClass, label }) => {
-									const isActive = filters.priceUnit === field;
-									const isSorted = sortField === field;
-									return (
-										<Toggle
-											key={field}
-											variant="outline"
-											size="sm"
-											pressed={isActive}
-											onPressedChange={() => {
-												if (!isActive) {
-													setFilters((prev) => ({
-														...prev,
-														priceUnit: field,
-													}));
-													setSortField(field);
-													setSortDirection("asc");
-													updateUrlWithFilters({
-														priceUnit: field,
-														sortField: field,
-														sortDir: "asc",
-														page: undefined,
-													});
-												} else if (isSorted && sortDirection === "asc") {
-													setSortDirection("desc");
-													updateUrlWithFilters({
-														sortDir: "desc",
-														page: undefined,
-													});
-												} else if (isSorted && sortDirection === "desc") {
-													setFilters((prev) => ({
-														...prev,
-														priceUnit: null,
-													}));
-													setSortField(null);
-													setSortDirection("asc");
-													updateUrlWithFilters({
-														priceUnit: undefined,
-														sortField: undefined,
-														sortDir: undefined,
-														page: undefined,
-													});
-												} else {
-													setSortField(field);
-													setSortDirection("asc");
-													updateUrlWithFilters({
-														sortField: field,
-														sortDir: "asc",
-														page: undefined,
-													});
-												}
-											}}
-											className="gap-1.5 w-fit justify-start"
-										>
-											<Icon className={`h-3.5 w-3.5 ${iconClass}`} />
-											<span className="text-xs">{label}</span>
-											{isActive && isSorted && (
-												<span className="ml-1">
-													{sortDirection === "asc" ? (
-														<ArrowUp className="h-3 w-3" />
-													) : (
-														<ArrowDown className="h-3 w-3" />
-													)}
-												</span>
-											)}
-										</Toggle>
-									);
-								})}
+								{ALT_PRICE_FIELDS.map(({ field, Icon, iconClass, label }) => (
+									<Toggle
+										key={field}
+										variant="outline"
+										size="sm"
+										pressed={filters.priceUnit === field}
+										onPressedChange={(pressed) => {
+											const next = pressed ? field : null;
+											setFilters((prev) => ({ ...prev, priceUnit: next }));
+											updateUrlWithFilters({
+												priceUnit: next ?? undefined,
+												page: undefined,
+											});
+										}}
+										className="gap-1.5 w-fit justify-start"
+									>
+										<Icon className={`h-3.5 w-3.5 ${iconClass}`} />
+										<span className="text-xs">{label}</span>
+									</Toggle>
+								))}
 							</div>
 						</div>
 					</div>
