@@ -90,6 +90,7 @@ import { applyCategoryFilter } from "./model-category-filters";
 import {
 	compareSortValues,
 	effectiveTokenPrice,
+	getMaxPerSecondPrice,
 	getMinInputCharacterPrice,
 	getMinPerImagePrice,
 	getMinPerSecondPrice,
@@ -589,7 +590,7 @@ const ModelTableRow = React.memo(
 										{(() => {
 											const v = getMinPerSecondPrice(row.provider);
 											return v !== null
-												? `$${parseFloat(v.toFixed(4))}/sec`
+												? `$${parseFloat(v.toFixed(5))}/sec`
 												: "—";
 										})()}
 									</span>
@@ -599,6 +600,7 @@ const ModelTableRow = React.memo(
 								</TooltipContent>
 							</Tooltip>
 						) : getMinInputCharacterPrice(row.provider) !== null &&
+						  getMinInputCharacterPrice(row.provider)! > 0 &&
 						  (effectiveTokenPrice(
 								row.provider.inputPrice,
 								row.provider.discount,
@@ -613,7 +615,7 @@ const ModelTableRow = React.memo(
 										{(() => {
 											const v = getMinInputCharacterPrice(row.provider);
 											return v !== null
-												? `$${parseFloat((v * 1000).toFixed(4))}/1K chars`
+												? `$${parseFloat((v * 1000).toFixed(5))}/1K chars`
 												: "—";
 										})()}
 									</span>
@@ -681,7 +683,7 @@ const ModelTableRow = React.memo(
 										{(() => {
 											const v = getMinPerSecondPrice(row.provider);
 											return v !== null
-												? `$${parseFloat(v.toFixed(4))}/sec`
+												? `$${parseFloat(v.toFixed(5))}/sec`
 												: "—";
 										})()}
 									</span>
@@ -798,21 +800,44 @@ const ModelTableRow = React.memo(
 												{parseFloat(row.provider.requestPrice).toFixed(3)}
 											</Badge>
 										)}
-									{getMinPerSecondPrice(row.provider) !== null && (
-										<Badge
-											variant="outline"
-											className="text-sm px-3 py-1.5 bg-background"
-										>
-											<Video className="h-4 w-4 mr-2 text-violet-500" />
-											Video{" "}
-											{(() => {
-												const v = getMinPerSecondPrice(row.provider);
-												return v !== null
-													? `$${parseFloat(v.toFixed(4))}/sec`
-													: "";
-											})()}
-										</Badge>
-									)}
+									{row.provider.perSecondPrice !== null &&
+										Object.keys(row.provider.perSecondPrice).length > 0 && (
+											<Badge
+												variant="outline"
+												className="text-sm px-3 py-1.5 bg-background"
+											>
+												<Video className="h-4 w-4 mr-2 text-violet-500" />
+												Video{" "}
+												{(() => {
+													const prices = row.provider.perSecondPrice!;
+													const d = discountFraction(row.provider.discount);
+													const fmt = (v: string) => {
+														const n = parseStrictPrice(v);
+														if (n === null) {
+															return null;
+														}
+														const eff = d > 0 ? n * (1 - d) : n;
+														return parseFloat(eff.toFixed(5)).toString();
+													};
+													const defaultVideo = prices["default_video"];
+													const defaultAudio = prices["default_audio"];
+													const fv = defaultVideo ? fmt(defaultVideo) : null;
+													const fa = defaultAudio ? fmt(defaultAudio) : null;
+													if (fv && fa) {
+														return `$${fv} – $${fa}/sec`;
+													}
+													const defaultPrice = prices["default"];
+													const fp = defaultPrice ? fmt(defaultPrice) : null;
+													if (fp) {
+														return `$${fp}/sec`;
+													}
+													const v = getMinPerSecondPrice(row.provider);
+													return v !== null
+														? `$${parseFloat(v.toFixed(5))}/sec`
+														: "";
+												})()}
+											</Badge>
+										)}
 									{row.provider.perImagePrice &&
 										Object.keys(row.provider.perImagePrice).length > 0 && (
 											<Badge
@@ -993,6 +1018,33 @@ export function AllModels({
 			),
 		[models],
 	);
+	const hasPerUnitData = useMemo(() => {
+		const categoryModels = categoryFilter
+			? models.filter((model) =>
+					applyCategoryFilter(categoryFilter, model, model.mappings),
+				)
+			: models;
+		const targetModels =
+			filters.category &&
+			filters.category !== "all" &&
+			isUseCaseCategory(filters.category)
+				? categoryModels.filter((model) =>
+						applyCategoryFilter(
+							filters.category as ModelCategoryFilter,
+							model,
+							model.mappings,
+						),
+					)
+				: categoryModels;
+		return targetModels.some((model) =>
+			model.mappings.some(
+				(mapping) =>
+					getMinPerImagePrice(mapping) !== null ||
+					getMinPerSecondPrice(mapping) !== null ||
+					getMinInputCharacterPrice(mapping) !== null,
+			),
+		);
+	}, [models, categoryFilter, filters.category]);
 
 	const updateUrlWithFilters = useCallback(
 		(newParams: Record<string, string | undefined>) => {
@@ -1292,12 +1344,22 @@ export function AllModels({
 			}
 
 			// Price filters — discount-aware, free 0 stays 0 not null (3887811295/1251)
+			// When priceUnit is set, $/M bounds filter on per-unit price instead of token price (3890117258)
 			const hasInputPrice = (min: string, max: string) => {
 				return model.providerDetails.some((p) => {
-					const eff = effectiveTokenPrice(
-						p.provider.inputPrice,
-						p.provider.discount,
-					);
+					let eff: number | null;
+					if (filters.priceUnit === "perImagePrice") {
+						eff = getMinPerImagePrice(p.provider);
+					} else if (filters.priceUnit === "perSecondPrice") {
+						eff = getMinPerSecondPrice(p.provider);
+					} else if (filters.priceUnit === "inputCharacterPrice") {
+						eff = getMinInputCharacterPrice(p.provider);
+					} else {
+						eff = effectiveTokenPrice(
+							p.provider.inputPrice,
+							p.provider.discount,
+						);
+					}
 					if (eff === null) {
 						return !min && !max;
 					}
@@ -1309,10 +1371,15 @@ export function AllModels({
 
 			const hasOutputPrice = (min: string, max: string) => {
 				return model.providerDetails.some((p) => {
-					const eff = effectiveTokenPrice(
-						p.provider.outputPrice,
-						p.provider.discount,
-					);
+					let eff: number | null;
+					if (filters.priceUnit === "perSecondPrice") {
+						eff = getMaxPerSecondPrice(p.provider);
+					} else {
+						eff = effectiveTokenPrice(
+							p.provider.outputPrice,
+							p.provider.discount,
+						);
+					}
 					if (eff === null) {
 						return !min && !max;
 					}
@@ -1457,10 +1524,10 @@ export function AllModels({
 				case "outputPrice": {
 					if (filters.priceUnit === "perSecondPrice") {
 						const aVals = a.providerDetails
-							.map((p) => getMinPerSecondPrice(p.provider))
+							.map((p) => getMaxPerSecondPrice(p.provider))
 							.filter((v): v is number => v !== null);
 						const bVals = b.providerDetails
-							.map((p) => getMinPerSecondPrice(p.provider))
+							.map((p) => getMaxPerSecondPrice(p.provider))
 							.filter((v): v is number => v !== null);
 						aValue = aVals.length > 0 ? Math.min(...aVals) : null;
 						bValue = bVals.length > 0 ? Math.min(...bVals) : null;
@@ -1622,8 +1689,10 @@ export function AllModels({
 					(provider.requestPrice !== null &&
 						provider.requestPrice !== undefined &&
 						parseFloat(provider.requestPrice) > 0) ||
-					getMinPerSecondPrice(provider) !== null ||
-					getMinPerImagePrice(provider) !== null;
+					(getMinPerSecondPrice(provider) !== null &&
+						getMinPerSecondPrice(provider)! > 0) ||
+					(getMinPerImagePrice(provider) !== null &&
+						getMinPerImagePrice(provider)! > 0);
 
 				rows.push({
 					model,
@@ -1889,7 +1958,7 @@ export function AllModels({
 		const discountNum = discountFraction(discount);
 		const originalPrice = (priceNum * 1e6).toFixed(2);
 		if (discountNum > 0) {
-			const discountedPrice = (priceNum * 1e6 * (1 - discountNum)).toFixed(2);
+			const discountedPrice = (priceNum * (1 - discountNum) * 1e6).toFixed(2);
 			return (
 				<div className="flex flex-col items-end">
 					<div className="flex items-center gap-1">
@@ -2497,31 +2566,33 @@ export function AllModels({
 								className="h-8"
 							/>
 						</div>
-						<div className="space-y-2">
-							<div className="font-medium text-sm">Price per unit</div>
-							<div className="flex w-fit flex-col gap-1.5">
-								{ALT_PRICE_FIELDS.map(({ field, Icon, iconClass, label }) => (
-									<Toggle
-										key={field}
-										variant="outline"
-										size="sm"
-										pressed={filters.priceUnit === field}
-										onPressedChange={(pressed) => {
-											const next = pressed ? field : null;
-											setFilters((prev) => ({ ...prev, priceUnit: next }));
-											updateUrlWithFilters({
-												priceUnit: next ?? undefined,
-												page: undefined,
-											});
-										}}
-										className="gap-1.5 w-fit justify-start"
-									>
-										<Icon className={`h-3.5 w-3.5 ${iconClass}`} />
-										<span className="text-xs">{label}</span>
-									</Toggle>
-								))}
+						{hasPerUnitData && (
+							<div className="space-y-2">
+								<div className="font-medium text-sm">Price per unit</div>
+								<div className="flex w-fit flex-col gap-1.5">
+									{ALT_PRICE_FIELDS.map(({ field, Icon, iconClass, label }) => (
+										<Toggle
+											key={field}
+											variant="outline"
+											size="sm"
+											pressed={filters.priceUnit === field}
+											onPressedChange={(pressed) => {
+												const next = pressed ? field : null;
+												setFilters((prev) => ({ ...prev, priceUnit: next }));
+												updateUrlWithFilters({
+													priceUnit: next ?? undefined,
+													page: undefined,
+												});
+											}}
+											className="gap-1.5 w-fit justify-start"
+										>
+											<Icon className={`h-3.5 w-3.5 ${iconClass}`} />
+											<span className="text-xs">{label}</span>
+										</Toggle>
+									))}
+								</div>
 							</div>
-						</div>
+						)}
 					</div>
 
 					<div className="space-y-3">

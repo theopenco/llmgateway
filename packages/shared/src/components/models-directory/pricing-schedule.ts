@@ -102,6 +102,34 @@ function discountedRecordValues(
 export function getMinPerImagePrice(
 	mapping: ApiModelProviderMapping,
 ): number | null {
+	if (mapping.perImagePrice) {
+		const values = discountedRecordValues(
+			mapping.perImagePrice,
+			mapping.discount,
+		);
+		if (values.length > 0) {
+			return Math.min(...values);
+		}
+	}
+	if (mapping.imageOutputPrice && mapping.imageOutputTokensByResolution) {
+		const price = parseStrictPrice(mapping.imageOutputPrice);
+		if (price !== null) {
+			const tokens = Object.values(mapping.imageOutputTokensByResolution)
+				.map((v) => Number(v))
+				.filter((v) => Number.isFinite(v) && v > 0);
+			if (tokens.length > 0) {
+				const d = discountFraction(mapping.discount);
+				const perImage = tokens.map((t) => t * price * (d > 0 ? 1 - d : 1));
+				return Math.min(...perImage);
+			}
+		}
+	}
+	return null;
+}
+
+export function getMaxPerImagePrice(
+	mapping: ApiModelProviderMapping,
+): number | null {
 	if (!mapping.perImagePrice) {
 		return null;
 	}
@@ -109,7 +137,7 @@ export function getMinPerImagePrice(
 		mapping.perImagePrice,
 		mapping.discount,
 	);
-	return values.length > 0 ? Math.min(...values) : null;
+	return values.length > 0 ? Math.max(...values) : null;
 }
 
 export function getMinPerSecondPrice(
@@ -123,6 +151,19 @@ export function getMinPerSecondPrice(
 		mapping.discount,
 	);
 	return values.length > 0 ? Math.min(...values) : null;
+}
+
+export function getMaxPerSecondPrice(
+	mapping: ApiModelProviderMapping,
+): number | null {
+	if (!mapping.perSecondPrice) {
+		return null;
+	}
+	const values = discountedRecordValues(
+		mapping.perSecondPrice,
+		mapping.discount,
+	);
+	return values.length > 0 ? Math.max(...values) : null;
 }
 
 export function getMinInputCharacterPrice(
@@ -143,12 +184,23 @@ export function getMinInputCharacterPrice(
 	return eff;
 }
 
+/**
+ * perImagePriceValues is used by formatPerImagePriceRange and table badges;
+ * keep it exported for shared discounted value logic.
+ */
 export function perImagePriceValues(
 	perImagePrice: Record<string, string | number>,
 	discount?: string | null,
 ): number[] {
 	return discountedRecordValues(perImagePrice, discount);
 }
+
+/**
+ * effectiveTokenPrice returns $/M (scaled 1e6), getMin* return raw per-unit
+ * (per image / per second / per 1K chars) — not comparable across families;
+ * callers select via filters.priceUnit and must not compare $/M vs per-unit.
+ */
+export const _unitNote = undefined;
 
 const orderedDays = [1, 2, 3, 4, 5, 6, 0] as const;
 const dayNames = [

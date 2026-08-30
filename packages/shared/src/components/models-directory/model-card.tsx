@@ -45,12 +45,13 @@ import {
 import { discountFraction } from "@/lib/discount";
 import { cn } from "@/lib/utils";
 
-import { parseStrictPrice } from "./pricing-schedule";
-
 import { formatContextSize, formatDeprecationDate } from "./format";
 import { ModelCodeExampleDialog } from "./model-code-example-dialog";
 import { ModelStatusBadge } from "./model-status-badge";
-import { formatPeakPricingSchedule } from "./pricing-schedule";
+import {
+	formatPeakPricingSchedule,
+	parseStrictPrice,
+} from "./pricing-schedule";
 import { XIcon } from "./x-icon";
 
 import type {
@@ -993,14 +994,14 @@ export function ProviderSection({
 										{discountNum > 0 ? (
 											<>
 												<span className="line-through text-muted-foreground mr-1 text-xs">
-													${perImage.toFixed(4)}
+													${perImage.toFixed(5)}
 												</span>
 												<span className="text-green-600">
-													${discounted.toFixed(4)}
+													${discounted.toFixed(5)}
 												</span>
 											</>
 										) : (
-											`$${perImage.toFixed(4)}`
+											`$${perImage.toFixed(5)}`
 										)}
 									</div>
 								</div>
@@ -1019,7 +1020,7 @@ export function ProviderSection({
 							1000 *
 							serviceTierMultiplier;
 						const formatChars = (value: number) =>
-							`$${parseFloat(value.toFixed(4))}`;
+							`$${parseFloat(value.toFixed(5))}`;
 						return (
 							<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
 								<div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
@@ -1075,12 +1076,22 @@ export function ProviderSection({
 									if (!Number.isFinite(eff) || eff < 0) {
 										return null;
 									}
-									return parseFloat(eff.toFixed(4)).toString();
+									return parseFloat(eff.toFixed(5)).toString();
 								};
 								const defaultVideo = prices["default_video"];
 								const defaultAudio = prices["default_audio"];
 								const fv = defaultVideo ? fmt(defaultVideo) : null;
 								const fa = defaultAudio ? fmt(defaultAudio) : null;
+								const origFmt = (v: string) => {
+									const n = parseStrictPrice(v);
+									if (n === null) {
+										return null;
+									}
+									const eff = n * serviceTierMultiplier;
+									return parseFloat(eff.toFixed(5)).toString();
+								};
+								const ov = defaultVideo ? origFmt(defaultVideo) : null;
+								const oa = defaultAudio ? origFmt(defaultAudio) : null;
 								if (fv && fa) {
 									return (
 										<div className="flex justify-between text-sm">
@@ -1088,7 +1099,20 @@ export function ProviderSection({
 												Video / Audio
 											</span>
 											<span className="font-semibold tabular-nums">
-												${fv} – ${fa}
+												{d > 0 && ov && oa ? (
+													<>
+														<span className="line-through text-muted-foreground mr-1 text-xs">
+															${ov} – ${oa}
+														</span>
+														<span className="text-green-600">
+															${fv} – ${fa}
+														</span>
+													</>
+												) : (
+													<>
+														${fv} – ${fa}
+													</>
+												)}
 												<span className="text-muted-foreground text-xs ml-0.5">
 													/sec
 												</span>
@@ -1098,12 +1122,22 @@ export function ProviderSection({
 								}
 								const defaultPrice = prices["default"];
 								const fp = defaultPrice ? fmt(defaultPrice) : null;
+								const op = defaultPrice ? origFmt(defaultPrice) : null;
 								if (fp) {
 									return (
 										<div className="flex justify-between text-sm">
 											<span className="text-muted-foreground">Default</span>
 											<span className="font-semibold tabular-nums">
-												${fp}
+												{d > 0 && op ? (
+													<>
+														<span className="line-through text-muted-foreground mr-1 text-xs">
+															${op}
+														</span>
+														<span className="text-green-600">${fp}</span>
+													</>
+												) : (
+													<>${fp}</>
+												)}
 												<span className="text-muted-foreground text-xs ml-0.5">
 													/sec
 												</span>
@@ -1115,14 +1149,9 @@ export function ProviderSection({
 									.map(([key, value]) => {
 										const f = fmt(value);
 										return f ? (
-											<div
-												key={key}
-												className="flex justify-between text-xs"
-											>
+											<div key={key} className="flex justify-between text-xs">
 												<span className="text-muted-foreground">{key}</span>
-												<span className="font-mono tabular-nums">
-													${f}/sec
-												</span>
+												<span className="font-mono tabular-nums">${f}/sec</span>
 											</div>
 										) : null;
 									})
@@ -1140,7 +1169,7 @@ export function ProviderSection({
 							parseFloat(activeMapping.inputAudioHourPrice!) *
 							serviceTierMultiplier;
 						const formatHour = (value: number) =>
-							`$${parseFloat(value.toFixed(4))}`;
+							`$${parseFloat(value.toFixed(5))}`;
 						return (
 							<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
 								<div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
@@ -1453,14 +1482,14 @@ export function ProviderSection({
 														{discountNum > 0 ? (
 															<>
 																<span className="line-through text-muted-foreground mr-1">
-																	~${raw.toFixed(4)}
+																	~${raw.toFixed(5)}
 																</span>
 																<span className="text-green-600 font-semibold">
-																	~${discounted.toFixed(4)}
+																	~${discounted.toFixed(5)}
 																</span>
 															</>
 														) : (
-															`~$${raw.toFixed(4)}`
+															`~$${raw.toFixed(5)}`
 														)}
 													</span>
 												</div>
@@ -1523,14 +1552,14 @@ export function ProviderSection({
 														{discountNum > 0 ? (
 															<>
 																<span className="line-through text-muted-foreground mr-1">
-																	~${raw.toFixed(4)}
+																	~${raw.toFixed(5)}
 																</span>
 																<span className="text-green-600 font-semibold">
-																	~${discounted.toFixed(4)}
+																	~${discounted.toFixed(5)}
 																</span>
 															</>
 														) : (
-															`~$${raw.toFixed(4)}`
+															`~$${raw.toFixed(5)}`
 														)}
 													</span>
 												</div>

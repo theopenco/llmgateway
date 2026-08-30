@@ -437,18 +437,35 @@ function getCanonicalAggregateInfo(model: ApiModel): CanonicalAggregateInfo {
 
 // Removed old ModelItem; we render entries per provider below
 
-function formatPerSecondPrice(perSecondPrice: Record<string, string>): string {
+function formatPerSecondPrice(
+	perSecondPrice: Record<string, string>,
+	discount?: string | null,
+): string {
+	const d = discount ? Number(discount) : 0;
+	const validDiscount = Number.isFinite(d) && d > 0 && d <= 1 ? d : 0;
+	const fmt = (v: string) => {
+		const n = Number(v);
+		if (!Number.isFinite(n) || n < 0) {
+			return null;
+		}
+		const eff = validDiscount > 0 ? n * (1 - validDiscount) : n;
+		return parseFloat(eff.toFixed(5)).toString();
+	};
 	const defaultAudio = perSecondPrice["default_audio"];
 	const defaultVideo = perSecondPrice["default_video"];
-	const defaultPrice = perSecondPrice["default"];
-	if (defaultAudio && defaultVideo) {
-		return `$${defaultVideo} – $${defaultAudio}/sec`;
+	const fv = defaultVideo ? fmt(defaultVideo) : null;
+	const fa = defaultAudio ? fmt(defaultAudio) : null;
+	if (fv && fa) {
+		return `$${fv} – $${fa}/sec`;
 	}
-	if (defaultPrice) {
-		return `$${defaultPrice}/sec`;
+	const defaultPrice = perSecondPrice["default"];
+	const fp = defaultPrice ? fmt(defaultPrice) : null;
+	if (fp) {
+		return `$${fp}/sec`;
 	}
 	const firstValue = Object.values(perSecondPrice)[0];
-	return firstValue ? `$${firstValue}/sec` : "Unknown";
+	const ff = firstValue ? fmt(firstValue) : null;
+	return ff ? `$${ff}/sec` : "Unknown";
 }
 
 // Estimate cost for generating one typical 1K/1024x1024 image based on
