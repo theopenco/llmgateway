@@ -2429,7 +2429,7 @@ export function AllModels({
 							/>
 						</div>
 						<div className="space-y-2">
-							<div className="font-medium text-xs">Price per unit</div>
+							<div className="font-medium text-sm">Price per unit</div>
 							<div className="flex w-fit flex-col gap-1.5">
 								{ALT_PRICE_FIELDS.map(({ field, Icon, iconClass, label }) => (
 									<Toggle
@@ -2445,7 +2445,7 @@ export function AllModels({
 												page: undefined,
 											});
 										}}
-										className="gap-1.5 justify-start"
+										className="gap-1.5 w-fit justify-start"
 									>
 										<Icon className={`h-3.5 w-3.5 ${iconClass}`} />
 										<span className="text-xs">{label}</span>
