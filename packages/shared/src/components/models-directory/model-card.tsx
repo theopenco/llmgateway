@@ -1327,7 +1327,9 @@ export function ProviderSection({
 											<div>OUT</div>
 										</div>
 										{activeMapping.pricingTiers!.map((tier, index) => {
-											const discountNum = discountFraction(activeMapping.discount);
+											const discountNum = discountFraction(
+												activeMapping.discount,
+											);
 											const prevTokens =
 												activeMapping.pricingTiers![index - 1]?.upToTokens ?? 0;
 											const label =

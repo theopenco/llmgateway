@@ -169,7 +169,8 @@ type SortField =
 	| "perImagePrice"
 	| "perSecondPrice"
 	| "inputCharacterPrice";
-type PriceUnitField = "perImagePrice" | "perSecondPrice" | "inputCharacterPrice";
+type PriceUnitField =
+	"perImagePrice" | "perSecondPrice" | "inputCharacterPrice";
 type SortDirection = "asc" | "desc";
 
 const ALT_PRICE_FIELDS = [
@@ -600,7 +601,7 @@ const ModelTableRow = React.memo(
 						  (effectiveTokenPrice(
 								row.provider.inputPrice,
 								row.provider.discount,
-							) === null ||
+						  ) === null ||
 								effectiveTokenPrice(
 									row.provider.inputPrice,
 									row.provider.discount,
@@ -794,20 +795,20 @@ const ModelTableRow = React.memo(
 											</Badge>
 										)}
 									{getMinPerSecondPrice(row.provider) !== null && (
-											<Badge
-												variant="outline"
-												className="text-sm px-3 py-1.5 bg-background"
-											>
-												<Video className="h-4 w-4 mr-2 text-violet-500" />
-												Video{" "}
-												{(() => {
-													const v = getMinPerSecondPrice(row.provider);
-													return v !== null
-														? `$${parseFloat(v.toFixed(4))}/sec`
-														: "";
-												})()}
-											</Badge>
-										)}
+										<Badge
+											variant="outline"
+											className="text-sm px-3 py-1.5 bg-background"
+										>
+											<Video className="h-4 w-4 mr-2 text-violet-500" />
+											Video{" "}
+											{(() => {
+												const v = getMinPerSecondPrice(row.provider);
+												return v !== null
+													? `$${parseFloat(v.toFixed(4))}/sec`
+													: "";
+											})()}
+										</Badge>
+									)}
 									{row.provider.perImagePrice &&
 										Object.keys(row.provider.perImagePrice).length > 0 && (
 											<Badge
@@ -2427,6 +2428,31 @@ export function AllModels({
 								className="h-8"
 							/>
 						</div>
+						<div className="space-y-2">
+							<div className="font-medium text-xs">Price per unit</div>
+							<div className="flex w-fit flex-col gap-1.5">
+								{ALT_PRICE_FIELDS.map(({ field, Icon, iconClass, label }) => (
+									<Toggle
+										key={field}
+										variant="outline"
+										size="sm"
+										pressed={filters.priceUnit === field}
+										onPressedChange={(pressed) => {
+											const next = pressed ? field : null;
+											setFilters((prev) => ({ ...prev, priceUnit: next }));
+											updateUrlWithFilters({
+												priceUnit: next ?? undefined,
+												page: undefined,
+											});
+										}}
+										className="gap-1.5 justify-start"
+									>
+										<Icon className={`h-3.5 w-3.5 ${iconClass}`} />
+										<span className="text-xs">{label}</span>
+									</Toggle>
+								))}
+							</div>
+						</div>
 					</div>
 
 					<div className="space-y-3">
@@ -2494,33 +2520,6 @@ export function AllModels({
 								}}
 								className="h-8"
 							/>
-						</div>
-					</div>
-
-					<div className="space-y-3">
-						<div className="font-medium text-sm">Price per unit</div>
-						<div className="flex flex-col gap-2">
-							{ALT_PRICE_FIELDS.map(
-								({ field, Icon, iconClass, label }) => (
-									<Toggle
-										key={field}
-										size="sm"
-										pressed={filters.priceUnit === field}
-										onPressedChange={(pressed) => {
-											const next = pressed ? field : null;
-											setFilters((prev) => ({ ...prev, priceUnit: next }));
-											updateUrlWithFilters({
-												priceUnit: next ?? undefined,
-												page: undefined,
-											});
-										}}
-										className="justify-start gap-1.5"
-									>
-										<Icon className={`h-3.5 w-3.5 ${iconClass}`} />
-										<span className="text-xs">{label}</span>
-									</Toggle>
-								),
-							)}
 						</div>
 					</div>
 				</div>

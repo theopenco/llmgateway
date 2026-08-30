@@ -9,6 +9,7 @@ import {
 	getMinPerImagePrice,
 	getMinPerSecondPrice,
 } from "./pricing-schedule";
+
 import type { ApiModelProviderMapping } from "./api-types";
 
 describe("formatPeakPricingSchedule", () => {
@@ -92,10 +93,16 @@ describe("compareNullBottom", () => {
 	test("Array.sort null bottom both dirs", () => {
 		const nums = [5, null as number | null, 0, 3];
 		expect([...nums].sort((a, b) => compareNullBottom(a, b, "asc"))).toEqual([
-			0, 3, 5, null,
+			0,
+			3,
+			5,
+			null,
 		]);
 		expect([...nums].sort((a, b) => compareNullBottom(a, b, "desc"))).toEqual([
-			5, 3, 0, null,
+			5,
+			3,
+			0,
+			null,
 		]);
 	});
 });
