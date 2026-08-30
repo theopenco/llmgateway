@@ -2431,26 +2431,74 @@ export function AllModels({
 						<div className="space-y-2">
 							<div className="font-medium text-sm">Price per unit</div>
 							<div className="flex w-fit flex-col gap-1.5">
-								{ALT_PRICE_FIELDS.map(({ field, Icon, iconClass, label }) => (
-									<Toggle
-										key={field}
-										variant="outline"
-										size="sm"
-										pressed={filters.priceUnit === field}
-										onPressedChange={(pressed) => {
-											const next = pressed ? field : null;
-											setFilters((prev) => ({ ...prev, priceUnit: next }));
-											updateUrlWithFilters({
-												priceUnit: next ?? undefined,
-												page: undefined,
-											});
-										}}
-										className="gap-1.5 w-fit justify-start"
-									>
-										<Icon className={`h-3.5 w-3.5 ${iconClass}`} />
-										<span className="text-xs">{label}</span>
-									</Toggle>
-								))}
+								{ALT_PRICE_FIELDS.map(({ field, Icon, iconClass, label }) => {
+									const isActive = filters.priceUnit === field;
+									const isSorted = sortField === field;
+									return (
+										<Toggle
+											key={field}
+											variant="outline"
+											size="sm"
+											pressed={isActive}
+											onPressedChange={() => {
+												if (!isActive) {
+													setFilters((prev) => ({
+														...prev,
+														priceUnit: field,
+													}));
+													setSortField(field);
+													setSortDirection("asc");
+													updateUrlWithFilters({
+														priceUnit: field,
+														sortField: field,
+														sortDir: "asc",
+														page: undefined,
+													});
+												} else if (isSorted && sortDirection === "asc") {
+													setSortDirection("desc");
+													updateUrlWithFilters({
+														sortDir: "desc",
+														page: undefined,
+													});
+												} else if (isSorted && sortDirection === "desc") {
+													setFilters((prev) => ({
+														...prev,
+														priceUnit: null,
+													}));
+													setSortField(null);
+													setSortDirection("asc");
+													updateUrlWithFilters({
+														priceUnit: undefined,
+														sortField: undefined,
+														sortDir: undefined,
+														page: undefined,
+													});
+												} else {
+													setSortField(field);
+													setSortDirection("asc");
+													updateUrlWithFilters({
+														sortField: field,
+														sortDir: "asc",
+														page: undefined,
+													});
+												}
+											}}
+											className="gap-1.5 w-fit justify-start"
+										>
+											<Icon className={`h-3.5 w-3.5 ${iconClass}`} />
+											<span className="text-xs">{label}</span>
+											{isActive && isSorted && (
+												<span className="ml-1">
+													{sortDirection === "asc" ? (
+														<ArrowUp className="h-3 w-3" />
+													) : (
+														<ArrowDown className="h-3 w-3" />
+													)}
+												</span>
+											)}
+										</Toggle>
+									);
+								})}
 							</div>
 						</div>
 					</div>
