@@ -6626,7 +6626,7 @@ describe("api", () => {
 		// Auth now runs before model validation, so the request needs a key.
 		await db.insert(tables.apiKey).values({
 			id: "prefix-test-token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -6663,7 +6663,7 @@ describe("api", () => {
 		// Auth now runs before model validation, so the request needs a key.
 		await db.insert(tables.apiKey).values({
 			id: "invalid-model-token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",

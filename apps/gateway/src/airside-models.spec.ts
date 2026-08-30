@@ -2,7 +2,9 @@ import { createServer, type Server } from "node:http";
 
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, eq, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
@@ -91,14 +93,18 @@ describe("airside-listed models", () => {
 		await clearCache();
 		await db.insert(tables.apiKey).values({
 			id: `${token}-id`,
-			token,
+			...hashApiKeyForStorage(token),
 			projectId: "project-id",
 			description: "Airside test key",
 			createdBy: "user-id",
 		});
 		await db.insert(tables.providerKey).values({
 			id: `${token}-mistral-key`,
-			token: "mock-mistral-key",
+			...encryptProviderKeyForStorage(
+				"mock-mistral-key",
+				`${token}-mistral-key`,
+				"org-id",
+			),
 			provider: "mistral",
 			organizationId: "org-id",
 			baseUrl: upstreamUrl,
@@ -269,7 +275,7 @@ describe("airside-listed models", () => {
 		await clearCache();
 		await db.insert(tables.apiKey).values({
 			id: `${token}-id`,
-			token,
+			...hashApiKeyForStorage(token),
 			projectId: "project-id",
 			description: "Airside custom carrier test key",
 			createdBy: "user-id",
@@ -319,7 +325,11 @@ describe("airside-listed models", () => {
 				managed: true,
 				organizationId: null,
 				provider: "acme-sky",
-				token: "mock-acme-key",
+				...encryptProviderKeyForStorage(
+					"mock-acme-key",
+					`${token}-managed-key`,
+					null,
+				),
 			});
 		}
 	}
@@ -410,14 +420,18 @@ describe("airside-listed models", () => {
 		await clearCache();
 		await db.insert(tables.apiKey).values({
 			id: `${token}-id`,
-			token,
+			...hashApiKeyForStorage(token),
 			projectId: "project-id",
 			description: "Airside takeover test key",
 			createdBy: "user-id",
 		});
 		await db.insert(tables.providerKey).values({
 			id: `${token}-nebius-key`,
-			token: "mock-nebius-key",
+			...encryptProviderKeyForStorage(
+				"mock-nebius-key",
+				`${token}-nebius-key`,
+				"org-id",
+			),
 			provider: "nebius",
 			organizationId: "org-id",
 			baseUrl: upstreamUrl,
