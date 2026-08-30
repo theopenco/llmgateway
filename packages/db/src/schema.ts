@@ -728,6 +728,12 @@ export const transaction = snakeCase.table(
 		uniqueIndex("transaction_stripe_invoice_id_unique")
 			.on(table.stripeInvoiceId)
 			.where(sql`${table.stripeInvoiceId} IS NOT NULL`),
+		// Idempotency guard: at most one credit_topup row per PaymentIntent, so
+		// concurrent/re-delivered Stripe webhooks can't double-credit an
+		// organization's balance (enforced at the DB layer).
+		uniqueIndex("transaction_credit_topup_payment_intent_unique")
+			.on(table.stripePaymentIntentId)
+			.where(sql`${table.type} = 'credit_topup'`),
 	],
 );
 

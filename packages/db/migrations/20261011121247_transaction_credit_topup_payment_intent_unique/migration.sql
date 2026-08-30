@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "transaction_credit_topup_payment_intent_unique" ON "transaction" ("stripe_payment_intent_id") WHERE "type" = 'credit_topup';
