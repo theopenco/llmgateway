@@ -42,6 +42,7 @@ import {
 	MODEL_DEACTIVATION_NOTICE_DAYS,
 	shouldShowDeactivationNotice,
 } from "@/deactivation";
+import { discountFraction } from "@/lib/discount";
 import { cn } from "@/lib/utils";
 
 import { formatContextSize, formatDeprecationDate } from "./format";
@@ -919,9 +920,7 @@ export function ProviderSection({
 				{/* Per-image summary for image-gen models */}
 				{isImageGen &&
 					(() => {
-						const discountNum = activeMapping.discount
-							? parseFloat(activeMapping.discount)
-							: 0;
+						const discountNum = discountFraction(activeMapping.discount);
 						const requestPriceNum =
 							activeMapping.requestPrice !== null &&
 							activeMapping.requestPrice !== undefined
@@ -1012,9 +1011,7 @@ export function ProviderSection({
 					activeMapping.inputCharacterPrice &&
 					parseFloat(activeMapping.inputCharacterPrice) > 0 &&
 					(() => {
-						const discountNum = activeMapping.discount
-							? parseFloat(activeMapping.discount)
-							: 0;
+						const discountNum = discountFraction(activeMapping.discount);
 						const perThousandChars =
 							parseFloat(activeMapping.inputCharacterPrice!) *
 							1000 *
@@ -1063,6 +1060,15 @@ export function ProviderSection({
 						<div className="space-y-1">
 							{(() => {
 								const prices = activeMapping.perSecondPrice!;
+								const d = discountFraction(activeMapping.discount);
+								const fmt = (v: string) => {
+									const n = Number(v);
+									const eff =
+										d > 0
+											? n * (1 - d) * serviceTierMultiplier
+											: n * serviceTierMultiplier;
+									return parseFloat(eff.toFixed(4)).toString();
+								};
 								const defaultVideo = prices["default_video"];
 								const defaultAudio = prices["default_audio"];
 								if (defaultVideo && defaultAudio) {
@@ -1072,7 +1078,7 @@ export function ProviderSection({
 												Video / Audio
 											</span>
 											<span className="font-semibold tabular-nums">
-												${defaultVideo} – ${defaultAudio}
+												${fmt(defaultVideo)} – ${fmt(defaultAudio)}
 												<span className="text-muted-foreground text-xs ml-0.5">
 													/sec
 												</span>
@@ -1086,7 +1092,7 @@ export function ProviderSection({
 										<div className="flex justify-between text-sm">
 											<span className="text-muted-foreground">Default</span>
 											<span className="font-semibold tabular-nums">
-												${defaultPrice}
+												${fmt(defaultPrice)}
 												<span className="text-muted-foreground text-xs ml-0.5">
 													/sec
 												</span>
@@ -1097,7 +1103,9 @@ export function ProviderSection({
 								return Object.entries(prices).map(([key, value]) => (
 									<div key={key} className="flex justify-between text-xs">
 										<span className="text-muted-foreground">{key}</span>
-										<span className="font-mono tabular-nums">${value}/sec</span>
+										<span className="font-mono tabular-nums">
+											${fmt(value)}/sec
+										</span>
 									</div>
 								));
 							})()}
@@ -1108,9 +1116,7 @@ export function ProviderSection({
 				  !(parseFloat(activeMapping.inputPrice ?? "0") > 0) &&
 				  !(parseFloat(activeMapping.outputPrice ?? "0") > 0) ? (
 					(() => {
-						const discountNum = activeMapping.discount
-							? parseFloat(activeMapping.discount)
-							: 0;
+						const discountNum = discountFraction(activeMapping.discount);
 						const perHour =
 							parseFloat(activeMapping.inputAudioHourPrice!) *
 							serviceTierMultiplier;
@@ -1321,9 +1327,7 @@ export function ProviderSection({
 											<div>OUT</div>
 										</div>
 										{activeMapping.pricingTiers!.map((tier, index) => {
-											const discountNum = activeMapping.discount
-												? parseFloat(activeMapping.discount)
-												: 0;
+											const discountNum = discountFraction(activeMapping.discount);
 											const prevTokens =
 												activeMapping.pricingTiers![index - 1]?.upToTokens ?? 0;
 											const label =
@@ -1406,9 +1410,7 @@ export function ProviderSection({
 								if (entries.length === 0) {
 									return null;
 								}
-								const discountNum = activeMapping.discount
-									? parseFloat(activeMapping.discount)
-									: 0;
+								const discountNum = discountFraction(activeMapping.discount);
 								return (
 									<div className="mb-1.5">
 										<div className="text-[10px] text-muted-foreground mb-0.5">
@@ -1478,9 +1480,7 @@ export function ProviderSection({
 								if (entries.length === 0) {
 									return null;
 								}
-								const discountNum = activeMapping.discount
-									? parseFloat(activeMapping.discount)
-									: 0;
+								const discountNum = discountFraction(activeMapping.discount);
 								return (
 									<div>
 										<div className="text-[10px] text-muted-foreground mb-0.5">
@@ -1536,9 +1536,7 @@ export function ProviderSection({
 							parseFloat(activeMapping.requestPrice) > 0 &&
 							(() => {
 								const original = parseFloat(activeMapping.requestPrice);
-								const discountNum = activeMapping.discount
-									? parseFloat(activeMapping.discount)
-									: 0;
+								const discountNum = discountFraction(activeMapping.discount);
 								return (
 									<span>
 										+{" "}
@@ -1563,9 +1561,7 @@ export function ProviderSection({
 							parseFloat(activeMapping.webSearchPrice) > 0 &&
 							(() => {
 								const original = parseFloat(activeMapping.webSearchPrice);
-								const discountNum = activeMapping.discount
-									? parseFloat(activeMapping.discount)
-									: 0;
+								const discountNum = discountFraction(activeMapping.discount);
 								return (
 									<span>
 										+{" "}
