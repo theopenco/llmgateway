@@ -1,6 +1,139 @@
+import { discountFraction } from "@/lib/discount";
+
 import type { ApiModelProviderMapping } from "./api-types";
 
 type PeakPricing = NonNullable<ApiModelProviderMapping["peakPricing"]>;
+
+export function effectiveTokenPrice(
+	price: string | null | undefined,
+	discount?: string | null,
+): number | null {
+	if (price === null || price === undefined || price === "") {
+		return null;
+	}
+	const raw = parseFloat(price);
+	if (!Number.isFinite(raw) || raw < 0) {
+		return null;
+	}
+	if (raw === 0) {
+		return 0;
+	}
+	const d = discountFraction(discount);
+	const eff = d > 0 ? raw * (1 - d) : raw;
+	if (!Number.isFinite(eff) || eff < 0) {
+		return null;
+	}
+	if (eff === 0) {
+		return 0;
+	}
+	return eff * 1e6;
+}
+
+export function compareNullBottom(
+	a: number | null,
+	b: number | null,
+	dir: "asc" | "desc",
+): number {
+	if (a === null && b === null) {
+		return 0;
+	}
+	if (a === null) {
+		return 1;
+	}
+	if (b === null) {
+		return -1;
+	}
+	return dir === "asc" ? a - b : b - a;
+}
+
+export function compareSortValues(
+	a: string | number | null,
+	b: string | number | null,
+	dir: "asc" | "desc",
+): number {
+	if (a === null && b === null) {
+		return 0;
+	}
+	if (a === null) {
+		return 1;
+	}
+	if (b === null) {
+		return -1;
+	}
+	if (typeof a === "string" && typeof b === "string") {
+		return dir === "asc" ? a.localeCompare(b) : b.localeCompare(a);
+	}
+	if (typeof a === "number" && typeof b === "number") {
+		return dir === "asc" ? a - b : b - a;
+	}
+	return 0;
+}
+
+function discountedRecordValues(
+	record: Record<string, string | number>,
+	discount?: string | null,
+): number[] {
+	const d = discountFraction(discount);
+	return Object.values(record)
+		.map((v) => Number(v))
+		.filter((v) => Number.isFinite(v) && v >= 0)
+		.map((v) => (d > 0 ? v * (1 - d) : v))
+		.filter((v) => Number.isFinite(v) && v >= 0);
+}
+
+export function getMinPerImagePrice(
+	mapping: ApiModelProviderMapping,
+): number | null {
+	if (!mapping.perImagePrice) {
+		return null;
+	}
+	const values = discountedRecordValues(
+		mapping.perImagePrice,
+		mapping.discount,
+	);
+	return values.length > 0 ? Math.min(...values) : null;
+}
+
+export function getMinPerSecondPrice(
+	mapping: ApiModelProviderMapping,
+): number | null {
+	if (!mapping.perSecondPrice) {
+		return null;
+	}
+	const values = discountedRecordValues(
+		mapping.perSecondPrice,
+		mapping.discount,
+	);
+	return values.length > 0 ? Math.min(...values) : null;
+}
+
+export function getMinInputCharacterPrice(
+	mapping: ApiModelProviderMapping,
+): number | null {
+	if (!mapping.inputCharacterPrice) {
+		return null;
+	}
+	const raw = parseFloat(mapping.inputCharacterPrice);
+	if (!Number.isFinite(raw) || raw < 0) {
+		return null;
+	}
+	if (raw === 0) {
+		return 0;
+	}
+	const d = discountFraction(mapping.discount);
+	const eff = d > 0 ? raw * (1 - d) : raw;
+	if (!Number.isFinite(eff) || eff < 0) {
+		return null;
+	}
+	return eff;
+}
+
+export function perImagePriceValues(
+	perImagePrice: Record<string, string | number>,
+	discount?: string | null,
+): number[] {
+	return discountedRecordValues(perImagePrice, discount);
+}
 
 const orderedDays = [1, 2, 3, 4, 5, 6, 0] as const;
 const dayNames = [

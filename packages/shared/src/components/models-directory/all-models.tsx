@@ -87,6 +87,7 @@ import { matchesCapability } from "./capability-filters";
 import { formatDeprecationDate, formatPerImagePriceRange } from "./format";
 import { ModelCard } from "./model-card";
 import { applyCategoryFilter } from "./model-category-filters";
+import { compareSortValues, effectiveTokenPrice } from "./pricing-schedule";
 import { isVisibleMapping } from "./status-filters";
 import {
 	applyUseCaseFilter,
@@ -1246,34 +1247,34 @@ export function AllModels({
 				}
 			}
 
-			// Price filters
+			// Price filters — discount-aware, free 0 stays 0 not null (3887811295/1251)
 			const hasInputPrice = (min: string, max: string) => {
 				return model.providerDetails.some((p) => {
-					if (
-						p.provider.inputPrice === null ||
-						p.provider.inputPrice === undefined
-					) {
+					const eff = effectiveTokenPrice(
+						p.provider.inputPrice,
+						p.provider.discount,
+					);
+					if (eff === null) {
 						return !min && !max;
 					}
-					const price = parseFloat(p.provider.inputPrice) * 1e6; // Convert to per million tokens
-					const minPrice = min ? parseFloat(min) : 0;
+					const minPrice = min ? parseFloat(min) : -Infinity;
 					const maxPrice = max ? parseFloat(max) : Infinity;
-					return price >= minPrice && price <= maxPrice;
+					return eff >= minPrice && eff <= maxPrice;
 				});
 			};
 
 			const hasOutputPrice = (min: string, max: string) => {
 				return model.providerDetails.some((p) => {
-					if (
-						p.provider.outputPrice === null ||
-						p.provider.outputPrice === undefined
-					) {
+					const eff = effectiveTokenPrice(
+						p.provider.outputPrice,
+						p.provider.discount,
+					);
+					if (eff === null) {
 						return !min && !max;
 					}
-					const price = parseFloat(p.provider.outputPrice) * 1e6; // Convert to per million tokens
-					const minPrice = min ? parseFloat(min) : 0;
+					const minPrice = min ? parseFloat(min) : -Infinity;
 					const maxPrice = max ? parseFloat(max) : Infinity;
-					return price >= minPrice && price <= maxPrice;
+					return eff >= minPrice && eff <= maxPrice;
 				});
 			};
 
@@ -1331,12 +1332,11 @@ export function AllModels({
 				return bDate - aDate; // Descending (newest first)
 			}
 
-			let aValue: string | number;
-			let bValue: string | number;
+			let aValue: string | number | null;
+			let bValue: string | number | null;
 
 			switch (sortField) {
 				case "provider":
-					// For grid view, sort by first provider name
 					aValue = (
 						a.providerDetails[0]?.providerInfo?.name ??
 						a.providerDetails[0]?.provider.providerId ??
@@ -1353,59 +1353,57 @@ export function AllModels({
 					bValue = (b.name ?? b.id).toLowerCase();
 					break;
 				case "inputPrice": {
-					// Get the min input price among all providers for this model
-					const aInputPrices = a.providerDetails
-						.map((p) => p.provider.inputPrice)
-						.filter((p): p is string => p !== null && p !== undefined)
-						.map((p) => parseFloat(p));
-					const bInputPrices = b.providerDetails
-						.map((p) => p.provider.inputPrice)
-						.filter((p): p is string => p !== null && p !== undefined)
-						.map((p) => parseFloat(p));
-					aValue =
-						aInputPrices.length > 0 ? Math.min(...aInputPrices) : Infinity;
-					bValue =
-						bInputPrices.length > 0 ? Math.min(...bInputPrices) : Infinity;
+					const aVals = a.providerDetails
+						.map((p) =>
+							effectiveTokenPrice(p.provider.inputPrice, p.provider.discount),
+						)
+						.filter((v): v is number => v !== null);
+					const bVals = b.providerDetails
+						.map((p) =>
+							effectiveTokenPrice(p.provider.inputPrice, p.provider.discount),
+						)
+						.filter((v): v is number => v !== null);
+					aValue = aVals.length > 0 ? Math.min(...aVals) : null;
+					bValue = bVals.length > 0 ? Math.min(...bVals) : null;
 					break;
 				}
 				case "outputPrice": {
-					// Get the min output price among all providers for this model
-					const aOutputPrices = a.providerDetails
-						.map((p) => p.provider.outputPrice)
-						.filter((p): p is string => p !== null && p !== undefined)
-						.map((p) => parseFloat(p));
-					const bOutputPrices = b.providerDetails
-						.map((p) => p.provider.outputPrice)
-						.filter((p): p is string => p !== null && p !== undefined)
-						.map((p) => parseFloat(p));
-					aValue =
-						aOutputPrices.length > 0 ? Math.min(...aOutputPrices) : Infinity;
-					bValue =
-						bOutputPrices.length > 0 ? Math.min(...bOutputPrices) : Infinity;
+					const aVals = a.providerDetails
+						.map((p) =>
+							effectiveTokenPrice(p.provider.outputPrice, p.provider.discount),
+						)
+						.filter((v): v is number => v !== null);
+					const bVals = b.providerDetails
+						.map((p) =>
+							effectiveTokenPrice(p.provider.outputPrice, p.provider.discount),
+						)
+						.filter((v): v is number => v !== null);
+					aValue = aVals.length > 0 ? Math.min(...aVals) : null;
+					bValue = bVals.length > 0 ? Math.min(...bVals) : null;
 					break;
 				}
 				case "cachedInputPrice": {
-					// Get the min cached input price among all providers for this model
-					const aCachedInputPrices = a.providerDetails
-						.map((p) => p.provider.cachedInputPrice)
-						.filter((p): p is string => p !== null && p !== undefined)
-						.map((p) => parseFloat(p));
-					const bCachedInputPrices = b.providerDetails
-						.map((p) => p.provider.cachedInputPrice)
-						.filter((p): p is string => p !== null && p !== undefined)
-						.map((p) => parseFloat(p));
-					aValue =
-						aCachedInputPrices.length > 0
-							? Math.min(...aCachedInputPrices)
-							: Infinity;
-					bValue =
-						bCachedInputPrices.length > 0
-							? Math.min(...bCachedInputPrices)
-							: Infinity;
+					const aVals = a.providerDetails
+						.map((p) =>
+							effectiveTokenPrice(
+								p.provider.cachedInputPrice,
+								p.provider.discount,
+							),
+						)
+						.filter((v): v is number => v !== null);
+					const bVals = b.providerDetails
+						.map((p) =>
+							effectiveTokenPrice(
+								p.provider.cachedInputPrice,
+								p.provider.discount,
+							),
+						)
+						.filter((v): v is number => v !== null);
+					aValue = aVals.length > 0 ? Math.min(...aVals) : null;
+					bValue = bVals.length > 0 ? Math.min(...bVals) : null;
 					break;
 				}
 				case "discount": {
-					// Highest discount across all providers for this model
 					const aDiscounts = a.providerDetails.map((m) =>
 						discountFraction(m.provider.discount),
 					);
@@ -1420,13 +1418,7 @@ export function AllModels({
 					return 0;
 			}
 
-			if (aValue < bValue) {
-				return sortDirection === "asc" ? -1 : 1;
-			}
-			if (aValue > bValue) {
-				return sortDirection === "asc" ? 1 : -1;
-			}
-			return 0;
+			return compareSortValues(aValue, bValue, sortDirection);
 		});
 	}, [
 		searchQuery,
@@ -1520,8 +1512,8 @@ export function AllModels({
 				return bDate - aDate;
 			}
 
-			let aValue: string | number;
-			let bValue: string | number;
+			let aValue: string | number | null;
+			let bValue: string | number | null;
 
 			switch (sortField) {
 				case "provider":
@@ -1536,45 +1528,36 @@ export function AllModels({
 					aValue = (a.model.name ?? a.model.id).toLowerCase();
 					bValue = (b.model.name ?? b.model.id).toLowerCase();
 					break;
-				case "inputPrice": {
-					const aPrice = a.provider.inputPrice;
-					const bPrice = b.provider.inputPrice;
-					aValue =
-						aPrice !== null && aPrice !== undefined
-							? parseFloat(aPrice)
-							: Infinity;
-					bValue =
-						bPrice !== null && bPrice !== undefined
-							? parseFloat(bPrice)
-							: Infinity;
+				case "inputPrice":
+					aValue = effectiveTokenPrice(
+						a.provider.inputPrice,
+						a.provider.discount,
+					);
+					bValue = effectiveTokenPrice(
+						b.provider.inputPrice,
+						b.provider.discount,
+					);
 					break;
-				}
-				case "outputPrice": {
-					const aPrice = a.provider.outputPrice;
-					const bPrice = b.provider.outputPrice;
-					aValue =
-						aPrice !== null && aPrice !== undefined
-							? parseFloat(aPrice)
-							: Infinity;
-					bValue =
-						bPrice !== null && bPrice !== undefined
-							? parseFloat(bPrice)
-							: Infinity;
+				case "outputPrice":
+					aValue = effectiveTokenPrice(
+						a.provider.outputPrice,
+						a.provider.discount,
+					);
+					bValue = effectiveTokenPrice(
+						b.provider.outputPrice,
+						b.provider.discount,
+					);
 					break;
-				}
-				case "cachedInputPrice": {
-					const aPrice = a.provider.cachedInputPrice;
-					const bPrice = b.provider.cachedInputPrice;
-					aValue =
-						aPrice !== null && aPrice !== undefined
-							? parseFloat(aPrice)
-							: Infinity;
-					bValue =
-						bPrice !== null && bPrice !== undefined
-							? parseFloat(bPrice)
-							: Infinity;
+				case "cachedInputPrice":
+					aValue = effectiveTokenPrice(
+						a.provider.cachedInputPrice,
+						a.provider.discount,
+					);
+					bValue = effectiveTokenPrice(
+						b.provider.cachedInputPrice,
+						b.provider.discount,
+					);
 					break;
-				}
 				case "discount":
 					aValue = discountFraction(a.provider.discount);
 					bValue = discountFraction(b.provider.discount);
@@ -1583,13 +1566,7 @@ export function AllModels({
 					return 0;
 			}
 
-			if (aValue < bValue) {
-				return sortDirection === "asc" ? -1 : 1;
-			}
-			if (aValue > bValue) {
-				return sortDirection === "asc" ? 1 : -1;
-			}
-			return 0;
+			return compareSortValues(aValue, bValue, sortDirection);
 		});
 	}, [modelsWithProviders, sortField, sortDirection, filters.selectedProvider]);
 
@@ -1728,11 +1705,14 @@ export function AllModels({
 		price: string | null | undefined,
 		discount?: string | null,
 	) => {
-		if (price === null || price === undefined) {
+		if (price === null || price === undefined || price === "") {
 			return "—";
 		}
 		const priceNum = parseFloat(price);
-		const discountNum = discount ? parseFloat(discount) : 0;
+		if (!Number.isFinite(priceNum)) {
+			return "—";
+		}
+		const discountNum = discountFraction(discount);
 		const originalPrice = (priceNum * 1e6).toFixed(2);
 		if (discountNum > 0) {
 			const discountedPrice = (priceNum * 1e6 * (1 - discountNum)).toFixed(2);
