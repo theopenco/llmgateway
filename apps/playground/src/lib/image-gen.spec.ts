@@ -59,4 +59,12 @@ describe("getModelImageConfig", () => {
 		expect(config.supportsQuality).toBe(false);
 		expect(config.availableQualities).toEqual([]);
 	});
+
+	it("allows Seedream 5.0 Pro reference images", () => {
+		const config = getModelImageConfig("bytedance/seedream-5-0-pro");
+
+		expect(config.availableSizes).toEqual(["1K", "2K"]);
+		expect(config.defaultSize).toBe("2K");
+		expect(config.maxInputImages).toBe(10);
+	});
 });
