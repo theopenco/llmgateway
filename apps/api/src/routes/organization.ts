@@ -31,6 +31,7 @@ import { logAuditEvent } from "@llmgateway/audit";
 import { redisClient } from "@llmgateway/cache";
 import {
 	and,
+	cdb,
 	db,
 	desc,
 	eq,
@@ -847,7 +848,9 @@ organization.openapi(updateOrganization, async (c) => {
 		updatedOrganization = userOrganization.organization!;
 	} else {
 		try {
-			[updatedOrganization] = await db
+			// Cached client so gateway policy gates see compliance changes
+			// immediately instead of serving the previous organization row.
+			[updatedOrganization] = await cdb
 				.update(tables.organization)
 				.set(updateData)
 				.where(eq(tables.organization.id, id))

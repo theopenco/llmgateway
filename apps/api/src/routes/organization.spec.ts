@@ -7,7 +7,19 @@ import {
 	deleteAll,
 } from "@/testing.js";
 
-import { db, eq, tables } from "@llmgateway/db";
+import {
+	redisClient,
+	swrWrap,
+	waitForSwrMirrorWrites,
+} from "@llmgateway/cache";
+import {
+	cdb,
+	db,
+	eq,
+	getTableName,
+	organizationCacheTag,
+	tables,
+} from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { randomInt } from "@llmgateway/shared/random";
 
@@ -211,6 +223,56 @@ describe("organization route", () => {
 				})
 			)?.providerCompliancePolicy,
 		).toEqual({ enabled: true, blockApiTraining: true });
+	});
+
+	test("compliance updates invalidate the gateway organization cache", async () => {
+		await redisClient.flushdb();
+		await db
+			.update(tables.organization)
+			.set({ plan: "enterprise" })
+			.where(eq(tables.organization.id, "test-org-id"));
+		await db
+			.update(tables.userOrganization)
+			.set({ role: "admin" })
+			.where(eq(tables.userOrganization.organizationId, "test-org-id"));
+
+		const organizationTableName = getTableName(tables.organization);
+		const readGatewayPolicy = async () =>
+			await swrWrap("org:test-org-id", [organizationTableName], async () => {
+				const organizations = await cdb
+					.select()
+					.from(tables.organization)
+					.where(eq(tables.organization.id, "test-org-id"))
+					.limit(1)
+					.$withCache({
+						tag: organizationCacheTag("test-org-id"),
+						autoInvalidate: true,
+					});
+				return organizations[0]?.providerCompliancePolicy;
+			});
+
+		expect(await readGatewayPolicy()).toBeNull();
+		await waitForSwrMirrorWrites();
+
+		const response = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				providerCompliancePolicy: {
+					enabled: true,
+					allowedProviders: ["openai"],
+				},
+			}),
+		});
+
+		expect(response.status).toBe(200);
+		expect(await readGatewayPolicy()).toEqual({
+			enabled: true,
+			allowedProviders: ["openai"],
+		});
 	});
 
 	test("DevPass organizations reject other compliance settings", async () => {
