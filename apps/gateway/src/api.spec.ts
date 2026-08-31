@@ -1667,6 +1667,65 @@ describe("api", () => {
 		expect(json.error.message).toContain("provider compliance policy");
 	});
 
+	test("/v1/chat/completions enforces the full policy on devpass-kind enterprise orgs", async () => {
+		// Regression: the devpass narrowing kept only blockApiTraining, so a
+		// devpass-kind org holding an enterprise plan and a full policy had its
+		// provider allow list silently dropped — requests were routed to
+		// non-allow-listed providers that merely don't train on prompts.
+		await harness.setDevPlan({ devPlan: "pro" });
+		await harness.setProjectMode("api-keys");
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				providerCompliancePolicy: {
+					enabled: true,
+					blockApiTraining: true,
+					allowedProviders: ["openai"],
+				},
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-compliance-devpass-enterprise",
+			...hashApiKeyForStorage("real-token-compliance-devpass-enterprise"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-compliance-devpass-enterprise",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-compliance-devpass-enterprise",
+				"org-id",
+			),
+			provider: "zai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		// zai does not train on prompts, so it passed the narrowed policy; the
+		// allow list must still exclude it. Dev plans reject provider pinning,
+		// so route by bare model id like the affected traffic did.
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-compliance-devpass-enterprise",
+			},
+			body: JSON.stringify({
+				model: "glm-5.3",
+				messages: [{ role: "user", content: "Hello compliance!" }],
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(json.error.message).toContain("provider compliance policy");
+	});
+
 	test("/v1/chat/completions enforces no-training routing for DevPass", async () => {
 		await harness.setDevPlan({ devPlan: "pro" });
 		await harness.setProjectMode("credits");

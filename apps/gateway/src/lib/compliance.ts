@@ -10,7 +10,6 @@ import {
 	isModelAllowedByPolicy,
 	isProviderCompliant,
 	isProviderRefAllowedByPolicy,
-	narrowPolicyToDevPass,
 	type ProviderComplianceAttestation,
 	type ProviderCompliancePolicy,
 } from "@llmgateway/models";
@@ -24,23 +23,20 @@ interface OrganizationLike {
 
 /**
  * The active provider compliance policy for an organization, or `undefined`
- * when none is enabled. DevPass organizations get only the no-training
- * requirement. Enforcement deliberately does NOT check enterprise access:
- * configuring a policy is enterprise-gated in the API, but an enabled stored
- * policy must fail closed — a plan change or a missing/expired license on the
- * gateway silently dropping routing restrictions is a compliance breach.
+ * when none is enabled. Enforcement deliberately checks neither enterprise
+ * access nor the organization kind: what a policy may contain is restricted at
+ * configuration time in the API (full policies need enterprise access, DevPass
+ * settings can only write the no-training requirement), but an enabled stored
+ * policy must fail closed. Gating enforcement on plan/license silently dropped
+ * all restrictions when the gate misfired, and narrowing by kind stripped the
+ * full policy of a devpass-kind org that holds an enterprise plan down to the
+ * no-training requirement — both are compliance breaches, not downgrades.
  */
 export function getActiveCompliancePolicy(
 	organization: OrganizationLike,
 ): ProviderCompliancePolicy | undefined {
 	const policy = organization.providerCompliancePolicy;
-	if (!policy?.enabled) {
-		return undefined;
-	}
-	if (organization.kind === "devpass") {
-		return narrowPolicyToDevPass(policy);
-	}
-	return policy;
+	return policy?.enabled ? policy : undefined;
 }
 
 /** Request-scoped facts the policy needs beyond the catalogue. */

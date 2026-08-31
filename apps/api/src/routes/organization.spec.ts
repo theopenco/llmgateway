@@ -316,6 +316,41 @@ describe("organization route", () => {
 		).toBeNull();
 	});
 
+	test("devpass-kind orgs with enterprise access keep the full policy surface", async () => {
+		await db
+			.update(tables.organization)
+			.set({ kind: "devpass", plan: "enterprise" })
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		const response = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				providerCompliancePolicy: {
+					enabled: true,
+					blockApiTraining: true,
+					allowedProviders: ["openai"],
+				},
+			}),
+		});
+
+		expect(response.status).toBe(200);
+		expect(
+			(
+				await db.query.organization.findFirst({
+					where: { id: { eq: "test-org-id" } },
+				})
+			)?.providerCompliancePolicy,
+		).toEqual({
+			enabled: true,
+			blockApiTraining: true,
+			allowedProviders: ["openai"],
+		});
+	});
+
 	test("DevPass organizations reject other compliance settings", async () => {
 		await db
 			.update(tables.organization)

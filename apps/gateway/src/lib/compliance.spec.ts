@@ -120,35 +120,26 @@ describe("getActiveCompliancePolicy for DevPass", () => {
 		).toBeUndefined();
 	});
 
-	it("narrows enabled policies to no API training", () => {
+	it("enforces stored policies as-is, without narrowing by kind", () => {
+		// The DevPass write paths can only store {enabled, blockApiTraining}, so
+		// a fuller policy on a devpass-kind org means the org holds enterprise
+		// access (e.g. a devpass-kind org on an enterprise plan). Narrowing here
+		// silently dropped that org's allow lists — enforce what is stored.
+		const fullPolicy: ProviderCompliancePolicy = {
+			enabled: true,
+			blockApiTraining: true,
+			requireGdpr: true,
+			blockPromptLogging: true,
+			allowedProviders: ["openai"],
+		};
 		expect(
 			getActiveCompliancePolicy({
 				id: "org-test",
 				kind: "devpass",
-				plan: "free",
-				providerCompliancePolicy: {
-					enabled: true,
-					blockApiTraining: true,
-					requireGdpr: true,
-					blockPromptLogging: true,
-				},
+				plan: "enterprise",
+				providerCompliancePolicy: fullPolicy,
 			}),
-		).toEqual({ enabled: true, blockApiTraining: true });
-	});
-
-	it("ignores unrelated policy fields", () => {
-		expect(
-			getActiveCompliancePolicy({
-				id: "org-test",
-				kind: "devpass",
-				plan: "free",
-				providerCompliancePolicy: {
-					enabled: true,
-					requireGdpr: true,
-					blockPromptLogging: true,
-				},
-			}),
-		).toBeUndefined();
+		).toEqual(fullPolicy);
 	});
 
 	it("fails closed on unknown training policies", () => {

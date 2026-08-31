@@ -718,8 +718,9 @@ organization.openapi(updateOrganization, async (c) => {
 		});
 	}
 
-	// DevPass accepts only the no-API-training requirement. Other organizations
-	// retain the existing enterprise policy gate.
+	// DevPass accepts only the no-API-training requirement unless the org holds
+	// enterprise access; enterprise access unlocks the full policy regardless of
+	// kind (a devpass-kind org on an enterprise plan keeps its complete policy).
 	if (providerCompliancePolicy !== undefined) {
 		if (
 			userOrganization.role !== "owner" &&
@@ -729,9 +730,14 @@ organization.openapi(updateOrganization, async (c) => {
 				message: "Only owners and admins can manage compliance policies",
 			});
 		}
+		const orgHasEnterpriseAccess = hasOrganizationEnterpriseAccess(
+			userOrganization.organization?.id,
+			userOrganization.organization?.plan,
+		);
 		if (
 			userOrganization.organization?.kind === "devpass" &&
-			providerCompliancePolicy !== null
+			providerCompliancePolicy !== null &&
+			!orgHasEnterpriseAccess
 		) {
 			const unsupportedKeys = Object.entries(providerCompliancePolicy)
 				.filter(([key, value]) => {
@@ -753,10 +759,7 @@ organization.openapi(updateOrganization, async (c) => {
 			// so a downgraded org must be able to turn a leftover policy off.
 			providerCompliancePolicy !== null &&
 			providerCompliancePolicy.enabled &&
-			!hasOrganizationEnterpriseAccess(
-				userOrganization.organization?.id,
-				userOrganization.organization?.plan,
-			)
+			!orgHasEnterpriseAccess
 		) {
 			throw new HTTPException(403, {
 				message: "Provider compliance policies require an enterprise plan",
