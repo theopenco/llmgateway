@@ -127,7 +127,7 @@ function ProviderIdentity({ provider }: { provider: ProviderDefinition }) {
 	const Logo = providerLogoUrls[provider.id as ProviderId];
 
 	return (
-		<div className="flex min-w-48 items-start gap-3">
+		<div className="flex min-w-44 items-start gap-3">
 			<div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted p-1.5">
 				{Logo ? <Logo className="max-h-full max-w-full" /> : null}
 			</div>
@@ -141,6 +141,14 @@ function ProviderIdentity({ provider }: { provider: ProviderDefinition }) {
 				<p className="mt-1 text-xs text-muted-foreground">
 					{activeModelCounts[provider.id] ?? 0} available models
 				</p>
+				<div className="mt-3 text-xs leading-5">
+					<span className="block font-medium text-muted-foreground">
+						Contracting entity
+					</span>
+					<span className="block text-foreground">
+						{provider.legalEntity ?? "Not published"}
+					</span>
+				</div>
 				<p className="mt-3 text-xs text-muted-foreground">
 					Updated {DISCLOSURE_UPDATED_AT}
 				</p>
@@ -185,7 +193,7 @@ function DataHandling({
 	policy: ProviderDataPolicy | null | undefined;
 }) {
 	return (
-		<div className="min-w-44 space-y-3">
+		<div className="min-w-40 space-y-3">
 			<BooleanFact
 				label="API data used for training"
 				value={policy?.apiTraining}
@@ -261,32 +269,29 @@ export default function ProviderLegalInformationPage() {
 					</div>
 
 					<div className="mt-10 overflow-x-auto rounded-xl border">
-						<table className="w-full min-w-[1480px] border-collapse text-left text-sm">
+						<table className="w-full min-w-[1220px] border-collapse text-left text-sm">
 							<caption className="sr-only">
 								Legal and compliance information for {providers.length} AI
 								providers
 							</caption>
 							<thead className="bg-muted/70">
 								<tr className="border-b">
-									<th scope="col" className="px-5 py-4 font-semibold">
+									<th scope="col" className="px-4 py-4 font-semibold">
 										Provider
 									</th>
-									<th scope="col" className="px-5 py-4 font-semibold">
-										Contracting entity
-									</th>
-									<th scope="col" className="px-5 py-4 font-semibold">
+									<th scope="col" className="px-4 py-4 font-semibold">
 										Legal &amp; policy links
 									</th>
-									<th scope="col" className="px-5 py-4 font-semibold">
+									<th scope="col" className="px-4 py-4 font-semibold">
 										Location
 									</th>
-									<th scope="col" className="px-5 py-4 font-semibold">
+									<th scope="col" className="px-4 py-4 font-semibold">
 										Data handling
 									</th>
-									<th scope="col" className="px-5 py-4 font-semibold">
+									<th scope="col" className="px-4 py-4 font-semibold">
 										Compliance
 									</th>
-									<th scope="col" className="px-5 py-4 font-semibold">
+									<th scope="col" className="px-4 py-4 font-semibold">
 										Request handling
 									</th>
 								</tr>
@@ -297,19 +302,14 @@ export default function ProviderLegalInformationPage() {
 										key={provider.id}
 										className="border-b align-top last:border-b-0 hover:bg-muted/20"
 									>
-										<th scope="row" className="px-5 py-5 font-normal">
+										<th scope="row" className="px-4 py-5 font-normal">
 											<ProviderIdentity provider={provider} />
 										</th>
-										<td className="px-5 py-5">
-											<div className="min-w-56 leading-5 text-foreground">
-												{provider.legalEntity ?? "Not published"}
-											</div>
-										</td>
-										<td className="px-5 py-5">
+										<td className="px-4 py-5">
 											<ProviderLinks provider={provider} />
 										</td>
-										<td className="px-5 py-5">
-											<dl className="min-w-64 space-y-4">
+										<td className="px-4 py-5">
+											<dl className="min-w-56 space-y-4">
 												<Fact label="Headquarters">
 													{getHeadquarters(provider)}
 												</Fact>
@@ -318,14 +318,14 @@ export default function ProviderLegalInformationPage() {
 												</Fact>
 											</dl>
 										</td>
-										<td className="px-5 py-5">
+										<td className="px-4 py-5">
 											<DataHandling policy={provider.dataPolicy} />
 										</td>
-										<td className="px-5 py-5">
+										<td className="px-4 py-5">
 											<Compliance policy={provider.dataPolicy} />
 										</td>
-										<td className="px-5 py-5">
-											<div className="min-w-44 space-y-3">
+										<td className="px-4 py-5">
+											<div className="min-w-40 space-y-3">
 												<BooleanFact
 													label="Safety identifier forwarded"
 													value={provider.forwardsSafetyIdentifier}
