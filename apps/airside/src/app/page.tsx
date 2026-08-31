@@ -84,7 +84,7 @@ const FAQ = [
 	},
 	{
 		q: "How do we get routed more traffic?",
-		a: "Dispatch scores every candidate on fares, on-time performance, runway capacity and taxi time. Cutting your fares, offering a discount, or accepting a lower landing fee lowers your routing score — and lower scores win.",
+		a: "Dispatch scores every candidate on fares, on-time performance, runway capacity and taxi time. Cutting your fares, offering a discount, or accepting a higher landing fee lowers your routing score — and lower scores win.",
 	},
 	{
 		q: "What do we see about our traffic?",

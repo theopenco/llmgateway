@@ -21,7 +21,7 @@ Last updated: 2026-08-27
 
 - You keep your billed traffic less the gateway margin you accept.
 - The margin is a control in your console, not a fixed rate: raising the margin you accept improves your routing score, lowering it keeps more revenue per request.
-- An optional routing discount lowers your effective price for scoring purposes, trading revenue per request for more traffic.
+- An optional routing discount lowers your effective price in the routing election only, winning more traffic. It changes neither the public price developers pay nor what you're paid per token.
 - The console reports traffic, not amounts owed. Settlement — schedule, currency, minimums — is governed by a separate written agreement.
 
 ## How traffic is allocated

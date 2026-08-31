@@ -4748,8 +4748,9 @@ export const providerPriceFiling = pgTable(
 );
 
 // Per-claimed-provider routing knobs a carrier controls: a traffic discount
-// and the gateway margin they accept. Writes are mirrored into
-// `routing_score_multiplier` so the existing routing election picks them up.
+// and the gateway margin they accept. Deliberately separate from
+// `routing_score_multiplier` (the admin-only prioritization knob): the gateway
+// reads this table directly and adds both signals at the scoring seam.
 // Both values are fractions (0.1 = 10%), like `discount.discountPercent`.
 export const providerRoutingSettings = pgTable(
 	"provider_routing_settings",
