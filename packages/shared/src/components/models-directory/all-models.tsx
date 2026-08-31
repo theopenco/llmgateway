@@ -1353,7 +1353,8 @@ export function AllModels({
 					} else if (filters.priceUnit === "perSecondPrice") {
 						eff = getMinPerSecondPrice(p.provider);
 					} else if (filters.priceUnit === "inputCharacterPrice") {
-						eff = getMinInputCharacterPrice(p.provider);
+						const perChar = getMinInputCharacterPrice(p.provider);
+						eff = perChar !== null ? perChar * 1000 : null;
 					} else {
 						eff = effectiveTokenPrice(
 							p.provider.inputPrice,

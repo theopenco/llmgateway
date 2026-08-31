@@ -592,15 +592,8 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 							Object.entries(perSecondPrice)
 								.slice(0, 2)
 								.map(([key, price]) => {
-									const discount = selectedMapping?.discount
-										? Number(selectedMapping.discount)
-										: 0;
-									const validDiscount =
-										Number.isFinite(discount) && discount > 0 && discount <= 1
-											? discount
-											: 0;
 									const eff =
-										validDiscount > 0 ? price * (1 - validDiscount) : price;
+										discountNum > 0 ? price * (1 - discountNum) : price;
 									return (
 										<div
 											key={key}

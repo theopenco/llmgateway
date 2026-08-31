@@ -119,7 +119,12 @@ export function getMinPerImagePrice(
 				.filter((v) => Number.isFinite(v) && v > 0);
 			if (tokens.length > 0) {
 				const d = discountFraction(mapping.discount);
-				const perImage = tokens.map((t) => t * price * (d > 0 ? 1 - d : 1));
+				const perImage = tokens
+					.map((t) => t * price * (d > 0 ? 1 - d : 1))
+					.filter((v) => Number.isFinite(v));
+				if (perImage.length === 0) {
+					return null;
+				}
 				return Math.min(...perImage);
 			}
 		}

@@ -2113,6 +2113,7 @@ export function ModelSelector({
 																		{previewEntry.mapping?.perSecondPrice
 																			? formatPerSecondPrice(
 																					previewEntry.mapping.perSecondPrice,
+																					previewEntry.mapping.discount,
 																				)
 																			: "Unknown"}
 																	</p>
