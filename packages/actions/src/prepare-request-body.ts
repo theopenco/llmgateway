@@ -1712,27 +1712,37 @@ export async function prepareRequestBody(
 
 	// Handle ByteDance Seedream image generation
 	if (imageGenerations && usedProvider === "bytedance") {
-		// Extract prompt from last user message
 		const lastUserMessage = [...messages]
 			.reverse()
 			.find((m) => m.role === "user");
 		let prompt = "";
+		const imageUrls: string[] = [];
 		if (lastUserMessage) {
 			if (typeof lastUserMessage.content === "string") {
 				prompt = lastUserMessage.content;
 			} else if (Array.isArray(lastUserMessage.content)) {
-				prompt = lastUserMessage.content
-					.filter((p): p is { type: "text"; text: string } => p.type === "text")
-					.map((p) => p.text)
-					.join("\n");
+				for (const part of lastUserMessage.content) {
+					if (part.type === "text" && part.text) {
+						prompt += (prompt ? "\n" : "") + part.text;
+					} else if (part.type === "image_url" && part.image_url) {
+						const url =
+							typeof part.image_url === "string"
+								? part.image_url
+								: part.image_url.url;
+						if (url) {
+							imageUrls.push(url);
+						}
+					}
+				}
 			}
 		}
 
-		// ByteDance Seedream format
 		const bytedanceImageRequest: any = {
 			model: usedExternalId,
 			prompt,
 			...(image_config?.image_size && { size: image_config.image_size }),
+			...(imageUrls.length === 1 && { image: imageUrls[0] }),
+			...(imageUrls.length > 1 && { image: imageUrls }),
 		};
 
 		return bytedanceImageRequest;
