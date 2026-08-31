@@ -898,6 +898,25 @@ export const googleModels = [
 				jsonOutput: true,
 				jsonOutputSchema: true,
 			},
+
+			{
+				// OrcaRouter is an OpenAI-compatible gateway that resells Google
+				// models at the provider's published rate with zero markup, so
+				// pricing mirrors the first-party google-ai-studio mapping.
+				providerId: "orcarouter",
+				externalId: "google/gemini-3.1-pro-preview",
+				inputPrice: "2e-6",
+				outputPrice: "12e-6",
+				cachedInputPrice: "0.2e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 65536,
+				reasoning: true,
+				streaming: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
 		],
 	},
 	{

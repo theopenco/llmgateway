@@ -1489,6 +1489,28 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
+		id: "orcarouter",
+		name: "OrcaRouter",
+		forwardsSafetyIdentifier: false,
+		description:
+			"OrcaRouter is an OpenAI-compatible AI gateway that routes every request to the best model across 200+ frontier and open models, with automatic failover, zero markup on provider pricing, and gateway-level security for AI agents.",
+		env: {
+			required: {
+				apiKey: "LLM_ORCAROUTER_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#7c3aed",
+		website: "https://www.orcarouter.ai",
+		statusPageUrl: "https://statuspage.incident.io/orca-router",
+		announcement: null,
+		termsUrl: null,
+		privacyPolicyUrl: null,
+		headquarters: null,
+		dataPolicy: null,
+	},
+	{
 		id: "custom",
 		name: "Custom",
 		forwardsSafetyIdentifier: false,

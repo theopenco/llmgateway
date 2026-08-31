@@ -1853,6 +1853,30 @@ export const openaiModels = [
 				],
 				jsonOutput: true,
 			},
+
+			{
+				// OrcaRouter is an OpenAI-compatible gateway: it resells the
+				// provider's own model at the provider's published rate with zero
+				// markup, so pricing mirrors the first-party openai mapping.
+				providerId: "orcarouter",
+				externalId: "openai/gpt-5.5",
+				inputPrice: "5.0e-6",
+				outputPrice: "30.0e-6",
+				cachedInputPrice: "0.5e-6",
+				requestPrice: "0",
+				contextSize: 1050000,
+				maxOutput: 128000,
+				streaming: true,
+				vision: true,
+				tools: true,
+				webSearch: true,
+				webSearchPrice: "0.01",
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh"],
+				reasoningOutput: "omit",
+				jsonOutputSchema: true,
+				jsonOutput: true,
+			},
 		],
 	},
 	{

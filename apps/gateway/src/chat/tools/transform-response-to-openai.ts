@@ -651,6 +651,7 @@ export function transformResponseToOpenai(
 		case "together-ai":
 		case "scx-ai":
 		case "scx-ai-gp":
+		case "orcarouter":
 		case "groq": {
 			if (!transformedResponse.id) {
 				transformedResponse = {

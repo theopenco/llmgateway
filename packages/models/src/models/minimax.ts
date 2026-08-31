@@ -169,6 +169,26 @@ export const minimaxModels = [
 				tools: true,
 				jsonOutput: true,
 			},
+
+			{
+				// OrcaRouter is an OpenAI-compatible gateway that resells MiniMax
+				// models at the provider's published rate with zero markup, so
+				// pricing mirrors the first-party minimax mapping.
+				providerId: "orcarouter",
+				externalId: "minimax/minimax-m2.7",
+				inputPrice: "0.3e-6",
+				cachedInputPrice: "0.06e-6",
+				outputPrice: "1.2e-6",
+				requestPrice: "0",
+				contextSize: 204800,
+				maxOutput: 131100,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+				vision: false,
+				tools: true,
+				jsonOutput: false,
+			},
 		],
 	},
 	{

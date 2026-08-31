@@ -2118,6 +2118,29 @@ export const alibabaModels = [
 					"reasoning_effort",
 				],
 			},
+
+			{
+				// OrcaRouter is an OpenAI-compatible gateway that resells Alibaba
+				// models at the provider's published rate with zero markup, so
+				// pricing mirrors the first-party alibaba mapping.
+				providerId: "orcarouter",
+				externalId: "qwen/qwen3.8-max",
+				inputPrice: "2e-6",
+				outputPrice: "6e-6",
+				cachedInputPrice: "0.25e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 131072,
+				reasoning: true,
+				reasoningOutput: "omit",
+				streaming: true,
+				vision: true,
+				tools: true,
+				webSearch: true,
+				webSearchForcedOnly: true,
+				webSearchPrice: "0.01",
+				jsonOutput: true,
+			},
 		],
 	},
 	{

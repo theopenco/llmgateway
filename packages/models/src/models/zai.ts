@@ -400,6 +400,28 @@ export const zaiModels = [
 				tools: true,
 				jsonOutput: true,
 			},
+
+			{
+				// OrcaRouter is an OpenAI-compatible gateway that resells Z.ai
+				// models at the provider's published rate with zero markup, so
+				// pricing mirrors the first-party zai mapping.
+				providerId: "orcarouter",
+				externalId: "z-ai/glm-5.2",
+				inputPrice: "1.4e-6",
+				cachedInputPrice: "0.26e-6",
+				outputPrice: "4.4e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 128000,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "high", "max"],
+				vision: false,
+				tools: true,
+				webSearch: true,
+				webSearchPrice: "0.01",
+				jsonOutput: true,
+			},
 		],
 	},
 	{

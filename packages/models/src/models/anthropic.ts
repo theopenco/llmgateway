@@ -1543,6 +1543,29 @@ export const anthropicModels = [
 				jsonOutputSchema: true,
 				supportedParameters: ["max_tokens", "effort"],
 			},
+
+			{
+				// OrcaRouter is an OpenAI-compatible gateway that resells Anthropic
+				// models at the provider's published rate with zero markup, so
+				// pricing mirrors the first-party anthropic mapping.
+				providerId: "orcarouter",
+				externalId: "anthropic/claude-opus-4.8",
+				inputPrice: "5.0e-6",
+				outputPrice: "25.0e-6",
+				cachedInputPrice: "0.5e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 128000,
+				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+				reasoningOutput: "omit",
+				streaming: true,
+				vision: true,
+				tools: true,
+				jsonOutputSchema: true,
+				webSearch: true,
+				webSearchPrice: "0.01",
+			},
 		],
 	},
 	{

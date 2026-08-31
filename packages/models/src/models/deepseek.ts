@@ -588,6 +588,27 @@ export const deepseekModels = [
 				tools: true,
 				jsonOutput: true,
 			},
+
+			{
+				// OrcaRouter is an OpenAI-compatible gateway that resells DeepSeek
+				// models at the provider's published rate with zero markup, so
+				// pricing mirrors the first-party deepseek mapping.
+				providerId: "orcarouter",
+				externalId: "deepseek/deepseek-v4-pro",
+				inputPrice: "0.435e-6",
+				outputPrice: "0.87e-6",
+				cachedInputPrice: "0.003625e-6",
+				requestPrice: "0",
+				contextSize: 1050000,
+				maxOutput: 393216,
+				jsonOutput: true,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "high", "max"],
+				vision: false,
+				tools: true,
+				supportsDeveloperRole: false,
+			},
 		],
 	},
 	{

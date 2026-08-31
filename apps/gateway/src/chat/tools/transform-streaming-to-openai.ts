@@ -1529,6 +1529,7 @@ export function transformStreamingToOpenai(
 		case "together-ai":
 		case "scx-ai":
 		case "scx-ai-gp":
+		case "orcarouter":
 		case "deepinfra":
 		case "custom":
 		case "nanogpt":

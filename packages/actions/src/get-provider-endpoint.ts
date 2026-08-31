@@ -231,6 +231,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	ranoai: "https://api.ranoai.com",
 	baidu: "https://api.baiduqianfan.ai",
 	consensusprotocol: "https://api.consensusprotocol.org",
+	orcarouter: "https://api.orcarouter.ai",
 };
 
 export function getProviderDefaultBaseUrl(
@@ -1022,6 +1023,7 @@ export function getProviderEndpoint(
 		case "embercloud":
 		case "scx-ai":
 		case "scx-ai-gp":
+		case "orcarouter":
 		case "ranoai":
 		case "consensusprotocol":
 		case "custom":

@@ -908,6 +908,26 @@ export const moonshotModels = [
 					"reasoning_effort",
 				],
 			},
+
+			{
+				// OrcaRouter is an OpenAI-compatible gateway that resells Moonshot
+				// models at the provider's published rate with zero markup, so
+				// pricing mirrors the first-party moonshot mapping.
+				providerId: "orcarouter",
+				externalId: "kimi/kimi-k3",
+				inputPrice: "3.0e-6",
+				cachedInputPrice: "0.3e-6",
+				outputPrice: "15.0e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 1048576,
+				reasoning: true,
+				reasoningEfforts: ["low", "high", "max"],
+				streaming: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
 		],
 	},
 	{
