@@ -1611,6 +1611,62 @@ describe("api", () => {
 		expect(res.status).toBe(200);
 	});
 
+	test("/v1/chat/completions enforces an enabled compliance policy on non-enterprise plans", async () => {
+		// Regression: enforcement used to be gated on enterprise access, so a
+		// plan change (or a gateway without a valid enterprise license) silently
+		// disabled the org's provider allow list and requests were routed to
+		// blocked providers.
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "pro",
+				providerCompliancePolicy: {
+					enabled: true,
+					blockStealthProviders: true,
+					allowedCountries: ["US"],
+					allowedProviders: ["openai"],
+				},
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-compliance-non-enterprise",
+			...hashApiKeyForStorage("real-token-compliance-non-enterprise"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-compliance-non-enterprise",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-compliance-non-enterprise",
+				"org-id",
+			),
+			provider: "zai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-compliance-non-enterprise",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "zai/glm-5.3",
+				messages: [{ role: "user", content: "Hello compliance!" }],
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(json.error.message).toContain("provider compliance policy");
+	});
+
 	test("/v1/chat/completions enforces no-training routing for DevPass", async () => {
 		await harness.setDevPlan({ devPlan: "pro" });
 		await harness.setProjectMode("credits");

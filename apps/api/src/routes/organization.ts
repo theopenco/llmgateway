@@ -748,6 +748,11 @@ organization.openapi(updateOrganization, async (c) => {
 				});
 			}
 		} else if (
+			// Clearing or disabling a policy stays allowed without enterprise
+			// access: the gateway enforces any enabled stored policy fail-closed,
+			// so a downgraded org must be able to turn a leftover policy off.
+			providerCompliancePolicy !== null &&
+			providerCompliancePolicy.enabled &&
 			!hasOrganizationEnterpriseAccess(
 				userOrganization.organization?.id,
 				userOrganization.organization?.plan,

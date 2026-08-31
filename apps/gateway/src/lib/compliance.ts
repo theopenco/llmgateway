@@ -1,7 +1,5 @@
 import { HTTPException } from "hono/http-exception";
 
-import { hasOrganizationEnterpriseAccess } from "@/lib/enterprise.js";
-
 import { logViolation } from "@llmgateway/guardrails";
 import { logger, toError } from "@llmgateway/logger";
 import {
@@ -26,8 +24,11 @@ interface OrganizationLike {
 
 /**
  * The active provider compliance policy for an organization, or `undefined`
- * when none should be enforced. Enterprise organizations get their complete
- * policy, while DevPass organizations get only the no-training requirement.
+ * when none is enabled. DevPass organizations get only the no-training
+ * requirement. Enforcement deliberately does NOT check enterprise access:
+ * configuring a policy is enterprise-gated in the API, but an enabled stored
+ * policy must fail closed — a plan change or a missing/expired license on the
+ * gateway silently dropping routing restrictions is a compliance breach.
  */
 export function getActiveCompliancePolicy(
 	organization: OrganizationLike,
@@ -39,9 +40,7 @@ export function getActiveCompliancePolicy(
 	if (organization.kind === "devpass") {
 		return narrowPolicyToDevPass(policy);
 	}
-	return hasOrganizationEnterpriseAccess(organization.id, organization.plan)
-		? policy
-		: undefined;
+	return policy;
 }
 
 /** Request-scoped facts the policy needs beyond the catalogue. */

@@ -275,6 +275,47 @@ describe("organization route", () => {
 		});
 	});
 
+	test("non-enterprise orgs can clear a leftover compliance policy but not enable one", async () => {
+		// The gateway enforces enabled policies fail-closed regardless of plan,
+		// so a downgraded org must still be able to turn its policy off.
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "free",
+				providerCompliancePolicy: { enabled: true, requireSoc2: true },
+			})
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		const enableResponse = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				providerCompliancePolicy: { enabled: true, requireGdpr: true },
+			}),
+		});
+		expect(enableResponse.status).toBe(403);
+
+		const clearResponse = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ providerCompliancePolicy: null }),
+		});
+		expect(clearResponse.status).toBe(200);
+		expect(
+			(
+				await db.query.organization.findFirst({
+					where: { id: { eq: "test-org-id" } },
+				})
+			)?.providerCompliancePolicy,
+		).toBeNull();
+	});
+
 	test("DevPass organizations reject other compliance settings", async () => {
 		await db
 			.update(tables.organization)

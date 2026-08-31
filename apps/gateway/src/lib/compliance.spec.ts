@@ -70,6 +70,41 @@ describe("isProviderIdCompliant with custom providers", () => {
 	});
 });
 
+describe("getActiveCompliancePolicy fails closed", () => {
+	const fullPolicy: ProviderCompliancePolicy = {
+		enabled: true,
+		blockStealthProviders: true,
+		allowedProviders: ["openai"],
+	};
+
+	it("enforces an enabled policy regardless of plan or license", () => {
+		// A lapsed enterprise plan (or a gateway without a valid license) must
+		// not silently drop an org's routing restrictions.
+		for (const plan of ["free", "pro", "enterprise"]) {
+			expect(
+				getActiveCompliancePolicy({
+					id: "org-test",
+					plan,
+					providerCompliancePolicy: fullPolicy,
+				}),
+			).toEqual(fullPolicy);
+		}
+	});
+
+	it("returns undefined when no policy is configured or enabled", () => {
+		expect(
+			getActiveCompliancePolicy({ id: "org-test", plan: "enterprise" }),
+		).toBeUndefined();
+		expect(
+			getActiveCompliancePolicy({
+				id: "org-test",
+				plan: "enterprise",
+				providerCompliancePolicy: { ...fullPolicy, enabled: false },
+			}),
+		).toBeUndefined();
+	});
+});
+
 describe("getActiveCompliancePolicy for DevPass", () => {
 	it("uses standard routing when the policy is disabled", () => {
 		expect(
