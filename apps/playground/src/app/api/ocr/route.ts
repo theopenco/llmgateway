@@ -34,28 +34,25 @@ function jsonResponse(body: unknown, status: number): Response {
 }
 
 export async function POST(req: Request) {
-	// Parse the body while the auth round-trip is in flight; auth still gates
-	// every use of it.
-	const userPromise = getUser();
-	const parsedPromise = req.json().then(
-		(value: unknown) => ({ ok: true as const, value }),
-		() => ({ ok: false as const }),
-	);
-
-	const user = await userPromise;
+	const user = await getUser();
 	if (!user) {
 		return jsonResponse({ error: "Unauthorized" }, 401);
 	}
 
-	const result = await parsedPromise;
-	if (!result.ok) {
+	let body: OcrRequestBody;
+	try {
+		const parsed: unknown = await req.json();
+		if (
+			typeof parsed !== "object" ||
+			parsed === null ||
+			Array.isArray(parsed)
+		) {
+			return jsonResponse({ error: "Invalid request body" }, 400);
+		}
+		body = parsed as OcrRequestBody;
+	} catch {
 		return jsonResponse({ error: "Invalid JSON body" }, 400);
 	}
-	const parsed = result.value;
-	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-		return jsonResponse({ error: "Invalid request body" }, 400);
-	}
-	const body = parsed as OcrRequestBody;
 
 	const { model, document, pages, include_image_base64, apiKey } = body;
 

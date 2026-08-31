@@ -17,15 +17,7 @@ interface CanvasGenerateBody {
 }
 
 export async function POST(req: Request) {
-	// Parse the body while the auth round-trip is in flight; auth still gates
-	// every use of it.
-	const userPromise = getUser();
-	const parsedPromise = req.json().then(
-		(value) => ({ ok: true as const, value: value as CanvasGenerateBody }),
-		() => ({ ok: false as const }),
-	);
-
-	const user = await userPromise;
+	const user = await getUser();
 
 	if (!user) {
 		return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -33,13 +25,14 @@ export async function POST(req: Request) {
 		});
 	}
 
-	const parsed = await parsedPromise;
-	if (!parsed.ok) {
+	let body: CanvasGenerateBody;
+	try {
+		body = (await req.json()) as CanvasGenerateBody;
+	} catch {
 		return new Response(JSON.stringify({ error: "Invalid JSON" }), {
 			status: 400,
 		});
 	}
-	const body = parsed.value;
 	const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
 	const model = typeof body.model === "string" ? body.model.trim() : undefined;
 	const systemPrompt = catalog.prompt();
