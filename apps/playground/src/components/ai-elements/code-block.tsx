@@ -161,11 +161,18 @@ const subscribers = new Map<string, Set<(result: TokenizedCode) => void>>();
 // code (state initializer + effect + subscription) don't each spawn one.
 const inFlightTokenizations = new Set<string>();
 
-const getTokensCacheKey = (code: string, language: BundledLanguage) => {
-	const start = code.slice(0, 100);
-	const end = code.length > 100 ? code.slice(-100) : "";
-	return `${language}:${code.length}:${start}:${end}`;
+// djb2 over the full source: cheap relative to tokenization, and keeps two
+// snippets that share length, prefix, and suffix from colliding on one key.
+const hashSource = (code: string): number => {
+	let hash = 5381;
+	for (let i = 0; i < code.length; i++) {
+		hash = ((hash << 5) + hash + code.charCodeAt(i)) | 0;
+	}
+	return hash >>> 0;
 };
+
+const getTokensCacheKey = (code: string, language: BundledLanguage) =>
+	`${language}:${code.length}:${hashSource(code)}`;
 
 const getHighlighter = (
 	language: BundledLanguage,

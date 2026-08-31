@@ -716,7 +716,19 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 	const { user } = useUser();
 	const usageMode = useUsageMode();
 
-	const { data, isLoading } = useTeamMembers(organizationId, initialData);
+	// On ?tab=teams the member list is not rendered, so skip its fetch when the
+	// server-provided initialData already establishes the viewer as an admin
+	// (isAdmin below reads the same seeded data).
+	const initialRole = initialData?.members.find(
+		(member) => member.userId === user?.id,
+	)?.role;
+	const memberQueryEnabled = !(
+		searchParams.get("tab") === "teams" &&
+		(initialRole === "owner" || initialRole === "admin")
+	);
+	const { data, isLoading } = useTeamMembers(organizationId, initialData, {
+		enabled: memberQueryEnabled,
+	});
 	const addMemberMutation = useAddTeamMember(organizationId);
 	const removeMemberMutation = useRemoveTeamMember(organizationId);
 	const revokeInviteMutation = useRevokeTeamInvite(organizationId);
