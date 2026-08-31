@@ -41,8 +41,6 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { applyUsageModeToDaily } from "@/lib/usage-mode";
 
-import {} from "@llmgateway/shared";
-
 import type { DailyActivity } from "@/types/activity";
 
 interface AnalyticsClientProps {

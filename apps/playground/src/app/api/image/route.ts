@@ -41,7 +41,15 @@ interface ImageRequestBody {
 }
 
 export async function POST(req: Request) {
-	const user = await getUser();
+	// Parse the body while the auth round-trip is in flight; auth still gates
+	// every use of it.
+	const userPromise = getUser();
+	const bodyPromise = req.json().then(
+		(value) => ({ ok: true as const, value }),
+		(error: unknown) => ({ ok: false as const, error }),
+	);
+
+	const user = await userPromise;
 
 	if (!user) {
 		return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -49,7 +57,12 @@ export async function POST(req: Request) {
 		});
 	}
 
-	const body = await req.json();
+	const parsed = await bodyPromise;
+	if (!parsed.ok) {
+		// Same failure the serial `await req.json()` produced.
+		throw parsed.error;
+	}
+	const body = parsed.value;
 	const {
 		prompt,
 		model,

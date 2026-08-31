@@ -116,7 +116,18 @@ function resolveRealtimeWsUrl(): string {
 }
 
 export async function POST(req: Request) {
-	const user = await getUser();
+	// Parse the body while the auth round-trip is in flight; auth still gates
+	// every use of it.
+	const userPromise = getUser();
+	const parsedPromise = req.json().then(
+		(value) => ({
+			ok: true as const,
+			value: value as RealtimeSessionRequestBody,
+		}),
+		() => ({ ok: false as const }),
+	);
+
+	const user = await userPromise;
 	if (!user) {
 		return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 	}
@@ -128,15 +139,14 @@ export async function POST(req: Request) {
 		return NextResponse.json({ error: "Missing API key" }, { status: 400 });
 	}
 
-	let body: RealtimeSessionRequestBody;
-	try {
-		body = (await req.json()) as RealtimeSessionRequestBody;
-	} catch {
+	const parsedBody = await parsedPromise;
+	if (!parsedBody.ok) {
 		return NextResponse.json(
 			{ error: "Invalid JSON payload" },
 			{ status: 400 },
 		);
 	}
+	const body = parsedBody.value;
 
 	if (typeof body.model !== "string" || !body.model.trim()) {
 		return NextResponse.json(

@@ -12,7 +12,15 @@ import { getGatewayErrorMessage, readGatewayResponseBody } from "./utils";
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
-	const user = await getUser();
+	// Parse the body while the auth round-trip is in flight; auth still gates
+	// every use of it.
+	const userPromise = getUser();
+	const bodyPromise = req.json().then(
+		(value) => ({ ok: true as const, value }),
+		(error: unknown) => ({ ok: false as const, error }),
+	);
+
+	const user = await userPromise;
 	if (!user) {
 		return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 	}
@@ -24,7 +32,12 @@ export async function POST(req: Request) {
 		return NextResponse.json({ error: "Missing API key" }, { status: 400 });
 	}
 
-	const requestBody = await req.json();
+	const parsed = await bodyPromise;
+	if (!parsed.ok) {
+		// Same failure the serial `await req.json()` produced.
+		throw parsed.error;
+	}
+	const requestBody = parsed.value;
 	const noFallback = req.headers.get("x-no-fallback");
 
 	const response = await fetch(`${getGatewayApiBaseUrl()}/videos`, {

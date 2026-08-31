@@ -40,7 +40,15 @@ function getSpeechErrorMessage(body: unknown, fallback: string): string {
 }
 
 export async function POST(req: Request) {
-	const user = await getUser();
+	// Parse the body while the auth round-trip is in flight; auth still gates
+	// every use of it.
+	const userPromise = getUser();
+	const parsedPromise = req.json().then(
+		(value) => ({ ok: true as const, value: value as AudioRequestBody }),
+		() => ({ ok: false as const }),
+	);
+
+	const user = await userPromise;
 	if (!user) {
 		return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 	}
@@ -52,15 +60,14 @@ export async function POST(req: Request) {
 		return NextResponse.json({ error: "Missing API key" }, { status: 400 });
 	}
 
-	let body: AudioRequestBody;
-	try {
-		body = (await req.json()) as AudioRequestBody;
-	} catch {
+	const parsed = await parsedPromise;
+	if (!parsed.ok) {
 		return NextResponse.json(
 			{ error: "Invalid JSON payload" },
 			{ status: 400 },
 		);
 	}
+	const body = parsed.value;
 
 	if (!body.input?.trim()) {
 		return NextResponse.json(

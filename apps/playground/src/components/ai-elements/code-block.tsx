@@ -157,6 +157,10 @@ function getCachedTokens(key: string): TokenizedCode | undefined {
 // Subscribers for async token updates
 const subscribers = new Map<string, Set<(result: TokenizedCode) => void>>();
 
+// Keys with a tokenization already running, so concurrent calls for the same
+// code (state initializer + effect + subscription) don't each spawn one.
+const inFlightTokenizations = new Set<string>();
+
 const getTokensCacheKey = (code: string, language: BundledLanguage) => {
 	const start = code.slice(0, 100);
 	const end = code.length > 100 ? code.slice(-100) : "";
@@ -233,6 +237,13 @@ export const highlightCode = (
 		subscribers.get(tokensCacheKey)?.add(callback);
 	}
 
+	// A run for this key is already underway; its completion notifies the
+	// subscribers registered above.
+	if (inFlightTokenizations.has(tokensCacheKey)) {
+		return null;
+	}
+	inFlightTokenizations.add(tokensCacheKey);
+
 	// Start highlighting in background - fire-and-forget async pattern
 	getHighlighter(language)
 		// oxlint-disable-next-line eslint-plugin-promise(prefer-await-to-then)
@@ -256,6 +267,7 @@ export const highlightCode = (
 
 			// Cache the result
 			setCachedTokens(tokensCacheKey, tokenized);
+			inFlightTokenizations.delete(tokensCacheKey);
 
 			// Notify all subscribers
 			const subs = subscribers.get(tokensCacheKey);
@@ -269,6 +281,7 @@ export const highlightCode = (
 		// oxlint-disable-next-line eslint-plugin-promise(prefer-await-to-then), eslint-plugin-promise(prefer-await-to-callbacks)
 		.catch((error) => {
 			console.error("Failed to highlight code:", error);
+			inFlightTokenizations.delete(tokensCacheKey);
 			subscribers.delete(tokensCacheKey);
 		});
 
@@ -436,15 +449,15 @@ export const CodeBlockContent = ({
 	useEffect(() => {
 		let cancelled = false;
 
-		// Reset to raw tokens when code changes (shows current code, not stale tokens)
-		setTokenized(highlightCode(code, language) ?? rawTokens);
-
-		// Subscribe to async highlighting result
-		highlightCode(code, language, (result) => {
-			if (!cancelled) {
-				setTokenized(result);
-			}
-		});
+		// Show the cached tokens (or raw code, not stale tokens) immediately and
+		// subscribe for the async highlighting result in a single call.
+		setTokenized(
+			highlightCode(code, language, (result) => {
+				if (!cancelled) {
+					setTokenized(result);
+				}
+			}) ?? rawTokens,
+		);
 
 		return () => {
 			cancelled = true;
