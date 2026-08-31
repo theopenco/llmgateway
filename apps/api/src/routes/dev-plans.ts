@@ -2142,9 +2142,24 @@ devPlans.openapi(updateSettings, async (c) => {
 	}
 
 	if (blockApiTraining !== undefined) {
-		updateData.providerCompliancePolicy = blockApiTraining
-			? { enabled: true, blockApiTraining: true }
-			: null;
+		// This toggle only owns the blockApiTraining requirement. A devpass-kind
+		// org with enterprise access may hold a full compliance policy; replacing
+		// the whole JSON here would silently wipe its allow lists.
+		const existingPolicy = personalOrg.providerCompliancePolicy;
+		const hasOtherSettings = existingPolicy
+			? Object.entries(existingPolicy).some(
+					([key, value]) =>
+						key !== "enabled" &&
+						key !== "blockApiTraining" &&
+						(Array.isArray(value) ? value.length > 0 : Boolean(value)),
+				)
+			: false;
+		updateData.providerCompliancePolicy =
+			hasOtherSettings && existingPolicy
+				? { ...existingPolicy, enabled: true, blockApiTraining }
+				: blockApiTraining
+					? { enabled: true, blockApiTraining: true }
+					: null;
 	}
 
 	if (devPlanPaygEnabled !== undefined) {
